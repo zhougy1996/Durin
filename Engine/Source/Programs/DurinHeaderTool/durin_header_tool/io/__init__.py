@@ -18,7 +18,7 @@ from .path_helper import (
     get_dht_tool_dir,
     get_dht_module_lock_file_path,
     get_dht_output_lock_dir,
-    get_dht_profile_lock_file_path,
+    get_dht_runtime_variant_lock_file_path,
     get_dht_project_lock_file_path,
     get_module_cmake_file_path,
     get_module_definitions_header_path,

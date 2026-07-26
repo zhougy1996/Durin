@@ -95,7 +95,7 @@ def make_new_module_manifest(module_name: str, old_manifest: ModuleManifest = No
     module_config = configs.get_module_config(module_name)
     manifest = ModuleManifest(
         module_name=module_name,
-        profile=configs.PROFILE_NAME,
+        runtime_variant=configs.RUNTIME_VARIANT,
         platform=configs.ARCH,
         tool_version=TOOL_VERSION,
         tool_fingerprint=configs.TOOL_FINGERPRINT or TOOL_VERSION,
@@ -150,11 +150,11 @@ def _generate_reflection_output_impl(module_name: str, header: str, symbols: dic
 
 
 def _generate_reflection_output_worker(args):
-    module_name, header, symbols, arch, profile, build_identifier = args
+    module_name, header, symbols, arch, runtime_variant, build_identifier = args
 
     from durin_header_tool.generators.module_reflection_files_generator import _generate_reflection_output_impl as worker_generate
 
-    initialize_worker_config(arch, profile, build_identifier)
+    initialize_worker_config(arch, runtime_variant, build_identifier)
 
     start_time = time.perf_counter()
     result = worker_generate(module_name, header, symbols)
@@ -207,7 +207,7 @@ def _write_reflection_files(
                 header,
                 symbols,
                 configs.ARCH,
-                configs.PROFILE_NAME,
+                configs.RUNTIME_VARIANT,
                 configs.BUILD_IDENTIFIER,
             )
             for header in headers_to_regenerate

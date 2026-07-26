@@ -8,7 +8,7 @@ def _append_module_configs_to_cmake_content(content: list[str], module_name: str
     module_config: configs.DurinModuleConfig = configs.get_module_config(module_name)
 
     def _is_dependency_enabled(dep: str) -> bool:
-        return configs.is_module_enabled_for_active_profile(dep)
+        return configs.is_module_enabled_for_active_runtime_variant(dep)
 
     if len(module_config.reflect_headers) > 0:
         reflect_header_file_paths = [(module_config.module_dir / header).resolve().as_posix() for header in module_config.reflect_headers]
@@ -119,7 +119,9 @@ def generate_module_cmake_file(module_name: str) -> None:
 # Generate the CMake files for all modules in a project parallely, to speed up the generation process. This is especially useful for projects with a large number of modules.
 def generate_all_module_cmake_files_for_project(project_name: str) -> None:
     project_config = configs.get_project_config(project_name)
-    enabled_module_names = sorted(configs.collect_enabled_modules_for_project(project_name, configs.PROFILE_NAME))
+    enabled_module_names = sorted(
+        configs.collect_enabled_modules_for_project(project_name, configs.RUNTIME_VARIANT)
+    )
     disabled_module_names = sorted(set(project_config.modules.keys()) - set(enabled_module_names))
 
     for module_name in disabled_module_names:

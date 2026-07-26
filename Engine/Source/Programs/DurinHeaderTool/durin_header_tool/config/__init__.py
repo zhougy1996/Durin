@@ -5,7 +5,7 @@ from .environment import (
     DHT_ROOT_DIR,
     DURIN_ENGINE_PROJECT_DIR,
     DURIN_ROOT_DIR,
-    PROFILE_NAME,
+    RUNTIME_VARIANT,
     TOOL_FINGERPRINT,
     init_clang,
 )
@@ -17,12 +17,12 @@ from .module_config import (
     collect_enabled_modules_for_project,
     collect_sorted_dependent_modules,
     get_module_config,
-    is_module_enabled_for_active_profile,
+    is_module_enabled_for_active_runtime_variant,
 )
-from .profile_config import DurinProfileConfig, get_profile_config
+from .runtime_variant_config import DurinRuntimeVariantConfig, get_runtime_variant_config
 from .project_config import (
     DurinProjectConfig,
-    DurinProjectProfileConfig,
+    DurinProjectRuntimeVariantConfig,
     find_module,
     get_project_config,
     is_project_config_loaded,

@@ -859,8 +859,30 @@ def show_status(output: BuildOutput, context: BuildContext) -> None:
     values = {
         "Profile": context.profile.name,
         "Preset": context.preset.name,
+        "Runtime variant": preset_cache_string(
+            context.preset,
+            "DURIN_RUNTIME_VARIANT",
+            required=False,
+        )
+        or "unspecified",
         "Build directory": preset_build_directory(context.preset),
         "Configuration": preset_cache_string(context.preset, "CMAKE_BUILD_TYPE"),
+        "Preset role": preset_cache_string(
+            context.preset,
+            "DURIN_PRESET_ROLE",
+            required=False,
+        )
+        or "Standard",
+        "Tracy": (
+            "enabled"
+            if preset_cache_string(
+                context.preset,
+                "DURIN_ENABLE_TRACY",
+                required=False,
+            ).upper()
+            in {"1", "ON", "TRUE", "YES"}
+            else "disabled"
+        ),
         "Toolchain context": "resolved" if toolchain_resolved else "unresolved",
         "Parallel jobs": context.jobs or f"unresolved (default: {jobs_default})",
         "CMake": context.cmake or f'unresolved (default: {cmake_default})',

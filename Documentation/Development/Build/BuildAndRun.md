@@ -28,7 +28,11 @@ In a normal checkout, `Setup.bat` creates `.venv`, installs the pinned Python de
 the main checkout or `WorktreeTool prepare` in a linked worktree rather than
 silently using a different system Python.
 
-Machine-specific CMake, profile, environment, or job overrides belong in `.agents/build-config.json`. Normally, leave them empty and let the build driver detect the Visual Studio environment and parallelism. Setup's preflight honors both `cmakeCommand` and `environmentSetup`; the third-party bootstrap also uses `cmakeCommand`, and `CMAKE_COMMAND` still takes precedence during Setup.
+Machine-specific CMake, build-profile, environment, or job overrides belong in
+`.agents/build-config.json`. Normally, leave them empty and let the build driver
+detect the Visual Studio environment and parallelism. Setup's preflight honors
+both `cmakeCommand` and `environmentSetup`; the third-party bootstrap also uses
+`cmakeCommand`, and `CMAKE_COMMAND` still takes precedence during Setup.
 
 ## Windows Workflow
 
@@ -171,6 +175,7 @@ Select another registered configure preset with `--preset`:
 ```powershell
 .\BuildTool build --preset Win64-Release-DurinEditor --target all
 .\BuildTool rebuild --preset Win64-Shipping-DurinGame --target all
+.\BuildTool build --preset Win64-Release-DurinEditor-Profiling --target all
 ```
 
 `CMakePresets.json` remains the source of truth for preset configuration. `AgentBuildProfiles.json` controls which presets BuildTool may own for each host environment. The IDE-only `Win64-Debug-DurinEditor-FastConfigure` preset is intentionally excluded.
@@ -235,7 +240,8 @@ runtime executable and returns to the shell when it exits. Its typed
 rules as the direct command; place it before compact runtime arguments.
 `open-runtime` opens
 the selected preset's existing runtime directory in the platform file manager.
-`status` reports the profile, preset, build directory, configuration, recovery
+`status` reports the host build profile, preset, runtime variant, build
+directory, configuration, recovery
 state, and whether CMake, parallelism, and the toolchain environment are resolved
 or still deferred. `stop` stops an operation held by another BuildTool process.
 Use `help` for the complete command list. A leading slash remains accepted for
@@ -270,7 +276,7 @@ path when `--path` is omitted and controls the default enablement; it does not
 otherwise classify the custom directory.
 
 Use `--enable none`, `--enable base`, or repeat
-`--enable <ProfileName>` to replace the default enablement. Dependency options
+`--enable <RuntimeVariant>` to replace the default enablement. Dependency options
 are repeatable:
 
 ```text
@@ -298,7 +304,7 @@ or descriptor edits:
 .\BuildTool create module Gameplay --project Sandbox\Sandbox.dproject --private-dependency Core --dry-run --plain
 ```
 
-Creation validates names, workspace-wide dependencies, profiles, paths, and
+Creation validates names, workspace-wide dependencies, runtime variants, paths, and
 CMake target collisions before writing. During mutation, new files and
 directories are tracked and the prior project descriptor is backed up. Any
 write or final descriptor-validation failure restores the original bytes and
@@ -368,9 +374,17 @@ Purge asks for explicit confirmation unless `--yes` is supplied: enter `PURGE` f
 .\BuildTool purge --all-presets --yes
 ```
 
-Preset build trees are isolated, but final binaries are shared by platform/configuration and DHT metadata is shared by platform/profile. Purging one preset therefore also invalidates those shared outputs for other presets using the same configuration or profile. A subsequent build regenerates them normally.
+Preset build trees are isolated, but final binaries are shared by
+platform/configuration and DHT metadata is shared by platform/runtime variant.
+Purging one preset therefore also invalidates those shared outputs for other
+presets using the same configuration or runtime variant. A subsequent build
+regenerates them normally.
 
-Purge only removes registered preset trees under `Build/` and `Install/`, project `Binaries/<Platform>/<Config>/` roots, and project `Intermediate/Build[-Identifier]/<Platform>/<Profile>/` roots. It intentionally preserves bootstrapped dependencies such as `Build/ThirdParty` and `Engine/External`.
+Purge only removes registered preset trees under `Build/` and `Install/`,
+project `Binaries/<Platform>/<Config>/` roots, and project
+`Intermediate/Build[-Identifier]/<Platform>/<RuntimeVariant>/` roots. It
+intentionally preserves bootstrapped dependencies such as `Build/ThirdParty`
+and `Engine/External`.
 
 On non-Windows hosts, invoke `.venv/bin/python Engine/Scripts/Build/durin_build_tool/__main__.py <arguments>` directly after preparing an equivalent virtual environment. Windows callers must use `BuildTool.bat`. BuildTool enforces `VSLANG=1033` after Visual Studio environment setup and verifies that MSVC actually emits English diagnostics. This keeps CMake's `/showIncludes` dependency prefix stable for both interactive terminals and Agent output pipes. If validation reports a localized prefix, add the English language pack through Visual Studio Installer. The next `configure`, `build`, or `test` refreshes any existing Ninja tree that does not already contain the English dependency prefix.
 
@@ -412,13 +426,20 @@ CMake, and Ninja have exited for the checkout.
 ## Output Layout
 
 - Editor: `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`
-- Runtime launcher and modules: `Engine/Binaries/<Platform>/<Config>/Runtime/<Profile>/`
+- Runtime launcher and modules: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/`
 - Third-party runtime DLLs: `Engine/Binaries/<Platform>/<Config>/ThirdParty/`
-- Native tests: `Engine/Binaries/<Platform>/<Config>/Tests/<Profile>/Bin/`
+- Native tests: `Engine/Binaries/<Platform>/<Config>/Tests/<RuntimeVariant>/Bin/`
 
-The launcher target is `DurinLauncher`, while the executable name follows the active profile. Runtime path discovery assumes the executable remains in this repository-relative layout. If editor startup reports a missing DLL, check the active runtime directory and the shared `ThirdParty` directory.
+The launcher target is `DurinLauncher`, while the executable name follows the
+active runtime variant. Runtime path discovery assumes the executable remains in
+this repository-relative layout. If editor startup reports a missing DLL, check
+the active runtime directory and the shared `ThirdParty` directory.
 
-Build identifiers and DHT intermediate paths are described in `Documentation/Development/Build/BuildSystem.md` and `Documentation/Development/Build/Profiles.md`.
+Build identifiers and DHT intermediate paths are described in
+`Documentation/Development/Build/BuildSystem.md` and
+`Documentation/Development/Build/RuntimeVariants.md`.
+The opt-in Release profiling workflow is documented in
+`Documentation/Development/Build/Profiling.md`.
 
 ## Related Docs
 
@@ -426,5 +447,6 @@ Build identifiers and DHT intermediate paths are described in `Documentation/Dev
 - `Documentation/Development/Build/NativeTests.md`
 - `Documentation/Development/Tooling/IDECodeModel.md`
 - `Documentation/Development/Build/BuildSystem.md`
-- `Documentation/Development/Build/Profiles.md`
+- `Documentation/Development/Build/RuntimeVariants.md`
+- `Documentation/Development/Build/Profiling.md`
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`

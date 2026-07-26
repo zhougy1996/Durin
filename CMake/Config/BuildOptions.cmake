@@ -4,6 +4,40 @@ include_guard(GLOBAL)
 
 set(FETCHCONTENT_QUIET OFF)
 
+if(DEFINED DURIN_PROFILE_NAME)
+	message(FATAL_ERROR
+		"DURIN_PROFILE_NAME was replaced by DURIN_RUNTIME_VARIANT. "
+		"Remove the legacy cache entry and configure with -DDURIN_RUNTIME_VARIANT=DurinEditor or DurinGame."
+	)
+endif()
+
+set(DURIN_RUNTIME_VARIANT "DurinEditor" CACHE STRING "Workspace-wide runtime variant.")
+set_property(CACHE DURIN_RUNTIME_VARIANT PROPERTY STRINGS DurinEditor DurinGame)
+if(NOT DURIN_RUNTIME_VARIANT MATCHES "^(DurinEditor|DurinGame)$")
+	message(FATAL_ERROR "DURIN_RUNTIME_VARIANT must be DurinEditor or DurinGame.")
+endif()
+
+option(DURIN_ENABLE_TRACY "Enable Tracy CPU profiling instrumentation." OFF)
+if(CMAKE_BUILD_TYPE STREQUAL "Shipping" AND DURIN_ENABLE_TRACY)
+	message(FATAL_ERROR "DURIN_ENABLE_TRACY cannot be enabled for Shipping builds.")
+endif()
+if(DURIN_ENABLE_TRACY)
+	set(DURIN_WITH_TRACY 1)
+else()
+	set(DURIN_WITH_TRACY 0)
+endif()
+
+set(DURIN_PRESET_ROLE "Standard" CACHE STRING "Operational role of the active preset.")
+set_property(CACHE DURIN_PRESET_ROLE PROPERTY STRINGS Standard Profiling)
+if(NOT DURIN_PRESET_ROLE MATCHES "^(Standard|Profiling)$")
+	message(FATAL_ERROR "DURIN_PRESET_ROLE must be Standard or Profiling.")
+endif()
+message(STATUS
+	"Durin build: runtime variant=${DURIN_RUNTIME_VARIANT}, "
+	"configuration=${CMAKE_BUILD_TYPE}, preset role=${DURIN_PRESET_ROLE}, "
+	"Tracy=${DURIN_ENABLE_TRACY}"
+)
+
 if(NOT DEFINED ENABLE_DURIN_TIMER)
 	set(ENABLE_DURIN_TIMER OFF)
 endif()

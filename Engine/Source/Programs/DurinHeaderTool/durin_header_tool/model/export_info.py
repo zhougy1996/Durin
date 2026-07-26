@@ -7,7 +7,7 @@ from durin_header_tool.io import FileFingerprint
 from durin_header_tool.model.reflection_info import SYMBOL_NAME_SCHEME, TOOL_VERSION
 
 EXPORT_SCHEMA_VERSION = 4
-EXPORT_MANIFEST_SCHEMA_VERSION = 5
+EXPORT_MANIFEST_SCHEMA_VERSION = 6
 
 
 @dataclass
@@ -55,7 +55,7 @@ class ModuleExportManifest:
     ToolFingerprint: str = ""
     SymbolNameScheme: str = SYMBOL_NAME_SCHEME
     Module: str = ""
-    Profile: str = ""
+    RuntimeVariant: str = ""
     Platform: str = ""
     GeneratorOptionsHash: str = ""
     ReflectHeaders: dict[str, FileFingerprint] = field(default_factory=dict)
@@ -71,7 +71,7 @@ class ModuleExportManifest:
             ToolFingerprint=raw_json_data.get("ToolFingerprint", ""),
             SymbolNameScheme=raw_json_data.get("SymbolNameScheme", ""),
             Module=raw_json_data.get("Module", ""),
-            Profile=raw_json_data.get("Profile", ""),
+            RuntimeVariant=raw_json_data.get("RuntimeVariant", ""),
             Platform=raw_json_data.get("Platform", ""),
             GeneratorOptionsHash=raw_json_data.get("GeneratorOptionsHash", ""),
             ReflectHeaders={
@@ -112,7 +112,7 @@ def save_module_export_manifest_file(manifest: ModuleExportManifest) -> str:
         "ToolFingerprint": manifest.ToolFingerprint,
         "SymbolNameScheme": manifest.SymbolNameScheme,
         "Module": manifest.Module,
-        "Profile": manifest.Profile,
+        "RuntimeVariant": manifest.RuntimeVariant,
         "Platform": manifest.Platform,
         "GeneratorOptionsHash": manifest.GeneratorOptionsHash,
         "ReflectHeaders": {

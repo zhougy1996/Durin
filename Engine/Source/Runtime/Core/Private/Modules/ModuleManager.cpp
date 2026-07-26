@@ -4,14 +4,14 @@ namespace Durin
 {
 	namespace
 	{
-		constexpr std::string_view GDefaultProfileName = "DurinEditor";
+		constexpr std::string_view GDefaultRuntimeVariant = "DurinEditor";
 
-		constexpr auto GetConfiguredProfileName() -> std::string_view
+		constexpr auto GetConfiguredRuntimeVariant() -> std::string_view
 		{
-#ifdef DURIN_PROFILE_NAME
-			return DURIN_PROFILE_NAME;
+#ifdef DURIN_RUNTIME_VARIANT
+			return DURIN_RUNTIME_VARIANT;
 #else
-			return GDefaultProfileName;
+			return GDefaultRuntimeVariant;
 #endif
 		}
 	}
@@ -88,7 +88,7 @@ namespace Durin
 
 	static constexpr auto GetDurinModuleFileName(const FName& InModuleName) -> std::string
 	{
-		return std::string(FPlatformMisc::FLibraryPrefix) + std::string(GetConfiguredProfileName()) + "-" + InModuleName.ToString() + FPlatformMisc::FLibraryExtension;
+		return std::string(FPlatformMisc::FLibraryPrefix) + std::string(GetConfiguredRuntimeVariant()) + "-" + InModuleName.ToString() + FPlatformMisc::FLibraryExtension;
 	}
 
 	auto FModuleManager::LoadModule(const FName& InModuleName) -> IModuleInterface*

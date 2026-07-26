@@ -504,19 +504,19 @@ def _render_updated_project_descriptor(
         if enablement.casefold() == "base":
             modules = data.setdefault("BaseModules", [])
         else:
-            profiles = data.setdefault("ExtraModules", {})
-            profile = next(
+            runtime_variants = data.setdefault("ExtraModules", {})
+            runtime_variant = next(
                 (
                     value
-                    for name, value in profiles.items()
+                    for name, value in runtime_variants.items()
                     if name.casefold() == enablement.casefold()
                 ),
                 None,
             )
-            if profile is None:
-                profile = {"Modules": []}
-                profiles[enablement] = profile
-            modules = profile.setdefault("Modules", [])
+            if runtime_variant is None:
+                runtime_variant = {"Modules": []}
+                runtime_variants[enablement] = runtime_variant
+            modules = runtime_variant.setdefault("Modules", [])
         if all(existing.casefold() != module_name.casefold() for existing in modules):
             modules.append(module_name)
     newline = "\r\n" if b"\r\n" in original else "\n"
@@ -541,11 +541,11 @@ def _canonical_enablements(
         )
     if len(requested) == 1 and requested[0].casefold() == "none":
         return ()
-    profile_names = {name.casefold(): name for name in workspace.profile_names}
+    runtime_variants = {name.casefold(): name for name in workspace.runtime_variants}
     return tuple(
         "base"
         if value.casefold() == "base"
-        else profile_names[value.casefold()]
+        else runtime_variants[value.casefold()]
         for value in requested
     )
 

@@ -42,6 +42,10 @@ creating its window and scene viewport.
 `DEngine::Tick()`. Active game worlds route that tick through actors and their
 tick-enabled components.
 
+The same function owns the CPU-profiler frame mark and stable top-level zones.
+Core forwards engine-owned thread names and queued-task execution through the
+profiler-neutral surface in `Profiling/Profiling.h`.
+
 The runtime lifecycle is:
 
 - component registration and initialization
@@ -98,8 +102,8 @@ The runtime module loader lives in:
 Behavior summary:
 
 - modules load by logical name
-- filenames derive from the active profile name
-- filenames follow `<ProfileName>-<ModuleName>.dll`
+- filenames derive from the active runtime variant
+- filenames follow `<RuntimeVariant>-<ModuleName>.dll`
 - shutdown order is reverse load order
 
 When changing cross-module behavior, verify both CMake dependencies and runtime
@@ -129,7 +133,8 @@ Detailed viewport and composition contracts are documented in
 ## Related Documentation
 
 - `Documentation/Development/Build/BuildSystem.md`
-- `Documentation/Development/Build/Profiles.md`
+- `Documentation/Development/Build/RuntimeVariants.md`
+- `Documentation/Development/Build/Profiling.md`
 - `Documentation/Editor/Architecture/PlayInEditorArchitecture.md`
 - `Documentation/Editor/Architecture/WorkspaceFramework.md`
 - `Documentation/Plans/MultithreadingV1.md`

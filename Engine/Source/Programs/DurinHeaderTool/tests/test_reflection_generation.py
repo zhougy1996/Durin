@@ -518,7 +518,7 @@ namespace Beta
             mock.patch.object(configs, "get_module_config", return_value=self.module_config),
             mock.patch.object(configs, "collect_all_dependent_module_with_export_file", return_value=[]),
             mock.patch.object(configs, "ARCH", "Win64"),
-            mock.patch.object(configs, "PROFILE_NAME", "DurinEditor"),
+            mock.patch.object(configs, "RUNTIME_VARIANT", "DurinEditor"),
             mock.patch.object(configs, "TOOL_FINGERPRINT", "fixture-fingerprint"),
             mock.patch.object(utils, "get_module_manifest_file_path", return_value=manifest_path),
         ):
@@ -527,11 +527,12 @@ namespace Beta
             content = save_module_manifest_file(manifest)
         data = json.loads(content)
 
-        self.assertEqual(data["SchemaVersion"], 4)
+        self.assertEqual(data["SchemaVersion"], 5)
         self.assertEqual(data["ToolFingerprint"], "fixture-fingerprint")
         self.assertEqual(data["SymbolNameScheme"], "qualified-underscore-v1")
         self.assertEqual(data["ModuleName"], "Fixture")
-        self.assertEqual(data["Profile"], "DurinEditor")
+        self.assertEqual(data["RuntimeVariant"], "DurinEditor")
+        self.assertNotIn("Profile", data)
         self.assertEqual(data["Platform"], "Win64")
         self.assertEqual(
             data["GeneratedOutputs"],

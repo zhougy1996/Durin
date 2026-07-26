@@ -1,0 +1,24 @@
+{
+  "name": "tracy",
+  "order": 80,
+  "kind": "direct_source",
+  "development_only": true,
+  "source_dir": "Engine/External/Source/tracy",
+  "source": {
+    "type": "git",
+    "url": "https://github.com/wolfpld/tracy.git",
+    "tag": "v0.13.1",
+    "marker": "CMakeLists.txt",
+    "required_files": [
+      "LICENSE",
+      "public/TracyClient.cpp",
+      "public/tracy/Tracy.hpp"
+    ]
+  },
+  "required_files": [
+    "CMakeLists.txt",
+    "LICENSE",
+    "public/TracyClient.cpp",
+    "public/tracy/Tracy.hpp"
+  ]
+}

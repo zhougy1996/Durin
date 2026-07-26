@@ -31,7 +31,7 @@ def get_intermediate_build_root_name() -> str:
 
 
 def get_project_intermediate_build_dir(project_name: str) -> Path:
-    return get_project_intermediate_dir(project_name) / get_intermediate_build_root_name() / configs.ARCH / configs.PROFILE_NAME
+    return get_project_intermediate_dir(project_name) / get_intermediate_build_root_name() / configs.ARCH / configs.RUNTIME_VARIANT
 
 def get_dht_output_lock_dir() -> Path:
     return (
@@ -40,13 +40,13 @@ def get_dht_output_lock_dir() -> Path:
         / get_intermediate_build_root_name()
         / ".dht-locks"
         / configs.ARCH
-        / configs.PROFILE_NAME
+        / configs.RUNTIME_VARIANT
     )
 
 
-def get_dht_profile_lock_file_path() -> Path:
-    """Return the lock reserved for profile-wide indexes and cleanup."""
-    return get_dht_output_lock_dir() / "profile.lock"
+def get_dht_runtime_variant_lock_file_path() -> Path:
+    """Return the lock reserved for runtime-variant-wide indexes and cleanup."""
+    return get_dht_output_lock_dir() / "runtime-variant.lock"
 
 
 def get_dht_project_lock_file_path(project_name: str) -> Path:

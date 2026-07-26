@@ -19,7 +19,7 @@ CPP_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 @dataclass(frozen=True)
-class ProjectProfileDescriptor:
+class ProjectRuntimeVariantDescriptor:
     modules: tuple[str, ...] = ()
 
 
@@ -29,7 +29,7 @@ class ProjectDescriptor:
     path: Path
     module_dirs: Mapping[str, str]
     base_modules: tuple[str, ...]
-    extra_modules: Mapping[str, ProjectProfileDescriptor]
+    extra_modules: Mapping[str, ProjectRuntimeVariantDescriptor]
 
 
 @dataclass(frozen=True)
@@ -62,13 +62,13 @@ class WorkspaceDescriptors:
     modules: tuple[ModuleDescriptor, ...]
 
     @property
-    def profile_names(self) -> tuple[str, ...]:
+    def runtime_variants(self) -> tuple[str, ...]:
         return tuple(
             sorted(
                 {
-                    profile
+                    runtime_variant
                     for project in self.projects
-                    for profile in project.extra_modules
+                    for runtime_variant in project.extra_modules
                 },
                 key=str.casefold,
             )
@@ -152,30 +152,32 @@ def load_project_descriptor(path: Path) -> ProjectDescriptor:
     if "BaseModules" not in data and raw_module_dirs:
         base_modules = tuple(raw_module_dirs)
 
-    raw_profiles = data.get("ExtraModules", {})
-    if not isinstance(raw_profiles, dict):
+    raw_runtime_variants = data.get("ExtraModules", {})
+    if not isinstance(raw_runtime_variants, dict):
         raise BuildToolError(f'Descriptor "{resolved}" field "ExtraModules" must be an object.')
-    profiles: dict[str, ProjectProfileDescriptor] = {}
-    folded_profiles: set[str] = set()
-    for profile_name, profile_data in raw_profiles.items():
-        if not isinstance(profile_name, str) or not profile_name:
-            raise BuildToolError(f'Descriptor "{resolved}" contains an invalid profile name.')
-        if profile_name.casefold() in folded_profiles:
-            raise BuildToolError(f'Descriptor "{resolved}" contains duplicate profile "{profile_name}".')
-        folded_profiles.add(profile_name.casefold())
-        if not isinstance(profile_data, dict):
+    runtime_variants: dict[str, ProjectRuntimeVariantDescriptor] = {}
+    folded_runtime_variants: set[str] = set()
+    for runtime_variant, runtime_variant_data in raw_runtime_variants.items():
+        if not isinstance(runtime_variant, str) or not runtime_variant:
+            raise BuildToolError(f'Descriptor "{resolved}" contains an invalid runtime variant name.')
+        if runtime_variant.casefold() in folded_runtime_variants:
             raise BuildToolError(
-                f'Descriptor "{resolved}" profile "{profile_name}" must contain an object.'
+                f'Descriptor "{resolved}" contains duplicate runtime variant "{runtime_variant}".'
             )
-        profiles[profile_name] = ProjectProfileDescriptor(
-            _string_list(profile_data, "Modules", resolved)
+        folded_runtime_variants.add(runtime_variant.casefold())
+        if not isinstance(runtime_variant_data, dict):
+            raise BuildToolError(
+                f'Descriptor "{resolved}" runtime variant "{runtime_variant}" must contain an object.'
+            )
+        runtime_variants[runtime_variant] = ProjectRuntimeVariantDescriptor(
+            _string_list(runtime_variant_data, "Modules", resolved)
         )
     return ProjectDescriptor(
         name=name,
         path=resolved,
         module_dirs=dict(raw_module_dirs),
         base_modules=base_modules,
-        extra_modules=profiles,
+        extra_modules=runtime_variants,
     )
 
 
@@ -247,15 +249,18 @@ def _validate_workspace_references(workspace: WorkspaceDescriptors) -> None:
     module_names = {module.name.casefold(): module.name for module in workspace.modules}
     for project in workspace.projects:
         owned = {name.casefold() for name in project.module_dirs}
-        for profile_name, roots in (
+        for runtime_variant, roots in (
             ("BaseModules", project.base_modules),
-            *((name, profile.modules) for name, profile in project.extra_modules.items()),
+            *(
+                (name, runtime_variant.modules)
+                for name, runtime_variant in project.extra_modules.items()
+            ),
         ):
             for module_name in roots:
                 if module_name.casefold() not in owned:
                     raise BuildToolError(
                         f'Project "{project.name}" enables missing module "{module_name}" '
-                        f'in profile "{profile_name}".'
+                        f'in runtime variant "{runtime_variant}".'
                     )
     for module in workspace.modules:
         for dependency in module.dependencies:
@@ -326,9 +331,11 @@ def validate_create_request(request: CommandRequest, workspace: WorkspaceDescrip
         raise BuildToolError("Module enablement targets must not be repeated.")
     if "none" in folded_enablements and len(enablements) != 1:
         raise BuildToolError('Module enablement "none" cannot be combined with other targets.')
-    profiles = {name.casefold() for name in workspace.profile_names}
+    runtime_variants = {name.casefold() for name in workspace.runtime_variants}
     for enablement in enablements:
         if enablement.casefold() in {"none", "base"}:
             continue
-        if enablement.casefold() not in profiles:
-            raise BuildToolError(f'Enablement profile "{enablement}" does not exist in the workspace.')
+        if enablement.casefold() not in runtime_variants:
+            raise BuildToolError(
+                f'Enablement runtime variant "{enablement}" does not exist in the workspace.'
+            )

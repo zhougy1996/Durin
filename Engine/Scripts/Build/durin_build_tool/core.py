@@ -1276,7 +1276,7 @@ def runtime_executable_path(
     *,
     root: Path = REPO_ROOT,
 ) -> Path:
-    runtime_profile = preset_cache_string(preset, "DURIN_PROFILE_NAME")
+    runtime_variant = preset_cache_string(preset, "DURIN_RUNTIME_VARIANT")
     return (
         root
         / "Engine"
@@ -1284,8 +1284,8 @@ def runtime_executable_path(
         / profile.platform
         / preset_output_configuration(preset)
         / "Runtime"
-        / runtime_profile
-        / f"{runtime_profile}{profile.test_executable_suffix}"
+        / runtime_variant
+        / f"{runtime_variant}{profile.test_executable_suffix}"
     )
 
 
@@ -1317,7 +1317,7 @@ def test_executable_path(
     preset: ConfigurePreset,
     target: str,
 ) -> Path:
-    runtime_profile = preset_cache_string(preset, "DURIN_PROFILE_NAME")
+    runtime_variant = preset_cache_string(preset, "DURIN_RUNTIME_VARIANT")
     return (
         REPO_ROOT
         / "Engine"
@@ -1325,7 +1325,7 @@ def test_executable_path(
         / profile.platform
         / preset_output_configuration(preset)
         / "Tests"
-        / runtime_profile
+        / runtime_variant
         / "Bin"
         / f"{target}{profile.test_executable_suffix}"
     )
@@ -1488,7 +1488,7 @@ def collect_purge_paths(
             (
                 f"Build-{identifier}" if identifier else "Build",
                 profile.platform,
-                preset_cache_string(preset, "DURIN_PROFILE_NAME"),
+                preset_cache_string(preset, "DURIN_RUNTIME_VARIANT"),
             )
         )
         paths.add(interruption_marker_path(preset.name, root / "Build" / ".agent-state"))
@@ -1500,10 +1500,10 @@ def collect_purge_paths(
                     project_root / "Binaries",
                 )
             )
-        for intermediate_root, platform_name, runtime_profile in intermediate_profiles:
+        for intermediate_root, platform_name, runtime_variant in intermediate_profiles:
             paths.add(
                 require_purge_child(
-                    project_root / "Intermediate" / intermediate_root / platform_name / runtime_profile,
+                    project_root / "Intermediate" / intermediate_root / platform_name / runtime_variant,
                     project_root / "Intermediate",
                 )
             )

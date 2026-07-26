@@ -1,4 +1,5 @@
 #include "Logging/Logger.h"
+#include "Profiling/Profiling.h"
 
 #include "CoreGlobals.h"
 #include "HAL/Platform.h"
@@ -224,6 +225,7 @@ namespace Durin
 
 		auto DispatchLoop() -> void
 		{
+			DURIN_PROFILE_THREAD("Logging");
 			auto NextFlush = std::chrono::steady_clock::now() + std::chrono::milliseconds(Settings.FlushIntervalMilliseconds);
 			for (;;)
 			{
@@ -520,7 +522,7 @@ namespace Durin
 		Settings.MaxFilesPerSession = std::clamp(Settings.MaxFilesPerSession, 1u, 100u);
 		Settings.MaxSessions = std::clamp(Settings.MaxSessions, 1u, 1000u);
 		if (Settings.LogDirectory.empty()) Settings.LogDirectory = (std::filesystem::path(FPaths::LaunchDir()) / "Logs").string();
-		Settings.ProfileName = SanitizeFileComponent(Settings.ProfileName);
+		Settings.RuntimeVariant = SanitizeFileComponent(Settings.RuntimeVariant);
 
 		std::shared_ptr<spdlog::logger> ConsoleLogger;
 		std::shared_ptr<spdlog::logger> FileLogger;
@@ -542,7 +544,7 @@ namespace Durin
 		{
 			const std::filesystem::path Directory(Settings.LogDirectory);
 			std::filesystem::create_directories(Directory);
-			const std::string Prefix = "Durin-" + Settings.ProfileName + "-";
+			const std::string Prefix = "Durin-" + Settings.RuntimeVariant + "-";
 			CleanupOldSessions(Directory, Prefix, Settings.MaxSessions);
 			const std::string FileName = std::format("{}{}-{}.log", Prefix, SessionTimestamp(), FPlatformProcess::CurrentProcessId());
 			auto FileSink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
@@ -619,7 +621,7 @@ namespace Durin
 		Settings.FileLevel = ELogLevel::Info;
 #endif
 		Settings.LogDirectory = (std::filesystem::path(FPaths::LaunchDir()) / "Logs").string();
-		Settings.ProfileName = DURIN_PROFILE_NAME;
+		Settings.RuntimeVariant = DURIN_RUNTIME_VARIANT;
 		(void)Initialize(Settings);
 	}
 
@@ -704,7 +706,7 @@ namespace Durin
 		Settings.FileLevel = ELogLevel::Info;
 #endif
 		Settings.LogDirectory = (std::filesystem::path(FPaths::LaunchDir()) / "Logs").string();
-		Settings.ProfileName = DURIN_PROFILE_NAME;
+		Settings.RuntimeVariant = DURIN_RUNTIME_VARIANT;
 
 		std::vector<std::string> InvalidLevels;
 		const FYamlNodeView Logging = GetModuleConfig("Core").GetView("Logging");

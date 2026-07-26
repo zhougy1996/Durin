@@ -19,6 +19,7 @@
 #include "Misc/Project.h"
 #include "Misc/Time.h"
 #include "Misc/Version.h"
+#include "Profiling/Profiling.h"
 
 #include "Shader/ShaderPaths.h"
 #include "EngineGlobals.h"
@@ -32,12 +33,13 @@
 
 namespace Durin
 {
-	constexpr std::string_view AppConfigFileName = DURIN_PROFILE_NAME ".yaml";
+	constexpr std::string_view AppConfigFileName = DURIN_RUNTIME_VARIANT ".yaml";
 
 	FEngineLoop GEngineLoop;
 
 	auto FEngineLoop::PreInit(std::span<const std::string_view> Arguments) -> void
 	{
+		DURIN_PROFILE_THREAD("GameThread");
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
 		GIsWindowDisplaySuppressed = std::ranges::find(Arguments, std::string_view("--hidden-window")) != Arguments.end();
@@ -85,6 +87,7 @@ namespace Durin
 	// Called from render thread
 	static auto BeginFrameRenderThread(FRHICommandListImmediate& CommandList, uint64 LogicFrameCounter, uint64 RenderFrameCounter) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("RenderFrame.Begin");
 		check(IsInRenderingThread());
 		GFrameCounterRenderThread = LogicFrameCounter;
 		GRenderFrameCounterRenderThread = RenderFrameCounter;
@@ -95,6 +98,7 @@ namespace Durin
 	// Called from render thread
 	static auto EndFrameRenderThread(FRHICommandListImmediate& RHICmdList, uint64 LogicFrameCounter, uint64 RenderFrameCounter) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("RenderFrame.End");
 		check(IsInRenderingThread());
 		check(GFrameCounterRenderThread == LogicFrameCounter);
 		check(GRenderFrameCounterRenderThread == RenderFrameCounter);
@@ -103,6 +107,7 @@ namespace Durin
 
 	static auto RenderFrame() -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.RenderFrame");
 		if (GDynamicRHI == nullptr)
 		{
 			return;
@@ -132,31 +137,43 @@ namespace Durin
 
 	auto FEngineLoop::Tick() -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.Tick");
 		constexpr double MinimizedTickIntervalSeconds = 1.0 / 20.0;
 
 		// Game logic.
 		const double CurrentTime = FTime::Seconds();
 		const float DeltaSeconds = static_cast<float>(std::clamp(CurrentTime - LastTickTime, 0.0, 0.1));
 		LastTickTime = CurrentTime;
-		GEngine->Tick(DeltaSeconds, false);
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.GameLogic");
+			GEngine->Tick(DeltaSeconds, false);
+		}
 		GFrameCounter++;
 
 		// Process application events, and paint UI.
 		auto& Application = Mona::FMonaApplication::Get();
-		Application.Tick();
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.Application");
+			Application.Tick();
+		}
 
 		if (GIsRequestingExit) return;
 
 		const bool bAllWindowsMinimized = Application.AreAllWindowsMinimized();
 		if (!bAllWindowsMinimized)
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.Rendering");
 			Mona::NewFrame();
 			RenderFrame();
 		}
 		const uint64 ObjectsBeforeGC = GDObjectArray.GetNum();
 		const uint64 PendingKillBeforeGC = GetGarbageObjectCount();
 		const double GCStartTime = FTime::Seconds();
-		const EGarbageCollectionTrigger GCTrigger = TryCollectGarbage(GCStartTime);
+		EGarbageCollectionTrigger GCTrigger;
+		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.GarbageCollection");
+			GCTrigger = TryCollectGarbage(GCStartTime);
+		}
 		if (GCTrigger != EGarbageCollectionTrigger::None)
 		{
 			const FGarbageCollectionStats& GCStats = GetLastGarbageCollectionStats();
@@ -178,6 +195,7 @@ namespace Durin
 			// no present, so wait for events while retaining a low-frequency engine tick.
 			Application.WaitForEvents(MinimizedTickIntervalSeconds);
 		}
+		DURIN_PROFILE_FRAME_MARK();
 	}
 
 	auto FEngineLoop::Exit() -> void

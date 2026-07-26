@@ -21,7 +21,7 @@ namespace
 		Settings.ConsoleLevel = Durin::ELogLevel::Fatal;
 		Settings.FileLevel = Durin::ELogLevel::Trace;
 		Settings.LogDirectory = Directory.string();
-		Settings.ProfileName = "CoreTests";
+		Settings.RuntimeVariant = "CoreTests";
 		Settings.FlushIntervalMilliseconds = 50;
 		return Settings;
 	}

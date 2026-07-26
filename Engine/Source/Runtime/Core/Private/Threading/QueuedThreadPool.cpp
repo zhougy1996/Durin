@@ -1,6 +1,7 @@
 #include "Threading/QueuedThreadPool.h"
 
 #include "HAL/PlatformLTS.h"
+#include "Profiling/Profiling.h"
 #include "Threading/Runnable.h"
 #include "Threading/RunnableThread.h"
 
@@ -287,6 +288,7 @@ namespace Durin
 
 		auto ExecuteQueuedWork(FQueuedWork&& Work) -> void
 		{
+			DURIN_PROFILE_CPU_ZONE_NAMED("QueuedTask.Execute");
 			DURIN_TRACE("Queued task started. (task: {}, thread: {}, id: {})", Work.Name, GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
 			Work.Function();
 			DURIN_TRACE("Queued task finished. (task: {}, thread: {}, id: {})", Work.Name, GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());

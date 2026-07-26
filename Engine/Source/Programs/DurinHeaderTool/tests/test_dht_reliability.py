@@ -200,6 +200,12 @@ class CacheRecoveryTests(unittest.TestCase):
 
         self.assertTrue(reflection_manifest_contract_changed(old_manifest, new_manifest))
 
+    def test_runtime_variant_invalidates_reflection_manifest(self):
+        old_manifest = ModuleManifest(module_name="Engine", runtime_variant="DurinEditor")
+        new_manifest = ModuleManifest(module_name="Engine", runtime_variant="DurinGame")
+
+        self.assertTrue(reflection_manifest_contract_changed(old_manifest, new_manifest))
+
     def test_tool_fingerprint_invalidates_export_manifest(self):
         old_manifest = ModuleExportManifest(Module="Engine", ToolFingerprint="old")
         new_manifest = ModuleExportManifest(Module="Engine", ToolFingerprint="new")
@@ -445,8 +451,8 @@ class ModuleDependencyTests(unittest.TestCase):
             mock.patch.object(configs.module_config, "get_module_config", side_effect=module_configs.__getitem__),
             mock.patch.object(
                 configs.module_config,
-                "is_module_enabled_for_active_profile",
-                side_effect=lambda module_name, profile_name: module_name in {"Optional", "OptionalLeaf"},
+                "is_module_enabled_for_active_runtime_variant",
+                side_effect=lambda module_name, runtime_variant: module_name in {"Optional", "OptionalLeaf"},
             ),
         ):
             dependencies = configs.collect_all_dependent_modules("Root", "DurinEditor")
@@ -463,13 +469,17 @@ class ModuleDependencyTests(unittest.TestCase):
 
         with (
             mock.patch.object(configs.module_config, "get_module_config", return_value=root_config),
-            mock.patch.object(configs.module_config, "is_module_enabled_for_active_profile", return_value=False),
+            mock.patch.object(
+                configs.module_config,
+                "is_module_enabled_for_active_runtime_variant",
+                return_value=False,
+            ),
         ):
             dependencies = configs.collect_all_dependent_modules("Root", "DurinGame")
 
         self.assertEqual(dependencies, set())
 
-    def test_launch_reflection_exports_follow_active_profile(self):
+    def test_launch_reflection_exports_follow_active_runtime_variant(self):
         editor_exports = configs.collect_all_dependent_module_with_export_file("Launch", "DurinEditor")
         game_exports = configs.collect_all_dependent_module_with_export_file("Launch", "DurinGame")
 
@@ -481,14 +491,14 @@ class IntermediateLayoutTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         configs.ARCH = "Win64"
-        configs.PROFILE_NAME = "DurinEditor"
+        configs.RUNTIME_VARIANT = "DurinEditor"
         configs.BUILD_IDENTIFIER = ""
         configs.TOOL_FINGERPRINT = ""
         configs.init_configs()
 
     def tearDown(self):
         configs.ARCH = "Win64"
-        configs.PROFILE_NAME = "DurinEditor"
+        configs.RUNTIME_VARIANT = "DurinEditor"
         configs.BUILD_IDENTIFIER = ""
         configs.TOOL_FINGERPRINT = ""
 
@@ -522,9 +532,12 @@ class IntermediateLayoutTests(unittest.TestCase):
             utils.get_project_intermediate_build_dir("Engine"),
             utils.get_project_intermediate_dir("Engine") / "Build-CI.2" / "Win64" / "DurinEditor",
         )
-        self.assertEqual(utils.get_dht_profile_lock_file_path().name, "profile.lock")
+        self.assertEqual(
+            utils.get_dht_runtime_variant_lock_file_path().name,
+            "runtime-variant.lock",
+        )
 
-    def test_module_locks_are_independent_within_a_profile(self):
+    def test_module_locks_are_independent_within_a_runtime_variant(self):
         self.assertNotEqual(
             utils.get_dht_module_lock_file_path("Core"),
             utils.get_dht_module_lock_file_path("Engine"),
@@ -553,9 +566,9 @@ class IntermediateLayoutTests(unittest.TestCase):
             ],
         )
 
-    def test_platform_and_profile_remain_independent_dimensions(self):
+    def test_platform_and_runtime_variant_remain_independent_dimensions(self):
         configs.ARCH = "Linux"
-        configs.PROFILE_NAME = "DurinGame"
+        configs.RUNTIME_VARIANT = "DurinGame"
         self.assertEqual(
             utils.get_project_intermediate_build_dir("Engine"),
             utils.get_project_intermediate_dir("Engine") / "Build" / "Linux" / "DurinGame",
@@ -600,7 +613,7 @@ class IntermediateLayoutTests(unittest.TestCase):
             initialize_worker_config("Win64", "DurinEditor", "Agent")
 
         self.assertEqual(configs.ARCH, "Win64")
-        self.assertEqual(configs.PROFILE_NAME, "DurinEditor")
+        self.assertEqual(configs.RUNTIME_VARIANT, "DurinEditor")
         self.assertEqual(configs.BUILD_IDENTIFIER, "Agent")
         init_configs.assert_called_once_with()
 

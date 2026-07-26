@@ -27,7 +27,78 @@ from durin_build_tool.output import BuildOutput
 
 from Engine.Scripts.Bootstrap import agent_config
 from Engine.Scripts.Bootstrap import setup_preflight
+from Engine.Scripts.Bootstrap import setup_third_party
 from Engine.Scripts.Utils import worktree_tool
+
+
+class ThirdPartyBootstrapTests(unittest.TestCase):
+    @staticmethod
+    def make_manifests() -> list[dict[str, object]]:
+        return [
+            {
+                "name": "normal",
+                "kind": "direct_source",
+                "source_dir": "normal",
+                "source": {"type": "git", "tag": "v1"},
+            },
+            {
+                "name": "tests",
+                "kind": "direct_source",
+                "test_only": True,
+                "source_dir": "tests",
+                "source": {"type": "git", "tag": "v1"},
+            },
+            {
+                "name": "tracy",
+                "kind": "direct_source",
+                "development_only": True,
+                "source_dir": "tracy",
+                "source": {"type": "git", "tag": "v0.13.1"},
+            },
+        ]
+
+    def test_all_excludes_development_dependencies_by_default(self) -> None:
+        selected = setup_third_party.resolve_selected_manifests(
+            self.make_manifests(),
+            use_all=True,
+            libs_arg=None,
+            with_tests=False,
+            with_development=False,
+        )
+
+        self.assertEqual([manifest["name"] for manifest in selected], ["normal"])
+
+    def test_all_can_include_development_and_test_dependencies(self) -> None:
+        selected = setup_third_party.resolve_selected_manifests(
+            self.make_manifests(),
+            use_all=True,
+            libs_arg=None,
+            with_tests=True,
+            with_development=True,
+        )
+
+        self.assertEqual(
+            [manifest["name"] for manifest in selected],
+            ["normal", "tests", "tracy"],
+        )
+
+    def test_explicit_development_dependency_preserves_requested_order(self) -> None:
+        selected = setup_third_party.resolve_selected_manifests(
+            self.make_manifests(),
+            use_all=False,
+            libs_arg="tracy,normal",
+            with_tests=False,
+            with_development=False,
+        )
+
+        self.assertEqual([manifest["name"] for manifest in selected], ["tracy", "normal"])
+
+    def test_development_only_must_be_boolean(self) -> None:
+        manifests = self.make_manifests()
+        manifests[2]["development_only"] = "yes"
+
+        with self.assertRaisesRegex(setup_third_party.BootstrapError, "must be a boolean"):
+            setup_third_party.validate_manifests(manifests)
 
 
 class BuildConfigTests(unittest.TestCase):
@@ -74,6 +145,26 @@ class BuildConfigTests(unittest.TestCase):
         for profile in profiles.values():
             self.assertIn(profile.default_preset, profile.presets)
             self.assertTrue(set(profile.presets).issubset(presets))
+
+    def test_profiling_presets_are_release_isolated_and_enable_tracy(self) -> None:
+        presets = build_config.load_configure_presets()
+        for runtime_variant in ("DurinEditor", "DurinGame"):
+            preset = presets[f"Win64-Release-{runtime_variant}-Profiling"]
+            self.assertEqual(
+                build_config.preset_cache_string(preset, "CMAKE_BUILD_TYPE"),
+                "Release",
+            )
+            self.assertEqual(
+                build_config.preset_cache_string(preset, "DURIN_RUNTIME_VARIANT"),
+                runtime_variant,
+            )
+            self.assertEqual(
+                build_config.preset_cache_string(preset, "DURIN_BUILD_IDENTIFIER"),
+                "Profiling",
+            )
+            self.assertTrue(
+                build_config.preset_cache_bool(preset, "DURIN_ENABLE_TRACY")
+            )
 
     def test_fast_configure_is_code_model_only_and_not_buildtool_owned(self) -> None:
         profiles = build_config.load_profiles()
@@ -512,7 +603,7 @@ class CliTests(unittest.TestCase):
             self.create_workspace(root)
             workspace = build_descriptors.load_workspace_descriptors(root)
         self.assertEqual(tuple(project.name for project in workspace.projects), ("Engine", "Sandbox"))
-        self.assertEqual(workspace.profile_names, ("DurinEditor", "DurinGame"))
+        self.assertEqual(workspace.runtime_variants, ("DurinEditor", "DurinGame"))
         sandbox = workspace.find_module("sandbox")
         self.assertIsNotNone(sandbox)
         assert sandbox is not None
@@ -2649,7 +2740,7 @@ class CoreTests(unittest.TestCase):
                 "binaryDir": "${sourceDir}/Build/${presetName}",
                 "cacheVariables": {
                     "CMAKE_BUILD_TYPE": "Debug",
-                    "DURIN_PROFILE_NAME": "DurinEditor",
+                    "DURIN_RUNTIME_VARIANT": "DurinEditor",
                     "BUILD_TESTING": testing,
                 },
             },

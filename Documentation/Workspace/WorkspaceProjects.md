@@ -1,6 +1,7 @@
 # Workspace And Projects
 
-This document explains the boundary between the workspace, projects, modules, and profiles in the current Durin architecture.
+This document explains the boundary between the workspace, projects, modules,
+and runtime variants in the current Durin architecture.
 
 ## Overview
 
@@ -9,7 +10,7 @@ Use this mental model:
 - workspace = the repository root
 - project = a top-level code or content owner inside the workspace
 - module = a build and runtime loading unit inside a project
-- profile = the workspace-wide host mode selected for one configure or build tree
+- runtime variant = the workspace-wide host mode selected for one configure or build tree
 
 ## Workspace
 
@@ -48,7 +49,7 @@ its owning project, for example `Source/Game/Combat`,
 `Source/Features/Inventory`, or `Source/Tools/WorldTools`.
 
 `ModuleDirs` is the authoritative mapping from module name to project-relative
-module root. `BaseModules` and `ExtraModules.<Profile>.Modules`, not the physical
+module root. `BaseModules` and `ExtraModules.<RuntimeVariant>.Modules`, not the physical
 directory name, determine where the module is enabled. Within each module root,
 ordinary source discovery still uses its recursive `Public/` and `Private/`
 trees as the visibility boundary.
@@ -69,18 +70,22 @@ root `add_subdirectory(...)` registration in the same transaction. Workspace
 project and initial module names remain case-insensitively unique. External,
 installed-engine, and nested project creation remain outside this workflow.
 
-## Profiles
+## Runtime Variants
 
-Current profiles are `DurinEditor` and `DurinGame`.
+Current runtime variants are `DurinEditor` and `DurinGame`.
 
-Important rule: `DURIN_PROFILE_NAME` is workspace-global. One configure or build tree selects a single active profile, and all projects in that tree build against it.
+Important rule: `DURIN_RUNTIME_VARIANT` is workspace-global. One configure or
+build tree selects a single active runtime variant, and all projects in that
+tree build against it.
 
 Examples:
 
 - `Win64-Debug-DurinEditor` builds both `Engine` and `Sandbox` in `DurinEditor` mode
 - `Win64-Debug-DurinGame` builds both `Engine` and `Sandbox` in `DurinGame` mode
 
-Because profiles are workspace-global today, game projects should continue using shared profile names such as `DurinEditor` and `DurinGame` rather than project-specific profile names.
+Because runtime variants are workspace-global today, game projects should
+continue using shared runtime-variant names such as `DurinEditor` and
+`DurinGame` rather than project-specific names.
 
 ## Workflow Note
 

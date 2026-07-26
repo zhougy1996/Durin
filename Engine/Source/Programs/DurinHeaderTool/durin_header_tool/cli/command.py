@@ -31,7 +31,7 @@ def add_common_arguments(parser: argparse.ArgumentParser):
     from durin_header_tool.model.reflection_info import TOOL_VERSION
 
     parser.add_argument("-a","--arch", help="The target architecture (e.g., Win64, Linux, MacOS).", default="Win64", choices=["Win64", "Linux", "MacOS"])
-    parser.add_argument("--profile", help="The build profile name.", default="DurinEditor")
+    parser.add_argument("--runtime-variant", help="The workspace runtime variant.", default="DurinEditor")
     parser.add_argument(
         "--build-identifier",
         help="Optional identifier used to isolate generated build metadata.",

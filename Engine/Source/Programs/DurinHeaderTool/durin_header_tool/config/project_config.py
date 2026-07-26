@@ -6,7 +6,7 @@ from durin_header_tool.io.json_helper import load_json_file, dataclass_from_dict
 PROJECT_CONFIGS: dict[str, "DurinProjectConfig"] = {}
 
 @dataclass
-class DurinProjectProfileConfig:
+class DurinProjectRuntimeVariantConfig:
     modules: list[str] = field(default_factory=list)
 
 
@@ -16,7 +16,7 @@ class DurinProjectConfig:
     project_dir: Path = Path("")
     config_file_path: Path = Path("")
     base_modules: list[str] = field(default_factory=list)
-    extra_modules: dict[str, DurinProjectProfileConfig] = field(default_factory=dict)
+    extra_modules: dict[str, DurinProjectRuntimeVariantConfig] = field(default_factory=dict)
     module_dirs: dict[str, str] = field(default_factory=dict) # module name -> module dir path relative to project dir
     modules: dict[str, str] = field(default_factory=dict) # module name -> module config file path relative to project dir
 
@@ -27,11 +27,11 @@ class DurinProjectConfig:
         if not self.base_modules:
             self.base_modules = list(self.module_dirs.keys())
 
-    def get_enabled_root_modules(self, profile_name: str) -> list[str]:
+    def get_enabled_root_modules(self, runtime_variant: str) -> list[str]:
         enabled_root_modules = list(self.base_modules)
-        profile_config = self.extra_modules.get(profile_name)
-        if profile_config is not None:
-            enabled_root_modules.extend(profile_config.modules)
+        runtime_variant_config = self.extra_modules.get(runtime_variant)
+        if runtime_variant_config is not None:
+            enabled_root_modules.extend(runtime_variant_config.modules)
 
         deduplicated_roots: list[str] = []
         seen_modules: set[str] = set()
@@ -39,7 +39,10 @@ class DurinProjectConfig:
             if module_name in seen_modules:
                 continue
             if module_name not in self.modules:
-                raise ValueError(f"Project '{self.project_name}' does not define root module '{module_name}' for profile '{profile_name}'.")
+                raise ValueError(
+                    f"Project '{self.project_name}' does not define root module "
+                    f"'{module_name}' for runtime variant '{runtime_variant}'."
+                )
             seen_modules.add(module_name)
             deduplicated_roots.append(module_name)
         return deduplicated_roots

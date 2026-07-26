@@ -1,4 +1,5 @@
 #include "RendererModule.h"
+#include "Profiling/Profiling.h"
 
 #include "DefaultTextures.h"
 #include "EditorGridRendering.h"
@@ -1639,6 +1640,7 @@ namespace Durin
 
 	auto FRendererModule::RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderView");
 		const uint32 Width = OutputTarget != nullptr ? OutputTarget->GetSizeX() : 0;
 		const uint32 Height = OutputTarget != nullptr ? OutputTarget->GetSizeY() : 0;
 		if (OutputTarget == nullptr || Width == 0 || Height == 0)
@@ -1723,6 +1725,7 @@ namespace Durin
 
 	auto FRendererModule::RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* RenderTarget) -> void
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderScene");
 		const uint32 Width = View.ViewportWidth;
 		const uint32 Height = View.ViewportHeight;
 		if (Scene == nullptr || RenderTarget == nullptr || Width == 0 || Height == 0)

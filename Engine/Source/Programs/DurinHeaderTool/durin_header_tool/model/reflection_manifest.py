@@ -7,7 +7,7 @@ from durin_header_tool.io import FileFingerprint, LightFileFingerprint
 from durin_header_tool import io as utils
 from durin_header_tool.model.reflection_info import SYMBOL_NAME_SCHEME, TOOL_VERSION
 
-REFLECTION_MANIFEST_SCHEMA_VERSION = 4
+REFLECTION_MANIFEST_SCHEMA_VERSION = 5
 
 
 def make_generated_output_names(module_name: str, reflect_headers: Iterable[str]) -> list[str]:
@@ -55,7 +55,7 @@ class ModuleManifest:
     tool_version: str = TOOL_VERSION
     tool_fingerprint: str = ""
     symbol_name_scheme: str = SYMBOL_NAME_SCHEME
-    profile: str = ""
+    runtime_variant: str = ""
     platform: str = ""
     generator_options_hash: str = ""
     dep_module_exports: dict[str, LightFileFingerprint] = field(default_factory=dict)
@@ -97,7 +97,7 @@ def load_module_manifest_file(module_name: str) -> ModuleManifest:
         tool_version=data.get("ToolVersion", ""),
         tool_fingerprint=data.get("ToolFingerprint", ""),
         symbol_name_scheme=data.get("SymbolNameScheme", ""),
-        profile=data.get("Profile", ""),
+        runtime_variant=data.get("RuntimeVariant", ""),
         platform=data.get("Platform", ""),
         generator_options_hash=data.get("GeneratorOptionsHash", ""),
         dep_module_exports={
@@ -129,7 +129,7 @@ def save_module_manifest_file(manifest: ModuleManifest) -> str:
         "ToolFingerprint": manifest.tool_fingerprint,
         "SymbolNameScheme": manifest.symbol_name_scheme,
         "ModuleName": manifest.module_name,
-        "Profile": manifest.profile,
+        "RuntimeVariant": manifest.runtime_variant,
         "Platform": manifest.platform,
         "GeneratorOptionsHash": manifest.generator_options_hash,
         "ReflectHeaders": {key: _file_fingerprint_to_json(value) for key, value in sorted(manifest.reflect_headers.items())},

@@ -7,7 +7,7 @@ if(WIN32)
 endif()
 durin_target_set_runtime_outputs(DurinLauncher)
 
-set_target_properties(DurinLauncher PROPERTIES OUTPUT_NAME "${DURIN_PROFILE_NAME}")
+set_target_properties(DurinLauncher PROPERTIES OUTPUT_NAME "${DURIN_RUNTIME_VARIANT}")
 
 durin_target_apply_common_definitions(DurinLauncher "DurinLauncher")
 
@@ -17,7 +17,7 @@ target_link_libraries(DurinLauncher PRIVATE
 
 # Remove the legacy config filename and copy the new one if it doesn't exist.
 set(config_file "$<TARGET_FILE_DIR:DurinLauncher>/${DURIN_PROJECT_APP_CONFIG_FILE}")
-set(legacy_config_file "$<TARGET_FILE_DIR:DurinLauncher>/${DURIN_PROJECT_PROFILE_NAME}Config.yaml")
+set(legacy_config_file "$<TARGET_FILE_DIR:DurinLauncher>/${DURIN_PROJECT_RUNTIME_VARIANT}Config.yaml")
 add_custom_command(TARGET DurinLauncher POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E rm -f ${legacy_config_file}
     COMMAND ${CMAKE_COMMAND} -E env
@@ -26,4 +26,3 @@ add_custom_command(TARGET DurinLauncher POST_BUILD
     ${config_file} # destination file
     VERBATIM
 )
-

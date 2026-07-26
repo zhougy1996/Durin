@@ -11,14 +11,18 @@ namespace Durin::Mona
 		FMonaApplication::Create();
 		FMonaApplication::Get().Initialize();
 
+#if DURIN_WITH_EDITOR
 		FModuleManager::Get().LoadModule("MonaImGui");
+#endif
 
 		DURIN_DEBUG(STR("Mona initialized successfully."));
 	}
 
 	auto MonaShutdown() -> void
 	{
+#if DURIN_WITH_EDITOR
 		FModuleManager::Get().UnloadModule("MonaImGui");
+#endif
 
 		FMonaApplication::Shutdown();
 		DURIN_DEBUG(STR("Mona shutdown."));

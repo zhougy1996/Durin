@@ -7,7 +7,7 @@ def reflection_manifest_contract_changed(old_manifest: ModuleManifest, new_manif
         or old_manifest.tool_version != new_manifest.tool_version
         or old_manifest.tool_fingerprint != new_manifest.tool_fingerprint
         or old_manifest.symbol_name_scheme != new_manifest.symbol_name_scheme
-        or old_manifest.profile != new_manifest.profile
+        or old_manifest.runtime_variant != new_manifest.runtime_variant
         or old_manifest.platform != new_manifest.platform
         or old_manifest.generator_options_hash != new_manifest.generator_options_hash
     )

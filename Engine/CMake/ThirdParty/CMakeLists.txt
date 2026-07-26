@@ -2,6 +2,10 @@ include_guard(GLOBAL)
 
 include("${DURIN_WORKSPACE_DIR}/CMake/ThirdParty/ThirdPartyUtils.cmake")
 
+if(DURIN_ENABLE_TRACY)
+	add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/tracy)
+endif()
+
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/spdlog)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/glfw)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/glm)

@@ -14,6 +14,8 @@ Common commands:
 
 ```powershell
 .venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --all --with-tests
+.venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --all --with-development
+.venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --libs tracy
 .venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --libs glm,spdlog --config Debug
 .venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
 ```
@@ -65,7 +67,7 @@ Current example: `slang`
 
 ### Direct Source
 
-Current examples: `glm`, `bc7enc_rdo`, `googletest`
+Current examples: `glm`, `bc7enc_rdo`, `googletest`, `tracy`
 
 - Source location: `Engine/External/Source/<Library>`
 - Build or install behavior: bootstrap clones source and the main project consumes it with `add_subdirectory(...)`
@@ -100,11 +102,16 @@ Third-party manifests live under `Engine/Scripts/Bootstrap/thirdparty/*.json` an
 - wrapper CMake directory when needed
 - required-file checks
 - per-config install validation for shared-install packages
+- optional `test_only` and `development_only` selection flags
 
 ## Notes
 
 - `--all` skips test-only dependencies unless `--with-tests` is supplied.
+- `--all` skips development-only dependencies unless `--with-development` is
+  supplied. Explicit `--libs <name>` selection remains available.
 - `googletest` is test-only.
+- Tracy `v0.13.1` is development-only and licensed under BSD-3-Clause. Prepare
+  it with `Engine/Scripts/Bootstrap/Setup_tracy.bat` only for profiling builds.
 - Vulkan Memory Allocator is supplied by the Vulkan SDK rather than this bootstrap. See `BuildAndRun.md` for the required SDK layout and the older-SDK fallback.
 - Main project configure and build still start from `CMakePresets.json`.
 - Legacy third-party assets can be inspected with `python Engine/Scripts/Bootstrap/cleanup_legacy_thirdparty.py --dry-run`.

@@ -45,11 +45,11 @@ function(add_durin_project project_name)
 	if(DURIN_BUILD_IDENTIFIER)
 		string(APPEND _durin_intermediate_build_root "-${DURIN_BUILD_IDENTIFIER}")
 	endif()
-	set(_durin_project_intermediate_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/${_durin_intermediate_build_root}/${DURIN_TARGET_PLATFORM}/${DURIN_PROFILE_NAME}")
+	set(_durin_project_intermediate_build_dir "${CMAKE_CURRENT_SOURCE_DIR}/Intermediate/${_durin_intermediate_build_root}/${DURIN_TARGET_PLATFORM}/${DURIN_RUNTIME_VARIANT}")
 	set(_durin_project_cmake_file "${_durin_project_intermediate_build_dir}/${project_name}.project.cmake")
 	set(DURIN_DHT_CONTEXT_ARGS
 		-a ${DURIN_TARGET_PLATFORM}
-		--profile ${DURIN_PROFILE_NAME}
+		--runtime-variant ${DURIN_RUNTIME_VARIANT}
 		--tool-fingerprint ${DURIN_DHT_TOOL_FINGERPRINT}
 	)
 	if(DURIN_BUILD_IDENTIFIER)
@@ -60,7 +60,7 @@ function(add_durin_project project_name)
 		RESULT_VARIABLE _durin_prepare_project_build_result
 	)
 	if(NOT _durin_prepare_project_build_result EQUAL 0)
-		message(FATAL_ERROR "Failed to prepare build metadata for project ${project_name} and profile ${DURIN_PROFILE_NAME}.")
+		message(FATAL_ERROR "Failed to prepare build metadata for project ${project_name} and runtime variant ${DURIN_RUNTIME_VARIANT}.")
 	endif()
 
 	include("${_durin_project_cmake_file}")

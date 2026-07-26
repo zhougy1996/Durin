@@ -45,7 +45,7 @@ def main():
     args = parser.parse_args()
 
     configs.ARCH = args.arch
-    configs.PROFILE_NAME = args.profile
+    configs.RUNTIME_VARIANT = args.runtime_variant
     configs.BUILD_IDENTIFIER = args.build_identifier
     configs.TOOL_FINGERPRINT = args.tool_fingerprint
     init_logging(args.log)

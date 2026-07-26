@@ -319,6 +319,11 @@ def parse_args() -> argparse.Namespace:
         help="Include test-only dependencies such as googletest when using --all.",
     )
     parser.add_argument(
+        "--with-development",
+        action="store_true",
+        help="Include development-only dependencies when using --all.",
+    )
+    parser.add_argument(
         "--cmake",
         default=configured_cmake_command(),
         help="CMake executable to use for shared-install libraries.",
@@ -332,14 +337,20 @@ def parse_args() -> argparse.Namespace:
 
 
 def resolve_selected_manifests(
-    manifests: list[dict[str, Any]], *, use_all: bool, libs_arg: str | None, with_tests: bool
+    manifests: list[dict[str, Any]],
+    *,
+    use_all: bool,
+    libs_arg: str | None,
+    with_tests: bool,
+    with_development: bool,
 ) -> list[dict[str, Any]]:
     manifests_by_name = {manifest["name"]: manifest for manifest in manifests}
     if use_all:
         return [
             manifest
             for manifest in manifests
-            if with_tests or not manifest.get("test_only", False)
+            if (with_tests or not manifest.get("test_only", False))
+            and (with_development or not manifest.get("development_only", False))
         ]
 
     if libs_arg:
@@ -369,6 +380,11 @@ def validate_manifests(manifests: list[dict[str, Any]]) -> None:
             )
         if manifest["kind"] not in valid_kinds:
             raise BootstrapError(f"Manifest {manifest['name']} has unsupported kind: {manifest['kind']}")
+        for field_name in ("test_only", "development_only"):
+            if field_name in manifest and not isinstance(manifest[field_name], bool):
+                raise BootstrapError(
+                    f"Manifest {manifest['name']} field {field_name} must be a boolean."
+                )
         source_kind = manifest["source"].get("type")
         if source_kind not in {"git", "archive"}:
             raise BootstrapError(f"Manifest {manifest['name']} has unsupported source type: {source_kind}")
@@ -400,7 +416,11 @@ def main() -> int:
         config_value = args.config or args.legacy_config or "All"
         platform_name = detect_platform_name()
         selected_manifests = resolve_selected_manifests(
-            manifests, use_all=args.all, libs_arg=args.libs, with_tests=args.with_tests
+            manifests,
+            use_all=args.all,
+            libs_arg=args.libs,
+            with_tests=args.with_tests,
+            with_development=args.with_development,
         )
 
         for manifest in selected_manifests:

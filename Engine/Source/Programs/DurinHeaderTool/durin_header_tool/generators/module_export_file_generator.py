@@ -53,11 +53,11 @@ def _load_previous_export(module_name: str) -> tuple[ModuleExportInfo | None, Mo
 
 
 def _parse_header_export_worker(args):
-    module_name, header, arch, profile, build_identifier = args
+    module_name, header, arch, runtime_variant, build_identifier = args
 
     from durin_header_tool.extractors.export_symbol_extractor import _extract_header_export_symbols_impl as worker_extract
 
-    initialize_worker_config(arch, profile, build_identifier)
+    initialize_worker_config(arch, runtime_variant, build_identifier)
 
     start_time = time.perf_counter()
     symbols = worker_extract(module_name, header)
@@ -69,7 +69,7 @@ def _make_current_export_manifest(module_name: str, old_manifest: ModuleExportMa
     module_config = configs.get_module_config(module_name)
     manifest = ModuleExportManifest(
         Module=module_name,
-        Profile=configs.PROFILE_NAME,
+        RuntimeVariant=configs.RUNTIME_VARIANT,
         Platform=configs.ARCH,
         ToolVersion=TOOL_VERSION,
         ToolFingerprint=configs.TOOL_FINGERPRINT or TOOL_VERSION,
@@ -94,7 +94,7 @@ def _is_export_current(old_manifest: ModuleExportManifest, new_manifest: ModuleE
         and old_manifest.ToolFingerprint == new_manifest.ToolFingerprint
         and old_manifest.SymbolNameScheme == new_manifest.SymbolNameScheme
         and old_manifest.Module == new_manifest.Module
-        and old_manifest.Profile == new_manifest.Profile
+        and old_manifest.RuntimeVariant == new_manifest.RuntimeVariant
         and old_manifest.Platform == new_manifest.Platform
         and old_manifest.GeneratorOptionsHash == new_manifest.GeneratorOptionsHash
         and old_manifest.ReflectHeaders == new_manifest.ReflectHeaders
@@ -110,7 +110,7 @@ def _is_manifest_contract_compatible(old_manifest: ModuleExportManifest, new_man
         and old_manifest.ToolFingerprint == new_manifest.ToolFingerprint
         and old_manifest.SymbolNameScheme == new_manifest.SymbolNameScheme
         and old_manifest.Module == new_manifest.Module
-        and old_manifest.Profile == new_manifest.Profile
+        and old_manifest.RuntimeVariant == new_manifest.RuntimeVariant
         and old_manifest.Platform == new_manifest.Platform
         and old_manifest.GeneratorOptionsHash == new_manifest.GeneratorOptionsHash
     )
@@ -187,7 +187,7 @@ def _build_module_export_from_manifest_cache(
                 module_name,
                 header,
                 configs.ARCH,
-                configs.PROFILE_NAME,
+                configs.RUNTIME_VARIANT,
                 configs.BUILD_IDENTIFIER,
             )
             for header in headers_to_parse

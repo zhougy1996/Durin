@@ -9,11 +9,12 @@ not open the other rows or scan an entire directory.
 | Repository-owned C++ change | [C++ coding standards](Development/Standards/CodingStandards.md) |
 | Configure, build, run, output layout, or interrupted-build recovery | [Build and run](Development/Build/BuildAndRun.md) |
 | CMake metadata, target generation, or module binaries | [Build system](Development/Build/BuildSystem.md) |
-| Build profiles or presets | [Profiles](Development/Build/Profiles.md) |
+| Runtime variants or build presets | [Runtime variants](Development/Build/RuntimeVariants.md) |
+| Tracy or CPU profiling | [CPU profiling](Development/Build/Profiling.md) |
 | IDE code model or debugging | [IDE code model](Development/Tooling/IDECodeModel.md) |
 | Dependencies, bootstrap, or worktrees | [Third-party bootstrap](Development/Build/ThirdPartyBootstrap.md) |
 | Native tests | [Native tests](Development/Build/NativeTests.md) |
-| Workspace, project, module, or profile ownership | [Workspace projects](Workspace/WorkspaceProjects.md) |
+| Workspace, project, module, or runtime-variant ownership | [Workspace projects](Workspace/WorkspaceProjects.md) |
 | Runtime physical paths or atomic byte publication | [File I/O](Runtime/Core/FileIO.md) |
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Core/RuntimeLifecycle.md) |
 | Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/ViewportRendering.md) |

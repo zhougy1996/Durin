@@ -10,7 +10,10 @@ Durin reflection uses selected C++ headers as the source of truth. A module list
 Engine/Intermediate/Build[-BuildIdentifier]/<Platform>/<Profile>/<Module>/DHT
 ```
 
-Generated files are atomically replaced. DHT serializes commands that use the same build identifier, platform, and profile. Debug and Release share configuration-independent generated files, while identifier-specific workflows select independent intermediate roots.
+Generated files are atomically replaced. DHT serializes commands that use the
+same build identifier, platform, and runtime variant. Debug and Release share
+configuration-independent generated files, while identifier-specific workflows
+select independent intermediate roots.
 
 The current system supports:
 
@@ -41,7 +44,7 @@ The system does not currently implement CDO behavior, hot reload, function refle
 DurinHeaderTool is a reflection metadata extractor, not a standalone C++ compiler
 or a complete semantic analyzer. It parses each configured reflected header with
 the available compiler context, which may include transitive headers, a
-precompiled header, and profile-provided default imports. That context is useful
+precompiled header, and runtime-variant-provided default imports. That context is useful
 when it can resolve a reflected declaration, but DHT does not recursively require
 every referenced declaration or type definition to be available.
 
@@ -84,7 +87,7 @@ directories in generated output.
 The build flow is:
 
 ```text
-.dmodule and profile config
+.dmodule and runtime-variant config
 -> generated module CMake metadata
 -> module export file
 -> module reflection files and manifest
@@ -182,8 +185,8 @@ DurinHeaderTool stores export-generation input fingerprints in a private sibling
 <Module>.export.manifest
 ```
 
-The module export manifest currently uses schema v5 and records the schema, tool
-version, tool fingerprint, options, profile, platform, and reflected-header
+The module export manifest currently uses schema v6 and records the schema, tool
+version, tool fingerprint, options, runtime variant, platform, and reflected-header
 fingerprints. It lets `generate_module_export_file` skip entirely when no inputs
 changed. If only some headers changed, DurinHeaderTool reparses those headers and
 reuses unchanged header symbols by grouping entries from the previous public
@@ -222,7 +225,7 @@ The manifest currently uses schema v4 JSON and is private to DurinHeaderTool. It
 - dependency export fingerprints
 - resolved reflected-symbol dependencies per header
 
-Changing the tool version, tool fingerprint, schema, symbol-name scheme, profile,
+Changing the tool version, tool fingerprint, schema, symbol-name scheme, runtime variant,
 platform, options hash, dependency exports, or reflected header fingerprints
 invalidates generated reflection outputs.
 

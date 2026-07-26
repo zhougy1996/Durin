@@ -35,9 +35,17 @@ enforced by Setup and BuildTool; see
 
 ## Generated Metadata Flow
 
-`add_durin_project(...)` invokes DurinHeaderTool, imports generated project metadata from `Engine/Intermediate/Build[-Identifier]/<Platform>/<Profile>/...`, resolves active profile-derived values, and then adds module subdirectories for the current project.
+`add_durin_project(...)` invokes DurinHeaderTool, imports generated project
+metadata from
+`Engine/Intermediate/Build[-Identifier]/<Platform>/<RuntimeVariant>/...`,
+resolves active runtime-variant values, and then adds module subdirectories for
+the current project.
 
-DHT uses atomic replacement and cross-process locks scoped by build identifier, platform, profile, project, and module. Conflicting writers serialize while independent modules remain parallel. Debug and Release intentionally share configuration-independent metadata; identifier-specific workflows use independent roots.
+DHT uses atomic replacement and cross-process locks scoped by build identifier,
+platform, runtime variant, project, and module. Conflicting writers serialize
+while independent modules remain parallel. Debug and Release intentionally share
+configuration-independent metadata; identifier-specific workflows use
+independent roots.
 
 Ninja schedules build-time DHT commands through the `durin_dht` job pool. Each
 command receives an explicit parser-worker limit, and module-internal parallelism
@@ -83,7 +91,9 @@ change invalidates both CMake's build edge and DHT's internal cache.
 
 `DURIN_BUILD_IDENTIFIER` optionally isolates binary and generated metadata outputs without changing build semantics. Binary configurations and DHT intermediate roots append the identifier. Normal builds leave it empty and use separate worktrees when workflows need concurrency.
 
-Do not use identifiers for feature selection or runtime module naming. Presets with the same identifier, platform, and profile share one DHT path because generated metadata does not vary by Debug, Release, or Shipping.
+Do not use identifiers for feature selection or runtime module naming. Presets
+with the same identifier, platform, and runtime variant share one DHT path
+because generated metadata does not vary by Debug, Release, or Shipping.
 
 Build identifiers are also independent of the engine release version defined in `Engine/Build/Build.version`. The release version describes product compatibility and distribution; a build identifier only isolates workflow-owned outputs.
 
@@ -91,13 +101,22 @@ A preset's `binaryDir` isolates CMake, object, and Ninja state only—not Durin'
 
 ## Module Output Naming
 
-Shared module naming is part of the runtime contract. Current outputs follow `<ProfileName>-<ModuleName>`, for example:
+Shared module naming is part of the runtime contract. Current outputs follow
+`<RuntimeVariant>-<ModuleName>`, for example:
 
 - `DurinEditor-Core.dll`
 - `DurinEditor-RenderCore.dll`
 - `DurinGame-Core.dll`
 
 The runtime module loader expects that naming convention.
+
+## Optional Profiling Linkage
+
+`DURIN_ENABLE_TRACY` defaults to `OFF`. Disabled targets receive
+`DURIN_WITH_TRACY=0` and the build does not inspect, compile, link, or deploy
+Tracy. Profiling presets set `DURIN_WITH_TRACY=1` and link repository targets to
+one shared `Tracy::TracyClient` runtime placed beside the selected profiling
+launcher. Shipping rejects the option.
 
 ## BuildTool Command Interface
 
@@ -127,6 +146,7 @@ session defaults from a validated toolchain context.
 - `Documentation/Runtime/Core/ReflectionSystem.md`
 - `Documentation/Runtime/Core/GarbageCollection.md`
 - `Documentation/Development/Build/BuildAndRun.md`
-- `Documentation/Development/Build/Profiles.md`
+- `Documentation/Development/Build/RuntimeVariants.md`
+- `Documentation/Development/Build/Profiling.md`
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`
 - `Documentation/Runtime/Core/FileIO.md`

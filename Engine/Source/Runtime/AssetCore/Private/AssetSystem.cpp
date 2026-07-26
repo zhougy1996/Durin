@@ -1,4 +1,5 @@
 #include "AssetSystem.h"
+#include "Profiling/Profiling.h"
 
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
@@ -1363,6 +1364,7 @@ namespace Durin::Asset
 
 	auto FAssetManager::LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.Load");
 		const bool bRootLoad = LoadDepth++ == 0;
 		if (bRootLoad) TransactionPackages.clear();
 		DPackage* Package = nullptr;
@@ -1395,6 +1397,7 @@ namespace Durin::Asset
 
 	auto FAssetManager::LoadPackageInternal(const FAssetPath& Path, DPackage*& OutPackage) -> FAssetResult
 	{
+		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.LoadPackage");
 		if (auto It = LoadedPackages.find(Path); It != LoadedPackages.end())
 		{
 			OutPackage = It->second;

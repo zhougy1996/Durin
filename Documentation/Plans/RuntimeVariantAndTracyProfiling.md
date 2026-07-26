@@ -6,8 +6,17 @@ Last reviewed: 2026-07-27
 
 ## Current Status
 
-Planned. The terminology, dependency ownership, preset behavior, and initial
-instrumentation boundary are selected, but implementation has not started.
+Implementation in progress. Stages 0-4 are implemented. Focused Python/native
+tests, ordinary Editor/Game configuration, ordinary Release/Shipping isolation,
+both Profiling builds, and an Editor capture have passed.
+
+The Editor capture recorded 233 frames and 2,307 zones over 5.11 seconds. The
+Game profiling executable completes initialization and remains running without a
+profiler, but attaching the matching Tracy v0.13.1 capture client currently
+causes an access violation. Windows Error Reporting identifies
+`DurinGame-VulkanRHI.dll` at offset `0x1485a` as the repeatable faulting module.
+The plan remains active until that enabled Game runtime failure is resolved and
+the final validation matrix passes.
 
 ## Goal
 
@@ -164,20 +173,38 @@ Current gaps:
 - Engine code has no profiler-neutral instrumentation surface.
 - No automated check proves that disabled builds remain independent of Tracy.
 
+Stage 0 inventory classified the migration surfaces as follows:
+
+- Runtime-variant terminology: root presets; workspace/project CMake setup,
+  target naming, shared PCH definitions, and launcher naming; DHT CLI,
+  configuration models, worker context, generated CMake, reflection/export
+  manifests, cache keys, paths, locks, and tests; BuildTool descriptor,
+  scaffolding, runtime/test path, purge, status, and tests; owning Workspace,
+  Build, Reflection, and Runtime Lifecycle documentation.
+- Performance profiling: this plan, the new Tracy bootstrap/CMake integration,
+  profiling presets, instrumentation macros, and capture workflow.
+- Unrelated and intentionally unchanged: BuildTool host build profiles, Slang
+  shader profiles, IDE/user profiles, asset platform feature profiles, upstream
+  third-party content, and archived plans.
+- Stale metadata behavior: reflection schema v5 and export-manifest schema v6
+  require `RuntimeVariant`; old `Profile` fields load as absent and fail the
+  schema/contract comparison, causing deterministic regeneration beneath the
+  new runtime-variant path.
+
 ## Implementation Stages
 
 ### Stage 0: Lock The Migration And Validation Contract
 
-- [ ] Inventory every repository-owned use of `profile`, classifying it as
+- [x] Inventory every repository-owned use of `profile`, classifying it as
   runtime-variant terminology, performance profiling, shader profile, user
   profile, or unrelated third-party content.
-- [ ] Record the exact CMake, DHT, BuildTool, generated-schema, path, preset,
+- [x] Record the exact CMake, DHT, BuildTool, generated-schema, path, preset,
   test, and documentation surfaces that require migration.
-- [ ] Add or update focused tests that capture current editor/game module
+- [x] Add or update focused tests that capture current editor/game module
   selection and output derivation before renaming identifiers.
-- [ ] Define the stale-cache behavior for old generated metadata and confirm
+- [x] Define the stale-cache behavior for old generated metadata and confirm
   that the terminology migration invalidates or regenerates it deterministically.
-- [ ] Confirm the selected Tracy tag, BSD-3-Clause license, upstream
+- [x] Confirm the selected Tracy tag, BSD-3-Clause license, upstream
   `Tracy::TracyClient` target, and shared-library behavior on supported hosts.
 
 #### Acceptance Gate
@@ -188,21 +215,21 @@ Current gaps:
 
 ### Stage 1: Rename Profile To Runtime Variant
 
-- [ ] Replace `DURIN_PROFILE_NAME` with `DURIN_RUNTIME_VARIANT` in root presets,
+- [x] Replace `DURIN_PROFILE_NAME` with `DURIN_RUNTIME_VARIANT` in root presets,
   workspace setup, project setup, common definitions, output derivation, and
   generated CMake.
-- [ ] Rename DHT configuration models, CLI arguments, worker context, cache
+- [x] Rename DHT configuration models, CLI arguments, worker context, cache
   keys, generated manifest fields, path helpers, and diagnostics.
-- [ ] Rename corresponding BuildTool descriptors, display text, scaffolded
+- [x] Rename corresponding BuildTool descriptors, display text, scaffolded
   metadata, and tests.
-- [ ] Preserve `DurinEditor`, `DurinGame`, `DURIN_WITH_EDITOR`, module
+- [x] Preserve `DurinEditor`, `DurinGame`, `DURIN_WITH_EDITOR`, module
   selection, module filenames, launcher filenames, and runtime behavior.
-- [ ] Add a focused configure diagnostic for a supplied legacy
+- [x] Add a focused configure diagnostic for a supplied legacy
   `DURIN_PROFILE_NAME`.
-- [ ] Update current owning documentation and direct links from `profile` to
+- [x] Update current owning documentation and direct links from `profile` to
   `runtime variant`; leave unrelated shader, performance, and user-profile
   terminology unchanged.
-- [ ] Update generated-metadata and cache invalidation tests for the renamed
+- [x] Update generated-metadata and cache invalidation tests for the renamed
   serialized field and path component.
 
 #### Acceptance Gate
@@ -216,18 +243,18 @@ Current gaps:
 
 ### Stage 2: Add Development-Only Dependency Bootstrap
 
-- [ ] Extend manifest validation with a boolean `development_only` field whose
+- [x] Extend manifest validation with a boolean `development_only` field whose
   default is false.
-- [ ] Exclude development-only manifests from `--all` unless
+- [x] Exclude development-only manifests from `--all` unless
   `--with-development` is supplied.
-- [ ] Preserve explicit `--libs <name>` behavior for development-only
+- [x] Preserve explicit `--libs <name>` behavior for development-only
   manifests.
-- [ ] Add positive, negative, malformed-manifest, and selection-order tests for
+- [x] Add positive, negative, malformed-manifest, and selection-order tests for
   the new bootstrap behavior.
-- [ ] Add a pinned Tracy direct-source manifest and `Setup_tracy.bat`.
-- [ ] Add conditional Tracy CMake registration that is not evaluated when
+- [x] Add a pinned Tracy direct-source manifest and `Setup_tracy.bat`.
+- [x] Add conditional Tracy CMake registration that is not evaluated when
   `DURIN_ENABLE_TRACY=OFF`.
-- [ ] Update third-party bootstrap documentation with default, explicit, and
+- [x] Update third-party bootstrap documentation with default, explicit, and
   development-inclusive preparation flows.
 
 #### Acceptance Gate
@@ -242,19 +269,19 @@ Current gaps:
 
 ### Stage 3: Add Isolated Release Profiling Presets
 
-- [ ] Add `DURIN_ENABLE_TRACY`, defaulting to `OFF`, to workspace build options.
-- [ ] Reject Tracy in Shipping and expose
+- [x] Add `DURIN_ENABLE_TRACY`, defaulting to `OFF`, to workspace build options.
+- [x] Reject Tracy in Shipping and expose
   `DURIN_WITH_TRACY=0/1` consistently to repository targets and shared PCH
   contexts.
-- [ ] Configure one shared Tracy client runtime with on-demand and
+- [x] Configure one shared Tracy client runtime with on-demand and
   localhost-only capture.
-- [ ] Ensure every instrumented module links to the same shared client and that
+- [x] Ensure every instrumented module links to the same shared client and that
   the runtime is deployed through existing third-party runtime mechanisms.
-- [ ] Add editor and game Release Profiling presets with isolated binary and
+- [x] Add editor and game Release Profiling presets with isolated binary and
   final-output identifiers.
-- [ ] Register both presets in the repository Agent Build Profile and extend
+- [x] Register both presets in the repository Agent Build Profile and extend
   BuildTool configuration tests.
-- [ ] Ensure configure summaries and status output identify the runtime variant,
+- [x] Ensure configure summaries and status output identify the runtime variant,
   Release configuration, Profiling preset role, and Tracy state separately.
 
 #### Acceptance Gate
@@ -270,16 +297,16 @@ Current gaps:
 
 ### Stage 4: Add Initial CPU Instrumentation
 
-- [ ] Add the engine-owned profiling header and disabled-build macro tests.
-- [ ] Add one frame mark at the authoritative engine frame boundary.
-- [ ] Forward game, rendering, worker, and owned service-thread names at their
+- [x] Add the engine-owned profiling header and disabled-build macro tests.
+- [x] Add one frame mark at the authoritative engine frame boundary.
+- [x] Forward game, rendering, worker, and owned service-thread names at their
   thread entry boundaries.
-- [ ] Add zones around queued-task execution and a small set of stable top-level
+- [x] Add zones around queued-task execution and a small set of stable top-level
   frame phases.
-- [ ] Add targeted zones to representative renderer and asset workloads only
+- [x] Add targeted zones to representative renderer and asset workloads only
   where the boundary has actionable ownership.
-- [ ] Verify profiling-only arguments are not evaluated in disabled builds.
-- [ ] Document naming rules and the supported instrumentation surface for
+- [x] Verify profiling-only arguments are not evaluated in disabled builds.
+- [x] Document naming rules and the supported instrumentation surface for
   repository C++ contributors.
 
 #### Acceptance Gate
@@ -295,14 +322,14 @@ Current gaps:
 
 ### Stage 5: Complete Validation And Move Lasting Contracts
 
-- [ ] Run the plan validator and all focused Python/native tests introduced or
+- [x] Run the plan validator and all focused Python/native tests introduced or
   affected by the work.
-- [ ] Validate normal Editor and Game presets through the repository BuildTool.
+- [x] Validate normal Editor and Game presets through the repository BuildTool.
 - [ ] Validate both Release Profiling presets and record a smoke-capture result.
-- [ ] Complete a successful full `all` build for the registered Agent editor
+- [x] Complete a successful full `all` build for the registered Agent editor
   preset required by repository handoff rules.
-- [ ] Move lasting runtime-variant ownership rules into Workspace documentation.
-- [ ] Move lasting preset, bootstrap, build-option, deployment, and profiling
+- [x] Move lasting runtime-variant ownership rules into Workspace documentation.
+- [x] Move lasting preset, bootstrap, build-option, deployment, and profiling
   workflow rules into Development documentation.
 - [ ] Record completion evidence, close the plan checklists, and archive the
   plan according to the plan lifecycle rules.
@@ -356,7 +383,8 @@ Current gaps:
 ## Related Documentation
 
 - [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [Profiles](../Development/Build/Profiles.md)
+- [Runtime Variants](../Development/Build/RuntimeVariants.md)
+- [CPU Profiling](../Development/Build/Profiling.md)
 - [Build System](../Development/Build/BuildSystem.md)
 - [Build And Run](../Development/Build/BuildAndRun.md)
 - [Third-Party Bootstrap](../Development/Build/ThirdPartyBootstrap.md)

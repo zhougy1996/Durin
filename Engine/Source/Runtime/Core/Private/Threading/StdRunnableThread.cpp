@@ -1,6 +1,7 @@
 #include "Threading/StdRunnableThread.h"
 
 #include "HAL/PlatformLTS.h"
+#include "Profiling/Profiling.h"
 #include "Threading/Runnable.h"
 
 namespace Durin
@@ -68,6 +69,7 @@ namespace Durin
 		Thread = std::thread([this]() {
 			ThreadId.store(FPlatformLTS::GetCurrentThreadId(), std::memory_order::release);
 			this->AsCurrentThread();
+			DURIN_PROFILE_THREAD(GetThreadName());
 			DURIN_DEBUG("Thread started. (name: {}, id: {}, role: {})", GetThreadName(), GetThreadId(), GetThreadRoleName(GetThreadRole()));
 
 			const bool bInitialized = Runnable->Init();

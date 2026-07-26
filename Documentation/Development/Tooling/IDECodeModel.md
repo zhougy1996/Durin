@@ -132,4 +132,4 @@ before the next BuildTool build.
 
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/BuildSystem.md`
-- `Documentation/Development/Build/Profiles.md`
+- `Documentation/Development/Build/RuntimeVariants.md`

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 ARCH = "Win64"
-PROFILE_NAME = "DurinEditor"
+RUNTIME_VARIANT = "DurinEditor"
 BUILD_IDENTIFIER = ""
 TOOL_FINGERPRINT = ""
 

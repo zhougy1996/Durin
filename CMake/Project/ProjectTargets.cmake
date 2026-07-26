@@ -159,7 +159,7 @@ function(add_durin_module module_name)
 	endif()
 	target_sources(${module_name} PUBLIC ${module_public_srcs} PRIVATE ${module_private_srcs} ${module_generated_srcs})
 
-	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "${DURIN_PROFILE_NAME}-${module_name}")
+	set_target_properties(${module_name} PROPERTIES OUTPUT_NAME "${DURIN_RUNTIME_VARIANT}-${module_name}")
 
 	if("${_durin_module_link_type}" STREQUAL "SHARED")
 		string(TOUPPER ${module_name} _durin_module_name_upper)

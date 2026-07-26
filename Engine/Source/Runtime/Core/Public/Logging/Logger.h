@@ -49,7 +49,7 @@ namespace Durin
 		uint32 MaxFilesPerSession = 5;
 		uint32 MaxSessions = 10;
 		std::string LogDirectory;
-		std::string ProfileName = "Durin";
+		std::string RuntimeVariant = "Durin";
 	};
 
 	// Returns a history window and the sequence bounds needed to detect eviction.
