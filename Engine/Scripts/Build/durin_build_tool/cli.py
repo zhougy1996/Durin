@@ -174,6 +174,16 @@ DESTINATION_PATH = ArgumentSpec(
         "help": "workspace-relative project path",
     },
 )
+MODULE_DESTINATION_PATH = ArgumentSpec(
+    ("--path",),
+    "destination_path",
+    {
+        "type": Path,
+        "default": None,
+        "metavar": "PATH",
+        "help": "module directory inside the owning project (default: derived from --kind)",
+    },
+)
 MODULE_KIND = ArgumentSpec(
     ("--kind",),
     "module_kind",
@@ -332,10 +342,11 @@ CREATE_COMMAND_SPECS = (
     CommandSpec(
         Action.CREATE_MODULE,
         "create and register a module",
-        "create module NAME --project DESCRIPTOR [options]",
+        "create module NAME --project DESCRIPTOR [--path PATH] [options]",
         (
             CREATE_NAME,
             PROJECT_PATH,
+            MODULE_DESTINATION_PATH,
             MODULE_KIND,
             LINK_TYPE,
             PCH,

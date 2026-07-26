@@ -233,11 +233,27 @@ may be relative to the workspace root or absolute:
 .\BuildTool create module SceneEditor --project Sandbox\Sandbox.dproject --kind editor --private-dependency DurinEd
 ```
 
-Runtime modules are created under `Source/Runtime` and added to `BaseModules` by
-default. Editor modules are created under `Source/Editor` and added to
-`ExtraModules.DurinEditor.Modules`. Use `--enable none`, `--enable base`, or
-repeat `--enable <ProfileName>` to replace that default. Dependency options are
-repeatable:
+Without `--path`, runtime modules are created under
+`Source/Runtime/<ModuleName>` and added to `BaseModules`; editor modules are
+created under `Source/Editor/<ModuleName>` and added to
+`ExtraModules.DurinEditor.Modules`. The directory names are scaffolding
+defaults, not build-system classification. Use `--path <ProjectRelativePath>`
+to place the module elsewhere inside its owning project:
+
+```powershell
+.\BuildTool create module Combat --project MyGame\MyGame.dproject --path Source\Game\Combat --private-dependency Core
+.\BuildTool create module WorldTools --project MyGame\MyGame.dproject --path "Source\Tools\World Tools" --kind editor --private-dependency Core
+```
+
+An absolute `--path` is also accepted when it resolves inside the owning
+project. The destination must be new and cannot contain, be contained by, or
+otherwise overlap an existing module root. `--kind` still selects the default
+path when `--path` is omitted and controls the default enablement; it does not
+otherwise classify the custom directory.
+
+Use `--enable none`, `--enable base`, or repeat
+`--enable <ProfileName>` to replace the default enablement. Dependency options
+are repeatable:
 
 ```text
 --public-dependency
@@ -251,6 +267,11 @@ linkage, while `--pch <Name>` selects an existing shared PCH. A self-PCH module
 also receives `Private/PCH.<ModuleName>.h`. The minimal generated entry point
 uses Core's module interface, so include `Core` directly or through a dependency
 whose public interface exposes Core.
+
+Within the selected module root, ordinary source discovery currently uses the
+generated `Public/` and `Private/` directories recursively. A project may choose
+any higher-level organization—such as `Source/Game`, `Source/Features`, or
+`Source/Tools`—while retaining those module-internal visibility directories.
 
 Preview the complete operation without creating directories, temporary files,
 or descriptor edits:

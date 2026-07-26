@@ -356,6 +356,8 @@ class CliTests(unittest.TestCase):
                 "Gameplay",
                 "--project",
                 r"Sandbox\Sandbox.dproject",
+                "--path",
+                r"Source\Tools\Gameplay",
                 "--kind",
                 "editor",
                 "--link",
@@ -384,6 +386,7 @@ class CliTests(unittest.TestCase):
         self.assertIs(request.create_kind, build_config.CreateKind.MODULE)
         self.assertEqual(request.create_name, "Gameplay")
         self.assertEqual(request.project_path, Path(r"Sandbox\Sandbox.dproject"))
+        self.assertEqual(request.destination_path, Path(r"Source\Tools\Gameplay"))
         self.assertIs(request.module_kind, build_config.ModuleKind.EDITOR)
         self.assertIs(request.link_type, build_config.LinkType.STATIC)
         self.assertEqual(request.pch, "SharedPCH_Core")
@@ -420,6 +423,8 @@ class CliTests(unittest.TestCase):
                 "SceneEditor",
                 "--project",
                 r"Sandbox Projects\示例\Sandbox.dproject",
+                "--path",
+                r"Source\Tools\Scene Editor",
                 "--private-dependency",
                 "DurinEd",
                 "--enable",
@@ -428,6 +433,7 @@ class CliTests(unittest.TestCase):
         )
         parts = build_cli.split_shell_command(
             'create module SceneEditor --project "Sandbox Projects\\示例\\Sandbox.dproject" '
+            '--path "Source\\Tools\\Scene Editor" '
             "--private-dependency DurinEd --enable DurinEditor",
             current_host="windows",
         )
@@ -1757,6 +1763,97 @@ class ModuleScaffoldingTests(unittest.TestCase):
                 ["SceneEditor"],
             )
             self.assertNotIn("SceneEditor", project["BaseModules"])
+
+    def test_custom_path_is_independent_from_kind_and_default_enablement(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, sandbox_project = self.create_workspace(root)
+            request = build_cli.parse_args(
+                [
+                    "create",
+                    "module",
+                    "WorldTools",
+                    "--project",
+                    "Sandbox/Sandbox.dproject",
+                    "--path",
+                    "Source/Features/World Tools",
+                    "--kind",
+                    "editor",
+                    "--private-dependency",
+                    "Core",
+                ]
+            )
+            build_scaffolding.execute_plan(
+                build_scaffolding.plan_module_creation(request, root)
+            )
+
+            module_root = root / "Sandbox" / "Source" / "Features" / "World Tools"
+            project = json.loads(sandbox_project.read_text(encoding="utf-8"))
+            self.assertTrue((module_root / "WorldTools.dmodule").is_file())
+            self.assertEqual(
+                project["ModuleDirs"]["WorldTools"],
+                "Source/Features/World Tools",
+            )
+            self.assertEqual(
+                project["ExtraModules"]["DurinEditor"]["Modules"],
+                ["WorldTools"],
+            )
+            self.assertNotIn("WorldTools", project["BaseModules"])
+
+    def test_custom_path_rejects_outside_and_existing_module_overlap(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_workspace(root)
+            outside_request = build_cli.parse_args(
+                [
+                    "create",
+                    "module",
+                    "Outside",
+                    "--project",
+                    "Sandbox/Sandbox.dproject",
+                    "--path",
+                    str(root.parent / "Outside"),
+                ]
+            )
+            with self.assertRaisesRegex(build_config.BuildToolError, "inside"):
+                build_scaffolding.plan_module_creation(outside_request, root)
+
+            inside_absolute_request = build_cli.parse_args(
+                [
+                    "create",
+                    "module",
+                    "Absolute",
+                    "--project",
+                    "Sandbox/Sandbox.dproject",
+                    "--path",
+                    str(root / "Sandbox" / "Code" / "Absolute"),
+                ]
+            )
+            inside_plan = build_scaffolding.plan_module_creation(
+                inside_absolute_request,
+                root,
+            )
+            self.assertTrue(
+                any(
+                    operation.path
+                    == root / "Sandbox" / "Code" / "Absolute" / "Absolute.dmodule"
+                    for operation in inside_plan.operations
+                )
+            )
+
+            overlap_request = build_cli.parse_args(
+                [
+                    "create",
+                    "module",
+                    "Nested",
+                    "--project",
+                    "Sandbox/Sandbox.dproject",
+                    "--path",
+                    "Source/Runtime/Sandbox/Nested",
+                ]
+            )
+            with self.assertRaisesRegex(build_config.BuildToolError, "overlaps module"):
+                build_scaffolding.plan_module_creation(overlap_request, root)
 
     def test_none_enablement_dry_run_and_conflicts_leave_workspace_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

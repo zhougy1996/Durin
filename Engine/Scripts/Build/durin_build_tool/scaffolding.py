@@ -640,20 +640,45 @@ def plan_module_creation(
     )
     require_available_cmake_target(request.create_name, discovery)
 
-    kind_directory = "Runtime" if request.module_kind is ModuleKind.RUNTIME else "Editor"
-    module_directory = workspace_project.root / "Source" / kind_directory / request.create_name
+    if request.destination_path is None:
+        kind_directory = "Runtime" if request.module_kind is ModuleKind.RUNTIME else "Editor"
+        requested_module_directory = (
+            workspace_project.root / "Source" / kind_directory / request.create_name
+        )
+    else:
+        requested_module_directory = request.destination_path
+        if not requested_module_directory.is_absolute():
+            requested_module_directory = workspace_project.root / requested_module_directory
+    module_directory = require_contained_path(
+        requested_module_directory,
+        workspace_project.root,
+        label="Module destination",
+    )
     errors: list[str] = []
+    if module_directory == workspace_project.root:
+        errors.append("Module destination cannot be the project root.")
     if module_directory.exists():
         errors.append(f'Module destination already exists: "{module_directory}".')
+    for existing_module in workspace.modules:
+        existing_root = existing_module.path.parent.resolve()
+        if (
+            module_directory == existing_root
+            or _resolved_within(module_directory, existing_root)
+            or _resolved_within(existing_root, module_directory)
+        ):
+            errors.append(
+                f'Module destination overlaps module "{existing_module.name}" '
+                f'at "{existing_root}".'
+            )
     parent = module_directory.parent
     if parent.is_dir() and any(
-        child.name.casefold() == request.create_name.casefold()
+        child.name.casefold() == module_directory.name.casefold()
         for child in parent.iterdir()
     ):
         collision = next(
             child
             for child in parent.iterdir()
-            if child.name.casefold() == request.create_name.casefold()
+            if child.name.casefold() == module_directory.name.casefold()
         )
         errors.append(f'Module destination conflicts with existing path: "{collision}".')
     if errors:

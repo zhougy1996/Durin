@@ -34,13 +34,25 @@ Modules are the compilation and runtime loading units. They belong to a project,
 
 Most new gameplay or editor work should start as a module, not a new project.
 
-Use `BuildTool create module` to create and register one. The command writes the
-module beneath the owning project's `Source/Runtime` or `Source/Editor` root,
-adds its relative directory to `ModuleDirs`, and appends the selected enablement
-roots without reordering existing entries. Module names and CMake targets are
-case-insensitively unique across the workspace, and dependencies may cross
-project boundaries but must already exist. The full command syntax and defaults
-are documented in `Documentation/Development/Build/BuildAndRun.md`.
+Use `BuildTool create module` to create and register one. By default the command
+writes runtime and editor modules beneath `Source/Runtime` and `Source/Editor`,
+respectively. These are generator conventions rather than architectural
+categories: `--path <ProjectRelativePath>` may place a module anywhere inside
+its owning project, for example `Source/Game/Combat`,
+`Source/Features/Inventory`, or `Source/Tools/WorldTools`.
+
+`ModuleDirs` is the authoritative mapping from module name to project-relative
+module root. `BaseModules` and `ExtraModules.<Profile>.Modules`, not the physical
+directory name, determine where the module is enabled. Within each module root,
+ordinary source discovery still uses its recursive `Public/` and `Private/`
+trees as the visibility boundary.
+
+Creation adds the selected relative directory to `ModuleDirs` and appends the
+selected enablement roots without reordering existing entries. Module names and
+CMake targets are case-insensitively unique across the workspace; module roots
+must not overlap, and dependencies may cross project boundaries but must already
+exist. The full command syntax and defaults are documented in
+`Documentation/Development/Build/BuildAndRun.md`.
 
 When a separate top-level owner is required, use
 `BuildTool create project <Name> --path <Path>`. In the current workflow the

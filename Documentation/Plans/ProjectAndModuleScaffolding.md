@@ -9,8 +9,9 @@ Last reviewed: 2026-07-26
 Stages 0 through 3 are complete. BuildTool now creates runtime and editor
 modules and complete workspace-local projects from versioned disk templates,
 updates descriptor and root CMake registration transactionally, validates the
-final workspace descriptor graph, and supports mutation-free dry runs. Stage 4
-typed project launch and final integration is the next delivery target.
+final workspace descriptor graph, supports project-contained custom module
+paths, and provides mutation-free dry runs. Stage 4 typed project launch and
+final integration is the next delivery target.
 
 ## Goal
 
@@ -84,12 +85,15 @@ Every direct command must have equivalent interactive-shell syntax.
   valid C++ identifiers, valid CMake target names, case-insensitively unique
   across all workspace-supplied project descriptors, and equal to the
   `ModuleName` written to the descriptor.
-- `--kind runtime` creates `Source/Runtime/<ModuleName>` and enables the module
-  in `BaseModules` by default. `--kind editor` creates
-  `Source/Editor/<ModuleName>` and enables it in
-  `ExtraModules.DurinEditor.Modules` by default. `--enable none`,
-  `--enable base`, and repeated `--enable <ProfileName>` explicitly override
-  those defaults.
+- Without `--path`, `--kind runtime` creates
+  `Source/Runtime/<ModuleName>` and enables the module in `BaseModules`, while
+  `--kind editor` creates `Source/Editor/<ModuleName>` and enables it in
+  `ExtraModules.DurinEditor.Modules`. `--path <ProjectRelativePath>` overrides
+  only physical placement and must resolve inside the owning project without
+  overlapping another module root. Directory names do not classify modules;
+  `--kind` and explicit `--enable` values determine defaults and enablement.
+  `--enable none`, `--enable base`, and repeated
+  `--enable <ProfileName>` explicitly override those defaults.
 - Module dependencies are supplied with repeatable
   `--public-dependency`, `--private-dependency`,
   `--optional-public-dependency`, and `--optional-private-dependency` options.
@@ -225,6 +229,8 @@ Every direct command must have equivalent interactive-shell syntax.
 ### Stage 2: One-Command Module Creation
 
 - [x] Implement runtime/editor path selection and default enablement.
+- [x] Allow an explicit project-contained module path without coupling physical
+  source organization to runtime/editor enablement.
 - [x] Generate the module directory, `.dmodule`, `CMakeLists.txt`, minimal module
   entry point, API header, and self-PCH header when using the default PCH mode.
 - [x] Update `ModuleDirs` and the selected `BaseModules`/`ExtraModules` roots
