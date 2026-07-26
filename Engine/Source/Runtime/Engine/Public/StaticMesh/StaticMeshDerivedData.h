@@ -8,7 +8,7 @@
 namespace Durin
 {
 	inline constexpr uint32 StaticMeshPayloadMagic = 0x48534D44; // DMSH
-	inline constexpr uint32 StaticMeshPayloadSchemaVersion = 1;
+	inline constexpr uint32 StaticMeshPayloadSchemaVersion = 2;
 	inline constexpr uint32 StaticMeshBuilderVersion = 1;
 	inline constexpr uint32 StaticMeshDerivedDataKeySchemaVersion = 1;
 	inline constexpr uint32 StaticMeshPayloadAlignment = 16;
@@ -103,7 +103,7 @@ namespace Durin
 	ENGINE_API auto BuildStaticMeshDerivedDataKey(
 		const FStaticMeshDerivedDataKeyInput& Input) -> std::string;
 
-	// Encodes a validated logical mesh into deterministic DMSH schema-version-one bytes.
+	// Encodes a validated logical mesh into deterministic DMSH schema-version-two bytes.
 	ENGINE_API auto EncodeStaticMeshPayload(
 		const FStaticMeshPayloadData& Payload,
 		EStaticMeshTargetPlatform TargetPlatform,

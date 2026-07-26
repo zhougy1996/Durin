@@ -171,7 +171,7 @@ namespace Durin
 					return Fail(OutError, std::format("Static-mesh payload LOD {} has an invalid index count.", LODIndex));
 				if (LOD.Sections.empty() || LOD.Sections.size() > MaximumStaticMeshSectionsPerLOD)
 					return Fail(OutError, std::format("Static-mesh payload LOD {} has an invalid section count.", LODIndex));
-				if (LOD.NumTexCoords == 0 || LOD.NumTexCoords > MaxStaticMeshUVChannels)
+				if (LOD.NumTexCoords > MaxStaticMeshUVChannels)
 					return Fail(OutError, std::format("Static-mesh payload LOD {} has an invalid UV-channel count.", LODIndex));
 				const uint64 LODPayloadBytes = 4ull + static_cast<uint64>(LOD.Sections.size()) * 44ull
 					+ static_cast<uint64>(VertexCount) * (40ull + static_cast<uint64>(LOD.NumTexCoords) * 8ull
@@ -385,7 +385,7 @@ namespace Durin
 				if (VertexCount == 0 || VertexCount > MaximumStaticMeshVerticesPerLOD
 					|| IndexCount == 0 || IndexCount > MaximumStaticMeshIndicesPerLOD
 					|| SectionCount == 0 || SectionCount > MaximumStaticMeshSectionsPerLOD
-					|| LOD.NumTexCoords == 0 || LOD.NumTexCoords > MaxStaticMeshUVChannels
+					|| LOD.NumTexCoords > MaxStaticMeshUVChannels
 					|| (Flags & ~1u) != 0 || Reserved != 0)
 					return Fail(OutError, "Static-mesh LOD chunk contains an invalid count, flag, or reserved value.");
 				LOD.bHasVertexColors = (Flags & 1u) != 0;

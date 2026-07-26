@@ -106,6 +106,14 @@ namespace
 		return Payload;
 	}
 
+	auto MakeNoUVFixture() -> FStaticMeshPayloadData
+	{
+		FStaticMeshPayloadData Payload = MakeSingleSectionFixture();
+		Payload.LODs[0].TexCoords[0].clear();
+		Payload.LODs[0].NumTexCoords = 0;
+		return Payload;
+	}
+
 	auto Encode(const FStaticMeshPayloadData& Payload) -> std::vector<uint8>
 	{
 		std::vector<uint8> Bytes;
@@ -244,8 +252,8 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 {
 	const std::array Fixtures{MakeSingleSectionFixture(), MakeMultiMaterialFixture()};
 	const std::array<std::string_view, 2> ExpectedPayloadHashes{
-		"ad51dc11ff51b69375608a9877a64f3a",
-		"6c1e194288afa6d31ef945773b2c26b4"};
+		"31c37f86ed5caa8a579bb2f7c2a1a7cb",
+		"da830a88b13fea4311711b14cbf4c573"};
 	const std::array<size_t, 2> ExpectedPayloadSizes{572, 856};
 	for (size_t FixtureIndex = 0; FixtureIndex < Fixtures.size(); ++FixtureIndex)
 	{
@@ -271,6 +279,32 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 	}
 }
 
+TEST(FStaticMeshPayloadCodecTests, SupportsMeshWithoutUVChannels)
+{
+	const FStaticMeshPayloadData Fixture = MakeNoUVFixture();
+	const std::vector<uint8> Bytes = Encode(Fixture);
+
+	FStaticMeshPayloadData Decoded;
+	std::string Error;
+	ASSERT_TRUE(DecodeStaticMeshPayload(Bytes, EStaticMeshTargetPlatform::Win64, Decoded, Error)) << Error;
+	ExpectEquivalent(Decoded, Fixture);
+
+	std::unique_ptr<FStaticMeshRenderData> RenderData;
+	ASSERT_TRUE(MakeStaticMeshRenderData(Decoded, RenderData, Error)) << Error;
+	ASSERT_EQ(RenderData->LODResources.size(), 1u);
+	const FStaticMeshLODResources& LOD = RenderData->LODResources[0];
+	EXPECT_EQ(LOD.NumTexCoords, 0u);
+	for (const auto& Channel : LOD.TexCoords)
+	{
+		ASSERT_EQ(Channel.size(), LOD.Positions.size());
+		for (const FVector2f& UV : Channel) ExpectVector(UV, FVector2f(0.0f));
+	}
+
+	FStaticMeshPayloadData ConvertedBack;
+	ASSERT_TRUE(MakeStaticMeshPayloadData(*RenderData, ConvertedBack, Error)) << Error;
+	ExpectEquivalent(ConvertedBack, Fixture);
+}
+
 TEST(FStaticMeshPayloadCodecTests, RejectsEveryTruncationAndChecksumCorruptionTransactionally)
 {
 	const std::vector<uint8> Valid = Encode(MakeSingleSectionFixture());
@@ -294,7 +328,7 @@ TEST(FStaticMeshPayloadCodecTests, RejectsInvalidEnvelopeAndChunkRanges)
 	};
 
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 0, 0); });
-	Mutate([](auto& Bytes) { WriteU32(Bytes, 4, 2); });
+	Mutate([](auto& Bytes) { WriteU32(Bytes, 4, 3); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 8, 2); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 12, 0); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 16, 2); });

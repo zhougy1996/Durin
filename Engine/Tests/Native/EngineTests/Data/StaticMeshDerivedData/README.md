@@ -1,15 +1,15 @@
 # Static Mesh Derived-Data Fixtures
 
-These fixtures are the canonical logical inputs for DMSH schema version 1.
+These fixtures are the canonical logical inputs for DMSH schema version 2.
 Stage 2 encodes them into payload bytes and compares deterministic output.
 Coordinates, stream elements, slot ids, and ordering are exact.
 
-The schema-version-one Win64 encodings are frozen as:
+The schema-version-two Win64 encodings are frozen as:
 
 | Fixture | Stored bytes | XXH3-128 of complete object |
 | --- | ---: | --- |
-| `SingleSection` | 572 | `ad51dc11ff51b69375608a9877a64f3a` |
-| `MultiMaterialStreams` | 856 | `6c1e194288afa6d31ef945773b2c26b4` |
+| `SingleSection` | 572 | `31c37f86ed5caa8a579bb2f7c2a1a7cb` |
+| `MultiMaterialStreams` | 856 | `da830a88b13fea4311711b14cbf4c573` |
 
 ## `SingleSection`
 

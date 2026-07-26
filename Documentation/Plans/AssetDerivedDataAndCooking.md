@@ -551,12 +551,14 @@ provenance and may be stripped from cooked packages.
 
 ### DMSH envelope and chunk table
 
-Schema version 1 uses a 64-byte header:
+Schema version 2 uses a 64-byte header. It differs from version 1 by allowing
+an LOD to declare zero UV channels; readers continue to reject unsupported
+schema versions.
 
 | Offset | Type | Field |
 | ---: | --- | --- |
 | 0 | `uint32` | magic `0x48534D44` (`DMSH` in file order) |
-| 4 | `uint32` | payload schema version, currently `1` |
+| 4 | `uint32` | payload schema version, currently `2` |
 | 8 | `uint32` | mesh-builder version, currently `1` |
 | 12 | `uint32` | target platform (`0` invalid/unknown, `1` Win64) |
 | 16 | `uint32` | payload flags; bit 0 means at least one chunk is compressed |
@@ -571,7 +573,7 @@ Schema version 1 uses a 64-byte header:
 Each 32-byte chunk-table entry is `{uint32 type, uint32 flags, uint64 offset,
 uint64 stored size, uint64 uncompressed size}`. Bit 0 of flags is `Required`;
 bits 8 through 15 encode compression (`0` none, `1` Zstandard), and all other
-bits are reserved. Schema 1 writers use no compression. Readers reject an
+bits are reserved. Schema 2 writers use no compression. Readers reject an
 unsupported compression method, a compressed chunk ratio above `64:1`, or a
 payload whose declared total uncompressed size exceeds 8 GiB.
 
@@ -591,8 +593,10 @@ The required chunk payloads are:
 - `LODs`: `uint32 count`, then one 40-byte record per LOD:
   `{uint32 vertex count, uint32 index count, uint32 section count, uint8 UV
   count, uint8 flags, uint16 reserved, float32 bounds[6]}`. Flags bit 0 means
-  vertex colors are present. Limits are eight LODs, 100,000,000 vertices,
-  300,000,000 indices, and 65,536 sections per LOD.
+  vertex colors are present. UV count is from zero through four; zero stores no
+  UV arrays and runtime render data supplies zero-filled packed coordinates.
+  Limits are eight LODs, 100,000,000 vertices, 300,000,000 indices, and 65,536
+  sections per LOD.
 - `Sections`: for each LOD, `uint32 count`, then 44-byte records containing five
   `uint32` values (`first index`, `index count`, `minimum vertex`, `maximum
   vertex`, `material slot`) followed by six finite bounds `float32` values.
