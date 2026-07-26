@@ -93,6 +93,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	EXPECT_EQ(Result.Asset->GetSourceContentHash().size(), 32u);
 	EXPECT_FALSE(Result.Asset->GetDerivedDataKey().empty());
 	EXPECT_FALSE(Result.Asset->WasLoadedFromDerivedDataCache());
+	EXPECT_TRUE(Result.Asset->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
 	const std::filesystem::path CachePath = GetTextureCachePath(*Result.Asset);
 	const std::string OriginalKey = Result.Asset->GetDerivedDataKey();
 	EXPECT_TRUE(std::filesystem::is_regular_file(CachePath));
@@ -106,6 +107,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
+	EXPECT_FALSE(Loaded->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
 	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
 	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
 	ExpectPlatformDataEqual(*Loaded->GetPlatformData(), ExpectedPlatformData);
@@ -118,6 +120,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	}
 	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
 	EXPECT_FALSE(Loaded->WasLoadedFromDerivedDataCache());
+	EXPECT_TRUE(Loaded->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
 	ASSERT_NE(Loaded->GetSourceData(), nullptr);
 	ASSERT_NE(Loaded->GetPlatformData(), nullptr);
 	ExpectPlatformDataEqual(*Loaded->GetPlatformData(), ExpectedPlatformData);

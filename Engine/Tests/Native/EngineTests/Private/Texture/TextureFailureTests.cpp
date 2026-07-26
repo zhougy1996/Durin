@@ -61,7 +61,7 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 }
 
-TEST(FTexture2DTests, MissingSourceInvalidatesDerivedDataAndCanRecover)
+TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
 {
 	InitializeDObjectSystem();
 	static const bool bMountInitialized = [] {
@@ -89,11 +89,29 @@ TEST(FTexture2DTests, MissingSourceInvalidatesDerivedDataAndCanRecover)
 	ASSERT_TRUE(std::filesystem::remove(CopiedSource));
 
 	std::string Error;
+	EXPECT_TRUE(Texture->PostLoad(Error)) << Error;
+	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
+	EXPECT_EQ(Texture->GetSourceData(), nullptr);
+	EXPECT_NE(Texture->GetPlatformData(), nullptr);
+	EXPECT_TRUE(Texture->WasLoadedFromDerivedDataCache());
+	EXPECT_EQ(Texture->GetDerivedDataDiagnostic().Status,
+		Durin::ETextureDerivedDataStatus::SourceUnavailableCached);
+	EXPECT_TRUE(Texture->GetLastBuildError().empty());
+
+	const Durin::FTexturePlatformData RetainedPlatformData = *Texture->GetPlatformData();
+	const Durin::uint64 RetainedRevision = Texture->GetBuildRevision();
+	{
+		const std::array<Durin::uint8, 4> CorruptBytes = {1, 2, 3, 4};
+		std::ofstream Stream(GetTextureCachePath(*Texture), std::ios::binary | std::ios::trunc);
+		Stream.write(reinterpret_cast<const char*>(CorruptBytes.data()), CorruptBytes.size());
+	}
 	EXPECT_FALSE(Texture->PostLoad(Error));
 	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::MissingSource);
-	EXPECT_EQ(Texture->GetSourceData(), nullptr);
-	EXPECT_EQ(Texture->GetPlatformData(), nullptr);
-	EXPECT_FALSE(Texture->GetLastBuildError().empty());
+	ASSERT_NE(Texture->GetPlatformData(), nullptr);
+	ExpectPlatformDataEqual(*Texture->GetPlatformData(), RetainedPlatformData);
+	EXPECT_EQ(Texture->GetBuildRevision(), RetainedRevision);
+	EXPECT_EQ(Texture->GetDerivedDataDiagnostic().Status,
+		Durin::ETextureDerivedDataStatus::SourceUnavailable);
 
 	WriteTextureFixture(CopiedSource);
 	ASSERT_TRUE(Texture->PostLoad(Error)) << Error;

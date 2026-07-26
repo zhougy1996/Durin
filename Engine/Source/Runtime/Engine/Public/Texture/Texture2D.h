@@ -76,6 +76,27 @@ namespace Durin
 		CreateOrUpload,
 	};
 
+	enum class ETextureDerivedDataStatus : uint8
+	{
+		None,
+		Hit,
+		Missing,
+		Corrupt,
+		Incompatible,
+		Rebuilt,
+		WriteFailure,
+		SourceUnavailableCached,
+		SourceUnavailable
+	};
+
+	struct FTextureDerivedDataDiagnostic
+	{
+		ETextureDerivedDataStatus Status = ETextureDerivedDataStatus::None;
+		std::string Key;
+		std::string Message;
+		bool bSourceDecoderInvoked = false;
+	};
+
 	// Owns decoded source pixels before platform-specific conversion.
 	struct FTextureSourceData
 	{
@@ -153,6 +174,7 @@ namespace Durin
 		auto SourceHasTransparency() const -> bool { return bSourceHasTransparency; }
 		auto GetPlatformData() const -> const FTexturePlatformData* { return PlatformData.get(); }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
+		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetRenderResource() const -> const std::shared_ptr<FTexture2DRenderResource>& { return RenderResource; }
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
@@ -243,6 +265,7 @@ namespace Durin
 		std::unique_ptr<FTextureSourceData> SourceData;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
 		std::string DerivedDataKey;
+		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
 		bool bLoadedFromDerivedDataCache = false;
 
 		// The shared proxy can outlive this UObject while queued render commands drain.

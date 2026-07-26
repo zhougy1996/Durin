@@ -2,6 +2,7 @@
 
 #include "AssetCore.h"
 #include "AssetSystem.h"
+#include "DerivedDataObjectStore.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Hash/XxHash.h"
@@ -11,15 +12,27 @@
 #include "DynamicRHI.h"
 #include "Texture/Texture2DRenderResource.h"
 #include "Texture/TextureBuild.h"
+#include "Texture/TextureDerivedData.h"
 
 namespace Durin
 {
 	namespace
 	{
-		constexpr uint32 TextureDerivedDataMagic = 0x44445854; // TXDD
-		constexpr uint32 TextureDerivedDataSchemaVersion = 1;
-		constexpr uint32 TextureBuilderVersion = 1;
-		constexpr uint64 MaximumTextureDerivedDataBytes = 2ull * 1024ull * 1024ull * 1024ull;
+		constexpr uint64 TextureDerivedDataBudgetBytes = 4ull * 1024ull * 1024ull * 1024ull;
+		constexpr uint32 TextureDerivedDataCleanupDeleteLimit = 16;
+
+		auto GetTextureObjectStore() -> Asset::FDerivedDataObjectStore
+		{
+			return Asset::FDerivedDataObjectStore("Textures/Objects", MaximumTexturePayloadBytes);
+		}
+
+		auto IsCanonicalTextureHash(std::string_view Hash) -> bool
+		{
+			return Hash.size() == 32 && std::ranges::all_of(Hash, [](char Character) {
+				return Character >= '0' && Character <= '9'
+					|| Character >= 'a' && Character <= 'f';
+			});
+		}
 
 		auto ResolveMountedFile(std::string_view VirtualPath) -> std::filesystem::path
 		{
@@ -52,113 +65,72 @@ namespace Durin
 				ResolveMountedFile(Texture.GetPackage()->GetPackagePath()));
 		}
 
-		auto MakeTextureDerivedDataKey(const DTexture2D& Texture) -> std::string
+		auto MakeTextureDerivedDataKey(const DTexture2D& Texture, std::string& OutKey, std::string& OutError) -> bool
 		{
-			DerivedDataCache::FWriter Key;
-			Key.WriteString("DurinTexture2D");
-			Key.WriteU32(TextureBuilderVersion);
-			Key.WriteString(DURIN_BUILD_PLATFORM_STRING);
-			Key.WriteString(Texture.GetSourceContentHash());
-			Key.WriteU8(static_cast<uint8>(Texture.GetUsage()));
-			Key.WriteU8(Texture.IsSRGB() ? 1 : 0);
-			Key.WriteU32(Texture.GetMaxResolution());
-			Key.WriteU8(static_cast<uint8>(Texture.GetCompressionQuality()));
-			Key.WriteU8(static_cast<uint8>(Texture.GetAlphaMipMode()));
-			Key.WriteU32(std::bit_cast<uint32>(Texture.GetAlphaCoverageThreshold()));
-			return FXxHash128::HashBuffer(Key.GetBytes()).ToString();
-		}
-
-		auto TextureDerivedDataPath(std::string_view Key) -> std::filesystem::path
-		{
-			check(Key.size() >= 2);
-			return std::filesystem::path(FPaths::DerivedDataCacheDir())
-				/ "Textures" / "Objects" / std::string(Key.substr(0, 2)) / (std::string(Key) + ".bin");
-		}
-
-		auto SerializeTexturePlatformData(const FTexturePlatformData& PlatformData) -> std::vector<uint8>
-		{
-			DerivedDataCache::FWriter Payload;
-			Payload.WriteU8(static_cast<uint8>(PlatformData.PixelFormat));
-			Payload.WriteU32(static_cast<uint32>(PlatformData.Mips.size()));
-			for (const FTexture2DMipData& Mip : PlatformData.Mips)
+			if (!IsCanonicalTextureHash(Texture.GetSourceContentHash()))
 			{
-				Payload.WriteU32(Mip.Width);
-				Payload.WriteU32(Mip.Height);
-				Payload.WriteU32(Mip.RowPitch);
-				Payload.WriteU64(Mip.Pixels.size());
-				Payload.WriteBytes(Mip.Pixels);
+				OutError = "Texture source content hash is missing or invalid.";
+				return false;
 			}
-
-			const std::vector<uint8>& PayloadBytes = Payload.GetBytes();
-			DerivedDataCache::FWriter File;
-			File.WriteHeader({TextureDerivedDataMagic, TextureDerivedDataSchemaVersion, TextureBuilderVersion});
-			File.WriteU64(FXxHash64::HashBuffer(PayloadBytes).HashValue);
-			File.WriteU64(PayloadBytes.size());
-			File.WriteBytes(PayloadBytes);
-			return File.TakeBytes();
-		}
-
-		auto DeserializeTexturePlatformData(std::span<const uint8> Bytes,
-			std::unique_ptr<FTexturePlatformData>& OutPlatformData) -> bool
-		{
-			DerivedDataCache::FReader File(Bytes);
-			uint64 StoredHash = 0;
-			uint64 PayloadSize = 0;
-			std::vector<uint8> PayloadBytes;
-			if (!File.ReadAndValidateHeader(TextureDerivedDataMagic, TextureDerivedDataSchemaVersion, TextureBuilderVersion)
-				|| !File.ReadU64(StoredHash) || !File.ReadU64(PayloadSize)
-				|| !File.ReadBytes(PayloadBytes, PayloadSize, MaximumTextureDerivedDataBytes)
-				|| !File.IsAtEnd() || FXxHash64::HashBuffer(PayloadBytes).HashValue != StoredHash) return false;
-
-			DerivedDataCache::FReader Payload(PayloadBytes);
-			uint8 PixelFormatValue = 0;
-			uint32 MipCount = 0;
-			if (!Payload.ReadU8(PixelFormatValue)
-				|| PixelFormatValue == static_cast<uint8>(EPixelFormat::Unknown)
-				|| PixelFormatValue >= static_cast<uint8>(EPixelFormat::Count)
-				|| !Payload.ReadU32(MipCount) || MipCount == 0
-				|| MipCount > std::numeric_limits<uint8>::max()) return false;
-
-			auto PlatformData = std::make_unique<FTexturePlatformData>();
-			PlatformData->PixelFormat = static_cast<EPixelFormat>(PixelFormatValue);
-			PlatformData->Mips.reserve(MipCount);
-			uint64 TotalPayloadBytes = 0;
-			for (uint32 MipIndex = 0; MipIndex < MipCount; ++MipIndex)
-			{
-				FTexture2DMipData Mip;
-				uint64 MipByteCount = 0;
-				if (!Payload.ReadU32(Mip.Width) || !Payload.ReadU32(Mip.Height)
-					|| !Payload.ReadU32(Mip.RowPitch) || !Payload.ReadU64(MipByteCount)
-					|| MipByteCount > MaximumTextureDerivedDataBytes - TotalPayloadBytes
-					|| !Payload.ReadBytes(Mip.Pixels, MipByteCount, MaximumTextureDerivedDataBytes)) return false;
-				TotalPayloadBytes += MipByteCount;
-				PlatformData->Mips.push_back(std::move(Mip));
-			}
-			if (!Payload.IsAtEnd() || !PlatformData->IsValid()) return false;
-			OutPlatformData = std::move(PlatformData);
+			OutKey = BuildTexture2DDerivedDataKey({
+				.SourceContentHash = FXxHash128::FromString(Texture.GetSourceContentHash()),
+				.Usage = Texture.GetUsage(),
+				.bSRGB = Texture.IsSRGB(),
+				.CompressionQuality = Texture.GetCompressionQuality(),
+				.AlphaMipMode = Texture.GetAlphaMipMode(),
+				.MaximumResolution = Texture.GetMaxResolution(),
+				.AlphaCoverageThreshold = Texture.GetAlphaCoverageThreshold(),
+				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
+				.TargetProfile = Asset::ECookTargetProfile::Game});
+			OutError.clear();
 			return true;
 		}
 
 		auto LoadTextureDerivedData(std::string_view Key,
-			std::unique_ptr<FTexturePlatformData>& OutPlatformData) -> bool
+			std::unique_ptr<FTexturePlatformData>& OutPlatformData,
+			ETextureDerivedDataStatus& OutStatus,
+			std::string& OutMessage) -> bool
 		{
-			const std::filesystem::path Path = TextureDerivedDataPath(Key);
-			std::error_code Error;
-			const uint64 FileSize = std::filesystem::file_size(Path, Error);
-			if (Error || FileSize > MaximumTextureDerivedDataBytes) return false;
 			std::vector<uint8> Bytes;
-			return FFileHelper::LoadFileToArray(Bytes, Path.generic_string())
-				&& DeserializeTexturePlatformData(Bytes, OutPlatformData);
+			const Asset::FDerivedDataObjectReadResult Read = GetTextureObjectStore().Read(Key, Bytes);
+			if (!Read)
+			{
+				OutStatus = Read.Status == Asset::EDerivedDataObjectReadStatus::Missing
+					? ETextureDerivedDataStatus::Missing
+					: ETextureDerivedDataStatus::Corrupt;
+				OutMessage = Read.Message;
+				return false;
+			}
+			std::string Error;
+			if (!DecodeTexture2DPayload(
+				Bytes, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
+				OutPlatformData, Error))
+			{
+				OutStatus = Error.find("unsupported") != std::string::npos
+					? ETextureDerivedDataStatus::Incompatible
+					: ETextureDerivedDataStatus::Corrupt;
+				OutMessage = std::move(Error);
+				return false;
+			}
+			OutStatus = ETextureDerivedDataStatus::Hit;
+			OutMessage.clear();
+			return true;
 		}
 
-		auto StoreTextureDerivedData(std::string_view Key, const FTexturePlatformData& PlatformData) -> void
+		auto StoreTextureDerivedData(
+			std::string_view Key,
+			const FTexturePlatformData& PlatformData,
+			std::string& OutError) -> bool
 		{
-			const std::filesystem::path Path = TextureDerivedDataPath(Key);
-			std::error_code Error;
-			std::filesystem::create_directories(Path.parent_path(), Error);
-			if (Error) return;
-			const std::vector<uint8> Bytes = SerializeTexturePlatformData(PlatformData);
-			DerivedDataCache::WriteFileAtomically(Path, Bytes);
+			std::vector<uint8> Bytes;
+			if (!EncodeTexture2DPayload(
+				PlatformData, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
+				Bytes, OutError)
+				|| !GetTextureObjectStore().Write(Key, Bytes, &OutError)) return false;
+			const Asset::FDerivedDataObjectCleanupResult Cleanup = GetTextureObjectStore().CleanupToBudget(
+				TextureDerivedDataBudgetBytes, TextureDerivedDataCleanupDeleteLimit);
+			if (!Cleanup.Message.empty()) DURIN_WARN("Texture2D DDC cleanup: {}", Cleanup.Message);
+			return true;
 		}
 	} // namespace
 
@@ -308,11 +280,11 @@ namespace Durin
 		{
 			BuildStatus = ETextureBuildStatus::DecodeFailure;
 			LastBuildError = OutError;
-			SourceData.reset();
-			InvalidatePlatformData();
 			return false;
 		}
-		return RebuildPlatformData(OutError);
+		const bool bSucceeded = RebuildPlatformData(OutError);
+		DerivedDataDiagnostic.bSourceDecoderInvoked = true;
+		return bSucceeded;
 	}
 
 	auto DTexture2D::EnsureSourceData(std::string& OutError) -> bool
@@ -347,15 +319,35 @@ namespace Durin
 			else
 				BuildStatus = ETextureBuildStatus::BuildFailure;
 			LastBuildError = OutError;
-			InvalidatePlatformData();
+			return false;
+		}
+		std::string NewKey;
+		if (!MakeTextureDerivedDataKey(*this, NewKey, OutError))
+		{
+			BuildStatus = ETextureBuildStatus::BuildFailure;
+			LastBuildError = OutError;
+			return false;
+		}
+		if (!StoreTextureDerivedData(NewKey, *NewPlatformData, OutError))
+		{
+			DerivedDataDiagnostic = {
+				.Status = ETextureDerivedDataStatus::WriteFailure,
+				.Key = NewKey,
+				.Message = std::format("Texture2D DDC write failed for key {}: {}", NewKey, OutError)};
+			BuildStatus = ETextureBuildStatus::BuildFailure;
+			LastBuildError = DerivedDataDiagnostic.Message;
+			OutError = LastBuildError;
 			return false;
 		}
 		PlatformData = std::move(NewPlatformData);
+		DerivedDataKey = std::move(NewKey);
+		bLoadedFromDerivedDataCache = false;
+		DerivedDataDiagnostic = {
+			.Status = ETextureDerivedDataStatus::Rebuilt,
+			.Key = DerivedDataKey,
+			.Message = std::format("Rebuilt Texture2D and stored DDC key {}.", DerivedDataKey)};
 		BuildStatus = ETextureBuildStatus::Ready;
 		LastBuildError.clear();
-		DerivedDataKey = MakeTextureDerivedDataKey(*this);
-		bLoadedFromDerivedDataCache = false;
-		StoreTextureDerivedData(DerivedDataKey, *PlatformData);
 		QueueRenderResourceBuild();
 		return true;
 	}
@@ -515,48 +507,90 @@ namespace Durin
 		BuildStatus = ETextureBuildStatus::Unbuilt;
 		LastBuildError.clear();
 		DerivedDataKey.clear();
+		DerivedDataDiagnostic = {};
 		bLoadedFromDerivedDataCache = false;
 		if (SourceFile.empty())
 		{
 			OutError = "Texture asset has no source file.";
-			SourceData.reset();
-			InvalidatePlatformData();
+			DerivedDataDiagnostic.Status = ETextureDerivedDataStatus::SourceUnavailable;
+			DerivedDataDiagnostic.Message = OutError;
 			BuildStatus = ETextureBuildStatus::MissingSource;
 			LastBuildError = OutError;
 			return false;
 		}
 		const std::filesystem::path PhysicalPath = ResolveTextureSource(*this);
-		if (!std::filesystem::is_regular_file(PhysicalPath))
-		{
-			OutError = std::format("Texture source file does not exist: {}", SourceFile);
-			SourceData.reset();
-			InvalidatePlatformData();
-			BuildStatus = ETextureBuildStatus::MissingSource;
-			LastBuildError = OutError;
-			return false;
-		}
+		const bool bSourceAvailable = std::filesystem::is_regular_file(PhysicalPath);
 		std::error_code FingerprintError;
-		const uint64 CurrentFileSize = std::filesystem::file_size(PhysicalPath, FingerprintError);
-		const std::filesystem::file_time_type CurrentLastWriteTime =
-			std::filesystem::last_write_time(PhysicalPath, FingerprintError);
-		const bool bSourceFingerprintMatches = !FingerprintError
+		uint64 CurrentFileSize = 0;
+		std::filesystem::file_time_type CurrentLastWriteTime;
+		if (bSourceAvailable)
+		{
+			CurrentFileSize = std::filesystem::file_size(PhysicalPath, FingerprintError);
+			CurrentLastWriteTime = std::filesystem::last_write_time(PhysicalPath, FingerprintError);
+		}
+		const bool bSourceFingerprintMatches = bSourceAvailable && !FingerprintError
 			&& CurrentFileSize == SourceFileSize
 			&& DerivedDataCache::FileTimeToStableTicks(CurrentLastWriteTime) == SourceLastWriteTime;
-		if (!SourceContentHash.empty() && bSourceFingerprintMatches)
+		if (IsCanonicalTextureHash(SourceContentHash)
+			&& (!bSourceAvailable || bSourceFingerprintMatches))
 		{
-			DerivedDataKey = MakeTextureDerivedDataKey(*this);
+			if (!MakeTextureDerivedDataKey(*this, DerivedDataKey, OutError))
+			{
+				DerivedDataDiagnostic.Status = ETextureDerivedDataStatus::Incompatible;
+				DerivedDataDiagnostic.Message = OutError;
+				return false;
+			}
 			std::unique_ptr<FTexturePlatformData> CachedPlatformData;
-			if (LoadTextureDerivedData(DerivedDataKey, CachedPlatformData))
+			ETextureDerivedDataStatus CacheStatus = ETextureDerivedDataStatus::Missing;
+			std::string CacheMessage;
+			if (LoadTextureDerivedData(
+				DerivedDataKey, CachedPlatformData, CacheStatus, CacheMessage))
 			{
 				SourceData.reset();
 				PlatformData = std::move(CachedPlatformData);
 				BuildStatus = ETextureBuildStatus::Ready;
 				bLoadedFromDerivedDataCache = true;
+				DerivedDataDiagnostic = {
+					.Status = bSourceAvailable
+						? ETextureDerivedDataStatus::Hit
+						: ETextureDerivedDataStatus::SourceUnavailableCached,
+					.Key = DerivedDataKey,
+					.Message = bSourceAvailable
+						? std::format("Texture2D DDC hit for key {}.", DerivedDataKey)
+						: std::format(
+							"Texture2D source is unavailable, but cached key {} loaded successfully.",
+							DerivedDataKey)};
 				QueueRenderResourceBuild();
+				OutError.clear();
 				return true;
 			}
+			DerivedDataDiagnostic = {
+				.Status = CacheStatus,
+				.Key = DerivedDataKey,
+				.Message = std::format("Texture2D DDC miss for key {}: {}", DerivedDataKey, CacheMessage)};
+			if (!bSourceAvailable)
+			{
+				DerivedDataDiagnostic.Status = ETextureDerivedDataStatus::SourceUnavailable;
+				DerivedDataDiagnostic.Message = std::format(
+					"Texture source file does not exist: {}. Cached payload was unavailable: {}",
+					SourceFile, CacheMessage);
+				OutError = DerivedDataDiagnostic.Message;
+				BuildStatus = ETextureBuildStatus::MissingSource;
+				LastBuildError = OutError;
+				return false;
+			}
 		}
-		const bool bMetadataChanged = SourceContentHash.empty() || !bSourceFingerprintMatches;
+		else if (!bSourceAvailable)
+		{
+			OutError = std::format("Texture source file does not exist: {}", SourceFile);
+			DerivedDataDiagnostic.Status = ETextureDerivedDataStatus::SourceUnavailable;
+			DerivedDataDiagnostic.Message = OutError;
+			BuildStatus = ETextureBuildStatus::MissingSource;
+			LastBuildError = OutError;
+			return false;
+		}
+		const bool bMetadataChanged = !IsCanonicalTextureHash(SourceContentHash)
+			|| !bSourceFingerprintMatches;
 		if (!BuildSourceData(PhysicalPath.generic_string(), OutError)) return false;
 		if (bMetadataChanged) MarkPackageDirty();
 		return true;
@@ -669,13 +703,31 @@ namespace Durin
 			|| PendingEditAlphaMipMode != AlphaMipMode
 			|| PendingEditAlphaCoverageThreshold != AlphaCoverageThreshold) return;
 
+		std::string NewKey;
+		std::string Error;
+		const bool bPreviousSRGB = bSRGB;
 		bSRGB = bPendingEditSRGB;
+		if (!MakeTextureDerivedDataKey(*this, NewKey, Error)
+			|| !StoreTextureDerivedData(NewKey, *PendingEditPlatformData, Error))
+		{
+			bSRGB = bPreviousSRGB;
+			DerivedDataDiagnostic = {
+				.Status = ETextureDerivedDataStatus::WriteFailure,
+				.Key = NewKey,
+				.Message = std::format("Texture2D DDC write failed after property edit: {}", Error)};
+			DURIN_ERROR("{}: {}", GetObjectPath(), DerivedDataDiagnostic.Message);
+			PendingEditPlatformData.reset();
+			return;
+		}
 		PlatformData = std::move(PendingEditPlatformData);
+		DerivedDataKey = std::move(NewKey);
+		bLoadedFromDerivedDataCache = false;
+		DerivedDataDiagnostic = {
+			.Status = ETextureDerivedDataStatus::Rebuilt,
+			.Key = DerivedDataKey,
+			.Message = std::format("Rebuilt Texture2D and stored DDC key {}.", DerivedDataKey)};
 		BuildStatus = ETextureBuildStatus::Ready;
 		LastBuildError.clear();
-		DerivedDataKey = MakeTextureDerivedDataKey(*this);
-		bLoadedFromDerivedDataCache = false;
-		StoreTextureDerivedData(DerivedDataKey, *PlatformData);
 		QueueRenderResourceBuild();
 	}
 
