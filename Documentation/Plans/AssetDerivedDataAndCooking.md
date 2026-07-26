@@ -22,14 +22,19 @@ inputs live beneath the owning native-test data directories and require no
 importer, compressor, RHI, or window. AssetCore now implements deterministic
 DBLK and manifest codecs, reflected path-free descriptors, contained companion
 resolution, manifest-bounded cook publication and stale cleanup, and an
-explicit process package-load context. The complete 45-test AssetCoreTests
+explicit process package-load context. The complete 46-test AssetCoreTests
 suite passes with multi-payload, corruption, relocation, interruption, and
 cleanup coverage.
 
-Asset consumers are not yet connected to the shared cook layer. Texture2D
-still uses its earlier private TXDD cache, TextureCube still rebuilds from
-source during `PostLoad`, and runtime targets still inherit source tooling.
-Stage 2 is next: make StaticMesh the first cooked DBLK consumer.
+StaticMesh is now the first consumer connected to the shared cook layer. Its
+cook adapter deterministically contributes DMSH bytes, serializes a matching
+logical descriptor with runtime metadata, and its cooked `PostLoad` path
+validates the companion DBLK, descriptor, target, DMSH, and material-slot
+mapping before transactional publication. Clean-cook, source/DDC isolation,
+and missing-bulk coverage is in place. Texture2D still uses its earlier private
+TXDD cache, TextureCube still rebuilds from source during `PostLoad`, and
+runtime targets still inherit source tooling. Stage 2 continues with the
+editor-only Assimp boundary and the remaining malformed/render smoke coverage.
 
 ## Goal
 
@@ -871,14 +876,14 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1 and the completed predecessor StaticMesh Stages 0–3.
 
-- [ ] Add a StaticMesh cook adapter that obtains or rebuilds a matching DMSH
+- [x] Add a StaticMesh cook adapter that obtains or rebuilds a matching DMSH
   payload and contributes it to the package's DBLK.
-- [ ] Serialize only runtime mesh metadata and its logical payload descriptor;
+- [x] Serialize only runtime mesh metadata and its logical payload descriptor;
   strip source provenance and legacy source fields unless an explicit
   diagnostic cook policy retains non-runtime metadata.
-- [ ] Add cooked `DStaticMesh` loading that accepts only a matching descriptor,
+- [x] Add cooked `DStaticMesh` loading that accepts only a matching descriptor,
   DBLK entry, target platform, DMSH schema, checksum, and material-slot mapping.
-- [ ] Ensure cooked decode and render-data publication remain transactional and
+- [x] Ensure cooked decode and render-data publication remain transactional and
   never interpret a DDC path as a runtime reference.
 - [ ] Move Assimp and source-model import out of the runtime dependency graph
   needed by the cooked StaticMesh path.

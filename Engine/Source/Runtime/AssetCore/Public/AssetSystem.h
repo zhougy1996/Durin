@@ -71,6 +71,18 @@ namespace Durin::Asset
 	ASSETCORE_API auto ReadAssetPackageHeader(std::string_view PhysicalPath, FAssetPackageHeader& OutHeader) -> FAssetResult;
 	ASSETCORE_API auto ValidateAssetPackageBytes(std::span<const uint8> Bytes) -> FAssetResult;
 
+	struct FAssetPackageSerializationOptions
+	{
+		// Returning false omits the field record entirely from this serialization.
+		std::function<bool(const DObject*, const FProperty*)> PropertyFilter;
+	};
+
+	// Serializes an asset package without publishing it or changing dirty/registry state.
+	ASSETCORE_API auto SerializeAssetPackageBytes(
+		DPackage* Package,
+		std::vector<uint8>& OutBytes,
+		const FAssetPackageSerializationOptions& Options = {}) -> FAssetResult;
+
 	// Selects whether registry discovery may reuse its persistent snapshot.
 	enum class EAssetRegistryScanMode : uint8
 	{

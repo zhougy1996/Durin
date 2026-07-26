@@ -218,6 +218,34 @@ TEST(FCookContextTests, PublishesRelocatesAndCleansOnlyManifestOwnedStaleOutputs
 	EXPECT_TRUE(DecodeCookedBulk(BulkBytes, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
 }
 
+TEST(FCookContextTests, DescriptorAwarePackageBuilderReceivesExactPublishedEntries)
+{
+	const std::filesystem::path Root = std::filesystem::absolute(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "DescriptorAwareCook");
+	std::filesystem::remove_all(Root);
+	FCookContext Context(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	FCookedPayloadDescriptor Captured;
+	ASSERT_TRUE(Context.AddPackage(
+		"/Game/DescriptorAware",
+		{Payload(FGuid(4, 3, 2, 1), {7, 6, 5}, 64)},
+		[&](std::span<const FCookedPayloadDescriptor> Descriptors, std::vector<uint8>& OutBytes, std::string*) {
+			if (Descriptors.size() != 1) return false;
+			Captured = Descriptors.front();
+			OutBytes = MakePackageBytes();
+			return true;
+		}));
+	ASSERT_TRUE(Context.Publish());
+
+	FCookedBulkContainer Container;
+	ASSERT_TRUE(LoadCookedBulkFile(
+		Root / "Game/DescriptorAware.dbulk",
+		ECookTargetPlatform::Win64,
+		ECookTargetProfile::Game,
+		Container));
+	ASSERT_EQ(Container.Entries.size(), 1u);
+	EXPECT_EQ(Captured, Container.Entries.front());
+}
+
 TEST(FCookContextTests, PackagePublicationFailureLeavesNoReferencingPackageOrManifest)
 {
 	const std::filesystem::path Root = std::filesystem::absolute(

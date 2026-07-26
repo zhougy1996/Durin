@@ -21,6 +21,8 @@ namespace Durin
 	inline constexpr uint32 MaximumStaticMeshVerticesPerLOD = 100'000'000;
 	inline constexpr uint32 MaximumStaticMeshIndicesPerLOD = 300'000'000;
 	inline constexpr uint64 MaximumStaticMeshPayloadBytes = 8ull * 1024ull * 1024ull * 1024ull;
+	inline const FGuid StaticMeshPrimaryCookedPayloadId{
+		0x6d9f79b5, 0x7b684d91, 0xa42c2a60, 0x63fcab16};
 
 	// Identifies a disk-compatible static-mesh build target independently of host platform enums.
 	enum class EStaticMeshTargetPlatform : uint32

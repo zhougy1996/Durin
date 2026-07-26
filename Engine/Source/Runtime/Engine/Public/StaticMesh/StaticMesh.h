@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "CookedAsset.h"
 #include "DObject/CoreDObject.h"
 
 #include "StaticMesh.gen.h"
@@ -108,7 +109,9 @@ namespace Durin
 		Rebuilt,
 		WriteFailure,
 		SourceUnavailableCached,
-		SourceUnavailable
+		SourceUnavailable,
+		CookedLoaded,
+		CookedFailure
 	};
 
 	// Describes the most recent native-payload cache decision for editor diagnostics.
@@ -183,9 +186,16 @@ namespace Durin
 		ENGINE_API auto SetRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData) -> void;
 		ENGINE_API auto InspectSource() const -> FStaticMeshSourceDiagnostic;
 		auto GetDerivedDataDiagnostic() const -> const FStaticMeshDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
+		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		// Copies a replacement source into the owning SourceAssets hierarchy and rebuilds the mesh.
 		ENGINE_API auto RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		// Contributes deterministic DMSH data and descriptor-bearing runtime metadata to a cook.
+		ENGINE_API auto AddToCook(
+			Asset::FCookContext& Context,
+			std::string_view VirtualPackagePath,
+			std::string& OutError,
+			bool bRetainDiagnosticSourceMetadata = false) -> bool;
 
 		ENGINE_API static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;
 		// Editor preview geometry stays as ordinary source content; this creates only the transient runtime mesh.
@@ -214,6 +224,7 @@ namespace Durin
 			std::vector<FStaticMeshMaterialSlotDefinition> InMaterialSlots,
 			bool bSlotMetadataChanged) -> void;
 		auto NotifyLoadedComponents() -> void;
+		auto LoadCookedRenderData(std::string& OutError) -> bool;
 
 		DPROPERTY()
 		std::string SourceFile;
@@ -234,6 +245,9 @@ namespace Durin
 
 		DPROPERTY()
 		std::vector<FStaticMeshMaterialSlotDefinition> MaterialSlots;
+
+		DPROPERTY()
+		Asset::FCookedPayloadDescriptor CookedPayload;
 
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
 		FStaticMeshDerivedDataDiagnostic DerivedDataDiagnostic;

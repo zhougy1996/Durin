@@ -9,6 +9,7 @@
 #include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Property.h"
 #include "Hash/XxHash.h"
 #include "Logging/LogMacros.h"
 #include "Misc/FileHelper.h"
@@ -106,6 +107,28 @@ namespace Durin
 				auto& Sections = RenderData.LODResources[LODIndex].Sections;
 				for (size_t SectionIndex = 0; SectionIndex < Sections.size(); ++SectionIndex)
 					Sections[SectionIndex].Name = std::format("LOD{}_Section{}", LODIndex, SectionIndex);
+			}
+			return true;
+		}
+
+		auto ValidateStaticMeshMaterialSlotMapping(
+			const FStaticMeshPayloadData& Payload,
+			const std::vector<FStaticMeshMaterialSlotDefinition>& MaterialSlots,
+			std::string& OutError) -> bool
+		{
+			if (Payload.MaterialSlotIds.size() != MaterialSlots.size())
+			{
+				OutError = "Static-mesh payload material slot count does not match package metadata.";
+				return false;
+			}
+			for (size_t Index = 0; Index < MaterialSlots.size(); ++Index)
+			{
+				if (Payload.MaterialSlotIds[Index] != MaterialSlots[Index].SlotId)
+				{
+					OutError = std::format(
+						"Static-mesh payload material slot {} does not match package metadata.", Index);
+					return false;
+				}
 			}
 			return true;
 		}
@@ -962,6 +985,9 @@ namespace Durin
 	auto DStaticMesh::PostLoad(std::string& OutError) -> bool
 	{
 		DerivedDataDiagnostic = {};
+		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
+			return LoadCookedRenderData(OutError);
+
 		const FStaticMeshSourceDiagnostic Diagnostic = InspectSource();
 		if (Diagnostic.Status == EStaticMeshSourceStatus::NoSource)
 		{
@@ -1098,6 +1124,170 @@ namespace Durin
 		}
 		OutError.clear();
 		return true;
+	}
+
+	auto DStaticMesh::LoadCookedRenderData(std::string& OutError) -> bool
+	{
+		auto FailCooked = [&](std::string Message) {
+			DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::CookedFailure;
+			DerivedDataDiagnostic.Message = std::format(
+				"Cooked static mesh '{}': {}", GetObjectPath(), Message);
+			OutError = DerivedDataDiagnostic.Message;
+			return false;
+		};
+
+		if (CookedPayload.PayloadId != StaticMeshPrimaryCookedPayloadId
+			|| CookedPayload.LocationKind != static_cast<uint32>(Asset::ECookedPayloadLocationKind::PackageCompanion)
+			|| CookedPayload.PayloadSchemaVersion != StaticMeshPayloadSchemaVersion
+			|| CookedPayload.TargetPlatform != static_cast<uint32>(Asset::ECookTargetPlatform::Win64)
+			|| CookedPayload.TargetProfile != static_cast<uint32>(Asset::ECookTargetProfile::Game)
+			|| CookedPayload.CompressionMethod != static_cast<uint32>(Asset::ECookedPayloadCompression::None))
+		{
+			return FailCooked("required DMSH descriptor is missing or incompatible.");
+		}
+
+		const Asset::FPackageLoadContext& LoadContext = Asset::GetPackageLoadContext();
+		std::filesystem::path PackagePath;
+		std::filesystem::path CompanionPath;
+		if (!GetPackage()
+			|| !Asset::ResolveCookedPackagePath(
+				LoadContext.CookRoot, GetPackage()->GetPackagePath(), PackagePath, &OutError)
+			|| !Asset::ResolveCookedCompanionPath(
+				LoadContext.CookRoot, PackagePath, CompanionPath, &OutError))
+		{
+			return FailCooked(OutError.empty() ? "package companion path could not be resolved." : OutError);
+		}
+
+		Asset::FCookedBulkContainer Container;
+		if (!Asset::LoadCookedBulkFile(
+			CompanionPath,
+			Asset::ECookTargetPlatform::Win64,
+			Asset::ECookTargetProfile::Game,
+			Container,
+			&OutError))
+		{
+			return FailCooked(OutError);
+		}
+		std::span<const uint8> Bytes;
+		if (!Asset::ResolveCookedPayload(Container, CookedPayload, Bytes, &OutError))
+			return FailCooked(OutError);
+
+		FStaticMeshPayloadData Payload;
+		std::unique_ptr<FStaticMeshRenderData> CandidateRenderData;
+		if (!DecodeStaticMeshPayload(
+			Bytes, EStaticMeshTargetPlatform::Win64, Payload, OutError)
+			|| !ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, OutError)
+			|| !MakeStaticMeshRenderData(Payload, CandidateRenderData, OutError)
+			|| !RestoreStaticMeshRuntimeMetadata(MaterialSlots, *CandidateRenderData, OutError))
+		{
+			return FailCooked(OutError);
+		}
+
+		SetRenderData(std::move(CandidateRenderData));
+		DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::CookedLoaded;
+		DerivedDataDiagnostic.Message = std::format(
+			"Loaded cooked static-mesh payload for '{}'.", GetObjectPath());
+		OutError.clear();
+		return true;
+	}
+
+	auto DStaticMesh::AddToCook(
+		Asset::FCookContext& Context,
+		std::string_view VirtualPackagePath,
+		std::string& OutError,
+		bool bRetainDiagnosticSourceMetadata) -> bool
+	{
+		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
+		{
+			OutError = std::format(
+				"Static mesh '{}' supports only the Win64 game cook target.", GetObjectPath());
+			return false;
+		}
+		if (!RenderData && !PostLoad(OutError)) return false;
+		if (!RenderData)
+		{
+			OutError = std::format("Static mesh '{}' has no render data to cook.", GetObjectPath());
+			return false;
+		}
+
+		FStaticMeshPayloadData Payload;
+		std::vector<uint8> PayloadBytes;
+		if (!MakeStaticMeshPayloadData(*RenderData, Payload, OutError)
+			|| !ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, OutError)
+			|| !EncodeStaticMeshPayload(
+				Payload, EStaticMeshTargetPlatform::Win64, PayloadBytes, OutError))
+		{
+			OutError = std::format("Failed to cook static mesh '{}': {}", GetObjectPath(), OutError);
+			return false;
+		}
+
+		Asset::FCookedBulkPayload BulkPayload{
+			.PayloadId = StaticMeshPrimaryCookedPayloadId,
+			.Flags = 1,
+			.PayloadSchemaVersion = StaticMeshPayloadSchemaVersion,
+			.Compression = Asset::ECookedPayloadCompression::None,
+			.Alignment = StaticMeshPayloadAlignment,
+			.Bytes = std::move(PayloadBytes)};
+
+		return Context.AddPackage(
+			std::string(VirtualPackagePath),
+			{std::move(BulkPayload)},
+			[this, bRetainDiagnosticSourceMetadata](
+				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
+				std::vector<uint8>& OutPackageBytes,
+				std::string* Error) {
+				if (Descriptors.size() != 1
+					|| Descriptors.front().PayloadId != StaticMeshPrimaryCookedPayloadId)
+				{
+					if (Error) *Error = "Static-mesh cook did not produce its required descriptor.";
+					return false;
+				}
+
+				const std::string SavedSourceFile = SourceFile;
+				const FStaticMeshSourceImportData SavedSourceImportData = SourceImportData;
+				const FStaticMeshImportSettings SavedImportSettings = ImportSettings;
+				const std::vector<FStaticMeshMaterialSlotDefinition> SavedMaterialSlots = MaterialSlots;
+				const Asset::FCookedPayloadDescriptor SavedCookedPayload = CookedPayload;
+				CookedPayload = Descriptors.front();
+				if (!bRetainDiagnosticSourceMetadata)
+				{
+					SourceFile.clear();
+					SourceImportData = {};
+					ImportSettings = {};
+					for (FStaticMeshMaterialSlotDefinition& Slot : MaterialSlots)
+					{
+						Slot.SourceName.clear();
+						Slot.SourceMaterialIndex = 0;
+					}
+				}
+
+				Asset::FAssetPackageSerializationOptions SerializationOptions;
+				if (!bRetainDiagnosticSourceMetadata)
+				{
+					SerializationOptions.PropertyFilter = [this](const DObject* Object, const FProperty* Property) {
+						if (Object != this) return true;
+						const FName Name = Property->NamePrivate;
+						return Name != FName("SourceFile")
+							&& Name != FName("SourceImportData")
+							&& Name != FName("ImportSettings");
+					};
+				}
+				const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(
+					GetPackage(), OutPackageBytes, SerializationOptions);
+				SourceFile = SavedSourceFile;
+				SourceImportData = SavedSourceImportData;
+				ImportSettings = SavedImportSettings;
+				MaterialSlots = SavedMaterialSlots;
+				CookedPayload = SavedCookedPayload;
+				if (!Result)
+				{
+					if (Error) *Error = Result.Message;
+					return false;
+				}
+				return true;
+			},
+			&OutError);
 	}
 
 	auto DStaticMesh::InspectSource() const -> FStaticMeshSourceDiagnostic

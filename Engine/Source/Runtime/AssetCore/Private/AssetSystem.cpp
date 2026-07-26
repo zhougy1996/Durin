@@ -755,6 +755,78 @@ namespace Durin::Asset
 			}
 			return nullptr;
 		}
+
+		auto BuildPackageBytes(
+			DPackage* Package,
+			std::vector<uint8>& OutBytes,
+			FPackageFile* OutFile = nullptr,
+			const FAssetPackageSerializationOptions& Options = {}) -> FAssetResult
+		{
+			OutBytes.clear();
+			if (Package && !Package->IsAssetPackage())
+				return Error(EAssetError::InvalidPackageType, "Only asset packages can be serialized.");
+			if (!Package || !Package->GetAsset())
+				return Error(EAssetError::InvalidObjectGraph, "Package has no main asset.");
+
+			std::vector<DObject*> Objects;
+			GatherObjects(Package->GetAsset(), Objects);
+			std::unordered_map<DObject*, uint64> ObjectIds;
+			for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
+
+			FPackageFile File;
+			File.AssetClassName = Package->GetAsset()->GetClass()->GetQualifiedName().ToString();
+			std::unordered_set<FAssetPath> Dependencies;
+			for (size_t Index = 0; Index < Objects.size(); ++Index)
+			{
+				DObject* Object = Objects[Index];
+				FObjectRecord Record;
+				Record.Id = Index + 1;
+				if (Object == Package->GetAsset()) Record.OuterId = 0;
+				else
+				{
+					auto OuterIt = ObjectIds.find(Object->GetOuter());
+					if (OuterIt == ObjectIds.end())
+						return Error(EAssetError::InvalidObjectGraph, "Package inner object has an outer outside the package graph.");
+					Record.OuterId = OuterIt->second;
+				}
+				Record.ClassName = Object->GetClass()->GetQualifiedName().ToString();
+				Record.ObjectName = Object->GetName();
+				FAssetResult SerializationResult;
+				Object->GetClass()->ForEachProperty([&](FProperty* Property) {
+					if (!SerializationResult || !Property || Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+					if (Options.PropertyFilter && !Options.PropertyFilter(Object, Property)) return;
+					FFieldRecord Field;
+					DClass* DeclaringClass = Cast<DClass>(Property->Owner.ToDObject());
+					Field.DeclaringClass = DeclaringClass
+						? DeclaringClass->GetQualifiedName().ToString()
+						: Object->GetClass()->GetQualifiedName().ToString();
+					Field.Name = Property->NamePrivate.ToString();
+					Field.Kind = Property->GetKind();
+					Field.TypeSignature = GetTypeSignature(Property);
+					FByteWriter PayloadWriter;
+					for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
+					{
+						FAssetResult Result = SerializeValue(
+							Property, Object, ArrayIndex, PayloadWriter, ObjectIds, Dependencies);
+						if (!Result) { SerializationResult = std::move(Result); return; }
+					}
+					Field.Payload = std::move(PayloadWriter.Bytes);
+					Record.Fields.push_back(std::move(Field));
+				}, true);
+				if (!SerializationResult) return SerializationResult;
+				File.Objects.push_back(std::move(Record));
+			}
+			File.Dependencies.assign(Dependencies.begin(), Dependencies.end());
+			std::ranges::sort(File.Dependencies, [](const FAssetPath& A, const FAssetPath& B) {
+				return A.GetView() < B.GetView();
+			});
+
+			FByteWriter Writer;
+			WritePackageFile(File, Writer);
+			OutBytes = std::move(Writer.Bytes);
+			if (OutFile) *OutFile = std::move(File);
+			return {};
+		}
 	}
 
 	auto ReadAssetPackageHeader(std::string_view PhysicalPath, FAssetPackageHeader& OutHeader) -> FAssetResult
@@ -776,6 +848,14 @@ namespace Durin::Asset
 	{
 		FPackageFile File;
 		return ReadPackageFile(Bytes, File, false);
+	}
+
+	auto SerializeAssetPackageBytes(
+		DPackage* Package,
+		std::vector<uint8>& OutBytes,
+		const FAssetPackageSerializationOptions& Options) -> FAssetResult
+	{
+		return BuildPackageBytes(Package, OutBytes, nullptr, Options);
 	}
 
 	auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void
@@ -988,64 +1068,18 @@ namespace Durin::Asset
 	{
 		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit package saves.");
-		if (Package && !Package->IsAssetPackage()) return Error(EAssetError::InvalidPackageType, "Only asset packages can be saved.");
-		if (!Package || !Package->GetAsset()) return Error(EAssetError::InvalidObjectGraph, "Package has no main asset.");
 		FAssetPath Path;
-		if (!FAssetPath::TryCreate(Package->GetPackagePath(), Path)) return Error(EAssetError::InvalidPath, "Package path is invalid.");
-
-		std::vector<DObject*> Objects;
-		GatherObjects(Package->GetAsset(), Objects);
-		std::unordered_map<DObject*, uint64> ObjectIds;
-		for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
-
+		if (Package && Package->IsAssetPackage()
+			&& !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
+			return Error(EAssetError::InvalidPath, "Package path is invalid.");
 		FPackageFile File;
-		File.AssetClassName = Package->GetAsset()->GetClass()->GetQualifiedName().ToString();
-		std::unordered_set<FAssetPath> Dependencies;
-		for (size_t Index = 0; Index < Objects.size(); ++Index)
-		{
-			DObject* Object = Objects[Index];
-			FObjectRecord Record;
-			Record.Id = Index + 1;
-			if (Object == Package->GetAsset()) Record.OuterId = 0;
-			else
-			{
-				auto OuterIt = ObjectIds.find(Object->GetOuter());
-				if (OuterIt == ObjectIds.end()) return Error(EAssetError::InvalidObjectGraph, "Package inner object has an outer outside the package graph.");
-				Record.OuterId = OuterIt->second;
-			}
-			Record.ClassName = Object->GetClass()->GetQualifiedName().ToString();
-			Record.ObjectName = Object->GetName();
-			FAssetResult SerializationResult;
-			Object->GetClass()->ForEachProperty([&](FProperty* Property) {
-				if (!SerializationResult) return;
-				if (!Property || Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
-				FFieldRecord Field;
-				DClass* DeclaringClass = Cast<DClass>(Property->Owner.ToDObject());
-				Field.DeclaringClass = DeclaringClass ? DeclaringClass->GetQualifiedName().ToString() : Object->GetClass()->GetQualifiedName().ToString();
-				Field.Name = Property->NamePrivate.ToString();
-				Field.Kind = Property->GetKind();
-				Field.TypeSignature = GetTypeSignature(Property);
-				FByteWriter PayloadWriter;
-				for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
-				{
-					FAssetResult Result = SerializeValue(Property, Object, ArrayIndex, PayloadWriter, ObjectIds, Dependencies);
-					if (!Result) { SerializationResult = std::move(Result); return; }
-				}
-				Field.Payload = std::move(PayloadWriter.Bytes);
-				Record.Fields.push_back(std::move(Field));
-			}, true);
-			if (!SerializationResult) return SerializationResult;
-			File.Objects.push_back(std::move(Record));
-		}
-		File.Dependencies.assign(Dependencies.begin(), Dependencies.end());
-		std::ranges::sort(File.Dependencies, [](const FAssetPath& A, const FAssetPath& B) { return A.GetView() < B.GetView(); });
-
-		FByteWriter Writer;
-		WritePackageFile(File, Writer);
+		std::vector<uint8> Bytes;
+		FAssetResult SerializationResult = BuildPackageBytes(Package, Bytes, &File);
+		if (!SerializationResult) return SerializationResult;
 		const std::filesystem::path Destination(GetPhysicalPath(Path));
 		FFileHelper::FAtomicFileError PublicationError;
 		if (!FFileHelper::SaveArrayToFileAtomically(
-			std::span{reinterpret_cast<const std::byte*>(Writer.Bytes.data()), Writer.Bytes.size()},
+			std::span{reinterpret_cast<const std::byte*>(Bytes.data()), Bytes.size()},
 			Destination,
 			&PublicationError
 		))

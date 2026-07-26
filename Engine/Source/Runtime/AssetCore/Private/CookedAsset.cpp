@@ -619,7 +619,37 @@ namespace Durin::Asset
 		if (std::ranges::any_of(Packages, [&](const FPendingPackage& Existing) {
 			return Existing.VirtualPath == VirtualPackagePath;
 		})) return Fail("Cook package path is duplicated.", OutError);
-		Packages.push_back({std::move(VirtualPackagePath), std::move(PackageBytes), std::move(Payloads)});
+		std::vector<uint8> BulkBytes;
+		if (!EncodeCookedBulk(Payloads, TargetPlatform, TargetProfile, BulkBytes, nullptr, OutError)) return false;
+		Packages.push_back({std::move(VirtualPackagePath), std::move(PackageBytes), std::move(BulkBytes)});
+		return true;
+	}
+
+	auto FCookContext::AddPackage(
+		std::string VirtualPackagePath,
+		std::vector<FCookedBulkPayload> Payloads,
+		FPackageByteBuilder BuildPackageBytes,
+		std::string* OutError) -> bool
+	{
+		std::filesystem::path PackagePath;
+		if (!ResolveCookedPackagePath(CookRoot, VirtualPackagePath, PackagePath, OutError)) return false;
+		if (Payloads.empty() || !BuildPackageBytes)
+			return Fail("Cook payloads and package-byte builder must be nonempty.", OutError);
+		if (std::ranges::any_of(Packages, [&](const FPendingPackage& Existing) {
+			return Existing.VirtualPath == VirtualPackagePath;
+		})) return Fail("Cook package path is duplicated.", OutError);
+
+		std::vector<uint8> BulkBytes;
+		std::vector<FCookedPayloadDescriptor> Descriptors;
+		if (!EncodeCookedBulk(
+			Payloads, TargetPlatform, TargetProfile, BulkBytes, &Descriptors, OutError)) return false;
+		std::vector<uint8> PackageBytes;
+		if (!BuildPackageBytes(Descriptors, PackageBytes, OutError)) return false;
+		if (PackageBytes.empty()) return Fail("Cook package-byte builder returned an empty package.", OutError);
+		const FAssetResult Validation = ValidateAssetPackageBytes(PackageBytes);
+		if (!Validation)
+			return Fail(std::format("Cook package-byte builder returned invalid bytes: {}", Validation.Message), OutError);
+		Packages.push_back({std::move(VirtualPackagePath), std::move(PackageBytes), std::move(BulkBytes)});
 		return true;
 	}
 
@@ -649,10 +679,7 @@ namespace Durin::Asset
 			if (!ResolveCookedPackagePath(CookRoot, Package.VirtualPath, PackagePath, OutError)
 				|| !ResolveCookedCompanionPath(CookRoot, PackagePath, BulkPath, OutError))
 				return false;
-			std::vector<uint8> BulkBytes;
-			if (!EncodeCookedBulk(Package.Payloads, TargetPlatform, TargetProfile, BulkBytes, nullptr, OutError))
-				return false;
-			BulkOutputs.push_back({ECookManifestEntryKind::CookedBulk, BulkPath, {}, std::move(BulkBytes)});
+			BulkOutputs.push_back({ECookManifestEntryKind::CookedBulk, BulkPath, {}, Package.BulkBytes});
 			PackageOutputs.push_back({ECookManifestEntryKind::CookedPackage, PackagePath, {}, Package.PackageBytes});
 		}
 

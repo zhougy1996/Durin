@@ -201,6 +201,11 @@ namespace Durin::Asset
 	class FCookContext
 	{
 	public:
+		using FPackageByteBuilder = std::function<bool(
+			std::span<const FCookedPayloadDescriptor>,
+			std::vector<uint8>&,
+			std::string*)>;
+
 		ASSETCORE_API FCookContext(
 			std::filesystem::path InCookRoot,
 			ECookTargetPlatform InTargetPlatform,
@@ -213,14 +218,24 @@ namespace Durin::Asset
 			std::string* OutError = nullptr
 		) -> bool;
 
+		// Encodes payloads first so asset-specific code can serialize the exact logical descriptors.
+		ASSETCORE_API auto AddPackage(
+			std::string VirtualPackagePath,
+			std::vector<FCookedBulkPayload> Payloads,
+			FPackageByteBuilder BuildPackageBytes,
+			std::string* OutError = nullptr
+		) -> bool;
+
 		ASSETCORE_API auto Publish(std::string* OutError = nullptr) -> bool;
+		auto GetTargetPlatform() const -> ECookTargetPlatform { return TargetPlatform; }
+		auto GetTargetProfile() const -> ECookTargetProfile { return TargetProfile; }
 
 	private:
 		struct FPendingPackage
 		{
 			std::string VirtualPath;
 			std::vector<uint8> PackageBytes;
-			std::vector<FCookedBulkPayload> Payloads;
+			std::vector<uint8> BulkBytes;
 		};
 
 		std::filesystem::path CookRoot;

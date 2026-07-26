@@ -177,3 +177,80 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRebuildsAndWriteFailurePreserve
 	Durin::FPaths::SetDerivedDataCacheDirForTests(Fixture.CacheRoot.generic_string());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Fixture.AssetPath));
 }
+
+TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedDataFallback)
+{
+	const FScopedDerivedDataCacheRestore CacheRestore;
+	FStaticMeshCacheFixture Fixture = ImportCacheFixture("StaticMeshCookedConsumer");
+	ASSERT_NE(Fixture.Mesh, nullptr);
+	const std::filesystem::path CookRoot = std::filesystem::absolute(Fixture.Root / "Cook");
+	const std::filesystem::path SecondCookRoot = std::filesystem::absolute(Fixture.Root / "CookSecond");
+	Durin::Asset::FCookContext First(
+		CookRoot,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game);
+	std::string Error;
+	ASSERT_TRUE(Fixture.Mesh->AddToCook(First, "/Game/CookedMesh", Error)) << Error;
+	ASSERT_TRUE(First.Publish(&Error)) << Error;
+
+	Durin::Asset::FCookContext Second(
+		SecondCookRoot,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game);
+	ASSERT_TRUE(Fixture.Mesh->AddToCook(Second, "/Game/CookedMesh", Error)) << Error;
+	ASSERT_TRUE(Second.Publish(&Error)) << Error;
+	std::vector<Durin::uint8> FirstPackage;
+	std::vector<Durin::uint8> SecondPackage;
+	std::vector<Durin::uint8> FirstBulk;
+	std::vector<Durin::uint8> SecondBulk;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		FirstPackage, (CookRoot / "Game/CookedMesh.dasset").generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		SecondPackage, (SecondCookRoot / "Game/CookedMesh.dasset").generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		FirstBulk, (CookRoot / "Game/CookedMesh.dbulk").generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		SecondBulk, (SecondCookRoot / "Game/CookedMesh.dbulk").generic_string()));
+	EXPECT_EQ(FirstPackage, SecondPackage);
+	EXPECT_EQ(FirstBulk, SecondBulk);
+	auto ContainsText = [](std::span<const Durin::uint8> Bytes, std::string_view Text) {
+		return std::search(
+			Bytes.begin(), Bytes.end(),
+			reinterpret_cast<const Durin::uint8*>(Text.data()),
+			reinterpret_cast<const Durin::uint8*>(Text.data() + Text.size())) != Bytes.end();
+	};
+	EXPECT_FALSE(ContainsText(FirstPackage, "SourceFile"));
+	EXPECT_FALSE(ContainsText(FirstPackage, "SourceImportData"));
+	EXPECT_FALSE(ContainsText(FirstPackage, "Assimp"));
+
+	std::filesystem::remove_all(Fixture.CacheRoot);
+	std::filesystem::remove_all(Fixture.Root / "SourceAssets");
+	Durin::Asset::ShutdownAssetManager();
+	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
+		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
+	Durin::PathUtilities::RegisterMountPoint(
+		"/Game/", (CookRoot / "Game").generic_string() + "/");
+	Durin::FAssetPath CookedPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedMesh", CookedPath));
+	Durin::DStaticMesh* CookedMesh = nullptr;
+	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(CookedPath, CookedMesh);
+	ASSERT_TRUE(LoadResult) << LoadResult.Message;
+	ASSERT_NE(CookedMesh, nullptr);
+	ASSERT_NE(CookedMesh->GetRenderData(), nullptr);
+	EXPECT_EQ(
+		CookedMesh->GetDerivedDataDiagnostic().Status,
+		Durin::EStaticMeshDerivedDataStatus::CookedLoaded);
+	EXPECT_FALSE(CookedMesh->GetSourceImportData().HasSource());
+	EXPECT_EQ(
+		CookedMesh->GetCookedPayloadDescriptor().PayloadId,
+		Durin::StaticMeshPrimaryCookedPayloadId);
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(CookedPath));
+	ASSERT_TRUE(std::filesystem::remove(CookRoot / "Game/CookedMesh.dbulk"));
+	CookedMesh = nullptr;
+	const Durin::Asset::FAssetResult MissingBulk = Durin::Asset::LoadAsset(CookedPath, CookedMesh);
+	EXPECT_FALSE(MissingBulk);
+	EXPECT_EQ(CookedMesh, nullptr);
+	EXPECT_NE(MissingBulk.Message.find("Cooked static mesh"), std::string::npos);
+	Durin::Asset::ShutdownAssetManager();
+}
