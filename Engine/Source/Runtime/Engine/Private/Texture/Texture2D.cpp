@@ -788,6 +788,9 @@ namespace Durin
 
 	auto DTexture2D::PostLoad(std::string& OutError) -> bool
 	{
+		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
+			return LoadCookedPlatformData(OutError);
+
 		BuildStatus = ETextureBuildStatus::Unbuilt;
 		LastBuildError.clear();
 		DerivedDataKey.clear();
@@ -888,6 +891,219 @@ namespace Durin
 		if (!BuildSourceData(PhysicalPath.generic_string(), OutError)) return false;
 		if (bMetadataChanged) MarkPackageDirty();
 		return true;
+	}
+
+	auto DTexture2D::LoadCookedPlatformData(std::string& OutError) -> bool
+	{
+		auto FailCooked = [&](std::string Message) {
+			DerivedDataDiagnostic.Status = ETextureDerivedDataStatus::CookedFailure;
+			DerivedDataDiagnostic.Message = std::format(
+				"Cooked Texture2D '{}': {}", GetObjectPath(), Message);
+			BuildStatus = ETextureBuildStatus::BuildFailure;
+			LastBuildError = DerivedDataDiagnostic.Message;
+			OutError = LastBuildError;
+			return false;
+		};
+
+		if (CookedPayload.PayloadId != Texture2DPrimaryCookedPayloadId
+			|| CookedPayload.LocationKind
+				!= static_cast<uint32>(Asset::ECookedPayloadLocationKind::PackageCompanion)
+			|| CookedPayload.PayloadSchemaVersion != TexturePayloadSchemaVersion
+			|| CookedPayload.TargetPlatform != static_cast<uint32>(Asset::ECookTargetPlatform::Win64)
+			|| CookedPayload.TargetProfile != static_cast<uint32>(Asset::ECookTargetProfile::Game)
+			|| CookedPayload.CompressionMethod
+				!= static_cast<uint32>(Asset::ECookedPayloadCompression::None))
+		{
+			return FailCooked("required TXPL descriptor is missing or incompatible.");
+		}
+
+		const Asset::FPackageLoadContext& LoadContext = Asset::GetPackageLoadContext();
+		std::filesystem::path PackagePath;
+		std::filesystem::path CompanionPath;
+		if (!GetPackage()
+			|| !Asset::ResolveCookedPackagePath(
+				LoadContext.CookRoot, GetPackage()->GetPackagePath(), PackagePath, &OutError)
+			|| !Asset::ResolveCookedCompanionPath(
+				LoadContext.CookRoot, PackagePath, CompanionPath, &OutError))
+		{
+			return FailCooked(
+				OutError.empty() ? "package companion path could not be resolved." : OutError);
+		}
+
+		Asset::FCookedBulkContainer Container;
+		if (!Asset::LoadCookedBulkFile(
+			CompanionPath,
+			Asset::ECookTargetPlatform::Win64,
+			Asset::ECookTargetProfile::Game,
+			Container,
+			&OutError))
+		{
+			return FailCooked(OutError);
+		}
+		std::span<const uint8> Bytes;
+		if (!Asset::ResolveCookedPayload(Container, CookedPayload, Bytes, &OutError))
+			return FailCooked(OutError);
+
+		std::unique_ptr<FTexturePlatformData> CandidatePlatformData;
+		if (!DecodeTexture2DPayload(
+			Bytes,
+			Asset::ECookTargetPlatform::Win64,
+			Asset::ECookTargetProfile::Game,
+			CandidatePlatformData,
+			OutError))
+		{
+			return FailCooked(OutError);
+		}
+
+		SourceData.reset();
+		PlatformData = std::move(CandidatePlatformData);
+		DerivedDataKey.clear();
+		bLoadedFromDerivedDataCache = false;
+		DerivedDataDiagnostic = {
+			.Status = ETextureDerivedDataStatus::CookedLoaded,
+			.Message = std::format("Loaded cooked Texture2D payload for '{}'.", GetObjectPath())};
+		BuildStatus = ETextureBuildStatus::Ready;
+		LastBuildError.clear();
+		QueueRenderResourceBuild();
+		OutError.clear();
+		return true;
+	}
+
+	auto DTexture2D::AddToCook(
+		Asset::FCookContext& Context,
+		std::string_view VirtualPackagePath,
+		std::string& OutError,
+		bool bRetainDiagnosticSourceMetadata) -> bool
+	{
+		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
+			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
+		{
+			OutError = std::format(
+				"Texture2D '{}' supports only the Win64 game cook target.", GetObjectPath());
+			return false;
+		}
+
+		std::string ExpectedKey;
+		if (!MakeTextureDerivedDataKey(*this, ExpectedKey, OutError))
+		{
+			OutError = std::format("Failed to cook Texture2D '{}': {}", GetObjectPath(), OutError);
+			return false;
+		}
+
+		std::vector<uint8> PayloadBytes;
+		std::unique_ptr<FTexturePlatformData> ValidatedPlatformData;
+		const Asset::FDerivedDataObjectReadResult Read =
+			GetTextureObjectStore().Read(ExpectedKey, PayloadBytes);
+		if (!Read
+			|| !DecodeTexture2DPayload(
+				PayloadBytes,
+				Asset::ECookTargetPlatform::Win64,
+				Asset::ECookTargetProfile::Game,
+				ValidatedPlatformData,
+				OutError))
+		{
+			if (!PlatformData && !PostLoad(OutError))
+			{
+				OutError = std::format("Failed to cook Texture2D '{}': {}", GetObjectPath(), OutError);
+				return false;
+			}
+			if (!PlatformData
+				|| !EncodeTexture2DPayload(
+					*PlatformData,
+					Asset::ECookTargetPlatform::Win64,
+					Asset::ECookTargetProfile::Game,
+					PayloadBytes,
+					OutError))
+			{
+				OutError = std::format("Failed to cook Texture2D '{}': {}", GetObjectPath(), OutError);
+				return false;
+			}
+		}
+
+		Asset::FCookedBulkPayload BulkPayload{
+			.PayloadId = Texture2DPrimaryCookedPayloadId,
+			.Flags = 1,
+			.PayloadSchemaVersion = TexturePayloadSchemaVersion,
+			.Compression = Asset::ECookedPayloadCompression::None,
+			.Alignment = TexturePayloadAlignment,
+			.Bytes = std::move(PayloadBytes)};
+
+		return Context.AddPackage(
+			std::string(VirtualPackagePath),
+			{std::move(BulkPayload)},
+			[this, bRetainDiagnosticSourceMetadata](
+				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
+				std::vector<uint8>& OutPackageBytes,
+				std::string* Error) {
+				if (Descriptors.size() != 1
+					|| Descriptors.front().PayloadId != Texture2DPrimaryCookedPayloadId)
+				{
+					if (Error) *Error = "Texture2D cook did not produce its required descriptor.";
+					return false;
+				}
+
+				const std::string SavedSourceFile = SourceFile;
+				const FTexture2DSourceImportData SavedSourceImportData = SourceImportData;
+				const std::string SavedSourceContentHash = SourceContentHash;
+				const uint64 SavedSourceFileSize = SourceFileSize;
+				const int64 SavedSourceLastWriteTime = SourceLastWriteTime;
+				const uint32 SavedSourceWidth = SourceWidth;
+				const uint32 SavedSourceHeight = SourceHeight;
+				const uint8 SavedSourceChannelCount = SourceChannelCount;
+				const bool bSavedSourceHasTransparency = bSourceHasTransparency;
+				const Asset::FCookedPayloadDescriptor SavedCookedPayload = CookedPayload;
+				CookedPayload = Descriptors.front();
+				if (!bRetainDiagnosticSourceMetadata)
+				{
+					SourceFile.clear();
+					SourceImportData = {};
+					SourceContentHash.clear();
+					SourceFileSize = 0;
+					SourceLastWriteTime = 0;
+					SourceWidth = 0;
+					SourceHeight = 0;
+					SourceChannelCount = 0;
+					bSourceHasTransparency = false;
+				}
+
+				Asset::FAssetPackageSerializationOptions SerializationOptions;
+				if (!bRetainDiagnosticSourceMetadata)
+				{
+					SerializationOptions.PropertyFilter = [this](
+						const DObject* Object, const FProperty* Property) {
+						if (Object != this) return true;
+						const FName Name = Property->NamePrivate;
+						return Name != FName("SourceFile")
+							&& Name != FName("SourceImportData")
+							&& Name != FName("SourceContentHash")
+							&& Name != FName("SourceFileSize")
+							&& Name != FName("SourceLastWriteTime")
+							&& Name != FName("SourceWidth")
+							&& Name != FName("SourceHeight")
+							&& Name != FName("SourceChannelCount")
+							&& Name != FName("bSourceHasTransparency");
+					};
+				}
+				const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(
+					GetPackage(), OutPackageBytes, SerializationOptions);
+				SourceFile = SavedSourceFile;
+				SourceImportData = SavedSourceImportData;
+				SourceContentHash = SavedSourceContentHash;
+				SourceFileSize = SavedSourceFileSize;
+				SourceLastWriteTime = SavedSourceLastWriteTime;
+				SourceWidth = SavedSourceWidth;
+				SourceHeight = SavedSourceHeight;
+				SourceChannelCount = SavedSourceChannelCount;
+				bSourceHasTransparency = bSavedSourceHasTransparency;
+				CookedPayload = SavedCookedPayload;
+				if (!Result)
+				{
+					if (Error) *Error = Result.Message;
+					return false;
+				}
+				return true;
+			},
+			&OutError);
 	}
 
 	auto DTexture2D::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool

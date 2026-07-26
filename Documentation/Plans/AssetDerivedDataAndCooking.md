@@ -37,7 +37,7 @@ Clean-cook, source/DDC isolation, missing bulk, wrong target/schema, corrupt
 payload, material-slot mismatch, and runtime render-data smoke coverage are in
 place. Stage 2 is complete.
 
-Stage 3 is complete. Texture2D now uses the canonical key schema, strict TXPL
+Stages 3 and 4 are complete. Texture2D now uses the canonical key schema, strict TXPL
 version 1 codec, shared content-addressed object store, bounded cleanup, and
 shared cache diagnostics. Authored loads can consume persisted source identity
 when the source image is unavailable, and decode, rebuild, cache-read, and
@@ -45,9 +45,16 @@ cache-write failures retain the last complete live platform data. New imports
 store normalized project- or engine-relative provenance beneath
 `SourceAssets/Textures`; move and delete preserve potentially shared source art,
 repair/reimport is transactional, the Texture Editor reports provenance state,
-and legacy package-adjacent sources remain readable during migration.
-TextureCube still rebuilds from source during `PostLoad`, and its source/build
-tooling remains migration work for Stage 5.
+and legacy package-adjacent sources remain readable during migration. Its cook
+adapter reuses matching validated TXPL objects, emits descriptor-bearing
+source-free runtime packages plus DBLK companions, and cooked loads validate
+the complete target, descriptor, bulk, format, mip, and checksum chain before
+Vulkan resource publication. Runtime-only Engine builds exclude offline BC
+encoder linkage. Deterministic cook, source/DDC isolation, corrupt and
+incompatible input, all supported BC identifiers, NPOT/tail mip, and Vulkan
+upload/sample coverage are in place. TextureCube still rebuilds from source
+during `PostLoad`, and its source/build tooling remains migration work for
+Stage 5.
 
 ## Goal
 
@@ -946,17 +953,17 @@ frozen, but has one source/build writer.
 
 Dependencies: Stages 1 and 3.
 
-- [ ] Add a Texture2D cook adapter that contributes the validated platform
+- [x] Add a Texture2D cook adapter that contributes the validated platform
   payload to DBLK without decoding or recompressing on a valid matching DDC hit.
-- [ ] Serialize runtime texture metadata and a logical descriptor while
+- [x] Serialize runtime texture metadata and a logical descriptor while
   stripping source provenance, fingerprints, DDC keys, editor diagnostics, and
   decoded source data.
-- [ ] Add cooked Texture2D loading that validates descriptor, DBLK, payload
+- [x] Add cooked Texture2D loading that validates descriptor, DBLK, payload
   schema, platform/profile, pixel-format support, mip layout, and checksum
   before render-resource publication.
-- [ ] Remove source-image decoders and offline BC encoders from the runtime
+- [x] Remove source-image decoders and offline BC encoders from the runtime
   dependency graph required by cooked Texture2D.
-- [ ] Add deterministic cook, all supported BC formats, NPOT/tail mips,
+- [x] Add deterministic cook, all supported BC formats, NPOT/tail mips,
   missing-source isolation, corrupt payload, wrong platform/profile, and Vulkan
   upload/sample tests.
 

@@ -120,3 +120,43 @@ get_target_property(_durin_engine_tests_work_dir EngineTests DURIN_TEST_WORK_DIR
 gtest_discover_tests(EngineTests
 	WORKING_DIRECTORY "${_durin_engine_tests_work_dir}"
 )
+
+# Cooked-runtime mode and Renderer/Vulkan teardown are process-global. Keep this
+# integration test isolated from the authored-editor EngineTests process.
+add_durin_test(TextureCookTests
+	Private/Texture/TextureCookTests.cpp
+)
+
+target_include_directories(TextureCookTests PRIVATE
+	${CMAKE_CURRENT_SOURCE_DIR}/Private
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
+	${CMAKE_SOURCE_DIR}/Engine/Source
+)
+
+target_link_libraries(TextureCookTests PRIVATE
+	Core
+	CoreDObject
+	AssetCore
+	Engine
+	RenderCore
+	Renderer
+	bc7enc_rdo::bc7enc_rdo
+	GTest::gtest_main
+)
+
+durin_test_deploy_target_binary(TextureCookTests Core)
+durin_test_deploy_target_binary(TextureCookTests CoreDObject)
+durin_test_deploy_target_binary(TextureCookTests Engine)
+durin_test_deploy_target_binary(TextureCookTests ApplicationCore)
+durin_test_deploy_target_binary(TextureCookTests AssetCore)
+durin_test_deploy_target_binary(TextureCookTests RHI)
+durin_test_deploy_target_binary(TextureCookTests RenderCore)
+durin_test_deploy_target_binary(TextureCookTests Renderer)
+durin_test_deploy_target_binary(TextureCookTests VulkanRHI)
+durin_test_deploy_runtime_files(TextureCookTests Slang_Imported)
+
+get_target_property(_durin_texture_cook_tests_work_dir TextureCookTests DURIN_TEST_WORK_DIR)
+
+gtest_discover_tests(TextureCookTests
+	WORKING_DIRECTORY "${_durin_texture_cook_tests_work_dir}"
+)

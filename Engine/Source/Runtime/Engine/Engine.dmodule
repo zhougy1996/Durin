@@ -5,12 +5,12 @@
     "PublicDependencies": [
         "Core",
         "ApplicationCore",
+        "AssetCore",
         "CoreDObject",
         "RenderCore",
         "RHI"
     ],
     "PrivateDependencies": [
-        "AssetCore",
         "MonaCore",
         "Mona"
     ],

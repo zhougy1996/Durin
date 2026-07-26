@@ -17,6 +17,8 @@ namespace Durin
 	inline constexpr uint32 MaximumTexture2DDimension = 16'384;
 	inline constexpr uint32 MaximumTextureMipCount = 32;
 	inline constexpr uint64 MaximumTexturePayloadBytes = 2ull * 1024ull * 1024ull * 1024ull;
+	inline const FGuid Texture2DPrimaryCookedPayloadId{
+		0x53aa6a89, 0xdc49401a, 0xb409adc4, 0x98ac4f8b};
 
 	enum class ETexturePayloadDimension : uint32
 	{

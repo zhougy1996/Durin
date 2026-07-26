@@ -4,10 +4,12 @@
 
 namespace
 {
-	auto MakePlatformData() -> Durin::FTexturePlatformData
+	auto MakePlatformData(
+		Durin::EPixelFormat PixelFormat = Durin::EPixelFormat::BC3_UNORM_SRGB)
+		-> Durin::FTexturePlatformData
 	{
 		Durin::FTexturePlatformData Result;
-		Result.PixelFormat = Durin::EPixelFormat::BC3_UNORM_SRGB;
+		Result.PixelFormat = PixelFormat;
 		for (Durin::uint32 Dimension : {5u, 2u, 1u})
 		{
 			const Durin::FPixelFormatLayout Layout =
@@ -80,25 +82,36 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 
 TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 {
-	const Durin::FTexturePlatformData Expected = MakePlatformData();
-	std::vector<Durin::uint8> First;
-	std::vector<Durin::uint8> Second;
-	std::string Error;
-	ASSERT_TRUE(Durin::EncodeTexture2DPayload(
-		Expected, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, First, Error)) << Error;
-	ASSERT_TRUE(Durin::EncodeTexture2DPayload(
-		Expected, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Second, Error)) << Error;
-	EXPECT_EQ(First, Second);
-	ASSERT_GE(First.size(), Durin::TexturePayloadHeaderSize);
+	constexpr std::array Formats = {
+		Durin::EPixelFormat::BC1_UNORM,
+		Durin::EPixelFormat::BC1_UNORM_SRGB,
+		Durin::EPixelFormat::BC3_UNORM,
+		Durin::EPixelFormat::BC3_UNORM_SRGB,
+		Durin::EPixelFormat::BC5_UNORM,
+		Durin::EPixelFormat::BC7_UNORM,
+		Durin::EPixelFormat::BC7_UNORM_SRGB};
+	for (Durin::EPixelFormat Format : Formats)
+	{
+		const Durin::FTexturePlatformData Expected = MakePlatformData(Format);
+		std::vector<Durin::uint8> First;
+		std::vector<Durin::uint8> Second;
+		std::string Error;
+		ASSERT_TRUE(Durin::EncodeTexture2DPayload(
+			Expected, Durin::Asset::ECookTargetPlatform::Win64,
+			Durin::Asset::ECookTargetProfile::Game, First, Error)) << Error;
+		ASSERT_TRUE(Durin::EncodeTexture2DPayload(
+			Expected, Durin::Asset::ECookTargetPlatform::Win64,
+			Durin::Asset::ECookTargetProfile::Game, Second, Error)) << Error;
+		EXPECT_EQ(First, Second);
+		ASSERT_GE(First.size(), Durin::TexturePayloadHeaderSize);
 
-	std::unique_ptr<Durin::FTexturePlatformData> Actual;
-	ASSERT_TRUE(Durin::DecodeTexture2DPayload(
-		First, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Actual, Error)) << Error;
-	ASSERT_NE(Actual, nullptr);
-	ExpectPlatformDataEqual(*Actual, Expected);
+		std::unique_ptr<Durin::FTexturePlatformData> Actual;
+		ASSERT_TRUE(Durin::DecodeTexture2DPayload(
+			First, Durin::Asset::ECookTargetPlatform::Win64,
+			Durin::Asset::ECookTargetProfile::Game, Actual, Error)) << Error;
+		ASSERT_NE(Actual, nullptr);
+		ExpectPlatformDataEqual(*Actual, Expected);
+	}
 }
 
 TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)

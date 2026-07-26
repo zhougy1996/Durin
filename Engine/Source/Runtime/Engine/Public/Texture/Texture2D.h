@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
+#include "CookedAsset.h"
 #include "DObject/CoreDObject.h"
 #include "PixelFormat.h"
 
@@ -86,7 +87,9 @@ namespace Durin
 		Rebuilt,
 		WriteFailure,
 		SourceUnavailableCached,
-		SourceUnavailable
+		SourceUnavailable,
+		CookedLoaded,
+		CookedFailure
 	};
 
 	struct FTextureDerivedDataDiagnostic
@@ -243,6 +246,7 @@ namespace Durin
 		auto GetPlatformData() const -> const FTexturePlatformData* { return PlatformData.get(); }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
+		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetRenderResource() const -> const std::shared_ptr<FTexture2DRenderResource>& { return RenderResource; }
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
@@ -266,6 +270,12 @@ namespace Durin
 		ENGINE_API auto ReimportSource(std::string_view FilePath, std::string& OutError) -> bool;
 		ENGINE_API auto RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		// Contributes a validated TXPL object and descriptor-bearing runtime metadata to a cook.
+		ENGINE_API auto AddToCook(
+			Asset::FCookContext& Context,
+			std::string_view VirtualPackagePath,
+			std::string& OutError,
+			bool bRetainDiagnosticSourceMetadata = false) -> bool;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto RefreshBuildStatus() -> void;
@@ -283,6 +293,7 @@ namespace Durin
 			std::unique_ptr<FTexturePlatformData>& OutPlatformData, std::string& OutError) const -> bool;
 		auto InvalidatePlatformData() -> void;
 		auto QueueRenderResourceBuild() -> void;
+		auto LoadCookedPlatformData(std::string& OutError) -> bool;
 
 		DPROPERTY()
 		std::string SourceFile;
@@ -333,6 +344,9 @@ namespace Durin
 		// Alpha-test threshold used only by PreserveCoverage Color mip generation.
 		DPROPERTY()
 		float AlphaCoverageThreshold = 0.5f;
+
+		DPROPERTY()
+		Asset::FCookedPayloadDescriptor CookedPayload;
 
 		// Both representations are derived from the imported source file. Keeping them
 		// separate lets platform builds replace format/mips without mutating edit data.

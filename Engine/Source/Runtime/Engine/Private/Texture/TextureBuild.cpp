@@ -1,12 +1,15 @@
 #include "Texture/TextureBuild.h"
 
-#include "ImageDecoder.h"
+#if DURIN_WITH_EDITOR
+	#include "ImageDecoder.h"
 
-#include <bc7enc.h>
-#include <rgbcx.h>
+	#include <bc7enc.h>
+	#include <rgbcx.h>
+#endif
 
 namespace Durin::TextureBuild
 {
+#if DURIN_WITH_EDITOR
 	namespace
 	{
 		constexpr uint32 BlockWidth = 4;
@@ -257,6 +260,7 @@ namespace Durin::TextureBuild
 			}
 		}
 	}
+#endif
 
 	auto IsValidUsage(ETextureUsage Usage) -> bool
 	{
@@ -303,6 +307,7 @@ namespace Durin::TextureBuild
 
 	auto DecodeRGBA8(std::string_view PhysicalFilePath, FTextureSourceData& OutSourceData, std::string& OutError) -> bool
 	{
+#if DURIN_WITH_EDITOR
 		OutSourceData = {};
 		Asset::FDecodedImage DecodedImage;
 		if (!Asset::DecodeImageFromFile(PhysicalFilePath, DecodedImage, OutError)) return false;
@@ -322,6 +327,12 @@ namespace Durin::TextureBuild
 		OutSourceData = {};
 		OutError = "Decoded texture source data is invalid.";
 		return false;
+#else
+		(void)PhysicalFilePath;
+		OutSourceData = {};
+		OutError = "Texture source decoding is unavailable in runtime-only builds.";
+		return false;
+#endif
 	}
 
 	auto BuildMipChain(const FTextureSourceData& SourceData, ETextureUsage Usage, bool bSRGB,
@@ -329,6 +340,7 @@ namespace Durin::TextureBuild
 		ETextureCompressionQuality CompressionQuality, ETextureAlphaMipMode AlphaMipMode,
 		float AlphaCoverageThreshold) -> bool
 	{
+#if DURIN_WITH_EDITOR
 		OutPlatformData = {};
 		if (!SourceData.IsValid())
 		{
@@ -402,5 +414,17 @@ namespace Durin::TextureBuild
 		OutPlatformData = {};
 		OutError = "Failed to build texture platform data.";
 		return false;
+#else
+		(void)SourceData;
+		(void)Usage;
+		(void)bSRGB;
+		(void)MaxResolution;
+		(void)CompressionQuality;
+		(void)AlphaMipMode;
+		(void)AlphaCoverageThreshold;
+		OutPlatformData = {};
+		OutError = "Offline texture compression is unavailable in runtime-only builds.";
+		return false;
+#endif
 	}
 }
