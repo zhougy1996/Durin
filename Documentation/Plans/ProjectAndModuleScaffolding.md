@@ -6,10 +6,10 @@ Last reviewed: 2026-07-26
 
 ## Current Status
 
-The implementation path is selected and implementation has not started. The
-first delivery target is a transactional BuildTool command that creates,
-registers, and enables a module in one operation. Workspace project creation and
-typed project launching follow after the module workflow is validated.
+Stage 0 is complete. BuildTool now has a shared `create` command family,
+typed module/project creation requests, and a cache-free descriptor contract
+validated against temporary Engine/Sandbox workspaces. Stage 1 read-only
+planning and transactional writes are the next delivery target.
 
 ## Goal
 
@@ -167,18 +167,18 @@ Every direct command must have equivalent interactive-shell syntax.
 
 ### Stage 0: Command and Descriptor Contract
 
-- [ ] Extend the shared command specification to represent the `create` command
+- [x] Extend the shared command specification to represent the `create` command
   family and its `module` and `project` leaf commands.
-- [ ] Add typed request fields for create kind, name, project/path, linkage, PCH,
+- [x] Add typed request fields for create kind, name, project/path, linkage, PCH,
   dependency groups, enablement targets, and dry-run state.
-- [ ] Define one normalized request for equivalent direct and shell syntax,
+- [x] Define one normalized request for equivalent direct and shell syntax,
   including repeated options, Windows paths, and command-family help.
-- [ ] Introduce descriptor data models and validation errors shared by
+- [x] Introduce descriptor data models and validation errors shared by
   scaffolding logic; reuse DurinHeaderTool schema behavior or extract a common
   schema module without importing DHT process-global caches into BuildTool.
-- [ ] Build temporary-workspace fixtures representing Engine/Sandbox ownership,
+- [x] Build temporary-workspace fixtures representing Engine/Sandbox ownership,
   cross-project dependencies, profiles, and common descriptor failures.
-- [ ] Add parser and request-model tests before filesystem mutation is
+- [x] Add parser and request-model tests before filesystem mutation is
   implemented.
 
 #### Acceptance Gate

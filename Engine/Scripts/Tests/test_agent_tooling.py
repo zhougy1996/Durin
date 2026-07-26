@@ -21,6 +21,7 @@ if str(BUILD_SCRIPT_DIR) not in os.sys.path:
 from durin_build_tool import cli as build_cli
 from durin_build_tool import config as build_config
 from durin_build_tool import core as build_core
+from durin_build_tool import descriptors as build_descriptors
 from durin_build_tool.output import BuildOutput
 
 from Engine.Scripts.Bootstrap import agent_config
@@ -312,7 +313,11 @@ class CliTests(unittest.TestCase):
     def test_every_direct_command_and_help_come_from_shared_specs(self) -> None:
         parser = build_cli.make_parser()
         subparsers = parser._subparsers._group_actions[0].choices
-        self.assertEqual(set(subparsers), {spec.name for spec in build_cli.COMMAND_SPECS})
+        self.assertEqual(
+            set(subparsers),
+            {spec.name for spec in build_cli.COMMAND_SPECS}
+            | {family.name for family in build_cli.COMMAND_FAMILIES},
+        )
         top_level_help = parser.format_help()
         for spec in build_cli.COMMAND_SPECS:
             self.assertIn(spec.name, top_level_help)
@@ -320,6 +325,284 @@ class CliTests(unittest.TestCase):
             command_help = subparsers[spec.name].format_help()
             for argument in spec.arguments:
                 self.assertIn(argument.flags[0], command_help)
+        for family in build_cli.COMMAND_FAMILIES:
+            self.assertIn(family.name, top_level_help)
+            self.assertIn(family.summary, top_level_help)
+            family_parser = subparsers[family.name]
+            family_help = family_parser.format_help()
+            family_subparsers = family_parser._subparsers._group_actions[0].choices
+            for spec in family.commands:
+                command_name = spec.action.value.removeprefix(f"{family.name}-")
+                self.assertIn(command_name, family_help)
+                leaf_help = family_subparsers[command_name].format_help()
+                for argument in spec.arguments:
+                    expected = (
+                        argument.flags[0]
+                        if argument.flags[0].startswith("-")
+                        else argument.kwargs["metavar"]
+                    )
+                    self.assertIn(expected, leaf_help)
+
+    def test_create_family_requires_a_leaf_command(self) -> None:
+        with self.assertRaisesRegex(build_config.BuildToolError, "BuildTool create --help"):
+            build_cli.parse_args(["create"])
+
+    def test_create_module_request_captures_typed_repeated_options(self) -> None:
+        request = build_cli.parse_args(
+            [
+                "CREATE",
+                "MODULE",
+                "Gameplay",
+                "--project",
+                r"Sandbox\Sandbox.dproject",
+                "--kind",
+                "editor",
+                "--link",
+                "static",
+                "--pch",
+                "SharedPCH_Core",
+                "--public-dependency",
+                "Core",
+                "--private-dependency",
+                "Engine",
+                "--private-dependency",
+                "RHI",
+                "--optional-public-dependency",
+                "Mona",
+                "--optional-private-dependency",
+                "AssetCore",
+                "--enable",
+                "DurinEditor",
+                "--enable",
+                "DurinGame",
+                "--dry-run",
+                "--plain",
+            ]
+        )
+        self.assertIs(request.action, build_config.Action.CREATE_MODULE)
+        self.assertIs(request.create_kind, build_config.CreateKind.MODULE)
+        self.assertEqual(request.create_name, "Gameplay")
+        self.assertEqual(request.project_path, Path(r"Sandbox\Sandbox.dproject"))
+        self.assertIs(request.module_kind, build_config.ModuleKind.EDITOR)
+        self.assertIs(request.link_type, build_config.LinkType.STATIC)
+        self.assertEqual(request.pch, "SharedPCH_Core")
+        self.assertEqual(request.public_dependencies, ("Core",))
+        self.assertEqual(request.private_dependencies, ("Engine", "RHI"))
+        self.assertEqual(request.optional_public_dependencies, ("Mona",))
+        self.assertEqual(request.optional_private_dependencies, ("AssetCore",))
+        self.assertEqual(request.enablements, ("DurinEditor", "DurinGame"))
+        self.assertTrue(request.dry_run)
+        self.assertTrue(request.plain)
+
+    def test_create_defaults_and_project_request_are_typed(self) -> None:
+        module = build_cli.parse_args(
+            ["create", "module", "Gameplay", "--project", r"Sandbox\Sandbox.dproject"]
+        )
+        self.assertIs(module.module_kind, build_config.ModuleKind.RUNTIME)
+        self.assertIs(module.link_type, build_config.LinkType.SHARED)
+        self.assertEqual(module.pch, "")
+        self.assertIsNone(module.enablements)
+
+        project = build_cli.parse_args(
+            ["create", "project", "MyGame", "--path", r"Games\My Game", "--dry-run"]
+        )
+        self.assertIs(project.action, build_config.Action.CREATE_PROJECT)
+        self.assertIs(project.create_kind, build_config.CreateKind.PROJECT)
+        self.assertEqual(project.destination_path, Path(r"Games\My Game"))
+        self.assertTrue(project.dry_run)
+
+    def test_create_direct_and_windows_shell_requests_match(self) -> None:
+        direct = build_cli.parse_args(
+            [
+                "create",
+                "module",
+                "SceneEditor",
+                "--project",
+                r"Sandbox Projects\示例\Sandbox.dproject",
+                "--private-dependency",
+                "DurinEd",
+                "--enable",
+                "DurinEditor",
+            ]
+        )
+        parts = build_cli.split_shell_command(
+            'create module SceneEditor --project "Sandbox Projects\\示例\\Sandbox.dproject" '
+            "--private-dependency DurinEd --enable DurinEditor",
+            current_host="windows",
+        )
+        shell = build_cli.parse_shell_request(
+            parts,
+            build_config.CommandRequest(build_config.Action.SHELL),
+            current_preset="debug",
+        )
+        self.assertEqual(shell, direct)
+
+    def write_json(self, path: Path, value: object) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(value, indent=4), encoding="utf-8")
+
+    def create_workspace(self, root: Path) -> tuple[Path, Path]:
+        engine_project = root / "Engine" / "Engine.dproject"
+        sandbox_project = root / "Sandbox" / "Sandbox.dproject"
+        self.write_json(
+            engine_project,
+            {
+                "ProjectName": "Engine",
+                "ModuleDirs": {
+                    "Core": "Source/Runtime/Core",
+                    "DurinEd": "Source/Editor/DurinEd",
+                },
+                "BaseModules": ["Core"],
+                "ExtraModules": {
+                    "DurinEditor": {"Modules": ["DurinEd"]},
+                    "DurinGame": {"Modules": []},
+                },
+            },
+        )
+        self.write_json(
+            root / "Engine" / "Source" / "Runtime" / "Core" / "Core.dmodule",
+            {"ModuleName": "Core"},
+        )
+        self.write_json(
+            root / "Engine" / "Source" / "Editor" / "DurinEd" / "DurinEd.dmodule",
+            {"ModuleName": "DurinEd", "PrivateDependencies": ["Core"]},
+        )
+        self.write_json(
+            sandbox_project,
+            {
+                "ProjectName": "Sandbox",
+                "ModuleDirs": {"Sandbox": "Source/Runtime/Sandbox"},
+                "BaseModules": ["Sandbox"],
+            },
+        )
+        self.write_json(
+            root / "Sandbox" / "Source" / "Runtime" / "Sandbox" / "Sandbox.dmodule",
+            {
+                "ModuleName": "Sandbox",
+                "PrivateDependencies": ["Core"],
+                "OptionalPrivateDependencies": ["DurinEd"],
+            },
+        )
+        return engine_project, sandbox_project
+
+    def test_workspace_models_preserve_ownership_profiles_and_cross_project_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_workspace(root)
+            workspace = build_descriptors.load_workspace_descriptors(root)
+        self.assertEqual(tuple(project.name for project in workspace.projects), ("Engine", "Sandbox"))
+        self.assertEqual(workspace.profile_names, ("DurinEditor", "DurinGame"))
+        sandbox = workspace.find_module("sandbox")
+        self.assertIsNotNone(sandbox)
+        assert sandbox is not None
+        self.assertEqual(sandbox.owning_project, "Sandbox")
+        self.assertEqual(sandbox.private_dependencies, ("Core",))
+        self.assertEqual(sandbox.optional_private_dependencies, ("DurinEd",))
+
+    def test_malformed_json_and_missing_required_fields_are_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            engine_project, _ = self.create_workspace(root)
+            engine_project.write_text("{", encoding="utf-8")
+            with self.assertRaisesRegex(build_config.BuildToolError, "malformed JSON at line 1"):
+                build_descriptors.load_workspace_descriptors(root)
+            self.write_json(engine_project, {"ModuleDirs": {}})
+            with self.assertRaisesRegex(build_config.BuildToolError, 'missing required field "ProjectName"'):
+                build_descriptors.load_workspace_descriptors(root)
+            self.create_workspace(root)
+            module_path = root / "Engine" / "Source" / "Runtime" / "Core" / "Core.dmodule"
+            self.write_json(module_path, {})
+            with self.assertRaisesRegex(build_config.BuildToolError, 'missing required field "ModuleName"'):
+                build_descriptors.load_workspace_descriptors(root)
+
+    def test_duplicate_project_and_module_names_are_case_insensitive(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, sandbox_project = self.create_workspace(root)
+            sandbox_data = json.loads(sandbox_project.read_text(encoding="utf-8"))
+            sandbox_data["ProjectName"] = "engine"
+            self.write_json(sandbox_project, sandbox_data)
+            with self.assertRaisesRegex(build_config.BuildToolError, "Duplicate project name"):
+                build_descriptors.load_workspace_descriptors(root)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, sandbox_project = self.create_workspace(root)
+            sandbox_data = json.loads(sandbox_project.read_text(encoding="utf-8"))
+            sandbox_data["ModuleDirs"] = {"core": "Source/Runtime/core"}
+            sandbox_data["BaseModules"] = ["core"]
+            self.write_json(sandbox_project, sandbox_data)
+            self.write_json(
+                root / "Sandbox" / "Source" / "Runtime" / "core" / "core.dmodule",
+                {"ModuleName": "core"},
+            )
+            with self.assertRaisesRegex(build_config.BuildToolError, "Duplicate module name"):
+                build_descriptors.load_workspace_descriptors(root)
+
+    def test_missing_self_dependencies_and_invalid_enabled_roots_are_rejected(self) -> None:
+        cases = (
+            ({"PrivateDependencies": ["Missing"]}, "depends on missing module"),
+            ({"PrivateDependencies": ["Sandbox"]}, "cannot depend on itself"),
+        )
+        for module_changes, error in cases:
+            with self.subTest(error=error), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                self.create_workspace(root)
+                module_path = (
+                    root / "Sandbox" / "Source" / "Runtime" / "Sandbox" / "Sandbox.dmodule"
+                )
+                self.write_json(module_path, {"ModuleName": "Sandbox", **module_changes})
+                with self.assertRaisesRegex(build_config.BuildToolError, error):
+                    build_descriptors.load_workspace_descriptors(root)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, sandbox_project = self.create_workspace(root)
+            sandbox_data = json.loads(sandbox_project.read_text(encoding="utf-8"))
+            sandbox_data["BaseModules"] = ["Missing"]
+            self.write_json(sandbox_project, sandbox_data)
+            with self.assertRaisesRegex(build_config.BuildToolError, "enables missing module"):
+                build_descriptors.load_workspace_descriptors(root)
+
+    def test_create_request_validation_covers_names_dependencies_and_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_workspace(root)
+            workspace = build_descriptors.load_workspace_descriptors(root)
+            valid = build_cli.parse_args(
+                [
+                    "create",
+                    "module",
+                    "Gameplay",
+                    "--project",
+                    "Sandbox/Sandbox.dproject",
+                    "--private-dependency",
+                    "Core",
+                    "--enable",
+                    "DurinEditor",
+                ]
+            )
+            build_descriptors.validate_create_request(valid, workspace)
+            invalid_requests = (
+                (replace(valid, create_name="not-valid"), "valid C\\+\\+ identifier"),
+                (replace(valid, create_name="Core"), "already exists"),
+                (replace(valid, private_dependencies=("Missing",)), "depends on missing module"),
+                (replace(valid, private_dependencies=("Gameplay",)), "cannot depend on itself"),
+                (replace(valid, enablements=("UnknownProfile",)), "does not exist"),
+                (
+                    replace(valid, project_path=Path("Unknown/Unknown.dproject")),
+                    "not registered in the workspace",
+                ),
+                (
+                    replace(valid, enablements=("none", "DurinEditor")),
+                    "cannot be combined",
+                ),
+            )
+            for request, error in invalid_requests:
+                with self.subTest(error=error), self.assertRaisesRegex(
+                    build_config.BuildToolError, error
+                ):
+                    build_descriptors.validate_create_request(request, workspace)
 
     def test_shell_startup_and_interactive_help_share_command_descriptions(self) -> None:
         parser = build_cli.make_parser()

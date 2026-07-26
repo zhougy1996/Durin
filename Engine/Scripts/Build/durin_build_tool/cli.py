@@ -18,8 +18,12 @@ from .config import (
     BuildToolError,
     CMAKE_ENV_VARS,
     CommandRequest,
+    CreateKind,
     JOBS_ENV_VAR,
+    LinkType,
+    ModuleKind,
     OutputMode,
+    REPO_ROOT,
     preset_build_directory,
     preset_cache_string,
 )
@@ -54,6 +58,17 @@ class CommandSpec:
     @property
     def name(self) -> str:
         return self.action.value
+
+    @property
+    def aliases(self) -> tuple[str, ...]:
+        return (f"/{self.name}",)
+
+
+@dataclass(frozen=True)
+class CommandFamilySpec:
+    name: str
+    summary: str
+    commands: tuple[CommandSpec, ...]
 
     @property
     def aliases(self) -> tuple[str, ...]:
@@ -134,6 +149,109 @@ RUN_ARGUMENTS = ArgumentSpec(
         "help": "arguments passed to the application; must be the final BuildTool option",
     },
 )
+CREATE_NAME = ArgumentSpec(
+    ("create_name",),
+    "create_name",
+    {"metavar": "NAME", "help": "C++ identifier used for the generated project or module"},
+)
+PROJECT_PATH = ArgumentSpec(
+    ("--project",),
+    "project_path",
+    {
+        "type": Path,
+        "required": True,
+        "metavar": "DESCRIPTOR",
+        "help": "owning .dproject descriptor",
+    },
+)
+DESTINATION_PATH = ArgumentSpec(
+    ("--path",),
+    "destination_path",
+    {
+        "type": Path,
+        "required": True,
+        "metavar": "PATH",
+        "help": "workspace-relative project path",
+    },
+)
+MODULE_KIND = ArgumentSpec(
+    ("--kind",),
+    "module_kind",
+    {
+        "choices": tuple(kind.value for kind in ModuleKind),
+        "default": ModuleKind.RUNTIME.value,
+        "help": "module source root (default: runtime)",
+    },
+)
+LINK_TYPE = ArgumentSpec(
+    ("--link",),
+    "link_type",
+    {
+        "choices": tuple(link.value for link in LinkType),
+        "default": LinkType.SHARED.value,
+        "help": "module linkage (default: shared)",
+    },
+)
+PCH = ArgumentSpec(
+    ("--pch",),
+    "pch",
+    {"default": "", "metavar": "NAME", "help": "PCH name (default: Self)"},
+)
+PUBLIC_DEPENDENCY = ArgumentSpec(
+    ("--public-dependency",),
+    "public_dependencies",
+    {
+        "action": "append",
+        "default": None,
+        "metavar": "MODULE",
+        "help": "required public dependency; repeatable",
+    },
+)
+PRIVATE_DEPENDENCY = ArgumentSpec(
+    ("--private-dependency",),
+    "private_dependencies",
+    {
+        "action": "append",
+        "default": None,
+        "metavar": "MODULE",
+        "help": "required private dependency; repeatable",
+    },
+)
+OPTIONAL_PUBLIC_DEPENDENCY = ArgumentSpec(
+    ("--optional-public-dependency",),
+    "optional_public_dependencies",
+    {
+        "action": "append",
+        "default": None,
+        "metavar": "MODULE",
+        "help": "optional public dependency; repeatable",
+    },
+)
+OPTIONAL_PRIVATE_DEPENDENCY = ArgumentSpec(
+    ("--optional-private-dependency",),
+    "optional_private_dependencies",
+    {
+        "action": "append",
+        "default": None,
+        "metavar": "MODULE",
+        "help": "optional private dependency; repeatable",
+    },
+)
+ENABLEMENT = ArgumentSpec(
+    ("--enable",),
+    "enablements",
+    {
+        "action": "append",
+        "default": None,
+        "metavar": "PROFILE|base|none",
+        "help": "override default module enablement; repeatable",
+    },
+)
+DRY_RUN = ArgumentSpec(
+    ("--dry-run",),
+    "dry_run",
+    {"action": "store_true", "help": "validate and report planned changes without writing"},
+)
 
 CONTEXT_ARGUMENTS = (PROFILE, PRESET, PLAIN, OUTPUT_MODE)
 TOOL_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, PLAIN, OUTPUT_MODE)
@@ -210,6 +328,37 @@ COMMAND_SPECS = (
         ("run_arguments",),
     ),
 )
+CREATE_COMMAND_SPECS = (
+    CommandSpec(
+        Action.CREATE_MODULE,
+        "create and register a module",
+        "create module NAME --project DESCRIPTOR [options]",
+        (
+            CREATE_NAME,
+            PROJECT_PATH,
+            MODULE_KIND,
+            LINK_TYPE,
+            PCH,
+            PUBLIC_DEPENDENCY,
+            PRIVATE_DEPENDENCY,
+            OPTIONAL_PUBLIC_DEPENDENCY,
+            OPTIONAL_PRIVATE_DEPENDENCY,
+            ENABLEMENT,
+            DRY_RUN,
+            PLAIN,
+        ),
+    ),
+    CommandSpec(
+        Action.CREATE_PROJECT,
+        "create and register a workspace project",
+        "create project NAME --path PATH [--dry-run]",
+        (CREATE_NAME, DESTINATION_PATH, DRY_RUN, PLAIN),
+    ),
+)
+COMMAND_FAMILIES = (
+    CommandFamilySpec("create", "create a module or workspace project", CREATE_COMMAND_SPECS),
+)
+ALL_COMMAND_SPECS = COMMAND_SPECS + CREATE_COMMAND_SPECS
 
 TOOLCHAIN_ACTIONS = {
     Action.CONFIGURE,
@@ -218,12 +367,20 @@ TOOLCHAIN_ACTIONS = {
     Action.REBUILD,
     Action.TEST,
 }
-COMMAND_BY_NAME = {spec.name: spec for spec in COMMAND_SPECS}
+CREATE_ACTIONS = {Action.CREATE_MODULE, Action.CREATE_PROJECT}
+COMMAND_BY_ACTION = {spec.action: spec for spec in ALL_COMMAND_SPECS}
 SHELL_COMMANDS = {
     name: spec
     for spec in COMMAND_SPECS
     for name in (spec.name, *spec.aliases)
 }
+SHELL_COMMANDS.update(
+    {
+        name: family
+        for family in COMMAND_FAMILIES
+        for name in (family.name, *family.aliases)
+    }
+)
 SHELL_CONTROL_ALIASES = {
     "/exit": "exit",
     "/quit": "quit",
@@ -252,18 +409,18 @@ def add_argument_spec(
     suppress_default: bool = False,
 ) -> None:
     kwargs = dict(argument.kwargs)
-    kwargs["dest"] = argument.dest
+    if argument.flags[0].startswith("-"):
+        kwargs["dest"] = argument.dest
     if suppress_default:
         kwargs["default"] = argparse.SUPPRESS
     parser.add_argument(*argument.flags, **kwargs)
 
 
 def shell_command_help() -> str:
-    command_width = max(len(spec.shell_usage) for spec in COMMAND_SPECS if spec.action is not Action.SHELL)
+    visible_specs = tuple(spec for spec in ALL_COMMAND_SPECS if spec.action is not Action.SHELL)
+    command_width = max(len(spec.shell_usage) for spec in visible_specs)
     lines = ["Interactive commands:"]
-    for spec in COMMAND_SPECS:
-        if spec.action is Action.SHELL:
-            continue
+    for spec in visible_specs:
         lines.append(f"  {spec.shell_usage:<{command_width}}  {spec.summary}")
     lines.extend(
         [
@@ -300,12 +457,35 @@ def make_parser() -> BuildArgumentParser:
                 argument,
                 suppress_default=argument in ROOT_ARGUMENTS,
             )
+    for family in COMMAND_FAMILIES:
+        family_parser = subparsers.add_parser(
+            family.name,
+            help=family.summary,
+            description=family.summary,
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
+        family_parsers = family_parser.add_subparsers(
+            dest="create_command",
+            metavar="COMMAND",
+            required=True,
+        )
+        for spec in family.commands:
+            command_name = spec.action.value.removeprefix(f"{family.name}-")
+            command_parser = family_parsers.add_parser(
+                command_name,
+                help=spec.summary,
+                description=spec.summary,
+                formatter_class=argparse.RawDescriptionHelpFormatter,
+            )
+            command_parser.set_defaults(action=spec.action.value)
+            for argument in spec.arguments:
+                add_argument_spec(command_parser, argument)
     return parser
 
 
 def normalize_action(argv: Sequence[str]) -> list[str]:
     values = list(argv)
-    commands = {action.value for action in Action}
+    commands = {spec.name for spec in COMMAND_SPECS} | {family.name for family in COMMAND_FAMILIES}
     index = 0
     while index < len(values):
         value = values[index]
@@ -315,6 +495,8 @@ def normalize_action(argv: Sequence[str]) -> list[str]:
             continue
         if value.lower() in commands:
             values[index] = value.lower()
+            if value.lower() == "create" and index + 1 < len(values):
+                values[index + 1] = values[index + 1].lower()
         break
     return values
 
@@ -391,6 +573,18 @@ NAMESPACE_FIELDS = {
     "fresh": "fresh",
     "plain": "plain",
     "output_mode": "output_mode",
+    "create_name": "create_name",
+    "project_path": "project_path",
+    "destination_path": "destination_path",
+    "module_kind": "module_kind",
+    "link_type": "link_type",
+    "pch": "pch",
+    "public_dependencies": "public_dependencies",
+    "private_dependencies": "private_dependencies",
+    "optional_public_dependencies": "optional_public_dependencies",
+    "optional_private_dependencies": "optional_private_dependencies",
+    "enablements": "enablements",
+    "dry_run": "dry_run",
 }
 
 
@@ -406,7 +600,26 @@ def namespace_request(
             value = getattr(args, namespace_name)
             if request_name == "output_mode":
                 value = OutputMode(value)
-            changes[request_name] = tuple(value) if request_name == "run_arguments" else value
+            elif request_name == "module_kind":
+                value = ModuleKind(value)
+            elif request_name == "link_type":
+                value = LinkType(value)
+            if request_name in {
+                "run_arguments",
+                "public_dependencies",
+                "private_dependencies",
+                "optional_public_dependencies",
+                "optional_private_dependencies",
+            }:
+                value = tuple(value or ())
+            elif request_name == "enablements" and value is not None:
+                value = tuple(value)
+            changes[request_name] = value
+    action = changes["action"]
+    if action is Action.CREATE_MODULE:
+        changes["create_kind"] = CreateKind.MODULE
+    elif action is Action.CREATE_PROJECT:
+        changes["create_kind"] = CreateKind.PROJECT
     return replace(request, **changes)
 
 
@@ -421,12 +634,12 @@ def parse_request(
 ) -> CommandRequest:
     args = make_parser().parse_args(normalize_action(argv))
     action = Action(args.action or Action.SHELL.value)
-    spec = COMMAND_BY_NAME[action.value]
-    supplied = set(vars(args)) - {"action"}
+    spec = COMMAND_BY_ACTION[action]
+    supplied = set(vars(args)) - {"action", "create_command"}
     allowed = {argument.dest for argument in spec.arguments}
     unsupported = sorted(supplied - allowed)
     if unsupported:
-        flags = ", ".join(argument_flag(COMMAND_BY_NAME[Action.SHELL.value], name) for name in unsupported)
+        flags = ", ".join(argument_flag(COMMAND_BY_ACTION[Action.SHELL], name) for name in unsupported)
         raise BuildToolError(f"{spec.name} does not accept {flags}.")
     request = namespace_request(args, defaults=defaults)
     clean_defaults = CommandRequest(action)
@@ -445,8 +658,12 @@ def parse_args(argv: Sequence[str] | None = None) -> CommandRequest:
 
 def normalize_shell_command(parts: Sequence[str]) -> list[str]:
     spec = SHELL_COMMANDS.get(parts[0].lower())
-    if spec is None or spec.action is Action.SHELL:
+    if spec is None or (isinstance(spec, CommandSpec) and spec.action is Action.SHELL):
         raise BuildToolError(f'Unknown shell command "{parts[0]}". Type help for available commands.')
+    if isinstance(spec, CommandFamilySpec):
+        if len(parts) < 2:
+            return [spec.name]
+        return [spec.name, parts[1].lower(), *parts[2:]]
     command = spec.name
     values = list(parts[1:])
     option_by_flag = {
@@ -651,7 +868,10 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
             spec = SHELL_COMMANDS.get(shell_name)
             command = spec.name if spec is not None else SHELL_CONTROL_ALIASES.get(shell_name, shell_name)
             values = parts[1:]
-            if spec is not None and spec.action is not Action.SHELL:
+            if (
+                isinstance(spec, CommandSpec)
+                and spec.action is not Action.SHELL
+            ):
                 child_request = replace(request, action=spec.action, preset=current_preset)
             if command in {"exit", "quit"}:
                 return
@@ -687,6 +907,13 @@ def run_shell(request: CommandRequest, output: BuildOutput) -> None:
                 else:
                     child_output.info("No active BuildTool operation was found.")
                 continue
+            if child_request.action in CREATE_ACTIONS:
+                from .descriptors import load_workspace_descriptors, validate_create_request
+
+                validate_create_request(child_request, load_workspace_descriptors(REPO_ROOT))
+                raise BuildToolError(
+                    "Scaffolding planning is not available until implementation Stage 1."
+                )
             session_profile = request.profile or base.profile.name
             needs_independent_context = (
                 child_request.profile not in {"", session_profile}
@@ -762,6 +989,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 output.info("No active BuildTool operation was found.")
             return 0
+        if request.action in CREATE_ACTIONS:
+            from .descriptors import load_workspace_descriptors, validate_create_request
+
+            validate_create_request(request, load_workspace_descriptors(REPO_ROOT))
+            raise BuildToolError(
+                "Scaffolding planning is not available until implementation Stage 1."
+            )
         prepare_tools = request.action in TOOLCHAIN_ACTIONS
         context = create_context(request, prepare_tools=prepare_tools)
         if request.action is Action.PRESETS:

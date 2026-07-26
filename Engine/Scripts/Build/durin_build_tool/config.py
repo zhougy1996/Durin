@@ -60,6 +60,23 @@ class Action(str, Enum):
     TEST = "test"
     PURGE = "purge"
     RUN = "run"
+    CREATE_MODULE = "create-module"
+    CREATE_PROJECT = "create-project"
+
+
+class CreateKind(str, Enum):
+    MODULE = "module"
+    PROJECT = "project"
+
+
+class ModuleKind(str, Enum):
+    RUNTIME = "runtime"
+    EDITOR = "editor"
+
+
+class LinkType(str, Enum):
+    SHARED = "shared"
+    STATIC = "static"
 
 
 class EnvironmentProvider(str, Enum):
@@ -131,6 +148,19 @@ class CommandRequest:
     fresh: bool = False
     plain: bool = False
     output_mode: OutputMode = OutputMode.AUTO
+    create_kind: CreateKind | None = None
+    create_name: str = ""
+    project_path: Path | None = None
+    destination_path: Path | None = None
+    module_kind: ModuleKind = ModuleKind.RUNTIME
+    link_type: LinkType = LinkType.SHARED
+    pch: str = ""
+    public_dependencies: tuple[str, ...] = ()
+    private_dependencies: tuple[str, ...] = ()
+    optional_public_dependencies: tuple[str, ...] = ()
+    optional_private_dependencies: tuple[str, ...] = ()
+    enablements: tuple[str, ...] | None = None
+    dry_run: bool = False
 
 
 @dataclass
