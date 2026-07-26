@@ -2,6 +2,100 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto AppendBigEndian(std::vector<uint8>& Bytes, uint32 Value) -> void
+		{
+			Bytes.push_back(static_cast<uint8>(Value >> 24));
+			Bytes.push_back(static_cast<uint8>(Value >> 16));
+			Bytes.push_back(static_cast<uint8>(Value >> 8));
+			Bytes.push_back(static_cast<uint8>(Value));
+		}
+
+		auto Crc32(std::span<const uint8> Bytes) -> uint32
+		{
+			uint32 Crc = 0xffffffffu;
+			for (const uint8 Byte : Bytes)
+			{
+				Crc ^= Byte;
+				for (uint32 Bit = 0; Bit < 8; ++Bit)
+					Crc = (Crc >> 1) ^ (0xedb88320u & (0u - (Crc & 1u)));
+			}
+			return ~Crc;
+		}
+
+		auto WritePngChunk(
+			std::vector<uint8>& Bytes,
+			std::string_view Type,
+			std::span<const uint8> Payload) -> void
+		{
+			AppendBigEndian(Bytes, static_cast<uint32>(Payload.size()));
+			const size_t CrcStart = Bytes.size();
+			Bytes.insert(Bytes.end(), Type.begin(), Type.end());
+			Bytes.insert(Bytes.end(), Payload.begin(), Payload.end());
+			AppendBigEndian(Bytes, Crc32(std::span(Bytes).subspan(CrcStart)));
+		}
+
+		auto EncodeRgbaPng(
+			std::span<const uint8> Pixels,
+			uint32 Width,
+			uint32 Height,
+			std::vector<uint8>& OutBytes) -> bool
+		{
+			const uint64 ExpectedBytes = static_cast<uint64>(Width) * Height * 4;
+			if (Width == 0 || Height == 0 || Pixels.size() != ExpectedBytes) return false;
+
+			std::vector<uint8> Scanlines;
+			Scanlines.reserve(static_cast<size_t>(ExpectedBytes) + Height);
+			const size_t RowBytes = static_cast<size_t>(Width) * 4;
+			for (uint32 Y = 0; Y < Height; ++Y)
+			{
+				Scanlines.push_back(0);
+				Scanlines.insert(
+					Scanlines.end(),
+					Pixels.begin() + static_cast<ptrdiff_t>(Y * RowBytes),
+					Pixels.begin() + static_cast<ptrdiff_t>((Y + 1) * RowBytes));
+			}
+
+			std::vector<uint8> Deflate{0x78, 0x01};
+			for (size_t Offset = 0; Offset < Scanlines.size();)
+			{
+				const uint16 BlockSize =
+					static_cast<uint16>(std::min<size_t>(65'535, Scanlines.size() - Offset));
+				const bool bFinal = Offset + BlockSize == Scanlines.size();
+				Deflate.push_back(bFinal ? 1 : 0);
+				Deflate.push_back(static_cast<uint8>(BlockSize));
+				Deflate.push_back(static_cast<uint8>(BlockSize >> 8));
+				const uint16 Inverse = static_cast<uint16>(~BlockSize);
+				Deflate.push_back(static_cast<uint8>(Inverse));
+				Deflate.push_back(static_cast<uint8>(Inverse >> 8));
+				Deflate.insert(
+					Deflate.end(),
+					Scanlines.begin() + static_cast<ptrdiff_t>(Offset),
+					Scanlines.begin() + static_cast<ptrdiff_t>(Offset + BlockSize));
+				Offset += BlockSize;
+			}
+			uint32 S1 = 1;
+			uint32 S2 = 0;
+			for (const uint8 Byte : Scanlines)
+			{
+				S1 = (S1 + Byte) % 65'521;
+				S2 = (S2 + S1) % 65'521;
+			}
+			AppendBigEndian(Deflate, (S2 << 16) | S1);
+
+			OutBytes = {137, 80, 78, 71, 13, 10, 26, 10};
+			std::vector<uint8> Header;
+			AppendBigEndian(Header, Width);
+			AppendBigEndian(Header, Height);
+			Header.insert(Header.end(), {8, 6, 0, 0, 0});
+			WritePngChunk(OutBytes, "IHDR", Header);
+			WritePngChunk(OutBytes, "IDAT", Deflate);
+			WritePngChunk(OutBytes, "IEND", {});
+			return true;
+		}
+	}
+
 	struct FRenderedAssetThumbnailPipeline::FImpl
 	{
 		FImpl(
@@ -188,6 +282,29 @@ namespace Durin
 			EAssetThumbnailState::Ready,
 			AssetRevision,
 			ResourceRevision);
+	}
+
+	auto FRenderedAssetThumbnailPipeline::CompletePixels(
+		const FRenderedAssetThumbnailJob& Job,
+		uint64 AssetRevision,
+		uint64 ResourceRevision,
+		std::span<const uint8> Pixels,
+		uint32 Width,
+		uint32 Height,
+		std::string_view Error) -> bool
+	{
+		if (!Error.empty())
+			return CompleteEncoding(Job, AssetRevision, ResourceRevision, {}, Error);
+		std::vector<uint8> EncodedBytes;
+		if (!EncodeRgbaPng(Pixels, Width, Height, EncodedBytes))
+			return CompleteEncoding(
+				Job,
+				AssetRevision,
+				ResourceRevision,
+				{},
+				"Rendered-thumbnail pixels do not match the requested RGBA8 output.");
+		return CompleteEncoding(
+			Job, AssetRevision, ResourceRevision, EncodedBytes);
 	}
 
 	auto FRenderedAssetThumbnailPipeline::Cancel(const FRenderedAssetThumbnailJob& Job) -> void

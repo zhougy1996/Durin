@@ -32,6 +32,8 @@ namespace Durin
 		ENGINE_API auto OnUnregister() -> void override;
 		ENGINE_API auto OnOwnerVisibilityChanged() -> void override;
 		ENGINE_API auto GetSceneData() const -> FDirectionalLightSceneData;
+		ENGINE_API auto SetIntensity(float InIntensity) -> void;
+		ENGINE_API auto SetAmbientIntensity(float InIntensity) -> void;
 
 	private:
 		DPROPERTY(Edit, MetaData="HideAlpha")

@@ -102,6 +102,7 @@ namespace Durin
 		FMatrix ProjectionMatrix{1.0};
 		FMatrix ViewProjectionMatrix{1.0};
 		FVector3 ViewLocation{0.0};
+		FVector4f ClearColor{0.0f, 0.0f, 0.0f, 1.0f};
 		uint32 ViewportX = 0;
 		uint32 ViewportY = 0;
 		uint32 ViewportWidth = 0;

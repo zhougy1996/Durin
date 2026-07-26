@@ -39,4 +39,14 @@ namespace Durin
 		Result.AmbientIntensity = FMath::Max(0.0f, AmbientIntensity);
 		return Result;
 	}
+
+	auto DDirectionalLightComponent::SetIntensity(float InIntensity) -> void
+	{
+		Intensity = FMath::Max(0.0f, InIntensity);
+	}
+
+	auto DDirectionalLightComponent::SetAmbientIntensity(float InIntensity) -> void
+	{
+		AmbientIntensity = FMath::Max(0.0f, InIntensity);
+	}
 }

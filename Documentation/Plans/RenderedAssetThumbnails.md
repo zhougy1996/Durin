@@ -18,9 +18,9 @@ parent/texture dependency, invalid-instance, and six-face directional
 TextureCube assets at fixed virtual identities. The thumbnail and
 [Asset Derived Data and Cooking](Archive/2026-07/AssetDerivedDataAndCooking.md)
 plans share one native sphere identity and acquisition contract. Implementing
-that native shared-mesh service remains owned by Stage 6 of the asset-derived-data
-plan and is a prerequisite for binding rendered-thumbnail preview scenes; no
-thumbnail path may fall back to transient source-model import.
+that native shared-mesh service was completed by Stage 6 of the
+asset-derived-data plan; rendered-thumbnail scenes acquire the retained native
+asset directly and never fall back to transient source-model import.
 
 Stage 1 is complete. `DurinEd` now owns an exact-class provider registry
 with monotonic generations and a bounded provider-neutral scheduler that
@@ -34,12 +34,13 @@ those shared facilities and accepts item identities independently from its
 physical provider input. Texture2D cards now request and query by virtual asset
 identity, source-file cards use their normalized item identity, and aliases
 that share one physical source coalesce to one decode/upload entry. Stage 2 is
-in progress. `DurinEd` now owns the bounded rendered-generation coordinator,
+complete. `DurinEd` now owns the bounded rendered-generation coordinator,
 persistent warm-hit fast path, revision-safe asynchronous transition boundary,
-atomic encoded-output publication, and deterministic counters. Binding a real
-offscreen preview scene remains blocked on the shared native preview-mesh
-service owned by Stage 6 of the asset-derived-data plan; the thumbnail implementation
-does not introduce the forbidden transient-import fallback.
+atomic PNG output publication, deterministic counters, and one resettable
+offscreen preview-scene pool. The pool retains the shared native sphere,
+applies the versioned camera, light, background, and output contract, and
+performs one render-thread readback per cold capture. Focused tests exercise a
+real Vulkan offscreen capture and decode the persisted PNG output.
 
 Texture2D assets and supported source-image files already use an
 asynchronous, persistent Content Browser thumbnail cache. Materials have an
@@ -303,10 +304,10 @@ introducing per-card live viewports or steady-state rendering work.
 
 - [x] Implement the bounded generation state machine and its game-thread,
   render-thread, and worker transitions.
-- [ ] Create one resettable offscreen preview-scene pool using the shared sphere
+- [x] Create one resettable offscreen preview-scene pool using the shared sphere
   asset, fixed output target, deterministic view, and editor-only assistance
   disabled.
-- [ ] Render requested content, wait for required resource revisions, read back
+- [x] Render requested content, wait for required resource revisions, read back
   the final output once, encode it, and atomically publish its cache object and
   index entry.
 - [x] Revalidate job key, provider generation, request serial, asset identity,

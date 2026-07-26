@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "EngineTestSupport.h"
+#include "ImageDecoder.h"
 #include "Misc/Paths.h"
 #include "Thumbnail/AssetThumbnail.h"
 #include "Thumbnail/AssetThumbnailCache.h"
@@ -587,6 +588,48 @@ namespace Durin
 
 		RunRequest(1, false);
 		RunRequest(2, true);
+	}
+
+	TEST(FAssetThumbnailContractTests, RenderedPipelineEncodesRgbaPixelsAsDecodablePng)
+	{
+		const std::filesystem::path Root = MakeObjectStoreRoot("RenderedPipelinePng");
+		FAssetThumbnailProviderRegistry Registry;
+		std::string Error;
+		auto Provider = std::make_shared<FTestThumbnailProvider>(FAssetThumbnailProviderRegistration{
+			.AssetClassName = "DMaterial",
+			.ProviderName = "Durin.MaterialThumbnail",
+			.GeneratorSchemaVersion = 1});
+		ASSERT_TRUE(Registry.Register(Provider, Error)) << Error;
+		FAssetThumbnailScheduler Scheduler(Registry);
+		FRenderedAssetThumbnailPipeline Pipeline(
+			Scheduler,
+			{.CacheRoot = Root, .ObjectExtension = ".png"});
+		const FAssetThumbnailRequest Request =
+			MakeThumbnailRequest("/ThumbnailTests/EncodedMaterial", "DMaterial", 1);
+		ASSERT_TRUE(Scheduler.Request(Request, Error)) << Error;
+		Pipeline.BeginFrame();
+		std::optional<FRenderedAssetThumbnailJob> Job = Pipeline.StartNext();
+		ASSERT_TRUE(Job);
+		const std::string CacheKey = Job->ScheduledJob.CacheKey;
+		ASSERT_TRUE(Pipeline.CompleteLoad(*Job, 10));
+		ASSERT_TRUE(Pipeline.BeginRender(*Job, true, 10, 20));
+		ASSERT_TRUE(Pipeline.CompleteRender(*Job, 10, 20));
+		ASSERT_TRUE(Pipeline.CompleteReadback(*Job, 10, 20));
+		const std::array<uint8, 8> Pixels = {
+			255, 0, 0, 255,
+			0, 255, 0, 128};
+		ASSERT_TRUE(Pipeline.CompletePixels(*Job, 10, 20, Pixels, 2, 1));
+
+		FAssetThumbnailObjectStore Store({
+			.CacheRoot = Root,
+			.ObjectExtension = ".png"});
+		std::vector<uint8> Encoded;
+		ASSERT_EQ(Store.Load(CacheKey, Encoded), EAssetThumbnailObjectLoadResult::Hit);
+		Asset::FDecodedImage Decoded;
+		ASSERT_TRUE(Asset::DecodeImageFromMemory(Encoded, Decoded, Error)) << Error;
+		EXPECT_EQ(Decoded.Width, 2u);
+		EXPECT_EQ(Decoded.Height, 1u);
+		EXPECT_EQ(Decoded.Pixels, std::vector<uint8>(Pixels.begin(), Pixels.end()));
 	}
 
 	TEST(FAssetThumbnailContractTests, RenderedPipelineBoundsRendersAndRejectsStaleCompletions)

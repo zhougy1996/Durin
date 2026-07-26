@@ -1673,7 +1673,8 @@ namespace Durin
 		ScenePassInfo.RenderTargetLayout = RendererRenderTargetLayouts::MakeSceneTargets();
 		ScenePassInfo.ColorRenderTargets[0] = SceneColor;
 		ScenePassInfo.DepthStencilRenderTarget = SceneTargets->Depth;
-		ScenePassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
+		ScenePassInfo.ColorClearValues[0] = FClearValueBinding(
+			View.ClearColor.r, View.ClearColor.g, View.ClearColor.b, View.ClearColor.a);
 		ScenePassInfo.DepthStencilClearValue = FClearValueBinding(1.0f, 0u);
 		CommandList.BeginRenderPass(ScenePassInfo, "SceneColorRenderPass");
 		FSceneView RenderView = View;
@@ -1701,7 +1702,8 @@ namespace Durin
 		FRHIRenderPassInfo PostProcessPassInfo{};
 		PostProcessPassInfo.RenderTargetLayout = RendererRenderTargetLayouts::MakeScenePostProcessOutput();
 		PostProcessPassInfo.ColorRenderTargets[0] = OutputTarget;
-		PostProcessPassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
+		PostProcessPassInfo.ColorClearValues[0] = FClearValueBinding(
+			View.ClearColor.r, View.ClearColor.g, View.ClearColor.b, View.ClearColor.a);
 		CommandList.BeginRenderPass(PostProcessPassInfo, bPresentOutput ? "PostProcessPresentRenderPass" : "PostProcessOffscreenRenderPass");
 		DrawPostProcess(CommandList, SceneColor, Width, Height, bPresentOutput);
 		CommandList.EndRenderPass();

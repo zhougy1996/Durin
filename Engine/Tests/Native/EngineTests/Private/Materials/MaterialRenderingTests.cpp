@@ -1,4 +1,9 @@
 #include "MaterialTestSupport.h"
+#include "DynamicRHI.h"
+#include "Modules/ModuleManager.h"
+#include "RHICommandList.h"
+#include "RHIGlobals.h"
+#include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 
 TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 {
@@ -283,4 +288,109 @@ TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionA
 	EXPECT_EQ(Durin::FEditorAssetRetentionService::NumRetained(), 0u);
 	EXPECT_EQ(FindObjectByName(FirstLightName), nullptr);
 	EXPECT_EQ(FindObjectByName(SecondLightName), nullptr);
+}
+
+TEST(FMaterialTests, RenderedThumbnailPreviewSceneRetainsSharedSphereAndCapturesOnce)
+{
+	InitializeDObjectSystem();
+	Durin::PathUtilities::InitDefaultMountPoints();
+	Durin::FAssetPath SpherePath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		Durin::FRenderedAssetThumbnailVisualContract::SphereVirtualPath, SpherePath));
+	Durin::FRetainedEditorAsset PreloadedSphere;
+	std::string Error;
+	ASSERT_TRUE(Durin::FEditorAssetRetentionService::Acquire(
+		SpherePath, PreloadedSphere, Error)) << Error;
+	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
+	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	Durin::RHIInit();
+	ASSERT_NE(Durin::GDynamicRHI, nullptr);
+	Durin::InitRenderingThread();
+
+	struct FBeginRenderedThumbnailFrame
+	{
+		static constexpr auto GetName() -> const char* { return "BeginRenderedThumbnailFrame"; }
+	};
+	Durin::EnqueueRenderCommand<FBeginRenderedThumbnailFrame>(
+		[](Durin::FRHICommandListImmediate& CommandList) {
+			CommandList.SwitchPipeline(Durin::ERHIPipeline::Graphics);
+			Durin::GDynamicRHI->RHIBeginFrame();
+		});
+
+	FMaterialTestEngine Engine;
+	Durin::FRendererModule Renderer;
+	Renderer.StartupModule();
+	Engine.SetTestRendererModule(&Renderer);
+	Durin::GEngine = &Engine;
+
+	Durin::FRenderedAssetThumbnailVisualContract Contract;
+	Contract.Output.Width = 64;
+	Contract.Output.Height = 64;
+	Durin::DStaticMesh* CaptureMesh = nullptr;
+	{
+		Durin::FRenderedAssetThumbnailPreviewScenePool Pool(Contract);
+		ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
+		Durin::DStaticMesh* Sphere = Pool.GetSphereMesh();
+		ASSERT_NE(Sphere, nullptr);
+		ASSERT_NE(Sphere->GetRenderData(), nullptr);
+		CaptureMesh = Durin::DStaticMesh::CreateDebugTriangle();
+		ASSERT_NE(CaptureMesh, nullptr);
+		std::vector<Durin::FMaterialRenderUpdate> Materials;
+		for (Durin::uint32 SlotIndex = 0;
+			SlotIndex < CaptureMesh->GetRenderData()->MaterialSlots.size();
+			++SlotIndex)
+		{
+			Materials.push_back({
+				.SlotIndex = SlotIndex,
+				.RenderData = Durin::FMaterialRenderData{
+					.BaseColor = {0.8f, 0.15f, 0.05f, 1.0f}},
+				.MaterialVersion = 1,
+				.ComponentRevision = 1,
+				.DirtyFlags = Durin::EMaterialRenderDirtyFlags::ParameterValues,
+			});
+		}
+		auto Proxy = std::make_unique<Durin::FStaticMeshSceneProxy>(
+			CaptureMesh->GetRenderData(), std::move(Materials));
+		ASSERT_TRUE(Pool.SetPrimitive(std::move(Proxy), Durin::FMatrix(1.0), Error)) << Error;
+		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
+
+		struct FEndRenderedThumbnailFrame
+		{
+			static constexpr auto GetName() -> const char* { return "EndRenderedThumbnailFrame"; }
+		};
+		Durin::EnqueueRenderCommand<FEndRenderedThumbnailFrame>(
+			[](Durin::FRHICommandListImmediate& CommandList) {
+				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+			});
+		Durin::FlushRenderingCommands();
+
+		std::vector<Durin::uint8> Pixels;
+		EXPECT_EQ(
+			Pool.PollCapture(Pixels, Error),
+			Durin::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+		ASSERT_EQ(Pixels.size(), 64u * 64u * 4u);
+		const size_t Corner = 0;
+		const size_t Center = (32u * 64u + 32u) * 4u;
+		const std::array CornerRgb = {
+			Pixels[Corner], Pixels[Corner + 1], Pixels[Corner + 2]};
+		const std::array CenterRgb = {
+			Pixels[Center], Pixels[Center + 1], Pixels[Center + 2]};
+		EXPECT_NE(CornerRgb, CenterRgb);
+		Pool.Reset();
+	}
+
+	Durin::GEngine = nullptr;
+	ASSERT_NE(CaptureMesh, nullptr);
+	CaptureMesh->GetRenderData()->ReleaseResources();
+	Renderer.ReleaseResources();
+	Durin::FlushRenderingCommands();
+	Durin::MarkAsGarbage(CaptureMesh);
+	PreloadedSphere = {};
+	Durin::CollectGarbage();
+	Renderer.ShutdownModule();
+	Durin::ShutdownRenderingThread();
+	// The native suite may create another RHI in the same process; force the
+	// process-wide immediate list to acquire that device's context next time.
+	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);
+	Durin::RHIExit();
 }
