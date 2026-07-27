@@ -127,11 +127,12 @@ TEST(FNativeTestProcessSandboxTests, CreatesContainedUnicodeAndLongSubdirectorie
 TEST(FNativeTestProcessSandboxTests, RejectsPathsOutsideTheProcessSandbox)
 {
 	EXPECT_THROW(
-		Durin::Testing::CreateTestWorkSubdirectory(
+		(void)Durin::Testing::CreateTestWorkSubdirectory(
 			std::filesystem::path("..") / "escape"),
 		std::invalid_argument);
 	EXPECT_THROW(
-		Durin::Testing::CreateTestWorkSubdirectory(std::filesystem::current_path()),
+		(void)Durin::Testing::CreateTestWorkSubdirectory(
+			std::filesystem::current_path()),
 		std::invalid_argument);
 }
 
