@@ -21,7 +21,35 @@ the Level Editor continues to show the document as dirty. The implemented
 architecture documents this as a conservative temporary policy pending a
 saved-revision model.
 
-No implementation stages in this plan have started.
+Stage 1 is implemented. `FEditorTransactionManager` now owns package-scoped
+current/saved revision state, records per-entry before/after package
+transitions, exposes checkpoint lifecycle APIs, and roots tracked packages until
+their state is forgotten. Existing transaction implementations report no
+affected packages by default, so Level Editor behavior remains unchanged until
+Stage 2 connects its transaction and document lifecycles.
+
+### Stage 1 Handoff
+
+- Baseline commit: `168f0c20`.
+- Working set:
+  - `Engine/Source/Editor/DurinEd/Public/Editor/EditorTransaction.h`
+  - `Engine/Source/Editor/DurinEd/Private/Editor/EditorTransaction.cpp`
+  - `Documentation/Plans/SavedRevisionDirtyState.md`
+- Key symbols: `FEditorRevisionId`, `FEditorPackageRevisionState`,
+  `IEditorTransaction::GetAffectedPackages()`,
+  `FEditorTransactionManager::EstablishSavedState()`, `MarkSaved()`,
+  `InvalidateSavedState()`, `ForgetPackage()`, and
+  `ApplyPackageTransitions()`.
+- Decisions: revision state remains an editor-only side table; each tracked
+  package is retained by `FScopedObjectRoot`; forgetting a package removes
+  every history entry that references it; `Clear()` releases history and
+  package state but never resets the session revision allocator.
+- Open questions: none for Stage 1. Stage 2 must identify all Level Editor
+  transaction producers and untracked persistent mutation paths. The complete
+  revision behavior matrix remains assigned to Stage 3 automated coverage.
+- Validation: fresh configure succeeded after removing a legacy CMake cache
+  entry; `DurinEd` built successfully; all 20
+  `FReflectedPropertyEditSessionTests.*` tests passed.
 
 ## Goal
 
@@ -193,24 +221,24 @@ states and saved checkpoints without changing editor behavior yet.
 
 Dependencies: none.
 
-- [ ] Add a nonzero, session-monotonic editor revision ID and package revision
+- [x] Add a nonzero, session-monotonic editor revision ID and package revision
       state owned by `FEditorTransactionManager`.
-- [ ] Extend transaction metadata so every transaction can report a stable,
+- [x] Extend transaction metadata so every transaction can report a stable,
       deduplicated set of affected packages.
-- [ ] Store before/after revision transitions on each history entry while
+- [x] Store before/after revision transitions on each history entry while
       retaining the transaction ID used by notifications and expected-head
       checks.
-- [ ] Add explicit APIs to establish a known-clean package, record a successful
+- [x] Add explicit APIs to establish a known-clean package, record a successful
       save, invalidate a package checkpoint, query tracked state for tests, and
       forget package/document state.
-- [ ] Advance revisions only after successful Execute/CommitApplied/Undo/Redo
+- [x] Advance revisions only after successful Execute/CommitApplied/Undo/Redo
       operations, preserving existing failure events and stack behavior.
-- [ ] Synchronize `DPackage` dirty state from revision equality or checkpoint
+- [x] Synchronize `DPackage` dirty state from revision equality or checkpoint
       invalidation without exposing revision metadata through Runtime
       serialization.
-- [ ] Define safe package lifetime handling and release all retained metadata on
+- [x] Define safe package lifetime handling and release all retained metadata on
       history/document reset.
-- [ ] Preserve monotonic allocation across `Clear()`; clearing history must not
+- [x] Preserve monotonic allocation across `Clear()`; clearing history must not
       make a stale revision ID reusable.
 
 #### Acceptance Gate
