@@ -622,7 +622,7 @@ TEST(FTextureCubeTests, RenderResourceRejectsStaleReleaseRevisions)
 {
 	InitializeDObjectSystem();
 	Durin::InitRenderingThread();
-	auto Resource = std::make_shared<Durin::FTextureCubeRenderResource>();
+	auto Resource = Durin::FTextureCubeRenderResource::Create();
 	Resource->QueueRelease(2);
 	Resource->QueueRelease(3);
 
@@ -635,8 +635,8 @@ TEST(FTextureCubeTests, RenderResourceRejectsStaleReleaseRevisions)
 	EXPECT_EQ(ObservedRevision->load(std::memory_order_acquire), 3u);
 	EXPECT_EQ(Resource->GetResourceState(), Durin::ERenderResourceState::Released);
 
-	// Let the final shared owner drain on the rendering thread, matching asset destruction.
-	Resource->QueueRelease(4);
+	// The custom deleter must return final ownership to the rendering thread even
+	// when a game-thread scene or preview snapshot releases the last reference.
 	Resource.reset();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();

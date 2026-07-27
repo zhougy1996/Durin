@@ -7,6 +7,25 @@
 
 namespace Durin
 {
+	auto FTextureCubeRenderResource::Create() -> std::shared_ptr<FTextureCubeRenderResource>
+	{
+		return std::shared_ptr<FTextureCubeRenderResource>(
+			new FTextureCubeRenderResource(),
+			[](FTextureCubeRenderResource* Resource) {
+				if (Resource->RequestedRevision.load(std::memory_order_relaxed) == 0
+					|| IsInRenderingThread())
+				{
+					delete Resource;
+					return;
+				}
+
+				ENQUEUE_RENDER_COMMAND(DeleteTextureCubeResource)(
+					[Resource](FRHICommandListImmediate&) {
+						delete Resource;
+					});
+			});
+	}
+
 	FTextureCubeRenderResource::~FTextureCubeRenderResource()
 	{
 		checkf(RequestedRevision.load(std::memory_order_relaxed) == 0 || IsInRenderingThread(),

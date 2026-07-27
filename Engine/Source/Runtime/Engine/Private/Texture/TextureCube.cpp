@@ -561,7 +561,7 @@ namespace Durin
 
 	DTextureCube::DTextureCube(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-		, RenderResource(std::make_shared<FTextureCubeRenderResource>())
+		, RenderResource(FTextureCubeRenderResource::Create())
 	{
 		static const bool RegisteredAssetContributors = [] {
 			Asset::RegisterAssetMoveContributor(DTextureCube::StaticClass(), [](DObject*, const FAssetPath&, const FAssetPath&,

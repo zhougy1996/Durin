@@ -12,7 +12,7 @@
 	class FTextureCubeRenderResource final : public std::enable_shared_from_this<FTextureCubeRenderResource>
 	{
 	public:
-		FTextureCubeRenderResource() = default;
+		ENGINE_API static auto Create() -> std::shared_ptr<FTextureCubeRenderResource>;
 		ENGINE_API ~FTextureCubeRenderResource();
 
 		FTextureCubeRenderResource(const FTextureCubeRenderResource&) = delete;
@@ -33,6 +33,8 @@
 		auto GetFailureReason() const -> ETextureRenderFailure { return FailureReason.load(std::memory_order_acquire); }
 
 	private:
+		FTextureCubeRenderResource() = default;
+
 		auto Build_RenderThread(FRHICommandListImmediate& CommandList, const FTextureCubePlatformData& PlatformData, uint64 Revision) -> void;
 		auto Release_RenderThread(uint64 Revision) -> void;
 		auto SetResourceState(ERenderResourceState State, uint64 Revision) -> void;
