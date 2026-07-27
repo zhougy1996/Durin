@@ -181,6 +181,8 @@ class BuildContext:
     def target(self) -> str:
         if self.request.action in {Action.BUILD, Action.REBUILD} and not self.request.target:
             return "all"
+        if self.request.action is Action.TEST and self.request.target.casefold() == "all":
+            return "all"
         return self.request.target
 
 

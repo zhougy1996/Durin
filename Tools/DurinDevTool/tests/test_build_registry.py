@@ -48,7 +48,7 @@ class TestBuildRegistry:
         assert canonical == vars(self.parse(['/build', '--target', 'Core']))
 
     def test_shell_compact_build_forms_normalize_to_canonical_requests(self) -> None:
-        pairs = (('build Core --plain', 'build --target Core --plain'), ('rebuild Core', 'rebuild --target Core'), ('test CoreTests Core.* --timeout 20', 'test --target CoreTests --filter Core.* --timeout 20'), ('run --hidden-window', 'run --args --hidden-window'))
+        pairs = (('build Core --plain', 'build --target Core --plain'), ('rebuild Core', 'rebuild --target Core'), ('test CoreTests Core.* --timeout 20', 'test --target CoreTests --filter Core.* --timeout 20'), ('test all', 'test --target all'), ('run --hidden-window', 'run --args --hidden-window'))
         for compact, canonical in pairs:
             compact_parts = normalize_compact_build_command(split_shell_command(compact))
             assert vars(self.parse(compact_parts)) == vars(self.parse(split_shell_command(canonical)))

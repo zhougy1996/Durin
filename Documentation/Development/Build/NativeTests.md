@@ -20,9 +20,15 @@ Build and run a test executable through the root wrapper:
 .\DevTool.bat test --target CoreTests
 .\DevTool.bat test --target CoreTests --filter FJsonDocumentTests.ParseObjectFromString
 .\DevTool.bat test --target CoreTests --timeout 60
+.\DevTool.bat test --target all
 ```
 
 The first command runs the target's discovered tests. The second passes a GoogleTest filter. The test executable has a 300-second timeout by default; `--timeout <seconds>` changes it, and `--timeout 0` disables it for an intentionally long diagnostic run. The timeout starts after the target has finished building.
+
+`--target all` builds the complete preset and then runs every test registered in
+that build directory through CTest. Its timeout applies to each CTest-registered
+test. GoogleTest `--filter` syntax is executable-specific and therefore cannot
+be combined with `--target all`.
 
 DurinDevTool clears build recovery state before launching the test executable. A failed assertion, crash, timeout, or interrupted test should be diagnosed and rerun with `test`; it does not require `rebuild`. Build ownership, recovery, and parallelism rules are documented in `Documentation/Development/Build/BuildAndRun.md`.
 
@@ -32,6 +38,7 @@ In the interactive shell, use the equivalent commands:
 DurinDevTool> preset Win64-Debug-DurinEditor-Tests
 DurinDevTool> test --target CoreTests
 DurinDevTool> test --target CoreTests --filter FJsonDocumentTests.ParseObjectFromString
+DurinDevTool> test all
 ```
 
 DurinDevTool rejects `test` when the selected preset does not enable `BUILD_TESTING`.

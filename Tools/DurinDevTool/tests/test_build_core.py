@@ -269,6 +269,26 @@ class TestCore:
             build_core.run_native_test(context, output)
         assert run.call_args.args[0] == [str(executable_path.return_value), '--gtest_filter=Core.*', '--gtest_brief=1']
 
+    def test_all_native_tests_use_ctest_registration(self) -> None:
+        preset = self.make_preset()
+        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, target='ALL', test_timeout_seconds=60), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake=r'C:\Tools\CMake\bin\cmake.exe', jobs=4, environment={'PATH': 'cached'})
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        build_directory = Path('Build/debug')
+        with mock.patch.object(build_core, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_core, 'run_command') as run:
+            build_core.run_all_native_tests(context, output)
+        run.assert_called_once_with(
+            [r'C:\Tools\CMake\bin\ctest.exe', '--test-dir', str(build_directory), '--output-on-failure', '--no-tests=error', '-j', '4', '--timeout', '60'],
+            environment={'PATH': 'cached'},
+            output=output,
+            recovery_required_on_interrupt=False,
+            interruption_message='Native test run was interrupted.',
+        )
+
+    def test_all_native_tests_reject_gtest_filter(self) -> None:
+        request = build_config.CommandRequest(build_config.Action.TEST, target='all', test_filter='Core.*')
+        with pytest.raises(build_config.BuildToolError, match='cannot be used with --target all'):
+            build_core.validate_request(request, self.make_preset())
+
     def test_configure_preserves_cache_unless_fresh_is_requested(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
@@ -497,6 +517,17 @@ class TestCore:
         marker = root / 'interrupted.json'
         lock = root / 'checkout.lock'
         with mock.patch.object(build_core, 'interruption_marker_path', return_value=marker), mock.patch.object(build_core, 'lock_file_path', return_value=lock), mock.patch.object(build_core, 'perform_action'), mock.patch.object(build_core, 'run_native_test', side_effect=build_config.BuildToolError('test failed')), pytest.raises(build_config.BuildToolError, match='test failed'):
+            build_core.execute_context(context, output, confirm_purge=lambda _paths, _all: False)
+        assert not marker.exists()
+
+    def test_all_native_test_failure_does_not_leave_recovery_marker(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        preset = self.make_preset()
+        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, target='all'), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=1, environment={})
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        root = Path(tmp_path_factory.mktemp('case'))
+        marker = root / 'interrupted.json'
+        lock = root / 'checkout.lock'
+        with mock.patch.object(build_core, 'interruption_marker_path', return_value=marker), mock.patch.object(build_core, 'lock_file_path', return_value=lock), mock.patch.object(build_core, 'perform_action'), mock.patch.object(build_core, 'run_all_native_tests', side_effect=build_config.BuildToolError('test failed')), pytest.raises(build_config.BuildToolError, match='test failed'):
             build_core.execute_context(context, output, confirm_purge=lambda _paths, _all: False)
         assert not marker.exists()
 

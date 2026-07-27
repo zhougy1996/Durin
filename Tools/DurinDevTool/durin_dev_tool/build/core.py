@@ -1117,6 +1117,15 @@ def validate_request(request: CommandRequest, preset: ConfigurePreset) -> None:
         validate_target(request.target, action=request.action)
     if request.action is Action.REBUILD and request.target:
         validate_target(request.target, action=request.action)
+    if (
+        request.action is Action.TEST
+        and request.target.casefold() == "all"
+        and request.test_filter
+    ):
+        raise BuildToolError(
+            "--filter requires a single native test target and cannot be used with "
+            "--target all."
+        )
     if request.action is Action.TEST and not preset_cache_bool(preset, "BUILD_TESTING"):
         raise BuildToolError(f'Preset "{preset.name}" does not enable BUILD_TESTING.')
     if request.action is not Action.PURGE and (request.all_presets or request.yes):
@@ -1511,6 +1520,37 @@ def run_native_test(context: BuildContext, output: BuildOutput) -> None:
         )
 
 
+def ctest_command(cmake: str) -> str:
+    cmake_path = Path(cmake)
+    executable_name = "ctest.exe" if cmake_path.suffix.casefold() == ".exe" else "ctest"
+    if cmake_path.parent == Path("."):
+        return executable_name
+    return str(cmake_path.with_name(executable_name))
+
+
+def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
+    request = context.request
+    command = [
+        ctest_command(context.cmake),
+        "--test-dir",
+        str(preset_build_directory(context.preset)),
+        "--output-on-failure",
+        "--no-tests=error",
+        "-j",
+        str(context.jobs),
+    ]
+    if request.test_timeout_seconds:
+        command.extend(["--timeout", str(request.test_timeout_seconds)])
+    with output.stage("Test all"):
+        run_command(
+            command,
+            environment=context.environment or os.environ,
+            output=output,
+            recovery_required_on_interrupt=False,
+            interruption_message="Native test run was interrupted.",
+        )
+
+
 def run_application(context: BuildContext, output: BuildOutput) -> None:
     executable = runtime_executable_path(context.profile, context.preset)
     if not executable.is_file():
@@ -1693,7 +1733,10 @@ def execute_context(
             # Native tests only read completed build outputs. Their assertion failures,
             # hangs, and interruptions must not poison incremental build state.
             if context.request.action is Action.TEST:
-                run_native_test(context, output)
+                if context.target == "all":
+                    run_all_native_tests(context, output)
+                else:
+                    run_native_test(context, output)
     elapsed = perf_counter() - started
     if context.request.action is not Action.PURGE:
         output.success(f"{context.request.action.value} completed in {elapsed:.2f}s.")

@@ -354,17 +354,26 @@ COMMAND_SPECS = (
     ),
     _build_command(
         "test",
-        "build and run a native test target",
+        "build and run one or all native tests",
         TOOL_ARGUMENTS
         + (
-            _argument("--target", required=True),
-            _argument("--filter", default=""),
+            _argument(
+                "--target",
+                required=True,
+                help="native test target, or 'all' for every CTest-registered test",
+            ),
+            _argument(
+                "--filter",
+                default="",
+                help="GoogleTest filter for a single native test target",
+            ),
             _argument(
                 "--timeout",
                 type=int,
                 choices=range(0, 86401),
                 default=300,
                 metavar="0..86400",
+                help="test timeout in seconds; 0 disables it (default: 300)",
             ),
         ),
     ),

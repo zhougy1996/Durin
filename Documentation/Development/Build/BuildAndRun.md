@@ -114,9 +114,11 @@ use `call DevTool.bat <arguments>`.
 
 `build` and `rebuild` default to target `all`; `recover` resumes the target
 recorded by an interrupted operation; `test` always requires an explicit
-`--target`. `presets`, `status`, and `open-runtime` are also available directly,
-so preset discovery, context inspection, and runtime-directory access do
-not require entering the interactive shell.
+`--target`, where `--target all` builds the complete preset and runs every
+CTest-registered test. The interactive shell also accepts the compact
+`test all` form. `presets`, `status`, and `open-runtime` are also available
+directly, so preset discovery, context inspection, and runtime-directory access
+do not require entering the interactive shell.
 
 An ordinary `configure` preserves the existing CMake cache. Pass `--fresh` to discard it explicitly. `rebuild` and automatic recovery from an unusable or incompatible build tree always fresh-configure before building.
 
