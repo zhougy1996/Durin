@@ -186,10 +186,15 @@ namespace Durin
 				}
 				const FViewportToolbarLayout ToolbarLayout = ViewportToolbar->CalculateLayout(VpMin, VpMax);
 				bViewportHovered = ImGui::IsItemHovered();
-				const bool bNavigationMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || (ImGui::GetIO().KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left));
-				if (bViewportHovered && bNavigationMousePressed)
+				const bool bRightMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Right);
+				const bool bNavigationMousePressed = bRightMousePressed || ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || (ImGui::GetIO().KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left));
+				const bool bPopupDismissRightPressHovered = bRightMousePressed
+					&& ImGui::GetTopMostPopupModal() == nullptr
+					&& ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+				if ((bViewportHovered && bNavigationMousePressed) || bPopupDismissRightPressHovered)
 				{
 					ImGui::SetWindowFocus();
+					bViewportHovered = true;
 				}
 				bViewportFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 				if (GEngine && !bPlayingInNewWindow) GEngine->SetGameInputEnabled(Context.bReadOnly && bViewportFocused);

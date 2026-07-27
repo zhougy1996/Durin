@@ -23,6 +23,8 @@ Hold the right mouse button to enter free-fly navigation:
 
 Movement keys can be combined. For example, holding `W` and `D` moves the view forward and to the right.
 
+Starting a right-drag in the Scene Viewport also dismisses an open popup menu and returns focus to the viewport, so camera navigation continues with the same gesture.
+
 ## Orbit, Pan, And Dolly
 
 | Input | Action |
