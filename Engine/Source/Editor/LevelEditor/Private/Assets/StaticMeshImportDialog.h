@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Assets/MountedSourceImport.h"
 #include "StaticMesh/StaticMesh.h"
 
 namespace Durin
@@ -24,6 +25,7 @@ namespace Durin
 	private:
 		auto BrowseSource() -> void;
 		auto BrowseDestination() -> void;
+		auto BrowseSourceDestination() -> void;
 		auto Import() -> bool;
 		auto SetError(std::string Message) const -> void;
 
@@ -33,9 +35,13 @@ namespace Durin
 		std::string PreferredDestinationDirectory;
 		std::array<char, 512> SourcePathBuffer{};
 		std::array<char, 256> AssetPathBuffer{};
+		std::array<char, 512> SourceDestinationBuffer{};
 		std::string LastSuggestedAssetPath;
+		std::string LastSuggestedSourceDestination;
 		FStaticMeshImportSettings ImportSettings;
 		EStaticMeshImportPreset ImportPreset = EStaticMeshImportPreset::Durin;
+		EMountedSourceImportMode SourceMode =
+			EMountedSourceImportMode::IngestExternal;
 		bool bOpenRequested = false;
 	};
 } // namespace Durin

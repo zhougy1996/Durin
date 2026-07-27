@@ -153,14 +153,17 @@ namespace Durin
 		ENGINE_API static auto ImportAsset(
 			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 			std::string_view AssetPath,
-			const FTextureCubeImportSettings& Settings = {}) -> FTextureCubeImportResult;
+			const FTextureCubeImportSettings& Settings = {},
+			const std::array<std::string, TextureCubeFaceCount>& SourceDestinations = {})
+			-> FTextureCubeImportResult;
 		ENGINE_API static auto ValidateImportSources(
 			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 			const FTextureCubeImportSettings& Settings = {}) -> FTextureCubeImportValidation;
 		ENGINE_API static auto ImportPanoramaAsset(
 			std::string_view PanoramaFile,
 			std::string_view AssetPath,
-			const FTextureCubePanoramaImportSettings& Settings = {}) -> FTextureCubeImportResult;
+			const FTextureCubePanoramaImportSettings& Settings = {},
+			std::string_view SourceDestination = {}) -> FTextureCubeImportResult;
 		ENGINE_API static auto ValidatePanoramaImportSource(
 			std::string_view PanoramaFile,
 			const FTextureCubePanoramaImportSettings& Settings = {}) -> FTextureCubeImportValidation;

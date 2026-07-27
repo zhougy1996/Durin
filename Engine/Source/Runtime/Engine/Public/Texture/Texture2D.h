@@ -152,6 +152,7 @@ namespace Durin
 	{
 		NoSource,
 		Available,
+		Changed,
 		Missing,
 		Invalid
 	};

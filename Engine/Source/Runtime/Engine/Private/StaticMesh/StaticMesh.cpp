@@ -440,6 +440,7 @@ namespace Durin
 		auto MakeCanonicalSourceLocation(
 			const FAssetPath& AssetPath,
 			std::string_view Extension,
+			std::string_view RequestedSourcePath,
 			std::filesystem::path& OutPhysicalPath,
 			std::string& OutStoredPath,
 			std::string& OutError) -> bool
@@ -450,13 +451,21 @@ namespace Durin
 				OutError = std::format("Static mesh asset {} is not beneath a registered content mount.", AssetPath.ToString());
 				return false;
 			}
-			std::filesystem::path RelativeAssetPath(
-				std::string(AssetPath.ToString().substr(Mount->VirtualRoot.size())));
-			RelativeAssetPath.replace_extension(Extension);
-			const std::filesystem::path StoredPath = std::filesystem::path(StaticMeshSourceRoot) / RelativeAssetPath;
-			const std::filesystem::path Relative =
-				StoredPath.lexically_normal().lexically_relative("SourceAssets");
-			OutStoredPath = Mount->VirtualRoot + Relative.generic_string();
+			if (RequestedSourcePath.empty())
+			{
+				std::filesystem::path RelativeAssetPath(
+					std::string(AssetPath.ToString().substr(Mount->VirtualRoot.size())));
+				RelativeAssetPath.replace_extension(Extension);
+				const std::filesystem::path StoredPath =
+					std::filesystem::path(StaticMeshSourceRoot) / RelativeAssetPath;
+				const std::filesystem::path Relative =
+					StoredPath.lexically_normal().lexically_relative("SourceAssets");
+				OutStoredPath = Mount->VirtualRoot + Relative.generic_string();
+			}
+			else
+			{
+				OutStoredPath = RequestedSourcePath;
+			}
 			const PathUtilities::FSourcePathResult Resolved =
 				PathUtilities::ResolveSourcePath(
 					OutStoredPath, PathUtilities::EPathExistence::AllowMissing);
@@ -1338,6 +1347,20 @@ namespace Durin
 					std::format("Static mesh source is missing: {}. Use source-path repair to select its replacement.",
 						SourceImportData.SourcePath.Path)};
 			}
+			std::string CurrentHash;
+			if (!HashStaticMeshSource(PhysicalPath, CurrentHash, Error))
+				return {
+					EStaticMeshSourceStatus::Invalid,
+					PhysicalPath.generic_string(),
+					std::move(Error)};
+			if (!SourceImportData.SourceContentHash.empty()
+				&& CurrentHash != SourceImportData.SourceContentHash)
+			{
+				return {
+					EStaticMeshSourceStatus::Changed,
+					PhysicalPath.generic_string(),
+					"The mounted static-mesh source bytes changed since this asset was last imported."};
+			}
 			return {EStaticMeshSourceStatus::Available, PhysicalPath.generic_string(), {}};
 		}
 		if (SourceFile.empty()) return {};
@@ -1451,7 +1474,8 @@ namespace Durin
 	auto DStaticMesh::ImportAsset(
 		std::string_view FilePath,
 		std::string_view AssetPath,
-		const FStaticMeshImportSettings& InImportSettings) -> FStaticMeshImportResult
+		const FStaticMeshImportSettings& InImportSettings,
+		std::string_view SourceDestination) -> FStaticMeshImportResult
 	{
 		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
 		if (!std::filesystem::is_regular_file(Input)) return {false, "Source file does not exist.", nullptr};
@@ -1467,7 +1491,9 @@ namespace Durin
 		const std::string Extension = Input.extension().generic_string();
 		std::filesystem::path Destination;
 		std::string StoredSourcePath;
-		if (!MakeCanonicalSourceLocation(ParsedAssetPath, Extension, Destination, StoredSourcePath, PathError))
+		if (!MakeCanonicalSourceLocation(
+			ParsedAssetPath, Extension, SourceDestination,
+			Destination, StoredSourcePath, PathError))
 			return {false, std::move(PathError), nullptr};
 		FMountedSourceFile MountedSource;
 		if (!PrepareMountedSourceFile(

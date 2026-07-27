@@ -721,6 +721,24 @@ namespace Durin
 					"Texture source is missing: {}. Use source-path repair to select its replacement.",
 					SourceImportData.Source.SourcePath.Path)};
 		}
+		FXxHash128 CurrentHash;
+		if (!HashTextureSource(PhysicalPath, CurrentHash, Error))
+			return {
+				ETextureSourceStatus::Invalid,
+				PhysicalPath.generic_string(),
+				std::move(Error)};
+		if (SourceImportData.Source.HasContentHash()
+			&& (CurrentHash.HashLow
+					!= SourceImportData.Source.SourceContentHashLow
+				|| CurrentHash.HashHigh
+					!= SourceImportData.Source.SourceContentHashHigh))
+		{
+			return {
+				ETextureSourceStatus::Changed,
+				PhysicalPath.generic_string(),
+				"The mounted source bytes changed since this asset was last imported. "
+				"Reimport updates this asset from the persisted source."};
+		}
 		return {ETextureSourceStatus::Available, PhysicalPath.generic_string(), {}};
 	}
 

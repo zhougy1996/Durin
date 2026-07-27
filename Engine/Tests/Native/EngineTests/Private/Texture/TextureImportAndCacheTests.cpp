@@ -373,6 +373,32 @@ TEST(FTexture2DTests, PortableSourceCanBeRepairedAndRejectsEscapingMetadata)
 		/ "SourceAssets" / "Textures" / "Texture.tga"));
 }
 
+TEST(FTexture2DTests, ReportsMountedSourceBytesChangedSinceImport)
+{
+	InitializeDObjectSystem();
+	FScopedDerivedDataCacheRoot CacheRoot(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureChangedSourceCache");
+	const std::filesystem::path Input =
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureChangedSource.png";
+	WriteTextureFixture(Input);
+	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(
+		Input.generic_string(), "/TextureImportTests/ChangedSource");
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Result.Asset, nullptr);
+	const Durin::FTextureSourceDiagnostic Available = Result.Asset->InspectSource();
+	ASSERT_EQ(Available.Status, Durin::ETextureSourceStatus::Available);
+
+	{
+		std::ofstream Stream(
+			Available.PhysicalPath, std::ios::binary | std::ios::app);
+		const char ExtraByte = '\0';
+		Stream.write(&ExtraByte, 1);
+	}
+	const Durin::FTextureSourceDiagnostic Changed = Result.Asset->InspectSource();
+	EXPECT_EQ(Changed.Status, Durin::ETextureSourceStatus::Changed);
+	EXPECT_NE(Changed.Message.find("changed"), std::string::npos);
+}
+
 TEST(FTexture2DTests, LegacyPackageAdjacentSourceIsRejectedAfterMigration)
 {
 	InitializeDObjectSystem();

@@ -79,6 +79,30 @@ namespace Durin
 	ENGINE_API auto RollbackMountedSourceReplacement(
 		FMountedSourceReplacement& Replacement) -> void;
 
+	struct FMountedSourceRelocation
+	{
+		FSourcePath OriginalSourcePath;
+		FSourcePath DestinationSourcePath;
+		std::filesystem::path OriginalPhysicalPath;
+		std::filesystem::path DestinationPhysicalPath;
+		bool bPublished = false;
+	};
+
+	// Stages a non-destructive copy at the destination. Commit removes the
+	// original only after every referencing package has been updated; rollback
+	// removes only the staged destination.
+	ENGINE_API auto PrepareMountedSourceRelocation(
+		std::string_view AuthoringAssetPath,
+		std::string_view OriginalSourceVirtualPath,
+		std::string_view DestinationSourceVirtualPath,
+		FMountedSourceRelocation& OutRelocation,
+		std::string& OutError,
+		bool bEngineAuthoringContext = false) -> bool;
+	ENGINE_API auto CommitMountedSourceRelocation(
+		FMountedSourceRelocation& Relocation, std::string& OutError) -> bool;
+	ENGINE_API auto RollbackMountedSourceRelocation(
+		FMountedSourceRelocation& Relocation) -> void;
+
 	// Converts one pre-mounted SourceAssets-relative carrier using the owning
 	// package's Content mount and requires the referenced source file to exist.
 	ENGINE_API auto TryMigrateLegacySourcePath(

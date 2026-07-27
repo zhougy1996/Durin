@@ -309,6 +309,143 @@ namespace Durin
 		Replacement = {};
 	}
 
+	auto PrepareMountedSourceRelocation(
+		std::string_view AuthoringAssetPath,
+		std::string_view OriginalSourceVirtualPath,
+		std::string_view DestinationSourceVirtualPath,
+		FMountedSourceRelocation& OutRelocation,
+		std::string& OutError,
+		bool bEngineAuthoringContext) -> bool
+	{
+		OutRelocation = {};
+		const PathUtilities::FSourcePathResult Original =
+			PathUtilities::ResolveSourcePath(
+				OriginalSourceVirtualPath,
+				PathUtilities::EPathExistence::RequireFile);
+		if (!Original)
+		{
+			OutError = Original.Message;
+			return false;
+		}
+		const PathUtilities::FSourcePathResult Destination =
+			PathUtilities::ResolveSourcePath(
+				DestinationSourceVirtualPath,
+				PathUtilities::EPathExistence::AllowMissing);
+		if (!Destination)
+		{
+			OutError = Destination.Message;
+			return false;
+		}
+		if (Original.NormalizedVirtualPath == Destination.NormalizedVirtualPath)
+		{
+			OutError = "Choose a different mounted source destination.";
+			return false;
+		}
+		const PathUtilities::FMountPolicyResult OriginalMutation =
+			PathUtilities::CheckSourceMutation(
+				AuthoringAssetPath, Original.NormalizedVirtualPath,
+				bEngineAuthoringContext);
+		if (!OriginalMutation)
+		{
+			OutError = OriginalMutation.Message;
+			return false;
+		}
+		const PathUtilities::FMountPolicyResult DestinationMutation =
+			PathUtilities::CheckSourceMutation(
+				AuthoringAssetPath, Destination.NormalizedVirtualPath,
+				bEngineAuthoringContext);
+		if (!DestinationMutation)
+		{
+			OutError = DestinationMutation.Message;
+			return false;
+		}
+		std::error_code Error;
+		if (std::filesystem::exists(Destination.PhysicalPath, Error))
+		{
+			OutError = std::format(
+				"Source relocation destination already exists: {}.",
+				Destination.PhysicalPath.generic_string());
+			return false;
+		}
+		std::filesystem::create_directories(
+			Destination.PhysicalPath.parent_path(), Error);
+		if (Error)
+		{
+			OutError = std::format(
+				"Failed to create source relocation directory: {}",
+				Error.message());
+			return false;
+		}
+		const std::filesystem::path Temporary =
+			Destination.PhysicalPath.generic_string() + ".relocate.tmp";
+		std::filesystem::remove(Temporary, Error);
+		Error.clear();
+		if (!std::filesystem::copy_file(
+			Original.PhysicalPath, Temporary,
+			std::filesystem::copy_options::none, Error))
+		{
+			OutError = std::format(
+				"Failed to stage source relocation: {}", Error.message());
+			return false;
+		}
+		Error.clear();
+		std::filesystem::rename(
+			Temporary, Destination.PhysicalPath, Error);
+		if (Error)
+		{
+			std::error_code CleanupError;
+			std::filesystem::remove(Temporary, CleanupError);
+			OutError = std::format(
+				"Failed to publish staged source relocation: {}",
+				Error.message());
+			return false;
+		}
+		OutRelocation = {
+			.OriginalSourcePath = {.Path = Original.NormalizedVirtualPath},
+			.DestinationSourcePath = {.Path = Destination.NormalizedVirtualPath},
+			.OriginalPhysicalPath = Original.PhysicalPath,
+			.DestinationPhysicalPath = Destination.PhysicalPath,
+			.bPublished = true};
+		OutError.clear();
+		return true;
+	}
+
+	auto CommitMountedSourceRelocation(
+		FMountedSourceRelocation& Relocation, std::string& OutError) -> bool
+	{
+		if (!Relocation.bPublished)
+		{
+			OutError.clear();
+			Relocation = {};
+			return true;
+		}
+		std::error_code Error;
+		if (!std::filesystem::remove(Relocation.OriginalPhysicalPath, Error)
+			|| Error)
+		{
+			OutError = std::format(
+				"Failed to remove relocated source {}: {}",
+				Relocation.OriginalPhysicalPath.generic_string(),
+				Error ? Error.message() : "file was not removed");
+			return false;
+		}
+		Relocation = {};
+		OutError.clear();
+		return true;
+	}
+
+	auto RollbackMountedSourceRelocation(
+		FMountedSourceRelocation& Relocation) -> void
+	{
+		if (Relocation.bPublished)
+		{
+			std::error_code Error;
+			std::filesystem::remove(
+				Relocation.DestinationPhysicalPath, Error);
+		}
+		Relocation = {};
+	}
+
 	auto TryMigrateLegacySourcePath(
 		std::string_view PackagePath,
 		std::string_view LegacyPath,

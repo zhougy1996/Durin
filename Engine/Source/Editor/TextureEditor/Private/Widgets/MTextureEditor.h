@@ -4,6 +4,7 @@
 #include "Editor/EditorWorkspace.h"
 #include "Editor/EditorWorkspaceRootWindow.h"
 #include "Editor/ReflectedPropertyView.h"
+#include "Source/SourceReferenceIndex.h"
 #include "TextureEditorAPI.h"
 #include "Widgets/TexturePreview.h"
 
@@ -50,6 +51,13 @@ namespace Durin
 		auto DrawSourceData(DTexture2D* Texture) -> void;
 		auto DrawBuildSettings(DTexture2D* Texture) -> void;
 		auto ReimportSource(DTexture2D* Texture) -> void;
+		auto ChangeSourceReference(DTexture2D* Texture) -> void;
+		auto IngestExternalSource(DTexture2D* Texture) -> void;
+		auto RepairSource(DTexture2D* Texture) -> void;
+		auto RequestSharedSourceReplacement(DTexture2D* Texture) -> void;
+		auto DrawSharedSourceReplacementConfirmation(DTexture2D* Texture) -> void;
+		auto RequestSharedSourceRelocation(DTexture2D* Texture) -> void;
+		auto DrawSharedSourceRelocationConfirmation(DTexture2D* Texture) -> void;
 		auto ChangeSourceLocation(DTexture2D* Texture) -> void;
 		auto FinishActivePropertyEdit(bool bCancel) -> bool;
 		auto MakePropertyViewContext() -> FReflectedPropertyViewContext;
@@ -61,6 +69,23 @@ namespace Durin
 		std::string ActiveResourceId;
 		std::string ErrorMessage;
 		FReflectedPropertyView PropertyView;
+		FSourceReferenceIndex SourceReferenceIndex;
+		struct FPendingSourceReplacement
+		{
+			std::string SourceVirtualPath;
+			std::string ReplacementPhysicalPath;
+			std::vector<FSourceReference> AffectedAssets;
+			bool bOpenRequested = false;
+		};
+		FPendingSourceReplacement PendingSourceReplacement;
+		struct FPendingSourceRelocation
+		{
+			std::string OriginalSourceVirtualPath;
+			std::string DestinationSourceVirtualPath;
+			std::vector<FSourceReference> AffectedAssets;
+			bool bOpenRequested = false;
+		};
+		FPendingSourceRelocation PendingSourceRelocation;
 		// Retains the preview selection independently for each open texture.
 		struct FTexturePreviewState
 		{

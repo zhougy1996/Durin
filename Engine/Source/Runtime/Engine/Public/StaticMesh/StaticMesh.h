@@ -85,6 +85,7 @@ namespace Durin
 	{
 		NoSource,
 		Available,
+		Changed,
 		Missing,
 		Invalid
 	};
@@ -98,7 +99,8 @@ namespace Durin
 
 		auto IsAvailable() const -> bool
 		{
-			return Status == EStaticMeshSourceStatus::Available;
+			return Status == EStaticMeshSourceStatus::Available
+				|| Status == EStaticMeshSourceStatus::Changed;
 		}
 	};
 
@@ -213,7 +215,8 @@ namespace Durin
 		ENGINE_API static auto ImportAsset(
 			std::string_view FilePath,
 			std::string_view AssetPath,
-			const FStaticMeshImportSettings& InImportSettings = {}) -> FStaticMeshImportResult;
+			const FStaticMeshImportSettings& InImportSettings = {},
+			std::string_view SourceDestination = {}) -> FStaticMeshImportResult;
 
 	private:
 		auto BuildRenderData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;

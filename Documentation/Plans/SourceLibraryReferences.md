@@ -6,7 +6,7 @@ Last reviewed: 2026-07-28
 
 ## Current Status
 
-Stages 0 through 3 are complete for the unified-mount revision. Core now publishes
+Stages 0 through 4 are complete for the unified-mount revision. Core now publishes
 one immutable registry with validated owner metadata, optional Content and
 SourceAssets domains, dependency edges, and source-write policy. Typed
 resolution and reverse classification enforce canonical containment and return
@@ -25,7 +25,12 @@ classify registered files as no-copy references, ingest external files only to
 explicit writable destinations, reuse only byte-identical collisions, and
 rollback failed publication. Reimport is source-read-only; change-reference,
 external ingestion, and shared-source replacement are separate operations.
-Stage 4 is next and will expose them through mounted-source editor workflows.
+Editor importers now expose reference-existing and ingest-external as separate
+states with independent asset and source destinations, mounted-domain policy
+diagnostics, and explicit repair. A bounded revision-aware reverse index previews
+shared-source impact, while replacement and multi-package relocation use
+recoverable source and package transactions. Stage 5 is next and will migrate
+repository content and publish the lasting contracts.
 
 Baseline commit `ee94ad4e` established reflected-name serialization coverage and
 five DAST v2 legacy provenance fixtures covering project and engine StaticMesh,
@@ -741,18 +746,18 @@ Dependencies: Stage 2.
 
 Dependencies: Stage 3.
 
-- [ ] Display asset destination and source virtual path independently.
-- [ ] Present **Reference Existing Source** and **Ingest External Source** as
+- [x] Display asset destination and source virtual path independently.
+- [x] Present **Reference Existing Source** and **Ingest External Source** as
   distinct states.
-- [ ] Let pickers browse allowed SourceAssets domains and show mount identity,
+- [x] Let pickers browse allowed SourceAssets domains and show mount identity,
   writability, and dependency status.
-- [ ] Add unavailable-domain, read-only, forbidden-dependency, changed-hash,
+- [x] Add unavailable-domain, read-only, forbidden-dependency, changed-hash,
   missing-file, and containment diagnostics.
-- [ ] Build a revision-aware reverse `FSourcePath -> assets` index using bounded
+- [x] Build a revision-aware reverse `FSourcePath -> assets` index using bounded
   package inspection.
-- [ ] Show reference counts and affected assets before shared replacement or
+- [x] Show reference counts and affected assets before shared replacement or
   relocation.
-- [ ] Add explicit repair and transactional multi-package relocation.
+- [x] Add explicit repair and transactional multi-package relocation.
 
 #### Acceptance Gate
 
@@ -760,6 +765,29 @@ Dependencies: Stage 3.
   source into Game, distinguish reimport from shared replacement, preview
   mutation impact, and recover from unavailable mounts without ambiguous or
   destructive actions.
+
+#### Stage 4 Handoff
+
+- Baseline: `aa69f0bd`.
+- Working set: mounted-source import UI for StaticMesh, Texture2D, and
+  TextureCube; TextureEditor source actions and diagnostics; DurinEd reverse
+  reference indexing and multi-package relocation; Engine source relocation
+  primitives and explicit import destinations; focused tests; and this plan.
+- Key symbols: `EMountedSourceImportMode`, `InspectMountedSourceImport`,
+  `FSourceReferenceIndex`, `FSourceReference`,
+  `FMountedSourceRelocation`, `PrepareMountedSourceRelocation`,
+  `RelocateMountedSourceAcrossPackages`, `ETextureSourceStatus::Changed`, and
+  `EStaticMeshSourceStatus::Changed`.
+- Decisions: import forms validate reference and ingestion policy before
+  submission and always show complete source virtual paths; package inspection
+  is bounded and reruns only after registry revision changes; incomplete impact
+  scans block shared mutation; relocation rejects dirty affected packages,
+  stages the destination first, atomically snapshots/restores package bytes on
+  failure, and removes the original only after every package saves; ordinary
+  reimport remains source-read-only.
+- Open questions: none for Stage 5.
+- Validation: 51 focused source-contract, reverse-index/relocation, Texture2D,
+  TextureCube, StaticMesh source/DDC, and cook tests; plus a full `all` build.
 
 ### Stage 5: Migrate repository content and publish contracts
 

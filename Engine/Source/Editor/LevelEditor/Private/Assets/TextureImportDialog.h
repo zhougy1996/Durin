@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Assets/MountedSourceImport.h"
+
 namespace Durin
 {
 	enum class ETextureUsage : uint8;
@@ -30,6 +32,8 @@ namespace Durin
 		std::string LastSuggestedAssetPath;
 		std::string LastSuggestedSourceDestination;
 		ETextureUsage Usage = static_cast<ETextureUsage>(0);
+		EMountedSourceImportMode SourceMode =
+			EMountedSourceImportMode::IngestExternal;
 		bool bOpenRequested = false;
 	};
 } // namespace Durin

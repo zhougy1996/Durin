@@ -51,6 +51,7 @@ namespace Durin
 			const FAssetPath& AssetPath,
 			std::string_view Suffix,
 			std::string_view Extension,
+			std::string_view RequestedSourcePath,
 			std::filesystem::path& OutPhysicalPath,
 			std::string& OutStoredPath,
 			std::string& OutError) -> bool
@@ -62,16 +63,23 @@ namespace Durin
 					AssetPath.ToString());
 				return false;
 			}
-			std::filesystem::path RelativeAssetPath(
-				std::string(AssetPath.ToString().substr(Mount->VirtualRoot.size())));
-			const std::string FileName = std::format("{}{}{}",
-				RelativeAssetPath.stem().generic_string(), Suffix, Extension);
-			RelativeAssetPath.replace_filename(FileName);
-			const std::filesystem::path StoredPath =
-				std::filesystem::path(TextureSourceRoot) / RelativeAssetPath;
-			const std::filesystem::path Relative =
-				StoredPath.lexically_normal().lexically_relative("SourceAssets");
-			OutStoredPath = Mount->VirtualRoot + Relative.generic_string();
+			if (RequestedSourcePath.empty())
+			{
+				std::filesystem::path RelativeAssetPath(
+					std::string(AssetPath.ToString().substr(Mount->VirtualRoot.size())));
+				const std::string FileName = std::format("{}{}{}",
+					RelativeAssetPath.stem().generic_string(), Suffix, Extension);
+				RelativeAssetPath.replace_filename(FileName);
+				const std::filesystem::path StoredPath =
+					std::filesystem::path(TextureSourceRoot) / RelativeAssetPath;
+				const std::filesystem::path Relative =
+					StoredPath.lexically_normal().lexically_relative("SourceAssets");
+				OutStoredPath = Mount->VirtualRoot + Relative.generic_string();
+			}
+			else
+			{
+				OutStoredPath = RequestedSourcePath;
+			}
 			const PathUtilities::FSourcePathResult Resolved =
 				PathUtilities::ResolveSourcePath(
 					OutStoredPath, PathUtilities::EPathExistence::AllowMissing);
@@ -1160,7 +1168,8 @@ namespace Durin
 	}
 
 	auto DTextureCube::ImportPanoramaAsset(std::string_view PanoramaFile, std::string_view AssetPath,
-		const FTextureCubePanoramaImportSettings& Settings) -> FTextureCubeImportResult
+		const FTextureCubePanoramaImportSettings& Settings,
+		std::string_view SourceDestination) -> FTextureCubeImportResult
 	{
 		if (PanoramaFile.empty()) return {false, "Panorama source is missing.", nullptr};
 		const std::filesystem::path Input = std::filesystem::absolute(PanoramaFile).lexically_normal();
@@ -1186,6 +1195,7 @@ namespace Durin
 		std::string StoredSourcePath;
 		if (!MakeCanonicalSourceLocation(
 			ParsedAssetPath, "_panorama", Input.extension().generic_string(),
+			SourceDestination,
 			Destination, StoredSourcePath, Error))
 			return {false, std::move(Error), nullptr};
 		FMountedSourceFile MountedSource;
@@ -1740,7 +1750,9 @@ namespace Durin
 	}
 
 	auto DTextureCube::ImportAsset(const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
-		std::string_view AssetPath, const FTextureCubeImportSettings& Settings) -> FTextureCubeImportResult
+		std::string_view AssetPath, const FTextureCubeImportSettings& Settings,
+		const std::array<std::string, TextureCubeFaceCount>& SourceDestinations)
+		-> FTextureCubeImportResult
 	{
 		std::array<std::filesystem::path, TextureCubeFaceCount> Inputs;
 		auto NewSourceData = std::make_unique<FTextureCubeSourceData>();
@@ -1772,6 +1784,7 @@ namespace Durin
 			if (!MakeCanonicalSourceLocation(
 					ParsedAssetPath, std::format("_{}", FaceSuffixes[FaceIndex]),
 					Inputs[FaceIndex].extension().generic_string(),
+					SourceDestinations[FaceIndex],
 					Destinations[FaceIndex], StoredSourcePaths[FaceIndex], PathError)
 				|| !PrepareMountedSourceFile(
 					Inputs[FaceIndex], ParsedAssetPath.ToString(),

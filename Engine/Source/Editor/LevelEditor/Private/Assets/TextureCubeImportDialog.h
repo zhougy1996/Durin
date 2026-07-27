@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Assets/MountedSourceImport.h"
 #include "Texture/TextureCube.h"
 
 namespace Durin
@@ -22,6 +23,7 @@ namespace Durin
 		auto RevalidateSources() -> bool;
 		auto Import() -> bool;
 		auto SuggestAssetPath(std::string_view SourceFile) -> void;
+		auto SuggestSourceDestinations() -> void;
 		auto SetError(std::string Message) const -> void;
 
 		std::function<void()> ClearError;
@@ -29,7 +31,9 @@ namespace Durin
 		std::function<void(std::string)> Imported;
 		std::string PreferredDestinationDirectory;
 		std::array<std::array<char, 512>, TextureCubeFaceCount> FacePathBuffers{};
+		std::array<std::array<char, 512>, TextureCubeFaceCount> FaceDestinationBuffers{};
 		std::array<char, 512> PanoramaPathBuffer{};
+		std::array<char, 512> PanoramaDestinationBuffer{};
 		std::array<char, 256> AssetPathBuffer{};
 		std::string SourceValidationMessage;
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama;
@@ -41,6 +45,8 @@ namespace Durin
 		uint32 ValidatedDimension = 0;
 		uint32 ValidatedMipCount = 0;
 		EPixelFormat ValidatedPixelFormat = EPixelFormat::Unknown;
+		EMountedSourceImportMode SourceMode =
+			EMountedSourceImportMode::IngestExternal;
 		bool bValidatedHDR = false;
 		bool bSourcesValid = false;
 		bool bOpenRequested = false;
