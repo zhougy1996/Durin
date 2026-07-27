@@ -99,10 +99,11 @@ Use the root wrapper for configuration, builds, and tests:
 .\DevTool.bat stop
 ```
 
-Run the repository's Python test suites through pytest:
+Run each Python test suite explicitly through pytest:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\python.exe -m pytest Tools\DurinDevTool\tests
+.\.venv\Scripts\python.exe -m pytest Engine\Source\Programs\DurinHeaderTool\tests
 ```
 
 Commands are case-insensitive for compatibility, but lowercase is canonical.
