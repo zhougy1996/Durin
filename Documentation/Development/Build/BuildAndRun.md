@@ -71,6 +71,7 @@ Use the root wrapper for configuration, builds, and tests:
 .\BuildTool run
 .\BuildTool test --target CoreTests --filter FJsonDocumentTests.*
 .\BuildTool clean
+.\BuildTool recover
 .\BuildTool rebuild --target all
 .\BuildTool presets
 .\BuildTool status
@@ -80,7 +81,8 @@ Use the root wrapper for configuration, builds, and tests:
 
 Commands are case-insensitive for compatibility, but lowercase is canonical. `build` and `test` configure automatically when needed, so an explicit first `configure` is optional. Omit `--jobs` to use automatic parallelism; pass `--jobs <count>` only when a local limit is required. From another batch file, use `call BuildTool.bat <arguments>`.
 
-`build` and `rebuild` default to target `all`; `test` always requires an explicit
+`build` and `rebuild` default to target `all`; `recover` resumes the target
+recorded by an interrupted operation; `test` always requires an explicit
 `--target`. `presets`, `status`, and `open-runtime` are also available directly,
 so preset discovery, context inspection, and runtime-directory access do
 not require entering the interactive shell.
@@ -225,6 +227,7 @@ CMake preset: "Win64-Release-DurinEditor"
 BuildTool> preset Win64-Debug-DurinGame
 BuildTool> configure --fresh
 BuildTool> build
+BuildTool> recover
 BuildTool> rebuild --target DurinLauncher
 BuildTool> test --target CoreTests --filter FJsonDocumentTests.* --timeout 300
 BuildTool> run --project Sandbox\Sandbox.dproject --args --hidden-window
@@ -409,17 +412,19 @@ For Agent-driven `build` and `rebuild` commands, give the shell invocation a tim
 
 The recovery marker covers only operations that mutate configured or compiled build state. A normal compiler, linker, configuration, or clean failure removes the in-progress marker; fix the reported error and rerun the same command. For `test`, the marker is cleared as soon as its target finishes building, before the test executable starts. Failed assertions, test-process crashes, test timeouts, interrupted tests, and application exits therefore never require a rebuild.
 
-Do not start a second build while an earlier CMake, Ninja, compiler, or linker process tree may still be running. If such a process is cancelled, externally terminated, or loses its controlling BuildTool process, wait for the process tree to exit and check `BuildTool status`. Only when it reports `Recovery state: rebuild required`, run the accompanying recovery command. BuildTool records the interrupted target and normally reports:
+Do not start a second build while an earlier CMake, Ninja, compiler, or linker process tree may still be running. If such a process is cancelled, externally terminated, or loses its controlling BuildTool process, wait for the process tree to exit and check `BuildTool status`. Only when its recovery state is not `clean`, run the accompanying recovery command. BuildTool records a resumable interrupted target as `Recovery state: recover required` and normally reports:
 
 ```powershell
-.\BuildTool rebuild --target <interrupted-target>
+.\BuildTool recover
 ```
 
-Recovery still cleans the generated build graph and fresh-configures it before rebuilding, but it does not compile unrelated targets. BuildTool reports `rebuild --target all` when the marker is missing usable target information, when a non-target operation was interrupted, or when the interrupted target itself was `all`. A different target cannot clear the marker; rebuilding the recorded target or `all` is required.
+`recover` reuses the existing CMake/Ninja tree and incrementally builds the recorded target. It does not clean first, so completed object files and unrelated outputs remain available. If configuration is missing or unusable, the normal build path configures it before continuing. The recovery marker is cleared only after the incremental build succeeds; another interruption or an ordinary build failure preserves it so recovery can be retried.
 
-When the interrupted operation used a non-default preset, run `status --preset <affected-preset>`, then add `--preset <affected-preset>` to its reported recovery command or select that preset in the interactive shell before rebuilding.
+BuildTool reports `Recovery state: rebuild required` and `rebuild --target all` instead when the marker is damaged, from an unsupported older format, or otherwise lacks enough information to resume safely. An explicit `rebuild` remains available as the conservative fallback: rebuilding the recorded target or `all` may clear a valid marker, while an unrelated target may not.
 
-Use the same recovery after an accidental IDE build. IDE outputs share the final binary directory, and their timestamps can make an incremental Agent build incorrectly report that everything is current. The driver also blocks unsafe incremental `build` and the build phase of `test` for the affected preset after a detected build-state interruption until a `rebuild` succeeds.
+When the interrupted operation used a non-default preset, run `status --preset <affected-preset>`, then add `--preset <affected-preset>` to its reported recovery command or select that preset in the interactive shell before recovering.
+
+Use the same recovery after an accidental IDE build. IDE outputs share the final binary directory, and their timestamps can make an incremental Agent build incorrectly report that everything is current. The driver also blocks ordinary `build` and the build phase of `test` for the affected preset after a detected build-state interruption until `recover` or `rebuild` succeeds.
 
 BuildTool serializes all registered presets with one checkout-level ownership lock because different CMake trees can still share final outputs and generated metadata. Do not mix direct CMake build operations with `BuildTool` ownership of the same checkout.
 

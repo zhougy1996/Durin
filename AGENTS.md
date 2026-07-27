@@ -39,10 +39,11 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
   process tree may still be running. Run the recovery command reported by
   `BuildTool status` only after an operation was cancelled, externally
   terminated, or lost its controlling BuildTool process, the old process tree
-  has exited, and `BuildTool status` reports
-  `Recovery state: rebuild required`. The command normally rebuilds the
-  interrupted target and falls back to `all` when the prior target cannot be
-  recovered safely. Ordinary compiler, linker,
+  has exited, and `BuildTool status` reports a recovery state other than
+  `clean`. A `recover required` state resumes the interrupted target
+  incrementally; `rebuild required` falls back to `rebuild --target all` when
+  the prior state cannot be recovered safely.
+  Ordinary compiler, linker,
   configuration, clean, assertion, test-timeout, test-process, and runtime
   failures do not require rebuild; fix the cause and rerun the same command.
 

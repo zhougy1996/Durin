@@ -296,25 +296,37 @@ def read_state_description(path: Path, *, locked: bool = False) -> str:
     return ", ".join(fields) if fields else f'Existing state file: "{path}"'
 
 
-def recovery_target(path: Path) -> str:
-    """Return the narrowest safe target recorded by an interrupted operation."""
+def recoverable_target(path: Path) -> str | None:
+    """Return the target that can safely resume from an interrupted operation."""
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return "all"
+        return None
     if not isinstance(value, dict):
-        return "all"
+        return None
     action = value.get("action")
     target = value.get("target")
-    if action not in {Action.BUILD.value, Action.REBUILD.value, Action.TEST.value}:
+    if action in {Action.CONFIGURE.value, Action.CLEAN.value}:
         return "all"
+    if action not in {
+        Action.BUILD.value,
+        Action.REBUILD.value,
+        Action.RECOVER.value,
+        Action.TEST.value,
+    }:
+        return None
     if not isinstance(target, str) or not target:
-        return "all"
+        return None
     try:
         validate_target(target, action=Action.REBUILD)
     except BuildToolError:
-        return "all"
+        return None
     return target
+
+
+def recovery_target(path: Path) -> str:
+    """Return the narrowest rebuild target, falling back safely for old state."""
+    return recoverable_target(path) or "all"
 
 
 def write_json_state(path: Path, value: Mapping[str, Any]) -> None:
@@ -1279,14 +1291,20 @@ def execute_with_recovery_marker(
         previous_content = None
     except OSError as exc:
         raise BuildToolError(f'Could not read BuildTool recovery state "{marker_file}": {exc}') from exc
+    if previous_content is None and action is Action.RECOVER:
+        raise BuildToolError("No interrupted Durin BuildTool operation was found for this preset.")
     if previous_content is not None and action in {Action.BUILD, Action.TEST}:
-        target = recovery_target(marker_file)
+        target = recoverable_target(marker_file)
         raise BuildToolError(
             "The previous Durin BuildTool operation did not return normally. "
             + read_state_description(marker_file),
             recovery=(
                 "Confirm its old process tree has exited, then run "
-                f"rebuild --target {target} with the affected preset."
+                + (
+                    "recover with the affected preset."
+                    if target
+                    else "rebuild --target all with the affected preset."
+                )
             ),
         )
     if previous_content is not None and action is Action.REBUILD:
@@ -1297,6 +1315,19 @@ def execute_with_recovery_marker(
                 f'Interrupted target "{required_target}" cannot be recovered by rebuilding '
                 f'target "{requested_target}".',
                 recovery=f"Run rebuild --target {required_target}, or rebuild --target all.",
+            )
+    if previous_content is not None and action is Action.RECOVER:
+        required_target = recoverable_target(marker_file)
+        requested_target = metadata.get("target")
+        if required_target is None:
+            raise BuildToolError(
+                "The interrupted BuildTool state cannot be resumed safely.",
+                recovery="Run rebuild --target all with the affected preset.",
+            )
+        if requested_target != required_target:
+            raise BuildToolError(
+                f'Recovery target changed from "{required_target}" to "{requested_target}".',
+                recovery="Run BuildTool status again before recovering.",
             )
     write_json_state(marker_file, metadata)
     try:
@@ -1309,7 +1340,7 @@ def execute_with_recovery_marker(
     except BaseException:
         raise
     else:
-        if action is Action.REBUILD or previous_content is None:
+        if action in {Action.REBUILD, Action.RECOVER} or previous_content is None:
             restore_state_file(marker_file, None)
         else:
             restore_state_file(marker_file, previous_content)
@@ -1376,7 +1407,12 @@ def test_executable_path(
     )
 
 
-def perform_action(context: BuildContext, output: BuildOutput) -> None:
+def perform_action(
+    context: BuildContext,
+    output: BuildOutput,
+    *,
+    target_override: str | None = None,
+) -> None:
     request = context.request
     environment = context.environment or os.environ
     build_directory = preset_build_directory(context.preset)
@@ -1408,7 +1444,7 @@ def perform_action(context: BuildContext, output: BuildOutput) -> None:
             )
         return
 
-    target = context.target
+    target = target_override or context.target
     if request.action is Action.REBUILD:
         if cache_is_usable(cache_file):
             with output.stage("Clean"):
@@ -1611,25 +1647,48 @@ def execute_context(
 ) -> float:
     started = perf_counter()
     output.context(context)
-    metadata = operation_metadata(
+    marker_file = interruption_marker_path(context.preset.name)
+    lock_metadata = operation_metadata(
         context,
         target=(
             "all-presets"
             if context.request.action is Action.PURGE and context.request.all_presets
+            else "recorded-target"
+            if context.request.action is Action.RECOVER
             else context.target
         ),
     )
-    with BuildToolLock(lock_file_path(), metadata):
+    with BuildToolLock(lock_file_path(), lock_metadata):
         if context.request.action is Action.PURGE:
             execute_purge(context, output, confirm_purge)
         elif context.request.action is Action.RUN:
             run_application(context, output)
         else:
+            recovery_target_override: str | None = None
+            if context.request.action is Action.RECOVER:
+                recovery_target_override = recoverable_target(marker_file)
+                if recovery_target_override is None:
+                    if marker_file.is_file():
+                        raise BuildToolError(
+                            "The interrupted BuildTool state cannot be resumed safely.",
+                            recovery="Run rebuild --target all with the affected preset.",
+                        )
+                    raise BuildToolError(
+                        "No interrupted Durin BuildTool operation was found for this preset."
+                    )
+            metadata = operation_metadata(
+                context,
+                target=recovery_target_override or context.target,
+            )
             execute_with_recovery_marker(
                 action=context.request.action,
-                marker_file=interruption_marker_path(context.preset.name),
+                marker_file=marker_file,
                 metadata=metadata,
-                operation=lambda: perform_action(context, output),
+                operation=lambda: perform_action(
+                    context,
+                    output,
+                    target_override=recovery_target_override,
+                ),
             )
             # Native tests only read completed build outputs. Their assertion failures,
             # hangs, and interruptions must not poison incremental build state.

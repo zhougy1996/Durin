@@ -35,6 +35,7 @@ from .core import (
     open_runtime_directory,
     prepare_command_context,
     prepare_toolchain_environment,
+    recoverable_target,
     recovery_target,
     stop_active_operation,
 )
@@ -322,6 +323,12 @@ COMMAND_SPECS = (
         TOOL_ARGUMENTS,
     ),
     CommandSpec(
+        Action.RECOVER,
+        "resume an interrupted build incrementally",
+        "recover",
+        TOOL_ARGUMENTS,
+    ),
+    CommandSpec(
         Action.PURGE,
         "delete generated build artifacts",
         "purge [--all-presets] [--yes]",
@@ -386,6 +393,7 @@ TOOLCHAIN_ACTIONS = {
     Action.CONFIGURE,
     Action.BUILD,
     Action.CLEAN,
+    Action.RECOVER,
     Action.REBUILD,
     Action.TEST,
 }
@@ -844,6 +852,7 @@ def resolve_shell_preset_number(value: str, context: BuildContext) -> str:
 def show_status(output: BuildOutput, context: BuildContext) -> None:
     marker = interruption_marker_path(context.preset.name)
     recovery_required = marker.is_file()
+    resumable_target = recoverable_target(marker) if recovery_required else None
     toolchain_resolved = context.environment is not None
     cmake_default = context.request.cmake or next(
         (os.environ[name].strip() for name in CMAKE_ENV_VARS if os.environ.get(name, "").strip()),
@@ -888,10 +897,19 @@ def show_status(output: BuildOutput, context: BuildContext) -> None:
         "Toolchain context": "resolved" if toolchain_resolved else "unresolved",
         "Parallel jobs": context.jobs or f"unresolved (default: {jobs_default})",
         "CMake": context.cmake or f'unresolved (default: {cmake_default})',
-        "Recovery state": "rebuild required" if recovery_required else "clean",
+        "Recovery state": (
+            "recover required"
+            if resumable_target
+            else "rebuild required"
+            if recovery_required
+            else "clean"
+        ),
     }
     if recovery_required:
-        values["Recovery command"] = f"rebuild --target {recovery_target(marker)}"
+        values["Recovery target"] = resumable_target or "unknown"
+        values["Recovery command"] = (
+            "recover" if resumable_target else f"rebuild --target {recovery_target(marker)}"
+        )
     if output.plain:
         for label, value in values.items():
             output.info(f"{label}: {value}")

@@ -543,6 +543,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(request.target, "all")
 
     def test_command_specific_options_are_parsed(self) -> None:
+        self.assertIs(build_cli.parse_args(["recover"]).action, build_config.Action.RECOVER)
         purge = build_cli.parse_args(["purge", "--all-presets", "--yes"])
         self.assertTrue(purge.all_presets)
         self.assertTrue(purge.yes)
@@ -1044,9 +1045,20 @@ class CliTests(unittest.TestCase):
                     BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO()),
                     context,
                 )
+            marker.write_text("{invalid", encoding="utf-8")
+            fallback_stdout = io.StringIO()
+            with mock.patch.object(build_cli, "interruption_marker_path", return_value=marker):
+                build_cli.show_status(
+                    BuildOutput(plain=True, stdout=fallback_stdout, stderr=io.StringIO()),
+                    context,
+                )
         status = stdout.getvalue()
-        self.assertIn("Recovery state: rebuild required", status)
-        self.assertIn("Recovery command: rebuild --target Core", status)
+        self.assertIn("Recovery state: recover required", status)
+        self.assertIn("Recovery target: Core", status)
+        self.assertIn("Recovery command: recover", status)
+        fallback_status = fallback_stdout.getvalue()
+        self.assertIn("Recovery state: rebuild required", fallback_status)
+        self.assertIn("Recovery command: rebuild --target all", fallback_status)
 
     def test_shell_startup_is_lightweight_and_lock_free(self) -> None:
         base = mock.Mock()
@@ -1330,6 +1342,7 @@ class CliTests(unittest.TestCase):
             ["configure", "extra"],
             ["build", "Core", "Extra"],
             ["clean", "extra"],
+            ["recover", "extra"],
             ["purge", "extra"],
             ["rebuild", "Core", "Extra"],
             ["test", "CoreTests", "Core.*", "extra"],
@@ -3549,7 +3562,7 @@ class CoreTests(unittest.TestCase):
                     metadata={"pid": 1, "action": "build", "target": "Core"},
                     operation=lambda: None,
                 )
-            self.assertIn("rebuild --target Core", blocked.exception.recovery)
+            self.assertIn("run recover", blocked.exception.recovery)
             build_core.execute_with_recovery_marker(
                 action=build_config.Action.REBUILD,
                 marker_file=marker,
@@ -3577,10 +3590,63 @@ class CoreTests(unittest.TestCase):
     def test_invalid_or_non_target_recovery_state_falls_back_to_all(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "interrupted.json"
-            marker.write_text(json.dumps({"action": "configure", "target": "Core"}), encoding="utf-8")
+            marker.write_text(json.dumps({"action": "unknown", "target": "Core"}), encoding="utf-8")
+            self.assertIsNone(build_core.recoverable_target(marker))
             self.assertEqual(build_core.recovery_target(marker), "all")
             marker.write_text("{invalid", encoding="utf-8")
+            self.assertIsNone(build_core.recoverable_target(marker))
             self.assertEqual(build_core.recovery_target(marker), "all")
+
+    def test_recover_clears_a_valid_interruption_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "interrupted.json"
+            marker.write_text(
+                json.dumps({"pid": 1, "action": "build", "target": "Core"}),
+                encoding="utf-8",
+            )
+            build_core.execute_with_recovery_marker(
+                action=build_config.Action.RECOVER,
+                marker_file=marker,
+                metadata={"pid": 2, "action": "recover", "target": "Core"},
+                operation=lambda: None,
+            )
+            self.assertFalse(marker.exists())
+
+    def test_recover_builds_incrementally_without_cleaning(self) -> None:
+        preset = self.make_preset()
+        context = build_config.BuildContext(
+            build_config.CommandRequest(build_config.Action.RECOVER),
+            build_config.LocalConfig(),
+            self.make_profile(),
+            {"debug": preset},
+            preset,
+            "windows",
+            cmake="cmake",
+            jobs=4,
+            environment={"PATH": "cached"},
+        )
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with tempfile.TemporaryDirectory() as directory:
+            build_directory = Path(directory)
+            with mock.patch.object(
+                build_core,
+                "preset_build_directory",
+                return_value=build_directory,
+            ), mock.patch.object(
+                build_core,
+                "cache_is_usable",
+                return_value=True,
+            ), mock.patch.object(
+                build_core,
+                "ninja_uses_english_msvc_prefix",
+                return_value=True,
+            ), mock.patch.object(build_core, "run_command") as run:
+                build_core.perform_action(context, output, target_override="Core")
+        run.assert_called_once_with(
+            ["cmake", "--build", str(build_directory), "--target", "Core", "-j", "4"],
+            environment={"PATH": "cached"},
+            output=output,
+        )
 
     def test_normal_command_failure_restores_marker(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

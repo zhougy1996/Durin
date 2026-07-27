@@ -56,6 +56,7 @@ class Action(str, Enum):
     CONFIGURE = "configure"
     BUILD = "build"
     CLEAN = "clean"
+    RECOVER = "recover"
     REBUILD = "rebuild"
     TEST = "test"
     PURGE = "purge"
