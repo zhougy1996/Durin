@@ -99,6 +99,12 @@ Use the root wrapper for configuration, builds, and tests:
 .\DevTool.bat stop
 ```
 
+Run DurinDevTool's Python test suite through pytest:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest
+```
+
 Commands are case-insensitive for compatibility, but lowercase is canonical.
 `build` and `test` configure automatically when needed, so an explicit first
 `configure` is optional. Omit `--jobs` to use automatic parallelism; pass
