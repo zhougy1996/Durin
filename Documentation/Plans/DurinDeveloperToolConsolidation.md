@@ -5,7 +5,7 @@ Summary: Consolidate repository setup, worktree, build, documentation, test, run
 Last reviewed: 2026-07-28
 
 Status: Active
-Completed: Stages 0-2
+Completed:
 
 ## Current Status
 
@@ -20,22 +20,26 @@ under `Tools/DocTool`, and retains WorktreeTool and Setup under
 three existing Tools plus Setup rather than moving BuildTool from its older
 `main` location.
 
-Stages 0 through 2 are complete. The bootstrap-safe product skeleton now owns the
+Stages 0 through 3 are complete. The bootstrap-safe product skeleton now owns the
 canonical launcher, validated repository discovery, standard-library-only
 command registry and error boundary, shared direct/shell help, and prepared
 environment capability guard. The build domain now lives under
 `durin_dev_tool/build`, and the top-level registry is the sole command
 specification for build, test, run, recovery, artifact, preset, and scaffolding
-operations. Post-stage hardening distinguishes a missing
+operations. The documentation domain now lives under
+`durin_dev_tool/documentation`; `plan list`, `plan validate`, and
+`plan archive` share the same typed registry and execution path in direct and
+shell use while preserving their output defaults, discovery guards, validation,
+and transactional archive behavior. Post-stage hardening distinguishes a missing
 environment, a system-Python invocation that bypassed the launcher, and an
 incomplete prepared environment before importing a dependency-backed handler.
-The documentation domain remains authoritative in its existing location until
-Stage 3.
+The old DocTool implementation and launcher remain available until the atomic
+Stage 5 cutover.
 
 The selected working set remains clean outside this plan's changes. The
-combined Python tooling suite passes 297 tests with two platform-dependent
-skips, including 112 tests against the migrated build package and unified
-registry. System-Python cold-start, launcher help, scripted shell help and
+combined Python tooling suite passes 311 tests with two platform-dependent
+skips, including 126 tests against the migrated domains and unified registry.
+System-Python cold-start, launcher help, scripted shell help and
 preset state, arbitrary working-directory discovery, missing-environment
 failure behavior, and toolchain-free build status/preset discovery are recorded
 below. One pre-existing defect remains explicit:
@@ -516,23 +520,23 @@ Tools/
 
 ### Stage 3: Documentation Domain Consolidation
 
-- [ ] Move `Tools/DocTool/durin_doc_tool` into
+- [x] Move `Tools/DocTool/durin_doc_tool` into
   `durin_dev_tool/documentation` using package-relative imports.
-- [ ] Register `plan list`, `plan validate`, and `plan archive` in the shared
+- [x] Register `plan list`, `plan validate`, and `plan archive` in the shared
   top-level command registry and shell.
-- [ ] Preserve active/completed/archive/all scopes, query filtering,
+- [x] Preserve active/completed/archive/all scopes, query filtering,
   `--all-results` guards, terminal and Markdown formats, and color selection.
-- [ ] Preserve metadata validation for titles, summaries, lifecycle state,
+- [x] Preserve metadata validation for titles, summaries, lifecycle state,
   completion dates, archive months, and direct references.
-- [ ] Preserve archive preview as the default and require explicit apply for
+- [x] Preserve archive preview as the default and require explicit apply for
   repository mutation.
-- [ ] Preserve archive transaction rollback across plan moves and reference
+- [x] Preserve archive transaction rollback across plan moves and reference
   repairs.
-- [ ] Move DocTool tests from `Tools/Tests` into
+- [x] Move DocTool tests from `Tools/Tests` into
   `Tools/DurinDevTool/tests` without reducing behavioral coverage.
-- [ ] Prove direct/shell request and output-default parity for every migrated
+- [x] Prove direct/shell request and output-default parity for every migrated
   plan command.
-- [ ] Update the plan status and record the stage handoff.
+- [x] Update the plan status and record the stage handoff.
 
 #### Acceptance Gate
 
@@ -544,6 +548,51 @@ Tools/
 - Archive preview performs no writes, apply repairs references atomically, and
   injected failures restore every changed file.
 - Plan validation results match the pre-move DocTool catalog.
+
+#### Stage 3 Handoff
+
+- Baseline commit: `618743f9`.
+- Working set:
+  - documentation plan parsing, discovery, rendering, validation, and archive
+    transaction services under
+    `Tools/DurinDevTool/durin_dev_tool/documentation`;
+  - the top-level `plan` command specifications and nested-name normalization;
+  - migrated documentation-domain and registry-parity tests under
+    `Tools/DurinDevTool/tests`;
+  - this plan status, corrected active-plan metadata, and handoff.
+- Key symbols:
+  - top-level `PLAN_LIST`, `PLAN_VALIDATE`, `PLAN_ARCHIVE`, and
+    `DOCUMENTATION_HANDLER`;
+  - documentation `run`, `_run_list`, `_run_validate`, `_run_archive`, and
+    `_print_archive`;
+  - retained `load_catalog`, `parse_plan`, `render_listing`,
+    `preview_archive`, and `apply_archive`.
+- Decisions:
+  - the top-level registry is the only parser and command-specification table
+    for documentation commands; the migrated domain contains services and one
+    typed handler, not a second CLI or shell;
+  - handler execution uses the presence of unified shell session state solely
+    to select the historical terminal listing default, while direct invocation
+    remains Markdown by default and explicit formats are identical;
+  - archive mutation remains opt-in through `--apply`; discovery, reference
+    rewriting, atomic writes, validation, and rollback are unchanged;
+  - the old DocTool implementation, tests, and root launcher remain untouched
+    until the Stage 5 atomic cutover;
+  - active-plan `Completed:` metadata remains empty; completed stage numbers
+    belong in Current Status and handoffs rather than the lifecycle date field.
+- Open questions: none.
+- Validation:
+  - combined existing and migrated Python tooling suite: 311 passed, two
+    skipped;
+  - migrated build, documentation, unified-registry, and skeleton suite: 126
+    passed, one skipped;
+  - Python bytecode compilation for the unified package and tests: passed;
+  - old DocTool and unified DevTool catalog validation/list/archive-preview
+    smoke tests produced identical output: 9 active, zero completed, and 23
+    archived plans;
+  - scripted unified shell validation and listing passed, with human-oriented
+    terminal output selected by default;
+  - archive preview/apply routing and injected-failure rollback tests passed.
 
 ### Stage 4: Setup, Dependency, and Worktree Consolidation
 

@@ -77,6 +77,8 @@ CONTEXT_ARGUMENTS = (PROFILE, PRESET, PLAIN, OUTPUT_MODE)
 BUILD_HANDLER = "durin_dev_tool.build.handler:run"
 BUILD_CAPABILITY = Capability.PREPARED_ENVIRONMENT
 BUILD_MODULES = ("rich",)
+DOCUMENTATION_HANDLER = "durin_dev_tool.documentation.handler:run"
+PLAN_SCOPES = ("active", "completed", "archive", "all")
 
 
 def _build_command(
@@ -137,6 +139,54 @@ CREATE_PROJECT = _build_command(
         PLAIN,
     ),
     action="create-project",
+)
+
+PLAN_LIST = CommandSpec(
+    "list",
+    "list implementation plans",
+    DOCUMENTATION_HANDLER,
+    arguments=(
+        _argument("--scope", choices=PLAN_SCOPES, default="active"),
+        _argument("--query", help="filter by title or filename"),
+        _argument(
+            "--all-results",
+            action="store_true",
+            help="allow an unfiltered archive or all-scope listing",
+        ),
+        _argument(
+            "--format",
+            choices=("markdown", "terminal"),
+            default=None,
+            dest="output_format",
+        ),
+        _argument(
+            "--color",
+            choices=("auto", "always", "never"),
+            default="auto",
+        ),
+    ),
+    defaults=(("plan_action", "list"),),
+)
+PLAN_VALIDATE = CommandSpec(
+    "validate",
+    "validate plan metadata and layout",
+    DOCUMENTATION_HANDLER,
+    arguments=(_argument("--scope", choices=PLAN_SCOPES, default="all"),),
+    defaults=(("plan_action", "validate"),),
+)
+PLAN_ARCHIVE = CommandSpec(
+    "archive",
+    "archive one completion month",
+    DOCUMENTATION_HANDLER,
+    arguments=(
+        _argument("month", help="completion month in YYYY-MM form"),
+        _argument(
+            "--apply",
+            action="store_true",
+            help="apply the transaction; the default is a dry-run",
+        ),
+    ),
+    defaults=(("plan_action", "archive"),),
 )
 
 
@@ -229,6 +279,11 @@ COMMAND_SPECS = (
         "create a module or workspace project",
         subcommands=(CREATE_MODULE, CREATE_PROJECT),
     ),
+    CommandSpec(
+        "plan",
+        "list, validate, and archive implementation plans",
+        subcommands=(PLAN_LIST, PLAN_VALIDATE, PLAN_ARCHIVE),
+    ),
 )
 
 
@@ -290,8 +345,11 @@ class CommandRegistry:
             command = normalized[0].removeprefix("/").lower()
             if command in self._by_name:
                 normalized[0] = command
-            if command == "create" and len(normalized) > 1:
-                normalized[1] = normalized[1].removeprefix("/").lower()
+                parent = self._by_name[command]
+                if parent.subcommands and len(normalized) > 1:
+                    child = normalized[1].removeprefix("/").lower()
+                    if child in {spec.name for spec in parent.subcommands}:
+                        normalized[1] = child
         namespace = self.parser().parse_args(normalized)
         return namespace._command_spec, namespace
 
