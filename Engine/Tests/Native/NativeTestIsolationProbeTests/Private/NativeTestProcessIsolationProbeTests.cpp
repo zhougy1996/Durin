@@ -1,9 +1,13 @@
 #include <gtest/gtest.h>
 
+#include "NativeTestSupport.h"
+#include "NativeTestSupportInternal.h"
+
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <regex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -32,17 +36,15 @@ namespace
 
 	void RunSharedRootCollisionProbe(const std::string& Owner, const std::string& Peer)
 	{
-		const auto ControlRoot = std::filesystem::path(DURIN_TEST_WORK_DIR) / "ProcessIsolationProbeControl";
-		const char* ProbeMode = std::getenv("DURIN_TEST_ISOLATION_PROBE_MODE");
-		if (ProbeMode == nullptr)
+		const char* ControlRootValue = std::getenv("DURIN_TEST_ISOLATION_PROBE_CONTROL");
+		if (ControlRootValue == nullptr)
 		{
-			GTEST_SKIP() << "Set DURIN_TEST_ISOLATION_PROBE_MODE to legacy or isolated.";
+			GTEST_SKIP() << "Run the NativeTestIsolationProbeCharacterization target.";
 		}
-		const bool UseIsolatedRoot = ProbeMode != nullptr && std::string(ProbeMode) == "isolated";
-		const auto SharedRoot = std::filesystem::path(DURIN_TEST_WORK_DIR) / "ProcessIsolationProbe";
-		const auto WritableRoot = UseIsolatedRoot ? SharedRoot / Owner : SharedRoot;
+		const auto ControlRoot = std::filesystem::path(ControlRootValue);
+		const auto WritableRoot =
+			Durin::Testing::CreateTestWorkSubdirectory("ProcessIsolationProbe");
 		std::filesystem::create_directories(ControlRoot);
-		std::filesystem::create_directories(WritableRoot);
 
 		const auto ReadyPath = ControlRoot / ("ready-" + Owner);
 		const auto PeerReadyPath = ControlRoot / ("ready-" + Peer);
@@ -78,7 +80,7 @@ namespace
 			SharedStream >> ObservedOwner;
 		}
 		EXPECT_EQ(ObservedOwner, Owner)
-			<< "Both CTest processes resolved the same logical filename below DURIN_TEST_WORK_DIR.";
+			<< "Both CTest processes resolved the same native-test process sandbox.";
 	}
 }
 
@@ -90,4 +92,72 @@ TEST(FNativeTestProcessIsolationProbeTests, ProcessAOwnsSameLogicalFilename)
 TEST(FNativeTestProcessIsolationProbeTests, ProcessBOwnsSameLogicalFilename)
 {
 	RunSharedRootCollisionProbe("process-b", "process-a");
+}
+
+TEST(FNativeTestProcessSandboxTests, ProvidesCanonicalUniqueRunDirectory)
+{
+	const std::filesystem::path& WorkDirectory =
+		Durin::Testing::GetTestWorkDirectory();
+	EXPECT_EQ(WorkDirectory, std::filesystem::weakly_canonical(WorkDirectory));
+	EXPECT_TRUE(std::filesystem::is_directory(WorkDirectory));
+	EXPECT_TRUE(std::regex_match(
+		WorkDirectory.filename().string(),
+		std::regex("run-p[0-9]+-[0-9a-f]{32}")));
+	EXPECT_EQ(&WorkDirectory, &Durin::Testing::GetTestWorkDirectory());
+}
+
+TEST(FNativeTestProcessSandboxTests, CreatesContainedUnicodeAndLongSubdirectories)
+{
+	const std::filesystem::path UnicodeDirectory =
+		Durin::Testing::CreateTestWorkSubdirectory(
+			std::filesystem::path(L"路径") / L"夹具");
+	EXPECT_TRUE(std::filesystem::is_directory(UnicodeDirectory));
+
+	std::filesystem::path LongRelativePath;
+	for (int Index = 0; Index != 12; ++Index)
+	{
+		LongRelativePath /= "long-path-segment";
+	}
+	const std::filesystem::path LongDirectory =
+		Durin::Testing::CreateTestWorkSubdirectory(LongRelativePath);
+	EXPECT_TRUE(std::filesystem::is_directory(LongDirectory));
+	EXPECT_GT(LongDirectory.native().size(), 260u);
+}
+
+TEST(FNativeTestProcessSandboxTests, RejectsPathsOutsideTheProcessSandbox)
+{
+	EXPECT_THROW(
+		Durin::Testing::CreateTestWorkSubdirectory(
+			std::filesystem::path("..") / "escape"),
+		std::invalid_argument);
+	EXPECT_THROW(
+		Durin::Testing::CreateTestWorkSubdirectory(std::filesystem::current_path()),
+		std::invalid_argument);
+}
+
+TEST(FNativeTestProcessSandboxTests, RetriesWhenAReusedProcessIdCollides)
+{
+	const std::filesystem::path WorkRoot =
+		Durin::Testing::CreateTestWorkSubdirectory("ProcessIdReuse");
+	constexpr std::uint32_t ReusedProcessId = 4242;
+	const std::string OccupiedNonce(32, 'a');
+	const std::string AvailableNonce(32, 'b');
+	const std::filesystem::path OccupiedDirectory =
+		WorkRoot / "Runs" / ("run-p4242-" + OccupiedNonce);
+	std::filesystem::create_directories(OccupiedDirectory);
+
+	int NonceRequestCount = 0;
+	const std::filesystem::path AllocatedDirectory =
+		Durin::Testing::Private::CreateUniqueRunDirectory(
+			WorkRoot,
+			ReusedProcessId,
+			[&]() {
+				return NonceRequestCount++ == 0 ? OccupiedNonce : AvailableNonce;
+			});
+
+	EXPECT_EQ(NonceRequestCount, 2);
+	EXPECT_EQ(
+		AllocatedDirectory.filename(),
+		std::filesystem::path("run-p4242-" + AvailableNonce));
+	EXPECT_TRUE(std::filesystem::is_directory(OccupiedDirectory));
 }

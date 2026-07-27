@@ -203,8 +203,36 @@ function(add_durin_module module_name)
 endfunction()
 
 function(add_durin_test target_name)
-	add_executable(${target_name} ${ARGN})
+	if(NOT TARGET NativeTestSupport)
+		message(FATAL_ERROR
+			"NativeTestSupport must be defined before add_durin_test(${target_name}).")
+	endif()
+
+	set(_durin_test_root_dir "${DURIN_PROJECT_TEST_OUTPUT_ROOT}/${target_name}")
+	set(_durin_test_bin_dir "${DURIN_PROJECT_TEST_OUTPUT_ROOT}/Bin")
+	set(_durin_test_data_dir "${_durin_test_root_dir}/Data")
+	set(_durin_test_work_dir "${_durin_test_root_dir}/Work")
+	set(_durin_native_test_main
+		"${CMAKE_CURRENT_BINARY_DIR}/Generated/$<CONFIG>/${target_name}NativeTestMain.cpp")
+	set(DURIN_NATIVE_TEST_WORK_ROOT "${_durin_test_work_dir}")
+	file(READ
+		"${CMAKE_SOURCE_DIR}/Engine/Tests/NativeTestSupport/Private/NativeTestMain.cpp.in"
+		_durin_native_test_main_template)
+	string(CONFIGURE
+		"${_durin_native_test_main_template}"
+		_durin_native_test_main_content
+		@ONLY)
+	file(GENERATE
+		OUTPUT "${_durin_native_test_main}"
+		CONTENT "${_durin_native_test_main_content}"
+	)
+
+	add_executable(${target_name}
+		${ARGN}
+		"${_durin_native_test_main}"
+	)
 	durin_target_enable_windows_long_paths(${target_name})
+	target_link_libraries(${target_name} PRIVATE NativeTestSupport)
 
 	durin_target_apply_common_definitions(${target_name} ${target_name})
 
@@ -244,11 +272,6 @@ function(add_durin_test target_name)
 				"${_durin_test_source_absolute}")
 		endif()
 	endforeach()
-
-	set(_durin_test_root_dir "${DURIN_PROJECT_TEST_OUTPUT_ROOT}/${target_name}")
-	set(_durin_test_bin_dir "${DURIN_PROJECT_TEST_OUTPUT_ROOT}/Bin")
-	set(_durin_test_data_dir "${_durin_test_root_dir}/Data")
-	set(_durin_test_work_dir "${_durin_test_root_dir}/Work")
 
 	target_compile_definitions(${target_name} PRIVATE
 		DURIN_TEST_ROOT_DIR="${_durin_test_root_dir}"

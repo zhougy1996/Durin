@@ -48,7 +48,6 @@ function(durin_add_engine_functional_test target_name)
 		Engine
 		bc7enc_rdo::bc7enc_rdo
 		${DURIN_ENGINE_TEST_LIBRARIES}
-		GTest::gtest_main
 	)
 
 	foreach(_durin_deploy_target IN ITEMS

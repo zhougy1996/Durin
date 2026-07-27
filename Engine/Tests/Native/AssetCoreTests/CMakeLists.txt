@@ -17,7 +17,6 @@ function(durin_add_asset_functional_test target_name)
 		Core
 		CoreDObject
 		AssetCore
-		GTest::gtest_main
 	)
 	durin_test_deploy_target_binary(${target_name} Core)
 	durin_test_deploy_target_binary(${target_name} CoreDObject)

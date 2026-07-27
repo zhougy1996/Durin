@@ -26,7 +26,6 @@ function(durin_add_render_functional_test target_name)
 		Core
 		RHI
 		RenderCore
-		GTest::gtest_main
 	)
 	durin_test_deploy_target_binary(${target_name} Core)
 	durin_test_deploy_target_binary(${target_name} RHI)

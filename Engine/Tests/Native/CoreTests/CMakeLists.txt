@@ -2,7 +2,7 @@ include(GoogleTest)
 
 function(durin_add_core_functional_test target_name)
 	add_durin_test(${target_name} ${ARGN})
-	target_link_libraries(${target_name} PRIVATE Core GTest::gtest_main)
+	target_link_libraries(${target_name} PRIVATE Core)
 	durin_test_deploy_target_binary(${target_name} Core)
 	durin_test_deploy_directory_to_data(
 		${target_name}

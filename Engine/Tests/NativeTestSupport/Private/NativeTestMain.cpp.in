@@ -1,0 +1,22 @@
+#include "NativeTestSupport.h"
+
+#include <exception>
+#include <filesystem>
+#include <iostream>
+
+auto main(int ArgumentCount, char** Arguments) -> int
+{
+	try
+	{
+		return Durin::Testing::RunNativeTests(
+			ArgumentCount,
+			Arguments,
+			std::filesystem::path(R"durin(@DURIN_NATIVE_TEST_WORK_ROOT@)durin"));
+	}
+	catch (const std::exception& Exception)
+	{
+		std::cerr << "[ DURIN   ] Native test harness failed: "
+			<< Exception.what() << '\n';
+		return 2;
+	}
+}

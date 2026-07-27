@@ -18,15 +18,18 @@ Completed:
 - Stage 2 is complete. The seven module-era executables have been replaced by
   29 feature/lifecycle targets, while the isolation probe remains a separate
   characterization target.
-- Stage 3 is active: introduce the common low-level native-test entry point and
-  a unique per-process writable sandbox.
+- Stage 3 is complete. Every native-test executable now enters through
+  `NativeTestSupport`, creates a unique process sandbox, and applies the common
+  cleanup/retention policy.
+- Stage 4 is active: migrate functional tests from the shared compile-time work
+  root to the runtime sandbox API, then enable audited case parallelism.
 - `.\DevTool.bat test --target all` now schedules CTest-discovered GoogleTest
   cases with the Agent Build Profile job count; the current profile runs 18
   cases concurrently.
-- The Stage 2 aggregate passes all 680 CTest entries in 12.22 seconds at 18
-  jobs: the 650 Stage 1 registrations plus 30 direct-executable lifecycle
-  smoke tests. Unique ownership is configured for all 92 native `.cpp`
-  sources, including the Stage 0 probe.
+- The Stage 3 aggregate passes all 684 CTest entries in 16.90 seconds at 18
+  jobs: the Stage 2 registrations, four sandbox API regressions, and 30
+  direct-executable lifecycle smoke tests. Unique ownership remains configured
+  for all 92 native `.cpp` sources, including the isolation probe.
 - Every case from a test target currently receives the same
   `DURIN_TEST_WORK_DIR`. Tests in separate processes therefore create, delete,
   mount, and rewrite the same files concurrently.
@@ -351,19 +354,19 @@ cases.
 
 ### Stage 3: Introduce the native-test process sandbox
 
-- [ ] Add a low-level test-support target usable by Core tests without an
+- [x] Add a low-level test-support target usable by Core tests without an
   Engine dependency.
-- [ ] Replace `GTest::gtest_main` with a common Durin test entry point that
+- [x] Replace `GTest::gtest_main` with a common Durin test entry point that
   creates one unique process sandbox below the owning target's `Work/Runs`
   directory before invoking GoogleTest.
-- [ ] Expose a runtime `GetTestWorkDirectory()`-style API and helpers for
+- [x] Expose a runtime `GetTestWorkDirectory()`-style API and helpers for
   creating fixture subdirectories without exposing the shared work root.
-- [ ] Add a GoogleTest listener that removes successful sandboxes, preserves
+- [x] Add a GoogleTest listener that removes successful sandboxes, preserves
   failed/crashed sandboxes, prints preserved paths, and honors an explicit
   keep-work diagnostic option.
-- [ ] Make initialization idempotent within a process and safe when a target is
+- [x] Make initialization idempotent within a process and safe when a target is
   run directly with a GoogleTest filter outside CTest.
-- [ ] Cover concurrent creation, process-id reuse, cleanup failure, long-path
+- [x] Cover concurrent creation, process-id reuse, cleanup failure, long-path
   limits, non-ASCII paths, crash retention, and keep-work behavior.
 
 #### Acceptance Gate
@@ -372,6 +375,36 @@ cases.
   writable roots and cannot remove or overwrite each other's files.
 - Direct target runs, filtered runs, CTest case runs, and retained failure
   artifacts all report the resolved sandbox consistently.
+
+#### Stage 3 Handoff
+
+- Baseline commit: `10aeb1de`.
+- Working set entering Stage 4: `NativeTestSupport`,
+  `add_durin_test`, the 42 native-test source/header files that still reference
+  `DURIN_TEST_WORK_DIR`, and the functional target discovery policies.
+- Key symbols: `RunNativeTests`, `GetTestWorkDirectory`,
+  `CreateTestWorkSubdirectory`, `IsTestWorkDirectoryKept`, and
+  `Private::CreateUniqueRunDirectory`.
+- Decisions: every executable compiles the common main and links one
+  Core-only static support library; run directories use
+  `Work/Runs/run-p<PID>-<32 lowercase hex>` and are allocated with atomic
+  directory creation; `--durin-keep-test-work` and
+  `DURIN_TEST_KEEP_WORK=1` retain successful output; successful CTest
+  discovery is covered by a post-run cleanup fallback because GoogleTest does
+  not dispatch program listeners for `--gtest_list_tests`.
+- Lifecycle policy: passed runs are deleted; failed runs, keep-work runs,
+  crashes, and cleanup failures retain and report their resolved directory.
+  Harness initialization failures are reported without invoking an interactive
+  Debug CRT dialog.
+- Open work: migrate the 138 shared-root references, replace sandbox-capturing
+  static fixtures, and remove temporary target locks only after focused stress
+  runs establish case-parallel safety.
+- Validation: the sandbox characterization passed concurrent-process,
+  keep-work, cleanup-failure, and abrupt-exit retention probes; four focused
+  API tests passed; the complete `all` build passed; all 684 CTest entries
+  passed at 18 jobs in 16.90 seconds; all 30 `Runs` roots were empty after the
+  aggregate. Evidence is recorded in
+  `Documentation/Development/Build/NativeTestProcessIsolationStage3.md`.
 
 ### Stage 4: Migrate functional targets and remove shared-root access
 

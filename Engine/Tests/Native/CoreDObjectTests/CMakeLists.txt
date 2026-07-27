@@ -9,7 +9,6 @@ add_durin_test(CoreObjectTests
 target_link_libraries(CoreObjectTests PRIVATE
 	Core
 	CoreDObject
-	GTest::gtest_main
 )
 
 durin_test_deploy_target_binary(CoreObjectTests Core)

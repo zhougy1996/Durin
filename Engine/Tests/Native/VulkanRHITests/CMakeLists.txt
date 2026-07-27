@@ -21,7 +21,6 @@ target_link_libraries(VulkanRHIIntegrationTests PRIVATE
 	RenderCore
 	Vulkan::Vulkan
 	Slang_Imported
-	GTest::gtest_main
 )
 
 durin_test_deploy_target_binary(VulkanRHIIntegrationTests Core)
