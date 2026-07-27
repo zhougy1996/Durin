@@ -1,5 +1,6 @@
 #include "Widgets/MTextureEditor.h"
 
+#include "Asset/AssetUpgradeAuditService.h"
 #include "AssetSystem.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
@@ -128,12 +129,14 @@ namespace Durin
 			return EEditorDocumentOpenResult::Rejected;
 		}
 		DTexture2D* Texture = nullptr;
-		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Texture);
+		Asset::FAssetLoadReport LoadReport;
+		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Texture, &LoadReport);
 		if (!Result || !Texture)
 		{
 			SetError(Result ? "The selected asset is not a Texture2D." : Result.Message);
 			return EEditorDocumentOpenResult::Rejected;
 		}
+		if (GEditor) GEditor->GetAssetUpgradeAuditService().MergeWorkspaceLoadReport(LoadReport);
 		OpenTextures.emplace(Document.ResourceId, Texture);
 		PreviewStates.try_emplace(Document.ResourceId);
 		return EEditorDocumentOpenResult::Opened;
@@ -271,6 +274,9 @@ namespace Durin
 			SetError(Result.Message);
 			return false;
 		}
+		FAssetPath SavedPath;
+		if (FAssetPath::TryCreate(Texture->GetPackage()->GetPackagePath(), SavedPath) && GEditor)
+			GEditor->GetAssetUpgradeAuditService().InvalidatePackage(SavedPath);
 		return true;
 	}
 

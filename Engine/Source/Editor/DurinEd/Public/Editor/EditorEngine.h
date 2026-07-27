@@ -10,6 +10,7 @@ namespace Durin
 	class FEditorTransactionManager;
 	class FEditorNotificationManager;
 	class FAssetUpgradeAuditService;
+	class FAssetUpgradeAuditNotificationController;
 	class DLevel;
 	class DWorld;
 	class AActor;
@@ -88,6 +89,7 @@ namespace Durin
 		std::unique_ptr<FEditorTransactionManager> TransactionManager;
 		std::unique_ptr<FEditorNotificationManager> NotificationManager;
 		std::unique_ptr<FAssetUpgradeAuditService> AssetUpgradeAuditService;
+		std::unique_ptr<FAssetUpgradeAuditNotificationController> AssetUpgradeAuditNotifications;
 
 		// Authoritative world being edited; retained for the editor engine lifetime.
 		DPROPERTY(Transient)

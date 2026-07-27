@@ -1,5 +1,6 @@
 #include "Asset/AssetUpgradeAuditService.h"
 
+#include "Editor/EditorNotification.h"
 #include "Misc/Time.h"
 
 namespace Durin
@@ -139,11 +140,70 @@ namespace Durin
 		BeginSession();
 	}
 
+	auto FAssetUpgradeAuditService::MergeWorkspaceLoadReport(
+		const Asset::FAssetLoadReport& Report) -> void
+	{
+		if (State == EAssetUpgradeAuditServiceState::Shutdown || !Report.PackagePath.IsValid())
+			return;
+		if (!Report.HasCompatibilityIssues() && !Report.HasNonUpgradeMutations()) return;
+		if (State == EAssetUpgradeAuditServiceState::Idle)
+		{
+			const auto Existing = std::ranges::find(
+				PendingWorkspaceReports, Report.PackagePath, &Asset::FAssetLoadReport::PackagePath);
+			if (Existing == PendingWorkspaceReports.end()) PendingWorkspaceReports.push_back(Report);
+			else *Existing = Report;
+			return;
+		}
+
+		auto Existing = std::ranges::find(Session.Packages, Report.PackagePath,
+			&Asset::FAssetPackageAuditReport::PackagePath);
+		Asset::FAssetPackageAuditReport Merged;
+		if (Existing != Session.Packages.end()) Merged = *Existing;
+		Merged.PackagePath = Report.PackagePath;
+		Merged.CompatibilityIssues = Report.CompatibilityIssues;
+		Merged.Diagnostic = "Updated from the package report produced by its active workspace.";
+		if (Report.HasNonUpgradeMutations())
+			Merged.State = Asset::EAssetPackageAuditState::BlockedLoadMutation;
+		else if (Report.HasRiskItems())
+			Merged.State = Asset::EAssetPackageAuditState::RiskyUpgrade;
+		else
+			Merged.State = Asset::EAssetPackageAuditState::SafeUpgrade;
+
+		if (Existing == Session.Packages.end()) Session.Packages.push_back(std::move(Merged));
+		else *Existing = std::move(Merged);
+
+		const auto Pending = std::ranges::find(Queue, Report.PackagePath, &Asset::FAssetData::PackagePath);
+		if (Pending != Queue.end())
+		{
+			const size_t PendingIndex = static_cast<size_t>(std::distance(Queue.begin(), Pending));
+			Queue.erase(Pending);
+			if (PendingIndex < NextPackageIndex) --NextPackageIndex;
+		}
+		if (NextPackageIndex >= Queue.size()
+			&& State == EAssetUpgradeAuditServiceState::Auditing)
+			State = EAssetUpgradeAuditServiceState::Completed;
+		PublishSnapshot();
+	}
+
+	auto FAssetUpgradeAuditService::InvalidatePackage(const FAssetPath& PackagePath) -> void
+	{
+		if (State == EAssetUpgradeAuditServiceState::Idle
+			|| State == EAssetUpgradeAuditServiceState::Shutdown)
+			return;
+		const auto Existing = std::ranges::find(Session.Packages, PackagePath,
+			&Asset::FAssetPackageAuditReport::PackagePath);
+		if (Existing == Session.Packages.end()) return;
+		Existing->State = Asset::EAssetPackageAuditState::Stale;
+		Existing->Diagnostic = "The package changed after this audit result was published.";
+		PublishSnapshot();
+	}
+
 	auto FAssetUpgradeAuditService::Shutdown() -> void
 	{
 		if (State == EAssetUpgradeAuditServiceState::Shutdown) return;
 		State = EAssetUpgradeAuditServiceState::Shutdown;
 		Queue.clear();
+		PendingWorkspaceReports.clear();
 		NextPackageIndex = 0;
 		PublishSnapshot();
 	}
@@ -175,6 +235,10 @@ namespace Durin
 				.AssetClassName = Data.AssetClassName,
 				.FormatVersion = Data.FormatVersion});
 		}
+		std::vector<Asset::FAssetLoadReport> WorkspaceReports =
+			std::exchange(PendingWorkspaceReports, {});
+		for (const Asset::FAssetLoadReport& Report : WorkspaceReports)
+			MergeWorkspaceLoadReport(Report);
 		PublishSnapshot();
 	}
 
@@ -188,5 +252,90 @@ namespace Durin
 					.State = State,
 					.Session = Session}),
 			std::memory_order_release);
+	}
+
+	FAssetUpgradeAuditNotificationController::FAssetUpgradeAuditNotificationController(
+		FAssetUpgradeAuditService& InService,
+		FEditorNotificationManager& InNotificationManager,
+		std::function<void()> InOpenUpgradeCenter)
+		: Service(InService)
+		, NotificationManager(InNotificationManager)
+		, OpenUpgradeCenter(std::move(InOpenUpgradeCenter))
+	{
+	}
+
+	auto FAssetUpgradeAuditNotificationController::Tick() -> void
+	{
+		const std::shared_ptr<const FAssetUpgradeAuditSnapshot> Snapshot = Service.GetSnapshot();
+		if (!Snapshot || Snapshot->State == EAssetUpgradeAuditServiceState::Idle
+			|| Snapshot->State == EAssetUpgradeAuditServiceState::Shutdown)
+			return;
+		const Asset::FAssetUpgradeSessionProgress& Progress = Snapshot->Session.Progress;
+		const float Fraction = Progress.Total == 0
+			? 1.0f
+			: static_cast<float>(Progress.Completed) / static_cast<float>(Progress.Total);
+
+		if (Snapshot->Generation != ObservedGeneration)
+		{
+			if (NotificationId) NotificationManager.Dismiss(*NotificationId);
+			ObservedGeneration = Snapshot->Generation;
+			ObservedCompleted = std::numeric_limits<uint64>::max();
+			ObservedState = EAssetUpgradeAuditServiceState::Idle;
+			NotificationId = NotificationManager.BeginProgress({
+				.Message = std::format(
+					"Checking project assets for upgrades... 0/{}", Progress.Total),
+				.Progress = Fraction,
+				.Action = FEditorNotificationAction{
+					.Label = "Open Asset Upgrade Center",
+					.Invoke = OpenUpgradeCenter},
+				.Cancel = [this] { Service.Cancel(); }});
+		}
+		if (!NotificationId) return;
+		if (Snapshot->State == ObservedState && Progress.Completed == ObservedCompleted) return;
+
+		switch (Snapshot->State)
+		{
+		case EAssetUpgradeAuditServiceState::Auditing:
+			NotificationManager.UpdateProgress(
+				*NotificationId,
+				Fraction,
+				std::format(
+					"Checking project assets for upgrades... {}/{}",
+					Progress.Completed,
+					Progress.Total));
+			break;
+		case EAssetUpgradeAuditServiceState::Paused:
+			NotificationManager.UpdateProgress(
+				*NotificationId, Fraction, "Project asset upgrade check paused.");
+			break;
+		case EAssetUpgradeAuditServiceState::Completed:
+			NotificationManager.CompleteProgress(
+				*NotificationId,
+				std::format(
+					"Asset upgrade check complete: {} safe, {} risky, {} blocked, {} failed.",
+					Progress.Safe,
+					Progress.Risky,
+					Progress.Blocked,
+					Progress.Failed));
+			break;
+		case EAssetUpgradeAuditServiceState::Cancelled:
+			NotificationManager.CompleteProgress(
+				*NotificationId,
+				std::format(
+					"Asset upgrade check cancelled after {}/{} packages.",
+					Progress.Completed,
+					Progress.Total));
+			break;
+		default:
+			break;
+		}
+		ObservedState = Snapshot->State;
+		ObservedCompleted = Progress.Completed;
+	}
+
+	auto FAssetUpgradeAuditNotificationController::Shutdown() -> void
+	{
+		if (NotificationId) NotificationManager.Dismiss(*NotificationId);
+		NotificationId.reset();
 	}
 }

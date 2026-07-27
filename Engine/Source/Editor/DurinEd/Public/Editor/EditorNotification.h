@@ -41,6 +41,7 @@ namespace Durin
 	{
 		std::string Message;
 		std::optional<float> Progress;
+		std::optional<FEditorNotificationAction> Action;
 		std::function<void()> Cancel;
 	};
 

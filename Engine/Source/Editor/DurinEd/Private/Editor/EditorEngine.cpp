@@ -28,6 +28,13 @@ namespace Durin
 		, TransactionManager(std::make_unique<FEditorTransactionManager>())
 		, NotificationManager(std::make_unique<FEditorNotificationManager>())
 		, AssetUpgradeAuditService(std::make_unique<FAssetUpgradeAuditService>(Asset::GetAssetRegistry()))
+		, AssetUpgradeAuditNotifications(std::make_unique<FAssetUpgradeAuditNotificationController>(
+			*AssetUpgradeAuditService,
+			*NotificationManager,
+			[] {
+				if (IModuleInterface* Module = FModuleManager::Get().GetModule("MainFrame"))
+					static_cast<IMainFrameModule*>(Module)->RequestOpenAssetUpgradeCenter();
+			}))
 	{
 		GEditor = this;
 	}
@@ -104,7 +111,11 @@ namespace Durin
 	auto DEditorEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
 		ReleaseRetiredPlaySessions();
-		if (!IsPlaying()) AssetUpgradeAuditService->Tick();
+		if (!IsPlaying())
+		{
+			AssetUpgradeAuditService->Tick();
+			AssetUpgradeAuditNotifications->Tick();
+		}
 		if (IsPlayingInNewWindow() && PlayWindow)
 		{
 			const auto& Windows = Mona::FMonaApplication::Get().GetWindows();
@@ -116,6 +127,7 @@ namespace Durin
 
 	auto DEditorEngine::BeginDestroy() -> void
 	{
+		AssetUpgradeAuditNotifications->Shutdown();
 		AssetUpgradeAuditService->Shutdown();
 		StopPlaySession();
 		TransactionManager->Clear();

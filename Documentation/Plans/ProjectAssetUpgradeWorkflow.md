@@ -86,6 +86,17 @@ MainFrame module also builds successfully. Per instruction, unrelated failures
 from the currently unstable parallel EngineTests suite are not part of this
 checkpoint and the full suite was not run.
 
+The second Stage 2 checkpoint adds one notification path per audit generation,
+including progress, cancellation, completion classification counts, and an
+`Open Asset Upgrade Center` request that MainFrame retains for the Stage 3 host
+window. Level, Material, and Texture workspaces merge load-discovered reports
+into the immutable snapshot and immediately mark successful saves or moves
+stale; the existing registry revision boundary rebuilds the deterministic queue
+after saves, moves, deletes, imports, or registry refreshes. Reports discovered
+while startup is still idle are retained and reconciled when MainFrame starts
+the audit. Three additional focused tests cover workspace report merging,
+individual invalidation, and the single actionable notification lifecycle.
+
 ### Stage 0 Handoff
 
 - Baseline: `03acb67f`.
@@ -384,9 +395,9 @@ Dependencies: Stage 1.
   reconciliation, and workspace registration complete.
 - [x] Add pause, resume, cancel, re-audit, registry-revision invalidation, and
   orderly shutdown behavior.
-- [ ] Publish concise progress and completion notifications with an action that
+- [x] Publish concise progress and completion notifications with an action that
   opens the Asset Upgrade Center.
-- [ ] Accept reports discovered by normal workspace loads and reconcile saves,
+- [x] Accept reports discovered by normal workspace loads and reconcile saves,
   moves, deletes, imports, and registry refreshes without duplicate or stale
   actions.
 - [ ] Add coordinator tests for deterministic queues, frame budgets,

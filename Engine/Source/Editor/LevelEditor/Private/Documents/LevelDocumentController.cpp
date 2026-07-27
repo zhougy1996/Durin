@@ -1,6 +1,7 @@
 #include "Documents/LevelDocumentController.h"
 #include "Documents/LevelDocumentRevisionState.h"
 
+#include "Asset/AssetUpgradeAuditService.h"
 #include "AssetSystem.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorTransaction.h"
@@ -20,6 +21,16 @@ namespace Durin
 		auto GetLevelTransactions() -> FEditorTransactionManager*
 		{
 			return GEditor ? &GEditor->GetTransactionManager() : nullptr;
+		}
+
+		auto PublishWorkspaceLoadReport(const Asset::FAssetLoadReport& Report) -> void
+		{
+			if (GEditor) GEditor->GetAssetUpgradeAuditService().MergeWorkspaceLoadReport(Report);
+		}
+
+		auto InvalidateAssetUpgradeReport(const FAssetPath& Path) -> void
+		{
+			if (GEditor) GEditor->GetAssetUpgradeAuditService().InvalidatePackage(Path);
 		}
 
 		constexpr auto GetClassificationLabel(Asset::EAssetCompatibilityClassification Classification) -> std::string_view
@@ -388,6 +399,7 @@ namespace Durin
 			SetError(Result.Message);
 			return ELevelDocumentOpenResult::Rejected;
 		}
+		PublishWorkspaceLoadReport(LoadReport);
 		if (LoadReport.HasCompatibilityIssues())
 		{
 			const bool bCompletesDeferredOpen = std::exchange(bPendingDocumentOpen, false);
@@ -417,7 +429,11 @@ namespace Durin
 				Asset::FAssetResult Result = Asset::SavePackage(
 					Level->GetPackage(),
 					{.bAllowCompatibilityDataLoss = bAllowCompatibilityDataLoss});
-				if (Result) return true;
+				if (Result)
+				{
+					InvalidateAssetUpgradeReport(PendingUpgrade.GetReport().PackagePath);
+					return true;
+				}
 				SetError(Result.Message);
 				return false;
 			},
@@ -465,6 +481,9 @@ namespace Durin
 			SetError(Result.Message);
 			return false;
 		}
+		FAssetPath SavedPath;
+		if (FAssetPath::TryCreate(Context.Level->GetPackage()->GetPackagePath(), SavedPath))
+			InvalidateAssetUpgradeReport(SavedPath);
 		return true;
 	}
 
@@ -527,6 +546,7 @@ namespace Durin
 				SetError(SaveResult.Message);
 				return false;
 			}
+			InvalidateAssetUpgradeReport(OldPath);
 			return true;
 		}
 
@@ -539,6 +559,7 @@ namespace Durin
 			SetError(MoveResult.Message);
 			return false;
 		}
+		InvalidateAssetUpgradeReport(OldPath);
 		return true;
 	}
 

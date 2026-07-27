@@ -401,6 +401,11 @@ namespace Durin
 	{
 	}
 
+	auto FMainFrameModule::RequestOpenAssetUpgradeCenter() -> void
+	{
+		bAssetUpgradeCenterOpenRequested = true;
+	}
+
 	auto FMainFrameModule::CreateDefaultMainFrame() -> void
 	{
 		auto HostSettings = std::make_shared<FEditorHostSettings>();

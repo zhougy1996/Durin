@@ -5,6 +5,8 @@
 
 namespace Durin
 {
+	class FEditorNotificationManager;
+
 	enum class EAssetUpgradeAuditServiceState : uint8
 	{
 		Idle,
@@ -59,6 +61,8 @@ namespace Durin
 		DURINED_API auto Resume() -> void;
 		DURINED_API auto Cancel() -> void;
 		DURINED_API auto Reaudit() -> void;
+		DURINED_API auto MergeWorkspaceLoadReport(const Asset::FAssetLoadReport& Report) -> void;
+		DURINED_API auto InvalidatePackage(const FAssetPath& PackagePath) -> void;
 		DURINED_API auto Shutdown() -> void;
 		DURINED_API auto GetSnapshot() const -> std::shared_ptr<const FAssetUpgradeAuditSnapshot>;
 
@@ -74,7 +78,30 @@ namespace Durin
 		size_t NextPackageIndex = 0;
 		EAssetUpgradeAuditServiceState State = EAssetUpgradeAuditServiceState::Idle;
 		std::vector<Asset::FAssetData> Queue;
+		std::vector<Asset::FAssetLoadReport> PendingWorkspaceReports;
 		Asset::FAssetUpgradeSessionReport Session;
 		std::atomic<std::shared_ptr<const FAssetUpgradeAuditSnapshot>> PublishedSnapshot;
+	};
+
+	// Projects immutable audit snapshots into one consolidated editor notification.
+	class FAssetUpgradeAuditNotificationController
+	{
+	public:
+		DURINED_API FAssetUpgradeAuditNotificationController(
+			FAssetUpgradeAuditService& InService,
+			FEditorNotificationManager& InNotificationManager,
+			std::function<void()> InOpenUpgradeCenter);
+
+		DURINED_API auto Tick() -> void;
+		DURINED_API auto Shutdown() -> void;
+
+	private:
+		FAssetUpgradeAuditService& Service;
+		FEditorNotificationManager& NotificationManager;
+		std::function<void()> OpenUpgradeCenter;
+		uint64 ObservedGeneration = 0;
+		uint64 ObservedCompleted = std::numeric_limits<uint64>::max();
+		EAssetUpgradeAuditServiceState ObservedState = EAssetUpgradeAuditServiceState::Idle;
+		std::optional<uint64> NotificationId;
 	};
 }

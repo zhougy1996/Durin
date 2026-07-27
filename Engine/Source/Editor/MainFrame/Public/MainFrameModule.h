@@ -14,5 +14,9 @@ namespace Durin
 		auto StartupModule() -> void override;
 		auto ShutdownModule() -> void override;
 		auto CreateDefaultMainFrame() -> void override;
+		auto RequestOpenAssetUpgradeCenter() -> void override;
+
+	private:
+		bool bAssetUpgradeCenterOpenRequested = false;
 	};
 }

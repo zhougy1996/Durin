@@ -34,6 +34,7 @@ namespace Durin
 			Notification.Type = EEditorNotificationType::Progress;
 			Notification.Message = std::move(Desc.Message);
 			if (Desc.Progress) Notification.Progress = std::clamp(*Desc.Progress, 0.0f, 1.0f);
+			Notification.Action = std::move(Desc.Action);
 			Notification.Cancel = std::move(Desc.Cancel);
 			History.emplace_back(Notification);
 			Notifications.emplace_back(std::move(Notification));

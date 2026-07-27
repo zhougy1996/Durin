@@ -2,6 +2,7 @@
 #include "Widgets/MaterialParameterPanelModel.h"
 #include "Widgets/MaterialPreview.h"
 
+#include "Asset/AssetUpgradeAuditService.h"
 #include "AssetSystem.h"
 #include "DObject/Package.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -65,12 +66,14 @@ namespace Durin
 			return EEditorDocumentOpenResult::Rejected;
 		}
 		DMaterialInterface* Material = nullptr;
-		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Material);
+		Asset::FAssetLoadReport LoadReport;
+		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Material, &LoadReport);
 		if (!Result || !Material)
 		{
 			SetError(Result ? "The selected asset is not a material." : Result.Message);
 			return EEditorDocumentOpenResult::Rejected;
 		}
+		if (GEditor) GEditor->GetAssetUpgradeAuditService().MergeWorkspaceLoadReport(LoadReport);
 		OpenMaterials.emplace(Document.ResourceId, Material);
 		return EEditorDocumentOpenResult::Opened;
 	}
@@ -175,6 +178,9 @@ namespace Durin
 			SetError(Result.Message);
 			return false;
 		}
+		FAssetPath SavedPath;
+		if (FAssetPath::TryCreate(Material->GetPackage()->GetPackagePath(), SavedPath) && GEditor)
+			GEditor->GetAssetUpgradeAuditService().InvalidatePackage(SavedPath);
 		return true;
 	}
 

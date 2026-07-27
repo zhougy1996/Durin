@@ -7,5 +7,6 @@ namespace Durin
 	{
 	public:
 		virtual auto CreateDefaultMainFrame() -> void = 0;
+		virtual auto RequestOpenAssetUpgradeCenter() -> void = 0;
 	};
 }

@@ -1,5 +1,6 @@
 #include "Asset/AssetUpgradeAuditService.h"
 
+#include "Editor/EditorNotification.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
 
@@ -172,4 +173,82 @@ TEST(FAssetUpgradeAuditServiceTests, ShutdownIsTerminal)
 
 	EXPECT_EQ(Service.GetSnapshot()->State, Durin::EAssetUpgradeAuditServiceState::Shutdown);
 	EXPECT_EQ(Harness.AuditOrder.size(), 0);
+}
+
+TEST(FAssetUpgradeAuditServiceTests, WorkspaceReportReplacesPendingPackageWithoutDuplicateAudit)
+{
+	FAuditHarness Harness;
+	Harness.Assets = {
+		MakeAssetData("/UpgradeAudit/A"),
+		MakeAssetData("/UpgradeAudit/B")};
+	Durin::FAssetUpgradeAuditService Service(Harness.MakeDependencies(), 1, 1000.0);
+
+	Durin::Asset::FAssetLoadReport WorkspaceReport;
+	WorkspaceReport.PackagePath = Harness.Assets[1].PackagePath;
+	WorkspaceReport.CompatibilityIssues.push_back({
+		.ObjectPath = "/UpgradeAudit/B",
+		.Classification = Durin::Asset::EAssetCompatibilityClassification::Migrated,
+		.Risk = Durin::Asset::EAssetCompatibilityRisk::None});
+	Service.MergeWorkspaceLoadReport(WorkspaceReport);
+	Service.Start();
+
+	auto Snapshot = Service.GetSnapshot();
+	ASSERT_EQ(Snapshot->Session.Packages.size(), 2);
+	const auto* Report = Snapshot->Session.FindPackage(Harness.Assets[1].PackagePath);
+	ASSERT_NE(Report, nullptr);
+	EXPECT_EQ(Report->State, Durin::Asset::EAssetPackageAuditState::SafeUpgrade);
+	EXPECT_EQ(Snapshot->Session.Progress.Completed, 1);
+
+	Service.Tick();
+	Snapshot = Service.GetSnapshot();
+	EXPECT_EQ(Snapshot->State, Durin::EAssetUpgradeAuditServiceState::Completed);
+	EXPECT_EQ(Harness.AuditOrder, (std::vector<std::string>{"/UpgradeAudit/A"}));
+}
+
+TEST(FAssetUpgradeAuditServiceTests, InvalidatedPackageIsImmediatelyPublishedAsStale)
+{
+	FAuditHarness Harness;
+	Harness.Assets = {MakeAssetData("/UpgradeAudit/A")};
+	Durin::FAssetUpgradeAuditService Service(Harness.MakeDependencies());
+	Service.Start();
+	Service.Tick();
+
+	Service.InvalidatePackage(Harness.Assets[0].PackagePath);
+
+	const auto Snapshot = Service.GetSnapshot();
+	ASSERT_EQ(Snapshot->Session.Packages.size(), 1);
+	EXPECT_EQ(Snapshot->Session.Packages[0].State, Durin::Asset::EAssetPackageAuditState::Stale);
+	EXPECT_EQ(Snapshot->Session.Progress.Stale, 1);
+}
+
+TEST(FAssetUpgradeAuditServiceTests, NotificationControllerUsesOneActionableProgressPath)
+{
+	FAuditHarness Harness;
+	Harness.Assets = {MakeAssetData("/UpgradeAudit/A")};
+	Durin::FAssetUpgradeAuditService Service(Harness.MakeDependencies());
+	Durin::FEditorNotificationManager Notifications;
+	bool bOpened = false;
+	Durin::FAssetUpgradeAuditNotificationController Controller(
+		Service, Notifications, [&bOpened] { bOpened = true; });
+
+	Service.Start();
+	Controller.Tick();
+	Notifications.Tick(0.0f);
+	ASSERT_EQ(Notifications.GetNotifications().size(), 1);
+	const Durin::FEditorNotificationId NotificationId = Notifications.GetNotifications()[0].Id;
+	EXPECT_EQ(
+		Notifications.GetNotifications()[0].Type,
+		Durin::EEditorNotificationType::Progress);
+	EXPECT_TRUE(Notifications.GetNotifications()[0].Action.has_value());
+
+	Service.Tick();
+	Controller.Tick();
+	Notifications.Tick(0.0f);
+	ASSERT_EQ(Notifications.GetNotifications().size(), 1);
+	EXPECT_EQ(Notifications.GetNotifications()[0].Id, NotificationId);
+	EXPECT_EQ(
+		Notifications.GetNotifications()[0].Type,
+		Durin::EEditorNotificationType::Success);
+	EXPECT_TRUE(Notifications.InvokeAction(NotificationId));
+	EXPECT_TRUE(bOpened);
 }
