@@ -54,7 +54,7 @@ namespace Durin
 	{
 		if (Level == CurrentLevel.Get()) return true;
 		if (Level && Level->GetWorld() && Level->GetWorld() != this) return false;
-		if (Level && dynamic_cast<DWorld*>(Level->GetOuter()) && Level->GetOuter() != this) return false;
+		if (Level && Cast<DWorld>(Level->GetOuter()) && Level->GetOuter() != this) return false;
 		EndPlay();
 		DLevel* Previous = CurrentLevel.Get();
 		if (Previous)

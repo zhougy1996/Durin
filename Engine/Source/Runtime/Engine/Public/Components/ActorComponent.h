@@ -23,7 +23,7 @@ namespace Durin
 
 		template<typename T> auto GetOwner() const -> T*
 		{
-			return dynamic_cast<T*>(OwnerActorPrivate);
+			return Cast<T>(GetOuter());
 		}
 
 		ENGINE_API auto RegisterComponent() -> void;

@@ -64,7 +64,7 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		if (PreviousParentActor != GetAttachParentActor())
 		{
-			if (auto* Level = dynamic_cast<DLevel*>(GetOuter())) Level->NotifyEditorActorHierarchyChanged();
+			if (auto* Level = Cast<DLevel>(GetOuter())) Level->NotifyEditorActorHierarchyChanged();
 		}
 #endif
 		return true;
@@ -80,7 +80,7 @@ namespace Durin
 		OwnedComponents.emplace_back(Component);
 		InstanceComponents.emplace_back(Component);
 		Component->OnComponentCreated();
-		if (auto* SceneComponent = dynamic_cast<DSceneComponent*>(Component))
+		if (auto* SceneComponent = Cast<DSceneComponent>(Component))
 		{
 			if (RootComponent) SceneComponent->AttachToComponent(RootComponent.Get(), EAttachmentTransformRule::KeepWorld);
 			else SetRootComponent(SceneComponent);

@@ -9,7 +9,7 @@ namespace Durin
 	DActorComponent::DActorComponent(const FObjectInitializer& ObjectInitializer)
 		: DObject(ObjectInitializer)
 	{
-		OwnerActorPrivate = dynamic_cast<AActor*>(ObjectInitializer.Outer);
+		OwnerActorPrivate = Cast<AActor>(ObjectInitializer.Outer);
 	}
 	auto DActorComponent::RegisterComponent() -> void
 	{

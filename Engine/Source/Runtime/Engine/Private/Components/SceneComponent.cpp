@@ -207,7 +207,7 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		if (bActorRoot && PreviousParentActor != Owner->GetAttachParentActor())
 		{
-			if (auto* Level = dynamic_cast<DLevel*>(Owner->GetOuter())) Level->NotifyEditorActorHierarchyChanged();
+			if (auto* Level = Cast<DLevel>(Owner->GetOuter())) Level->NotifyEditorActorHierarchyChanged();
 		}
 #endif
 		return true;
@@ -238,7 +238,7 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		if (bActorRoot && PreviousParentActor != Owner->GetAttachParentActor())
 		{
-			if (auto* Level = dynamic_cast<DLevel*>(Owner->GetOuter())) Level->NotifyEditorActorHierarchyChanged();
+			if (auto* Level = Cast<DLevel>(Owner->GetOuter())) Level->NotifyEditorActorHierarchyChanged();
 		}
 #endif
 		return true;

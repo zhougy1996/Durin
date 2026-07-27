@@ -63,7 +63,7 @@ namespace Durin
 				{
 					continue;
 				}
-				if (typeid(*Component) == typeid(T))
+				if (Component->GetClass() == T::StaticClass())
 				{
 					return static_cast<T*>(Component);
 				}
@@ -82,7 +82,7 @@ namespace Durin
 				{
 					continue;
 				}
-				if (auto* CastedComponent = dynamic_cast<T*>(Component))
+				if (auto* CastedComponent = Cast<T>(Component))
 				{
 					return CastedComponent;
 				}
@@ -102,7 +102,7 @@ namespace Durin
 				{
 					continue;
 				}
-				if (auto* CastedComponent = dynamic_cast<T*>(Component))
+				if (auto* CastedComponent = Cast<T>(Component))
 				{
 					FoundComponents.push_back(CastedComponent);
 				}

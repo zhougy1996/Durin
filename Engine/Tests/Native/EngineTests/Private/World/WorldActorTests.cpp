@@ -145,6 +145,28 @@ TEST(FWorldTests, RenamesComponentsWithUniqueNames)
 	Durin::CollectGarbage();
 }
 
+TEST(FWorldTests, DistinguishesExactAndPolymorphicComponentQueries)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::ACameraActor* Camera = World->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(Camera, nullptr);
+	Durin::DCameraComponent* CameraComponent = Camera->GetCameraComponent();
+	ASSERT_NE(CameraComponent, nullptr);
+
+	EXPECT_EQ(Camera->FindComponentByStaticClass<Durin::DCameraComponent>(), CameraComponent);
+	EXPECT_EQ(Camera->FindComponentByStaticClass<Durin::DSceneComponent>(), nullptr);
+	EXPECT_EQ(Camera->FindComponentByClass<Durin::DSceneComponent>(), CameraComponent);
+
+	const std::vector<Durin::DActorComponent*> SceneComponents = Camera->FindComponentsByClass<Durin::DSceneComponent>();
+	ASSERT_EQ(SceneComponents.size(), 1);
+	EXPECT_EQ(SceneComponents.front(), CameraComponent);
+	EXPECT_EQ(CameraComponent->GetOwner<Durin::AActor>(), Camera);
+	EXPECT_EQ(CameraComponent->GetOwner<Durin::ACameraActor>(), Camera);
+
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
 TEST(FWorldTests, SpawnsActorsAndComponentsFromRuntimeClasses)
 {
 	Durin::DWorld* World = CreateWorld();

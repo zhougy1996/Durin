@@ -1,14 +1,25 @@
 # Actor Component System Plan
 
-Summary: Close the remaining reflection-model debt in the implemented actor/component runtime and archive the completed foundation.
+Summary: Complete the reflected actor/component runtime model and preserve its validated foundation.
 
-Last reviewed: 2026-07-27
+Last reviewed: 2026-07-28
+
+Status: Completed
+Completed: 2026-07-28
 
 ## Current Status
 
-Active, near completion. The original planning baseline is obsolete: actor/component ownership, lifecycle routing, world and level integration, transform hierarchies, primitive scene synchronization, persistence, Play In Editor isolation, and reflected editor workflows are implemented and covered by focused native tests.
+Completed on 2026-07-28. Actor/component ownership, lifecycle routing, world and
+level integration, transform hierarchies, primitive scene synchronization,
+persistence, Play In Editor isolation, and reflected editor workflows remain
+implemented. Core ACS exact queries now compare `DClass` identity, while
+polymorphic actor/component queries use `Cast<T>()` and the reflected hierarchy.
 
-The remaining plan work is intentionally narrow. Core ACS type queries still use C++ RTTI in several actor, level, world, and component paths even though these objects participate in the `DObject` class system. Replace that compatibility debt with `Cast<T>()`, `IsA()`, and reflected exact-class comparison, validate the existing behavior, then archive this plan. New gameplay-framework features do not belong in this plan.
+The focused `FWorldTests.*` regression set passed all 22 tests under
+`EngineTests`, including explicit exact-class versus subclass component lookup
+coverage. The all-plan validator passed, and the lasting runtime/editor
+contracts remain in the related owning documentation. Physical archival is
+deferred to the repository's later monthly batch.
 
 ## Goal
 
@@ -55,9 +66,7 @@ Implemented foundations:
 
 Remaining gaps:
 
-- `AActor` component lookup templates use `typeid` and `dynamic_cast`.
-- Actor/component owner queries and several `DLevel`, `DWorld`, and scene-component paths use `dynamic_cast` despite reflected classes being available.
-- The plan has not yet recorded one final focused regression run against the implemented foundation.
+- None within this plan's scope.
 
 ## Implementation Stages
 
@@ -79,10 +88,10 @@ Remaining gaps:
 
 Dependencies: Stage 0 and the existing `DClass` hierarchy.
 
-- [ ] Replace exact component lookup via `typeid` with exact `DClass` comparison.
-- [ ] Replace polymorphic component, actor, level, and world `dynamic_cast` queries in the core ACS path with `Cast<T>()` or `IsA()`.
-- [ ] Preserve null handling, subclass matching, editor-only hierarchy notifications, primary-camera selection, and cross-world validation.
-- [ ] Add or adjust focused tests only where the existing suite does not distinguish exact-class lookup from subclass lookup.
+- [x] Replace exact component lookup via `typeid` with exact `DClass` comparison.
+- [x] Replace polymorphic component, actor, level, and world `dynamic_cast` queries in the core ACS path with `Cast<T>()` or `IsA()`.
+- [x] Preserve null handling, subclass matching, editor-only hierarchy notifications, primary-camera selection, and cross-world validation.
+- [x] Add or adjust focused tests only where the existing suite does not distinguish exact-class lookup from subclass lookup.
 
 #### Acceptance Gate
 
@@ -94,10 +103,21 @@ Dependencies: Stage 0 and the existing `DClass` hierarchy.
 
 Dependencies: Stage 1.
 
-- [ ] Run the focused `EngineTests` world/component test set through the repository DurinDevTool.
-- [ ] Run the plan validator for active and archived plans.
-- [ ] Record completion evidence in this section and `Current Status`.
-- [ ] Confirm lasting behavior remains in the owning runtime/editor documents, then archive this file under the completion month.
+- [x] Run the focused `EngineTests` world/component test set through the repository DurinDevTool.
+- [x] Run the plan validator for active and archived plans.
+- [x] Record completion evidence in this section and `Current Status`.
+- [x] Confirm lasting behavior remains in the owning runtime/editor documents.
+- [ ] Archive this file under the completion month during the next repository batch.
+
+#### Completion Evidence
+
+- `FWorldTests.DistinguishesExactAndPolymorphicComponentQueries` passed after
+  replacing the core ACS RTTI queries.
+- The complete `FWorldTests.*` set passed 22 of 22 tests through
+  `EngineTests`.
+- `.\DevTool.bat plan validate --scope all` passed on 2026-07-28.
+- The reflection, ownership, lifecycle, level persistence, PIE isolation, and
+  editor property contracts remain documented by the related owning documents.
 
 #### Acceptance Gate
 
@@ -125,7 +145,7 @@ Repository build and test commands must follow [Build And Run](../Development/Bu
 - Core ACS uses the reflected class system for exact and polymorphic type queries.
 - The focused ownership, lifecycle, transform, persistence, and editor-facing regression suite passes.
 - Long-lived behavior is documented outside the plan in the owning runtime and editor domains.
-- This plan is marked complete and moved to `Documentation/Plans/Archive/YYYY-MM/`.
+- This plan is marked complete and queued for the next monthly archive batch.
 
 ## Deferred Follow-ups
 

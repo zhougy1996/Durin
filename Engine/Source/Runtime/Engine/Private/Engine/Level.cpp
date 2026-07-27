@@ -28,7 +28,7 @@ namespace Durin
 		if (OwningWorld && OwningWorld->HasBegunPlay()) Actor->BeginPlay();
 		if (!PrimaryCameraActor)
 		{
-			if (auto* Camera = dynamic_cast<ACameraActor*>(Actor)) PrimaryCameraActor = Camera;
+			if (auto* Camera = Cast<ACameraActor>(Actor)) PrimaryCameraActor = Camera;
 		}
 		MarkPackageDirty();
 		return Actor;
@@ -56,7 +56,7 @@ namespace Durin
 			PrimaryCameraActor = nullptr;
 			for (const TObjectPtr<AActor>& RemainingActor : Actors)
 			{
-				if (auto* Camera = dynamic_cast<ACameraActor*>(RemainingActor.Get())) { PrimaryCameraActor = Camera; break; }
+				if (auto* Camera = Cast<ACameraActor>(RemainingActor.Get())) { PrimaryCameraActor = Camera; break; }
 			}
 		}
 		MarkObjectHierarchyAsGarbage(Actor);
@@ -138,7 +138,7 @@ namespace Durin
 					OutError = "Actor contains a component outside its object graph.";
 					return false;
 				}
-				if (auto* SceneComponent = dynamic_cast<DSceneComponent*>(Component)) SceneComponents.push_back(SceneComponent);
+				if (auto* SceneComponent = Cast<DSceneComponent>(Component)) SceneComponents.push_back(SceneComponent);
 			}
 		}
 
@@ -174,7 +174,7 @@ namespace Durin
 			PrimaryCameraActor = nullptr;
 			for (const TObjectPtr<AActor>& Actor : Actors)
 			{
-				if (auto* Camera = dynamic_cast<ACameraActor*>(Actor.Get())) { PrimaryCameraActor = Camera; break; }
+				if (auto* Camera = Cast<ACameraActor>(Actor.Get())) { PrimaryCameraActor = Camera; break; }
 			}
 		}
 #if DURIN_WITH_EDITOR
