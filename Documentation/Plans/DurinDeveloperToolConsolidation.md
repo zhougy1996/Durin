@@ -1,20 +1,34 @@
 # Durin Developer Tool Consolidation Plan
 
-Summary: Consolidate repository setup, worktree, build, test, run, and scaffolding workflows into one Python-based DurinDevTool under `Tools/`.
+Summary: Consolidate repository setup, worktree, build, documentation, test, run, and scaffolding workflows into one Python-based DurinDevTool under `Tools/`.
 
 Last reviewed: 2026-07-28
 
+Status: Active
+Completed:
+
 ## Current Status
 
-Planning is complete and implementation has not started. The selected design
+Planning was created from `main` at `23d8f1ac`, then moved to the intended
+latest `dev` base after the branch mismatch was detected. The plan commit on
+`dev` is `4f47cd6e`, whose parent `7f47c1bb` is the implementation baseline.
+No implementation stage has started.
+
+The `dev` baseline already owns BuildTool under `Tools/BuildTool`, adds DocTool
+under `Tools/DocTool`, and retains WorktreeTool and Setup under
+`Engine/Scripts`. The plan has therefore been corrected to consolidate all
+three existing Tools plus Setup rather than moving BuildTool from its older
+`main` location.
+
+The selected design
 uses one canonical Windows launcher at
 `Tools/DurinDevTool/DevTool.bat`, backed by the
 `Tools/DurinDevTool/durin_dev_tool` Python package. Humans use the interactive
 `DurinDevTool>` shell and Agents invoke the same command model directly.
 
 Implementation will proceed through internal stages, but the repository-facing
-cutover is atomic: the old root `Setup.bat`, `BuildTool.bat`, and
-`WorktreeTool.bat` entrypoints and their old implementation locations are
+cutover is atomic: the old root `Setup.bat`, `BuildTool.bat`, `DocTool.bat`,
+and `WorktreeTool.bat` entrypoints and their old implementation locations are
 deleted together. No compatibility wrappers, transition aliases, or migration
 document will remain.
 
@@ -28,6 +42,7 @@ main checkout, and linked worktree:
 .\Tools\DurinDevTool\DevTool setup
 .\Tools\DurinDevTool\DevTool build --target all --plain
 .\Tools\DurinDevTool\DevTool test --target CoreTests --plain
+.\Tools\DurinDevTool\DevTool plan validate --scope all
 .\Tools\DurinDevTool\DevTool worktree add ..\Durin-feature -b feature-branch
 ```
 
@@ -45,10 +60,13 @@ error semantics.
 - Preserve the existing build commands and their current direct/shell parity:
   `configure`, `build`, `test`, `run`, `clean`, `rebuild`, `purge`, `presets`,
   `preset`, `status`, `open-runtime`, `stop`, and `create`.
+- Preserve the existing documentation-plan listing, validation, and
+  transactional archival behavior under the `plan` command family.
 - Add `setup`, `worktree`, and focused third-party dependency commands to the
   same command model.
 - Move repository development-tool implementation out of:
-  - `Engine/Scripts/Build/durin_build_tool`;
+  - `Tools/BuildTool`;
+  - `Tools/DocTool`;
   - `Engine/Scripts/Utils/worktree_tool.py`;
   - `Engine/Scripts/Bootstrap`.
 - Preserve third-party manifests while moving them under DurinDevTool
@@ -65,8 +83,8 @@ error semantics.
 
 ## Non-Goals
 
-- Keeping compatibility wrappers or aliases for `Setup`, `BuildTool`, or
-  `WorktreeTool`.
+- Keeping compatibility wrappers or aliases for `Setup`, `BuildTool`,
+  `DocTool`, or `WorktreeTool`.
 - Publishing a migration guide or supporting a transition period.
 - Installing DurinDevTool globally, modifying `PATH`, or requiring a shell
   profile.
@@ -101,6 +119,7 @@ Tools/
    │  ├─ repository.py
    │  ├─ commands/
    │  ├─ build/
+   │  ├─ documentation/
    │  ├─ worktree/
    │  └─ bootstrap/
    │     └─ thirdparty/
@@ -113,8 +132,8 @@ Tools/
 - `__main__.py` performs process entry only. It does not own command behavior.
 - Repository-root discovery searches for stable repository markers and
   validates the result. It does not depend on a fixed `parents[n]` depth.
-- Build, worktree, and bootstrap code remain separate internal domains rather
-  than becoming one monolithic module.
+- Build, documentation, worktree, and bootstrap code remain separate internal
+  domains rather than becoming one monolithic module.
 
 ### Command model
 
@@ -123,6 +142,17 @@ Tools/
   aliases, operands, options, defaults, help, and request construction.
 - Existing build command names and option meanings remain stable unless this
   plan explicitly replaces an obsolete wrapper-only interface.
+- Documentation-plan operations use:
+
+  ```text
+  plan list
+  plan validate
+  plan archive
+  ```
+
+  Listing scopes, archive query guards, terminal/Markdown formats, completion
+  metadata, dry-run defaults, transactional reference repair, and rollback
+  retain their existing DocTool semantics.
 - Worktree operations use:
 
   ```text
@@ -191,7 +221,7 @@ Tools/
 
 - Old entrypoints remain untouched only while internal stages are incomplete;
   they are not adapted into compatibility wrappers.
-- The final cutover deletes all three old root entrypoints and every migrated
+- The final cutover deletes all four old root entrypoints and every migrated
   implementation file in the same stage that switches current documentation
   and tests to DurinDevTool.
 - Current documentation describes only the final interface. No migration
@@ -202,10 +232,15 @@ Tools/
 
 ## Current Foundations and Gaps
 
-- BuildTool already has a shared direct/shell command specification, lazy
+- BuildTool is already owned under `Tools/BuildTool` and has a shared
+  direct/shell command specification, lazy
   toolchain initialization, stable request objects, structured output,
   checkout locking, recovery, stop, purge, scaffolding, and runtime launch
   behavior. These are foundations to move, not redesign.
+- DocTool is already owned under `Tools/DocTool` and provides plan catalog
+  parsing, metadata validation, guarded archive discovery, human/Agent output
+  formats, and transactional archive application with rollback. These are
+  foundations to move under the `plan` family, not redesign.
 - WorktreeTool already centralizes registered-worktree discovery, terminal
   opening, shared-link preparation, safe removal, dry-run behavior, and
   system-Python fallback.
@@ -215,9 +250,10 @@ Tools/
 - Bootstrap's Python implementation and third-party manifests are already
   mostly platform-neutral, but their repository-root calculation and manifest
   location depend on their current directory depth.
-- The existing Agent tooling test suite directly imports both old package
-  locations and asserts old wrapper contents. It must move with the product and
-  test the public interface instead of old paths.
+- The existing Agent tooling suite under `Engine/Scripts/Tests` and DocTool
+  suite under `Tools/Tests` directly import separate product packages and
+  assert separate wrapper contents. They must move with the product and test
+  the unified public interface instead of old paths.
 - CMake third-party diagnostics name library-specific setup batch files, and
   `CMake/Config/BuildOptions.cmake` names `BuildTool.bat`.
 - Current repository and build documentation contains the old entrypoint
@@ -232,14 +268,17 @@ Tools/
 
 - [ ] Record the baseline commit and confirm the checkout has no overlapping
   user changes in the files this plan will modify.
-- [ ] Inventory the exact files moving from the build, worktree, and bootstrap
-  implementations, including third-party manifests and tests.
-- [ ] Classify every reference to the three old entrypoints or implementation
+- [ ] Inventory the exact files moving from the build, documentation,
+  worktree, and bootstrap implementations, including third-party manifests and
+  tests.
+- [ ] Classify every reference to the four old entrypoints or implementation
   paths as current operational behavior, live diagnostic, active-plan
   provenance, test coupling, or archived history.
-- [ ] Run the existing Agent tooling tests and record any baseline failures.
+- [ ] Run the existing Agent tooling and DocTool tests and record any baseline
+  failures.
 - [ ] Verify the current direct and interactive help, read-only commands,
-  worktree dry runs, and setup preflight behavior used as parity evidence.
+  DocTool listing/validation/archive dry run, worktree dry runs, and setup
+  preflight behavior used as parity evidence.
 - [ ] Record the working set, key symbols, path assumptions, and validation
   result in the stage handoff.
 
@@ -307,7 +346,38 @@ Tools/
   error-context tests match their pre-move behavior.
 - No migrated module derives the repository root from a fixed parent count.
 
-### Stage 3: Setup, Dependency, and Worktree Consolidation
+### Stage 3: Documentation Domain Consolidation
+
+- [ ] Move `Tools/DocTool/durin_doc_tool` into
+  `durin_dev_tool/documentation` using package-relative imports.
+- [ ] Register `plan list`, `plan validate`, and `plan archive` in the shared
+  top-level command registry and shell.
+- [ ] Preserve active/completed/archive/all scopes, query filtering,
+  `--all-results` guards, terminal and Markdown formats, and color selection.
+- [ ] Preserve metadata validation for titles, summaries, lifecycle state,
+  completion dates, archive months, and direct references.
+- [ ] Preserve archive preview as the default and require explicit apply for
+  repository mutation.
+- [ ] Preserve archive transaction rollback across plan moves and reference
+  repairs.
+- [ ] Move DocTool tests from `Tools/Tests` into
+  `Tools/DurinDevTool/tests` without reducing behavioral coverage.
+- [ ] Prove direct/shell request and output-default parity for every migrated
+  plan command.
+- [ ] Update the plan status and record the stage handoff.
+
+#### Acceptance Gate
+
+- The migrated documentation-domain tests pass from the unified package.
+- `plan list` remains human-oriented in the shell and Markdown-oriented for
+  direct Agent invocation unless explicitly overridden.
+- Unfiltered archive/all discovery remains rejected without
+  `--all-results`.
+- Archive preview performs no writes, apply repairs references atomically, and
+  injected failures restore every changed file.
+- Plan validation results match the pre-move DocTool catalog.
+
+### Stage 4: Setup, Dependency, and Worktree Consolidation
 
 - [ ] Move worktree implementation into `durin_dev_tool/worktree` and register
   its five canonical subcommands.
@@ -344,15 +414,16 @@ Tools/
 - Every third-party manifest validates from its new location, and focused
   dependency selection replaces every library-specific setup wrapper use case.
 
-### Stage 4: Atomic Repository Cutover
+### Stage 5: Atomic Repository Cutover
 
 - [ ] Update `AGENTS.md`, `README.md`, current build/bootstrap/tooling
   documentation, live investigations, active-plan references, and CMake
   diagnostics to the canonical DurinDevTool commands and paths.
 - [ ] Update test discovery and any repository automation to load tests from
   `Tools/DurinDevTool/tests`.
-- [ ] Delete root `Setup.bat`, `BuildTool.bat`, and `WorktreeTool.bat`.
-- [ ] Delete the migrated `Engine/Scripts/Build/durin_build_tool` package,
+- [ ] Delete root `Setup.bat`, `BuildTool.bat`, `DocTool.bat`, and
+  `WorktreeTool.bat`.
+- [ ] Delete the migrated `Tools/BuildTool`, `Tools/DocTool`,
   `Engine/Scripts/Utils/worktree_tool.py`, and `Engine/Scripts/Bootstrap`
   implementation and wrapper files.
 - [ ] Remove empty implementation directories left by the move when they have
@@ -374,11 +445,11 @@ Tools/
 - Root-directory clutter is reduced without moving repository-level build
   configuration or output ownership under `Tools`.
 
-### Stage 5: Clean-Checkout and End-to-End Validation
+### Stage 6: Clean-Checkout and End-to-End Validation
 
 - [ ] Run the complete DurinDevTool Python test suite.
-- [ ] Validate all active and archived plan metadata with the repository plan
-  validator.
+- [ ] Validate all active and archived plan metadata through
+  `DevTool plan validate --scope all`.
 - [ ] Exercise system-Python `help`, missing-environment diagnostics, setup
   preflight, and worktree preparation through controlled no-`.venv` fixtures.
 - [ ] Exercise direct `status`, `presets`, dependency manifest validation, and
@@ -414,6 +485,7 @@ Tools/
 | Interpreter selection | `.venv` preference, `py -3` fallback, `python` fallback, and actionable no-Python failure |
 | Repository discovery | Correct root from repository root, product directory, linked worktree, and unrelated current directory |
 | Command parity | Table-driven direct/shell request equality for every command and supported option |
+| Plan operations | Catalog scopes, filters, output defaults, metadata validation, archive preview/apply, reference repair, and rollback |
 | Setup | Main-worktree restriction, config non-overwrite, preflight ordering, venv preparation, idempotence, and shell restart |
 | Dependencies | Manifest validation, all/default selection, focused multi-library selection, test/development selection, and configuration handling |
 | Build ownership | Lock exclusivity, environment caching, interruption marker, recovery, stop, and process-tree behavior |
@@ -437,8 +509,8 @@ Tools/
   a linked worktree has a local virtual-environment path.
 - Existing build, recovery, purge, runtime-process, and worktree-link safety
   contracts remain covered and passing.
-- Root `Setup.bat`, `BuildTool.bat`, and `WorktreeTool.bat` and all migrated old
-  implementation paths are deleted.
+- Root `Setup.bat`, `BuildTool.bat`, `DocTool.bat`, and `WorktreeTool.bat` and
+  all migrated old implementation paths are deleted.
 - No compatibility wrappers, transition aliases, migration documentation, or
   duplicated implementation remains.
 - Current documentation and live diagnostics describe the lasting interface.
@@ -470,8 +542,11 @@ Tools/
 
 - `Setup.bat`
 - `BuildTool.bat`
+- `DocTool.bat`
 - `WorktreeTool.bat`
-- `Engine/Scripts/Build/durin_build_tool`
+- `Tools/BuildTool`
+- `Tools/DocTool`
+- `Tools/Tests/test_doc_tool.py`
 - `Engine/Scripts/Utils/worktree_tool.py`
 - `Engine/Scripts/Bootstrap`
 - `Engine/Scripts/Tests/test_agent_tooling.py`
