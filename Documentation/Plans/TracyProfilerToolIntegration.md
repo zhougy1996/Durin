@@ -6,8 +6,8 @@ Last reviewed: 2026-07-27
 
 ## Current Status
 
-Stages 0-2 completed on 2026-07-27. Stage 3 is next. Stage 2 started from
-commit `eda4de6063731c7dbb97d4830539786e8bbb9313`; the preceding runtime-variant
+Stages 0-3 completed on 2026-07-27. Stage 4 is next. Stage 3 started from
+commit `808c842579092e46b715897d47ea834455354f10`; the preceding runtime-variant
 and initial Tracy instrumentation plan remains established at commit
 `efccf9e4734947dcf56b6c1cca26dbdba9432c6d`.
 
@@ -475,20 +475,20 @@ Open questions: none for Stage 3.
 
 ### Stage 3: Add DurinEditor Profiling Tool Actions
 
-- [ ] Add one Editor-only profiling tool service that resolves the managed Tracy
+- [x] Add one Editor-only profiling tool service that resolves the managed Tracy
   package and capture directory.
-- [ ] Add `Tools > Profiling` actions for launching the profiler, opening a
+- [x] Add `Tools > Profiling` actions for launching the profiler, opening a
   selected capture, opening the capture directory, and showing tool status.
-- [ ] Extend process launching only as required to report actionable operating
+- [x] Extend process launching only as required to report actionable operating
   system failures and safely quote executable and capture paths.
-- [ ] Disable unavailable actions with a visible explanation and
+- [x] Disable unavailable actions with a visible explanation and
   `Setup_tracy.bat` repair command rather than silently doing nothing.
-- [ ] Keep the profiler independent after launch and avoid terminating it during
+- [x] Keep the profiler independent after launch and avoid terminating it during
   Editor shutdown.
-- [ ] Add focused tests for path resolution, version/required-file validation,
+- [x] Add focused tests for path resolution, version/required-file validation,
   command construction, quoting, missing-tool diagnostics, and menu action
   registration.
-- [ ] Document that the official profiler discovery list owns target selection
+- [x] Document that the official profiler discovery list owns target selection
   and advertises non-8086 ports for later instances.
 
 #### Acceptance Gate
@@ -499,8 +499,60 @@ Open questions: none for Stage 3.
 
 #### Stage Handoff
 
-- Record baseline commit, working set, Editor ownership, process-launch
-  contract, UI actions, key symbols, open questions, and focused test results.
+Baseline and working set:
+
+- Stage baseline: `808c842579092e46b715897d47ea834455354f10`.
+- Added MainFrame-private `ProfilingToolService.h/.cpp` and
+  `EngineTests/Private/ProfilingToolServiceTests.cpp`.
+- Updated `MainFrameModule.cpp`, Windows `FPlatformProcess`,
+  `EngineTests/CMakeLists.txt`, `CoreTests/Private/ProjectTests.cpp`,
+  `Documentation/Development/Build/Profiling.md`, and this plan.
+
+Editor and process contracts:
+
+- `FProfilingToolService` is compiled only into the Editor-only MainFrame
+  module. It reads `tracy-tools.json` and `tracy.json`, compares managed tool
+  and client versions, resolves the manifest-owned package path, validates every
+  required executable, and reports without mutating the workspace.
+- `Tools > Profiling` contains `Launch Tracy Profiler`,
+  `Open Tracy Capture...`, `Open Capture Directory`, and `Tool Status...`.
+  Profiler-dependent actions are disabled when status is unavailable and expose
+  the reason; status remains reachable and includes the repair command.
+- Capture selection uses ApplicationCore's owned native file dialog with a
+  `.tracy` filter. A selected capture is passed as one quoted argument to the
+  matching profiler; Durin never parses or rewrites it.
+- The ignored default capture directory is `Build/Profiling/Tracy/`. Querying
+  status does not create it. `Open Capture Directory` creates it on demand and
+  opens it through the new `FPlatformProcess::OpenPath` boundary.
+- `FPlatformProcess::LaunchProcess` still detaches ownership after successful
+  process creation. Windows failure text now contains the resolved executable
+  and a trimmed `FormatMessageW` system description. Service diagnostics append
+  the expected Tracy version and focused repair command.
+- MainFrame owns only menu and status-dialog presentation. Tool paths,
+  validation, file selection, process launch, and directory actions remain in
+  the service.
+
+Validation:
+
+- `BuildTool test --target EngineTests --filter
+  FProfilingToolServiceTests.* --output full`: 5 passed for managed path and
+  version resolution, version mismatch, missing required files with read-only
+  status, quoted capture arguments, and exact menu action registration.
+- `BuildTool test --target CoreTests --filter
+  FProjectTests.PlatformProcess* --output full`: 2 passed, including launch
+  failure path plus readable Windows error.
+- Default Agent Editor preset full `BuildTool build --target all`: passed.
+- The verified Debug Editor remained running for an eight-second hidden-window
+  smoke test. A visible runtime screenshot confirmed the top-level `Tools`
+  registration in `Durin Editor - Sandbox`.
+- Official Tracy Profiler 0.13.1 launched successfully with the managed
+  installation. After the Editor process was stopped, the profiler remained
+  running until the validation harness explicitly closed it, confirming
+  independent lifetime.
+- Stage 2 already opened a saved `.tracy` capture with the same managed
+  executable and recorded a valid Tracy Profiler 0.13.1 window title.
+
+Open questions: none for Stage 4.
 
 ### Stage 4: Complete Multi-Instance Runtime Validation And Documentation
 

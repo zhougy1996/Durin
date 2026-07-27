@@ -57,6 +57,18 @@ TEST(FProjectTests, PlatformProcessReportsCurrentProcessId)
 #endif
 }
 
+TEST(FProjectTests, PlatformProcessLaunchFailureIncludesPathAndSystemError)
+{
+#if PLATFORM_WINDOWS
+	constexpr std::string_view MissingExecutable = "Z:/DurinTests/MissingProfiler.exe";
+	std::string Error;
+
+	EXPECT_FALSE(Durin::FPlatformProcess::LaunchProcess(MissingExecutable, {}, &Error));
+	EXPECT_NE(Error.find(MissingExecutable), std::string::npos);
+	EXPECT_NE(Error.find("Windows error"), std::string::npos);
+#endif
+}
+
 TEST(FProjectTests, LoadsExplicitProjectFile)
 {
 	const std::string ProjectFile = Durin::FPaths::RootDir() + "Sandbox/Sandbox.dproject";

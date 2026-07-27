@@ -36,6 +36,39 @@ The client is configured for on-demand, localhost-only capture. Capturing is
 optional at runtime. Use the profiler or capture tool from the matching upstream
 Tracy `v0.13.1` release.
 
+## Editor Tool Workflow
+
+Root setup installs the matching Tracy host tools at
+`Engine/External/Packages/tracy-tools/0.13.1/Win64/`. Repair both Tracy client
+source and host tools with:
+
+```powershell
+Engine\Scripts\Bootstrap\Setup_tracy.bat
+```
+
+After opening a project in DurinEditor, use `Tools > Profiling`:
+
+- `Launch Tracy Profiler` starts the managed official profiler as an independent
+  process.
+- `Open Tracy Capture...` selects a `.tracy` file and opens it explicitly in the
+  matching managed profiler.
+- `Open Capture Directory` creates, when needed, and opens the ignored
+  workspace-local `Build/Profiling/Tracy/` directory.
+- `Tool Status...` reports the expected/client versions, resolved managed path,
+  missing required files, and focused repair command.
+
+A normal Editor may launch Tracy to inspect a separate Release Profiling Game.
+Capturing the current Editor requires running the
+`Win64-Release-DurinEditor-Profiling` output. The Editor does not claim a
+connection when the external process launches: Tracy's discovery screen owns
+target selection and displays each advertised data port.
+
+If the managed tools are missing, malformed, or version-mismatched, actions that
+need the profiler are disabled and show the status reason. A launch failure
+reports the resolved executable, readable Windows error, expected version, and
+repair command. Once launched, the profiler is not owned by Editor shutdown, so
+an interactive profiler with an unsaved capture remains open.
+
 ## Process Identity And Ports
 
 Profiling processes publish a Tracy program name in this format:

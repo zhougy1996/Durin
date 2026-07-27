@@ -43,6 +43,7 @@ add_durin_test(EngineTests
 	Private/RendererRenderTargetLayoutTests.cpp
 	Private/EditorNotificationTests.cpp
 	Private/EditorWorkspaceTests.cpp
+	Private/ProfilingToolServiceTests.cpp
 	Private/EditorTextureSmokeTests.cpp
 	Private/UIStyleTests.cpp
 	Private/ConsoleRecordModelTests.cpp
@@ -74,6 +75,7 @@ add_durin_test(EngineTests
 	# Compile the preview implementation directly so its private GC lifetime contract can be exercised.
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Private/Widgets/MaterialPreview.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Private/Widgets/MaterialParameterPanelModel.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MainFrame/Private/ProfilingToolService.cpp
 )
 
 target_include_directories(EngineTests PRIVATE
@@ -82,6 +84,7 @@ target_include_directories(EngineTests PRIVATE
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Private
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Public
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MainFrame/Private
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 	${CMAKE_SOURCE_DIR}/Engine/Source
 )
@@ -92,6 +95,7 @@ target_compile_definitions(EngineTests PRIVATE LEVELEDITOR_EXPORTS)
 target_link_libraries(EngineTests PRIVATE
 	Core
 	CoreDObject
+	ApplicationCore
 	AssetCore
 	Engine
 	RenderCore

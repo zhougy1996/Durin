@@ -1,6 +1,7 @@
 #include "MainFrameModule.h"
 
 #include "ProjectBrowser.h"
+#include "ProfilingToolService.h"
 
 #include "Editor/EditorWorkspace.h"
 #include "Editor/EditorWorkspaceUI.h"
@@ -158,6 +159,86 @@ namespace Durin
 			Settings.Save();
 		}
 
+		auto DrawProfilingToolStatusDialog(bool& bOpen, const std::string& Message) -> void
+		{
+			if (!bOpen) return;
+			ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+			ImGui::SetNextWindowSize(ImVec2(MonaImGui::ScaleUI(620.0f), MonaImGui::ScaleUI(260.0f)), ImGuiCond_Appearing);
+			if (ImGui::Begin(
+				"Tracy Profiling Tool Status###Durin.Profiling.ToolStatus",
+				&bOpen,
+				ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings
+			))
+			{
+				ImGui::TextWrapped("%s", Message.c_str());
+				ImGui::Spacing();
+				ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - MonaImGui::ScaleUI(82.0f));
+				if (ImGui::Button("Close", ImVec2(MonaImGui::ScaleUI(82.0f), 0.0f))) bOpen = false;
+			}
+			ImGui::End();
+		}
+
+		auto DrawProfilingMenu(
+			const FProfilingToolService& ProfilingTools,
+			std::string& StatusMessage,
+			bool& bStatusOpen
+		) -> void
+		{
+			if (!ImGui::BeginMenu("Tools")) return;
+			if (ImGui::BeginMenu("Profiling"))
+			{
+				const FTracyToolStatus Status = ProfilingTools.QueryStatus();
+				const auto ShowFailure = [&](std::string Error) {
+					StatusMessage = std::move(Error);
+					bStatusOpen = true;
+				};
+
+				ImGui::BeginDisabled(!Status.bAvailable);
+				const bool bLaunchProfiler = ImGui::MenuItem(FProfilingToolService::LaunchProfilerLabel.data());
+				ImGui::EndDisabled();
+				if (!Status.bAvailable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+					ImGui::SetTooltip("%s", Status.Diagnostic.c_str());
+				if (bLaunchProfiler)
+				{
+					std::string Error;
+					if (!ProfilingTools.LaunchProfiler(&Error)) ShowFailure(std::move(Error));
+				}
+
+				ImGui::BeginDisabled(!Status.bAvailable);
+				const bool bOpenCapture = ImGui::MenuItem(FProfilingToolService::OpenCaptureLabel.data());
+				ImGui::EndDisabled();
+				if (!Status.bAvailable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+					ImGui::SetTooltip("%s", Status.Diagnostic.c_str());
+				if (bOpenCapture)
+				{
+					std::string Error;
+					if (!ProfilingTools.SelectAndOpenCapture(ImGui::GetMainViewport()->PlatformHandleRaw, &Error))
+						ShowFailure(std::move(Error));
+				}
+
+				if (ImGui::MenuItem(FProfilingToolService::OpenCaptureDirectoryLabel.data()))
+				{
+					std::string Error;
+					if (!ProfilingTools.OpenCaptureDirectory(&Error)) ShowFailure(std::move(Error));
+				}
+
+				ImGui::Separator();
+				if (ImGui::MenuItem(FProfilingToolService::ShowStatusLabel.data()))
+				{
+					StatusMessage = Status.Diagnostic;
+					if (!Status.ExpectedVersion.empty())
+						StatusMessage += std::format("\nExpected Tracy version: {}.", Status.ExpectedVersion);
+					if (!Status.PackagePath.empty())
+						StatusMessage += std::format("\nManaged package: \"{}\".", Status.PackagePath);
+					if (!Status.RepairCommand.empty())
+						StatusMessage += std::format("\nRepair with: {}", Status.RepairCommand);
+					bStatusOpen = true;
+				}
+				ImGui::EndMenu();
+			}
+			ImGui::EndMenu();
+		}
+
 		auto DrawOpenEditorsMenu(FEditorWorkspaceManager& WorkspaceManager) -> void
 		{
 			if (!ImGui::BeginMenu("Editors")) return;
@@ -208,8 +289,11 @@ namespace Durin
 			FEditorWorkspaceManager& WorkspaceManager,
 			FEditorHostSettings& HostSettings,
 			MWindow& RootWindow,
+			const FProfilingToolService& ProfilingTools,
 			bool& bAboutDialogOpen,
-			bool& bEditorPreferencesOpen
+			bool& bEditorPreferencesOpen,
+			std::string& ProfilingStatusMessage,
+			bool& bProfilingStatusOpen
 		) -> void
 		{
 			ImGuiViewport* Viewport = ImGui::GetMainViewport();
@@ -262,6 +346,7 @@ namespace Durin
 					for (const std::shared_ptr<IEditorWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();
 					ImGui::EndMenu();
 				}
+				DrawProfilingMenu(ProfilingTools, ProfilingStatusMessage, bProfilingStatusOpen);
 				if (ImGui::BeginMenu("Window"))
 				{
 					DrawOpenEditorsMenu(WorkspaceManager);
@@ -282,6 +367,7 @@ namespace Durin
 			}
 			DrawAboutDialog(bAboutDialogOpen);
 			DrawEditorPreferences(HostSettings, RootWindow, bEditorPreferencesOpen);
+			DrawProfilingToolStatusDialog(bProfilingStatusOpen, ProfilingStatusMessage);
 
 			const ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
 			const ImGuiID DockSpaceId = EditorWorkspaceUI::MakeEditorHostDockSpaceId(EditorWorkspaceUI::HostLayoutVersion);
@@ -334,6 +420,7 @@ namespace Durin
 		auto WorkspaceManager = std::make_shared<FEditorWorkspaceManager>();
 		auto bWorkspaceReady = std::make_shared<bool>(false);
 		auto ProjectBrowser = std::make_shared<FProjectBrowser>();
+		auto ProfilingTools = std::make_shared<FProfilingToolService>(FPaths::RootDir());
 		const std::weak_ptr<MWindow> WeakRootWindow = RootWindow;
 		if (HasCurrentProject())
 		{
@@ -365,13 +452,26 @@ namespace Durin
 			return true;
 		});
 
-		EditorRootWidget->Construct([WorkspaceManager, bWorkspaceReady, ProjectBrowser, HostSettings, WeakRootWindow,
-			bAboutDialogOpen = false, bEditorPreferencesOpen = false]() mutable {
+		EditorRootWidget->Construct([WorkspaceManager, bWorkspaceReady, ProjectBrowser, ProfilingTools, HostSettings, WeakRootWindow,
+			bAboutDialogOpen = false, bEditorPreferencesOpen = false, ProfilingStatusMessage = std::string{},
+			bProfilingStatusOpen = false]() mutable {
 			const std::shared_ptr<MWindow> RootWindow = WeakRootWindow.lock();
 			if (RootWindow) ObserveEditorHostWindowState(*HostSettings, *RootWindow);
 			if (*bWorkspaceReady)
 			{
-				if (RootWindow) DrawWorkspaceHost(*WorkspaceManager, *HostSettings, *RootWindow, bAboutDialogOpen, bEditorPreferencesOpen);
+				if (RootWindow)
+				{
+					DrawWorkspaceHost(
+						*WorkspaceManager,
+						*HostSettings,
+						*RootWindow,
+						*ProfilingTools,
+						bAboutDialogOpen,
+						bEditorPreferencesOpen,
+						ProfilingStatusMessage,
+						bProfilingStatusOpen
+					);
+				}
 				return;
 			}
 			ProjectBrowser->Draw();
