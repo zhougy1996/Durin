@@ -23,6 +23,25 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 
 - Each checkout has one source/build writer; use separate worktrees for concurrency.
 - Before any configure, build, test, or runtime launch, read `Documentation/Development/Build/BuildAndRun.md` and use the repository BuildTool entrypoint described there.
+- Treat configure, build, rebuild, and test operations as long-running tasks,
+  including BuildTool actions, scripts, wrappers, and other commands that may
+  invoke them transitively. Set the execution tool's timeout explicitly to at
+  least 10 minutes (`timeout_ms: 600000`), and use at least one hour
+  (`timeout_ms: 3600000`) for a full `all` build or rebuild. Do not rely on the
+  tool's default timeout or assume that an approved command prefix supplies one.
+- If the execution tool explicitly yields a running process or cell ID, wait on
+  that same invocation in intervals no longer than 60 seconds. Once it returns a
+  final result, stop waiting and act on that result. BuildTool prints a
+  30-second heartbeat while a child command is alive; a yield, quiet output, or
+  elapsed UI window alone is not an interruption and must not trigger a second
+  build, rebuild, or recovery-state inspection.
+- Do not start another build while an earlier CMake, Ninja, compiler, or linker
+  process tree may still be running. Run `rebuild --target all` only after an
+  operation was cancelled, externally terminated, or lost its controlling
+  BuildTool process, the old process tree has exited, and `BuildTool status`
+  reports `Recovery state: rebuild required`. Ordinary compiler, linker,
+  configuration, clean, assertion, test-timeout, test-process, and runtime
+  failures do not require rebuild; fix the cause and rerun the same command.
 
 ## Agent Handoff
 
