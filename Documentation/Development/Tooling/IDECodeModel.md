@@ -9,9 +9,9 @@ All configuration, builds, and tests that produce Durin outputs must run through
 DurinDevTool:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat configure
-.\Tools\DurinDevTool\DevTool.bat build --target all
-.\Tools\DurinDevTool\DevTool.bat test --target CoreTests
+.\DevTool.bat configure
+.\DevTool.bat build --target all
+.\DevTool.bat test --target CoreTests
 ```
 
 An IDE may read an isolated CMake tree or a compilation database, and it may
@@ -22,7 +22,7 @@ Configure/Reload while DurinDevTool owns the checkout.
 Build the complete runtime through DurinDevTool before debugging the editor:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat build --target all
+.\DevTool.bat build --target all
 ```
 
 The editor executable is
@@ -103,7 +103,7 @@ An accidental CLion Build action should fail immediately with this message and
 must not start any compiler or DHT process:
 
 ```text
-ERROR: This IDE preset is code-model-only and cannot build. Use Tools/DurinDevTool/DevTool.bat with a registered build preset.
+ERROR: This IDE preset is code-model-only and cannot build. Use DevTool.bat with a registered build preset.
 ```
 
 FastConfigure shares final binaries and generated DHT metadata with the normal

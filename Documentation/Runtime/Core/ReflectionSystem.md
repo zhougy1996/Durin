@@ -476,13 +476,13 @@ python -m unittest discover -s Engine\Source\Programs\DurinHeaderTool\tests -p "
 For C++ verification, build the registered Agent profile through the repository build driver:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat build --target all --plain
+.\DevTool.bat build --target all --plain
 ```
 
 Run the focused CoreDObject tests after lifecycle, GC, or serialization changes:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat test --target CoreDObjectTests --plain
+.\DevTool.bat test --target CoreDObjectTests --plain
 ```
 
 When adding new reflection behavior, validate both the DHT tests and a real C++ build. The generated files are part of the compile surface, and macro/friend/access errors often appear only during C++ compilation.

@@ -12,7 +12,7 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 - Follow the nearest `AGENTS.md` for authoring and lifecycle rules; do not infer
   formats from unrelated documents.
 - Machine-local build overrides belong in optional `.agents/build-config.json`;
-  create it with `.\Tools\DurinDevTool\DevTool.bat setup` when needed.
+  create it with `.\DevTool.bat setup` when needed.
 
 ## Plan Stage Continuation
 

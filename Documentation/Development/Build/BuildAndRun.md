@@ -5,7 +5,7 @@ This is the operational guide for configuring, building, testing, and debugging 
 ## Setup
 
 Install the following Windows prerequisites, then run
-`.\Tools\DurinDevTool\DevTool.bat setup` once in the main checkout. Create
+`.\DevTool.bat setup` once in the main checkout. Create
 linked worktrees with `DevTool worktree add`, or initialize an existing linked
 worktree with `DevTool worktree prepare`:
 
@@ -61,11 +61,11 @@ Use the DurinDevTool worktree commands to create, inspect, open, and remove
 linked worktrees:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat worktree add ..\Durin-feature -b feature-branch
-.\Tools\DurinDevTool\DevTool.bat worktree prepare ..\Durin-feature
-.\Tools\DurinDevTool\DevTool.bat worktree list
-.\Tools\DurinDevTool\DevTool.bat worktree open
-.\Tools\DurinDevTool\DevTool.bat worktree remove ..\Durin-feature
+.\DevTool.bat worktree add ..\Durin-feature -b feature-branch
+.\DevTool.bat worktree prepare ..\Durin-feature
+.\DevTool.bat worktree list
+.\DevTool.bat worktree open
+.\DevTool.bat worktree remove ..\Durin-feature
 ```
 
 `worktree open` opens all registered worktrees in Windows Terminal. `add`
@@ -84,26 +84,26 @@ modified or untracked files.
 Use the root wrapper for configuration, builds, and tests:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat configure
-.\Tools\DurinDevTool\DevTool.bat configure --fresh
-.\Tools\DurinDevTool\DevTool.bat build
-.\Tools\DurinDevTool\DevTool.bat build --target LevelEditor
-.\Tools\DurinDevTool\DevTool.bat run
-.\Tools\DurinDevTool\DevTool.bat test --target CoreTests --filter FJsonDocumentTests.*
-.\Tools\DurinDevTool\DevTool.bat clean
-.\Tools\DurinDevTool\DevTool.bat recover
-.\Tools\DurinDevTool\DevTool.bat rebuild --target all
-.\Tools\DurinDevTool\DevTool.bat presets
-.\Tools\DurinDevTool\DevTool.bat status
-.\Tools\DurinDevTool\DevTool.bat open-runtime
-.\Tools\DurinDevTool\DevTool.bat stop
+.\DevTool.bat configure
+.\DevTool.bat configure --fresh
+.\DevTool.bat build
+.\DevTool.bat build --target LevelEditor
+.\DevTool.bat run
+.\DevTool.bat test --target CoreTests --filter FJsonDocumentTests.*
+.\DevTool.bat clean
+.\DevTool.bat recover
+.\DevTool.bat rebuild --target all
+.\DevTool.bat presets
+.\DevTool.bat status
+.\DevTool.bat open-runtime
+.\DevTool.bat stop
 ```
 
 Commands are case-insensitive for compatibility, but lowercase is canonical.
 `build` and `test` configure automatically when needed, so an explicit first
 `configure` is optional. Omit `--jobs` to use automatic parallelism; pass
 `--jobs <count>` only when a local limit is required. From another batch file,
-use `call Tools\DurinDevTool\DevTool.bat <arguments>`.
+use `call DevTool.bat <arguments>`.
 
 `build` and `rebuild` default to target `all`; `recover` resumes the target
 recorded by an interrupted operation; `test` always requires an explicit
@@ -116,7 +116,7 @@ An ordinary `configure` preserves the existing CMake cache. Pass `--fresh` to di
 DurinDevTool separates its resolved context, execution stages, raw CMake/Ninja output, and final result so failures remain identifiable in long logs. Styled output is enabled for interactive terminals. Pass `--plain`, set `NO_COLOR`, or redirect the output to select stable text-only output without ANSI sequences:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat build --target all --plain
+.\DevTool.bat build --target all --plain
 ```
 
 Child-process output has four modes, selected with
@@ -135,9 +135,9 @@ retained. Use `--output full` to stream every child-output line, or
 `--output compact` to suppress routine child output in an interactive terminal:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat build --target all --output progress
-.\Tools\DurinDevTool\DevTool.bat build --target all --output compact
-.\Tools\DurinDevTool\DevTool.bat test --target CoreTests --output full
+.\DevTool.bat build --target all --output progress
+.\DevTool.bat build --target all --output compact
+.\DevTool.bat test --target CoreTests --output full
 ```
 
 Compact native-test runs also enable GoogleTest's brief output mode. Test
@@ -152,9 +152,9 @@ On Windows, the first toolchain-backed command captures and validates the Visual
 The registered Windows build environment defaults to `Win64-Debug-DurinEditor-Tests`, allowing the same output set to run the editor and native tests. Before launching the editor for a smoke test or final validation, build the complete runtime:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat build --target all
-.\Tools\DurinDevTool\DevTool.bat run
-.\Tools\DurinDevTool\DevTool.bat run --project Sandbox\Sandbox.dproject
+.\DevTool.bat build --target all
+.\DevTool.bat run
+.\DevTool.bat run --project Sandbox\Sandbox.dproject
 ```
 
 `run` launches the existing runtime executable selected by the preset, such as
@@ -180,7 +180,7 @@ Pass other runtime arguments after the final `--args` option. The typed project
 argument is always forwarded before them:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat run --preset Win64-Debug-DurinGame --project Sandbox\Sandbox.dproject --args -ExampleArgument
+.\DevTool.bat run --preset Win64-Debug-DurinGame --project Sandbox\Sandbox.dproject --args -ExampleArgument
 ```
 
 Do not repeat `--project` or `--project=...` after `--args` when the typed
@@ -192,7 +192,7 @@ For unattended runtime smoke tests, pass `--hidden-window` to suppress every
 native application window, including secondary UI viewports:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat run --project Sandbox\Sandbox.dproject --args --hidden-window
+.\DevTool.bat run --project Sandbox\Sandbox.dproject --args --hidden-window
 ```
 
 An interactive `DurinDevTool run` can be stopped with Ctrl+C; DurinDevTool terminates
@@ -205,9 +205,9 @@ and is not a substitute for the application argument.
 Select another registered configure preset with `--preset`:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat build --preset Win64-Release-DurinEditor --target all
-.\Tools\DurinDevTool\DevTool.bat rebuild --preset Win64-Shipping-DurinGame --target all
-.\Tools\DurinDevTool\DevTool.bat build --preset Win64-Release-DurinEditor-Profiling --target all
+.\DevTool.bat build --preset Win64-Release-DurinEditor --target all
+.\DevTool.bat rebuild --preset Win64-Shipping-DurinGame --target all
+.\DevTool.bat build --preset Win64-Release-DurinEditor-Profiling --target all
 ```
 
 `CMakePresets.json` remains the source of truth for preset configuration. `AgentBuildProfiles.json` controls which presets DurinDevTool may own for each host environment. The IDE-only `Win64-Debug-DurinEditor-FastConfigure` preset is intentionally excluded.
@@ -220,8 +220,8 @@ DHT, compilation, or linking can start; it may only configure for IDE indexing.
 Run `DurinDevTool` without arguments, or pass `shell`, to open the human-oriented command shell:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat
-.\Tools\DurinDevTool\DevTool.bat shell
+.\DevTool.bat
+.\DevTool.bat shell
 ```
 
 Opening the shell loads repository configuration, build profiles, and registered
@@ -231,7 +231,7 @@ validates the toolchain once; later commands and preset switches reuse that
 environment for the rest of the session. Read-only and artifact commands remain
 available when the compiler toolchain is unavailable.
 
-If Ctrl+C is not forwarded by the terminal or batch wrapper, run `.\Tools\DurinDevTool\DevTool.bat stop` from a second terminal, or enter `stop` in another already-open DurinDevTool shell. It stops the active DurinDevTool process and its complete CMake/Ninja child process tree for this checkout. The foreground shell cannot accept `stop` while it is waiting for its own operation, so stopping that operation requires another process.
+If Ctrl+C is not forwarded by the terminal or batch wrapper, run `.\DevTool.bat stop` from a second terminal, or enter `stop` in another already-open DurinDevTool shell. It stops the active DurinDevTool process and its complete CMake/Ninja child process tree for this checkout. The foreground shell cannot accept `stop` while it is waiting for its own operation, so stopping that operation requires another process.
 
 The selected preset is session-local and does not modify `.agents/build-config.json`:
 
@@ -288,8 +288,8 @@ Create a workspace module with one DurinDevTool command. The project descriptor
 may be relative to the workspace root or absolute:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat create module Gameplay --project Sandbox\Sandbox.dproject --kind runtime --private-dependency Core --private-dependency Engine
-.\Tools\DurinDevTool\DevTool.bat create module SceneEditor --project Sandbox\Sandbox.dproject --kind editor --private-dependency DurinEd
+.\DevTool.bat create module Gameplay --project Sandbox\Sandbox.dproject --kind runtime --private-dependency Core --private-dependency Engine
+.\DevTool.bat create module SceneEditor --project Sandbox\Sandbox.dproject --kind editor --private-dependency DurinEd
 ```
 
 Without `--path`, runtime modules are created under
@@ -300,8 +300,8 @@ defaults, not build-system classification. Use `--path <ProjectRelativePath>`
 to place the module elsewhere inside its owning project:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat create module Combat --project MyGame\MyGame.dproject --path Source\Game\Combat --private-dependency Core
-.\Tools\DurinDevTool\DevTool.bat create module WorldTools --project MyGame\MyGame.dproject --path "Source\Tools\World Tools" --kind editor --private-dependency Core
+.\DevTool.bat create module Combat --project MyGame\MyGame.dproject --path Source\Game\Combat --private-dependency Core
+.\DevTool.bat create module WorldTools --project MyGame\MyGame.dproject --path "Source\Tools\World Tools" --kind editor --private-dependency Core
 ```
 
 An absolute `--path` is also accepted when it resolves inside the owning
@@ -336,7 +336,7 @@ Preview the complete operation without creating directories, temporary files,
 or descriptor edits:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat create module Gameplay --project Sandbox\Sandbox.dproject --private-dependency Core --dry-run --plain
+.\DevTool.bat create module Gameplay --project Sandbox\Sandbox.dproject --private-dependency Core --dry-run --plain
 ```
 
 Creation validates names, workspace-wide dependencies, runtime variants, paths, and
@@ -352,7 +352,7 @@ The same `create module` syntax is available in the interactive DurinDevTool she
 Create and register a workspace-local project with one command:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat create project MyGame --path MyGame
+.\DevTool.bat create project MyGame --path MyGame
 ```
 
 The project path may be relative to the workspace root or an absolute path
@@ -372,7 +372,7 @@ registrations in the root `CMakeLists.txt`.
 Preview the complete operation without changing the workspace:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat create project MyGame --path MyGame --dry-run --plain
+.\DevTool.bat create project MyGame --path MyGame --dry-run --plain
 ```
 
 Project creation validates containment, project/module/target name collisions,
@@ -390,8 +390,8 @@ available in the interactive DurinDevTool shell.
 `purge` removes the selected preset's configured build and install trees plus its project output and generated-metadata roots:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat purge --preset Win64-Release-DurinEditor
-.\Tools\DurinDevTool\DevTool.bat purge --preset Win64-Release-DurinEditor --yes
+.\DevTool.bat purge --preset Win64-Release-DurinEditor
+.\DevTool.bat purge --preset Win64-Release-DurinEditor --yes
 ```
 
 Inside the interactive shell:
@@ -405,8 +405,8 @@ DurinDevTool> purge --all-presets
 Purge asks for explicit confirmation unless `--yes` is supplied: enter `PURGE` for the current preset or `PURGE ALL` for the all-presets scope. Use `--all-presets` to remove artifacts for every preset registered to the selected Agent host profile:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat purge --all-presets
-.\Tools\DurinDevTool\DevTool.bat purge --all-presets --yes
+.\DevTool.bat purge --all-presets
+.\DevTool.bat purge --all-presets --yes
 ```
 
 Preset build trees are isolated, third-party runtime DLLs are shared by
@@ -425,7 +425,7 @@ preserves bootstrapped dependencies such as `Build/ThirdParty` and
 On non-Windows hosts, invoke
 `.venv/bin/python Tools/DurinDevTool/durin_dev_tool/__main__.py <arguments>`
 directly after preparing an equivalent virtual environment. Windows callers
-must use `Tools\DurinDevTool\DevTool.bat`. DurinDevTool enforces `VSLANG=1033`
+must use `DevTool.bat`. DurinDevTool enforces `VSLANG=1033`
 after Visual Studio environment setup and verifies that MSVC actually emits
 English diagnostics. This keeps CMake's `/showIncludes` dependency prefix
 stable for both interactive terminals and Agent output pipes. If validation
@@ -448,7 +448,7 @@ The recovery marker covers only operations that mutate configured or compiled bu
 Do not start a second build while an earlier CMake, Ninja, compiler, or linker process tree may still be running. If such a process is cancelled, externally terminated, or loses its controlling DurinDevTool process, wait for the process tree to exit and check `DurinDevTool status`. Only when its recovery state is not `clean`, run the accompanying recovery command. DurinDevTool records a resumable interrupted target as `Recovery state: recover required` and normally reports:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat recover
+.\DevTool.bat recover
 ```
 
 `recover` reuses the existing CMake/Ninja tree and incrementally builds the recorded target. It does not clean first, so completed object files and unrelated outputs remain available. If configuration is missing or unusable, the normal build path configures it before continuing. The recovery marker is cleared only after the incremental build succeeds; another interruption or an ordinary build failure preserves it so recovery can be retried.

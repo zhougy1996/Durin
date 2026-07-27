@@ -119,7 +119,7 @@ class MigratedThirdPartyBootstrapTests(unittest.TestCase):
             "development_only": True,
             "allow_unsupported_platform": True,
             "repair_command": (
-                r"Tools\DurinDevTool\DevTool.bat dependency prepare "
+                r"DevTool.bat dependency prepare "
                 r"--libs tracy,tracy-tools"
             ),
             "source_dir": "packages/tracy-tools/0.13.1/Win64",
@@ -744,12 +744,12 @@ class RelocatedManifestTests(unittest.TestCase):
         self.assertEqual(
             manifest["repair_command"],
             (
-                r"Tools\DurinDevTool\DevTool.bat dependency prepare "
+                r"DevTool.bat dependency prepare "
                 "--libs tracy,tracy-tools"
             ),
         )
         self.assertTrue(
-            (REPOSITORY_ROOT / "Tools" / "DurinDevTool" / "DevTool.bat").is_file()
+            (REPOSITORY_ROOT / "DevTool.bat").is_file()
         )
 
 

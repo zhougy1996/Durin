@@ -28,7 +28,7 @@ Run the following commands from PowerShell or Command Prompt:
 ```powershell
 git clone <repository-url> Durin
 cd Durin
-.\Tools\DurinDevTool\DevTool.bat setup
+.\DevTool.bat setup
 ```
 
 `DevTool setup` performs the following steps:
@@ -52,34 +52,34 @@ After setup succeeds, dependency-backed commands use the Python interpreter from
 After setup, build the complete editor runtime:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat build --target all
+.\DevTool.bat build --target all
 ```
 
 Run the editor:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat run
+.\DevTool.bat run
 ```
 
 Common commands:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat configure
-.\Tools\DurinDevTool\DevTool.bat build --target LevelEditor
-.\Tools\DurinDevTool\DevTool.bat test --target CoreTests
-.\Tools\DurinDevTool\DevTool.bat clean
-.\Tools\DurinDevTool\DevTool.bat purge --preset Win64-Debug-DurinEditor-Tests
-.\Tools\DurinDevTool\DevTool.bat purge --all-presets
-.\Tools\DurinDevTool\DevTool.bat rebuild --target all
-.\Tools\DurinDevTool\DevTool.bat build --preset Win64-Release-DurinEditor --target all
+.\DevTool.bat configure
+.\DevTool.bat build --target LevelEditor
+.\DevTool.bat test --target CoreTests
+.\DevTool.bat clean
+.\DevTool.bat purge --preset Win64-Debug-DurinEditor-Tests
+.\DevTool.bat purge --all-presets
+.\DevTool.bat rebuild --target all
+.\DevTool.bat build --preset Win64-Release-DurinEditor --target all
 ```
 
 Run DurinDevTool without arguments, or pass `shell`, to enter the interactive
 command shell:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat
-.\Tools\DurinDevTool\DevTool.bat shell
+.\DevTool.bat
+.\DevTool.bat shell
 ```
 
 Inside the shell, use `/presets`, `/preset`, `/build`, `/rebuild`, `/test`, `/run`, `/status`, `/help`, and `/exit`. The selected preset is session-local. If a build or test operation is interrupted, do not resume with an incremental build. Wait for the previous process tree to exit, then run `rebuild --target all` for the affected preset.
@@ -99,18 +99,18 @@ After the main worktree has completed `DevTool setup`, use the `worktree`
 command family for the complete linked-worktree lifecycle:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat worktree add ..\Durin-feature -b feature-branch
-.\Tools\DurinDevTool\DevTool.bat worktree prepare ..\Durin-feature
-.\Tools\DurinDevTool\DevTool.bat worktree list
-.\Tools\DurinDevTool\DevTool.bat worktree remove ..\Durin-feature
+.\DevTool.bat worktree add ..\Durin-feature -b feature-branch
+.\DevTool.bat worktree prepare ..\Durin-feature
+.\DevTool.bat worktree list
+.\DevTool.bat worktree remove ..\Durin-feature
 ```
 
 Use `worktree open` to open every registered worktree in Windows Terminal, with
 up to four panes per tab:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat worktree open
-.\Tools\DurinDevTool\DevTool.bat worktree open --dry-run
+.\DevTool.bat worktree open
+.\DevTool.bat worktree open --dry-run
 ```
 
 `add` creates the Git worktree and prepares it automatically. `prepare` is also

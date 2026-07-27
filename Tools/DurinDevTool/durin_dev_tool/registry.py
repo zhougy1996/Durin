@@ -538,7 +538,7 @@ def require_prepared_environment(
         raise DevToolError(
             "Durin's prepared Python environment exists, but DevTool is "
             f'running with "{active_interpreter}". Restart through '
-            "'Tools\\DurinDevTool\\DevTool.bat' so it selects the prepared environment."
+            "'DevTool.bat' so it selects the prepared environment."
         )
     missing_modules = tuple(
         module

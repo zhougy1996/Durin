@@ -116,7 +116,7 @@ Dependencies: Stage 1.
 | Scene synchronization | primitive/material/skybox component tests plus rendering smoke when rendering code changes |
 | Persistence and duplication | level round-trip and PIE duplication tests in `WorldActorTests.cpp` and `WorldPlayTests.cpp` |
 | Editor-facing properties | reflected property container, edit-session, and transaction tests |
-| Plan integrity | `.\Tools\DurinDevTool\DevTool.bat plan validate --scope all` |
+| Plan integrity | `.\DevTool.bat plan validate --scope all` |
 
 Repository build and test commands must follow [Build And Run](../Development/Build/BuildAndRun.md) and [Native C++ Tests](../Development/Build/NativeTests.md).
 

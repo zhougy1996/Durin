@@ -17,9 +17,9 @@ fixture.
 Build and run a test executable through the root wrapper:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat test --target CoreTests
-.\Tools\DurinDevTool\DevTool.bat test --target CoreTests --filter FJsonDocumentTests.ParseObjectFromString
-.\Tools\DurinDevTool\DevTool.bat test --target CoreTests --timeout 60
+.\DevTool.bat test --target CoreTests
+.\DevTool.bat test --target CoreTests --filter FJsonDocumentTests.ParseObjectFromString
+.\DevTool.bat test --target CoreTests --timeout 60
 ```
 
 The first command runs the target's discovered tests. The second passes a GoogleTest filter. The test executable has a 300-second timeout by default; `--timeout <seconds>` changes it, and `--timeout 0` disables it for an intentionally long diagnostic run. The timeout starts after the target has finished building.

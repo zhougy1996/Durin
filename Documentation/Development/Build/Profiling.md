@@ -10,7 +10,7 @@ workflows do not require or link Tracy.
 prepare or repair Tracy without running the full setup flow:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat dependency prepare --libs tracy,tracy-tools
+.\DevTool.bat dependency prepare --libs tracy,tracy-tools
 ```
 
 The supported profiling presets are:
@@ -21,8 +21,8 @@ The supported profiling presets are:
 Build them through DurinDevTool:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat build --preset Win64-Release-DurinEditor-Profiling --target all
-.\Tools\DurinDevTool\DevTool.bat build --preset Win64-Release-DurinGame-Profiling --target all
+.\DevTool.bat build --preset Win64-Release-DurinEditor-Profiling --target all
+.\DevTool.bat build --preset Win64-Release-DurinGame-Profiling --target all
 ```
 
 Both use `CMAKE_BUILD_TYPE=Release`, set `DURIN_PRESET_ROLE=Profiling`, enable
@@ -43,7 +43,7 @@ Root setup installs the matching Tracy host tools at
 source and host tools with:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat dependency prepare --libs tracy,tracy-tools
+.\DevTool.bat dependency prepare --libs tracy,tracy-tools
 ```
 
 After opening a project in DurinEditor, use `Tools > Profiling`:
@@ -122,7 +122,7 @@ If a connection fails:
    than assuming 8086.
 3. Remove a shared `TRACY_PORT` override or assign unique fixed ports.
 4. Run
-   `.\Tools\DurinDevTool\DevTool.bat dependency prepare --libs tracy,tracy-tools`
+   `.\DevTool.bat dependency prepare --libs tracy,tracy-tools`
    if tool status reports a missing or mismatched installation.
 
 ## Instrumentation Surface

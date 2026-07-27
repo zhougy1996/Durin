@@ -133,7 +133,7 @@ class CommandRegistryTests(unittest.TestCase):
 
 class LauncherTests(unittest.TestCase):
     def test_launcher_prefers_venv_then_python_launcher_then_path_python(self) -> None:
-        content = (PRODUCT_ROOT / "DevTool.bat").read_text(encoding="utf-8")
+        content = (REPOSITORY_ROOT / "DevTool.bat").read_text(encoding="utf-8")
         venv = content.index('if exist "%VENV_PYTHON%"')
         launcher = content.index("where py")
         path_python = content.index("where python")
@@ -143,6 +143,7 @@ class LauncherTests(unittest.TestCase):
         self.assertIn('python "%ENTRY_POINT%" %*', content)
         self.assertIn("EnableDelayedExpansion", content)
         self.assertGreaterEqual(content.count("exit /b !ERRORLEVEL!"), 3)
+        self.assertIn(r"Tools\DurinDevTool\durin_dev_tool\__main__.py", content)
 
 
 if __name__ == "__main__":

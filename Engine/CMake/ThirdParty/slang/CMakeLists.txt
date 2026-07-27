@@ -55,34 +55,34 @@ set_target_properties(Slang_Imported PROPERTIES
 if(NOT EXISTS "${SLANG_INCLUDE_DIR}")
 	message(FATAL_ERROR
 		"Slang headers were not found at ${SLANG_INCLUDE_DIR}.\n"
-		"Prepare slang first with Tools/DurinDevTool/DevTool.bat dependency prepare --libs slang."
+		"Prepare slang first with DevTool.bat dependency prepare --libs slang."
 	)
 endif()
 
 if(NOT SLANG_RUNTIME OR NOT EXISTS "${SLANG_RUNTIME}")
 	message(FATAL_ERROR
 		"Slang runtime library was not found under ${SLANG_ROOT}.\n"
-		"Prepare slang first with Tools/DurinDevTool/DevTool.bat dependency prepare --libs slang."
+		"Prepare slang first with DevTool.bat dependency prepare --libs slang."
 	)
 endif()
 
 if(WIN32 AND (NOT SLANG_COMPILER_RUNTIME OR NOT EXISTS "${SLANG_COMPILER_RUNTIME}"))
 	message(FATAL_ERROR
 		"Slang compiler runtime was not found under ${SLANG_ROOT}.\n"
-		"Prepare slang first with Tools/DurinDevTool/DevTool.bat dependency prepare --libs slang."
+		"Prepare slang first with DevTool.bat dependency prepare --libs slang."
 	)
 endif()
 
 if(WIN32 AND (NOT SLANG_GLSLANG_RUNTIME OR NOT EXISTS "${SLANG_GLSLANG_RUNTIME}"))
 	message(FATAL_ERROR
 		"Slang glslang runtime was not found under ${SLANG_ROOT}.\n"
-		"Prepare slang first with Tools/DurinDevTool/DevTool.bat dependency prepare --libs slang."
+		"Prepare slang first with DevTool.bat dependency prepare --libs slang."
 	)
 endif()
 
 if(WIN32 AND (NOT SLANG_IMPORT_LIB OR NOT EXISTS "${SLANG_IMPORT_LIB}"))
 	message(FATAL_ERROR
 		"Slang import library was not found under ${SLANG_ROOT}.\n"
-		"Prepare slang first with Tools/DurinDevTool/DevTool.bat dependency prepare --libs slang."
+		"Prepare slang first with DevTool.bat dependency prepare --libs slang."
 	)
 endif()

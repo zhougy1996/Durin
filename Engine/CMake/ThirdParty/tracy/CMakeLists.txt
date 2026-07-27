@@ -9,7 +9,7 @@ foreach(_durin_tracy_required_file IN LISTS _durin_tracy_required_files)
 	if(NOT EXISTS "${_durin_tracy_required_file}")
 		message(FATAL_ERROR
 			"Tracy profiling was requested, but its pinned source is missing or incomplete. "
-			"Run Tools\\DurinDevTool\\DevTool.bat dependency prepare --libs tracy,tracy-tools and configure again."
+			"Run DevTool.bat dependency prepare --libs tracy,tracy-tools and configure again."
 		)
 	endif()
 endforeach()

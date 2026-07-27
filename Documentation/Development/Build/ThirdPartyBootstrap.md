@@ -10,15 +10,15 @@ linked-worktree preparation.
 Common commands:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat dependency prepare --all --with-tests
-.\Tools\DurinDevTool\DevTool.bat dependency prepare --all --with-development
-.\Tools\DurinDevTool\DevTool.bat dependency prepare --libs tracy,tracy-tools
-.\Tools\DurinDevTool\DevTool.bat dependency prepare --libs glm,spdlog --config Debug
-.\Tools\DurinDevTool\DevTool.bat dependency validate
+.\DevTool.bat dependency prepare --all --with-tests
+.\DevTool.bat dependency prepare --all --with-development
+.\DevTool.bat dependency prepare --libs tracy,tracy-tools
+.\DevTool.bat dependency prepare --libs glm,spdlog --config Debug
+.\DevTool.bat dependency validate
 ```
 
 For a fresh Windows clone, use
-`.\Tools\DurinDevTool\DevTool.bat setup`. It creates `.venv`, installs
+`.\DevTool.bat setup`. It creates `.venv`, installs
 `requirements.txt`, and prepares test and development dependencies through the
 same dependency service.
 

@@ -18,7 +18,7 @@ function(durin_glfw_configure_imported_target)
 			"Installed GLFW package was not found for ${durin_arch} ${CMAKE_BUILD_TYPE}.\n"
 			"Expected install root: ${glfw_install_dir}\n"
 			"Prepare GLFW first, for example:\n"
-			"  Tools/DurinDevTool/DevTool.bat dependency prepare --libs glfw --config ${CMAKE_BUILD_TYPE}\n"
+			"  DevTool.bat dependency prepare --libs glfw --config ${CMAKE_BUILD_TYPE}\n"
 			"or use an equivalent cmake -S/-B/-DCMAKE_INSTALL_PREFIX flow."
 		)
 	endif()
@@ -39,7 +39,7 @@ function(durin_glfw_configure_source_build)
 	if(NOT EXISTS "${glfw_source_dir}/CMakeLists.txt")
 		message(FATAL_ERROR
 			"GLFW source was not found at ${glfw_source_dir}.\n"
-			"Run Tools/DurinDevTool/DevTool.bat dependency prepare --libs glfw first."
+			"Run DevTool.bat dependency prepare --libs glfw first."
 		)
 	endif()
 

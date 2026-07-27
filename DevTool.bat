@@ -1,10 +1,9 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 
-set "PRODUCT_DIR=%~dp0"
-for %%I in ("%PRODUCT_DIR%..\..") do set "REPO_ROOT=%%~fI"
+for %%I in ("%~dp0.") do set "REPO_ROOT=%%~fI"
 set "VENV_PYTHON=%REPO_ROOT%\.venv\Scripts\python.exe"
-set "ENTRY_POINT=%PRODUCT_DIR%durin_dev_tool\__main__.py"
+set "ENTRY_POINT=%REPO_ROOT%\Tools\DurinDevTool\durin_dev_tool\__main__.py"
 
 if exist "%VENV_PYTHON%" (
   "%VENV_PYTHON%" "%ENTRY_POINT%" %*

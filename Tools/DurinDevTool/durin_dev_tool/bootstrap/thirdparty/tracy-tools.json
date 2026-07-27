@@ -5,7 +5,7 @@
   "kind": "tool_package",
   "development_only": true,
   "allow_unsupported_platform": true,
-  "repair_command": "Tools\\DurinDevTool\\DevTool.bat dependency prepare --libs tracy,tracy-tools",
+  "repair_command": "DevTool.bat dependency prepare --libs tracy,tracy-tools",
   "source_dir": "Engine/External/Packages/tracy-tools/0.13.1/Win64",
   "source": {
     "type": "archive",

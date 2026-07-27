@@ -162,13 +162,13 @@ Lifecycle and GC changes must cover:
 Run the focused tests through the repository build driver:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat test --target CoreDObjectTests --plain
+.\DevTool.bat test --target CoreDObjectTests --plain
 ```
 
 For changes that affect runtime behavior or public lifecycle contracts, also build the complete registered profile:
 
 ```powershell
-.\Tools\DurinDevTool\DevTool.bat build --target all --plain
+.\DevTool.bat build --target all --plain
 ```
 
 ## Deferred Work

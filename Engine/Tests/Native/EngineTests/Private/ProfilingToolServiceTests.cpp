@@ -42,7 +42,7 @@ namespace Durin
 							"name": "tracy-tools",
 							"version": "{}",
 							"kind": "tool_package",
-							"repair_command": "Tools\\DurinDevTool\\DevTool.bat dependency prepare --libs tracy,tracy-tools",
+							"repair_command": "DevTool.bat dependency prepare --libs tracy,tracy-tools",
 							"source_dir": "Engine/External/Packages/tracy-tools/{}/Win64",
 							"source": {{
 								"platforms": {{
@@ -115,7 +115,7 @@ namespace Durin
 		EXPECT_NE(Status.Diagnostic.find("tracy-profiler.exe"), std::string::npos);
 		EXPECT_EQ(
 			Status.RepairCommand,
-			R"(Tools\DurinDevTool\DevTool.bat dependency prepare --libs tracy,tracy-tools)"
+			R"(DevTool.bat dependency prepare --libs tracy,tracy-tools)"
 		);
 	}
 

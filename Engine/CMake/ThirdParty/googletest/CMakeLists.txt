@@ -6,7 +6,7 @@ set(googletest_source_dir "${durin_root}/Engine/External/Source/googletest")
 if(NOT EXISTS "${googletest_source_dir}/CMakeLists.txt")
 	message(FATAL_ERROR
 		"googletest source was not found at ${googletest_source_dir}.\n"
-		"Run Tools/DurinDevTool/DevTool.bat dependency prepare --libs googletest first."
+		"Run DevTool.bat dependency prepare --libs googletest first."
 	)
 endif()
 
