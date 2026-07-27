@@ -2,7 +2,7 @@
 
 Summary: Material editing, surface models, shader maps, and runtime materials.
 
-Last reviewed: 2026-07-24
+Last reviewed: 2026-07-27
 
 ## Current Status
 
@@ -24,9 +24,10 @@ The Content Browser can now create material and material-instance assets and
 open them in a dedicated Material Editor. The first editor slice exposes the
 current built-in scalar, color, and texture parameters, parent selection,
 per-parameter instance overrides, reset-to-parent behavior, and save support.
-It does not yet provide a rendered preview, thumbnails, drag/drop, arbitrary
-declared parameters, or complete rename/delete synchronization for open
-documents.
+Material and material-instance cards now have persistent rendered sphere
+thumbnails with invalid and failure states. The editor still does not provide
+an interactive rendered preview, drag/drop, arbitrary declared parameters, or
+complete rename/delete synchronization for open documents.
 
 Static-mesh material assignment now uses the landed mesh-slot architecture:
 meshes own persistent reconciled slot GUIDs and optional defaults, components
@@ -82,7 +83,7 @@ but cannot be authored normally.
 - [ ] Add Content Browser drag/drop for texture parameters and instance parents.
 - [ ] Add a lit preview scene, mesh selection, camera controls, and live updates
   without requiring reassignment on a level component.
-- [ ] Add material and material-instance thumbnails with invalid/compiling
+- [x] Add material and material-instance thumbnails with invalid/compiling
   states.
 - [ ] Add editor tests covering create, edit, save/reload, assign to a mesh
   slot, inherited update, and deletion/reference diagnostics.

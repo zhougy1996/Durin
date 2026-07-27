@@ -73,6 +73,19 @@ The six principal-axis cases all produce `(U, V) = (0.5, 0.5)` on the
 corresponding face. Directional test images use a distinct center color per
 face and labeled edge markers matching the source-orientation table.
 
+## Editor Thumbnail Sampling
+
+The Content Browser TextureCube provider uses an editor-only reflective-sphere
+shader. It samples the authored cube resource with the world-space reflection
+vector and the same face, row, and direction-to-face contract defined above;
+it must not substitute the black fallback cube as successful output. The
+provider waits for an exact ready build/resource revision and includes the
+package fingerprint, provider schema, and visual contract in its persistent
+key. The in-flight revision is revalidated before publication. A warm PNG hit
+performs no cube load, GPU build, preview render, or readback. General
+ownership, scheduling, persistence, and recovery rules are documented in
+[Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md).
+
 ## Equirectangular Panorama Import
 
 An equirectangular panorama is an offline source layout for the existing LDR

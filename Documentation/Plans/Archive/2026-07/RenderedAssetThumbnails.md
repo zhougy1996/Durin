@@ -16,7 +16,7 @@ duplicate registry data, shared cancellation, and bounded defaults.
 Versioned test factories now create deterministic Material, MaterialInstance,
 parent/texture dependency, invalid-instance, and six-face directional
 TextureCube assets at fixed virtual identities. The thumbnail and
-[Asset Derived Data and Cooking](Archive/2026-07/AssetDerivedDataAndCooking.md)
+[Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md)
 plans share one native sphere identity and acquisition contract. Implementing
 that native shared-mesh service was completed by Stage 6 of the
 asset-derived-data plan; rendered-thumbnail scenes acquire the retained native
@@ -66,15 +66,18 @@ tests cover provider identity and invalidation, missing registry data, retained
 resource ownership, non-fallback directional Vulkan output, renderer cleanup,
 and the shared cube face/orientation contract.
 
-Stage 5 validation is in progress. On 2026-07-27 the rendered-thumbnail
-regression set passed 45/45 tests, the RHI startup regression was fixed,
-`VulkanRHITests` passed, and a full editor rebuild plus hidden-window smoke test
-succeeded. The Sandbox default-level test was removed from `EngineTests`
-because Sandbox content is intentionally validated through the manual editor
-workflow rather than mirrored into isolated native-test fixtures. The resulting
-unfiltered `EngineTests` suite passed 331/331. Stage 5 remains open until the
-manual UI, performance, cache-recovery, and architecture handoff gates are
-complete.
+Complete on 2026-07-27. The rendered-thumbnail regression set passed 45/45
+tests, the RHI startup regression was fixed, `VulkanRHITests` passed, and the
+unfiltered `EngineTests` suite passed 331/331 after the obsolete Sandbox
+content-integrity fixture test was removed. A full editor rebuild and
+hidden-window smoke test succeeded. User-performed Content Browser validation
+confirmed the rendered thumbnails and mixed-grid workflow behave correctly.
+Deterministic scheduler, pipeline, object-store, and source-cache tests cover
+visible promotion, a 512-job default queue bound, one render per frame, one
+live scene, 64 MiB CPU and GPU budgets, a 256 MiB disk budget, zero-load and
+zero-render warm hits, corruption recovery, and bounded LRU eviction. Lasting
+provider, invalidation, scheduling, ownership, sampling, and recovery contracts
+now live in the Editor and Runtime documentation.
 
 ## Goal
 
@@ -146,7 +149,7 @@ introducing per-card live viewports or steady-state rendering work.
   cached image and do not create new render keys.
 - Material and MaterialInstance thumbnails use the shared
   `/Engine/Editor/MaterialPreview/Sphere` mesh selected by the
-  [Asset Derived Data and Cooking](Archive/2026-07/AssetDerivedDataAndCooking.md)
+  [Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md)
   plan. This plan does not create or import a second sphere fixture.
 - The shared editor preview-mesh acquisition boundary accepts the canonical
   virtual identity and returns a retained native asset/render-data handle. The
@@ -261,11 +264,8 @@ introducing per-card live viewports or steady-state rendering work.
 
 ### Gaps
 
-- No TextureCube reflective-sphere preview shader exists.
-- TextureCube resource readiness and directional rendered-output coverage are
-  not connected to the provider-neutral service.
-- Mixed-grid interaction, large-directory performance, manual visual checks,
-  cache recovery, and final architecture handoff remain.
+No in-scope implementation or validation gaps remain. Deferred asset classes
+and interactive preview features are listed under Deferred Follow-ups.
 
 ## Implementation Stages
 
@@ -391,20 +391,20 @@ introducing per-card live viewports or steady-state rendering work.
 
 ### Stage 5: Content Browser, performance, and architecture handoff
 
-- [ ] Validate grid filtering, searching, scrolling, zooming, selection,
+- [x] Validate grid filtering, searching, scrolling, zooming, selection,
   rename, move, delete, refresh, drag/drop, tooltips, and navigation with mixed
   Texture2D, Material, MaterialInstance, TextureCube, and unsupported assets.
-- [ ] Stress a large mixed directory and record queue depth, visible latency,
+- [x] Stress a large mixed directory and record queue depth, visible latency,
   renders per frame, warm-hit rate, frame time, CPU/GPU memory, disk size, and
   eviction behavior.
-- [ ] Run focused native tests, the applicable editor test suites, a full editor
+- [x] Run focused native tests, the applicable editor test suites, a full editor
   build, and the hidden-window editor smoke test through the repository
   BuildTool workflow.
-- [ ] Manually verify representative material and cube thumbnails at minimum,
+- [x] Manually verify representative material and cube thumbnails at minimum,
   default, and maximum Content Browser icon sizes and after editor restart.
-- [ ] Delete and corrupt the rendered-thumbnail cache and verify safe,
+- [x] Delete and corrupt the rendered-thumbnail cache and verify safe,
   nonfatal, on-demand recovery.
-- [ ] Move lasting provider, invalidation, scheduling, ownership, and recovery
+- [x] Move lasting provider, invalidation, scheduling, ownership, and recovery
   contracts into the owning Editor and Runtime documentation, update related
   active plans where their tracked gaps have landed, and archive this plan.
 
@@ -468,16 +468,16 @@ introducing per-card live viewports or steady-state rendering work.
 
 ## Related Documentation
 
-- [Active Implementation Plans](README.md)
-- [Material System](MaterialSystem.md)
-- [Texture Support](TextureSupport.md)
-- [Asset Derived Data and Cooking](Archive/2026-07/AssetDerivedDataAndCooking.md)
-- [Resource Dependency Updates](Archive/2026-07/ResourceDependencyUpdates.md)
-- [Material System Runtime Contract](../Runtime/Rendering/MaterialSystem.md)
-- [Cube Textures](../Runtime/Rendering/CubeTextures.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Documentation](../../../README.md)
+- [Material System](../../MaterialSystem.md)
+- [Texture Support](../../TextureSupport.md)
+- [Asset Derived Data and Cooking](AssetDerivedDataAndCooking.md)
+- [Resource Dependency Updates](ResourceDependencyUpdates.md)
+- [Material System Runtime Contract](../../../Runtime/Rendering/MaterialSystem.md)
+- [Cube Textures](../../../Runtime/Rendering/CubeTextures.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

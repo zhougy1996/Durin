@@ -140,6 +140,16 @@ editor retention service. Multiple documents coalesce by virtual asset identity;
 preview creation performs no transient OBJ import, and retained handles provide
 the GC lifetime edge.
 
+Content Browser Material and MaterialInstance thumbnails acquire the same
+retained sphere and bind fully resolved `FMaterialRenderData`; they do not own a
+second mesh import or a live viewport. Their cache key contains the material
+package plus a deterministic, sorted, cycle-guarded closure of parent-material
+and referenced-texture package fingerprints. A parent, local override, or
+referenced texture change therefore regenerates the dependent preview, while a
+warm PNG hit performs no asset load or render. Provider, scheduling, recovery,
+and UI behavior belongs to the editor
+[Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md) contract.
+
 ## Design Rules
 
 - Components and assets use `DMaterialInterface`; renderer code consumes only render data and shader maps.

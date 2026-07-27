@@ -119,10 +119,11 @@ completed or explicitly handed off the shared working set.
 
 ### Active-plan coordination
 
-- `RenderedAssetThumbnails` owns its remaining Stage 5 Content Browser
-  validation and handoff. This plan does not move thumbnail request, result,
-  scheduling, or cache ownership until that stage commits or explicitly hands
-  off its Content Browser working set.
+- The completed `RenderedAssetThumbnails` plan handed provider-neutral request,
+  result, scheduling, persistent cache, and preview-scene ownership to
+  `DurinEd`; this plan may move LevelEditor presentation and facade code only
+  while preserving the editor
+  [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md) contract.
 - `SourceLibraryReferences` owns source-library registry, portable source
   location, reference-versus-ingest classification, and import-dialog source
   library presentation. Shared import destination extraction must consume
@@ -445,7 +446,7 @@ commands or output paths that may change.
 - [Editor UI Style](../Editor/Design/UIStyle.md)
 - [C++ Coding Standards](../Development/Standards/CodingStandards.md)
 - [Build and Run](../Development/Build/BuildAndRun.md)
-- [Rendered Asset Thumbnails Plan](RenderedAssetThumbnails.md)
+- [Rendered Asset Thumbnails Plan](Archive/2026-07/RenderedAssetThumbnails.md)
 - [Source Library References Plan](SourceLibraryReferences.md)
 - [Ready-to-Use Static Model Import Plan](ReadyToUseStaticModelImport.md)
 

@@ -102,7 +102,25 @@ which unloaded material instances are direct children of a material. Loaded
 material hierarchy queries instead inspect canonical Parent chains; an unloaded
 child query requires a future searchable-property metadata contract.
 
-`Thumbnails/Index.bin` maps stable source and generator keys to resized PNG objects under `Thumbnails/Objects/`. Keys include normalized source identity, source size and last-write time, maximum dimensions, generator schema, color-space policy, and output encoding version. A warm hit decodes the generated PNG without reopening the source image, then follows the existing asynchronous, serial-validated RHI upload path. Missing or modified sources, changed settings or versions, corrupt indexes or PNGs, and missing objects become safe misses. Object and index writes are atomic; persistence failure does not fail a valid in-memory thumbnail. Encoded objects use an independent disk LRU budget, while RHI textures retain their process-local GPU budget. Cleanup resolves and validates every target beneath the exact thumbnail cache root before deletion.
+`Thumbnails/Index.bin` maps stable provider-neutral keys to PNG objects under
+`Thumbnails/Objects/`. Source-image keys include normalized source identity,
+source size and last-write time, maximum dimensions, generator schema,
+color-space policy, and output encoding version. Rendered Material,
+MaterialInstance, and TextureCube keys instead include virtual asset identity,
+exact class, package fingerprint, provider and visual-contract schemas, fixed
+output settings, and preview-fixture identity; material keys also include the
+sorted transitive package-dependency closure. In-flight generation separately
+revalidates asset and render-resource revisions before publication. A warm hit
+decodes the generated PNG and follows the asynchronous, serial-validated RHI
+upload path without reopening source input or loading and rendering the authored
+asset. Missing or modified inputs, changed dependencies, settings, revisions or
+versions, corrupt indexes or PNGs, and missing objects become safe misses.
+Object and index writes are atomic; persistence failure does not fail valid
+in-memory pixels. Encoded objects use an independent disk LRU budget, while RHI
+textures retain their process-local GPU budget. Cleanup resolves and validates
+every target beneath the exact thumbnail cache root before deletion. Editor
+provider, scheduling, lifetime, and presentation ownership is documented in
+[Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md).
 
 `Textures/Objects/<key-prefix>/<key>.bin` and
 `TextureCube/Objects/<key-prefix>/<key>.bin` store Texture2D and TextureCube
