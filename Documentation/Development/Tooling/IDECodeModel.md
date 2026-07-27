@@ -1,28 +1,28 @@
 # IDE Code Model And Debugging
 
 This guide configures Visual Studio Code or CLion as a code browser, editor, and
-debugger while keeping BuildTool as the only build owner for the checkout.
+debugger while keeping DurinDevTool as the only build owner for the checkout.
 
 ## Shared Workflow
 
 All configuration, builds, and tests that produce Durin outputs must run through
-the root BuildTool wrapper:
+DurinDevTool:
 
 ```powershell
-.\BuildTool configure
-.\BuildTool build --target all
-.\BuildTool test --target CoreTests
+.\Tools\DurinDevTool\DevTool.bat configure
+.\Tools\DurinDevTool\DevTool.bat build --target all
+.\Tools\DurinDevTool\DevTool.bat test --target CoreTests
 ```
 
 An IDE may read an isolated CMake tree or a compilation database, and it may
-launch an executable that BuildTool already produced. It must not invoke CMake
+launch an executable that DurinDevTool already produced. It must not invoke CMake
 build, Ninja, Clean, Rebuild, install, or a test build. Do not run IDE CMake
-Configure/Reload while BuildTool owns the checkout.
+Configure/Reload while DurinDevTool owns the checkout.
 
-Build the complete runtime through BuildTool before debugging the editor:
+Build the complete runtime through DurinDevTool before debugging the editor:
 
 ```powershell
-.\BuildTool build --target all
+.\Tools\DurinDevTool\DevTool.bat build --target all
 ```
 
 The editor executable is
@@ -31,7 +31,7 @@ The editor executable is
 ## Visual Studio Code
 
 Visual Studio Code does not need CMake Tools to provide the C++ code model.
-BuildTool's default `Win64-Debug-DurinEditor-Tests` preset generates:
+DurinDevTool's default `Win64-Debug-DurinEditor-Tests` preset generates:
 
 ```text
 Build/Win64-Debug-DurinEditor-Tests/compile_commands.json
@@ -39,9 +39,9 @@ Build/Win64-Debug-DurinEditor-Tests/compile_commands.json
 
 The tracked `.vscode/settings.json` points clangd at this database, enables its
 background index, and disables automatic configure/build behavior if CMake Tools
-happens to be installed. Run `BuildTool configure` after creating a fresh build
+happens to be installed. Run `DurinDevTool configure` after creating a fresh build
 tree or changing CMake inputs so the database remains current. Run a normal
-BuildTool build when generated DHT headers or sources are missing or stale.
+DurinDevTool build when generated DHT headers or sources are missing or stale.
 
 ### clangd
 
@@ -70,14 +70,14 @@ instead. In that case, configure the C/C++ extension to read the same
 
 Create a C++ launch configuration whose program is the existing
 `DurinEditor.exe`. Do not add a `preLaunchTask` or any build task. Build or refresh
-the executable from a terminal with BuildTool before starting the debugger.
+the executable from a terminal with DurinDevTool before starting the debugger.
 
 ## CLion
 
 CLion uses the IDE-only `Win64-Debug-DurinEditor-FastConfigure` CMake profile for
 its code model. This preset has an isolated CMake/Ninja tree and disables PCH
 artifact generation while retaining the forced project PCH includes needed by
-the code model. BuildTool intentionally does not own this preset. The preset is
+the code model. DurinDevTool intentionally does not own this preset. The preset is
 also marked `DURIN_IDE_CODE_MODEL_ONLY=ON`: every generated build target depends
 on a guard that prints an actionable error and fails before DHT, compilation, or
 linking can start.
@@ -88,7 +88,7 @@ Configure CLion as follows:
 2. In **Settings | Build, Execution, Deployment | CMake**, enable only
    `Win64-Debug-DurinEditor-FastConfigure` for the Durin code model.
 3. Set the profile environment to `VSLANG=1033`.
-4. Allow CMake Configure/Reload only while BuildTool is idle.
+4. Allow CMake Configure/Reload only while DurinDevTool is idle.
 5. Create a **Native Application** run configuration for
    `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`.
 6. Remove **Build** and every other compilation step from **Before launch**.
@@ -97,13 +97,13 @@ The FastConfigure profile is for CMake configuration, project discovery, and
 CLion indexing only. Its generated targets intentionally cannot build because
 compiling without PCH would be unnecessarily slow. Never use CLion's Build,
 Rebuild, Clean, target, or test-build actions. Build from a terminal with
-BuildTool, then use CLion only to read code, launch, or attach the debugger.
+DurinDevTool, then use CLion only to read code, launch, or attach the debugger.
 
 An accidental CLion Build action should fail immediately with this message and
 must not start any compiler or DHT process:
 
 ```text
-ERROR: This IDE preset is code-model-only and cannot build. Use BuildTool.bat with a registered build preset.
+ERROR: This IDE preset is code-model-only and cannot build. Use Tools/DurinDevTool/DevTool.bat with a registered build preset.
 ```
 
 FastConfigure shares final binaries and generated DHT metadata with the normal
@@ -115,18 +115,18 @@ does not make concurrent IDE configuration or IDE builds safe.
 If clangd reports missing project includes or widespread incorrect macros,
 confirm that its output names
 `Build/Win64-Debug-DurinEditor-Tests/compile_commands.json`, rerun
-`BuildTool configure`, and restart the language server. A newly prepared checkout
-may also need one successful BuildTool build to create generated DHT files.
+`DurinDevTool configure`, and restart the language server. A newly prepared checkout
+may also need one successful DurinDevTool build to create generated DHT files.
 
 If CLion prints localized MSVC `/showIncludes` lines such as
 `注意: 包含文件:`, confirm `VSLANG=1033`, then reset only the CLion CMake cache or
-remove `Build/Win64-Debug-DurinEditor-FastConfigure` while BuildTool is idle and
-let CLion configure it again. Do not remove a BuildTool-owned build tree as IDE
+remove `Build/Win64-Debug-DurinEditor-FastConfigure` while DurinDevTool is idle and
+let CLion configure it again. Do not remove a DurinDevTool-owned build tree as IDE
 maintenance.
 
 If an IDE accidentally starts a build, stop it and wait for its complete process
 tree to exit. Follow the interruption recovery procedure in `BuildAndRun.md`
-before the next BuildTool build.
+before the next DurinDevTool build.
 
 ## Related Docs
 

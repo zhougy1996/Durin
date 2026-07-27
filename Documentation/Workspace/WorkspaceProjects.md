@@ -28,7 +28,7 @@ Typical workspace contents:
 Projects are top-level owners such as `Engine` or `Sandbox`. They typically own `.dproject`, `Source/`, `Configs/`, `Intermediate/`, and `Binaries/`.
 
 At runtime, launch a specific project with
-`BuildTool run --project <path-to-project.dproject>`. BuildTool accepts a
+`DurinDevTool run --project <path-to-project.dproject>`. DurinDevTool accepts a
 workspace-relative or absolute existing descriptor and forwards its normalized
 absolute path through the launcher's `--project=<path>` contract. The project
 root is the descriptor's parent directory, so projects may live outside the
@@ -41,7 +41,7 @@ Modules are the compilation and runtime loading units. They belong to a project,
 
 Most new gameplay or editor work should start as a module, not a new project.
 
-Use `BuildTool create module` to create and register one. By default the command
+Use `DurinDevTool create module` to create and register one. By default the command
 writes runtime and editor modules beneath `Source/Runtime` and `Source/Editor`,
 respectively. These are generator conventions rather than architectural
 categories: `--path <ProjectRelativePath>` may place a module anywhere inside
@@ -62,7 +62,7 @@ exist. The full command syntax and defaults are documented in
 `Documentation/Development/Build/BuildAndRun.md`.
 
 When a separate top-level owner is required, use
-`BuildTool create project <Name> --path <Path>`. In the current workflow the
+`DurinDevTool create project <Name> --path <Path>`. In the current workflow the
 path must be a new direct child of the workspace root. The command creates the
 project descriptor and CMake entrypoints, `Configs/` and `Content/`, and a
 same-named runtime module enabled in `BaseModules`; it also adds the explicit

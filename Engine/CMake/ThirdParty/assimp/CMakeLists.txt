@@ -21,7 +21,7 @@ function(durin_assimp_configure_imported_target)
 			"Installed assimp package was not found for ${durin_arch} ${CMAKE_BUILD_TYPE}.\n"
 			"Expected install root: ${assimp_install_dir}\n"
 			"Prepare assimp first, for example:\n"
-			"  Engine/Scripts/Bootstrap/Setup_assimp.bat ${CMAKE_BUILD_TYPE}\n"
+			"  Tools/DurinDevTool/DevTool.bat dependency prepare --libs assimp --config ${CMAKE_BUILD_TYPE}\n"
 			"or use an equivalent cmake -S/-B/-DCMAKE_INSTALL_PREFIX flow."
 		)
 	endif()
@@ -44,7 +44,7 @@ function(durin_assimp_configure_source_build)
 	if(NOT EXISTS "${assimp_source_dir}/CMakeLists.txt")
 		message(FATAL_ERROR
 			"Assimp source was not found at ${assimp_source_dir}.\n"
-			"Run Engine/Scripts/Bootstrap/Setup_assimp.bat first to clone the source."
+			"Run Tools/DurinDevTool/DevTool.bat dependency prepare --libs assimp first."
 		)
 	endif()
 

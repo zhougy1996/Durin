@@ -33,17 +33,17 @@ Relevant implementation and architecture:
 - [`parallelism.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/runtime/parallelism.py);
 - [`module_export_file_generator.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/generators/module_export_file_generator.py);
 - [`module_reflection_files_generator.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/generators/module_reflection_files_generator.py);
-- [`config.py`](../../Tools/BuildTool/durin_build_tool/config.py), especially
+- [`config.py`](../../Tools/DurinDevTool/durin_dev_tool/build/config.py), especially
   `resolve_jobs`;
-- [`core.py`](../../Tools/BuildTool/durin_build_tool/core.py), which passes
+- [`core.py`](../../Tools/DurinDevTool/durin_dev_tool/build/core.py), which passes
   the resolved job count to `cmake --build`.
 
 ## Verified Findings
 
 ### P2 — Ninja cannot account for DHT parser children
 
-BuildTool reserves two logical processors by default. On the reviewed machine,
-`os.cpu_count()` reports 20, so BuildTool invokes the build with 18 Ninja jobs.
+DurinDevTool reserves two logical processors by default. On the reviewed machine,
+`os.cpu_count()` reports 20, so DurinDevTool invokes the build with 18 Ninja jobs.
 The configured DHT defaults permit two active module commands and four parser
 workers inside each command.
 
@@ -77,7 +77,7 @@ reserving for compilation prevents a critical-path DHT module from borrowing
 idle compiler slots.
 
 **Impact:** changing only `DURIN_DHT_JOB_POOL_SIZE`, `DURIN_DHT_WORKERS`, or the
-BuildTool job count may improve one workload snapshot while regressing another.
+DurinDevTool job count may improve one workload snapshot while regressing another.
 
 ### P2 — Engine exposes enough parse work to benefit from dynamic borrowing
 
@@ -129,7 +129,7 @@ pool risks taking the same capacity away from ready compiler jobs.
 
 ### Shared jobserver
 
-BuildTool can own one cross-process token budget and let Ninja edges and DHT
+DurinDevTool can own one cross-process token budget and let Ninja edges and DHT
 parser children consume tokens from it. DHT would request extra tokens for
 parallel parsing and return each token as work completes. Its configured worker
 count would become a ceiling; the shared token supply would determine actual
@@ -142,7 +142,7 @@ and enables it only when no explicit `-j` is passed and `MAKEFLAGS` describes a
 valid jobserver. See the
 [Ninja GNU jobserver documentation](https://ninja-build.org/manual.html#_gnu_jobserver_support).
 Ninja is a client rather than the top-level server, so upgrading alone is not
-enough: BuildTool would still need to create and own the jobserver.
+enough: DurinDevTool would still need to create and own the jobserver.
 
 CMake's `JOB_SERVER_AWARE` option is not a shortcut for the current Ninja
 generator; CMake documents it as ignored outside its Makefile generators. See
@@ -164,7 +164,7 @@ Ninja graph:
 4. finalize the module manifest, cleanup state, and reflection stamp.
 
 Each parser process then consumes one ordinary Ninja job, making the existing
-BuildTool job count the single CPU budget. Header edges provide the best
+DurinDevTool job count the single CPU budget. Header edges provide the best
 incremental granularity and enough ready work for Engine to fill the machine.
 Fixed shards can reduce Python/libclang startup cost, but need per-header cache
 checks inside each shard and expose less scheduling flexibility.
@@ -214,7 +214,7 @@ Use an isolated worktree or preset for full-generation measurements;
 do not delete shared DHT outputs from an active preset merely to force a
 benchmark. Capture:
 
-- Ninja version, resolved BuildTool job count, DHT worker ceiling, and DHT pool
+- Ninja version, resolved DurinDevTool job count, DHT worker ceiling, and DHT pool
   depth;
 - per-module export/reflection wall time;
 - active compiler and parser process counts over time;

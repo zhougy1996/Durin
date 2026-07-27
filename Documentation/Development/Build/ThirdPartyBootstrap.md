@@ -1,42 +1,40 @@
-# Cross-Platform Third-Party Bootstrap
+# Third-Party Dependency Preparation
 
 This document covers dependency preparation, shared external layout, and worktree sharing.
 
 ## Entry Points
 
-- Primary script: `Engine/Scripts/Bootstrap/setup_third_party.py`
-- Windows wrappers:
-  - `Engine/Scripts/Bootstrap/Bootstrap.bat`
-  - `Engine/Scripts/Bootstrap/Setup_<Library>.bat`
-  - Root `WorktreeTool.bat` for linked-worktree preparation
+DurinDevTool owns dependency preparation, manifest validation, setup, and
+linked-worktree preparation.
 
 Common commands:
 
 ```powershell
-.venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --all --with-tests
-.venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --all --with-development
-.venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --libs tracy
-.venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --libs tracy-tools --status
-.venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --libs glm,spdlog --config Debug
-.venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
+.\Tools\DurinDevTool\DevTool.bat dependency prepare --all --with-tests
+.\Tools\DurinDevTool\DevTool.bat dependency prepare --all --with-development
+.\Tools\DurinDevTool\DevTool.bat dependency prepare --libs tracy,tracy-tools
+.\Tools\DurinDevTool\DevTool.bat dependency prepare --libs glm,spdlog --config Debug
+.\Tools\DurinDevTool\DevTool.bat dependency validate
 ```
 
-For a fresh Windows clone, use the root `Setup.bat` instead of invoking this script directly. It creates `.venv`, installs `requirements.txt`, and prepares test and development dependencies through the third-party bootstrap.
+For a fresh Windows clone, use
+`.\Tools\DurinDevTool\DevTool.bat setup`. It creates `.venv`, installs
+`requirements.txt`, and prepares test and development dependencies through the
+same dependency service.
 
 ## Worktree Sharing
 
-- `WorktreeTool prepare` links a linked worktree's `Engine/External` and `.venv` to a prepared dependency worktree.
+- `DevTool worktree prepare` links a linked worktree's `Engine/External` and `.venv` to a prepared dependency worktree.
 - The same command links the complete `.agents` directory from that dependency worktree, so machine-local configuration and helper changes are shared immediately.
 - When migrating an existing worktree with a real non-empty `.agents` directory, the helper preserves it as `.agents.pre-link-backup` before creating the link.
 - On Windows, all three shared directories use directory junctions by default; `.agents/build-config.json` remains a regular file in the source worktree and is reached through that shared directory.
-- Preview the operation with `WorktreeTool prepare --dry-run`.
+- Preview the operation with `DevTool worktree prepare --dry-run`.
 - By default, linked Git worktrees pull those links from the main worktree root.
 - Use `--source` when the prepared dependency worktree is not the main worktree root.
-- `Setup.bat` initializes only the main checkout and reports an error when invoked from a linked worktree.
-- `WorktreeTool add` creates and prepares a linked worktree; invoking
-  `WorktreeTool` without arguments opens terminals for every registered
-  worktree.
-- `WorktreeTool remove` is the required Windows removal path. It refuses the
+- `DevTool setup` initializes only the main checkout and reports an error when invoked from a linked worktree.
+- `DevTool worktree add` creates and prepares a linked worktree;
+  `DevTool worktree open` opens terminals for every registered worktree.
+- `DevTool worktree remove` is the required Windows removal path. It refuses the
   main worktree, locked worktrees, and unexpected directory links, then detaches
   the three shared junctions before invoking Git. Direct recursive deletion can
   follow a junction and remove the shared source directory outside the target
@@ -97,10 +95,9 @@ Current example: `tracy-tools`
 - A tool package may explicitly allow unsupported host platforms. Such a
   package is skipped with a status message while the remaining selected
   dependencies continue.
-- `--status` reports selected manifests as JSON without downloading, extracting,
-  or creating directories. The report includes platform support, resolved
-  source directory, required and missing files, preparation state, version, and
-  focused repair command.
+- The editor profiling status UI reports Tracy platform support, resolved
+  paths, required and missing files, preparation state, version, and the
+  focused repair command from the manifests.
 
 ### Shared Install
 
@@ -120,7 +117,8 @@ Current examples: `spdlog`, `glfw`, `rapidyaml`, `assimp`
 
 ## Manifest Model
 
-Third-party manifests live under `Engine/Scripts/Bootstrap/thirdparty/*.json` and declare:
+Third-party manifests live under
+`Tools/DurinDevTool/durin_dev_tool/bootstrap/thirdparty/*.json` and declare:
 
 - library identity
 - dependency kind
@@ -139,17 +137,17 @@ Third-party manifests live under `Engine/Scripts/Bootstrap/thirdparty/*.json` an
 - `--all` skips test-only dependencies unless `--with-tests` is supplied.
 - `--all` skips development-only dependencies unless `--with-development` is
   supplied. Explicit `--libs <name>` selection remains available.
-- `Bootstrap.bat`, and therefore the root `Setup.bat`, supplies
-  `--with-tests --with-development` so a fully prepared checkout includes both
-  dependency classes by default.
+- `DevTool setup` prepares all ordinary dependencies and supplies the test and
+  development selections so a fully prepared checkout includes both dependency
+  classes by default.
 - `googletest` is test-only.
 - Tracy `v0.13.1` source and matching Win64 host tools are development-only and
-  licensed under BSD-3-Clause. Root setup prepares both by default; use
-  `Engine/Scripts/Bootstrap/Setup_tracy.bat` to prepare or repair them together.
+  licensed under BSD-3-Clause. Setup prepares both by default; use
+  `DevTool dependency prepare --libs tracy,tracy-tools` to prepare or repair
+  them together.
   The upstream binary archive does not include its license file; the prepared
   Tracy source retains `Engine/External/Source/tracy/LICENSE`, and repository
   documentation accompanying the managed download retains the license and
   copyright reference required for binary redistribution.
 - Vulkan Memory Allocator is supplied by the Vulkan SDK rather than this bootstrap. See `BuildAndRun.md` for the required SDK layout and the older-SDK fallback.
 - Main project configure and build still start from `CMakePresets.json`.
-- Legacy third-party assets can be inspected with `python Engine/Scripts/Bootstrap/cleanup_legacy_thirdparty.py --dry-run`.

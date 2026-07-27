@@ -373,7 +373,7 @@ Dependencies: Stages 1 through 6 as applicable.
   Editor Architecture document and leave this plan as implementation history.
 - [ ] Run plan validation, focused native/editor suites, a successful full
   `all` build, and the hidden-window editor smoke test through the repository
-  BuildTool workflow.
+  DurinDevTool workflow.
 
 #### Acceptance Gate
 

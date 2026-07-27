@@ -273,7 +273,7 @@ payload descriptors, and publish the matching DBLK companion and manifest
 through that context.
 
 End-to-end packaging orchestration is not yet connected to an editor command or
-BuildTool action. There is currently no user-facing command that discovers an
+DurinDevTool action. There is currently no user-facing command that discovers an
 entire project cook set, invokes every asset contributor, and stages a complete
 installable build. Asset-level cook and publication behavior is exercised
 directly by native tests; its presence must not be interpreted as a completed

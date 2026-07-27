@@ -609,7 +609,7 @@ subset.
   inspection without retaining editor provenance in default cooked packages.
 - [ ] Run focused native suites, complete Engine tests, a successful full
   `all` build, hidden-window editor import/reload smoke coverage, and cooked
-  runtime smoke coverage through the repository BuildTool workflow.
+  runtime smoke coverage through the repository DurinDevTool workflow.
 - [ ] Move lasting import representation, material mapping, source dependency,
   reimport, generated-asset, and runtime/cook contracts into their owning
   Runtime or Editor Architecture documents.
@@ -664,7 +664,7 @@ subset.
 - Cooked output loads without source models, source images, mounted SourceAssets
   registration, Assimp, or editor image decoders.
 - Required focused tests, full build, editor smoke, rendered validation, and
-  cooked runtime validation succeed through the repository BuildTool.
+  cooked runtime validation succeed through the repository DurinDevTool.
 - Long-lived implemented contracts are documented in their owning domains and
   this plan is archived with completion evidence.
 

@@ -11,7 +11,8 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
   user explicitly requests refactoring repository-owned C++.
 - Follow the nearest `AGENTS.md` for authoring and lifecycle rules; do not infer
   formats from unrelated documents.
-- Machine-local build overrides belong in optional `.agents/build-config.json`; create it with `Setup.bat` when needed.
+- Machine-local build overrides belong in optional `.agents/build-config.json`;
+  create it with `.\Tools\DurinDevTool\DevTool.bat setup` when needed.
 
 ## Plan Stage Continuation
 
@@ -22,24 +23,26 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 ## Repository Rules
 
 - Each checkout has one source/build writer; use separate worktrees for concurrency.
-- Before any configure, build, test, or runtime launch, read `Documentation/Development/Build/BuildAndRun.md` and use the repository BuildTool entrypoint described there.
+- Before any configure, build, test, or runtime launch, read
+  `Documentation/Development/Build/BuildAndRun.md` and use the DurinDevTool
+  entrypoint described there.
 - Treat configure, build, rebuild, and test operations as long-running tasks,
-  including BuildTool actions, scripts, wrappers, and other commands that may
+  including DurinDevTool actions, scripts, wrappers, and other commands that may
   invoke them transitively. Set the execution tool's timeout explicitly to at
   least 10 minutes (`timeout_ms: 600000`), and use at least one hour
   (`timeout_ms: 3600000`) for a full `all` build or rebuild. Do not rely on the
   tool's default timeout or assume that an approved command prefix supplies one.
 - If the execution tool explicitly yields a running process or cell ID, wait on
   that same invocation in intervals no longer than 60 seconds. Once it returns a
-  final result, stop waiting and act on that result. BuildTool prints a
+  final result, stop waiting and act on that result. DurinDevTool prints a
   30-second heartbeat while a child command is alive; a yield, quiet output, or
   elapsed UI window alone is not an interruption and must not trigger a second
   build, rebuild, or recovery-state inspection.
 - Do not start another build while an earlier CMake, Ninja, compiler, or linker
   process tree may still be running. Run the recovery command reported by
-  `BuildTool status` only after an operation was cancelled, externally
-  terminated, or lost its controlling BuildTool process, the old process tree
-  has exited, and `BuildTool status` reports a recovery state other than
+  `DevTool status` only after an operation was cancelled, externally
+  terminated, or lost its controlling DurinDevTool process, the old process tree
+  has exited, and `DevTool status` reports a recovery state other than
   `clean`. A `recover required` state resumes the interrupted target
   incrementally; `rebuild required` falls back to `rebuild --target all` when
   the prior state cannot be recovered safely.

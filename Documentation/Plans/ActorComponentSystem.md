@@ -94,7 +94,7 @@ Dependencies: Stage 0 and the existing `DClass` hierarchy.
 
 Dependencies: Stage 1.
 
-- [ ] Run the focused `EngineTests` world/component test set through the repository `BuildTool`.
+- [ ] Run the focused `EngineTests` world/component test set through the repository DurinDevTool.
 - [ ] Run the plan validator for active and archived plans.
 - [ ] Record completion evidence in this section and `Current Status`.
 - [ ] Confirm lasting behavior remains in the owning runtime/editor documents, then archive this file under the completion month.
@@ -116,7 +116,7 @@ Dependencies: Stage 1.
 | Scene synchronization | primitive/material/skybox component tests plus rendering smoke when rendering code changes |
 | Persistence and duplication | level round-trip and PIE duplication tests in `WorldActorTests.cpp` and `WorldPlayTests.cpp` |
 | Editor-facing properties | reflected property container, edit-session, and transaction tests |
-| Plan integrity | `.\DocTool.bat validate --scope all` |
+| Plan integrity | `.\Tools\DurinDevTool\DevTool.bat plan validate --scope all` |
 
 Repository build and test commands must follow [Build And Run](../Development/Build/BuildAndRun.md) and [Native C++ Tests](../Development/Build/NativeTests.md).
 

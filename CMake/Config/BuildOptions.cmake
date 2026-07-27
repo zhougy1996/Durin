@@ -84,7 +84,7 @@ function(durin_enforce_code_model_only_build)
 	set(_durin_guard_target DurinCodeModelOnlyBuildGuard)
 	add_custom_target(${_durin_guard_target} ALL
 		COMMAND ${CMAKE_COMMAND} -E echo
-			"ERROR: This IDE preset is code-model-only and cannot build. Use BuildTool.bat with a registered build preset."
+			"ERROR: This IDE preset is code-model-only and cannot build. Use Tools/DurinDevTool/DevTool.bat with a registered build preset."
 		COMMAND ${CMAKE_COMMAND} -E false
 		VERBATIM
 	)

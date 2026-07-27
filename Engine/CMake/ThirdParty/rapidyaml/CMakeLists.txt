@@ -18,7 +18,7 @@ function(durin_rapidyaml_configure_imported_target)
 			"Installed rapidyaml package was not found for ${durin_arch} ${CMAKE_BUILD_TYPE}.\n"
 			"Expected install root: ${rapidyaml_install_dir}\n"
 			"Prepare rapidyaml first, for example:\n"
-			"  Engine/Scripts/Bootstrap/Setup_rapidyaml.bat ${CMAKE_BUILD_TYPE}\n"
+			"  Tools/DurinDevTool/DevTool.bat dependency prepare --libs rapidyaml --config ${CMAKE_BUILD_TYPE}\n"
 			"or use an equivalent cmake -S/-B/-DCMAKE_INSTALL_PREFIX flow."
 		)
 	endif()
@@ -41,7 +41,7 @@ function(durin_rapidyaml_configure_source_build)
 	if(NOT EXISTS "${rapidyaml_source_dir}/CMakeLists.txt")
 		message(FATAL_ERROR
 			"rapidyaml source was not found at ${rapidyaml_source_dir}.\n"
-			"Run Engine/Scripts/Bootstrap/Setup_rapidyaml.bat first to clone the source."
+			"Run Tools/DurinDevTool/DevTool.bat dependency prepare --libs rapidyaml first."
 		)
 	endif()
 

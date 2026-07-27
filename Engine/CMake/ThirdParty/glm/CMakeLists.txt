@@ -6,7 +6,7 @@ set(glm_source_dir "${durin_root}/Engine/External/Source/glm")
 if(NOT EXISTS "${glm_source_dir}/CMakeLists.txt")
 	message(FATAL_ERROR
 		"GLM source was not found at ${glm_source_dir}.\n"
-		"Run Engine/Scripts/Bootstrap/Setup_glm.bat first to clone the source."
+		"Run Tools/DurinDevTool/DevTool.bat dependency prepare --libs glm first."
 	)
 endif()
 

@@ -1,6 +1,6 @@
 # Engineering Investigations
 
-- [BuildTool Windows lock recovery boundary](BuildToolWindowsLockRecovery.md) —
+- [DurinDevTool Windows lock recovery boundary](DurinDevToolWindowsLockRecovery.md) —
   Windows ACL recovery currently leaks Windows-only guidance through the
   cross-platform lock-opening path and lacks an automated live-lock integration
   test.

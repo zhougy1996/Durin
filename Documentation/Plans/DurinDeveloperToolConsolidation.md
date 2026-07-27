@@ -20,7 +20,7 @@ under `Tools/DocTool`, and retains WorktreeTool and Setup under
 three existing Tools plus Setup rather than moving BuildTool from its older
 `main` location.
 
-Stages 0 through 4 are complete. The bootstrap-safe product skeleton now owns the
+Stages 0 through 5 are complete. The bootstrap-safe product skeleton now owns the
 canonical launcher, validated repository discovery, standard-library-only
 command registry and error boundary, shared direct/shell help, and prepared
 environment capability guard. The build domain now lives under
@@ -34,19 +34,19 @@ and transactional archive behavior. Post-stage hardening distinguishes a missing
 environment, a system-Python invocation that bypassed the launcher, and an
 incomplete prepared environment before importing a dependency-backed handler.
 Bootstrap-safe setup, dependency, and worktree domains now live under the same
-package and registry. The old Setup, WorktreeTool, BuildTool, and DocTool
-implementations and launchers remain available until the atomic Stage 5 cutover.
+package and registry. The atomic repository cutover is complete: current
+instructions, operational documentation, active-plan references, live
+investigations, CMake diagnostics, and test discovery now use DurinDevTool, and
+the four old root launchers and migrated implementation trees are deleted.
 
-The selected working set remains clean outside this plan's changes. The
-combined Python tooling suite passes 351 tests with two platform-dependent
-skips, including 166 tests against the migrated domains and unified registry.
+The selected working set remains clean outside this plan's changes. The final
+DurinDevTool-only Python suite passes 166 tests with one platform-dependent
+skip and has no imports from the deleted implementation trees.
 System-Python cold-start, launcher help, scripted shell help and
 preset state, arbitrary working-directory discovery, missing-environment
 failure behavior, and toolchain-free build status/preset discovery are recorded
-below. One pre-existing defect remains explicit:
-`WorktreeTool.bat` prints the correct error when main-worktree preparation is
-rejected but returns exit code zero. The final unified worktree command must
-preserve the Python failure code instead.
+below. The unified worktree command preserves nonzero Python failure codes,
+closing the old launcher defect recorded at baseline.
 
 The selected design
 uses one canonical Windows launcher at
@@ -694,23 +694,23 @@ Tools/
 
 ### Stage 5: Atomic Repository Cutover
 
-- [ ] Update `AGENTS.md`, `README.md`, current build/bootstrap/tooling
+- [x] Update `AGENTS.md`, `README.md`, current build/bootstrap/tooling
   documentation, live investigations, active-plan references, and CMake
   diagnostics to the canonical DurinDevTool commands and paths.
-- [ ] Update test discovery and any repository automation to load tests from
+- [x] Update test discovery and any repository automation to load tests from
   `Tools/DurinDevTool/tests`.
-- [ ] Delete root `Setup.bat`, `BuildTool.bat`, `DocTool.bat`, and
+- [x] Delete root `Setup.bat`, `BuildTool.bat`, `DocTool.bat`, and
   `WorktreeTool.bat`.
-- [ ] Delete the migrated `Tools/BuildTool`, `Tools/DocTool`,
+- [x] Delete the migrated `Tools/BuildTool`, `Tools/DocTool`,
   `Engine/Scripts/Utils/worktree_tool.py`, and `Engine/Scripts/Bootstrap`
   implementation and wrapper files.
-- [ ] Remove empty implementation directories left by the move when they have
+- [x] Remove empty implementation directories left by the move when they have
   no separate engine-owned purpose.
-- [ ] Confirm current source and documentation contain no calls to deleted
+- [x] Confirm current source and documentation contain no calls to deleted
   entrypoints or implementation paths, excluding archived historical plans.
-- [ ] Do not add redirects, forwarding wrappers, legacy command aliases,
+- [x] Do not add redirects, forwarding wrappers, legacy command aliases,
   migration notes, or duplicate manifests.
-- [ ] Update the plan status and record the stage handoff.
+- [x] Update the plan status and record the stage handoff.
 
 #### Acceptance Gate
 
@@ -722,6 +722,38 @@ Tools/
   directories.
 - Root-directory clutter is reduced without moving repository-level build
   configuration or output ownership under `Tools`.
+
+#### Stage 5 Handoff
+
+- Baseline commit: `09b67b2e`.
+- Working set:
+  - repository instructions, root and Tools READMEs, current build/bootstrap/
+    tooling/runtime/workspace documentation, live investigations, and active
+    plan references;
+  - CMake code-model and third-party dependency diagnostics;
+  - unified test discovery under `Tools/DurinDevTool/tests`;
+  - deletion of the four root launchers, the old build/documentation products,
+    bootstrap implementation and manifests, worktree implementation, and old
+    test modules;
+  - this plan status, checklist, and handoff.
+- Key decisions:
+  - `Tools/DurinDevTool/DevTool.bat` is the only supported Windows development
+    launcher; no wrappers, aliases, duplicate manifests, or migration notes
+    remain;
+  - current documentation and diagnostics use typed `setup`, `dependency`,
+    `worktree`, build, and `plan` commands while archived plans remain
+    unchanged historical evidence;
+  - test discovery runs only the self-contained unified suite; an unused set
+    of legacy imports found by deletion validation was removed.
+- Open questions: none.
+- Validation:
+  - DurinDevTool Python discovery: 166 passed, one skipped;
+  - Python compilation, system-Python help, dependency validation, worktree
+    listing, and launcher `worktree open --dry-run`: passed;
+  - plan validation: 9 active, 0 completed, and 23 archived plans passed;
+  - stale live entrypoint and old implementation-path scan: no matches;
+  - full `all` build for `Win64-Debug-DurinEditor-Tests`: passed;
+  - focused `FProfilingToolServiceTests.*`: five passed.
 
 ### Stage 6: Clean-Checkout and End-to-End Validation
 

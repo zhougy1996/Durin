@@ -30,7 +30,7 @@ CMake attaches `CMake/Windows/DurinLongPathAware.manifest` as a target source so
 the MSVC manifest tool merges it into the final executable. A post-link check
 extracts the embedded resource and requires exactly one
 `longPathAware=true` declaration. Host policy is a separate prerequisite
-enforced by Setup and BuildTool; see
+enforced by Setup and DurinDevTool; see
 [Build and Run](BuildAndRun.md).
 
 ## Generated Metadata Flow
@@ -120,9 +120,9 @@ Tracy. Profiling presets set `DURIN_WITH_TRACY=1` and link repository targets to
 one shared `Tracy::TracyClient` runtime placed beside the selected profiling
 launcher. Shipping rejects the option.
 
-## BuildTool Command Interface
+## DurinDevTool Command Interface
 
-BuildTool's direct parser and interactive shell share one command specification
+DurinDevTool's direct parser and interactive shell share one command specification
 for command names, slash aliases, accepted options, compact shell operands,
 defaults, summaries, and help. Lowercase named syntax is canonical; interactive
 slash prefixes and compact operands remain compatibility forms.

@@ -1,14 +1,9 @@
 # Repository Tools
 
-Repository-owned developer tool implementations live here. Their stable,
-human-facing batch entrypoints remain at the repository root:
+Repository-owned developer workflows live under `DurinDevTool`. Its single
+launcher, `DurinDevTool/DevTool.bat`, provides setup, dependency, worktree,
+build, test, run, scaffolding, and implementation-plan commands.
 
-- `BuildTool.bat` runs `BuildTool/durin_build_tool`.
-- `DocTool.bat` runs `DocTool/durin_doc_tool`.
-- `WorktreeTool.bat` remains backed by the shared bootstrap and worktree
-  utilities under `Engine/Scripts` because it owns repository preparation.
-
-Keep tool-specific data and templates beside the owning implementation. Keep
-engine build helpers that are invoked by CMake or third-party bootstrap under
-`Engine/Scripts`. Focused tool tests that do not belong to an engine program
-live under `Tests`.
+Keep product data, third-party manifests, templates, and focused tests beside
+the owning implementation. Engine build-time programs and helpers invoked
+directly by CMake remain under `Engine`.

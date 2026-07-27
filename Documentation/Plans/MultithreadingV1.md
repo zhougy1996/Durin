@@ -312,7 +312,7 @@ Dependencies: Stages 1 through 3.
 
 Dependencies: Stages 1 through 4.
 
-- [ ] Run the complete validation matrix using the root BuildTool workflow.
+- [ ] Run the complete validation matrix using the root DurinDevTool workflow.
 - [ ] Move stable scheduler, waiting, shutdown, and thread-ownership contracts
   into the owning runtime documentation.
 - [ ] Record profiler or benchmark evidence for any feature proposed beyond V1.

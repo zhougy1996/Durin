@@ -5,12 +5,13 @@ These instructions apply under `Documentation/Plans/`.
 ## Purpose and Reading Policy
 
 - Active plans turn selected decisions into executable stages and acceptance gates.
-- From the repository root, run `.\DocTool.bat list` for
+- From the repository root, run
+  `.\Tools\DurinDevTool\DevTool.bat plan list` for
   the compact active index. For named historical provenance, run
-  `.\DocTool.bat list --scope archive --query
+  `.\Tools\DurinDevTool\DevTool.bat plan list --scope archive --query
   "<title-or-filename>"`, then open only the selected result. Do not scan,
   bulk-read, or sample unrelated plans; use the standard below.
-- Humans run `.\DocTool.bat` without arguments for an interactive
+- Humans run `.\Tools\DurinDevTool\DevTool.bat` without arguments for an interactive
   shell whose `list` command defaults to readable terminal output with automatic
   ANSI color. Direct agent routing, generated Markdown, and piped output use the
   default Markdown format.
@@ -75,7 +76,7 @@ Completed:
 - Record a changed decision and rationale before continuing when implementation diverges from the plan.
 - Move implemented long-lived rules to the owning documentation domain rather
   than leaving the plan as a competing specification.
-- Run `.\DocTool.bat validate --scope all`
+- Run `.\Tools\DurinDevTool\DevTool.bat plan validate --scope all`
   when a plan is added, renamed, completed, archived, or removed; CI must run
   the same validation. Legacy plans need not be retrofitted to the current
   structure.
@@ -95,16 +96,16 @@ acceptance gate is satisfied:
 Periodically batch completed plans by completion month:
 
 1. Preview the batch with
-   `.\DocTool.bat archive YYYY-MM`.
+   `.\Tools\DurinDevTool\DevTool.bat plan archive YYYY-MM`.
 2. Apply it with
-   `.\DocTool.bat archive YYYY-MM --apply`.
+   `.\Tools\DurinDevTool\DevTool.bat plan archive YYYY-MM --apply`.
    The tool moves matching plans to `Archive/YYYY-MM/`, changes their status
    to `Archived`, and repairs direct Markdown links and repository-relative
    plan paths, then runs the all-plan validator.
 3. Review the generated diff, especially the referencing files reported by the
    script.
 
-Use `.\DocTool.bat list --scope completed` to inspect the
+Use `.\Tools\DurinDevTool\DevTool.bat plan list --scope completed` to inspect the
 pending archive queue. The completion date, not the batch date, owns the archive
 month and is never changed by later maintenance. Do not maintain a shared
 archive index; listings remain generated.

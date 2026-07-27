@@ -73,7 +73,7 @@ Supported reflected payloads are numeric values, bool, strings, enums, `DStruct`
 
 Asset-level cooking and deterministic cooked publication are implemented for
 StaticMesh, Texture2D, and TextureCube. Complete project discovery, editor or
-BuildTool packaging commands, and installable-build orchestration are not yet
+DurinDevTool packaging commands, and installable-build orchestration are not yet
 connected. Other deferred package-system work includes soft references, async
 loading, hot reload, redirects, and broader editor asset browsing.
 

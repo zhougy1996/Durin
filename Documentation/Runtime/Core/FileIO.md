@@ -15,7 +15,7 @@ filesystem's component limit, commonly 255 characters.
 Windows 10 version 1607 or newer and the enabled `LongPathsEnabled` machine
 policy are development prerequisites. Repository-owned runtime and native-test
 executables embed `longPathAware=true`; the build verifies the declaration in
-the final PE image. BuildTool checks host policy without changing machine state.
+the final PE image. DurinDevTool checks host policy without changing machine state.
 The setup and remediation workflow is documented in
 [Build and Run](../../Development/Build/BuildAndRun.md).
 

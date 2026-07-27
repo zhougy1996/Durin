@@ -118,7 +118,10 @@ class MigratedThirdPartyBootstrapTests(unittest.TestCase):
             "kind": "tool_package",
             "development_only": True,
             "allow_unsupported_platform": True,
-            "repair_command": r"Engine\Scripts\Bootstrap\Setup_tracy.bat",
+            "repair_command": (
+                r"Tools\DurinDevTool\DevTool.bat dependency prepare "
+                r"--libs tracy,tracy-tools"
+            ),
             "source_dir": "packages/tracy-tools/0.13.1/Win64",
             "source": {
                 "type": "archive",

@@ -17,24 +17,24 @@ fixture.
 Build and run a test executable through the root wrapper:
 
 ```powershell
-.\BuildTool test --target CoreTests
-.\BuildTool test --target CoreTests --filter FJsonDocumentTests.ParseObjectFromString
-.\BuildTool test --target CoreTests --timeout 60
+.\Tools\DurinDevTool\DevTool.bat test --target CoreTests
+.\Tools\DurinDevTool\DevTool.bat test --target CoreTests --filter FJsonDocumentTests.ParseObjectFromString
+.\Tools\DurinDevTool\DevTool.bat test --target CoreTests --timeout 60
 ```
 
 The first command runs the target's discovered tests. The second passes a GoogleTest filter. The test executable has a 300-second timeout by default; `--timeout <seconds>` changes it, and `--timeout 0` disables it for an intentionally long diagnostic run. The timeout starts after the target has finished building.
 
-BuildTool clears build recovery state before launching the test executable. A failed assertion, crash, timeout, or interrupted test should be diagnosed and rerun with `test`; it does not require `rebuild`. Build ownership, recovery, and parallelism rules are documented in `Documentation/Development/Build/BuildAndRun.md`.
+DurinDevTool clears build recovery state before launching the test executable. A failed assertion, crash, timeout, or interrupted test should be diagnosed and rerun with `test`; it does not require `rebuild`. Build ownership, recovery, and parallelism rules are documented in `Documentation/Development/Build/BuildAndRun.md`.
 
 In the interactive shell, use the equivalent commands:
 
 ```text
-BuildTool> preset Win64-Debug-DurinEditor-Tests
-BuildTool> test CoreTests
-BuildTool> test CoreTests FJsonDocumentTests.ParseObjectFromString
+DurinDevTool> preset Win64-Debug-DurinEditor-Tests
+DurinDevTool> test --target CoreTests
+DurinDevTool> test --target CoreTests --filter FJsonDocumentTests.ParseObjectFromString
 ```
 
-BuildTool rejects `test` when the selected preset does not enable `BUILD_TESTING`.
+DurinDevTool rejects `test` when the selected preset does not enable `BUILD_TESTING`.
 
 For diagnosis, the corresponding executable is under `Engine/Binaries/Win64/Debug/Tests/DurinEditor/Bin/` and may be run directly with normal GoogleTest arguments. CTest discovery state is in `Build/Win64-Debug-DurinEditor-Tests`.
 

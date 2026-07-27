@@ -19,9 +19,9 @@ not open the other rows or scan an entire directory.
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Core/RuntimeLifecycle.md) |
 | Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/ViewportRendering.md) |
 | Editor architecture, design, or user workflow | Use a targeted search under `Editor/Architecture/`, `Editor/Design/`, or `Editor/Guides/` |
-| Active implementation plan | Humans run `.\DocTool.bat` for the interactive shell; agents run `.\DocTool.bat list` for the compact Markdown index, then open only the matching plan |
-| Completed plans awaiting monthly archive | Run `.\DocTool.bat list --scope completed` |
-| Named historical plan or required provenance | Run `.\DocTool.bat list --scope archive --query "<title-or-filename>"`, then open only the selected archived plan |
+| Active implementation plan | Humans run `.\Tools\DurinDevTool\DevTool.bat` for the interactive shell; agents run `.\Tools\DurinDevTool\DevTool.bat plan list` for the compact Markdown index, then open only the matching plan |
+| Completed plans awaiting monthly archive | Run `.\Tools\DurinDevTool\DevTool.bat plan list --scope completed` |
+| Named historical plan or required provenance | Run `.\Tools\DurinDevTool\DevTool.bat plan list --scope archive --query "<title-or-filename>"`, then open only the selected archived plan |
 | Verified unresolved engineering problem | [Open investigations](Investigations/README.md) |
 
 If no row matches, use `rg --files Documentation` or a targeted `rg` content

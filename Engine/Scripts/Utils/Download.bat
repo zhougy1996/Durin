@@ -2,7 +2,7 @@
 :: Download.bat -- A utility script for downloading and extracting ZIP files for third-party dependencies.
 
 :: This helper is kept for package-style dependencies that still need manual download/extract behavior.
-:: Shared source-built dependencies should use the bootstrap install flow under Engine/Scripts/Bootstrap instead of ad-hoc in-project integration.
+:: Shared source-built dependencies should use DurinDevTool dependency preparation instead of ad-hoc in-project integration.
 
 call "%~dp0\..\Env.bat"
 

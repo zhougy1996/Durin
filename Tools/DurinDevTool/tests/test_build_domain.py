@@ -28,12 +28,6 @@ from durin_dev_tool.build.handler import request_from_namespace
 from durin_dev_tool.build.output import BuildOutput
 from durin_dev_tool.registry import CommandRegistry
 
-from Engine.Scripts.Bootstrap import agent_config
-from Engine.Scripts.Bootstrap import setup_preflight
-from Engine.Scripts.Bootstrap import setup_third_party
-from Engine.Scripts.Utils import worktree_tool
-
-
 def parse_build_request(arguments: list[str]) -> build_config.CommandRequest:
     _spec, namespace = CommandRegistry().parse(arguments)
     if getattr(namespace, "selected_preset", ""):

@@ -7,7 +7,7 @@ foreach(required_file LICENSE bc7decomp.cpp bc7decomp.h bc7enc.cpp bc7enc.h rgbc
 	if(NOT EXISTS "${bc7enc_rdo_source_dir}/${required_file}")
 		message(FATAL_ERROR
 			"bc7enc_rdo source is incomplete at ${bc7enc_rdo_source_dir}.\n"
-			"Run Engine/Scripts/Bootstrap/Setup_bc7enc_rdo.bat first."
+			"Run Tools/DurinDevTool/DevTool.bat dependency prepare --libs bc7enc_rdo first."
 		)
 	endif()
 endforeach()
