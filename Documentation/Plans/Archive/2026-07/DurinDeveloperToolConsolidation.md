@@ -4,8 +4,8 @@ Summary: Consolidate repository setup, worktree, build, documentation, test, run
 
 Last reviewed: 2026-07-28
 
-Status: Active
-Completed:
+Status: Archived
+Completed: 2026-07-28
 
 ## Current Status
 
@@ -20,7 +20,7 @@ under `Tools/DocTool`, and retains WorktreeTool and Setup under
 three existing Tools plus Setup rather than moving BuildTool from its older
 `main` location.
 
-Stages 0 through 5 are complete. The bootstrap-safe product skeleton now owns the
+Stages 0 through 6 are complete. The bootstrap-safe product skeleton now owns the
 canonical launcher, validated repository discovery, standard-library-only
 command registry and error boundary, shared direct/shell help, and prepared
 environment capability guard. The build domain now lives under
@@ -38,6 +38,15 @@ package and registry. The atomic repository cutover is complete: current
 instructions, operational documentation, active-plan references, live
 investigations, CMake diagnostics, and test discovery now use DurinDevTool, and
 the four old root launchers and migrated implementation trees are deleted.
+
+Final clean-checkout and end-to-end validation is complete. The unified Python
+suite and focused system-Python/bootstrap/worktree fixtures pass; direct and
+scripted-shell read-only commands, dependency manifests, plan metadata, and
+registered-worktree dry runs pass through DurinDevTool. The selected Agent Build
+Profile completes target `all`, and the native profiling-tool service tests pass.
+Compilation, stale import/reference, and diff checks found no compatibility
+residue. Validation discovered no lasting behavior that was absent from the
+current operational documentation.
 
 The selected working set remains clean outside this plan's changes. The final
 DurinDevTool-only Python suite passes 166 tests with one platform-dependent
@@ -757,22 +766,22 @@ Tools/
 
 ### Stage 6: Clean-Checkout and End-to-End Validation
 
-- [ ] Run the complete DurinDevTool Python test suite.
-- [ ] Validate all active and archived plan metadata through
+- [x] Run the complete DurinDevTool Python test suite.
+- [x] Validate all active and archived plan metadata through
   `DevTool plan validate --scope all`.
-- [ ] Exercise system-Python `help`, missing-environment diagnostics, setup
+- [x] Exercise system-Python `help`, missing-environment diagnostics, setup
   preflight, and worktree preparation through controlled no-`.venv` fixtures.
-- [ ] Exercise direct `status`, `presets`, dependency manifest validation, and
+- [x] Exercise direct `status`, `presets`, dependency manifest validation, and
   a scripted read-only shell through the new launcher.
-- [ ] Exercise worktree add/prepare/remove validation and dry-run paths without
+- [x] Exercise worktree add/prepare/remove validation and dry-run paths without
   bypassing DurinDevTool.
-- [ ] Follow the repository build instructions and use DurinDevTool to
+- [x] Follow the repository build instructions and use DurinDevTool to
   configure as needed, build target `all`, and run the required native tooling
   tests.
-- [ ] Run formatting, import, stale-reference, and diff checks.
-- [ ] Update current operational documentation with any lasting behavior
+- [x] Run formatting, import, stale-reference, and diff checks.
+- [x] Update current operational documentation with any lasting behavior
   discovered during validation.
-- [ ] Mark every evidence-backed checklist item complete, record final
+- [x] Mark every evidence-backed checklist item complete, record final
   validation in Current Status, and archive the plan only after all required
   gates pass.
 
@@ -786,6 +795,42 @@ Tools/
   operational references to deleted tooling.
 - The repository is left with one coherent development interface and no
   compatibility residue.
+
+#### Stage 6 Handoff
+
+- Baseline commit: `f951539d`.
+- Working set:
+  - the complete DurinDevTool Python suite and focused cold-start, setup,
+    dependency, worktree, and command-registry fixtures;
+  - direct and scripted-shell launcher smoke tests;
+  - registered-worktree validation and dry-run operations;
+  - the selected Agent Build Profile's full build and native profiling-tool
+    service tests;
+  - this plan's completion metadata, final checklist, handoff, and archive.
+- Key decisions:
+  - controlled fixtures provide the destructive and no-`.venv` clean-checkout
+    coverage without modifying the prepared main checkout;
+  - live worktree validation uses a rejected conflicting-mode add request plus
+    prepare/remove dry runs against an existing registered linked worktree;
+  - no operational-document update is required because validation found no
+    lasting behavior missing from the owning documentation.
+- Open questions: none.
+- Validation:
+  - DurinDevTool Python discovery: 166 passed, one platform-dependent skip;
+  - focused system-Python, missing/incomplete-environment, launcher selection,
+    setup preflight/orchestration, and worktree safety fixtures: 34 passed;
+  - system-Python help, direct status/presets/dependency validation/worktree
+    inspection, and scripted read-only shell: passed;
+  - plan validation before completion: 9 active, 0 completed, and 23 archived
+    plans passed;
+  - worktree add argument validation and registered linked-worktree
+    prepare/remove dry runs: passed;
+  - full `all` build for `Win64-Debug-DurinEditor-Tests`: passed;
+  - focused `FProfilingToolServiceTests.*`: five passed;
+  - Python compilation, stale live reference/import scan, and diff checks:
+    passed.
+  - archive application and final plan validation: 8 active, 0 completed, and
+    24 archived plans passed.
 
 ## Validation Matrix
 
@@ -845,21 +890,14 @@ Tools/
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/ThirdPartyBootstrap.md`
 - `Documentation/Development/Tooling/IDECodeModel.md`
-- `Documentation/Investigations/BuildToolWindowsLockRecovery.md`
+- `Documentation/Investigations/DurinDevToolWindowsLockRecovery.md`
 - `Documentation/Plans/RuntimeVariantAndTracyProfiling.md`
 
 ## Related Code
 
-- `Setup.bat`
-- `BuildTool.bat`
-- `DocTool.bat`
-- `WorktreeTool.bat`
-- `Tools/BuildTool`
-- `Tools/DocTool`
-- `Tools/Tests/test_doc_tool.py`
-- `Engine/Scripts/Utils/worktree_tool.py`
-- `Engine/Scripts/Bootstrap`
-- `Engine/Scripts/Tests/test_agent_tooling.py`
+- `Tools/DurinDevTool/DevTool.bat`
+- `Tools/DurinDevTool/durin_dev_tool`
+- `Tools/DurinDevTool/tests`
 - `Engine/Source/Editor/MainFrame/Private/ProfilingToolService.cpp`
 - `Engine/Tests/Native/EngineTests/Private/ProfilingToolServiceTests.cpp`
 - `CMake/Config/BuildOptions.cmake`
