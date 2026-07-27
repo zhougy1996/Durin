@@ -10,9 +10,9 @@ namespace Durin
 	namespace
 	{
 		constexpr std::string_view ToolsManifestPath =
-			"Engine/Scripts/Bootstrap/thirdparty/tracy-tools.json";
+			"Tools/DurinDevTool/durin_dev_tool/bootstrap/thirdparty/tracy-tools.json";
 		constexpr std::string_view ClientManifestPath =
-			"Engine/Scripts/Bootstrap/thirdparty/tracy.json";
+			"Tools/DurinDevTool/durin_dev_tool/bootstrap/thirdparty/tracy.json";
 
 		auto LoadManifest(
 			const std::filesystem::path& ManifestPath,

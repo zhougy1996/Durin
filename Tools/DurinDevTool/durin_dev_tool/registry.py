@@ -79,6 +79,8 @@ BUILD_CAPABILITY = Capability.PREPARED_ENVIRONMENT
 BUILD_MODULES = ("rich",)
 DOCUMENTATION_HANDLER = "durin_dev_tool.documentation.handler:run"
 PLAN_SCOPES = ("active", "completed", "archive", "all")
+BOOTSTRAP_HANDLER = "durin_dev_tool.bootstrap.handler:run"
+WORKTREE_HANDLER = "durin_dev_tool.worktree.handler:run"
 
 
 def _build_command(
@@ -189,6 +191,100 @@ PLAN_ARCHIVE = CommandSpec(
     defaults=(("plan_action", "archive"),),
 )
 
+DEPENDENCY_PREPARE = CommandSpec(
+    "prepare",
+    "prepare selected third-party dependencies",
+    BOOTSTRAP_HANDLER,
+    arguments=(
+        _argument(
+            "--all",
+            dest="all_dependencies",
+            action="store_true",
+            help="prepare all non-test dependencies",
+        ),
+        _argument(
+            "--libs",
+            dest="libraries",
+            help="comma-separated dependencies to prepare",
+        ),
+        _argument(
+            "--config",
+            dest="dependency_config",
+            choices=("Debug", "Release", "All"),
+            default="All",
+        ),
+        _argument("--with-tests", action="store_true"),
+        _argument("--with-development", action="store_true"),
+        _argument("--cmake", dest="dependency_cmake", default=None),
+    ),
+    defaults=(("bootstrap_action", "dependency-prepare"),),
+)
+DEPENDENCY_VALIDATE = CommandSpec(
+    "validate",
+    "validate every third-party dependency manifest",
+    BOOTSTRAP_HANDLER,
+    defaults=(("bootstrap_action", "dependency-validate"),),
+)
+
+WORKTREE_OPEN = CommandSpec(
+    "open",
+    "open terminals for every worktree",
+    WORKTREE_HANDLER,
+    arguments=(_argument("--dry-run", action="store_true"),),
+    defaults=(("worktree_action", "open"),),
+)
+WORKTREE_LIST = CommandSpec(
+    "list",
+    "list registered worktrees",
+    WORKTREE_HANDLER,
+    defaults=(("worktree_action", "list"),),
+)
+WORKTREE_ADD = CommandSpec(
+    "add",
+    "create and prepare a worktree",
+    WORKTREE_HANDLER,
+    arguments=(
+        _argument("path", help="new worktree path"),
+        _argument("commit_ish", nargs="?", help="commit or branch to check out"),
+        _argument("-b", "--branch", help="create and check out a new branch"),
+        _argument("--detach", action="store_true"),
+        _argument("--source", help="prepared source worktree or Engine/External path"),
+        _argument(
+            "--link-type",
+            choices=("auto", "junction", "symlink"),
+            default="auto",
+        ),
+    ),
+    defaults=(("worktree_action", "add"),),
+)
+WORKTREE_PREPARE = CommandSpec(
+    "prepare",
+    "prepare or repair a linked worktree",
+    WORKTREE_HANDLER,
+    arguments=(
+        _argument("path", nargs="?", help="linked worktree path"),
+        _argument("--source", help="prepared source worktree or Engine/External path"),
+        _argument(
+            "--link-type",
+            choices=("auto", "junction", "symlink"),
+            default="auto",
+        ),
+        _argument("--dry-run", action="store_true"),
+    ),
+    defaults=(("worktree_action", "prepare"),),
+)
+WORKTREE_REMOVE = CommandSpec(
+    "remove",
+    "safely remove a linked worktree",
+    WORKTREE_HANDLER,
+    arguments=(
+        _argument("path", help="linked worktree path"),
+        _argument("--force", action="store_true"),
+        _argument("--dry-run", action="store_true"),
+    ),
+    defaults=(("worktree_action", "remove"),),
+)
+
 
 COMMAND_SPECS = (
     CommandSpec(
@@ -200,6 +296,12 @@ COMMAND_SPECS = (
         "shell",
         "open the interactive shell",
         "durin_dev_tool.commands.core:open_shell",
+    ),
+    CommandSpec(
+        "setup",
+        "prepare this main checkout",
+        BOOTSTRAP_HANDLER,
+        defaults=(("bootstrap_action", "setup"),),
     ),
     _build_command("stop", "stop the active build operation", (PLAIN,)),
     _build_command("presets", "list registered presets", CONTEXT_ARGUMENTS),
@@ -283,6 +385,22 @@ COMMAND_SPECS = (
         "plan",
         "list, validate, and archive implementation plans",
         subcommands=(PLAN_LIST, PLAN_VALIDATE, PLAN_ARCHIVE),
+    ),
+    CommandSpec(
+        "dependency",
+        "prepare and validate third-party dependencies",
+        subcommands=(DEPENDENCY_PREPARE, DEPENDENCY_VALIDATE),
+    ),
+    CommandSpec(
+        "worktree",
+        "create, prepare, inspect, open, and remove worktrees",
+        subcommands=(
+            WORKTREE_OPEN,
+            WORKTREE_LIST,
+            WORKTREE_ADD,
+            WORKTREE_PREPARE,
+            WORKTREE_REMOVE,
+        ),
     ),
 )
 

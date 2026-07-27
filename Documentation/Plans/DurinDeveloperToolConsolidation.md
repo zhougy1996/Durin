@@ -20,7 +20,7 @@ under `Tools/DocTool`, and retains WorktreeTool and Setup under
 three existing Tools plus Setup rather than moving BuildTool from its older
 `main` location.
 
-Stages 0 through 3 are complete. The bootstrap-safe product skeleton now owns the
+Stages 0 through 4 are complete. The bootstrap-safe product skeleton now owns the
 canonical launcher, validated repository discovery, standard-library-only
 command registry and error boundary, shared direct/shell help, and prepared
 environment capability guard. The build domain now lives under
@@ -33,12 +33,13 @@ shell use while preserving their output defaults, discovery guards, validation,
 and transactional archive behavior. Post-stage hardening distinguishes a missing
 environment, a system-Python invocation that bypassed the launcher, and an
 incomplete prepared environment before importing a dependency-backed handler.
-The old DocTool implementation and launcher remain available until the atomic
-Stage 5 cutover.
+Bootstrap-safe setup, dependency, and worktree domains now live under the same
+package and registry. The old Setup, WorktreeTool, BuildTool, and DocTool
+implementations and launchers remain available until the atomic Stage 5 cutover.
 
 The selected working set remains clean outside this plan's changes. The
-combined Python tooling suite passes 311 tests with two platform-dependent
-skips, including 126 tests against the migrated domains and unified registry.
+combined Python tooling suite passes 351 tests with two platform-dependent
+skips, including 166 tests against the migrated domains and unified registry.
 System-Python cold-start, launcher help, scripted shell help and
 preset state, arbitrary working-directory discovery, missing-environment
 failure behavior, and toolchain-free build status/preset discovery are recorded
@@ -596,30 +597,30 @@ Tools/
 
 ### Stage 4: Setup, Dependency, and Worktree Consolidation
 
-- [ ] Move worktree implementation into `durin_dev_tool/worktree` and register
+- [x] Move worktree implementation into `durin_dev_tool/worktree` and register
   its five canonical subcommands.
-- [ ] Move Agent configuration initialization, prerequisite preflight, Python
+- [x] Move Agent configuration initialization, prerequisite preflight, Python
   environment setup, third-party setup, and manifests into
   `durin_dev_tool/bootstrap`.
-- [ ] Replace bootstrap batch orchestration with typed Python services and
+- [x] Replace bootstrap batch orchestration with typed Python services and
   subprocess boundaries that preserve exit codes and stream useful output.
-- [ ] Implement `setup`, `dependency prepare`, and `dependency validate`
+- [x] Implement `setup`, `dependency prepare`, and `dependency validate`
   handlers against those shared services.
-- [ ] Update the editor profiling service and its native tests to resolve Tracy
+- [x] Update the editor profiling service and its native tests to resolve Tracy
   manifests from DurinDevTool and advertise the canonical focused dependency
   repair command.
-- [ ] Remove unconditional pause behavior from setup.
-- [ ] Preserve idempotence, non-overwrite of local Agent configuration,
+- [x] Remove unconditional pause behavior from setup.
+- [x] Preserve idempotence, non-overwrite of local Agent configuration,
   preflight-before-mutation ordering, pinned requirement installation, and
   complete dependency preparation.
-- [ ] Make `worktree prepare` call the shared Python preflight service rather
+- [x] Make `worktree prepare` call the shared Python preflight service rather
   than an old batch path.
-- [ ] Preserve system-Python operation for the no-`.venv` setup and worktree
+- [x] Preserve system-Python operation for the no-`.venv` setup and worktree
   paths.
-- [ ] Restart an interactive shell under `.venv` after setup succeeds.
-- [ ] Port setup, preflight, manifest, dependency, worktree, junction, dry-run,
+- [x] Restart an interactive shell under `.venv` after setup succeeds.
+- [x] Port setup, preflight, manifest, dependency, worktree, junction, dry-run,
   and removal-safety tests to the new package.
-- [ ] Update the plan status and record the stage handoff.
+- [x] Update the plan status and record the stage handoff.
 
 #### Acceptance Gate
 
@@ -635,6 +636,61 @@ Tools/
   dependency selection replaces every library-specific setup wrapper use case.
 - The profiling service resolves the relocated Tracy client/tool manifests and
   reports a runnable DurinDevTool repair command.
+
+#### Stage 4 Handoff
+
+- Baseline commit: `e92cd43d`.
+- Working set:
+  - bootstrap-safe Agent configuration, prerequisite, Python environment,
+    dependency, manifest, setup, and handler services under
+    `Tools/DurinDevTool/durin_dev_tool/bootstrap`;
+  - worktree lifecycle, junction safety, shared preflight, and handler services
+    under `Tools/DurinDevTool/durin_dev_tool/worktree`;
+  - top-level setup, dependency, and five-leaf worktree command
+    specifications, plus shell restart termination state;
+  - relocated Tracy manifest consumers in the editor profiling service and
+    its native tests;
+  - migrated bootstrap/worktree tests and this plan handoff.
+- Key symbols:
+  - bootstrap `setup_repository`, `ensure_python_environment`,
+    `validate_prerequisites`, `DependencyRequest`, `prepare_dependencies`, and
+    `validate_repository_manifests`;
+  - worktree `repository_paths`, `prepare_registered_worktree`,
+    `run_preflight`, `validate_directory_links`, `detach_link`, and
+    `remove_worktree`;
+  - registry `DEPENDENCY_PREPARE`, `DEPENDENCY_VALIDATE`, `WORKTREE_OPEN`,
+    `WORKTREE_LIST`, `WORKTREE_ADD`, `WORKTREE_PREPARE`, and
+    `WORKTREE_REMOVE`.
+- Decisions:
+  - every migrated domain remains standard-library-only until its handler is
+    invoked, so setup and worktree commands operate through system Python
+    before `.venv` exists;
+  - setup validates prerequisites before any repository mutation, then creates
+    the Agent config only when absent, prepares the pinned Python environment,
+    and prepares all ordinary, test, and development dependencies;
+  - dependency preparation requires exactly one of `--all` or `--libs`;
+    library-specific wrappers are represented by focused `--libs` selections;
+  - worktree mutation and removal safety logic is retained, while preflight
+    calls the shared Python service rather than a batch wrapper;
+  - a system-Python interactive shell launches the prepared `.venv` shell
+    after successful setup and then terminates its original shell loop;
+  - the old implementation trees and root launchers remain untouched until
+    the Stage 5 atomic cutover.
+- Open questions: none.
+- Validation:
+  - combined existing and migrated Python tooling suite: 351 passed, two
+    skipped;
+  - migrated-domain and unified-registry suite: 166 passed, one skipped;
+  - system-Python help, dependency-manifest validation, and worktree listing:
+    passed without dependency-backed imports;
+  - all 10 relocated third-party manifests validated, and the Tracy repair
+    command resolves to focused `dependency prepare --libs tracy,tracy-tools`;
+  - full `all` build for `Win64-Debug-DurinEditor-Tests`: passed;
+  - focused `FProfilingToolServiceTests.*`: five passed;
+  - unfiltered `EngineTests` built successfully but later hit the pre-existing
+    unrelated fatal assertion `Mount registry is immutable after publication`;
+    this test-process failure required no recovery and the focused affected
+    suite passed.
 
 ### Stage 5: Atomic Repository Cutover
 

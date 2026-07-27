@@ -36,13 +36,13 @@ namespace Durin
 			void WriteManifest(std::string_view ToolVersion, std::string_view ClientTag)
 			{
 				WriteFile(
-					"Engine/Scripts/Bootstrap/thirdparty/tracy-tools.json",
+					"Tools/DurinDevTool/durin_dev_tool/bootstrap/thirdparty/tracy-tools.json",
 					std::format(
 						R"({{
 							"name": "tracy-tools",
 							"version": "{}",
 							"kind": "tool_package",
-							"repair_command": "Engine\\Scripts\\Bootstrap\\Setup_tracy.bat",
+							"repair_command": "Tools\\DurinDevTool\\DevTool.bat dependency prepare --libs tracy,tracy-tools",
 							"source_dir": "Engine/External/Packages/tracy-tools/{}/Win64",
 							"source": {{
 								"platforms": {{
@@ -61,7 +61,7 @@ namespace Durin
 					)
 				);
 				WriteFile(
-					"Engine/Scripts/Bootstrap/thirdparty/tracy.json",
+					"Tools/DurinDevTool/durin_dev_tool/bootstrap/thirdparty/tracy.json",
 					std::format(R"({{"source": {{"tag": "{}"}}}})", ClientTag)
 				);
 			}
@@ -113,7 +113,10 @@ namespace Durin
 		EXPECT_EQ(Status.MissingFiles.size(), 3);
 		EXPECT_FALSE(std::filesystem::exists(RootDirectory / "Engine/External"));
 		EXPECT_NE(Status.Diagnostic.find("tracy-profiler.exe"), std::string::npos);
-		EXPECT_EQ(Status.RepairCommand, R"(Engine\Scripts\Bootstrap\Setup_tracy.bat)");
+		EXPECT_EQ(
+			Status.RepairCommand,
+			R"(Tools\DurinDevTool\DevTool.bat dependency prepare --libs tracy,tracy-tools)"
+		);
 	}
 
 	TEST_F(FProfilingToolServiceTests, QuotesCapturePaths)

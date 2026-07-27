@@ -1,0 +1,754 @@
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+import zipfile
+from pathlib import Path
+from unittest import mock
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+PRODUCT_ROOT = REPOSITORY_ROOT / "Tools" / "DurinDevTool"
+if str(PRODUCT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PRODUCT_ROOT))
+
+from durin_dev_tool.bootstrap import agent_config, dependencies, handler, preflight, setup
+from durin_dev_tool.registry import Capability, CommandRegistry
+from durin_dev_tool.worktree import services
+
+
+class MigratedThirdPartyBootstrapTests(unittest.TestCase):
+    @staticmethod
+    def make_manifests() -> list[dict[str, object]]:
+        return [
+            {
+                "name": "normal",
+                "kind": "direct_source",
+                "source_dir": "normal",
+                "source": {"type": "git", "tag": "v1"},
+            },
+            {
+                "name": "tests",
+                "kind": "direct_source",
+                "test_only": True,
+                "source_dir": "tests",
+                "source": {"type": "git", "tag": "v1"},
+            },
+            {
+                "name": "tracy",
+                "kind": "direct_source",
+                "development_only": True,
+                "source_dir": "tracy",
+                "source": {"type": "git", "tag": "v0.13.1"},
+            },
+            {
+                "name": "tracy-tools",
+                "kind": "tool_package",
+                "development_only": True,
+                "allow_unsupported_platform": True,
+                "source_dir": "tracy-tools",
+                "source": {
+                    "type": "archive",
+                    "platforms": {
+                        "Win64": {
+                            "url": "https://example.invalid/tracy-tools.zip",
+                            "archive_name": "tracy-tools.zip",
+                            "required_files": ["tracy-profiler.exe"],
+                        }
+                    },
+                },
+            },
+        ]
+
+    def test_all_excludes_development_dependencies_by_default(self) -> None:
+        selected = dependencies.resolve_selected_manifests(
+            self.make_manifests(),
+            use_all=True,
+            libs_arg=None,
+            with_tests=False,
+            with_development=False,
+        )
+
+        self.assertEqual([manifest["name"] for manifest in selected], ["normal"])
+
+    def test_all_can_include_development_and_test_dependencies(self) -> None:
+        selected = dependencies.resolve_selected_manifests(
+            self.make_manifests(),
+            use_all=True,
+            libs_arg=None,
+            with_tests=True,
+            with_development=True,
+        )
+
+        self.assertEqual(
+            [manifest["name"] for manifest in selected],
+            ["normal", "tests", "tracy", "tracy-tools"],
+        )
+
+    def test_explicit_development_dependency_preserves_requested_order(self) -> None:
+        selected = dependencies.resolve_selected_manifests(
+            self.make_manifests(),
+            use_all=False,
+            libs_arg="tracy,normal",
+            with_tests=False,
+            with_development=False,
+        )
+
+        self.assertEqual([manifest["name"] for manifest in selected], ["tracy", "normal"])
+
+    def test_development_only_must_be_boolean(self) -> None:
+        manifests = self.make_manifests()
+        manifests[2]["development_only"] = "yes"
+
+        with self.assertRaisesRegex(dependencies.BootstrapError, "must be a boolean"):
+            dependencies.validate_manifests(manifests)
+
+    @staticmethod
+    def make_tool_manifest(*, sha256: str = "0" * 64) -> dict[str, object]:
+        return {
+            "name": "tracy-tools",
+            "version": "0.13.1",
+            "kind": "tool_package",
+            "development_only": True,
+            "allow_unsupported_platform": True,
+            "repair_command": r"Engine\Scripts\Bootstrap\Setup_tracy.bat",
+            "source_dir": "packages/tracy-tools/0.13.1/Win64",
+            "source": {
+                "type": "archive",
+                "platforms": {
+                    "Win64": {
+                        "url": "https://example.invalid/windows-0.13.1.zip",
+                        "archive_name": "windows-0.13.1.zip",
+                        "sha256": sha256,
+                        "required_files": ["tracy-profiler.exe", "tracy-capture.exe"],
+                    }
+                },
+            },
+        }
+
+    def test_archive_sha256_must_be_64_hexadecimal_digits(self) -> None:
+        manifest = self.make_tool_manifest(sha256="not-a-digest")
+
+        with self.assertRaisesRegex(dependencies.BootstrapError, "64 hexadecimal digits"):
+            dependencies.validate_manifests([manifest])
+
+    def test_archive_digest_mismatch_does_not_publish_package(self) -> None:
+        manifest = self.make_tool_manifest()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_path = root / "source.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("tracy-profiler.exe", b"profiler")
+                archive.writestr("tracy-capture.exe", b"capture")
+
+            with (
+                mock.patch.object(dependencies, "REPO_ROOT", root),
+                mock.patch.object(
+                    dependencies.urllib.request,
+                    "urlretrieve",
+                    side_effect=lambda _url, destination: shutil.copy2(archive_path, destination),
+                ),
+                self.assertRaisesRegex(dependencies.BootstrapError, "integrity verification failed"),
+            ):
+                dependencies.ensure_archive_source(manifest, "Win64")
+
+            self.assertFalse((root / manifest["source_dir"]).exists())
+
+    def test_archive_digest_successfully_publishes_required_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_path = root / "source.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("tracy-profiler.exe", b"profiler")
+                archive.writestr("tracy-capture.exe", b"capture")
+            manifest = self.make_tool_manifest(sha256=dependencies.compute_sha256(archive_path))
+
+            with (
+                mock.patch.object(dependencies, "REPO_ROOT", root),
+                mock.patch.object(
+                    dependencies.urllib.request,
+                    "urlretrieve",
+                    side_effect=lambda _url, destination: shutil.copy2(archive_path, destination),
+                ),
+            ):
+                dependencies.process_manifest(
+                    manifest,
+                    platform_name="Win64",
+                    configs=["Debug", "Release"],
+                    cmake_command="cmake",
+                )
+
+            package_dir = root / manifest["source_dir"]
+            self.assertTrue((package_dir / "tracy-profiler.exe").is_file())
+            self.assertTrue((package_dir / "tracy-capture.exe").is_file())
+
+    def test_prepared_archive_does_not_download_again(self) -> None:
+        manifest = self.make_tool_manifest()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package_dir = root / manifest["source_dir"]
+            package_dir.mkdir(parents=True)
+            for file_name in manifest["source"]["platforms"]["Win64"]["required_files"]:
+                (package_dir / file_name).touch()
+
+            with (
+                mock.patch.object(dependencies, "REPO_ROOT", root),
+                mock.patch.object(dependencies.urllib.request, "urlretrieve") as urlretrieve,
+            ):
+                dependencies.ensure_archive_source(manifest, "Win64")
+
+            urlretrieve.assert_not_called()
+
+    def test_optional_tool_package_skips_unsupported_platform(self) -> None:
+        manifest = self.make_tool_manifest()
+        output = io.StringIO()
+
+        with mock.patch("sys.stdout", output):
+            dependencies.process_manifest(
+                manifest,
+                platform_name="Linux",
+                configs=["Debug", "Release"],
+                cmake_command="cmake",
+            )
+
+        self.assertIn("Skipping tracy-tools", output.getvalue())
+
+    def test_status_query_is_read_only_and_reports_missing_files(self) -> None:
+        manifest = self.make_tool_manifest()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch.object(dependencies, "REPO_ROOT", root):
+                status = dependencies.query_manifest_status(manifest, "Win64")
+
+            self.assertFalse(status["prepared"])
+            self.assertEqual(status["version"], "0.13.1")
+            self.assertEqual(status["missing_files"], ["tracy-profiler.exe", "tracy-capture.exe"])
+            self.assertFalse((root / "packages").exists())
+
+class MigratedWorktreeToolTests(unittest.TestCase):
+    def test_worktree_porcelain_parser_preserves_branch_and_lock_state(self) -> None:
+        worktrees = services.parse_worktrees(
+            "worktree C:/repo\n"
+            "HEAD 0123456789\n"
+            "branch refs/heads/main\n"
+            "\n"
+            "worktree C:/repo-feature\n"
+            "HEAD abcdef0123\n"
+            "detached\n"
+            "locked in use\n"
+        )
+        self.assertEqual(
+            worktrees,
+            [
+                services.Worktree(Path("C:/repo"), "main", False),
+                services.Worktree(Path("C:/repo-feature"), None, True),
+            ],
+        )
+
+    def test_terminal_layout_selects_the_first_pane_before_the_fourth_split(self) -> None:
+        worktrees = [
+            services.Worktree(Path(f"C:/repo-{index}"), f"branch-{index}")
+            for index in range(4)
+        ]
+        with mock.patch.object(services, "environment_arguments", return_value=[]):
+            arguments = services.terminal_arguments(worktrees)
+
+        fourth_split = arguments.index("move-focus")
+        self.assertEqual(arguments[fourth_split : fourth_split + 3], ["move-focus", "first", ";"])
+        self.assertEqual(arguments[fourth_split + 3 : fourth_split + 5], ["split-pane", "-H"])
+        self.assertNotIn("left", arguments)
+
+    def test_add_prepares_without_calling_setup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "feature"
+            args = argparse.Namespace(
+                path=str(target),
+                branch="feature",
+                detach=False,
+                commit_ish=None,
+                source=None,
+                link_type="auto",
+            )
+            git_result = subprocess.CompletedProcess([], 0, "", "")
+            with mock.patch.object(
+                services,
+                "git_command",
+                return_value=git_result,
+            ) as git, mock.patch.object(
+                services,
+                "prepare_registered_worktree",
+            ) as prepare:
+                services.add_worktree(args)
+
+            git.assert_called_once_with(
+                ["worktree", "add", "-b", "feature", str(target)],
+                capture_output=False,
+            )
+            prepare.assert_called_once_with(
+                target,
+                source_value=None,
+                link_type="auto",
+                dry_run=False,
+            )
+
+    def test_remove_refuses_main_worktree(self) -> None:
+        main = Path("C:/repo")
+        with self.assertRaisesRegex(services.WorktreeToolError, "main worktree"):
+            services.require_registered_linked_worktree(
+                main,
+                [services.Worktree(main, "main")],
+            )
+
+    def test_prepare_allows_a_locked_linked_worktree(self) -> None:
+        main = services.Worktree(Path("C:/repo"), "main")
+        locked = services.Worktree(Path("C:/repo-feature"), "feature", True)
+        self.assertEqual(
+            services.require_registered_linked_worktree(
+                locked.path,
+                [main, locked],
+                require_unlocked=False,
+            ),
+            locked,
+        )
+
+    def test_prepare_validates_all_source_directories_before_linking(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main"
+            linked = root / "feature"
+            main.mkdir()
+            linked.mkdir()
+            worktrees = [
+                services.Worktree(main, "main"),
+                services.Worktree(linked, "feature"),
+            ]
+            with mock.patch.object(
+                services,
+                "get_worktrees",
+                return_value=worktrees,
+            ), mock.patch.object(
+                services,
+                "prepare_agent_link",
+            ) as prepare_agent:
+                with self.assertRaisesRegex(
+                    services.WorktreeToolError,
+                    "Prepared source directories are missing",
+                ):
+                    services.prepare_registered_worktree(
+                        linked,
+                        source_value=str(main),
+                        link_type="auto",
+                        dry_run=True,
+                    )
+            prepare_agent.assert_not_called()
+
+    def test_remove_refuses_unexpected_directory_links(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            worktree = services.Worktree(root, "feature")
+            unexpected = root / "unexpected"
+            with mock.patch.object(
+                services,
+                "directory_links_under",
+                return_value=[unexpected],
+            ):
+                with self.assertRaisesRegex(
+                    services.WorktreeToolError,
+                    "unexpected directory links",
+                ):
+                    services.validate_directory_links(worktree)
+
+    def test_remove_detaches_shared_links_before_git_removal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main"
+            linked = root / "feature"
+            main.mkdir()
+            linked.mkdir()
+            shared_link = linked / ".venv"
+            args = argparse.Namespace(path=str(linked), force=False, dry_run=False)
+            worktrees = [
+                services.Worktree(main, "main"),
+                services.Worktree(linked, "feature"),
+            ]
+            detached = services.DetachedLink(shared_link, main / ".venv", "junction")
+            git_result = subprocess.CompletedProcess([], 0, "", "")
+            events: list[str] = []
+
+            def detach(path: Path) -> services.DetachedLink:
+                events.append(f"detach:{path.name}")
+                return detached
+
+            def run_git(arguments: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+                events.append(f"git:{' '.join(arguments)}")
+                return git_result
+
+            with mock.patch.object(services, "get_worktrees", return_value=worktrees), mock.patch.object(
+                services,
+                "require_clean_worktree",
+            ), mock.patch.object(
+                services,
+                "validate_directory_links",
+                return_value=[shared_link],
+            ), mock.patch.object(
+                services,
+                "detach_link",
+                side_effect=detach,
+            ), mock.patch.object(
+                services,
+                "git_command",
+                side_effect=run_git,
+            ):
+                services.remove_worktree(args)
+
+        self.assertEqual(events[0], "detach:.venv")
+        self.assertEqual(events[1], f"git:worktree remove {linked}")
+
+    def test_remove_restores_detached_links_when_git_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "main"
+            linked = root / "feature"
+            main.mkdir()
+            linked.mkdir()
+            shared_link = linked / ".venv"
+            args = argparse.Namespace(path=str(linked), force=False, dry_run=False)
+            worktrees = [
+                services.Worktree(main, "main"),
+                services.Worktree(linked, "feature"),
+            ]
+            detached = services.DetachedLink(shared_link, main / ".venv", "junction")
+            git_result = subprocess.CompletedProcess([], 1, "", "locked")
+
+            with mock.patch.object(services, "get_worktrees", return_value=worktrees), mock.patch.object(
+                services,
+                "require_clean_worktree",
+            ), mock.patch.object(
+                services,
+                "validate_directory_links",
+                return_value=[shared_link],
+            ), mock.patch.object(
+                services,
+                "detach_link",
+                return_value=detached,
+            ), mock.patch.object(
+                services,
+                "git_command",
+                return_value=git_result,
+            ), mock.patch.object(
+                services,
+                "restore_link",
+            ) as restore:
+                with self.assertRaisesRegex(services.WorktreeToolError, "Removing Git worktree"):
+                    services.remove_worktree(args)
+
+            restore.assert_called_once_with(detached)
+
+    @unittest.skipUnless(os.name == "nt", "requires Windows directory junctions")
+    def test_detaching_junction_preserves_its_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target"
+            link = root / "link"
+            target.mkdir()
+            marker = target / "preserved.txt"
+            marker.write_text("preserved", encoding="utf-8")
+            result = subprocess.run(
+                ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(target)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+            detached = services.detach_link(link)
+
+            self.assertEqual(detached.kind, "junction")
+            self.assertFalse(link.exists())
+            self.assertEqual(marker.read_text(encoding="utf-8"), "preserved")
+
+    def test_unified_worktree_family_uses_explicit_leaf_commands(self) -> None:
+        registry = CommandRegistry()
+        specification, namespace = registry.parse(
+            ["worktree", "open", "--dry-run"]
+        )
+        self.assertEqual(specification.name, "open")
+        self.assertEqual(namespace.worktree_action, "open")
+        self.assertTrue(namespace.dry_run)
+
+    def test_registry_owns_exactly_five_worktree_commands(self) -> None:
+        registry = CommandRegistry()
+        family = next(
+            specification
+            for specification in registry.specifications
+            if specification.name == "worktree"
+        )
+        self.assertEqual(
+            tuple(child.name for child in family.subcommands),
+            ("open", "list", "add", "prepare", "remove"),
+        )
+        self.assertFalse(hasattr(services, "create_parser"))
+
+
+class MigratedSetupPreflightTests(unittest.TestCase):
+    def test_windows_long_paths_policy_error_is_actionable(self) -> None:
+        with mock.patch.object(preflight, "read_windows_long_paths_enabled", return_value=False):
+            error = preflight.check_windows_long_paths()
+        self.assertIn("LongPathsEnabled", error or "")
+        self.assertIn("Enable Win32 long paths", error or "")
+        self.assertIn("never changes machine policy", error or "")
+
+    def test_windows_long_paths_policy_accepts_enabled_host(self) -> None:
+        with mock.patch.object(preflight, "read_windows_long_paths_enabled", return_value=True):
+            self.assertIsNone(preflight.check_windows_long_paths())
+
+    def test_cmake_minimum_version_is_checked(self) -> None:
+        completed = subprocess.CompletedProcess(["cmake", "--version"], 0, "cmake version 3.23.5\n", "")
+        with mock.patch.object(preflight, "command_path", return_value="cmake"), mock.patch.object(
+            preflight.subprocess, "run", return_value=completed
+        ):
+            error = preflight.check_cmake()
+        self.assertIn("requires 3.24 or newer", error or "")
+
+    def test_visual_studio_environment_override_is_loaded_from_agent_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / ".agents" / "build-config.json"
+            config.parent.mkdir(parents=True)
+            config.write_text(
+                json.dumps(
+                    {
+                        "environmentSetup": {
+                            "script": str(root / "toolchain/VsDevCmd.bat"),
+                            "arguments": ["-arch=x64", "-host_arch=x64"],
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.object(preflight, "REPO_ROOT", root):
+                script, arguments = preflight.configured_visual_studio_environment()
+        self.assertEqual(script, (root / "toolchain/VsDevCmd.bat").resolve())
+        self.assertEqual(arguments, ["-arch=x64", "-host_arch=x64"])
+
+    def test_vulkan_sdk_check_reports_every_required_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            error = preflight.check_vulkan_sdk({"VULKAN_SDK": directory})
+        self.assertIn("vulkan.h", error or "")
+        self.assertIn("vk_mem_alloc.h", error or "")
+        self.assertIn("vulkan-1.lib", error or "")
+
+    def test_old_msvc_toolset_has_actionable_version_error(self) -> None:
+        environment = {"PATH": "tools", "VCTOOLSVERSION": "14.43.34808"}
+        with mock.patch.object(preflight, "command_path", return_value="cl.exe"):
+            error = preflight.check_msvc_version(environment)
+        self.assertIn("requires 14.44 or newer", error or "")
+        self.assertIn("std::format_string", error or "")
+
+class MigratedAgentConfigLifecycleTests(unittest.TestCase):
+    @staticmethod
+    def create_repo(root: Path) -> None:
+        template = root / agent_config.TEMPLATE_RELATIVE_PATH
+        template.parent.mkdir(parents=True)
+        template.write_text('{"cmakeCommand": ""}\n', encoding="utf-8")
+
+    def test_initialize_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_repo(root)
+            target = agent_config.ensure_agent_config(root)
+            target.write_text("local edit\n", encoding="utf-8")
+            agent_config.ensure_agent_config(root)
+            self.assertEqual(target.read_text(encoding="utf-8"), "local edit\n")
+
+    def test_dry_run_does_not_create_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.create_repo(root)
+            target = agent_config.ensure_agent_config(root, dry_run=True)
+            self.assertFalse(target.exists())
+
+class UnifiedBootstrapRegistryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.registry = CommandRegistry()
+
+    def test_bootstrap_commands_are_available_without_prepared_environment(
+        self,
+    ) -> None:
+        commands = (
+            ["setup"],
+            ["dependency", "prepare", "--libs", "tracy"],
+            ["dependency", "validate"],
+            ["worktree", "open", "--dry-run"],
+            ["worktree", "list"],
+            ["worktree", "add", "feature"],
+            ["worktree", "prepare"],
+            ["worktree", "remove", "feature"],
+        )
+        for arguments in commands:
+            with self.subTest(arguments=arguments):
+                specification, _ = self.registry.parse(arguments)
+                self.assertIs(specification.capability, Capability.BOOTSTRAP)
+
+    def test_dependency_prepare_requires_exactly_one_selection_mode(self) -> None:
+        for arguments in (
+            ["dependency", "prepare"],
+            ["dependency", "prepare", "--all", "--libs", "tracy"],
+        ):
+            specification, namespace = self.registry.parse(arguments)
+            with self.assertRaisesRegex(Exception, "exactly one"):
+                self.registry.execute(
+                    specification,
+                    namespace,
+                    repository_root=REPOSITORY_ROOT,
+                    stdout=io.StringIO(),
+                    stderr=io.StringIO(),
+                )
+
+    def test_worktree_add_rejects_conflicting_modes(self) -> None:
+        specification, namespace = self.registry.parse(
+            ["worktree", "add", "feature", "--branch", "topic", "--detach"]
+        )
+        with self.assertRaisesRegex(Exception, "cannot be used together"):
+            self.registry.execute(
+                specification,
+                namespace,
+                repository_root=REPOSITORY_ROOT,
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+
+
+class SetupOrchestrationTests(unittest.TestCase):
+    def test_preflight_runs_before_every_repository_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events: list[str] = []
+            python = root / ".venv" / "Scripts" / "python.exe"
+            with (
+                mock.patch.object(
+                    setup,
+                    "validate_prerequisites",
+                    side_effect=lambda _: events.append("preflight"),
+                ),
+                mock.patch.object(
+                    setup,
+                    "ensure_agent_config",
+                    side_effect=lambda _: events.append("config"),
+                ),
+                mock.patch.object(
+                    setup,
+                    "ensure_python_environment",
+                    side_effect=lambda _: events.append("python") or python,
+                ),
+                mock.patch.object(
+                    setup,
+                    "prepare_dependencies",
+                    side_effect=lambda *_: events.append("dependencies"),
+                ),
+            ):
+                self.assertEqual(setup.setup_repository(root), python)
+        self.assertEqual(
+            events,
+            ["preflight", "config", "python", "dependencies"],
+        )
+
+    def test_linked_worktree_setup_points_only_to_unified_prepare(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".git").write_text("gitdir: elsewhere", encoding="utf-8")
+            with self.assertRaisesRegex(
+                dependencies.BootstrapError,
+                "DevTool worktree prepare",
+            ) as raised:
+                setup.setup_repository(root)
+        self.assertNotIn("WorktreeTool", str(raised.exception))
+
+    def test_setup_uses_complete_dependency_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            python = root / ".venv" / "Scripts" / "python.exe"
+            with (
+                mock.patch.object(setup, "validate_prerequisites"),
+                mock.patch.object(setup, "ensure_agent_config"),
+                mock.patch.object(
+                    setup,
+                    "ensure_python_environment",
+                    return_value=python,
+                ),
+                mock.patch.object(setup, "prepare_dependencies") as prepare,
+            ):
+                setup.setup_repository(root)
+        request = prepare.call_args.args[1]
+        self.assertTrue(request.use_all)
+        self.assertTrue(request.with_tests)
+        self.assertTrue(request.with_development)
+
+    def test_worktree_preparation_uses_shared_python_preflight(self) -> None:
+        target = Path("C:/repo-feature")
+        with mock.patch.object(
+            services,
+            "validate_prerequisites",
+        ) as validate:
+            services.run_preflight(target)
+        validate.assert_called_once_with(target)
+
+    def test_successful_system_python_setup_restarts_interactive_shell(self) -> None:
+        namespace = argparse.Namespace(bootstrap_action="setup")
+        session: dict[str, object] = {}
+        prepared_python = Path(sys.executable).with_name("prepared-python.exe")
+        completed = mock.Mock(returncode=0)
+        with (
+            mock.patch.object(
+                handler,
+                "setup_repository",
+                return_value=prepared_python,
+            ),
+            mock.patch.object(handler.subprocess, "run", return_value=completed) as run,
+        ):
+            result = handler.run(
+                namespace,
+                repository_root=REPOSITORY_ROOT,
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+                session_state=session,
+            )
+        self.assertEqual(result, 0)
+        self.assertTrue(session["exit_requested"])
+        self.assertEqual(run.call_args.args[0][0], str(prepared_python))
+        self.assertEqual(run.call_args.args[0][-1], "shell")
+
+
+class RelocatedManifestTests(unittest.TestCase):
+    def test_every_relocated_manifest_validates(self) -> None:
+        manifests = dependencies.load_manifests()
+        dependencies.validate_manifests(manifests)
+        self.assertEqual(len(manifests), 10)
+
+    def test_tracy_repair_command_is_focused_and_runnable(self) -> None:
+        manifest = next(
+            item
+            for item in dependencies.load_manifests()
+            if item["name"] == "tracy-tools"
+        )
+        self.assertEqual(
+            manifest["repair_command"],
+            (
+                r"Tools\DurinDevTool\DevTool.bat dependency prepare "
+                "--libs tracy,tracy-tools"
+            ),
+        )
+        self.assertTrue(
+            (REPOSITORY_ROOT / "Tools" / "DurinDevTool" / "DevTool.bat").is_file()
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

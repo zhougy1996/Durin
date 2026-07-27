@@ -139,6 +139,8 @@ def run_shell(
                 stderr=stderr,
                 session_state=session_state,
             )
+            if session_state.get("exit_requested"):
+                return 0
         except DevToolError as exc:
             print(f"Error: {exc}", file=stderr)
         except SystemExit:
