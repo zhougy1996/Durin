@@ -794,6 +794,8 @@ Dependencies: Stage 3.
 Dependencies: Stages 2 through 4.
 
 - [ ] Migrate all repository-owned source-bearing packages and verify hashes.
+- [x] Report legacy repository packages by virtual path during startup loads
+  without warning for incompatible fields encountered by read-only inspection.
 - [ ] Remove legacy carriers only after clean scans and fixture-backed rejection
   coverage.
 - [ ] Publish lasting mount, package, source workflow, content version-control,

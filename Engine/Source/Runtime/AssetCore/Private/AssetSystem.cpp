@@ -363,7 +363,8 @@ namespace Durin::Asset
 			uint32 ArrayIndex,
 			FByteReader& Reader,
 			const std::vector<DObject*>& Objects,
-			std::vector<FAssetLegacyField>* OutLegacyFields = nullptr) -> FAssetResult
+			std::vector<FAssetLegacyField>* OutLegacyFields = nullptr,
+			std::string_view PackagePath = {}) -> FAssetResult
 		{
 			switch (Property->GetKind())
 			{
@@ -467,7 +468,12 @@ namespace Durin::Asset
 						if (!Field || static_cast<uint8>(Field->GetKind()) != Kind
 							|| GetTypeSignature(Field) != Signature)
 						{
-							DURIN_WARN("Skipping incompatible struct field {}::{}", StructName, FieldName);
+							if (!PackagePath.empty())
+							{
+								DURIN_WARN(
+									"Asset package '{}' skipped incompatible struct field {}::{}.",
+									PackagePath, StructName, FieldName);
+							}
 							continue;
 						}
 						if (OutLegacyFields)
@@ -484,7 +490,8 @@ namespace Durin::Asset
 					for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim(); ++FieldIndex)
 					{
 						FAssetResult Result = DeserializeValue(
-							Field, StructValue, FieldIndex, PayloadReader, Objects, OutLegacyFields);
+							Field, StructValue, FieldIndex, PayloadReader, Objects,
+							OutLegacyFields, PackagePath);
 						if (!Result) return Result;
 					}
 					if (PayloadReader.Offset != Payload.size()) return Error(EAssetError::CorruptFile, "Struct field payload has trailing bytes.");
@@ -501,7 +508,7 @@ namespace Durin::Asset
 				{
 					FAssetResult Result = DeserializeValue(
 						Array->GetInner(), Array->GetMutableElementPtr(Container, Index, ArrayIndex),
-						0, Reader, Objects, OutLegacyFields);
+						0, Reader, Objects, OutLegacyFields, PackagePath);
 					if (!Result) return Result;
 				}
 				return {};
@@ -518,9 +525,9 @@ namespace Durin::Asset
 					void* Value = Map->CreateValue();
 					if (!Key || !Value) return Error(EAssetError::UnsupportedProperty, "Failed to create map entry storage.");
 					FAssetResult Result = DeserializeValue(
-						Map->GetKeyProp(), Key, 0, Reader, Objects, OutLegacyFields);
+						Map->GetKeyProp(), Key, 0, Reader, Objects, OutLegacyFields, PackagePath);
 					if (Result) Result = DeserializeValue(
-						Map->GetValueProp(), Value, 0, Reader, Objects, OutLegacyFields);
+						Map->GetValueProp(), Value, 0, Reader, Objects, OutLegacyFields, PackagePath);
 					if (Result) Map->Insert(Container, Key, Value, ArrayIndex);
 					Map->DestroyKey(Key);
 					Map->DestroyValue(Value);
@@ -1733,7 +1740,8 @@ namespace Durin::Asset
 				for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
 				{
 					Result = DeserializeValue(
-						Property, Object, ArrayIndex, FieldReader, Objects, &LegacyFields);
+						Property, Object, ArrayIndex, FieldReader, Objects,
+						&LegacyFields, Path.GetView());
 					if (!Result) { Rollback(); return Result; }
 				}
 				if (FieldReader.Offset != Field.Payload.size()) { Rollback(); return Error(EAssetError::CorruptFile, "Property payload has trailing bytes."); }
@@ -1794,7 +1802,13 @@ namespace Durin::Asset
 			{
 				if (Issue.Classification == EAssetCompatibilityClassification::SafeCleanup
 					|| Issue.Classification == EAssetCompatibilityClassification::Migrated)
+				{
 					Package->MarkDirty();
+					DURIN_WARN(
+						"Asset package '{}' uses legacy serialized data: {} "
+						"Save the package to upgrade its on-disk format.",
+						Path.ToString(), Issue.MigrationSummary);
+				}
 				if (Issue.Risk != EAssetCompatibilityRisk::None)
 					CompatibilityRiskPackages.insert(Package);
 				if (OutReport) OutReport->CompatibilityIssues.push_back(std::move(Issue));
