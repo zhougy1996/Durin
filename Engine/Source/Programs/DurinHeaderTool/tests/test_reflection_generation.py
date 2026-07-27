@@ -2,11 +2,11 @@ import json
 import re
 import sys
 import tempfile
-import unittest
 from pathlib import Path
 from unittest import mock
 
 import clang.cindex
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -36,13 +36,10 @@ from durin_header_tool.resolver.reflection_resolver import (
     load_available_symbols,
     resolved_symbol_dependencies_for_header,
 )
-from durin_header_tool.writers.reflection_source_writer import (
-    _enum_definitions,
-    generate_cpp_content,
-)
+from durin_header_tool.writers.reflection_source_writer import _enum_definitions, generate_cpp_content
 
 
-class ReflectionSourceWriterTests(unittest.TestCase):
+class TestReflectionSourceWriter:
     def test_enum_values_use_unsigned_64_bit_channel(self):
         enum_info = ReflectedEnumInfo(
             short_name="EValue",
@@ -59,8 +56,8 @@ class ReflectionSourceWriterTests(unittest.TestCase):
 
         content = _enum_definitions(enum_info, "/Cpp/Core")
 
-        self.assertIn('{ "Negative", static_cast<Durin::uint64>(-1), nullptr },', content)
-        self.assertIn('{ "High", static_cast<Durin::uint64>(18446744073709551615), nullptr },', content)
+        assert '{ "Negative", static_cast<Durin::uint64>(-1), nullptr },' in content
+        assert '{ "High", static_cast<Durin::uint64>(18446744073709551615), nullptr },' in content
 
     def test_enum_display_metadata_is_escaped_and_transported(self):
         enum_info = ReflectedEnumInfo(
@@ -79,14 +76,14 @@ class ReflectionSourceWriterTests(unittest.TestCase):
 
         content = _enum_definitions(enum_info, "/Cpp/Core")
 
-        self.assertIn(r'"Editor \"Mode\"",', content)
-        self.assertIn(r'{ "Path", static_cast<Durin::uint64>(1), "C:\\Mode" },', content)
-        self.assertIn('{ "DefaultValue", static_cast<Durin::uint64>(2), nullptr },', content)
+        assert r'"Editor \"Mode\"",' in content
+        assert r'{ "Path", static_cast<Durin::uint64>(1), "C:\\Mode" },' in content
+        assert '{ "DefaultValue", static_cast<Durin::uint64>(2), nullptr },' in content
 
 
-class ReflectionGenerationTests(unittest.TestCase):
+class TestReflectionGeneration:
     @classmethod
-    def setUpClass(cls):
+    def setup_class(cls):
         # Keep parser/writer integration coverage self-contained; unit tests must not scan production modules.
         cls._temp_dir = tempfile.TemporaryDirectory()
         cls.temp_root = Path(cls._temp_dir.name)
@@ -197,7 +194,7 @@ namespace Fixture
             cls.generated_cpp = generate_cpp_content(cls.header_info, cls.symbols)
 
     @classmethod
-    def tearDownClass(cls):
+    def teardown_class(cls):
         cls._temp_dir.cleanup()
 
     def test_export_schema_uses_qualified_symbol_identity(self):
@@ -206,60 +203,63 @@ namespace Fixture
             content = save_module_export_file(self.export_info)
         data = json.loads(content)
 
-        self.assertEqual(data["SchemaVersion"], 4)
+        assert data["SchemaVersion"] == 4
         actor = data["Symbols"]["Fixture::ASampleActor"]
-        self.assertEqual(actor["QualifiedName"], "Fixture::ASampleActor")
-        self.assertEqual(actor["GeneratedHelperName"], "Z_Construct_DClass_Fixture_ASampleActor")
-        self.assertEqual(actor["BaseQualifiedName"], "Durin::DObject")
+        assert actor["QualifiedName"] == "Fixture::ASampleActor"
+        assert actor["GeneratedHelperName"] == "Z_Construct_DClass_Fixture_ASampleActor"
+        assert actor["BaseQualifiedName"] == "Durin::DObject"
 
     def test_qualified_helper_name_and_validation(self):
-        self.assertEqual(
-            make_generated_helper_name("Durin::Gameplay::AActor"),
-            "Z_Construct_DClass_Durin_Gameplay_AActor",
+        assert (
+            make_generated_helper_name("Durin::Gameplay::AActor")
+            ==
+            "Z_Construct_DClass_Durin_Gameplay_AActor"
         )
-        self.assertEqual(
-            make_generated_enum_helper_name("Durin::Gameplay::ETeam"),
-            "Z_Construct_DEnum_Durin_Gameplay_ETeam",
+        assert (
+            make_generated_enum_helper_name("Durin::Gameplay::ETeam")
+            ==
+            "Z_Construct_DEnum_Durin_Gameplay_ETeam"
         )
-        with self.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             make_generated_helper_name("Durin::Gameplay_AActor")
 
     def test_generated_types_use_module_cpp_package(self):
-        self.assertIn('"/Cpp/Fixture",', self.generated_cpp)
+        assert '"/Cpp/Fixture",' in self.generated_cpp
 
         manifest = ModuleManifest(module_name="Fixture")
         with mock.patch.object(utils, "get_module_dht_output_dir", return_value=self.dht_output_dir):
             _write_reflection_files("Fixture", [], {}, manifest, max_workers=1)
         module_content = (self.dht_output_dir / "Fixture.module.gen.cpp").read_text(encoding="utf-8")
-        self.assertIn('Durin::RegisterCompiledInPackage("Fixture")', module_content)
+        assert 'Durin::RegisterCompiledInPackage("Fixture")' in module_content
 
     def test_class_display_and_default_object_name_metadata(self):
-        self.assertIn('"Fixture::ASampleActor",', self.generated_cpp)
-        self.assertIn('"ASampleActor",', self.generated_cpp)
-        self.assertIn('5,\n\t"Sample Actor",', self.generated_cpp)
-        self.assertIn('"Sample Actor",', self.generated_cpp)
-        self.assertIn('"SampleActor"', self.generated_cpp)
+        assert '"Fixture::ASampleActor",' in self.generated_cpp
+        assert '"ASampleActor",' in self.generated_cpp
+        assert '5,\n\t"Sample Actor",' in self.generated_cpp
+        assert '"Sample Actor",' in self.generated_cpp
+        assert '"SampleActor"' in self.generated_cpp
 
     def test_enum_display_metadata_binds_to_type_and_values(self):
         fixture_mode = next(enum for enum in self.header_info.enums if enum.short_name == "EFixtureMode")
-        self.assertTrue(fixture_mode.is_scoped)
-        self.assertEqual(fixture_mode.display_name, "Fixture Mode")
-        self.assertEqual(
-            [(value.name, value.value, value.display_name) for value in fixture_mode.values],
-            [
-                ("Disabled", -1, "Not Enabled"),
-                ("URLValue", 0, ""),
-                ("FinalValue", 7, "Final (Ready)"),
-            ],
-        )
+        assert fixture_mode.is_scoped
+        assert fixture_mode.display_name == "Fixture Mode"
+        assert [
+            (value.name, value.value, value.display_name) for value in fixture_mode.values
+        ] == [
+            ("Disabled", -1, "Not Enabled"),
+            ("URLValue", 0, ""),
+            ("FinalValue", 7, "Final (Ready)"),
+        ]
 
         legacy_mode = next(enum for enum in self.header_info.enums if enum.short_name == "ELegacyMode")
-        self.assertFalse(legacy_mode.is_scoped)
-        self.assertEqual(legacy_mode.display_name, "")
-        self.assertEqual(
-            [(value.name, value.value, value.display_name) for value in legacy_mode.values],
-            [("LegacyFirst", 0, ""), ("LegacySecond", 4, "")],
-        )
+        assert not legacy_mode.is_scoped
+        assert legacy_mode.display_name == ""
+        assert [
+            (value.name, value.value, value.display_name) for value in legacy_mode.values
+        ] == [
+            ("LegacyFirst", 0, ""),
+            ("LegacySecond", 4, ""),
+        ]
 
     def test_invalid_enum_metadata_has_deterministic_diagnostics(self):
         invalid_cases = [
@@ -289,16 +289,15 @@ namespace Fixture
             ),
         ]
         for source, diagnostic in invalid_cases:
-            with self.subTest(diagnostic=diagnostic):
-                with self.assertRaisesRegex(ValueError, re.escape(diagnostic)):
-                    make_dht_parse_source(source)
+            with pytest.raises(ValueError, match=re.escape(diagnostic)):
+                make_dht_parse_source(source)
 
     def test_annotation_names_in_comments_and_strings_are_ignored(self):
         source = '''// DENUM(Unknown = "comment")
 const char* Text = "DMETA(Unknown = \\"string\\")";
 /* DMETA(DisplayName = Bare) */
 '''
-        self.assertEqual(make_dht_parse_source(source), source)
+        assert make_dht_parse_source(source) == source
 
     def test_translation_unit_skips_function_bodies(self):
         index = mock.Mock()
@@ -316,11 +315,12 @@ const char* Text = "DMETA(Unknown = \\"string\\")";
                 export_mode=False,
             )
 
-        self.assertIs(translation_unit, mock.sentinel.translation_unit)
-        self.assertEqual(dmeta_uses, {})
-        self.assertEqual(
-            index.parse.call_args.kwargs["options"],
-            clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES,
+        assert translation_unit is mock.sentinel.translation_unit
+        assert dmeta_uses == {}
+        assert (
+            index.parse.call_args.kwargs["options"]
+            ==
+            clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES
         )
 
     def test_dmeta_outside_reflected_enum_is_rejected(self):
@@ -347,11 +347,8 @@ const char* Text = "DMETA(Unknown = \\"string\\")";
             mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
             mock.patch.object(utils, "get_module_dht_output_dir", return_value=self.dht_output_dir),
         ):
-            with self.assertRaisesRegex(
-                ValueError,
-                "DMETA at line 5, column 15: "
-                "annotation is only valid on an enumerator in a reflected enum",
-            ):
+            with pytest.raises(ValueError, match="DMETA at line 5, column 15: "
+                "annotation is only valid on an enumerator in a reflected enum"):
                 with mock.patch(
                     "clang.cindex.Cursor.walk_preorder",
                     side_effect=AssertionError("DMETA validation must not walk the entire translation unit"),
@@ -388,7 +385,7 @@ const char* Text = "DMETA(Unknown = \\"string\\")";
             mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
             mock.patch.object(utils, "get_module_dht_output_dir", return_value=self.dht_output_dir),
         ):
-            with self.assertRaisesRegex(ValueError, "DMETA at line 11, column 18"):
+            with pytest.raises(ValueError, match="DMETA at line 11, column 18"):
                 parse_reflection_header("Fixture", header)
 
     def test_same_short_name_in_different_namespaces_uses_local_class_source(self):
@@ -439,10 +436,10 @@ namespace Beta
             header_info = parse_reflection_header("Fixture", header)
 
         classes = {class_info.qualified_name: class_info for class_info in header_info.classes}
-        self.assertEqual(classes["Alpha::FItem"].generated_body_line, generated_body_lines[0])
-        self.assertEqual(classes["Beta::FItem"].generated_body_line, generated_body_lines[1])
-        self.assertEqual([prop.name for prop in classes["Alpha::FItem"].properties], ["First"])
-        self.assertEqual([prop.name for prop in classes["Beta::FItem"].properties], ["Second"])
+        assert classes["Alpha::FItem"].generated_body_line == generated_body_lines[0]
+        assert classes["Beta::FItem"].generated_body_line == generated_body_lines[1]
+        assert [prop.name for prop in classes["Alpha::FItem"].properties] == ["First"]
+        assert [prop.name for prop in classes["Beta::FItem"].properties] == ["Second"]
 
     def test_generated_body_line_comes_from_source_instead_of_synthetic_cursor(self):
         source = '''namespace Fixture
@@ -462,42 +459,36 @@ namespace Beta
         synthetic_member.location.line = 3
         class_cursor.get_children.return_value = [synthetic_member]
 
-        self.assertEqual(_scan_generated_body_line(source, class_cursor), 5)
+        assert _scan_generated_body_line(source, class_cursor) == 5
 
     def test_property_flags_metadata_and_value_lifecycle_are_generated(self):
-        self.assertIn(
-            'NewProp_Value = { "Value", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::ReadOnly,',
-            self.generated_cpp,
+        assert (
+            'NewProp_Value = { "Value", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::ReadOnly,'
+            in self.generated_cpp
         )
-        self.assertIn(
-            'NewProp_Color_MetaData[] = { { "HideAlpha", "true" } };',
-            self.generated_cpp,
-        )
-        self.assertIn("Z_Construct_DStruct_Durin_FLinearColor", self.generated_cpp)
-        self.assertIn(
-            'NewProp_Color = { "Color", Durin::EPropertyFlags::Edit,',
-            self.generated_cpp,
-        )
+        assert 'NewProp_Color_MetaData[] = { { "HideAlpha", "true" } };' in self.generated_cpp
+        assert "Z_Construct_DStruct_Durin_FLinearColor" in self.generated_cpp
+        assert 'NewProp_Color = { "Color", Durin::EPropertyFlags::Edit,' in self.generated_cpp
         value_type = "std::remove_extent_t<decltype(((Fixture::ASampleActor*)0)->Color)>"
-        self.assertIn(f"sizeof({value_type})", self.generated_cpp)
-        self.assertIn(f"alignof({value_type})", self.generated_cpp)
-        self.assertIn(f"InitializePropertyValue<{value_type}>", self.generated_cpp)
-        self.assertIn(f"DestroyPropertyValue<{value_type}>", self.generated_cpp)
+        assert f"sizeof({value_type})" in self.generated_cpp
+        assert f"alignof({value_type})" in self.generated_cpp
+        assert f"InitializePropertyValue<{value_type}>" in self.generated_cpp
+        assert f"DestroyPropertyValue<{value_type}>" in self.generated_cpp
 
     def test_fname_property_is_generated(self):
-        self.assertIn("Durin::DurinCodeGen::FNamePropertyParams NewProp_Identifier", self.generated_cpp)
-        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Name", self.generated_cpp)
+        assert "Durin::DurinCodeGen::FNamePropertyParams NewProp_Identifier" in self.generated_cpp
+        assert "Durin::DurinCodeGen::EPropertyGenFlags::Name" in self.generated_cpp
 
     def test_guid_properties_are_generated_directly_and_in_arrays(self):
-        self.assertIn("Durin::DurinCodeGen::FGuidPropertyParams NewProp_PersistentId", self.generated_cpp)
-        self.assertIn("Durin::DurinCodeGen::EPropertyGenFlags::Guid", self.generated_cpp)
-        self.assertIn("Durin::DurinCodeGen::FArrayPropertyParams NewProp_RelatedIds", self.generated_cpp)
-        self.assertIn("Durin::DurinCodeGen::FGuidPropertyParams NewProp_RelatedIds_Inner", self.generated_cpp)
+        assert "Durin::DurinCodeGen::FGuidPropertyParams NewProp_PersistentId" in self.generated_cpp
+        assert "Durin::DurinCodeGen::EPropertyGenFlags::Guid" in self.generated_cpp
+        assert "Durin::DurinCodeGen::FArrayPropertyParams NewProp_RelatedIds" in self.generated_cpp
+        assert "Durin::DurinCodeGen::FGuidPropertyParams NewProp_RelatedIds_Inner" in self.generated_cpp
 
     def test_brace_initialized_intrinsic_struct_properties_are_generated(self):
         for property_name in ("Position", "Tangent"):
-            self.assertIn(f'NewProp_{property_name} = {{ "{property_name}",', self.generated_cpp)
-        self.assertIn("Z_Construct_DStruct_Durin_FVector3", self.generated_cpp)
+            assert f'NewProp_{property_name} = {{ "{property_name}",' in self.generated_cpp
+        assert "Z_Construct_DStruct_Durin_FVector3" in self.generated_cpp
 
     def test_default_double_vector_intrinsics_are_available(self):
         missing_export = self.temp_root / "missing.export"
@@ -509,8 +500,8 @@ namespace Beta
 
         for type_name in ("FVector2", "FVector3", "FVector4"):
             qualified_name = f"Durin::{type_name}"
-            self.assertIn(qualified_name, symbols)
-            self.assertEqual(symbols[qualified_name].GeneratedHelperName, f"Z_Construct_DStruct_Durin_{type_name}")
+            assert qualified_name in symbols
+            assert symbols[qualified_name].GeneratedHelperName == f"Z_Construct_DStruct_Durin_{type_name}"
 
     def test_manifest_records_generator_contract(self):
         manifest_path = self.temp_root / "Fixture.manifest"
@@ -527,21 +518,18 @@ namespace Beta
             content = save_module_manifest_file(manifest)
         data = json.loads(content)
 
-        self.assertEqual(data["SchemaVersion"], 5)
-        self.assertEqual(data["ToolFingerprint"], "fixture-fingerprint")
-        self.assertEqual(data["SymbolNameScheme"], "qualified-underscore-v1")
-        self.assertEqual(data["ModuleName"], "Fixture")
-        self.assertEqual(data["RuntimeVariant"], "DurinEditor")
-        self.assertNotIn("Profile", data)
-        self.assertEqual(data["Platform"], "Win64")
-        self.assertEqual(
-            data["GeneratedOutputs"],
-            ["Fixture.module.gen.cpp", "FixtureTypes.gen.cpp", "FixtureTypes.gen.h"],
-        )
-        self.assertEqual(data["PendingCleanupOutputs"], [])
+        assert data["SchemaVersion"] == 5
+        assert data["ToolFingerprint"] == "fixture-fingerprint"
+        assert data["SymbolNameScheme"] == "qualified-underscore-v1"
+        assert data["ModuleName"] == "Fixture"
+        assert data["RuntimeVariant"] == "DurinEditor"
+        assert "Profile" not in data
+        assert data["Platform"] == "Win64"
+        assert data["GeneratedOutputs"] == [
+            "Fixture.module.gen.cpp",
+            "FixtureTypes.gen.cpp",
+            "FixtureTypes.gen.h",
+        ]
+        assert data["PendingCleanupOutputs"] == []
         actor_dependencies = data["ResolvedSymbolDependencies"][self.header]
-        self.assertEqual(actor_dependencies["Durin::DObject"]["GeneratedHelperName"], "Z_Construct_DClass_Durin_DObject")
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert actor_dependencies["Durin::DObject"]["GeneratedHelperName"] == "Z_Construct_DClass_Durin_DObject"

@@ -99,7 +99,7 @@ Use the root wrapper for configuration, builds, and tests:
 .\DevTool.bat stop
 ```
 
-Run DurinDevTool's Python test suite through pytest:
+Run the repository's Python test suites through pytest:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest

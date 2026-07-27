@@ -6,10 +6,11 @@ import queue
 import sys
 import tempfile
 import time
-import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -38,7 +39,7 @@ def _lock_worker(lock_path: str, operation: str, release_event, result_queue) ->
     result_queue.put((operation, "released"))
 
 
-class AtomicFileTests(unittest.TestCase):
+class TestAtomicFile:
     def test_generate_file_replaces_content_and_skips_unchanged_write(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "generated.txt"
@@ -46,11 +47,11 @@ class AtomicFileTests(unittest.TestCase):
             first_mtime = output_path.stat().st_mtime_ns
 
             utils.generate_file(output_path, "first")
-            self.assertEqual(output_path.stat().st_mtime_ns, first_mtime)
+            assert output_path.stat().st_mtime_ns == first_mtime
 
             utils.generate_file(output_path, "second")
-            self.assertEqual(output_path.read_text(encoding="utf-8"), "second")
-            self.assertEqual(list(output_path.parent.glob(f".{output_path.name}.*.tmp")), [])
+            assert output_path.read_text(encoding="utf-8") == "second"
+            assert list(output_path.parent.glob(f".{output_path.name}.*.tmp")) == []
 
     def test_replace_failure_preserves_old_file_and_removes_temporary_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -58,11 +59,11 @@ class AtomicFileTests(unittest.TestCase):
             output_path.write_text("old", encoding="utf-8")
 
             with mock.patch("durin_header_tool.io.file_helper.os.replace", side_effect=OSError("replace failed")):
-                with self.assertRaisesRegex(OSError, "replace failed"):
+                with pytest.raises(OSError, match="replace failed"):
                     utils.generate_file(output_path, "new")
 
-            self.assertEqual(output_path.read_text(encoding="utf-8"), "old")
-            self.assertEqual(list(output_path.parent.glob(f".{output_path.name}.*.tmp")), [])
+            assert output_path.read_text(encoding="utf-8") == "old"
+            assert list(output_path.parent.glob(f".{output_path.name}.*.tmp")) == []
 
     def test_invalid_utf8_output_is_replaced(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -71,10 +72,10 @@ class AtomicFileTests(unittest.TestCase):
 
             utils.generate_file(output_path, "recovered")
 
-            self.assertEqual(output_path.read_text(encoding="utf-8"), "recovered")
+            assert output_path.read_text(encoding="utf-8") == "recovered"
 
 
-class OutputLockTests(unittest.TestCase):
+class TestOutputLock:
     def test_same_output_lock_serializes_processes(self):
         context = multiprocessing.get_context("spawn")
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -86,16 +87,16 @@ class OutputLockTests(unittest.TestCase):
             second = context.Process(target=_lock_worker, args=(lock_path, "second", second_release, results))
             try:
                 first.start()
-                self.assertEqual(results.get(timeout=5), ("first", "acquired"))
+                assert results.get(timeout=5) == ("first", "acquired")
                 second.start()
-                with self.assertRaises(queue.Empty):
+                with pytest.raises(queue.Empty):
                     results.get(timeout=0.4)
 
                 first_release.set()
-                self.assertEqual(results.get(timeout=5), ("first", "released"))
-                self.assertEqual(results.get(timeout=5), ("second", "acquired"))
+                assert results.get(timeout=5) == ("first", "released")
+                assert results.get(timeout=5) == ("second", "acquired")
                 second_release.set()
-                self.assertEqual(results.get(timeout=5), ("second", "released"))
+                assert results.get(timeout=5) == ("second", "released")
             finally:
                 first_release.set()
                 second_release.set()
@@ -106,8 +107,8 @@ class OutputLockTests(unittest.TestCase):
                 if second.is_alive():
                     second.terminate()
 
-            self.assertEqual(first.exitcode, 0)
-            self.assertEqual(second.exitcode, 0)
+            assert first.exitcode == 0
+            assert second.exitcode == 0
 
     def test_different_output_locks_can_be_acquired_together(self):
         context = multiprocessing.get_context("spawn")
@@ -126,10 +127,10 @@ class OutputLockTests(unittest.TestCase):
                 first.start()
                 second.start()
                 acquired = {results.get(timeout=5), results.get(timeout=5)}
-                self.assertEqual(acquired, {("first", "acquired"), ("second", "acquired")})
+                assert acquired == {("first", "acquired"), ("second", "acquired")}
                 release.set()
                 released = {results.get(timeout=5), results.get(timeout=5)}
-                self.assertEqual(released, {("first", "released"), ("second", "released")})
+                assert released == {("first", "released"), ("second", "released")}
             finally:
                 release.set()
                 first.join(timeout=5)
@@ -139,18 +140,18 @@ class OutputLockTests(unittest.TestCase):
                 if second.is_alive():
                     second.terminate()
 
-            self.assertEqual(first.exitcode, 0)
-            self.assertEqual(second.exitcode, 0)
+            assert first.exitcode == 0
+            assert second.exitcode == 0
 
 
-class CacheRecoveryTests(unittest.TestCase):
+class TestCacheRecovery:
     def test_file_fingerprint_content_identity_ignores_timestamp_and_size(self):
         old_fingerprint = FileFingerprint(timestamp=1.0, file_size=10, md5="same-content")
         touched_fingerprint = FileFingerprint(timestamp=2.0, file_size=10, md5="same-content")
         changed_fingerprint = FileFingerprint(timestamp=2.0, file_size=11, md5="different-content")
 
-        self.assertEqual(old_fingerprint, touched_fingerprint)
-        self.assertNotEqual(old_fingerprint, changed_fingerprint)
+        assert old_fingerprint == touched_fingerprint
+        assert old_fingerprint != changed_fingerprint
 
     def test_touched_header_keeps_export_and_reflection_cache_current(self):
         header = "Public/Engine/Actor.h"
@@ -161,7 +162,7 @@ class CacheRecoveryTests(unittest.TestCase):
         old_export_manifest.ReflectHeaders[header] = old_fingerprint
         new_export_manifest.ReflectHeaders[header] = touched_fingerprint
 
-        self.assertTrue(export_generator._is_export_current(old_export_manifest, new_export_manifest, True))
+        assert export_generator._is_export_current(old_export_manifest, new_export_manifest, True)
 
         old_reflection_manifest = ModuleManifest(module_name="Engine")
         new_reflection_manifest = ModuleManifest(module_name="Engine")
@@ -175,7 +176,7 @@ class CacheRecoveryTests(unittest.TestCase):
                 new_reflection_manifest,
             )
 
-        self.assertEqual(headers, [])
+        assert headers == []
 
     def test_unchanged_zero_symbol_header_reuses_empty_export_result(self):
         header = "Public/Engine/Empty.h"
@@ -192,32 +193,32 @@ class CacheRecoveryTests(unittest.TestCase):
             old_export,
         )
 
-        self.assertEqual(symbols, {})
+        assert symbols == {}
 
     def test_tool_fingerprint_invalidates_reflection_manifest(self):
         old_manifest = ModuleManifest(module_name="Engine", tool_fingerprint="old")
         new_manifest = ModuleManifest(module_name="Engine", tool_fingerprint="new")
 
-        self.assertTrue(reflection_manifest_contract_changed(old_manifest, new_manifest))
+        assert reflection_manifest_contract_changed(old_manifest, new_manifest)
 
     def test_runtime_variant_invalidates_reflection_manifest(self):
         old_manifest = ModuleManifest(module_name="Engine", runtime_variant="DurinEditor")
         new_manifest = ModuleManifest(module_name="Engine", runtime_variant="DurinGame")
 
-        self.assertTrue(reflection_manifest_contract_changed(old_manifest, new_manifest))
+        assert reflection_manifest_contract_changed(old_manifest, new_manifest)
 
     def test_tool_fingerprint_invalidates_export_manifest(self):
         old_manifest = ModuleExportManifest(Module="Engine", ToolFingerprint="old")
         new_manifest = ModuleExportManifest(Module="Engine", ToolFingerprint="new")
 
-        self.assertFalse(export_generator._is_export_current(old_manifest, new_manifest, True))
+        assert not export_generator._is_export_current(old_manifest, new_manifest, True)
 
     def test_invalid_reflection_manifest_is_a_cache_miss(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest_path = Path(temp_dir) / "Engine.manifest"
             manifest_path.write_text("{", encoding="utf-8")
             with mock.patch.object(reflection_generator.utils, "get_module_manifest_file_path", return_value=manifest_path):
-                self.assertIsNone(reflection_generator._load_previous_manifest("Engine"))
+                assert reflection_generator._load_previous_manifest("Engine") is None
 
     def test_v3_reflection_manifest_derives_generated_output_ownership(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -243,11 +244,12 @@ class CacheRecoveryTests(unittest.TestCase):
             with mock.patch.object(reflection_generator.utils, "get_module_manifest_file_path", return_value=manifest_path):
                 manifest = reflection_generator.load_module_manifest_file("Engine")
 
-        self.assertEqual(
-            manifest.generated_outputs,
-            ["Actor.gen.cpp", "Actor.gen.h", "Engine.module.gen.cpp"],
-        )
-        self.assertEqual(manifest.pending_cleanup_outputs, [])
+        assert manifest.generated_outputs == [
+            "Actor.gen.cpp",
+            "Actor.gen.h",
+            "Engine.module.gen.cpp",
+        ]
+        assert manifest.pending_cleanup_outputs == []
 
     def test_invalid_generated_output_ownership_is_a_cache_miss(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -267,7 +269,7 @@ class CacheRecoveryTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with mock.patch.object(reflection_generator.utils, "get_module_manifest_file_path", return_value=manifest_path):
-                self.assertIsNone(reflection_generator._load_previous_manifest("Engine"))
+                assert reflection_generator._load_previous_manifest("Engine") is None
 
     def test_invalid_export_manifest_discards_valid_export_cache(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -282,7 +284,7 @@ class CacheRecoveryTests(unittest.TestCase):
                 mock.patch.object(export_generator.utils, "get_module_export_file_path", return_value=export_path),
                 mock.patch.object(export_generator.utils, "get_module_export_manifest_file_path", return_value=manifest_path),
             ):
-                self.assertEqual(export_generator._load_previous_export("Engine"), (None, None))
+                assert export_generator._load_previous_export("Engine") == (None, None)
 
     def test_missing_generated_header_forces_regeneration(self):
         old_manifest = ModuleManifest(module_name="Engine")
@@ -298,9 +300,10 @@ class CacheRecoveryTests(unittest.TestCase):
                 new_manifest,
             )
 
-        self.assertEqual(result, ["Public/Engine/Actor.h"])
+        assert result == ["Public/Engine/Actor.h"]
 
     def test_reflection_failure_does_not_commit_manifest(self):
+        save_manifest = mock.Mock()
         with (
             mock.patch.object(reflection_generator, "_load_previous_manifest", return_value=None),
             mock.patch.object(
@@ -309,9 +312,9 @@ class CacheRecoveryTests(unittest.TestCase):
                 return_value=ModuleManifest(module_name="Engine"),
             ),
             mock.patch.object(reflection_generator, "_write_reflection_files", side_effect=RuntimeError("generation failed")),
-            mock.patch.object(reflection_generator, "save_module_manifest_file") as save_manifest,
+            mock.patch.object(reflection_generator, "save_module_manifest_file", new=save_manifest),
         ):
-            with self.assertRaisesRegex(RuntimeError, "generation failed"):
+            with pytest.raises(RuntimeError, match="generation failed"):
                 reflection_generator.generate_reflection_files("Engine")
 
         save_manifest.assert_not_called()
@@ -367,15 +370,12 @@ class CacheRecoveryTests(unittest.TestCase):
             ):
                 reflection_generator.generate_reflection_files("Engine")
 
-            self.assertEqual(
-                manifest_commits,
-                [
-                    (stale_names, [True, True, True]),
-                    ([], [False, False, False]),
-                ],
-            )
-            self.assertTrue((output_dir / "World.gen.h").exists())
-            self.assertTrue((output_dir / "Unowned.gen.h").exists())
+            assert manifest_commits == [
+                (stale_names, [True, True, True]),
+                ([], [False, False, False]),
+            ]
+            assert (output_dir / "World.gen.h").exists()
+            assert (output_dir / "Unowned.gen.h").exists()
 
     def test_cleanup_failure_keeps_pending_outputs_in_committed_manifest(self):
         old_manifest = ModuleManifest(
@@ -408,15 +408,15 @@ class CacheRecoveryTests(unittest.TestCase):
                 side_effect=OSError("cleanup failed"),
             ),
         ):
-            with self.assertRaisesRegex(OSError, "cleanup failed"):
+            with pytest.raises(OSError, match="cleanup failed"):
                 reflection_generator.generate_reflection_files("Engine")
 
-        self.assertEqual(manifest_commits, [["Actor.gen.h"]])
+        assert manifest_commits == [["Actor.gen.h"]]
 
 
-class ModuleDependencyTests(unittest.TestCase):
+class TestModuleDependency:
     @classmethod
-    def setUpClass(cls):
+    def setup_class(cls):
         configs.init_configs()
 
     def test_enabled_optional_dependencies_join_recursive_dependency_graph(self):
@@ -457,7 +457,7 @@ class ModuleDependencyTests(unittest.TestCase):
         ):
             dependencies = configs.collect_all_dependent_modules("Root", "DurinEditor")
 
-        self.assertEqual(dependencies, {"Optional", "RequiredLeaf", "OptionalLeaf"})
+        assert dependencies == {"Optional", "RequiredLeaf", "OptionalLeaf"}
 
     def test_disabled_optional_dependency_does_not_join_dependency_graph(self):
         root_config = SimpleNamespace(
@@ -477,65 +477,63 @@ class ModuleDependencyTests(unittest.TestCase):
         ):
             dependencies = configs.collect_all_dependent_modules("Root", "DurinGame")
 
-        self.assertEqual(dependencies, set())
+        assert dependencies == set()
 
     def test_launch_reflection_exports_follow_active_runtime_variant(self):
         editor_exports = configs.collect_all_dependent_module_with_export_file("Launch", "DurinEditor")
         game_exports = configs.collect_all_dependent_module_with_export_file("Launch", "DurinGame")
 
-        self.assertIn("DurinEd", editor_exports)
-        self.assertNotIn("DurinEd", game_exports)
+        assert "DurinEd" in editor_exports
+        assert "DurinEd" not in game_exports
 
 
-class IntermediateLayoutTests(unittest.TestCase):
+class TestIntermediateLayout:
     @classmethod
-    def setUpClass(cls):
+    def setup_class(cls):
         configs.ARCH = "Win64"
         configs.RUNTIME_VARIANT = "DurinEditor"
         configs.TOOL_FINGERPRINT = ""
         configs.init_configs()
 
-    def tearDown(self):
+    def teardown_method(self):
         configs.ARCH = "Win64"
         configs.RUNTIME_VARIANT = "DurinEditor"
         configs.TOOL_FINGERPRINT = ""
 
     def test_intermediate_path_uses_platform_and_runtime_variant(self):
-        self.assertEqual(
-            utils.get_project_intermediate_build_dir("Engine"),
-            utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor",
+        assert (
+            utils.get_project_intermediate_build_dir("Engine")
+            ==
+            utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor"
         )
 
     def test_locks_use_shared_intermediate_root(self):
-        self.assertEqual(
-            utils.get_dht_module_lock_file_path("Core"),
+        assert utils.get_dht_module_lock_file_path("Core") == (
             utils.get_project_intermediate_dir("Engine")
             / "Build"
             / ".dht-locks"
             / "Win64"
             / "DurinEditor"
             / "modules"
-            / "Core.lock",
+            / "Core.lock"
         )
 
     def test_runtime_variant_lock_uses_shared_intermediate_root(self):
-        self.assertEqual(
-            utils.get_dht_runtime_variant_lock_file_path().name,
-            "runtime-variant.lock",
-        )
+        assert utils.get_dht_runtime_variant_lock_file_path().name == "runtime-variant.lock"
 
     def test_module_locks_are_independent_within_a_runtime_variant(self):
-        self.assertNotEqual(
-            utils.get_dht_module_lock_file_path("Core"),
-            utils.get_dht_module_lock_file_path("Engine"),
+        assert (
+            utils.get_dht_module_lock_file_path("Core")
+            !=
+            utils.get_dht_module_lock_file_path("Engine")
         )
 
     def test_module_generation_commands_share_their_module_lock(self):
         export_args = SimpleNamespace(function="generate_module_export_file", module="Core")
         reflection_args = SimpleNamespace(function="generate_reflection_files", module="Core")
 
-        self.assertEqual(_get_output_lock_paths(export_args), _get_output_lock_paths(reflection_args))
-        self.assertEqual(_get_output_lock_paths(export_args), [utils.get_dht_module_lock_file_path("Core")])
+        assert _get_output_lock_paths(export_args) == _get_output_lock_paths(reflection_args)
+        assert _get_output_lock_paths(export_args) == [utils.get_dht_module_lock_file_path("Core")]
 
     def test_project_preparation_locks_metadata_and_all_owned_modules(self):
         project_file = configs.environment.DURIN_ENGINE_PROJECT_DIR / "Engine.dproject"
@@ -544,51 +542,49 @@ class IntermediateLayoutTests(unittest.TestCase):
         )
         engine_config = configs.get_project_config("Engine")
 
-        self.assertEqual(lock_paths[0], utils.get_dht_project_lock_file_path("Engine"))
-        self.assertEqual(
-            lock_paths[1:],
-            [
-                utils.get_dht_module_lock_file_path(module_name)
-                for module_name in sorted(engine_config.modules)
-            ],
-        )
+        assert lock_paths[0] == utils.get_dht_project_lock_file_path("Engine")
+        assert lock_paths[1:] == [
+            utils.get_dht_module_lock_file_path(module_name)
+            for module_name in sorted(engine_config.modules)
+        ]
 
     def test_platform_and_runtime_variant_remain_independent_dimensions(self):
         configs.ARCH = "Linux"
         configs.RUNTIME_VARIANT = "DurinGame"
-        self.assertEqual(
-            utils.get_project_intermediate_build_dir("Engine"),
-            utils.get_project_intermediate_dir("Engine") / "Build" / "Linux" / "DurinGame",
+        assert (
+            utils.get_project_intermediate_build_dir("Engine")
+            ==
+            utils.get_project_intermediate_dir("Engine") / "Build" / "Linux" / "DurinGame"
         )
 
     def test_cli_accepts_tool_fingerprint(self):
         parser = argparse.ArgumentParser()
         add_common_arguments(parser)
         args = parser.parse_args(["--tool-fingerprint", "abc123"])
-        self.assertEqual(args.tool_fingerprint, "abc123")
+        assert args.tool_fingerprint == "abc123"
 
     def test_cli_accepts_bounded_worker_count(self):
         parser = argparse.ArgumentParser()
         add_common_arguments(parser)
-        self.assertEqual(parser.parse_args(["--workers", "2"]).workers, 2)
-        with self.assertRaises(SystemExit):
+        assert parser.parse_args(["--workers", "2"]).workers == 2
+        with pytest.raises(SystemExit):
             parser.parse_args(["--workers", "9"])
 
     def test_worker_parallelism_requires_a_large_task_set(self):
-        self.assertEqual(resolve_worker_count(7, 8), 1)
-        self.assertEqual(resolve_worker_count(8, 2), 2)
-        self.assertEqual(resolve_worker_count(15, 8), 2)
-        self.assertEqual(resolve_worker_count(16, 8), 4)
-        self.assertEqual(resolve_worker_count(31, 8), 4)
-        self.assertEqual(resolve_worker_count(32, 8), 8)
-        self.assertEqual(resolve_worker_count(32, 4), 4)
+        assert resolve_worker_count(7, 8) == 1
+        assert resolve_worker_count(8, 2) == 2
+        assert resolve_worker_count(15, 8) == 2
+        assert resolve_worker_count(16, 8) == 4
+        assert resolve_worker_count(31, 8) == 4
+        assert resolve_worker_count(32, 8) == 8
+        assert resolve_worker_count(32, 4) == 4
 
     def test_worker_receives_build_context(self):
         with mock.patch.object(configs, "init_configs") as init_configs:
             initialize_worker_config("Win64", "DurinEditor")
 
-        self.assertEqual(configs.ARCH, "Win64")
-        self.assertEqual(configs.RUNTIME_VARIANT, "DurinEditor")
+        assert configs.ARCH == "Win64"
+        assert configs.RUNTIME_VARIANT == "DurinEditor"
         init_configs.assert_called_once_with()
 
     def test_generated_project_metadata_uses_shared_build_path(self):
@@ -597,30 +593,30 @@ class IntermediateLayoutTests(unittest.TestCase):
 
         output_path, content = generate_file.call_args.args
         expected_root = utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor"
-        self.assertEqual(output_path, expected_root / "Engine.project.cmake")
-        self.assertIn(expected_root.as_posix(), content)
-        self.assertIn(
-            "${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/ThirdParty/${DURIN_THIRDPARTY_OUTPUT_CONFIG}",
-            content,
+        assert output_path == expected_root / "Engine.project.cmake"
+        assert expected_root.as_posix() in content
+        assert (
+            "${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/ThirdParty/${DURIN_THIRDPARTY_OUTPUT_CONFIG}"
+            in content
         )
 
     def test_cmake_commands_forward_shared_dht_context(self):
         workspace_root = ROOT.parents[3]
         project_setup = (workspace_root / "CMake" / "Project" / "ProjectSetup.cmake").read_text(encoding="utf-8")
         project_targets = (workspace_root / "CMake" / "Project" / "ProjectTargets.cmake").read_text(encoding="utf-8")
-        self.assertNotIn("--config ${CMAKE_BUILD_TYPE}", project_setup)
-        self.assertEqual(project_targets.count("${DURIN_DHT_CONTEXT_ARGS}"), 2)
+        assert "--config ${CMAKE_BUILD_TYPE}" not in project_setup
+        assert project_targets.count("${DURIN_DHT_CONTEXT_ARGS}") == 2
 
     def test_generated_module_metadata_leaves_source_discovery_to_cmake(self):
         with mock.patch.object(module_cmake_file_generator.utils, "generate_file") as generate_file:
             module_cmake_file_generator.generate_module_cmake_file("Engine")
 
         _, content = generate_file.call_args.args
-        self.assertNotIn("module_public_srcs", content)
-        self.assertNotIn("module_private_srcs", content)
-        self.assertIn("module_export_manifest_file", content)
-        self.assertIn("module_manifest_file", content)
-        self.assertIn("module_reflection_export_dependencies", content)
+        assert "module_public_srcs" not in content
+        assert "module_private_srcs" not in content
+        assert "module_export_manifest_file" in content
+        assert "module_manifest_file" in content
+        assert "module_reflection_export_dependencies" in content
 
     def test_cmake_declares_tool_and_generated_file_contracts(self):
         workspace_root = ROOT.parents[3]
@@ -628,19 +624,15 @@ class IntermediateLayoutTests(unittest.TestCase):
         project_setup = (workspace_root / "CMake" / "Project" / "ProjectSetup.cmake").read_text(encoding="utf-8")
         project_targets = (workspace_root / "CMake" / "Project" / "ProjectTargets.cmake").read_text(encoding="utf-8")
 
-        self.assertIn("DURIN_DHT_TOOL_FINGERPRINT_FILE", project_setup)
-        self.assertIn("--tool-fingerprint ${DURIN_DHT_TOOL_FINGERPRINT}", project_setup)
-        self.assertEqual(project_targets.count("\n\t\t\tBYPRODUCTS "), 2)
-        self.assertIn("GLOB_RECURSE module_public_srcs CONFIGURE_DEPENDS", project_targets)
-        self.assertIn("GLOB_RECURSE module_private_srcs CONFIGURE_DEPENDS", project_targets)
-        self.assertIn(".export.stamp", project_targets)
-        self.assertIn(".reflection.stamp", project_targets)
-        self.assertIn("JOB_POOLS durin_dht=${DURIN_DHT_JOB_POOL_SIZE}", build_options)
-        self.assertEqual(project_targets.count("JOB_POOL durin_dht"), 2)
-        self.assertEqual(project_targets.count("--workers ${DURIN_DHT_WORKERS}"), 2)
-        self.assertIn("set(DURIN_DHT_LOG_LEVEL INFO CACHE STRING", build_options)
-        self.assertEqual(project_targets.count("--log ${DURIN_DHT_LOG_LEVEL}"), 2)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        assert "DURIN_DHT_TOOL_FINGERPRINT_FILE" in project_setup
+        assert "--tool-fingerprint ${DURIN_DHT_TOOL_FINGERPRINT}" in project_setup
+        assert project_targets.count("\n\t\t\tBYPRODUCTS ") == 2
+        assert "GLOB_RECURSE module_public_srcs CONFIGURE_DEPENDS" in project_targets
+        assert "GLOB_RECURSE module_private_srcs CONFIGURE_DEPENDS" in project_targets
+        assert ".export.stamp" in project_targets
+        assert ".reflection.stamp" in project_targets
+        assert "JOB_POOLS durin_dht=${DURIN_DHT_JOB_POOL_SIZE}" in build_options
+        assert project_targets.count("JOB_POOL durin_dht") == 2
+        assert project_targets.count("--workers ${DURIN_DHT_WORKERS}") == 2
+        assert "set(DURIN_DHT_LOG_LEVEL INFO CACHE STRING" in build_options
+        assert project_targets.count("--log ${DURIN_DHT_LOG_LEVEL}") == 2

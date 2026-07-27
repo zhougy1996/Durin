@@ -470,7 +470,7 @@ Internal code lives under `Engine/Source/Programs/DurinHeaderTool/durin_header_t
 Run them with:
 
 ```powershell
-python -m unittest discover -s Engine\Source\Programs\DurinHeaderTool\tests -p "test_*.py"
+.\.venv\Scripts\python.exe -m pytest Engine\Source\Programs\DurinHeaderTool\tests
 ```
 
 For C++ verification, build the registered Agent profile through the repository build driver:
