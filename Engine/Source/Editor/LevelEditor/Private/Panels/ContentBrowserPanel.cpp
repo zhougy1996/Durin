@@ -837,7 +837,7 @@ namespace Durin
 						// Keep rectangular source images away from the rounded card edge and clip any
 						// subpixel spill introduced by scaling or UI DPI conversion.
 						DrawList->PushClipRect(ImageAreaMin, ImageAreaMax, true);
-						if (Thumbnail.bHasTransparency)
+						if (Thumbnail.bHasTransparency && Thumbnail.bShowTransparencyGrid)
 						{
 							const float CheckerSize = MonaImGui::ScaleUI(7.0f);
 							DrawList->PushClipRect(ImagePosition, ImVec2(ImagePosition.x + ImageSize.x, ImagePosition.y + ImageSize.y), true);

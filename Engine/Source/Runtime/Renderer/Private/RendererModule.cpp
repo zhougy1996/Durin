@@ -1388,7 +1388,8 @@ namespace Durin
 			SetShaderParameters(CommandList, GStaticMeshState.VertexShader, VertexShaderParameters);
 
 			FStaticMeshLightingUniform LightingUniform;
-			LightingUniform.LightDirection = FVector4f(FVector3f(Light.Direction), 0.0f);
+			LightingUniform.LightDirection =
+				FVector4f(FVector3f(Light.Direction), Light.RimLightIntensity);
 			LightingUniform.LightColorIntensity = FVector4f(Light.Color, Light.Intensity);
 			LightingUniform.ViewPositionAmbient = FVector4f(FVector3f(View.ViewLocation), Light.AmbientIntensity);
 			const FRHIUniformBufferRange LightingUniformBuffer = CommandList.AllocateDynamicUniformBuffer(&LightingUniform, sizeof(LightingUniform));

@@ -34,6 +34,7 @@ namespace Durin
 		ENGINE_API auto GetSceneData() const -> FDirectionalLightSceneData;
 		ENGINE_API auto SetIntensity(float InIntensity) -> void;
 		ENGINE_API auto SetAmbientIntensity(float InIntensity) -> void;
+		ENGINE_API auto SetRimLightIntensity(float InIntensity) -> void;
 
 	private:
 		DPROPERTY(Edit, MetaData="HideAlpha")
@@ -44,5 +45,8 @@ namespace Durin
 
 		DPROPERTY(Edit)
 		float AmbientIntensity = 0.08f;
+
+		// Editor preview assistance. Runtime directional lights leave this disabled.
+		float RimLightIntensity = 0.0f;
 	};
 }

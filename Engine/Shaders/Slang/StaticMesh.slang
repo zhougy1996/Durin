@@ -33,6 +33,7 @@ struct TransformUniform
 
 struct LightingUniform
 {
+    // LightDirection.w carries the optional editor-preview rim-light intensity.
     float4 LightDirection;
     float4 LightColorIntensity;
     float4 ViewPositionAmbient;
@@ -80,6 +81,8 @@ float4 FragmentMain(VSOutput input) : SV_Target
     float3 halfVector = normalize(toLight + toView);
     float specular = diffuse > 0.0 ? pow(max(dot(normal, halfVector), 0.0), Material.Params.y) * Material.Params.x : 0.0;
     float3 lightColor = Lighting.LightColorIntensity.rgb * Lighting.LightColorIntensity.a;
-    float3 litColor = surfaceColor.rgb * (Lighting.ViewPositionAmbient.a + diffuse * lightColor) + specular * lightColor;
+    float rim = pow(1.0 - max(dot(normal, toView), 0.0), 3.0) * Lighting.LightDirection.w;
+    float3 litColor = surfaceColor.rgb * (Lighting.ViewPositionAmbient.a + diffuse * lightColor)
+        + (specular + rim) * Lighting.LightColorIntensity.rgb;
     return float4(litColor, surfaceColor.a);
 }

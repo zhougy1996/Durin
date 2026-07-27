@@ -20,6 +20,8 @@ namespace Durin
 		// components populate these values when they register with the scene.
 		float Intensity = 0.0f;
 		float AmbientIntensity = 0.0f;
+		// Optional view-facing edge light used by editor preview scenes.
+		float RimLightIntensity = 0.0f;
 	};
 
 	// Captures sky state without retaining or reading reflected objects on the render thread.

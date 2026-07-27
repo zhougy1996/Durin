@@ -145,6 +145,7 @@ namespace Durin
 				Contract.KeyLightDirectionZ}));
 			Light->SetIntensity(Contract.KeyLightIntensity);
 			Light->SetAmbientIntensity(Contract.FillLightIntensity);
+			Light->SetRimLightIntensity(0.16f);
 			Scene->AddDirectionalLight(Light);
 			View = BuildThumbnailView(Contract);
 
@@ -233,7 +234,9 @@ namespace Durin
 		return true;
 	}
 
-	auto FRenderedAssetThumbnailPreviewScenePool::BeginCapture(std::string& OutError) -> bool
+	auto FRenderedAssetThumbnailPreviewScenePool::BeginCapture(
+		std::string& OutError,
+		bool bOutputOpaque) -> bool
 	{
 		checkf(IsInGameThread(), "Rendered thumbnail capture must start on the game thread.");
 		OutError.clear();
@@ -263,7 +266,8 @@ namespace Durin
 		IRendererModule* Renderer = GEngine->GetRendererModule();
 		IScene* Scene = Impl->Scene.get();
 		FTextureRHIRef RenderTarget = Impl->RenderTarget;
-		const FSceneView View = Impl->View;
+		FSceneView View = Impl->View;
+		if (!bOutputOpaque) View.ClearColor = FVector4f(0.0f);
 		ENQUEUE_RENDER_COMMAND(RenderAssetThumbnailPreview)(
 			[Capture, Generation, Renderer, Scene, RenderTarget, View](
 				FRHICommandListImmediate& CommandList) {

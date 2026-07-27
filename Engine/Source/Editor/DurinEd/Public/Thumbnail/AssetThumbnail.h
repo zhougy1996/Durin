@@ -281,6 +281,7 @@ namespace Durin
 		uint32 Width = 0;
 		uint32 Height = 0;
 		bool bHasTransparency = false;
+		bool bShowTransparencyGrid = true;
 		std::string Diagnostic;
 		uint64 RequestSerial = 0;
 	};

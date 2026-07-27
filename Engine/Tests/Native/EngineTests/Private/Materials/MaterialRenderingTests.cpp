@@ -390,7 +390,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			if (Proxy == nullptr) return Pixels;
 			EXPECT_TRUE(Pool.SetPrimitive(
 				std::move(Proxy), Durin::FMatrix(1.0), Error)) << Error;
-			EXPECT_TRUE(Pool.BeginCapture(Error)) << Error;
+			EXPECT_TRUE(Pool.BeginCapture(Error, false)) << Error;
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
 				Pool.PollCapture(Pixels, Error),
@@ -435,6 +435,9 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		ASSERT_EQ(UntexturedPixels.size(), MaterialPixels.size());
 		const size_t Corner = 0;
 		const size_t Center = (32u * 64u + 32u) * 4u;
+		EXPECT_EQ(MaterialPixels[Corner + 3], 0u);
+		EXPECT_GT(MaterialPixels[Center + 3], 0u);
+		EXPECT_EQ(CubePixels[Corner + 3], 255u);
 		const std::array CornerRgb = {
 			MaterialPixels[Corner], MaterialPixels[Corner + 1], MaterialPixels[Corner + 2]};
 		const std::array MaterialCenterRgb = {

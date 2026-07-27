@@ -37,8 +37,11 @@ namespace Durin
 			std::unique_ptr<PrimitiveSceneProxy> Proxy,
 			const FMatrix& Transform,
 			std::string& OutError) -> bool;
-		// Enqueues one render and one readback on the rendering thread.
-		DURINED_API auto BeginCapture(std::string& OutError) -> bool;
+		// Enqueues one render and one readback on the rendering thread. Transparent
+		// captures clear to transparent black so UI compositing has no color fringe.
+		DURINED_API auto BeginCapture(
+			std::string& OutError,
+			bool bOutputOpaque = true) -> bool;
 		// Moves completed tightly-packed SRGBA8 pixels to the game thread.
 		DURINED_API auto PollCapture(
 			std::vector<uint8>& OutPixels,

@@ -37,6 +37,7 @@ namespace Durin
 			std::clamp(Color.B, 0.0f, 1.0f));
 		Result.Intensity = FMath::Max(0.0f, Intensity);
 		Result.AmbientIntensity = FMath::Max(0.0f, AmbientIntensity);
+		Result.RimLightIntensity = FMath::Max(0.0f, RimLightIntensity);
 		return Result;
 	}
 
@@ -48,5 +49,10 @@ namespace Durin
 	auto DDirectionalLightComponent::SetAmbientIntensity(float InIntensity) -> void
 	{
 		AmbientIntensity = FMath::Max(0.0f, InIntensity);
+	}
+
+	auto DDirectionalLightComponent::SetRimLightIntensity(float InIntensity) -> void
+	{
+		RimLightIntensity = FMath::Max(0.0f, InIntensity);
 	}
 }

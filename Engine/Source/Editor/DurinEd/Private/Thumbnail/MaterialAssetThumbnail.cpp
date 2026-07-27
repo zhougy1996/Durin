@@ -23,8 +23,9 @@ namespace Durin
 {
 	namespace
 	{
-		constexpr uint32 MaterialThumbnailGeneratorSchema = 1;
-		constexpr uint32 MaterialThumbnailShaderContract = 1;
+		constexpr uint32 MaterialThumbnailGeneratorSchema = 2;
+		constexpr uint32 MaterialThumbnailShaderContract = 2;
+		constexpr float MaterialThumbnailSphereScale = 1.18f;
 
 		// Carries only the immutable asset identity across provider-neutral boundaries.
 		class FMaterialThumbnailGenerationInput final : public IAssetThumbnailGenerationInput
@@ -564,9 +565,15 @@ namespace Durin
 					ActiveMaterial,
 					ActiveJob->ResourceRevision,
 					Error);
+			const bool bTextureCube = ActiveTextureCube != nullptr;
+			const FMatrix PreviewTransform = bTextureCube
+				? FMatrix(1.0)
+				: glm::scale(
+					FMatrix(1.0),
+					FVector3(MaterialThumbnailSphereScale));
 			if (Proxy == nullptr
-				|| !ScenePool->SetPrimitive(std::move(Proxy), FMatrix(1.0), Error)
-				|| !ScenePool->BeginCapture(Error))
+				|| !ScenePool->SetPrimitive(std::move(Proxy), PreviewTransform, Error)
+				|| !ScenePool->BeginCapture(Error, bTextureCube))
 			{
 				Pipeline.CompleteRender(
 					*ActiveJob,
@@ -752,7 +759,10 @@ namespace Durin
 		View.Texture = Entry.Texture;
 		View.Width = Entry.Width;
 		View.Height = Entry.Height;
-		View.bHasTransparency = false;
+		View.bHasTransparency =
+			Entry.Fingerprint.AssetClassName
+				!= DTextureCube::StaticClass()->GetQualifiedName().ToString();
+		View.bShowTransparencyGrid = false;
 		if (View.State == EAssetThumbnailState::Ready && Entry.Texture == nullptr
 			&& Entry.bUploading)
 			View.State = EAssetThumbnailState::Uploading;
