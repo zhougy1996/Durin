@@ -296,6 +296,27 @@ def read_state_description(path: Path, *, locked: bool = False) -> str:
     return ", ".join(fields) if fields else f'Existing state file: "{path}"'
 
 
+def recovery_target(path: Path) -> str:
+    """Return the narrowest safe target recorded by an interrupted operation."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "all"
+    if not isinstance(value, dict):
+        return "all"
+    action = value.get("action")
+    target = value.get("target")
+    if action not in {Action.BUILD.value, Action.REBUILD.value, Action.TEST.value}:
+        return "all"
+    if not isinstance(target, str) or not target:
+        return "all"
+    try:
+        validate_target(target, action=Action.REBUILD)
+    except BuildToolError:
+        return "all"
+    return target
+
+
 def write_json_state(path: Path, value: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
@@ -995,8 +1016,8 @@ def run_command(
             interruption_message or "Durin BuildTool was interrupted.",
             command=command_list,
             recovery=(
-                "Confirm that the old build process tree has exited, then run "
-                "rebuild --target all with the affected preset."
+                "Confirm that the old build process tree has exited, then run BuildTool status "
+                "and use the recovery command it reports."
             ),
             output_excerpt=excerpt,
             log_path=log_path,
@@ -1259,11 +1280,24 @@ def execute_with_recovery_marker(
     except OSError as exc:
         raise BuildToolError(f'Could not read BuildTool recovery state "{marker_file}": {exc}') from exc
     if previous_content is not None and action in {Action.BUILD, Action.TEST}:
+        target = recovery_target(marker_file)
         raise BuildToolError(
             "The previous Durin BuildTool operation did not return normally. "
             + read_state_description(marker_file),
-            recovery="Confirm its old process tree has exited, then run rebuild --target all.",
+            recovery=(
+                "Confirm its old process tree has exited, then run "
+                f"rebuild --target {target} with the affected preset."
+            ),
         )
+    if previous_content is not None and action is Action.REBUILD:
+        required_target = recovery_target(marker_file)
+        requested_target = metadata.get("target")
+        if requested_target not in {required_target, "all"}:
+            raise BuildToolError(
+                f'Interrupted target "{required_target}" cannot be recovered by rebuilding '
+                f'target "{requested_target}".',
+                recovery=f"Run rebuild --target {required_target}, or rebuild --target all.",
+            )
     write_json_state(marker_file, metadata)
     try:
         operation()

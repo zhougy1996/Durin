@@ -1017,6 +1017,37 @@ class CliTests(unittest.TestCase):
         self.assertIn("Parallel jobs: 6", status)
         self.assertIn("CMake: resolved-cmake", status)
 
+    def test_status_reports_targeted_recovery_command(self) -> None:
+        preset = build_config.ConfigurePreset(
+            "debug",
+            {
+                "binaryDir": "${sourceDir}/Build/debug",
+                "cacheVariables": {"CMAKE_BUILD_TYPE": "Debug"},
+            },
+        )
+        profile = mock.Mock()
+        profile.name = "profile"
+        context = build_config.BuildContext(
+            build_config.CommandRequest(build_config.Action.STATUS),
+            build_config.LocalConfig(),
+            profile,
+            {"debug": preset},
+            preset,
+            "windows",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "interrupted.json"
+            marker.write_text(json.dumps({"action": "build", "target": "Core"}), encoding="utf-8")
+            stdout = io.StringIO()
+            with mock.patch.object(build_cli, "interruption_marker_path", return_value=marker):
+                build_cli.show_status(
+                    BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO()),
+                    context,
+                )
+        status = stdout.getvalue()
+        self.assertIn("Recovery state: rebuild required", status)
+        self.assertIn("Recovery command: rebuild --target Core", status)
+
     def test_shell_startup_is_lightweight_and_lock_free(self) -> None:
         base = mock.Mock()
         base.preset.name = "debug"
@@ -3505,23 +3536,51 @@ class CoreTests(unittest.TestCase):
                 build_core.execute_with_recovery_marker(
                     action=build_config.Action.BUILD,
                     marker_file=marker,
-                    metadata={"pid": 1},
+                    metadata={"pid": 1, "action": "build", "target": "Core"},
                     operation=interrupt,
                 )
-            with self.assertRaisesRegex(build_config.BuildToolError, "did not return normally"):
+            with self.assertRaisesRegex(
+                build_config.BuildToolError,
+                "did not return normally",
+            ) as blocked:
                 build_core.execute_with_recovery_marker(
                     action=build_config.Action.BUILD,
                     marker_file=marker,
-                    metadata={"pid": 1},
+                    metadata={"pid": 1, "action": "build", "target": "Core"},
                     operation=lambda: None,
                 )
+            self.assertIn("rebuild --target Core", blocked.exception.recovery)
             build_core.execute_with_recovery_marker(
                 action=build_config.Action.REBUILD,
                 marker_file=marker,
-                metadata={"pid": 1},
+                metadata={"pid": 1, "action": "rebuild", "target": "Core"},
                 operation=lambda: None,
             )
             self.assertFalse(marker.exists())
+
+    def test_rebuild_rejects_an_unrelated_recovery_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "interrupted.json"
+            marker.write_text(
+                json.dumps({"pid": 1, "action": "build", "target": "Core"}),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(build_config.BuildToolError, 'Interrupted target "Core"'):
+                build_core.execute_with_recovery_marker(
+                    action=build_config.Action.REBUILD,
+                    marker_file=marker,
+                    metadata={"pid": 2, "action": "rebuild", "target": "Editor"},
+                    operation=lambda: None,
+                )
+            self.assertEqual(build_core.recovery_target(marker), "Core")
+
+    def test_invalid_or_non_target_recovery_state_falls_back_to_all(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "interrupted.json"
+            marker.write_text(json.dumps({"action": "configure", "target": "Core"}), encoding="utf-8")
+            self.assertEqual(build_core.recovery_target(marker), "all")
+            marker.write_text("{invalid", encoding="utf-8")
+            self.assertEqual(build_core.recovery_target(marker), "all")
 
     def test_normal_command_failure_restores_marker(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

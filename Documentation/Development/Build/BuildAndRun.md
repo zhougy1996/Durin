@@ -409,13 +409,15 @@ For Agent-driven `build` and `rebuild` commands, give the shell invocation a tim
 
 The recovery marker covers only operations that mutate configured or compiled build state. A normal compiler, linker, configuration, or clean failure removes the in-progress marker; fix the reported error and rerun the same command. For `test`, the marker is cleared as soon as its target finishes building, before the test executable starts. Failed assertions, test-process crashes, test timeouts, interrupted tests, and application exits therefore never require a rebuild.
 
-Do not start a second build while an earlier CMake, Ninja, compiler, or linker process tree may still be running. If such a process is cancelled, externally terminated, or loses its controlling BuildTool process, wait for the process tree to exit and check `BuildTool status`. Run the following only when it reports `Recovery state: rebuild required`:
+Do not start a second build while an earlier CMake, Ninja, compiler, or linker process tree may still be running. If such a process is cancelled, externally terminated, or loses its controlling BuildTool process, wait for the process tree to exit and check `BuildTool status`. Only when it reports `Recovery state: rebuild required`, run the accompanying recovery command. BuildTool records the interrupted target and normally reports:
 
 ```powershell
-.\BuildTool rebuild --target all
+.\BuildTool rebuild --target <interrupted-target>
 ```
 
-When the interrupted operation used a non-default preset, add `--preset <affected-preset>` or select that preset in the interactive shell before rebuilding.
+Recovery still cleans the generated build graph and fresh-configures it before rebuilding, but it does not compile unrelated targets. BuildTool reports `rebuild --target all` when the marker is missing usable target information, when a non-target operation was interrupted, or when the interrupted target itself was `all`. A different target cannot clear the marker; rebuilding the recorded target or `all` is required.
+
+When the interrupted operation used a non-default preset, run `status --preset <affected-preset>`, then add `--preset <affected-preset>` to its reported recovery command or select that preset in the interactive shell before rebuilding.
 
 Use the same recovery after an accidental IDE build. IDE outputs share the final binary directory, and their timestamps can make an incremental Agent build incorrectly report that everything is current. The driver also blocks unsafe incremental `build` and the build phase of `test` for the affected preset after a detected build-state interruption until a `rebuild` succeeds.
 

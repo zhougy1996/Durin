@@ -36,10 +36,13 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
   elapsed UI window alone is not an interruption and must not trigger a second
   build, rebuild, or recovery-state inspection.
 - Do not start another build while an earlier CMake, Ninja, compiler, or linker
-  process tree may still be running. Run `rebuild --target all` only after an
-  operation was cancelled, externally terminated, or lost its controlling
-  BuildTool process, the old process tree has exited, and `BuildTool status`
-  reports `Recovery state: rebuild required`. Ordinary compiler, linker,
+  process tree may still be running. Run the recovery command reported by
+  `BuildTool status` only after an operation was cancelled, externally
+  terminated, or lost its controlling BuildTool process, the old process tree
+  has exited, and `BuildTool status` reports
+  `Recovery state: rebuild required`. The command normally rebuilds the
+  interrupted target and falls back to `all` when the prior target cannot be
+  recovered safely. Ordinary compiler, linker,
   configuration, clean, assertion, test-timeout, test-process, and runtime
   failures do not require rebuild; fix the cause and rerun the same command.
 
