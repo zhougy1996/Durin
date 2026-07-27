@@ -9,9 +9,11 @@ Completed:
 
 ## Current Status
 
-- Stage 0 is active. The target topology is being redesigned before code
-  migration: native-test executables will represent cohesive feature and
-  lifecycle isolation domains rather than mirror production modules.
+- Stage 0 is complete. The frozen inventory maps 91 source files, 120
+  GoogleTest suites, and 647 cases to 29 cohesive feature/lifecycle targets
+  with no cross-domain suite owner.
+- Stage 1 is active: aggregate concurrency will first be contained behind one
+  discovery helper and compatibility serialization policy.
 - The existing seven targets (`CoreTests`, `CoreDObjectTests`,
   `AssetCoreTests`, `RenderCoreTests`, `EngineTests`, `TextureCookTests`, and
   `VulkanRHITests`) are the module-era baseline, not the desired final layout.
@@ -172,24 +174,24 @@ cases.
 
 ### Stage 0: Freeze the isolation inventory and acceptance baseline
 
-- [ ] Record the native-test targets, all writable path call sites, static
+- [x] Record the native-test targets, all writable path call sites, static
   fixture caches, mount registrations, fixed ports, GPU/runtime dependencies,
   and other process-external resources.
-- [ ] Classify every test suite into a proposed functional execution domain and
+- [x] Classify every test suite into a proposed functional execution domain and
   mark it filesystem-isolatable, explicitly resource-constrained, or requiring
   a separate integration-test executable.
-- [ ] Record the proposed target topology, including each target's feature
+- [x] Record the proposed target topology, including each target's feature
   owner, source files, support code, direct dependencies, deployed `Data`,
   process bootstrap/teardown contract, timeout class, and resource locks.
-- [ ] Identify shared support or fixtures that need a small test-support
+- [x] Identify shared support or fixtures that need a small test-support
   library instead of compiling unrelated feature suites into the same
   executable.
-- [ ] Capture a machine-readable aggregate baseline containing the failing test
+- [x] Capture a machine-readable aggregate baseline containing the failing test
   names and collision signatures from an 18-job run.
-- [ ] Add a focused harness regression with two discovered cases that use the
+- [x] Add a focused harness regression with two discovered cases that use the
   same logical filename and overlap in time; it must fail under the legacy
   shared root and pass under distinct process sandboxes.
-- [ ] Decide the portable process-id/nonce implementation and failed-artifact
+- [x] Decide the portable process-id/nonce implementation and failed-artifact
   naming format before exposing the test-support API.
 
 #### Acceptance Gate
@@ -203,6 +205,24 @@ cases.
   one-case workaround.
 - The focused regression reproduces the collision without relying on timing
   from unrelated engine tests.
+
+#### Stage 0 Handoff
+
+- Baseline commit: `1f24c5253ee4816795a324dae588f7ac3607731a`.
+- Evidence: `Documentation/Development/Build/NativeTestProcessIsolationStage0.md`
+  and `Documentation/Plans/NativeTestProcessIsolationBaseline.json`.
+- Working set entering Stage 1: `CMake/Project/ProjectTargets.cmake`, the seven
+  legacy native-test CMake files, the native-test root CMake file, and
+  `Tools/DurinDevTool/tests/test_build_core.py`.
+- Key decisions: 29 functional/lifecycle domains; one low-level
+  `NativeTestSupport`; a named compatibility group distinct from irreducible
+  `durin-gpu`; run directories named
+  `run-p<PID>-<128-bit-lowercase-hex-nonce>`.
+- Open question: select the final CMake helper name and target property names
+  while preserving all 647 existing CTest names.
+- Validation: plan validation passed; `NativeTestIsolationProbeTests` built and
+  skipped without an explicit mode; the focused two-process characterization
+  produced one legacy collision failure and two isolated-control passes.
 
 ### Stage 1: Contain aggregate concurrency behind one discovery helper
 
@@ -416,11 +436,14 @@ cases.
 
 - [Build and Run](../Development/Build/BuildAndRun.md)
 - [Native C++ Tests](../Development/Build/NativeTests.md)
+- [Stage 0 Evidence](../Development/Build/NativeTestProcessIsolationStage0.md)
+- [18-job Failure Baseline](NativeTestProcessIsolationBaseline.json)
 
 ## Related Code
 
 - `CMake/Project/ProjectTargets.cmake`
 - `Engine/Tests/Native/*/CMakeLists.txt`
+- `Engine/Tests/Native/NativeTestIsolationProbeTests/*`
 - `Tools/DurinDevTool/durin_dev_tool/build/core.py`
 - `Tools/DurinDevTool/tests/test_build_core.py`
 - `Engine/Tests/Native/EngineTests/Private/Thumbnail/RenderedAssetThumbnailTestFixtures.h`
