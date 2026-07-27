@@ -5,6 +5,7 @@
     "PrivateDependencies": [
         "Core",
         "CoreDObject",
+        "ApplicationCore",
         "RHI",
         "Engine",
         "AssetCore",

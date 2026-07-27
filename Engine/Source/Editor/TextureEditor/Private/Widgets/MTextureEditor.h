@@ -49,6 +49,8 @@ namespace Durin
 		auto DrawFailureState(DTexture2D* Texture) -> void;
 		auto DrawSourceData(DTexture2D* Texture) -> void;
 		auto DrawBuildSettings(DTexture2D* Texture) -> void;
+		auto ReimportSource(DTexture2D* Texture) -> void;
+		auto ChangeSourceLocation(DTexture2D* Texture) -> void;
 		auto FinishActivePropertyEdit(bool bCancel) -> bool;
 		auto MakePropertyViewContext() -> FReflectedPropertyViewContext;
 		auto SetError(std::string Message) -> void;

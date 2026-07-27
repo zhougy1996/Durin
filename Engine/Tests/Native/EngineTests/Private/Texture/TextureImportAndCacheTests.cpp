@@ -127,7 +127,7 @@ TEST(FTexture2DTests, DefaultsToFlatSourceRootAndAllowsCustomSourceDestination)
 	WriteTextureFixture(CustomInput);
 	Durin::FTexture2DImportSettings CustomSettings;
 	CustomSettings.SourceDestination =
-		"SourceAssets/Textures/ArtistAuthored/CustomCopy.png";
+		"SourceAssets/ArtistAuthored/CustomCopy.png";
 	Durin::FTexture2DImportResult CustomResult = Durin::DTexture2D::ImportAsset(
 		CustomInput.generic_string(), "/TextureImportTests/UI/CustomAsset",
 		CustomSettings);
@@ -135,13 +135,37 @@ TEST(FTexture2DTests, DefaultsToFlatSourceRootAndAllowsCustomSourceDestination)
 	ASSERT_NE(CustomResult.Asset, nullptr);
 	EXPECT_EQ(
 		CustomResult.Asset->GetSourceFile(),
-		"SourceAssets/Textures/ArtistAuthored/CustomCopy.png");
+		"SourceAssets/ArtistAuthored/CustomCopy.png");
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports"
-		/ "SourceAssets" / "Textures" / "ArtistAuthored" / "CustomCopy.png"));
+		/ "SourceAssets" / "ArtistAuthored" / "CustomCopy.png"));
+
+	Durin::FTexture2DImportResult SharedResult = Durin::DTexture2D::ImportAsset(
+		CustomInput.generic_string(), "/TextureImportTests/UI/SharedAsset",
+		CustomSettings);
+	ASSERT_TRUE(SharedResult) << SharedResult.Message;
+	ASSERT_NE(SharedResult.Asset, nullptr);
+	std::string RelocateError;
+	ASSERT_TRUE(CustomResult.Asset->ChangeSourceLocation(
+		"SourceAssets/UserLayout/MovedCopy.png", RelocateError)) << RelocateError;
+	EXPECT_EQ(
+		CustomResult.Asset->GetSourceFile(),
+		"SourceAssets/UserLayout/MovedCopy.png");
+	EXPECT_TRUE(std::filesystem::is_regular_file(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports"
+		/ "SourceAssets" / "UserLayout" / "MovedCopy.png"));
+	EXPECT_TRUE(std::filesystem::is_regular_file(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports"
+		/ "SourceAssets" / "ArtistAuthored" / "CustomCopy.png"));
+	EXPECT_EQ(
+		SharedResult.Asset->GetSourceFile(),
+		"SourceAssets/ArtistAuthored/CustomCopy.png");
+	EXPECT_EQ(
+		SharedResult.Asset->InspectSource().Status,
+		Durin::ETextureSourceStatus::Available);
 
 	Durin::FTexture2DImportSettings InvalidSettings;
-	InvalidSettings.SourceDestination = "SourceAssets/Other/Invalid.png";
+	InvalidSettings.SourceDestination = "Content/Invalid.png";
 	EXPECT_FALSE(Durin::DTexture2D::ImportAsset(
 		CustomInput.generic_string(), "/TextureImportTests/InvalidRoot",
 		InvalidSettings));
@@ -152,12 +176,17 @@ TEST(FTexture2DTests, DefaultsToFlatSourceRootAndAllowsCustomSourceDestination)
 		InvalidSettings));
 
 	Durin::FAssetPath CustomAssetPath;
+	Durin::FAssetPath SharedAssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/TextureImportTests/UI/CustomAsset", CustomAssetPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TextureImportTests/UI/SharedAsset", SharedAssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(DefaultAssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(CustomAssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SharedAssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(DefaultAssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(CustomAssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(SharedAssetPath));
 }
 
 TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)

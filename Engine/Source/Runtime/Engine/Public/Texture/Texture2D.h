@@ -106,7 +106,7 @@ namespace Durin
 	{
 		GENERATED_BODY()
 
-		// Project- or engine-relative path beneath SourceAssets/Textures.
+		// Project- or engine-relative path beneath SourceAssets.
 		DPROPERTY()
 		std::string SourcePath;
 
@@ -206,8 +206,8 @@ namespace Durin
 	// Overrides usage-derived texture import defaults.
 	struct FTexture2DImportSettings
 	{
-		// Portable project-relative copy destination beneath SourceAssets/Textures.
-		// Empty stores the source directly under that root using the asset name.
+		// Portable project-relative copy destination beneath SourceAssets.
+		// Empty stores the source under SourceAssets/Textures using the asset name.
 		std::string SourceDestination;
 		ETextureUsage Usage = ETextureUsage::Color;
 		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal;
@@ -266,6 +266,10 @@ namespace Durin
 		ENGINE_API auto InspectSource() const -> FTextureSourceDiagnostic;
 		ENGINE_API auto ReimportSource(std::string_view FilePath, std::string& OutError) -> bool;
 		ENGINE_API auto RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool;
+		// Copies the managed source to a new path beneath SourceAssets and keeps the old copy
+		// so other assets that share it remain valid.
+		ENGINE_API auto ChangeSourceLocation(
+			std::string_view SourceDestination, std::string& OutError) -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		// Contributes a validated TXPL object and descriptor-bearing runtime metadata to a cook.
 		ENGINE_API auto AddToCook(

@@ -3,8 +3,10 @@
 #include "AssetSystem.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
+#include "Dialogs/FileDialog.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorWorkspaceUI.h"
+#include "Misc/Paths.h"
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
 #include "MonaCoreGlobals.h"
@@ -26,6 +28,30 @@ namespace Durin
 		constexpr float MinimumPreviewWidth = 440.0f;
 		constexpr float MinimumDetailsWidth = 340.0f;
 		constexpr float NarrowPreviewHeight = 430.0f;
+
+		auto FindOwningMount(std::string_view VirtualPath)
+			-> const PathUtilities::FMountPoint*
+		{
+			const auto& Mounts = PathUtilities::GetRegisteredMountPoints();
+			const auto It = std::ranges::find_if(Mounts,
+				[VirtualPath](const PathUtilities::FMountPoint& Mount) {
+					return VirtualPath.starts_with(Mount.VirtualRoot);
+				});
+			return It == Mounts.end() ? nullptr : &*It;
+		}
+
+		auto GetMountOwnerRoot(const PathUtilities::FMountPoint& Mount)
+			-> std::filesystem::path
+		{
+			std::filesystem::path ContentRoot =
+				std::filesystem::path(Mount.PhysicalPath).lexically_normal();
+			if (ContentRoot.filename().empty()) ContentRoot = ContentRoot.parent_path();
+			std::string DirectoryName = ContentRoot.filename().generic_string();
+			std::ranges::transform(DirectoryName, DirectoryName.begin(), [](char Value) {
+				return static_cast<char>(std::tolower(static_cast<unsigned char>(Value)));
+			});
+			return DirectoryName == "content" ? ContentRoot.parent_path() : ContentRoot;
+		}
 
 		auto FormatDimensions(uint32 Width, uint32 Height) -> std::string
 		{
@@ -624,6 +650,81 @@ namespace Durin
 				DrawInfoRow("Status", "Source data unavailable");
 		}
 		MonaImGui::PropertyEdit::EndTable();
+		if (ImGui::Button("Reimport Source...")) ReimportSource(Texture);
+		ImGui::SameLine();
+		if (ImGui::Button("Change Source Location...")) ChangeSourceLocation(Texture);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip(
+				"Copies this texture's source to a new location beneath SourceAssets.\n"
+				"The old copy is kept so other assets remain valid.");
+	}
+
+	auto MTextureEditor::ReimportSource(DTexture2D* Texture) -> void
+	{
+		if (!Texture) return;
+		FFileDialogRequest Request;
+		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
+		Request.Title = "Select a Replacement Texture Source";
+		Request.Filters = {
+			{"All Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
+			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"},
+			{"Targa", "*.tga"}, {"All Files", "*.*"}
+		};
+		const FTextureSourceDiagnostic Diagnostic = Texture->InspectSource();
+		if (!Diagnostic.PhysicalPath.empty())
+			Request.InitialDirectory =
+				std::filesystem::path(Diagnostic.PhysicalPath).parent_path().generic_string();
+		const FFileDialogResult Result = OpenFileDialog(Request);
+		if (Result.Status == EFileDialogStatus::Cancelled) return;
+		if (Result.Status == EFileDialogStatus::Error)
+		{
+			SetError(Result.ErrorMessage);
+			return;
+		}
+		std::string Error;
+		if (!Texture->ReimportSource(Result.FilePath, Error)) SetError(std::move(Error));
+	}
+
+	auto MTextureEditor::ChangeSourceLocation(DTexture2D* Texture) -> void
+	{
+		if (!Texture || !Texture->GetPackage()) return;
+		const PathUtilities::FMountPoint* Mount =
+			FindOwningMount(Texture->GetPackage()->GetPackagePath());
+		if (!Mount)
+		{
+			SetError("The texture is not inside a mounted Content directory.");
+			return;
+		}
+		const std::filesystem::path OwnerRoot = GetMountOwnerRoot(*Mount);
+		const FTextureSourceDiagnostic Diagnostic = Texture->InspectSource();
+		FFileDialogRequest Request;
+		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
+		Request.Title = "Choose Texture Source Location";
+		Request.Filters = {
+			{"All Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
+			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"},
+			{"Targa", "*.tga"}
+		};
+		Request.InitialDirectory = !Diagnostic.PhysicalPath.empty()
+			? std::filesystem::path(Diagnostic.PhysicalPath).parent_path().generic_string()
+			: (OwnerRoot / "SourceAssets" / "Textures").generic_string();
+		Request.DefaultFileName = !Texture->GetSourceFile().empty()
+			? std::filesystem::path(Texture->GetSourceFile()).filename().generic_string()
+			: "Texture.png";
+		const FFileDialogResult Result = SaveFileDialog(Request);
+		if (Result.Status == EFileDialogStatus::Cancelled) return;
+		if (Result.Status == EFileDialogStatus::Error)
+		{
+			SetError(Result.ErrorMessage);
+			return;
+		}
+		const std::filesystem::path Selected =
+			std::filesystem::absolute(Result.FilePath).lexically_normal();
+		const std::string SourceDestination =
+			Selected.lexically_relative(OwnerRoot).generic_string();
+		std::string Error;
+		if (!Texture->ChangeSourceLocation(SourceDestination, Error))
+			SetError(std::move(Error));
 	}
 
 	auto MTextureEditor::DrawBuildSettings(DTexture2D* Texture) -> void

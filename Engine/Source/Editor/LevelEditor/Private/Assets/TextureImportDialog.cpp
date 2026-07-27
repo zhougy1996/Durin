@@ -46,7 +46,7 @@ namespace Durin
 			return !Value.empty() && !Path.is_absolute() && !Value.starts_with('/')
 				&& Value.find('\\') == std::string_view::npos && !bContainsParent
 				&& Value == Normalized.generic_string()
-				&& Normalized.generic_string().starts_with("SourceAssets/Textures/");
+				&& Normalized.generic_string().starts_with("SourceAssets/");
 		}
 
 		auto Lowercase(std::string Value) -> std::string
@@ -173,7 +173,7 @@ namespace Durin
 		else if (bAssetExists) ValidationMessage = "An asset already exists at this path.";
 		else if (!bSourceDestinationValid)
 			ValidationMessage =
-				"Choose a normalized source destination beneath SourceAssets/Textures.";
+				"Choose a normalized source destination beneath SourceAssets.";
 		else if (!bSourceExtensionMatches)
 			ValidationMessage = "The source copy must keep the selected image's file extension.";
 
@@ -290,7 +290,7 @@ namespace Durin
 		}
 
 		const std::filesystem::path OwnerRoot = GetMountOwnerRoot(*Mount);
-		const std::filesystem::path SourceRoot = OwnerRoot / "SourceAssets" / "Textures";
+		const std::filesystem::path SourceRoot = OwnerRoot / "SourceAssets";
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
 		Request.Title = "Choose Texture Source Copy Destination";
@@ -320,7 +320,7 @@ namespace Durin
 		const std::string PortablePath = Relative.generic_string();
 		if (!IsPortableTextureSourceDestination(PortablePath))
 		{
-			SetError("Texture source copies must stay beneath this mount's SourceAssets/Textures directory.");
+			SetError("Texture source copies must stay beneath this mount's SourceAssets directory.");
 			return;
 		}
 		if (PortablePath.size() >= SourceDestinationBuffer.size())

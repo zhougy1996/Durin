@@ -102,7 +102,7 @@ namespace Durin
 			return !Value.empty() && !Path.is_absolute() && !Value.starts_with('/')
 				&& Value.find('\\') == std::string_view::npos && !bContainsParent
 				&& Value == Normalized.generic_string()
-				&& Normalized.generic_string().starts_with("SourceAssets/Textures/");
+				&& Normalized.generic_string().starts_with("SourceAssets/");
 		}
 
 		auto FindTextureSourceFile(const Asset::FAssetData& Data) -> std::filesystem::path

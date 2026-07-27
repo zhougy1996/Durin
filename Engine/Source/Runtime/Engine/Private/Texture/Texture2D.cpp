@@ -21,7 +21,8 @@ namespace Durin
 	{
 		constexpr uint64 TextureDerivedDataBudgetBytes = 4ull * 1024ull * 1024ull * 1024ull;
 		constexpr uint32 TextureDerivedDataCleanupDeleteLimit = 16;
-		constexpr std::string_view TextureSourceRoot = "SourceAssets/Textures";
+		constexpr std::string_view SourceAssetsRoot = "SourceAssets";
+		constexpr std::string_view DefaultTextureSourceRoot = "SourceAssets/Textures";
 		constexpr std::string_view TextureDecoderId = "DurinImage";
 		constexpr uint32 TextureDecoderVersion = 1;
 
@@ -71,12 +72,12 @@ namespace Durin
 				&& SourcePath.find('\\') == std::string_view::npos
 				&& !bContainsParent
 				&& SourcePath == Normalized.generic_string()
-				&& Normalized.generic_string().starts_with(std::string(TextureSourceRoot) + "/");
+				&& Normalized.generic_string().starts_with(std::string(SourceAssetsRoot) + "/");
 			if (!bValid && OutError)
 			{
 				*OutError = std::format(
 					"Texture source path '{}' must be normalized beneath {}/.",
-					SourcePath, TextureSourceRoot);
+					SourcePath, SourceAssetsRoot);
 			}
 			return bValid;
 		}
@@ -98,7 +99,7 @@ namespace Durin
 			}
 			std::filesystem::path StoredPath;
 			if (RequestedSourcePath.empty())
-				StoredPath = std::filesystem::path(TextureSourceRoot)
+				StoredPath = std::filesystem::path(DefaultTextureSourceRoot)
 					/ (std::string(AssetPath.GetAssetName()) + std::string(Extension));
 			else
 				StoredPath = std::filesystem::path(RequestedSourcePath);
@@ -747,6 +748,75 @@ namespace Durin
 	auto DTexture2D::RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool
 	{
 		return ReimportSource(FilePath, OutError);
+	}
+
+	auto DTexture2D::ChangeSourceLocation(
+		std::string_view SourceDestination, std::string& OutError) -> bool
+	{
+		if (!GetPackage())
+		{
+			OutError = "Only packaged textures can retain source provenance.";
+			return false;
+		}
+		if (SourceDestination.empty())
+		{
+			OutError = "Choose a source destination beneath SourceAssets.";
+			return false;
+		}
+
+		std::filesystem::path CurrentSource;
+		if (!ResolveTextureSource(*this, CurrentSource, OutError)) return false;
+		if (!std::filesystem::is_regular_file(CurrentSource))
+		{
+			OutError = std::format(
+				"Texture source is missing: {}. Reimport the source before changing its location.",
+				CurrentSource.generic_string());
+			return false;
+		}
+
+		FAssetPath AssetPath;
+		if (!FAssetPath::TryCreate(GetPackage()->GetPackagePath(), AssetPath, &OutError))
+			return false;
+		std::filesystem::path Destination;
+		std::string StoredPath;
+		if (!MakeCanonicalSourceLocation(
+			AssetPath, CurrentSource.extension().generic_string(), SourceDestination,
+			Destination, StoredPath, OutError)) return false;
+		if (Destination == CurrentSource)
+		{
+			OutError.clear();
+			return true;
+		}
+		if (std::filesystem::exists(Destination))
+		{
+			OutError = std::format(
+				"Texture source destination already exists: {}. Choose a new location to avoid overwriting another asset's source.",
+				Destination.generic_string());
+			return false;
+		}
+
+		std::error_code Error;
+		std::filesystem::create_directories(Destination.parent_path(), Error);
+		if (Error)
+		{
+			OutError = std::format(
+				"Failed to create texture source directory {}: {}",
+				Destination.parent_path().generic_string(), Error.message());
+			return false;
+		}
+		if (!std::filesystem::copy_file(CurrentSource, Destination, Error))
+		{
+			OutError = std::format(
+				"Failed to copy texture source to {}: {}",
+				Destination.generic_string(), Error.message());
+			return false;
+		}
+
+		SourceImportData.Source.SourcePath = std::move(StoredPath);
+		UpdateSourceFingerprint(Destination);
+		MarkPackageDirty();
+		OutError.clear();
+		return true;
 	}
 
 	auto DTexture2D::PostLoad(std::string& OutError) -> bool
