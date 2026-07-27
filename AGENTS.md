@@ -27,9 +27,13 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 ## Agent Handoff
 
 - After validating a functional change or generating/updating documentation,
-  request one command that stages only task files and creates one commit.
-  Command approval is authorization; do not ask separately or commit if denied.
-  Inspection-only, advice-only, and unchanged tasks need no request.
+  stage only the task files and create one local commit. An explicit user request
+  to implement or update repository files authorizes this bounded staging and
+  commit operation; do not request separate approval. Before committing, inspect
+  the status and diff, preserve unrelated changes, and stop for clarification if
+  task ownership is ambiguous or a task file contains overlapping user edits.
+  Do not commit when the user declines, asks to leave changes uncommitted, or the
+  task is inspection-only, advice-only, or unchanged.
 - Subject: `<type>(<scope>): <imperative summary>`. Use a short lowercase scope,
   no trailing period, and preferably `feat`, `fix`, `refactor`, `perf`, `build`,
   `test`, `docs`, or `chore`; describe the outcome, not file edits.
