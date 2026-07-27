@@ -2,6 +2,7 @@
 
 #include "AssetCore.h"
 #include "AssetSystem.h"
+#include "SourceFingerprintCache.h"
 #include "DerivedDataObjectStore.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -162,7 +163,7 @@ namespace Durin
 		auto MakeTextureDerivedDataKey(const DTexture2D& Texture, std::string& OutKey, std::string& OutError) -> bool
 		{
 			FXxHash128 SourceHash;
-			if (Texture.GetSourceImportData().HasSource())
+			if (Texture.GetSourceImportData().Source.HasContentHash())
 			{
 				const FTextureSourceFile& Source = Texture.GetSourceImportData().Source;
 				SourceHash.HashLow = Source.SourceContentHashLow;
@@ -765,10 +766,40 @@ namespace Durin
 		const bool bSourceFingerprintMatches = bSourceAvailable && !FingerprintError
 			&& CurrentFileSize == SourceFileSize
 			&& DerivedDataCache::FileTimeToStableTicks(CurrentLastWriteTime) == SourceLastWriteTime;
-		const bool bHasPersistedIdentity = SourceImportData.HasSource()
+		const int64 CurrentLastWriteTimeTicks = bSourceAvailable && !FingerprintError
+			? DerivedDataCache::FileTimeToStableTicks(CurrentLastWriteTime)
+			: 0;
+		const bool bHasPersistedIdentity = SourceImportData.Source.HasContentHash()
 			|| IsCanonicalTextureHash(SourceContentHash);
+		bool bSourceContentMatches = bSourceFingerprintMatches;
+		if (bHasPersistedIdentity && bSourceAvailable && !FingerprintError && !bSourceFingerprintMatches)
+		{
+			std::string CurrentContentHash;
+			if (!Asset::FindSourceFingerprint(
+					PhysicalPath, CurrentFileSize, CurrentLastWriteTimeTicks, CurrentContentHash))
+			{
+				FXxHash128 CurrentHash;
+				if (!HashTextureSource(PhysicalPath, CurrentHash, OutError)) return false;
+				CurrentContentHash = CurrentHash.ToString();
+				Asset::StoreSourceFingerprint(PhysicalPath, {
+					.FileSize = CurrentFileSize,
+					.LastWriteTimeTicks = CurrentLastWriteTimeTicks,
+					.ContentHash = CurrentContentHash});
+			}
+			const std::string PersistedContentHash = SourceImportData.Source.HasContentHash()
+				? FXxHash128{
+					.HashLow = SourceImportData.Source.SourceContentHashLow,
+					.HashHigh = SourceImportData.Source.SourceContentHashHigh}.ToString()
+				: SourceContentHash;
+			bSourceContentMatches = CurrentContentHash == PersistedContentHash;
+			if (bSourceContentMatches)
+			{
+				SourceFileSize = CurrentFileSize;
+				SourceLastWriteTime = CurrentLastWriteTimeTicks;
+			}
+		}
 		if (bHasPersistedIdentity
-			&& (!bSourceAvailable || bSourceFingerprintMatches))
+			&& (!bSourceAvailable || bSourceContentMatches))
 		{
 			if (!MakeTextureDerivedDataKey(*this, DerivedDataKey, OutError))
 			{
@@ -826,8 +857,12 @@ namespace Durin
 			return false;
 		}
 		const bool bMetadataChanged = !bHasPersistedIdentity
-			|| !bSourceFingerprintMatches;
+			|| !bSourceContentMatches;
 		if (!BuildSourceData(PhysicalPath.generic_string(), OutError)) return false;
+		Asset::StoreSourceFingerprint(PhysicalPath, {
+			.FileSize = SourceFileSize,
+			.LastWriteTimeTicks = SourceLastWriteTime,
+			.ContentHash = SourceContentHash});
 		if (bMetadataChanged) MarkPackageDirty();
 		return true;
 	}

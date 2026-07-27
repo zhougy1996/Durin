@@ -1,4 +1,5 @@
 #include "TextureTestSupport.h"
+#include "SourceFingerprintCache.h"
 
 TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 {
@@ -159,6 +160,57 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
 	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
 	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+}
+
+TEST(FTexture2DTests, TimestampOnlySourceChangeUsesPersistentFingerprintCacheWithoutDirtying)
+{
+	InitializeDObjectSystem();
+	FScopedDerivedDataCacheRoot CacheRoot(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSourceFingerprintCache");
+	const std::filesystem::path Source =
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSourceFingerprint.png";
+	WriteTextureFixture(Source);
+	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(
+		Source.generic_string(), "/TextureImportTests/Fingerprint");
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Result.Asset, nullptr);
+
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Fingerprint", AssetPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	const std::filesystem::path StoredSource =
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports"
+		/ "SourceAssets" / "Textures" / "Fingerprint.png";
+	ASSERT_TRUE(std::filesystem::is_regular_file(StoredSource));
+	std::filesystem::last_write_time(
+		StoredSource,
+		std::filesystem::last_write_time(StoredSource) + std::chrono::seconds(1));
+
+	Durin::DTexture2D* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
+	EXPECT_FALSE(Loaded->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
+	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
+	EXPECT_TRUE(std::filesystem::is_regular_file(
+		std::filesystem::path(Durin::FPaths::DerivedDataCacheDir())
+		/ "SourceFingerprints" / "Index.bin"));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+
+	const std::string FingerprintCacheRoot = Durin::FPaths::DerivedDataCacheDir();
+	Durin::FPaths::SetDerivedDataCacheDirForTests(
+		(std::filesystem::path(DURIN_TEST_WORK_DIR) / "UnusedSourceFingerprintCache").generic_string());
+	std::string IgnoredHash;
+	EXPECT_FALSE(Durin::Asset::FindSourceFingerprint(StoredSource, 0, 0, IgnoredHash));
+	Durin::FPaths::SetDerivedDataCacheDirForTests(FingerprintCacheRoot);
+
+	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_TRUE(Loaded->WasLoadedFromDerivedDataCache());
+	EXPECT_FALSE(Loaded->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
+	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 }

@@ -59,15 +59,18 @@ platform, and texture-builder version.
 
 `PostLoad` first validates persisted source provenance and compares an available
 source's size and stable last-write time with the package fingerprint. An
-unchanged source can restore
-the checksummed, versioned platform payload without reopening or decoding the
-image. If source is unavailable, the persisted exact content hash can still
-restore a matching warm object without invoking the decoder. A changed
-fingerprint decodes the source, recomputes its content hash,
-builds a new key and payload, and dirties the package so the new source identity
-can be saved. Missing, incompatible, corrupt, truncated, oversized, or invalid
-cache data is a non-fatal miss and rebuilds from source. Atomic cache persistence
-failure does not discard valid in-memory platform data.
+unchanged source can restore the checksummed, versioned platform payload without
+reopening or decoding the image. When the cheap fingerprint changes, the
+project-local `DerivedDataCache/SourceFingerprints/Index.bin` maps the current
+source path, size, and timestamp to a previously verified content hash. A cold
+entry hashes the source once and persists that observation. If the verified
+hash still matches the package, loading reuses platform data without dirtying
+the asset; subsequent launches reuse the fingerprint index. Only a real content
+hash change rebuilds the source and dirties the package. If source is
+unavailable, the persisted exact content hash can still restore a matching warm
+object without invoking the decoder. Missing, incompatible, corrupt, truncated,
+oversized, or invalid cache data is a non-fatal miss and rebuilds from source.
+Atomic cache persistence failure does not discard valid in-memory platform data.
 
 The DDC path is derived entirely from the key; `.dasset` never stores a cache
 file path or byte offset. Texture payloads use TXPL schema 1, an 80-byte header,
