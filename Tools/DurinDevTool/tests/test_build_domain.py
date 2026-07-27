@@ -263,7 +263,7 @@ class CMakeCodeModelGuardTests(unittest.TestCase):
         ninja = shutil.which("ninja")
         if not ninja and os.name == "nt":
             for parent in Path(cmake).resolve().parents:
-                bundled_ninja = parent / "ninja" / "win" / "x64" / "ninja.exe"
+                bundled_ninja = parent / "Ninja" / "ninja.exe"
                 if bundled_ninja.is_file():
                     ninja = str(bundled_ninja)
                     break
