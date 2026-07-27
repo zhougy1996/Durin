@@ -6,6 +6,10 @@ add_durin_test(EngineTests
 	Private/Editor/ReflectedPropertyTransactionTests.cpp
 	Private/Editor/ReflectedPropertyContainerTests.cpp
 	Private/Editor/AssetStructureUpgradeModelTests.cpp
+	Private/Editor/AssetDestinationValidationTests.cpp
+	Private/Editor/ImportDialogStateTests.cpp
+	Private/Editor/ContentBrowserItemViewTests.cpp
+	Private/Editor/ContentBrowserModelTests.cpp
 	Private/Materials/MaterialSchemaAndEditingTests.cpp
 	Private/Materials/MaterialDependencyTests.cpp
 	Private/Materials/MaterialUpdateContextTests.cpp
@@ -71,6 +75,11 @@ add_durin_test(EngineTests
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Customizations/SkyBoxDetails.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Workspace/LevelEditorContext.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Documents/AssetStructureUpgradeModel.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Assets/AssetDestinationValidation.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Assets/ImportDialogState.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserItemView.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserModel.cpp
+	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserOperations.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Settings/LevelViewportSessionSettings.cpp
 	${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private/Panels/ConsoleRecordModel.cpp
 	# Compile the preview implementation directly so its private GC lifetime contract can be exercised.

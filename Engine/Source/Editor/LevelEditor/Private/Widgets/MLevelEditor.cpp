@@ -32,6 +32,16 @@
 
 namespace Durin
 {
+	namespace
+	{
+		template<typename TDialog>
+		auto MakeImportDialog(const FImportDialogCallbacks& Callbacks)
+			-> std::unique_ptr<TDialog>
+		{
+			return std::make_unique<TDialog>(Callbacks);
+		}
+	} // namespace
+
 	// MLevelEditor is the composition root for the editor-specific controllers.
 	MLevelEditor::MLevelEditor(FLevelEditorSessionSettings& InSessionSettings, FEditorWorkspaceManager& InWorkspaceManager)
 		: SessionSettings(InSessionSettings)
@@ -101,30 +111,21 @@ namespace Durin
 					SetError("The deferred level document request is no longer available.");
 			}
 		);
-		StaticMeshImportDialog = std::make_unique<FStaticMeshImportDialog>(
-			[this] { EditorError.clear(); },
-			[this](std::string Message) { SetError(std::move(Message)); },
-			[this](std::string AssetPath) {
+		const FImportDialogCallbacks ImportCallbacks{
+			.ClearError = [this] { EditorError.clear(); },
+			.ReportError =
+				[this](std::string Message) { SetError(std::move(Message)); },
+			.Imported = [this](std::string AssetPath) {
 				Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
 				if (ContentBrowserPanel) ContentBrowserPanel->RevealAsset(AssetPath);
-			}
-		);
-		TextureImportDialog = std::make_unique<FTextureImportDialog>(
-			[this] { EditorError.clear(); },
-			[this](std::string Message) { SetError(std::move(Message)); },
-			[this](std::string AssetPath) {
-				Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
-				if (ContentBrowserPanel) ContentBrowserPanel->RevealAsset(AssetPath);
-			}
-		);
-		TextureCubeImportDialog = std::make_unique<FTextureCubeImportDialog>(
-			[this] { EditorError.clear(); },
-			[this](std::string Message) { SetError(std::move(Message)); },
-			[this](std::string AssetPath) {
-				Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
-				if (ContentBrowserPanel) ContentBrowserPanel->RevealAsset(AssetPath);
-			}
-		);
+			},
+		};
+		StaticMeshImportDialog =
+			MakeImportDialog<FStaticMeshImportDialog>(ImportCallbacks);
+		TextureImportDialog =
+			MakeImportDialog<FTextureImportDialog>(ImportCallbacks);
+		TextureCubeImportDialog =
+			MakeImportDialog<FTextureCubeImportDialog>(ImportCallbacks);
 		auto ContentBrowser = std::make_unique<FContentBrowserPanel>(
 			SessionSettings,
 			[this](const std::string& Path, const std::string& AssetClassName) {

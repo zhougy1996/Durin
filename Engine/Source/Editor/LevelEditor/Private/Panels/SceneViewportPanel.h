@@ -18,6 +18,7 @@ namespace Durin
 	class DLevel;
 	struct FLevelViewportCameraState;
 	struct FViewportToolbarLayout;
+	class FViewportToolbar;
 
 	// Owns the level viewport, camera clients, toolbar, and play embedding state.
 	class FSceneViewportPanel final : public ILevelEditorPanel
@@ -42,10 +43,6 @@ namespace Durin
 		auto FocusActor(const AActor* Actor) -> void;
 
 	private:
-		auto CalculateToolbarLayout(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> FViewportToolbarLayout;
-		auto DrawToolbar(FLevelEditorContext& Context, const FViewportToolbarLayout& Layout) -> void;
-		auto DrawOrientationOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
-		auto DrawFPSOverlay(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> void;
 		auto DrawCameraPreview(const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
 		auto UpdateCameraPreview(FLevelEditorContext& Context) -> void;
 		auto UpdateViewportSize() -> void;
@@ -56,6 +53,7 @@ namespace Durin
 		std::unique_ptr<FCameraPreviewViewportClient> CameraPreviewViewportClient;
 		std::shared_ptr<MViewport> CameraPreviewViewportWidget;
 		std::shared_ptr<FSceneViewport> CameraPreviewSceneViewport;
+		std::unique_ptr<FViewportToolbar> ViewportToolbar;
 		bool bViewportHovered = false;
 		bool bViewportFocused = false;
 		EEditorPlayStartLocation PreferredPlayStartLocation;

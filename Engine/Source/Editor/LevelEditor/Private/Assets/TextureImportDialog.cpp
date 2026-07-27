@@ -1,5 +1,6 @@
 #include "Assets/TextureImportDialog.h"
 
+#include "Assets/AssetDestinationValidation.h"
 #include "Assets/MountedSourceImport.h"
 #include "AssetSystem.h"
 #include "Dialogs/FileDialog.h"
@@ -31,34 +32,25 @@ namespace Durin
 		}
 	} // namespace
 
-	FTextureImportDialog::FTextureImportDialog(std::function<void()> InClearError, std::function<void(std::string)> InReportError, std::function<void(std::string)> InImported)
-		: ClearError(std::move(InClearError))
-		, ReportError(std::move(InReportError))
-		, Imported(std::move(InImported))
+	FTextureImportDialog::FTextureImportDialog(FImportDialogCallbacks InCallbacks)
+		: Callbacks(std::move(InCallbacks))
 	{
 	}
 
 	auto FTextureImportDialog::Open(std::string_view DestinationDirectory) -> void
 	{
 		SourcePathBuffer.fill(0);
-		AssetPathBuffer.fill(0);
 		SourceDestinationBuffer.fill(0);
-		LastSuggestedAssetPath.clear();
 		LastSuggestedSourceDestination.clear();
 		Usage = ETextureUsage::Color;
 		SourceMode = EMountedSourceImportMode::IngestExternal;
-		PreferredDestinationDirectory = DestinationDirectory;
-		if (!PreferredDestinationDirectory.empty() && !PreferredDestinationDirectory.ends_with('/')) PreferredDestinationDirectory += '/';
-		bOpenRequested = true;
+		Destination.Reset(DestinationDirectory);
+		ModalState.RequestOpen();
 	}
 
 	auto FTextureImportDialog::Draw() -> void
 	{
-		if (bOpenRequested)
-		{
-			ImGui::OpenPopup("Import Texture");
-			bOpenRequested = false;
-		}
+		ModalState.OpenPopupIfRequested("Import Texture");
 
 		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
 		ImGui::SetNextWindowSize(ImVec2(Metrics.WidePopupWidth, 0.0f), ImGuiCond_Appearing);
@@ -94,11 +86,9 @@ namespace Durin
 
 		ImGui::Spacing();
 		ImGui::SeparatorText("Destination");
-		ImGui::TextUnformatted("Asset path");
-		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
-		ImGui::InputTextWithHint("##TextureImportAssetPath", "/Project/Textures/AssetName", AssetPathBuffer.data(), AssetPathBuffer.size());
-		ImGui::SameLine();
-		if (ImGui::Button("Choose...", ImVec2(BrowseButtonWidth, 0.0f))) BrowseDestination();
+		if (Destination.DrawRow("Asset path", "##TextureImportAssetPath",
+			"/Project/Textures/AssetName", "Choose...", BrowseButtonWidth))
+			BrowseDestination();
 
 		if (SourceMode == EMountedSourceImportMode::IngestExternal)
 		{
@@ -114,14 +104,11 @@ namespace Durin
 				BrowseSourceDestination();
 		}
 
-		FAssetPath ParsedAssetPath;
-		std::string AssetPathError;
-		const bool bAssetPathValid = FAssetPath::TryCreate(AssetPathBuffer.data(), ParsedAssetPath, &AssetPathError);
-		const bool bMountedDestination = bAssetPathValid;
-		const bool bAssetExists = bAssetPathValid && (Asset::GetAssetRegistry().FindAsset(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath));
-		const FMountedSourceImportDiagnostic SourceDiagnostic = bAssetPathValid
+		const FAssetDestinationValidation DestinationValidation =
+			Destination.Inspect();
+		const FMountedSourceImportDiagnostic SourceDiagnostic = DestinationValidation.bAssetPathValid
 			? InspectMountedSourceImport(
-				SourcePathBuffer.data(), ParsedAssetPath.GetView(),
+				SourcePathBuffer.data(), DestinationValidation.AssetPath.GetView(),
 				SourceDestinationBuffer.data(), SourceMode)
 			: FMountedSourceImportDiagnostic{};
 		const std::filesystem::path SourceDestination(
@@ -133,11 +120,14 @@ namespace Durin
 			&& Lowercase(SourceDestination.extension().generic_string())
 				== Lowercase(SourcePath.extension().generic_string());
 
-		if (bAssetPathValid && bMountedDestination && bHasSource && SourceDiagnostic.bValid)
+		if (DestinationValidation.bAssetPathValid
+			&& DestinationValidation.bMountedDestination && bHasSource
+			&& SourceDiagnostic.bValid)
 		{
 			ImGui::BeginChild("TextureImportOutputPreview", ImVec2(0.0f, MonaImGui::ScaleUI(78.0f)), ImGuiChildFlags_Borders);
 			ImGui::TextDisabled("Asset destination");
-			ImGui::TextUnformatted(ParsedAssetPath.ToString().c_str());
+			ImGui::TextUnformatted(
+				DestinationValidation.AssetPath.ToString().c_str());
 			ImGui::TextDisabled("Source virtual path");
 			ImGui::TextUnformatted(SourceDiagnostic.VirtualPath.c_str());
 			ImGui::EndChild();
@@ -162,21 +152,15 @@ namespace Durin
 		if (!bHasSource) ValidationMessage = "Select a source image to continue.";
 		else if (!bSourceExists) ValidationMessage = "The selected source file no longer exists.";
 		else if (!bSupportedSource) ValidationMessage = "Supported texture formats are PNG, JPEG, BMP, and TGA.";
-		else if (!bAssetPathValid) ValidationMessage = AssetPathError;
-		else if (!bMountedDestination) ValidationMessage = "Choose a destination inside a mounted Content directory.";
-		else if (bAssetExists) ValidationMessage = "An asset already exists at this path.";
+		else if (!DestinationValidation)
+			ValidationMessage = DestinationValidation.Message;
 		else if (!SourceDiagnostic.bValid)
 			ValidationMessage = SourceDiagnostic.Message;
 		else if (SourceMode == EMountedSourceImportMode::IngestExternal
 			&& !bSourceExtensionMatches)
 			ValidationMessage = "The source copy must keep the selected image's file extension.";
 
-		if (!ValidationMessage.empty())
-		{
-			ImGui::PushStyleColor(ImGuiCol_Text, MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning));
-			ImGui::TextWrapped("%s", ValidationMessage.c_str());
-			ImGui::PopStyleColor();
-		}
+		DrawImportDialogWarning(ValidationMessage);
 
 		ImGui::Spacing();
 		ImGui::Separator();
@@ -201,7 +185,7 @@ namespace Durin
 		if (SourceMode == EMountedSourceImportMode::ReferenceExisting)
 		{
 			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(AssetPathBuffer.data());
+				PathUtilities::FindMountForVirtualPath(Destination.GetPath());
 			if (Lookup && Lookup.Mount->SourceAssetsRoot)
 				Request.InitialDirectory = Lookup.Mount->SourceAssetsRoot->generic_string();
 		}
@@ -211,21 +195,15 @@ namespace Durin
 		if (Result.Status == EFileDialogStatus::Error) { SetError(Result.ErrorMessage); return; }
 		if (Result.FilePath.size() >= SourcePathBuffer.size()) { SetError("The selected file path is too long for the import form."); return; }
 
-		const std::string PreviousAssetPath = AssetPathBuffer.data();
 		SourcePathBuffer.fill(0);
 		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(), Result.FilePath.size());
 		const std::string AssetName = StringUtils::SanitizeFileName(std::filesystem::path(Result.FilePath).stem().generic_string(), "Texture");
 		const FProjectInfo* Project = GetCurrentProject();
-		const std::string SuggestedPath = !PreferredDestinationDirectory.empty() ? PreferredDestinationDirectory + AssetName : (Project ? Project->MountRoot : "/") + "Textures/" + AssetName;
-		if (PreviousAssetPath.empty() || PreviousAssetPath == LastSuggestedAssetPath)
-		{
-			AssetPathBuffer.fill(0);
-			std::memcpy(AssetPathBuffer.data(), SuggestedPath.data(), std::min(SuggestedPath.size(), AssetPathBuffer.size() - 1));
-		}
-		LastSuggestedAssetPath = SuggestedPath;
+		Destination.SuggestPath(Destination.MakeSuggestedPath(AssetName,
+			(Project ? Project->MountRoot : "/") + std::string("Textures/")));
 		const std::string PreviousSourceDestination = SourceDestinationBuffer.data();
 		const std::string SuggestedSourceDestination = MakeDefaultSourceVirtualPath(
-			AssetPathBuffer.data(), "Textures",
+			Destination.GetPath(), "Textures",
 			AssetName + std::filesystem::path(Result.FilePath).extension().generic_string());
 		if (PreviousSourceDestination.empty()
 			|| PreviousSourceDestination == LastSuggestedSourceDestination)
@@ -243,43 +221,22 @@ namespace Durin
 
 	auto FTextureImportDialog::BrowseDestination() -> void
 	{
-		FFileDialogRequest Request;
-		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Choose a Texture Asset Path";
-		Request.Filters = {{"Durin Asset", "*.dasset"}};
-		Request.DefaultFileName = SourcePathBuffer[0] != '\0' ? StringUtils::SanitizeFileName(std::filesystem::path(SourcePathBuffer.data()).stem().generic_string(), "Texture") + ".dasset" : "Texture.dasset";
-		if (const FProjectInfo* Project = GetCurrentProject())
-		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(Project->MountRoot + std::string("Destination"));
-			if (Lookup && Lookup.Mount->ContentRoot)
-				Request.InitialDirectory = Lookup.Mount->ContentRoot->generic_string();
-		}
-
-		const FFileDialogResult Result = SaveFileDialog(Request);
-		if (Result.Status == EFileDialogStatus::Cancelled) return;
-		if (Result.Status == EFileDialogStatus::Error) { SetError(Result.ErrorMessage); return; }
-		const PathUtilities::FContentPathResult Classified =
-			PathUtilities::ClassifyContentPath(Result.FilePath);
-		if (Classified)
-		{
-			std::filesystem::path VirtualPath(Classified.NormalizedVirtualPath);
-			VirtualPath.replace_extension();
-			const std::string VirtualPathString = VirtualPath.generic_string();
-			if (VirtualPathString.size() >= AssetPathBuffer.size()) { SetError("The selected asset path is too long for the import form."); return; }
-			AssetPathBuffer.fill(0);
-			std::memcpy(AssetPathBuffer.data(), VirtualPathString.data(), VirtualPathString.size());
-			LastSuggestedAssetPath.clear();
-			return;
-		}
-		SetError("Texture assets must be saved inside a mounted Content directory.");
+		const std::string DefaultFileName = SourcePathBuffer[0] != '\0'
+			? StringUtils::SanitizeFileName(
+				std::filesystem::path(SourcePathBuffer.data()).stem().generic_string(),
+				"Texture") + ".dasset"
+			: "Texture.dasset";
+		Destination.Browse("Choose a Texture Asset Path", DefaultFileName,
+			"The selected asset path is too long for the import form.",
+			"Texture assets must be saved inside a mounted Content directory.",
+			Callbacks);
 	}
 
 	auto FTextureImportDialog::BrowseSourceDestination() -> void
 	{
 		FAssetPath AssetPath;
 		std::string Error;
-		if (!FAssetPath::TryCreate(AssetPathBuffer.data(), AssetPath, &Error))
+		if (!FAssetPath::TryCreate(Destination.GetPath(), AssetPath, &Error))
 		{
 			SetError("Choose a valid asset path before selecting the source copy destination.");
 			return;
@@ -340,21 +297,23 @@ namespace Durin
 
 	auto FTextureImportDialog::Import() -> bool
 	{
-		if (ClearError) ClearError();
+		Callbacks.Clear();
 		FTexture2DImportSettings Settings;
 		if (SourceMode == EMountedSourceImportMode::IngestExternal)
 			Settings.SourceDestination = SourceDestinationBuffer.data();
 		Settings.Usage = Usage;
-		FTexture2DImportResult Result = DTexture2D::ImportAsset(SourcePathBuffer.data(), AssetPathBuffer.data(), Settings);
+		FTexture2DImportResult Result = DTexture2D::ImportAsset(
+			SourcePathBuffer.data(), Destination.GetPath(), Settings);
 		if (!Result) { SetError(Result.Message); return false; }
-		if (Imported) Imported(AssetPathBuffer.data());
+		Callbacks.NotifyImported(Destination.GetPath());
 		FAssetPath ImportedPath;
-		if (FAssetPath::TryCreate(AssetPathBuffer.data(), ImportedPath)) Asset::UnloadPackage(ImportedPath);
+		if (FAssetPath::TryCreate(Destination.GetPath(), ImportedPath))
+			Asset::UnloadPackage(ImportedPath);
 		return true;
 	}
 
 	auto FTextureImportDialog::SetError(std::string Message) const -> void
 	{
-		if (ReportError) ReportError(std::move(Message));
+		Callbacks.Report(std::move(Message));
 	}
 } // namespace Durin

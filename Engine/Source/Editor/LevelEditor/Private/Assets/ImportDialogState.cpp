@@ -1,0 +1,143 @@
+#include "Assets/ImportDialogState.h"
+
+#include "Dialogs/FileDialog.h"
+#include "Misc/Paths.h"
+#include "Misc/Project.h"
+#include "MonaImGui.h"
+
+namespace Durin
+{
+	auto FImportDialogCallbacks::Clear() const -> void
+	{
+		if (ClearError) ClearError();
+	}
+
+	auto FImportDialogCallbacks::Report(std::string Message) const -> void
+	{
+		if (ReportError) ReportError(std::move(Message));
+	}
+
+	auto FImportDialogCallbacks::NotifyImported(std::string_view AssetPath) const -> void
+	{
+		if (Imported) Imported(std::string(AssetPath));
+	}
+
+	auto FImportDialogDestinationModel::Reset(std::string_view InPreferredDirectory)
+		-> void
+	{
+		PreferredDirectory = InPreferredDirectory;
+		if (!PreferredDirectory.empty() && !PreferredDirectory.ends_with('/'))
+			PreferredDirectory += '/';
+		AssetPathBuffer.fill(0);
+		LastSuggestedPath.clear();
+	}
+
+	auto FImportDialogDestinationModel::MakeSuggestedPath(
+		std::string_view AssetName, std::string_view FallbackDirectory) const
+		-> std::string
+	{
+		return std::string(PreferredDirectory.empty()
+			? FallbackDirectory : PreferredDirectory) + std::string(AssetName);
+	}
+
+	auto FImportDialogDestinationModel::SuggestPath(std::string_view SuggestedPath)
+		-> void
+	{
+		const std::string_view CurrentPath = AssetPathBuffer.data();
+		if (CurrentPath.empty() || CurrentPath == LastSuggestedPath)
+		{
+			AssetPathBuffer.fill(0);
+			std::memcpy(AssetPathBuffer.data(), SuggestedPath.data(),
+				std::min(SuggestedPath.size(), AssetPathBuffer.size() - 1));
+		}
+		LastSuggestedPath = SuggestedPath;
+	}
+
+	auto FImportDialogDestinationModel::SetPath(std::string_view AssetPath) -> bool
+	{
+		if (AssetPath.size() >= AssetPathBuffer.size()) return false;
+		AssetPathBuffer.fill(0);
+		std::memcpy(AssetPathBuffer.data(), AssetPath.data(), AssetPath.size());
+		LastSuggestedPath.clear();
+		return true;
+	}
+
+	auto FImportDialogDestinationModel::Inspect(
+		FAssetDestinationOccupancyQuery OccupancyQuery) const
+		-> FAssetDestinationValidation
+	{
+		return InspectAssetDestination(AssetPathBuffer.data(), OccupancyQuery);
+	}
+
+	auto FImportDialogDestinationModel::DrawRow(const char* Label,
+		const char* InputId, const char* Hint, const char* BrowseLabel,
+		float BrowseButtonWidth) -> bool
+	{
+		ImGui::TextUnformatted(Label);
+		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x
+			- BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
+		ImGui::InputTextWithHint(InputId, Hint, AssetPathBuffer.data(),
+			AssetPathBuffer.size());
+		ImGui::SameLine();
+		return ImGui::Button(BrowseLabel, ImVec2(BrowseButtonWidth, 0.0f));
+	}
+
+	auto FImportDialogDestinationModel::Browse(std::string_view Title,
+		std::string_view DefaultFileName, std::string_view TooLongMessage,
+		std::string_view OutsideMountMessage,
+		const FImportDialogCallbacks& Callbacks) -> bool
+	{
+		FFileDialogRequest Request;
+		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
+		Request.Title = Title;
+		Request.Filters = {{"Durin Asset", "*.dasset"}};
+		Request.DefaultFileName = DefaultFileName;
+		if (const FProjectInfo* Project = GetCurrentProject())
+		{
+			const PathUtilities::FMountLookupResult Lookup =
+				PathUtilities::FindMountForVirtualPath(
+					Project->MountRoot + std::string("Destination"));
+			if (Lookup && Lookup.Mount->ContentRoot)
+				Request.InitialDirectory =
+					Lookup.Mount->ContentRoot->generic_string();
+		}
+
+		const FFileDialogResult Result = SaveFileDialog(Request);
+		if (Result.Status == EFileDialogStatus::Cancelled) return false;
+		if (Result.Status == EFileDialogStatus::Error)
+		{
+			Callbacks.Report(Result.ErrorMessage);
+			return false;
+		}
+		const FAssetDestinationValidation Destination =
+			ClassifyAssetDestination(Result.FilePath);
+		if (!Destination.bMountedDestination)
+		{
+			Callbacks.Report(std::string(OutsideMountMessage));
+			return false;
+		}
+		if (!SetPath(Destination.AssetPath.ToString()))
+		{
+			Callbacks.Report(std::string(TooLongMessage));
+			return false;
+		}
+		return true;
+	}
+
+	auto FImportDialogModalState::OpenPopupIfRequested(
+		const char* PopupName) -> void
+	{
+		if (!bOpenRequested) return;
+		ImGui::OpenPopup(PopupName);
+		bOpenRequested = false;
+	}
+
+	auto DrawImportDialogWarning(std::string_view Message) -> void
+	{
+		if (Message.empty()) return;
+		ImGui::PushStyleColor(ImGuiCol_Text,
+			MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning));
+		ImGui::TextWrapped("%s", std::string(Message).c_str());
+		ImGui::PopStyleColor();
+	}
+} // namespace Durin

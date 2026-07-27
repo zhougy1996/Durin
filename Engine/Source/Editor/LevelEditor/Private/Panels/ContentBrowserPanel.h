@@ -1,10 +1,10 @@
 #pragma once
 
 #include "Panels/LevelEditorPanel.h"
-#include "Assets/EditorAssetMoveCoordinator.h"
+#include "Panels/ContentBrowserModel.h"
+#include "Panels/ContentBrowserOperations.h"
 
 #include <array>
-#include <filesystem>
 #include <unordered_set>
 
 namespace Durin
@@ -12,14 +12,6 @@ namespace Durin
 	class FLevelEditorSessionSettings;
 	class FContentBrowserThumbnailCache;
 	struct FLevelEditorContext;
-
-	// Distinguishes folders, assets, and source files in the content browser.
-	enum class EContentBrowserItemKind : uint8
-	{
-		Folder,
-		Asset,
-		SourceFile
-	};
 
 	// Selects grid or list presentation for content-browser items.
 	enum class EContentBrowserViewMode : uint8
@@ -36,28 +28,7 @@ namespace Durin
 		StaticMesh
 	};
 
-	// Captures one mounted content item and its searchable metadata.
-	struct FContentBrowserItem
-	{
-		EContentBrowserItemKind Kind = EContentBrowserItemKind::SourceFile;
-		std::string Name;
-		std::string VirtualPath;
-		std::string PhysicalPath;
-		std::string AssetClassName;
-		std::string Extension;
-		std::string ThumbnailIdentity;
-		std::string ThumbnailSourcePath;
-		uintmax_t ThumbnailFileSize = 0;
-		std::filesystem::file_time_type ThumbnailLastWriteTime{};
-		uint32 ThumbnailPackageFormatVersion = 0;
-		int64 ThumbnailLastWriteTimeTicks = 0;
-		uintmax_t FileSize = 0;
-		std::filesystem::file_time_type LastWriteTime{};
-
-		auto StableId() const -> const std::string& { return PhysicalPath; }
-	};
-
-	// Owns navigation, filtering, thumbnails, drag/drop, and import UI for assets.
+	// Coordinates content-browser model, operation, thumbnail, and immediate UI state.
 	class FContentBrowserPanel final : public ILevelEditorPanel
 	{
 	public:
@@ -73,23 +44,6 @@ namespace Durin
 		auto RevealAsset(std::string_view AssetPath) -> void;
 
 	private:
-		// Maps one virtual mount to its source and imported physical roots.
-		struct FMountSnapshot
-		{
-			std::string VirtualRoot;
-			std::string SourcePhysicalRoot;
-			std::string PhysicalRoot;
-		};
-
-		// Identifies the active content-browser sort key.
-		enum class ESortColumn : uint8
-		{
-			Name,
-			Type,
-			Size,
-			Modified
-		};
-
 		auto Refresh(bool bRescanRegistry) -> void;
 		auto RefreshItemsSnapshot() -> void;
 		auto RebuildItems() -> void;
@@ -97,8 +51,6 @@ namespace Durin
 		auto NavigateHistory(int32 Delta) -> void;
 		auto RefreshMountSnapshot() -> void;
 		auto PhysicalToVirtualDirectory(std::string_view PhysicalPath) const -> std::string;
-		auto VirtualToPhysical(std::string_view VirtualPath) const -> std::string;
-		auto IsInsideCurrentDirectory(std::string_view PhysicalPath, bool bRecursive) const -> bool;
 
 		auto DrawToolbar() -> void;
 		auto DrawDirectoryTree() -> void;
@@ -122,8 +74,6 @@ namespace Durin
 		auto BeginRename(const FContentBrowserItem& Item) -> void;
 		auto DrawRenameEditor(const FContentBrowserItem& Item) -> void;
 		auto CommitRename(const FContentBrowserItem& Item) -> bool;
-		auto RenameFolder(const FContentBrowserItem& Item, std::string_view NewName) -> bool;
-		auto IsManagedCompanion(const FContentBrowserItem& Item) const -> bool;
 		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
 		auto CreateLevelAsset(std::string_view VirtualDirectory) -> void;
 		auto CreateMaterialAsset(std::string_view VirtualDirectory, bool bInstance) -> void;
@@ -131,7 +81,6 @@ namespace Durin
 		auto RequestDeleteSelection() -> void;
 		auto AnalyzeDeleteSelection() -> void;
 		auto DeleteSelection() -> void;
-		auto DeleteEmptyFolder(const FContentBrowserItem& Item) -> bool;
 		auto ShowInExplorer(std::string_view PhysicalPath) const -> void;
 		auto CopyToClipboard(std::string_view Text) const -> void;
 
@@ -139,29 +88,18 @@ namespace Durin
 		auto ItemIcon(const FContentBrowserItem& Item) const -> const char*;
 		auto FormatFileSize(uintmax_t Bytes) const -> std::string;
 		auto FormatFileTime(const std::filesystem::file_time_type& Time) const -> std::string;
-		auto MatchesTypeFilter(const FContentBrowserItem& Item) const -> bool;
 		auto SetError(std::string Message) -> void;
+		auto RepairSelection() -> void;
 
 		FLevelEditorSessionSettings& SessionSettings;
 		FOpenAsset OpenAsset;
 		FRequestImport RequestImport;
-		FMoveAssets MoveAssets;
-		std::string CurrentPhysicalPath;
-		std::string CurrentVirtualPath;
-		std::vector<FMountSnapshot> MountSnapshot;
-		std::unordered_map<std::string, std::vector<std::filesystem::path>> DirectoryChildrenCache;
-		std::vector<FContentBrowserItem> ItemsSnapshot;
-		std::vector<FContentBrowserItem> Items;
-		std::vector<std::string> NavigationHistory;
-		int32 HistoryIndex = -1;
+		FContentBrowserModel Model;
+		FContentBrowserOperations Operations;
 		std::unordered_set<std::string> Selection;
 		std::string SelectionAnchor;
 		std::array<char, 256> SearchBuffer{};
-		int32 TypeFilter = 0;
 		EContentBrowserViewMode ViewMode = EContentBrowserViewMode::Grid;
-		ESortColumn SortColumn = ESortColumn::Name;
-		bool bSortAscending = true;
-		bool bShowSourceFiles = false;
 		bool bShowSelectionDetails = false;
 		bool bIconSizeLocked = false;
 		bool bContentItemHovered = false;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Assets/ImportDialogState.h"
 #include "Assets/MountedSourceImport.h"
 
 namespace Durin
@@ -10,7 +11,7 @@ namespace Durin
 	class FTextureImportDialog
 	{
 	public:
-		FTextureImportDialog(std::function<void()> InClearError, std::function<void(std::string)> InReportError, std::function<void(std::string)> InImported = {});
+		explicit FTextureImportDialog(FImportDialogCallbacks InCallbacks);
 
 		auto Open(std::string_view DestinationDirectory = {}) -> void;
 		auto Draw() -> void;
@@ -22,18 +23,14 @@ namespace Durin
 		auto Import() -> bool;
 		auto SetError(std::string Message) const -> void;
 
-		std::function<void()> ClearError;
-		std::function<void(std::string)> ReportError;
-		std::function<void(std::string)> Imported;
-		std::string PreferredDestinationDirectory;
+		FImportDialogCallbacks Callbacks;
+		FImportDialogDestinationModel Destination;
+		FImportDialogModalState ModalState;
 		std::array<char, 512> SourcePathBuffer{};
-		std::array<char, 256> AssetPathBuffer{};
 		std::array<char, 512> SourceDestinationBuffer{};
-		std::string LastSuggestedAssetPath;
 		std::string LastSuggestedSourceDestination;
 		ETextureUsage Usage = static_cast<ETextureUsage>(0);
 		EMountedSourceImportMode SourceMode =
 			EMountedSourceImportMode::IngestExternal;
-		bool bOpenRequested = false;
 	};
 } // namespace Durin

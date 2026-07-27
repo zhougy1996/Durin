@@ -6,22 +6,31 @@ Last reviewed: 2026-07-28
 
 ## Current Status
 
-Stage 0 is complete on baseline commit `8b750d3c`. The prerequisite thumbnail,
-typed-mount, mounted-source, and import-workflow changes are established code,
-not work coordinated by this plan. No active overlapping-plan handoff is
-required before structural refactoring begins.
+Stages 0 through 5 are complete. Stage 5 began from commit `210b19d0` and
+separated Content Browser navigation, snapshots, filtering, sorting, cache
+invalidation, and mutation workflows from the panel while retaining
+panel-owned selection, rename, popup, deferred-command, and thumbnail state.
+The prerequisite thumbnail, typed-mount, mounted-source, and import-workflow
+changes remain established code, not work coordinated by this plan.
 
 The unified Core mount registry already owns virtual-path lookup, typed Content
 and SourceAssets resolution, reverse physical-path classification, canonical
 containment, and mount-owner metadata. LevelEditor must consume those APIs
 rather than add another mount-owner or path-resolution abstraction. The
-remaining import duplication is editor-only asset-destination validation,
-common callback state, and modal lifecycle/presentation.
+remaining work is panel and document presentation modularization.
 
-`ContentBrowserPanel.cpp` and `SceneViewportPanel.cpp` remain the first
-file-size and responsibility hotspots. Stage 1 is next and will extract Scene
-Viewport presentation helpers behind the unchanged `FSceneViewportPanel`
-interface.
+`SceneViewportPanel.cpp` now contains panel orchestration rather than toolbar
+implementation. Asset destination parsing, Content resolution, physical package
+path calculation, registry/loaded-package collision checks, diagnostics,
+file-dialog reverse classification, callback routing, destination suggestions,
+and modal open requests now have one editor implementation on top of Core. The
+Content Browser item view now owns card geometry, icons, file metadata
+formatting, thumbnail fallback states, transparency, and type badges; its
+bounded panel views own ImGui submission. `FContentBrowserModel` now owns the
+immutable mounted-location and item projections, including the searchable type
+label consumed by the item view, and `FContentBrowserOperations` owns
+filesystem, asset creation, move, rename, delete, Explorer, and clipboard
+commands. Stage 6 is next and will extract the Outliner and Details submodels.
 
 ## Goal
 
@@ -229,16 +238,16 @@ Dependencies: none.
 
 Dependencies: Stage 0.
 
-- [ ] Move viewport toolbar icon drawing, surfaces, selection indicators,
+- [x] Move viewport toolbar icon drawing, surfaces, selection indicators,
   ordinary buttons, split buttons, and runtime controls into a private
   `ViewportToolbar` component.
-- [ ] Move toolbar layout calculation and its responsive state into the same
+- [x] Move toolbar layout calculation and its responsive state into the same
   component or a paired immutable layout type.
-- [ ] Move orientation and FPS overlay drawing into narrowly named private
+- [x] Move orientation and FPS overlay drawing into narrowly named private
   helpers without moving camera, world, renderer, or play-session ownership.
-- [ ] Keep the existing panel constructor, viewport clients, frame
+- [x] Keep the existing panel constructor, viewport clients, frame
   finalization, input routing, camera preview, and public panel API unchanged.
-- [ ] Verify all full, compact, narrow, play, pause, snap, transform-mode, and
+- [x] Verify all full, compact, narrow, play, pause, snap, transform-mode, and
   view-mode toolbar states against the Stage 0 baseline.
 
 #### Acceptance Gate
@@ -247,21 +256,46 @@ Dependencies: Stage 0.
   toolbar implementation, all toolbar identities and behavior remain stable,
   and focused editor/UI validation passes in both themes and required scales.
 
+#### Stage 1 Handoff
+
+- Baseline: `13bae933`.
+- Working set:
+  `Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.h`,
+  `Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.cpp`,
+  `Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportPresentation.h`,
+  and
+  `Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportPresentation.cpp`.
+- Key symbols: `FViewportToolbar`, `FViewportToolbarLayout`,
+  `DrawViewportPlayStateBorder`, `DrawViewportOrientationOverlay`, and
+  `DrawViewportFPSOverlay`.
+- Decisions: the toolbar receives non-owning editor and viewport state for one
+  draw; the panel retains clients, play preferences, input routing, camera
+  preview, renderer frame finalization, and its unchanged public API. Input
+  exclusion continues to consume the layout's exact background rectangles.
+- Open questions: none.
+- Validation: all 23 frozen toolbar IDs and popup names retain their exact
+  occurrence counts; the unchanged layout branches, `ScaleUI` metrics, theme
+  colors, and control bodies cover full, compact, narrow, play/pause, snap,
+  transform-mode, and view-mode presentation. The
+  `Win64-Debug-DurinEditor-Tests` `LevelEditor` and `all` builds passed, and the
+  hidden-window Sandbox editor remained alive for the 10-second smoke interval
+  on 2026-07-28.
+
 ### Stage 2: Extract shared asset-destination validation
 
 Dependencies: Stage 0.
 
-- [ ] Introduce one side-effect-free editor asset-destination result built from
+- [x] Introduce one side-effect-free editor asset-destination result built from
   `FAssetPath` and Core's existing typed mount APIs.
-- [ ] Carry the parsed asset path, owning mount, mounted/unmounted state,
+- [x] Carry the parsed asset path, owning mount, mounted/unmounted state,
   resolved physical destination, existing-package/registry state, and
   actionable diagnostic without adding another path taxonomy.
-- [ ] Replace repeated validation and destination-browse conversion in the
+- [x] Replace repeated validation and destination-browse conversion in the
   three import dialogs with the shared result.
-- [ ] Keep Content Browser on `FindMountForVirtualPath`,
+- [x] Keep Content Browser on `FindMountForVirtualPath`,
   `ResolveContentPath`, and `ClassifyContentPath`; factor only a genuinely
   shared editor decision rather than wrapping Core APIs mechanically.
-- [ ] Cover trailing separators, normalized and non-normalized physical roots,
+- [x] Cover trailing separators, normalized and non-normalized physical roots,
   unknown virtual roots, prefix lookalikes, case behavior, loaded packages,
   registry assets, and mounted-domain containment boundaries.
 
@@ -271,22 +305,46 @@ Dependencies: Stage 0.
   share one editor destination decision, and focused tests prove deterministic
   success and rejection without changing mounted-source behavior.
 
+#### Stage 2 Handoff
+
+- Baseline: `84427074`.
+- Working set:
+  `Engine/Source/Editor/LevelEditor/Private/Assets/AssetDestinationValidation.h`,
+  `Engine/Source/Editor/LevelEditor/Private/Assets/AssetDestinationValidation.cpp`,
+  the StaticMesh, Texture2D, and TextureCube import-dialog implementations,
+  `Engine/Tests/Native/EngineTests/Private/Editor/AssetDestinationValidationTests.cpp`,
+  and the EngineTests source list.
+- Key symbols: `FAssetDestinationOccupancy`,
+  `FAssetDestinationValidation`, `InspectAssetDestination`, and
+  `ClassifyAssetDestination`.
+- Decisions: `FAssetPath` remains authoritative for asset syntax, registered
+  mount lookup, and Content-domain eligibility; `ResolveContentPath` supplies
+  the owning mount and physical target; `ClassifyContentPath` supplies browse
+  conversion. The editor result appends the existing `.dasset` package suffix
+  and reads registry/loaded-package occupancy without mutating either service.
+- Open questions: none.
+- Validation: all four focused `FAssetDestinationValidationTests` passed,
+  covering valid, invalid, normalized, collision, case, mount-boundary, and
+  reverse-classification paths. The `Win64-Debug-DurinEditor-Tests` `all` build
+  passed, and the hidden-window Sandbox editor remained alive for the 10-second
+  smoke interval on 2026-07-28.
+
 ### Stage 3: Extract common import-dialog state
 
 Dependencies: Stage 2.
 
-- [ ] Introduce a callback bundle for clearing/reporting errors and reporting a
+- [x] Introduce a callback bundle for clearing/reporting errors and reporting a
   successfully imported asset.
-- [ ] Introduce a composed destination model for preferred directory, asset
+- [x] Introduce a composed destination model for preferred directory, asset
   path text, suggestion tracking, browsing, and Stage 2 validation.
-- [ ] Centralize modal open-request lifecycle and common destination-row/error
+- [x] Centralize modal open-request lifecycle and common destination-row/error
   presentation only where labels and ImGui identities remain explicit inputs.
-- [ ] Convert StaticMesh, Texture2D, and TextureCube dialogs one at a time,
+- [x] Convert StaticMesh, Texture2D, and TextureCube dialogs one at a time,
   retaining their source-specific state, validation, output preview, settings,
   and import execution.
-- [ ] Replace repeated import-dialog construction callbacks in
+- [x] Replace repeated import-dialog construction callbacks in
   `MLevelEditor::Construct` with one bounded factory/helper.
-- [ ] Keep mounted-source actions and multi-output import orchestration behind
+- [x] Keep mounted-source actions and multi-output import orchestration behind
   their existing dialog-specific interfaces rather than incorporating their
   domain logic.
 
@@ -296,21 +354,47 @@ Dependencies: Stage 2.
   retains distinct source behavior; import success, cancellation, invalid
   path, collision, and error reporting match the baseline.
 
+#### Stage 3 Handoff
+
+- Baseline: `72e5c75d`.
+- Working set:
+  `Engine/Source/Editor/LevelEditor/Private/Assets/ImportDialogState.h`,
+  `Engine/Source/Editor/LevelEditor/Private/Assets/ImportDialogState.cpp`, the
+  StaticMesh, Texture2D, and TextureCube import-dialog headers and
+  implementations,
+  `Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp`,
+  `Engine/Tests/Native/EngineTests/Private/Editor/ImportDialogStateTests.cpp`,
+  and the EngineTests source list.
+- Key symbols: `FImportDialogCallbacks`,
+  `FImportDialogDestinationModel`, `FImportDialogModalState`,
+  `DrawImportDialogWarning`, and `MakeImportDialog`.
+- Decisions: the destination model owns the fixed asset-path buffer, preferred
+  directory normalization, suggestion replacement rule, Stage 2 validation,
+  and mounted Content browse conversion. Popup names, row labels, input IDs,
+  hints, and button labels remain explicit call-site inputs. Each dialog still
+  owns source selection, mounted-source decisions, settings, previews,
+  validation priority, and import execution.
+- Open questions: none.
+- Validation: the focused import-dialog-state and asset-destination tests, the
+  `Win64-Debug-DurinEditor-Tests` `LevelEditor` and `all` builds, plan
+  validation, and a hidden-window Sandbox editor smoke test passed on
+  2026-07-28.
+
 ### Stage 4: Split Content Browser presentation from state
 
 Dependencies: Stage 0.
 
-- [ ] Extract grid metrics, transparency background, type badge, thumbnail,
+- [x] Extract grid metrics, transparency background, type badge, thumbnail,
   icon, label, file-size, and file-time presentation into a private item-view
   component.
-- [ ] Extract directory-tree, grid, details-table, selection-details, toolbar,
+- [x] Extract directory-tree, grid, details-table, selection-details, toolbar,
   status, and context-menu drawing into bounded views that consume explicit
   panel state and return commands.
-- [ ] Keep thumbnail request identity, visibility priority, resource lifetime,
+- [x] Keep thumbnail request identity, visibility priority, resource lifetime,
   and cache/provider ownership unchanged.
-- [ ] Preserve table sort specs, selection anchors, rename focus, responsive
+- [x] Preserve table sort specs, selection anchors, rename focus, responsive
   layout, item hover, popup, drag/drop, and deferred-action ordering.
-- [ ] Validate mixed source-file and asset grids at minimum, default, and
+- [x] Validate mixed source-file and asset grids at minimum, default, and
   maximum icon sizes, including cold, warm, failed, and invalidated
   thumbnails.
 
@@ -320,23 +404,52 @@ Dependencies: Stage 0.
   unit, all thumbnail and interaction regressions are excluded by focused and
   visual validation, and no thumbnail-service contract moved modules.
 
+#### Stage 4 Handoff
+
+- Baseline: `73ea6787`.
+- Working set:
+  `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserPanel.cpp`,
+  `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserPanelView.cpp`,
+  `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserItemView.h`,
+  `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserItemView.cpp`,
+  `Engine/Tests/Native/EngineTests/Private/Editor/ContentBrowserItemViewTests.cpp`,
+  and the EngineTests source list.
+- Key symbols: `ContentBrowserItemView::FGridMetrics`,
+  `ContentBrowserItemView::EThumbnailPresentation`,
+  `ContentBrowserItemView::ResolveThumbnailPresentation`, and the
+  presentation-only `FContentBrowserPanel::Draw*` definitions in
+  `ContentBrowserPanelView.cpp`.
+- Decisions: the panel remains the explicit state and command target for the
+  bounded views so Stage 5 can replace state and operation internals without
+  another UI move. Thumbnail request construction, visible/prefetch priority,
+  begin/end-frame ordering, cache ownership, selection and rename state,
+  deferred command execution, ImGui IDs, popup names, sort specs, and drag/drop
+  payloads retain their Stage 3 contracts.
+- Open questions: none.
+- Validation: item-view contract tests cover mixed folder, asset, and source
+  labels, minimum/default/maximum grid metrics, and cold, queued/loading,
+  ready, failed, and invalidated thumbnail presentation. The
+  `Win64-Debug-DurinEditor-Tests` `LevelEditor` and `all` builds, exact
+  interaction-literal comparison against `73ea6787`, and a hidden-window
+  Sandbox editor smoke test passed on 2026-07-28.
+
 ### Stage 5: Split Content Browser model and operations
 
 Dependencies: Stages 2 and 4.
 
-- [ ] Introduce a Content Browser model that owns mount snapshots, current
+- [x] Introduce a Content Browser model that owns mount snapshots, current
   location, navigation history, directory/item snapshots, filtering, sorting,
   and cache invalidation.
-- [ ] Expose immutable item views and explicit navigation/filter/sort commands
+- [x] Expose immutable item views and explicit navigation/filter/sort commands
   to the panel.
-- [ ] Introduce an operations component for folder creation, asset creation,
+- [x] Introduce an operations component for folder creation, asset creation,
   rename, move/drop, delete analysis, deletion, and Explorer/clipboard actions.
-- [ ] Keep selection and rename UI state in the panel unless tests demonstrate
+- [x] Keep selection and rename UI state in the panel unless tests demonstrate
   a model-level invariant that requires moving it.
-- [ ] Preserve preflight-before-mutation ordering, managed companion behavior,
+- [x] Preserve preflight-before-mutation ordering, managed companion behavior,
   rollback, focus-after-operation, registry rescan, selection repair, and
   error messages.
-- [ ] Add focused tests for navigation history, recursive filtering, stable
+- [x] Add focused tests for navigation history, recursive filtering, stable
   sorting, rename collisions, unmanaged folder content, move failure, delete
   blockers, and refresh after mutation.
 
@@ -345,6 +458,40 @@ Dependencies: Stages 2 and 4.
 - `FContentBrowserPanel` coordinates model, views, and commands without owning
   filesystem/registry algorithms; all existing Content Browser workflows pass
   focused and editor smoke validation with unchanged observable behavior.
+
+#### Stage 5 Handoff
+
+- Baseline: `210b19d0`.
+- Working set:
+  `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserModel.h`,
+  `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserModel.cpp`,
+  `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserOperations.h`,
+  `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserOperations.cpp`,
+  the Content Browser panel, view, and item-view headers/implementations,
+  `Engine/Tests/Native/EngineTests/Private/Editor/ContentBrowserModelTests.cpp`,
+  and the EngineTests source list.
+- Key symbols: `FContentBrowserModel`, `FContentBrowserOperations`,
+  `FContentBrowserOperationResult`, `EContentBrowserSortColumn`,
+  `ContentBrowserModel::TypeLabel`,
+  `FContentBrowserModel::NavigateHistory`,
+  `FContentBrowserModel::SetSnapshotForTesting`, and
+  `FContentBrowserOperations::AnalyzeDeletion`.
+- Decisions: the model exposes immutable spans and explicit navigation,
+  search, type-filter, sort, source-visibility, rescan, and invalidation
+  commands. The operations component owns all Content Browser mutation
+  algorithms and preserves the editor move coordinator as the asset-move and
+  rollback boundary. Selection, selection anchors, rename buffers/focus,
+  delete-popup state, deferred actions, thumbnail cache ownership, and ImGui
+  submission remain in the panel/view layer.
+- Open questions: none.
+- Validation: 9 focused Content Browser model/item-view tests cover navigation
+  history and forward-branch truncation, recursive search, stable sorting,
+  rename collisions, unmanaged folder content, injected move failure, delete
+  analysis and non-empty-folder blockers, cache invalidation, refresh after
+  mutation, and the Stage 4 presentation contracts. The
+  `Win64-Debug-DurinEditor-Tests` `LevelEditor` and `all` builds, exact
+  interaction-literal comparison against `210b19d0`, and a hidden-window
+  Sandbox editor smoke test passed on 2026-07-28.
 
 ### Stage 6: Extract Outliner and Details submodels
 
