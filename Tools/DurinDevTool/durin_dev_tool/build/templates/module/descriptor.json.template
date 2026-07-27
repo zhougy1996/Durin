@@ -1,0 +1,9 @@
+{
+    "ModuleName": "{{MODULE_NAME}}",
+    "LinkType": "{{LINK_TYPE}}",
+    "PCH": "{{PCH}}",
+    "PrivateDependencies": {{PRIVATE_DEPENDENCIES}},
+    "PublicDependencies": {{PUBLIC_DEPENDENCIES}},
+    "OptionalPrivateDependencies": {{OPTIONAL_PRIVATE_DEPENDENCIES}},
+    "OptionalPublicDependencies": {{OPTIONAL_PUBLIC_DEPENDENCIES}}
+}

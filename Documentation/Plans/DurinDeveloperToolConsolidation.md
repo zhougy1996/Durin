@@ -5,7 +5,7 @@ Summary: Consolidate repository setup, worktree, build, documentation, test, run
 Last reviewed: 2026-07-28
 
 Status: Active
-Completed:
+Completed: Stages 0-2
 
 ## Current Status
 
@@ -20,20 +20,25 @@ under `Tools/DocTool`, and retains WorktreeTool and Setup under
 three existing Tools plus Setup rather than moving BuildTool from its older
 `main` location.
 
-Stages 0 and 1 are complete. The bootstrap-safe product skeleton now owns the
+Stages 0 through 2 are complete. The bootstrap-safe product skeleton now owns the
 canonical launcher, validated repository discovery, standard-library-only
 command registry and error boundary, shared direct/shell help, and prepared
-environment capability guard. Post-stage hardening now distinguishes a missing
+environment capability guard. The build domain now lives under
+`durin_dev_tool/build`, and the top-level registry is the sole command
+specification for build, test, run, recovery, artifact, preset, and scaffolding
+operations. Post-stage hardening distinguishes a missing
 environment, a system-Python invocation that bypassed the launcher, and an
 incomplete prepared environment before importing a dependency-backed handler.
-The existing domain implementations remain authoritative until their owning
-migration stages, and Stage 2 is next.
+The documentation domain remains authoritative in its existing location until
+Stage 3.
 
 The selected working set remains clean outside this plan's changes. The
-combined Python tooling suite passes 196 tests with one platform-dependent
-skip. System-Python cold-start, launcher help, scripted shell help, arbitrary
-working-directory discovery, and missing-environment failure behavior are
-recorded below. One pre-existing defect remains explicit:
+combined Python tooling suite passes 297 tests with two platform-dependent
+skips, including 112 tests against the migrated build package and unified
+registry. System-Python cold-start, launcher help, scripted shell help and
+preset state, arbitrary working-directory discovery, missing-environment
+failure behavior, and toolchain-free build status/preset discovery are recorded
+below. One pre-existing defect remains explicit:
 `WorktreeTool.bat` prints the correct error when main-worktree preparation is
 rejected but returns exit code zero. The final unified worktree command must
 preserve the Python failure code instead.
@@ -440,22 +445,22 @@ Tools/
 
 ### Stage 2: Build Domain Consolidation
 
-- [ ] Move the existing `durin_build_tool` implementation into
+- [x] Move the existing `durin_build_tool` implementation into
   `durin_dev_tool/build` using package-relative imports.
-- [ ] Integrate build, test, run, artifact, stop, purge, preset, and scaffolding
+- [x] Integrate build, test, run, artifact, stop, purge, preset, and scaffolding
   handlers into the top-level command registry.
-- [ ] Replace product-facing `BuildTool` names, prompts, usage strings, errors,
+- [x] Replace product-facing `BuildTool` names, prompts, usage strings, errors,
   process metadata, and test expectations with `DurinDevTool` or neutral
   build-domain terminology.
-- [ ] Preserve request defaults, option validation, host-aware shell
+- [x] Preserve request defaults, option validation, host-aware shell
   tokenization, output modes, logs, heartbeats, lazy toolchain preparation,
   checkout locking, recovery, stop behavior, and runtime job ownership.
-- [ ] Preserve the existing `create project` and `create module` transaction
+- [x] Preserve the existing `create project` and `create module` transaction
   and rollback semantics.
-- [ ] Move and reorganize build-domain tests under
+- [x] Move and reorganize build-domain tests under
   `Tools/DurinDevTool/tests` without reducing behavioral coverage.
-- [ ] Prove direct/shell request parity for every migrated command.
-- [ ] Update the plan status and record the stage handoff.
+- [x] Prove direct/shell request parity for every migrated command.
+- [x] Update the plan status and record the stage handoff.
 
 #### Acceptance Gate
 
@@ -465,6 +470,49 @@ Tools/
 - Lock, interruption, purge, runtime process, scaffolding rollback, output, and
   error-context tests match their pre-move behavior.
 - No migrated module derives the repository root from a fixed parent count.
+
+#### Stage 2 Handoff
+
+- Baseline commit: `4300b486`.
+- Working set:
+  - build-domain implementation, build profile manifest, and scaffolding
+    templates under `Tools/DurinDevTool/durin_dev_tool/build`;
+  - the top-level registry, shell session state, and core command handlers;
+  - migrated build-domain and unified-registry tests under
+    `Tools/DurinDevTool/tests`;
+  - this plan status and handoff.
+- Key symbols:
+  - top-level `CommandSpec`, `COMMAND_SPECS`, `CommandRegistry`,
+    `_build_command`, and nested `create` specifications;
+  - build `request_from_namespace`, `execute_request`,
+    `execute_shell_request`, `create_context`, `derive_context`, and
+    `execute_context`;
+  - shell `split_windows_command_line`, `split_shell_command`, and
+    `normalize_compact_build_command`.
+- Decisions:
+  - the top-level registry owns every build-domain name, operand, option,
+    default, capability, and handler registration; the migrated package
+    contains no second parser or command-specification table;
+  - the build handler constructs the existing typed `CommandRequest` directly
+    from the registry namespace, so direct and shell execution do not reparse
+    arguments;
+  - the unified shell retains session-local preset selection and a reusable
+    lazy toolchain context while direct commands remain isolated;
+  - the old BuildTool implementation and root launcher remain untouched until
+    the atomic Stage 5 cutover, while the migrated implementation is exercised
+    through `DevTool`.
+- Open questions: none.
+- Validation:
+  - combined existing and migrated Python tooling suite: 297 passed, two
+    skipped;
+  - migrated build-domain, unified-registry, and skeleton suite: 112 passed,
+    one skipped;
+  - Python bytecode compilation for the unified package: passed;
+  - direct `DevTool status`, `presets`, and `preset` smoke tests: passed
+    without toolchain initialization;
+  - scripted unified shell retained preset selection across a subsequent
+    `status` command, and the session reuse test prepared the toolchain once
+    across a preset switch.
 
 ### Stage 3: Documentation Domain Consolidation
 

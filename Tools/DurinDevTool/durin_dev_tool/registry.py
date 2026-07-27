@@ -27,10 +27,12 @@ class ArgumentSpec:
 class CommandSpec:
     name: str
     summary: str
-    handler: str
+    handler: str = ""
     capability: Capability = Capability.BOOTSTRAP
     arguments: tuple[ArgumentSpec, ...] = ()
     required_modules: tuple[str, ...] = ()
+    subcommands: tuple["CommandSpec", ...] = ()
+    defaults: tuple[tuple[str, object], ...] = ()
 
     def load_handler(self) -> Callable[..., int]:
         module_name, separator, attribute = self.handler.partition(":")
@@ -38,6 +40,104 @@ class CommandSpec:
             raise DevToolError(f'Invalid handler registration for "{self.name}".')
         module = importlib.import_module(module_name)
         return getattr(module, attribute)
+
+
+def _argument(*flags: str, **kwargs: object) -> ArgumentSpec:
+    return ArgumentSpec(flags, kwargs)
+
+
+PROFILE = _argument("--profile", help="host build profile")
+PRESET = _argument("--preset", help="registered CMake configure preset")
+CMAKE = _argument("--cmake", help="CMake executable override")
+ENVIRONMENT_SETUP = _argument(
+    "--environment-setup",
+    help="toolchain environment script override",
+)
+JOBS = _argument(
+    "--jobs",
+    type=int,
+    choices=range(1, 257),
+    metavar="1..256",
+    help="parallel build job limit",
+)
+PLAIN = _argument(
+    "--plain",
+    action="store_true",
+    help="disable colors and styled terminal output",
+)
+OUTPUT_MODE = _argument(
+    "--output",
+    dest="output_mode",
+    choices=("auto", "compact", "progress", "full"),
+    default="auto",
+    help="child output mode (default: auto)",
+)
+TOOL_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, PLAIN, OUTPUT_MODE)
+CONTEXT_ARGUMENTS = (PROFILE, PRESET, PLAIN, OUTPUT_MODE)
+BUILD_HANDLER = "durin_dev_tool.build.handler:run"
+BUILD_CAPABILITY = Capability.PREPARED_ENVIRONMENT
+BUILD_MODULES = ("rich",)
+
+
+def _build_command(
+    name: str,
+    summary: str,
+    arguments: tuple[ArgumentSpec, ...],
+    *,
+    action: str | None = None,
+) -> CommandSpec:
+    return CommandSpec(
+        name,
+        summary,
+        BUILD_HANDLER,
+        capability=BUILD_CAPABILITY,
+        arguments=arguments,
+        required_modules=BUILD_MODULES,
+        defaults=(("build_action", action or name),),
+    )
+
+
+CREATE_MODULE = _build_command(
+    "module",
+    "create and register a module",
+    (
+        _argument("create_name", metavar="NAME"),
+        _argument("--project", dest="project_path", type=Path, required=True),
+        _argument("--path", dest="destination_path", type=Path, default=None),
+        _argument("--kind", dest="module_kind", choices=("runtime", "editor"), default="runtime"),
+        _argument("--link", dest="link_type", choices=("shared", "static"), default="shared"),
+        _argument("--pch", default=""),
+        _argument("--public-dependency", dest="public_dependencies", action="append", default=None),
+        _argument("--private-dependency", dest="private_dependencies", action="append", default=None),
+        _argument(
+            "--optional-public-dependency",
+            dest="optional_public_dependencies",
+            action="append",
+            default=None,
+        ),
+        _argument(
+            "--optional-private-dependency",
+            dest="optional_private_dependencies",
+            action="append",
+            default=None,
+        ),
+        _argument("--enable", dest="enablements", action="append", default=None),
+        _argument("--dry-run", action="store_true"),
+        PLAIN,
+    ),
+    action="create-module",
+)
+CREATE_PROJECT = _build_command(
+    "project",
+    "create and register a workspace project",
+    (
+        _argument("create_name", metavar="NAME"),
+        _argument("--path", dest="destination_path", type=Path, required=True),
+        _argument("--dry-run", action="store_true"),
+        PLAIN,
+    ),
+    action="create-project",
+)
 
 
 COMMAND_SPECS = (
@@ -51,16 +151,83 @@ COMMAND_SPECS = (
         "open the interactive shell",
         "durin_dev_tool.commands.core:open_shell",
     ),
-    CommandSpec(
+    _build_command("stop", "stop the active build operation", (PLAIN,)),
+    _build_command("presets", "list registered presets", CONTEXT_ARGUMENTS),
+    _build_command(
+        "preset",
+        "inspect a selected preset",
+        (
+            _argument("selected_preset", nargs="?", default=""),
+            PROFILE,
+            PLAIN,
+            OUTPUT_MODE,
+        ),
+    ),
+    _build_command("status", "show build context and toolchain state", TOOL_ARGUMENTS),
+    _build_command(
+        "open-runtime",
+        "open the selected preset's runtime directory",
+        CONTEXT_ARGUMENTS,
+    ),
+    _build_command(
+        "configure",
+        "configure the selected preset",
+        TOOL_ARGUMENTS + (_argument("--fresh", action="store_true"),),
+    ),
+    _build_command(
         "build",
         "build a CMake target",
-        "durin_dev_tool.commands.placeholder:run",
-        capability=Capability.PREPARED_ENVIRONMENT,
-        arguments=(
-            ArgumentSpec(("--target",), {"default": "all", "help": "CMake target (default: all)"}),
-            ArgumentSpec(("--plain",), {"action": "store_true", "help": "disable styled output"}),
+        TOOL_ARGUMENTS + (_argument("--target", default="all"),),
+    ),
+    _build_command("clean", "clean the selected preset", TOOL_ARGUMENTS),
+    _build_command(
+        "recover",
+        "resume an interrupted build incrementally",
+        TOOL_ARGUMENTS,
+    ),
+    _build_command(
+        "purge",
+        "delete generated build artifacts",
+        CONTEXT_ARGUMENTS
+        + (
+            _argument("--all-presets", action="store_true"),
+            _argument("--yes", action="store_true"),
         ),
-        required_modules=("rich",),
+    ),
+    _build_command(
+        "rebuild",
+        "clean, configure, and build",
+        TOOL_ARGUMENTS + (_argument("--target", default="all"),),
+    ),
+    _build_command(
+        "test",
+        "build and run a native test target",
+        TOOL_ARGUMENTS
+        + (
+            _argument("--target", required=True),
+            _argument("--filter", default=""),
+            _argument(
+                "--timeout",
+                type=int,
+                choices=range(0, 86401),
+                default=300,
+                metavar="0..86400",
+            ),
+        ),
+    ),
+    _build_command(
+        "run",
+        "run the selected preset's existing application",
+        CONTEXT_ARGUMENTS
+        + (
+            _argument("--project", dest="project_path", type=Path, default=None),
+            _argument("--args", dest="run_arguments", nargs=argparse.REMAINDER, default=()),
+        ),
+    ),
+    CommandSpec(
+        "create",
+        "create a module or workspace project",
+        subcommands=(CREATE_MODULE, CREATE_PROJECT),
     ),
 )
 
@@ -88,9 +255,30 @@ class CommandRegistry:
                 help=spec.summary,
                 description=spec.summary,
             )
-            for argument in spec.arguments:
-                command_parser.add_argument(*argument.flags, **argument.kwargs)
+            self._configure_parser(command_parser, spec)
         return parser
+
+    def _configure_parser(
+        self,
+        parser: argparse.ArgumentParser,
+        spec: CommandSpec,
+    ) -> None:
+        parser.set_defaults(_command_spec=spec, **dict(spec.defaults))
+        for argument in spec.arguments:
+            parser.add_argument(*argument.flags, **argument.kwargs)
+        if spec.subcommands:
+            subparsers = parser.add_subparsers(
+                dest=f"{spec.name}_command",
+                metavar="COMMAND",
+                required=True,
+            )
+            for child in spec.subcommands:
+                child_parser = subparsers.add_parser(
+                    child.name,
+                    help=child.summary,
+                    description=child.summary,
+                )
+                self._configure_parser(child_parser, child)
 
     def parse(self, arguments: Sequence[str]) -> tuple[CommandSpec, argparse.Namespace]:
         if not arguments:
@@ -99,8 +287,13 @@ class CommandRegistry:
             normalized = ["help"]
         else:
             normalized = list(arguments)
+            command = normalized[0].removeprefix("/").lower()
+            if command in self._by_name:
+                normalized[0] = command
+            if command == "create" and len(normalized) > 1:
+                normalized[1] = normalized[1].removeprefix("/").lower()
         namespace = self.parser().parse_args(normalized)
-        return self._by_name[namespace.command], namespace
+        return namespace._command_spec, namespace
 
     def format_help(self) -> str:
         width = max(len(spec.name) for spec in self.specifications)
@@ -126,6 +319,7 @@ class CommandRegistry:
         repository_root: Path,
         stdout: TextIO,
         stderr: TextIO,
+        session_state: dict[str, object] | None = None,
     ) -> int:
         if spec.capability is Capability.PREPARED_ENVIRONMENT:
             require_prepared_environment(
@@ -133,12 +327,17 @@ class CommandRegistry:
                 required_modules=spec.required_modules,
             )
         handler = spec.load_handler()
+        keywords = {
+            "registry": self,
+            "repository_root": repository_root,
+            "stdout": stdout,
+            "stderr": stderr,
+        }
+        if session_state is not None:
+            keywords["session_state"] = session_state
         return handler(
             namespace,
-            registry=self,
-            repository_root=repository_root,
-            stdout=stdout,
-            stderr=stderr,
+            **keywords,
         )
 
 

@@ -14,8 +14,9 @@ def show_help(
     repository_root: Path,
     stdout: TextIO,
     stderr: TextIO,
+    session_state: dict[str, object] | None = None,
 ) -> int:
-    del repository_root, stderr
+    del repository_root, stderr, session_state
     print(registry.format_help(), file=stdout)
     return 0
 
@@ -27,7 +28,9 @@ def open_shell(
     repository_root: Path,
     stdout: TextIO,
     stderr: TextIO,
+    session_state: dict[str, object] | None = None,
 ) -> int:
+    del session_state
     from ..shell import run_shell
 
     return run_shell(
