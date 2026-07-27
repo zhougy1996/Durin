@@ -2,7 +2,7 @@
 
 Date: 2026-07-28
 
-Baseline: `10aeb1de8369ad5a295e36aeab08d29645046ebe`
+Baseline after rebase: `b0af550f`
 
 ## Outcome
 
@@ -42,7 +42,7 @@ interactive dialog; the final probe is unattended and produces no window.
 
 ## Validation
 
-- Configure validated unique ownership for all 92 native-test `.cpp` sources.
+- Configure validated unique ownership for all 94 native-test `.cpp` sources.
 - `NativeTestIsolationProbeCharacterization` passed:
   - two concurrent CTest processes wrote the same logical filename below
     distinct process sandboxes;
@@ -52,7 +52,8 @@ interactive dialog; the final probe is unattended and produces no window.
 - `FNativeTestProcessSandboxTests.*`: 4/4 passed, covering canonical/idempotent
   lookup, PID reuse, Unicode and long paths, and containment rejection.
 - Full `all` build passed.
-- Aggregate test: 684/684 CTest entries passed at 18 jobs in 16.90 seconds.
+- Post-rebase aggregate: 720/720 CTest entries passed at 18 jobs in 14.81
+  seconds, with three expected skips.
 - All 30 target `Runs` roots contained zero leftover successful sandboxes after
   the aggregate.
 
@@ -66,3 +67,25 @@ Logs:
   `Build/.agent-state/logs/20260728-062202-174983-34552-cmake.log`
 - Focused API regression:
   `Build/.agent-state/logs/20260728-061634-929275-15576-NativeTestIsolationProbeTests.log`
+
+## Post-Rebase Test Integration
+
+The `dev` rebase added `AssetUpgradeAuditServiceTests.cpp` to
+`EditorAssetWorkflowTests` and `StaticModelImportBuildTests.cpp` to
+`TextureTests`. `EngineAssetBuild` is linked and deployed only for the latter
+functional target. Configuration's ownership guard accounts for both sources.
+
+The first aggregate exposed that
+`FStaticModelImportBuildTests.DerivesStableEmbeddedSourceLocations` depended on
+an earlier case to initialize the DObject system. Adding its missing explicit
+initialization made the case self-contained in its CTest process.
+
+- Configure:
+  `Build/.agent-state/logs/20260728-062816-991130-12128-cmake.log`
+- Full post-rebase build:
+  `Build/.agent-state/logs/20260728-063008-831086-7564-cmake.log`
+- Final post-rebase aggregate:
+  `Build/.agent-state/logs/20260728-063143-078382-26440-ctest.log`
+- Focused new suites: 8/8 upgrade-audit tests and 8/8 static-model-import tests.
+- Whole functional targets: 40/40 editor asset-workflow tests and 51/51 texture
+  tests.

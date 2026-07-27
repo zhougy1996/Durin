@@ -89,6 +89,7 @@ TEST(FStaticModelImportBuildTests, PublishesSeveralTexturesAndPortableSourcesAto
 
 TEST(FStaticModelImportBuildTests, DerivesStableEmbeddedSourceLocations)
 {
+	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	Durin::FSourcePath First;
 	Durin::FSourcePath Repeat;

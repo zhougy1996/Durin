@@ -21,15 +21,15 @@ Completed:
 - Stage 3 is complete. Every native-test executable now enters through
   `NativeTestSupport`, creates a unique process sandbox, and applies the common
   cleanup/retention policy.
-- Stage 4 is active: migrate functional tests from the shared compile-time work
-  root to the runtime sandbox API, then enable audited case parallelism.
+- Stage 4 is next but has not started. Its broad shared-root migration is paused
+  while post-rebase tests are integrated into the completed Stage 3 framework.
 - `.\DevTool.bat test --target all` now schedules CTest-discovered GoogleTest
   cases with the Agent Build Profile job count; the current profile runs 18
   cases concurrently.
-- The Stage 3 aggregate passes all 684 CTest entries in 16.90 seconds at 18
-  jobs: the Stage 2 registrations, four sandbox API regressions, and 30
-  direct-executable lifecycle smoke tests. Unique ownership remains configured
-  for all 92 native `.cpp` sources, including the isolation probe.
+- After rebasing onto `dev`, the Stage 3 aggregate passes all 720 CTest entries
+  in 14.81 seconds at 18 jobs. Unique ownership is configured for all 94 native
+  `.cpp` sources, including the two new feature-test sources and the isolation
+  probe.
 - Every case from a test target currently receives the same
   `DURIN_TEST_WORK_DIR`. Tests in separate processes therefore create, delete,
   mount, and rewrite the same files concurrently.
@@ -216,7 +216,7 @@ cases.
 
 #### Stage 0 Handoff
 
-- Baseline commit: `1f24c5253ee4816795a324dae588f7ac3607731a`.
+- Baseline commit: `88e54d76`.
 - Evidence: `Documentation/Development/Build/NativeTestProcessIsolationStage0.md`
   and `Documentation/Plans/NativeTestProcessIsolationBaseline.json`.
 - Working set entering Stage 1: `CMake/Project/ProjectTargets.cmake`, the seven
@@ -263,7 +263,7 @@ cases.
 
 #### Stage 1 Handoff
 
-- Baseline commit: `1d4af46d`.
+- Baseline commit: `754a6ee5`.
 - Working set entering Stage 2: the functional source map in
   `Documentation/Development/Build/NativeTestProcessIsolationStage0.md`, the
   eight current native-test CMake files, and private implementation sources
@@ -325,7 +325,7 @@ cases.
 
 #### Stage 2 Handoff
 
-- Baseline commit: `e82c4cd6`.
+- Baseline commit: `131879aa`.
 - Working set entering Stage 3: `add_durin_test`,
   `durin_discover_tests`, the 29 functional target declarations under
   `Engine/Tests/Native`, and the Stage 0 isolation probe.
@@ -346,10 +346,11 @@ cases.
   `renderer-runtime`. The final run accumulated 112.33 process-seconds of
   native-test work and completed in 12.22 wall-clock seconds; direct lifecycle
   smokes accounted for 18.72 process-seconds.
-- Validation: unique ownership covered 92 native sources; the complete `all`
-  build passed; all 680 CTest entries passed at 18 jobs; all 30 direct
-  executable smokes passed; and the legacy-collision/isolated-control probe
-  still reproduced its expected outcomes. Evidence is recorded in
+- Validation: after the `dev` rebase, unique ownership covers 94 native
+  sources; the complete `all` build passes; all 720 Stage 3 CTest entries pass
+  at 18 jobs; all 30 direct executable smokes pass; and the
+  legacy-collision/isolated-control probe still reproduces its expected
+  outcomes. Evidence is recorded in
   `Documentation/Development/Build/NativeTestProcessIsolationStage2.md`.
 
 ### Stage 3: Introduce the native-test process sandbox
@@ -378,9 +379,9 @@ cases.
 
 #### Stage 3 Handoff
 
-- Baseline commit: `10aeb1de`.
+- Baseline commit: `b0af550f`.
 - Working set entering Stage 4: `NativeTestSupport`,
-  `add_durin_test`, the 42 native-test source/header files that still reference
+  `add_durin_test`, the 44 native-test source/header files that still reference
   `DURIN_TEST_WORK_DIR`, and the functional target discovery policies.
 - Key symbols: `RunNativeTests`, `GetTestWorkDirectory`,
   `CreateTestWorkSubdirectory`, `IsTestWorkDirectoryKept`, and
@@ -396,14 +397,14 @@ cases.
   crashes, and cleanup failures retain and report their resolved directory.
   Harness initialization failures are reported without invoking an interactive
   Debug CRT dialog.
-- Open work: migrate the 138 shared-root references, replace sandbox-capturing
+- Open work: migrate the 156 shared-root references, replace sandbox-capturing
   static fixtures, and remove temporary target locks only after focused stress
   runs establish case-parallel safety.
 - Validation: the sandbox characterization passed concurrent-process,
   keep-work, cleanup-failure, and abrupt-exit retention probes; four focused
-  API tests passed; the complete `all` build passed; all 684 CTest entries
-  passed at 18 jobs in 16.90 seconds; all 30 `Runs` roots were empty after the
-  aggregate. Evidence is recorded in
+  API tests passed; after the `dev` rebase, the complete `all` build and all
+  720 CTest entries passed at 18 jobs in 14.81 seconds; all 30 `Runs` roots
+  were empty after the original Stage 3 aggregate. Evidence is recorded in
   `Documentation/Development/Build/NativeTestProcessIsolationStage3.md`.
 
 ### Stage 4: Migrate functional targets and remove shared-root access

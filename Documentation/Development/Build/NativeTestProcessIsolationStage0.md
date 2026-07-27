@@ -4,7 +4,7 @@ This document freezes the native-test topology and collision baseline used by
 `NativeTestProcessIsolation.md`. It is an implementation input, not the
 authoritative developer workflow.
 
-Baseline source commit: `1f24c5253ee4816795a324dae588f7ac3607731a`
+Baseline source commit after rebase: `88e54d76`
 
 ## Inventory method
 
