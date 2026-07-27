@@ -6,9 +6,10 @@ Last reviewed: 2026-07-27
 
 ## Current Status
 
-Planning complete; implementation has not started. The baseline is commit
-`efccf9e4734947dcf56b6c1cca26dbdba9432c6d`, where the runtime-variant and
-initial Tracy instrumentation plan was completed and archived.
+Stage 0 completed on 2026-07-27. Stage 1 is next. The implementation-start
+baseline is commit `4bbd6a0b5a82d7e51e3ccdd47a33e20d8a82db21`; the preceding
+runtime-variant and initial Tracy instrumentation plan remains established at
+commit `efccf9e4734947dcf56b6c1cca26dbdba9432c6d`.
 
 Durin already builds one shared Tracy v0.13.1 client for each Release Profiling
 runtime process. Matching upstream Windows capture tools were validated
@@ -191,19 +192,19 @@ Current gaps:
 
 ### Stage 0: Lock Package, UX, And Validation Contracts
 
-- [ ] Revalidate the upstream v0.13.1 Windows asset name, extracted executable
+- [x] Revalidate the upstream v0.13.1 Windows asset name, extracted executable
   layout, BSD-3-Clause distribution obligations, and SHA-256 digest.
-- [ ] Inventory bootstrap schema/tests, worktree preparation, external-package
+- [x] Inventory bootstrap schema/tests, worktree preparation, external-package
   ignore rules, Editor menu ownership, process-launch APIs, profiling startup,
   and project-name availability.
-- [ ] Decide whether archive digests are a general optional bootstrap field or
+- [x] Decide whether archive digests are a general optional bootstrap field or
   narrowly owned by the new host-tool package, then record the failure
   diagnostic and test contract.
-- [ ] Define the exact installed path and the source-of-truth helper used by
+- [x] Define the exact installed path and the source-of-truth helper used by
   setup, tests, documentation, and Editor runtime lookup.
-- [ ] Define program-label formatting and lifetime, including missing project
+- [x] Define program-label formatting and lifetime, including missing project
   metadata and two instances of the same project.
-- [ ] Capture baseline tests for development-only selection, unsupported-host
+- [x] Capture baseline tests for development-only selection, unsupported-host
   behavior, disabled profiling macros, and Editor menu registration.
 
 #### Acceptance Gate
@@ -214,8 +215,99 @@ Current gaps:
 
 #### Stage Handoff
 
-- Record baseline commit, working set, package digest, selected paths, identity
-  format, key symbols, open questions, and baseline test results.
+Baseline and package contract:
+
+- Implementation-start baseline:
+  `4bbd6a0b5a82d7e51e3ccdd47a33e20d8a82db21`.
+- Upstream release: Tracy `v0.13.1`, asset `windows-0.13.1.zip`, published as a
+  flat archive containing `tracy-profiler.exe`, `tracy-capture.exe`,
+  `tracy-csvexport.exe`, `tracy-import-chrome.exe`,
+  `tracy-import-fuchsia.exe`, and `tracy-update.exe`.
+- Expected SHA-256:
+  `ee6db1a7e71a12deb5973a8dbfdf9f36d3635bec0e0b31b1cc74f28de7dac4c9`.
+- Tracy is BSD-3-Clause. The upstream binary archive does not contain the
+  license file, so repository documentation accompanying the managed download
+  must retain the copyright and license reference; the separately prepared
+  Tracy source also retains upstream `LICENSE`.
+
+Selected setup and path contracts:
+
+- Add `sha256` as an optional, generally available field on each platform entry
+  of an archive source. Manifest validation accepts exactly 64 hexadecimal
+  digits. Acquisition computes the digest after download and before archive
+  extraction; a mismatch reports the package name, archive path, expected
+  digest, and actual digest and publishes no package directory.
+- Add an explicit manifest-level host-platform policy for optional tools.
+  `tracy-tools` skips with a status message when its archive has no entry for
+  the detected host. Explicit selection and root development selection use the
+  same policy. A required archive package continues to fail on a missing
+  platform entry.
+- The `tracy-tools` manifest is the source of truth for version, archive URL,
+  digest, required executables, and `source_dir`. Its canonical Win64
+  `source_dir` is
+  `Engine/External/Packages/tracy-tools/0.13.1/Win64`. Bootstrap status,
+  tests, documentation, and the Editor profiling service consume or validate
+  that manifest instead of reconstructing a `Build/Tools` path.
+- `tracy` remains order 80 and `tracy-tools` follows it. Root setup selects both
+  as development dependencies. Focused `Setup_tracy.bat` explicitly selects
+  both names. Worktrees continue sharing the complete `Engine/External`
+  directory, so the canonical package is prepared once per dependency
+  checkout rather than once per build output.
+- The read-only status query returns expected version, platform support,
+  resolved package and executable paths, missing required files, and the repair
+  command without downloading, extracting, or creating directories.
+
+Selected runtime and Editor contracts:
+
+- Program labels use
+  `<RuntimeVariant> | <ProjectName-or-No Project> | PID <ProcessId>`, for
+  example `DurinEditor | Sandbox | PID 1234`. PID is always the final
+  discriminator.
+- The Core profiling adapter formats and owns stable program-name storage and
+  is the only code that calls Tracy. Publication occurs in
+  `FEngineLoop::PreInit` after `InitializeCurrentProject`; the Editor republishes
+  after an in-process project selection. The disabled operation is a macro that
+  does not evaluate its arguments.
+- `TRACY_PORT` remains untouched. Unset values retain Tracy's automatic
+  8086-8105 search; explicit values remain developer-owned and diagnostics
+  identify the override rather than reallocating it.
+- MainFrame owns the top-level menu bar. A new Editor-only profiling service
+  will own tool lookup, actions, dialogs, and diagnostics; MainFrame will only
+  render its `Tools > Profiling` contribution. `FPlatformProcess::LaunchProcess`
+  is the existing process boundary and may be extended later only to improve
+  actionable OS errors and argument handling.
+
+Working set and key symbols inspected:
+
+- `Engine/Scripts/Bootstrap/setup_third_party.py`:
+  `validate_manifests`, `ensure_archive_source`, `process_manifest`,
+  `resolve_selected_manifests`.
+- `Engine/Scripts/Bootstrap/thirdparty/tracy.json`,
+  `Engine/Scripts/Tests/test_agent_tooling.py`,
+  `Engine/Scripts/Utils/worktree_tool.py`.
+- `Engine/Source/Runtime/Core/Public/Profiling/Profiling.h`,
+  `Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp`,
+  `Engine/Tests/Native/CoreTests/Private/ProfilingTests.cpp`.
+- `Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp`,
+  `FPlatformProcess::LaunchProcess`, `InitializeCurrentProject`,
+  `GetCurrentProject`.
+
+Baseline validation:
+
+- `ThirdPartyBootstrapTests`: 4 passed. These cover default exclusion,
+  development/test inclusion, explicit selection, and the boolean manifest
+  contract. Stage 1 adds optional-host, digest, extraction, and idempotence
+  cases before changing acquisition.
+- `setup_third_party.py --validate-manifests`: 9 manifests validated.
+- `BuildTool test --target CoreTests --filter FProfilingTests.* --output full`:
+  1 passed; disabled profiling arguments are not evaluated.
+- MainFrame inspection confirms the current registered top-level menus are
+  `File`, `Edit`, `Window`, and `Help`, with no `Tools` menu or profiling
+  service. Stage 3 adds a focused menu-registration seam and test with the new
+  contribution.
+
+Open questions: none for Stage 1. Live Tracy discovery wording and the exact
+Editor dialog presentation remain bounded Stage 3 implementation choices.
 
 ### Stage 1: Add Managed Tracy Host-Tool Preparation
 
