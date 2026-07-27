@@ -2757,7 +2757,12 @@ class CoreTests(unittest.TestCase):
             (),
         )
 
-    def make_preset(self, name: str = "debug", testing: str = "ON") -> build_config.ConfigurePreset:
+    def make_preset(
+        self,
+        name: str = "debug",
+        testing: str = "ON",
+        runtime_variant: str = "DurinEditor",
+    ) -> build_config.ConfigurePreset:
         return build_config.ConfigurePreset(
             name,
             {
@@ -2765,7 +2770,7 @@ class CoreTests(unittest.TestCase):
                 "binaryDir": "${sourceDir}/Build/${presetName}",
                 "cacheVariables": {
                     "CMAKE_BUILD_TYPE": "Debug",
-                    "DURIN_RUNTIME_VARIANT": "DurinEditor",
+                    "DURIN_RUNTIME_VARIANT": runtime_variant,
                     "BUILD_TESTING": testing,
                 },
             },
@@ -2785,6 +2790,41 @@ class CoreTests(unittest.TestCase):
             normalized = build_core.normalize_run_request(request, root=root)
         self.assertEqual(normalized.project_path, descriptor.resolve())
         self.assertEqual(normalized.run_arguments, request.run_arguments)
+
+    def test_run_defaults_durin_game_to_sandbox_project(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            descriptor = root / "Sandbox" / "Sandbox.dproject"
+            descriptor.parent.mkdir(parents=True)
+            descriptor.write_text("{}", encoding="utf-8")
+            request = build_config.CommandRequest(build_config.Action.RUN)
+            normalized = build_core.normalize_run_request(
+                request,
+                preset=self.make_preset(runtime_variant="DurinGame"),
+                root=root,
+            )
+        self.assertEqual(normalized.project_path, descriptor.resolve())
+
+    def test_run_does_not_default_editor_or_override_raw_project_selector(self) -> None:
+        request = build_config.CommandRequest(build_config.Action.RUN)
+        editor_request = build_core.normalize_run_request(
+            request,
+            preset=self.make_preset(runtime_variant="DurinEditor"),
+        )
+        raw_game_request = build_config.CommandRequest(
+            build_config.Action.RUN,
+            run_arguments=("--project=Other.dproject",),
+        )
+        normalized_raw_game_request = build_core.normalize_run_request(
+            raw_game_request,
+            preset=self.make_preset(runtime_variant="DurinGame"),
+        )
+        self.assertIsNone(editor_request.project_path)
+        self.assertIsNone(normalized_raw_game_request.project_path)
+        self.assertEqual(
+            normalized_raw_game_request.run_arguments,
+            raw_game_request.run_arguments,
+        )
 
     def test_run_project_rejects_missing_and_wrong_extension_descriptors(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

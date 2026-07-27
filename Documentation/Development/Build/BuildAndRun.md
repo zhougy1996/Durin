@@ -137,6 +137,12 @@ BuildTool keeps relaunched runtime descendants in the same tracked process job,
 so opening another editor project does not return from `run` or release the
 checkout lock until the final editor instance exits.
 
+When the selected runtime is `DurinGame` and no project selector is supplied,
+BuildTool launches `Sandbox\Sandbox.dproject`. DurinGame does not use recent
+project history for this development-time default. Pass `--project` explicitly
+to launch another project. DurinEditor and direct executable launches retain
+their existing project-selection behavior.
+
 Use `--project <descriptor>` to select an existing `.dproject` explicitly. A
 relative descriptor is resolved from the workspace root; an absolute path is
 also accepted, including projects outside the workspace. BuildTool rejects a

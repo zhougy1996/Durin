@@ -1039,12 +1039,28 @@ def validate_target(target: str, *, action: Action) -> None:
 def normalize_run_request(
     request: CommandRequest,
     *,
+    preset: ConfigurePreset | None = None,
     root: Path = REPO_ROOT,
 ) -> CommandRequest:
-    if request.action is not Action.RUN or request.project_path is None:
+    if request.action is not Action.RUN:
         return request
 
+    project_selectors = [
+        argument
+        for argument in request.run_arguments
+        if argument == "--project" or argument.startswith("--project=")
+    ]
     project_path = request.project_path
+    if (
+        project_path is None
+        and not project_selectors
+        and preset is not None
+        and preset_cache_string(preset, "DURIN_RUNTIME_VARIANT") == "DurinGame"
+    ):
+        project_path = Path("Sandbox") / "Sandbox.dproject"
+    if project_path is None:
+        return request
+
     if not project_path.is_absolute():
         project_path = root / project_path
     project_path = project_path.resolve()
@@ -1055,11 +1071,6 @@ def normalize_run_request(
     if not project_path.is_file():
         raise BuildToolError(f'Project descriptor was not found: "{project_path}".')
 
-    project_selectors = [
-        argument
-        for argument in request.run_arguments
-        if argument == "--project" or argument.startswith("--project=")
-    ]
     if project_selectors:
         raise BuildToolError(
             "run accepts project selection either through --project or through "
@@ -1086,7 +1097,6 @@ def create_context(
     *,
     prepare_tools: bool = True,
 ) -> BuildContext:
-    request = normalize_run_request(request)
     config = load_local_config()
     if request.environment_setup:
         config = config.with_environment_script(request.environment_setup)
@@ -1100,6 +1110,7 @@ def create_context(
     )
     presets = load_configure_presets()
     preset = select_preset(profile, presets, requested=request.preset)
+    request = normalize_run_request(request, preset=preset)
     validate_request(request, preset)
     context = BuildContext(request, config, profile, presets, preset, current_host)
     if prepare_tools:
@@ -1166,8 +1177,8 @@ def derive_context(
     base: BuildContext,
     request: CommandRequest,
 ) -> BuildContext:
-    request = normalize_run_request(request)
     preset = select_preset(base.profile, base.presets, requested=request.preset)
+    request = normalize_run_request(request, preset=preset)
     validate_request(request, preset)
     return BuildContext(
         request=request,
