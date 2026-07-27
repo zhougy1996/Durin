@@ -5,6 +5,7 @@
 
 #include "Editor/EditorWorkspace.h"
 #include "Editor/EditorWorkspaceUI.h"
+#include "Editor/EditorEngine.h"
 #include "Mona.h"
 #include "LevelEditorModule.h"
 #include "MaterialEditorModule.h"
@@ -426,7 +427,11 @@ namespace Durin
 		{
 			*bWorkspaceReady = RegisterEditorWorkspaces(*WorkspaceManager, LevelEditorModule, MaterialEditorModule, TextureEditorModule);
 			if (!*bWorkspaceReady) ProjectBrowser->SetError("Could not initialize the editor workspaces.");
-			else ProjectBrowser->RecordCurrentProject();
+			else
+			{
+				ProjectBrowser->RecordCurrentProject();
+				if (GEditor) GEditor->StartAssetUpgradeAudit();
+			}
 		}
 
 		RootWindow->SetTitle(GetCurrentProject() ? std::format("Durin Editor - {}", GetCurrentProject()->Name) : "Durin Editor - Project Browser");
@@ -447,6 +452,7 @@ namespace Durin
 				OutError = "Could not initialize the editor workspaces.";
 				return false;
 			}
+			if (GEditor) GEditor->StartAssetUpgradeAudit();
 			if (const std::shared_ptr<MWindow> RootWindow = WeakRootWindow.lock())
 				RootWindow->SetTitle(std::format("Durin Editor - {}", GetCurrentProject()->Name));
 			return true;

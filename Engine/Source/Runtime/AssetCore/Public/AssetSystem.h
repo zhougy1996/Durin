@@ -354,6 +354,7 @@ namespace Durin::Asset
 		EAssetPackageAuditState State = EAssetPackageAuditState::NotAudited;
 		std::vector<FAssetCompatibilityIssue> CompatibilityIssues;
 		std::string Diagnostic;
+		double AuditDurationMilliseconds = 0.0;
 
 		auto HasRiskItems() const -> bool
 		{

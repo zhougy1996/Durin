@@ -1,4 +1,5 @@
 #include "Editor/EditorEngine.h"
+#include "Asset/AssetUpgradeAuditService.h"
 #include "Editor/EditorNotification.h"
 #include "Editor/EditorTransaction.h"
 
@@ -26,6 +27,7 @@ namespace Durin
 		: Super(ObjectInitializer)
 		, TransactionManager(std::make_unique<FEditorTransactionManager>())
 		, NotificationManager(std::make_unique<FEditorNotificationManager>())
+		, AssetUpgradeAuditService(std::make_unique<FAssetUpgradeAuditService>(Asset::GetAssetRegistry()))
 	{
 		GEditor = this;
 	}
@@ -102,6 +104,7 @@ namespace Durin
 	auto DEditorEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
 		ReleaseRetiredPlaySessions();
+		if (!IsPlaying()) AssetUpgradeAuditService->Tick();
 		if (IsPlayingInNewWindow() && PlayWindow)
 		{
 			const auto& Windows = Mona::FMonaApplication::Get().GetWindows();
@@ -113,6 +116,7 @@ namespace Durin
 
 	auto DEditorEngine::BeginDestroy() -> void
 	{
+		AssetUpgradeAuditService->Shutdown();
 		StopPlaySession();
 		TransactionManager->Clear();
 		for (const uint64 Handle : ConsoleCommandHandles) FConsoleCommandRegistry::Get().UnregisterCommand(Handle);
@@ -367,5 +371,15 @@ namespace Durin
 	auto DEditorEngine::GetNotificationManager() -> FEditorNotificationManager&
 	{
 		return *NotificationManager;
+	}
+
+	auto DEditorEngine::StartAssetUpgradeAudit() -> void
+	{
+		AssetUpgradeAuditService->Start();
+	}
+
+	auto DEditorEngine::GetAssetUpgradeAuditService() -> FAssetUpgradeAuditService&
+	{
+		return *AssetUpgradeAuditService;
 	}
 }

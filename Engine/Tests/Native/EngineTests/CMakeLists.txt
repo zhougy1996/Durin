@@ -6,6 +6,7 @@ add_durin_test(EngineTests
 	Private/Editor/ReflectedPropertyTransactionTests.cpp
 	Private/Editor/ReflectedPropertyContainerTests.cpp
 	Private/Editor/AssetStructureUpgradeModelTests.cpp
+	Private/Editor/AssetUpgradeAuditServiceTests.cpp
 	Private/Editor/AssetDestinationValidationTests.cpp
 	Private/Editor/ImportDialogStateTests.cpp
 	Private/Editor/ContentBrowserItemViewTests.cpp

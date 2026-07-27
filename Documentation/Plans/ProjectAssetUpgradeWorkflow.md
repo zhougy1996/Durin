@@ -69,6 +69,23 @@ exception while its transaction manager is destroyed after the edited Texture
 object. Temporary diagnostics were removed; resolving that independent
 transaction/object lifetime defect is outside this plan's working set.
 
+Stage 2 is in progress. DurinEd now owns a process-wide
+`FAssetUpgradeAuditService` with an atomically published immutable snapshot.
+MainFrame starts it only after the current project's workspaces have registered,
+and `DEditorEngine` advances it on the game thread outside PIE and shuts it down
+before editor teardown. Each slice completes at most four packages and stops at
+the 2ms cumulative budget; an individual over-budget package completes
+atomically and records its duration. The service supports pause, resume, cancel,
+explicit re-audit, deterministic queue reconstruction when the registry revision
+changes, and preserves completed results plus explicit `NotAudited` entries.
+
+The first Stage 2 checkpoint passed five focused coordinator tests covering
+deterministic incremental publication, count and time budgets, pause/resume,
+cancellation, registry-revision invalidation, and terminal shutdown. The
+MainFrame module also builds successfully. Per instruction, unrelated failures
+from the currently unstable parallel EngineTests suite are not part of this
+checkpoint and the full suite was not run.
+
 ### Stage 0 Handoff
 
 - Baseline: `03acb67f`.
@@ -360,12 +377,12 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Add a DurinEd audit service that snapshots the registry queue, advances
+- [x] Add a DurinEd audit service that snapshots the registry queue, advances
   one game-thread audit transaction within the selected frame budget, and
   atomically publishes immutable progress/results.
-- [ ] Start the service from MainFrame only after project mounts, registry
+- [x] Start the service from MainFrame only after project mounts, registry
   reconciliation, and workspace registration complete.
-- [ ] Add pause, resume, cancel, re-audit, registry-revision invalidation, and
+- [x] Add pause, resume, cancel, re-audit, registry-revision invalidation, and
   orderly shutdown behavior.
 - [ ] Publish concise progress and completion notifications with an action that
   opens the Asset Upgrade Center.
