@@ -3,6 +3,7 @@
 #include "EngineAPI.h"
 #include "CookedAsset.h"
 #include "DObject/CoreDObject.h"
+#include "Source/SourcePath.h"
 
 #include "StaticMesh.gen.h"
 
@@ -51,9 +52,13 @@ namespace Durin
 	{
 		GENERATED_BODY()
 
-		// Empty means the asset has no source dependency; otherwise this is project- or engine-relative.
+		// Empty means the asset has no source dependency; otherwise this is a complete mounted source path.
 		DPROPERTY()
-		std::string SourcePath;
+		FSourcePath SourcePath;
+
+		// Temporary compatibility carrier for the former string field serialized as SourcePath.
+		DPROPERTY(Transient)
+		std::string LegacySourcePath;
 
 		// Lowercase XXH3-128 of the exact source bytes, or empty until legacy metadata is upgraded.
 		DPROPERTY()
@@ -68,7 +73,7 @@ namespace Durin
 		DPROPERTY()
 		FStaticMeshImportSettings ImportSettings;
 
-		auto HasSource() const -> bool { return !SourcePath.empty(); }
+		auto HasSource() const -> bool { return !SourcePath.IsEmpty(); }
 		auto operator==(const FStaticMeshSourceImportData&) const -> bool = default;
 	};
 
@@ -168,7 +173,7 @@ namespace Durin
 		ENGINE_API ~DStaticMesh() override;
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
 		ENGINE_API auto GetRenderData() -> FStaticMeshRenderData*;
-		auto GetSourceFile() const -> const std::string& { return SourceImportData.SourcePath; }
+		auto GetSourceFile() const -> const std::string& { return SourceImportData.SourcePath.Path; }
 		auto GetImportSettings() const -> const FStaticMeshImportSettings& { return SourceImportData.ImportSettings; }
 		auto GetSourceImportData() const -> const FStaticMeshSourceImportData& { return SourceImportData; }
 		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }

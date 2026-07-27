@@ -82,18 +82,6 @@ namespace Durin
 			return {};
 		}
 
-		auto IsPortableTextureSourcePath(std::string_view Value) -> bool
-		{
-			const std::filesystem::path Path(Value);
-			const std::filesystem::path Normalized = Path.lexically_normal();
-			const bool bContainsParent = std::ranges::any_of(Path,
-				[](const std::filesystem::path& Part) { return Part == ".."; });
-			return !Value.empty() && !Path.is_absolute() && !Value.starts_with('/')
-				&& Value.find('\\') == std::string_view::npos && !bContainsParent
-				&& Value == Normalized.generic_string()
-				&& Normalized.generic_string().starts_with("SourceAssets/");
-		}
-
 		auto FindTextureSourceFile(const Asset::FAssetData& Data) -> std::filesystem::path
 		{
 			const PathUtilities::FMountLookupResult Lookup =
@@ -110,13 +98,10 @@ namespace Durin
 				if (SourceField
 					&& SourceField->TryReadStruct(
 						FTexture2DSourceImportData::StaticStruct(), &SourceImportData)
-					&& SourceImportData.HasSource()
-					&& IsPortableTextureSourcePath(SourceImportData.Source.SourcePath))
+					&& SourceImportData.HasSource())
 				{
-					const std::filesystem::path Relative =
-						std::filesystem::path(SourceImportData.Source.SourcePath).lexically_relative("SourceAssets");
 					const PathUtilities::FSourcePathResult Resolved =
-						PathUtilities::ResolveSourcePath(Mount.VirtualRoot + Relative.generic_string());
+						PathUtilities::ResolveSourcePath(SourceImportData.Source.SourcePath.Path);
 					if (Resolved
 						&& IsSupportedSourceImageExtension(
 							Resolved.PhysicalPath.extension().generic_string()))

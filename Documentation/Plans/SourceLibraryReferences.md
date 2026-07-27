@@ -2,11 +2,11 @@
 
 Summary: Give each logical mount typed Content and SourceAssets domains so asset and source paths share one portable namespace without sharing physical resolution.
 
-Last reviewed: 2026-07-27
+Last reviewed: 2026-07-28
 
 ## Current Status
 
-Stages 0 and 1 are complete for the unified-mount revision. Core now publishes
+Stages 0 through 2 are complete for the unified-mount revision. Core now publishes
 one immutable registry with validated owner metadata, optional Content and
 SourceAssets domains, dependency edges, and source-write policy. Typed
 resolution and reverse classification enforce canonical containment and return
@@ -14,11 +14,14 @@ the frozen structured failure taxonomy. Active-project descriptors strictly
 validate additional plugin-shaped and source-only mounts before project
 initialization succeeds.
 
-`FAssetPath`, AssetCore lookup/scanning/cache identity, legacy source
+`FAssetPath`, AssetCore lookup/scanning/cache identity, source
 consumers, source-thumbnail identity, import destination mapping, and content
 browser navigation now use the typed registry rather than direct backing-vector
-searches or `FPaths::Resolve`. Stage 2 is next and will replace the retained
-owner-relative legacy provenance carriers with reflected `FSourcePath`.
+searches or `FPaths::Resolve`. StaticMesh, Texture2D, and both TextureCube
+layouts now persist reflected `FSourcePath`; DAST v2 string carriers load only
+through exact nested-field aliases, migrate after byte-hash verification, and
+are transient on subsequent saves. Stage 3 is next and will unify reference,
+ingestion, reimport, replacement, collision, and rollback behavior.
 
 Baseline commit `ee94ad4e` established reflected-name serialization coverage and
 five DAST v2 legacy provenance fixtures covering project and engine StaticMesh,
@@ -643,21 +646,45 @@ Dependencies: Stage 0.
 
 Dependencies: Stages 0 and 1.
 
-- [ ] Add reflected `FSourcePath` to StaticMesh, Texture2D, and TextureCube
+- [x] Add reflected `FSourcePath` to StaticMesh, Texture2D, and TextureCube
   provenance while retaining legacy carriers.
-- [ ] Replace package-owner inference with typed SourceAssets resolution.
-- [ ] Migrate legacy project and Engine paths, verify persisted hashes, and
+- [x] Replace package-owner inference with typed SourceAssets resolution.
+- [x] Migrate legacy project and Engine paths, verify persisted hashes, and
   preserve importer versions and settings.
-- [ ] Preserve DDC keys when bytes and semantic settings do not change.
-- [ ] Update diagnostics to report mount, domain, dependency, availability,
+- [x] Preserve DDC keys when bytes and semantic settings do not change.
+- [x] Update diagnostics to report mount, domain, dependency, availability,
   containment, and missing-file failures.
-- [ ] Prove cook and cooked runtime loading remain source-independent.
+- [x] Prove cook and cooked runtime loading remain source-independent.
 
 #### Acceptance Gate
 
 - Legacy fixtures migrate without file mutation, new packages round-trip
   `/Engine/` and `/Game/` source paths, unchanged inputs retain DDC keys, and
   cooked runtime tests require no SourceAssets domain.
+
+#### Stage 2 Handoff
+
+- Baseline: `4f47cd6e`.
+- Working set: AssetCore nested-field compatibility dispatch; reflected Engine
+  source provenance and migration helper; StaticMesh, Texture2D, TextureCube,
+  content-browser, import/cache/cook tests; and this plan.
+- Key symbols: `FAssetSerializedStructFieldAlias`,
+  `RegisterAssetSerializedStructFieldAlias`, `FSourcePath`,
+  `TryMigrateLegacySourcePath`, `FStaticMeshSourceImportData`,
+  `FTextureSourceFile`, and the three asset-specific mounted-source upgraders.
+- Decisions: legacy nested strings are recognized only by exact declaring
+  struct, name, kind, and type signature; aliases deserialize into transient
+  `LegacySourcePath` carriers; migration requires the package Content mount,
+  typed SourceAssets resolution, and an exact persisted hash match; new saves
+  omit compatibility carriers without changing DAST v2; DDC identity remains
+  path-independent.
+- Open questions: none for Stage 3.
+- Validation: all 49 AssetCore tests; 50 focused Engine source-contract,
+  StaticMesh, Texture2D, and TextureCube tests; all four StaticMesh DDC/cook
+  tests; and `TextureCookTests`. One full `EngineTests` attempt reached an
+  existing cross-test assertion after a rendering test published the immutable
+  default mount registry and a later legacy fixture attempted
+  `RegisterMountPoint`; the Stage 2 focused suites pass independently.
 
 ### Stage 3: Unify import and source operations
 

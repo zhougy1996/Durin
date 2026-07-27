@@ -46,48 +46,6 @@ namespace Durin
 			return Lookup ? Lookup.Mount : nullptr;
 		}
 
-		auto ResolveOwnedSource(
-			const PathUtilities::FMountPoint& Mount,
-			const std::filesystem::path& StoredPath,
-			PathUtilities::EPathExistence Existence,
-			std::filesystem::path& OutPath,
-			std::string& OutError) -> bool
-		{
-			const std::filesystem::path Relative = StoredPath.lexically_relative(SourceAssetsRoot);
-			const PathUtilities::FSourcePathResult Resolved =
-				PathUtilities::ResolveSourcePath(Mount.VirtualRoot + Relative.generic_string(), Existence);
-			if (!Resolved)
-			{
-				OutError = Resolved.Message;
-				return false;
-			}
-			OutPath = Resolved.PhysicalPath;
-			return true;
-		}
-
-		auto IsPortableTextureSourcePath(std::string_view SourcePath, std::string* OutError = nullptr) -> bool
-		{
-			const std::filesystem::path Path(SourcePath);
-			const std::filesystem::path Normalized = Path.lexically_normal();
-			const bool bContainsParent = std::ranges::any_of(Path, [](const std::filesystem::path& Part) {
-				return Part == "..";
-			});
-			const bool bValid = !SourcePath.empty()
-				&& !Path.is_absolute()
-				&& !SourcePath.starts_with('/')
-				&& SourcePath.find('\\') == std::string_view::npos
-				&& !bContainsParent
-				&& SourcePath == Normalized.generic_string()
-				&& Normalized.generic_string().starts_with(std::string(SourceAssetsRoot) + "/");
-			if (!bValid && OutError)
-			{
-				*OutError = std::format(
-					"Texture source path '{}' must be normalized beneath {}/.",
-					SourcePath, SourceAssetsRoot);
-			}
-			return bValid;
-		}
-
 		auto MakeCanonicalSourceLocation(
 			const FAssetPath& AssetPath,
 			std::string_view Extension,
@@ -107,10 +65,37 @@ namespace Durin
 			if (RequestedSourcePath.empty())
 				StoredPath = std::filesystem::path(DefaultTextureSourceRoot)
 					/ (std::string(AssetPath.GetAssetName()) + std::string(Extension));
+			else if (RequestedSourcePath.starts_with('/'))
+			{
+				const PathUtilities::FSourcePathResult Requested =
+					PathUtilities::ResolveSourcePath(
+						RequestedSourcePath, PathUtilities::EPathExistence::AllowMissing);
+				if (!Requested)
+				{
+					OutError = Requested.Message;
+					return false;
+				}
+				if (Requested.Mount != Mount)
+				{
+					OutError = "Texture source relocation must remain within the asset's owning mount.";
+					return false;
+				}
+				StoredPath = std::filesystem::path(SourceAssetsRoot) / Requested.RelativePath;
+			}
 			else
 				StoredPath = std::filesystem::path(RequestedSourcePath);
-			OutStoredPath = StoredPath.lexically_normal().generic_string();
-			if (!IsPortableTextureSourcePath(OutStoredPath, &OutError)) return false;
+			StoredPath = StoredPath.lexically_normal();
+			const std::filesystem::path Relative = StoredPath.lexically_relative(SourceAssetsRoot);
+			const std::string RelativeString = Relative.generic_string();
+			if (Relative.empty() || Relative == "." || RelativeString == ".."
+				|| RelativeString.starts_with("../"))
+			{
+				OutError = std::format(
+					"Texture source path '{}' must be normalized beneath {}/.",
+					RequestedSourcePath, SourceAssetsRoot);
+				return false;
+			}
+			OutStoredPath = Mount->VirtualRoot + Relative.generic_string();
 			std::string RequestedExtension = StoredPath.extension().generic_string();
 			std::string InputExtension(Extension);
 			std::ranges::transform(RequestedExtension, RequestedExtension.begin(), [](char Value) {
@@ -126,8 +111,16 @@ namespace Durin
 					StoredPath.extension().generic_string(), Extension);
 				return false;
 			}
-			return ResolveOwnedSource(
-				*Mount, StoredPath, PathUtilities::EPathExistence::AllowMissing, OutPhysicalPath, OutError);
+			const PathUtilities::FSourcePathResult Resolved =
+				PathUtilities::ResolveSourcePath(
+					OutStoredPath, PathUtilities::EPathExistence::AllowMissing);
+			if (!Resolved)
+			{
+				OutError = Resolved.Message;
+				return false;
+			}
+			OutPhysicalPath = Resolved.PhysicalPath;
+			return true;
 		}
 
 		auto ResolveTextureSource(
@@ -138,7 +131,6 @@ namespace Durin
 			const FTexture2DSourceImportData& Provenance = Texture.GetSourceImportData();
 			if (Provenance.HasSource())
 			{
-				if (!IsPortableTextureSourcePath(Provenance.Source.SourcePath, &OutError)) return false;
 				if (Provenance.DecoderId != TextureDecoderId
 					|| Provenance.DecoderVersion != TextureDecoderVersion)
 				{
@@ -152,20 +144,25 @@ namespace Durin
 					OutError = "Texture source cannot be resolved without an owning package.";
 					return false;
 				}
-				const PathUtilities::FMountPoint* Mount =
-					FindOwningMount(Texture.GetPackage()->GetPackagePath());
-				if (!Mount)
+				const PathUtilities::FMountPolicyResult Dependency =
+					PathUtilities::CheckMountDependency(
+						Texture.GetPackage()->GetPackagePath(),
+						Provenance.Source.SourcePath.Path);
+				if (!Dependency)
 				{
-					OutError = std::format("Texture package {} is not beneath a registered content mount.",
-						Texture.GetPackage()->GetPackagePath());
+					OutError = Dependency.Message;
 					return false;
 				}
-				if (!ResolveOwnedSource(
-					*Mount,
-					Provenance.Source.SourcePath,
-					PathUtilities::EPathExistence::AllowMissing,
-					OutPath,
-					OutError)) return false;
+				const PathUtilities::FSourcePathResult Resolved =
+					PathUtilities::ResolveSourcePath(
+						Provenance.Source.SourcePath.Path,
+						PathUtilities::EPathExistence::AllowMissing);
+				if (!Resolved)
+				{
+					OutError = Resolved.Message;
+					return false;
+				}
+				OutPath = Resolved.PhysicalPath;
 				OutError.clear();
 				return true;
 			}
@@ -305,6 +302,79 @@ namespace Durin
 		, RenderResource(std::make_shared<FTexture2DRenderResource>())
 	{
 		static const bool RegisteredAssetContributors = [] {
+			FProperty* LegacySourceProperty =
+				FTextureSourceFile::StaticStruct()->FindPropertyByName(
+					FName("LegacySourcePath"), false);
+			check(LegacySourceProperty);
+			Asset::RegisterAssetSerializedStructFieldAlias(
+				FTextureSourceFile::StaticStruct(),
+				{
+					.SerializedName = "SourcePath",
+					.SerializedKind = LegacySourceProperty->GetKind(),
+					.SerializedTypeSignature = std::format(
+						"{}:{}", static_cast<uint32>(LegacySourceProperty->GetKind()),
+						LegacySourceProperty->GetElementSize()),
+					.CompatibilityName = "LegacySourcePath"});
+			Asset::RegisterAssetStructureUpgrader(
+				DTexture2D::StaticClass(),
+				"Engine.Texture2D.MountedSourcePath",
+				[](DObject* Object,
+					std::span<const Asset::FAssetLegacyField> Fields,
+					const Asset::FAssetMigrationContext&,
+					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
+					-> Asset::FAssetResult
+				{
+					auto* Texture = Cast<DTexture2D>(Object);
+					if (!Texture)
+						return {
+							Asset::EAssetError::TypeMismatch,
+							"Texture2D source upgrader received an incompatible object."};
+					const auto It = std::ranges::find_if(
+						Fields,
+						[](const Asset::FAssetLegacyField& Field) {
+							return Field.DeclaringClass == "Durin::FTextureSourceFile"
+								&& Field.Name == "SourcePath"
+								&& Field.Kind == DurinCodeGen::EPropertyGenFlags::String;
+						});
+					if (It == Fields.end()) return {};
+					if (!Texture->GetPackage())
+						return {
+							Asset::EAssetError::InvalidObjectGraph,
+							"Legacy Texture2D source has no owning package."};
+					FSourcePath MigratedPath;
+					std::filesystem::path PhysicalPath;
+					std::string Error;
+					if (!TryMigrateLegacySourcePath(
+						Texture->GetPackage()->GetPackagePath(),
+						Texture->SourceImportData.Source.LegacySourcePath,
+						MigratedPath,
+						PhysicalPath,
+						Error))
+						return {Asset::EAssetError::InvalidPath, std::move(Error)};
+					FXxHash128 ActualHash;
+					if (!HashTextureSource(PhysicalPath, ActualHash, Error))
+						return {Asset::EAssetError::IoError, std::move(Error)};
+					const FTextureSourceFile& Legacy = Texture->SourceImportData.Source;
+					if (ActualHash.HashLow != Legacy.SourceContentHashLow
+						|| ActualHash.HashHigh != Legacy.SourceContentHashHigh)
+						return {
+							Asset::EAssetError::CorruptFile,
+							std::format(
+								"Legacy Texture2D source hash mismatch for '{}'.",
+								MigratedPath.Path)};
+					Texture->SourceImportData.Source.SourcePath = std::move(MigratedPath);
+					Texture->SourceImportData.Source.LegacySourcePath.clear();
+					OutIssues.push_back({
+						.DeclaringClass = "Durin::FTextureSourceFile",
+						.LegacyFields = {*It},
+						.Classification = Asset::EAssetCompatibilityClassification::Migrated,
+						.MigrationSummary = std::format(
+							"Migrated Texture2D source provenance to '{}'.",
+							Texture->SourceImportData.Source.SourcePath.Path),
+						.MigratedDataCount = 1,
+						.Risk = Asset::EAssetCompatibilityRisk::None});
+					return {};
+				});
 			Asset::RegisterAssetMoveContributor(DTexture2D::StaticClass(), [](DObject*, const FAssetPath&, const FAssetPath&,
 				Asset::FAssetMoveContribution&) -> Asset::FAssetResult {
 				// Portable SourceAssets provenance is independent of package placement.
@@ -649,7 +719,7 @@ namespace Durin
 				PhysicalPath.generic_string(),
 				std::format(
 					"Texture source is missing: {}. Use source-path repair to select its replacement.",
-					SourceImportData.Source.SourcePath)};
+					SourceImportData.Source.SourcePath.Path)};
 		}
 		return {ETextureSourceStatus::Available, PhysicalPath.generic_string(), {}};
 	}
@@ -679,10 +749,18 @@ namespace Durin
 		std::string StoredPath;
 		std::filesystem::path RequestedSourcePath;
 		if (SourceImportData.HasSource()
-			&& IsPortableTextureSourcePath(SourceImportData.Source.SourcePath))
+			&& !SourceImportData.Source.SourcePath.IsEmpty())
 		{
-			RequestedSourcePath = SourceImportData.Source.SourcePath;
-			RequestedSourcePath.replace_extension(Input.extension());
+			const PathUtilities::FSourcePathResult ExistingSource =
+				PathUtilities::ResolveSourcePath(
+					SourceImportData.Source.SourcePath.Path,
+					PathUtilities::EPathExistence::AllowMissing);
+			if (ExistingSource)
+			{
+				RequestedSourcePath =
+					std::filesystem::path(SourceAssetsRoot) / ExistingSource.RelativePath;
+				RequestedSourcePath.replace_extension(Input.extension());
+			}
 		}
 		if (!MakeCanonicalSourceLocation(
 			AssetPath, Input.extension().generic_string(), RequestedSourcePath.generic_string(),
@@ -727,7 +805,7 @@ namespace Durin
 
 		SourceImportData = {
 			.Source = {
-				.SourcePath = std::move(StoredPath),
+				.SourcePath = {.Path = std::move(StoredPath)},
 				.SourceContentHashLow = SourceHash.HashLow,
 				.SourceContentHashHigh = SourceHash.HashHigh},
 			.DecoderId = std::string(TextureDecoderId),
@@ -823,7 +901,7 @@ namespace Durin
 			return false;
 		}
 
-		SourceImportData.Source.SourcePath = std::move(StoredPath);
+		SourceImportData.Source.SourcePath.Path = std::move(StoredPath);
 		UpdateSourceFingerprint(Destination);
 		MarkPackageDirty();
 		OutError.clear();
@@ -1415,7 +1493,7 @@ namespace Durin
 		}
 		Texture->SourceImportData = {
 			.Source = {
-				.SourcePath = std::move(StoredSourcePath),
+				.SourcePath = {.Path = std::move(StoredSourcePath)},
 				.SourceContentHashLow = SourceHash.HashLow,
 				.SourceContentHashHigh = SourceHash.HashHigh},
 			.DecoderId = std::string(TextureDecoderId),

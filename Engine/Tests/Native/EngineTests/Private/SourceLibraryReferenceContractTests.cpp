@@ -2,8 +2,13 @@
 
 #include "AssetSystem.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "EngineTestSupport.h"
 #include "Json/Json.h"
+#include "Misc/Paths.h"
 #include "Source/SourcePath.h"
+#include "StaticMesh/StaticMesh.h"
+#include "Texture/Texture2D.h"
+#include "Texture/TextureCube.h"
 
 namespace
 {
@@ -40,6 +45,21 @@ namespace
 			if (Entry.GetView("VirtualRoot").GetString() == Name) return Entry;
 		}
 		return {};
+	}
+
+	auto CopyLegacyMigrationFixture(
+		const std::filesystem::path& FixtureRoot,
+		const std::filesystem::path& WorkRoot,
+		std::string_view FileName,
+		std::string_view Owner,
+		std::string_view AssetName) -> void
+	{
+		const std::filesystem::path ContentRoot = WorkRoot / Owner / "Content";
+		std::filesystem::create_directories(ContentRoot);
+		std::filesystem::copy_file(
+			FixtureRoot / FileName,
+			ContentRoot / (std::string(AssetName) + ".dasset"),
+			std::filesystem::copy_options::overwrite_existing);
 	}
 }
 
@@ -183,4 +203,159 @@ TEST(FSourcePathContractTests, LegacyFixturesRetainExplicitSourcePathCarriers)
 		EXPECT_TRUE(PayloadContainsText(*SourceImportData, "SourcePath"));
 		EXPECT_TRUE(PayloadContainsText(*SourceImportData, "SourceContentHash"));
 	}
+}
+
+TEST(FSourcePathContractTests, LegacyFixturesMigrateAndRoundTripMountedPaths)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path FixtureRoot =
+		std::filesystem::path(DURIN_TEST_DATA_DIR) / "SourceLibraryReferences";
+	const std::filesystem::path WorkRoot =
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "SourcePathMigration";
+	std::filesystem::remove_all(WorkRoot);
+	std::filesystem::create_directories(WorkRoot / "Project");
+	std::filesystem::create_directories(WorkRoot / "Engine");
+	std::filesystem::copy(
+		FixtureRoot / "Project" / "SourceAssets",
+		WorkRoot / "Project" / "SourceAssets",
+		std::filesystem::copy_options::recursive);
+	std::filesystem::copy(
+		FixtureRoot / "Engine" / "SourceAssets",
+		WorkRoot / "Engine" / "SourceAssets",
+		std::filesystem::copy_options::recursive);
+	CopyLegacyMigrationFixture(
+		FixtureRoot, WorkRoot, "LegacyProjectStaticMesh.dasset", "Project", "LegacyProjectStaticMesh");
+	CopyLegacyMigrationFixture(
+		FixtureRoot, WorkRoot, "LegacyEngineStaticMesh.dasset", "Engine", "LegacyEngineStaticMesh");
+	CopyLegacyMigrationFixture(
+		FixtureRoot, WorkRoot, "LegacyProjectTexture2D.dasset", "Project", "LegacyProjectTexture2D");
+	CopyLegacyMigrationFixture(
+		FixtureRoot, WorkRoot, "LegacyProjectTextureCubeSixFaces.dasset", "Project", "LegacyProjectTextureCubeSixFaces");
+	CopyLegacyMigrationFixture(
+		FixtureRoot, WorkRoot, "LegacyProjectTextureCubePanorama.dasset", "Project", "LegacyProjectTextureCubePanorama");
+
+	const std::array Mounts = {
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/Engine/",
+			.Owner = Durin::PathUtilities::EMountOwner::Engine,
+			.OwnerRoot = WorkRoot / "Engine",
+			.ContentRoot = WorkRoot / "Engine" / "Content",
+			.SourceAssetsRoot = WorkRoot / "Engine" / "SourceAssets",
+			.Dependencies = {}},
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/Game/",
+			.Owner = Durin::PathUtilities::EMountOwner::ActiveProject,
+			.OwnerRoot = WorkRoot / "Project",
+			.ContentRoot = WorkRoot / "Project" / "Content",
+			.SourceAssetsRoot = WorkRoot / "Project" / "SourceAssets",
+			.Dependencies = {"/Engine/"}}};
+	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+
+	auto ExpectMigratedReport = [](const Durin::Asset::FAssetLoadReport& Report, Durin::uint64 Count) {
+		ASSERT_EQ(Report.CompatibilityIssues.size(), 1u);
+		EXPECT_EQ(
+			Report.CompatibilityIssues.front().Classification,
+			Durin::Asset::EAssetCompatibilityClassification::Migrated);
+		EXPECT_EQ(Report.CompatibilityIssues.front().MigratedDataCount, Count);
+		EXPECT_EQ(Report.CompatibilityIssues.front().Risk, Durin::Asset::EAssetCompatibilityRisk::None);
+	};
+	auto ExpectOnlyMountedSourceCarrier = [](const Durin::FAssetPath& Path) {
+		const Durin::PathUtilities::FContentPathResult Resolved =
+			Durin::PathUtilities::ResolveContentPath(
+				Path.GetView(), Durin::PathUtilities::EPathExistence::AllowMissing);
+		ASSERT_TRUE(Resolved) << Resolved.Message;
+		Durin::Asset::FAssetPackageInspection Inspection;
+		ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+			Resolved.PhysicalPath.generic_string() + ".dasset", Inspection));
+		const Durin::Asset::FAssetPackageField* SourceImportData =
+			Inspection.FindField("SourceImportData");
+		ASSERT_NE(SourceImportData, nullptr);
+		EXPECT_TRUE(PayloadContainsText(*SourceImportData, "Durin::FSourcePath"));
+		EXPECT_FALSE(PayloadContainsText(*SourceImportData, "LegacySourcePath"));
+	};
+
+	auto RoundTripStaticMesh = [&](std::string_view AssetPath, std::string_view ExpectedSource) {
+		Durin::FAssetPath Path;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate(AssetPath, Path));
+		Durin::DStaticMesh* Mesh = nullptr;
+		Durin::Asset::FAssetLoadReport Report;
+		ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Mesh, &Report)) << AssetPath;
+		ASSERT_NE(Mesh, nullptr);
+		ExpectMigratedReport(Report, 1);
+		EXPECT_EQ(Mesh->GetSourceFile(), ExpectedSource);
+		EXPECT_TRUE(Mesh->GetPackage()->IsDirty());
+		const std::string DerivedDataKey = Mesh->GetDerivedDataDiagnostic().Key;
+		ASSERT_TRUE(Durin::Asset::SavePackage(Mesh->GetPackage()));
+		ExpectOnlyMountedSourceCarrier(Path);
+		ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+		Report = {};
+		ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Mesh, &Report));
+		EXPECT_FALSE(Report.HasCompatibilityIssues());
+		EXPECT_EQ(Mesh->GetSourceFile(), ExpectedSource);
+		EXPECT_EQ(Mesh->GetDerivedDataDiagnostic().Key, DerivedDataKey);
+		ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	};
+	RoundTripStaticMesh(
+		"/Game/LegacyProjectStaticMesh",
+		"/Game/Models/Models/Mesh_Teapot.obj");
+	RoundTripStaticMesh(
+		"/Engine/LegacyEngineStaticMesh",
+		"/Engine/Models/Editor/MaterialPreview/Sphere.obj");
+
+	Durin::FAssetPath TexturePath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/LegacyProjectTexture2D", TexturePath));
+	Durin::DTexture2D* Texture = nullptr;
+	Durin::Asset::FAssetLoadReport TextureReport;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(TexturePath, Texture, &TextureReport));
+	ASSERT_NE(Texture, nullptr);
+	ExpectMigratedReport(TextureReport, 1);
+	EXPECT_EQ(Texture->GetSourceFile(), "/Game/Textures/Textures/TEX_StoneHead.jpg");
+	const std::string TextureKey = Texture->GetDerivedDataDiagnostic().Key;
+	ASSERT_TRUE(Durin::Asset::SavePackage(Texture->GetPackage()));
+	ExpectOnlyMountedSourceCarrier(TexturePath);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
+	TextureReport = {};
+	ASSERT_TRUE(Durin::Asset::LoadAsset(TexturePath, Texture, &TextureReport));
+	EXPECT_FALSE(TextureReport.HasCompatibilityIssues());
+	EXPECT_EQ(Texture->GetDerivedDataDiagnostic().Key, TextureKey);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
+
+	auto RoundTripCube = [&](std::string_view AssetPath, Durin::uint64 ExpectedCount,
+		std::string_view ExpectedSource, bool bPanorama) {
+		SCOPED_TRACE(AssetPath);
+		Durin::FAssetPath Path;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate(AssetPath, Path));
+		Durin::DTextureCube* Cube = nullptr;
+		Durin::Asset::FAssetLoadReport Report;
+		const Durin::Asset::FAssetResult LoadResult =
+			Durin::Asset::LoadAsset(Path, Cube, &Report);
+		ASSERT_TRUE(LoadResult) << LoadResult.Message;
+		ASSERT_NE(Cube, nullptr);
+		ExpectMigratedReport(Report, ExpectedCount);
+		EXPECT_EQ(
+			bPanorama
+				? Cube->GetPanoramaSourceFile()
+				: Cube->GetSourceFile(Durin::ETextureCubeFace::PositiveX),
+			ExpectedSource);
+		const std::string DerivedDataKey = Cube->GetDerivedDataDiagnostic().Key;
+		ASSERT_TRUE(Durin::Asset::SavePackage(Cube->GetPackage()));
+		ExpectOnlyMountedSourceCarrier(Path);
+		ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+		Report = {};
+		ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Cube, &Report));
+		EXPECT_FALSE(Report.HasCompatibilityIssues());
+		EXPECT_EQ(Cube->GetDerivedDataDiagnostic().Key, DerivedDataKey);
+		ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	};
+	RoundTripCube(
+		"/Game/LegacyProjectTextureCubeSixFaces",
+		6,
+		"/Game/Textures/Convention_px.png",
+		false);
+	RoundTripCube(
+		"/Game/LegacyProjectTextureCubePanorama",
+		1,
+		"/Game/Textures/Panorama_panorama.tga",
+		true);
 }

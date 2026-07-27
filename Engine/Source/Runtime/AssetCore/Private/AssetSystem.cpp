@@ -176,6 +176,13 @@ namespace Durin::Asset
 			return Upgraders;
 		}
 
+		auto GetSerializedStructFieldAliases()
+			-> std::unordered_map<DStruct*, std::vector<FAssetSerializedStructFieldAlias>>&
+		{
+			static std::unordered_map<DStruct*, std::vector<FAssetSerializedStructFieldAlias>> Aliases;
+			return Aliases;
+		}
+
 		auto GetPhysicalPath(const FAssetPath& Path) -> std::string
 		{
 			const FPackageLoadContext& Context = FAssetManager::Get().GetPackageLoadContext();
@@ -350,7 +357,13 @@ namespace Durin::Asset
 			}
 		}
 
-		auto DeserializeValue(FProperty* Property, void* Container, uint32 ArrayIndex, FByteReader& Reader, const std::vector<DObject*>& Objects) -> FAssetResult
+		auto DeserializeValue(
+			FProperty* Property,
+			void* Container,
+			uint32 ArrayIndex,
+			FByteReader& Reader,
+			const std::vector<DObject*>& Objects,
+			std::vector<FAssetLegacyField>* OutLegacyFields = nullptr) -> FAssetResult
 		{
 			switch (Property->GetKind())
 			{
@@ -435,13 +448,43 @@ namespace Durin::Asset
 					FProperty* Field = Struct->FindPropertyByName(FName(FieldName), false);
 					if (!Field || static_cast<uint8>(Field->GetKind()) != Kind || GetTypeSignature(Field) != Signature)
 					{
-						DURIN_WARN("Skipping incompatible struct field {}::{}", StructName, FieldName);
-						continue;
+						const auto AliasMapIt = GetSerializedStructFieldAliases().find(Struct);
+						const FAssetSerializedStructFieldAlias* Alias = nullptr;
+						if (AliasMapIt != GetSerializedStructFieldAliases().end())
+						{
+							const auto AliasIt = std::ranges::find_if(
+								AliasMapIt->second,
+								[&](const FAssetSerializedStructFieldAlias& Candidate) {
+									return Candidate.SerializedName == FieldName
+										&& static_cast<uint8>(Candidate.SerializedKind) == Kind
+										&& Candidate.SerializedTypeSignature == Signature;
+								});
+							if (AliasIt != AliasMapIt->second.end()) Alias = &*AliasIt;
+						}
+						Field = Alias != nullptr
+							? Struct->FindPropertyByName(FName(Alias->CompatibilityName), false)
+							: nullptr;
+						if (!Field || static_cast<uint8>(Field->GetKind()) != Kind
+							|| GetTypeSignature(Field) != Signature)
+						{
+							DURIN_WARN("Skipping incompatible struct field {}::{}", StructName, FieldName);
+							continue;
+						}
+						if (OutLegacyFields)
+						{
+							OutLegacyFields->push_back({
+								.DeclaringClass = DeclaringStruct,
+								.Name = FieldName,
+								.Kind = static_cast<DurinCodeGen::EPropertyGenFlags>(Kind),
+								.TypeSignature = Signature,
+								.Payload = {Payload.begin(), Payload.end()}});
+						}
 					}
 					FByteReader PayloadReader{Payload};
 					for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim(); ++FieldIndex)
 					{
-						FAssetResult Result = DeserializeValue(Field, StructValue, FieldIndex, PayloadReader, Objects);
+						FAssetResult Result = DeserializeValue(
+							Field, StructValue, FieldIndex, PayloadReader, Objects, OutLegacyFields);
 						if (!Result) return Result;
 					}
 					if (PayloadReader.Offset != Payload.size()) return Error(EAssetError::CorruptFile, "Struct field payload has trailing bytes.");
@@ -456,7 +499,9 @@ namespace Durin::Asset
 				Array->Resize(Container, Num, ArrayIndex);
 				for (uint64 Index = 0; Index < Num; ++Index)
 				{
-					FAssetResult Result = DeserializeValue(Array->GetInner(), Array->GetMutableElementPtr(Container, Index, ArrayIndex), 0, Reader, Objects);
+					FAssetResult Result = DeserializeValue(
+						Array->GetInner(), Array->GetMutableElementPtr(Container, Index, ArrayIndex),
+						0, Reader, Objects, OutLegacyFields);
 					if (!Result) return Result;
 				}
 				return {};
@@ -472,8 +517,10 @@ namespace Durin::Asset
 					void* Key = Map->CreateKey();
 					void* Value = Map->CreateValue();
 					if (!Key || !Value) return Error(EAssetError::UnsupportedProperty, "Failed to create map entry storage.");
-					FAssetResult Result = DeserializeValue(Map->GetKeyProp(), Key, 0, Reader, Objects);
-					if (Result) Result = DeserializeValue(Map->GetValueProp(), Value, 0, Reader, Objects);
+					FAssetResult Result = DeserializeValue(
+						Map->GetKeyProp(), Key, 0, Reader, Objects, OutLegacyFields);
+					if (Result) Result = DeserializeValue(
+						Map->GetValueProp(), Value, 0, Reader, Objects, OutLegacyFields);
 					if (Result) Map->Insert(Container, Key, Value, ArrayIndex);
 					Map->DestroyKey(Key);
 					Map->DestroyValue(Value);
@@ -1066,6 +1113,24 @@ namespace Durin::Asset
 			FRegisteredStructureUpgrader{
 				.HandlerId = std::move(HandlerId),
 				.Upgrader = std::move(Upgrader)});
+	}
+
+	auto RegisterAssetSerializedStructFieldAlias(
+		DStruct* Struct,
+		FAssetSerializedStructFieldAlias Alias) -> void
+	{
+		if (!Struct || Alias.SerializedName.empty() || Alias.SerializedKind == DurinCodeGen::EPropertyGenFlags::None
+			|| Alias.SerializedTypeSignature.empty() || Alias.CompatibilityName.empty()) return;
+		auto& Aliases = GetSerializedStructFieldAliases()[Struct];
+		const auto Existing = std::ranges::find_if(
+			Aliases,
+			[&](const FAssetSerializedStructFieldAlias& Candidate) {
+				return Candidate.SerializedName == Alias.SerializedName
+					&& Candidate.SerializedKind == Alias.SerializedKind
+					&& Candidate.SerializedTypeSignature == Alias.SerializedTypeSignature;
+			});
+		if (Existing == Aliases.end()) Aliases.push_back(std::move(Alias));
+		else *Existing = std::move(Alias);
 	}
 
 	auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void
@@ -1667,7 +1732,8 @@ namespace Durin::Asset
 				FByteReader FieldReader{Field.Payload};
 				for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
 				{
-					Result = DeserializeValue(Property, Object, ArrayIndex, FieldReader, Objects);
+					Result = DeserializeValue(
+						Property, Object, ArrayIndex, FieldReader, Objects, &LegacyFields);
 					if (!Result) { Rollback(); return Result; }
 				}
 				if (FieldReader.Offset != Field.Payload.size()) { Rollback(); return Error(EAssetError::CorruptFile, "Property payload has trailing bytes."); }

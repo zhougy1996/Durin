@@ -119,7 +119,7 @@ namespace Durin
 		auto GetSourceLayout() const -> ETextureCubeSourceLayout { return SourceLayout; }
 		auto GetPanoramaSourceFile() const -> const std::string&
 		{
-			return SourceImportData.Panorama.SourcePath;
+			return SourceImportData.Panorama.SourcePath.Path;
 		}
 		auto GetSourceImportData() const -> const FTextureCubeSourceImportData& { return SourceImportData; }
 		auto GetPanoramaFaceDimension() const -> uint32 { return PanoramaFaceDimension; }

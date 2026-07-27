@@ -67,12 +67,14 @@ TEST(FMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndSurvivesAss
 	ASSERT_TRUE(Import) << Import.Message;
 	ASSERT_NE(Import.Asset, nullptr);
 	const Durin::FStaticMeshSourceImportData& Provenance = Import.Asset->GetSourceImportData();
-	EXPECT_EQ(Provenance.SourcePath, "SourceAssets/Models/Environment/Mesh.gltf");
+	EXPECT_EQ(Provenance.SourcePath.Path,
+		"/StaticMeshSourceProvenance/Models/Environment/Mesh.gltf");
 	EXPECT_EQ(Provenance.SourceContentHash.size(), 32u);
 	EXPECT_EQ(Provenance.ImporterId, "Assimp");
 	EXPECT_EQ(Provenance.ImporterVersion, 1u);
-	const std::string OriginalSourcePath = Provenance.SourcePath;
-	const std::filesystem::path StoredSource = Root / Provenance.SourcePath;
+	const std::string OriginalSourcePath = Provenance.SourcePath.Path;
+	const std::filesystem::path StoredSource =
+		Root / "SourceAssets/Models/Environment/Mesh.gltf";
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content" / "Environment" / "Mesh.gltf"));
 	EXPECT_EQ(Import.Asset->InspectSource().Status, Durin::EStaticMeshSourceStatus::Available);
@@ -83,7 +85,7 @@ TEST(FMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndSurvivesAss
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSourceProvenance/Moved/Mesh", NewPath));
 	ASSERT_TRUE(Durin::Asset::MoveAsset(OldPath, NewPath));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
-	EXPECT_EQ(Import.Asset->GetSourceImportData().SourcePath, OriginalSourcePath);
+	EXPECT_EQ(Import.Asset->GetSourceImportData().SourcePath.Path, OriginalSourcePath);
 	EXPECT_EQ(Import.Asset->InspectSource().Status, Durin::EStaticMeshSourceStatus::Available);
 
 	Durin::Asset::FAssetDeleteAnalysis Analysis;
@@ -121,7 +123,7 @@ TEST(FMaterialTests, StaticMeshWithoutSourceMetadataLoadsAndMissingSourceCanBeRe
 	ASSERT_NE(SourceImportProperty, nullptr);
 	auto* SourceImportData = static_cast<Durin::FStaticMeshSourceImportData*>(
 		SourceImportProperty->GetValuePtr(Mesh));
-	SourceImportData->SourcePath = "../Outside.gltf";
+	SourceImportData->SourcePath.Path = "../Outside.gltf";
 	EXPECT_EQ(Mesh->InspectSource().Status, Durin::EStaticMeshSourceStatus::Invalid);
 	*SourceImportData = {};
 	std::string RepairError;
@@ -129,10 +131,11 @@ TEST(FMaterialTests, StaticMeshWithoutSourceMetadataLoadsAndMissingSourceCanBeRe
 	ASSERT_TRUE(Mesh->RepairSourcePath(Source.generic_string(), RepairError)) << RepairError;
 	ASSERT_NE(Mesh->GetRenderData(), nullptr);
 	EXPECT_EQ(Mesh->InspectSource().Status, Durin::EStaticMeshSourceStatus::Available);
-	EXPECT_EQ(Mesh->GetSourceImportData().SourcePath, "SourceAssets/Models/Mesh.gltf");
+	EXPECT_EQ(Mesh->GetSourceImportData().SourcePath.Path,
+		"/StaticMeshSourceRepair/Models/Mesh.gltf");
 	ASSERT_TRUE(Durin::Asset::SavePackage(Mesh->GetPackage()));
 
-	const std::filesystem::path StoredSource = Root / Mesh->GetSourceImportData().SourcePath;
+	const std::filesystem::path StoredSource = Root / "SourceAssets/Models/Mesh.gltf";
 	const std::string OriginalHash = Mesh->GetSourceImportData().SourceContentHash;
 	WriteStaticMeshSlotVariant(StoredSource, R"({ "name": "Blue" }, { "name": "Red" })");
 	ASSERT_TRUE(Mesh->PostLoad(RepairError)) << RepairError;

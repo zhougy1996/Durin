@@ -47,33 +47,6 @@ namespace Durin
 			return Lookup ? Lookup.Mount : nullptr;
 		}
 
-		auto ResolveOwnedSource(
-			const PathUtilities::FMountPoint& Mount,
-			const std::filesystem::path& StoredPath,
-			PathUtilities::EPathExistence Existence) -> std::filesystem::path
-		{
-			const std::filesystem::path Relative = StoredPath.lexically_relative("SourceAssets");
-			const PathUtilities::FSourcePathResult Resolved =
-				PathUtilities::ResolveSourcePath(Mount.VirtualRoot + Relative.generic_string(), Existence);
-			return Resolved ? Resolved.PhysicalPath : std::filesystem::path{};
-		}
-
-		auto IsPortableTextureSourcePath(std::string_view SourcePath, std::string* OutError = nullptr) -> bool
-		{
-			const std::filesystem::path Path(SourcePath);
-			const std::filesystem::path Normalized = Path.lexically_normal();
-			const bool bContainsParent = std::ranges::any_of(Path,
-				[](const std::filesystem::path& Part) { return Part == ".."; });
-			const bool bValid = !SourcePath.empty() && !Path.is_absolute()
-				&& !SourcePath.starts_with('/') && SourcePath.find('\\') == std::string_view::npos
-				&& !bContainsParent && SourcePath == Normalized.generic_string()
-				&& Normalized.generic_string().starts_with(std::string(TextureSourceRoot) + "/");
-			if (!bValid && OutError)
-				*OutError = std::format("TextureCube source path '{}' must be normalized beneath {}/.",
-					SourcePath, TextureSourceRoot);
-			return bValid;
-		}
-
 		auto MakeCanonicalSourceLocation(
 			const FAssetPath& AssetPath,
 			std::string_view Suffix,
@@ -96,15 +69,18 @@ namespace Durin
 			RelativeAssetPath.replace_filename(FileName);
 			const std::filesystem::path StoredPath =
 				std::filesystem::path(TextureSourceRoot) / RelativeAssetPath;
-			OutStoredPath = StoredPath.lexically_normal().generic_string();
-			if (!IsPortableTextureSourcePath(OutStoredPath, &OutError)) return false;
-			OutPhysicalPath =
-				ResolveOwnedSource(*Mount, StoredPath, PathUtilities::EPathExistence::AllowMissing);
-			if (OutPhysicalPath.empty())
+			const std::filesystem::path Relative =
+				StoredPath.lexically_normal().lexically_relative("SourceAssets");
+			OutStoredPath = Mount->VirtualRoot + Relative.generic_string();
+			const PathUtilities::FSourcePathResult Resolved =
+				PathUtilities::ResolveSourcePath(
+					OutStoredPath, PathUtilities::EPathExistence::AllowMissing);
+			if (!Resolved)
 			{
-				OutError = "TextureCube source destination could not be resolved through its SourceAssets domain.";
+				OutError = Resolved.Message;
 				return false;
 			}
+			OutPhysicalPath = Resolved.PhysicalPath;
 			return true;
 		}
 
@@ -125,7 +101,7 @@ namespace Durin
 		auto MakeSourceFile(const std::string& StoredPath, const FXxHash128& Hash) -> FTextureSourceFile
 		{
 			return {
-				.SourcePath = StoredPath,
+				.SourcePath = {.Path = StoredPath},
 				.SourceContentHashLow = Hash.HashLow,
 				.SourceContentHashHigh = Hash.HashHigh};
 		}
@@ -136,13 +112,11 @@ namespace Durin
 			if (Provenance.SourceLayout == ETextureCubeSourceLayout::SixFaces
 				&& Provenance.GetFace(Face).HasSource())
 			{
-				const PathUtilities::FMountPoint* Mount =
-					FindOwningMount(Texture.GetPackage()->GetPackagePath());
-				if (Mount)
-					return ResolveOwnedSource(
-						*Mount,
-						Provenance.GetFace(Face).SourcePath,
+				const PathUtilities::FSourcePathResult Resolved =
+					PathUtilities::ResolveSourcePath(
+						Provenance.GetFace(Face).SourcePath.Path,
 						PathUtilities::EPathExistence::RequireFile);
+				if (Resolved) return Resolved.PhysicalPath;
 			}
 			return {};
 		}
@@ -153,13 +127,11 @@ namespace Durin
 			if (Provenance.SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama
 				&& Provenance.Panorama.HasSource())
 			{
-				const PathUtilities::FMountPoint* Mount =
-					FindOwningMount(Texture.GetPackage()->GetPackagePath());
-				if (Mount)
-					return ResolveOwnedSource(
-						*Mount,
-						Provenance.Panorama.SourcePath,
+				const PathUtilities::FSourcePathResult Resolved =
+					PathUtilities::ResolveSourcePath(
+						Provenance.Panorama.SourcePath.Path,
 						PathUtilities::EPathExistence::RequireFile);
+				if (Resolved) return Resolved.PhysicalPath;
 			}
 			return {};
 		}
@@ -168,6 +140,31 @@ namespace Durin
 		{
 			const FTextureCubeSourceImportData& Provenance = Texture.GetSourceImportData();
 			if (!Provenance.HasSource()) return true;
+			if (!Texture.GetPackage())
+			{
+				OutError = "TextureCube source cannot be validated without an owning package.";
+				return false;
+			}
+			auto ValidateSourcePath = [&](std::string_view SourcePath) -> bool {
+				const PathUtilities::FMountPolicyResult Dependency =
+					PathUtilities::CheckMountDependency(
+						Texture.GetPackage()->GetPackagePath(), SourcePath);
+				if (!Dependency)
+				{
+					OutError = Dependency.Message;
+					return false;
+				}
+				const PathUtilities::FSourcePathResult Resolved =
+					PathUtilities::ResolveSourcePath(
+						SourcePath, PathUtilities::EPathExistence::AllowMissing);
+				if (!Resolved
+					&& Resolved.Error != PathUtilities::EMountPathError::UnavailableDomain)
+				{
+					OutError = Resolved.Message;
+					return false;
+				}
+				return true;
+			};
 			if (Provenance.DecoderId != TextureDecoderId
 				|| Provenance.DecoderVersion != TextureDecoderVersion
 				|| Provenance.ProjectionVersion != TextureCubeProjectionVersion)
@@ -191,16 +188,23 @@ namespace Durin
 				{
 					const FTextureSourceFile& Source =
 						Provenance.GetFace(static_cast<ETextureCubeFace>(FaceIndex));
-					if (!Source.HasSource() || !Source.HasContentHash()
-						|| !IsPortableTextureSourcePath(Source.SourcePath, &OutError)) return false;
+					if (!Source.HasSource() || !Source.HasContentHash())
+					{
+						OutError = "TextureCube face source provenance is incomplete.";
+						return false;
+					}
+					if (!ValidateSourcePath(Source.SourcePath.Path)) return false;
 				}
 				return true;
 			}
 			if (Provenance.SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama)
 			{
-				if (!Provenance.Panorama.HasSource() || !Provenance.Panorama.HasContentHash()
-					|| !IsPortableTextureSourcePath(Provenance.Panorama.SourcePath, &OutError))
+				if (!Provenance.Panorama.HasSource() || !Provenance.Panorama.HasContentHash())
+				{
+					OutError = "TextureCube panorama source provenance is incomplete.";
 					return false;
+				}
+				if (!ValidateSourcePath(Provenance.Panorama.SourcePath.Path)) return false;
 				for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
 					if (Provenance.GetFace(static_cast<ETextureCubeFace>(FaceIndex)).HasSource())
 					{
@@ -552,6 +556,102 @@ namespace Durin
 		, RenderResource(std::make_shared<FTextureCubeRenderResource>())
 	{
 		static const bool RegisteredAssetContributors = [] {
+			FProperty* LegacySourceProperty =
+				FTextureSourceFile::StaticStruct()->FindPropertyByName(
+					FName("LegacySourcePath"), false);
+			check(LegacySourceProperty);
+			Asset::RegisterAssetSerializedStructFieldAlias(
+				FTextureSourceFile::StaticStruct(),
+				{
+					.SerializedName = "SourcePath",
+					.SerializedKind = LegacySourceProperty->GetKind(),
+					.SerializedTypeSignature = std::format(
+						"{}:{}", static_cast<uint32>(LegacySourceProperty->GetKind()),
+						LegacySourceProperty->GetElementSize()),
+					.CompatibilityName = "LegacySourcePath"});
+			Asset::RegisterAssetStructureUpgrader(
+				DTextureCube::StaticClass(),
+				"Engine.TextureCube.MountedSourcePath",
+				[](DObject* Object,
+					std::span<const Asset::FAssetLegacyField> Fields,
+					const Asset::FAssetMigrationContext&,
+					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
+					-> Asset::FAssetResult
+				{
+					auto* Texture = Cast<DTextureCube>(Object);
+					if (!Texture)
+						return {
+							Asset::EAssetError::TypeMismatch,
+							"TextureCube source upgrader received an incompatible object."};
+					std::vector<Asset::FAssetLegacyField> HandledFields;
+					for (const Asset::FAssetLegacyField& Field : Fields)
+						if (Field.DeclaringClass == "Durin::FTextureSourceFile"
+							&& Field.Name == "SourcePath"
+							&& Field.Kind == DurinCodeGen::EPropertyGenFlags::String)
+							HandledFields.push_back(Field);
+					if (HandledFields.empty()) return {};
+					if (!Texture->GetPackage())
+						return {
+							Asset::EAssetError::InvalidObjectGraph,
+							"Legacy TextureCube source has no owning package."};
+
+					uint64 MigratedCount = 0;
+					auto MigrateSource = [&](FTextureSourceFile& Source) -> Asset::FAssetResult {
+						if (Source.LegacySourcePath.empty()) return {};
+						FSourcePath MigratedPath;
+						std::filesystem::path PhysicalPath;
+						std::string Error;
+						if (!TryMigrateLegacySourcePath(
+							Texture->GetPackage()->GetPackagePath(),
+							Source.LegacySourcePath,
+							MigratedPath,
+							PhysicalPath,
+							Error))
+							return {Asset::EAssetError::InvalidPath, std::move(Error)};
+						FXxHash128 ActualHash;
+						if (!HashTextureSource(PhysicalPath, ActualHash, Error))
+							return {Asset::EAssetError::IoError, std::move(Error)};
+						if (ActualHash.HashLow != Source.SourceContentHashLow
+							|| ActualHash.HashHigh != Source.SourceContentHashHigh)
+							return {
+								Asset::EAssetError::CorruptFile,
+								std::format(
+									"Legacy TextureCube source hash mismatch for '{}'.",
+									MigratedPath.Path)};
+						Source.SourcePath = std::move(MigratedPath);
+						Source.LegacySourcePath.clear();
+						++MigratedCount;
+						return {};
+					};
+
+					if (Texture->SourceImportData.SourceLayout
+						== ETextureCubeSourceLayout::SixFaces)
+					{
+						for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
+						{
+							Asset::FAssetResult Result = MigrateSource(
+								Texture->SourceImportData.GetMutableFace(
+									static_cast<ETextureCubeFace>(FaceIndex)));
+							if (!Result) return Result;
+						}
+					}
+					else
+					{
+						Asset::FAssetResult Result =
+							MigrateSource(Texture->SourceImportData.Panorama);
+						if (!Result) return Result;
+					}
+					OutIssues.push_back({
+						.DeclaringClass = "Durin::FTextureSourceFile",
+						.LegacyFields = std::move(HandledFields),
+						.Classification = Asset::EAssetCompatibilityClassification::Migrated,
+						.MigrationSummary = std::format(
+							"Migrated {} TextureCube source path(s) to mounted provenance.",
+							MigratedCount),
+						.MigratedDataCount = MigratedCount,
+						.Risk = Asset::EAssetCompatibilityRisk::None});
+					return {};
+				});
 			Asset::RegisterAssetMoveContributor(DTextureCube::StaticClass(), [](DObject*, const FAssetPath&, const FAssetPath&,
 				Asset::FAssetMoveContribution&) -> Asset::FAssetResult {
 				// Portable SourceAssets provenance is independent of package placement.
@@ -578,7 +678,7 @@ namespace Durin
 		if (SourceImportData.SourceLayout == ETextureCubeSourceLayout::SixFaces)
 		{
 			const FTextureSourceFile& Source = SourceImportData.GetFace(Face);
-			if (Source.HasSource()) return Source.SourcePath;
+			if (Source.HasSource()) return Source.SourcePath.Path;
 		}
 		static const std::string EmptySource;
 		return EmptySource;

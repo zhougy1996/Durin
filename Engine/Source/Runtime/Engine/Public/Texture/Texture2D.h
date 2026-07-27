@@ -4,6 +4,7 @@
 #include "CookedAsset.h"
 #include "DObject/CoreDObject.h"
 #include "PixelFormat.h"
+#include "Source/SourcePath.h"
 
 #include "Texture2D.gen.h"
 
@@ -106,9 +107,13 @@ namespace Durin
 	{
 		GENERATED_BODY()
 
-		// Project- or engine-relative path beneath SourceAssets.
+		// Complete portable path in a mounted SourceAssets domain.
 		DPROPERTY()
-		std::string SourcePath;
+		FSourcePath SourcePath;
+
+		// Temporary compatibility carrier for the former string field serialized as SourcePath.
+		DPROPERTY(Transient)
+		std::string LegacySourcePath;
 
 		DPROPERTY()
 		uint64 SourceContentHashLow = 0;
@@ -116,7 +121,7 @@ namespace Durin
 		DPROPERTY()
 		uint64 SourceContentHashHigh = 0;
 
-		auto HasSource() const -> bool { return !SourcePath.empty(); }
+		auto HasSource() const -> bool { return !SourcePath.IsEmpty(); }
 		auto HasContentHash() const -> bool
 		{
 			return SourceContentHashLow != 0 || SourceContentHashHigh != 0;
@@ -231,7 +236,7 @@ namespace Durin
 
 		auto GetSourceFile() const -> const std::string&
 		{
-			return SourceImportData.Source.SourcePath;
+			return SourceImportData.Source.SourcePath.Path;
 		}
 		auto GetSourceImportData() const -> const FTexture2DSourceImportData& { return SourceImportData; }
 		auto GetSourceData() const -> const FTextureSourceData* { return SourceData.get(); }

@@ -437,47 +437,6 @@ namespace Durin
 			return Lookup ? Lookup.Mount : nullptr;
 		}
 
-		auto ResolveOwnedSource(
-			const PathUtilities::FMountPoint& Mount,
-			const std::filesystem::path& StoredPath,
-			PathUtilities::EPathExistence Existence,
-			std::filesystem::path& OutPath,
-			std::string& OutError) -> bool
-		{
-			const std::filesystem::path Relative = StoredPath.lexically_relative("SourceAssets");
-			const PathUtilities::FSourcePathResult Resolved =
-				PathUtilities::ResolveSourcePath(Mount.VirtualRoot + Relative.generic_string(), Existence);
-			if (!Resolved)
-			{
-				OutError = Resolved.Message;
-				return false;
-			}
-			OutPath = Resolved.PhysicalPath;
-			return true;
-		}
-
-		auto IsPortableStaticMeshSourcePath(std::string_view SourcePath, std::string* OutError = nullptr) -> bool
-		{
-			const std::filesystem::path Path(SourcePath);
-			const std::filesystem::path Normalized = Path.lexically_normal();
-			const bool bContainsParent = std::ranges::any_of(Path, [](const std::filesystem::path& Part) {
-				return Part == "..";
-			});
-			const bool bValid = !SourcePath.empty()
-				&& !Path.is_absolute()
-				&& !SourcePath.starts_with('/')
-				&& !bContainsParent
-				&& SourcePath == Normalized.generic_string()
-				&& Normalized.generic_string().starts_with(std::string(StaticMeshSourceRoot) + "/");
-			if (!bValid && OutError)
-			{
-				*OutError = std::format(
-					"Static mesh source path '{}' must be normalized beneath {}/.",
-					SourcePath, StaticMeshSourceRoot);
-			}
-			return bValid;
-		}
-
 		auto MakeCanonicalSourceLocation(
 			const FAssetPath& AssetPath,
 			std::string_view Extension,
@@ -495,10 +454,19 @@ namespace Durin
 				std::string(AssetPath.ToString().substr(Mount->VirtualRoot.size())));
 			RelativeAssetPath.replace_extension(Extension);
 			const std::filesystem::path StoredPath = std::filesystem::path(StaticMeshSourceRoot) / RelativeAssetPath;
-			OutStoredPath = StoredPath.lexically_normal().generic_string();
-			if (!IsPortableStaticMeshSourcePath(OutStoredPath, &OutError)) return false;
-			return ResolveOwnedSource(
-				*Mount, StoredPath, PathUtilities::EPathExistence::AllowMissing, OutPhysicalPath, OutError);
+			const std::filesystem::path Relative =
+				StoredPath.lexically_normal().lexically_relative("SourceAssets");
+			OutStoredPath = Mount->VirtualRoot + Relative.generic_string();
+			const PathUtilities::FSourcePathResult Resolved =
+				PathUtilities::ResolveSourcePath(
+					OutStoredPath, PathUtilities::EPathExistence::AllowMissing);
+			if (!Resolved)
+			{
+				OutError = Resolved.Message;
+				return false;
+			}
+			OutPhysicalPath = Resolved.PhysicalPath;
+			return true;
 		}
 
 		auto ResolvePortableStaticMeshSource(
@@ -507,21 +475,29 @@ namespace Durin
 			std::string& OutError) -> bool
 		{
 			const FStaticMeshSourceImportData& Source = Mesh.GetSourceImportData();
-			if (!IsPortableStaticMeshSourcePath(Source.SourcePath, &OutError)) return false;
 			if (!Mesh.GetPackage())
 			{
 				OutError = "Static mesh source cannot be resolved without an owning package.";
 				return false;
 			}
-			const PathUtilities::FMountPoint* Mount = FindOwningMount(Mesh.GetPackage()->GetPackagePath());
-			if (!Mount)
+			const PathUtilities::FMountPolicyResult Dependency =
+				PathUtilities::CheckMountDependency(
+					Mesh.GetPackage()->GetPackagePath(), Source.SourcePath.Path);
+			if (!Dependency)
 			{
-				OutError = std::format("Static mesh package {} is not beneath a registered content mount.",
-					Mesh.GetPackage()->GetPackagePath());
+				OutError = Dependency.Message;
 				return false;
 			}
-			return ResolveOwnedSource(
-				*Mount, Source.SourcePath, PathUtilities::EPathExistence::RequireFile, OutPath, OutError);
+			const PathUtilities::FSourcePathResult Resolved =
+				PathUtilities::ResolveSourcePath(
+					Source.SourcePath.Path, PathUtilities::EPathExistence::AllowMissing);
+			if (!Resolved)
+			{
+				OutError = Resolved.Message;
+				return false;
+			}
+			OutPath = Resolved.PhysicalPath;
+			return true;
 		}
 
 		auto HashStaticMeshSource(const std::filesystem::path& Path, std::string& OutHash, std::string& OutError) -> bool
@@ -578,6 +554,77 @@ namespace Durin
 		: Super(ObjectInitializer)
 	{
 		static const bool RegisteredMoveContributor = [] {
+			FProperty* LegacySourceProperty =
+				FStaticMeshSourceImportData::StaticStruct()->FindPropertyByName(
+					FName("LegacySourcePath"), false);
+			check(LegacySourceProperty);
+			Asset::RegisterAssetSerializedStructFieldAlias(
+				FStaticMeshSourceImportData::StaticStruct(),
+				{
+					.SerializedName = "SourcePath",
+					.SerializedKind = LegacySourceProperty->GetKind(),
+					.SerializedTypeSignature = std::format(
+						"{}:{}", static_cast<uint32>(LegacySourceProperty->GetKind()),
+						LegacySourceProperty->GetElementSize()),
+					.CompatibilityName = "LegacySourcePath"});
+			Asset::RegisterAssetStructureUpgrader(
+				DStaticMesh::StaticClass(),
+				"Engine.StaticMesh.MountedSourcePath",
+				[](DObject* Object,
+					std::span<const Asset::FAssetLegacyField> Fields,
+					const Asset::FAssetMigrationContext&,
+					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
+					-> Asset::FAssetResult
+				{
+					auto* Mesh = Cast<DStaticMesh>(Object);
+					if (!Mesh)
+						return {
+							Asset::EAssetError::TypeMismatch,
+							"Static-mesh source upgrader received an incompatible object."};
+					const auto It = std::ranges::find_if(
+						Fields,
+						[](const Asset::FAssetLegacyField& Field) {
+							return Field.DeclaringClass == "Durin::FStaticMeshSourceImportData"
+								&& Field.Name == "SourcePath"
+								&& Field.Kind == DurinCodeGen::EPropertyGenFlags::String;
+						});
+					if (It == Fields.end()) return {};
+					if (!Mesh->GetPackage())
+						return {
+							Asset::EAssetError::InvalidObjectGraph,
+							"Legacy static-mesh source has no owning package."};
+					FSourcePath MigratedPath;
+					std::filesystem::path PhysicalPath;
+					std::string Error;
+					if (!TryMigrateLegacySourcePath(
+						Mesh->GetPackage()->GetPackagePath(),
+						Mesh->SourceImportData.LegacySourcePath,
+						MigratedPath,
+						PhysicalPath,
+						Error))
+						return {Asset::EAssetError::InvalidPath, std::move(Error)};
+					std::string ActualHash;
+					if (!HashStaticMeshSource(PhysicalPath, ActualHash, Error))
+						return {Asset::EAssetError::IoError, std::move(Error)};
+					if (ActualHash != Mesh->SourceImportData.SourceContentHash)
+						return {
+							Asset::EAssetError::CorruptFile,
+							std::format(
+								"Legacy static-mesh source hash mismatch for '{}'.",
+								MigratedPath.Path)};
+					Mesh->SourceImportData.SourcePath = std::move(MigratedPath);
+					Mesh->SourceImportData.LegacySourcePath.clear();
+					OutIssues.push_back({
+						.DeclaringClass = "Durin::FStaticMeshSourceImportData",
+						.LegacyFields = {*It},
+						.Classification = Asset::EAssetCompatibilityClassification::Migrated,
+						.MigrationSummary = std::format(
+							"Migrated static-mesh source provenance to '{}'.",
+							Mesh->SourceImportData.SourcePath.Path),
+						.MigratedDataCount = 1,
+						.Risk = Asset::EAssetCompatibilityRisk::None});
+					return {};
+				});
 			Asset::RegisterAssetMoveContributor(DStaticMesh::StaticClass(), [](
 				DObject*, const FAssetPath&, const FAssetPath&, Asset::FAssetMoveContribution&) -> Asset::FAssetResult {
 				// Source provenance is independent of package placement.
@@ -1289,7 +1336,7 @@ namespace Durin
 					EStaticMeshSourceStatus::Missing,
 					PhysicalPath.generic_string(),
 					std::format("Static mesh source is missing: {}. Use source-path repair to select its replacement.",
-						SourceImportData.SourcePath)};
+						SourceImportData.SourcePath.Path)};
 			}
 			return {EStaticMeshSourceStatus::Available, PhysicalPath.generic_string(), {}};
 		}
@@ -1343,7 +1390,7 @@ namespace Durin
 		const FStaticMeshImportSettings PreviousLegacySettings = ImportSettings;
 		const FStaticMeshImportSettings EffectiveSettings = GetImportSettings();
 		SourceImportData = {
-			.SourcePath = std::move(StoredPath),
+			.SourcePath = {.Path = std::move(StoredPath)},
 			.SourceContentHash = std::move(SourceHash),
 			.ImporterId = std::string(StaticMeshImporterId),
 			.ImporterVersion = StaticMeshAssimpImporterVersion,
@@ -1430,7 +1477,7 @@ namespace Durin
 		Asset::FAssetResult CreateResult = Asset::CreateAsset(ParsedAssetPath, Mesh);
 		if (!CreateResult) return {false, CreateResult.Message, nullptr};
 		Mesh->SourceImportData = {
-			.SourcePath = StoredSourcePath,
+			.SourcePath = {.Path = StoredSourcePath},
 			.SourceContentHash = std::move(SourceHash),
 			.ImporterId = std::string(StaticMeshImporterId),
 			.ImporterVersion = StaticMeshAssimpImporterVersion,
