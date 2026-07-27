@@ -70,6 +70,11 @@ namespace Durin
 			return false;
 		}
 		if (!FPaths::SetProjectFile(Normalized, OutError)) return false;
+		if (!PathUtilities::ValidateDefaultMountPoints(OutError))
+		{
+			FPaths::SetProjectFile({});
+			return false;
+		}
 		FProjectInfo Info;
 		Info.Name = ProjectName;
 		Info.ProjectFile = Normalized;

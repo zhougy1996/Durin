@@ -67,7 +67,10 @@ namespace Durin
 			FPlatformProcess::CurrentProcessId()
 		);
 		if (!FPaths::ProjectFile().empty()) DURIN_DEBUG(STR("Project file: {}"), FPaths::ProjectFile());
-		PathUtilities::InitDefaultMountPoints(); // Initialize default mount points to enable path resolving.
+		std::string MountError;
+		checkf(
+			PathUtilities::InitDefaultMountPoints(&MountError),
+			"Failed to initialize mount registry: {}", MountError);
 		InitEngineThreadPool();
 
 		FModuleManager::Get().LoadModule("RenderCore");

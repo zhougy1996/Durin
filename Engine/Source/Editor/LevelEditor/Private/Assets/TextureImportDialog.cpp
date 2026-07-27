@@ -16,25 +16,9 @@ namespace Durin
 		auto FindOwningMount(std::string_view VirtualPath)
 			-> const PathUtilities::FMountPoint*
 		{
-			const auto& Mounts = PathUtilities::GetRegisteredMountPoints();
-			const auto It = std::ranges::find_if(Mounts,
-				[VirtualPath](const PathUtilities::FMountPoint& Mount) {
-					return VirtualPath.starts_with(Mount.VirtualRoot);
-				});
-			return It == Mounts.end() ? nullptr : &*It;
-		}
-
-		auto GetMountOwnerRoot(const PathUtilities::FMountPoint& Mount)
-			-> std::filesystem::path
-		{
-			std::filesystem::path ContentRoot =
-				std::filesystem::path(Mount.PhysicalPath).lexically_normal();
-			if (ContentRoot.filename().empty()) ContentRoot = ContentRoot.parent_path();
-			std::string DirectoryName = ContentRoot.filename().generic_string();
-			std::ranges::transform(DirectoryName, DirectoryName.begin(), [](char Value) {
-				return static_cast<char>(std::tolower(static_cast<unsigned char>(Value)));
-			});
-			return DirectoryName == "content" ? ContentRoot.parent_path() : ContentRoot;
+			const PathUtilities::FMountLookupResult Lookup =
+				PathUtilities::FindMountForVirtualPath(VirtualPath);
+			return Lookup ? Lookup.Mount : nullptr;
 		}
 
 		auto IsPortableTextureSourceDestination(std::string_view Value) -> bool
@@ -130,10 +114,7 @@ namespace Durin
 		FAssetPath ParsedAssetPath;
 		std::string AssetPathError;
 		const bool bAssetPathValid = FAssetPath::TryCreate(AssetPathBuffer.data(), ParsedAssetPath, &AssetPathError);
-		bool bMountedDestination = false;
-		if (bAssetPathValid)
-			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-				if (ParsedAssetPath.GetView().starts_with(Mount.VirtualRoot)) { bMountedDestination = true; break; }
+		const bool bMountedDestination = bAssetPathValid;
 		const bool bAssetExists = bAssetPathValid && (Asset::GetAssetRegistry().FindAsset(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath));
 		const std::filesystem::path SourceDestination(SourceDestinationBuffer.data());
 		const bool bSourceDestinationValid =
@@ -247,26 +228,27 @@ namespace Durin
 		Request.Title = "Choose a Texture Asset Path";
 		Request.Filters = {{"Durin Asset", "*.dasset"}};
 		Request.DefaultFileName = SourcePathBuffer[0] != '\0' ? StringUtils::SanitizeFileName(std::filesystem::path(SourcePathBuffer.data()).stem().generic_string(), "Texture") + ".dasset" : "Texture.dasset";
-		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-			if (const FProjectInfo* Project = GetCurrentProject(); Project && Mount.VirtualRoot == Project->MountRoot) { Request.InitialDirectory = Mount.PhysicalPath; break; }
+		if (const FProjectInfo* Project = GetCurrentProject())
+		{
+			const PathUtilities::FMountLookupResult Lookup =
+				PathUtilities::FindMountForVirtualPath(Project->MountRoot + std::string("Destination"));
+			if (Lookup && Lookup.Mount->ContentRoot)
+				Request.InitialDirectory = Lookup.Mount->ContentRoot->generic_string();
+		}
 
 		const FFileDialogResult Result = SaveFileDialog(Request);
 		if (Result.Status == EFileDialogStatus::Cancelled) return;
 		if (Result.Status == EFileDialogStatus::Error) { SetError(Result.ErrorMessage); return; }
-		std::string SelectedPath = std::filesystem::absolute(Result.FilePath).lexically_normal().generic_string();
-		std::ranges::transform(SelectedPath, SelectedPath.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
-		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+		const PathUtilities::FContentPathResult Classified =
+			PathUtilities::ClassifyContentPath(Result.FilePath);
+		if (Classified)
 		{
-			std::string MountPath = std::filesystem::absolute(Mount.PhysicalPath).lexically_normal().generic_string();
-			if (!MountPath.ends_with('/')) MountPath += '/';
-			std::ranges::transform(MountPath, MountPath.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
-			if (!SelectedPath.starts_with(MountPath)) continue;
-			std::filesystem::path RelativePath = std::filesystem::path(Result.FilePath).lexically_relative(std::filesystem::path(Mount.PhysicalPath));
-			RelativePath.replace_extension();
-			const std::string VirtualPath = Mount.VirtualRoot + RelativePath.generic_string();
-			if (VirtualPath.size() >= AssetPathBuffer.size()) { SetError("The selected asset path is too long for the import form."); return; }
+			std::filesystem::path VirtualPath(Classified.NormalizedVirtualPath);
+			VirtualPath.replace_extension();
+			const std::string VirtualPathString = VirtualPath.generic_string();
+			if (VirtualPathString.size() >= AssetPathBuffer.size()) { SetError("The selected asset path is too long for the import form."); return; }
 			AssetPathBuffer.fill(0);
-			std::memcpy(AssetPathBuffer.data(), VirtualPath.data(), VirtualPath.size());
+			std::memcpy(AssetPathBuffer.data(), VirtualPathString.data(), VirtualPathString.size());
 			LastSuggestedAssetPath.clear();
 			return;
 		}
@@ -289,8 +271,12 @@ namespace Durin
 			return;
 		}
 
-		const std::filesystem::path OwnerRoot = GetMountOwnerRoot(*Mount);
-		const std::filesystem::path SourceRoot = OwnerRoot / "SourceAssets";
+		if (!Mount->SourceAssetsRoot)
+		{
+			SetError("The selected asset mount has no SourceAssets domain.");
+			return;
+		}
+		const std::filesystem::path& SourceRoot = *Mount->SourceAssetsRoot;
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
 		Request.Title = "Choose Texture Source Copy Destination";
@@ -314,10 +300,15 @@ namespace Durin
 			return;
 		}
 
-		const std::filesystem::path Selected =
-			std::filesystem::absolute(Result.FilePath).lexically_normal();
-		const std::filesystem::path Relative = Selected.lexically_relative(OwnerRoot);
-		const std::string PortablePath = Relative.generic_string();
+		const PathUtilities::FSourcePathResult Classified =
+			PathUtilities::ClassifySourcePath(Result.FilePath);
+		if (!Classified || Classified.Mount != Mount)
+		{
+			SetError("Texture source copies must stay beneath this mount's SourceAssets directory.");
+			return;
+		}
+		const std::string PortablePath =
+			(std::filesystem::path("SourceAssets") / Classified.RelativePath).generic_string();
 		if (!IsPortableTextureSourceDestination(PortablePath))
 		{
 			SetError("Texture source copies must stay beneath this mount's SourceAssets directory.");

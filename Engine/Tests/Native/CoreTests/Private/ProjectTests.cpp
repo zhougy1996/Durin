@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include "CoreGlobals.h"
+#include "HAL/PlatformLTS.h"
 #include "HAL/PlatformProcess.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -97,6 +99,93 @@ TEST(FProjectTests, ExplicitBrowserSkipsRecentProject)
 	std::string Error;
 	EXPECT_TRUE(Durin::InitializeCurrentProject(Arguments, &Error));
 	EXPECT_FALSE(Durin::HasCurrentProject());
+}
+
+TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
+{
+	Durin::PathUtilities::FScopedMountRegistryFixture Registry;
+	const std::string Valid = WriteProject(
+		"Mounted",
+		R"({
+			"ProjectName":"Mounted",
+			"Mounts":[
+				{
+					"VirtualRoot":"/Plugins/PCG/",
+					"Owner":"Extension",
+					"Root":"Extensions/PCG",
+					"Domains":{"Content":"Content","SourceAssets":"SourceAssets"},
+					"SourceWritable":false,
+					"Dependencies":["/Engine/"]
+				},
+				{
+					"VirtualRoot":"/Libraries/StudioArt/",
+					"Owner":"ExternalSources",
+					"Root":"Libraries/StudioArt",
+					"Domains":{"SourceAssets":"."},
+					"SourceWritable":false,
+					"Dependencies":["/Engine/"]
+				}
+			]
+		})");
+	const std::filesystem::path MountedRoot = std::filesystem::path(Valid).parent_path();
+	std::filesystem::create_directories(MountedRoot / "Content");
+	std::filesystem::create_directories(MountedRoot / "SourceAssets");
+	std::filesystem::create_directories(MountedRoot / "Extensions/PCG/Content");
+	std::filesystem::create_directories(MountedRoot / "Extensions/PCG/SourceAssets");
+	std::filesystem::create_directories(MountedRoot / "Libraries/StudioArt");
+	std::ofstream(MountedRoot / "Extensions/PCG/SourceAssets/Noise.png") << "noise";
+	const std::array<std::string, 1> ValidOwned{std::format("--project={}", Valid)};
+	const std::array<std::string_view, 1> ValidArguments{ValidOwned[0]};
+	std::string Error;
+	ASSERT_TRUE(Durin::InitializeCurrentProject(ValidArguments, &Error)) << Error;
+	ASSERT_NE(Durin::GetCurrentProject(), nullptr);
+	EXPECT_EQ(Durin::GetCurrentProject()->MountRoot, "/Game/");
+	if (!Durin::GIsGameThreadIdInitialized)
+	{
+		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+		Durin::GIsGameThreadIdInitialized = true;
+	}
+	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints(&Error)) << Error;
+	EXPECT_TRUE(Durin::PathUtilities::ResolveContentPath("/Game/Levels/Test"));
+	EXPECT_TRUE(Durin::PathUtilities::ResolveContentPath("/Engine/StaticMeshes/Box"));
+	EXPECT_TRUE(Durin::PathUtilities::ResolveSourcePath("/Plugins/PCG/Noise.png"));
+	EXPECT_EQ(
+		Durin::PathUtilities::ResolveContentPath("/Libraries/StudioArt/Texture").Error,
+		Durin::PathUtilities::EMountPathError::UnsupportedDomain);
+	EXPECT_TRUE(Durin::PathUtilities::CheckMountDependency("/Game/Asset", "/Engine/Source"));
+	EXPECT_TRUE(Durin::PathUtilities::CheckMountDependency("/Game/Asset", "/Plugins/PCG/Source"));
+	EXPECT_EQ(
+		Durin::PathUtilities::CheckMountDependency("/Engine/Asset", "/Game/Source").Error,
+		Durin::PathUtilities::EMountPathError::ForbiddenDependency);
+
+	const std::array InvalidDescriptors{
+		WriteProject(
+			"UnknownField",
+			R"({"ProjectName":"UnknownField","Mounts":[{
+				"VirtualRoot":"/Libraries/Art/","Owner":"ExternalSources",
+				"Root":"Art","Domains":{"SourceAssets":"."},"SourceWritable":false,
+				"Dependencies":["/Engine/"],"Unexpected":true}]})"),
+		WriteProject(
+			"BuiltInOverride",
+			R"({"ProjectName":"BuiltInOverride","Mounts":[{
+				"VirtualRoot":"/Engine/","Owner":"Extension",
+				"Root":"Plugin","Domains":{"Content":"Content"},"SourceWritable":false,
+				"Dependencies":[]}]})"),
+		WriteProject(
+			"Traversal",
+			R"({"ProjectName":"Traversal","Mounts":[{
+				"VirtualRoot":"/Libraries/Art/","Owner":"ExternalSources",
+				"Root":"../Art","Domains":{"SourceAssets":"."},"SourceWritable":false,
+				"Dependencies":["/Engine/"]}]})")};
+	for (const std::string& Descriptor : InvalidDescriptors)
+	{
+		const std::array<std::string, 1> Owned{std::format("--project={}", Descriptor)};
+		const std::array<std::string_view, 1> Arguments{Owned[0]};
+		Error.clear();
+		EXPECT_FALSE(Durin::InitializeCurrentProject(Arguments, &Error));
+		EXPECT_FALSE(Error.empty());
+		EXPECT_FALSE(Durin::HasCurrentProject());
+	}
 }
 
 TEST_F(FProjectHistoryTest, RecordsNewestFirstDeduplicatesAndCapsHistory)

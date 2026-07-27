@@ -41,22 +41,28 @@ namespace Durin
 
 		auto FindOwningMount(std::string_view VirtualPath) -> const PathUtilities::FMountPoint*
 		{
-			const auto& Mounts = PathUtilities::GetRegisteredMountPoints();
-			const auto It = std::ranges::find_if(Mounts, [VirtualPath](const PathUtilities::FMountPoint& Mount) {
-				return VirtualPath.starts_with(Mount.VirtualRoot);
-			});
-			return It != Mounts.end() ? &*It : nullptr;
+			const PathUtilities::FMountLookupResult Lookup =
+				PathUtilities::FindMountForVirtualPath(VirtualPath);
+			return Lookup ? Lookup.Mount : nullptr;
 		}
 
-		auto GetMountOwnerRoot(const PathUtilities::FMountPoint& Mount) -> std::filesystem::path
+		auto ResolveOwnedSource(
+			const PathUtilities::FMountPoint& Mount,
+			const std::filesystem::path& StoredPath,
+			PathUtilities::EPathExistence Existence,
+			std::filesystem::path& OutPath,
+			std::string& OutError) -> bool
 		{
-			std::filesystem::path ContentRoot = std::filesystem::path(Mount.PhysicalPath).lexically_normal();
-			if (ContentRoot.filename().empty()) ContentRoot = ContentRoot.parent_path();
-			std::string DirectoryName = ContentRoot.filename().generic_string();
-			std::ranges::transform(DirectoryName, DirectoryName.begin(), [](char Value) {
-				return static_cast<char>(std::tolower(static_cast<unsigned char>(Value)));
-			});
-			return DirectoryName == "content" ? ContentRoot.parent_path() : ContentRoot;
+			const std::filesystem::path Relative = StoredPath.lexically_relative(SourceAssetsRoot);
+			const PathUtilities::FSourcePathResult Resolved =
+				PathUtilities::ResolveSourcePath(Mount.VirtualRoot + Relative.generic_string(), Existence);
+			if (!Resolved)
+			{
+				OutError = Resolved.Message;
+				return false;
+			}
+			OutPath = Resolved.PhysicalPath;
+			return true;
 		}
 
 		auto IsPortableTextureSourcePath(std::string_view SourcePath, std::string* OutError = nullptr) -> bool
@@ -120,8 +126,8 @@ namespace Durin
 					StoredPath.extension().generic_string(), Extension);
 				return false;
 			}
-			OutPhysicalPath = (GetMountOwnerRoot(*Mount) / StoredPath).lexically_normal();
-			return true;
+			return ResolveOwnedSource(
+				*Mount, StoredPath, PathUtilities::EPathExistence::AllowMissing, OutPhysicalPath, OutError);
 		}
 
 		auto ResolveTextureSource(
@@ -154,7 +160,12 @@ namespace Durin
 						Texture.GetPackage()->GetPackagePath());
 					return false;
 				}
-				OutPath = (GetMountOwnerRoot(*Mount) / Provenance.Source.SourcePath).lexically_normal();
+				if (!ResolveOwnedSource(
+					*Mount,
+					Provenance.Source.SourcePath,
+					PathUtilities::EPathExistence::AllowMissing,
+					OutPath,
+					OutError)) return false;
 				OutError.clear();
 				return true;
 			}

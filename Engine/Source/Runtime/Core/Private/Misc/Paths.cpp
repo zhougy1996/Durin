@@ -1,6 +1,7 @@
 #include "Misc/Paths.h"
 
 #include "HAL/PlatformProcess.h"
+#include "Json/Json.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -94,55 +95,656 @@ namespace Durin
 
 	namespace PathUtilities
 	{
-		static std::vector<FMountPoint> MountPoints;
-
-		auto GetRegisteredMountPoints() -> const std::vector<FMountPoint>&
+		namespace
 		{
-			return MountPoints;
+			std::vector<FMountPoint> MountPoints;
+			bool bRegistryPublished = false;
+			bool bSuppressMountLog = false;
+
+			auto FoldAscii(std::string_view Text) -> std::string
+			{
+				std::string Folded(Text);
+				std::ranges::transform(Folded, Folded.begin(), [](const char Character) {
+					return Character >= 'A' && Character <= 'Z' ? static_cast<char>(Character - 'A' + 'a') : Character;
+				});
+				return Folded;
+			}
+
+			auto SamePathComponent(const std::filesystem::path& A, const std::filesystem::path& B) -> bool
+			{
+#if PLATFORM_WINDOWS
+				return FoldAscii(A.generic_string()) == FoldAscii(B.generic_string());
+#else
+				return A == B;
+#endif
+			}
+
+			auto IsPathWithin(const std::filesystem::path& Root, const std::filesystem::path& Candidate) -> bool
+			{
+				auto RootIt = Root.begin();
+				auto CandidateIt = Candidate.begin();
+				for (; RootIt != Root.end(); ++RootIt, ++CandidateIt)
+				{
+					if (CandidateIt == Candidate.end() || !SamePathComponent(*RootIt, *CandidateIt)) return false;
+				}
+				return true;
+			}
+
+			auto FailLookup(EMountPathError Error, std::string Message) -> FMountLookupResult
+			{
+				return {.Error = Error, .Message = std::move(Message)};
+			}
+
+			template<typename TResult>
+			auto FailDomain(
+				const FMountLookupResult& Lookup,
+				EMountPathError Error,
+				std::string Message
+			) -> TResult
+			{
+				TResult Result;
+				Result.Mount = Lookup.Mount;
+				Result.NormalizedVirtualPath = Lookup.NormalizedVirtualPath;
+				Result.RelativePath = Lookup.RelativePath;
+				Result.Error = Error;
+				Result.Message = std::move(Message);
+				return Result;
+			}
+
+			auto ValidateVirtualRoot(std::string_view Root, std::string* OutError) -> bool
+			{
+				if (Root.size() < 3 || Root.front() != '/' || Root.back() != '/' || Root.find('\\') != std::string_view::npos)
+				{
+					if (OutError) *OutError = std::format("Mount root '{}' must be absolute and use leading/trailing forward slashes.", Root);
+					return false;
+				}
+				size_t Start = 1;
+				while (Start + 1 < Root.size())
+				{
+					const size_t End = Root.find('/', Start);
+					const std::string_view Segment = Root.substr(Start, End - Start);
+					if (Segment.empty() || Segment == "." || Segment == "..")
+					{
+						if (OutError) *OutError = std::format("Mount root '{}' contains an invalid segment.", Root);
+						return false;
+					}
+					Start = End + 1;
+				}
+				return true;
+			}
+
+			auto NormalizeAbsolute(const std::filesystem::path& Path, std::error_code& Error) -> std::filesystem::path
+			{
+				std::filesystem::path Absolute = std::filesystem::absolute(Path, Error);
+				if (Error) return {};
+				Absolute = Absolute.lexically_normal();
+				if (Absolute.filename().empty()) Absolute = Absolute.parent_path();
+				return Absolute;
+			}
+
+			auto ValidateRelativeDefinitionPath(std::string_view Text) -> bool
+			{
+				if (Text.empty()) return false;
+				const std::filesystem::path Path(Text);
+				if (Path.is_absolute() || Path.has_root_name()) return false;
+				for (const std::filesystem::path& Segment : Path)
+					if (Segment == ".." || Segment.empty()) return false;
+				return true;
+			}
+
+			auto CanonicalRoot(const std::filesystem::path& Root, std::error_code& Error) -> std::filesystem::path
+			{
+				return std::filesystem::weakly_canonical(Root, Error).lexically_normal();
+			}
+
+			auto CanonicalCandidateForContainment(
+				const std::filesystem::path& Candidate,
+				std::error_code& Error
+			) -> std::filesystem::path
+			{
+				std::filesystem::path Existing = Candidate;
+				std::vector<std::filesystem::path> Missing;
+				auto Exists = [&](const std::filesystem::path& Path) {
+					const bool bExists = std::filesystem::exists(Path, Error);
+					if (Error == std::errc::no_such_file_or_directory
+						|| Error == std::errc::not_a_directory) Error.clear();
+					return bExists;
+				};
+				while (!Existing.empty() && !Exists(Existing))
+				{
+					if (Error) return {};
+					Missing.push_back(Existing.filename());
+					const std::filesystem::path Parent = Existing.parent_path();
+					if (Parent == Existing) break;
+					Existing = Parent;
+				}
+				if (Existing.empty() || !Exists(Existing)) return {};
+				std::filesystem::path Resolved = std::filesystem::canonical(Existing, Error);
+				if (Error) return {};
+				for (auto It = Missing.rbegin(); It != Missing.rend(); ++It) Resolved /= *It;
+				return Resolved.lexically_normal();
+			}
+
+			template<typename TResult>
+			auto ResolveDomain(
+				std::string_view VirtualPath,
+				const std::optional<std::filesystem::path> FMountPoint::* Domain,
+				EPathExistence Existence
+			) -> TResult
+			{
+				const FMountLookupResult Lookup = FindMountForVirtualPath(VirtualPath);
+				if (!Lookup) return FailDomain<TResult>(Lookup, Lookup.Error, Lookup.Message);
+				const std::optional<std::filesystem::path>& Root = Lookup.Mount->*Domain;
+				if (!Root) return FailDomain<TResult>(Lookup, EMountPathError::UnsupportedDomain, "Mount does not declare the requested domain.");
+
+				std::error_code Error;
+				if (!std::filesystem::exists(*Root, Error))
+				{
+					return FailDomain<TResult>(
+						Lookup,
+						Error ? EMountPathError::IoFailure : EMountPathError::UnavailableDomain,
+						Error ? Error.message() : "The requested mount domain is unavailable.");
+				}
+
+				const std::filesystem::path CanonicalDomain = CanonicalRoot(*Root, Error);
+				if (Error) return FailDomain<TResult>(Lookup, EMountPathError::IoFailure, Error.message());
+				const std::filesystem::path Candidate = (*Root / Lookup.RelativePath).lexically_normal();
+				const std::filesystem::path CanonicalCandidate = CanonicalCandidateForContainment(Candidate, Error);
+				if (Error || CanonicalCandidate.empty())
+					return FailDomain<TResult>(Lookup, EMountPathError::IoFailure, Error ? Error.message() : "Failed to resolve physical path.");
+				if (!IsPathWithin(CanonicalDomain, CanonicalCandidate))
+					return FailDomain<TResult>(Lookup, EMountPathError::EscapedRoot, "Physical path escapes its mounted domain.");
+				if (Existence == EPathExistence::RequireFile && !std::filesystem::is_regular_file(Candidate, Error))
+				{
+					if (Error == std::errc::no_such_file_or_directory
+						|| Error == std::errc::not_a_directory) Error.clear();
+					return FailDomain<TResult>(
+						Lookup,
+						Error ? EMountPathError::IoFailure : EMountPathError::MissingFile,
+						Error ? Error.message() : "The requested file does not exist.");
+				}
+
+				TResult Result;
+				Result.Mount = Lookup.Mount;
+				Result.NormalizedVirtualPath = Lookup.NormalizedVirtualPath;
+				Result.RelativePath = Lookup.RelativePath;
+				Result.PhysicalPath = Candidate;
+				return Result;
+			}
+
+			template<typename TResult>
+			auto ClassifyDomain(
+				const std::filesystem::path& PhysicalPath,
+				const std::optional<std::filesystem::path> FMountPoint::* Domain
+			) -> TResult
+			{
+				std::error_code Error;
+				const std::filesystem::path Candidate = CanonicalCandidateForContainment(PhysicalPath, Error);
+				if (Error || Candidate.empty())
+				{
+					TResult Result;
+					Result.Error = EMountPathError::IoFailure;
+					Result.Message = Error ? Error.message() : "Failed to classify physical path.";
+					return Result;
+				}
+
+				const FMountPoint* Best = nullptr;
+				std::filesystem::path BestRoot;
+				for (const FMountPoint& Mount : MountPoints)
+				{
+					const std::optional<std::filesystem::path>& Root = Mount.*Domain;
+					if (!Root || !std::filesystem::exists(*Root, Error)) { Error.clear(); continue; }
+					const std::filesystem::path CanonicalDomain = CanonicalRoot(*Root, Error);
+					if (Error) { Error.clear(); continue; }
+					if (IsPathWithin(CanonicalDomain, Candidate)
+						&& (!Best || CanonicalDomain.native().size() > BestRoot.native().size()))
+					{
+						Best = &Mount;
+						BestRoot = CanonicalDomain;
+					}
+				}
+				if (!Best)
+				{
+					TResult Result;
+					Result.Error = EMountPathError::UnknownMount;
+					Result.Message = "Physical path is outside every registered domain.";
+					return Result;
+				}
+
+				std::filesystem::path Relative = Candidate.lexically_relative(BestRoot);
+				if (Relative == ".") Relative.clear();
+				TResult Result;
+				Result.Mount = Best;
+				Result.RelativePath = Relative;
+				Result.NormalizedVirtualPath = Relative.empty()
+					? Best->VirtualRoot
+					: Best->VirtualRoot + Relative.generic_string();
+				Result.PhysicalPath = PhysicalPath.lexically_normal();
+				return Result;
+			}
+
+			auto ParseProjectMounts(std::vector<FMountPoint>& Definitions, std::string* OutError) -> bool
+			{
+				if (FPaths::ProjectFile().empty()) return true;
+				FJsonDocument Descriptor;
+				FJsonParseError ParseError;
+				if (!Descriptor.LoadFromFile(FPaths::ProjectFile(), &ParseError))
+				{
+					if (OutError) *OutError = std::format("Invalid project descriptor: {}", ParseError.Message);
+					return false;
+				}
+				const FJsonNodeView Mounts = Descriptor.GetRootView().GetView("Mounts");
+				if (!Mounts.IsValid()) return true;
+				if (!Mounts.IsArray())
+				{
+					if (OutError) *OutError = "Project descriptor Mounts must be an array.";
+					return false;
+				}
+
+				const std::filesystem::path ProjectRoot = std::filesystem::path(FPaths::ProjectFile()).parent_path();
+				for (size_t Index = 0; Index < Mounts.Num(); ++Index)
+				{
+					const FJsonNodeView Entry = Mounts.GetView(Index);
+					if (!Entry.IsObject() || Entry.Num() != 6)
+					{
+						if (OutError) *OutError = std::format("Mounts[{}] must contain exactly six fields.", Index);
+						return false;
+					}
+					constexpr std::array<std::string_view, 6> Fields{
+						"VirtualRoot", "Owner", "Root", "Domains", "SourceWritable", "Dependencies"};
+					bool bUnknownField = false;
+					Entry.ForEachObjectMember([&](const std::string_view Key, FJsonNodeView) {
+						if (std::ranges::find(Fields, Key) == Fields.end()) bUnknownField = true;
+					});
+					if (bUnknownField)
+					{
+						if (OutError) *OutError = std::format("Mounts[{}] contains an unknown field.", Index);
+						return false;
+					}
+
+					std::string VirtualRoot;
+					std::string OwnerText;
+					std::string RootText;
+					bool bSourceWritable = false;
+					const FJsonNodeView Domains = Entry.GetView("Domains");
+					const FJsonNodeView Dependencies = Entry.GetView("Dependencies");
+					if (!Entry.GetChildValue("VirtualRoot", VirtualRoot)
+						|| !Entry.GetChildValue("Owner", OwnerText)
+						|| !Entry.GetChildValue("Root", RootText)
+						|| !Entry.GetChildValue("SourceWritable", bSourceWritable)
+						|| !Domains.IsObject() || Domains.Num() == 0 || Domains.Num() > 2
+						|| !Dependencies.IsArray()
+						|| !ValidateRelativeDefinitionPath(RootText))
+					{
+						if (OutError) *OutError = std::format("Mounts[{}] has invalid field types or paths.", Index);
+						return false;
+					}
+					EMountOwner Owner;
+					if (OwnerText == "Extension") Owner = EMountOwner::Extension;
+					else if (OwnerText == "ExternalSources") Owner = EMountOwner::ExternalSources;
+					else
+					{
+						if (OutError) *OutError = std::format("Mounts[{}].Owner is invalid.", Index);
+						return false;
+					}
+					bool bUnknownDomain = false;
+					Domains.ForEachObjectMember([&](const std::string_view Key, FJsonNodeView Value) {
+						if ((Key != "Content" && Key != "SourceAssets") || !Value.IsString()) bUnknownDomain = true;
+					});
+					if (bUnknownDomain)
+					{
+						if (OutError) *OutError = std::format("Mounts[{}].Domains contains an invalid field.", Index);
+						return false;
+					}
+
+					const std::filesystem::path OwnerRoot = (ProjectRoot / RootText).lexically_normal();
+					FMountPoint Definition{
+						.VirtualRoot = std::move(VirtualRoot),
+						.Owner = Owner,
+						.OwnerRoot = OwnerRoot,
+						.bSourceWritable = bSourceWritable};
+					for (const std::string_view DomainName : {"Content", "SourceAssets"})
+					{
+						if (!Domains.Contains(DomainName)) continue;
+						const std::string DomainText = Domains.GetView(DomainName).GetString();
+						if (!ValidateRelativeDefinitionPath(DomainText))
+						{
+							if (OutError) *OutError = std::format("Mounts[{}].Domains.{} is invalid.", Index, DomainName);
+							return false;
+						}
+						const std::filesystem::path DomainRoot = (OwnerRoot / DomainText).lexically_normal();
+						if (DomainName == "Content") Definition.ContentRoot = DomainRoot;
+						else Definition.SourceAssetsRoot = DomainRoot;
+					}
+					for (size_t DependencyIndex = 0; DependencyIndex < Dependencies.Num(); ++DependencyIndex)
+					{
+						const FJsonNodeView Dependency = Dependencies.GetView(DependencyIndex);
+						if (!Dependency.IsString())
+						{
+							if (OutError) *OutError = std::format("Mounts[{}].Dependencies must contain strings.", Index);
+							return false;
+						}
+						Definition.Dependencies.push_back(Dependency.GetString());
+					}
+					Definitions.push_back(std::move(Definition));
+				}
+				return true;
+			}
+
+			auto BuildDefaultMountDefinitions(
+				std::vector<FMountPoint>& Definitions,
+				std::string* OutError
+			) -> bool
+			{
+				const std::filesystem::path EngineRoot = FPaths::EngineDir();
+				Definitions = {{
+					.VirtualRoot = "/Engine/",
+					.Owner = EMountOwner::Engine,
+					.OwnerRoot = EngineRoot,
+					.ContentRoot = EngineRoot / "Content",
+					.SourceAssetsRoot = EngineRoot / "SourceAssets",
+					.bSourceWritable = true}};
+				if (FPaths::ProjectFile().empty()) return true;
+
+				const std::filesystem::path ProjectRoot =
+					std::filesystem::path(FPaths::ProjectFile()).parent_path();
+				Definitions.push_back({
+					.VirtualRoot = std::string(ProjectContentMountRoot),
+					.Owner = EMountOwner::ActiveProject,
+					.OwnerRoot = ProjectRoot,
+					.ContentRoot = ProjectRoot / "Content",
+					.SourceAssetsRoot = ProjectRoot / "SourceAssets",
+					.bSourceWritable = true,
+					.Dependencies = {"/Engine/"}});
+				if (!ParseProjectMounts(Definitions, OutError)) return false;
+				for (size_t Index = 2; Index < Definitions.size(); ++Index)
+					Definitions[1].Dependencies.push_back(Definitions[Index].VirtualRoot);
+				return true;
+			}
 		}
 
-		static auto RegisterMountPointWithoutSorting(std::string_view VirtualRoot, std::string_view PhysicalPath) -> void
-		{
-			const auto FoundIt = std::ranges::find_if(MountPoints, [VirtualRoot](const FMountPoint& MountPoint) {
-				return MountPoint.VirtualRoot == VirtualRoot;
-			});
+		auto GetRegisteredMountPoints() -> std::span<const FMountPoint> { return MountPoints; }
 
-			if (FoundIt != MountPoints.end())
+		auto FindMountForVirtualPath(std::string_view VirtualPath) -> FMountLookupResult
+		{
+			if (VirtualPath.empty() || VirtualPath.front() != '/' || VirtualPath.find('\\') != std::string_view::npos)
+				return FailLookup(EMountPathError::InvalidVirtualPath, "Virtual path must be absolute and use forward slashes.");
+			if (VirtualPath.back() == '/') return FailLookup(EMountPathError::InvalidRelativePath, "Virtual path must name an entry.");
+
+			const std::string FoldedPath = FoldAscii(VirtualPath);
+			for (const FMountPoint& Mount : MountPoints)
 			{
-				FoundIt->PhysicalPath = PhysicalPath;
+				const std::string FoldedRoot = FoldAscii(Mount.VirtualRoot);
+				if (!FoldedPath.starts_with(FoldedRoot)) continue;
+				const std::string_view RelativeText = VirtualPath.substr(Mount.VirtualRoot.size());
+				if (RelativeText.empty()) return FailLookup(EMountPathError::InvalidRelativePath, "Virtual path has no relative entry.");
+				size_t Start = 0;
+				while (Start < RelativeText.size())
+				{
+					const size_t End = RelativeText.find('/', Start);
+					const std::string_view Segment = RelativeText.substr(
+						Start, End == std::string_view::npos ? RelativeText.size() - Start : End - Start);
+					if (Segment.empty() || Segment == "." || Segment == "..")
+						return FailLookup(EMountPathError::InvalidRelativePath, "Virtual path contains an invalid segment.");
+					Start = End == std::string_view::npos ? RelativeText.size() : End + 1;
+				}
+				return {
+					.Mount = &Mount,
+					.NormalizedVirtualPath = Mount.VirtualRoot + std::string(RelativeText),
+					.RelativePath = std::filesystem::path(RelativeText)};
 			}
-			else
+			return FailLookup(EMountPathError::UnknownMount, "Virtual path does not use a registered mount.");
+		}
+
+		auto ResolveContentPath(std::string_view VirtualPath, EPathExistence Existence) -> FContentPathResult
+		{
+			return ResolveDomain<FContentPathResult>(VirtualPath, &FMountPoint::ContentRoot, Existence);
+		}
+
+		auto ResolveSourcePath(std::string_view VirtualPath, EPathExistence Existence) -> FSourcePathResult
+		{
+			return ResolveDomain<FSourcePathResult>(VirtualPath, &FMountPoint::SourceAssetsRoot, Existence);
+		}
+
+		auto ClassifyContentPath(const std::filesystem::path& PhysicalPath) -> FContentPathResult
+		{
+			return ClassifyDomain<FContentPathResult>(PhysicalPath, &FMountPoint::ContentRoot);
+		}
+
+		auto ClassifySourcePath(const std::filesystem::path& PhysicalPath) -> FSourcePathResult
+		{
+			return ClassifyDomain<FSourcePathResult>(PhysicalPath, &FMountPoint::SourceAssetsRoot);
+		}
+
+		auto CheckMountDependency(
+			std::string_view ReferencingVirtualPath,
+			std::string_view ReferencedVirtualPath
+		) -> FMountPolicyResult
+		{
+			const FMountLookupResult Referencing = FindMountForVirtualPath(ReferencingVirtualPath);
+			const FMountLookupResult Referenced = FindMountForVirtualPath(ReferencedVirtualPath);
+			FMountPolicyResult Result{
+				.ReferencingMount = Referencing.Mount,
+				.ReferencedMount = Referenced.Mount};
+			if (!Referencing || !Referenced)
 			{
-				MountPoints.push_back({std::string(VirtualRoot), std::string(PhysicalPath)});
-				DURIN_DEBUG("Mount point: {} -> {}", VirtualRoot, PhysicalPath);
+				Result.Error = !Referencing ? Referencing.Error : Referenced.Error;
+				Result.Message = !Referencing ? Referencing.Message : Referenced.Message;
+				return Result;
 			}
+			if (FoldAscii(Referencing.Mount->VirtualRoot) == FoldAscii(Referenced.Mount->VirtualRoot)
+				|| std::ranges::any_of(Referencing.Mount->Dependencies, [&](const std::string& Dependency) {
+					return FoldAscii(Dependency) == FoldAscii(Referenced.Mount->VirtualRoot);
+				})) return Result;
+			Result.Error = EMountPathError::ForbiddenDependency;
+			Result.Message = std::format(
+				"Mount {} may not depend on {}.", Referencing.Mount->VirtualRoot, Referenced.Mount->VirtualRoot);
+			return Result;
+		}
+
+		auto CheckSourceMutation(
+			std::string_view AuthoringVirtualPath,
+			std::string_view SourceVirtualPath,
+			bool bEngineAuthoringContext
+		) -> FMountPolicyResult
+		{
+			FMountPolicyResult Result = CheckMountDependency(AuthoringVirtualPath, SourceVirtualPath);
+			if (!Result) return Result;
+			if (!Result.ReferencedMount->SourceAssetsRoot)
+			{
+				Result.Error = EMountPathError::UnsupportedDomain;
+				Result.Message = "Referenced mount has no SourceAssets domain.";
+			}
+			else if (!Result.ReferencedMount->bSourceWritable
+				|| Result.ReferencingMount != Result.ReferencedMount
+				|| (Result.ReferencedMount->Owner == EMountOwner::Engine && !bEngineAuthoringContext))
+			{
+				Result.Error = EMountPathError::ReadOnlySource;
+				Result.Message = "The authoring context may not mutate this source mount.";
+			}
+			return Result;
+		}
+
+		auto PublishMountRegistry(std::span<const FMountPoint> Definitions, std::string* OutError) -> bool
+		{
+			if (bRegistryPublished)
+			{
+				if (OutError) *OutError = "Mount registry has already been published.";
+				return false;
+			}
+			std::vector<FMountPoint> Validated;
+			Validated.reserve(Definitions.size());
+			std::unordered_set<std::string> Roots;
+			for (FMountPoint Definition : Definitions)
+			{
+				if (!ValidateVirtualRoot(Definition.VirtualRoot, OutError)) return false;
+				const std::string Identity = FoldAscii(Definition.VirtualRoot);
+				if (!Roots.insert(Identity).second)
+				{
+					if (OutError) *OutError = std::format("Duplicate mount root '{}'.", Definition.VirtualRoot);
+					return false;
+				}
+				if (!Definition.ContentRoot && !Definition.SourceAssetsRoot)
+				{
+					if (OutError) *OutError = std::format("Mount '{}' declares no domains.", Definition.VirtualRoot);
+					return false;
+				}
+				std::error_code Error;
+				Definition.OwnerRoot = NormalizeAbsolute(Definition.OwnerRoot, Error);
+				if (Error)
+				{
+					if (OutError) *OutError = Error.message();
+					return false;
+				}
+				for (std::optional<std::filesystem::path>* Domain : {&Definition.ContentRoot, &Definition.SourceAssetsRoot})
+				{
+					if (!*Domain) continue;
+					*Domain = NormalizeAbsolute(**Domain, Error);
+					if (Error || !IsPathWithin(Definition.OwnerRoot, **Domain))
+					{
+						if (OutError) *OutError = Error ? Error.message() : std::format(
+							"Mount '{}' domain '{}' escapes owner root '{}'.",
+							Definition.VirtualRoot,
+							(**Domain).generic_string(),
+							Definition.OwnerRoot.generic_string());
+						return false;
+					}
+				}
+				for (const std::string& Dependency : Definition.Dependencies)
+				{
+					if (!ValidateVirtualRoot(Dependency, OutError) || FoldAscii(Dependency) == Identity) return false;
+				}
+				for (const FMountPoint& Existing : Validated)
+				{
+					for (const auto [NewDomain, ExistingDomain] : {
+						std::pair{Definition.ContentRoot, Existing.ContentRoot},
+						std::pair{Definition.SourceAssetsRoot, Existing.SourceAssetsRoot}})
+					{
+						if (!NewDomain || !ExistingDomain) continue;
+						auto ComparableRoot = [&](const std::filesystem::path& Root) {
+							Error.clear();
+							if (!std::filesystem::exists(Root, Error))
+							{
+								Error.clear();
+								return Root.lexically_normal();
+							}
+							const std::filesystem::path Canonical = CanonicalRoot(Root, Error);
+							return Error ? std::filesystem::path{} : Canonical;
+						};
+						const std::filesystem::path NewCanonical = ComparableRoot(*NewDomain);
+						if (Error) { if (OutError) *OutError = Error.message(); return false; }
+						const std::filesystem::path ExistingCanonical = ComparableRoot(*ExistingDomain);
+						if (Error) { if (OutError) *OutError = Error.message(); return false; }
+						if (SamePathComponent(NewCanonical, ExistingCanonical))
+						{
+							if (OutError) *OutError = std::format(
+								"Mounts '{}' and '{}' declare the same canonical domain root.",
+								Definition.VirtualRoot, Existing.VirtualRoot);
+							return false;
+						}
+					}
+				}
+				Validated.push_back(std::move(Definition));
+			}
+			for (const FMountPoint& Definition : Validated)
+			{
+				for (const std::string& Dependency : Definition.Dependencies)
+					if (!Roots.contains(FoldAscii(Dependency)))
+					{
+						if (OutError) *OutError = std::format("Mount '{}' has unknown dependency '{}'.", Definition.VirtualRoot, Dependency);
+						return false;
+					}
+			}
+			std::ranges::sort(Validated, [](const FMountPoint& A, const FMountPoint& B) {
+				return A.VirtualRoot.length() > B.VirtualRoot.length();
+			});
+			MountPoints = std::move(Validated);
+			bRegistryPublished = true;
+			if (!bSuppressMountLog)
+				for (const FMountPoint& Mount : MountPoints) DURIN_DEBUG("Mount point: {}", Mount.VirtualRoot);
+			return true;
+		}
+
+		auto InitDefaultMountPoints(std::string* OutError) -> bool
+		{
+			checkf(IsInGameThread(), "InitDefaultMountPoints must be called from the game thread.");
+			if (bRegistryPublished) return true;
+			std::vector<FMountPoint> Definitions;
+			if (!BuildDefaultMountDefinitions(Definitions, OutError)) return false;
+			return PublishMountRegistry(Definitions, OutError);
+		}
+
+		auto ValidateDefaultMountPoints(std::string* OutError) -> bool
+		{
+			std::vector<FMountPoint> Definitions;
+			if (!BuildDefaultMountDefinitions(Definitions, OutError)) return false;
+			std::vector<FMountPoint> SavedMounts = MountPoints;
+			const bool bSavedPublished = bRegistryPublished;
+			const bool bSavedSuppressMountLog = bSuppressMountLog;
+			MountPoints.clear();
+			bRegistryPublished = false;
+			bSuppressMountLog = true;
+			const bool bValid = PublishMountRegistry(Definitions, OutError);
+			MountPoints = std::move(SavedMounts);
+			bRegistryPublished = bSavedPublished;
+			bSuppressMountLog = bSavedSuppressMountLog;
+			return bValid;
 		}
 
 		auto RegisterMountPoint(std::string_view VirtualRoot, std::string_view PhysicalPath) -> void
 		{
-			checkf(IsInGameThread(), "AddMountPoint must be called from the game thread.");
-			RegisterMountPointWithoutSorting(VirtualRoot, PhysicalPath);
-
-			// Sort the mount points by the length of their virtual root in descending order, so that we can match the longest virtual root first when resolving paths.
+			checkf(IsInGameThread(), "RegisterMountPoint must be called from the game thread.");
+			checkf(!bRegistryPublished, "Mount registry is immutable after publication.");
+			std::error_code DirectoryError;
+			const std::filesystem::path Root = NormalizeAbsolute(PhysicalPath, DirectoryError);
+			checkf(!DirectoryError, "Failed to normalize legacy test mount root.");
+			std::filesystem::create_directories(Root, DirectoryError);
+			checkf(!DirectoryError, "Failed to create legacy test mount root.");
+			std::string Leaf = Root.filename().generic_string();
+			std::ranges::transform(Leaf, Leaf.begin(), [](const char Character) {
+				return Character >= 'A' && Character <= 'Z'
+					? static_cast<char>(Character - 'A' + 'a')
+					: Character;
+			});
+			const std::filesystem::path OwnerRoot = Leaf == "content" ? Root.parent_path() : Root;
+			const std::filesystem::path SourceAssetsRoot = OwnerRoot / "SourceAssets";
+			std::filesystem::create_directories(SourceAssetsRoot, DirectoryError);
+			checkf(!DirectoryError, "Failed to create legacy test SourceAssets root.");
+			const auto Existing = std::ranges::find_if(MountPoints, [&](const FMountPoint& Mount) {
+				return FoldAscii(Mount.VirtualRoot) == FoldAscii(VirtualRoot);
+			});
+			FMountPoint Definition{
+				.VirtualRoot = std::string(VirtualRoot),
+				.Owner = EMountOwner::Test,
+				.OwnerRoot = OwnerRoot,
+				.ContentRoot = Root,
+				.SourceAssetsRoot = SourceAssetsRoot,
+				.bSourceWritable = true};
+			if (Existing == MountPoints.end()) MountPoints.push_back(std::move(Definition));
+			else *Existing = std::move(Definition);
 			std::ranges::sort(MountPoints, [](const FMountPoint& A, const FMountPoint& B) {
 				return A.VirtualRoot.length() > B.VirtualRoot.length();
 			});
 		}
 
-		auto InitDefaultMountPoints() -> void
+		FScopedMountRegistryFixture::FScopedMountRegistryFixture()
+			: SavedMounts(MountPoints)
+			, bSavedPublished(bRegistryPublished)
 		{
-			checkf(IsInGameThread(), "InitDefaultMountPoints must be called from the game thread.");
-			RegisterMountPointWithoutSorting("/Engine/", FPaths::EngineDir() + "Content/");
+			MountPoints.clear();
+			bRegistryPublished = false;
+		}
 
-			if (!FPaths::ProjectFile().empty())
-			{
-				const std::filesystem::path ContentDir = std::filesystem::path(FPaths::ProjectFile()).parent_path() / "Content";
-				RegisterMountPointWithoutSorting(ProjectContentMountRoot, ContentDir.generic_string() + "/");
-			}
+		FScopedMountRegistryFixture::FScopedMountRegistryFixture(std::span<const FMountPoint> Definitions)
+			: FScopedMountRegistryFixture()
+		{
+			PublishMountRegistry(Definitions, &Error);
+		}
 
-			std::ranges::sort(MountPoints, [](const FMountPoint& A, const FMountPoint& B) {
-				return A.VirtualRoot.length() > B.VirtualRoot.length();
-			});
+		FScopedMountRegistryFixture::~FScopedMountRegistryFixture()
+		{
+			MountPoints = std::move(SavedMounts);
+			bRegistryPublished = bSavedPublished;
 		}
 	} // namespace PathUtilities
 
@@ -220,17 +822,9 @@ namespace Durin
 
 	auto FPaths::Resolve(std::string_view VirtualPath) -> std::string
 	{
-		std::string NormalizedVirtualPath = std::filesystem::path{VirtualPath}.lexically_normal().generic_string();
-		for (const auto& MountPoint : PathUtilities::MountPoints)
-		{
-			if (NormalizedVirtualPath.starts_with(MountPoint.VirtualRoot))
-			{
-				std::string RelativePath = std::string(NormalizedVirtualPath.substr(MountPoint.VirtualRoot.size()));
-				return MountPoint.PhysicalPath + RelativePath;
-			}
-		}
-
-		return NormalizedVirtualPath;
+		const PathUtilities::FContentPathResult Result =
+			PathUtilities::ResolveContentPath(VirtualPath, PathUtilities::EPathExistence::AllowMissing);
+		return Result ? Result.PhysicalPath.generic_string() : std::string{};
 	}
 
 } // namespace Durin

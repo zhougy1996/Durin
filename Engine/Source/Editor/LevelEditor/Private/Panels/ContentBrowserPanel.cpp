@@ -63,17 +63,6 @@ namespace Durin
 				.LastWriteTimeTicks = Item.ThumbnailLastWriteTimeTicks};
 		}
 
-		auto GetMountOwnerRoot(const PathUtilities::FMountPoint& Mount) -> std::filesystem::path
-		{
-			std::filesystem::path ContentRoot = std::filesystem::path(Mount.PhysicalPath).lexically_normal();
-			if (ContentRoot.filename().empty()) ContentRoot = ContentRoot.parent_path();
-			std::string DirectoryName = ContentRoot.filename().generic_string();
-			std::ranges::transform(DirectoryName, DirectoryName.begin(), [](char Value) {
-				return static_cast<char>(std::tolower(static_cast<unsigned char>(Value)));
-			});
-			return DirectoryName == "content" ? ContentRoot.parent_path() : ContentRoot;
-		}
-
 		auto FindImageWithStem(const std::filesystem::path& PathWithoutExtension)
 			-> std::filesystem::path
 		{
@@ -107,12 +96,10 @@ namespace Durin
 
 		auto FindTextureSourceFile(const Asset::FAssetData& Data) -> std::filesystem::path
 		{
-			const auto& Mounts = PathUtilities::GetRegisteredMountPoints();
-			const auto Mount = std::ranges::find_if(Mounts,
-				[&Data](const PathUtilities::FMountPoint& Candidate) {
-					return Data.PackagePath.GetView().starts_with(Candidate.VirtualRoot);
-				});
-			if (Mount == Mounts.end()) return {};
+			const PathUtilities::FMountLookupResult Lookup =
+				PathUtilities::FindMountForVirtualPath(Data.PackagePath.GetView());
+			if (!Lookup || !Lookup.Mount->SourceAssetsRoot || !Lookup.Mount->ContentRoot) return {};
+			const PathUtilities::FMountPoint& Mount = *Lookup.Mount;
 
 			Asset::FAssetPackageInspection Inspection;
 			if (Asset::InspectAssetPackage(Data.PhysicalPath, Inspection))
@@ -126,27 +113,26 @@ namespace Durin
 					&& SourceImportData.HasSource()
 					&& IsPortableTextureSourcePath(SourceImportData.Source.SourcePath))
 				{
-					const std::filesystem::path SourcePath =
-						(GetMountOwnerRoot(*Mount) / SourceImportData.Source.SourcePath)
-							.lexically_normal();
-					if (std::filesystem::is_regular_file(SourcePath)
+					const std::filesystem::path Relative =
+						std::filesystem::path(SourceImportData.Source.SourcePath).lexically_relative("SourceAssets");
+					const PathUtilities::FSourcePathResult Resolved =
+						PathUtilities::ResolveSourcePath(Mount.VirtualRoot + Relative.generic_string());
+					if (Resolved
 						&& IsSupportedSourceImageExtension(
-							SourcePath.extension().generic_string()))
-						return SourcePath;
+							Resolved.PhysicalPath.extension().generic_string()))
+						return Resolved.PhysicalPath;
 				}
 			}
 
 			const std::filesystem::path SourceRoot =
-				GetMountOwnerRoot(*Mount) / "SourceAssets" / "Textures";
+				*Mount.SourceAssetsRoot / "Textures";
 			if (const std::filesystem::path Direct =
 				FindImageWithStem(SourceRoot / std::string(Data.PackagePath.GetAssetName()));
 				!Direct.empty())
 				return Direct;
 
-			std::filesystem::path ContentRoot(Mount->PhysicalPath);
-			if (ContentRoot.filename().empty()) ContentRoot = ContentRoot.parent_path();
 			std::filesystem::path RelativePackage =
-				std::filesystem::path(Data.PhysicalPath).lexically_relative(ContentRoot);
+				std::filesystem::path(Data.PhysicalPath).lexically_relative(*Mount.ContentRoot);
 			RelativePackage.replace_extension();
 			return FindImageWithStem(SourceRoot / RelativePackage);
 		}
@@ -340,41 +326,50 @@ namespace Durin
 	auto FContentBrowserPanel::RefreshMountSnapshot() -> void
 	{
 		const auto& RegisteredMounts = PathUtilities::GetRegisteredMountPoints();
-		const bool bUnchanged = RegisteredMounts.size() == MountSnapshot.size() && std::ranges::equal(RegisteredMounts, MountSnapshot, [](const auto& Registered, const FMountSnapshot& Cached) {
-			return Registered.VirtualRoot == Cached.VirtualRoot && Registered.PhysicalPath == Cached.SourcePhysicalRoot;
-		});
+		const size_t ContentMountCount = std::ranges::count_if(
+			RegisteredMounts, [](const PathUtilities::FMountPoint& Mount) { return Mount.ContentRoot.has_value(); });
+		const bool bUnchanged = ContentMountCount == MountSnapshot.size()
+			&& std::ranges::equal(
+				RegisteredMounts | std::views::filter([](const PathUtilities::FMountPoint& Mount) {
+					return Mount.ContentRoot.has_value();
+				}),
+				MountSnapshot,
+				[](const PathUtilities::FMountPoint& Registered, const FMountSnapshot& Cached) {
+					return Registered.VirtualRoot == Cached.VirtualRoot
+						&& Registered.ContentRoot->generic_string() == Cached.SourcePhysicalRoot;
+				});
 		if (bUnchanged) return;
 
 		MountSnapshot.clear();
-		MountSnapshot.reserve(RegisteredMounts.size());
+		MountSnapshot.reserve(ContentMountCount);
 		for (const PathUtilities::FMountPoint& Mount : RegisteredMounts)
-			MountSnapshot.push_back({Mount.VirtualRoot, Mount.PhysicalPath, NormalizePath(Mount.PhysicalPath)});
+			if (Mount.ContentRoot)
+			{
+				const std::string ContentRoot = Mount.ContentRoot->generic_string();
+				MountSnapshot.push_back({Mount.VirtualRoot, ContentRoot, NormalizePath(ContentRoot)});
+			}
 	}
 
 	auto FContentBrowserPanel::PhysicalToVirtualDirectory(std::string_view PhysicalPath) const -> std::string
 	{
-		const std::string Normalized = NormalizePath(PhysicalPath);
-		for (const FMountSnapshot& Mount : MountSnapshot)
-		{
-			std::filesystem::path Relative;
-			if (!PathUtilities::TryMakeLexicalRelativePath(Normalized, Mount.PhysicalRoot, Relative)) continue;
-			std::string Virtual = Mount.VirtualRoot;
-			if (!Relative.empty()) Virtual += Relative.generic_string();
-			if (!Virtual.ends_with('/')) Virtual += '/';
-			return Virtual;
-		}
-		return {};
+		const PathUtilities::FContentPathResult Classified =
+			PathUtilities::ClassifyContentPath(PhysicalPath);
+		if (!Classified) return {};
+		std::string Result = Classified.NormalizedVirtualPath;
+		if (!Result.ends_with('/')) Result += '/';
+		return Result;
 	}
 
 	auto FContentBrowserPanel::VirtualToPhysical(std::string_view VirtualPath) const -> std::string
 	{
-		for (const FMountSnapshot& Mount : MountSnapshot)
-		{
-			if (!VirtualPath.starts_with(Mount.VirtualRoot)) continue;
-			std::string_view Relative = VirtualPath.substr(Mount.VirtualRoot.size());
-			return NormalizePath((std::filesystem::path(Mount.PhysicalRoot) / std::filesystem::path(Relative)).generic_string());
-		}
-		return {};
+		std::string EntryPath(VirtualPath);
+		if (!EntryPath.ends_with('/')) EntryPath += '/';
+		EntryPath += "_directory_";
+		const PathUtilities::FContentPathResult Resolved =
+			PathUtilities::ResolveContentPath(EntryPath);
+		return Resolved
+			? NormalizePath(Resolved.PhysicalPath.parent_path().generic_string())
+			: std::string{};
 	}
 
 	auto FContentBrowserPanel::NavigateToPhysical(std::string_view PhysicalPath, bool bAddHistory) -> bool

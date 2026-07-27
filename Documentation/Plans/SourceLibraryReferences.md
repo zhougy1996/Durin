@@ -6,12 +6,19 @@ Last reviewed: 2026-07-27
 
 ## Current Status
 
-Stage 0 is complete for the unified-mount revision. The production
-`FSourcePath` reflected shape now has exactly one string member, `Path`, and the
-superseded reflected-`FName` source-library test has been removed. A checked-in
-unified-mount contract fixture freezes plugin-shaped and source-only descriptor
-entries plus the required Game-to-Engine, Engine-to-Game, Game-to-plugin, and
-source-only domain outcomes.
+Stages 0 and 1 are complete for the unified-mount revision. Core now publishes
+one immutable registry with validated owner metadata, optional Content and
+SourceAssets domains, dependency edges, and source-write policy. Typed
+resolution and reverse classification enforce canonical containment and return
+the frozen structured failure taxonomy. Active-project descriptors strictly
+validate additional plugin-shaped and source-only mounts before project
+initialization succeeds.
+
+`FAssetPath`, AssetCore lookup/scanning/cache identity, legacy source
+consumers, source-thumbnail identity, import destination mapping, and content
+browser navigation now use the typed registry rather than direct backing-vector
+searches or `FPaths::Resolve`. Stage 2 is next and will replace the retained
+owner-relative legacy provenance carriers with reflected `FSourcePath`.
 
 Baseline commit `ee94ad4e` established reflected-name serialization coverage and
 five DAST v2 legacy provenance fixtures covering project and engine StaticMesh,
@@ -27,11 +34,11 @@ removes duplicate naming systems, naturally supports plugins, and lets a
 project reference Engine source files without copying them.
 
 Texture2D currently accepts user-selected organization anywhere beneath the
-owning package's `SourceAssets`, defaults new copies to
-`SourceAssets/Textures/<filename>`, and can copy a source to another
-owner-relative location. StaticMesh and TextureCube remain more tightly
-coupled to owner-relative category paths. These are interim workflows until
-typed mounted source paths replace owner-directory inference.
+owning package mount's typed SourceAssets domain, defaults new copies to
+`SourceAssets/Textures/<filename>`, and can copy a source to another location
+within that domain. StaticMesh and TextureCube remain more tightly coupled to
+legacy category paths. These are interim provenance workflows until Stage 2
+persists complete mounted source paths.
 
 Redirect files, stable source GUIDs, and transparent moves remain deferred.
 
@@ -589,18 +596,18 @@ Dependencies: none.
 
 Dependencies: Stage 0.
 
-- [ ] Replace mutable two-string mount entries with validated definitions,
+- [x] Replace mutable two-string mount entries with validated definitions,
   optional domains, owner metadata, dependencies, and source permissions.
-- [ ] Implement immutable startup publication plus scoped test fixtures.
-- [ ] Implement typed find, Content resolve, SourceAssets resolve, and reverse
+- [x] Implement immutable startup publication plus scoped test fixtures.
+- [x] Implement typed find, Content resolve, SourceAssets resolve, and reverse
   classification with structured failures.
-- [ ] Implement canonical containment for existing and not-yet-created paths,
+- [x] Implement canonical containment for existing and not-yet-created paths,
   including supported junction and symlink cases.
-- [ ] Auto-register `/Engine/` and `/Game/`; parse additional project mounts.
-- [ ] Implement shared dependency and mutation-policy queries.
-- [ ] Migrate `FAssetPath`, AssetCore lookup/scanning/cache identity, and cook
+- [x] Auto-register `/Engine/` and `/Game/`; parse additional project mounts.
+- [x] Implement shared dependency and mutation-policy queries.
+- [x] Migrate `FAssetPath`, AssetCore lookup/scanning/cache identity, and cook
   mapping off direct vector iteration and `FPaths::Resolve`.
-- [ ] Remove `GetMountOwnerRoot` and raw mount-vector use from asset/source
+- [x] Remove `GetMountOwnerRoot` and raw mount-vector use from asset/source
   consumers.
 
 #### Acceptance Gate
@@ -609,6 +616,28 @@ Dependencies: Stage 0.
   a source-only mount through the correct typed domains; project-to-Engine
   source access succeeds, inverse access fails, all escapes are rejected, and
   production consumers have no ambiguous resolver fallback.
+
+#### Stage 1 Handoff
+
+- Baseline: `133a1d18`.
+- Working set: Core paths/project initialization, `FAssetPath`, AssetCore
+  package lookup and registry scanning, Engine legacy source consumers,
+  source-aware editor consumers, Core mount/project tests, and this plan.
+- Key symbols: `FMountPoint`, `FMountLookupResult`, `FContentPathResult`,
+  `FSourcePathResult`, `PublishMountRegistry`, `ResolveContentPath`,
+  `ResolveSourcePath`, `ClassifyContentPath`, `ClassifySourcePath`,
+  `CheckMountDependency`, `CheckSourceMutation`, and
+  `FScopedMountRegistryFixture`.
+- Decisions: production publication is immutable and idempotent at startup;
+  legacy `RegisterMountPoint` remains only as a pre-publication compatibility
+  bridge for existing tests; missing declared domains stay registered and
+  resolve as unavailable; project descriptors are rejected before current
+  project state is published.
+- Open questions: none for Stage 2.
+- Validation: all 132 Core tests (131 passed; the link-containment case skipped
+  because this Windows account cannot create directory symlinks), all 49
+  AssetCore tests, 40 focused Engine source/import/DDC tests, a full `all`
+  build, and active-plan validation.
 
 ### Stage 2: Migrate source provenance
 

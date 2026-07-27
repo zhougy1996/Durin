@@ -113,18 +113,7 @@ namespace Durin
 		FAssetPath ParsedAssetPath;
 		std::string AssetPathError;
 		const bool bAssetPathValid = FAssetPath::TryCreate(AssetPathBuffer.data(), ParsedAssetPath, &AssetPathError);
-		bool bMountedDestination = false;
-		if (bAssetPathValid)
-		{
-			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-			{
-				if (ParsedAssetPath.GetView().starts_with(Mount.VirtualRoot))
-				{
-					bMountedDestination = true;
-					break;
-				}
-			}
-		}
+		const bool bMountedDestination = bAssetPathValid;
 		const bool bAssetExists = bAssetPathValid && (Asset::GetAssetRegistry().FindAsset(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath));
 		std::string ImportSettingsError;
 		const bool bImportSettingsValid = ImportSettings.IsValid(&ImportSettingsError);
@@ -234,13 +223,12 @@ namespace Durin
 		Request.Filters = {{"Durin Asset", "*.dasset"}};
 		Request.DefaultFileName = SourcePathBuffer[0] != '\0' ? StringUtils::SanitizeFileName(std::filesystem::path(SourcePathBuffer.data()).stem().generic_string(), "StaticMesh") + ".dasset" : "StaticMesh.dasset";
 
-		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+		if (const FProjectInfo* Project = GetCurrentProject())
 		{
-			if (const FProjectInfo* Project = GetCurrentProject(); Project && Mount.VirtualRoot == Project->MountRoot)
-			{
-				Request.InitialDirectory = Mount.PhysicalPath;
-				break;
-			}
+			const PathUtilities::FMountLookupResult Lookup =
+				PathUtilities::FindMountForVirtualPath(Project->MountRoot + std::string("Destination"));
+			if (Lookup && Lookup.Mount->ContentRoot)
+				Request.InitialDirectory = Lookup.Mount->ContentRoot->generic_string();
 		}
 
 		FFileDialogResult Result = SaveFileDialog(Request);
@@ -251,26 +239,20 @@ namespace Durin
 			return;
 		}
 
-		std::string SelectedPath = std::filesystem::absolute(Result.FilePath).lexically_normal().generic_string();
-		std::ranges::transform(SelectedPath, SelectedPath.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
-		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+		const PathUtilities::FContentPathResult Classified =
+			PathUtilities::ClassifyContentPath(Result.FilePath);
+		if (Classified)
 		{
-			std::string MountPath = std::filesystem::absolute(Mount.PhysicalPath).lexically_normal().generic_string();
-			if (!MountPath.ends_with('/')) MountPath += '/';
-			std::string LowerMountPath = MountPath;
-			std::ranges::transform(LowerMountPath, LowerMountPath.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
-			if (!SelectedPath.starts_with(LowerMountPath)) continue;
-
-			std::filesystem::path RelativePath = std::filesystem::path(Result.FilePath).lexically_relative(std::filesystem::path(Mount.PhysicalPath));
-			RelativePath.replace_extension();
-			const std::string VirtualPath = Mount.VirtualRoot + RelativePath.generic_string();
-			if (VirtualPath.size() >= AssetPathBuffer.size())
+			std::filesystem::path VirtualPath(Classified.NormalizedVirtualPath);
+			VirtualPath.replace_extension();
+			const std::string VirtualPathString = VirtualPath.generic_string();
+			if (VirtualPathString.size() >= AssetPathBuffer.size())
 			{
 				SetError("The selected asset path is too long for the import form.");
 				return;
 			}
 			AssetPathBuffer.fill(0);
-			std::memcpy(AssetPathBuffer.data(), VirtualPath.data(), VirtualPath.size());
+			std::memcpy(AssetPathBuffer.data(), VirtualPathString.data(), VirtualPathString.size());
 			LastSuggestedAssetPath.clear();
 			return;
 		}

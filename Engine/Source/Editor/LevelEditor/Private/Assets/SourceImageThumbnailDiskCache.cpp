@@ -46,25 +46,9 @@ namespace Durin
 					return std::string("$Test/") + Absolute.lexically_relative(Root).generic_string();
 				return {};
 			}
-			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-			{
-				const std::filesystem::path Root = std::filesystem::weakly_canonical(Mount.PhysicalPath, Error);
-				if (Error || !IsContainedBy(Root, Absolute)) continue;
-				return std::filesystem::path(Mount.VirtualRoot).append(Absolute.lexically_relative(Root).generic_string()).lexically_normal().generic_string();
-			}
-
-			const std::array<std::pair<std::string_view, std::string>, 2> Roots{{
-				{"$Project/", FPaths::ProjectDir()},
-				{"$Engine/", FPaths::EngineDir()},
-			}};
-			for (const auto& [Prefix, RootString] : Roots)
-			{
-				if (RootString.empty()) continue;
-				const std::filesystem::path Root = std::filesystem::weakly_canonical(RootString, Error);
-				if (Error || !IsContainedBy(Root, Absolute)) continue;
-				return std::string(Prefix) + Absolute.lexically_relative(Root).generic_string();
-			}
-			return {};
+			const PathUtilities::FSourcePathResult Classified =
+				PathUtilities::ClassifySourcePath(Absolute);
+			return Classified ? Classified.NormalizedVirtualPath : std::string{};
 		}
 
 		auto AppendBigEndian(std::vector<uint8>& Bytes, uint32 Value) -> void

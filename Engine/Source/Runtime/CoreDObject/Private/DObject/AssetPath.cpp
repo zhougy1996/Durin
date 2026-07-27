@@ -37,10 +37,9 @@ namespace Durin
 			Start = End == std::string_view::npos ? InPath.size() : End + 1;
 		}
 
-		const auto& MountPoints = PathUtilities::GetRegisteredMountPoints();
-		const bool bMounted = std::ranges::any_of(MountPoints, [InPath](const PathUtilities::FMountPoint& Mount) {
-			return InPath.starts_with(Mount.VirtualRoot);
-		});
-		return bMounted || Fail("Asset path does not use a registered mount point.", OutError);
+		const PathUtilities::FMountLookupResult Lookup = PathUtilities::FindMountForVirtualPath(InPath);
+		if (!Lookup) return Fail(Lookup.Message, OutError);
+		return Lookup.Mount->ContentRoot.has_value()
+			|| Fail("Asset path mount does not declare a Content domain.", OutError);
 	}
 }

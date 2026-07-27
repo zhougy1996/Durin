@@ -223,14 +223,7 @@ namespace Durin
 		FAssetPath ParsedAssetPath;
 		std::string AssetPathError;
 		const bool bAssetPathValid = FAssetPath::TryCreate(AssetPathBuffer.data(), ParsedAssetPath, &AssetPathError);
-		bool bMountedDestination = false;
-		if (bAssetPathValid)
-			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-				if (ParsedAssetPath.GetView().starts_with(Mount.VirtualRoot))
-				{
-					bMountedDestination = true;
-					break;
-				}
+		const bool bMountedDestination = bAssetPathValid;
 		const bool bAssetExists = bAssetPathValid &&
 			(Asset::GetAssetRegistry().FindAsset(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath));
 
@@ -321,31 +314,30 @@ namespace Durin
 		FAssetPath CurrentAssetPath;
 		Request.DefaultFileName = FAssetPath::TryCreate(AssetPathBuffer.data(), CurrentAssetPath)
 			? std::string(CurrentAssetPath.GetAssetName()) + ".dasset" : "TextureCube.dasset";
-		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-			if (const FProjectInfo* Project = GetCurrentProject(); Project && Mount.VirtualRoot == Project->MountRoot)
-			{
-				Request.InitialDirectory = Mount.PhysicalPath;
-				break;
-			}
+		if (const FProjectInfo* Project = GetCurrentProject())
+		{
+			const PathUtilities::FMountLookupResult Lookup =
+				PathUtilities::FindMountForVirtualPath(Project->MountRoot + std::string("Destination"));
+			if (Lookup && Lookup.Mount->ContentRoot)
+				Request.InitialDirectory = Lookup.Mount->ContentRoot->generic_string();
+		}
 		const FFileDialogResult Result = SaveFileDialog(Request);
 		if (Result.Status == EFileDialogStatus::Cancelled) return;
 		if (Result.Status == EFileDialogStatus::Error) { SetError(Result.ErrorMessage); return; }
-		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+		const PathUtilities::FContentPathResult Classified =
+			PathUtilities::ClassifyContentPath(Result.FilePath);
+		if (Classified)
 		{
-			const std::filesystem::path Selected = std::filesystem::absolute(Result.FilePath).lexically_normal();
-			const std::filesystem::path Root = std::filesystem::absolute(Mount.PhysicalPath).lexically_normal();
-			const std::filesystem::path Relative = Selected.lexically_relative(Root);
-			if (Relative.empty() || Relative.generic_string().starts_with("..")) continue;
-			std::filesystem::path VirtualRelative = Relative;
-			VirtualRelative.replace_extension();
-			const std::string VirtualPath = Mount.VirtualRoot + VirtualRelative.generic_string();
-			if (VirtualPath.size() >= AssetPathBuffer.size())
+			std::filesystem::path VirtualPath(Classified.NormalizedVirtualPath);
+			VirtualPath.replace_extension();
+			const std::string VirtualPathString = VirtualPath.generic_string();
+			if (VirtualPathString.size() >= AssetPathBuffer.size())
 			{
 				SetError("The selected asset path is too long for the cube import form.");
 				return;
 			}
 			AssetPathBuffer.fill(0);
-			std::memcpy(AssetPathBuffer.data(), VirtualPath.data(), VirtualPath.size());
+			std::memcpy(AssetPathBuffer.data(), VirtualPathString.data(), VirtualPathString.size());
 			return;
 		}
 		SetError("Texture Cube assets must be saved inside a mounted Content directory.");

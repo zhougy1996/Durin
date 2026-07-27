@@ -32,25 +32,9 @@ namespace Durin
 		auto FindOwningMount(std::string_view VirtualPath)
 			-> const PathUtilities::FMountPoint*
 		{
-			const auto& Mounts = PathUtilities::GetRegisteredMountPoints();
-			const auto It = std::ranges::find_if(Mounts,
-				[VirtualPath](const PathUtilities::FMountPoint& Mount) {
-					return VirtualPath.starts_with(Mount.VirtualRoot);
-				});
-			return It == Mounts.end() ? nullptr : &*It;
-		}
-
-		auto GetMountOwnerRoot(const PathUtilities::FMountPoint& Mount)
-			-> std::filesystem::path
-		{
-			std::filesystem::path ContentRoot =
-				std::filesystem::path(Mount.PhysicalPath).lexically_normal();
-			if (ContentRoot.filename().empty()) ContentRoot = ContentRoot.parent_path();
-			std::string DirectoryName = ContentRoot.filename().generic_string();
-			std::ranges::transform(DirectoryName, DirectoryName.begin(), [](char Value) {
-				return static_cast<char>(std::tolower(static_cast<unsigned char>(Value)));
-			});
-			return DirectoryName == "content" ? ContentRoot.parent_path() : ContentRoot;
+			const PathUtilities::FMountLookupResult Lookup =
+				PathUtilities::FindMountForVirtualPath(VirtualPath);
+			return Lookup ? Lookup.Mount : nullptr;
 		}
 
 		auto FormatDimensions(uint32 Width, uint32 Height) -> std::string
@@ -695,7 +679,11 @@ namespace Durin
 			SetError("The texture is not inside a mounted Content directory.");
 			return;
 		}
-		const std::filesystem::path OwnerRoot = GetMountOwnerRoot(*Mount);
+		if (!Mount->SourceAssetsRoot)
+		{
+			SetError("The texture's mount has no SourceAssets domain.");
+			return;
+		}
 		const FTextureSourceDiagnostic Diagnostic = Texture->InspectSource();
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
@@ -707,7 +695,7 @@ namespace Durin
 		};
 		Request.InitialDirectory = !Diagnostic.PhysicalPath.empty()
 			? std::filesystem::path(Diagnostic.PhysicalPath).parent_path().generic_string()
-			: (OwnerRoot / "SourceAssets" / "Textures").generic_string();
+			: (*Mount->SourceAssetsRoot / "Textures").generic_string();
 		Request.DefaultFileName = !Texture->GetSourceFile().empty()
 			? std::filesystem::path(Texture->GetSourceFile()).filename().generic_string()
 			: "Texture.png";
@@ -718,10 +706,15 @@ namespace Durin
 			SetError(Result.ErrorMessage);
 			return;
 		}
-		const std::filesystem::path Selected =
-			std::filesystem::absolute(Result.FilePath).lexically_normal();
+		const PathUtilities::FSourcePathResult Classified =
+			PathUtilities::ClassifySourcePath(Result.FilePath);
+		if (!Classified || Classified.Mount != Mount)
+		{
+			SetError("Texture source must stay inside its mount's SourceAssets domain.");
+			return;
+		}
 		const std::string SourceDestination =
-			Selected.lexically_relative(OwnerRoot).generic_string();
+			(std::filesystem::path("SourceAssets") / Classified.RelativePath).generic_string();
 		std::string Error;
 		if (!Texture->ChangeSourceLocation(SourceDestination, Error))
 			SetError(std::move(Error));

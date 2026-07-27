@@ -432,22 +432,28 @@ namespace Durin
 
 		auto FindOwningMount(std::string_view AssetPath) -> const PathUtilities::FMountPoint*
 		{
-			const auto& Mounts = PathUtilities::GetRegisteredMountPoints();
-			const auto It = std::ranges::find_if(Mounts, [AssetPath](const PathUtilities::FMountPoint& Mount) {
-				return AssetPath.starts_with(Mount.VirtualRoot);
-			});
-			return It != Mounts.end() ? &*It : nullptr;
+			const PathUtilities::FMountLookupResult Lookup =
+				PathUtilities::FindMountForVirtualPath(AssetPath);
+			return Lookup ? Lookup.Mount : nullptr;
 		}
 
-		auto GetMountOwnerRoot(const PathUtilities::FMountPoint& Mount) -> std::filesystem::path
+		auto ResolveOwnedSource(
+			const PathUtilities::FMountPoint& Mount,
+			const std::filesystem::path& StoredPath,
+			PathUtilities::EPathExistence Existence,
+			std::filesystem::path& OutPath,
+			std::string& OutError) -> bool
 		{
-			std::filesystem::path ContentRoot = std::filesystem::path(Mount.PhysicalPath).lexically_normal();
-			if (ContentRoot.filename().empty()) ContentRoot = ContentRoot.parent_path();
-			std::string DirectoryName = ContentRoot.filename().generic_string();
-			std::ranges::transform(DirectoryName, DirectoryName.begin(), [](char Value) {
-				return static_cast<char>(std::tolower(static_cast<unsigned char>(Value)));
-			});
-			return DirectoryName == "content" ? ContentRoot.parent_path() : ContentRoot;
+			const std::filesystem::path Relative = StoredPath.lexically_relative("SourceAssets");
+			const PathUtilities::FSourcePathResult Resolved =
+				PathUtilities::ResolveSourcePath(Mount.VirtualRoot + Relative.generic_string(), Existence);
+			if (!Resolved)
+			{
+				OutError = Resolved.Message;
+				return false;
+			}
+			OutPath = Resolved.PhysicalPath;
+			return true;
 		}
 
 		auto IsPortableStaticMeshSourcePath(std::string_view SourcePath, std::string* OutError = nullptr) -> bool
@@ -491,8 +497,8 @@ namespace Durin
 			const std::filesystem::path StoredPath = std::filesystem::path(StaticMeshSourceRoot) / RelativeAssetPath;
 			OutStoredPath = StoredPath.lexically_normal().generic_string();
 			if (!IsPortableStaticMeshSourcePath(OutStoredPath, &OutError)) return false;
-			OutPhysicalPath = (GetMountOwnerRoot(*Mount) / StoredPath).lexically_normal();
-			return true;
+			return ResolveOwnedSource(
+				*Mount, StoredPath, PathUtilities::EPathExistence::AllowMissing, OutPhysicalPath, OutError);
 		}
 
 		auto ResolvePortableStaticMeshSource(
@@ -514,8 +520,8 @@ namespace Durin
 					Mesh.GetPackage()->GetPackagePath());
 				return false;
 			}
-			OutPath = (GetMountOwnerRoot(*Mount) / Source.SourcePath).lexically_normal();
-			return true;
+			return ResolveOwnedSource(
+				*Mount, Source.SourcePath, PathUtilities::EPathExistence::RequireFile, OutPath, OutError);
 		}
 
 		auto HashStaticMeshSource(const std::filesystem::path& Path, std::string& OutHash, std::string& OutError) -> bool

@@ -185,7 +185,12 @@ namespace Durin::Asset
 				if (!ResolveCookedPackagePath(Context.CookRoot, Path.GetView(), CookedPath)) return {};
 				return CookedPath.generic_string();
 			}
-			return FPaths::Resolve(Path.GetView()) + ".dasset";
+			const PathUtilities::FContentPathResult Resolved =
+				PathUtilities::ResolveContentPath(Path.GetView(), PathUtilities::EPathExistence::AllowMissing);
+			if (!Resolved)
+				DURIN_WARN_CATEGORY(
+					"AssetSystem", "Failed to resolve Content path {}: {}", Path.ToString(), Resolved.Message);
+			return Resolved ? Resolved.PhysicalPath.generic_string() + ".dasset" : std::string{};
 		}
 
 		auto GetTypeSignature(FProperty* Property) -> std::string
@@ -607,7 +612,8 @@ namespace Durin::Asset
 		auto GetMountManifest() -> std::vector<std::string>
 		{
 			std::vector<std::string> Roots;
-			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints()) Roots.push_back(Mount.VirtualRoot);
+			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+				if (Mount.ContentRoot) Roots.push_back(Mount.VirtualRoot);
 			std::ranges::sort(Roots);
 			Roots.erase(std::unique(Roots.begin(), Roots.end()), Roots.end());
 			return Roots;
@@ -755,16 +761,15 @@ namespace Durin::Asset
 			OutEntries.reserve(Assets.size());
 			for (const auto& [Path, Data] : Assets)
 			{
-				const auto MountIt = std::ranges::find_if(PathUtilities::GetRegisteredMountPoints(), [&Path](const PathUtilities::FMountPoint& Mount) {
-					return Path.GetView().starts_with(Mount.VirtualRoot);
-				});
-				if (MountIt == PathUtilities::GetRegisteredMountPoints().end())
+				const PathUtilities::FMountLookupResult Lookup =
+					PathUtilities::FindMountForVirtualPath(Path.GetView());
+				if (!Lookup || !Lookup.Mount->ContentRoot)
 				{
 					OutWarning = std::format("Could not persist asset registry entry {} because its mount is unavailable.", Path.ToString());
 					OutEntries.clear();
 					return false;
 				}
-				const std::string_view RelativeAssetPath = Path.GetView().substr(MountIt->VirtualRoot.size());
+				const std::string RelativeAssetPath = Lookup.RelativePath.generic_string();
 				const std::string RelativeString = std::format("{}.dasset", RelativeAssetPath);
 				if (RelativeAssetPath.empty() || std::filesystem::path(RelativeString).is_absolute()
 					|| RelativeString.starts_with("../") || RelativeString.find("/../") != std::string::npos)
@@ -774,7 +779,7 @@ namespace Durin::Asset
 					return false;
 				}
 				OutEntries.push_back(FRegistryCacheEntry{
-					.MountRoot = MountIt->VirtualRoot,
+					.MountRoot = Lookup.Mount->VirtualRoot,
 					.RelativePath = RelativeString,
 					.AssetClassName = Data.AssetClassName,
 					.FormatVersion = Data.FormatVersion,
@@ -1087,16 +1092,18 @@ namespace Durin::Asset
 		const bool bCacheLoaded = LoadRegistryCache(MountManifest, CachedEntries, CacheWarning);
 		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
 		{
+			if (!Mount.ContentRoot) continue;
+			const std::filesystem::path& ContentRoot = *Mount.ContentRoot;
 			std::error_code Ec;
-			if (!std::filesystem::exists(Mount.PhysicalPath, Ec)) continue;
-			for (std::filesystem::recursive_directory_iterator It(Mount.PhysicalPath, Ec), End; !Ec && It != End; It.increment(Ec))
+			if (!std::filesystem::exists(ContentRoot, Ec)) continue;
+			for (std::filesystem::recursive_directory_iterator It(ContentRoot, Ec), End; !Ec && It != End; It.increment(Ec))
 			{
 				std::error_code FileEc;
 				if (!It->is_regular_file(FileEc) || It->path().extension() != ".dasset") continue;
 				++LastScanStats.Enumerated;
 				FAssetPackageHeader PackageHeader;
 				FAssetPath DiskPath;
-				std::filesystem::path Relative = std::filesystem::relative(It->path(), Mount.PhysicalPath, FileEc).lexically_normal();
+				std::filesystem::path Relative = std::filesystem::relative(It->path(), ContentRoot, FileEc).lexically_normal();
 				const std::string RelativeString = Relative.generic_string();
 				std::filesystem::path PackageRelative = Relative;
 				PackageRelative.replace_extension();
