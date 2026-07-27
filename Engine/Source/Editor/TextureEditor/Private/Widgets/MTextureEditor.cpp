@@ -505,6 +505,27 @@ namespace Durin
 			ImGui::SameLine();
 			ImGui::Checkbox("Checkerboard", &PreviewState.bShowCheckerboard);
 
+			ImGui::Spacing();
+			ImGui::TextDisabled("Channel");
+			constexpr std::array ChannelLabels = {"RGBA", "R", "G", "B", "A"};
+			constexpr std::array ChannelValues = {
+				ETexturePreviewChannel::RGBA,
+				ETexturePreviewChannel::Red,
+				ETexturePreviewChannel::Green,
+				ETexturePreviewChannel::Blue,
+				ETexturePreviewChannel::Alpha,
+			};
+			for (size_t ChannelIndex = 0; ChannelIndex < ChannelLabels.size(); ++ChannelIndex)
+			{
+				ImGui::SameLine();
+				if (ImGui::RadioButton(
+						ChannelLabels[ChannelIndex],
+						PreviewState.SelectedChannel == ChannelValues[ChannelIndex]))
+				{
+					PreviewState.SelectedChannel = ChannelValues[ChannelIndex];
+				}
+			}
+
 			if (MipCount == 0)
 			{
 				Preview.Release();
@@ -528,15 +549,22 @@ namespace Durin
 
 			const bool bMipChanged = PreviewState.SelectedMipIndex != PreviewState.LastUploadedMipIndex;
 			const bool bPreviewModeChanged = PreviewState.bPreviewSource != PreviewState.bLastUploadWasSource;
+			const bool bChannelChanged = PreviewState.SelectedChannel != PreviewState.LastAppliedChannel;
 			if (bRevisionChanged || bMipChanged || bPreviewModeChanged || !Preview.IsValid())
 			{
 				if (PreviewState.bPreviewSource)
-					Preview.UploadSource(*Source);
+					Preview.UploadSource(*Source, PreviewState.SelectedChannel);
 				else
-					Preview.Upload(*Platform, PreviewState.SelectedMipIndex);
+					Preview.Upload(*Platform, PreviewState.SelectedMipIndex, PreviewState.SelectedChannel);
 				PreviewState.LastUploadedMipIndex = PreviewState.SelectedMipIndex;
 				PreviewState.LastObservedRevision = Texture->GetBuildRevision();
 				PreviewState.bLastUploadWasSource = PreviewState.bPreviewSource;
+				PreviewState.LastAppliedChannel = PreviewState.SelectedChannel;
+			}
+			else if (bChannelChanged)
+			{
+				Preview.SetChannel(PreviewState.SelectedChannel);
+				PreviewState.LastAppliedChannel = PreviewState.SelectedChannel;
 			}
 
 			ImGui::Separator();

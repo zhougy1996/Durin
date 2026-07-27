@@ -161,10 +161,13 @@ checked against known values rather than inferred from editor startup.
 - normal workspace save, Dirty, close protection, Undo, and Redo behavior.
 
 The editor previews the built platform representation and allows each mip level
-to be selected. Every open texture document owns independent preview state and
-one registered preview texture, so simultaneously visible documents cannot
-reuse or overwrite one another's image. Missing or invalid platform data falls
-back to decoded source data when available; otherwise the preview is released.
+to be selected. The preview can show the original RGBA result or visualize the
+R, G, B, or A channel as opaque grayscale. Channel filtering renders into an
+offscreen RGBA8 texture and does not alter the shared ImGui shader. Every open
+texture document owns independent preview state and registered preview textures,
+so simultaneously visible documents cannot reuse or overwrite one another's
+image. Missing or invalid platform data falls back to decoded source data when
+available; otherwise the preview is released.
 Persistent source, decode, build, upload, and format status is shown with retry
 and explicit repair controls. Reference Existing Source performs no copy;
 Ingest External Source requires a writable destination. Reimport is read-only.

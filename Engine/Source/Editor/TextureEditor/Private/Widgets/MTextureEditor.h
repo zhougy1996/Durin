@@ -97,6 +97,8 @@ namespace Durin
 			bool bShowCheckerboard = true;
 			bool bPreviewSource = false;
 			bool bLastUploadWasSource = false;
+			ETexturePreviewChannel SelectedChannel = ETexturePreviewChannel::RGBA;
+			ETexturePreviewChannel LastAppliedChannel = ETexturePreviewChannel::RGBA;
 		};
 		std::unordered_map<std::string, FTexturePreviewState> PreviewStates;
 		float PreviewPaneRatio = 0.70f;

@@ -3,6 +3,7 @@
 #include "Editor/EditorWorkspace.h"
 #include "Texture/Texture2D.h"
 #include "Widgets/MTextureEditor.h"
+#include "Widgets/TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
 
 namespace Durin
@@ -18,6 +19,7 @@ namespace Durin
 	auto FTextureEditorModule::ShutdownModule() -> void
 	{
 		UnregisterTextureEditorWorkspace();
+		FTexturePreview::ReleaseSharedResources();
 	}
 
 	auto FTextureEditorModule::RegisterTextureEditorWorkspace(FEditorWorkspaceManager& WorkspaceManager) -> bool
