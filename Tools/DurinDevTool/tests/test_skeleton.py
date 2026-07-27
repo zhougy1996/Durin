@@ -1,150 +1,103 @@
 from __future__ import annotations
-
+import pytest
 import io
 import subprocess
 import sys
-import tempfile
-import unittest
 from pathlib import Path
 from unittest import mock
-
-
 PRODUCT_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = PRODUCT_ROOT.parents[1]
 if str(PRODUCT_ROOT) not in sys.path:
     sys.path.insert(0, str(PRODUCT_ROOT))
-
 from durin_dev_tool import cli
 from durin_dev_tool.registry import CommandRegistry, require_prepared_environment
 from durin_dev_tool.repository import find_repository_root
 
+class TestRepositoryDiscovery:
 
-class RepositoryDiscoveryTests(unittest.TestCase):
     def test_discovers_repository_from_nested_directory(self) -> None:
-        self.assertEqual(find_repository_root(PRODUCT_ROOT / "tests"), REPOSITORY_ROOT)
+        assert find_repository_root(PRODUCT_ROOT / 'tests') == REPOSITORY_ROOT
 
-    def test_rejects_directory_without_repository_markers(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaisesRegex(RuntimeError, "Could not find"):
-                find_repository_root(Path(directory))
+    def test_rejects_directory_without_repository_markers(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        with pytest.raises(RuntimeError, match='Could not find'):
+            find_repository_root(Path(directory))
 
-    def test_cli_uses_package_location_when_working_directory_is_unrelated(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            completed = subprocess.run(
-                [sys.executable, str(PRODUCT_ROOT / "durin_dev_tool" / "__main__.py"), "help"],
-                cwd=directory,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-        self.assertIn("DurinDevTool commands:", completed.stdout)
+    def test_cli_uses_package_location_when_working_directory_is_unrelated(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        completed = subprocess.run([sys.executable, str(PRODUCT_ROOT / 'durin_dev_tool' / '__main__.py'), 'help'], cwd=directory, text=True, capture_output=True, check=False)
+        assert completed.returncode == 0, completed.stderr
+        assert 'DurinDevTool commands:' in completed.stdout
 
+class TestCommandRegistry:
 
-class CommandRegistryTests(unittest.TestCase):
     def test_direct_help_and_shell_help_share_registry_output(self) -> None:
         registry = CommandRegistry()
         direct_output = io.StringIO()
-        self.assertEqual(
-            cli.run(
-                ["help"],
-                registry=registry,
-                repository_root=REPOSITORY_ROOT,
-                stdout=direct_output,
-            ),
-            0,
-        )
-        self.assertEqual(direct_output.getvalue().strip(), registry.format_help())
+        assert cli.run(['help'], registry=registry, repository_root=REPOSITORY_ROOT, stdout=direct_output) == 0
+        assert direct_output.getvalue().strip() == registry.format_help()
 
-    def test_missing_environment_stops_before_placeholder_import(self) -> None:
+    def test_missing_environment_stops_before_placeholder_import(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         output = io.StringIO()
         errors = io.StringIO()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            with mock.patch("durin_dev_tool.registry.importlib.import_module") as import_module:
-                with self.assertRaisesRegex(RuntimeError, "DevTool setup"):
-                    cli.run(
-                        ["build"],
-                        repository_root=root,
-                        stdout=output,
-                        stderr=errors,
-                    )
+        directory = tmp_path_factory.mktemp('case')
+        root = Path(directory)
+        with mock.patch('durin_dev_tool.registry.importlib.import_module') as import_module:
+            with pytest.raises(RuntimeError, match='DevTool setup'):
+                cli.run(['build'], repository_root=root, stdout=output, stderr=errors)
         import_module.assert_not_called()
 
-    def test_system_python_is_rejected_when_prepared_interpreter_exists(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            interpreter = root / ".venv" / "Scripts" / "python.exe"
-            interpreter.parent.mkdir(parents=True)
-            interpreter.touch()
-            with (
-                mock.patch("durin_dev_tool.registry.sys.executable", str(root / "system-python.exe")),
-                mock.patch("durin_dev_tool.registry.importlib.import_module") as import_module,
-                self.assertRaisesRegex(RuntimeError, "Restart through.*DevTool.bat"),
-            ):
-                cli.run(["build"], repository_root=root)
+    def test_system_python_is_rejected_when_prepared_interpreter_exists(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        root = Path(directory)
+        interpreter = root / '.venv' / 'Scripts' / 'python.exe'
+        interpreter.parent.mkdir(parents=True)
+        interpreter.touch()
+        with mock.patch('durin_dev_tool.registry.sys.executable', str(root / 'system-python.exe')), mock.patch('durin_dev_tool.registry.importlib.import_module') as import_module, pytest.raises(RuntimeError, match='Restart through.*DevTool.bat'):
+            cli.run(['build'], repository_root=root)
         import_module.assert_not_called()
 
-    def test_incomplete_environment_is_rejected_before_handler_import(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            interpreter = root / ".venv" / "Scripts" / "python.exe"
-            interpreter.parent.mkdir(parents=True)
-            interpreter.touch()
-            with (
-                mock.patch("durin_dev_tool.registry.sys.executable", str(interpreter)),
-                mock.patch("durin_dev_tool.registry.importlib.util.find_spec", return_value=None),
-                mock.patch("durin_dev_tool.registry.importlib.import_module") as import_module,
-                self.assertRaisesRegex(RuntimeError, "incomplete.*DevTool setup"),
-            ):
-                cli.run(["build"], repository_root=root)
+    def test_incomplete_environment_is_rejected_before_handler_import(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        root = Path(directory)
+        interpreter = root / '.venv' / 'Scripts' / 'python.exe'
+        interpreter.parent.mkdir(parents=True)
+        interpreter.touch()
+        with mock.patch('durin_dev_tool.registry.sys.executable', str(interpreter)), mock.patch('durin_dev_tool.registry.importlib.util.find_spec', return_value=None), mock.patch('durin_dev_tool.registry.importlib.import_module') as import_module, pytest.raises(RuntimeError, match='incomplete.*DevTool setup'):
+            cli.run(['build'], repository_root=root)
         import_module.assert_not_called()
 
-    def test_prepared_environment_accepts_matching_interpreter_and_dependencies(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            interpreter = root / ".venv" / "Scripts" / "python.exe"
-            interpreter.parent.mkdir(parents=True)
-            interpreter.touch()
-            with (
-                mock.patch("durin_dev_tool.registry.sys.executable", str(interpreter)),
-                mock.patch("durin_dev_tool.registry.importlib.util.find_spec", return_value=object()),
-            ):
-                require_prepared_environment(root, required_modules=("rich",))
+    def test_prepared_environment_accepts_matching_interpreter_and_dependencies(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        root = Path(directory)
+        interpreter = root / '.venv' / 'Scripts' / 'python.exe'
+        interpreter.parent.mkdir(parents=True)
+        interpreter.touch()
+        with mock.patch('durin_dev_tool.registry.sys.executable', str(interpreter)), mock.patch('durin_dev_tool.registry.importlib.util.find_spec', return_value=object()):
+            require_prepared_environment(root, required_modules=('rich',))
 
     def test_no_arguments_selects_shell(self) -> None:
         spec, _namespace = CommandRegistry().parse([])
-        self.assertEqual(spec.name, "shell")
+        assert spec.name == 'shell'
 
     def test_shell_startup_uses_durin_prompt(self) -> None:
         from durin_dev_tool.shell import run_shell
-
         stdout = io.StringIO()
-        result = run_shell(
-            registry=CommandRegistry(),
-            repository_root=REPOSITORY_ROOT,
-            stdout=stdout,
-            stderr=io.StringIO(),
-            input_func=mock.Mock(side_effect=EOFError),
-        )
-        self.assertEqual(result, 0)
-        self.assertIn("Durin Developer Tool shell", stdout.getvalue())
+        result = run_shell(registry=CommandRegistry(), repository_root=REPOSITORY_ROOT, stdout=stdout, stderr=io.StringIO(), input_func=mock.Mock(side_effect=EOFError))
+        assert result == 0
+        assert 'Durin Developer Tool shell' in stdout.getvalue()
 
+class TestLauncher:
 
-class LauncherTests(unittest.TestCase):
     def test_launcher_prefers_venv_then_python_launcher_then_path_python(self) -> None:
-        content = (REPOSITORY_ROOT / "DevTool.bat").read_text(encoding="utf-8")
+        content = (REPOSITORY_ROOT / 'DevTool.bat').read_text(encoding='utf-8')
         venv = content.index('if exist "%VENV_PYTHON%"')
-        launcher = content.index("where py")
-        path_python = content.index("where python")
-        self.assertLess(venv, launcher)
-        self.assertLess(launcher, path_python)
-        self.assertIn('py -3 "%ENTRY_POINT%" %*', content)
-        self.assertIn('python "%ENTRY_POINT%" %*', content)
-        self.assertIn("EnableDelayedExpansion", content)
-        self.assertGreaterEqual(content.count("exit /b !ERRORLEVEL!"), 3)
-        self.assertIn(r"Tools\DurinDevTool\durin_dev_tool\__main__.py", content)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        launcher = content.index('where py')
+        path_python = content.index('where python')
+        assert venv < launcher
+        assert launcher < path_python
+        assert 'py -3 "%ENTRY_POINT%" %*' in content
+        assert 'python "%ENTRY_POINT%" %*' in content
+        assert 'EnableDelayedExpansion' in content
+        assert content.count('exit /b !ERRORLEVEL!') >= 3
+        assert 'Tools\\DurinDevTool\\durin_dev_tool\\__main__.py' in content
