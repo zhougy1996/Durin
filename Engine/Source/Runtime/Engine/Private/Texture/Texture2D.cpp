@@ -1027,7 +1027,14 @@ namespace Durin
 			.FileSize = SourceFileSize,
 			.LastWriteTimeTicks = SourceLastWriteTime,
 			.ContentHash = SourceContentHash});
-		if (bMetadataChanged) MarkPackageDirty();
+		if (bMetadataChanged)
+		{
+			MarkPackageDirty();
+			Asset::ReportAssetLoadMutation(
+				this,
+				"Engine.Texture2D.SourceIdentity",
+				"Texture source identity metadata was reconciled during load.");
+		}
 		return true;
 	}
 

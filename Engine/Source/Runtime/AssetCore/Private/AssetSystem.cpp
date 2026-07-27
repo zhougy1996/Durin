@@ -14,6 +14,8 @@ namespace Durin::Asset
 {
 	namespace
 	{
+		thread_local FAssetLoadReport* GActiveAssetLoadReport = nullptr;
+
 		constexpr uint32 AssetMagic = 0x54534144; // DAST
 		constexpr uint32 AssetVersion = 2;
 		constexpr uint64 MaximumPackageStringBytes = 1024 * 1024;
@@ -177,10 +179,52 @@ namespace Durin::Asset
 			FAssetStructureUpgrader Upgrader;
 		};
 
+		struct FRegisteredStructureInspectionUpgrader
+		{
+			std::string HandlerId;
+			FAssetStructureInspectionUpgrader Upgrader;
+		};
+
 		auto GetStructureUpgraders() -> std::unordered_map<DClass*, FRegisteredStructureUpgrader>&
 		{
 			static std::unordered_map<DClass*, FRegisteredStructureUpgrader> Upgraders;
 			return Upgraders;
+		}
+
+		auto GetStructureInspectionUpgraders()
+			-> std::unordered_map<std::string, FRegisteredStructureInspectionUpgrader>&
+		{
+			static std::unordered_map<std::string, FRegisteredStructureInspectionUpgrader> Upgraders;
+			return Upgraders;
+		}
+
+		auto MakePackageFingerprint(
+			std::string_view PhysicalPath,
+			std::span<const uint8> Bytes,
+			FAssetPackageFingerprint& OutFingerprint) -> FAssetResult
+		{
+			std::error_code ErrorCode;
+			const std::filesystem::path Path(PhysicalPath);
+			const auto LastWriteTime = std::filesystem::last_write_time(Path, ErrorCode);
+			if (ErrorCode)
+				return Error(EAssetError::IoError, std::format(
+					"Failed to read the last-write time for asset package {}.", PhysicalPath));
+			OutFingerprint = {
+				.FileSize = Bytes.size(),
+				.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime),
+				.ContentHash = FXxHash128::HashBuffer(Bytes)};
+			return {};
+		}
+
+		auto ReadPackageFingerprint(
+			std::string_view PhysicalPath,
+			FAssetPackageFingerprint& OutFingerprint) -> FAssetResult
+		{
+			std::vector<uint8> Bytes;
+			if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
+				return Error(EAssetError::IoError, std::format(
+					"Failed to open asset package {}.", PhysicalPath));
+			return MakePackageFingerprint(PhysicalPath, Bytes, OutFingerprint);
 		}
 
 		auto GetPhysicalPath(const FAssetPath& Path) -> std::string
@@ -1170,6 +1214,50 @@ namespace Durin::Asset
 		return Reader.ReadString(OutValue, MaximumPackageStringBytes) && Reader.Offset == Payload.size();
 	}
 
+	namespace
+	{
+		auto ReadInspectedObjectReference(
+			FByteReader& Reader,
+			FAssetPackageObjectReference& OutValue) -> bool
+		{
+			OutValue = {};
+			uint8 Kind = 0;
+			if (!Reader.Read(Kind) || Kind > 2) return false;
+			OutValue.Kind = static_cast<EAssetPackageObjectReferenceKind>(Kind);
+			if (OutValue.Kind == EAssetPackageObjectReferenceKind::Null) return true;
+			if (OutValue.Kind == EAssetPackageObjectReferenceKind::Internal)
+				return Reader.Read(OutValue.ObjectId) && OutValue.ObjectId != 0;
+			std::string PathString;
+			return Reader.ReadString(PathString, MaximumPackageStringBytes)
+				&& FAssetPath::TryCreate(PathString, OutValue.ExternalPath);
+		}
+	}
+
+	auto FAssetPackageField::TryReadObjectReference(
+		FAssetPackageObjectReference& OutValue) const -> bool
+	{
+		FByteReader Reader{Payload};
+		return ReadInspectedObjectReference(Reader, OutValue)
+			&& Reader.Offset == Payload.size();
+	}
+
+	auto FAssetPackageField::TryReadObjectReferenceArray(
+		std::vector<FAssetPackageObjectReference>& OutValues) const -> bool
+	{
+		OutValues.clear();
+		FByteReader Reader{Payload};
+		uint64 Count = 0;
+		if (!Reader.Read(Count) || Count > 10000000) return false;
+		OutValues.reserve(static_cast<size_t>(Count));
+		for (uint64 Index = 0; Index < Count; ++Index)
+		{
+			FAssetPackageObjectReference Value;
+			if (!ReadInspectedObjectReference(Reader, Value)) return false;
+			OutValues.push_back(std::move(Value));
+		}
+		return Reader.Offset == Payload.size();
+	}
+
 	auto FAssetPackageField::TryReadStruct(DStruct* Struct, void* OutValue) const -> bool
 	{
 		if (!Struct || !OutValue
@@ -1218,8 +1306,10 @@ namespace Durin::Asset
 		std::vector<uint8> Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
 			return Error(EAssetError::IoError, std::format("Failed to open asset package {}.", PhysicalPath));
+		FAssetResult Result = MakePackageFingerprint(PhysicalPath, Bytes, OutInspection.Fingerprint);
+		if (!Result) return Result;
 		FPackageFile File;
-		FAssetResult Result = ReadPackageFile(Bytes, File, false);
+		Result = ReadPackageFile(Bytes, File, false);
 		if (!Result) return Result;
 		if (File.Objects.empty()) return Error(EAssetError::InvalidObjectGraph, "Asset package has no main object.");
 		FByteReader HeaderReader{Bytes};
@@ -1232,14 +1322,217 @@ namespace Durin::Asset
 		OutInspection.Header.Dependencies = std::move(HeaderFile.Dependencies);
 		OutInspection.Header.ObjectCount = HeaderObjectCount;
 		OutInspection.Header.BytesRead = HeaderReader.Offset;
-		OutInspection.Fields.reserve(File.Objects.front().Fields.size());
-		for (FFieldRecord& Field : File.Objects.front().Fields)
+		OutInspection.Objects.reserve(File.Objects.size());
+		for (FObjectRecord& Record : File.Objects)
 		{
-			OutInspection.Fields.push_back({
-				.DeclaringClass = std::move(Field.DeclaringClass),
-				.Name = std::move(Field.Name),
-				.TypeSignature = std::move(Field.TypeSignature),
-				.Payload = std::move(Field.Payload)});
+			FAssetPackageObjectInspection Object{
+				.Id = Record.Id,
+				.OuterId = Record.OuterId,
+				.ClassName = std::move(Record.ClassName),
+				.ObjectName = std::move(Record.ObjectName)};
+			Object.Fields.reserve(Record.Fields.size());
+			for (FFieldRecord& Field : Record.Fields)
+			{
+				Object.Fields.push_back({
+					.DeclaringClass = std::move(Field.DeclaringClass),
+					.Name = std::move(Field.Name),
+					.Kind = Field.Kind,
+					.TypeSignature = std::move(Field.TypeSignature),
+					.Payload = std::move(Field.Payload)});
+			}
+			OutInspection.Objects.push_back(std::move(Object));
+		}
+		return {};
+	}
+
+	auto RegisterAssetStructureInspectionUpgrader(
+		std::string QualifiedClassName,
+		std::string HandlerId,
+		FAssetStructureInspectionUpgrader Upgrader) -> void
+	{
+		if (QualifiedClassName.empty() || HandlerId.empty() || !Upgrader) return;
+		GetStructureInspectionUpgraders().insert_or_assign(
+			std::move(QualifiedClassName),
+			FRegisteredStructureInspectionUpgrader{
+				.HandlerId = std::move(HandlerId),
+				.Upgrader = std::move(Upgrader)});
+	}
+
+	auto AuditAssetPackage(
+		const FAssetData& Data,
+		FAssetPackageAuditReport& OutReport) -> FAssetResult
+	{
+		OutReport = {
+			.PackagePath = Data.PackagePath,
+			.AssetClassName = Data.AssetClassName,
+			.FormatVersion = Data.FormatVersion};
+		if (Data.FormatVersion > AssetVersion)
+		{
+			OutReport.State = EAssetPackageAuditState::BlockedUnsupported;
+			OutReport.Diagnostic = std::format(
+				"Package format {} is newer than supported format {}.",
+				Data.FormatVersion, AssetVersion);
+			return {};
+		}
+
+		FAssetPackageInspection Inspection;
+		FAssetResult Result = InspectAssetPackage(Data.PhysicalPath, Inspection);
+		if (!Result)
+		{
+			OutReport.State = Result.Error == EAssetError::UnsupportedVersion
+				? EAssetPackageAuditState::BlockedUnsupported
+				: EAssetPackageAuditState::AuditFailed;
+			OutReport.Diagnostic = Result.Message;
+			return Result;
+		}
+		OutReport.FormatVersion = Inspection.Header.FormatVersion;
+		OutReport.Fingerprint = Inspection.Fingerprint;
+		if (Inspection.Fingerprint.FileSize != Data.FileSize
+			|| Inspection.Fingerprint.LastWriteTimeTicks != Data.LastWriteTimeTicks)
+		{
+			OutReport.State = EAssetPackageAuditState::Stale;
+			OutReport.Diagnostic =
+				"The package changed after the asset registry snapshot and must be rescanned.";
+			return {};
+		}
+
+		auto BuildObjectPath = [&](const FAssetPackageObjectInspection& Object) {
+			if (Object.Id == 1) return Data.PackagePath.ToString();
+			std::vector<std::string_view> Segments;
+			const FAssetPackageObjectInspection* Current = &Object;
+			while (Current && Current->Id != 1)
+			{
+				Segments.push_back(Current->ObjectName);
+				Current = Inspection.FindObject(Current->OuterId);
+			}
+			if (!Current) return std::string{};
+			std::ranges::reverse(Segments);
+			std::string Path = Data.PackagePath.ToString() + ":";
+			for (size_t Index = 0; Index < Segments.size(); ++Index)
+			{
+				if (Index != 0) Path += ".";
+				Path += Segments[Index];
+			}
+			return Path;
+		};
+		for (FAssetPackageObjectInspection& Object : Inspection.Objects)
+		{
+			Object.ObjectPath = BuildObjectPath(Object);
+			if (Object.ObjectPath.empty())
+			{
+				OutReport.State = EAssetPackageAuditState::AuditFailed;
+				OutReport.Diagnostic = "Package inspection contains an invalid object Outer chain.";
+				return Error(EAssetError::InvalidObjectGraph, OutReport.Diagnostic);
+			}
+
+			DClass* Class = FindClassByQualifiedName(FName(Object.ClassName));
+			if (!Class)
+			{
+				OutReport.State = EAssetPackageAuditState::AuditFailed;
+				OutReport.Diagnostic = std::format(
+					"Reflected class '{}' is unavailable for upgrade auditing.", Object.ClassName);
+				return Error(EAssetError::UnknownClass, OutReport.Diagnostic);
+			}
+
+			std::vector<FAssetLegacyField> LegacyFields;
+			for (const FAssetPackageField& Field : Object.Fields)
+			{
+				DClass* DeclaringClass = FindClassByQualifiedName(FName(Field.DeclaringClass));
+				FProperty* Property = DeclaringClass && Class->IsChildOf(DeclaringClass)
+					? DeclaringClass->FindPropertyByName(FName(Field.Name), false)
+					: nullptr;
+				if (Property && Property->GetKind() == Field.Kind
+					&& GetTypeSignature(Property) == Field.TypeSignature)
+					continue;
+				LegacyFields.push_back({
+					.DeclaringClass = Field.DeclaringClass,
+					.Name = Field.Name,
+					.Kind = Field.Kind,
+					.TypeSignature = Field.TypeSignature,
+					.Payload = Field.Payload});
+			}
+			std::vector<FAssetCompatibilityIssue> ObjectIssues;
+			const FRegisteredStructureInspectionUpgrader* RegisteredUpgrader = nullptr;
+			for (DClass* Candidate = Class; Candidate; Candidate = Candidate->GetSuperClass())
+			{
+				const std::string QualifiedName = Candidate->GetQualifiedName().ToString();
+				auto It = GetStructureInspectionUpgraders().find(QualifiedName);
+				if (It == GetStructureInspectionUpgraders().end()) continue;
+				RegisteredUpgrader = &It->second;
+				break;
+			}
+			if (RegisteredUpgrader)
+			{
+				Result = RegisteredUpgrader->Upgrader(
+					Inspection, Object, LegacyFields, ObjectIssues);
+				if (!Result)
+				{
+					OutReport.State = EAssetPackageAuditState::AuditFailed;
+					OutReport.Diagnostic = Result.Message;
+					return Result;
+				}
+				for (FAssetCompatibilityIssue& Issue : ObjectIssues)
+				{
+					if (Issue.ObjectPath.empty()) Issue.ObjectPath = Object.ObjectPath;
+					if (Issue.DeclaringClass.empty()) Issue.DeclaringClass = Object.ClassName;
+					if (Issue.HandlerId.empty()) Issue.HandlerId = RegisteredUpgrader->HandlerId;
+				}
+			}
+
+			auto WasHandled = [&ObjectIssues](const FAssetLegacyField& Field) {
+				return std::ranges::any_of(ObjectIssues, [&Field](const FAssetCompatibilityIssue& Issue) {
+					return std::ranges::any_of(Issue.LegacyFields, [&Field](const FAssetLegacyField& Handled) {
+						return Handled.DeclaringClass == Field.DeclaringClass
+							&& Handled.Name == Field.Name
+							&& Handled.TypeSignature == Field.TypeSignature;
+					});
+				});
+			};
+			std::unordered_map<std::string, std::vector<FAssetLegacyField>> UnknownByClass;
+			for (const FAssetLegacyField& Field : LegacyFields)
+				if (!WasHandled(Field)) UnknownByClass[Field.DeclaringClass].push_back(Field);
+			for (auto& [DeclaringClass, Fields] : UnknownByClass)
+			{
+				ObjectIssues.push_back({
+					.ObjectPath = Object.ObjectPath,
+					.DeclaringClass = std::move(DeclaringClass),
+					.LegacyFields = std::move(Fields),
+					.Classification = EAssetCompatibilityClassification::UnknownIncompatible,
+					.MigrationSummary =
+						"No registered asset-structure inspection upgrader recognizes these fields.",
+					.Risk = EAssetCompatibilityRisk::UnknownNewerSchema});
+			}
+			OutReport.CompatibilityIssues.insert(
+				OutReport.CompatibilityIssues.end(),
+				std::make_move_iterator(ObjectIssues.begin()),
+				std::make_move_iterator(ObjectIssues.end()));
+		}
+
+		if (!OutReport.CompatibilityIssues.empty())
+			OutReport.State = OutReport.HasRiskItems()
+				? EAssetPackageAuditState::RiskyUpgrade
+				: EAssetPackageAuditState::SafeUpgrade;
+		else if (Inspection.Header.FormatVersion < AssetVersion)
+			OutReport.State = EAssetPackageAuditState::RewriteAvailable;
+		else
+			OutReport.State = EAssetPackageAuditState::UpToDate;
+		if (OutReport.State == EAssetPackageAuditState::SafeUpgrade
+			|| OutReport.State == EAssetPackageAuditState::RewriteAvailable)
+		{
+			std::error_code PermissionError;
+			const std::filesystem::perms Permissions =
+				std::filesystem::status(Data.PhysicalPath, PermissionError).permissions();
+			constexpr std::filesystem::perms WritePermissions =
+				std::filesystem::perms::owner_write
+				| std::filesystem::perms::group_write
+				| std::filesystem::perms::others_write;
+			if (!PermissionError && Permissions != std::filesystem::perms::unknown
+				&& (Permissions & WritePermissions) == std::filesystem::perms::none)
+			{
+				OutReport.State = EAssetPackageAuditState::BlockedReadOnly;
+				OutReport.Diagnostic =
+					"The package requires an upgrade but its file is read-only.";
+			}
 		}
 		return {};
 	}
@@ -1249,6 +1542,69 @@ namespace Durin::Asset
 		return std::ranges::any_of(CompatibilityIssues, [](const FAssetCompatibilityIssue& Issue) {
 			return Issue.Risk != EAssetCompatibilityRisk::None;
 		});
+	}
+
+	auto FAssetUpgradeSessionReport::RebuildProgressAndSort() -> void
+	{
+		std::ranges::sort(Packages, {}, [](const FAssetPackageAuditReport& Report) {
+			return Report.PackagePath.ToString();
+		});
+		Progress = {.Total = static_cast<uint64>(Packages.size())};
+		for (const FAssetPackageAuditReport& Report : Packages)
+		{
+			if (Report.State != EAssetPackageAuditState::NotAudited) ++Progress.Completed;
+			switch (Report.State)
+			{
+			case EAssetPackageAuditState::UpToDate: ++Progress.UpToDate; break;
+			case EAssetPackageAuditState::SafeUpgrade:
+			case EAssetPackageAuditState::RewriteAvailable: ++Progress.Safe; break;
+			case EAssetPackageAuditState::RiskyUpgrade: ++Progress.Risky; break;
+			case EAssetPackageAuditState::BlockedUnsupported:
+			case EAssetPackageAuditState::BlockedReadOnly:
+			case EAssetPackageAuditState::BlockedLoadMutation: ++Progress.Blocked; break;
+			case EAssetPackageAuditState::AuditFailed: ++Progress.Failed; break;
+			case EAssetPackageAuditState::Stale: ++Progress.Stale; break;
+			case EAssetPackageAuditState::NotAudited: break;
+			}
+		}
+	}
+
+	auto FAssetUpgradeSessionReport::FindPackage(const FAssetPath& Path) const
+		-> const FAssetPackageAuditReport*
+	{
+		const auto It = std::ranges::lower_bound(
+			Packages,
+			Path.ToString(),
+			{},
+			[](const FAssetPackageAuditReport& Report) {
+				return Report.PackagePath.ToString();
+			});
+		return It != Packages.end() && It->PackagePath == Path ? &*It : nullptr;
+	}
+
+	auto FAssetLoadReport::HasNonUpgradeMutations() const -> bool
+	{
+		return std::ranges::any_of(Mutations, [](const FAssetLoadMutation& Mutation) {
+			return Mutation.Kind == EAssetLoadMutationKind::NonUpgrade;
+		});
+	}
+
+	auto ReportAssetLoadMutation(
+		DObject* Object,
+		std::string HandlerId,
+		std::string Summary,
+		EAssetLoadMutationKind Kind) -> void
+	{
+		if (!GActiveAssetLoadReport || !Object) return;
+		DPackage* Package = Object->GetPackage();
+		FAssetPath PackagePath;
+		if (Package) FAssetPath::TryCreate(Package->GetPackagePath(), PackagePath);
+		GActiveAssetLoadReport->Mutations.push_back({
+			.PackagePath = std::move(PackagePath),
+			.ObjectPath = Object->GetObjectPath(),
+			.HandlerId = std::move(HandlerId),
+			.Summary = std::move(Summary),
+			.Kind = Kind});
 	}
 
 	auto FAssetLoadReport::GetAffectedObjectCount() const -> uint64
@@ -1550,11 +1906,27 @@ namespace Durin::Asset
 		if (Package && Package->IsAssetPackage()
 			&& !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
 			return Error(EAssetError::InvalidPath, "Package path is invalid.");
+		const std::filesystem::path Destination(GetPhysicalPath(Path));
+		auto ValidateExpectedFingerprint = [&]() -> FAssetResult {
+			if (!Options.ExpectedFingerprint) return {};
+			FAssetPackageFingerprint CurrentFingerprint;
+			FAssetResult FingerprintResult =
+				ReadPackageFingerprint(Destination.generic_string(), CurrentFingerprint);
+			if (!FingerprintResult) return FingerprintResult;
+			if (CurrentFingerprint != *Options.ExpectedFingerprint)
+				return Error(
+					EAssetError::StaleData,
+					"The package bytes changed after the upgrade audit and must be audited again.");
+			return {};
+		};
+		FAssetResult FingerprintResult = ValidateExpectedFingerprint();
+		if (!FingerprintResult) return FingerprintResult;
 		FPackageFile File;
 		std::vector<uint8> Bytes;
 		FAssetResult SerializationResult = BuildPackageBytes(Package, Bytes, &File);
 		if (!SerializationResult) return SerializationResult;
-		const std::filesystem::path Destination(GetPhysicalPath(Path));
+		FingerprintResult = ValidateExpectedFingerprint();
+		if (!FingerprintResult) return FingerprintResult;
 		FFileHelper::FAtomicFileError PublicationError;
 		if (!FFileHelper::SaveArrayToFileAtomically(
 			std::span{reinterpret_cast<const std::byte*>(Bytes.data()), Bytes.size()},
@@ -1576,6 +1948,211 @@ namespace Durin::Asset
 			.FileSize = std::filesystem::file_size(Destination),
 			.LastWriteTime = LastWriteTime,
 			.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
+		return {};
+	}
+
+	auto FAssetManager::ExecutePackageUpgrade(
+		const FAssetPackageAuditReport& Audit,
+		FAssetPackageUpgradeResult& OutResult,
+		const FAssetPackageUpgradeOptions& Options) -> FAssetResult
+	{
+		OutResult = {
+			.PackagePath = Audit.PackagePath,
+			.State = Audit.State,
+			.LoadReport = {.PackagePath = Audit.PackagePath}};
+		if (Audit.State != EAssetPackageAuditState::SafeUpgrade
+			&& Audit.State != EAssetPackageAuditState::RewriteAvailable
+			&& !(Audit.State == EAssetPackageAuditState::RiskyUpgrade
+				&& Options.bAllowCompatibilityDataLoss))
+		{
+			OutResult.Diagnostic = "Only batch-safe or rewrite-only audit results may be executed.";
+			return Error(EAssetError::UnsupportedProperty, OutResult.Diagnostic);
+		}
+		if (LoadedPackages.contains(Audit.PackagePath))
+		{
+			OutResult.Diagnostic =
+				"The package is already loaded; close active users and audit it again before batch execution.";
+			return Error(EAssetError::InUse, OutResult.Diagnostic);
+		}
+
+		const FAssetData* Data = Registry.FindAsset(Audit.PackagePath);
+		if (!Data)
+		{
+			OutResult.Diagnostic = "The package is no longer present in the asset registry.";
+			return Error(EAssetError::NotFound, OutResult.Diagnostic);
+		}
+		FAssetData ExecutionData = *Data;
+		std::error_code FileError;
+		ExecutionData.FileSize = std::filesystem::file_size(ExecutionData.PhysicalPath, FileError);
+		if (!FileError)
+		{
+			ExecutionData.LastWriteTime =
+				std::filesystem::last_write_time(ExecutionData.PhysicalPath, FileError);
+			ExecutionData.LastWriteTimeTicks =
+				DerivedDataCache::FileTimeToStableTicks(ExecutionData.LastWriteTime);
+		}
+		if (FileError)
+		{
+			OutResult.Diagnostic = std::format(
+				"Failed to inspect the package before execution: {}.", FileError.message());
+			return Error(EAssetError::IoError, OutResult.Diagnostic);
+		}
+		FAssetPackageAuditReport CurrentAudit;
+		FAssetResult Result = AuditAssetPackage(ExecutionData, CurrentAudit);
+		if (!Result || CurrentAudit.Fingerprint != Audit.Fingerprint
+			|| CurrentAudit.State != Audit.State)
+		{
+			OutResult.State = EAssetPackageAuditState::Stale;
+			OutResult.Diagnostic = Result
+				? "The package audit result changed before execution."
+				: CurrentAudit.Diagnostic;
+			return Error(EAssetError::StaleData, OutResult.Diagnostic);
+		}
+
+		std::unordered_set<FAssetPath> InitiallyLoaded;
+		for (const auto& [Path, Package] : LoadedPackages) InitiallyLoaded.insert(Path);
+		auto CleanupIntroducedPackages = [&]() {
+			bool bRemoved = true;
+			bool bCollected = false;
+			while (bRemoved)
+			{
+				bRemoved = false;
+				for (auto It = LoadedPackages.begin(); It != LoadedPackages.end();)
+				{
+					if (InitiallyLoaded.contains(It->first) || IsPackageReferenced(It->second))
+					{
+						++It;
+						continue;
+					}
+					DPackage* Package = It->second;
+					CompatibilityRiskPackages.erase(Package);
+					RemoveFromRoot(Package);
+					MarkObjectHierarchyAsGarbage(Package);
+					It = LoadedPackages.erase(It);
+					bRemoved = true;
+					bCollected = true;
+				}
+			}
+			if (bCollected) CollectGarbage();
+		};
+
+		DObject* Asset = nullptr;
+		Result = LoadAsset(Audit.PackagePath, Asset, &OutResult.LoadReport);
+		if (!Result)
+		{
+			OutResult.Diagnostic = Result.Message;
+			CleanupIntroducedPackages();
+			return Result;
+		}
+		if (OutResult.LoadReport.HasNonUpgradeMutations())
+		{
+			OutResult.State = EAssetPackageAuditState::BlockedLoadMutation;
+			OutResult.Diagnostic =
+				"Loading changed authored state outside the audited upgrade domain; the package was not saved.";
+			CleanupIntroducedPackages();
+			return Error(EAssetError::UnsupportedProperty, OutResult.Diagnostic);
+		}
+		if (OutResult.LoadReport.HasRiskItems()
+			&& !Options.bAllowCompatibilityDataLoss)
+		{
+			OutResult.State = EAssetPackageAuditState::RiskyUpgrade;
+			OutResult.Diagnostic =
+				"Execution discovered compatibility risk that is not eligible for the safe batch path.";
+			CleanupIntroducedPackages();
+			return Error(EAssetError::UnsupportedProperty, OutResult.Diagnostic);
+		}
+		auto BuildIssueKeys = [](std::span<const FAssetCompatibilityIssue> Issues) {
+			std::vector<std::string> Keys;
+			Keys.reserve(Issues.size());
+			for (const FAssetCompatibilityIssue& Issue : Issues)
+			{
+				if (Issue.LegacyFields.empty()) continue;
+				std::vector<std::string> Fields;
+				for (const FAssetLegacyField& Field : Issue.LegacyFields)
+					Fields.push_back(std::format(
+						"{}:{}:{}",
+						Field.DeclaringClass,
+						Field.Name,
+						Field.TypeSignature));
+				std::ranges::sort(Fields);
+				std::string FieldKey;
+				for (const std::string& Field : Fields)
+				{
+					if (!FieldKey.empty()) FieldKey += ",";
+					FieldKey += Field;
+				}
+				Keys.push_back(std::format(
+					"{}|{}|{}|{}|{}",
+					Issue.ObjectPath,
+					Issue.HandlerId,
+					static_cast<uint32>(Issue.Classification),
+					Issue.MigratedDataCount,
+					FieldKey));
+			}
+			std::ranges::sort(Keys);
+			return Keys;
+		};
+		if (BuildIssueKeys(CurrentAudit.CompatibilityIssues)
+			!= BuildIssueKeys(OutResult.LoadReport.CompatibilityIssues))
+		{
+			OutResult.State = EAssetPackageAuditState::Stale;
+			OutResult.Diagnostic =
+				"The materialized migration did not reproduce the audited compatibility result.";
+			CleanupIntroducedPackages();
+			return Error(EAssetError::StaleData, OutResult.Diagnostic);
+		}
+		std::vector<std::string> ExpectedSemanticMigrations;
+		for (const FAssetCompatibilityIssue& Issue : CurrentAudit.CompatibilityIssues)
+			if (Issue.LegacyFields.empty())
+				ExpectedSemanticMigrations.push_back(
+					std::format("{}|{}", Issue.ObjectPath, Issue.HandlerId));
+		std::vector<std::string> ExecutedSemanticMigrations;
+		for (const FAssetLoadMutation& Mutation : OutResult.LoadReport.Mutations)
+			if (Mutation.Kind == EAssetLoadMutationKind::Upgrade
+				&& std::ranges::none_of(
+					OutResult.LoadReport.CompatibilityIssues,
+					[&](const FAssetCompatibilityIssue& Issue) {
+						return Issue.ObjectPath == Mutation.ObjectPath
+							&& Issue.HandlerId == Mutation.HandlerId;
+					}))
+				ExecutedSemanticMigrations.push_back(
+					std::format("{}|{}", Mutation.ObjectPath, Mutation.HandlerId));
+		std::ranges::sort(ExpectedSemanticMigrations);
+		std::ranges::sort(ExecutedSemanticMigrations);
+		if (ExpectedSemanticMigrations != ExecutedSemanticMigrations)
+		{
+			OutResult.State = EAssetPackageAuditState::Stale;
+			const std::string Expected = ExpectedSemanticMigrations.empty()
+				? "<none>"
+				: ExpectedSemanticMigrations.front();
+			const std::string Executed = ExecutedSemanticMigrations.empty()
+				? "<none>"
+				: ExecutedSemanticMigrations.front();
+			OutResult.Diagnostic = std::format(
+				"The materialized semantic migrations did not reproduce the audited result "
+				"(expected '{}', executed '{}').",
+				Expected,
+				Executed);
+			CleanupIntroducedPackages();
+			return Error(EAssetError::StaleData, OutResult.Diagnostic);
+		}
+
+		DPackage* Package = Asset ? Asset->GetPackage() : nullptr;
+		Result = SavePackage(Package, {
+			.bAllowCompatibilityDataLoss = Options.bAllowCompatibilityDataLoss,
+			.ExpectedFingerprint = Audit.Fingerprint});
+		if (!Result)
+		{
+			OutResult.State = Result.Error == EAssetError::StaleData
+				? EAssetPackageAuditState::Stale
+				: Audit.State;
+			OutResult.Diagnostic = Result.Message;
+			CleanupIntroducedPackages();
+			return Result;
+		}
+		OutResult.bSaved = true;
+		OutResult.State = EAssetPackageAuditState::UpToDate;
+		CleanupIntroducedPackages();
 		return {};
 	}
 
@@ -1811,8 +2388,11 @@ namespace Durin::Asset
 		if (OutReport) *OutReport = {.PackagePath = Path};
 		const bool bRootLoad = LoadDepth++ == 0;
 		if (bRootLoad) TransactionPackages.clear();
+		FAssetLoadReport* PreviousLoadReport = GActiveAssetLoadReport;
+		if (bRootLoad) GActiveAssetLoadReport = OutReport;
 		DPackage* Package = nullptr;
 		FAssetResult Result = LoadPackageInternal(Path, Package, OutReport);
+		if (bRootLoad) GActiveAssetLoadReport = PreviousLoadReport;
 		--LoadDepth;
 		if (bRootLoad)
 		{
@@ -1992,6 +2572,11 @@ namespace Durin::Asset
 					|| Issue.Classification == EAssetCompatibilityClassification::Migrated)
 				{
 					Package->MarkDirty();
+					ReportAssetLoadMutation(
+						Object,
+						Issue.HandlerId,
+						Issue.MigrationSummary,
+						EAssetLoadMutationKind::Upgrade);
 					DURIN_WARN(
 						"Asset package '{}' uses legacy serialized data: {} "
 						"Save the package to upgrade its on-disk format.",
@@ -2108,6 +2693,13 @@ namespace Durin::Asset
 		const FAssetPackageSaveOptions& Options) -> FAssetResult
 	{
 		return FAssetManager::Get().SavePackage(Package, Options);
+	}
+	auto ExecutePackageUpgrade(
+		const FAssetPackageAuditReport& Audit,
+		FAssetPackageUpgradeResult& OutResult,
+		const FAssetPackageUpgradeOptions& Options) -> FAssetResult
+	{
+		return FAssetManager::Get().ExecutePackageUpgrade(Audit, OutResult, Options);
 	}
 	auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult { return FAssetManager::Get().MoveAsset(OldPath, NewPath); }
 	auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult { return FAssetManager::Get().AnalyzeAssetDeletion(Path, OutAnalysis); }

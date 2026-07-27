@@ -43,6 +43,48 @@ namespace Durin
 		inline constexpr uint32 StaticMeshDerivedDataCleanupDeleteLimit = 16;
 		constexpr float VectorTolerance = 1.0e-10f;
 
+		const bool GStaticMeshMaterialSlotsInspectionUpgraderRegistered = [] {
+			Asset::RegisterAssetStructureInspectionUpgrader(
+				"Durin::DStaticMesh",
+				"Engine.StaticMesh.MaterialSlotsV1",
+				[](const Asset::FAssetPackageInspection&,
+					const Asset::FAssetPackageObjectInspection& Object,
+					std::span<const Asset::FAssetLegacyField>,
+					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
+					-> Asset::FAssetResult
+				{
+					// Semantic schema versions retain their reflected field shape, so they
+					// must be inspected even when there are no incompatible field records.
+					const Asset::FAssetPackageField* VersionField =
+						Object.FindField("MaterialSlotsVersion");
+					uint32 Version = 0;
+					if (!VersionField || !VersionField->TryReadScalar(Version))
+						return {
+							Asset::EAssetError::CorruptFile,
+							"Static mesh material-slot schema version is missing or invalid."};
+					if (Version == StaticMeshMaterialSlotsVersion) return {};
+					if (Version > StaticMeshMaterialSlotsVersion)
+					{
+						OutIssues.push_back({
+							.Classification = Asset::EAssetCompatibilityClassification::UnknownIncompatible,
+							.MigrationSummary = std::format(
+								"Static mesh material-slot schema {} is newer than supported schema {}.",
+								Version,
+								StaticMeshMaterialSlotsVersion),
+							.Risk = Asset::EAssetCompatibilityRisk::UnknownNewerSchema});
+						return {};
+					}
+					OutIssues.push_back({
+						.Classification = Asset::EAssetCompatibilityClassification::Migrated,
+						.MigrationSummary =
+							"Will upgrade static mesh material-slot identity metadata during execution.",
+						.MigratedDataCount = 1,
+						.Risk = Asset::EAssetCompatibilityRisk::None});
+					return {};
+				});
+			return true;
+		}();
+
 		auto GetStaticMeshObjectStore() -> Asset::FDerivedDataObjectStore
 		{
 			return Asset::FDerivedDataObjectStore(
@@ -723,7 +765,15 @@ namespace Durin
 		MaterialSlots = std::move(InMaterialSlots);
 		MaterialSlotsVersion = StaticMeshMaterialSlotsVersion;
 		SetRenderData(std::move(InRenderData));
-		if (bSlotMetadataChanged) MarkPackageDirty();
+		if (bSlotMetadataChanged)
+		{
+			MarkPackageDirty();
+			Asset::ReportAssetLoadMutation(
+				this,
+				"Engine.StaticMesh.MaterialSlotsV1",
+				"Static mesh material-slot identity metadata was upgraded.",
+				Asset::EAssetLoadMutationKind::Upgrade);
+		}
 	}
 
 	auto DStaticMesh::BuildRenderDataCandidate(
@@ -1017,7 +1067,9 @@ namespace Durin
 		std::string CacheMessage;
 		const bool bSourceMetadataStale = Diagnostic.IsAvailable()
 			&& SourceImportData.SourceContentHash != CurrentSourceHash;
-		if (!bSourceMetadataStale && LoadStaticMeshDerivedData(
+		const bool bMaterialSlotsUpgradeRequired =
+			MaterialSlotsVersion != StaticMeshMaterialSlotsVersion;
+		if (!bSourceMetadataStale && !bMaterialSlotsUpgradeRequired && LoadStaticMeshDerivedData(
 			DerivedDataDiagnostic.Key, MaterialSlots, CachedRenderData, CacheStatus, CacheMessage))
 		{
 			SetRenderData(std::move(CachedRenderData));
@@ -1034,6 +1086,10 @@ namespace Durin
 			{
 				SourceImportData.SourceContentHash = CurrentSourceHash;
 				MarkPackageDirty();
+				Asset::ReportAssetLoadMutation(
+					this,
+					"Engine.StaticMesh.SourceHash",
+					"Static mesh source content hash was reconciled during load.");
 			}
 			OutError.clear();
 			return true;
@@ -1042,6 +1098,11 @@ namespace Durin
 		{
 			CacheStatus = EStaticMeshDerivedDataStatus::Missing;
 			CacheMessage = "Source content changed; importer metadata reconciliation is required.";
+		}
+		else if (bMaterialSlotsUpgradeRequired)
+		{
+			CacheStatus = EStaticMeshDerivedDataStatus::Missing;
+			CacheMessage = "Material-slot identity metadata requires a source-backed schema upgrade.";
 		}
 
 		DerivedDataDiagnostic.Status = CacheStatus;
@@ -1091,6 +1152,10 @@ namespace Durin
 		{
 			SourceImportData.SourceContentHash = std::move(CurrentSourceHash);
 			MarkPackageDirty();
+			Asset::ReportAssetLoadMutation(
+				this,
+				"Engine.StaticMesh.SourceHash",
+				"Static mesh source content hash was reconciled during load.");
 		}
 		OutError.clear();
 		return true;

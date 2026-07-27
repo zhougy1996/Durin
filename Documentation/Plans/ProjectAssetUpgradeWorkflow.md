@@ -43,6 +43,32 @@ isolated each `LoadAsset` with `ShutdownAssetManager()`. The same seven-package
 corpus and procedure are the required baseline for Stage 5 performance
 comparison.
 
+Stage 1 is in progress. AssetCore now exposes content-hashed all-object
+inspection, deterministic package/session reports, object-free structure and
+semantic-schema contributors, a separate load-mutation ledger, and a safe
+fresh-load execution primitive. Execution rejects stale or already loaded
+targets, blocks non-upgrade `PostLoad()` mutations, verifies that materialized
+migrations reproduce the audit, publishes through the ordinary atomic save
+path with the expected fingerprint, and releases only packages introduced by
+the transaction. Risky packages require explicit package-scoped data-loss
+consent, while read-only upgrade candidates are blocked during audit.
+
+Engine contributors now cover legacy `DStaticMeshComponent` material fields
+and `DStaticMesh::MaterialSlotsVersion`. The latter also fixes a DDC-hit path
+that previously skipped the slot-identity migration. Texture2D source identity
+and StaticMesh source-hash reconciliation are recorded as non-upgrade
+mutations. `DClass::IsChildOf` is exported because AssetCore uses the public
+reflection relationship query across the CoreDObject DLL boundary.
+
+Stage 1 checkpoint validation passed all 54 AssetCoreTests plus focused Engine
+coverage for legacy component fields and semantic StaticMesh slot-version
+audit/execution. The full 367-test EngineTests run remains limited by
+`FTexture2DTests.ReflectedBuildSettingsRebuildTransactionallyAndSupportUndoRedo`:
+the test completes its edits, unload, and deletion, then exits with a breakpoint
+exception while its transaction manager is destroyed after the edited Texture
+object. Temporary diagnostics were removed; resolving that independent
+transaction/object lifetime defect is outside this plan's working set.
+
 ### Stage 0 Handoff
 
 - Baseline: `03acb67f`.
@@ -298,21 +324,21 @@ wire-format work.
 
 Dependencies: Stage 0.
 
-- [ ] Add unified package and session report types, classifications,
+- [x] Add unified package and session report types, classifications,
   fingerprints, progress counters, and deterministic ordering.
-- [ ] Expand complete package inspection from main-asset fields to immutable
+- [x] Expand complete package inspection from main-asset fields to immutable
   per-object snapshots with retained payload context and content fingerprints.
-- [ ] Add inspection-contributor registration for object-free classification
+- [x] Add inspection-contributor registration for object-free classification
   and explicit execution contributors for repository-owned migrations from the
   Stage 0 inventory.
-- [ ] Add a load-mutation ledger and instrument Texture2D source identity,
+- [x] Add a load-mutation ledger and instrument Texture2D source identity,
   StaticMesh source hash, structure upgrades, and explicit schema migrations so
   execution cannot infer meaning from Dirty state.
 - [ ] Report supported older package formats as rewrite opportunities and
   future unsupported formats as blocked inputs.
-- [ ] Implement object-free package audit with the selected deterministic queue
+- [x] Implement object-free package audit with the selected deterministic queue
   inputs and classification aggregation.
-- [ ] Implement fresh-load execution with preloaded/active-package preservation,
+- [x] Implement fresh-load execution with preloaded/active-package preservation,
   stale-result rejection, load-mutation blocking, ordinary safe save, explicit
   package-scoped data-loss consent, expected-fingerprint atomic publication,
   and structured per-package results.

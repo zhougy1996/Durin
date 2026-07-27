@@ -35,6 +35,94 @@ namespace Durin
 			});
 			return It == Fields.end() ? nullptr : &*It;
 		}
+
+		const bool RegisteredStructureInspectionUpgrader = [] {
+			Asset::RegisterAssetStructureInspectionUpgrader(
+				"Durin::DStaticMeshComponent",
+				"Engine.StaticMeshComponent.LegacyMaterials",
+				[](const Asset::FAssetPackageInspection& Inspection,
+					const Asset::FAssetPackageObjectInspection& Object,
+					std::span<const Asset::FAssetLegacyField> Fields,
+					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
+					-> Asset::FAssetResult
+				{
+					const Asset::FAssetLegacyField* MaterialField = FindLegacyField(
+						Fields,
+						LegacyMaterialFieldName,
+						DurinCodeGen::EPropertyGenFlags::Object,
+						"Object:Durin::DMaterialInterface:true");
+					const Asset::FAssetLegacyField* MaterialsField = FindLegacyField(
+						Fields,
+						LegacyMaterialsFieldName,
+						DurinCodeGen::EPropertyGenFlags::Array,
+						"Array<Object:Durin::DMaterialInterface:true>");
+					if (!MaterialField && !MaterialsField) return {};
+
+					Asset::FAssetPackageObjectReference SlotZeroFallback;
+					if (MaterialField)
+					{
+						const Asset::FAssetPackageField* Inspected = Object.FindField(MaterialField->Name);
+						if (!Inspected || !Inspected->TryReadObjectReference(SlotZeroFallback))
+							return {
+								Asset::EAssetError::CorruptFile,
+								"Invalid legacy static-mesh Material reference payload."};
+					}
+					std::vector<Asset::FAssetPackageObjectReference> LegacyMaterials;
+					if (MaterialsField)
+					{
+						const Asset::FAssetPackageField* Inspected = Object.FindField(MaterialsField->Name);
+						if (!Inspected || !Inspected->TryReadObjectReferenceArray(LegacyMaterials))
+							return {
+								Asset::EAssetError::CorruptFile,
+								"Invalid legacy static-mesh Materials reference payload."};
+					}
+					auto ValidateReference = [&Inspection](
+						const Asset::FAssetPackageObjectReference& Reference) -> bool {
+						return Reference.Kind != Asset::EAssetPackageObjectReferenceKind::Internal
+							|| Inspection.FindObject(Reference.ObjectId) != nullptr;
+					};
+					if (!ValidateReference(SlotZeroFallback)
+						|| !std::ranges::all_of(LegacyMaterials, ValidateReference))
+						return {
+							Asset::EAssetError::InvalidObjectGraph,
+							"Legacy static-mesh material data contains an invalid internal object reference."};
+
+					const bool bHasFallback =
+						SlotZeroFallback.Kind != Asset::EAssetPackageObjectReferenceKind::Null;
+					const size_t LegacyCount = std::max<size_t>(
+						LegacyMaterials.size(),
+						bHasFallback ? 1 : 0);
+					uint64 MigratedCount = 0;
+					for (size_t Index = 0; Index < LegacyCount; ++Index)
+					{
+						const Asset::FAssetPackageObjectReference& Reference =
+							Index < LegacyMaterials.size()
+								? LegacyMaterials[Index]
+								: SlotZeroFallback;
+						if (Reference.Kind != Asset::EAssetPackageObjectReferenceKind::Null)
+							++MigratedCount;
+					}
+
+					std::vector<Asset::FAssetLegacyField> HandledFields;
+					if (MaterialField) HandledFields.push_back(*MaterialField);
+					if (MaterialsField) HandledFields.push_back(*MaterialsField);
+					OutIssues.push_back({
+						.DeclaringClass = "Durin::DStaticMeshComponent",
+						.LegacyFields = std::move(HandledFields),
+						.Classification = MigratedCount == 0
+							? Asset::EAssetCompatibilityClassification::SafeCleanup
+							: Asset::EAssetCompatibilityClassification::Migrated,
+						.MigrationSummary = MigratedCount == 0
+							? "Removed empty legacy Material and Materials fields; no material assignments were migrated."
+							: std::format(
+								"Will migrate {} legacy material assignment(s) to GUID-keyed overrides during execution.",
+								MigratedCount),
+						.MigratedDataCount = MigratedCount,
+						.Risk = Asset::EAssetCompatibilityRisk::None});
+					return {};
+				});
+			return true;
+		}();
 	}
 
 	DStaticMeshComponent::DStaticMeshComponent(const FObjectInitializer& ObjectInitializer)

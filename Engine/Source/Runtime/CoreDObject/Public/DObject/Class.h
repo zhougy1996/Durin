@@ -91,7 +91,7 @@ namespace Durin
 		ClassConstructorType ClassConstructor = nullptr;
 
 		auto GetSuperClass() const -> DClass* { return static_cast<DClass*>(GetSuperStructBase()); }
-		auto IsChildOf(const DClass* InClass) const -> bool;
+		COREDOBJECT_API auto IsChildOf(const DClass* InClass) const -> bool;
 		auto GetClassFlags() const -> EClassFlags { return ClassFlags; }
 		auto HasAnyClassFlags(EClassFlags InFlags) const -> bool { return EnumHasAnyFlags(ClassFlags, InFlags); }
 		auto GetQualifiedName() const -> FName { return QualifiedName; }

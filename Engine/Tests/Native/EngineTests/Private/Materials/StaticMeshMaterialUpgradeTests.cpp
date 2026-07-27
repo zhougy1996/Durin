@@ -1,4 +1,5 @@
 #include "MaterialTestSupport.h"
+#include "Misc/DerivedDataCache.h"
 
 namespace
 {
@@ -215,6 +216,31 @@ namespace
 		return Stream.good();
 	}
 
+	auto RewriteUInt32Field(
+		const std::filesystem::path& File,
+		std::string_view ClassName,
+		std::string_view FieldName,
+		Durin::uint32 Value) -> bool
+	{
+		std::vector<Durin::uint8> Bytes;
+		if (!Durin::FFileHelper::LoadFileToArray(Bytes, File.generic_string())) return false;
+		FLegacyPackage Package;
+		if (!ReadLegacyPackage(Bytes, Package)) return false;
+		const auto ObjectIt =
+			std::ranges::find(Package.Objects, ClassName, &FLegacyObjectRecord::ClassName);
+		if (ObjectIt == Package.Objects.end()) return false;
+		const auto FieldIt =
+			std::ranges::find(ObjectIt->Fields, FieldName, &FLegacyFieldRecord::Name);
+		if (FieldIt == ObjectIt->Fields.end() || FieldIt->Payload.size() != sizeof(Value))
+			return false;
+		std::memcpy(FieldIt->Payload.data(), &Value, sizeof(Value));
+		Bytes = WriteLegacyPackage(Package);
+		std::ofstream Stream(File, std::ios::binary | std::ios::trunc);
+		if (!Stream.is_open()) return false;
+		Stream.write(reinterpret_cast<const char*>(Bytes.data()), static_cast<std::streamsize>(Bytes.size()));
+		return Stream.good();
+	}
+
 	struct FLegacyMaterialFixture
 	{
 		Durin::FAssetPath MeshPath;
@@ -222,6 +248,7 @@ namespace
 		Durin::FAssetPath SecondMaterialPath;
 		Durin::FAssetPath ThirdMaterialPath;
 		Durin::FAssetPath ComponentPath;
+		std::filesystem::path MeshFile;
 		std::filesystem::path ComponentFile;
 		std::array<Durin::FGuid, 2> SlotIds;
 	};
@@ -272,6 +299,7 @@ namespace
 		Component->SetMaterial(0, First);
 		Component->SetMaterial(1, Second);
 		EXPECT_TRUE(Durin::Asset::SavePackage(Component->GetPackage()));
+		Fixture.MeshFile = Root / std::filesystem::path(Name) / "Mesh.dasset";
 		Fixture.ComponentFile = Root / std::filesystem::path(Name) / "Component.dasset";
 		EXPECT_TRUE(Durin::Asset::UnloadPackage(Fixture.ComponentPath));
 		EXPECT_TRUE(Durin::Asset::UnloadPackage(Fixture.ThirdMaterialPath));
@@ -304,6 +332,114 @@ namespace
 		return Issue;
 	}
 
+	auto MakeCurrentAssetData(
+		const Durin::FAssetPath& Path,
+		const std::filesystem::path& File) -> Durin::Asset::FAssetData
+	{
+		const Durin::Asset::FAssetData* Registered =
+			Durin::Asset::GetAssetRegistry().FindAsset(Path);
+		EXPECT_NE(Registered, nullptr);
+		if (!Registered) return {};
+		Durin::Asset::FAssetData Data = *Registered;
+		std::error_code ErrorCode;
+		Data.FileSize = std::filesystem::file_size(File, ErrorCode);
+		EXPECT_FALSE(ErrorCode);
+		Data.LastWriteTime = std::filesystem::last_write_time(File, ErrorCode);
+		EXPECT_FALSE(ErrorCode);
+		Data.LastWriteTimeTicks =
+			Durin::DerivedDataCache::FileTimeToStableTicks(Data.LastWriteTime);
+		return Data;
+	}
+
+}
+
+TEST(FStaticMeshMaterialUpgradeTests, SemanticSlotVersionAuditsAndExecutesWithoutLoadingDuringAudit)
+{
+	const FLegacyMaterialFixture Fixture = CreateLegacyMaterialFixture("SemanticSlotVersion");
+	ASSERT_TRUE(RewriteUInt32Field(
+		Fixture.MeshFile,
+		"Durin::DStaticMesh",
+		"MaterialSlotsVersion",
+		0));
+
+	const Durin::Asset::FAssetData Data =
+		MakeCurrentAssetData(Fixture.MeshPath, Fixture.MeshFile);
+	Durin::Asset::FAssetPackageAuditReport Audit;
+	ASSERT_TRUE(Durin::Asset::AuditAssetPackage(Data, Audit));
+	ASSERT_EQ(Audit.State, Durin::Asset::EAssetPackageAuditState::SafeUpgrade);
+	ASSERT_EQ(Audit.CompatibilityIssues.size(), 1u);
+	EXPECT_EQ(
+		Audit.CompatibilityIssues.front().HandlerId,
+		"Engine.StaticMesh.MaterialSlotsV1");
+	EXPECT_TRUE(Audit.CompatibilityIssues.front().LegacyFields.empty());
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Fixture.MeshPath), nullptr);
+
+	Durin::Asset::FAssetPackageUpgradeResult Upgrade;
+	const Durin::Asset::FAssetResult ExecutionResult =
+		Durin::Asset::ExecutePackageUpgrade(Audit, Upgrade);
+	ASSERT_FALSE(Upgrade.LoadReport.Mutations.empty()) << Upgrade.Diagnostic;
+	EXPECT_FALSE(Upgrade.LoadReport.HasNonUpgradeMutations());
+	ASSERT_TRUE(ExecutionResult)
+		<< Upgrade.Diagnostic
+		<< " audit-object=" << Audit.CompatibilityIssues.front().ObjectPath
+		<< " mutation-object=" << Upgrade.LoadReport.Mutations.front().ObjectPath
+		<< " mutation-handler=" << Upgrade.LoadReport.Mutations.front().HandlerId;
+	EXPECT_TRUE(Upgrade.bSaved);
+	EXPECT_EQ(Upgrade.State, Durin::Asset::EAssetPackageAuditState::UpToDate);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Fixture.MeshPath), nullptr);
+	ASSERT_EQ(Upgrade.LoadReport.Mutations.size(), 1u);
+	EXPECT_EQ(
+		Upgrade.LoadReport.Mutations.front().HandlerId,
+		"Engine.StaticMesh.MaterialSlotsV1");
+	EXPECT_EQ(
+		Upgrade.LoadReport.Mutations.front().Kind,
+		Durin::Asset::EAssetLoadMutationKind::Upgrade);
+}
+
+TEST(FStaticMeshMaterialUpgradeTests, ObjectFreeAuditClassifiesEmptyLegacyFieldsAsSafe)
+{
+	const FLegacyMaterialFixture Fixture = CreateLegacyMaterialFixture("AuditEmptyCleanup");
+	const std::array<std::optional<std::string_view>, 0> Materials{};
+	ASSERT_TRUE(RewriteComponentWithLegacyMaterials(
+		Fixture.ComponentFile, std::nullopt, Materials));
+
+	const Durin::Asset::FAssetData Data =
+		MakeCurrentAssetData(Fixture.ComponentPath, Fixture.ComponentFile);
+	Durin::Asset::FAssetPackageAuditReport Report;
+	ASSERT_TRUE(Durin::Asset::AuditAssetPackage(Data, Report));
+	EXPECT_EQ(Report.State, Durin::Asset::EAssetPackageAuditState::SafeUpgrade);
+	ASSERT_EQ(Report.CompatibilityIssues.size(), 1u);
+	EXPECT_EQ(
+		Report.CompatibilityIssues.front().Classification,
+		Durin::Asset::EAssetCompatibilityClassification::SafeCleanup);
+	EXPECT_EQ(
+		Report.CompatibilityIssues.front().HandlerId,
+		"Engine.StaticMeshComponent.LegacyMaterials");
+	EXPECT_EQ(Report.CompatibilityIssues.front().MigratedDataCount, 0u);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Fixture.ComponentPath), nullptr);
+}
+
+TEST(FStaticMeshMaterialUpgradeTests, ObjectFreeAuditCountsLegacyAssignmentsWithoutLoading)
+{
+	const FLegacyMaterialFixture Fixture = CreateLegacyMaterialFixture("AuditAssignments");
+	const std::array<std::optional<std::string_view>, 3> Materials{
+		Fixture.FirstMaterialPath.GetView(),
+		std::nullopt,
+		Fixture.ThirdMaterialPath.GetView()};
+	ASSERT_TRUE(RewriteComponentWithLegacyMaterials(
+		Fixture.ComponentFile, Fixture.SecondMaterialPath.GetView(), Materials));
+
+	const Durin::Asset::FAssetData Data =
+		MakeCurrentAssetData(Fixture.ComponentPath, Fixture.ComponentFile);
+	Durin::Asset::FAssetPackageAuditReport Report;
+	ASSERT_TRUE(Durin::Asset::AuditAssetPackage(Data, Report));
+	EXPECT_EQ(Report.State, Durin::Asset::EAssetPackageAuditState::SafeUpgrade);
+	ASSERT_EQ(Report.CompatibilityIssues.size(), 1u);
+	EXPECT_EQ(
+		Report.CompatibilityIssues.front().Classification,
+		Durin::Asset::EAssetCompatibilityClassification::Migrated);
+	EXPECT_EQ(Report.CompatibilityIssues.front().MigratedDataCount, 2u);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Fixture.ComponentPath), nullptr);
 }
 
 TEST(FStaticMeshMaterialUpgradeTests, EmptyLegacyFieldsAreOneSafeCleanup)
@@ -322,6 +458,13 @@ TEST(FStaticMeshMaterialUpgradeTests, EmptyLegacyFieldsAreOneSafeCleanup)
 	EXPECT_TRUE(Loaded->GetMaterialOverrides().empty());
 	EXPECT_TRUE(Loaded->GetPackage()->IsDirty());
 	EXPECT_NE(Issue.MigrationSummary.find("no material assignments"), std::string::npos);
+	ASSERT_EQ(Report.Mutations.size(), 1u);
+	EXPECT_EQ(Report.Mutations.front().PackagePath, Fixture.ComponentPath);
+	EXPECT_EQ(Report.Mutations.front().HandlerId, "Engine.StaticMeshComponent.LegacyMaterials");
+	EXPECT_EQ(
+		Report.Mutations.front().Kind,
+		Durin::Asset::EAssetLoadMutationKind::Upgrade);
+	EXPECT_FALSE(Report.HasNonUpgradeMutations());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Fixture.ComponentPath));
 }
 
