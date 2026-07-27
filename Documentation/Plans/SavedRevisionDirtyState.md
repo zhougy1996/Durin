@@ -21,12 +21,14 @@ the Level Editor continues to show the document as dirty. The implemented
 architecture documents this as a conservative temporary policy pending a
 saved-revision model.
 
-Stages 1-2 are implemented. `FEditorTransactionManager` owns package-scoped
+Stages 1-3 are implemented. `FEditorTransactionManager` owns package-scoped
 current/saved revision state and Level Editor transactions now report the
 packages they affect. Successful level activation and save establish or advance
 the checkpoint, while non-transactional scene mutations invalidate it. Existing
 Level Editor chrome continues to consume `DPackage::IsDirty()`, now synchronized
-by revision movement for transaction-managed edits.
+by revision movement for transaction-managed edits. Native coverage protects
+revision topology, failure behavior, history eviction, reflected edits,
+Transform Gizmo interactions, and level-document checkpoint handoff.
 
 ### Stage 1 Handoff
 
@@ -85,6 +87,42 @@ by revision movement for transaction-managed edits.
   `FReflectedPropertyEditSessionTests.*` and `FTransformGizmoTests.*` tests
   passed; a full `all` build completed successfully and linked
   `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`.
+
+### Stage 3 Handoff
+
+- Baseline commit: `128e0f29`.
+- Working set:
+  - `Engine/Source/Editor/LevelEditor/Private/Documents/LevelDocumentRevisionState.h`
+  - `Engine/Source/Editor/LevelEditor/Private/Documents/LevelDocumentController.cpp`
+  - `Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp`
+  - `Engine/Tests/Native/EngineTests/Private/Editor/ReflectedPropertyEditingTestSupport.h`
+  - `Engine/Tests/Native/EngineTests/Private/Editor/ReflectedPropertyTransactionTests.cpp`
+  - `Engine/Tests/Native/EngineTests/Private/Viewport/ViewportTestSupport.h`
+  - `Engine/Tests/Native/EngineTests/Private/Viewport/ViewportFoundationTests.cpp`
+  - `Engine/Tests/Native/EngineTests/Private/Viewport/ViewportInteractionTests.cpp`
+  - `Documentation/Plans/SavedRevisionDirtyState.md`
+- Key symbols: `FPackageCountingTransaction`,
+  `MakeRevisionTestPackage()`,
+  `FLevelDocumentRevisionState::CompleteSave()`, `Activate()`, and `Discard()`,
+  `FEditorTransactionManagerTests`, and
+  `FLevelDocumentRevisionStateTests`.
+- Decisions: level-document save, activation, replacement, and discard now use
+  one small checkpoint handoff boundary that is directly testable without UI or
+  filesystem mocking; test packages use scoped mount registries so they remain
+  valid regardless of whether another test has already frozen the process-wide
+  registry.
+- Open questions: none for Stage 3. Stage 4 must perform interactive editor
+  verification and replace the temporary architecture limitation. The
+  all-in-one `EngineTests` process still terminates in the pre-existing
+  `FMaterialTests.RenderedThumbnailPreviewSceneCapturesResolvedMaterialDifferences`
+  path when it registers a mount after another test has published the registry;
+  focused revision tests and a Vulkan-before-transaction ordering check pass.
+- Validation: all 35 focused transaction, lifecycle, reflected-property, and
+  Transform Gizmo tests passed; the Vulkan-before-transaction combination
+  passed all 12 tests; `LevelEditor` and full `all` builds succeeded and linked
+  `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`. An
+  attempted unfiltered `EngineTests` run reached the unrelated pre-existing
+  immutable-mount fatal described above before the new manager/viewport tests.
 
 ## Goal
 
@@ -328,20 +366,20 @@ Level package dirty synchronization.
 
 Dependencies: Stages 1-2.
 
-- [ ] Add focused transaction-manager unit tests for initial checkpoint,
+- [x] Add focused transaction-manager unit tests for initial checkpoint,
       commit, save, Undo, Redo, save-in-the-middle, and multi-package
       transitions.
-- [ ] Add branch tests proving a post-Undo commit uses a new revision and cannot
+- [x] Add branch tests proving a post-Undo commit uses a new revision and cannot
       collide with a saved revision on the discarded Redo branch.
-- [ ] Add tests for invalid checkpoints, successful re-save, failed save
+- [x] Add tests for invalid checkpoints, successful re-save, failed save
       handoff, failed Undo/Redo, no-op/cancelled edits, and `Clear()`.
-- [ ] Add a bounded-history test proving eviction does not change current/saved
+- [x] Add a bounded-history test proving eviction does not change current/saved
       revision comparison.
-- [ ] Extend reflected-property transaction tests to assert package dirty state
+- [x] Extend reflected-property transaction tests to assert package dirty state
       at the save point across Undo and Redo.
-- [ ] Extend transform transaction coverage for completed, cancelled, and
+- [x] Extend transform transaction coverage for completed, cancelled, and
       net-zero drags.
-- [ ] Add Level document lifecycle coverage for activation, save success,
+- [x] Add Level document lifecycle coverage for activation, save success,
       simulated save failure, replacement, and discard.
 
 #### Acceptance Gate

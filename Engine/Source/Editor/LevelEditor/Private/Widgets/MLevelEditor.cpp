@@ -13,6 +13,7 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Documents/LevelDocumentController.h"
+#include "Documents/LevelDocumentRevisionState.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Misc/Project.h"
@@ -288,8 +289,9 @@ namespace Durin
 		(void)Document;
 		if (!Context || !Context->Level || !Context->Level->GetPackage()) return false;
 		DPackage* Package = Context->Level->GetPackage();
-		if (GEditor) GEditor->GetTransactionManager().ForgetPackage(*Package);
-		Package->ClearDirty();
+		FLevelDocumentRevisionState::Discard(
+			GEditor ? &GEditor->GetTransactionManager() : nullptr, *Package
+		);
 		return true;
 	}
 

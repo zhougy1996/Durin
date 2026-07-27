@@ -1,4 +1,5 @@
 #include "Documents/LevelDocumentController.h"
+#include "Documents/LevelDocumentRevisionState.h"
 
 #include "AssetSystem.h"
 #include "Editor/EditorEngine.h"
@@ -16,6 +17,11 @@ namespace Durin
 {
 	namespace
 	{
+		auto GetLevelTransactions() -> FEditorTransactionManager*
+		{
+			return GEditor ? &GEditor->GetTransactionManager() : nullptr;
+		}
+
 		constexpr auto GetClassificationLabel(Asset::EAssetCompatibilityClassification Classification) -> std::string_view
 		{
 			switch (Classification)
@@ -451,12 +457,14 @@ namespace Durin
 		SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
 		SessionSettings.Save(&SceneViewportPanel);
 		Asset::FAssetResult Result = Asset::SavePackage(Context.Level->GetPackage());
+		FLevelDocumentRevisionState::CompleteSave(
+			GetLevelTransactions(), *Context.Level->GetPackage(), static_cast<bool>(Result)
+		);
 		if (!Result)
 		{
 			SetError(Result.Message);
 			return false;
 		}
-		if (GEditor) GEditor->GetTransactionManager().MarkSaved(*Context.Level->GetPackage());
 		return true;
 	}
 
@@ -509,6 +517,9 @@ namespace Durin
 			const bool bWasDirty = Package->IsDirty();
 			Context.Level->Rename(FName(NewName));
 			const Asset::FAssetResult SaveResult = Asset::SavePackage(Package);
+			FLevelDocumentRevisionState::CompleteSave(
+				GetLevelTransactions(), *Package, static_cast<bool>(SaveResult)
+			);
 			if (!SaveResult)
 			{
 				Context.Level->Rename(OldObjectName);
@@ -516,17 +527,18 @@ namespace Durin
 				SetError(SaveResult.Message);
 				return false;
 			}
-			if (GEditor) GEditor->GetTransactionManager().MarkSaved(*Package);
 			return true;
 		}
 
 		const Asset::FAssetResult MoveResult = AssetMoveCoordinator.MoveAsset(OldPath, NewPath);
+		FLevelDocumentRevisionState::CompleteSave(
+			GetLevelTransactions(), *Package, static_cast<bool>(MoveResult)
+		);
 		if (!MoveResult)
 		{
 			SetError(MoveResult.Message);
 			return false;
 		}
-		if (GEditor) GEditor->GetTransactionManager().MarkSaved(*Package);
 		return true;
 	}
 
@@ -546,18 +558,7 @@ namespace Durin
 			SetError("The level is already active in another world.");
 			return false;
 		}
-		if (GEditor)
-		{
-			FEditorTransactionManager& Transactions = GEditor->GetTransactionManager();
-			Transactions.Clear();
-			if (DPackage* Package = Level->GetPackage())
-			{
-				if (Package->IsDirty())
-					Transactions.InvalidateSavedState(*Package);
-				else
-					Transactions.EstablishSavedState(*Package);
-			}
-		}
+		FLevelDocumentRevisionState::Activate(GetLevelTransactions(), Level->GetPackage());
 		Context.Synchronize(Context.World);
 		SessionSettings.RestoreViewportState(Level, SceneViewportPanel);
 		if (PreviousPackage && PreviousPackage != Level->GetPackage())

@@ -5,14 +5,17 @@
 
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/DObjectArray.h"
+#include "DObject/AssetPath.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/ObjectPtr.h"
+#include "DObject/Package.h"
 #include "Components/CameraComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/SplineComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstance.h"
+#include "Misc/Paths.h"
 #include "EngineTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -215,5 +218,22 @@ namespace
 		Target.SnapshotContainer = &Container;
 		Target.Path.push_back({Property});
 		return Target;
+	}
+
+	auto MakeReflectedRevisionTestPackage() -> Durin::DPackage*
+	{
+		InitializeDObjectSystem();
+		Durin::PathUtilities::FScopedMountRegistryFixture MountFixture;
+		Durin::PathUtilities::RegisterMountPoint(
+			"/ReflectedRevisionTests/",
+			std::filesystem::path(DURIN_TEST_WORK_DIR).generic_string() + "/"
+		);
+		static Durin::uint64 NextPackageId = 1;
+		const std::string Name = "Package" + std::to_string(NextPackageId++);
+		Durin::FAssetPath Path;
+		EXPECT_TRUE(Durin::FAssetPath::TryCreate("/ReflectedRevisionTests/" + Name, Path));
+		Durin::DPackage* Package = Durin::NewObject<Durin::DPackage>(nullptr, Durin::FName(Name));
+		Package->InitializeAssetPackage(Path);
+		return Package;
 	}
 }

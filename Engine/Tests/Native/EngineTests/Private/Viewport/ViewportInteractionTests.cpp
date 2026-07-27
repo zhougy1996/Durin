@@ -38,7 +38,9 @@ TEST(FLevelEditorViewportClientTests, ResetsIndependentViewUnlessSavedStateExist
 TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 {
 	InitializeDObjectSystem();
-	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "GizmoWorld");
+	Durin::DPackage* Package = MakeRevisionTestPackage("GizmoPackage");
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(Package, "GizmoWorld");
+	ASSERT_TRUE(Package->SetAsset(World));
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "GizmoLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Selected");
@@ -64,6 +66,8 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Durin::FVector2f HandleScreen;
 	ASSERT_TRUE(Client.ProjectWorldToViewport(InitialLocation, {800.0f, 600.0f}, CenterScreen));
 	ASSERT_TRUE(Client.ProjectWorldToViewport(XHandlePoint, {800.0f, 600.0f}, HandleScreen));
+	Durin::FEditorTransactionManager TransformTransactions;
+	TransformTransactions.EstablishSavedState(*Package);
 	Durin::FLevelEditorViewportInput DragInput;
 	DragInput.bFocused = true;
 	DragInput.bHovered = true;
@@ -71,20 +75,35 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	DragInput.bLeftMouseDown = true;
 	DragInput.ViewportSize = {800.0f, 600.0f};
 	DragInput.MousePosition = HandleScreen;
-	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, nullptr);
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
 	ASSERT_TRUE(Client.GetTransformGizmo().IsDragging());
 	DragInput.bLeftMousePressed = false;
 	DragInput.MousePosition += glm::normalize(HandleScreen - CenterScreen) * 30.0f;
-	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, nullptr);
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
 	EXPECT_GT(glm::length(Actor->GetActorTransform().Translation - InitialLocation), 0.001);
 	Durin::FSceneView DraggedView;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, DraggedView));
 	ExpectVectorNear(Durin::FVector3(DraggedView.OverlayPrimitives.front().LocalToWorld[3]), Actor->GetActorTransform().Translation);
 	DragInput.bCancel = true;
-	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, nullptr);
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
 	ExpectVectorNear(Actor->GetActorTransform().Translation, InitialLocation);
+	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_FALSE(TransformTransactions.CanUndo());
+	EXPECT_TRUE(TransformTransactions.ConsumeEvents().empty());
 
-	Durin::FEditorTransactionManager TransformTransactions;
+	DragInput.bCancel = false;
+	DragInput.bLeftMousePressed = true;
+	DragInput.bLeftMouseDown = true;
+	DragInput.MousePosition = HandleScreen;
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	ASSERT_TRUE(Client.GetTransformGizmo().IsDragging());
+	DragInput.bLeftMousePressed = false;
+	DragInput.bLeftMouseDown = false;
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_FALSE(TransformTransactions.CanUndo());
+	EXPECT_TRUE(TransformTransactions.ConsumeEvents().empty());
+
 	DragInput.bCancel = false;
 	DragInput.bLeftMousePressed = true;
 	DragInput.bLeftMouseDown = true;
@@ -102,6 +121,11 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	EXPECT_NE(TransformEvents.front().Details.find("'Selected'"), std::string::npos);
 	EXPECT_NE(TransformEvents.front().Details.find("Location"), std::string::npos);
 	EXPECT_NE(TransformEvents.front().Details.find("Delta"), std::string::npos);
+	EXPECT_TRUE(Package->IsDirty());
+	ASSERT_TRUE(TransformTransactions.Undo());
+	EXPECT_FALSE(Package->IsDirty());
+	ASSERT_TRUE(TransformTransactions.Redo());
+	EXPECT_TRUE(Package->IsDirty());
 
 	Client.GetTransformGizmo().SetMode(Durin::ETransformGizmoMode::Rotate);
 	Durin::FSceneView RotateView;

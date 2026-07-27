@@ -62,6 +62,41 @@ TEST(FReflectedPropertyEditSessionTests, ContinuousCommitCreatesOneUndoRedoTrans
 	EXPECT_EQ(Events[1].Type, Durin::EEditorTransactionEventType::Redone);
 }
 
+TEST(FReflectedPropertyEditSessionTests, SynchronizesPackageDirtyStateAtSavedRevision)
+{
+	auto Property = MakeValueProperty();
+	FValueContainer Container{7};
+	Durin::DPackage* Package = MakeReflectedRevisionTestPackage();
+	Durin::DObject* Object = Durin::NewObject<Durin::DObject>(Package, Durin::FName("PropertyEditTarget"));
+	Durin::FReflectedPropertyEditTarget Target;
+	Target.Object = Object;
+	Target.MemberProperty = Property.get();
+	Target.LeafProperty = Property.get();
+	Target.SnapshotProperty = Property.get();
+	Target.SnapshotContainer = &Container;
+	Target.Path.push_back({Property.get()});
+	Durin::FEditorTransactionManager Transactions;
+	Transactions.EstablishSavedState(*Package);
+
+	Durin::FReflectedPropertyEditSession Session;
+	ASSERT_TRUE(Session.Begin(Target, "Edit Saved Value", nullptr, &Transactions));
+	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 19)), Durin::EReflectedPropertyEditResult::Changed);
+	ASSERT_EQ(Session.Commit(), Durin::EReflectedPropertyEditResult::Changed);
+	EXPECT_TRUE(Package->IsDirty());
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Container.Value, 7);
+	EXPECT_FALSE(Package->IsDirty());
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Container.Value, 19);
+	EXPECT_TRUE(Package->IsDirty());
+	Transactions.MarkSaved(*Package);
+	EXPECT_FALSE(Package->IsDirty());
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_TRUE(Package->IsDirty());
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_FALSE(Package->IsDirty());
+}
+
 TEST(FReflectedPropertyEditSessionTests, NoOpAndCancelledEditsDoNotCreateTransactions)
 {
 	auto Property = MakeValueProperty();

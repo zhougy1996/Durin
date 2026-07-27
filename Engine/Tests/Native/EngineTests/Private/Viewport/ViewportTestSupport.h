@@ -14,6 +14,7 @@
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "DObject/Property.h"
 #include "Customizations/DirectionalLightEditorCustomizations.h"
 #include "Engine/Engine.h"
@@ -83,6 +84,62 @@ namespace
 		int& Value;
 		FTransactionControl& Control;
 	};
+
+	class FPackageCountingTransaction final : public Durin::IEditorTransaction
+	{
+	public:
+		FPackageCountingTransaction(
+			int& InValue,
+			std::initializer_list<Durin::DPackage*> InPackages,
+			int InDelta = 1,
+			FTransactionControl* InControl = nullptr
+		)
+			: Value(InValue)
+			, Packages(InPackages)
+			, Delta(InDelta)
+			, Control(InControl)
+		{
+		}
+
+		auto GetDescription() const -> std::string_view override { return "Package Counting"; }
+		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override { return Packages; }
+		auto Undo() -> bool override
+		{
+			if (Control && Control->bFailUndo) return false;
+			Value -= Delta;
+			return true;
+		}
+		auto Redo() -> bool override
+		{
+			if (Control && Control->bFailRedo) return false;
+			Value += Delta;
+			return true;
+		}
+
+	private:
+		int& Value;
+		std::vector<Durin::DPackage*> Packages;
+		int Delta;
+		FTransactionControl* Control = nullptr;
+	};
+
+	auto MakeRevisionTestPackage(std::string_view Label = "Package") -> Durin::DPackage*
+	{
+		InitializeDObjectSystem();
+		Durin::PathUtilities::FScopedMountRegistryFixture MountFixture;
+		Durin::PathUtilities::RegisterMountPoint(
+			"/EditorRevisionTests/",
+			std::filesystem::path(DURIN_TEST_WORK_DIR).generic_string() + "/"
+		);
+		static Durin::uint64 NextPackageId = 1;
+		const std::string Name = std::string(Label) + std::to_string(NextPackageId++);
+		Durin::FAssetPath Path;
+		EXPECT_TRUE(Durin::FAssetPath::TryCreate("/EditorRevisionTests/" + Name, Path));
+		Durin::DPackage* Package = Durin::NewObject<Durin::DPackage>(nullptr, Durin::FName(Name));
+		Package->InitializeAssetPackage(Path);
+		return Package;
+	}
+
 	class FTestViewportClient final : public Durin::FViewportClient
 	{
 	public:
