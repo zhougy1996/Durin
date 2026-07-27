@@ -128,7 +128,9 @@ TEST(FMaterialTests, StaticMeshWithoutSourceMetadataLoadsAndMissingSourceCanBeRe
 	*SourceImportData = {};
 	std::string RepairError;
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	ASSERT_TRUE(Mesh->RepairSourcePath(Source.generic_string(), RepairError)) << RepairError;
+	ASSERT_TRUE(Mesh->IngestAndChangeSource(
+		Source.generic_string(), "/StaticMeshSourceRepair/Models/Mesh.gltf",
+		RepairError)) << RepairError;
 	ASSERT_NE(Mesh->GetRenderData(), nullptr);
 	EXPECT_EQ(Mesh->InspectSource().Status, Durin::EStaticMeshSourceStatus::Available);
 	EXPECT_EQ(Mesh->GetSourceImportData().SourcePath.Path,
@@ -145,7 +147,9 @@ TEST(FMaterialTests, StaticMeshWithoutSourceMetadataLoadsAndMissingSourceCanBeRe
 	const Durin::FStaticMeshSourceDiagnostic Missing = Mesh->InspectSource();
 	EXPECT_EQ(Missing.Status, Durin::EStaticMeshSourceStatus::Missing);
 	EXPECT_NE(Missing.Message.find("source-path repair"), std::string::npos);
-	ASSERT_TRUE(Mesh->RepairSourcePath(Source.generic_string(), RepairError)) << RepairError;
+	ASSERT_TRUE(Mesh->IngestAndChangeSource(
+		Source.generic_string(), "/StaticMeshSourceRepair/Models/Mesh.gltf",
+		RepairError)) << RepairError;
 	EXPECT_EQ(Mesh->InspectSource().Status, Durin::EStaticMeshSourceStatus::Available);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 }

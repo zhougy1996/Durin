@@ -122,6 +122,90 @@ TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesDomainsAndDependencyCas
 	EXPECT_EQ(FindNamedEntry(Cases, "SourceOnlySource").GetView("ExpectedError").GetString(), "None");
 }
 
+TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
+{
+	const std::filesystem::path Root =
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "MountedSourceOperations";
+	std::filesystem::remove_all(Root);
+	const std::filesystem::path EngineSource =
+		Root / "Engine" / "SourceAssets" / "Textures" / "Shared.bin";
+	const std::filesystem::path ExternalSource = Root / "External" / "Input.bin";
+	std::filesystem::create_directories(EngineSource.parent_path());
+	std::filesystem::create_directories(ExternalSource.parent_path());
+	std::filesystem::create_directories(Root / "Game" / "SourceAssets");
+	std::filesystem::create_directories(Root / "Game" / "Content");
+	{
+		std::ofstream Stream(EngineSource, std::ios::binary);
+		Stream << "engine-bytes";
+	}
+	{
+		std::ofstream Stream(ExternalSource, std::ios::binary);
+		Stream << "external-bytes";
+	}
+	const std::array Mounts = {
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/Engine/",
+			.Owner = Durin::PathUtilities::EMountOwner::Engine,
+			.OwnerRoot = Root / "Engine",
+			.ContentRoot = Root / "Engine" / "Content",
+			.SourceAssetsRoot = Root / "Engine" / "SourceAssets",
+			.bSourceWritable = true},
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/Game/",
+			.Owner = Durin::PathUtilities::EMountOwner::ActiveProject,
+			.OwnerRoot = Root / "Game",
+			.ContentRoot = Root / "Game" / "Content",
+			.SourceAssetsRoot = Root / "Game" / "SourceAssets",
+			.bSourceWritable = true,
+			.Dependencies = {"/Engine/"}}};
+	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Mounts);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+
+	Durin::FMountedSourceFile Prepared;
+	std::string Error;
+	ASSERT_TRUE(Durin::PrepareMountedSourceFile(
+		EngineSource, "/Game/Textures/Asset", "/Game/Unused.bin", Prepared, Error)) << Error;
+	EXPECT_EQ(Prepared.SourcePath.Path, "/Engine/Textures/Shared.bin");
+	EXPECT_EQ(Prepared.Disposition, Durin::ESourceFileDisposition::ReferenceExisting);
+	EXPECT_FALSE(Prepared.bCreatedFile);
+	EXPECT_FALSE(std::filesystem::exists(Root / "Game" / "SourceAssets" / "Unused.bin"));
+
+	ASSERT_TRUE(Durin::PrepareMountedSourceFile(
+		ExternalSource, "/Game/Textures/Asset", "/Game/Textures/Ingested.bin",
+		Prepared, Error)) << Error;
+	EXPECT_EQ(Prepared.SourcePath.Path, "/Game/Textures/Ingested.bin");
+	EXPECT_EQ(Prepared.Disposition, Durin::ESourceFileDisposition::IngestedExternal);
+	ASSERT_TRUE(std::filesystem::is_regular_file(Prepared.PhysicalPath));
+	Durin::RollbackMountedSourceFile(Prepared);
+	EXPECT_FALSE(std::filesystem::exists(
+		Root / "Game" / "SourceAssets" / "Textures" / "Ingested.bin"));
+
+	ASSERT_TRUE(Durin::PrepareMountedSourceFile(
+		ExternalSource, "/Game/Textures/Asset", "/Game/Textures/Ingested.bin",
+		Prepared, Error)) << Error;
+	Durin::CommitMountedSourceFile(Prepared);
+	ASSERT_TRUE(Durin::PrepareMountedSourceFile(
+		ExternalSource, "/Game/Textures/Other", "/Game/Textures/Ingested.bin",
+		Prepared, Error)) << Error;
+	EXPECT_EQ(Prepared.Disposition, Durin::ESourceFileDisposition::ReusedIdentical);
+
+	Durin::FMountedSourceReplacement Replacement;
+	EXPECT_FALSE(Durin::PrepareMountedSourceReplacement(
+		ExternalSource, "/Game/Textures/Asset", "/Engine/Textures/Shared.bin",
+		Replacement, Error));
+	ASSERT_TRUE(Durin::PrepareMountedSourceReplacement(
+		EngineSource, "/Game/Textures/Asset", "/Game/Textures/Ingested.bin",
+		Replacement, Error)) << Error;
+	EXPECT_TRUE(Replacement.bPublished);
+	Durin::RollbackMountedSourceReplacement(Replacement);
+	std::ifstream Restored(
+		Root / "Game" / "SourceAssets" / "Textures" / "Ingested.bin",
+		std::ios::binary);
+	std::string RestoredBytes(
+		(std::istreambuf_iterator<char>(Restored)), std::istreambuf_iterator<char>());
+	EXPECT_EQ(RestoredBytes, "external-bytes");
+}
+
 TEST(FSourcePathContractTests, LegacyFixturesPreserveVersionTwoSourceLayouts)
 {
 	static constexpr std::array StaticMeshFields = {

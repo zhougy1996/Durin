@@ -359,7 +359,9 @@ TEST(FTexture2DTests, PortableSourceCanBeRepairedAndRejectsEscapingMetadata)
 	const std::filesystem::path Replacement =
 		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSourceRepairReplacement.tga";
 	WriteNpotTextureFixture(Replacement);
-	ASSERT_TRUE(Result.Asset->RepairSourcePath(Replacement.generic_string(), Error)) << Error;
+	ASSERT_TRUE(Result.Asset->IngestAndChangeSource(
+		Replacement.generic_string(),
+		"/TextureImportTests/Textures/Texture.tga", Error)) << Error;
 	EXPECT_EQ(Result.Asset->GetSourceImportData().Source.SourcePath.Path,
 		"/TextureImportTests/Textures/Texture.tga");
 	EXPECT_EQ(Result.Asset->InspectSource().Status, Durin::ETextureSourceStatus::Available);

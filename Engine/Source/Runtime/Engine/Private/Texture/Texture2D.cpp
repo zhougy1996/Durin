@@ -731,11 +731,25 @@ namespace Durin
 			OutError = "Only packaged textures can retain source provenance.";
 			return false;
 		}
-		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
-		if (!std::filesystem::is_regular_file(Input))
+		FMountedSourceFile MountedSource;
+		if (!ResolveMountedSourceReference(
+			GetPackage()->GetPackagePath(),
+			SourceImportData.Source.SourcePath.Path,
+			MountedSource, OutError)) return false;
+		const std::filesystem::path Input = MountedSource.PhysicalPath;
+		if (!FilePath.empty())
 		{
-			OutError = std::format("Texture replacement source does not exist: {}", Input.generic_string());
-			return false;
+			std::error_code EquivalentError;
+			const std::filesystem::path Requested =
+				std::filesystem::absolute(FilePath).lexically_normal();
+			if (!std::filesystem::equivalent(Input, Requested, EquivalentError)
+				|| EquivalentError)
+			{
+				OutError =
+					"Reimport is read-only and must use the persisted mounted source. "
+					"Use ChangeSourceReference or IngestAndChangeSource first.";
+				return false;
+			}
 		}
 		if (!Asset::IsSupportedImageExtension(Input.extension().generic_string()))
 		{
@@ -745,26 +759,8 @@ namespace Durin
 
 		FAssetPath AssetPath;
 		if (!FAssetPath::TryCreate(GetPackage()->GetPackagePath(), AssetPath, &OutError)) return false;
-		std::filesystem::path Destination;
-		std::string StoredPath;
-		std::filesystem::path RequestedSourcePath;
-		if (SourceImportData.HasSource()
-			&& !SourceImportData.Source.SourcePath.IsEmpty())
-		{
-			const PathUtilities::FSourcePathResult ExistingSource =
-				PathUtilities::ResolveSourcePath(
-					SourceImportData.Source.SourcePath.Path,
-					PathUtilities::EPathExistence::AllowMissing);
-			if (ExistingSource)
-			{
-				RequestedSourcePath =
-					std::filesystem::path(SourceAssetsRoot) / ExistingSource.RelativePath;
-				RequestedSourcePath.replace_extension(Input.extension());
-			}
-		}
-		if (!MakeCanonicalSourceLocation(
-			AssetPath, Input.extension().generic_string(), RequestedSourcePath.generic_string(),
-			Destination, StoredPath, OutError)) return false;
+		const std::filesystem::path Destination = MountedSource.PhysicalPath;
+		std::string StoredPath = MountedSource.SourcePath.Path;
 
 		FXxHash128 SourceHash;
 		if (!HashTextureSource(Input, SourceHash, OutError)) return false;
@@ -785,23 +781,6 @@ namespace Durin
 			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game});
 		if (!StoreTextureDerivedData(NewKey, *CandidatePlatformData, OutError)) return false;
-
-		std::error_code Error;
-		std::filesystem::create_directories(Destination.parent_path(), Error);
-		if (Error)
-		{
-			OutError = std::format("Failed to create texture source directory {}: {}",
-				Destination.parent_path().generic_string(), Error.message());
-			return false;
-		}
-		if (Input != Destination
-			&& !std::filesystem::copy_file(
-				Input, Destination, std::filesystem::copy_options::overwrite_existing, Error))
-		{
-			OutError = std::format("Failed to copy replacement source to {}: {}",
-				Destination.generic_string(), Error.message());
-			return false;
-		}
 
 		SourceImportData = {
 			.Source = {
@@ -836,7 +815,61 @@ namespace Durin
 
 	auto DTexture2D::RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool
 	{
-		return ReimportSource(FilePath, OutError);
+		const PathUtilities::FSourcePathResult Classified =
+			PathUtilities::ClassifySourcePath(
+				std::filesystem::absolute(FilePath).lexically_normal());
+		if (!Classified)
+		{
+			OutError =
+				"Source repair requires a mounted source reference. "
+				"Use IngestAndChangeSource with an explicit destination for external files.";
+			return false;
+		}
+		return ChangeSourceReference(Classified.NormalizedVirtualPath, OutError);
+	}
+
+	auto DTexture2D::ChangeSourceReference(
+		std::string_view SourceVirtualPath, std::string& OutError) -> bool
+	{
+		if (!GetPackage())
+		{
+			OutError = "Only packaged textures can retain source provenance.";
+			return false;
+		}
+		FMountedSourceFile Source;
+		if (!ResolveMountedSourceReference(
+			GetPackage()->GetPackagePath(), SourceVirtualPath, Source, OutError))
+			return false;
+		const FTexture2DSourceImportData Previous = SourceImportData;
+		SourceImportData.Source.SourcePath = Source.SourcePath;
+		if (!ReimportSource(Source.PhysicalPath.generic_string(), OutError))
+		{
+			SourceImportData = Previous;
+			return false;
+		}
+		return true;
+	}
+
+	auto DTexture2D::IngestAndChangeSource(
+		std::string_view FilePath,
+		std::string_view TargetSourceVirtualPath,
+		std::string& OutError) -> bool
+	{
+		if (!GetPackage())
+		{
+			OutError = "Only packaged textures can retain source provenance.";
+			return false;
+		}
+		FMountedSourceFile Source;
+		if (!PrepareMountedSourceFile(
+			FilePath, GetPackage()->GetPackagePath(),
+			TargetSourceVirtualPath, Source, OutError)) return false;
+		const bool bChanged = ChangeSourceReference(Source.SourcePath.Path, OutError);
+		if (bChanged)
+			CommitMountedSourceFile(Source);
+		else
+			RollbackMountedSourceFile(Source);
+		return bChanged;
 	}
 
 	auto DTexture2D::ChangeSourceLocation(
@@ -1446,29 +1479,26 @@ namespace Durin
 			ParsedAssetPath, Extension, Settings.SourceDestination,
 			Destination, StoredSourcePath, PathError))
 			return {false, std::move(PathError), nullptr};
-		FXxHash128 SourceHash;
-		if (!HashTextureSource(Input, SourceHash, PathError))
+		FMountedSourceFile MountedSource;
+		if (!PrepareMountedSourceFile(
+			Input, ParsedAssetPath.ToString(), StoredSourcePath, MountedSource, PathError))
 			return {false, std::move(PathError), nullptr};
-		const bool bSourceAlreadyExists = std::filesystem::is_regular_file(Destination);
-		if (bSourceAlreadyExists)
+		Destination = MountedSource.PhysicalPath;
+		StoredSourcePath = MountedSource.SourcePath.Path;
+		FXxHash128 SourceHash;
+		if (!HashTextureSource(Destination, SourceHash, PathError))
 		{
-			FXxHash128 ExistingHash;
-			if (!HashTextureSource(Destination, ExistingHash, PathError))
-				return {false, std::move(PathError), nullptr};
-			if (ExistingHash != SourceHash)
-			{
-				return {
-					false,
-					std::format(
-						"A different texture source already exists at {}. Repair or remove that source explicitly.",
-						Destination.generic_string()),
-					nullptr};
-			}
+			RollbackMountedSourceFile(MountedSource);
+			return {false, std::move(PathError), nullptr};
 		}
 
 		DTexture2D* Texture = nullptr;
 		Asset::FAssetResult CreateResult = Asset::CreateAsset(ParsedAssetPath, Texture);
-		if (!CreateResult) return {false, CreateResult.Message, nullptr};
+		if (!CreateResult)
+		{
+			RollbackMountedSourceFile(MountedSource);
+			return {false, CreateResult.Message, nullptr};
+		}
 		Texture->Usage = Settings.Usage;
 		Texture->bSRGB = Settings.bSRGB.value_or(TextureBuild::GetDefaultSRGB(Settings.Usage));
 		Texture->MaxResolution = Settings.MaxResolution;
@@ -1476,21 +1506,13 @@ namespace Durin
 		Texture->AlphaMipMode = Settings.AlphaMipMode;
 		Texture->AlphaCoverageThreshold = Settings.AlphaCoverageThreshold;
 		std::string BuildError;
-		if (!Texture->BuildSourceData(Input.generic_string(), BuildError))
+		if (!Texture->BuildSourceData(Destination.generic_string(), BuildError))
 		{
+			RollbackMountedSourceFile(MountedSource);
 			Asset::UnloadPackage(ParsedAssetPath);
 			return {false, std::move(BuildError), nullptr};
 		}
 
-		std::error_code ErrorCode;
-		std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
-		if (ErrorCode || (!bSourceAlreadyExists
-			&& !std::filesystem::copy_file(
-				Input, Destination, std::filesystem::copy_options::none, ErrorCode)))
-		{
-			Asset::UnloadPackage(ParsedAssetPath);
-			return {false, std::format("Failed to copy source file to {}: {}", Destination.generic_string(), ErrorCode.message()), nullptr};
-		}
 		Texture->SourceImportData = {
 			.Source = {
 				.SourcePath = {.Path = std::move(StoredSourcePath)},
@@ -1503,10 +1525,11 @@ namespace Durin
 		Asset::FAssetResult SaveResult = Asset::SavePackage(Texture->GetPackage());
 		if (!SaveResult)
 		{
-			if (!bSourceAlreadyExists) std::filesystem::remove(Destination, ErrorCode);
+			RollbackMountedSourceFile(MountedSource);
 			Asset::UnloadPackage(ParsedAssetPath);
 			return {false, SaveResult.Message, nullptr};
 		}
+		CommitMountedSourceFile(MountedSource);
 		return {true, {}, Texture};
 	}
 }

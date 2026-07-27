@@ -269,7 +269,15 @@ namespace Durin
 
 		ENGINE_API auto RebuildPlatformData(std::string& OutError) -> bool;
 		ENGINE_API auto InspectSource() const -> FTextureSourceDiagnostic;
+		// Reimport reads only the persisted mounted source. A non-empty path is
+		// accepted only when it names that same physical file.
 		ENGINE_API auto ReimportSource(std::string_view FilePath, std::string& OutError) -> bool;
+		ENGINE_API auto ChangeSourceReference(
+			std::string_view SourceVirtualPath, std::string& OutError) -> bool;
+		ENGINE_API auto IngestAndChangeSource(
+			std::string_view FilePath,
+			std::string_view TargetSourceVirtualPath,
+			std::string& OutError) -> bool;
 		ENGINE_API auto RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool;
 		// Copies the managed source to a new path beneath SourceAssets and keeps the old copy
 		// so other assets that share it remain valid.

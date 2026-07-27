@@ -634,7 +634,7 @@ namespace Durin
 				DrawInfoRow("Status", "Source data unavailable");
 		}
 		MonaImGui::PropertyEdit::EndTable();
-		if (ImGui::Button("Reimport Source...")) ReimportSource(Texture);
+		if (ImGui::Button("Reimport Source")) ReimportSource(Texture);
 		ImGui::SameLine();
 		if (ImGui::Button("Change Source Location...")) ChangeSourceLocation(Texture);
 		if (ImGui::IsItemHovered())
@@ -646,27 +646,8 @@ namespace Durin
 	auto MTextureEditor::ReimportSource(DTexture2D* Texture) -> void
 	{
 		if (!Texture) return;
-		FFileDialogRequest Request;
-		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Select a Replacement Texture Source";
-		Request.Filters = {
-			{"All Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
-			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"},
-			{"Targa", "*.tga"}, {"All Files", "*.*"}
-		};
-		const FTextureSourceDiagnostic Diagnostic = Texture->InspectSource();
-		if (!Diagnostic.PhysicalPath.empty())
-			Request.InitialDirectory =
-				std::filesystem::path(Diagnostic.PhysicalPath).parent_path().generic_string();
-		const FFileDialogResult Result = OpenFileDialog(Request);
-		if (Result.Status == EFileDialogStatus::Cancelled) return;
-		if (Result.Status == EFileDialogStatus::Error)
-		{
-			SetError(Result.ErrorMessage);
-			return;
-		}
 		std::string Error;
-		if (!Texture->ReimportSource(Result.FilePath, Error)) SetError(std::move(Error));
+		if (!Texture->ReimportSource({}, Error)) SetError(std::move(Error));
 	}
 
 	auto MTextureEditor::ChangeSourceLocation(DTexture2D* Texture) -> void

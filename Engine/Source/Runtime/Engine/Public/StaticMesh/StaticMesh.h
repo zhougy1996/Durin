@@ -186,7 +186,12 @@ namespace Durin
 		ENGINE_API auto InspectSource() const -> FStaticMeshSourceDiagnostic;
 		auto GetDerivedDataDiagnostic() const -> const FStaticMeshDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
-		// Copies a replacement source into the owning SourceAssets hierarchy and rebuilds the mesh.
+		ENGINE_API auto ChangeSourceReference(
+			std::string_view SourceVirtualPath, std::string& OutError) -> bool;
+		ENGINE_API auto IngestAndChangeSource(
+			std::string_view FilePath,
+			std::string_view TargetSourceVirtualPath,
+			std::string& OutError) -> bool;
 		ENGINE_API auto RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		// Contributes deterministic DMSH data and descriptor-bearing runtime metadata to a cook.

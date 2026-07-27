@@ -6,7 +6,7 @@ Last reviewed: 2026-07-28
 
 ## Current Status
 
-Stages 0 through 2 are complete for the unified-mount revision. Core now publishes
+Stages 0 through 3 are complete for the unified-mount revision. Core now publishes
 one immutable registry with validated owner metadata, optional Content and
 SourceAssets domains, dependency edges, and source-write policy. Typed
 resolution and reverse classification enforce canonical containment and return
@@ -20,8 +20,12 @@ browser navigation now use the typed registry rather than direct backing-vector
 searches or `FPaths::Resolve`. StaticMesh, Texture2D, and both TextureCube
 layouts now persist reflected `FSourcePath`; DAST v2 string carriers load only
 through exact nested-field aliases, migrate after byte-hash verification, and
-are transient on subsequent saves. Stage 3 is next and will unify reference,
-ingestion, reimport, replacement, collision, and rollback behavior.
+are transient on subsequent saves. Shared mounted-source operations now
+classify registered files as no-copy references, ingest external files only to
+explicit writable destinations, reuse only byte-identical collisions, and
+rollback failed publication. Reimport is source-read-only; change-reference,
+external ingestion, and shared-source replacement are separate operations.
+Stage 4 is next and will expose them through mounted-source editor workflows.
 
 Baseline commit `ee94ad4e` established reflected-name serialization coverage and
 five DAST v2 legacy provenance fixtures covering project and engine StaticMesh,
@@ -690,17 +694,17 @@ Dependencies: Stages 0 and 1.
 
 Dependencies: Stage 2.
 
-- [ ] Implement shared physical-file classification and
+- [x] Implement shared physical-file classification and
   reference-versus-ingest decisions.
-- [ ] Make Game import of existing Engine/plugin sources a no-copy reference.
-- [ ] Add explicit writable target mount and relative destination for external
+- [x] Make Game import of existing Engine/plugin sources a no-copy reference.
+- [x] Add explicit writable target mount and relative destination for external
   ingestion.
-- [ ] Make ordinary reimport read-only with respect to source files.
-- [ ] Add change-reference and shared-source-replacement operations with
+- [x] Make ordinary reimport read-only with respect to source files.
+- [x] Add change-reference and shared-source-replacement operations with
   transactional publication.
-- [ ] Apply identical collision, equality, rollback, dependency, and permission
+- [x] Apply identical collision, equality, rollback, dependency, and permission
   behavior to StaticMesh, Texture2D, and both TextureCube layouts.
-- [ ] Preserve source paths across asset duplication and preserve source files
+- [x] Preserve source paths across asset duplication and preserve source files
   across asset move/delete.
 
 #### Acceptance Gate
@@ -709,6 +713,29 @@ Dependencies: Stage 2.
   independent settings produce expected DDC keys, external ingestion copies
   exactly once, and every injected failure leaves source and package state
   unchanged.
+
+#### Stage 3 Handoff
+
+- Baseline: `a351c9e9`.
+- Working set: shared Engine mounted-source operations; StaticMesh, Texture2D,
+  and TextureCube import/reimport/reference APIs; TextureEditor reimport action;
+  focused source/import/cube/static-mesh tests; and this plan.
+- Key symbols: `FMountedSourceFile`, `ESourceFileDisposition`,
+  `PrepareMountedSourceFile`, `ResolveMountedSourceReference`,
+  `FMountedSourceReplacement`, `PrepareMountedSourceReplacement`,
+  `ChangeSourceReference`, `IngestAndChangeSource`,
+  `ChangePanoramaSourceReference`, and `ChangeSourceReferences`.
+- Decisions: selecting a file already classified beneath an allowed
+  SourceAssets domain records that mount's virtual path without copying;
+  external inputs require a complete target `FSourcePath` and mutation
+  authorization; equal destination bytes are reused while unequal collisions
+  fail; ordinary reimport accepts only the persisted physical source; shared
+  replacement retains a rollback backup until commit; reflected duplication
+  retains provenance, while asset move and delete retain source files.
+- Open questions: none for Stage 4.
+- Validation: 51 focused source-contract, Texture2D, TextureCube, and
+  StaticMesh tests; all four StaticMesh DDC/cook tests; `TextureCookTests`; and
+  a full `all` build.
 
 ### Stage 4: Add mounted-source editor workflows
 

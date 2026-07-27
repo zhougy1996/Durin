@@ -250,17 +250,24 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 	const std::filesystem::path Transparent =
 		std::filesystem::path(DURIN_TEST_WORK_DIR) / "ReimportFaceTransparent.tga";
 	WriteSolidTga(Transparent, 128, 128, 128);
-	Faces[static_cast<size_t>(Durin::ETextureCubeFace::NegativeZ)] =
-		Transparent.generic_string();
+	constexpr std::array<std::string_view, Durin::TextureCubeFaceCount> Suffixes{
+		"px", "nx", "py", "ny", "pz", "nz"};
+	for (size_t FaceIndex = 0; FaceIndex < Faces.size(); ++FaceIndex)
+		Faces[FaceIndex] = (Root / std::format(
+			"SourceAssets/Textures/ReimportFaces_{}.png", Suffixes[FaceIndex])).generic_string();
+	std::filesystem::copy_file(
+		Transparent,
+		Faces[static_cast<size_t>(Durin::ETextureCubeFace::NegativeZ)],
+		std::filesystem::copy_options::overwrite_existing);
 	std::string Error;
 	ASSERT_TRUE(Texture->ReimportSources(Faces, {.bSRGB = true}, Error)) << Error;
 	EXPECT_NE(Texture->GetDerivedDataKey(), InitialKey);
 	EXPECT_GT(Texture->GetBuildRevision(), InitialRevision);
 	EXPECT_EQ(Texture->GetBuiltPixelFormat(), Durin::EPixelFormat::BC3_UNORM_SRGB);
 	EXPECT_EQ(Texture->GetSourceFile(Durin::ETextureCubeFace::NegativeZ),
-		"/TextureCubeTests/Textures/ReimportFaces_nz.tga");
+		"/TextureCubeTests/Textures/ReimportFaces_nz.png");
 	EXPECT_TRUE(std::filesystem::is_regular_file(
-		Root / "SourceAssets/Textures/ReimportFaces_nz.tga"));
+		Root / "SourceAssets/Textures/ReimportFaces_nz.png"));
 
 	const std::string ValidKey = Texture->GetDerivedDataKey();
 	const Durin::uint64 ValidRevision = Texture->GetBuildRevision();
@@ -270,7 +277,10 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 		std::ofstream Stream(Corrupt, std::ios::binary | std::ios::trunc);
 		Stream << "not an image";
 	}
-	Faces[static_cast<size_t>(Durin::ETextureCubeFace::PositiveY)] = Corrupt.generic_string();
+	std::filesystem::copy_file(
+		Corrupt,
+		Faces[static_cast<size_t>(Durin::ETextureCubeFace::PositiveY)],
+		std::filesystem::copy_options::overwrite_existing);
 	EXPECT_FALSE(Texture->ReimportSources(Faces, {.bSRGB = false}, Error));
 	EXPECT_EQ(Texture->GetDerivedDataKey(), ValidKey);
 	EXPECT_EQ(Texture->GetBuildRevision(), ValidRevision);
@@ -427,8 +437,9 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	const Durin::uint64 InitialRevision = Texture->GetBuildRevision();
 
 	std::string Error;
-	ASSERT_TRUE(Texture->ReimportPanorama(
+	ASSERT_TRUE(Texture->IngestAndChangePanoramaSource(
 		GetPanoramaFixture("AnalyticalHDR.hdr").generic_string(),
+		"/TextureCubeTests/Textures/ReimportPanorama_panorama.hdr",
 		{.FaceDimension = 4, .ExposureEV = 2.0f}, Error)) << Error;
 	EXPECT_GT(Texture->GetBuildRevision(), InitialRevision);
 	EXPECT_EQ(Texture->GetPanoramaSourceFile(),
@@ -443,7 +454,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 
 	const Durin::uint64 FirstReimportRevision = Texture->GetBuildRevision();
 	ASSERT_TRUE(Texture->ReimportPanorama(
-		GetPanoramaFixture("AnalyticalHDR.hdr").generic_string(),
+		(Root / "SourceAssets/Textures/ReimportPanorama_panorama.hdr").generic_string(),
 		{.FaceDimension = 4, .ExposureEV = 1.0f}, Error)) << Error;
 	EXPECT_GT(Texture->GetBuildRevision(), FirstReimportRevision);
 	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 1.0f);
@@ -457,7 +468,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	}
 	EXPECT_FALSE(Texture->ReimportPanorama(Corrupt.generic_string(),
 		{.FaceDimension = 8, .ExposureEV = -1.0f}, Error));
-	EXPECT_NE(Error.find("decode failed"), std::string::npos);
+	EXPECT_NE(Error.find("read-only"), std::string::npos);
 	EXPECT_EQ(Texture->GetBuildRevision(), ValidRevision);
 	EXPECT_EQ(Texture->GetPanoramaSourceFile(),
 		"/TextureCubeTests/Textures/ReimportPanorama_panorama.hdr");

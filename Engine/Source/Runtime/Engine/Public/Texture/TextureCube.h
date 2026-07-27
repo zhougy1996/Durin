@@ -172,6 +172,24 @@ namespace Durin
 			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 			const FTextureCubeImportSettings& Settings,
 			std::string& OutError) -> bool;
+		ENGINE_API auto ChangePanoramaSourceReference(
+			std::string_view SourceVirtualPath,
+			const FTextureCubePanoramaImportSettings& Settings,
+			std::string& OutError) -> bool;
+		ENGINE_API auto ChangeSourceReferences(
+			const std::array<std::string, TextureCubeFaceCount>& SourceVirtualPaths,
+			const FTextureCubeImportSettings& Settings,
+			std::string& OutError) -> bool;
+		ENGINE_API auto IngestAndChangePanoramaSource(
+			std::string_view FilePath,
+			std::string_view TargetSourceVirtualPath,
+			const FTextureCubePanoramaImportSettings& Settings,
+			std::string& OutError) -> bool;
+		ENGINE_API auto IngestAndChangeSources(
+			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
+			const std::array<std::string, TextureCubeFaceCount>& TargetSourceVirtualPaths,
+			const FTextureCubeImportSettings& Settings,
+			std::string& OutError) -> bool;
 
 	private:
 		auto ResolvePanoramaSource() const -> std::filesystem::path;
