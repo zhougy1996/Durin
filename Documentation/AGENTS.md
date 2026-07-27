@@ -8,6 +8,10 @@ These instructions apply under `Documentation/`.
   authoritative topic; discover with `rg --files Documentation` and targeted
   searches.
 - Do not read archived plans unless the user names one, an active document requires its provenance, or historical reasoning is necessary.
+- Do not run untargeted content searches under `Plans/Archive/`. Exclude that
+  directory from general documentation searches; when archive lookup is
+  justified, query plan metadata by title or filename first and open a body
+  only after selecting a specific result.
 
 ## Document Boundaries
 
