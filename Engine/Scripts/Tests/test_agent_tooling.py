@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from dataclasses import replace
 from pathlib import Path
 from unittest import mock
@@ -55,6 +56,23 @@ class ThirdPartyBootstrapTests(unittest.TestCase):
                 "source_dir": "tracy",
                 "source": {"type": "git", "tag": "v0.13.1"},
             },
+            {
+                "name": "tracy-tools",
+                "kind": "tool_package",
+                "development_only": True,
+                "allow_unsupported_platform": True,
+                "source_dir": "tracy-tools",
+                "source": {
+                    "type": "archive",
+                    "platforms": {
+                        "Win64": {
+                            "url": "https://example.invalid/tracy-tools.zip",
+                            "archive_name": "tracy-tools.zip",
+                            "required_files": ["tracy-profiler.exe"],
+                        }
+                    },
+                },
+            },
         ]
 
     def test_all_excludes_development_dependencies_by_default(self) -> None:
@@ -79,7 +97,7 @@ class ThirdPartyBootstrapTests(unittest.TestCase):
 
         self.assertEqual(
             [manifest["name"] for manifest in selected],
-            ["normal", "tests", "tracy"],
+            ["normal", "tests", "tracy", "tracy-tools"],
         )
 
     def test_explicit_development_dependency_preserves_requested_order(self) -> None:
@@ -99,6 +117,128 @@ class ThirdPartyBootstrapTests(unittest.TestCase):
 
         with self.assertRaisesRegex(setup_third_party.BootstrapError, "must be a boolean"):
             setup_third_party.validate_manifests(manifests)
+
+    @staticmethod
+    def make_tool_manifest(*, sha256: str = "0" * 64) -> dict[str, object]:
+        return {
+            "name": "tracy-tools",
+            "version": "0.13.1",
+            "kind": "tool_package",
+            "development_only": True,
+            "allow_unsupported_platform": True,
+            "repair_command": r"Engine\Scripts\Bootstrap\Setup_tracy.bat",
+            "source_dir": "packages/tracy-tools/0.13.1/Win64",
+            "source": {
+                "type": "archive",
+                "platforms": {
+                    "Win64": {
+                        "url": "https://example.invalid/windows-0.13.1.zip",
+                        "archive_name": "windows-0.13.1.zip",
+                        "sha256": sha256,
+                        "required_files": ["tracy-profiler.exe", "tracy-capture.exe"],
+                    }
+                },
+            },
+        }
+
+    def test_archive_sha256_must_be_64_hexadecimal_digits(self) -> None:
+        manifest = self.make_tool_manifest(sha256="not-a-digest")
+
+        with self.assertRaisesRegex(setup_third_party.BootstrapError, "64 hexadecimal digits"):
+            setup_third_party.validate_manifests([manifest])
+
+    def test_archive_digest_mismatch_does_not_publish_package(self) -> None:
+        manifest = self.make_tool_manifest()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_path = root / "source.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("tracy-profiler.exe", b"profiler")
+                archive.writestr("tracy-capture.exe", b"capture")
+
+            with (
+                mock.patch.object(setup_third_party, "REPO_ROOT", root),
+                mock.patch.object(
+                    setup_third_party.urllib.request,
+                    "urlretrieve",
+                    side_effect=lambda _url, destination: shutil.copy2(archive_path, destination),
+                ),
+                self.assertRaisesRegex(setup_third_party.BootstrapError, "integrity verification failed"),
+            ):
+                setup_third_party.ensure_archive_source(manifest, "Win64")
+
+            self.assertFalse((root / manifest["source_dir"]).exists())
+
+    def test_archive_digest_successfully_publishes_required_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive_path = root / "source.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("tracy-profiler.exe", b"profiler")
+                archive.writestr("tracy-capture.exe", b"capture")
+            manifest = self.make_tool_manifest(sha256=setup_third_party.compute_sha256(archive_path))
+
+            with (
+                mock.patch.object(setup_third_party, "REPO_ROOT", root),
+                mock.patch.object(
+                    setup_third_party.urllib.request,
+                    "urlretrieve",
+                    side_effect=lambda _url, destination: shutil.copy2(archive_path, destination),
+                ),
+            ):
+                setup_third_party.process_manifest(
+                    manifest,
+                    platform_name="Win64",
+                    configs=["Debug", "Release"],
+                    cmake_command="cmake",
+                )
+
+            package_dir = root / manifest["source_dir"]
+            self.assertTrue((package_dir / "tracy-profiler.exe").is_file())
+            self.assertTrue((package_dir / "tracy-capture.exe").is_file())
+
+    def test_prepared_archive_does_not_download_again(self) -> None:
+        manifest = self.make_tool_manifest()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package_dir = root / manifest["source_dir"]
+            package_dir.mkdir(parents=True)
+            for file_name in manifest["source"]["platforms"]["Win64"]["required_files"]:
+                (package_dir / file_name).touch()
+
+            with (
+                mock.patch.object(setup_third_party, "REPO_ROOT", root),
+                mock.patch.object(setup_third_party.urllib.request, "urlretrieve") as urlretrieve,
+            ):
+                setup_third_party.ensure_archive_source(manifest, "Win64")
+
+            urlretrieve.assert_not_called()
+
+    def test_optional_tool_package_skips_unsupported_platform(self) -> None:
+        manifest = self.make_tool_manifest()
+        output = io.StringIO()
+
+        with mock.patch("sys.stdout", output):
+            setup_third_party.process_manifest(
+                manifest,
+                platform_name="Linux",
+                configs=["Debug", "Release"],
+                cmake_command="cmake",
+            )
+
+        self.assertIn("Skipping tracy-tools", output.getvalue())
+
+    def test_status_query_is_read_only_and_reports_missing_files(self) -> None:
+        manifest = self.make_tool_manifest()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch.object(setup_third_party, "REPO_ROOT", root):
+                status = setup_third_party.query_manifest_status(manifest, "Win64")
+
+            self.assertFalse(status["prepared"])
+            self.assertEqual(status["version"], "0.13.1")
+            self.assertEqual(status["missing_files"], ["tracy-profiler.exe", "tracy-capture.exe"])
+            self.assertFalse((root / "packages").exists())
 
 
 class BuildConfigTests(unittest.TestCase):

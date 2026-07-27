@@ -16,6 +16,7 @@ Common commands:
 .venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --all --with-tests
 .venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --all --with-development
 .venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --libs tracy
+.venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --libs tracy-tools --status
 .venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --libs glm,spdlog --config Debug
 .venv\Scripts\python Engine/Scripts/Bootstrap/setup_third_party.py --validate-manifests
 ```
@@ -49,6 +50,8 @@ Keep `Build/`, `Engine/Intermediate/`, and `Engine/Binaries/` local to each work
 
 - Direct source: `Engine/External/Source/<Library>`
 - Prebuilt packages: `Engine/External/Packages/<Library>`
+- Versioned development tools:
+  `Engine/External/Packages/<Tool>/<Version>/<Platform>`
 - Shared install: `Engine/External/Install/<Platform>/<Config>/<Library>`
 - Shared third-party build tree: `Build/ThirdParty/<Platform>-<Config>-<Library>`
 - Runtime deployment: `Engine/Binaries/<Platform>/ThirdParty/<Config>/`
@@ -76,6 +79,28 @@ Current examples: `glm`, `bc7enc_rdo`, `googletest`, `tracy`
 `bc7enc_rdo` has no release tags, so its manifest pins an exact upstream commit.
 Git sources may define exactly one `tag` or `commit`; commit-pinned sources are
 fetched shallowly and checked out detached for reproducible bootstrap results.
+
+### Tool Package
+
+Current example: `tracy-tools`
+
+- Tool packages contain development executables and are not linkable engine
+  dependencies.
+- Tracy `v0.13.1` Windows tools are installed at
+  `Engine/External/Packages/tracy-tools/0.13.1/Win64/`.
+- A former manual copy beneath `Build/Tools/Tracy-0.13.1/` is obsolete after
+  managed preparation. Bootstrap does not search, migrate, or delete that
+  disposable build-tree location.
+- Archive platform entries may pin a SHA-256 digest. Bootstrap verifies it
+  after download and before extraction, and reports the expected and actual
+  digests without publishing a package directory on mismatch.
+- A tool package may explicitly allow unsupported host platforms. Such a
+  package is skipped with a status message while the remaining selected
+  dependencies continue.
+- `--status` reports selected manifests as JSON without downloading, extracting,
+  or creating directories. The report includes platform support, resolved
+  source directory, required and missing files, preparation state, version, and
+  focused repair command.
 
 ### Shared Install
 
@@ -105,6 +130,9 @@ Third-party manifests live under `Engine/Scripts/Bootstrap/thirdparty/*.json` an
 - required-file checks
 - per-config install validation for shared-install packages
 - optional `test_only` and `development_only` selection flags
+- optional archive-platform `sha256` integrity pins
+- optional `allow_unsupported_platform` behavior for host-specific tools
+- optional tool `version` and `repair_command` status metadata
 
 ## Notes
 
@@ -115,9 +143,13 @@ Third-party manifests live under `Engine/Scripts/Bootstrap/thirdparty/*.json` an
   `--with-tests --with-development` so a fully prepared checkout includes both
   dependency classes by default.
 - `googletest` is test-only.
-- Tracy `v0.13.1` is development-only and licensed under BSD-3-Clause. Root
-  setup prepares it by default; use
-  `Engine/Scripts/Bootstrap/Setup_tracy.bat` to prepare or repair Tracy alone.
+- Tracy `v0.13.1` source and matching Win64 host tools are development-only and
+  licensed under BSD-3-Clause. Root setup prepares both by default; use
+  `Engine/Scripts/Bootstrap/Setup_tracy.bat` to prepare or repair them together.
+  The upstream binary archive does not include its license file; the prepared
+  Tracy source retains `Engine/External/Source/tracy/LICENSE`, and repository
+  documentation accompanying the managed download retains the license and
+  copyright reference required for binary redistribution.
 - Vulkan Memory Allocator is supplied by the Vulkan SDK rather than this bootstrap. See `BuildAndRun.md` for the required SDK layout and the older-SDK fallback.
 - Main project configure and build still start from `CMakePresets.json`.
 - Legacy third-party assets can be inspected with `python Engine/Scripts/Bootstrap/cleanup_legacy_thirdparty.py --dry-run`.

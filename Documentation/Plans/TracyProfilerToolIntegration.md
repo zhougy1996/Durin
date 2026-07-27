@@ -6,10 +6,10 @@ Last reviewed: 2026-07-27
 
 ## Current Status
 
-Stage 0 completed on 2026-07-27. Stage 1 is next. The implementation-start
-baseline is commit `4bbd6a0b5a82d7e51e3ccdd47a33e20d8a82db21`; the preceding
-runtime-variant and initial Tracy instrumentation plan remains established at
-commit `efccf9e4734947dcf56b6c1cca26dbdba9432c6d`.
+Stages 0-1 completed on 2026-07-27. Stage 2 is next. Stage 1 started from
+commit `dd7a71c4b7682063836402b05b0e5da982eaab6b`; the preceding runtime-variant
+and initial Tracy instrumentation plan remains established at commit
+`efccf9e4734947dcf56b6c1cca26dbdba9432c6d`.
 
 Durin already builds one shared Tracy v0.13.1 client for each Release Profiling
 runtime process. Matching upstream Windows capture tools were validated
@@ -311,20 +311,20 @@ Editor dialog presentation remain bounded Stage 3 implementation choices.
 
 ### Stage 1: Add Managed Tracy Host-Tool Preparation
 
-- [ ] Add the pinned `tracy-tools` development-only package with Win64 archive
+- [x] Add the pinned `tracy-tools` development-only package with Win64 archive
   metadata and required executable validation.
-- [ ] Add archive integrity verification and focused malformed, mismatch,
+- [x] Add archive integrity verification and focused malformed, mismatch,
   successful extraction, and already-prepared tests.
-- [ ] Make default root setup and focused Tracy setup prepare client source and
+- [x] Make default root setup and focused Tracy setup prepare client source and
   matching host tools without changing ordinary build dependency graphs.
-- [ ] Preserve cross-platform setup by explicitly skipping an unavailable host
+- [x] Preserve cross-platform setup by explicitly skipping an unavailable host
   package while continuing to prepare Tracy client source.
-- [ ] Ensure main-checkout and worktree preparation resolve one canonical
+- [x] Ensure main-checkout and worktree preparation resolve one canonical
   machine-prepared package rather than downloading a copy per final-output
   directory.
-- [ ] Add a read-only bootstrap/status query usable by Editor diagnostics
+- [x] Add a read-only bootstrap/status query usable by Editor diagnostics
   without triggering downloads or mutation.
-- [ ] Remove no files from a developer's former `Build/Tools` location; document
+- [x] Remove no files from a developer's former `Build/Tools` location; document
   it as an obsolete manual installation after the managed package is present.
 
 #### Acceptance Gate
@@ -335,8 +335,61 @@ Editor dialog presentation remain bounded Stage 3 implementation choices.
 
 #### Stage Handoff
 
-- Record baseline commit, working set, manifest/schema changes, installed path,
-  platform behavior, key symbols, open questions, and bootstrap test results.
+Baseline and working set:
+
+- Stage baseline: `dd7a71c4b7682063836402b05b0e5da982eaab6b`.
+- Added `Engine/Scripts/Bootstrap/thirdparty/tracy-tools.json`.
+- Updated `Engine/Scripts/Bootstrap/setup_third_party.py`,
+  `Engine/Scripts/Bootstrap/Setup_tracy.bat`,
+  `Engine/Scripts/Tests/test_agent_tooling.py`, and
+  `Documentation/Development/Build/ThirdPartyBootstrap.md`.
+- Updated this plan with the Stage 1 result. No files beneath the former
+  ignored `Build/Tools/Tracy-0.13.1` location were changed or removed.
+
+Manifest and platform contracts:
+
+- `tool_package` is a non-linkable bootstrap kind. `tracy-tools` is
+  development-only, follows `tracy` in selection order, and pins upstream
+  `windows-0.13.1.zip` with the Stage 0 SHA-256.
+- Archive platform entries accept an optional `sha256` containing exactly 64
+  hexadecimal digits. `compute_sha256` validates the downloaded temporary
+  archive before extraction; mismatch diagnostics include expected and actual
+  values and leave the package directory unpublished.
+- `allow_unsupported_platform` is an explicit manifest boolean.
+  `process_manifest` prints a skip status for `tracy-tools` when the detected
+  host has no archive entry, while required archive packages retain their
+  existing failure behavior.
+- The installed Win64 path is
+  `Engine/External/Packages/tracy-tools/0.13.1/Win64`. It is covered by the
+  existing `Engine/External` ignore and worktree-sharing contracts and contains
+  the six flat upstream executables after preparation.
+- `query_manifest_status` and `--status` provide mutation-free JSON containing
+  version, platform support, resolved source directory, required/missing files,
+  prepared state, and repair command.
+- Root setup already selects every development dependency. Focused
+  `Setup_tracy.bat` now selects `tracy,tracy-tools`, preparing or repairing the
+  client source and tools together without entering a CMake build graph.
+
+Validation:
+
+- Full `Engine.Scripts.Tests.test_agent_tooling`: 171 passed.
+- Focused `ThirdPartyBootstrapTests`: 10 passed, covering development
+  selection, manifest types, malformed digest, digest mismatch, successful
+  extraction, already-prepared idempotence, unsupported-host skip, and
+  read-only missing-file status.
+- `setup_third_party.py --validate-manifests`: 10 manifests validated.
+- Real `Setup_tracy.bat`: downloaded, digest-verified, and installed all six
+  upstream executables; a second run reported both Tracy artifacts already
+  prepared.
+- `setup_third_party.py --libs tracy-tools --status`: Win64 supported,
+  `prepared: true`, no missing required files, canonical path and repair command
+  correct.
+- `setup_third_party.py --all --with-development --status`: both `tracy` and
+  `tracy-tools` selected and prepared; the query performed no mutation.
+
+Open questions: none for Stage 2. The former ignored `Build/Tools` copy remains
+untouched and is now obsolete; final end-user migration wording remains part of
+Stage 4 documentation.
 
 ### Stage 2: Publish Stable Profiling Process Identity
 

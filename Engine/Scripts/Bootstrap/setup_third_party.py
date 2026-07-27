@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -27,6 +29,7 @@ PLATFORM_NAMES = {
 }
 
 VALID_CONFIGS = ("Debug", "Release")
+SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
 class BootstrapError(RuntimeError):
@@ -87,6 +90,14 @@ def verify_required_files(base_dir: Path, required_files: list[str]) -> bool:
 
 def verify_any_required_file_set(base_dir: Path, required_sets: list[list[str]]) -> bool:
     return any(verify_required_files(base_dir, required_files) for required_files in required_sets)
+
+
+def compute_sha256(file_path: Path) -> str:
+    digest = hashlib.sha256()
+    with file_path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def get_git_source_required_files(source: dict[str, Any]) -> list[str]:
@@ -200,6 +211,15 @@ def ensure_archive_source(manifest: dict[str, Any], platform_name: str) -> None:
 
         urllib.request.urlretrieve(archive_url, archive_path)
 
+        if expected_sha256 := platform_source.get("sha256"):
+            actual_sha256 = compute_sha256(archive_path)
+            if actual_sha256.lower() != expected_sha256.lower():
+                raise BootstrapError(
+                    f"{manifest['name']} archive integrity verification failed for \"{archive_path}\".\n"
+                    f"Expected SHA-256: {expected_sha256.lower()}\n"
+                    f"Actual SHA-256:   {actual_sha256}"
+                )
+
         if archive_name.endswith(".zip"):
             with zipfile.ZipFile(archive_path) as archive:
                 archive.extractall(extract_dir)
@@ -277,6 +297,14 @@ def process_manifest(
     cmake_command: str,
 ) -> None:
     print(f"==> Preparing {manifest['name']} ({manifest['kind']})")
+    if (
+        manifest["source"]["type"] == "archive"
+        and platform_name not in manifest["source"]["platforms"]
+        and manifest.get("allow_unsupported_platform", False)
+    ):
+        print(f"Skipping {manifest['name']}: no package is available for platform {platform_name}.")
+        return
+
     ensure_source_prepared(manifest, platform_name)
 
     if manifest["kind"] == "direct_source":
@@ -291,6 +319,12 @@ def process_manifest(
             raise BootstrapError(
                 f"{manifest['name']} does not define required files for platform {platform_name}."
             )
+        if not verify_required_files(resolve_repo_path(manifest["source_dir"]), platform_required):
+            raise BootstrapError(f"{manifest['name']} package is missing required files after preparation.")
+        return
+
+    if manifest["kind"] == "tool_package":
+        platform_required = manifest["source"]["platforms"][platform_name]["required_files"]
         if not verify_required_files(resolve_repo_path(manifest["source_dir"]), platform_required):
             raise BootstrapError(f"{manifest['name']} package is missing required files after preparation.")
         return
@@ -333,6 +367,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Validate manifest structure and exit without preparing dependencies.",
     )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Report selected dependency status as JSON without preparing or modifying dependencies.",
+    )
     return parser.parse_args()
 
 
@@ -369,9 +408,38 @@ def normalize_configs(config_value: str) -> list[str]:
     return [config_value]
 
 
+def query_manifest_status(manifest: dict[str, Any], platform_name: str) -> dict[str, Any]:
+    source_dir = resolve_repo_path(manifest["source_dir"])
+    source = manifest["source"]
+    platform_source = source.get("platforms", {}).get(platform_name) if source["type"] == "archive" else None
+    platform_supported = source["type"] != "archive" or platform_source is not None
+    if source["type"] == "git":
+        required_files = get_git_source_required_files(source)
+    elif platform_source:
+        required_files = platform_source["required_files"]
+    else:
+        required_files = []
+    missing_files = [
+        file_name
+        for file_name in required_files
+        if not (source_dir / normalize_rel_path(file_name)).exists()
+    ]
+    return {
+        "name": manifest["name"],
+        "version": manifest.get("version"),
+        "platform": platform_name,
+        "platform_supported": platform_supported,
+        "source_dir": str(source_dir),
+        "required_files": required_files,
+        "missing_files": missing_files,
+        "prepared": platform_supported and not missing_files,
+        "repair_command": manifest.get("repair_command"),
+    }
+
+
 def validate_manifests(manifests: list[dict[str, Any]]) -> None:
     required_common = {"name", "kind", "source", "source_dir"}
-    valid_kinds = {"prebuilt_sdk", "direct_source", "shared_install"}
+    valid_kinds = {"prebuilt_sdk", "direct_source", "shared_install", "tool_package"}
     for manifest in manifests:
         missing = required_common.difference(manifest)
         if missing:
@@ -380,7 +448,7 @@ def validate_manifests(manifests: list[dict[str, Any]]) -> None:
             )
         if manifest["kind"] not in valid_kinds:
             raise BootstrapError(f"Manifest {manifest['name']} has unsupported kind: {manifest['kind']}")
-        for field_name in ("test_only", "development_only"):
+        for field_name in ("test_only", "development_only", "allow_unsupported_platform"):
             if field_name in manifest and not isinstance(manifest[field_name], bool):
                 raise BootstrapError(
                     f"Manifest {manifest['name']} field {field_name} must be a boolean."
@@ -394,6 +462,30 @@ def validate_manifests(manifests: list[dict[str, Any]]) -> None:
                 raise BootstrapError(
                     f"Git manifest {manifest['name']} must define exactly one source revision: tag or commit."
                 )
+        if source_kind == "archive":
+            platforms = manifest["source"].get("platforms")
+            if not isinstance(platforms, dict) or not platforms:
+                raise BootstrapError(f"Archive manifest {manifest['name']} must define source platforms.")
+            for platform_name, platform_source in platforms.items():
+                if not isinstance(platform_source, dict):
+                    raise BootstrapError(
+                        f"Archive manifest {manifest['name']} platform {platform_name} must be an object."
+                    )
+                required_fields = {"url", "archive_name", "required_files"}
+                missing_platform_fields = required_fields.difference(platform_source)
+                if missing_platform_fields:
+                    raise BootstrapError(
+                        f"Archive manifest {manifest['name']} platform {platform_name} is missing required keys: "
+                        f"{sorted(missing_platform_fields)}"
+                    )
+                if "sha256" in platform_source and (
+                    not isinstance(platform_source["sha256"], str)
+                    or not SHA256_PATTERN.fullmatch(platform_source["sha256"])
+                ):
+                    raise BootstrapError(
+                        f"Archive manifest {manifest['name']} platform {platform_name} sha256 "
+                        "must contain exactly 64 hexadecimal digits."
+                    )
         if manifest["kind"] == "shared_install":
             if "cmake_dir" not in manifest or "install_required_file_sets" not in manifest:
                 raise BootstrapError(
@@ -401,6 +493,8 @@ def validate_manifests(manifests: list[dict[str, Any]]) -> None:
                 )
         if manifest["kind"] == "prebuilt_sdk" and "required_files_by_platform" not in manifest:
             raise BootstrapError(f"Prebuilt SDK manifest {manifest['name']} must define required_files_by_platform.")
+        if manifest["kind"] == "tool_package" and source_kind != "archive":
+            raise BootstrapError(f"Tool package manifest {manifest['name']} must use an archive source.")
 
 
 def main() -> int:
@@ -422,6 +516,13 @@ def main() -> int:
             with_tests=args.with_tests,
             with_development=args.with_development,
         )
+
+        if args.status:
+            print(json.dumps(
+                [query_manifest_status(manifest, platform_name) for manifest in selected_manifests],
+                indent=2,
+            ))
+            return 0
 
         for manifest in selected_manifests:
             process_manifest(
