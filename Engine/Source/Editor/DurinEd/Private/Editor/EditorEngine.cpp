@@ -114,6 +114,7 @@ namespace Durin
 	auto DEditorEngine::BeginDestroy() -> void
 	{
 		StopPlaySession();
+		TransactionManager->Clear();
 		for (const uint64 Handle : ConsoleCommandHandles) FConsoleCommandRegistry::Get().UnregisterCommand(Handle);
 		ConsoleCommandHandles.clear();
 		EditorLevel = nullptr;
