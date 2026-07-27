@@ -1,5 +1,8 @@
 #include "Workspace/LevelEditorContext.h"
 
+#include "DObject/Package.h"
+#include "Editor/EditorEngine.h"
+#include "Editor/EditorTransaction.h"
 #include "Engine/World.h"
 #include "Engine/Level.h"
 
@@ -90,5 +93,15 @@ namespace Durin
 	auto FLevelEditorContext::IsActorSelected(const AActor* Actor) const -> bool
 	{
 		return Actor && std::ranges::any_of(SelectedActors, [Actor](const TObjectPtr<AActor>& Entry) { return Entry.Get() == Actor; });
+	}
+
+	auto FLevelEditorContext::InvalidatePackageSavedState(DPackage* Package) const -> void
+	{
+		if (!Package && Level) Package = Level->GetPackage();
+		if (!Package || !Package->IsAssetPackage()) return;
+		if (GEditor)
+			GEditor->GetTransactionManager().InvalidateSavedState(*Package);
+		else
+			Package->MarkDirty();
 	}
 } // namespace Durin

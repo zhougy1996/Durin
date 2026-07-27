@@ -325,15 +325,23 @@ namespace Durin
 			for (DObject* Current = Object; Current; Current = Current->GetOuter()) if (SelectedRoots.contains(Current)) return true;
 			return false;
 		};
+		bool bCopiedAny = false;
 		for (const auto& [PlayObject, EditorObject] : PlayToEditorObjects)
 		{
 			if (!IsUnderSelectedActor(PlayObject)) continue;
 			std::string CopyError;
 			if (!CopyEditableObjectProperties(PlayObject, EditorObject, PlayToEditorObjects, &CopyError))
 			{
+				if (bCopiedAny)
+				{
+					TransactionManager->Clear();
+					if (DPackage* Package = EditorLevel->GetPackage())
+						TransactionManager->InvalidateSavedState(*Package);
+				}
 				if (OutError) *OutError = std::move(CopyError);
 				return false;
 			}
+			bCopiedAny = true;
 		}
 		for (DObject* PlayActor : SelectedRoots)
 		{
@@ -344,6 +352,8 @@ namespace Durin
 			}
 		}
 		TransactionManager->Clear();
+		if (DPackage* Package = EditorLevel->GetPackage())
+			TransactionManager->InvalidateSavedState(*Package);
 		if (OutAppliedActorCount) *OutAppliedActorCount = static_cast<uint32>(SelectedRoots.size());
 		return true;
 	}

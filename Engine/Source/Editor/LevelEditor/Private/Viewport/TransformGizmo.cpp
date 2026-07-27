@@ -117,6 +117,12 @@ namespace Durin
 			FActorTransformTransaction(std::string_view Action, std::vector<FEntry> InEntries)
 				: Entries(std::move(InEntries))
 			{
+				for (const FEntry& Entry : Entries)
+				{
+					DPackage* Package = Entry.Actor ? Entry.Actor->GetPackage() : nullptr;
+					if (Package && std::ranges::find(AffectedPackages, Package) == AffectedPackages.end())
+						AffectedPackages.push_back(Package);
+				}
 				if (Entries.size() == 1 && Entries.front().Actor)
 					Description = std::format("{} '{}'", Action, Entries.front().Actor->GetName());
 				else
@@ -124,6 +130,7 @@ namespace Durin
 			}
 			auto GetDescription() const -> std::string_view override { return Description; }
 			auto GetDetails(EEditorTransactionOperation Operation) const -> std::string override { return BuildDetails(Operation != EEditorTransactionOperation::Undo); }
+			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
 			auto Undo() -> bool override { return Apply(false); }
 			auto Redo() -> bool override { return Apply(true); }
 
@@ -187,6 +194,7 @@ namespace Durin
 			}
 			std::string Description;
 			std::vector<FEntry> Entries;
+			std::vector<DPackage*> AffectedPackages;
 		};
 	} // namespace
 

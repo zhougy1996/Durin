@@ -209,6 +209,7 @@ namespace Durin
 			}
 			Duplicate->RegisterComponent();
 			SelectedComponent = Duplicate;
+			Context.InvalidatePackageSavedState(Actor->GetPackage());
 		};
 		auto ReparentComponent = [&](DSceneComponent* Moving, DSceneComponent* Parent) {
 			if (!Moving || !Parent || Moving == Actor->GetRootComponent() || Moving->GetOwner() != Actor || Parent->GetOwner() != Actor) return;
@@ -218,6 +219,7 @@ namespace Durin
 				return;
 			}
 			PendingExpandComponent = Parent;
+			Context.InvalidatePackageSavedState(Actor->GetPackage());
 		};
 
 		std::unordered_set<DActorComponent*> Visited;
@@ -383,7 +385,9 @@ namespace Durin
 		}
 		DActorComponent* RenameTarget = RenamingComponent.Get();
 		const EEditorRenameDialogResult RenameResult = RenameDialog.Draw("Rename Component", RenameTarget ? RenameTarget->GetName() : std::string_view(), [&](std::string_view NewName) -> std::string {
-			return RenameTarget && Actor->RenameComponent(RenameTarget, FName(NewName)) ? std::string() : "Failed to rename component.";
+			if (!RenameTarget || !Actor->RenameComponent(RenameTarget, FName(NewName))) return "Failed to rename component.";
+			Context.InvalidatePackageSavedState(Actor->GetPackage());
+			return {};
 		});
 		if (RenameResult != EEditorRenameDialogResult::None)
 		{
@@ -425,6 +429,7 @@ namespace Durin
 					else
 					{
 						SelectedComponent = NewComponent;
+						Context.InvalidatePackageSavedState(Actor->GetPackage());
 						if (auto* NewSceneComponent = Cast<DSceneComponent>(NewComponent); !bAddComponentAsChild && NewSceneComponent)
 						{
 							PendingExpandComponent = NewSceneComponent->GetAttachParent();
@@ -447,7 +452,10 @@ namespace Durin
 			if (ImGui::Button("Remove"))
 			{
 				DActorComponent* Component = PendingRemoveComponent.Get();
-				if (Component && !Actor->DestroyInstanceComponent(Component)) Context.SetError("Failed to remove component.");
+				if (Component && !Actor->DestroyInstanceComponent(Component))
+					Context.SetError("Failed to remove component.");
+				else if (Component)
+					Context.InvalidatePackageSavedState(Actor->GetPackage());
 				if (SelectedComponent.Get() == Component) SelectedComponent = nullptr;
 				PendingRemoveComponent = nullptr;
 				ImGui::CloseCurrentPopup();

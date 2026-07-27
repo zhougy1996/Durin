@@ -9,6 +9,7 @@ namespace Durin
 	class AActor;
 	class DWorld;
 	class DLevel;
+	class DPackage;
 
 	// Shares active world, selection, play, and viewport state across editor panels.
 	struct FLevelEditorContext
@@ -33,6 +34,7 @@ namespace Durin
 		auto GetPrimarySelectedActor() const -> AActor* { return PrimarySelectedActor.Get(); }
 		auto GetSelectedActors() const -> const std::vector<TObjectPtr<AActor>>& { return SelectedActors; }
 		auto SetError(std::string Message) const -> void { if (ReportError) ReportError(std::move(Message)); }
+		auto InvalidatePackageSavedState(DPackage* Package = nullptr) const -> void;
 
 	private:
 		std::vector<TObjectPtr<AActor>> SelectedActors;

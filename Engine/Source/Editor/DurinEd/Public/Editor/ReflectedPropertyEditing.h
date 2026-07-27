@@ -61,6 +61,7 @@ namespace Durin
 
 		auto GetDescription() const -> std::string_view override { return Description; }
 		DURINED_API auto GetDetails(EEditorTransactionOperation Operation) const -> std::string override;
+		auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
 		DURINED_API auto Undo() -> bool override;
 		DURINED_API auto Redo() -> bool override;
 
@@ -72,6 +73,7 @@ namespace Durin
 		FPropertyValueSnapshot After;
 		std::string Description;
 		std::string LastError;
+		std::array<DPackage*, 1> AffectedPackages{};
 		bool bObjectRooted = false;
 	};
 

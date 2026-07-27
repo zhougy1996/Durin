@@ -21,12 +21,12 @@ the Level Editor continues to show the document as dirty. The implemented
 architecture documents this as a conservative temporary policy pending a
 saved-revision model.
 
-Stage 1 is implemented. `FEditorTransactionManager` now owns package-scoped
-current/saved revision state, records per-entry before/after package
-transitions, exposes checkpoint lifecycle APIs, and roots tracked packages until
-their state is forgotten. Existing transaction implementations report no
-affected packages by default, so Level Editor behavior remains unchanged until
-Stage 2 connects its transaction and document lifecycles.
+Stages 1-2 are implemented. `FEditorTransactionManager` owns package-scoped
+current/saved revision state and Level Editor transactions now report the
+packages they affect. Successful level activation and save establish or advance
+the checkpoint, while non-transactional scene mutations invalidate it. Existing
+Level Editor chrome continues to consume `DPackage::IsDirty()`, now synchronized
+by revision movement for transaction-managed edits.
 
 ### Stage 1 Handoff
 
@@ -50,6 +50,41 @@ Stage 2 connects its transaction and document lifecycles.
 - Validation: fresh configure succeeded after removing a legacy CMake cache
   entry; `DurinEd` built successfully; all 20
   `FReflectedPropertyEditSessionTests.*` tests passed.
+
+### Stage 2 Handoff
+
+- Baseline commit: `3a923449`.
+- Working set:
+  - `Engine/Source/Editor/DurinEd/Public/Editor/ReflectedPropertyEditing.h`
+  - `Engine/Source/Editor/DurinEd/Private/Editor/ReflectedPropertyEditing.cpp`
+  - `Engine/Source/Editor/DurinEd/Private/Editor/EditorEngine.cpp`
+  - `Engine/Source/Editor/LevelEditor/Private/Documents/LevelDocumentController.cpp`
+  - `Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPanel.cpp`
+  - `Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.cpp`
+  - `Engine/Source/Editor/LevelEditor/Private/Panels/WorldOutlinerPanel.cpp`
+  - `Engine/Source/Editor/LevelEditor/Private/Viewport/TransformGizmo.cpp`
+  - `Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp`
+  - `Engine/Source/Editor/LevelEditor/Private/Workspace/LevelEditorContext.h`
+  - `Engine/Source/Editor/LevelEditor/Private/Workspace/LevelEditorContext.cpp`
+  - `Documentation/Plans/SavedRevisionDirtyState.md`
+- Key symbols: `FReflectedPropertyTransaction::GetAffectedPackages()`,
+  `FActorTransformTransaction`, `FPrimaryCameraTransaction`,
+  `FActorVisibilityTransaction`,
+  `FLevelEditorContext::InvalidatePackageSavedState()`,
+  `FLevelDocumentController::SaveCurrentLevel()`, `ActivateLevel()`, and
+  `MLevelEditor::DiscardDocument()`.
+- Decisions: transaction implementations capture a deduplicated package list
+  when they are constructed; non-undoable actor/component hierarchy edits,
+  actor creation/deletion, asset drops, and applied Play changes invalidate the
+  active package checkpoint; successful level rename/move is treated as a save;
+  activation establishes a checkpoint only for an already-clean package.
+- Open questions: none for Stage 2. Stage 3 must add deterministic revision
+  topology, failure, lifecycle, and Level integration coverage. Interactive
+  editor verification and the lasting architecture update remain in Stage 4.
+- Validation: `DurinEd` and `LevelEditor` targets built successfully; all 21
+  `FReflectedPropertyEditSessionTests.*` and `FTransformGizmoTests.*` tests
+  passed; a full `all` build completed successfully and linked
+  `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`.
 
 ## Goal
 
@@ -258,23 +293,23 @@ dirty tracking, and every untracked edit is conservatively dirty.
 
 Dependencies: Stage 1.
 
-- [ ] Make reflected-property transactions report the target object's package,
+- [x] Make reflected-property transactions report the target object's package,
       including Undo and Redo restoration.
-- [ ] Make actor transform transactions report all deduplicated packages touched
+- [x] Make actor transform transactions report all deduplicated packages touched
       by a gizmo operation.
-- [ ] Audit other Level Editor transaction implementations and add affected
+- [x] Audit other Level Editor transaction implementations and add affected
       packages to each one.
-- [ ] Audit persistent Level Editor mutations that bypass transaction history
+- [x] Audit persistent Level Editor mutations that bypass transaction history
       and route them through the explicit checkpoint-invalidation fallback.
-- [ ] Establish the active level's initial known-clean revision after successful
+- [x] Establish the active level's initial known-clean revision after successful
       load/activation, while preserving an already-dirty package as invalidated.
-- [ ] Advance the saved checkpoint only after `SaveCurrentLevel()` receives a
+- [x] Advance the saved checkpoint only after `SaveCurrentLevel()` receives a
       successful `Asset::SavePackage()` result.
-- [ ] Forget old package revision state during document discard, replacement,
+- [x] Forget old package revision state during document discard, replacement,
       close, and unload in the same lifecycle that clears transaction history.
-- [ ] Keep Level Editor chrome and close confirmation reading
+- [x] Keep Level Editor chrome and close confirmation reading
       `DPackage::IsDirty()`; do not add a second UI-only interpretation.
-- [ ] Preserve Transform Gizmo cancel and net-zero-drag restoration semantics.
+- [x] Preserve Transform Gizmo cancel and net-zero-drag restoration semantics.
 
 #### Acceptance Gate
 

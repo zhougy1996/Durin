@@ -456,6 +456,7 @@ namespace Durin
 			SetError(Result.Message);
 			return false;
 		}
+		if (GEditor) GEditor->GetTransactionManager().MarkSaved(*Context.Level->GetPackage());
 		return true;
 	}
 
@@ -505,14 +506,17 @@ namespace Durin
 		{
 			if (Context.Level->GetName() == NewName) return true;
 			const FName OldObjectName = Context.Level->GetFName();
+			const bool bWasDirty = Package->IsDirty();
 			Context.Level->Rename(FName(NewName));
 			const Asset::FAssetResult SaveResult = Asset::SavePackage(Package);
 			if (!SaveResult)
 			{
 				Context.Level->Rename(OldObjectName);
+				if (!bWasDirty) Package->ClearDirty();
 				SetError(SaveResult.Message);
 				return false;
 			}
+			if (GEditor) GEditor->GetTransactionManager().MarkSaved(*Package);
 			return true;
 		}
 
@@ -522,6 +526,7 @@ namespace Durin
 			SetError(MoveResult.Message);
 			return false;
 		}
+		if (GEditor) GEditor->GetTransactionManager().MarkSaved(*Package);
 		return true;
 	}
 
@@ -541,7 +546,18 @@ namespace Durin
 			SetError("The level is already active in another world.");
 			return false;
 		}
-		if (GEditor) GEditor->GetTransactionManager().Clear();
+		if (GEditor)
+		{
+			FEditorTransactionManager& Transactions = GEditor->GetTransactionManager();
+			Transactions.Clear();
+			if (DPackage* Package = Level->GetPackage())
+			{
+				if (Package->IsDirty())
+					Transactions.InvalidateSavedState(*Package);
+				else
+					Transactions.EstablishSavedState(*Package);
+			}
+		}
 		Context.Synchronize(Context.World);
 		SessionSettings.RestoreViewportState(Level, SceneViewportPanel);
 		if (PreviousPackage && PreviousPackage != Level->GetPackage())

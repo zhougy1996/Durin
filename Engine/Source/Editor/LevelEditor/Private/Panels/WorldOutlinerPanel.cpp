@@ -32,12 +32,16 @@ namespace Durin
 		{
 		public:
 			FPrimaryCameraTransaction(DLevel* InLevel, ACameraActor* InBefore, ACameraActor* InAfter)
-				: Level(InLevel), Before(InBefore), After(InAfter) {}
+				: Level(InLevel), Before(InBefore), After(InAfter)
+			{
+				AffectedPackages.front() = InLevel ? InLevel->GetPackage() : nullptr;
+			}
 			auto GetDescription() const -> std::string_view override { return "Set primary camera"; }
 			auto GetDetails(EEditorTransactionOperation) const -> std::string override
 			{
 				return After ? std::format("Set '{}' as the primary camera", After->GetName()) : "Clear the primary camera";
 			}
+			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
 			auto Undo() -> bool override { return Level && Level->SetPrimaryCameraActor(Before.Get()); }
 			auto Redo() -> bool override { return Level && Level->SetPrimaryCameraActor(After.Get()); }
 
@@ -45,6 +49,7 @@ namespace Durin
 			TObjectPtr<DLevel> Level;
 			TObjectPtr<ACameraActor> Before;
 			TObjectPtr<ACameraActor> After;
+			std::array<DPackage*, 1> AffectedPackages{};
 		};
 
 		// Restores visibility for every actor changed by one outliner operation.
@@ -60,7 +65,15 @@ namespace Durin
 			};
 
 			FActorVisibilityTransaction(std::vector<FEntry> InEntries, bool bInShow)
-				: Entries(std::move(InEntries)), bShow(bInShow) {}
+				: Entries(std::move(InEntries)), bShow(bInShow)
+			{
+				for (const FEntry& Entry : Entries)
+				{
+					DPackage* Package = Entry.Actor ? Entry.Actor->GetPackage() : nullptr;
+					if (Package && std::ranges::find(AffectedPackages, Package) == AffectedPackages.end())
+						AffectedPackages.push_back(Package);
+				}
+			}
 			auto GetDescription() const -> std::string_view override { return bShow ? "Show actors" : "Hide actors"; }
 			auto GetDetails(EEditorTransactionOperation Operation) const -> std::string override
 			{
@@ -68,6 +81,7 @@ namespace Durin
 				const size_t HiddenCount = std::ranges::count_if(Entries, [bApplyingAfter](const FEntry& Entry) { return bApplyingAfter ? Entry.bAfter : Entry.bBefore; });
 				return std::format("Set visibility for {} actor(s); {} hidden", Entries.size(), HiddenCount);
 			}
+			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
 			auto Undo() -> bool override { return Apply(false); }
 			auto Redo() -> bool override { return Apply(true); }
 
@@ -88,6 +102,7 @@ namespace Durin
 			}
 
 			std::vector<FEntry> Entries;
+			std::vector<DPackage*> AffectedPackages;
 			bool bShow = false;
 		};
 
@@ -432,7 +447,7 @@ namespace Durin
 						if (!Moving->AttachToActor(Actor, EAttachmentTransformRule::KeepWorld))
 							Context.SetError(std::format("Failed to attach '{}' to '{}'.", Moving->GetName(), Actor->GetName()));
 						else
-							Moving->MarkPackageDirty();
+							Context.InvalidatePackageSavedState(Moving->GetPackage());
 				}
 				ImGui::EndDragDropTarget();
 			}
@@ -486,6 +501,7 @@ namespace Durin
 						AActor* Actor = Context.World->SpawnActor(Class, FName(Class->GetDefaultObjectName()));
 						if (Actor)
 						{
+							Context.InvalidatePackageSavedState(Actor->GetPackage());
 							Context.SelectActor(Actor);
 							bLevelSelected = false;
 						}
@@ -511,10 +527,11 @@ namespace Durin
 					AActor* Actor = Selected.Get();
 					if (!Actor || !Actor->GetAttachParentActor()) continue;
 					const bool bHasSelectedAncestor = std::ranges::any_of(Context.GetSelectedActors(), [&](const TObjectPtr<AActor>& Other) { return Other.Get() != Actor && IsDescendantOf(Actor, Other.Get()); });
-					if (!bHasSelectedAncestor && !Actor->DetachFromActor(EDetachmentTransformRule::KeepWorld))
+					if (bHasSelectedAncestor) continue;
+					if (!Actor->DetachFromActor(EDetachmentTransformRule::KeepWorld))
 						Context.SetError(std::format("Failed to detach '{}'.", Actor->GetName()));
 					else
-						Actor->MarkPackageDirty();
+						Context.InvalidatePackageSavedState(Actor->GetPackage());
 				}
 			}
 			ImGui::EndDragDropTarget();
@@ -564,7 +581,9 @@ namespace Durin
 		const EEditorRenameDialogResult RenameResult = RenameDialog.Draw(RenamePopupTitle, CurrentRenameName, [&](std::string_view NewName) -> std::string {
 			if (bRenameActor)
 			{
-				return Context.Level->RenameActor(RenamingActor.Get(), FName(NewName)) ? std::string() : "Failed to rename actor.";
+				if (!Context.Level->RenameActor(RenamingActor.Get(), FName(NewName))) return "Failed to rename actor.";
+				Context.InvalidatePackageSavedState(RenamingActor->GetPackage());
+				return {};
 			}
 			return Context.RenameLevel && Context.RenameLevel(NewName) ? std::string() : "Failed to rename level.";
 		});
@@ -589,8 +608,16 @@ namespace Durin
 			if (ImGui::Button("Delete"))
 			{
 				std::ranges::sort(PendingDeleteActors, [&](const TObjectPtr<AActor>& Left, const TObjectPtr<AActor>& Right) { return GetActorDepth(Left.Get()) > GetActorDepth(Right.Get()); });
+				bool bDestroyedAny = false;
 				for (const TObjectPtr<AActor>& Actor : PendingDeleteActors)
-					if (Actor && !Context.World->DestroyActor(Actor.Get())) Context.SetError(std::format("Failed to delete '{}'.", Actor->GetName()));
+				{
+					if (!Actor) continue;
+					if (!Context.World->DestroyActor(Actor.Get()))
+						Context.SetError(std::format("Failed to delete '{}'.", Actor->GetName()));
+					else
+						bDestroyedAny = true;
+				}
+				if (bDestroyedAny) Context.InvalidatePackageSavedState();
 				Context.ClearSelection();
 				PendingDeleteActors.clear();
 				ImGui::CloseCurrentPopup();

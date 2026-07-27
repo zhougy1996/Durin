@@ -393,6 +393,7 @@ namespace Durin
 		, After(std::move(InAfter))
 		, Description(std::move(InDescription))
 	{
+		AffectedPackages.front() = Target.Object ? Target.Object->GetPackage() : nullptr;
 		// Transaction history is not reflected, so it must keep both the edited
 		// object and any object references inside its snapshots visible to GC.
 		if (GDObjectArray.Contains(Target.Object))

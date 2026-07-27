@@ -635,6 +635,7 @@ namespace Durin
 							FVector3 Origin, Direction;
 							if (SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction) && Actor->GetRootComponent())
 								Actor->GetRootComponent()->SetWorldLocation(Origin + Direction * 5.0);
+							Context.InvalidatePackageSavedState(Actor->GetPackage());
 							Context.SelectActor(Actor);
 						}
 					}

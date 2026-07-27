@@ -287,7 +287,9 @@ namespace Durin
 	{
 		(void)Document;
 		if (!Context || !Context->Level || !Context->Level->GetPackage()) return false;
-		Context->Level->GetPackage()->ClearDirty();
+		DPackage* Package = Context->Level->GetPackage();
+		if (GEditor) GEditor->GetTransactionManager().ForgetPackage(*Package);
+		Package->ClearDirty();
 		return true;
 	}
 
