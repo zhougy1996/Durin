@@ -255,7 +255,7 @@ class MigratedWorktreeToolTests(unittest.TestCase):
             ],
         )
 
-    def test_terminal_layout_selects_the_first_pane_before_the_fourth_split(self) -> None:
+    def test_terminal_layout_returns_to_original_pane_before_the_fourth_split(self) -> None:
         worktrees = [
             services.Worktree(Path(f"C:/repo-{index}"), f"branch-{index}")
             for index in range(4)
@@ -263,10 +263,20 @@ class MigratedWorktreeToolTests(unittest.TestCase):
         with mock.patch.object(services, "environment_arguments", return_value=[]):
             arguments = services.terminal_arguments(worktrees)
 
-        fourth_split = arguments.index("move-focus")
-        self.assertEqual(arguments[fourth_split : fourth_split + 3], ["move-focus", "first", ";"])
-        self.assertEqual(arguments[fourth_split + 3 : fourth_split + 5], ["split-pane", "-H"])
-        self.assertNotIn("left", arguments)
+        focus_original = arguments.index("move-focus")
+        self.assertEqual(
+            arguments[focus_original : focus_original + 6],
+            [
+                "move-focus",
+                "previousInOrder",
+                ";",
+                "move-focus",
+                "previousInOrder",
+                ";",
+            ],
+        )
+        self.assertEqual(arguments[focus_original + 6 : focus_original + 8], ["split-pane", "-H"])
+        self.assertNotIn("first", arguments)
 
     def test_add_prepares_without_calling_setup(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -486,6 +496,15 @@ class MigratedWorktreeToolTests(unittest.TestCase):
         self.assertEqual(namespace.worktree_action, "open")
         self.assertTrue(namespace.dry_run)
 
+    def test_worktree_family_defaults_to_open(self) -> None:
+        registry = CommandRegistry()
+
+        specification, namespace = registry.parse(["worktree"])
+
+        self.assertEqual(specification.name, "open")
+        self.assertEqual(namespace.worktree_action, "open")
+        self.assertFalse(namespace.dry_run)
+
     def test_registry_owns_exactly_five_worktree_commands(self) -> None:
         registry = CommandRegistry()
         family = next(
@@ -497,6 +516,9 @@ class MigratedWorktreeToolTests(unittest.TestCase):
             tuple(child.name for child in family.subcommands),
             ("open", "list", "add", "prepare", "remove"),
         )
+        self.assertEqual(family.default_subcommand, "open")
+        self.assertIn("list", family.summary)
+        self.assertNotIn("inspect", family.summary)
         self.assertFalse(hasattr(services, "create_parser"))
 
 

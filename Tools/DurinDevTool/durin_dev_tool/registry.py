@@ -32,6 +32,7 @@ class CommandSpec:
     arguments: tuple[ArgumentSpec, ...] = ()
     required_modules: tuple[str, ...] = ()
     subcommands: tuple["CommandSpec", ...] = ()
+    default_subcommand: str = ""
     defaults: tuple[tuple[str, object], ...] = ()
 
     def load_handler(self) -> Callable[..., int]:
@@ -393,7 +394,7 @@ COMMAND_SPECS = (
     ),
     CommandSpec(
         "worktree",
-        "create, prepare, inspect, open, and remove worktrees",
+        "create, prepare, list, open, and remove worktrees",
         subcommands=(
             WORKTREE_OPEN,
             WORKTREE_LIST,
@@ -401,6 +402,7 @@ COMMAND_SPECS = (
             WORKTREE_PREPARE,
             WORKTREE_REMOVE,
         ),
+        default_subcommand="open",
     ),
 )
 
@@ -464,7 +466,9 @@ class CommandRegistry:
             if command in self._by_name:
                 normalized[0] = command
                 parent = self._by_name[command]
-                if parent.subcommands and len(normalized) > 1:
+                if parent.subcommands and len(normalized) == 1 and parent.default_subcommand:
+                    normalized.append(parent.default_subcommand)
+                elif parent.subcommands and len(normalized) > 1:
                     child = normalized[1].removeprefix("/").lower()
                     if child in {spec.name for spec in parent.subcommands}:
                         normalized[1] = child

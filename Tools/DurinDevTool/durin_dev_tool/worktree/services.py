@@ -239,10 +239,21 @@ def terminal_arguments(worktrees: Sequence[Worktree]) -> list[str]:
                 environment=environments[worktree.path],
             )
         else:
-            # Select the original pane by creation order instead of by geometry.
-            # Directional focus can pick either pane after Terminal updates the
-            # split layout, leaving one column split three ways.
-            arguments.extend(["move-focus", "first", ";"])
+            # The third pane is focused after it is created. Walk back twice in
+            # creation order to select the original pane before splitting it.
+            # "first" means the first leaf in Terminal's pane tree, whose order
+            # does not necessarily match pane creation order and can produce a
+            # column with three panes instead of a 2 x 2 grid.
+            arguments.extend(
+                [
+                    "move-focus",
+                    "previousInOrder",
+                    ";",
+                    "move-focus",
+                    "previousInOrder",
+                    ";",
+                ]
+            )
             add_terminal_pane_arguments(
                 arguments,
                 action="split-pane",
