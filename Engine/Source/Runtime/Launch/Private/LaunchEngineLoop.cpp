@@ -224,9 +224,10 @@ namespace Durin
 		CollectGarbage();
 
 		FlushRenderingCommands();
+		FModuleManager::Get().UnloadModulesAtShutdown();
+		FlushRenderingCommands();
 		ShutdownRenderingThread();
 
-		FModuleManager::Get().UnloadModulesAtShutdown();
 		RHIExit();
 
 		ShutdownApplicationCore();
