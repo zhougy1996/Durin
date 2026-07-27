@@ -71,7 +71,7 @@ namespace Durin::Asset
 		auto ExpectMeshEq(const FImportedMeshData& Expected, const FImportedMeshData& Actual) -> void
 		{
 			EXPECT_EQ(Expected.Name, Actual.Name);
-			EXPECT_EQ(Expected.MaterialIndex, Actual.MaterialIndex);
+			EXPECT_EQ(Expected.SourceMaterialIndex, Actual.SourceMaterialIndex);
 			ASSERT_EQ(Expected.Positions.size(), Actual.Positions.size());
 			ASSERT_EQ(Expected.Normals.size(), Actual.Normals.size());
 			ASSERT_EQ(Expected.Tangents.size(), Actual.Tangents.size());
@@ -103,6 +103,95 @@ namespace Durin::Asset
 			for (size_t Index = 0; Index < Expected.Colors.size(); ++Index)
 			{
 				ExpectVec4Eq(Expected.Colors[Index], Actual.Colors[Index]);
+			}
+		}
+
+		auto HasDiagnostic(
+			const FImportedSceneData& Scene,
+			EImportDiagnosticSeverity Severity,
+			EImportDiagnosticCategory Category,
+			std::string_view Subject) -> bool
+		{
+			return std::ranges::any_of(Scene.Diagnostics, [=](const FImportDiagnostic& Diagnostic) {
+				return Diagnostic.Severity == Severity &&
+					Diagnostic.Category == Category &&
+					Diagnostic.Subject == Subject;
+			});
+		}
+
+		auto ExpectNormalizedSceneEq(const FImportedSceneData& Expected, const FImportedSceneData& Actual) -> void
+		{
+			ASSERT_EQ(Expected.Images.size(), Actual.Images.size());
+			for (size_t Index = 0; Index < Expected.Images.size(); ++Index)
+			{
+				const FImportedImage& A = Expected.Images[Index];
+				const FImportedImage& B = Actual.Images[Index];
+				EXPECT_EQ(A.StableIdentity, B.StableIdentity);
+				EXPECT_EQ(A.SuggestedName, B.SuggestedName);
+				EXPECT_EQ(A.Encoding, B.Encoding);
+				EXPECT_EQ(A.EncodedByteCount, B.EncodedByteCount);
+				EXPECT_EQ(A.ExternalDependencyIndex, B.ExternalDependencyIndex);
+				EXPECT_EQ(A.EmbeddedEncodedBytes, B.EmbeddedEncodedBytes);
+			}
+			ASSERT_EQ(Expected.Materials.size(), Actual.Materials.size());
+			for (size_t Index = 0; Index < Expected.Materials.size(); ++Index)
+			{
+				const FImportedMaterial& A = Expected.Materials[Index];
+				const FImportedMaterial& B = Actual.Materials[Index];
+				EXPECT_EQ(A.SourceMaterialIndex, B.SourceMaterialIndex);
+				EXPECT_EQ(A.SourceName, B.SourceName);
+				ExpectVec4Eq(A.BaseColorFactor, B.BaseColorFactor);
+				EXPECT_FLOAT_EQ(A.MetallicFactor, B.MetallicFactor);
+				EXPECT_FLOAT_EQ(A.RoughnessFactor, B.RoughnessFactor);
+				ExpectVec3Eq(A.EmissiveFactor, B.EmissiveFactor);
+				EXPECT_EQ(A.AlphaMode, B.AlphaMode);
+				EXPECT_FLOAT_EQ(A.AlphaCutoff, B.AlphaCutoff);
+				EXPECT_EQ(A.bDoubleSided, B.bDoubleSided);
+				ASSERT_EQ(A.TextureBindings.size(), B.TextureBindings.size());
+				for (size_t BindingIndex = 0; BindingIndex < A.TextureBindings.size(); ++BindingIndex)
+				{
+					const FImportedTextureBinding& X = A.TextureBindings[BindingIndex];
+					const FImportedTextureBinding& Y = B.TextureBindings[BindingIndex];
+					EXPECT_EQ(X.Semantic, Y.Semantic);
+					EXPECT_EQ(X.ImageIndex, Y.ImageIndex);
+					EXPECT_EQ(X.UVChannel, Y.UVChannel);
+					ExpectVec2Eq(X.Offset, Y.Offset);
+					ExpectVec2Eq(X.Scale, Y.Scale);
+					EXPECT_FLOAT_EQ(X.RotationRadians, Y.RotationRadians);
+					EXPECT_FLOAT_EQ(X.Strength, Y.Strength);
+					EXPECT_EQ(X.Sampler.MinFilter, Y.Sampler.MinFilter);
+					EXPECT_EQ(X.Sampler.MagFilter, Y.Sampler.MagFilter);
+					EXPECT_EQ(X.Sampler.WrapU, Y.Sampler.WrapU);
+					EXPECT_EQ(X.Sampler.WrapV, Y.Sampler.WrapV);
+				}
+			}
+			ASSERT_EQ(Expected.MaterialSlots.size(), Actual.MaterialSlots.size());
+			for (size_t Index = 0; Index < Expected.MaterialSlots.size(); ++Index)
+			{
+				EXPECT_EQ(Expected.MaterialSlots[Index].Name, Actual.MaterialSlots[Index].Name);
+				EXPECT_EQ(Expected.MaterialSlots[Index].SourceMaterialIndex, Actual.MaterialSlots[Index].SourceMaterialIndex);
+				EXPECT_EQ(Expected.MaterialSlots[Index].SourceName, Actual.MaterialSlots[Index].SourceName);
+			}
+			ASSERT_EQ(Expected.Meshes.size(), Actual.Meshes.size());
+			for (size_t Index = 0; Index < Expected.Meshes.size(); ++Index)
+				ExpectMeshEq(Expected.Meshes[Index], Actual.Meshes[Index]);
+			ASSERT_EQ(Expected.Dependencies.size(), Actual.Dependencies.size());
+			for (size_t Index = 0; Index < Expected.Dependencies.size(); ++Index)
+			{
+				EXPECT_EQ(Expected.Dependencies[Index].Role, Actual.Dependencies[Index].Role);
+				EXPECT_EQ(Expected.Dependencies[Index].StableIdentity, Actual.Dependencies[Index].StableIdentity);
+				EXPECT_EQ(Expected.Dependencies[Index].Source, Actual.Dependencies[Index].Source);
+				EXPECT_EQ(Expected.Dependencies[Index].ContentHash, Actual.Dependencies[Index].ContentHash);
+				EXPECT_EQ(Expected.Dependencies[Index].ByteCount, Actual.Dependencies[Index].ByteCount);
+			}
+			ASSERT_EQ(Expected.Diagnostics.size(), Actual.Diagnostics.size());
+			for (size_t Index = 0; Index < Expected.Diagnostics.size(); ++Index)
+			{
+				EXPECT_EQ(Expected.Diagnostics[Index].Severity, Actual.Diagnostics[Index].Severity);
+				EXPECT_EQ(Expected.Diagnostics[Index].Category, Actual.Diagnostics[Index].Category);
+				EXPECT_EQ(Expected.Diagnostics[Index].SourceIdentity, Actual.Diagnostics[Index].SourceIdentity);
+				EXPECT_EQ(Expected.Diagnostics[Index].Subject, Actual.Diagnostics[Index].Subject);
+				EXPECT_EQ(Expected.Diagnostics[Index].Message, Actual.Diagnostics[Index].Message);
 			}
 		}
 
@@ -224,8 +313,8 @@ namespace Durin::Asset
 			}
 		}
 
-		EXPECT_EQ(Scene.Meshes[0].MaterialIndex, Scene.MaterialSlots[0].SourceMaterialIndex);
-		EXPECT_EQ(Scene.Meshes[1].MaterialIndex, Scene.MaterialSlots[1].SourceMaterialIndex);
+		EXPECT_EQ(Scene.Meshes[0].SourceMaterialIndex, Scene.MaterialSlots[0].SourceMaterialIndex);
+		EXPECT_EQ(Scene.Meshes[1].SourceMaterialIndex, Scene.MaterialSlots[1].SourceMaterialIndex);
 		ExpectVec3Eq(glm::vec3(1.0f, 2.0f, 3.0f), Scene.Meshes[0].Positions[0]);
 		ExpectVec3Eq(glm::vec3(3.0f, 2.0f, 3.0f), Scene.Meshes[0].Positions[1]);
 		EXPECT_EQ(Scene.Meshes[2].Indices, (std::vector<uint32>{0, 2, 1}));
@@ -248,7 +337,8 @@ namespace Durin::Asset
 			{"Duplicate.gltf", {"Shared", "Shared"}, {0, 1}, {{"Shared", 0}, {"Shared_1", 1}}},
 			{"Added.gltf", {"Red", "Green", "Blue"}, {0, 1, 2}, {{"Red", 0}, {"Green", 1}, {"Blue", 2}}},
 			{"Removed.gltf", {"Blue"}, {0}, {{"Blue", 0}}},
-			{"Filtered.gltf", {"Unused", "Red", "Blue"}, {1, 2}, {{"Red", 0}, {"Blue", 1}}},
+			{"Filtered.gltf", {"Unused", "Red", "Blue"}, {1, 2}, {{"Red", 1}, {"Blue", 2}}},
+			{"UnusedDuplicate.gltf", {"Shared", "Shared", "Red"}, {1, 2}, {{"Shared", 1}, {"Red", 2}}},
 			{"ExactNames.gltf", {"", " red ", "Red"}, {0, 1, 2}, {{"Material_0", 0}, {" red ", 1}, {"Red", 2}}},
 		};
 
@@ -283,7 +373,6 @@ namespace Durin::Asset
 			{"StaticModelMaterials/EmbeddedImage.glb", 1, {"Embedded"}},
 			{"StaticModelMaterials/OptionalExtension.gltf", 1, {"OptionalExtension"}},
 			{"StaticModelMaterials/PhongMaterial.fbx", 1, {"phong1"}},
-			{"StaticModelMaterials/UnsupportedDccMaterial.fbx", 1, {"02 - Default"}},
 		};
 
 		for (const FCase& Case : Cases)
@@ -302,6 +391,7 @@ namespace Durin::Asset
 
 	TEST(FAssetImportTests, StaticModelGoldenSnapshotFreezesRequiredAndOptionalCases)
 	{
+		EXPECT_EQ(StaticModelImporterVersion, 2u);
 		for (const std::string_view FileName : {
 			"StaticModelMaterials/RequiredExtension.gltf",
 			"StaticModelMaterials/OptionalExtension.gltf"})
@@ -328,6 +418,177 @@ namespace Durin::Asset
 		EXPECT_EQ(
 			Fixtures.GetView("EmbeddedImage.glb").GetView("images").GetView(0).GetView("identity").GetString(),
 			"glb-buffer-view:4");
+	}
+
+	TEST(FAssetImportTests, ImportsFrozenGltfMaterialImageAndDependencyContract)
+	{
+		FImportedSceneData Scene;
+		FMeshImportOptions Options;
+		Options.RootSource.Path = "/Game/Models/MaterialContract.gltf";
+		ASSERT_TRUE(ImportFromFile(
+			TestDataPath("StaticModelMaterials/MaterialContract.gltf"), Scene, Options));
+
+		ASSERT_EQ(Scene.Dependencies.size(), 3u);
+		EXPECT_EQ(Scene.Dependencies[0].Role, EImportedDependencyRole::RootModel);
+		EXPECT_EQ(Scene.Dependencies[0].StableIdentity, "root");
+		EXPECT_EQ(Scene.Dependencies[0].Source.Path, "/Game/Models/MaterialContract.gltf");
+		EXPECT_EQ(Scene.Dependencies[1].Role, EImportedDependencyRole::GeometryBuffer);
+		EXPECT_EQ(Scene.Dependencies[1].StableIdentity, "buffer:Triangle.bin");
+		EXPECT_EQ(Scene.Dependencies[1].Source.Path, "/Game/Models/Triangle.bin");
+		EXPECT_EQ(Scene.Dependencies[2].Role, EImportedDependencyRole::Image);
+		EXPECT_EQ(Scene.Dependencies[2].StableIdentity, "image:Red.png");
+		EXPECT_EQ(Scene.Dependencies[2].Source.Path, "/Game/Models/Red.png");
+		for (const FImportedDependency& Dependency : Scene.Dependencies)
+		{
+			EXPECT_GT(Dependency.ByteCount, 0u);
+			EXPECT_FALSE(Dependency.ContentHash.IsZero());
+		}
+
+		ASSERT_EQ(Scene.Images.size(), 1u);
+		EXPECT_EQ(Scene.Images[0].StableIdentity, "external:Red.png");
+		EXPECT_EQ(Scene.Images[0].SuggestedName, "RedPixel");
+		EXPECT_EQ(Scene.Images[0].Encoding, EImportedImageEncoding::Png);
+		EXPECT_EQ(Scene.Images[0].EncodedByteCount, 68u);
+		ASSERT_TRUE(Scene.Images[0].ExternalDependencyIndex.has_value());
+		EXPECT_EQ(*Scene.Images[0].ExternalDependencyIndex, 2u);
+		EXPECT_TRUE(Scene.Images[0].EmbeddedEncodedBytes.empty());
+
+		ASSERT_EQ(Scene.Materials.size(), 4u);
+		const FImportedMaterial& Shared = Scene.Materials[0];
+		EXPECT_EQ(Shared.SourceMaterialIndex, 0u);
+		EXPECT_EQ(Shared.SourceName, "Shared");
+		ExpectVec4Eq({0.8f, 0.6f, 0.4f, 0.5f}, Shared.BaseColorFactor);
+		EXPECT_FLOAT_EQ(Shared.MetallicFactor, 0.25f);
+		EXPECT_FLOAT_EQ(Shared.RoughnessFactor, 0.75f);
+		EXPECT_TRUE(Shared.bDoubleSided);
+		ASSERT_EQ(Shared.TextureBindings.size(), 1u);
+		const FImportedTextureBinding& SharedColor = Shared.TextureBindings[0];
+		EXPECT_EQ(SharedColor.Semantic, EImportedTextureSemantic::BaseColor);
+		EXPECT_EQ(SharedColor.ImageIndex, 0u);
+		EXPECT_EQ(SharedColor.UVChannel, 1u);
+		ExpectVec2Eq({0.1f, 0.2f}, SharedColor.Offset);
+		ExpectVec2Eq({2.0f, 3.0f}, SharedColor.Scale);
+		EXPECT_EQ(SharedColor.Sampler.MinFilter, EImportedSamplerFilter::LinearMipmapLinear);
+		EXPECT_EQ(SharedColor.Sampler.MagFilter, EImportedSamplerFilter::Linear);
+		EXPECT_EQ(SharedColor.Sampler.WrapU, EImportedSamplerWrap::Repeat);
+		EXPECT_EQ(SharedColor.Sampler.WrapV, EImportedSamplerWrap::Repeat);
+
+		const FImportedMaterial& Masked = Scene.Materials[1];
+		EXPECT_EQ(Masked.SourceName, "Shared");
+		EXPECT_EQ(Masked.AlphaMode, EImportedAlphaMode::Mask);
+		EXPECT_FLOAT_EQ(Masked.AlphaCutoff, 0.33f);
+		ASSERT_EQ(Masked.TextureBindings.size(), 1u);
+		EXPECT_EQ(Masked.TextureBindings[0].Sampler.MinFilter, EImportedSamplerFilter::Nearest);
+		EXPECT_EQ(Masked.TextureBindings[0].Sampler.MagFilter, EImportedSamplerFilter::Nearest);
+		EXPECT_EQ(Masked.TextureBindings[0].Sampler.WrapU, EImportedSamplerWrap::ClampToEdge);
+		EXPECT_EQ(Masked.TextureBindings[0].Sampler.WrapV, EImportedSamplerWrap::MirroredRepeat);
+
+		EXPECT_EQ(Scene.Materials[2].AlphaMode, EImportedAlphaMode::Blend);
+		EXPECT_EQ(Scene.Materials[3].SourceName, "Unused");
+		ASSERT_EQ(Scene.MaterialSlots.size(), 3u);
+		EXPECT_EQ(Scene.MaterialSlots[0].Name, "Shared");
+		EXPECT_EQ(Scene.MaterialSlots[1].Name, "Shared_1");
+		EXPECT_EQ(Scene.MaterialSlots[2].Name, "Blend");
+		EXPECT_TRUE(HasDiagnostic(Scene, EImportDiagnosticSeverity::Warning,
+			EImportDiagnosticCategory::UnsupportedOptionalExtension, "EXT_fixture_optional"));
+	}
+
+	TEST(FAssetImportTests, ImportsFrozenEmbeddedImageForms)
+	{
+		for (const auto& [FileName, Identity, SuggestedName] : {
+			std::tuple{"StaticModelMaterials/DataUriImage.gltf", "data-uri:0", "InlinePixel"},
+			std::tuple{"StaticModelMaterials/EmbeddedImage.glb", "glb-buffer-view:4", "EmbeddedPixel"}})
+		{
+			SCOPED_TRACE(FileName);
+			FImportedSceneData Scene;
+			ASSERT_TRUE(ImportFromFile(TestDataPath(FileName), Scene));
+			ASSERT_EQ(Scene.Images.size(), 1u);
+			EXPECT_EQ(Scene.Images[0].StableIdentity, Identity);
+			EXPECT_EQ(Scene.Images[0].SuggestedName, SuggestedName);
+			EXPECT_EQ(Scene.Images[0].Encoding, EImportedImageEncoding::Png);
+			EXPECT_FALSE(Scene.Images[0].ExternalDependencyIndex.has_value());
+			EXPECT_EQ(Scene.Images[0].EmbeddedEncodedBytes.size(), Scene.Images[0].EncodedByteCount);
+			ASSERT_EQ(Scene.Dependencies.size(), 1u);
+			EXPECT_EQ(Scene.Dependencies[0].Role, EImportedDependencyRole::RootModel);
+		}
+	}
+
+	TEST(FAssetImportTests, RejectsRequiredExtensionAndMissingDccDependencyWithoutPartialOutput)
+	{
+		struct FCase
+		{
+			std::string FileName;
+			EImportDiagnosticCategory Category;
+			std::string Subject;
+		};
+		for (const FCase& Case : {
+			FCase{"StaticModelMaterials/RequiredExtension.gltf",
+				EImportDiagnosticCategory::UnsupportedRequiredExtension, "EXT_fixture_required"},
+			FCase{"StaticModelMaterials/UnsupportedDccMaterial.fbx",
+				EImportDiagnosticCategory::MissingDependency, "Textures/albedo.png"}})
+		{
+			SCOPED_TRACE(Case.FileName);
+			FImportedSceneData Scene;
+			EXPECT_FALSE(ImportFromFile(TestDataPath(Case.FileName), Scene));
+			EXPECT_TRUE(Scene.Images.empty());
+			EXPECT_TRUE(Scene.Materials.empty());
+			EXPECT_TRUE(Scene.MaterialSlots.empty());
+			EXPECT_TRUE(Scene.Meshes.empty());
+			EXPECT_TRUE(HasDiagnostic(Scene, EImportDiagnosticSeverity::Error, Case.Category, Case.Subject));
+		}
+	}
+
+	TEST(FAssetImportTests, MapsFrozenFbxDiffuseOpacitySubset)
+	{
+		FImportedSceneData Scene;
+		ASSERT_TRUE(ImportFromFile(TestDataPath("StaticModelMaterials/PhongMaterial.fbx"), Scene));
+		ASSERT_FALSE(Scene.Materials.empty());
+		const auto It = std::ranges::find(Scene.Materials, std::string("phong1"), &FImportedMaterial::SourceName);
+		ASSERT_NE(It, Scene.Materials.end());
+		ExpectVec4Eq({0.5f, 0.25f, 0.25f, 0.5f}, It->BaseColorFactor);
+		EXPECT_TRUE(HasDiagnostic(Scene, EImportDiagnosticSeverity::Warning,
+			EImportDiagnosticCategory::UnsupportedMaterialProperty, "Phong"));
+	}
+
+	TEST(FAssetImportTests, RejectsMalformedReferenceAndMaterialBudgetBeforeAssimpPublication)
+	{
+		const std::filesystem::path Root =
+			std::filesystem::path(DURIN_TEST_WORK_DIR) / "NormalizedImportFailures";
+		std::filesystem::create_directories(Root);
+
+		const std::filesystem::path InvalidReference = Root / "InvalidReference.gltf";
+		{
+			std::ofstream Stream(InvalidReference, std::ios::trunc);
+			Stream << R"({
+				"asset":{"version":"2.0"},
+				"images":[],
+				"textures":[{"source":12}],
+				"materials":[{"pbrMetallicRoughness":{"baseColorTexture":{"index":0}}}]
+			})";
+		}
+		FImportedSceneData InvalidScene;
+		EXPECT_FALSE(ImportFromFile(InvalidReference.generic_string(), InvalidScene));
+		EXPECT_TRUE(InvalidScene.Images.empty());
+		EXPECT_TRUE(InvalidScene.Materials.empty());
+		EXPECT_TRUE(HasDiagnostic(InvalidScene, EImportDiagnosticSeverity::Error,
+			EImportDiagnosticCategory::InvalidReference, "material:0:baseColorTexture"));
+
+		const std::filesystem::path OverBudget = Root / "OverBudget.gltf";
+		{
+			std::ofstream Stream(OverBudget, std::ios::trunc);
+			Stream << R"({"asset":{"version":"2.0"},"materials":[)";
+			for (uint32 Index = 0; Index <= MaxImportedSourceMaterials; ++Index)
+			{
+				if (Index != 0) Stream << ',';
+				Stream << "{}";
+			}
+			Stream << "]}";
+		}
+		FImportedSceneData OverBudgetScene;
+		EXPECT_FALSE(ImportFromFile(OverBudget.generic_string(), OverBudgetScene));
+		EXPECT_TRUE(OverBudgetScene.Materials.empty());
+		EXPECT_TRUE(HasDiagnostic(OverBudgetScene, EImportDiagnosticSeverity::Error,
+			EImportDiagnosticCategory::ResourceLimitExceeded, "materials"));
 	}
 
 	TEST(FAssetImportTests, AppliesSourceCoordinateSystemToAllMeshAttributes)
@@ -399,6 +660,27 @@ namespace Durin::Asset
 
 		ExpectTriangleMesh(AsyncResult.Scene.Meshes[0]);
 		ExpectMeshEq(SyncScene.Meshes[0], AsyncResult.Scene.Meshes[0]);
+	}
+
+	TEST(FAssetImportTests, NormalizedMaterialImportMatchesExactlyAcrossSyncAndAsync)
+	{
+		ShutdownEngineThreadPool(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitEngineThreadPool(1));
+		const std::string FilePath = TestDataPath("StaticModelMaterials/MaterialContract.gltf");
+		FMeshImportOptions Options;
+		Options.RootSource.Path = "/Game/Models/MaterialContract.gltf";
+
+		FImportedSceneData SyncScene;
+		ASSERT_TRUE(ImportFromFile(FilePath, SyncScene, Options));
+		FAsyncMeshImportHandle Handle = ImportFromFileAsync(FilePath, Options);
+		ASSERT_TRUE(Handle.IsValid());
+		Handle.Wait();
+		FAsyncMeshImportResult AsyncResult;
+		ASSERT_TRUE(Handle.TryGetResult(AsyncResult));
+		ASSERT_TRUE(AsyncResult.bSucceeded) << AsyncResult.ErrorMessage;
+
+		ExpectNormalizedSceneEq(SyncScene, AsyncResult.Scene);
 	}
 
 	TEST(FAssetImportTests, ImportFromFileAsyncReportsImporterFailure)

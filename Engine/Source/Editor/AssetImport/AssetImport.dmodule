@@ -4,7 +4,8 @@
     "PCH": "Self",
     "PrivateDependencies": [],
     "PublicDependencies": [
-        "Core"
+        "Core",
+        "CoreDObject"
     ],
     "OptionalPrivateDependencies": [],
     "OptionalPublicDependencies": []

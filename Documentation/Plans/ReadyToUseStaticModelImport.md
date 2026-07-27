@@ -6,11 +6,14 @@ Last reviewed: 2026-07-28
 
 ## Current Status
 
-Stage 0 is complete from baseline
-`8380fd219ea9a5fdaeb30b018cac5d69d974d298`. The normalized import contract,
-fixtures, safety limits, generated-output identity, manifest policy, and current
-package-publication behavior are frozen below. Stage 1 is the next executable
-stage; no Stage 1 parsing or runtime asset behavior has landed yet.
+Stages 0 and 1 are complete. Stage 1 started from baseline
+`47d07e50635ebecf0f0d65ca52b3f6bf6054aecd` and now produces the frozen
+format-neutral material, image, binding, dependency, and diagnostic data for
+the checked-in glTF, GLB, and FBX fixtures. Source material indices remain
+independent from used-slot projection, mounted root provenance flows through
+`FMeshImportOptions::RootSource`, importer version 2 invalidates prior import
+behavior, and synchronous/asynchronous results are exactly equivalent. Stage 2
+is the next executable stage.
 
 Source dependency terminology now follows the unified logical-mount contract
 selected by `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`: persisted inputs
@@ -673,23 +676,23 @@ Dependencies: none.
 
 Dependencies: Stage 0.
 
-- [ ] Add the selected import-only material, image, binding, sampler,
+- [x] Add the selected import-only material, image, binding, sampler,
   dependency, and diagnostic types to `AssetImport`.
-- [ ] Parse Assimp materials into the format-neutral representation without
+- [x] Parse Assimp materials into the format-neutral representation without
   exposing `aiMaterial`, `aiTexture`, or Assimp enums in public headers.
-- [ ] Resolve material texture references to deduplicated imported-image
+- [x] Resolve material texture references to deduplicated imported-image
   indices and retain source material indices independently from compact used
   slots.
-- [ ] Preserve existing material-slot filtering and duplicate-name behavior
+- [x] Preserve existing material-slot filtering and duplicate-name behavior
   while proving that every mesh source material index resolves to exactly one
   slot or a defined default.
-- [ ] Parse external image metadata, glTF data URIs, GLB embedded images, and
+- [x] Parse external image metadata, glTF data URIs, GLB embedded images, and
   Assimp embedded texture payloads without decoding them in the geometry loop.
-- [ ] Enumerate root and sidecar dependencies with normalized identities,
+- [x] Enumerate root and sidecar dependencies with normalized identities,
   hashes, sizes, and containment diagnostics.
-- [ ] Validate all indices, factors, transforms, byte ranges, MIME/extension
+- [x] Validate all indices, factors, transforms, byte ranges, MIME/extension
   agreement, and allocation limits before returning a successful scene.
-- [ ] Increment the importer version for every normalized-output behavior
+- [x] Increment the importer version for every normalized-output behavior
   change and add exact synchronous/asynchronous result-equivalence tests.
 
 #### Acceptance Gate
@@ -697,6 +700,33 @@ Dependencies: Stage 0.
 - Every Stage 0 source fixture produces the frozen format-neutral scene and
   diagnostic result, malformed or over-budget inputs fail without partial
   output, and no runtime module depends on Assimp material types.
+
+#### Stage 1 Handoff
+
+- Baseline commit:
+  `47d07e50635ebecf0f0d65ca52b3f6bf6054aecd`.
+- Working set: `AssetImport.h`, `AssetImport.cpp`, the AssetImport module
+  declaration/build file, `StaticMesh.cpp`, `StaticMeshMaterialTests.cpp`,
+  `AssetImportTests.cpp`, and this plan.
+- Key symbols and decisions: `StaticModelImporterVersion` and the StaticMesh
+  Assimp importer version are 2; `FImportedSceneData` owns normalized images,
+  materials, slots, meshes, dependencies, and diagnostics; glTF/GLB source JSON
+  preserves exact source material and embedded-image identity while Assimp
+  remains the geometry and FBX bridge; `FImportedMeshData::SourceMaterialIndex`
+  is never a compact slot index; only used materials participate in slot-name
+  collision numbering.
+- Provenance and failure behavior: callers may provide the already-mounted
+  logical root through `FMeshImportOptions::RootSource`; relative sidecars
+  inherit that virtual directory, while empty root provenance remains empty
+  rather than inventing a mount. Physical sidecars must remain within the
+  canonical root source directory. The first error clears images, materials,
+  slots, and meshes while retaining structured diagnostics.
+- Open questions: none for Stage 2. Asset/package construction remains outside
+  `AssetImport`, and Stage 2 must consume these normalized values without
+  weakening the frozen multi-asset transaction rules.
+- Validation: all 58 `AssetCoreTests` passed, the affected StaticMesh
+  provenance test passed in `EngineTests`, and the Runtime Engine target built
+  successfully through DurinDevTool on `Win64-Debug-DurinEditor-Tests`.
 
 ### Stage 2: Build portable image-source and multi-asset transaction primitives
 

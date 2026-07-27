@@ -35,7 +35,7 @@ namespace Durin
 		}
 
 		inline constexpr uint32 StaticMeshMaterialSlotsVersion = 1;
-		inline constexpr uint32 StaticMeshAssimpImporterVersion = 1;
+		inline constexpr uint32 StaticMeshAssimpImporterVersion = 2;
 		inline constexpr std::string_view StaticMeshImporterId = "Assimp";
 		inline constexpr std::string_view StaticMeshSourceRoot = "SourceAssets/Models";
 		inline constexpr std::string_view LegacySlotGuidDomain = "Durin.StaticMeshMaterialSlot.v1";
@@ -914,10 +914,10 @@ namespace Durin
 			Section.IndexCount = static_cast<uint32>(ImportedMesh.Indices.size());
 			Section.MinVertexIndex = BaseVertexIndex + *std::ranges::min_element(ImportedMesh.Indices);
 			Section.MaxVertexIndex = BaseVertexIndex + *std::ranges::max_element(ImportedMesh.Indices);
-			if (!FindMaterialSlotIndex(*RenderData, ImportedMesh.MaterialIndex, Section.MaterialSlotIndex))
+			if (!FindMaterialSlotIndex(*RenderData, ImportedMesh.SourceMaterialIndex, Section.MaterialSlotIndex))
 			{
 				OutError = std::format("Static mesh section '{}' references missing source material index {}.",
-					Section.Name, ImportedMesh.MaterialIndex);
+					Section.Name, ImportedMesh.SourceMaterialIndex);
 				return false;
 			}
 			LOD.Sections.emplace_back(std::move(Section));
