@@ -165,11 +165,40 @@ namespace Durin::Asset
 		std::function<bool(const DObject*, const FProperty*)> PropertyFilter;
 	};
 
+	enum class EAssetBundleSavePhase : uint8
+	{
+		CreateDirectories,
+		StagePackage,
+		PublishPackage,
+		PublishRootPackage,
+		PublishRegistry
+	};
+
+	struct FAssetBundleSaveOptions
+	{
+		// The root package is published after every dependency package.
+		DPackage* RootPackage = nullptr;
+
+		// Tests and higher-level transactions may stop immediately before a phase.
+		std::function<bool(EAssetBundleSavePhase, size_t)> ShouldFail;
+	};
+
 	// Serializes an asset package without publishing it or changing dirty/registry state.
 	ASSETCORE_API auto SerializeAssetPackageBytes(
 		DPackage* Package,
 		std::vector<uint8>& OutBytes,
 		const FAssetPackageSerializationOptions& Options = {}) -> FAssetResult;
+
+	// Serializes and stages every package before making any package or registry
+	// entry visible. Any publication failure restores prior files and leaves
+	// package dirty state and registry contents unchanged.
+	ASSETCORE_API auto SavePackagesAtomically(
+		std::span<DPackage* const> Packages,
+		const FAssetBundleSaveOptions& Options = {}) -> FAssetResult;
+
+	// Removes a newly created, unpublished package from the loaded-object cache.
+	// This is the rollback counterpart to CreateAsset and rejects visible assets.
+	ASSETCORE_API auto DiscardUnpublishedPackage(DPackage* Package) -> FAssetResult;
 
 	// Provides serialized main-asset fields without constructing objects or invoking PostLoad.
 	struct FAssetPackageField
@@ -294,6 +323,9 @@ namespace Durin::Asset
 		uint64 Revision = 1;
 
 		friend class FAssetManager;
+		friend ASSETCORE_API auto SavePackagesAtomically(
+			std::span<DPackage* const>,
+			const FAssetBundleSaveOptions&) -> FAssetResult;
 	};
 
 	// Coordinates package persistence, loading, and registry consistency.
@@ -347,6 +379,10 @@ namespace Durin::Asset
 		std::vector<FAssetPath> TransactionPackages;
 		FPackageLoadContext PackageLoadContext;
 		bool bPackageLoadStarted = false;
+
+		friend ASSETCORE_API auto SavePackagesAtomically(
+			std::span<DPackage* const>,
+			const FAssetBundleSaveOptions&) -> FAssetResult;
 	};
 
 	template<typename T>

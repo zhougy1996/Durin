@@ -252,13 +252,15 @@ namespace Durin
 		auto StoreTextureDerivedData(
 			std::string_view Key,
 			const FTexturePlatformData& PlatformData,
-			std::string& OutError) -> bool
+			std::string& OutError,
+			bool bRunCleanup = true) -> bool
 		{
 			std::vector<uint8> Bytes;
 			if (!EncodeTexture2DPayload(
 				PlatformData, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
 				Bytes, OutError)
 				|| !GetTextureObjectStore().Write(Key, Bytes, &OutError)) return false;
+			if (!bRunCleanup) return true;
 			const Asset::FDerivedDataObjectCleanupResult Cleanup = GetTextureObjectStore().CleanupToBudget(
 				TextureDerivedDataBudgetBytes, TextureDerivedDataCleanupDeleteLimit);
 			if (!Cleanup.Message.empty()) DURIN_WARN("Texture2D DDC cleanup: {}", Cleanup.Message);
@@ -1396,6 +1398,132 @@ namespace Durin
 				}
 			}
 		}
+	}
+
+	auto DTexture2D::BuildFromEncodedBytes(
+		std::span<const uint8> EncodedBytes,
+		const FSourcePath& InSourcePath,
+		const FTexture2DImportSettings& Settings,
+		std::string& OutError) -> bool
+	{
+#if DURIN_WITH_EDITOR
+		if (!GetPackage() || EncodedBytes.empty())
+		{
+			OutError = "Encoded Texture2D candidates require a package and non-empty source bytes.";
+			return false;
+		}
+		if (!TextureBuild::IsValidUsage(Settings.Usage)
+			|| !TextureBuild::IsValidCompressionQuality(Settings.CompressionQuality)
+			|| !TextureBuild::IsValidAlphaMipMode(Settings.AlphaMipMode)
+			|| !TextureBuild::IsValidAlphaCoverageThreshold(Settings.AlphaCoverageThreshold))
+		{
+			OutError = "Texture2D candidate build settings are invalid.";
+			return false;
+		}
+		const PathUtilities::FSourcePathResult Resolved =
+			PathUtilities::ResolveSourcePath(
+				InSourcePath.Path, PathUtilities::EPathExistence::AllowMissing);
+		if (!Resolved)
+		{
+			OutError = Resolved.Message;
+			return false;
+		}
+		const PathUtilities::FMountPolicyResult Dependency =
+			PathUtilities::CheckMountDependency(
+				GetPackage()->GetPackagePath(), Resolved.NormalizedVirtualPath);
+		if (!Dependency)
+		{
+			OutError = Dependency.Message;
+			return false;
+		}
+
+		FTextureSourceData CandidateSourceData;
+		if (!TextureBuild::DecodeRGBA8(EncodedBytes, CandidateSourceData, OutError))
+		{
+			BuildStatus = ETextureBuildStatus::DecodeFailure;
+			LastBuildError = OutError;
+			return false;
+		}
+		const bool bCandidateSRGB =
+			Settings.bSRGB.value_or(TextureBuild::GetDefaultSRGB(Settings.Usage));
+		auto CandidatePlatformData = std::make_unique<FTexturePlatformData>();
+		if (!TextureBuild::BuildMipChain(
+			CandidateSourceData,
+			Settings.Usage,
+			bCandidateSRGB,
+			*CandidatePlatformData,
+			OutError,
+			Settings.MaxResolution,
+			Settings.CompressionQuality,
+			Settings.AlphaMipMode,
+			Settings.AlphaCoverageThreshold))
+		{
+			BuildStatus = ETextureBuildStatus::BuildFailure;
+			LastBuildError = OutError;
+			return false;
+		}
+
+		const FXxHash128 SourceHash = FXxHash128::HashBuffer(EncodedBytes);
+		const std::string NewKey = BuildTexture2DDerivedDataKey({
+			.SourceContentHash = SourceHash,
+			.Usage = Settings.Usage,
+			.bSRGB = bCandidateSRGB,
+			.CompressionQuality = Settings.CompressionQuality,
+			.AlphaMipMode = Settings.AlphaMipMode,
+			.MaximumResolution = Settings.MaxResolution,
+			.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
+			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
+			.TargetProfile = Asset::ECookTargetProfile::Game});
+		if (!StoreTextureDerivedData(NewKey, *CandidatePlatformData, OutError, false))
+		{
+			BuildStatus = ETextureBuildStatus::BuildFailure;
+			LastBuildError = OutError;
+			return false;
+		}
+
+		Usage = Settings.Usage;
+		bSRGB = bCandidateSRGB;
+		MaxResolution = Settings.MaxResolution;
+		CompressionQuality = Settings.CompressionQuality;
+		AlphaMipMode = Settings.AlphaMipMode;
+		AlphaCoverageThreshold = Settings.AlphaCoverageThreshold;
+		SourceImportData = {
+			.Source = {
+				.SourcePath = {.Path = Resolved.NormalizedVirtualPath},
+				.SourceContentHashLow = SourceHash.HashLow,
+				.SourceContentHashHigh = SourceHash.HashHigh},
+			.DecoderId = std::string(TextureDecoderId),
+			.DecoderVersion = TextureDecoderVersion};
+		SourceFile.clear();
+		SourceContentHash = SourceHash.ToString();
+		SourceFileSize = EncodedBytes.size();
+		SourceLastWriteTime = 0;
+		SourceWidth = CandidateSourceData.Width;
+		SourceHeight = CandidateSourceData.Height;
+		SourceChannelCount = CandidateSourceData.SourceChannelCount;
+		bSourceHasTransparency = CandidateSourceData.bHasTransparency;
+		SourceData = std::make_unique<FTextureSourceData>(std::move(CandidateSourceData));
+		PlatformData = std::move(CandidatePlatformData);
+		DerivedDataKey = NewKey;
+		bLoadedFromDerivedDataCache = false;
+		DerivedDataDiagnostic = {
+			.Status = ETextureDerivedDataStatus::Rebuilt,
+			.Key = DerivedDataKey,
+			.Message = "Built Texture2D candidate from encoded source bytes.",
+			.bSourceDecoderInvoked = true};
+		BuildStatus = ETextureBuildStatus::Ready;
+		LastBuildError.clear();
+		QueueRenderResourceBuild();
+		MarkPackageDirty();
+		OutError.clear();
+		return true;
+#else
+		(void)EncodedBytes;
+		(void)InSourcePath;
+		(void)Settings;
+		OutError = "Encoded Texture2D candidate builds are unavailable in runtime-only builds.";
+		return false;
+#endif
 	}
 
 	auto DTexture2D::ImportAsset(std::string_view FilePath, std::string_view AssetPath, const FTexture2DImportSettings& Settings) -> FTexture2DImportResult

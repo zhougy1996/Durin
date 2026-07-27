@@ -29,6 +29,7 @@ add_durin_test(EngineTests
 	Private/Texture/TextureDerivedDataTests.cpp
 	Private/Texture/TextureBuildTests.cpp
 	Private/Texture/TextureFailureTests.cpp
+	Private/Texture/StaticModelImportBuildTests.cpp
 	Private/Texture/EquirectangularTextureCubeTests.cpp
 	Private/TextureCubeTests.cpp
 	Private/SkyBox/SkyBoxRenderingTests.cpp
@@ -108,6 +109,7 @@ target_link_libraries(EngineTests PRIVATE
 	ApplicationCore
 	AssetCore
 	Engine
+	EngineAssetBuild
 	RenderCore
 	Renderer
 	MonaCore
@@ -121,6 +123,7 @@ target_link_libraries(EngineTests PRIVATE
 durin_test_deploy_target_binary(EngineTests Core)
 durin_test_deploy_target_binary(EngineTests CoreDObject)
 durin_test_deploy_target_binary(EngineTests Engine)
+durin_test_deploy_target_binary(EngineTests EngineAssetBuild)
 durin_test_deploy_target_binary(EngineTests ApplicationCore)
 durin_test_deploy_target_binary(EngineTests AssetCore)
 durin_test_deploy_target_binary(EngineTests MonaCore)

@@ -6,14 +6,15 @@ Last reviewed: 2026-07-28
 
 ## Current Status
 
-Stages 0 and 1 are complete. Stage 1 started from baseline
-`47d07e50635ebecf0f0d65ca52b3f6bf6054aecd` and now produces the frozen
-format-neutral material, image, binding, dependency, and diagnostic data for
-the checked-in glTF, GLB, and FBX fixtures. Source material indices remain
-independent from used-slot projection, mounted root provenance flows through
-`FMeshImportOptions::RootSource`, importer version 2 invalidates prior import
-behavior, and synchronous/asynchronous results are exactly equivalent. Stage 2
-is the next executable stage.
+Stages 0 through 2 are complete. Stage 2 started from baseline
+`68f15699d8224ec04ac527fd3d8ae96c323b8f6a` and now provides encoded-byte
+Texture2D candidate construction, deterministic embedded-image source paths,
+mounted reference-or-ingest handling, and a reusable multi-asset transaction.
+The transaction completes package/source collision preflight before writes,
+stages source and package bytes invisibly, publishes dependency packages before
+the root package and registry, and rolls back attempt-created sources, DDC
+objects, packages, registry visibility, and caller-snapshotted loaded-object
+mutations. Stage 3 is the next executable stage.
 
 Source dependency terminology now follows the unified logical-mount contract
 selected by `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`: persisted inputs
@@ -733,22 +734,22 @@ Dependencies: Stage 0.
 Dependencies: Stages 0 and 1; unified mount registry, provenance, and
 reference-or-ingest semantics from its owning plan.
 
-- [ ] Add an editor asset-build entrypoint that validates encoded image bytes
+- [x] Add an editor asset-build entrypoint that validates encoded image bytes
   and builds a `DTexture2D` candidate with explicit usage and sRGB settings
   without requiring an unrelated temporary authoritative source path.
-- [ ] Reference external image dependencies already inside an allowed
+- [x] Reference external image dependencies already inside an allowed
   SourceAssets domain and transactionally ingest external dependencies only
   through the selected writable-mount workflow.
-- [ ] Extract embedded images to deterministic writable SourceAssets
+- [x] Extract embedded images to deterministic writable SourceAssets
   locations and reuse only byte-identical existing sources.
-- [ ] Implement the reusable prepare/stage/publish/rollback transaction for
+- [x] Implement the reusable prepare/stage/publish/rollback transaction for
   several packages, source files, DDC objects, and loaded-object mutations.
-- [ ] Make package and source collision preflight complete before the first
+- [x] Make package and source collision preflight complete before the first
   write.
-- [ ] Add injected-failure coverage for directory creation, source write,
+- [x] Add injected-failure coverage for directory creation, source write,
   decode, Texture2D build, DDC publication, package save, registry publication,
   and final root-package save.
-- [ ] Prove rollback preserves every pre-existing file and restores loaded
+- [x] Prove rollback preserves every pre-existing file and restores loaded
   object state and registry visibility exactly.
 
 #### Acceptance Gate
@@ -757,6 +758,44 @@ reference-or-ingest semantics from its owning plan.
   referenced source images atomically, and every injected failure leaves no
   new visible asset, source file, dirty package, registry row, or mutated
   pre-existing object.
+
+#### Stage 2 Handoff
+
+- Baseline commit:
+  `68f15699d8224ec04ac527fd3d8ae96c323b8f6a`.
+- Working set: `AssetSystem.h/.cpp`, `TextureBuild.h/.cpp`,
+  `Texture2D.h/.cpp`, `EngineAssetBuild`'s module declaration and new
+  `StaticModelImportBuild.h/.cpp`, `PackageTests.cpp`,
+  `StaticModelImportBuildTests.cpp`, the EngineTests build file, and this plan.
+- Key symbols and decisions: `Asset::SavePackagesAtomically` serializes and
+  validates all packages before hidden staging, backs up existing destinations,
+  publishes a designated root package last, and exposes registry entries only
+  after every file is in place; `Asset::DiscardUnpublishedPackage` is the
+  bounded rollback counterpart to `CreateAsset`;
+  `DTexture2D::BuildFromEncodedBytes` validates and builds without a temporary
+  source path or DDC cleanup side effects; `BuildEmbeddedImageSourcePath`
+  derives a portable path from root model provenance, sanitized display name,
+  stable image identity, and encoding.
+- Transaction behavior: `FMultiAssetImportTransaction` performs complete
+  package/source collision preflight before candidate or DDC writes, references
+  mounted images in place, stages external/embedded bytes only at an explicit
+  writable source destination, reuses only byte-identical existing files, and
+  supports caller-owned apply/rollback snapshots for loaded-object mutations.
+  Failure injection covers directory creation, source write, decode, texture
+  build, DDC publication, package publication, registry publication, and final
+  root-package publication.
+- Open questions: none for Stage 3. Stage 3 should compose these primitives
+  with output naming, generated material instances, StaticMesh defaults, and
+  manifest persistence rather than adding another save loop or source-copy
+  path.
+- Validation: all 59 `AssetCoreTests` passed; all eight focused
+  `FStaticModelImportBuildTests` passed, including successful multi-texture
+  publication, mounted reference, explicit external ingestion, deterministic
+  extraction, collision preflight, and all injected rollback boundaries. The
+  existing reflected Texture2D editor-transaction test still terminates the
+  `EngineTests` process with Windows debug-break exit `0x80000003`; the same
+  failure reproduces when every new Stage 2 test is excluded, while the
+  directly affected focused suites and ordinary Texture2D import test pass.
 
 ### Stage 3: Deliver the opaque base-color end-to-end workflow
 

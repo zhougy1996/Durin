@@ -457,6 +457,54 @@ TEST(FPackageAssetTests, SequentialPackageSavesPublishEarlierPackagesBeforeLater
 	EXPECT_TRUE(Second->GetPackage()->IsDirty());
 }
 
+TEST(FPackageAssetTests, AtomicBundleSaveRestoresFilesRegistryAndDirtyStateOnFailure)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath ExistingPath;
+	Durin::FAssetPath NewPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/AtomicBundleExisting", ExistingPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/AtomicBundleNew", NewPath));
+
+	DPackageAssetForTest* Existing = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(ExistingPath, Existing));
+	Existing->Value = 11;
+	ASSERT_TRUE(Durin::Asset::SavePackage(Existing->GetPackage()));
+	const Durin::Asset::FAssetData ExistingRegistry =
+		*Durin::Asset::GetAssetRegistry().FindAsset(ExistingPath);
+	std::vector<Durin::uint8> ExistingBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		ExistingBytes, ExistingRegistry.PhysicalPath));
+
+	DPackageAssetForTest* Added = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(NewPath, Added));
+	Added->Value = 22;
+	Existing->Value = 33;
+	Existing->MarkPackageDirty();
+	const std::array Packages = {
+		Existing->GetPackage(),
+		Added->GetPackage()};
+	const Durin::Asset::FAssetResult Result = Durin::Asset::SavePackagesAtomically(
+		Packages,
+		{
+			.RootPackage = Added->GetPackage(),
+			.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
+				return Phase == Durin::Asset::EAssetBundleSavePhase::PublishRegistry;
+			}});
+	EXPECT_FALSE(Result);
+
+	std::vector<Durin::uint8> RestoredBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		RestoredBytes, ExistingRegistry.PhysicalPath));
+	EXPECT_EQ(RestoredBytes, ExistingBytes);
+	EXPECT_EQ(*Durin::Asset::GetAssetRegistry().FindAsset(ExistingPath), ExistingRegistry);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(NewPath), nullptr);
+	EXPECT_FALSE(std::filesystem::exists(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "AtomicBundleNew.dasset"));
+	EXPECT_TRUE(Existing->GetPackage()->IsDirty());
+	EXPECT_TRUE(Added->GetPackage()->IsDirty());
+	ASSERT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Added->GetPackage()));
+}
+
 TEST(FPackageAssetTests, LoadsExternalDependenciesAndPreventsPrematureUnload)
 {
 	InitializeAssetTests();

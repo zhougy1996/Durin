@@ -308,9 +308,9 @@ namespace Durin::TextureBuild
 	auto DecodeRGBA8(std::string_view PhysicalFilePath, FTextureSourceData& OutSourceData, std::string& OutError) -> bool
 	{
 #if DURIN_WITH_EDITOR
-		OutSourceData = {};
 		Asset::FDecodedImage DecodedImage;
 		if (!Asset::DecodeImageFromFile(PhysicalFilePath, DecodedImage, OutError)) return false;
+		OutSourceData = {};
 		if (DecodedImage.Width > MaxDimension || DecodedImage.Height > MaxDimension)
 		{
 			OutError = std::format("Texture dimensions {}x{} exceed the {} pixel limit.",
@@ -329,6 +329,39 @@ namespace Durin::TextureBuild
 		return false;
 #else
 		(void)PhysicalFilePath;
+		OutSourceData = {};
+		OutError = "Texture source decoding is unavailable in runtime-only builds.";
+		return false;
+#endif
+	}
+
+	auto DecodeRGBA8(
+		std::span<const uint8> EncodedBytes,
+		FTextureSourceData& OutSourceData,
+		std::string& OutError) -> bool
+	{
+#if DURIN_WITH_EDITOR
+		Asset::FDecodedImage DecodedImage;
+		if (!Asset::DecodeImageFromMemory(EncodedBytes, DecodedImage, OutError)) return false;
+		OutSourceData = {};
+		if (DecodedImage.Width > MaxDimension || DecodedImage.Height > MaxDimension)
+		{
+			OutError = std::format("Texture dimensions {}x{} exceed the {} pixel limit.",
+				DecodedImage.Width, DecodedImage.Height, MaxDimension);
+			return false;
+		}
+		OutSourceData.Pixels = std::move(DecodedImage.Pixels);
+		OutSourceData.Width = DecodedImage.Width;
+		OutSourceData.Height = DecodedImage.Height;
+		OutSourceData.SourceChannelCount = DecodedImage.SourceChannelCount;
+		OutSourceData.Format = ETextureSourceFormat::RGBA8;
+		OutSourceData.bHasTransparency = DecodedImage.bHasTransparency;
+		if (OutSourceData.IsValid()) return true;
+		OutSourceData = {};
+		OutError = "Decoded texture source data is invalid.";
+		return false;
+#else
+		(void)EncodedBytes;
 		OutSourceData = {};
 		OutError = "Texture source decoding is unavailable in runtime-only builds.";
 		return false;

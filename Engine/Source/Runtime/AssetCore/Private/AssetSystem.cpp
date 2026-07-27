@@ -152,6 +152,13 @@ namespace Durin::Asset
 
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult { return {Code, std::move(Message)}; }
 
+		auto IsMissingPathError(const std::error_code& ErrorCode) -> bool
+		{
+			return ErrorCode == std::errc::no_such_file_or_directory
+				|| ErrorCode.value() == 2
+				|| ErrorCode.value() == 3;
+		}
+
 		auto GetMoveContributors() -> std::unordered_map<DClass*, FAssetMoveContributor>&
 		{
 			static std::unordered_map<DClass*, FAssetMoveContributor> Contributors;
@@ -923,6 +930,238 @@ namespace Durin::Asset
 		const FAssetPackageSerializationOptions& Options) -> FAssetResult
 	{
 		return BuildPackageBytes(Package, OutBytes, nullptr, Options);
+	}
+
+	auto SavePackagesAtomically(
+		std::span<DPackage* const> Packages,
+		const FAssetBundleSaveOptions& Options) -> FAssetResult
+	{
+		struct FStagedPackage
+		{
+			DPackage* Package = nullptr;
+			FAssetPath Path;
+			FPackageFile File;
+			std::vector<uint8> Bytes;
+			std::filesystem::path Destination;
+			std::filesystem::path Staged;
+			std::filesystem::path Backup;
+			uintmax_t PublishedFileSize = 0;
+			std::filesystem::file_time_type PublishedLastWriteTime{};
+			bool bHadDestination = false;
+			bool bPublished = false;
+		};
+
+		if (Packages.empty())
+			return Error(EAssetError::InvalidPackageType, "An asset bundle must contain at least one package.");
+		FAssetManager& Manager = FAssetManager::Get();
+		if (Manager.PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit bundle saves.");
+		if (Options.RootPackage
+			&& std::ranges::find(Packages, Options.RootPackage) == Packages.end())
+			return Error(EAssetError::InvalidPackageType, "The root package is not part of the asset bundle.");
+
+		std::vector<FStagedPackage> StagedPackages;
+		StagedPackages.reserve(Packages.size());
+		std::unordered_set<FAssetPath> Paths;
+		for (DPackage* Package : Packages)
+		{
+			if (Manager.CompatibilityRiskPackages.contains(Package))
+				return Error(
+					EAssetError::UnsupportedProperty,
+					"The asset bundle contains compatibility-risk data and cannot be saved.");
+			FAssetPath Path;
+			if (!Package || !Package->IsAssetPackage()
+				|| !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
+				return Error(EAssetError::InvalidPackageType, "The asset bundle contains an invalid package.");
+			if (!Paths.insert(Path).second)
+				return Error(EAssetError::AlreadyExists, std::format(
+					"The asset bundle contains duplicate package {}.", Path.ToString()));
+			FStagedPackage& Staged = StagedPackages.emplace_back();
+			Staged.Package = Package;
+			Staged.Path = Path;
+			FAssetResult Result = BuildPackageBytes(Package, Staged.Bytes, &Staged.File);
+			if (!Result) return Result;
+			Result = ValidateAssetPackageBytes(Staged.Bytes);
+			if (!Result) return Result;
+			Staged.Destination = GetPhysicalPath(Path);
+			if (Staged.Destination.empty())
+				return Error(EAssetError::InvalidPath, std::format(
+					"Failed to resolve package {}.", Path.ToString()));
+			Staged.Staged = Staged.Destination;
+			Staged.Staged += ".bundle-stage";
+			Staged.Backup = Staged.Destination;
+			Staged.Backup += ".bundle-backup";
+			std::error_code Ec;
+			const bool bDestinationExists = std::filesystem::exists(Staged.Destination, Ec);
+			if (Ec && !IsMissingPathError(Ec))
+				return Error(EAssetError::IoError, std::format(
+					"Failed to inspect package destination {}: {}",
+					Staged.Destination.generic_string(), Ec.message()));
+			Ec.clear();
+			Staged.bHadDestination =
+				bDestinationExists && std::filesystem::is_regular_file(Staged.Destination, Ec);
+			if (Ec && !IsMissingPathError(Ec))
+				return Error(EAssetError::IoError, std::format(
+					"Failed to inspect package destination {}: {}",
+					Staged.Destination.generic_string(), Ec.message()));
+			Ec.clear();
+			if (bDestinationExists && !Staged.bHadDestination)
+				return Error(EAssetError::AlreadyExists, std::format(
+					"Package destination {} is occupied.", Staged.Destination.generic_string()));
+			if (std::filesystem::exists(Staged.Staged, Ec)
+				|| std::filesystem::exists(Staged.Backup, Ec))
+				return Error(EAssetError::AlreadyExists, std::format(
+					"Package transaction staging path for {} is occupied.", Path.ToString()));
+		}
+
+		auto CleanupStaging = [&] {
+			for (FStagedPackage& Staged : StagedPackages)
+			{
+				std::error_code Ec;
+				std::filesystem::remove(Staged.Staged, Ec);
+			}
+		};
+		auto RollbackPublication = [&] {
+			for (auto It = StagedPackages.rbegin(); It != StagedPackages.rend(); ++It)
+			{
+				std::error_code Ec;
+				if (It->bPublished) std::filesystem::remove(It->Destination, Ec);
+				if (It->bHadDestination && std::filesystem::exists(It->Backup, Ec))
+				{
+					Ec.clear();
+					std::filesystem::rename(It->Backup, It->Destination, Ec);
+				}
+				std::filesystem::remove(It->Staged, Ec);
+			}
+		};
+
+		for (size_t Index = 0; Index < StagedPackages.size(); ++Index)
+		{
+			FStagedPackage& Staged = StagedPackages[Index];
+			if (Options.ShouldFail && Options.ShouldFail(EAssetBundleSavePhase::CreateDirectories, Index))
+			{
+				CleanupStaging();
+				return Error(EAssetError::IoError, "Injected asset-bundle directory creation failure.");
+			}
+			std::error_code Ec;
+			std::filesystem::create_directories(Staged.Destination.parent_path(), Ec);
+			if (Ec)
+			{
+				CleanupStaging();
+				return Error(EAssetError::IoError, std::format(
+					"Failed to create package directory {}: {}",
+					Staged.Destination.parent_path().generic_string(), Ec.message()));
+			}
+			if (Options.ShouldFail && Options.ShouldFail(EAssetBundleSavePhase::StagePackage, Index))
+			{
+				CleanupStaging();
+				return Error(EAssetError::IoError, "Injected asset-bundle package staging failure.");
+			}
+			FFileHelper::FAtomicFileError PublicationError;
+			if (!FFileHelper::SaveArrayToFileAtomically(
+				std::span{reinterpret_cast<const std::byte*>(Staged.Bytes.data()), Staged.Bytes.size()},
+				Staged.Staged,
+				&PublicationError))
+			{
+				CleanupStaging();
+				return Error(EAssetError::IoError, PublicationError.ToString());
+			}
+		}
+
+		std::stable_sort(StagedPackages.begin(), StagedPackages.end(), [&](const FStagedPackage& A, const FStagedPackage& B) {
+			return A.Package != Options.RootPackage && B.Package == Options.RootPackage;
+		});
+		for (size_t Index = 0; Index < StagedPackages.size(); ++Index)
+		{
+			FStagedPackage& Staged = StagedPackages[Index];
+			const EAssetBundleSavePhase Phase = Staged.Package == Options.RootPackage
+				? EAssetBundleSavePhase::PublishRootPackage
+				: EAssetBundleSavePhase::PublishPackage;
+			if (Options.ShouldFail && Options.ShouldFail(Phase, Index))
+			{
+				RollbackPublication();
+				return Error(EAssetError::IoError, "Injected asset-bundle package publication failure.");
+			}
+			std::error_code Ec;
+			if (Staged.bHadDestination)
+			{
+				std::filesystem::rename(Staged.Destination, Staged.Backup, Ec);
+				if (Ec)
+				{
+					RollbackPublication();
+					return Error(EAssetError::IoError, std::format(
+						"Failed to back up package {}: {}", Staged.Path.ToString(), Ec.message()));
+				}
+			}
+			Ec.clear();
+			std::filesystem::rename(Staged.Staged, Staged.Destination, Ec);
+			if (Ec)
+			{
+				if (Staged.bHadDestination)
+				{
+					std::error_code RestoreError;
+					std::filesystem::rename(Staged.Backup, Staged.Destination, RestoreError);
+				}
+				RollbackPublication();
+				return Error(EAssetError::IoError, std::format(
+					"Failed to publish package {}: {}", Staged.Path.ToString(), Ec.message()));
+			}
+			Staged.bPublished = true;
+		}
+		for (FStagedPackage& Staged : StagedPackages)
+		{
+			std::error_code Ec;
+			Staged.PublishedLastWriteTime =
+				std::filesystem::last_write_time(Staged.Destination, Ec);
+			if (!Ec) Staged.PublishedFileSize =
+				std::filesystem::file_size(Staged.Destination, Ec);
+			if (Ec)
+			{
+				RollbackPublication();
+				return Error(EAssetError::IoError, std::format(
+					"Failed to inspect published package {}: {}",
+					Staged.Path.ToString(), Ec.message()));
+			}
+		}
+		if (Options.ShouldFail
+			&& Options.ShouldFail(EAssetBundleSavePhase::PublishRegistry, StagedPackages.size()))
+		{
+			RollbackPublication();
+			return Error(EAssetError::IoError, "Injected asset-bundle registry publication failure.");
+		}
+
+		for (FStagedPackage& Staged : StagedPackages)
+		{
+			FAssetManager::Get().GetRegistry().AddOrUpdate(FAssetData{
+				.PackagePath = Staged.Path,
+				.PhysicalPath = Staged.Destination.generic_string(),
+				.AssetClassName = Staged.File.AssetClassName,
+				.FormatVersion = AssetVersion,
+				.Dependencies = Staged.File.Dependencies,
+				.FileSize = Staged.PublishedFileSize,
+				.LastWriteTime = Staged.PublishedLastWriteTime,
+				.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(
+					Staged.PublishedLastWriteTime)});
+			Staged.Package->ClearDirty();
+			std::error_code Ec;
+			std::filesystem::remove(Staged.Backup, Ec);
+		}
+		return {};
+	}
+
+	auto DiscardUnpublishedPackage(DPackage* Package) -> FAssetResult
+	{
+		FAssetPath Path;
+		if (!Package || !Package->IsAssetPackage()
+			|| !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
+			return Error(EAssetError::InvalidPackageType, "The unpublished package is invalid.");
+		FAssetManager& Manager = FAssetManager::Get();
+		if (Manager.GetRegistry().FindAsset(Path))
+			return Error(EAssetError::InUse, std::format(
+				"Package {} is registry-visible and cannot be discarded.", Path.ToString()));
+		if (Manager.FindLoadedPackage(Path) != Package)
+			return Error(EAssetError::NotFound, "The unpublished package is not loaded.");
+		return Manager.UnloadPackage(Path);
 	}
 
 	auto FAssetPackageField::TryReadString(std::string& OutValue) const -> bool

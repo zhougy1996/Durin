@@ -3,7 +3,8 @@
     "LinkType": "Shared",
     "PCH": "Self",
     "PrivateDependencies": [
-        "AssetImport"
+        "AssetImport",
+        "AssetCore"
     ],
     "PublicDependencies": [
         "Engine"

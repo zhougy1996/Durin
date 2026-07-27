@@ -291,6 +291,15 @@ namespace Durin
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 		ENGINE_API auto RefreshBuildStatus() -> void;
 
+		// Builds an editor candidate directly from authoritative encoded bytes.
+		// The mounted source path is persisted as provenance but need not be
+		// published until the surrounding multi-asset transaction commits.
+		ENGINE_API auto BuildFromEncodedBytes(
+			std::span<const uint8> EncodedBytes,
+			const FSourcePath& SourcePath,
+			const FTexture2DImportSettings& Settings,
+			std::string& OutError) -> bool;
+
 		ENGINE_API static auto ImportAsset(std::string_view FilePath, std::string_view AssetPath, const FTexture2DImportSettings& Settings = {}) -> FTexture2DImportResult;
 
 	private:
