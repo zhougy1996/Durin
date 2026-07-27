@@ -744,9 +744,10 @@ namespace Durin
 		const float NameFontSize = MonaImGui::QuantizeDynamicFontSize(
 			std::clamp(IconSize * 0.22f, ImGui::GetFontSize() * 0.70f, ImGui::GetFontSize() * 1.40f));
 		const float IconFontSize = MonaImGui::QuantizeDynamicFontSize(IconSize * GridIconScale);
-		// Keep the label gap tied to UI scale instead of thumbnail size so zooming does not
-		// amplify the unused space around the icon glyph.
-		const float IconAreaHeight = IconFontSize + MonaImGui::ScaleUI(GridIconVerticalPadding * 2.0f);
+		// IconSize describes the requested thumbnail extent. Keep glyphs visually smaller
+		// inside that area, but let image-backed previews use the full square allocation.
+		const float IconAreaHeight = IconSize
+			+ MonaImGui::ScaleUI(GridIconVerticalPadding * 2.0f);
 		const float NamePositionY = IconAreaHeight + MonaImGui::ScaleUI(GridIconNameSpacing);
 		const float NameAreaHeight = NameFontSize * 2.0f + MonaImGui::ScaleUI(8.0f);
 		const float TileHeight = IconAreaHeight + NameAreaHeight;

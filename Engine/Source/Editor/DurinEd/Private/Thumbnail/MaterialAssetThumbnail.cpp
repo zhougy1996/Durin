@@ -23,9 +23,9 @@ namespace Durin
 {
 	namespace
 	{
-		constexpr uint32 MaterialThumbnailGeneratorSchema = 2;
+		constexpr uint32 MaterialThumbnailGeneratorSchema = 3;
 		constexpr uint32 MaterialThumbnailShaderContract = 2;
-		constexpr float MaterialThumbnailSphereScale = 1.18f;
+		constexpr float MaterialThumbnailSphereScale = 1.65f;
 
 		// Carries only the immutable asset identity across provider-neutral boundaries.
 		class FMaterialThumbnailGenerationInput final : public IAssetThumbnailGenerationInput
