@@ -9,23 +9,58 @@ Completed:
 
 ## Current Status
 
-AssetCore already reports removed, unknown, or type-incompatible serialized
-fields when a package is loaded. Registered structure upgraders can classify a
-complete conversion as safe or migrated, while risky payloads prevent ordinary
-saves unless the caller supplies explicit data-loss consent.
+Stage 0 completed on 2026-07-28 against baseline `03acb67f`. The repository
+inventory found two authored upgrade domains: AssetCore field-structure
+compatibility, including the registered `DStaticMeshComponent` material-field
+upgrader, and `DStaticMesh::MaterialSlotsVersion`. Supported older DAST
+envelopes are a third rewrite-only domain once dual-version reading lands in
+the DAsset Format Compaction plan.
 
-The only user-facing consumer is currently the Level workspace. Opening a Level
-passes an `FAssetLoadReport` to `FLevelDocumentController`, defers activation,
-and presents one blocking decision for compatibility issues in that Level's
-main package. Dependency packages load without contributing their reports, and
-assets that are never opened are not examined. Other migration mechanisms,
-including asset-specific version changes performed during `PostLoad()` and
-supported older package-envelope versions, do not share one discoverable
-upgrade-report contract.
+Texture2D source identity reconciliation and StaticMesh source-hash refresh can
+also mark packages Dirty during `PostLoad()`, but they represent external source
+freshness rather than an engine-schema upgrade. They are now explicitly
+classified as non-upgrade load mutations that must block an upgrade batch from
+silently saving unrelated state. Material, MaterialInstance, TextureCube,
+SplineComponent, and Level `PostLoad()` paths do not currently perform authored
+schema migrations. DDC, shader, cooked-payload, importer, decoder, builder, and
+projection versions govern rebuildable or runtime data and remain outside the
+authored-package upgrade inventory.
 
-The completed Asset Structure Upgrade plan intentionally deferred Content
-Browser batch upgrades and command-line auditing. This plan takes ownership of
-those follow-ups while preserving the Level-open safety boundary.
+Measurement invalidated the original full-load startup design. Isolated cold
+loads of the seven current Engine/Sandbox authored packages ranged from 2.30ms
+to 2002.50ms; the Level root transaction triggered a StaticMesh DDC rebuild and
+the Material load took 252.78ms. Warm isolated loads ranged from 2.15ms to
+9.97ms. By contrast, twenty complete package inspections per asset produced a
+worst individual observation of 0.464ms. The selected startup design is
+therefore a two-tier workflow: a game-thread, object-free inspection pass with
+a 2ms cumulative and four-package per-frame cap, followed by fresh full loading
+only when the user explicitly executes or reviews an upgrade.
+
+The Stage 0 measurement used a temporary focused EngineTests harness, removed
+after recording results. It registered the repository Engine and Sandbox
+Content roots, called `InspectAssetPackage` twenty times per package, then
+isolated each `LoadAsset` with `ShutdownAssetManager()`. The same seven-package
+corpus and procedure are the required baseline for Stage 5 performance
+comparison.
+
+### Stage 0 Handoff
+
+- Baseline: `03acb67f`.
+- Working set: this plan; `AssetSystem.h/.cpp`; `StaticMesh.cpp`;
+  `Texture2D.cpp`; `TextureCube.cpp`; temporary EngineTests measurement harness
+  removed before handoff.
+- Key symbols: `FAssetLoadReport`, `FAssetPackageInspection`,
+  `InspectAssetPackage`, `RegisterAssetStructureUpgrader`,
+  `FAssetManager::LoadPackageInternal`, `DStaticMesh::PostLoad`,
+  `DTexture2D::PostLoad`.
+- Decisions: object-free startup inspection, explicit upgrade contributors,
+  separate non-upgrade load-mutation ledger, content-hashed stale protection,
+  no automatic full loads, and `AssetCore -> Engine contributors -> DurinEd
+  coordinator -> MainFrame/LevelEditor presentation` dependency direction.
+- Open questions: none for Stage 0. Exact public type names may change during
+  Stage 1 without changing the frozen ownership and behavior.
+- Validation: all seven representative packages inspected and loaded
+  successfully; focused seven-test Level upgrade model suite also passed.
 
 ## Goal
 
@@ -101,6 +136,18 @@ blocking editor startup or silently discarding incompatible data.
 - Asset-specific migrations must report why the represented state changed.
   A package becoming Dirty during audit is not by itself sufficient evidence of
   an upgrade because it may have been modified before the audit.
+- The physical-file fingerprint contains byte size, stable last-write ticks,
+  and a content hash computed from the inspected bytes. Registry revision
+  invalidates queue topology; the content hash is authoritative for deciding
+  whether an individual package still matches its audit.
+- Package audit states are `NotAudited`, `UpToDate`, `SafeUpgrade`,
+  `RiskyUpgrade`, `RewriteAvailable`, `BlockedUnsupported`,
+  `BlockedLoadMutation`, `AuditFailed`, and `Stale`. Machine-readable schema
+  version 1 serializes these stable names rather than ordinal values.
+- Each upgrade contribution records a stable handler ID, classification, risk,
+  summary, affected object/field identities, and whether execution requires
+  object materialization. Non-upgrade load mutations use a separate ledger with
+  their own handler and reason; they never make a package batch-safe.
 - Supported older package formats may be reported as `RewriteAvailable` even
   when loading them does not mark the package Dirty. Unsupported future formats
   are `BlockedUnsupported`, never actionable upgrades.
@@ -113,15 +160,23 @@ blocking editor startup or silently discarding incompatible data.
 - Startup becomes interactive before a full audit completes. The editor
   publishes a persistent progress notification and an action that opens the
   Asset Upgrade Center.
-- The registry snapshot supplies the deterministic package queue. Auditing
-  occurs incrementally on the object/game thread with a measured per-frame
-  budget; no object or package state crosses to a worker or render thread.
-- The audit loads at most one root package transaction at a time, captures its
-  report, and releases packages that were introduced solely by that transaction.
-  It never unloads a package that was already loaded, is active in a workspace,
-  or remains required by another loaded package.
-- Dependency packages receive their own queue entries and reports. A root report
-  does not silently absorb dependency issues or authorize dependency saves.
+- The registry snapshot supplies the deterministic package queue. Startup
+  auditing uses `InspectAssetPackage`-style byte snapshots expanded to all
+  package objects, not only the main asset. It constructs no objects, resolves
+  no runtime resources, invokes no `PostLoad()`, and writes nothing.
+- Inspection occurs incrementally on the object/game thread because reflection
+  and contributor registries are process-global and not currently published as
+  thread-safe immutable state. Each frame stops after four packages or 2ms of
+  cumulative inspection work, whichever comes first. A single over-budget
+  package completes atomically, records its duration, and ends that frame's
+  audit slice.
+- Inspection contributors classify serialized fields and version carriers
+  without mutating represented state. A contribution that cannot prove its risk
+  or result from package bytes remains visible but requires package-scoped load
+  review and cannot enter the safe batch.
+- Dependency packages receive their own queue entries and reports. Inspection
+  may read dependency metadata required to explain a root contribution, but a
+  root report does not absorb dependency actions or authorize dependency saves.
 - Audit ordering is stable by mount priority and virtual path. Cancellation
   preserves completed immutable results and leaves unvisited packages
   explicitly `NotAudited`.
@@ -131,14 +186,21 @@ blocking editor startup or silently discarding incompatible data.
 
 ### Audit and execution are separate phases
 
-- Audit never writes authored packages. Any in-memory migration performed to
-  understand a legacy package is discarded when an audit-only package is
-  released.
+- Audit never loads package objects or writes authored packages. Review or
+  execution may materialize one root transaction only after an explicit user
+  action.
 - Selecting an upgrade starts a fresh load, reproduces the proposed migration,
-  and compares the current registry revision and physical-file fingerprint with
-  the audit snapshot before any save.
+  compares the current registry revision and content-hashed physical-file
+  fingerprint with the audit snapshot, and captures every load-time mutation
+  before any save.
 - A changed package becomes `Stale` and must be re-audited. Execution never
   applies a cached migration result to different bytes.
+- A non-upgrade load mutation that was not represented in the inspected upgrade
+  contributions changes the package to `BlockedLoadMutation`; the batch does not
+  save source reconciliation or another unrelated authored change.
+- The expected fingerprint is checked again inside the atomic save boundary so
+  an external writer cannot replace the source between the pre-load check and
+  publication.
 - Saves use the existing atomic publication boundary. One package failing does
   not roll back already published independent packages; the result view records
   every success, failure, skip, and stale item.
@@ -203,22 +265,22 @@ Dependencies: coordinate with the active DAsset Format Compaction plan so its
 v2/v3 payload context and rewrite semantics remain inputs rather than duplicate
 wire-format work.
 
-- [ ] Inventory every repository-owned path that changes authored package state
+- [x] Inventory every repository-owned path that changes authored package state
   during load, including structure upgraders, explicit schema versions,
   `PostLoad()` migrations, and supported package-envelope rewrites.
-- [ ] Classify each path as reportable safe migration, risky migration,
+- [x] Classify each path as reportable safe migration, risky migration,
   rewrite-only opportunity, unsupported input, or non-upgrade runtime rebuild.
-- [ ] Define the immutable package/session report types, stable handler IDs,
+- [x] Define the immutable package/session report types, stable handler IDs,
   severity ordering, and machine-readable schema.
-- [ ] Specify the package fingerprint and registry-revision checks used between
+- [x] Specify the package fingerprint and registry-revision checks used between
   audit and execution.
-- [ ] Prove the load/release algorithm for a root package, preloaded packages,
-  newly introduced dependencies, circular dependencies, active workspace
-  assets, and cancellation.
-- [ ] Measure representative package load costs and select an explicit
+- [x] Replace the startup load/release algorithm with object-free all-object
+  inspection; restrict fresh root-package materialization to explicit review or
+  execution and preserve preloaded/active packages.
+- [x] Measure representative package load costs and select an explicit
   per-frame audit budget and pause policy for workspace transitions, modal
   decisions, PIE, and shutdown.
-- [ ] Record the module dependency direction for AssetCore, Engine, DurinEd,
+- [x] Record the module dependency direction for AssetCore, Engine, DurinEd,
   MainFrame, and LevelEditor before adding editor types.
 
 #### Acceptance Gate
@@ -238,28 +300,31 @@ Dependencies: Stage 0.
 
 - [ ] Add unified package and session report types, classifications,
   fingerprints, progress counters, and deterministic ordering.
-- [ ] Extend package loading or add a scoped audit entrypoint so root and
-  dependency packages can each produce reports without changing ordinary
-  caller behavior.
-- [ ] Add explicit asset-migration contributor registration and convert
-  repository-owned load-time migrations from the Stage 0 inventory.
+- [ ] Expand complete package inspection from main-asset fields to immutable
+  per-object snapshots with retained payload context and content fingerprints.
+- [ ] Add inspection-contributor registration for object-free classification
+  and explicit execution contributors for repository-owned migrations from the
+  Stage 0 inventory.
+- [ ] Add a load-mutation ledger and instrument Texture2D source identity,
+  StaticMesh source hash, structure upgrades, and explicit schema migrations so
+  execution cannot infer meaning from Dirty state.
 - [ ] Report supported older package formats as rewrite opportunities and
   future unsupported formats as blocked inputs.
-- [ ] Implement audit-only release rules that preserve preloaded, active, and
-  externally required packages.
-- [ ] Implement fresh-load execution with stale-result rejection, ordinary safe
-  save, explicit package-scoped data-loss consent, atomic publication, and
-  structured per-package results.
+- [ ] Implement object-free package audit with the selected deterministic queue
+  inputs and classification aggregation.
+- [ ] Implement fresh-load execution with preloaded/active-package preservation,
+  stale-result rejection, load-mutation blocking, ordinary safe save, explicit
+  package-scoped data-loss consent, expected-fingerprint atomic publication,
+  and structured per-package results.
 - [ ] Add AssetCore and Engine native tests for safe, risky, unknown,
   rewrite-only, unsupported, stale, read-only, corrupt, missing-dependency,
   circular-dependency, cancellation, and save-failure cases.
 
 #### Acceptance Gate
 
-- Every registry package can produce one terminal audit state without an
-  authored-file write.
-- Audit-only packages and dependencies do not remain loaded after their safe
-  release boundary, while pre-existing packages remain untouched.
+- Every registry package can produce one terminal audit state without object
+  construction or an authored-file write.
+- Audit inspection invokes neither dependency loading nor `PostLoad()`.
 - Safe execution reproduces the audited migration and publishes atomically;
   changed bytes are rejected as stale before save.
 - Risky, unknown, unsupported, and read-only packages cannot enter the safe
@@ -383,9 +448,9 @@ Dependencies: Stages 1 through 4.
 - Editor and command-line audits produce equivalent paths, classifications,
   risks, and diagnostics for the same package corpus.
 - CI can detect required upgrades without modifying authored files.
-- Startup remains within the Stage 0 responsiveness budget, audit-only loading
-  remains bounded, and all selected safe packages reload without upgrade issues
-  after batch publication.
+- Startup remains within the Stage 0 responsiveness budget, object-free
+  inspection remains bounded, and all selected safe packages reload without
+  upgrade issues after batch publication.
 - Focused suites, the full editor build, startup smoke test, and all-plan
   validation pass.
 
@@ -398,7 +463,7 @@ Dependencies: Stages 1 through 4.
 | Structure compatibility | Safe cleanup, migrated fields, data-loss risk, unknown newer schema, grouped objects, and retained payloads |
 | Asset schema migration | Explicit version, handler, reason, represented-state change, and clean reload |
 | Package format | Supported rewrite opportunity, current format, and unsupported future format |
-| Lifecycle | Preloaded, audit-only, dependency, circular, active-workspace, cancelled, and shutdown cases |
+| Lifecycle | Object-free audit, preloaded execution target, dependency, circular, active-workspace, cancelled, and shutdown cases |
 | Staleness | Registry revision, changed fingerprint, moved, deleted, imported, and externally edited package |
 | Persistence | Atomic safe save, explicit risky save, read-only refusal, partial batch failure, retry, and clean reload |
 | Editor | Startup notification, Upgrade Center states/actions, Content Browser status/navigation, and responsive frame budget |
