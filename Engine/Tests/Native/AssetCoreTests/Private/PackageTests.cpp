@@ -103,7 +103,6 @@ namespace
 		{
 			static const Durin::DurinCodeGen::FPropertyParamsBase ValueProp = {"Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, Value)), sizeof(Value), Durin::DurinCodeGen::EPropertyGenFlags::Int32};
 			static const Durin::DurinCodeGen::FPropertyParamsBase LabelProp = {"Label", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, Label)), sizeof(Label), Durin::DurinCodeGen::EPropertyGenFlags::String};
-			static const Durin::DurinCodeGen::FNamePropertyParams LibraryNameProp = {"LibraryName", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, LibraryName)), sizeof(LibraryName), Durin::DurinCodeGen::EPropertyGenFlags::Name};
 			static const Durin::DurinCodeGen::FGuidPropertyParams GuidProp = {"PersistentId", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, PersistentId)), sizeof(PersistentId), Durin::DurinCodeGen::EPropertyGenFlags::Guid};
 			static const Durin::DurinCodeGen::FGuidPropertyParams GuidInner = {"RelatedIds_Inner", Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::FGuid), Durin::DurinCodeGen::EPropertyGenFlags::Guid};
 			static const Durin::DurinCodeGen::FArrayPropertyParams GuidsProp = {"RelatedIds", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, RelatedIds)), sizeof(RelatedIds), Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, nullptr, &GuidInner, nullptr, nullptr, false, &GGuidVectorHelper};
@@ -114,7 +113,7 @@ namespace
 			static const Durin::DurinCodeGen::FPropertyParamsBase NamedScoresProp = {"NamedScores", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, NamedScores)), sizeof(NamedScores), Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, nullptr, nullptr, &MapKeyProp, &MapValueProp, false, nullptr, &GScoreMapHelper};
 			static const Durin::DurinCodeGen::FPropertyParamsBase ChildProp = {"DefaultChild", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, DefaultChild)), sizeof(DefaultChild), Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass, nullptr, nullptr, nullptr, nullptr, true};
 			static const Durin::DurinCodeGen::FPropertyParamsBase ExternalProp = {"ExternalReference", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, ExternalReference)), sizeof(ExternalReference), Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass, nullptr, nullptr, nullptr, nullptr, true};
-			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&ValueProp, &LabelProp, &LibraryNameProp, &GuidProp, &GuidsProp, &ScoresProp, &NamedScoresProp, &ChildProp, &ExternalProp};
+			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&ValueProp, &LabelProp, &GuidProp, &GuidsProp, &ScoresProp, &NamedScoresProp, &ChildProp, &ExternalProp};
 			static const Durin::DurinCodeGen::FClassParams Params = {&StaticClassNoRegister, "Tests::DPackageAssetForTest", "DPackageAssetForTest", Properties, std::size(Properties)};
 			static Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(Params);
 			return Class;
@@ -122,7 +121,6 @@ namespace
 
 		Durin::int32 Value = 0;
 		std::string Label;
-		Durin::FName LibraryName;
 		Durin::FGuid PersistentId;
 		std::vector<Durin::FGuid> RelatedIds;
 		std::vector<Durin::int32> Scores;
@@ -402,40 +400,6 @@ TEST(FPackageAssetTests, RegisteredSafeCleanupProducesStructuredReportAndDirtyPa
 	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded, &Report));
 	EXPECT_FALSE(Report.HasCompatibilityIssues());
 	EXPECT_FALSE(Loaded->GetPackage()->IsDirty());
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
-}
-
-TEST(FPackageAssetTests, SerializesReflectedNamesAsDisplayText)
-{
-	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/NameSerialization", Path));
-
-	DPackageAssetForTest* Asset = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
-	Asset->LibraryName = Durin::FName("SourceLibraryDisplay_Stage0");
-	const Durin::FName DifferentlyCased("sourcelibrarydisplay_stage0");
-	EXPECT_EQ(Asset->LibraryName, DifferentlyCased);
-	EXPECT_EQ(Asset->LibraryName.ToString(), "SourceLibraryDisplay_Stage0");
-	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
-
-	const auto File = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "NameSerialization.dasset";
-	Durin::Asset::FAssetPackageInspection Inspection;
-	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(File.generic_string(), Inspection));
-	const Durin::Asset::FAssetPackageField* Field = Inspection.FindField("LibraryName");
-	ASSERT_NE(Field, nullptr);
-	std::string SerializedName;
-	ASSERT_TRUE(Field->TryReadString(SerializedName));
-	EXPECT_EQ(SerializedName, "SourceLibraryDisplay_Stage0");
-	EXPECT_EQ(std::search(Field->Payload.begin(), Field->Payload.end(),
-		SerializedName.begin(), SerializedName.end()), Field->Payload.begin() + sizeof(Durin::uint64));
-
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
-	DPackageAssetForTest* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
-	ASSERT_NE(Loaded, nullptr);
-	EXPECT_EQ(Loaded->LibraryName, DifferentlyCased);
-	EXPECT_EQ(Loaded->LibraryName.ToString(), "SourceLibraryDisplay_Stage0");
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 

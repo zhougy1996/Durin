@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
 #include "AssetSystem.h"
+#include "DObject/DurinPropertyTypes.h"
+#include "Json/Json.h"
+#include "Source/SourcePath.h"
 
 namespace
 {
@@ -27,9 +30,79 @@ namespace
 		EXPECT_TRUE(Durin::Asset::InspectAssetPackage(Path.generic_string(), Inspection)) << Path;
 		return Inspection;
 	}
+
+	auto FindNamedEntry(Durin::FJsonNodeView Entries, std::string_view Name) -> Durin::FJsonNodeView
+	{
+		for (size_t Index = 0; Index < Entries.Num(); ++Index)
+		{
+			const Durin::FJsonNodeView Entry = Entries.GetView(Index);
+			if (Entry.GetView("Name").GetString() == Name) return Entry;
+			if (Entry.GetView("VirtualRoot").GetString() == Name) return Entry;
+		}
+		return {};
+	}
 }
 
-TEST(FSourceLibraryReferenceContractTests, LegacyFixturesPreserveVersionTwoSourceLayouts)
+TEST(FSourcePathContractTests, ReflectedValueHasOneCompleteVirtualPath)
+{
+	Durin::DStruct* SourcePathStruct = Durin::FSourcePath::StaticStruct();
+	ASSERT_NE(SourcePathStruct, nullptr);
+	EXPECT_EQ(SourcePathStruct->GetQualifiedName().ToString(), "Durin::FSourcePath");
+
+	size_t PropertyCount = 0;
+	SourcePathStruct->ForEachProperty([&PropertyCount](Durin::FProperty*) { ++PropertyCount; });
+	EXPECT_EQ(PropertyCount, 1u);
+	Durin::FProperty* PathProperty = SourcePathStruct->FindPropertyByName(Durin::FName("Path"));
+	ASSERT_NE(PathProperty, nullptr);
+	EXPECT_EQ(PathProperty->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::String);
+	EXPECT_EQ(SourcePathStruct->FindPropertyByName(Durin::FName("Library")), nullptr);
+	EXPECT_EQ(SourcePathStruct->FindPropertyByName(Durin::FName("RelativePath")), nullptr);
+
+	Durin::FSourcePath Empty;
+	EXPECT_TRUE(Empty.IsEmpty());
+	const Durin::FSourcePath EngineSource{.Path = "/Engine/Textures/Common/Stone.png"};
+	EXPECT_FALSE(EngineSource.IsEmpty());
+	EXPECT_EQ(EngineSource.Path, "/Engine/Textures/Common/Stone.png");
+}
+
+TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesDomainsAndDependencyCases)
+{
+	const std::filesystem::path Path =
+		std::filesystem::path(DURIN_TEST_DATA_DIR) / "SourceLibraryReferences" / "UnifiedMountContract.json";
+	Durin::FJsonDocument Contract;
+	Durin::FJsonParseError ParseError;
+	ASSERT_TRUE(Contract.LoadFromFile(Path.generic_string(), &ParseError)) << ParseError.Message;
+
+	const Durin::FJsonNodeView Mounts = Contract.GetRootView().GetView("Mounts");
+	ASSERT_TRUE(Mounts.IsArray());
+	ASSERT_EQ(Mounts.Num(), 2u);
+
+	const Durin::FJsonNodeView Plugin = FindNamedEntry(Mounts, "/Plugins/PCG/");
+	ASSERT_TRUE(Plugin.IsObject());
+	EXPECT_EQ(Plugin.GetView("Owner").GetString(), "Extension");
+	EXPECT_EQ(Plugin.GetView("Root").GetString(), "Plugin");
+	EXPECT_EQ(Plugin.GetView("Domains").GetView("Content").GetString(), "Content");
+	EXPECT_EQ(Plugin.GetView("Domains").GetView("SourceAssets").GetString(), "SourceAssets");
+	EXPECT_TRUE(Plugin.GetView("SourceWritable").IsBool());
+	EXPECT_FALSE(Plugin.GetView("SourceWritable").GetBool());
+
+	const Durin::FJsonNodeView SourceOnly = FindNamedEntry(Mounts, "/Libraries/StudioArt/");
+	ASSERT_TRUE(SourceOnly.IsObject());
+	EXPECT_EQ(SourceOnly.GetView("Owner").GetString(), "ExternalSources");
+	EXPECT_FALSE(SourceOnly.GetView("Domains").Contains("Content"));
+	EXPECT_EQ(SourceOnly.GetView("Domains").GetView("SourceAssets").GetString(), ".");
+
+	const Durin::FJsonNodeView Cases = Contract.GetRootView().GetView("Cases");
+	ASSERT_TRUE(Cases.IsArray());
+	ASSERT_EQ(Cases.Num(), 5u);
+	EXPECT_EQ(FindNamedEntry(Cases, "GameToEngineSource").GetView("ExpectedError").GetString(), "None");
+	EXPECT_EQ(FindNamedEntry(Cases, "EngineToGameSource").GetView("ExpectedError").GetString(), "ForbiddenDependency");
+	EXPECT_EQ(FindNamedEntry(Cases, "GameToPluginSource").GetView("ExpectedError").GetString(), "None");
+	EXPECT_EQ(FindNamedEntry(Cases, "SourceOnlyContent").GetView("ExpectedError").GetString(), "UnsupportedDomain");
+	EXPECT_EQ(FindNamedEntry(Cases, "SourceOnlySource").GetView("ExpectedError").GetString(), "None");
+}
+
+TEST(FSourcePathContractTests, LegacyFixturesPreserveVersionTwoSourceLayouts)
 {
 	static constexpr std::array StaticMeshFields = {
 		std::string_view("SourceFile"),
@@ -93,7 +166,7 @@ TEST(FSourceLibraryReferenceContractTests, LegacyFixturesPreserveVersionTwoSourc
 	}
 }
 
-TEST(FSourceLibraryReferenceContractTests, LegacyFixturesRetainExplicitSourcePathCarriers)
+TEST(FSourcePathContractTests, LegacyFixturesRetainExplicitSourcePathCarriers)
 {
 	for (std::string_view FileName : {
 		"LegacyProjectStaticMesh.dasset",

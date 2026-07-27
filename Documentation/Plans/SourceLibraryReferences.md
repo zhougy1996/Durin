@@ -6,12 +6,18 @@ Last reviewed: 2026-07-27
 
 ## Current Status
 
-Stage 0 is reopened for a focused contract revision.
+Stage 0 is complete for the unified-mount revision. The production
+`FSourcePath` reflected shape now has exactly one string member, `Path`, and the
+superseded reflected-`FName` source-library test has been removed. A checked-in
+unified-mount contract fixture freezes plugin-shaped and source-only descriptor
+entries plus the required Game-to-Engine, Engine-to-Game, Game-to-plugin, and
+source-only domain outcomes.
 
 Baseline commit `ee94ad4e` established reflected-name serialization coverage and
 five DAST v2 legacy provenance fixtures covering project and engine StaticMesh,
 project Texture2D, and both TextureCube source layouts. Those fixtures and the
-recorded legacy fields remain valid migration evidence.
+recorded legacy fields remain valid migration evidence; only the superseded
+name representation test was removed.
 
 The former `{Library, RelativePath}` source-library representation and separate
 `SourceLibraries` registry are superseded before implementation. The selected
@@ -142,6 +148,10 @@ struct FMountPoint
 };
 ```
 
+- `EMountOwner` is process configuration, not serialized package data.
+- `Dependencies` contains canonical virtual roots, never physical paths. The
+  registry canonicalizes their spelling at publication and rejects unknown,
+  duplicate, or self entries; self-reference remains implicitly allowed.
 - `VirtualRoot` is the portable identity. It is absolute, normalized, uses
   forward slashes, and ends in `/`.
 - `OwnerRoot` and domain roots are process-local configuration and are never
@@ -169,8 +179,11 @@ struct FMountPoint
   case-only virtual identities, ambiguous canonical domain roots, and malformed
   definitions fail initialization.
 - Definitions are assembled after active-project selection and become
-  immutable before package scanning. Tests use scoped registry fixtures rather
-  than permanently mutating production global state.
+  immutable in one publication step before `InitDefaultMountPoints` is replaced
+  and before package scanning starts. Registration after publication fails;
+  there is no production reset or mutable backing-vector access. Tests use
+  scoped registry fixtures rather than permanently mutating production global
+  state.
 
 ### Persisted source path
 
@@ -209,13 +222,58 @@ struct FSourcePath
 Core provides result-bearing queries equivalent to:
 
 ```cpp
+enum class EMountPathError
+{
+    None,
+    InvalidVirtualPath,
+    UnknownMount,
+    UnsupportedDomain,
+    UnavailableDomain,
+    InvalidRelativePath,
+    EscapedRoot,
+    MissingFile,
+    ForbiddenDependency,
+    ReadOnlySource,
+    IoFailure
+};
+
+enum class EPathExistence
+{
+    AllowMissing,
+    RequireFile
+};
+
+struct FMountLookupResult
+{
+    const FMountPoint* Mount = nullptr;
+    std::string NormalizedVirtualPath;
+    std::filesystem::path RelativePath;
+    EMountPathError Error = EMountPathError::None;
+    std::string Message;
+};
+
+struct FDomainPathResult
+{
+    const FMountPoint* Mount = nullptr;
+    std::string NormalizedVirtualPath;
+    std::filesystem::path RelativePath;
+    std::filesystem::path PhysicalPath;
+    EMountPathError Error = EMountPathError::None;
+    std::string Message;
+};
+
 FMountLookupResult FindMountForVirtualPath(std::string_view);
-FContentPathResult ResolveContentPath(const FAssetPath&);
-FSourcePathResult ResolveSourcePath(std::string_view);
+FContentPathResult ResolveContentPath(
+    const FAssetPath&, EPathExistence = EPathExistence::AllowMissing);
+FSourcePathResult ResolveSourcePath(
+    std::string_view, EPathExistence = EPathExistence::RequireFile);
 FContentPathResult ClassifyContentPath(const std::filesystem::path&);
 FSourcePathResult ClassifySourcePath(const std::filesystem::path&);
 ```
 
+- `FContentPathResult` and `FSourcePathResult` are distinct wrappers over the
+  common domain result shape; callers cannot pass one where the other is
+  required. Success is exactly `Error == None` with a non-null mount.
 - Results carry the matched mount, normalized relative path, physical path,
   and a structured error.
 - Longest-prefix matching is internal to the registry. Consumers do not scan a
@@ -223,6 +281,13 @@ FSourcePathResult ClassifySourcePath(const std::filesystem::path&);
 - Unknown mount, unavailable domain root, unsupported domain, invalid relative
   path, escaped root, missing file, forbidden dependency, read-only source, and
   I/O failure are distinct outcomes.
+- `UnsupportedDomain` means the mount does not declare that typed domain.
+  `UnavailableDomain` means it declares the domain but its configured root is
+  absent. `MissingFile` applies only to `RequireFile`; `AllowMissing` still
+  performs canonical nearest-existing-ancestor containment.
+- Dependency and source-write checks use the same error enum but remain
+  explicit policy queries because a path can resolve physically while a
+  referencing mount is forbidden to use or mutate it.
 - `FPaths::Resolve` is removed from production asset call sites. Returning an
   unresolved virtual input as though it were a physical path is not an accepted
   failure contract.
@@ -308,8 +373,11 @@ FSourcePathResult ClassifySourcePath(const std::filesystem::path&);
       "Mounts": [
           {
               "VirtualRoot": "/Libraries/StudioArt/",
-              "Root": "SourceAssets/StudioArt",
-              "Source": ".",
+              "Owner": "ExternalSources",
+              "Root": "Libraries/StudioArt",
+              "Domains": {
+                  "SourceAssets": "."
+              },
               "SourceWritable": false,
               "Dependencies": ["/Engine/"]
           }
@@ -317,8 +385,25 @@ FSourcePathResult ClassifySourcePath(const std::filesystem::path&);
   }
   ```
 
-- Descriptor roots are relative to the `.dproject` directory. Committed
-  descriptors do not accept absolute workstation paths.
+- Every entry has exactly these fields: required string `VirtualRoot`, required
+  string enum `Owner` (`Extension` or `ExternalSources`), required relative
+  string `Root`, required object `Domains`, required Boolean
+  `SourceWritable`, and required string array `Dependencies`. `Domains`
+  accepts optional `Content` and `SourceAssets` relative strings in the first
+  implementation and requires at least one. Unknown entry or domain fields,
+  missing fields, wrong types, empty paths, absolute paths, and traversal fail
+  project initialization.
+- Descriptor `Root` is relative to the `.dproject` directory. Each domain is
+  relative to `Root`; `"."` names `Root` itself. Committed descriptors do not
+  accept absolute workstation paths.
+- Project descriptors cannot declare `Engine`, `ActiveProject`, or `Test`
+  owners and cannot declare `/Engine/` or `/Game/`. `/Game/` automatically
+  depends on every valid additional mount declared by its active project;
+  each additional mount's `Dependencies` controls its own outgoing edges.
+- Virtual roots and dependency roots use the same normalized, absolute,
+  forward-slash, trailing-slash syntax as registry definitions. Duplicate,
+  case-only, built-in, unknown-dependency, and self-dependency entries fail
+  initialization.
 - A root may be a directory, junction, or symlink. Teams may place a link at
   the declared relative location when the real checkout differs per machine.
 - Missing valid roots register as unavailable rather than failing startup, so
@@ -394,6 +479,14 @@ FSourcePathResult ClassifySourcePath(const std::filesystem::path&);
 - Migration never copies, moves, deletes, or rebuilds an unchanged source.
 - Existing compatibility carriers remain reflected until every repository
   package and fixture passes migration. New saves then emit only `FSourcePath`.
+- Each new wrapper keeps the reflected field name `SourcePath`. Its former
+  string member is renamed in C++ and reflection to `LegacySourcePath`. Before
+  ordinary reflected deserialization, the asset-specific compatibility handler
+  recognizes a legacy string payload named `SourcePath`, retags that payload as
+  `LegacySourcePath`, and leaves the new wrapper absent. A wrapper payload is
+  never retagged. This type-aware pre-load rename is the only point where the
+  old and new fields share a serialized name; reflection never registers two
+  `SourcePath` members in one struct.
 - DAST remains format version 2 because the reflected domain field changes
   without changing the package envelope. Legacy rejection begins only after
   the compatibility carriers are deliberately removed.
@@ -461,16 +554,16 @@ Dependencies: none.
 - [x] Preserve executable reflected serialization coverage and the five legacy
   package provenance fixtures from baseline `ee94ad4e`.
 - [x] Inventory repository-owned source-bearing packages and legacy fields.
-- [ ] Replace the superseded `{Library, RelativePath}` decision and tests with
+- [x] Replace the superseded `{Library, RelativePath}` decision and tests with
   the reflected `FSourcePath` contract.
-- [ ] Freeze the mount definition, optional-domain, owner, dependency, and
+- [x] Freeze the mount definition, optional-domain, owner, dependency, and
   source-write fields.
-- [ ] Freeze the `.dproject` `Mounts` entry schema, validation, built-in
+- [x] Freeze the `.dproject` `Mounts` entry schema, validation, built-in
   override rules, unavailable-root behavior, and registration lifetime.
-- [ ] Freeze typed Content/Source result shapes and failure taxonomy.
-- [ ] Add fixture-backed cases for `/Game/ -> /Engine/`, forbidden
+- [x] Freeze typed Content/Source result shapes and failure taxonomy.
+- [x] Add fixture-backed cases for `/Game/ -> /Engine/`, forbidden
   `/Engine/ -> /Game/`, plugin-shaped mounts, and source-only mounts.
-- [ ] Record the compatibility field rename needed to deserialize the existing
+- [x] Record the compatibility field rename needed to deserialize the existing
   string `SourcePath` into the new reflected wrapper.
 
 #### Acceptance Gate
@@ -478,6 +571,19 @@ Dependencies: none.
 - New packages have one unambiguous virtual source-path representation; mount
   and project descriptor shapes, dependency/write policy, failure taxonomy,
   and legacy migration are executable with no unresolved serialization choice.
+
+#### Stage 0 Handoff
+
+- Baseline: `55a6d89a`.
+- Working set: this plan, the Engine reflection manifest,
+  `Source/SourcePath.h`, the focused AssetCore package test cleanup, and the
+  Engine source-path contract fixture/tests.
+- Key decisions: one reflected string path; one immutable mount identity with
+  optional typed domains; exact `Mounts` descriptor fields; distinct unsupported
+  and unavailable domains; type-aware legacy carrier retagging.
+- Open questions: none for Stage 1.
+- Validation: focused `FSourcePathContractTests` and `FPackageAssetTests`, plus
+  the active-plan validator.
 
 ### Stage 1: Implement the Core unified mount registry
 

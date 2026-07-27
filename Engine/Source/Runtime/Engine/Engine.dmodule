@@ -37,6 +37,7 @@
         "Public/Components/MeshComponent.h",
         "Public/Components/PhysicsComponent.h",
         "Public/Components/StaticMeshComponent.h",
+        "Public/Source/SourcePath.h",
         "Public/StaticMesh/StaticMesh.h",
         "Public/Texture/Texture2D.h",
         "Public/Texture/TextureCube.h",
