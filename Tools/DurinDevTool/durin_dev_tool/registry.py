@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import importlib.util
+import sys
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -28,6 +30,7 @@ class CommandSpec:
     handler: str
     capability: Capability = Capability.BOOTSTRAP
     arguments: tuple[ArgumentSpec, ...] = ()
+    required_modules: tuple[str, ...] = ()
 
     def load_handler(self) -> Callable[..., int]:
         module_name, separator, attribute = self.handler.partition(":")
@@ -52,11 +55,12 @@ COMMAND_SPECS = (
         "build",
         "build a CMake target",
         "durin_dev_tool.commands.placeholder:run",
-        Capability.PREPARED_ENVIRONMENT,
-        (
+        capability=Capability.PREPARED_ENVIRONMENT,
+        arguments=(
             ArgumentSpec(("--target",), {"default": "all", "help": "CMake target (default: all)"}),
             ArgumentSpec(("--plain",), {"action": "store_true", "help": "disable styled output"}),
         ),
+        required_modules=("rich",),
     ),
 )
 
@@ -124,7 +128,10 @@ class CommandRegistry:
         stderr: TextIO,
     ) -> int:
         if spec.capability is Capability.PREPARED_ENVIRONMENT:
-            require_prepared_environment(repository_root)
+            require_prepared_environment(
+                repository_root,
+                required_modules=spec.required_modules,
+            )
         handler = spec.load_handler()
         return handler(
             namespace,
@@ -135,11 +142,38 @@ class CommandRegistry:
         )
 
 
-def require_prepared_environment(repository_root: Path) -> None:
+def require_prepared_environment(
+    repository_root: Path,
+    *,
+    required_modules: Sequence[str] = (),
+) -> None:
     interpreter = repository_root / ".venv" / "Scripts" / "python.exe"
     if not interpreter.is_file():
         raise DevToolError(
             "Durin's prepared Python environment is missing. "
             "Run 'DevTool setup' in the main checkout, or "
             "'DevTool worktree prepare' in a linked worktree."
+        )
+    active_interpreter = Path(sys.executable)
+    try:
+        interpreter_matches = interpreter.samefile(active_interpreter)
+    except OSError:
+        interpreter_matches = interpreter.resolve() == active_interpreter.resolve()
+    if not interpreter_matches:
+        raise DevToolError(
+            "Durin's prepared Python environment exists, but DevTool is "
+            f'running with "{active_interpreter}". Restart through '
+            "'Tools\\DurinDevTool\\DevTool.bat' so it selects the prepared environment."
+        )
+    missing_modules = tuple(
+        module
+        for module in required_modules
+        if importlib.util.find_spec(module) is None
+    )
+    if missing_modules:
+        missing = ", ".join(missing_modules)
+        raise DevToolError(
+            "Durin's prepared Python environment is incomplete "
+            f"(missing Python packages: {missing}). Run 'DevTool setup' "
+            "from the main checkout to repair it, then restart DevTool."
         )

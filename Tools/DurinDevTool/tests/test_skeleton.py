@@ -15,7 +15,7 @@ if str(PRODUCT_ROOT) not in sys.path:
     sys.path.insert(0, str(PRODUCT_ROOT))
 
 from durin_dev_tool import cli
-from durin_dev_tool.registry import CommandRegistry
+from durin_dev_tool.registry import CommandRegistry, require_prepared_environment
 from durin_dev_tool.repository import find_repository_root
 
 
@@ -70,6 +70,47 @@ class CommandRegistryTests(unittest.TestCase):
                         stderr=errors,
                     )
         import_module.assert_not_called()
+
+    def test_system_python_is_rejected_when_prepared_interpreter_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            interpreter = root / ".venv" / "Scripts" / "python.exe"
+            interpreter.parent.mkdir(parents=True)
+            interpreter.touch()
+            with (
+                mock.patch("durin_dev_tool.registry.sys.executable", str(root / "system-python.exe")),
+                mock.patch("durin_dev_tool.registry.importlib.import_module") as import_module,
+                self.assertRaisesRegex(RuntimeError, "Restart through.*DevTool.bat"),
+            ):
+                cli.run(["build"], repository_root=root)
+        import_module.assert_not_called()
+
+    def test_incomplete_environment_is_rejected_before_handler_import(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            interpreter = root / ".venv" / "Scripts" / "python.exe"
+            interpreter.parent.mkdir(parents=True)
+            interpreter.touch()
+            with (
+                mock.patch("durin_dev_tool.registry.sys.executable", str(interpreter)),
+                mock.patch("durin_dev_tool.registry.importlib.util.find_spec", return_value=None),
+                mock.patch("durin_dev_tool.registry.importlib.import_module") as import_module,
+                self.assertRaisesRegex(RuntimeError, "incomplete.*DevTool setup"),
+            ):
+                cli.run(["build"], repository_root=root)
+        import_module.assert_not_called()
+
+    def test_prepared_environment_accepts_matching_interpreter_and_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            interpreter = root / ".venv" / "Scripts" / "python.exe"
+            interpreter.parent.mkdir(parents=True)
+            interpreter.touch()
+            with (
+                mock.patch("durin_dev_tool.registry.sys.executable", str(interpreter)),
+                mock.patch("durin_dev_tool.registry.importlib.util.find_spec", return_value=object()),
+            ):
+                require_prepared_environment(root, required_modules=("rich",))
 
     def test_no_arguments_selects_shell(self) -> None:
         spec, _namespace = CommandRegistry().parse([])

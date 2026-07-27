@@ -23,11 +23,14 @@ three existing Tools plus Setup rather than moving BuildTool from its older
 Stages 0 and 1 are complete. The bootstrap-safe product skeleton now owns the
 canonical launcher, validated repository discovery, standard-library-only
 command registry and error boundary, shared direct/shell help, and prepared
-environment capability guard. The existing domain implementations remain
-authoritative until their owning migration stages, and Stage 2 is next.
+environment capability guard. Post-stage hardening now distinguishes a missing
+environment, a system-Python invocation that bypassed the launcher, and an
+incomplete prepared environment before importing a dependency-backed handler.
+The existing domain implementations remain authoritative until their owning
+migration stages, and Stage 2 is next.
 
 The selected working set remains clean outside this plan's changes. The
-combined Python tooling suite passes 193 tests with one platform-dependent
+combined Python tooling suite passes 196 tests with one platform-dependent
 skip. System-Python cold-start, launcher help, scripted shell help, arbitrary
 working-directory discovery, and missing-environment failure behavior are
 recorded below. One pre-existing defect remains explicit:
@@ -418,10 +421,16 @@ Tools/
   - the temporary `build` registration proves the prepared-environment and
     lazy-import boundary, but the existing BuildTool remains authoritative
     until Stage 2;
+  - prepared-environment checks validate interpreter identity through the
+    filesystem, which supports linked-worktree junctions, then probe only the
+    command's declared Python modules before lazily importing its handler;
+  - a system-Python invocation with an existing `.venv` tells the caller to
+    restart through `DevTool.bat`; an incomplete `.venv` identifies its missing
+    packages and directs repair through main-checkout `DevTool setup`;
   - direct and interactive parsing and help use only `COMMAND_SPECS`.
 - Open questions: none.
 - Validation:
-  - combined existing and new Python tooling suite: 193 passed, one skipped;
+  - combined existing and new Python tooling suite: 196 passed, one skipped;
   - isolated system-Python import, direct help from an unrelated working
     directory, launcher help, and scripted shell help: passed;
   - controlled checkout without `.venv`: dependency-backed `build` returned
