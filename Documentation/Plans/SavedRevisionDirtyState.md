@@ -4,8 +4,8 @@ Summary: Make package dirty state reflect divergence from the last successful sa
 
 Last reviewed: 2026-07-28
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-07-28
 
 ## Current Status
 
@@ -30,12 +30,13 @@ by revision movement for transaction-managed edits. Native coverage protects
 revision topology, failure behavior, history eviction, reflected edits,
 Transform Gizmo interactions, and level-document checkpoint handoff.
 
-Stage 4 automated validation and the lasting architecture update are complete.
-The focused native suite passes, the full editor build links, and a hidden
-Sandbox startup remains alive through the smoke window. The plan remains active
-only for the final visible Level Editor interaction check: dirty chrome and
-close-prompt behavior must be observed through edit, save, Undo, Redo, branch,
-and cancel flows before completion can be recorded.
+Stage 4 is complete. The focused native suite passes, the full editor build
+links, and a hidden Sandbox startup remains alive through the smoke window.
+Visible Level Editor validation confirmed the clean/dirty indicator and close
+prompt across edit, save, Undo, Redo, history branching, cancel, and failed-save
+flows. The lasting contract now lives in
+`Documentation/Editor/Architecture/ReflectedPropertyEditing.md`; this plan is
+complete and awaiting the repository's periodic monthly archive workflow.
 
 ### Stage 1 Handoff
 
@@ -141,10 +142,10 @@ and cancel flows before completion can be recorded.
   package-scoped current/saved revisions, `DPackage::IsDirty()` synchronization,
   checkpoint invalidation for untracked edits, and document-lifecycle cleanup.
 - Decisions: the architecture document now owns the lasting saved-revision
-  contract; the implementation plan stays active until visible UI behavior is
-  observed rather than treating native tests or hidden startup as an
+  contract; the implementation plan stayed active until visible UI behavior
+  was observed rather than treating native tests or hidden startup as an
   interactive substitute.
-- Open question: complete the visible Level Editor checklist—saved level starts
+- Open questions: none. Visible validation confirmed that a saved level starts
   clean; an edit becomes dirty; Undo to the save point becomes clean; Redo
   becomes dirty; save at the edited point becomes clean; Undo/Redo around that
   middle save point toggles dirty/clean; a post-Undo edit discards Redo while
@@ -153,7 +154,9 @@ and cancel flows before completion can be recorded.
 - Validation: all 35 focused revision/lifecycle/reflected-property/Transform
   Gizmo tests passed; `BuildTool build --target all` succeeded; the linked
   editor loaded `Sandbox/Sandbox.dproject` and remained alive for the complete
-  eight-second hidden smoke window before the test process was stopped.
+  eight-second hidden smoke window before the test process was stopped. Visible
+  Level Editor validation passed the full checklist, including the failed-save
+  dirty-state case.
 
 ## Goal
 
@@ -431,11 +434,11 @@ Dependencies: Stage 3.
       `Documentation/Development/Build/BuildAndRun.md`.
 - [x] Run the relevant native test target, then complete the required full
       `all` build for the user-visible editor change.
-- [ ] Interactively verify the clean/dirty indicator and close prompt for edit,
+- [x] Interactively verify the clean/dirty indicator and close prompt for edit,
       save, Undo, Redo, branch, cancel, and failed-save scenarios.
 - [x] Update `ReflectedPropertyEditing.md` to describe saved revisions,
       affected-package metadata, and the conservative invalidation fallback.
-- [ ] Record final evidence in this plan and move any broader lasting
+- [x] Record final evidence in this plan and move any broader lasting
       transaction/package contract to the appropriate editor architecture
       document.
 - [x] Run `.\DocTool.bat validate --scope all`.
