@@ -9,6 +9,15 @@ Completed:
 
 ## Current Status
 
+- Stage 0 is active. The target topology is being redesigned before code
+  migration: native-test executables will represent cohesive feature and
+  lifecycle isolation domains rather than mirror production modules.
+- The existing seven targets (`CoreTests`, `CoreDObjectTests`,
+  `AssetCoreTests`, `RenderCoreTests`, `EngineTests`, `TextureCookTests`, and
+  `VulkanRHITests`) are the module-era baseline, not the desired final layout.
+  In particular, `EngineTests` combines editor models, asset pipelines,
+  materials, textures, thumbnails, worlds, viewports, rendering, and external
+  tooling with different initialization and resource requirements.
 - `.\DevTool.bat test --target all` now schedules CTest-discovered GoogleTest
   cases with the Agent Build Profile job count; the current profile runs 18
   cases concurrently.
@@ -44,6 +53,9 @@ cases.
 ## Scope
 
 - Native-test target creation and GoogleTest discovery helpers.
+- Decomposition of module-era test executables into feature-owned execution
+  domains with explicit dependency, fixture, lifecycle, and resource
+  ownership.
 - Ownership and lifecycle of generated test files under each target's `Work`
   directory.
 - A common native-test process harness and runtime work-directory API.
@@ -59,7 +71,10 @@ cases.
 - Changing checked-in fixture contents or moving target-owned `Data`
   directories without a separate ownership reason.
 - Treating `-j 1` as the permanent fix.
-- Splitting test executables solely to hide shared-directory races.
+- Creating one executable per test case or splitting targets without a
+  documented feature, dependency, lifecycle, fixture, or resource boundary.
+- Treating target decomposition as a replacement for process sandboxes; cases
+  within one functional target must still be safe under CTest process overlap.
 - Running multiple build or test drivers concurrently in one checkout; the
   existing checkout ownership lock remains authoritative.
 - Making production asset, shader-cache, or file APIs tolerate destructive
@@ -69,6 +84,22 @@ cases.
 
 - CTest-discovered GoogleTest cases remain the aggregate scheduling and
   reporting unit.
+- A native-test executable is a test execution domain, not a production-module
+  mirror. A target contains tests that share a cohesive feature surface,
+  dependency closure, process bootstrap/teardown contract, fixture ownership,
+  and irreducible resource policy.
+- Split a target when tests require materially different process-global
+  initialization, runtime mode, renderer/device lifecycle, external tools,
+  mutable fixture ownership, dependency closure, timeout class, or CTest
+  resource locks. Do not split solely by source-file size or individual test
+  count.
+- The target topology must make direct executable runs meaningful: running all
+  cases in one target may reuse only state intentionally owned and reset by
+  that functional domain.
+- Target boundaries and process sandboxes are complementary. A target boundary
+  isolates binaries, deployed data, work containers, dependencies, and
+  lifecycle policy; a process sandbox isolates concurrent CTest cases within
+  that target.
 - `<TestTarget>/Data` is deployed, read-only input shared by every process.
 - `<TestTarget>/Work` is a container, not a writable test sandbox. Each process
   writes only below a unique run directory such as
@@ -87,9 +118,12 @@ cases.
 - A test registers every virtual mount and initializes every process-global
   subsystem it requires. No case may depend on another case having run in the
   same process.
-- Target-scoped CTest serialization is a compatibility mechanism during
-  migration. A target becomes case-parallel only after all of its writable
-  paths and process-global resources pass the isolation audit.
+- Functional-target CTest serialization and named legacy serialization groups
+  are compatibility mechanisms during migration. A target becomes
+  case-parallel only after all of its writable paths and process-global
+  resources pass the isolation audit; multiple newly split targets retain a
+  shared compatibility group while they still touch the same legacy external
+  state.
 - After migration, CTest resource locks describe only irreducible shared
   resources such as one physical GPU queue, a fixed external port, or a
   deliberately shared external service. Filesystem output receives isolation,
@@ -106,6 +140,9 @@ cases.
   locations per target.
 - Every native-test target uses `gtest_discover_tests`, so registration policy
   can be centralized without changing individual test names.
+- CMake source lists already expose natural feature clusters within the larger
+  targets, and `TextureCookTests` demonstrates that a lifecycle-specific
+  executable can coexist with tests from the same production module.
 - DurinDevTool already owns aggregate concurrency and the checkout lock.
 - Most generated paths are derived from `DURIN_TEST_WORK_DIR`, so a common
   runtime replacement has a bounded migration surface.
@@ -114,6 +151,12 @@ cases.
 
 - Test discovery is repeated in each target CMake file and has no shared
   isolation or resource policy.
+- Most target boundaries mirror production modules. `EngineTests` in particular
+  has one oversized dependency and lifecycle domain, so unrelated features
+  inherit renderer, editor, asset, and tooling state and cannot declare narrow
+  resource policies.
+- Target-owned `Data`, support code, runtime DLL deployment, and direct-run
+  expectations have not been assigned to a proposed functional topology.
 - The work path is a compile-time absolute string shared by every process of a
   target.
 - Fixture helpers commonly perform uncoordinated `remove_all` on fixed
@@ -132,8 +175,15 @@ cases.
 - [ ] Record the native-test targets, all writable path call sites, static
   fixture caches, mount registrations, fixed ports, GPU/runtime dependencies,
   and other process-external resources.
-- [ ] Classify each target as filesystem-isolatable, explicitly
-  resource-constrained, or requiring a separate integration-test executable.
+- [ ] Classify every test suite into a proposed functional execution domain and
+  mark it filesystem-isolatable, explicitly resource-constrained, or requiring
+  a separate integration-test executable.
+- [ ] Record the proposed target topology, including each target's feature
+  owner, source files, support code, direct dependencies, deployed `Data`,
+  process bootstrap/teardown contract, timeout class, and resource locks.
+- [ ] Identify shared support or fixtures that need a small test-support
+  library instead of compiling unrelated feature suites into the same
+  executable.
 - [ ] Capture a machine-readable aggregate baseline containing the failing test
   names and collision signatures from an 18-job run.
 - [ ] Add a focused harness regression with two discovered cases that use the
@@ -146,6 +196,11 @@ cases.
 
 - Every current use of the shared work root and every non-filesystem shared
   resource has an owner and migration classification.
+- Every existing GoogleTest suite maps to exactly one proposed execution
+  domain, with intentional multi-target support code called out explicitly.
+- Proposed target boundaries are justified by feature/lifecycle ownership and
+  allow narrow dependency and resource declarations; none is merely a
+  one-case workaround.
 - The focused regression reproduces the collision without relying on timing
   from unrelated engine tests.
 
@@ -159,6 +214,9 @@ cases.
 - [ ] Apply a target-scoped CTest resource lock by default so cases from one
   legacy target cannot concurrently mutate its shared `Work`; retain
   cross-target parallelism because target work roots are already distinct.
+- [ ] Support an explicit named legacy serialization group so newly split
+  targets that still share an external cache, runtime, or fixture remain safe
+  until that ownership is removed.
 - [ ] Add an explicit opt-in target property for process-isolated case
   parallelism. Reject contradictory declarations during configuration.
 - [ ] Make the two missing-registry thumbnail tests register their own mount or
@@ -175,7 +233,41 @@ cases.
 - The missing-registry tests pass as isolated CTest processes without another
   thumbnail test running first.
 
-### Stage 2: Introduce the native-test process sandbox
+### Stage 2: Replace module-era targets with functional execution domains
+
+- [ ] Split `CoreTests` and `CoreDObjectTests` into utility/file-system,
+  concurrency, and reflection/object-lifecycle domains where their bootstrap
+  and dependencies differ.
+- [ ] Split `AssetCoreTests` into package/registry, derived-data, decoding, and
+  import domains, sharing support libraries only where ownership is explicit.
+- [ ] Split `RenderCoreTests` into shader compiler/service, shader cache/store,
+  and render-contract domains with independent timeout and resource policies.
+- [ ] Decompose `EngineTests` into focused editor-model, asset-workflow,
+  material, static-mesh, texture, thumbnail, world, viewport, rendering, and
+  external-tool domains. Keep GPU-backed cases separate from CPU-only model and
+  serialization cases.
+- [ ] Retain or refine dedicated cooked-runtime and Vulkan integration targets;
+  do not merge them into feature targets whose direct-run lifecycle is
+  incompatible.
+- [ ] Give every new target its own `Data` deployment, `Work` container,
+  dependency closure, labels, timeout, and temporary compatibility/resource
+  group declarations.
+- [ ] Preserve every existing GoogleTest/CTest case name and add generated
+  metadata checks that no suite is omitted or registered more than once.
+- [ ] Delete superseded module-era targets after all cases have moved.
+
+#### Acceptance Gate
+
+- Every native test belongs to one feature/lifecycle execution domain and no
+  oversized module-mirror target remains.
+- CPU-only targets do not link or initialize renderer, Vulkan, editor, or
+  external-tool stacks unless their feature contract requires them.
+- Every functional target passes as a direct executable, proving that its
+  combined in-process lifecycle is coherent.
+- Aggregate execution passes with compatibility groups enabled, and the
+  remaining serialization cost is recorded before process-sandbox migration.
+
+### Stage 3: Introduce the native-test process sandbox
 
 - [ ] Add a low-level test-support target usable by Core tests without an
   Engine dependency.
@@ -199,18 +291,20 @@ cases.
 - Direct target runs, filtered runs, CTest case runs, and retained failure
   artifacts all report the resolved sandbox consistently.
 
-### Stage 3: Migrate targets and remove shared-root access
+### Stage 4: Migrate functional targets and remove shared-root access
 
-- [ ] Migrate `CoreTests` and `CoreDObjectTests`; audit helpers that initialize
-  paths before a test body.
-- [ ] Migrate `AssetCoreTests`; isolate package roots, registry files, derived
-  data, cook output, and companion files.
-- [ ] Migrate `RenderCoreTests`; isolate shader cache/store/compiler artifacts
-  and declare only genuine compiler or device resource constraints.
-- [ ] Migrate `EngineTests`; isolate texture imports, rendered-thumbnail
-  fixtures, static-mesh fixtures, source-reference work, editor fixtures, and
-  cook output.
-- [ ] Migrate `VulkanRHITests` and `TextureCookTests`, retaining explicit
+- [ ] Migrate the Core utility/file-system, concurrency, and reflection/object
+  domains; audit helpers that initialize paths before a test body.
+- [ ] Migrate the asset package/registry, derived-data, decoder, and import
+  domains; isolate package roots, registry files, derived data, cook output,
+  and companion files.
+- [ ] Migrate the shader compiler/service, shader cache/store, and
+  render-contract domains; declare only genuine compiler or device resource
+  constraints.
+- [ ] Migrate the editor, material, static-mesh, texture, thumbnail, world,
+  viewport, rendering, and external-tool domains; isolate every mutable
+  feature fixture.
+- [ ] Migrate cooked-runtime and Vulkan integration domains, retaining explicit
   resource locks where hardware or runtime lifecycle requires them.
 - [ ] Replace process-static fixture caches that capture a sandbox path or raw
   object pointers with sandbox-keyed fixtures or per-test RAII ownership.
@@ -228,7 +322,7 @@ cases.
 - Static fixture lifetime is bounded by its owning process sandbox and object
   lifecycle.
 
-### Stage 4: Make isolation and resource ownership enforceable
+### Stage 5: Make isolation and resource ownership enforceable
 
 - [ ] Add repository checks that reject writes into `Data`, direct use of the
   retired work macro, and unreviewed direct `remove_all` calls outside the
@@ -238,9 +332,12 @@ cases.
 - [ ] Require CTest resource names to come from a documented central registry;
   prevent broad target locks from being added after migration without an
   explicit rationale.
+- [ ] Add topology checks that reject unowned test suites, duplicate suite
+  registration, module-mirror catch-all targets, and feature targets that link
+  heavyweight runtime stacks without an allowlisted rationale.
 - [ ] Update native-test documentation with the Data/Work/Runs contract,
-  direct-run behavior, failure artifact retention, resource-lock policy, and
-  examples for new targets and fixtures.
+  functional-target boundary rules, direct-run behavior, failure artifact
+  retention, resource-lock policy, and examples for new targets and fixtures.
 - [ ] Add periodic cleanup for abandoned successful run directories without
   deleting a directory owned by a live process.
 
@@ -251,7 +348,7 @@ cases.
 - The documented new-target pattern is parallel-safe by default and contains
   no manual CTest registration boilerplate.
 
-### Stage 5: Restore and qualify full aggregate parallelism
+### Stage 6: Restore and qualify full aggregate parallelism
 
 - [ ] Run the complete native suite at 1, 2, and the Agent Build Profile's full
   job count.
@@ -262,7 +359,8 @@ cases.
 - [ ] Verify filtered direct runs and isolated CTest reruns for representative
   Core, asset, shader, texture, thumbnail, and Vulkan failures.
 - [ ] Compare elapsed time against the serialized compatibility baseline and
-  record the remaining resource-lock critical path.
+  module-era baseline; record target startup cost, dependency/build impact, and
+  the remaining resource-lock critical path.
 - [ ] Move lasting test-layout and isolation rules into
   `Documentation/Development/Build/NativeTests.md`.
 
@@ -279,6 +377,7 @@ cases.
 
 | Layer | Validation | Required result |
 | --- | --- | --- |
+| Target topology | Generated suite-to-target and dependency metadata checks | Every suite has one feature owner; heavyweight dependencies and resource policies are narrow and justified |
 | CMake helper | Configure-time and generated CTest metadata tests | Default lock, parallel opt-in, labels, timeouts, and explicit resources are correct |
 | Test harness | Unit tests with concurrent child processes | Unique roots, containment, cleanup, retention, and keep-work behavior are deterministic |
 | Test independence | Run each formerly order-dependent case alone | Mounts and process-global setup are owned by the case |
@@ -291,6 +390,8 @@ cases.
 ## Definition of Done
 
 - Every native-test process owns a unique writable sandbox.
+- Native-test executables represent coherent feature/lifecycle domains rather
+  than production-module mirrors, and every suite has exactly one target owner.
 - Checked-in test data is never mutated.
 - No test relies on another case's mount, registry, object, renderer, or cache
   initialization.
@@ -303,9 +404,9 @@ cases.
 
 ## Deferred Follow-ups
 
-- Shard exceptionally long test targets only when timing data shows that
-  process sandboxing and resource-lock reduction leave a meaningful critical
-  path.
+- Further shard an already coherent feature target only when lifecycle,
+  dependency, resource, or measured critical-path evidence justifies a new
+  execution domain.
 - Add CI artifact upload for preserved failed sandboxes after the local
   retention format is stable.
 - Consider per-case disk and time budgets after deterministic isolation is in
