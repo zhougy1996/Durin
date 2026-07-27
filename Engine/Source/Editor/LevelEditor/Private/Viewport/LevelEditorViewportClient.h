@@ -90,6 +90,7 @@ namespace Durin
 		auto BuildCompleteSceneView(DLevel* Level, uint32 Width, uint32 Height, FPreparedSceneView& OutFrame) const -> bool;
 		auto PopulateEditorOverlays(DLevel* Level, const FSceneView& View, FEditorVisualizationCollector& Collector) const -> void;
 		auto AppendSelectionBounds(FSceneView& View) const -> void;
+		auto ResetFlyMotion() -> void;
 		auto InvalidatePreparedSceneView(bool bDiscardInteractionData = false) -> void;
 
 		FViewportCameraTransform CameraTransform;
@@ -102,6 +103,8 @@ namespace Durin
 		float NearClip = 0.1f;
 		float FarClip = 10000.0f;
 		float MovementSpeed = 5.0f;
+		FVector2f FlyLookVelocity{0.0f};
+		FVector3 FlyMovementVelocity{0.0};
 		bool bShowGrid = true;
 		bool bFlyNavigation = false;
 		bool bOrbitNavigation = false;

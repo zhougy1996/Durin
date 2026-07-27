@@ -24,7 +24,25 @@ namespace Durin
 		constexpr float kMaxMovementSpeed = 10000.0f;
 		constexpr float kShiftSpeedMultiplier = 4.0f;
 		constexpr float kFocusDistance = 5.0f;
+		constexpr float kMaxNavigationDeltaSeconds = 1.0f / 30.0f;
+		constexpr float kLookSmoothingRate = 30.0f;
+		constexpr float kMovementSmoothingRate = 24.0f;
 		constexpr double kIntersectionEpsilon = 1.e-8;
+
+		template <typename T>
+		auto SmoothVelocityAndIntegrate(T& Velocity, const T& TargetVelocity, float SmoothingRate, float DeltaSeconds) -> T
+		{
+			if (DeltaSeconds <= 0.0f) return T(0.0);
+			const float Decay = std::exp(-SmoothingRate * DeltaSeconds);
+			using FScalar = typename T::value_type;
+			const FScalar TypedDeltaSeconds = static_cast<FScalar>(DeltaSeconds);
+			const FScalar IntegrationScale = static_cast<FScalar>((1.0f - Decay) / SmoothingRate);
+			const FScalar TypedDecay = static_cast<FScalar>(Decay);
+			const T Difference = Velocity - TargetVelocity;
+			const T Integrated = TargetVelocity * TypedDeltaSeconds + Difference * IntegrationScale;
+			Velocity = TargetVelocity + Difference * TypedDecay;
+			return Integrated;
+		}
 
 		auto IntersectRayBox(const FVector3& Origin, const FVector3& Direction, const FBox& Box) -> bool
 		{
@@ -241,17 +259,26 @@ namespace Durin
 		if (Input.bRightMousePressed && Input.bHovered) bFlyNavigation = true;
 		if (Input.bLeftMousePressed && Input.bHovered && Input.bAlt) bOrbitNavigation = true;
 		if (Input.bMiddleMousePressed && Input.bHovered) bPanNavigation = true;
-		if (!Input.bRightMouseDown) bFlyNavigation = false;
+		if (!Input.bRightMouseDown)
+		{
+			bFlyNavigation = false;
+			ResetFlyMotion();
+		}
 		if (!Input.bLeftMouseDown || !Input.bAlt) bOrbitNavigation = false;
 		if (!Input.bMiddleMouseDown) bPanNavigation = false;
 
 		if (bFlyNavigation)
 		{
-			CameraTransform.Rotate(Input.MouseDelta.x * kLookSensitivity, -Input.MouseDelta.y * kLookSensitivity);
+			const float DeltaSeconds = std::clamp(Input.DeltaSeconds, 0.0f, kMaxNavigationDeltaSeconds);
+			const FVector2f TargetLookVelocity = DeltaSeconds > 0.0f
+				? FVector2f(Input.MouseDelta.x * kLookSensitivity, -Input.MouseDelta.y * kLookSensitivity) / DeltaSeconds
+				: FVector2f(0.0f);
+			const FVector2f LookDelta = SmoothVelocityAndIntegrate(FlyLookVelocity, TargetLookVelocity, kLookSmoothingRate, DeltaSeconds);
 			if (Input.MouseWheel != 0.0f)
 			{
 				MovementSpeed = std::clamp(MovementSpeed * std::pow(kSpeedWheelScale, Input.MouseWheel), kMinMovementSpeed, kMaxMovementSpeed);
 			}
+			FVector3 TargetMovementVelocity(0.0);
 			if (!Input.bWantTextInput)
 			{
 				FVector3 Direction(0.0f);
@@ -262,9 +289,18 @@ namespace Durin
 				{
 					Direction = glm::normalize(Direction);
 					const float Speed = MovementSpeed * (Input.bShift ? kShiftSpeedMultiplier : 1.0f);
-					CameraTransform.MoveLocal(Direction * static_cast<FReal>(Speed * Input.DeltaSeconds));
+					TargetMovementVelocity = Direction * static_cast<FReal>(Speed);
 				}
 			}
+			const FVector3 MovementDelta = SmoothVelocityAndIntegrate(
+				FlyMovementVelocity,
+				TargetMovementVelocity,
+				kMovementSmoothingRate,
+				DeltaSeconds
+			);
+			CameraTransform.Rotate(LookDelta.x * 0.5f, LookDelta.y * 0.5f);
+			CameraTransform.MoveLocal(MovementDelta);
+			CameraTransform.Rotate(LookDelta.x * 0.5f, LookDelta.y * 0.5f);
 		}
 		else if (bOrbitNavigation)
 		{
@@ -398,6 +434,13 @@ namespace Durin
 		bFlyNavigation = false;
 		bOrbitNavigation = false;
 		bPanNavigation = false;
+		ResetFlyMotion();
+	}
+
+	auto FLevelEditorViewportClient::ResetFlyMotion() -> void
+	{
+		FlyLookVelocity = FVector2f(0.0f);
+		FlyMovementVelocity = FVector3(0.0);
 	}
 
 	auto FLevelEditorViewportClient::InitializeForLevel(DLevel* Level, const FLevelViewportCameraState* SavedState) -> void

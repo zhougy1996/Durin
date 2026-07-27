@@ -1,5 +1,81 @@
 #include "ViewportTestSupport.h"
 
+namespace
+{
+	auto SimulateFlyNavigation(
+		Durin::FLevelEditorViewportClient& Client,
+		Durin::DLevel* Level,
+		float DeltaSeconds,
+		Durin::int32 FrameCount
+	) -> void
+	{
+		Durin::FLevelEditorViewportInput Input;
+		Input.DeltaSeconds = DeltaSeconds;
+		Input.bHovered = true;
+		Input.bFocused = true;
+		Input.bRightMouseDown = true;
+		Input.bMoveForward = true;
+		Input.MouseDelta = {90.0f * DeltaSeconds, -30.0f * DeltaSeconds};
+		for (Durin::int32 Frame = 0; Frame < FrameCount; ++Frame)
+		{
+			Input.bRightMousePressed = Frame == 0;
+			Client.Update(Level, nullptr, Input);
+		}
+	}
+}
+
+TEST(FLevelEditorViewportClientTests, SmoothsCombinedFlyNavigationConsistentlyAcrossFrameRates)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "SmoothFlyWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "SmoothFlyLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::FLevelEditorViewportClient SixtyHzClient;
+	Durin::FLevelEditorViewportClient OneTwentyHzClient;
+
+	SimulateFlyNavigation(SixtyHzClient, Level, 1.0f / 60.0f, 60);
+	SimulateFlyNavigation(OneTwentyHzClient, Level, 1.0f / 120.0f, 120);
+
+	EXPECT_NEAR(
+		SixtyHzClient.GetCameraTransform().GetYaw(),
+		OneTwentyHzClient.GetCameraTransform().GetYaw(),
+		1.e-4
+	);
+	EXPECT_NEAR(
+		SixtyHzClient.GetCameraTransform().GetPitch(),
+		OneTwentyHzClient.GetCameraTransform().GetPitch(),
+		1.e-4
+	);
+	ExpectVectorNear(
+		SixtyHzClient.GetCameraTransform().GetLocation(),
+		OneTwentyHzClient.GetCameraTransform().GetLocation(),
+		1.e-3
+	);
+}
+
+TEST(FLevelEditorViewportClientTests, CapsFlyMovementAcrossAnAbnormallyLongFrame)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "LongFlyFrameWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "LongFlyFrameLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::FLevelEditorViewportClient Client;
+	const Durin::FVector3 InitialLocation = Client.GetCameraTransform().GetLocation();
+	Durin::FLevelEditorViewportInput Input;
+	Input.DeltaSeconds = 1.0f;
+	Input.bHovered = true;
+	Input.bFocused = true;
+	Input.bRightMousePressed = true;
+	Input.bRightMouseDown = true;
+	Input.bMoveForward = true;
+
+	Client.Update(Level, nullptr, Input);
+
+	const double Distance = glm::length(Client.GetCameraTransform().GetLocation() - InitialLocation);
+	EXPECT_GT(Distance, 0.0);
+	EXPECT_LE(Distance, 5.0 / 30.0);
+}
+
 TEST(FLevelEditorViewportClientTests, PicksVisualizerForActorWithoutStaticMesh)
 {
 	InitializeDObjectSystem();
