@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "AssetImport.h"
+#include "Json/Json.h"
 #include "Threading/QueuedThreadPool.h"
 
 namespace Durin::Asset
@@ -266,6 +267,67 @@ namespace Durin::Asset
 				EXPECT_EQ(Scene.MaterialSlots[Index].SourceName, Case.MaterialNames[Case.PrimitiveMaterialIndices[Index]]);
 			}
 		}
+	}
+
+	TEST(FAssetImportTests, StaticModelMaterialContractFixturesRemainImportable)
+	{
+		struct FCase
+		{
+			std::string FileName;
+			size_t ExpectedMeshCount;
+			std::vector<std::string> ExpectedUsedMaterialNames;
+		};
+		const std::vector<FCase> Cases = {
+			{"StaticModelMaterials/MaterialContract.gltf", 3, {"Shared", "Shared_1", "Blend"}},
+			{"StaticModelMaterials/DataUriImage.gltf", 1, {"DataUri"}},
+			{"StaticModelMaterials/EmbeddedImage.glb", 1, {"Embedded"}},
+			{"StaticModelMaterials/OptionalExtension.gltf", 1, {"OptionalExtension"}},
+			{"StaticModelMaterials/PhongMaterial.fbx", 1, {"phong1"}},
+			{"StaticModelMaterials/UnsupportedDccMaterial.fbx", 1, {"02 - Default"}},
+		};
+
+		for (const FCase& Case : Cases)
+		{
+			SCOPED_TRACE(Case.FileName);
+			FImportedSceneData Scene;
+			ASSERT_TRUE(ImportFromFile(TestDataPath(Case.FileName), Scene));
+			ASSERT_EQ(Scene.Meshes.size(), Case.ExpectedMeshCount);
+			ASSERT_EQ(Scene.MaterialSlots.size(), Case.ExpectedUsedMaterialNames.size());
+			for (size_t Index = 0; Index < Case.ExpectedUsedMaterialNames.size(); ++Index)
+			{
+				EXPECT_EQ(Scene.MaterialSlots[Index].Name, Case.ExpectedUsedMaterialNames[Index]);
+			}
+		}
+	}
+
+	TEST(FAssetImportTests, StaticModelGoldenSnapshotFreezesRequiredAndOptionalCases)
+	{
+		for (const std::string_view FileName : {
+			"StaticModelMaterials/RequiredExtension.gltf",
+			"StaticModelMaterials/OptionalExtension.gltf"})
+		{
+			SCOPED_TRACE(FileName);
+			const std::filesystem::path Path = TestDataPath(FileName);
+			ASSERT_TRUE(std::filesystem::is_regular_file(Path));
+			EXPECT_GT(std::filesystem::file_size(Path), 0u);
+		}
+
+		FJsonDocument Contract;
+		FJsonParseError ParseError;
+		ASSERT_TRUE(Contract.LoadFromFile(
+			TestDataPath("StaticModelMaterials/ExpectedNormalized.json"), &ParseError)) << ParseError.Message;
+		const FJsonNodeView Root = Contract.GetRootView();
+		EXPECT_EQ(Root.GetView("contractVersion").GetInt(), 1);
+		const FJsonNodeView Fixtures = Root.GetView("fixtures");
+		ASSERT_TRUE(Fixtures.IsObject());
+		EXPECT_EQ(Fixtures.GetView("RequiredExtension.gltf").GetView("result").GetString(), "failure");
+		EXPECT_EQ(Fixtures.GetView("OptionalExtension.gltf").GetView("result").GetString(), "success");
+		EXPECT_EQ(
+			Fixtures.GetView("MaterialContract.gltf").GetView("usedSlots").Num(),
+			3u);
+		EXPECT_EQ(
+			Fixtures.GetView("EmbeddedImage.glb").GetView("images").GetView(0).GetView("identity").GetString(),
+			"glb-buffer-view:4");
 	}
 
 	TEST(FAssetImportTests, AppliesSourceCoordinateSystemToAllMeshAttributes)

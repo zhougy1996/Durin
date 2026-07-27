@@ -2,11 +2,15 @@
 
 Summary: Turn supported static glTF and FBX sources into immediately renderable StaticMesh, texture, and material assets through one deterministic import and reimport workflow.
 
-Last reviewed: 2026-07-27
+Last reviewed: 2026-07-28
 
 ## Current Status
 
-Planning is complete and no implementation stage has started.
+Stage 0 is complete from baseline
+`8380fd219ea9a5fdaeb30b018cac5d69d974d298`. The normalized import contract,
+fixtures, safety limits, generated-output identity, manifest policy, and current
+package-publication behavior are frozen below. Stage 1 is the next executable
+stage; no Stage 1 parsing or runtime asset behavior has landed yet.
 
 Source dependency terminology now follows the unified logical-mount contract
 selected by `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`: persisted inputs
@@ -367,35 +371,272 @@ roughness PBR surface contract owned by the Material System plan.
 - Async mesh import reports one monolithic result and does not expose
   cancellation, progress, or structured failure state.
 
+## Stage 0 Frozen Contract
+
+### Normalized scene schema
+
+Stage 1 adds the following editor-only value types to `AssetImport`. Names are
+contractual; implementation-only helper fields may be added without changing
+the normalized result.
+
+```cpp
+enum class EImportedImageEncoding : uint8 { Png, Jpeg, Bmp, Tga };
+enum class EImportedTextureSemantic : uint8
+{
+    BaseColor, MetallicRoughness, Normal, Occlusion, Emissive
+};
+enum class EImportedSamplerFilter : uint8
+{
+    Nearest, Linear, NearestMipmapNearest, LinearMipmapNearest,
+    NearestMipmapLinear, LinearMipmapLinear
+};
+enum class EImportedSamplerWrap : uint8
+{
+    Repeat, MirroredRepeat, ClampToEdge
+};
+enum class EImportedAlphaMode : uint8 { Opaque, Mask, Blend };
+enum class EImportedDependencyRole : uint8
+{
+    RootModel, GeometryBuffer, Image
+};
+enum class EImportDiagnosticSeverity : uint8 { Warning, Error };
+enum class EImportDiagnosticCategory : uint8
+{
+    UnsupportedRequiredExtension,
+    UnsupportedOptionalExtension,
+    UnsupportedMaterialProperty,
+    LossyMaterialMapping,
+    UnsupportedSampler,
+    UnsupportedAlphaMode,
+    MissingDependency,
+    UnsafeDependencyPath,
+    InvalidReference,
+    InvalidValue,
+    UnsupportedEncoding,
+    ResourceLimitExceeded
+};
+
+struct FImportedSampler
+{
+    EImportedSamplerFilter MinFilter = EImportedSamplerFilter::LinearMipmapLinear;
+    EImportedSamplerFilter MagFilter = EImportedSamplerFilter::Linear;
+    EImportedSamplerWrap WrapU = EImportedSamplerWrap::Repeat;
+    EImportedSamplerWrap WrapV = EImportedSamplerWrap::Repeat;
+};
+
+struct FImportedTextureBinding
+{
+    EImportedTextureSemantic Semantic = EImportedTextureSemantic::BaseColor;
+    uint32 ImageIndex = 0;
+    uint32 UVChannel = 0;
+    FVector2f Offset{0.0f};
+    FVector2f Scale{1.0f};
+    float RotationRadians = 0.0f;
+    FImportedSampler Sampler;
+    float Strength = 1.0f;
+};
+
+struct FImportedMaterial
+{
+    uint32 SourceMaterialIndex = 0;
+    std::string SourceName;
+    FVector4f BaseColorFactor{1.0f};
+    float MetallicFactor = 1.0f;
+    float RoughnessFactor = 1.0f;
+    FVector3f EmissiveFactor{0.0f};
+    EImportedAlphaMode AlphaMode = EImportedAlphaMode::Opaque;
+    float AlphaCutoff = 0.5f;
+    bool bDoubleSided = false;
+    std::vector<FImportedTextureBinding> TextureBindings;
+};
+
+struct FImportedImage
+{
+    std::string StableIdentity;
+    std::string SuggestedName;
+    EImportedImageEncoding Encoding = EImportedImageEncoding::Png;
+    uint64 EncodedByteCount = 0;
+    std::optional<uint32> ExternalDependencyIndex;
+    std::vector<uint8> EmbeddedEncodedBytes;
+};
+
+struct FImportedDependency
+{
+    EImportedDependencyRole Role = EImportedDependencyRole::RootModel;
+    std::string StableIdentity;
+    FSourcePath Source;
+    FXxHash128 ContentHash;
+    uint64 ByteCount = 0;
+};
+
+struct FImportDiagnostic
+{
+    EImportDiagnosticSeverity Severity = EImportDiagnosticSeverity::Warning;
+    EImportDiagnosticCategory Category = EImportDiagnosticCategory::InvalidValue;
+    std::string SourceIdentity;
+    std::string Subject;
+    std::string Message;
+};
+```
+
+- `FImportedSceneData` owns `Images`, `Materials`, `MaterialSlots`, `Meshes`,
+  `Dependencies`, and `Diagnostics` in that order. Samplers remain binding
+  values because sampler differences do not create image identity.
+- `FImportedMeshData::MaterialIndex` is renamed
+  `SourceMaterialIndex`. Until that source break is made, it is documented and
+  tested as a source index.
+- An external image has `ExternalDependencyIndex` and no owned bytes. An
+  embedded/data-URI image has owned encoded bytes and no external dependency.
+- `StableIdentity` is `external:<normalized-relative-uri>`,
+  `data-uri:<image-index>`, `glb-buffer-view:<buffer-view-index>`, or
+  `assimp-embedded:<canonical-embedded-id>`. It does not include a physical
+  absolute path.
+- Material collections preserve source order and include unused materials.
+  `MaterialSlots` preserve their current used-only source-order projection,
+  exact `SourceName`, and deterministic duplicate display names.
+
+### Limits and validation order
+
+| Limit | Frozen value |
+| --- | ---: |
+| Source materials | 4,096 |
+| Imported images | 4,096 |
+| Texture bindings per material | 16 |
+| Dependencies including the root | 8,192 |
+| Diagnostics retained | 4,096 |
+| Encoded bytes per image | 512 MiB |
+| Encoded bytes across embedded images | 2 GiB |
+| Texture width or height | 16,384 |
+| Decoded pixels per image | 268,435,456 |
+| Source model bytes | 2 GiB |
+
+Count and encoded-byte limits are checked before allocation or copying.
+Reference ranges, finite scalar/vector values, URI containment, declared
+encoding, dimensions, and decoded-pixel limits are then validated in source
+order. On the first error the import fails and returns no `Images`, `Materials`,
+`MaterialSlots`, or `Meshes`; diagnostics accumulated through that error remain
+available. Diagnostic overflow adds one terminal `ResourceLimitExceeded` error
+instead of silently dropping required failures.
+
+### Mapping defaults and diagnostics
+
+- glTF defaults are preserved exactly: base color `(1,1,1,1)`, metallic `1`,
+  roughness `1`, emissive `(0,0,0)`, alpha mode `Opaque`, alpha cutoff `0.5`,
+  double-sided `false`, UV channel `0`, identity transform, normal scale `1`,
+  and occlusion strength `1`.
+- glTF sampler omissions resolve to linear minification/magnification with
+  repeat wrapping. Every explicit core glTF filter and wrap value maps to the
+  corresponding normalized enum; values outside the core set fail.
+- The initial FBX exact subset is Lambert diffuse color multiplied by diffuse
+  factor for RGB, and opacity/transparency factor for alpha. Diffuse file
+  textures map to base color when Assimp exposes one unambiguous file binding.
+  Missing properties use the glTF defaults.
+- FBX Phong/specular, reflection, layered/procedural textures, and
+  DCC-namespaced shader properties are not converted into invented PBR values.
+  Each retained unsupported property emits
+  `UnsupportedMaterialProperty`; an otherwise usable Lambert fallback succeeds.
+- A required unsupported glTF extension fails with
+  `UnsupportedRequiredExtension`. An optional unsupported extension warns with
+  `UnsupportedOptionalExtension` and uses the core fallback.
+- Non-finite factors, invalid image/buffer references, unsupported image
+  encodings, invalid UV channels, and malformed byte ranges fail. Mask and blend
+  values normalize successfully but Stage 3 emits `UnsupportedAlphaMode` and
+  uses its defined opaque rendering fallback.
+
+### Fixture snapshots
+
+Checked-in fixtures live under
+`Engine/Tests/Data/AssetImport/StaticModelMaterials`. `ExpectedNormalized.json`
+is the Stage 1 golden snapshot and has schema version 1.
+
+| Fixture | Frozen coverage |
+| --- | --- |
+| `MaterialContract.gltf` | external buffer/image, base-color factor, duplicate image use, multiple/duplicate/unused materials, UV1 and transform, sampler modes, opaque/mask/blend, double sided, optional extension |
+| `DataUriImage.gltf` | data-URI image and default values |
+| `EmbeddedImage.glb` | GLB buffer-view image |
+| `RequiredExtension.gltf` | required unsupported extension failure |
+| `OptionalExtension.gltf` | optional unsupported extension warning |
+| `PhongMaterial.fbx` | pinned-Assimp diffuse/opacity properties used by the exact subset |
+| `UnsupportedDccMaterial.fbx` | warned DCC-specific property fallback |
+
+### Manifest, naming, and reimport identity
+
+- Manifest schema version starts at 1. It stores root `FSourcePath`, ordered
+  dependencies with role/identity/hash/size, complete fingerprint, importer
+  version, mapper version, slot-GUID-to-generated-material reference records,
+  image-identity/semantic-to-generated-texture reference records, normalized
+  imported material snapshots, and accepted warnings.
+- An absent manifest means a compatible geometry-only legacy mesh. A future
+  manifest version newer than the reader is retained but makes reimport
+  unavailable; an older supported version upgrades in memory and becomes dirty
+  only after a successful explicit reimport.
+- Names are sanitized to ASCII letters, digits, and underscores; invalid runs
+  become one underscore, leading/trailing underscores are removed, and an empty
+  result becomes `Model`, `Material`, or `Image` by role. Comparison uses ASCII
+  case folding.
+- The first case-insensitive name keeps the base name. Later collisions append
+  `_2`, `_3`, and so on in stable source order. Texture names append the
+  semantic suffix before collision numbering, for example
+  `Logo_BaseColor_2`.
+- Texture deduplication key is
+  `(encoded-content-hash, semantic-build-usage, sRGB)`. Material UV/sampler
+  differences do not affect it. Asset destinations, physical paths, and source
+  ordering do not enter semantic hashes.
+- Initial import fails preflight if any generated package path belongs to an
+  unrelated asset. Reimport updates only object references recorded by the
+  prior manifest. Missing or incompatible generated objects require an explicit
+  recreate choice; removed records become reported orphans and are never
+  deleted automatically.
+- Slot GUID reconciliation precedes material reconciliation. Image records use
+  stable image identity plus semantic usage, so source reorder does not create a
+  new texture. User-moved assets continue through object references.
+
+### Cross-plan sequencing and package behavior
+
+Unified mounted sources and `FSourcePath` landed in
+`bfff09f3`; there is no temporary pre-mount import mode. Stage 2 must exclusively
+use the mounted reference-or-ingest APIs and must not infer SourceAssets
+destinations from Content package paths.
+
+`SavePackage` currently publishes one package atomically, clears that package's
+dirty state, and updates registry visibility immediately. A later save failure
+does not undo earlier successful saves. The Stage 0 characterization test
+freezes this behavior. Therefore Stage 2 cannot implement a bundle as a loop
+over `SavePackage`: it must serialize and validate every candidate first, stage
+all new bytes invisibly, retain backups plus registry/object snapshots for
+pre-existing targets, and expose the complete set only during one publish
+phase. Rollback removes only attempt-created files and restores prior bytes,
+dirty state, loaded-object state, and registry entries.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze fixtures, schemas, and cross-plan boundaries
 
 Dependencies: none.
 
-- [ ] Add checked-in glTF fixtures covering base-color factor, external image,
+- [x] Add checked-in glTF fixtures covering base-color factor, external image,
   data URI, GLB embedded image, duplicate image use, multiple materials,
   duplicate material names, unused materials, UV set selection, sampler modes,
   alpha modes, double-sided state, and required/optional extensions.
-- [ ] Add focused FBX fixtures for the material properties Assimp exposes
+- [x] Add focused FBX fixtures for the material properties Assimp exposes
   consistently in the pinned version, plus one unsupported DCC-specific
   material fixture.
-- [ ] Freeze allocation limits for material, image, texture binding,
+- [x] Freeze allocation limits for material, image, texture binding,
   dependency, encoded-byte, decoded-pixel, and diagnostic counts.
-- [ ] Freeze `FImportedMaterial`, `FImportedImage`,
+- [x] Freeze `FImportedMaterial`, `FImportedImage`,
   `FImportedTextureBinding`, `FImportedSampler`,
   `FImportedDependency`, and structured diagnostic fields.
-- [ ] Freeze exact default values and glTF/FBX-to-normalized-property mapping,
+- [x] Freeze exact default values and glTF/FBX-to-normalized-property mapping,
   including every lossy fallback and its warning category.
-- [ ] Freeze the editor-only StaticMesh import-manifest schema, cook stripping
+- [x] Freeze the editor-only StaticMesh import-manifest schema, cook stripping
   policy, compatibility behavior for existing StaticMesh packages, and mapper
   version contribution.
-- [ ] Freeze deterministic asset naming, case-insensitive collision handling,
+- [x] Freeze deterministic asset naming, case-insensitive collision handling,
   texture deduplication, generated-asset ownership, reimport update, recreation,
   and orphan policies.
-- [ ] Record the exact dependency on unified mount stages and the temporary
+- [x] Record the exact dependency on unified mount stages and the temporary
   sequencing rule if this plan begins before mounted source paths land.
-- [ ] Characterize current package/registry behavior under multi-package save
+- [x] Characterize current package/registry behavior under multi-package save
   failure before selecting transaction primitives.
 
 #### Acceptance Gate
@@ -404,6 +645,29 @@ Dependencies: none.
   generated-output identity, source dependency policy, and rollback semantics
   are executable and contain no unresolved representation or ownership
   decision.
+
+#### Stage 0 Handoff
+
+- Baseline commit:
+  `8380fd219ea9a5fdaeb30b018cac5d69d974d298`.
+- Working set: this plan,
+  `Engine/Tests/Data/AssetImport/StaticModelMaterials/`,
+  `AssetImportTests.cpp`, and `PackageTests.cpp`.
+- Key symbols and decisions: Stage 1 adds the frozen normalized scene types;
+  `ExpectedNormalized.json` schema version 1 owns fixture expectations;
+  `FImportedMeshData::MaterialIndex` is a source material index pending its
+  explicit rename; texture deduplication is content/usage/color-space based;
+  manifest schema starts at version 1; mounted `FSourcePath` is the only source
+  provenance contract.
+- Package finding: individual `SavePackage` calls are atomic, but sequential
+  saves are not a bundle transaction. A successful earlier save remains clean
+  and registry-visible after a later save fails, while the failed package stays
+  dirty and unpublished.
+- Open questions: none for Stage 1. PBR rendering and complete async lifecycle
+  remain explicit downstream dependencies rather than Stage 1 blockers.
+- Validation: all 52 `AssetCoreTests` passed through DurinDevTool on
+  `Win64-Debug-DurinEditor-Tests`; the focused import/package subset passed all
+  11 tests.
 
 ### Stage 1: Add normalized material and dependency import data
 

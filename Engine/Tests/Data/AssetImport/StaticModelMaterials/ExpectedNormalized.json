@@ -1,0 +1,119 @@
+{
+  "contractVersion": 1,
+  "fixtures": {
+    "MaterialContract.gltf": {
+      "dependencies": ["root", "buffer:Triangle.bin", "image:Red.png"],
+      "images": [
+        {
+          "identity": "external:Red.png",
+          "name": "RedPixel",
+          "encoding": "png"
+        }
+      ],
+      "materials": [
+        {
+          "sourceIndex": 0,
+          "sourceName": "Shared",
+          "baseColorFactor": [0.8, 0.6, 0.4, 0.5],
+          "metallicFactor": 0.25,
+          "roughnessFactor": 0.75,
+          "baseColor": {
+            "image": 0,
+            "uvChannel": 1,
+            "offset": [0.1, 0.2],
+            "scale": [2.0, 3.0],
+            "sampler": {
+              "minFilter": "linear_mipmap_linear",
+              "magFilter": "linear",
+              "wrapU": "repeat",
+              "wrapV": "repeat"
+            }
+          },
+          "alphaMode": "opaque",
+          "alphaCutoff": 0.5,
+          "doubleSided": true
+        },
+        {
+          "sourceIndex": 1,
+          "sourceName": "Shared",
+          "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+          "metallicFactor": 1.0,
+          "roughnessFactor": 1.0,
+          "baseColor": {
+            "image": 0,
+            "uvChannel": 0,
+            "offset": [0.0, 0.0],
+            "scale": [1.0, 1.0],
+            "sampler": {
+              "minFilter": "nearest",
+              "magFilter": "nearest",
+              "wrapU": "clamp_to_edge",
+              "wrapV": "mirrored_repeat"
+            }
+          },
+          "alphaMode": "mask",
+          "alphaCutoff": 0.33,
+          "doubleSided": false
+        },
+        {
+          "sourceIndex": 2,
+          "sourceName": "Blend",
+          "baseColorFactor": [1.0, 1.0, 1.0, 1.0],
+          "metallicFactor": 1.0,
+          "roughnessFactor": 1.0,
+          "baseColorImage": 0,
+          "alphaMode": "blend",
+          "alphaCutoff": 0.5,
+          "doubleSided": false
+        },
+        {
+          "sourceIndex": 3,
+          "sourceName": "Unused",
+          "used": false
+        }
+      ],
+      "usedSlots": [
+        {"name": "Shared", "sourceIndex": 0, "sourceName": "Shared"},
+        {"name": "Shared_1", "sourceIndex": 1, "sourceName": "Shared"},
+        {"name": "Blend", "sourceIndex": 2, "sourceName": "Blend"}
+      ],
+      "diagnostics": [
+        {"severity": "warning", "category": "unsupported_optional_extension", "subject": "EXT_fixture_optional"}
+      ]
+    },
+    "DataUriImage.gltf": {
+      "dependencies": ["root"],
+      "images": [{"identity": "data-uri:0", "name": "InlinePixel", "encoding": "png"}],
+      "usedSlots": [{"name": "DataUri", "sourceIndex": 0, "sourceName": "DataUri"}]
+    },
+    "EmbeddedImage.glb": {
+      "dependencies": ["root"],
+      "images": [{"identity": "glb-buffer-view:4", "name": "EmbeddedPixel", "encoding": "png"}],
+      "usedSlots": [{"name": "Embedded", "sourceIndex": 0, "sourceName": "Embedded"}]
+    },
+    "RequiredExtension.gltf": {
+      "result": "failure",
+      "diagnostics": [
+        {"severity": "error", "category": "unsupported_required_extension", "subject": "EXT_fixture_required"}
+      ]
+    },
+    "OptionalExtension.gltf": {
+      "result": "success",
+      "diagnostics": [
+        {"severity": "warning", "category": "unsupported_optional_extension", "subject": "EXT_fixture_optional"}
+      ]
+    },
+    "PhongMaterial.fbx": {
+      "usedSlots": [{"name": "phong1", "sourceIndex": 0, "sourceName": "phong1"}],
+      "baseColorFactor": [0.5, 0.25, 0.25, 0.5]
+    },
+    "UnsupportedDccMaterial.fbx": {
+      "result": "failure",
+      "usedSlots": [{"name": "02 - Default", "sourceIndex": 0, "sourceName": "02 - Default"}],
+      "diagnostics": [
+        {"severity": "warning", "category": "unsupported_material_property", "subject": "3dsMax|main"},
+        {"severity": "error", "category": "missing_dependency", "subject": "Textures/albedo.png"}
+      ]
+    }
+  }
+}

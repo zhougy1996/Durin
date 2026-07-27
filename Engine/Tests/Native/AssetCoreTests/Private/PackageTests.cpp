@@ -421,6 +421,42 @@ TEST(FPackageAssetTests, RejectsSavingCppPackages)
 	EXPECT_EQ(Durin::Asset::SavePackage(Package).Error, Durin::Asset::EAssetError::InvalidPackageType);
 }
 
+TEST(FPackageAssetTests, SequentialPackageSavesPublishEarlierPackagesBeforeLaterFailure)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath FirstPath;
+	Durin::FAssetPath BlockedPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/Stage0First", FirstPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/Stage0Blocked/Second", BlockedPath));
+
+	DPackageAssetForTest* First = nullptr;
+	DPackageAssetForTest* Second = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(FirstPath, First));
+	ASSERT_TRUE(Durin::Asset::CreateAsset(BlockedPath, Second));
+	First->Value = 1;
+	Second->Value = 2;
+
+	const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets";
+	const std::filesystem::path Blocker = Root / "Stage0Blocked";
+	{
+		std::ofstream Stream(Blocker);
+		ASSERT_TRUE(Stream.is_open());
+		Stream << "blocks destination directory creation";
+	}
+
+	ASSERT_TRUE(Durin::Asset::SavePackage(First->GetPackage()));
+	const Durin::Asset::FAssetResult SecondResult = Durin::Asset::SavePackage(Second->GetPackage());
+	EXPECT_EQ(SecondResult.Error, Durin::Asset::EAssetError::IoError);
+
+	EXPECT_TRUE(std::filesystem::is_regular_file(Root / "Stage0First.dasset"));
+	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAsset(FirstPath), nullptr);
+	EXPECT_FALSE(First->GetPackage()->IsDirty());
+
+	EXPECT_FALSE(std::filesystem::exists(Root / "Stage0Blocked" / "Second.dasset"));
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(BlockedPath), nullptr);
+	EXPECT_TRUE(Second->GetPackage()->IsDirty());
+}
+
 TEST(FPackageAssetTests, LoadsExternalDependenciesAndPreventsPrematureUnload)
 {
 	InitializeAssetTests();
