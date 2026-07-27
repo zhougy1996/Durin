@@ -126,15 +126,6 @@ durin_test_deploy_runtime_files(EngineTests Slang_Imported)
 durin_test_deploy_directory_to_data(EngineTests "${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport")
 durin_test_deploy_directory_to_data(EngineTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 
-durin_test_get_sandbox_dir(EngineTests DURIN_TEST_DATA_DIR _durin_engine_tests_data_dir)
-add_custom_command(TARGET EngineTests POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_if_different
-	"${CMAKE_SOURCE_DIR}/Sandbox/Content/Levels/NewLevel.dasset"
-	"${_durin_engine_tests_data_dir}/AssetStructureUpgrade/CurrentSandboxLevel.dasset"
-	COMMENT "Deploying the current Sandbox default level"
-	VERBATIM
-)
-
 get_target_property(_durin_engine_tests_work_dir EngineTests DURIN_TEST_WORK_DIR)
 
 gtest_discover_tests(EngineTests

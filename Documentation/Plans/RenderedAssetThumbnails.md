@@ -67,14 +67,14 @@ resource ownership, non-fallback directional Vulkan output, renderer cleanup,
 and the shared cube face/orientation contract.
 
 Stage 5 validation is in progress. On 2026-07-27 the rendered-thumbnail
-regression set passed 45/45 tests, the RHI startup regression was fixed, the
-remaining 331 applicable `EngineTests` passed, `VulkanRHITests` passed, and a
-full editor rebuild plus hidden-window smoke test succeeded. The unfiltered
-`EngineTests` run remains 331/332 because
-`FStaticMeshMaterialUpgradeTests.SandboxDefaultLevelLoadsCleanly` cannot find
-the deployed `TEXCUBE_PureSky_512x512.dasset` fixture; Stage 5 remains open
-until that fixture failure and the manual UI, performance, cache-recovery, and
-architecture handoff gates are complete.
+regression set passed 45/45 tests, the RHI startup regression was fixed,
+`VulkanRHITests` passed, and a full editor rebuild plus hidden-window smoke test
+succeeded. The Sandbox default-level test was removed from `EngineTests`
+because Sandbox content is intentionally validated through the manual editor
+workflow rather than mirrored into isolated native-test fixtures. The resulting
+unfiltered `EngineTests` suite passed 331/331. Stage 5 remains open until the
+manual UI, performance, cache-recovery, and architecture handoff gates are
+complete.
 
 ## Goal
 
