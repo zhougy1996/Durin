@@ -41,8 +41,12 @@ namespace Durin
 		auto GetActiveTexture() const -> DTexture2D*;
 		auto SaveTexture(DTexture2D* Texture) -> bool;
 		auto DrawDocument(const FEditorDocumentTab& Document, DTexture2D* Texture) -> void;
+		auto DrawToolbar(const FEditorDocumentTab& Document, DTexture2D* Texture) -> void;
+		auto DrawWideLayout(const std::string& ResourceId, DTexture2D* Texture) -> void;
+		auto DrawNarrowLayout(const std::string& ResourceId, DTexture2D* Texture) -> void;
+		auto DrawPreviewPanel(const std::string& ResourceId, DTexture2D* Texture, float Width, float Height) -> void;
+		auto DrawDetailsPanel(DTexture2D* Texture, float Height) -> void;
 		auto DrawFailureState(DTexture2D* Texture) -> void;
-		auto DrawPreview(const std::string& ResourceId, DTexture2D* Texture) -> void;
 		auto DrawSourceData(DTexture2D* Texture) -> void;
 		auto DrawBuildSettings(DTexture2D* Texture) -> void;
 		auto FinishActivePropertyEdit(bool bCancel) -> bool;
@@ -62,7 +66,12 @@ namespace Durin
 			uint32 SelectedMipIndex = 0;
 			uint32 LastUploadedMipIndex = UINT32_MAX;
 			uint64 LastObservedRevision = 0;
+			float Zoom = 0.0f;
+			bool bShowCheckerboard = true;
+			bool bPreviewSource = false;
+			bool bLastUploadWasSource = false;
 		};
 		std::unordered_map<std::string, FTexturePreviewState> PreviewStates;
+		float PreviewPaneRatio = 0.70f;
 	};
 }

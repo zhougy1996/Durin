@@ -15,10 +15,18 @@
 #include "Widgets/TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
 
+#include <cmath>
+
 namespace Durin
 {
 	namespace
 	{
+		constexpr float DefaultPreviewPaneRatio = 0.70f;
+		constexpr float WideLayoutMinimumWidth = 820.0f;
+		constexpr float MinimumPreviewWidth = 440.0f;
+		constexpr float MinimumDetailsWidth = 340.0f;
+		constexpr float NarrowPreviewHeight = 430.0f;
+
 		auto FormatDimensions(uint32 Width, uint32 Height) -> std::string
 		{
 			return std::format("{} x {}", Width, Height);
@@ -45,6 +53,26 @@ namespace Durin
 				if (const FEnumValue* Record = Enum->FindValueRecordByValue(Value)) return Record->DisplayName;
 			}
 			return std::format("Unknown ({})", Value);
+		}
+
+		auto DrawTransparencyGrid(ImDrawList& DrawList, const ImVec2& Min, const ImVec2& Size) -> void
+		{
+			const float CheckerSize = MonaImGui::ScaleUI(12.0f);
+			const ImVec2 Max(Min.x + Size.x, Min.y + Size.y);
+			DrawList.PushClipRect(Min, Max, true);
+			for (float Y = 0.0f; Y < Size.y; Y += CheckerSize)
+				for (float X = 0.0f; X < Size.x; X += CheckerSize)
+				{
+					const bool bLight =
+						(static_cast<int32>(X / CheckerSize) + static_cast<int32>(Y / CheckerSize)) % 2 == 0;
+					DrawList.AddRectFilled(
+						ImVec2(Min.x + X, Min.y + Y),
+						ImVec2(Min.x + std::min(X + CheckerSize, Size.x), Min.y + std::min(Y + CheckerSize, Size.y)),
+						ImGui::GetColorU32(bLight
+							? ImVec4(0.30f, 0.30f, 0.30f, 1.0f)
+							: ImVec4(0.20f, 0.20f, 0.20f, 1.0f)));
+				}
+			DrawList.PopClipRect();
 		}
 	}
 
@@ -188,6 +216,14 @@ namespace Durin
 
 	auto MTextureEditor::ResetLayout() -> void
 	{
+		PreviewPaneRatio = DefaultPreviewPaneRatio;
+		for (auto& [ResourceId, State] : PreviewStates)
+		{
+			State.SelectedMipIndex = 0;
+			State.Zoom = 0.0f;
+			State.bShowCheckerboard = true;
+			State.bPreviewSource = false;
+		}
 	}
 
 	auto MTextureEditor::FindOpenTexture(std::string_view ResourceId) const -> DTexture2D*
@@ -217,22 +253,13 @@ namespace Durin
 	{
 		Texture->RefreshBuildStatus();
 
-		if (ImGui::Button("Save")) SaveTexture(Texture);
-		ImGui::Separator();
-		ImGui::TextDisabled("Asset");
-		ImGui::SameLine();
-		ImGui::TextUnformatted(Document.ResourceId.c_str());
-		ImGui::TextDisabled("Type");
-		ImGui::SameLine();
-		ImGui::TextUnformatted(Texture->GetClass()->GetQualifiedName().ToString().c_str());
+		DrawToolbar(Document, Texture);
 		ImGui::Spacing();
 
-		DrawFailureState(Texture);
-		DrawPreview(Document.ResourceId, Texture);
-		ImGui::Spacing();
-		DrawSourceData(Texture);
-		ImGui::Spacing();
-		DrawBuildSettings(Texture);
+		if (ImGui::GetContentRegionAvail().x >= MonaImGui::ScaleUI(WideLayoutMinimumWidth))
+			DrawWideLayout(Document.ResourceId, Texture);
+		else
+			DrawNarrowLayout(Document.ResourceId, Texture);
 
 		if (ActiveResourceId != Document.ResourceId) return;
 		if (!ErrorMessage.empty()) ImGui::OpenPopup("Texture Editor Error");
@@ -247,6 +274,85 @@ namespace Durin
 			}
 			ImGui::EndPopup();
 		}
+	}
+
+	auto MTextureEditor::DrawToolbar(const FEditorDocumentTab& Document, DTexture2D* Texture) -> void
+	{
+		if (ImGui::Button("Save")) SaveTexture(Texture);
+		ImGui::SameLine();
+		if (ImGui::Button("Refresh"))
+		{
+			std::string Error;
+			if (!Texture->PostLoad(Error)) SetError(std::move(Error));
+		}
+		ImGui::SameLine();
+		ImGui::TextDisabled("|");
+		ImGui::SameLine();
+		ImGui::TextUnformatted(Document.ResourceId.c_str());
+
+		const ETextureBuildStatus Status = Texture->GetBuildStatus();
+		const std::string StatusName =
+			GetEnumValueDisplayName("Durin::ETextureBuildStatus", static_cast<uint64>(Status));
+		const ImVec4 StatusColor = Status == ETextureBuildStatus::Ready
+			? ImVec4(0.40f, 0.85f, 0.52f, 1.0f)
+			: (Status == ETextureBuildStatus::Unbuilt
+				? ImVec4(0.75f, 0.75f, 0.75f, 1.0f)
+				: ImVec4(1.0f, 0.48f, 0.35f, 1.0f));
+		const float StatusWidth = ImGui::CalcTextSize(StatusName.c_str()).x;
+		const float RightX = ImGui::GetWindowContentRegionMax().x - StatusWidth;
+		if (ImGui::GetCursorPosX() < RightX)
+		{
+			ImGui::SameLine();
+			ImGui::SetCursorPosX(RightX);
+			ImGui::TextColored(StatusColor, "%s", StatusName.c_str());
+		}
+	}
+
+	auto MTextureEditor::DrawWideLayout(const std::string& ResourceId, DTexture2D* Texture) -> void
+	{
+		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
+		const ImVec2 Available = ImGui::GetContentRegionAvail();
+		const float MinimumPreview = MonaImGui::ScaleUI(MinimumPreviewWidth);
+		const float MinimumDetails = MonaImGui::ScaleUI(MinimumDetailsWidth);
+		const float PreviewWidth = std::clamp(
+			Available.x * PreviewPaneRatio,
+			MinimumPreview,
+			std::max(MinimumPreview, Available.x - Metrics.SplitterThickness - MinimumDetails));
+
+		DrawPreviewPanel(ResourceId, Texture, PreviewWidth, Available.y);
+		ImGui::SameLine();
+		MonaImGui::DrawSplitter(
+			"TextureEditorDetailsSplitter",
+			MonaImGui::EUISplitterAxis::X,
+			Available.y,
+			Available.x,
+			MinimumPreview,
+			MinimumDetails,
+			PreviewPaneRatio);
+		ImGui::SameLine();
+		DrawDetailsPanel(Texture, Available.y);
+	}
+
+	auto MTextureEditor::DrawNarrowLayout(const std::string& ResourceId, DTexture2D* Texture) -> void
+	{
+		DrawPreviewPanel(ResourceId, Texture, 0.0f, MonaImGui::ScaleUI(NarrowPreviewHeight));
+		ImGui::Spacing();
+		DrawDetailsPanel(Texture, 0.0f);
+	}
+
+	auto MTextureEditor::DrawDetailsPanel(DTexture2D* Texture, float Height) -> void
+	{
+		if (ImGui::BeginChild("TextureDetails", ImVec2(0.0f, Height), ImGuiChildFlags_Borders))
+		{
+			ImGui::TextDisabled("TEXTURE DETAILS");
+			ImGui::Separator();
+			DrawFailureState(Texture);
+			if (ImGui::CollapsingHeader("Build Settings", ImGuiTreeNodeFlags_DefaultOpen))
+				DrawBuildSettings(Texture);
+			if (ImGui::CollapsingHeader("Source Information", ImGuiTreeNodeFlags_DefaultOpen))
+				DrawSourceData(Texture);
+		}
+		ImGui::EndChild();
 	}
 
 	auto MTextureEditor::DrawFailureState(DTexture2D* Texture) -> void
@@ -325,85 +431,156 @@ namespace Durin
 		ImGui::Spacing();
 	}
 
-	auto MTextureEditor::DrawPreview(const std::string& ResourceId, DTexture2D* Texture) -> void
+	auto MTextureEditor::DrawPreviewPanel(
+		const std::string& ResourceId,
+		DTexture2D* Texture,
+		float Width,
+		float Height
+	) -> void
 	{
-		ImGui::SeparatorText("Preview");
-
 		FTexturePreviewState& PreviewState = PreviewStates.try_emplace(ResourceId).first->second;
 		FTexturePreview& Preview = *PreviewState.Preview;
 
 		const FTexturePlatformData* Platform = Texture->GetPlatformData();
 		const FTextureSourceData* Source = Texture->GetSourceData();
+		const bool bSourceAvailable = Source && Source->IsValid();
+		const bool bPlatformAvailable = Platform && Platform->IsValid();
+		if (PreviewState.bPreviewSource && !bSourceAvailable) PreviewState.bPreviewSource = false;
+		if (!bPlatformAvailable && bSourceAvailable) PreviewState.bPreviewSource = true;
 
 		const bool bRevisionChanged = Texture->GetBuildRevision() != PreviewState.LastObservedRevision;
 		if (bRevisionChanged) PreviewState.SelectedMipIndex = 0;
 
-		const uint32 MipCount = (Platform && Platform->IsValid())
+		const uint32 MipCount = (!PreviewState.bPreviewSource && bPlatformAvailable)
 			? static_cast<uint32>(Platform->Mips.size())
-			: (Source ? 1u : 0u);
+			: (bSourceAvailable ? 1u : 0u);
 
-		if (MipCount == 0)
+		if (ImGui::BeginChild("TexturePreviewPanel", ImVec2(Width, Height), ImGuiChildFlags_Borders))
 		{
-			Preview.Release();
-			PreviewState.LastUploadedMipIndex = UINT32_MAX;
-			PreviewState.LastObservedRevision = Texture->GetBuildRevision();
-			ImGui::TextWrapped("No preview data available.");
-			return;
-		}
-
-		// Clamp selected mip to valid range.
-		if (PreviewState.SelectedMipIndex >= MipCount) PreviewState.SelectedMipIndex = MipCount - 1;
-
-		// Mip selector.
-		if (MipCount > 1)
-		{
-			int MipInt = static_cast<int>(PreviewState.SelectedMipIndex);
-			ImGui::SetNextItemWidth(MonaImGui::ScaleUI(200.0f));
-			if (ImGui::SliderInt("Mip Level", &MipInt, 0, static_cast<int>(MipCount - 1), "%d", ImGuiSliderFlags_AlwaysClamp))
-				PreviewState.SelectedMipIndex = static_cast<uint32>(MipInt);
+			ImGui::TextDisabled("PREVIEW");
 			ImGui::SameLine();
-			const uint32 MipWidth = Platform ? Platform->Mips[PreviewState.SelectedMipIndex].Width : Source->Width;
-			const uint32 MipHeight = Platform ? Platform->Mips[PreviewState.SelectedMipIndex].Height : Source->Height;
-			ImGui::TextDisabled("%s", FormatDimensions(MipWidth, MipHeight).c_str());
-		}
+			if (!bPlatformAvailable) ImGui::BeginDisabled();
+			if (ImGui::RadioButton("Built", !PreviewState.bPreviewSource))
+				PreviewState.bPreviewSource = false;
+			if (!bPlatformAvailable) ImGui::EndDisabled();
+			ImGui::SameLine();
+			if (!bSourceAvailable) ImGui::BeginDisabled();
+			if (ImGui::RadioButton("Source", PreviewState.bPreviewSource))
+				PreviewState.bPreviewSource = true;
+			if (!bSourceAvailable) ImGui::EndDisabled();
+			if (!bSourceAvailable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+				ImGui::SetTooltip("Decoded source pixels are not resident.");
 
-		// Upload preview image.
-		const bool bMipChanged = PreviewState.SelectedMipIndex != PreviewState.LastUploadedMipIndex;
-		const bool bRebuildNeeded = bRevisionChanged || bMipChanged || !Preview.IsValid();
-		if (bRebuildNeeded)
-		{
-			if (Platform && Platform->IsValid())
-				Preview.Upload(*Platform, PreviewState.SelectedMipIndex);
-			else if (Source && Source->IsValid())
-				Preview.UploadSource(*Source);
-			PreviewState.LastUploadedMipIndex = PreviewState.SelectedMipIndex;
-			PreviewState.LastObservedRevision = Texture->GetBuildRevision();
-		}
+			ImGui::SameLine();
+			ImGui::TextDisabled("|");
+			ImGui::SameLine();
+			if (ImGui::Button("Fit")) PreviewState.Zoom = 0.0f;
+			ImGui::SameLine();
+			if (ImGui::Button("1:1")) PreviewState.Zoom = 1.0f;
+			ImGui::SameLine();
+			ImGui::Checkbox("Checkerboard", &PreviewState.bShowCheckerboard);
 
-		// Draw the image.
-		if (Preview.IsValid())
-		{
-			const ImVec2 Available = ImGui::GetContentRegionAvail();
-			const float AspectRatio = static_cast<float>(Preview.GetWidth()) / static_cast<float>(std::max(Preview.GetHeight(), 1u));
-			const float MaxPreviewHeight = MonaImGui::ScaleUI(512.0f);
-			const float ImageHeight = std::max(0.0f, std::min(Available.y * 0.5f, MaxPreviewHeight));
-			const float ImageWidth = ImageHeight * AspectRatio;
-
-			if (ImageHeight > 0.0f && Mona::GActiveUIBackend)
+			if (MipCount == 0)
 			{
-				ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - ImageWidth) * 0.5f + ImGui::GetCursorPosX());
-				Mona::GActiveUIBackend->DrawImage(Preview.GetTexture(), FVector2f(ImageWidth, ImageHeight));
+				Preview.Release();
+				PreviewState.LastUploadedMipIndex = UINT32_MAX;
+				PreviewState.LastObservedRevision = Texture->GetBuildRevision();
+				ImGui::Separator();
+				ImGui::TextDisabled("No preview data is available.");
+				ImGui::EndChild();
+				return;
 			}
+
+			if (PreviewState.SelectedMipIndex >= MipCount) PreviewState.SelectedMipIndex = MipCount - 1;
+			if (MipCount > 1)
+			{
+				ImGui::SameLine();
+				ImGui::SetNextItemWidth(MonaImGui::ScaleUI(150.0f));
+				int MipIndex = static_cast<int>(PreviewState.SelectedMipIndex);
+				if (ImGui::SliderInt("Mip", &MipIndex, 0, static_cast<int>(MipCount - 1), "%d", ImGuiSliderFlags_AlwaysClamp))
+					PreviewState.SelectedMipIndex = static_cast<uint32>(MipIndex);
+			}
+
+			const bool bMipChanged = PreviewState.SelectedMipIndex != PreviewState.LastUploadedMipIndex;
+			const bool bPreviewModeChanged = PreviewState.bPreviewSource != PreviewState.bLastUploadWasSource;
+			if (bRevisionChanged || bMipChanged || bPreviewModeChanged || !Preview.IsValid())
+			{
+				if (PreviewState.bPreviewSource)
+					Preview.UploadSource(*Source);
+				else
+					Preview.Upload(*Platform, PreviewState.SelectedMipIndex);
+				PreviewState.LastUploadedMipIndex = PreviewState.SelectedMipIndex;
+				PreviewState.LastObservedRevision = Texture->GetBuildRevision();
+				PreviewState.bLastUploadWasSource = PreviewState.bPreviewSource;
+			}
+
+			ImGui::Separator();
+			if (ImGui::BeginChild(
+				"TexturePreviewCanvas",
+				ImVec2(0.0f, 0.0f),
+				ImGuiChildFlags_None,
+				ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+			{
+				const ImVec2 CanvasSize = ImGui::GetContentRegionAvail();
+				const float Padding = MonaImGui::ScaleUI(24.0f);
+				const float FitScale = std::clamp(
+					std::min(
+						(CanvasSize.x - Padding * 2.0f) / static_cast<float>(Preview.GetWidth()),
+						(CanvasSize.y - Padding * 2.0f) / static_cast<float>(Preview.GetHeight())),
+					0.01f,
+					16.0f);
+				if (ImGui::IsWindowHovered() && ImGui::GetIO().KeyCtrl && ImGui::GetIO().MouseWheel != 0.0f)
+				{
+					const float CurrentZoom = PreviewState.Zoom > 0.0f ? PreviewState.Zoom : FitScale;
+					PreviewState.Zoom = std::clamp(
+						CurrentZoom * std::pow(1.25f, ImGui::GetIO().MouseWheel),
+						0.05f,
+						16.0f);
+				}
+				if (ImGui::IsWindowHovered() && ImGui::IsMouseDragging(ImGuiMouseButton_Middle))
+				{
+					ImGui::SetScrollX(ImGui::GetScrollX() - ImGui::GetIO().MouseDelta.x);
+					ImGui::SetScrollY(ImGui::GetScrollY() - ImGui::GetIO().MouseDelta.y);
+				}
+
+				const float Scale = PreviewState.Zoom > 0.0f ? PreviewState.Zoom : FitScale;
+				const ImVec2 ImageSize(
+					std::max(static_cast<float>(Preview.GetWidth()) * Scale, 1.0f),
+					std::max(static_cast<float>(Preview.GetHeight()) * Scale, 1.0f));
+				const ImVec2 Start = ImGui::GetCursorPos();
+				ImGui::SetCursorPos(ImVec2(
+					Start.x + std::max((CanvasSize.x - ImageSize.x) * 0.5f, Padding),
+					Start.y + std::max((CanvasSize.y - ImageSize.y) * 0.5f, Padding)));
+				const ImVec2 ImageMin = ImGui::GetCursorScreenPos();
+				if (PreviewState.bShowCheckerboard)
+					DrawTransparencyGrid(*ImGui::GetWindowDrawList(), ImageMin, ImageSize);
+				if (Mona::GActiveUIBackend)
+					Mona::GActiveUIBackend->DrawImage(Preview.GetTexture(), FVector2f(ImageSize.x, ImageSize.y));
+
+				const std::string Overlay = std::format(
+					"{}  |  {}%",
+					FormatDimensions(Preview.GetWidth(), Preview.GetHeight()),
+					static_cast<int>(std::round(Scale * 100.0f)));
+				const ImVec2 OverlaySize = ImGui::CalcTextSize(Overlay.c_str());
+				const ImVec2 OverlayMin(
+					ImGui::GetWindowPos().x + Padding,
+					ImGui::GetWindowPos().y + ImGui::GetWindowSize().y - OverlaySize.y - Padding);
+				ImGui::GetWindowDrawList()->AddRectFilled(
+					ImVec2(OverlayMin.x - 7.0f, OverlayMin.y - 4.0f),
+					ImVec2(OverlayMin.x + OverlaySize.x + 7.0f, OverlayMin.y + OverlaySize.y + 4.0f),
+					IM_COL32(12, 14, 18, 205),
+					4.0f);
+				ImGui::GetWindowDrawList()->AddText(OverlayMin, ImGui::GetColorU32(ImGuiCol_Text), Overlay.c_str());
+				if (ImGui::IsWindowHovered())
+					ImGui::SetTooltip("Ctrl + mouse wheel to zoom\nMiddle-drag to pan");
+			}
+			ImGui::EndChild();
 		}
-		else
-		{
-			ImGui::TextDisabled("Preview unavailable.");
-		}
+		ImGui::EndChild();
 	}
 
 	auto MTextureEditor::DrawSourceData(DTexture2D* Texture) -> void
 	{
-		ImGui::SeparatorText("Source");
 		if (!MonaImGui::PropertyEdit::BeginTable("TextureSourceData")) return;
 		DrawInfoRow("Source Path", Texture->GetSourceFile());
 		const FTextureSourceDiagnostic SourceDiagnostic = Texture->InspectSource();
@@ -451,7 +628,6 @@ namespace Durin
 
 	auto MTextureEditor::DrawBuildSettings(DTexture2D* Texture) -> void
 	{
-		ImGui::SeparatorText("Build Settings and Platform Data");
 		if (!MonaImGui::PropertyEdit::BeginTable("TextureBuildSettings")) return;
 		FProperty* UsageProperty = Texture->GetClass()->FindPropertyByName("Usage");
 		FProperty* SRGBProperty = Texture->GetClass()->FindPropertyByName("bSRGB");
