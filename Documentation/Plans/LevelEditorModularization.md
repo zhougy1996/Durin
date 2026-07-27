@@ -1,30 +1,32 @@
 # Level Editor Modularization Plan
 
-Summary: Extract reusable editor path and import primitives and split oversized LevelEditor panels along stable model, operation, and presentation boundaries without changing user-visible behavior.
+Summary: Extract reusable editor destination and import primitives and split oversized LevelEditor panels along stable model, operation, and presentation boundaries without changing user-visible behavior.
 
-Last reviewed: 2026-07-27
+Last reviewed: 2026-07-28
 
 ## Current Status
 
-Planning is complete and no implementation stage has started.
+Stage 0 is complete on baseline commit `8b750d3c`. The prerequisite thumbnail,
+typed-mount, mounted-source, and import-workflow changes are established code,
+not work coordinated by this plan. No active overlapping-plan handoff is
+required before structural refactoring begins.
 
-A static ownership and size review identified two concrete duplicate domains:
-mount-owner/path resolution shared by Content Browser and texture import, and
-destination/error/lifecycle behavior repeated by the three asset import
-dialogs. It also identified two immediate file-size and responsibility
-hotspots: `ContentBrowserPanel.cpp` at approximately 2,077 physical lines and
-`SceneViewportPanel.cpp` at approximately 1,141 physical lines.
+The unified Core mount registry already owns virtual-path lookup, typed Content
+and SourceAssets resolution, reverse physical-path classification, canonical
+containment, and mount-owner metadata. LevelEditor must consume those APIs
+rather than add another mount-owner or path-resolution abstraction. The
+remaining import duplication is editor-only asset-destination validation,
+common callback state, and modal lifecycle/presentation.
 
-This plan selects incremental extraction behind the existing LevelEditor
-interfaces. It does not authorize simultaneous edits to files currently owned
-by active thumbnail, source-library, or ready-to-use static-model import
-stages. Each stage must first confirm that its recorded overlapping plan has
-completed or explicitly handed off the shared working set.
+`ContentBrowserPanel.cpp` and `SceneViewportPanel.cpp` remain the first
+file-size and responsibility hotspots. Stage 1 is next and will extract Scene
+Viewport presentation helpers behind the unchanged `FSceneViewportPanel`
+interface.
 
 ## Goal
 
-- Give mount lookup, mount-owner root resolution, and virtual/physical path
-  conversion one authoritative implementation.
+- Keep mount lookup and typed virtual/physical conversion authoritative in
+  Core while removing repeated editor-side destination decisions.
 - Give asset import dialogs one reusable destination-validation and callback
   model while preserving source-type-specific forms and import execution.
 - Reduce the largest LevelEditor translation units by moving coherent UI,
@@ -39,8 +41,8 @@ completed or explicitly handed off the shared working set.
 
 ## Scope
 
-- `LevelEditor` mount/path helpers currently duplicated by Content Browser and
-  import workflows.
+- `LevelEditor` asset-destination parsing, validation, collision diagnostics,
+  and browsing behavior repeated by import workflows.
 - StaticMesh, Texture2D, and TextureCube import-dialog destination state,
   validation, callbacks, and popup lifecycle.
 - Scene Viewport toolbar and overlay presentation.
@@ -58,8 +60,9 @@ completed or explicitly handed off the shared working set.
   persisted setting formats.
 - Redesigning Content Browser navigation, selection, import, rename, move,
   delete, thumbnail, or drag/drop behavior.
-- Changing source-library, provenance, ingest, reimport, multi-asset
-  transaction, or generated-asset contracts owned by other active plans.
+- Changing mounted-source, provenance, ingest, reimport, multi-asset
+  transaction, or generated-asset contracts already established by their
+  owning domains.
 - Moving concrete LevelEditor panels into `DurinEd`; reusable abstractions may
   move only when they are independent of LevelEditor types and satisfy the
   workspace dependency direction.
@@ -117,25 +120,21 @@ completed or explicitly handed off the shared working set.
 - Undo/redo transaction descriptions, before/after state, and package dirty
   restoration remain unchanged.
 
-### Active-plan coordination
+### Established prerequisite contracts
 
-- The completed `RenderedAssetThumbnails` plan handed provider-neutral request,
-  result, scheduling, persistent cache, and preview-scene ownership to
-  `DurinEd`; this plan may move LevelEditor presentation and facade code only
-  while preserving the editor
-  [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md) contract.
-- `SourceLibraryReferences` owns source-library registry, portable source
-  location, reference-versus-ingest classification, and import-dialog source
-  library presentation. Shared import destination extraction must consume
-  those contracts after the relevant Stages 1 through 4, not preserve the
-  temporary asset-path-derived source model as a new abstraction.
-- `ReadyToUseStaticModelImport` owns multi-asset import/reimport orchestration,
-  generated output preview, import progress, cancellation, and generated asset
-  policies. This plan owns only generic dialog plumbing and structural
-  boundaries; it must not create a competing import transaction.
-- If an overlapping plan begins work on a recorded file first, that plan owns
-  the file through its stage handoff. This plan then revalidates symbols and
-  adjusts the extraction stage from the new baseline.
+- Core's immutable typed mount registry remains the sole owner of mount lookup,
+  Content and SourceAssets resolution, reverse classification, canonical
+  containment, dependency checks, and source-write policy.
+- `DurinEd` retains provider-neutral thumbnail request, scheduling, persistent
+  cache, and preview-scene ownership described by
+  [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md). Content Browser
+  refactoring may move only LevelEditor state and presentation.
+- Existing mounted-source reference/ingest/repair/relocation behavior and the
+  three current import forms are the behavioral baseline. Common dialog
+  extraction consumes those workflows without moving their domain logic.
+- Static-model multi-asset import/reimport orchestration, generated outputs,
+  progress, cancellation, and generated-asset policies remain outside this
+  structural plan.
 
 ## Current Foundations and Gaps
 
@@ -156,9 +155,10 @@ completed or explicitly handed off the shared working set.
 
 ### Gaps
 
-- Mount-owner root resolution has duplicate implementations in
-  `ContentBrowserPanel.cpp` and `TextureImportDialog.cpp`; owning-mount lookup
-  and virtual/physical conversion are also implemented ad hoc.
+- The three import dialogs independently combine `FAssetPath` parsing, typed
+  mount lookup, destination collision checks, browsing conversion, and
+  user-facing diagnostics even though Core already supplies the underlying
+  path results.
 - Three import dialogs duplicate callbacks, preferred destination state,
   asset-path buffers, open requests, mounted-destination checks, collision
   checks, destination browsing, and completion reporting.
@@ -180,31 +180,50 @@ completed or explicitly handed off the shared working set.
 
 ## Implementation Stages
 
-### Stage 0: Freeze behavior, boundaries, and overlap handoffs
+### Stage 0: Establish the refactoring baseline
 
 Dependencies: none.
 
-- [ ] Record the baseline commit and exact working set for each later stage.
-- [ ] Confirm the current status and file ownership of
-  `RenderedAssetThumbnails`, `SourceLibraryReferences`, and
-  `ReadyToUseStaticModelImport`.
-- [ ] Inventory current ImGui IDs, popup names, drag/drop payloads, persisted
-  settings keys, transaction descriptions, and LevelEditor public symbols
-  affected by the planned moves.
-- [ ] Add or identify focused coverage for mount resolution, import destination
-  validation, Content Browser filtering/sorting/navigation, Outliner hierarchy
-  filtering, document upgrade decisions, and current panel smoke behavior.
-- [ ] Freeze the selected component APIs and dependency locations. Any
-  remaining ownership ambiguity is resolved here before moving code.
-- [ ] Capture representative screenshots or image baselines for Scene Viewport
-  toolbar modes and Content Browser grid/details layouts at the required UI
-  scales and themes.
+- [x] Record baseline commit `8b750d3c` for the first extraction stage.
+- [x] Treat current typed-mount, mounted-source, import, and thumbnail behavior
+  as established inputs rather than overlapping implementation work.
+- [x] Freeze existing panel public interfaces, ImGui identities, popup names,
+  drag/drop payloads, persisted settings keys, transaction descriptions, and
+  callback behavior as observable compatibility constraints.
+- [x] Identify existing mount-registry and document-upgrade model coverage and
+  record the missing destination, Content Browser model, Outliner model, and
+  panel-focused coverage in the stages that introduce those seams.
+- [x] Keep all extracted panel, dialog, and presenter types module-private;
+  reuse Core path APIs and existing `DurinEd` services at their current
+  dependency boundaries.
 
 #### Acceptance Gate
 
-- Every later stage has a baseline, bounded working set, non-overlapping active
-  owner, frozen observable identities, and executable or recorded baseline
-  behavior sufficient to distinguish structural movement from regression.
+- The current repository is the behavioral baseline, prerequisite contracts
+  have no unresolved ownership dependency, and Stage 1 can begin as a bounded
+  structural extraction.
+
+#### Stage 0 Handoff
+
+- Baseline: `8b750d3c`.
+- Stage 1 working set:
+  `Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.h`,
+  `Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.cpp`, and
+  new module-private files under
+  `Engine/Source/Editor/LevelEditor/Private/Viewport/` for toolbar and overlay
+  presentation.
+- Key symbols:
+  `FSceneViewportPanel::CalculateToolbarLayout`,
+  `FSceneViewportPanel::DrawToolbar`,
+  `FSceneViewportPanel::DrawOrientationOverlay`, and
+  `FSceneViewportPanel::DrawFPSOverlay`.
+- Decisions: retain the panel constructor, public API, viewport clients,
+  renderer/world/play ownership, all ImGui IDs and popup names, and input
+  exclusion rectangles; use composition rather than publishing a reusable UI
+  framework.
+- Open questions: none.
+- Validation: the baseline `Win64-Debug-DurinEditor-Tests` `all` build
+  completed successfully on 2026-07-28.
 
 ### Stage 1: Extract Scene Viewport presentation helpers
 
@@ -228,33 +247,33 @@ Dependencies: Stage 0.
   toolbar implementation, all toolbar identities and behavior remain stable,
   and focused editor/UI validation passes in both themes and required scales.
 
-### Stage 2: Centralize mount and asset destination resolution
+### Stage 2: Extract shared asset-destination validation
 
-Dependencies: Stage 0 and the applicable Source Library registry handoff.
+Dependencies: Stage 0.
 
-- [ ] Add one authoritative owning-mount lookup using the selected
-  case/containment semantics.
-- [ ] Add one authoritative mount-owner root resolver that handles a physical
-  mount rooted at `Content` and a directly owned root.
-- [ ] Replace duplicate Content Browser and import-dialog implementations with
-  the shared helpers.
-- [ ] Define a side-effect-free asset destination validation result containing
-  parsed path, owning mount, mounted/unmounted state, existing-asset state, and
-  actionable diagnostic.
+- [ ] Introduce one side-effect-free editor asset-destination result built from
+  `FAssetPath` and Core's existing typed mount APIs.
+- [ ] Carry the parsed asset path, owning mount, mounted/unmounted state,
+  resolved physical destination, existing-package/registry state, and
+  actionable diagnostic without adding another path taxonomy.
+- [ ] Replace repeated validation and destination-browse conversion in the
+  three import dialogs with the shared result.
+- [ ] Keep Content Browser on `FindMountForVirtualPath`,
+  `ResolveContentPath`, and `ClassifyContentPath`; factor only a genuinely
+  shared editor decision rather than wrapping Core APIs mechanically.
 - [ ] Cover trailing separators, normalized and non-normalized physical roots,
   unknown virtual roots, prefix lookalikes, case behavior, loaded packages,
-  registry assets, and source-library containment boundaries.
+  registry assets, and mounted-domain containment boundaries.
 
 #### Acceptance Gate
 
-- Content Browser and all import workflows use one mount/path implementation;
-  focused tests prove identical successful resolution and deterministic
-  rejection across callers without changing source-library ownership.
+- Core remains the only mount/path implementation, the three import workflows
+  share one editor destination decision, and focused tests prove deterministic
+  success and rejection without changing mounted-source behavior.
 
 ### Stage 3: Extract common import-dialog state
 
-Dependencies: Stage 2; Source Library Stages 3 and 4 contracts; no concurrent
-ownership of the three import-dialog files by `ReadyToUseStaticModelImport`.
+Dependencies: Stage 2.
 
 - [ ] Introduce a callback bundle for clearing/reporting errors and reporting a
   successfully imported asset.
@@ -267,9 +286,9 @@ ownership of the three import-dialog files by `ReadyToUseStaticModelImport`.
   and import execution.
 - [ ] Replace repeated import-dialog construction callbacks in
   `MLevelEditor::Construct` with one bounded factory/helper.
-- [ ] Confirm that the shared model can accept the source-library and
-  multi-output extensions owned by the overlapping plans without incorporating
-  their domain logic.
+- [ ] Keep mounted-source actions and multi-output import orchestration behind
+  their existing dialog-specific interfaces rather than incorporating their
+  domain logic.
 
 #### Acceptance Gate
 
@@ -279,8 +298,7 @@ ownership of the three import-dialog files by `ReadyToUseStaticModelImport`.
 
 ### Stage 4: Split Content Browser presentation from state
 
-Dependencies: Stage 0; completion or explicit handoff of
-`RenderedAssetThumbnails` Stage 5.
+Dependencies: Stage 0.
 
 - [ ] Extract grid metrics, transparency background, type badge, thumbnail,
   icon, label, file-size, and file-time presentation into a private item-view
@@ -304,8 +322,7 @@ Dependencies: Stage 0; completion or explicit handoff of
 
 ### Stage 5: Split Content Browser model and operations
 
-Dependencies: Stages 2 and 4; applicable Source Library and ready-to-use import
-file handoffs.
+Dependencies: Stages 2 and 4.
 
 - [ ] Introduce a Content Browser model that owns mount snapshots, current
   location, navigation history, directory/item snapshots, filtering, sorting,
@@ -405,8 +422,9 @@ commands or output paths that may change.
 
 ## Definition of Done
 
-- Mount and asset-destination resolution have one authoritative implementation
-  with focused coverage.
+- Core remains the authoritative mount/path implementation, and editor
+  asset-destination validation has one composed implementation with focused
+  coverage.
 - StaticMesh, Texture2D, and TextureCube import dialogs share composed
   destination/lifecycle/callback plumbing without sharing source-specific
   domain logic.
