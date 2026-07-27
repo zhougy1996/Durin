@@ -260,8 +260,8 @@ implementation changes execution below the CLI/context boundary.
 ## Related Code
 
 - `BuildTool.bat`
-- `Engine/Scripts/Build/durin_build_tool/cli.py`
-- `Engine/Scripts/Build/durin_build_tool/config.py`
-- `Engine/Scripts/Build/durin_build_tool/core.py`
-- `Engine/Scripts/Build/durin_build_tool/output.py`
+- `Tools/BuildTool/durin_build_tool/cli.py`
+- `Tools/BuildTool/durin_build_tool/config.py`
+- `Tools/BuildTool/durin_build_tool/core.py`
+- `Tools/BuildTool/durin_build_tool/output.py`
 - `Engine/Scripts/Tests/test_agent_tooling.py`

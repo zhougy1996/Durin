@@ -379,9 +379,9 @@ documented in `Documentation/Development/Build/BuildAndRun.md`.
 - `CMake/DurinWorkspaceSetup.cmake`
 - `CMake/Project/ProjectSetup.cmake`
 - `CMake/Project/ProjectTargets.cmake`
-- `Engine/Scripts/Build/durin_build_tool/cli.py`
-- `Engine/Scripts/Build/durin_build_tool/config.py`
-- `Engine/Scripts/Build/durin_build_tool/core.py`
+- `Tools/BuildTool/durin_build_tool/cli.py`
+- `Tools/BuildTool/durin_build_tool/config.py`
+- `Tools/BuildTool/durin_build_tool/core.py`
 - `Engine/Scripts/Tests/test_agent_tooling.py`
 - `Engine/Source/Programs/DurinHeaderTool/durin_header_tool/config/project_config.py`
 - `Engine/Source/Programs/DurinHeaderTool/durin_header_tool/config/module_config.py`

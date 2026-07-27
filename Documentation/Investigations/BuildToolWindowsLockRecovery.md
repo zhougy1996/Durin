@@ -1,7 +1,7 @@
 # BuildTool Windows Lock Recovery Boundary
 
 **Status:** Open  
-**Last reviewed:** 2026-07-24
+**Last reviewed:** 2026-07-27
 
 ## Scope And Verdict
 
@@ -27,7 +27,7 @@ tests, or the runtime process and should remain enabled on every host.
 
 Relevant implementation:
 
-- [`core.py`](../../Engine/Scripts/Build/durin_build_tool/core.py), especially
+- [`core.py`](../../Tools/BuildTool/durin_build_tool/core.py), especially
   `open_checkout_lock`, `recover_inaccessible_windows_lock`,
   `normalize_windows_lock_acl`, `BuildToolLock`, and `run_command`;
 - [`test_agent_tooling.py`](../../Engine/Scripts/Tests/test_agent_tooling.py);

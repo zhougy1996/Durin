@@ -21,7 +21,7 @@ class DocToolError(RuntimeError):
 
 
 def _plans_directory() -> Path:
-    return Path(__file__).resolve().parent.parent / "Plans"
+    return Path(__file__).resolve().parents[3] / "Documentation" / "Plans"
 
 
 def _parser() -> argparse.ArgumentParser:

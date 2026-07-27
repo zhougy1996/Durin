@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import subprocess
 import tempfile
 import unittest
@@ -8,10 +9,15 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from Documentation.doc_tool import cli
-from Documentation.doc_tool import archive as archive_module
-from Documentation.doc_tool.archive import apply_archive, preview_archive
-from Documentation.doc_tool.plans import (
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DOC_TOOL_DIR = REPO_ROOT / "Tools" / "DocTool"
+if str(DOC_TOOL_DIR) not in os.sys.path:
+    os.sys.path.insert(0, str(DOC_TOOL_DIR))
+
+from durin_doc_tool import archive as archive_module
+from durin_doc_tool import cli
+from durin_doc_tool.archive import apply_archive, preview_archive
+from durin_doc_tool.plans import (
     PlanStatus,
     load_catalog,
     parse_plan,
@@ -140,6 +146,14 @@ class ArchiveTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
+    def test_root_wrapper_uses_tools_entrypoint_and_forwards_arguments(self) -> None:
+        content = (REPO_ROOT / "DocTool.bat").read_text(encoding="utf-8")
+        self.assertIn(
+            'Tools\\DocTool\\durin_doc_tool\\__main__.py" %*',
+            content,
+        )
+        self.assertIn("WorktreeTool prepare", content)
+
     def test_no_arguments_opens_shell(self) -> None:
         with mock.patch.object(cli, "run_shell", return_value=7) as shell:
             self.assertEqual(cli.main([]), 7)

@@ -15,9 +15,9 @@ from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-BUILD_SCRIPT_DIR = REPO_ROOT / "Engine" / "Scripts" / "Build"
-if str(BUILD_SCRIPT_DIR) not in os.sys.path:
-    os.sys.path.insert(0, str(BUILD_SCRIPT_DIR))
+BUILD_TOOL_DIR = REPO_ROOT / "Tools" / "BuildTool"
+if str(BUILD_TOOL_DIR) not in os.sys.path:
+    os.sys.path.insert(0, str(BUILD_TOOL_DIR))
 
 from durin_build_tool import cli as build_cli
 from durin_build_tool import config as build_config
@@ -1616,7 +1616,7 @@ class CliTests(unittest.TestCase):
     def test_wrapper_uses_new_entrypoint_and_forwards_arguments(self) -> None:
         content = (REPO_ROOT / "BuildTool.bat").read_text(encoding="utf-8")
         self.assertIn('set "VSLANG=1033"', content)
-        self.assertIn('Engine\\Scripts\\Build\\durin_build_tool\\__main__.py" %*', content)
+        self.assertIn('Tools\\BuildTool\\durin_build_tool\\__main__.py" %*', content)
         self.assertIn("WorktreeTool prepare", content)
         self.assertNotIn("agent_build.py", content)
 

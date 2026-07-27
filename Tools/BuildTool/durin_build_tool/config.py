@@ -12,7 +12,7 @@ from typing import Any, Mapping
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 SCRIPT_DIR = PACKAGE_DIR.parent
-REPO_ROOT = SCRIPT_DIR.parents[2]
+REPO_ROOT = SCRIPT_DIR.parent.parent
 PROFILE_FILE = SCRIPT_DIR / "AgentBuildProfiles.json"
 PRESET_FILE = REPO_ROOT / "CMakePresets.json"
 LOCAL_CONFIG_FILE = REPO_ROOT / ".agents" / "build-config.json"

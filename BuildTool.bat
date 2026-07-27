@@ -9,5 +9,5 @@ if not exist "%PYTHON_EXE%" (
   exit /b 1
 )
 
-"%PYTHON_EXE%" "%~dp0Engine\Scripts\Build\durin_build_tool\__main__.py" %*
+"%PYTHON_EXE%" "%~dp0Tools\BuildTool\durin_build_tool\__main__.py" %*
 exit /b %ERRORLEVEL%

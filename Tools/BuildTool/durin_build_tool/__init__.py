@@ -1,2 +1,1 @@
 """Durin BuildTool package."""
-

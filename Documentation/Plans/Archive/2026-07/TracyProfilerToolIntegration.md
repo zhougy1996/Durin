@@ -707,7 +707,7 @@ remains listed below.
 - `Engine/Scripts/Bootstrap/Setup_tracy.bat`
 - `Engine/Scripts/Bootstrap/setup_third_party.py`
 - `Engine/Scripts/Bootstrap/thirdparty/tracy.json`
-- `Engine/Scripts/Build/durin_build_tool/`
+- `Tools/BuildTool/durin_build_tool/`
 - `Engine/CMake/ThirdParty/tracy/`
 - `Engine/Source/Runtime/Core/Public/Profiling/Profiling.h`
 - `Engine/Source/Runtime/Core/Public/Windows/WindowsPlatformProcess.h`

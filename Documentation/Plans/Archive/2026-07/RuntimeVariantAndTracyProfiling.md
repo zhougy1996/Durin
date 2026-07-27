@@ -429,8 +429,8 @@ Stage 0 inventory classified the migration surfaces as follows:
 - `Engine/CMake/ThirdParty/`
 - `Engine/Scripts/Bootstrap/setup_third_party.py`
 - `Engine/Scripts/Bootstrap/thirdparty/`
-- `Engine/Scripts/Build/AgentBuildProfiles.json`
-- `Engine/Scripts/Build/durin_build_tool/`
+- `Tools/BuildTool/AgentBuildProfiles.json`
+- `Tools/BuildTool/durin_build_tool/`
 - `Engine/Source/Programs/DurinHeaderTool/durin_header_tool/`
 - `Engine/Source/Runtime/Core/`
 - `Engine/Source/Runtime/Launch/`

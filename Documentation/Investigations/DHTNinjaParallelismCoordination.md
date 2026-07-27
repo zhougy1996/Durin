@@ -1,7 +1,7 @@
 # DHT And Ninja Parallelism Coordination
 
 **Status:** Open  
-**Last reviewed:** 2026-07-25
+**Last reviewed:** 2026-07-27
 
 ## Scope And Verdict
 
@@ -33,9 +33,9 @@ Relevant implementation and architecture:
 - [`parallelism.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/runtime/parallelism.py);
 - [`module_export_file_generator.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/generators/module_export_file_generator.py);
 - [`module_reflection_files_generator.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/generators/module_reflection_files_generator.py);
-- [`config.py`](../../Engine/Scripts/Build/durin_build_tool/config.py), especially
+- [`config.py`](../../Tools/BuildTool/durin_build_tool/config.py), especially
   `resolve_jobs`;
-- [`core.py`](../../Engine/Scripts/Build/durin_build_tool/core.py), which passes
+- [`core.py`](../../Tools/BuildTool/durin_build_tool/core.py), which passes
   the resolved job count to `cmake --build`.
 
 ## Verified Findings
