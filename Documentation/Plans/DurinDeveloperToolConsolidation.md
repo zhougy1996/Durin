@@ -20,12 +20,20 @@ under `Tools/DocTool`, and retains WorktreeTool and Setup under
 three existing Tools plus Setup rather than moving BuildTool from its older
 `main` location.
 
-Stage 0 is complete. The selected working set is clean, 185 existing Python
-tooling tests pass with one platform-dependent skip, and the direct/shell,
-read-only, dry-run, and preflight baselines are recorded below. Stage 1 is next.
-One pre-existing defect is now explicit: `WorktreeTool.bat` prints the correct
-error when main-worktree preparation is rejected but returns exit code zero.
-The unified launcher must preserve the Python failure code instead.
+Stages 0 and 1 are complete. The bootstrap-safe product skeleton now owns the
+canonical launcher, validated repository discovery, standard-library-only
+command registry and error boundary, shared direct/shell help, and prepared
+environment capability guard. The existing domain implementations remain
+authoritative until their owning migration stages, and Stage 2 is next.
+
+The selected working set remains clean outside this plan's changes. The
+combined Python tooling suite passes 193 tests with one platform-dependent
+skip. System-Python cold-start, launcher help, scripted shell help, arbitrary
+working-directory discovery, and missing-environment failure behavior are
+recorded below. One pre-existing defect remains explicit:
+`WorktreeTool.bat` prints the correct error when main-worktree preparation is
+rejected but returns exit code zero. The final unified worktree command must
+preserve the Python failure code instead.
 
 The selected design
 uses one canonical Windows launcher at
@@ -359,20 +367,20 @@ Tools/
 
 ### Stage 1: Bootstrap-Safe Product Skeleton
 
-- [ ] Add `Tools/DurinDevTool/DevTool.bat` with virtual-environment preference
+- [x] Add `Tools/DurinDevTool/DevTool.bat` with virtual-environment preference
   and system-Python fallback.
-- [ ] Add the `durin_dev_tool` package, validated repository-root discovery,
+- [x] Add the `durin_dev_tool` package, validated repository-root discovery,
   shared error boundary, top-level parser, lazy command registry, and
   `DurinDevTool>` shell entry.
-- [ ] Keep package import and command discovery standard-library-only until a
+- [x] Keep package import and command discovery standard-library-only until a
   selected handler requires prepared dependencies.
-- [ ] Add explicit prepared-environment capability checks and actionable
+- [x] Add explicit prepared-environment capability checks and actionable
   failures for dependency-backed commands.
-- [ ] Implement direct and shell help generation from the same command
+- [x] Implement direct and shell help generation from the same command
   registry.
-- [ ] Add focused tests for interpreter selection, repository discovery from
+- [x] Add focused tests for interpreter selection, repository discovery from
   arbitrary working directories, missing `.venv`, help, and shell startup.
-- [ ] Update the plan status and record the stage handoff.
+- [x] Update the plan status and record the stage handoff.
 
 #### Acceptance Gate
 
@@ -383,6 +391,43 @@ Tools/
 - A dependency-backed placeholder command fails before importing unavailable
   packages and identifies `DevTool setup` as the recovery action.
 - The skeleton introduces no second command specification for shell use.
+
+#### Stage 1 Handoff
+
+- Baseline commit: `efdedb41`.
+- Working set:
+  - `Tools/DurinDevTool/DevTool.bat`;
+  - bootstrap-safe modules under
+    `Tools/DurinDevTool/durin_dev_tool`, including the process entrypoint,
+    repository discovery, command registry, CLI, shell, and lazy command
+    handlers;
+  - `Tools/DurinDevTool/tests/test_skeleton.py`;
+  - this plan status and handoff.
+- Key symbols:
+  - `discover_repository_root`, `find_repository_root`, and
+    `is_repository_root`;
+  - `Capability`, `CommandSpec`, `COMMAND_SPECS`, `CommandRegistry`, and
+    `require_prepared_environment`;
+  - `run`, `main`, and `run_shell`.
+- Decisions:
+  - repository discovery is anchored to the installed package path, then
+    validates `.git`, `CMakeLists.txt`, `Engine`, and `Tools`, so an unrelated
+    caller working directory cannot select a different workspace;
+  - the launcher prefers `.venv`, then `py -3`, then `python`, and preserves
+    the selected interpreter's exit code;
+  - the temporary `build` registration proves the prepared-environment and
+    lazy-import boundary, but the existing BuildTool remains authoritative
+    until Stage 2;
+  - direct and interactive parsing and help use only `COMMAND_SPECS`.
+- Open questions: none.
+- Validation:
+  - combined existing and new Python tooling suite: 193 passed, one skipped;
+  - isolated system-Python import, direct help from an unrelated working
+    directory, launcher help, and scripted shell help: passed;
+  - controlled checkout without `.venv`: dependency-backed `build` returned
+    exit code one, named `DevTool setup` and `DevTool worktree prepare`, and
+    did not import its handler;
+  - Python bytecode compilation for the new package: passed.
 
 ### Stage 2: Build Domain Consolidation
 
