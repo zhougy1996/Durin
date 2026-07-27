@@ -4,9 +4,12 @@ Summary: Give each logical mount typed Content and SourceAssets domains so asset
 
 Last reviewed: 2026-07-28
 
+Status: Archived
+Completed: 2026-07-28
+
 ## Current Status
 
-Stages 0 through 4 are complete for the unified-mount revision. Core now publishes
+All stages are complete for the unified-mount revision. Core now publishes
 one immutable registry with validated owner metadata, optional Content and
 SourceAssets domains, dependency edges, and source-write policy. Typed
 resolution and reverse classification enforce canonical containment and return
@@ -18,9 +21,8 @@ initialization succeeds.
 consumers, source-thumbnail identity, import destination mapping, and content
 browser navigation now use the typed registry rather than direct backing-vector
 searches or `FPaths::Resolve`. StaticMesh, Texture2D, and both TextureCube
-layouts now persist reflected `FSourcePath`; DAST v2 string carriers load only
-through exact nested-field aliases, migrate after byte-hash verification, and
-are transient on subsequent saves. Shared mounted-source operations now
+layouts now persist reflected `FSourcePath`; retired DAST v2 string carriers
+are deliberately rejected. Shared mounted-source operations now
 classify registered files as no-copy references, ingest external files only to
 explicit writable destinations, reuse only byte-identical collisions, and
 rollback failed publication. Reimport is source-read-only; change-reference,
@@ -29,8 +31,18 @@ Editor importers now expose reference-existing and ingest-external as separate
 states with independent asset and source destinations, mounted-domain policy
 diagnostics, and explicit repair. A bounded revision-aware reverse index previews
 shared-source impact, while replacement and multi-package relocation use
-recoverable source and package transactions. Stage 5 is next and will migrate
-repository content and publish the lasting contracts.
+recoverable source and package transactions.
+
+Stage 5 migrated all five repository-owned source-bearing packages to reflected
+mounted `FSourcePath` values after verifying their persisted source hashes.
+StaticMesh, Texture2D, and both TextureCube layouts no longer contain temporary
+legacy carriers or register nested-field aliases/upgraders. Unknown nested
+fields remain skippable, but a same-name kind or type-signature conflict now
+fails package loading with `TypeMismatch`; the five DAST v2 provenance fixtures
+prove deliberate rejection of the retired string carrier. Lasting mount,
+package, lifecycle, editor workflow, version-control, texture, cube, model, and
+level contracts now describe typed domains without deriving SourceAssets from
+Content.
 
 Baseline commit `ee94ad4e` established reflected-name serialization coverage and
 five DAST v2 legacy provenance fixtures covering project and engine StaticMesh,
@@ -45,12 +57,10 @@ model now uses one logical mount identity such as `/Engine/`, `/Game/`, or
 removes duplicate naming systems, naturally supports plugins, and lets a
 project reference Engine source files without copying them.
 
-Texture2D currently accepts user-selected organization anywhere beneath the
-owning package mount's typed SourceAssets domain, defaults new copies to
-`SourceAssets/Textures/<filename>`, and can copy a source to another location
-within that domain. StaticMesh and TextureCube remain more tightly coupled to
-legacy category paths. These are interim provenance workflows until Stage 2
-persists complete mounted source paths.
+StaticMesh, Texture2D, and TextureCube accept mounted existing-source
+references or explicit ingestion destinations independently from their asset
+package paths. Texture2D defaults new Game ingestion to
+`/Game/Textures/<filename>`; every persisted path remains complete and typed.
 
 Redirect files, stable source GUIDs, and transparent moves remain deferred.
 
@@ -793,24 +803,46 @@ Dependencies: Stage 3.
 
 Dependencies: Stages 2 through 4.
 
-- [ ] Migrate all repository-owned source-bearing packages and verify hashes.
-- [x] Report legacy repository packages by virtual path during startup loads
-  without warning for incompatible fields encountered by read-only inspection.
-- [ ] Remove legacy carriers only after clean scans and fixture-backed rejection
+- [x] Migrate all repository-owned source-bearing packages and verify hashes.
+- [x] Remove legacy carriers only after clean scans and fixture-backed rejection
   coverage.
-- [ ] Publish lasting mount, package, source workflow, content version-control,
+- [x] Publish lasting mount, package, source workflow, content version-control,
   texture, cube, and model contracts in their owning documentation.
-- [ ] Document plugin-shaped and source-only mount configuration, Git/LFS
+- [x] Document plugin-shaped and source-only mount configuration, Git/LFS
   ownership, links, unavailable roots, and read-only recovery.
-- [ ] Run focused native suites, package migration, cook/load, editor smoke,
+- [x] Run focused native suites, package migration, cook/load, editor smoke,
   full `all` build, and verified editor launch.
-- [ ] Update status/checklists, validate all plans, and archive this plan.
+- [x] Update status/checklists, validate all plans, and archive this plan.
 
 #### Acceptance Gate
 
 - Repository packages use only mounted `FSourcePath` provenance, old metadata
   is deliberately rejected, all validation passes, and authoritative
   documentation no longer derives SourceAssets from Content.
+
+#### Stage 5 Handoff
+
+- Baseline: `a4a16afd` (rebased Stage 4 equivalent).
+- Working set: five repository source-bearing packages; AssetCore nested-struct
+  deserialization; Engine source provenance and StaticMesh/Texture2D/TextureCube
+  registrations; source contract fixtures/tests; owning workspace, package,
+  lifecycle, editor workflow, version-control, texture, cube, model, and level
+  documentation; and this plan.
+- Key symbols: `FSourcePath`, `FStaticMeshSourceImportData`,
+  `FTextureSourceFile`, and nested-struct `TypeMismatch` handling in
+  `DeserializeValue`.
+- Decisions: repository packages retain only complete mounted source paths;
+  legacy string carriers, aliases, and source-specific upgraders are removed;
+  unknown nested fields remain forward-compatible, while same-name schema
+  conflicts are rejected instead of silently discarded.
+- Open questions: none.
+- Validation: clean repository package scan; all 49 AssetCore tests; 6
+  `FSourcePathContractTests`; 3 reverse-index/relocation tests; 4 isolated
+  Texture2D source/import/repair/rejection tests; all 13 TextureCube tests; all
+  4 StaticMesh DDC/cook tests; `TextureCookTests`; full `all` build; and an
+  8-second hidden-window Sandbox editor smoke launch. The known immutable
+  registry cross-suite assertion required the affected Engine tests to run in
+  isolated processes, matching prior-stage validation practice.
 
 ## Validation Matrix
 
@@ -834,12 +866,12 @@ Dependencies: Stages 2 through 4.
 | Per-asset settings | Shared source has different settings | Deterministically different DDC keys |
 | Ingest | External file targets writable Game source | One transactional copy |
 | Reimport | Asset rebuilds from mounted source | No source write |
-| Migration | Legacy Game and Engine packages load | Correct virtual roots, no file move, no DDC drift |
+| Migration | Repository packages and retired fixtures are scanned | Repository packages use `FSourcePath`; retired strings fail with `TypeMismatch` |
 | Cook | Editor provenance exists | Cooked runtime needs no SourceAssets root |
 | Rollback | Copy, build, save, or replacement fails | No partial source/package publication |
 
 Validation commands and profile selection follow
-[Build and Run](../Development/Build/BuildAndRun.md).
+[Build and Run](../../../Development/Build/BuildAndRun.md).
 
 ## Definition of Done
 
@@ -876,11 +908,11 @@ Validation commands and profile selection follow
 
 ## Related Documentation
 
-- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
-- [Texture Support Plan](TextureSupport.md)
+- [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
+- [Texture Support Plan](../../TextureSupport.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Complete the reflected actor/component runtime model and preserve its v
 
 Last reviewed: 2026-07-28
 
-Status: Completed
+Status: Archived
 Completed: 2026-07-28
 
 ## Current Status
@@ -138,7 +138,7 @@ Dependencies: Stage 1.
 | Editor-facing properties | reflected property container, edit-session, and transaction tests |
 | Plan integrity | `.\DevTool.bat plan validate --scope all` |
 
-Repository build and test commands must follow [Build And Run](../Development/Build/BuildAndRun.md) and [Native C++ Tests](../Development/Build/NativeTests.md).
+Repository build and test commands must follow [Build And Run](../../../Development/Build/BuildAndRun.md) and [Native C++ Tests](../../../Development/Build/NativeTests.md).
 
 ## Definition of Done
 
@@ -157,12 +157,12 @@ Repository build and test commands must follow [Build And Run](../Development/Bu
 
 ## Related Documentation
 
-- [Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Level System](../Runtime/World/LevelSystem.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Play In Editor Architecture](../Editor/Architecture/PlayInEditorArchitecture.md)
-- [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Level System](../../../Runtime/World/LevelSystem.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Play In Editor Architecture](../../../Editor/Architecture/PlayInEditorArchitecture.md)
+- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Make package dirty state reflect divergence from the last successful sa
 
 Last reviewed: 2026-07-28
 
-Status: Completed
+Status: Archived
 Completed: 2026-07-28
 
 ## Current Status
@@ -44,7 +44,7 @@ complete and awaiting the repository's periodic monthly archive workflow.
 - Working set:
   - `Engine/Source/Editor/DurinEd/Public/Editor/EditorTransaction.h`
   - `Engine/Source/Editor/DurinEd/Private/Editor/EditorTransaction.cpp`
-  - `Documentation/Plans/SavedRevisionDirtyState.md`
+  - `Documentation/Plans/Archive/2026-07/SavedRevisionDirtyState.md`
 - Key symbols: `FEditorRevisionId`, `FEditorPackageRevisionState`,
   `IEditorTransaction::GetAffectedPackages()`,
   `FEditorTransactionManager::EstablishSavedState()`, `MarkSaved()`,
@@ -76,7 +76,7 @@ complete and awaiting the repository's periodic monthly archive workflow.
   - `Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp`
   - `Engine/Source/Editor/LevelEditor/Private/Workspace/LevelEditorContext.h`
   - `Engine/Source/Editor/LevelEditor/Private/Workspace/LevelEditorContext.cpp`
-  - `Documentation/Plans/SavedRevisionDirtyState.md`
+  - `Documentation/Plans/Archive/2026-07/SavedRevisionDirtyState.md`
 - Key symbols: `FReflectedPropertyTransaction::GetAffectedPackages()`,
   `FActorTransformTransaction`, `FPrimaryCameraTransaction`,
   `FActorVisibilityTransaction`,
@@ -108,7 +108,7 @@ complete and awaiting the repository's periodic monthly archive workflow.
   - `Engine/Tests/Native/EngineTests/Private/Viewport/ViewportTestSupport.h`
   - `Engine/Tests/Native/EngineTests/Private/Viewport/ViewportFoundationTests.cpp`
   - `Engine/Tests/Native/EngineTests/Private/Viewport/ViewportInteractionTests.cpp`
-  - `Documentation/Plans/SavedRevisionDirtyState.md`
+  - `Documentation/Plans/Archive/2026-07/SavedRevisionDirtyState.md`
 - Key symbols: `FPackageCountingTransaction`,
   `MakeRevisionTestPackage()`,
   `FLevelDocumentRevisionState::CompleteSave()`, `Activate()`, and `Discard()`,
@@ -137,7 +137,7 @@ complete and awaiting the repository's periodic monthly archive workflow.
 - Baseline commit: `7024938d`.
 - Working set:
   - `Documentation/Editor/Architecture/ReflectedPropertyEditing.md`
-  - `Documentation/Plans/SavedRevisionDirtyState.md`
+  - `Documentation/Plans/Archive/2026-07/SavedRevisionDirtyState.md`
 - Key contracts: affected-package metadata on editor transactions,
   package-scoped current/saved revisions, `DPackage::IsDirty()` synchronization,
   checkpoint invalidation for untracked edits, and document-lifecycle cleanup.
@@ -503,8 +503,8 @@ Dependencies: Stage 3.
 
 ## Related Documentation
 
-- [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

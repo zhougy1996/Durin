@@ -612,7 +612,7 @@ commands or output paths that may change.
 - [C++ Coding Standards](../Development/Standards/CodingStandards.md)
 - [Build and Run](../Development/Build/BuildAndRun.md)
 - [Rendered Asset Thumbnails Plan](Archive/2026-07/RenderedAssetThumbnails.md)
-- [Source Library References Plan](SourceLibraryReferences.md)
+- [Source Library References Plan](Archive/2026-07/SourceLibraryReferences.md)
 - [Ready-to-Use Static Model Import Plan](ReadyToUseStaticModelImport.md)
 
 ## Related Code

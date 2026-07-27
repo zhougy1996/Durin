@@ -8,7 +8,7 @@ merely whether a file contains binary bytes.
 
 | Class | Typical location | Suffix | Authoritative for | May be deleted locally |
 | --- | --- | --- | --- | --- |
-| Source input | Project or engine `SourceAssets/` | Source-specific | Reimport and rebuilding | No |
+| Source input | Mounted `SourceAssets` domain | Source-specific | Reimport and rebuilding | No |
 | Object package | Mounted `Content/` | `.dasset` | Asset identity and editable object state | No |
 | Derived data | `DerivedDataCache/` | `.bin` | Nothing; it accelerates editor and cook work | Yes |
 | Cooked package | `Cooked/<Platform>/...` | `.dasset` | Runtime object metadata for that cook | No |
@@ -16,8 +16,10 @@ merely whether a file contains binary bytes.
 | Local state | `Saved/` | Format-specific | Diagnostics, sessions, and user-local state | Yes |
 
 `FAssetPath` and reflected asset references always identify the main asset in a
-`.dasset` package. They never identify a source file, DDC key, `.bin` object,
-`.dbulk` file, byte offset, or physical workstation path.
+`.dasset` package through a mount's Content domain. `FSourcePath` identifies an
+editor source file through the same mount's SourceAssets domain. Neither type
+identifies a DDC key, `.bin` object, `.dbulk` file, byte offset, or physical
+workstation path, and the two path types are not interchangeable.
 
 ## Authored Packages
 
@@ -30,15 +32,25 @@ An editor `.dasset` contains compact, review-worthy object state:
 
 Large platform render payloads do not belong in the authored package. Keeping
 them external avoids rewriting source-controlled packages when a builder,
-platform, or quality policy changes. Persistent source paths must be normalized
-project- or engine-relative paths; absolute workstation paths are invalid.
+platform, or quality policy changes. Persistent source paths are complete
+normalized virtual file paths such as `/Engine/Models/Box.obj` or
+`/Game/Textures/Stone.png`. Absolute workstation paths and physical domain
+directory names are invalid.
 
 The source input is authoritative for rebuilding but is not a runtime asset.
-New shared source art belongs under project or engine `SourceAssets`, which is
-versioned but not mounted as runtime Content. StaticMesh, Texture2D, and
-TextureCube require normalized provenance beneath `SourceAssets/Models` or
-`SourceAssets/Textures`; their former package-adjacent source metadata is
-rejected rather than resolved.
+New shared source art belongs in a registered SourceAssets domain, which is
+versioned independently from runtime Content. Source organization is independent
+of package organization. StaticMesh, Texture2D, and TextureCube persist mounted
+`FSourcePath` provenance plus exact hashes; their former package-relative
+strings are rejected rather than resolved.
+
+Selecting a file already inside an allowed SourceAssets domain records a
+no-copy reference. Selecting an external file requires an explicit writable
+mount and destination and ingests one transactional copy. Reimport only reads
+the persisted source. Changing one asset's reference, replacing shared source
+bytes, and relocating a shared source are separate operations; shared mutation
+requires complete impact discovery and rolls source and packages back together
+on failure. See [Mounted Source Workflows](../../Editor/Guides/MountedSourceWorkflows.md).
 
 ### Import-Time Build Policy
 

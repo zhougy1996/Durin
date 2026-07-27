@@ -113,21 +113,6 @@ namespace Durin::Asset
 		const FAssetMigrationContext&,
 		std::vector<FAssetCompatibilityIssue>&)>;
 
-	// Maps one serialized nested-struct field to a temporary reflected compatibility
-	// carrier before ordinary reflected deserialization. Every metadata component
-	// must match so newer schemas are never mistaken for known legacy data.
-	struct FAssetSerializedStructFieldAlias
-	{
-		std::string SerializedName;
-		DurinCodeGen::EPropertyGenFlags SerializedKind = DurinCodeGen::EPropertyGenFlags::None;
-		std::string SerializedTypeSignature;
-		std::string CompatibilityName;
-	};
-
-	ASSETCORE_API auto RegisterAssetSerializedStructFieldAlias(
-		DStruct* Struct,
-		FAssetSerializedStructFieldAlias Alias) -> void;
-
 	// Registers the engine-owned upgrader responsible for incompatible fields on a reflected class.
 	ASSETCORE_API auto RegisterAssetStructureUpgrader(
 		DClass* Class,

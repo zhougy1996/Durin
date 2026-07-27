@@ -111,10 +111,6 @@ namespace Durin
 		DPROPERTY()
 		FSourcePath SourcePath;
 
-		// Temporary compatibility carrier for the former string field serialized as SourcePath.
-		DPROPERTY(Transient)
-		std::string LegacySourcePath;
-
 		DPROPERTY()
 		uint64 SourceContentHashLow = 0;
 

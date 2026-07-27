@@ -32,10 +32,75 @@ At runtime, launch a specific project with
 workspace-relative or absolute existing descriptor and forwards its normalized
 absolute path through the launcher's `--project=<path>` contract. The project
 root is the descriptor's parent directory, so projects may live outside the
-engine workspace. Its `ProjectName` supplies the virtual mount name and its
-`Content` directory supplies the physical mount.
+engine workspace. `ProjectName` is display/build identity; the selected
+project's `Content` and `SourceAssets` directories publish the fixed logical
+`/Game/` mount. Engine domains publish under `/Engine/`.
 
 CMake passes complete `.dproject` paths to DurinHeaderTool. Generated build metadata preserves the complete set of project descriptors needed to resolve cross-project module dependencies; there is no global project registry file.
+
+## Mounted Content And Sources
+
+A logical mount is one owner identity with independent typed domains. `Content`
+resolves extensionless `FAssetPath` package identities, while `SourceAssets`
+resolves complete `FSourcePath` file identities. Virtual paths omit the
+physical domain directory:
+
+```text
+/Game/Textures/T_Stone
+  -> <project>/Content/Textures/T_Stone.dasset
+
+/Game/Art/Stone.png
+  -> <project>/SourceAssets/Art/Stone.png
+```
+
+The engine publishes both domains at `/Engine/`. The selected project publishes
+both at `/Game/` and may reference `/Engine/`. Registry publication is
+immutable for the active project lifetime.
+
+An active project may declare plugin-shaped or source-only mounts:
+
+```json
+{
+    "Mounts": [
+        {
+            "VirtualRoot": "/Plugins/PCG/",
+            "Owner": "Extension",
+            "Root": "Plugins/PCG",
+            "Domains": {
+                "Content": "Content",
+                "SourceAssets": "SourceAssets"
+            },
+            "SourceWritable": false,
+            "Dependencies": ["/Engine/"]
+        },
+        {
+            "VirtualRoot": "/Libraries/StudioArt/",
+            "Owner": "ExternalSources",
+            "Root": "Libraries/StudioArt",
+            "Domains": {
+                "SourceAssets": "."
+            },
+            "SourceWritable": false,
+            "Dependencies": ["/Engine/"]
+        }
+    ]
+}
+```
+
+Every entry requires `VirtualRoot`, `Owner`, `Root`, `Domains`,
+`SourceWritable`, and `Dependencies`. Only `Extension` and `ExternalSources`
+owners are accepted. Roots and domains are descriptor-relative, may not
+traverse or be absolute, and cannot override `/Engine/` or `/Game/`. A mount
+may expose either domain or both. The active `/Game/` mount automatically
+depends on every additional mount; each additional mount declares its own
+outgoing dependencies.
+
+A declared root may be a directory, junction, or symbolic link. Canonical
+containment rejects a nested link that escapes its registered domain. A missing
+root remains registered as unavailable so packages can load from valid derived
+data and report a repairable diagnostic; it never falls back to another
+physical directory. Workstation-specific absolute paths do not belong in
+committed descriptors.
 
 Modules are the compilation and runtime loading units. They belong to a project, but their dependencies can cross project boundaries.
 

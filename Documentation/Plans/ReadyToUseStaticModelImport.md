@@ -9,7 +9,7 @@ Last reviewed: 2026-07-27
 Planning is complete and no implementation stage has started.
 
 Source dependency terminology now follows the unified logical-mount contract
-selected by `Documentation/Plans/SourceLibraryReferences.md`: persisted inputs
+selected by `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`: persisted inputs
 use `FSourcePath`, and Content/SourceAssets are typed domains of one mount
 rather than separate asset and source-library namespaces.
 
@@ -179,7 +179,7 @@ roughness PBR surface contract owned by the Material System plan.
 
 - This plan consumes the logical `FSourcePath`, mounted-source containment, and
   reference-versus-ingest rules selected by
-  `Documentation/Plans/SourceLibraryReferences.md`; it does not create a second
+  `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`; it does not create a second
   source mounting abstraction.
 - A static-model import has one authoritative root source plus an ordered
   dependency manifest. Each entry records its normalized logical role,
@@ -690,7 +690,7 @@ subset.
 - `Documentation/Runtime/Rendering/MaterialSystem.md`
 - `Documentation/Plans/MaterialSystem.md`
 - `Documentation/Plans/TextureSupport.md`
-- `Documentation/Plans/SourceLibraryReferences.md`
+- `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`
 - `Documentation/Plans/MultithreadingV1.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 

@@ -4,9 +4,20 @@ Durin object assets are stored as versioned `.dasset` packages. A package has on
 
 ## Paths And Mounts
 
-Asset identities use extensionless virtual paths such as `/Engine/Materials/Default` or `/Game/Levels/TestLevel`. The first path segment must match a registered content mount. `PathUtilities::InitDefaultMountPoints()` registers `/Engine/` and mounts the `Content` directory of the project selected with `--project=<path-to-project.dproject>` at `/Game/`, independent of its `ProjectName`.
+Asset identities use extensionless `FAssetPath` values such as
+`/Engine/Materials/Default` or `/Game/Levels/TestLevel`. The first path segment
+must match a registered mount with a `Content` domain. `FSourcePath` uses the
+same logical mount identity but resolves only through its `SourceAssets`
+domain; it retains the filename extension. Neither virtual path includes the
+physical `Content` or `SourceAssets` directory name.
 
-Code that already owns non-empty, absolute, lexically normalized physical paths uses `PathUtilities::TryMakeLexicalRelativePath()` and `IsLexicalDescendantPath()` for mount containment. These helpers compare complete path components, reject `..`, ignore trailing separators, require matching roots, and treat Windows components as case-insensitive. Equality is valid containment for physical-to-virtual mount conversion but is not a descendant relationship. Filesystem-querying canonicalization remains limited to boundaries that actually inspect filesystem state.
+The immutable Core registry publishes `/Engine/` and `/Game/` plus validated
+project-declared extension and external-source mounts. A mount may expose
+Content only, SourceAssets only, or both. Typed resolution reports invalid
+paths, unknown mounts, unsupported or unavailable domains, escapes, missing
+files, forbidden dependencies, and read-only source policy distinctly.
+Existing paths and not-yet-created destinations are checked against canonical
+domain roots, including junction and symbolic-link targets.
 
 The physical filename is the resolved virtual path plus `.dasset`. Main assets use the package path as their object path; inner objects append a colon and their relative Outer chain, for example `/Game/Objects/Test:Root.Component`.
 
@@ -35,7 +46,7 @@ Object records store object id, outer id, qualified class name, object name, and
 
 ## Structure Compatibility
 
-AssetCore retains every unknown, removed, or type-incompatible serialized field
+AssetCore retains every unknown or removed serialized object field
 in an `FAssetLoadReport` instead of reducing compatibility to a log message.
 Each object-level issue records the package and object identity, declaring
 class, original field signatures and payloads, classification, risk, summary,
@@ -61,7 +72,15 @@ same compatibility workflow.
 
 Internal references use object ids. Cross-package strong references target the other package's main asset by `FAssetPath` and synchronously load that dependency. Circular dependencies work because object skeletons are constructed before dependency fields are applied.
 
-Supported reflected payloads are numeric values, bool, strings, enums, `DStruct` values, `TObjectPtr`, vectors, maps, and nesting of those containers. Struct payloads contain a qualified-name field table, so unknown, missing, and type-incompatible struct fields follow the same compatibility rules as object fields. Raw object pointers and property kinds without runtime helpers fail package saving instead of being silently omitted.
+Supported reflected payloads are numeric values, bool, strings, enums,
+`DStruct` values, `TObjectPtr`, vectors, maps, and nesting of those containers.
+Struct payloads contain a qualified-name field table. Missing fields retain
+constructor defaults and unknown names are skipped, but a serialized field
+whose name matches the current struct with a different kind or recursive type
+signature fails loading with `TypeMismatch`; it is never reinterpreted. This
+deliberately rejects retired string `SourcePath` provenance now that mounted
+`FSourcePath` is authoritative. Raw object pointers and property kinds without
+runtime helpers fail package saving instead of being silently omitted.
 
 ## Subsystem Boundary
 

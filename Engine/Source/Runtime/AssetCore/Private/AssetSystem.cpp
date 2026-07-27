@@ -176,13 +176,6 @@ namespace Durin::Asset
 			return Upgraders;
 		}
 
-		auto GetSerializedStructFieldAliases()
-			-> std::unordered_map<DStruct*, std::vector<FAssetSerializedStructFieldAlias>>&
-		{
-			static std::unordered_map<DStruct*, std::vector<FAssetSerializedStructFieldAlias>> Aliases;
-			return Aliases;
-		}
-
 		auto GetPhysicalPath(const FAssetPath& Path) -> std::string
 		{
 			const FPackageLoadContext& Context = FAssetManager::Get().GetPackageLoadContext();
@@ -447,45 +440,19 @@ namespace Durin::Asset
 						return Error(EAssetError::CorruptFile, "Invalid struct field record.");
 					if (DeclaringStruct != StructName) continue;
 					FProperty* Field = Struct->FindPropertyByName(FName(FieldName), false);
-					if (!Field || static_cast<uint8>(Field->GetKind()) != Kind || GetTypeSignature(Field) != Signature)
+					if (!Field)
 					{
-						const auto AliasMapIt = GetSerializedStructFieldAliases().find(Struct);
-						const FAssetSerializedStructFieldAlias* Alias = nullptr;
-						if (AliasMapIt != GetSerializedStructFieldAliases().end())
-						{
-							const auto AliasIt = std::ranges::find_if(
-								AliasMapIt->second,
-								[&](const FAssetSerializedStructFieldAlias& Candidate) {
-									return Candidate.SerializedName == FieldName
-										&& static_cast<uint8>(Candidate.SerializedKind) == Kind
-										&& Candidate.SerializedTypeSignature == Signature;
-								});
-							if (AliasIt != AliasMapIt->second.end()) Alias = &*AliasIt;
-						}
-						Field = Alias != nullptr
-							? Struct->FindPropertyByName(FName(Alias->CompatibilityName), false)
-							: nullptr;
-						if (!Field || static_cast<uint8>(Field->GetKind()) != Kind
-							|| GetTypeSignature(Field) != Signature)
-						{
-							if (!PackagePath.empty())
-							{
-								DURIN_WARN(
-									"Asset package '{}' skipped incompatible struct field {}::{}.",
-									PackagePath, StructName, FieldName);
-							}
-							continue;
-						}
-						if (OutLegacyFields)
-						{
-							OutLegacyFields->push_back({
-								.DeclaringClass = DeclaringStruct,
-								.Name = FieldName,
-								.Kind = static_cast<DurinCodeGen::EPropertyGenFlags>(Kind),
-								.TypeSignature = Signature,
-								.Payload = {Payload.begin(), Payload.end()}});
-						}
+						DURIN_WARN("Skipping unknown struct field {}::{}", StructName, FieldName);
+						continue;
 					}
+					if (static_cast<uint8>(Field->GetKind()) != Kind
+						|| GetTypeSignature(Field) != Signature)
+						return Error(
+							EAssetError::TypeMismatch,
+							std::format(
+								"Serialized struct field {}::{} is incompatible with the current schema.",
+								StructName,
+								FieldName));
 					FByteReader PayloadReader{Payload};
 					for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim(); ++FieldIndex)
 					{
@@ -1120,24 +1087,6 @@ namespace Durin::Asset
 			FRegisteredStructureUpgrader{
 				.HandlerId = std::move(HandlerId),
 				.Upgrader = std::move(Upgrader)});
-	}
-
-	auto RegisterAssetSerializedStructFieldAlias(
-		DStruct* Struct,
-		FAssetSerializedStructFieldAlias Alias) -> void
-	{
-		if (!Struct || Alias.SerializedName.empty() || Alias.SerializedKind == DurinCodeGen::EPropertyGenFlags::None
-			|| Alias.SerializedTypeSignature.empty() || Alias.CompatibilityName.empty()) return;
-		auto& Aliases = GetSerializedStructFieldAliases()[Struct];
-		const auto Existing = std::ranges::find_if(
-			Aliases,
-			[&](const FAssetSerializedStructFieldAlias& Candidate) {
-				return Candidate.SerializedName == Alias.SerializedName
-					&& Candidate.SerializedKind == Alias.SerializedKind
-					&& Candidate.SerializedTypeSignature == Alias.SerializedTypeSignature;
-			});
-		if (Existing == Aliases.end()) Aliases.push_back(std::move(Alias));
-		else *Existing = std::move(Alias);
 	}
 
 	auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void

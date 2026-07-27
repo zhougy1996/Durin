@@ -110,10 +110,10 @@ source files; inactive-layout strings never participate in rebuild, move, or
 delete.
 
 Six-face imports retain the `<AssetName>_px`, `_nx`, `_py`, `_ny`, `_pz`, and
-`_nz` suffixes and their current extension behavior beneath the owning project
-or engine `SourceAssets/Textures`. A panorama
-import copies its authoritative source beneath the same source root as
-`<AssetName>_panorama<extension>`, where `extension` is the accepted source
+`_nz` suffixes and their current extension behavior in complete mounted
+`FSourcePath` values. A panorama ingested into managed storage places its
+authoritative source at the explicitly selected writable destination, normally
+ending in `<AssetName>_panorama<extension>`, where `extension` is the accepted source
 extension normalized to lowercase, including its leading period. Provenance
 stores exact XXH3-128 source hashes plus decoder version 1 and projection
 version 1. Moving or deleting a package does not move or delete potentially
@@ -354,6 +354,13 @@ source pixel.
   either mode's current inputs. Six-face mode owns one source slot for each
   named face in `+X/-X/+Y/-Y/+Z/-Z` order and displays the corresponding Durin
   direction and source-image top/right orientation from this document.
+- Each mode explicitly selects Reference Existing Source or Ingest External
+  Source. Referencing an allowed mounted source performs no copy; ingestion
+  requires a complete destination in a writable SourceAssets domain. Asset and
+  source destinations are independent.
+- Reimport reads the persisted face or panorama sources without writing them.
+  Change-reference, shared replacement, repair, and multi-package relocation
+  remain explicit operations with impact preview and transactional rollback.
 - Panorama mode accepts one PNG, JPEG, BMP, TGA, or Radiance HDR source. A face
   dimension of zero selects the documented `Width / 4` default; explicit values
   are limited to `[1, 4096]`. Exposure is retained across mode changes, is

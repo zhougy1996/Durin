@@ -103,12 +103,4 @@ namespace Durin
 	ENGINE_API auto RollbackMountedSourceRelocation(
 		FMountedSourceRelocation& Relocation) -> void;
 
-	// Converts one pre-mounted SourceAssets-relative carrier using the owning
-	// package's Content mount and requires the referenced source file to exist.
-	ENGINE_API auto TryMigrateLegacySourcePath(
-		std::string_view PackagePath,
-		std::string_view LegacyPath,
-		FSourcePath& OutSourcePath,
-		std::filesystem::path& OutPhysicalPath,
-		std::string& OutError) -> bool;
 }

@@ -5,8 +5,8 @@ cooked-runtime, render-resource, editor, and material boundaries.
 
 ## Asset and Build Ownership
 
-- `DTexture2D` owns optional normalized source provenance beneath project or
-  engine `SourceAssets/Textures` plus the reflected `Usage`,
+- `DTexture2D` owns an optional complete `FSourcePath` in any allowed mounted
+  SourceAssets domain plus the reflected `Usage`,
   `bSRGB`, `MaxResolution`, `CompressionQuality`, `AlphaMipMode`, and
   `AlphaCoverageThreshold` build settings.
 - The package also retains the imported source-content hash, source file
@@ -152,7 +152,8 @@ checked against known values rather than inferred from editor startup.
 
 `TextureEditor` registers a per-resource workspace for `DTexture2D`. It exposes:
 
-- source file, dimensions, source channel count, transparency, and decoded format;
+- source virtual path, owning mount, availability/dependency/write diagnostics,
+  dimensions, source channel count, transparency, and decoded format;
 - transactional Usage, sRGB, maximum-resolution, and compression-quality
   controls, plus alpha mip mode and coverage threshold;
 - platform format, mip count and range, byte size, residency policy, build
@@ -165,8 +166,12 @@ one registered preview texture, so simultaneously visible documents cannot
 reuse or overwrite one another's image. Missing or invalid platform data falls
 back to decoded source data when available; otherwise the preview is released.
 Persistent source, decode, build, upload, and format status is shown with retry
-controls. Content Browser thumbnails remain persistent derivatives of the
-copied source image rather than the built platform representation.
+and explicit repair controls. Reference Existing Source performs no copy;
+Ingest External Source requires a writable destination. Reimport is read-only.
+Changing one reference and replacing or relocating shared source are distinct
+commands, and shared mutation previews every known affected asset. Content
+Browser thumbnails use mounted source identity rather than inferring a source
+directory from Content.
 
 ## Current Limitations
 
