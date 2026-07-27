@@ -12,13 +12,20 @@ Completed:
 Planning was created from `main` at `23d8f1ac`, then moved to the intended
 latest `dev` base after the branch mismatch was detected. The plan commit on
 `dev` is `4f47cd6e`, whose parent `7f47c1bb` is the implementation baseline.
-No implementation stage has started.
+The corrected plan baseline is `8eac1950`.
 
 The `dev` baseline already owns BuildTool under `Tools/BuildTool`, adds DocTool
 under `Tools/DocTool`, and retains WorktreeTool and Setup under
 `Engine/Scripts`. The plan has therefore been corrected to consolidate all
 three existing Tools plus Setup rather than moving BuildTool from its older
 `main` location.
+
+Stage 0 is complete. The selected working set is clean, 185 existing Python
+tooling tests pass with one platform-dependent skip, and the direct/shell,
+read-only, dry-run, and preflight baselines are recorded below. Stage 1 is next.
+One pre-existing defect is now explicit: `WorktreeTool.bat` prints the correct
+error when main-worktree preparation is rejected but returns exit code zero.
+The unified launcher must preserve the Python failure code instead.
 
 The selected design
 uses one canonical Windows launcher at
@@ -71,6 +78,8 @@ error semantics.
   - `Engine/Scripts/Bootstrap`.
 - Preserve third-party manifests while moving them under DurinDevTool
   ownership.
+- Update the editor profiling service and its native tests, which consume the
+  Tracy manifest locations and manifest-provided repair command.
 - Replace library-specific setup batch wrappers with typed Python commands.
 - Preserve fresh-checkout setup, linked-worktree preparation, build ownership,
   interruption recovery, process-tree termination, purge boundaries, and
@@ -266,20 +275,20 @@ Tools/
 
 ### Stage 0: Baseline and Working-Set Contract
 
-- [ ] Record the baseline commit and confirm the checkout has no overlapping
+- [x] Record the baseline commit and confirm the checkout has no overlapping
   user changes in the files this plan will modify.
-- [ ] Inventory the exact files moving from the build, documentation,
+- [x] Inventory the exact files moving from the build, documentation,
   worktree, and bootstrap implementations, including third-party manifests and
   tests.
-- [ ] Classify every reference to the four old entrypoints or implementation
+- [x] Classify every reference to the four old entrypoints or implementation
   paths as current operational behavior, live diagnostic, active-plan
   provenance, test coupling, or archived history.
-- [ ] Run the existing Agent tooling and DocTool tests and record any baseline
+- [x] Run the existing Agent tooling and DocTool tests and record any baseline
   failures.
-- [ ] Verify the current direct and interactive help, read-only commands,
+- [x] Verify the current direct and interactive help, read-only commands,
   DocTool listing/validation/archive dry run, worktree dry runs, and setup
   preflight behavior used as parity evidence.
-- [ ] Record the working set, key symbols, path assumptions, and validation
+- [x] Record the working set, key symbols, path assumptions, and validation
   result in the stage handoff.
 
 #### Acceptance Gate
@@ -290,6 +299,63 @@ Tools/
   movement begins.
 - The next stage can introduce the new package without guessing repository-root
   or interpreter contracts.
+
+#### Stage 0 Handoff
+
+- Baseline commit: `8eac1950`.
+- Working set:
+  - four root entrypoints: `BuildTool.bat`, `DocTool.bat`,
+    `WorktreeTool.bat`, and `Setup.bat`;
+  - 17 tracked files under `Tools/BuildTool`, including
+    `AgentBuildProfiles.json`, the build package, and scaffolding templates;
+  - five tracked files under `Tools/DocTool`;
+  - `Engine/Scripts/Utils/worktree_tool.py`;
+  - 28 tracked bootstrap scripts and manifests under
+    `Engine/Scripts/Bootstrap`;
+  - `Engine/Scripts/Tests/test_agent_tooling.py` and
+    `Tools/Tests/test_doc_tool.py`;
+  - current repository instructions, operational documentation, live
+    investigations, active-plan references, CMake diagnostics, and
+    `Tools/README.md`;
+  - `ProfilingToolService.cpp` and `ProfilingToolServiceTests.cpp`, which read
+    Tracy manifests from the bootstrap directory and expose the manifest
+    repair command.
+- Key symbols:
+  - BuildTool `CommandSpec`, `CommandFamilySpec`, `COMMAND_SPECS`,
+    `COMMAND_FAMILIES`, `parse_args`, `run_shell`, and `main`;
+  - DocTool `_parser`, `_execute`, `run_shell`, `main`, `load_catalog`,
+    `preview_archive`, and `apply_archive`;
+  - WorktreeTool `get_worktrees`, `prepare_registered_worktree`,
+    `validate_directory_links`, `remove_worktree`, `parse_args`, and `main`;
+  - bootstrap `ensure_agent_config`, preflight checks, `load_manifests`,
+    dependency `run_command`, and setup entrypoints;
+  - profiling-service `ToolsManifestPath`, `ClientManifestPath`, and
+    manifest-provided `RepairCommand`.
+- Reference classification:
+  - executable ownership is split across the four root launchers, two
+    `Tools` products, and the worktree/bootstrap implementation under
+    `Engine/Scripts`;
+  - live callers include BuildTool and third-party CMake diagnostics plus the
+    editor profiling service's Tracy manifest paths;
+  - current documentation, live investigations, and active plans require
+    final-cutover updates;
+  - archived plans remain historical and are excluded from mechanical
+    replacement.
+- Decisions: Stage 1 adds only the bootstrap-safe unified product skeleton.
+  Existing domain implementations remain authoritative until their owning
+  stages, and old launchers are deleted only in the atomic cutover.
+- Open questions: none.
+- Validation:
+  - `python -m unittest Engine.Scripts.Tests.test_agent_tooling
+    Tools.Tests.test_doc_tool`: 185 passed, one skipped;
+  - BuildTool help, status, presets, and scripted read-only shell: passed;
+  - DocTool help, active listing, all-scope validation, archive dry run, and
+    scripted shell: passed;
+  - Worktree list and terminal-open dry run: passed;
+  - setup help and prerequisite preflight: passed;
+  - main-worktree `prepare --dry-run` was correctly rejected, but
+    `WorktreeTool.bat` returned zero; this is recorded as a baseline launcher
+    defect for Stage 1.
 
 ### Stage 1: Bootstrap-Safe Product Skeleton
 
@@ -388,6 +454,9 @@ Tools/
   subprocess boundaries that preserve exit codes and stream useful output.
 - [ ] Implement `setup`, `dependency prepare`, and `dependency validate`
   handlers against those shared services.
+- [ ] Update the editor profiling service and its native tests to resolve Tracy
+  manifests from DurinDevTool and advertise the canonical focused dependency
+  repair command.
 - [ ] Remove unconditional pause behavior from setup.
 - [ ] Preserve idempotence, non-overwrite of local Agent configuration,
   preflight-before-mutation ordering, pinned requirement installation, and
@@ -413,6 +482,8 @@ Tools/
 - Worktree preparation and removal safety tests pass unchanged in substance.
 - Every third-party manifest validates from its new location, and focused
   dependency selection replaces every library-specific setup wrapper use case.
+- The profiling service resolves the relocated Tracy client/tool manifests and
+  reports a runnable DurinDevTool repair command.
 
 ### Stage 5: Atomic Repository Cutover
 
@@ -550,6 +621,8 @@ Tools/
 - `Engine/Scripts/Utils/worktree_tool.py`
 - `Engine/Scripts/Bootstrap`
 - `Engine/Scripts/Tests/test_agent_tooling.py`
+- `Engine/Source/Editor/MainFrame/Private/ProfilingToolService.cpp`
+- `Engine/Tests/Native/EngineTests/Private/ProfilingToolServiceTests.cpp`
 - `CMake/Config/BuildOptions.cmake`
 - `Engine/CMake/ThirdParty`
 - `requirements.txt`
