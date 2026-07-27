@@ -33,8 +33,8 @@ Release builds beneath `Engine/Binaries/Win64/ThirdParty/Release/`; the
 profiling-only Tracy runtime remains in the selected profiling runtime directory.
 
 The client is configured for on-demand, localhost-only capture. Capturing is
-optional at runtime. Use the profiler or capture tool from the matching upstream
-Tracy `v0.13.1` release.
+optional at runtime. The repository-managed profiler and capture tool always
+match the pinned Tracy `v0.13.1` client.
 
 ## Editor Tool Workflow
 
@@ -87,7 +87,42 @@ Durin does not set `TRACY_PORT`. With no developer override, Tracy searches
 ports 8086 through 8105 and advertises the selected data port through discovery.
 Use the discovered port instead of assuming every process is on 8086. An
 explicit `TRACY_PORT` remains a developer-owned override and disables the
-automatic search for that process.
+automatic search for that process. Profiling runtimes and the Editor tool-status
+dialog warn when the variable is present. Two processes that inherit the same
+fixed port remain alive, but only the first can listen; remove the override or
+give each process a distinct value.
+
+## Command-Line Capture
+
+Use Tracy discovery to identify the target label and its advertised port, then
+run the managed capture tool from the workspace root:
+
+```powershell
+Engine\External\Packages\tracy-tools\0.13.1\Win64\tracy-capture.exe `
+  -a 127.0.0.1 `
+  -p <discovered-port> `
+  -o Build\Profiling\Tracy\capture.tracy `
+  -f `
+  -s 10
+```
+
+`-s` stops the capture after the specified number of seconds. Omit it for an
+interactive capture and stop the tool with Ctrl+C. `-f` permits replacement of
+the selected output file. The capture directory is ignored by Git.
+
+On-demand clients remain available after a capture disconnects. Durin applies a
+build-local compatibility fix for Tracy v0.13.1 when call-stack support is
+disabled, allowing another profiler or capture process to reconnect without
+restarting Editor or Game. The prepared upstream source remains unchanged.
+
+If a connection fails:
+
+1. Confirm the target is a Release Profiling build and is still running.
+2. Select the port advertised for that exact runtime, project, and PID rather
+   than assuming 8086.
+3. Remove a shared `TRACY_PORT` override or assign unique fixed ports.
+4. Run `Engine\Scripts\Bootstrap\Setup_tracy.bat` if tool status reports a
+   missing or mismatched installation.
 
 ## Instrumentation Surface
 

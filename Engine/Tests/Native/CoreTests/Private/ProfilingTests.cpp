@@ -36,6 +36,15 @@ namespace Durin
 		EXPECT_EQ(Profiling::GetProgramIdentity(), SecondIdentity);
 	}
 
+	TEST(FProfilingTests, FormatsExplicitPortOverrideDiagnostic)
+	{
+		const std::string Diagnostic = Profiling::FormatPortOverrideDiagnostic("8099");
+
+		EXPECT_NE(Diagnostic.find("TRACY_PORT=8099"), std::string::npos);
+		EXPECT_NE(Diagnostic.find("disables Tracy's automatic 8086-8105 port search"), std::string::npos);
+		EXPECT_NE(Diagnostic.find("second process"), std::string::npos);
+	}
+
 	TEST(FProfilingTests, DisabledMacrosDoNotEvaluateArguments)
 	{
 		static_assert(DURIN_WITH_TRACY == 0);

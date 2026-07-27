@@ -3,6 +3,7 @@
 #include "Dialogs/FileDialog.h"
 #include "HAL/PlatformProcess.h"
 #include "Json/Json.h"
+#include "Profiling/Profiling.h"
 
 namespace Durin
 {
@@ -145,6 +146,8 @@ namespace Durin
 			Status.ExpectedVersion,
 			Status.ProfilerPath
 		);
+		if (const char* TracyPort = std::getenv("TRACY_PORT"))
+			Status.Diagnostic += "\n" + Profiling::FormatPortOverrideDiagnostic(TracyPort);
 		return Status;
 	}
 

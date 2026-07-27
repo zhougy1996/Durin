@@ -53,6 +53,10 @@ namespace Durin
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
 		DURIN_INFO(STR("Launching Durin Engine {}..."), GetEngineVersionString());
+#if DURIN_WITH_TRACY
+		if (const char* TracyPort = std::getenv("TRACY_PORT"))
+			DURIN_WARN("{}", Profiling::FormatPortOverrideDiagnostic(TracyPort));
+#endif
 		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
 		std::string ProjectError;

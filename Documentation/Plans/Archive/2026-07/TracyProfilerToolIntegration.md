@@ -6,10 +6,10 @@ Last reviewed: 2026-07-27
 
 ## Current Status
 
-Stages 0-3 completed on 2026-07-27. Stage 4 is next. Stage 3 started from
-commit `808c842579092e46b715897d47ea834455354f10`; the preceding runtime-variant
-and initial Tracy instrumentation plan remains established at commit
-`efccf9e4734947dcf56b6c1cca26dbdba9432c6d`.
+Completed on 2026-07-27. Stages 0-3 are recorded in commits `dd7a71c4`,
+`eda4de60`, `808c8425`, and `3b91f110`. Stage 4 started from
+`3b91f110` and completed multi-instance, reconnect, explicit-port,
+ordinary-build isolation, documentation, and final Editor validation.
 
 Durin already builds one shared Tracy v0.13.1 client for each Release Profiling
 runtime process. Matching upstream Windows capture tools were validated
@@ -556,25 +556,25 @@ Open questions: none for Stage 4.
 
 ### Stage 4: Complete Multi-Instance Runtime Validation And Documentation
 
-- [ ] Run the plan validator and all focused bootstrap, BuildTool, native, and
+- [x] Run the plan validator and all focused bootstrap, BuildTool, native, and
   Editor tests introduced or affected by the work.
-- [ ] Validate ordinary Editor and Game presets remain free of Tracy runtime and
+- [x] Validate ordinary Editor and Game presets remain free of Tracy runtime and
   host-tool requirements.
-- [ ] Build both Release Profiling presets through BuildTool and verify their
+- [x] Build both Release Profiling presets through BuildTool and verify their
   isolated runtime outputs.
-- [ ] Launch two profiling Editors simultaneously, identify each by project and
+- [x] Launch two profiling Editors simultaneously, identify each by project and
   PID in Tracy discovery, and record successful captures from both selected
   data ports.
-- [ ] Launch a profiling Editor and profiling Game simultaneously and record a
+- [x] Launch a profiling Editor and profiling Game simultaneously and record a
   successful Game capture without any Game-side ImGui dependency.
-- [ ] Validate reconnect after stopping an on-demand capture and explicit
+- [x] Validate reconnect after stopping an on-demand capture and explicit
   `TRACY_PORT` collision diagnostics.
-- [ ] Complete the repository-required full `all` build for the registered Agent
+- [x] Complete the repository-required full `all` build for the registered Agent
   Editor preset after the user-visible Editor actions are implemented.
-- [ ] Update CPU profiling and third-party bootstrap documentation with managed
+- [x] Update CPU profiling and third-party bootstrap documentation with managed
   installation, GUI/CLI usage, multi-instance behavior, repair, and capture
   storage.
-- [ ] Record completion evidence, move lasting contracts to owning documents,
+- [x] Record completion evidence, move lasting contracts to owning documents,
   close the checklist, and archive this plan.
 
 #### Acceptance Gate
@@ -585,8 +585,63 @@ Open questions: none for Stage 4.
 
 #### Stage Handoff
 
-- Record final baseline commit, complete working set, capture evidence, lasting
-  documentation, validation results, deferred work, and archive location.
+Baseline and working set:
+
+- Stage baseline: `3b91f110`.
+- Updated the Tracy CMake integration, Core profiling adapter, Launch startup,
+  MainFrame profiling service, Core profiling tests, CPU profiling
+  documentation, and this plan.
+- Final archive:
+  `Documentation/Plans/Archive/2026-07/TracyProfilerToolIntegration.md`.
+
+Reconnect and explicit-port contracts:
+
+- `TRACY_PORT` remains developer-owned. A profiling runtime now logs an
+  actionable warning when the variable is present, and Editor tool status
+  surfaces the same diagnostic.
+- Tracy v0.13.1 combines `TRACY_ON_DEMAND` and `TRACY_NO_CALLSTACK` with a
+  reconnect barrier that is normally reset only by the absent symbol worker.
+  Durin generates a build-local Tracy translation unit that skips that
+  callstack-only barrier when callstacks are disabled. Prepared upstream source
+  remains immutable, and callstack and sampling instrumentation remain disabled.
+- One hidden profiling Editor on port 8086 produced consecutive two-second
+  captures of 45,506 and 30,942 bytes without restarting the process.
+- Two hidden profiling Editors inheriting `TRACY_PORT=8099` both remained alive.
+  Exactly one owned the fixed listener, and both runtime logs contained the
+  override/collision warning.
+
+Multi-instance and output evidence:
+
+- Stage 2 validated two profiling Editors with exact PID-qualified discovery
+  labels on automatic ports 8086 and 8087 and captured both.
+- A profiling Editor and Game ran simultaneously on automatic ports 8086 and
+  8087. The Game trace contained 87 frames and 850 zones. The profiling Game
+  runtime contained `TracyClient.dll` but no MonaImGui or Tracy host-tool
+  executable.
+- An ordinary Debug Game `all` build and the final ordinary Debug Editor/Test
+  `all` build passed. Ordinary Debug and Release runtime trees contained no
+  `TracyClient.dll`; CMake role gates continue to exclude Tracy from ordinary
+  presets and reject it for Shipping. At the user's direction, the interrupted
+  redundant ordinary Release Editor build and the remaining Release/Shipping
+  full-matrix repetitions were not rerun.
+
+Focused and final validation:
+
+- Core profiling and Windows process tests: 7 passed.
+- MainFrame profiling-tool service tests: 5 passed.
+- Agent tooling tests: 171 passed.
+- Third-party manifest validation: 10 manifests passed. Read-only
+  `tracy-tools --status` reported version 0.13.1, all required files present,
+  and no mutation.
+- Both Release Profiling `all` builds passed after the reconnect compatibility
+  change.
+- The registered Agent Editor preset completed a full `all` build. Its first
+  attempt hit an existing parallel test-DLL deployment race while copying
+  `DurinEditor-AssetImport.dll`; an immediate identical rerun passed.
+- Plan validation passed after archival.
+
+Open questions: none. Deferred instrumentation and discovery-browser work
+remains listed below.
 
 ## Validation Matrix
 

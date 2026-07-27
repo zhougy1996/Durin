@@ -22,6 +22,7 @@ namespace Durin::Profiling
 		uint32 ProcessId
 	) -> std::string_view;
 	CORE_API auto GetProgramIdentity() -> std::string;
+	CORE_API auto FormatPortOverrideDiagnostic(std::string_view Port) -> std::string;
 }
 
 #if DURIN_WITH_TRACY

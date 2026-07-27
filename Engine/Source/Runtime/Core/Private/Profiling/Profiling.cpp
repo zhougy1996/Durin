@@ -44,4 +44,13 @@ namespace Durin::Profiling
 		std::scoped_lock Lock(GProgramIdentityMutex);
 		return GProgramIdentityStorage.empty() ? std::string{} : GProgramIdentityStorage.back();
 	}
+
+	auto FormatPortOverrideDiagnostic(std::string_view Port) -> std::string
+	{
+		return std::format(
+			"TRACY_PORT={} is explicitly set. This disables Tracy's automatic 8086-8105 port search; "
+			"a second process inheriting the same fixed port cannot listen until the override changes or is removed.",
+			Port.empty() ? std::string_view{"<empty>"} : Port
+		);
+	}
 }
