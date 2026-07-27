@@ -1,18 +1,18 @@
 include(GoogleTest)
 
-add_durin_test(VulkanRHITests
+add_durin_test(VulkanRHIIntegrationTests
 	Private/VulkanTextureSamplingTests.cpp
 	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/SlangShaderCompiler.cpp
 	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/ShaderCompileUtilities.cpp
 )
 
-target_include_directories(VulkanRHITests PRIVATE
+target_include_directories(VulkanRHIIntegrationTests PRIVATE
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/RenderCore/Private
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Public
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Private
 )
 
-target_link_libraries(VulkanRHITests PRIVATE
+target_link_libraries(VulkanRHIIntegrationTests PRIVATE
 	Core
 	CoreDObject
 	AssetCore
@@ -24,23 +24,24 @@ target_link_libraries(VulkanRHITests PRIVATE
 	GTest::gtest_main
 )
 
-durin_test_deploy_target_binary(VulkanRHITests Core)
-durin_test_deploy_target_binary(VulkanRHITests CoreDObject)
-durin_test_deploy_target_binary(VulkanRHITests ApplicationCore)
-durin_test_deploy_target_binary(VulkanRHITests AssetCore)
-durin_test_deploy_target_binary(VulkanRHITests AssetImport)
-durin_test_deploy_target_binary(VulkanRHITests Engine)
-durin_test_deploy_target_binary(VulkanRHITests RHI)
-durin_test_deploy_target_binary(VulkanRHITests RenderCore)
-durin_test_deploy_target_binary(VulkanRHITests MonaCore)
-durin_test_deploy_target_binary(VulkanRHITests Mona)
-durin_test_deploy_target_binary(VulkanRHITests VulkanRHI)
-durin_test_deploy_runtime_files(VulkanRHITests assimp::assimp)
-durin_test_deploy_runtime_files(VulkanRHITests Slang_Imported)
-durin_test_deploy_directory_to_data(VulkanRHITests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
+durin_test_deploy_target_binary(VulkanRHIIntegrationTests Core)
+durin_test_deploy_target_binary(VulkanRHIIntegrationTests CoreDObject)
+durin_test_deploy_target_binary(VulkanRHIIntegrationTests ApplicationCore)
+durin_test_deploy_target_binary(VulkanRHIIntegrationTests AssetCore)
+durin_test_deploy_target_binary(VulkanRHIIntegrationTests AssetImport)
+durin_test_deploy_target_binary(VulkanRHIIntegrationTests Engine)
+durin_test_deploy_target_binary(VulkanRHIIntegrationTests RHI)
+durin_test_deploy_target_binary(VulkanRHIIntegrationTests RenderCore)
+durin_test_deploy_target_binary(VulkanRHIIntegrationTests MonaCore)
+durin_test_deploy_target_binary(VulkanRHIIntegrationTests Mona)
+durin_test_deploy_target_binary(VulkanRHIIntegrationTests VulkanRHI)
+durin_test_deploy_runtime_files(VulkanRHIIntegrationTests assimp::assimp)
+durin_test_deploy_runtime_files(VulkanRHIIntegrationTests Slang_Imported)
+durin_test_deploy_directory_to_data(VulkanRHIIntegrationTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 
-set_target_properties(VulkanRHITests PROPERTIES
+set_target_properties(VulkanRHIIntegrationTests PROPERTIES
 	DURIN_TEST_RESOURCE_LOCKS durin-gpu
+	DURIN_TEST_TIMEOUT 900
 )
 
-durin_discover_tests(VulkanRHITests)
+durin_discover_tests(VulkanRHIIntegrationTests)

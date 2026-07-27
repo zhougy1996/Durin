@@ -6,6 +6,8 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/NativeTestIsolationProbeTests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/VulkanRHITests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/EngineTests)
 
+durin_validate_native_test_source_ownership("${CMAKE_CURRENT_LIST_DIR}")
+
 add_test(
 	NAME Durin.NativeTestDiscoveryPolicy
 	COMMAND ${CMAKE_COMMAND}

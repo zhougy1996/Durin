@@ -15,20 +15,18 @@ Completed:
 - Stage 1 is complete. `durin_discover_tests` now owns working directory,
   timeout, labels, target serialization, named legacy groups, explicit
   resources, and case-parallel opt-in for every native-test target.
-- Stage 2 is active: the seven module-era targets will be replaced by the
-  functional execution domains frozen in the Stage 0 evidence.
-- The existing seven targets (`CoreTests`, `CoreDObjectTests`,
-  `AssetCoreTests`, `RenderCoreTests`, `EngineTests`, `TextureCookTests`, and
-  `VulkanRHITests`) are the module-era baseline, not the desired final layout.
-  In particular, `EngineTests` combines editor models, asset pipelines,
-  materials, textures, thumbnails, worlds, viewports, rendering, and external
-  tooling with different initialization and resource requirements.
+- Stage 2 is complete. The seven module-era executables have been replaced by
+  29 feature/lifecycle targets, while the isolation probe remains a separate
+  characterization target.
+- Stage 3 is active: introduce the common low-level native-test entry point and
+  a unique per-process writable sandbox.
 - `.\DevTool.bat test --target all` now schedules CTest-discovered GoogleTest
   cases with the Agent Build Profile job count; the current profile runs 18
   cases concurrently.
-- The Stage 1 compatibility baseline passes all 650 registered CTest entries
-  in 25.25 seconds at 18 jobs. It includes all 647 original case names, two
-  skipped characterization cases, and one CMake policy test.
+- The Stage 2 aggregate passes all 680 CTest entries in 12.22 seconds at 18
+  jobs: the 650 Stage 1 registrations plus 30 direct-executable lifecycle
+  smoke tests. Unique ownership is configured for all 92 native `.cpp`
+  sources, including the Stage 0 probe.
 - Every case from a test target currently receives the same
   `DURIN_TEST_WORK_DIR`. Tests in separate processes therefore create, delete,
   mount, and rewrite the same files concurrently.
@@ -290,26 +288,26 @@ cases.
 
 ### Stage 2: Replace module-era targets with functional execution domains
 
-- [ ] Split `CoreTests` and `CoreDObjectTests` into utility/file-system,
+- [x] Split `CoreTests` and `CoreDObjectTests` into utility/file-system,
   concurrency, and reflection/object-lifecycle domains where their bootstrap
   and dependencies differ.
-- [ ] Split `AssetCoreTests` into package/registry, derived-data, decoding, and
+- [x] Split `AssetCoreTests` into package/registry, derived-data, decoding, and
   import domains, sharing support libraries only where ownership is explicit.
-- [ ] Split `RenderCoreTests` into shader compiler/service, shader cache/store,
+- [x] Split `RenderCoreTests` into shader compiler/service, shader cache/store,
   and render-contract domains with independent timeout and resource policies.
-- [ ] Decompose `EngineTests` into focused editor-model, asset-workflow,
+- [x] Decompose `EngineTests` into focused editor-model, asset-workflow,
   material, static-mesh, texture, thumbnail, world, viewport, rendering, and
   external-tool domains. Keep GPU-backed cases separate from CPU-only model and
   serialization cases.
-- [ ] Retain or refine dedicated cooked-runtime and Vulkan integration targets;
+- [x] Retain or refine dedicated cooked-runtime and Vulkan integration targets;
   do not merge them into feature targets whose direct-run lifecycle is
   incompatible.
-- [ ] Give every new target its own `Data` deployment, `Work` container,
+- [x] Give every new target its own `Data` deployment, `Work` container,
   dependency closure, labels, timeout, and temporary compatibility/resource
   group declarations.
-- [ ] Preserve every existing GoogleTest/CTest case name and add generated
+- [x] Preserve every existing GoogleTest/CTest case name and add generated
   metadata checks that no suite is omitted or registered more than once.
-- [ ] Delete superseded module-era targets after all cases have moved.
+- [x] Delete superseded module-era targets after all cases have moved.
 
 #### Acceptance Gate
 
@@ -321,6 +319,35 @@ cases.
   combined in-process lifecycle is coherent.
 - Aggregate execution passes with compatibility groups enabled, and the
   remaining serialization cost is recorded before process-sandbox migration.
+
+#### Stage 2 Handoff
+
+- Baseline commit: `e82c4cd6`.
+- Working set entering Stage 3: `add_durin_test`,
+  `durin_discover_tests`, the 29 functional target declarations under
+  `Engine/Tests/Native`, and the Stage 0 isolation probe.
+- Key decisions: source ownership is derived dynamically from every native
+  `.cpp` passed to `add_durin_test`; configuration fails for an unowned,
+  duplicate, or stale source; each target also receives one
+  `Durin.NativeTestDirect.<target>` whole-executable smoke test.
+- Target topology: 4 Core/object, 5 asset, 4 render-contract/shader, 14
+  Engine/editor feature, and 2 dedicated Vulkan/cooked-runtime integration
+  targets. The characterization probe remains outside that count.
+- Dependency boundary: Core, asset, and CPU render-contract targets do not
+  link editor, renderer, Vulkan, or external-tool stacks. Engine/editor targets
+  link those stacks only where their feature sources or private implementations
+  require them.
+- Temporary serialization cost: all discovered cases retain their per-target
+  compatibility lock; shader targets share `shader-compiler`; GPU lifecycle
+  targets share `durin-gpu`, and renderer-startup targets additionally share
+  `renderer-runtime`. The final run accumulated 112.33 process-seconds of
+  native-test work and completed in 12.22 wall-clock seconds; direct lifecycle
+  smokes accounted for 18.72 process-seconds.
+- Validation: unique ownership covered 92 native sources; the complete `all`
+  build passed; all 680 CTest entries passed at 18 jobs; all 30 direct
+  executable smokes passed; and the legacy-collision/isolated-control probe
+  still reproduced its expected outcomes. Evidence is recorded in
+  `Documentation/Development/Build/NativeTestProcessIsolationStage2.md`.
 
 ### Stage 3: Introduce the native-test process sandbox
 

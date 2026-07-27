@@ -208,6 +208,43 @@ function(add_durin_test target_name)
 
 	durin_target_apply_common_definitions(${target_name} ${target_name})
 
+	# Keep native-test source ownership machine-checkable. Production sources
+	# compiled directly into a test executable live outside this tree and are
+	# intentionally ignored here.
+	set(_durin_native_test_root
+		"${CMAKE_SOURCE_DIR}/Engine/Tests/Native")
+	foreach(_durin_test_source IN LISTS ARGN)
+		if(IS_ABSOLUTE "${_durin_test_source}")
+			cmake_path(NORMAL_PATH _durin_test_source
+				OUTPUT_VARIABLE _durin_test_source_absolute)
+		else()
+			cmake_path(ABSOLUTE_PATH _durin_test_source
+				BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+				NORMALIZE
+				OUTPUT_VARIABLE _durin_test_source_absolute)
+		endif()
+		cmake_path(IS_PREFIX _durin_native_test_root
+			"${_durin_test_source_absolute}"
+			NORMALIZE
+			_durin_is_native_test_source)
+		if(_durin_is_native_test_source
+			AND _durin_test_source_absolute MATCHES "\\.cpp$")
+			get_property(_durin_existing_owner GLOBAL
+				PROPERTY "DURIN_NATIVE_TEST_SOURCE_OWNER_${_durin_test_source_absolute}")
+			if(_durin_existing_owner)
+				message(FATAL_ERROR
+					"Native test source ${_durin_test_source_absolute} is assigned "
+					"to both ${_durin_existing_owner} and ${target_name}.")
+			endif()
+			set_property(GLOBAL
+				PROPERTY "DURIN_NATIVE_TEST_SOURCE_OWNER_${_durin_test_source_absolute}"
+				"${target_name}")
+			set_property(GLOBAL APPEND
+				PROPERTY DURIN_OWNED_NATIVE_TEST_SOURCES
+				"${_durin_test_source_absolute}")
+		endif()
+	endforeach()
+
 	set(_durin_test_root_dir "${DURIN_PROJECT_TEST_OUTPUT_ROOT}/${target_name}")
 	set(_durin_test_bin_dir "${DURIN_PROJECT_TEST_OUTPUT_ROOT}/Bin")
 	set(_durin_test_data_dir "${_durin_test_root_dir}/Data")
@@ -250,6 +287,41 @@ function(add_durin_test target_name)
 	)
 
 	set_target_properties(${target_name} PROPERTIES FOLDER "Tests/${target_name}")
+endfunction()
+
+function(durin_validate_native_test_source_ownership native_test_root)
+	file(GLOB_RECURSE _durin_native_test_sources
+		CONFIGURE_DEPENDS
+		"${native_test_root}/*.cpp")
+	get_property(_durin_owned_sources GLOBAL
+		PROPERTY DURIN_OWNED_NATIVE_TEST_SOURCES)
+	list(SORT _durin_native_test_sources)
+	list(SORT _durin_owned_sources)
+
+	set(_durin_unowned_sources ${_durin_native_test_sources})
+	list(REMOVE_ITEM _durin_unowned_sources ${_durin_owned_sources})
+	if(_durin_unowned_sources)
+		list(JOIN _durin_unowned_sources "\n  " _durin_unowned_text)
+		message(FATAL_ERROR
+			"Native test sources are not assigned to an execution domain:\n"
+			"  ${_durin_unowned_text}")
+	endif()
+
+	set(_durin_stale_sources ${_durin_owned_sources})
+	list(REMOVE_ITEM _durin_stale_sources ${_durin_native_test_sources})
+	if(_durin_stale_sources)
+		list(JOIN _durin_stale_sources "\n  " _durin_stale_text)
+		message(FATAL_ERROR
+			"Native test ownership contains missing sources:\n"
+			"  ${_durin_stale_text}")
+	endif()
+
+	list(LENGTH _durin_native_test_sources _durin_native_test_source_count)
+	set_property(GLOBAL PROPERTY DURIN_NATIVE_TEST_SOURCE_COUNT
+		"${_durin_native_test_source_count}")
+	message(STATUS
+		"Validated unique ownership for ${_durin_native_test_source_count} "
+		"native test sources")
 endfunction()
 
 function(durin_resolve_native_test_discovery_policy
@@ -381,6 +453,30 @@ function(durin_discover_tests target_name)
 
 	gtest_discover_tests(${target_name}
 		WORKING_DIRECTORY "${_durin_work_dir}"
+		DISCOVERY_TIMEOUT 30
 		PROPERTIES ${_durin_test_properties}
 	)
+
+	add_test(
+		NAME "Durin.NativeTestDirect.${target_name}"
+		COMMAND "$<TARGET_FILE:${target_name}>" --gtest_brief=1
+		WORKING_DIRECTORY "${_durin_work_dir}"
+	)
+	set(_durin_direct_labels
+		${_durin_labels}
+		native-test-direct
+	)
+	set_tests_properties(
+		"Durin.NativeTestDirect.${target_name}"
+		PROPERTIES
+			TIMEOUT "${_durin_timeout}"
+			LABELS "${_durin_direct_labels}"
+	)
+	if(_durin_resource_locks)
+		set_tests_properties(
+			"Durin.NativeTestDirect.${target_name}"
+			PROPERTIES
+				RESOURCE_LOCK "${_durin_resource_locks}"
+		)
+	endif()
 endfunction()
