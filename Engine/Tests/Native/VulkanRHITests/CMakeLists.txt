@@ -26,11 +26,16 @@ target_link_libraries(VulkanRHITests PRIVATE
 
 durin_test_deploy_target_binary(VulkanRHITests Core)
 durin_test_deploy_target_binary(VulkanRHITests CoreDObject)
+durin_test_deploy_target_binary(VulkanRHITests ApplicationCore)
 durin_test_deploy_target_binary(VulkanRHITests AssetCore)
+durin_test_deploy_target_binary(VulkanRHITests AssetImport)
 durin_test_deploy_target_binary(VulkanRHITests Engine)
 durin_test_deploy_target_binary(VulkanRHITests RHI)
 durin_test_deploy_target_binary(VulkanRHITests RenderCore)
+durin_test_deploy_target_binary(VulkanRHITests MonaCore)
+durin_test_deploy_target_binary(VulkanRHITests Mona)
 durin_test_deploy_target_binary(VulkanRHITests VulkanRHI)
+durin_test_deploy_runtime_files(VulkanRHITests assimp::assimp)
 durin_test_deploy_runtime_files(VulkanRHITests Slang_Imported)
 durin_test_deploy_directory_to_data(VulkanRHITests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 
