@@ -1,604 +1,675 @@
-# Source Library References Plan
+# Unified Mount Source References Plan
 
-Summary: Decouple source-file organization from runtime asset paths through named source libraries, portable references, and shared-source import workflows.
+Summary: Give each logical mount typed Content and SourceAssets domains so asset and source paths share one portable namespace without sharing physical resolution.
 
 Last reviewed: 2026-07-27
 
 ## Current Status
 
-Stage 0 is complete. Executable package tests now freeze reflected `FName`
-text serialization and five DAST v2 legacy provenance fixtures cover project
-and engine StaticMesh, project Texture2D, and both TextureCube source layouts.
-The source-library descriptor, shared location, compatibility, failure, and
-schema-boundary contracts below are frozen for Stage 1 implementation.
+Stage 0 is reopened for a focused contract revision.
 
-StaticMesh, Texture2D, and TextureCube runtime behavior is otherwise unchanged:
-provenance remains rooted beneath the owning package's project or engine
-`SourceAssets` directory, and new imports still derive a destination source path
-from the runtime asset path.
+Baseline commit `ee94ad4e` established reflected-name serialization coverage and
+five DAST v2 legacy provenance fixtures covering project and engine StaticMesh,
+project Texture2D, and both TextureCube source layouts. Those fixtures and the
+recorded legacy fields remain valid migration evidence.
 
-This plan selects `SourceLibrary` as the user-facing and persisted concept.
-A source library is a logical collection of authoritative editor inputs;
-filesystem mounting is only one implementation detail of resolving that
-collection on a workstation. Multiple libraries may be registered at once,
-and multiple assets or projects may reference the same library file while
-retaining independent import settings and derived data.
+The former `{Library, RelativePath}` source-library representation and separate
+`SourceLibraries` registry are superseded before implementation. The selected
+model now uses one logical mount identity such as `/Engine/`, `/Game/`, or
+`/Plugins/PCG/`, with typed `Content` and `SourceAssets` domains. This revision
+removes duplicate naming systems, naturally supports plugins, and lets a
+project reference Engine source files without copying them.
+
+Texture2D currently accepts user-selected organization anywhere beneath the
+owning package's `SourceAssets`, defaults new copies to
+`SourceAssets/Textures/<filename>`, and can copy a source to another
+owner-relative location. StaticMesh and TextureCube remain more tightly
+coupled to owner-relative category paths. These are interim workflows until
+typed mounted source paths replace owner-directory inference.
+
+Redirect files, stable source GUIDs, and transparent moves remain deferred.
 
 ## Goal
 
-- Let an active project register and resolve multiple source libraries.
-- Let source-library organization differ completely from mounted `Content`
-  organization.
-- Let multiple assets reference one source file with independent import
-  settings and deterministic derived-data keys.
-- Preserve portable `.dasset` provenance across workstations and projects
-  without storing absolute paths or symlink targets.
-- Treat ordinary directories, directory junctions, and symbolic links
-  consistently while enforcing physical containment.
-- Migrate existing project- and engine-relative `SourceAssets` provenance
-  without requiring source recopying.
+- Use one portable logical namespace for each engine, project, plugin, or
+  source-only owner.
+- Resolve `FAssetPath` through a mount's Content domain and `FSourcePath`
+  through the same mount's SourceAssets domain.
+- Let `/Game/` assets reference `/Engine/` or declared plugin sources without
+  copying them.
+- Keep source organization independent from runtime asset organization.
+- Support mounts with Content only, SourceAssets only, or both domains.
+- Preserve portable provenance across workstations without storing absolute
+  paths, symlink targets, or physical root names in packages.
+- Apply one dependency, permission, containment, and failure model to all
+  mounted domains.
 
 ## Scope
 
-- A Core-owned source-library registry and active-project descriptor entries.
-- Built-in `Engine` and `Project` source libraries.
-- Named additional libraries such as `StudioArt`.
-- A shared logical source-location value used by StaticMesh, Texture2D, and
-  TextureCube provenance.
-- Import, reimport, source replacement, source repair, and asset duplication
-  semantics.
-- Transactional migration of existing package provenance and repository-owned
-  packages.
-- Editor selection, diagnostics, and source-reference impact reporting.
-- Native tests, package fixtures, editor smoke coverage, and lasting
-  documentation updates.
+- A Core-owned immutable logical mount registry.
+- Typed Content and SourceAssets domain resolution.
+- Built-in `/Engine/` and `/Game/` mounts.
+- A mount shape that supports future roots such as `/Plugins/PCG/` and
+  source-only roots such as `/Libraries/StudioArt/`.
+- A typed-domain model that can add Shaders later without creating a second
+  logical mount namespace.
+- A reflected `FSourcePath` used by StaticMesh, Texture2D, and TextureCube
+  provenance.
+- Import, reimport, source-reference change, source ingestion, shared-source
+  replacement, duplication, and migration semantics.
+- Mount dependency and source-write authorization.
+- Canonical containment for ordinary directories, junctions, and symbolic
+  links.
+- Editor selection, diagnostics, reverse-reference impact reporting, native
+  tests, package fixtures, and lasting documentation.
 
 ## Non-Goals
 
-- Mounting source libraries as runtime `Content` or creating runtime asset
-  identities for source files.
-- Synchronizing, cloning, locking, or versioning an external source repository.
-- Persisting workstation absolute paths, environment-variable expansions, or
-  symlink targets in `.dasset` packages.
-- Automatically deleting or moving a source file when an asset is moved or
-  deleted.
-- Stable source-file GUIDs, sidecar metadata, or redirectors in the first
-  implementation.
-- Remote URL, object-storage, archive-overlay, or network-streaming libraries.
-- Supporting more than one active project in a process.
-- Changing DMSH, TXPL, DBLK, or cooked runtime payload formats unless validation
-  proves an explicit version bump is required.
+- Treating source files as runtime assets or allowing `FAssetPath` to resolve
+  through SourceAssets.
+- Encoding the physical `Content` or `SourceAssets` directory name in virtual
+  paths.
+- Renaming the existing `/Engine/` and `/Game/` namespaces.
+- Implementing a plugin manager; this plan defines the mount contract that a
+  future plugin descriptor can register.
+- Migrating RenderCore shader mounts in the first implementation. The unified
+  registry reserves an extensible typed-domain contract, but RenderCore keeps
+  ownership of shader compilation, includes, caching, and hot reload.
+- Redirect files, source GUID sidecars, automatic transparent source moves, or
+  source garbage collection in the first implementation.
+- Remote URLs, object storage, archives, overlays, or network streaming.
+- Persisting workstation absolute paths or environment-variable expansions.
+- Supporting more than one active game project in a process.
+- Changing DMSH, TXPL, DBLK, or cooked payload formats unless validation proves
+  an explicit version bump is required.
 
 ## Design Decisions and Invariants
 
-### Terminology and identity
+### One mount, typed domains
 
-- `SourceLibrary` is the public concept. Do not expose `MountId` in package
-  metadata or editor UI.
-- A library name identifies a logical source collection, not its current
-  physical directory, repository checkout, symlink, or junction.
-- Persisted source locations use:
+- A mount is the logical identity. `/Engine/`, `/Game/`, and
+  `/Plugins/PCG/` are examples.
+- A mount may expose these independently:
 
-  ```cpp
-  struct FSourceLocation
-  {
-      FName Library;
-      std::string RelativePath;
-  };
+  - `Content`: packaged runtime/editor assets.
+  - `SourceAssets`: authoritative editor input files.
+
+- The domain set is typed and versioned rather than an arbitrary string map.
+  The first implementation supports only Content and SourceAssets. A later
+  Shader domain uses the same mount identity without changing source or asset
+  path semantics.
+- A mount is registered once. Do not register two `/Engine/` entries pointing
+  separately at `Engine/Content` and `Engine/SourceAssets`; identical virtual
+  roots would be ambiguous.
+- The path type selects the physical domain:
+
+  ```text
+  FAssetPath("/Engine/Materials/M_Default")
+      -> Engine/Content/Materials/M_Default.dasset
+
+  FSourcePath("/Engine/Textures/T_Default.png")
+      -> Engine/SourceAssets/Textures/T_Default.png
   ```
 
-- `Library` uses `FName` because library names form a small, process-wide,
-  repeatedly compared identifier namespace and are valid reflected package
-  properties. Asset serialization already writes `FName` values as strings,
-  and `FName` retains a display spelling independently from its
-  case-insensitive comparison identity; no process-local name-pool index may
-  be persisted.
-- `RelativePath` remains `std::string`. Source paths are case-preserving,
-  potentially numerous, and must not populate the global name pool.
-- A library may use any valid non-empty `FName` spelling, including the
-  project's usual capitalization, such as `StudioArt`, `Megascans`, or
-  `ProjectSources`. `None`, path separators, control characters, invalid
-  `FName` spellings, case-only aliases, and duplicate identities are invalid.
-- Library identity is case-insensitive because `FName` comparison is
-  case-insensitive, while the registry definition supplies the authoritative
-  display spelling. Import, migration, and package save canonicalize the
-  persisted display spelling to the registered definition rather than forcing
-  lowercase.
-- `Engine` and `Project` are reserved built-in identities regardless of input
-  case. Shared libraries use stable organization-owned names such as
-  `StudioArt`; changing identity is a provenance migration, while a
-  capitalization-only display correction does not create a new library.
-- `{None, ""}` means no source dependency. A present dependency requires both
-  a non-None library and a non-empty normalized relative path.
+- The virtual source path omits the physical `SourceAssets` segment. Likewise,
+  an asset path omits `Content`.
+- Asset and source paths may otherwise have unrelated relative organizations.
+  No importer derives one from the other.
 
-### Library registration and ownership
+### Mount definition and ownership
 
-- Core owns source-library descriptor parsing, registration, lookup, physical
-  resolution, reverse physical-path classification, and path-containment
-  policy. This belongs beside active-project and filesystem path state, not in
-  any one asset importer.
-- Engine owns asset-specific provenance, source hashing, import settings,
-  derived-data key contribution, rebuild policy, and package migration.
-- Editor/import modules own library and source selection, copy-versus-reference
-  workflow, reimport commands, warnings, and impact presentation.
-- The `Engine` library resolves to `Engine/SourceAssets`.
-- The `Project` library resolves to `<ActiveProject>/SourceAssets`.
-- Additional libraries are declared by the active `.dproject`, for example:
+Core owns a definition equivalent to:
+
+```cpp
+enum class EMountOwner
+{
+    Engine,
+    ActiveProject,
+    Extension,
+    ExternalSources,
+    Test
+};
+
+struct FMountPoint
+{
+    std::string VirtualRoot;
+    std::filesystem::path OwnerRoot;
+    std::optional<std::filesystem::path> ContentRoot;
+    std::optional<std::filesystem::path> SourceAssetsRoot;
+    EMountOwner Owner;
+    bool bSourceWritable = false;
+    std::vector<std::string> Dependencies;
+};
+```
+
+- `VirtualRoot` is the portable identity. It is absolute, normalized, uses
+  forward slashes, and ends in `/`.
+- `OwnerRoot` and domain roots are process-local configuration and are never
+  serialized into `.dasset`.
+- `ContentRoot` and `SourceAssetsRoot` are explicit. Consumers never derive
+  `SourceAssets` by walking to the parent of a directory named `Content`.
+- A missing optional domain means that path type is unsupported by the mount.
+  This permits Content-only and SourceAssets-only mounts.
+- Built-in mounts are:
+
+  | Virtual root | Owner root | Content | SourceAssets |
+  | --- | --- | --- | --- |
+  | `/Engine/` | `Engine/` | `Content/` | `SourceAssets/` |
+  | `/Game/` | active project root | `Content/` | `SourceAssets/` |
+
+- A future PCG plugin can register:
+
+  | Virtual root | Owner root | Content | SourceAssets |
+  | --- | --- | --- | --- |
+  | `/Plugins/PCG/` | plugin root | `Content/` | `SourceAssets/` |
+
+- A source-only shared checkout can register `/Libraries/StudioArt/` with no
+  Content domain.
+- Built-in roots cannot be overridden by project descriptors. Duplicate or
+  case-only virtual identities, ambiguous canonical domain roots, and malformed
+  definitions fail initialization.
+- Definitions are assembled after active-project selection and become
+  immutable before package scanning. Tests use scoped registry fixtures rather
+  than permanently mutating production global state.
+
+### Persisted source path
+
+Source provenance uses an Engine-owned reflected value:
+
+```cpp
+DSTRUCT()
+struct FSourcePath
+{
+    GENERATED_BODY()
+
+    DPROPERTY()
+    std::string Path;
+};
+```
+
+- `Path` is either empty or a complete normalized virtual file path such as
+  `/Engine/Textures/Common/Stone.png`.
+- Empty means no source dependency.
+- A non-empty path must identify a registered mount with a SourceAssets domain,
+  include a non-empty relative file path, use forward slashes, and contain no
+  empty, `.` or `..` segment.
+- The string preserves display case. Mount-root matching follows the
+  registry's case policy; the next successful package save canonicalizes the
+  root spelling to the registered definition.
+- Relative file organization remains a string and does not populate the global
+  `FName` pool.
+- `FSourcePath` is not interchangeable with `FAssetPath`. Asset paths reject
+  file extensions and require a Content domain; source paths retain extensions
+  and require a SourceAssets domain.
+- Core resolution accepts source-path string components without depending on
+  Engine reflection.
+
+### Typed registry APIs
+
+Core provides result-bearing queries equivalent to:
+
+```cpp
+FMountLookupResult FindMountForVirtualPath(std::string_view);
+FContentPathResult ResolveContentPath(const FAssetPath&);
+FSourcePathResult ResolveSourcePath(std::string_view);
+FContentPathResult ClassifyContentPath(const std::filesystem::path&);
+FSourcePathResult ClassifySourcePath(const std::filesystem::path&);
+```
+
+- Results carry the matched mount, normalized relative path, physical path,
+  and a structured error.
+- Longest-prefix matching is internal to the registry. Consumers do not scan a
+  backing mount vector or repeat raw `starts_with` loops.
+- Unknown mount, unavailable domain root, unsupported domain, invalid relative
+  path, escaped root, missing file, forbidden dependency, read-only source, and
+  I/O failure are distinct outcomes.
+- `FPaths::Resolve` is removed from production asset call sites. Returning an
+  unresolved virtual input as though it were a physical path is not an accepted
+  failure contract.
+- AssetCore uses typed Content resolution for `FAssetPath` validation, package
+  lookup, registry-cache identity, mounted-content scanning, and cook mapping.
+- Importers, asset editors, and thumbnails use typed SourceAssets resolution.
+
+### Future Shader domain
+
+- Shader paths may later reuse the same logical roots:
+
+  ```text
+  FShaderPath("/Engine/Common/Lighting.dshader")
+      -> Engine/Shaders/Common/Lighting.dshader
+
+  FShaderPath("/Plugins/PCG/Compute/Noise.dshader")
+      -> Plugins/PCG/Shaders/Compute/Noise.dshader
+  ```
+
+- Core would own mount identity, typed Shader-root availability, normalization,
+  and physical containment.
+- RenderCore would continue to own shader include semantics, compilation,
+  dependency discovery, cache roots, hot reload, and diagnostics.
+- The initial Content/SourceAssets stages must not hard-code a two-domain enum
+  into serialized data or public APIs in a way that prevents adding the typed
+  Shader domain.
+- Shader-domain registration and migration of the current `FShaderPaths`
+  implementation remain a deferred, separately validated stage.
+
+### Physical containment
+
+- Lexical normalization is necessary but not sufficient.
+- Existing paths compare canonical physical candidates against canonical
+  domain roots.
+- Destination paths that do not yet exist validate their nearest existing
+  canonical ancestor before mutation.
+- A domain root may itself be a symlink or junction to another checkout.
+- A nested link that escapes the resolved domain root is rejected. Its target
+  must be registered as another mount.
+- Reverse classification selects the most specific matching canonical domain
+  root.
+- Filesystem equivalence or canonical comparison is used where available
+  instead of string equality.
+
+### Dependency and mutation policy
+
+- Mount dependencies govern both asset and source references.
+- Every mount may reference itself.
+- Built-in direction is:
+
+  | Referencing asset mount | Allowed referenced mounts |
+  | --- | --- |
+  | `/Engine/` | `/Engine/` |
+  | `/Game/` | `/Game/`, `/Engine/`, and explicitly declared plugin/source mounts |
+  | `/Plugins/PCG/` | itself, `/Engine/`, and its declared dependencies |
+
+- `/Game/` may therefore store
+  `/Engine/Textures/Common/Stone.png` as its source path without copying it.
+- `/Engine/` cannot depend on `/Game/` or project-declared mounts, so Engine
+  packages remain usable without an active project.
+- There is no permissive global fallback search. A path names exactly one
+  logical mount.
+- Read permission and write authorization are separate:
+
+  - Reimport reads the referenced source.
+  - External ingestion writes to an explicitly selected writable SourceAssets
+    domain.
+  - Project-owned ordinary operations may read Engine sources but may not
+    ingest into or replace Engine sources.
+  - Engine source mutation requires an Engine-authoring context and an explicit
+    shared-source command.
+  - Plugin/shared mounts apply their declared writability plus owner-context
+    authorization.
+
+### Project and extension registration
+
+- `/Engine/` and `/Game/` are automatic.
+- Additional active-project mounts are declared with a selected descriptor
+  shape equivalent to:
 
   ```json
   {
-      "SourceLibraries": [
+      "Mounts": [
           {
-              "Name": "StudioArt",
-              "Path": "SourceAssets/StudioArt",
-              "Writable": false
+              "VirtualRoot": "/Libraries/StudioArt/",
+              "Root": "SourceAssets/StudioArt",
+              "Source": ".",
+              "SourceWritable": false,
+              "Dependencies": ["/Engine/"]
           }
       ]
   }
   ```
 
-- Descriptor paths are relative to the directory containing the `.dproject`.
-  A declared path may itself be an ordinary directory, symlink, or junction.
-  Committed descriptors do not accept absolute workstation paths. A team that
-  keeps a checkout elsewhere creates a link at the declared project-relative
-  location.
-- `Writable` controls editor ingestion and source-replacement operations.
-  Read-only libraries remain valid reference and reimport sources.
-- Missing physical roots are registered as unavailable rather than making
-  project startup fail. This preserves valid DDC-backed editor loads while
-  producing an actionable source-unavailable diagnostic.
-- Invalid names, duplicate names, malformed descriptor entries, and ambiguous
-  duplicate physical roots fail project initialization with the offending
-  entries identified.
-- Registration is immutable after active-project startup. Changing library
-  definitions requires reopening the project.
+- Descriptor roots are relative to the `.dproject` directory. Committed
+  descriptors do not accept absolute workstation paths.
+- A root may be a directory, junction, or symlink. Teams may place a link at
+  the declared relative location when the real checkout differs per machine.
+- Missing valid roots register as unavailable rather than failing startup, so
+  DDC-backed editor loads can continue with actionable diagnostics.
+- Plugin descriptors may later supply the same mount definition shape; plugin
+  discovery and loading are outside this plan.
 
-### Resolution and containment
+### Import and source operations
 
-- A package stores only `FSourceLocation` and the existing exact source-content
-  hash. It never stores the configured physical root.
-- Resolution selects the library by `FName`, appends the normalized relative
-  path, and validates the result against the library's resolved physical root.
-- Relative paths use forward slashes, contain no empty, `.` or `..` segment,
-  are not absolute, and preserve source-library organization. They are not
-  required to begin with `Models` or `Textures`.
-- The library root itself may resolve through a symlink or junction to a
-  directory outside the project. Containment compares the canonical physical
-  candidate against the canonical physical library root.
-- A nested symlink or junction that escapes the resolved library root is
-  rejected. Its target must instead be registered as a separate source
-  library.
-- Reverse classification of a selected physical file uses resolved physical
-  containment and selects the most specific matching library root. Registration
-  rejects roots that would remain indistinguishable after canonicalization.
-- Existing files use filesystem-equivalence or canonical-path comparison where
-  available, not lexical path equality alone. Destination parents for new
-  files use the nearest existing canonical ancestor before containment is
-  accepted.
-- Resolution failures distinguish unknown library, unavailable library,
-  invalid relative path, escaped root, missing file, and I/O failure.
+- Selecting a file already inside an allowed registered SourceAssets domain is
+  **Reference Existing Source**. Import records its `FSourcePath` and performs
+  no copy or rename.
+- Selecting an Engine source while importing a Game asset is this no-copy
+  workflow.
+- Selecting an external file is **Ingest External Source**. It requires an
+  explicitly selected writable target mount and relative destination. The
+  default suggestion for a Game texture is
+  `/Game/Textures/<filename>`.
+- Ingestion copies transactionally and refuses ambiguous overwrites.
+- `Reimport` rebuilds one asset from its persisted source and settings. It does
+  not copy, rename, or overwrite source files.
+- `Change Source Reference` validates and rebuilds one asset against another
+  `FSourcePath`; it moves or copies no source files.
+- `Replace Shared Source` is a separate explicit command. It requires write
+  authorization, reports known referencing assets, and publishes the file and
+  package changes transactionally.
+- Duplicating an asset preserves its source path by default. Moving or deleting
+  an asset never moves or deletes source files.
+- StaticMesh, Texture2D, six-face TextureCube, and panorama TextureCube share
+  the same classification, collision, rollback, and permission rules.
 
-### Provenance and derived data
+### Provenance, derived data, and cook
 
-- Source location, observed content hash, importer/decoder identity, importer
-  version, and per-asset import settings remain compact editor provenance.
-- Two assets may persist identical source locations and hashes.
-- Derived-data keys continue to use exact source content plus every semantic
-  import/build input, builder/schema version, platform, and profile. They do
-  not include library name, relative path, physical path, package path, or
-  asset path.
-- Same source bytes plus the same semantic settings converge to one DDC key;
-  different settings produce different keys even when the source location is
-  identical.
-- A changed shared source does not silently rewrite every referencing package.
-  Each asset independently reports that its persisted hash differs, then
-  updates its own provenance only after a successful transactional rebuild and
-  package save.
-- Cooked packages continue to strip source-library provenance unless an
-  explicit diagnostic policy retains it. Cooked runtime loading never requires
-  source-library registration.
+- Asset-specific provenance retains source path, exact observed content hash,
+  importer/decoder identity and version, and per-asset import settings.
+- Multiple assets may persist the same `FSourcePath`.
+- Derived-data keys include exact source content and every semantic build
+  input. They exclude virtual source path, physical path, mount identity,
+  package path, and asset path.
+- Equal bytes and settings converge to one DDC key even through different
+  paths; different settings produce different keys for one shared source.
+- A changed shared source does not silently rewrite referencing packages. Each
+  asset updates its own hash only after a successful rebuild and package save.
+- Cooked packages strip mounted source provenance unless an explicit diagnostic
+  policy retains it. Cooked runtime loading never requires SourceAssets roots.
 
-### Import and source-operation semantics
+### Reverse references and source moves
 
-- Asset virtual path and source-library path are independent user choices.
-  No importer derives an authoritative source location from the destination
-  asset path.
-- Selecting a file already contained by a registered library performs
-  **Reference Existing Source**: record its library-relative location and do
-  not copy or rename it.
-- Selecting a file outside every registered library performs **Ingest External
-  Source**: require a writable destination library and explicit relative
-  destination, copy transactionally, then record the resulting location.
-  The editor may suggest a destination but the asset path does not dictate it.
-- `Reimport` rebuilds one asset from its persisted source reference and that
-  asset's settings. It does not copy, rename, or overwrite the source.
-- `Change Source Reference` changes only the selected asset after validating
-  and building from the new reference.
-- `Replace Shared Source` is a distinct explicit command. It requires a
-  writable library, reports known referencing assets before mutation, stages
-  the replacement transactionally, and never masquerades as ordinary
-  reimport.
-- Duplicating an asset preserves the source reference by default. Moving or
-  deleting an asset never moves or deletes source files.
-- StaticMesh, Texture2D, six-face TextureCube, and panorama TextureCube use the
-  same classification, reuse, collision, and rollback rules.
-
-### Reference index and source moves
-
-- The editor builds a process-local reverse index from loaded/scanned package
-  provenance:
+- The editor builds a rebuildable process-local index:
 
   ```text
-  FSourceLocation -> [asset paths]
+  FSourcePath -> [FAssetPath]
   ```
 
-- The index supports impact previews, shared-source badges, and diagnostics.
-  It is rebuildable and is not authoritative package data.
-- The first implementation does not promise transparent source moves. Moving a
-  source file is an explicit operation that updates every discovered
-  referencing package transactionally or leaves all package references
-  unchanged.
-- Stable source GUIDs and redirects remain deferred until actual library
-  reorganization frequency justifies sidecar or manifest ownership.
+- It supports shared-source badges, diagnostics, impact previews, and explicit
+  multi-package relocation.
+- The first implementation does not promise transparent source moves. An
+  explicit relocation updates every discovered reference transactionally or
+  leaves all references unchanged.
+- Redirect sidecars such as `Old.png.redirect` remain a deferred extension of
+  `ResolveSourcePath`, not part of the initial mount contract.
 
 ### Compatibility and migration
 
-- Existing provenance such as
-  `SourceAssets/Textures/Environment/Wood.png` or
-  `SourceAssets/Models/Characters/Hero.fbx` is recognized only by an explicit
-  legacy migration path.
-- Legacy provenance owned by an `/Engine/` package maps to library `Engine`;
-  other mounted project packages map to library `Project`. The leading
-  `SourceAssets/` segment is removed, preserving the remaining organization.
-- Migration verifies that the resolved new location identifies the same file
-  bytes as the persisted content hash before publishing changed provenance.
-- Package schema evolution keeps a compatibility carrier for the old
-  `SourcePath` fields until every repository package and migration fixture has
-  passed. Generic reflection's unknown-field tolerance must not be relied upon
-  to recover discarded legacy data.
-- New package saves emit only the selected source-library representation after
-  the migration boundary is closed. Old representations are then deliberately
-  rejected by compatibility tests rather than resolved indefinitely.
-- Package migration does not copy, move, or delete source files and does not
-  change derived-data keys when source bytes and semantic settings are
-  unchanged.
+- Legacy project-relative paths such as
+  `SourceAssets/Textures/Environment/Wood.png` map to
+  `/Game/Textures/Environment/Wood.png`.
+- Legacy Engine-owned paths map to `/Engine/...`.
+- The leading `SourceAssets/` segment is removed exactly once.
+- Migration determines legacy ownership from the package's typed Content mount,
+  resolves the new `FSourcePath`, and verifies bytes against the persisted hash
+  before publishing changed provenance.
+- Migration never copies, moves, deletes, or rebuilds an unchanged source.
+- Existing compatibility carriers remain reflected until every repository
+  package and fixture passes migration. New saves then emit only `FSourcePath`.
+- DAST remains format version 2 because the reflected domain field changes
+  without changing the package envelope. Legacy rejection begins only after
+  the compatibility carriers are deliberately removed.
 
-### Stage 0 contract freeze
+The compatibility inventory is:
 
-`FSourceLocation` is an Engine-owned reflected value because Core cannot depend
-on the reflection system. Core's registry APIs accept and return library name
-and relative path components without depending on the reflected type. The
-value has exactly these reflected members:
-
-```cpp
-DSTRUCT()
-struct FSourceLocation
-{
-    GENERATED_BODY()
-
-    DPROPERTY()
-    FName Library;
-
-    DPROPERTY()
-    std::string RelativePath;
-};
-```
-
-The empty invariant is executable as `{None, ""}` only. A dependency is present
-only when both fields are present and valid. Asset-specific provenance keeps
-source hashes and importer settings in its existing owner; `FSourceLocation`
-does not own a hash or import setting.
-
-The legacy compatibility inventory is:
-
-| Asset/layout | New location owner | Legacy compatibility carrier | Existing hash owner |
+| Asset/layout | New field | Legacy carrier | Hash owner |
 | --- | --- | --- | --- |
-| StaticMesh | `FStaticMeshSourceImportData::SourceLocation` | `FStaticMeshSourceImportData::SourcePath` | `SourceContentHash` |
-| Texture2D | `FTextureSourceFile::SourceLocation` | `FTextureSourceFile::SourcePath` | `SourceContentHashLow/High` |
-| TextureCube six-face | Each face's `FTextureSourceFile::SourceLocation` | Each face's `FTextureSourceFile::SourcePath` | Each face's `SourceContentHashLow/High` |
-| TextureCube panorama | `Panorama.SourceLocation` | `Panorama.SourcePath` | `Panorama.SourceContentHashLow/High` |
+| StaticMesh | `FStaticMeshSourceImportData::SourcePath` (`FSourcePath`) | existing string `SourcePath` under a temporary renamed carrier | `SourceContentHash` |
+| Texture2D | `FTextureSourceFile::SourcePath` (`FSourcePath`) | existing string `SourcePath` under a temporary renamed carrier | `SourceContentHashLow/High` |
+| TextureCube six-face | each face's `FSourcePath` | each face's existing string path | per-face hash |
+| TextureCube panorama | panorama `FSourcePath` | panorama existing string path | panorama hash |
 
-The repository package inventory at the freeze point is:
+The repository fixture inventory remains:
 
 | Package | Owner | Provenance |
 | --- | --- | --- |
-| `Engine/Content/Editor/MaterialPreview/Box.dasset` | Engine | StaticMesh |
-| `Engine/Content/Editor/MaterialPreview/Sphere.dasset` | Engine | StaticMesh |
-| `Sandbox/Content/Models/Mesh_Teapot.dasset` | Project | StaticMesh |
-| `Sandbox/Content/Textures/TEX_StoneHead.dasset` | Project | Texture2D |
+| `Engine/Content/Editor/MaterialPreview/Box.dasset` | `/Engine/` | StaticMesh |
+| `Engine/Content/Editor/MaterialPreview/Sphere.dasset` | `/Engine/` | StaticMesh |
+| `Sandbox/Content/Models/Mesh_Teapot.dasset` | `/Game/` | StaticMesh |
+| `Sandbox/Content/Textures/TEX_StoneHead.dasset` | `/Game/` | Texture2D |
 
-There is no repository-owned TextureCube package at the freeze point, so
-checked-in fixtures capture both cube layouts from the current importer.
-
-The `.dproject` member is an optional `SourceLibraries` array. Each entry is an
-object with exactly `Name` (required string), `Path` (required relative string),
-and `Writable` (required Boolean). Unknown entry members, wrong types, empty
-names or paths, absolute paths, duplicate/case-only names, built-in aliases,
-and canonically indistinguishable roots fail initialization. A missing valid
-root registers as unavailable. Definitions become immutable when active-project
-initialization publishes them; tests use a separate reset/setup seam.
-
-Core reports `UnknownLibrary`, `UnavailableLibrary`, `InvalidRelativePath`,
-`EscapedRoot`, `MissingFile`, and `IoFailure` distinctly. Descriptor errors are
-project-initialization errors rather than resolution results.
-
-DAST remains at format version 2 because named source libraries add reflected
-domain fields without changing the package envelope. During Stages 2 through 4,
-the legacy `SourcePath` members remain reflected compatibility carriers; a
-successful migration fills `SourceLocation`, verifies the persisted hash, and
-clears the carrier before save. Stage 5 removes the carrier declarations only
-after repository migration and fixture-backed rejection tests pass. That removal
-is the exact boundary after which old fields are ignored and a package with no
-valid `SourceLocation` is deliberately rejected as legacy provenance.
+There is no repository-owned TextureCube package at the revision point, so
+checked-in fixtures cover both cube layouts.
 
 ## Current Foundations and Gaps
 
 ### Foundations
 
-- `FName` is reflected and serialized as its string value by AssetCore.
-- `FPaths`, active-project initialization, and `PathUtilities` already own
-  process-wide project and mount state.
-- StaticMesh, Texture2D, and TextureCube persist portable source paths and exact
-  source hashes.
-- Existing DDC key inputs already separate source content identity from
-  package and asset paths and include per-asset semantic settings.
-- Asset move and delete contributors already avoid implicitly moving or
-  deleting potentially shared source art.
+- `FAssetPath` already provides an absolute portable Content path shape.
+- Core owns `FPaths`, active-project state, and current mount registration.
+- AssetCore scans registered Content roots and serializes cross-mount asset
+  dependencies.
+- StaticMesh, Texture2D, and TextureCube persist portable legacy source paths
+  and exact source hashes.
+- Existing DDC keys already separate source content from package and asset
+  locations.
 - DDC-backed editor loading can succeed while source files are unavailable.
+- Asset move/delete contributors already preserve potentially shared sources.
 
 ### Gaps
 
-- Source provenance infers the physical root from the owning package's Content
-  mount and cannot name an independent source library.
-- Validation requires `SourceAssets/Models` or `SourceAssets/Textures` prefixes
-  instead of validating a library-relative path.
-- Importers derive source destinations from asset virtual paths, coupling two
-  unrelated organizations and duplicating shared inputs.
-- TextureCube initial import rejects an already-present canonical destination
-  instead of applying the same existing-source semantics as other importers.
-- Path comparisons are primarily lexical and do not define a complete
-  symlink/junction containment contract.
-- There is no shared library registry, reverse source-reference index, or
-  editor workflow that distinguishes reference, ingest, reimport, and shared
-  replacement.
-- Current runtime documentation still describes project- or engine-relative
-  `SourceAssets` as the only persistent provenance form.
+- `FMountPoint` contains only virtual and physical Content strings; it has no
+  owner, optional domains, dependency edges, permissions, lifecycle freeze, or
+  structured result.
+- `RegisterMountPoint` silently replaces duplicate roots.
+- `FPaths::Resolve` silently returns unresolved input.
+- AssetCore, `FAssetPath`, importers, and editors scan the mutable mount vector
+  directly.
+- Texture2D, TextureCube, StaticMesh, ContentBrowser, and TextureEditor
+  duplicate `GetMountOwnerRoot` logic that assumes a directory named
+  `Content`.
+- Source provenance cannot identify Engine, Game, plugin, or external mounts
+  independently of its owning asset.
+- Import workflows disagree on category restrictions, copy behavior, existing
+  destinations, and rollback.
+- There is no reverse source-reference index or shared mutation impact view.
 
 ## Implementation Stages
 
-### Stage 0: Freeze source-library and migration contracts
+### Stage 0: Revise and freeze the unified mount contract
 
 Dependencies: none.
 
-- [x] Add focused tests proving reflected `FName` package serialization stores
-  text rather than process-local name-pool indices, preserves the registered
-  display spelling, and compares differently cased spellings as one identity.
-- [x] Inventory every reflected StaticMesh, Texture2D, and TextureCube source
-  field and every repository-owned package that carries it.
-- [x] Freeze the shared `FSourceLocation` representation, empty-value
-  invariant, source-hash ownership, and compatibility carrier for each existing
-  reflected layout.
-- [x] Freeze `.dproject` `SourceLibraries` parsing, built-in names, validation,
-  unavailable-root behavior, registration lifetime, and writable policy.
-- [x] Create legacy package fixtures before changing serialization so migration
-  tests exercise real former bytes rather than newly generated equivalents.
-- [x] Record the package-schema/version impact and the exact point at which old
-  fields become rejected.
+- [x] Preserve executable reflected serialization coverage and the five legacy
+  package provenance fixtures from baseline `ee94ad4e`.
+- [x] Inventory repository-owned source-bearing packages and legacy fields.
+- [ ] Replace the superseded `{Library, RelativePath}` decision and tests with
+  the reflected `FSourcePath` contract.
+- [ ] Freeze the mount definition, optional-domain, owner, dependency, and
+  source-write fields.
+- [ ] Freeze the `.dproject` `Mounts` entry schema, validation, built-in
+  override rules, unavailable-root behavior, and registration lifetime.
+- [ ] Freeze typed Content/Source result shapes and failure taxonomy.
+- [ ] Add fixture-backed cases for `/Game/ -> /Engine/`, forbidden
+  `/Engine/ -> /Game/`, plugin-shaped mounts, and source-only mounts.
+- [ ] Record the compatibility field rename needed to deserialize the existing
+  string `SourcePath` into the new reflected wrapper.
 
 #### Acceptance Gate
 
-- The data shape, ownership boundary, descriptor schema, failure taxonomy, and
-  old-package migration path have executable fixtures and no unresolved
-  serialization decision.
+- New packages have one unambiguous virtual source-path representation; mount
+  and project descriptor shapes, dependency/write policy, failure taxonomy,
+  and legacy migration are executable with no unresolved serialization choice.
 
-### Stage 1: Implement the Core source-library registry
+### Stage 1: Implement the Core unified mount registry
 
 Dependencies: Stage 0.
 
-- [ ] Add immutable source-library definitions keyed by case-insensitive
-  `FName` identity while retaining each definition's display spelling.
-- [ ] Auto-register `Engine` and `Project`, parse additional active-project
-  descriptor entries, and expose lookup plus availability diagnostics.
-- [ ] Implement logical-to-physical resolution with normalized relative paths,
-  canonical root handling, and distinct error results.
-- [ ] Implement physical-file-to-library classification using the most specific
-  canonical root.
-- [ ] Support ordinary directories, Windows junctions, and symbolic links at
-  library roots while rejecting nested-link escape.
-- [ ] Add test-only registry reset/setup without weakening production
-  immutability.
-- [ ] Cover missing roots, duplicate names, case-only duplicates, duplicate
-  physical roots, malformed paths, traversal, unicode, long paths, and
-  permission/I/O failures.
+- [ ] Replace mutable two-string mount entries with validated definitions,
+  optional domains, owner metadata, dependencies, and source permissions.
+- [ ] Implement immutable startup publication plus scoped test fixtures.
+- [ ] Implement typed find, Content resolve, SourceAssets resolve, and reverse
+  classification with structured failures.
+- [ ] Implement canonical containment for existing and not-yet-created paths,
+  including supported junction and symlink cases.
+- [ ] Auto-register `/Engine/` and `/Game/`; parse additional project mounts.
+- [ ] Implement shared dependency and mutation-policy queries.
+- [ ] Migrate `FAssetPath`, AssetCore lookup/scanning/cache identity, and cook
+  mapping off direct vector iteration and `FPaths::Resolve`.
+- [ ] Remove `GetMountOwnerRoot` and raw mount-vector use from asset/source
+  consumers.
 
 #### Acceptance Gate
 
-- One active project can resolve at least three simultaneous libraries,
-  classify files back to the correct logical location, tolerate unavailable
-  roots, and reject every tested containment escape consistently for native
-  directories and supported link types.
+- One active project resolves `/Engine/`, `/Game/`, a plugin-shaped mount, and
+  a source-only mount through the correct typed domains; project-to-Engine
+  source access succeeds, inverse access fails, all escapes are rejected, and
+  production consumers have no ambiguous resolver fallback.
 
-### Stage 2: Migrate shared source provenance
+### Stage 2: Migrate source provenance
 
 Dependencies: Stages 0 and 1.
 
-- [ ] Add the selected `FSourceLocation` representation and shared validation
-  helpers without interning relative paths as `FName`.
-- [ ] Replace package-owner-root inference in StaticMesh, Texture2D, and
-  TextureCube resolution with source-library lookup.
-- [ ] Load legacy project/engine-relative provenance into its compatibility
-  carrier, validate bytes, and migrate it to `Project` or `Engine`.
-- [ ] Preserve source hashes, importer/decoder versions, import settings, and
-  DDC keys across migration.
-- [ ] Update diagnostics and source-status APIs to report library name and
-  library-specific failures.
-- [ ] Prove cooked package generation and cooked runtime loading remain
-  independent of source-library registration.
+- [ ] Add reflected `FSourcePath` to StaticMesh, Texture2D, and TextureCube
+  provenance while retaining legacy carriers.
+- [ ] Replace package-owner inference with typed SourceAssets resolution.
+- [ ] Migrate legacy project and Engine paths, verify persisted hashes, and
+  preserve importer versions and settings.
+- [ ] Preserve DDC keys when bytes and semantic settings do not change.
+- [ ] Update diagnostics to report mount, domain, dependency, availability,
+  containment, and missing-file failures.
+- [ ] Prove cook and cooked runtime loading remain source-independent.
 
 #### Acceptance Gate
 
-- Old package fixtures migrate without source-file mutation, new packages
-  round-trip named-library provenance, unchanged semantic inputs retain their
-  DDC keys, and cooked runtime tests require no registered source library.
+- Legacy fixtures migrate without file mutation, new packages round-trip
+  `/Engine/` and `/Game/` source paths, unchanged inputs retain DDC keys, and
+  cooked runtime tests require no SourceAssets domain.
 
-### Stage 3: Decouple import and reimport workflows
+### Stage 3: Unify import and source operations
 
 Dependencies: Stage 2.
 
-- [ ] Replace asset-path-derived source destination helpers with shared
-  reference-or-ingest classification.
-- [ ] Make existing-library import persist the selected location without any
-  copy, including when the picker returns a resolved target path rather than
-  the visible symlink/junction path.
-- [ ] Add explicit writable-library and relative-destination inputs for
-  external-file ingestion.
-- [ ] Make StaticMesh, Texture2D, six-face TextureCube, and panorama TextureCube
-  share collision, equality, transaction, rollback, and failure behavior.
+- [ ] Implement shared physical-file classification and
+  reference-versus-ingest decisions.
+- [ ] Make Game import of existing Engine/plugin sources a no-copy reference.
+- [ ] Add explicit writable target mount and relative destination for external
+  ingestion.
 - [ ] Make ordinary reimport read-only with respect to source files.
-- [ ] Add explicit change-reference and shared-source-replacement operations
-  with transactional package/source publication.
-- [ ] Preserve one source reference when an asset is duplicated and preserve
-  all source files across asset move/delete.
+- [ ] Add change-reference and shared-source-replacement operations with
+  transactional publication.
+- [ ] Apply identical collision, equality, rollback, dependency, and permission
+  behavior to StaticMesh, Texture2D, and both TextureCube layouts.
+- [ ] Preserve source paths across asset duplication and preserve source files
+  across asset move/delete.
 
 #### Acceptance Gate
 
-- Two or more assets can reference one source with different import settings,
-  produce distinct expected DDC keys, reimport independently, and incur no
-  source copy; external ingestion copies exactly once to the selected writable
-  location and rolls back cleanly on every injected failure.
+- Multiple assets and mounts can share one source without duplicate copies,
+  independent settings produce expected DDC keys, external ingestion copies
+  exactly once, and every injected failure leaves source and package state
+  unchanged.
 
-### Stage 4: Add editor library and impact workflows
+### Stage 4: Add mounted-source editor workflows
 
 Dependencies: Stage 3.
 
-- [ ] Update import dialogs to show source library and relative source path
-  separately from destination asset path.
+- [ ] Display asset destination and source virtual path independently.
 - [ ] Present **Reference Existing Source** and **Ingest External Source** as
-  distinct states with no implicit overwrite.
-- [ ] Add source-library availability, read-only, missing-file, changed-hash,
-  and containment diagnostics to relevant asset editors.
-- [ ] Build a revision-aware reverse source-reference index from asset-registry
-  metadata or bounded package inspection.
-- [ ] Show reference counts and affected asset paths before shared-source
-  replacement or source relocation.
-- [ ] Add explicit source-reference repair and multi-package source-relocation
-  transactions.
-- [ ] Keep the editor responsive and cache derived reference views against the
-  asset-registry revision rather than rescanning packages every frame.
+  distinct states.
+- [ ] Let pickers browse allowed SourceAssets domains and show mount identity,
+  writability, and dependency status.
+- [ ] Add unavailable-domain, read-only, forbidden-dependency, changed-hash,
+  missing-file, and containment diagnostics.
+- [ ] Build a revision-aware reverse `FSourcePath -> assets` index using bounded
+  package inspection.
+- [ ] Show reference counts and affected assets before shared replacement or
+  relocation.
+- [ ] Add explicit repair and transactional multi-package relocation.
 
 #### Acceptance Gate
 
-- An editor user can select among multiple libraries, create two differently
-  configured assets from one source, distinguish reimport from replacement,
-  inspect the known impact of a shared-source mutation, and recover from an
-  unavailable library without ambiguous or destructive actions.
+- An editor user can reference Engine source from a Game asset, ingest external
+  source into Game, distinguish reimport from shared replacement, preview
+  mutation impact, and recover from unavailable mounts without ambiguous or
+  destructive actions.
 
-### Stage 5: Migrate repository content and publish lasting contracts
+### Stage 5: Migrate repository content and publish contracts
 
 Dependencies: Stages 2 through 4.
 
-- [ ] Migrate all repository-owned StaticMesh, Texture2D, and TextureCube
-  packages and verify their persisted source hashes against resolved files.
-- [ ] Remove the temporary legacy compatibility carrier only after clean
-  registry scans and fixture-backed rejection coverage.
-- [ ] Update asset lifecycle, content version-control, texture, cube, material,
-  and package documentation that currently states the old source-root model.
-- [ ] Document multi-library project setup, Git/LFS ownership, symlink/junction
-  bootstrap, unavailable-library recovery, and read-only shared libraries.
-- [ ] Run the focused native suites, package migration validation, cook/load
-  tests, and editor workflow smoke tests.
-- [ ] Complete the repository-required full `all` build and launch the editor
-  from the same Agent Build Profile for the user-visible workflow change.
-- [ ] Update this plan's status and checklists with validation evidence, move
-  lasting rules into their owning documentation, validate all plans, and
-  archive the completed plan.
+- [ ] Migrate all repository-owned source-bearing packages and verify hashes.
+- [ ] Remove legacy carriers only after clean scans and fixture-backed rejection
+  coverage.
+- [ ] Publish lasting mount, package, source workflow, content version-control,
+  texture, cube, and model contracts in their owning documentation.
+- [ ] Document plugin-shaped and source-only mount configuration, Git/LFS
+  ownership, links, unavailable roots, and read-only recovery.
+- [ ] Run focused native suites, package migration, cook/load, editor smoke,
+  full `all` build, and verified editor launch.
+- [ ] Update status/checklists, validate all plans, and archive this plan.
 
 #### Acceptance Gate
 
-- Repository packages use only named source-library provenance; old metadata is
-  deliberately rejected; all focused, cook, and editor smoke coverage passes;
-  the full editor build succeeds; and the authoritative documentation no
-  longer couples source organization to runtime asset organization.
+- Repository packages use only mounted `FSourcePath` provenance, old metadata
+  is deliberately rejected, all validation passes, and authoritative
+  documentation no longer derives SourceAssets from Content.
 
 ## Validation Matrix
 
 | Area | Scenario | Expected result |
 | --- | --- | --- |
-| Identity | `StudioArt` and `studioart` are declared | Project initialization rejects the case-only duplicate |
-| Serialization | Register `StudioArt` and load a differently cased reference | Lookup succeeds and the next package save persists `StudioArt` |
-| Multiple libraries | Two libraries contain `Textures/Wood.png` | Library name disambiguates the references |
-| Shared source | Two assets use one location and equal settings | Both resolve one file and converge to the same DDC key |
-| Per-asset settings | Two assets use one location and different settings | Source is not copied and DDC keys differ deterministically |
-| Organization | Source and asset paths have unrelated hierarchies | Import persists the selected source path unchanged |
-| Cross-project | Two projects map `StudioArt` to the same checkout | Equivalent logical references resolve without workstation paths in packages |
-| Native directory | Library root is a normal directory | Resolution, ingest, and reimport succeed |
-| Junction/symlink | Library root redirects outside the project | Root resolution succeeds and persists only the logical reference |
-| Escape | A nested link exits the resolved library root | Resolution and ingestion reject it before file mutation |
-| Unavailable library | Shared checkout is absent but DDC is valid | Editor load succeeds with a source-unavailable diagnostic |
-| Read-only library | User references then attempts replacement | Reference/reimport succeeds; ingestion/replacement is refused |
-| Ingest | External file targets a writable library | One transactional copy occurs at the explicitly selected relative path |
-| Reimport | Existing referenced source is rebuilt | No source copy, rename, or overwrite occurs |
-| TextureCube | Existing six-face or panorama sources are selected | Initial import references them instead of reporting destination collision |
-| Migration | Legacy project and engine packages load | They map to `Project` and `Engine` without source movement or DDC-key drift |
-| Source mutation | Shared bytes change | Each asset reports its own hash mismatch and commits only after successful rebuild |
-| Move/delete | Referencing asset moves or is deleted | Source files remain untouched |
-| Cook | Editor provenance exists during cook | Runtime package/load has no source-library dependency |
-| Rollback | Copy, build, package save, or replacement fails | No partial source or package state is published |
+| Typed domains | Resolve one relative path as asset and source | Asset uses Content; source uses SourceAssets |
+| Unsupported domain | Source-only mount receives an `FAssetPath` | Explicit unsupported-domain failure |
+| Project to Engine | Sandbox imports an Engine source | `/Engine/...` is persisted and no copy occurs |
+| Engine to Project | Engine asset selects `/Game/...` source | Dependency failure before mutation |
+| Plugin | Game asset references `/Plugins/PCG/...` | Succeeds only when Game declares the dependency |
+| Source-only mount | Game references `/Libraries/StudioArt/...` | Source resolves; asset resolution is unavailable |
+| Duplicate root | Two definitions use `/Plugins/PCG/` | Initialization rejects the duplicate |
+| Unknown root | Resolve `/Unknown/File.png` | Explicit unknown-mount failure |
+| Missing root | A configured source checkout is absent | DDC-backed load succeeds with diagnostic |
+| Traversal | Source contains `..` | Rejected before filesystem access |
+| Root link | Source root is a junction/symlink | Resolves against canonical target |
+| Nested escape | Nested link exits the source root | Rejected before read or write |
+| Reverse classification | Physical Engine source is selected | Produces canonical `/Engine/...` |
+| Read-only | Project tries replacing Engine source | Read succeeds; write is rejected |
+| Shared source | Two assets use one source and equal settings | Same DDC key, no duplicate copy |
+| Per-asset settings | Shared source has different settings | Deterministically different DDC keys |
+| Ingest | External file targets writable Game source | One transactional copy |
+| Reimport | Asset rebuilds from mounted source | No source write |
+| Migration | Legacy Game and Engine packages load | Correct virtual roots, no file move, no DDC drift |
+| Cook | Editor provenance exists | Cooked runtime needs no SourceAssets root |
+| Rollback | Copy, build, save, or replacement fails | No partial source/package publication |
 
 Validation commands and profile selection follow
-[Build and Run](../Development/Build/BuildAndRun.md); this plan does not
-duplicate those operational instructions.
+[Build and Run](../Development/Build/BuildAndRun.md).
 
 ## Definition of Done
 
-- Multiple named source libraries are configured and resolved independently of
-  Content mount points.
-- Persisted library identity uses the registered display spelling of a
-  case-insensitive `FName`; relative source paths remain strings and never
-  encode physical roots.
-- Source organization is independent of asset virtual path organization.
-- Same-source multi-asset imports perform no duplicate copy and support
-  independent settings and DDC results.
-- Ordinary directories, junctions, and symlinks satisfy the same containment
-  and failure contracts.
-- StaticMesh, Texture2D, TextureCube, repository packages, cook, editor UI, and
-  diagnostics use the shared model.
-- Legacy provenance is migrated with fixture-backed compatibility and then
-  removed from the accepted new-package contract.
-- Focused tests, package validation, cook/load coverage, full `all` build, and
-  editor smoke validation pass.
-- Lasting behavior is published in the owning documentation and this completed
-  plan is archived according to the plan lifecycle rules.
+- Content and SourceAssets are typed domains of one immutable logical mount
+  registry.
+- `/Engine/`, `/Game/`, plugin-shaped, and source-only mounts resolve without
+  physical directory names in persisted paths.
+- `FAssetPath` and `FSourcePath` cannot cross domains accidentally.
+- AssetCore and importers use structured resolver results with no silent
+  fallback or direct backing-vector scans.
+- Game assets reference Engine and declared plugin sources without copying;
+  Engine assets remain independent of project mounts.
+- Source organization is independent from asset organization.
+- Shared sources support independent settings and deterministic derived data.
+- Native directories, junctions, and symlinks obey one containment contract.
+- StaticMesh, Texture2D, TextureCube, cook, editor UI, diagnostics, and
+  repository packages use the unified model.
+- Legacy provenance is migrated with fixture-backed compatibility, then
+  deliberately removed.
+- Focused tests, cook/load, editor smoke, full build, and plan validation pass.
+- Lasting contracts are published and the completed plan is archived.
 
 ## Deferred Follow-ups
 
-- Stable source GUIDs, `.dsource` sidecars, library manifests, and redirectors
-  for transparent source moves.
-- Library-name aliases for coordinated organization-wide renames.
-- Persistent reverse-reference indexes if registry-derived rebuilding becomes
-  too expensive.
-- Remote library synchronization, checkout/version pinning, LFS locking, and
-  source-control provider integration.
-- Overlay libraries, fallback search chains, and multiple physical replicas of
-  one logical library.
-- Per-user physical-path overrides if project-relative symlink/junction
-  bootstrap proves insufficient.
-- Automated source garbage collection based on verified zero-reference state.
+- `Old.png.redirect` and other transparent source redirectors.
+- A typed Shader domain and migration of RenderCore `FShaderPaths` onto unified
+  mount identity.
+- Stable source GUIDs and sidecar metadata.
+- Persistent reverse-reference indexes.
+- Remote synchronization, checkout/version pinning, and source locking.
+- Overlay/fallback mounts and multiple physical replicas.
+- Per-user physical-root overrides if project-relative links are insufficient.
+- Automated source garbage collection after verified zero-reference state.
 
 ## Related Documentation
 
+- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
-- [Asset Derived Data and Cooking Plan](Archive/2026-07/AssetDerivedDataAndCooking.md)
 - [Texture Support Plan](TextureSupport.md)
 
 ## Related Code
 
-- `Engine/Source/Runtime/Core/Public/Misc/Name.h`
 - `Engine/Source/Runtime/Core/Public/Misc/Paths.h`
+- `Engine/Source/Runtime/Core/Private/Misc/Paths.cpp`
 - `Engine/Source/Runtime/Core/Public/Misc/Project.h`
 - `Engine/Source/Runtime/Core/Private/Misc/Project.cpp`
+- `Engine/Source/Runtime/CoreDObject/Private/DObject/AssetPath.cpp`
 - `Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp`
 - `Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMesh.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/Texture2D.h`
@@ -606,8 +677,7 @@ duplicate those operational instructions.
 - `Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/Texture2D.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/TextureCube.cpp`
-- `Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshDerivedData.h`
-- `Engine/Source/Runtime/Engine/Public/Texture/TextureDerivedData.h`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/StaticMeshImportDialog.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/TextureImportDialog.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/TextureCubeImportDialog.cpp`
+- `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserPanel.cpp`

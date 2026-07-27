@@ -8,6 +8,11 @@ Last reviewed: 2026-07-27
 
 Planning is complete and no implementation stage has started.
 
+Source dependency terminology now follows the unified logical-mount contract
+selected by `Documentation/Plans/SourceLibraryReferences.md`: persisted inputs
+use `FSourcePath`, and Content/SourceAssets are typed domains of one mount
+rather than separate asset and source-library namespaces.
+
 Durin currently imports static geometry through Assimp into one `DStaticMesh`.
 The importer traverses the source node hierarchy, bakes node transforms into
 vertex data, retains up to four UV channels and vertex color zero, generates
@@ -172,7 +177,7 @@ roughness PBR surface contract owned by the Material System plan.
 
 ### Source dependencies and provenance
 
-- This plan consumes the logical `FSourceLocation`, library containment, and
+- This plan consumes the logical `FSourcePath`, mounted-source containment, and
   reference-versus-ingest rules selected by
   `Documentation/Plans/SourceLibraryReferences.md`; it does not create a second
   source mounting abstraction.
@@ -180,14 +185,15 @@ roughness PBR surface contract owned by the Material System plan.
   dependency manifest. Each entry records its normalized logical role,
   portable source location or embedded identity, exact byte hash, and size.
 - External URIs resolve relative to the physical root model only after the
-  resolved candidate passes source-library containment. Absolute file paths,
-  network URLs, traversal, and nested-link escape are rejected.
-- An external image already inside a registered source library is referenced
-  without copying. An external image outside registered libraries follows the
-  explicit ingestion workflow and cannot choose a destination implicitly from
-  the runtime asset path.
+  resolved candidate passes its mount's SourceAssets containment. Absolute file
+  paths, network URLs, traversal, and nested-link escape are rejected.
+- An external image already inside an allowed mounted SourceAssets domain is
+  referenced without copying. An external image outside registered source
+  domains follows the explicit ingestion workflow and cannot choose a
+  destination implicitly from the runtime asset path.
 - Data-URI, GLB, and FBX embedded images are extracted transactionally into a
-  selected writable source library before Texture2D provenance is published.
+  selected writable SourceAssets domain before Texture2D provenance is
+  published.
   Extracted bytes are authoritative editor source data; a temporary file is
   never the only retained source.
 - Embedded-image extraction uses deterministic paths derived from the root
@@ -387,8 +393,8 @@ Dependencies: none.
 - [ ] Freeze deterministic asset naming, case-insensitive collision handling,
   texture deduplication, generated-asset ownership, reimport update, recreation,
   and orphan policies.
-- [ ] Record the exact dependency on Source Library stages and the temporary
-  sequencing rule if this plan begins before named source libraries land.
+- [ ] Record the exact dependency on unified mount stages and the temporary
+  sequencing rule if this plan begins before mounted source paths land.
 - [ ] Characterize current package/registry behavior under multi-package save
   failure before selecting transaction primitives.
 
@@ -430,16 +436,16 @@ Dependencies: Stage 0.
 
 ### Stage 2: Build portable image-source and multi-asset transaction primitives
 
-Dependencies: Stages 0 and 1; Source Library registry, provenance, and
+Dependencies: Stages 0 and 1; unified mount registry, provenance, and
 reference-or-ingest semantics from its owning plan.
 
 - [ ] Add an editor asset-build entrypoint that validates encoded image bytes
   and builds a `DTexture2D` candidate with explicit usage and sRGB settings
   without requiring an unrelated temporary authoritative source path.
-- [ ] Reference external image dependencies already inside a source library
-  and transactionally ingest external dependencies only through the selected
-  writable-library workflow.
-- [ ] Extract embedded images to deterministic writable source-library
+- [ ] Reference external image dependencies already inside an allowed
+  SourceAssets domain and transactionally ingest external dependencies only
+  through the selected writable-mount workflow.
+- [ ] Extract embedded images to deterministic writable SourceAssets
   locations and reuse only byte-identical existing sources.
 - [ ] Implement the reusable prepare/stage/publish/rollback transaction for
   several packages, source files, DDC objects, and loaded-object mutations.
@@ -607,9 +613,9 @@ subset.
 - [ ] Move lasting import representation, material mapping, source dependency,
   reimport, generated-asset, and runtime/cook contracts into their owning
   Runtime or Editor Architecture documents.
-- [ ] Update the Material System, Texture Support, Source Library References,
-  and Multithreading V1 plans only for work whose owning acceptance evidence
-  actually passed.
+- [ ] Update the Material System, Texture Support, Unified Mount Source
+  References, and Multithreading V1 plans only for work whose owning acceptance
+  evidence actually passed.
 - [ ] Archive this plan only after every required acceptance gate and lasting
   documentation handoff is complete.
 
@@ -626,7 +632,7 @@ subset.
 | --- | --- | --- |
 | Normalized import | glTF external/data URI/GLB images, multiple/unused/duplicate-name materials, FBX exact and lossy mappings | AssetImport unit tests with frozen normalized values and diagnostics |
 | Geometry compatibility | transforms, mirrors, normals/tangents, four UVs, vertex colors, sections, material indices | Existing plus extended AssetImport and StaticMesh tests |
-| Dependency safety | relative sidecars, library references, ingestion, embedded extraction, traversal, absolute/network URI, missing bytes, link escape | Source-library and import dependency tests |
+| Dependency safety | relative sidecars, mounted source references, ingestion, embedded extraction, traversal, absolute/network URI, missing bytes, link escape | Mount/source and import dependency tests |
 | Resource budgets | material/image/binding counts, encoded and decoded byte limits, dimensions, malformed payloads | Importer and Texture2D rejection tests |
 | Naming and deduplication | invalid names, case collisions, duplicate images, same image with color/data uses, existing identical source, unrelated asset collision | Output-planner unit and asset integration tests |
 | Transactionality | failure at every source, DDC, package, registry, object mutation, and root-save boundary | Injected-failure filesystem/package tests |
@@ -655,7 +661,7 @@ subset.
   assets transactionally; failed reimport leaves the previous complete graph
   intact.
 - Existing geometry-only meshes remain loadable and render as before.
-- Cooked output loads without source models, source images, source-library
+- Cooked output loads without source models, source images, mounted SourceAssets
   registration, Assimp, or editor image decoders.
 - Required focused tests, full build, editor smoke, rendered validation, and
   cooked runtime validation succeed through the repository BuildTool.
