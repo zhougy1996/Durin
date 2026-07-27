@@ -81,11 +81,157 @@ namespace Durin
 		constexpr float MinimumTreeWidth = 145.0f;
 		constexpr float MinimumContentWidth = 240.0f;
 		constexpr float MinimumContentHeight = 80.0f;
-		constexpr float GridCellExtraWidth = 26.0f;
-		constexpr float GridCardRounding = 7.0f;
-		constexpr float GridIconScale = 0.76f;
-		constexpr float GridIconVerticalPadding = 2.0f;
-		constexpr float GridIconNameSpacing = 1.0f;
+
+		// Derives every grid-card region from the requested square preview extent.
+		struct FContentBrowserGridMetrics
+		{
+			float CellWidth = 0.0f;
+			float TileHeight = 0.0f;
+			float RowHeight = 0.0f;
+			float PreviewExtent = 0.0f;
+			float IconFontSize = 0.0f;
+			float NameFontSize = 0.0f;
+			float CardInset = 0.0f;
+			float CardRounding = 0.0f;
+			float ContentInset = 0.0f;
+			float NameGap = 0.0f;
+			float NameAreaHeight = 0.0f;
+			float BadgeSize = 0.0f;
+			float BadgeInset = 0.0f;
+
+			static auto FromPreviewExtent(float InPreviewExtent) -> FContentBrowserGridMetrics
+			{
+				FContentBrowserGridMetrics Metrics;
+				Metrics.PreviewExtent = InPreviewExtent;
+				Metrics.IconFontSize =
+					MonaImGui::QuantizeDynamicFontSize(InPreviewExtent * 0.68f);
+				Metrics.NameFontSize = MonaImGui::QuantizeDynamicFontSize(std::clamp(
+					InPreviewExtent * 0.18f,
+					ImGui::GetFontSize() * 0.78f,
+					ImGui::GetFontSize() * 1.20f));
+				Metrics.CardInset = MonaImGui::ScaleUI(2.0f);
+				Metrics.CardRounding = MonaImGui::ScaleUI(7.0f);
+				Metrics.ContentInset = MonaImGui::ScaleUI(7.0f);
+				Metrics.NameGap = MonaImGui::ScaleUI(5.0f);
+				Metrics.NameAreaHeight =
+					Metrics.NameFontSize * 2.0f + MonaImGui::ScaleUI(4.0f);
+				Metrics.CellWidth =
+					InPreviewExtent + (Metrics.ContentInset + Metrics.CardInset) * 2.0f;
+				Metrics.TileHeight = Metrics.CardInset + Metrics.ContentInset
+					+ InPreviewExtent + Metrics.NameGap + Metrics.NameAreaHeight
+					+ Metrics.ContentInset + Metrics.CardInset;
+				Metrics.RowHeight =
+					Metrics.TileHeight + ImGui::GetStyle().ItemSpacing.y + 1.0f;
+				Metrics.BadgeSize = std::clamp(
+					InPreviewExtent * 0.22f,
+					MonaImGui::ScaleUI(18.0f),
+					MonaImGui::ScaleUI(28.0f));
+				Metrics.BadgeInset = MonaImGui::ScaleUI(4.0f);
+				return Metrics;
+			}
+
+			auto CardMin(const ImVec2& TileStart) const -> ImVec2
+			{
+				return ImVec2(TileStart.x + CardInset, TileStart.y + CardInset);
+			}
+
+			auto CardMax(const ImVec2& TileStart, const ImVec2& TileSize) const -> ImVec2
+			{
+				return ImVec2(
+					TileStart.x + TileSize.x - CardInset,
+					TileStart.y + TileSize.y - CardInset);
+			}
+
+			auto PreviewMin(const ImVec2& TileStart, const ImVec2& TileSize) const -> ImVec2
+			{
+				return ImVec2(
+					TileStart.x + (TileSize.x - PreviewExtent) * 0.5f,
+					TileStart.y + CardInset + ContentInset);
+			}
+
+			auto PreviewMax(const ImVec2& TileStart, const ImVec2& TileSize) const -> ImVec2
+			{
+				const ImVec2 Min = PreviewMin(TileStart, TileSize);
+				return ImVec2(Min.x + PreviewExtent, Min.y + PreviewExtent);
+			}
+
+			auto NameMin(const ImVec2& TileStart, const ImVec2& TileSize) const -> ImVec2
+			{
+				const ImVec2 Preview = PreviewMin(TileStart, TileSize);
+				return ImVec2(
+					TileStart.x + CardInset + ContentInset,
+					Preview.y + PreviewExtent + NameGap);
+			}
+
+			auto NameMax(const ImVec2& TileStart, const ImVec2& TileSize) const -> ImVec2
+			{
+				const ImVec2 Min = NameMin(TileStart, TileSize);
+				return ImVec2(
+					TileStart.x + TileSize.x - CardInset - ContentInset,
+					Min.y + NameAreaHeight);
+			}
+		};
+
+		auto DrawTransparencyGrid(
+			ImDrawList& DrawList,
+			const ImVec2& Min,
+			const ImVec2& Size) -> void
+		{
+			const float CheckerSize = MonaImGui::ScaleUI(7.0f);
+			const ImVec2 Max(Min.x + Size.x, Min.y + Size.y);
+			DrawList.PushClipRect(Min, Max, true);
+			for (float Y = 0.0f; Y < Size.y; Y += CheckerSize)
+				for (float X = 0.0f; X < Size.x; X += CheckerSize)
+				{
+					const bool bLight =
+						(static_cast<int32>(X / CheckerSize)
+							+ static_cast<int32>(Y / CheckerSize))
+						% 2
+						== 0;
+					const ImU32 Color = ImGui::GetColorU32(
+						bLight
+							? ImVec4(0.62f, 0.62f, 0.62f, 1.0f)
+							: ImVec4(0.38f, 0.38f, 0.38f, 1.0f));
+					DrawList.AddRectFilled(
+						ImVec2(Min.x + X, Min.y + Y),
+						ImVec2(
+							Min.x + std::min(X + CheckerSize, Size.x),
+							Min.y + std::min(Y + CheckerSize, Size.y)),
+						Color);
+				}
+			DrawList.PopClipRect();
+		}
+
+		auto DrawTextureCubeBadge(
+			ImDrawList& DrawList,
+			const FContentBrowserGridMetrics& Metrics,
+			const ImVec2& PreviewMax) -> void
+		{
+			const ImVec2 BadgeMax(
+				PreviewMax.x - Metrics.BadgeInset,
+				PreviewMax.y - Metrics.BadgeInset);
+			const ImVec2 BadgeMin(
+				BadgeMax.x - Metrics.BadgeSize,
+				BadgeMax.y - Metrics.BadgeSize);
+			DrawList.AddRectFilled(
+				BadgeMin,
+				BadgeMax,
+				ImGui::GetColorU32(ImVec4(0.04f, 0.05f, 0.07f, 0.82f)),
+				Metrics.BadgeSize * 0.24f);
+			const float IconSize =
+				MonaImGui::QuantizeDynamicFontSize(Metrics.BadgeSize * 0.58f);
+			const ImVec2 IconExtent =
+				ImGui::GetFont()->CalcTextSizeA(IconSize, FLT_MAX, 0.0f, Icons::Cube);
+			const ImVec2 IconPosition(
+				BadgeMin.x + (Metrics.BadgeSize - IconExtent.x) * 0.5f,
+				BadgeMin.y + (Metrics.BadgeSize - IconExtent.y) * 0.5f);
+			DrawList.AddText(
+				ImGui::GetFont(),
+				IconSize,
+				IconPosition,
+				ImGui::GetColorU32(ImVec4(0.90f, 0.94f, 1.0f, 1.0f)),
+				Icons::Cube);
+		}
 	} // namespace
 
 	FContentBrowserPanel::FContentBrowserPanel(FLevelEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport, FMoveAssets InMoveAssets)
@@ -740,25 +886,17 @@ namespace Durin
 
 	auto FContentBrowserPanel::DrawGrid() -> void
 	{
-		const float CellWidth = IconSize + MonaImGui::ScaleUI(GridCellExtraWidth);
-		const float NameFontSize = MonaImGui::QuantizeDynamicFontSize(
-			std::clamp(IconSize * 0.22f, ImGui::GetFontSize() * 0.70f, ImGui::GetFontSize() * 1.40f));
-		const float IconFontSize = MonaImGui::QuantizeDynamicFontSize(IconSize * GridIconScale);
-		// IconSize describes the requested thumbnail extent. Keep glyphs visually smaller
-		// inside that area, but let image-backed previews use the full square allocation.
-		const float IconAreaHeight = IconSize
-			+ MonaImGui::ScaleUI(GridIconVerticalPadding * 2.0f);
-		const float NamePositionY = IconAreaHeight + MonaImGui::ScaleUI(GridIconNameSpacing);
-		const float NameAreaHeight = NameFontSize * 2.0f + MonaImGui::ScaleUI(8.0f);
-		const float TileHeight = IconAreaHeight + NameAreaHeight;
+		const FContentBrowserGridMetrics Metrics =
+			FContentBrowserGridMetrics::FromPreviewExtent(IconSize);
 		const float LayoutSentinelHeight = 1.0f;
-		const float RowHeight = TileHeight + ImGui::GetStyle().ItemSpacing.y + LayoutSentinelHeight;
-		const int32 Columns = std::max(1, static_cast<int32>(ImGui::GetContentRegionAvail().x / CellWidth));
+		const int32 Columns = std::max(
+			1,
+			static_cast<int32>(ImGui::GetContentRegionAvail().x / Metrics.CellWidth));
 		const int32 RowCount = static_cast<int32>((Items.size() + static_cast<size_t>(Columns) - 1) / static_cast<size_t>(Columns));
 		if (!ImGui::BeginTable("ContentBrowserGrid", Columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_ScrollY)) return;
 
 		ImGuiListClipper Clipper;
-		Clipper.Begin(RowCount, RowHeight);
+		Clipper.Begin(RowCount, Metrics.RowHeight);
 		while (Clipper.Step())
 		{
 			const int32 PrefetchStart = std::max(0, Clipper.DisplayStart - 2);
@@ -783,7 +921,7 @@ namespace Durin
 
 			for (int32 Row = Clipper.DisplayStart; Row < Clipper.DisplayEnd; ++Row)
 			{
-				ImGui::TableNextRow(ImGuiTableRowFlags_None, RowHeight);
+				ImGui::TableNextRow(ImGuiTableRowFlags_None, Metrics.RowHeight);
 				for (int32 Column = 0; Column < Columns; ++Column)
 				{
 					const size_t Index = static_cast<size_t>(Row) * Columns + Column;
@@ -791,9 +929,15 @@ namespace Durin
 					const FContentBrowserItem& Item = Items[Index];
 					ImGui::TableSetColumnIndex(Column);
 					ImGui::PushID(Item.StableId().c_str());
-					const ImVec2 TileSize(ImGui::GetContentRegionAvail().x, TileHeight);
+					const ImVec2 TileSize(
+						ImGui::GetContentRegionAvail().x,
+						Metrics.TileHeight);
 					const bool bSelected = Selection.contains(Item.StableId());
 					const ImVec2 TileStart = ImGui::GetCursorScreenPos();
+					const ImVec2 PreviewMin = Metrics.PreviewMin(TileStart, TileSize);
+					const ImVec2 PreviewMax = Metrics.PreviewMax(TileStart, TileSize);
+					const ImVec2 NameMin = Metrics.NameMin(TileStart, TileSize);
+					const ImVec2 NameMax = Metrics.NameMax(TileStart, TileSize);
 					ImGui::InvisibleButton("##Tile", TileSize);
 					const ImVec2 CursorAfterTile = ImGui::GetCursorScreenPos();
 					const bool bHovered = ImGui::IsItemHovered();
@@ -813,109 +957,110 @@ namespace Durin
 					}
 
 					ImDrawList* DrawList = ImGui::GetWindowDrawList();
-					const float CardInset = MonaImGui::ScaleUI(2.0f);
-					const float CardRounding = MonaImGui::ScaleUI(GridCardRounding);
-					const ImVec2 CardMin(TileStart.x + CardInset, TileStart.y + CardInset);
-					const ImVec2 CardMax(TileStart.x + TileSize.x - CardInset, TileStart.y + TileSize.y - CardInset);
+					const ImVec2 CardMin = Metrics.CardMin(TileStart);
+					const ImVec2 CardMax = Metrics.CardMax(TileStart, TileSize);
 					if (bSelected || bHovered)
 					{
 						const ImGuiCol BackgroundColor = bSelected ? (bHovered ? ImGuiCol_HeaderActive : ImGuiCol_Header) : ImGuiCol_HeaderHovered;
-						DrawList->AddRectFilled(CardMin, CardMax, ImGui::GetColorU32(BackgroundColor), CardRounding);
-						if (bSelected) DrawList->AddRect(CardMin, CardMax, ImGui::GetColorU32(ImGuiCol_CheckMark), CardRounding, 0, MonaImGui::ScaleUI(1.0f));
+						DrawList->AddRectFilled(
+							CardMin,
+							CardMax,
+							ImGui::GetColorU32(BackgroundColor),
+							Metrics.CardRounding);
+						if (bSelected)
+							DrawList->AddRect(
+								CardMin,
+								CardMax,
+								ImGui::GetColorU32(ImGuiCol_CheckMark),
+								Metrics.CardRounding,
+								0,
+								MonaImGui::ScaleUI(1.0f));
 					}
 
 					const FAssetThumbnailView Thumbnail = ThumbnailCache->Find(Item.ThumbnailIdentity);
 					bool bDrewThumbnail = false;
 					if (Thumbnail.State == EAssetThumbnailState::Ready && Thumbnail.Texture && Mona::GActiveUIBackend)
 					{
-						const float ThumbnailInset = MonaImGui::ScaleUI(6.0f);
-						const ImVec2 ImageAreaMin(TileStart.x + ThumbnailInset, TileStart.y + ThumbnailInset);
-						const ImVec2 ImageAreaMax(TileStart.x + TileSize.x - ThumbnailInset, TileStart.y + IconAreaHeight - ThumbnailInset);
-						const ImVec2 AvailableImageSize(std::max(1.0f, ImageAreaMax.x - ImageAreaMin.x), std::max(1.0f, ImageAreaMax.y - ImageAreaMin.y));
-						const float Scale = std::min(AvailableImageSize.x / static_cast<float>(Thumbnail.Width), AvailableImageSize.y / static_cast<float>(Thumbnail.Height));
+						const float Scale = std::min(
+							Metrics.PreviewExtent / static_cast<float>(Thumbnail.Width),
+							Metrics.PreviewExtent / static_cast<float>(Thumbnail.Height));
 						const ImVec2 ImageSize(std::max(1.0f, Thumbnail.Width * Scale), std::max(1.0f, Thumbnail.Height * Scale));
-						const ImVec2 ImagePosition(ImageAreaMin.x + (AvailableImageSize.x - ImageSize.x) * 0.5f, ImageAreaMin.y + (AvailableImageSize.y - ImageSize.y) * 0.5f);
-						// Keep rectangular source images away from the rounded card edge and clip any
-						// subpixel spill introduced by scaling or UI DPI conversion.
-						DrawList->PushClipRect(ImageAreaMin, ImageAreaMax, true);
+						const ImVec2 ImagePosition(
+							PreviewMin.x + (Metrics.PreviewExtent - ImageSize.x) * 0.5f,
+							PreviewMin.y + (Metrics.PreviewExtent - ImageSize.y) * 0.5f);
+						DrawList->PushClipRect(PreviewMin, PreviewMax, true);
 						if (Thumbnail.bHasTransparency && Thumbnail.bShowTransparencyGrid)
-						{
-							const float CheckerSize = MonaImGui::ScaleUI(7.0f);
-							DrawList->PushClipRect(ImagePosition, ImVec2(ImagePosition.x + ImageSize.x, ImagePosition.y + ImageSize.y), true);
-							for (float Y = 0.0f; Y < ImageSize.y; Y += CheckerSize)
-								for (float X = 0.0f; X < ImageSize.x; X += CheckerSize)
-								{
-									const bool bLight = (static_cast<int32>(X / CheckerSize) + static_cast<int32>(Y / CheckerSize)) % 2 == 0;
-									const ImU32 Color = ImGui::GetColorU32(bLight ? ImVec4(0.62f, 0.62f, 0.62f, 1.0f) : ImVec4(0.38f, 0.38f, 0.38f, 1.0f));
-									DrawList->AddRectFilled(ImVec2(ImagePosition.x + X, ImagePosition.y + Y), ImVec2(ImagePosition.x + std::min(X + CheckerSize, ImageSize.x), ImagePosition.y + std::min(Y + CheckerSize, ImageSize.y)), Color);
-								}
-							DrawList->PopClipRect();
-						}
+							DrawTransparencyGrid(*DrawList, ImagePosition, ImageSize);
 						ImGui::SetCursorScreenPos(ImagePosition);
 						bDrewThumbnail = Mona::GActiveUIBackend->DrawImage(Thumbnail.Texture, FVector2f(ImageSize.x, ImageSize.y));
 						ImGui::SetCursorScreenPos(CursorAfterTile);
 						DrawList->PopClipRect();
 						if (bDrewThumbnail && Item.Kind == EContentBrowserItemKind::Asset
 							&& ClassLeaf(Item.AssetClassName) == "TextureCube")
-						{
-							const float BadgeSize = std::clamp(
-								IconSize * 0.22f,
-								MonaImGui::ScaleUI(18.0f),
-								MonaImGui::ScaleUI(28.0f));
-							const float BadgeInset = MonaImGui::ScaleUI(4.0f);
-							const ImVec2 BadgeMax(
-								ImagePosition.x + ImageSize.x - BadgeInset,
-								ImagePosition.y + ImageSize.y - BadgeInset);
-							const ImVec2 BadgeMin(
-								BadgeMax.x - BadgeSize, BadgeMax.y - BadgeSize);
-							DrawList->AddRectFilled(
-								BadgeMin,
-								BadgeMax,
-								ImGui::GetColorU32(ImVec4(0.04f, 0.05f, 0.07f, 0.82f)),
-								BadgeSize * 0.24f);
-							const float BadgeIconSize =
-								MonaImGui::QuantizeDynamicFontSize(BadgeSize * 0.58f);
-							const ImVec2 BadgeIconExtent = ImGui::GetFont()->CalcTextSizeA(
-								BadgeIconSize, FLT_MAX, 0.0f, Icons::Cube);
-							const ImVec2 BadgeIconPosition(
-								BadgeMin.x + (BadgeSize - BadgeIconExtent.x) * 0.5f,
-								BadgeMin.y + (BadgeSize - BadgeIconExtent.y) * 0.5f);
-							DrawList->AddText(
-								ImGui::GetFont(),
-								BadgeIconSize,
-								BadgeIconPosition,
-								ImGui::GetColorU32(ImVec4(0.90f, 0.94f, 1.0f, 1.0f)),
-								Icons::Cube);
-						}
+							DrawTextureCubeBadge(*DrawList, Metrics, PreviewMax);
 					}
 					if (!bDrewThumbnail)
 					{
 						const MonaImGui::EUIThemeColor IconColorRole = Item.Kind == EContentBrowserItemKind::Folder ? MonaImGui::EUIThemeColor::Folder :
 															   Item.Kind == EContentBrowserItemKind::Asset ? MonaImGui::EUIThemeColor::Asset : MonaImGui::EUIThemeColor::SourceFile;
-						const ImVec2 IconExtent = ImGui::GetFont()->CalcTextSizeA(IconFontSize, FLT_MAX, 0.0f, ItemIcon(Item));
-						const ImVec2 IconPosition(TileStart.x + std::max(0.0f, (TileSize.x - IconExtent.x) * 0.5f), TileStart.y + std::max(0.0f, (IconAreaHeight - IconExtent.y) * 0.5f));
-						DrawList->AddText(ImGui::GetFont(), IconFontSize, IconPosition, MonaImGui::GetThemeColorU32(IconColorRole), ItemIcon(Item));
+						const ImVec2 IconExtent = ImGui::GetFont()->CalcTextSizeA(
+							Metrics.IconFontSize,
+							FLT_MAX,
+							0.0f,
+							ItemIcon(Item));
+						const ImVec2 IconPosition(
+							PreviewMin.x + (Metrics.PreviewExtent - IconExtent.x) * 0.5f,
+							PreviewMin.y + (Metrics.PreviewExtent - IconExtent.y) * 0.5f);
+						DrawList->AddText(
+							ImGui::GetFont(),
+							Metrics.IconFontSize,
+							IconPosition,
+							MonaImGui::GetThemeColorU32(IconColorRole),
+							ItemIcon(Item));
 						if (Thumbnail.State == EAssetThumbnailState::Queued || Thumbnail.State == EAssetThumbnailState::Loading || Thumbnail.State == EAssetThumbnailState::Uploading)
-							DrawList->AddText(ImVec2(TileStart.x + TileSize.x - MonaImGui::ScaleUI(18.0f), TileStart.y + MonaImGui::ScaleUI(4.0f)), ImGui::GetColorU32(ImGuiCol_TextDisabled), "...");
+							DrawList->AddText(
+								ImVec2(
+									PreviewMax.x - MonaImGui::ScaleUI(14.0f),
+									PreviewMin.y),
+								ImGui::GetColorU32(ImGuiCol_TextDisabled),
+								"...");
 						else if (Thumbnail.State == EAssetThumbnailState::Failed)
-							DrawList->AddText(ImVec2(TileStart.x + TileSize.x - MonaImGui::ScaleUI(20.0f), TileStart.y + MonaImGui::ScaleUI(4.0f)), MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::Warning), Icons::Warning);
+							DrawList->AddText(
+								ImVec2(
+									PreviewMax.x - MonaImGui::ScaleUI(16.0f),
+									PreviewMin.y),
+								MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::Warning),
+								Icons::Warning);
 					}
 
 					if (RenameTarget == Item.StableId())
 					{
-						const float RenameInset = MonaImGui::ScaleUI(7.0f);
-						ImGui::SetCursorScreenPos(ImVec2(TileStart.x + RenameInset, TileStart.y + NamePositionY));
-						ImGui::SetNextItemWidth(std::max(MonaImGui::ScaleUI(40.0f), TileSize.x - RenameInset * 2.0f));
+						ImGui::SetCursorScreenPos(NameMin);
+						ImGui::SetNextItemWidth(
+							std::max(MonaImGui::ScaleUI(40.0f), NameMax.x - NameMin.x));
 						DrawRenameEditor(Item);
 					}
 					else
 					{
-						const float TextInset = MonaImGui::ScaleUI(8.0f);
-						const float TextWidth = std::max(MonaImGui::ScaleUI(40.0f), TileSize.x - TextInset * 2.0f);
-						const ImVec2 TextExtent = ImGui::GetFont()->CalcTextSizeA(NameFontSize, FLT_MAX, TextWidth, Item.Name.c_str());
-						const ImVec2 TextPosition(TileStart.x + std::max(TextInset, (TileSize.x - TextExtent.x) * 0.5f), TileStart.y + NamePositionY);
-						DrawList->PushClipRect(ImVec2(TileStart.x + TextInset, TileStart.y + NamePositionY), ImVec2(TileStart.x + TileSize.x - TextInset, TileStart.y + TileSize.y - MonaImGui::ScaleUI(4.0f)), true);
-						DrawList->AddText(ImGui::GetFont(), NameFontSize, TextPosition, ImGui::GetColorU32(ImGuiCol_Text), Item.Name.c_str(), nullptr, TextWidth);
+						const float TextWidth =
+							std::max(MonaImGui::ScaleUI(40.0f), NameMax.x - NameMin.x);
+						const ImVec2 TextExtent = ImGui::GetFont()->CalcTextSizeA(
+							Metrics.NameFontSize,
+							FLT_MAX,
+							TextWidth,
+							Item.Name.c_str());
+						const ImVec2 TextPosition(
+							NameMin.x + std::max(0.0f, (TextWidth - TextExtent.x) * 0.5f),
+							NameMin.y);
+						DrawList->PushClipRect(NameMin, NameMax, true);
+						DrawList->AddText(
+							ImGui::GetFont(),
+							Metrics.NameFontSize,
+							TextPosition,
+							ImGui::GetColorU32(ImGuiCol_Text),
+							Item.Name.c_str(),
+							nullptr,
+							TextWidth);
 						DrawList->PopClipRect();
 					}
 					if (bHovered && RenameTarget != Item.StableId() && !ImGui::IsMouseDragging(ImGuiMouseButton_Left))
