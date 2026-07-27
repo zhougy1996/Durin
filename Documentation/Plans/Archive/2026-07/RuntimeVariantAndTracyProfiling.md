@@ -6,9 +6,10 @@ Last reviewed: 2026-07-27
 
 ## Current Status
 
-Implementation in progress. Stages 0-4 are implemented. Focused Python/native
-tests, ordinary Editor/Game configuration, ordinary Release/Shipping isolation,
-both Profiling builds, and an Editor capture have passed.
+Completed on 2026-07-27. All stages and validation-matrix rows passed. Focused
+Python/native tests, ordinary Editor/Game configuration, ordinary
+Release/Shipping isolation, both Release Profiling full builds, and live Tracy
+captures from both runtime variants succeeded.
 
 The former generic build-identifier mechanism was removed after worktree-owned
 output trees became the repository's concurrency boundary. Profiling final
@@ -27,13 +28,12 @@ direct source adds little cost while making every checkout profiling-ready. Raw
 bootstrap selection still requires `--with-development`, and ordinary builds
 remain independent of Tracy after dependency preparation.
 
-The Editor capture recorded 233 frames and 2,307 zones over 5.11 seconds. The
-Game profiling executable completes initialization and remains running without a
-profiler, but attaching the matching Tracy v0.13.1 capture client currently
-causes an access violation. Windows Error Reporting identifies
-`DurinGame-VulkanRHI.dll` at offset `0x1485a` as the repeatable faulting module.
-The plan remains active until that enabled Game runtime failure is resolved and
-the final validation matrix passes.
+The final matching Tracy v0.13.1 smoke captures recorded 488 frames and 4,850
+zones over 8.09 seconds from the Editor, and 379 frames and 3,770 zones over
+8.17 seconds from the Game. Both processes remained running after the capture
+client disconnected. The earlier Game connection fault no longer reproduced
+after commit `50cf5c61439332186cd035fe098de4758ad6ff34` initialized the graphics
+pipeline context before rendering-thread startup commands.
 
 ## Goal
 
@@ -355,13 +355,13 @@ Stage 0 inventory classified the migration surfaces as follows:
 - [x] Run the plan validator and all focused Python/native tests introduced or
   affected by the work.
 - [x] Validate normal Editor and Game presets through the repository BuildTool.
-- [ ] Validate both Release Profiling presets and record a smoke-capture result.
+- [x] Validate both Release Profiling presets and record a smoke-capture result.
 - [x] Complete a successful full `all` build for the registered Agent editor
   preset required by repository handoff rules.
 - [x] Move lasting runtime-variant ownership rules into Workspace documentation.
 - [x] Move lasting preset, bootstrap, build-option, deployment, and profiling
   workflow rules into Development documentation.
-- [ ] Record completion evidence, close the plan checklists, and archive the
+- [x] Record completion evidence, close the plan checklists, and archive the
   plan according to the plan lifecycle rules.
 
 #### Acceptance Gate
@@ -412,13 +412,13 @@ Stage 0 inventory classified the migration surfaces as follows:
 
 ## Related Documentation
 
-- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [Runtime Variants](../Development/Build/RuntimeVariants.md)
-- [CPU Profiling](../Development/Build/Profiling.md)
-- [Build System](../Development/Build/BuildSystem.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Third-Party Bootstrap](../Development/Build/ThirdPartyBootstrap.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
+- [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
+- [Runtime Variants](../../../Development/Build/RuntimeVariants.md)
+- [CPU Profiling](../../../Development/Build/Profiling.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Third-Party Bootstrap](../../../Development/Build/ThirdPartyBootstrap.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
 
 ## Related Code
 
