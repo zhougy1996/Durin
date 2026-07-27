@@ -1,6 +1,7 @@
 #include "RHIGlobals.h"
 
 #include "DynamicRHI.h"
+#include "RHICommandList.h"
 
 namespace Durin
 {
@@ -24,12 +25,15 @@ namespace Durin
 			return;
 		}
 		GDynamicRHI->Init();
+		// The command list exists before the backend; bind its default pipeline only after the context is valid.
+		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::Graphics);
 		DURIN_DEBUG("RHI initialized successfully");
 	}
 
 	auto RHIExit() -> void
 	{
 		check(GDynamicRHI);
+		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
 		GDynamicRHI->Shutdown();
 		delete GDynamicRHI;
 		GDynamicRHI = nullptr;

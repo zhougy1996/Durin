@@ -19,7 +19,7 @@ namespace Durin
 		auto Run() -> uint32 override
 		{
 			check(IsInRenderingThread());
-			FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::Graphics);
+			// RHIInit binds the command-list context; context-free tests may still use the render command pipe.
 			DURIN_DEBUG("Rendering thread started. ({}, id: {})", GetCurrentThread()->GetThreadName(), GetCurrentThread()->GetThreadId());
 			while (!bStopRequested.load(std::memory_order::relaxed))
 			{

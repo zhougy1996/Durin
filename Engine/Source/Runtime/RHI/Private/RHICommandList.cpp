@@ -11,21 +11,22 @@ namespace Durin
 
 	auto FRHICommandListBase::SwitchPipeline(ERHIPipeline Pipeline) -> void
 	{
-		if (ActivePipeline == Pipeline) return;
-
-		ActivePipeline = Pipeline;
-
 		switch (Pipeline)
 		{
 		case ERHIPipeline::Graphics:
 			{
-				GraphicsContext = GDynamicRHI->RHIGetDefaultContext();
+				check(GDynamicRHI);
+				IRHICommandContext* Context = GDynamicRHI->RHIGetDefaultContext();
+				if (ActivePipeline == Pipeline && GraphicsContext == Context) return;
+				GraphicsContext = Context;
 			}
 			break;
 			// TODO: compute
 		default:
+			GraphicsContext = nullptr;
 			break;
 		}
+		ActivePipeline = Pipeline;
 	}
 
 	auto FRHICommandListBase::BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void
