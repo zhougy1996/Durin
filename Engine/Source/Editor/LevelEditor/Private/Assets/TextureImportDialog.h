@@ -16,6 +16,7 @@ namespace Durin
 	private:
 		auto BrowseSource() -> void;
 		auto BrowseDestination() -> void;
+		auto BrowseSourceDestination() -> void;
 		auto Import() -> bool;
 		auto SetError(std::string Message) const -> void;
 
@@ -25,7 +26,9 @@ namespace Durin
 		std::string PreferredDestinationDirectory;
 		std::array<char, 512> SourcePathBuffer{};
 		std::array<char, 256> AssetPathBuffer{};
+		std::array<char, 512> SourceDestinationBuffer{};
 		std::string LastSuggestedAssetPath;
+		std::string LastSuggestedSourceDestination;
 		ETextureUsage Usage = static_cast<ETextureUsage>(0);
 		bool bOpenRequested = false;
 	};

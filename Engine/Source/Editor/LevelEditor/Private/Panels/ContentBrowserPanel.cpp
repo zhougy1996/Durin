@@ -63,15 +63,92 @@ namespace Durin
 				.LastWriteTimeTicks = Item.ThumbnailLastWriteTimeTicks};
 		}
 
-		auto FindTextureSourceFile(const std::filesystem::path& PackagePath) -> std::filesystem::path
+		auto GetMountOwnerRoot(const PathUtilities::FMountPoint& Mount) -> std::filesystem::path
 		{
-			std::error_code Ec;
-			for (std::filesystem::directory_iterator It(PackagePath.parent_path(), std::filesystem::directory_options::skip_permission_denied, Ec), End; !Ec && It != End; It.increment(Ec))
+			std::filesystem::path ContentRoot = std::filesystem::path(Mount.PhysicalPath).lexically_normal();
+			if (ContentRoot.filename().empty()) ContentRoot = ContentRoot.parent_path();
+			std::string DirectoryName = ContentRoot.filename().generic_string();
+			std::ranges::transform(DirectoryName, DirectoryName.begin(), [](char Value) {
+				return static_cast<char>(std::tolower(static_cast<unsigned char>(Value)));
+			});
+			return DirectoryName == "content" ? ContentRoot.parent_path() : ContentRoot;
+		}
+
+		auto FindImageWithStem(const std::filesystem::path& PathWithoutExtension)
+			-> std::filesystem::path
+		{
+			std::error_code Error;
+			for (std::filesystem::directory_iterator It(
+					 PathWithoutExtension.parent_path(),
+					 std::filesystem::directory_options::skip_permission_denied, Error),
+				 End;
+				 !Error && It != End;
+				 It.increment(Error))
 			{
-				if (!It->is_regular_file(Ec) || It->path().stem() != PackagePath.stem()) continue;
+				if (!It->is_regular_file(Error)
+					|| It->path().stem() != PathWithoutExtension.filename())
+					continue;
 				if (IsSupportedSourceImageExtension(It->path().extension().generic_string())) return It->path();
 			}
 			return {};
+		}
+
+		auto IsPortableTextureSourcePath(std::string_view Value) -> bool
+		{
+			const std::filesystem::path Path(Value);
+			const std::filesystem::path Normalized = Path.lexically_normal();
+			const bool bContainsParent = std::ranges::any_of(Path,
+				[](const std::filesystem::path& Part) { return Part == ".."; });
+			return !Value.empty() && !Path.is_absolute() && !Value.starts_with('/')
+				&& Value.find('\\') == std::string_view::npos && !bContainsParent
+				&& Value == Normalized.generic_string()
+				&& Normalized.generic_string().starts_with("SourceAssets/Textures/");
+		}
+
+		auto FindTextureSourceFile(const Asset::FAssetData& Data) -> std::filesystem::path
+		{
+			const auto& Mounts = PathUtilities::GetRegisteredMountPoints();
+			const auto Mount = std::ranges::find_if(Mounts,
+				[&Data](const PathUtilities::FMountPoint& Candidate) {
+					return Data.PackagePath.GetView().starts_with(Candidate.VirtualRoot);
+				});
+			if (Mount == Mounts.end()) return {};
+
+			Asset::FAssetPackageInspection Inspection;
+			if (Asset::InspectAssetPackage(Data.PhysicalPath, Inspection))
+			{
+				const Asset::FAssetPackageField* SourceField =
+					Inspection.FindField("SourceImportData");
+				FTexture2DSourceImportData SourceImportData;
+				if (SourceField
+					&& SourceField->TryReadStruct(
+						FTexture2DSourceImportData::StaticStruct(), &SourceImportData)
+					&& SourceImportData.HasSource()
+					&& IsPortableTextureSourcePath(SourceImportData.Source.SourcePath))
+				{
+					const std::filesystem::path SourcePath =
+						(GetMountOwnerRoot(*Mount) / SourceImportData.Source.SourcePath)
+							.lexically_normal();
+					if (std::filesystem::is_regular_file(SourcePath)
+						&& IsSupportedSourceImageExtension(
+							SourcePath.extension().generic_string()))
+						return SourcePath;
+				}
+			}
+
+			const std::filesystem::path SourceRoot =
+				GetMountOwnerRoot(*Mount) / "SourceAssets" / "Textures";
+			if (const std::filesystem::path Direct =
+				FindImageWithStem(SourceRoot / std::string(Data.PackagePath.GetAssetName()));
+				!Direct.empty())
+				return Direct;
+
+			std::filesystem::path ContentRoot(Mount->PhysicalPath);
+			if (ContentRoot.filename().empty()) ContentRoot = ContentRoot.parent_path();
+			std::filesystem::path RelativePackage =
+				std::filesystem::path(Data.PhysicalPath).lexically_relative(ContentRoot);
+			RelativePackage.replace_extension();
+			return FindImageWithStem(SourceRoot / RelativePackage);
 		}
 
 		constexpr ImGuiTableFlags DetailsTableFlags = ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_PadOuterX | ImGuiTableFlags_NoSavedSettings;
@@ -416,7 +493,7 @@ namespace Durin
 			Item.LastWriteTime = Data.LastWriteTime;
 			if (Data.AssetClassName == DTexture2D::StaticClass()->GetQualifiedName().ToString())
 			{
-				const std::filesystem::path ThumbnailPath = FindTextureSourceFile(Data.PhysicalPath);
+				const std::filesystem::path ThumbnailPath = FindTextureSourceFile(Data);
 				if (!ThumbnailPath.empty())
 				{
 					Item.ThumbnailIdentity = Item.VirtualPath;

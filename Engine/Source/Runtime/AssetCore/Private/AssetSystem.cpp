@@ -905,6 +905,48 @@ namespace Durin::Asset
 		return Reader.ReadString(OutValue, MaximumPackageStringBytes) && Reader.Offset == Payload.size();
 	}
 
+	auto FAssetPackageField::TryReadStruct(DStruct* Struct, void* OutValue) const -> bool
+	{
+		if (!Struct || !OutValue
+			|| TypeSignature != std::format("Struct<{}>", Struct->GetQualifiedName().ToString()))
+			return false;
+
+		FByteReader Reader{Payload};
+		std::string StructName;
+		uint64 FieldCount = 0;
+		if (!Reader.ReadString(StructName) || StructName != Struct->GetQualifiedName().ToString()
+			|| !Reader.Read(FieldCount) || FieldCount > 100000)
+			return false;
+
+		for (uint64 Index = 0; Index < FieldCount; ++Index)
+		{
+			std::string DeclaringStruct;
+			std::string FieldName;
+			std::string Signature;
+			uint8 Kind = 0;
+			uint64 PayloadSize = 0;
+			std::span<const uint8> FieldPayload;
+			if (!Reader.ReadString(DeclaringStruct) || !Reader.ReadString(FieldName)
+				|| !Reader.Read(Kind) || !Reader.ReadString(Signature)
+				|| !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size()
+				|| !Reader.ReadSpan(static_cast<size_t>(PayloadSize), FieldPayload))
+				return false;
+			if (DeclaringStruct != StructName) continue;
+
+			FProperty* Property = Struct->FindPropertyByName(FName(FieldName), false);
+			if (!Property || static_cast<uint8>(Property->GetKind()) != Kind
+				|| GetTypeSignature(Property) != Signature)
+				continue;
+
+			FByteReader FieldReader{FieldPayload};
+			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
+				if (!DeserializeValue(Property, OutValue, ArrayIndex, FieldReader, {}))
+					return false;
+			if (FieldReader.Offset != FieldPayload.size()) return false;
+		}
+		return Reader.Offset == Payload.size();
+	}
+
 	auto InspectAssetPackage(std::string_view PhysicalPath, FAssetPackageInspection& OutInspection) -> FAssetResult
 	{
 		OutInspection = {};

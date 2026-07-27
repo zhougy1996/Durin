@@ -84,6 +84,7 @@ namespace Durin
 		auto MakeCanonicalSourceLocation(
 			const FAssetPath& AssetPath,
 			std::string_view Extension,
+			std::string_view RequestedSourcePath,
 			std::filesystem::path& OutPhysicalPath,
 			std::string& OutStoredPath,
 			std::string& OutError) -> bool
@@ -95,13 +96,29 @@ namespace Durin
 					AssetPath.ToString());
 				return false;
 			}
-			std::filesystem::path RelativeAssetPath(
-				std::string(AssetPath.ToString().substr(Mount->VirtualRoot.size())));
-			RelativeAssetPath.replace_extension(Extension);
-			const std::filesystem::path StoredPath =
-				std::filesystem::path(TextureSourceRoot) / RelativeAssetPath;
+			std::filesystem::path StoredPath;
+			if (RequestedSourcePath.empty())
+				StoredPath = std::filesystem::path(TextureSourceRoot)
+					/ (std::string(AssetPath.GetAssetName()) + std::string(Extension));
+			else
+				StoredPath = std::filesystem::path(RequestedSourcePath);
 			OutStoredPath = StoredPath.lexically_normal().generic_string();
 			if (!IsPortableTextureSourcePath(OutStoredPath, &OutError)) return false;
+			std::string RequestedExtension = StoredPath.extension().generic_string();
+			std::string InputExtension(Extension);
+			std::ranges::transform(RequestedExtension, RequestedExtension.begin(), [](char Value) {
+				return static_cast<char>(std::tolower(static_cast<unsigned char>(Value)));
+			});
+			std::ranges::transform(InputExtension, InputExtension.begin(), [](char Value) {
+				return static_cast<char>(std::tolower(static_cast<unsigned char>(Value)));
+			});
+			if (RequestedExtension != InputExtension)
+			{
+				OutError = std::format(
+					"Texture source destination extension '{}' must match the input extension '{}'.",
+					StoredPath.extension().generic_string(), Extension);
+				return false;
+			}
 			OutPhysicalPath = (GetMountOwnerRoot(*Mount) / StoredPath).lexically_normal();
 			return true;
 		}
@@ -648,8 +665,16 @@ namespace Durin
 		if (!FAssetPath::TryCreate(GetPackage()->GetPackagePath(), AssetPath, &OutError)) return false;
 		std::filesystem::path Destination;
 		std::string StoredPath;
+		std::filesystem::path RequestedSourcePath;
+		if (SourceImportData.HasSource()
+			&& IsPortableTextureSourcePath(SourceImportData.Source.SourcePath))
+		{
+			RequestedSourcePath = SourceImportData.Source.SourcePath;
+			RequestedSourcePath.replace_extension(Input.extension());
+		}
 		if (!MakeCanonicalSourceLocation(
-			AssetPath, Input.extension().generic_string(), Destination, StoredPath, OutError)) return false;
+			AssetPath, Input.extension().generic_string(), RequestedSourcePath.generic_string(),
+			Destination, StoredPath, OutError)) return false;
 
 		FXxHash128 SourceHash;
 		if (!HashTextureSource(Input, SourceHash, OutError)) return false;
@@ -1259,7 +1284,8 @@ namespace Durin
 		std::filesystem::path Destination;
 		std::string StoredSourcePath;
 		if (!MakeCanonicalSourceLocation(
-			ParsedAssetPath, Extension, Destination, StoredSourcePath, PathError))
+			ParsedAssetPath, Extension, Settings.SourceDestination,
+			Destination, StoredSourcePath, PathError))
 			return {false, std::move(PathError), nullptr};
 		FXxHash128 SourceHash;
 		if (!HashTextureSource(Input, SourceHash, PathError))

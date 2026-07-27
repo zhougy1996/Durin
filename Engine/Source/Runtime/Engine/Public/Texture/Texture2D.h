@@ -206,6 +206,9 @@ namespace Durin
 	// Overrides usage-derived texture import defaults.
 	struct FTexture2DImportSettings
 	{
+		// Portable project-relative copy destination beneath SourceAssets/Textures.
+		// Empty stores the source directly under that root using the asset name.
+		std::string SourceDestination;
 		ETextureUsage Usage = ETextureUsage::Color;
 		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal;
 		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average;

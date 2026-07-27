@@ -180,6 +180,7 @@ namespace Durin::Asset
 		std::vector<uint8> Payload;
 
 		ASSETCORE_API auto TryReadString(std::string& OutValue) const -> bool;
+		ASSETCORE_API auto TryReadStruct(DStruct* Struct, void* OutValue) const -> bool;
 
 		template<typename T>
 		auto TryReadScalar(T& OutValue) const -> bool
