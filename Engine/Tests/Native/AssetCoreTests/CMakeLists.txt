@@ -22,8 +22,4 @@ durin_test_deploy_target_binary(AssetCoreTests AssetImport)
 durin_test_deploy_runtime_files(AssetCoreTests assimp::assimp)
 durin_test_deploy_directory_to_data(AssetCoreTests "${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport")
 
-get_target_property(_durin_asset_core_tests_work_dir AssetCoreTests DURIN_TEST_WORK_DIR)
-
-gtest_discover_tests(AssetCoreTests
-	WORKING_DIRECTORY "${_durin_asset_core_tests_work_dir}"
-)
+durin_discover_tests(AssetCoreTests)

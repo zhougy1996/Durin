@@ -140,11 +140,12 @@ durin_test_deploy_runtime_files(EngineTests Slang_Imported)
 durin_test_deploy_directory_to_data(EngineTests "${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport")
 durin_test_deploy_directory_to_data(EngineTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 
-get_target_property(_durin_engine_tests_work_dir EngineTests DURIN_TEST_WORK_DIR)
-
-gtest_discover_tests(EngineTests
-	WORKING_DIRECTORY "${_durin_engine_tests_work_dir}"
+set_target_properties(EngineTests PROPERTIES
+	DURIN_TEST_LEGACY_SERIALIZATION_GROUP renderer-runtime
+	DURIN_TEST_RESOURCE_LOCKS durin-gpu
 )
+
+durin_discover_tests(EngineTests)
 
 # Cooked-runtime mode and Renderer/Vulkan teardown are process-global. Keep this
 # integration test isolated from the authored-editor EngineTests process.
@@ -180,8 +181,9 @@ durin_test_deploy_target_binary(TextureCookTests Renderer)
 durin_test_deploy_target_binary(TextureCookTests VulkanRHI)
 durin_test_deploy_runtime_files(TextureCookTests Slang_Imported)
 
-get_target_property(_durin_texture_cook_tests_work_dir TextureCookTests DURIN_TEST_WORK_DIR)
-
-gtest_discover_tests(TextureCookTests
-	WORKING_DIRECTORY "${_durin_texture_cook_tests_work_dir}"
+set_target_properties(TextureCookTests PROPERTIES
+	DURIN_TEST_LEGACY_SERIALIZATION_GROUP renderer-runtime
+	DURIN_TEST_RESOURCE_LOCKS durin-gpu
 )
+
+durin_discover_tests(TextureCookTests)

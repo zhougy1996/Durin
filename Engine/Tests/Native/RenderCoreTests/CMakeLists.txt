@@ -32,8 +32,4 @@ durin_test_deploy_target_binary(RenderCoreTests RenderCore)
 durin_test_deploy_runtime_files(RenderCoreTests Slang_Imported)
 durin_test_deploy_directory_to_data(RenderCoreTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 
-get_target_property(_durin_render_core_tests_work_dir RenderCoreTests DURIN_TEST_WORK_DIR)
-
-gtest_discover_tests(RenderCoreTests
-	WORKING_DIRECTORY "${_durin_render_core_tests_work_dir}"
-)
+durin_discover_tests(RenderCoreTests)

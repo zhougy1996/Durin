@@ -41,6 +41,22 @@ namespace Durin::Tests
 		return FAssetPath::TryCreate(Value, OutPath);
 	}
 
+	inline auto GetRenderedAssetThumbnailFixtureRoot() -> std::filesystem::path
+	{
+		return std::filesystem::path(DURIN_TEST_WORK_DIR)
+			/ "RenderedAssetThumbnailFixtures";
+	}
+
+	inline auto RegisterRenderedAssetThumbnailFixtureMount() -> std::filesystem::path
+	{
+		InitializeDObjectSystem();
+		const std::filesystem::path Root = GetRenderedAssetThumbnailFixtureRoot();
+		PathUtilities::RegisterMountPoint(
+			FRenderedAssetThumbnailFixtureSet::MountPoint,
+			Root.generic_string() + "/");
+		return Root;
+	}
+
 	inline auto GetRenderedThumbnailDirectionalCubeFaces()
 		-> std::array<std::string, TextureCubeFaceCount>
 	{
@@ -69,12 +85,10 @@ namespace Durin::Tests
 			return true;
 		}
 		static const std::filesystem::path Root =
-			std::filesystem::path(DURIN_TEST_WORK_DIR) / "RenderedAssetThumbnailFixtures";
+			GetRenderedAssetThumbnailFixtureRoot();
 		static const bool bMountInitialized = [] {
 			std::filesystem::remove_all(Root);
-			PathUtilities::RegisterMountPoint(
-				FRenderedAssetThumbnailFixtureSet::MountPoint,
-				Root.generic_string() + "/");
+			RegisterRenderedAssetThumbnailFixtureMount();
 			return true;
 		}();
 		(void)bMountInitialized;

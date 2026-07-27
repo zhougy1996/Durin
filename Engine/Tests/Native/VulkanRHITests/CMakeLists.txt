@@ -39,8 +39,8 @@ durin_test_deploy_runtime_files(VulkanRHITests assimp::assimp)
 durin_test_deploy_runtime_files(VulkanRHITests Slang_Imported)
 durin_test_deploy_directory_to_data(VulkanRHITests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 
-get_target_property(_durin_vulkan_rhi_tests_work_dir VulkanRHITests DURIN_TEST_WORK_DIR)
-
-gtest_discover_tests(VulkanRHITests
-	WORKING_DIRECTORY "${_durin_vulkan_rhi_tests_work_dir}"
+set_target_properties(VulkanRHITests PROPERTIES
+	DURIN_TEST_RESOURCE_LOCKS durin-gpu
 )
+
+durin_discover_tests(VulkanRHITests)

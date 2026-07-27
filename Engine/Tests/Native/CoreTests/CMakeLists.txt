@@ -30,8 +30,4 @@ durin_test_deploy_target_binary(CoreTests Core)
 durin_test_deploy_directory_to_data(CoreTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 durin_test_deploy_files_to_data(CoreTests "${DURIN_PROJECT_ROOT_DIR}/Configs/TP_DurinEditor.yaml")
 
-get_target_property(_durin_core_tests_work_dir CoreTests DURIN_TEST_WORK_DIR)
-
-gtest_discover_tests(CoreTests
-	WORKING_DIRECTORY "${_durin_core_tests_work_dir}"
-)
+durin_discover_tests(CoreTests)

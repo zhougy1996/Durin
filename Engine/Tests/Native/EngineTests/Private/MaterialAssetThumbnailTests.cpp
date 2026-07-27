@@ -112,7 +112,7 @@ TEST(FMaterialAssetThumbnailTests, ProviderCapturesSortedTransitiveMaterialDepen
 
 TEST(FMaterialAssetThumbnailTests, ProviderRejectsMissingRegistryData)
 {
-	InitializeDObjectSystem();
+	Durin::Tests::RegisterRenderedAssetThumbnailFixtureMount();
 	Durin::FAssetPath MissingPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/RenderedThumbnailFixtures/Materials/M_Missing", MissingPath));

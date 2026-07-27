@@ -251,3 +251,136 @@ function(add_durin_test target_name)
 
 	set_target_properties(${target_name} PROPERTIES FOLDER "Tests/${target_name}")
 endfunction()
+
+function(durin_resolve_native_test_discovery_policy
+	out_resource_locks
+	out_labels
+	target_name
+	case_parallel_safe
+	legacy_serialization_group
+)
+	set(options)
+	set(one_value_args)
+	set(multi_value_args RESOURCE_LOCKS LABELS)
+	cmake_parse_arguments(
+		DURIN_TEST_POLICY
+		"${options}"
+		"${one_value_args}"
+		"${multi_value_args}"
+		${ARGN}
+	)
+	if(DURIN_TEST_POLICY_UNPARSED_ARGUMENTS)
+		message(FATAL_ERROR
+			"Unknown native-test discovery policy arguments: ${DURIN_TEST_POLICY_UNPARSED_ARGUMENTS}")
+	endif()
+
+	if(NOT case_parallel_safe STREQUAL "TRUE" AND NOT case_parallel_safe STREQUAL "FALSE")
+		message(FATAL_ERROR
+			"${target_name} DURIN_TEST_CASE_PARALLEL_SAFE must resolve to TRUE or FALSE.")
+	endif()
+
+	set(_durin_resource_locks ${DURIN_TEST_POLICY_RESOURCE_LOCKS})
+	if(case_parallel_safe
+		AND "durin-test-target-${target_name}" IN_LIST _durin_resource_locks)
+		message(FATAL_ERROR
+			"${target_name} cannot be case-parallel and explicitly target-serialized.")
+	endif()
+	if(NOT case_parallel_safe)
+		list(APPEND _durin_resource_locks "durin-test-target-${target_name}")
+	endif()
+	if(legacy_serialization_group)
+		if(NOT legacy_serialization_group MATCHES "^[A-Za-z0-9_.-]+$")
+			message(FATAL_ERROR
+				"${target_name} has invalid DURIN_TEST_LEGACY_SERIALIZATION_GROUP "
+				"'${legacy_serialization_group}'.")
+		endif()
+		list(APPEND _durin_resource_locks
+			"durin-test-legacy-${legacy_serialization_group}")
+	endif()
+	list(REMOVE_DUPLICATES _durin_resource_locks)
+
+	set(_durin_labels native-test "${target_name}" ${DURIN_TEST_POLICY_LABELS})
+	list(REMOVE_DUPLICATES _durin_labels)
+
+	set(${out_resource_locks} "${_durin_resource_locks}" PARENT_SCOPE)
+	set(${out_labels} "${_durin_labels}" PARENT_SCOPE)
+endfunction()
+
+function(durin_discover_tests target_name)
+	if(NOT TARGET ${target_name})
+		message(FATAL_ERROR "Cannot discover tests for missing target ${target_name}.")
+	endif()
+
+	get_target_property(_durin_work_dir ${target_name} DURIN_TEST_WORK_DIR)
+	if(NOT _durin_work_dir)
+		message(FATAL_ERROR
+			"${target_name} must be created with add_durin_test before discovery.")
+	endif()
+
+	get_target_property(_durin_case_parallel_safe
+		${target_name} DURIN_TEST_CASE_PARALLEL_SAFE)
+	if(_durin_case_parallel_safe MATCHES "-NOTFOUND$")
+		set(_durin_case_parallel_safe FALSE)
+	elseif(NOT _durin_case_parallel_safe STREQUAL "TRUE"
+		AND NOT _durin_case_parallel_safe STREQUAL "FALSE")
+		message(FATAL_ERROR
+			"${target_name} DURIN_TEST_CASE_PARALLEL_SAFE must be TRUE or FALSE.")
+	endif()
+
+	get_target_property(_durin_legacy_group
+		${target_name} DURIN_TEST_LEGACY_SERIALIZATION_GROUP)
+	if(_durin_legacy_group MATCHES "-NOTFOUND$")
+		set(_durin_legacy_group)
+	endif()
+	get_target_property(_durin_explicit_locks
+		${target_name} DURIN_TEST_RESOURCE_LOCKS)
+	if(_durin_explicit_locks MATCHES "-NOTFOUND$")
+		set(_durin_explicit_locks)
+	endif()
+	get_target_property(_durin_extra_labels ${target_name} DURIN_TEST_LABELS)
+	if(_durin_extra_labels MATCHES "-NOTFOUND$")
+		set(_durin_extra_labels)
+	endif()
+	get_target_property(_durin_timeout ${target_name} DURIN_TEST_TIMEOUT)
+	if(_durin_timeout MATCHES "-NOTFOUND$")
+		set(_durin_timeout 300)
+	endif()
+	if(NOT _durin_timeout MATCHES "^[1-9][0-9]*$")
+		message(FATAL_ERROR
+			"${target_name} DURIN_TEST_TIMEOUT must be a positive integer.")
+	endif()
+
+	durin_resolve_native_test_discovery_policy(
+		_durin_resource_locks
+		_durin_labels
+		"${target_name}"
+		"${_durin_case_parallel_safe}"
+		"${_durin_legacy_group}"
+		RESOURCE_LOCKS ${_durin_explicit_locks}
+		LABELS ${_durin_extra_labels}
+	)
+
+	set_target_properties(${target_name} PROPERTIES
+		DURIN_TEST_DISCOVERY_RESOURCE_LOCKS "${_durin_resource_locks}"
+		DURIN_TEST_DISCOVERY_LABELS "${_durin_labels}"
+	)
+
+	# gtest_discover_tests forwards PROPERTIES through a generated -D argument
+	# and a second CMake script. Preserve list-valued property arguments across
+	# both list expansions.
+	string(REPLACE ";" "\\\\;" _durin_labels_property "${_durin_labels}")
+	string(REPLACE ";" "\\\\;" _durin_locks_property "${_durin_resource_locks}")
+	set(_durin_test_properties
+		TIMEOUT "${_durin_timeout}"
+		LABELS "${_durin_labels_property}"
+	)
+	if(_durin_resource_locks)
+		list(APPEND _durin_test_properties
+			RESOURCE_LOCK "${_durin_locks_property}")
+	endif()
+
+	gtest_discover_tests(${target_name}
+		WORKING_DIRECTORY "${_durin_work_dir}"
+		PROPERTIES ${_durin_test_properties}
+	)
+endfunction()

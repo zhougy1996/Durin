@@ -371,6 +371,7 @@ TEST(FMaterialTests, UnknownAndMismatchedSettersDoNotInvalidateRenderState)
 
 TEST(FMaterialTests, ParentHookRejectsCyclesWithoutCreatingHistory)
 {
+	InitializeDObjectSystem();
 	Durin::DMaterialInstance* First = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CycleFirst");
 	Durin::DMaterialInstance* Second = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CycleSecond");
 	ASSERT_TRUE(First->SetParent(Second));

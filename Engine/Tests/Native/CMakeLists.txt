@@ -5,3 +5,14 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/RenderCoreTests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/NativeTestIsolationProbeTests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/VulkanRHITests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/EngineTests)
+
+add_test(
+	NAME Durin.NativeTestDiscoveryPolicy
+	COMMAND ${CMAKE_COMMAND}
+		"-DDURIN_WORKSPACE_DIR=${DURIN_WORKSPACE_DIR}"
+		-P "${DURIN_WORKSPACE_DIR}/CMake/Tests/NativeTestDiscoveryPolicyTests.cmake"
+)
+set_tests_properties(Durin.NativeTestDiscoveryPolicy PROPERTIES
+	LABELS "native-test;infrastructure"
+	TIMEOUT 30
+)

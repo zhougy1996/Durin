@@ -12,8 +12,11 @@ Completed:
 - Stage 0 is complete. The frozen inventory maps 91 source files, 120
   GoogleTest suites, and 647 cases to 29 cohesive feature/lifecycle targets
   with no cross-domain suite owner.
-- Stage 1 is active: aggregate concurrency will first be contained behind one
-  discovery helper and compatibility serialization policy.
+- Stage 1 is complete. `durin_discover_tests` now owns working directory,
+  timeout, labels, target serialization, named legacy groups, explicit
+  resources, and case-parallel opt-in for every native-test target.
+- Stage 2 is active: the seven module-era targets will be replaced by the
+  functional execution domains frozen in the Stage 0 evidence.
 - The existing seven targets (`CoreTests`, `CoreDObjectTests`,
   `AssetCoreTests`, `RenderCoreTests`, `EngineTests`, `TextureCookTests`, and
   `VulkanRHITests`) are the module-era baseline, not the desired final layout.
@@ -23,6 +26,9 @@ Completed:
 - `.\DevTool.bat test --target all` now schedules CTest-discovered GoogleTest
   cases with the Agent Build Profile job count; the current profile runs 18
   cases concurrently.
+- The Stage 1 compatibility baseline passes all 650 registered CTest entries
+  in 25.25 seconds at 18 jobs. It includes all 647 original case names, two
+  skipped characterization cases, and one CMake policy test.
 - Every case from a test target currently receives the same
   `DURIN_TEST_WORK_DIR`. Tests in separate processes therefore create, delete,
   mount, and rewrite the same files concurrently.
@@ -151,8 +157,9 @@ cases.
 
 ### Gaps
 
-- Test discovery is repeated in each target CMake file and has no shared
-  isolation or resource policy.
+- `durin_discover_tests` centralizes discovery metadata, applies one
+  target-scoped lock by default, and supports named compatibility groups,
+  explicit resources, and an audited case-parallel opt-in.
 - Most target boundaries mirror production modules. `EngineTests` in particular
   has one oversized dependency and lifecycle domain, so unrelated features
   inherit renderer, editor, asset, and tooling state and cannot declare narrow
@@ -226,22 +233,22 @@ cases.
 
 ### Stage 1: Contain aggregate concurrency behind one discovery helper
 
-- [ ] Add a repository CMake helper that wraps `gtest_discover_tests` and
+- [x] Add a repository CMake helper that wraps `gtest_discover_tests` and
   centralizes working directory, timeout, labels, resource locks, and future
   harness properties.
-- [ ] Migrate every native-test target from direct discovery calls to the
+- [x] Migrate every native-test target from direct discovery calls to the
   helper.
-- [ ] Apply a target-scoped CTest resource lock by default so cases from one
+- [x] Apply a target-scoped CTest resource lock by default so cases from one
   legacy target cannot concurrently mutate its shared `Work`; retain
   cross-target parallelism because target work roots are already distinct.
-- [ ] Support an explicit named legacy serialization group so newly split
+- [x] Support an explicit named legacy serialization group so newly split
   targets that still share an external cache, runtime, or fixture remain safe
   until that ownership is removed.
-- [ ] Add an explicit opt-in target property for process-isolated case
+- [x] Add an explicit opt-in target property for process-isolated case
   parallelism. Reject contradictory declarations during configuration.
-- [ ] Make the two missing-registry thumbnail tests register their own mount or
+- [x] Make the two missing-registry thumbnail tests register their own mount or
   use a path whose mount is part of their explicit setup.
-- [ ] Add CMake/DurinDevTool tests covering default serialization, parallel-safe
+- [x] Add CMake/DurinDevTool tests covering default serialization, parallel-safe
   opt-in, and explicit shared-resource locks.
 
 #### Acceptance Gate
@@ -252,6 +259,34 @@ cases.
   individually.
 - The missing-registry tests pass as isolated CTest processes without another
   thumbnail test running first.
+
+#### Stage 1 Handoff
+
+- Baseline commit: `1d4af46d`.
+- Working set entering Stage 2: the functional source map in
+  `Documentation/Development/Build/NativeTestProcessIsolationStage0.md`, the
+  eight current native-test CMake files, and private implementation sources
+  compiled directly by `RenderCoreTests` and `EngineTests`.
+- Key symbols: `durin_discover_tests`,
+  `durin_resolve_native_test_discovery_policy`,
+  `DURIN_TEST_CASE_PARALLEL_SAFE`,
+  `DURIN_TEST_LEGACY_SERIALIZATION_GROUP`,
+  `DURIN_TEST_RESOURCE_LOCKS`, and `DURIN_TEST_TIMEOUT`.
+- Decisions: legacy targets receive `durin-test-target-<target>` by default;
+  Engine/TextureCook share `durin-test-legacy-renderer-runtime`; GPU-bearing
+  targets also request `durin-gpu`; only the characterization target opts into
+  case parallelism before sandbox migration.
+- Independent-case fixes: both missing-thumbnail-registry tests register their
+  mount; the material parent-hook test initializes the object system; the
+  texture reflected-build test releases transaction history before deleting
+  its asset.
+- Open question: while moving the mixed `FMaterialTests` suite, either retain
+  one material target through Stage 2 or preserve case names while separating
+  its Vulkan-backed source into an integration lifecycle domain.
+- Validation: plan validation passed; the policy CMake test passed; focused
+  material and texture cases passed directly; the characterization reproduced
+  one legacy collision and two isolated passes; the final 18-job aggregate
+  passed all 650 registrations in 25.25 seconds.
 
 ### Stage 2: Replace module-era targets with functional execution domains
 
