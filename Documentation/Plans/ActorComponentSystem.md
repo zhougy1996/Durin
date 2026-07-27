@@ -2,7 +2,7 @@
 
 Summary: Close the remaining reflection-model debt in the implemented actor/component runtime and archive the completed foundation.
 
-Last reviewed: 2026-07-26
+Last reviewed: 2026-07-27
 
 ## Current Status
 
@@ -116,7 +116,7 @@ Dependencies: Stage 1.
 | Scene synchronization | primitive/material/skybox component tests plus rendering smoke when rendering code changes |
 | Persistence and duplication | level round-trip and PIE duplication tests in `WorldActorTests.cpp` and `WorldPlayTests.cpp` |
 | Editor-facing properties | reflected property container, edit-session, and transaction tests |
-| Plan integrity | `python Documentation/Plans/list_plans.py --scope all --validate` |
+| Plan integrity | `.\Documentation\DocTool.bat validate --scope all` |
 
 Repository build and test commands must follow [Build And Run](../Development/Build/BuildAndRun.md) and [Native C++ Tests](../Development/Build/NativeTests.md).
 

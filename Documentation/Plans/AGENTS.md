@@ -5,14 +5,15 @@ These instructions apply under `Documentation/Plans/`.
 ## Purpose and Reading Policy
 
 - Active plans turn selected decisions into executable stages and acceptance gates.
-- From the repository root, run `python Documentation/Plans/list_plans.py` for
+- From the repository root, run `.\Documentation\DocTool.bat list` for
   the compact active index. For named historical provenance, run
-  `python Documentation/Plans/list_plans.py --scope archive --query
+  `.\Documentation\DocTool.bat list --scope archive --query
   "<title-or-filename>"`, then open only the selected result. Do not scan,
   bulk-read, or sample unrelated plans; use the standard below.
-- Humans can add `--format terminal` for a readable status list with automatic
-  ANSI color on interactive terminals. Agent routing, generated Markdown, and
-  piped output use the default Markdown format.
+- Humans run `.\Documentation\DocTool.bat` without arguments for an interactive
+  shell whose `list` command defaults to readable terminal output with automatic
+  ANSI color. Direct agent routing, generated Markdown, and piped output use the
+  default Markdown format.
 - Unfiltered archive listings require the explicit `--all-results` option and
   are allowed only when the user asks to browse or audit the archive as a
   collection. Never use them merely to locate one historical plan.
@@ -74,7 +75,7 @@ Completed:
 - Record a changed decision and rationale before continuing when implementation diverges from the plan.
 - Move implemented long-lived rules to the owning documentation domain rather
   than leaving the plan as a competing specification.
-- Run `python Documentation/Plans/list_plans.py --scope all --validate`
+- Run `.\Documentation\DocTool.bat validate --scope all`
   when a plan is added, renamed, completed, archived, or removed; CI must run
   the same validation. Legacy plans need not be retrofitted to the current
   structure.
@@ -94,16 +95,16 @@ acceptance gate is satisfied:
 Periodically batch completed plans by completion month:
 
 1. Preview the batch with
-   `python Documentation/Plans/archive_plans.py --month YYYY-MM`.
+   `.\Documentation\DocTool.bat archive YYYY-MM`.
 2. Apply it with
-   `python Documentation/Plans/archive_plans.py --month YYYY-MM --apply`.
-   The script moves matching plans to `Archive/YYYY-MM/`, changes their status
+   `.\Documentation\DocTool.bat archive YYYY-MM --apply`.
+   The tool moves matching plans to `Archive/YYYY-MM/`, changes their status
    to `Archived`, and repairs direct Markdown links and repository-relative
    plan paths, then runs the all-plan validator.
 3. Review the generated diff, especially the referencing files reported by the
    script.
 
-Use `python Documentation/Plans/list_plans.py --scope completed` to inspect the
+Use `.\Documentation\DocTool.bat list --scope completed` to inspect the
 pending archive queue. The completion date, not the batch date, owns the archive
 month and is never changed by later maintenance. Do not maintain a shared
 archive index; listings remain generated.
