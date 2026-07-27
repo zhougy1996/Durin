@@ -200,7 +200,7 @@ Apply(proposal)
 
 Commit()
   notify Committed
-  if changed, mark the package dirty and CommitApplied() one transaction
+  if changed, CommitApplied() one transaction with its affected package
 
 Cancel()
   if changed, restore through the same generic hook path
@@ -235,10 +235,29 @@ The session calls `FEditorTransactionManager::CommitApplied()` because the live
 interactive edit has already placed the object in its final state. A no-op or
 cancelled edit creates no history entry and does not dirty the package.
 
-Dirty-state restoration is intentionally separate from value restoration. The
-current policy conservatively leaves a package dirty after Undo. Clearing dirty
-state requires a future saved-revision model that can compare the transaction
-head with the last saved revision.
+Each transaction reports a stable, deduplicated set of affected asset packages.
+`FEditorTransactionManager` owns editor-session revision metadata for those
+packages: the current revision, the last successfully saved revision, and
+whether that save checkpoint remains trustworthy. Committing a changed edit
+allocates a fresh after-revision. Undo moves to the stored before-revision only
+after value restoration succeeds, and Redo moves back to the after-revision
+only after reapplication succeeds.
+
+For a valid checkpoint, the manager synchronizes the existing
+`DPackage::IsDirty()` compatibility boundary from revision equality. Undoing
+exactly to the saved revision clears dirty; Redoing away sets it again. Saving
+at any history position advances the saved revision only after package save
+succeeds, without clearing valid Redo history. A new edit after Undo receives a
+new revision identity, so a saved state on the discarded branch cannot alias
+the replacement branch.
+
+Persistent edits that bypass transaction history must invalidate the package
+checkpoint as well as mark the package dirty. An invalid checkpoint remains
+conservatively dirty across Undo and Redo until a successful save or known-clean
+package activation establishes a new checkpoint. No-op and cancelled edits
+create no transaction or revision and retain their pre-interaction dirty state.
+Revision metadata belongs to the editor transaction manager, is not serialized
+into `DPackage`, and is forgotten with the document/history lifecycle.
 
 ## Container Transactions
 
@@ -341,6 +360,14 @@ Automated coverage currently verifies:
 - terminal events for no-op and edit-away-and-back interactions;
 - one transaction for a continuous interaction;
 - no history for no-op, cancelled, or rejected edits;
+- package dirty synchronization at initial and middle-history save points across
+  Undo and Redo;
+- fresh revision identity after history branching, bounded-history eviction,
+  invalid checkpoint recovery, failed operations, and multi-package
+  transitions;
+- Transform Gizmo completed, cancelled, and net-zero interactions; and
+- level-document save success/failure, activation, replacement, and discard
+  checkpoint handoff;
 - pre-apply rejection and retryable cancel failure through object hooks;
 - object and snapshot reference lifetime;
 - array and map stable paths and structural restoration;

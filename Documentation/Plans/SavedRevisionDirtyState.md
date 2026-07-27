@@ -30,6 +30,13 @@ by revision movement for transaction-managed edits. Native coverage protects
 revision topology, failure behavior, history eviction, reflected edits,
 Transform Gizmo interactions, and level-document checkpoint handoff.
 
+Stage 4 automated validation and the lasting architecture update are complete.
+The focused native suite passes, the full editor build links, and a hidden
+Sandbox startup remains alive through the smoke window. The plan remains active
+only for the final visible Level Editor interaction check: dirty chrome and
+close-prompt behavior must be observed through edit, save, Undo, Redo, branch,
+and cancel flows before completion can be recorded.
+
 ### Stage 1 Handoff
 
 - Baseline commit: `168f0c20`.
@@ -123,6 +130,30 @@ Transform Gizmo interactions, and level-document checkpoint handoff.
   `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`. An
   attempted unfiltered `EngineTests` run reached the unrelated pre-existing
   immutable-mount fatal described above before the new manager/viewport tests.
+
+### Stage 4 Handoff
+
+- Baseline commit: `7024938d`.
+- Working set:
+  - `Documentation/Editor/Architecture/ReflectedPropertyEditing.md`
+  - `Documentation/Plans/SavedRevisionDirtyState.md`
+- Key contracts: affected-package metadata on editor transactions,
+  package-scoped current/saved revisions, `DPackage::IsDirty()` synchronization,
+  checkpoint invalidation for untracked edits, and document-lifecycle cleanup.
+- Decisions: the architecture document now owns the lasting saved-revision
+  contract; the implementation plan stays active until visible UI behavior is
+  observed rather than treating native tests or hidden startup as an
+  interactive substitute.
+- Open question: complete the visible Level Editor checklist—saved level starts
+  clean; an edit becomes dirty; Undo to the save point becomes clean; Redo
+  becomes dirty; save at the edited point becomes clean; Undo/Redo around that
+  middle save point toggles dirty/clean; a post-Undo edit discards Redo while
+  remaining dirty; cancel/net-zero stays clean; dirty close requests
+  confirmation while clean close does not.
+- Validation: all 35 focused revision/lifecycle/reflected-property/Transform
+  Gizmo tests passed; `BuildTool build --target all` succeeded; the linked
+  editor loaded `Sandbox/Sandbox.dproject` and remained alive for the complete
+  eight-second hidden smoke window before the test process was stopped.
 
 ## Goal
 
@@ -396,18 +427,18 @@ architecture limitation is replaced by the implemented contract.
 
 Dependencies: Stage 3.
 
-- [ ] Follow the repository build and test workflow in
+- [x] Follow the repository build and test workflow in
       `Documentation/Development/Build/BuildAndRun.md`.
-- [ ] Run the relevant native test target, then complete the required full
+- [x] Run the relevant native test target, then complete the required full
       `all` build for the user-visible editor change.
 - [ ] Interactively verify the clean/dirty indicator and close prompt for edit,
       save, Undo, Redo, branch, cancel, and failed-save scenarios.
-- [ ] Update `ReflectedPropertyEditing.md` to describe saved revisions,
+- [x] Update `ReflectedPropertyEditing.md` to describe saved revisions,
       affected-package metadata, and the conservative invalidation fallback.
 - [ ] Record final evidence in this plan and move any broader lasting
       transaction/package contract to the appropriate editor architecture
       document.
-- [ ] Run `.\DocTool.bat validate --scope all`.
+- [x] Run `.\DocTool.bat validate --scope all`.
 
 #### Acceptance Gate
 
