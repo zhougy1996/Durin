@@ -11,8 +11,8 @@ namespace Durin
 {
 	namespace
 	{
-		constexpr uint32 TextureCubeThumbnailGeneratorSchema = 1;
-		constexpr uint32 TextureCubeThumbnailShaderContract = 1;
+		constexpr uint32 TextureCubeThumbnailGeneratorSchema = 2;
+		constexpr uint32 TextureCubeThumbnailShaderContract = 2;
 
 		auto MakeFingerprint(const Asset::FAssetData& Data)
 			-> FAssetThumbnailPackageFingerprint
@@ -70,9 +70,12 @@ namespace Durin
 		OutRequest.KeyInput = {
 			.Output = Visual.Output,
 			.PreviewFixtureIdentity =
-				std::string(FRenderedAssetThumbnailVisualContract::SphereVirtualPath),
+				std::string(
+					FRenderedAssetThumbnailVisualContract::
+						TextureCubeEnvironmentViewIdentity),
 			.PreviewFixtureVersion =
-				FRenderedAssetThumbnailVisualContract::SphereFixtureVersion,
+				FRenderedAssetThumbnailVisualContract::
+					TextureCubeEnvironmentViewVersion,
 			.ShaderContractVersion = TextureCubeThumbnailShaderContract};
 		OutRequest.Input =
 			std::make_shared<FTextureCubeThumbnailGenerationInput>(

@@ -50,8 +50,13 @@ TEST(FTextureCubeAssetThumbnailTests, ProviderCapturesPackageAndCubeVisualContra
 	EXPECT_EQ(Captured.RequestSerial, 3u);
 	EXPECT_EQ(
 		Captured.KeyInput.PreviewFixtureIdentity,
-		Durin::FRenderedAssetThumbnailVisualContract::SphereVirtualPath);
-	EXPECT_EQ(Captured.KeyInput.ShaderContractVersion, 1u);
+		Durin::FRenderedAssetThumbnailVisualContract::
+			TextureCubeEnvironmentViewIdentity);
+	EXPECT_EQ(
+		Captured.KeyInput.PreviewFixtureVersion,
+		Durin::FRenderedAssetThumbnailVisualContract::
+			TextureCubeEnvironmentViewVersion);
+	EXPECT_EQ(Captured.KeyInput.ShaderContractVersion, 2u);
 	EXPECT_TRUE(Captured.KeyInput.Dependencies.empty());
 	EXPECT_NE(
 		std::dynamic_pointer_cast<

@@ -1420,60 +1420,53 @@ namespace Durin
 			const FSceneView& View,
 			const FTextureCubePreviewSceneProxy& Proxy) -> void
 		{
-			FStaticMeshRenderData* RenderData = Proxy.GetRenderData();
 			const std::shared_ptr<FTextureCubeRenderResource>& TextureResource =
 				Proxy.GetTextureResource();
-			if (RenderData == nullptr || RenderData->LODResources.empty()
-				|| !RenderData->IsReadyForRendering() || TextureResource == nullptr
-				|| !TextureResource->IsReady_RenderThread())
+			if (TextureResource == nullptr || !TextureResource->IsReady_RenderThread())
 				return;
 			FRHITexture* Texture = TextureResource->GetTextureRHI_RenderThread();
 			if (Texture == nullptr) return;
 
-			EnsureTextureCubeThumbnailPipeline();
-			if (GTextureCubeThumbnailState.PipelineState == nullptr
-				|| GTextureCubeThumbnailState.Sampler == nullptr
-				|| !GTextureCubeThumbnailState.VertexShader
-				|| !GTextureCubeThumbnailState.FragmentShader)
+			if (GSkyBoxState.PipelineState == nullptr
+				|| GSkyBoxState.Sampler == nullptr
+				|| !GSkyBoxState.VertexShader
+				|| !GSkyBoxState.FragmentShader
+				|| GSkyBoxState.IndexBuffer == nullptr)
 				return;
 
-			const FStaticMeshLODResources& LOD = RenderData->LODResources[0];
-			FTextureCubeThumbnailTransformUniform Uniform;
-			Uniform.LocalToClip =
-				ToShaderMatrix(View.ViewProjectionMatrix * Proxy.GetLocalToWorld());
-			Uniform.LocalToWorld = ToShaderMatrix(Proxy.GetLocalToWorld());
-			Uniform.NormalToWorld =
-				ToShaderMatrix(glm::transpose(glm::inverse(Proxy.GetLocalToWorld())));
-			Uniform.ViewPosition = FVector4f(FVector3f(View.ViewLocation), 1.0f);
-			const FRHIUniformBufferRange UniformBuffer =
-				CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
+			// Content Browser thumbnails favor recognition over inspection: show a
+			// wide environment view here and reserve the reflective sphere for the
+			// interactive TextureCube editor.
+			constexpr float EnvironmentVerticalFieldOfViewDegrees = 100.0f;
+			FSceneView EnvironmentView = View;
+			const float AspectRatio = static_cast<float>(View.ViewportWidth)
+				/ static_cast<float>(std::max(1u, View.ViewportHeight));
+			const float YScale = 1.0f
+				/ std::tan(
+					glm::radians(EnvironmentVerticalFieldOfViewDegrees) * 0.5f);
+			EnvironmentView.ProjectionMatrix[1][0] =
+				YScale / std::max(AspectRatio, 0.001f);
+			EnvironmentView.ProjectionMatrix[2][1] = -YScale;
+			EnvironmentView.ViewProjectionMatrix =
+				EnvironmentView.ProjectionMatrix * EnvironmentView.ViewMatrix;
 
-			CommandList.SetGraphicsPipelineState(
-				*GTextureCubeThumbnailState.PipelineState);
-			FTextureCubeThumbnailVertexShader::FParameters VertexParameters;
-			VertexParameters.Transform = UniformBuffer;
-			SetShaderParameters(
-				CommandList, GTextureCubeThumbnailState.VertexShader, VertexParameters);
-			FTextureCubeThumbnailFragmentShader::FParameters FragmentParameters;
-			FragmentParameters.Transform = UniformBuffer;
-			FragmentParameters.CubeTexture = Texture;
-			FragmentParameters.CubeSampler = GTextureCubeThumbnailState.Sampler;
+			SkyBoxRendering::FSkyBoxUniform Uniform;
+			if (!SkyBoxRendering::BuildUniform(
+					EnvironmentView, FSkyBoxSceneData{}, Uniform))
+				return;
+
+			CommandList.SetGraphicsPipelineState(*GSkyBoxState.PipelineState);
+			CommandList.BindIndexBuffer(GSkyBoxState.IndexBuffer, 0);
+			FSkyBoxFragmentShader::FParameters FragmentParameters;
+			FragmentParameters.SkyTexture = Texture;
+			FragmentParameters.SkySampler = GSkyBoxState.Sampler;
+			FragmentParameters.Sky =
+				CommandList.AllocateDynamicUniformBuffer(&Uniform, sizeof(Uniform));
 			SetShaderParameters(
 				CommandList,
-				GTextureCubeThumbnailState.FragmentShader,
+				GSkyBoxState.FragmentShader,
 				FragmentParameters);
-
-			CommandList.BindVertexBuffer(0, LOD.PositionVertexBufferRHI, 0);
-			CommandList.BindVertexBuffer(1, LOD.StaticMeshVertexBufferRHI, 0);
-			CommandList.BindIndexBuffer(LOD.IndexBufferRHI, 0);
-			for (const FStaticMeshSection& Section : LOD.Sections)
-			{
-				if (Section.IndexCount == 0
-					|| static_cast<uint64>(Section.FirstIndex) + Section.IndexCount
-						> LOD.Indices.size())
-					continue;
-				CommandList.DrawIndexed(Section.IndexCount, Section.FirstIndex, 0);
-			}
+			CommandList.DrawIndexed(3, 0, 0);
 		}
 
 		auto DrawGizmoPrimitives(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bXRay, bool bPresentOutput) -> void

@@ -855,6 +855,38 @@ namespace Durin
 						bDrewThumbnail = Mona::GActiveUIBackend->DrawImage(Thumbnail.Texture, FVector2f(ImageSize.x, ImageSize.y));
 						ImGui::SetCursorScreenPos(CursorAfterTile);
 						DrawList->PopClipRect();
+						if (bDrewThumbnail && Item.Kind == EContentBrowserItemKind::Asset
+							&& ClassLeaf(Item.AssetClassName) == "TextureCube")
+						{
+							const float BadgeSize = std::clamp(
+								IconSize * 0.22f,
+								MonaImGui::ScaleUI(18.0f),
+								MonaImGui::ScaleUI(28.0f));
+							const float BadgeInset = MonaImGui::ScaleUI(4.0f);
+							const ImVec2 BadgeMax(
+								ImagePosition.x + ImageSize.x - BadgeInset,
+								ImagePosition.y + ImageSize.y - BadgeInset);
+							const ImVec2 BadgeMin(
+								BadgeMax.x - BadgeSize, BadgeMax.y - BadgeSize);
+							DrawList->AddRectFilled(
+								BadgeMin,
+								BadgeMax,
+								ImGui::GetColorU32(ImVec4(0.04f, 0.05f, 0.07f, 0.82f)),
+								BadgeSize * 0.24f);
+							const float BadgeIconSize =
+								MonaImGui::QuantizeDynamicFontSize(BadgeSize * 0.58f);
+							const ImVec2 BadgeIconExtent = ImGui::GetFont()->CalcTextSizeA(
+								BadgeIconSize, FLT_MAX, 0.0f, Icons::Cube);
+							const ImVec2 BadgeIconPosition(
+								BadgeMin.x + (BadgeSize - BadgeIconExtent.x) * 0.5f,
+								BadgeMin.y + (BadgeSize - BadgeIconExtent.y) * 0.5f);
+							DrawList->AddText(
+								ImGui::GetFont(),
+								BadgeIconSize,
+								BadgeIconPosition,
+								ImGui::GetColorU32(ImVec4(0.90f, 0.94f, 1.0f, 1.0f)),
+								Icons::Cube);
+						}
 					}
 					if (!bDrewThumbnail)
 					{

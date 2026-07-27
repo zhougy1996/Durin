@@ -452,6 +452,19 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			CubePixels[Center], CubePixels[Center + 1], CubePixels[Center + 2]};
 		EXPECT_NE(CubeCenterRgb, CornerRgb);
 		EXPECT_NE(CubeCenterRgb, (std::array<Durin::uint8, 3>{0, 0, 0}));
+		std::unordered_set<Durin::uint32> CubeCornerColors;
+		for (const size_t CornerPixel : std::array<size_t, 4>{
+				0,
+				(64u - 1u) * 4u,
+				((64u - 1u) * 64u) * 4u,
+				(64u * 64u - 1u) * 4u})
+		{
+			CubeCornerColors.insert(
+				static_cast<Durin::uint32>(CubePixels[CornerPixel]) << 16
+				| static_cast<Durin::uint32>(CubePixels[CornerPixel + 1]) << 8
+				| CubePixels[CornerPixel + 2]);
+		}
+		EXPECT_GT(CubeCornerColors.size(), 1u);
 		std::unordered_set<Durin::uint32> CubeColors;
 		for (size_t Pixel = 0; Pixel < CubePixels.size(); Pixel += 4)
 		{
