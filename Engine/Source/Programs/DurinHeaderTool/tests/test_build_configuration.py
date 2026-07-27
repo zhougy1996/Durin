@@ -1,0 +1,268 @@
+import argparse
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from durin_header_tool import config as configs
+from durin_header_tool import io as utils
+from durin_header_tool.cli.command import add_common_arguments
+from durin_header_tool.cli.main import _get_output_lock_paths
+from durin_header_tool.generators import module_cmake_file_generator
+from durin_header_tool.generators import project_cmake_file_generator
+from durin_header_tool.runtime.parallelism import resolve_worker_count
+from durin_header_tool.runtime.worker_context import initialize_worker_config
+
+
+@pytest.fixture(scope="module")
+def initialized_configs():
+    previous_context = (
+        configs.ARCH,
+        configs.RUNTIME_VARIANT,
+        configs.TOOL_FINGERPRINT,
+    )
+    configs.init_configs()
+    yield
+    (
+        configs.ARCH,
+        configs.RUNTIME_VARIANT,
+        configs.TOOL_FINGERPRINT,
+    ) = previous_context
+
+
+@pytest.mark.usefixtures("initialized_configs")
+class TestModuleDependency:
+    def test_enabled_optional_dependencies_join_recursive_dependency_graph(self):
+        module_configs = {
+            "Root": SimpleNamespace(
+                private_dependencies=[],
+                public_dependencies=[],
+                optional_private_dependencies=["Optional"],
+                optional_public_dependencies=[],
+            ),
+            "Optional": SimpleNamespace(
+                private_dependencies=["RequiredLeaf"],
+                public_dependencies=[],
+                optional_private_dependencies=[],
+                optional_public_dependencies=["OptionalLeaf"],
+            ),
+            "RequiredLeaf": SimpleNamespace(
+                private_dependencies=[],
+                public_dependencies=[],
+                optional_private_dependencies=[],
+                optional_public_dependencies=[],
+            ),
+            "OptionalLeaf": SimpleNamespace(
+                private_dependencies=[],
+                public_dependencies=[],
+                optional_private_dependencies=[],
+                optional_public_dependencies=[],
+            ),
+        }
+
+        with (
+            mock.patch.object(configs.module_config, "get_module_config", side_effect=module_configs.__getitem__),
+            mock.patch.object(
+                configs.module_config,
+                "is_module_enabled_for_active_runtime_variant",
+                side_effect=lambda module_name, runtime_variant: module_name in {"Optional", "OptionalLeaf"},
+            ),
+        ):
+            dependencies = configs.collect_all_dependent_modules("Root", "DurinEditor")
+
+        assert dependencies == {"Optional", "RequiredLeaf", "OptionalLeaf"}
+
+    def test_disabled_optional_dependency_does_not_join_dependency_graph(self):
+        root_config = SimpleNamespace(
+            private_dependencies=[],
+            public_dependencies=[],
+            optional_private_dependencies=["Optional"],
+            optional_public_dependencies=[],
+        )
+
+        with (
+            mock.patch.object(configs.module_config, "get_module_config", return_value=root_config),
+            mock.patch.object(
+                configs.module_config,
+                "is_module_enabled_for_active_runtime_variant",
+                return_value=False,
+            ),
+        ):
+            dependencies = configs.collect_all_dependent_modules("Root", "DurinGame")
+
+        assert dependencies == set()
+
+    def test_launch_reflection_exports_follow_active_runtime_variant(self):
+        editor_exports = configs.collect_all_dependent_module_with_export_file("Launch", "DurinEditor")
+        game_exports = configs.collect_all_dependent_module_with_export_file("Launch", "DurinGame")
+
+        assert "DurinEd" in editor_exports
+        assert "DurinEd" not in game_exports
+
+
+@pytest.mark.usefixtures("initialized_configs")
+class TestIntermediateLayout:
+    @pytest.fixture(autouse=True)
+    def isolated_build_context(self):
+        previous_context = (
+            configs.ARCH,
+            configs.RUNTIME_VARIANT,
+            configs.TOOL_FINGERPRINT,
+        )
+        configs.ARCH = "Win64"
+        configs.RUNTIME_VARIANT = "DurinEditor"
+        configs.TOOL_FINGERPRINT = ""
+        yield
+        (
+            configs.ARCH,
+            configs.RUNTIME_VARIANT,
+            configs.TOOL_FINGERPRINT,
+        ) = previous_context
+
+    def test_intermediate_path_uses_platform_and_runtime_variant(self):
+        assert utils.get_project_intermediate_build_dir("Engine") == (
+            utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor"
+        )
+
+    def test_locks_use_shared_intermediate_root(self):
+        assert utils.get_dht_module_lock_file_path("Core") == (
+            utils.get_project_intermediate_dir("Engine")
+            / "Build"
+            / ".dht-locks"
+            / "Win64"
+            / "DurinEditor"
+            / "modules"
+            / "Core.lock"
+        )
+
+    def test_runtime_variant_lock_uses_shared_intermediate_root(self):
+        assert utils.get_dht_runtime_variant_lock_file_path().name == "runtime-variant.lock"
+
+    def test_module_locks_are_independent_within_a_runtime_variant(self):
+        assert utils.get_dht_module_lock_file_path("Core") != utils.get_dht_module_lock_file_path(
+            "Engine"
+        )
+
+    def test_module_generation_commands_share_their_module_lock(self):
+        export_args = SimpleNamespace(function="generate_module_export_file", module="Core")
+        reflection_args = SimpleNamespace(function="generate_reflection_files", module="Core")
+
+        assert _get_output_lock_paths(export_args) == _get_output_lock_paths(reflection_args)
+        assert _get_output_lock_paths(export_args) == [utils.get_dht_module_lock_file_path("Core")]
+
+    def test_project_preparation_locks_metadata_and_all_owned_modules(self):
+        project_file = configs.environment.DURIN_ENGINE_PROJECT_DIR / "Engine.dproject"
+        lock_paths = _get_output_lock_paths(
+            SimpleNamespace(function="prepare_project_build", project=project_file)
+        )
+        engine_config = configs.get_project_config("Engine")
+
+        assert lock_paths[0] == utils.get_dht_project_lock_file_path("Engine")
+        assert lock_paths[1:] == [
+            utils.get_dht_module_lock_file_path(module_name)
+            for module_name in sorted(engine_config.modules)
+        ]
+
+    def test_platform_and_runtime_variant_remain_independent_dimensions(self):
+        configs.ARCH = "Linux"
+        configs.RUNTIME_VARIANT = "DurinGame"
+        assert utils.get_project_intermediate_build_dir("Engine") == (
+            utils.get_project_intermediate_dir("Engine") / "Build" / "Linux" / "DurinGame"
+        )
+
+    def test_cli_accepts_tool_fingerprint(self):
+        parser = argparse.ArgumentParser()
+        add_common_arguments(parser)
+        args = parser.parse_args(["--tool-fingerprint", "abc123"])
+        assert args.tool_fingerprint == "abc123"
+
+    def test_cli_accepts_bounded_worker_count(self):
+        parser = argparse.ArgumentParser()
+        add_common_arguments(parser)
+        assert parser.parse_args(["--workers", "2"]).workers == 2
+        with pytest.raises(SystemExit):
+            parser.parse_args(["--workers", "9"])
+
+    @pytest.mark.parametrize(
+        ("task_count", "worker_limit", "expected"),
+        [
+            (7, 8, 1),
+            (8, 2, 2),
+            (15, 8, 2),
+            (16, 8, 4),
+            (31, 8, 4),
+            (32, 8, 8),
+            (32, 4, 4),
+        ],
+    )
+    def test_worker_parallelism_requires_a_large_task_set(
+        self,
+        task_count,
+        worker_limit,
+        expected,
+    ):
+        assert resolve_worker_count(task_count, worker_limit) == expected
+
+    def test_worker_receives_build_context(self):
+        with mock.patch.object(configs, "init_configs") as init_configs:
+            initialize_worker_config("Win64", "DurinEditor")
+
+        assert configs.ARCH == "Win64"
+        assert configs.RUNTIME_VARIANT == "DurinEditor"
+        init_configs.assert_called_once_with()
+
+    def test_generated_project_metadata_uses_shared_build_path(self):
+        with mock.patch.object(project_cmake_file_generator.utils, "generate_file") as generate_file:
+            project_cmake_file_generator.generate_project_cmake_file("Engine")
+
+        output_path, content = generate_file.call_args.args
+        expected_root = utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor"
+        assert output_path == expected_root / "Engine.project.cmake"
+        assert expected_root.as_posix() in content
+        assert (
+            "${DURIN_PROJECT_BINARY_DIR}/${DURIN_ARCH}/ThirdParty/${DURIN_THIRDPARTY_OUTPUT_CONFIG}"
+            in content
+        )
+
+    def test_cmake_commands_forward_shared_dht_context(self):
+        workspace_root = ROOT.parents[3]
+        project_setup = (workspace_root / "CMake" / "Project" / "ProjectSetup.cmake").read_text(encoding="utf-8")
+        project_targets = (workspace_root / "CMake" / "Project" / "ProjectTargets.cmake").read_text(encoding="utf-8")
+        assert "--config ${CMAKE_BUILD_TYPE}" not in project_setup
+        assert project_targets.count("${DURIN_DHT_CONTEXT_ARGS}") == 2
+
+    def test_generated_module_metadata_leaves_source_discovery_to_cmake(self):
+        with mock.patch.object(module_cmake_file_generator.utils, "generate_file") as generate_file:
+            module_cmake_file_generator.generate_module_cmake_file("Engine")
+
+        _, content = generate_file.call_args.args
+        assert "module_public_srcs" not in content
+        assert "module_private_srcs" not in content
+        assert "module_export_manifest_file" in content
+        assert "module_manifest_file" in content
+        assert "module_reflection_export_dependencies" in content
+
+    def test_cmake_declares_tool_and_generated_file_contracts(self):
+        workspace_root = ROOT.parents[3]
+        build_options = (workspace_root / "CMake" / "Config" / "BuildOptions.cmake").read_text(encoding="utf-8")
+        project_setup = (workspace_root / "CMake" / "Project" / "ProjectSetup.cmake").read_text(encoding="utf-8")
+        project_targets = (workspace_root / "CMake" / "Project" / "ProjectTargets.cmake").read_text(encoding="utf-8")
+
+        assert "DURIN_DHT_TOOL_FINGERPRINT_FILE" in project_setup
+        assert "--tool-fingerprint ${DURIN_DHT_TOOL_FINGERPRINT}" in project_setup
+        assert project_targets.count("\n\t\t\tBYPRODUCTS ") == 2
+        assert "GLOB_RECURSE module_public_srcs CONFIGURE_DEPENDS" in project_targets
+        assert "GLOB_RECURSE module_private_srcs CONFIGURE_DEPENDS" in project_targets
+        assert ".export.stamp" in project_targets
+        assert ".reflection.stamp" in project_targets
+        assert "JOB_POOLS durin_dht=${DURIN_DHT_JOB_POOL_SIZE}" in build_options
+        assert project_targets.count("JOB_POOL durin_dht") == 2
+        assert project_targets.count("--workers ${DURIN_DHT_WORKERS}") == 2
+        assert "set(DURIN_DHT_LOG_LEVEL INFO CACHE STRING" in build_options
+        assert project_targets.count("--log ${DURIN_DHT_LOG_LEVEL}") == 2

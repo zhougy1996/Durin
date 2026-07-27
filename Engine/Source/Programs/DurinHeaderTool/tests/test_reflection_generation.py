@@ -1,7 +1,6 @@
 import json
 import re
 import sys
-import tempfile
 from pathlib import Path
 from unittest import mock
 
@@ -81,12 +80,17 @@ class TestReflectionSourceWriter:
         assert '{ "DefaultValue", static_cast<Durin::uint64>(2), nullptr },' in content
 
 
+@pytest.fixture(scope="class")
+def reflection_fixture(request, tmp_path_factory):
+    request.cls._build_fixture(tmp_path_factory.mktemp("dht-reflection"))
+
+
+@pytest.mark.usefixtures("reflection_fixture")
 class TestReflectionGeneration:
     @classmethod
-    def setup_class(cls):
+    def _build_fixture(cls, temp_root):
         # Keep parser/writer integration coverage self-contained; unit tests must not scan production modules.
-        cls._temp_dir = tempfile.TemporaryDirectory()
-        cls.temp_root = Path(cls._temp_dir.name)
+        cls.temp_root = temp_root
         cls.module_dir = cls.temp_root / "Fixture"
         cls.header = "Public/FixtureTypes.h"
         header_path = cls.module_dir / cls.header
@@ -193,10 +197,6 @@ namespace Fixture
             cls.header_info = parse_reflection_header("Fixture", cls.header, exported_symbols=cls.symbols)
             cls.generated_cpp = generate_cpp_content(cls.header_info, cls.symbols)
 
-    @classmethod
-    def teardown_class(cls):
-        cls._temp_dir.cleanup()
-
     def test_export_schema_uses_qualified_symbol_identity(self):
         export_path = self.temp_root / "Fixture.export"
         with mock.patch.object(utils, "get_module_export_file_path", return_value=export_path):
@@ -212,13 +212,11 @@ namespace Fixture
     def test_qualified_helper_name_and_validation(self):
         assert (
             make_generated_helper_name("Durin::Gameplay::AActor")
-            ==
-            "Z_Construct_DClass_Durin_Gameplay_AActor"
+            == "Z_Construct_DClass_Durin_Gameplay_AActor"
         )
         assert (
             make_generated_enum_helper_name("Durin::Gameplay::ETeam")
-            ==
-            "Z_Construct_DEnum_Durin_Gameplay_ETeam"
+            == "Z_Construct_DEnum_Durin_Gameplay_ETeam"
         )
         with pytest.raises(ValueError):
             make_generated_helper_name("Durin::Gameplay_AActor")
@@ -261,8 +259,9 @@ namespace Fixture
             ("LegacySecond", 4, ""),
         ]
 
-    def test_invalid_enum_metadata_has_deterministic_diagnostics(self):
-        invalid_cases = [
+    @pytest.mark.parametrize(
+        ("source", "diagnostic"),
+        [
             (
                 'DENUM(DisplayName = "First", DisplayName = "Second") enum E { A };',
                 "duplicate DisplayName metadata",
@@ -287,10 +286,19 @@ namespace Fixture
                 'enum E { A DMETA(DisplayName = "First", DisplayName = "Second") };',
                 "duplicate DisplayName metadata",
             ),
-        ]
-        for source, diagnostic in invalid_cases:
-            with pytest.raises(ValueError, match=re.escape(diagnostic)):
-                make_dht_parse_source(source)
+        ],
+        ids=[
+            "duplicate-enum-metadata",
+            "unsupported-enum-metadata",
+            "unquoted-enum-display-name",
+            "unterminated-enum-string",
+            "unterminated-enum-annotation",
+            "duplicate-enumerator-metadata",
+        ],
+    )
+    def test_invalid_enum_metadata_has_deterministic_diagnostics(self, source, diagnostic):
+        with pytest.raises(ValueError, match=re.escape(diagnostic)):
+            make_dht_parse_source(source)
 
     def test_annotation_names_in_comments_and_strings_are_ignored(self):
         source = '''// DENUM(Unknown = "comment")
@@ -319,8 +327,7 @@ const char* Text = "DMETA(Unknown = \\"string\\")";
         assert dmeta_uses == {}
         assert (
             index.parse.call_args.kwargs["options"]
-            ==
-            clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES
+            == clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES
         )
 
     def test_dmeta_outside_reflected_enum_is_rejected(self):
