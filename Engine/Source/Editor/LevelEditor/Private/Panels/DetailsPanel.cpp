@@ -136,7 +136,7 @@ namespace Durin
 		ImGui::TextDisabled("Components");
 		ImGui::SameLine();
 		bool bOpenAddPopup = false;
-		bool bOpenRemovePopup = false;
+		bool bOpenDeletePopup = false;
 		if (Context.bReadOnly) ImGui::BeginDisabled();
 		if (ImGui::SmallButton("+ Add"))
 		{
@@ -248,10 +248,12 @@ namespace Durin
 			if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) SelectedComponent = Component;
 			if (ImGui::BeginPopupContextItem("ComponentContext"))
 			{
+				SelectedComponent = Component;
 				if (Context.bReadOnly) ImGui::BeginDisabled();
-				if (ImGui::MenuItem("Rename", "F2")) BeginRenameComponent(Component);
 				if (ImGui::MenuItem("Add Component")) QueueAddComponent(nullptr, false);
 				if (SceneComponent && ImGui::MenuItem("Add Child Component")) QueueAddComponent(SceneComponent, true);
+				ImGui::Separator();
+				if (ImGui::MenuItem("Rename", "F2")) BeginRenameComponent(Component);
 				if (bIsInstance && !bIsRoot)
 				{
 					if (ImGui::MenuItem("Duplicate Component", "Ctrl+D")) DuplicateComponent(Component);
@@ -262,21 +264,25 @@ namespace Durin
 					ImGui::MenuItem(bIsRoot ? "Root component cannot be duplicated" : "Default component cannot be duplicated");
 					ImGui::EndDisabled();
 				}
+				ImGui::Separator();
 				if (bIsInstance && !bIsRoot)
 				{
-					if (ImGui::MenuItem("Remove Component"))
+					if (ImGui::MenuItem("Delete Component", "Del"))
 					{
-						PendingRemoveComponent = Component;
-						bOpenRemovePopup = true;
+						PendingDeleteComponent = Component;
+						bOpenDeletePopup = true;
 					}
 				}
 				else
 				{
 					ImGui::BeginDisabled();
-					ImGui::MenuItem(bIsRoot ? "Root component cannot be removed" : "Default component cannot be removed");
+					ImGui::MenuItem(bIsRoot ? "Root component cannot be deleted" : "Default component cannot be deleted");
 					ImGui::EndDisabled();
 				}
 				if (Context.bReadOnly) ImGui::EndDisabled();
+				ImGui::Separator();
+				if (ImGui::MenuItem("Copy Component Name")) ImGui::SetClipboardText(Component->GetName().c_str());
+				if (ImGui::MenuItem("Copy Component Type")) ImGui::SetClipboardText(Component->GetClass()->GetQualifiedName().ToString().c_str());
 				ImGui::EndPopup();
 			}
 
@@ -365,8 +371,8 @@ namespace Durin
 		if (Context.bReadOnly)
 		{
 			bOpenAddPopup = false;
-			bOpenRemovePopup = false;
-			PendingRemoveComponent = nullptr;
+			bOpenDeletePopup = false;
+			PendingDeleteComponent = nullptr;
 			RenamingComponent = nullptr;
 			RenameDialog.Cancel();
 		}
@@ -379,8 +385,8 @@ namespace Durin
 			if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false) && Actor->IsInstanceComponent(SelectedComponent.Get()) && SelectedComponent.Get() != Actor->GetRootComponent()) DuplicateComponent(SelectedComponent.Get());
 			if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && Actor->IsInstanceComponent(SelectedComponent.Get()) && SelectedComponent.Get() != Actor->GetRootComponent())
 			{
-				PendingRemoveComponent = SelectedComponent;
-				bOpenRemovePopup = true;
+				PendingDeleteComponent = SelectedComponent;
+				bOpenDeletePopup = true;
 			}
 		}
 		DActorComponent* RenameTarget = RenamingComponent.Get();
@@ -443,27 +449,27 @@ namespace Durin
 			ImGui::EndPopup();
 		}
 
-		if (bOpenRemovePopup) ImGui::OpenPopup("Remove Component?");
-		if (ImGui::BeginPopupModal("Remove Component?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
+		if (bOpenDeletePopup) ImGui::OpenPopup("Delete Component?");
+		if (ImGui::BeginPopupModal("Delete Component?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 		{
-			ImGui::Text("Remove component '%s'?", PendingRemoveComponent ? PendingRemoveComponent->GetName().c_str() : "");
+			ImGui::Text("Delete component '%s'?", PendingDeleteComponent ? PendingDeleteComponent->GetName().c_str() : "");
 			ImGui::TextDisabled("Its scene children will remain on the actor and keep their world transforms.");
 			ImGui::TextDisabled("This action cannot be undone.");
-			if (ImGui::Button("Remove"))
+			if (ImGui::Button("Delete"))
 			{
-				DActorComponent* Component = PendingRemoveComponent.Get();
+				DActorComponent* Component = PendingDeleteComponent.Get();
 				if (Component && !Actor->DestroyInstanceComponent(Component))
-					Context.SetError("Failed to remove component.");
+					Context.SetError("Failed to delete component.");
 				else if (Component)
 					Context.InvalidatePackageSavedState(Actor->GetPackage());
 				if (SelectedComponent.Get() == Component) SelectedComponent = nullptr;
-				PendingRemoveComponent = nullptr;
+				PendingDeleteComponent = nullptr;
 				ImGui::CloseCurrentPopup();
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("Cancel"))
 			{
-				PendingRemoveComponent = nullptr;
+				PendingDeleteComponent = nullptr;
 				ImGui::CloseCurrentPopup();
 			}
 			ImGui::EndPopup();

@@ -32,7 +32,7 @@ namespace Durin
 
 		std::array<char, 128> ComponentTypeSearchText{};
 		std::array<char, 128> PropertySearchText{};
-		TObjectPtr<DActorComponent> PendingRemoveComponent;
+		TObjectPtr<DActorComponent> PendingDeleteComponent;
 		TObjectPtr<DSceneComponent> AddComponentParent;
 		TObjectPtr<DSceneComponent> PendingExpandComponent;
 		TObjectPtr<AActor> PropertyActor;
