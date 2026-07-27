@@ -9,9 +9,11 @@
 #include "MaterialEditorModule.h"
 #include "TextureEditorModule.h"
 #include "MonaImGui.h"
+#include "HAL/PlatformProcess.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Misc/Version.h"
+#include "Profiling/Profiling.h"
 #include "Settings/EditorHostSettings.h"
 
 #include "Widgets/MFunctionWidget.h"
@@ -346,6 +348,11 @@ namespace Durin
 		ProjectBrowser->SetOpenProject([WorkspaceManager, bWorkspaceReady, WeakRootWindow, LevelEditorModulePtr, MaterialEditorModulePtr, TextureEditorModulePtr](std::string_view ProjectFile, std::string& OutError) {
 			const std::array<std::string_view, 2> Arguments = {"--project", ProjectFile};
 			if (!InitializeCurrentProject(Arguments, &OutError)) return false;
+			DURIN_PROFILE_PROGRAM_IDENTITY(
+				DURIN_RUNTIME_VARIANT,
+				GetCurrentProject() ? std::string_view{GetCurrentProject()->Name} : std::string_view{},
+				FPlatformProcess::CurrentProcessId()
+			);
 			PathUtilities::InitDefaultMountPoints();
 			*bWorkspaceReady = RegisterEditorWorkspaces(*WorkspaceManager, *LevelEditorModulePtr, *MaterialEditorModulePtr, *TextureEditorModulePtr);
 			if (!*bWorkspaceReady)

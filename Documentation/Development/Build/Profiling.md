@@ -36,6 +36,26 @@ The client is configured for on-demand, localhost-only capture. Capturing is
 optional at runtime. Use the profiler or capture tool from the matching upstream
 Tracy `v0.13.1` release.
 
+## Process Identity And Ports
+
+Profiling processes publish a Tracy program name in this format:
+
+```text
+<RuntimeVariant> | <ProjectName-or-No Project> | PID <ProcessId>
+```
+
+For example, two Editors opening Sandbox appear as
+`DurinEditor | Sandbox | PID 15584` and
+`DurinEditor | Sandbox | PID 10848`. The PID is the final discriminator when
+runtime variant and project are otherwise identical. An Editor that selects a
+project without relaunching republishes the identity with the selected project.
+
+Durin does not set `TRACY_PORT`. With no developer override, Tracy searches
+ports 8086 through 8105 and advertises the selected data port through discovery.
+Use the discovered port instead of assuming every process is on 8086. An
+explicit `TRACY_PORT` remains a developer-owned override and disables the
+automatic search for that process.
+
 ## Instrumentation Surface
 
 Repository C++ call sites include `Profiling/Profiling.h`, not Tracy headers.
@@ -45,6 +65,7 @@ The supported operations are:
 - `DURIN_PROFILE_CPU_ZONE_NAMED("Stable.Name")`
 - `DURIN_PROFILE_FRAME_MARK()`
 - `DURIN_PROFILE_THREAD(Name)`
+- `DURIN_PROFILE_PROGRAM_IDENTITY(RuntimeVariant, ProjectName, ProcessId)`
 
 Zone names use bounded, stable strings that describe an owned operation, such as
 `EngineLoop.GameLogic` or `QueuedTask.Execute`. Do not include asset paths,
@@ -53,6 +74,9 @@ object names, task ids, or other unbounded per-item data in zone names.
 When `DURIN_WITH_TRACY=0`, these macros do not require Tracy headers or symbols
 and do not evaluate their profiling-only arguments. Tracy types must not appear
 in Durin function signatures, reflected declarations, or public data contracts.
+Repository call sites do not invoke `TracySetProgramName` directly. Core's
+profiling adapter formats and retains program-name storage because Tracy may
+consume the supplied character pointer asynchronously.
 
 ## Runtime Ownership
 

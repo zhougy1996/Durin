@@ -6,8 +6,8 @@ Last reviewed: 2026-07-27
 
 ## Current Status
 
-Stages 0-1 completed on 2026-07-27. Stage 2 is next. Stage 1 started from
-commit `dd7a71c4b7682063836402b05b0e5da982eaab6b`; the preceding runtime-variant
+Stages 0-2 completed on 2026-07-27. Stage 3 is next. Stage 2 started from
+commit `eda4de6063731c7dbb97d4830539786e8bbb9313`; the preceding runtime-variant
 and initial Tracy instrumentation plan remains established at commit
 `efccf9e4734947dcf56b6c1cca26dbdba9432c6d`.
 
@@ -393,18 +393,18 @@ Stage 4 documentation.
 
 ### Stage 2: Publish Stable Profiling Process Identity
 
-- [ ] Extend the engine-owned profiling adapter with a program-identity
+- [x] Extend the engine-owned profiling adapter with a program-identity
   operation whose disabled form skips argument evaluation.
-- [ ] Publish the runtime variant, project display name, and current process id
+- [x] Publish the runtime variant, project display name, and current process id
   after project selection is authoritative and early enough for useful Tracy
   discovery.
-- [ ] Keep identity storage alive for Tracy's asynchronous consumption and
+- [x] Keep identity storage alive for Tracy's asynchronous consumption and
   update it safely if the Editor switches or relaunches a project.
-- [ ] Preserve Tracy's unset-port automatic search and explicit `TRACY_PORT`
+- [x] Preserve Tracy's unset-port automatic search and explicit `TRACY_PORT`
   override behavior.
-- [ ] Add focused native tests for label formatting, fallback identity,
+- [x] Add focused native tests for label formatting, fallback identity,
   disabled-build evaluation, and storage lifetime at the Durin adapter boundary.
-- [ ] Verify two same-project profiling Editor processes advertise distinct
+- [x] Verify two same-project profiling Editor processes advertise distinct
   process ids and connect on distinct automatically selected ports.
 
 #### Acceptance Gate
@@ -415,9 +415,63 @@ Stage 4 documentation.
 
 #### Stage Handoff
 
-- Record baseline commit, working set, identity publication boundary, label
-  examples, port behavior, key symbols, open questions, and native/runtime
-  validation results.
+Baseline and working set:
+
+- Stage baseline: `eda4de6063731c7dbb97d4830539786e8bbb9313`.
+- Added
+  `Engine/Source/Runtime/Core/Private/Profiling/Profiling.cpp`.
+- Updated `Engine/Source/Runtime/Core/Public/Profiling/Profiling.h`,
+  `Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp`,
+  `Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp`,
+  `Engine/Tests/Native/CoreTests/Private/ProfilingTests.cpp`, and
+  `Documentation/Development/Build/Profiling.md`.
+- Updated this plan with the Stage 2 result.
+
+Identity and lifetime contract:
+
+- `Profiling::FormatProgramIdentity`, `SetProgramIdentity`, and
+  `GetProgramIdentity` form the Tracy-free Core adapter boundary.
+  `DURIN_PROFILE_PROGRAM_IDENTITY` calls it only when `DURIN_WITH_TRACY=1`;
+  the disabled macro does not evaluate runtime, project, or PID arguments.
+- The exact format is
+  `<RuntimeVariant> | <ProjectName-or-No Project> | PID <ProcessId>`.
+  Empty runtime metadata falls back to `Durin`; empty project metadata falls
+  back to `No Project`.
+- `SetProgramIdentity` retains each distinct published string in a
+  `std::deque<std::string>` until process shutdown. Tracy v0.13.1 temporarily
+  stores the supplied `const char*` before its broadcast thread consumes it, so
+  retaining prior entries prevents a project update from dangling an earlier
+  pointer. Repeating an unchanged identity reuses the latest entry.
+- `FEngineLoop::PreInit` publishes immediately after
+  `InitializeCurrentProject`. MainFrame republishes after its in-process project
+  selection succeeds. No repository call site includes Tracy internals or calls
+  `TracySetProgramName` directly.
+- No code reads, writes, or replaces `TRACY_PORT`. Unset ports retain upstream
+  automatic search; explicit overrides remain developer-owned.
+
+Validation:
+
+- `BuildTool test --target CoreTests --filter FProfilingTests.* --output full`:
+  4 passed for exact formatting, fallback formatting, stable storage across a
+  later longer identity, and disabled macro argument evaluation.
+- Full `all` builds passed for
+  `Win64-Release-DurinEditor-Profiling` and
+  `Win64-Release-DurinGame-Profiling`, compiling and linking the adapter through
+  the real `DURIN_WITH_TRACY=1` path.
+- Two final-build hidden Editors opening Sandbox advertised Tracy v3 discovery
+  entries `DurinEditor | Sandbox | PID 15584` on 8086 and
+  `DurinEditor | Sandbox | PID 10848` on 8087. A PID-filtered localhost
+  discovery parser verified both exact strings and ports.
+- Earlier in the same Stage 2 runtime validation, two concurrent Editors
+  (PIDs 16796 and 13316) produced successful two-second official
+  `tracy-capture.exe` traces from ports 8086 and 8087 respectively. Both traces
+  contained frame and CPU-zone data.
+- The official Tracy Profiler 0.13.1 discovery UI launched successfully. Its
+  discovery list also contained unrelated LAN clients, so the deterministic
+  acceptance evidence uses PID-filtered v3 packets rather than a scroll
+  position in the GUI.
+
+Open questions: none for Stage 3.
 
 ### Stage 3: Add DurinEditor Profiling Tool Actions
 

@@ -14,6 +14,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "CoreGlobals.h"
+#include "HAL/PlatformProcess.h"
 #include "Misc/AppConfig.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -56,6 +57,11 @@ namespace Durin
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
 		std::string ProjectError;
 		if (!InitializeCurrentProject(Arguments, &ProjectError) && !ProjectError.empty()) DURIN_WARN("{}", ProjectError);
+		DURIN_PROFILE_PROGRAM_IDENTITY(
+			DURIN_RUNTIME_VARIANT,
+			GetCurrentProject() ? std::string_view{GetCurrentProject()->Name} : std::string_view{},
+			FPlatformProcess::CurrentProcessId()
+		);
 		if (!FPaths::ProjectFile().empty()) DURIN_DEBUG(STR("Project file: {}"), FPaths::ProjectFile());
 		PathUtilities::InitDefaultMountPoints(); // Initialize default mount points to enable path resolving.
 		InitEngineThreadPool();
