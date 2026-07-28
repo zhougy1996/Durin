@@ -10,6 +10,7 @@
 #include "Misc/DerivedDataCache.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Source/SourcePath.h"
 #include "DynamicRHI.h"
 #include "Texture/Texture2DRenderResource.h"
 #include "Texture/TextureBuild.h"

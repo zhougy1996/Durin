@@ -13,6 +13,7 @@
 #include "Logging/LogMacros.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Source/SourcePath.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Threading/RunnableThread.h"

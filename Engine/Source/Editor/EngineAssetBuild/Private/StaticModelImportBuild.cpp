@@ -6,6 +6,7 @@
 #include "ImageDecoder.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Source/SourcePath.h"
 #include "Texture/TextureBuild.h"
 #include "Texture/TextureDerivedData.h"
 

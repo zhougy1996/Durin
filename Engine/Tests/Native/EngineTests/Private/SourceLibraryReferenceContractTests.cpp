@@ -68,6 +68,8 @@ TEST(FSourcePathContractTests, ReflectedValueHasOneCompleteVirtualPath)
 	Durin::DStruct* SourcePathStruct = Durin::FSourcePath::StaticStruct();
 	ASSERT_NE(SourcePathStruct, nullptr);
 	EXPECT_EQ(SourcePathStruct->GetQualifiedName().ToString(), "Durin::FSourcePath");
+	ASSERT_NE(SourcePathStruct->GetOuter(), nullptr);
+	EXPECT_EQ(SourcePathStruct->GetOuter()->GetName(), "AssetCore");
 
 	size_t PropertyCount = 0;
 	SourcePathStruct->ForEachProperty([&PropertyCount](Durin::FProperty*) { ++PropertyCount; });

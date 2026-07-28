@@ -1,10 +1,10 @@
 #pragma once
 
+#include "Asset/SourcePath.h"
 #include "AssetImportAPI.h"
 #include "CoreFwd.h"
 #include "Hash/XxHash.h"
 #include "Math/MathFwd.h"
-#include "Source/SourcePath.h"
 
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>

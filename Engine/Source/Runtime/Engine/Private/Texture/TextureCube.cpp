@@ -9,6 +9,7 @@
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Source/SourcePath.h"
 #include "Texture/EquirectangularTextureCube.h"
 #include "Texture/TextureBuild.h"
 #include "Texture/TextureCubeRenderResource.h"
