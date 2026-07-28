@@ -128,6 +128,10 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
+set_target_properties(EditorAssetWorkflowTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+)
+
 durin_add_engine_functional_test(MaterialTests
 	GPU
 	TIMEOUT 900

@@ -1,6 +1,7 @@
 #include "Assets/AssetDestinationValidation.h"
 
 #include "EngineTestSupport.h"
+#include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -28,7 +29,7 @@ namespace
 	protected:
 		void SetUp() override
 		{
-			Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "AssetDestinationValidation";
+			Root = Durin::Testing::GetTestWorkDirectory() / "AssetDestinationValidation";
 			std::filesystem::create_directories(Root / "Project/Content");
 			std::filesystem::create_directories(Root / "Engine/Content");
 			std::filesystem::create_directories(Root / "Sources");

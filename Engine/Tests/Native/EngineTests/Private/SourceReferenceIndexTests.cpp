@@ -2,14 +2,15 @@
 #include "Source/SourceReferenceIndex.h"
 #include "Texture/TextureTestSupport.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 
 TEST(FSourceReferenceIndexTests, TracksSharedMountedSourcesAcrossRegistryRevisions)
 {
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "SourceReferenceIndexCache");
+		Durin::Testing::GetTestWorkDirectory() / "SourceReferenceIndexCache");
 	const std::filesystem::path Input =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "SourceReferenceIndex.png";
+		Durin::Testing::GetTestWorkDirectory() / "SourceReferenceIndex.png";
 	WriteTextureFixture(Input);
 
 	const Durin::FTexture2DImportResult First = Durin::DTexture2D::ImportAsset(
@@ -61,9 +62,9 @@ TEST(FSourceReferenceIndexTests, RelocatesSharedSourceAndAllReferencingPackages)
 {
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "SharedSourceRelocationCache");
+		Durin::Testing::GetTestWorkDirectory() / "SharedSourceRelocationCache");
 	const std::filesystem::path Input =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "SharedSourceRelocation.png";
+		Durin::Testing::GetTestWorkDirectory() / "SharedSourceRelocation.png";
 	WriteTextureFixture(Input);
 	Durin::FTexture2DImportSettings ImportSettings;
 	ImportSettings.SourceDestination =

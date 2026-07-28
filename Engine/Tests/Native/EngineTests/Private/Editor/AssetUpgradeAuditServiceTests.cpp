@@ -3,6 +3,7 @@
 #include "Editor/EditorNotification.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -14,7 +15,7 @@ namespace
 		static const bool bMounted = [] {
 			Durin::PathUtilities::RegisterMountPoint(
 				"/UpgradeAudit/",
-				std::filesystem::path(DURIN_TEST_WORK_DIR).generic_string() + "/");
+				Durin::Testing::GetTestWorkDirectory().generic_string() + "/");
 			return true;
 		}();
 		(void)bMounted;

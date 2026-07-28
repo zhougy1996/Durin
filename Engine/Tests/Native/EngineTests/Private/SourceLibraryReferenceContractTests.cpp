@@ -5,6 +5,7 @@
 #include "EngineTestSupport.h"
 #include "Json/Json.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 #include "Source/SourcePath.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
@@ -127,7 +128,7 @@ TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesDomainsAndDependencyCas
 TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
 {
 	const std::filesystem::path Root =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "MountedSourceOperations";
+		Durin::Testing::GetTestWorkDirectory() / "MountedSourceOperations";
 	std::filesystem::remove_all(Root);
 	const std::filesystem::path EngineSource =
 		Root / "Engine" / "SourceAssets" / "Textures" / "Shared.bin";
@@ -297,7 +298,7 @@ TEST(FSourcePathContractTests, LegacyFixturesAreRejectedAfterCarrierRetirement)
 	const std::filesystem::path FixtureRoot =
 		std::filesystem::path(DURIN_TEST_DATA_DIR) / "SourceLibraryReferences";
 	const std::filesystem::path WorkRoot =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "SourcePathMigration";
+		Durin::Testing::GetTestWorkDirectory() / "SourcePathMigration";
 	std::filesystem::remove_all(WorkRoot);
 	std::filesystem::create_directories(WorkRoot / "Project");
 	std::filesystem::create_directories(WorkRoot / "Engine");

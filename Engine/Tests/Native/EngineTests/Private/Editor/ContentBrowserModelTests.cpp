@@ -3,6 +3,7 @@
 
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -15,7 +16,7 @@ namespace
 	protected:
 		void SetUp() override
 		{
-			Root = std::filesystem::path(DURIN_TEST_WORK_DIR)
+			Root = Durin::Testing::GetTestWorkDirectory()
 				/ "ContentBrowserModel";
 			std::error_code Ec;
 			std::filesystem::remove_all(Root, Ec);

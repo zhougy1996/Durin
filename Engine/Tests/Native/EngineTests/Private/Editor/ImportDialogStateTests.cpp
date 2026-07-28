@@ -1,6 +1,7 @@
 #include "Assets/ImportDialogState.h"
 
 #include "EngineTestSupport.h"
+#include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -64,7 +65,7 @@ TEST(FImportDialogDestinationModelTests, PreservesManualPathAcrossSuggestions)
 TEST(FImportDialogDestinationModelTests, DelegatesValidationToAssetDestination)
 {
 	const std::filesystem::path Root =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "ImportDialogState";
+		Durin::Testing::GetTestWorkDirectory() / "ImportDialogState";
 	std::filesystem::create_directories(Root / "Project/Content");
 	const std::array Definitions{
 		PathUtilities::FMountPoint{
