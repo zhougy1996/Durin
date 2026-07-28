@@ -1,43 +1,122 @@
 #include "TextureTestSupport.h"
 #include "Texture/Texture2DRenderResource.h"
+#include "Texture/TextureCubeRenderResource.h"
+#include "Texture/TextureRenderResource.h"
 
-TEST(FTexture2DTests, RenderCompletionRejectsStaleCandidatesAndReportsCurrentFailure)
+static_assert(std::is_base_of_v<
+	Durin::FTextureAssetResource, Durin::FTexture2DResource>);
+static_assert(std::is_base_of_v<
+	Durin::FTextureAssetResource, Durin::FTextureCubeResource>);
+
+TEST(FTextureResourceCompletionTests, RejectsStaleBuild)
 {
-	Durin::FTexture2DResourceCompletion Completion;
+	Durin::FTextureResourceCompletion Completion;
 	Completion.BeginRequest(1);
 	EXPECT_TRUE(Completion.MarkBuilding(1));
 
 	Completion.BeginRequest(2);
+	EXPECT_FALSE(Completion.MarkBuilding(1));
+	EXPECT_EQ(
+		Completion.GetResourceState(),
+		Durin::ERenderResourceState::Pending);
+	EXPECT_EQ(Completion.GetRequestedRevision(), 2u);
+}
+
+TEST(FTextureResourceCompletionTests, RejectsStaleSuccess)
+{
+	Durin::FTextureResourceCompletion Completion;
+	Completion.BeginRequest(1);
+	ASSERT_TRUE(Completion.MarkBuilding(1));
+	Completion.BeginRequest(2);
+	Completion.MarkReady(1);
+
+	EXPECT_EQ(Completion.GetAppliedRevision(), 0u);
+	EXPECT_EQ(
+		Completion.GetResourceState(),
+		Durin::ERenderResourceState::Pending);
+}
+
+TEST(FTextureResourceCompletionTests, RejectsStaleFailure)
+{
+	Durin::FTextureResourceCompletion Completion;
+	Completion.BeginRequest(1);
+	ASSERT_TRUE(Completion.MarkBuilding(1));
+	Completion.BeginRequest(2);
 	Completion.MarkFailed(
 		1, Durin::ETextureRenderFailure::CreateOrUpload);
+
 	EXPECT_EQ(
 		Completion.GetResourceState(),
 		Durin::ERenderResourceState::Pending);
 	EXPECT_EQ(Completion.GetFailedRevision(), 0u);
+	EXPECT_EQ(
+		Completion.GetFailureReason(),
+		Durin::ETextureRenderFailure::None);
+}
 
-	EXPECT_TRUE(Completion.MarkBuilding(2));
-	Completion.MarkReady(2);
+TEST(FTextureResourceCompletionTests, ReportsDistinctCurrentFailureReasons)
+{
+	Durin::FTextureResourceCompletion Completion;
+	Completion.BeginRequest(1);
+	ASSERT_TRUE(Completion.MarkBuilding(1));
+	Completion.MarkFailed(
+		1, Durin::ETextureRenderFailure::UnsupportedFormat);
 	EXPECT_EQ(
 		Completion.GetResourceState(),
-		Durin::ERenderResourceState::Ready);
+		Durin::ERenderResourceState::Failed);
+	EXPECT_EQ(Completion.GetFailedRevision(), 1u);
+	EXPECT_EQ(
+		Completion.GetFailureReason(),
+		Durin::ETextureRenderFailure::UnsupportedFormat);
+
+	Completion.BeginRequest(2);
+	ASSERT_TRUE(Completion.MarkBuilding(2));
+	Completion.MarkFailed(
+		2, Durin::ETextureRenderFailure::CreateOrUpload);
+	EXPECT_EQ(Completion.GetFailedRevision(), 2u);
+	EXPECT_EQ(
+		Completion.GetFailureReason(),
+		Durin::ETextureRenderFailure::CreateOrUpload);
+}
+
+TEST(FTextureResourceCompletionTests, ReportsRelease)
+{
+	Durin::FTextureResourceCompletion Completion;
+	Completion.BeginRequest(4);
+	ASSERT_TRUE(Completion.MarkBuilding(4));
+	Completion.MarkReleased(4);
+
+	EXPECT_EQ(
+		Completion.GetResourceState(),
+		Durin::ERenderResourceState::Released);
+	EXPECT_EQ(Completion.GetAppliedRevision(), 4u);
+	EXPECT_EQ(Completion.GetFailedRevision(), 0u);
+	EXPECT_EQ(
+		Completion.GetFailureReason(),
+		Durin::ETextureRenderFailure::None);
+}
+
+TEST(FTextureResourceCompletionTests, AppliedRevisionIsMonotonic)
+{
+	Durin::FTextureResourceCompletion Completion;
+	Completion.BeginRequest(2);
+	ASSERT_TRUE(Completion.MarkBuilding(2));
+	Completion.MarkReady(2);
 	EXPECT_EQ(Completion.GetAppliedRevision(), 2u);
 
 	Completion.BeginRequest(3);
 	Completion.MarkFailed(
 		3, Durin::ETextureRenderFailure::UnsupportedFormat);
-	EXPECT_EQ(
-		Completion.GetResourceState(),
-		Durin::ERenderResourceState::Failed);
+	EXPECT_EQ(Completion.GetAppliedRevision(), 2u);
 	EXPECT_EQ(Completion.GetFailedRevision(), 3u);
-	EXPECT_EQ(
-		Completion.GetFailureReason(),
-		Durin::ETextureRenderFailure::UnsupportedFormat);
 
 	Completion.BeginRequest(4);
 	Completion.MarkReleased(4);
-	EXPECT_EQ(
-		Completion.GetResourceState(),
-		Durin::ERenderResourceState::Released);
+	EXPECT_EQ(Completion.GetAppliedRevision(), 4u);
+
+	Completion.BeginRequest(1);
+	ASSERT_TRUE(Completion.MarkBuilding(1));
+	Completion.MarkReady(1);
 	EXPECT_EQ(Completion.GetAppliedRevision(), 4u);
 }
 

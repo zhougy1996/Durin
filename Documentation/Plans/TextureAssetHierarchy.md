@@ -9,26 +9,25 @@ Completed:
 
 ## Current Status
 
-`DTexture2D` and `DTextureCube` are independent reflected `DObject` subclasses.
-They intentionally retain different source provenance, platform-data layouts,
-import workflows, and concrete render resources, but duplicate the stable
-texture-reference ownership, revisioned resource-completion state, resource
-replacement, release, deferred cleanup, build status, and public render-state
+`DTexture2D` and `DTextureCube` are reflected leaves of the abstract `DTexture`
+base. They intentionally retain different source provenance, platform-data
+layouts, import workflows, and concrete render resources. Their concrete
+resources now share one revision/completion base over `FTextureResource`, but
+the leaf assets still duplicate stable texture-reference ownership, resource
+replacement, release, deferred cleanup, build revision, and public render-state
 accessors.
 
-The lower rendering layer already has the correct common boundary:
-`FTexture2DResource` and `FTextureCubeResource` derive from
-`FTextureResource`, and renderer consumers retain counted
-`FRHITextureReferenceRef` values rather than reflected assets or concrete
-resources. The missing boundary is therefore between `DObject` and the two
-texture asset types, not in the RHI texture hierarchy.
+Renderer consumers continue retaining counted `FRHITextureReferenceRef` values
+rather than reflected assets or concrete resources. Stage 3 moves the remaining
+common asset-side ownership into `DTexture` without widening dimension-specific
+renderer APIs.
 
 Material parameters remain intentionally typed as `DTexture2D`; sky components
 remain typed as `DTextureCube`. No current renderer consumer requires an
 unqualified texture asset, so this refactor must preserve those domain-specific
 types rather than using the new base class as a reason to widen every API.
 
-Stages 0 and 1 are complete. Stage 2 is the current implementation stage.
+Stages 0 through 2 are complete. Stage 3 is the current implementation stage.
 
 Stage 0 handoff:
 
@@ -97,6 +96,38 @@ Stage 1 handoff:
   Texture2D/TextureCube/cook/DDC tests passed. Generated output was also
   inspected to confirm the abstract flag, null constructor, unchanged leaf
   qualified names, and direct leaf-to-base reflection edges.
+
+Stage 2 handoff:
+
+- Baseline commit:
+  `459e433c9f23d92cf14f7e60229550646f5d5f69`.
+- Working set: shared and concrete Engine texture render-resource declarations
+  and definitions, Texture2D/TextureCube completion storage and construction,
+  shared completion tests, the former cube-specific completion test, and this
+  plan.
+- Key symbols: `FTextureResourceCompletion`,
+  `FTextureAssetResource`, `FTexture2DResource`, and
+  `FTextureCubeResource`.
+- Decisions: the Engine-layer `FTextureAssetResource` is an abstract
+  `FTextureResource` derivative; it owns revision, release revision, completion
+  reporting, and the common release tail. Concrete resources retain only their
+  immutable platform snapshots and topology-specific `InitRHI` paths.
+  `FTextureResourceCompletion` preserves acquire/release atomics and the
+  mutex-protected state/revision pair. Applied revision updates use a monotonic
+  compare/exchange without changing ordered asset revision behavior.
+- Declaration boundary: shared resource lifecycle declarations live in
+  `Texture/TextureRenderResource.h`. Leaf render-resource headers include that
+  boundary; leaf asset headers only forward-declare the common completion type.
+- Ownership: the two leaf assets still separately own their stable reference,
+  common completion, concrete resource, revision counter, and initialization
+  flag. Moving those fields and their command ordering is exclusively Stage 3.
+- Open validation item: the Stage 0 queued-destruction gap remains assigned to
+  Stage 3; no other Stage 3 design question is open.
+- Validation: all 43 shared-completion, Texture2D, TextureCube, cook, and DDC
+  tests passed, as did all four parameterized RenderCore texture-resource
+  lifetime tests. A complete `TextureTests` run reproduced the existing
+  `FStaticModelImportBuildTests` dependency-graph/sidecar failures, including
+  the previously recorded access violation; no Stage 2 texture test failed.
 
 ## Goal
 
@@ -280,20 +311,20 @@ Dependencies: Stage 0.
 
 ### Stage 2: Unify Completion and Concrete Resource Contracts
 
-- [ ] Replace `FTexture2DResourceCompletion` and
+- [x] Replace `FTexture2DResourceCompletion` and
   `FTextureCubeResourceCompletion` with one Engine-layer
   `FTextureResourceCompletion`.
-- [ ] Add one Engine-layer asset texture resource base over
+- [x] Add one Engine-layer asset texture resource base over
   `FTextureResource` for revision, release revision, and completion reporting.
-- [ ] Make concrete 2D and cube resources derive from the new resource base and
+- [x] Make concrete 2D and cube resources derive from the new resource base and
   retain only their immutable platform-data snapshots and topology-specific RHI
   upload logic.
-- [ ] Preserve the atomic ordering and mutex-protected state semantics of the
+- [x] Preserve the atomic ordering and mutex-protected state semantics of the
   current completion implementations.
-- [ ] Preserve distinct unsupported-format and create/upload failure reporting.
-- [ ] Add shared completion tests for stale build, stale success, stale failure,
+- [x] Preserve distinct unsupported-format and create/upload failure reporting.
+- [x] Add shared completion tests for stale build, stale success, stale failure,
   release, and monotonic applied revision.
-- [ ] Run the existing Texture2D and TextureCube render-resource tests against
+- [x] Run the existing Texture2D and TextureCube render-resource tests against
   the shared implementation before changing asset ownership.
 
 Dependencies: Stage 1.

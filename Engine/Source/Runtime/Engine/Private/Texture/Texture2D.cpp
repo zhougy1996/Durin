@@ -304,7 +304,7 @@ namespace Durin
 		: Super(ObjectInitializer)
 		, TextureReference(std::make_unique<FTextureReference>())
 		, RenderCompletion(
-			std::make_shared<FTexture2DResourceCompletion>())
+			std::make_shared<FTextureResourceCompletion>())
 	{
 		static const bool RegisteredAssetContributors = [] {
 			Asset::RegisterAssetMoveContributor(DTexture2D::StaticClass(), [](DObject*, const FAssetPath&, const FAssetPath&,

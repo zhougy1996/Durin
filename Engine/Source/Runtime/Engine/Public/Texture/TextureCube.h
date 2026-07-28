@@ -12,7 +12,7 @@
 namespace Durin
 {
 	class FTextureCubeResource;
-	class FTextureCubeResourceCompletion;
+	class FTextureResourceCompletion;
 	class FTextureReference;
 
 	DENUM(DisplayName = "Texture Cube Source Layout")
@@ -256,7 +256,7 @@ namespace Durin
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
 		std::unique_ptr<FTextureReference> TextureReference;
 		std::unique_ptr<FTextureCubeResource> RenderResource;
-		std::shared_ptr<FTextureCubeResourceCompletion> RenderCompletion;
+		std::shared_ptr<FTextureResourceCompletion> RenderCompletion;
 		bool bTextureReferenceInitializationQueued = false;
 		std::string DerivedDataKey;
 		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;

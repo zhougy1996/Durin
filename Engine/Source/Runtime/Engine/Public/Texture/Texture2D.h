@@ -15,7 +15,7 @@ namespace Durin
 	struct FTextureBuildOperations;
 
 	class FTexture2DResource;
-	class FTexture2DResourceCompletion;
+	class FTextureResourceCompletion;
 	class FTextureReference;
 
 	// Identifies the decoded pixel layout retained as editable texture source data.
@@ -340,7 +340,7 @@ namespace Durin
 		// pointers while ordered deferred cleanup retains the concrete storage.
 		std::unique_ptr<FTextureReference> TextureReference;
 		std::unique_ptr<FTexture2DResource> RenderResource;
-		std::shared_ptr<FTexture2DResourceCompletion> RenderCompletion;
+		std::shared_ptr<FTextureResourceCompletion> RenderCompletion;
 		bool bTextureReferenceInitializationQueued = false;
 		uint64 BuildRevision = 0;
 
