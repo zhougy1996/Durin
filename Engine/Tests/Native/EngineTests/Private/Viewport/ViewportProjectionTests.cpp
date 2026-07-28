@@ -7,7 +7,7 @@ TEST(FLevelEditorViewportClientTests, NavigationDoesNotDirtyTheLevelPackage)
 	static std::unordered_set<std::filesystem::path> InitializedRoots;
 	if (InitializedRoots.insert(Root).second)
 	{
-		std::filesystem::remove_all(Root);
+		Durin::Testing::RemoveTestWorkDirectory(Root);
 		Durin::PathUtilities::RegisterMountPoint("/ViewportTests/", Root.generic_string() + "/");
 	}
 	Durin::FAssetPath Path;

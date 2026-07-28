@@ -309,6 +309,7 @@ function(add_durin_test target_name)
 	)
 
 	set_target_properties(${target_name} PROPERTIES FOLDER "Tests/${target_name}")
+	set_property(GLOBAL APPEND PROPERTY DURIN_NATIVE_TEST_TARGETS "${target_name}")
 endfunction()
 
 function(durin_validate_native_test_source_ownership native_test_root)
@@ -344,7 +345,127 @@ function(durin_validate_native_test_source_ownership native_test_root)
 	message(STATUS
 		"Validated unique ownership for ${_durin_native_test_source_count} "
 		"native test sources")
+
+	set(_durin_forbidden_catch_all_targets
+		CoreTests
+		CoreDObjectTests
+		AssetCoreTests
+		RenderCoreTests
+		VulkanRHITests
+		EngineTests
+	)
+	get_property(_durin_native_test_targets GLOBAL
+		PROPERTY DURIN_NATIVE_TEST_TARGETS)
+	foreach(_durin_target IN LISTS _durin_native_test_targets)
+		if(_durin_target IN_LIST _durin_forbidden_catch_all_targets)
+			message(FATAL_ERROR
+				"${_durin_target} mirrors a production module and is too broad "
+				"to be a native-test execution domain.")
+		endif()
+
+		get_target_property(_durin_links ${_durin_target} LINK_LIBRARIES)
+		set(_durin_heavy_links)
+		foreach(_durin_link IN LISTS _durin_links)
+			if(_durin_link IN_LIST DURIN_NATIVE_TEST_HEAVY_RUNTIME_LIBRARIES)
+				list(APPEND _durin_heavy_links "${_durin_link}")
+			endif()
+		endforeach()
+		if(_durin_heavy_links)
+			get_target_property(_durin_runtime_rationale ${_durin_target}
+				DURIN_TEST_HEAVY_RUNTIME_RATIONALE)
+			if(_durin_runtime_rationale MATCHES "-NOTFOUND$"
+				OR _durin_runtime_rationale STREQUAL "")
+				list(JOIN _durin_heavy_links ", " _durin_heavy_text)
+				message(FATAL_ERROR
+					"${_durin_target} links heavyweight native-test runtime "
+					"libraries (${_durin_heavy_text}) without "
+					"DURIN_TEST_HEAVY_RUNTIME_RATIONALE.")
+			endif()
+		endif()
+	endforeach()
+
+	foreach(_durin_source IN LISTS _durin_native_test_sources)
+		file(READ "${_durin_source}" _durin_source_content)
+		string(REGEX MATCHALL
+			"(TEST|TEST_F|TEST_P)[ \t\r\n]*\\([ \t\r\n]*[A-Za-z_][A-Za-z0-9_]*[ \t\r\n]*,"
+			_durin_suite_declarations
+			"${_durin_source_content}")
+		get_property(_durin_source_owner GLOBAL
+			PROPERTY "DURIN_NATIVE_TEST_SOURCE_OWNER_${_durin_source}")
+		foreach(_durin_declaration IN LISTS _durin_suite_declarations)
+			string(REGEX REPLACE
+				"^(TEST|TEST_F|TEST_P)[ \t\r\n]*\\([ \t\r\n]*([A-Za-z_][A-Za-z0-9_]*)[ \t\r\n]*,$"
+				"\\2"
+				_durin_suite
+				"${_durin_declaration}")
+			get_property(_durin_suite_owner GLOBAL
+				PROPERTY "DURIN_NATIVE_TEST_SUITE_OWNER_${_durin_suite}")
+			if(_durin_suite_owner
+				AND NOT _durin_suite_owner STREQUAL _durin_source_owner)
+				message(FATAL_ERROR
+					"GoogleTest suite ${_durin_suite} is registered by both "
+					"${_durin_suite_owner} and ${_durin_source_owner}.")
+			endif()
+			set_property(GLOBAL
+				PROPERTY "DURIN_NATIVE_TEST_SUITE_OWNER_${_durin_suite}"
+				"${_durin_source_owner}")
+		endforeach()
+	endforeach()
 endfunction()
+
+function(durin_validate_native_test_repository_policy native_test_root)
+	file(GLOB_RECURSE _durin_native_test_policy_files
+		"${native_test_root}/*.cpp"
+		"${native_test_root}/*.h")
+	foreach(_durin_policy_file IN LISTS _durin_native_test_policy_files)
+		file(READ "${_durin_policy_file}" _durin_policy_content)
+		if(_durin_policy_content MATCHES "DURIN_TEST_WORK_DIR")
+			message(FATAL_ERROR
+				"${_durin_policy_file} uses the retired DURIN_TEST_WORK_DIR "
+				"macro. Use Durin::Testing sandbox APIs.")
+		endif()
+		if(_durin_policy_content MATCHES
+			"std::filesystem::remove_all[ \t\r\n]*\\(")
+			message(FATAL_ERROR
+				"${_durin_policy_file} calls std::filesystem::remove_all "
+				"directly. Use Durin::Testing::RemoveTestWorkDirectory.")
+		endif()
+		if(_durin_policy_content MATCHES
+			"(std::ofstream|std::fstream|std::filesystem::(create_directories|remove|rename))[^;]*DURIN_TEST_DATA_DIR"
+			OR _durin_policy_content MATCHES
+			"DURIN_TEST_DATA_DIR[^;]*(std::ofstream|std::fstream|std::filesystem::(create_directories|remove|rename))")
+			message(FATAL_ERROR
+				"${_durin_policy_file} appears to mutate checked-in test Data. "
+				"Copy the input into the current process sandbox first.")
+		endif()
+	endforeach()
+
+	file(GLOB_RECURSE _durin_native_test_cmake_files
+		"${native_test_root}/CMakeLists.txt")
+	foreach(_durin_cmake_file IN LISTS _durin_native_test_cmake_files)
+		file(READ "${_durin_cmake_file}" _durin_cmake_content)
+		if(_durin_cmake_content MATCHES
+			"(^|[^A-Za-z0-9_])gtest_discover_tests[ \t\r\n]*\\(")
+			message(FATAL_ERROR
+				"${_durin_cmake_file} registers GoogleTest cases directly. "
+				"Use durin_discover_tests so isolation and resource policy apply.")
+		endif()
+	endforeach()
+endfunction()
+
+set(DURIN_NATIVE_TEST_RESOURCE_LOCK_REGISTRY
+	durin-gpu
+)
+set(DURIN_NATIVE_TEST_LEGACY_RESOURCE_GROUP_REGISTRY
+	renderer-runtime
+)
+set(DURIN_NATIVE_TEST_HEAVY_RUNTIME_LIBRARIES
+	Renderer
+	VulkanRHI
+	DurinEd
+	Mona
+	MonaImGui
+)
 
 function(durin_resolve_native_test_discovery_policy
 	out_resource_locks
@@ -354,7 +475,7 @@ function(durin_resolve_native_test_discovery_policy
 	legacy_serialization_group
 )
 	set(options)
-	set(one_value_args)
+	set(one_value_args TARGET_LOCK_RATIONALE)
 	set(multi_value_args RESOURCE_LOCKS LABELS)
 	cmake_parse_arguments(
 		DURIN_TEST_POLICY
@@ -374,12 +495,24 @@ function(durin_resolve_native_test_discovery_policy
 	endif()
 
 	set(_durin_resource_locks ${DURIN_TEST_POLICY_RESOURCE_LOCKS})
+	foreach(_durin_resource_lock IN LISTS _durin_resource_locks)
+		if(NOT _durin_resource_lock IN_LIST DURIN_NATIVE_TEST_RESOURCE_LOCK_REGISTRY)
+			message(FATAL_ERROR
+				"${target_name} requests unregistered native-test resource "
+				"lock '${_durin_resource_lock}'.")
+		endif()
+	endforeach()
 	if(case_parallel_safe
 		AND "durin-test-target-${target_name}" IN_LIST _durin_resource_locks)
 		message(FATAL_ERROR
 			"${target_name} cannot be case-parallel and explicitly target-serialized.")
 	endif()
 	if(NOT case_parallel_safe)
+		if(NOT DURIN_TEST_POLICY_TARGET_LOCK_RATIONALE)
+			message(FATAL_ERROR
+				"${target_name} requires DURIN_TEST_TARGET_LOCK_RATIONALE "
+				"before broad target serialization can be enabled.")
+		endif()
 		list(APPEND _durin_resource_locks "durin-test-target-${target_name}")
 	endif()
 	if(legacy_serialization_group)
@@ -387,6 +520,12 @@ function(durin_resolve_native_test_discovery_policy
 			message(FATAL_ERROR
 				"${target_name} has invalid DURIN_TEST_LEGACY_SERIALIZATION_GROUP "
 				"'${legacy_serialization_group}'.")
+		endif()
+		if(NOT legacy_serialization_group IN_LIST
+			DURIN_NATIVE_TEST_LEGACY_RESOURCE_GROUP_REGISTRY)
+			message(FATAL_ERROR
+				"${target_name} requests unregistered legacy serialization "
+				"group '${legacy_serialization_group}'.")
 		endif()
 		list(APPEND _durin_resource_locks
 			"durin-test-legacy-${legacy_serialization_group}")
@@ -439,6 +578,11 @@ function(durin_discover_tests target_name)
 	if(_durin_timeout MATCHES "-NOTFOUND$")
 		set(_durin_timeout 300)
 	endif()
+	get_target_property(_durin_target_lock_rationale ${target_name}
+		DURIN_TEST_TARGET_LOCK_RATIONALE)
+	if(_durin_target_lock_rationale MATCHES "-NOTFOUND$")
+		set(_durin_target_lock_rationale)
+	endif()
 	if(NOT _durin_timeout MATCHES "^[1-9][0-9]*$")
 		message(FATAL_ERROR
 			"${target_name} DURIN_TEST_TIMEOUT must be a positive integer.")
@@ -452,6 +596,7 @@ function(durin_discover_tests target_name)
 		"${_durin_legacy_group}"
 		RESOURCE_LOCKS ${_durin_explicit_locks}
 		LABELS ${_durin_extra_labels}
+		TARGET_LOCK_RATIONALE "${_durin_target_lock_rationale}"
 	)
 
 	set_target_properties(${target_name} PROPERTIES

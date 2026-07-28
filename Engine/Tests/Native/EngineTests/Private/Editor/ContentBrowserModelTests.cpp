@@ -19,7 +19,7 @@ namespace
 			Root = Durin::Testing::GetTestWorkDirectory()
 				/ "ContentBrowserModel";
 			std::error_code Ec;
-			std::filesystem::remove_all(Root, Ec);
+			Durin::Testing::RemoveTestWorkDirectory(Root, Ec);
 			std::filesystem::create_directories(Root / "Content/A");
 			std::filesystem::create_directories(Root / "Content/B");
 			const std::array Definitions{

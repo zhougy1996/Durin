@@ -42,7 +42,7 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 	InitializeDObjectSystem();
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureFailureMount";
-	std::filesystem::remove_all(Root);
+	Durin::Testing::RemoveTestWorkDirectory(Root);
 	Durin::PathUtilities::RegisterMountPoint(
 		"/TextureFailureTests/", Root.generic_string() + "/");
 
@@ -66,7 +66,7 @@ TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
 		Durin::Testing::GetTestWorkDirectory() / "TextureInvalidateDerivedDataCache");
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureInvalidateMount";
-	std::filesystem::remove_all(Root);
+	Durin::Testing::RemoveTestWorkDirectory(Root);
 	Durin::PathUtilities::RegisterMountPoint(
 		"/TextureInvalidateTests/", Root.generic_string() + "/");
 

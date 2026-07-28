@@ -16,13 +16,13 @@ namespace Durin
 			void SetUp() override
 			{
 				RootDirectory = Testing::GetTestWorkDirectory() / "ProfilingToolService";
-				std::filesystem::remove_all(RootDirectory);
+				Durin::Testing::RemoveTestWorkDirectory(RootDirectory);
 				WriteManifest("0.13.1", "v0.13.1");
 			}
 
 			void TearDown() override
 			{
-				std::filesystem::remove_all(RootDirectory);
+				Durin::Testing::RemoveTestWorkDirectory(RootDirectory);
 			}
 
 			void WriteFile(const std::filesystem::path& RelativePath, std::string_view Contents = {})

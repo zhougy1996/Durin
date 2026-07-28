@@ -86,7 +86,7 @@ namespace Durin::Tests
 			OutError.clear();
 			return true;
 		}
-		std::filesystem::remove_all(Root);
+		Durin::Testing::RemoveTestWorkDirectory(Root);
 		RegisterRenderedAssetThumbnailFixtureMount();
 
 		auto Fail = [&OutError](std::string Message) {

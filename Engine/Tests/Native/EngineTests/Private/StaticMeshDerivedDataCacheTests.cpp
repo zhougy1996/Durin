@@ -46,7 +46,7 @@ namespace
 		FStaticMeshCacheFixture Fixture;
 		Fixture.Root = Durin::Testing::GetTestWorkDirectory() / std::string(Name);
 		Fixture.CacheRoot = Fixture.Root / "DerivedDataCache";
-		std::filesystem::remove_all(Fixture.Root);
+		Durin::Testing::RemoveTestWorkDirectory(Fixture.Root);
 		std::filesystem::create_directories(Fixture.Root / "Content");
 		const std::string Mount = std::format("/{}/", Name);
 		Durin::PathUtilities::RegisterMountPoint(
@@ -346,8 +346,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(FirstBulk)), MaterialMismatchRoot / "Game/CookedMesh.dbulk"));
 
-	std::filesystem::remove_all(Fixture.CacheRoot);
-	std::filesystem::remove_all(Fixture.Root / "SourceAssets");
+	Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
+	Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "SourceAssets");
 	Durin::Asset::ShutdownAssetManager();
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));

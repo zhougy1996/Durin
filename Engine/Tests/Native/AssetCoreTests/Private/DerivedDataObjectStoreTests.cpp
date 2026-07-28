@@ -16,7 +16,7 @@ namespace
 TEST(FDerivedDataObjectStoreTests, ReadsAndAtomicallyReplacesCanonicalObjects)
 {
 	const auto CacheRoot = Durin::Testing::GetTestWorkDirectory() / "ObjectStoreReadWrite";
-	std::filesystem::remove_all(CacheRoot);
+	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	const Durin::Asset::FDerivedDataObjectStore Store("Test/Objects", 1024);
 	const std::string Key = MakeKey('a');
@@ -37,7 +37,7 @@ TEST(FDerivedDataObjectStoreTests, ReadsAndAtomicallyReplacesCanonicalObjects)
 TEST(FDerivedDataObjectStoreTests, RejectsInvalidKeysAndOversizedObjectsTransactionally)
 {
 	const auto CacheRoot = Durin::Testing::GetTestWorkDirectory() / "ObjectStoreValidation";
-	std::filesystem::remove_all(CacheRoot);
+	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	const Durin::Asset::FDerivedDataObjectStore Store("Test/Objects", 3);
 	const std::vector<Durin::uint8> Bytes{1, 2, 3, 4};
@@ -53,7 +53,7 @@ TEST(FDerivedDataObjectStoreTests, RejectsInvalidKeysAndOversizedObjectsTransact
 TEST(FDerivedDataObjectStoreTests, CleanupIsBoundedAndOnlyDeletesCanonicalObjects)
 {
 	const auto CacheRoot = Durin::Testing::GetTestWorkDirectory() / "ObjectStoreCleanup";
-	std::filesystem::remove_all(CacheRoot);
+	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	const Durin::Asset::FDerivedDataObjectStore Store("Test/Objects", 1024);
 	const std::vector<Durin::uint8> Bytes(10, 1);

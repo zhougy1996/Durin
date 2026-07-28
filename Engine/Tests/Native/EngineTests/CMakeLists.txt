@@ -9,7 +9,7 @@ set(_durin_main_frame_private
 
 function(durin_add_engine_functional_test target_name)
 	set(options GPU)
-	set(one_value_args TIMEOUT)
+	set(one_value_args TIMEOUT RUNTIME_STACK_RATIONALE)
 	set(multi_value_args
 		SOURCES
 		PRIVATE_SOURCES
@@ -33,6 +33,12 @@ function(durin_add_engine_functional_test target_name)
 	set_target_properties(${target_name} PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 	)
+	if(DURIN_ENGINE_TEST_RUNTIME_STACK_RATIONALE)
+		set_target_properties(${target_name} PROPERTIES
+			DURIN_TEST_HEAVY_RUNTIME_RATIONALE
+				"${DURIN_ENGINE_TEST_RUNTIME_STACK_RATIONALE}"
+		)
+	endif()
 	target_include_directories(${target_name} PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_level_editor_private}
@@ -94,6 +100,7 @@ function(durin_add_engine_functional_test target_name)
 endfunction()
 
 durin_add_engine_functional_test(EditorPropertyTests
+	RUNTIME_STACK_RATIONALE "Exercises DurinEd property customization behavior."
 	SOURCES
 		Private/ReflectedPropertyViewTests.cpp
 		Private/Editor/ReflectedPropertyEditSessionTests.cpp
@@ -107,6 +114,7 @@ durin_add_engine_functional_test(EditorPropertyTests
 )
 
 durin_add_engine_functional_test(EditorAssetWorkflowTests
+	RUNTIME_STACK_RATIONALE "Exercises editor asset workflows across DurinEd and Mona UI models."
 	SOURCES
 		Private/Editor/AssetStructureUpgradeModelTests.cpp
 		Private/Editor/AssetUpgradeAuditServiceTests.cpp
@@ -134,6 +142,7 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 durin_add_engine_functional_test(MaterialTests
 	GPU
 	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE "Exercises rendered material editing and preview lifecycle."
 	SOURCES
 		Private/Materials/MaterialSchemaAndEditingTests.cpp
 		Private/Materials/MaterialDependencyTests.cpp
@@ -171,6 +180,7 @@ durin_add_engine_functional_test(MaterialTests
 
 durin_add_engine_functional_test(StaticMeshTests
 	TIMEOUT 600
+	RUNTIME_STACK_RATIONALE "Exercises renderer-backed static-mesh editing and derived data."
 	SOURCES
 		Private/Materials/StaticMeshMaterialTests.cpp
 		Private/Materials/StaticMeshMaterialUpgradeTests.cpp
@@ -190,6 +200,7 @@ durin_add_engine_functional_test(StaticMeshTests
 
 durin_add_engine_functional_test(TextureTests
 	TIMEOUT 600
+	RUNTIME_STACK_RATIONALE "Exercises renderer-backed texture import, build, and cache behavior."
 	SOURCES
 		Private/Texture/TextureImportAndCacheTests.cpp
 		Private/Texture/TextureDerivedDataTests.cpp
@@ -208,6 +219,7 @@ durin_add_engine_functional_test(TextureTests
 
 durin_add_engine_functional_test(ThumbnailTests
 	TIMEOUT 600
+	RUNTIME_STACK_RATIONALE "Exercises renderer-backed editor thumbnail generation and caching."
 	SOURCES
 		Private/SourceImageThumbnailTests.cpp
 		Private/AssetThumbnailContractTests.cpp
@@ -228,6 +240,7 @@ durin_add_engine_functional_test(ThumbnailTests
 )
 
 durin_add_engine_functional_test(WorldTests
+	RUNTIME_STACK_RATIONALE "Exercises DurinEd world editing integration."
 	SOURCES
 		Private/World/WorldPlayTests.cpp
 		Private/World/WorldActorTests.cpp
@@ -239,6 +252,7 @@ durin_add_engine_functional_test(WorldTests
 
 durin_add_engine_functional_test(ViewportTests
 	TIMEOUT 600
+	RUNTIME_STACK_RATIONALE "Exercises DurinEd and Mona viewport interaction behavior."
 	SOURCES
 		Private/Viewport/ViewportFoundationTests.cpp
 		Private/Viewport/ViewportProjectionTests.cpp
@@ -261,6 +275,7 @@ durin_add_engine_functional_test(ViewportTests
 )
 
 durin_add_engine_functional_test(SplineTests
+	RUNTIME_STACK_RATIONALE "Exercises DurinEd spline customization behavior."
 	SOURCES Private/SplineTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/SplineEditorCustomizations.cpp
@@ -270,6 +285,7 @@ durin_add_engine_functional_test(SplineTests
 )
 
 durin_add_engine_functional_test(SkyBoxTests
+	RUNTIME_STACK_RATIONALE "Exercises renderer-backed sky-box editing and rendering contracts."
 	SOURCES
 		Private/SkyBox/SkyBoxRenderingTests.cpp
 		Private/SkyBox/SkyBoxComponentTests.cpp
@@ -286,6 +302,7 @@ durin_add_engine_functional_test(SkyBoxTests
 durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
 	GPU
 	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE "Owns the Vulkan-backed sky-box integration lifecycle."
 	SOURCES Private/SkyBox/SkyBoxVulkanTests.cpp
 	LIBRARIES ApplicationCore RenderCore Renderer DurinEd
 	DEPLOY_TARGETS ApplicationCore RHI RenderCore Renderer VulkanRHI DurinEd
@@ -294,6 +311,7 @@ durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
 )
 
 durin_add_engine_functional_test(EditorRenderingTests
+	RUNTIME_STACK_RATIONALE "Exercises renderer-backed editor assistance and grid rendering."
 	SOURCES
 		Private/EditorGridRenderingTests.cpp
 		Private/RendererEditorAssistanceTests.cpp
@@ -308,6 +326,7 @@ durin_add_engine_functional_test(EditorRenderingTests
 )
 
 durin_add_engine_functional_test(EditorShellTests
+	RUNTIME_STACK_RATIONALE "Exercises DurinEd and Mona editor-shell models."
 	SOURCES
 		Private/EditorNotificationTests.cpp
 		Private/EditorWorkspaceTests.cpp
@@ -322,6 +341,7 @@ durin_add_engine_functional_test(EditorShellTests
 
 durin_add_engine_functional_test(ExternalToolTests
 	TIMEOUT 600
+	RUNTIME_STACK_RATIONALE "Exercises the DurinEd profiling-tool integration."
 	SOURCES Private/ProfilingToolServiceTests.cpp
 	PRIVATE_SOURCES
 		${_durin_main_frame_private}/ProfilingToolService.cpp
@@ -333,6 +353,7 @@ durin_add_engine_functional_test(ExternalToolTests
 durin_add_engine_functional_test(TextureCookIntegrationTests
 	GPU
 	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE "Owns the renderer and Vulkan cooked-texture lifecycle."
 	SOURCES Private/Texture/TextureCookTests.cpp
 	LIBRARIES RenderCore Renderer bc7enc_rdo::bc7enc_rdo
 	DEPLOY_TARGETS ApplicationCore RHI RenderCore Renderer VulkanRHI

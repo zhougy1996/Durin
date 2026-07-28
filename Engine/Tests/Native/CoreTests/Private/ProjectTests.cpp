@@ -29,7 +29,7 @@ namespace
 		void TearDown() override
 		{
 			std::error_code Error;
-			std::filesystem::remove_all(Root, Error);
+			Durin::Testing::RemoveTestWorkDirectory(Root, Error);
 		}
 
 		auto WriteProject(std::string_view DirectoryName, std::string_view Contents) const -> std::string

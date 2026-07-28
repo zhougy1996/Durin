@@ -56,6 +56,12 @@ Completed:
 - The rendered-thumbnail fixture cache is keyed by process sandbox, so direct
   target runs reuse live fixture objects without exposing paths or raw object
   pointers across sandbox lifetimes.
+- Stage 5 is complete. Native-test configuration now rejects retired shared-root
+  access, direct recursive deletion, unregistered resource locks, broad locks
+  without rationale, duplicate suite ownership, module-mirror catch-all
+  targets, and unexplained heavyweight runtime linkage. Named fixture cleanup,
+  abandoned-success reclamation, and the authoritative workflow contract are
+  implemented.
 - Three consecutive 14-job aggregate runs passed all 720 CTest entries after
   the Core targets enabled case parallelism; their real times were 20.95,
   20.52, and 23.35 seconds.
@@ -531,21 +537,21 @@ cases.
 
 ### Stage 5: Make isolation and resource ownership enforceable
 
-- [ ] Add repository checks that reject writes into `Data`, direct use of the
+- [x] Add repository checks that reject writes into `Data`, direct use of the
   retired work macro, and unreviewed direct `remove_all` calls outside the
   current process sandbox.
-- [ ] Add APIs for named per-process fixture directories and safe sandbox-local
+- [x] Add APIs for named per-process fixture directories and safe sandbox-local
   cleanup so tests do not rebuild path and containment checks ad hoc.
-- [ ] Require CTest resource names to come from a documented central registry;
+- [x] Require CTest resource names to come from a documented central registry;
   prevent broad target locks from being added after migration without an
   explicit rationale.
-- [ ] Add topology checks that reject unowned test suites, duplicate suite
+- [x] Add topology checks that reject unowned test suites, duplicate suite
   registration, module-mirror catch-all targets, and feature targets that link
   heavyweight runtime stacks without an allowlisted rationale.
-- [ ] Update native-test documentation with the Data/Work/Runs contract,
+- [x] Update native-test documentation with the Data/Work/Runs contract,
   functional-target boundary rules, direct-run behavior, failure artifact
   retention, resource-lock policy, and examples for new targets and fixtures.
-- [ ] Add periodic cleanup for abandoned successful run directories without
+- [x] Add periodic cleanup for abandoned successful run directories without
   deleting a directory owned by a live process.
 
 #### Acceptance Gate
@@ -554,6 +560,31 @@ cases.
   rejected by build-time checks or a focused harness test.
 - The documented new-target pattern is parallel-safe by default and contains
   no manual CTest registration boilerplate.
+
+#### Stage 5 Handoff
+
+- Baseline: `dd44ad16ecb9fb3af3a7bd2a823afdcd9d74971c`.
+- Working set: `NativeTestSupport`, `ProjectTargets.cmake`, native-test
+  infrastructure policy probes, the 32 direct-cleanup source/header files,
+  Engine feature-target rationales, and `NativeTests.md`.
+- Key symbols: `CreateTestFixtureDirectory`, `RemoveTestWorkDirectory`,
+  `CleanupAbandonedSuccessfulRunDirectories`,
+  `durin_validate_native_test_repository_policy`,
+  `durin_validate_native_test_source_ownership`,
+  `DURIN_NATIVE_TEST_RESOURCE_LOCK_REGISTRY`, and
+  `DURIN_TEST_HEAVY_RUNTIME_RATIONALE`.
+- Decisions: recursive deletion is available only below the current process
+  sandbox; successful cleanup failures receive a marker and become eligible
+  for age/PID-safe reclamation after 24 hours; resource names and legacy groups
+  are centrally registered; broad target locks and heavyweight runtime links
+  require reviewable rationales; feature targets own each suite exactly once.
+- Open work: execute and record the Stage 6 qualification matrix, including
+  1-, 2-, and full-job aggregates, randomized schedules, direct targets, and
+  filtered reruns.
+- Validation: configuration, the focused isolation harness, six negative policy
+  probes, and plan validation passed; a full `all` build and final 14-job
+  aggregate passed all 722 registered entries in 17.72 seconds with the three
+  known skips.
 
 ### Stage 6: Restore and qualify full aggregate parallelism
 

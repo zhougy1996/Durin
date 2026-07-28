@@ -70,7 +70,7 @@ namespace
 		explicit FScopedDerivedDataCacheRoot(const std::filesystem::path& Root)
 			: PreviousRoot(Durin::FPaths::DerivedDataCacheDir())
 		{
-			std::filesystem::remove_all(Root);
+			Durin::Testing::RemoveTestWorkDirectory(Root);
 			Durin::FPaths::SetDerivedDataCacheDirForTests(Root.generic_string());
 		}
 
@@ -134,7 +134,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	const std::filesystem::path ContentRoot = Root / "Content";
 	const std::filesystem::path CookRoot = std::filesystem::absolute(Root / "Cook");
 	const std::filesystem::path SecondCookRoot = std::filesystem::absolute(Root / "CookSecond");
-	std::filesystem::remove_all(Root);
+	Durin::Testing::RemoveTestWorkDirectory(Root);
 	std::filesystem::create_directories(ContentRoot);
 	Durin::PathUtilities::RegisterMountPoint(
 		"/TextureCookTests/", ContentRoot.generic_string() + "/");
@@ -273,8 +273,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		std::as_bytes(std::span(CorruptBulk)),
 		CorruptRoot / "Game/CookedTexture.dbulk"));
 
-	std::filesystem::remove_all(CacheRoot);
-	std::filesystem::remove_all(Root / "SourceAssets");
+	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
+	Durin::Testing::RemoveTestWorkDirectory(Root / "SourceAssets");
 	Durin::Asset::ShutdownAssetManager();
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));

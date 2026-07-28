@@ -120,7 +120,7 @@ namespace Durin
 		{
 			const std::filesystem::path Root =
 				Testing::GetTestWorkDirectory() / "AssetThumbnailObjectStore" / Name;
-			std::filesystem::remove_all(Root);
+			Durin::Testing::RemoveTestWorkDirectory(Root);
 			std::filesystem::create_directories(Root);
 			return Root;
 		}

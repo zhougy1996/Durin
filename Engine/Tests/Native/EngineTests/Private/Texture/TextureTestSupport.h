@@ -25,7 +25,7 @@ inline auto InitializeTextureImportMount() -> void
 	static std::unordered_set<std::filesystem::path> InitializedRoots;
 	if (InitializedRoots.insert(Root).second)
 	{
-		std::filesystem::remove_all(Root);
+		Durin::Testing::RemoveTestWorkDirectory(Root);
 		Durin::PathUtilities::RegisterMountPoint(
 			"/TextureImportTests/", (Root / "Content").generic_string() + "/");
 	}
@@ -168,7 +168,7 @@ namespace
 		explicit FScopedDerivedDataCacheRoot(const std::filesystem::path& Root)
 			: PreviousRoot(Durin::FPaths::DerivedDataCacheDir())
 		{
-			std::filesystem::remove_all(Root);
+			Durin::Testing::RemoveTestWorkDirectory(Root);
 			Durin::FPaths::SetDerivedDataCacheDirForTests(Root.generic_string());
 		}
 

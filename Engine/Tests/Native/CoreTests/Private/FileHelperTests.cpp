@@ -184,7 +184,7 @@ TEST(FFileHelperTests, SupportsStandardAndAtomicIoBeyondMaxPath)
 	EXPECT_EQ(ReadBytes(Destination), std::vector(Second.begin(), Second.end()));
 
 	std::error_code CleanupError;
-	std::filesystem::remove_all(Root, CleanupError);
+	Durin::Testing::RemoveTestWorkDirectory(Root, CleanupError);
 	EXPECT_FALSE(CleanupError);
 }
 

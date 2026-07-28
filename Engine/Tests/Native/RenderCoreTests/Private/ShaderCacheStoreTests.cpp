@@ -110,10 +110,10 @@ namespace Durin
 			{
 				EnsureTestMount();
 				std::error_code ErrorCode;
-				std::filesystem::remove_all(GetTestCacheRoot() / "Cache", ErrorCode);
+				Durin::Testing::RemoveTestWorkDirectory(GetTestCacheRoot() / "Cache", ErrorCode);
 				ASSERT_FALSE(ErrorCode);
 				std::filesystem::create_directories(GetTestCacheRoot() / "Cache");
-				std::filesystem::remove_all(GetLongTestCacheRoot() / "Cache", ErrorCode);
+				Durin::Testing::RemoveTestWorkDirectory(GetLongTestCacheRoot() / "Cache", ErrorCode);
 				ASSERT_FALSE(ErrorCode);
 				std::filesystem::create_directories(GetLongTestCacheRoot() / "Cache");
 			}

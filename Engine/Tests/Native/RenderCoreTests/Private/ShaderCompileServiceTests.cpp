@@ -61,7 +61,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 				}
 				const std::filesystem::path Root = GetServiceTestRoot();
 				std::error_code ErrorCode;
-				std::filesystem::remove_all(Root, ErrorCode);
+				Durin::Testing::RemoveTestWorkDirectory(Root, ErrorCode);
 				ASSERT_FALSE(ErrorCode);
 				std::filesystem::create_directories(Root / "Source");
 				std::filesystem::create_directories(Root / "Cache");

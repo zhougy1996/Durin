@@ -8,9 +8,13 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
+#include <limits>
 #include <mutex>
+#include <regex>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -43,6 +47,58 @@ namespace Durin::Testing
 			std::string Nonce = FGuid::NewGuid().ToString();
 			std::erase(Nonce, '-');
 			return Nonce;
+		}
+
+		auto ResolveContainedWorkPath(const std::filesystem::path& Path)
+			-> std::filesystem::path
+		{
+			if (Path.empty())
+			{
+				throw std::invalid_argument(
+					"Native test work path must not be empty.");
+			}
+
+			const std::filesystem::path WorkDirectory =
+				std::filesystem::weakly_canonical(GetTestWorkDirectory());
+			const std::filesystem::path Candidate =
+				std::filesystem::weakly_canonical(
+					Path.is_absolute() ? Path : WorkDirectory / Path);
+			const std::filesystem::path Relative =
+				Candidate.lexically_relative(WorkDirectory);
+			if (Relative.empty()
+				|| Relative == "."
+				|| *Relative.begin() == "..")
+			{
+				throw std::invalid_argument(
+					"Native test work path must remain below the process sandbox.");
+			}
+			return Candidate;
+		}
+
+		constexpr std::string_view SuccessfulRunMarker = ".durin-success";
+
+		auto IsProcessRunning(const std::uint32_t ProcessId) -> bool
+		{
+#if PLATFORM_WINDOWS
+			const HANDLE Process = OpenProcess(SYNCHRONIZE, FALSE, ProcessId);
+			if (Process == nullptr)
+			{
+				return GetLastError() != ERROR_INVALID_PARAMETER;
+			}
+			const DWORD WaitResult = WaitForSingleObject(Process, 0);
+			CloseHandle(Process);
+			return WaitResult == WAIT_TIMEOUT || WaitResult == WAIT_FAILED;
+#else
+			return true;
+#endif
+		}
+
+		auto MarkRunSuccessful(const std::filesystem::path& WorkDirectory) -> void
+		{
+			std::ofstream Marker(
+				WorkDirectory / SuccessfulRunMarker,
+				std::ios::binary | std::ios::trunc);
+			Marker << "completed\n";
 		}
 
 		auto ConsumeFlag(int& ArgumentCount, char** Arguments, const std::string_view Flag) -> bool
@@ -85,6 +141,7 @@ namespace Durin::Testing
 					return;
 				}
 
+				MarkRunSuccessful(WorkDirectory);
 				const char* ForceCleanupFailure =
 					std::getenv("DURIN_TEST_FORCE_CLEANUP_FAILURE");
 				if (ForceCleanupFailure != nullptr
@@ -142,6 +199,66 @@ namespace Durin::Testing
 			"Failed to allocate a unique native-test process sandbox after 64 attempts.");
 	}
 
+	auto Private::CleanupAbandonedSuccessfulRunDirectories(
+		const std::filesystem::path& WorkRoot,
+		const std::uint32_t CurrentProcessId,
+		const std::filesystem::file_time_type CurrentTime,
+		const std::filesystem::file_time_type::duration MinimumAge,
+		const FProcessRunningPredicate& IsProcessRunning) -> std::uintmax_t
+	{
+		const std::filesystem::path RunsRoot =
+			std::filesystem::absolute(WorkRoot / "Runs").lexically_normal();
+		std::error_code IteratorError;
+		std::filesystem::directory_iterator Iterator(RunsRoot, IteratorError);
+		if (IteratorError)
+		{
+			return 0;
+		}
+
+		const std::regex RunPattern("run-p([0-9]+)-[0-9a-f]+");
+		std::uintmax_t RemovedCount = 0;
+		for (const std::filesystem::directory_entry& Entry : Iterator)
+		{
+			if (!Entry.is_directory())
+			{
+				continue;
+			}
+			std::smatch Match;
+			const std::string Name = Entry.path().filename().string();
+			if (!std::regex_match(Name, Match, RunPattern))
+			{
+				continue;
+			}
+
+			const std::filesystem::path Marker =
+				Entry.path() / SuccessfulRunMarker;
+			std::error_code TimeError;
+			const std::filesystem::file_time_type CompletionTime =
+				std::filesystem::last_write_time(Marker, TimeError);
+			if (TimeError || CurrentTime - CompletionTime < MinimumAge)
+			{
+				continue;
+			}
+
+			const std::uint64_t ParsedProcessId = std::stoull(Match[1].str());
+			if (ParsedProcessId > std::numeric_limits<std::uint32_t>::max())
+			{
+				continue;
+			}
+			const auto ProcessId = static_cast<std::uint32_t>(ParsedProcessId);
+			if (ProcessId == CurrentProcessId || IsProcessRunning(ProcessId))
+			{
+				continue;
+			}
+
+			std::error_code CleanupError;
+			RemovedCount += std::filesystem::remove_all(
+				Entry.path(),
+				CleanupError);
+		}
+		return RemovedCount;
+	}
+
 	auto GetTestWorkDirectory() -> const std::filesystem::path&
 	{
 		const FNativeTestProcessState& State = GetProcessState();
@@ -162,20 +279,51 @@ namespace Durin::Testing
 				"Native test work subdirectory must be a non-empty relative path.");
 		}
 
-		const std::filesystem::path& WorkDirectory = GetTestWorkDirectory();
-		const std::filesystem::path Result =
-			(WorkDirectory / RelativePath).lexically_normal();
-		const std::filesystem::path RelativeResult =
-			Result.lexically_relative(WorkDirectory);
-		if (RelativeResult.empty()
-			|| *RelativeResult.begin() == "..")
-		{
-			throw std::invalid_argument(
-				"Native test work subdirectory must remain inside the process sandbox.");
-		}
-
+		const std::filesystem::path Result = ResolveContainedWorkPath(RelativePath);
 		std::filesystem::create_directories(Result);
 		return std::filesystem::weakly_canonical(Result);
+	}
+
+	auto CreateTestFixtureDirectory(const std::filesystem::path& RelativePath)
+		-> std::filesystem::path
+	{
+		if (RelativePath.empty() || RelativePath.is_absolute())
+		{
+			throw std::invalid_argument(
+				"Native test fixture directory must be a non-empty relative path.");
+		}
+		const std::filesystem::path Result = ResolveContainedWorkPath(RelativePath);
+		std::filesystem::remove_all(Result);
+		std::filesystem::create_directories(Result);
+		return std::filesystem::weakly_canonical(Result);
+	}
+
+	auto RemoveTestWorkDirectory(const std::filesystem::path& Path)
+		-> std::uintmax_t
+	{
+		return std::filesystem::remove_all(ResolveContainedWorkPath(Path));
+	}
+
+	auto RemoveTestWorkDirectory(
+		const std::filesystem::path& Path,
+		std::error_code& ErrorCode) noexcept -> std::uintmax_t
+	{
+		try
+		{
+			return std::filesystem::remove_all(
+				ResolveContainedWorkPath(Path),
+				ErrorCode);
+		}
+		catch (const std::invalid_argument&)
+		{
+			ErrorCode = std::make_error_code(std::errc::permission_denied);
+			return 0;
+		}
+		catch (const std::filesystem::filesystem_error& Exception)
+		{
+			ErrorCode = Exception.code();
+			return 0;
+		}
 	}
 
 	auto IsTestWorkDirectoryKept() -> bool
@@ -203,9 +351,17 @@ namespace Durin::Testing
 			FNativeTestProcessState& State = GetProcessState();
 			if (!State.Initialized)
 			{
+				const std::uint32_t ProcessId =
+					FPlatformProcess::CurrentProcessId();
+				Private::CleanupAbandonedSuccessfulRunDirectories(
+					WorkRoot,
+					ProcessId,
+					std::filesystem::file_time_type::clock::now(),
+					std::chrono::hours(24),
+					IsProcessRunning);
 				State.WorkDirectory = Private::CreateUniqueRunDirectory(
 					WorkRoot,
-					FPlatformProcess::CurrentProcessId(),
+					ProcessId,
 					MakeNonce);
 				State.KeepWork = KeepWork;
 				State.Initialized = true;
@@ -239,6 +395,7 @@ namespace Durin::Testing
 			&& !KeepWork
 			&& std::filesystem::exists(WorkDirectory))
 		{
+			MarkRunSuccessful(WorkDirectory);
 			const char* ForceCleanupFailure =
 				std::getenv("DURIN_TEST_FORCE_CLEANUP_FAILURE");
 			if (ForceCleanupFailure == nullptr

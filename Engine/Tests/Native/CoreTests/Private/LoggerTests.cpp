@@ -11,7 +11,7 @@ namespace
 	{
 		const std::filesystem::path Directory = Durin::Testing::GetTestWorkDirectory() / "LoggerTests" / Suffix;
 		std::error_code Error;
-		std::filesystem::remove_all(Directory, Error);
+		Durin::Testing::RemoveTestWorkDirectory(Directory, Error);
 		std::filesystem::create_directories(Directory);
 		return Directory;
 	}

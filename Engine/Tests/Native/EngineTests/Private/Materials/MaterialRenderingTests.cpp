@@ -306,7 +306,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		Durin::Testing::GetTestWorkDirectory() / "MaterialThumbnailVulkan";
 	const std::filesystem::path TextureSource =
 		Durin::Testing::GetTestWorkDirectory() / "MaterialThumbnailVulkan.png";
-	std::filesystem::remove_all(TextureMount);
+	Durin::Testing::RemoveTestWorkDirectory(TextureMount);
 	std::filesystem::create_directories(TextureMount / "SourceAssets");
 	WriteMaterialTextureFixture(TextureSource);
 	std::vector<Durin::PathUtilities::FMountPoint> MountDefinitions(

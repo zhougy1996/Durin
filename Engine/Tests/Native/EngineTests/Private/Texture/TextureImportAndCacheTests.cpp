@@ -194,7 +194,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	InitializeDObjectSystem();
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureDerivedDataMount";
-	std::filesystem::remove_all(Root);
+	Durin::Testing::RemoveTestWorkDirectory(Root);
 	Durin::PathUtilities::RegisterMountPoint(
 		"/TextureDerivedDataTests/", Root.generic_string() + "/");
 	FScopedDerivedDataCacheRoot CacheRoot(

@@ -159,7 +159,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "StaticMeshSlotDetails";
-	std::filesystem::remove_all(Root);
+	Durin::Testing::RemoveTestWorkDirectory(Root);
 	Durin::PathUtilities::RegisterMountPoint("/StaticMeshSlotDetails/", Root.generic_string() + "/");
 	Durin::FAssetPath Path;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotDetails/DirtyComponent", Path));

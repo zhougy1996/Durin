@@ -13,12 +13,36 @@ function(assert_list_equals actual expected description)
 	endif()
 endfunction()
 
+function(assert_policy_rejected probe expected_text)
+	execute_process(
+		COMMAND "${CMAKE_COMMAND}"
+			"-DDURIN_WORKSPACE_DIR=${DURIN_WORKSPACE_DIR}"
+			"-DDURIN_POLICY_PROBE=${probe}"
+			"-DDURIN_PROBE_ROOT=${DURIN_TEST_BINARY_DIR}/PolicyProbe/${probe}"
+			-P "${DURIN_WORKSPACE_DIR}/CMake/Tests/NativeTestPolicyFailureProbe.cmake"
+		RESULT_VARIABLE probe_result
+		OUTPUT_VARIABLE probe_output
+		ERROR_VARIABLE probe_error
+	)
+	if(probe_result EQUAL 0)
+		message(FATAL_ERROR
+			"Policy probe '${probe}' unexpectedly succeeded.")
+	endif()
+	set(probe_text "${probe_output}\n${probe_error}")
+	if(NOT probe_text MATCHES "${expected_text}")
+		message(FATAL_ERROR
+			"Policy probe '${probe}' did not report '${expected_text}':\n"
+			"${probe_text}")
+	endif()
+endfunction()
+
 durin_resolve_native_test_discovery_policy(
 	default_locks
 	default_labels
 	CoreUtilityTests
 	FALSE
 	""
+	TARGET_LOCK_RATIONALE "Characterization of the explicit broad-lock policy."
 )
 assert_list_equals(
 	"${default_locks}"
@@ -52,12 +76,12 @@ durin_resolve_native_test_discovery_policy(
 	TextureCookIntegrationTests
 	TRUE
 	renderer-runtime
-	RESOURCE_LOCKS durin-gpu fixed-port
+	RESOURCE_LOCKS durin-gpu
 	LABELS integration
 )
 assert_list_equals(
 	"${grouped_locks}"
-	"durin-gpu;fixed-port;durin-test-legacy-renderer-runtime"
+	"durin-gpu;durin-test-legacy-renderer-runtime"
 	"explicit and legacy locks"
 )
 assert_list_equals(
@@ -65,3 +89,20 @@ assert_list_equals(
 	"native-test;TextureCookIntegrationTests;integration"
 	"grouped labels"
 )
+assert_list_equals(
+	"${DURIN_NATIVE_TEST_RESOURCE_LOCK_REGISTRY}"
+	"durin-gpu"
+	"documented explicit resource registry"
+)
+assert_list_equals(
+	"${DURIN_NATIVE_TEST_LEGACY_RESOURCE_GROUP_REGISTRY}"
+	"renderer-runtime"
+	"documented legacy resource registry"
+)
+
+assert_policy_rejected("unknown-resource" "unregistered native-test resource")
+assert_policy_rejected("broad-lock-without-rationale" "TARGET_LOCK_RATIONALE")
+assert_policy_rejected("repository-retired-work" "retired DURIN_TEST_WORK_DIR")
+assert_policy_rejected("repository-direct-remove-all" "RemoveTestWorkDirectory")
+assert_policy_rejected("repository-data-write" "mutate checked-in test Data")
+assert_policy_rejected("repository-direct-discovery" "registers GoogleTest cases directly")

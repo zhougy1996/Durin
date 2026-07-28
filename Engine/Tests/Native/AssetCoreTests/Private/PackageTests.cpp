@@ -168,7 +168,7 @@ namespace
 			Durin::FNameInit();
 			Durin::DObjectInit();
 			const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "Assets";
-			std::filesystem::remove_all(Root);
+			Durin::Testing::RemoveTestWorkDirectory(Root);
 			Durin::FPaths::SetDerivedDataCacheDirForTests(
 				(Durin::Testing::GetTestWorkDirectory() / "DerivedDataCache").generic_string());
 			Durin::PathUtilities::RegisterMountPoint("/TestAssets/", Root.generic_string() + "/");
@@ -1097,7 +1097,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	const auto ContentA = WorkRoot / "ContentA";
 	const auto ContentB = WorkRoot / "ContentB";
 	const auto CacheRoot = WorkRoot / "DerivedDataCache";
-	std::filesystem::remove_all(WorkRoot);
+	Durin::Testing::RemoveTestWorkDirectory(WorkRoot);
 	std::filesystem::create_directories(ContentA);
 	Durin::FAssetPath SeedPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/RegistryReconciliationSeed", SeedPath));
@@ -1217,7 +1217,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	const auto WorkRoot = Durin::Testing::GetTestWorkDirectory() / "RegistryMutationLifecycle";
 	const auto ContentRoot = WorkRoot / "Content";
 	const auto CacheRoot = WorkRoot / "DerivedDataCache";
-	std::filesystem::remove_all(WorkRoot);
+	Durin::Testing::RemoveTestWorkDirectory(WorkRoot);
 	std::filesystem::create_directories(ContentRoot);
 	Durin::PathUtilities::RegisterMountPoint("/TestAssets/", ContentRoot.generic_string() + "/");
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());

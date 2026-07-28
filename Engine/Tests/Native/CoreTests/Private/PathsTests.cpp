@@ -16,7 +16,7 @@ namespace
 			Root = Durin::Testing::GetTestWorkDirectory()
 				/ std::format("MountRegistry-{}", NextId++);
 			std::error_code CleanupError;
-			std::filesystem::remove_all(Root, CleanupError);
+			Durin::Testing::RemoveTestWorkDirectory(Root, CleanupError);
 			std::filesystem::create_directories(Root / "Engine/Content");
 			std::filesystem::create_directories(Root / "Engine/SourceAssets/Textures");
 			std::filesystem::create_directories(Root / "Game/Content");
@@ -32,7 +32,7 @@ namespace
 		void TearDown() override
 		{
 			std::error_code Error;
-			std::filesystem::remove_all(Root, Error);
+			Durin::Testing::RemoveTestWorkDirectory(Root, Error);
 		}
 
 		auto Definitions() const -> std::array<Durin::PathUtilities::FMountPoint, 5>

@@ -154,6 +154,6 @@ TEST(FDerivedDataCacheTests, SerializedCacheRoundTripsBeyondMaxPath)
 	EXPECT_EQ(Payload, (std::vector<Durin::uint8>{3, 1, 4, 1}));
 
 	std::error_code CleanupError;
-	std::filesystem::remove_all(Root, CleanupError);
+	Durin::Testing::RemoveTestWorkDirectory(Root, CleanupError);
 	EXPECT_FALSE(CleanupError);
 }

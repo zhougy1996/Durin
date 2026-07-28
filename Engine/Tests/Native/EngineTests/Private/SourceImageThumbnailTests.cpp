@@ -29,7 +29,7 @@ namespace Durin
 		auto PrepareDiskCacheTest(std::string_view Name) -> std::pair<std::filesystem::path, std::filesystem::path>
 		{
 			const std::filesystem::path Root = Testing::GetTestWorkDirectory() / Name;
-			std::filesystem::remove_all(Root);
+			Durin::Testing::RemoveTestWorkDirectory(Root);
 			const std::filesystem::path SourceRoot = Root / "Content";
 			std::filesystem::create_directories(SourceRoot);
 			return {Root / "Cache", SourceRoot};

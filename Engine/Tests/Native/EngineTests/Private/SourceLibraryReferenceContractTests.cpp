@@ -129,7 +129,7 @@ TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
 {
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "MountedSourceOperations";
-	std::filesystem::remove_all(Root);
+	Durin::Testing::RemoveTestWorkDirectory(Root);
 	const std::filesystem::path EngineSource =
 		Root / "Engine" / "SourceAssets" / "Textures" / "Shared.bin";
 	const std::filesystem::path ExternalSource = Root / "External" / "Input.bin";
@@ -299,7 +299,7 @@ TEST(FSourcePathContractTests, LegacyFixturesAreRejectedAfterCarrierRetirement)
 		std::filesystem::path(DURIN_TEST_DATA_DIR) / "SourceLibraryReferences";
 	const std::filesystem::path WorkRoot =
 		Durin::Testing::GetTestWorkDirectory() / "SourcePathMigration";
-	std::filesystem::remove_all(WorkRoot);
+	Durin::Testing::RemoveTestWorkDirectory(WorkRoot);
 	std::filesystem::create_directories(WorkRoot / "Project");
 	std::filesystem::create_directories(WorkRoot / "Engine");
 	std::filesystem::copy(
