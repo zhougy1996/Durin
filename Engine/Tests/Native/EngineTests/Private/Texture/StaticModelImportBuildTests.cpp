@@ -30,13 +30,13 @@ namespace
 
 	auto PackageFile(std::string_view Name) -> std::filesystem::path
 	{
-		return std::filesystem::path(DURIN_TEST_WORK_DIR)
+		return Durin::Testing::GetTestWorkDirectory()
 			/ "TextureImports" / "Content" / "StaticModelImport" / (std::string(Name) + ".dasset");
 	}
 
 	auto SourceFile(std::string_view Name) -> std::filesystem::path
 	{
-		return std::filesystem::path(DURIN_TEST_WORK_DIR)
+		return Durin::Testing::GetTestWorkDirectory()
 			/ "TextureImports" / "SourceAssets" / "Models" / "Embedded" / std::string(Name);
 	}
 }
@@ -46,7 +46,7 @@ TEST(FStaticModelImportBuildTests, PublishesSeveralTexturesAndPortableSourcesAto
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticModelImportBuildSuccessDDC");
+		Durin::Testing::GetTestWorkDirectory() / "StaticModelImportBuildSuccessDDC");
 
 	Durin::FMultiAssetImportTransaction Transaction;
 	Transaction.AddTexture(MakeEmbeddedRequest(
@@ -128,7 +128,7 @@ TEST(FStaticModelImportBuildTests, ReferencesMountedExternalImageWithoutCopying)
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticModelImportReferenceDDC");
+		Durin::Testing::GetTestWorkDirectory() / "StaticModelImportReferenceDDC");
 	const std::filesystem::path Mounted =
 		SourceFile("Mounted.png");
 	std::filesystem::create_directories(Mounted.parent_path());
@@ -158,9 +158,9 @@ TEST(FStaticModelImportBuildTests, IngestsUnmountedExternalImageOnlyToExplicitWr
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticModelImportIngestDDC");
+		Durin::Testing::GetTestWorkDirectory() / "StaticModelImportIngestDDC");
 	const std::filesystem::path External =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "ExternalModelImage.png";
+		Durin::Testing::GetTestWorkDirectory() / "ExternalModelImage.png";
 	WriteTextureFixture(External);
 
 	Durin::FMultiAssetImportTransaction Transaction;
@@ -200,7 +200,7 @@ TEST(FStaticModelImportBuildTests, EveryInjectedFailureRollsBackTheCompleteAttem
 	{
 		SCOPED_TRACE(Index);
 		FScopedDerivedDataCacheRoot CacheRoot(
-			std::filesystem::path(DURIN_TEST_WORK_DIR)
+			Durin::Testing::GetTestWorkDirectory()
 			/ std::format("StaticModelImportFailureDDC{}", Index));
 		const std::string AssetName = std::format("Failure{}", Index);
 		const std::string SourceName = std::format("Failure{}.png", Index);
@@ -243,9 +243,9 @@ TEST(FStaticModelImportBuildTests, RollbackRestoresPreexistingLoadedObjectAndPac
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticModelImportLoadedRollbackDDC");
+		Durin::Testing::GetTestWorkDirectory() / "StaticModelImportLoadedRollbackDDC");
 	const std::filesystem::path SeedSource =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticModelImportSeed.png";
+		Durin::Testing::GetTestWorkDirectory() / "StaticModelImportSeed.png";
 	WriteTextureFixture(SeedSource);
 	const Durin::FTexture2DImportResult Seed = Durin::DTexture2D::ImportAsset(
 		SeedSource.generic_string(), "/TextureImportTests/StaticModelImport/Existing");
@@ -334,7 +334,7 @@ TEST(FStaticModelImportBuildTests, CompletesAllCollisionPreflightBeforeDdcOrSour
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticModelImportPreflightDDC");
+		Durin::Testing::GetTestWorkDirectory() / "StaticModelImportPreflightDDC");
 	const std::filesystem::path BlockedPackage = PackageFile("PreflightBlocked");
 	std::filesystem::create_directories(BlockedPackage.parent_path());
 	{

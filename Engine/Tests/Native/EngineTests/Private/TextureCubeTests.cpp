@@ -4,12 +4,14 @@
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 #include "RenderingThread.h"
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureDerivedData.h"
 
 #include <gtest/gtest.h>
+#include <unordered_set>
 
 namespace
 {
@@ -59,13 +61,14 @@ namespace
 	auto InitializeCubeMount() -> std::filesystem::path
 	{
 		InitializeDObjectSystem();
-		static const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureCubeImports";
-		static const bool bInitialized = [] {
+		const std::filesystem::path Root =
+			Durin::Testing::GetTestWorkDirectory() / "TextureCubeImports";
+		static std::unordered_set<std::filesystem::path> InitializedRoots;
+		if (InitializedRoots.insert(Root).second)
+		{
 			std::filesystem::remove_all(Root);
 			Durin::PathUtilities::RegisterMountPoint("/TextureCubeTests/", Root.generic_string() + "/");
-			return true;
-		}();
-		(void)bInitialized;
+		}
 		return Root;
 	}
 }
@@ -171,7 +174,7 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	EXPECT_FALSE(Missing);
 	EXPECT_NE(Missing.Message.find("PositiveY"), std::string::npos);
 
-	const std::filesystem::path Nonsquare = std::filesystem::path(DURIN_TEST_WORK_DIR) / "CubeNonsquare.tga";
+	const std::filesystem::path Nonsquare = Durin::Testing::GetTestWorkDirectory() / "CubeNonsquare.tga";
 	WriteSolidTga(Nonsquare, 4, 2);
 	Faces = GetConventionFaces();
 	Faces[0] = Nonsquare.generic_string();
@@ -180,7 +183,7 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	EXPECT_FALSE(InvalidShape);
 	EXPECT_NE(InvalidShape.Message.find("square"), std::string::npos);
 
-	const std::filesystem::path DifferentSize = std::filesystem::path(DURIN_TEST_WORK_DIR) / "CubeDifferentSize.tga";
+	const std::filesystem::path DifferentSize = Durin::Testing::GetTestWorkDirectory() / "CubeDifferentSize.tga";
 	WriteSolidTga(DifferentSize, 4, 4);
 	Faces = GetConventionFaces();
 	Faces[0] = DifferentSize.generic_string();
@@ -189,7 +192,7 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	EXPECT_FALSE(Mismatch);
 	EXPECT_NE(Mismatch.Message.find("identical"), std::string::npos);
 
-	const std::filesystem::path Corrupt = std::filesystem::path(DURIN_TEST_WORK_DIR) / "CubeCorrupt.png";
+	const std::filesystem::path Corrupt = Durin::Testing::GetTestWorkDirectory() / "CubeCorrupt.png";
 	{
 		std::ofstream Stream(Corrupt, std::ios::binary | std::ios::trunc);
 		Stream << "not an image";
@@ -217,7 +220,7 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 TEST(FTextureCubeTests, UsesOneCompressedFormatWhenOnlyOneFaceHasTransparency)
 {
 	const std::filesystem::path Root = InitializeCubeMount();
-	const std::filesystem::path TransparentFace = std::filesystem::path(DURIN_TEST_WORK_DIR) / "CubeTransparent.tga";
+	const std::filesystem::path TransparentFace = Durin::Testing::GetTestWorkDirectory() / "CubeTransparent.tga";
 	WriteSolidTga(TransparentFace, 128, 128, 128);
 	auto Faces = GetConventionFaces();
 	Faces[static_cast<size_t>(Durin::ETextureCubeFace::NegativeZ)] = TransparentFace.generic_string();
@@ -248,7 +251,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 	const std::string InitialKey = Texture->GetDerivedDataKey();
 	const Durin::uint64 InitialRevision = Texture->GetBuildRevision();
 	const std::filesystem::path Transparent =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "ReimportFaceTransparent.tga";
+		Durin::Testing::GetTestWorkDirectory() / "ReimportFaceTransparent.tga";
 	WriteSolidTga(Transparent, 128, 128, 128);
 	constexpr std::array<std::string_view, Durin::TextureCubeFaceCount> Suffixes{
 		"px", "nx", "py", "ny", "pz", "nz"};
@@ -272,7 +275,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 	const std::string ValidKey = Texture->GetDerivedDataKey();
 	const Durin::uint64 ValidRevision = Texture->GetBuildRevision();
 	const std::filesystem::path Corrupt =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "ReimportFaceCorrupt.png";
+		Durin::Testing::GetTestWorkDirectory() / "ReimportFaceCorrupt.png";
 	{
 		std::ofstream Stream(Corrupt, std::ios::binary | std::ios::trunc);
 		Stream << "not an image";

@@ -4,7 +4,7 @@ TEST(FTexture2DTests, RejectsUnsupportedSourceWithoutCreatingAsset)
 {
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
-	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "UnsupportedTexture.gif";
+	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "UnsupportedTexture.gif";
 	std::ofstream(Source, std::ios::binary | std::ios::trunc) << "not an image";
 	Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(Source.generic_string(), "/TextureImportTests/Unsupported");
 	EXPECT_FALSE(Result);
@@ -40,15 +40,13 @@ TEST(FTexture2DTests, FailureState_RecordsMissingSourceOnPostLoad)
 TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 {
 	InitializeDObjectSystem();
-	static const bool bMountInitialized = [] {
-		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureFailureMount";
-		std::filesystem::remove_all(Root);
-		Durin::PathUtilities::RegisterMountPoint("/TextureFailureTests/", Root.generic_string() + "/");
-		return true;
-	}();
-	(void)bMountInitialized;
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "TextureFailureMount";
+	std::filesystem::remove_all(Root);
+	Durin::PathUtilities::RegisterMountPoint(
+		"/TextureFailureTests/", Root.generic_string() + "/");
 
-	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "FailureReadySource.png";
+	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "FailureReadySource.png";
 	WriteTextureFixture(Source);
 	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(Source.generic_string(), "/TextureFailureTests/Ready");
 	ASSERT_TRUE(Result) << Result.Message;
@@ -64,15 +62,13 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
 {
 	InitializeDObjectSystem();
-	static const bool bMountInitialized = [] {
-		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureInvalidateMount";
-		std::filesystem::remove_all(Root);
-		Durin::PathUtilities::RegisterMountPoint("/TextureInvalidateTests/", Root.generic_string() + "/");
-		return true;
-	}();
-	(void)bMountInitialized;
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "TextureInvalidateMount";
+	std::filesystem::remove_all(Root);
+	Durin::PathUtilities::RegisterMountPoint(
+		"/TextureInvalidateTests/", Root.generic_string() + "/");
 
-	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "InvalidateSource.png";
+	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "InvalidateSource.png";
 	WriteTextureFixture(Source);
 	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(Source.generic_string(), "/TextureInvalidateTests/Invalid");
 	ASSERT_TRUE(Result) << Result.Message;
@@ -85,7 +81,7 @@ TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureInvalidateTests/Invalid", AssetPath));
 	const std::filesystem::path CopiedSource =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureInvalidateMount"
+		Durin::Testing::GetTestWorkDirectory() / "TextureInvalidateMount"
 		/ "SourceAssets" / "Textures" / "Invalid.png";
 	ASSERT_TRUE(std::filesystem::remove(CopiedSource));
 

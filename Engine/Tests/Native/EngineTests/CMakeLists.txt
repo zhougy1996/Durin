@@ -217,6 +217,10 @@ durin_add_engine_functional_test(TextureTests
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
+	)
+
+set_target_properties(TextureTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
 
 durin_add_engine_functional_test(ThumbnailTests

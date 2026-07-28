@@ -44,6 +44,10 @@ Completed:
   derived-data, upgrade, and editor-details fixtures use the process sandbox;
   mount initialization is test-local, and the reusable upgrade fixture tracks
   initialization by sandbox rather than caching one static root.
+- The texture target is case-parallel. Texture 2D, texture-cube, derived-data,
+  source-ingest, failure, and static-model import fixtures use the process
+  sandbox; reusable texture and cube mounts track initialization by sandbox,
+  while single-case mounts are initialized by their owning tests.
 - Three consecutive 14-job aggregate runs passed all 720 CTest entries after
   the Core targets enabled case parallelism; their real times were 20.95,
   20.52, and 23.35 seconds.
@@ -67,6 +71,9 @@ Completed:
 - After migrating the static-mesh target, its 42 direct tests passed and three
   consecutive 14-job aggregate schedules passed all 720 entries in 18.78,
   17.63, and 19.02 seconds.
+- After migrating the texture target, its 51 direct tests passed and three
+  consecutive 14-job aggregate schedules passed all 720 entries in 17.61,
+  17.15, and 17.62 seconds.
 - `.\DevTool.bat test --target all` now schedules CTest-discovered GoogleTest
   cases with the Agent Build Profile job count; the current profile runs 14
   cases concurrently.
@@ -89,7 +96,7 @@ Completed:
   and load, failed package and shader-cache publication, and thumbnail fixture
   setup failures. The same thumbnail suites passed when run in one process,
   including 100 shuffled repetitions.
-- The repository currently has 74 `DURIN_TEST_WORK_DIR` references in 17
+- The repository currently has 14 `DURIN_TEST_WORK_DIR` references in 11
   native-test source/header files, and 32 native-test files call
   `std::filesystem::remove_all`.
 - `FTextureCubeAssetThumbnailTests.ProviderRejectsMissingRegistryData` also has

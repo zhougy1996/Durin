@@ -9,23 +9,26 @@
 #include "Editor/ReflectedPropertyView.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuild.h"
 
 #include <bc7decomp.h>
 #include <gtest/gtest.h>
 #include <rgbcx.h>
+#include <unordered_set>
 
 inline auto InitializeTextureImportMount() -> void
 {
-	static const bool bInitialized = [] {
-		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports";
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "TextureImports";
+	static std::unordered_set<std::filesystem::path> InitializedRoots;
+	if (InitializedRoots.insert(Root).second)
+	{
 		std::filesystem::remove_all(Root);
 		Durin::PathUtilities::RegisterMountPoint(
 			"/TextureImportTests/", (Root / "Content").generic_string() + "/");
-		return true;
-	}();
-	(void)bInitialized;
+	}
 }
 
 namespace

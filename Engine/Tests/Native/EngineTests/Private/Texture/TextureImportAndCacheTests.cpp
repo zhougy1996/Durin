@@ -5,9 +5,9 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 {
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImportDerivedDataCache");
+		Durin::Testing::GetTestWorkDirectory() / "TextureImportDerivedDataCache");
 
-	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSource.png";
+	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "TextureSource.png";
 	WriteTextureFixture(Source);
 	Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(Source.generic_string(), "/TextureImportTests/Transparent");
 	ASSERT_TRUE(Result) << Result.Message;
@@ -63,7 +63,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	Durin::FAssetPath RenamedPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Renamed", RenamedPath));
 	ASSERT_TRUE(Durin::Asset::MoveAsset(AssetPath, RenamedPath));
-	const std::filesystem::path ImportRoot = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports";
+	const std::filesystem::path ImportRoot = Durin::Testing::GetTestWorkDirectory() / "TextureImports";
 	const std::filesystem::path StoredSource =
 		ImportRoot / "SourceAssets" / "Textures" / "Transparent.png";
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
@@ -84,10 +84,10 @@ TEST(FTexture2DTests, DefaultsToFlatSourceRootAndAllowsCustomSourceDestination)
 {
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSourceDestinationCache");
+		Durin::Testing::GetTestWorkDirectory() / "TextureSourceDestinationCache");
 
 	const std::filesystem::path DefaultInput =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "FlatDefault.png";
+		Durin::Testing::GetTestWorkDirectory() / "FlatDefault.png";
 	WriteTextureFixture(DefaultInput);
 	Durin::FTexture2DImportResult DefaultResult = Durin::DTexture2D::ImportAsset(
 		DefaultInput.generic_string(), "/TextureImportTests/Textures/FlatDefault");
@@ -97,10 +97,10 @@ TEST(FTexture2DTests, DefaultsToFlatSourceRootAndAllowsCustomSourceDestination)
 		DefaultResult.Asset->GetSourceFile(),
 		"/TextureImportTests/Textures/FlatDefault.png");
 	EXPECT_TRUE(std::filesystem::is_regular_file(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports"
+		Durin::Testing::GetTestWorkDirectory() / "TextureImports"
 		/ "SourceAssets" / "Textures" / "FlatDefault.png"));
 	EXPECT_FALSE(std::filesystem::exists(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports"
+		Durin::Testing::GetTestWorkDirectory() / "TextureImports"
 		/ "SourceAssets" / "Textures" / "Textures" / "FlatDefault.png"));
 
 	Durin::FAssetPath DefaultAssetPath;
@@ -123,7 +123,7 @@ TEST(FTexture2DTests, DefaultsToFlatSourceRootAndAllowsCustomSourceDestination)
 		"/TextureImportTests/Textures/FlatDefault.png");
 
 	const std::filesystem::path CustomInput =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "CustomInput.png";
+		Durin::Testing::GetTestWorkDirectory() / "CustomInput.png";
 	WriteTextureFixture(CustomInput);
 	Durin::FTexture2DImportSettings CustomSettings;
 	CustomSettings.SourceDestination =
@@ -137,7 +137,7 @@ TEST(FTexture2DTests, DefaultsToFlatSourceRootAndAllowsCustomSourceDestination)
 		CustomResult.Asset->GetSourceFile(),
 		"/TextureImportTests/ArtistAuthored/CustomCopy.png");
 	EXPECT_TRUE(std::filesystem::is_regular_file(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports"
+		Durin::Testing::GetTestWorkDirectory() / "TextureImports"
 		/ "SourceAssets" / "ArtistAuthored" / "CustomCopy.png"));
 
 	Durin::FTexture2DImportResult SharedResult = Durin::DTexture2D::ImportAsset(
@@ -152,10 +152,10 @@ TEST(FTexture2DTests, DefaultsToFlatSourceRootAndAllowsCustomSourceDestination)
 		CustomResult.Asset->GetSourceFile(),
 		"/TextureImportTests/UserLayout/MovedCopy.png");
 	EXPECT_TRUE(std::filesystem::is_regular_file(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports"
+		Durin::Testing::GetTestWorkDirectory() / "TextureImports"
 		/ "SourceAssets" / "UserLayout" / "MovedCopy.png"));
 	EXPECT_TRUE(std::filesystem::is_regular_file(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports"
+		Durin::Testing::GetTestWorkDirectory() / "TextureImports"
 		/ "SourceAssets" / "ArtistAuthored" / "CustomCopy.png"));
 	EXPECT_EQ(
 		SharedResult.Asset->GetSourceFile(),
@@ -192,17 +192,15 @@ TEST(FTexture2DTests, DefaultsToFlatSourceRootAndAllowsCustomSourceDestination)
 TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 {
 	InitializeDObjectSystem();
-	static const bool bMountInitialized = [] {
-		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureDerivedDataMount";
-		std::filesystem::remove_all(Root);
-		Durin::PathUtilities::RegisterMountPoint("/TextureDerivedDataTests/", Root.generic_string() + "/");
-		return true;
-	}();
-	(void)bMountInitialized;
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "TextureDerivedDataMount";
+	std::filesystem::remove_all(Root);
+	Durin::PathUtilities::RegisterMountPoint(
+		"/TextureDerivedDataTests/", Root.generic_string() + "/");
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureDerivedDataCache");
+		Durin::Testing::GetTestWorkDirectory() / "TextureDerivedDataCache");
 
-	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "DerivedDataSource.png";
+	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "DerivedDataSource.png";
 	WriteTextureFixture(Source);
 	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(
 		Source.generic_string(), "/TextureDerivedDataTests/Cached");
@@ -252,7 +250,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 
 	const std::filesystem::path CopiedSource =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureDerivedDataMount"
+		Durin::Testing::GetTestWorkDirectory() / "TextureDerivedDataMount"
 		/ "SourceAssets" / "Textures" / "Cached.png";
 	WriteNpotTextureFixture(CopiedSource);
 	std::filesystem::last_write_time(CopiedSource,
@@ -277,9 +275,9 @@ TEST(FTexture2DTests, TimestampOnlySourceChangeUsesPersistentFingerprintCacheWit
 {
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSourceFingerprintCache");
+		Durin::Testing::GetTestWorkDirectory() / "TextureSourceFingerprintCache");
 	const std::filesystem::path Source =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSourceFingerprint.png";
+		Durin::Testing::GetTestWorkDirectory() / "TextureSourceFingerprint.png";
 	WriteTextureFixture(Source);
 	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(
 		Source.generic_string(), "/TextureImportTests/Fingerprint");
@@ -290,7 +288,7 @@ TEST(FTexture2DTests, TimestampOnlySourceChangeUsesPersistentFingerprintCacheWit
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Fingerprint", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	const std::filesystem::path StoredSource =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports"
+		Durin::Testing::GetTestWorkDirectory() / "TextureImports"
 		/ "SourceAssets" / "Textures" / "Fingerprint.png";
 	ASSERT_TRUE(std::filesystem::is_regular_file(StoredSource));
 	std::filesystem::last_write_time(
@@ -310,7 +308,7 @@ TEST(FTexture2DTests, TimestampOnlySourceChangeUsesPersistentFingerprintCacheWit
 
 	const std::string FingerprintCacheRoot = Durin::FPaths::DerivedDataCacheDir();
 	Durin::FPaths::SetDerivedDataCacheDirForTests(
-		(std::filesystem::path(DURIN_TEST_WORK_DIR) / "UnusedSourceFingerprintCache").generic_string());
+		(Durin::Testing::GetTestWorkDirectory() / "UnusedSourceFingerprintCache").generic_string());
 	std::string IgnoredHash;
 	EXPECT_FALSE(Durin::Asset::FindSourceFingerprint(StoredSource, 0, 0, IgnoredHash));
 	Durin::FPaths::SetDerivedDataCacheDirForTests(FingerprintCacheRoot);
@@ -328,9 +326,9 @@ TEST(FTexture2DTests, PortableSourceCanBeRepairedAndRejectsEscapingMetadata)
 {
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSourceRepairCache");
+		Durin::Testing::GetTestWorkDirectory() / "TextureSourceRepairCache");
 	const std::filesystem::path Source =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSourceRepair.png";
+		Durin::Testing::GetTestWorkDirectory() / "TextureSourceRepair.png";
 	WriteTextureFixture(Source);
 	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(
 		Source.generic_string(), "/TextureImportTests/Repair/Texture");
@@ -346,7 +344,7 @@ TEST(FTexture2DTests, PortableSourceCanBeRepairedAndRejectsEscapingMetadata)
 	EXPECT_EQ(Result.Asset->InspectSource().Status, Durin::ETextureSourceStatus::Invalid);
 
 	const std::filesystem::path Corrupt =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSourceRepairCorrupt.png";
+		Durin::Testing::GetTestWorkDirectory() / "TextureSourceRepairCorrupt.png";
 	{
 		std::ofstream Stream(Corrupt, std::ios::binary | std::ios::trunc);
 		Stream << "not an image";
@@ -357,7 +355,7 @@ TEST(FTexture2DTests, PortableSourceCanBeRepairedAndRejectsEscapingMetadata)
 	EXPECT_EQ(Result.Asset->GetSourceImportData().Source.SourcePath.Path, "../Outside.png");
 
 	const std::filesystem::path Replacement =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureSourceRepairReplacement.tga";
+		Durin::Testing::GetTestWorkDirectory() / "TextureSourceRepairReplacement.tga";
 	WriteNpotTextureFixture(Replacement);
 	ASSERT_TRUE(Result.Asset->IngestAndChangeSource(
 		Replacement.generic_string(),
@@ -369,7 +367,7 @@ TEST(FTexture2DTests, PortableSourceCanBeRepairedAndRejectsEscapingMetadata)
 	EXPECT_EQ(Result.Asset->GetSourceHeight(), 3u);
 	EXPECT_TRUE(Result.Asset->GetPackage()->IsDirty());
 	EXPECT_TRUE(std::filesystem::is_regular_file(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports"
+		Durin::Testing::GetTestWorkDirectory() / "TextureImports"
 		/ "SourceAssets" / "Textures" / "Texture.tga"));
 }
 
@@ -377,9 +375,9 @@ TEST(FTexture2DTests, ReportsMountedSourceBytesChangedSinceImport)
 {
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureChangedSourceCache");
+		Durin::Testing::GetTestWorkDirectory() / "TextureChangedSourceCache");
 	const std::filesystem::path Input =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureChangedSource.png";
+		Durin::Testing::GetTestWorkDirectory() / "TextureChangedSource.png";
 	WriteTextureFixture(Input);
 	const Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(
 		Input.generic_string(), "/TextureImportTests/ChangedSource");
@@ -403,9 +401,9 @@ TEST(FTexture2DTests, LegacyPackageAdjacentSourceIsRejectedAfterMigration)
 {
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "LegacyTextureSourceCache");
+		Durin::Testing::GetTestWorkDirectory() / "LegacyTextureSourceCache");
 	const std::filesystem::path LegacySource =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureImports"
+		Durin::Testing::GetTestWorkDirectory() / "TextureImports"
 		/ "Content" / "Legacy.png";
 	WriteTextureFixture(LegacySource);
 
@@ -432,9 +430,9 @@ TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)
 {
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureDerivedDataKeyCache");
-	const std::filesystem::path FirstSource = std::filesystem::path(DURIN_TEST_WORK_DIR) / "DerivedKeyFirst.png";
-	const std::filesystem::path SecondSource = std::filesystem::path(DURIN_TEST_WORK_DIR) / "DerivedKeySecond.tga";
+		Durin::Testing::GetTestWorkDirectory() / "TextureDerivedDataKeyCache");
+	const std::filesystem::path FirstSource = Durin::Testing::GetTestWorkDirectory() / "DerivedKeyFirst.png";
+	const std::filesystem::path SecondSource = Durin::Testing::GetTestWorkDirectory() / "DerivedKeySecond.tga";
 	WriteTextureFixture(FirstSource);
 	WriteNpotTextureFixture(SecondSource);
 

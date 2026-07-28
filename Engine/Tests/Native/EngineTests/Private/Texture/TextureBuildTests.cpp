@@ -3,7 +3,7 @@
 TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)
 {
 	InitializeDObjectSystem();
-	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "UsagePresetSource.png";
+	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "UsagePresetSource.png";
 	WriteTextureFixture(Source);
 
 	struct FExpectedPreset
@@ -53,7 +53,7 @@ TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)
 TEST(FTexture2DTests, BuildsCompleteNpotMipChainWithoutDroppingEdges)
 {
 	InitializeDObjectSystem();
-	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "NpotTextureSource.tga";
+	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "NpotTextureSource.tga";
 	WriteNpotTextureFixture(Source);
 	Durin::FTexture2DImportSettings Settings;
 	Settings.Usage = Durin::ETextureUsage::DataMask;
@@ -91,7 +91,7 @@ TEST(FTexture2DTests, BuildsCompleteNpotMipChainWithoutDroppingEdges)
 TEST(FTexture2DTests, MaximumResolutionSelectsMipAlignedBaseLevel)
 {
 	InitializeDObjectSystem();
-	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "LimitedTextureSource.tga";
+	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "LimitedTextureSource.tga";
 	WriteNpotTextureFixture(Source);
 	Durin::FTexture2DImportSettings Settings;
 	Settings.MaxResolution = 4;
@@ -220,7 +220,7 @@ TEST(FTexture2DTests, CompressedLayoutsCoverNpotAndTailMips)
 TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 {
 	InitializeDObjectSystem();
-	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "LinearTextureSource.png";
+	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "LinearTextureSource.png";
 	WriteTextureFixture(Source);
 	Durin::FTexture2DImportSettings Settings;
 	Settings.bSRGB = false;
@@ -264,7 +264,7 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndoRedo)
 {
 	InitializeDObjectSystem();
-	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_WORK_DIR) / "TransactionalTextureSource.png";
+	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "TransactionalTextureSource.png";
 	WriteTextureFixture(Source);
 	Durin::FTexture2DImportResult Result = Durin::DTexture2D::ImportAsset(
 		Source.generic_string(), "/TextureImportTests/Transactional");
