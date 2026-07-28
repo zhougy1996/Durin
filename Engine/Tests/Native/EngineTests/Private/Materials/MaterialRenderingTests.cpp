@@ -32,6 +32,52 @@ TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 	Durin::CollectGarbage();
 }
 
+TEST(FMaterialTests, StaticPropertyChangesUpdatePipelineIdentityWithoutRecreatingProxy)
+{
+	FRenderSceneHarness Harness;
+	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "StaticIdentityMaterial");
+	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "StaticIdentityComponent");
+	Component->SetStaticMesh(Mesh);
+	Component->SetMaterial(Material);
+	Component->RegisterComponent();
+
+	const FMaterialSlotsSnapshot Initial = CaptureMaterialSlots(Harness.Scene);
+	ASSERT_EQ(Initial.Materials.size(), 1u);
+
+	Durin::FMaterialStaticProperties Properties;
+	Properties.BlendMode = Durin::EMaterialBlendMode::Masked;
+	Properties.ShadingModel = Durin::EMaterialShadingModel::Unlit;
+	Properties.bTwoSided = true;
+	Properties.DepthWritePolicy = Durin::EMaterialDepthWritePolicy::Disabled;
+	Properties.OpacityMaskThreshold = 0.6f;
+	ASSERT_TRUE(Material->SetStaticProperties(Properties));
+
+	const FMaterialSlotsSnapshot Updated = CaptureMaterialSlots(Harness.Scene);
+	ASSERT_EQ(Updated.Materials.size(), 1u);
+	EXPECT_EQ(Updated.Proxy, Initial.Proxy);
+	EXPECT_GT(Updated.ComponentRevision, Initial.ComponentRevision);
+	EXPECT_NE(
+		Updated.Materials[0].PipelineIdentity,
+		Initial.Materials[0].PipelineIdentity);
+	ASSERT_EQ(Updated.MaterialDirtyFlags.size(), 1u);
+	EXPECT_TRUE(Durin::EnumHasAllFlags(
+		Updated.MaterialDirtyFlags[0],
+		Durin::EMaterialRenderDirtyFlags::ShaderMap
+			| Durin::EMaterialRenderDirtyFlags::PipelineState));
+	EXPECT_FALSE(Durin::EnumHasAnyFlags(
+		Updated.MaterialDirtyFlags[0],
+		Durin::EMaterialRenderDirtyFlags::DynamicParameters));
+
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
+	Durin::MarkAsGarbage(Component);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(Material);
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}
+
 TEST(FMaterialTests, StaticMeshProxyCapturesPerSlotMaterials)
 {
 	InitializeDObjectSystem();
@@ -127,6 +173,15 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	ExpectColorNear(Updated.Materials[1].BaseColor, Durin::FVector4f(0.8f, 0.7f, 0.6f, 1.0f));
 	ExpectColorNear(Updated.Materials[2].BaseColor, Durin::FVector4f(0.4f, 0.5f, 0.6f, 1.0f));
 	ExpectColorNear(Updated.Materials[3].BaseColor, Durin::FMaterialRenderData{}.BaseColor);
+	EXPECT_EQ(
+		Updated.Materials[0].PipelineIdentity,
+		Initial.Materials[0].PipelineIdentity);
+	for (const Durin::uint32 SlotIndex : {0u, 2u})
+	{
+		EXPECT_EQ(
+			Updated.MaterialDirtyFlags[SlotIndex],
+			Durin::EMaterialRenderDirtyFlags::DynamicParameters);
+	}
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();

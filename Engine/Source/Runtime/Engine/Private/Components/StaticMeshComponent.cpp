@@ -306,7 +306,7 @@ namespace Durin
 		}
 		else MaterialOverrides.push_back({.SlotId = SlotId, .Material = InMaterial});
 		++MaterialComponentRevision;
-		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::ParameterValues | EMaterialRenderDirtyFlags::ParentChain;
+		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::AllRenderState | EMaterialRenderDirtyFlags::ParentChain;
 		MarkPackageDirty();
 		MarkRenderStateDirty();
 		return true;
@@ -324,7 +324,7 @@ namespace Durin
 		std::erase_if(MaterialOverrides, [&SlotId](const FStaticMeshMaterialOverride& Override) { return Override.SlotId == SlotId; });
 		if (MaterialOverrides.size() == PreviousSize) return false;
 		++MaterialComponentRevision;
-		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::ParameterValues | EMaterialRenderDirtyFlags::ParentChain;
+		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::AllRenderState | EMaterialRenderDirtyFlags::ParentChain;
 		MarkPackageDirty();
 		if (StaticMesh != nullptr && StaticMesh->FindMaterialSlot(SlotId) != nullptr) MarkRenderStateDirty();
 		return true;
@@ -423,7 +423,7 @@ namespace Durin
 		}
 		if (Name != FName("MaterialOverrides")) return;
 		++MaterialComponentRevision;
-		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::ParameterValues | EMaterialRenderDirtyFlags::ParentChain;
+		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::AllRenderState | EMaterialRenderDirtyFlags::ParentChain;
 		MarkRenderStateDirty();
 	}
 
@@ -450,7 +450,7 @@ namespace Durin
 			Update.RenderData = SlotMaterial != nullptr ? SlotMaterial->GetRenderData() : FMaterialRenderData{};
 			Update.MaterialVersion = SlotMaterial != nullptr ? SlotMaterial->GetRenderStateVersion() : 0;
 			Update.ComponentRevision = MaterialComponentRevision;
-			Update.DirtyFlags = EMaterialRenderDirtyFlags::ParameterValues | EMaterialRenderDirtyFlags::ParentChain;
+			Update.DirtyFlags = EMaterialRenderDirtyFlags::AllRenderState | EMaterialRenderDirtyFlags::ParentChain;
 		}
 		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::None;
 		return std::make_unique<FStaticMeshSceneProxy>(RenderData, std::move(MaterialUpdates));

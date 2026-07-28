@@ -286,7 +286,7 @@ namespace Durin
 					.RenderData = Material->GetRenderData(),
 					.MaterialVersion = Material->GetRenderStateVersion(),
 					.ComponentRevision = MaterialRevision,
-					.DirtyFlags = EMaterialRenderDirtyFlags::ParameterValues
+					.DirtyFlags = EMaterialRenderDirtyFlags::AllRenderState
 						| EMaterialRenderDirtyFlags::ParentChain};
 				PreviewScene->UpdatePrimitiveMaterial(PreviewPrimitiveId, Update);
 			}

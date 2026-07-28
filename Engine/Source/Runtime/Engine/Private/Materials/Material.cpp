@@ -31,6 +31,9 @@ namespace Durin
 		if (StaticProperties == InProperties) return true;
 		StaticProperties = InProperties;
 		MarkPackageDirty();
+		MarkRenderDataDirty(
+			EMaterialRenderDirtyFlags::ShaderMap
+				| EMaterialRenderDirtyFlags::PipelineState);
 		return true;
 	}
 
@@ -42,7 +45,7 @@ namespace Durin
 		if (Mutable == Value) return true;
 		Mutable = Value;
 		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
 		return true;
 	}
 
@@ -54,7 +57,7 @@ namespace Durin
 		if (Mutable == Value) return true;
 		Mutable = Value;
 		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
 		return true;
 	}
 
@@ -66,7 +69,7 @@ namespace Durin
 		if (Mutable.Get() == Value) return true;
 		Mutable = Value;
 		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
 		return true;
 	}
 

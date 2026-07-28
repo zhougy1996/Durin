@@ -66,7 +66,7 @@ namespace Durin
 					.RenderData = Material->GetRenderData(),
 					.MaterialVersion = Material->GetRenderStateVersion(),
 					.ComponentRevision = ComponentRevision,
-					.DirtyFlags = EMaterialRenderDirtyFlags::ParameterValues
+					.DirtyFlags = EMaterialRenderDirtyFlags::AllRenderState
 						| EMaterialRenderDirtyFlags::ParentChain});
 			}
 			return Updates;

@@ -201,6 +201,25 @@ namespace Durin
 	) -> bool;
 
 	// Contains the renderer-ready subset of resolved material parameters.
+	struct FMaterialShaderMapIdentity
+	{
+		uint32 SchemaVersion = 1;
+		EMaterialBlendMode BlendMode = EMaterialBlendMode::Opaque;
+		EMaterialShadingModel ShadingModel = EMaterialShadingModel::Lit;
+		float OpacityMaskThreshold = 0.333f;
+
+		auto operator==(const FMaterialShaderMapIdentity&) const -> bool = default;
+	};
+
+	struct FMaterialPipelineIdentity
+	{
+		FMaterialShaderMapIdentity ShaderMap;
+		bool bTwoSided = false;
+		EMaterialDepthWritePolicy DepthWritePolicy = EMaterialDepthWritePolicy::Automatic;
+
+		auto operator==(const FMaterialPipelineIdentity&) const -> bool = default;
+	};
+
 	struct FMaterialRenderData
 	{
 		FVector4f BaseColor{0.95f, 0.62f, 0.22f, 1.0f};
@@ -208,14 +227,18 @@ namespace Durin
 		FRHITextureReferenceRef BaseColorTexture;
 		float SpecularStrength = 0.35f;
 		float Shininess = 32.0f;
+		FMaterialPipelineIdentity PipelineIdentity;
 	};
 
 	// Selects which part of material render state changed.
 	enum class EMaterialRenderDirtyFlags : uint8
 	{
 		None = 0,
-		ParameterValues = 1 << 0,
-		ParentChain = 1 << 1
+		DynamicParameters = 1 << 0,
+		ShaderMap = 1 << 1,
+		PipelineState = 1 << 2,
+		ParentChain = 1 << 3,
+		AllRenderState = (1 << 0) | (1 << 1) | (1 << 2)
 	};
 	ENUM_CLASS_FLAGS(EMaterialRenderDirtyFlags);
 

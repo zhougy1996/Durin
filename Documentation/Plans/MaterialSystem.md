@@ -17,14 +17,20 @@ The current surface model is fixed in `StaticMesh.slang`: vertex color,
 Blinn-Phong calculation controlled by `SpecularStrength` and `Shininess`.
 `Opacity` is carried in the output alpha, but the static-mesh pipeline has
 alpha blending disabled, so it does not yet define translucent rendering.
-All static meshes share one shader map, one opaque pipeline policy, and one
-linear-repeat base-color sampler.
+Static meshes now select shader-map and graphics-pipeline cache entries from
+their resolved material identity, while retaining one shared vertex declaration
+and linear-repeat base-color sampler. The identity is ready for static
+permutations, but every entry still implements the same opaque, two-sided fixed
+renderer policy until Stage 4 lands the actual pass behavior.
 
-The Stage 2 static-property domain is now defined independently from that fixed
-renderer path. Base materials persist blend mode, shading model, two-sided
-state, depth-write policy, and masked-opacity threshold; instances inherit the
-complete property set through their parent chain. These properties are not yet
-part of render data, shader-map identity, or pipeline selection.
+The Stage 2 static-property domain is now connected to that fixed renderer
+path. Base materials persist blend mode, shading model, two-sided state,
+depth-write policy, and masked-opacity threshold; instances inherit the
+complete property set through their parent chain. Immutable render snapshots
+carry versioned shader-map and pipeline identities, and static edits select a
+new cached entry without recreating the scene proxy. The cache identity is
+separate from Stage 4's still-unimplemented opaque, masked, translucent,
+culling, and depth policies.
 
 The Content Browser can now create material and material-instance assets and
 open them in a dedicated Material Editor. The first editor slice exposes the
@@ -108,7 +114,7 @@ properties and the compiled render representation remain in this stage.
   cannot silently accumulate misspelled or type-incompatible overrides.
 - [x] Define material static properties: blend mode, shading model, two-sided
   state, depth-write policy, and masked-opacity threshold.
-- [ ] Split dynamic parameter dirtiness from static shader/pipeline dirtiness;
+- [x] Split dynamic parameter dirtiness from static shader/pipeline dirtiness;
   static changes must rebuild the correct shader map and pipeline identity.
 - [ ] Replace the ad-hoc fixed `FMaterialRenderData` fields with a versioned
   render representation that can grow without coupling every material feature
@@ -118,18 +124,26 @@ properties and the compiled render representation remain in this stage.
 
 ### Stage 2 Active Handoff
 
-- Baseline commit: `5a9175bc`.
-- Working set: material runtime types and interfaces, base/instance material
-  implementations, focused material/static-mesh tests, and material
-  architecture documentation.
-- Key decision: static properties are owned only by `DMaterial`; instances
-  inherit the complete set and cannot accumulate static overrides.
-- Compatibility: assets without the new reflected property retain constructor
-  defaults. Invalid enum values or mask thresholds fail material `PostLoad`.
-- Open work: static-property edits still need a distinct dirty path and must
-  rebuild shader-map and pipeline identity before any renderer consumes them.
-- Validation: all 44 `MaterialTests` and all 42 `StaticMeshTests` pass,
-  including default/inheritance/rejection and asset round-trip coverage.
+- Baseline commit: `6dc5b2f5`.
+- Working set: material render identities and dirty flags, material update
+  propagation, static-mesh render snapshots, renderer shader-map/pipeline
+  caching, focused material tests, and material architecture documentation.
+- Key decision: dynamic parameters invalidate only uniform/resource data.
+  Static properties invalidate shader-map and pipeline identity; a parent
+  reassignment invalidates the complete inherited render state.
+- Renderer boundary: identities contain a schema version and every resolved
+  static property. Shader macros make shader variants cache-distinct; the
+  renderer caches shader maps by shader identity and solid/wireframe pairs by
+  pipeline identity while retaining the existing scene proxy. Stage 4 remains
+  responsible for making blend, culling, depth, mask, and shading policies
+  materially different on screen.
+- Open work: replace the ad-hoc fixed `FMaterialRenderData` fields with a
+  versioned render representation that can evolve without direct
+  `RendererModule.cpp` coupling.
+- Validation: all 45 `MaterialTests` and all 42 `StaticMeshTests` pass,
+  including identity inheritance, dirty-flag merging, in-place static
+  scene-proxy updates, and the Vulkan material-rendering path.
+  `DevTool plan validate --scope all` also passes.
 
 ## Stage 3: Establish a PBR Surface Contract
 

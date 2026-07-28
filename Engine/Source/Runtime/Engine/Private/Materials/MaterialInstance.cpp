@@ -68,7 +68,7 @@ namespace Durin
 		if (Parent == InParent) return true;
 		Parent = InParent;
 		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::ParameterValues);
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState);
 		return true;
 	}
 
@@ -104,7 +104,7 @@ namespace Durin
 		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("Parent")
 			&& (Event.Phase != EPropertyChangePhase::Committed || Event.Origin != EPropertyChangeOrigin::Edit))
 		{
-			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::ParameterValues);
+			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState);
 		}
 	}
 
@@ -144,9 +144,9 @@ namespace Durin
 		MarkPackageDirty();
 		Other.MarkPackageDirty();
 		MarkRenderDataDirty(
-			EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::ParameterValues);
+			EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState);
 		Other.MarkRenderDataDirty(
-			EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::ParameterValues);
+			EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::AllRenderState);
 	}
 
 	auto DMaterialInstance::ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool
@@ -185,7 +185,7 @@ namespace Durin
 			ParameterOverrides.push_back({.ParameterId = Id, .Value = CanonicalValue});
 		}
 		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
 		return true;
 	}
 
@@ -197,7 +197,7 @@ namespace Durin
 		});
 		if (ParameterOverrides.size() == PreviousSize) return false;
 		MarkPackageDirty();
-		MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
 		return true;
 	}
 

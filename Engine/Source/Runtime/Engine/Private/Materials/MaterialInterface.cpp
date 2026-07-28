@@ -129,6 +129,12 @@ namespace Durin
 		{
 			Result.Shininess = std::clamp(Parameter.Value.ScalarValue, 1.0f, 256.0f);
 		}
+		const FMaterialStaticProperties& StaticProperties = GetStaticProperties();
+		Result.PipelineIdentity.ShaderMap.BlendMode = StaticProperties.BlendMode;
+		Result.PipelineIdentity.ShaderMap.ShadingModel = StaticProperties.ShadingModel;
+		Result.PipelineIdentity.ShaderMap.OpacityMaskThreshold = StaticProperties.OpacityMaskThreshold;
+		Result.PipelineIdentity.bTwoSided = StaticProperties.bTwoSided;
+		Result.PipelineIdentity.DepthWritePolicy = StaticProperties.DepthWritePolicy;
 		return Result;
 	}
 
@@ -141,7 +147,13 @@ namespace Durin
 		{
 			// Reflected editor transactions restore collection storage directly. Route every
 			// phase through the same render invalidation normally supplied by setters.
-			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ParameterValues);
+			MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
+		}
+		else if (Name == FName("StaticProperties"))
+		{
+			MarkRenderDataDirty(
+				EMaterialRenderDirtyFlags::ShaderMap
+				| EMaterialRenderDirtyFlags::PipelineState);
 		}
 	}
 

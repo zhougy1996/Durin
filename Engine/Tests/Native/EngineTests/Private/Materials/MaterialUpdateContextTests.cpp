@@ -55,10 +55,14 @@ TEST(FMaterialUpdateContextTests, FlushMergesRootsAndScansLoadedComponentsOnce)
 	const Durin::uint64 UnrelatedVersion = Unrelated->GetRenderStateVersion();
 
 	Durin::FMaterialUpdateContext Context;
-	Context.AddMaterial(Base, Durin::EMaterialRenderDirtyFlags::ParameterValues);
+	Context.AddMaterial(Base, Durin::EMaterialRenderDirtyFlags::DynamicParameters);
+	Context.AddMaterial(
+		Base,
+		Durin::EMaterialRenderDirtyFlags::ShaderMap
+			| Durin::EMaterialRenderDirtyFlags::PipelineState);
 	Context.AddMaterial(Base, Durin::EMaterialRenderDirtyFlags::ParentChain);
-	Context.AddMaterial(Child, Durin::EMaterialRenderDirtyFlags::ParameterValues);
-	Context.AddMaterial(nullptr, Durin::EMaterialRenderDirtyFlags::ParameterValues);
+	Context.AddMaterial(Child, Durin::EMaterialRenderDirtyFlags::DynamicParameters);
+	Context.AddMaterial(nullptr, Durin::EMaterialRenderDirtyFlags::DynamicParameters);
 	Context.Flush();
 
 	const Durin::FMaterialUpdateCounters Counters = Context.GetCounters();
@@ -91,7 +95,7 @@ TEST(FMaterialUpdateContextTests, FlushMergesRootsAndScansLoadedComponentsOnce)
 	const FMaterialSlotsSnapshot Updated = CaptureMaterialSlots(Harness.Scene);
 	ASSERT_EQ(Updated.MaterialDirtyFlags.size(), 3);
 	const Durin::EMaterialRenderDirtyFlags MergedFlags =
-		Durin::EMaterialRenderDirtyFlags::ParameterValues
+		Durin::EMaterialRenderDirtyFlags::AllRenderState
 		| Durin::EMaterialRenderDirtyFlags::ParentChain;
 	for (Durin::EMaterialRenderDirtyFlags DirtyFlags : Updated.MaterialDirtyFlags)
 	{

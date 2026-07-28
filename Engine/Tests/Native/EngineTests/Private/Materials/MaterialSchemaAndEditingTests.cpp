@@ -10,6 +10,7 @@ TEST(FMaterialTests, StaticPropertiesHaveStableDefaultsAndInstanceInheritance)
 	const Durin::FMaterialStaticProperties Defaults;
 	EXPECT_EQ(Base->GetStaticProperties(), Defaults);
 	EXPECT_EQ(Child->GetStaticProperties(), Defaults);
+	const Durin::FMaterialRenderData DefaultRenderData = Base->GetRenderData();
 
 	Durin::FMaterialStaticProperties Properties;
 	Properties.BlendMode = Durin::EMaterialBlendMode::Masked;
@@ -22,6 +23,19 @@ TEST(FMaterialTests, StaticPropertiesHaveStableDefaultsAndInstanceInheritance)
 	ASSERT_TRUE(Child->SetParent(Parent));
 	EXPECT_EQ(Parent->GetStaticProperties(), Properties);
 	EXPECT_EQ(Child->GetStaticProperties(), Properties);
+	const Durin::FMaterialRenderData BaseRenderData = Base->GetRenderData();
+	const Durin::FMaterialRenderData ChildRenderData = Child->GetRenderData();
+	EXPECT_NE(BaseRenderData.PipelineIdentity, DefaultRenderData.PipelineIdentity);
+	EXPECT_EQ(ChildRenderData.PipelineIdentity, BaseRenderData.PipelineIdentity);
+	EXPECT_EQ(BaseRenderData.PipelineIdentity.ShaderMap.BlendMode, Properties.BlendMode);
+	EXPECT_EQ(BaseRenderData.PipelineIdentity.ShaderMap.ShadingModel, Properties.ShadingModel);
+	EXPECT_FLOAT_EQ(
+		BaseRenderData.PipelineIdentity.ShaderMap.OpacityMaskThreshold,
+		Properties.OpacityMaskThreshold);
+	EXPECT_EQ(BaseRenderData.PipelineIdentity.bTwoSided, Properties.bTwoSided);
+	EXPECT_EQ(
+		BaseRenderData.PipelineIdentity.DepthWritePolicy,
+		Properties.DepthWritePolicy);
 
 	Durin::FMaterialStaticProperties Invalid = Properties;
 	Invalid.OpacityMaskThreshold = 1.1f;

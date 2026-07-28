@@ -376,14 +376,29 @@ namespace Durin
 
 		struct FStaticMeshRendererState
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FStaticMeshVertexShader> VertexShader;
-			TShaderRef<FStaticMeshFragmentShader> FragmentShader;
+			struct FShaderMapEntry
+			{
+				FMaterialShaderMapIdentity Identity;
+				std::shared_ptr<FShaderMapBase> ShaderMap;
+				TShaderRef<FStaticMeshVertexShader> VertexShader;
+				TShaderRef<FStaticMeshFragmentShader> FragmentShader;
+			};
+
+			struct FPipelineEntry
+			{
+				FMaterialPipelineIdentity Identity;
+				std::shared_ptr<FShaderMapBase> ShaderMap;
+				TShaderRef<FStaticMeshVertexShader> VertexShader;
+				TShaderRef<FStaticMeshFragmentShader> FragmentShader;
+				FGraphicsPipelineStateRHIRef SolidPipelineState;
+				FGraphicsPipelineStateRHIRef WireframePipelineState;
+			};
+
 			FVertexDeclarationRHIRef VertexDeclaration;
-			FGraphicsPipelineStateRHIRef SolidPipelineState;
-			FGraphicsPipelineStateRHIRef WireframePipelineState;
 			FSamplerRHIRef BaseColorSampler;
-			bool bCreateAttempted = false;
+			std::vector<FShaderMapEntry> ShaderMapEntries;
+			std::vector<FPipelineEntry> PipelineEntries;
+			bool bBaseResourcesCreateAttempted = false;
 		};
 
 		struct FTextureCubeThumbnailRendererState
@@ -999,35 +1014,15 @@ namespace Durin
 			GSkyBoxState.Sampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
 		}
 
-		auto EnsureStaticMeshPipeline() -> void
+		auto EnsureStaticMeshBaseResources() -> bool
 		{
-			if (GStaticMeshState.bCreateAttempted)
+			if (GStaticMeshState.bBaseResourcesCreateAttempted)
 			{
-				return;
+				return GStaticMeshState.VertexDeclaration != nullptr
+					&& GStaticMeshState.BaseColorSampler != nullptr;
 			}
 
-			GStaticMeshState.bCreateAttempted = true;
-
-			FShaderCompileOptions CompileOptions;
-			FShaderType& VertexShaderType = FStaticMeshVertexShader::StaticType();
-			FShaderType& FragmentShaderType = FStaticMeshFragmentShader::StaticType();
-			std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
-			std::shared_ptr<FShaderMapBase> ShaderMap = std::make_shared<FShaderMapBase>();
-			std::string ErrorMessage;
-			if (!ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions, ErrorMessage))
-			{
-				DURIN_ERROR("Failed to initialize StaticMesh shader map: {}", ErrorMessage);
-				return;
-			}
-
-			auto* VertexShader = static_cast<FStaticMeshVertexShader*>(ShaderMap->GetShader(&VertexShaderType));
-			auto* FragmentShader = static_cast<FStaticMeshFragmentShader*>(ShaderMap->GetShader(&FragmentShaderType));
-			check(VertexShader);
-			check(FragmentShader);
-
-			GStaticMeshState.ShaderMap = ShaderMap;
-			GStaticMeshState.VertexShader = TShaderRef<FStaticMeshVertexShader>(VertexShader, ShaderMap.get());
-			GStaticMeshState.FragmentShader = TShaderRef<FStaticMeshFragmentShader>(FragmentShader, ShaderMap.get());
+			GStaticMeshState.bBaseResourcesCreateAttempted = true;
 
 			FVertexDeclarationElementList VertexDeclElements;
 			constexpr uint32 VertexStride = sizeof(FVector3f);
@@ -1041,22 +1036,118 @@ namespace Durin
 			VertexDeclElements[6] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f) * 3, EVertexElementType::Float2, 6, AttributeStride);
 			VertexDeclElements[7] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, Color), EVertexElementType::UByte4N, 7, AttributeStride);
 			GStaticMeshState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
+			GStaticMeshState.BaseColorSampler = RHICreateSampler(FRHISamplerDesc::LinearRepeat());
+			return GStaticMeshState.VertexDeclaration != nullptr
+				&& GStaticMeshState.BaseColorSampler != nullptr;
+		}
+
+		auto GetOrCreateStaticMeshShaderMap(
+			const FMaterialShaderMapIdentity& Identity
+		) -> FStaticMeshRendererState::FShaderMapEntry*
+		{
+			const auto Existing = std::ranges::find(
+				GStaticMeshState.ShaderMapEntries,
+				Identity,
+				&FStaticMeshRendererState::FShaderMapEntry::Identity);
+			if (Existing != GStaticMeshState.ShaderMapEntries.end())
+			{
+				return Existing->ShaderMap != nullptr
+					&& Existing->VertexShader
+					&& Existing->FragmentShader
+					? &*Existing
+					: nullptr;
+			}
+
+			FStaticMeshRendererState::FShaderMapEntry& Entry =
+				GStaticMeshState.ShaderMapEntries.emplace_back();
+			Entry.Identity = Identity;
+
+			FShaderCompileOptions CompileOptions;
+			CompileOptions.Macros.emplace_back(
+				"DURIN_MATERIAL_BLEND_MODE",
+				std::to_string(static_cast<uint8>(Identity.BlendMode)));
+			CompileOptions.Macros.emplace_back(
+				"DURIN_MATERIAL_SHADING_MODEL",
+				std::to_string(static_cast<uint8>(Identity.ShadingModel)));
+			CompileOptions.Macros.emplace_back(
+				"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS",
+				std::to_string(std::bit_cast<uint32>(Identity.OpacityMaskThreshold)));
+			FShaderType& VertexShaderType = FStaticMeshVertexShader::StaticType();
+			FShaderType& FragmentShaderType = FStaticMeshFragmentShader::StaticType();
+			std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
+			std::shared_ptr<FShaderMapBase> ShaderMap = std::make_shared<FShaderMapBase>();
+			std::string ErrorMessage;
+			if (!ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions, ErrorMessage))
+			{
+				DURIN_ERROR("Failed to initialize StaticMesh material shader map: {}", ErrorMessage);
+				return nullptr;
+			}
+
+			auto* VertexShader = static_cast<FStaticMeshVertexShader*>(ShaderMap->GetShader(&VertexShaderType));
+			auto* FragmentShader = static_cast<FStaticMeshFragmentShader*>(ShaderMap->GetShader(&FragmentShaderType));
+			check(VertexShader);
+			check(FragmentShader);
+			Entry.ShaderMap = ShaderMap;
+			Entry.VertexShader = TShaderRef<FStaticMeshVertexShader>(VertexShader, ShaderMap.get());
+			Entry.FragmentShader = TShaderRef<FStaticMeshFragmentShader>(FragmentShader, ShaderMap.get());
+			return &Entry;
+		}
+
+		auto GetOrCreateStaticMeshPipeline(
+			const FMaterialPipelineIdentity& Identity
+		) -> FStaticMeshRendererState::FPipelineEntry*
+		{
+			if (!EnsureStaticMeshBaseResources()) return nullptr;
+			const auto Existing = std::ranges::find(
+				GStaticMeshState.PipelineEntries,
+				Identity,
+				&FStaticMeshRendererState::FPipelineEntry::Identity);
+			if (Existing != GStaticMeshState.PipelineEntries.end())
+			{
+				return Existing->SolidPipelineState != nullptr
+					&& Existing->WireframePipelineState != nullptr
+					&& Existing->VertexShader
+					&& Existing->FragmentShader
+					? &*Existing
+					: nullptr;
+			}
+
+			FStaticMeshRendererState::FShaderMapEntry* ShaderMapEntry =
+				GetOrCreateStaticMeshShaderMap(Identity.ShaderMap);
+			if (ShaderMapEntry == nullptr) return nullptr;
+
+			FStaticMeshRendererState::FPipelineEntry& Entry =
+				GStaticMeshState.PipelineEntries.emplace_back();
+			Entry.Identity = Identity;
+			Entry.ShaderMap = ShaderMapEntry->ShaderMap;
+			Entry.VertexShader = ShaderMapEntry->VertexShader;
+			Entry.FragmentShader = ShaderMapEntry->FragmentShader;
 
 			FGraphicsPipelineStateInitializer Initializer;
 			Initializer.RenderTargetLayout = RendererRenderTargetLayouts::MakeSceneTargets();
-			Initializer.BoundShaders.VertexShader = GStaticMeshState.VertexShader.GetRHIShader();
-			Initializer.BoundShaders.FragmentShader = GStaticMeshState.FragmentShader.GetRHIShader();
+			Initializer.BoundShaders.VertexShader = Entry.VertexShader.GetRHIShader();
+			Initializer.BoundShaders.FragmentShader = Entry.FragmentShader.GetRHIShader();
 			Initializer.VertexDeclaration = GStaticMeshState.VertexDeclaration;
 			Initializer.bEnableAlphaBlend = false;
 			Initializer.bEnableDepthTest = true;
 			Initializer.bEnableDepthWrite = true;
 			Initializer.bEnableBackFaceCulling = false;
-			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
-			GStaticMeshState.SolidPipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("StaticMeshSolidPipeline", Initializer);
+			Initializer.PipelineLayout = Entry.ShaderMap->GetMergedPipelineLayout();
+			const size_t PipelineIndex = GStaticMeshState.PipelineEntries.size() - 1;
+			Entry.SolidPipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
+				FName(std::format("StaticMeshSolidPipeline_{}", PipelineIndex)),
+				Initializer);
 			Initializer.PolygonMode = FGraphicsPipelineStateInitializer::EPolygonMode::Line;
 			Initializer.bEnableBackFaceCulling = false;
-			GStaticMeshState.WireframePipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("StaticMeshWireframePipeline", Initializer);
-			GStaticMeshState.BaseColorSampler = RHICreateSampler(FRHISamplerDesc::LinearRepeat());
+			Entry.WireframePipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
+				FName(std::format("StaticMeshWireframePipeline_{}", PipelineIndex)),
+				Initializer);
+			if (Entry.SolidPipelineState == nullptr || Entry.WireframePipelineState == nullptr)
+			{
+				DURIN_ERROR("Failed to initialize StaticMesh material pipeline {}", PipelineIndex);
+				return nullptr;
+			}
+			return &Entry;
 		}
 
 		auto EnsureTextureCubeThumbnailPipeline() -> void
@@ -1377,13 +1468,6 @@ namespace Durin
 			TransformUniform.TransformParams.x = TransformDeterminant < 0.0f ? -1.0f : 1.0f;
 			const FRHIUniformBufferRange TransformUniformBuffer = CommandList.AllocateDynamicUniformBuffer(&TransformUniform, sizeof(TransformUniform));
 
-			FGraphicsPipelineStateRHIRef Pipeline = RasterMode == ERasterMode::Wireframe ? GStaticMeshState.WireframePipelineState : GStaticMeshState.SolidPipelineState;
-			CommandList.SetGraphicsPipelineState(*Pipeline);
-
-			FStaticMeshVertexShader::FParameters VertexShaderParameters;
-			VertexShaderParameters.Transform = TransformUniformBuffer;
-			SetShaderParameters(CommandList, GStaticMeshState.VertexShader, VertexShaderParameters);
-
 			FStaticMeshLightingUniform LightingUniform;
 			LightingUniform.LightDirection =
 				FVector4f(FVector3f(Light.Direction), Light.RimLightIntensity);
@@ -1398,6 +1482,19 @@ namespace Durin
 			{
 				if (Section.IndexCount == 0 || static_cast<uint64>(Section.FirstIndex) + Section.IndexCount > LOD.Indices.size()) continue;
 				const FMaterialRenderData& Material = Proxy.GetMaterialRenderData(Section.MaterialSlotIndex);
+				FStaticMeshRendererState::FPipelineEntry* PipelineEntry =
+					GetOrCreateStaticMeshPipeline(Material.PipelineIdentity);
+				if (PipelineEntry == nullptr) continue;
+				const FGraphicsPipelineStateRHIRef Pipeline =
+					RasterMode == ERasterMode::Wireframe
+						? PipelineEntry->WireframePipelineState
+						: PipelineEntry->SolidPipelineState;
+				CommandList.SetGraphicsPipelineState(*Pipeline);
+
+				FStaticMeshVertexShader::FParameters VertexShaderParameters;
+				VertexShaderParameters.Transform = TransformUniformBuffer;
+				SetShaderParameters(CommandList, PipelineEntry->VertexShader, VertexShaderParameters);
+
 				FStaticMeshMaterialUniform MaterialUniform;
 				MaterialUniform.BaseColor = Material.BaseColor;
 				MaterialUniform.Params = FVector4f(Material.SpecularStrength, Material.Shininess, RenderMode == ERenderMode::Lit ? 1.0f : 0.0f, 0.0f);
@@ -1407,7 +1504,7 @@ namespace Durin
 				FragmentShaderParameters.Material = MaterialUniformBuffer;
 				FragmentShaderParameters.BaseColorTexture = ResolveTexture_RenderThread(Material.BaseColorTexture, EDefaultTexture::White);
 				FragmentShaderParameters.BaseColorSampler = GStaticMeshState.BaseColorSampler;
-				SetShaderParameters(CommandList, GStaticMeshState.FragmentShader, FragmentShaderParameters);
+				SetShaderParameters(CommandList, PipelineEntry->FragmentShader, FragmentShaderParameters);
 				CommandList.DrawIndexed(Section.IndexCount, Section.FirstIndex, 0);
 			}
 		}
@@ -1749,7 +1846,7 @@ namespace Durin
 	{
 		ENQUEUE_RENDER_COMMAND(ReleaseRendererResources)([](FRHICommandListImmediate&) {
 			GDefaultTextures = {};
-			GStaticMeshState.BaseColorSampler = nullptr;
+			GStaticMeshState = {};
 			GTextureCubeThumbnailState = {};
 			GSkyBoxState.Sampler = nullptr;
 			GOverlayIconState.Atlas = nullptr;
@@ -1958,9 +2055,7 @@ namespace Durin
 
 		DrawSkyBox(CommandList, *Scene, View);
 
-		EnsureStaticMeshPipeline();
-		if (GStaticMeshState.SolidPipelineState == nullptr || GStaticMeshState.WireframePipelineState == nullptr || GStaticMeshState.BaseColorSampler == nullptr
-			|| !GStaticMeshState.VertexShader || !GStaticMeshState.FragmentShader) return;
+		if (!EnsureStaticMeshBaseResources()) return;
 
 		const ERenderMode RenderMode = GRenderMode.load(std::memory_order_relaxed);
 		const ERasterMode RasterMode = GRasterMode.load(std::memory_order_relaxed);

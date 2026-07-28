@@ -80,7 +80,7 @@ namespace Durin
 		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::MaterialData))
 		{
 			FMaterialRenderUpdate Update;
-			if (BuildMaterialRenderUpdate(EMaterialRenderDirtyFlags::ParameterValues, Update))
+			if (BuildMaterialRenderUpdate(EMaterialRenderDirtyFlags::DynamicParameters, Update))
 			{
 				Scene->UpdatePrimitiveMaterial(SceneId, Update);
 			}

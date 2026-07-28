@@ -25,9 +25,14 @@ editor presentation, and renderer consumption at explicit boundaries.
   two-sided state, depth-write policy, and masked-opacity threshold. Instances
   inherit that complete set through the canonical parent chain; they do not
   store static overrides.
-- Static properties currently define only the asset-domain contract. Until
-  shader-map and pipeline identities consume them, all static meshes continue
-  to use the fixed opaque renderer policy.
+- Resolved static properties form a versioned shader-map identity (blend mode,
+  shading model, and mask threshold) nested in a pipeline identity (shader map,
+  two-sided state, and depth-write policy). The renderer lazily caches shader
+  maps by shader identity and solid/wireframe pairs by pipeline identity, so a
+  pipeline-only change does not rebuild the shader map.
+- The identity split does not yet implement the policies. Cached entries still
+  use the fixed opaque, depth-writing, two-sided pipeline and the fixed shader;
+  Stage 4 owns visible blend, mask, culling, depth, and shading behavior.
 
 The current shader contract has exactly five built-in declarations:
 `BaseColor`, `BaseColorTexture`, `Opacity`, `SpecularStrength`, and `Shininess`.
@@ -56,14 +61,17 @@ declarations and a compiled renderer layout are deferred work.
   never reads reflected material objects.
 - Scene-proxy construction walks the current mesh slots in order and emits one
   compact `FMaterialRenderUpdate` snapshot per slot. A mesh assignment or
-  rebuilt mesh render layout replaces the proxy; parameter-only material and
-  parent changes update the existing proxy in place.
+  rebuilt mesh render layout replaces the proxy; dynamic parameter, static
+  identity, and parent changes update the existing proxy in place.
 - A material update context batches changed roots, computes the affected loaded
   material closure from canonical parent chains, advances each affected
   material version once, and scans one stable loaded-object snapshot for
   static-mesh component slots that currently resolve to an affected material.
   Multiple roots merge dirty flags before any component update, and an inherited
   change adds the parent-chain dirty flag.
+- Dirty flags distinguish dynamic parameters, shader-map identity, and
+  pipeline-state identity. Parent changes carry all three because an inherited
+  static-property set can change together with resolved parameter values.
 - The component scan reads only current mesh defaults and component overrides.
   One changed material emits an update for every current slot that resolves to
   it; duplicate slot use does not repeat the component scan. A component-wide
@@ -177,7 +185,10 @@ and UI behavior belongs to the editor
 - Static properties are authored on base materials and inherited atomically by
   instances; per-instance static overrides require an explicit future
   permutation design.
-- Static properties belong in shader-map/permutation keys; dynamic parameters belong in uniform/resource bindings.
+- Static properties belong in shader-map/permutation keys; dynamic parameters
+  belong in uniform/resource bindings. A dynamic-only update reuses the cached
+  identity, while a static update causes the next draw to resolve or create the
+  matching shader-map and pipeline entry.
 - Material object mutation crosses to the rendering thread through explicit
   update commands. Replacing the material assigned to a component still
   rebuilds its scene proxy because the set of render snapshots changes.
