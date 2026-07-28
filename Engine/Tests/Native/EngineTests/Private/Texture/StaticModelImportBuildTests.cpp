@@ -349,7 +349,7 @@ TEST(FStaticModelImportBuildTests, LaterCandidateAndDependencyFailuresRollBackEa
 	{
 		SCOPED_TRACE(FailureIndex);
 		FScopedDerivedDataCacheRoot CacheRoot(
-			std::filesystem::path(DURIN_TEST_WORK_DIR)
+			Durin::Testing::GetTestWorkDirectory()
 			/ std::format("StaticModelImportLaterFailureDDC{}", FailureIndex));
 		const size_t TextureCount =
 			FailurePoints[FailureIndex]
@@ -396,7 +396,7 @@ TEST(FStaticModelImportBuildTests, ExplicitAndDestructorRollbackRestorePreparedA
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticModelImportLifecycleDDC");
+		Durin::Testing::GetTestWorkDirectory() / "StaticModelImportLifecycleDDC");
 	const Durin::FAssetPath ExplicitPath =
 		MakeAssetPath("/TextureImportTests/StaticModelImport/ExplicitRollback");
 	{
@@ -435,7 +435,7 @@ TEST(FStaticModelImportBuildTests, PublishedAttemptSurvivesTransactionDestructio
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticModelImportPublishedOwnershipDDC");
+		Durin::Testing::GetTestWorkDirectory() / "StaticModelImportPublishedOwnershipDDC");
 	const Durin::FAssetPath Path =
 		MakeAssetPath("/TextureImportTests/StaticModelImport/PublishedOwnership");
 	{
@@ -526,9 +526,9 @@ TEST(FStaticModelImportBuildTests, RejectsExternalInputChangedAfterPreparation)
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticModelImportChangedInputDDC");
+		Durin::Testing::GetTestWorkDirectory() / "StaticModelImportChangedInputDDC");
 	const std::filesystem::path External =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "ChangedExternalModelImage.png";
+		Durin::Testing::GetTestWorkDirectory() / "ChangedExternalModelImage.png";
 	WriteTextureFixture(External);
 
 	Durin::FMultiAssetImportTransaction Transaction;
