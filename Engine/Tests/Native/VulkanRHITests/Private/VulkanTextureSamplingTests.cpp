@@ -459,6 +459,7 @@ namespace Durin
 		Bc3Texture = nullptr;
 		Bc5Texture = nullptr;
 		Bc7Texture = nullptr;
+		RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 		RHICmdList.SwitchPipeline(ERHIPipeline::None);
 		RHIExit();
 	}
