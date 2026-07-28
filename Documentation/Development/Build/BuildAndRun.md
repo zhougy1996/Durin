@@ -21,18 +21,19 @@ worktree with `DevTool worktree prepare`:
 - Git, CMake 3.24 or newer, and Ninja. The Ninja bundled with Visual Studio is accepted.
 - The LunarG Vulkan SDK. `VULKAN_SDK` must name an installation containing `Include/vulkan/vulkan.h`, `Include/vma/vk_mem_alloc.h`, and `Lib/vulkan-1.lib`. Current SDK releases include VMA. For an older SDK, either update it or download `vk_mem_alloc.h` from VulkanMemoryAllocator and place it under that SDK's `Include/vma` directory; Durin does not bootstrap a second VMA copy.
 
-In a normal checkout, `DevTool setup` first creates
-`.agents/build-config.json` from its tracked template when the local file is
-missing, then runs a non-mutating prerequisite check before it creates a
-virtual environment, downloads packages, or builds third-party libraries.
-Existing local configuration is never overwritten, so if preflight reports a
-tool that automatic detection cannot find, edit the configuration and rerun
-`DevTool setup`. Preflight reports all detected prerequisite problems together
-so an old MSVC toolset, incomplete Vulkan SDK, or missing command does not
-first appear halfway through bootstrap or during the main build. DurinDevTool
-separately validates the Visual Studio English language pack when it first
-initializes MSVC. Setup initializes only the main checkout; a linked worktree
-exits with an error directing the caller to `DevTool worktree prepare`.
+In a normal checkout, `DevTool setup` runs a non-mutating prerequisite check,
+then creates `.agents/build-config.json` from its tracked template when the
+local file is missing. It also copies any missing VS Code `settings.json`,
+`launch.json`, and `extensions.json` files from `Templates/VSCode` into the
+ignored local `.vscode` directory. Existing local configuration files are never
+overwritten, so if preflight reports a tool that automatic detection cannot
+find, edit the configuration and rerun `DevTool setup`. Preflight reports all
+detected prerequisite problems together so an old MSVC toolset, incomplete
+Vulkan SDK, or missing command does not first appear halfway through bootstrap
+or during the main build. DurinDevTool separately validates the Visual Studio
+English language pack when it first initializes MSVC. Setup initializes only
+the main checkout; a linked worktree exits with an error directing the caller
+to `DevTool worktree prepare`.
 Because Setup must install DurinDevTool's Python packages, its terminal styling
 uses a standard-library-only fallback until the prepared environment is ready.
 `setup --plain` and `NO_COLOR` disable that styling as usual.
@@ -43,8 +44,10 @@ bindings and native `libclang` library), and prepares all repository-managed
 third-party libraries, including development-only dependencies such as Tracy.
 The operation is idempotent and can be rerun after a failed prerequisite check
 or interrupted download. `DevTool worktree prepare` owns linked-worktree
-preparation: it links `.agents`, `Engine/External`, and `.venv` from the
-prepared source worktree before running preflight.
+preparation: it links `.agents`, `.vscode`, `Engine/External`, and `.venv` from
+the prepared source worktree before running preflight. If a linked worktree
+already has a non-empty local `.agents` or `.vscode` directory, preparation
+preserves it with a `.pre-link-backup` suffix before creating the shared link.
 
 Dependency-backed DurinDevTool commands intentionally require `.venv`; they ask
 for `DevTool setup` in the main checkout or `DevTool worktree prepare` in a
@@ -72,12 +75,12 @@ linked worktrees:
 ```
 
 `worktree open` opens all registered worktrees in Windows Terminal. `add`
-creates and prepares a worktree. `prepare` is idempotent and can
-initialize manually created worktrees or repair their shared links; omit its path
-to target the current checkout, pass `--source` for a non-default prepared
-worktree, or pass `--dry-run` to preview the operation. `remove` is the required
-deletion path for prepared Windows worktrees because it validates and detaches
-the shared `.agents`, `.venv`, and `Engine/External` directory junctions before
+creates and prepares a worktree. `prepare` is idempotent and can initialize
+manually created worktrees or repair their shared links; omit its path to target
+the current checkout, pass `--source` for a non-default prepared worktree, or
+pass `--dry-run` to preview the operation. `remove` is the required deletion
+path for prepared Windows worktrees because it validates and detaches the shared
+`.agents`, `.vscode`, `.venv`, and `Engine/External` directory junctions before
 invoking Git. Do not recursively delete a prepared worktree or call
 `git worktree remove` directly: a deletion implementation that follows an NTFS
 junction can erase the corresponding directory in the main worktree. Use

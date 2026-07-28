@@ -14,6 +14,8 @@ from .preflight import validate_prerequisites
 
 
 MINIMUM_PYTHON = (3, 10)
+VSCODE_TEMPLATE_DIRECTORY = Path("Templates") / "VSCode"
+VSCODE_CONFIGURATION_FILES = ("settings.json", "launch.json", "extensions.json")
 
 
 def is_linked_worktree(repository_root: Path) -> bool:
@@ -97,6 +99,38 @@ def ensure_python_environment(repository_root: Path) -> Path:
     return python
 
 
+def ensure_vscode_configuration(repository_root: Path) -> Path:
+    target_directory = repository_root / ".vscode"
+    template_directory = repository_root / VSCODE_TEMPLATE_DIRECTORY
+    if target_directory.exists() and not target_directory.is_dir():
+        raise BootstrapError(
+            f'VS Code configuration path is not a directory: "{target_directory}"'
+        )
+    missing_templates = [
+        template_directory / file_name
+        for file_name in VSCODE_CONFIGURATION_FILES
+        if not (template_directory / file_name).is_file()
+    ]
+    if missing_templates:
+        formatted = "\n".join(f'  "{path}"' for path in missing_templates)
+        raise BootstrapError(f"VS Code configuration templates are missing:\n{formatted}")
+
+    target_directory.mkdir(parents=True, exist_ok=True)
+    for file_name in VSCODE_CONFIGURATION_FILES:
+        target = target_directory / file_name
+        if target.is_file() and not target.is_symlink():
+            print(f'VS Code configuration already exists: "{target}"')
+            continue
+        if target.exists() or target.is_symlink():
+            raise BootstrapError(
+                f'VS Code configuration path is not a regular file: "{target}"'
+            )
+        template = template_directory / file_name
+        shutil.copy2(template, target)
+        print(f'Created VS Code configuration: "{target}"')
+    return target_directory
+
+
 def setup_repository(repository_root: Path) -> Path:
     """Prepare a main checkout in preflight-before-mutation order."""
     repository_root = repository_root.resolve()
@@ -110,6 +144,7 @@ def setup_repository(repository_root: Path) -> Path:
         ensure_agent_config(repository_root)
     except AgentConfigError as exc:
         raise BootstrapError(str(exc)) from exc
+    ensure_vscode_configuration(repository_root)
     python = ensure_python_environment(repository_root)
     prepare_dependencies(
         repository_root,

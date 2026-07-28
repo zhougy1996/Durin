@@ -155,6 +155,34 @@ class TestWorktreeTool:
                 services.prepare_registered_worktree(linked, source_value=str(main), link_type='auto', dry_run=True)
         prepare_agent.assert_not_called()
 
+    def test_prepare_links_shared_vscode_configuration(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        root = Path(directory)
+        main = root / 'main'
+        linked = root / 'feature'
+        for path in (
+            main / '.agents',
+            main / '.vscode',
+            main / 'Engine' / 'External',
+            main / '.venv',
+            linked,
+        ):
+            path.mkdir(parents=True)
+        worktrees = [services.Worktree(main, 'main'), services.Worktree(linked, 'feature')]
+        with mock.patch.object(services, 'get_worktrees', return_value=worktrees), mock.patch.object(services, 'prepare_agent_link'), mock.patch.object(services, 'prepare_vscode_link') as prepare_vscode, mock.patch.object(services, 'prepare_directory_link'), mock.patch.object(services, 'run_preflight'):
+            services.prepare_registered_worktree(
+                linked,
+                source_value=str(main),
+                link_type='auto',
+                dry_run=False,
+            )
+        prepare_vscode.assert_called_once_with(
+            main,
+            linked,
+            link_type=services.choose_link_type('auto'),
+            dry_run=False,
+        )
+
     def test_remove_refuses_unexpected_directory_links(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
@@ -163,6 +191,14 @@ class TestWorktreeTool:
         with mock.patch.object(services, 'directory_links_under', return_value=[unexpected]):
             with pytest.raises(services.WorktreeToolError, match='unexpected directory links'):
                 services.validate_directory_links(worktree)
+
+    def test_remove_accepts_shared_vscode_link(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        root = Path(directory)
+        worktree = services.Worktree(root, 'feature')
+        vscode = root / '.vscode'
+        with mock.patch.object(services, 'directory_links_under', return_value=[vscode]), mock.patch.object(services, 'is_link_like', side_effect=lambda path: path == vscode):
+            assert services.validate_directory_links(worktree) == [vscode]
 
     def test_remove_detaches_shared_links_before_git_removal(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
@@ -314,6 +350,42 @@ class TestAgentConfigLifecycle:
         target = agent_config.ensure_agent_config(root, dry_run=True)
         assert not target.exists()
 
+
+class TestVSCodeConfigLifecycle:
+
+    @staticmethod
+    def create_repo(root: Path) -> None:
+        template_directory = root / setup.VSCODE_TEMPLATE_DIRECTORY
+        template_directory.mkdir(parents=True)
+        for file_name in setup.VSCODE_CONFIGURATION_FILES:
+            (template_directory / file_name).write_text(
+                f'template {file_name}\n',
+                encoding='utf-8',
+            )
+
+    def test_initialize_copies_only_missing_files(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        root = Path(directory)
+        self.create_repo(root)
+        vscode = root / '.vscode'
+        vscode.mkdir()
+        settings = vscode / 'settings.json'
+        settings.write_text('local settings\n', encoding='utf-8')
+
+        assert setup.ensure_vscode_configuration(root) == vscode
+
+        assert settings.read_text(encoding='utf-8') == 'local settings\n'
+        assert (vscode / 'launch.json').read_text(encoding='utf-8') == 'template launch.json\n'
+        assert (vscode / 'extensions.json').read_text(encoding='utf-8') == 'template extensions.json\n'
+
+    def test_missing_template_does_not_create_target_directory(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        root = Path(directory)
+        with pytest.raises(dependencies.BootstrapError, match='templates are missing'):
+            setup.ensure_vscode_configuration(root)
+        assert not (root / '.vscode').exists()
+
+
 class TestBootstrapRegistry:
 
     @pytest.fixture(autouse=True)
@@ -363,9 +435,9 @@ class TestSetupOrchestration:
         root = Path(directory)
         events: list[str] = []
         python = root / '.venv' / 'Scripts' / 'python.exe'
-        with mock.patch.object(setup, 'validate_prerequisites', side_effect=lambda _: events.append('preflight')), mock.patch.object(setup, 'ensure_agent_config', side_effect=lambda _: events.append('config')), mock.patch.object(setup, 'ensure_python_environment', side_effect=lambda _: events.append('python') or python), mock.patch.object(setup, 'prepare_dependencies', side_effect=lambda *_: events.append('dependencies')):
+        with mock.patch.object(setup, 'validate_prerequisites', side_effect=lambda _: events.append('preflight')), mock.patch.object(setup, 'ensure_agent_config', side_effect=lambda _: events.append('config')), mock.patch.object(setup, 'ensure_vscode_configuration', side_effect=lambda _: events.append('vscode')), mock.patch.object(setup, 'ensure_python_environment', side_effect=lambda _: events.append('python') or python), mock.patch.object(setup, 'prepare_dependencies', side_effect=lambda *_: events.append('dependencies')):
             assert setup.setup_repository(root) == python
-        assert events == ['preflight', 'config', 'python', 'dependencies']
+        assert events == ['preflight', 'config', 'vscode', 'python', 'dependencies']
 
     def test_linked_worktree_setup_points_only_to_unified_prepare(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
@@ -379,7 +451,7 @@ class TestSetupOrchestration:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
         python = root / '.venv' / 'Scripts' / 'python.exe'
-        with mock.patch.object(setup, 'validate_prerequisites'), mock.patch.object(setup, 'ensure_agent_config'), mock.patch.object(setup, 'ensure_python_environment', return_value=python), mock.patch.object(setup, 'prepare_dependencies') as prepare:
+        with mock.patch.object(setup, 'validate_prerequisites'), mock.patch.object(setup, 'ensure_agent_config'), mock.patch.object(setup, 'ensure_vscode_configuration'), mock.patch.object(setup, 'ensure_python_environment', return_value=python), mock.patch.object(setup, 'prepare_dependencies') as prepare:
             setup.setup_repository(root)
         request = prepare.call_args.args[1]
         assert request.use_all

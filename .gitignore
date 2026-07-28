@@ -6,8 +6,8 @@
 # Build Directories
 /Build/
 /.idea/
-/.vscode/*
-!/.vscode/settings.json
+/.vscode/
+/.vscode.pre-link-backup/
 /.venv/
 /out/
 /.claude/

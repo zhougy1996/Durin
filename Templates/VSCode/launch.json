@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Durin Editor (Debug)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe",
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false,
+      "console": "integratedTerminal"
+    }
+  ]
+}
