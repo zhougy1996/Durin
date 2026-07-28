@@ -18,7 +18,18 @@ mutations. The completed `StaticModelImportStage3Preparation.md` gate extracted
 independent glTF/GLB and Assimp-backed FBX adapters, replaced repeated
 transaction resolution with one immutable resolved plan, removed the raw FBX
 DCC-marker scan, and moved rollback injection to real work boundaries. Stage 3
-is now unblocked and is the next executable stage.
+is now in progress from baseline
+`ee31b054473985397e439d32944ad8edb0e01778`. Its first implementation slice
+adds a mutation-free `PlanStaticModelImport` entrypoint that parses the source
+once, retains the immutable normalized scene for execution, selects the stable
+`/Engine/Materials/ImportedSurface` parent identity, and deterministically
+plans the root StaticMesh, used material instances, semantically deduplicated
+BaseColor Texture2D assets, source reference/ingest/extract operations, and
+warnings. Candidate asset names receive stable case-insensitive suffixes, and
+every planned package path is collision-checked before any asset creation.
+Material/texture/root candidate construction, manifest persistence, dialog
+presentation, and rendered acceptance coverage remain open. Validation passed
+all 18 `AssetImportTests`, all 57 `TextureTests`, and the all-plan validator.
 
 Source dependency terminology now follows the unified logical-mount contract
 selected by `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`: persisted inputs
@@ -808,7 +819,7 @@ vertical slices.
 
 - [ ] Add the engine-owned standard imported-surface material with stable
   asset identity and canonical current parameter definitions.
-- [ ] Add deterministic output planning for the root StaticMesh, used material
+- [x] Add deterministic output planning for the root StaticMesh, used material
   instances, and semantically deduplicated textures.
 - [ ] Create one Texture2D per planned color image with
   `ETextureUsage::Color`, explicit sRGB, and the selected compression settings.

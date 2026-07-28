@@ -1,5 +1,6 @@
 #include "TextureTestSupport.h"
 
+#include "Materials/Material.h"
 #include "Misc/FileHelper.h"
 #include "StaticModelImportBuild.h"
 #include "StaticModelImportBuildInternal.h"
@@ -134,6 +135,94 @@ TEST(FStaticModelImportBuildTests, DerivesStableEmbeddedSourceLocations)
 	EXPECT_TRUE(First.Path.starts_with(
 		"/TextureImportTests/Models/Robot_Embedded/Base_Color_"));
 	EXPECT_TRUE(First.Path.ends_with(".png"));
+}
+
+TEST(FStaticModelImportBuildTests, PlansDeterministicOpaqueModelOutputsWithoutMutation)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	const std::filesystem::path Source =
+		std::filesystem::path(DURIN_TEST_DATA_DIR)
+		/ "StaticModelMaterials/MaterialContract.gltf";
+	const Durin::FAssetPath RootPath =
+		MakeAssetPath("/TextureImportTests/StaticModelImport/MaterialContract");
+	const Durin::FStaticModelImportPlanRequest Request{
+		.SourceFile = Source,
+		.RootAssetPath = RootPath,
+		.RootSourceDestination = {
+			.Path = "/TextureImportTests/Models/MaterialContract.gltf"}};
+
+	const Durin::FStaticModelImportPlanResult First =
+		Durin::PlanStaticModelImport(Request);
+	ASSERT_TRUE(First) << First.Message;
+	const Durin::FStaticModelImportPlanResult Repeat =
+		Durin::PlanStaticModelImport(Request);
+	ASSERT_TRUE(Repeat) << Repeat.Message;
+
+	EXPECT_EQ(First.Plan.StandardMaterialPath, Durin::StandardImportedSurfaceMaterialPath);
+	ASSERT_EQ(First.Plan.Assets.size(), 5u);
+	EXPECT_EQ(First.Plan.Assets[0].Kind, Durin::EStaticModelPlannedAssetKind::StaticMesh);
+	EXPECT_EQ(First.Plan.Assets[0].AssetPath, RootPath);
+	EXPECT_EQ(
+		First.Plan.Assets[1].AssetPath.ToString(),
+		"/TextureImportTests/StaticModelImport/MaterialContract_Textures/RedPixel_BaseColor");
+	EXPECT_EQ(First.Plan.Assets[1].Kind, Durin::EStaticModelPlannedAssetKind::Texture2D);
+	EXPECT_EQ(
+		First.Plan.Assets[2].AssetPath.ToString(),
+		"/TextureImportTests/StaticModelImport/MaterialContract_Materials/Shared");
+	EXPECT_EQ(
+		First.Plan.Assets[3].AssetPath.ToString(),
+		"/TextureImportTests/StaticModelImport/MaterialContract_Materials/Shared_2");
+	EXPECT_EQ(
+		First.Plan.Assets[4].AssetPath.ToString(),
+		"/TextureImportTests/StaticModelImport/MaterialContract_Materials/Blend");
+	for (size_t AssetIndex = 2; AssetIndex < First.Plan.Assets.size(); ++AssetIndex)
+	{
+		EXPECT_EQ(
+			First.Plan.Assets[AssetIndex].Kind,
+			Durin::EStaticModelPlannedAssetKind::MaterialInstance);
+		ASSERT_TRUE(First.Plan.Assets[AssetIndex].TextureAssetIndex);
+		EXPECT_EQ(*First.Plan.Assets[AssetIndex].TextureAssetIndex, 1u);
+	}
+	ASSERT_EQ(First.Plan.Sources.size(), 3u);
+	EXPECT_EQ(First.Plan.Sources[0].Action, Durin::EStaticModelPlannedSourceAction::Ingest);
+	EXPECT_EQ(
+		First.Plan.Sources[0].SourcePath.Path,
+		"/TextureImportTests/Models/MaterialContract.gltf");
+	EXPECT_EQ(
+		First.Plan.Sources[1].SourcePath.Path,
+		"/TextureImportTests/Models/Triangle.bin");
+	EXPECT_EQ(
+		First.Plan.Sources[2].SourcePath.Path,
+		"/TextureImportTests/Models/Red.png");
+	EXPECT_TRUE(std::ranges::all_of(
+		First.Plan.Sources,
+		[](const Durin::FStaticModelPlannedSource& Planned) {
+			return Planned.Action == Durin::EStaticModelPlannedSourceAction::Ingest;
+		}));
+	EXPECT_FALSE(First.Plan.Warnings.empty());
+
+	ASSERT_EQ(First.Plan.Assets.size(), Repeat.Plan.Assets.size());
+	for (size_t Index = 0; Index < First.Plan.Assets.size(); ++Index)
+	{
+		EXPECT_EQ(First.Plan.Assets[Index].Kind, Repeat.Plan.Assets[Index].Kind);
+		EXPECT_EQ(First.Plan.Assets[Index].AssetPath, Repeat.Plan.Assets[Index].AssetPath);
+		EXPECT_EQ(First.Plan.Assets[Index].SourceIndex, Repeat.Plan.Assets[Index].SourceIndex);
+		EXPECT_EQ(
+			First.Plan.Assets[Index].TextureAssetIndex,
+			Repeat.Plan.Assets[Index].TextureAssetIndex);
+	}
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(RootPath), nullptr);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(RootPath), nullptr);
+
+	Durin::DMaterial* Collision = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(First.Plan.Assets[1].AssetPath, Collision));
+	const Durin::FStaticModelImportPlanResult Blocked =
+		Durin::PlanStaticModelImport(Request);
+	EXPECT_FALSE(Blocked);
+	EXPECT_NE(Blocked.Message.find("collides with an existing asset"), std::string::npos);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(RootPath), nullptr);
+	ASSERT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Collision->GetPackage()));
 }
 
 TEST(FStaticModelImportBuildTests, ReferencesMountedExternalImageWithoutCopying)
