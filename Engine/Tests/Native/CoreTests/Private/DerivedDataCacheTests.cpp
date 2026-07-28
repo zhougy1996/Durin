@@ -1,5 +1,6 @@
 #include "Misc/DerivedDataCache.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -35,7 +36,7 @@ TEST(FDerivedDataCacheTests, ResolvesProjectFallbackAndTestOverrideRoots)
 	EXPECT_EQ(NormalizeDirectory(Durin::FPaths::DerivedDataCacheDir()),
 		(std::filesystem::path(Durin::FPaths::EngineDir()) / "DerivedDataCache").lexically_normal());
 
-	const std::filesystem::path ProjectDir = std::filesystem::path(DURIN_TEST_WORK_DIR) / "CacheProject";
+	const std::filesystem::path ProjectDir = Durin::Testing::GetTestWorkDirectory() / "CacheProject";
 	std::filesystem::create_directories(ProjectDir);
 	const std::filesystem::path ProjectFile = ProjectDir / "CacheProject.dproject";
 	{
@@ -45,7 +46,7 @@ TEST(FDerivedDataCacheTests, ResolvesProjectFallbackAndTestOverrideRoots)
 	ASSERT_TRUE(Durin::FPaths::SetProjectFile(ProjectFile.generic_string()));
 	EXPECT_EQ(NormalizeDirectory(Durin::FPaths::DerivedDataCacheDir()), (ProjectDir / "DerivedDataCache").lexically_normal());
 
-	const std::filesystem::path Override = std::filesystem::path(DURIN_TEST_WORK_DIR) / "IsolatedCache";
+	const std::filesystem::path Override = Durin::Testing::GetTestWorkDirectory() / "IsolatedCache";
 	Durin::FPaths::SetDerivedDataCacheDirForTests(Override.generic_string());
 	EXPECT_EQ(NormalizeDirectory(Durin::FPaths::DerivedDataCacheDir()), Override.lexically_normal());
 	Durin::FPaths::SetDerivedDataCacheDirForTests({});
@@ -107,7 +108,7 @@ TEST(FDerivedDataCacheTests, StableFileTicksRoundTripAtNanosecondPrecision)
 
 TEST(FDerivedDataCacheTests, AtomicallyReplacesAnExistingCacheFile)
 {
-	const std::filesystem::path Path = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Atomic" / "Index.bin";
+	const std::filesystem::path Path = Durin::Testing::GetTestWorkDirectory() / "Atomic" / "Index.bin";
 	const std::vector<Durin::uint8> First{1, 2, 3};
 	const std::vector<Durin::uint8> Second{4, 5};
 	std::string Error;
@@ -121,7 +122,7 @@ TEST(FDerivedDataCacheTests, AtomicallyReplacesAnExistingCacheFile)
 
 TEST(FDerivedDataCacheTests, SerializedCacheRoundTripsBeyondMaxPath)
 {
-	const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "LongDerivedDataCache";
+	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "LongDerivedDataCache";
 	const std::filesystem::path Path = PathLongerThan(Root, "Index.bin", 300);
 	ASSERT_GT(Path.native().size(), 260);
 

@@ -1,5 +1,6 @@
 #include "Yaml/Yaml.h"
 #include "Misc/AppConfig.h"
+#include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -7,7 +8,7 @@ namespace
 {
 	auto MakeYamlTestPath(std::string_view FileName) -> std::filesystem::path
 	{
-		return std::filesystem::path{DURIN_TEST_WORK_DIR} / std::string(FileName);
+		return Durin::Testing::GetTestWorkDirectory() / std::string(FileName);
 	}
 
 	auto MakeYamlTestDataPath(std::string_view FileName) -> std::filesystem::path

@@ -1,4 +1,5 @@
 #include "Logging/Logger.h"
+#include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -8,7 +9,7 @@ namespace
 {
 	auto MakeTestDirectory(std::string_view Suffix) -> std::filesystem::path
 	{
-		const std::filesystem::path Directory = std::filesystem::path(DURIN_TEST_WORK_DIR) / "LoggerTests" / Suffix;
+		const std::filesystem::path Directory = Durin::Testing::GetTestWorkDirectory() / "LoggerTests" / Suffix;
 		std::error_code Error;
 		std::filesystem::remove_all(Directory, Error);
 		std::filesystem::create_directories(Directory);

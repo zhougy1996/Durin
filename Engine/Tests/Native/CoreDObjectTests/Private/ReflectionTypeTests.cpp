@@ -14,6 +14,7 @@
 #include "CoreGlobals.h"
 #include "Misc/Paths.h"
 #include "Math/Color.h"
+#include "NativeTestSupport.h"
 #include "Threading/RunnableThread.h"
 
 #include <gtest/gtest.h>
@@ -984,7 +985,9 @@ namespace
 		static const bool bMounted = [] {
 			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
 			Durin::GIsGameThreadIdInitialized = true;
-			Durin::PathUtilities::RegisterMountPoint("/CoreTests/", std::filesystem::path(DURIN_TEST_WORK_DIR).generic_string() + "/");
+			Durin::PathUtilities::RegisterMountPoint(
+				"/CoreTests/",
+				Durin::Testing::GetTestWorkDirectory().generic_string() + "/");
 			return true;
 		}();
 		(void)bMounted;

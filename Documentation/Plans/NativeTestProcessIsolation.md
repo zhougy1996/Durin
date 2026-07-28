@@ -21,10 +21,14 @@ Completed:
 - Stage 3 is complete. Every native-test executable now enters through
   `NativeTestSupport`, creates a unique process sandbox, and applies the common
   cleanup/retention policy.
-- Stage 4 is next but has not started. Its broad shared-root migration is paused
-  while post-rebase tests are integrated into the completed Stage 3 framework.
+- Stage 4 is in progress. The Core utility, file-system, concurrency, and
+  reflection/object domains now use the process sandbox and run without their
+  temporary target serialization locks.
+- Three consecutive 14-job aggregate runs passed all 720 CTest entries after
+  the Core targets enabled case parallelism; their real times were 20.95,
+  20.52, and 23.35 seconds.
 - `.\DevTool.bat test --target all` now schedules CTest-discovered GoogleTest
-  cases with the Agent Build Profile job count; the current profile runs 18
+  cases with the Agent Build Profile job count; the current profile runs 14
   cases concurrently.
 - Native-test executables and runtime DLLs retain the shared `Bin` layout, but
   each engine target binary and external runtime file now has one deployment
@@ -45,7 +49,7 @@ Completed:
   and load, failed package and shader-cache publication, and thumbnail fixture
   setup failures. The same thumbnail suites passed when run in one process,
   including 100 shuffled repetitions.
-- The repository currently has 138 `DURIN_TEST_WORK_DIR` references in 42
+- The repository currently has 145 `DURIN_TEST_WORK_DIR` references in 37
   native-test source/header files, and 32 native-test files call
   `std::filesystem::remove_all`.
 - `FTextureCubeAssetThumbnailTests.ProviderRejectsMissingRegistryData` also has
@@ -418,7 +422,7 @@ cases.
 
 ### Stage 4: Migrate functional targets and remove shared-root access
 
-- [ ] Migrate the Core utility/file-system, concurrency, and reflection/object
+- [x] Migrate the Core utility/file-system, concurrency, and reflection/object
   domains; audit helpers that initialize paths before a test body.
 - [ ] Migrate the asset package/registry, derived-data, decoder, and import
   domains; isolate package roots, registry files, derived data, cook output,

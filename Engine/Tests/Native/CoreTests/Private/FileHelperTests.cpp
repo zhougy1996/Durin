@@ -1,4 +1,5 @@
 #include "Misc/FileHelper.h"
+#include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -7,7 +8,7 @@ namespace
 	auto TestRoot(std::string_view Name) -> std::filesystem::path
 	{
 		static std::atomic_uint64_t Counter = 0;
-		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR)
+		const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory()
 			/ "AtomicFilePublication"
 			/ std::format("{}-{:016x}", Name, Counter.fetch_add(1, std::memory_order_relaxed));
 		std::filesystem::create_directories(Root);

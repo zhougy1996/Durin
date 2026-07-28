@@ -29,6 +29,10 @@ durin_add_core_functional_test(CoreUtilityTests
 	Private/XxHashTests.cpp
 )
 
+set_target_properties(CoreUtilityTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+)
+
 durin_add_core_functional_test(CoreFileSystemTests
 	Private/DerivedDataCacheTests.cpp
 	Private/FileHelperTests.cpp
@@ -37,11 +41,15 @@ durin_add_core_functional_test(CoreFileSystemTests
 	Private/ProjectTests.cpp
 )
 
+set_target_properties(CoreFileSystemTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+)
+
 durin_add_core_functional_test(CoreConcurrencyTests
 	Private/DelegateTests.cpp
 	Private/ThreadingTests.cpp
 )
 
 set_target_properties(CoreConcurrencyTests PROPERTIES
-	DURIN_TEST_LEGACY_SERIALIZATION_GROUP core-concurrency
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )

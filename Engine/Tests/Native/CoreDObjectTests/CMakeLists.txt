@@ -15,7 +15,7 @@ durin_test_deploy_target_binary(CoreObjectTests Core)
 durin_test_deploy_target_binary(CoreObjectTests CoreDObject)
 
 set_target_properties(CoreObjectTests PROPERTIES
-	DURIN_TEST_LEGACY_SERIALIZATION_GROUP object-lifecycle
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
 
 durin_discover_tests(CoreObjectTests)

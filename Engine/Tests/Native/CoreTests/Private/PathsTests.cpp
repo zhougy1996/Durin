@@ -1,6 +1,7 @@
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -12,7 +13,7 @@ namespace
 		void SetUp() override
 		{
 			static std::atomic<Durin::uint32> NextId = 0;
-			Root = std::filesystem::path(DURIN_TEST_WORK_DIR)
+			Root = Durin::Testing::GetTestWorkDirectory()
 				/ std::format("MountRegistry-{}", NextId++);
 			std::error_code CleanupError;
 			std::filesystem::remove_all(Root, CleanupError);
@@ -125,7 +126,7 @@ TEST(FPathsTests, ThirdPartyRuntimeBinariesAreSharedByBuildConfiguration)
 
 TEST(FPathsTests, ExplicitProjectFileControlsProjectDirectoryAndMount)
 {
-	const std::filesystem::path ProjectDir = std::filesystem::path(DURIN_TEST_WORK_DIR) / "ExternalProject";
+	const std::filesystem::path ProjectDir = Durin::Testing::GetTestWorkDirectory() / "ExternalProject";
 	std::filesystem::create_directories(ProjectDir / "Content");
 	const std::filesystem::path ProjectFile = ProjectDir / "ExternalGame.dproject";
 	{

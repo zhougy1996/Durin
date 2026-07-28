@@ -1,4 +1,5 @@
 #include "Json/Json.h"
+#include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -6,7 +7,7 @@ namespace
 {
 	auto MakeJsonTestPath(std::string_view FileName) -> std::filesystem::path
 	{
-		return std::filesystem::path{DURIN_TEST_WORK_DIR} / std::string(FileName);
+		return Durin::Testing::GetTestWorkDirectory() / std::string(FileName);
 	}
 
 	auto MakeJsonTestDataPath(std::string_view FileName) -> std::filesystem::path
