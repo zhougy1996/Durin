@@ -8,11 +8,166 @@ from typing import TextIO
 
 from ..errors import DevToolError
 from .archive import ArchiveError, ArchivePreview, apply_archive, preview_archive
+from .model import DiagnosticSeverity, DocumentKind, DocumentRef
 from .plans import filter_plans, load_catalog, render_listing
+from .rendering import (
+    render_change_set,
+    render_diagnostics,
+    render_documents,
+    render_references,
+)
+from .service import DocumentWorkspace, ListDocumentsRequest, ValidationScope
 
 
 def _plans_directory(repository_root: Path) -> Path:
     return repository_root / "Documentation" / "Plans"
+
+
+def _default_output_format(
+    namespace: argparse.Namespace,
+    *,
+    interactive: bool,
+) -> str:
+    return namespace.output_format or (
+        "terminal" if interactive else "markdown"
+    )
+
+
+def _document_under(value: str | None) -> Path | None:
+    if value is None:
+        return None
+    path = Path(value)
+    if path.is_absolute() or ".." in path.parts:
+        raise DevToolError("--under must be a repository-relative path")
+    if not path.parts or path.parts[0] != "Documentation":
+        raise DevToolError('--under must select a path inside "Documentation"')
+    return path
+
+
+def _run_document_list(
+    namespace: argparse.Namespace,
+    *,
+    repository_root: Path,
+    interactive: bool,
+    stdout: TextIO,
+) -> int:
+    workspace = DocumentWorkspace(repository_root)
+    documents = workspace.list_documents(
+        ListDocumentsRequest(
+            under=_document_under(namespace.under),
+            kinds=tuple(DocumentKind(kind) for kind in namespace.kinds or ()),
+            query=getattr(namespace, "document_query", None),
+            include_archive=namespace.include_archive,
+        )
+    )
+    if not documents:
+        raise DevToolError("no documentation files matched the request")
+    print(
+        render_documents(
+            documents,
+            output_format=_default_output_format(
+                namespace,
+                interactive=interactive,
+            ),
+        ),
+        file=stdout,
+    )
+    return 0
+
+
+def _run_document_refs(
+    namespace: argparse.Namespace,
+    *,
+    repository_root: Path,
+    interactive: bool,
+    stdout: TextIO,
+) -> int:
+    workspace = DocumentWorkspace(repository_root)
+    references = workspace.references(
+        DocumentRef.parse(namespace.document_path),
+        include_archive=namespace.include_archive,
+    )
+    print(
+        render_references(
+            references,
+            output_format=_default_output_format(
+                namespace,
+                interactive=interactive,
+            ),
+        ),
+        file=stdout,
+    )
+    return 0
+
+
+def _run_document_validate(
+    namespace: argparse.Namespace,
+    *,
+    repository_root: Path,
+    interactive: bool,
+    stdout: TextIO,
+) -> int:
+    workspace = DocumentWorkspace(repository_root)
+    validation = workspace.validate(
+        scope=ValidationScope(namespace.scope),
+        include_archive=namespace.include_archive,
+    )
+    print(
+        render_diagnostics(
+            validation.diagnostics,
+            output_format=_default_output_format(
+                namespace,
+                interactive=interactive,
+            ),
+            document_count=validation.document_count,
+        ),
+        file=stdout,
+    )
+    return (
+        1
+        if any(
+            diagnostic.severity is DiagnosticSeverity.ERROR
+            for diagnostic in validation.diagnostics
+        )
+        else 0
+    )
+
+
+def _run_document_change(
+    namespace: argparse.Namespace,
+    *,
+    repository_root: Path,
+    interactive: bool,
+    stdout: TextIO,
+) -> int:
+    workspace = DocumentWorkspace(repository_root)
+    if namespace.document_action == "create":
+        change_set = workspace.prepare_create(
+            destination=DocumentRef.parse(namespace.document_path),
+            kind=DocumentKind(namespace.document_kind),
+            title=namespace.title,
+            summary=namespace.summary,
+        )
+    else:
+        change_set = workspace.prepare_move(
+            source=DocumentRef.parse(namespace.source_path),
+            destination=DocumentRef.parse(namespace.destination_path),
+        )
+    if namespace.apply:
+        workspace.apply(change_set)
+    print(
+        render_change_set(
+            change_set,
+            repository_root=repository_root.resolve(),
+            applied=namespace.apply,
+            output_format=_default_output_format(
+                namespace,
+                interactive=interactive,
+            ),
+        ),
+        file=stdout,
+    )
+    return 0
 
 
 def _write_errors(errors: list[str], stderr: TextIO) -> None:
@@ -55,8 +210,9 @@ def _run_list(
             )
             return 0
         raise DevToolError(f"no {namespace.scope} implementation plans found")
-    output_format = namespace.output_format or (
-        "terminal" if interactive else "markdown"
+    output_format = _default_output_format(
+        namespace,
+        interactive=interactive,
     )
     print(
         render_listing(
@@ -162,14 +318,44 @@ def run(
     session_state: dict[str, object] | None = None,
     **_: object,
 ) -> int:
-    """Execute one typed documentation request from the shared registry."""
+    """Adapt one CLI documentation request to the documentation services."""
     plans_directory = _plans_directory(repository_root)
     try:
+        document_action = getattr(namespace, "document_action", "")
+        interactive = session_state is not None
+        if document_action in {"list", "find"}:
+            return _run_document_list(
+                namespace,
+                repository_root=repository_root,
+                interactive=interactive,
+                stdout=stdout,
+            )
+        if document_action == "refs":
+            return _run_document_refs(
+                namespace,
+                repository_root=repository_root,
+                interactive=interactive,
+                stdout=stdout,
+            )
+        if document_action == "validate":
+            return _run_document_validate(
+                namespace,
+                repository_root=repository_root,
+                interactive=interactive,
+                stdout=stdout,
+            )
+        if document_action in {"create", "move"}:
+            return _run_document_change(
+                namespace,
+                repository_root=repository_root,
+                interactive=interactive,
+                stdout=stdout,
+            )
         if namespace.plan_action == "list":
             return _run_list(
                 namespace,
                 plans_directory=plans_directory,
-                interactive=session_state is not None,
+                interactive=interactive,
                 stdout=stdout,
                 stderr=stderr,
             )
@@ -189,4 +375,4 @@ def run(
             )
     except (ArchiveError, OSError, ValueError) as exc:
         raise DevToolError(str(exc)) from exc
-    raise DevToolError("a plan command is required")
+    raise DevToolError("a documentation command is required")

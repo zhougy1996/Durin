@@ -300,6 +300,55 @@ or still deferred. `stop` stops an operation held by another DurinDevTool proces
 Use `help` for the complete command list. A leading slash remains accepted for
 compatibility but is not required.
 
+## Documentation Operations
+
+DurinDevTool exposes repository documentation through the `doc` command group.
+Ordinary discovery excludes `Documentation/Plans/Archive`; add
+`--include-archive` only when historical plans are intentionally part of the
+request:
+
+```powershell
+.\DevTool.bat doc list --under Documentation\Runtime
+.\DevTool.bat doc find "asset package" --kind contract
+.\DevTool.bat doc refs Documentation\Runtime\Assets\AssetPackages.md
+.\DevTool.bat doc validate --scope changed
+.\DevTool.bat doc validate --scope all --format json
+```
+
+`list`, `find`, `refs`, and `validate` accept terminal, Markdown, or
+schema-versioned JSON output. Direct calls default to Markdown and the
+interactive shell defaults to terminal output. Validation checks mechanical
+repository contracts such as UTF-8 Markdown, top-level titles, local-link
+targets, and required investigation metadata. It does not replace the
+human/Agent review of the document ownership boundaries in
+`Documentation/AGENTS.md`.
+
+Create ordinary documents with a type, repository-relative destination, and
+title. Move operations repair Markdown links and explicit repository-relative
+paths in tracked and untracked Markdown files:
+
+```powershell
+.\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example"
+.\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example" --apply
+.\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md
+.\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md --apply
+```
+
+Both operations are dry runs unless `--apply` is present. Applying verifies
+that every previewed source still has the same content, writes atomically,
+validates the resulting documentation tree, and rolls back every affected file
+if the transaction fails. Plan, investigation, and policy creation remains
+owned by their nearest authoring rules rather than a generic template.
+
+Implementation-plan lifecycle commands are nested under `doc plan`:
+
+```powershell
+.\DevTool.bat doc plan list
+.\DevTool.bat doc plan validate --scope all
+.\DevTool.bat doc plan archive 2026-07
+.\DevTool.bat doc plan archive 2026-07 --apply
+```
+
 ## Creating Modules
 
 Create a workspace module with one DurinDevTool command. The project descriptor

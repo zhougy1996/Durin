@@ -270,11 +270,11 @@ length, while preserving portable behavior and actionable failure diagnostics.
 
 ## Related Documentation
 
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Build System](../Development/Build/BuildSystem.md)
-- [Native C++ Tests](../Development/Build/NativeTests.md)
-- [File I/O](../Runtime/Core/FileIO.md)
-- [Shader Cache Hardening](Archive/2026-07/ShaderCacheHardening.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
+- [File I/O](../../../Runtime/Core/FileIO.md)
+- [Shader Cache Hardening](ShaderCacheHardening.md)
 
 ## Related Code
 

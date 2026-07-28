@@ -11,9 +11,12 @@ if str(PRODUCT_ROOT) not in sys.path:
     sys.path.insert(0, str(PRODUCT_ROOT))
 from durin_dev_tool import cli
 from durin_dev_tool.documentation import archive as archive_module
+from durin_dev_tool.documentation import changes as changes_module
 from durin_dev_tool.documentation import handler as handler_module
 from durin_dev_tool.documentation.archive import apply_archive, preview_archive
+from durin_dev_tool.documentation.model import DocumentKind, DocumentRef
 from durin_dev_tool.documentation.plans import PlanStatus, load_catalog, parse_plan, render_listing
+from durin_dev_tool.documentation.service import DocumentWorkspace, ListDocumentsRequest
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
 PLAN_TEMPLATE = '# {title} Plan\n\nSummary: {summary}\n\nLast reviewed: 2026-07-27\n\nStatus: {status}\nCompleted:{completed}\n\n## Current Status\n'
@@ -98,27 +101,27 @@ class TestUnifiedCommand:
         return {key: value for key, value in vars(namespace).items() if key != '_command_spec'}
 
     def test_every_plan_command_has_one_direct_and_shell_request_model(self) -> None:
-        commands = (['plan', 'list', '--query', 'Active', '--format', 'markdown'], ['plan', 'validate', '--scope', 'active'], ['plan', 'archive', '2026-07'])
+        commands = (['doc', 'plan', 'list', '--query', 'Active', '--format', 'markdown'], ['doc', 'plan', 'validate', '--scope', 'active'], ['doc', 'plan', 'archive', '2026-07'])
         for command in commands:
             direct = self._parse_values(command)
             shell = self._parse_values(command)
             assert direct == shell
 
     def test_plan_names_are_case_insensitive_and_accept_slash_aliases(self) -> None:
-        expected = self._parse_values(['plan', 'list'])
-        assert expected == self._parse_values(['PLAN', 'LIST'])
-        assert expected == self._parse_values(['/plan', '/list'])
+        expected = self._parse_values(['doc', 'plan', 'list'])
+        assert expected == self._parse_values(['DOC', 'PLAN', 'LIST'])
+        assert expected == self._parse_values(['/doc', '/plan', '/list'])
 
     def test_list_defaults_to_markdown_direct_and_terminal_in_shell(self) -> None:
-        direct_spec, direct = self.registry.parse(['plan', 'list'])
-        shell_spec, shell = self.registry.parse(['plan', 'list'])
+        direct_spec, direct = self.registry.parse(['doc', 'plan', 'list'])
+        shell_spec, shell = self.registry.parse(['doc', 'plan', 'list'])
         with mock.patch.object(handler_module, 'render_listing', return_value='result') as render:
             self.registry.execute(direct_spec, direct, repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO())
             self.registry.execute(shell_spec, shell, repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO(), session_state={})
         assert [call.kwargs['output_format'] for call in render.call_args_list] == ['markdown', 'terminal']
 
     def test_explicit_format_has_direct_and_shell_output_parity(self) -> None:
-        arguments = ['plan', 'list', '--format', 'markdown', '--color', 'never']
+        arguments = ['doc', 'plan', 'list', '--format', 'markdown', '--color', 'never']
         outputs: list[str] = []
         for session_state in (None, {}):
             spec, namespace = self.registry.parse(arguments)
@@ -132,7 +135,7 @@ class TestUnifiedCommand:
         assert outputs[0] == outputs[1]
 
     def test_validate_and_archive_defaults_have_direct_and_shell_output_parity(self) -> None:
-        for arguments in (['plan', 'validate', '--scope', 'active'], ['plan', 'archive', '2099-01']):
+        for arguments in (['doc', 'plan', 'validate', '--scope', 'active'], ['doc', 'plan', 'archive', '2099-01']):
             outputs: list[str] = []
             for session_state in (None, {}):
                 spec, namespace = self.registry.parse(arguments)
@@ -148,10 +151,10 @@ class TestUnifiedCommand:
     def test_unfiltered_archive_and_all_listings_require_all_results(self) -> None:
         for scope in ('archive', 'all'):
             with pytest.raises(DevToolError, match='archive listings require'):
-                cli.run(['plan', 'list', '--scope', scope], repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO())
+                cli.run(['doc', 'plan', 'list', '--scope', scope], repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO())
 
     def test_archive_defaults_to_preview(self) -> None:
-        spec, namespace = self.registry.parse(['plan', 'archive', '2026-07'])
+        spec, namespace = self.registry.parse(['doc', 'plan', 'archive', '2026-07'])
         with mock.patch.object(handler_module, 'preview_archive') as preview:
             preview.return_value = mock.Mock(month='2026-07', moves=())
             result = self.registry.execute(spec, namespace, repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO())
@@ -159,7 +162,7 @@ class TestUnifiedCommand:
         preview.assert_called_once_with(self.plans, '2026-07')
 
     def test_archive_apply_is_explicit(self) -> None:
-        spec, namespace = self.registry.parse(['plan', 'archive', '2026-07', '--apply'])
+        spec, namespace = self.registry.parse(['doc', 'plan', 'archive', '2026-07', '--apply'])
         with mock.patch.object(handler_module, 'apply_archive') as apply:
             apply.return_value = mock.Mock(month='2026-07', moves=())
             result = self.registry.execute(spec, namespace, repository_root=self.repository, stdout=io.StringIO(), stderr=io.StringIO())
@@ -176,3 +179,156 @@ class TestUnifiedCommand:
         catalog = load_catalog(plans)
         output = render_listing(catalog.archived, plans, scope='archive', output_format='markdown', color='never')
         assert output.index('## 2026-07') < output.index('## 2026-06')
+
+
+class TestOrdinaryDocumentation:
+
+    @pytest.fixture(autouse=True)
+    def _setup_repository(self, tmp_path: Path) -> None:
+        self.repository = tmp_path
+        self.documentation = self.repository / 'Documentation'
+        runtime = self.documentation / 'Runtime'
+        runtime.mkdir(parents=True)
+        subprocess.run(['git', 'init', '-q', str(self.repository)], check=True)
+        self.index = runtime / 'README.md'
+        self.topic = runtime / 'Topic.md'
+        self.index.write_text('# Runtime\n\n[Topic](Topic.md)\n', encoding='utf-8')
+        self.topic.write_text('# Topic\n\n[Root](README.md)\n', encoding='utf-8')
+        self.workspace = DocumentWorkspace(self.repository)
+
+    def test_catalog_classifies_and_filters_documents(self) -> None:
+        documents = self.workspace.list_documents(
+            ListDocumentsRequest(kinds=(DocumentKind.CONTRACT,))
+        )
+        assert [document.ref.as_posix() for document in documents] == [
+            'Documentation/Runtime/Topic.md'
+        ]
+        routers = self.workspace.list_documents(
+            ListDocumentsRequest(
+                kinds=(DocumentKind.ROUTER,),
+                query='runtime',
+            )
+        )
+        assert [document.kind for document in routers] == [DocumentKind.ROUTER]
+
+    def test_refs_reports_inbound_and_outbound_documents(self) -> None:
+        references = self.workspace.references(
+            DocumentRef.parse('Documentation/Runtime/Topic.md')
+        )
+        assert [
+            document.ref.as_posix() for document, _ in references.inbound
+        ] == ['Documentation/Runtime/README.md']
+        assert references.outbound[0][0] == DocumentRef.parse(
+            'Documentation/Runtime/README.md'
+        )
+
+    def test_validate_reports_structured_missing_link(self) -> None:
+        self.topic.write_text('# Topic\n\n[Missing](Missing.md)\n', encoding='utf-8')
+        output = io.StringIO()
+        result = cli.run(
+            ['doc', 'validate', '--format', 'json'],
+            repository_root=self.repository,
+            stdout=output,
+            stderr=io.StringIO(),
+        )
+        assert result == 1
+        assert '"code": "doc.link.missing"' in output.getvalue()
+        assert '"line": 3' in output.getvalue()
+
+    def test_create_is_preview_only_until_apply(self) -> None:
+        path = self.documentation / 'Runtime' / 'Created.md'
+        arguments = [
+            'doc',
+            'create',
+            'contract',
+            'Documentation/Runtime/Created.md',
+            '--title',
+            'Created',
+            '--summary',
+            'Created summary.',
+        ]
+        assert cli.run(
+            arguments,
+            repository_root=self.repository,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        ) == 0
+        assert not path.exists()
+        assert cli.run(
+            [*arguments, '--apply'],
+            repository_root=self.repository,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        ) == 0
+        assert path.read_text(encoding='utf-8') == (
+            '# Created\n\nCreated summary.\n'
+        )
+
+    def test_move_repairs_links_and_is_fingerprint_checked(self) -> None:
+        source = DocumentRef.parse('Documentation/Runtime/Topic.md')
+        destination = DocumentRef.parse('Documentation/Runtime/Nested/Topic.md')
+        change_set = self.workspace.prepare_move(
+            source=source,
+            destination=destination,
+        )
+        assert self.index.read_text(encoding='utf-8') == (
+            '# Runtime\n\n[Topic](Topic.md)\n'
+        )
+        self.workspace.apply(change_set)
+        moved = self.documentation / 'Runtime' / 'Nested' / 'Topic.md'
+        assert moved.exists()
+        assert '[Topic](Nested/Topic.md)' in self.index.read_text(encoding='utf-8')
+        assert '[Root](../README.md)' in moved.read_text(encoding='utf-8')
+
+        second = self.workspace.prepare_move(
+            source=destination,
+            destination=DocumentRef.parse(
+                'Documentation/Runtime/Nested/Renamed.md'
+            ),
+        )
+        moved.write_text('# User edit\n', encoding='utf-8')
+        with pytest.raises(DevToolError, match='modified after preview'):
+            self.workspace.apply(second)
+
+    def test_move_rolls_back_all_files_when_a_write_fails(self) -> None:
+        change_set = self.workspace.prepare_move(
+            source=DocumentRef.parse('Documentation/Runtime/Topic.md'),
+            destination=DocumentRef.parse(
+                'Documentation/Runtime/Nested/Topic.md'
+            ),
+        )
+        original_write = changes_module.atomic_write
+        calls = 0
+
+        def fail_second_write(path: Path, content: bytes) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError('simulated write failure')
+            original_write(path, content)
+
+        with mock.patch.object(
+            changes_module,
+            'atomic_write',
+            side_effect=fail_second_write,
+        ):
+            with pytest.raises(OSError, match='simulated write failure'):
+                self.workspace.apply(change_set)
+        assert self.topic.exists()
+        assert not (
+            self.documentation / 'Runtime' / 'Nested' / 'Topic.md'
+        ).exists()
+        assert self.index.read_text(encoding='utf-8') == (
+            '# Runtime\n\n[Topic](Topic.md)\n'
+        )
+
+    def test_create_rejects_specialized_document_directories(self) -> None:
+        with pytest.raises(DevToolError, match='plan workflow'):
+            self.workspace.prepare_create(
+                destination=DocumentRef.parse(
+                    'Documentation/Plans/NotAPlan.md'
+                ),
+                kind=DocumentKind.CONTRACT,
+                title='Not A Plan',
+                summary='Invalid placement.',
+            )

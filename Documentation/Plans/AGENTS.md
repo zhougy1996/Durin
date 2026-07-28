@@ -6,9 +6,9 @@ These instructions apply under `Documentation/Plans/`.
 
 - Active plans turn selected decisions into executable stages and acceptance gates.
 - From the repository root, run
-  `.\DevTool.bat plan list` for
+  `.\DevTool.bat doc plan list` for
   the compact active index. For named historical provenance, run
-  `.\DevTool.bat plan list --scope archive --query
+  `.\DevTool.bat doc plan list --scope archive --query
   "<title-or-filename>"`, then open only the selected result. Do not scan,
   bulk-read, or sample unrelated plans; use the standard below.
 - Humans run `.\DevTool.bat` without arguments for an interactive
@@ -76,7 +76,7 @@ Completed:
 - Record a changed decision and rationale before continuing when implementation diverges from the plan.
 - Move implemented long-lived rules to the owning documentation domain rather
   than leaving the plan as a competing specification.
-- Run `.\DevTool.bat plan validate --scope all`
+- Run `.\DevTool.bat doc plan validate --scope all`
   when a plan is added, renamed, completed, archived, or removed; CI must run
   the same validation. Legacy plans need not be retrofitted to the current
   structure.
@@ -96,16 +96,16 @@ acceptance gate is satisfied:
 Periodically batch completed plans by completion month:
 
 1. Preview the batch with
-   `.\DevTool.bat plan archive YYYY-MM`.
+   `.\DevTool.bat doc plan archive YYYY-MM`.
 2. Apply it with
-   `.\DevTool.bat plan archive YYYY-MM --apply`.
+   `.\DevTool.bat doc plan archive YYYY-MM --apply`.
    The tool moves matching plans to `Archive/YYYY-MM/`, changes their status
    to `Archived`, and repairs direct Markdown links and repository-relative
    plan paths, then runs the all-plan validator.
 3. Review the generated diff, especially the referencing files reported by the
    script.
 
-Use `.\DevTool.bat plan list --scope completed` to inspect the
+Use `.\DevTool.bat doc plan list --scope completed` to inspect the
 pending archive queue. The completion date, not the batch date, owns the archive
 month and is never changed by later maintenance. Do not maintain a shared
 archive index; listings remain generated.

@@ -80,6 +80,16 @@ BUILD_CAPABILITY = Capability.PREPARED_ENVIRONMENT
 BUILD_MODULES = ("rich",)
 DOCUMENTATION_HANDLER = "durin_dev_tool.documentation.handler:run"
 PLAN_SCOPES = ("active", "completed", "archive", "all")
+DOCUMENT_KINDS = (
+    "router",
+    "contract",
+    "guide",
+    "plan",
+    "investigation",
+    "policy",
+    "generic",
+)
+CREATABLE_DOCUMENT_KINDS = ("router", "contract", "guide", "generic")
 BOOTSTRAP_HANDLER = "durin_dev_tool.bootstrap.handler:run"
 WORKTREE_HANDLER = "durin_dev_tool.worktree.handler:run"
 
@@ -190,6 +200,108 @@ PLAN_ARCHIVE = CommandSpec(
         ),
     ),
     defaults=(("plan_action", "archive"),),
+)
+
+DOCUMENT_OUTPUT = _argument(
+    "--format",
+    choices=("markdown", "terminal", "json"),
+    default=None,
+    dest="output_format",
+)
+DOCUMENT_ARCHIVE = _argument(
+    "--include-archive",
+    action="store_true",
+    help="include archived implementation plans",
+)
+DOCUMENT_FILTERS = (
+    _argument("--under", help="repository-relative Documentation path"),
+    _argument(
+        "--kind",
+        dest="kinds",
+        choices=DOCUMENT_KINDS,
+        action="append",
+        default=None,
+    ),
+    DOCUMENT_ARCHIVE,
+    DOCUMENT_OUTPUT,
+)
+DOCUMENT_LIST = CommandSpec(
+    "list",
+    "list repository documentation",
+    DOCUMENTATION_HANDLER,
+    arguments=DOCUMENT_FILTERS,
+    defaults=(("document_action", "list"),),
+)
+DOCUMENT_FIND = CommandSpec(
+    "find",
+    "find documentation by title or path",
+    DOCUMENTATION_HANDLER,
+    arguments=(
+        _argument("document_query", metavar="QUERY"),
+        *DOCUMENT_FILTERS,
+    ),
+    defaults=(("document_action", "find"),),
+)
+DOCUMENT_REFS = CommandSpec(
+    "refs",
+    "show inbound and outbound document references",
+    DOCUMENTATION_HANDLER,
+    arguments=(
+        _argument("document_path", metavar="PATH"),
+        DOCUMENT_ARCHIVE,
+        DOCUMENT_OUTPUT,
+    ),
+    defaults=(("document_action", "refs"),),
+)
+DOCUMENT_VALIDATE = CommandSpec(
+    "validate",
+    "validate repository documentation",
+    DOCUMENTATION_HANDLER,
+    arguments=(
+        _argument(
+            "--scope",
+            choices=("all", "changed"),
+            default="all",
+        ),
+        DOCUMENT_ARCHIVE,
+        DOCUMENT_OUTPUT,
+    ),
+    defaults=(("document_action", "validate"),),
+)
+DOCUMENT_CREATE = CommandSpec(
+    "create",
+    "preview or create a documentation file",
+    DOCUMENTATION_HANDLER,
+    arguments=(
+        _argument(
+            "document_kind",
+            choices=CREATABLE_DOCUMENT_KINDS,
+            metavar="KIND",
+        ),
+        _argument("document_path", metavar="PATH"),
+        _argument("--title", required=True),
+        _argument("--summary", default=""),
+        _argument("--apply", action="store_true"),
+        DOCUMENT_OUTPUT,
+    ),
+    defaults=(("document_action", "create"),),
+)
+DOCUMENT_MOVE = CommandSpec(
+    "move",
+    "preview or move a document and repair references",
+    DOCUMENTATION_HANDLER,
+    arguments=(
+        _argument("source_path", metavar="SOURCE"),
+        _argument("destination_path", metavar="DESTINATION"),
+        _argument("--apply", action="store_true"),
+        DOCUMENT_OUTPUT,
+    ),
+    defaults=(("document_action", "move"),),
+)
+DOCUMENT_PLAN = CommandSpec(
+    "plan",
+    "manage implementation-plan lifecycle",
+    subcommands=(PLAN_LIST, PLAN_VALIDATE, PLAN_ARCHIVE),
 )
 
 DEPENDENCY_PREPARE = CommandSpec(
@@ -409,9 +521,17 @@ COMMAND_SPECS = (
         subcommands=(CREATE_MODULE, CREATE_PROJECT),
     ),
     CommandSpec(
-        "plan",
-        "list, validate, and archive implementation plans",
-        subcommands=(PLAN_LIST, PLAN_VALIDATE, PLAN_ARCHIVE),
+        "doc",
+        "discover, validate, and safely change documentation",
+        subcommands=(
+            DOCUMENT_LIST,
+            DOCUMENT_FIND,
+            DOCUMENT_REFS,
+            DOCUMENT_VALIDATE,
+            DOCUMENT_CREATE,
+            DOCUMENT_MOVE,
+            DOCUMENT_PLAN,
+        ),
     ),
     CommandSpec(
         "dependency",
@@ -489,15 +609,29 @@ class CommandRegistry:
         else:
             normalized = list(arguments)
             command = normalized[0].removeprefix("/").lower()
-            if command in self._by_name:
+            current = self._by_name.get(command)
+            if current is not None:
                 normalized[0] = command
-                parent = self._by_name[command]
-                if parent.subcommands and len(normalized) == 1 and parent.default_subcommand:
-                    normalized.append(parent.default_subcommand)
-                elif parent.subcommands and len(normalized) > 1:
-                    child = normalized[1].removeprefix("/").lower()
-                    if child in {spec.name for spec in parent.subcommands}:
-                        normalized[1] = child
+                index = 1
+                while current.subcommands:
+                    if len(normalized) == index:
+                        if not current.default_subcommand:
+                            break
+                        normalized.append(current.default_subcommand)
+                    child_name = normalized[index].removeprefix("/").lower()
+                    child = next(
+                        (
+                            candidate
+                            for candidate in current.subcommands
+                            if candidate.name == child_name
+                        ),
+                        None,
+                    )
+                    if child is None:
+                        break
+                    normalized[index] = child_name
+                    current = child
+                    index += 1
         namespace = self.parser().parse_args(normalized)
         return namespace._command_spec, namespace
 

@@ -1,4 +1,4 @@
-### BuildInsight in CLion
+# BuildInsight In CLion
 
 BuildInsight is a tool that helps you analyze and optimize your build times. It provides insights into which files are taking the longest to compile and which dependencies are causing the most overhead. By using BuildInsight, you can identify bottlenecks in your build process and make informed decisions about how to improve it.
 

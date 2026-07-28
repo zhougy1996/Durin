@@ -27,10 +27,13 @@ tests, or the runtime process and should remain enabled on every host.
 
 Relevant implementation:
 
-- [`core.py`](../../Tools/DurinDevTool/durin_dev_tool/build/core.py), especially
+- [`locking.py`](../../Tools/DurinDevTool/durin_dev_tool/build/locking.py),
+  especially
   `open_checkout_lock`, `recover_inaccessible_windows_lock`,
-  `normalize_windows_lock_acl`, `BuildToolLock`, and `run_command`;
-- [`test_build_domain.py`](../../Tools/DurinDevTool/tests/test_build_domain.py);
+  `normalize_windows_lock_acl`, and `BuildToolLock`;
+- [`process.py`](../../Tools/DurinDevTool/durin_dev_tool/build/process.py),
+  especially `run_command`;
+- [`test_build_core.py`](../../Tools/DurinDevTool/tests/test_build_core.py);
 - [`BuildAndRun.md`](../Development/Build/BuildAndRun.md#recovery).
 
 ## Verified Findings

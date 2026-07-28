@@ -3,23 +3,19 @@
 from __future__ import annotations
 
 import datetime as dt
-import os
 import re
-import subprocess
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from .changes import (
+    atomic_write as _atomic_write,
+    repository_markdown_files as _repository_markdown_files,
+    rewrite_markdown_links as _rewrite_markdown_links,
+    rewrite_repository_paths as _rewrite_repository_paths,
+)
+from .catalog import load_document_catalog, validate_documents
+from .model import DiagnosticSeverity
 from .plans import PlanStatus, load_catalog
-
-
-MARKDOWN_LINK_PATTERN = re.compile(
-    r"(?P<prefix>!?\[[^\]\n]*\]\()(?P<target>[^)\n]+)(?P<suffix>\))"
-)
-REFERENCE_LINK_PATTERN = re.compile(
-    r"(?P<prefix>^\s*\[[^\]]+\]:\s*)(?P<target>\S+)(?P<suffix>.*)$",
-    re.MULTILINE,
-)
 
 
 class ArchiveError(RuntimeError):
@@ -48,115 +44,6 @@ def parse_month(value: str) -> str:
     if normalized != value:
         raise ArchiveError("month must be a valid YYYY-MM value")
     return normalized
-
-
-def _split_target(target: str) -> tuple[str, str, bool]:
-    enclosed = target.startswith("<")
-    if enclosed:
-        closing = target.find(">")
-        if closing < 0:
-            return target, "", False
-        path_with_fragment = target[1:closing]
-        trailing = target[closing + 1 :]
-    else:
-        match = re.match(r"(?P<path>\S+)(?P<trailing>\s+.*)?$", target)
-        if match is None:
-            return target, "", False
-        path_with_fragment = match.group("path")
-        trailing = match.group("trailing") or ""
-    path, separator, fragment = path_with_fragment.partition("#")
-    suffix = f"{separator}{fragment}" if separator else ""
-    wrapper = f">{trailing}" if enclosed else trailing
-    return path, f"{suffix}{wrapper}", enclosed
-
-
-def _rewrite_target(
-    target: str,
-    *,
-    document: Path,
-    output_document: Path,
-    moves: dict[Path, Path],
-) -> str:
-    path_text, suffix, enclosed = _split_target(target)
-    if (
-        not path_text
-        or "://" in path_text
-        or path_text.startswith(("mailto:", "/"))
-        or Path(path_text).is_absolute()
-    ):
-        return target
-    candidate = (document.parent / path_text).resolve()
-    destination = moves.get(candidate, candidate)
-    if candidate not in moves and output_document == document:
-        return target
-    relative = os.path.relpath(destination, output_document.parent).replace(os.sep, "/")
-    if enclosed:
-        fragment, marker, trailing = suffix.partition(">")
-        return f"<{relative}{fragment}>{trailing}" if marker else target
-    return f"{relative}{suffix}"
-
-
-def _rewrite_markdown_links(
-    text: str,
-    *,
-    document: Path,
-    output_document: Path,
-    moves: dict[Path, Path],
-) -> str:
-    def replace(match: re.Match[str]) -> str:
-        target = _rewrite_target(
-            match.group("target"),
-            document=document,
-            output_document=output_document,
-            moves=moves,
-        )
-        return f"{match.group('prefix')}{target}{match.group('suffix')}"
-
-    return REFERENCE_LINK_PATTERN.sub(
-        replace,
-        MARKDOWN_LINK_PATTERN.sub(replace, text),
-    )
-
-
-def _rewrite_repository_paths(
-    text: str,
-    *,
-    repository: Path,
-    moves: dict[Path, Path],
-) -> str:
-    for source, destination in moves.items():
-        old = source.relative_to(repository).as_posix()
-        new = destination.relative_to(repository).as_posix()
-        text = text.replace(old, new)
-        text = text.replace(old.replace("/", "\\"), new.replace("/", "\\"))
-    return text
-
-
-def _repository_markdown_files(repository: Path) -> list[Path]:
-    result = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repository),
-            "ls-files",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-            "-z",
-            "--",
-            "*.md",
-        ],
-        check=False,
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        detail = result.stderr.decode(errors="replace").strip() or "git ls-files failed"
-        raise ArchiveError(f"could not discover repository Markdown files: {detail}")
-    return sorted(
-        (repository / os.fsdecode(raw_path)).resolve()
-        for raw_path in result.stdout.split(b"\0")
-        if raw_path
-    )
 
 
 def _prepare(
@@ -235,22 +122,9 @@ def preview_archive(plans_directory: Path, month: str) -> ArchivePreview:
     return preview
 
 
-def _atomic_write(path: Path, content: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(handle, "wb") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
 def apply_archive(plans_directory: Path, month: str) -> ArchivePreview:
     plans_directory = plans_directory.resolve()
+    repository = plans_directory.parent.parent
     preview, rewrites = _prepare(plans_directory, month)
     if not preview.moves:
         return preview
@@ -282,6 +156,24 @@ def apply_archive(plans_directory: Path, month: str) -> ArchivePreview:
         if catalog.errors:
             raise ArchiveError(
                 "archive validation failed:\n- " + "\n- ".join(catalog.errors)
+            )
+        document_catalog = load_document_catalog(
+            repository,
+            include_archive=True,
+        )
+        document_errors = [
+            diagnostic
+            for diagnostic in validate_documents(document_catalog)
+            if diagnostic.severity is DiagnosticSeverity.ERROR
+        ]
+        if document_errors:
+            details = "\n- ".join(
+                f"{diagnostic.path.as_posix()}: {diagnostic.message}"
+                for diagnostic in document_errors
+            )
+            raise ArchiveError(
+                "documentation validation failed after archive:\n- "
+                + details
             )
     except BaseException:
         for path, content in snapshots.items():
