@@ -4,7 +4,7 @@ Summary: Refactor the completed static-model import foundations into isolated fo
 
 Last reviewed: 2026-07-28
 
-Status: Completed
+Status: Archived
 Completed: 2026-07-28
 
 ## Current Status

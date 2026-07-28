@@ -1028,7 +1028,7 @@ subset.
 - `Documentation/Runtime/Rendering/MaterialSystem.md`
 - `Documentation/Plans/MaterialSystem.md`
 - `Documentation/Plans/TextureSupport.md`
-- `Documentation/Plans/StaticModelImportStage3Preparation.md`
+- `Documentation/Plans/Archive/2026-07/StaticModelImportStage3Preparation.md`
 - `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`
 - `Documentation/Plans/MultithreadingV1.md`
 - `Documentation/Development/Build/BuildAndRun.md`

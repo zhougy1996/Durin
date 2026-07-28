@@ -178,8 +178,9 @@ through a control directory and both use `same-logical-name.txt`.
 
 ## Aggregate failure baseline
 
-The machine-readable baseline is
-`NativeTestProcessIsolationBaseline.json`. It records the 2026-07-28
+The machine-readable baseline is the
+[archived baseline](../../Plans/Archive/2026-07/NativeTestProcessIsolationBaseline.json).
+It records the 2026-07-28
 18-job run: 647 cases, 31 failures, one skip, and 6.90 seconds elapsed. The
 dominant signatures are shared-root deletion races, missing files during
 copy/load/publication, shader-cache publication failures, and missing or

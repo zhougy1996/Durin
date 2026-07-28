@@ -4,7 +4,7 @@ Summary: Make aggregate native tests deterministic under CTest parallelism by gi
 
 Last reviewed: 2026-07-28
 
-Status: Completed
+Status: Archived
 Completed: 2026-07-28
 
 ## Current Status
@@ -298,7 +298,8 @@ cases.
 
 - Baseline commit: `88e54d76`.
 - Evidence: `Documentation/Development/Build/NativeTestProcessIsolationStage0.md`
-  and `Documentation/Plans/NativeTestProcessIsolationBaseline.json`.
+  and
+  `Documentation/Plans/Archive/2026-07/NativeTestProcessIsolationBaseline.json`.
 - Working set entering Stage 1: `CMake/Project/ProjectTargets.cmake`, the seven
   legacy native-test CMake files, the native-test root CMake file, and
   `Tools/DurinDevTool/tests/test_build_core.py`.
@@ -676,9 +677,9 @@ cases.
 
 ## Related Documentation
 
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native C++ Tests](../Development/Build/NativeTests.md)
-- [Stage 0 Evidence](../Development/Build/NativeTestProcessIsolationStage0.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
+- [Stage 0 Evidence](../../../Development/Build/NativeTestProcessIsolationStage0.md)
 - [18-job Failure Baseline](NativeTestProcessIsolationBaseline.json)
 - [Stage 6 Qualification](NativeTestProcessIsolationQualification.json)
 

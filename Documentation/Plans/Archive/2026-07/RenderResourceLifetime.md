@@ -4,7 +4,7 @@ Summary: Refactor Texture2D and TextureCube onto a UE-style asset-owned texture 
 
 Last reviewed: 2026-07-28
 
-Status: Completed
+Status: Archived
 Completed: 2026-07-28
 
 ## Current Status
