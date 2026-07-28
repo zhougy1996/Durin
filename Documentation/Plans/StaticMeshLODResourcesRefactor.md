@@ -9,20 +9,21 @@ Completed:
 
 ## Current Status
 
-`FStaticMeshLODResources` currently combines imported CPU arrays, packed upload
-construction, raw RHI buffer references, sections, and bounds. Static-mesh
-vertex declaration construction and stream binding are hard-coded in
-`RendererModule.cpp`. The current GPU layout uses stream 0 for positions,
-stream 1 for a packed normal/tangent/UV/color record, and a separate uint32
-index buffer.
+Stage 0 is complete. The existing two-stream vertex layout, Slang input order,
+uint32 indices, section draw ranges, fallback UV/color materialization,
+resource readiness, canonical derived-data payloads, and a Vulkan rendered
+fixture are now pinned by focused tests. Both renderer paths obtain their
+otherwise unchanged declaration elements from
+`GetStaticMeshVertexDeclarationElements()`, which is explicitly transitional
+until `FLocalVertexFactory` assumes ownership in Stage 2.
 
-This is sufficient for the current forward-lit static-mesh path, but it leaves
-no owner for the contract between mesh buffers, vertex declarations, shader
-inputs, and future pass-specific fetch requirements. It also makes Durin's
-types differ unnecessarily from the Unreal Engine terminology used as the
-project's reference model.
+The deterministic Vulkan baseline imports `MultiSection.gltf`, whose data now
+contains an angled normal, negative tangent handedness, authored UVs, and
+non-white vertex colors. Its 64-by-64 RGBA output hash is
+`52fdb5113401075fabb77a111012afd1`.
 
-No implementation from this plan has landed.
+Stage 1 is next. `FStaticMeshLODResources` still owns the legacy semantic arrays
+and raw RHI references; no UE-named buffer-resource types have landed yet.
 
 ## Goal
 
@@ -280,20 +281,20 @@ requirement exists.
 
 Outcome: establish exact compatibility expectations before moving ownership.
 
-- [ ] Record the current static-mesh vertex semantics, Vulkan locations,
+- [x] Record the current static-mesh vertex semantics, Vulkan locations,
   element formats, strides, fallback UV/color behavior, index stride, and
   section draw-range rules in focused tests.
-- [ ] Add a resource-readiness test covering empty, malformed, partially
+- [x] Add a resource-readiness test covering empty, malformed, partially
   initialized, initialized, and released LOD resources.
-- [ ] Add a derived-data fixture test proving an existing payload decodes and
+- [x] Add a derived-data fixture test proving an existing payload decodes and
   re-encodes without semantic changes.
-- [ ] Add or identify one deterministic rendered static-mesh baseline that
+- [x] Add or identify one deterministic rendered static-mesh baseline that
   exercises non-default position, normal, tangent handedness, UV0, and vertex
   color.
-- [ ] Inventory direct consumers of `FStaticMeshLODResources` CPU arrays and
+- [x] Inventory direct consumers of `FStaticMeshLODResources` CPU arrays and
   classify each as import/build, serialization, editor inspection, test, or
   render-thread use.
-- [ ] Confirm that no current consumer depends on the address stability of the
+- [x] Confirm that no current consumer depends on the address stability of the
   exposed vectors or raw RHI reference fields.
 
 #### Acceptance Gate
@@ -303,6 +304,47 @@ Outcome: establish exact compatibility expectations before moving ownership.
   focused test.
 - Every direct consumer has an assigned migration path and no unresolved
   lifetime dependency remains.
+
+#### Stage 0 Handoff
+
+- Baseline commit: `8434ff46` (`docs(rendering): plan static mesh LOD resource refactor`).
+- Working set:
+  `StaticMeshResources.h`, `StaticMesh.cpp`, `RendererModule.cpp`,
+  `StaticMeshPayloadCodecTests.cpp`, `StaticModelImportVulkanTests.cpp`, and
+  `MultiSection.gltf`.
+- Key symbols:
+  `FStaticMeshPackedVertex`,
+  `GetStaticMeshVertexDeclarationElements()`,
+  `FStaticMeshRenderData::InitResources()`, and
+  `FStaticMeshRenderData::IsReadyForRendering()`.
+- Decision: the declaration helper is a Stage 0 test seam, not the final owner.
+  Stage 2 must move the same contract into `FLocalVertexFactory`.
+- Decision: readiness now uses the same complete geometry validation as
+  initialization, so populated RHI references cannot make a malformed LOD
+  renderable.
+
+Direct consumer inventory and migration paths:
+
+| Classification | Current consumers | Migration path |
+| --- | --- | --- |
+| Import/build | `StaticMesh.cpp` debug, import, tangent/fallback, bounds, and upload paths | Stage 1 initializes and reads the named semantic buffer resources. |
+| Serialization | `StaticMeshDerivedData.cpp` payload conversion | Stage 1 uses semantic buffer accessors and preserves the payload schema and hashes. |
+| Editor inspection | `LevelEditorViewportClient.cpp` triangle picking | Stage 1 uses const position/index accessors; CPU access remains enabled. |
+| Render-thread use | `RendererModule.cpp` draw validation, vertex-buffer binding, and index selection; `StaticMeshComponent.cpp` render-data eligibility | Stage 1 uses buffer RHI/count accessors; Stage 2 moves declaration and stream binding to the local vertex factory. |
+| Tests | Static-mesh payload, material, cache, rendering, and editor smoke tests | Migrate alongside each owning production path; retain the Stage 0 assertions as compatibility gates. |
+
+No consumer stores a pointer or reference to a vector object, vector element,
+or raw RHI field across mutation. Consumers either build/serialize
+synchronously, inspect immutable render data, or copy the RHI reference into an
+immediate render command binding.
+
+Validation:
+
+- `StaticMeshTests`: 44 tests passed.
+- `FStaticMeshPayloadCodecTests.*`: 10 focused tests passed.
+- `FStaticModelImportVulkanTests.RendersReloadedSrgbTextureAndBaseColorFactor`:
+  Vulkan rendered baseline passed.
+- `FEditorTextureSmokeTests.*`: editor inspection smoke test passed.
 
 ### Stage 1: Add UE-Named Buffer Resource Types
 

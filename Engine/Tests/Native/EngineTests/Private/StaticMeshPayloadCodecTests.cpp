@@ -1,6 +1,9 @@
 #include <gtest/gtest.h>
 
 #include "Hash/XxHash.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "RHI.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 namespace
@@ -144,6 +147,12 @@ namespace
 	auto WriteU64(std::vector<uint8>& Bytes, size_t Offset, uint64 Value) -> void
 	{
 		for (uint32 Byte = 0; Byte < 8; ++Byte) Bytes[Offset + Byte] = static_cast<uint8>(Value >> (Byte * 8));
+	}
+
+	auto MakeTestBuffer(
+		const FRHIBufferCreateDesc& Desc) -> FBufferRHIRef
+	{
+		return FBufferRHIRef(new FRHIBuffer(Desc));
 	}
 
 	auto Rehash(std::vector<uint8>& Bytes) -> void
@@ -299,10 +308,135 @@ TEST(FStaticMeshPayloadCodecTests, SupportsMeshWithoutUVChannels)
 		ASSERT_EQ(Channel.size(), LOD.Positions.size());
 		for (const FVector2f& UV : Channel) ExpectVector(UV, FVector2f(0.0f));
 	}
+	ASSERT_EQ(LOD.Colors.size(), LOD.Positions.size());
+	for (const FVector4f& Color : LOD.Colors)
+		ExpectVector(Color, FVector4f(1.0f));
 
 	FStaticMeshPayloadData ConvertedBack;
 	ASSERT_TRUE(MakeStaticMeshPayloadData(*RenderData, ConvertedBack, Error)) << Error;
 	ExpectEquivalent(ConvertedBack, Fixture);
+}
+
+TEST(FStaticMeshPayloadCodecTests,
+	CurrentVertexInputAndSectionDrawContractIsPinned)
+{
+	const FVertexDeclarationElementList Elements =
+		GetStaticMeshVertexDeclarationElements();
+	constexpr uint16 PositionStride = sizeof(FVector3f);
+	constexpr uint16 AttributeStride = sizeof(FStaticMeshPackedVertex);
+	const std::array Expected{
+		FVertexElement(
+			0, 0, EVertexElementType::Float3, 0, PositionStride),
+		FVertexElement(
+			1, offsetof(FStaticMeshPackedVertex, Normal),
+			EVertexElementType::Short4N, 1, AttributeStride),
+		FVertexElement(
+			1, offsetof(FStaticMeshPackedVertex, Tangent),
+			EVertexElementType::Short4N, 2, AttributeStride),
+		FVertexElement(
+			1, offsetof(FStaticMeshPackedVertex, TexCoords),
+			EVertexElementType::Float2, 3, AttributeStride),
+		FVertexElement(
+			1, offsetof(FStaticMeshPackedVertex, TexCoords)
+				+ sizeof(FVector2f),
+			EVertexElementType::Float2, 4, AttributeStride),
+		FVertexElement(
+			1, offsetof(FStaticMeshPackedVertex, TexCoords)
+				+ sizeof(FVector2f) * 2,
+			EVertexElementType::Float2, 5, AttributeStride),
+		FVertexElement(
+			1, offsetof(FStaticMeshPackedVertex, TexCoords)
+				+ sizeof(FVector2f) * 3,
+			EVertexElementType::Float2, 6, AttributeStride),
+		FVertexElement(
+			1, offsetof(FStaticMeshPackedVertex, Color),
+			EVertexElementType::UByte4N, 7, AttributeStride)};
+	for (size_t Index = 0; Index < Expected.size(); ++Index)
+		EXPECT_EQ(Elements[Index], Expected[Index]);
+	for (size_t Index = Expected.size(); Index < Elements.size(); ++Index)
+		EXPECT_EQ(Elements[Index].Type, EVertexElementType::None);
+
+	using FIndexElement =
+		typename decltype(FStaticMeshLODResources::Indices)::value_type;
+	EXPECT_EQ(sizeof(FIndexElement), 4u);
+
+	const FStaticMeshPayloadData Fixture = MakeMultiMaterialFixture();
+	ASSERT_EQ(Fixture.LODs[0].Sections.size(), 2u);
+	EXPECT_EQ(Fixture.LODs[0].Sections[0].FirstIndex, 0u);
+	EXPECT_EQ(Fixture.LODs[0].Sections[0].IndexCount, 3u);
+	EXPECT_EQ(Fixture.LODs[0].Sections[1].FirstIndex, 3u);
+	EXPECT_EQ(Fixture.LODs[0].Sections[1].IndexCount, 3u);
+
+	std::string ShaderSource;
+	const std::filesystem::path ShaderPath =
+		std::filesystem::path(FPaths::EngineDir())
+		/ "Shaders/Slang/StaticMesh.slang";
+	ASSERT_TRUE(FFileHelper::LoadFileToString(
+		ShaderSource, ShaderPath.generic_string()));
+	size_t Previous = 0;
+	for (const std::string_view Input : {
+		"float3 pos : POSITION;",
+		"float4 normal : NORMAL;",
+		"float4 tangent : TANGENT;",
+		"float2 uv0 : TEXCOORD0;",
+		"float2 uv1 : TEXCOORD1;",
+		"float2 uv2 : TEXCOORD2;",
+		"float2 uv3 : TEXCOORD3;",
+		"float4 color : COLOR;"})
+	{
+		const size_t Position = ShaderSource.find(Input, Previous);
+		ASSERT_NE(Position, std::string::npos) << Input;
+		Previous = Position + Input.size();
+	}
+}
+
+TEST(FStaticMeshPayloadCodecTests,
+	ResourceReadinessRejectsEmptyMalformedAndPartialLODs)
+{
+	FStaticMeshRenderData Empty;
+	EXPECT_FALSE(Empty.IsReadyForRendering());
+
+	std::string Error;
+	std::unique_ptr<FStaticMeshRenderData> RenderData;
+	ASSERT_TRUE(MakeStaticMeshRenderData(
+		MakeMultiMaterialFixture(), RenderData, Error)) << Error;
+	ASSERT_NE(RenderData, nullptr);
+	ASSERT_EQ(RenderData->LODResources.size(), 1u);
+	FStaticMeshLODResources& LOD = RenderData->LODResources[0];
+
+	const FBufferRHIRef PositionBuffer = MakeTestBuffer(
+		FRHIBufferCreateDesc::CreateVertex(
+			"StaticMeshReadinessPosition",
+			static_cast<uint32>(
+				LOD.Positions.size() * sizeof(FVector3f))));
+	const FBufferRHIRef AttributeBuffer = MakeTestBuffer(
+		FRHIBufferCreateDesc::CreateVertex(
+			"StaticMeshReadinessAttributes",
+			static_cast<uint32>(
+				LOD.Positions.size()
+				* sizeof(FStaticMeshPackedVertex))));
+	const FBufferRHIRef IndexBuffer = MakeTestBuffer(
+		FRHIBufferCreateDesc::CreateIndex(
+			"StaticMeshReadinessIndices",
+			static_cast<uint32>(
+				LOD.Indices.size() * sizeof(uint32)),
+			sizeof(uint32)));
+
+	LOD.PositionVertexBufferRHI = PositionBuffer;
+	LOD.StaticMeshVertexBufferRHI = AttributeBuffer;
+	EXPECT_FALSE(RenderData->IsReadyForRendering());
+
+	LOD.IndexBufferRHI = IndexBuffer;
+	EXPECT_TRUE(RenderData->IsReadyForRendering());
+
+	const std::vector<FVector3f> SavedNormals =
+		std::exchange(LOD.Normals, {});
+	EXPECT_FALSE(RenderData->IsReadyForRendering());
+	LOD.Normals = SavedNormals;
+	EXPECT_TRUE(RenderData->IsReadyForRendering());
+
+	RenderData->ReleaseResources();
+	EXPECT_FALSE(RenderData->IsReadyForRendering());
 }
 
 TEST(FStaticMeshPayloadCodecTests, RejectsEveryTruncationAndChecksumCorruptionTransactionally)

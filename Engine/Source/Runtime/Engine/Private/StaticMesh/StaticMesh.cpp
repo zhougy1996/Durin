@@ -18,7 +18,7 @@
 #include "StaticMesh/StaticMeshResources.h"
 #include "Threading/RunnableThread.h"
 
-#include "RHICommandList.h"
+#include "RHI.h"
 
 #if DURIN_WITH_EDITOR
 	#include "AssetImport.h"
@@ -1764,27 +1764,89 @@ namespace Durin
 		return Result;
 	}
 
-	auto FStaticMeshRenderData::InitResources(FRHICommandListImmediate& RHICmdList) -> void
+	auto GetStaticMeshVertexDeclarationElements() -> FVertexDeclarationElementList
 	{
-		for (FStaticMeshLODResources& LOD : LODResources)
+		FVertexDeclarationElementList Elements;
+		constexpr uint16 PositionStride = sizeof(FVector3f);
+		constexpr uint16 AttributeStride = sizeof(FStaticMeshPackedVertex);
+		Elements[0] = FVertexElement(
+			0, 0, EVertexElementType::Float3, 0, PositionStride);
+		Elements[1] = FVertexElement(
+			1, offsetof(FStaticMeshPackedVertex, Normal),
+			EVertexElementType::Short4N, 1, AttributeStride);
+		Elements[2] = FVertexElement(
+			1, offsetof(FStaticMeshPackedVertex, Tangent),
+			EVertexElementType::Short4N, 2, AttributeStride);
+		for (uint8 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
+		{
+			Elements[3 + Channel] = FVertexElement(
+				1,
+				static_cast<uint8>(
+					offsetof(FStaticMeshPackedVertex, TexCoords)
+					+ sizeof(FVector2f) * Channel),
+				EVertexElementType::Float2,
+				static_cast<uint8>(3 + Channel),
+				AttributeStride);
+		}
+		Elements[7] = FVertexElement(
+			1, offsetof(FStaticMeshPackedVertex, Color),
+			EVertexElementType::UByte4N, 7, AttributeStride);
+		return Elements;
+	}
+
+	namespace
+	{
+		auto IsStaticMeshLODGeometryValid(
+			const FStaticMeshLODResources& LOD,
+			size_t MaterialSlotCount) -> bool
 		{
 			const size_t NumVertices = LOD.Positions.size();
 			const bool bValidStreams = NumVertices > 0
 				&& LOD.Normals.size() == NumVertices
 				&& LOD.Tangents.size() == NumVertices
 				&& LOD.Colors.size() == NumVertices
-				&& std::ranges::all_of(LOD.TexCoords, [NumVertices](const auto& Channel) { return Channel.size() == NumVertices; });
-			const bool bValidIndices = !LOD.Indices.empty() && LOD.Indices.size() % 3 == 0
-				&& std::ranges::all_of(LOD.Indices, [NumVertices](uint32 Index) { return Index < NumVertices; });
-			const bool bValidSections = !LOD.Sections.empty() && std::ranges::all_of(LOD.Sections, [this, &LOD](const FStaticMeshSection& Section) {
-				return Section.IndexCount > 0
-					&& Section.IndexCount % 3 == 0
-					&& static_cast<uint64>(Section.FirstIndex) + Section.IndexCount <= LOD.Indices.size()
-					&& Section.MinVertexIndex <= Section.MaxVertexIndex
-					&& Section.MaxVertexIndex < LOD.Positions.size()
-					&& Section.MaterialSlotIndex < MaterialSlots.size();
-			});
-			if (!bValidStreams || !bValidIndices || !bValidSections) continue;
+				&& std::ranges::all_of(
+					LOD.TexCoords,
+					[NumVertices](const auto& Channel) {
+						return Channel.size() == NumVertices;
+					});
+			const bool bValidIndices =
+				!LOD.Indices.empty()
+				&& LOD.Indices.size() % 3 == 0
+				&& std::ranges::all_of(
+					LOD.Indices,
+					[NumVertices](uint32 Index) {
+						return Index < NumVertices;
+					});
+			const bool bValidSections =
+				!LOD.Sections.empty()
+				&& std::ranges::all_of(
+					LOD.Sections,
+					[&LOD, MaterialSlotCount](
+						const FStaticMeshSection& Section) {
+						return Section.IndexCount > 0
+							&& Section.IndexCount % 3 == 0
+							&& static_cast<uint64>(Section.FirstIndex)
+								+ Section.IndexCount
+								<= LOD.Indices.size()
+							&& Section.MinVertexIndex
+								<= Section.MaxVertexIndex
+							&& Section.MaxVertexIndex
+								< LOD.Positions.size()
+							&& Section.MaterialSlotIndex
+								< MaterialSlotCount;
+					});
+			return bValidStreams && bValidIndices && bValidSections;
+		}
+	}
+
+	auto FStaticMeshRenderData::InitResources(FRHICommandListImmediate& RHICmdList) -> void
+	{
+		for (FStaticMeshLODResources& LOD : LODResources)
+		{
+			const size_t NumVertices = LOD.Positions.size();
+			if (!IsStaticMeshLODGeometryValid(
+				LOD, MaterialSlots.size())) continue;
 
 			if (LOD.PositionVertexBufferRHI == nullptr)
 			{
@@ -1847,8 +1909,8 @@ namespace Durin
 		return LOD.PositionVertexBufferRHI != nullptr
 			&& LOD.StaticMeshVertexBufferRHI != nullptr
 			&& LOD.IndexBufferRHI != nullptr
-			&& !LOD.Indices.empty()
-			&& !LOD.Sections.empty();
+			&& IsStaticMeshLODGeometryValid(
+				LOD, MaterialSlots.size());
 	}
 
 	auto FStaticMeshRenderData::RecalculateBounds() -> void

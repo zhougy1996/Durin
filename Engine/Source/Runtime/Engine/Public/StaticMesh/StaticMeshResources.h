@@ -69,6 +69,12 @@ namespace Durin
 		const std::array<FVector2f, MaxStaticMeshUVChannels>& TexCoords,
 		const FVector4f& Color) -> FStaticMeshPackedVertex;
 
+	// Describes the current renderer-owned static-mesh input contract.
+	// Stage 2 of StaticMeshLODResourcesRefactor moves this responsibility into
+	// FLocalVertexFactory; keeping one source here lets Stage 0 pin both current
+	// renderer paths without changing their ownership yet.
+	ENGINE_API auto GetStaticMeshVertexDeclarationElements() -> FVertexDeclarationElementList;
+
 	// Owns all renderable LODs, material slots, and aggregate bounds for a static mesh.
 	struct FStaticMeshRenderData
 	{

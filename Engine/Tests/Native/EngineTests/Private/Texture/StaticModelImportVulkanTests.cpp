@@ -5,6 +5,7 @@
 #include "Engine/Engine.h"
 #include "Engine/PrimitiveSceneProxy.h"
 #include "EngineTestSupport.h"
+#include "Hash/XxHash.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Modules/ModuleManager.h"
@@ -116,6 +117,45 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(StandardPath));
 
+	const Durin::FAssetPath LODContractPath =
+		MakeAssetPath("/StaticModelImportVulkan/LODContract");
+	const Durin::FStaticMeshImportResult LODContractImport =
+		Durin::DStaticMesh::ImportAsset(
+			(std::filesystem::path(DURIN_TEST_DATA_DIR)
+				/ "MultiSection.gltf").generic_string(),
+			LODContractPath.ToString());
+	ASSERT_TRUE(LODContractImport) << LODContractImport.Message;
+	Durin::DStaticMesh* LODContractMesh = LODContractImport.Asset;
+	ASSERT_NE(LODContractMesh, nullptr);
+	const Durin::FStaticMeshRenderData* LODContractRenderData =
+		LODContractMesh->GetRenderData();
+	ASSERT_NE(LODContractRenderData, nullptr);
+	ASSERT_EQ(LODContractRenderData->LODResources.size(), 1u);
+	const Durin::FStaticMeshLODResources& LODContract =
+		LODContractRenderData->LODResources[0];
+	ASSERT_FALSE(LODContract.Positions.empty());
+	EXPECT_TRUE(std::ranges::any_of(
+		LODContract.Normals,
+		[](const Durin::FVector3f& Normal) {
+			return std::abs(Normal.y) > 0.1f
+				&& std::abs(Normal.z) < 0.99f;
+		}));
+	EXPECT_TRUE(std::ranges::any_of(
+		LODContract.Tangents,
+		[](const Durin::FVector4f& Tangent) {
+			return Tangent.w < 0.0f;
+		}));
+	EXPECT_TRUE(std::ranges::any_of(
+		LODContract.TexCoords[0],
+		[](const Durin::FVector2f& UV) {
+			return UV.x != 0.0f || UV.y != 0.0f;
+		}));
+	EXPECT_TRUE(std::ranges::any_of(
+		LODContract.Colors,
+		[](const Durin::FVector4f& Color) {
+			return Color != Durin::FVector4f(1.0f);
+		}));
+
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::RHIInit();
@@ -176,11 +216,14 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 	{
 		Durin::FRenderedAssetThumbnailPreviewScenePool Pool(Contract);
 		ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
-		auto Capture = [&](Durin::DMaterialInterface* Material, Durin::uint64 Revision) {
+		auto Capture = [&](
+			Durin::DStaticMesh* Mesh,
+			Durin::DMaterialInterface* Material,
+			Durin::uint64 Revision) {
 			std::vector<Durin::uint8> Pixels;
 			std::unique_ptr<Durin::PrimitiveSceneProxy> Proxy =
 				Durin::CreateMaterialPreviewPrimitive(
-					ReloadedMesh, Material, Revision, Error);
+					Mesh, Material, Revision, Error);
 			EXPECT_NE(Proxy, nullptr) << Error;
 			if (Proxy == nullptr) return Pixels;
 			EXPECT_TRUE(Pool.SetPrimitive(
@@ -195,11 +238,13 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 		};
 
 		const std::vector<Durin::uint8> ImportedPixels =
-			Capture(ReloadedMaterial, 1);
+			Capture(ReloadedMesh, ReloadedMaterial, 1);
 		const std::vector<Durin::uint8> TextureOnlyPixels =
-			Capture(TextureOnly, 2);
+			Capture(ReloadedMesh, TextureOnly, 2);
 		const std::vector<Durin::uint8> FactorOnlyPixels =
-			Capture(FactorOnly, 3);
+			Capture(ReloadedMesh, FactorOnly, 3);
+		const std::vector<Durin::uint8> LODContractPixels =
+			Capture(LODContractMesh, ReloadedMaterial, 4);
 		ASSERT_EQ(ImportedPixels.size(), 64u * 64u * 4u);
 		ASSERT_EQ(TextureOnlyPixels.size(), ImportedPixels.size());
 		ASSERT_EQ(FactorOnlyPixels.size(), ImportedPixels.size());
@@ -209,6 +254,13 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 		EXPECT_GT(ImportedPixels[Center], ImportedPixels[Center + 1]);
 		EXPECT_NE(ImportedPixels, TextureOnlyPixels);
 		EXPECT_NE(ImportedPixels, FactorOnlyPixels);
+		ASSERT_EQ(
+			LODContractPixels.size(),
+			ImportedPixels.size());
+		EXPECT_EQ(
+			Durin::FXxHash128::HashBuffer(
+				LODContractPixels).ToString(),
+			"52fdb5113401075fabb77a111012afd1");
 
 		struct FEndStaticModelImportFrame
 		{
@@ -223,6 +275,7 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 
 	Durin::GEngine = nullptr;
 	ReloadedMesh->GetRenderData()->ReleaseResources();
+	LODContractMesh->GetRenderData()->ReleaseResources();
 	auto* Sphere = Durin::Cast<Durin::DStaticMesh>(PreloadedSphere.Get());
 	ASSERT_NE(Sphere, nullptr);
 	Sphere->GetRenderData()->ReleaseResources();
@@ -236,10 +289,12 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(StandardPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(LODContractPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(RootPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(MaterialPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(TexturePath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(StandardPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(LODContractPath));
 	Renderer.ShutdownModule();
 	Durin::ShutdownRenderingThread();
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);

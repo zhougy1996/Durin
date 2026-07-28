@@ -1024,17 +1024,8 @@ namespace Durin
 
 			GStaticMeshState.bBaseResourcesCreateAttempted = true;
 
-			FVertexDeclarationElementList VertexDeclElements;
-			constexpr uint32 VertexStride = sizeof(FVector3f);
-			VertexDeclElements[0] = FVertexElement(0, 0, EVertexElementType::Float3, 0, VertexStride);
-			constexpr uint32 AttributeStride = sizeof(FStaticMeshPackedVertex);
-			VertexDeclElements[1] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, Normal), EVertexElementType::Short4N, 1, AttributeStride);
-			VertexDeclElements[2] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, Tangent), EVertexElementType::Short4N, 2, AttributeStride);
-			VertexDeclElements[3] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f) * 0, EVertexElementType::Float2, 3, AttributeStride);
-			VertexDeclElements[4] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f) * 1, EVertexElementType::Float2, 4, AttributeStride);
-			VertexDeclElements[5] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f) * 2, EVertexElementType::Float2, 5, AttributeStride);
-			VertexDeclElements[6] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f) * 3, EVertexElementType::Float2, 6, AttributeStride);
-			VertexDeclElements[7] = FVertexElement(1, offsetof(FStaticMeshPackedVertex, Color), EVertexElementType::UByte4N, 7, AttributeStride);
+			const FVertexDeclarationElementList VertexDeclElements =
+				GetStaticMeshVertexDeclarationElements();
 			GStaticMeshState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
 			GStaticMeshState.BaseColorSampler = RHICreateSampler(FRHISamplerDesc::LinearRepeat());
 			return GStaticMeshState.VertexDeclaration != nullptr
@@ -1179,53 +1170,8 @@ namespace Durin
 			GTextureCubeThumbnailState.FragmentShader =
 				TShaderRef<FTextureCubeThumbnailFragmentShader>(FragmentShader, ShaderMap.get());
 
-			FVertexDeclarationElementList VertexDeclElements;
-			constexpr uint32 VertexStride = sizeof(FVector3f);
-			VertexDeclElements[0] =
-				FVertexElement(0, 0, EVertexElementType::Float3, 0, VertexStride);
-			constexpr uint32 AttributeStride = sizeof(FStaticMeshPackedVertex);
-			VertexDeclElements[1] = FVertexElement(
-				1,
-				offsetof(FStaticMeshPackedVertex, Normal),
-				EVertexElementType::Short4N,
-				1,
-				AttributeStride);
-			VertexDeclElements[2] = FVertexElement(
-				1,
-				offsetof(FStaticMeshPackedVertex, Tangent),
-				EVertexElementType::Short4N,
-				2,
-				AttributeStride);
-			VertexDeclElements[3] = FVertexElement(
-				1,
-				offsetof(FStaticMeshPackedVertex, TexCoords),
-				EVertexElementType::Float2,
-				3,
-				AttributeStride);
-			VertexDeclElements[4] = FVertexElement(
-				1,
-				offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f),
-				EVertexElementType::Float2,
-				4,
-				AttributeStride);
-			VertexDeclElements[5] = FVertexElement(
-				1,
-				offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f) * 2,
-				EVertexElementType::Float2,
-				5,
-				AttributeStride);
-			VertexDeclElements[6] = FVertexElement(
-				1,
-				offsetof(FStaticMeshPackedVertex, TexCoords) + sizeof(FVector2f) * 3,
-				EVertexElementType::Float2,
-				6,
-				AttributeStride);
-			VertexDeclElements[7] = FVertexElement(
-				1,
-				offsetof(FStaticMeshPackedVertex, Color),
-				EVertexElementType::UByte4N,
-				7,
-				AttributeStride);
+			const FVertexDeclarationElementList VertexDeclElements =
+				GetStaticMeshVertexDeclarationElements();
 			GTextureCubeThumbnailState.VertexDeclaration =
 				GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
 
