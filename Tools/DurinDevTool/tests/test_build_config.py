@@ -22,6 +22,7 @@ from durin_dev_tool.build import scaffolding as build_scaffolding
 from durin_dev_tool.build.handler import request_from_namespace
 from durin_dev_tool.build.output import BuildOutput
 from durin_dev_tool.bootstrap import preflight
+from durin_dev_tool import configuration
 from durin_dev_tool.registry import CommandRegistry
 
 def parse_build_request(arguments: list[str]) -> build_config.CommandRequest:
@@ -137,6 +138,53 @@ class TestBuildConfig:
         directory = tmp_path_factory.mktemp('case')
         with pytest.raises(build_config.BuildToolError, match='inside the checkout'):
             build_config.preset_build_directory(preset, root=Path(directory))
+
+class TestRepositoryConfig:
+
+    def test_repository_config_resolves_tracked_layout(self) -> None:
+        config = configuration.load_repository_config(REPO_ROOT)
+        assert config.paths.local_build_config == Path('.agents/build-config.json')
+        assert config.paths.local_build_config_template == Path(
+            'Templates/DurinDevTool/build-config.json'
+        )
+        assert config.resolve(config.paths.cmake_presets).is_file()
+        assert config.resolve(config.paths.build_profiles).is_file()
+        assert config.resolve(config.paths.local_build_config_template).is_file()
+        assert config.feature_enabled('build')
+
+    def test_repository_config_rejects_unknown_and_escaping_paths(
+        self,
+        tmp_path_factory: pytest.TempPathFactory,
+    ) -> None:
+        directory = Path(tmp_path_factory.mktemp('case'))
+        source = json.loads(
+            (REPO_ROOT / configuration.CONFIG_RELATIVE_PATH).read_text(encoding='utf-8')
+        )
+        config_path = directory / 'DevTool.json'
+        source['unexpected'] = True
+        config_path.write_text(json.dumps(source), encoding='utf-8')
+        with pytest.raises(configuration.RepositoryConfigError, match='unknown field'):
+            configuration.load_repository_config(directory, path=config_path)
+        del source['unexpected']
+        source['paths']['stateDirectory'] = '../outside'
+        config_path.write_text(json.dumps(source), encoding='utf-8')
+        with pytest.raises(configuration.RepositoryConfigError, match='inside the repository'):
+            configuration.load_repository_config(directory, path=config_path)
+
+    def test_repository_config_requires_explicit_boolean_features(
+        self,
+        tmp_path_factory: pytest.TempPathFactory,
+    ) -> None:
+        directory = Path(tmp_path_factory.mktemp('case'))
+        source = json.loads(
+            (REPO_ROOT / configuration.CONFIG_RELATIVE_PATH).read_text(encoding='utf-8')
+        )
+        source['features']['documentation'] = 'yes'
+        config_path = directory / 'DevTool.json'
+        config_path.write_text(json.dumps(source), encoding='utf-8')
+        with pytest.raises(configuration.RepositoryConfigError, match='must be a boolean'):
+            configuration.load_repository_config(directory, path=config_path)
+
 
 class TestCMakeCodeModelGuard:
 

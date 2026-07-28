@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from ..configuration import load_repository_config
 from ..build.config import (
     BuildToolError,
     host_name,
@@ -24,8 +25,9 @@ from .dependencies import BootstrapError, DependencyRequest, prepare_dependencie
 from .preflight import validate_prerequisites
 
 
+REPOSITORY_CONFIG = load_repository_config()
 MINIMUM_PYTHON = (3, 10)
-VSCODE_TEMPLATE_DIRECTORY = Path("Templates") / "VSCode"
+VSCODE_TEMPLATE_DIRECTORY = REPOSITORY_CONFIG.paths.vscode_templates
 VSCODE_TEMPLATE_FILES = ("settings.json", "extensions.json")
 
 
@@ -57,7 +59,7 @@ def _system_python_command() -> list[str]:
 
 
 def ensure_python_environment(repository_root: Path) -> Path:
-    environment = repository_root / ".venv"
+    environment = repository_root / REPOSITORY_CONFIG.worktrees.python_environment
     python = environment / "Scripts" / "python.exe"
     if not python.is_file():
         print(f'Creating Python virtual environment at "{environment}"...')
@@ -116,7 +118,9 @@ def generate_vscode_launch_configuration(
     current_host: str | None = None,
     environment: Mapping[str, str] | None = None,
 ) -> dict[str, object]:
-    config = load_local_config(repository_root / ".agents" / "build-config.json")
+    config = load_local_config(
+        repository_root / REPOSITORY_CONFIG.paths.local_build_config
+    )
     profiles = load_profiles()
     profile = select_profile(
         profiles,
@@ -124,7 +128,9 @@ def generate_vscode_launch_configuration(
         environment=environment,
         current_host=current_host or host_name(),
     )
-    presets = load_configure_presets(repository_root / "CMakePresets.json")
+    presets = load_configure_presets(
+        repository_root / REPOSITORY_CONFIG.paths.cmake_presets
+    )
     configurations: list[dict[str, object]] = []
     for preset_name in profile.presets:
         preset = presets.get(preset_name)
@@ -135,7 +141,8 @@ def generate_vscode_launch_configuration(
         runtime_variant = preset_cache_string(preset, "DURIN_RUNTIME_VARIANT")
         output_configuration = preset_output_configuration(preset)
         executable = (
-            "${workspaceFolder}/Engine/Binaries/"
+            "${workspaceFolder}/"
+            f"{REPOSITORY_CONFIG.paths.runtime_binaries_directory.as_posix()}/"
             f"{profile.platform}/{output_configuration}/Runtime/"
             f"{runtime_variant}/{runtime_variant}{profile.test_executable_suffix}"
         )
@@ -154,7 +161,7 @@ def generate_vscode_launch_configuration(
 
 
 def ensure_vscode_configuration(repository_root: Path) -> Path:
-    target_directory = repository_root / ".vscode"
+    target_directory = repository_root / REPOSITORY_CONFIG.worktrees.vscode_directory
     template_directory = repository_root / VSCODE_TEMPLATE_DIRECTORY
     if target_directory.exists() and not target_directory.is_dir():
         raise BootstrapError(

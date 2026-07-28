@@ -4,9 +4,12 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+from ..configuration import load_repository_config
 
-CONFIG_RELATIVE_PATH = Path(".agents") / "build-config.json"
-TEMPLATE_RELATIVE_PATH = Path("Documentation") / "Development" / "Build" / "TP_AGENT_BUILD_CONFIG.json"
+
+REPOSITORY_CONFIG = load_repository_config()
+CONFIG_RELATIVE_PATH = REPOSITORY_CONFIG.paths.local_build_config
+TEMPLATE_RELATIVE_PATH = REPOSITORY_CONFIG.paths.local_build_config_template
 
 
 class AgentConfigError(RuntimeError):

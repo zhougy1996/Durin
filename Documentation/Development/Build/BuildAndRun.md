@@ -22,7 +22,8 @@ worktree with `DevTool worktree prepare`:
 - The LunarG Vulkan SDK. `VULKAN_SDK` must name an installation containing `Include/vulkan/vulkan.h`, `Include/vma/vk_mem_alloc.h`, and `Lib/vulkan-1.lib`. Current SDK releases include VMA. For an older SDK, either update it or download `vk_mem_alloc.h` from VulkanMemoryAllocator and place it under that SDK's `Include/vma` directory; Durin does not bootstrap a second VMA copy.
 
 In a normal checkout, `DevTool setup` runs a non-mutating prerequisite check,
-then creates `.agents/build-config.json` from its tracked template when the
+then creates `.agents/build-config.json` from
+`Templates/DurinDevTool/build-config.json` when the
 local file is missing. It also copies missing VS Code `settings.json` and
 `extensions.json` files from `Templates/VSCode` into the ignored local
 `.vscode` directory. When `launch.json` is missing, Setup generates one entry
@@ -60,6 +61,12 @@ Machine-specific CMake, build-profile, environment, or job overrides belong in
 detect the Visual Studio environment and parallelism. Setup's preflight honors
 both `cmakeCommand` and `environmentSetup`; the third-party bootstrap also uses
 `cmakeCommand`, and `CMAKE_COMMAND` still takes precedence during Setup.
+
+Tracked DurinDevTool repository structure and command-group enablement live in
+`Tools/DurinDevTool/DevTool.json`. Its paths are repository-relative and are
+validated to stay inside the checkout. `DevTool.schema.json` beside it documents
+the supported fields. Do not place machine-local tool paths in this tracked
+configuration.
 
 ## Windows Workflow
 
@@ -230,7 +237,11 @@ Select another registered configure preset with `--preset`:
 .\DevTool.bat build --preset Win64-Release-DurinEditor-Profiling --target all
 ```
 
-`CMakePresets.json` remains the source of truth for preset configuration. `AgentBuildProfiles.json` controls which presets DurinDevTool may own for each host environment. The IDE-only `Win64-Debug-DurinEditor-FastConfigure` preset is intentionally excluded.
+`CMakePresets.json` remains the source of truth for preset configuration.
+`Tools/DurinDevTool/DevTool.json` selects that file and the tracked
+`AgentBuildProfiles.json` manifest, which controls which presets DurinDevTool may
+own for each host environment. The IDE-only
+`Win64-Debug-DurinEditor-FastConfigure` preset is intentionally excluded.
 
 FastConfigure is marked code-model-only. Its generated build targets fail before
 DHT, compilation, or linking can start; it may only configure for IDE indexing.

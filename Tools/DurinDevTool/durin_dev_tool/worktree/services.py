@@ -13,16 +13,17 @@ from pathlib import Path
 from typing import Iterator, Sequence
 
 from ..bootstrap.preflight import validate_prerequisites
+from ..configuration import load_repository_config
 from ..repository import discover_repository_root
 
 
 REPO_ROOT = discover_repository_root()
-SHARED_DIRECTORY_PATHS = (
-    Path(".agents"),
-    Path(".vscode"),
-    Path(".venv"),
-    Path("Engine/External"),
-)
+REPOSITORY_CONFIG = load_repository_config(REPO_ROOT)
+AGENT_DIRECTORY = REPOSITORY_CONFIG.worktrees.agent_directory
+VSCODE_DIRECTORY = REPOSITORY_CONFIG.worktrees.vscode_directory
+PYTHON_ENVIRONMENT = REPOSITORY_CONFIG.worktrees.python_environment
+EXTERNAL_DIRECTORY = REPOSITORY_CONFIG.worktrees.external_directory
+SHARED_DIRECTORY_PATHS = REPOSITORY_CONFIG.worktrees.shared_directories
 SOURCE_ENVIRONMENT_NAMES = (
     "DURIN_WORKTREE_SOURCE",
     "DURIN_EXTERNAL_SOURCE",
@@ -160,7 +161,7 @@ def ordered_worktrees(worktrees: Sequence[Worktree]) -> list[Worktree]:
 
 
 def environment_arguments(worktree: Path) -> list[str]:
-    config_path = worktree / ".agents" / "build-config.json"
+    config_path = worktree / REPOSITORY_CONFIG.paths.local_build_config
     if not config_path.is_file():
         print(
             f"WARNING: Agent config is missing for worktree '{worktree}'. "
@@ -449,27 +450,31 @@ def prepare_agent_link(
     link_type: str,
     dry_run: bool,
 ) -> None:
-    source = (source_root / ".agents").resolve()
-    target = (target_root / ".agents").absolute()
-    backup = (target_root / ".agents.pre-link-backup").absolute()
+    source = (source_root / AGENT_DIRECTORY).resolve()
+    target = (target_root / AGENT_DIRECTORY).absolute()
+    backup = target.with_name(f"{target.name}.pre-link-backup")
     if not source.is_dir():
-        raise WorktreeToolError(f'Source .agents directory does not exist: "{source}"')
+        raise WorktreeToolError(
+            f'Source {AGENT_DIRECTORY.as_posix()} directory does not exist: "{source}"'
+        )
     if target.is_dir() and not is_link_like(target) and not is_empty_directory(target):
         if backup.exists() or is_link_like(backup):
             raise WorktreeToolError(
                 f'Cannot preserve the existing Agent directory because the backup path exists: "{backup}"'
             )
-        print(f'Preserving existing .agents: "{target}" -> "{backup}"')
+        print(f'Preserving existing {AGENT_DIRECTORY.as_posix()}: "{target}" -> "{backup}"')
         if dry_run:
             print(f'[dry-run] move "{target}" -> "{backup}"')
-            print(f'[dry-run] link .agents: "{target}" -> "{source}"')
+            print(
+                f'[dry-run] link {AGENT_DIRECTORY.as_posix()}: "{target}" -> "{source}"'
+            )
             create_directory_link(source, target, link_type=link_type, dry_run=True)
             return
         target.rename(backup)
     prepare_directory_link(
         source,
         target,
-        label=".agents",
+        label=AGENT_DIRECTORY.as_posix(),
         link_type=link_type,
         dry_run=dry_run,
     )
@@ -482,27 +487,31 @@ def prepare_vscode_link(
     link_type: str,
     dry_run: bool,
 ) -> None:
-    source = (source_root / ".vscode").resolve()
-    target = (target_root / ".vscode").absolute()
-    backup = (target_root / ".vscode.pre-link-backup").absolute()
+    source = (source_root / VSCODE_DIRECTORY).resolve()
+    target = (target_root / VSCODE_DIRECTORY).absolute()
+    backup = target.with_name(f"{target.name}.pre-link-backup")
     if not source.is_dir():
-        raise WorktreeToolError(f'Source .vscode directory does not exist: "{source}"')
+        raise WorktreeToolError(
+            f'Source {VSCODE_DIRECTORY.as_posix()} directory does not exist: "{source}"'
+        )
     if target.is_dir() and not is_link_like(target) and not is_empty_directory(target):
         if backup.exists() or is_link_like(backup):
             raise WorktreeToolError(
                 f'Cannot preserve the existing VS Code directory because the backup path exists: "{backup}"'
             )
-        print(f'Preserving existing .vscode: "{target}" -> "{backup}"')
+        print(f'Preserving existing {VSCODE_DIRECTORY.as_posix()}: "{target}" -> "{backup}"')
         if dry_run:
             print(f'[dry-run] move "{target}" -> "{backup}"')
-            print(f'[dry-run] link .vscode: "{target}" -> "{source}"')
+            print(
+                f'[dry-run] link {VSCODE_DIRECTORY.as_posix()}: "{target}" -> "{source}"'
+            )
             create_directory_link(source, target, link_type=link_type, dry_run=True)
             return
         target.rename(backup)
     prepare_directory_link(
         source,
         target,
-        label=".vscode",
+        label=VSCODE_DIRECTORY.as_posix(),
         link_type=link_type,
         dry_run=dry_run,
     )
@@ -510,8 +519,20 @@ def prepare_vscode_link(
 
 def validate_preparation_targets(target_root: Path) -> None:
     for label, target, backup in (
-        ("Agent", target_root / ".agents", target_root / ".agents.pre-link-backup"),
-        ("VS Code", target_root / ".vscode", target_root / ".vscode.pre-link-backup"),
+        (
+            "Agent",
+            target_root / AGENT_DIRECTORY,
+            (target_root / AGENT_DIRECTORY).with_name(
+                f"{AGENT_DIRECTORY.name}.pre-link-backup"
+            ),
+        ),
+        (
+            "VS Code",
+            target_root / VSCODE_DIRECTORY,
+            (target_root / VSCODE_DIRECTORY).with_name(
+                f"{VSCODE_DIRECTORY.name}.pre-link-backup"
+            ),
+        ),
     ):
         if (
             target.is_dir()
@@ -523,8 +544,8 @@ def validate_preparation_targets(target_root: Path) -> None:
                 f'Cannot preserve the existing {label} directory because the backup path exists: "{backup}"'
             )
     for label, target in (
-        ("External", target_root / "Engine" / "External"),
-        (".venv", target_root / ".venv"),
+        ("External", target_root / EXTERNAL_DIRECTORY),
+        (PYTHON_ENVIRONMENT.as_posix(), target_root / PYTHON_ENVIRONMENT),
     ):
         if target.exists() and not is_link_like(target) and not is_empty_directory(target):
             raise WorktreeToolError(
@@ -553,10 +574,10 @@ def prepare_registered_worktree(
     source = preparation_source(source_value, target=worktree.path, worktrees=worktrees)
     selected_link_type = choose_link_type(link_type)
     required_sources = (
-        (".agents", source / ".agents"),
-        (".vscode", source / ".vscode"),
-        ("External", source / "Engine" / "External"),
-        (".venv", source / ".venv"),
+        (AGENT_DIRECTORY.as_posix(), source / AGENT_DIRECTORY),
+        (VSCODE_DIRECTORY.as_posix(), source / VSCODE_DIRECTORY),
+        ("External", source / EXTERNAL_DIRECTORY),
+        (PYTHON_ENVIRONMENT.as_posix(), source / PYTHON_ENVIRONMENT),
     )
     missing_sources = [f'{label}: "{path}"' for label, path in required_sources if not path.is_dir()]
     if missing_sources:
@@ -579,16 +600,16 @@ def prepare_registered_worktree(
         dry_run=dry_run,
     )
     prepare_directory_link(
-        source / "Engine" / "External",
-        worktree.path / "Engine" / "External",
+        source / EXTERNAL_DIRECTORY,
+        worktree.path / EXTERNAL_DIRECTORY,
         label="External",
         link_type=selected_link_type,
         dry_run=dry_run,
     )
     prepare_directory_link(
-        source / ".venv",
-        worktree.path / ".venv",
-        label=".venv",
+        source / PYTHON_ENVIRONMENT,
+        worktree.path / PYTHON_ENVIRONMENT,
+        label=PYTHON_ENVIRONMENT.as_posix(),
         link_type=selected_link_type,
         dry_run=dry_run,
     )

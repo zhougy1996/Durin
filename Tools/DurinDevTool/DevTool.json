@@ -1,0 +1,30 @@
+{
+  "$schema": "DevTool.schema.json",
+  "version": 1,
+  "paths": {
+    "cmakePresets": "CMakePresets.json",
+    "buildProfiles": "Tools/DurinDevTool/durin_dev_tool/build/AgentBuildProfiles.json",
+    "localBuildConfig": ".agents/build-config.json",
+    "localBuildConfigTemplate": "Templates/DurinDevTool/build-config.json",
+    "stateDirectory": "Build/.agent-state",
+    "lockDirectory": "Build/.agent-locks",
+    "runtimeBinariesDirectory": "Engine/Binaries",
+    "defaultGameProject": "Sandbox/Sandbox.dproject",
+    "vscodeTemplates": "Templates/VSCode",
+    "thirdPartyManifests": "Tools/DurinDevTool/durin_dev_tool/bootstrap/thirdparty"
+  },
+  "worktrees": {
+    "agentDirectory": ".agents",
+    "vscodeDirectory": ".vscode",
+    "pythonEnvironment": ".venv",
+    "externalDirectory": "Engine/External"
+  },
+  "features": {
+    "setup": true,
+    "build": true,
+    "scaffolding": true,
+    "dependencies": true,
+    "documentation": true,
+    "worktrees": true
+  }
+}

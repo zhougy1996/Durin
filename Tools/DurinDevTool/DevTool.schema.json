@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "DevTool.schema.json",
+  "title": "DurinDevTool repository configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "paths", "worktrees", "features"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1
+    },
+    "paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cmakePresets",
+        "buildProfiles",
+        "localBuildConfig",
+        "localBuildConfigTemplate",
+        "stateDirectory",
+        "lockDirectory",
+        "runtimeBinariesDirectory",
+        "defaultGameProject",
+        "vscodeTemplates",
+        "thirdPartyManifests"
+      ],
+      "properties": {
+        "cmakePresets": { "$ref": "#/$defs/repositoryPath" },
+        "buildProfiles": { "$ref": "#/$defs/repositoryPath" },
+        "localBuildConfig": { "$ref": "#/$defs/repositoryPath" },
+        "localBuildConfigTemplate": { "$ref": "#/$defs/repositoryPath" },
+        "stateDirectory": { "$ref": "#/$defs/repositoryPath" },
+        "lockDirectory": { "$ref": "#/$defs/repositoryPath" },
+        "runtimeBinariesDirectory": { "$ref": "#/$defs/repositoryPath" },
+        "defaultGameProject": { "$ref": "#/$defs/repositoryPath" },
+        "vscodeTemplates": { "$ref": "#/$defs/repositoryPath" },
+        "thirdPartyManifests": { "$ref": "#/$defs/repositoryPath" }
+      }
+    },
+    "worktrees": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "agentDirectory",
+        "vscodeDirectory",
+        "pythonEnvironment",
+        "externalDirectory"
+      ],
+      "properties": {
+        "agentDirectory": { "$ref": "#/$defs/repositoryPath" },
+        "vscodeDirectory": { "$ref": "#/$defs/repositoryPath" },
+        "pythonEnvironment": { "$ref": "#/$defs/repositoryPath" },
+        "externalDirectory": { "$ref": "#/$defs/repositoryPath" }
+      }
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "setup",
+        "build",
+        "scaffolding",
+        "dependencies",
+        "documentation",
+        "worktrees"
+      ],
+      "properties": {
+        "setup": { "type": "boolean" },
+        "build": { "type": "boolean" },
+        "scaffolding": { "type": "boolean" },
+        "dependencies": { "type": "boolean" },
+        "documentation": { "type": "boolean" },
+        "worktrees": { "type": "boolean" }
+      }
+    }
+  },
+  "$defs": {
+    "repositoryPath": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

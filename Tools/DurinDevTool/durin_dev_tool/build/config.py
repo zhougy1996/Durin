@@ -9,15 +9,19 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping
 
+from ..configuration import load_repository_config
 from ..repository import discover_repository_root
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = discover_repository_root()
-PROFILE_FILE = PACKAGE_DIR / "AgentBuildProfiles.json"
-PRESET_FILE = REPO_ROOT / "CMakePresets.json"
-LOCAL_CONFIG_FILE = REPO_ROOT / ".agents" / "build-config.json"
-STATE_DIR = REPO_ROOT / "Build" / ".agent-state"
-LOCK_DIR = REPO_ROOT / "Build" / ".agent-locks"
+REPOSITORY_CONFIG = load_repository_config(REPO_ROOT)
+PROFILE_FILE = REPOSITORY_CONFIG.resolve(REPOSITORY_CONFIG.paths.build_profiles)
+PRESET_FILE = REPOSITORY_CONFIG.resolve(REPOSITORY_CONFIG.paths.cmake_presets)
+LOCAL_CONFIG_FILE = REPOSITORY_CONFIG.resolve(
+    REPOSITORY_CONFIG.paths.local_build_config
+)
+STATE_DIR = REPOSITORY_CONFIG.resolve(REPOSITORY_CONFIG.paths.state_directory)
+LOCK_DIR = REPOSITORY_CONFIG.resolve(REPOSITORY_CONFIG.paths.lock_directory)
 
 PROFILE_ENV_VAR = "DURIN_AGENT_BUILD_PROFILE"
 JOBS_ENV_VAR = "DURIN_AGENT_JOBS"

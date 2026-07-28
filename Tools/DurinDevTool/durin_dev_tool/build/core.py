@@ -19,6 +19,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from .config import (
     REPO_ROOT,
+    REPOSITORY_CONFIG,
     STATE_DIR,
     Action,
     BuildContext,
@@ -482,7 +483,7 @@ def normalize_run_request(
         and preset is not None
         and preset_cache_string(preset, "DURIN_RUNTIME_VARIANT") == "DurinGame"
     ):
-        project_path = Path("Sandbox") / "Sandbox.dproject"
+        project_path = REPOSITORY_CONFIG.paths.default_game_project
     if project_path is None:
         return request
 

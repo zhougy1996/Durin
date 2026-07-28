@@ -4,11 +4,12 @@ import argparse
 import importlib
 import importlib.util
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Sequence, TextIO
+from typing import Callable, Mapping, Sequence, TextIO
 
+from .configuration import load_repository_config
 from .errors import DevToolError
 
 
@@ -34,6 +35,7 @@ class CommandSpec:
     subcommands: tuple["CommandSpec", ...] = ()
     default_subcommand: str = ""
     defaults: tuple[tuple[str, object], ...] = ()
+    feature: str = ""
 
     def load_handler(self) -> Callable[..., int]:
         module_name, separator, attribute = self.handler.partition(":")
@@ -100,6 +102,7 @@ def _build_command(
     arguments: tuple[ArgumentSpec, ...],
     *,
     action: str | None = None,
+    feature: str = "build",
 ) -> CommandSpec:
     return CommandSpec(
         name,
@@ -109,6 +112,7 @@ def _build_command(
         arguments=arguments,
         required_modules=BUILD_MODULES,
         defaults=(("build_action", action or name),),
+        feature=feature,
     )
 
 
@@ -141,6 +145,7 @@ CREATE_MODULE = _build_command(
         PLAIN,
     ),
     action="create-module",
+    feature="scaffolding",
 )
 CREATE_PROJECT = _build_command(
     "project",
@@ -152,6 +157,7 @@ CREATE_PROJECT = _build_command(
         PLAIN,
     ),
     action="create-project",
+    feature="scaffolding",
 )
 
 PLAN_LIST = CommandSpec(
@@ -416,6 +422,7 @@ COMMAND_SPECS = (
         BOOTSTRAP_HANDLER,
         arguments=(PLAIN,),
         defaults=(("bootstrap_action", "setup"),),
+        feature="setup",
     ),
     _build_command("stop", "stop the active build operation", (PLAIN,)),
     _build_command("presets", "list registered presets", CONTEXT_ARGUMENTS),
@@ -519,6 +526,7 @@ COMMAND_SPECS = (
         "create",
         "create a module or workspace project",
         subcommands=(CREATE_MODULE, CREATE_PROJECT),
+        feature="scaffolding",
     ),
     CommandSpec(
         "doc",
@@ -532,11 +540,13 @@ COMMAND_SPECS = (
             DOCUMENT_MOVE,
             DOCUMENT_PLAN,
         ),
+        feature="documentation",
     ),
     CommandSpec(
         "dependency",
         "prepare and validate third-party dependencies",
         subcommands=(DEPENDENCY_PREPARE, DEPENDENCY_VALIDATE),
+        feature="dependencies",
     ),
     CommandSpec(
         "worktree",
@@ -549,6 +559,7 @@ COMMAND_SPECS = (
             WORKTREE_REMOVE,
         ),
         default_subcommand="open",
+        feature="worktrees",
     ),
 )
 
@@ -559,8 +570,41 @@ class DevToolArgumentParser(argparse.ArgumentParser):
 
 
 class CommandRegistry:
-    def __init__(self, specifications: Sequence[CommandSpec] = COMMAND_SPECS) -> None:
-        self.specifications = tuple(specifications)
+    def __init__(
+        self,
+        specifications: Sequence[CommandSpec] = COMMAND_SPECS,
+        *,
+        enabled_features: Mapping[str, bool] | None = None,
+    ) -> None:
+        features = (
+            dict(enabled_features)
+            if enabled_features is not None
+            else dict(load_repository_config().features)
+        )
+
+        def enabled(specification: CommandSpec) -> CommandSpec | None:
+            if specification.feature:
+                if specification.feature not in features:
+                    raise DevToolError(
+                        f'Command "{specification.name}" references unknown '
+                        f'DurinDevTool feature "{specification.feature}".'
+                    )
+                if not features[specification.feature]:
+                    return None
+            children = tuple(
+                child
+                for candidate in specification.subcommands
+                if (child := enabled(candidate)) is not None
+            )
+            if specification.subcommands and not children:
+                return None
+            return replace(specification, subcommands=children)
+
+        self.specifications = tuple(
+            specification
+            for candidate in specifications
+            if (specification := enabled(candidate)) is not None
+        )
         self._by_name = {spec.name: spec for spec in self.specifications}
 
     def parser(self) -> DevToolArgumentParser:
@@ -686,7 +730,8 @@ def require_prepared_environment(
     *,
     required_modules: Sequence[str] = (),
 ) -> None:
-    interpreter = repository_root / ".venv" / "Scripts" / "python.exe"
+    python_environment = load_repository_config().worktrees.python_environment
+    interpreter = repository_root / python_environment / "Scripts" / "python.exe"
     if not interpreter.is_file():
         raise DevToolError(
             "Durin's prepared Python environment is missing. "

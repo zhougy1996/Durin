@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from ..configuration import load_repository_config
 from ..repository import discover_repository_root
 
 MINIMUM_PYTHON = (3, 10)
@@ -18,6 +19,7 @@ MINIMUM_MSVC_TOOLS = (14, 44)
 LONG_PATHS_REGISTRY_KEY = r"SYSTEM\CurrentControlSet\Control\FileSystem"
 LONG_PATHS_REGISTRY_VALUE = "LongPathsEnabled"
 REPO_ROOT = discover_repository_root()
+REPOSITORY_CONFIG = load_repository_config(REPO_ROOT)
 
 
 def command_path(command: str, environment: Mapping[str, str] | None = None) -> str | None:
@@ -93,7 +95,7 @@ def configured_cmake_command(repository_root: Path | None = None) -> str:
     repository_root = repository_root or REPO_ROOT
     if environment_command := os.environ.get("CMAKE_COMMAND"):
         return environment_command
-    config_path = repository_root / ".agents" / "build-config.json"
+    config_path = repository_root / REPOSITORY_CONFIG.paths.local_build_config
     try:
         value = json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -106,7 +108,7 @@ def configured_visual_studio_environment(
     repository_root: Path | None = None,
 ) -> tuple[Path | None, list[str]]:
     repository_root = repository_root or REPO_ROOT
-    config_path = repository_root / ".agents" / "build-config.json"
+    config_path = repository_root / REPOSITORY_CONFIG.paths.local_build_config
     try:
         value = json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):

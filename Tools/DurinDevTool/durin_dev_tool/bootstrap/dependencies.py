@@ -17,11 +17,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
+from ..configuration import load_repository_config
 from ..repository import discover_repository_root
 
 
 REPO_ROOT = discover_repository_root()
-MANIFEST_DIR = Path(__file__).resolve().parent / "thirdparty"
+REPOSITORY_CONFIG = load_repository_config(REPO_ROOT)
+MANIFEST_DIR = REPOSITORY_CONFIG.resolve(
+    REPOSITORY_CONFIG.paths.third_party_manifests
+)
 
 PLATFORM_NAMES = {
     "win32": "Win64",
@@ -63,7 +67,7 @@ def repository_paths(repository_root: Path) -> Iterator[None]:
 def configured_cmake_command() -> str:
     if environment_command := os.environ.get("CMAKE_COMMAND"):
         return environment_command
-    config_path = REPO_ROOT / ".agents" / "build-config.json"
+    config_path = REPO_ROOT / REPOSITORY_CONFIG.paths.local_build_config
     try:
         value = json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -276,7 +280,14 @@ def get_build_dir(manifest: dict[str, Any], platform_name: str, config: str) -> 
 
 
 def get_install_dir(manifest: dict[str, Any], platform_name: str, config: str) -> Path:
-    return REPO_ROOT / "Engine" / "External" / "Install" / platform_name / config / manifest["name"]
+    return (
+        REPO_ROOT
+        / REPOSITORY_CONFIG.worktrees.external_directory
+        / "Install"
+        / platform_name
+        / config
+        / manifest["name"]
+    )
 
 
 def install_shared_library(manifest: dict[str, Any], platform_name: str, config: str, cmake_command: str) -> None:

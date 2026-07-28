@@ -11,6 +11,8 @@ if str(PRODUCT_ROOT) not in sys.path:
 from durin_dev_tool.build import handler
 from durin_dev_tool.build import operations as build_operations
 from durin_dev_tool.build.config import Action, CommandRequest, CreateKind, LinkType, LocalConfig, ModuleKind, OutputMode
+from durin_dev_tool.configuration import FEATURE_NAMES
+from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
 from durin_dev_tool.shell import normalize_compact_build_command, split_shell_command
 
@@ -34,6 +36,18 @@ class TestBuildRegistry:
                 assert all((child.handler == 'durin_dev_tool.build.handler:run' for child in specification.subcommands))
             else:
                 assert specification.handler == 'durin_dev_tool.build.handler:run'
+
+    def test_repository_features_hide_disabled_command_groups(self) -> None:
+        features = {name: True for name in FEATURE_NAMES}
+        features['documentation'] = False
+        features['scaffolding'] = False
+        registry = CommandRegistry(enabled_features=features)
+        commands = {specification.name for specification in registry.specifications}
+        assert 'doc' not in commands
+        assert 'create' not in commands
+        assert 'build' in commands
+        with pytest.raises(DevToolError):
+            registry.parse(['doc', 'list'])
 
     def test_direct_and_shell_tokens_produce_identical_namespaces(self) -> None:
         commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --output full', 'open-runtime --preset win-msvc-x64-debug', 'configure --fresh --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all', 'test --target CoreTests --filter Core.* --timeout 45', 'test --target all --schedule-random --output-junit Build/results.xml --ctest-regex ^Core\\.', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')

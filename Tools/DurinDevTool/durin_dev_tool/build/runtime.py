@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .config import (
     REPO_ROOT,
+    REPOSITORY_CONFIG,
     BuildContext,
     BuildProfile,
     BuildToolError,
@@ -29,8 +30,7 @@ def runtime_executable_path(
     runtime_variant = preset_cache_string(preset, "DURIN_RUNTIME_VARIANT")
     return (
         root
-        / "Engine"
-        / "Binaries"
+        / REPOSITORY_CONFIG.paths.runtime_binaries_directory
         / profile.platform
         / preset_output_configuration(preset)
         / "Runtime"
@@ -70,8 +70,7 @@ def test_executable_path(
     runtime_variant = preset_cache_string(preset, "DURIN_RUNTIME_VARIANT")
     return (
         REPO_ROOT
-        / "Engine"
-        / "Binaries"
+        / REPOSITORY_CONFIG.paths.runtime_binaries_directory
         / profile.platform
         / preset_output_configuration(preset)
         / "Tests"
