@@ -1,4 +1,5 @@
 #include "StaticModelImportBuild.h"
+#include "StaticModelImportBuildInternal.h"
 #include "StaticModelImportWorkflowInternal.h"
 
 #include "AssetSystem.h"
@@ -12,6 +13,17 @@
 
 namespace Durin
 {
+	auto FStaticModelImportExecutionTestAccess::SetFailurePoint(
+		FStaticModelImportPlan& Plan,
+		EImportTransactionFailurePoint Point,
+		size_t Occurrence) -> void
+	{
+		check(Plan.Data);
+		auto* Data = const_cast<FStaticModelImportPlanData*>(Plan.Data.get());
+		Data->FailurePoint = static_cast<uint8>(Point);
+		Data->FailureOccurrence = Occurrence;
+	}
+
 	namespace
 	{
 		auto ResolvePhysicalDependency(
@@ -121,15 +133,18 @@ namespace Durin
 		}
 
 		std::vector<DPackage*> CreatedPackages;
-		DStaticMesh* Mesh = nullptr;
-		const Asset::FAssetResult MeshCreate =
-			Asset::CreateAsset(Plan.RootAssetPath, Mesh);
-		if (!MeshCreate)
+		DStaticMesh* Mesh = Data.ExistingMesh;
+		if (!Mesh)
 		{
-			Result.Message = MeshCreate.Message;
-			return Result;
+			const Asset::FAssetResult MeshCreate =
+				Asset::CreateAsset(Plan.RootAssetPath, Mesh);
+			if (!MeshCreate)
+			{
+				Result.Message = MeshCreate.Message;
+				return Result;
+			}
+			CreatedPackages.push_back(Mesh->GetPackage());
 		}
-		CreatedPackages.push_back(Mesh->GetPackage());
 
 		std::unordered_map<uint32, DMaterialInstance*> MaterialsBySourceIndex;
 		std::unordered_map<size_t, DMaterialInstance*> MaterialsByPlannedIndex;
@@ -138,15 +153,23 @@ namespace Durin
 			const FStaticModelPlannedAsset& Planned = Plan.Assets[AssetIndex];
 			if (Planned.Kind != EStaticModelPlannedAssetKind::MaterialInstance) continue;
 			DMaterialInstance* Instance = nullptr;
-			const Asset::FAssetResult CreateResult =
-				Asset::CreateAsset(Planned.AssetPath, Instance);
-			if (!CreateResult)
+			if (const auto Existing = Data.ExistingMaterials.find(AssetIndex);
+				Existing != Data.ExistingMaterials.end())
 			{
-				Result.Message = CreateResult.Message;
-				DiscardCreatedPackages(CreatedPackages);
-				return Result;
+				Instance = Existing->second;
 			}
-			CreatedPackages.push_back(Instance->GetPackage());
+			else
+			{
+				const Asset::FAssetResult CreateResult =
+					Asset::CreateAsset(Planned.AssetPath, Instance);
+				if (!CreateResult)
+				{
+					Result.Message = CreateResult.Message;
+					DiscardCreatedPackages(CreatedPackages);
+					return Result;
+				}
+				CreatedPackages.push_back(Instance->GetPackage());
+			}
 			MaterialsBySourceIndex.emplace(Planned.SourceIndex, Instance);
 			MaterialsByPlannedIndex.emplace(AssetIndex, Instance);
 			Result.Materials.push_back(Instance);
@@ -155,7 +178,16 @@ namespace Durin
 		FMultiAssetImportTransaction Transaction;
 		for (DMaterialInstance* Material : Result.Materials)
 			Transaction.AddPackage(Material->GetPackage());
+		for (const auto& [AssetIndex, Texture] : Data.ExistingTextures)
+			Transaction.AddPackage(Texture->GetPackage());
 		Transaction.AddPackage(Mesh->GetPackage(), true);
+		if (Data.FailurePoint != 0)
+		{
+			FMultiAssetImportTransactionTestAccess::SetFailurePoint(
+				Transaction,
+				static_cast<EImportTransactionFailurePoint>(Data.FailurePoint),
+				Data.FailureOccurrence);
+		}
 
 		const auto RootDependency = std::ranges::find(
 			Data.Scene.Dependencies,
@@ -213,7 +245,12 @@ namespace Durin
 				.SourceDestination = PlannedSource->SourcePath,
 				.Settings = {
 					.Usage = ETextureUsage::Color,
-					.bSRGB = true}};
+					.bSRGB = true},
+				.ImportOwner = Plan.RootAssetPath,
+				.bAllowSourceReplacement = Data.ExistingMesh != nullptr};
+			if (const auto Existing = Data.ExistingTextures.find(AssetIndex);
+				Existing != Data.ExistingTextures.end())
+				TextureRequest.ExistingTexture = Existing->second;
 			if (Image.ExternalDependencyIndex)
 			{
 				if (*Image.ExternalDependencyIndex >= Data.Scene.Dependencies.size())
@@ -280,141 +317,191 @@ namespace Durin
 			DiscardCreatedPackages(CreatedPackages);
 			return Result;
 		}
+		DStaticMesh* MeshCandidate =
+			NewObject<DStaticMesh>(nullptr, "StaticModelImportCandidate");
+		if (Data.ExistingMesh)
+			MeshCandidate->SeedMaterialReconciliationFrom(*Data.ExistingMesh);
+		std::unordered_map<size_t, DMaterialInstance*> MaterialCandidatesByPlannedIndex;
+		for (const auto& [AssetIndex, Instance] : MaterialsByPlannedIndex)
+		{
+			(void)Instance;
+			MaterialCandidatesByPlannedIndex.emplace(
+				AssetIndex,
+				NewObject<DMaterialInstance>(
+					nullptr, std::format("StaticModelMaterialCandidate_{}", AssetIndex)));
+		}
+		bool bCandidateStatePublished = false;
 		Transaction.AddLoadedObjectMutation(
 			[&](std::string& MutationError) {
-				if (!Mesh->InitializeFromImportedScene(
-					Data.Scene,
-					SourceImportData,
-					Data.PhysicalRootSource.generic_string(),
-					MutationError)) return false;
-
-				const std::span<DTexture2D* const> Textures = Transaction.GetTextures();
-				for (size_t AssetIndex = 0; AssetIndex < Plan.Assets.size(); ++AssetIndex)
+				if (!MeshCandidate)
 				{
-					const FStaticModelPlannedAsset& Planned = Plan.Assets[AssetIndex];
-					if (Planned.Kind != EStaticModelPlannedAssetKind::MaterialInstance) continue;
-					DMaterialInstance* Instance = MaterialsByPlannedIndex.at(AssetIndex);
-					const auto MaterialIt = std::ranges::find(
-						Data.Scene.Materials,
-						Planned.SourceIndex,
-						&Asset::FImportedMaterial::SourceMaterialIndex);
-					if (MaterialIt == Data.Scene.Materials.end()
-						|| !Instance->SetParent(StandardMaterial)
-						|| !Instance->SetVectorParameterValue(
-							MaterialParameters::BaseColorName(),
-							FVector3(MaterialIt->BaseColorFactor))
-						|| !Instance->SetScalarParameterValue(
-							MaterialParameters::OpacityName(),
-							MaterialIt->BaseColorFactor.a))
-					{
-						MutationError = std::format(
-							"Failed to map imported material {}.", Planned.SourceIndex);
-						return false;
-					}
-					if (Planned.TextureAssetIndex)
-					{
-						const auto RequestIt =
-							TextureRequestByPlannedIndex.find(*Planned.TextureAssetIndex);
-						if (RequestIt == TextureRequestByPlannedIndex.end()
-							|| RequestIt->second >= Textures.size()
-							|| !Instance->SetTextureParameterValue(
-								MaterialParameters::BaseColorTextureName(),
-								Textures[RequestIt->second]))
-						{
-							MutationError = std::format(
-								"Failed to map base-color texture for material {}.",
-								Planned.SourceIndex);
-							return false;
-						}
-					}
-					if (!Mesh->SetImportedDefaultMaterial(
-						Planned.SourceIndex, Instance, MutationError)) return false;
+					MutationError = "Static-model candidate graph is unavailable.";
+					return false;
 				}
-
-				FStaticModelImportManifest Manifest{
-					.Version = StaticModelImportManifestVersion,
-					.DependencyFingerprint =
-						BuildDependencyFingerprint(Data.Scene.Dependencies),
-					.ImporterVersion = Asset::StaticModelImporterVersion,
-					.MaterialMapperVersion = StaticModelMaterialMapperVersion,
-					.Warnings = Plan.Warnings};
-				Manifest.Dependencies.reserve(Data.Scene.Dependencies.size());
-				for (const Asset::FImportedDependency& Dependency : Data.Scene.Dependencies)
-				{
-					Manifest.Dependencies.push_back({
-						.Role = static_cast<uint8>(Dependency.Role),
-						.StableIdentity = Dependency.StableIdentity,
-						.SourcePath = Dependency.Source,
-						.ContentHash = Dependency.ContentHash.ToString(),
-						.ByteCount = Dependency.ByteCount});
-				}
-				Manifest.Materials.reserve(MaterialsByPlannedIndex.size());
-				for (size_t AssetIndex = 0; AssetIndex < Plan.Assets.size(); ++AssetIndex)
-				{
-					const FStaticModelPlannedAsset& Planned = Plan.Assets[AssetIndex];
-					if (Planned.Kind != EStaticModelPlannedAssetKind::MaterialInstance) continue;
-					DMaterialInstance* Instance = MaterialsByPlannedIndex.at(AssetIndex);
-					const auto Imported = std::ranges::find(
-						Data.Scene.Materials,
-						Planned.SourceIndex,
-						&Asset::FImportedMaterial::SourceMaterialIndex);
-					const std::span ImportedSlots = Mesh->GetMaterialSlots();
-					const auto ImportedSlot = std::ranges::find(
-						ImportedSlots,
-						Planned.SourceIndex,
-						&FStaticMeshMaterialSlotDefinition::SourceMaterialIndex);
-					if (Imported == Data.Scene.Materials.end()
-						|| ImportedSlot == ImportedSlots.end())
-					{
-						MutationError =
-							"Failed to correlate imported material manifest records.";
-						return false;
-					}
-					Manifest.Materials.push_back({
-						.SlotId = ImportedSlot->SlotId,
-						.SourceMaterialIndex = Planned.SourceIndex,
-						.SourceName = Imported->SourceName,
-						.BaseColorFactor = FVector4(Imported->BaseColorFactor),
-						.GeneratedMaterial = Instance});
-				}
-				for (size_t AssetIndex = 0; AssetIndex < Plan.Assets.size(); ++AssetIndex)
-				{
-					const FStaticModelPlannedAsset& Planned = Plan.Assets[AssetIndex];
-					if (Planned.Kind != EStaticModelPlannedAssetKind::Texture2D) continue;
-					const size_t RequestIndex =
-						TextureRequestByPlannedIndex.at(AssetIndex);
-					if (RequestIndex >= Textures.size()
-						|| Planned.SourceIndex >= Data.Scene.Images.size())
-					{
-						MutationError =
-							"Failed to correlate imported texture manifest records.";
-						return false;
-					}
-					Manifest.Textures.push_back({
-						.StableIdentity =
-							Data.Scene.Images[Planned.SourceIndex].StableIdentity,
-						.Semantic = static_cast<uint8>(
-							Asset::EImportedTextureSemantic::BaseColor),
-						.GeneratedTexture = Textures[RequestIndex]});
-				}
-				return Mesh->SetImportManifest(std::move(Manifest), MutationError);
+				for (const auto& [AssetIndex, Instance] : MaterialsByPlannedIndex)
+					Instance->ExchangeImportedState(
+						*MaterialCandidatesByPlannedIndex.at(AssetIndex));
+				Mesh->ExchangeImportedState(*MeshCandidate);
+				bCandidateStatePublished = true;
+				return true;
 			},
-			[MeshDerivedDataPath, bMeshDerivedDataExisted] {
-				if (bMeshDerivedDataExisted) return;
-				std::error_code ErrorCode;
-				std::filesystem::remove(MeshDerivedDataPath, ErrorCode);
+			[&] {
+				if (!bCandidateStatePublished) return;
+				Mesh->ExchangeImportedState(*MeshCandidate);
+				for (const auto& [AssetIndex, Instance] : MaterialsByPlannedIndex)
+					Instance->ExchangeImportedState(
+						*MaterialCandidatesByPlannedIndex.at(AssetIndex));
+				bCandidateStatePublished = false;
 			});
 
-		const FImportTransactionResult TransactionResult = Transaction.Execute();
-		if (!TransactionResult)
-		{
-			Result.Message = TransactionResult.Message;
+		auto DiscardCandidates = [&] {
+			if (MeshCandidate) MarkAsGarbage(MeshCandidate);
+			for (const auto& [AssetIndex, Candidate] : MaterialCandidatesByPlannedIndex)
+			{
+				(void)AssetIndex;
+				MarkAsGarbage(Candidate);
+			}
+		};
+		auto FailPrepared = [&](std::string Message) -> FStaticModelImportExecutionResult {
+			Transaction.Rollback();
+			if (!bMeshDerivedDataExisted)
+			{
+				std::error_code ErrorCode;
+				std::filesystem::remove(MeshDerivedDataPath, ErrorCode);
+			}
+			DiscardCandidates();
 			DiscardCreatedPackages(CreatedPackages);
+			Result.Message = std::move(Message);
 			Result.Materials.clear();
 			return Result;
+		};
+
+		if (!Transaction.Prepare(Error))
+			return FailPrepared(std::move(Error));
+
+		if (!MeshCandidate->InitializeFromImportedScene(
+			Data.Scene,
+			SourceImportData,
+			Data.PhysicalRootSource.generic_string(),
+			Error)) return FailPrepared(std::move(Error));
+
+		const std::span<DTexture2D* const> Textures = Transaction.GetTextures();
+		for (size_t AssetIndex = 0; AssetIndex < Plan.Assets.size(); ++AssetIndex)
+		{
+			const FStaticModelPlannedAsset& Planned = Plan.Assets[AssetIndex];
+			if (Planned.Kind != EStaticModelPlannedAssetKind::MaterialInstance) continue;
+			DMaterialInstance* Candidate =
+				MaterialCandidatesByPlannedIndex.at(AssetIndex);
+			Candidate->SetImportOwner(Plan.RootAssetPath);
+			const auto MaterialIt = std::ranges::find(
+				Data.Scene.Materials,
+				Planned.SourceIndex,
+				&Asset::FImportedMaterial::SourceMaterialIndex);
+			if (MaterialIt == Data.Scene.Materials.end()
+				|| !Candidate->SetParent(StandardMaterial)
+				|| !Candidate->SetVectorParameterValue(
+					MaterialParameters::BaseColorName(),
+					FVector3(MaterialIt->BaseColorFactor))
+				|| !Candidate->SetScalarParameterValue(
+					MaterialParameters::OpacityName(),
+					MaterialIt->BaseColorFactor.a))
+			{
+				return FailPrepared(std::format(
+					"Failed to map imported material {}.", Planned.SourceIndex));
+			}
+			if (Planned.TextureAssetIndex)
+			{
+				const auto RequestIt =
+					TextureRequestByPlannedIndex.find(*Planned.TextureAssetIndex);
+				if (RequestIt == TextureRequestByPlannedIndex.end()
+					|| RequestIt->second >= Textures.size()
+					|| !Candidate->SetTextureParameterValue(
+						MaterialParameters::BaseColorTextureName(),
+						Textures[RequestIt->second]))
+				{
+					return FailPrepared(std::format(
+						"Failed to map base-color texture for material {}.",
+						Planned.SourceIndex));
+				}
+			}
+			if (!MeshCandidate->SetImportedDefaultMaterial(
+				Planned.SourceIndex,
+				MaterialsByPlannedIndex.at(AssetIndex),
+				Error)) return FailPrepared(std::move(Error));
 		}
+
+		FStaticModelImportManifest Manifest{
+			.Version = StaticModelImportManifestVersion,
+			.DependencyFingerprint =
+				BuildDependencyFingerprint(Data.Scene.Dependencies),
+			.ImporterVersion = Asset::StaticModelImporterVersion,
+			.MaterialMapperVersion = StaticModelMaterialMapperVersion,
+			.Warnings = Plan.Warnings};
+		Manifest.Dependencies.reserve(Data.Scene.Dependencies.size());
+		for (const Asset::FImportedDependency& Dependency : Data.Scene.Dependencies)
+		{
+			Manifest.Dependencies.push_back({
+				.Role = static_cast<uint8>(Dependency.Role),
+				.StableIdentity = Dependency.StableIdentity,
+				.SourcePath = Dependency.Source,
+				.ContentHash = Dependency.ContentHash.ToString(),
+				.ByteCount = Dependency.ByteCount});
+		}
+		Manifest.Materials.reserve(MaterialsByPlannedIndex.size());
+		for (size_t AssetIndex = 0; AssetIndex < Plan.Assets.size(); ++AssetIndex)
+		{
+			const FStaticModelPlannedAsset& Planned = Plan.Assets[AssetIndex];
+			if (Planned.Kind != EStaticModelPlannedAssetKind::MaterialInstance) continue;
+			DMaterialInstance* Instance = MaterialsByPlannedIndex.at(AssetIndex);
+			const auto Imported = std::ranges::find(
+				Data.Scene.Materials,
+				Planned.SourceIndex,
+				&Asset::FImportedMaterial::SourceMaterialIndex);
+			const std::span ImportedSlots = MeshCandidate->GetMaterialSlots();
+			const auto ImportedSlot = std::ranges::find(
+				ImportedSlots,
+				Planned.SourceIndex,
+				&FStaticMeshMaterialSlotDefinition::SourceMaterialIndex);
+			if (Imported == Data.Scene.Materials.end()
+				|| ImportedSlot == ImportedSlots.end())
+				return FailPrepared(
+					"Failed to correlate imported material manifest records.");
+			Manifest.Materials.push_back({
+				.SlotId = ImportedSlot->SlotId,
+				.SourceMaterialIndex = Planned.SourceIndex,
+				.SourceName = Imported->SourceName,
+				.BaseColorFactor = FVector4(Imported->BaseColorFactor),
+				.GeneratedMaterialPath = Planned.AssetPath,
+				.bImporterManaged = true,
+				.GeneratedMaterial = Instance});
+		}
+		for (size_t AssetIndex = 0; AssetIndex < Plan.Assets.size(); ++AssetIndex)
+		{
+			const FStaticModelPlannedAsset& Planned = Plan.Assets[AssetIndex];
+			if (Planned.Kind != EStaticModelPlannedAssetKind::Texture2D) continue;
+			const size_t RequestIndex =
+				TextureRequestByPlannedIndex.at(AssetIndex);
+			if (RequestIndex >= Textures.size()
+				|| Planned.SourceIndex >= Data.Scene.Images.size())
+				return FailPrepared(
+					"Failed to correlate imported texture manifest records.");
+			Manifest.Textures.push_back({
+				.StableIdentity =
+					Data.Scene.Images[Planned.SourceIndex].StableIdentity,
+				.Semantic = static_cast<uint8>(
+					Asset::EImportedTextureSemantic::BaseColor),
+				.GeneratedTexturePath = Planned.AssetPath,
+				.GeneratedTexture = Textures[RequestIndex]});
+		}
+		if (!MeshCandidate->SetImportManifest(std::move(Manifest), Error))
+			return FailPrepared(std::move(Error));
+
+		if (!Transaction.Stage(Error) || !Transaction.Publish(Error))
+			return FailPrepared(std::move(Error));
+		DiscardCandidates();
 		Result.StaticMesh = Mesh;
-		Result.Textures = TransactionResult.Textures;
+		Result.Textures.assign(Textures.begin(), Textures.end());
+		Result.OrphanedAssets = Data.OrphanedAssets;
 		Result.bSucceeded = true;
 		return Result;
 	}

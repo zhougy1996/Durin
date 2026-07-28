@@ -77,6 +77,9 @@ namespace Durin
 		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
 		auto CreateLevelAsset(std::string_view VirtualDirectory) -> void;
 		auto CreateMaterialAsset(std::string_view VirtualDirectory, bool bInstance) -> void;
+		auto ReimportStaticModel(
+			const FContentBrowserItem& Item,
+			bool bRecreateMissingAssets) -> void;
 		auto FocusFolderInParent(std::string_view PhysicalDirectory) -> const FContentBrowserItem*;
 		auto RequestDeleteSelection() -> void;
 		auto AnalyzeDeleteSelection() -> void;
@@ -115,6 +118,7 @@ namespace Durin
 		std::vector<std::pair<std::string, Asset::FAssetResult>> DeleteAnalysisErrors;
 		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;
+		std::vector<FAssetPath> LastReimportOrphans;
 		std::unique_ptr<FContentBrowserThumbnailCache> ThumbnailCache;
 	};
 } // namespace Durin

@@ -6,29 +6,29 @@ Last reviewed: 2026-07-29
 
 ## Current Status
 
-Stages 0 through 3 are complete. Stage 3 started from baseline
-`ee31b054473985397e439d32944ad8edb0e01778` and now delivers the first
-ready-to-use opaque base-color workflow. One mutation-free plan retains the
-normalized source scene, deterministically names and collision-checks the root
-StaticMesh, generated material instances and semantically deduplicated color
-textures, then one shared transaction builds and atomically publishes the
-complete asset and portable-source bundle. The stable
-`/Engine/Materials/ImportedSurface` parent owns the canonical parameters;
-generated instances map base-color factor, opacity and texture, and imported
-mesh slots retain their default material references across package reload.
-The root manifest persists source dependencies, output references, warnings
-and a complete dependency fingerprint. The editor dialog previews the same
-plan before executing it in one action.
+Stages 0 through 4 are complete. Stage 4 started from baseline
+`b95049e6ae2bbb8a78765e4860ac6136843e715c` and adds manifest-driven
+`PlanStaticModelReimport`. Reimport parses and validates the complete source
+graph, prepares detached texture, material and mesh candidates, then exchanges
+their importer-owned state into the existing asset identities only during one
+atomic publication. Material reconciliation follows the conservative
+slot-name/index rules that preserve slot GUIDs; image reconciliation uses
+stable image identity plus semantic usage. User-moved assets continue through
+manifest object references, while missing outputs require explicit recreation
+and active ownership conflicts or unrelated destination collisions fail
+preflight.
 
-An opaque embedded-image GLB integration fixture proves save/unload/reload,
-component default resolution, manifest round-trip and no source reparse. A
-separate Vulkan process imports a colored sRGB data-URI fixture, reloads the
-packages after RHI initialization, and proves the rendered output differs from
-both texture-only and factor-only controls. The cold-cache run also fixed
-first-import handling when the static-mesh DDC hash bucket does not yet exist.
-Validation passed the Vulkan acceptance test, all 18 `AssetImportTests`, all 42
-`StaticMeshTests`, all 61 `TextureTests`, and a successful full `all` build.
-Stage 4 is next.
+The result reports removed generated assets as revealable orphans without
+deleting them. Content Browser StaticMesh actions expose ordinary reimport,
+explicit missing-output recreation, and the last orphan list. Generated
+material instances persist their import owner, and Material Editor explains
+that reimport replaces imported values. Integration tests cover unchanged
+idempotence, reorder, rename, add/remove, changed/shared images, component
+overrides, moved and missing outputs, incompatible collisions, ownership
+conflicts, missing sidecars, round-trip reload, source replacement rollback,
+and injected root-save failure. Validation passed the Vulkan acceptance test,
+all 18 `AssetImportTests`, all 42 `StaticMeshTests`, all 65 `TextureTests`, and
+a successful full `all` build. Stage 5 is next.
 
 Source dependency terminology now follows the unified logical-mount contract
 selected by `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`: persisted inputs
@@ -883,23 +883,23 @@ vertical slices.
 
 Dependencies: Stage 3.
 
-- [ ] Reimport the complete dependency graph into immutable candidates before
+- [x] Reimport the complete dependency graph into immutable candidates before
   changing the root mesh or any generated asset.
-- [ ] Reconcile source materials through preserved slot GUIDs and update the
+- [x] Reconcile source materials through preserved slot GUIDs and update the
   same manifest-referenced material instances after source reorder and rename.
-- [ ] Reconcile imported images by stable source identity and semantic usage,
+- [x] Reconcile imported images by stable source identity and semantic usage,
   update the same Texture2D assets when bytes change, and avoid duplicates when
   bindings reorder.
-- [ ] Preserve component overrides and the existing conservative static-mesh
+- [x] Preserve component overrides and the existing conservative static-mesh
   slot reconciliation rules.
-- [ ] Detect user moves, missing assets, incompatible replacements, changed
+- [x] Detect user moves, missing assets, incompatible replacements, changed
   ownership, and source dependency changes with explicit recreate or repair
   actions.
-- [ ] Report removed generated assets as orphans and provide selection/reveal;
+- [x] Report removed generated assets as orphans and provide selection/reveal;
   do not delete them as part of ordinary reimport.
-- [ ] Label generated material instances as importer-managed and explain that
+- [x] Label generated material instances as importer-managed and explain that
   reimport replaces imported values.
-- [ ] Add package round-trip and transaction tests for reorder, rename, add,
+- [x] Add package round-trip and transaction tests for reorder, rename, add,
   remove, shared image, changed image, missing sidecar, moved generated asset,
   manually deleted generated asset, collision, and injected save failure.
 
@@ -909,6 +909,38 @@ Dependencies: Stage 3.
   only the expected existing assets and slot assignments, removed outputs are
   reported without deletion, and every failed reimport preserves the complete
   previously renderable asset graph.
+
+#### Stage 4 Handoff
+
+- Baseline commit:
+  `b95049e6ae2bbb8a78765e4860ac6136843e715c`.
+- Working set: `EngineAssetBuild` static-model planning, execution and shared
+  transaction files; `DStaticMesh`, `DTexture2D` and `DMaterialInstance`
+  importer-state contracts; Material Editor and Content Browser management UI;
+  static-model build tests and their focused reimport fixtures; and this plan.
+- Key symbols and decisions: `PlanStaticModelReimport` owns manifest validation
+  and stable-identity reconciliation; `FMultiAssetImportTransaction` prepares
+  existing-texture replacements in unpublished candidate packages and can
+  atomically replace or restore embedded managed sources;
+  `ExchangeImportedState` keeps package/object identity stable and supplies
+  rollback snapshots; `OrphanedAssets` is a non-destructive, reveal-ready
+  report; generated materials and textures persist the root import owner.
+- Reconciliation decision: unique source name is the primary preserved-material
+  match and source index is the conservative rename fallback, mirroring mesh
+  slot reconciliation. Images match stable imported identity plus semantic.
+  New records allocate deterministic paths; prior manifest records never adopt
+  same-named unrelated assets.
+- Failure decision: all texture decoding and mesh/material candidate building
+  completes before existing state changes. Save or source-publication failure
+  exchanges old state back, restores replaced embedded source bytes, removes
+  only attempt-created DDC/packages, and leaves the prior graph renderable.
+- Open questions: none for Stage 5. Stage 5 is gated on the Material System
+  plan's PBR parameter, static-property, render-representation, normal-mapping
+  and opaque/masked pipeline contracts.
+- Validation: `StaticModelImportVulkanTests` passed 1/1,
+  `AssetImportTests` passed 18/18, `StaticMeshTests` passed 42/42,
+  `TextureTests` passed 65/65, and the full
+  `Win64-Debug-DurinEditor-Tests` `all` target built successfully.
 
 ### Stage 5: Expand generated materials to the PBR surface contract
 

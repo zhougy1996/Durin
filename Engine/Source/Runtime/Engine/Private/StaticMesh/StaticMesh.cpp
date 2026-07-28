@@ -1109,6 +1109,14 @@ namespace Durin
 #endif
 	}
 
+	auto DStaticMesh::SeedMaterialReconciliationFrom(
+		const DStaticMesh& Previous) -> void
+	{
+		MaterialSlotsVersion = Previous.MaterialSlotsVersion;
+		MaterialSlots = Previous.MaterialSlots;
+		SourceImportData = Previous.SourceImportData;
+	}
+
 	auto DStaticMesh::SetImportedDefaultMaterial(
 		uint32 SourceMaterialIndex,
 		DMaterialInterface* Material,
@@ -1169,6 +1177,25 @@ namespace Durin
 		MarkPackageDirty();
 		OutError.clear();
 		return true;
+	}
+
+	auto DStaticMesh::ExchangeImportedState(DStaticMesh& Other) -> void
+	{
+		if (&Other == this) return;
+		std::swap(SourceFile, Other.SourceFile);
+		std::swap(SourceImportData, Other.SourceImportData);
+		std::swap(NormalizedSize, Other.NormalizedSize);
+		std::swap(ImportSettings, Other.ImportSettings);
+		std::swap(MaterialSlotsVersion, Other.MaterialSlotsVersion);
+		std::swap(MaterialSlots, Other.MaterialSlots);
+		std::swap(ImportManifest, Other.ImportManifest);
+		std::swap(CookedPayload, Other.CookedPayload);
+		std::swap(RenderData, Other.RenderData);
+		std::swap(DerivedDataDiagnostic, Other.DerivedDataDiagnostic);
+		NotifyLoadedComponents();
+		Other.NotifyLoadedComponents();
+		MarkPackageDirty();
+		Other.MarkPackageDirty();
 	}
 
 	auto DStaticMesh::PostLoad(std::string& OutError) -> bool

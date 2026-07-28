@@ -365,6 +365,14 @@ namespace Durin
 
 	auto MMaterialEditor::DrawMaterialInstance(DMaterialInstance* Instance) -> void
 	{
+		if (Instance->IsImporterManaged())
+		{
+			ImGui::SeparatorText("Importer Managed");
+			ImGui::TextWrapped(
+				"%s", DMaterialInstance::ImporterManagedPolicy.data());
+			ImGui::TextDisabled(
+				"Owner: %s", Instance->GetImportOwner().ToString().c_str());
+		}
 		ImGui::SeparatorText("Inheritance");
 		if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParent"))
 		{

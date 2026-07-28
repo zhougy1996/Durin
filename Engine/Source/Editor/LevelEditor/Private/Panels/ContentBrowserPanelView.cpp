@@ -1,4 +1,6 @@
 #include "Panels/ContentBrowserPanel.h"
+
+#include "StaticMesh/StaticMesh.h"
 #include "Panels/ContentBrowserItemView.h"
 
 #include "AssetSystem.h"
@@ -656,6 +658,32 @@ namespace Durin
 	auto FContentBrowserPanel::DrawItemContextMenu(const FContentBrowserItem& Item) -> void
 	{
 		if (ImGui::MenuItem(Item.Kind == EContentBrowserItemKind::Folder ? "Open Folder" : "Open")) OpenItem(Item);
+		if (Item.Kind == EContentBrowserItemKind::Asset
+			&& Item.AssetClassName
+				== DStaticMesh::StaticClass()->GetQualifiedName().ToString())
+		{
+			if (ImGui::MenuItem("Reimport Static Model"))
+				DeferredContentAction = [this, Item] {
+					ReimportStaticModel(Item, false);
+				};
+			if (ImGui::MenuItem("Reimport and Recreate Missing Outputs"))
+				DeferredContentAction = [this, Item] {
+					ReimportStaticModel(Item, true);
+				};
+			if (!LastReimportOrphans.empty()
+				&& ImGui::BeginMenu("Reveal Last Reimport Orphan"))
+			{
+				for (const FAssetPath& Orphan : LastReimportOrphans)
+				{
+					if (ImGui::MenuItem(Orphan.GetAssetName().data()))
+						DeferredContentAction = [this, Path = Orphan.ToString()] {
+							RevealAsset(Path);
+						};
+				}
+				ImGui::EndMenu();
+			}
+			ImGui::Separator();
+		}
 		if (Item.Kind == EContentBrowserItemKind::Folder)
 		{
 			if (ImGui::BeginMenu("Create"))

@@ -2,6 +2,7 @@
 #include "StaticModelImportWorkflowInternal.h"
 
 #include "AssetSystem.h"
+#include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
 
 namespace Durin
@@ -194,8 +195,10 @@ namespace Durin
 		}
 	}
 
-	auto PlanStaticModelImport(
-		const FStaticModelImportPlanRequest& Request) -> FStaticModelImportPlanResult
+	auto PlanStaticModelImportInternal(
+		const FStaticModelImportPlanRequest& Request,
+		DStaticMesh* ExistingMesh,
+		bool bRecreateMissingAssets) -> FStaticModelImportPlanResult
 	{
 		FStaticModelImportPlanResult Result;
 		if (!Request.RootAssetPath.IsValid())
@@ -221,6 +224,7 @@ namespace Durin
 		auto Data = std::make_shared<FStaticModelImportPlanData>();
 		Data->PhysicalRootSource = Input;
 		Data->ImportSettings = Request.ImportSettings;
+		Data->ExistingMesh = ExistingMesh;
 		if (!Asset::ImportFromFile(
 			Input.generic_string(),
 			Data->Scene,
@@ -269,11 +273,69 @@ namespace Durin
 		}
 
 		std::unordered_set<std::string> PlannedIdentities;
-		if (!CheckPlannedAssetCollision(
+		if (ExistingMesh)
+		{
+			PlannedIdentities.insert(FoldAscii(Request.RootAssetPath.ToString()));
+		}
+		else if (!CheckPlannedAssetCollision(
 			Request.RootAssetPath, PlannedIdentities, Result.Message)) return Result;
 		Result.Plan.Assets.push_back({
 			.Kind = EStaticModelPlannedAssetKind::StaticMesh,
 			.AssetPath = Request.RootAssetPath});
+
+		const FStaticModelImportManifest* PreviousManifest =
+			ExistingMesh ? &ExistingMesh->GetImportManifest() : nullptr;
+		std::vector<bool> UsedPreviousMaterials(
+			PreviousManifest ? PreviousManifest->Materials.size() : 0, false);
+		std::vector<bool> UsedPreviousTextures(
+			PreviousManifest ? PreviousManifest->Textures.size() : 0, false);
+
+		auto ReserveExistingPath = [&](DObject* Object, FAssetPath& OutPath) -> bool {
+			if (!Object || !Object->GetPackage()
+				|| !FAssetPath::TryCreate(
+					Object->GetPackage()->GetPackagePath(), OutPath, &Result.Message))
+			{
+				if (Result.Message.empty())
+					Result.Message = "A manifest-managed generated asset has no valid package path.";
+				return false;
+			}
+			if (!PlannedIdentities.insert(FoldAscii(OutPath.ToString())).second)
+			{
+				Result.Message = std::format(
+					"Manifest-managed output {} is referenced more than once.", OutPath.ToString());
+				return false;
+			}
+			return true;
+		};
+		auto HasActiveDifferentOwner = [&](const FAssetPath& Owner) -> bool {
+			return Owner.IsValid() && Owner != Request.RootAssetPath
+				&& (Asset::FindLoadedPackage(Owner)
+					|| Asset::GetAssetRegistry().FindAsset(Owner));
+		};
+
+		auto FindPreviousMaterial = [&](const Asset::FImportedMaterial& Imported)
+			-> std::optional<size_t> {
+			if (!PreviousManifest) return std::nullopt;
+			size_t NameMatch = std::numeric_limits<size_t>::max();
+			uint32 NameMatches = 0;
+			for (size_t Index = 0; Index < PreviousManifest->Materials.size(); ++Index)
+			{
+				if (!UsedPreviousMaterials[Index]
+					&& PreviousManifest->Materials[Index].SourceName == Imported.SourceName)
+				{
+					NameMatch = Index;
+					++NameMatches;
+				}
+			}
+			if (NameMatches == 1) return NameMatch;
+			for (size_t Index = 0; Index < PreviousManifest->Materials.size(); ++Index)
+			{
+				if (!UsedPreviousMaterials[Index]
+					&& PreviousManifest->Materials[Index].SourceMaterialIndex
+						== Imported.SourceMaterialIndex) return Index;
+			}
+			return std::nullopt;
+		};
 
 		std::unordered_set<uint32> UsedMaterialIndices;
 		std::vector<uint32> OrderedMaterialIndices;
@@ -302,7 +364,51 @@ namespace Durin
 			const std::string MaterialName = MakeUniqueAssetName(
 				MaterialIt->SourceName, "Material", UsedMaterialNames);
 			FAssetPath MaterialPath;
-			if (!MakeChildAssetPath(
+			DMaterialInstance* ExistingMaterial = nullptr;
+			const std::optional<size_t> PreviousMaterialIndex =
+				FindPreviousMaterial(*MaterialIt);
+			if (PreviousMaterialIndex)
+			{
+				UsedPreviousMaterials[*PreviousMaterialIndex] = true;
+				const FStaticModelImportMaterialRecord& Previous =
+					PreviousManifest->Materials[*PreviousMaterialIndex];
+				ExistingMaterial = Previous.GeneratedMaterial.Get();
+				if (ExistingMaterial)
+				{
+					if (HasActiveDifferentOwner(ExistingMaterial->GetImportOwner()))
+					{
+						Result.Message = std::format(
+							"Importer-managed material {} is now owned by {}; repair ownership before reimport.",
+							Previous.SourceName,
+							ExistingMaterial->GetImportOwner().ToString());
+						return Result;
+					}
+					if (!ReserveExistingPath(ExistingMaterial, MaterialPath)) return Result;
+				}
+				else
+				{
+					if (!bRecreateMissingAssets)
+					{
+						Result.Message = std::format(
+							"Importer-managed material {} is missing; explicitly enable recreation.",
+							Previous.GeneratedMaterialPath.IsValid()
+								? Previous.GeneratedMaterialPath.ToString()
+								: Previous.SourceName);
+						return Result;
+					}
+					MaterialPath = Previous.GeneratedMaterialPath;
+					if (!MaterialPath.IsValid()
+						&& !MakeChildAssetPath(
+							Request.RootAssetPath,
+							"_Materials",
+							MaterialName,
+							MaterialPath,
+							Result.Message)) return Result;
+					if (!CheckPlannedAssetCollision(
+						MaterialPath, PlannedIdentities, Result.Message)) return Result;
+				}
+			}
+			else if (!MakeChildAssetPath(
 				Request.RootAssetPath,
 				"_Materials",
 				MaterialName,
@@ -341,7 +447,66 @@ namespace Durin
 						"Image_BaseColor",
 						UsedTextureNames);
 					FAssetPath TexturePath;
-					if (!MakeChildAssetPath(
+					DTexture2D* ExistingTexture = nullptr;
+					std::optional<size_t> PreviousTextureIndex;
+					if (PreviousManifest)
+					{
+						for (size_t Index = 0; Index < PreviousManifest->Textures.size(); ++Index)
+						{
+							const FStaticModelImportTextureRecord& Previous =
+								PreviousManifest->Textures[Index];
+							if (!UsedPreviousTextures[Index]
+								&& Previous.StableIdentity == Image.StableIdentity
+								&& Previous.Semantic == static_cast<uint8>(
+									Asset::EImportedTextureSemantic::BaseColor))
+							{
+								PreviousTextureIndex = Index;
+								break;
+							}
+						}
+					}
+					if (PreviousTextureIndex)
+					{
+						UsedPreviousTextures[*PreviousTextureIndex] = true;
+						const FStaticModelImportTextureRecord& Previous =
+							PreviousManifest->Textures[*PreviousTextureIndex];
+						ExistingTexture = Previous.GeneratedTexture.Get();
+						if (ExistingTexture)
+						{
+							if (HasActiveDifferentOwner(ExistingTexture->GetImportOwner()))
+							{
+								Result.Message = std::format(
+									"Importer-managed texture {} is now owned by {}; repair ownership before reimport.",
+									Previous.StableIdentity,
+									ExistingTexture->GetImportOwner().ToString());
+								return Result;
+							}
+							if (!ReserveExistingPath(ExistingTexture, TexturePath)) return Result;
+						}
+						else
+						{
+							if (!bRecreateMissingAssets)
+							{
+								Result.Message = std::format(
+									"Importer-managed texture {} is missing; explicitly enable recreation.",
+									Previous.GeneratedTexturePath.IsValid()
+										? Previous.GeneratedTexturePath.ToString()
+										: Previous.StableIdentity);
+								return Result;
+							}
+							TexturePath = Previous.GeneratedTexturePath;
+							if (!TexturePath.IsValid()
+								&& !MakeChildAssetPath(
+									Request.RootAssetPath,
+									"_Textures",
+									TextureName,
+									TexturePath,
+									Result.Message)) return Result;
+							if (!CheckPlannedAssetCollision(
+								TexturePath, PlannedIdentities, Result.Message)) return Result;
+						}
+					}
+					else if (!MakeChildAssetPath(
 						Request.RootAssetPath,
 						"_Textures",
 						TextureName,
@@ -395,17 +560,104 @@ namespace Durin
 						.Kind = EStaticModelPlannedAssetKind::Texture2D,
 						.AssetPath = TexturePath,
 						.SourceIndex = BaseColorBinding->ImageIndex});
+					if (ExistingTexture)
+						Data->ExistingTextures.emplace(PlannedAssetIndex, ExistingTexture);
 				}
 				else
 				{
 					PlannedMaterial.TextureAssetIndex = TextureIt->second;
 				}
 			}
+			const size_t PlannedMaterialIndex = Result.Plan.Assets.size();
 			Result.Plan.Assets.push_back(std::move(PlannedMaterial));
+			if (ExistingMaterial)
+				Data->ExistingMaterials.emplace(PlannedMaterialIndex, ExistingMaterial);
+		}
+
+		if (PreviousManifest)
+		{
+			for (size_t Index = 0; Index < PreviousManifest->Materials.size(); ++Index)
+			{
+				if (UsedPreviousMaterials[Index]) continue;
+				const FStaticModelImportMaterialRecord& Previous =
+					PreviousManifest->Materials[Index];
+				if (Previous.GeneratedMaterial && Previous.GeneratedMaterial->GetPackage())
+				{
+					FAssetPath Path;
+					if (FAssetPath::TryCreate(
+						Previous.GeneratedMaterial->GetPackage()->GetPackagePath(), Path))
+						Data->OrphanedAssets.push_back(std::move(Path));
+				}
+				else if (Previous.GeneratedMaterialPath.IsValid())
+					Data->OrphanedAssets.push_back(Previous.GeneratedMaterialPath);
+			}
+			for (size_t Index = 0; Index < PreviousManifest->Textures.size(); ++Index)
+			{
+				if (UsedPreviousTextures[Index]) continue;
+				const FStaticModelImportTextureRecord& Previous =
+					PreviousManifest->Textures[Index];
+				if (Previous.GeneratedTexture && Previous.GeneratedTexture->GetPackage())
+				{
+					FAssetPath Path;
+					if (FAssetPath::TryCreate(
+						Previous.GeneratedTexture->GetPackage()->GetPackagePath(), Path))
+						Data->OrphanedAssets.push_back(std::move(Path));
+				}
+				else if (Previous.GeneratedTexturePath.IsValid())
+					Data->OrphanedAssets.push_back(Previous.GeneratedTexturePath);
+			}
 		}
 
 		Result.Plan.Data = std::move(Data);
 		Result.bSucceeded = true;
 		return Result;
+	}
+
+	auto PlanStaticModelImport(
+		const FStaticModelImportPlanRequest& Request) -> FStaticModelImportPlanResult
+	{
+		return PlanStaticModelImportInternal(Request, nullptr, false);
+	}
+
+	auto PlanStaticModelReimport(
+		const FStaticModelReimportPlanRequest& Request) -> FStaticModelImportPlanResult
+	{
+		FStaticModelImportPlanResult Result;
+		if (!Request.StaticMesh || !Request.StaticMesh->GetPackage())
+		{
+			Result.Message = "Static-model reimport requires a packaged root mesh.";
+			return Result;
+		}
+		const FStaticModelImportManifest& Manifest =
+			Request.StaticMesh->GetImportManifest();
+		if (!Manifest.IsValid())
+		{
+			Result.Message = "Static-model reimport requires a supported import manifest.";
+			return Result;
+		}
+		FAssetPath RootPath;
+		if (!FAssetPath::TryCreate(
+			Request.StaticMesh->GetPackage()->GetPackagePath(), RootPath, &Result.Message))
+			return Result;
+		const PathUtilities::FSourcePathResult Source =
+			PathUtilities::ResolveSourcePath(
+				Request.StaticMesh->GetSourceImportData().SourcePath.Path,
+				PathUtilities::EPathExistence::RequireFile);
+		if (!Source)
+		{
+			Result.Message = std::format(
+				"Static-model root source requires repair before reimport: {}",
+				Source.Message);
+			return Result;
+		}
+		return PlanStaticModelImportInternal(
+			{
+				.SourceFile = Source.PhysicalPath,
+				.RootAssetPath = std::move(RootPath),
+				.RootSourceDestination =
+					Request.StaticMesh->GetSourceImportData().SourcePath,
+				.ImportSettings = Request.StaticMesh->GetImportSettings()},
+			Request.StaticMesh,
+			Request.bRecreateMissingAssets);
 	}
 }

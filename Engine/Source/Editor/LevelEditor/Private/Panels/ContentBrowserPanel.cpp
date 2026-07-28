@@ -1,5 +1,7 @@
 #include "Panels/ContentBrowserPanel.h"
 
+#include "StaticModelImportBuild.h"
+#include "StaticMesh/StaticMesh.h"
 #include "AssetSystem.h"
 #include "Assets/ContentBrowserThumbnailCache.h"
 #include "Panels/ContentBrowserItemView.h"
@@ -284,6 +286,44 @@ namespace Durin
 			&& !OpenAsset(Result.RevealAssetPath, Result.OpenAssetClassName))
 			SetError(
 				"The material was created, but its editor could not be opened.");
+	}
+
+	auto FContentBrowserPanel::ReimportStaticModel(
+		const FContentBrowserItem& Item,
+		bool bRecreateMissingAssets) -> void
+	{
+		FAssetPath Path;
+		if (!FAssetPath::TryCreate(Item.VirtualPath, Path))
+		{
+			SetError("The selected static-mesh asset path is invalid.");
+			return;
+		}
+		DStaticMesh* Mesh = nullptr;
+		const Asset::FAssetResult Load = Asset::LoadAsset(Path, Mesh);
+		if (!Load || !Mesh)
+		{
+			SetError(Load ? "The selected asset is not a static mesh." : Load.Message);
+			return;
+		}
+		const FStaticModelImportPlanResult Planned =
+			PlanStaticModelReimport({
+				.StaticMesh = Mesh,
+				.bRecreateMissingAssets = bRecreateMissingAssets});
+		if (!Planned)
+		{
+			SetError(Planned.Message);
+			return;
+		}
+		const FStaticModelImportExecutionResult Executed =
+			ExecuteStaticModelImport(Planned.Plan);
+		if (!Executed)
+		{
+			SetError(Executed.Message);
+			return;
+		}
+		LastReimportOrphans = Executed.OrphanedAssets;
+		Refresh(true);
+		RevealAsset(Path.ToString());
 	}
 
 	auto FContentBrowserPanel::FocusFolderInParent(

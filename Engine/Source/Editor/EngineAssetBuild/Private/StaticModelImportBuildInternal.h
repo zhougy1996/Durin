@@ -56,4 +56,12 @@ namespace Durin
 				EncodedBytes, SourcePath, Settings, &Hooks, OutError);
 		}
 	};
+
+	struct ENGINEASSETBUILD_API FStaticModelImportExecutionTestAccess
+	{
+		static auto SetFailurePoint(
+			FStaticModelImportPlan& Plan,
+			EImportTransactionFailurePoint Point,
+			size_t Occurrence = 0) -> void;
+	};
 }

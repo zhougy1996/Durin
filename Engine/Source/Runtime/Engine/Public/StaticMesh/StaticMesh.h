@@ -209,6 +209,12 @@ namespace Durin
 		FVector4 BaseColorFactor{1.0};
 
 		DPROPERTY()
+		FAssetPath GeneratedMaterialPath;
+
+		DPROPERTY()
+		bool bImporterManaged = true;
+
+		DPROPERTY()
 		TObjectPtr<DMaterialInstance> GeneratedMaterial;
 	};
 
@@ -222,6 +228,9 @@ namespace Durin
 
 		DPROPERTY()
 		uint8 Semantic = 0;
+
+		DPROPERTY()
+		FAssetPath GeneratedTexturePath;
 
 		DPROPERTY()
 		TObjectPtr<DTexture2D> GeneratedTexture;
@@ -321,6 +330,10 @@ namespace Durin
 			const FStaticMeshSourceImportData& InSourceImportData,
 			std::string_view SourceLabel,
 			std::string& OutError) -> bool;
+		// Seeds a detached candidate with only the slot state required by the
+		// conservative reimport reconciliation algorithm.
+		ENGINE_API auto SeedMaterialReconciliationFrom(
+			const DStaticMesh& Previous) -> void;
 		ENGINE_API auto SetImportedDefaultMaterial(
 			uint32 SourceMaterialIndex,
 			DMaterialInterface* Material,
@@ -328,6 +341,9 @@ namespace Durin
 		ENGINE_API auto SetImportManifest(
 			FStaticModelImportManifest InManifest,
 			std::string& OutError) -> bool;
+		// Exchanges all importer-owned mesh state while preserving this asset's
+		// package identity and component overrides.
+		ENGINE_API auto ExchangeImportedState(DStaticMesh& Other) -> void;
 
 	private:
 		auto BuildRenderData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;

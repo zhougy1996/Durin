@@ -123,6 +123,27 @@ namespace Durin
 		return ParameterOverrides;
 	}
 
+	auto DMaterialInstance::SetImportOwner(const FAssetPath& InOwner) -> void
+	{
+		if (ImportOwner == InOwner) return;
+		ImportOwner = InOwner;
+		MarkPackageDirty();
+	}
+
+	auto DMaterialInstance::ExchangeImportedState(DMaterialInstance& Other) -> void
+	{
+		if (&Other == this) return;
+		std::swap(Parent, Other.Parent);
+		std::swap(ParameterOverrides, Other.ParameterOverrides);
+		std::swap(ImportOwner, Other.ImportOwner);
+		MarkPackageDirty();
+		Other.MarkPackageDirty();
+		MarkRenderDataDirty(
+			EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::ParameterValues);
+		Other.MarkRenderDataDirty(
+			EMaterialRenderDirtyFlags::ParentChain | EMaterialRenderDirtyFlags::ParameterValues);
+	}
+
 	auto DMaterialInstance::ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);

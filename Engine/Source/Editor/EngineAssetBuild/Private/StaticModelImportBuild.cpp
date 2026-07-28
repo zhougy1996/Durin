@@ -156,10 +156,12 @@ namespace Durin
 			std::filesystem::path StagedPath;
 			std::filesystem::path ExternalInputPath;
 			std::vector<uint8> Bytes;
+			std::vector<uint8> PreviousBytes;
 			FXxHash128 ContentHash;
 			std::filesystem::file_time_type ObservedLastWriteTime{};
 			uintmax_t ObservedFileSize = 0;
 			bool bRequiresWrite = false;
+			bool bReplacesExisting = false;
 		};
 
 		struct FResolvedTexture
@@ -167,7 +169,9 @@ namespace Durin
 			FAssetPath AssetPath;
 			std::filesystem::path PackagePath;
 			FTexture2DImportSettings Settings;
+			FAssetPath ImportOwner;
 			size_t SourceIndex = 0;
+			DTexture2D* ExistingTexture = nullptr;
 		};
 
 		struct FResolvedMutation
@@ -195,8 +199,11 @@ namespace Durin
 		struct FPreparedTexture
 		{
 			DTexture2D* Texture = nullptr;
+			DTexture2D* Candidate = nullptr;
+			DPackage* CandidatePackage = nullptr;
 			std::filesystem::path DerivedDataPath;
 			bool bDerivedDataExisted = false;
+			bool bExchanged = false;
 		};
 
 		std::vector<FPortableTextureBuildRequest> Requests;
@@ -244,6 +251,7 @@ namespace Durin
 			const std::filesystem::path& ExternalSource,
 			std::span<const uint8> EncodedBytes,
 			const FSourcePath& SourceDestination,
+			bool bAllowSourceReplacement,
 			std::unordered_map<std::string, size_t>& SourceIdentities,
 			size_t& OutSourceIndex,
 			std::string& OutError) -> bool;
@@ -304,6 +312,7 @@ namespace Durin
 		const std::filesystem::path& ExternalSource,
 		std::span<const uint8> EncodedBytes,
 		const FSourcePath& SourceDestination,
+		bool bAllowSourceReplacement,
 		std::unordered_map<std::string, size_t>& SourceIdentities,
 		size_t& OutSourceIndex,
 		std::string& OutError) -> bool
@@ -410,13 +419,20 @@ namespace Durin
 			if (bSourceExists && std::filesystem::is_regular_file(Source.PhysicalPath, Ec))
 			{
 				std::vector<uint8> ExistingBytes;
-				if (!LoadBytes(Source.PhysicalPath, ExistingBytes, OutError)
-					|| ExistingBytes != Source.Bytes)
-				{
-					if (OutError.empty()) OutError = std::format(
-						"A different source file already exists at {}.",
-						Source.PhysicalPath.generic_string());
+				if (!LoadBytes(Source.PhysicalPath, ExistingBytes, OutError))
 					return false;
+				if (ExistingBytes != Source.Bytes)
+				{
+					if (!bAllowSourceReplacement)
+					{
+						OutError = std::format(
+							"A different source file already exists at {}.",
+							Source.PhysicalPath.generic_string());
+						return false;
+					}
+					Source.PreviousBytes = std::move(ExistingBytes);
+					Source.bRequiresWrite = true;
+					Source.bReplacesExisting = true;
 				}
 			}
 			else if (bSourceExists)
@@ -428,6 +444,9 @@ namespace Durin
 			else
 			{
 				Source.bRequiresWrite = true;
+			}
+			if (Source.bRequiresWrite)
+			{
 				Source.StagedPath = Source.PhysicalPath;
 				Source.StagedPath += ".import-stage";
 				Ec.clear();
@@ -512,7 +531,23 @@ namespace Durin
 				OutError = "Each texture request requires a valid asset path and exactly one source payload.";
 				return false;
 			}
-			if (!PackageIdentities.insert(Lower(Request.AssetPath.ToString())).second
+			const std::string PackageIdentity = Lower(Request.AssetPath.ToString());
+			if (Request.ExistingTexture)
+			{
+				FAssetPath ExistingPath;
+				if (!Request.ExistingTexture->GetPackage()
+					|| !FAssetPath::TryCreate(
+						Request.ExistingTexture->GetPackage()->GetPackagePath(), ExistingPath)
+					|| ExistingPath != Request.AssetPath
+					|| !PackageIdentities.contains(PackageIdentity))
+				{
+					OutError = std::format(
+						"Existing texture {} is not the requested managed package.",
+						Request.AssetPath.ToString());
+					return false;
+				}
+			}
+			else if (!PackageIdentities.insert(PackageIdentity).second
 				|| Asset::FindLoadedPackage(Request.AssetPath)
 				|| Asset::GetAssetRegistry().FindAsset(Request.AssetPath))
 			{
@@ -532,13 +567,13 @@ namespace Durin
 			std::filesystem::path PackageFile = PackageDestination.PhysicalPath;
 			PackageFile += ".dasset";
 			std::error_code Ec;
-			if (std::filesystem::exists(PackageFile, Ec))
+			if (!Request.ExistingTexture && std::filesystem::exists(PackageFile, Ec))
 			{
 				OutError = std::format(
 					"Texture package destination {} already exists.", PackageFile.generic_string());
 				return false;
 			}
-			if (Ec && !IsMissingPathError(Ec))
+			if (!Request.ExistingTexture && Ec && !IsMissingPathError(Ec))
 			{
 				OutError = std::format(
 					"Failed to inspect package destination {}: {}",
@@ -561,6 +596,7 @@ namespace Durin
 				Request.ExternalSource,
 				Request.EncodedBytes,
 				Request.SourceDestination,
+				Request.bAllowSourceReplacement,
 				SourceIdentities,
 				SourceIndex,
 				OutError)) return false;
@@ -569,7 +605,9 @@ namespace Durin
 				.AssetPath = Request.AssetPath,
 				.PackagePath = std::move(PackageFile),
 				.Settings = Request.Settings,
-				.SourceIndex = SourceIndex});
+				.ImportOwner = Request.ImportOwner,
+				.SourceIndex = SourceIndex,
+				.ExistingTexture = Request.ExistingTexture});
 			if (Request.bRootPackage) Plan.Root.TextureIndex = TextureIndex;
 		}
 		for (const FPortableSourceBuildRequest& Request : SourceRequests)
@@ -580,6 +618,7 @@ namespace Durin
 				Request.ExternalSource,
 				Request.EncodedBytes,
 				Request.SourceDestination,
+				Request.bAllowSourceReplacement,
 				SourceIdentities,
 				IgnoredSourceIndex,
 				OutError)) return false;
@@ -631,13 +670,41 @@ namespace Durin
 		{
 			const FResolvedTexture& Resolved = Plan.Textures[TextureIndex];
 			DTexture2D* Texture = nullptr;
-			const Asset::FAssetResult CreateResult = Asset::CreateAsset(Resolved.AssetPath, Texture);
+			DTexture2D* Candidate = nullptr;
+			DPackage* CandidatePackage = nullptr;
+			FAssetPath CandidatePath = Resolved.AssetPath;
+			if (Resolved.ExistingTexture)
+			{
+				for (uint32 Suffix = 1;; ++Suffix)
+				{
+					std::string CandidateValue = std::format(
+						"{}_ReimportCandidate_{}", Resolved.AssetPath.ToString(), Suffix);
+					if (!FAssetPath::TryCreate(CandidateValue, CandidatePath))
+					{
+						OutError = "Failed to form a temporary texture candidate path.";
+						return false;
+					}
+					if (!Asset::FindLoadedPackage(CandidatePath)
+						&& !Asset::GetAssetRegistry().FindAsset(CandidatePath)) break;
+				}
+			}
+			const Asset::FAssetResult CreateResult =
+				Asset::CreateAsset(CandidatePath, Candidate);
 			if (!CreateResult)
 			{
 				OutError = CreateResult.Message;
 				return false;
 			}
-			if (Plan.Root.TextureIndex == TextureIndex) RootPackage = Texture->GetPackage();
+			if (Resolved.ExistingTexture)
+			{
+				Texture = Resolved.ExistingTexture;
+				CandidatePackage = Candidate->GetPackage();
+			}
+			else
+			{
+				Texture = Candidate;
+				if (Plan.Root.TextureIndex == TextureIndex) RootPackage = Texture->GetPackage();
+			}
 
 			const FResolvedSource& Source = Plan.Sources[Resolved.SourceIndex];
 			const bool bSRGB = Resolved.Settings.bSRGB.value_or(
@@ -661,12 +728,14 @@ namespace Durin
 				&& std::filesystem::is_regular_file(DerivedDataPath, Ec);
 			PreparedTextures.push_back({
 				.Texture = Texture,
+				.Candidate = Candidate,
+				.CandidatePackage = CandidatePackage,
 				.DerivedDataPath = std::move(DerivedDataPath),
 				.bDerivedDataExisted = bDerivedDataExisted});
 			Textures.push_back(Texture);
-			PreparedPackages.push_back(Texture->GetPackage());
+			if (!Resolved.ExistingTexture) PreparedPackages.push_back(Texture->GetPackage());
 			if (!FTextureBuildOperations::Build(
-				*Texture,
+				*Candidate,
 				Source.Bytes,
 				Source.SourcePath,
 				Resolved.Settings,
@@ -683,6 +752,7 @@ namespace Durin
 			{
 				return false;
 			}
+			Candidate->SetImportOwner(Resolved.ImportOwner);
 		}
 
 		return true;
@@ -803,6 +873,12 @@ namespace Durin
 			Rollback();
 			return false;
 		}
+		for (FImpl::FPreparedTexture& Prepared : Impl->PreparedTextures)
+		{
+			if (!Prepared.CandidatePackage) continue;
+			Prepared.Texture->ExchangeImportedState(*Prepared.Candidate);
+			Prepared.bExchanged = true;
+		}
 		for (size_t MutationIndex = 0; MutationIndex < Impl->Plan.Mutations.size(); ++MutationIndex)
 		{
 			const FImpl::FResolvedMutation& Mutation = Impl->Plan.Mutations[MutationIndex];
@@ -829,7 +905,33 @@ namespace Durin
 				return false;
 			}
 			std::error_code Ec;
-			std::filesystem::rename(Source.StagedPath, Source.PhysicalPath, Ec);
+			if (Source.bReplacesExisting)
+			{
+				FFileHelper::FAtomicFileError Error;
+				if (!FFileHelper::SaveArrayToFileAtomically(
+					std::span{
+						reinterpret_cast<const std::byte*>(Source.Bytes.data()),
+						Source.Bytes.size()},
+					Source.PhysicalPath,
+					&Error))
+				{
+					OutError = Error.ToString();
+					Rollback();
+					return false;
+				}
+				std::error_code CleanupError;
+				std::filesystem::remove(Source.StagedPath, CleanupError);
+				if (CleanupError)
+					DURIN_WARN(
+						"Failed to remove consumed import staging file {}: {}",
+						Source.StagedPath.generic_string(),
+						CleanupError.message());
+				Ec.clear();
+			}
+			else
+			{
+				std::filesystem::rename(Source.StagedPath, Source.PhysicalPath, Ec);
+			}
 			if (Ec)
 			{
 				OutError = std::format(
@@ -868,6 +970,18 @@ namespace Durin
 			Rollback();
 			return false;
 		}
+		for (FImpl::FPreparedTexture& Prepared : Impl->PreparedTextures)
+		{
+			if (!Prepared.CandidatePackage) continue;
+			const Asset::FAssetResult Discard =
+				Asset::DiscardUnpublishedPackage(Prepared.CandidatePackage);
+			if (!Discard)
+				DURIN_ERROR(
+					"Failed to discard published reimport texture candidate: {}",
+					Discard.Message);
+			Prepared.CandidatePackage = nullptr;
+			Prepared.Candidate = nullptr;
+		}
 		Impl->bPublished = true;
 		OutError.clear();
 		return true;
@@ -894,21 +1008,57 @@ namespace Durin
 			if (SourceIndex < Impl->PublishedSources.size()
 				&& Impl->PublishedSources[SourceIndex])
 			{
-				std::filesystem::remove(Source.PhysicalPath, Ec);
+				if (Source.bReplacesExisting)
+				{
+					FFileHelper::FAtomicFileError Error;
+					if (!FFileHelper::SaveArrayToFileAtomically(
+						std::span{
+							reinterpret_cast<const std::byte*>(Source.PreviousBytes.data()),
+							Source.PreviousBytes.size()},
+						Source.PhysicalPath,
+						&Error))
+						DURIN_ERROR(
+							"Failed to restore replaced import source {}: {}",
+							Source.SourcePath.Path,
+							Error.ToString());
+				}
+				else
+				{
+					std::filesystem::remove(Source.PhysicalPath, Ec);
+				}
 				Impl->PublishedSources[SourceIndex] = false;
 			}
 			std::filesystem::remove(Source.StagedPath, Ec);
 		}
 		for (FImpl::FPreparedTexture& Prepared : Impl->PreparedTextures)
 		{
+			if (Prepared.bExchanged && Prepared.Candidate)
+			{
+				Prepared.Texture->ExchangeImportedState(*Prepared.Candidate);
+				Prepared.bExchanged = false;
+			}
 			if (!Prepared.bDerivedDataExisted)
 			{
 				std::error_code Ec;
 				std::filesystem::remove(Prepared.DerivedDataPath, Ec);
 			}
+			if (Prepared.CandidatePackage)
+			{
+				const Asset::FAssetResult Result =
+					Asset::DiscardUnpublishedPackage(Prepared.CandidatePackage);
+				if (!Result) DURIN_ERROR(
+					"Failed to roll back reimport texture candidate: {}", Result.Message);
+				Prepared.CandidatePackage = nullptr;
+			}
 		}
 		for (auto It = Impl->Textures.rbegin(); It != Impl->Textures.rend(); ++It)
 		{
+			if (std::ranges::any_of(
+				Impl->PreparedTextures,
+				[Texture = *It](const FImpl::FPreparedTexture& Prepared) {
+					return Prepared.CandidatePackage != nullptr
+						|| (Prepared.Texture == Texture && Prepared.Candidate != Texture);
+				})) continue;
 			DPackage* Package = (*It)->GetPackage();
 			FAssetPath Path;
 			if (Package && FAssetPath::TryCreate(Package->GetPackagePath(), Path))

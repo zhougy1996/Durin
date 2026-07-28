@@ -266,6 +266,8 @@ namespace Durin
 		auto GetAlphaCoverageThreshold() const -> float { return AlphaCoverageThreshold; }
 		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
 		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
+		auto GetImportOwner() const -> const FAssetPath& { return ImportOwner; }
+		ENGINE_API auto SetImportOwner(const FAssetPath& InOwner) -> void;
 		ENGINE_API auto SetUsage(ETextureUsage InUsage, std::string& OutError) -> bool;
 		ENGINE_API auto SetSRGB(bool bInSRGB, std::string& OutError) -> bool;
 		ENGINE_API auto SetMaxResolution(uint32 InMaxResolution, std::string& OutError) -> bool;
@@ -308,6 +310,9 @@ namespace Durin
 			const FSourcePath& SourcePath,
 			const FTexture2DImportSettings& Settings,
 			std::string& OutError) -> bool;
+		// Exchanges persisted and derived import state while preserving object
+		// identity. Render resources are rebuilt for both objects.
+		ENGINE_API auto ExchangeImportedState(DTexture2D& Other) -> void;
 
 		ENGINE_API static auto ImportAsset(std::string_view FilePath, std::string_view AssetPath, const FTexture2DImportSettings& Settings = {}) -> FTexture2DImportResult;
 
@@ -390,6 +395,9 @@ namespace Durin
 
 		DPROPERTY()
 		Asset::FCookedPayloadDescriptor CookedPayload;
+
+		DPROPERTY()
+		FAssetPath ImportOwner;
 
 		// Both representations are derived from the imported source file. Keeping them
 		// separate lets platform builds replace format/mips without mutating edit data.

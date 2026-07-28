@@ -1488,6 +1488,46 @@ namespace Durin
 			EncodedBytes, InSourcePath, Settings, nullptr, OutError);
 	}
 
+	auto DTexture2D::ExchangeImportedState(DTexture2D& Other) -> void
+	{
+		if (&Other == this) return;
+		std::swap(SourceFile, Other.SourceFile);
+		std::swap(SourceImportData, Other.SourceImportData);
+		std::swap(SourceContentHash, Other.SourceContentHash);
+		std::swap(SourceFileSize, Other.SourceFileSize);
+		std::swap(SourceLastWriteTime, Other.SourceLastWriteTime);
+		std::swap(SourceWidth, Other.SourceWidth);
+		std::swap(SourceHeight, Other.SourceHeight);
+		std::swap(SourceChannelCount, Other.SourceChannelCount);
+		std::swap(bSourceHasTransparency, Other.bSourceHasTransparency);
+		std::swap(Usage, Other.Usage);
+		std::swap(bSRGB, Other.bSRGB);
+		std::swap(MaxResolution, Other.MaxResolution);
+		std::swap(CompressionQuality, Other.CompressionQuality);
+		std::swap(AlphaMipMode, Other.AlphaMipMode);
+		std::swap(AlphaCoverageThreshold, Other.AlphaCoverageThreshold);
+		std::swap(CookedPayload, Other.CookedPayload);
+		std::swap(ImportOwner, Other.ImportOwner);
+		std::swap(SourceData, Other.SourceData);
+		std::swap(PlatformData, Other.PlatformData);
+		std::swap(DerivedDataKey, Other.DerivedDataKey);
+		std::swap(DerivedDataDiagnostic, Other.DerivedDataDiagnostic);
+		std::swap(bLoadedFromDerivedDataCache, Other.bLoadedFromDerivedDataCache);
+		std::swap(BuildStatus, Other.BuildStatus);
+		std::swap(LastBuildError, Other.LastBuildError);
+		QueueRenderResourceBuild();
+		Other.QueueRenderResourceBuild();
+		MarkPackageDirty();
+		Other.MarkPackageDirty();
+	}
+
+	auto DTexture2D::SetImportOwner(const FAssetPath& InOwner) -> void
+	{
+		if (ImportOwner == InOwner) return;
+		ImportOwner = InOwner;
+		MarkPackageDirty();
+	}
+
 	auto DTexture2D::BuildFromEncodedBytes(
 		std::span<const uint8> EncodedBytes,
 		const FSourcePath& InSourcePath,

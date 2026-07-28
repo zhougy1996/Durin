@@ -3,6 +3,7 @@
 #include "Asset/SourcePath.h"
 #include "EngineAssetBuildAPI.h"
 #include "DObject/AssetPath.h"
+#include "Materials/MaterialInstance.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 
@@ -11,12 +12,15 @@ namespace Durin
 	class DMaterial;
 	class DMaterialInstance;
 	struct FMultiAssetImportTransactionTestAccess;
+	struct FStaticModelImportExecutionTestAccess;
 	struct FStaticModelImportPlanData;
 	struct FStaticModelImportExecutionResult;
 	struct FStaticModelImportPlanResult;
 
 	inline constexpr std::string_view StandardImportedSurfaceMaterialPath =
 		"/Engine/Materials/ImportedSurface";
+	inline constexpr std::string_view ImporterManagedMaterialPolicy =
+		DMaterialInstance::ImporterManagedPolicy;
 
 	enum class EStaticModelPlannedAssetKind : uint8
 	{
@@ -72,6 +76,11 @@ namespace Durin
 			const FStaticModelImportPlanRequest& Request) -> FStaticModelImportPlanResult;
 		friend ENGINEASSETBUILD_API auto ExecuteStaticModelImport(
 			const FStaticModelImportPlan& Plan) -> FStaticModelImportExecutionResult;
+		friend auto PlanStaticModelImportInternal(
+			const FStaticModelImportPlanRequest& Request,
+			DStaticMesh* ExistingMesh,
+			bool bRecreateMissingAssets) -> FStaticModelImportPlanResult;
+		friend struct FStaticModelImportExecutionTestAccess;
 	};
 
 	struct FStaticModelImportPlanResult
@@ -90,12 +99,21 @@ namespace Durin
 		DStaticMesh* StaticMesh = nullptr;
 		std::vector<DMaterialInstance*> Materials;
 		std::vector<DTexture2D*> Textures;
+		std::vector<FAssetPath> OrphanedAssets;
 
 		explicit operator bool() const { return bSucceeded; }
 	};
 
+	struct FStaticModelReimportPlanRequest
+	{
+		DStaticMesh* StaticMesh = nullptr;
+		bool bRecreateMissingAssets = false;
+	};
+
 	ENGINEASSETBUILD_API auto PlanStaticModelImport(
 		const FStaticModelImportPlanRequest& Request) -> FStaticModelImportPlanResult;
+	ENGINEASSETBUILD_API auto PlanStaticModelReimport(
+		const FStaticModelReimportPlanRequest& Request) -> FStaticModelImportPlanResult;
 	ENGINEASSETBUILD_API auto ExecuteStaticModelImport(
 		const FStaticModelImportPlan& Plan) -> FStaticModelImportExecutionResult;
 	ENGINEASSETBUILD_API auto EnsureStandardImportedSurfaceMaterial(
@@ -112,6 +130,11 @@ namespace Durin
 		std::vector<uint8> EncodedBytes;
 		FSourcePath SourceDestination;
 		FTexture2DImportSettings Settings;
+		FAssetPath ImportOwner;
+		// Non-null updates this exact importer-managed texture. The asset path
+		// must match its current package path, including after a user move.
+		DTexture2D* ExistingTexture = nullptr;
+		bool bAllowSourceReplacement = false;
 		bool bRootPackage = false;
 	};
 
@@ -124,6 +147,7 @@ namespace Durin
 		std::filesystem::path ExternalSource;
 		std::vector<uint8> EncodedBytes;
 		FSourcePath SourceDestination;
+		bool bAllowSourceReplacement = false;
 	};
 
 	struct FImportTransactionResult
