@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from contextlib import redirect_stderr, redirect_stdout
@@ -17,6 +18,58 @@ from .dependencies import (
     validate_repository_manifests,
 )
 from .setup import setup_repository
+
+
+def _enable_virtual_terminal(stream: TextIO) -> bool:
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+        import msvcrt
+
+        handle = msvcrt.get_osfhandle(stream.fileno())
+        mode = ctypes.c_ulong()
+        kernel32 = ctypes.windll.kernel32
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        return bool(kernel32.SetConsoleMode(handle, mode.value | 0x0004))
+    except (AttributeError, OSError, ValueError):
+        return False
+
+
+class _BootstrapOutput:
+    """Add lightweight styling before the prepared environment can provide Rich."""
+
+    def __init__(self, stream: TextIO, *, plain: bool) -> None:
+        self.stream = stream
+        self.styled = (
+            not plain
+            and "NO_COLOR" not in os.environ
+            and bool(getattr(stream, "isatty", lambda: False)())
+            and _enable_virtual_terminal(stream)
+        )
+
+    def write(self, text: str) -> int:
+        if not self.styled or not text.strip():
+            return self.stream.write(text)
+        lowered = text.casefold()
+        if text.startswith("[run]"):
+            style = "2;36"
+        elif text.startswith("==>"):
+            style = "1;36"
+        elif any(word in lowered for word in ("successfully", " is ready", " are ready", "validated")):
+            style = "1;32"
+        elif any(word in lowered for word in ("warning", "skipping", "repairing")):
+            style = "1;33"
+        else:
+            style = "36"
+        return self.stream.write(f"\x1b[{style}m{text}\x1b[0m")
+
+    def flush(self) -> None:
+        self.stream.flush()
+
+    def isatty(self) -> bool:
+        return bool(getattr(self.stream, "isatty", lambda: False)())
 
 
 def _restart_prepared_shell(
@@ -59,8 +112,10 @@ def run(
     session_state: dict[str, object] | None = None,
     **_: object,
 ) -> int:
+    styled_stdout = _BootstrapOutput(stdout, plain=getattr(namespace, "plain", False))
+    styled_stderr = _BootstrapOutput(stderr, plain=getattr(namespace, "plain", False))
     try:
-        with redirect_stdout(stdout), redirect_stderr(stderr):
+        with redirect_stdout(styled_stdout), redirect_stderr(styled_stderr):
             if namespace.bootstrap_action == "setup":
                 python = setup_repository(repository_root)
                 if session_state is not None:

@@ -268,6 +268,7 @@ class TestCore:
             executable_path.return_value.touch()
             build_core.run_native_test(context, output)
         assert run.call_args.args[0] == [str(executable_path.return_value), '--gtest_filter=Core.*', '--gtest_brief=1']
+        assert run.call_args.kwargs['colorize_test_output']
 
     def test_all_native_tests_use_ctest_registration(self) -> None:
         preset = self.make_preset()
@@ -282,6 +283,7 @@ class TestCore:
             output=output,
             recovery_required_on_interrupt=False,
             interruption_message='Native test run was interrupted.',
+            colorize_test_output=True,
         )
 
     def test_all_native_tests_reject_gtest_filter(self) -> None:

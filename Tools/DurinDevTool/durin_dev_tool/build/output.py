@@ -36,6 +36,14 @@ RUNTIME_LOG_LEVEL_STYLES = {
     "error": "bold red",
     "critical": "bold white on red",
 }
+TEST_STATUS_PATTERNS = (
+    (re.compile(r"^\[\s*(?:PASSED|OK)\s*\]", re.IGNORECASE), "bold green"),
+    (re.compile(r"^\[\s*(?:FAILED|ERROR)\s*\]", re.IGNORECASE), "bold red"),
+    (re.compile(r"^\[\s*SKIPPED\s*\]", re.IGNORECASE), "bold yellow"),
+    (re.compile(r"^\[\s*RUN\s*\]", re.IGNORECASE), "bold cyan"),
+    (re.compile(r"^\d+/\d+\s+Test\s+#\d+:\s+.*\s(?:Passed|Failed)", re.IGNORECASE), None),
+    (re.compile(r"^\s*\d+%\s+tests passed", re.IGNORECASE), None),
+)
 
 
 class BuildOutput:
@@ -130,7 +138,13 @@ class BuildOutput:
             self.console.print(f"[dim]$ {command}[/dim]")
             self.flush()
 
-    def child_output(self, text: str, *, colorize_log_levels: bool = False) -> None:
+    def child_output(
+        self,
+        text: str,
+        *,
+        colorize_log_levels: bool = False,
+        colorize_test_output: bool = False,
+    ) -> None:
         with self._output_lock:
             clean = ANSI_ESCAPE_PATTERN.sub("", text.rstrip("\r\n"))
             if self.progress and NINJA_PROGRESS_PATTERN.match(clean):
@@ -156,6 +170,23 @@ class BuildOutput:
                         match.start(1),
                         match.end(1),
                     )
+                    self.console.print(rendered, end="")
+                    self.console.file.flush()
+                    return
+            if colorize_test_output and not self.plain and "\x1b[" not in text:
+                for pattern, fixed_style in TEST_STATUS_PATTERNS:
+                    match = pattern.match(text)
+                    if match is None:
+                        continue
+                    lowered = match.group(0).lower()
+                    style = fixed_style
+                    if style is None:
+                        if re.match(r"^\s*\d+%\s+tests passed", lowered):
+                            style = "bold green" if lowered.lstrip().startswith("100%") else "bold red"
+                        else:
+                            style = "bold red" if "failed" in lowered else "bold green"
+                    rendered = Text(text)
+                    rendered.stylize(style, match.start(), match.end())
                     self.console.print(rendered, end="")
                     self.console.file.flush()
                     return

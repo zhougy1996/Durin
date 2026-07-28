@@ -94,6 +94,44 @@ class TestOutput:
         output.child_output('[12:34:56][error]Runtime error\n', colorize_log_levels=True)
         assert '\x1b[' not in stdout.getvalue()
 
+    @pytest.mark.parametrize(
+        ('line', 'expected_ansi'),
+        [
+            ('[ RUN      ] Core.Loads\n', True),
+            ('[       OK ] Core.Loads (1 ms)\n', True),
+            ('[  FAILED  ] Core.Loads (1 ms)\n', True),
+            ('[  PASSED  ] 12 tests.\n', True),
+            ('1/2 Test #1: Core.Loads ..........   Passed  0.01 sec\n', True),
+            ('50% tests passed, 1 tests failed out of 2\n', True),
+            ('ordinary test detail\n', False),
+        ],
+    )
+    def test_native_test_statuses_are_colored_for_terminal_output(
+        self, line: str, expected_ansi: bool
+    ) -> None:
+        stdout = io.StringIO()
+        with mock.patch.dict(os.environ, {}, clear=True):
+            output = BuildOutput(
+                stdout=stdout,
+                stderr=io.StringIO(),
+                force_terminal=True,
+                output_mode=build_config.OutputMode.FULL,
+            )
+            output.child_output(line, colorize_test_output=True)
+        assert ('\x1b[' in stdout.getvalue()) is expected_ansi
+
+    def test_native_test_coloring_respects_plain_output(self) -> None:
+        stdout = io.StringIO()
+        output = BuildOutput(
+            plain=True,
+            stdout=stdout,
+            stderr=io.StringIO(),
+            force_terminal=True,
+            output_mode=build_config.OutputMode.FULL,
+        )
+        output.child_output('[  FAILED  ] Core.Loads\n', colorize_test_output=True)
+        assert '\x1b[' not in stdout.getvalue()
+
     def test_failure_summary_contains_command_exit_code_and_recovery(self) -> None:
         stderr = io.StringIO()
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)

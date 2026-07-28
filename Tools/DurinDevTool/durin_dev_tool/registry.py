@@ -302,6 +302,7 @@ COMMAND_SPECS = (
         "setup",
         "prepare this main checkout",
         BOOTSTRAP_HANDLER,
+        arguments=(PLAIN,),
         defaults=(("bootstrap_action", "setup"),),
     ),
     _build_command("stop", "stop the active build operation", (PLAIN,)),

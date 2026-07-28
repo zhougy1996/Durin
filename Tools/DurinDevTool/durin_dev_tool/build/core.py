@@ -920,6 +920,7 @@ def run_command(
     environment: Mapping[str, str],
     output: BuildOutput,
     colorize_log_levels: bool = False,
+    colorize_test_output: bool = False,
     recovery_required_on_interrupt: bool = True,
     interruption_message: str | None = None,
     timeout_seconds: int | None = None,
@@ -966,7 +967,11 @@ def run_command(
                         log.write(line)
                         transcript.add(line)
                         if not output.compact:
-                            output.child_output(line, colorize_log_levels=colorize_log_levels)
+                            output.child_output(
+                                line,
+                                colorize_log_levels=colorize_log_levels,
+                                colorize_test_output=colorize_test_output,
+                            )
         except OSError as exc:
             reader_error.append(exc)
 
@@ -1057,7 +1062,7 @@ def run_command(
         )
     if output.compact:
         if summary := transcript.success_summary():
-            output.info(summary)
+            output.child_output(summary + "\n", colorize_test_output=colorize_test_output)
         output.info(f'Full output: "{log_path}"')
 
 
@@ -1529,6 +1534,7 @@ def run_native_test(context: BuildContext, output: BuildOutput) -> None:
             recovery_required_on_interrupt=False,
             interruption_message="Native test run was interrupted.",
             timeout_seconds=request.test_timeout_seconds or None,
+            colorize_test_output=True,
         )
 
 
@@ -1570,6 +1576,7 @@ def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
             output=output,
             recovery_required_on_interrupt=False,
             interruption_message="Native test run was interrupted.",
+            colorize_test_output=True,
         )
 
 

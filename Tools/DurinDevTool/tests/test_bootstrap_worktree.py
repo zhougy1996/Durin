@@ -339,6 +339,25 @@ class TestBootstrapRegistry:
 
 class TestSetupOrchestration:
 
+    def test_setup_fallback_styles_tty_output_without_third_party_packages(self) -> None:
+        class TtyBuffer(io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        stream = TtyBuffer()
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            handler, '_enable_virtual_terminal', return_value=True
+        ):
+            output = handler._BootstrapOutput(stream, plain=False)
+            print('Durin setup completed successfully.', file=output)
+        assert '\x1b[1;32m' in stream.getvalue()
+
+    def test_setup_fallback_respects_plain_output(self) -> None:
+        stream = io.StringIO()
+        output = handler._BootstrapOutput(stream, plain=True)
+        print('Durin setup completed successfully.', file=output)
+        assert '\x1b[' not in stream.getvalue()
+
     def test_preflight_runs_before_every_repository_mutation(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)

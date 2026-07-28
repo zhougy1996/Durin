@@ -21,6 +21,7 @@ from durin_dev_tool.build import descriptors as build_descriptors
 from durin_dev_tool.build import scaffolding as build_scaffolding
 from durin_dev_tool.build.handler import request_from_namespace
 from durin_dev_tool.build.output import BuildOutput
+from durin_dev_tool.bootstrap import preflight
 from durin_dev_tool.registry import CommandRegistry
 
 def parse_build_request(arguments: list[str]) -> build_config.CommandRequest:
@@ -143,16 +144,16 @@ class TestCMakeCodeModelGuard:
         local_config = build_config.load_local_config()
         cmake = local_config.cmake_command or shutil.which('cmake')
         if not cmake:
-            self.skipTest('CMake is not available')
-        ninja = shutil.which('ninja')
+            pytest.skip('CMake is not available')
+        environment = dict(os.environ)
+        ninja = preflight.find_ninja(environment)
         if not ninja and os.name == 'nt':
-            for parent in Path(cmake).resolve().parents:
-                bundled_ninja = parent / 'Ninja' / 'ninja.exe'
-                if bundled_ninja.is_file():
-                    ninja = str(bundled_ninja)
-                    break
+            script, arguments = preflight.configured_visual_studio_environment(REPO_ROOT)
+            script = script or preflight.find_vsdevcmd(environment)
+            environment = preflight.capture_visual_studio_environment(script, arguments)
+            ninja = preflight.find_ninja(environment)
         if not ninja:
-            self.skipTest('Ninja is not available')
+            pytest.skip('Ninja is not available')
         build_options = (REPO_ROOT / 'CMake' / 'Config' / 'BuildOptions.cmake').as_posix()
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)

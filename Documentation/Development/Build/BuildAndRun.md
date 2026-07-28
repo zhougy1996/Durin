@@ -33,6 +33,9 @@ first appear halfway through bootstrap or during the main build. DurinDevTool
 separately validates the Visual Studio English language pack when it first
 initializes MSVC. Setup initializes only the main checkout; a linked worktree
 exits with an error directing the caller to `DevTool worktree prepare`.
+Because Setup must install DurinDevTool's Python packages, its terminal styling
+uses a standard-library-only fallback until the prepared environment is ready.
+`setup --plain` and `NO_COLOR` disable that styling as usual.
 
 In a normal checkout, `DevTool setup` creates `.venv`, installs the pinned
 Python dependencies from `requirements.txt` (including the `clang.cindex`
@@ -152,6 +155,9 @@ retained. Use `--output full` to stream every child-output line, or
 Compact native-test runs also enable GoogleTest's brief output mode. Test
 failures and the final test summary remain in the captured output and failure
 excerpt; application or library messages are always preserved in the full log.
+In styled terminal output, GoogleTest and CTest running, passed, skipped, and
+failed statuses are colored consistently even when the child process disables
+its own terminal colors.
 `--plain` controls styling independently and does not select an output volume.
 
 While a build, configure, clean, or test child command is alive, DurinDevTool emits a short heartbeat every 30 seconds until the child produces a final result. This distinguishes a genuinely running operation from a completed command without requiring a second status or build invocation. The interactive `run` command suppresses this heartbeat because the runtime is expected to remain open until the user exits it.
