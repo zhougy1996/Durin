@@ -113,6 +113,11 @@ namespace Durin
 		return Parent.Get();
 	}
 
+	auto DMaterialInstance::GetStaticProperties() const -> const FMaterialStaticProperties&
+	{
+		return Parent != nullptr ? Parent->GetStaticProperties() : Super::GetStaticProperties();
+	}
+
 	auto DMaterialInstance::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>
 	{
 		return Parent != nullptr ? Parent->GetParameterDefinitions() : std::span<const FMaterialParameterDefinition>{};

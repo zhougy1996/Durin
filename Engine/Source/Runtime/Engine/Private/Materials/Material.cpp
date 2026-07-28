@@ -24,6 +24,16 @@ namespace Durin
 		return true;
 	}
 
+	auto DMaterial::SetStaticProperties(const FMaterialStaticProperties& InProperties) -> bool
+	{
+		std::string Error;
+		if (!ValidateMaterialStaticProperties(InProperties, Error)) return false;
+		if (StaticProperties == InProperties) return true;
+		StaticProperties = InProperties;
+		MarkPackageDirty();
+		return true;
+	}
+
 	auto DMaterial::SetScalarParameterValue(FName Name, float Value) -> bool
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
@@ -87,6 +97,7 @@ namespace Durin
 	auto DMaterial::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
-		return ValidateCanonicalMaterialParameterDefinitions(ParameterDefinitions, OutError);
+		return ValidateCanonicalMaterialParameterDefinitions(ParameterDefinitions, OutError)
+			&& ValidateMaterialStaticProperties(StaticProperties, OutError);
 	}
 }

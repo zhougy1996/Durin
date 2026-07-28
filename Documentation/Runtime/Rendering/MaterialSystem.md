@@ -21,6 +21,13 @@ editor presentation, and renderer consumption at explicit boundaries.
   that supplied the value. Parent cycles are rejected.
 - Parent changes preserve unmatched overrides as orphans for explicit editor
   removal. Orphans are never resolved into render data.
+- `DMaterial` owns one reflected static-property set: blend mode, shading model,
+  two-sided state, depth-write policy, and masked-opacity threshold. Instances
+  inherit that complete set through the canonical parent chain; they do not
+  store static overrides.
+- Static properties currently define only the asset-domain contract. Until
+  shader-map and pipeline identities consume them, all static meshes continue
+  to use the fixed opaque renderer policy.
 
 The current shader contract has exactly five built-in declarations:
 `BaseColor`, `BaseColorTexture`, `Opacity`, `SpecularStrength`, and `Shininess`.
@@ -167,6 +174,9 @@ and UI behavior belongs to the editor
   duplicate names, or deviations from the canonical built-in schema.
 - Instances override parameters without duplicating declarations or the
   parent's shader program.
+- Static properties are authored on base materials and inherited atomically by
+  instances; per-instance static overrides require an explicit future
+  permutation design.
 - Static properties belong in shader-map/permutation keys; dynamic parameters belong in uniform/resource bindings.
 - Material object mutation crosses to the rendering thread through explicit
   update commands. Replacing the material assigned to a component still

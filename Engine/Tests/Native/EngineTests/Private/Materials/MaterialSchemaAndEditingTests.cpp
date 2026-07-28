@@ -1,5 +1,45 @@
 #include "MaterialTestSupport.h"
 
+TEST(FMaterialTests, StaticPropertiesHaveStableDefaultsAndInstanceInheritance)
+{
+	InitializeDObjectSystem();
+	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "StaticPropertyBase");
+	Durin::DMaterialInstance* Parent = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "StaticPropertyParent");
+	Durin::DMaterialInstance* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "StaticPropertyChild");
+
+	const Durin::FMaterialStaticProperties Defaults;
+	EXPECT_EQ(Base->GetStaticProperties(), Defaults);
+	EXPECT_EQ(Child->GetStaticProperties(), Defaults);
+
+	Durin::FMaterialStaticProperties Properties;
+	Properties.BlendMode = Durin::EMaterialBlendMode::Masked;
+	Properties.ShadingModel = Durin::EMaterialShadingModel::Unlit;
+	Properties.bTwoSided = true;
+	Properties.DepthWritePolicy = Durin::EMaterialDepthWritePolicy::Enabled;
+	Properties.OpacityMaskThreshold = 0.4f;
+	ASSERT_TRUE(Base->SetStaticProperties(Properties));
+	ASSERT_TRUE(Parent->SetParent(Base));
+	ASSERT_TRUE(Child->SetParent(Parent));
+	EXPECT_EQ(Parent->GetStaticProperties(), Properties);
+	EXPECT_EQ(Child->GetStaticProperties(), Properties);
+
+	Durin::FMaterialStaticProperties Invalid = Properties;
+	Invalid.OpacityMaskThreshold = 1.1f;
+	const Durin::uint64 InitialVersion = Base->GetRenderStateVersion();
+	EXPECT_FALSE(Base->SetStaticProperties(Invalid));
+	EXPECT_EQ(Base->GetStaticProperties(), Properties);
+	EXPECT_EQ(Base->GetRenderStateVersion(), InitialVersion);
+
+	std::string Error;
+	EXPECT_FALSE(Durin::ValidateMaterialStaticProperties(Invalid, Error));
+	EXPECT_FALSE(Error.empty());
+
+	Durin::MarkAsGarbage(Child);
+	Durin::MarkAsGarbage(Parent);
+	Durin::MarkAsGarbage(Base);
+	Durin::CollectGarbage();
+}
+
 TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 {
 	InitializeDObjectSystem();

@@ -25,6 +25,8 @@ namespace Durin
 					|| (Left.Index == Right.Index && Left.Generation < Right.Generation);
 			});
 		}
+
+		const FMaterialStaticProperties GDefaultMaterialStaticProperties;
 	}
 
 	DMaterialInterface::DMaterialInterface(const FObjectInitializer& ObjectInitializer)
@@ -74,6 +76,11 @@ namespace Durin
 	auto DMaterialInterface::GetParent() const -> DMaterialInterface*
 	{
 		return nullptr;
+	}
+
+	auto DMaterialInterface::GetStaticProperties() const -> const FMaterialStaticProperties&
+	{
+		return GDefaultMaterialStaticProperties;
 	}
 
 	auto DMaterialInterface::IsDependent(const DMaterialInterface* TestDependency) const -> bool

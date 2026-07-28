@@ -2,7 +2,7 @@
 
 Summary: Material editing, surface models, shader maps, and runtime materials.
 
-Last reviewed: 2026-07-27
+Last reviewed: 2026-07-29
 
 ## Current Status
 
@@ -19,6 +19,12 @@ Blinn-Phong calculation controlled by `SpecularStrength` and `Shininess`.
 alpha blending disabled, so it does not yet define translucent rendering.
 All static meshes share one shader map, one opaque pipeline policy, and one
 linear-repeat base-color sampler.
+
+The Stage 2 static-property domain is now defined independently from that fixed
+renderer path. Base materials persist blend mode, shading model, two-sided
+state, depth-write policy, and masked-opacity threshold; instances inherit the
+complete property set through their parent chain. These properties are not yet
+part of render data, shader-map identity, or pipeline selection.
 
 The Content Browser can now create material and material-instance assets and
 open them in a dedicated Material Editor. The first editor slice exposes the
@@ -100,7 +106,7 @@ properties and the compiled render representation remain in this stage.
   texture-usage hints.
 - [x] Separate declared parameters from resolved instance values so instances
   cannot silently accumulate misspelled or type-incompatible overrides.
-- [ ] Define material static properties: blend mode, shading model, two-sided
+- [x] Define material static properties: blend mode, shading model, two-sided
   state, depth-write policy, and masked-opacity threshold.
 - [ ] Split dynamic parameter dirtiness from static shader/pipeline dirtiness;
   static changes must rebuild the correct shader map and pipeline identity.
@@ -109,6 +115,21 @@ properties and the compiled render representation remain in this stage.
   directly to `RendererModule.cpp`.
 - [ ] Define compatibility/versioning rules for existing serialized materials
   as the parameter schema evolves.
+
+### Stage 2 Active Handoff
+
+- Baseline commit: `5a9175bc`.
+- Working set: material runtime types and interfaces, base/instance material
+  implementations, focused material/static-mesh tests, and material
+  architecture documentation.
+- Key decision: static properties are owned only by `DMaterial`; instances
+  inherit the complete set and cannot accumulate static overrides.
+- Compatibility: assets without the new reflected property retain constructor
+  defaults. Invalid enum values or mask thresholds fail material `PostLoad`.
+- Open work: static-property edits still need a distinct dirty path and must
+  rebuild shader-map and pipeline identity before any renderer consumes them.
+- Validation: all 44 `MaterialTests` and all 42 `StaticMeshTests` pass,
+  including default/inheritance/rejection and asset round-trip coverage.
 
 ## Stage 3: Establish a PBR Surface Contract
 

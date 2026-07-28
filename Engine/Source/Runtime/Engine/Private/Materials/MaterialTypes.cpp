@@ -183,4 +183,49 @@ namespace Durin
 		}
 		return true;
 	}
+
+	auto ValidateMaterialStaticProperties(
+		const FMaterialStaticProperties& Properties,
+		std::string& OutError
+	) -> bool
+	{
+		OutError.clear();
+		switch (Properties.BlendMode)
+		{
+		case EMaterialBlendMode::Opaque:
+		case EMaterialBlendMode::Masked:
+		case EMaterialBlendMode::Translucent:
+			break;
+		default:
+			OutError = "Material blend mode is invalid.";
+			return false;
+		}
+		switch (Properties.ShadingModel)
+		{
+		case EMaterialShadingModel::Lit:
+		case EMaterialShadingModel::Unlit:
+			break;
+		default:
+			OutError = "Material shading model is invalid.";
+			return false;
+		}
+		switch (Properties.DepthWritePolicy)
+		{
+		case EMaterialDepthWritePolicy::Automatic:
+		case EMaterialDepthWritePolicy::Enabled:
+		case EMaterialDepthWritePolicy::Disabled:
+			break;
+		default:
+			OutError = "Material depth-write policy is invalid.";
+			return false;
+		}
+		if (!std::isfinite(Properties.OpacityMaskThreshold)
+			|| Properties.OpacityMaskThreshold < 0.0f
+			|| Properties.OpacityMaskThreshold > 1.0f)
+		{
+			OutError = "Material opacity-mask threshold must be finite and in the inclusive range [0, 1].";
+			return false;
+		}
+		return true;
+	}
 }

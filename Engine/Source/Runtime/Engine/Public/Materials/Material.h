@@ -17,6 +17,8 @@ namespace Durin
 
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
+		auto GetStaticProperties() const -> const FMaterialStaticProperties& override { return StaticProperties; }
+		ENGINE_API auto SetStaticProperties(const FMaterialStaticProperties& InProperties) -> bool;
 
 		ENGINE_API auto SetScalarParameterValue(FName Name, float Value) -> bool;
 		ENGINE_API auto SetVectorParameterValue(FName Name, const FVector3& Value) -> bool;
@@ -27,6 +29,10 @@ namespace Durin
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 
 	private:
+		// These values are inherited by instances and will form shader and pipeline keys.
+		DPROPERTY(Edit)
+		FMaterialStaticProperties StaticProperties;
+
 		// Definition identity and metadata are canonical; only the nested Value fields are editable.
 		DPROPERTY()
 		std::vector<FMaterialParameterDefinition> ParameterDefinitions;

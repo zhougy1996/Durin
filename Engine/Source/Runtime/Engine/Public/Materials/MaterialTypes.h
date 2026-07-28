@@ -30,6 +30,57 @@ namespace Durin
 		AssetPicker,
 	};
 
+	// Selects the render-pass policy required by a material.
+	DENUM()
+	enum class EMaterialBlendMode : uint8
+	{
+		Opaque,
+		Masked,
+		Translucent,
+	};
+
+	// Selects the lighting contract implemented by a material shader map.
+	DENUM()
+	enum class EMaterialShadingModel : uint8
+	{
+		Lit,
+		Unlit,
+	};
+
+	// Controls depth writes independently from the blend-mode default.
+	DENUM()
+	enum class EMaterialDepthWritePolicy : uint8
+	{
+		Automatic,
+		Enabled,
+		Disabled,
+	};
+
+	// Defines base-material properties that participate in shader and pipeline identity.
+	DSTRUCT()
+	struct FMaterialStaticProperties
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		EMaterialBlendMode BlendMode = EMaterialBlendMode::Opaque;
+
+		DPROPERTY()
+		EMaterialShadingModel ShadingModel = EMaterialShadingModel::Lit;
+
+		DPROPERTY()
+		bool bTwoSided = false;
+
+		DPROPERTY()
+		EMaterialDepthWritePolicy DepthWritePolicy = EMaterialDepthWritePolicy::Automatic;
+
+		// Alpha values below this threshold are discarded by masked passes.
+		DPROPERTY()
+		float OpacityMaskThreshold = 0.333f;
+
+		auto operator==(const FMaterialStaticProperties&) const -> bool = default;
+	};
+
 	// Stores the scalar, vector, and texture alternatives used by reflected material parameters.
 	DSTRUCT()
 	struct FMaterialParameterValue
@@ -142,6 +193,10 @@ namespace Durin
 	ENGINE_API auto MakeCanonicalMaterialParameterDefinitions() -> std::vector<FMaterialParameterDefinition>;
 	ENGINE_API auto ValidateCanonicalMaterialParameterDefinitions(
 		std::span<const FMaterialParameterDefinition> Definitions,
+		std::string& OutError
+	) -> bool;
+	ENGINE_API auto ValidateMaterialStaticProperties(
+		const FMaterialStaticProperties& Properties,
 		std::string& OutError
 	) -> bool;
 
