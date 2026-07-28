@@ -17,10 +17,12 @@ fixture.
 Build and run a test executable through the root wrapper:
 
 ```powershell
-.\DevTool.bat test --target CoreTests
-.\DevTool.bat test --target CoreTests --filter FJsonDocumentTests.ParseObjectFromString
-.\DevTool.bat test --target CoreTests --timeout 60
+.\DevTool.bat test --target CoreUtilityTests
+.\DevTool.bat test --target CoreUtilityTests --filter FJsonDocumentTests.ParseObjectFromString
+.\DevTool.bat test --target CoreUtilityTests --timeout 60
 .\DevTool.bat test --target all
+.\DevTool.bat test --target all --schedule-random --output-junit Build\NativeTestResults.xml
+.\DevTool.bat test --target all --ctest-regex "^FJsonDocumentTests.ParseObjectFromString$"
 ```
 
 The first command runs the target's discovered tests. The second passes a GoogleTest filter. The test executable has a 300-second timeout by default; `--timeout <seconds>` changes it, and `--timeout 0` disables it for an intentionally long diagnostic run. The timeout starts after the target has finished building.
@@ -28,7 +30,10 @@ The first command runs the target's discovered tests. The second passes a Google
 `--target all` builds the complete preset and then runs every test registered in
 that build directory through CTest. Its timeout applies to each CTest-registered
 test. GoogleTest `--filter` syntax is executable-specific and therefore cannot
-be combined with `--target all`.
+be combined with `--target all`. Use `--schedule-random` to randomize the CTest
+launch order and `--output-junit <path>` to retain machine-readable aggregate
+results. Use `--ctest-regex <regex>` for an isolated rerun of matching
+CTest-registered names. All three options require `--target all`.
 
 DurinDevTool clears build recovery state before launching the test executable. A failed assertion, crash, timeout, or interrupted test should be diagnosed and rerun with `test`; it does not require `rebuild`. Build ownership, recovery, and parallelism rules are documented in `Documentation/Development/Build/BuildAndRun.md`.
 
@@ -36,8 +41,8 @@ In the interactive shell, use the equivalent commands:
 
 ```text
 DurinDevTool> preset Win64-Debug-DurinEditor-Tests
-DurinDevTool> test --target CoreTests
-DurinDevTool> test --target CoreTests --filter FJsonDocumentTests.ParseObjectFromString
+DurinDevTool> test --target CoreUtilityTests
+DurinDevTool> test --target CoreUtilityTests --filter FJsonDocumentTests.ParseObjectFromString
 DurinDevTool> test all
 ```
 
@@ -152,6 +157,28 @@ makes their dependency cost reviewable.
 Tests should avoid editor startup or real window creation unless that behavior
 is under test. When it is, keep the target scoped to that lifecycle and declare
 the corresponding rationale and resource ownership explicitly.
+
+## Qualified Parallel Baseline
+
+The `windows-msvc-x64` Agent Build Profile qualifies 722 CTest registrations at
+14 jobs. The 2026-07-28 baseline completed three consecutive randomized
+aggregates in 17.85, 17.98, and 18.16 seconds. The same suite took 74.30 seconds
+at one job and 39.74 seconds at two jobs. Thirty direct target runs also passed,
+with only the three documented characterization skips.
+
+The remaining aggregate critical path is explicit resource ownership:
+`MaterialTests`, `VulkanRHIIntegrationTests`,
+`SkyBoxVulkanIntegrationTests`, and `TextureCookIntegrationTests` use
+`durin-gpu`; the renderer-backed owners also use
+`durin-test-legacy-renderer-runtime`. In the final measured schedule these
+locks covered 50 CTest entries and 17.24 process-seconds. Do not relax them
+without separating the physical-device or renderer lifecycle they protect.
+
+Incremental `all` dependency checks took 0.88-0.96 seconds in the qualification
+matrix. Direct-smoke startup and multi-case execution accounted for 34.36
+process-seconds across 30 targets; the slowest direct entries were
+`CoreUtilityTests` (5.42 seconds), `AssetPackageTests` (4.54 seconds), and
+`TextureTests` (4.14 seconds).
 
 `durin_test_deploy_target_binary(...)` and
 `durin_test_deploy_runtime_files(...)` register dependencies on shared

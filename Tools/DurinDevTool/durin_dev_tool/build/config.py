@@ -140,6 +140,9 @@ class CommandRequest:
     jobs: int | None = None
     test_filter: str = ""
     test_timeout_seconds: int = 300
+    test_schedule_random: bool = False
+    test_output_junit: Path | None = None
+    test_ctest_regex: str = ""
     run_arguments: tuple[str, ...] = ()
     profile: str = ""
     preset: str = ""

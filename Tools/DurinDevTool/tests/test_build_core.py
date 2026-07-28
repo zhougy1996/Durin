@@ -271,13 +271,13 @@ class TestCore:
 
     def test_all_native_tests_use_ctest_registration(self) -> None:
         preset = self.make_preset()
-        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, target='ALL', test_timeout_seconds=60), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake=r'C:\Tools\CMake\bin\cmake.exe', jobs=4, environment={'PATH': 'cached'})
+        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, target='ALL', test_timeout_seconds=60, test_schedule_random=True, test_output_junit=Path('Build/results.xml'), test_ctest_regex='^Core\\.'), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake=r'C:\Tools\CMake\bin\cmake.exe', jobs=4, environment={'PATH': 'cached'})
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         build_directory = Path('Build/debug')
         with mock.patch.object(build_core, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_core, 'run_command') as run:
             build_core.run_all_native_tests(context, output)
         run.assert_called_once_with(
-            [r'C:\Tools\CMake\bin\ctest.exe', '--test-dir', str(build_directory), '--output-on-failure', '--no-tests=error', '-j', '4', '--timeout', '60'],
+            [r'C:\Tools\CMake\bin\ctest.exe', '--test-dir', str(build_directory), '--output-on-failure', '--no-tests=error', '-j', '4', '--timeout', '60', '--schedule-random', '-R', '^Core\\.', '--output-junit', str(build_core.REPO_ROOT / 'Build/results.xml')],
             environment={'PATH': 'cached'},
             output=output,
             recovery_required_on_interrupt=False,
@@ -287,6 +287,11 @@ class TestCore:
     def test_all_native_tests_reject_gtest_filter(self) -> None:
         request = build_config.CommandRequest(build_config.Action.TEST, target='all', test_filter='Core.*')
         with pytest.raises(build_config.BuildToolError, match='cannot be used with --target all'):
+            build_core.validate_request(request, self.make_preset())
+
+    def test_single_native_test_rejects_ctest_only_options(self) -> None:
+        request = build_config.CommandRequest(build_config.Action.TEST, target='CoreTests', test_schedule_random=True)
+        with pytest.raises(build_config.BuildToolError, match='require --target all'):
             build_core.validate_request(request, self.make_preset())
 
     def test_configure_preserves_cache_unless_fresh_is_requested(self, tmp_path_factory: pytest.TempPathFactory) -> None:

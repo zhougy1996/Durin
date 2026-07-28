@@ -375,6 +375,22 @@ COMMAND_SPECS = (
                 metavar="0..86400",
                 help="test timeout in seconds; 0 disables it (default: 300)",
             ),
+            _argument(
+                "--schedule-random",
+                action="store_true",
+                help="randomize CTest scheduling for --target all",
+            ),
+            _argument(
+                "--output-junit",
+                type=Path,
+                default=None,
+                help="write CTest JUnit XML for --target all",
+            ),
+            _argument(
+                "--ctest-regex",
+                default="",
+                help="run CTest names matching a regex for --target all",
+            ),
         ),
     ),
     _build_command(

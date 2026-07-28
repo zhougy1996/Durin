@@ -4,8 +4,8 @@ Summary: Make aggregate native tests deterministic under CTest parallelism by gi
 
 Last reviewed: 2026-07-28
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-07-28
 
 ## Current Status
 
@@ -62,6 +62,14 @@ Completed:
   targets, and unexplained heavyweight runtime linkage. Named fixture cleanup,
   abandoned-success reclamation, and the authoritative workflow contract are
   implemented.
+- Stage 6 is complete. The 1-, 2-, and 14-job aggregate matrix passed; after a
+  randomized schedule exposed a stale Vulkan command-list pipeline during RHI
+  teardown, the lifecycle fix passed ten focused stress runs and three
+  consecutive 14-job randomized aggregates in 17.85, 17.98, and 18.16 seconds.
+  All 30 targets passed directly, and representative Core, asset, shader,
+  texture, thumbnail, and Vulkan cases passed both filtered direct and isolated
+  CTest reruns. Machine-readable evidence is retained in
+  `NativeTestProcessIsolationQualification.json`.
 - Three consecutive 14-job aggregate runs passed all 720 CTest entries after
   the Core targets enabled case parallelism; their real times were 20.95,
   20.52, and 23.35 seconds.
@@ -122,9 +130,6 @@ Completed:
 - No native-test source or header references `DURIN_TEST_WORK_DIR`, and
   `add_durin_test` no longer publishes that compile definition. Its internal
   target property remains the discovery-time Work-container contract.
-- Thirty-two native-test files still call `std::filesystem::remove_all`; their
-  containment enforcement and repository checks are Stage 5 work.
-
 ## Goal
 
 Preserve case-level CTest discovery and useful aggregate parallelism while
@@ -588,18 +593,18 @@ cases.
 
 ### Stage 6: Restore and qualify full aggregate parallelism
 
-- [ ] Run the complete native suite at 1, 2, and the Agent Build Profile's full
+- [x] Run the complete native suite at 1, 2, and the Agent Build Profile's full
   job count.
-- [ ] Repeat full-concurrency aggregate runs with randomized CTest scheduling
+- [x] Repeat full-concurrency aggregate runs with randomized CTest scheduling
   and retain machine-readable results.
-- [ ] Run every test target directly once to cover the multi-case single-process
+- [x] Run every test target directly once to cover the multi-case single-process
   path.
-- [ ] Verify filtered direct runs and isolated CTest reruns for representative
+- [x] Verify filtered direct runs and isolated CTest reruns for representative
   Core, asset, shader, texture, thumbnail, and Vulkan failures.
-- [ ] Compare elapsed time against the serialized compatibility baseline and
+- [x] Compare elapsed time against the serialized compatibility baseline and
   module-era baseline; record target startup cost, dependency/build impact, and
   the remaining resource-lock critical path.
-- [ ] Move lasting test-layout and isolation rules into
+- [x] Move lasting test-layout and isolation rules into
   `Documentation/Development/Build/NativeTests.md`.
 
 #### Acceptance Gate
@@ -610,6 +615,25 @@ cases.
   to concurrency.
 - Remaining serialization is limited to documented irreducible resources, and
   aggregate elapsed time is recorded as the performance baseline.
+
+#### Stage 6 Handoff
+
+- Baseline: `fa3cbd84a6dff81a344596728d27501416bf7242`.
+- Working set: DurinDevTool aggregate-test options and tests,
+  `VulkanTextureSamplingTests.cpp`, `NativeTests.md`, and qualification
+  evidence.
+- Key symbols: `test_schedule_random`, `test_output_junit`,
+  `test_ctest_regex`, `run_all_native_tests`, and
+  `FRHICommandListImmediate::SwitchPipeline`.
+- Decisions: randomized and isolated CTest qualification remains behind the
+  DurinDevTool entrypoint; JUnit paths are caller-selected; the immediate
+  command list releases its Vulkan pipeline before device teardown; only the
+  registered GPU and renderer-runtime resources remain serialized.
+- Open work: none. Deferred refinements remain listed below.
+- Validation: all 722 registrations passed at 1 and 2 jobs; three consecutive
+  randomized 14-job runs passed with the three known skips; all 30 targets
+  passed directly; six representative domains passed filtered direct and
+  isolated CTest reruns; the all-plan validator passed.
 
 ## Validation Matrix
 
@@ -656,6 +680,7 @@ cases.
 - [Native C++ Tests](../Development/Build/NativeTests.md)
 - [Stage 0 Evidence](../Development/Build/NativeTestProcessIsolationStage0.md)
 - [18-job Failure Baseline](NativeTestProcessIsolationBaseline.json)
+- [Stage 6 Qualification](NativeTestProcessIsolationQualification.json)
 
 ## Related Code
 

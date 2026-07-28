@@ -1126,6 +1126,18 @@ def validate_request(request: CommandRequest, preset: ConfigurePreset) -> None:
             "--filter requires a single native test target and cannot be used with "
             "--target all."
         )
+    if (
+        request.action is Action.TEST
+        and request.target.casefold() != "all"
+        and (
+            request.test_schedule_random
+            or request.test_output_junit is not None
+            or request.test_ctest_regex
+        )
+    ):
+        raise BuildToolError(
+            "--schedule-random, --output-junit, and --ctest-regex require --target all."
+        )
     if request.action is Action.TEST and not preset_cache_bool(preset, "BUILD_TESTING"):
         raise BuildToolError(f'Preset "{preset.name}" does not enable BUILD_TESTING.')
     if request.action is not Action.PURGE and (request.all_presets or request.yes):
@@ -1541,6 +1553,16 @@ def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
     ]
     if request.test_timeout_seconds:
         command.extend(["--timeout", str(request.test_timeout_seconds)])
+    if request.test_schedule_random:
+        command.append("--schedule-random")
+    if request.test_ctest_regex:
+        command.extend(["-R", request.test_ctest_regex])
+    if request.test_output_junit is not None:
+        junit_path = request.test_output_junit
+        if not junit_path.is_absolute():
+            junit_path = REPO_ROOT / junit_path
+        junit_path.parent.mkdir(parents=True, exist_ok=True)
+        command.extend(["--output-junit", str(junit_path)])
     with output.stage("Test all"):
         run_command(
             command,

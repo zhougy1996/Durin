@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-28",
+  "baselineCommit": "fa3cbd84a6dff81a344596728d27501416bf7242",
+  "profile": "windows-msvc-x64",
+  "preset": "Win64-Debug-DurinEditor-Tests",
+  "fullJobs": 14,
+  "registeredTests": 722,
+  "knownSkippedTests": [
+    "FMountRegistryTests.RejectsNestedLinkEscapesAndAcceptsLinkedDomainRoots",
+    "FNativeTestProcessIsolationProbeTests.ProcessAOwnsSameLogicalFilename",
+    "FNativeTestProcessIsolationProbeTests.ProcessBOwnsSameLogicalFilename"
+  ],
+  "aggregateRuns": [
+    {"name": "single-job", "jobs": 1, "scheduleRandom": false, "passed": true, "elapsedSeconds": 74.30, "junit": "Build/NativeTestProcessIsolationResults/aggregate-j1.xml"},
+    {"name": "two-jobs", "jobs": 2, "scheduleRandom": false, "passed": true, "elapsedSeconds": 39.74, "junit": "Build/NativeTestProcessIsolationResults/aggregate-j2.xml"},
+    {"name": "pre-fix-random-1", "jobs": 14, "scheduleRandom": true, "passed": true, "elapsedSeconds": 19.20, "junit": "Build/NativeTestProcessIsolationResults/aggregate-j14-random-1.xml"},
+    {"name": "pre-fix-random-2", "jobs": 14, "scheduleRandom": true, "passed": true, "elapsedSeconds": 18.82, "junit": "Build/NativeTestProcessIsolationResults/aggregate-j14-random-2.xml"},
+    {
+      "name": "pre-fix-random-3",
+      "jobs": 14,
+      "scheduleRandom": true,
+      "passed": false,
+      "elapsedSeconds": 18.12,
+      "junit": "Build/NativeTestProcessIsolationResults/aggregate-j14-random-3.xml",
+      "failure": "FVulkanTextureSamplingTests.UploadsAndSamplesEveryMipWithKnownColorSpaceValues",
+      "failureType": "SEGFAULT",
+      "resolution": "Release the immediate command list's Vulkan pipeline before RHIExit."
+    },
+    {"name": "qualified-random-1", "jobs": 14, "scheduleRandom": true, "passed": true, "elapsedSeconds": 17.85, "junit": "Build/NativeTestProcessIsolationResults/qualified-j14-random-1.xml"},
+    {"name": "qualified-random-2", "jobs": 14, "scheduleRandom": true, "passed": true, "elapsedSeconds": 17.98, "junit": "Build/NativeTestProcessIsolationResults/qualified-j14-random-2.xml"},
+    {"name": "qualified-random-3", "jobs": 14, "scheduleRandom": true, "passed": true, "elapsedSeconds": 18.16, "junit": "Build/NativeTestProcessIsolationResults/qualified-j14-random-3.xml"},
+    {"name": "final-exact-source", "jobs": 14, "scheduleRandom": true, "passed": true, "elapsedSeconds": 17.97, "junit": "Build/NativeTestProcessIsolationResults/final-exact-source.xml"}
+  ],
+  "directTargets": {
+    "count": 30,
+    "passed": 30,
+    "targets": [
+      "CoreUtilityTests",
+      "CoreFileSystemTests",
+      "CoreConcurrencyTests",
+      "CoreObjectTests",
+      "AssetPackageTests",
+      "AssetCookTests",
+      "AssetDerivedDataTests",
+      "AssetDecodeTests",
+      "AssetImportTests",
+      "RenderShaderContractTests",
+      "RenderShaderCacheTests",
+      "RenderShaderServiceTests",
+      "RenderContractTests",
+      "NativeTestIsolationProbeTests",
+      "VulkanRHIIntegrationTests",
+      "EditorPropertyTests",
+      "EditorAssetWorkflowTests",
+      "MaterialTests",
+      "StaticMeshTests",
+      "TextureTests",
+      "ThumbnailTests",
+      "WorldTests",
+      "ViewportTests",
+      "SplineTests",
+      "SkyBoxTests",
+      "SkyBoxVulkanIntegrationTests",
+      "EditorRenderingTests",
+      "EditorShellTests",
+      "ExternalToolTests",
+      "TextureCookIntegrationTests"
+    ]
+  },
+  "representativeReruns": [
+    {"domain": "Core", "target": "CoreFileSystemTests", "test": "FFileHelperTests.ConcurrentWritersNeverExposePartialBytes", "filteredDirectPassed": true, "isolatedCTestPassed": true},
+    {"domain": "asset", "target": "AssetPackageTests", "test": "FPackageAssetTests.SavesLoadsContainersReferencesAndRegistryMetadata", "filteredDirectPassed": true, "isolatedCTestPassed": true},
+    {"domain": "shader", "target": "RenderShaderCacheTests", "test": "FShaderCacheStoreTests.ArtifactsAndManifestRoundTripBeyondMaxPath", "filteredDirectPassed": true, "isolatedCTestPassed": true},
+    {"domain": "texture", "target": "TextureTests", "test": "FTexture2DTests.ImportsSourceAndBuildsIndependentPlatformData", "filteredDirectPassed": true, "isolatedCTestPassed": true},
+    {"domain": "thumbnail", "target": "ThumbnailTests", "test": "FMaterialAssetThumbnailTests.ProviderRejectsMissingRegistryData", "filteredDirectPassed": true, "isolatedCTestPassed": true},
+    {"domain": "Vulkan", "target": "VulkanRHIIntegrationTests", "test": "FVulkanTextureSamplingTests.UploadsAndSamplesEveryMipWithKnownColorSpaceValues", "filteredDirectPassed": true, "isolatedCTestPassed": true, "postFixStressDirectRuns": 10}
+  ],
+  "performance": {
+    "qualifiedFullJobMeanSeconds": 17.9967,
+    "singleJobToFullJobSpeedup": 4.1285,
+    "twoJobToFullJobSpeedup": 2.2082,
+    "serializedCompatibilityBaselineSeconds": 25.25,
+    "serializedCompatibilityBaselineJobs": 18,
+    "serializedCompatibilityReductionPercent": 28.73,
+    "moduleEraFailureBaselineSeconds": 6.90,
+    "moduleEraFailureBaselineJobs": 18,
+    "moduleEraFailureBaselineFailedTests": 31,
+    "moduleEraFailureBaselineComparable": false,
+    "functionalTargetCompatibilityBaselineSeconds": 12.22,
+    "functionalTargetCompatibilityBaselineJobs": 18,
+    "directSmokeProcessSeconds": 34.3596,
+    "allTestProcessSeconds": 155.3577,
+    "incrementalAllBuildSecondsRange": [0.88, 0.96],
+    "changedVulkanTargetBuildSeconds": 6.79
+  },
+  "remainingSerialization": {
+    "resourceLocks": ["durin-gpu", "durin-test-legacy-renderer-runtime"],
+    "lockedCTestEntries": 50,
+    "durinGpuCriticalPathProcessSeconds": 17.2368,
+    "rendererRuntimeCriticalPathProcessSeconds": 15.387,
+    "owners": [
+      "MaterialTests",
+      "VulkanRHIIntegrationTests",
+      "SkyBoxVulkanIntegrationTests",
+      "TextureCookIntegrationTests"
+    ]
+  }
+}
