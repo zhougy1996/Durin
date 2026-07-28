@@ -2,53 +2,33 @@
 
 Summary: Turn supported static glTF and FBX sources into immediately renderable StaticMesh, texture, and material assets through one deterministic import and reimport workflow.
 
-Last reviewed: 2026-07-28
+Last reviewed: 2026-07-29
 
 ## Current Status
 
-Stages 0 through 2 are complete. Stage 2 started from baseline
-`68f15699d8224ec04ac527fd3d8ae96c323b8f6a` and now provides encoded-byte
-Texture2D candidate construction, deterministic embedded-image source paths,
-mounted reference-or-ingest handling, and a reusable multi-asset transaction.
-The transaction completes package/source collision preflight before writes,
-stages source and package bytes invisibly, publishes dependency packages before
-the root package and registry, and rolls back attempt-created sources, DDC
-objects, packages, registry visibility, and caller-snapshotted loaded-object
-mutations. The completed `StaticModelImportStage3Preparation.md` gate extracted
-independent glTF/GLB and Assimp-backed FBX adapters, replaced repeated
-transaction resolution with one immutable resolved plan, removed the raw FBX
-DCC-marker scan, and moved rollback injection to real work boundaries. Stage 3
-is now in progress from baseline
-`ee31b054473985397e439d32944ad8edb0e01778`. Its first implementation slice
-adds a mutation-free `PlanStaticModelImport` entrypoint that parses the source
-once, retains the immutable normalized scene for execution, selects the stable
-`/Engine/Materials/ImportedSurface` parent identity, and deterministically
-plans the root StaticMesh, used material instances, semantically deduplicated
-BaseColor Texture2D assets, source reference/ingest/extract operations, and
-warnings. Candidate asset names receive stable case-insensitive suffixes, and
-every planned package path is collision-checked before any asset creation.
-Execution now creates the planned Texture2D and material-instance packages,
-maps opaque base color through the canonical parameter schema, assigns mesh
-slot defaults, persists a versioned dependency/material/texture manifest, and
-publishes the complete bundle through the shared transaction. StaticMesh
-candidate construction reuses the planner's retained normalized scene and
-populates geometry DDC before package publication, so package reload does not
-invoke the source importer. The import dialog previews generated assets,
-source operations, and warnings before the same planner/executor performs the
-one-action import. An opaque embedded-image GLB integration fixture proves
-save/unload/reload, component default resolution, manifest round-trip, color
-texture settings, and no source reparse. Rendered Vulkan acceptance coverage
-remains open. Validation passed all 18 `AssetImportTests`, all 42
+Stages 0 through 3 are complete. Stage 3 started from baseline
+`ee31b054473985397e439d32944ad8edb0e01778` and now delivers the first
+ready-to-use opaque base-color workflow. One mutation-free plan retains the
+normalized source scene, deterministically names and collision-checks the root
+StaticMesh, generated material instances and semantically deduplicated color
+textures, then one shared transaction builds and atomically publishes the
+complete asset and portable-source bundle. The stable
+`/Engine/Materials/ImportedSurface` parent owns the canonical parameters;
+generated instances map base-color factor, opacity and texture, and imported
+mesh slots retain their default material references across package reload.
+The root manifest persists source dependencies, output references, warnings
+and a complete dependency fingerprint. The editor dialog previews the same
+plan before executing it in one action.
+
+An opaque embedded-image GLB integration fixture proves save/unload/reload,
+component default resolution, manifest round-trip and no source reparse. A
+separate Vulkan process imports a colored sRGB data-URI fixture, reloads the
+packages after RHI initialization, and proves the rendered output differs from
+both texture-only and factor-only controls. The cold-cache run also fixed
+first-import handling when the static-mesh DDC hash bucket does not yet exist.
+Validation passed the Vulkan acceptance test, all 18 `AssetImportTests`, all 42
 `StaticMeshTests`, all 61 `TextureTests`, and a successful full `all` build.
-The second slice materializes the planned standard parent through
-`EnsureStandardImportedSurfaceMaterial`: it creates and saves the canonical
-`DMaterial` at the stable engine path on first use, validates the current
-parameter-definition schema on create/load, reuses loaded or registered
-instances, and rejects a wrong-class collision instead of replacing it.
-The transaction now also accepts standalone portable source requests, so the
-root model and geometry-buffer sidecars share the same single-pass byte
-resolution, change detection, collision preflight, hidden staging,
-publication, and rollback path already used by generated textures.
+Stage 4 is next.
 
 Source dependency terminology now follows the unified logical-mount contract
 selected by `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`: persisted inputs
@@ -855,7 +835,7 @@ vertical slices.
 - [x] Add an editor integration test that imports an opaque textured GLB,
   saves/unloads/reloads all outputs, places the mesh on a component, and
   resolves the imported texture through the default slot.
-- [ ] Add a rendered Vulkan fixture proving the generated material samples the
+- [x] Add a rendered Vulkan fixture proving the generated material samples the
   expected sRGB texels and factor after package reload.
 
 #### Acceptance Gate
@@ -864,6 +844,40 @@ vertical slices.
   texture and material-instance assets, populated default slots, and a valid
   manifest; the reloaded mesh renders the expected base-color result without
   manual authoring, fallback orange, or source decoding at runtime.
+
+#### Stage 3 Handoff
+
+- Baseline commit:
+  `ee31b054473985397e439d32944ad8edb0e01778`.
+- Working set: `EngineAssetBuild`'s standard-material and static-model
+  planning/execution files, `StaticMesh.h/.cpp`, the LevelEditor import dialog
+  and module declaration, `StaticModelImportBuildTests.cpp`, the isolated
+  `StaticModelImportVulkanTests.cpp` target and rendered glTF fixture, the
+  EngineTests build file, and this plan.
+- Key symbols and decisions: `PlanStaticModelImport` is mutation-free and
+  retains one immutable normalized scene; `ExecuteStaticModelImport` consumes
+  only that plan and the shared `FMultiAssetImportTransaction`;
+  `EnsureStandardImportedSurfaceMaterial` owns the stable engine parent;
+  `DStaticMesh::InitializeFromImportedScene` builds geometry without reparsing
+  source bytes; `FStaticModelImportManifest` persists the dependency and
+  generated-output graph while ordinary asset references remain runtime data.
+- Rendering decision: the Stage 3 surface subset is opaque BaseColor only.
+  Generated color textures are sRGB, generated instances override the
+  canonical BaseColor, Opacity and BaseColorTexture parameters, and mesh slot
+  defaults reference those instances before root publication. The isolated
+  Vulkan fixture reloads packages after RHI initialization and compares the
+  imported output with texture-only and factor-only controls.
+- Transaction decision: model source, sidecars, textures, materials, mesh DDC,
+  packages and registry publication remain one atomic operation. A mutation
+  callback that partially changes loaded objects is always rolled back on
+  failure. A missing cold-cache DDC object or hash bucket is treated as absence,
+  while other filesystem inspection failures remain fatal.
+- Open questions: none for Stage 4. The next stage owns stable-identity
+  reconciliation, user-move/conflict policy, orphan reporting and repair.
+- Validation: `StaticModelImportVulkanTests` passed 1/1,
+  `AssetImportTests` passed 18/18, `StaticMeshTests` passed 42/42,
+  `TextureTests` passed 61/61, and the full
+  `Win64-Debug-DurinEditor-Tests` `all` target built successfully.
 
 ### Stage 4: Make generated assets reimportable and manageable
 

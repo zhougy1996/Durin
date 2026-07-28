@@ -269,6 +269,8 @@ namespace Durin
 		const bool bMeshDerivedDataExisted =
 			std::filesystem::is_regular_file(
 				MeshDerivedDataPath, DerivedDataError);
+		if (DerivedDataError == std::errc::no_such_file_or_directory)
+			DerivedDataError.clear();
 		if (DerivedDataError)
 		{
 			Result.Message = std::format(

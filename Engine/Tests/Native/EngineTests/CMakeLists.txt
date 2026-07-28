@@ -219,6 +219,21 @@ durin_add_engine_functional_test(TextureTests
 target_include_directories(TextureTests PRIVATE
 	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/EngineAssetBuild/Private)
 
+durin_add_engine_functional_test(StaticModelImportVulkanTests
+	GPU
+	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE "Owns the Vulkan-backed static-model import acceptance lifecycle."
+	SOURCES Private/Texture/StaticModelImportVulkanTests.cpp
+	LIBRARIES ApplicationCore EngineAssetBuild RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
+	DEPLOY_TARGETS ApplicationCore EngineAssetBuild RHI RenderCore Renderer VulkanRHI DurinEd
+	RUNTIME_FILES assimp::assimp Slang_Imported
+	DATA_DIRECTORIES
+		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+		${CMAKE_CURRENT_SOURCE_DIR}/Data
+)
+target_include_directories(StaticModelImportVulkanTests PRIVATE
+	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/EngineAssetBuild/Private)
+
 durin_add_engine_functional_test(ThumbnailTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed editor thumbnail generation and caching."
