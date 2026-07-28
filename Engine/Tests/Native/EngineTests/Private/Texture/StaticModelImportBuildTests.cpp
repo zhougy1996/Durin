@@ -225,6 +225,50 @@ TEST(FStaticModelImportBuildTests, PlansDeterministicOpaqueModelOutputsWithoutMu
 	ASSERT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Collision->GetPackage()));
 }
 
+TEST(FStaticModelImportBuildTests, CreatesAndReloadsCanonicalStandardImportedSurfaceMaterial)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "StandardImportedSurface";
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+	std::filesystem::create_directories(Root / "Content");
+	std::filesystem::create_directories(Root / "SourceAssets");
+	const Durin::PathUtilities::FMountPoint EngineMount{
+		.VirtualRoot = "/Engine/",
+		.Owner = Durin::PathUtilities::EMountOwner::Test,
+		.OwnerRoot = Root,
+		.ContentRoot = Root / "Content",
+		.SourceAssetsRoot = Root / "SourceAssets",
+		.bSourceWritable = true};
+	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(
+		std::span<const Durin::PathUtilities::FMountPoint>(&EngineMount, 1));
+
+	std::string Error;
+	Durin::DMaterial* Created = Durin::EnsureStandardImportedSurfaceMaterial(Error);
+	ASSERT_NE(Created, nullptr) << Error;
+	EXPECT_TRUE(Durin::ValidateCanonicalMaterialParameterDefinitions(
+		Created->GetParameterDefinitions(), Error)) << Error;
+	EXPECT_EQ(Created, Durin::EnsureStandardImportedSurfaceMaterial(Error));
+
+	const Durin::FAssetPath MaterialPath =
+		MakeAssetPath(Durin::StandardImportedSurfaceMaterialPath);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
+	Durin::DMaterial* Reloaded = Durin::EnsureStandardImportedSurfaceMaterial(Error);
+	ASSERT_NE(Reloaded, nullptr) << Error;
+	EXPECT_TRUE(Durin::ValidateCanonicalMaterialParameterDefinitions(
+		Reloaded->GetParameterDefinitions(), Error)) << Error;
+	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAsset(MaterialPath), nullptr);
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(MaterialPath));
+
+	Durin::DTexture2D* WrongType = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(MaterialPath, WrongType));
+	EXPECT_EQ(Durin::EnsureStandardImportedSurfaceMaterial(Error), nullptr);
+	EXPECT_NE(Error.find("is occupied by"), std::string::npos);
+	ASSERT_TRUE(Durin::Asset::DiscardUnpublishedPackage(WrongType->GetPackage()));
+}
+
 TEST(FStaticModelImportBuildTests, ReferencesMountedExternalImageWithoutCopying)
 {
 	InitializeDObjectSystem();

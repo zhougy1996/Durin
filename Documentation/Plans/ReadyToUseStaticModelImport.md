@@ -29,7 +29,12 @@ warnings. Candidate asset names receive stable case-insensitive suffixes, and
 every planned package path is collision-checked before any asset creation.
 Material/texture/root candidate construction, manifest persistence, dialog
 presentation, and rendered acceptance coverage remain open. Validation passed
-all 18 `AssetImportTests`, all 57 `TextureTests`, and the all-plan validator.
+all 18 `AssetImportTests`, all 58 `TextureTests`, and the all-plan validator.
+The second slice materializes the planned standard parent through
+`EnsureStandardImportedSurfaceMaterial`: it creates and saves the canonical
+`DMaterial` at the stable engine path on first use, validates the current
+parameter-definition schema on create/load, reuses loaded or registered
+instances, and rejects a wrong-class collision instead of replacing it.
 
 Source dependency terminology now follows the unified logical-mount contract
 selected by `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`: persisted inputs
@@ -817,7 +822,7 @@ Dependencies: Stages 1 and 2; completed
 `StaticModelImportStage3Preparation.md`; current Texture2D and material
 vertical slices.
 
-- [ ] Add the engine-owned standard imported-surface material with stable
+- [x] Add the engine-owned standard imported-surface material with stable
   asset identity and canonical current parameter definitions.
 - [x] Add deterministic output planning for the root StaticMesh, used material
   instances, and semantically deduplicated textures.

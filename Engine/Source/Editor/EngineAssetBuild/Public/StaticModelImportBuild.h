@@ -8,6 +8,7 @@
 
 namespace Durin
 {
+	class DMaterial;
 	struct FMultiAssetImportTransactionTestAccess;
 	struct FStaticModelImportPlanData;
 	struct FStaticModelImportPlanResult;
@@ -80,6 +81,8 @@ namespace Durin
 
 	ENGINEASSETBUILD_API auto PlanStaticModelImport(
 		const FStaticModelImportPlanRequest& Request) -> FStaticModelImportPlanResult;
+	ENGINEASSETBUILD_API auto EnsureStandardImportedSurfaceMaterial(
+		std::string& OutError) -> DMaterial*;
 
 	struct FPortableTextureBuildRequest
 	{
