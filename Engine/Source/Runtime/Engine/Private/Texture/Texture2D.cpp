@@ -302,7 +302,9 @@ namespace Durin
 
 	DTexture2D::DTexture2D(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-		, RenderResource(std::make_shared<FTexture2DRenderResource>())
+		, TextureReference(std::make_unique<FTextureReference>())
+		, RenderCompletion(
+			std::make_shared<FTexture2DResourceCompletion>())
 	{
 		static const bool RegisteredAssetContributors = [] {
 			Asset::RegisterAssetMoveContributor(DTexture2D::StaticClass(), [](DObject*, const FAssetPath&, const FAssetPath&,
@@ -322,11 +324,41 @@ namespace Durin
 
 	DTexture2D::~DTexture2D()
 	{
-		const uint64 ReleaseRevision = ++BuildRevision;
-		if (GDynamicRHI != nullptr)
+		RenderCompletion->BeginRequest(++BuildRevision);
+		if (RenderResource)
 		{
-			RenderResource->QueueRelease(ReleaseRevision);
+			RenderResource->PrepareForRelease(BuildRevision);
+			FTexture2DResource* Resource = RenderResource.get();
+			Resource->BeginRelease_GameThread();
+			BeginCleanupRenderResource(
+				FDeferredRenderResourceCleanup(std::move(RenderResource)));
 		}
+		if (bTextureReferenceInitializationQueued)
+		{
+			FTextureReference* Reference = TextureReference.get();
+			Reference->BeginRelease_GameThread();
+			BeginCleanupRenderResource(
+				FDeferredRenderResourceCleanup(std::move(TextureReference)));
+		}
+	}
+
+	auto DTexture2D::GetTextureReferenceRHI() const
+		-> FRHITextureReferenceRef
+	{
+		return TextureReference
+			? TextureReference->GetTextureReferenceRHI()
+			: FRHITextureReferenceRef{};
+	}
+
+	auto DTexture2D::GetRenderResourceState() const
+		-> ERenderResourceState
+	{
+		return RenderCompletion->GetResourceState();
+	}
+
+	auto DTexture2D::GetAppliedRenderRevision() const -> uint64
+	{
+		return RenderCompletion->GetAppliedRevision();
 	}
 
 	auto DTexture2D::InvalidatePlatformData() -> void
@@ -340,17 +372,55 @@ namespace Durin
 			BuildStatus = ETextureBuildStatus::Unbuilt;
 			LastBuildError.clear();
 		}
-		const uint64 ReleaseRevision = ++BuildRevision;
-		if (GDynamicRHI != nullptr) RenderResource->QueueRelease(ReleaseRevision);
+		RenderCompletion->BeginRequest(++BuildRevision);
+		if (RenderResource)
+		{
+			RenderResource->PrepareForRelease(BuildRevision);
+			FTexture2DResource* Resource = RenderResource.get();
+			Resource->BeginRelease_GameThread();
+			BeginCleanupRenderResource(
+				FDeferredRenderResourceCleanup(std::move(RenderResource)));
+		}
+		else
+		{
+			RenderCompletion->MarkReleased(BuildRevision);
+		}
 	}
 
 	auto DTexture2D::QueueRenderResourceBuild() -> void
 	{
 		check(PlatformData && PlatformData->IsValid());
 		const uint64 Revision = ++BuildRevision;
+		const std::string OwnerDiagnostic = GetPackage()
+			? GetPackage()->GetPackagePath()
+			: "<transient DTexture2D>";
+		RenderCompletion->BeginRequest(Revision);
 		if (GDynamicRHI == nullptr) return;
-		// The immutable value snapshot decouples queued uploads from subsequent imports/rebuilds.
-		RenderResource->QueueBuild(std::make_shared<const FTexturePlatformData>(*PlatformData), Revision);
+		if (!bTextureReferenceInitializationQueued)
+		{
+			TextureReference->SetLifetimeDiagnostic(OwnerDiagnostic);
+			TextureReference->BeginInit_GameThread();
+			bTextureReferenceInitializationQueued = true;
+		}
+
+		auto Candidate = std::make_unique<FTexture2DResource>(
+			TextureReference.get(),
+			std::make_shared<const FTexturePlatformData>(*PlatformData),
+			Revision,
+			RenderCompletion);
+		Candidate->SetLifetimeDiagnostic(OwnerDiagnostic, Revision);
+		FTexture2DResource* CandidateView = Candidate.get();
+		std::unique_ptr<FTexture2DResource> Previous =
+			std::move(RenderResource);
+		RenderResource = std::move(Candidate);
+		CandidateView->BeginInit_GameThread();
+		if (Previous)
+		{
+			FTexture2DResource* PreviousView = Previous.get();
+			PreviousView->BeginRelease_GameThread();
+			BeginCleanupRenderResource(
+				FDeferredRenderResourceCleanup(std::move(Previous)));
+		}
 	}
 
 	auto DTexture2D::DecodeSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool
@@ -1389,12 +1459,12 @@ namespace Durin
 
 	auto DTexture2D::RefreshBuildStatus() -> void
 	{
-		if (!RenderResource) return;
-		if (RenderResource->GetFailedRevision() == BuildRevision)
+		if (RenderCompletion->GetFailedRevision() == BuildRevision)
 		{
 			if (BuildStatus == ETextureBuildStatus::Ready)
 			{
-				if (RenderResource->GetFailureReason() == ETextureRenderFailure::UnsupportedFormat)
+				if (RenderCompletion->GetFailureReason()
+					== ETextureRenderFailure::UnsupportedFormat)
 				{
 					BuildStatus = ETextureBuildStatus::UnsupportedFormat;
 					LastBuildError = "The current RHI does not support this texture format and usage.";

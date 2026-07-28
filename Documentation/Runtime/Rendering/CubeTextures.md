@@ -86,6 +86,13 @@ performs no cube load, GPU build, preview render, or readback. General
 ownership, scheduling, persistence, and recovery rules are documented in
 [Asset Thumbnails](../../Editor/Architecture/AssetThumbnails.md).
 
+Before a render job is accepted, the provider uses producer-side asset lifetime
+only to obtain diagnostics and a counted stable `FRHITextureReferenceRef`.
+Accepted preview work retains that RHI reference, not `DTextureCube` or its
+concrete `FTextureCubeResource`. Closing or cancelling the preview therefore
+releases only consumer references and cannot prolong the lifetime of the
+concrete C++ resource.
+
 ## Equirectangular Panorama Import
 
 An equirectangular panorama is an offline source layout for the existing LDR
@@ -316,7 +323,16 @@ source pixel.
 - Registration, visibility, rotation, texture, Tint, and Intensity changes
   enqueue revisioned snapshot replacement or removal through `IScene`.
 - `FScene` owns snapshots only on the rendering thread. A snapshot contains no
-  reflected object pointer; it retains the cube render-resource proxy instead.
+  reflected object pointer or concrete render-resource owner; it retains a
+  counted stable `FRHITextureReferenceRef`.
+- `DTextureCube` alone owns its `FTextureReference` and current concrete
+  `FTextureCubeResource`. Rebuild publication retargets the stable RHI
+  reference, so active sky snapshots and preview proxies observe a new cube
+  without reacquiring the asset or concrete resource.
+- Scene removal, proxy closure, thumbnail cancellation, and accepted queued
+  draws drop their counted stable references independently. A copied stable
+  reference may keep the targeted GPU texture alive until RHI deferred
+  deletion, but never keeps the concrete C++ resource alive.
 - Multiple visible sky components are retained so editor diagnostics can report
   the conflict. The active entry is selected by serialized scene GUID, then
   stable object path for duplicated GUIDs, independent of registration order.

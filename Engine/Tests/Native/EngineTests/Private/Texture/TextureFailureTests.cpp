@@ -1,4 +1,45 @@
 #include "TextureTestSupport.h"
+#include "Texture/Texture2DRenderResource.h"
+
+TEST(FTexture2DTests, RenderCompletionRejectsStaleCandidatesAndReportsCurrentFailure)
+{
+	Durin::FTexture2DResourceCompletion Completion;
+	Completion.BeginRequest(1);
+	EXPECT_TRUE(Completion.MarkBuilding(1));
+
+	Completion.BeginRequest(2);
+	Completion.MarkFailed(
+		1, Durin::ETextureRenderFailure::CreateOrUpload);
+	EXPECT_EQ(
+		Completion.GetResourceState(),
+		Durin::ERenderResourceState::Pending);
+	EXPECT_EQ(Completion.GetFailedRevision(), 0u);
+
+	EXPECT_TRUE(Completion.MarkBuilding(2));
+	Completion.MarkReady(2);
+	EXPECT_EQ(
+		Completion.GetResourceState(),
+		Durin::ERenderResourceState::Ready);
+	EXPECT_EQ(Completion.GetAppliedRevision(), 2u);
+
+	Completion.BeginRequest(3);
+	Completion.MarkFailed(
+		3, Durin::ETextureRenderFailure::UnsupportedFormat);
+	EXPECT_EQ(
+		Completion.GetResourceState(),
+		Durin::ERenderResourceState::Failed);
+	EXPECT_EQ(Completion.GetFailedRevision(), 3u);
+	EXPECT_EQ(
+		Completion.GetFailureReason(),
+		Durin::ETextureRenderFailure::UnsupportedFormat);
+
+	Completion.BeginRequest(4);
+	Completion.MarkReleased(4);
+	EXPECT_EQ(
+		Completion.GetResourceState(),
+		Durin::ERenderResourceState::Released);
+	EXPECT_EQ(Completion.GetAppliedRevision(), 4u);
+}
 
 TEST(FTexture2DTests, RejectsUnsupportedSourceWithoutCreatingAsset)
 {

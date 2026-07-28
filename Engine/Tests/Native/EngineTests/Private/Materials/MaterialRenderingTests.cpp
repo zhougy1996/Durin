@@ -365,7 +365,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Durin::DMaterial* CaptureMaterial = nullptr;
 	Durin::DMaterialInstance* CaptureInstance = nullptr;
 	Durin::DTextureCube* CaptureCube = nullptr;
-	std::shared_ptr<Durin::FTextureCubeRenderResource> CaptureCubeResource;
+	Durin::FRHITextureReferenceRef CaptureCubeReference;
 	Durin::FAssetPath CaptureTexturePath;
 	Durin::FAssetPath CaptureCubePath;
 	{
@@ -436,7 +436,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 				CaptureCubePath.ToString());
 		ASSERT_TRUE(CubeResult) << CubeResult.Message;
 		CaptureCube = CubeResult.Asset;
-		CaptureCubeResource = CaptureCube->GetRenderResource();
+		CaptureCubeReference = CaptureCube->GetTextureReferenceRHI();
 		Durin::FlushRenderingCommands();
 		std::vector<Durin::uint8> CubePixels;
 		std::unique_ptr<Durin::PrimitiveSceneProxy> CubeProxy =
@@ -515,7 +515,6 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Renderer.ReleaseResources();
 	Durin::FlushRenderingCommands();
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureTexturePath));
-	CaptureCubeResource->QueueRelease(CaptureCube->GetBuildRevision() + 1);
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureCubePath));
 	Durin::FlushRenderingCommands();
 	Durin::MarkAsGarbage(CaptureCube);
@@ -532,7 +531,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		}
 	};
 	Durin::EnqueueRenderCommand<FRetireRenderedThumbnailCubeResource>(
-		[Resource = std::move(CaptureCubeResource)](
+		[Reference = std::move(CaptureCubeReference)](
 			Durin::FRHICommandListImmediate&) {});
 	Durin::FlushRenderingCommands();
 	Renderer.ShutdownModule();

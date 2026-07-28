@@ -105,7 +105,8 @@ namespace Durin
 		if (ResolveParameterValue(MaterialParameters::BaseColorTextureId, Parameter)
 			&& Parameter.Value.TextureValue != nullptr)
 		{
-			Result.BaseColorTexture = Parameter.Value.TextureValue->GetRenderResource();
+			Result.BaseColorTexture =
+				Parameter.Value.TextureValue->GetTextureReferenceRHI();
 		}
 
 		if (ResolveParameterValue(MaterialParameters::OpacityId, Parameter))

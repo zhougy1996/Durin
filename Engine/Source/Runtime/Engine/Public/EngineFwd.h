@@ -34,7 +34,7 @@ namespace Durin
 	class FSceneViewport;
 	class FViewport;
 	class FViewportClient;
-	class FTexture2DRenderResource;
-	class FTextureCubeRenderResource;
+	class FTexture2DResource;
+	class FTextureCubeResource;
 	class IScene;
 } // namespace Durin

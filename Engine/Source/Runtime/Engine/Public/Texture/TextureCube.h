@@ -3,13 +3,16 @@
 #include "EngineAPI.h"
 #include "DObject/CoreDObject.h"
 #include "RHIDefinitions.h"
+#include "RHIResources.h"
 #include "Texture/Texture2D.h"
 
 #include "TextureCube.gen.h"
 
 namespace Durin
 {
-	class FTextureCubeRenderResource;
+	class FTextureCubeResource;
+	class FTextureCubeResourceCompletion;
+	class FTextureReference;
 
 	DENUM(DisplayName = "Texture Cube Source Layout")
 	enum class ETextureCubeSourceLayout : uint8
@@ -135,7 +138,11 @@ namespace Durin
 		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
-		auto GetRenderResource() const -> const std::shared_ptr<FTextureCubeRenderResource>& { return RenderResource; }
+		ENGINE_API auto GetTextureReferenceRHI() const
+			-> FRHITextureReferenceRef;
+		ENGINE_API auto GetRenderResourceState() const
+			-> ERenderResourceState;
+		ENGINE_API auto GetAppliedRenderRevision() const -> uint64;
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
 		auto IsSRGB() const -> bool { return bSRGB; }
 		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
@@ -246,7 +253,10 @@ namespace Durin
 
 		std::unique_ptr<FTextureCubeSourceData> SourceData;
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
-		std::shared_ptr<FTextureCubeRenderResource> RenderResource;
+		std::unique_ptr<FTextureReference> TextureReference;
+		std::unique_ptr<FTextureCubeResource> RenderResource;
+		std::shared_ptr<FTextureCubeResourceCompletion> RenderCompletion;
+		bool bTextureReferenceInitializationQueued = false;
 		std::string DerivedDataKey;
 		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
 		bool bLoadedFromDerivedDataCache = false;

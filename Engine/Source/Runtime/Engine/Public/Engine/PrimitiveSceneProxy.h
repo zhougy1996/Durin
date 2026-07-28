@@ -2,11 +2,11 @@
 
 #include "EngineAPI.h"
 #include "Materials/MaterialTypes.h"
+#include "RHIResources.h"
 
 namespace Durin
 {
 	class FRHICommandListBase;
-	class FTextureCubeRenderResource;
 	struct FStaticMeshRenderData;
 
 	// Stores renderer-owned state detached from the game-thread primitive component.
@@ -53,16 +53,16 @@ namespace Durin
 	public:
 		ENGINE_API FTextureCubePreviewSceneProxy(
 			FStaticMeshRenderData* InRenderData,
-			std::shared_ptr<FTextureCubeRenderResource> InTextureResource);
+			FRHITextureReferenceRef InTextureReference);
 
 		auto GetRenderData() const -> FStaticMeshRenderData* { return RenderData; }
-		auto GetTextureResource() const -> const std::shared_ptr<FTextureCubeRenderResource>&
+		auto GetTextureReference() const -> const FRHITextureReferenceRef&
 		{
-			return TextureResource;
+			return TextureReference;
 		}
 
 	private:
 		FStaticMeshRenderData* RenderData = nullptr;
-		std::shared_ptr<FTextureCubeRenderResource> TextureResource;
+		FRHITextureReferenceRef TextureReference;
 	};
 }

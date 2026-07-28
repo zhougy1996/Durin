@@ -230,4 +230,10 @@ namespace Durin
 		);
 	}
 
+	auto FRHIResource::GetNumPendingDeletes() -> size_t
+	{
+		std::lock_guard<std::mutex> Lock(PendingDeletesMutex);
+		return PendingDeletes.size();
+	}
+
 } // namespace Durin

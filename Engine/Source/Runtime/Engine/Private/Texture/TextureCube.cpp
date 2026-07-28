@@ -562,7 +562,9 @@ namespace Durin
 
 	DTextureCube::DTextureCube(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-		, RenderResource(FTextureCubeRenderResource::Create())
+		, TextureReference(std::make_unique<FTextureReference>())
+		, RenderCompletion(
+			std::make_shared<FTextureCubeResourceCompletion>())
 	{
 		static const bool RegisteredAssetContributors = [] {
 			Asset::RegisterAssetMoveContributor(DTextureCube::StaticClass(), [](DObject*, const FAssetPath&, const FAssetPath&,
@@ -582,8 +584,41 @@ namespace Durin
 
 	DTextureCube::~DTextureCube()
 	{
-		const uint64 ReleaseRevision = ++BuildRevision;
-		if (GDynamicRHI != nullptr) RenderResource->QueueRelease(ReleaseRevision);
+		RenderCompletion->BeginRequest(++BuildRevision);
+		if (RenderResource)
+		{
+			RenderResource->PrepareForRelease(BuildRevision);
+			FTextureCubeResource* Resource = RenderResource.get();
+			Resource->BeginRelease_GameThread();
+			BeginCleanupRenderResource(
+				FDeferredRenderResourceCleanup(std::move(RenderResource)));
+		}
+		if (bTextureReferenceInitializationQueued)
+		{
+			FTextureReference* Reference = TextureReference.get();
+			Reference->BeginRelease_GameThread();
+			BeginCleanupRenderResource(
+				FDeferredRenderResourceCleanup(std::move(TextureReference)));
+		}
+	}
+
+	auto DTextureCube::GetTextureReferenceRHI() const
+		-> FRHITextureReferenceRef
+	{
+		return TextureReference
+			? TextureReference->GetTextureReferenceRHI()
+			: FRHITextureReferenceRef{};
+	}
+
+	auto DTextureCube::GetRenderResourceState() const
+		-> ERenderResourceState
+	{
+		return RenderCompletion->GetResourceState();
+	}
+
+	auto DTextureCube::GetAppliedRenderRevision() const -> uint64
+	{
+		return RenderCompletion->GetAppliedRevision();
 	}
 
 	auto DTextureCube::GetSourceFile(ETextureCubeFace Face) const -> const std::string&
@@ -623,16 +658,55 @@ namespace Durin
 	auto DTextureCube::InvalidatePlatformData() -> void
 	{
 		PlatformData.reset();
-		const uint64 Revision = ++BuildRevision;
-		if (GDynamicRHI != nullptr) RenderResource->QueueRelease(Revision);
+		RenderCompletion->BeginRequest(++BuildRevision);
+		if (RenderResource)
+		{
+			RenderResource->PrepareForRelease(BuildRevision);
+			FTextureCubeResource* Resource = RenderResource.get();
+			Resource->BeginRelease_GameThread();
+			BeginCleanupRenderResource(
+				FDeferredRenderResourceCleanup(std::move(RenderResource)));
+		}
+		else
+		{
+			RenderCompletion->MarkReleased(BuildRevision);
+		}
 	}
 
 	auto DTextureCube::QueueRenderResourceBuild() -> void
 	{
 		check(PlatformData && PlatformData->IsValid());
 		const uint64 Revision = ++BuildRevision;
-		if (GDynamicRHI != nullptr)
-			RenderResource->QueueBuild(std::make_shared<const FTextureCubePlatformData>(*PlatformData), Revision);
+		const std::string OwnerDiagnostic = GetPackage()
+			? GetPackage()->GetPackagePath()
+			: "<transient DTextureCube>";
+		RenderCompletion->BeginRequest(Revision);
+		if (GDynamicRHI == nullptr) return;
+		if (!bTextureReferenceInitializationQueued)
+		{
+			TextureReference->SetLifetimeDiagnostic(OwnerDiagnostic);
+			TextureReference->BeginInit_GameThread();
+			bTextureReferenceInitializationQueued = true;
+		}
+
+		auto Candidate = std::make_unique<FTextureCubeResource>(
+			TextureReference.get(),
+			std::make_shared<const FTextureCubePlatformData>(*PlatformData),
+			Revision,
+			RenderCompletion);
+		Candidate->SetLifetimeDiagnostic(OwnerDiagnostic, Revision);
+		FTextureCubeResource* CandidateView = Candidate.get();
+		std::unique_ptr<FTextureCubeResource> Previous =
+			std::move(RenderResource);
+		RenderResource = std::move(Candidate);
+		CandidateView->BeginInit_GameThread();
+		if (Previous)
+		{
+			FTextureCubeResource* PreviousView = Previous.get();
+			PreviousView->BeginRelease_GameThread();
+			BeginCleanupRenderResource(
+				FDeferredRenderResourceCleanup(std::move(Previous)));
+		}
 	}
 
 	auto DTextureCube::RebuildPlatformData(std::string& OutError) -> bool
@@ -1006,9 +1080,10 @@ namespace Durin
 
 	auto DTextureCube::RefreshBuildStatus() -> void
 	{
-		if (RenderResource && RenderResource->GetFailedRevision() == BuildRevision)
+		if (RenderCompletion->GetFailedRevision() == BuildRevision)
 		{
-			if (RenderResource->GetFailureReason() == ETextureRenderFailure::UnsupportedFormat)
+			if (RenderCompletion->GetFailureReason()
+				== ETextureRenderFailure::UnsupportedFormat)
 			{
 				BuildStatus = ETextureBuildStatus::UnsupportedFormat;
 				LastBuildError = "The current RHI does not support this cube texture format and usage.";

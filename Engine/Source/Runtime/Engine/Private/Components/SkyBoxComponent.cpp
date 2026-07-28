@@ -115,7 +115,8 @@ namespace Durin
 		Data.Tint = FVector3f(Tint.R, Tint.G, Tint.B);
 		Data.Intensity = FMath::Max(0.0f, Intensity);
 		Data.Revision = Revision;
-		if (DTextureCube* Cube = TextureCube.Get()) Data.TextureResource = Cube->GetRenderResource();
+		if (DTextureCube* Cube = TextureCube.Get())
+			Data.TextureReference = Cube->GetTextureReferenceRHI();
 		Scene->AddOrReplaceSkyBox(std::move(Data));
 	}
 }

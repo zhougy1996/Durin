@@ -4,12 +4,44 @@ Summary: Refactor Texture2D and TextureCube onto a UE-style asset-owned texture 
 
 Last reviewed: 2026-07-28
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-07-28
 
 ## Current Status
 
-No implementation stage has started.
+All seven stages are complete from the Stage 7 baseline commit `96fd194a`.
+Texture2D and TextureCube now use asset-owned stable texture references,
+uniquely owned concrete resources, counted consumer-side RHI references, and
+one deterministic RenderCore/RHI shutdown lifecycle. The lasting ownership,
+replacement, preview, scene, command-admission, deferred-cleanup, and shutdown
+contracts are published in the runtime documentation.
+
+Stage 7 handoff:
+
+- Baseline: `96fd194a`.
+- Working set: Texture System, Cube Textures, Runtime Lifecycle, Texture
+  Support validation evidence, and this plan.
+- Decisions: runtime documentation distinguishes stable counted RHI
+  indirection from concrete C++ resource ownership. Materials, scenes,
+  previews, thumbnails, and accepted commands retain only
+  `FRHITextureReferenceRef`; an asset remains the sole high-level owner of its
+  `FTextureReference` and current `FTextureResource`.
+- Ownership audit: no active documentation or production code describes or
+  implements shared ownership of a concrete texture resource. Remaining
+  texture-related `shared_ptr` fields own completion state, not render
+  resources.
+- Validation: the complete `all` build passed. Focused runs passed
+  `RenderContractTests` 20, `TextureTests` 56, `MaterialTests` 43,
+  `ThumbnailTests` 44, `SkyBoxTests` 8, and `EditorRenderingTests` 9.
+  Hardware-backed `VulkanRHIIntegrationTests`, Texture2D cooked readback, and
+  SkyBox Vulkan integration each passed. The full native suite registered 739
+  tests with zero failures and three intentional skips. Two fresh editor
+  processes accepted normal window-close requests, exited with code zero, and
+  logged clean rendering-thread and module shutdown without error or critical
+  diagnostics.
+- Open questions: none for this plan. Streaming, background build work,
+  residency accounting, and broader GPU-fence deletion remain the deferred
+  follow-ups listed below.
 
 The selected architecture changed on 2026-07-28. The prior plan proposed a
 cross-thread shared handle with no RHI state plus a separately managed
@@ -49,6 +81,97 @@ Current code still has the following shape:
 - most `FRenderResource` lifecycle functions remain placeholders;
 - RenderCore has no complete asynchronous init/release, deferred resource
   cleanup, texture-reference update, or shutdown admission contract.
+
+### Stage 0 Ownership Audit
+
+The following matrix is the migration inventory at baseline `307f6141`.
+Entries classify ownership after the refactor; the current representation is
+called out where it differs.
+
+| Area | Current symbol or path | Current ownership/capture | Required classification and migration |
+| --- | --- | --- | --- |
+| Texture2D asset | `DTexture2D::RenderResource` | Sole asset field plus externally copied `shared_ptr<FTexture2DRenderResource>` | Asset owner of one `FTextureReference` and at most one concrete `FTexture2DResource`; no owning accessor |
+| TextureCube asset | `DTextureCube::RenderResource` | Sole asset field plus externally copied `shared_ptr<FTextureCubeRenderResource>` | Asset owner of one `FTextureReference` and at most one concrete `FTextureCubeResource`; no owning accessor |
+| Texture2D build input | `FTexture2DRenderResource::QueueBuild` | Command owns `shared_ptr<const FTexturePlatformData>` and `shared_ptr` self | Immutable command input plus a non-owning concrete-resource pointer protected by enqueue-before-retirement ordering |
+| TextureCube build input | `FTextureCubeRenderResource::QueueBuild` | Command owns `shared_ptr<const FTextureCubePlatformData>` and `shared_ptr` self | Immutable command input plus a non-owning concrete-resource pointer protected by enqueue-before-retirement ordering |
+| Texture release | Both `QueueRelease` implementations | Command owns `shared_ptr` self | Non-owning concrete-resource pointer; deferred cleanup command is enqueued after release |
+| Material dependency | `FMaterialParameterValue::TextureValue` | Reflected producer-side texture asset dependency | Producer-side asset dependency; unchanged except render-data extraction |
+| Material render data | `FMaterialRenderData::BaseColorTexture` | Copied `shared_ptr<FTexture2DRenderResource>` | Counted `FRHITextureReferenceRef` consumer with fallback metadata |
+| Static-mesh render proxy | `FPrimitiveSceneProxy::MaterialRenderData` | Copies material render-data resource ownership | Counted `FRHITextureReferenceRef` consumer inherited from immutable material render data |
+| SkyBox component update | `DSkyBoxComponent::BuildRenderData` | Copies cube resource into scene update data | Producer-side asset dependency while building the update; publish a counted `FRHITextureReferenceRef` |
+| SkyBox scene snapshot | `FSkyBoxSceneData::TextureResource` | Copied `shared_ptr<FTextureCubeRenderResource>` | Counted `FRHITextureReferenceRef` consumer |
+| SkyBox preview proxy | `FSkyBoxSceneProxy::TextureResource` | Copied `shared_ptr<FTextureCubeRenderResource>` | Counted `FRHITextureReferenceRef` consumer |
+| Renderer Texture2D resolution | `ResolveTexture_RenderThread` | Borrows from a passed owning `shared_ptr` | Render-thread-only non-owning view from a counted stable RHI reference |
+| Renderer cube resolution | `FRendererModule::RenderViewFamily_RenderThread` | Borrows from scene/proxy owning snapshots | Render-thread-only non-owning view from a counted stable RHI reference |
+| Texture Editor diagnostics | `MTextureEditor::DrawDetails` and preview submission | Reads and copies the concrete resource | Producer-side asset lifetime for diagnostics; counted RHI reference for accepted preview work |
+| TextureCube thumbnail | `FTextureCubeAssetThumbnailProvider` | Copies the concrete resource for queued rendering | Producer-side asset lifetime until job acceptance, then counted RHI reference |
+| Material thumbnail | `FMaterialAssetThumbnailProvider` | Copies Texture2D or cube concrete resources | Producer-side material/asset lifetime until job acceptance, then counted RHI references in immutable material data |
+| Tests and fixtures | Texture, material, static-mesh, SkyBox, thumbnail, and cooked-texture suites | Copy concrete-resource `shared_ptr` values and compare identities | Producer-side asset dependencies, counted RHI references, or narrowly scoped non-owning test observations |
+| Asset unload and GC | Texture destructors and `BeginDestroy` | Queue release but let copied `shared_ptr` owners determine final destruction | Asset starts release, transfers concrete storage to deferred cleanup, and releases its stable reference after retarget/clear |
+| Module unload and shutdown | Renderer/editor teardown and `FEngineLoop::Exit` | Relies on consumer destruction, flushes, and the cube custom deleter | Close producers, remove consumers, release asset-owned resources/references, drain accepted commands and both deferred-delete queues |
+
+No additional production owner was found outside this matrix by searching all
+repository C++ declarations and definitions for both concrete resource types,
+`GetRenderResource()`, and texture-resource `shared_ptr` fields. Forward
+declarations and includes do not represent ownership.
+
+### Stage 0 Command Ordering Contract
+
+Every command that currently extends a concrete texture resource lifetime is
+listed below. Stage 3 and Stage 4 must replace each `Self` capture with the
+recorded non-owning ordering.
+
+| Command | Current owned captures | Non-owning enqueue and retirement ordering |
+| --- | --- | --- |
+| `BuildTexture2DResource` | Resource `Self`; immutable Texture2D platform-data snapshot | Enqueue candidate init with raw candidate pointer and owned immutable input; enqueue candidate release and deferred cleanup only after every accepted init/publication command that can dereference it |
+| `ReleaseTexture2DResource` | Resource `Self` | Enqueue release with raw current/retired pointer; enqueue deferred cleanup immediately after the release command in the same pipe |
+| `BuildTextureCubeResource` | Resource `Self`; immutable cube platform-data snapshot | Same candidate init, publication, release, and retirement ordering as Texture2D |
+| `ReleaseTextureCubeResource` | Resource `Self` | Same release-then-deferred-cleanup ordering as Texture2D |
+| `DeleteTextureCubeResource` | Raw pointer owned by the custom deleter command | Remove after migration; common deferred cleanup owns retired C++ storage and deletes it on the rendering thread |
+
+Material, scene, preview, and thumbnail commands do not directly capture a
+concrete resource at their enqueue sites. Their immutable snapshots currently
+contain a copied resource `shared_ptr`; Stage 5 replaces those fields with a
+counted stable RHI reference, so command acceptance extends only the
+indirection lifetime.
+
+### Stage 1 Public Symbol Contract
+
+The selected concrete symbols are fixed before lifecycle implementation:
+
+- `FRenderResource` remains the common registry and RHI-lifecycle base.
+- `BeginInitResource(FRenderResource*)`,
+  `BeginUpdateResourceRHI(FRenderResource*)`, and
+  `BeginReleaseResource(FRenderResource*)` are the producer-thread enqueue
+  entry points.
+- `FDeferredRenderResourceCleanup` is the move-only owner of one released or
+  release-pending concrete resource; `BeginCleanupRenderResource` transfers it
+  to RenderCore, and `FlushPendingRenderResourceCleanup_RenderThread` performs
+  ordered destruction.
+- `FTextureReference` is the asset-owned stable RenderCore resource introduced
+  in Stage 2.
+- `FRHITextureReference` and `FRHITextureReferenceRef` are respectively the RHI
+  indirection object and its counted consumer reference.
+- `FTextureResource` is the common concrete texture render-resource base;
+  `FTexture2DResource` and `FTextureCubeResource` are the final concrete
+  resources.
+
+`FTexture2DRenderResource` and `FTextureCubeRenderResource` are migration-only
+names and are removed after their asset stages. The deferred cleanup API owns
+concrete C++ storage only; it never owns an asset, stable texture reference, or
+RHI reference.
+
+### Stage 0 RHI Deletion Verification
+
+`TRefCountPtr` final release calls `FRHIResource::Release`, which atomically
+marks the object and calls `FRHIResource::MarkForDelete`. `MarkForDelete`
+pushes the object into the mutex-protected `PendingDeletes` queue and does not
+delete it. `FRHICommandListBase::Flush` gathers and deletes queued resources
+only when submitted with `ERHISubmitFlags::DeleteResources`; the normal dynamic
+RHI frame flush includes that flag. This satisfies the cross-thread
+zero-reference requirement at the current baseline. Stage 2 still requires a
+focused counted texture-reference test that drops the final reference from
+each supported thread and observes deletion during the RHI drain.
 
 ## Goal
 
@@ -264,24 +387,24 @@ resource replacement independent of consumer binding:
 
 ### Stage 0: Ownership Audit and Executable Refactor Contract
 
-- [ ] Record every owner and consumer of Texture2D and TextureCube resources,
+- [x] Record every owner and consumer of Texture2D and TextureCube resources,
   including assets, material dependencies and render data, static-mesh proxies,
   skybox snapshots, editors, thumbnails, render commands, tests, garbage
   collection, module unload, and shutdown.
-- [ ] Classify each use as asset owner, producer-side asset dependency,
+- [x] Classify each use as asset owner, producer-side asset dependency,
   stable-reference owner, counted RHI-reference consumer, render-thread-only
   non-owning resource access, immutable command input, or deferred cleanup.
-- [ ] Identify every command that currently captures a resource `shared_ptr` and
+- [x] Identify every command that currently captures a resource `shared_ptr` and
   specify the enqueue/retirement ordering that will make its replacement
   non-owning pointer safe.
-- [ ] Record the selected concrete symbols for the stable texture reference,
+- [x] Record the selected concrete symbols for the stable texture reference,
   RHI texture reference, common texture resource, Texture2D resource,
   TextureCube resource, and deferred cleanup mechanism before Stage 1.
-- [ ] Add scheduler-controlled lifetime tests for resource replacement and asset
+- [x] Add scheduler-controlled lifetime tests for resource replacement and asset
   unload with commands paused before init, publication, release, and retirement.
-- [ ] Add equivalent Texture2D and TextureCube coverage; absence of a current
+- [x] Add equivalent Texture2D and TextureCube coverage; absence of a current
   Texture2D crash is not proof of safety.
-- [ ] Verify the RHI zero-reference path defers backend destruction regardless
+- [x] Verify the RHI zero-reference path defers backend destruction regardless
   of the thread dropping the final `TRefCountPtr`.
 
 #### Acceptance Gate
@@ -293,16 +416,16 @@ resource replacement independent of consumer binding:
 
 ### Stage 1: RenderCore Resource Lifecycle
 
-- [ ] Implement `FRenderResource` initialized-state registration, stable list
+- [x] Implement `FRenderResource` initialized-state registration, stable list
   removal, render-thread checks, init phase, initialization, update, release,
   and global RHI release/reinit behavior.
-- [ ] Add producer-thread begin-init, begin-update, and begin-release helpers
+- [x] Add producer-thread begin-init, begin-update, and begin-release helpers
   that enqueue non-owning resource pointers with explicit ordering contracts.
-- [ ] Add deferred C++ cleanup for resources whose release has been accepted but
+- [x] Add deferred C++ cleanup for resources whose release has been accepted but
   whose owning asset may proceed with finalization.
-- [ ] Define idempotent behavior and diagnostics for double init, double
+- [x] Define idempotent behavior and diagnostics for double init, double
   release, release-before-init, destruction while initialized, and failed init.
-- [ ] Add focused RenderCore tests proving every lifecycle callback and concrete
+- [x] Add focused RenderCore tests proving every lifecycle callback and concrete
   resource destruction thread.
 
 #### Acceptance Gate
@@ -314,19 +437,19 @@ resource replacement independent of consumer binding:
 
 ### Stage 2: Stable Texture Reference
 
-- [ ] Introduce the RHI texture-reference resource and its counted reference
+- [x] Introduce the RHI texture-reference resource and its counted reference
   type, including fallback initialization, render-thread retarget, clear, and
   deferred deletion.
-- [ ] Introduce `FTextureReference` as an asset-owned `FRenderResource` with
+- [x] Introduce `FTextureReference` as an asset-owned `FRenderResource` with
   producer-thread begin-init/begin-release entry points.
-- [ ] Add the common concrete texture resource base required to expose the
+- [x] Add the common concrete texture resource base required to expose the
   current `FTextureRHIRef` only on the rendering thread.
-- [ ] Implement render-thread publication that retargets one stable reference
+- [x] Implement render-thread publication that retargets one stable reference
   from an old concrete texture to a fully initialized replacement.
-- [ ] Prove that copied RHI texture references remain valid across concrete
+- [x] Prove that copied RHI texture references remain valid across concrete
   resource replacement and asset release, resolving to the replacement or
   fallback as specified.
-- [ ] Prove that a copied RHI texture reference never keeps the old concrete
+- [x] Prove that a copied RHI texture reference never keeps the old concrete
   `FTextureResource` C++ object alive.
 
 #### Acceptance Gate
@@ -338,16 +461,16 @@ resource replacement independent of consumer binding:
 
 ### Stage 3: Texture2D Asset-Owned Resource Migration
 
-- [ ] Replace `shared_ptr<FTexture2DRenderResource>` with one asset-owned stable
+- [x] Replace `shared_ptr<FTexture2DRenderResource>` with one asset-owned stable
   texture reference and one explicitly managed Texture2D concrete resource.
-- [ ] Move texture creation and upload into the common `FRenderResource`
+- [x] Move texture creation and upload into the common `FRenderResource`
   lifecycle while preserving format checks, complete mip upload, fallback,
   build status, failure reason, and revision behavior.
-- [ ] Move producer-visible diagnostics from the shared resource proxy to the
+- [x] Move producer-visible diagnostics from the shared resource proxy to the
   asset/completion channel.
-- [ ] Implement asynchronous replacement: initialize candidate, publish through
+- [x] Implement asynchronous replacement: initialize candidate, publish through
   the stable reference, release old resource, then retire old C++ storage.
-- [ ] Cover rebuild, failed candidate, stale candidate, unload, GC, undo/redo,
+- [x] Cover rebuild, failed candidate, stale candidate, unload, GC, undo/redo,
   cooked load, and final asset destruction.
 
 #### Acceptance Gate
@@ -358,15 +481,15 @@ resource replacement independent of consumer binding:
 
 ### Stage 4: TextureCube Asset-Owned Resource Migration
 
-- [ ] Replace `shared_ptr<FTextureCubeRenderResource>` with the same
+- [x] Replace `shared_ptr<FTextureCubeRenderResource>` with the same
   asset-owned reference and concrete-resource lifecycle used by Texture2D.
-- [ ] Preserve six-face/mip upload, ready-revision selection, format failure,
+- [x] Preserve six-face/mip upload, ready-revision selection, format failure,
   fallback, panorama-derived data, and Vulkan readback behavior.
-- [ ] Remove `FTextureCubeRenderResource::Create`, `enable_shared_from_this`,
+- [x] Remove `FTextureCubeRenderResource::Create`, `enable_shared_from_this`,
   and the class-specific custom deleter.
-- [ ] Replace the baseline custom-deleter regression with init, publication,
+- [x] Replace the baseline custom-deleter regression with init, publication,
   release, retirement, and final RHI deferred-delete assertions.
-- [ ] Cover rebuild, failed/stale candidate, unload, GC, and final asset
+- [x] Cover rebuild, failed/stale candidate, unload, GC, and final asset
   destruction with active cube render consumers.
 
 #### Acceptance Gate
@@ -378,21 +501,21 @@ resource replacement independent of consumer binding:
 
 ### Stage 5: Consumer Ownership Migration
 
-- [ ] Replace material render-data and static-mesh proxy
+- [x] Replace material render-data and static-mesh proxy
   `shared_ptr<FTexture2DRenderResource>` fields with counted stable RHI texture
   references and explicit fallback metadata.
-- [ ] Replace skybox scene snapshot and preview-proxy
+- [x] Replace skybox scene snapshot and preview-proxy
   `shared_ptr<FTextureCubeRenderResource>` fields with the corresponding stable
   RHI texture reference.
-- [ ] Migrate renderer texture resolution to consume stable reference
+- [x] Migrate renderer texture resolution to consume stable reference
   indirection without accessing texture assets or owning concrete resources.
-- [ ] Migrate Texture Editor, material thumbnail, cube thumbnail, preview jobs,
+- [x] Migrate Texture Editor, material thumbnail, cube thumbnail, preview jobs,
   and readback fixtures to producer-side asset lifetime or counted render
   references as appropriate.
-- [ ] Remove `GetRenderResource()` from texture-facing consumer APIs; expose
+- [x] Remove `GetRenderResource()` from texture-facing consumer APIs; expose
   only producer diagnostics, stable reference acquisition, and narrowly scoped
   test hooks.
-- [ ] Add integration coverage for material snapshot replacement, static-mesh
+- [x] Add integration coverage for material snapshot replacement, static-mesh
   removal, skybox replacement/removal, preview closure, thumbnail cancellation,
   asset unload, and GC while accepted render work is outstanding.
 
@@ -404,19 +527,19 @@ resource replacement independent of consumer binding:
 
 ### Stage 6: Command Admission, Shutdown, and Resource Audit
 
-- [ ] Add explicit RenderCore command admission states for running, draining,
+- [x] Add explicit RenderCore command admission states for running, draining,
   and stopped, with synchronous actionable rejection after close.
-- [ ] Integrate producer stop, scene removal, editor-consumer closure, asset
+- [x] Integrate producer stop, scene removal, editor-consumer closure, asset
   resource/reference release, accepted-command drain, deferred C++ cleanup,
   render-resource registry verification, deferred RHI deletion, rendering-thread
   stop, and `RHIExit` into one asserted ordering.
-- [ ] Exercise shutdown with open texture editors, material previews, cube
+- [x] Exercise shutdown with open texture editors, material previews, cube
   thumbnails, an active skybox, and pending init/replacement/release commands.
-- [ ] Audit other `FRenderResource` types for shared ownership, missing explicit
+- [x] Audit other `FRenderResource` types for shared ownership, missing explicit
   release, and RHI references that can escape their documented owner.
-- [ ] Migrate only resources that violate the selected lifecycle; record
+- [x] Migrate only resources that violate the selected lifecycle; record
   compliant unique-owner and renderer-owned designs without rewriting them.
-- [ ] Add diagnostics naming resource type, owner asset, revision, lifecycle
+- [x] Add diagnostics naming resource type, owner asset, revision, lifecycle
   phase, and pending queue when shutdown finds live work.
 
 #### Acceptance Gate
@@ -427,13 +550,13 @@ resource replacement independent of consumer binding:
 
 ### Stage 7: Runtime Documentation and Final Validation
 
-- [ ] Update Texture System with asset ownership, stable texture-reference
+- [x] Update Texture System with asset ownership, stable texture-reference
   indirection, concrete-resource replacement, diagnostics, and release ordering.
-- [ ] Update Cube Textures with skybox and preview stable-reference retention.
-- [ ] Update Runtime Lifecycle with RenderCore admission close, resource release,
+- [x] Update Cube Textures with skybox and preview stable-reference retention.
+- [x] Update Runtime Lifecycle with RenderCore admission close, resource release,
   deferred cleanup, RHI deletion drain, and shutdown ordering.
-- [ ] Update the Texture Support plan validation gap with final evidence.
-- [ ] Run focused unit and integration coverage, hardware-backed Vulkan
+- [x] Update the Texture Support plan validation gap with final evidence.
+- [x] Run focused unit and integration coverage, hardware-backed Vulkan
   validation, the full native-test suite, complete `all` build, editor smoke
   validation, and repeated clean editor exit through the documented
   DurinDevTool workflow.

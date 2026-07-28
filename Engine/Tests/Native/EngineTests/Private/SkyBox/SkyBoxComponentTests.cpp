@@ -121,7 +121,8 @@ TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProper
 	Component->SetWorldRotation(Rotation);
 	Observation = ObserveSkyBoxes(*Scene);
 	ASSERT_TRUE(Observation.bHasActive);
-	EXPECT_EQ(Observation.Active.TextureResource, Cube->GetRenderResource());
+	EXPECT_EQ(
+		Observation.Active.TextureReference, Cube->GetTextureReferenceRHI());
 	EXPECT_EQ(Observation.Active.Rotation, Rotation);
 	EXPECT_EQ(Observation.Active.Tint, Durin::FVector3f(0.2f, 0.4f, 0.6f));
 	EXPECT_EQ(Observation.Active.Intensity, 3.0f);

@@ -24,7 +24,9 @@ loading, path mount points, `RenderCore` loading, and reflected object
 initialization.
 
 `FEngineLoop::Init()` handles common runtime startup, including
-`ApplicationCore`, `RHI`, `Mona`, `GEngine`, and the rendering thread.
+`ApplicationCore`, `RHI`, the rendering thread, `Mona`, and `GEngine`.
+Render-command admission opens immediately after `RHIInit()` and before Mona,
+the renderer, editor previews, or engine initialization can enqueue work.
 
 Current engine selection is semantic:
 
@@ -122,11 +124,63 @@ editor host and workspace ownership belongs to the editor systems.
 Detailed viewport and composition contracts are documented in
 `Documentation/Runtime/Rendering/ViewportRendering.md`.
 
+## Render Resource and Shutdown Ordering
+
+RenderCore command admission is observable as `Stopped`, `Running`, or
+`Draining`. Normal initialization moves it to `Running`. `TryEnqueue` reports
+whether work was accepted; the compatibility enqueue entry point turns
+post-close submission into an immediate actionable check. Producers must stop
+submitting before final shutdown begins.
+
+`FRenderResource` owns registry membership and the rendering-thread
+initialization, update, and release state machine. Producer-side begin
+operations enqueue lifecycle work; render-thread operations assert affinity and
+reject invalid double initialization or release. Released concrete C++ storage
+is transferred to `FDeferredRenderResourceCleanup`, whose ordered render-thread
+flush destroys it only after all earlier commands that could use its non-owning
+pointer.
+
+Texture assets uniquely own their stable `FTextureReference` and current
+concrete `FTextureResource`. Render consumers retain only counted
+`FRHITextureReferenceRef` values. Concrete release detaches the stable target
+before dropping its `FTextureRHIRef`; final RHI reference release places the RHI
+object in the deferred-delete queue, which is drained by an RHI submit carrying
+`DeleteResources`.
+
+Game-thread owners queue resource transitions through
+`FRenderResource::BeginInit_GameThread()`,
+`BeginUpdateRHI_GameThread()`, and `BeginRelease_GameThread()`. These named
+entry points assert the caller thread and preserve command ordering; the actual
+`InitResource`, `UpdateRHI`, and `ReleaseResource` work remains rendering-thread
+only.
+
+`FEngineLoop::Exit()` uses this order:
+
+1. Stop editor, preview, scene, renderer, asset, and module producers; release
+   their consumer snapshots and asset-owned render resources.
+2. Flush accepted teardown commands while command admission remains open.
+3. Under the command-pipe mutex, enqueue the final render-resource/RHI audit and
+   atomically transition admission from `Running` to `Draining`.
+4. Reject new submissions, drain every accepted queued and active command, and
+   verify the command pipe, render-resource registry, and deferred C++ cleanup
+   queue are empty.
+5. Drain deferred RHI deletion, verify its queue is empty, stop the rendering
+   thread, transition admission to `Stopped`, and only then call `RHIExit()`.
+
+The final audit reports a live render resource's type, owner, revision,
+lifecycle phase, initialization phase, and pending queue. Shutdown does not
+clear unexplained entries to make the audit pass; any live registry object,
+deferred cleanup owner, accepted command, or pending RHI deletion is a
+lifecycle error that must be resolved before `RHIExit()`.
+
 ## Validation Expectations
 
 - `RenderCore` has a critical runtime dependency on Slang DLL deployment.
 - UI or rendering changes require a successful DurinEditor build and runtime
   smoke test, not compilation alone.
+- Rendering lifecycle validation must cover command-admission close, accepted
+  work drain, resource registry and C++ cleanup drain, RHI deferred deletion,
+  rendering-thread stop, and repeated clean process exit.
 - Runtime path assumptions and output layout are documented in
   `Documentation/Development/Build/BuildAndRun.md`.
 

@@ -586,7 +586,9 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	Durin::DTexture2D* LoadedTexture = nullptr;
 	ASSERT_TRUE(Loaded->GetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), LoadedTexture));
 	ASSERT_NE(LoadedTexture, nullptr);
-	EXPECT_EQ(Loaded->GetRenderData().BaseColorTexture, LoadedTexture->GetRenderResource());
+	EXPECT_EQ(
+		Loaded->GetRenderData().BaseColorTexture,
+		LoadedTexture->GetTextureReferenceRHI());
 	auto* LoadedBase = Durin::Cast<Durin::DMaterial>(Loaded->GetParent());
 	ASSERT_NE(LoadedBase, nullptr);
 	LoadedBase->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.6, 0.4, 0.2));

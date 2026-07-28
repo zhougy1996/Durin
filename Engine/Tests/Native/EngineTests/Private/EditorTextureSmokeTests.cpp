@@ -11,6 +11,7 @@
 #include "Materials/MaterialTypes.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
+#include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Texture/Texture2D.h"
@@ -31,9 +32,11 @@ namespace Durin
 		}
 	}
 
-	TEST(FEditorTextureSmokeTests, ImportsTextureAssignsMaterialAndBuildsVisibleStaticMeshProxy)
+	TEST(FEditorTextureSmokeTests,
+		MaterialSnapshotSurvivesTextureReplacementProxyClosureAndAssetUnload)
 	{
 		InitializeDObjectSystem();
+		InitRenderingThread();
 		const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "EditorTextureSmoke";
 		static std::unordered_set<std::filesystem::path> InitializedRoots;
 		if (InitializedRoots.insert(Root).second)
@@ -77,17 +80,79 @@ namespace Durin
 		EXPECT_FALSE(LOD.Indices.empty());
 		EXPECT_GT(LOD.NumTexCoords, 0u);
 		ASSERT_EQ(LOD.TexCoords[0].size(), LOD.Positions.size());
-		EXPECT_EQ(StaticMeshProxy->GetMaterialRenderData().BaseColorTexture, TextureImport.Asset->GetRenderResource());
+		EXPECT_EQ(
+			StaticMeshProxy->GetMaterialRenderData().BaseColorTexture,
+			TextureImport.Asset->GetTextureReferenceRHI());
 
+		FRHITextureReference* StableTextureReference =
+			TextureImport.Asset->GetTextureReferenceRHI().GetReference();
+		ASSERT_NE(StableTextureReference, nullptr);
+		std::string RebuildError;
+		ASSERT_TRUE(TextureImport.Asset->SetSRGB(
+			!TextureImport.Asset->IsSRGB(), RebuildError)) << RebuildError;
+		FlushRenderingCommands();
+		EXPECT_EQ(
+			TextureImport.Asset->GetTextureReferenceRHI().GetReference(),
+			StableTextureReference);
+		EXPECT_EQ(
+			StaticMeshProxy->GetMaterialRenderData()
+				.BaseColorTexture.GetReference(),
+			StableTextureReference);
+		FAssetPath MeshPath;
+		FAssetPath TexturePath;
+		ASSERT_TRUE(FAssetPath::TryCreate(
+			"/EditorTextureSmoke/Meshes/VisibleMesh", MeshPath));
+		ASSERT_TRUE(FAssetPath::TryCreate(
+			"/EditorTextureSmoke/Textures/BaseColor", TexturePath));
+
+		auto CommandStarted = std::make_shared<std::promise<void>>();
+		std::future<void> CommandStartedFuture = CommandStarted->get_future();
+		auto AllowCommandCompletion = std::make_shared<std::promise<void>>();
+		std::shared_future<void> AllowCommandCompletionFuture =
+			AllowCommandCompletion->get_future().share();
+		auto bAcceptedReferenceObserved =
+			std::make_shared<std::atomic<bool>>(false);
+		struct FObserveAcceptedMaterialTextureReference
+		{
+			static constexpr auto GetName() -> const char*
+			{
+				return "ObserveAcceptedMaterialTextureReference";
+			}
+		};
+		EnqueueRenderCommand<FObserveAcceptedMaterialTextureReference>(
+			[Reference =
+				 StaticMeshProxy->GetMaterialRenderData().BaseColorTexture,
+			 CommandStarted,
+			 AllowCommandCompletionFuture,
+			 bAcceptedReferenceObserved,
+			 StableTextureReference](FRHICommandListImmediate&) {
+				CommandStarted->set_value();
+				AllowCommandCompletionFuture.wait();
+				bAcceptedReferenceObserved->store(
+					Reference.GetReference() == StableTextureReference,
+					std::memory_order_release);
+			});
+		CommandStartedFuture.wait();
 		PrimitiveProxy.reset();
 		MarkObjectHierarchyAsGarbage(Actor);
 		CollectGarbage();
-		FAssetPath MeshPath;
-		FAssetPath TexturePath;
-		ASSERT_TRUE(FAssetPath::TryCreate("/EditorTextureSmoke/Meshes/VisibleMesh", MeshPath));
-		ASSERT_TRUE(FAssetPath::TryCreate("/EditorTextureSmoke/Textures/BaseColor", TexturePath));
-		ASSERT_TRUE(Asset::UnloadPackage(MaterialPath));
-		ASSERT_TRUE(Asset::UnloadPackage(MeshPath));
-		ASSERT_TRUE(Asset::UnloadPackage(TexturePath));
+		const Asset::FAssetResult MaterialUnload =
+			Asset::UnloadPackage(MaterialPath);
+		const Asset::FAssetResult MeshUnload =
+			Asset::UnloadPackage(MeshPath);
+		const Asset::FAssetResult TextureUnload =
+			Asset::UnloadPackage(TexturePath);
+		AllowCommandCompletion->set_value();
+		FlushRenderingCommands();
+		EXPECT_TRUE(MaterialUnload) << MaterialUnload.Message;
+		EXPECT_TRUE(MeshUnload) << MeshUnload.Message;
+		EXPECT_TRUE(TextureUnload) << TextureUnload.Message;
+		EXPECT_TRUE(
+			bAcceptedReferenceObserved->load(std::memory_order_acquire));
+		FinalizeRenderingThreadBeforeRHIExit();
+		EXPECT_EQ(GetRenderCommandAdmissionState(),
+			ERenderCommandAdmissionState::Draining);
+		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
+		ShutdownRenderingThread();
 	}
 } // namespace Durin

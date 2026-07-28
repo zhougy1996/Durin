@@ -16,7 +16,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	const Durin::FTexturePlatformData* PlatformData = Result.Asset->GetPlatformData();
 	ASSERT_NE(SourceData, nullptr);
 	ASSERT_NE(PlatformData, nullptr);
-	EXPECT_NE(Result.Asset->GetRenderResource(), nullptr);
+	EXPECT_NE(Result.Asset->GetTextureReferenceRHI(), nullptr);
 	EXPECT_EQ(Result.Asset->GetBuildRevision(), 1u);
 	EXPECT_TRUE(SourceData->IsValid());
 	EXPECT_TRUE(SourceData->bHasTransparency);

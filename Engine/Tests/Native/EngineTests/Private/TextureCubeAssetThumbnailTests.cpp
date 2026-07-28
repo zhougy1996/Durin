@@ -74,7 +74,7 @@ TEST(FTextureCubeAssetThumbnailTests, ProviderCapturesPackageAndCubeVisualContra
 	EXPECT_NE(OriginalKey, Durin::BuildAssetThumbnailCacheKey(Rebuilt));
 }
 
-TEST(FTextureCubeAssetThumbnailTests, PreviewPrimitiveRetainsExactCubeResource)
+TEST(FTextureCubeAssetThumbnailTests, PreviewPrimitiveRetainsStableCubeReference)
 {
 	Durin::Tests::FRenderedAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
@@ -92,8 +92,8 @@ TEST(FTextureCubeAssetThumbnailTests, PreviewPrimitiveRetainsExactCubeResource)
 	ASSERT_NE(CubeProxy, nullptr);
 	EXPECT_EQ(CubeProxy->GetRenderData(), Mesh->GetRenderData());
 	EXPECT_EQ(
-		CubeProxy->GetTextureResource(),
-		Fixtures.DirectionalCube->GetRenderResource());
+		CubeProxy->GetTextureReference(),
+		Fixtures.DirectionalCube->GetTextureReferenceRHI());
 
 	Primitive.reset();
 	Durin::MarkAsGarbage(Mesh);

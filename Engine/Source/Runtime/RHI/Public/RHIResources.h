@@ -11,6 +11,8 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 	class FRHIBuffer;
+	class FDynamicRHI;
+	class FTextureReference;
 
 	// Identifies the concrete resource category tracked by the RHI lifetime system.
 	enum class ERHIResourceType : uint8
@@ -18,6 +20,7 @@ namespace Durin
 		Viewport,
 		Buffer,
 		Texture,
+		TextureReference,
 		Sampler,
 		Shader,
 		VertexDeclaration,
@@ -76,6 +79,7 @@ namespace Durin
 
 		static RHI_API auto DeleteResources(const std::vector<FRHIResource*>& ResourcesToDelete) -> void;
 		static RHI_API auto GatherResourcesToDelete(std::vector<FRHIResource*>& OutResourcesToDelete) -> void;
+		static RHI_API auto GetNumPendingDeletes() -> size_t;
 
 	private:
 		// Packs reference count and deferred-deletion flags into one atomic lifetime state.
@@ -522,6 +526,13 @@ namespace Durin
 		auto GetNumSamples() const -> uint8 { return NumSamples; }
 
 	protected:
+		explicit FRHITexture(ERHIResourceType InResourceType)
+			: FRHIResource(InResourceType)
+		{
+			check(InResourceType == ERHIResourceType::Texture
+				|| InResourceType == ERHIResourceType::TextureReference);
+		}
+
 		ETextureDimension Dimension = ETextureDimension::Texture2D;
 		uint32 SizeX = 0;
 		uint32 SizeY = 0;
@@ -529,6 +540,37 @@ namespace Durin
 		uint16 ArraySize = 1;
 		uint8 NumMips = 1;
 		uint8 NumSamples = 1;
+	};
+
+	// Provides stable counted indirection to a concrete texture allocation.
+	class FRHITextureReference : public FRHITexture
+	{
+	public:
+		auto GetReferencedTexture_RenderThread() const -> FRHITexture*
+		{
+			return ReferencedTexture.GetReference();
+		}
+
+	protected:
+		~FRHITextureReference() override = default;
+
+	private:
+		friend class FDynamicRHI;
+		friend class FTextureReference;
+
+		explicit FRHITextureReference(TRefCountPtr<FRHITexture> InTexture)
+			: FRHITexture(ERHIResourceType::TextureReference)
+			, ReferencedTexture(std::move(InTexture))
+		{
+		}
+
+		auto SetReferencedTexture_RenderThread(
+			TRefCountPtr<FRHITexture> InTexture) -> void
+		{
+			ReferencedTexture = std::move(InTexture);
+		}
+
+		TRefCountPtr<FRHITexture> ReferencedTexture;
 	};
 
 	// Represents a window presentation surface and its backend swapchain state.
@@ -1150,6 +1192,7 @@ namespace Durin
 	using FVertexDeclarationRHIRef = TRefCountPtr<FRHIVertexDeclaration>;
 	using FViewportRHIRef = TRefCountPtr<FRHIViewport>;
 	using FTextureRHIRef = TRefCountPtr<FRHITexture>;
+	using FRHITextureReferenceRef = TRefCountPtr<FRHITextureReference>;
 	using FSamplerRHIRef = TRefCountPtr<FRHISampler>;
 	using FBufferRHIRef = TRefCountPtr<FRHIBuffer>;
 	using FShaderRHIRef = TRefCountPtr<FRHIShader>;

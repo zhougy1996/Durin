@@ -4,10 +4,22 @@
 #include "Threading/RunnableThread.h"
 
 #include "RHICommandList.h"
+#include "RenderResource.h"
 
 namespace Durin
 {
 	FRunnable* GRenderingThreadRunnable = nullptr;
+
+	namespace
+	{
+		struct FFenceRenderCommand
+		{
+			static constexpr auto GetName() -> const char*
+			{
+				return "FenceCommand";
+			}
+		};
+	}
 
 	class FRenderingThread : public FRunnable
 	{
@@ -64,11 +76,16 @@ namespace Durin
 	auto FRenderCommandFence::BeginFence() -> void
 	{
 		bIsComplete = false;
-		ENQUEUE_RENDER_COMMAND(FenceCommand)([this](FRHICommandListImmediate& RHICmdList) {
-			this->bIsComplete.store(true, std::memory_order::release);
-			std::unique_lock<std::mutex> Lock(Mutex);
-			this->CV.notify_all();
-		});
+		const bool bAccepted =
+			FRenderThreadCommandPipe::TryEnqueue<FFenceRenderCommand>(
+				[this](FRHICommandListImmediate&) {
+					this->bIsComplete.store(
+						true, std::memory_order::release);
+					std::unique_lock<std::mutex> Lock(Mutex);
+					this->CV.notify_all();
+				});
+		checkf(bAccepted,
+			"Render command fence was rejected because command admission is closed.");
 	}
 
 	auto FRenderCommandFence::Wait() -> void
@@ -130,12 +147,50 @@ namespace Durin
 
 	auto InitRenderingThread() -> void
 	{
+		FRenderThreadCommandPipe::StartAdmission();
 		StartRenderingThread();
+	}
+
+	auto CloseRenderCommandAdmission() -> void
+	{
+		FRenderThreadCommandPipe::CloseAdmission();
+	}
+
+	auto FinalizeRenderingThreadBeforeRHIExit() -> void
+	{
+		check(IsInGameThread());
+		FRenderThreadCommandPipe::CloseWithFinalCommand(
+			"FinalizeRenderingThreadBeforeRHIExit",
+			[](FRHICommandListImmediate& RHICmdList) {
+				const bool bResourcesReleased =
+					ValidateRenderResourceShutdown_RenderThread(
+						"pre-RHI-exit");
+				if (bResourcesReleased)
+				{
+					FlushPendingRenderResourceCleanup_RenderThread();
+				}
+				RHICmdList.ImmediateFlush(
+					EImmediateFlushType::FlushRHIThreadFlushResources,
+					ERHISubmitFlags::FlushRHIThread);
+				checkf(bResourcesReleased,
+					"Render-resource shutdown audit failed before RHIExit.");
+				checkf(FRHIResource::GetNumPendingDeletes() == 0,
+					"RHI deferred-delete queue still contains {} resources "
+					"after the pre-RHI-exit drain.",
+					FRHIResource::GetNumPendingDeletes());
+			});
+		FRenderThreadCommandPipe::DrainAcceptedCommands();
 	}
 
 	auto ShutdownRenderingThread() -> void
 	{
+		CloseRenderCommandAdmission();
+		FRenderThreadCommandPipe::DrainAcceptedCommands();
+		checkf(GetNumPendingRenderCommands() == 0,
+			"Rendering thread shutdown found {} commands still pending.",
+			GetNumPendingRenderCommands());
 		StopRenderingThread();
+		FRenderThreadCommandPipe::MarkStopped();
 	}
 
 	auto FlushRenderingCommands() -> void
@@ -151,13 +206,53 @@ namespace Durin
 		return FRHICommandListImmediate::Get();
 	}
 
-	auto FRenderThreadCommandPipe::EnqueueImpl(const char* Name, std::function<void(FRHICommandListImmediate&)>&& Function) -> void
+	auto GetRenderCommandAdmissionState() -> ERenderCommandAdmissionState
 	{
+		return FRenderThreadCommandPipe::GetAdmissionState();
+	}
+
+	auto GetNumPendingRenderCommands() -> size_t
+	{
+		return FRenderThreadCommandPipe::GetNumPendingCommands();
+	}
+
+	auto FRenderThreadCommandPipe::EnqueueImpl(
+		const char* Name,
+		std::function<void(FRHICommandListImmediate&)>&& Function) -> void
+	{
+		const bool bAccepted = TryEnqueueImpl(Name, std::move(Function));
+		checkf(bAccepted,
+			"Render command '{}' was rejected because command admission "
+			"is closed.", Name);
+	}
+
+	auto FRenderThreadCommandPipe::TryEnqueueImpl(
+		const char* Name,
+		std::function<void(FRHICommandListImmediate&)>&& Function) -> bool
+	{
+		ERenderCommandAdmissionState RejectionState;
+		size_t PendingCount = 0;
 		{
 			std::lock_guard Lock(Mutex);
+			if (AdmissionState != ERenderCommandAdmissionState::Running)
+			{
+				RejectionState = AdmissionState;
+				PendingCount = CommandQueue[0].size()
+					+ CommandQueue[1].size() + ActiveCommandCount;
+				const char* StateName =
+					RejectionState == ERenderCommandAdmissionState::Draining
+						? "draining"
+						: "stopped";
+				DURIN_ERROR(
+					"Rejected render command '{}' synchronously: command "
+					"admission is {} ({} accepted commands pending).",
+					Name, StateName, PendingCount);
+				return false;
+			}
 			CommandQueue[ProduceIndex].emplace_back(Name, std::move(Function));
 		}
 		CommandAvailableCV.notify_one();
+		return true;
 	}
 
 	auto FRenderThreadCommandPipe::LaunchImpl() -> void
@@ -176,6 +271,7 @@ namespace Durin
 
 		std::vector<FCommand>& CommandsToExecute = CommandQueue[ProduceIndex];
 		ProduceIndex ^= 1;
+		ActiveCommandCount += CommandsToExecute.size();
 		Lock.unlock();
 
 		for (const FCommand& Command : CommandsToExecute)
@@ -184,6 +280,12 @@ namespace Durin
 		}
 
 		CommandsToExecute.clear();
+		Lock.lock();
+		ActiveCommandCount = 0;
+		if (CommandQueue[0].empty() && CommandQueue[1].empty())
+		{
+			DrainCompleteCV.notify_all();
+		}
 	}
 
 	auto FRenderThreadCommandPipe::WakeImpl() -> void
@@ -193,6 +295,79 @@ namespace Durin
 			bWakeRequested = true;
 		}
 		CommandAvailableCV.notify_one();
+	}
+
+	auto FRenderThreadCommandPipe::StartAdmissionImpl() -> void
+	{
+		std::lock_guard Lock(Mutex);
+		checkf(AdmissionState == ERenderCommandAdmissionState::Stopped,
+			"Rendering thread command admission can only start from stopped.");
+		check(CommandQueue[0].empty());
+		check(CommandQueue[1].empty());
+		check(ActiveCommandCount == 0);
+		ProduceIndex = 0;
+		bWakeRequested = false;
+		AdmissionState = ERenderCommandAdmissionState::Running;
+	}
+
+	auto FRenderThreadCommandPipe::CloseAdmissionImpl() -> void
+	{
+		std::lock_guard Lock(Mutex);
+		if (AdmissionState == ERenderCommandAdmissionState::Stopped) return;
+		AdmissionState = ERenderCommandAdmissionState::Draining;
+		CommandAvailableCV.notify_one();
+	}
+
+	auto FRenderThreadCommandPipe::CloseWithFinalCommandImpl(
+		const char* Name,
+		std::function<void(FRHICommandListImmediate&)>&& Function) -> void
+	{
+		{
+			std::lock_guard Lock(Mutex);
+			checkf(AdmissionState == ERenderCommandAdmissionState::Running,
+				"Final rendering-thread shutdown command requires running "
+				"command admission.");
+			CommandQueue[ProduceIndex].emplace_back(
+				Name, std::move(Function));
+			AdmissionState = ERenderCommandAdmissionState::Draining;
+		}
+		CommandAvailableCV.notify_one();
+	}
+
+	auto FRenderThreadCommandPipe::DrainAcceptedCommandsImpl() -> void
+	{
+		check(IsInGameThread());
+		std::unique_lock Lock(Mutex);
+		checkf(AdmissionState == ERenderCommandAdmissionState::Draining,
+			"Accepted render commands can only drain after admission closes.");
+		CommandAvailableCV.notify_one();
+		DrainCompleteCV.wait(Lock, [this]() {
+			return CommandQueue[0].empty() && CommandQueue[1].empty()
+				&& ActiveCommandCount == 0;
+		});
+	}
+
+	auto FRenderThreadCommandPipe::MarkStoppedImpl() -> void
+	{
+		std::lock_guard Lock(Mutex);
+		check(CommandQueue[0].empty());
+		check(CommandQueue[1].empty());
+		check(ActiveCommandCount == 0);
+		AdmissionState = ERenderCommandAdmissionState::Stopped;
+	}
+
+	auto FRenderThreadCommandPipe::GetAdmissionStateImpl() const
+		-> ERenderCommandAdmissionState
+	{
+		std::lock_guard Lock(Mutex);
+		return AdmissionState;
+	}
+
+	auto FRenderThreadCommandPipe::GetNumPendingCommandsImpl() const -> size_t
+	{
+		std::lock_guard Lock(Mutex);
+		return CommandQueue[0].size() + CommandQueue[1].size()
+			+ ActiveCommandCount;
 	}
 
 	FRenderThreadCommandPipe FRenderThreadCommandPipe::Instance;

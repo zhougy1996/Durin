@@ -2,12 +2,12 @@
 
 #include "EngineAPI.h"
 #include "Materials/MaterialTypes.h"
+#include "RHIResources.h"
 
 namespace Durin
 {
 	class PrimitiveSceneProxy;
 	class DDirectionalLightComponent;
-	class FTextureCubeRenderResource;
 	using FPrimitiveSceneId = uint64;
 	inline constexpr FPrimitiveSceneId InvalidPrimitiveSceneId = 0;
 
@@ -33,7 +33,7 @@ namespace Durin
 
 		// Runtime identity keeps duplicated components as distinct scene entries.
 		uint64 InstanceId = 0;
-		std::shared_ptr<FTextureCubeRenderResource> TextureResource;
+		FRHITextureReferenceRef TextureReference;
 		FQuat Rotation{1.0, 0.0, 0.0, 0.0};
 		FVector3f Tint{1.0f, 1.0f, 1.0f};
 		float Intensity = 1.0f;

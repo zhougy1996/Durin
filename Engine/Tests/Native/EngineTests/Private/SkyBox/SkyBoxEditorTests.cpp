@@ -59,7 +59,9 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	ASSERT_TRUE(Observation.bHasActive);
 	EXPECT_EQ(Observation.Count, 1u);
 	EXPECT_EQ(Observation.Active.SceneId, SavedSceneId);
-	EXPECT_EQ(Observation.Active.TextureResource, LoadedComponent->GetTextureCube()->GetRenderResource());
+	EXPECT_EQ(
+		Observation.Active.TextureReference,
+		LoadedComponent->GetTextureCube()->GetTextureReferenceRHI());
 
 	auto* IgnoredActor = LoadedLevel->SpawnActor<Durin::ASkyBoxActor>("IgnoredSky");
 	ASSERT_NE(IgnoredActor, nullptr);
@@ -145,7 +147,9 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	ASSERT_TRUE(World->SetCurrentLevel(LoadedLevel));
 	const FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
 	ASSERT_TRUE(Observation.bHasActive);
-	EXPECT_EQ(Observation.Active.TextureResource, LoadedCube->GetRenderResource());
+	EXPECT_EQ(
+		Observation.Active.TextureReference,
+		LoadedCube->GetTextureReferenceRHI());
 
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
 	Durin::FlushRenderingCommands();

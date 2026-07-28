@@ -18,11 +18,6 @@ namespace
 	constexpr std::array<std::string_view, Durin::TextureCubeFaceCount> FaceNames = {
 		"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
 
-	struct FObserveCubeReleaseRevisionCommand
-	{
-		static constexpr auto GetName() -> const char* { return "ObserveCubeReleaseRevision"; }
-	};
-
 	auto GetConventionFaces() -> std::array<std::string, Durin::TextureCubeFaceCount>
 	{
 		std::array<std::string, Durin::TextureCubeFaceCount> Result;
@@ -621,26 +616,25 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({}));
 }
 
-TEST(FTextureCubeTests, RenderResourceRejectsStaleReleaseRevisions)
+TEST(FTextureCubeTests, RenderCompletionRejectsStaleCandidateResults)
 {
-	InitializeDObjectSystem();
-	Durin::InitRenderingThread();
-	auto Resource = Durin::FTextureCubeRenderResource::Create();
-	Resource->QueueRelease(2);
-	Resource->QueueRelease(3);
+	Durin::FTextureCubeResourceCompletion Completion;
+	Completion.BeginRequest(2);
+	ASSERT_TRUE(Completion.MarkBuilding(2));
+	Completion.BeginRequest(3);
 
-	auto ObservedRevision = std::make_shared<std::atomic<Durin::uint64>>(0);
-	Durin::EnqueueRenderCommand<FObserveCubeReleaseRevisionCommand>(
-		[Resource, ObservedRevision](Durin::FRHICommandListImmediate&) {
-			ObservedRevision->store(Resource->GetAppliedRevision_RenderThread(), std::memory_order_release);
-		});
-	Durin::FlushRenderingCommands();
-	EXPECT_EQ(ObservedRevision->load(std::memory_order_acquire), 3u);
-	EXPECT_EQ(Resource->GetResourceState(), Durin::ERenderResourceState::Released);
+	Completion.MarkReady(2);
+	Completion.MarkFailed(
+		2, Durin::ETextureRenderFailure::CreateOrUpload);
+	EXPECT_EQ(Completion.GetRequestedRevision(), 3u);
+	EXPECT_EQ(Completion.GetAppliedRevision(), 0u);
+	EXPECT_EQ(Completion.GetFailedRevision(), 0u);
+	EXPECT_EQ(
+		Completion.GetResourceState(), Durin::ERenderResourceState::Pending);
 
-	// The custom deleter must return final ownership to the rendering thread even
-	// when a game-thread scene or preview snapshot releases the last reference.
-	Resource.reset();
-	Durin::FlushRenderingCommands();
-	Durin::ShutdownRenderingThread();
+	ASSERT_TRUE(Completion.MarkBuilding(3));
+	Completion.MarkReleased(3);
+	EXPECT_EQ(Completion.GetAppliedRevision(), 3u);
+	EXPECT_EQ(
+		Completion.GetResourceState(), Durin::ERenderResourceState::Released);
 }

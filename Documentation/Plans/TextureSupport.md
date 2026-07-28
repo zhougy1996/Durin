@@ -2,7 +2,7 @@
 
 Summary: Texture2D assets, platform data, material sampling, and validation.
 
-Last reviewed: 2026-07-26
+Last reviewed: 2026-07-28
 
 ## Current Status
 
@@ -11,8 +11,9 @@ Browser can import PNG, JPEG, BMP, and TGA images through a texture-specific
 dialog, show persistent source-image thumbnails, and expose the resulting asset
 through the schema-driven Material Editor texture picker. Materials and material
 instances preserve texture references, inheritance, and local overrides, while
-resolved static-mesh material slots snapshot the render resource without letting
-the renderer read reflected material objects. The render thread uploads every mip
+resolved static-mesh material slots snapshot a counted stable RHI texture
+reference without letting the renderer read reflected material objects or share
+ownership of a concrete texture resource. The render thread uploads every mip
 and the static-mesh shader samples the base-color texture through a shared
 linear-wrap sampler. Missing or not-yet-ready resources resolve to the
 renderer-owned white texture.
@@ -91,6 +92,15 @@ full `CoreTests` executable was also attempted; its DDC tests passed, but eleven
 unrelated Logger tests failed because their work-directory log files could not
 be opened for writing in the current environment.
 
+On 2026-07-28, the texture render-resource ownership refactor closed the
+remaining render-thread lifecycle and fallback validation gaps. Texture assets
+now uniquely own their stable reference and concrete resource while materials,
+scene proxies, previews, thumbnails, and queued work retain counted stable RHI
+references. Focused texture, material, thumbnail, editor rendering, RenderCore,
+Vulkan sampling, cooked-readback, and SkyBox Vulkan tests passed, followed by a
+complete `all` build, the 739-test native suite with zero failures and three
+intentional skips, and two clean normal editor exits.
+
 ## Implemented
 
 - [x] `DTexture2D` asset type and source-file tracking.
@@ -106,7 +116,10 @@ be opened for writing in the current environment.
   override reset, save/reload, and live preview invalidation.
 - [x] Static-mesh base-color sampling with a shared linear-wrap sampler and white fallback.
 - [x] Static-mesh material-slot resolution and live dependency updates preserve
-  the selected texture render-resource snapshot.
+  the selected texture's counted stable RHI reference.
+- [x] Asset-owned stable texture-reference indirection and uniquely owned
+  concrete Texture2D resources with ordered replacement, release, and deferred
+  cleanup.
 - [x] RHI and Vulkan format definitions for uncompressed and BC texture formats.
 - [x] Usage- and alpha-driven BC1, BC3, BC5, and BC7 desktop compression.
 - [x] Vulkan support for uploading individual mip levels.
@@ -149,9 +162,10 @@ be opened for writing in the current environment.
 #### Acceptance Gate
 
 - The Content Browser opens Texture2D assets in a per-resource editor; valid
-  setting changes rebuild platform data and the shared render resource, invalid
-  proposals leave the asset unchanged, save/Dirty/close behavior is consistent,
-  and focused transaction plus full integration validation passes.
+  setting changes rebuild platform data and retarget the stable texture
+  reference, invalid proposals leave the asset unchanged,
+  save/Dirty/close behavior is consistent, and focused transaction plus full
+  integration validation passes.
 
 ### Stage 2: Built Texture Preview and Failure States
 
@@ -232,13 +246,13 @@ inferred from the source filename.
 
 ## Validation Gaps
 
-- [ ] Test render-resource build, replacement, stale-revision rejection, and
+- [x] Test render-resource build, replacement, stale-revision rejection, and
   release on the render thread.
-- [ ] Test default-texture fallback while an asset is missing or not ready.
+- [x] Test default-texture fallback while an asset is missing or not ready.
 - [x] Test real Vulkan upload and shader sampling, including multiple mip levels.
 - [x] Test sRGB and linear textures against known sample values.
 - [x] Test compressed formats and non-block-aligned dimensions.
-- [ ] Test failed imports and rebuilds for transactional cleanup of packages and
+- [x] Test failed imports and rebuilds for transactional cleanup of packages and
   copied source files.
 - [x] Run a successful full `all` build and `DurinEditor` smoke test after the
   material and editor integration lands.

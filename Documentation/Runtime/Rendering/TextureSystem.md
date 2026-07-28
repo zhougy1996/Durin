@@ -114,19 +114,51 @@ rebuild rule and dirty the package after success.
 
 ## Render-Thread Boundary
 
-Each texture owns one shared `FTexture2DRenderResource` proxy. Game-thread code
-may retain the proxy but never reads its RHI texture. Build and release requests
-carry monotonically increasing revisions to the render thread. Stale commands
-cannot replace newer data, and every mip is uploaded before the new RHI texture
-becomes the applied revision. Diagnostic resource state is tagged with the
-request revision, and upload failures are reported only for the matching build;
-a later request clears the prior failure instead of inheriting it permanently.
+`DTexture2D` is the sole high-level owner of one stable `FTextureReference` and
+at most one current concrete `FTexture2DResource`. Neither object is shared
+through a C++ smart pointer. The concrete resource owns the uploaded
+`FTextureRHIRef`; the stable reference owns a counted
+`FRHITextureReferenceRef` whose target can change without changing the
+consumer-visible binding identity. `FRHITextureReference` derives from
+`FRHITexture`, matching the RHI texture type hierarchy, while current renderer
+binding paths call `GetReferencedTexture_RenderThread()` before operations that
+require a concrete backend allocation.
 
-Material render data and static-mesh scene proxies retain the shared proxy, not
-a reflected texture object or a raw RHI texture. Rebuilding a texture updates
-that same proxy, so already-bound materials and previews observe the replacement
-without rebinding reflected dependencies. Missing or not-yet-ready resources
-resolve through renderer-owned default textures.
+Material render data, static-mesh scene proxies, accepted preview work, and
+thumbnail work retain counted copies of the stable RHI reference. They do not
+own the reflected texture asset or a concrete `FTextureResource`. Copying the
+stable RHI reference can keep the referenced GPU allocation alive until RHI
+deferred deletion, but it never extends the lifetime of the concrete C++
+resource object.
+
+Build requests carry monotonically increasing revisions and immutable platform
+data to the rendering thread. A candidate concrete resource is initialized and
+fully uploaded before publication. If it succeeds and its revision is still
+current, publication retargets the stable reference through
+`FDynamicRHI::RHIUpdateTextureReference()` in render-command order. This is the
+backend extension point for updating descriptor or bindless state together
+with the referenced allocation. Existing material, scene, preview, and
+thumbnail bindings then observe the replacement without rebinding. A stale or
+failed candidate is released and retired without replacing the last successful
+target. Missing or not-yet-ready resources resolve through renderer-owned
+default textures.
+
+Ordinary replacement and unload are asynchronous. After publication of a new
+candidate, the old concrete resource is released through `FRenderResource` and
+its C++ storage is transferred to ordered deferred RenderCore cleanup. Asset
+destruction first prevents further publication, retargets or clears the stable
+reference, releases the concrete resource, retires its storage, and finally
+releases the asset-owned `FTextureReference`. Non-owning concrete pointers in
+commands are valid only because their release and cleanup commands are queued
+after every accepted command that can dereference them.
+
+Lifecycle diagnostics identify the resource type, owning asset package,
+revision, lifecycle phase, initialization phase, and pending queue. Producer
+code reads the asset's revision-matched completion state rather than retaining
+the concrete resource. Upload failures are reported only for the matching
+build; a later request clears the prior failure instead of inheriting it
+permanently. At shutdown, RenderCore reports these fields for any live registry
+or deferred-cleanup entry before RHI teardown.
 
 Before creating a texture, the render resource asks the active RHI whether the
 selected format supports the requested optimal-tiling usage. Vulkan derives this

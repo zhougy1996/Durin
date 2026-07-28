@@ -107,13 +107,8 @@ namespace Durin
 					: Texture->GetLastBuildError();
 				return 0;
 			}
-			const std::shared_ptr<FTexture2DRenderResource>& Resource = Texture->GetRenderResource();
-			if (Resource == nullptr)
-			{
-				OutError = "A referenced material texture has no render resource.";
-				return 0;
-			}
-			const ERenderResourceState State = Resource->GetResourceState();
+			const ERenderResourceState State =
+				Texture->GetRenderResourceState();
 			if (State == ERenderResourceState::Failed)
 			{
 				OutError = "A referenced material texture render resource failed.";
@@ -160,16 +155,13 @@ namespace Durin
 				}
 				return 0;
 			}
-			const std::shared_ptr<FTextureCubeRenderResource>& Resource =
-				TextureCube->GetRenderResource();
-			if (Resource == nullptr)
+			if (TextureCube->GetTextureReferenceRHI() == nullptr)
 			{
-				OutError = "The TextureCube has no render resource.";
+				OutError = "The TextureCube has no texture reference.";
 				return 0;
 			}
-			const ERenderResourceState State = Resource->GetResourceState();
-			if (Resource->GetRequestedRevision() != TextureCube->GetBuildRevision())
-				return TextureCube->GetBuildRevision();
+			const ERenderResourceState State =
+				TextureCube->GetRenderResourceState();
 			if (State == ERenderResourceState::Failed)
 			{
 				OutError = "The TextureCube render resource failed.";

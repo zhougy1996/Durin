@@ -1,11 +1,11 @@
 #pragma once
 
 #include "RendererAPI.h"
+#include "RHIResources.h"
 
-namespace Durin
+	namespace Durin
 {
 	class FRHITexture;
-	class FTexture2DRenderResource;
 
 	// Identifies renderer-owned fallback textures that are always safe to bind.
 	enum class EDefaultTexture : uint8
@@ -18,5 +18,7 @@ namespace Durin
 	// Renderer-thread-only resolution. Unavailable, failed and released assets all use Fallback.
 	RENDERER_API auto GetDefaultTexture_RenderThread(EDefaultTexture Texture) -> FRHITexture*;
 	RENDERER_API auto GetDefaultCubeTexture_RenderThread() -> FRHITexture*;
-	RENDERER_API auto ResolveTexture_RenderThread(const std::shared_ptr<FTexture2DRenderResource>& Resource, EDefaultTexture Fallback) -> FRHITexture*;
+	RENDERER_API auto ResolveTexture_RenderThread(
+		const FRHITextureReferenceRef& TextureReference,
+		EDefaultTexture Fallback) -> FRHITexture*;
 }

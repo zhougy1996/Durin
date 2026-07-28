@@ -12,6 +12,7 @@
 #include "Engine/Engine.h"
 
 #include "RHICommandList.h"
+#include "RenderResource.h"
 #include "RenderingThread.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformProcess.h"
@@ -88,12 +89,14 @@ namespace Durin
 
 		InitializeApplicationCore();
 		RHIInit();
+		// Command admission must be running before Mona, the renderer, or editor
+		// modules can publish their first render-thread work.
+		InitRenderingThread();
 		Mona::MonaInit();
 
 		GEngine->Init();
 		LastTickTime = FTime::Seconds();
 
-		InitRenderingThread();
 		DURIN_INFO(STR("Durin engine initialized."));
 	}
 
@@ -226,8 +229,15 @@ namespace Durin
 		FlushRenderingCommands();
 		FModuleManager::Get().UnloadModulesAtShutdown();
 		FlushRenderingCommands();
+		FinalizeRenderingThreadBeforeRHIExit();
 		ShutdownRenderingThread();
 
+		check(GetRenderCommandAdmissionState()
+			== ERenderCommandAdmissionState::Stopped);
+		check(GetNumPendingRenderCommands() == 0);
+		check(GetNumInitializedRenderResources() == 0);
+		check(GetNumPendingRenderResourceCleanup() == 0);
+		check(FRHIResource::GetNumPendingDeletes() == 0);
 		RHIExit();
 
 		ShutdownApplicationCore();

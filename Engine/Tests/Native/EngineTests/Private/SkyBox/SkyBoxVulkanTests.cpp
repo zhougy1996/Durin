@@ -27,16 +27,16 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		"/SkyBoxAssetTests/VulkanPanoramaLdr",
 		{.FaceDimension = 64});
 	ASSERT_TRUE(CubeResult) << CubeResult.Message;
-	auto CubeResource = CubeResult.Asset->GetRenderResource();
-	ASSERT_NE(CubeResource, nullptr);
+	auto CubeReference = CubeResult.Asset->GetTextureReferenceRHI();
+	ASSERT_NE(CubeReference, nullptr);
 	auto PlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*CubeResult.Asset->GetPlatformData());
 	Durin::FTextureCubeImportResult HdrCubeResult = Durin::DTextureCube::ImportPanoramaAsset(
 		GetSkyBoxPanoramaFixture("AnalyticalHDR.hdr").generic_string(),
 		"/SkyBoxAssetTests/VulkanPanoramaHdr",
 		{.FaceDimension = 64, .ExposureEV = 1.0f});
 	ASSERT_TRUE(HdrCubeResult) << HdrCubeResult.Message;
-	auto HdrCubeResource = HdrCubeResult.Asset->GetRenderResource();
-	ASSERT_NE(HdrCubeResource, nullptr);
+	auto HdrCubeReference = HdrCubeResult.Asset->GetTextureReferenceRHI();
+	ASSERT_NE(HdrCubeReference, nullptr);
 	auto HdrPlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*HdrCubeResult.Asset->GetPlatformData());
 	auto* OcclusionMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* OcclusionMaterial = Durin::NewObject<Durin::DMaterial>(nullptr, "SkyBoxOcclusionMaterial");
@@ -52,7 +52,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	SkyBox.SceneId = Durin::FGuid(1, 0, 0, 0);
 	SkyBox.SelectionKey = "VulkanSky";
 	SkyBox.InstanceId = 1;
-	SkyBox.TextureResource = CubeResource;
+	SkyBox.TextureReference = CubeReference;
 	SkyBox.Revision = 1;
 	Scene.AddOrReplaceSkyBox(SkyBox);
 
@@ -64,6 +64,58 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 	});
 	Durin::FlushRenderingCommands();
+
+	auto ObservedCubeTarget =
+		std::make_shared<std::atomic<Durin::FRHITexture*>>(nullptr);
+	struct FObserveInitialCubeTarget
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "ObserveInitialCubeTarget";
+		}
+	};
+	Durin::EnqueueRenderCommand<FObserveInitialCubeTarget>(
+		[CubeReference, ObservedCubeTarget](
+			Durin::FRHICommandListImmediate&) {
+			ObservedCubeTarget->store(
+				CubeReference->GetReferencedTexture_RenderThread(),
+				std::memory_order_release);
+		});
+	Durin::FlushRenderingCommands();
+	Durin::FRHITexture* InitialCubeTarget =
+		ObservedCubeTarget->load(std::memory_order_acquire);
+	ASSERT_NE(InitialCubeTarget, nullptr);
+
+	std::string RebuildError;
+	ASSERT_TRUE(CubeResult.Asset->RebuildPlatformData(RebuildError))
+		<< RebuildError;
+	EXPECT_EQ(CubeResult.Asset->GetTextureReferenceRHI(), CubeReference);
+	Durin::FlushRenderingCommands();
+	EXPECT_EQ(
+		CubeResult.Asset->GetRenderResourceState(),
+		Durin::ERenderResourceState::Ready);
+	EXPECT_EQ(
+		CubeResult.Asset->GetAppliedRenderRevision(),
+		CubeResult.Asset->GetBuildRevision());
+	struct FObserveReplacementCubeTarget
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "ObserveReplacementCubeTarget";
+		}
+	};
+	Durin::EnqueueRenderCommand<FObserveReplacementCubeTarget>(
+		[CubeReference, ObservedCubeTarget](
+			Durin::FRHICommandListImmediate&) {
+			ObservedCubeTarget->store(
+				CubeReference->GetReferencedTexture_RenderThread(),
+				std::memory_order_release);
+		});
+	Durin::FlushRenderingCommands();
+	Durin::FRHITexture* ReplacementCubeTarget =
+		ObservedCubeTarget->load(std::memory_order_acquire);
+	ASSERT_NE(ReplacementCubeTarget, nullptr);
+	EXPECT_NE(ReplacementCubeTarget, InitialCubeTarget);
 
 	struct FValidationResult
 	{
@@ -85,7 +137,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		static constexpr auto GetName() -> const char* { return "RenderSkyBoxValidationFrame"; }
 	};
 	Durin::EnqueueRenderCommand<FRenderSkyBoxValidationFrame>(
-		[&Renderer, &Scene, CubeResource, PlatformData, HdrCubeResource, HdrPlatformData, Result, OcclusionProxy]
+		[&Renderer, &Scene, CubeReference, PlatformData,
+			HdrCubeReference, HdrPlatformData, Result, OcclusionProxy]
 		(Durin::FRHICommandListImmediate& CommandList) {
 			Durin::GRenderFrameCounterRenderThread++;
 			Durin::GDynamicRHI->RHIBeginFrame();
@@ -95,7 +148,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 				~FEndFrameGuard() { Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList); }
 			} EndFrameGuard{CommandList};
 
-			Durin::FRHITexture* CubeTexture = CubeResource->GetTextureRHI_RenderThread();
+			Durin::FRHITexture* CubeTexture =
+				CubeReference->GetReferencedTexture_RenderThread();
 			if (CubeTexture == nullptr)
 			{
 				Result->bSucceeded = false;
@@ -118,7 +172,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 					}
 				}
 			}
-			Durin::FRHITexture* HdrCubeTexture = HdrCubeResource->GetTextureRHI_RenderThread();
+			Durin::FRHITexture* HdrCubeTexture =
+				HdrCubeReference->GetReferencedTexture_RenderThread();
 			if (HdrCubeTexture == nullptr)
 			{
 				Result->bSucceeded = false;
@@ -189,13 +244,13 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			RotatedSky.SceneId = Durin::FGuid(1, 0, 0, 0);
 			RotatedSky.SelectionKey = "VulkanSky";
 			RotatedSky.InstanceId = 1;
-			RotatedSky.TextureResource = CubeResource;
+			RotatedSky.TextureReference = CubeReference;
 			RotatedSky.Rotation = glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up);
 			RotatedSky.Revision = 2;
 			Scene.AddOrReplaceSkyBox(RotatedSky);
 			if (!Render(MakePrincipalAxisView(Directions[0], {}, 17, 17), Result->ComponentRotated)) return;
 
-			RotatedSky.TextureResource = HdrCubeResource;
+			RotatedSky.TextureReference = HdrCubeReference;
 			RotatedSky.Rotation = glm::identity<Durin::FQuat>();
 			RotatedSky.Revision = 3;
 			Scene.AddOrReplaceSkyBox(RotatedSky);
@@ -205,7 +260,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 					Directions[FaceIndex], {}, 17, 17), Result->HdrPrincipalAxes[FaceIndex])) return;
 			}
 
-			RotatedSky.TextureResource = CubeResource;
+			RotatedSky.TextureReference = CubeReference;
 			RotatedSky.Revision = 4;
 			Scene.AddOrReplaceSkyBox(RotatedSky);
 			Durin::FSceneView LetterboxView = MakePrincipalAxisView(Directions[0], {}, 17, 17);
@@ -278,15 +333,16 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::MarkAsGarbage(OcclusionMesh);
 	Durin::MarkAsGarbage(OcclusionMaterial);
 	Durin::CollectGarbage();
-	SkyBox.TextureResource.reset();
+	SkyBox.TextureReference = nullptr;
 	Renderer.ReleaseResources();
 	struct FRetireSkyBoxValidationResource
 	{
 		static constexpr auto GetName() -> const char* { return "RetireSkyBoxValidationResource"; }
 	};
 	Durin::EnqueueRenderCommand<FRetireSkyBoxValidationResource>(
-		[Resource = std::move(CubeResource),
-			HdrResource = std::move(HdrCubeResource)](Durin::FRHICommandListImmediate&) {});
+		[Reference = std::move(CubeReference),
+			HdrReference = std::move(HdrCubeReference)](
+			Durin::FRHICommandListImmediate&) {});
 	Durin::FlushRenderingCommands();
 	Renderer.SetRenderMode(Durin::ERenderMode::Lit);
 	Renderer.ShutdownModule();

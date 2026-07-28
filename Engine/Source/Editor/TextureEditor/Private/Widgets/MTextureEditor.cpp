@@ -449,10 +449,11 @@ namespace Durin
 			}
 		}
 
-		if (Status == ETextureBuildStatus::UploadFailure && Texture->GetRenderResource())
+		if (Status == ETextureBuildStatus::UploadFailure)
 		{
 			ImGui::SameLine();
-			const ERenderResourceState RState = Texture->GetRenderResource()->GetResourceState();
+			const ERenderResourceState RState =
+				Texture->GetRenderResourceState();
 			const std::string StateName = GetEnumValueDisplayName("Durin::ERenderResourceState", static_cast<uint64>(RState));
 			ImGui::TextDisabled("(GPU state: %s)", StateName.c_str());
 		}
@@ -1196,11 +1197,9 @@ namespace Durin
 
 		DrawInfoRow("Build Revision", std::format("{}", Texture->GetBuildRevision()));
 
-		if (const std::shared_ptr<FTexture2DRenderResource>& Resource = Texture->GetRenderResource())
-		{
-			DrawInfoRow("GPU State", GetEnumValueDisplayName(
-				"Durin::ERenderResourceState", static_cast<uint64>(Resource->GetResourceState())));
-		}
+		DrawInfoRow("GPU State", GetEnumValueDisplayName(
+			"Durin::ERenderResourceState",
+			static_cast<uint64>(Texture->GetRenderResourceState())));
 
 		MonaImGui::PropertyEdit::EndTable();
 	}

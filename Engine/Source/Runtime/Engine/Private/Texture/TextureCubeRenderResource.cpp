@@ -7,144 +7,152 @@
 
 namespace Durin
 {
-	auto FTextureCubeRenderResource::Create() -> std::shared_ptr<FTextureCubeRenderResource>
-	{
-		return std::shared_ptr<FTextureCubeRenderResource>(
-			new FTextureCubeRenderResource(),
-			[](FTextureCubeRenderResource* Resource) {
-				if (Resource->RequestedRevision.load(std::memory_order_relaxed) == 0
-					|| IsInRenderingThread())
-				{
-					delete Resource;
-					return;
-				}
-
-				ENQUEUE_RENDER_COMMAND(DeleteTextureCubeResource)(
-					[Resource](FRHICommandListImmediate&) {
-						delete Resource;
-					});
-			});
-	}
-
-	FTextureCubeRenderResource::~FTextureCubeRenderResource()
-	{
-		checkf(RequestedRevision.load(std::memory_order_relaxed) == 0 || IsInRenderingThread(),
-			"Cube texture render resource left the rendering thread before destruction");
-	}
-
-	auto FTextureCubeRenderResource::QueueBuild(std::shared_ptr<const FTextureCubePlatformData> PlatformDataSnapshot, uint64 Revision) -> void
-	{
-		check(PlatformDataSnapshot && PlatformDataSnapshot->IsValid());
-		RequestedRevision.store(Revision, std::memory_order_release);
-		FailedRevision.store(0, std::memory_order_release);
-		FailureReason.store(ETextureRenderFailure::None, std::memory_order_release);
-		SetResourceState(ERenderResourceState::Pending, Revision);
-		auto Self = shared_from_this();
-		ENQUEUE_RENDER_COMMAND(BuildTextureCubeResource)([Self = std::move(Self), PlatformDataSnapshot = std::move(PlatformDataSnapshot), Revision](FRHICommandListImmediate& CommandList) {
-			Self->Build_RenderThread(CommandList, *PlatformDataSnapshot, Revision);
-		});
-	}
-
-	auto FTextureCubeRenderResource::QueueRelease(uint64 Revision) -> void
+	auto FTextureCubeResourceCompletion::BeginRequest(uint64 Revision) -> void
 	{
 		RequestedRevision.store(Revision, std::memory_order_release);
 		FailedRevision.store(0, std::memory_order_release);
-		FailureReason.store(ETextureRenderFailure::None, std::memory_order_release);
+		FailureReason.store(
+			ETextureRenderFailure::None, std::memory_order_release);
 		SetResourceState(ERenderResourceState::Pending, Revision);
-		auto Self = shared_from_this();
-		ENQUEUE_RENDER_COMMAND(ReleaseTextureCubeResource)([Self = std::move(Self), Revision](FRHICommandListImmediate&) {
-			Self->Release_RenderThread(Revision);
-		});
 	}
 
-	auto FTextureCubeRenderResource::GetTextureRHI_RenderThread() const -> FRHITexture*
+	auto FTextureCubeResourceCompletion::MarkBuilding(uint64 Revision) -> bool
 	{
-		check(IsInRenderingThread());
-		return IsReady_RenderThread() ? TextureRHI.GetReference() : nullptr;
+		if (Revision != RequestedRevision.load(std::memory_order_acquire))
+			return false;
+		SetResourceState(ERenderResourceState::Building, Revision);
+		return true;
 	}
 
-	auto FTextureCubeRenderResource::IsReady_RenderThread() const -> bool
+	auto FTextureCubeResourceCompletion::MarkReady(uint64 Revision) -> void
 	{
-		check(IsInRenderingThread());
-		return TextureRHI != nullptr && AppliedRevision == RequestedRevision.load(std::memory_order_acquire);
+		if (Revision != RequestedRevision.load(std::memory_order_acquire))
+			return;
+		AppliedRevision.store(Revision, std::memory_order_release);
+		FailedRevision.store(0, std::memory_order_release);
+		FailureReason.store(
+			ETextureRenderFailure::None, std::memory_order_release);
+		SetResourceState(ERenderResourceState::Ready, Revision);
 	}
 
-	auto FTextureCubeRenderResource::GetAppliedRevision_RenderThread() const -> uint64
+	auto FTextureCubeResourceCompletion::MarkFailed(
+		uint64 Revision, ETextureRenderFailure Reason) -> void
 	{
-		check(IsInRenderingThread());
-		return AppliedRevision;
+		if (Revision != RequestedRevision.load(std::memory_order_acquire))
+			return;
+		FailureReason.store(Reason, std::memory_order_release);
+		FailedRevision.store(Revision, std::memory_order_release);
+		SetResourceState(ERenderResourceState::Failed, Revision);
 	}
 
-	auto FTextureCubeRenderResource::GetResourceState() const -> ERenderResourceState
+	auto FTextureCubeResourceCompletion::MarkReleased(uint64 Revision) -> void
+	{
+		if (Revision != RequestedRevision.load(std::memory_order_acquire))
+			return;
+		AppliedRevision.store(Revision, std::memory_order_release);
+		FailedRevision.store(0, std::memory_order_release);
+		FailureReason.store(
+			ETextureRenderFailure::None, std::memory_order_release);
+		SetResourceState(ERenderResourceState::Released, Revision);
+	}
+
+	auto FTextureCubeResourceCompletion::GetResourceState() const
+		-> ERenderResourceState
 	{
 		std::lock_guard Lock(ResourceStateMutex);
-		const uint64 Requested = RequestedRevision.load(std::memory_order_acquire);
-		if (ResourceStateRevision != Requested) return ERenderResourceState::Pending;
+		if (ResourceStateRevision
+			!= RequestedRevision.load(std::memory_order_acquire))
+		{
+			return ERenderResourceState::Pending;
+		}
 		return ResourceState;
 	}
 
-	auto FTextureCubeRenderResource::SetResourceState(ERenderResourceState State, uint64 Revision) -> void
+	auto FTextureCubeResourceCompletion::SetResourceState(
+		ERenderResourceState State, uint64 Revision) -> void
 	{
 		std::lock_guard Lock(ResourceStateMutex);
 		ResourceState = State;
 		ResourceStateRevision = Revision;
 	}
 
-	auto FTextureCubeRenderResource::Build_RenderThread(FRHICommandListImmediate& CommandList,
-		const FTextureCubePlatformData& PlatformData, uint64 Revision) -> void
+	FTextureCubeResource::FTextureCubeResource(
+		FTextureReference* InTextureReference,
+		std::shared_ptr<const FTextureCubePlatformData> InPlatformData,
+		uint64 InRevision,
+		std::shared_ptr<FTextureCubeResourceCompletion> InCompletion)
+		: FTextureResource(InTextureReference)
+		, PlatformData(std::move(InPlatformData))
+		, Revision(InRevision)
+		, Completion(std::move(InCompletion))
+	{
+		check(PlatformData && PlatformData->IsValid());
+		check(Completion != nullptr);
+	}
+
+	FTextureCubeResource::~FTextureCubeResource() = default;
+
+	auto FTextureCubeResource::InitRHI(FRHICommandListBase& RHICmdList) -> void
 	{
 		check(IsInRenderingThread());
-		if (Revision != RequestedRevision.load(std::memory_order_acquire)) return;
-		SetResourceState(ERenderResourceState::Building, Revision);
+		if (!Completion->MarkBuilding(Revision)) return;
 
-		const FTexture2DMipData& BaseMip = PlatformData.Faces[0].Mips.front();
-		FRHITextureCreateDesc Desc = FRHITextureCreateDesc::CreateCube("DTextureCube")
-			.SetExtent(BaseMip.Width, BaseMip.Height)
-			.SetFormat(PlatformData.PixelFormat)
-			.SetNumMips(static_cast<uint8>(PlatformData.Faces[0].Mips.size()))
-			.SetFlags(ETextureCreateFlags::ShaderResource | ETextureCreateFlags::CPUReadback);
+		const FTexture2DMipData& BaseMip =
+			PlatformData->Faces[0].Mips.front();
+		FRHITextureCreateDesc Desc =
+			FRHITextureCreateDesc::CreateCube("DTextureCube")
+				.SetExtent(BaseMip.Width, BaseMip.Height)
+				.SetFormat(PlatformData->PixelFormat)
+				.SetNumMips(static_cast<uint8>(
+					PlatformData->Faces[0].Mips.size()))
+				.SetFlags(ETextureCreateFlags::ShaderResource
+					| ETextureCreateFlags::CPUReadback);
 		if (!GDynamicRHI->RHIIsTextureFormatSupported(Desc))
 		{
-			FailureReason.store(ETextureRenderFailure::UnsupportedFormat, std::memory_order_release);
-			FailedRevision.store(Revision, std::memory_order_release);
-			SetResourceState(ERenderResourceState::Failed, Revision);
-			return;
-		}
-		FTextureRHIRef NewTexture = GDynamicRHI->RHICreateTexture(CommandList, Desc);
-		if (NewTexture == nullptr)
-		{
-			FailureReason.store(ETextureRenderFailure::CreateOrUpload, std::memory_order_release);
-			FailedRevision.store(Revision, std::memory_order_release);
-			SetResourceState(ERenderResourceState::Failed, Revision);
+			Completion->MarkFailed(
+				Revision, ETextureRenderFailure::UnsupportedFormat);
 			return;
 		}
 
-		for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
+		auto& CommandList =
+			static_cast<FRHICommandListImmediate&>(RHICmdList);
+		FTextureRHIRef NewTexture =
+			GDynamicRHI->RHICreateTexture(CommandList, Desc);
+		if (NewTexture == nullptr)
 		{
-			for (uint32 MipIndex = 0; MipIndex < PlatformData.Faces[FaceIndex].Mips.size(); ++MipIndex)
+			Completion->MarkFailed(
+				Revision, ETextureRenderFailure::CreateOrUpload);
+			return;
+		}
+
+		for (uint32 FaceIndex = 0;
+			FaceIndex < TextureCubeFaceCount; ++FaceIndex)
+		{
+			for (uint32 MipIndex = 0;
+				MipIndex < PlatformData->Faces[FaceIndex].Mips.size();
+				++MipIndex)
 			{
-				const FTexture2DMipData& Mip = PlatformData.Faces[FaceIndex].Mips[MipIndex];
-				const FUpdateTextureRegion2D Region(0, 0, 0, 0, Mip.Width, Mip.Height);
-				GDynamicRHI->RHIUpdateTexture2D(CommandList, NewTexture, MipIndex, FaceIndex, Region, Mip.RowPitch, Mip.Pixels.data());
+				const FTexture2DMipData& Mip =
+					PlatformData->Faces[FaceIndex].Mips[MipIndex];
+				const FUpdateTextureRegion2D Region(
+					0, 0, 0, 0, Mip.Width, Mip.Height);
+				GDynamicRHI->RHIUpdateTexture2D(
+					CommandList, NewTexture, MipIndex, FaceIndex,
+					Region, Mip.RowPitch, Mip.Pixels.data());
 			}
 		}
 
-		if (Revision != RequestedRevision.load(std::memory_order_acquire)) return;
-		TextureRHI = std::move(NewTexture);
-		AppliedRevision = Revision;
-		FailedRevision.store(0, std::memory_order_release);
-		FailureReason.store(ETextureRenderFailure::None, std::memory_order_release);
-		SetResourceState(ERenderResourceState::Ready, Revision);
+		if (Revision != Completion->GetRequestedRevision()) return;
+		SetTextureRHI_RenderThread(std::move(NewTexture));
+		PublishTexture_RenderThread();
+		Completion->MarkReady(Revision);
 	}
 
-	auto FTextureCubeRenderResource::Release_RenderThread(uint64 Revision) -> void
+	auto FTextureCubeResource::ReleaseRHI() -> void
 	{
 		check(IsInRenderingThread());
-		if (Revision != RequestedRevision.load(std::memory_order_acquire)) return;
-		TextureRHI = nullptr;
-		AppliedRevision = Revision;
-		FailedRevision.store(0, std::memory_order_release);
-		FailureReason.store(ETextureRenderFailure::None, std::memory_order_release);
-		SetResourceState(ERenderResourceState::Released, Revision);
+		FTextureResource::ReleaseRHI();
+		Completion->MarkReleased(
+			ReleaseRevision != 0 ? ReleaseRevision : Revision);
 	}
 }

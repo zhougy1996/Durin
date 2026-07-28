@@ -102,14 +102,14 @@ namespace Durin
 			OutError = "The TextureCube preview asset is unavailable.";
 			return nullptr;
 		}
-		const std::shared_ptr<FTextureCubeRenderResource>& Resource =
-			TextureCube->GetRenderResource();
-		if (Resource == nullptr)
+		FRHITextureReferenceRef TextureReference =
+			TextureCube->GetTextureReferenceRHI();
+		if (TextureReference == nullptr)
 		{
-			OutError = "The TextureCube has no render resource.";
+			OutError = "The TextureCube has no texture reference.";
 			return nullptr;
 		}
 		return std::make_unique<FTextureCubePreviewSceneProxy>(
-			Mesh->GetRenderData(), Resource);
+			Mesh->GetRenderData(), std::move(TextureReference));
 	}
 } // namespace Durin

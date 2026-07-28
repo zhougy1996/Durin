@@ -313,8 +313,9 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		CookedTexture->GetCookedPayloadDescriptor().PayloadId,
 		Durin::Texture2DPrimaryCookedPayloadId);
 
-	auto RenderResource = CookedTexture->GetRenderResource();
-	ASSERT_NE(RenderResource, nullptr);
+	Durin::FRHITextureReferenceRef TextureReference =
+		CookedTexture->GetTextureReferenceRHI();
+	ASSERT_NE(TextureReference, nullptr);
 	Durin::FRendererModule Renderer;
 	Durin::FScene Scene;
 	Renderer.StartupModule();
@@ -359,7 +360,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		static constexpr auto GetName() -> const char* { return "ValidateCookedTextureUpload"; }
 	};
 	Durin::EnqueueRenderCommand<FValidateCookedTextureUpload>(
-		[&Renderer, &Scene, RenderResource, ExpectedPlatformData, UploadResult, SampleProxy](
+		[&Renderer, &Scene, TextureReference, ExpectedPlatformData, UploadResult, SampleProxy](
 			Durin::FRHICommandListImmediate& CommandList) {
 			Durin::GDynamicRHI->RHIBeginFrame();
 			struct FEndFrameGuard
@@ -370,7 +371,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 					Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 				}
 			} EndFrameGuard{CommandList};
-			Durin::FRHITexture* TextureRHI = RenderResource->GetTextureRHI_RenderThread();
+			Durin::FRHITexture* TextureRHI =
+				TextureReference->GetReferencedTexture_RenderThread();
 			if (!TextureRHI
 				|| TextureRHI->GetDimension() != Durin::ETextureDimension::Texture2D
 				|| TextureRHI->GetSizeX() != ExpectedPlatformData.Mips.front().Width
@@ -434,7 +436,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		static constexpr auto GetName() -> const char* { return "RetireCookedTextureResource"; }
 	};
 	Durin::EnqueueRenderCommand<FRetireCookedTextureResource>(
-		[Resource = std::move(RenderResource)](Durin::FRHICommandListImmediate&) {});
+		[Reference = std::move(TextureReference)](
+			Durin::FRHICommandListImmediate&) {});
 	Durin::FlushRenderingCommands();
 	Renderer.ShutdownModule();
 	Durin::FlushRenderingCommands();

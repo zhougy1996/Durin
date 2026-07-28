@@ -5,6 +5,7 @@
 #include "CookedAsset.h"
 #include "DObject/CoreDObject.h"
 #include "PixelFormat.h"
+#include "RHIResources.h"
 
 #include "Texture2D.gen.h"
 
@@ -12,7 +13,9 @@ namespace Durin
 {
 	struct FTextureBuildOperations;
 
-	class FTexture2DRenderResource;
+	class FTexture2DResource;
+	class FTexture2DResourceCompletion;
+	class FTextureReference;
 
 	// Identifies the decoded pixel layout retained as editable texture source data.
 	enum class ETextureSourceFormat : uint8
@@ -224,7 +227,7 @@ namespace Durin
 		std::optional<bool> bSRGB;
 	};
 
-	// Owns imported texture source, derived platform data, and a cross-thread render proxy.
+	// Owns imported texture source, derived platform data, and its render resources.
 	DCLASS()
 	class DTexture2D : public DObject
 	{
@@ -249,7 +252,11 @@ namespace Durin
 		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
-		auto GetRenderResource() const -> const std::shared_ptr<FTexture2DRenderResource>& { return RenderResource; }
+		ENGINE_API auto GetTextureReferenceRHI() const
+			-> FRHITextureReferenceRef;
+		ENGINE_API auto GetRenderResourceState() const
+			-> ERenderResourceState;
+		ENGINE_API auto GetAppliedRenderRevision() const -> uint64;
 		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
 		auto GetUsage() const -> ETextureUsage { return Usage; }
 		auto IsSRGB() const -> bool { return bSRGB; }
@@ -392,9 +399,12 @@ namespace Durin
 		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
 		bool bLoadedFromDerivedDataCache = false;
 
-		// The shared proxy can outlive this UObject while queued render commands drain.
-		// Its RHI member is intentionally never accessed through DTexture2D.
-		std::shared_ptr<FTexture2DRenderResource> RenderResource;
+		// These are the only high-level owners. Accepted render commands use raw
+		// pointers while ordered deferred cleanup retains the concrete storage.
+		std::unique_ptr<FTextureReference> TextureReference;
+		std::unique_ptr<FTexture2DResource> RenderResource;
+		std::shared_ptr<FTexture2DResourceCompletion> RenderCompletion;
+		bool bTextureReferenceInitializationQueued = false;
 		uint64 BuildRevision = 0;
 
 		// Persistent failure state. Set by the build pipeline and cleared on success.

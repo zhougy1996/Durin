@@ -10,7 +10,6 @@
 namespace Durin
 {
 	class DMaterialInterface;
-	class FTexture2DRenderResource;
 
 	// Selects the active storage field in a material parameter value.
 	DENUM()
@@ -150,8 +149,8 @@ namespace Durin
 	struct FMaterialRenderData
 	{
 		FVector4f BaseColor{0.95f, 0.62f, 0.22f, 1.0f};
-		// Scene proxies retain only the thread-safe resource proxy; reflected assets stay on the game thread.
-		std::shared_ptr<FTexture2DRenderResource> BaseColorTexture;
+		// Scene proxies retain only the counted stable RHI indirection.
+		FRHITextureReferenceRef BaseColorTexture;
 		float SpecularStrength = 0.35f;
 		float Shininess = 32.0f;
 	};

@@ -1338,14 +1338,11 @@ namespace Durin
 			SkyBoxRendering::FSkyBoxUniform Uniform;
 			if (!SkyBoxRendering::BuildUniform(View, SkyBox, Uniform)) return;
 
-			FRHITexture* Texture = GetDefaultCubeTexture_RenderThread();
-			if (SkyBox.TextureResource != nullptr)
-			{
-				if (FRHITexture* ReadyTexture = SkyBox.TextureResource->GetTextureRHI_RenderThread())
-				{
-					Texture = ReadyTexture;
-				}
-			}
+			FRHITexture* Texture = SkyBox.TextureReference != nullptr
+				? SkyBox.TextureReference->GetReferencedTexture_RenderThread()
+				: nullptr;
+			if (Texture == nullptr)
+				Texture = GetDefaultCubeTexture_RenderThread();
 			if (Texture == nullptr) return;
 
 			CommandList.SetGraphicsPipelineState(*GSkyBoxState.PipelineState);
@@ -1420,11 +1417,11 @@ namespace Durin
 			const FSceneView& View,
 			const FTextureCubePreviewSceneProxy& Proxy) -> void
 		{
-			const std::shared_ptr<FTextureCubeRenderResource>& TextureResource =
-				Proxy.GetTextureResource();
-			if (TextureResource == nullptr || !TextureResource->IsReady_RenderThread())
-				return;
-			FRHITexture* Texture = TextureResource->GetTextureRHI_RenderThread();
+			const FRHITextureReferenceRef& TextureReference =
+				Proxy.GetTextureReference();
+			if (TextureReference == nullptr) return;
+			FRHITexture* Texture =
+				TextureReference->GetReferencedTexture_RenderThread();
 			if (Texture == nullptr) return;
 
 			if (GSkyBoxState.PipelineState == nullptr
@@ -1719,12 +1716,18 @@ namespace Durin
 		return GDefaultTextures.White;
 	}
 
-	auto ResolveTexture_RenderThread(const std::shared_ptr<FTexture2DRenderResource>& Resource, EDefaultTexture Fallback) -> FRHITexture*
+	auto ResolveTexture_RenderThread(
+		const FRHITextureReferenceRef& TextureReference,
+		EDefaultTexture Fallback) -> FRHITexture*
 	{
 		check(IsInRenderingThread());
-		if (Resource != nullptr)
+		if (TextureReference != nullptr)
 		{
-			if (FRHITexture* Texture = Resource->GetTextureRHI_RenderThread()) return Texture;
+			if (FRHITexture* Texture =
+				TextureReference->GetReferencedTexture_RenderThread())
+			{
+				return Texture;
+			}
 		}
 		return GetDefaultTexture_RenderThread(Fallback);
 	}

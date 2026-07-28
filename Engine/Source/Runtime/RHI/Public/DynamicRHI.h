@@ -37,6 +37,11 @@ namespace Durin
 		// Checks the exact format and usage contract without allocating a resource.
 		virtual auto RHIIsTextureFormatSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool = 0;
 		virtual auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture> = 0;
+		// Updates a stable texture identity. Backends may override this to update
+		// descriptor or bindless state together with the referenced allocation.
+		RHI_API virtual auto RHIUpdateTextureReference(
+			FRHITextureReference* TextureReference,
+			FRHITexture* NewTexture) -> void;
 		virtual auto RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler> = 0;
 		virtual auto RHICreateShader(const FRHIShaderCreateDesc& CreateDesc) -> TRefCountPtr<FRHIShader> = 0;
 		virtual auto RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer> = 0;

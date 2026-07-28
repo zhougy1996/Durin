@@ -55,9 +55,9 @@ namespace Durin
 
 	FTextureCubePreviewSceneProxy::FTextureCubePreviewSceneProxy(
 		FStaticMeshRenderData* InRenderData,
-		std::shared_ptr<FTextureCubeRenderResource> InTextureResource)
+		FRHITextureReferenceRef InTextureReference)
 		: RenderData(InRenderData)
-		, TextureResource(std::move(InTextureResource))
+		, TextureReference(std::move(InTextureReference))
 	{
 	}
 }
