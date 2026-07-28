@@ -1,9 +1,15 @@
 {
-  "cmakeCommand": "",
-  "defaultBuildProfile": "",
-  "jobs": 0,
-  "environmentSetup": {
-    "script": "",
-    "arguments": []
+  "$schema": "../Tools/DurinDevTool/build-config.schema.json",
+  "version": 1,
+  "build": {
+    "defaultProfile": null,
+    "parallelJobs": "auto"
+  },
+  "cmake": {
+    "command": null
+  },
+  "toolchain": {
+    "environmentScript": null,
+    "environmentArguments": []
   }
 }

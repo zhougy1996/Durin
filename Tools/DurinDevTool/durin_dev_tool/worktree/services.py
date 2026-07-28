@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import stat
 import subprocess
@@ -13,6 +12,7 @@ from pathlib import Path
 from typing import Iterator, Sequence
 
 from ..bootstrap.preflight import validate_prerequisites
+from ..build.config import BuildToolError, load_local_config
 from ..configuration import load_repository_config
 from ..repository import discover_repository_root
 
@@ -171,23 +171,17 @@ def environment_arguments(worktree: Path) -> list[str]:
         )
         return []
     try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-        environment_setup = config.get("environmentSetup") or {}
-        setup_script = environment_setup.get("script")
-        arguments = environment_setup.get("arguments") or []
-    except (OSError, json.JSONDecodeError, AttributeError) as exc:
+        config = load_local_config(config_path)
+    except (BuildToolError, OSError) as exc:
         raise WorktreeToolError(f'Could not read Agent config "{config_path}": {exc}') from exc
 
+    setup_script = config.environment_setup.script
     if not setup_script:
         return []
     setup_path = Path(setup_script)
     if not setup_path.is_file():
         raise WorktreeToolError(f'Environment setup script does not exist: "{setup_path}"')
-    if not isinstance(arguments, list) or not all(isinstance(value, str) for value in arguments):
-        raise WorktreeToolError(
-            f'Agent config environmentSetup.arguments must be an array of strings: "{config_path}"'
-        )
-    return [str(setup_path), *arguments]
+    return [str(setup_path), *config.environment_setup.arguments]
 
 
 def add_terminal_pane_arguments(

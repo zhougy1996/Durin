@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import json
 import os
 import re
 import shutil
@@ -10,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from ..build.config import BuildToolError, load_local_config
 from ..configuration import load_repository_config
 from ..repository import discover_repository_root
 
@@ -97,11 +97,10 @@ def configured_cmake_command(repository_root: Path | None = None) -> str:
         return environment_command
     config_path = repository_root / REPOSITORY_CONFIG.paths.local_build_config
     try:
-        value = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return "cmake"
-    configured = value.get("cmakeCommand") if isinstance(value, dict) else None
-    return configured if isinstance(configured, str) and configured else "cmake"
+        config = load_local_config(config_path)
+    except BuildToolError as exc:
+        raise RuntimeError(str(exc)) from exc
+    return config.cmake_command or "cmake"
 
 
 def configured_visual_studio_environment(
@@ -110,23 +109,16 @@ def configured_visual_studio_environment(
     repository_root = repository_root or REPO_ROOT
     config_path = repository_root / REPOSITORY_CONFIG.paths.local_build_config
     try:
-        value = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None, []
-    setup = value.get("environmentSetup") if isinstance(value, dict) else None
-    if not isinstance(setup, dict):
-        return None, []
-    script = setup.get("script")
-    arguments = setup.get("arguments")
+        config = load_local_config(config_path)
+    except BuildToolError as exc:
+        raise RuntimeError(str(exc)) from exc
+    script = config.environment_setup.script
     configured_script = (
-        Path(script).expanduser().resolve() if isinstance(script, str) and script.strip() else None
+        Path(script).expanduser().resolve()
+        if script
+        else None
     )
-    configured_arguments = (
-        arguments
-        if isinstance(arguments, list) and all(isinstance(argument, str) for argument in arguments)
-        else []
-    )
-    return configured_script, configured_arguments
+    return configured_script, list(config.environment_setup.arguments)
 
 
 def check_cmake(repository_root: Path | None = None) -> str | None:

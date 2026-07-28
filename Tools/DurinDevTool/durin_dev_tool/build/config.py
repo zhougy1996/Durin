@@ -214,6 +214,22 @@ def load_json_object(path: Path, *, label: str) -> dict[str, Any]:
     return value
 
 
+def optional_nullable_string(
+    container: Mapping[str, Any],
+    key: str,
+    *,
+    label: str,
+) -> str:
+    value = container.get(key)
+    if value is None:
+        return ""
+    if not isinstance(value, str) or not value.strip():
+        raise BuildToolError(
+            f'{label} field "{key}" must be null or a non-empty string.'
+        )
+    return value.strip()
+
+
 def optional_string(container: Mapping[str, Any], key: str, *, label: str) -> str:
     value = container.get(key, "")
     if not isinstance(value, str):
@@ -221,33 +237,97 @@ def optional_string(container: Mapping[str, Any], key: str, *, label: str) -> st
     return value.strip()
 
 
+def optional_object(
+    container: Mapping[str, Any],
+    key: str,
+    *,
+    label: str,
+) -> dict[str, Any]:
+    value = container.get(key, {})
+    if not isinstance(value, dict):
+        raise BuildToolError(f'{label} field "{key}" must be an object.')
+    return value
+
+
+def reject_unknown_fields(
+    container: Mapping[str, Any],
+    allowed: set[str],
+    *,
+    label: str,
+) -> None:
+    unknown = sorted(set(container) - allowed)
+    if unknown:
+        raise BuildToolError(
+            f'{label} contains unknown field(s): {", ".join(unknown)}.'
+        )
+
+
 def load_local_config(path: Path = LOCAL_CONFIG_FILE) -> LocalConfig:
     if not path.is_file():
         return LocalConfig()
     raw = load_json_object(path, label="DurinDevTool config")
-    unknown = sorted(set(raw) - {"cmakeCommand", "defaultBuildProfile", "jobs", "environmentSetup"})
-    if unknown:
-        raise BuildToolError(f'DurinDevTool config contains unknown field(s): {", ".join(unknown)}.')
-    jobs = raw.get("jobs", 0)
-    if isinstance(jobs, bool) or not isinstance(jobs, int) or not 0 <= jobs <= 256:
-        raise BuildToolError('DurinDevTool config field "jobs" must be an integer from 0 to 256.')
-    setup = raw.get("environmentSetup", {})
-    if not isinstance(setup, dict):
-        raise BuildToolError('DurinDevTool config field "environmentSetup" must be an object.')
-    unknown_setup = sorted(set(setup) - {"script", "arguments"})
-    if unknown_setup:
+    reject_unknown_fields(
+        raw,
+        {"$schema", "version", "build", "cmake", "toolchain"},
+        label="DurinDevTool config",
+    )
+    if raw.get("version") != 1:
+        raise BuildToolError('DurinDevTool config field "version" must be 1.')
+
+    build = optional_object(raw, "build", label="DurinDevTool config")
+    reject_unknown_fields(
+        build,
+        {"defaultProfile", "parallelJobs"},
+        label="DurinDevTool config build",
+    )
+    jobs = build.get("parallelJobs", "auto")
+    if jobs == "auto":
+        resolved_jobs = 0
+    elif isinstance(jobs, bool) or not isinstance(jobs, int) or not 1 <= jobs <= 256:
         raise BuildToolError(
-            "DurinDevTool config environmentSetup contains unknown field(s): " + ", ".join(unknown_setup) + "."
+            'DurinDevTool config field "build.parallelJobs" must be "auto" '
+            "or an integer from 1 to 256."
         )
-    arguments = setup.get("arguments", [])
+    else:
+        resolved_jobs = jobs
+
+    cmake = optional_object(raw, "cmake", label="DurinDevTool config")
+    reject_unknown_fields(
+        cmake,
+        {"command"},
+        label="DurinDevTool config cmake",
+    )
+
+    toolchain = optional_object(raw, "toolchain", label="DurinDevTool config")
+    reject_unknown_fields(
+        toolchain,
+        {"environmentScript", "environmentArguments"},
+        label="DurinDevTool config toolchain",
+    )
+    arguments = toolchain.get("environmentArguments", [])
     if not isinstance(arguments, list) or not all(isinstance(item, str) for item in arguments):
-        raise BuildToolError('DurinDevTool config field "environmentSetup.arguments" must be an array of strings.')
+        raise BuildToolError(
+            'DurinDevTool config field "toolchain.environmentArguments" '
+            "must be an array of strings."
+        )
     return LocalConfig(
-        cmake_command=optional_string(raw, "cmakeCommand", label="DurinDevTool config"),
-        default_build_profile=optional_string(raw, "defaultBuildProfile", label="DurinDevTool config"),
-        jobs=jobs,
+        cmake_command=optional_nullable_string(
+            cmake,
+            "command",
+            label="DurinDevTool config cmake",
+        ),
+        default_build_profile=optional_nullable_string(
+            build,
+            "defaultProfile",
+            label="DurinDevTool config build",
+        ),
+        jobs=resolved_jobs,
         environment_setup=EnvironmentSetup(
-            script=optional_string(setup, "script", label="DurinDevTool config environmentSetup"),
+            script=optional_nullable_string(
+                toolchain,
+                "environmentScript",
+                label="DurinDevTool config toolchain",
+            ),
             arguments=tuple(arguments),
         ),
     )
@@ -493,7 +573,7 @@ def resolve_cmake_command(
     if not detected:
         raise BuildToolError(
             f'CMake command "{command}" was not found. Set --cmake, DURIN_CMAKE_COMMAND, '
-            f'or cmakeCommand in "{LOCAL_CONFIG_FILE}".'
+            f'or cmake.command in "{LOCAL_CONFIG_FILE}".'
         )
     return detected
 

@@ -59,8 +59,13 @@ linked worktree rather than silently using a different system Python.
 Machine-specific CMake, build-profile, environment, or job overrides belong in
 `.agents/build-config.json`. Normally, leave them empty and let the build driver
 detect the Visual Studio environment and parallelism. Setup's preflight honors
-both `cmakeCommand` and `environmentSetup`; the third-party bootstrap also uses
-`cmakeCommand`, and `CMAKE_COMMAND` still takes precedence during Setup.
+both `cmake.command` and `toolchain.environmentScript`; the third-party
+bootstrap also uses `cmake.command`, and `CMAKE_COMMAND` still takes precedence
+during Setup. The file uses schema version 1; `null` means no path or profile
+override, while `build.parallelJobs: "auto"` selects detected parallelism.
+The generated file references
+`Tools/DurinDevTool/build-config.schema.json` for editor completion and field
+documentation.
 
 Tracked DurinDevTool repository structure and command-group enablement live in
 `Tools/DurinDevTool/DevTool.json`. Its paths are repository-relative and are

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "build-config.schema.json",
+  "title": "DurinDevTool machine-local build configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1,
+      "description": "Machine-local configuration schema version."
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Default build selection and local parallelism overrides.",
+      "properties": {
+        "defaultProfile": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "Host build profile name, or null to select the repository default."
+        },
+        "parallelJobs": {
+          "description": "Parallel job count, or \"auto\" to derive it from the host CPU count.",
+          "oneOf": [
+            {
+              "const": "auto"
+            },
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256
+            }
+          ]
+        }
+      }
+    },
+    "cmake": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "CMake executable override.",
+      "properties": {
+        "command": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "CMake executable name or path, or null for automatic discovery."
+        }
+      }
+    },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional script used to populate the compiler toolchain environment.",
+      "properties": {
+        "environmentScript": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "Environment setup script path, or null for host-specific automatic detection."
+        },
+        "environmentArguments": {
+          "type": "array",
+          "description": "Arguments passed to environmentScript in order.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

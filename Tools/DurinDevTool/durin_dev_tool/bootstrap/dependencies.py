@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
+from ..build.config import BuildToolError, load_local_config
 from ..configuration import load_repository_config
 from ..repository import discover_repository_root
 
@@ -69,11 +70,10 @@ def configured_cmake_command() -> str:
         return environment_command
     config_path = REPO_ROOT / REPOSITORY_CONFIG.paths.local_build_config
     try:
-        value = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return "cmake"
-    configured = value.get("cmakeCommand") if isinstance(value, dict) else None
-    return configured if isinstance(configured, str) and configured else "cmake"
+        config = load_local_config(config_path)
+    except BuildToolError as exc:
+        raise BootstrapError(str(exc)) from exc
+    return config.cmake_command or "cmake"
 
 
 def detect_platform_name() -> str:

@@ -15,6 +15,7 @@ PRODUCT_ROOT = REPOSITORY_ROOT / 'Tools' / 'DurinDevTool'
 if str(PRODUCT_ROOT) not in sys.path:
     sys.path.insert(0, str(PRODUCT_ROOT))
 from durin_dev_tool.bootstrap import agent_config, dependencies, handler, preflight, setup
+from durin_dev_tool.build import config as build_config
 from durin_dev_tool.registry import Capability, CommandRegistry
 from durin_dev_tool.worktree import services
 
@@ -35,6 +36,23 @@ class TestThirdPartyBootstrap:
     def test_explicit_development_dependency_preserves_requested_order(self) -> None:
         selected = dependencies.resolve_selected_manifests(self.make_manifests(), use_all=False, libs_arg='tracy,normal', with_tests=False, with_development=False)
         assert [manifest['name'] for manifest in selected] == ['tracy', 'normal']
+
+    def test_configured_cmake_uses_typed_local_config(
+        self,
+        tmp_path_factory: pytest.TempPathFactory,
+    ) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        config_path = root / '.agents' / 'build-config.json'
+        config_path.parent.mkdir()
+        config_path.write_text(
+            json.dumps({'version': 1, 'cmake': {'command': 'custom-cmake'}}),
+            encoding='utf-8',
+        )
+        with dependencies.repository_paths(root), mock.patch.dict(
+            dependencies.os.environ,
+            {'CMAKE_COMMAND': ''},
+        ):
+            assert dependencies.configured_cmake_command() == 'custom-cmake'
 
     def test_development_only_must_be_boolean(self) -> None:
         manifests = self.make_manifests()
@@ -108,6 +126,30 @@ class TestThirdPartyBootstrap:
         assert not (root / 'packages').exists()
 
 class TestWorktreeTool:
+
+    def test_terminal_environment_uses_typed_local_config(
+        self,
+        tmp_path_factory: pytest.TempPathFactory,
+    ) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        script = root / 'toolchain' / 'setup.cmd'
+        script.parent.mkdir()
+        script.touch()
+        config_path = root / '.agents' / 'build-config.json'
+        config_path.parent.mkdir()
+        config_path.write_text(
+            json.dumps(
+                {
+                    'version': 1,
+                    'toolchain': {
+                        'environmentScript': str(script),
+                        'environmentArguments': ['x64'],
+                    },
+                }
+            ),
+            encoding='utf-8',
+        )
+        assert services.environment_arguments(root) == [str(script), 'x64']
 
     def test_worktree_porcelain_parser_preserves_branch_and_lock_state(self) -> None:
         worktrees = services.parse_worktrees('worktree C:/repo\nHEAD 0123456789\nbranch refs/heads/main\n\nworktree C:/repo-feature\nHEAD abcdef0123\ndetached\nlocked in use\n')
@@ -295,10 +337,14 @@ class TestSetupPreflight:
         with mock.patch.object(preflight, 'read_windows_long_paths_enabled', return_value=True):
             assert preflight.check_windows_long_paths() is None
 
-    def test_cmake_minimum_version_is_checked(self) -> None:
+    def test_cmake_minimum_version_is_checked(
+        self,
+        tmp_path_factory: pytest.TempPathFactory,
+    ) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
         completed = subprocess.CompletedProcess(['cmake', '--version'], 0, 'cmake version 3.23.5\n', '')
         with mock.patch.object(preflight, 'command_path', return_value='cmake'), mock.patch.object(preflight.subprocess, 'run', return_value=completed):
-            error = preflight.check_cmake()
+            error = preflight.check_cmake(root)
         assert 'requires 3.24 or newer' in (error or '')
 
     def test_visual_studio_environment_override_is_loaded_from_agent_config(self, tmp_path_factory: pytest.TempPathFactory) -> None:
@@ -306,7 +352,7 @@ class TestSetupPreflight:
         root = Path(directory)
         config = root / '.agents' / 'build-config.json'
         config.parent.mkdir(parents=True)
-        config.write_text(json.dumps({'environmentSetup': {'script': str(root / 'toolchain/VsDevCmd.bat'), 'arguments': ['-arch=x64', '-host_arch=x64']}}), encoding='utf-8')
+        config.write_text(json.dumps({'version': 1, 'toolchain': {'environmentScript': str(root / 'toolchain/VsDevCmd.bat'), 'environmentArguments': ['-arch=x64', '-host_arch=x64']}}), encoding='utf-8')
         with mock.patch.object(preflight, 'REPO_ROOT', root):
             script, arguments = preflight.configured_visual_studio_environment()
         assert script == (root / 'toolchain/VsDevCmd.bat').resolve()
@@ -336,7 +382,7 @@ class TestAgentConfigLifecycle:
     def create_repo(root: Path) -> None:
         template = root / agent_config.TEMPLATE_RELATIVE_PATH
         template.parent.mkdir(parents=True)
-        template.write_text('{"cmakeCommand": ""}\n', encoding='utf-8')
+        template.write_text('{"version": 1}\n', encoding='utf-8')
 
     def test_initialize_is_idempotent(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
@@ -405,11 +451,12 @@ class TestVSCodeConfigLifecycle:
         assert not (root / '.vscode').exists()
 
     def test_launch_configuration_covers_registered_windows_presets(self) -> None:
-        launch = setup.generate_vscode_launch_configuration(
-            REPOSITORY_ROOT,
-            current_host='windows',
-            environment={},
-        )
+        with mock.patch.object(setup, 'load_local_config', return_value=build_config.LocalConfig()):
+            launch = setup.generate_vscode_launch_configuration(
+                REPOSITORY_ROOT,
+                current_host='windows',
+                environment={},
+            )
         configurations = {
             item['name']: item
             for item in launch['configurations']

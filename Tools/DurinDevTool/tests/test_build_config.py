@@ -38,10 +38,16 @@ class TestBuildConfig:
         config = build_config.load_local_config(Path(directory) / 'missing.json')
         assert config == build_config.LocalConfig()
 
+    def test_repository_template_uses_automatic_defaults(self) -> None:
+        config = build_config.load_local_config(
+            REPO_ROOT / 'Templates' / 'DurinDevTool' / 'build-config.json'
+        )
+        assert config == build_config.LocalConfig()
+
     def test_valid_config_uses_typed_models(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         path = Path(directory) / 'config.json'
-        path.write_text(json.dumps({'cmakeCommand': 'custom-cmake', 'defaultBuildProfile': 'windows-msvc-x64', 'jobs': 8, 'environmentSetup': {'script': 'setup.cmd', 'arguments': ['x64']}}), encoding='utf-8')
+        path.write_text(json.dumps({'version': 1, 'build': {'defaultProfile': 'windows-msvc-x64', 'parallelJobs': 8}, 'cmake': {'command': 'custom-cmake'}, 'toolchain': {'environmentScript': 'setup.cmd', 'environmentArguments': ['x64']}}), encoding='utf-8')
         config = build_config.load_local_config(path)
         assert config.cmake_command == 'custom-cmake'
         assert config.jobs == 8
@@ -53,11 +59,14 @@ class TestBuildConfig:
         path.write_text('{', encoding='utf-8')
         with pytest.raises(build_config.BuildToolError, match='invalid JSON'):
             build_config.load_local_config(path)
-        path.write_text(json.dumps({'cmakeCommand': 42}), encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match='must be a string'):
+        path.write_text(json.dumps({'version': 1, 'cmake': {'command': 42}}), encoding='utf-8')
+        with pytest.raises(build_config.BuildToolError, match='null or a non-empty string'):
             build_config.load_local_config(path)
-        path.write_text(json.dumps({'jobs': 257}), encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match='integer from 0 to 256'):
+        path.write_text(json.dumps({'version': 1, 'build': {'parallelJobs': 257}}), encoding='utf-8')
+        with pytest.raises(build_config.BuildToolError, match='integer from 1 to 256'):
+            build_config.load_local_config(path)
+        path.write_text(json.dumps({'cmakeCommand': 'legacy-cmake'}), encoding='utf-8')
+        with pytest.raises(build_config.BuildToolError, match='unknown field'):
             build_config.load_local_config(path)
 
     def test_repository_profiles_reference_existing_presets(self) -> None:
