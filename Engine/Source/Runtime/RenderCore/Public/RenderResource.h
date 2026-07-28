@@ -97,6 +97,14 @@ namespace Durin
 			return LifetimeRevision;
 		}
 
+#if DURIN_BUILD_DEBUG
+		RENDERCORE_API auto SetDebugName(std::string InDebugName) -> void;
+		auto GetDebugName() const -> const std::string&
+		{
+			return DebugName;
+		}
+#endif
+
 	protected:
 
 		// Helper for submitting a resource array to RHI and freeing eligible CPU memory
@@ -136,6 +144,9 @@ namespace Durin
 		bool bRHIInitialized = false;
 		std::string LifetimeOwner = "<unspecified>";
 		uint64 LifetimeRevision = 0;
+#if DURIN_BUILD_DEBUG
+		std::string DebugName;
+#endif
 	};
 
 	class FDeferredRenderResourceCleanup;

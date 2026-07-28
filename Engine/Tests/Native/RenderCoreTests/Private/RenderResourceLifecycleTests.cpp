@@ -104,6 +104,13 @@ namespace Durin
 
 		BeginInitResource(ResourceView);
 		BeginUpdateResourceRHI(ResourceView);
+#if DURIN_BUILD_DEBUG
+		ENQUEUE_RENDER_COMMAND(ObserveResourceDiagnostics)(
+			[ResourceView](FRHICommandListImmediate&) {
+				EXPECT_EQ(ResourceView->GetDebugName(),
+					"FTestRenderResource");
+			});
+#endif
 		BeginReleaseResource(ResourceView);
 		BeginCleanupRenderResource(
 			FDeferredRenderResourceCleanup(std::move(Resource)));

@@ -116,10 +116,32 @@ namespace Durin
 	{
 		if (IsInitialized())
 		{
+#if DURIN_BUILD_DEBUG
+			DURIN_ERROR(
+				"Render resource was not released before destruction: "
+				"debug_name='{}', owner='{}', revision={}, list_index={}, "
+				"lifecycle_phase={}, init_phase={}, address={}.",
+				GetDebugName(), GetLifetimeOwner(),
+				GetLifetimeRevision(), GetListIndex(),
+				IsRHIInitialized()
+					? "rhi_initialized"
+					: "registered_rhi_released",
+				GetInitPhase() == EInitPhase::Pre ? "pre" : "default",
+				static_cast<const void*>(this));
+#else
 			DURIN_ERROR("A FRenderResource was not released before destruction.");
+#endif
 		}
 	}
 	void FRenderResource::InitRHI(FRHICommandListBase& RHICmdList) {}
+
+#if DURIN_BUILD_DEBUG
+	auto FRenderResource::SetDebugName(std::string InDebugName) -> void
+	{
+		check(!IsInitialized());
+		DebugName = std::move(InDebugName);
+	}
+#endif
 
 	auto FRenderResource::SetLifetimeDiagnostic(
 		std::string InOwner, uint64 InRevision) -> void
@@ -138,6 +160,9 @@ namespace Durin
 			return;
 		}
 
+#if DURIN_BUILD_DEBUG
+		if (DebugName.empty()) DebugName = GetFriendlyName();
+#endif
 		ListIndex = static_cast<uint32>(RenderResources.size());
 		RenderResources.push_back(this);
 		InitRHI(RHICmdList);
