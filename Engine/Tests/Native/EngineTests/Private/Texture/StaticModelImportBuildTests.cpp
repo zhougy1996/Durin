@@ -367,3 +367,46 @@ TEST(FStaticModelImportBuildTests, CompletesAllCollisionPreflightBeforeDdcOrSour
 		if (It->is_regular_file()) ++DerivedObjectCount;
 	EXPECT_EQ(DerivedObjectCount, 0u);
 }
+
+TEST(FStaticModelImportBuildTests, RejectsExternalInputChangedAfterPreparation)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	FScopedDerivedDataCacheRoot CacheRoot(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticModelImportChangedInputDDC");
+	const std::filesystem::path External =
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "ChangedExternalModelImage.png";
+	WriteTextureFixture(External);
+
+	Durin::FMultiAssetImportTransaction Transaction;
+	Transaction.AddTexture({
+		.AssetPath = MakeAssetPath("/TextureImportTests/StaticModelImport/ChangedInput"),
+		.ExternalSource = External,
+		.SourceDestination = {.Path = "/TextureImportTests/Models/Embedded/ChangedInput.png"},
+		.Settings = {.Usage = Durin::ETextureUsage::Color, .bSRGB = true},
+		.bRootPackage = true});
+	std::string Error;
+	ASSERT_TRUE(Transaction.Prepare(Error)) << Error;
+	{
+		std::ofstream Stream(External, std::ios::binary | std::ios::trunc);
+		Stream << "changed after resolved plan construction";
+	}
+
+	EXPECT_FALSE(Transaction.Stage(Error));
+	EXPECT_NE(Error.find("changed after transaction resolution"), std::string::npos);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(MakeAssetPath(
+		"/TextureImportTests/StaticModelImport/ChangedInput")), nullptr);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(MakeAssetPath(
+		"/TextureImportTests/StaticModelImport/ChangedInput")), nullptr);
+	EXPECT_FALSE(std::filesystem::exists(PackageFile("ChangedInput")));
+	EXPECT_FALSE(std::filesystem::exists(SourceFile("ChangedInput.png")));
+
+	const std::filesystem::path DdcRoot =
+		std::filesystem::path(Durin::FPaths::DerivedDataCacheDir()) / "Textures" / "Objects";
+	size_t DerivedObjectCount = 0;
+	std::error_code Ec;
+	for (std::filesystem::recursive_directory_iterator It(DdcRoot, Ec), End;
+		!Ec && It != End; It.increment(Ec))
+		if (It->is_regular_file()) ++DerivedObjectCount;
+	EXPECT_EQ(DerivedObjectCount, 0u);
+}

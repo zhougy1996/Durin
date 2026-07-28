@@ -9,9 +9,9 @@ Completed:
 
 ## Current Status
 
-Stages 0 and 1 are complete. Stage 1 started from baseline
-`f211678b` (`test(import): freeze format adapter seams`). Stage 2 is the next
-executable stage.
+Stages 0 through 2 are complete. Stage 2 started from baseline
+`10770985` (`refactor(import): isolate static model format adapters`). Stage 3
+is the next executable stage.
 
 The current implementation has the intended external architecture: one
 format-neutral `FImportedSceneData` boundary, editor-only source parsing,
@@ -383,21 +383,21 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Add the immutable resolved package, source, texture, mutation, and root
+- [x] Add the immutable resolved package, source, texture, mutation, and root
   publication records selected in Stage 0.
-- [ ] Resolve and read every external input once, then retain the exact bytes,
+- [x] Resolve and read every external input once, then retain the exact bytes,
   hash, identity, and filesystem observation required for later
   source-change detection.
-- [ ] Perform all package/source identity, collision, containment, mount,
+- [x] Perform all package/source identity, collision, containment, mount,
   byte-reuse, and staging-path checks while building the resolved plan.
-- [ ] Make candidate construction consume only resolved records and reject
+- [x] Make candidate construction consume only resolved records and reject
   changed external inputs without repeating policy resolution.
-- [ ] Split the current monolithic `Prepare` implementation into named
+- [x] Split the current monolithic `Prepare` implementation into named
   resolution, candidate-construction, and final-consistency helpers.
-- [ ] Preserve mounted reference, explicit ingestion, deterministic embedded
+- [x] Preserve mounted reference, explicit ingestion, deterministic embedded
   extraction, byte-identical reuse, root-last publication, registry ordering,
   and caller mutation rollback behavior.
-- [ ] Add focused tests proving no package creation or DDC write occurs before
+- [x] Add focused tests proving no package creation or DDC write occurs before
   complete preflight and no request is resolved twice.
 
 #### Acceptance Gate
@@ -406,6 +406,26 @@ Dependencies: Stage 1.
   and publication, complete preflight precedes every mutation, changed inputs
   fail deterministically, and all successful and rollback Stage 2 fixtures
   retain their previous externally visible results.
+
+#### Stage 2 Handoff
+
+- Baseline commit: `10770985`.
+- Working set: `StaticModelImportBuild.cpp`,
+  `StaticModelImportBuildTests.cpp`, and this plan.
+- Key symbols and decisions: `FResolvedImportPlan` owns resolved package,
+  source, texture, mutation, and root records. `ResolvePlan` performs all
+  filesystem and policy resolution; `BuildCandidates` uses retained bytes and
+  hashes; `ValidatePreparedPlan` checks the materialized package set. Runtime
+  publication state is stored separately so the resolved records remain
+  unchanged.
+- External-input decision: resolution observes size and last-write time both
+  before and after its single read. Candidate construction, staging, and
+  publication reject a later observation mismatch and never reread the input.
+- Validation: all 9 `FStaticModelImportBuildTests` passed, including complete
+  collision preflight and changed-input rollback. Targeted source inspection
+  confirmed external `LoadBytes` is confined to `ResolvePlan`; candidate
+  construction performs no path classification, mount-policy check, or source
+  read.
 
 ### Stage 3: Make rollback tests exercise real work boundaries
 

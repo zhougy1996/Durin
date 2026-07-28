@@ -112,14 +112,54 @@ namespace Durin
 
 	struct FMultiAssetImportTransaction::FImpl
 	{
-		struct FSourceOperation
+		struct FResolvedPackage
+		{
+			DPackage* Package = nullptr;
+			FAssetPath AssetPath;
+			std::filesystem::path PhysicalPath;
+		};
+
+		struct FResolvedSource
 		{
 			FSourcePath SourcePath;
 			std::filesystem::path PhysicalPath;
 			std::filesystem::path StagedPath;
+			std::filesystem::path ExternalInputPath;
 			std::vector<uint8> Bytes;
+			FXxHash128 ContentHash;
+			std::filesystem::file_time_type ObservedLastWriteTime{};
+			uintmax_t ObservedFileSize = 0;
 			bool bRequiresWrite = false;
-			bool bPublished = false;
+		};
+
+		struct FResolvedTexture
+		{
+			FAssetPath AssetPath;
+			std::filesystem::path PackagePath;
+			FTexture2DImportSettings Settings;
+			size_t SourceIndex = 0;
+		};
+
+		struct FResolvedMutation
+		{
+			std::function<bool(std::string&)> Apply;
+			std::function<void()> Rollback;
+		};
+
+		struct FResolvedRoot
+		{
+			DPackage* ExistingPackage = nullptr;
+			std::optional<size_t> TextureIndex;
+		};
+
+		// Owns every path, byte payload, and policy decision needed after preflight.
+		struct FResolvedImportPlan
+		{
+			std::vector<FResolvedPackage> Packages;
+			std::vector<FResolvedSource> Sources;
+			std::vector<FResolvedTexture> Textures;
+			std::vector<FResolvedMutation> Mutations;
+			FResolvedRoot Root;
 		};
 
 		struct FPreparedTexture
@@ -129,18 +169,15 @@ namespace Durin
 			bool bDerivedDataExisted = false;
 		};
 
-		struct FMutation
-		{
-			std::function<bool(std::string&)> Apply;
-			std::function<void()> Rollback;
-			bool bApplied = false;
-		};
-
 		std::vector<FPortableTextureBuildRequest> Requests;
+		std::vector<DPackage*> RequestedPackages;
+		std::vector<FResolvedMutation> RequestedMutations;
+		DPackage* RequestedRootPackage = nullptr;
 		std::vector<FPreparedTexture> PreparedTextures;
-		std::vector<FSourceOperation> Sources;
-		std::vector<DPackage*> Packages;
-		std::vector<FMutation> Mutations;
+		FResolvedImportPlan Plan;
+		std::vector<DPackage*> PreparedPackages;
+		std::vector<bool> PublishedSources;
+		std::vector<bool> AppliedMutations;
 		std::vector<DTexture2D*> Textures;
 		DPackage* RootPackage = nullptr;
 		EImportTransactionFailurePoint FailurePoint = EImportTransactionFailurePoint::None;
@@ -165,6 +202,11 @@ namespace Durin
 				static_cast<uint32>(Point));
 			return true;
 		}
+
+		auto ResolvePlan(std::string& OutError) -> bool;
+		auto BuildCandidates(std::string& OutError) -> bool;
+		auto ValidatePreparedPlan(std::string& OutError) -> bool;
+		auto VerifyExternalInputs(std::string& OutError) const -> bool;
 	};
 
 	FMultiAssetImportTransaction::FMultiAssetImportTransaction()
@@ -186,8 +228,8 @@ namespace Durin
 	auto FMultiAssetImportTransaction::AddPackage(DPackage* Package, bool bRootPackage) -> void
 	{
 		check(!Impl->bAttempted);
-		if (Package) Impl->Packages.push_back(Package);
-		if (bRootPackage) Impl->RootPackage = Package;
+		if (Package) Impl->RequestedPackages.push_back(Package);
+		if (bRootPackage) Impl->RequestedRootPackage = Package;
 	}
 
 	auto FMultiAssetImportTransaction::AddLoadedObjectMutation(
@@ -195,7 +237,7 @@ namespace Durin
 		std::function<void()> Rollback) -> void
 	{
 		check(!Impl->bAttempted);
-		Impl->Mutations.push_back({std::move(Apply), std::move(Rollback)});
+		Impl->RequestedMutations.push_back({std::move(Apply), std::move(Rollback)});
 	}
 
 	auto FMultiAssetImportTransaction::SetFailurePoint(
@@ -207,23 +249,11 @@ namespace Durin
 		Impl->FailureOccurrence = Occurrence;
 	}
 
-	auto FMultiAssetImportTransaction::Prepare(std::string& OutError) -> bool
+	auto FMultiAssetImportTransaction::FImpl::ResolvePlan(std::string& OutError) -> bool
 	{
-		if (Impl->bAttempted)
-		{
-			OutError = "The multi-asset import transaction has already been attempted.";
-			return false;
-		}
-		Impl->bAttempted = true;
-		if (Impl->Requests.empty() && Impl->Packages.empty())
-		{
-			OutError = "The multi-asset import transaction has no outputs.";
-			return false;
-		}
-
+		Plan = {};
 		std::unordered_set<std::string> PackageIdentities;
-		std::unordered_map<std::string, std::vector<uint8>> PreflightSources;
-		for (DPackage* Package : Impl->Packages)
+		for (DPackage* Package : RequestedPackages)
 		{
 			FAssetPath Path;
 			if (!Package || !Package->IsAssetPackage()
@@ -231,17 +261,34 @@ namespace Durin
 				|| !PackageIdentities.insert(Lower(Path.ToString())).second)
 			{
 				OutError = "The transaction contains an invalid or duplicate existing package.";
-				Rollback();
 				return false;
 			}
+			const PathUtilities::FContentPathResult Destination =
+				PathUtilities::ResolveContentPath(
+					Path.GetView(), PathUtilities::EPathExistence::AllowMissing);
+			if (!Destination)
+			{
+				OutError = Destination.Message;
+				return false;
+			}
+			std::filesystem::path PhysicalPath = Destination.PhysicalPath;
+			PhysicalPath += ".dasset";
+			Plan.Packages.push_back({
+				.Package = Package,
+				.AssetPath = std::move(Path),
+				.PhysicalPath = std::move(PhysicalPath)});
 		}
-		for (const FPortableTextureBuildRequest& Request : Impl->Requests)
+
+		std::unordered_map<std::string, size_t> SourceIdentities;
+		bool bHasRoot = RequestedRootPackage != nullptr;
+		Plan.Root.ExistingPackage = RequestedRootPackage;
+		Plan.Mutations = RequestedMutations;
+		for (const FPortableTextureBuildRequest& Request : Requests)
 		{
 			if (!Request.AssetPath.IsValid()
 				|| Request.ExternalSource.empty() == Request.EncodedBytes.empty())
 			{
 				OutError = "Each texture request requires a valid asset path and exactly one source payload.";
-				Rollback();
 				return false;
 			}
 			if (!PackageIdentities.insert(Lower(Request.AssetPath.ToString())).second
@@ -251,7 +298,6 @@ namespace Durin
 				OutError = std::format(
 					"Texture package {} collides with an existing or planned asset.",
 					Request.AssetPath.ToString());
-				Rollback();
 				return false;
 			}
 			const PathUtilities::FContentPathResult PackageDestination =
@@ -260,7 +306,6 @@ namespace Durin
 			if (!PackageDestination)
 			{
 				OutError = PackageDestination.Message;
-				Rollback();
 				return false;
 			}
 			std::filesystem::path PackageFile = PackageDestination.PhysicalPath;
@@ -270,7 +315,6 @@ namespace Durin
 			{
 				OutError = std::format(
 					"Texture package destination {} already exists.", PackageFile.generic_string());
-				Rollback();
 				return false;
 			}
 			if (Ec && !IsMissingPathError(Ec))
@@ -278,24 +322,55 @@ namespace Durin
 				OutError = std::format(
 					"Failed to inspect package destination {}: {}",
 					PackageFile.generic_string(), Ec.message());
-				Rollback();
 				return false;
 			}
-
-			std::vector<uint8> Bytes = Request.EncodedBytes;
-			FSourcePath SourcePath = Request.SourceDestination;
-			std::filesystem::path PhysicalPath;
-			if (!Request.ExternalSource.empty())
+			if (Request.bRootPackage)
 			{
-				const std::filesystem::path Input =
-					std::filesystem::absolute(Request.ExternalSource, Ec).lexically_normal();
-				if (Ec || !std::filesystem::is_regular_file(Input, Ec)
-					|| !LoadBytes(Input, Bytes, OutError))
+				if (bHasRoot)
 				{
-					if (OutError.empty()) OutError = "External texture source does not exist.";
-					Rollback();
+					OutError = "The multi-asset import transaction has more than one root package.";
 					return false;
 				}
+				bHasRoot = true;
+			}
+
+			FResolvedSource Source;
+			Source.Bytes = Request.EncodedBytes;
+			if (!Request.ExternalSource.empty())
+			{
+				Ec.clear();
+				const std::filesystem::path Input =
+					std::filesystem::absolute(Request.ExternalSource, Ec).lexically_normal();
+				if (Ec || !std::filesystem::is_regular_file(Input, Ec))
+				{
+					OutError = "External texture source does not exist.";
+					return false;
+				}
+				Ec.clear();
+				const uintmax_t FileSizeBefore = std::filesystem::file_size(Input, Ec);
+				const auto LastWriteTimeBefore = !Ec
+					? std::filesystem::last_write_time(Input, Ec)
+					: std::filesystem::file_time_type{};
+				if (Ec)
+				{
+					OutError = std::format(
+						"Failed to observe external texture source {}: {}",
+						Input.generic_string(), Ec.message());
+					return false;
+				}
+				if (!LoadBytes(Input, Source.Bytes, OutError)) return false;
+				Ec.clear();
+				Source.ObservedFileSize = std::filesystem::file_size(Input, Ec);
+				if (!Ec) Source.ObservedLastWriteTime = std::filesystem::last_write_time(Input, Ec);
+				if (Ec || Source.ObservedFileSize != FileSizeBefore
+					|| Source.ObservedLastWriteTime != LastWriteTimeBefore)
+				{
+					OutError = std::format(
+						"External texture source {} changed during transaction resolution.",
+						Input.generic_string());
+					return false;
+				}
+				Source.ExternalInputPath = Input;
 				const PathUtilities::FSourcePathResult Classified =
 					PathUtilities::ClassifySourcePath(Input);
 				if (Classified)
@@ -307,180 +382,18 @@ namespace Durin
 						Mounted,
 						OutError))
 					{
-						Rollback();
 						return false;
 					}
-					SourcePath = Mounted.SourcePath;
-					PhysicalPath = Mounted.PhysicalPath;
-				}
-			}
-			if (PhysicalPath.empty())
-			{
-				if (SourcePath.IsEmpty())
-				{
-					OutError = "Embedded and external-unmounted images require an explicit mounted source destination.";
-					Rollback();
-					return false;
-				}
-				const PathUtilities::FSourcePathResult Destination =
-					PathUtilities::ResolveSourcePath(
-						SourcePath.Path, PathUtilities::EPathExistence::AllowMissing);
-				if (!Destination)
-				{
-					OutError = Destination.Message;
-					Rollback();
-					return false;
-				}
-				const PathUtilities::FMountPolicyResult Mutation =
-					PathUtilities::CheckSourceMutation(
-						Request.AssetPath.ToString(), Destination.NormalizedVirtualPath);
-				if (!Mutation)
-				{
-					OutError = Mutation.Message;
-					Rollback();
-					return false;
-				}
-				SourcePath.Path = Destination.NormalizedVirtualPath;
-				PhysicalPath = Destination.PhysicalPath;
-				Ec.clear();
-				const bool bExists = std::filesystem::exists(PhysicalPath, Ec);
-				if (Ec && !IsMissingPathError(Ec))
-				{
-					OutError = std::format(
-						"Failed to inspect source destination {}: {}",
-						PhysicalPath.generic_string(), Ec.message());
-					Rollback();
-					return false;
-				}
-				if (bExists)
-				{
-					if (!std::filesystem::is_regular_file(PhysicalPath, Ec))
-					{
-						OutError = std::format(
-							"Source destination {} is occupied.", PhysicalPath.generic_string());
-						Rollback();
-						return false;
-					}
-					std::vector<uint8> ExistingBytes;
-					if (!LoadBytes(PhysicalPath, ExistingBytes, OutError)
-						|| ExistingBytes != Bytes)
-					{
-						if (OutError.empty()) OutError = std::format(
-							"A different source file already exists at {}.",
-							PhysicalPath.generic_string());
-						Rollback();
-						return false;
-					}
-				}
-				std::filesystem::path StagedPath = PhysicalPath;
-				StagedPath += ".import-stage";
-				Ec.clear();
-				if (std::filesystem::exists(StagedPath, Ec))
-				{
-					OutError = std::format(
-						"Source staging path {} is occupied.", StagedPath.generic_string());
-					Rollback();
-					return false;
-				}
-			}
-			const std::string Identity = Lower(SourcePath.Path);
-			if (const auto It = PreflightSources.find(Identity); It != PreflightSources.end())
-			{
-				if (It->second != Bytes)
-				{
-					OutError = std::format(
-						"Planned source {} has conflicting encoded bytes.", SourcePath.Path);
-					Rollback();
-					return false;
-				}
-			}
-			else PreflightSources.emplace(Identity, std::move(Bytes));
-		}
-
-		PackageIdentities.clear();
-		std::unordered_map<std::string, size_t> SourceIdentities;
-		for (FPortableTextureBuildRequest& Request : Impl->Requests)
-		{
-			if (!Request.AssetPath.IsValid()
-				|| Request.ExternalSource.empty() == Request.EncodedBytes.empty())
-			{
-				OutError = "Each texture request requires a valid asset path and exactly one source payload.";
-				Rollback();
-				return false;
-			}
-			const std::string PackageIdentity = Lower(Request.AssetPath.ToString());
-			if (!PackageIdentities.insert(PackageIdentity).second
-				|| Asset::FindLoadedPackage(Request.AssetPath)
-				|| Asset::GetAssetRegistry().FindAsset(Request.AssetPath))
-			{
-				OutError = std::format(
-					"Texture package {} collides with an existing or planned asset.",
-					Request.AssetPath.ToString());
-				Rollback();
-				return false;
-			}
-			const PathUtilities::FContentPathResult PackageDestination =
-				PathUtilities::ResolveContentPath(
-					Request.AssetPath.GetView(), PathUtilities::EPathExistence::AllowMissing);
-			if (!PackageDestination)
-			{
-				OutError = PackageDestination.Message;
-				Rollback();
-				return false;
-			}
-			std::filesystem::path PackageFile = PackageDestination.PhysicalPath;
-			PackageFile += ".dasset";
-			std::error_code Ec;
-			if (std::filesystem::exists(PackageFile, Ec))
-			{
-				OutError = std::format(
-					"Texture package destination {} already exists.", PackageFile.generic_string());
-				Rollback();
-				return false;
-			}
-
-			std::vector<uint8> EncodedBytes = std::move(Request.EncodedBytes);
-			FMountedSourceFile MountedSource;
-			if (!Request.ExternalSource.empty())
-			{
-				const std::filesystem::path Input =
-					std::filesystem::absolute(Request.ExternalSource, Ec).lexically_normal();
-				if (Ec || !std::filesystem::is_regular_file(Input, Ec)
-					|| !LoadBytes(Input, EncodedBytes, OutError))
-				{
-					if (OutError.empty()) OutError = "External texture source does not exist.";
-					Rollback();
-					return false;
-				}
-				const PathUtilities::FSourcePathResult Classified =
-					PathUtilities::ClassifySourcePath(Input);
-				if (Classified)
-				{
-					if (!ResolveMountedSourceReference(
-						Request.AssetPath.ToString(),
-						Classified.NormalizedVirtualPath,
-						MountedSource,
-						OutError))
-					{
-						Rollback();
-						return false;
-					}
+					Source.SourcePath = Mounted.SourcePath;
+					Source.PhysicalPath = Mounted.PhysicalPath;
 				}
 			}
 
-			FImpl::FSourceOperation Source;
-			Source.Bytes = std::move(EncodedBytes);
-			if (!MountedSource.SourcePath.IsEmpty())
-			{
-				Source.SourcePath = MountedSource.SourcePath;
-				Source.PhysicalPath = MountedSource.PhysicalPath;
-			}
-			else
+			if (Source.PhysicalPath.empty())
 			{
 				if (Request.SourceDestination.IsEmpty())
 				{
 					OutError = "Embedded and external-unmounted images require an explicit mounted source destination.";
-					Rollback();
 					return false;
 				}
 				const PathUtilities::FSourcePathResult Destination =
@@ -490,7 +403,6 @@ namespace Durin
 				if (!Destination)
 				{
 					OutError = Destination.Message;
-					Rollback();
 					return false;
 				}
 				const PathUtilities::FMountPolicyResult Mutation =
@@ -499,7 +411,6 @@ namespace Durin
 				if (!Mutation)
 				{
 					OutError = Mutation.Message;
-					Rollback();
 					return false;
 				}
 				Source.SourcePath.Path = Destination.NormalizedVirtualPath;
@@ -511,7 +422,6 @@ namespace Durin
 					OutError = std::format(
 						"Failed to inspect source destination {}: {}",
 						Source.PhysicalPath.generic_string(), Ec.message());
-					Rollback();
 					return false;
 				}
 				Ec.clear();
@@ -524,7 +434,6 @@ namespace Durin
 						if (OutError.empty()) OutError = std::format(
 							"A different source file already exists at {}.",
 							Source.PhysicalPath.generic_string());
-						Rollback();
 						return false;
 					}
 				}
@@ -532,7 +441,6 @@ namespace Durin
 				{
 					OutError = std::format(
 						"Source destination {} is occupied.", Source.PhysicalPath.generic_string());
-					Rollback();
 					return false;
 				}
 				else
@@ -540,11 +448,18 @@ namespace Durin
 					Source.bRequiresWrite = true;
 					Source.StagedPath = Source.PhysicalPath;
 					Source.StagedPath += ".import-stage";
+					Ec.clear();
 					if (std::filesystem::exists(Source.StagedPath, Ec))
 					{
 						OutError = std::format(
 							"Source staging path {} is occupied.", Source.StagedPath.generic_string());
-						Rollback();
+						return false;
+					}
+					if (Ec && !IsMissingPathError(Ec))
+					{
+						OutError = std::format(
+							"Failed to inspect source staging path {}: {}",
+							Source.StagedPath.generic_string(), Ec.message());
 						return false;
 					}
 				}
@@ -552,95 +467,164 @@ namespace Durin
 
 			const std::string SourceIdentity = Lower(Source.SourcePath.Path);
 			size_t SourceIndex = 0;
-			if (const auto It = SourceIdentities.find(SourceIdentity); It != SourceIdentities.end())
+			if (const auto It = SourceIdentities.find(SourceIdentity);
+				It != SourceIdentities.end())
 			{
 				SourceIndex = It->second;
-				if (Impl->Sources[SourceIndex].Bytes != Source.Bytes)
+				const FResolvedSource& Existing = Plan.Sources[SourceIndex];
+				if (Existing.Bytes != Source.Bytes || Existing.PhysicalPath != Source.PhysicalPath)
 				{
 					OutError = std::format(
-						"Planned source {} has conflicting encoded bytes.", Source.SourcePath.Path);
-					Rollback();
+						"Planned source {} has conflicting encoded bytes or destinations.",
+						Source.SourcePath.Path);
 					return false;
 				}
 			}
 			else
 			{
-				SourceIndex = Impl->Sources.size();
+				SourceIndex = Plan.Sources.size();
 				SourceIdentities.emplace(SourceIdentity, SourceIndex);
-				Impl->Sources.push_back(std::move(Source));
+				Plan.Sources.push_back(std::move(Source));
 			}
+			const size_t TextureIndex = Plan.Textures.size();
+			Plan.Textures.push_back({
+				.AssetPath = Request.AssetPath,
+				.PackagePath = std::move(PackageFile),
+				.Settings = Request.Settings,
+				.SourceIndex = SourceIndex});
+			if (Request.bRootPackage) Plan.Root.TextureIndex = TextureIndex;
+		}
+		for (FResolvedSource& Source : Plan.Sources)
+			Source.ContentHash = FXxHash128::HashBuffer(Source.Bytes);
+		return true;
+	}
 
+	auto FMultiAssetImportTransaction::FImpl::VerifyExternalInputs(
+		std::string& OutError) const -> bool
+	{
+		for (const FResolvedSource& Source : Plan.Sources)
+		{
+			if (Source.ExternalInputPath.empty()) continue;
+			std::error_code Ec;
+			if (!std::filesystem::is_regular_file(Source.ExternalInputPath, Ec))
+			{
+				OutError = std::format(
+					"External texture source {} changed after transaction resolution.",
+					Source.ExternalInputPath.generic_string());
+				return false;
+			}
+			const uintmax_t FileSize = std::filesystem::file_size(Source.ExternalInputPath, Ec);
+			const auto LastWriteTime = !Ec
+				? std::filesystem::last_write_time(Source.ExternalInputPath, Ec)
+				: std::filesystem::file_time_type{};
+			if (Ec || FileSize != Source.ObservedFileSize
+				|| LastWriteTime != Source.ObservedLastWriteTime)
+			{
+				OutError = std::format(
+					"External texture source {} changed after transaction resolution.",
+					Source.ExternalInputPath.generic_string());
+				return false;
+			}
+		}
+		return true;
+	}
+
+	auto FMultiAssetImportTransaction::FImpl::BuildCandidates(std::string& OutError) -> bool
+	{
+		if (!VerifyExternalInputs(OutError)) return false;
+		PreparedPackages.clear();
+		PreparedPackages.reserve(Plan.Packages.size() + Plan.Textures.size());
+		for (const FResolvedPackage& Package : Plan.Packages)
+			PreparedPackages.push_back(Package.Package);
+		RootPackage = Plan.Root.ExistingPackage;
+		for (size_t TextureIndex = 0; TextureIndex < Plan.Textures.size(); ++TextureIndex)
+		{
+			const FResolvedTexture& Resolved = Plan.Textures[TextureIndex];
 			DTexture2D* Texture = nullptr;
-			const Asset::FAssetResult CreateResult = Asset::CreateAsset(Request.AssetPath, Texture);
+			const Asset::FAssetResult CreateResult = Asset::CreateAsset(Resolved.AssetPath, Texture);
 			if (!CreateResult)
 			{
 				OutError = CreateResult.Message;
-				Rollback();
 				return false;
 			}
-			if (Request.bRootPackage)
-			{
-				if (Impl->RootPackage && Impl->RootPackage != Texture->GetPackage())
-				{
-					OutError = "The multi-asset import transaction has more than one root package.";
-					Rollback();
-					return false;
-				}
-				Impl->RootPackage = Texture->GetPackage();
-			}
+			if (Plan.Root.TextureIndex == TextureIndex) RootPackage = Texture->GetPackage();
 
-			const FXxHash128 SourceHash = FXxHash128::HashBuffer(Impl->Sources[SourceIndex].Bytes);
-			const bool bSRGB = Request.Settings.bSRGB.value_or(
-				TextureBuild::GetDefaultSRGB(Request.Settings.Usage));
+			const FResolvedSource& Source = Plan.Sources[Resolved.SourceIndex];
+			const bool bSRGB = Resolved.Settings.bSRGB.value_or(
+				TextureBuild::GetDefaultSRGB(Resolved.Settings.Usage));
 			const std::string DerivedDataKey = BuildTexture2DDerivedDataKey({
-				.SourceContentHash = SourceHash,
-				.Usage = Request.Settings.Usage,
+				.SourceContentHash = Source.ContentHash,
+				.Usage = Resolved.Settings.Usage,
 				.bSRGB = bSRGB,
-				.CompressionQuality = Request.Settings.CompressionQuality,
-				.AlphaMipMode = Request.Settings.AlphaMipMode,
-				.MaximumResolution = Request.Settings.MaxResolution,
-				.AlphaCoverageThreshold = Request.Settings.AlphaCoverageThreshold,
+				.CompressionQuality = Resolved.Settings.CompressionQuality,
+				.AlphaMipMode = Resolved.Settings.AlphaMipMode,
+				.MaximumResolution = Resolved.Settings.MaxResolution,
+				.AlphaCoverageThreshold = Resolved.Settings.AlphaCoverageThreshold,
 				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 				.TargetProfile = Asset::ECookTargetProfile::Game});
 			Asset::FDerivedDataObjectStore Store("Textures/Objects", MaximumTexturePayloadBytes);
 			std::filesystem::path DerivedDataPath;
-			if (!Store.GetObjectPath(DerivedDataKey, DerivedDataPath, &OutError))
-			{
-				Rollback();
-				return false;
-			}
-			Ec.clear();
+			if (!Store.GetObjectPath(DerivedDataKey, DerivedDataPath, &OutError)) return false;
+			std::error_code Ec;
 			const bool bDerivedDataExisted =
 				std::filesystem::exists(DerivedDataPath, Ec)
 				&& std::filesystem::is_regular_file(DerivedDataPath, Ec);
-			Impl->PreparedTextures.push_back({
+			PreparedTextures.push_back({
 				.Texture = Texture,
 				.DerivedDataPath = std::move(DerivedDataPath),
 				.bDerivedDataExisted = bDerivedDataExisted});
-			Impl->Textures.push_back(Texture);
-			Impl->Packages.push_back(Texture->GetPackage());
-			if (Impl->FailInjected(EImportTransactionFailurePoint::Decode, OutError)
-				|| Impl->FailInjected(EImportTransactionFailurePoint::TextureBuild, OutError)
-				|| Impl->FailInjected(EImportTransactionFailurePoint::DerivedDataPublication, OutError)
+			Textures.push_back(Texture);
+			PreparedPackages.push_back(Texture->GetPackage());
+			if (FailInjected(EImportTransactionFailurePoint::Decode, OutError)
+				|| FailInjected(EImportTransactionFailurePoint::TextureBuild, OutError)
+				|| FailInjected(EImportTransactionFailurePoint::DerivedDataPublication, OutError)
 				|| !Texture->BuildFromEncodedBytes(
-					Impl->Sources[SourceIndex].Bytes,
-					Impl->Sources[SourceIndex].SourcePath,
-					Request.Settings,
-					OutError))
+					Source.Bytes, Source.SourcePath, Resolved.Settings, OutError))
 			{
-				Rollback();
 				return false;
 			}
 		}
 
+		return true;
+	}
+
+	auto FMultiAssetImportTransaction::FImpl::ValidatePreparedPlan(
+		std::string& OutError) -> bool
+	{
 		std::unordered_set<DPackage*> UniquePackages;
-		std::erase_if(Impl->Packages, [&](DPackage* Package) {
+		std::erase_if(PreparedPackages, [&](DPackage* Package) {
 			return !Package || !UniquePackages.insert(Package).second;
 		});
-		if (Impl->RootPackage
-			&& !UniquePackages.contains(Impl->RootPackage))
+		if (RootPackage && !UniquePackages.contains(RootPackage))
 		{
 			OutError = "The selected root package is not part of the transaction.";
+			return false;
+		}
+		return true;
+	}
+
+	auto FMultiAssetImportTransaction::Prepare(std::string& OutError) -> bool
+	{
+		if (Impl->bAttempted)
+		{
+			OutError = "The multi-asset import transaction has already been attempted.";
+			return false;
+		}
+		Impl->bAttempted = true;
+		if (Impl->Requests.empty() && Impl->RequestedPackages.empty())
+		{
+			OutError = "The multi-asset import transaction has no outputs.";
+			return false;
+		}
+		if (!Impl->ResolvePlan(OutError))
+		{
+			Rollback();
+			return false;
+		}
+		Impl->PublishedSources.assign(Impl->Plan.Sources.size(), false);
+		Impl->AppliedMutations.assign(Impl->Plan.Mutations.size(), false);
+		if (!Impl->BuildCandidates(OutError) || !Impl->ValidatePreparedPlan(OutError))
+		{
 			Rollback();
 			return false;
 		}
@@ -656,7 +640,12 @@ namespace Durin
 			OutError = "The multi-asset import transaction is not ready to stage.";
 			return false;
 		}
-		for (FImpl::FSourceOperation& Source : Impl->Sources)
+		if (!Impl->VerifyExternalInputs(OutError))
+		{
+			Rollback();
+			return false;
+		}
+		for (const FImpl::FResolvedSource& Source : Impl->Plan.Sources)
 		{
 			if (!Source.bRequiresWrite) continue;
 			if (Impl->FailInjected(EImportTransactionFailurePoint::DirectoryCreation, OutError))
@@ -702,18 +691,25 @@ namespace Durin
 			OutError = "The multi-asset import transaction is not ready to publish.";
 			return false;
 		}
-		for (FImpl::FMutation& Mutation : Impl->Mutations)
+		if (!Impl->VerifyExternalInputs(OutError))
 		{
+			Rollback();
+			return false;
+		}
+		for (size_t MutationIndex = 0; MutationIndex < Impl->Plan.Mutations.size(); ++MutationIndex)
+		{
+			const FImpl::FResolvedMutation& Mutation = Impl->Plan.Mutations[MutationIndex];
 			if (!Mutation.Apply || !Mutation.Apply(OutError))
 			{
 				if (OutError.empty()) OutError = "A loaded-object mutation failed.";
 				Rollback();
 				return false;
 			}
-			Mutation.bApplied = true;
+			Impl->AppliedMutations[MutationIndex] = true;
 		}
-		for (FImpl::FSourceOperation& Source : Impl->Sources)
+		for (size_t SourceIndex = 0; SourceIndex < Impl->Plan.Sources.size(); ++SourceIndex)
 		{
+			const FImpl::FResolvedSource& Source = Impl->Plan.Sources[SourceIndex];
 			if (!Source.bRequiresWrite) continue;
 			std::error_code Ec;
 			std::filesystem::rename(Source.StagedPath, Source.PhysicalPath, Ec);
@@ -724,11 +720,11 @@ namespace Durin
 				Rollback();
 				return false;
 			}
-			Source.bPublished = true;
+			Impl->PublishedSources[SourceIndex] = true;
 		}
 
 		const Asset::FAssetResult SaveResult = Asset::SavePackagesAtomically(
-			Impl->Packages,
+			Impl->PreparedPackages,
 			{
 				.RootPackage = Impl->RootPackage,
 				.ShouldFail = [this](Asset::EAssetBundleSavePhase Phase, size_t) {
@@ -760,17 +756,28 @@ namespace Durin
 	auto FMultiAssetImportTransaction::Rollback() -> void
 	{
 		if (!Impl || Impl->bPublished) return;
-		for (auto It = Impl->Mutations.rbegin(); It != Impl->Mutations.rend(); ++It)
+		for (size_t Index = Impl->Plan.Mutations.size(); Index > 0; --Index)
 		{
-			if (It->bApplied && It->Rollback) It->Rollback();
-			It->bApplied = false;
+			const size_t MutationIndex = Index - 1;
+			const FImpl::FResolvedMutation& Mutation = Impl->Plan.Mutations[MutationIndex];
+			if (MutationIndex < Impl->AppliedMutations.size()
+				&& Impl->AppliedMutations[MutationIndex])
+			{
+				if (Mutation.Rollback) Mutation.Rollback();
+				Impl->AppliedMutations[MutationIndex] = false;
+			}
 		}
-		for (FImpl::FSourceOperation& Source : Impl->Sources)
+		for (size_t SourceIndex = 0; SourceIndex < Impl->Plan.Sources.size(); ++SourceIndex)
 		{
+			const FImpl::FResolvedSource& Source = Impl->Plan.Sources[SourceIndex];
 			std::error_code Ec;
-			if (Source.bPublished) std::filesystem::remove(Source.PhysicalPath, Ec);
+			if (SourceIndex < Impl->PublishedSources.size()
+				&& Impl->PublishedSources[SourceIndex])
+			{
+				std::filesystem::remove(Source.PhysicalPath, Ec);
+				Impl->PublishedSources[SourceIndex] = false;
+			}
 			std::filesystem::remove(Source.StagedPath, Ec);
-			Source.bPublished = false;
 		}
 		for (FImpl::FPreparedTexture& Prepared : Impl->PreparedTextures)
 		{
@@ -792,8 +799,11 @@ namespace Durin
 			}
 		}
 		Impl->PreparedTextures.clear();
+		Impl->PreparedPackages.clear();
+		Impl->PublishedSources.clear();
+		Impl->AppliedMutations.clear();
 		Impl->Textures.clear();
-		Impl->Sources.clear();
+		Impl->Plan = {};
 		Impl->bPrepared = false;
 		Impl->bStaged = false;
 	}
