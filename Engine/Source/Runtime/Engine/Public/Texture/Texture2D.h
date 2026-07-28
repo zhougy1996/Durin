@@ -10,6 +10,8 @@
 
 namespace Durin
 {
+	struct FTextureBuildOperations;
+
 	class FTexture2DRenderResource;
 
 	// Identifies the decoded pixel layout retained as editable texture source data.
@@ -303,6 +305,20 @@ namespace Durin
 		ENGINE_API static auto ImportAsset(std::string_view FilePath, std::string_view AssetPath, const FTexture2DImportSettings& Settings = {}) -> FTexture2DImportResult;
 
 	private:
+		struct FEncodedBuildHooks
+		{
+			std::function<bool(std::string&)> BeforeDecode;
+			std::function<bool(std::string&)> BeforeTextureBuild;
+			std::function<bool(std::string&)> BeforeDerivedDataPublication;
+		};
+
+		ENGINE_API auto BuildFromEncodedBytes(
+			std::span<const uint8> EncodedBytes,
+			const FSourcePath& SourcePath,
+			const FTexture2DImportSettings& Settings,
+			const FEncodedBuildHooks* Hooks,
+			std::string& OutError) -> bool;
+
 		auto BuildSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
 		auto DecodeSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
 		auto EnsureSourceData(std::string& OutError) -> bool;
@@ -383,6 +399,8 @@ namespace Durin
 
 		// Persistent failure state. Set by the build pipeline and cleared on success.
 		ETextureBuildStatus BuildStatus = ETextureBuildStatus::Unbuilt;
+
+		friend struct FTextureBuildOperations;
 		std::string LastBuildError;
 
 		// Reflected edits validate and build detached settings before live storage

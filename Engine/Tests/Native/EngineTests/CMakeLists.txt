@@ -216,6 +216,8 @@ durin_add_engine_functional_test(TextureTests
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 	)
+target_include_directories(TextureTests PRIVATE
+	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/EngineAssetBuild/Private)
 
 durin_add_engine_functional_test(ThumbnailTests
 	TIMEOUT 600

@@ -9,9 +9,9 @@ Completed:
 
 ## Current Status
 
-Stages 0 through 2 are complete. Stage 2 started from baseline
-`10770985` (`refactor(import): isolate static model format adapters`). Stage 3
-is the next executable stage.
+Stages 0 through 3 are complete. Stage 3 started from baseline
+`60da30df` (`refactor(import): resolve model transactions once`). Stage 4 is
+the next executable stage.
 
 The current implementation has the intended external architecture: one
 format-neutral `FImportedSceneData` boundary, editor-only source parsing,
@@ -431,19 +431,19 @@ Dependencies: Stage 1.
 
 Dependencies: Stage 2.
 
-- [ ] Separate or instrument encoded-image decode, Texture2D candidate build,
+- [x] Separate or instrument encoded-image decode, Texture2D candidate build,
   and DDC publication so each boundary can fail after all preceding work has
   succeeded.
-- [ ] Move transaction-only failure controls behind the selected private
+- [x] Move transaction-only failure controls behind the selected private
   injected-operations seam and remove the workflow-facing public
   `SetFailurePoint` API.
-- [ ] Retain reusable AssetCore package-save phase injection where it validates
+- [x] Retain reusable AssetCore package-save phase injection where it validates
   the generic atomic bundle contract rather than static-model policy.
-- [ ] Assert the exact filesystem, DDC, loaded-package, dirty-state, registry,
+- [x] Assert the exact filesystem, DDC, loaded-package, dirty-state, registry,
   source-file, and caller-owned mutation state after every failure.
-- [ ] Add occurrence coverage for multiple textures and packages so failures
+- [x] Add occurrence coverage for multiple textures and packages so failures
   after an earlier dependency succeeded exercise reverse-order rollback.
-- [ ] Verify destructor rollback, explicit rollback, rejected repeated
+- [x] Verify destructor rollback, explicit rollback, rejected repeated
   execution, and successful publication ownership.
 
 #### Acceptance Gate
@@ -451,6 +451,30 @@ Dependencies: Stage 2.
 - Every named failure point corresponds to a distinct observed execution
   boundary, the test suite proves rollback after preceding work occurred, and
   test-only controls no longer expand the public model-import workflow API.
+
+#### Stage 3 Handoff
+
+- Baseline commit: `60da30df`.
+- Working set: `Texture2D.h/.cpp`, `StaticModelImportBuild.h/.cpp`,
+  `StaticModelImportBuildInternal.h`,
+  `StaticModelImportBuildTests.cpp`, the Engine native-test CMake file, and
+  this plan.
+- Key symbols and decisions: the public `BuildFromEncodedBytes` behavior is
+  unchanged and delegates to a private hook-aware overload.
+  `FTextureBuildOperations` invokes decode, candidate-build, and DDC
+  publication controls immediately before their real operations. The
+  transaction's public `SetFailurePoint` and failure enum were removed;
+  `FMultiAssetImportTransactionTestAccess` is available only through the
+  module's private include path.
+- Failure-boundary decision: source staging, source publication, package
+  staging, dependency publication, root publication, and registry publication
+  are distinct categories. Injected messages use stable phase names and carry
+  the affected source or texture identity where the transaction owns it.
+- Validation: all 12 `FStaticModelImportBuildTests` and all 55 `TextureTests`
+  passed. Later-occurrence coverage proves rollback after an earlier texture
+  wrote DDC and after an earlier dependency package was published. Explicit
+  rollback, destructor rollback, repeated `Prepare`, caller mutation
+  restoration, and successful publication ownership are covered.
 
 ### Stage 4: Validate the Stage 3-ready foundation
 

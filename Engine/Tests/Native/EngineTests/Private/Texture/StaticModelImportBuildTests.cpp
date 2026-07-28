@@ -2,6 +2,7 @@
 
 #include "Misc/FileHelper.h"
 #include "StaticModelImportBuild.h"
+#include "StaticModelImportBuildInternal.h"
 
 namespace
 {
@@ -38,6 +39,18 @@ namespace
 	{
 		return Durin::Testing::GetTestWorkDirectory()
 			/ "TextureImports" / "SourceAssets" / "Models" / "Embedded" / std::string(Name);
+	}
+
+	auto CountDerivedDataObjects() -> size_t
+	{
+		const std::filesystem::path Root =
+			std::filesystem::path(Durin::FPaths::DerivedDataCacheDir()) / "Textures" / "Objects";
+		size_t Count = 0;
+		std::error_code Ec;
+		for (std::filesystem::recursive_directory_iterator It(Root, Ec), End;
+			!Ec && It != End; It.increment(Ec))
+			if (It->is_regular_file()) ++Count;
+		return Count;
 	}
 }
 
@@ -189,12 +202,14 @@ TEST(FStaticModelImportBuildTests, EveryInjectedFailureRollsBackTheCompleteAttem
 	const std::array FailurePoints = {
 		Durin::EImportTransactionFailurePoint::DirectoryCreation,
 		Durin::EImportTransactionFailurePoint::SourceWrite,
+		Durin::EImportTransactionFailurePoint::SourcePublication,
 		Durin::EImportTransactionFailurePoint::Decode,
 		Durin::EImportTransactionFailurePoint::TextureBuild,
 		Durin::EImportTransactionFailurePoint::DerivedDataPublication,
-		Durin::EImportTransactionFailurePoint::PackageSave,
+		Durin::EImportTransactionFailurePoint::PackageStaging,
+		Durin::EImportTransactionFailurePoint::DependencyPackagePublication,
 		Durin::EImportTransactionFailurePoint::RegistryPublication,
-		Durin::EImportTransactionFailurePoint::RootPackageSave};
+		Durin::EImportTransactionFailurePoint::RootPackagePublication};
 
 	for (size_t Index = 0; Index < FailurePoints.size(); ++Index)
 	{
@@ -211,6 +226,15 @@ TEST(FStaticModelImportBuildTests, EveryInjectedFailureRollsBackTheCompleteAttem
 		int LoadedState = 7;
 
 		Durin::FMultiAssetImportTransaction Transaction;
+		const bool bNeedsDependency =
+			FailurePoints[Index]
+				== Durin::EImportTransactionFailurePoint::DependencyPackagePublication;
+		if (bNeedsDependency)
+		{
+			Transaction.AddTexture(MakeEmbeddedRequest(
+				AssetPath + "Dependency",
+				SourcePath + ".dependency"));
+		}
 		Transaction.AddTexture(MakeEmbeddedRequest(AssetPath, SourcePath, true));
 		Transaction.AddLoadedObjectMutation(
 			[&](std::string&) {
@@ -218,7 +242,8 @@ TEST(FStaticModelImportBuildTests, EveryInjectedFailureRollsBackTheCompleteAttem
 				return true;
 			},
 			[&] { LoadedState = 7; });
-		Transaction.SetFailurePoint(FailurePoints[Index]);
+		Durin::FMultiAssetImportTransactionTestAccess::SetFailurePoint(
+			Transaction, FailurePoints[Index]);
 		const Durin::FImportTransactionResult Result = Transaction.Execute();
 		EXPECT_FALSE(Result);
 		EXPECT_EQ(LoadedState, 7);
@@ -227,6 +252,14 @@ TEST(FStaticModelImportBuildTests, EveryInjectedFailureRollsBackTheCompleteAttem
 		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(Parsed), nullptr);
 		EXPECT_FALSE(std::filesystem::exists(PackageFile(AssetName)));
 		EXPECT_FALSE(std::filesystem::exists(SourceFile(SourceName)));
+		if (bNeedsDependency)
+		{
+			const Durin::FAssetPath DependencyPath = MakeAssetPath(AssetPath + "Dependency");
+			EXPECT_EQ(Durin::Asset::FindLoadedPackage(DependencyPath), nullptr);
+			EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(DependencyPath), nullptr);
+			EXPECT_FALSE(std::filesystem::exists(PackageFile(AssetName + "Dependency")));
+			EXPECT_FALSE(std::filesystem::exists(SourceFile(SourceName + ".dependency")));
+		}
 		const std::filesystem::path DdcRoot =
 			std::filesystem::path(Durin::FPaths::DerivedDataCacheDir()) / "Textures" / "Objects";
 		size_t DerivedObjectCount = 0;
@@ -283,8 +316,8 @@ TEST(FStaticModelImportBuildTests, RollbackRestoresPreexistingLoadedObjectAndPac
 			if (bOriginalDirty) Seed.Asset->MarkPackageDirty();
 			else Seed.Asset->GetPackage()->ClearDirty();
 		});
-	Transaction.SetFailurePoint(
-		Durin::EImportTransactionFailurePoint::RegistryPublication);
+	Durin::FMultiAssetImportTransactionTestAccess::SetFailurePoint(
+		Transaction, Durin::EImportTransactionFailurePoint::RegistryPublication);
 	const Durin::FImportTransactionResult Result = Transaction.Execute();
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(*LegacySource, OriginalValue);
@@ -300,6 +333,126 @@ TEST(FStaticModelImportBuildTests, RollbackRestoresPreexistingLoadedObjectAndPac
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ExistingPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(ExistingPath));
+}
+
+TEST(FStaticModelImportBuildTests, LaterCandidateAndDependencyFailuresRollBackEarlierWork)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	const std::array FailurePoints = {
+		Durin::EImportTransactionFailurePoint::Decode,
+		Durin::EImportTransactionFailurePoint::TextureBuild,
+		Durin::EImportTransactionFailurePoint::DerivedDataPublication,
+		Durin::EImportTransactionFailurePoint::DependencyPackagePublication};
+
+	for (size_t FailureIndex = 0; FailureIndex < FailurePoints.size(); ++FailureIndex)
+	{
+		SCOPED_TRACE(FailureIndex);
+		FScopedDerivedDataCacheRoot CacheRoot(
+			std::filesystem::path(DURIN_TEST_WORK_DIR)
+			/ std::format("StaticModelImportLaterFailureDDC{}", FailureIndex));
+		const size_t TextureCount =
+			FailurePoints[FailureIndex]
+				== Durin::EImportTransactionFailurePoint::DependencyPackagePublication
+			? 3u
+			: 2u;
+
+		Durin::FMultiAssetImportTransaction Transaction;
+		for (size_t TextureIndex = 0; TextureIndex < TextureCount; ++TextureIndex)
+		{
+			Transaction.AddTexture(MakeEmbeddedRequest(
+				std::format(
+					"/TextureImportTests/StaticModelImport/LaterFailure{}_{}",
+					FailureIndex,
+					TextureIndex),
+				std::format(
+					"/TextureImportTests/Models/Embedded/LaterFailure{}_{}.png",
+					FailureIndex,
+					TextureIndex),
+				TextureIndex + 1 == TextureCount));
+		}
+		Durin::FMultiAssetImportTransactionTestAccess::SetFailurePoint(
+			Transaction, FailurePoints[FailureIndex], 1);
+
+		const Durin::FImportTransactionResult Result = Transaction.Execute();
+		EXPECT_FALSE(Result);
+		for (size_t TextureIndex = 0; TextureIndex < TextureCount; ++TextureIndex)
+		{
+			const std::string Name =
+				std::format("LaterFailure{}_{}", FailureIndex, TextureIndex);
+			const Durin::FAssetPath Path = MakeAssetPath(
+				std::format("/TextureImportTests/StaticModelImport/{}", Name));
+			EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), nullptr);
+			EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(Path), nullptr);
+			EXPECT_FALSE(std::filesystem::exists(PackageFile(Name)));
+			EXPECT_FALSE(std::filesystem::exists(SourceFile(Name + ".png")));
+		}
+		EXPECT_EQ(CountDerivedDataObjects(), 0u);
+	}
+}
+
+TEST(FStaticModelImportBuildTests, ExplicitAndDestructorRollbackRestorePreparedAttempts)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	FScopedDerivedDataCacheRoot CacheRoot(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticModelImportLifecycleDDC");
+	const Durin::FAssetPath ExplicitPath =
+		MakeAssetPath("/TextureImportTests/StaticModelImport/ExplicitRollback");
+	{
+		Durin::FMultiAssetImportTransaction Transaction;
+		Transaction.AddTexture(MakeEmbeddedRequest(
+			ExplicitPath.ToString(),
+			"/TextureImportTests/Models/Embedded/ExplicitRollback.png",
+			true));
+		std::string Error;
+		ASSERT_TRUE(Transaction.Prepare(Error)) << Error;
+		EXPECT_FALSE(Transaction.Prepare(Error));
+		Transaction.Rollback();
+	}
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(ExplicitPath), nullptr);
+	EXPECT_FALSE(std::filesystem::exists(SourceFile("ExplicitRollback.png")));
+	EXPECT_EQ(CountDerivedDataObjects(), 0u);
+
+	const Durin::FAssetPath DestructorPath =
+		MakeAssetPath("/TextureImportTests/StaticModelImport/DestructorRollback");
+	{
+		Durin::FMultiAssetImportTransaction Transaction;
+		Transaction.AddTexture(MakeEmbeddedRequest(
+			DestructorPath.ToString(),
+			"/TextureImportTests/Models/Embedded/DestructorRollback.png",
+			true));
+		std::string Error;
+		ASSERT_TRUE(Transaction.Prepare(Error)) << Error;
+	}
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(DestructorPath), nullptr);
+	EXPECT_FALSE(std::filesystem::exists(SourceFile("DestructorRollback.png")));
+	EXPECT_EQ(CountDerivedDataObjects(), 0u);
+}
+
+TEST(FStaticModelImportBuildTests, PublishedAttemptSurvivesTransactionDestruction)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	FScopedDerivedDataCacheRoot CacheRoot(
+		std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticModelImportPublishedOwnershipDDC");
+	const Durin::FAssetPath Path =
+		MakeAssetPath("/TextureImportTests/StaticModelImport/PublishedOwnership");
+	{
+		Durin::FMultiAssetImportTransaction Transaction;
+		Transaction.AddTexture(MakeEmbeddedRequest(
+			Path.ToString(),
+			"/TextureImportTests/Models/Embedded/PublishedOwnership.png",
+			true));
+		const Durin::FImportTransactionResult Result = Transaction.Execute();
+		ASSERT_TRUE(Result) << Result.Message;
+	}
+	EXPECT_NE(Durin::Asset::FindLoadedPackage(Path), nullptr);
+	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAsset(Path), nullptr);
+	EXPECT_TRUE(std::filesystem::is_regular_file(PackageFile("PublishedOwnership")));
+	EXPECT_TRUE(std::filesystem::is_regular_file(SourceFile("PublishedOwnership.png")));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(Path));
 }
 
 TEST(FStaticModelImportBuildTests, SourceCollisionPreflightPreservesExistingBytes)

@@ -1,4 +1,5 @@
 #include "StaticModelImportBuild.h"
+#include "StaticModelImportBuildInternal.h"
 
 #include "AssetSystem.h"
 #include "DerivedDataObjectStore.h"
@@ -27,6 +28,35 @@ namespace Durin
 			return ErrorCode == std::errc::no_such_file_or_directory
 				|| ErrorCode.value() == 2
 				|| ErrorCode.value() == 3;
+		}
+
+		auto ImportFailurePointName(EImportTransactionFailurePoint Point) -> std::string_view
+		{
+			switch (Point)
+			{
+			case EImportTransactionFailurePoint::DirectoryCreation:
+				return "source-directory-creation";
+			case EImportTransactionFailurePoint::SourceWrite:
+				return "source-staging";
+			case EImportTransactionFailurePoint::SourcePublication:
+				return "source-publication";
+			case EImportTransactionFailurePoint::Decode:
+				return "texture-decode";
+			case EImportTransactionFailurePoint::TextureBuild:
+				return "texture-candidate-build";
+			case EImportTransactionFailurePoint::DerivedDataPublication:
+				return "texture-derived-data-publication";
+			case EImportTransactionFailurePoint::PackageStaging:
+				return "package-staging";
+			case EImportTransactionFailurePoint::DependencyPackagePublication:
+				return "dependency-package-publication";
+			case EImportTransactionFailurePoint::RegistryPublication:
+				return "registry-publication";
+			case EImportTransactionFailurePoint::RootPackagePublication:
+				return "root-package-publication";
+			default:
+				return "none";
+			}
 		}
 
 		auto LoadBytes(
@@ -194,12 +224,16 @@ namespace Durin
 			return FailureVisits++ == FailureOccurrence;
 		}
 
-		auto FailInjected(EImportTransactionFailurePoint Point, std::string& OutError) -> bool
+		auto FailInjected(
+			EImportTransactionFailurePoint Point,
+			std::string_view Identity,
+			std::string& OutError) -> bool
 		{
 			if (!ShouldFail(Point)) return false;
 			OutError = std::format(
-				"Injected multi-asset import failure at phase {}.",
-				static_cast<uint32>(Point));
+				"Injected multi-asset import failure at phase '{}' for '{}'.",
+				ImportFailurePointName(Point),
+				Identity);
 			return true;
 		}
 
@@ -240,13 +274,14 @@ namespace Durin
 		Impl->RequestedMutations.push_back({std::move(Apply), std::move(Rollback)});
 	}
 
-	auto FMultiAssetImportTransaction::SetFailurePoint(
+	auto FMultiAssetImportTransactionTestAccess::SetFailurePoint(
+		FMultiAssetImportTransaction& Transaction,
 		EImportTransactionFailurePoint Point,
 		size_t Occurrence) -> void
 	{
-		check(!Impl->bAttempted);
-		Impl->FailurePoint = Point;
-		Impl->FailureOccurrence = Occurrence;
+		check(!Transaction.Impl->bAttempted);
+		Transaction.Impl->FailurePoint = Point;
+		Transaction.Impl->FailureOccurrence = Occurrence;
 	}
 
 	auto FMultiAssetImportTransaction::FImpl::ResolvePlan(std::string& OutError) -> bool
@@ -575,11 +610,21 @@ namespace Durin
 				.bDerivedDataExisted = bDerivedDataExisted});
 			Textures.push_back(Texture);
 			PreparedPackages.push_back(Texture->GetPackage());
-			if (FailInjected(EImportTransactionFailurePoint::Decode, OutError)
-				|| FailInjected(EImportTransactionFailurePoint::TextureBuild, OutError)
-				|| FailInjected(EImportTransactionFailurePoint::DerivedDataPublication, OutError)
-				|| !Texture->BuildFromEncodedBytes(
-					Source.Bytes, Source.SourcePath, Resolved.Settings, OutError))
+			if (!FTextureBuildOperations::Build(
+				*Texture,
+				Source.Bytes,
+				Source.SourcePath,
+				Resolved.Settings,
+				[this, &Resolved, &Source](
+					EImportTransactionFailurePoint Point,
+					std::string& Error) {
+					return FailInjected(
+						Point,
+						std::format(
+							"{} ({})", Resolved.AssetPath.ToString(), Source.SourcePath.Path),
+						Error);
+				},
+				OutError))
 			{
 				return false;
 			}
@@ -648,7 +693,10 @@ namespace Durin
 		for (const FImpl::FResolvedSource& Source : Impl->Plan.Sources)
 		{
 			if (!Source.bRequiresWrite) continue;
-			if (Impl->FailInjected(EImportTransactionFailurePoint::DirectoryCreation, OutError))
+			if (Impl->FailInjected(
+				EImportTransactionFailurePoint::DirectoryCreation,
+				Source.SourcePath.Path,
+				OutError))
 			{
 				Rollback();
 				return false;
@@ -663,7 +711,10 @@ namespace Durin
 				Rollback();
 				return false;
 			}
-			if (Impl->FailInjected(EImportTransactionFailurePoint::SourceWrite, OutError))
+			if (Impl->FailInjected(
+				EImportTransactionFailurePoint::SourceWrite,
+				Source.SourcePath.Path,
+				OutError))
 			{
 				Rollback();
 				return false;
@@ -711,6 +762,14 @@ namespace Durin
 		{
 			const FImpl::FResolvedSource& Source = Impl->Plan.Sources[SourceIndex];
 			if (!Source.bRequiresWrite) continue;
+			if (Impl->FailInjected(
+				EImportTransactionFailurePoint::SourcePublication,
+				Source.SourcePath.Path,
+				OutError))
+			{
+				Rollback();
+				return false;
+			}
 			std::error_code Ec;
 			std::filesystem::rename(Source.StagedPath, Source.PhysicalPath, Ec);
 			if (Ec)
@@ -732,10 +791,13 @@ namespace Durin
 					{
 					case Asset::EAssetBundleSavePhase::CreateDirectories:
 					case Asset::EAssetBundleSavePhase::StagePackage:
+						return Impl->ShouldFail(EImportTransactionFailurePoint::PackageStaging);
 					case Asset::EAssetBundleSavePhase::PublishPackage:
-						return Impl->ShouldFail(EImportTransactionFailurePoint::PackageSave);
+						return Impl->ShouldFail(
+							EImportTransactionFailurePoint::DependencyPackagePublication);
 					case Asset::EAssetBundleSavePhase::PublishRootPackage:
-						return Impl->ShouldFail(EImportTransactionFailurePoint::RootPackageSave);
+						return Impl->ShouldFail(
+							EImportTransactionFailurePoint::RootPackagePublication);
 					case Asset::EAssetBundleSavePhase::PublishRegistry:
 						return Impl->ShouldFail(EImportTransactionFailurePoint::RegistryPublication);
 					default:

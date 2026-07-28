@@ -7,18 +7,7 @@
 
 namespace Durin
 {
-	enum class EImportTransactionFailurePoint : uint8
-	{
-		None,
-		DirectoryCreation,
-		SourceWrite,
-		Decode,
-		TextureBuild,
-		DerivedDataPublication,
-		PackageSave,
-		RegistryPublication,
-		RootPackageSave
-	};
+	struct FMultiAssetImportTransactionTestAccess;
 
 	struct FPortableTextureBuildRequest
 	{
@@ -67,8 +56,6 @@ namespace Durin
 		auto AddLoadedObjectMutation(
 			std::function<bool(std::string&)> Apply,
 			std::function<void()> Rollback) -> void;
-		auto SetFailurePoint(EImportTransactionFailurePoint Point, size_t Occurrence = 0) -> void;
-
 		auto Prepare(std::string& OutError) -> bool;
 		auto Stage(std::string& OutError) -> bool;
 		auto Publish(std::string& OutError) -> bool;
@@ -79,5 +66,7 @@ namespace Durin
 	private:
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
+
+		friend struct FMultiAssetImportTransactionTestAccess;
 	};
 }

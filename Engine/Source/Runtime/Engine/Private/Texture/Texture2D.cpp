@@ -1414,6 +1414,17 @@ namespace Durin
 		const FTexture2DImportSettings& Settings,
 		std::string& OutError) -> bool
 	{
+		return BuildFromEncodedBytes(
+			EncodedBytes, InSourcePath, Settings, nullptr, OutError);
+	}
+
+	auto DTexture2D::BuildFromEncodedBytes(
+		std::span<const uint8> EncodedBytes,
+		const FSourcePath& InSourcePath,
+		const FTexture2DImportSettings& Settings,
+		const FEncodedBuildHooks* Hooks,
+		std::string& OutError) -> bool
+	{
 #if DURIN_WITH_EDITOR
 		if (!GetPackage() || EncodedBytes.empty())
 		{
@@ -1446,6 +1457,12 @@ namespace Durin
 		}
 
 		FTextureSourceData CandidateSourceData;
+		if (Hooks && Hooks->BeforeDecode && Hooks->BeforeDecode(OutError))
+		{
+			BuildStatus = ETextureBuildStatus::DecodeFailure;
+			LastBuildError = OutError;
+			return false;
+		}
 		if (!TextureBuild::DecodeRGBA8(EncodedBytes, CandidateSourceData, OutError))
 		{
 			BuildStatus = ETextureBuildStatus::DecodeFailure;
@@ -1455,6 +1472,12 @@ namespace Durin
 		const bool bCandidateSRGB =
 			Settings.bSRGB.value_or(TextureBuild::GetDefaultSRGB(Settings.Usage));
 		auto CandidatePlatformData = std::make_unique<FTexturePlatformData>();
+		if (Hooks && Hooks->BeforeTextureBuild && Hooks->BeforeTextureBuild(OutError))
+		{
+			BuildStatus = ETextureBuildStatus::BuildFailure;
+			LastBuildError = OutError;
+			return false;
+		}
 		if (!TextureBuild::BuildMipChain(
 			CandidateSourceData,
 			Settings.Usage,
@@ -1482,6 +1505,13 @@ namespace Durin
 			.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
 			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game});
+		if (Hooks && Hooks->BeforeDerivedDataPublication
+			&& Hooks->BeforeDerivedDataPublication(OutError))
+		{
+			BuildStatus = ETextureBuildStatus::BuildFailure;
+			LastBuildError = OutError;
+			return false;
+		}
 		if (!StoreTextureDerivedData(NewKey, *CandidatePlatformData, OutError, false))
 		{
 			BuildStatus = ETextureBuildStatus::BuildFailure;
@@ -1529,6 +1559,7 @@ namespace Durin
 		(void)EncodedBytes;
 		(void)InSourcePath;
 		(void)Settings;
+		(void)Hooks;
 		OutError = "Encoded Texture2D candidate builds are unavailable in runtime-only builds.";
 		return false;
 #endif
