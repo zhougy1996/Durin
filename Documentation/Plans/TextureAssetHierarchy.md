@@ -28,8 +28,40 @@ remain typed as `DTextureCube`. No current renderer consumer requires an
 unqualified texture asset, so this refactor must preserve those domain-specific
 types rather than using the new base class as a reason to widen every API.
 
-Implementation has not started. The first stage establishes reflection and
-package-compatibility tests before moving ownership or lifecycle behavior.
+Stage 0 is complete. Stage 1 is the current implementation stage.
+
+Stage 0 handoff:
+
+- Baseline commit:
+  `eda371e0ac11383987e21baa5d28f12557900eeb`.
+- Working set: `SourceLibraryReferenceContractTests.cpp`,
+  `TextureCubeTests.cpp`, the affected EngineTests deployment declaration, and
+  this plan.
+- Key symbols and fixtures: `DTexture2D::StaticClass`,
+  `DTextureCube::StaticClass`, `FTextureCubeResourceCompletion`, one legacy
+  Texture2D package, one six-face TextureCube package, and one panorama
+  TextureCube package.
+- Decisions: qualified leaf names and every currently generated leaf property
+  remain fixed; the Stage 1 hierarchy test extends the existing `DObject`
+  expectations with `DTexture` rather than introducing a test-only base.
+- Lifecycle baseline: concrete texture tests plus the parameterized RenderCore
+  lifetime contract cover first publication, replacement ordering, stale
+  success/failure rejection, current upload failures, invalidation with
+  last-good-data retention, queued destruction, unload, and shutdown cleanup
+  for both texture kinds.
+- Open validation item: concrete asset tests cannot deterministically pause
+  render commands during destruction without a test-only hook. Stage 3 retains
+  this validation after common ownership exists.
+- Schema gap: `DTexture2D::ImportOwner` is annotated with `DPROPERTY` in source
+  but absent from current generated reflection metadata and legacy package
+  schema. This plan does not change that pre-existing boundary or treat the
+  field as serialized hierarchy state.
+- Validation: all 41 `EditorAssetWorkflowTests` passed; all 13 texture-focused
+  `RenderContractTests` passed; all 39 direct Texture2D, TextureCube, cook, and
+  derived-data tests passed; plan validation passed. The complete
+  `TextureTests` target remains limited by five unrelated existing
+  `FStaticModelImportBuildTests` failures in dependency-graph/sidecar behavior,
+  including one access violation.
 
 ## Goal
 
@@ -159,19 +191,20 @@ Gaps to close:
 
 ### Stage 0: Freeze Compatibility and Lifecycle Baselines
 
-- [ ] Record the baseline commit and the initial working set for the stage
+- [x] Record the baseline commit and the initial working set for the stage
   handoff.
-- [ ] Add or identify package fixtures for existing `DTexture2D` and
+- [x] Add or identify package fixtures for existing `DTexture2D` and
   `DTextureCube` assets and assert they resolve to the same qualified leaf
   classes after a superclass is inserted.
-- [ ] Add compile-time and reflected inheritance expectations covering
-  `DObject`, the future `DTexture`, and both leaf types.
-- [ ] Capture the existing lifecycle cases for both types: first publication,
+- [x] Add compile-time and reflected inheritance baselines covering `DObject`
+  and both leaf types; extend the same test to `DTexture` when Stage 1 adds the
+  production type.
+- [x] Capture the existing lifecycle cases for both types: first publication,
   successful replacement, stale candidate, upload failure, invalidation,
   destruction with queued work, and shutdown cleanup.
-- [ ] Confirm through a schema/package inspection test that the plan moves no
-  existing reflected property to a different declaring class.
-- [ ] Record any uncovered legacy fixture or lifecycle gap before production
+- [x] Confirm through reflection and package inspection tests that the plan
+  moves no existing reflected property to a different declaring class.
+- [x] Record any uncovered legacy fixture or lifecycle gap before production
   ownership begins moving.
 
 Dependencies: none.

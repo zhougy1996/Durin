@@ -633,8 +633,37 @@ TEST(FTextureCubeTests, RenderCompletionRejectsStaleCandidateResults)
 		Completion.GetResourceState(), Durin::ERenderResourceState::Pending);
 
 	ASSERT_TRUE(Completion.MarkBuilding(3));
-	Completion.MarkReleased(3);
-	EXPECT_EQ(Completion.GetAppliedRevision(), 3u);
+	Completion.MarkFailed(
+		3, Durin::ETextureRenderFailure::UnsupportedFormat);
+	EXPECT_EQ(Completion.GetAppliedRevision(), 0u);
+	EXPECT_EQ(Completion.GetFailedRevision(), 3u);
+	EXPECT_EQ(Completion.GetFailureReason(),
+		Durin::ETextureRenderFailure::UnsupportedFormat);
+	EXPECT_EQ(
+		Completion.GetResourceState(), Durin::ERenderResourceState::Failed);
+
+	Completion.BeginRequest(4);
+	ASSERT_TRUE(Completion.MarkBuilding(4));
+	Completion.MarkReady(4);
+	EXPECT_EQ(Completion.GetAppliedRevision(), 4u);
+	EXPECT_EQ(
+		Completion.GetResourceState(), Durin::ERenderResourceState::Ready);
+
+	Completion.BeginRequest(5);
+	ASSERT_TRUE(Completion.MarkBuilding(5));
+	Completion.MarkFailed(
+		5, Durin::ETextureRenderFailure::CreateOrUpload);
+	EXPECT_EQ(Completion.GetAppliedRevision(), 4u);
+	EXPECT_EQ(Completion.GetFailedRevision(), 5u);
+	EXPECT_EQ(Completion.GetFailureReason(),
+		Durin::ETextureRenderFailure::CreateOrUpload);
+	EXPECT_EQ(
+		Completion.GetResourceState(), Durin::ERenderResourceState::Failed);
+
+	Completion.BeginRequest(6);
+	ASSERT_TRUE(Completion.MarkBuilding(6));
+	Completion.MarkReleased(6);
+	EXPECT_EQ(Completion.GetAppliedRevision(), 6u);
 	EXPECT_EQ(
 		Completion.GetResourceState(), Durin::ERenderResourceState::Released);
 }

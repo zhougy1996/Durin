@@ -88,6 +88,70 @@ TEST(FSourcePathContractTests, ReflectedValueHasOneCompleteVirtualPath)
 	EXPECT_EQ(EngineSource.Path, "/Engine/Textures/Common/Stone.png");
 }
 
+TEST(FSourcePathContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainStable)
+{
+	static_assert(std::is_base_of_v<Durin::DObject, Durin::DTexture2D>);
+	static_assert(std::is_base_of_v<Durin::DObject, Durin::DTextureCube>);
+
+	InitializeDObjectSystem();
+	Durin::DClass* Texture2DClass = Durin::DTexture2D::StaticClass();
+	Durin::DClass* TextureCubeClass = Durin::DTextureCube::StaticClass();
+	ASSERT_NE(Texture2DClass, nullptr);
+	ASSERT_NE(TextureCubeClass, nullptr);
+	EXPECT_EQ(Texture2DClass->GetQualifiedName().ToString(), "Durin::DTexture2D");
+	EXPECT_EQ(TextureCubeClass->GetQualifiedName().ToString(), "Durin::DTextureCube");
+	EXPECT_TRUE(Texture2DClass->IsChildOf(Durin::DObject::StaticClass()));
+	EXPECT_TRUE(TextureCubeClass->IsChildOf(Durin::DObject::StaticClass()));
+
+	static constexpr std::array Texture2DProperties = {
+		std::string_view("SourceFile"),
+		std::string_view("SourceImportData"),
+		std::string_view("SourceContentHash"),
+		std::string_view("SourceFileSize"),
+		std::string_view("SourceLastWriteTime"),
+		std::string_view("SourceWidth"),
+		std::string_view("SourceHeight"),
+		std::string_view("SourceChannelCount"),
+		std::string_view("bSourceHasTransparency"),
+		std::string_view("Usage"),
+		std::string_view("bSRGB"),
+		std::string_view("MaxResolution"),
+		std::string_view("CompressionQuality"),
+		std::string_view("AlphaMipMode"),
+		std::string_view("AlphaCoverageThreshold"),
+		std::string_view("CookedPayload")};
+	static constexpr std::array TextureCubeProperties = {
+		std::string_view("SourceLayout"),
+		std::string_view("SourceImportData"),
+		std::string_view("PositiveXSourceFile"),
+		std::string_view("NegativeXSourceFile"),
+		std::string_view("PositiveYSourceFile"),
+		std::string_view("NegativeYSourceFile"),
+		std::string_view("PositiveZSourceFile"),
+		std::string_view("NegativeZSourceFile"),
+		std::string_view("PanoramaSourceFile"),
+		std::string_view("PanoramaFaceDimension"),
+		std::string_view("PanoramaExposureEV"),
+		std::string_view("OriginalSourceWidth"),
+		std::string_view("OriginalSourceHeight"),
+		std::string_view("bSRGB"),
+		std::string_view("CookedPayload")};
+
+	const auto ExpectDeclaredProperties = [](Durin::DClass* Class,
+		std::span<const std::string_view> PropertyNames) {
+		for (std::string_view PropertyName : PropertyNames)
+		{
+			SCOPED_TRACE(PropertyName);
+			Durin::FProperty* Property =
+				Class->FindPropertyByName(Durin::FName(PropertyName));
+			ASSERT_NE(Property, nullptr);
+			EXPECT_EQ(Property->Owner.ToDObject(), Class);
+		}
+	};
+	ExpectDeclaredProperties(Texture2DClass, Texture2DProperties);
+	ExpectDeclaredProperties(TextureCubeClass, TextureCubeProperties);
+}
+
 TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesDomainsAndDependencyCases)
 {
 	const std::filesystem::path Path =
