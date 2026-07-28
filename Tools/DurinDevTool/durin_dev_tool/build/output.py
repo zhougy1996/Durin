@@ -41,7 +41,22 @@ TEST_STATUS_PATTERNS = (
     (re.compile(r"^\[\s*(?:FAILED|ERROR)\s*\]", re.IGNORECASE), "bold red"),
     (re.compile(r"^\[\s*SKIPPED\s*\]", re.IGNORECASE), "bold yellow"),
     (re.compile(r"^\[\s*RUN\s*\]", re.IGNORECASE), "bold cyan"),
-    (re.compile(r"^\d+/\d+\s+Test\s+#\d+:\s+.*\s(?:Passed|Failed)", re.IGNORECASE), None),
+    (re.compile(r"^\s*Start\s+\d+:\s+", re.IGNORECASE), "bold cyan"),
+    (
+        re.compile(r"^\s*\d+/\d+\s+Test\s+#\d+:.*?\bPassed\b", re.IGNORECASE),
+        "bold green",
+    ),
+    (
+        re.compile(
+            r"^\s*\d+/\d+\s+Test\s+#\d+:.*?(?:\bFailed\b|\bTimeout\b|\bNot Run\b)",
+            re.IGNORECASE,
+        ),
+        "bold red",
+    ),
+    (
+        re.compile(r"^\s*\d+/\d+\s+Test\s+#\d+:.*?\bSkipped\b", re.IGNORECASE),
+        "bold yellow",
+    ),
     (re.compile(r"^\s*\d+%\s+tests passed", re.IGNORECASE), None),
 )
 
