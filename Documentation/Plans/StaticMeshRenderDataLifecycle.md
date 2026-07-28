@@ -520,7 +520,8 @@ Dependencies: Stage 2.
 - [ ] Resolve the linked investigation only after implementation and full
   validation land.
 
-Dependencies: Stage 3 and the implementation stages of
+Dependencies: Stage 3, Stage 3 of
+`EngineTerminationLifecycle.md`, and the implementation stages of
 `StaticMeshLODResourcesRefactor.md`.
 
 #### Acceptance Gate
@@ -586,6 +587,7 @@ profile-specific commands.
 
 ## Related Documentation
 
+- [Engine Termination Lifecycle](EngineTerminationLifecycle.md)
 - [StaticMesh Render-Data Lifetime Investigation](../Investigations/StaticMeshRenderDataLifetime.md)
 - [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
 - [Texture System](../Runtime/Rendering/TextureSystem.md)
