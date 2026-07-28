@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 CONFIG_RELATIVE_PATH = Path(".agents") / "build-config.json"
-TEMPLATE_RELATIVE_PATH = Path("Documentation") / "Setup" / "TP_AGENT_BUILD_CONFIG.json"
+TEMPLATE_RELATIVE_PATH = Path("Documentation") / "Development" / "Build" / "TP_AGENT_BUILD_CONFIG.json"
 
 
 class AgentConfigError(RuntimeError):

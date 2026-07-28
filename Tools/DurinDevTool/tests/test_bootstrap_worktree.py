@@ -328,6 +328,10 @@ class TestSetupPreflight:
 
 class TestAgentConfigLifecycle:
 
+    def test_template_path_matches_repository_layout(self) -> None:
+        repo_root = Path(__file__).resolve().parents[3]
+        assert agent_config.template_path(repo_root).is_file()
+
     @staticmethod
     def create_repo(root: Path) -> None:
         template = root / agent_config.TEMPLATE_RELATIVE_PATH
