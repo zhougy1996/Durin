@@ -4,6 +4,7 @@
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "Shader/ShaderCompileService.h"
+#include "NativeTestSupport.h"
 
 #include "gtest/gtest.h"
 
@@ -15,7 +16,7 @@ namespace Durin
 	{
 		auto GetServiceTestRoot() -> std::filesystem::path
 		{
-			return std::filesystem::path(DURIN_TEST_WORK_DIR) / "ShaderCompileService";
+			return Durin::Testing::GetTestWorkDirectory() / "ShaderCompileService";
 		}
 
 		auto WriteTestShader(const std::filesystem::path& FilePath) -> void

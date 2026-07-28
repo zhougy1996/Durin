@@ -8,6 +8,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/StringConvert.h"
 #include "Shader/ShaderCacheStore.h"
+#include "NativeTestSupport.h"
 #include "Shader/ShaderCompileUtilities.h"
 
 #include "gtest/gtest.h"
@@ -23,13 +24,13 @@ namespace Durin
 
 		auto GetTestCacheRoot() -> std::filesystem::path
 		{
-			return std::filesystem::path(DURIN_TEST_WORK_DIR) / "ShaderCacheStore";
+			return Durin::Testing::GetTestWorkDirectory() / "ShaderCacheStore";
 		}
 
 		auto GetLongTestCacheRoot() -> std::filesystem::path
 		{
 			std::filesystem::path Root = std::filesystem::absolute(
-				std::filesystem::path(DURIN_TEST_WORK_DIR) / "LongShaderCache").lexically_normal();
+				Durin::Testing::GetTestWorkDirectory() / "LongShaderCache").lexically_normal();
 			for (size_t Index = 0; Root.native().size() <= 270; ++Index)
 			{
 				Root /= std::format("cache-segment-{:04}-abcdefgh", Index);

@@ -26,12 +26,21 @@ Completed:
   temporary target serialization locks.
 - The asset package, cook, derived-data, decoder, and import domains also use
   the process sandbox and run without temporary target serialization locks.
+- The shader contract, cache, service, and CPU render-contract domains are
+  case-parallel. Shader cache/service output is sandbox-local, and the
+  temporary cross-process `shader-compiler` compatibility group was removed;
+  no irreducible compiler resource was found.
 - Three consecutive 14-job aggregate runs passed all 720 CTest entries after
   the Core targets enabled case parallelism; their real times were 20.95,
   20.52, and 23.35 seconds.
 - Three further 14-job aggregate runs passed all 720 CTest entries after the
   asset targets enabled case parallelism; their real times were 17.70, 16.63,
   and 17.56 seconds.
+- The RenderCore targets passed every entry across five 14-job aggregate
+  schedules. Three complete aggregates passed all 720 entries in 18.23, 19.13,
+  and 20.57 seconds; the other two had unrelated failures in the Core
+  direct-smoke atomic publication stress and the not-yet-migrated texture-cook
+  direct smoke.
 - `.\DevTool.bat test --target all` now schedules CTest-discovered GoogleTest
   cases with the Agent Build Profile job count; the current profile runs 14
   cases concurrently.
@@ -54,7 +63,7 @@ Completed:
   and load, failed package and shader-cache publication, and thumbnail fixture
   setup failures. The same thumbnail suites passed when run in one process,
   including 100 shuffled repetitions.
-- The repository currently has 109 `DURIN_TEST_WORK_DIR` references in 32
+- The repository currently has 106 `DURIN_TEST_WORK_DIR` references in 30
   native-test source/header files, and 32 native-test files call
   `std::filesystem::remove_all`.
 - `FTextureCubeAssetThumbnailTests.ProviderRejectsMissingRegistryData` also has
@@ -432,7 +441,7 @@ cases.
 - [x] Migrate the asset package/registry, derived-data, decoder, and import
   domains; isolate package roots, registry files, derived data, cook output,
   and companion files.
-- [ ] Migrate the shader compiler/service, shader cache/store, and
+- [x] Migrate the shader compiler/service, shader cache/store, and
   render-contract domains; declare only genuine compiler or device resource
   constraints.
 - [ ] Migrate the editor, material, static-mesh, texture, thumbnail, world,

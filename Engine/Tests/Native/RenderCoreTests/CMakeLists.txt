@@ -39,11 +39,13 @@ function(durin_add_render_functional_test target_name)
 			"${CMAKE_CURRENT_SOURCE_DIR}/Data"
 		)
 		set_target_properties(${target_name} PROPERTIES
-			DURIN_TEST_LEGACY_SERIALIZATION_GROUP shader-compiler
 			DURIN_TEST_TIMEOUT 600
 		)
 	endif()
 
+	set_target_properties(${target_name} PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+	)
 	durin_discover_tests(${target_name})
 endfunction()
 
