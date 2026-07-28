@@ -64,7 +64,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 		"/StaticMeshSourceProvenance/Models/Environment/Mesh.gltf");
 	EXPECT_EQ(Provenance.SourceContentHash.size(), 32u);
 	EXPECT_EQ(Provenance.ImporterId, "Assimp");
-	EXPECT_EQ(Provenance.ImporterVersion, 2u);
+	EXPECT_EQ(Provenance.ImporterVersion, 3u);
 	const std::string OriginalSourcePath = Provenance.SourcePath.Path;
 	const std::filesystem::path StoredSource =
 		Root / "SourceAssets/Models/Environment/Mesh.gltf";

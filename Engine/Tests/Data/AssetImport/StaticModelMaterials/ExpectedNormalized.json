@@ -84,7 +84,7 @@
     "PrimitiveProjection.gltf": {
       "sourcePrimitiveMaterials": [2, 0, 1],
       "requiredInstancedMeshMaterials": [1, 2, 0, 1],
-      "stage0ImportedMeshMaterials": [2, 0, 1, 2],
+      "importedMeshMaterials": [1, 2, 0, 1],
       "usedSlots": [
         {"name": "Zero", "sourceIndex": 0, "sourceName": "Zero"},
         {"name": "One", "sourceIndex": 1, "sourceName": "One"},
@@ -121,7 +121,7 @@
       "result": "failure",
       "usedSlots": [{"name": "02 - Default", "sourceIndex": 0, "sourceName": "02 - Default"}],
       "diagnostics": [
-        {"severity": "warning", "category": "unsupported_material_property", "subject": "3dsMax|main"},
+        {"severity": "warning", "category": "unsupported_material_property", "subject": "unmapped-material-properties"},
         {"severity": "error", "category": "missing_dependency", "subject": "Textures/albedo.png"}
       ]
     }

@@ -36,7 +36,7 @@ namespace Durin
 		}
 
 		inline constexpr uint32 StaticMeshMaterialSlotsVersion = 1;
-		inline constexpr uint32 StaticMeshAssimpImporterVersion = 2;
+		inline constexpr uint32 StaticMeshAssimpImporterVersion = 3;
 		inline constexpr std::string_view StaticMeshImporterId = "Assimp";
 		inline constexpr std::string_view StaticMeshSourceRoot = "SourceAssets/Models";
 		inline constexpr std::string_view LegacySlotGuidDomain = "Durin.StaticMeshMaterialSlot.v1";

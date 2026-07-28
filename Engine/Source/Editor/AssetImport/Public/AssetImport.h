@@ -14,7 +14,7 @@
 namespace Durin::Asset
 {
 	inline constexpr uint32 MaxImportedUVChannels = 4;
-	inline constexpr uint32 StaticModelImporterVersion = 2;
+	inline constexpr uint32 StaticModelImporterVersion = 3;
 	inline constexpr uint32 MaxImportedSourceMaterials = 4096;
 	inline constexpr uint32 MaxImportedImages = 4096;
 	inline constexpr uint32 MaxImportedTextureBindingsPerMaterial = 16;

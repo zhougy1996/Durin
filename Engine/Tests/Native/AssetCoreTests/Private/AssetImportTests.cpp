@@ -390,17 +390,17 @@ namespace Durin::Asset
 		}
 	}
 
-	TEST(FAssetImportTests, GltfPrimitiveProjectionCharacterizesTheStage0OrderingDefect)
+	TEST(FAssetImportTests, GltfPrimitiveProjectionPreservesMaterialsAcrossNodeInstances)
 	{
 		FImportedSceneData Scene;
 		ASSERT_TRUE(ImportFromFile(
 			TestDataPath("StaticModelMaterials/PrimitiveProjection.gltf"), Scene));
 
 		ASSERT_EQ(Scene.Meshes.size(), 4u);
-		const std::array<uint32, 4> Stage0ImportedMaterials = {2, 0, 1, 2};
-		for (size_t Index = 0; Index < Stage0ImportedMaterials.size(); ++Index)
+		const std::array<uint32, 4> ExpectedInstanceMaterials = {1, 2, 0, 1};
+		for (size_t Index = 0; Index < ExpectedInstanceMaterials.size(); ++Index)
 		{
-			EXPECT_EQ(Scene.Meshes[Index].SourceMaterialIndex, Stage0ImportedMaterials[Index]);
+			EXPECT_EQ(Scene.Meshes[Index].SourceMaterialIndex, ExpectedInstanceMaterials[Index]);
 		}
 
 		ASSERT_EQ(Scene.MaterialSlots.size(), 3u);
@@ -417,7 +417,7 @@ namespace Durin::Asset
 
 	TEST(FAssetImportTests, StaticModelGoldenSnapshotFreezesRequiredAndOptionalCases)
 	{
-		EXPECT_EQ(StaticModelImporterVersion, 2u);
+		EXPECT_EQ(StaticModelImporterVersion, 3u);
 		for (const std::string_view FileName : {
 			"StaticModelMaterials/RequiredExtension.gltf",
 			"StaticModelMaterials/OptionalExtension.gltf"})
@@ -448,7 +448,7 @@ namespace Durin::Asset
 			Fixtures.GetView("PrimitiveProjection.gltf").GetView("requiredInstancedMeshMaterials").Num(),
 			4u);
 		EXPECT_EQ(
-			Fixtures.GetView("PrimitiveProjection.gltf").GetView("stage0ImportedMeshMaterials").Num(),
+			Fixtures.GetView("PrimitiveProjection.gltf").GetView("importedMeshMaterials").Num(),
 			4u);
 		EXPECT_EQ(
 			Fixtures.GetView("EmbeddedImage.glb").GetView("images").GetView(0).GetView("identity").GetString(),
@@ -571,6 +571,23 @@ namespace Durin::Asset
 			EXPECT_TRUE(Scene.Meshes.empty());
 			EXPECT_TRUE(HasDiagnostic(Scene, EImportDiagnosticSeverity::Error, Case.Category, Case.Subject));
 		}
+	}
+
+	TEST(FAssetImportTests, ReportsStructuredFallbackForUnsupportedFbxShading)
+	{
+		FImportedSceneData Scene;
+		EXPECT_FALSE(ImportFromFile(
+			TestDataPath("StaticModelMaterials/UnsupportedDccMaterial.fbx"), Scene));
+		EXPECT_TRUE(HasDiagnostic(
+			Scene,
+			EImportDiagnosticSeverity::Warning,
+			EImportDiagnosticCategory::UnsupportedMaterialProperty,
+			"unmapped-material-properties"));
+		EXPECT_TRUE(HasDiagnostic(
+			Scene,
+			EImportDiagnosticSeverity::Error,
+			EImportDiagnosticCategory::MissingDependency,
+			"Textures/albedo.png"));
 	}
 
 	TEST(FAssetImportTests, MapsFrozenFbxDiffuseOpacitySubset)

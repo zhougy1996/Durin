@@ -9,9 +9,9 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete from baseline
-`d1c9fe26` (`docs(import): gate stage 3 on foundation refactor`). Stage 1 is
-the next executable stage.
+Stages 0 and 1 are complete. Stage 1 started from baseline
+`f211678b` (`test(import): freeze format adapter seams`). Stage 2 is the next
+executable stage.
 
 The current implementation has the intended external architecture: one
 format-neutral `FImportedSceneData` boundary, editor-only source parsing,
@@ -44,12 +44,12 @@ by this plan.
   bytes, and the shared result/diagnostic sink. `ImportGltfFormat` owns glTF
   metadata normalization; `ImportAssimpFormat` owns non-glTF material
   normalization; `ImportAssimpGeometry` owns node and vertex extraction.
-- glTF material identity will no longer use a flattened JSON primitive vector
-  indexed by Assimp mesh allocation order. The glTF adapter records source
-  primitive material usage, while each Assimp geometry record retains its own
-  `aiMesh::mMaterialIndex`. The orchestrator validates that every index exists
-  in the normalized glTF material table and that the source/Assimp primitive
-  material histograms agree before traversing instances.
+- glTF material identity no longer uses source mesh declaration order or
+  Assimp's local material index. The glTF adapter traverses the active scene
+  nodes in source order, appends each first-seen source mesh's primitives, and
+  produces the source material index for each Assimp mesh allocation. Shared
+  geometry indexes that explicit projection with `aiNode::mMeshes`; repeated
+  node instances therefore reuse the same source material identity.
 - `PrimitiveProjection.gltf` proves why count equality is insufficient. Its
   source primitive order is `2, 0, 1`, its scene visits mesh instances with
   required materials `1, 2, 0, 1`, and the Stage 0 importer incorrectly
@@ -57,10 +57,16 @@ by this plan.
 - Correcting that projection and replacing the raw FBX diagnostic changes
   normalized output. Stage 1 increments `StaticModelImporterVersion` from 2 to
   3 and updates the frozen expected output in the same commit.
+- Initial Stage 1 validation disproved the earlier candidate of using
+  `aiMesh::mMaterialIndex` directly: Assimp's glTF lazy dictionaries reorder
+  both meshes and materials by first reference, so that index is local to the
+  Assimp scene rather than the glTF source material table. The selected
+  first-seen mesh projection mirrors the pinned importer allocation contract
+  without relying on material names, which may be duplicated.
 - Assimp does not provide a stable public DCC-schema contract for the raw
   `3dsMax|main` compound marker. Stage 1 removes the byte scan and emits only a
   generic lossy/unsupported-material warning derived from structured Assimp
-  shading or material properties; it does not promise exporter identification.
+  shading and texture properties; it does not promise exporter identification.
 - Transaction resolution will produce `FResolvedImportPlan` containing
   `FResolvedPackage`, deduplicated `FResolvedSource`, `FResolvedTexture`, the
   root package, and source filesystem observations. Resolution is pure with
@@ -301,11 +307,12 @@ Dependencies: completed Stages 0 through 2 of
 - Baseline commit: `d1c9fe26`.
 - Working set: this plan, `PrimitiveProjection.gltf`,
   `ExpectedNormalized.json`, and `AssetImportTests.cpp`.
-- Key decisions: glTF geometry keeps the material index already attached to
-  each Assimp mesh and validates its histogram against parsed source
-  primitives; JSON primitive order is never indexed by Assimp allocation
-  order. Stage 1 introduces the three private format/geometry entrypoints and
-  increments the importer version for the corrected output.
+- Key decisions: the glTF adapter produces an explicit source-material
+  projection in Assimp's first-seen mesh allocation order; shared geometry
+  consumes it through Assimp node mesh references. Neither source declaration
+  order nor Assimp's locally reordered material index is treated as source
+  identity. Stage 1 introduces the three private format/geometry entrypoints
+  and increments the importer version for the corrected output.
 - FBX decision: delete the `3dsMax|main` byte scan and retain only warnings
   supported by structured Assimp material data.
 - Transaction decision: resolve once into `FResolvedImportPlan`; real texture
@@ -320,22 +327,22 @@ Dependencies: completed Stages 0 through 2 of
 
 Dependencies: Stage 0.
 
-- [ ] Extract common diagnostics, dependency, URI, hash, budget, base64, and
+- [x] Extract common diagnostics, dependency, URI, hash, budget, base64, and
   encoded-image validation into private format-neutral support.
-- [ ] Extract GLB container and glTF JSON/image/material parsing into the
+- [x] Extract GLB container and glTF JSON/image/material parsing into the
   glTF/GLB adapter.
-- [ ] Extract Assimp material/image normalization into the Assimp-backed
+- [x] Extract Assimp material/image normalization into the Assimp-backed
   format adapter and remove the raw `3dsMax|main` byte scan.
-- [ ] Extract Assimp node and geometry traversal into the shared geometry
+- [x] Extract Assimp node and geometry traversal into the shared geometry
   reader without material-format policy.
-- [ ] Reduce `AssetImport.cpp` to root-byte acquisition, format dispatch,
+- [x] Reduce `AssetImport.cpp` to root-byte acquisition, format dispatch,
   adapter/geometry composition, final normalized validation, and async
   lifecycle.
-- [ ] Implement and validate the selected explicit glTF
+- [x] Implement and validate the selected explicit glTF
   primitive-to-geometry projection.
-- [ ] Keep the public `AssetImport.h` normalized types and entrypoints stable
+- [x] Keep the public `AssetImport.h` normalized types and entrypoints stable
   unless Stage 0 recorded an approved semantic correction.
-- [ ] Run frozen fixture, geometry, material-slot, malformed-input,
+- [x] Run frozen fixture, geometry, material-slot, malformed-input,
   synchronous/asynchronous equivalence, and module-dependency tests.
 
 #### Acceptance Gate
@@ -344,6 +351,33 @@ Dependencies: Stage 0.
   units, all existing accepted outputs remain frozen, count-only glTF
   correlation is impossible, the raw FBX marker scan is absent, and runtime
   targets remain free of importer dependencies.
+
+#### Stage 1 Handoff
+
+- Baseline commit: `f211678b`.
+- Working set: `AssetImport.h/.cpp`, new
+  `StaticModelImportInternal.h`, `StaticModelImportCommon.cpp`,
+  `GltfStaticModelAdapter.cpp`, `AssimpStaticModelAdapter.cpp`,
+  `AssimpStaticModelGeometry.cpp`, `StaticMesh.cpp`,
+  `AssetImportTests.cpp`, `StaticMeshMaterialTests.cpp`, frozen normalized
+  expectations, and this plan.
+- Key symbols and decisions: `ImportGltfFormat`, `ImportAssimpFormat`, and
+  `ImportAssimpGeometry` are private unit boundaries behind the unchanged
+  public entrypoints. The glTF adapter builds its Assimp mesh projection by
+  active-scene node traversal and first-seen source mesh order; duplicate
+  material names are irrelevant to the mapping.
+- Corrected behavior: `PrimitiveProjection.gltf` now produces source material
+  indices `1, 2, 0, 1` across node instances. Because normalized output and the
+  FBX diagnostic contract changed intentionally, `StaticModelImporterVersion`
+  and the StaticMesh Assimp importer version are 3.
+- FBX behavior: unsupported structured texture/shading properties emit
+  `unmapped-material-properties` or the existing `Phong` warning. No raw FBX
+  byte marker is inspected.
+- Validation: all 18 `AssetImportTests` passed; the affected StaticMesh source
+  provenance test passed; the `Win64-Debug-DurinGame` runtime-only `Engine`
+  target built successfully. Targeted source inspection found no glTF schema
+  strings outside the glTF adapter, no Assimp material types in the glTF
+  adapter or public header, and no remaining `3dsMax|main` code probe.
 
 ### Stage 2: Replace repeated preparation with one resolved plan
 
