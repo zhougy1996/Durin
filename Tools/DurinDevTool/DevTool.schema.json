@@ -25,6 +25,7 @@
         "runtimeBinariesDirectory",
         "defaultGameProject",
         "vscodeTemplates",
+        "scaffoldingTemplates",
         "thirdPartyManifests"
       ],
       "properties": {
@@ -37,6 +38,7 @@
         "runtimeBinariesDirectory": { "$ref": "#/$defs/repositoryPath" },
         "defaultGameProject": { "$ref": "#/$defs/repositoryPath" },
         "vscodeTemplates": { "$ref": "#/$defs/repositoryPath" },
+        "scaffoldingTemplates": { "$ref": "#/$defs/repositoryPath" },
         "thirdPartyManifests": { "$ref": "#/$defs/repositoryPath" }
       }
     },

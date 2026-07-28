@@ -70,7 +70,10 @@ documentation.
 Tracked DurinDevTool repository structure and command-group enablement live in
 `Tools/DurinDevTool/DevTool.json`. Its paths are repository-relative and are
 validated to stay inside the checkout. `DevTool.schema.json` beside it documents
-the supported fields. Do not place machine-local tool paths in this tracked
+the supported fields. Module and project scaffolding assets live under
+`Templates/Scaffolding`; the `paths.scaffoldingTemplates` setting selects that
+root so the templates remain repository-owned assets independent of the Python
+package layout. Do not place machine-local tool paths in this tracked
 configuration.
 
 ## Windows Workflow
@@ -430,6 +433,8 @@ directories are tracked and the prior project descriptor is backed up. Any
 write or final descriptor-validation failure restores the original bytes and
 removes only paths created by that invocation. Repeating a successful request
 reports an existing-name or destination conflict instead of overwriting it.
+Generated files are rendered from the reviewed templates under
+`Templates/Scaffolding/module`.
 The same `create module` syntax is available in the interactive DurinDevTool shell.
 
 ## Creating Workspace Projects
@@ -466,7 +471,9 @@ writing. The project tree and root CMake edit are one transaction: a failure
 restores the previous root file byte-for-byte and removes only paths created by
 that invocation. Installed-engine projects, external project roots, and nested
 workspace project paths are not supported by this command. The same syntax is
-available in the interactive DurinDevTool shell.
+available in the interactive DurinDevTool shell. Project-specific files are
+rendered from `Templates/Scaffolding/project`, while the initial module reuses
+the module templates.
 
 ## Clean And Purge
 

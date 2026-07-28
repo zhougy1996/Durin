@@ -22,6 +22,7 @@ PATH_FIELDS = {
     "runtimeBinariesDirectory": "runtime_binaries_directory",
     "defaultGameProject": "default_game_project",
     "vscodeTemplates": "vscode_templates",
+    "scaffoldingTemplates": "scaffolding_templates",
     "thirdPartyManifests": "third_party_manifests",
 }
 FEATURE_NAMES = {
@@ -55,6 +56,7 @@ class RepositoryPaths:
     runtime_binaries_directory: Path
     default_game_project: Path
     vscode_templates: Path
+    scaffolding_templates: Path
     third_party_manifests: Path
 
 

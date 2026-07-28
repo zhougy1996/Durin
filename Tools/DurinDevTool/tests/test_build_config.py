@@ -159,6 +159,8 @@ class TestRepositoryConfig:
         assert config.resolve(config.paths.cmake_presets).is_file()
         assert config.resolve(config.paths.build_profiles).is_file()
         assert config.resolve(config.paths.local_build_config_template).is_file()
+        assert config.paths.scaffolding_templates == Path('Templates/Scaffolding')
+        assert config.resolve(config.paths.scaffolding_templates).is_dir()
         assert config.feature_enabled('build')
 
     def test_repository_config_rejects_unknown_and_escaping_paths(

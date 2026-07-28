@@ -11,6 +11,7 @@
     "runtimeBinariesDirectory": "Engine/Binaries",
     "defaultGameProject": "Sandbox/Sandbox.dproject",
     "vscodeTemplates": "Templates/VSCode",
+    "scaffoldingTemplates": "Templates/Scaffolding",
     "thirdPartyManifests": "Tools/DurinDevTool/durin_dev_tool/bootstrap/thirdparty"
   },
   "worktrees": {

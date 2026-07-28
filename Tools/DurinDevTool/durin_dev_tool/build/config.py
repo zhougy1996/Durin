@@ -12,7 +12,6 @@ from typing import Any, Mapping
 from ..configuration import load_repository_config
 from ..repository import discover_repository_root
 
-PACKAGE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = discover_repository_root()
 REPOSITORY_CONFIG = load_repository_config(REPO_ROOT)
 PROFILE_FILE = REPOSITORY_CONFIG.resolve(REPOSITORY_CONFIG.paths.build_profiles)
