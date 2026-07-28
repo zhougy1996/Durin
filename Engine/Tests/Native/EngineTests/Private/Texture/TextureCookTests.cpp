@@ -322,7 +322,9 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Renderer.SetRenderMode(Durin::ERenderMode::Unlit);
 	auto* SampleMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	for (Durin::FVector2f& TexCoord :
-		SampleMesh->GetRenderData()->LODResources.front().TexCoords.front())
+		SampleMesh->GetRenderData()->LODResources.front()
+			.VertexBuffers.StaticMeshVertexBuffer
+				.TexCoordVertexBuffer.GetMutableTexCoords().front())
 	{
 		TexCoord = {0.99f, 0.0f};
 	}

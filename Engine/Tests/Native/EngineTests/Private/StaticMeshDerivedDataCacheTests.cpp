@@ -361,8 +361,12 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	ASSERT_NE(CookedMesh, nullptr);
 	ASSERT_NE(CookedMesh->GetRenderData(), nullptr);
 	ASSERT_FALSE(CookedMesh->GetRenderData()->LODResources.empty());
-	ASSERT_FALSE(CookedMesh->GetRenderData()->LODResources.front().Positions.empty());
-	ASSERT_FALSE(CookedMesh->GetRenderData()->LODResources.front().Indices.empty());
+	ASSERT_FALSE(
+		CookedMesh->GetRenderData()->LODResources.front()
+			.VertexBuffers.PositionVertexBuffer.GetPositions().empty());
+	ASSERT_FALSE(
+		CookedMesh->GetRenderData()->LODResources.front()
+			.IndexBuffer.GetIndices().empty());
 	ASSERT_EQ(
 		CookedMesh->GetRenderData()->MaterialSlots.size(),
 		CookedMesh->GetNumMaterialSlots());

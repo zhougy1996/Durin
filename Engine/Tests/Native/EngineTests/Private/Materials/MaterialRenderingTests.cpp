@@ -253,11 +253,26 @@ TEST(FMaterialTests, DebugStaticMeshProvidesCompleteLODAndPackedAttributes)
 	ASSERT_EQ(RenderData->LODResources.size(), 1u);
 	ASSERT_EQ(RenderData->MaterialSlots.size(), 1u);
 	const Durin::FStaticMeshLODResources& LOD = RenderData->LODResources[0];
-	EXPECT_EQ(LOD.Positions.size(), 3u);
-	EXPECT_EQ(LOD.Normals.size(), LOD.Positions.size());
-	EXPECT_EQ(LOD.Tangents.size(), LOD.Positions.size());
-	EXPECT_EQ(LOD.Colors.size(), LOD.Positions.size());
-	for (const auto& Channel : LOD.TexCoords) EXPECT_EQ(Channel.size(), LOD.Positions.size());
+	const auto& Positions =
+		LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
+	const auto& TangentsVertexBuffer =
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer;
+	EXPECT_EQ(Positions.size(), 3u);
+	EXPECT_EQ(
+		TangentsVertexBuffer.GetNormals().size(),
+		Positions.size());
+	EXPECT_EQ(
+		TangentsVertexBuffer.GetTangents().size(),
+		Positions.size());
+	EXPECT_EQ(
+		LOD.VertexBuffers.ColorVertexBuffer.GetColors().size(),
+		Positions.size());
+	for (const auto& Channel :
+		LOD.VertexBuffers.StaticMeshVertexBuffer
+			.TexCoordVertexBuffer.GetTexCoords())
+	{
+		EXPECT_EQ(Channel.size(), Positions.size());
+	}
 	ASSERT_EQ(LOD.Sections.size(), 1u);
 	EXPECT_EQ(LOD.Sections[0].FirstIndex, 0u);
 	EXPECT_EQ(LOD.Sections[0].IndexCount, 3u);
@@ -300,10 +315,13 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 		ASSERT_NE(RenderData, nullptr);
 		ASSERT_EQ(RenderData->LODResources.size(), 1u);
 		const Durin::FStaticMeshLODResources& LOD = RenderData->LODResources[0];
-		EXPECT_GT(LOD.Positions.size(), 8u);
-		EXPECT_GT(LOD.Indices.size(), 12u);
+		EXPECT_GT(LOD.GetNumVertices(), 8u);
+		EXPECT_GT(LOD.GetNumIndices(), 12u);
 		EXPECT_EQ(LOD.NumTexCoords, 1u);
-		EXPECT_EQ(LOD.TexCoords[0].size(), LOD.Positions.size());
+		EXPECT_EQ(
+			LOD.VertexBuffers.StaticMeshVertexBuffer
+				.TexCoordVertexBuffer.GetTexCoords()[0].size(),
+			LOD.GetNumVertices());
 	}
 	Durin::CollectGarbage();
 	EXPECT_EQ(Durin::FEditorAssetRetentionService::NumRetained(), 0u);
@@ -564,9 +582,22 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 
 	Durin::GEngine = nullptr;
 	ASSERT_NE(CaptureMesh, nullptr);
-	CaptureMesh->GetRenderData()->ReleaseResources();
 	ASSERT_NE(CaptureSphere, nullptr);
-	CaptureSphere->GetRenderData()->ReleaseResources();
+	struct FReleaseRenderedThumbnailMeshResources
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "ReleaseRenderedThumbnailMeshResources";
+		}
+	};
+	Durin::EnqueueRenderCommand<
+		FReleaseRenderedThumbnailMeshResources>(
+		[CaptureMeshData = CaptureMesh->GetRenderData(),
+			CaptureSphereData = CaptureSphere->GetRenderData()](
+			Durin::FRHICommandListImmediate&) {
+			CaptureMeshData->ReleaseResources();
+			CaptureSphereData->ReleaseResources();
+		});
 	Renderer.ReleaseResources();
 	Durin::FlushRenderingCommands();
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureTexturePath));

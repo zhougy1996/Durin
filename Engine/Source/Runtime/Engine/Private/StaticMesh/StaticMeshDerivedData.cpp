@@ -721,16 +721,33 @@ namespace Durin
 		for (const FStaticMeshLODResources& SourceLOD : RenderData.LODResources)
 		{
 			FStaticMeshPayloadLOD& LOD = Payload.LODs.emplace_back();
-			LOD.Positions = SourceLOD.Positions;
-			LOD.Normals = SourceLOD.Normals;
-			LOD.Tangents = SourceLOD.Tangents;
-			LOD.Indices = SourceLOD.Indices;
+			LOD.Positions =
+				SourceLOD.VertexBuffers.PositionVertexBuffer
+					.GetPositions();
+			LOD.Normals =
+				SourceLOD.VertexBuffers.StaticMeshVertexBuffer
+					.TangentsVertexBuffer.GetNormals();
+			LOD.Tangents =
+				SourceLOD.VertexBuffers.StaticMeshVertexBuffer
+					.TangentsVertexBuffer.GetTangents();
+			LOD.Indices = SourceLOD.IndexBuffer.GetIndices();
 			LOD.LocalBounds = SourceLOD.LocalBounds;
 			LOD.NumTexCoords = SourceLOD.NumTexCoords;
-			LOD.bHasVertexColors = SourceLOD.bHasVertexColors;
+			LOD.bHasVertexColors =
+				SourceLOD.bHasColorVertexData;
+			const auto& SourceTexCoords =
+				SourceLOD.VertexBuffers.StaticMeshVertexBuffer
+					.TexCoordVertexBuffer.GetTexCoords();
 			for (uint32 Channel = 0; Channel < LOD.NumTexCoords; ++Channel)
-				LOD.TexCoords[Channel] = SourceLOD.TexCoords[Channel];
-			if (LOD.bHasVertexColors) LOD.Colors = SourceLOD.Colors;
+			{
+				LOD.TexCoords[Channel] = SourceTexCoords[Channel];
+			}
+			if (LOD.bHasVertexColors)
+			{
+				LOD.Colors =
+					SourceLOD.VertexBuffers.ColorVertexBuffer
+						.GetColors();
+			}
 			LOD.Sections.reserve(SourceLOD.Sections.size());
 			for (const FStaticMeshSection& SourceSection : SourceLOD.Sections)
 			{
@@ -762,23 +779,30 @@ namespace Durin
 		for (const FStaticMeshPayloadLOD& SourceLOD : Payload.LODs)
 		{
 			FStaticMeshLODResources& LOD = RenderData->LODResources.emplace_back();
-			LOD.Positions = SourceLOD.Positions;
-			LOD.Normals = SourceLOD.Normals;
-			LOD.Tangents = SourceLOD.Tangents;
-			LOD.Indices = SourceLOD.Indices;
+			LOD.VertexBuffers.PositionVertexBuffer.Init(
+				SourceLOD.Positions);
+			LOD.VertexBuffers.ColorVertexBuffer.Init(
+				SourceLOD.Colors,
+				static_cast<uint32>(
+					SourceLOD.Positions.size()));
+			LOD.VertexBuffers.StaticMeshVertexBuffer
+				.Init(
+					SourceLOD.Normals,
+					SourceLOD.Tangents,
+					SourceLOD.TexCoords,
+					static_cast<uint32>(
+						SourceLOD.Positions.size()),
+					SourceLOD.NumTexCoords,
+					LOD.VertexBuffers.ColorVertexBuffer
+						.GetColors());
+			LOD.IndexBuffer.Init(SourceLOD.Indices);
 			LOD.LocalBounds = SourceLOD.LocalBounds;
 			LOD.NumTexCoords = SourceLOD.NumTexCoords;
-			LOD.bHasVertexColors = SourceLOD.bHasVertexColors;
-			const size_t VertexCount = LOD.Positions.size();
-			for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
-			{
-				LOD.TexCoords[Channel] = Channel < LOD.NumTexCoords
-					? SourceLOD.TexCoords[Channel]
-					: std::vector<FVector2f>(VertexCount, FVector2f(0.0f));
-			}
-			LOD.Colors = LOD.bHasVertexColors
-				? SourceLOD.Colors
-				: std::vector<FVector4f>(VertexCount, FVector4f(1.0f));
+			LOD.bHasColorVertexData =
+				SourceLOD.bHasVertexColors;
+			LOD.VertexBuffers.Finalize(
+				LOD.NumTexCoords,
+				LOD.bHasColorVertexData);
 			LOD.Sections.reserve(SourceLOD.Sections.size());
 			for (const FStaticMeshPayloadSection& SourceSection : SourceLOD.Sections)
 			{

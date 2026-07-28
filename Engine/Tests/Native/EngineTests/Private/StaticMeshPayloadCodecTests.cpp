@@ -1,14 +1,27 @@
 #include <gtest/gtest.h>
 
+#include "CoreGlobals.h"
+#include "HAL/PlatformLTS.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "RHI.h"
+#include "RenderingThread.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 namespace
 {
 	using namespace Durin;
+
+	DECLARE_RENDER_COMMAND_TAG(
+		FSetPartialStaticMeshReadinessResources,
+		SetPartialStaticMeshReadinessResources);
+	DECLARE_RENDER_COMMAND_TAG(
+		FSetCompleteStaticMeshReadinessResources,
+		SetCompleteStaticMeshReadinessResources);
+	DECLARE_RENDER_COMMAND_TAG(
+		FReleaseStaticMeshReadinessResources,
+		ReleaseStaticMeshReadinessResources);
 
 	auto MakeBounds(const FVector3& Minimum, const FVector3& Maximum) -> FBox
 	{
@@ -303,13 +316,20 @@ TEST(FStaticMeshPayloadCodecTests, SupportsMeshWithoutUVChannels)
 	ASSERT_EQ(RenderData->LODResources.size(), 1u);
 	const FStaticMeshLODResources& LOD = RenderData->LODResources[0];
 	EXPECT_EQ(LOD.NumTexCoords, 0u);
-	for (const auto& Channel : LOD.TexCoords)
+	const auto& Positions =
+		LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
+	const auto& TexCoords =
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer
+			.GetTexCoords();
+	for (const auto& Channel : TexCoords)
 	{
-		ASSERT_EQ(Channel.size(), LOD.Positions.size());
+		ASSERT_EQ(Channel.size(), Positions.size());
 		for (const FVector2f& UV : Channel) ExpectVector(UV, FVector2f(0.0f));
 	}
-	ASSERT_EQ(LOD.Colors.size(), LOD.Positions.size());
-	for (const FVector4f& Color : LOD.Colors)
+	const auto& Colors =
+		LOD.VertexBuffers.ColorVertexBuffer.GetColors();
+	ASSERT_EQ(Colors.size(), Positions.size());
+	for (const FVector4f& Color : Colors)
 		ExpectVector(Color, FVector4f(1.0f));
 
 	FStaticMeshPayloadData ConvertedBack;
@@ -356,9 +376,8 @@ TEST(FStaticMeshPayloadCodecTests,
 	for (size_t Index = Expected.size(); Index < Elements.size(); ++Index)
 		EXPECT_EQ(Elements[Index].Type, EVertexElementType::None);
 
-	using FIndexElement =
-		typename decltype(FStaticMeshLODResources::Indices)::value_type;
-	EXPECT_EQ(sizeof(FIndexElement), 4u);
+	FRawStaticIndexBuffer IndexBuffer;
+	EXPECT_EQ(IndexBuffer.GetStride(), 4u);
 
 	const FStaticMeshPayloadData Fixture = MakeMultiMaterialFixture();
 	ASSERT_EQ(Fixture.LODs[0].Sections.size(), 2u);
@@ -403,40 +422,105 @@ TEST(FStaticMeshPayloadCodecTests,
 	ASSERT_NE(RenderData, nullptr);
 	ASSERT_EQ(RenderData->LODResources.size(), 1u);
 	FStaticMeshLODResources& LOD = RenderData->LODResources[0];
+	const uint32 NumVertices = LOD.GetNumVertices();
 
 	const FBufferRHIRef PositionBuffer = MakeTestBuffer(
 		FRHIBufferCreateDesc::CreateVertex(
 			"StaticMeshReadinessPosition",
 			static_cast<uint32>(
-				LOD.Positions.size() * sizeof(FVector3f))));
+				NumVertices * sizeof(FVector3f))));
 	const FBufferRHIRef AttributeBuffer = MakeTestBuffer(
 		FRHIBufferCreateDesc::CreateVertex(
 			"StaticMeshReadinessAttributes",
 			static_cast<uint32>(
-				LOD.Positions.size()
+				NumVertices
 				* sizeof(FStaticMeshPackedVertex))));
+	const FBufferRHIRef TangentsBuffer = MakeTestBuffer(
+		FRHIBufferCreateDesc::CreateVertex(
+			"StaticMeshReadinessTangents",
+			NumVertices * sizeof(std::array<int16, 8>)));
+	const FBufferRHIRef TexCoordBuffer = MakeTestBuffer(
+		FRHIBufferCreateDesc::CreateVertex(
+			"StaticMeshReadinessTexCoords",
+			NumVertices * sizeof(std::array<
+				FVector2f, MaxStaticMeshUVChannels>)));
+	const FBufferRHIRef ColorBuffer = MakeTestBuffer(
+		FRHIBufferCreateDesc::CreateVertex(
+			"StaticMeshReadinessColors",
+			NumVertices * sizeof(std::array<uint8, 4>)));
 	const FBufferRHIRef IndexBuffer = MakeTestBuffer(
 		FRHIBufferCreateDesc::CreateIndex(
 			"StaticMeshReadinessIndices",
 			static_cast<uint32>(
-				LOD.Indices.size() * sizeof(uint32)),
+				LOD.GetNumIndices() * sizeof(uint32)),
 			sizeof(uint32)));
 
-	LOD.PositionVertexBufferRHI = PositionBuffer;
-	LOD.StaticMeshVertexBufferRHI = AttributeBuffer;
+	if (!GIsGameThreadIdInitialized)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+	}
+	InitRenderingThread();
+	EnqueueRenderCommand<FSetPartialStaticMeshReadinessResources>(
+		[&LOD, PositionBuffer, AttributeBuffer](
+			FRHICommandListImmediate&) {
+			LOD.VertexBuffers.PositionVertexBuffer.SetRHI(
+				PositionBuffer);
+			LOD.VertexBuffers.StaticMeshVertexBuffer.SetRHI(
+				AttributeBuffer);
+		});
+	FlushRenderingCommands();
 	EXPECT_FALSE(RenderData->IsReadyForRendering());
 
-	LOD.IndexBufferRHI = IndexBuffer;
+	EnqueueRenderCommand<FSetCompleteStaticMeshReadinessResources>(
+		[&LOD,
+			TangentsBuffer,
+			TexCoordBuffer,
+			ColorBuffer,
+			IndexBuffer](FRHICommandListImmediate&) {
+			LOD.VertexBuffers.StaticMeshVertexBuffer
+				.TangentsVertexBuffer.SetRHI(TangentsBuffer);
+			LOD.VertexBuffers.StaticMeshVertexBuffer
+				.TexCoordVertexBuffer.SetRHI(TexCoordBuffer);
+			LOD.VertexBuffers.ColorVertexBuffer.SetRHI(
+				ColorBuffer);
+			LOD.IndexBuffer.SetRHI(IndexBuffer);
+		});
+	FlushRenderingCommands();
 	EXPECT_TRUE(RenderData->IsReadyForRendering());
+	EXPECT_EQ(
+		LOD.VertexBuffers.PositionVertexBuffer.GetFriendlyName(),
+		"FPositionVertexBuffer");
+	EXPECT_EQ(
+		LOD.VertexBuffers.StaticMeshVertexBuffer
+			.TangentsVertexBuffer.GetStride(),
+		16u);
+	EXPECT_EQ(
+		LOD.VertexBuffers.StaticMeshVertexBuffer
+			.TexCoordVertexBuffer.GetStride(),
+		32u);
+	EXPECT_EQ(
+		LOD.VertexBuffers.ColorVertexBuffer.GetStride(),
+		4u);
+	EXPECT_EQ(LOD.IndexBuffer.GetStride(), 4u);
 
+	auto& Normals =
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer
+			.GetMutableNormals();
 	const std::vector<FVector3f> SavedNormals =
-		std::exchange(LOD.Normals, {});
+		std::exchange(Normals, {});
 	EXPECT_FALSE(RenderData->IsReadyForRendering());
-	LOD.Normals = SavedNormals;
+	Normals = SavedNormals;
 	EXPECT_TRUE(RenderData->IsReadyForRendering());
 
-	RenderData->ReleaseResources();
+	EnqueueRenderCommand<FReleaseStaticMeshReadinessResources>(
+		[RenderDataView = RenderData.get()](
+			FRHICommandListImmediate&) {
+			RenderDataView->ReleaseResources();
+		});
+	FlushRenderingCommands();
 	EXPECT_FALSE(RenderData->IsReadyForRendering());
+	ShutdownRenderingThread();
 }
 
 TEST(FStaticMeshPayloadCodecTests, RejectsEveryTruncationAndChecksumCorruptionTransactionally)

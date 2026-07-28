@@ -21,13 +21,23 @@ TEST(FStaticMeshMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlo
 	EXPECT_EQ(RenderData->MaterialSlots[1].SlotId, ImportResult.Asset->GetMaterialSlot(1)->SlotId);
 	ASSERT_EQ(RenderData->LODResources.size(), 1u);
 	const Durin::FStaticMeshLODResources& LOD = RenderData->LODResources[0];
+	const auto& Positions =
+		LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
+	const auto& TangentsVertexBuffer =
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer;
 	EXPECT_EQ(LOD.NumTexCoords, 2u);
-	EXPECT_TRUE(LOD.bHasVertexColors);
-	EXPECT_EQ(LOD.Positions.size(), 12u);
-	EXPECT_EQ(LOD.Normals.size(), LOD.Positions.size());
-	EXPECT_EQ(LOD.Tangents.size(), LOD.Positions.size());
-	EXPECT_EQ(LOD.Colors.size(), LOD.Positions.size());
-	EXPECT_EQ(LOD.Indices.size(), 12u);
+	EXPECT_TRUE(LOD.bHasColorVertexData);
+	EXPECT_EQ(Positions.size(), 12u);
+	EXPECT_EQ(
+		TangentsVertexBuffer.GetNormals().size(),
+		Positions.size());
+	EXPECT_EQ(
+		TangentsVertexBuffer.GetTangents().size(),
+		Positions.size());
+	EXPECT_EQ(
+		LOD.VertexBuffers.ColorVertexBuffer.GetColors().size(),
+		Positions.size());
+	EXPECT_EQ(LOD.IndexBuffer.GetIndices().size(), 12u);
 	ASSERT_EQ(LOD.Sections.size(), 4u);
 	for (size_t SectionIndex = 0; SectionIndex < LOD.Sections.size(); ++SectionIndex)
 	{
@@ -440,7 +450,9 @@ TEST(FStaticMeshMaterialTests, StaticMeshImportSettingsPersistAcrossSourceRebuil
 	EXPECT_EQ(ImportResult.Asset->GetImportSettings(), Settings);
 	ASSERT_NE(ImportResult.Asset->GetRenderData(), nullptr);
 	ASSERT_EQ(ImportResult.Asset->GetRenderData()->LODResources.size(), 1u);
-	const std::vector<Durin::FVector3f> ImportedPositions = ImportResult.Asset->GetRenderData()->LODResources[0].Positions;
+	const std::vector<Durin::FVector3f> ImportedPositions =
+		ImportResult.Asset->GetRenderData()->LODResources[0]
+			.VertexBuffers.PositionVertexBuffer.GetPositions();
 
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MeshAxisImportTests/AsymmetricAxes", AssetPath));
@@ -452,7 +464,9 @@ TEST(FStaticMeshMaterialTests, StaticMeshImportSettingsPersistAcrossSourceRebuil
 	EXPECT_EQ(Loaded->GetImportSettings(), Settings);
 	ASSERT_NE(Loaded->GetRenderData(), nullptr);
 	ASSERT_EQ(Loaded->GetRenderData()->LODResources.size(), 1u);
-	const auto& ReloadedPositions = Loaded->GetRenderData()->LODResources[0].Positions;
+	const auto& ReloadedPositions =
+		Loaded->GetRenderData()->LODResources[0]
+			.VertexBuffers.PositionVertexBuffer.GetPositions();
 	ASSERT_EQ(ReloadedPositions.size(), ImportedPositions.size());
 	for (size_t Index = 0; Index < ImportedPositions.size(); ++Index)
 	{

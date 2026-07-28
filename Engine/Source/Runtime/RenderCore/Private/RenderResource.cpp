@@ -449,12 +449,26 @@ namespace Durin
 
 	void FVertexBuffer::ReleaseRHI()
 	{
-		VertexBufferRHI.reset();
+		VertexBufferRHI = nullptr;
 	}
 
-	void FVertexBuffer::SetRHI(const std::shared_ptr<FRHIBuffer>& BufferRHI)
+	void FVertexBuffer::SetRHI(const FBufferRHIRef& BufferRHI)
 	{
 		check(IsInRenderingThread());
 		VertexBufferRHI = BufferRHI;
+	}
+
+	FIndexBuffer::FIndexBuffer() = default;
+	FIndexBuffer::~FIndexBuffer() = default;
+
+	void FIndexBuffer::ReleaseRHI()
+	{
+		IndexBufferRHI = nullptr;
+	}
+
+	void FIndexBuffer::SetRHI(const FBufferRHIRef& BufferRHI)
+	{
+		check(IsInRenderingThread());
+		IndexBufferRHI = BufferRHI;
 	}
 }

@@ -22,8 +22,21 @@ contains an angled normal, negative tangent handedness, authored UVs, and
 non-white vertex colors. Its 64-by-64 RGBA output hash is
 `52fdb5113401075fabb77a111012afd1`.
 
-Stage 1 is next. `FStaticMeshLODResources` still owns the legacy semantic arrays
-and raw RHI references; no UE-named buffer-resource types have landed yet.
+Stages 0 and 1 are complete. `FStaticMeshLODResources` now owns
+`FStaticMeshVertexBuffers`, `FRawStaticIndexBuffer`, sections, bounds, and
+semantic metadata rather than writable semantic arrays plus raw LOD-level RHI
+references. Import, payload conversion, editor inspection, renderer binding,
+and tests all consume the named resource APIs.
+
+The current renderer still binds `FStaticMeshVertexBuffer`'s transitional
+packed attribute allocation so the Stage 0 two-stream declaration and rendered
+baseline remain unchanged. The nested tangent and texcoord resources and the
+color resource already own their CPU data, metadata, and independent RHI
+allocations; Stage 2 will centralize stream interpretation in
+`FLocalVertexFactory`, and Stage 3 will select those physical streams and remove
+the packed compatibility allocation.
+
+Stage 2 is next.
 
 ## Goal
 
@@ -351,30 +364,30 @@ Validation:
 Outcome: one LOD owns named vertex and index buffer resources instead of raw
 vectors plus raw RHI references.
 
-- [ ] Add RenderCore `FIndexBuffer` beside `FVertexBuffer`, using the same
+- [x] Add RenderCore `FIndexBuffer` beside `FVertexBuffer`, using the same
   `FRenderResource` lifecycle and unified `FRHIBuffer` storage.
-- [ ] Add `FPositionVertexBuffer`, `FStaticMeshVertexBuffer`, and
+- [x] Add `FPositionVertexBuffer`, `FStaticMeshVertexBuffer`, and
   `FColorVertexBuffer` with initialization, semantic CPU accessors, metadata,
   `InitRHI()`, `ReleaseRHI()`, readiness, and diagnostic names.
-- [ ] Give `FStaticMeshVertexBuffer` UE-named
+- [x] Give `FStaticMeshVertexBuffer` UE-named
   `FTangentsVertexBuffer TangentsVertexBuffer` and
   `FTexcoordVertexBuffer TexCoordVertexBuffer` members; each member owns its
   own CPU storage metadata and RHI buffer.
-- [ ] Add `FRawStaticIndexBuffer` with uint32 initialization, index access,
+- [x] Add `FRawStaticIndexBuffer` with uint32 initialization, index access,
   stride/count metadata, `InitRHI()`, `ReleaseRHI()`, and readiness.
-- [ ] Add `FStaticMeshVertexBuffers` as the aggregate of the three UE-named
+- [x] Add `FStaticMeshVertexBuffers` as the aggregate of the three UE-named
   vertex-buffer types.
-- [ ] Replace `FStaticMeshLODResources` CPU arrays and raw RHI references with
+- [x] Replace `FStaticMeshLODResources` CPU arrays and raw RHI references with
   `VertexBuffers`, `IndexBuffer`, `Sections`, `LocalBounds`,
   `NumTexCoords`, and `bHasColorVertexData`.
-- [ ] Keep compatibility accessors only where a direct consumer cannot migrate
+- [x] Keep compatibility accessors only where a direct consumer cannot migrate
   atomically; mark each accessor with its removal stage and do not preserve raw
   writable vector fields.
-- [ ] Move packing and fallback materialization into the owning buffer
+- [x] Move packing and fallback materialization into the owning buffer
   initialization paths.
-- [ ] Update import/build and derived-data encode/decode code to use semantic
+- [x] Update import/build and derived-data encode/decode code to use semantic
   buffer APIs without changing the payload schema.
-- [ ] Update render-resource initialization, release, and retry behavior to
+- [x] Update render-resource initialization, release, and retry behavior to
   operate through the named resources.
 
 #### Acceptance Gate
@@ -385,6 +398,49 @@ vectors plus raw RHI references.
   `FStaticMeshLODResources`.
 - Existing payload fixtures remain compatible and no derived-data version is
   changed solely because of in-memory ownership.
+
+#### Stage 1 Handoff
+
+- Baseline commit: `2f7363d0` (`test(rendering): lock static mesh LOD contract`).
+- Working set:
+  `RenderResource.h/.cpp`, `PositionVertexBuffer.h/.cpp`,
+  `StaticMeshResources.h`, `StaticMesh.cpp`, `StaticMeshDerivedData.cpp`,
+  `StaticMeshComponent.cpp`, `RendererModule.cpp`,
+  `LevelEditorViewportClient.cpp`, and the affected static-mesh, material,
+  texture, Vulkan, and editor tests.
+- Key symbols:
+  `FIndexBuffer`, `FPositionVertexBuffer`, `FStaticMeshVertexBuffer`,
+  `FColorVertexBuffer`, `FStaticMeshVertexBuffers`,
+  `FRawStaticIndexBuffer`, `FStaticMeshLODResources`,
+  `FStaticMeshRenderData::InitResources()`, and
+  `FStaticMeshRenderData::ReleaseResources()`.
+- Decision: the existing `FPositionVertexBuffer` declaration was completed and
+  adopted instead of introducing a duplicate position-buffer type.
+- Decision: Stage 1 retains the packed `FStaticMeshVertexBuffer` RHI as the
+  renderer-facing compatibility allocation. Tangent, texcoord, and color
+  resources also own independent allocations now, but Stage 3 is responsible
+  for selecting them as physical streams and deleting the packed allocation.
+- Decision: every named GPU allocation participates in `FRenderResource`
+  registration. Initialization retries only a missing RHI allocation, release
+  runs in reverse ownership order, and static-mesh render-data init/release is
+  render-thread-only.
+- Decision: all production consumers migrated atomically; no compatibility
+  accessor or writable legacy vector field was retained.
+- Decision: the DMSH schema, builder version, cache key, payload hashes, and
+  material-slot behavior remain unchanged.
+- Open questions: none for Stage 2.
+
+Validation:
+
+- Full `all` target build passed for the cross-module RenderCore export change.
+- `RenderContractTests`: 20 tests passed.
+- `StaticMeshTests`: 44 tests passed.
+- `FStaticModelImportVulkanTests.RendersReloadedSrgbTextureAndBaseColorFactor`:
+  the Stage 0 Vulkan hash passed unchanged.
+- `FEditorTextureSmokeTests.*`: 1 test passed.
+- Focused material static-mesh and rendered-thumbnail tests: 2 tests passed.
+- `TextureCookIntegrationTests`: 1 test passed.
+- Changed-scope documentation validation passed.
 
 ### Stage 2: Introduce the Local Vertex Factory
 

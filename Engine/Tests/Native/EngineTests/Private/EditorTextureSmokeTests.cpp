@@ -77,9 +77,12 @@ namespace Durin
 		ASSERT_NE(StaticMeshProxy->GetRenderData(), nullptr);
 		ASSERT_FALSE(StaticMeshProxy->GetRenderData()->LODResources.empty());
 		const FStaticMeshLODResources& LOD = StaticMeshProxy->GetRenderData()->LODResources[0];
-		EXPECT_FALSE(LOD.Indices.empty());
+		EXPECT_FALSE(LOD.IndexBuffer.GetIndices().empty());
 		EXPECT_GT(LOD.NumTexCoords, 0u);
-		ASSERT_EQ(LOD.TexCoords[0].size(), LOD.Positions.size());
+		ASSERT_EQ(
+			LOD.VertexBuffers.StaticMeshVertexBuffer
+				.TexCoordVertexBuffer.GetTexCoords()[0].size(),
+			LOD.GetNumVertices());
 		EXPECT_EQ(
 			StaticMeshProxy->GetMaterialRenderData().BaseColorTexture,
 			TextureImport.Asset->GetTextureReferenceRHI());

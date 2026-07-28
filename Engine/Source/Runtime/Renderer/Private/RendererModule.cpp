@@ -1421,12 +1421,26 @@ namespace Durin
 			LightingUniform.ViewPositionAmbient = FVector4f(FVector3f(View.ViewLocation), Light.AmbientIntensity);
 			const FRHIUniformBufferRange LightingUniformBuffer = CommandList.AllocateDynamicUniformBuffer(&LightingUniform, sizeof(LightingUniform));
 
-			CommandList.BindVertexBuffer(0, LOD.PositionVertexBufferRHI, 0);
-			CommandList.BindVertexBuffer(1, LOD.StaticMeshVertexBufferRHI, 0);
-			CommandList.BindIndexBuffer(LOD.IndexBufferRHI, 0);
+			CommandList.BindVertexBuffer(
+				0,
+				LOD.VertexBuffers.PositionVertexBuffer.GetRHI(),
+				0);
+			CommandList.BindVertexBuffer(
+				1,
+				LOD.VertexBuffers.StaticMeshVertexBuffer.GetRHI(),
+				0);
+			CommandList.BindIndexBuffer(
+				LOD.IndexBuffer.GetRHI(), 0);
+			const auto& Indices = LOD.IndexBuffer.GetIndices();
 			for (const FStaticMeshSection& Section : LOD.Sections)
 			{
-				if (Section.IndexCount == 0 || static_cast<uint64>(Section.FirstIndex) + Section.IndexCount > LOD.Indices.size()) continue;
+				if (Section.IndexCount == 0
+					|| static_cast<uint64>(Section.FirstIndex)
+						+ Section.IndexCount
+						> Indices.size())
+				{
+					continue;
+				}
 				const FMaterialRenderData& Material = Proxy.GetMaterialRenderData(Section.MaterialSlotIndex);
 				FStaticMeshRendererState::FPipelineEntry* PipelineEntry =
 					GetOrCreateStaticMeshPipeline(Material.PipelineIdentity);

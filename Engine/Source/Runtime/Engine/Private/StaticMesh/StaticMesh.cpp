@@ -705,20 +705,22 @@ namespace Durin
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
 		RenderData->MaterialSlots.push_back({"Default", 0, Mesh->MaterialSlots[0].SlotId});
 		FStaticMeshLODResources& LOD = RenderData->LODResources.emplace_back();
-		LOD.Positions = {
+		LOD.VertexBuffers.PositionVertexBuffer.Init({
 			FVector3f(-0.65f, -0.45f, 0.0f),
 			FVector3f(0.65f, -0.45f, 0.0f),
 			FVector3f(0.0f, 0.65f, 0.0f)
-		};
-		LOD.Indices = {0, 1, 2};
-		LOD.Normals = {
-			FVector3f(0.0f, 0.0f, 1.0f),
-			FVector3f(0.0f, 0.0f, 1.0f),
-			FVector3f(0.0f, 0.0f, 1.0f)
-		};
-		LOD.Tangents.assign(LOD.Positions.size(), FVector4f(1.0f, 0.0f, 0.0f, 1.0f));
-		for (auto& TexCoords : LOD.TexCoords) TexCoords.assign(LOD.Positions.size(), FVector2f(0.0f));
-		LOD.Colors.assign(LOD.Positions.size(), FVector4f(1.0f));
+		});
+		LOD.IndexBuffer.Init({0, 1, 2});
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer.Init(
+			std::vector<FVector3f>(
+				3, FVector3f(0.0f, 0.0f, 1.0f)),
+			std::vector<FVector4f>(
+				3, FVector4f(1.0f, 0.0f, 0.0f, 1.0f)));
+		LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer.Init(
+			{}, 3, 0);
+		LOD.VertexBuffers.ColorVertexBuffer.Init({}, 3);
+		LOD.VertexBuffers.Finalize(
+			LOD.NumTexCoords, LOD.bHasColorVertexData);
 		LOD.Sections.push_back({"Default", 0, 3, 0, 2, 0, {}});
 		Mesh->SetRenderData(std::move(RenderData));
 		return Mesh;
@@ -905,6 +907,20 @@ namespace Durin
 		}
 
 		FStaticMeshLODResources& LOD = RenderData->LODResources.emplace_back();
+		auto& Positions =
+			LOD.VertexBuffers.PositionVertexBuffer.GetMutablePositions();
+		auto& Normals =
+			LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer
+				.GetMutableNormals();
+		auto& Tangents =
+			LOD.VertexBuffers.StaticMeshVertexBuffer.TangentsVertexBuffer
+				.GetMutableTangents();
+		auto& TexCoords =
+			LOD.VertexBuffers.StaticMeshVertexBuffer.TexCoordVertexBuffer
+				.GetMutableTexCoords();
+		auto& Colors =
+			LOD.VertexBuffers.ColorVertexBuffer.GetMutableColors();
+		auto& Indices = LOD.IndexBuffer.GetMutableIndices();
 		std::unordered_map<std::string, uint32> SectionNameCounts;
 		for (const Asset::FImportedMeshData& ImportedMesh : ImportedScene.Meshes)
 		{
@@ -913,22 +929,26 @@ namespace Durin
 				if (!OutError.empty()) return false;
 				continue;
 			}
-			if (LOD.Positions.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Positions.size()
-				|| LOD.Indices.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Indices.size())
+			if (Positions.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Positions.size()
+				|| Indices.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Indices.size())
 			{
 				OutError = std::format("Static mesh '{}' exceeds uint32 render-data limits.", SourceLabel);
 				return false;
 			}
 
-			const uint32 BaseVertexIndex = static_cast<uint32>(LOD.Positions.size());
-			const uint32 FirstIndex = static_cast<uint32>(LOD.Indices.size());
-			LOD.Positions.insert(LOD.Positions.end(), ImportedMesh.Positions.begin(), ImportedMesh.Positions.end());
+			const uint32 BaseVertexIndex = static_cast<uint32>(Positions.size());
+			const uint32 FirstIndex = static_cast<uint32>(Indices.size());
+			Positions.insert(
+				Positions.end(),
+				ImportedMesh.Positions.begin(),
+				ImportedMesh.Positions.end());
 
 			std::vector<FVector3f> MeshNormals = HasValidNormals(ImportedMesh.Normals, ImportedMesh.Positions.size())
 				? ImportedMesh.Normals
 				: BuildNormals(ImportedMesh.Positions, ImportedMesh.Indices);
 			for (FVector3f& Normal : MeshNormals) Normal = SafeNormalize(Normal, FVector3f(0.0f, 0.0f, 1.0f));
-			LOD.Normals.insert(LOD.Normals.end(), MeshNormals.begin(), MeshNormals.end());
+			Normals.insert(
+				Normals.end(), MeshNormals.begin(), MeshNormals.end());
 
 			std::array<std::vector<FVector2f>, MaxStaticMeshUVChannels> MeshTexCoords;
 			for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
@@ -945,7 +965,10 @@ namespace Durin
 				{
 					MeshTexCoords[Channel].assign(ImportedMesh.Positions.size(), FVector2f(0.0f));
 				}
-				LOD.TexCoords[Channel].insert(LOD.TexCoords[Channel].end(), MeshTexCoords[Channel].begin(), MeshTexCoords[Channel].end());
+				TexCoords[Channel].insert(
+					TexCoords[Channel].end(),
+					MeshTexCoords[Channel].begin(),
+					MeshTexCoords[Channel].end());
 			}
 
 			std::vector<FVector4f> MeshTangents;
@@ -964,24 +987,34 @@ namespace Durin
 			{
 				MeshTangents = BuildTangents(ImportedMesh.Positions, MeshNormals, MeshTexCoords[0], ImportedMesh.Indices);
 			}
-			LOD.Tangents.insert(LOD.Tangents.end(), MeshTangents.begin(), MeshTangents.end());
+			Tangents.insert(
+				Tangents.end(),
+				MeshTangents.begin(),
+				MeshTangents.end());
 
 			const bool bValidColors = ImportedMesh.Colors.size() == ImportedMesh.Positions.size()
 				&& std::ranges::all_of(ImportedMesh.Colors, [](const FVector4f& Color) { return IsFinite(Color); });
 			if (bValidColors)
 			{
-				LOD.Colors.insert(LOD.Colors.end(), ImportedMesh.Colors.begin(), ImportedMesh.Colors.end());
-				LOD.bHasVertexColors = true;
+				Colors.insert(
+					Colors.end(),
+					ImportedMesh.Colors.begin(),
+					ImportedMesh.Colors.end());
+				LOD.bHasColorVertexData = true;
 			}
 			else
 			{
-				LOD.Colors.insert(LOD.Colors.end(), ImportedMesh.Positions.size(), FVector4f(1.0f));
+				Colors.insert(
+					Colors.end(),
+					ImportedMesh.Positions.size(),
+					FVector4f(1.0f));
 			}
 
-			LOD.Indices.reserve(LOD.Indices.size() + ImportedMesh.Indices.size());
+			Indices.reserve(
+				Indices.size() + ImportedMesh.Indices.size());
 			for (uint32 Index : ImportedMesh.Indices)
 			{
-				LOD.Indices.push_back(BaseVertexIndex + Index);
+				Indices.push_back(BaseVertexIndex + Index);
 			}
 
 			FStaticMeshSection Section;
@@ -999,7 +1032,7 @@ namespace Durin
 			LOD.Sections.emplace_back(std::move(Section));
 		}
 
-		if (LOD.Positions.empty() || LOD.Indices.empty() || LOD.Sections.empty())
+		if (Positions.empty() || Indices.empty() || LOD.Sections.empty())
 		{
 			OutError = std::format("Static mesh source has no renderable geometry: {}", SourceLabel);
 			return false;
@@ -1019,10 +1052,12 @@ namespace Durin
 		}
 
 		const float Scale = NormalizedSize / MaxDimension;
-		for (FVector3f& Position : LOD.Positions)
+		for (FVector3f& Position : Positions)
 		{
 			Position = (Position - BoundsCenter) * Scale;
 		}
+		LOD.VertexBuffers.Finalize(
+			LOD.NumTexCoords, LOD.bHasColorVertexData);
 		RenderData->RecalculateBounds();
 
 		OutRenderData = std::move(RenderData);
@@ -1764,6 +1799,361 @@ namespace Durin
 		return Result;
 	}
 
+	auto FStaticMeshVertexBuffer::FTangentsVertexBuffer::Init(
+		std::vector<FVector3f> InNormals,
+		std::vector<FVector4f> InTangents,
+		bool bInNeedsCPUAccess) -> void
+	{
+		check(!IsInitialized());
+		Normals = std::move(InNormals);
+		Tangents = std::move(InTangents);
+		bNeedsCPUAccess = bInNeedsCPUAccess;
+	}
+
+	auto FStaticMeshVertexBuffer::FTangentsVertexBuffer::InitRHI(
+		FRHICommandListBase& RHICmdList) -> void
+	{
+		if (Normals.empty()
+			|| Tangents.size() != Normals.size()
+			|| GetRHI() != nullptr)
+		{
+			return;
+		}
+
+		std::vector<std::array<int16, 8>> PackedTangents(Normals.size());
+		for (size_t VertexIndex = 0;
+			VertexIndex < Normals.size();
+			++VertexIndex)
+		{
+			const FStaticMeshPackedVertex Packed = PackStaticMeshVertex(
+				Normals[VertexIndex],
+				Tangents[VertexIndex],
+				{},
+				FVector4f(1.0f));
+			std::ranges::copy(
+				Packed.Normal,
+				PackedTangents[VertexIndex].begin());
+			std::ranges::copy(
+				Packed.Tangent,
+				PackedTangents[VertexIndex].begin() + 4);
+		}
+
+		FRHIBufferCreateDesc Desc = FRHIBufferCreateDesc::CreateVertex(
+			"StaticMeshTangentsVertexBuffer",
+			static_cast<uint32>(
+				PackedTangents.size()
+				* sizeof(PackedTangents.front())));
+		Desc.Usage |= EBufferUsageFlags::Static;
+		Desc.InitialData.Data = PackedTangents.data();
+		Desc.InitialData.Size = static_cast<uint32>(
+			PackedTangents.size() * sizeof(PackedTangents.front()));
+		SetRHI(GDynamicRHI->RHICreateBuffer(
+			static_cast<FRHICommandListImmediate&>(RHICmdList),
+			Desc));
+	}
+
+	auto FStaticMeshVertexBuffer::FTexcoordVertexBuffer::Init(
+		std::array<
+			std::vector<FVector2f>,
+			MaxStaticMeshUVChannels> InTexCoords,
+		uint32 NumVertices,
+		uint8 InNumTexCoords,
+		bool bInNeedsCPUAccess) -> void
+	{
+		check(!IsInitialized());
+		TexCoords = std::move(InTexCoords);
+		NumTexCoords = InNumTexCoords;
+		bNeedsCPUAccess = bInNeedsCPUAccess;
+		for (auto& Channel : TexCoords)
+		{
+			if (Channel.empty())
+			{
+				Channel.assign(NumVertices, FVector2f(0.0f));
+			}
+		}
+	}
+
+	auto FStaticMeshVertexBuffer::FTexcoordVertexBuffer::InitRHI(
+		FRHICommandListBase& RHICmdList) -> void
+	{
+		const size_t NumVertices = TexCoords[0].size();
+		if (NumVertices == 0
+			|| !std::ranges::all_of(
+				TexCoords,
+				[NumVertices](const auto& Channel) {
+					return Channel.size() == NumVertices;
+				})
+			|| GetRHI() != nullptr)
+		{
+			return;
+		}
+
+		std::vector<
+			std::array<FVector2f, MaxStaticMeshUVChannels>>
+			InterleavedTexCoords(NumVertices);
+		for (size_t VertexIndex = 0;
+			VertexIndex < NumVertices;
+			++VertexIndex)
+		{
+			for (uint32 Channel = 0;
+				Channel < MaxStaticMeshUVChannels;
+				++Channel)
+			{
+				InterleavedTexCoords[VertexIndex][Channel] =
+					TexCoords[Channel][VertexIndex];
+			}
+		}
+
+		FRHIBufferCreateDesc Desc = FRHIBufferCreateDesc::CreateVertex(
+			"StaticMeshTexCoordVertexBuffer",
+			static_cast<uint32>(
+				InterleavedTexCoords.size()
+				* sizeof(InterleavedTexCoords.front())));
+		Desc.Usage |= EBufferUsageFlags::Static;
+		Desc.InitialData.Data = InterleavedTexCoords.data();
+		Desc.InitialData.Size = static_cast<uint32>(
+			InterleavedTexCoords.size()
+				* sizeof(InterleavedTexCoords.front()));
+		SetRHI(GDynamicRHI->RHICreateBuffer(
+			static_cast<FRHICommandListImmediate&>(RHICmdList),
+			Desc));
+	}
+
+	auto FStaticMeshVertexBuffer::Init(
+		std::vector<FVector3f> InNormals,
+		std::vector<FVector4f> InTangents,
+		std::array<
+			std::vector<FVector2f>,
+			MaxStaticMeshUVChannels> InTexCoords,
+		uint32 NumVertices,
+		uint8 NumTexCoords,
+		const std::vector<FVector4f>& Colors,
+		bool bInNeedsCPUAccess) -> void
+	{
+		check(!IsInitialized());
+		TangentsVertexBuffer.Init(
+			std::move(InNormals),
+			std::move(InTangents),
+			bInNeedsCPUAccess);
+		TexCoordVertexBuffer.Init(
+			std::move(InTexCoords),
+			NumVertices,
+			NumTexCoords,
+			bInNeedsCPUAccess);
+		Finalize(Colors);
+	}
+
+	auto FStaticMeshVertexBuffer::Finalize(
+		const std::vector<FVector4f>& Colors) -> void
+	{
+		check(!IsInitialized());
+		const auto& Normals = TangentsVertexBuffer.GetNormals();
+		const auto& Tangents = TangentsVertexBuffer.GetTangents();
+		const auto& TexCoords = TexCoordVertexBuffer.GetTexCoords();
+		const size_t NumVertices = Normals.size();
+		if (Tangents.size() != NumVertices
+			|| Colors.size() != NumVertices
+			|| !std::ranges::all_of(
+				TexCoords,
+				[NumVertices](const auto& Channel) {
+					return Channel.size() == NumVertices;
+				}))
+		{
+			PackedVertices.clear();
+			return;
+		}
+
+		PackedVertices.resize(NumVertices);
+		for (size_t VertexIndex = 0;
+			VertexIndex < NumVertices;
+			++VertexIndex)
+		{
+			std::array<FVector2f, MaxStaticMeshUVChannels>
+				VertexTexCoords;
+			for (uint32 Channel = 0;
+				Channel < MaxStaticMeshUVChannels;
+				++Channel)
+			{
+				VertexTexCoords[Channel] =
+					TexCoords[Channel][VertexIndex];
+			}
+			PackedVertices[VertexIndex] = PackStaticMeshVertex(
+				Normals[VertexIndex],
+				Tangents[VertexIndex],
+				VertexTexCoords,
+				Colors[VertexIndex]);
+		}
+	}
+
+	auto FStaticMeshVertexBuffer::InitRHI(
+		FRHICommandListBase& RHICmdList) -> void
+	{
+		if (PackedVertices.empty() || GetRHI() != nullptr) return;
+		FRHIBufferCreateDesc Desc = FRHIBufferCreateDesc::CreateVertex(
+			"StaticMeshAttributeVertexBuffer",
+			static_cast<uint32>(
+				PackedVertices.size()
+				* sizeof(FStaticMeshPackedVertex)));
+		Desc.Usage |= EBufferUsageFlags::Static;
+		Desc.InitialData.Data = PackedVertices.data();
+		Desc.InitialData.Size = static_cast<uint32>(
+			PackedVertices.size()
+				* sizeof(FStaticMeshPackedVertex));
+		SetRHI(GDynamicRHI->RHICreateBuffer(
+			static_cast<FRHICommandListImmediate&>(RHICmdList),
+			Desc));
+	}
+
+	auto FColorVertexBuffer::Init(
+		std::vector<FVector4f> InColors,
+		uint32 NumVertices,
+		bool bInNeedsCPUAccess) -> void
+	{
+		check(!IsInitialized());
+		Colors = std::move(InColors);
+		if (Colors.empty())
+		{
+			Colors.assign(NumVertices, FVector4f(1.0f));
+		}
+		bNeedsCPUAccess = bInNeedsCPUAccess;
+	}
+
+	auto FColorVertexBuffer::InitRHI(
+		FRHICommandListBase& RHICmdList) -> void
+	{
+		if (Colors.empty() || GetRHI() != nullptr) return;
+		std::vector<std::array<uint8, 4>> PackedColors(Colors.size());
+		for (size_t VertexIndex = 0;
+			VertexIndex < Colors.size();
+			++VertexIndex)
+		{
+			PackedColors[VertexIndex] = PackStaticMeshVertex(
+				{},
+				{},
+				{},
+				Colors[VertexIndex]).Color;
+		}
+		FRHIBufferCreateDesc Desc = FRHIBufferCreateDesc::CreateVertex(
+			"StaticMeshColorVertexBuffer",
+			static_cast<uint32>(
+				PackedColors.size() * sizeof(PackedColors.front())));
+		Desc.Usage |= EBufferUsageFlags::Static;
+		Desc.InitialData.Data = PackedColors.data();
+		Desc.InitialData.Size = static_cast<uint32>(
+			PackedColors.size() * sizeof(PackedColors.front()));
+		SetRHI(GDynamicRHI->RHICreateBuffer(
+			static_cast<FRHICommandListImmediate&>(RHICmdList),
+			Desc));
+	}
+
+	auto FStaticMeshVertexBuffers::Finalize(
+		uint8 NumTexCoords,
+		bool bHasColorVertexData) -> void
+	{
+		const uint32 NumVertices =
+			PositionVertexBuffer.GetNumVertices();
+		auto& TexCoords =
+			StaticMeshVertexBuffer.TexCoordVertexBuffer
+				.GetMutableTexCoords();
+		for (auto& Channel : TexCoords)
+		{
+			if (Channel.empty())
+			{
+				Channel.assign(NumVertices, FVector2f(0.0f));
+			}
+		}
+		StaticMeshVertexBuffer.TexCoordVertexBuffer.SetNumTexCoords(
+			NumTexCoords);
+		auto& Colors = ColorVertexBuffer.GetMutableColors();
+		if (Colors.empty() && !bHasColorVertexData)
+		{
+			Colors.assign(NumVertices, FVector4f(1.0f));
+		}
+		StaticMeshVertexBuffer.Finalize(Colors);
+	}
+
+	namespace
+	{
+		template<typename ResourceType>
+		auto InitStaticMeshResource(
+			ResourceType& Resource,
+			FRHICommandListBase& RHICmdList) -> void
+		{
+			if (!Resource.IsInitialized())
+			{
+				Resource.InitResource(RHICmdList);
+			}
+			else if (Resource.GetRHI() == nullptr)
+			{
+				Resource.UpdateRHI(RHICmdList);
+			}
+		}
+
+		auto ReleaseStaticMeshResource(
+			FRenderResource& Resource) -> void
+		{
+			if (Resource.IsInitialized())
+			{
+				Resource.ReleaseResource();
+			}
+			else
+			{
+				Resource.ReleaseRHI();
+			}
+		}
+	}
+
+	auto FStaticMeshVertexBuffers::InitResources(
+		FRHICommandListBase& RHICmdList) -> void
+	{
+		InitStaticMeshResource(PositionVertexBuffer, RHICmdList);
+		InitStaticMeshResource(
+			StaticMeshVertexBuffer.TangentsVertexBuffer,
+			RHICmdList);
+		InitStaticMeshResource(
+			StaticMeshVertexBuffer.TexCoordVertexBuffer,
+			RHICmdList);
+		InitStaticMeshResource(ColorVertexBuffer, RHICmdList);
+		InitStaticMeshResource(StaticMeshVertexBuffer, RHICmdList);
+	}
+
+	auto FStaticMeshVertexBuffers::ReleaseResources() -> void
+	{
+		ReleaseStaticMeshResource(StaticMeshVertexBuffer);
+		ReleaseStaticMeshResource(ColorVertexBuffer);
+		ReleaseStaticMeshResource(
+			StaticMeshVertexBuffer.TexCoordVertexBuffer);
+		ReleaseStaticMeshResource(
+			StaticMeshVertexBuffer.TangentsVertexBuffer);
+		ReleaseStaticMeshResource(PositionVertexBuffer);
+	}
+
+	auto FRawStaticIndexBuffer::Init(
+		std::vector<uint32> InIndices,
+		bool bInNeedsCPUAccess) -> void
+	{
+		check(!IsInitialized());
+		Indices = std::move(InIndices);
+		bNeedsCPUAccess = bInNeedsCPUAccess;
+	}
+
+	auto FRawStaticIndexBuffer::InitRHI(
+		FRHICommandListBase& RHICmdList) -> void
+	{
+		if (Indices.empty() || GetRHI() != nullptr) return;
+		FRHIBufferCreateDesc Desc = FRHIBufferCreateDesc::CreateIndex(
+			"StaticMeshIndexBuffer",
+			static_cast<uint32>(Indices.size() * sizeof(uint32)),
+			sizeof(uint32));
+		Desc.Usage |= EBufferUsageFlags::Static;
+		Desc.InitialData.Data = Indices.data();
+		Desc.InitialData.Size =
+			static_cast<uint32>(Indices.size() * sizeof(uint32));
+		SetRHI(GDynamicRHI->RHICreateBuffer(
+			static_cast<FRHICommandListImmediate&>(RHICmdList),
+			Desc));
+	}
+
 	auto GetStaticMeshVertexDeclarationElements() -> FVertexDeclarationElementList
 	{
 		FVertexDeclarationElementList Elements;
@@ -1800,21 +2190,36 @@ namespace Durin
 			const FStaticMeshLODResources& LOD,
 			size_t MaterialSlotCount) -> bool
 		{
-			const size_t NumVertices = LOD.Positions.size();
+			const auto& Positions =
+				LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
+			const auto& TangentsVertexBuffer =
+				LOD.VertexBuffers.StaticMeshVertexBuffer
+					.TangentsVertexBuffer;
+			const auto& Normals =
+				TangentsVertexBuffer.GetNormals();
+			const auto& Tangents =
+				TangentsVertexBuffer.GetTangents();
+			const auto& TexCoords =
+				LOD.VertexBuffers.StaticMeshVertexBuffer
+					.TexCoordVertexBuffer.GetTexCoords();
+			const auto& Colors =
+				LOD.VertexBuffers.ColorVertexBuffer.GetColors();
+			const auto& Indices = LOD.IndexBuffer.GetIndices();
+			const size_t NumVertices = Positions.size();
 			const bool bValidStreams = NumVertices > 0
-				&& LOD.Normals.size() == NumVertices
-				&& LOD.Tangents.size() == NumVertices
-				&& LOD.Colors.size() == NumVertices
+				&& Normals.size() == NumVertices
+				&& Tangents.size() == NumVertices
+				&& Colors.size() == NumVertices
 				&& std::ranges::all_of(
-					LOD.TexCoords,
+					TexCoords,
 					[NumVertices](const auto& Channel) {
 						return Channel.size() == NumVertices;
 					});
 			const bool bValidIndices =
-				!LOD.Indices.empty()
-				&& LOD.Indices.size() % 3 == 0
+				!Indices.empty()
+				&& Indices.size() % 3 == 0
 				&& std::ranges::all_of(
-					LOD.Indices,
+					Indices,
 					[NumVertices](uint32 Index) {
 						return Index < NumVertices;
 					});
@@ -1822,17 +2227,17 @@ namespace Durin
 				!LOD.Sections.empty()
 				&& std::ranges::all_of(
 					LOD.Sections,
-					[&LOD, MaterialSlotCount](
+					[&Indices, &Positions, MaterialSlotCount](
 						const FStaticMeshSection& Section) {
 						return Section.IndexCount > 0
 							&& Section.IndexCount % 3 == 0
 							&& static_cast<uint64>(Section.FirstIndex)
 								+ Section.IndexCount
-								<= LOD.Indices.size()
+								<= Indices.size()
 							&& Section.MinVertexIndex
 								<= Section.MaxVertexIndex
 							&& Section.MaxVertexIndex
-								< LOD.Positions.size()
+								< Positions.size()
 							&& Section.MaterialSlotIndex
 								< MaterialSlotCount;
 					});
@@ -1842,63 +2247,33 @@ namespace Durin
 
 	auto FStaticMeshRenderData::InitResources(FRHICommandListImmediate& RHICmdList) -> void
 	{
+		check(IsInRenderingThread());
 		for (FStaticMeshLODResources& LOD : LODResources)
 		{
-			const size_t NumVertices = LOD.Positions.size();
+			if (!LOD.VertexBuffers.PositionVertexBuffer.IsInitialized()
+				&& !LOD.VertexBuffers.StaticMeshVertexBuffer
+					.IsInitialized()
+				&& !LOD.IndexBuffer.IsInitialized())
+			{
+				LOD.VertexBuffers.Finalize(
+					LOD.NumTexCoords,
+					LOD.bHasColorVertexData);
+			}
 			if (!IsStaticMeshLODGeometryValid(
 				LOD, MaterialSlots.size())) continue;
 
-			if (LOD.PositionVertexBufferRHI == nullptr)
-			{
-				FRHIBufferCreateDesc VertexBufferDesc = FRHIBufferCreateDesc::CreateVertex(
-					"StaticMeshPositionVertexBuffer",
-					static_cast<uint32>(LOD.Positions.size() * sizeof(FVector3f))
-				);
-				VertexBufferDesc.Usage |= EBufferUsageFlags::Static;
-				VertexBufferDesc.InitialData.Data = LOD.Positions.data();
-				VertexBufferDesc.InitialData.Size = static_cast<uint32>(LOD.Positions.size() * sizeof(FVector3f));
-				LOD.PositionVertexBufferRHI = GDynamicRHI->RHICreateBuffer(RHICmdList, VertexBufferDesc);
-			}
-
-			if (LOD.StaticMeshVertexBufferRHI == nullptr)
-			{
-				std::vector<FStaticMeshPackedVertex> PackedVertices(NumVertices);
-				for (size_t VertexIndex = 0; VertexIndex < NumVertices; ++VertexIndex)
-				{
-					std::array<FVector2f, MaxStaticMeshUVChannels> VertexTexCoords;
-					for (uint32 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel) VertexTexCoords[Channel] = LOD.TexCoords[Channel][VertexIndex];
-					PackedVertices[VertexIndex] = PackStaticMeshVertex(LOD.Normals[VertexIndex], LOD.Tangents[VertexIndex], VertexTexCoords, LOD.Colors[VertexIndex]);
-				}
-				FRHIBufferCreateDesc AttributeBufferDesc = FRHIBufferCreateDesc::CreateVertex(
-					"StaticMeshAttributeVertexBuffer", static_cast<uint32>(PackedVertices.size() * sizeof(FStaticMeshPackedVertex)));
-				AttributeBufferDesc.Usage |= EBufferUsageFlags::Static;
-				AttributeBufferDesc.InitialData.Data = PackedVertices.data();
-				AttributeBufferDesc.InitialData.Size = static_cast<uint32>(PackedVertices.size() * sizeof(FStaticMeshPackedVertex));
-				LOD.StaticMeshVertexBufferRHI = GDynamicRHI->RHICreateBuffer(RHICmdList, AttributeBufferDesc);
-			}
-
-			if (LOD.IndexBufferRHI == nullptr)
-			{
-				FRHIBufferCreateDesc IndexBufferDesc = FRHIBufferCreateDesc::CreateIndex(
-					"StaticMeshIndexBuffer",
-					static_cast<uint32>(LOD.Indices.size() * sizeof(uint32)),
-					sizeof(uint32)
-				);
-				IndexBufferDesc.Usage |= EBufferUsageFlags::Static;
-				IndexBufferDesc.InitialData.Data = LOD.Indices.data();
-				IndexBufferDesc.InitialData.Size = static_cast<uint32>(LOD.Indices.size() * sizeof(uint32));
-				LOD.IndexBufferRHI = GDynamicRHI->RHICreateBuffer(RHICmdList, IndexBufferDesc);
-			}
+			LOD.VertexBuffers.InitResources(RHICmdList);
+			InitStaticMeshResource(LOD.IndexBuffer, RHICmdList);
 		}
 	}
 
 	auto FStaticMeshRenderData::ReleaseResources() -> void
 	{
+		check(IsInRenderingThread());
 		for (FStaticMeshLODResources& LOD : LODResources)
 		{
-			LOD.PositionVertexBufferRHI = nullptr;
-			LOD.StaticMeshVertexBufferRHI = nullptr;
-			LOD.IndexBufferRHI = nullptr;
+			ReleaseStaticMeshResource(LOD.IndexBuffer);
+			LOD.VertexBuffers.ReleaseResources();
 		}
 	}
 
@@ -1906,9 +2281,8 @@ namespace Durin
 	{
 		if (LODIndex >= LODResources.size()) return false;
 		const FStaticMeshLODResources& LOD = LODResources[LODIndex];
-		return LOD.PositionVertexBufferRHI != nullptr
-			&& LOD.StaticMeshVertexBufferRHI != nullptr
-			&& LOD.IndexBufferRHI != nullptr
+		return LOD.VertexBuffers.IsReady()
+			&& LOD.IndexBuffer.IsReady()
 			&& IsStaticMeshLODGeometryValid(
 				LOD, MaterialSlots.size());
 	}
@@ -1918,20 +2292,34 @@ namespace Durin
 		LocalBounds.Reset();
 		for (FStaticMeshLODResources& LOD : LODResources)
 		{
+			const auto& Positions =
+				LOD.VertexBuffers.PositionVertexBuffer.GetPositions();
+			const auto& Indices = LOD.IndexBuffer.GetIndices();
 			LOD.LocalBounds.Reset();
-			for (const FVector3f& Position : LOD.Positions) LOD.LocalBounds.AddPoint(FVector3(Position));
+			for (const FVector3f& Position : Positions)
+			{
+				LOD.LocalBounds.AddPoint(FVector3(Position));
+			}
 			for (FStaticMeshSection& Section : LOD.Sections)
 			{
 				Section.LocalBounds.Reset();
 				const uint64 EndIndex = static_cast<uint64>(Section.FirstIndex) + Section.IndexCount;
-				if (EndIndex > LOD.Indices.size()) continue;
+				if (EndIndex > Indices.size()) continue;
 				for (uint32 IndexOffset = 0; IndexOffset < Section.IndexCount; ++IndexOffset)
 				{
-					const uint32 VertexIndex = LOD.Indices[Section.FirstIndex + IndexOffset];
-					if (VertexIndex < LOD.Positions.size()) Section.LocalBounds.AddPoint(FVector3(LOD.Positions[VertexIndex]));
+					const uint32 VertexIndex =
+						Indices[Section.FirstIndex + IndexOffset];
+					if (VertexIndex < Positions.size())
+					{
+						Section.LocalBounds.AddPoint(
+							FVector3(Positions[VertexIndex]));
+					}
 				}
 			}
-			for (const FVector3f& Position : LOD.Positions) LocalBounds.AddPoint(FVector3(Position));
+			for (const FVector3f& Position : Positions)
+			{
+				LocalBounds.AddPoint(FVector3(Position));
+			}
 		}
 	}
 }

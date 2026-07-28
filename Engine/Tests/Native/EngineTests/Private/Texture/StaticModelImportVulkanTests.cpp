@@ -133,25 +133,28 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 	ASSERT_EQ(LODContractRenderData->LODResources.size(), 1u);
 	const Durin::FStaticMeshLODResources& LODContract =
 		LODContractRenderData->LODResources[0];
-	ASSERT_FALSE(LODContract.Positions.empty());
+	ASSERT_GT(LODContract.GetNumVertices(), 0u);
 	EXPECT_TRUE(std::ranges::any_of(
-		LODContract.Normals,
+		LODContract.VertexBuffers.StaticMeshVertexBuffer
+			.TangentsVertexBuffer.GetNormals(),
 		[](const Durin::FVector3f& Normal) {
 			return std::abs(Normal.y) > 0.1f
 				&& std::abs(Normal.z) < 0.99f;
 		}));
 	EXPECT_TRUE(std::ranges::any_of(
-		LODContract.Tangents,
+		LODContract.VertexBuffers.StaticMeshVertexBuffer
+			.TangentsVertexBuffer.GetTangents(),
 		[](const Durin::FVector4f& Tangent) {
 			return Tangent.w < 0.0f;
 		}));
 	EXPECT_TRUE(std::ranges::any_of(
-		LODContract.TexCoords[0],
+		LODContract.VertexBuffers.StaticMeshVertexBuffer
+			.TexCoordVertexBuffer.GetTexCoords()[0],
 		[](const Durin::FVector2f& UV) {
 			return UV.x != 0.0f || UV.y != 0.0f;
 		}));
 	EXPECT_TRUE(std::ranges::any_of(
-		LODContract.Colors,
+		LODContract.VertexBuffers.ColorVertexBuffer.GetColors(),
 		[](const Durin::FVector4f& Color) {
 			return Color != Durin::FVector4f(1.0f);
 		}));
@@ -274,11 +277,24 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 	}
 
 	Durin::GEngine = nullptr;
-	ReloadedMesh->GetRenderData()->ReleaseResources();
-	LODContractMesh->GetRenderData()->ReleaseResources();
 	auto* Sphere = Durin::Cast<Durin::DStaticMesh>(PreloadedSphere.Get());
 	ASSERT_NE(Sphere, nullptr);
-	Sphere->GetRenderData()->ReleaseResources();
+	struct FReleaseStaticModelMeshResources
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "ReleaseStaticModelMeshResources";
+		}
+	};
+	Durin::EnqueueRenderCommand<FReleaseStaticModelMeshResources>(
+		[ReloadedRenderData = ReloadedMesh->GetRenderData(),
+			LODContractData = LODContractMesh->GetRenderData(),
+			SphereRenderData = Sphere->GetRenderData()](
+			Durin::FRHICommandListImmediate&) {
+			ReloadedRenderData->ReleaseResources();
+			LODContractData->ReleaseResources();
+			SphereRenderData->ReleaseResources();
+		});
 	Renderer.ReleaseResources();
 	Durin::FlushRenderingCommands();
 	Durin::MarkAsGarbage(FactorOnly);

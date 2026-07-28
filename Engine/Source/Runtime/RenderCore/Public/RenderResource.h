@@ -41,7 +41,8 @@ namespace Durin
 		 * Called when entering the state where both the resource and the RHI have been initialized.
 		 * This is only called by the rendering thread.
 		 */
-		virtual auto InitRHI(FRHICommandListBase& RHICmdList) -> void;
+		RENDERCORE_API virtual auto InitRHI(
+			FRHICommandListBase& RHICmdList) -> void;
 
 		/**
 		 * Releases the RHI resources used by this resource.
@@ -263,10 +264,40 @@ namespace Durin
 		RENDERCORE_API auto ReleaseRHI() -> void override;
 		auto GetFriendlyName() const -> std::string override { return "FVertexBuffer"; }
 
-		auto GetRHI() const -> const std::shared_ptr<FRHIBuffer>& { return VertexBufferRHI; }
+		auto GetRHI() const -> const FBufferRHIRef&
+		{
+			return VertexBufferRHI;
+		}
 
-		RENDERCORE_API auto SetRHI(const std::shared_ptr<FRHIBuffer>& BufferRHI) -> void;
+		RENDERCORE_API auto SetRHI(
+			const FBufferRHIRef& BufferRHI) -> void;
 
-		std::shared_ptr<FRHIBuffer> VertexBufferRHI;
+	private:
+		FBufferRHIRef VertexBufferRHI;
+	};
+
+	// Owns an index-buffer RHI allocation through the render-resource lifecycle.
+	class FIndexBuffer : public FRenderResource
+	{
+	public:
+		RENDERCORE_API FIndexBuffer();
+		RENDERCORE_API ~FIndexBuffer() override;
+
+		RENDERCORE_API auto ReleaseRHI() -> void override;
+		auto GetFriendlyName() const -> std::string override
+		{
+			return "FIndexBuffer";
+		}
+
+		auto GetRHI() const -> const FBufferRHIRef&
+		{
+			return IndexBufferRHI;
+		}
+
+		RENDERCORE_API auto SetRHI(
+			const FBufferRHIRef& BufferRHI) -> void;
+
+	private:
+		FBufferRHIRef IndexBufferRHI;
 	};
 }

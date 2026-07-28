@@ -6,15 +6,13 @@
 
 namespace Durin
 {
-	class FPositionVertexData;
-
 	// Stores one local-space vertex position.
 	struct FPositionVertex
 	{
 		FVector3f Position;
 	};
 
-	// Owns optional CPU position data and its render-thread vertex buffer.
+	// Owns retained CPU position data and its render-thread vertex buffer.
 	class FPositionVertexBuffer : public FVertexBuffer
 	{
 	public:
@@ -24,34 +22,48 @@ namespace Durin
 		/** Destructor. */
 		ENGINE_API ~FPositionVertexBuffer() override;
 
-		ENGINE_API void CleanUp();
-
-		ENGINE_API void Init(uint32 InNumVertices, bool bInNeedsCPUAccess = true);
-
-		ENGINE_API void Init(const std::vector<FVector3f>& InPositions, bool bInNeedsCPUAccess = true);
+		ENGINE_API auto Init(
+			uint32 InNumVertices,
+			bool bInNeedsCPUAccess = true) -> void;
+		ENGINE_API auto Init(
+			const std::vector<FVector3f>& InPositions,
+			bool bInNeedsCPUAccess = true) -> void;
 
 		// FRenderResource interface.
-		ENGINE_API void InitRHI(FRHICommandListBase& RHICmdList) override;
+		ENGINE_API auto InitRHI(FRHICommandListBase& RHICmdList) -> void override;
+		ENGINE_API auto ReleaseRHI() -> void override;
+		auto GetFriendlyName() const -> std::string override
+		{
+			return "FPositionVertexBuffer";
+		}
 
-		ENGINE_API void ReleaseRHI() override;
+		auto GetNumVertices() const -> uint32
+		{
+			return static_cast<uint32>(Positions.size());
+		}
+		auto GetStride() const -> uint32 { return sizeof(FVector3f); }
+		auto NeedsCPUAccess() const -> bool { return bNeedsCPUAccess; }
+		auto IsReady() const -> bool
+		{
+			return GetNumVertices() > 0 && GetRHI() != nullptr;
+		}
+		auto GetVertexPosition(uint32 VertexIndex) const -> const FVector3f&
+		{
+			check(VertexIndex < Positions.size());
+			return Positions[VertexIndex];
+		}
+		auto GetPositions() const -> const std::vector<FVector3f>&
+		{
+			return Positions;
+		}
+		auto GetMutablePositions() -> std::vector<FVector3f>&
+		{
+			check(!IsInitialized());
+			return Positions;
+		}
 
 	private:
-		std::shared_ptr<FRHIBuffer> CreateRHIBuffer(FRHICommandListBase& RHICmdList);
-
-		/** Allocates the vertex data storage type. */
-		void AllocateData(bool bInNeedsCPUAccess = true);
-
-		FPositionVertexData* VertexData;
-
-		/** The cached vertex data pointer. */
-		uint8* Data;
-
-		/** The cached vertex stride. */
-		uint32 Stride;
-
-		/** The cached number of vertices. */
-		uint32 NumVertices;
-
+		std::vector<FVector3f> Positions;
 		bool bNeedsCPUAccess = true;
 	};
 }

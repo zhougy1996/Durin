@@ -1,86 +1,49 @@
 #include "Rendering/PositionVertexBuffer.h"
 
-#include "StaticMesh/StaticMeshVertexData.h"
+#include "DynamicRHI.h"
+#include "RHICommandList.h"
 
 namespace Durin
 {
-	class FPositionVertexData : public TStaticMeshVertexData<FPositionVertex>
-	{
-	public:
-		FPositionVertexData(bool InNeedsCPUAccess = false)
-			: TStaticMeshVertexData<FPositionVertex>(InNeedsCPUAccess)
-		{
-		}
-	};
-	FPositionVertexBuffer::FPositionVertexBuffer()
-		: VertexData(nullptr)
-		, Data(nullptr)
-		, Stride(0)
-		, NumVertices(0)
-	{
-	}
+	FPositionVertexBuffer::FPositionVertexBuffer() = default;
+	FPositionVertexBuffer::~FPositionVertexBuffer() = default;
 
-	FPositionVertexBuffer::~FPositionVertexBuffer()
+	auto FPositionVertexBuffer::Init(
+		uint32 InNumVertices,
+		bool bInNeedsCPUAccess) -> void
 	{
-	}
-
-	void FPositionVertexBuffer::CleanUp()
-	{
-		if (VertexData)
-		{
-			delete VertexData;
-			VertexData = nullptr;
-		}
-	}
-
-	void FPositionVertexBuffer::Init(uint32 InNumVertices, bool bInNeedsCPUAccess)
-	{
-		NumVertices = InNumVertices;
+		check(!IsInitialized());
 		bNeedsCPUAccess = bInNeedsCPUAccess;
-
-		// Allocate the vertex data storage type.
-		AllocateData(bInNeedsCPUAccess);
-
-		// Allocate the vertex data buffer.
-		VertexData->ResizeBuffer(NumVertices);
-		Data = NumVertices ? VertexData->GetDataPointer() : nullptr;
+		Positions.resize(InNumVertices);
 	}
 
-	void FPositionVertexBuffer::Init(const std::vector<FVector3f>& InPositions, bool bInNeedsCPUAccess)
+	auto FPositionVertexBuffer::Init(
+		const std::vector<FVector3f>& InPositions,
+		bool bInNeedsCPUAccess) -> void
 	{
-		NumVertices = static_cast<uint32>(InPositions.size());
+		check(!IsInitialized());
 		bNeedsCPUAccess = bInNeedsCPUAccess;
-		if (NumVertices)
-		{
-			AllocateData(bInNeedsCPUAccess);
-			check(Stride == sizeof(FVector3f));
-			VertexData->ResizeBuffer(NumVertices);
-			Data = VertexData->GetDataPointer();
-			memcpy(Data, InPositions.data(), Stride * NumVertices);
-		}
+		Positions = InPositions;
 	}
 
-	void FPositionVertexBuffer::InitRHI(FRHICommandListBase& RHICmdList)
+	auto FPositionVertexBuffer::InitRHI(
+		FRHICommandListBase& RHICmdList) -> void
 	{
+		if (Positions.empty() || GetRHI() != nullptr) return;
+		FRHIBufferCreateDesc Desc = FRHIBufferCreateDesc::CreateVertex(
+			"StaticMeshPositionVertexBuffer",
+			static_cast<uint32>(Positions.size() * sizeof(FVector3f)));
+		Desc.Usage |= EBufferUsageFlags::Static;
+		Desc.InitialData.Data = Positions.data();
+		Desc.InitialData.Size =
+			static_cast<uint32>(Positions.size() * sizeof(FVector3f));
+		SetRHI(GDynamicRHI->RHICreateBuffer(
+			static_cast<FRHICommandListImmediate&>(RHICmdList),
+			Desc));
 	}
 
-	void FPositionVertexBuffer::ReleaseRHI()
+	auto FPositionVertexBuffer::ReleaseRHI() -> void
 	{
-	}
-
-	std::shared_ptr<FRHIBuffer> FPositionVertexBuffer::CreateRHIBuffer(FRHICommandListBase& RHICmdList)
-	{
-		return FRenderResource::CreateRHIBuffer(RHICmdList, VertexData, NumVertices, EBufferUsageFlags::Static | EBufferUsageFlags::ShaderResource, STR("FPositionVertexBuffer"));
-	}
-
-	void FPositionVertexBuffer::AllocateData(bool bInNeedsCPUAccess)
-	{
-		CleanUp();
-
-		VertexData = new FPositionVertexData(bInNeedsCPUAccess);
-
-		Stride = VertexData->GetStride();
-
-		// NumVertices do not need to be set here, as it will be set when ResizeBuffer is called.
+		FVertexBuffer::ReleaseRHI();
 	}
 }

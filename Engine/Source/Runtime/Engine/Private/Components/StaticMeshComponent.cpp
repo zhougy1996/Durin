@@ -435,7 +435,9 @@ namespace Durin
 		}
 
 		FStaticMeshRenderData* RenderData = StaticMesh->GetRenderData();
-		if (RenderData == nullptr || RenderData->LODResources.empty() || RenderData->LODResources[0].Indices.empty())
+		if (RenderData == nullptr
+			|| RenderData->LODResources.empty()
+			|| RenderData->LODResources[0].GetNumIndices() == 0)
 		{
 			return nullptr;
 		}
