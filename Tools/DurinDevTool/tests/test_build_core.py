@@ -18,6 +18,9 @@ from durin_dev_tool.build import operations as build_cli
 from durin_dev_tool.build import config as build_config
 from durin_dev_tool.build import core as build_core
 from durin_dev_tool.build import descriptors as build_descriptors
+from durin_dev_tool.build import locking as build_locking
+from durin_dev_tool.build import process as build_process
+from durin_dev_tool.build import runtime as build_runtime
 from durin_dev_tool.build import scaffolding as build_scaffolding
 from durin_dev_tool.build.handler import request_from_namespace
 from durin_dev_tool.build.output import BuildOutput
@@ -194,7 +197,7 @@ class TestCore:
         request = build_config.CommandRequest(build_config.Action.RUN)
         context = build_config.BuildContext(request, build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows')
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
-        with mock.patch.object(build_core, 'runtime_executable_path', return_value=Path('missing/DurinEditor.exe')), pytest.raises(build_config.BuildToolError, match='was not found'):
+        with mock.patch.object(build_runtime, 'runtime_executable_path', return_value=Path('missing/DurinEditor.exe')), pytest.raises(build_config.BuildToolError, match='was not found'):
             build_core.run_application(context, output)
 
     def test_run_application_waits_for_relaunched_descendants(self, tmp_path_factory: pytest.TempPathFactory) -> None:
@@ -208,7 +211,7 @@ class TestCore:
         context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.RUN, project_path=project.resolve(), run_arguments=('--hidden-window', 'argument with spaces')), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows')
         executable = root / 'DurinEditor.exe'
         executable.touch()
-        with mock.patch.object(build_core, 'runtime_executable_path', return_value=executable), mock.patch.object(build_core, 'run_command') as run:
+        with mock.patch.object(build_runtime, 'runtime_executable_path', return_value=executable), mock.patch.object(build_runtime, 'run_command') as run:
             build_core.run_application(context, output)
         assert run.call_args.args[0] == [str(executable), f'--project={project.resolve()}', '--hidden-window', 'argument with spaces']
         assert run.call_args.kwargs['wait_for_descendants']
@@ -222,7 +225,7 @@ class TestCore:
         process_job = mock.Mock()
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
-        with mock.patch.object(build_core, 'command_log_path', return_value=Path(directory) / 'command.log'), mock.patch.object(build_core.subprocess, 'Popen', return_value=process), mock.patch.object(build_core, 'WindowsProcessJob', return_value=process_job):
+        with mock.patch.object(build_process, 'command_log_path', return_value=Path(directory) / 'command.log'), mock.patch.object(build_process.subprocess, 'Popen', return_value=process), mock.patch.object(build_process, 'WindowsProcessJob', return_value=process_job):
             build_core.run_command(['DurinEditor.exe'], environment={}, output=output, wait_for_descendants=True)
         process_job.assign.assert_called_once_with(process)
         process_job.wait.assert_called_once_with()
@@ -237,7 +240,7 @@ class TestCore:
         process_job.wait.side_effect = KeyboardInterrupt
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
-        with mock.patch.object(build_core, 'command_log_path', return_value=Path(directory) / 'command.log'), mock.patch.object(build_core.subprocess, 'Popen', return_value=process), mock.patch.object(build_core, 'WindowsProcessJob', return_value=process_job), pytest.raises(build_config.BuildToolError, match='Application run was interrupted'):
+        with mock.patch.object(build_process, 'command_log_path', return_value=Path(directory) / 'command.log'), mock.patch.object(build_process.subprocess, 'Popen', return_value=process), mock.patch.object(build_process, 'WindowsProcessJob', return_value=process_job), pytest.raises(build_config.BuildToolError, match='Application run was interrupted'):
             build_core.run_command(['DurinEditor.exe'], environment={}, output=output, recovery_required_on_interrupt=False, wait_for_descendants=True)
         process_job.terminate.assert_called_once_with()
         process_job.close.assert_called_once_with()
@@ -249,7 +252,7 @@ class TestCore:
         stdout = io.StringIO()
         output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
-        with mock.patch.object(build_core, 'runtime_executable_path', return_value=Path(directory) / 'DurinEditor.exe'), mock.patch.object(build_core.os, 'startfile', create=True) as startfile:
+        with mock.patch.object(build_runtime, 'runtime_executable_path', return_value=Path(directory) / 'DurinEditor.exe'), mock.patch.object(build_runtime.os, 'startfile', create=True) as startfile:
             build_core.open_runtime_directory(context, output)
         startfile.assert_called_once_with(Path(directory))
         assert 'Opened runtime directory' in stdout.getvalue()
@@ -264,7 +267,7 @@ class TestCore:
         context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, target='CoreTests', test_filter='Core.*'), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', environment={})
         output = BuildOutput(plain=True, output_mode=build_config.OutputMode.COMPACT, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
-        with mock.patch.object(build_core, 'test_executable_path', return_value=Path(directory) / 'CoreTests.exe') as executable_path, mock.patch.object(build_core, 'run_command') as run:
+        with mock.patch.object(build_runtime, 'test_executable_path', return_value=Path(directory) / 'CoreTests.exe') as executable_path, mock.patch.object(build_runtime, 'run_command') as run:
             executable_path.return_value.touch()
             build_core.run_native_test(context, output)
         assert run.call_args.args[0] == [str(executable_path.return_value), '--gtest_filter=Core.*', '--gtest_brief=1']
@@ -275,7 +278,7 @@ class TestCore:
         context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, target='ALL', test_timeout_seconds=60, test_schedule_random=True, test_output_junit=Path('Build/results.xml'), test_ctest_regex='^Core\\.'), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake=r'C:\Tools\CMake\bin\cmake.exe', jobs=4, environment={'PATH': 'cached'})
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         build_directory = Path('Build/debug')
-        with mock.patch.object(build_core, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_core, 'run_command') as run:
+        with mock.patch.object(build_runtime, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_runtime, 'run_command') as run:
             build_core.run_all_native_tests(context, output)
         run.assert_called_once_with(
             [r'C:\Tools\CMake\bin\ctest.exe', '--test-dir', str(build_directory), '--output-on-failure', '--no-tests=error', '-j', '4', '--timeout', '60', '--schedule-random', '-R', '^Core\\.', '--output-junit', str(build_core.REPO_ROOT / 'Build/results.xml')],
@@ -348,7 +351,7 @@ class TestCore:
     def test_inaccessible_lock_reports_acl_recovery(self) -> None:
         path = Path('checkout.lock')
         denied = PermissionError(13, 'Permission denied', str(path))
-        with mock.patch.object(Path, 'open', side_effect=denied), mock.patch.object(build_core, 'recover_inaccessible_windows_lock', return_value=False), pytest.raises(build_config.BuildToolError) as raised:
+        with mock.patch.object(Path, 'open', side_effect=denied), mock.patch.object(build_locking, 'recover_inaccessible_windows_lock', return_value=False), pytest.raises(build_config.BuildToolError) as raised:
             build_core.open_checkout_lock(path)
         assert 'file-permission problem' in str(raised.value)
         assert 'icacls' in raised.value.recovery
@@ -358,24 +361,24 @@ class TestCore:
         path = Path('checkout.lock')
         handle = mock.Mock()
         denied = PermissionError(13, 'Permission denied', str(path))
-        with mock.patch.object(Path, 'open', side_effect=[denied, handle]), mock.patch.object(build_core, 'recover_inaccessible_windows_lock', return_value=True):
+        with mock.patch.object(Path, 'open', side_effect=[denied, handle]), mock.patch.object(build_locking, 'recover_inaccessible_windows_lock', return_value=True):
             assert build_core.open_checkout_lock(path) is handle
 
     def test_windows_lock_acl_is_reset_to_directory_inheritance(self) -> None:
         result = mock.Mock(returncode=0)
-        with mock.patch.object(build_core.os, 'name', 'nt'), mock.patch.object(build_core.subprocess, 'run', return_value=result) as run:
+        with mock.patch.object(build_locking.os, 'name', 'nt'), mock.patch.object(build_locking.subprocess, 'run', return_value=result) as run:
             assert build_core.normalize_windows_lock_acl(Path('checkout.lock'))
         assert run.call_args.args[0] == ['icacls', 'checkout.lock', '/reset', '/q']
 
     def test_windows_lock_acl_reset_is_best_effort(self) -> None:
-        with mock.patch.object(build_core.os, 'name', 'nt'), mock.patch.object(build_core.subprocess, 'run', return_value=mock.Mock(returncode=5)):
+        with mock.patch.object(build_locking.os, 'name', 'nt'), mock.patch.object(build_locking.subprocess, 'run', return_value=mock.Mock(returncode=5)):
             assert not build_core.normalize_windows_lock_acl(Path('checkout.lock'))
 
     def test_stop_ignores_stale_unowned_lock(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         path = Path(directory) / 'checkout.lock'
         path.write_text(json.dumps({'pid': 424242}), encoding='utf-8')
-        with mock.patch.object(build_core, 'lock_file_path', return_value=path), mock.patch.object(build_core.subprocess, 'run') as run, mock.patch.object(build_core.os, 'killpg', create=True) as killpg:
+        with mock.patch.object(build_locking, 'lock_file_path', return_value=path), mock.patch.object(build_locking.subprocess, 'run') as run, mock.patch.object(build_locking.os, 'killpg', create=True) as killpg:
             assert not build_core.stop_active_operation()
         run.assert_not_called()
         killpg.assert_not_called()
@@ -383,16 +386,16 @@ class TestCore:
     def test_stop_terminates_process_recorded_by_owned_lock(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         path = Path(directory) / 'checkout.lock'
-        with build_core.BuildToolLock(path, {'pid': 424242}), mock.patch.object(build_core, 'lock_file_path', return_value=path):
+        with build_core.BuildToolLock(path, {'pid': 424242}), mock.patch.object(build_locking, 'lock_file_path', return_value=path):
             if os.name == 'nt':
                 result = mock.Mock(returncode=0)
-                with mock.patch.object(build_core.subprocess, 'run', return_value=result) as run:
+                with mock.patch.object(build_locking.subprocess, 'run', return_value=result) as run:
                     assert build_core.stop_active_operation()
                 assert run.call_args.args[0][:3] == ['taskkill', '/PID', '424242']
             else:
-                with mock.patch.object(build_core.os, 'killpg') as killpg:
+                with mock.patch.object(build_locking.os, 'killpg') as killpg:
                     assert build_core.stop_active_operation()
-                killpg.assert_called_once_with(424242, build_core.signal.SIGTERM)
+                killpg.assert_called_once_with(424242, build_locking.signal.SIGTERM)
 
     def test_interruption_marker_requires_rebuild(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
@@ -456,7 +459,7 @@ class TestCore:
         process.wait.side_effect = KeyboardInterrupt
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
-        with mock.patch.object(build_core, 'command_log_path', return_value=Path(directory) / 'command.log'), mock.patch.object(build_core.subprocess, 'Popen', return_value=process), mock.patch.object(build_core, 'terminate_process_tree') as terminate:
+        with mock.patch.object(build_process, 'command_log_path', return_value=Path(directory) / 'command.log'), mock.patch.object(build_process.subprocess, 'Popen', return_value=process), mock.patch.object(build_process, 'terminate_process_tree') as terminate:
             with pytest.raises(build_config.BuildToolInterruptedError):
                 build_core.run_command(['cmake', '--version'], environment={}, output=output)
         terminate.assert_called_once_with(process)
@@ -467,18 +470,18 @@ class TestCore:
         process.wait.return_value = 0
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
-        with mock.patch.object(build_core, 'command_log_path', return_value=Path(directory) / 'command.log'), mock.patch.object(build_core.subprocess, 'Popen', return_value=process) as popen:
+        with mock.patch.object(build_process, 'command_log_path', return_value=Path(directory) / 'command.log'), mock.patch.object(build_process.subprocess, 'Popen', return_value=process) as popen:
             build_core.run_command(['cmake', '--version'], environment={}, output=output)
         assert popen.call_args.kwargs['close_fds']
-        assert popen.call_args.kwargs['stdout'] is build_core.subprocess.PIPE
+        assert popen.call_args.kwargs['stdout'] is build_process.subprocess.PIPE
 
     def test_command_timeout_terminates_child_process_tree(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         process = mock.Mock()
         process.stdout = io.StringIO('compiler.cpp(7): error C1234: broken\n')
-        process.wait.side_effect = build_core.subprocess.TimeoutExpired(['CoreTests'], 0)
+        process.wait.side_effect = build_process.subprocess.TimeoutExpired(['CoreTests'], 0)
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
-        with mock.patch.object(build_core, 'command_log_path', return_value=Path(directory) / 'command.log'), mock.patch.object(build_core.subprocess, 'Popen', return_value=process), mock.patch.object(build_core, 'terminate_process_tree') as terminate, pytest.raises(build_config.BuildToolError, match='timed out'):
+        with mock.patch.object(build_process, 'command_log_path', return_value=Path(directory) / 'command.log'), mock.patch.object(build_process.subprocess, 'Popen', return_value=process), mock.patch.object(build_process, 'terminate_process_tree') as terminate, pytest.raises(build_config.BuildToolError, match='timed out'):
             build_core.run_command(['CoreTests'], environment={}, output=output, timeout_seconds=0.001)
         terminate.assert_called_once_with(process)
 
@@ -487,7 +490,7 @@ class TestCore:
         output = BuildOutput(plain=True, output_mode=build_config.OutputMode.COMPACT, stdout=stdout, stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         log_path = Path(directory) / 'command.log'
-        with mock.patch.object(build_core, 'command_log_path', return_value=log_path):
+        with mock.patch.object(build_process, 'command_log_path', return_value=log_path):
             with pytest.raises(build_config.BuildToolError) as raised:
                 build_core.run_command([os.sys.executable, '-c', "print('noise'); print('source.cpp(9): error C1000: failed'); raise SystemExit(1)"], environment=os.environ, output=output)
         assert 'noise' in log_path.read_text(encoding='utf-8')
@@ -500,7 +503,7 @@ class TestCore:
         output = BuildOutput(plain=True, output_mode=build_config.OutputMode.FULL, stdout=stdout, stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         log_path = Path(directory) / 'command.log'
-        with mock.patch.object(build_core, 'command_log_path', return_value=log_path):
+        with mock.patch.object(build_process, 'command_log_path', return_value=log_path):
             build_core.run_command([os.sys.executable, '-c', "print('visible child output')"], environment=os.environ, output=output)
         assert 'visible child output' in log_path.read_text(encoding='utf-8')
         assert 'visible child output' in stdout.getvalue()
@@ -510,7 +513,7 @@ class TestCore:
         output = BuildOutput(plain=True, output_mode=build_config.OutputMode.COMPACT, stdout=stdout, stderr=io.StringIO())
         child_script = "print('[==========] 122 tests from 25 test suites ran. (100 ms total)'); print('[  PASSED  ] 122 tests.')"
         directory = tmp_path_factory.mktemp('case')
-        with mock.patch.object(build_core, 'command_log_path', return_value=Path(directory) / 'command.log'):
+        with mock.patch.object(build_process, 'command_log_path', return_value=Path(directory) / 'command.log'):
             build_core.run_command([os.sys.executable, '-c', child_script], environment=os.environ, output=output)
         assert '122 tests from 25 test suites ran' in stdout.getvalue()
         assert '[  PASSED  ] 122 tests.' in stdout.getvalue()

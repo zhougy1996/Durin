@@ -1,31 +1,29 @@
+"""Build context, toolchain setup, and command orchestration.
+
+Extracted build services remain re-exported here for compatibility.
+"""
+
 from __future__ import annotations
 
 import json
-import locale
 import os
-import re
 import shlex
 import shutil
-import signal
 import subprocess
 import tempfile
-import threading
-from collections import deque
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from time import perf_counter, sleep
+from time import perf_counter
 from typing import Any, Callable, Mapping, Sequence
 
 from .config import (
-    LOCK_DIR,
     REPO_ROOT,
     STATE_DIR,
     Action,
     BuildContext,
     BuildProfile,
     BuildToolError,
-    BuildToolInterruptedError,
     CommandRequest,
     ConfigurePreset,
     EnvironmentProvider,
@@ -37,359 +35,64 @@ from .config import (
     preset_build_directory,
     preset_cache_bool,
     preset_cache_string,
-    preset_install_directory,
-    preset_output_configuration,
     resolve_cmake_command,
     resolve_jobs,
     select_preset,
     select_profile,
 )
 from .output import BuildOutput
-
-
-COMMAND_LOG_LIMIT = 40
-COMMAND_EXCERPT_LINE_LIMIT = 60
-COMMAND_EXCERPT_CHARACTER_LIMIT = 24_000
-DIAGNOSTIC_PATTERN = re.compile(
-    r"(^FAILED:|fatal error|(?:^|[^a-z])error(?:[^a-z]|$)|"
-    r"\bLNK\d{4}\b|\bninja: build stopped\b|\bCMake Error\b|"
-    r"\[\s*FAILED\s*\]|assertion failed)",
-    re.IGNORECASE,
+from .locking import (
+    BuildToolLock,
+    inaccessible_lock_error,
+    lock_acl_recovery,
+    lock_file_path,
+    lock_is_owned,
+    normalize_windows_lock_acl,
+    open_checkout_lock,
+    read_lock_metadata,
+    read_state_description,
+    recover_inaccessible_windows_lock,
+    state_file_component,
+    stop_active_operation,
 )
-ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-TEST_SUMMARY_PATTERN = re.compile(r"^\[(?:=+|\s*PASSED\s*)\].*\btests?\b", re.IGNORECASE)
-
-
-class CommandTranscript:
-    def __init__(self) -> None:
-        self.tail: deque[str] = deque(maxlen=COMMAND_EXCERPT_LINE_LIMIT)
-        self.diagnostics: deque[str] = deque(maxlen=COMMAND_EXCERPT_LINE_LIMIT)
-
-    def add(self, text: str) -> None:
-        clean = ANSI_ESCAPE_PATTERN.sub("", text.rstrip("\r\n"))
-        if not clean:
-            return
-        self.tail.append(clean)
-        if DIAGNOSTIC_PATTERN.search(clean):
-            self.diagnostics.append(clean)
-
-    def excerpt(self) -> str:
-        lines: list[str] = []
-        seen: set[str] = set()
-        for line in (*self.diagnostics, *self.tail):
-            if line in seen:
-                continue
-            seen.add(line)
-            lines.append(line)
-        text = "\n".join(lines)
-        if len(text) <= COMMAND_EXCERPT_CHARACTER_LIMIT:
-            return text
-        return "... excerpt truncated ...\n" + text[-COMMAND_EXCERPT_CHARACTER_LIMIT:]
-
-    def success_summary(self) -> str:
-        return "\n".join(line for line in self.tail if TEST_SUMMARY_PATTERN.search(line))
-
-
-def command_log_path(command: Sequence[str], root: Path = STATE_DIR) -> Path:
-    log_directory = root / "logs"
-    log_directory.mkdir(parents=True, exist_ok=True)
-    executable = state_file_component(Path(command[0]).stem or "command")
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    return log_directory / f"{timestamp}-{os.getpid()}-{executable}.log"
-
-
-def prune_command_logs(log_directory: Path, keep: int = COMMAND_LOG_LIMIT) -> None:
-    try:
-        logs = sorted(log_directory.glob("*.log"), key=lambda path: path.stat().st_mtime, reverse=True)
-        for path in logs[keep:]:
-            path.unlink(missing_ok=True)
-    except OSError:
-        # Log retention is best-effort and must not turn a successful build into a failure.
-        return
-
-
-def state_file_component(value: str) -> str:
-    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.+-")
-    return "".join(character if character in allowed else "_" for character in value)
-
-
-def lock_file_path(root: Path = LOCK_DIR) -> Path:
-    # Presets share final outputs and generated metadata, so ownership belongs to the checkout.
-    return root / "checkout.lock"
-
-
-def lock_acl_recovery(path: Path) -> str:
-    directory = path.parent
-    return (
-        "Confirm that no DurinDevTool, DurinEditor, CMake, or Ninja process for this checkout is still running. "
-        f'Then, from your normal PowerShell, run: icacls "{directory}" /inheritance:e /T; '
-        f'Remove-Item -LiteralPath "{path}" -Force'
-    )
-
-
-def inaccessible_lock_error(path: Path, exc: OSError) -> BuildToolError:
-    return BuildToolError(
-        f'Could not access DurinDevTool checkout lock "{path}": {exc}. '
-        "The lock file could not be opened, so this is a file-permission problem rather than proof "
-        "that another process still owns the checkout.",
-        recovery=lock_acl_recovery(path),
-    )
-
-
-def recover_inaccessible_windows_lock(path: Path) -> bool:
-    """Replace an inaccessible, unowned lock without splitting an active Windows lock."""
-    if os.name != "nt":
-        return False
-    quarantine = path.with_name(f"{path.name}.{os.getpid()}.stale")
-    try:
-        os.replace(path, quarantine)
-    except OSError:
-        # Windows denies rename while BuildTool has the file open. Failure therefore
-        # preserves a possibly live lock and lets the caller report ACL recovery.
-        return False
-    try:
-        quarantine.unlink(missing_ok=True)
-    except OSError:
-        # The renamed file is no longer the ownership path. Its incompatible ACL
-        # may prevent cleanup, but must not keep the checkout unusable.
-        pass
-    return True
-
-
-def open_checkout_lock(path: Path) -> Any:
-    try:
-        return path.open("a+b")
-    except PermissionError as exc:
-        if recover_inaccessible_windows_lock(path):
-            try:
-                return path.open("a+b")
-            except OSError as retry_exc:
-                raise inaccessible_lock_error(path, retry_exc) from retry_exc
-        raise inaccessible_lock_error(path, exc) from exc
-    except OSError as exc:
-        raise BuildToolError(f'Could not open DurinDevTool checkout lock "{path}": {exc}') from exc
-
-
-def normalize_windows_lock_acl(path: Path) -> bool:
-    """Try to reset a lock file to the ACL inherited from the shared lock directory."""
-    if os.name != "nt":
-        return True
-    result = subprocess.run(
-        ["icacls", str(path), "/reset", "/q"],
-        cwd=REPO_ROOT,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    # An existing lock can be writable without granting this sandbox identity
-    # WRITE_DAC. Lock ownership remains valid in that case; a later inaccessible
-    # opener will use the stale-file recovery path and receive explicit guidance.
-    return result.returncode == 0
-
-
-def lock_is_owned(path: Path) -> bool:
-    """Return whether another process currently holds the checkout lock."""
-    try:
-        handle = path.open("r+b")
-    except FileNotFoundError:
-        return False
-    except OSError as exc:
-        raise BuildToolError(f'Could not open DurinDevTool lock "{path}": {exc}') from exc
-    try:
-        if path.stat().st_size == 0:
-            return False
-        handle.seek(0)
-        try:
-            if os.name == "nt":
-                import msvcrt
-
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            return True
-        if os.name == "nt":
-            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-        return False
-    finally:
-        handle.close()
-
-
-def read_lock_metadata(path: Path) -> dict[str, Any]:
-    """Read metadata without touching the locked ownership byte."""
-    try:
-        with path.open("rb") as handle:
-            handle.seek(1)
-            content = handle.read()
-    except OSError as exc:
-        raise BuildToolError(f'Could not read DurinDevTool lock "{path}": {exc}') from exc
-    # Older lock files stored the opening JSON brace in the locked byte.
-    for candidate in (content, b"{" + content):
-        try:
-            metadata = json.loads(candidate.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            continue
-        if isinstance(metadata, dict):
-            return metadata
-    raise BuildToolError(f'DurinDevTool lock does not contain valid metadata: "{path}"')
-
-
-def stop_active_operation() -> bool:
-    """Stop the DurinDevTool process recorded in the checkout ownership lock."""
-    lock_path = lock_file_path()
-    if not lock_is_owned(lock_path):
-        return False
-    metadata = read_lock_metadata(lock_path)
-    try:
-        pid = int(metadata["pid"])
-    except (ValueError, TypeError, KeyError) as exc:
-        raise BuildToolError(f'DurinDevTool lock does not contain a valid process ID: "{lock_path}"') from exc
-    if pid <= 0 or pid == os.getpid():
-        raise BuildToolError(f'DurinDevTool lock contains an invalid process ID: {pid}')
-
-    if os.name == "nt":
-        result = subprocess.run(
-            ["taskkill", "/PID", str(pid), "/T", "/F"],
-            cwd=REPO_ROOT,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise BuildToolError(
-                f"Could not stop the active DurinDevTool process (PID {pid}). It may have already exited."
-            )
-    else:
-        try:
-            os.killpg(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            raise BuildToolError(f"The active DurinDevTool process (PID {pid}) has already exited.")
-    return True
-
-
-def interruption_marker_path(preset: str, root: Path = STATE_DIR) -> Path:
-    return root / f"{state_file_component(preset)}.interrupted.json"
-
-
-def read_state_description(path: Path, *, locked: bool = False) -> str:
-    try:
-        value = read_lock_metadata(path) if locked else json.loads(path.read_text(encoding="utf-8"))
-    except (BuildToolError, OSError, json.JSONDecodeError):
-        return f'Existing state file: "{path}"'
-    if not isinstance(value, dict):
-        return f'Existing state file: "{path}"'
-    fields = []
-    for key, label in (
-        ("pid", "PID"),
-        ("profile", "profile"),
-        ("preset", "preset"),
-        ("action", "action"),
-        ("target", "target"),
-        ("startedAt", "started"),
-    ):
-        if value.get(key) not in (None, ""):
-            fields.append(f"{label}={value[key]}")
-    return ", ".join(fields) if fields else f'Existing state file: "{path}"'
-
-
-def recoverable_target(path: Path) -> str | None:
-    """Return the target that can safely resume from an interrupted operation."""
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(value, dict):
-        return None
-    action = value.get("action")
-    target = value.get("target")
-    if action in {Action.CONFIGURE.value, Action.CLEAN.value}:
-        return "all"
-    if action not in {
-        Action.BUILD.value,
-        Action.REBUILD.value,
-        Action.RECOVER.value,
-        Action.TEST.value,
-    }:
-        return None
-    if not isinstance(target, str) or not target:
-        return None
-    try:
-        validate_target(target, action=Action.REBUILD)
-    except BuildToolError:
-        return None
-    return target
-
-
-def recovery_target(path: Path) -> str:
-    """Return the narrowest rebuild target, falling back safely for old state."""
-    return recoverable_target(path) or "all"
-
-
-def write_json_state(path: Path, value: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    temporary.write_text(json.dumps(dict(value), indent=2) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
-
-
-class BuildToolLock:
-    def __init__(self, path: Path, metadata: Mapping[str, Any]):
-        self.path = path
-        self.metadata = dict(metadata)
-        self.handle: Any = None
-
-    def __enter__(self) -> "BuildToolLock":
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.handle = open_checkout_lock(self.path)
-        if self.path.stat().st_size == 0:
-            self.handle.write(b"\0")
-            self.handle.flush()
-        self.handle.seek(0)
-        try:
-            if os.name == "nt":
-                import msvcrt
-
-                msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            self.handle.close()
-            self.handle = None
-            raise BuildToolError(
-                "Another DurinDevTool operation already owns this checkout. "
-                + read_state_description(self.path, locked=True)
-            ) from exc
-        normalize_windows_lock_acl(self.path)
-        self.handle.seek(0)
-        # Byte zero is reserved for ownership so other processes can read the JSON while it is locked.
-        self.handle.truncate()
-        self.handle.write(b"\0")
-        self.handle.write((json.dumps(self.metadata, indent=2) + "\n").encode("utf-8"))
-        self.handle.flush()
-        return self
-
-    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
-        if self.handle is None:
-            return
-        try:
-            self.handle.seek(0)
-            if os.name == "nt":
-                import msvcrt
-
-                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
-        finally:
-            self.handle.close()
-            self.handle = None
+from .process import (
+    ANSI_ESCAPE_PATTERN,
+    COMMAND_EXCERPT_CHARACTER_LIMIT,
+    COMMAND_EXCERPT_LINE_LIMIT,
+    COMMAND_LOG_LIMIT,
+    DIAGNOSTIC_PATTERN,
+    TEST_SUMMARY_PATTERN,
+    CommandTranscript,
+    WindowsProcessJob,
+    command_log_path,
+    prune_command_logs,
+    run_command,
+    terminate_process_tree,
+)
+from .purge import (
+    collect_purge_paths,
+    execute_purge,
+    remove_purge_paths,
+    require_purge_child,
+    workspace_project_roots,
+)
+from .recovery import (
+    execute_with_recovery_marker,
+    interruption_marker_path,
+    recoverable_target,
+    recovery_target,
+    restore_state_file,
+    write_json_state,
+)
+from .runtime import (
+    ctest_command,
+    open_runtime_directory,
+    run_all_native_tests,
+    run_application,
+    run_native_test,
+    runtime_executable_path,
+    test_executable_path,
+)
 
 
 def parse_environment_output(output: str, *, case_insensitive: bool = False) -> dict[str, str]:
@@ -750,322 +453,6 @@ def ensure_required_commands(profile: BuildProfile, environment: dict[str, str])
         )
 
 
-def terminate_process_tree(process: subprocess.Popen[Any]) -> None:
-    if process.poll() is not None:
-        return
-    if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-            cwd=REPO_ROOT,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-    else:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            return
-    try:
-        process.wait(timeout=10)
-        return
-    except subprocess.TimeoutExpired:
-        pass
-    if os.name == "nt":
-        process.kill()
-    else:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            return
-    process.wait()
-
-
-class WindowsProcessJob:
-    """Keeps relaunched application processes in one waitable lifetime."""
-
-    _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
-    _JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION = 1
-    _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
-
-    def __init__(self) -> None:
-        import ctypes
-        from ctypes import wintypes
-
-        class BasicLimitInformation(ctypes.Structure):
-            _fields_ = [
-                ("PerProcessUserTimeLimit", ctypes.c_int64),
-                ("PerJobUserTimeLimit", ctypes.c_int64),
-                ("LimitFlags", wintypes.DWORD),
-                ("MinimumWorkingSetSize", ctypes.c_size_t),
-                ("MaximumWorkingSetSize", ctypes.c_size_t),
-                ("ActiveProcessLimit", wintypes.DWORD),
-                ("Affinity", ctypes.c_size_t),
-                ("PriorityClass", wintypes.DWORD),
-                ("SchedulingClass", wintypes.DWORD),
-            ]
-
-        class IoCounters(ctypes.Structure):
-            _fields_ = [
-                ("ReadOperationCount", ctypes.c_uint64),
-                ("WriteOperationCount", ctypes.c_uint64),
-                ("OtherOperationCount", ctypes.c_uint64),
-                ("ReadTransferCount", ctypes.c_uint64),
-                ("WriteTransferCount", ctypes.c_uint64),
-                ("OtherTransferCount", ctypes.c_uint64),
-            ]
-
-        class ExtendedLimitInformation(ctypes.Structure):
-            _fields_ = [
-                ("BasicLimitInformation", BasicLimitInformation),
-                ("IoInfo", IoCounters),
-                ("ProcessMemoryLimit", ctypes.c_size_t),
-                ("JobMemoryLimit", ctypes.c_size_t),
-                ("PeakProcessMemoryUsed", ctypes.c_size_t),
-                ("PeakJobMemoryUsed", ctypes.c_size_t),
-            ]
-
-        class BasicAccountingInformation(ctypes.Structure):
-            _fields_ = [
-                ("TotalUserTime", ctypes.c_int64),
-                ("TotalKernelTime", ctypes.c_int64),
-                ("ThisPeriodTotalUserTime", ctypes.c_int64),
-                ("ThisPeriodTotalKernelTime", ctypes.c_int64),
-                ("TotalPageFaultCount", wintypes.DWORD),
-                ("TotalProcesses", wintypes.DWORD),
-                ("ActiveProcesses", wintypes.DWORD),
-                ("TotalTerminatedProcesses", wintypes.DWORD),
-            ]
-
-        self._ctypes = ctypes
-        self._basic_accounting_type = BasicAccountingInformation
-        self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        self._kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
-        self._kernel32.CreateJobObjectW.restype = wintypes.HANDLE
-        self._kernel32.SetInformationJobObject.argtypes = [
-            wintypes.HANDLE,
-            ctypes.c_int,
-            ctypes.c_void_p,
-            wintypes.DWORD,
-        ]
-        self._kernel32.SetInformationJobObject.restype = wintypes.BOOL
-        self._kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-        self._kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
-        self._kernel32.QueryInformationJobObject.argtypes = [
-            wintypes.HANDLE,
-            ctypes.c_int,
-            ctypes.c_void_p,
-            wintypes.DWORD,
-            ctypes.c_void_p,
-        ]
-        self._kernel32.QueryInformationJobObject.restype = wintypes.BOOL
-        self._kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
-        self._kernel32.TerminateJobObject.restype = wintypes.BOOL
-        self._kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-        self._kernel32.CloseHandle.restype = wintypes.BOOL
-
-        self.handle = self._kernel32.CreateJobObjectW(None, None)
-        if not self.handle:
-            raise BuildToolError(
-                f"Could not create the application process job (Win32 error {ctypes.get_last_error()})."
-            )
-        limits = ExtendedLimitInformation()
-        limits.BasicLimitInformation.LimitFlags = self._JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-        if not self._kernel32.SetInformationJobObject(
-            self.handle,
-            self._JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
-            ctypes.byref(limits),
-            ctypes.sizeof(limits),
-        ):
-            error = ctypes.get_last_error()
-            self.close()
-            raise BuildToolError(f"Could not configure the application process job (Win32 error {error}).")
-
-    def assign(self, process: subprocess.Popen[Any]) -> None:
-        if not self._kernel32.AssignProcessToJobObject(self.handle, int(process._handle)):
-            raise BuildToolError(
-                f"Could not track the application process tree (Win32 error {self._ctypes.get_last_error()})."
-            )
-
-    def wait(self) -> None:
-        while True:
-            accounting = self._basic_accounting_type()
-            if not self._kernel32.QueryInformationJobObject(
-                self.handle,
-                self._JOB_OBJECT_BASIC_ACCOUNTING_INFORMATION,
-                self._ctypes.byref(accounting),
-                self._ctypes.sizeof(accounting),
-                None,
-            ):
-                raise BuildToolError(
-                    f"Could not query the application process job (Win32 error {self._ctypes.get_last_error()})."
-                )
-            if accounting.ActiveProcesses == 0:
-                return
-            sleep(0.05)
-
-    def terminate(self) -> None:
-        if self.handle:
-            self._kernel32.TerminateJobObject(self.handle, 1)
-
-    def close(self) -> None:
-        if self.handle:
-            self._kernel32.CloseHandle(self.handle)
-            self.handle = None
-
-
-def run_command(
-    command: Sequence[str],
-    *,
-    environment: Mapping[str, str],
-    output: BuildOutput,
-    colorize_log_levels: bool = False,
-    colorize_test_output: bool = False,
-    recovery_required_on_interrupt: bool = True,
-    interruption_message: str | None = None,
-    timeout_seconds: int | None = None,
-    wait_for_descendants: bool = False,
-    show_heartbeat: bool = True,
-) -> None:
-    command_list = list(command)
-    output.command(subprocess.list2cmdline(command_list))
-    log_path = command_log_path(command_list)
-    transcript = CommandTranscript()
-    reader_error: list[OSError] = []
-    popen_options: dict[str, Any] = {}
-    if os.name == "nt":
-        popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-    else:
-        popen_options["start_new_session"] = True
-    process_job = WindowsProcessJob() if wait_for_descendants and os.name == "nt" else None
-    try:
-        process = subprocess.Popen(
-            command_list,
-            cwd=REPO_ROOT,
-            env=dict(environment),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="mbcs" if os.name == "nt" else locale.getpreferredencoding(False),
-            errors="replace",
-            bufsize=1,
-            close_fds=True,
-            **popen_options,
-        )
-    except OSError as exc:
-        if process_job:
-            process_job.close()
-        raise BuildToolError(f'Could not start command "{command_list[0]}": {exc}', command=command_list) from exc
-
-    def drain_output() -> None:
-        try:
-            with log_path.open("w", encoding="utf-8", newline="") as log:
-                if process.stdout is None:
-                    return
-                with process.stdout:
-                    for line in process.stdout:
-                        log.write(line)
-                        transcript.add(line)
-                        if not output.compact:
-                            output.child_output(
-                                line,
-                                colorize_log_levels=colorize_log_levels,
-                                colorize_test_output=colorize_test_output,
-                            )
-        except OSError as exc:
-            reader_error.append(exc)
-
-    if process_job:
-        try:
-            process_job.assign(process)
-        except BuildToolError:
-            terminate_process_tree(process)
-            process_job.close()
-            raise
-    reader = threading.Thread(target=drain_output, name="DurinDevToolOutputReader", daemon=True)
-    reader.start()
-    try:
-        started_at = perf_counter()
-        deadline = perf_counter() + timeout_seconds if timeout_seconds else None
-        while True:
-            wait_seconds = 30.0
-            if deadline is not None:
-                remaining = deadline - perf_counter()
-                if remaining <= 0:
-                    if process_job:
-                        process_job.terminate()
-                    terminate_process_tree(process)
-                    raise BuildToolError(
-                        f'Command timed out after {timeout_seconds}s: "{command_list[0]}"',
-                        command=command_list,
-                        recovery="Inspect the output excerpt or full log, then rerun the same command.",
-                    )
-                wait_seconds = min(wait_seconds, remaining)
-            try:
-                return_code = process.wait(timeout=wait_seconds)
-                break
-            except subprocess.TimeoutExpired:
-                if show_heartbeat:
-                    output.info(f"Command is still running ({perf_counter() - started_at:.0f}s elapsed).")
-        if process_job:
-            # Relaunched editors inherit job membership, so active membership reaches zero only after the final instance exits.
-            process_job.wait()
-    except BuildToolError as exc:
-        reader.join()
-        if output.compact:
-            exc.output_excerpt = transcript.excerpt()
-        exc.log_path = log_path
-        raise
-    except KeyboardInterrupt as exc:
-        if process_job:
-            process_job.terminate()
-        terminate_process_tree(process)
-        reader.join()
-        excerpt = transcript.excerpt() if output.compact else ""
-        if not recovery_required_on_interrupt:
-            raise BuildToolError(
-                interruption_message or "Application run was interrupted.",
-                command=command_list,
-                output_excerpt=excerpt,
-                log_path=log_path,
-            ) from exc
-        raise BuildToolInterruptedError(
-            interruption_message or "DurinDevTool was interrupted.",
-            command=command_list,
-            recovery=(
-                "Confirm that the old build process tree has exited, then run DevTool status "
-                "and use the recovery command it reports."
-            ),
-            output_excerpt=excerpt,
-            log_path=log_path,
-        ) from exc
-    finally:
-        reader.join()
-        output.finish_child_output()
-        if process_job:
-            process_job.close()
-        prune_command_logs(log_path.parent)
-    if reader_error:
-        raise BuildToolError(
-            f'Could not capture command output in "{log_path}": {reader_error[0]}',
-            command=command_list,
-            log_path=log_path,
-        )
-    if return_code != 0:
-        raise BuildToolError(
-            f'Command failed: "{command_list[0]}"',
-            command=command_list,
-            exit_code=return_code,
-            recovery="Inspect the output excerpt or full log, fix the reported error, and rerun the same command.",
-            output_excerpt=transcript.excerpt() if output.compact else "",
-            log_path=log_path,
-        )
-    if output.compact:
-        if summary := transcript.success_summary():
-            output.child_output(summary + "\n", colorize_test_output=colorize_test_output)
-        output.info(f'Full output: "{log_path}"')
-
-
 def validate_target(target: str, *, action: Action) -> None:
     if not target:
         raise BuildToolError(f"{action.value} requires --target <target-name>.")
@@ -1294,145 +681,6 @@ def require_english_msvc_ninja_prefix(context: BuildContext, build_directory: Pa
         )
 
 
-def restore_state_file(path: Path, previous_content: bytes | None) -> None:
-    if previous_content is None:
-        path.unlink(missing_ok=True)
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    temporary.write_bytes(previous_content)
-    os.replace(temporary, path)
-
-
-def execute_with_recovery_marker(
-    *,
-    action: Action,
-    marker_file: Path,
-    metadata: Mapping[str, Any],
-    operation: Callable[[], None],
-) -> None:
-    try:
-        previous_content = marker_file.read_bytes()
-    except FileNotFoundError:
-        previous_content = None
-    except OSError as exc:
-        raise BuildToolError(f'Could not read DurinDevTool recovery state "{marker_file}": {exc}') from exc
-    if previous_content is None and action is Action.RECOVER:
-        raise BuildToolError("No interrupted DurinDevTool operation was found for this preset.")
-    if previous_content is not None and action in {Action.BUILD, Action.TEST}:
-        target = recoverable_target(marker_file)
-        raise BuildToolError(
-            "The previous DurinDevTool operation did not return normally. "
-            + read_state_description(marker_file),
-            recovery=(
-                "Confirm its old process tree has exited, then run "
-                + (
-                    "recover with the affected preset."
-                    if target
-                    else "rebuild --target all with the affected preset."
-                )
-            ),
-        )
-    if previous_content is not None and action is Action.REBUILD:
-        required_target = recovery_target(marker_file)
-        requested_target = metadata.get("target")
-        if requested_target not in {required_target, "all"}:
-            raise BuildToolError(
-                f'Interrupted target "{required_target}" cannot be recovered by rebuilding '
-                f'target "{requested_target}".',
-                recovery=f"Run rebuild --target {required_target}, or rebuild --target all.",
-            )
-    if previous_content is not None and action is Action.RECOVER:
-        required_target = recoverable_target(marker_file)
-        requested_target = metadata.get("target")
-        if required_target is None:
-            raise BuildToolError(
-                "The interrupted DurinDevTool state cannot be resumed safely.",
-                recovery="Run rebuild --target all with the affected preset.",
-            )
-        if requested_target != required_target:
-            raise BuildToolError(
-                f'Recovery target changed from "{required_target}" to "{requested_target}".',
-                recovery="Run DevTool status again before recovering.",
-            )
-    write_json_state(marker_file, metadata)
-    try:
-        operation()
-    except BuildToolInterruptedError:
-        raise
-    except BuildToolError:
-        restore_state_file(marker_file, previous_content)
-        raise
-    except BaseException:
-        raise
-    else:
-        if action in {Action.REBUILD, Action.RECOVER} or previous_content is None:
-            restore_state_file(marker_file, None)
-        else:
-            restore_state_file(marker_file, previous_content)
-
-
-def runtime_executable_path(
-    profile: BuildProfile,
-    preset: ConfigurePreset,
-    *,
-    root: Path = REPO_ROOT,
-) -> Path:
-    runtime_variant = preset_cache_string(preset, "DURIN_RUNTIME_VARIANT")
-    return (
-        root
-        / "Engine"
-        / "Binaries"
-        / profile.platform
-        / preset_output_configuration(preset)
-        / "Runtime"
-        / runtime_variant
-        / f"{runtime_variant}{profile.test_executable_suffix}"
-    )
-
-
-def open_runtime_directory(context: BuildContext, output: BuildOutput) -> None:
-    directory = runtime_executable_path(context.profile, context.preset).parent
-    if not directory.is_dir():
-        raise BuildToolError(
-            f'Runtime directory was not found: "{directory}".',
-            recovery="Build the complete runtime first with build --target all.",
-        )
-    try:
-        if context.current_host == "windows":
-            os.startfile(directory)  # type: ignore[attr-defined]
-        else:
-            opener = "open" if context.current_host == "macos" else "xdg-open"
-            subprocess.Popen(
-                [opener, str(directory)],
-                cwd=REPO_ROOT,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-    except (AttributeError, OSError) as exc:
-        raise BuildToolError(f'Could not open runtime directory "{directory}": {exc}') from exc
-    output.success(f'Opened runtime directory: "{directory}"')
-
-
-def test_executable_path(
-    profile: BuildProfile,
-    preset: ConfigurePreset,
-    target: str,
-) -> Path:
-    runtime_variant = preset_cache_string(preset, "DURIN_RUNTIME_VARIANT")
-    return (
-        REPO_ROOT
-        / "Engine"
-        / "Binaries"
-        / profile.platform
-        / preset_output_configuration(preset)
-        / "Tests"
-        / runtime_variant
-        / "Bin"
-        / f"{target}{profile.test_executable_suffix}"
-    )
-
-
 def perform_action(
     context: BuildContext,
     output: BuildOutput,
@@ -1514,198 +762,6 @@ def perform_action(
             environment=environment,
             output=output,
         )
-
-
-def run_native_test(context: BuildContext, output: BuildOutput) -> None:
-    request = context.request
-    executable = test_executable_path(context.profile, context.preset, context.target)
-    if not executable.is_file():
-        raise BuildToolError(f'Test target "{context.target}" did not produce "{executable}".')
-    command = [str(executable)]
-    if request.test_filter:
-        command.append(f"--gtest_filter={request.test_filter}")
-    if output.compact:
-        command.append("--gtest_brief=1")
-    with output.stage("Test"):
-        run_command(
-            command,
-            environment=context.environment or os.environ,
-            output=output,
-            recovery_required_on_interrupt=False,
-            interruption_message="Native test run was interrupted.",
-            timeout_seconds=request.test_timeout_seconds or None,
-            colorize_test_output=True,
-        )
-
-
-def ctest_command(cmake: str) -> str:
-    cmake_path = Path(cmake)
-    executable_name = "ctest.exe" if cmake_path.suffix.casefold() == ".exe" else "ctest"
-    if cmake_path.parent == Path("."):
-        return executable_name
-    return str(cmake_path.with_name(executable_name))
-
-
-def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
-    request = context.request
-    command = [
-        ctest_command(context.cmake),
-        "--test-dir",
-        str(preset_build_directory(context.preset)),
-        "--output-on-failure",
-        "--no-tests=error",
-        "-j",
-        str(context.jobs),
-    ]
-    if request.test_timeout_seconds:
-        command.extend(["--timeout", str(request.test_timeout_seconds)])
-    if request.test_schedule_random:
-        command.append("--schedule-random")
-    if request.test_ctest_regex:
-        command.extend(["-R", request.test_ctest_regex])
-    if request.test_output_junit is not None:
-        junit_path = request.test_output_junit
-        if not junit_path.is_absolute():
-            junit_path = REPO_ROOT / junit_path
-        junit_path.parent.mkdir(parents=True, exist_ok=True)
-        command.extend(["--output-junit", str(junit_path)])
-    with output.stage("Test all"):
-        run_command(
-            command,
-            environment=context.environment or os.environ,
-            output=output,
-            recovery_required_on_interrupt=False,
-            interruption_message="Native test run was interrupted.",
-            colorize_test_output=True,
-        )
-
-
-def run_application(context: BuildContext, output: BuildOutput) -> None:
-    executable = runtime_executable_path(context.profile, context.preset)
-    if not executable.is_file():
-        raise BuildToolError(
-            f'Runtime executable was not found: "{executable}".',
-            recovery="Build the complete runtime first with build --target all.",
-        )
-    arguments = [str(executable)]
-    if context.request.project_path is not None:
-        arguments.append(f"--project={context.request.project_path}")
-    arguments.extend(context.request.run_arguments)
-    with output.stage("Run"):
-        run_command(
-            arguments,
-            environment=os.environ,
-            output=output,
-            colorize_log_levels=True,
-            recovery_required_on_interrupt=False,
-            wait_for_descendants=True,
-            show_heartbeat=False,
-        )
-
-
-def workspace_project_roots(root: Path = REPO_ROOT) -> list[Path]:
-    return sorted({descriptor.parent for descriptor in root.glob("*/*.dproject")})
-
-
-def require_purge_child(path: Path, parent: Path) -> Path:
-    resolved = path.resolve()
-    try:
-        relative = resolved.relative_to(parent.resolve())
-    except ValueError as exc:
-        raise BuildToolError(f'Purge path escapes its allowed root: "{resolved}"') from exc
-    if not relative.parts:
-        raise BuildToolError(f'Purge cannot remove an output root directly: "{resolved}"')
-    return resolved
-
-
-def collect_purge_paths(
-    profile: BuildProfile,
-    selected_presets: Sequence[ConfigurePreset],
-    *,
-    root: Path = REPO_ROOT,
-) -> list[Path]:
-    paths: set[Path] = set()
-    output_configs: set[str] = set()
-    third_party_configs: set[str] = set()
-    intermediate_profiles: set[tuple[str, str, str]] = set()
-    for preset in selected_presets:
-        paths.add(require_purge_child(preset_build_directory(preset, root=root), root / "Build"))
-        install_directory = preset_install_directory(preset, root=root)
-        if install_directory is not None:
-            paths.add(require_purge_child(install_directory, root / "Install"))
-        output_configs.add(preset_output_configuration(preset))
-        third_party_configs.add(preset_cache_string(preset, "CMAKE_BUILD_TYPE"))
-        intermediate_profiles.add(
-            (
-                "Build",
-                profile.platform,
-                preset_cache_string(preset, "DURIN_RUNTIME_VARIANT"),
-            )
-        )
-        paths.add(interruption_marker_path(preset.name, root / "Build" / ".agent-state"))
-    for project_root in workspace_project_roots(root):
-        for output_config in output_configs:
-            paths.add(
-                require_purge_child(
-                    project_root / "Binaries" / profile.platform / output_config,
-                    project_root / "Binaries",
-                )
-            )
-        for third_party_config in third_party_configs:
-            paths.add(
-                require_purge_child(
-                    project_root / "Binaries" / profile.platform / "ThirdParty" / third_party_config,
-                    project_root / "Binaries",
-                )
-            )
-        for intermediate_root, platform_name, runtime_variant in intermediate_profiles:
-            paths.add(
-                require_purge_child(
-                    project_root / "Intermediate" / intermediate_root / platform_name / runtime_variant,
-                    project_root / "Intermediate",
-                )
-            )
-    return sorted(paths, key=lambda path: (len(path.parts), str(path).lower()), reverse=True)
-
-
-def remove_purge_paths(paths: Sequence[Path], *, root: Path = REPO_ROOT) -> None:
-    checkout_root = root.resolve()
-    for path in paths:
-        resolved = path.resolve()
-        try:
-            resolved.relative_to(checkout_root)
-        except ValueError as exc:
-            raise BuildToolError(f'Purge path escapes the checkout: "{resolved}"') from exc
-        if resolved == checkout_root:
-            raise BuildToolError("Purge cannot remove the checkout root.")
-        try:
-            if path.is_symlink() or path.is_file():
-                path.unlink(missing_ok=True)
-            elif path.is_dir():
-                shutil.rmtree(path)
-        except OSError as exc:
-            raise BuildToolError(f'Could not purge build artifact path "{path}": {exc}') from exc
-
-
-def execute_purge(
-    context: BuildContext,
-    output: BuildOutput,
-    confirm: Callable[[Sequence[Path], bool], bool],
-) -> None:
-    selected = [context.preset]
-    if context.request.all_presets:
-        selected = [context.presets[name] for name in context.profile.presets]
-    paths = [path for path in collect_purge_paths(context.profile, selected) if path.exists() or path.is_symlink()]
-    if not paths:
-        scope = "all registered presets" if context.request.all_presets else f'preset "{context.preset.name}"'
-        output.warning(f"No build artifacts were found for {scope}.")
-        return
-    if not context.request.yes and not confirm(paths, context.request.all_presets):
-        output.cancelled("Purge cancelled.")
-        return
-    with output.stage("Purge"):
-        remove_purge_paths(paths)
-    output.success(f"Purged {len(paths)} build artifact path(s).")
 
 
 def execute_context(

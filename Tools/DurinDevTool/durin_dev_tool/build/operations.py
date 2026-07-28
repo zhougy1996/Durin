@@ -24,15 +24,13 @@ from .core import (
     create_context,
     derive_context,
     execute_context,
-    interruption_marker_path,
-    open_runtime_directory,
     prepare_command_context,
     prepare_toolchain_environment,
-    recoverable_target,
-    recovery_target,
-    stop_active_operation,
 )
+from .locking import stop_active_operation
 from .output import BuildOutput
+from .recovery import interruption_marker_path, recoverable_target, recovery_target
+from .runtime import open_runtime_directory
 
 TOOLCHAIN_ACTIONS = {
     Action.CONFIGURE,
