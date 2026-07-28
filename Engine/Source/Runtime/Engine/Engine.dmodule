@@ -38,6 +38,7 @@
         "Public/Components/PhysicsComponent.h",
         "Public/Components/StaticMeshComponent.h",
         "Public/StaticMesh/StaticMesh.h",
+        "Public/Texture/Texture.h",
         "Public/Texture/Texture2D.h",
         "Public/Texture/TextureCube.h",
         "Public/Materials/MaterialTypes.h",

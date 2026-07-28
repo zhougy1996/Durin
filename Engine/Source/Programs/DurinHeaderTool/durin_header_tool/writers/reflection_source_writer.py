@@ -73,16 +73,17 @@ def generate_header_content(header: ReflectedHeaderInfo) -> str:
         builder.append("\n")
 
         _append_macro_line(builder, f"#define {enhanced_constructors}")
-        if constructor_mode == "object_initializer" and not class_info.has_object_initializer_constructor:
+        if not class_info.is_abstract and constructor_mode == "object_initializer" and not class_info.has_object_initializer_constructor:
             _append_macro_line(builder, f"NO_API {class_info.short_name}(const Durin::FObjectInitializer& ObjectInitializer);", 1)
         if not class_info.has_destructor:
             _append_macro_line(builder, f"NO_API ~{class_info.short_name}() override = default;", 1)
         _append_macro_line(builder, f"{class_info.short_name}({class_info.short_name}&&) = delete;", 1)
         _append_macro_line(builder, f"{class_info.short_name}(const {class_info.short_name}&) = delete;", 1)
-        if constructor_mode == "default":
-            _append_macro_line(builder, f"DEFINE_DEFAULT_CONSTRUCTOR_CALL({class_info.short_name})", 1, True)
-        else:
-            _append_macro_line(builder, f"DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL({class_info.short_name})", 1, True)
+        if not class_info.is_abstract:
+            if constructor_mode == "default":
+                _append_macro_line(builder, f"DEFINE_DEFAULT_CONSTRUCTOR_CALL({class_info.short_name})", 1, True)
+            else:
+                _append_macro_line(builder, f"DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL({class_info.short_name})", 1, True)
         builder.append("\n")
 
         _append_macro_line(builder, f"#define {generated_body}")
@@ -179,8 +180,12 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object]
             ("nullptr,", 3),
             (f"sizeof({class_info.qualified_name}),", 3),
             (f"alignof({class_info.qualified_name}),", 3),
-            ("Durin::EClassFlags::None,", 3),
-            (f"(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<{class_info.qualified_name}>,", 3),
+            (f"Durin::EClassFlags::{'Abstract' if class_info.is_abstract else 'None'},", 3),
+            (
+                "nullptr," if class_info.is_abstract
+                else f"(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<{class_info.qualified_name}>,",
+                3,
+            ),
             (f"&{_base_name_for_macro(class_info)}::StaticClass", 3),
             (");", 2),
             ("}", 1),
@@ -247,7 +252,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object]
             ("", 0),
         )
 
-        if constructor_mode == "object_initializer" and not class_info.has_object_initializer_constructor:
+        if not class_info.is_abstract and constructor_mode == "object_initializer" and not class_info.has_object_initializer_constructor:
             builder.append(f"{class_info.qualified_name}::{class_info.short_name}(const Durin::FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer) {{}}\n\n")
 
     if header.classes or header.enums:

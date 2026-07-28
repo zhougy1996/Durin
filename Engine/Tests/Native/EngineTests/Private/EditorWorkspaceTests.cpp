@@ -3,6 +3,9 @@
 #include "Editor/EditorWorkspaceUI.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "Texture/Texture.h"
+#include "Texture/Texture2D.h"
+#include "Texture/TextureCube.h"
 
 #include <gtest/gtest.h>
 
@@ -445,6 +448,21 @@ TEST(FEditorAssetPickerTests, AppliesExactAndDerivedClassPolicies)
 		Durin::DMaterialInterface::StaticClass(),
 		Durin::DMaterialInterface::StaticClass(),
 		Durin::EEditorAssetClassPolicy::Exact
+	));
+	EXPECT_TRUE(Durin::EditorAssetPicker::MatchesClass(
+		Durin::DTexture2D::StaticClass(),
+		Durin::DTexture::StaticClass(),
+		Durin::EEditorAssetClassPolicy::Derived
+	));
+	EXPECT_TRUE(Durin::EditorAssetPicker::MatchesClass(
+		Durin::DTextureCube::StaticClass(),
+		Durin::DTexture::StaticClass(),
+		Durin::EEditorAssetClassPolicy::Derived
+	));
+	EXPECT_FALSE(Durin::EditorAssetPicker::MatchesClass(
+		Durin::DTexture::StaticClass(),
+		Durin::DTexture2D::StaticClass(),
+		Durin::EEditorAssetClassPolicy::Derived
 	));
 }
 

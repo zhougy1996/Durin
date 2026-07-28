@@ -19,6 +19,7 @@ def _extract_header_export_symbols_impl(module_name: str, header: str) -> dict[s
             Header=class_info.header,
             API=class_info.api,
             BaseQualifiedName=class_info.base_qualified_name,
+            IsAbstract=class_info.is_abstract,
         )
     for enum_info in header_info.enums:
         symbols[enum_info.qualified_name] = ExportedSymbolInfo(

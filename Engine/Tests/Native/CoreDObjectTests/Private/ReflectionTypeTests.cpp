@@ -1057,6 +1057,28 @@ namespace
 		EXPECT_EQ(Durin::Cast<Durin::DObject>(Object), Object);
 	}
 
+	TEST(FCoreDObjectReflectionTests, AbstractClassesRetainHierarchyButRejectConstruction)
+	{
+		EnsureDObjectInitialized();
+		Durin::DClass AbstractClass(
+			Durin::EC_StaticConstructor,
+			Durin::FName("DAbstractObjectForTest"),
+			sizeof(DLifecycleTestObject),
+			alignof(DLifecycleTestObject),
+			Durin::EObjectFlags::NoFlags,
+			Durin::EClassFlags::Abstract,
+			Durin::EClassCastFlags::DClass,
+			(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<DLifecycleTestObject>);
+		AbstractClass.SetSuperStructBase(Durin::DObject::StaticClass());
+
+		EXPECT_TRUE(AbstractClass.IsChildOf(Durin::DObject::StaticClass()));
+		EXPECT_TRUE(AbstractClass.HasAnyClassFlags(Durin::EClassFlags::Abstract));
+		EXPECT_FALSE(Durin::CanConstructObjectOfClass(
+			&AbstractClass, Durin::DObject::StaticClass()));
+		EXPECT_EQ(Durin::NewObject(
+			&AbstractClass, nullptr, Durin::FName("RejectedAbstractObject")), nullptr);
+	}
+
 	TEST(FCoreDObjectReflectionTests, OuterIndexTracksRegistrationRenameReparentGarbageAndRemoval)
 	{
 		EnsureDObjectInitialized();

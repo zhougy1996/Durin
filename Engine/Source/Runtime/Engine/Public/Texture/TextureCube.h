@@ -4,6 +4,7 @@
 #include "DObject/CoreDObject.h"
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
+#include "Texture/Texture.h"
 #include "Texture/Texture2D.h"
 
 #include "TextureCube.gen.h"
@@ -111,7 +112,7 @@ namespace Durin
 	struct FTextureCubeImportResult;
 
 	DCLASS()
-	class DTextureCube : public DObject
+	class DTextureCube : public DTexture
 	{
 		GENERATED_BODY()
 	public:

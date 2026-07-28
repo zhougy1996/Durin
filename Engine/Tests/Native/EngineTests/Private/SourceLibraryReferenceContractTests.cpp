@@ -8,6 +8,7 @@
 #include "NativeTestSupport.h"
 #include "Source/SourcePath.h"
 #include "StaticMesh/StaticMesh.h"
+#include "Texture/Texture.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 
@@ -92,16 +93,37 @@ TEST(FSourcePathContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 {
 	static_assert(std::is_base_of_v<Durin::DObject, Durin::DTexture2D>);
 	static_assert(std::is_base_of_v<Durin::DObject, Durin::DTextureCube>);
+	static_assert(std::is_base_of_v<Durin::DObject, Durin::DTexture>);
+	static_assert(std::is_base_of_v<Durin::DTexture, Durin::DTexture2D>);
+	static_assert(std::is_base_of_v<Durin::DTexture, Durin::DTextureCube>);
 
 	InitializeDObjectSystem();
+	Durin::DClass* TextureClass = Durin::DTexture::StaticClass();
 	Durin::DClass* Texture2DClass = Durin::DTexture2D::StaticClass();
 	Durin::DClass* TextureCubeClass = Durin::DTextureCube::StaticClass();
+	ASSERT_NE(TextureClass, nullptr);
 	ASSERT_NE(Texture2DClass, nullptr);
 	ASSERT_NE(TextureCubeClass, nullptr);
+	EXPECT_EQ(TextureClass->GetQualifiedName().ToString(), "Durin::DTexture");
 	EXPECT_EQ(Texture2DClass->GetQualifiedName().ToString(), "Durin::DTexture2D");
 	EXPECT_EQ(TextureCubeClass->GetQualifiedName().ToString(), "Durin::DTextureCube");
-	EXPECT_TRUE(Texture2DClass->IsChildOf(Durin::DObject::StaticClass()));
-	EXPECT_TRUE(TextureCubeClass->IsChildOf(Durin::DObject::StaticClass()));
+	EXPECT_EQ(TextureClass->GetSuperClass(), Durin::DObject::StaticClass());
+	EXPECT_EQ(Texture2DClass->GetSuperClass(), TextureClass);
+	EXPECT_EQ(TextureCubeClass->GetSuperClass(), TextureClass);
+	EXPECT_TRUE(TextureClass->HasAnyClassFlags(Durin::EClassFlags::Abstract));
+	EXPECT_EQ(TextureClass->ClassConstructor, nullptr);
+	EXPECT_FALSE(Durin::CanConstructObjectOfClass(
+		TextureClass, Durin::DObject::StaticClass()));
+	EXPECT_EQ(Durin::NewObject(
+		TextureClass, nullptr, Durin::FName("RejectedTexture")), nullptr);
+	Durin::DObject* Texture2DObject = Durin::NewObject(
+		Texture2DClass, nullptr, Durin::FName("TextureHierarchy2D"));
+	Durin::DObject* TextureCubeObject = Durin::NewObject(
+		TextureCubeClass, nullptr, Durin::FName("TextureHierarchyCube"));
+	ASSERT_NE(Texture2DObject, nullptr);
+	ASSERT_NE(TextureCubeObject, nullptr);
+	EXPECT_EQ(Durin::Cast<Durin::DTexture>(Texture2DObject), Texture2DObject);
+	EXPECT_EQ(Durin::Cast<Durin::DTexture>(TextureCubeObject), TextureCubeObject);
 
 	static constexpr std::array Texture2DProperties = {
 		std::string_view("SourceFile"),

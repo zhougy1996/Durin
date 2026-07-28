@@ -28,6 +28,7 @@ namespace Durin
 	class DMaterialInstance;
 	class DMaterialInterface;
 	class DStaticMesh;
+	class DTexture;
 	class DTexture2D;
 	class DTextureCube;
 

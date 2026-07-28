@@ -6,7 +6,7 @@ from durin_header_tool import io as utils
 from durin_header_tool.io import FileFingerprint
 from durin_header_tool.model.reflection_info import SYMBOL_NAME_SCHEME, TOOL_VERSION
 
-EXPORT_SCHEMA_VERSION = 4
+EXPORT_SCHEMA_VERSION = 5
 EXPORT_MANIFEST_SCHEMA_VERSION = 6
 
 
@@ -20,6 +20,7 @@ class ExportedSymbolInfo:
     Header: str
     API: str
     BaseQualifiedName: str = ""
+    IsAbstract: bool = False
     IsScoped: bool = False
     UnderlyingType: str = ""
     UnderlyingKind: str = "Unknown"

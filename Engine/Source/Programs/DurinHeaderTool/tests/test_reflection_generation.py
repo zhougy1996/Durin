@@ -19,7 +19,11 @@ from durin_header_tool.generators.module_reflection_files_generator import (
     _write_reflection_files,
     make_new_module_manifest,
 )
-from durin_header_tool.model.export_info import ExportedSymbolInfo, save_module_export_file
+from durin_header_tool.model.export_info import (
+    ExportedSymbolInfo,
+    load_module_export_file,
+    save_module_export_file,
+)
 from durin_header_tool.model.reflection_manifest import ModuleManifest, save_module_manifest_file
 from durin_header_tool.model.reflection_info import (
     ReflectedEnumInfo,
@@ -35,7 +39,11 @@ from durin_header_tool.resolver.reflection_resolver import (
     load_available_symbols,
     resolved_symbol_dependencies_for_header,
 )
-from durin_header_tool.writers.reflection_source_writer import _enum_definitions, generate_cpp_content
+from durin_header_tool.writers.reflection_source_writer import (
+    _enum_definitions,
+    generate_cpp_content,
+    generate_header_content,
+)
 
 
 class TestReflectionSourceWriter:
@@ -151,6 +159,12 @@ namespace Fixture
         std::vector<Durin::FGuid> RelatedIds;
     };
 
+    DCLASS(Abstract, DisplayName = "Abstract Actor")
+    class AAbstractActor : public ASampleActor
+    {
+        GENERATED_BODY()
+    };
+
     DSTRUCT()
     struct FCurvePoint
     {
@@ -203,11 +217,40 @@ namespace Fixture
             content = save_module_export_file(self.export_info)
         data = json.loads(content)
 
-        assert data["SchemaVersion"] == 4
+        assert data["SchemaVersion"] == 5
         actor = data["Symbols"]["Fixture::ASampleActor"]
         assert actor["QualifiedName"] == "Fixture::ASampleActor"
         assert actor["GeneratedHelperName"] == "Z_Construct_DClass_Fixture_ASampleActor"
         assert actor["BaseQualifiedName"] == "Durin::DObject"
+        assert not actor["IsAbstract"]
+        assert data["Symbols"]["Fixture::AAbstractActor"]["IsAbstract"]
+
+        loaded = load_module_export_file(export_path)
+        assert loaded.Symbols["Fixture::AAbstractActor"].IsAbstract
+
+    def test_abstract_class_emits_flag_without_object_constructor(self):
+        abstract_class = next(
+            class_info
+            for class_info in self.header_info.classes
+            if class_info.qualified_name == "Fixture::AAbstractActor"
+        )
+        assert abstract_class.is_abstract
+        assert abstract_class.display_name == "Abstract Actor"
+        abstract_definition = self.generated_cpp.split(
+            "Durin::DClass* Fixture::AAbstractActor::GetPrivateStaticClass()", 1
+        )[1].split(
+            "Durin::DClass* Z_Construct_DClass_Fixture_AAbstractActor_NoRegister()", 1
+        )[0]
+        assert "Durin::EClassFlags::Abstract," in abstract_definition
+        assert "nullptr," in abstract_definition
+        assert "InternalConstructor<Fixture::AAbstractActor>" not in abstract_definition
+
+        generated_header = generate_header_content(self.header_info)
+        abstract_macros = generated_header.split(
+            "Z_Construct_DClass_Fixture_AAbstractActor_NoRegister", 1
+        )[1]
+        assert "DEFINE_DEFAULT_CONSTRUCTOR_CALL(AAbstractActor)" not in abstract_macros
+        assert "DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(AAbstractActor)" not in abstract_macros
 
     def test_qualified_helper_name_and_validation(self):
         assert (
@@ -297,6 +340,25 @@ namespace Fixture
         ],
     )
     def test_invalid_enum_metadata_has_deterministic_diagnostics(self, source, diagnostic):
+        with pytest.raises(ValueError, match=re.escape(diagnostic)):
+            make_dht_parse_source(source)
+
+    @pytest.mark.parametrize(
+        ("source", "diagnostic"),
+        [
+            ("DCLASS(Abstract, Abstract) class FItem {};", "duplicate Abstract class specifier"),
+            ("DCLASS(Transient) class FItem {};", "unsupported class specifier 'Transient'"),
+            (
+                'DCLASS(Abstract = "true") class FItem {};',
+                "unsupported class metadata key 'Abstract'",
+            ),
+            (
+                'DCLASS(DisplayName = Bare) class FItem {};',
+                "DisplayName requires a quoted string",
+            ),
+        ],
+    )
+    def test_invalid_class_specifiers_have_deterministic_diagnostics(self, source, diagnostic):
         with pytest.raises(ValueError, match=re.escape(diagnostic)):
             make_dht_parse_source(source)
 

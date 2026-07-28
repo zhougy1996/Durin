@@ -8,7 +8,7 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 
 SYMBOL_NAME_SCHEME = "qualified-underscore-v1"
-TOOL_VERSION = "18"
+TOOL_VERSION = "19"
 MAX_CONTAINER_PROPERTY_DEPTH = 4
 
 
@@ -84,6 +84,7 @@ class ReflectedClassInfo:
     has_default_constructor: bool = False
     has_object_initializer_constructor: bool = False
     has_destructor: bool = False
+    is_abstract: bool = False
     display_name: str = ""
     default_object_name: str = ""
     properties: list[ReflectedPropertyInfo] = field(default_factory=list)
@@ -227,6 +228,63 @@ def _display_name_from_payload(payload: str, macro_name: str, line: int, column:
     return display_name
 
 
+def _class_specifiers_from_payload(
+    payload: str, line: int, column: int
+) -> tuple[bool, str, str]:
+    location = f"DCLASS at line {line}, column {column}"
+    if not payload.strip():
+        return False, "", ""
+
+    entries: list[str] = []
+    entry_start = 0
+    in_string = False
+    escaped = False
+    for index, char in enumerate(payload):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char == ",":
+            entries.append(payload[entry_start:index])
+            entry_start = index + 1
+    if in_string:
+        raise ValueError(f"{location}: unterminated quoted string")
+    entries.append(payload[entry_start:])
+
+    is_abstract = False
+    metadata: dict[str, str] = {}
+    for raw_entry in entries:
+        entry = raw_entry.strip()
+        if not entry:
+            raise ValueError(f"{location}: empty class specifier")
+        key, separator, raw_value = entry.partition("=")
+        key = key.strip()
+        if not separator:
+            if key != "Abstract":
+                raise ValueError(f"{location}: unsupported class specifier '{key}'")
+            if is_abstract:
+                raise ValueError(f"{location}: duplicate Abstract class specifier")
+            is_abstract = True
+            continue
+
+        if key not in ("DisplayName", "DefaultObjectName"):
+            raise ValueError(f"{location}: unsupported class metadata key '{key}'")
+        if key in metadata:
+            raise ValueError(f"{location}: duplicate {key} class metadata")
+        raw_value = raw_value.strip()
+        match = re.fullmatch(r'"((?:\\.|[^"\\])*)"', raw_value)
+        if not match:
+            raise ValueError(f"{location}: {key} requires a quoted string")
+        metadata[key] = match.group(1).replace(r'\"', '"').replace(r"\\", "\\")
+
+    return is_abstract, metadata.get("DisplayName", ""), metadata.get("DefaultObjectName", "")
+
+
 def _is_cpp_code_position(source: str, position: int) -> bool:
     state = "code"
     escaped = False
@@ -324,13 +382,14 @@ def _make_dht_parse_source(source: str) -> tuple[str, dict[int, _DMetaUse]]:
     # Record DMETA before rewriting other markers so diagnostics retain its
     # original source location even when markers share a line.
     source = _replace_macro_calls(source, "DMETA", replace_dmeta)
-    source = _replace_macro_calls(
-        source,
-        "DCLASS",
-        lambda payload, line, column:
+    def replace_dclass(payload: str, line: int, column: int) -> str:
+        _class_specifiers_from_payload(payload, line, column)
+        return (
             f'__attribute__((annotate("{_annotation_payload("DCLASS", payload)}"))) '
-            f"void DHT_CLASS_{line}_{column}();",
-    )
+            f"void DHT_CLASS_{line}_{column}();"
+        )
+
+    source = _replace_macro_calls(source, "DCLASS", replace_dclass)
     source = _replace_macro_calls(
         source,
         "DSTRUCT",
@@ -1449,6 +1508,10 @@ def parse_reflection_header(
             if pending_dclass_annotation and child.kind in (clang.cindex.CursorKind.CLASS_DECL, clang.cindex.CursorKind.STRUCT_DECL) and child.spelling:
                 qualified_name = _qualified_name(child)
                 helper_name = make_generated_helper_name(qualified_name)
+                class_payload = pending_dclass_annotation.split(",", 1)[1] if "," in pending_dclass_annotation else ""
+                is_abstract, display_name, default_object_name = _class_specifiers_from_payload(
+                    class_payload, child.location.line, child.location.column
+                )
                 reflected_class = ReflectedClassInfo(
                     short_name=child.spelling,
                     namespace=_semantic_namespace(child),
@@ -1458,8 +1521,9 @@ def parse_reflection_header(
                     api=module_config.api_macro,
                     base_qualified_name=_base_qualified_name(child),
                     generated_body_line=_scan_generated_body_line(source, child),
-                    display_name=_string_metadata_from_annotation(pending_dclass_annotation, "DisplayName"),
-                    default_object_name=_string_metadata_from_annotation(pending_dclass_annotation, "DefaultObjectName"),
+                    is_abstract=is_abstract,
+                    display_name=display_name,
+                    default_object_name=default_object_name,
                 )
                 for member in child.get_children():
                     if _is_default_constructor(member):

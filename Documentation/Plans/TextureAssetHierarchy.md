@@ -28,7 +28,7 @@ remain typed as `DTextureCube`. No current renderer consumer requires an
 unqualified texture asset, so this refactor must preserve those domain-specific
 types rather than using the new base class as a reason to widen every API.
 
-Stage 0 is complete. Stage 1 is the current implementation stage.
+Stages 0 and 1 are complete. Stage 2 is the current implementation stage.
 
 Stage 0 handoff:
 
@@ -62,6 +62,41 @@ Stage 0 handoff:
   `TextureTests` target remains limited by five unrelated existing
   `FStaticModelImportBuildTests` failures in dependency-graph/sidecar behavior,
   including one access violation.
+
+Stage 1 handoff:
+
+- Baseline commit:
+  `b04eed8857ce69fd277859557cdfe3ae70c0b30f`.
+- Working set: DurinHeaderTool reflection model/export cache/writer and tests,
+  CoreDObject reflection tests, Engine texture public declarations and module
+  manifest, texture hierarchy/source-compatibility tests, editor asset-picker
+  tests, and this plan.
+- Key symbols: `ReflectedClassInfo.is_abstract`,
+  `ExportedSymbolInfo.IsAbstract`, `DCLASS(Abstract)`,
+  `Durin::DTexture`, `DTexture2D::StaticClass`, and
+  `DTextureCube::StaticClass`.
+- Decisions: `Abstract` is the only accepted flag-like class specifier;
+  `DisplayName` and `DefaultObjectName` remain the only class key/value
+  metadata. Abstract generated classes receive `EClassFlags::Abstract`, a null
+  class-constructor pointer, and no generated object-constructor macro.
+  `DTexture` is reflection-abstract with a protected initializer constructor so
+  concrete leaf constructors keep their existing `Super(ObjectInitializer)`
+  path.
+- Declaration boundary: shared build, render-state, derived-data, and source
+  diagnostic declarations now live in `Texture/Texture.h`. Existing
+  Texture2D includes continue exposing them. TextureCube still includes
+  `Texture2D.h` for the existing shared source-pixel/platform structs; renaming
+  or moving those data contracts is not part of this hierarchy stage.
+- Ownership: no stable reference, completion, concrete resource, revision,
+  source, platform data, build status storage, or behavior moved from either
+  leaf.
+- Open questions: none for Stage 2. The Stage 0 queued-destruction validation
+  gap remains assigned to Stage 3.
+- Validation: all 73 DurinHeaderTool tests, 50 `CoreObjectTests`, 41
+  `EditorAssetWorkflowTests`, 27 `EditorShellTests`, and 39 focused
+  Texture2D/TextureCube/cook/DDC tests passed. Generated output was also
+  inspected to confirm the abstract flag, null constructor, unchanged leaf
+  qualified names, and direct leaf-to-base reflection edges.
 
 ## Goal
 
@@ -217,21 +252,21 @@ Dependencies: none.
 
 ### Stage 1: Add the Neutral Texture Type Boundary
 
-- [ ] Add parsing, model, cache/manifest, and code-generation support for the
+- [x] Add parsing, model, cache/manifest, and code-generation support for the
   single `DCLASS(Abstract)` specifier.
-- [ ] Emit `EClassFlags::Abstract` with no generated object constructor and add
+- [x] Emit `EClassFlags::Abstract` with no generated object constructor and add
   DurinHeaderTool tests for accepted, cached, invalid, and unknown class
   specifiers.
-- [ ] Add CoreDObject tests proving abstract classes participate in reflection
+- [x] Add CoreDObject tests proving abstract classes participate in reflection
   and inheritance but cannot create ordinary instances or default objects.
-- [ ] Add a neutral Engine public texture header containing `DTexture` and
+- [x] Add a neutral Engine public texture header containing `DTexture` and
   shared texture lifecycle/status declarations.
-- [ ] Move common enums and non-owning diagnostic structures out of
+- [x] Move common enums and non-owning diagnostic structures out of
   `Texture2D.h`; preserve names, enumerator values, reflection metadata, and
   source include compatibility where practical.
-- [ ] Change `DTexture2D` and `DTextureCube` to derive from `DTexture` without
+- [x] Change `DTexture2D` and `DTextureCube` to derive from `DTexture` without
   moving ownership or behavior in this stage.
-- [ ] Add `DTexture` to forward declarations and verify reflected casts and
+- [x] Add `DTexture` to forward declarations and verify reflected casts and
   subclass filters recognize both leaves.
 
 Dependencies: Stage 0.
