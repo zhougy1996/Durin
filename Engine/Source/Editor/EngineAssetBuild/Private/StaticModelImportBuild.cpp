@@ -200,6 +200,7 @@ namespace Durin
 		};
 
 		std::vector<FPortableTextureBuildRequest> Requests;
+		std::vector<FPortableSourceBuildRequest> SourceRequests;
 		std::vector<DPackage*> RequestedPackages;
 		std::vector<FResolvedMutation> RequestedMutations;
 		DPackage* RequestedRootPackage = nullptr;
@@ -238,6 +239,14 @@ namespace Durin
 		}
 
 		auto ResolvePlan(std::string& OutError) -> bool;
+		auto ResolveSource(
+			const FAssetPath& AuthoringAssetPath,
+			const std::filesystem::path& ExternalSource,
+			std::span<const uint8> EncodedBytes,
+			const FSourcePath& SourceDestination,
+			std::unordered_map<std::string, size_t>& SourceIdentities,
+			size_t& OutSourceIndex,
+			std::string& OutError) -> bool;
 		auto BuildCandidates(std::string& OutError) -> bool;
 		auto ValidatePreparedPlan(std::string& OutError) -> bool;
 		auto VerifyExternalInputs(std::string& OutError) const -> bool;
@@ -257,6 +266,12 @@ namespace Durin
 	{
 		check(!Impl->bAttempted);
 		Impl->Requests.push_back(std::move(Request));
+	}
+
+	auto FMultiAssetImportTransaction::AddSource(FPortableSourceBuildRequest Request) -> void
+	{
+		check(!Impl->bAttempted);
+		Impl->SourceRequests.push_back(std::move(Request));
 	}
 
 	auto FMultiAssetImportTransaction::AddPackage(DPackage* Package, bool bRootPackage) -> void
@@ -282,6 +297,177 @@ namespace Durin
 		check(!Transaction.Impl->bAttempted);
 		Transaction.Impl->FailurePoint = Point;
 		Transaction.Impl->FailureOccurrence = Occurrence;
+	}
+
+	auto FMultiAssetImportTransaction::FImpl::ResolveSource(
+		const FAssetPath& AuthoringAssetPath,
+		const std::filesystem::path& ExternalSource,
+		std::span<const uint8> EncodedBytes,
+		const FSourcePath& SourceDestination,
+		std::unordered_map<std::string, size_t>& SourceIdentities,
+		size_t& OutSourceIndex,
+		std::string& OutError) -> bool
+	{
+		if (!AuthoringAssetPath.IsValid() || ExternalSource.empty() == EncodedBytes.empty())
+		{
+			OutError =
+				"Each portable source request requires a valid authoring asset and exactly one payload.";
+			return false;
+		}
+
+		FResolvedSource Source;
+		Source.Bytes.assign(EncodedBytes.begin(), EncodedBytes.end());
+		std::error_code Ec;
+		if (!ExternalSource.empty())
+		{
+			const std::filesystem::path Input =
+				std::filesystem::absolute(ExternalSource, Ec).lexically_normal();
+			if (Ec || !std::filesystem::is_regular_file(Input, Ec))
+			{
+				OutError = "External import source does not exist.";
+				return false;
+			}
+			Ec.clear();
+			const uintmax_t FileSizeBefore = std::filesystem::file_size(Input, Ec);
+			const auto LastWriteTimeBefore = !Ec
+				? std::filesystem::last_write_time(Input, Ec)
+				: std::filesystem::file_time_type{};
+			if (Ec)
+			{
+				OutError = std::format(
+					"Failed to observe external import source {}: {}",
+					Input.generic_string(), Ec.message());
+				return false;
+			}
+			if (!LoadBytes(Input, Source.Bytes, OutError)) return false;
+			Ec.clear();
+			Source.ObservedFileSize = std::filesystem::file_size(Input, Ec);
+			if (!Ec) Source.ObservedLastWriteTime = std::filesystem::last_write_time(Input, Ec);
+			if (Ec || Source.ObservedFileSize != FileSizeBefore
+				|| Source.ObservedLastWriteTime != LastWriteTimeBefore)
+			{
+				OutError = std::format(
+					"External import source {} changed during transaction resolution.",
+					Input.generic_string());
+				return false;
+			}
+			Source.ExternalInputPath = Input;
+			const PathUtilities::FSourcePathResult Classified =
+				PathUtilities::ClassifySourcePath(Input);
+			if (Classified)
+			{
+				FMountedSourceFile Mounted;
+				if (!ResolveMountedSourceReference(
+					AuthoringAssetPath.ToString(),
+					Classified.NormalizedVirtualPath,
+					Mounted,
+					OutError))
+				{
+					return false;
+				}
+				Source.SourcePath = Mounted.SourcePath;
+				Source.PhysicalPath = Mounted.PhysicalPath;
+			}
+		}
+
+		if (Source.PhysicalPath.empty())
+		{
+			if (SourceDestination.IsEmpty())
+			{
+				OutError =
+					"Embedded and external-unmounted import sources require an explicit mounted destination.";
+				return false;
+			}
+			const PathUtilities::FSourcePathResult Destination =
+				PathUtilities::ResolveSourcePath(
+					SourceDestination.Path,
+					PathUtilities::EPathExistence::AllowMissing);
+			if (!Destination)
+			{
+				OutError = Destination.Message;
+				return false;
+			}
+			const PathUtilities::FMountPolicyResult Mutation =
+				PathUtilities::CheckSourceMutation(
+					AuthoringAssetPath.ToString(), Destination.NormalizedVirtualPath);
+			if (!Mutation)
+			{
+				OutError = Mutation.Message;
+				return false;
+			}
+			Source.SourcePath.Path = Destination.NormalizedVirtualPath;
+			Source.PhysicalPath = Destination.PhysicalPath;
+			Ec.clear();
+			const bool bSourceExists = std::filesystem::exists(Source.PhysicalPath, Ec);
+			if (Ec && !IsMissingPathError(Ec))
+			{
+				OutError = std::format(
+					"Failed to inspect source destination {}: {}",
+					Source.PhysicalPath.generic_string(), Ec.message());
+				return false;
+			}
+			Ec.clear();
+			if (bSourceExists && std::filesystem::is_regular_file(Source.PhysicalPath, Ec))
+			{
+				std::vector<uint8> ExistingBytes;
+				if (!LoadBytes(Source.PhysicalPath, ExistingBytes, OutError)
+					|| ExistingBytes != Source.Bytes)
+				{
+					if (OutError.empty()) OutError = std::format(
+						"A different source file already exists at {}.",
+						Source.PhysicalPath.generic_string());
+					return false;
+				}
+			}
+			else if (bSourceExists)
+			{
+				OutError = std::format(
+					"Source destination {} is occupied.", Source.PhysicalPath.generic_string());
+				return false;
+			}
+			else
+			{
+				Source.bRequiresWrite = true;
+				Source.StagedPath = Source.PhysicalPath;
+				Source.StagedPath += ".import-stage";
+				Ec.clear();
+				if (std::filesystem::exists(Source.StagedPath, Ec))
+				{
+					OutError = std::format(
+						"Source staging path {} is occupied.", Source.StagedPath.generic_string());
+					return false;
+				}
+				if (Ec && !IsMissingPathError(Ec))
+				{
+					OutError = std::format(
+						"Failed to inspect source staging path {}: {}",
+						Source.StagedPath.generic_string(), Ec.message());
+					return false;
+				}
+			}
+		}
+
+		const std::string SourceIdentity = Lower(Source.SourcePath.Path);
+		if (const auto It = SourceIdentities.find(SourceIdentity);
+			It != SourceIdentities.end())
+		{
+			OutSourceIndex = It->second;
+			const FResolvedSource& Existing = Plan.Sources[OutSourceIndex];
+			if (Existing.Bytes != Source.Bytes || Existing.PhysicalPath != Source.PhysicalPath)
+			{
+				OutError = std::format(
+					"Planned source {} has conflicting bytes or destinations.",
+					Source.SourcePath.Path);
+				return false;
+			}
+		}
+		else
+		{
+			OutSourceIndex = Plan.Sources.size();
+			SourceIdentities.emplace(SourceIdentity, OutSourceIndex);
+			Plan.Sources.push_back(std::move(Source));
+		}
+		return true;
 	}
 
 	auto FMultiAssetImportTransaction::FImpl::ResolvePlan(std::string& OutError) -> bool
@@ -369,158 +555,15 @@ namespace Durin
 				bHasRoot = true;
 			}
 
-			FResolvedSource Source;
-			Source.Bytes = Request.EncodedBytes;
-			if (!Request.ExternalSource.empty())
-			{
-				Ec.clear();
-				const std::filesystem::path Input =
-					std::filesystem::absolute(Request.ExternalSource, Ec).lexically_normal();
-				if (Ec || !std::filesystem::is_regular_file(Input, Ec))
-				{
-					OutError = "External texture source does not exist.";
-					return false;
-				}
-				Ec.clear();
-				const uintmax_t FileSizeBefore = std::filesystem::file_size(Input, Ec);
-				const auto LastWriteTimeBefore = !Ec
-					? std::filesystem::last_write_time(Input, Ec)
-					: std::filesystem::file_time_type{};
-				if (Ec)
-				{
-					OutError = std::format(
-						"Failed to observe external texture source {}: {}",
-						Input.generic_string(), Ec.message());
-					return false;
-				}
-				if (!LoadBytes(Input, Source.Bytes, OutError)) return false;
-				Ec.clear();
-				Source.ObservedFileSize = std::filesystem::file_size(Input, Ec);
-				if (!Ec) Source.ObservedLastWriteTime = std::filesystem::last_write_time(Input, Ec);
-				if (Ec || Source.ObservedFileSize != FileSizeBefore
-					|| Source.ObservedLastWriteTime != LastWriteTimeBefore)
-				{
-					OutError = std::format(
-						"External texture source {} changed during transaction resolution.",
-						Input.generic_string());
-					return false;
-				}
-				Source.ExternalInputPath = Input;
-				const PathUtilities::FSourcePathResult Classified =
-					PathUtilities::ClassifySourcePath(Input);
-				if (Classified)
-				{
-					FMountedSourceFile Mounted;
-					if (!ResolveMountedSourceReference(
-						Request.AssetPath.ToString(),
-						Classified.NormalizedVirtualPath,
-						Mounted,
-						OutError))
-					{
-						return false;
-					}
-					Source.SourcePath = Mounted.SourcePath;
-					Source.PhysicalPath = Mounted.PhysicalPath;
-				}
-			}
-
-			if (Source.PhysicalPath.empty())
-			{
-				if (Request.SourceDestination.IsEmpty())
-				{
-					OutError = "Embedded and external-unmounted images require an explicit mounted source destination.";
-					return false;
-				}
-				const PathUtilities::FSourcePathResult Destination =
-					PathUtilities::ResolveSourcePath(
-						Request.SourceDestination.Path,
-						PathUtilities::EPathExistence::AllowMissing);
-				if (!Destination)
-				{
-					OutError = Destination.Message;
-					return false;
-				}
-				const PathUtilities::FMountPolicyResult Mutation =
-					PathUtilities::CheckSourceMutation(
-						Request.AssetPath.ToString(), Destination.NormalizedVirtualPath);
-				if (!Mutation)
-				{
-					OutError = Mutation.Message;
-					return false;
-				}
-				Source.SourcePath.Path = Destination.NormalizedVirtualPath;
-				Source.PhysicalPath = Destination.PhysicalPath;
-				Ec.clear();
-				const bool bSourceExists = std::filesystem::exists(Source.PhysicalPath, Ec);
-				if (Ec && !IsMissingPathError(Ec))
-				{
-					OutError = std::format(
-						"Failed to inspect source destination {}: {}",
-						Source.PhysicalPath.generic_string(), Ec.message());
-					return false;
-				}
-				Ec.clear();
-				if (bSourceExists && std::filesystem::is_regular_file(Source.PhysicalPath, Ec))
-				{
-					std::vector<uint8> ExistingBytes;
-					if (!LoadBytes(Source.PhysicalPath, ExistingBytes, OutError)
-						|| ExistingBytes != Source.Bytes)
-					{
-						if (OutError.empty()) OutError = std::format(
-							"A different source file already exists at {}.",
-							Source.PhysicalPath.generic_string());
-						return false;
-					}
-				}
-				else if (bSourceExists)
-				{
-					OutError = std::format(
-						"Source destination {} is occupied.", Source.PhysicalPath.generic_string());
-					return false;
-				}
-				else
-				{
-					Source.bRequiresWrite = true;
-					Source.StagedPath = Source.PhysicalPath;
-					Source.StagedPath += ".import-stage";
-					Ec.clear();
-					if (std::filesystem::exists(Source.StagedPath, Ec))
-					{
-						OutError = std::format(
-							"Source staging path {} is occupied.", Source.StagedPath.generic_string());
-						return false;
-					}
-					if (Ec && !IsMissingPathError(Ec))
-					{
-						OutError = std::format(
-							"Failed to inspect source staging path {}: {}",
-							Source.StagedPath.generic_string(), Ec.message());
-						return false;
-					}
-				}
-			}
-
-			const std::string SourceIdentity = Lower(Source.SourcePath.Path);
 			size_t SourceIndex = 0;
-			if (const auto It = SourceIdentities.find(SourceIdentity);
-				It != SourceIdentities.end())
-			{
-				SourceIndex = It->second;
-				const FResolvedSource& Existing = Plan.Sources[SourceIndex];
-				if (Existing.Bytes != Source.Bytes || Existing.PhysicalPath != Source.PhysicalPath)
-				{
-					OutError = std::format(
-						"Planned source {} has conflicting encoded bytes or destinations.",
-						Source.SourcePath.Path);
-					return false;
-				}
-			}
-			else
-			{
-				SourceIndex = Plan.Sources.size();
-				SourceIdentities.emplace(SourceIdentity, SourceIndex);
-				Plan.Sources.push_back(std::move(Source));
-			}
+			if (!ResolveSource(
+				Request.AssetPath,
+				Request.ExternalSource,
+				Request.EncodedBytes,
+				Request.SourceDestination,
+				SourceIdentities,
+				SourceIndex,
+				OutError)) return false;
 			const size_t TextureIndex = Plan.Textures.size();
 			Plan.Textures.push_back({
 				.AssetPath = Request.AssetPath,
@@ -528,6 +571,18 @@ namespace Durin
 				.Settings = Request.Settings,
 				.SourceIndex = SourceIndex});
 			if (Request.bRootPackage) Plan.Root.TextureIndex = TextureIndex;
+		}
+		for (const FPortableSourceBuildRequest& Request : SourceRequests)
+		{
+			size_t IgnoredSourceIndex = 0;
+			if (!ResolveSource(
+				Request.AuthoringAssetPath,
+				Request.ExternalSource,
+				Request.EncodedBytes,
+				Request.SourceDestination,
+				SourceIdentities,
+				IgnoredSourceIndex,
+				OutError)) return false;
 		}
 		for (FResolvedSource& Source : Plan.Sources)
 			Source.ContentHash = FXxHash128::HashBuffer(Source.Bytes);
@@ -656,7 +711,8 @@ namespace Durin
 			return false;
 		}
 		Impl->bAttempted = true;
-		if (Impl->Requests.empty() && Impl->RequestedPackages.empty())
+		if (Impl->Requests.empty() && Impl->SourceRequests.empty()
+			&& Impl->RequestedPackages.empty())
 		{
 			OutError = "The multi-asset import transaction has no outputs.";
 			return false;

@@ -29,12 +29,16 @@ warnings. Candidate asset names receive stable case-insensitive suffixes, and
 every planned package path is collision-checked before any asset creation.
 Material/texture/root candidate construction, manifest persistence, dialog
 presentation, and rendered acceptance coverage remain open. Validation passed
-all 18 `AssetImportTests`, all 58 `TextureTests`, and the all-plan validator.
+all 18 `AssetImportTests`, all 59 `TextureTests`, and the all-plan validator.
 The second slice materializes the planned standard parent through
 `EnsureStandardImportedSurfaceMaterial`: it creates and saves the canonical
 `DMaterial` at the stable engine path on first use, validates the current
 parameter-definition schema on create/load, reuses loaded or registered
 instances, and rejects a wrong-class collision instead of replacing it.
+The transaction now also accepts standalone portable source requests, so the
+root model and geometry-buffer sidecars share the same single-pass byte
+resolution, change detection, collision preflight, hidden staging,
+publication, and rollback path already used by generated textures.
 
 Source dependency terminology now follows the unified logical-mount contract
 selected by `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`: persisted inputs

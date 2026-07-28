@@ -98,6 +98,17 @@ namespace Durin
 		bool bRootPackage = false;
 	};
 
+	struct FPortableSourceBuildRequest
+	{
+		FAssetPath AuthoringAssetPath;
+
+		// Exactly one payload is required. A mounted external source is referenced
+		// in place; other payloads require SourceDestination.
+		std::filesystem::path ExternalSource;
+		std::vector<uint8> EncodedBytes;
+		FSourcePath SourceDestination;
+	};
+
 	struct FImportTransactionResult
 	{
 		bool bSucceeded = false;
@@ -127,6 +138,7 @@ namespace Durin
 		auto operator=(FMultiAssetImportTransaction&&) -> FMultiAssetImportTransaction& = delete;
 
 		auto AddTexture(FPortableTextureBuildRequest Request) -> void;
+		auto AddSource(FPortableSourceBuildRequest Request) -> void;
 		auto AddPackage(DPackage* Package, bool bRootPackage = false) -> void;
 		auto AddLoadedObjectMutation(
 			std::function<bool(std::string&)> Apply,

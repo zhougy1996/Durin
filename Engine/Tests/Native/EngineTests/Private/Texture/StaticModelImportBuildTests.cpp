@@ -101,6 +101,39 @@ TEST(FStaticModelImportBuildTests, PublishesSeveralTexturesAndPortableSourcesAto
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(LinearPath));
 }
 
+TEST(FStaticModelImportBuildTests, PublishesStandalonePortableSourceWithRootPackage)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	const Durin::FAssetPath RootPath =
+		MakeAssetPath("/TextureImportTests/StaticModelImport/PortableSourceRoot");
+	Durin::DMaterial* RootAsset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(RootPath, RootAsset));
+	const std::filesystem::path External =
+		Durin::Testing::GetTestWorkDirectory() / "PortableSourceRoot.glb";
+	WriteTextureFixture(External);
+
+	Durin::FMultiAssetImportTransaction Transaction;
+	Transaction.AddPackage(RootAsset->GetPackage(), true);
+	Transaction.AddSource({
+		.AuthoringAssetPath = RootPath,
+		.ExternalSource = External,
+		.SourceDestination = {
+			.Path = "/TextureImportTests/Models/PortableSourceRoot.glb"}});
+	const Durin::FImportTransactionResult Result = Transaction.Execute();
+	ASSERT_TRUE(Result) << Result.Message;
+	EXPECT_TRUE(std::filesystem::is_regular_file(
+		SourceFile("../PortableSourceRoot.glb").lexically_normal()));
+	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAsset(RootPath), nullptr);
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(RootPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(RootPath));
+	std::error_code ErrorCode;
+	std::filesystem::remove(
+		SourceFile("../PortableSourceRoot.glb").lexically_normal(), ErrorCode);
+	EXPECT_FALSE(ErrorCode);
+}
+
 TEST(FStaticModelImportBuildTests, DerivesStableEmbeddedSourceLocations)
 {
 	InitializeDObjectSystem();
