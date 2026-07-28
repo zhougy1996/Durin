@@ -101,9 +101,9 @@ namespace Durin
 
 		// Helper for submitting a resource array to RHI and freeing eligible CPU memory
 		template<typename T>
-		auto CreateRHIBuffer(FRHICommandListBase& RHICmdList, T& InOutResourceObject, uint32 ResourceCount, EBufferUsageFlags InBufferUsageFlags, const char* InDebugName) -> std::shared_ptr<FRHIBuffer>
+		auto CreateRHIBuffer(FRHICommandListBase& RHICmdList, T& InOutResourceObject, uint32 ResourceCount, EBufferUsageFlags InBufferUsageFlags, const char* InDebugName) -> FBufferRHIRef
 		{
-			std::shared_ptr<FRHIBuffer> Buffer;
+			FBufferRHIRef Buffer;
 
 			//FResourceArrayInterface* RESTRICT ResourceArray = InOutResourceObject ? InOutResourceObject->GetResourceArray() : nullptr;
 			//if (ResourceCount != 0)
