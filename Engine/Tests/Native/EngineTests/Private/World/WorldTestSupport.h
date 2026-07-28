@@ -26,6 +26,7 @@
 #include "IScene.h"
 #include "Math/Color.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Threading/RunnableThread.h"
 

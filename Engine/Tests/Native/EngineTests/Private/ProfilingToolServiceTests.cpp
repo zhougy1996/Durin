@@ -1,6 +1,7 @@
 #include "gtest/gtest.h"
 
 #include "HAL/PlatformProcess.h"
+#include "NativeTestSupport.h"
 #include "ProfilingToolService.h"
 
 #include <fstream>
@@ -14,8 +15,7 @@ namespace Durin
 		protected:
 			void SetUp() override
 			{
-				RootDirectory = std::filesystem::temp_directory_path()
-					/ std::format("DurinProfilingToolServiceTests-{}", FPlatformProcess::CurrentProcessId());
+				RootDirectory = Testing::GetTestWorkDirectory() / "ProfilingToolService";
 				std::filesystem::remove_all(RootDirectory);
 				WriteManifest("0.13.1", "v0.13.1");
 			}

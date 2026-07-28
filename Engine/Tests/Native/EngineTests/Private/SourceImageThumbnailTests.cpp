@@ -3,6 +3,7 @@
 #include "Assets/SourceImageThumbnailCache.h"
 #include "Assets/SourceImageThumbnailDecoder.h"
 #include "Assets/SourceImageThumbnailDiskCache.h"
+#include "NativeTestSupport.h"
 
 namespace Durin
 {
@@ -10,7 +11,7 @@ namespace Durin
 	{
 		auto WriteBinaryFixture(std::string_view Name, std::span<const uint8> Bytes) -> std::filesystem::path
 		{
-			const std::filesystem::path Path = std::filesystem::path(DURIN_TEST_WORK_DIR) / Name;
+			const std::filesystem::path Path = Testing::GetTestWorkDirectory() / Name;
 			std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
 			Stream.write(reinterpret_cast<const char*>(Bytes.data()), static_cast<std::streamsize>(Bytes.size()));
 			return Path;
@@ -27,7 +28,7 @@ namespace Durin
 
 		auto PrepareDiskCacheTest(std::string_view Name) -> std::pair<std::filesystem::path, std::filesystem::path>
 		{
-			const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / Name;
+			const std::filesystem::path Root = Testing::GetTestWorkDirectory() / Name;
 			std::filesystem::remove_all(Root);
 			const std::filesystem::path SourceRoot = Root / "Content";
 			std::filesystem::create_directories(SourceRoot);

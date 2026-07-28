@@ -11,6 +11,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
+#include "NativeTestSupport.h"
 #include "RendererModule.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
@@ -128,7 +129,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Root =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "TextureCookedConsumer";
+		Durin::Testing::GetTestWorkDirectory() / "TextureCookedConsumer";
 	const std::filesystem::path CacheRoot = Root / "DerivedDataCache";
 	const std::filesystem::path ContentRoot = Root / "Content";
 	const std::filesystem::path CookRoot = std::filesystem::absolute(Root / "Cook");
@@ -436,7 +437,9 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		[Resource = std::move(RenderResource)](Durin::FRHICommandListImmediate&) {});
 	Durin::FlushRenderingCommands();
 	Renderer.ShutdownModule();
+	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
+	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);
 	Durin::RHIExit();
 	ASSERT_TRUE(std::filesystem::remove(CookRoot / "Game/CookedTexture.dbulk"));
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({

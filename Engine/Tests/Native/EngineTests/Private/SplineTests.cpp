@@ -11,6 +11,7 @@
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 #include "Spline/SplineCurve.h"
 
 #include <gtest/gtest.h>
@@ -333,13 +334,13 @@ TEST(FSplineEditingTests, SharedTransactionsPreserveSplineSetterSemanticsAndStab
 TEST(FSplineComponentTests, LevelPackageRoundTripsSplineControlPoints)
 {
 	InitializeDObjectSystem();
-	static const bool bMountInitialized = [] {
-		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "SplineLevels";
+	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SplineLevels";
+	static std::unordered_set<std::filesystem::path> InitializedRoots;
+	if (InitializedRoots.insert(Root).second)
+	{
 		std::filesystem::remove_all(Root);
 		Durin::PathUtilities::RegisterMountPoint("/SplineTests/", Root.generic_string() + "/");
-		return true;
-	}();
-	(void)bMountInitialized;
+	}
 
 	Durin::FAssetPath Path;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SplineTests/RoundTrip", Path));

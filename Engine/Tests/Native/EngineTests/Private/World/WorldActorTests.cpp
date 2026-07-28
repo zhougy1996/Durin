@@ -248,13 +248,13 @@ TEST(FWorldTests, MaintainsPrimaryCameraWhenRuntimeActorsChange)
 TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents)
 {
 	InitializeDObjectSystem();
-	static const bool bMountInitialized = [] {
-		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Levels";
+	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "Levels";
+	static std::unordered_set<std::filesystem::path> InitializedRoots;
+	if (InitializedRoots.insert(Root).second)
+	{
 		std::filesystem::remove_all(Root);
 		Durin::PathUtilities::RegisterMountPoint("/LevelTests/", Root.generic_string() + "/");
-		return true;
-	}();
-	(void)bMountInitialized;
+	}
 
 	Durin::FAssetPath Path;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/LevelTests/TransformRoundTrip", Path));

@@ -62,6 +62,8 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
 {
 	InitializeDObjectSystem();
+	FScopedDerivedDataCacheRoot CacheRoot(
+		Durin::Testing::GetTestWorkDirectory() / "TextureInvalidateDerivedDataCache");
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureInvalidateMount";
 	std::filesystem::remove_all(Root);

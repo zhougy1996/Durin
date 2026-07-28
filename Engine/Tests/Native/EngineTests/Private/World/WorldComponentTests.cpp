@@ -29,13 +29,13 @@ TEST(FDirectionalLightTests, SceneDataRemainsDarkUntilPopulatedByAComponent)
 TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 {
 	InitializeDObjectSystem();
-	static const bool bMountInitialized = [] {
-		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "DirectionalLightLevels";
+	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "DirectionalLightLevels";
+	static std::unordered_set<std::filesystem::path> InitializedRoots;
+	if (InitializedRoots.insert(Root).second)
+	{
 		std::filesystem::remove_all(Root);
 		Durin::PathUtilities::RegisterMountPoint("/DirectionalLightTests/", Root.generic_string() + "/");
-		return true;
-	}();
-	(void)bMountInitialized;
+	}
 
 	Durin::FAssetPath Path;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/DirectionalLightTests/ColorRoundTrip", Path));

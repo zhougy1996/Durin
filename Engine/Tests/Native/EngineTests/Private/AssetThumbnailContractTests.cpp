@@ -3,6 +3,7 @@
 #include "EngineTestSupport.h"
 #include "ImageDecoder.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 #include "Thumbnail/AssetThumbnail.h"
 #include "Thumbnail/AssetThumbnailCache.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
@@ -14,13 +15,13 @@ namespace Durin
 		auto MakePath(std::string_view Value) -> FAssetPath
 		{
 			InitializeDObjectSystem();
-			static const bool bMountRegistered = [] {
-				const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "AssetThumbnailContracts";
+			const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "AssetThumbnailContracts";
+			static std::unordered_set<std::filesystem::path> RegisteredRoots;
+			if (RegisteredRoots.insert(Root).second)
+			{
 				std::filesystem::create_directories(Root);
 				PathUtilities::RegisterMountPoint("/ThumbnailTests/", Root.generic_string() + "/");
-				return true;
-			}();
-			(void)bMountRegistered;
+			}
 			FAssetPath Path;
 			EXPECT_TRUE(FAssetPath::TryCreate(Value, Path));
 			return Path;
@@ -118,7 +119,7 @@ namespace Durin
 		auto MakeObjectStoreRoot(std::string_view Name) -> std::filesystem::path
 		{
 			const std::filesystem::path Root =
-				std::filesystem::path(DURIN_TEST_WORK_DIR) / "AssetThumbnailObjectStore" / Name;
+				Testing::GetTestWorkDirectory() / "AssetThumbnailObjectStore" / Name;
 			std::filesystem::remove_all(Root);
 			std::filesystem::create_directories(Root);
 			return Root;

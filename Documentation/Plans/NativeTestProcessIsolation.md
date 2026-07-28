@@ -21,7 +21,7 @@ Completed:
 - Stage 3 is complete. Every native-test executable now enters through
   `NativeTestSupport`, creates a unique process sandbox, and applies the common
   cleanup/retention policy.
-- Stage 4 is in progress. The Core utility, file-system, concurrency, and
+- Stage 4 is complete. The Core utility, file-system, concurrency, and
   reflection/object domains now use the process sandbox and run without their
   temporary target serialization locks.
 - The asset package, cook, derived-data, decoder, and import domains also use
@@ -48,6 +48,14 @@ Completed:
   source-ingest, failure, and static-model import fixtures use the process
   sandbox; reusable texture and cube mounts track initialization by sandbox,
   while single-case mounts are initialized by their owning tests.
+- The thumbnail, world, viewport, spline, sky-box, editor-rendering,
+  editor-shell, external-tool, cooked-texture, and Vulkan integration targets
+  have completed their isolation audits. Their mutable fixtures use the
+  process sandbox; GPU and renderer-runtime locks remain only on targets that
+  own those irreducible resources.
+- The rendered-thumbnail fixture cache is keyed by process sandbox, so direct
+  target runs reuse live fixture objects without exposing paths or raw object
+  pointers across sandbox lifetimes.
 - Three consecutive 14-job aggregate runs passed all 720 CTest entries after
   the Core targets enabled case parallelism; their real times were 20.95,
   20.52, and 23.35 seconds.
@@ -74,6 +82,23 @@ Completed:
 - After migrating the texture target, its 51 direct tests passed and three
   consecutive 14-job aggregate schedules passed all 720 entries in 17.61,
   17.15, and 17.62 seconds.
+- The final Stage 4 batch passed direct runs for ThumbnailTests (44 tests),
+  WorldTests (35), ViewportTests (45), SplineTests (10), SkyBoxTests (8),
+  EditorRenderingTests (9), TextureCookIntegrationTests (1),
+  CoreFileSystemTests (30 passed and one platform skip), ExternalToolTests
+  (5), EditorShellTests (27), and SkyBoxVulkanIntegrationTests (1).
+- Focused stress also passed three consecutive direct MaterialTests runs
+  (43 tests each) after draining deferred CPU-only texture releases before
+  Vulkan startup, and three consecutive direct TextureCookIntegrationTests
+  runs after making renderer/RHI teardown explicit.
+- After the functional-target helper began applying the audited case-parallel
+  policy before test discovery, three consecutive 14-job aggregate schedules
+  passed all 720 entries in 16.01, 16.16, and 16.39 seconds. The only skipped
+  entries were the known mount-link platform case and the two isolation
+  characterization cases.
+- The missing-source texture recovery test now owns a sandbox-local DDC; its
+  prior global cache allowed the direct target smoke and discovered case to
+  corrupt or replace the same cache object.
 - `.\DevTool.bat test --target all` now schedules CTest-discovered GoogleTest
   cases with the Agent Build Profile job count; the current profile runs 14
   cases concurrently.
@@ -88,27 +113,11 @@ Completed:
   in 14.81 seconds at 18 jobs. Unique ownership is configured for all 94 native
   `.cpp` sources, including the two new feature-test sources and the isolation
   probe.
-- Every case from a test target currently receives the same
-  `DURIN_TEST_WORK_DIR`. Tests in separate processes therefore create, delete,
-  mount, and rewrite the same files concurrently.
-- A 2026-07-28 aggregate run reproduced 31 failures out of 647 tests. The
-  failures included `remove_all` sharing violations, missing files during copy
-  and load, failed package and shader-cache publication, and thumbnail fixture
-  setup failures. The same thumbnail suites passed when run in one process,
-  including 100 shuffled repetitions.
-- The repository currently has 14 `DURIN_TEST_WORK_DIR` references in 11
-  native-test source/header files, and 32 native-test files call
-  `std::filesystem::remove_all`.
-- `FTextureCubeAssetThumbnailTests.ProviderRejectsMissingRegistryData` also has
-  an independent order dependency: it constructs a path under
-  `/RenderedThumbnailFixtures/` without registering that mount in its own
-  process. It passes in a combined executable only when an earlier test creates
-  the fixture mount.
-- `FMaterialAssetThumbnailTests.InvalidInstancePublishesOneStableDiagnostic`
-  creates fixtures in the shared `RenderedAssetThumbnailFixtures` directory.
-  Its diagnostic assertions are stable in isolation, but fixture creation and
-  loading race with sibling CTest processes that delete and rebuild the same
-  directory.
+- No native-test source or header references `DURIN_TEST_WORK_DIR`, and
+  `add_durin_test` no longer publishes that compile definition. Its internal
+  target property remains the discovery-time Work-container contract.
+- Thirty-two native-test files still call `std::filesystem::remove_all`; their
+  containment enforcement and repository checks are Stage 5 work.
 
 ## Goal
 
@@ -477,16 +486,16 @@ cases.
 - [x] Migrate the shader compiler/service, shader cache/store, and
   render-contract domains; declare only genuine compiler or device resource
   constraints.
-- [ ] Migrate the editor, material, static-mesh, texture, thumbnail, world,
+- [x] Migrate the editor, material, static-mesh, texture, thumbnail, world,
   viewport, rendering, and external-tool domains; isolate every mutable
   feature fixture.
-- [ ] Migrate cooked-runtime and Vulkan integration domains, retaining explicit
+- [x] Migrate cooked-runtime and Vulkan integration domains, retaining explicit
   resource locks where hardware or runtime lifecycle requires them.
-- [ ] Replace process-static fixture caches that capture a sandbox path or raw
+- [x] Replace process-static fixture caches that capture a sandbox path or raw
   object pointers with sandbox-keyed fixtures or per-test RAII ownership.
-- [ ] Enable case parallelism target by target only after its isolation audit
+- [x] Enable case parallelism target by target only after its isolation audit
   and focused stress run pass.
-- [ ] Remove the public `DURIN_TEST_WORK_DIR` compile definition and make any
+- [x] Remove the public `DURIN_TEST_WORK_DIR` compile definition and make any
   remaining direct use a build failure.
 
 #### Acceptance Gate
@@ -497,6 +506,28 @@ cases.
   file-sharing, missing-file, stale-registry, or mount-order failures.
 - Static fixture lifetime is bounded by its owning process sandbox and object
   lifecycle.
+
+#### Stage 4 Handoff
+
+- Baseline commit: `c4e6c2fe`.
+- Working set entering Stage 5: `NativeTestSupport`, `add_durin_test`,
+  native-test functional-target discovery policies, and the 32 source/header
+  files that still perform direct `std::filesystem::remove_all`.
+- Key symbols: `Testing::GetTestWorkDirectory`,
+  `CreateRenderedAssetThumbnailFixtures`,
+  `durin_add_core_functional_test`, `durin_add_engine_functional_test`, and
+  `durin_discover_tests`.
+- Decisions: repository test code no longer receives a compile-time work-root
+  macro; Core and Engine functional targets apply their audited case-parallel
+  policy before discovery; sandbox-keyed reusable fixtures preserve meaningful
+  direct executable runs; `durin-gpu` and `renderer-runtime` remain explicit
+  locks for device/runtime lifecycle owners.
+- Open work: make sandbox containment enforceable for direct cleanup calls,
+  centralize resource names, and add topology/policy checks in Stage 5.
+- Validation: all focused direct targets passed, the complete `all` build
+  succeeded after removal of the compile definition, and three consecutive
+  14-job aggregate runs passed all 720 CTest entries in 16.01, 16.16, and
+  16.39 seconds with the three known skips.
 
 ### Stage 5: Make isolation and resource ownership enforceable
 

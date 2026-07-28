@@ -6,6 +6,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 
@@ -43,7 +44,7 @@ namespace Durin::Tests
 
 	inline auto GetRenderedAssetThumbnailFixtureRoot() -> std::filesystem::path
 	{
-		return std::filesystem::path(DURIN_TEST_WORK_DIR)
+		return Testing::GetTestWorkDirectory()
 			/ "RenderedAssetThumbnailFixtures";
 	}
 
@@ -77,21 +78,16 @@ namespace Durin::Tests
 	) -> bool
 	{
 		InitializeDObjectSystem();
-		static std::optional<FRenderedAssetThumbnailFixtureSet> CachedFixtures;
-		if (CachedFixtures)
+		const std::filesystem::path Root = GetRenderedAssetThumbnailFixtureRoot();
+		static std::unordered_map<std::filesystem::path, FRenderedAssetThumbnailFixtureSet> CachedFixtures;
+		if (const auto It = CachedFixtures.find(Root); It != CachedFixtures.end())
 		{
-			OutFixtures = *CachedFixtures;
+			OutFixtures = It->second;
 			OutError.clear();
 			return true;
 		}
-		static const std::filesystem::path Root =
-			GetRenderedAssetThumbnailFixtureRoot();
-		static const bool bMountInitialized = [] {
-			std::filesystem::remove_all(Root);
-			RegisterRenderedAssetThumbnailFixtureMount();
-			return true;
-		}();
-		(void)bMountInitialized;
+		std::filesystem::remove_all(Root);
+		RegisterRenderedAssetThumbnailFixtureMount();
 
 		auto Fail = [&OutError](std::string Message) {
 			OutError = std::move(Message);
@@ -170,7 +166,7 @@ namespace Durin::Tests
 		if (!CubeResult) return Fail(CubeResult.Message);
 		OutFixtures.DirectionalCube = CubeResult.Asset;
 
-		CachedFixtures = OutFixtures;
+		CachedFixtures.emplace(Root, OutFixtures);
 		OutError.clear();
 		return true;
 	}

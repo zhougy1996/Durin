@@ -6,6 +6,7 @@
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Misc/ProjectHistory.h"
+#include "NativeTestSupport.h"
 #include "Yaml/Yaml.h"
 
 #if PLATFORM_WINDOWS
@@ -20,12 +21,8 @@ namespace
 		void SetUp() override
 		{
 			static std::atomic<Durin::uint32> NextId = 0;
-#if PLATFORM_WINDOWS
-			const Durin::uint32 ProcessId = static_cast<Durin::uint32>(::_getpid());
-#else
-			const Durin::uint32 ProcessId = 0;
-#endif
-			Root = std::filesystem::temp_directory_path() / std::format("DurinProjectHistoryTests-{}-{}", ProcessId, NextId++);
+			Root = Durin::Testing::GetTestWorkDirectory()
+				/ std::format("ProjectHistory-{}", NextId++);
 			std::filesystem::create_directories(Root);
 		}
 

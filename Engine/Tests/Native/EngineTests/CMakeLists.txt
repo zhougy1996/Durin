@@ -30,6 +30,9 @@ function(durin_add_engine_functional_test target_name)
 		${DURIN_ENGINE_TEST_SOURCES}
 		${DURIN_ENGINE_TEST_PRIVATE_SOURCES}
 	)
+	set_target_properties(${target_name} PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+	)
 	target_include_directories(${target_name} PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}/Private
 		${_durin_level_editor_private}
@@ -103,10 +106,6 @@ durin_add_engine_functional_test(EditorPropertyTests
 	DEPLOY_TARGETS DurinEd
 )
 
-set_target_properties(EditorPropertyTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-)
-
 durin_add_engine_functional_test(EditorAssetWorkflowTests
 	SOURCES
 		Private/Editor/AssetStructureUpgradeModelTests.cpp
@@ -130,10 +129,6 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
-)
-
-set_target_properties(EditorAssetWorkflowTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
 
 durin_add_engine_functional_test(MaterialTests
@@ -174,10 +169,6 @@ durin_add_engine_functional_test(MaterialTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
-set_target_properties(MaterialTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-)
-
 durin_add_engine_functional_test(StaticMeshTests
 	TIMEOUT 600
 	SOURCES
@@ -197,10 +188,6 @@ durin_add_engine_functional_test(StaticMeshTests
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
-set_target_properties(StaticMeshTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-)
-
 durin_add_engine_functional_test(TextureTests
 	TIMEOUT 600
 	SOURCES
@@ -218,10 +205,6 @@ durin_add_engine_functional_test(TextureTests
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 	)
-
-set_target_properties(TextureTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-)
 
 durin_add_engine_functional_test(ThumbnailTests
 	TIMEOUT 600

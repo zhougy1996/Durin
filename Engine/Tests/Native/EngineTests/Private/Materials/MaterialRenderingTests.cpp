@@ -329,6 +329,13 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	ASSERT_TRUE(Durin::FEditorAssetRetentionService::Acquire(
 		SpherePath, PreloadedSphere, Error)) << Error;
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
+	// A direct target run may leave deferred texture releases from earlier
+	// CPU-only material cases. Drain them before creating the Vulkan device so
+	// no stale game-thread owner survives into the RHI-backed portion.
+	Durin::InitRenderingThread();
+	Durin::CollectGarbage();
+	WaitForRenderingThread();
+	Durin::ShutdownRenderingThread();
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
 	Durin::RHIInit();
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);

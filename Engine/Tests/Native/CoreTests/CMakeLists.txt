@@ -2,6 +2,9 @@ include(GoogleTest)
 
 function(durin_add_core_functional_test target_name)
 	add_durin_test(${target_name} ${ARGN})
+	set_target_properties(${target_name} PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+	)
 	target_link_libraries(${target_name} PRIVATE Core)
 	durin_test_deploy_target_binary(${target_name} Core)
 	durin_test_deploy_directory_to_data(
@@ -29,10 +32,6 @@ durin_add_core_functional_test(CoreUtilityTests
 	Private/XxHashTests.cpp
 )
 
-set_target_properties(CoreUtilityTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-)
-
 durin_add_core_functional_test(CoreFileSystemTests
 	Private/DerivedDataCacheTests.cpp
 	Private/FileHelperTests.cpp
@@ -41,15 +40,7 @@ durin_add_core_functional_test(CoreFileSystemTests
 	Private/ProjectTests.cpp
 )
 
-set_target_properties(CoreFileSystemTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-)
-
 durin_add_core_functional_test(CoreConcurrencyTests
 	Private/DelegateTests.cpp
 	Private/ThreadingTests.cpp
-)
-
-set_target_properties(CoreConcurrencyTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )

@@ -39,6 +39,7 @@ durin_test_deploy_runtime_files(VulkanRHIIntegrationTests Slang_Imported)
 durin_test_deploy_directory_to_data(VulkanRHIIntegrationTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 
 set_target_properties(VulkanRHIIntegrationTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 	DURIN_TEST_RESOURCE_LOCKS durin-gpu
 	DURIN_TEST_TIMEOUT 900
 )

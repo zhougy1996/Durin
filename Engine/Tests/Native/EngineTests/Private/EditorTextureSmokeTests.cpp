@@ -10,6 +10,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialTypes.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Texture/Texture2D.h"
@@ -33,15 +34,15 @@ namespace Durin
 	TEST(FEditorTextureSmokeTests, ImportsTextureAssignsMaterialAndBuildsVisibleStaticMeshProxy)
 	{
 		InitializeDObjectSystem();
-		static const bool bMountInitialized = [] {
-			const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "EditorTextureSmoke";
+		const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "EditorTextureSmoke";
+		static std::unordered_set<std::filesystem::path> InitializedRoots;
+		if (InitializedRoots.insert(Root).second)
+		{
 			std::filesystem::remove_all(Root);
 			PathUtilities::RegisterMountPoint("/EditorTextureSmoke/", Root.generic_string() + "/");
-			return true;
-		}();
-		(void)bMountInitialized;
+		}
 
-		const std::filesystem::path TextureSource = std::filesystem::path(DURIN_TEST_WORK_DIR) / "EditorTextureSmoke.png";
+		const std::filesystem::path TextureSource = Testing::GetTestWorkDirectory() / "EditorTextureSmoke.png";
 		WriteTextureSmokeFixture(TextureSource);
 		const FTexture2DImportResult TextureImport = DTexture2D::ImportAsset(TextureSource.generic_string(), "/EditorTextureSmoke/Textures/BaseColor");
 		ASSERT_TRUE(TextureImport) << TextureImport.Message;

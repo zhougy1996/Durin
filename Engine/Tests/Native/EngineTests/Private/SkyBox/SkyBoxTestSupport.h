@@ -14,6 +14,7 @@
 #include "Engine/World.h"
 #include "Materials/Material.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 #include "RendererModule.h"
 #include "RHIGlobals.h"
 #include "RHICommandList.h"
@@ -94,13 +95,13 @@ namespace
 	auto InitializeSkyBoxAssetMount() -> std::filesystem::path
 	{
 		InitializeDObjectSystem();
-		static const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "SkyBoxAssets";
-		static const bool bInitialized = [] {
+		const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SkyBoxAssets";
+		static std::unordered_set<std::filesystem::path> InitializedRoots;
+		if (InitializedRoots.insert(Root).second)
+		{
 			std::filesystem::remove_all(Root);
 			Durin::PathUtilities::RegisterMountPoint("/SkyBoxAssetTests/", Root.generic_string() + "/");
-			return true;
-		}();
-		(void)bInitialized;
+		}
 		return Root;
 	}
 

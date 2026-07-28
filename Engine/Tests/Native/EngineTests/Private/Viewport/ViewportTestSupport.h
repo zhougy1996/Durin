@@ -23,6 +23,7 @@
 #include "EngineTestSupport.h"
 #include "Editor/EditorTransaction.h"
 #include "IRendererModule.h"
+#include "NativeTestSupport.h"
 #include "Settings/LevelViewportSessionSettings.h"
 #include "Workspace/LevelEditorContext.h"
 #include "LevelEditorCustomizations.h"
@@ -129,7 +130,7 @@ namespace
 		Durin::PathUtilities::FScopedMountRegistryFixture MountFixture;
 		Durin::PathUtilities::RegisterMountPoint(
 			"/EditorRevisionTests/",
-			std::filesystem::path(DURIN_TEST_WORK_DIR).generic_string() + "/"
+			Durin::Testing::GetTestWorkDirectory().generic_string() + "/"
 		);
 		static Durin::uint64 NextPackageId = 1;
 		const std::string Name = std::string(Label) + std::to_string(NextPackageId++);

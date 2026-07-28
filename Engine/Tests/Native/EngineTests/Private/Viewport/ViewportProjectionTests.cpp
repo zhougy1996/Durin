@@ -3,13 +3,13 @@
 TEST(FLevelEditorViewportClientTests, NavigationDoesNotDirtyTheLevelPackage)
 {
 	InitializeDObjectSystem();
-	static const bool bMountInitialized = [] {
-		const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "ViewportLevels";
+	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "ViewportLevels";
+	static std::unordered_set<std::filesystem::path> InitializedRoots;
+	if (InitializedRoots.insert(Root).second)
+	{
 		std::filesystem::remove_all(Root);
 		Durin::PathUtilities::RegisterMountPoint("/ViewportTests/", Root.generic_string() + "/");
-		return true;
-	}();
-	(void)bMountInitialized;
+	}
 	Durin::FAssetPath Path;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/ViewportTests/NavigationDirty", Path));
 	Durin::DLevel* Level = nullptr;

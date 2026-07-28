@@ -277,7 +277,6 @@ function(add_durin_test target_name)
 		DURIN_TEST_ROOT_DIR="${_durin_test_root_dir}"
 		DURIN_TEST_BIN_DIR="${_durin_test_bin_dir}"
 		DURIN_TEST_DATA_DIR="${_durin_test_data_dir}"
-		DURIN_TEST_WORK_DIR="${_durin_test_work_dir}"
 	)
 
 	if(DURIN_ENABLE_PCH AND TARGET SharedPCH_Core)
