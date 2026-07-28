@@ -36,7 +36,16 @@ allocations; Stage 2 will centralize stream interpretation in
 `FLocalVertexFactory`, and Stage 3 will select those physical streams and remove
 the packed compatibility allocation.
 
-Stage 2 is next.
+Static Mesh Render-Data Lifecycle Stage 0 is next. This plan's Stage 2 resumes
+after that prerequisite reaches Stage 3 acceptance.
+
+Before Stage 2 implementation begins, the ownership and replacement foundation
+in [Static Mesh Render-Data Lifecycle](StaticMeshRenderDataLifecycle.md) must
+reach its Stage 3 acceptance gate. The named buffers introduced here are now
+registered `FRenderResource` objects, while current scene proxies retain a raw
+pointer across asynchronous replacement and ordinary asset destruction does not
+retire initialized mesh resources. Adding vertex factories before closing that
+boundary would add more registered children to an unsafe aggregate lifetime.
 
 ## Goal
 
@@ -215,6 +224,13 @@ after upload because current editor and test consumers still inspect LOD data.
 All new GPU-owning buffer and vertex-factory types participate in the existing
 `FRenderResource` lifecycle and are initialized and released on the rendering
 thread. They do not rely on public mutation of raw `FBufferRHIRef` fields.
+
+High-level ownership, revision publication, proxy leases, replacement, unload,
+and deferred aggregate retirement are owned by
+[Static Mesh Render-Data Lifecycle](StaticMeshRenderDataLifecycle.md). This
+plan retains responsibility for initialization order inside one immutable
+revision: LOD buffers initialize before vertex factories, and vertex factories
+release before LOD buffers.
 
 Resource initialization is idempotent. Partial initialization failure leaves
 the LOD not ready and permits a later retry without leaking initialized
@@ -447,6 +463,12 @@ Validation:
 Outcome: the vertex layout and stream interpretation have a reusable owner
 outside `RendererModule.cpp`.
 
+Dependencies: Stage 3 acceptance of
+`StaticMeshRenderDataLifecycle.md`. Stage 2 must consume that plan's unique
+current/pending-retirement ownership, ordered release fence, and asset-led
+initialization contract. It must not introduce shared render-data ownership,
+unbounded raw-pointer access, or renderer-driven lazy initialization.
+
 - [ ] Add the minimal `FVertexFactory` RenderCore base needed for declaration
   lifetime, readiness, type identity, and vertex-stream descriptions.
 - [ ] Add `FLocalVertexFactory::FDataType` using UE-compatible terminology for
@@ -628,6 +650,7 @@ profiles defined in [Build and Run](../Development/Build/BuildAndRun.md).
 ## Related Documentation
 
 - [Material System Plan](MaterialSystem.md)
+- [Static Mesh Render-Data Lifecycle](StaticMeshRenderDataLifecycle.md)
 - [Shader Cache](../Runtime/Rendering/ShaderCache.md)
 - [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
 - [Build and Run](../Development/Build/BuildAndRun.md)
