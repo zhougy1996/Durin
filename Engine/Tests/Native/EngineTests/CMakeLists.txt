@@ -197,6 +197,10 @@ durin_add_engine_functional_test(StaticMeshTests
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
+set_target_properties(StaticMeshTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+)
+
 durin_add_engine_functional_test(TextureTests
 	TIMEOUT 600
 	SOURCES

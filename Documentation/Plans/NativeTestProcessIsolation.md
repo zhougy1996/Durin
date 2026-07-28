@@ -40,6 +40,10 @@ Completed:
   and mount use the process sandbox, while the explicit `durin-gpu` lock and
   renderer-runtime constraint remain in place for real device lifecycle
   ownership.
+- The static-mesh target is case-parallel. Import, source-repair, material-slot,
+  derived-data, upgrade, and editor-details fixtures use the process sandbox;
+  mount initialization is test-local, and the reusable upgrade fixture tracks
+  initialization by sandbox rather than caching one static root.
 - Three consecutive 14-job aggregate runs passed all 720 CTest entries after
   the Core targets enabled case parallelism; their real times were 20.95,
   20.52, and 23.35 seconds.
@@ -60,6 +64,9 @@ Completed:
 - After migrating the material target, its 43 direct tests passed and three
   consecutive 14-job aggregate schedules passed all 720 entries in 19.78,
   18.40, and 18.90 seconds.
+- After migrating the static-mesh target, its 42 direct tests passed and three
+  consecutive 14-job aggregate schedules passed all 720 entries in 18.78,
+  17.63, and 19.02 seconds.
 - `.\DevTool.bat test --target all` now schedules CTest-discovered GoogleTest
   cases with the Agent Build Profile job count; the current profile runs 14
   cases concurrently.
@@ -82,7 +89,7 @@ Completed:
   and load, failed package and shader-cache publication, and thumbnail fixture
   setup failures. The same thumbnail suites passed when run in one process,
   including 100 shuffled repetitions.
-- The repository currently has 92 `DURIN_TEST_WORK_DIR` references in 21
+- The repository currently has 74 `DURIN_TEST_WORK_DIR` references in 17
   native-test source/header files, and 32 native-test files call
   `std::filesystem::remove_all`.
 - `FTextureCubeAssetThumbnailTests.ProviderRejectsMissingRegistryData` also has

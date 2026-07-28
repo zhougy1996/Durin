@@ -8,6 +8,7 @@
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -43,7 +44,7 @@ namespace
 	{
 		InitializeDObjectSystem();
 		FStaticMeshCacheFixture Fixture;
-		Fixture.Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / std::string(Name);
+		Fixture.Root = Durin::Testing::GetTestWorkDirectory() / std::string(Name);
 		Fixture.CacheRoot = Fixture.Root / "DerivedDataCache";
 		std::filesystem::remove_all(Fixture.Root);
 		std::filesystem::create_directories(Fixture.Root / "Content");

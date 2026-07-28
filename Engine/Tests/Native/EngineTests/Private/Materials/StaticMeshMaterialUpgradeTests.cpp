@@ -1,5 +1,8 @@
 #include "MaterialTestSupport.h"
 #include "Misc/DerivedDataCache.h"
+#include "NativeTestSupport.h"
+
+#include <unordered_set>
 
 namespace
 {
@@ -256,15 +259,15 @@ namespace
 	auto CreateLegacyMaterialFixture(std::string_view Name) -> FLegacyMaterialFixture
 	{
 		InitializeDObjectSystem();
-		static const std::filesystem::path Root =
-			std::filesystem::path(DURIN_TEST_WORK_DIR) / "StaticMeshMaterialUpgrades";
-		static const bool Mounted = [] {
+		const std::filesystem::path Root =
+			Durin::Testing::GetTestWorkDirectory() / "StaticMeshMaterialUpgrades";
+		static std::unordered_set<std::filesystem::path> InitializedRoots;
+		if (InitializedRoots.insert(Root).second)
+		{
 			std::filesystem::remove_all(Root);
 			Durin::PathUtilities::RegisterMountPoint(
 				"/StaticMeshMaterialUpgrades/", Root.generic_string() + "/");
-			return true;
-		}();
-		(void)Mounted;
+		}
 
 		FLegacyMaterialFixture Fixture;
 		const std::string BasePath = std::format("/StaticMeshMaterialUpgrades/{}", Name);
