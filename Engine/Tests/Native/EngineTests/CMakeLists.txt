@@ -103,6 +103,10 @@ durin_add_engine_functional_test(EditorPropertyTests
 	DEPLOY_TARGETS DurinEd
 )
 
+set_target_properties(EditorPropertyTests PROPERTIES
+	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+)
+
 durin_add_engine_functional_test(EditorAssetWorkflowTests
 	SOURCES
 		Private/Editor/AssetStructureUpgradeModelTests.cpp

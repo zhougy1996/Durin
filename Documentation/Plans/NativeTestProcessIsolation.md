@@ -33,6 +33,9 @@ Completed:
 - The editor asset-workflow target is case-parallel. Its upgrade models,
   destination/import validation, content browser, source-library contract, and
   source-reference index fixtures now use the process sandbox.
+- The editor property target is case-parallel. Its reflected-revision package
+  mount now resolves through the process sandbox; its local mount fixture and
+  process-local package identifier do not retain cross-process state.
 - Three consecutive 14-job aggregate runs passed all 720 CTest entries after
   the Core targets enabled case parallelism; their real times were 20.95,
   20.52, and 23.35 seconds.
@@ -47,6 +50,9 @@ Completed:
 - After migrating the editor asset-workflow target, its 40 direct tests passed
   and three consecutive 14-job aggregate schedules passed all 720 entries in
   18.55, 16.92, and 17.15 seconds.
+- After migrating the editor property target, its 25 direct tests passed and
+  three consecutive 14-job aggregate schedules passed all 720 entries in
+  17.50, 16.76, and 16.84 seconds.
 - `.\DevTool.bat test --target all` now schedules CTest-discovered GoogleTest
   cases with the Agent Build Profile job count; the current profile runs 14
   cases concurrently.
@@ -69,7 +75,7 @@ Completed:
   and load, failed package and shader-cache publication, and thumbnail fixture
   setup failures. The same thumbnail suites passed when run in one process,
   including 100 shuffled repetitions.
-- The repository currently has 95 `DURIN_TEST_WORK_DIR` references in 23
+- The repository currently has 94 `DURIN_TEST_WORK_DIR` references in 22
   native-test source/header files, and 32 native-test files call
   `std::filesystem::remove_all`.
 - `FTextureCubeAssetThumbnailTests.ProviderRejectsMissingRegistryData` also has

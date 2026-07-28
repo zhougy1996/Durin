@@ -17,6 +17,7 @@
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
 #include "EngineTestSupport.h"
+#include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -226,7 +227,7 @@ namespace
 		Durin::PathUtilities::FScopedMountRegistryFixture MountFixture;
 		Durin::PathUtilities::RegisterMountPoint(
 			"/ReflectedRevisionTests/",
-			std::filesystem::path(DURIN_TEST_WORK_DIR).generic_string() + "/"
+			Durin::Testing::GetTestWorkDirectory().generic_string() + "/"
 		);
 		static Durin::uint64 NextPackageId = 1;
 		const std::string Name = "Package" + std::to_string(NextPackageId++);
