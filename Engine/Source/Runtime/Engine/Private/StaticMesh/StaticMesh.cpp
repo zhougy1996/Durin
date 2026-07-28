@@ -798,7 +798,32 @@ namespace Durin
 			OutError = std::format("Failed to import static mesh source file: {}", FilePath);
 			return false;
 		}
+		return BuildRenderDataCandidate(
+			ImportedScene,
+			FilePath,
+			OutRenderData,
+			OutMaterialSlots,
+			bOutSlotMetadataChanged,
+			OutError);
+#else
+		(void)FilePath;
+		(void)OutRenderData;
+		(void)OutMaterialSlots;
+		(void)bOutSlotMetadataChanged;
+		OutError = "Static-mesh source building is unavailable in runtime-only targets.";
+		return false;
+#endif
+	}
 
+	auto DStaticMesh::BuildRenderDataCandidate(
+		const Asset::FImportedSceneData& ImportedScene,
+		std::string_view SourceLabel,
+		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
+		std::vector<FStaticMeshMaterialSlotDefinition>& OutMaterialSlots,
+		bool& bOutSlotMetadataChanged,
+		std::string& OutError) -> bool
+	{
+#if DURIN_WITH_EDITOR
 		const bool bVersionZeroMigration = MaterialSlotsVersion == 0 && !GetSourceFile().empty();
 		const std::vector<FStaticMeshMaterialSlotDefinition> PreviousSlots = MaterialSlots;
 		std::vector<FStaticMeshMaterialSlotDefinition> ReconciledSlots(ImportedScene.MaterialSlots.size());
@@ -891,7 +916,7 @@ namespace Durin
 			if (LOD.Positions.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Positions.size()
 				|| LOD.Indices.size() > std::numeric_limits<uint32>::max() - ImportedMesh.Indices.size())
 			{
-				OutError = std::format("Static mesh '{}' exceeds uint32 render-data limits.", FilePath);
+				OutError = std::format("Static mesh '{}' exceeds uint32 render-data limits.", SourceLabel);
 				return false;
 			}
 
@@ -976,7 +1001,7 @@ namespace Durin
 
 		if (LOD.Positions.empty() || LOD.Indices.empty() || LOD.Sections.empty())
 		{
-			OutError = std::format("Static mesh source has no renderable geometry: {}", FilePath);
+			OutError = std::format("Static mesh source has no renderable geometry: {}", SourceLabel);
 			return false;
 		}
 
@@ -989,7 +1014,7 @@ namespace Durin
 		const float MaxDimension = std::max(BoundsExtent.x, std::max(BoundsExtent.y, BoundsExtent.z));
 		if (MaxDimension <= 0.0f)
 		{
-			OutError = std::format("Static mesh source has invalid bounds: {}", FilePath);
+			OutError = std::format("Static mesh source has invalid bounds: {}", SourceLabel);
 			return false;
 		}
 
@@ -1006,13 +1031,144 @@ namespace Durin
 		OutError.clear();
 		return true;
 #else
-		(void)FilePath;
+		(void)ImportedScene;
+		(void)SourceLabel;
 		(void)OutRenderData;
 		(void)OutMaterialSlots;
 		(void)bOutSlotMetadataChanged;
 		OutError = "Static-mesh source building is unavailable in runtime-only targets.";
 		return false;
 #endif
+	}
+
+	auto DStaticMesh::InitializeFromImportedScene(
+		const Asset::FImportedSceneData& ImportedScene,
+		const FStaticMeshSourceImportData& InSourceImportData,
+		std::string_view SourceLabel,
+		std::string& OutError) -> bool
+	{
+#if DURIN_WITH_EDITOR
+		if (!InSourceImportData.HasSource()
+			|| !IsCanonicalStaticMeshHash(InSourceImportData.SourceContentHash)
+			|| InSourceImportData.ImporterId.empty()
+			|| InSourceImportData.ImporterVersion == 0
+			|| !InSourceImportData.ImportSettings.IsValid(&OutError))
+		{
+			if (OutError.empty())
+				OutError = "Imported static-mesh initialization requires complete source provenance.";
+			return false;
+		}
+		const FStaticMeshSourceImportData PreviousSource = SourceImportData;
+		SourceImportData = InSourceImportData;
+		std::unique_ptr<FStaticMeshRenderData> CandidateRenderData;
+		std::vector<FStaticMeshMaterialSlotDefinition> CandidateMaterialSlots;
+		bool bSlotMetadataChanged = false;
+		if (!BuildRenderDataCandidate(
+			ImportedScene,
+			SourceLabel,
+			CandidateRenderData,
+			CandidateMaterialSlots,
+			bSlotMetadataChanged,
+			OutError))
+		{
+			SourceImportData = PreviousSource;
+			return false;
+		}
+		std::string DerivedDataKey;
+		if (!MakeStaticMeshKey(
+				SourceImportData.SourceContentHash,
+				SourceImportData.ImporterId,
+				SourceImportData.ImporterVersion,
+				SourceImportData.ImportSettings,
+				DerivedDataKey,
+				OutError)
+			|| !StoreStaticMeshDerivedData(
+				DerivedDataKey, *CandidateRenderData, OutError))
+		{
+			SourceImportData = PreviousSource;
+			return false;
+		}
+		PublishRenderData(
+			std::move(CandidateRenderData),
+			std::move(CandidateMaterialSlots),
+			bSlotMetadataChanged);
+		DerivedDataDiagnostic = {
+			.Status = EStaticMeshDerivedDataStatus::Rebuilt,
+			.Key = std::move(DerivedDataKey),
+			.Message = "Built imported static mesh and populated the DDC.",
+			.bSourceImporterInvoked = true};
+		MarkPackageDirty();
+		OutError.clear();
+		return true;
+#else
+		(void)ImportedScene;
+		(void)InSourceImportData;
+		(void)SourceLabel;
+		OutError = "Imported static-mesh initialization is unavailable in runtime-only targets.";
+		return false;
+#endif
+	}
+
+	auto DStaticMesh::SetImportedDefaultMaterial(
+		uint32 SourceMaterialIndex,
+		DMaterialInterface* Material,
+		std::string& OutError) -> bool
+	{
+		const auto Slot = std::ranges::find(
+			MaterialSlots,
+			SourceMaterialIndex,
+			&FStaticMeshMaterialSlotDefinition::SourceMaterialIndex);
+		if (Slot == MaterialSlots.end())
+		{
+			OutError = std::format(
+				"Static mesh has no slot for source material {}.", SourceMaterialIndex);
+			return false;
+		}
+		if (std::ranges::find(
+			std::next(Slot),
+			MaterialSlots.end(),
+			SourceMaterialIndex,
+			&FStaticMeshMaterialSlotDefinition::SourceMaterialIndex) != MaterialSlots.end())
+		{
+			OutError = std::format(
+				"Static mesh has ambiguous slots for source material {}.", SourceMaterialIndex);
+			return false;
+		}
+		Slot->DefaultMaterial = Material;
+		MarkPackageDirty();
+		OutError.clear();
+		return true;
+	}
+
+	auto DStaticMesh::SetImportManifest(
+		FStaticModelImportManifest InManifest,
+		std::string& OutError) -> bool
+	{
+		if (!InManifest.IsValid())
+		{
+			OutError = "Static-model import manifest is incomplete.";
+			return false;
+		}
+		for (const FStaticModelImportMaterialRecord& Material : InManifest.Materials)
+		{
+			if (!Material.SlotId.IsValid() || !Material.GeneratedMaterial)
+			{
+				OutError = "Static-model import manifest has an invalid material record.";
+				return false;
+			}
+		}
+		for (const FStaticModelImportTextureRecord& Texture : InManifest.Textures)
+		{
+			if (Texture.StableIdentity.empty() || !Texture.GeneratedTexture)
+			{
+				OutError = "Static-model import manifest has an invalid texture record.";
+				return false;
+			}
+		}
+		ImportManifest = std::move(InManifest);
+		MarkPackageDirty();
+		OutError.clear();
+		return true;
 	}
 
 	auto DStaticMesh::PostLoad(std::string& OutError) -> bool
@@ -1302,12 +1458,13 @@ namespace Durin
 				if (!bRetainDiagnosticSourceMetadata)
 				{
 					SerializationOptions.PropertyFilter = [this](const DObject* Object, const FProperty* Property) {
-						if (Object != this) return true;
-						const FName Name = Property->NamePrivate;
-						return Name != FName("SourceFile")
-							&& Name != FName("SourceImportData")
-							&& Name != FName("ImportSettings");
-					};
+					if (Object != this) return true;
+					const FName Name = Property->NamePrivate;
+					return Name != FName("SourceFile")
+						&& Name != FName("SourceImportData")
+						&& Name != FName("ImportSettings")
+						&& Name != FName("ImportManifest");
+				};
 				}
 				const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(
 					GetPackage(), OutPackageBytes, SerializationOptions);

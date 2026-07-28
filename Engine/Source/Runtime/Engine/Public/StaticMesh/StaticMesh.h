@@ -9,7 +9,16 @@
 
 namespace Durin
 {
+	inline constexpr uint32 StaticModelImportManifestVersion = 1;
+	inline constexpr uint32 StaticModelMaterialMapperVersion = 1;
+
 	class DMaterialInterface;
+	class DMaterialInstance;
+	class DTexture2D;
+	namespace Asset
+	{
+		struct FImportedSceneData;
+	}
 
 	// Selects a signed source axis when converting imported geometry to Durin space.
 	DENUM()
@@ -161,6 +170,99 @@ namespace Durin
 		TObjectPtr<DMaterialInterface> DefaultMaterial;
 	};
 
+	DSTRUCT()
+	struct FStaticModelImportDependencyRecord
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		uint8 Role = 0;
+
+		DPROPERTY()
+		std::string StableIdentity;
+
+		DPROPERTY()
+		FSourcePath SourcePath;
+
+		DPROPERTY()
+		std::string ContentHash;
+
+		DPROPERTY()
+		uint64 ByteCount = 0;
+	};
+
+	DSTRUCT()
+	struct FStaticModelImportMaterialRecord
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		FGuid SlotId;
+
+		DPROPERTY()
+		uint32 SourceMaterialIndex = 0;
+
+		DPROPERTY()
+		std::string SourceName;
+
+		DPROPERTY()
+		FVector4 BaseColorFactor{1.0};
+
+		DPROPERTY()
+		TObjectPtr<DMaterialInstance> GeneratedMaterial;
+	};
+
+	DSTRUCT()
+	struct FStaticModelImportTextureRecord
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		std::string StableIdentity;
+
+		DPROPERTY()
+		uint8 Semantic = 0;
+
+		DPROPERTY()
+		TObjectPtr<DTexture2D> GeneratedTexture;
+	};
+
+	DSTRUCT()
+	struct FStaticModelImportManifest
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		uint32 Version = 0;
+
+		DPROPERTY()
+		std::string DependencyFingerprint;
+
+		DPROPERTY()
+		uint32 ImporterVersion = 0;
+
+		DPROPERTY()
+		uint32 MaterialMapperVersion = 0;
+
+		DPROPERTY()
+		std::vector<FStaticModelImportDependencyRecord> Dependencies;
+
+		DPROPERTY()
+		std::vector<FStaticModelImportMaterialRecord> Materials;
+
+		DPROPERTY()
+		std::vector<FStaticModelImportTextureRecord> Textures;
+
+		DPROPERTY()
+		std::vector<std::string> Warnings;
+
+		auto IsValid() const -> bool
+		{
+			return Version > 0 && !DependencyFingerprint.empty()
+				&& ImporterVersion > 0 && MaterialMapperVersion > 0;
+		}
+	};
+
 	// Owns imported mesh metadata, material slots, and rebuilt render resources.
 	DCLASS()
 	class DStaticMesh : public DObject
@@ -174,6 +276,7 @@ namespace Durin
 		auto GetSourceFile() const -> const std::string& { return SourceImportData.SourcePath.Path; }
 		auto GetImportSettings() const -> const FStaticMeshImportSettings& { return SourceImportData.ImportSettings; }
 		auto GetSourceImportData() const -> const FStaticMeshSourceImportData& { return SourceImportData; }
+		auto GetImportManifest() const -> const FStaticModelImportManifest& { return ImportManifest; }
 		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }
 		auto GetMaterialSlots() const -> std::span<const FStaticMeshMaterialSlotDefinition> { return MaterialSlots; }
 		ENGINE_API auto GetMaterialSlot(uint32 SlotIndex) const -> const FStaticMeshMaterialSlotDefinition*;
@@ -213,11 +316,30 @@ namespace Durin
 			std::string_view AssetPath,
 			const FStaticMeshImportSettings& InImportSettings = {},
 			std::string_view SourceDestination = {}) -> FStaticMeshImportResult;
+		ENGINE_API auto InitializeFromImportedScene(
+			const Asset::FImportedSceneData& ImportedScene,
+			const FStaticMeshSourceImportData& InSourceImportData,
+			std::string_view SourceLabel,
+			std::string& OutError) -> bool;
+		ENGINE_API auto SetImportedDefaultMaterial(
+			uint32 SourceMaterialIndex,
+			DMaterialInterface* Material,
+			std::string& OutError) -> bool;
+		ENGINE_API auto SetImportManifest(
+			FStaticModelImportManifest InManifest,
+			std::string& OutError) -> bool;
 
 	private:
 		auto BuildRenderData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
 		auto BuildRenderDataCandidate(
 			std::string_view PhysicalFilePath,
+			std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
+			std::vector<FStaticMeshMaterialSlotDefinition>& OutMaterialSlots,
+			bool& bOutSlotMetadataChanged,
+			std::string& OutError) -> bool;
+		auto BuildRenderDataCandidate(
+			const Asset::FImportedSceneData& ImportedScene,
+			std::string_view SourceLabel,
 			std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
 			std::vector<FStaticMeshMaterialSlotDefinition>& OutMaterialSlots,
 			bool& bOutSlotMetadataChanged,
@@ -248,6 +370,9 @@ namespace Durin
 
 		DPROPERTY()
 		std::vector<FStaticMeshMaterialSlotDefinition> MaterialSlots;
+
+		DPROPERTY()
+		FStaticModelImportManifest ImportManifest;
 
 		DPROPERTY()
 		Asset::FCookedPayloadDescriptor CookedPayload;

@@ -21,6 +21,17 @@ namespace Durin
 		};
 		constexpr const char* ImportAxisNames[] = {"+X", "-X", "+Y", "-Y", "+Z", "-Z"};
 
+		auto DescribePlannedSourceAction(EStaticModelPlannedSourceAction Action) -> const char*
+		{
+			switch (Action)
+			{
+			case EStaticModelPlannedSourceAction::Reference: return "reference";
+			case EStaticModelPlannedSourceAction::Ingest: return "ingest";
+			case EStaticModelPlannedSourceAction::Extract: return "extract";
+			}
+			return "unknown";
+		}
+
 		auto DrawImportAxisCombo(const char* Label, EStaticMeshImportAxis& Axis) -> bool
 		{
 			int Value = static_cast<int>(Axis);
@@ -44,6 +55,8 @@ namespace Durin
 		ImportSettings = FStaticMeshImportSettings::MakeDurin();
 		ImportPreset = EStaticMeshImportPreset::Durin;
 		SourceMode = EMountedSourceImportMode::IngestExternal;
+		PreviewKey.clear();
+		Preview.reset();
 		Destination.Reset(DestinationDirectory);
 		ModalState.RequestOpen();
 	}
@@ -136,17 +149,38 @@ namespace Durin
 				SourcePathBuffer.data(), DestinationValidation.AssetPath.GetView(),
 				SourceDestinationBuffer.data(), SourceMode)
 			: FMountedSourceImportDiagnostic{};
+		if (DestinationValidation.bAssetPathValid && bSourceExists
+			&& bImportSettingsValid && DestinationValidation
+			&& SourceDiagnostic.bValid)
+		{
+			RefreshPreview(DestinationValidation.AssetPath);
+		}
+		else
+		{
+			PreviewKey.clear();
+			Preview.reset();
+		}
 
 		if (DestinationValidation.bAssetPathValid
 			&& DestinationValidation.bMountedDestination && bHasSource
-			&& SourceDiagnostic.bValid)
+			&& SourceDiagnostic.bValid && Preview && *Preview)
 		{
-			ImGui::BeginChild("ImportOutputPreview", ImVec2(0.0f, MonaImGui::ScaleUI(78.0f)), ImGuiChildFlags_Borders);
-			ImGui::TextDisabled("Asset destination");
-			ImGui::TextUnformatted(
-				DestinationValidation.AssetPath.ToString().c_str());
-			ImGui::TextDisabled("Source virtual path");
-			ImGui::TextUnformatted(SourceDiagnostic.VirtualPath.c_str());
+			ImGui::BeginChild("ImportOutputPreview",
+				ImVec2(0.0f, MonaImGui::ScaleUI(190.0f)), ImGuiChildFlags_Borders);
+			ImGui::TextDisabled("Generated assets");
+			for (const FStaticModelPlannedAsset& Asset : Preview->Plan.Assets)
+				ImGui::BulletText("%s", Asset.AssetPath.ToString().c_str());
+			ImGui::Spacing();
+			ImGui::TextDisabled("Source operations");
+			for (const FStaticModelPlannedSource& Source : Preview->Plan.Sources)
+			{
+				ImGui::BulletText(
+					"%s  %s",
+					DescribePlannedSourceAction(Source.Action),
+					Source.SourcePath.Path.c_str());
+			}
+			for (const std::string& Warning : Preview->Plan.Warnings)
+				ImGui::BulletText("Warning: %s", Warning.c_str());
 			ImGui::EndChild();
 			ImGui::TextDisabled("Mount: %s (%s)  |  %s  |  dependency allowed",
 				SourceDiagnostic.Mount->VirtualRoot.c_str(),
@@ -165,6 +199,8 @@ namespace Durin
 			ValidationMessage = DestinationValidation.Message;
 		else if (!SourceDiagnostic.bValid)
 			ValidationMessage = SourceDiagnostic.Message;
+		else if (Preview && !*Preview)
+			ValidationMessage = Preview->Message;
 
 		DrawImportDialogWarning(ValidationMessage);
 
@@ -306,22 +342,70 @@ namespace Durin
 		LastSuggestedSourceDestination.clear();
 	}
 
+	auto FStaticMeshImportDialog::RefreshPreview(const FAssetPath& RootAssetPath) -> void
+	{
+		const std::string Key = std::format(
+			"{}|{}|{}|{}|{}|{}|{}",
+			SourcePathBuffer.data(),
+			RootAssetPath.ToString(),
+			SourceDestinationBuffer.data(),
+			static_cast<uint32>(SourceMode),
+			static_cast<int32>(ImportSettings.ForwardAxis),
+			static_cast<int32>(ImportSettings.RightAxis),
+			static_cast<int32>(ImportSettings.UpAxis));
+		if (Key == PreviewKey) return;
+		PreviewKey = Key;
+		Preview = PlanStaticModelImport({
+			.SourceFile = SourcePathBuffer.data(),
+			.RootAssetPath = RootAssetPath,
+			.RootSourceDestination = SourceMode == EMountedSourceImportMode::IngestExternal
+				? FSourcePath{.Path = SourceDestinationBuffer.data()}
+				: FSourcePath{},
+			.ImportSettings = ImportSettings});
+	}
+
 	auto FStaticMeshImportDialog::Import() -> bool
 	{
 		Callbacks.Clear();
-		FStaticMeshImportResult Result = DStaticMesh::ImportAsset(
-			SourcePathBuffer.data(), Destination.GetPath(), ImportSettings,
-			SourceMode == EMountedSourceImportMode::IngestExternal
-				? SourceDestinationBuffer.data() : std::string_view{});
+		FAssetPath RootPath;
+		std::string Error;
+		if (!FAssetPath::TryCreate(Destination.GetPath(), RootPath, &Error))
+		{
+			SetError(std::move(Error));
+			return false;
+		}
+		const FStaticModelImportPlanResult Planned = PlanStaticModelImport({
+			.SourceFile = SourcePathBuffer.data(),
+			.RootAssetPath = RootPath,
+			.RootSourceDestination = SourceMode == EMountedSourceImportMode::IngestExternal
+				? FSourcePath{.Path = SourceDestinationBuffer.data()}
+				: FSourcePath{},
+			.ImportSettings = ImportSettings});
+		if (!Planned)
+		{
+			SetError(Planned.Message);
+			return false;
+		}
+		const FStaticModelImportExecutionResult Result =
+			ExecuteStaticModelImport(Planned.Plan);
 		if (!Result)
 		{
 			SetError(Result.Message);
 			return false;
 		}
+
 		Callbacks.NotifyImported(Destination.GetPath());
-		FAssetPath ImportedPath;
-		if (FAssetPath::TryCreate(Destination.GetPath(), ImportedPath))
-			Asset::UnloadPackage(ImportedPath);
+		Asset::UnloadPackage(RootPath);
+		for (const FStaticModelPlannedAsset& Asset : Planned.Plan.Assets)
+		{
+			if (Asset.Kind == EStaticModelPlannedAssetKind::MaterialInstance)
+				Asset::UnloadPackage(Asset.AssetPath);
+		}
+		for (const FStaticModelPlannedAsset& Asset : Planned.Plan.Assets)
+		{
+			if (Asset.Kind == EStaticModelPlannedAssetKind::Texture2D)
+				Asset::UnloadPackage(Asset.AssetPath);
+		}
 		return true;
 	}
 

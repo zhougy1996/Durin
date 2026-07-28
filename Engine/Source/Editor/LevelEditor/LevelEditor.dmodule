@@ -12,6 +12,7 @@
         "Mona",
         "MonaImGui",
         "AssetCore",
+        "EngineAssetBuild",
         "DurinEd"
     ]
 }

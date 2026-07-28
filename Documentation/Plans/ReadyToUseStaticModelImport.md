@@ -27,9 +27,19 @@ plans the root StaticMesh, used material instances, semantically deduplicated
 BaseColor Texture2D assets, source reference/ingest/extract operations, and
 warnings. Candidate asset names receive stable case-insensitive suffixes, and
 every planned package path is collision-checked before any asset creation.
-Material/texture/root candidate construction, manifest persistence, dialog
-presentation, and rendered acceptance coverage remain open. Validation passed
-all 18 `AssetImportTests`, all 59 `TextureTests`, and the all-plan validator.
+Execution now creates the planned Texture2D and material-instance packages,
+maps opaque base color through the canonical parameter schema, assigns mesh
+slot defaults, persists a versioned dependency/material/texture manifest, and
+publishes the complete bundle through the shared transaction. StaticMesh
+candidate construction reuses the planner's retained normalized scene and
+populates geometry DDC before package publication, so package reload does not
+invoke the source importer. The import dialog previews generated assets,
+source operations, and warnings before the same planner/executor performs the
+one-action import. An opaque embedded-image GLB integration fixture proves
+save/unload/reload, component default resolution, manifest round-trip, color
+texture settings, and no source reparse. Rendered Vulkan acceptance coverage
+remains open. Validation passed all 18 `AssetImportTests`, all 42
+`StaticMeshTests`, all 61 `TextureTests`, and a successful full `all` build.
 The second slice materializes the planned standard parent through
 `EnsureStandardImportedSurfaceMaterial`: it creates and saves the canonical
 `DMaterial` at the stable engine path on first use, validates the current
@@ -830,19 +840,19 @@ vertical slices.
   asset identity and canonical current parameter definitions.
 - [x] Add deterministic output planning for the root StaticMesh, used material
   instances, and semantically deduplicated textures.
-- [ ] Create one Texture2D per planned color image with
+- [x] Create one Texture2D per planned color image with
   `ETextureUsage::Color`, explicit sRGB, and the selected compression settings.
-- [ ] Create one generated material instance per used imported material, set
+- [x] Create one generated material instance per used imported material, set
   its parent, and map base-color factor, base-color texture, and effective
   opacity through canonical parameter GUIDs.
-- [ ] Assign generated instances to reconciled StaticMesh slot
+- [x] Assign generated instances to reconciled StaticMesh slot
   `DefaultMaterial` references before root-package publication.
-- [ ] Persist the initial import manifest and complete dependency fingerprint
+- [x] Persist the initial import manifest and complete dependency fingerprint
   on the StaticMesh asset while retaining ordinary runtime asset references.
-- [ ] Extend the import dialog to preview all assets and source operations,
+- [x] Extend the import dialog to preview all assets and source operations,
   show warnings/collisions, and require no second manual import or assignment
   action.
-- [ ] Add an editor integration test that imports an opaque textured GLB,
+- [x] Add an editor integration test that imports an opaque textured GLB,
   saves/unloads/reloads all outputs, places the mesh on a component, and
   resolves the imported texture through the default slot.
 - [ ] Add a rendered Vulkan fixture proving the generated material samples the

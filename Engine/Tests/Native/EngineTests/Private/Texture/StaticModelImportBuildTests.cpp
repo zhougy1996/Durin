@@ -1,6 +1,8 @@
 #include "TextureTestSupport.h"
 
+#include "Components/StaticMeshComponent.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
 #include "Misc/FileHelper.h"
 #include "StaticModelImportBuild.h"
 #include "StaticModelImportBuildInternal.h"
@@ -258,6 +260,137 @@ TEST(FStaticModelImportBuildTests, PlansDeterministicOpaqueModelOutputsWithoutMu
 	ASSERT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Collision->GetPackage()));
 }
 
+TEST(FStaticModelImportBuildTests, ExecutesOpaqueGlbModelBundleAndReloadsReferences)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "OpaqueModelBundle";
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+	for (const std::filesystem::path& Directory : {
+		Root / "Engine/Content",
+		Root / "Engine/SourceAssets",
+		Root / "Project/Content",
+		Root / "Project/SourceAssets"})
+	{
+		std::filesystem::create_directories(Directory);
+	}
+	const std::array Mounts{
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/Engine/",
+			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.OwnerRoot = Root / "Engine",
+			.ContentRoot = Root / "Engine/Content",
+			.SourceAssetsRoot = Root / "Engine/SourceAssets",
+			.bSourceWritable = true},
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/TextureImportTests/",
+			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.OwnerRoot = Root / "Project",
+			.ContentRoot = Root / "Project/Content",
+			.SourceAssetsRoot = Root / "Project/SourceAssets",
+			.bSourceWritable = true,
+			.Dependencies = {"/Engine/"}}};
+	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
+
+	const Durin::FAssetPath RootPath =
+		MakeAssetPath("/TextureImportTests/Imports/EmbeddedGlbModel");
+	const Durin::FStaticModelImportPlanResult Planned =
+		Durin::PlanStaticModelImport({
+			.SourceFile = std::filesystem::path(DURIN_TEST_DATA_DIR)
+				/ "StaticModelMaterials/EmbeddedImage.glb",
+			.RootAssetPath = RootPath,
+			.RootSourceDestination = {
+				.Path = "/TextureImportTests/Models/EmbeddedImage.glb"}});
+	ASSERT_TRUE(Planned) << Planned.Message;
+	ASSERT_EQ(Planned.Plan.Assets.size(), 3u);
+
+	const Durin::FStaticModelImportExecutionResult Executed =
+		Durin::ExecuteStaticModelImport(Planned.Plan);
+	ASSERT_TRUE(Executed) << Executed.Message;
+	ASSERT_NE(Executed.StaticMesh, nullptr);
+	ASSERT_EQ(Executed.Materials.size(), 1u);
+	ASSERT_EQ(Executed.Textures.size(), 1u);
+	EXPECT_EQ(Executed.Textures[0]->GetUsage(), Durin::ETextureUsage::Color);
+	EXPECT_TRUE(Executed.Textures[0]->IsSRGB());
+	const Durin::FStaticMeshMaterialSlotDefinition* Slot =
+		Executed.StaticMesh->GetMaterialSlot(0);
+	ASSERT_NE(Slot, nullptr);
+	EXPECT_EQ(Slot->DefaultMaterial.Get(), Executed.Materials[0]);
+	EXPECT_EQ(Executed.Materials[0]->GetParent()->GetPackage()->GetPackagePath(),
+		Durin::StandardImportedSurfaceMaterialPath);
+	Durin::FVector3 BaseColor;
+	float Opacity = 0.0f;
+	Durin::DTexture2D* BaseColorTexture = nullptr;
+	ASSERT_TRUE(Executed.Materials[0]->GetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), BaseColor));
+	ASSERT_TRUE(Executed.Materials[0]->GetScalarParameterValue(
+		Durin::MaterialParameters::OpacityName(), Opacity));
+	ASSERT_TRUE(Executed.Materials[0]->GetTextureParameterValue(
+		Durin::MaterialParameters::BaseColorTextureName(), BaseColorTexture));
+	EXPECT_EQ(BaseColor, Durin::FVector3(1.0, 1.0, 1.0));
+	EXPECT_FLOAT_EQ(Opacity, 1.0f);
+	EXPECT_EQ(BaseColorTexture, Executed.Textures[0]);
+	const Durin::FStaticModelImportManifest& Manifest =
+		Executed.StaticMesh->GetImportManifest();
+	EXPECT_TRUE(Manifest.IsValid());
+	ASSERT_EQ(Manifest.Dependencies.size(), 1u);
+	ASSERT_EQ(Manifest.Materials.size(), 1u);
+	ASSERT_EQ(Manifest.Textures.size(), 1u);
+	EXPECT_EQ(Manifest.Dependencies[0].SourcePath, Planned.Plan.RootSource);
+	EXPECT_EQ(Manifest.Materials[0].GeneratedMaterial.Get(), Executed.Materials[0]);
+	EXPECT_EQ(Manifest.Textures[0].GeneratedTexture.Get(), Executed.Textures[0]);
+	const std::string DependencyFingerprint = Manifest.DependencyFingerprint;
+	Durin::DStaticMeshComponent* Component =
+		Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "ImportedComponent");
+	Component->SetStaticMesh(Executed.StaticMesh);
+	EXPECT_EQ(Component->GetMaterial(0), Executed.Materials[0]);
+	Durin::MarkAsGarbage(Component);
+
+	const Durin::FAssetPath TexturePath = Planned.Plan.Assets[1].AssetPath;
+	const Durin::FAssetPath MaterialPath = Planned.Plan.Assets[2].AssetPath;
+	const Durin::FAssetPath StandardPath =
+		MakeAssetPath(Durin::StandardImportedSurfaceMaterialPath);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(RootPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(StandardPath));
+
+	Durin::DStaticMesh* Reloaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(RootPath, Reloaded));
+	EXPECT_FALSE(Reloaded->GetDerivedDataDiagnostic().bSourceImporterInvoked);
+	ASSERT_NE(Reloaded->GetMaterialSlot(0), nullptr);
+	auto* ReloadedMaterial =
+		Durin::Cast<Durin::DMaterialInstance>(Reloaded->GetMaterialSlot(0)->DefaultMaterial.Get());
+	ASSERT_NE(ReloadedMaterial, nullptr);
+	Durin::DTexture2D* ReloadedTexture = nullptr;
+	ASSERT_TRUE(ReloadedMaterial->GetTextureParameterValue(
+		Durin::MaterialParameters::BaseColorTextureName(), ReloadedTexture));
+	ASSERT_NE(ReloadedTexture, nullptr);
+	EXPECT_TRUE(ReloadedTexture->IsSRGB());
+	const Durin::FStaticModelImportManifest& ReloadedManifest =
+		Reloaded->GetImportManifest();
+	EXPECT_TRUE(ReloadedManifest.IsValid());
+	EXPECT_EQ(ReloadedManifest.DependencyFingerprint, DependencyFingerprint);
+	ASSERT_EQ(ReloadedManifest.Materials.size(), 1u);
+	ASSERT_EQ(ReloadedManifest.Textures.size(), 1u);
+	EXPECT_EQ(
+		ReloadedManifest.Materials[0].GeneratedMaterial.Get(),
+		ReloadedMaterial);
+	EXPECT_EQ(
+		ReloadedManifest.Textures[0].GeneratedTexture.Get(),
+		ReloadedTexture);
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(RootPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(StandardPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(RootPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(MaterialPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(TexturePath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(StandardPath));
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+}
+
 TEST(FStaticModelImportBuildTests, CreatesAndReloadsCanonicalStandardImportedSurfaceMaterial)
 {
 	InitializeDObjectSystem();
@@ -499,6 +632,44 @@ TEST(FStaticModelImportBuildTests, RollbackRestoresPreexistingLoadedObjectAndPac
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ExistingPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(ExistingPath));
+}
+
+TEST(FStaticModelImportBuildTests, FailedMutationRunsItsRollback)
+{
+	InitializeDObjectSystem();
+	InitializeTextureImportMount();
+	FScopedDerivedDataCacheRoot CacheRoot(
+		Durin::Testing::GetTestWorkDirectory() / "StaticModelImportFailedMutationDDC");
+	const Durin::FAssetPath AssetPath =
+		MakeAssetPath("/TextureImportTests/StaticModelImport/FailedMutation");
+	int LoadedState = 7;
+	int RollbackCount = 0;
+
+	Durin::FMultiAssetImportTransaction Transaction;
+	Transaction.AddTexture(MakeEmbeddedRequest(
+		AssetPath.ToString(),
+		"/TextureImportTests/Models/Embedded/FailedMutation.png",
+		true));
+	Transaction.AddLoadedObjectMutation(
+		[&](std::string& OutError) {
+			LoadedState = 99;
+			OutError = "Injected partial mutation failure.";
+			return false;
+		},
+		[&] {
+			LoadedState = 7;
+			++RollbackCount;
+		});
+
+	const Durin::FImportTransactionResult Result = Transaction.Execute();
+	EXPECT_FALSE(Result);
+	EXPECT_EQ(LoadedState, 7);
+	EXPECT_EQ(RollbackCount, 1);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(AssetPath), nullptr);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(AssetPath), nullptr);
+	EXPECT_FALSE(std::filesystem::exists(PackageFile("FailedMutation")));
+	EXPECT_FALSE(std::filesystem::exists(SourceFile("FailedMutation.png")));
+	EXPECT_EQ(CountDerivedDataObjects(), 0u);
 }
 
 TEST(FStaticModelImportBuildTests, LaterCandidateAndDependencyFailuresRollBackEarlierWork)

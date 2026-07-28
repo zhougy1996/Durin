@@ -9,8 +9,10 @@
 namespace Durin
 {
 	class DMaterial;
+	class DMaterialInstance;
 	struct FMultiAssetImportTransactionTestAccess;
 	struct FStaticModelImportPlanData;
+	struct FStaticModelImportExecutionResult;
 	struct FStaticModelImportPlanResult;
 
 	inline constexpr std::string_view StandardImportedSurfaceMaterialPath =
@@ -68,6 +70,8 @@ namespace Durin
 
 		friend ENGINEASSETBUILD_API auto PlanStaticModelImport(
 			const FStaticModelImportPlanRequest& Request) -> FStaticModelImportPlanResult;
+		friend ENGINEASSETBUILD_API auto ExecuteStaticModelImport(
+			const FStaticModelImportPlan& Plan) -> FStaticModelImportExecutionResult;
 	};
 
 	struct FStaticModelImportPlanResult
@@ -79,8 +83,21 @@ namespace Durin
 		explicit operator bool() const { return bSucceeded; }
 	};
 
+	struct FStaticModelImportExecutionResult
+	{
+		bool bSucceeded = false;
+		std::string Message;
+		DStaticMesh* StaticMesh = nullptr;
+		std::vector<DMaterialInstance*> Materials;
+		std::vector<DTexture2D*> Textures;
+
+		explicit operator bool() const { return bSucceeded; }
+	};
+
 	ENGINEASSETBUILD_API auto PlanStaticModelImport(
 		const FStaticModelImportPlanRequest& Request) -> FStaticModelImportPlanResult;
+	ENGINEASSETBUILD_API auto ExecuteStaticModelImport(
+		const FStaticModelImportPlan& Plan) -> FStaticModelImportExecutionResult;
 	ENGINEASSETBUILD_API auto EnsureStandardImportedSurfaceMaterial(
 		std::string& OutError) -> DMaterial*;
 

@@ -806,13 +806,15 @@ namespace Durin
 		for (size_t MutationIndex = 0; MutationIndex < Impl->Plan.Mutations.size(); ++MutationIndex)
 		{
 			const FImpl::FResolvedMutation& Mutation = Impl->Plan.Mutations[MutationIndex];
+			// Apply callbacks may perform several mutations before reporting a
+			// failure, so their rollback is active for the entire attempt.
+			Impl->AppliedMutations[MutationIndex] = true;
 			if (!Mutation.Apply || !Mutation.Apply(OutError))
 			{
 				if (OutError.empty()) OutError = "A loaded-object mutation failed.";
 				Rollback();
 				return false;
 			}
-			Impl->AppliedMutations[MutationIndex] = true;
 		}
 		for (size_t SourceIndex = 0; SourceIndex < Impl->Plan.Sources.size(); ++SourceIndex)
 		{

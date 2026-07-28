@@ -1,17 +1,11 @@
 #include "StaticModelImportBuild.h"
+#include "StaticModelImportWorkflowInternal.h"
 
-#include "AssetImport.h"
 #include "AssetSystem.h"
 #include "Misc/Paths.h"
 
 namespace Durin
 {
-	struct FStaticModelImportPlanData
-	{
-		Asset::FImportedSceneData Scene;
-		std::filesystem::path PhysicalRootSource;
-	};
-
 	namespace
 	{
 		auto FoldAscii(std::string Value) -> std::string
@@ -226,6 +220,7 @@ namespace Durin
 
 		auto Data = std::make_shared<FStaticModelImportPlanData>();
 		Data->PhysicalRootSource = Input;
+		Data->ImportSettings = Request.ImportSettings;
 		if (!Asset::ImportFromFile(
 			Input.generic_string(),
 			Data->Scene,

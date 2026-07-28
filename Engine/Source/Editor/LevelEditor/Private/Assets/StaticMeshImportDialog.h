@@ -2,6 +2,7 @@
 
 #include "Assets/ImportDialogState.h"
 #include "Assets/MountedSourceImport.h"
+#include "StaticModelImportBuild.h"
 #include "StaticMesh/StaticMesh.h"
 
 namespace Durin
@@ -27,6 +28,7 @@ namespace Durin
 		auto BrowseSource() -> void;
 		auto BrowseDestination() -> void;
 		auto BrowseSourceDestination() -> void;
+		auto RefreshPreview(const FAssetPath& RootAssetPath) -> void;
 		auto Import() -> bool;
 		auto SetError(std::string Message) const -> void;
 
@@ -40,5 +42,7 @@ namespace Durin
 		EStaticMeshImportPreset ImportPreset = EStaticMeshImportPreset::Durin;
 		EMountedSourceImportMode SourceMode =
 			EMountedSourceImportMode::IngestExternal;
+		std::string PreviewKey;
+		std::optional<FStaticModelImportPlanResult> Preview;
 	};
 } // namespace Durin
