@@ -4,8 +4,8 @@
   "paths": {
     "cmakePresets": "CMakePresets.json",
     "buildProfiles": "Tools/DurinDevTool/durin_dev_tool/build/AgentBuildProfiles.json",
-    "localBuildConfig": ".agents/build-config.json",
-    "localBuildConfigTemplate": "Templates/DurinDevTool/build-config.json",
+    "localBuildConfig": ".agents/DevTool.user.json",
+    "localBuildConfigTemplate": "Templates/DurinDevTool/DevTool.user.json",
     "stateDirectory": "Build/.agent-state",
     "lockDirectory": "Build/.agent-locks",
     "runtimeBinariesDirectory": "Engine/Binaries",

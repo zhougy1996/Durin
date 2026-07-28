@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "build-config.schema.json",
-  "title": "DurinDevTool machine-local build configuration",
+  "$id": "DevTool.user.schema.json",
+  "title": "DurinDevTool machine-local user configuration",
   "type": "object",
   "additionalProperties": false,
   "required": ["version"],
@@ -11,7 +11,7 @@
     },
     "version": {
       "const": 1,
-      "description": "Machine-local configuration schema version."
+      "description": "Machine-local user configuration schema version."
     },
     "build": {
       "type": "object",

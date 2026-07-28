@@ -40,7 +40,7 @@ class TestBuildConfig:
 
     def test_repository_template_uses_automatic_defaults(self) -> None:
         config = build_config.load_local_config(
-            REPO_ROOT / 'Templates' / 'DurinDevTool' / 'build-config.json'
+            REPO_ROOT / 'Templates' / 'DurinDevTool' / 'DevTool.user.json'
         )
         assert config == build_config.LocalConfig()
 
@@ -152,9 +152,9 @@ class TestRepositoryConfig:
 
     def test_repository_config_resolves_tracked_layout(self) -> None:
         config = configuration.load_repository_config(REPO_ROOT)
-        assert config.paths.local_build_config == Path('.agents/build-config.json')
+        assert config.paths.local_build_config == Path('.agents/DevTool.user.json')
         assert config.paths.local_build_config_template == Path(
-            'Templates/DurinDevTool/build-config.json'
+            'Templates/DurinDevTool/DevTool.user.json'
         )
         assert config.resolve(config.paths.cmake_presets).is_file()
         assert config.resolve(config.paths.build_profiles).is_file()

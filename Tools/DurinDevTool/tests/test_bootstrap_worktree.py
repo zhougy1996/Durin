@@ -42,7 +42,7 @@ class TestThirdPartyBootstrap:
         tmp_path_factory: pytest.TempPathFactory,
     ) -> None:
         root = Path(tmp_path_factory.mktemp('case'))
-        config_path = root / '.agents' / 'build-config.json'
+        config_path = root / '.agents' / 'DevTool.user.json'
         config_path.parent.mkdir()
         config_path.write_text(
             json.dumps({'version': 1, 'cmake': {'command': 'custom-cmake'}}),
@@ -135,7 +135,7 @@ class TestWorktreeTool:
         script = root / 'toolchain' / 'setup.cmd'
         script.parent.mkdir()
         script.touch()
-        config_path = root / '.agents' / 'build-config.json'
+        config_path = root / '.agents' / 'DevTool.user.json'
         config_path.parent.mkdir()
         config_path.write_text(
             json.dumps(
@@ -350,7 +350,7 @@ class TestSetupPreflight:
     def test_visual_studio_environment_override_is_loaded_from_agent_config(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
-        config = root / '.agents' / 'build-config.json'
+        config = root / '.agents' / 'DevTool.user.json'
         config.parent.mkdir(parents=True)
         config.write_text(json.dumps({'version': 1, 'toolchain': {'environmentScript': str(root / 'toolchain/VsDevCmd.bat'), 'environmentArguments': ['-arch=x64', '-host_arch=x64']}}), encoding='utf-8')
         with mock.patch.object(preflight, 'REPO_ROOT', root):

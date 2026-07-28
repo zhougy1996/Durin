@@ -22,8 +22,8 @@ worktree with `DevTool worktree prepare`:
 - The LunarG Vulkan SDK. `VULKAN_SDK` must name an installation containing `Include/vulkan/vulkan.h`, `Include/vma/vk_mem_alloc.h`, and `Lib/vulkan-1.lib`. Current SDK releases include VMA. For an older SDK, either update it or download `vk_mem_alloc.h` from VulkanMemoryAllocator and place it under that SDK's `Include/vma` directory; Durin does not bootstrap a second VMA copy.
 
 In a normal checkout, `DevTool setup` runs a non-mutating prerequisite check,
-then creates `.agents/build-config.json` from
-`Templates/DurinDevTool/build-config.json` when the
+then creates `.agents/DevTool.user.json` from
+`Templates/DurinDevTool/DevTool.user.json` when the
 local file is missing. It also copies missing VS Code `settings.json` and
 `extensions.json` files from `Templates/VSCode` into the ignored local
 `.vscode` directory. When `launch.json` is missing, Setup generates one entry
@@ -57,14 +57,14 @@ for `DevTool setup` in the main checkout or `DevTool worktree prepare` in a
 linked worktree rather than silently using a different system Python.
 
 Machine-specific CMake, build-profile, environment, or job overrides belong in
-`.agents/build-config.json`. Normally, leave them empty and let the build driver
+`.agents/DevTool.user.json`. Normally, leave them empty and let the build driver
 detect the Visual Studio environment and parallelism. Setup's preflight honors
 both `cmake.command` and `toolchain.environmentScript`; the third-party
 bootstrap also uses `cmake.command`, and `CMAKE_COMMAND` still takes precedence
 during Setup. The file uses schema version 1; `null` means no path or profile
 override, while `build.parallelJobs: "auto"` selects detected parallelism.
 The generated file references
-`Tools/DurinDevTool/build-config.schema.json` for editor completion and field
+`Tools/DurinDevTool/DevTool.user.schema.json` for editor completion and field
 documentation.
 
 Tracked DurinDevTool repository structure and command-group enablement live in
@@ -269,7 +269,7 @@ available when the compiler toolchain is unavailable.
 
 If Ctrl+C is not forwarded by the terminal or batch wrapper, run `.\DevTool.bat stop` from a second terminal, or enter `stop` in another already-open DurinDevTool shell. It stops the active DurinDevTool process and its complete CMake/Ninja child process tree for this checkout. The foreground shell cannot accept `stop` while it is waiting for its own operation, so stopping that operation requires another process.
 
-The selected preset is session-local and does not modify `.agents/build-config.json`:
+The selected preset is session-local and does not modify `.agents/DevTool.user.json`:
 
 ```text
 DurinDevTool> presets

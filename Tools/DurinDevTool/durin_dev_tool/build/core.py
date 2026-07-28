@@ -163,7 +163,7 @@ def find_vsdevcmd(environment: Mapping[str, str] | None = None) -> Path:
     if vswhere is None:
         raise BuildToolError(
             "Visual Studio environment could not be detected because vswhere.exe was not found. "
-            'Set toolchain.environmentScript in ".agents/build-config.json".'
+            'Set toolchain.environmentScript in ".agents/DevTool.user.json".'
         )
     command = [
         str(vswhere),
@@ -376,7 +376,7 @@ def build_environment(
             raise BuildToolError(
                 f'Profile environment provider "{provider.value}" requires '
                 "toolchain.environmentScript "
-                'in ".agents/build-config.json".'
+                'in ".agents/DevTool.user.json".'
             )
         return capture_setup_environment(
             Path(configured_script).expanduser(),
@@ -452,7 +452,7 @@ def ensure_required_commands(profile: BuildProfile, environment: dict[str, str])
         raise BuildToolError(
             f'Required command "{command}" was not found for the selected build profile. '
             'Initialize it through toolchain.environmentScript '
-            'in ".agents/build-config.json".'
+            'in ".agents/DevTool.user.json".'
         )
 
 

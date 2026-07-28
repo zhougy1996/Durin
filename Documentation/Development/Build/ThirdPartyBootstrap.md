@@ -27,7 +27,7 @@ same dependency service.
 - `DevTool worktree prepare` links a linked worktree's `Engine/External` and `.venv` to a prepared dependency worktree.
 - The same command links the complete `.agents` directory from that dependency worktree, so machine-local configuration and helper changes are shared immediately.
 - When migrating an existing worktree with a real non-empty `.agents` directory, the helper preserves it as `.agents.pre-link-backup` before creating the link.
-- On Windows, all three shared directories use directory junctions by default; `.agents/build-config.json` remains a regular file in the source worktree and is reached through that shared directory.
+- On Windows, all three shared directories use directory junctions by default; `.agents/DevTool.user.json` remains a regular file in the source worktree and is reached through that shared directory.
 - Preview the operation with `DevTool worktree prepare --dry-run`.
 - By default, linked Git worktrees pull those links from the main worktree root.
 - Use `--source` when the prepared dependency worktree is not the main worktree root.
@@ -42,7 +42,7 @@ same dependency service.
 
 Keep `Build/`, `Engine/Intermediate/`, and `Engine/Binaries/` local to each worktree; never junction or share them. Build ownership and IDE rules are documented in `BuildAndRun.md`.
 
-`Templates/DurinDevTool/build-config.json` is the starter template for optional
+`Templates/DurinDevTool/DevTool.user.json` is the starter template for optional
 machine-local build overrides. Repository paths, enabled command groups, and the
 Agent Build Profile manifest location belong in the tracked
 `Tools/DurinDevTool/DevTool.json` configuration instead.
