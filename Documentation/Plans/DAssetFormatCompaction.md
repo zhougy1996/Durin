@@ -319,7 +319,7 @@ Dependencies: Stages 2 and 3, plus any selected compression implementation.
 | Determinism | Repeated save and equivalent-state construction produce identical v3 bytes |
 | Size | Per-asset and aggregate v2/v3 corpus report with metadata/payload breakdown |
 | Performance | Warm-cache parse time, peak temporary memory, and allocation comparison |
-| Build and plans | Repository BuildTool validation and `.\DocTool.bat validate --scope all` |
+| Build and plans | Repository DurinDevTool validation and `.\DevTool.bat plan validate --scope all` |
 
 Build and test execution must follow [Build And Run](../Development/Build/BuildAndRun.md)
 and [Native C++ Tests](../Development/Build/NativeTests.md).
