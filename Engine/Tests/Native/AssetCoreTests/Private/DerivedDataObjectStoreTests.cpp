@@ -3,6 +3,7 @@
 #include "DerivedDataObjectStore.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 
 namespace
 {
@@ -14,7 +15,7 @@ namespace
 
 TEST(FDerivedDataObjectStoreTests, ReadsAndAtomicallyReplacesCanonicalObjects)
 {
-	const auto CacheRoot = std::filesystem::path(DURIN_TEST_WORK_DIR) / "ObjectStoreReadWrite";
+	const auto CacheRoot = Durin::Testing::GetTestWorkDirectory() / "ObjectStoreReadWrite";
 	std::filesystem::remove_all(CacheRoot);
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	const Durin::Asset::FDerivedDataObjectStore Store("Test/Objects", 1024);
@@ -35,7 +36,7 @@ TEST(FDerivedDataObjectStoreTests, ReadsAndAtomicallyReplacesCanonicalObjects)
 
 TEST(FDerivedDataObjectStoreTests, RejectsInvalidKeysAndOversizedObjectsTransactionally)
 {
-	const auto CacheRoot = std::filesystem::path(DURIN_TEST_WORK_DIR) / "ObjectStoreValidation";
+	const auto CacheRoot = Durin::Testing::GetTestWorkDirectory() / "ObjectStoreValidation";
 	std::filesystem::remove_all(CacheRoot);
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	const Durin::Asset::FDerivedDataObjectStore Store("Test/Objects", 3);
@@ -51,7 +52,7 @@ TEST(FDerivedDataObjectStoreTests, RejectsInvalidKeysAndOversizedObjectsTransact
 
 TEST(FDerivedDataObjectStoreTests, CleanupIsBoundedAndOnlyDeletesCanonicalObjects)
 {
-	const auto CacheRoot = std::filesystem::path(DURIN_TEST_WORK_DIR) / "ObjectStoreCleanup";
+	const auto CacheRoot = Durin::Testing::GetTestWorkDirectory() / "ObjectStoreCleanup";
 	std::filesystem::remove_all(CacheRoot);
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	const Durin::Asset::FDerivedDataObjectStore Store("Test/Objects", 1024);

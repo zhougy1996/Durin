@@ -24,9 +24,14 @@ Completed:
 - Stage 4 is in progress. The Core utility, file-system, concurrency, and
   reflection/object domains now use the process sandbox and run without their
   temporary target serialization locks.
+- The asset package, cook, derived-data, decoder, and import domains also use
+  the process sandbox and run without temporary target serialization locks.
 - Three consecutive 14-job aggregate runs passed all 720 CTest entries after
   the Core targets enabled case parallelism; their real times were 20.95,
   20.52, and 23.35 seconds.
+- Three further 14-job aggregate runs passed all 720 CTest entries after the
+  asset targets enabled case parallelism; their real times were 17.70, 16.63,
+  and 17.56 seconds.
 - `.\DevTool.bat test --target all` now schedules CTest-discovered GoogleTest
   cases with the Agent Build Profile job count; the current profile runs 14
   cases concurrently.
@@ -49,7 +54,7 @@ Completed:
   and load, failed package and shader-cache publication, and thumbnail fixture
   setup failures. The same thumbnail suites passed when run in one process,
   including 100 shuffled repetitions.
-- The repository currently has 145 `DURIN_TEST_WORK_DIR` references in 37
+- The repository currently has 109 `DURIN_TEST_WORK_DIR` references in 32
   native-test source/header files, and 32 native-test files call
   `std::filesystem::remove_all`.
 - `FTextureCubeAssetThumbnailTests.ProviderRejectsMissingRegistryData` also has
@@ -424,7 +429,7 @@ cases.
 
 - [x] Migrate the Core utility/file-system, concurrency, and reflection/object
   domains; audit helpers that initialize paths before a test body.
-- [ ] Migrate the asset package/registry, derived-data, decoder, and import
+- [x] Migrate the asset package/registry, derived-data, decoder, and import
   domains; isolate package roots, registry files, derived data, cook output,
   and companion files.
 - [ ] Migrate the shader compiler/service, shader cache/store, and

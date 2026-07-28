@@ -32,6 +32,9 @@ function(durin_add_asset_functional_test target_name)
 		)
 	endif()
 
+	set_target_properties(${target_name} PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+	)
 	durin_discover_tests(${target_name})
 endfunction()
 

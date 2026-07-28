@@ -2,6 +2,7 @@
 
 #include "AssetImport.h"
 #include "Json/Json.h"
+#include "NativeTestSupport.h"
 #include "Threading/QueuedThreadPool.h"
 
 namespace Durin::Asset
@@ -216,7 +217,7 @@ namespace Durin::Asset
 			const std::vector<std::string>& MaterialNames,
 			const std::vector<uint32>& PrimitiveMaterialIndices) -> std::filesystem::path
 		{
-			const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "MaterialSlotFixtures";
+			const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "MaterialSlotFixtures";
 			std::filesystem::create_directories(Root);
 			const std::filesystem::path Path = Root / FileName;
 			std::ofstream Stream(Path, std::ios::trunc);
@@ -553,7 +554,7 @@ namespace Durin::Asset
 	TEST(FAssetImportTests, RejectsMalformedReferenceAndMaterialBudgetBeforeAssimpPublication)
 	{
 		const std::filesystem::path Root =
-			std::filesystem::path(DURIN_TEST_WORK_DIR) / "NormalizedImportFailures";
+			Durin::Testing::GetTestWorkDirectory() / "NormalizedImportFailures";
 		std::filesystem::create_directories(Root);
 
 		const std::filesystem::path InvalidReference = Root / "InvalidReference.gltf";

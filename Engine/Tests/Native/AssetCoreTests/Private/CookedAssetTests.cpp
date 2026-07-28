@@ -4,6 +4,7 @@
 #include "AssetSystem.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
+#include "NativeTestSupport.h"
 
 namespace
 {
@@ -136,7 +137,7 @@ TEST(FCookedBulkTests, RejectsDeclaredExcessivePayloadSizeBeforeAllocation)
 
 TEST(FCookedPathTests, ResolvesRelocatableCompanionAndRejectsTraversalAndWrongMount)
 {
-	const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "CookedPath";
+	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "CookedPath";
 	std::filesystem::path Package, Companion;
 	ASSERT_TRUE(ResolveCookedPackagePath(std::filesystem::absolute(Root), "/Game/Textures/T", Package));
 	ASSERT_TRUE(ResolveCookedCompanionPath(std::filesystem::absolute(Root), Package, Companion));
@@ -151,7 +152,7 @@ TEST(FCookedPathTests, ResolvesRelocatableCompanionAndRejectsTraversalAndWrongMo
 TEST(FCookedPathTests, ExplicitRuntimeContextRejectsFallbackAndPackageMutation)
 {
 	const std::filesystem::path Root = std::filesystem::absolute(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "CookedMode");
+		Durin::Testing::GetTestWorkDirectory() / "CookedMode");
 	FPackageLoadContext Runtime{EPackageLoadMode::CookedRuntime, Root};
 	ASSERT_TRUE(Runtime.IsValid());
 	EXPECT_FALSE(Runtime.AllowsSourceFallback());
@@ -190,7 +191,7 @@ TEST(FCookManifestTests, IsDeterministicAndRejectsCorruptRecords)
 TEST(FCookContextTests, PublishesRelocatesAndCleansOnlyManifestOwnedStaleOutputs)
 {
 	const std::filesystem::path Root = std::filesystem::absolute(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "CookPublication");
+		Durin::Testing::GetTestWorkDirectory() / "CookPublication");
 	std::filesystem::remove_all(Root);
 	FCookContext First(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	ASSERT_TRUE(First.AddPackage("/Game/Old", MakePackageBytes(), {Payload(FGuid(1, 0, 0, 0), {3, 4})}));
@@ -221,7 +222,7 @@ TEST(FCookContextTests, PublishesRelocatesAndCleansOnlyManifestOwnedStaleOutputs
 TEST(FCookContextTests, DescriptorAwarePackageBuilderReceivesExactPublishedEntries)
 {
 	const std::filesystem::path Root = std::filesystem::absolute(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "DescriptorAwareCook");
+		Durin::Testing::GetTestWorkDirectory() / "DescriptorAwareCook");
 	std::filesystem::remove_all(Root);
 	FCookContext Context(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	FCookedPayloadDescriptor Captured;
@@ -249,7 +250,7 @@ TEST(FCookContextTests, DescriptorAwarePackageBuilderReceivesExactPublishedEntri
 TEST(FCookContextTests, PackagePublicationFailureLeavesNoReferencingPackageOrManifest)
 {
 	const std::filesystem::path Root = std::filesystem::absolute(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "CookInterruption");
+		Durin::Testing::GetTestWorkDirectory() / "CookInterruption");
 	std::filesystem::remove_all(Root);
 	std::filesystem::create_directories(Root / "Game/Blocked.dasset");
 	FCookContext Context(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
@@ -262,7 +263,7 @@ TEST(FCookContextTests, PackagePublicationFailureLeavesNoReferencingPackageOrMan
 TEST(FCookContextTests, InvalidPackageFailsBeforeBulkPublication)
 {
 	const std::filesystem::path Root = std::filesystem::absolute(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "CookInvalidPackage");
+		Durin::Testing::GetTestWorkDirectory() / "CookInvalidPackage");
 	std::filesystem::remove_all(Root);
 	FCookContext Context(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	ASSERT_TRUE(Context.AddPackage("/Game/Invalid", {1, 2, 3}, {Payload(FGuid(1, 0, 0, 0), {4})}));

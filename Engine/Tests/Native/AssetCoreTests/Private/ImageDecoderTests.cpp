@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "ImageDecoder.h"
+#include "NativeTestSupport.h"
 
 namespace Durin::Asset
 {
@@ -13,7 +14,7 @@ namespace Durin::Asset
 
 		auto WriteFixture(std::string_view Name, std::span<const uint8> Bytes) -> std::filesystem::path
 		{
-			const std::filesystem::path Path = std::filesystem::path(DURIN_TEST_WORK_DIR) / Name;
+			const std::filesystem::path Path = Durin::Testing::GetTestWorkDirectory() / Name;
 			std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
 			Stream.write(reinterpret_cast<const char*>(Bytes.data()), static_cast<std::streamsize>(Bytes.size()));
 			return Path;

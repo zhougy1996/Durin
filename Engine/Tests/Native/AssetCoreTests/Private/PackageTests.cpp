@@ -8,6 +8,7 @@
 #include "Misc/DerivedDataCache.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
+#include "NativeTestSupport.h"
 #include "Threading/RunnableThread.h"
 
 namespace
@@ -166,9 +167,10 @@ namespace
 			Durin::GIsGameThreadIdInitialized = true;
 			Durin::FNameInit();
 			Durin::DObjectInit();
-			const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets";
+			const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "Assets";
 			std::filesystem::remove_all(Root);
-			Durin::FPaths::SetDerivedDataCacheDirForTests((std::filesystem::path(DURIN_TEST_WORK_DIR) / "DerivedDataCache").generic_string());
+			Durin::FPaths::SetDerivedDataCacheDirForTests(
+				(Durin::Testing::GetTestWorkDirectory() / "DerivedDataCache").generic_string());
 			Durin::PathUtilities::RegisterMountPoint("/TestAssets/", Root.generic_string() + "/");
 			return true;
 		}();
@@ -229,7 +231,7 @@ TEST(FPackageAssetTests, HeaderReaderStopsBeforeLargeObjectPayload)
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	Asset->Scores.resize(1024 * 1024, 7);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
-	const auto File = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "LargeHeaderOnly.dasset";
+	const auto File = Durin::Testing::GetTestWorkDirectory() / "Assets" / "LargeHeaderOnly.dasset";
 	ASSERT_GT(std::filesystem::file_size(File), 4u * 1024u * 1024u);
 
 	Durin::Asset::FAssetPackageHeader Header;
@@ -248,7 +250,7 @@ TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
-	const auto Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets";
+	const auto Root = Durin::Testing::GetTestWorkDirectory() / "Assets";
 	const auto Source = Root / "HeaderValidationSource.dasset";
 	std::vector<Durin::uint8> Valid;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Valid, Source.generic_string()));
@@ -336,7 +338,7 @@ TEST(FPackageAssetTests, CompleteInspectionContainsEveryObjectAndContentFingerpr
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 
 	const auto File =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "CompleteInspection.dasset";
+		Durin::Testing::GetTestWorkDirectory() / "Assets" / "CompleteInspection.dasset";
 	Durin::Asset::FAssetPackageInspection Inspection;
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(File.generic_string(), Inspection));
 	ASSERT_EQ(Inspection.Objects.size(), 2u);
@@ -362,7 +364,7 @@ TEST(FPackageAssetTests, ObjectFreeAuditReportsUnknownFieldsWithoutLoadingPackag
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	const auto File =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "AuditUnknown.dasset";
+		Durin::Testing::GetTestWorkDirectory() / "Assets" / "AuditUnknown.dasset";
 	std::vector<Durin::uint8> Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File.generic_string()));
 	ASSERT_TRUE(RenameSerializedString(Bytes, "Value", "Stale"));
@@ -477,7 +479,7 @@ TEST(FPackageAssetTests, InspectionUpgraderMakesRecognizedPackageBatchSafe)
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	const auto File =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "AuditSafe.dasset";
+		Durin::Testing::GetTestWorkDirectory() / "Assets" / "AuditSafe.dasset";
 	std::vector<Durin::uint8> Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File.generic_string()));
 	ASSERT_TRUE(RenameSerializedString(Bytes, "Value", "Clean"));
@@ -576,7 +578,7 @@ TEST(FPackageAssetTests, ExpectedFingerprintRejectsExternallyChangedPackage)
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	const auto File =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "StaleSave.dasset";
+		Durin::Testing::GetTestWorkDirectory() / "Assets" / "StaleSave.dasset";
 	const Durin::Asset::FAssetData Data = RefreshAssetData(Path, File);
 	Durin::Asset::FAssetPackageAuditReport Audit;
 	ASSERT_TRUE(Durin::Asset::AuditAssetPackage(Data, Audit));
@@ -607,7 +609,7 @@ TEST(FPackageAssetTests, ReportsUnknownFieldsWithoutMarkingPackageDirty)
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 
-	const auto File = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "ObsoleteField.dasset";
+	const auto File = Durin::Testing::GetTestWorkDirectory() / "Assets" / "ObsoleteField.dasset";
 	std::vector<Durin::uint8> Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File.generic_string()));
 	ASSERT_TRUE(RenameSerializedString(Bytes, "Value", "Stale"));
@@ -679,7 +681,7 @@ TEST(FPackageAssetTests, RegisteredSafeCleanupProducesStructuredReportAndDirtyPa
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
-	const auto File = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "SafeCleanup.dasset";
+	const auto File = Durin::Testing::GetTestWorkDirectory() / "Assets" / "SafeCleanup.dasset";
 	std::vector<Durin::uint8> Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File.generic_string()));
 	ASSERT_TRUE(RenameSerializedString(Bytes, "Value", "Clean"));
@@ -746,7 +748,7 @@ TEST(FPackageAssetTests, SequentialPackageSavesPublishEarlierPackagesBeforeLater
 	First->Value = 1;
 	Second->Value = 2;
 
-	const std::filesystem::path Root = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets";
+	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "Assets";
 	const std::filesystem::path Blocker = Root / "Stage0Blocked";
 	{
 		std::ofstream Stream(Blocker);
@@ -809,7 +811,7 @@ TEST(FPackageAssetTests, AtomicBundleSaveRestoresFilesRegistryAndDirtyStateOnFai
 	EXPECT_EQ(*Durin::Asset::GetAssetRegistry().FindAsset(ExistingPath), ExistingRegistry);
 	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(NewPath), nullptr);
 	EXPECT_FALSE(std::filesystem::exists(
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "AtomicBundleNew.dasset"));
+		Durin::Testing::GetTestWorkDirectory() / "Assets" / "AtomicBundleNew.dasset"));
 	EXPECT_TRUE(Existing->GetPackage()->IsDirty());
 	EXPECT_TRUE(Added->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::Asset::DiscardUnpublishedPackage(Added->GetPackage()));
@@ -860,7 +862,7 @@ TEST(FPackageAssetTests, RejectsTruncatedPackagesWithoutCachingPartialObjects)
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 
-	const std::filesystem::path File = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "Corrupt.dasset";
+	const std::filesystem::path File = Durin::Testing::GetTestWorkDirectory() / "Assets" / "Corrupt.dasset";
 	std::filesystem::resize_file(File, 12);
 	Durin::DObject* Loaded = nullptr;
 	const Durin::Asset::FAssetResult Result = Durin::Asset::LoadAsset(Path, Loaded);
@@ -880,14 +882,14 @@ TEST(FPackageAssetTests, VersionTwoDoesNotStoreItsOwnPathAndDirectoryMoveIsByteS
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Asset));
 	Asset->Label = "movable";
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
-	const auto OldFile = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "MoveSource.dasset";
+	const auto OldFile = Durin::Testing::GetTestWorkDirectory() / "Assets" / "MoveSource.dasset";
 	std::vector<Durin::uint8> Before;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Before, OldFile.generic_string()));
 	EXPECT_EQ(*reinterpret_cast<const Durin::uint32*>(Before.data() + sizeof(Durin::uint32)), 2u);
 	EXPECT_EQ(std::search(Before.begin(), Before.end(), OldPath.GetView().begin(), OldPath.GetView().end()), Before.end());
 
 	ASSERT_TRUE(Durin::Asset::MoveAsset(OldPath, NewPath));
-	const auto NewFile = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "Sub" / "MoveSource.dasset";
+	const auto NewFile = Durin::Testing::GetTestWorkDirectory() / "Assets" / "Sub" / "MoveSource.dasset";
 	std::vector<Durin::uint8> After;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(After, NewFile.generic_string()));
 	EXPECT_EQ(Before, After);
@@ -928,7 +930,7 @@ TEST(FPackageAssetTests, DeletesUnreferencedAssetAndRegistryEntry)
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
-	const std::filesystem::path File = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "DeleteMe.dasset";
+	const std::filesystem::path File = Durin::Testing::GetTestWorkDirectory() / "Assets" / "DeleteMe.dasset";
 	ASSERT_TRUE(std::filesystem::exists(File));
 
 	Durin::Asset::FAssetDeleteAnalysis Analysis;
@@ -957,7 +959,8 @@ TEST(FPackageAssetTests, UnloadsAndDeletesLoadedUnreferencedAsset)
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(Path));
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), nullptr);
 	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(Path), nullptr);
-	EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "LoadedDelete.dasset"));
+	EXPECT_FALSE(std::filesystem::exists(
+		Durin::Testing::GetTestWorkDirectory() / "Assets" / "LoadedDelete.dasset"));
 }
 
 TEST(FPackageAssetTests, RejectsDeletingReferencedAssetWithoutChangingDisk)
@@ -982,7 +985,8 @@ TEST(FPackageAssetTests, RejectsDeletingReferencedAssetWithoutChangingDisk)
 	EXPECT_EQ(Durin::Asset::DeleteAsset(DependencyPath).Error, Durin::Asset::EAssetError::InUse);
 	EXPECT_NE(Durin::Asset::FindLoadedPackage(DependencyPath), nullptr);
 	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAsset(DependencyPath), nullptr);
-	EXPECT_TRUE(std::filesystem::exists(std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "DeleteDependency.dasset"));
+	EXPECT_TRUE(std::filesystem::exists(
+		Durin::Testing::GetTestWorkDirectory() / "Assets" / "DeleteDependency.dasset"));
 }
 
 TEST(FPackageAssetTests, DeletesRegisteredCompanionFile)
@@ -992,7 +996,8 @@ TEST(FPackageAssetTests, DeletesRegisteredCompanionFile)
 
 	Durin::FAssetPath Path;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/DeleteWithCompanion", Path));
-	const std::filesystem::path Companion = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "DeleteWithCompanion.source";
+	const std::filesystem::path Companion =
+		Durin::Testing::GetTestWorkDirectory() / "Assets" / "DeleteWithCompanion.source";
 	{
 		std::ofstream Stream(Companion);
 		Stream << "source";
@@ -1021,7 +1026,8 @@ TEST(FPackageAssetTests, DeletesMainAssetWhenCompanionInspectionFails)
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
-	const std::filesystem::path File = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "DeleteCorruptPackage.dasset";
+	const std::filesystem::path File =
+		Durin::Testing::GetTestWorkDirectory() / "Assets" / "DeleteCorruptPackage.dasset";
 	std::vector<Durin::uint8> Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File.generic_string()));
 	ASSERT_GT(Bytes.size(), 16u);
@@ -1067,7 +1073,7 @@ TEST(FPackageAssetTests, VersionOneIsExplicitlyUnsupported)
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
-	const auto File = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets" / "LegacyVersion.dasset";
+	const auto File = Durin::Testing::GetTestWorkDirectory() / "Assets" / "LegacyVersion.dasset";
 	std::fstream Stream(File, std::ios::in | std::ios::out | std::ios::binary);
 	ASSERT_TRUE(Stream.is_open());
 	const Durin::uint32 Version = 1;
@@ -1086,8 +1092,8 @@ TEST(FPackageAssetTests, VersionOneIsExplicitlyUnsupported)
 TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInvalidCache)
 {
 	InitializeAssetTests();
-	const auto WorkRoot = std::filesystem::path(DURIN_TEST_WORK_DIR) / "RegistryReconciliation";
-	const auto OriginalAssets = std::filesystem::path(DURIN_TEST_WORK_DIR) / "Assets";
+	const auto WorkRoot = Durin::Testing::GetTestWorkDirectory() / "RegistryReconciliation";
+	const auto OriginalAssets = Durin::Testing::GetTestWorkDirectory() / "Assets";
 	const auto ContentA = WorkRoot / "ContentA";
 	const auto ContentB = WorkRoot / "ContentB";
 	const auto CacheRoot = WorkRoot / "DerivedDataCache";
@@ -1208,7 +1214,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresWriteFailures)
 {
 	InitializeAssetTests();
-	const auto WorkRoot = std::filesystem::path(DURIN_TEST_WORK_DIR) / "RegistryMutationLifecycle";
+	const auto WorkRoot = Durin::Testing::GetTestWorkDirectory() / "RegistryMutationLifecycle";
 	const auto ContentRoot = WorkRoot / "Content";
 	const auto CacheRoot = WorkRoot / "DerivedDataCache";
 	std::filesystem::remove_all(WorkRoot);
