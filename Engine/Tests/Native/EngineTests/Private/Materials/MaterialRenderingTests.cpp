@@ -1,6 +1,7 @@
 #include "MaterialTestSupport.h"
 #include "DynamicRHI.h"
 #include "Modules/ModuleManager.h"
+#include "NativeTestSupport.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
@@ -302,9 +303,9 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
 	const std::filesystem::path TextureMount =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "MaterialThumbnailVulkan";
+		Durin::Testing::GetTestWorkDirectory() / "MaterialThumbnailVulkan";
 	const std::filesystem::path TextureSource =
-		std::filesystem::path(DURIN_TEST_WORK_DIR) / "MaterialThumbnailVulkan.png";
+		Durin::Testing::GetTestWorkDirectory() / "MaterialThumbnailVulkan.png";
 	std::filesystem::remove_all(TextureMount);
 	std::filesystem::create_directories(TextureMount / "SourceAssets");
 	WriteMaterialTextureFixture(TextureSource);
