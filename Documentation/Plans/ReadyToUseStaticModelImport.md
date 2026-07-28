@@ -14,15 +14,11 @@ The transaction completes package/source collision preflight before writes,
 stages source and package bytes invisibly, publishes dependency packages before
 the root package and registry, and rolls back attempt-created sources, DDC
 objects, packages, registry visibility, and caller-snapshotted loaded-object
-mutations. Stage 3 is the next executable stage.
-
-Before Stage 3 begins, the active
-`Documentation/Plans/StaticModelImportStage3Preparation.md` plan must complete.
-It extracts independent glTF/GLB and Assimp-backed FBX adapter units, replaces
-repeated transaction resolution with one immutable resolved plan, removes the
-raw FBX DCC-marker scan, and makes decode, texture-build, and DDC failure tests
-exercise their actual work boundaries. This is a structure and validation gate;
-it does not add Stage 3 generated-asset behavior.
+mutations. The completed `StaticModelImportStage3Preparation.md` gate extracted
+independent glTF/GLB and Assimp-backed FBX adapters, replaced repeated
+transaction resolution with one immutable resolved plan, removed the raw FBX
+DCC-marker scan, and moved rollback injection to real work boundaries. Stage 3
+is now unblocked and is the next executable stage.
 
 Source dependency terminology now follows the unified logical-mount contract
 selected by `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`: persisted inputs
@@ -792,19 +788,17 @@ reference-or-ingest semantics from its owning plan.
   Failure injection covers directory creation, source write, decode, texture
   build, DDC publication, package publication, registry publication, and final
   root-package publication.
-- Open questions: none for the preparation plan. Stage 3 remains blocked on
-  `StaticModelImportStage3Preparation.md`; after that plan completes, Stage 3
-  should compose the resulting primitives with output naming, generated
-  material instances, StaticMesh defaults, and manifest persistence rather
-  than adding another save loop or source-copy path.
-- Validation: all 59 `AssetCoreTests` passed; all eight focused
-  `FStaticModelImportBuildTests` passed, including successful multi-texture
-  publication, mounted reference, explicit external ingestion, deterministic
-  extraction, collision preflight, and all injected rollback boundaries. The
-  existing reflected Texture2D editor-transaction test still terminates the
-  `EngineTests` process with Windows debug-break exit `0x80000003`; the same
-  failure reproduces when every new Stage 2 test is excluded, while the
-  directly affected focused suites and ordinary Texture2D import test pass.
+- Preparation handoff: Stage 3 should compose the isolated format adapters and
+  resolved transaction primitives with output naming, generated material
+  instances, StaticMesh defaults, and manifest persistence. It must not add
+  another save loop, source-copy path, format switch, or public test control.
+- Validation: the completed preparation gate built the full
+  `Win64-Debug-DurinEditor-Tests` preset and passed all 726 registered tests,
+  including 19 `AssetImportTests`, 28 `AssetPackageTests`, 43
+  `StaticMeshTests`, and 56 `TextureTests`; three isolation/link cases were
+  intentionally skipped. The `Win64-Debug-DurinGame` Runtime `Engine` target
+  also built successfully. Public workflow headers contain no test-only
+  failure setter, and runtime module boundaries remain intact.
 
 ### Stage 3: Deliver the opaque base-color end-to-end workflow
 

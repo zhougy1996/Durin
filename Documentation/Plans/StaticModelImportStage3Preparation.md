@@ -4,14 +4,15 @@ Summary: Refactor the completed static-model import foundations into isolated fo
 
 Last reviewed: 2026-07-28
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-07-28
 
 ## Current Status
 
-Stages 0 through 3 are complete. Stage 3 started from baseline
-`60da30df` (`refactor(import): resolve model transactions once`). Stage 4 is
-the next executable stage.
+Stages 0 through 4 are complete. The importer now has independent private
+glTF/GLB and Assimp-backed FBX adapters, one resolved transaction plan, and
+rollback tests at the real decode, candidate-build, DDC, source, package, and
+registry boundaries. `ReadyToUseStaticModelImport.md` Stage 3 is unblocked.
 
 The current implementation has the intended external architecture: one
 format-neutral `FImportedSceneData` boundary, editor-only source parsing,
@@ -480,19 +481,19 @@ Dependencies: Stage 2.
 
 Dependencies: Stages 1 through 3.
 
-- [ ] Run all affected AssetCore and Engine focused native suites through the
+- [x] Run all affected AssetCore and Engine focused native suites through the
   repository DurinDevTool workflow.
-- [ ] Run the complete native suites required by the affected modules and
+- [x] Run the complete native suites required by the affected modules and
   distinguish any pre-existing failure from a regression with a focused
   reproduction.
-- [ ] Build the Runtime Engine target and the affected editor/test targets
+- [x] Build the Runtime Engine target and the affected editor/test targets
   through DurinDevTool.
-- [ ] Inspect the final module dependency graph for editor/runtime boundary
+- [x] Inspect the final module dependency graph for editor/runtime boundary
   regressions.
-- [ ] Inspect the diff for duplicated format policy, duplicated path
+- [x] Inspect the diff for duplicated format policy, duplicated path
   resolution, raw FBX marker scans, public test-only controls, and unrelated
   refactoring.
-- [ ] Update `ReadyToUseStaticModelImport.md` with the completed handoff and
+- [x] Update `ReadyToUseStaticModelImport.md` with the completed handoff and
   unblock its Stage 3 only after all required validation succeeds.
 
 #### Acceptance Gate
@@ -501,6 +502,24 @@ Dependencies: Stages 1 through 3.
   build, module boundaries remain valid, each identified review risk is
   removed, and the original plan can begin Stage 3 without adding features to
   the former monolithic paths.
+
+#### Stage 4 Handoff
+
+- Baseline commit: `9652b327`.
+- Working set: this plan and `ReadyToUseStaticModelImport.md`; Stage 4 made no
+  functional code changes.
+- Validation: the complete `Win64-Debug-DurinEditor-Tests` preset built and all
+  726 registered tests passed; three isolation/link cases were reported as
+  intentionally skipped. This includes 19 `AssetImportTests`, 28
+  `AssetPackageTests`, 43 `StaticMeshTests`, and 56 `TextureTests`. The
+  `Win64-Debug-DurinGame` Runtime `Engine` target also built successfully.
+- Boundary audit: runtime-only compilation retained the editor guard around
+  `AssetImport`; no runtime module gained an `EngineAssetBuild` dependency.
+  Public `StaticModelImportBuild.h` contains no failure enum or setter.
+  Targeted searches found no raw `3dsMax|main` code probe and no candidate
+  construction path that rereads or reclassifies external source input.
+- Outcome: every acceptance gate and definition-of-done item passed. The
+  preparation plan is completed and the owning workflow may begin Stage 3.
 
 ## Validation Matrix
 
