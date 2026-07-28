@@ -14,10 +14,6 @@ namespace Durin
 {
 	struct FTextureBuildOperations;
 
-	class FTexture2DResource;
-	class FTextureResourceCompletion;
-	class FTextureReference;
-
 	// Identifies the decoded pixel layout retained as editable texture source data.
 	enum class ETextureSourceFormat : uint8
 	{
@@ -181,12 +177,6 @@ namespace Durin
 		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
-		ENGINE_API auto GetTextureReferenceRHI() const
-			-> FRHITextureReferenceRef;
-		ENGINE_API auto GetRenderResourceState() const
-			-> ERenderResourceState;
-		ENGINE_API auto GetAppliedRenderRevision() const -> uint64;
-		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
 		auto GetUsage() const -> ETextureUsage { return Usage; }
 		auto IsSRGB() const -> bool { return bSRGB; }
 		auto GetMaxResolution() const -> uint32 { return MaxResolution; }
@@ -245,6 +235,13 @@ namespace Durin
 
 		ENGINE_API static auto ImportAsset(std::string_view FilePath, std::string_view AssetPath, const FTexture2DImportSettings& Settings = {}) -> FTexture2DImportResult;
 
+	protected:
+		auto CreateRenderResourceCandidate(
+			FTextureReference* TextureReference,
+			uint64 Revision,
+			const std::shared_ptr<FTextureResourceCompletion>& Completion)
+			-> std::unique_ptr<FTextureAssetResource> override;
+
 	private:
 		struct FEncodedBuildHooks
 		{
@@ -269,7 +266,6 @@ namespace Durin
 			float InAlphaCoverageThreshold,
 			std::unique_ptr<FTexturePlatformData>& OutPlatformData, std::string& OutError) const -> bool;
 		auto InvalidatePlatformData() -> void;
-		auto QueueRenderResourceBuild() -> void;
 		auto LoadCookedPlatformData(std::string& OutError) -> bool;
 
 		DPROPERTY()
@@ -335,14 +331,6 @@ namespace Durin
 		std::string DerivedDataKey;
 		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
 		bool bLoadedFromDerivedDataCache = false;
-
-		// These are the only high-level owners. Accepted render commands use raw
-		// pointers while ordered deferred cleanup retains the concrete storage.
-		std::unique_ptr<FTextureReference> TextureReference;
-		std::unique_ptr<FTexture2DResource> RenderResource;
-		std::shared_ptr<FTextureResourceCompletion> RenderCompletion;
-		bool bTextureReferenceInitializationQueued = false;
-		uint64 BuildRevision = 0;
 
 		// Persistent failure state. Set by the build pipeline and cleared on success.
 		ETextureBuildStatus BuildStatus = ETextureBuildStatus::Unbuilt;

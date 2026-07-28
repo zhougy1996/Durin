@@ -11,10 +11,6 @@
 
 namespace Durin
 {
-	class FTextureCubeResource;
-	class FTextureResourceCompletion;
-	class FTextureReference;
-
 	DENUM(DisplayName = "Texture Cube Source Layout")
 	enum class ETextureCubeSourceLayout : uint8
 	{
@@ -139,12 +135,6 @@ namespace Durin
 		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
-		ENGINE_API auto GetTextureReferenceRHI() const
-			-> FRHITextureReferenceRef;
-		ENGINE_API auto GetRenderResourceState() const
-			-> ERenderResourceState;
-		ENGINE_API auto GetAppliedRenderRevision() const -> uint64;
-		auto GetBuildRevision() const -> uint64 { return BuildRevision; }
 		auto IsSRGB() const -> bool { return bSRGB; }
 		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
 		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
@@ -202,10 +192,16 @@ namespace Durin
 			const FTextureCubeImportSettings& Settings,
 			std::string& OutError) -> bool;
 
+	protected:
+		auto CreateRenderResourceCandidate(
+			FTextureReference* TextureReference,
+			uint64 Revision,
+			const std::shared_ptr<FTextureResourceCompletion>& Completion)
+			-> std::unique_ptr<FTextureAssetResource> override;
+
 	private:
 		auto ResolvePanoramaSource() const -> std::filesystem::path;
 		auto InvalidatePlatformData() -> void;
-		auto QueueRenderResourceBuild() -> void;
 
 		DPROPERTY(DisplayName = "Source Layout")
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
@@ -254,14 +250,9 @@ namespace Durin
 
 		std::unique_ptr<FTextureCubeSourceData> SourceData;
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
-		std::unique_ptr<FTextureReference> TextureReference;
-		std::unique_ptr<FTextureCubeResource> RenderResource;
-		std::shared_ptr<FTextureResourceCompletion> RenderCompletion;
-		bool bTextureReferenceInitializationQueued = false;
 		std::string DerivedDataKey;
 		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
 		bool bLoadedFromDerivedDataCache = false;
-		uint64 BuildRevision = 0;
 		ETextureBuildStatus BuildStatus = ETextureBuildStatus::Unbuilt;
 		std::string LastBuildError;
 

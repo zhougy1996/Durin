@@ -11,6 +11,7 @@
 #include "Materials/MaterialTypes.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
+#include "RenderResource.h"
 #include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -155,6 +156,75 @@ namespace Durin
 		FinalizeRenderingThreadBeforeRHIExit();
 		EXPECT_EQ(GetRenderCommandAdmissionState(),
 			ERenderCommandAdmissionState::Draining);
+		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
+		ShutdownRenderingThread();
+	}
+
+	TEST(FEditorTextureSmokeTests,
+		TextureUnloadBehindQueuedCommandReturnsResourceCountsToBaseline)
+	{
+		InitializeDObjectSystem();
+		InitRenderingThread();
+		const size_t InitialRenderResourceCount =
+			GetNumInitializedRenderResources();
+		const size_t InitialDeferredCleanupCount =
+			GetNumPendingRenderResourceCleanup();
+
+		const std::filesystem::path Root =
+			Testing::GetTestWorkDirectory() / "TextureOwnershipSmoke";
+		Durin::Testing::RemoveTestWorkDirectory(Root);
+		PathUtilities::RegisterMountPoint(
+			"/TextureOwnershipSmoke/", Root.generic_string() + "/");
+		const std::filesystem::path Source =
+			Testing::GetTestWorkDirectory() / "TextureOwnershipSmoke.png";
+		WriteTextureSmokeFixture(Source);
+		const FTexture2DImportResult Import = DTexture2D::ImportAsset(
+			Source.generic_string(), "/TextureOwnershipSmoke/Texture");
+		ASSERT_TRUE(Import) << Import.Message;
+		ASSERT_NE(Import.Asset, nullptr);
+		FlushRenderingCommands();
+		FRHITextureReferenceRef AcceptedReference =
+			Import.Asset->GetTextureReferenceRHI();
+		ASSERT_NE(AcceptedReference, nullptr);
+
+		auto CommandStarted = std::make_shared<std::promise<void>>();
+		std::future<void> CommandStartedFuture = CommandStarted->get_future();
+		auto AllowCommandCompletion = std::make_shared<std::promise<void>>();
+		std::shared_future<void> AllowCommandCompletionFuture =
+			AllowCommandCompletion->get_future().share();
+		auto bReferenceObserved = std::make_shared<std::atomic<bool>>(false);
+		struct FObserveTextureReferenceDuringUnload
+		{
+			static constexpr auto GetName() -> const char*
+			{
+				return "ObserveTextureReferenceDuringUnload";
+			}
+		};
+		EnqueueRenderCommand<FObserveTextureReferenceDuringUnload>(
+			[AcceptedReference, CommandStarted, AllowCommandCompletionFuture,
+			 bReferenceObserved](FRHICommandListImmediate&) {
+				CommandStarted->set_value();
+				AllowCommandCompletionFuture.wait();
+				bReferenceObserved->store(
+					AcceptedReference != nullptr, std::memory_order_release);
+			});
+		CommandStartedFuture.wait();
+
+		FAssetPath TexturePath;
+		ASSERT_TRUE(FAssetPath::TryCreate(
+			"/TextureOwnershipSmoke/Texture", TexturePath));
+		const Asset::FAssetResult Unload = Asset::UnloadPackage(TexturePath);
+		AllowCommandCompletion->set_value();
+		FlushRenderingCommands();
+		EXPECT_TRUE(Unload) << Unload.Message;
+		EXPECT_TRUE(
+			bReferenceObserved->load(std::memory_order_acquire));
+		EXPECT_EQ(
+			GetNumInitializedRenderResources(), InitialRenderResourceCount);
+		EXPECT_EQ(
+			GetNumPendingRenderResourceCleanup(), InitialDeferredCleanupCount);
+
+		FinalizeRenderingThreadBeforeRHIExit();
 		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
 		ShutdownRenderingThread();
 	}

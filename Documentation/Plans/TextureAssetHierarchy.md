@@ -27,7 +27,7 @@ remain typed as `DTextureCube`. No current renderer consumer requires an
 unqualified texture asset, so this refactor must preserve those domain-specific
 types rather than using the new base class as a reason to widen every API.
 
-Stages 0 through 2 are complete. Stage 3 is the current implementation stage.
+Stages 0 through 3 are complete. Stage 4 is the current integration stage.
 
 Stage 0 handoff:
 
@@ -128,6 +128,42 @@ Stage 2 handoff:
   lifetime tests. A complete `TextureTests` run reproduced the existing
   `FStaticModelImportBuildTests` dependency-graph/sidecar failures, including
   the previously recorded access violation; no Stage 2 texture test failed.
+
+Stage 3 handoff:
+
+- Baseline commit:
+  `9fa4cdba8c688b8a0f14254d81a8d262245f9953`.
+- Working set: the common and leaf Engine texture asset declarations and
+  definitions, the editor texture queued-unload smoke test, and this plan.
+- Key symbols: `DTexture::QueueRenderResourceBuild`,
+  `DTexture::InvalidateRenderResource`,
+  `DTexture::CreateRenderResourceCandidate`,
+  `DTexture2D::CreateRenderResourceCandidate`, and
+  `DTextureCube::CreateRenderResourceCandidate`.
+- Decisions: `DTexture` exclusively owns the stable `FTextureReference`, shared
+  completion, generic `FTextureAssetResource`, build revision, and reference
+  initialization state. It also owns candidate replacement, invalidation,
+  destruction, and ordered deferred cleanup. Leaf hooks only snapshot validated
+  topology-specific platform data into concrete candidates. Leaf destructors
+  remain explicitly exported but contain no lifecycle behavior, preserving the
+  existing DLL destruction boundary.
+- Public boundary: the stable-reference and render-state observations now have
+  one implementation on `DTexture`; existing leaf calls remain source
+  compatible through inheritance. Serialized properties and leaf build status,
+  source, DDC, cook, and platform-data behavior remain in their original
+  declaring classes.
+- Ownership validation: a texture-only editor smoke test deterministically
+  blocks an accepted render command, unloads the asset, and verifies the
+  retained stable reference plus initialized-resource and deferred-cleanup
+  counts returning to baseline. This closes the Stage 0 queued-destruction gap.
+- Open questions: none for Stage 4. The older material/static-mesh texture smoke
+  test still reaches the recorded unrelated static-model import access
+  violation before its texture replacement section; the new ownership test
+  avoids that dependency.
+- Validation: all 43 shared-completion, Texture2D, TextureCube, cook, and DDC
+  tests passed; all four parameterized RenderCore texture-resource lifetime
+  tests passed; the hierarchy compatibility test and the new deterministic
+  queued-unload/resource-count test passed.
 
 ## Goal
 
@@ -338,22 +374,22 @@ Dependencies: Stage 1.
 
 ### Stage 3: Move Asset Resource Ownership into DTexture
 
-- [ ] Move stable-reference, shared-completion, generic concrete-resource,
+- [x] Move stable-reference, shared-completion, generic concrete-resource,
   build-revision, and initialization-queued storage from both leaf assets into
   `DTexture`.
-- [ ] Implement common reference initialization, candidate replacement,
+- [x] Implement common reference initialization, candidate replacement,
   invalidation release, destruction release, and deferred cleanup ordering in
   `DTexture`.
-- [ ] Add a protected leaf hook that creates a concrete resource candidate from
+- [x] Add a protected leaf hook that creates a concrete resource candidate from
   already validated immutable platform data; the base owns the candidate before
   any render command can observe it.
-- [ ] Replace leaf `QueueRenderResourceBuild` implementations with thin
+- [x] Replace leaf `QueueRenderResourceBuild` implementations with thin
   platform-data validation and candidate-creation hooks.
-- [ ] Replace leaf invalidation cleanup with the base release primitive while
+- [x] Replace leaf invalidation cleanup with the base release primitive while
   retaining each leaf's platform-data reset and build-status behavior.
-- [ ] Remove duplicate public render-state accessors and update direct field
+- [x] Remove duplicate public render-state accessors and update direct field
   access in tests or diagnostics to use the common contract.
-- [ ] Verify constructors, failed imports, package unload, runtime shutdown, and
+- [x] Verify constructors, failed imports, package unload, runtime shutdown, and
   destruction before/after RHI startup do not leak, double-release, or publish
   stale allocations.
 

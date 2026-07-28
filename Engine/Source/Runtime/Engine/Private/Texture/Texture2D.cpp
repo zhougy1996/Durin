@@ -302,9 +302,6 @@ namespace Durin
 
 	DTexture2D::DTexture2D(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-		, TextureReference(std::make_unique<FTextureReference>())
-		, RenderCompletion(
-			std::make_shared<FTextureResourceCompletion>())
 	{
 		static const bool RegisteredAssetContributors = [] {
 			Asset::RegisterAssetMoveContributor(DTexture2D::StaticClass(), [](DObject*, const FAssetPath&, const FAssetPath&,
@@ -322,44 +319,7 @@ namespace Durin
 		(void)RegisteredAssetContributors;
 	}
 
-	DTexture2D::~DTexture2D()
-	{
-		RenderCompletion->BeginRequest(++BuildRevision);
-		if (RenderResource)
-		{
-			RenderResource->PrepareForRelease(BuildRevision);
-			FTexture2DResource* Resource = RenderResource.get();
-			Resource->BeginRelease_GameThread();
-			BeginCleanupRenderResource(
-				FDeferredRenderResourceCleanup(std::move(RenderResource)));
-		}
-		if (bTextureReferenceInitializationQueued)
-		{
-			FTextureReference* Reference = TextureReference.get();
-			Reference->BeginRelease_GameThread();
-			BeginCleanupRenderResource(
-				FDeferredRenderResourceCleanup(std::move(TextureReference)));
-		}
-	}
-
-	auto DTexture2D::GetTextureReferenceRHI() const
-		-> FRHITextureReferenceRef
-	{
-		return TextureReference
-			? TextureReference->GetTextureReferenceRHI()
-			: FRHITextureReferenceRef{};
-	}
-
-	auto DTexture2D::GetRenderResourceState() const
-		-> ERenderResourceState
-	{
-		return RenderCompletion->GetResourceState();
-	}
-
-	auto DTexture2D::GetAppliedRenderRevision() const -> uint64
-	{
-		return RenderCompletion->GetAppliedRevision();
-	}
+	DTexture2D::~DTexture2D() = default;
 
 	auto DTexture2D::InvalidatePlatformData() -> void
 	{
@@ -372,55 +332,21 @@ namespace Durin
 			BuildStatus = ETextureBuildStatus::Unbuilt;
 			LastBuildError.clear();
 		}
-		RenderCompletion->BeginRequest(++BuildRevision);
-		if (RenderResource)
-		{
-			RenderResource->PrepareForRelease(BuildRevision);
-			FTexture2DResource* Resource = RenderResource.get();
-			Resource->BeginRelease_GameThread();
-			BeginCleanupRenderResource(
-				FDeferredRenderResourceCleanup(std::move(RenderResource)));
-		}
-		else
-		{
-			RenderCompletion->MarkReleased(BuildRevision);
-		}
+		InvalidateRenderResource();
 	}
 
-	auto DTexture2D::QueueRenderResourceBuild() -> void
+	auto DTexture2D::CreateRenderResourceCandidate(
+		FTextureReference* TextureReference,
+		uint64 Revision,
+		const std::shared_ptr<FTextureResourceCompletion>& Completion)
+		-> std::unique_ptr<FTextureAssetResource>
 	{
 		check(PlatformData && PlatformData->IsValid());
-		const uint64 Revision = ++BuildRevision;
-		const std::string OwnerDiagnostic = GetPackage()
-			? GetPackage()->GetPackagePath()
-			: "<transient DTexture2D>";
-		RenderCompletion->BeginRequest(Revision);
-		if (GDynamicRHI == nullptr) return;
-		if (!bTextureReferenceInitializationQueued)
-		{
-			TextureReference->SetLifetimeDiagnostic(OwnerDiagnostic);
-			TextureReference->BeginInit_GameThread();
-			bTextureReferenceInitializationQueued = true;
-		}
-
-		auto Candidate = std::make_unique<FTexture2DResource>(
-			TextureReference.get(),
+		return std::make_unique<FTexture2DResource>(
+			TextureReference,
 			std::make_shared<const FTexturePlatformData>(*PlatformData),
 			Revision,
-			RenderCompletion);
-		Candidate->SetLifetimeDiagnostic(OwnerDiagnostic, Revision);
-		FTexture2DResource* CandidateView = Candidate.get();
-		std::unique_ptr<FTexture2DResource> Previous =
-			std::move(RenderResource);
-		RenderResource = std::move(Candidate);
-		CandidateView->BeginInit_GameThread();
-		if (Previous)
-		{
-			FTexture2DResource* PreviousView = Previous.get();
-			PreviousView->BeginRelease_GameThread();
-			BeginCleanupRenderResource(
-				FDeferredRenderResourceCleanup(std::move(Previous)));
-		}
+			Completion);
 	}
 
 	auto DTexture2D::DecodeSourceData(std::string_view PhysicalFilePath, std::string& OutError) -> bool
@@ -1459,11 +1385,13 @@ namespace Durin
 
 	auto DTexture2D::RefreshBuildStatus() -> void
 	{
-		if (RenderCompletion->GetFailedRevision() == BuildRevision)
+		const std::shared_ptr<FTextureResourceCompletion>& Completion =
+			GetRenderCompletion();
+		if (Completion->GetFailedRevision() == GetBuildRevision())
 		{
 			if (BuildStatus == ETextureBuildStatus::Ready)
 			{
-				if (RenderCompletion->GetFailureReason()
+				if (Completion->GetFailureReason()
 					== ETextureRenderFailure::UnsupportedFormat)
 				{
 					BuildStatus = ETextureBuildStatus::UnsupportedFormat;
