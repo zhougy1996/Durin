@@ -23,17 +23,19 @@ worktree with `DevTool worktree prepare`:
 
 In a normal checkout, `DevTool setup` runs a non-mutating prerequisite check,
 then creates `.agents/build-config.json` from its tracked template when the
-local file is missing. It also copies any missing VS Code `settings.json`,
-`launch.json`, and `extensions.json` files from `Templates/VSCode` into the
-ignored local `.vscode` directory. Existing local configuration files are never
-overwritten, so if preflight reports a tool that automatic detection cannot
-find, edit the configuration and rerun `DevTool setup`. Preflight reports all
-detected prerequisite problems together so an old MSVC toolset, incomplete
-Vulkan SDK, or missing command does not first appear halfway through bootstrap
-or during the main build. DurinDevTool separately validates the Visual Studio
-English language pack when it first initializes MSVC. Setup initializes only
-the main checkout; a linked worktree exits with an error directing the caller
-to `DevTool worktree prepare`.
+local file is missing. It also copies missing VS Code `settings.json` and
+`extensions.json` files from `Templates/VSCode` into the ignored local
+`.vscode` directory. When `launch.json` is missing, Setup generates one entry
+for every preset registered to the selected Agent Build Profile, deriving each
+runtime executable from the resolved CMake preset. Existing local configuration
+files are never overwritten, so if preflight reports a tool that automatic
+detection cannot find, edit the configuration and rerun `DevTool setup`.
+Preflight reports all detected prerequisite problems together so an old MSVC
+toolset, incomplete Vulkan SDK, or missing command does not first appear halfway
+through bootstrap or during the main build. DurinDevTool separately validates
+the Visual Studio English language pack when it first initializes MSVC. Setup
+initializes only the main checkout; a linked worktree exits with an error
+directing the caller to `DevTool worktree prepare`.
 Because Setup must install DurinDevTool's Python packages, its terminal styling
 uses a standard-library-only fallback until the prepared environment is ready.
 `setup --plain` and `NO_COLOR` disable that styling as usual.

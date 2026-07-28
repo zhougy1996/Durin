@@ -37,15 +37,16 @@ DurinDevTool's default `Win64-Debug-DurinEditor-Tests` preset generates:
 Build/Win64-Debug-DurinEditor-Tests/compile_commands.json
 ```
 
-`DevTool setup` copies the tracked templates under `Templates/VSCode` into the
-ignored local `.vscode` directory without overwriting existing files. The
-generated `settings.json` points clangd at this database, enables its background
-index, and disables automatic configure/build behavior if CMake Tools happens
-to be installed. Linked worktrees share the prepared source worktree's
-`.vscode` directory through `DevTool worktree prepare`. Run `DurinDevTool
-configure` after creating a fresh build tree or changing CMake inputs so the
-database remains current. Run a normal DurinDevTool build when generated DHT
-headers or sources are missing or stale.
+`DevTool setup` copies the tracked `settings.json` and `extensions.json`
+templates under `Templates/VSCode` into the ignored local `.vscode` directory
+without overwriting existing files. The generated `settings.json` points clangd
+at this database, enables its background index, and disables automatic
+configure/build behavior if CMake Tools happens to be installed. Linked
+worktrees share the prepared source worktree's `.vscode` directory through
+`DevTool worktree prepare`. Run `DurinDevTool configure` after creating a fresh
+build tree or changing CMake inputs so the database remains current. Run a
+normal DurinDevTool build when generated DHT headers or sources are missing or
+stale.
 
 ### clangd
 
@@ -72,10 +73,17 @@ instead. In that case, configure the C/C++ extension to read the same
 
 ### Debugging
 
-The generated `launch.json` contains a `Durin Editor (Debug)` configuration
-whose program is the existing `DurinEditor.exe`. It intentionally has no
-`preLaunchTask` or build task. Build or refresh the executable from a terminal
-with DurinDevTool before starting the debugger.
+When `.vscode/launch.json` is missing, `DevTool setup` generates one launch
+configuration for every CMake preset registered to the selected Agent Build
+Profile. Each configuration derives its executable from the preset's platform,
+build type, profiling role, and runtime variant. Code-model-only, hidden, and
+other-host presets are excluded because they are not registered to that
+profile. Existing `launch.json` files are never overwritten.
+
+Generated launch configurations intentionally have no `preLaunchTask` or build
+task. A launch configuration names the preset that defined its executable path,
+but it does not select or build that preset. Build or refresh the executable
+from a terminal with DurinDevTool before starting the debugger.
 
 ## CLion
 

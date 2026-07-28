@@ -361,7 +361,7 @@ class TestVSCodeConfigLifecycle:
     def create_repo(root: Path) -> None:
         template_directory = root / setup.VSCODE_TEMPLATE_DIRECTORY
         template_directory.mkdir(parents=True)
-        for file_name in setup.VSCODE_CONFIGURATION_FILES:
+        for file_name in setup.VSCODE_TEMPLATE_FILES:
             (template_directory / file_name).write_text(
                 f'template {file_name}\n',
                 encoding='utf-8',
@@ -376,11 +376,26 @@ class TestVSCodeConfigLifecycle:
         settings = vscode / 'settings.json'
         settings.write_text('local settings\n', encoding='utf-8')
 
-        assert setup.ensure_vscode_configuration(root) == vscode
+        launch = {'version': '0.2.0', 'configurations': [{'name': 'generated'}]}
+        with mock.patch.object(setup, 'generate_vscode_launch_configuration', return_value=launch):
+            assert setup.ensure_vscode_configuration(root) == vscode
 
         assert settings.read_text(encoding='utf-8') == 'local settings\n'
-        assert (vscode / 'launch.json').read_text(encoding='utf-8') == 'template launch.json\n'
+        assert json.loads((vscode / 'launch.json').read_text(encoding='utf-8')) == launch
         assert (vscode / 'extensions.json').read_text(encoding='utf-8') == 'template extensions.json\n'
+
+    def test_existing_launch_configuration_is_not_generated_or_overwritten(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        root = Path(directory)
+        self.create_repo(root)
+        vscode = root / '.vscode'
+        vscode.mkdir()
+        launch = vscode / 'launch.json'
+        launch.write_text('local launch\n', encoding='utf-8')
+        with mock.patch.object(setup, 'generate_vscode_launch_configuration') as generate:
+            setup.ensure_vscode_configuration(root)
+        generate.assert_not_called()
+        assert launch.read_text(encoding='utf-8') == 'local launch\n'
 
     def test_missing_template_does_not_create_target_directory(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
@@ -388,6 +403,36 @@ class TestVSCodeConfigLifecycle:
         with pytest.raises(dependencies.BootstrapError, match='templates are missing'):
             setup.ensure_vscode_configuration(root)
         assert not (root / '.vscode').exists()
+
+    def test_launch_configuration_covers_registered_windows_presets(self) -> None:
+        launch = setup.generate_vscode_launch_configuration(
+            REPOSITORY_ROOT,
+            current_host='windows',
+            environment={},
+        )
+        configurations = {
+            item['name']: item
+            for item in launch['configurations']
+        }
+        assert tuple(configurations) == (
+            'Win64-Debug-DurinEditor-Tests',
+            'Win64-Debug-DurinEditor',
+            'Win64-Release-DurinEditor',
+            'Win64-Release-DurinEditor-Profiling',
+            'Win64-Debug-DurinGame',
+            'Win64-Release-DurinGame',
+            'Win64-Release-DurinGame-Profiling',
+            'Win64-Shipping-DurinGame',
+        )
+        assert 'Win64-Debug-DurinEditor-FastConfigure' not in configurations
+        assert configurations['Win64-Release-DurinEditor-Profiling']['program'] == (
+            '${workspaceFolder}/Engine/Binaries/Win64/Release-Profiling/'
+            'Runtime/DurinEditor/DurinEditor.exe'
+        )
+        assert configurations['Win64-Shipping-DurinGame']['program'] == (
+            '${workspaceFolder}/Engine/Binaries/Win64/Shipping/'
+            'Runtime/DurinGame/DurinGame.exe'
+        )
 
 
 class TestBootstrapRegistry:
