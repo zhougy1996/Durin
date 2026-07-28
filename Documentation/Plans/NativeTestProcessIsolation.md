@@ -26,6 +26,13 @@ Completed:
 - `.\DevTool.bat test --target all` now schedules CTest-discovered GoogleTest
   cases with the Agent Build Profile job count; the current profile runs 18
   cases concurrently.
+- Native-test executables and runtime DLLs retain the shared `Bin` layout, but
+  each engine target binary and external runtime file now has one deployment
+  target reused by every test that declares the dependency. Parallel test
+  builds therefore no longer attach competing `POST_BUILD` writers to the same
+  DLL destination. The complete build executed 19 deployment commands for 19
+  unique destinations, and the aggregate rerun passed all 720 CTest entries at
+  14 jobs.
 - After rebasing onto `dev`, the Stage 3 aggregate passes all 720 CTest entries
   in 14.81 seconds at 18 jobs. Unique ownership is configured for all 94 native
   `.cpp` sources, including the two new feature-test sources and the isolation
@@ -106,9 +113,10 @@ cases.
   cases in one target may reuse only state intentionally owned and reset by
   that functional domain.
 - Target boundaries and process sandboxes are complementary. A target boundary
-  isolates binaries, deployed data, work containers, dependencies, and
-  lifecycle policy; a process sandbox isolates concurrent CTest cases within
-  that target.
+  isolates dependency declarations, deployed data, work containers, and
+  lifecycle policy; test binaries share one runtime directory whose DLLs have
+  unique deployment owners. A process sandbox isolates concurrent CTest cases
+  within that target.
 - `<TestTarget>/Data` is deployed, read-only input shared by every process.
 - `<TestTarget>/Work` is a container, not a writable test sandbox. Each process
   writes only below a unique run directory such as
@@ -145,8 +153,9 @@ cases.
 
 ### Foundations
 
-- `add_durin_test` already owns distinct root, `Bin`, `Data`, and `Work`
-  locations per target.
+- `add_durin_test` owns distinct root, `Data`, and `Work` locations per target.
+  Test executables and runtime DLLs share `Bin`, with one deployment target per
+  destination rather than one copy command per consuming test.
 - Every native-test target uses `gtest_discover_tests`, so registration policy
   can be centralized without changing individual test names.
 - CMake source lists already expose natural feature clusters within the larger

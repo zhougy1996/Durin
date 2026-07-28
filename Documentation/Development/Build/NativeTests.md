@@ -51,7 +51,12 @@ For diagnosis, the corresponding executable is under `Engine/Binaries/Win64/Debu
 - Per-target checked-in inputs: `<TestRoot>/Data/`
 - Per-target generated and round-trip files: `<TestRoot>/Work/`
 
-Do not write generated files into `Bin/` or the checked-in data directory.
+Test executables and their runtime DLLs share `Bin/`. Deployment helpers create
+one build target per engine DLL or external runtime file, so every destination
+has one writer even when many native-test targets require it. Do not add
+target-owned `POST_BUILD` copies into the shared directory.
+
+Do not write generated test files into `Bin/` or the checked-in data directory.
 
 ## Add A Test Target
 
@@ -85,6 +90,13 @@ gtest_discover_tests(AssetCoreTests
 ```
 
 `add_durin_test(...)` provides `DURIN_TEST_DATA_DIR` and `DURIN_TEST_WORK_DIR`. Use `durin_test_deploy_directory_to_data(...)` or `durin_test_deploy_files_to_data(...)` for checked-in inputs. Tests should remain independent executables and avoid editor startup or real window creation unless that behavior is under test.
+
+`durin_test_deploy_target_binary(...)` and
+`durin_test_deploy_runtime_files(...)` register dependencies on shared
+deployment targets. Repeating either declaration across test targets reuses the
+same deployment target instead of scheduling another copy. Two external files
+with the same destination filename are rejected during configuration unless
+they resolve to the same source file.
 
 ## Related Docs
 
