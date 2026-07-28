@@ -16,6 +16,14 @@ the root package and registry, and rolls back attempt-created sources, DDC
 objects, packages, registry visibility, and caller-snapshotted loaded-object
 mutations. Stage 3 is the next executable stage.
 
+Before Stage 3 begins, the active
+`Documentation/Plans/StaticModelImportStage3Preparation.md` plan must complete.
+It extracts independent glTF/GLB and Assimp-backed FBX adapter units, replaces
+repeated transaction resolution with one immutable resolved plan, removes the
+raw FBX DCC-marker scan, and makes decode, texture-build, and DDC failure tests
+exercise their actual work boundaries. This is a structure and validation gate;
+it does not add Stage 3 generated-asset behavior.
+
 Source dependency terminology now follows the unified logical-mount contract
 selected by `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`: persisted inputs
 use `FSourcePath`, and Content/SourceAssets are typed domains of one mount
@@ -784,10 +792,11 @@ reference-or-ingest semantics from its owning plan.
   Failure injection covers directory creation, source write, decode, texture
   build, DDC publication, package publication, registry publication, and final
   root-package publication.
-- Open questions: none for Stage 3. Stage 3 should compose these primitives
-  with output naming, generated material instances, StaticMesh defaults, and
-  manifest persistence rather than adding another save loop or source-copy
-  path.
+- Open questions: none for the preparation plan. Stage 3 remains blocked on
+  `StaticModelImportStage3Preparation.md`; after that plan completes, Stage 3
+  should compose the resulting primitives with output naming, generated
+  material instances, StaticMesh defaults, and manifest persistence rather
+  than adding another save loop or source-copy path.
 - Validation: all 59 `AssetCoreTests` passed; all eight focused
   `FStaticModelImportBuildTests` passed, including successful multi-texture
   publication, mounted reference, explicit external ingestion, deterministic
@@ -799,7 +808,9 @@ reference-or-ingest semantics from its owning plan.
 
 ### Stage 3: Deliver the opaque base-color end-to-end workflow
 
-Dependencies: Stages 1 and 2; current Texture2D and material vertical slices.
+Dependencies: Stages 1 and 2; completed
+`StaticModelImportStage3Preparation.md`; current Texture2D and material
+vertical slices.
 
 - [ ] Add the engine-owned standard imported-surface material with stable
   asset identity and canonical current parameter definitions.
@@ -1023,6 +1034,7 @@ subset.
 - `Documentation/Runtime/Rendering/MaterialSystem.md`
 - `Documentation/Plans/MaterialSystem.md`
 - `Documentation/Plans/TextureSupport.md`
+- `Documentation/Plans/StaticModelImportStage3Preparation.md`
 - `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`
 - `Documentation/Plans/MultithreadingV1.md`
 - `Documentation/Development/Build/BuildAndRun.md`
