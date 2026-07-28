@@ -390,6 +390,31 @@ namespace Durin::Asset
 		}
 	}
 
+	TEST(FAssetImportTests, GltfPrimitiveProjectionCharacterizesTheStage0OrderingDefect)
+	{
+		FImportedSceneData Scene;
+		ASSERT_TRUE(ImportFromFile(
+			TestDataPath("StaticModelMaterials/PrimitiveProjection.gltf"), Scene));
+
+		ASSERT_EQ(Scene.Meshes.size(), 4u);
+		const std::array<uint32, 4> Stage0ImportedMaterials = {2, 0, 1, 2};
+		for (size_t Index = 0; Index < Stage0ImportedMaterials.size(); ++Index)
+		{
+			EXPECT_EQ(Scene.Meshes[Index].SourceMaterialIndex, Stage0ImportedMaterials[Index]);
+		}
+
+		ASSERT_EQ(Scene.MaterialSlots.size(), 3u);
+		EXPECT_EQ(Scene.MaterialSlots[0].Name, "Zero");
+		EXPECT_EQ(Scene.MaterialSlots[0].SourceMaterialIndex, 0u);
+		EXPECT_EQ(Scene.MaterialSlots[1].Name, "One");
+		EXPECT_EQ(Scene.MaterialSlots[1].SourceMaterialIndex, 1u);
+		EXPECT_EQ(Scene.MaterialSlots[2].Name, "Two");
+		EXPECT_EQ(Scene.MaterialSlots[2].SourceMaterialIndex, 2u);
+		EXPECT_TRUE(std::ranges::none_of(
+			Scene.MaterialSlots,
+			[](const FImportedMaterialSlot& Slot) { return Slot.SourceName == "Unused"; }));
+	}
+
 	TEST(FAssetImportTests, StaticModelGoldenSnapshotFreezesRequiredAndOptionalCases)
 	{
 		EXPECT_EQ(StaticModelImporterVersion, 2u);
@@ -416,6 +441,15 @@ namespace Durin::Asset
 		EXPECT_EQ(
 			Fixtures.GetView("MaterialContract.gltf").GetView("usedSlots").Num(),
 			3u);
+		EXPECT_EQ(
+			Fixtures.GetView("PrimitiveProjection.gltf").GetView("sourcePrimitiveMaterials").Num(),
+			3u);
+		EXPECT_EQ(
+			Fixtures.GetView("PrimitiveProjection.gltf").GetView("requiredInstancedMeshMaterials").Num(),
+			4u);
+		EXPECT_EQ(
+			Fixtures.GetView("PrimitiveProjection.gltf").GetView("stage0ImportedMeshMaterials").Num(),
+			4u);
 		EXPECT_EQ(
 			Fixtures.GetView("EmbeddedImage.glb").GetView("images").GetView(0).GetView("identity").GetString(),
 			"glb-buffer-view:4");

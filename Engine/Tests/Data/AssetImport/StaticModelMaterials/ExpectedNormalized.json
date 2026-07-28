@@ -81,6 +81,16 @@
         {"severity": "warning", "category": "unsupported_optional_extension", "subject": "EXT_fixture_optional"}
       ]
     },
+    "PrimitiveProjection.gltf": {
+      "sourcePrimitiveMaterials": [2, 0, 1],
+      "requiredInstancedMeshMaterials": [1, 2, 0, 1],
+      "stage0ImportedMeshMaterials": [2, 0, 1, 2],
+      "usedSlots": [
+        {"name": "Zero", "sourceIndex": 0, "sourceName": "Zero"},
+        {"name": "One", "sourceIndex": 1, "sourceName": "One"},
+        {"name": "Two", "sourceIndex": 2, "sourceName": "Two"}
+      ]
+    },
     "DataUriImage.gltf": {
       "dependencies": ["root"],
       "images": [{"identity": "data-uri:0", "name": "InlinePixel", "encoding": "png"}],

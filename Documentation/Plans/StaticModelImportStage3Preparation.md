@@ -9,9 +9,9 @@ Completed:
 
 ## Current Status
 
-Not started. This plan consumes the completed Stage 2 implementation from
-`ReadyToUseStaticModelImport.md`, whose implementation commit is
-`25dc88bda54285fd53ba8be8dfed6c62ee095a0b`.
+Stage 0 is complete from baseline
+`d1c9fe26` (`docs(import): gate stage 3 on foundation refactor`). Stage 1 is
+the next executable stage.
 
 The current implementation has the intended external architecture: one
 format-neutral `FImportedSceneData` boundary, editor-only source parsing,
@@ -36,6 +36,45 @@ feature work in their current form:
 Stage 3 of `ReadyToUseStaticModelImport.md` remains blocked until every
 acceptance gate in this plan passes. No user-visible import capability is added
 by this plan.
+
+### Stage 0 Decision Record
+
+- Private format entrypoints will consume an `FStaticModelImportContext`
+  containing the physical root path, logical root source, authoritative root
+  bytes, and the shared result/diagnostic sink. `ImportGltfFormat` owns glTF
+  metadata normalization; `ImportAssimpFormat` owns non-glTF material
+  normalization; `ImportAssimpGeometry` owns node and vertex extraction.
+- glTF material identity will no longer use a flattened JSON primitive vector
+  indexed by Assimp mesh allocation order. The glTF adapter records source
+  primitive material usage, while each Assimp geometry record retains its own
+  `aiMesh::mMaterialIndex`. The orchestrator validates that every index exists
+  in the normalized glTF material table and that the source/Assimp primitive
+  material histograms agree before traversing instances.
+- `PrimitiveProjection.gltf` proves why count equality is insufficient. Its
+  source primitive order is `2, 0, 1`, its scene visits mesh instances with
+  required materials `1, 2, 0, 1`, and the Stage 0 importer incorrectly
+  produces `2, 0, 1, 2` because Assimp allocates meshes by first scene use.
+- Correcting that projection and replacing the raw FBX diagnostic changes
+  normalized output. Stage 1 increments `StaticModelImporterVersion` from 2 to
+  3 and updates the frozen expected output in the same commit.
+- Assimp does not provide a stable public DCC-schema contract for the raw
+  `3dsMax|main` compound marker. Stage 1 removes the byte scan and emits only a
+  generic lossy/unsupported-material warning derived from structured Assimp
+  shading or material properties; it does not promise exporter identification.
+- Transaction resolution will produce `FResolvedImportPlan` containing
+  `FResolvedPackage`, deduplicated `FResolvedSource`, `FResolvedTexture`, the
+  root package, and source filesystem observations. Resolution is pure with
+  respect to packages, DDC, registry, loaded objects, and destination files.
+- Texture phase tests will use a private `FTextureBuildOperations` seam with
+  decode, candidate construction, and DDC publication operations. The
+  production implementation is the default; tests inject a scoped
+  implementation through private test access rather than a workflow-facing
+  setter.
+- The dependency baseline is `EngineAssetBuild -> AssetImport + AssetCore`
+  privately and `EngineAssetBuild -> Engine` publicly. `AssetImport` links
+  Assimp privately. Runtime `Engine` references `AssetImport` only as an
+  optional editor-capable dependency; runtime-only configurations must continue
+  to omit it.
 
 ## Goal
 
@@ -233,21 +272,21 @@ by this plan.
 Dependencies: completed Stages 0 through 2 of
 `ReadyToUseStaticModelImport.md`.
 
-- [ ] Record the current file-level dependency graph for `AssetImport`,
+- [x] Record the current file-level dependency graph for `AssetImport`,
   `EngineAssetBuild`, Texture2D build, and AssetCore bundle save.
-- [ ] Freeze synchronous and asynchronous normalized outputs for every current
+- [x] Freeze synchronous and asynchronous normalized outputs for every current
   static-model fixture before moving implementation.
-- [ ] Add glTF fixtures whose multiple meshes, primitives, node instances, and
+- [x] Add glTF fixtures whose multiple meshes, primitives, node instances, and
   unused materials disprove count-only material correlation.
-- [ ] Characterize the pinned Assimp mesh ordering and select the explicit glTF
+- [x] Characterize the pinned Assimp mesh ordering and select the explicit glTF
   primitive projection contract.
-- [ ] Freeze the supported FBX warning output after removing raw-byte
+- [x] Freeze the supported FBX warning output after removing raw-byte
   DCC-marker detection; record whether structured detection or the generic
   lossy warning is selected.
-- [ ] Define the private adapter interfaces, shared import context, resolved
+- [x] Define the private adapter interfaces, shared import context, resolved
   transaction-plan representation, typed internal failure record, and
   Texture2D phase seam before moving code.
-- [ ] Prove current runtime module dependencies contain no source importer or
+- [x] Prove current runtime module dependencies contain no source importer or
   image-decoder dependency.
 
 #### Acceptance Gate
@@ -256,6 +295,26 @@ Dependencies: completed Stages 0 through 2 of
   transaction plan fields, true failure boundaries, behavior-parity fixtures,
   and versioning consequences are selected with no unresolved interface
   decision.
+
+#### Stage 0 Handoff
+
+- Baseline commit: `d1c9fe26`.
+- Working set: this plan, `PrimitiveProjection.gltf`,
+  `ExpectedNormalized.json`, and `AssetImportTests.cpp`.
+- Key decisions: glTF geometry keeps the material index already attached to
+  each Assimp mesh and validates its histogram against parsed source
+  primitives; JSON primitive order is never indexed by Assimp allocation
+  order. Stage 1 introduces the three private format/geometry entrypoints and
+  increments the importer version for the corrected output.
+- FBX decision: delete the `3dsMax|main` byte scan and retain only warnings
+  supported by structured Assimp material data.
+- Transaction decision: resolve once into `FResolvedImportPlan`; real texture
+  phase injection is private and phase-specific.
+- Validation: the new fixture reproduced the Stage 0 defect as
+  `2, 0, 1, 2` versus required `1, 2, 0, 1`; the frozen characterization and
+  complete `AssetImportTests` suite passed. Module metadata inspection
+  confirmed Assimp is private to `AssetImport` and no required runtime Engine
+  dependency points to `AssetImport` or `EngineAssetBuild`.
 
 ### Stage 1: Extract independent format adapters
 
