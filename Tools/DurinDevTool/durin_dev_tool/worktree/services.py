@@ -437,30 +437,32 @@ def prepare_directory_link(
     print(f'Linked {label}: "{target}" -> "{source}"')
 
 
-def prepare_agent_link(
+def prepare_preserved_directory_link(
     source_root: Path,
     target_root: Path,
     *,
+    relative_path: Path,
+    preservation_label: str,
     link_type: str,
     dry_run: bool,
 ) -> None:
-    source = (source_root / AGENT_DIRECTORY).resolve()
-    target = (target_root / AGENT_DIRECTORY).absolute()
+    source = (source_root / relative_path).resolve()
+    target = (target_root / relative_path).absolute()
     backup = target.with_name(f"{target.name}.pre-link-backup")
     if not source.is_dir():
         raise WorktreeToolError(
-            f'Source {AGENT_DIRECTORY.as_posix()} directory does not exist: "{source}"'
+            f'Source {relative_path.as_posix()} directory does not exist: "{source}"'
         )
     if target.is_dir() and not is_link_like(target) and not is_empty_directory(target):
         if backup.exists() or is_link_like(backup):
             raise WorktreeToolError(
-                f'Cannot preserve the existing Agent directory because the backup path exists: "{backup}"'
+                f'Cannot preserve the existing {preservation_label} directory because the backup path exists: "{backup}"'
             )
-        print(f'Preserving existing {AGENT_DIRECTORY.as_posix()}: "{target}" -> "{backup}"')
+        print(f'Preserving existing {relative_path.as_posix()}: "{target}" -> "{backup}"')
         if dry_run:
             print(f'[dry-run] move "{target}" -> "{backup}"')
             print(
-                f'[dry-run] link {AGENT_DIRECTORY.as_posix()}: "{target}" -> "{source}"'
+                f'[dry-run] link {relative_path.as_posix()}: "{target}" -> "{source}"'
             )
             create_directory_link(source, target, link_type=link_type, dry_run=True)
             return
@@ -468,7 +470,24 @@ def prepare_agent_link(
     prepare_directory_link(
         source,
         target,
-        label=AGENT_DIRECTORY.as_posix(),
+        label=relative_path.as_posix(),
+        link_type=link_type,
+        dry_run=dry_run,
+    )
+
+
+def prepare_agent_link(
+    source_root: Path,
+    target_root: Path,
+    *,
+    link_type: str,
+    dry_run: bool,
+) -> None:
+    prepare_preserved_directory_link(
+        source_root,
+        target_root,
+        relative_path=AGENT_DIRECTORY,
+        preservation_label="Agent",
         link_type=link_type,
         dry_run=dry_run,
     )
@@ -481,31 +500,11 @@ def prepare_vscode_link(
     link_type: str,
     dry_run: bool,
 ) -> None:
-    source = (source_root / VSCODE_DIRECTORY).resolve()
-    target = (target_root / VSCODE_DIRECTORY).absolute()
-    backup = target.with_name(f"{target.name}.pre-link-backup")
-    if not source.is_dir():
-        raise WorktreeToolError(
-            f'Source {VSCODE_DIRECTORY.as_posix()} directory does not exist: "{source}"'
-        )
-    if target.is_dir() and not is_link_like(target) and not is_empty_directory(target):
-        if backup.exists() or is_link_like(backup):
-            raise WorktreeToolError(
-                f'Cannot preserve the existing VS Code directory because the backup path exists: "{backup}"'
-            )
-        print(f'Preserving existing {VSCODE_DIRECTORY.as_posix()}: "{target}" -> "{backup}"')
-        if dry_run:
-            print(f'[dry-run] move "{target}" -> "{backup}"')
-            print(
-                f'[dry-run] link {VSCODE_DIRECTORY.as_posix()}: "{target}" -> "{source}"'
-            )
-            create_directory_link(source, target, link_type=link_type, dry_run=True)
-            return
-        target.rename(backup)
-    prepare_directory_link(
-        source,
-        target,
-        label=VSCODE_DIRECTORY.as_posix(),
+    prepare_preserved_directory_link(
+        source_root,
+        target_root,
+        relative_path=VSCODE_DIRECTORY,
+        preservation_label="VS Code",
         link_type=link_type,
         dry_run=dry_run,
     )

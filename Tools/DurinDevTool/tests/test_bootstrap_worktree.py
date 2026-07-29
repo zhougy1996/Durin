@@ -225,6 +225,31 @@ class TestWorktreeTool:
             dry_run=False,
         )
 
+    def test_agent_and_vscode_links_share_preservation_helper(self) -> None:
+        source = Path('C:/repo')
+        target = Path('C:/repo-feature')
+        with mock.patch.object(services, 'prepare_preserved_directory_link') as prepare:
+            services.prepare_agent_link(source, target, link_type='junction', dry_run=True)
+            services.prepare_vscode_link(source, target, link_type='junction', dry_run=True)
+        assert prepare.call_args_list == [
+            mock.call(
+                source,
+                target,
+                relative_path=services.AGENT_DIRECTORY,
+                preservation_label='Agent',
+                link_type='junction',
+                dry_run=True,
+            ),
+            mock.call(
+                source,
+                target,
+                relative_path=services.VSCODE_DIRECTORY,
+                preservation_label='VS Code',
+                link_type='junction',
+                dry_run=True,
+            ),
+        ]
+
     def test_remove_refuses_unexpected_directory_links(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
