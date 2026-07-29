@@ -52,8 +52,73 @@ that asset-specific correction. This plan owns the process-wide guarantee that
 all such cleanup begins and drains while the rendering thread and defining
 modules remain available.
 
-Implementation has not started. Baseline commit:
-`4bf2f6414a0dd42e5e12e649da0f52e2200db02b`.
+Stage 0 is in progress from baseline commit
+`4bf2f6414a0dd42e5e12e649da0f52e2200db02b`. The initial working set is:
+
+- `Documentation/Plans/EngineTerminationLifecycle.md`;
+- `Engine/Tests/Native/CoreDObjectTests/Private/ReflectionTypeTests.cpp`;
+- `Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp`;
+- `Engine/Source/Runtime/CoreDObject/Private/DObject/ObjectLifecycle.cpp`;
+- `Engine/Source/Runtime/CoreDObject/Public/DObject/ObjectLifecycle.h`;
+- `Engine/Source/Runtime/Core/Public/CoreGlobals.h`;
+- `Engine/Source/Runtime/Core/Private/Modules/ModuleManager.cpp`;
+- `Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp`.
+
+The first scheduler-controlled regression now records the synthetic shutdown
+destruction checkpoints before release submission, while its fence is pending,
+before readiness, before `FinishDestroy`, and at physical destruction. It
+proves that the current one-pass exit collection leaves the object deferred and
+that later collection passes do not repeat `BeginDestroy`.
+
+The current exit ownership graph is pinned as follows:
+
+| Current operation | State owned | Required coordinator boundary |
+| --- | --- | --- |
+| `MonaShutdown` | UI frame production, windows, Mona renderer viewports | producer quiescence and consumer detach |
+| `ShutdownEngineThreadPool(true)` | accepted CPU work and its result publication | producer quiescence |
+| remove and garbage-mark `GEngine` | engine, world, actor, component, viewport, and scene object hierarchy | consumer detach then DObject drain |
+| `ShutdownAssetManager` | loaded packages, asset registry/cache references, asset publication | producer quiescence and root release |
+| `CollectGarbage` | virtual DObject destruction and physical object storage | repeated shutdown object drain |
+| `UnloadModulesAtShutdown` | reverse-order module callbacks and module-static owners | only after zero deferred objects |
+| render flush and finalization | accepted commands, render-resource cleanup, RHI deletes, command admission | module drain then atomic final closure |
+| `ShutdownApplicationCore` | platform application state | after rendering and RHI stop |
+
+Static loading traces pin normal editor module order as `RenderCore`,
+`VulkanRHI`, `MonaImGui`, `Renderer`, `MainFrame`, `LevelEditor`,
+`MaterialEditor`, then `TextureEditor`. `UnloadModulesAtShutdown` sorts by
+descending load index, so normal shutdown callbacks run in the exact reverse
+order. The final render command is inserted while admission is `Running`,
+changes admission to `Draining` under the command-pipe mutex, audits the
+resource registry and cleanup queue, submits and drains RHI deletion, and only
+then permits `ShutdownRenderingThread` to mark admission `Stopped`.
+
+The owner inventory and selected release channels are:
+
+| Ownership class | Current owners | Selected quiesce/release owner |
+| --- | --- | --- |
+| permanent/intrinsic DObject | reflected types and intrinsic packages | survivor audit; these must never acquire render affinity |
+| rooted DObject | `GEngine`, loaded packages, preview/thumbnail lights, temporary editor roots | engine, asset, preview/thumbnail, and editor owners remove their own roots before the DObject drain |
+| DObject render resource | texture references/resources and StaticMesh buffer aggregates | the concrete DObject `BeginDestroy` lifecycle |
+| scene/proxy | engine worlds, renderer scenes, component proxies, preview and thumbnail scenes | engine/editor scene owner queues detach before asset release |
+| subsystem/module-static | Mona viewports, renderer state, editor caches and preview services | pre-exit callback or owning `ShutdownModule` |
+| deferred cleanup | `FDeferredRenderResourceCleanup` records | RenderCore flush after the originating owner releases |
+| RHI deferred delete | RHI resources released by render commands | final RHI submit before `RHIExit` |
+
+Exit-time producers are Mona/application ticks and viewport changes; engine
+world/component registration and scene mutation; asset load/save and texture
+resource builds; asynchronous import/build result publication; thumbnail and
+preview scheduling/upload; renderer lazy StaticMesh initialization; accepted
+thread-pool tasks; and module callbacks. Stage 1 must give each producer an
+owner-specific rejection or drain callback before any roots or modules are
+released.
+
+Focused validation passed for
+`FCoreDObjectReflectionTests.ShutdownDestructionRequiresPostFenceGarbageCollectionPasses`,
+and the complete `all` target built successfully on
+`Win64-Debug-DurinEditor-Tests`. Automated hidden-window baseline exit remains
+open: hidden-window mode intentionally exposes no native main-window handle, so
+the attempted `WM_CLOSE` harness could not request orderly exit and was stopped
+without treating forced termination as lifecycle evidence.
 
 ## Goal
 
@@ -361,21 +426,21 @@ only then may `RHIExit` execute.
 
 Dependencies: none.
 
-- [ ] Record baseline commit
+- [x] Record baseline commit
   `4bf2f6414a0dd42e5e12e649da0f52e2200db02b` and the initial working set.
-- [ ] Trace every current `FEngineLoop::Exit` operation and record which
+- [x] Trace every current `FEngineLoop::Exit` operation and record which
   subsystem, object, module, RenderCore, RHI, or application state it owns.
 - [ ] Inventory rooted/permanent `DObject` instances and every initialized
   `FRenderResource` owner at normal editor shutdown.
-- [ ] Classify render-facing owners as `DObject`, subsystem, module-static,
+- [x] Classify render-facing owners as `DObject`, subsystem, module-static,
   scene/proxy, deferred cleanup, or RHI deferred-delete ownership.
-- [ ] Identify every producer that can enqueue object, scene, render-resource,
+- [x] Identify every producer that can enqueue object, scene, render-resource,
   or RHI work during exit.
-- [ ] Add scheduler-controlled tests that pause a synthetic `DObject` before
+- [x] Add scheduler-controlled tests that pause a synthetic `DObject` before
   release, at its fence, before readiness, and before `FinishDestroy`.
 - [ ] Capture baseline hidden-window exit diagnostics, including the currently
   unreleased StaticMesh resources.
-- [ ] Pin module unload order and the final command-admission/audit behavior.
+- [x] Pin module unload order and the final command-admission/audit behavior.
 
 #### Acceptance Gate
 

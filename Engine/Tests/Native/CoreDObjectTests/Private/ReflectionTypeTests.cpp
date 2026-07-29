@@ -198,6 +198,32 @@ namespace
 		EUnsignedEnumValueForTest Unsigned = EUnsignedEnumValueForTest::High;
 	};
 
+	enum class EShutdownDestroyCheckpoint
+	{
+		BeforeRelease,
+		FencePending,
+		BeforeReadiness,
+		BeforeFinishDestroy,
+		FinishDestroy,
+		Destructor
+	};
+
+	struct FShutdownDestroyScheduler
+	{
+		bool bFenceComplete = false;
+		bool bReadinessGranted = false;
+		bool bFinishDestroyGranted = false;
+		std::vector<EShutdownDestroyCheckpoint> Checkpoints;
+
+		auto Record(EShutdownDestroyCheckpoint Checkpoint) -> void
+		{
+			if (Checkpoints.empty() || Checkpoints.back() != Checkpoint)
+			{
+				Checkpoints.push_back(Checkpoint);
+			}
+		}
+	};
+
 	class DLifecycleTestObject : public Durin::DObject
 	{
 	public:
@@ -205,16 +231,61 @@ namespace
 		inline static Durin::uint64 FinishDestroyCount = 0;
 		inline static Durin::uint64 DestructorCount = 0;
 		bool bReadyForFinishDestroy = true;
+		FShutdownDestroyScheduler* ShutdownDestroyScheduler = nullptr;
 
 		explicit DLifecycleTestObject(const Durin::FObjectInitializer& ObjectInitializer = Durin::FObjectInitializer::Get())
 			: DObject(ObjectInitializer)
 		{
 		}
 
-		~DLifecycleTestObject() override { ++DestructorCount; }
-		auto BeginDestroy() -> void override { ++BeginDestroyCount; }
-		auto IsReadyForFinishDestroy() -> bool override { return bReadyForFinishDestroy; }
-		auto FinishDestroy() -> void override { ++FinishDestroyCount; }
+		~DLifecycleTestObject() override
+		{
+			++DestructorCount;
+			if (ShutdownDestroyScheduler)
+			{
+				ShutdownDestroyScheduler->Record(EShutdownDestroyCheckpoint::Destructor);
+			}
+		}
+
+		auto BeginDestroy() -> void override
+		{
+			++BeginDestroyCount;
+			if (ShutdownDestroyScheduler)
+			{
+				ShutdownDestroyScheduler->Record(EShutdownDestroyCheckpoint::BeforeRelease);
+				ShutdownDestroyScheduler->Record(EShutdownDestroyCheckpoint::FencePending);
+			}
+		}
+
+		auto IsReadyForFinishDestroy() -> bool override
+		{
+			if (!ShutdownDestroyScheduler) return bReadyForFinishDestroy;
+			if (!ShutdownDestroyScheduler->bFenceComplete)
+			{
+				ShutdownDestroyScheduler->Record(EShutdownDestroyCheckpoint::FencePending);
+				return false;
+			}
+			if (!ShutdownDestroyScheduler->bReadinessGranted)
+			{
+				ShutdownDestroyScheduler->Record(EShutdownDestroyCheckpoint::BeforeReadiness);
+				return false;
+			}
+			if (!ShutdownDestroyScheduler->bFinishDestroyGranted)
+			{
+				ShutdownDestroyScheduler->Record(EShutdownDestroyCheckpoint::BeforeFinishDestroy);
+				return false;
+			}
+			return true;
+		}
+
+		auto FinishDestroy() -> void override
+		{
+			++FinishDestroyCount;
+			if (ShutdownDestroyScheduler)
+			{
+				ShutdownDestroyScheduler->Record(EShutdownDestroyCheckpoint::FinishDestroy);
+			}
+		}
 
 		static auto ResetLifecycleCounts() -> void
 		{
@@ -1263,6 +1334,55 @@ namespace
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 1u);
+	}
+
+	TEST(FCoreDObjectReflectionTests, ShutdownDestructionRequiresPostFenceGarbageCollectionPasses)
+	{
+		EnsureDObjectInitialized();
+		DLifecycleTestObject::ResetLifecycleCounts();
+		FShutdownDestroyScheduler Scheduler;
+		auto* Object = Durin::NewObject<DLifecycleTestObject>(
+			nullptr, Durin::FName("ShutdownDeferredFinishTestObject"));
+		Object->ShutdownDestroyScheduler = &Scheduler;
+		Durin::MarkAsGarbage(Object);
+
+		Durin::CollectGarbage();
+		EXPECT_TRUE(ObjectArrayContains(Object));
+		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 1u);
+		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
+		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 0u);
+		EXPECT_EQ(Scheduler.Checkpoints, (std::vector{
+			EShutdownDestroyCheckpoint::BeforeRelease,
+			EShutdownDestroyCheckpoint::FencePending}));
+
+		Scheduler.bFenceComplete = true;
+		Durin::CollectGarbage();
+		EXPECT_TRUE(ObjectArrayContains(Object));
+		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 1u);
+		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
+		EXPECT_EQ(Scheduler.Checkpoints.back(), EShutdownDestroyCheckpoint::BeforeReadiness);
+
+		Scheduler.bReadinessGranted = true;
+		Durin::CollectGarbage();
+		EXPECT_TRUE(ObjectArrayContains(Object));
+		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 1u);
+		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
+		EXPECT_EQ(Scheduler.Checkpoints.back(), EShutdownDestroyCheckpoint::BeforeFinishDestroy);
+
+		Scheduler.bFinishDestroyGranted = true;
+		Durin::CollectGarbage();
+		EXPECT_FALSE(ObjectArrayContains(Object));
+		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 0u);
+		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
+		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 1u);
+		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 1u);
+		EXPECT_EQ(Scheduler.Checkpoints, (std::vector{
+			EShutdownDestroyCheckpoint::BeforeRelease,
+			EShutdownDestroyCheckpoint::FencePending,
+			EShutdownDestroyCheckpoint::BeforeReadiness,
+			EShutdownDestroyCheckpoint::BeforeFinishDestroy,
+			EShutdownDestroyCheckpoint::FinishDestroy,
+			EShutdownDestroyCheckpoint::Destructor}));
 	}
 
 	TEST(FCoreDObjectReflectionTests, GarbageCollectionKeepsRootAndCollectsUnreachableObjects)
