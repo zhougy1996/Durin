@@ -97,6 +97,13 @@ namespace Durin
 			auto Reporter = [](const FRenderResourceCreateDiagnostic&) {};
 			auto Factory = [&]() {
 				++Attempts;
+				if (Attempts == 2)
+				{
+					EXPECT_EQ(
+						Slot.GetAvailability(),
+						ERenderResourceAvailability::Refreshing);
+					EXPECT_EQ(*Slot.GetPayload(), 11);
+				}
 				return Attempts == 1
 					? FResult::Success(11)
 					: FResult::Failure(MakeError());
@@ -112,6 +119,39 @@ namespace Durin
 			ASSERT_NE(Slot.GetFailure(), nullptr);
 			EXPECT_TRUE(Slot.GetFailure()->bRetainedFallback);
 			EXPECT_EQ(Attempts, 2);
+		}
+
+		TEST(
+			FRenderResourceCreationTests,
+			SuccessfulRefreshAtomicallyReplacesPayload)
+		{
+			FSlot Slot(EDependency::Shader);
+			FRenderResourceGeneration Generation;
+			int Attempts = 0;
+			auto Reporter = [](const FRenderResourceCreateDiagnostic&) {};
+			auto Factory = [&]() {
+				++Attempts;
+				if (Attempts == 2)
+				{
+					EXPECT_EQ(
+						Slot.GetAvailability(),
+						ERenderResourceAvailability::Refreshing);
+					EXPECT_EQ(*Slot.GetPayload(), 4);
+				}
+				return FResult::Success(Attempts == 1 ? 4 : 8);
+			};
+
+			ASSERT_NE(Slot.Resolve(Generation, Factory, Reporter), nullptr);
+			EXPECT_EQ(*Slot.GetPayload(), 4);
+			Generation.Advance(EDependency::Shader);
+			ASSERT_NE(Slot.Resolve(Generation, Factory, Reporter), nullptr);
+			EXPECT_EQ(*Slot.GetPayload(), 8);
+			EXPECT_EQ(
+				Slot.GetPayloadGeneration().Shader,
+				Generation.Shader);
+			EXPECT_EQ(
+				Slot.GetAvailability(),
+				ERenderResourceAvailability::Ready);
 		}
 
 		TEST(
@@ -170,6 +210,49 @@ namespace Durin
 
 		TEST(
 			FRenderResourceCreationTests,
+			ReentrantRefreshReturnsOnlyLastKnownGoodPayload)
+		{
+			FSlot Slot(EDependency::Shader);
+			FRenderResourceGeneration Generation;
+			auto Reporter = [](const FRenderResourceCreateDiagnostic&) {};
+			ASSERT_NE(
+				Slot.Resolve(
+					Generation,
+					[]() { return FResult::Success(6); },
+					Reporter),
+				nullptr);
+			Generation.Advance(EDependency::Shader);
+			int NestedFactoryCalls = 0;
+
+			ASSERT_NE(
+				Slot.Resolve(
+					Generation,
+					[&]() {
+						EXPECT_EQ(
+							Slot.GetAvailability(),
+							ERenderResourceAvailability::Refreshing);
+						int* Fallback = Slot.Resolve(
+							Generation,
+							[&]() {
+								++NestedFactoryCalls;
+								return FResult::Success(99);
+							},
+							Reporter);
+						EXPECT_NE(Fallback, nullptr);
+						if (Fallback != nullptr)
+						{
+							EXPECT_EQ(*Fallback, 6);
+						}
+						return FResult::Success(7);
+					},
+					Reporter),
+				nullptr);
+			EXPECT_EQ(NestedFactoryCalls, 0);
+			EXPECT_EQ(*Slot.GetPayload(), 7);
+		}
+
+		TEST(
+			FRenderResourceCreationTests,
 			RepeatedFailureReportsOnceAndRecoveryReportsOnce)
 		{
 			FSlot Slot(EDependency::Manual);
@@ -195,6 +278,40 @@ namespace Durin
 			EXPECT_EQ(
 				Diagnostics.back().Kind,
 				ERenderResourceCreateDiagnosticKind::Recovery);
+		}
+
+		TEST(
+			FRenderResourceCreationTests,
+			FailureFingerprintTracksOwnedDiagnosticAndResetClearsState)
+		{
+			FSlot Slot(EDependency::Manual);
+			FRenderResourceGeneration Generation;
+			auto Reporter = [](const FRenderResourceCreateDiagnostic&) {};
+			const FRenderResourceCreateError Error =
+				MakeError(EDependency::Manual);
+
+			EXPECT_EQ(
+				Slot.Resolve(
+					Generation,
+					[&]() { return FResult::Failure(Error); },
+					Reporter),
+				nullptr);
+			ASSERT_NE(Slot.GetFailure(), nullptr);
+			ASSERT_TRUE(Slot.GetFailureFingerprint().has_value());
+			EXPECT_EQ(
+				*Slot.GetFailureFingerprint(),
+				Slot.GetFailure()->GetFingerprint());
+			EXPECT_EQ(
+				Slot.GetAttemptedGeneration(),
+				Generation);
+
+			Slot.Reset();
+			EXPECT_EQ(Slot.GetPayload(), nullptr);
+			EXPECT_EQ(Slot.GetFailure(), nullptr);
+			EXPECT_FALSE(Slot.GetFailureFingerprint().has_value());
+			EXPECT_EQ(
+				Slot.GetAvailability(),
+				ERenderResourceAvailability::Uninitialized);
 		}
 	}
 }

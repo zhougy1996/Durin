@@ -74,11 +74,33 @@ are synchronous on the render thread; callers receive payload ownership or RHI
 references, never slot pointers that survive another insertion. Factory
 injection occurs at the common result boundary and can deterministically fail
 shader, declaration, sampler, buffer, texture, or individual PSO steps without
-a driver failure. The focused contract tests intentionally fail against the
-Stage 0 one-shot scaffold on relevant-generation retry, last-known-good
-refresh, device invalidation, and recovery diagnostics; suppression,
-transaction rollback, reentrancy rejection, and one-time initial diagnostics
-already characterize the boundary.
+a driver failure. The Stage 0 red test run built successfully and ran six
+focused cases. Two passed to characterize transaction rollback and reentrancy
+suppression; four failed on relevant-generation retry, last-known-good refresh,
+device invalidation, and recovery diagnostics, matching the one-shot
+scaffold's known gaps.
+
+Stage 1 implements the public slot contract in the same header. Resolution
+first applies destructive device-generation invalidation, suppresses an
+unchanged failed generation using the failure's retry mask, exposes
+`Creating`/`Refreshing` only during the synchronous factory call, and swaps a
+complete successful candidate into the live optional payload. Failed shader or
+manual refresh retains the prior payload as `StaleReady`; failed initial or
+post-device construction is `Failed`. The slot retains the full error and its
+fingerprint, reports one failure per attempted transition, reports recovery
+only after a reported failure, and resets payload, attempt, failure,
+fingerprint, and diagnostic state together. Generation advancement asserts
+before `uint64` wrap.
+
+Stage 1 handoff: baseline commit `2a07896b`; working set is the public
+`RenderResourceCreation.h` primitive, its `RenderContractTests` cases, test
+target metadata, and this plan. The key symbols are
+`FRenderResourceGeneration`, `FRenderResourceCreateError`,
+`TRenderResourceCreateResult`, and `TRenderResourceCreationSlot`. There are no
+open primitive-design questions; owner-specific factory error mapping and
+invalidation wiring remain in Stages 2-4. The focused run passed 9/9 cases and
+the complete `RenderContractTests` target passed 32/32 cases through
+DurinDevTool.
 
 Renderer and Texture Editor preview resources currently use one-shot
 `bCreateAttempted` flags. Those flags are set before shader compilation or RHI
@@ -429,17 +451,17 @@ resource:
 
 ### Stage 1: Implement and validate the recoverable slot primitive
 
-- [ ] Implement the selected availability/attempt slot with owned failure
+- [x] Implement the selected availability/attempt slot with owned failure
   diagnostics and generation dependency masks.
-- [ ] Implement a factory result boundary that cannot publish a partial
+- [x] Implement a factory result boundary that cannot publish a partial
   candidate.
-- [ ] Implement same-generation suppression, relevant-generation retry,
+- [x] Implement same-generation suppression, relevant-generation retry,
   reentrancy rejection, recovery logging, and failure fingerprinting.
-- [ ] Implement last-known-good refresh for shader/manual invalidation and
+- [x] Implement last-known-good refresh for shader/manual invalidation and
   destructive payload clearing for device invalidation.
-- [ ] Keep the primitive synchronous and free of internal locks or background
+- [x] Keep the primitive synchronous and free of internal locks or background
   work.
-- [ ] Pass the focused transition, rollback, generation, fallback, and logging
+- [x] Pass the focused transition, rollback, generation, fallback, and logging
   tests.
 
 #### Acceptance Gate

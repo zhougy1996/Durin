@@ -1,7 +1,10 @@
 #pragma once
 
 #include "Misc/CoreTypes.h"
+#include "Misc/AssertionMacros.h"
 
+#include <functional>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -44,6 +47,14 @@ namespace Durin
 			static_cast<uint8>(Left) & static_cast<uint8>(Right));
 	}
 
+	constexpr auto HasRenderResourceGenerationDependency(
+		ERenderResourceGenerationDependency Dependencies,
+		ERenderResourceGenerationDependency Dependency) -> bool
+	{
+		return (Dependencies & Dependency)
+			!= ERenderResourceGenerationDependency::None;
+	}
+
 	struct FRenderResourceGeneration
 	{
 		uint64 Shader = 0;
@@ -51,7 +62,55 @@ namespace Durin
 		uint64 Manual = 0;
 
 		auto operator==(const FRenderResourceGeneration&) const -> bool = default;
+
+		auto Advance(ERenderResourceGenerationDependency Dependency) -> void
+		{
+			uint64* Counter = nullptr;
+			switch (Dependency)
+			{
+			case ERenderResourceGenerationDependency::Shader:
+				Counter = &Shader;
+				break;
+			case ERenderResourceGenerationDependency::Device:
+				Counter = &Device;
+				break;
+			case ERenderResourceGenerationDependency::Manual:
+				Counter = &Manual;
+				break;
+			default:
+				checkf(
+					false,
+					"Exactly one renderer resource generation dependency must be advanced.");
+				return;
+			}
+			checkf(
+				*Counter != std::numeric_limits<uint64>::max(),
+				"Renderer resource generation overflowed.");
+			++*Counter;
+		}
 	};
+
+	constexpr auto HasSelectedRenderResourceGenerationChanged(
+		const FRenderResourceGeneration& Earlier,
+		const FRenderResourceGeneration& Later,
+		ERenderResourceGenerationDependency Dependencies) -> bool
+	{
+		return (
+				   HasRenderResourceGenerationDependency(
+					   Dependencies,
+					   ERenderResourceGenerationDependency::Shader)
+				   && Earlier.Shader != Later.Shader)
+			|| (
+				HasRenderResourceGenerationDependency(
+					Dependencies,
+					ERenderResourceGenerationDependency::Device)
+				&& Earlier.Device != Later.Device)
+			|| (
+				HasRenderResourceGenerationDependency(
+					Dependencies,
+					ERenderResourceGenerationDependency::Manual)
+				&& Earlier.Manual != Later.Manual);
+	}
 
 	struct FRenderResourceCreateError
 	{
@@ -64,6 +123,21 @@ namespace Durin
 			ERenderResourceGenerationDependency::Manual;
 		FRenderResourceGeneration AttemptedGeneration;
 		bool bRetainedFallback = false;
+
+		auto GetFingerprint() const -> size_t
+		{
+			size_t Fingerprint = static_cast<size_t>(Category);
+			auto Combine = [&Fingerprint](size_t Value) {
+				Fingerprint ^= Value + 0x9e3779b9 + (Fingerprint << 6)
+					+ (Fingerprint >> 2);
+			};
+			Combine(std::hash<std::string>{}(Context));
+			Combine(std::hash<std::string>{}(Identity));
+			Combine(std::hash<std::string>{}(Message));
+			Combine(static_cast<size_t>(RetryDependencies));
+			Combine(static_cast<size_t>(bRetainedFallback));
+			return Fingerprint;
+		}
 	};
 
 	enum class ERenderResourceAvailability : uint8
@@ -120,14 +194,16 @@ namespace Durin
 		std::optional<FRenderResourceCreateError> Error;
 	};
 
-	// Stage-0 contract scaffold. Stage 1 replaces the one-shot behavior below
-	// with generation-aware retry and transactional refresh semantics.
+	// Owns one synchronously created renderer payload and its generation-scoped
+	// attempt state. The factory must return a complete candidate or an owned
+	// failure; it never mutates the live payload.
 	template <typename PayloadType>
 	class TRenderResourceCreationSlot
 	{
 	public:
 		explicit TRenderResourceCreationSlot(
-			ERenderResourceGenerationDependency InPayloadDependencies)
+			ERenderResourceGenerationDependency InPayloadDependencies =
+				ERenderResourceGenerationDependency::None)
 			: PayloadDependencies(InPayloadDependencies)
 		{
 		}
@@ -138,31 +214,61 @@ namespace Durin
 			FactoryType&& Factory,
 			DiagnosticReporterType&& ReportDiagnostic) -> PayloadType*
 		{
-			if (bHasAttempt)
+			if (bResolving)
 			{
 				return Payload ? &*Payload : nullptr;
 			}
 
-			bHasAttempt = true;
-			Availability = ERenderResourceAvailability::Creating;
+			ApplyDeviceGeneration(Generation);
+			if (ShouldSuppressAttempt(Generation))
+			{
+				return Payload ? &*Payload : nullptr;
+			}
+
+			bResolving = true;
+			Availability = Payload
+				? ERenderResourceAvailability::Refreshing
+				: ERenderResourceAvailability::Creating;
 			auto Result = std::forward<FactoryType>(Factory)();
+			bResolving = false;
+			bHasAttempt = true;
+			AttemptedGeneration = Generation;
 			if (Result.HasPayload())
 			{
-				Payload.emplace(Result.TakePayload());
+				std::optional<PayloadType> Candidate;
+				Candidate.emplace(Result.TakePayload());
+				Payload.swap(Candidate);
 				PayloadGeneration = Generation;
+				const bool bReportRecovery = bFailureReported;
+				Failure.reset();
+				FailureFingerprint.reset();
 				Availability = ERenderResourceAvailability::Ready;
+				bFailureReported = false;
+				if (bReportRecovery)
+				{
+					std::forward<DiagnosticReporterType>(ReportDiagnostic)(
+						FRenderResourceCreateDiagnostic{
+							.Kind =
+								ERenderResourceCreateDiagnosticKind::Recovery,
+						});
+				}
 				return &*Payload;
 			}
 
 			Failure.emplace(Result.TakeError());
 			Failure->AttemptedGeneration = Generation;
-			Availability = ERenderResourceAvailability::Failed;
+			Failure->bRetainedFallback = Payload.has_value();
+			FailureFingerprint = Failure->GetFingerprint();
+			Availability = Payload
+				? ERenderResourceAvailability::StaleReady
+				: ERenderResourceAvailability::Failed;
 			std::forward<DiagnosticReporterType>(ReportDiagnostic)(
 				FRenderResourceCreateDiagnostic{
 					.Kind = ERenderResourceCreateDiagnosticKind::Failure,
 					.Error = Failure,
 				});
-			return nullptr;
+			bFailureReported = true;
+			return Payload ? &*Payload : nullptr;
 		}
 
 		auto GetPayload() -> PayloadType*
@@ -185,21 +291,96 @@ namespace Durin
 			return Availability;
 		}
 
+		auto GetPayloadGeneration() const -> const FRenderResourceGeneration&
+		{
+			return PayloadGeneration;
+		}
+
+		auto GetAttemptedGeneration() const -> const FRenderResourceGeneration&
+		{
+			return AttemptedGeneration;
+		}
+
+		auto GetFailureFingerprint() const -> std::optional<size_t>
+		{
+			return FailureFingerprint;
+		}
+
 		auto Reset() -> void
 		{
 			Payload.reset();
 			Failure.reset();
+			FailureFingerprint.reset();
 			PayloadGeneration = {};
+			AttemptedGeneration = {};
+			ObservedDeviceGeneration = 0;
+			bHasObservedDeviceGeneration = false;
 			bHasAttempt = false;
+			bResolving = false;
+			bFailureReported = false;
 			Availability = ERenderResourceAvailability::Uninitialized;
 		}
 
 	private:
+		auto ApplyDeviceGeneration(
+			const FRenderResourceGeneration& Generation) -> void
+		{
+			if (!HasRenderResourceGenerationDependency(
+					PayloadDependencies,
+					ERenderResourceGenerationDependency::Device))
+			{
+				return;
+			}
+			if (!bHasObservedDeviceGeneration)
+			{
+				ObservedDeviceGeneration = Generation.Device;
+				bHasObservedDeviceGeneration = true;
+				return;
+			}
+			if (ObservedDeviceGeneration == Generation.Device)
+			{
+				return;
+			}
+
+			Payload.reset();
+			Failure.reset();
+			FailureFingerprint.reset();
+			PayloadGeneration = {};
+			AttemptedGeneration = {};
+			ObservedDeviceGeneration = Generation.Device;
+			bHasAttempt = false;
+			bFailureReported = false;
+			Availability = ERenderResourceAvailability::Uninitialized;
+		}
+
+		auto ShouldSuppressAttempt(
+			const FRenderResourceGeneration& Generation) const -> bool
+		{
+			if (!bHasAttempt)
+			{
+				return false;
+			}
+			const ERenderResourceGenerationDependency RetryDependencies =
+				Failure
+				? Failure->RetryDependencies
+				: PayloadDependencies;
+			return !HasSelectedRenderResourceGenerationChanged(
+				AttemptedGeneration,
+				Generation,
+				RetryDependencies);
+		}
+
 		ERenderResourceGenerationDependency PayloadDependencies;
 		std::optional<PayloadType> Payload;
 		std::optional<FRenderResourceCreateError> Failure;
+		std::optional<size_t> FailureFingerprint;
 		FRenderResourceGeneration PayloadGeneration;
+		FRenderResourceGeneration AttemptedGeneration;
+		uint64 ObservedDeviceGeneration = 0;
+		bool bHasObservedDeviceGeneration = false;
 		bool bHasAttempt = false;
+		bool bResolving = false;
+		bool bFailureReported = false;
 		ERenderResourceAvailability Availability =
 			ERenderResourceAvailability::Uninitialized;
 	};
