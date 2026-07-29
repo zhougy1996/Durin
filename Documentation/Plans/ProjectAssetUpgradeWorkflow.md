@@ -12,20 +12,20 @@ Completed:
 Stage 0 completed on 2026-07-28 against baseline `03acb67f`. The repository
 inventory found two authored upgrade domains: AssetCore field-structure
 compatibility, including the registered `DStaticMeshComponent` material-field
-upgrader, and `DStaticMesh::MaterialSlotsVersion`. Supported older DAST
-envelopes are a third rewrite-only domain once dual-version reading lands in
-the DAsset V3 And Custom Asset Versioning plan. That plan also owns the durable
-package custom-version table and chained migration framework; this workflow
-consumes their audit and execution results without duplicating wire or
-asset-schema policy.
+upgrader, and `DStaticMesh::MaterialSlotsVersion`. Package-envelope rewriting
+becomes a third domain only if AssetCore intentionally supports an older DAST
+wire format. The Tagged Asset Field Upgrades plan keeps the current DAST format
+at v2 and establishes tagged field identity plus retained legacy payloads as
+the authored-structure compatibility contract; this workflow consumes those
+audit and execution results without duplicating package or migration policy.
 
 Texture2D source identity reconciliation and StaticMesh source-hash refresh can
 also mark packages Dirty during `PostLoad()`, but they represent external source
-freshness rather than an engine-schema upgrade. They are now explicitly
+freshness rather than an authored-structure upgrade. They are now explicitly
 classified as non-upgrade load mutations that must block an upgrade batch from
 silently saving unrelated state. Material, MaterialInstance, TextureCube,
 SplineComponent, and Level `PostLoad()` paths do not currently perform authored
-schema migrations. DDC, shader, cooked-payload, importer, decoder, builder, and
+structure migrations. DDC, shader, cooked-payload, importer, decoder, builder, and
 projection versions govern rebuildable or runtime data and remain outside the
 authored-package upgrade inventory.
 
@@ -48,7 +48,7 @@ comparison.
 
 Stage 1 is in progress. AssetCore now exposes content-hashed all-object
 inspection, deterministic package/session reports, object-free structure and
-semantic-schema contributors, a separate load-mutation ledger, and a safe
+owner-specific semantic contributors, a separate load-mutation ledger, and a safe
 fresh-load execution primitive. Execution rejects stale or already loaded
 targets, blocks non-upgrade `PostLoad()` mutations, verifies that materialized
 migrations reproduce the audit, publishes through the ordinary atomic save
@@ -130,7 +130,7 @@ blocking editor startup or silently discarding incompatible data.
 
 - All packages discovered through the active asset registry across project,
   engine, and plugin mounts.
-- A unified report for structure compatibility, registered asset-schema
+- A unified report for tagged-field compatibility, registered owner-specific
   migrations, supported older package-envelope rewrites, and packages that
   cannot be upgraded by the current process.
 - A non-blocking post-start audit coordinated from the editor host.
@@ -151,7 +151,7 @@ blocking editor startup or silently discarding incompatible data.
 - Automatically rewriting assets merely because the engine version changed.
 - Treating rebuildable DDC, shader caches, cooked containers, or source-library
   files as authored asset packages.
-- Inventing migration rules for unknown newer schemas.
+- Inventing migration rules for unknown incompatible fields or newer packages.
 - Silently saving risky packages, suppressing future warnings permanently, or
   allowing one global confirmation to authorize unrelated data loss.
 - Changing the DAST wire format, reflection identity, dependency semantics, or
@@ -169,9 +169,10 @@ blocking editor startup or silently discarding incompatible data.
   fingerprints, stale-result detection, upgrade execution options, and the
   distinction between writable, read-only, unsupported, safe, and risky
   outcomes.
-- Modules that own reflected asset types register versioned migration
-  contributors with stable handler IDs, human-readable reasons, and explicit
-  risk classifications. AssetCore does not depend on Engine asset classes.
+- Modules that own reflected asset types register exact legacy-field or
+  owner-local semantic migration contributors with stable handler IDs,
+  human-readable reasons, and explicit risk classifications. AssetCore does not
+  depend on Engine asset classes.
 - DurinEd owns the process-wide audit session and queryable snapshot. MainFrame
   starts and hosts the global workflow after project mounts, registry
   reconciliation, and workspace registration succeed.
@@ -308,7 +309,7 @@ blocking editor startup or silently discarding incompatible data.
 | Package inspection | Bounded header and complete field inspection without object construction | Inspection alone cannot execute class-specific object migrations or classify all legacy payloads |
 | Structure compatibility | `FAssetLoadReport`, retained legacy payloads, registered upgraders, risk classifications, and save refusal | Reports are requested only by selected callers and exclude dependency loads |
 | Asset migrations | Individual assets can migrate versioned state during loading and mark packages Dirty | No shared reason, handler, risk, or audit contribution |
-| Package versions | Registry exposes the package format and active plans preserve supported legacy reads | No user-facing rewrite-available classification |
+| Package versions | Registry exposes the current package format; reflected field evolution is independent of it | No user-facing rewrite-available classification if an older envelope is supported later |
 | Editor notifications | Shared notification service supports progress and actions | No process-wide asset audit producer |
 | Level workflow | Deferred activation and explicit safe/risky decisions are implemented and tested | Policy and presentation are Level-specific and do not publish global state |
 | Content Browser | Registry-backed snapshot/model split and item presentation are established | No upgrade status, filters, or navigation |
@@ -318,12 +319,12 @@ blocking editor startup or silently discarding incompatible data.
 
 ### Stage 0: Freeze The Audit And Migration Contract
 
-Dependencies: coordinate with the active DAsset V3 And Custom Asset Versioning
-plan so its v2/v3 payload context, custom schema versions, migration plans, and
-rewrite semantics remain inputs rather than duplicate wire-format work.
+Dependencies: consume the Tagged Asset Field Upgrades contract so exact legacy
+field identities, owner-local semantic version carriers, and any future
+package-envelope rewrite remain inputs rather than duplicate migration work.
 
 - [x] Inventory every repository-owned path that changes authored package state
-  during load, including structure upgraders, explicit schema versions,
+  during load, including structure upgraders, owner-local version carriers,
   `PostLoad()` migrations, and supported package-envelope rewrites.
 - [x] Classify each path as reportable safe migration, risky migration,
   rewrite-only opportunity, unsupported input, or non-upgrade runtime rebuild.
@@ -348,8 +349,9 @@ rewrite semantics remain inputs rather than duplicate wire-format work.
   staleness, and failure behavior contain no unresolved decisions.
 - The selected incremental budget keeps the editor responsive on the measured
   representative project and is reproducible in a focused test harness.
-- The contract consumes DAST and custom asset-schema version metadata without
-  changing or competing with the DAsset V3 And Custom Asset Versioning plan.
+- The contract consumes DAST format metadata, tagged legacy-field reports, and
+  owner-local semantic migration results without introducing another
+  compatibility mechanism.
 
 ### Stage 1: Add AssetCore Audit And Execution Primitives
 
@@ -363,8 +365,8 @@ Dependencies: Stage 0.
   and explicit execution contributors for repository-owned migrations from the
   Stage 0 inventory.
 - [x] Add a load-mutation ledger and instrument Texture2D source identity,
-  StaticMesh source hash, structure upgrades, and explicit schema migrations so
-  execution cannot infer meaning from Dirty state.
+  StaticMesh source hash, structure upgrades, and owner-local semantic
+  migrations so execution cannot infer meaning from Dirty state.
 - [ ] Report supported older package formats as rewrite opportunities and
   future unsupported formats as blocked inputs.
 - [x] Implement object-free package audit with the selected deterministic queue
@@ -518,7 +520,7 @@ Dependencies: Stages 1 through 4.
 | Inventory | Every repository-owned load-time authored-state mutation has a registered report or explicit non-upgrade disposition |
 | Discovery | Project, engine, and plugin registry packages appear once in deterministic order |
 | Structure compatibility | Safe cleanup, migrated fields, data-loss risk, unknown newer schema, grouped objects, and retained payloads |
-| Asset schema migration | Explicit version, handler, reason, represented-state change, and clean reload |
+| Owner-specific migration | Exact legacy identity or local version, handler, reason, represented-state change, and clean reload |
 | Package format | Supported rewrite opportunity, current format, and unsupported future format |
 | Lifecycle | Object-free audit, preloaded execution target, dependency, circular, active-workspace, cancelled, and shutdown cases |
 | Staleness | Registry revision, changed fingerprint, moved, deleted, imported, and externally edited package |
@@ -572,7 +574,7 @@ Build, test, and runtime execution follow
 - [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
 - [Build And Run](../Development/Build/BuildAndRun.md)
 - [Native C++ Tests](../Development/Build/NativeTests.md)
-- [DAsset V3 And Custom Asset Versioning Plan](DAssetV3AndCustomVersioning.md)
+- [Tagged Asset Field Upgrades Plan](TaggedAssetFieldUpgrades.md)
 - [Level Editor Modularization Plan](LevelEditorModularization.md)
 - [Asset Structure Upgrade Plan](Archive/2026-07/AssetStructureUpgrade.md)
 

@@ -34,9 +34,9 @@ same DAST object-package envelope. The v2 binary header records the `DAST`
 magic, format version, main asset class, dependencies, and object count. The
 asset path is derived from the mounted package filename, so moving a package
 within a content mount does not rewrite its payload. The registry reads only
-this header. The current reader and writer require v2; the planned v3
-custom-version and compact-schema contract remains in its active implementation
-plan until the v3 reader and writer are delivered together.
+this header. The current reader and writer require v2. Package format versions
+describe this wire contract only; reflected property evolution does not require
+a package-format increment.
 
 Asset-specific magic values belong to external derived or cooked payloads, not
 to alternative `.dasset` envelopes. StaticMesh payloads use DMSH and texture
@@ -57,10 +57,10 @@ issue.
 
 AssetCore owns report construction, payload retention, object-reference
 resolution helpers, and class-specific upgrader registration. Modules that own
-concrete reflected types register their schema rules without introducing an
-AssetCore dependency on those types. A registered rule may classify a complete
-change as `SafeCleanup` or `Migrated`; either classification marks the loaded
-package Dirty so an explicit save can persist it. Unhandled fields are
+concrete reflected types register their legacy-field rules without introducing
+an AssetCore dependency on those types. A registered rule may classify a
+complete change as `SafeCleanup` or `Migrated`; either classification marks the
+loaded package Dirty so an explicit save can persist it. Unhandled fields are
 `UnknownIncompatible` with `UnknownNewerSchema` risk and do not themselves mark
 the package Dirty. Rules that cannot preserve the represented data use
 `DataLossRisk`.
@@ -98,7 +98,11 @@ DurinDevTool packaging commands, and installable-build orchestration are not yet
 connected. Other deferred package-system work includes soft references, async
 loading, hot reload, redirects, and broader editor asset browsing.
 
-Package format versions are independent of the Durin engine release version. An engine release does not rewrite packages unless their own format or serialized schema requires a migration.
+Package format versions are independent of the Durin engine release version.
+Adding, removing, or reordering tagged reflected fields does not change the
+package format. An engine release rewrites a package only when the package byte
+contract changes or a recognized legacy-field upgrader produces canonical
+authored state.
 
 ## Rebuildable Asset Caches
 

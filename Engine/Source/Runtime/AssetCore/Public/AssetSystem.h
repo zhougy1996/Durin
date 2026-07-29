@@ -5,7 +5,6 @@
 #include "Delegates/Delegate.h"
 #include "DObject/CoreDObject.h"
 #include "Hash/XxHash.h"
-#include "Misc/Guid.h"
 
 namespace Durin::Asset
 {
@@ -42,32 +41,6 @@ namespace Durin::Asset
 		explicit operator bool() const { return Succeeded(); }
 	};
 
-	using FAssetSchemaId = FGuid;
-
-	// Stores one non-zero package-local schema version.
-	struct FAssetCustomVersion
-	{
-		FAssetSchemaId SchemaId;
-		uint32 Version = 0;
-
-		auto operator<=>(const FAssetCustomVersion&) const = default;
-	};
-
-	// Provides deterministic custom-version lookup. Missing entries query as version zero.
-	class FAssetCustomVersionContainer
-	{
-	public:
-		ASSETCORE_API auto SetVersion(const FAssetSchemaId& SchemaId, uint32 Version) -> FAssetResult;
-		ASSETCORE_API auto GetVersion(const FAssetSchemaId& SchemaId) const -> uint32;
-		auto GetVersions() const -> std::span<const FAssetCustomVersion> { return Versions; }
-		auto IsEmpty() const -> bool { return Versions.empty(); }
-
-		auto operator==(const FAssetCustomVersionContainer&) const -> bool = default;
-
-	private:
-		std::vector<FAssetCustomVersion> Versions;
-	};
-
 	// Classifies how a serialized field mismatch was handled during package loading.
 	enum class EAssetCompatibilityClassification : uint8
 	{
@@ -83,59 +56,6 @@ namespace Durin::Asset
 		None,
 		PotentialDataLoss,
 		UnknownNewerSchema
-	};
-
-	// Classifies one schema version against the registered migration policy.
-	enum class EAssetSchemaMigrationStatus : uint8
-	{
-		Current,
-		MigrationAvailable,
-		UnknownSchema,
-		NewerVersion,
-		TooOld,
-		MissingStep
-	};
-
-	// Identifies one legacy field a migration step promises to consume.
-	struct FAssetSchemaLegacyFieldId
-	{
-		std::string DeclaringClass;
-		std::string Name;
-		std::string TypeSignature;
-
-		auto operator==(const FAssetSchemaLegacyFieldId&) const -> bool = default;
-	};
-
-	// Identifies one selected N -> N+1 migration without retaining executable callbacks.
-	struct FAssetSchemaMigrationStepInfo
-	{
-		uint32 FromVersion = 0;
-		uint32 ToVersion = 0;
-		std::string HandlerId;
-		std::string Summary;
-		EAssetCompatibilityRisk Risk = EAssetCompatibilityRisk::None;
-		std::vector<FAssetSchemaLegacyFieldId> ConsumedLegacyFields;
-
-		auto operator==(const FAssetSchemaMigrationStepInfo&) const -> bool = default;
-	};
-
-	// Carries the deterministic migration decision used by audit and materialization.
-	struct FAssetSchemaMigrationPlan
-	{
-		FAssetSchemaId SchemaId;
-		std::string SchemaName;
-		uint32 StoredVersion = 0;
-		uint32 CurrentVersion = 0;
-		EAssetSchemaMigrationStatus Status = EAssetSchemaMigrationStatus::UnknownSchema;
-		std::vector<FAssetSchemaMigrationStepInfo> Steps;
-		EAssetCompatibilityRisk Risk = EAssetCompatibilityRisk::None;
-		std::string Diagnostic;
-
-		auto IsSupported() const -> bool
-		{
-			return Status == EAssetSchemaMigrationStatus::Current
-				|| Status == EAssetSchemaMigrationStatus::MigrationAvailable;
-		}
 	};
 
 	// Preserves one incompatible serialized field and its original payload for a registered upgrader.
@@ -181,7 +101,6 @@ namespace Durin::Asset
 	struct FAssetLoadReport
 	{
 		FAssetPath PackagePath;
-		std::vector<FAssetSchemaMigrationPlan> SchemaMigrations;
 		std::vector<FAssetCompatibilityIssue> CompatibilityIssues;
 		std::vector<FAssetLoadMutation> Mutations;
 
@@ -205,8 +124,6 @@ namespace Durin::Asset
 	class FAssetMigrationContext
 	{
 	public:
-		FAssetMigrationContext() = default;
-
 		ASSETCORE_API auto ReadObjectReference(const FAssetLegacyField& Field, DObject*& OutObject) const -> FAssetResult;
 		ASSETCORE_API auto ReadObjectReferenceArray(
 			const FAssetLegacyField& Field,
@@ -409,53 +326,6 @@ namespace Durin::Asset
 		std::span<const FAssetLegacyField>,
 		std::vector<FAssetCompatibilityIssue>&)>;
 
-	// Owns both object-free inspection and materialized application for one N -> N+1 edge.
-	struct FAssetSchemaMigrationStep
-	{
-		uint32 FromVersion = 0;
-		std::string HandlerId;
-		std::string Summary;
-		EAssetCompatibilityRisk Risk = EAssetCompatibilityRisk::None;
-		std::vector<FAssetSchemaLegacyFieldId> ConsumedLegacyFields;
-		FAssetStructureInspectionUpgrader Inspect;
-		FAssetStructureUpgrader Apply;
-	};
-
-	using FAssetSchemaCurrentValidator = std::function<FAssetResult(const DObject*)>;
-
-	// Declares one independently versioned authored-state domain and every class that uses it.
-	struct FAssetSchemaDescriptor
-	{
-		FAssetSchemaId Id;
-		std::string Name;
-		uint32 LatestVersion = 0;
-		uint32 MinimumReadableVersion = 0;
-		std::vector<DClass*> AffectedClasses;
-		std::vector<FAssetSchemaMigrationStep> MigrationSteps;
-		FAssetSchemaCurrentValidator ValidateCurrent;
-	};
-
-	// Registers one schema declaration. Duplicate IDs, names, classes, or step edges are rejected.
-	ASSETCORE_API auto RegisterAssetSchema(FAssetSchemaDescriptor Descriptor) -> FAssetResult;
-	ASSETCORE_API auto FindAssetSchema(
-		const FAssetSchemaId& SchemaId,
-		FAssetSchemaDescriptor& OutDescriptor) -> bool;
-	ASSETCORE_API auto FindAssetSchemaMigrationStep(
-		const FAssetSchemaId& SchemaId,
-		uint32 FromVersion,
-		FAssetSchemaMigrationStep& OutStep) -> bool;
-	ASSETCORE_API auto CollectAssetSchemasForClass(
-		DClass* Class,
-		std::vector<FAssetSchemaDescriptor>& OutDescriptors) -> FAssetResult;
-	ASSETCORE_API auto PlanAssetSchemaMigration(
-		const FAssetSchemaId& SchemaId,
-		uint32 StoredVersion,
-		FAssetSchemaMigrationPlan& OutPlan) -> FAssetResult;
-	ASSETCORE_API auto PlanAssetSchemaMigrations(
-		DClass* Class,
-		const FAssetCustomVersionContainer& StoredVersions,
-		std::vector<FAssetSchemaMigrationPlan>& OutPlans) -> FAssetResult;
-
 	// Registers an object-free counterpart to a structure upgrader for project-wide auditing.
 	ASSETCORE_API auto RegisterAssetStructureInspectionUpgrader(
 		std::string QualifiedClassName,
@@ -484,7 +354,6 @@ namespace Durin::Asset
 		uint32 FormatVersion = 0;
 		FAssetPackageFingerprint Fingerprint;
 		EAssetPackageAuditState State = EAssetPackageAuditState::NotAudited;
-		std::vector<FAssetSchemaMigrationPlan> SchemaMigrations;
 		std::vector<FAssetCompatibilityIssue> CompatibilityIssues;
 		std::string Diagnostic;
 		double AuditDurationMilliseconds = 0.0;

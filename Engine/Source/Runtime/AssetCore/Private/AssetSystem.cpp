@@ -174,36 +174,29 @@ namespace Durin::Asset
 			return Contributors;
 		}
 
-		struct FRegisteredStructureContributor
+		struct FRegisteredStructureUpgrader
 		{
 			std::string HandlerId;
-			FAssetStructureInspectionUpgrader Inspect;
-			FAssetStructureUpgrader Apply;
+			FAssetStructureUpgrader Upgrader;
 		};
 
-		auto GetStructureContributors()
-			-> std::unordered_map<std::string, FRegisteredStructureContributor>&
+		struct FRegisteredStructureInspectionUpgrader
 		{
-			static std::unordered_map<std::string, FRegisteredStructureContributor> Contributors;
-			return Contributors;
+			std::string HandlerId;
+			FAssetStructureInspectionUpgrader Upgrader;
+		};
+
+		auto GetStructureUpgraders() -> std::unordered_map<DClass*, FRegisteredStructureUpgrader>&
+		{
+			static std::unordered_map<DClass*, FRegisteredStructureUpgrader> Upgraders;
+			return Upgraders;
 		}
 
-		auto GetAssetSchemas() -> std::unordered_map<FAssetSchemaId, FAssetSchemaDescriptor>&
+		auto GetStructureInspectionUpgraders()
+			-> std::unordered_map<std::string, FRegisteredStructureInspectionUpgrader>&
 		{
-			static std::unordered_map<FAssetSchemaId, FAssetSchemaDescriptor> Schemas;
-			return Schemas;
-		}
-
-		auto GetAssetSchemaNames() -> std::unordered_map<std::string, FAssetSchemaId>&
-		{
-			static std::unordered_map<std::string, FAssetSchemaId> Names;
-			return Names;
-		}
-
-		auto GetAssetSchemaClassUsage() -> std::unordered_map<DClass*, std::vector<FAssetSchemaId>>&
-		{
-			static std::unordered_map<DClass*, std::vector<FAssetSchemaId>> Usage;
-			return Usage;
+			static std::unordered_map<std::string, FRegisteredStructureInspectionUpgrader> Upgraders;
+			return Upgraders;
 		}
 
 		auto MakePackageFingerprint(
@@ -1354,296 +1347,17 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetCustomVersionContainer::SetVersion(
-		const FAssetSchemaId& SchemaId,
-		uint32 Version) -> FAssetResult
-	{
-		if (!SchemaId.IsValid())
-			return Error(EAssetError::InvalidObjectGraph, "An asset custom version requires a valid schema ID.");
-		const auto It = std::ranges::lower_bound(Versions, SchemaId, {}, &FAssetCustomVersion::SchemaId);
-		if (Version == 0)
-		{
-			if (It != Versions.end() && It->SchemaId == SchemaId) Versions.erase(It);
-			return {};
-		}
-		if (It != Versions.end() && It->SchemaId == SchemaId)
-			It->Version = Version;
-		else
-			Versions.insert(It, {.SchemaId = SchemaId, .Version = Version});
-		return {};
-	}
-
-	auto FAssetCustomVersionContainer::GetVersion(const FAssetSchemaId& SchemaId) const -> uint32
-	{
-		const auto It = std::ranges::lower_bound(Versions, SchemaId, {}, &FAssetCustomVersion::SchemaId);
-		return It != Versions.end() && It->SchemaId == SchemaId ? It->Version : 0;
-	}
-
-	auto RegisterAssetSchema(FAssetSchemaDescriptor Descriptor) -> FAssetResult
-	{
-		if (!Descriptor.Id.IsValid())
-			return Error(EAssetError::InvalidObjectGraph, "An asset schema requires a valid ID.");
-		if (Descriptor.Name.empty())
-			return Error(EAssetError::InvalidObjectGraph, "An asset schema requires a diagnostic name.");
-		if (Descriptor.LatestVersion == 0)
-			return Error(EAssetError::InvalidObjectGraph, std::format(
-				"Asset schema '{}' must declare a non-zero latest version.", Descriptor.Name));
-		if (Descriptor.MinimumReadableVersion > Descriptor.LatestVersion)
-			return Error(EAssetError::InvalidObjectGraph, std::format(
-				"Asset schema '{}' has minimum readable version {} above latest version {}.",
-				Descriptor.Name, Descriptor.MinimumReadableVersion, Descriptor.LatestVersion));
-		if (Descriptor.AffectedClasses.empty())
-			return Error(EAssetError::InvalidObjectGraph, std::format(
-				"Asset schema '{}' must declare at least one affected class.", Descriptor.Name));
-		if (!Descriptor.ValidateCurrent)
-			return Error(EAssetError::InvalidObjectGraph, std::format(
-				"Asset schema '{}' must declare current-state validation.", Descriptor.Name));
-
-		std::unordered_set<DClass*> Classes;
-		std::unordered_set<std::string> QualifiedClassNames;
-		for (DClass* Class : Descriptor.AffectedClasses)
-		{
-			if (!Class)
-				return Error(EAssetError::InvalidObjectGraph, std::format(
-					"Asset schema '{}' contains a null affected class.", Descriptor.Name));
-			const std::string QualifiedName = Class->GetQualifiedName().ToString();
-			if (!Classes.insert(Class).second || !QualifiedClassNames.insert(QualifiedName).second)
-				return Error(EAssetError::InvalidObjectGraph, std::format(
-					"Asset schema '{}' declares affected class '{}' more than once.",
-					Descriptor.Name, QualifiedName));
-		}
-
-		std::unordered_set<uint32> FromVersions;
-		for (const FAssetSchemaMigrationStep& Step : Descriptor.MigrationSteps)
-		{
-			if (Step.FromVersion >= Descriptor.LatestVersion)
-				return Error(EAssetError::InvalidObjectGraph, std::format(
-					"Asset schema '{}' migration {} -> {} exceeds latest version {}.",
-					Descriptor.Name, Step.FromVersion, static_cast<uint64>(Step.FromVersion) + 1,
-					Descriptor.LatestVersion));
-			if (!FromVersions.insert(Step.FromVersion).second)
-				return Error(EAssetError::InvalidObjectGraph, std::format(
-					"Asset schema '{}' declares migration edge {} -> {} more than once.",
-					Descriptor.Name, Step.FromVersion, Step.FromVersion + 1));
-			if (Step.HandlerId.empty() || Step.Summary.empty() || !Step.Inspect || !Step.Apply)
-				return Error(EAssetError::InvalidObjectGraph, std::format(
-					"Asset schema '{}' migration {} -> {} requires a handler ID, summary, "
-					"inspection callback, and apply callback.",
-					Descriptor.Name, Step.FromVersion, Step.FromVersion + 1));
-			std::unordered_set<std::string> ConsumedFieldIds;
-			for (const FAssetSchemaLegacyFieldId& Field : Step.ConsumedLegacyFields)
-			{
-				if (Field.DeclaringClass.empty() || Field.Name.empty())
-					return Error(EAssetError::InvalidObjectGraph, std::format(
-						"Asset schema '{}' migration {} -> {} contains an incomplete "
-						"consumed legacy-field identity.",
-						Descriptor.Name, Step.FromVersion, Step.FromVersion + 1));
-				const std::string FieldId =
-					Field.DeclaringClass + "\n" + Field.Name + "\n" + Field.TypeSignature;
-				if (!ConsumedFieldIds.insert(FieldId).second)
-					return Error(EAssetError::InvalidObjectGraph, std::format(
-						"Asset schema '{}' migration {} -> {} declares legacy field '{}.{}' "
-						"more than once.",
-						Descriptor.Name, Step.FromVersion, Step.FromVersion + 1,
-						Field.DeclaringClass, Field.Name));
-			}
-		}
-
-		auto& Schemas = GetAssetSchemas();
-		auto& Names = GetAssetSchemaNames();
-		if (Schemas.contains(Descriptor.Id))
-			return Error(EAssetError::AlreadyExists, std::format(
-				"Asset schema ID {} is already registered.", Descriptor.Id.ToString()));
-		if (const auto It = Names.find(Descriptor.Name); It != Names.end())
-			return Error(EAssetError::AlreadyExists, std::format(
-				"Asset schema name '{}' is already registered for ID {}.",
-				Descriptor.Name, It->second.ToString()));
-
-		std::ranges::sort(Descriptor.AffectedClasses, [](const DClass* Left, const DClass* Right) {
-			return Left->GetQualifiedName().ToString() < Right->GetQualifiedName().ToString();
-		});
-		std::ranges::sort(Descriptor.MigrationSteps, {}, &FAssetSchemaMigrationStep::FromVersion);
-		const FAssetSchemaId SchemaId = Descriptor.Id;
-		const std::string SchemaName = Descriptor.Name;
-		for (DClass* Class : Descriptor.AffectedClasses)
-		{
-			auto& ClassSchemas = GetAssetSchemaClassUsage()[Class];
-			ClassSchemas.push_back(SchemaId);
-			std::ranges::sort(ClassSchemas);
-		}
-		Schemas.emplace(SchemaId, std::move(Descriptor));
-		Names.emplace(SchemaName, SchemaId);
-		return {};
-	}
-
-	auto FindAssetSchema(
-		const FAssetSchemaId& SchemaId,
-		FAssetSchemaDescriptor& OutDescriptor) -> bool
-	{
-		const auto It = GetAssetSchemas().find(SchemaId);
-		if (It == GetAssetSchemas().end()) return false;
-		OutDescriptor = It->second;
-		return true;
-	}
-
-	auto FindAssetSchemaMigrationStep(
-		const FAssetSchemaId& SchemaId,
-		uint32 FromVersion,
-		FAssetSchemaMigrationStep& OutStep) -> bool
-	{
-		const auto SchemaIt = GetAssetSchemas().find(SchemaId);
-		if (SchemaIt == GetAssetSchemas().end()) return false;
-		const auto& Steps = SchemaIt->second.MigrationSteps;
-		const auto StepIt =
-			std::ranges::lower_bound(Steps, FromVersion, {}, &FAssetSchemaMigrationStep::FromVersion);
-		if (StepIt == Steps.end() || StepIt->FromVersion != FromVersion) return false;
-		OutStep = *StepIt;
-		return true;
-	}
-
-	auto CollectAssetSchemasForClass(
-		DClass* Class,
-		std::vector<FAssetSchemaDescriptor>& OutDescriptors) -> FAssetResult
-	{
-		OutDescriptors.clear();
-		if (!Class)
-			return Error(EAssetError::InvalidObjectGraph, "Asset schema collection requires a class.");
-		std::unordered_set<FAssetSchemaId> SchemaIds;
-		for (DClass* Candidate = Class; Candidate; Candidate = Candidate->GetSuperClass())
-		{
-			const auto UsageIt = GetAssetSchemaClassUsage().find(Candidate);
-			if (UsageIt == GetAssetSchemaClassUsage().end()) continue;
-			SchemaIds.insert(UsageIt->second.begin(), UsageIt->second.end());
-		}
-		std::vector<FAssetSchemaId> OrderedIds(SchemaIds.begin(), SchemaIds.end());
-		std::ranges::sort(OrderedIds);
-		OutDescriptors.reserve(OrderedIds.size());
-		for (const FAssetSchemaId& SchemaId : OrderedIds)
-		{
-			const auto It = GetAssetSchemas().find(SchemaId);
-			if (It == GetAssetSchemas().end())
-				return Error(EAssetError::InvalidObjectGraph, std::format(
-					"Class schema usage references unregistered ID {}.", SchemaId.ToString()));
-			OutDescriptors.push_back(It->second);
-		}
-		return {};
-	}
-
-	auto PlanAssetSchemaMigration(
-		const FAssetSchemaId& SchemaId,
-		uint32 StoredVersion,
-		FAssetSchemaMigrationPlan& OutPlan) -> FAssetResult
-	{
-		OutPlan = {
-			.SchemaId = SchemaId,
-			.StoredVersion = StoredVersion};
-		const auto SchemaIt = GetAssetSchemas().find(SchemaId);
-		if (SchemaIt == GetAssetSchemas().end())
-		{
-			OutPlan.Status = EAssetSchemaMigrationStatus::UnknownSchema;
-			OutPlan.Risk = EAssetCompatibilityRisk::UnknownNewerSchema;
-			OutPlan.Diagnostic = std::format(
-				"Asset schema {} is not registered.", SchemaId.ToString());
-			return Error(EAssetError::UnsupportedProperty, OutPlan.Diagnostic);
-		}
-
-		const FAssetSchemaDescriptor& Schema = SchemaIt->second;
-		OutPlan.SchemaName = Schema.Name;
-		OutPlan.CurrentVersion = Schema.LatestVersion;
-		if (StoredVersion == Schema.LatestVersion)
-		{
-			OutPlan.Status = EAssetSchemaMigrationStatus::Current;
-			return {};
-		}
-		if (StoredVersion > Schema.LatestVersion)
-		{
-			OutPlan.Status = EAssetSchemaMigrationStatus::NewerVersion;
-			OutPlan.Risk = EAssetCompatibilityRisk::UnknownNewerSchema;
-			OutPlan.Diagnostic = std::format(
-				"Asset schema '{}' stores newer version {}; this process supports through {}.",
-				Schema.Name, StoredVersion, Schema.LatestVersion);
-			return Error(EAssetError::UnsupportedProperty, OutPlan.Diagnostic);
-		}
-		if (StoredVersion < Schema.MinimumReadableVersion)
-		{
-			OutPlan.Status = EAssetSchemaMigrationStatus::TooOld;
-			OutPlan.Risk = EAssetCompatibilityRisk::PotentialDataLoss;
-			OutPlan.Diagnostic = std::format(
-				"Asset schema '{}' stores version {}, below minimum readable version {}.",
-				Schema.Name, StoredVersion, Schema.MinimumReadableVersion);
-			return Error(EAssetError::UnsupportedProperty, OutPlan.Diagnostic);
-		}
-
-		for (uint32 Version = StoredVersion; Version < Schema.LatestVersion; ++Version)
-		{
-			const auto StepIt = std::ranges::lower_bound(
-				Schema.MigrationSteps, Version, {}, &FAssetSchemaMigrationStep::FromVersion);
-			if (StepIt == Schema.MigrationSteps.end() || StepIt->FromVersion != Version)
-			{
-				OutPlan.Status = EAssetSchemaMigrationStatus::MissingStep;
-				OutPlan.Risk = EAssetCompatibilityRisk::UnknownNewerSchema;
-				OutPlan.Diagnostic = std::format(
-					"Asset schema '{}' has no registered migration step {} -> {}.",
-					Schema.Name, Version, Version + 1);
-				return Error(EAssetError::UnsupportedProperty, OutPlan.Diagnostic);
-			}
-			OutPlan.Steps.push_back({
-				.FromVersion = Version,
-				.ToVersion = Version + 1,
-				.HandlerId = StepIt->HandlerId,
-				.Summary = StepIt->Summary,
-				.Risk = StepIt->Risk,
-				.ConsumedLegacyFields = StepIt->ConsumedLegacyFields});
-			OutPlan.Risk = std::max(OutPlan.Risk, StepIt->Risk);
-		}
-		OutPlan.Status = EAssetSchemaMigrationStatus::MigrationAvailable;
-		return {};
-	}
-
-	auto PlanAssetSchemaMigrations(
-		DClass* Class,
-		const FAssetCustomVersionContainer& StoredVersions,
-		std::vector<FAssetSchemaMigrationPlan>& OutPlans) -> FAssetResult
-	{
-		OutPlans.clear();
-		std::vector<FAssetSchemaDescriptor> Schemas;
-		FAssetResult Result = CollectAssetSchemasForClass(Class, Schemas);
-		if (!Result) return Result;
-
-		for (const FAssetCustomVersion& Stored : StoredVersions.GetVersions())
-		{
-			if (GetAssetSchemas().contains(Stored.SchemaId)) continue;
-			FAssetSchemaMigrationPlan Plan;
-			PlanAssetSchemaMigration(Stored.SchemaId, Stored.Version, Plan);
-			OutPlans.push_back(std::move(Plan));
-		}
-		for (const FAssetSchemaDescriptor& Schema : Schemas)
-		{
-			FAssetSchemaMigrationPlan Plan;
-			PlanAssetSchemaMigration(
-				Schema.Id, StoredVersions.GetVersion(Schema.Id), Plan);
-			OutPlans.push_back(std::move(Plan));
-		}
-		std::ranges::sort(OutPlans, {}, &FAssetSchemaMigrationPlan::SchemaId);
-		for (const FAssetSchemaMigrationPlan& Plan : OutPlans)
-		{
-			if (!Plan.IsSupported())
-				return Error(EAssetError::UnsupportedProperty, Plan.Diagnostic);
-		}
-		return {};
-	}
-
 	auto RegisterAssetStructureInspectionUpgrader(
 		std::string QualifiedClassName,
 		std::string HandlerId,
 		FAssetStructureInspectionUpgrader Upgrader) -> void
 	{
 		if (QualifiedClassName.empty() || HandlerId.empty() || !Upgrader) return;
-		auto& Contributor = GetStructureContributors()[QualifiedClassName];
-		if (!Contributor.HandlerId.empty() && Contributor.HandlerId != HandlerId)
-			Contributor = {};
-		Contributor.HandlerId = std::move(HandlerId);
-		Contributor.Inspect = std::move(Upgrader);
+		GetStructureInspectionUpgraders().insert_or_assign(
+			std::move(QualifiedClassName),
+			FRegisteredStructureInspectionUpgrader{
+				.HandlerId = std::move(HandlerId),
+				.Upgrader = std::move(Upgrader)});
 	}
 
 	auto AuditAssetPackage(
@@ -1740,13 +1454,18 @@ namespace Durin::Asset
 					.Payload = Field.Payload});
 			}
 			std::vector<FAssetCompatibilityIssue> ObjectIssues;
+			const FRegisteredStructureInspectionUpgrader* RegisteredUpgrader = nullptr;
 			for (DClass* Candidate = Class; Candidate; Candidate = Candidate->GetSuperClass())
 			{
 				const std::string QualifiedName = Candidate->GetQualifiedName().ToString();
-				const auto It = GetStructureContributors().find(QualifiedName);
-				if (It == GetStructureContributors().end() || !It->second.Inspect) continue;
-				const size_t FirstContributorIssue = ObjectIssues.size();
-				Result = It->second.Inspect(
+				auto It = GetStructureInspectionUpgraders().find(QualifiedName);
+				if (It == GetStructureInspectionUpgraders().end()) continue;
+				RegisteredUpgrader = &It->second;
+				break;
+			}
+			if (RegisteredUpgrader)
+			{
+				Result = RegisteredUpgrader->Upgrader(
 					Inspection, Object, LegacyFields, ObjectIssues);
 				if (!Result)
 				{
@@ -1754,13 +1473,11 @@ namespace Durin::Asset
 					OutReport.Diagnostic = Result.Message;
 					return Result;
 				}
-				for (size_t IssueIndex = FirstContributorIssue;
-					IssueIndex < ObjectIssues.size(); ++IssueIndex)
+				for (FAssetCompatibilityIssue& Issue : ObjectIssues)
 				{
-					FAssetCompatibilityIssue& Issue = ObjectIssues[IssueIndex];
 					if (Issue.ObjectPath.empty()) Issue.ObjectPath = Object.ObjectPath;
 					if (Issue.DeclaringClass.empty()) Issue.DeclaringClass = Object.ClassName;
-					if (Issue.HandlerId.empty()) Issue.HandlerId = It->second.HandlerId;
+					if (Issue.HandlerId.empty()) Issue.HandlerId = RegisteredUpgrader->HandlerId;
 				}
 			}
 
@@ -1962,12 +1679,11 @@ namespace Durin::Asset
 		FAssetStructureUpgrader Upgrader) -> void
 	{
 		if (!Class || HandlerId.empty() || !Upgrader) return;
-		const std::string QualifiedClassName = Class->GetQualifiedName().ToString();
-		auto& Contributor = GetStructureContributors()[QualifiedClassName];
-		if (!Contributor.HandlerId.empty() && Contributor.HandlerId != HandlerId)
-			Contributor = {};
-		Contributor.HandlerId = std::move(HandlerId);
-		Contributor.Apply = std::move(Upgrader);
+		GetStructureUpgraders().insert_or_assign(
+			Class,
+			FRegisteredStructureUpgrader{
+				.HandlerId = std::move(HandlerId),
+				.Upgrader = std::move(Upgrader)});
 	}
 
 	auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void
@@ -2814,22 +2530,24 @@ namespace Durin::Asset
 
 			if (LegacyFields.empty()) continue;
 			std::vector<FAssetCompatibilityIssue> ObjectIssues;
+			const FRegisteredStructureUpgrader* RegisteredUpgrader = nullptr;
 			for (DClass* Class = Object->GetClass(); Class; Class = Class->GetSuperClass())
 			{
-				const std::string QualifiedName = Class->GetQualifiedName().ToString();
-				const auto It = GetStructureContributors().find(QualifiedName);
-				if (It == GetStructureContributors().end() || !It->second.Apply) continue;
-				const size_t FirstContributorIssue = ObjectIssues.size();
-				Result = It->second.Apply(Object, LegacyFields, MigrationContext, ObjectIssues);
+				auto It = GetStructureUpgraders().find(Class);
+				if (It == GetStructureUpgraders().end()) continue;
+				RegisteredUpgrader = &It->second;
+				break;
+			}
+			if (RegisteredUpgrader)
+			{
+				Result = RegisteredUpgrader->Upgrader(Object, LegacyFields, MigrationContext, ObjectIssues);
 				if (!Result) { Rollback(); return Result; }
-				for (size_t IssueIndex = FirstContributorIssue;
-					IssueIndex < ObjectIssues.size(); ++IssueIndex)
+				for (FAssetCompatibilityIssue& Issue : ObjectIssues)
 				{
-					FAssetCompatibilityIssue& Issue = ObjectIssues[IssueIndex];
 					if (Issue.ObjectPath.empty()) Issue.ObjectPath = Object->GetObjectPath();
 					if (Issue.DeclaringClass.empty())
 						Issue.DeclaringClass = Object->GetClass()->GetQualifiedName().ToString();
-					if (Issue.HandlerId.empty()) Issue.HandlerId = It->second.HandlerId;
+					if (Issue.HandlerId.empty()) Issue.HandlerId = RegisteredUpgrader->HandlerId;
 				}
 			}
 
