@@ -5,6 +5,7 @@
 #include "DefaultTextures.h"
 #include "RendererEditorAssistance.h"
 #include "RendererFullscreenGeometry.h"
+#include "RendererResourceInvalidation.h"
 #include "RendererResourceSlotCache.h"
 #include "RendererRenderTargetLayouts.h"
 #include "RenderResourceCreation.h"
@@ -18,6 +19,7 @@
 #include "StaticMesh/StaticMeshResources.h"
 #include "Texture/Texture2DRenderResource.h"
 #include "Texture/TextureCubeRenderResource.h"
+#include "Console/ConsoleCommand.h"
 
 #include <glm/mat4x4.hpp>
 
@@ -338,9 +340,12 @@ namespace Durin
 
 		FStaticMeshRendererState GStaticMeshState;
 		FRenderResourceGeneration GRendererResourceGeneration;
+		std::optional<uint64> GForceRecompileShaderGeneration;
 		FTextureCubeThumbnailRendererState GTextureCubeThumbnailState;
 		FSkyBoxRendererState GSkyBoxState;
 		FPostProcessRendererState GPostProcessState;
+		FRendererResourceInvalidationController
+			GRendererResourceInvalidationController;
 		auto ReportStaticMeshCreateDiagnostic(
 			const FRenderResourceCreateDiagnostic& Diagnostic) -> void;
 		auto MakeStaticMeshCreateError(
@@ -351,6 +356,14 @@ namespace Durin
 			ERenderResourceGenerationDependency RetryDependencies)
 			-> FRenderResourceCreateError;
 
+		auto ConfigureRendererShaderCompileOptions(
+			FShaderCompileOptions& CompileOptions) -> void
+		{
+			CompileOptions.bForceRecompile =
+				GForceRecompileShaderGeneration
+					== GRendererResourceGeneration.Shader;
+		}
+
 		auto EnsureSkyBoxResources() -> void
 		{
 			using FResult =
@@ -359,6 +372,7 @@ namespace Durin
 				GRendererResourceGeneration,
 				[]() -> FResult {
 					FShaderCompileOptions CompileOptions;
+					ConfigureRendererShaderCompileOptions(CompileOptions);
 					FShaderType& VertexShaderType =
 						FSkyBoxVertexShader::StaticType();
 					FShaderType& FragmentShaderType =
@@ -578,6 +592,7 @@ namespace Durin
 				GRendererResourceGeneration,
 				[&Identity]() -> FResult {
 					FShaderCompileOptions CompileOptions;
+					ConfigureRendererShaderCompileOptions(CompileOptions);
 					CompileOptions.Macros.emplace_back(
 						"DURIN_MATERIAL_BLEND_MODE",
 						std::to_string(
@@ -751,6 +766,7 @@ namespace Durin
 				GRendererResourceGeneration,
 				[]() -> FResult {
 					FShaderCompileOptions CompileOptions;
+					ConfigureRendererShaderCompileOptions(CompileOptions);
 					FShaderType& VertexShaderType =
 						FTextureCubeThumbnailVertexShader::StaticType();
 					FShaderType& FragmentShaderType =
@@ -870,6 +886,7 @@ namespace Durin
 				GRendererResourceGeneration,
 				[&CommandList]() -> FResult {
 					FShaderCompileOptions CompileOptions;
+					ConfigureRendererShaderCompileOptions(CompileOptions);
 					FShaderType& VertexShaderType =
 						FPostProcessVertexShader::StaticType();
 					FShaderType& CopyFragmentShaderType =
@@ -1413,8 +1430,91 @@ namespace Durin
 		return GDefaultTextures.BlackCube;
 	}
 
+	static auto ApplyRendererResourceInvalidation_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		ERendererResourceInvalidationCause Cause) -> void
+	{
+		check(IsInRenderingThread());
+		switch (Cause)
+		{
+		case ERendererResourceInvalidationCause::ShaderChanged:
+		case ERendererResourceInvalidationCause::ShaderAll:
+			GRendererResourceGeneration.Advance(
+				ERenderResourceGenerationDependency::Shader);
+			GForceRecompileShaderGeneration =
+				Cause == ERendererResourceInvalidationCause::ShaderAll
+					? std::optional<uint64>(
+						GRendererResourceGeneration.Shader)
+					: std::nullopt;
+			RendererEditorAssistance::InvalidateShaderResources(
+				Cause == ERendererResourceInvalidationCause::ShaderAll);
+			break;
+		case ERendererResourceInvalidationCause::Device:
+		{
+			FRenderResourceGeneration Generation =
+				GRendererResourceGeneration;
+			Generation.Advance(
+				ERenderResourceGenerationDependency::Device);
+			GDefaultTextures = {};
+			GStaticMeshState = {};
+			GTextureCubeThumbnailState.Slot.Reset();
+			GTextureCubeThumbnailState = {};
+			GSkyBoxState.Slot.Reset();
+			GSkyBoxState = {};
+			GPostProcessState.Slot.Reset();
+			GPostProcessState = {};
+			RendererEditorAssistance::InvalidateDeviceResources();
+			GRendererResourceGeneration = Generation;
+			InitializeDefaultTextures_RenderThread(CommandList);
+			break;
+		}
+		case ERendererResourceInvalidationCause::ManualRetry:
+			GRendererResourceGeneration.Advance(
+				ERenderResourceGenerationDependency::Manual);
+			RendererEditorAssistance::RetryFailedResources();
+			break;
+		}
+
+		DURIN_INFO(
+			"Renderer resource invalidation applied: cause={}, generation={}/{}/{}; reconstruction is demand-driven",
+			static_cast<uint8>(Cause),
+			GRendererResourceGeneration.Shader,
+			GRendererResourceGeneration.Device,
+			GRendererResourceGeneration.Manual);
+	}
+
+	static auto EnqueueRendererResourceInvalidation(
+		ERendererResourceInvalidationCause Cause) -> void
+	{
+		ENQUEUE_RENDER_COMMAND(InvalidateRendererResources)(
+			[Cause](FRHICommandListImmediate& CommandList) {
+				ApplyRendererResourceInvalidation_RenderThread(
+					CommandList, Cause);
+			});
+	}
+
+	auto RequestRendererDeviceInvalidation() -> FConsoleCommandResult
+	{
+		return GRendererResourceInvalidationController.Request(
+			ERendererResourceInvalidationCause::Device);
+	}
+
 	auto FRendererModule::StartupModule() -> void
 	{
+		const bool bCommandsRegistered =
+			GRendererResourceInvalidationController.Start(
+				FConsoleCommandRegistry::Get(),
+				[](ERendererResourceInvalidationCause Cause) {
+					EnqueueRendererResourceInvalidation(Cause);
+				});
+		checkf(
+			bCommandsRegistered,
+			"Failed to register renderer resource invalidation commands");
+		if (!bCommandsRegistered)
+		{
+			DURIN_ERROR(
+				"Failed to register renderer resource invalidation commands");
+		}
 		if (GDynamicRHI != nullptr)
 		{
 			ENQUEUE_RENDER_COMMAND(InitializeDefaultTextures)(
@@ -1430,6 +1530,7 @@ namespace Durin
 			GDefaultTextures = {};
 			GStaticMeshState = {};
 			GRendererResourceGeneration = {};
+			GForceRecompileShaderGeneration.reset();
 			GTextureCubeThumbnailState.Slot.Reset();
 			GTextureCubeThumbnailState = {};
 			GSkyBoxState.Slot.Reset();
@@ -1443,7 +1544,9 @@ namespace Durin
 
 	auto FRendererModule::ShutdownModule() -> void
 	{
+		GRendererResourceInvalidationController.Stop();
 		ReleaseRendererResources();
+		FlushRenderingCommands();
 	}
 
 	auto FRendererModule::CreateScene() -> std::unique_ptr<IScene>

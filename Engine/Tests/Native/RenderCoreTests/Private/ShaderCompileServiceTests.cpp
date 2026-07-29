@@ -122,6 +122,61 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(Stats.Compilations, 1u);
 	}
 
+	TEST_F(FShaderCompileServiceTests,
+		CorrectedShaderRecompilesAfterAnUncachedFailure)
+	{
+		const std::filesystem::path ShaderPath =
+			GetServiceTestRoot() / "Source" / "Simple.slang";
+		WriteTextFile(
+			ShaderPath,
+			"[shader(\"vertex\")] broken shader source\n");
+		InitShaderCompileService();
+
+		const FShaderCompileOptions Options = MakeServiceOptions();
+		const FShaderCompilerOutput Broken =
+			GetOrCompileShader("/ShaderCompileServiceTests/Simple", Options);
+		EXPECT_FALSE(Broken);
+		EXPECT_FALSE(Broken.ErrorMessage.empty());
+
+		WriteTestShader(ShaderPath);
+		std::filesystem::last_write_time(
+			ShaderPath,
+			std::filesystem::last_write_time(ShaderPath)
+				+ std::chrono::seconds(2));
+		const FShaderCompilerOutput Corrected =
+			GetOrCompileShader("/ShaderCompileServiceTests/Simple", Options);
+		EXPECT_TRUE(Corrected);
+		const FShaderCompileServiceStats Stats =
+			GetShaderCompileServiceStats();
+		EXPECT_EQ(Stats.DependencyResolutions, 2u);
+		EXPECT_EQ(Stats.Compilations, 1u);
+	}
+
+	TEST_F(FShaderCompileServiceTests,
+		ForceRecompileBypassesSuccessfulMemoryAndDiskOutputReuse)
+	{
+		InitShaderCompileService();
+		const FShaderCompileOptions Options = MakeServiceOptions();
+		ASSERT_TRUE(
+			GetOrCompileShader("/ShaderCompileServiceTests/Simple", Options));
+		ASSERT_TRUE(
+			GetOrCompileShader("/ShaderCompileServiceTests/Simple", Options));
+		const FShaderCompileServiceStats WarmStats =
+			GetShaderCompileServiceStats();
+		ASSERT_EQ(WarmStats.Compilations, 1u);
+		ASSERT_EQ(WarmStats.MemoryHits, 1u);
+
+		FShaderCompileOptions ForcedOptions = Options;
+		ForcedOptions.bForceRecompile = true;
+		ASSERT_TRUE(GetOrCompileShader(
+			"/ShaderCompileServiceTests/Simple", ForcedOptions));
+		const FShaderCompileServiceStats ForcedStats =
+			GetShaderCompileServiceStats();
+		EXPECT_EQ(ForcedStats.Compilations, 2u);
+		EXPECT_EQ(ForcedStats.MemoryHits, 1u);
+		EXPECT_EQ(ForcedStats.DiskHits, 0u);
+	}
+
 	TEST_F(FShaderCompileServiceTests, AlternatingMacroDependencyGraphsRemainWarmHits)
 	{
 		const std::filesystem::path SourceRoot = GetServiceTestRoot() / "Source";

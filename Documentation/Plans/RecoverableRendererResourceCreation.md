@@ -5,9 +5,11 @@ Summary: Replace permanent one-shot renderer resource failures with transactiona
 Last reviewed: 2026-07-30
 
 Status: Active
-Completed: Stages 0-3
+Completed:
 
 ## Current Status
+
+Completed stages: 0-4.
 
 Implementation baseline: `2081dd81` (`feat(material): bind scene proxies to
 material proxies`).
@@ -148,6 +150,38 @@ Stage 4. Validation passed 13/13 focused assistance cases, all 26/26
 `EditorRenderingTests`, all 32/32 `RenderContractTests`, and 35/35
 `FMaterialTests.*` cases including the Vulkan-backed rendered-thumbnail path;
 the TextureEditor module rebuilt and linked its modified preview source.
+
+Stage 4 handoff: baseline commit `b955e2df`; the working set adds the
+Renderer-private `RendererResourceInvalidation` controller, focused invalidation
+tests, and shader compile-service recovery tests while continuing generation
+wiring in `RendererModule.cpp` and editor assistance. Renderer startup owns the
+exact `renderer.reload-shaders changed`, `renderer.reload-shaders all`, and
+`renderer.retry-resources` command surface. Requests close over shared,
+mutex-protected admission state and enqueue one render command; shutdown closes
+admission, unregisters both handles, enqueues resource release, and flushes the
+render thread. A callback copied before unregistration is therefore unable to
+admit late work.
+
+`changed` advances only shader generation and leaves dependency fingerprints to
+select compilation output on the next demand. `all` additionally marks the new
+shader generation for forced compilation in fixed Renderer and assistance
+shader candidates. Manual retry advances only the manual generation. The
+internal device request destructively clears fixed, keyed, assistance, dynamic,
+fullscreen, scene-target, default-texture, payload, failure, and diagnostic
+state before publishing the new device generation; default textures are then
+recreated in the same render command. Existing structured slot diagnostics
+report current failures, retained stale-ready payloads, and recovery, while
+command and apply diagnostics report queued and applied invalidation.
+
+There are no open Stage 4 design questions. A controller-plus-slot integration
+test covers unchanged failure suppression, corrected shader recovery through
+`changed`, forced `all`, manual RHI retry, destructive device invalidation,
+ordered queued work, and rejection by a callback copied across shutdown. Shader
+service tests prove source correction changes the dependency path without
+caching failure and `bForceRecompile` bypasses successful memory/disk reuse.
+Validation passed 3/3 focused invalidation cases, all 29/29
+`EditorRenderingTests`, all 5/5 `RenderShaderServiceTests`, all 32/32
+`RenderContractTests`, and 35/35 `FMaterialTests.*` cases.
 
 The lower shader compile service does not cache failed compiler output.
 Dependency fingerprints already make a changed shader source produce a
@@ -565,21 +599,21 @@ resource:
 
 ### Stage 4: Add explicit shader reload and invalidation integration
 
-- [ ] Register the selected development shader-reload and manual-resource-retry
+- [x] Register the selected development shader-reload and manual-resource-retry
   commands with bounded module ownership.
-- [ ] Implement `changed` as lazy shader-generation invalidation backed by the
+- [x] Implement `changed` as lazy shader-generation invalidation backed by the
   existing dependency fingerprint path.
-- [ ] Implement `all` as lazy shader-generation invalidation with forced
+- [x] Implement `all` as lazy shader-generation invalidation with forced
   recompilation on the next demanded candidate.
-- [ ] Enqueue invalidation from non-render threads and verify ordering against
+- [x] Enqueue invalidation from non-render threads and verify ordering against
   already submitted views.
-- [ ] Add and test the internal device-generation invalidation hook; keep the
+- [x] Add and test the internal device-generation invalidation hook; keep the
   old payload unavailable after device invalidation.
-- [ ] Report queued invalidation, recovered resources, current failures, and
+- [x] Report queued invalidation, recovered resources, current failures, and
   retained stale-ready resources through concise diagnostics.
-- [ ] Ensure command unregistration and renderer shutdown cannot race a late
+- [x] Ensure command unregistration and renderer shutdown cannot race a late
   invalidation request.
-- [ ] Add integration tests for broken shader, corrected shader plus
+- [x] Add integration tests for broken shader, corrected shader plus
   `changed`, forced `all`, manual RHI-factory retry, and shutdown with a queued
   invalidation.
 

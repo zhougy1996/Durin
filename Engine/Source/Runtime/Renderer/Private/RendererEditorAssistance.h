@@ -125,7 +125,7 @@ namespace Durin::RendererEditorAssistance
 		const FPrepared& Prepared) -> void;
 	// Advances lazy retry generations; integration with development commands is
 	// owned by the recoverable renderer-resource plan.
-	auto InvalidateShaderResources() -> void;
+	auto InvalidateShaderResources(bool bForceRecompile) -> void;
 	auto InvalidateDeviceResources() -> void;
 	auto RetryFailedResources() -> void;
 	// Resets all render-thread-owned base, pipeline, dynamic, and diagnostic state.

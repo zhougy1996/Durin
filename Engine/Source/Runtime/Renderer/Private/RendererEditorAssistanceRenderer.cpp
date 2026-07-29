@@ -222,6 +222,7 @@ namespace Durin::RendererEditorAssistance
 		struct FRendererState
 		{
 			FRenderResourceGeneration Generation;
+			std::optional<uint64> ForceRecompileShaderGeneration;
 			FGizmoState Gizmo;
 			FOverlayLineState OverlayLine;
 			FOverlayIconState OverlayIcon;
@@ -230,6 +231,14 @@ namespace Durin::RendererEditorAssistance
 		};
 
 		FRendererState GState;
+
+		auto ConfigureShaderCompileOptions(
+			FShaderCompileOptions& CompileOptions) -> void
+		{
+			CompileOptions.bForceRecompile =
+				GState.ForceRecompileShaderGeneration
+					== GState.Generation.Shader;
+		}
 
 		auto ToShaderMatrix(const FMatrix& Matrix) -> glm::mat4
 		{
@@ -469,6 +478,7 @@ namespace Durin::RendererEditorAssistance
 				GState.Generation,
 				[&CommandList]() -> FResult {
 					FShaderCompileOptions CompileOptions;
+					ConfigureShaderCompileOptions(CompileOptions);
 					FShaderType& VertexShaderType =
 						FGizmoVertexShader::StaticType();
 					FShaderType& FragmentShaderType =
@@ -619,6 +629,7 @@ namespace Durin::RendererEditorAssistance
 				GState.Generation,
 				[]() -> FResult {
 					FShaderCompileOptions CompileOptions;
+					ConfigureShaderCompileOptions(CompileOptions);
 					FShaderType& VertexShaderType =
 						FOverlayLineVertexShader::StaticType();
 					FShaderType& FragmentShaderType =
@@ -808,6 +819,7 @@ namespace Durin::RendererEditorAssistance
 				GState.Generation,
 				[&CommandList]() -> FResult {
 					FShaderCompileOptions CompileOptions;
+					ConfigureShaderCompileOptions(CompileOptions);
 					FShaderType& VertexShaderType =
 						FOverlayIconVertexShader::StaticType();
 					FShaderType& FragmentShaderType =
@@ -910,6 +922,7 @@ namespace Durin::RendererEditorAssistance
 				GState.Generation,
 				[]() -> FResult {
 					FShaderCompileOptions CompileOptions;
+					ConfigureShaderCompileOptions(CompileOptions);
 					FShaderType& VertexShaderType =
 						FEditorGridVertexShader::StaticType();
 					FShaderType& FragmentShaderType =
@@ -1705,10 +1718,14 @@ namespace Durin::RendererEditorAssistance
 		GState = {};
 	}
 
-	auto InvalidateShaderResources() -> void
+	auto InvalidateShaderResources(bool bForceRecompile) -> void
 	{
 		GState.Generation.Advance(
 			ERenderResourceGenerationDependency::Shader);
+		GState.ForceRecompileShaderGeneration =
+			bForceRecompile
+				? std::optional<uint64>(GState.Generation.Shader)
+				: std::nullopt;
 	}
 
 	auto InvalidateDeviceResources() -> void
