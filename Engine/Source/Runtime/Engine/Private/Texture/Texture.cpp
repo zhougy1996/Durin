@@ -79,14 +79,18 @@ namespace Durin
 			return;
 		}
 		const uint64 Revision = ++BuildRevision;
-		const std::string OwnerDiagnostic = GetPackage()
-			? GetPackage()->GetPackagePath()
-			: "<transient DTexture>";
+#if DURIN_BUILD_DEBUG
+		const FName DebugOwner = GetPackage()
+			? FName(GetPackage()->GetPackagePath())
+			: FName("<transient DTexture>");
+#endif
 		RenderCompletion->BeginRequest(Revision);
 		if (GDynamicRHI == nullptr) return;
 		if (!bTextureReferenceInitializationQueued)
 		{
-			TextureReference->SetLifetimeDiagnostic(OwnerDiagnostic);
+#if DURIN_BUILD_DEBUG
+			TextureReference->SetDebugOwner(DebugOwner);
+#endif
 			TextureReference->BeginInit_GameThread();
 			bTextureReferenceInitializationQueued = true;
 		}
@@ -95,7 +99,9 @@ namespace Durin
 			CreateRenderResourceCandidate(
 				TextureReference.get(), Revision, RenderCompletion);
 		check(Candidate != nullptr);
-		Candidate->SetLifetimeDiagnostic(OwnerDiagnostic, Revision);
+#if DURIN_BUILD_DEBUG
+		Candidate->SetDebugOwner(DebugOwner);
+#endif
 		FTextureAssetResource* CandidateView = Candidate.get();
 		std::unique_ptr<FTextureAssetResource> Previous =
 			std::move(RenderResource);

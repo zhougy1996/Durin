@@ -44,6 +44,17 @@ namespace Durin
 			}
 		};
 
+#if DURIN_BUILD_DEBUG
+		auto GetDebugOwnerString(const FRenderResource& Resource)
+			-> std::string
+		{
+			const FName& Owner = Resource.GetDebugOwner();
+			return Owner.IsNone()
+				? "<unspecified>"
+				: Owner.ToString();
+		}
+#endif
+
 		template<typename CommandTag, typename LambdaType>
 		auto EnqueueRequiredResourceCommand(
 			FRenderResource* Resource, LambdaType&& Lambda) -> void
@@ -51,65 +62,19 @@ namespace Durin
 			const bool bAccepted =
 				FRenderThreadCommandPipe::TryEnqueue<CommandTag>(
 					std::forward<LambdaType>(Lambda));
+#if DURIN_BUILD_DEBUG
 			checkf(bAccepted,
 				"Required render-resource command '{}' was rejected: "
-				"type='{}', owner='{}', revision={}, queue='command_pipe'.",
+				"type='{}', owner='{}', queue='command_pipe'.",
 				CommandTag::GetName(), Resource->GetFriendlyName(),
-				Resource->GetLifetimeOwner(),
-				Resource->GetLifetimeRevision());
+				GetDebugOwnerString(*Resource));
+#else
+			checkf(bAccepted,
+				"Required render-resource command '{}' was rejected: "
+				"type='{}', queue='command_pipe'.",
+				CommandTag::GetName(), Resource->GetFriendlyName());
+#endif
 		}
-	}
-
-	void FRenderResource::ReleaseRHIForAllResources()
-	{
-		check(IsInRenderingThread());
-		for (FRenderResource* Resource : RenderResources)
-		{
-			if (!Resource->bRHIInitialized) continue;
-			Resource->ReleaseRHI();
-			Resource->bRHIInitialized = false;
-		}
-	}
-
-	void FRenderResource::InitRHIForAllResources(FRHICommandListBase& RHICmdList)
-	{
-		check(IsInRenderingThread());
-		for (FRenderResource* Resource : RenderResources)
-		{
-			if (Resource->bRHIInitialized) continue;
-			Resource->InitRHI(RHICmdList);
-			Resource->bRHIInitialized = true;
-		}
-	}
-
-	void FRenderResource::InitPreRHIResources()
-	{
-		check(IsInRenderingThread());
-		FRHICommandListBase& RHICmdList = GetImmediateCommandList_ForRenderCommand();
-		for (FRenderResource* Resource : RenderResources)
-		{
-			if (Resource->InitPhase != EInitPhase::Pre
-				|| Resource->bRHIInitialized)
-			{
-				continue;
-			}
-			Resource->InitRHI(RHICmdList);
-			Resource->bRHIInitialized = true;
-		}
-	}
-
-	FRenderResource::FRenderResource()
-	{
-	}
-
-	FRenderResource::FRenderResource(EInitPhase InInitPhase)
-		: InitPhase(InInitPhase)
-	{
-	}
-
-	FRenderResource::FRenderResource(ERHIFeatureLevel InFeatureLevel)
-		: FeatureLevel(InFeatureLevel)
-	{
 	}
 
 	FRenderResource::~FRenderResource()
@@ -119,37 +84,21 @@ namespace Durin
 #if DURIN_BUILD_DEBUG
 			DURIN_ERROR(
 				"Render resource was not released before destruction: "
-				"debug_name='{}', owner='{}', revision={}, list_index={}, "
-				"lifecycle_phase={}, init_phase={}, address={}.",
-				GetDebugName(), GetLifetimeOwner(),
-				GetLifetimeRevision(), GetListIndex(),
-				IsRHIInitialized()
-					? "rhi_initialized"
-					: "registered_rhi_released",
-				GetInitPhase() == EInitPhase::Pre ? "pre" : "default",
+				"owner='{}', list_index={}, address={}.",
+				GetDebugOwnerString(*this), ListIndex,
 				static_cast<const void*>(this));
 #else
 			DURIN_ERROR("A FRenderResource was not released before destruction.");
 #endif
 		}
 	}
-	void FRenderResource::InitRHI(FRHICommandListBase& RHICmdList) {}
-
 #if DURIN_BUILD_DEBUG
-	auto FRenderResource::SetDebugName(std::string InDebugName) -> void
+	auto FRenderResource::SetDebugOwner(FName InOwner) -> void
 	{
 		check(!IsInitialized());
-		DebugName = std::move(InDebugName);
+		DebugOwner = InOwner;
 	}
 #endif
-
-	auto FRenderResource::SetLifetimeDiagnostic(
-		std::string InOwner, uint64 InRevision) -> void
-	{
-		check(!IsInitialized());
-		LifetimeOwner = std::move(InOwner);
-		LifetimeRevision = InRevision;
-	}
 
 	void FRenderResource::InitResource(FRHICommandListBase& RHICmdList)
 	{
@@ -160,13 +109,9 @@ namespace Durin
 			return;
 		}
 
-#if DURIN_BUILD_DEBUG
-		if (DebugName.empty()) DebugName = GetFriendlyName();
-#endif
 		ListIndex = static_cast<uint32>(RenderResources.size());
 		RenderResources.push_back(this);
 		InitRHI(RHICmdList);
-		bRHIInitialized = true;
 	}
 
 	void FRenderResource::ReleaseResource()
@@ -179,11 +124,7 @@ namespace Durin
 			return;
 		}
 
-		if (bRHIInitialized)
-		{
-			ReleaseRHI();
-			bRHIInitialized = false;
-		}
+		ReleaseRHI();
 		const uint32 RemovedIndex = ListIndex;
 		check(RemovedIndex < RenderResources.size());
 		FRenderResource* MovedResource = RenderResources.back();
@@ -196,19 +137,31 @@ namespace Durin
 	auto FRenderResource::BeginInit_GameThread() -> void
 	{
 		check(IsInGameThread());
-		BeginInitResource(this);
+		EnqueueRequiredResourceCommand<FBeginInitResourceCommand>(
+			this,
+			[this](FRHICommandListImmediate& RHICmdList) {
+				InitResource(RHICmdList);
+			});
 	}
 
 	auto FRenderResource::BeginUpdateRHI_GameThread() -> void
 	{
 		check(IsInGameThread());
-		BeginUpdateResourceRHI(this);
+		EnqueueRequiredResourceCommand<FBeginUpdateResourceCommand>(
+			this,
+			[this](FRHICommandListImmediate& RHICmdList) {
+				UpdateRHI(RHICmdList);
+			});
 	}
 
 	auto FRenderResource::BeginRelease_GameThread() -> void
 	{
 		check(IsInGameThread());
-		BeginReleaseResource(this);
+		EnqueueRequiredResourceCommand<FBeginReleaseResourceCommand>(
+			this,
+			[this](FRHICommandListImmediate&) {
+				ReleaseResource();
+			});
 	}
 
 	void FRenderResource::UpdateRHI(FRHICommandListBase& RHICmdList)
@@ -219,9 +172,8 @@ namespace Durin
 			DURIN_ERROR("{} cannot update before initialization.", GetFriendlyName());
 			return;
 		}
-		if (bRHIInitialized) ReleaseRHI();
+		ReleaseRHI();
 		InitRHI(RHICmdList);
-		bRHIInitialized = true;
 	}
 
 	FDeferredRenderResourceCleanup::FDeferredRenderResourceCleanup(
@@ -237,36 +189,6 @@ namespace Durin
 	auto FDeferredRenderResourceCleanup::operator=(
 		FDeferredRenderResourceCleanup&& Other) noexcept
 		-> FDeferredRenderResourceCleanup& = default;
-
-	auto BeginInitResource(FRenderResource* Resource) -> void
-	{
-		check(Resource != nullptr);
-		EnqueueRequiredResourceCommand<FBeginInitResourceCommand>(
-			Resource,
-			[Resource](FRHICommandListImmediate& RHICmdList) {
-				Resource->InitResource(RHICmdList);
-			});
-	}
-
-	auto BeginUpdateResourceRHI(FRenderResource* Resource) -> void
-	{
-		check(Resource != nullptr);
-		EnqueueRequiredResourceCommand<FBeginUpdateResourceCommand>(
-			Resource,
-			[Resource](FRHICommandListImmediate& RHICmdList) {
-				Resource->UpdateRHI(RHICmdList);
-			});
-	}
-
-	auto BeginReleaseResource(FRenderResource* Resource) -> void
-	{
-		check(Resource != nullptr);
-		EnqueueRequiredResourceCommand<FBeginReleaseResourceCommand>(
-			Resource,
-			[Resource](FRHICommandListImmediate&) {
-				Resource->ReleaseResource();
-			});
-	}
 
 	auto BeginCleanupRenderResource(
 		FDeferredRenderResourceCleanup&& Cleanup) -> void
@@ -318,41 +240,44 @@ namespace Durin
 			LiveResourceCount, PendingCleanupCount);
 		for (const FRenderResource* Resource : RenderResources)
 		{
+#if DURIN_BUILD_DEBUG
 			DURIN_ERROR(
-				"Live render resource: type='{}', owner='{}', revision={}, "
-				"state={}, init_phase={}.",
+				"Live render resource: type='{}', owner='{}'.",
 				Resource->GetFriendlyName(),
-				Resource->GetLifetimeOwner(),
-				Resource->GetLifetimeRevision(),
-				Resource->IsRHIInitialized()
-					? "rhi_initialized"
-					: "registered_rhi_released",
-				Resource->GetInitPhase() == FRenderResource::EInitPhase::Pre
-					? "pre" : "default");
+				GetDebugOwnerString(*Resource));
+#else
+			DURIN_ERROR("Live render resource: type='{}'.",
+				Resource->GetFriendlyName());
+#endif
 		}
 
 		for (const FDeferredRenderResourceCleanup& Cleanup : PendingCleanup)
 		{
 			const FRenderResource* Resource =
 				Cleanup.GetResourceForDiagnostics();
+#if DURIN_BUILD_DEBUG
 			DURIN_ERROR(
 				"Pending render resource cleanup: type='{}', owner='{}', "
-				"revision={}, state={}, init_phase={}.",
+				"state={}.",
 				Resource->GetFriendlyName(),
-				Resource->GetLifetimeOwner(),
-				Resource->GetLifetimeRevision(),
+				GetDebugOwnerString(*Resource),
 				Resource->IsInitialized()
 					? "cleanup_release_pending"
-					: "cleanup_released",
-				Resource->GetInitPhase() == FRenderResource::EInitPhase::Pre
-					? "pre" : "default");
+					: "cleanup_released");
+#else
+			DURIN_ERROR(
+				"Pending render resource cleanup: type='{}', state={}.",
+				Resource->GetFriendlyName(),
+				Resource->IsInitialized()
+					? "cleanup_release_pending"
+					: "cleanup_released");
+#endif
 		}
 		return false;
 	}
 
 	FTextureReference::FTextureReference(FTextureRHIRef InFallbackTexture)
-		: FRenderResource(EInitPhase::Default)
-		, FallbackTextureRHI(std::move(InFallbackTexture))
+		: FallbackTextureRHI(std::move(InFallbackTexture))
 		, TextureReferenceRHI(new FRHITextureReference(FallbackTextureRHI))
 	{
 	}

@@ -35,11 +35,9 @@ namespace Durin
 
 		auto InitializeStaticMeshCandidate(
 			FStaticMeshRenderData& Candidate,
-			std::string_view OwnerDiagnostic,
 			std::string& OutError) -> bool
 		{
 			Candidate.RecalculateBounds();
-			Candidate.SetResourceLifetimeDiagnostics(OwnerDiagnostic);
 			if (GDynamicRHI == nullptr)
 			{
 				OutError.clear();
@@ -698,10 +696,12 @@ namespace Durin
 			return;
 		}
 
-		const std::string OwnerDiagnostic = GetPackage()
-			? GetPackage()->GetPackagePath()
-			: std::format("<transient DStaticMesh:{}>", GetName());
-		RenderData->SetResourceLifetimeDiagnostics(OwnerDiagnostic);
+#if DURIN_BUILD_DEBUG
+		RenderData->SetResourceDebugOwner(GetPackage()
+			? FName(GetPackage()->GetPackagePath())
+			: FName(std::format(
+				"<transient DStaticMesh:{}>", GetName())));
+#endif
 		FStaticMeshRenderData* RenderDataToInitialize = RenderData.get();
 		ENQUEUE_RENDER_COMMAND(InitStaticMeshResources)(
 			[this, RenderDataToInitialize](
@@ -784,14 +784,18 @@ namespace Durin
 			return false;
 		}
 
-		const std::string OwnerDiagnostic = GetPackage()
-			? GetPackage()->GetPackagePath()
-			: std::format("<transient DStaticMesh:{}>", GetName());
+#if DURIN_BUILD_DEBUG
+		const FName DebugOwner = GetPackage()
+			? FName(GetPackage()->GetPackagePath())
+			: FName(std::format(
+				"<transient DStaticMesh:{}>", GetName()));
+#endif
 		if (RenderData == nullptr)
 		{
 			InRenderData->RecalculateBounds();
-			InRenderData->SetResourceLifetimeDiagnostics(
-				OwnerDiagnostic);
+#if DURIN_BUILD_DEBUG
+			InRenderData->SetResourceDebugOwner(DebugOwner);
+#endif
 			if (InMaterialSlots != nullptr)
 			{
 				MaterialSlots = std::move(*InMaterialSlots);
@@ -804,8 +808,10 @@ namespace Durin
 			OutError.clear();
 			return true;
 		}
-		if (!InitializeStaticMeshCandidate(
-			*InRenderData, OwnerDiagnostic, OutError))
+#if DURIN_BUILD_DEBUG
+		InRenderData->SetResourceDebugOwner(DebugOwner);
+#endif
+		if (!InitializeStaticMeshCandidate(*InRenderData, OutError))
 		{
 			return false;
 		}
@@ -1431,18 +1437,28 @@ namespace Durin
 			return false;
 		}
 
-		const std::string OwnerDiagnostic = GetPackage()
-			? GetPackage()->GetPackagePath()
-			: std::format("<transient DStaticMesh:{}>", GetName());
+#if DURIN_BUILD_DEBUG
+		const FName DebugOwner = GetPackage()
+			? FName(GetPackage()->GetPackagePath())
+			: FName(std::format(
+				"<transient DStaticMesh:{}>", GetName()));
+#endif
 		if (bCandidateAlreadyReady)
 		{
-			Other.RenderData->SetResourceLifetimeDiagnostics(
-				OwnerDiagnostic);
+#if DURIN_BUILD_DEBUG
+			Other.RenderData->SetResourceDebugOwner(DebugOwner);
+#endif
 		}
-		else if (!InitializeStaticMeshCandidate(
-			*Other.RenderData, OwnerDiagnostic, OutError))
+		else
 		{
-			return false;
+#if DURIN_BUILD_DEBUG
+			Other.RenderData->SetResourceDebugOwner(DebugOwner);
+#endif
+			if (!InitializeStaticMeshCandidate(
+				*Other.RenderData, OutError))
+			{
+				return false;
+			}
 		}
 
 		const EStaticMeshRenderResourceState IncomingState =
@@ -2583,26 +2599,27 @@ namespace Durin
 		}
 	}
 
-	auto FStaticMeshRenderData::SetResourceLifetimeDiagnostics(
-		std::string_view Owner) -> void
+#if DURIN_BUILD_DEBUG
+	auto FStaticMeshRenderData::SetResourceDebugOwner(FName InOwner) -> void
 	{
-		auto SetDiagnostic = [Owner](FRenderResource& Resource) {
-			Resource.SetLifetimeDiagnostic(std::string(Owner));
+		auto SetOwner = [InOwner](FRenderResource& Resource) {
+			Resource.SetDebugOwner(InOwner);
 		};
 		for (FStaticMeshLODResources& LOD : LODResources)
 		{
-			SetDiagnostic(LOD.VertexBuffers.PositionVertexBuffer);
-			SetDiagnostic(
+			SetOwner(LOD.VertexBuffers.PositionVertexBuffer);
+			SetOwner(
 				LOD.VertexBuffers.StaticMeshVertexBuffer
 					.TangentsVertexBuffer);
-			SetDiagnostic(
+			SetOwner(
 				LOD.VertexBuffers.StaticMeshVertexBuffer
 					.TexCoordVertexBuffer);
-			SetDiagnostic(LOD.VertexBuffers.ColorVertexBuffer);
-			SetDiagnostic(LOD.VertexBuffers.StaticMeshVertexBuffer);
-			SetDiagnostic(LOD.IndexBuffer);
+			SetOwner(LOD.VertexBuffers.ColorVertexBuffer);
+			SetOwner(LOD.VertexBuffers.StaticMeshVertexBuffer);
+			SetOwner(LOD.IndexBuffer);
 		}
 	}
+#endif
 
 	auto FStaticMeshRenderData::GetNumInitializedResources() const -> size_t
 	{

@@ -22,10 +22,9 @@ namespace Durin
 		class FTestRenderResource final : public FRenderResource
 		{
 		public:
-			explicit FTestRenderResource(std::shared_ptr<FRenderResourceEvents> InEvents,
-				EInitPhase InitPhase = EInitPhase::Default)
-				: FRenderResource(InitPhase)
-				, Events(std::move(InEvents))
+			explicit FTestRenderResource(
+				std::shared_ptr<FRenderResourceEvents> InEvents)
+				: Events(std::move(InEvents))
 			{
 			}
 
@@ -79,6 +78,7 @@ namespace Durin
 		protected:
 			void SetUp() override
 			{
+				if (!IsFNameInitialized()) FNameInit();
 				if (!GIsGameThreadIdInitialized)
 				{
 					GGameThreadId = FPlatformLTS::GetCurrentThreadId();
@@ -120,16 +120,19 @@ namespace Durin
 		auto Resource = std::make_unique<FTestRenderResource>(Events);
 		FTestRenderResource* ResourceView = Resource.get();
 
-		BeginInitResource(ResourceView);
-		BeginUpdateResourceRHI(ResourceView);
+#if DURIN_BUILD_DEBUG
+		ResourceView->SetDebugOwner(FName("/Test/RenderResource"));
+#endif
+		ResourceView->BeginInit_GameThread();
+		ResourceView->BeginUpdateRHI_GameThread();
 #if DURIN_BUILD_DEBUG
 		ENQUEUE_RENDER_COMMAND(ObserveResourceDiagnostics)(
 			[ResourceView](FRHICommandListImmediate&) {
-				EXPECT_EQ(ResourceView->GetDebugName(),
-					"FTestRenderResource");
+				EXPECT_EQ(ResourceView->GetDebugOwner(),
+					FName("/Test/RenderResource"));
 			});
 #endif
-		BeginReleaseResource(ResourceView);
+		ResourceView->BeginRelease_GameThread();
 		BeginCleanupRenderResource(
 			FDeferredRenderResourceCleanup(std::move(Resource)));
 		FlushRenderingCommands();
@@ -153,13 +156,13 @@ namespace Durin
 		FTestRenderResource* FirstView = First.get();
 		FTestRenderResource* SecondView = Second.get();
 
-		BeginReleaseResource(FirstView);
-		BeginInitResource(FirstView);
-		BeginInitResource(FirstView);
-		BeginInitResource(SecondView);
-		BeginReleaseResource(FirstView);
-		BeginReleaseResource(FirstView);
-		BeginReleaseResource(SecondView);
+		FirstView->BeginRelease_GameThread();
+		FirstView->BeginInit_GameThread();
+		FirstView->BeginInit_GameThread();
+		SecondView->BeginInit_GameThread();
+		FirstView->BeginRelease_GameThread();
+		FirstView->BeginRelease_GameThread();
+		SecondView->BeginRelease_GameThread();
 		BeginCleanupRenderResource(
 			FDeferredRenderResourceCleanup(std::move(First)));
 		BeginCleanupRenderResource(
@@ -173,32 +176,6 @@ namespace Durin
 		EXPECT_TRUE(FirstEvents->bDestroyedOnRenderingThread);
 		EXPECT_TRUE(SecondEvents->bDestroyedOnRenderingThread);
 		EXPECT_EQ(GetNumInitializedRenderResources(), 0u);
-	}
-
-	TEST_F(FRenderResourceLifecycleTests,
-		GlobalRHIResetReleasesAndReinitializesRegisteredResources)
-	{
-		const auto Events = std::make_shared<FRenderResourceEvents>();
-		auto Resource = std::make_unique<FTestRenderResource>(
-			Events, FRenderResource::EInitPhase::Pre);
-		FTestRenderResource* ResourceView = Resource.get();
-
-		BeginInitResource(ResourceView);
-		ENQUEUE_RENDER_COMMAND(ResetAllTestResources)(
-			[](FRHICommandListImmediate& RHICmdList) {
-				FRenderResource::ReleaseRHIForAllResources();
-				FRenderResource::InitPreRHIResources();
-				FRenderResource::InitRHIForAllResources(RHICmdList);
-			});
-		BeginReleaseResource(ResourceView);
-		BeginCleanupRenderResource(
-			FDeferredRenderResourceCleanup(std::move(Resource)));
-		FlushRenderingCommands();
-
-		EXPECT_EQ(Events->InitCount, 2);
-		EXPECT_EQ(Events->ReleaseCount, 2);
-		EXPECT_TRUE(Events->bCallbacksOnRenderingThread);
-		EXPECT_TRUE(Events->bDestroyedOnRenderingThread);
 	}
 
 	TEST_F(FRenderResourceLifecycleTests,
@@ -240,14 +217,14 @@ namespace Durin
 		FTestRenderResource* ResourceView = Resource.get();
 		std::atomic<bool> bAuditAcceptedInvalidState = true;
 
-		BeginInitResource(ResourceView);
+		ResourceView->BeginInit_GameThread();
 		ENQUEUE_RENDER_COMMAND(AuditLiveTestResource)(
 			[&bAuditAcceptedInvalidState](FRHICommandListImmediate&) {
 				bAuditAcceptedInvalidState.store(
 					ValidateRenderResourceShutdown_RenderThread(),
 					std::memory_order_release);
 			});
-		BeginReleaseResource(ResourceView);
+		ResourceView->BeginRelease_GameThread();
 		FlushRenderingCommands();
 
 		EXPECT_FALSE(bAuditAcceptedInvalidState.load(

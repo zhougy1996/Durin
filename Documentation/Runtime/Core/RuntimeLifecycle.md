@@ -220,15 +220,15 @@ only.
    C++ cleanup queue, drain deferred RHI deletion, transition admission to
    `Stopped`, and exit. The game thread waits for completion before `RHIExit()`.
 
-The final audit reports a live render resource's type, owner, revision,
-lifecycle phase, initialization phase, and pending queue. Shutdown does not
-clear unexplained entries to make the audit pass; any live registry object,
-deferred cleanup owner, accepted command, or pending RHI deletion is a
-lifecycle error that must be resolved before `RHIExit()`. Debug builds reject
-live resources, pending cleanup, late commands, and residual RHI deletes at the
-boundary where they occur. Non-Debug builds execute the same drains, shutdown
-calls, and owner diagnostics; control-flow side effects must never be placed
-inside `check` or `checkf`.
+The final audit reports a live render resource's type and, in Debug builds, its
+asset owner. Pending cleanup entries also report whether rendering-thread
+release has completed. Shutdown does not clear unexplained entries to make the
+audit pass; any live registry object, deferred cleanup owner, accepted command,
+or pending RHI deletion is a lifecycle error that must be resolved before
+`RHIExit()`. Debug builds reject live resources, pending cleanup, late commands,
+and residual RHI deletes at the boundary where they occur. Non-Debug builds
+execute the same drains and shutdown calls; control-flow side effects must never
+be placed inside `check` or `checkf`.
 
 ## Validation Expectations
 

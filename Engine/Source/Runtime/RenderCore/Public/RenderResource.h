@@ -1,8 +1,11 @@
 #pragma once
 
 #include "RenderCoreAPI.h"
-#include "RHIFeatureLevel.h"
 #include "RHIResources.h"
+
+#if DURIN_BUILD_DEBUG
+	#include "Misc/Name.h"
+#endif
 
 namespace Durin
 {
@@ -12,27 +15,7 @@ namespace Durin
 	class FRenderResource
 	{
 	public:
-		/** Controls initialization order of render resources. Early engine resources utilize the 'Pre' phase to avoid static init ordering issues. */
-		enum class EInitPhase : uint8
-		{
-			Pre,
-			Default,
-		};
-
-		/** Release all render resources that are currently initialized. */
-		static RENDERCORE_API auto ReleaseRHIForAllResources() -> void;
-
-		/** Reinitialize the RHI state of every registered resource after a global RHI reset. */
-		static RENDERCORE_API auto InitRHIForAllResources(FRHICommandListBase& RHICmdList) -> void;
-
-		static RENDERCORE_API auto InitPreRHIResources() -> void;
-
-		RENDERCORE_API FRenderResource();
-
-		RENDERCORE_API explicit FRenderResource(EInitPhase InInitPhase);
-
-		/** Constructor when we know what feature level this resource should support */
-		RENDERCORE_API FRenderResource(ERHIFeatureLevel InFeatureLevel);
+		FRenderResource() = default;
 
 		RENDERCORE_API virtual ~FRenderResource();
 
@@ -41,8 +24,7 @@ namespace Durin
 		 * Called when entering the state where both the resource and the RHI have been initialized.
 		 * This is only called by the rendering thread.
 		 */
-		RENDERCORE_API virtual auto InitRHI(
-			FRHICommandListBase& RHICmdList) -> void;
+		virtual auto InitRHI(FRHICommandListBase&) -> void {}
 
 		/**
 		 * Releases the RHI resources used by this resource.
@@ -79,73 +61,22 @@ namespace Durin
 		RENDERCORE_API auto UpdateRHI(FRHICommandListBase& RHICmdList) -> void;
 
 		FORCEINLINE auto IsInitialized() const -> bool { return ListIndex != INDEX_NONE_U32; }
-		auto IsRHIInitialized() const -> bool { return bRHIInitialized; }
-
-		auto GetListIndex() const -> uint32 { return ListIndex; }
-
-		auto GetInitPhase() const -> EInitPhase { return InitPhase; }
 
 		virtual auto GetFriendlyName() const -> std::string { return "Undefined"; }
-		RENDERCORE_API auto SetLifetimeDiagnostic(
-			std::string InOwner, uint64 InRevision = 0) -> void;
-		auto GetLifetimeOwner() const -> const std::string&
-		{
-			return LifetimeOwner;
-		}
-		auto GetLifetimeRevision() const -> uint64
-		{
-			return LifetimeRevision;
-		}
 
 #if DURIN_BUILD_DEBUG
-		RENDERCORE_API auto SetDebugName(std::string InDebugName) -> void;
-		auto GetDebugName() const -> const std::string&
+		RENDERCORE_API auto SetDebugOwner(FName InOwner) -> void;
+		auto GetDebugOwner() const -> const FName&
 		{
-			return DebugName;
+			return DebugOwner;
 		}
 #endif
-
-	protected:
-
-		// Helper for submitting a resource array to RHI and freeing eligible CPU memory
-		template<typename T>
-		auto CreateRHIBuffer(FRHICommandListBase& RHICmdList, T& InOutResourceObject, uint32 ResourceCount, EBufferUsageFlags InBufferUsageFlags, const char* InDebugName) -> FBufferRHIRef
-		{
-			FBufferRHIRef Buffer;
-
-			//FResourceArrayInterface* RESTRICT ResourceArray = InOutResourceObject ? InOutResourceObject->GetResourceArray() : nullptr;
-			//if (ResourceCount != 0)
-			//{
-			//	Buffer = CreateRHIBufferInternal(RHICmdList, InDebugName, GetOwnerName(), ResourceCount, InBufferUsageFlags, ResourceArray, InOutResourceObject == nullptr);
-			//}
-
-			//// If the buffer creation emptied the resource array, delete the containing structure as well
-			//if (ShouldFreeResourceObject(InOutResourceObject, ResourceArray))
-			//{
-			//	delete InOutResourceObject;
-			//	InOutResourceObject = nullptr;
-			//}
-
-			return Buffer;
-		}
-
-		auto SetFeatureLevel(ERHIFeatureLevel InFeatureLevel) -> void { FeatureLevel = InFeatureLevel; }
-
-		auto GetFeatureLevel() const -> ERHIFeatureLevel { return FeatureLevel; }
-
 
 	private:
 		uint32 ListIndex = INDEX_NONE_U32;
 
-		ERHIFeatureLevel FeatureLevel = ERHIFeatureLevel::ES3_1;
-
-		EInitPhase InitPhase = EInitPhase::Default;
-
-		bool bRHIInitialized = false;
-		std::string LifetimeOwner = "<unspecified>";
-		uint64 LifetimeRevision = 0;
 #if DURIN_BUILD_DEBUG
-		std::string DebugName;
+		FName DebugOwner;
 #endif
 	};
 
@@ -181,11 +112,6 @@ namespace Durin
 
 		std::unique_ptr<FRenderResource> Resource;
 	};
-
-	// Enqueues lifecycle work with non-owning pointers; callers retain ownership through completion.
-	RENDERCORE_API auto BeginInitResource(FRenderResource* Resource) -> void;
-	RENDERCORE_API auto BeginUpdateResourceRHI(FRenderResource* Resource) -> void;
-	RENDERCORE_API auto BeginReleaseResource(FRenderResource* Resource) -> void;
 
 	// These diagnostics are safe on the rendering thread or after a completed render-command fence.
 	RENDERCORE_API auto GetNumInitializedRenderResources() -> size_t;

@@ -387,8 +387,9 @@ namespace Durin
 
 		ENGINE_API auto InitResources(FRHICommandListImmediate& RHICmdList) -> bool;
 		ENGINE_API auto ReleaseResources() -> void;
-		ENGINE_API auto SetResourceLifetimeDiagnostics(
-			std::string_view Owner) -> void;
+#if DURIN_BUILD_DEBUG
+		ENGINE_API auto SetResourceDebugOwner(FName InOwner) -> void;
+#endif
 		ENGINE_API auto GetNumInitializedResources() const -> size_t;
 		ENGINE_API auto IsReadyForRendering(uint32 LODIndex = 0) const -> bool;
 		ENGINE_API auto RecalculateBounds() -> void;
