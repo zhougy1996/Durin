@@ -65,6 +65,10 @@ namespace Durin
 			EEngineExitPhase::QuiescingProducers,
 			std::memory_order_acq_rel))
 		{
+			DURIN_ERROR_CATEGORY(
+				"EngineExit",
+				"Engine exit re-entry was rejected in phase '{}'.",
+				GetEngineExitPhaseName(ExpectedPhase));
 			return false;
 		}
 		DURIN_INFO_CATEGORY("EngineExit", "Engine exit phase: {}.",
@@ -81,6 +85,12 @@ namespace Durin
 		if (static_cast<uint8>(NewPhase)
 			!= static_cast<uint8>(CurrentPhase) + 1)
 		{
+			DURIN_ERROR_CATEGORY(
+				"EngineExit",
+				"Engine exit phase transition from '{}' to '{}' was "
+				"rejected.",
+				GetEngineExitPhaseName(CurrentPhase),
+				GetEngineExitPhaseName(NewPhase));
 			return false;
 		}
 		Phase.store(NewPhase, std::memory_order_release);

@@ -280,4 +280,40 @@ namespace Durin
 	{
 		return GLastGarbageCollectionStats;
 	}
+
+	auto CheckNoDeferredDestroyObjects(const char* Context) -> void
+	{
+		if (GLastGarbageCollectionStats.DeferredDestroyObjectCount == 0)
+		{
+			return;
+		}
+
+		for (const DObject* Object : GDObjectArray.GetAll())
+		{
+			if (!Object
+				|| !Object->HasAnyInternalFlags(
+					EObjectInternalFlags::BeginDestroyed)
+				|| Object->HasAnyInternalFlags(
+					EObjectInternalFlags::FinishDestroyed))
+			{
+				continue;
+			}
+			DURIN_ERROR_CATEGORY(
+				"GC",
+				"Object remained deferred during '{}': path='{}', class='{}', "
+				"internal_flags={}.",
+				Context,
+				Object->GetObjectPath(),
+				Object->GetClass()
+					? Object->GetClass()->GetQualifiedName().ToString()
+					: "<unregistered>",
+				static_cast<uint32>(Object->GetInternalFlags()));
+		}
+
+		checkf(
+			false,
+			"{} left {} deferred object(s).",
+			Context,
+			GLastGarbageCollectionStats.DeferredDestroyObjectCount);
+	}
 }

@@ -11,6 +11,7 @@ namespace Durin
 	class DCameraComponent;
 	class FSceneViewport;
 	class IRendererModule;
+	class FRenderCommandFence;
 	class FEngineInputEventHandler;
 	class DWorld;
 	class IScene;
@@ -37,6 +38,8 @@ namespace Durin
 		ENGINE_API virtual auto SetWorld(DWorld* InWorld) -> void;
 
 		ENGINE_API auto BeginDestroy() -> void override;
+		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
+		ENGINE_API auto FinishDestroy() -> void override;
 
 		auto GetMainScene() const -> IScene* { return MainScene.get(); }
 		auto GetMainSceneViewport() const -> const std::shared_ptr<FSceneViewport>& { return MainSceneViewport; }
@@ -54,6 +57,7 @@ namespace Durin
 		std::unique_ptr<IScene> MainScene;
 		std::shared_ptr<FSceneViewport> MainSceneViewport;
 		std::vector<std::shared_ptr<FSceneViewport>> AuxiliarySceneViewports;
+		std::unique_ptr<FRenderCommandFence> DestroyFence;
 
 		// Active world is retained by GC while the engine owns it.
 		DPROPERTY(Transient)

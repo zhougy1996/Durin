@@ -45,12 +45,9 @@ namespace Durin
 		Draining,
 	};
 
-	// Stops producer admission without discarding commands accepted before the transition.
-	RENDERCORE_API auto CloseRenderCommandAdmission() -> void;
-
-	// Atomically closes admission behind a final render-thread resource/RHI audit,
-	// then waits until every previously accepted command has completed.
-	RENDERCORE_API auto FinalizeRenderingThreadBeforeRHIExit() -> void;
+	// Atomically closes admission behind the final resource/RHI audit, drains
+	// accepted work, and stops the rendering thread.
+	RENDERCORE_API auto ShutdownRenderingThreadBeforeRHIExit() -> void;
 
 	RENDERCORE_API auto ShutdownRenderingThread() -> void;
 

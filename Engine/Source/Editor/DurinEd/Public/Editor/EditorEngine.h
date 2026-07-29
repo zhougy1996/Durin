@@ -84,6 +84,7 @@ namespace Durin
 		auto IsPlayingInNewWindow() const -> bool { return IsPlaying() && PlayDestination == EEditorPlayDestination::NewWindow; }
 
 	private:
+		auto TeardownPlaySession() -> void;
 		auto ReleaseRetiredPlaySessions(bool bReleaseAll = false) -> void;
 
 		std::unique_ptr<FEditorTransactionManager> TransactionManager;

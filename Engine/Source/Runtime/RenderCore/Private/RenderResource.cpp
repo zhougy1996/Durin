@@ -290,13 +290,6 @@ namespace Durin
 			});
 	}
 
-	auto FlushPendingRenderResourceCleanup_RenderThread() -> void
-	{
-		check(IsInRenderingThread());
-		std::lock_guard Lock(PendingCleanupMutex);
-		PendingCleanup.clear();
-	}
-
 	auto GetNumInitializedRenderResources() -> size_t
 	{
 		return RenderResources.size();

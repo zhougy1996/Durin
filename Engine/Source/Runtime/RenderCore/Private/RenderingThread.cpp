@@ -151,24 +151,15 @@ namespace Durin
 		StartRenderingThread();
 	}
 
-	auto CloseRenderCommandAdmission() -> void
-	{
-		FRenderThreadCommandPipe::CloseAdmission();
-	}
-
-	auto FinalizeRenderingThreadBeforeRHIExit() -> void
+	auto ShutdownRenderingThreadBeforeRHIExit() -> void
 	{
 		check(IsInGameThread());
 		FRenderThreadCommandPipe::CloseWithFinalCommand(
-			"FinalizeRenderingThreadBeforeRHIExit",
+			"ShutdownRenderingThreadBeforeRHIExit",
 			[](FRHICommandListImmediate& RHICmdList) {
 				const bool bResourcesReleased =
 					ValidateRenderResourceShutdown_RenderThread(
 						"pre-RHI-exit");
-				if (bResourcesReleased)
-				{
-					FlushPendingRenderResourceCleanup_RenderThread();
-				}
 				RHICmdList.ImmediateFlush(
 					EImmediateFlushType::FlushRHIThreadFlushResources,
 					ERHISubmitFlags::FlushRHIThread);
@@ -180,15 +171,14 @@ namespace Durin
 					FRHIResource::GetNumPendingDeletes());
 			});
 		FRenderThreadCommandPipe::DrainAcceptedCommands();
+		StopRenderingThread();
+		FRenderThreadCommandPipe::MarkStopped();
 	}
 
 	auto ShutdownRenderingThread() -> void
 	{
-		CloseRenderCommandAdmission();
+		FRenderThreadCommandPipe::CloseAdmission();
 		FRenderThreadCommandPipe::DrainAcceptedCommands();
-		checkf(GetNumPendingRenderCommands() == 0,
-			"Rendering thread shutdown found {} commands still pending.",
-			GetNumPendingRenderCommands());
 		StopRenderingThread();
 		FRenderThreadCommandPipe::MarkStopped();
 	}

@@ -119,8 +119,6 @@ namespace Durin
 	class IRendererModule : public IModuleInterface
 	{
 	public:
-		// Queues destruction of renderer-owned RHI state before the rendering thread stops.
-		virtual auto ReleaseResources() -> void = 0;
 		virtual auto CreateScene() -> std::unique_ptr<IScene> = 0;
 		virtual auto GetViewSettings() const -> FRendererViewSettings = 0;
 		virtual auto SetViewSettings(const FRendererViewSettings& InSettings) -> void = 0;

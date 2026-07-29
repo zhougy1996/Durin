@@ -202,8 +202,6 @@ namespace
 	{
 		BeforeRelease,
 		FencePending,
-		BeforeReadiness,
-		BeforeFinishDestroy,
 		FinishDestroy,
 		Destructor
 	};
@@ -211,8 +209,6 @@ namespace
 	struct FShutdownDestroyScheduler
 	{
 		bool bFenceComplete = false;
-		bool bReadinessGranted = false;
-		bool bFinishDestroyGranted = false;
 		std::vector<EShutdownDestroyCheckpoint> Checkpoints;
 
 		auto Record(EShutdownDestroyCheckpoint Checkpoint) -> void
@@ -263,16 +259,6 @@ namespace
 			if (!ShutdownDestroyScheduler->bFenceComplete)
 			{
 				ShutdownDestroyScheduler->Record(EShutdownDestroyCheckpoint::FencePending);
-				return false;
-			}
-			if (!ShutdownDestroyScheduler->bReadinessGranted)
-			{
-				ShutdownDestroyScheduler->Record(EShutdownDestroyCheckpoint::BeforeReadiness);
-				return false;
-			}
-			if (!ShutdownDestroyScheduler->bFinishDestroyGranted)
-			{
-				ShutdownDestroyScheduler->Record(EShutdownDestroyCheckpoint::BeforeFinishDestroy);
 				return false;
 			}
 			return true;
@@ -1336,7 +1322,7 @@ namespace
 		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 1u);
 	}
 
-	TEST(FCoreDObjectReflectionTests, ShutdownDestructionRequiresPostFenceGarbageCollectionPasses)
+	TEST(FCoreDObjectReflectionTests, ShutdownDestructionCompletesAfterOneFlushAndSecondCollection)
 	{
 		EnsureDObjectInitialized();
 		DLifecycleTestObject::ResetLifecycleCounts();
@@ -1351,25 +1337,8 @@ namespace
 		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 0u);
-		EXPECT_EQ(Scheduler.Checkpoints, (std::vector{
-			EShutdownDestroyCheckpoint::BeforeRelease,
-			EShutdownDestroyCheckpoint::FencePending}));
 
 		Scheduler.bFenceComplete = true;
-		Durin::CollectGarbage();
-		EXPECT_TRUE(ObjectArrayContains(Object));
-		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 1u);
-		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
-		EXPECT_EQ(Scheduler.Checkpoints.back(), EShutdownDestroyCheckpoint::BeforeReadiness);
-
-		Scheduler.bReadinessGranted = true;
-		Durin::CollectGarbage();
-		EXPECT_TRUE(ObjectArrayContains(Object));
-		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 1u);
-		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
-		EXPECT_EQ(Scheduler.Checkpoints.back(), EShutdownDestroyCheckpoint::BeforeFinishDestroy);
-
-		Scheduler.bFinishDestroyGranted = true;
 		Durin::CollectGarbage();
 		EXPECT_FALSE(ObjectArrayContains(Object));
 		EXPECT_EQ(Durin::GetLastGarbageCollectionStats().DeferredDestroyObjectCount, 0u);
@@ -1379,8 +1348,6 @@ namespace
 		EXPECT_EQ(Scheduler.Checkpoints, (std::vector{
 			EShutdownDestroyCheckpoint::BeforeRelease,
 			EShutdownDestroyCheckpoint::FencePending,
-			EShutdownDestroyCheckpoint::BeforeReadiness,
-			EShutdownDestroyCheckpoint::BeforeFinishDestroy,
 			EShutdownDestroyCheckpoint::FinishDestroy,
 			EShutdownDestroyCheckpoint::Destructor}));
 	}

@@ -177,6 +177,12 @@ namespace
 		(void)Initialized;
 	}
 
+	auto ShutdownAssetManagerForRestart() -> void
+	{
+		Durin::Asset::ShutdownAssetManager();
+		Durin::CollectGarbage();
+	}
+
 	auto WriteTestBytes(const std::filesystem::path& Path, std::span<const Durin::uint8> Bytes) -> void
 	{
 		std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
@@ -1239,7 +1245,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	ASSERT_TRUE(Durin::Asset::SavePackage(FirstAsset->GetPackage()));
 	EXPECT_GT(Registry.GetRevision(), EmptyRegistryRevision);
 	EXPECT_TRUE(Registry.IsPersistentSnapshotDirty());
-	Durin::Asset::ShutdownAssetManager();
+	ShutdownAssetManagerForRestart();
 	EXPECT_FALSE(Registry.IsPersistentSnapshotDirty());
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
@@ -1250,14 +1256,14 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	ASSERT_TRUE(Durin::Asset::LoadAsset(FirstPath, Reloaded));
 	EXPECT_EQ(Registry.GetRevision(), RevisionBeforeLoad);
 	EXPECT_TRUE(Registry.IsPersistentSnapshotDirty());
-	Durin::Asset::ShutdownAssetManager();
+	ShutdownAssetManagerForRestart();
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
 
 	ASSERT_TRUE(Durin::Asset::MoveAsset(FirstPath, MovedPath));
 	EXPECT_TRUE(Registry.IsPersistentSnapshotDirty());
-	Durin::Asset::ShutdownAssetManager();
+	ShutdownAssetManagerForRestart();
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
@@ -1267,14 +1273,14 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	DPackageAssetForTest* ImportedAsset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(ImportedPath, ImportedAsset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(ImportedAsset->GetPackage()));
-	Durin::Asset::ShutdownAssetManager();
+	ShutdownAssetManagerForRestart();
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 2u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
 
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(MovedPath));
 	EXPECT_TRUE(Registry.IsPersistentSnapshotDirty());
-	Durin::Asset::ShutdownAssetManager();
+	ShutdownAssetManagerForRestart();
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
@@ -1291,7 +1297,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	const auto AuthoredFile = ContentRoot / "LifecycleImported.dasset";
 	std::vector<Durin::uint8> BeforeFailedFlush;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeFailedFlush, AuthoredFile.generic_string()));
-	Durin::Asset::ShutdownAssetManager();
+	ShutdownAssetManagerForRestart();
 	EXPECT_TRUE(Registry.IsPersistentSnapshotDirty());
 	EXPECT_FALSE(Registry.GetCacheWarning().empty());
 	std::vector<Durin::uint8> AfterFailedFlush;
@@ -1299,6 +1305,6 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	EXPECT_EQ(AfterFailedFlush, BeforeFailedFlush);
 
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
-	Durin::Asset::ShutdownAssetManager();
+	ShutdownAssetManagerForRestart();
 	EXPECT_FALSE(Registry.IsPersistentSnapshotDirty());
 }

@@ -2,10 +2,7 @@
 
 #include "Threading/QueuedThreadPool.h"
 #include "Threading/RunnableThread.h"
-#include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
-#include "DObject/DObjectArray.h"
-#include "DObject/Object.h"
 #include "DObject/ObjectLifecycle.h"
 #include "ApplicationCore.h"
 #include "AssetSystem.h"
@@ -14,7 +11,6 @@
 #include "Engine/Engine.h"
 
 #include "RHICommandList.h"
-#include "RenderResource.h"
 #include "RenderingThread.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformProcess.h"
@@ -40,7 +36,6 @@ namespace Durin
 	constexpr std::string_view AppConfigFileName = DURIN_RUNTIME_VARIANT ".yaml";
 
 	FEngineLoop GEngineLoop;
-	static bool GCaptureTerminationLifecycleBaseline = false;
 
 	auto FEngineLoop::PreInit(std::span<const std::string_view> Arguments) -> void
 	{
@@ -48,8 +43,6 @@ namespace Durin
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
 		GIsWindowDisplaySuppressed = std::ranges::find(Arguments, std::string_view("--hidden-window")) != Arguments.end();
-		GCaptureTerminationLifecycleBaseline =
-			std::ranges::find(Arguments, std::string_view("--termination-lifecycle-baseline")) != Arguments.end();
 
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
@@ -221,83 +214,42 @@ namespace Durin
 
 	auto FEngineLoop::Exit() -> void
 	{
-		if (GCaptureTerminationLifecycleBaseline)
-		{
-			uint64 RootedObjectCount = 0;
-			uint64 PermanentObjectCount = 0;
-			for (const DObject* Object : GDObjectArray.GetAll())
-			{
-				if (!Object) continue;
-				const bool bRooted = Object->HasAnyInternalFlags(EObjectInternalFlags::RootSet);
-				const bool bPermanent =
-					EnumHasAnyFlags(Object->GetObjectFlags(), EObjectFlags::Intrinsic)
-					|| (Object->GetClass() && DType::StaticClass()
-						&& Object->IsA(DType::StaticClass()));
-				if (!bRooted && !bPermanent) continue;
-				RootedObjectCount += bRooted ? 1 : 0;
-				PermanentObjectCount += bPermanent ? 1 : 0;
-				DURIN_INFO_CATEGORY(
-					"TerminationLifecycle",
-					"DObject survivor at exit entry: path='{}', class='{}', rooted={}, permanent={}.",
-					Object->GetObjectPath(),
-					Object->GetClass() ? Object->GetClass()->GetName() : "<unregistered>",
-					bRooted,
-					bPermanent);
-			}
-			DURIN_INFO_CATEGORY(
-				"TerminationLifecycle",
-				"DObject exit-entry inventory: total={}, rooted={}, permanent={}.",
-				GDObjectArray.GetNum(),
-				RootedObjectCount,
-				PermanentObjectCount);
-
-			ENQUEUE_RENDER_COMMAND(LogTerminationLifecycleResourceBaseline)(
-				[](FRHICommandListImmediate&) {
-					const bool bNoLiveResources =
-						ValidateRenderResourceShutdown_RenderThread("exit-entry baseline");
-					DURIN_INFO_CATEGORY(
-						"TerminationLifecycle",
-						"Render-resource exit-entry inventory: initialized={}, pending_cleanup={}, empty={}.",
-						GetNumInitializedRenderResources(),
-						GetNumPendingRenderResourceCleanup(),
-						bNoLiveResources);
-				});
-			FlushRenderingCommands();
-		}
-
-		checkf(BeginEngineExit(), "Engine exit re-entry was rejected in phase '{}'.",
-			GetEngineExitPhaseName(GetEngineExitPhase()));
-		check(AdvanceEngineExitPhase(EEngineExitPhase::DetachingRenderConsumers));
+		if (!BeginEngineExit()) return;
+		AdvanceEngineExitPhase(EEngineExitPhase::DetachingRenderConsumers);
 		Mona::MonaShutdown();
 
 		ShutdownEngineThreadPool(true);
 
-		check(AdvanceEngineExitPhase(EEngineExitPhase::DrainingObjects));
+		AdvanceEngineExitPhase(EEngineExitPhase::DrainingObjects);
 		RemoveFromRoot(GEngine);
 		MarkObjectHierarchyAsGarbage(GEngine);
 		GEngine = nullptr;
 		Asset::ShutdownAssetManager();
 		CollectGarbage();
+		const uint64 DeferredBeforeRenderFlush =
+			GetLastGarbageCollectionStats().DeferredDestroyObjectCount;
+		DURIN_INFO_CATEGORY(
+			"GC",
+			"Shutdown object release pass deferred {} object(s) before the render flush.",
+			DeferredBeforeRenderFlush);
 
-		FlushRenderingCommands();
-		check(AdvanceEngineExitPhase(EEngineExitPhase::UnloadingModules));
+		if (GRenderingThread) FlushRenderingCommands();
+		CollectGarbage();
+		DURIN_INFO_CATEGORY(
+			"GC",
+			"Shutdown object finalization pass swept {} object(s) and left {} deferred.",
+			GetLastGarbageCollectionStats().SweptObjectCount,
+			GetLastGarbageCollectionStats().DeferredDestroyObjectCount);
+		CheckNoDeferredDestroyObjects("shutdown object destruction");
+		AdvanceEngineExitPhase(EEngineExitPhase::UnloadingModules);
 		FModuleManager::Get().UnloadModulesAtShutdown();
-		FlushRenderingCommands();
-		check(AdvanceEngineExitPhase(EEngineExitPhase::ClosingRenderAdmission));
-		FinalizeRenderingThreadBeforeRHIExit();
-		ShutdownRenderingThread();
-		check(AdvanceEngineExitPhase(EEngineExitPhase::RenderingStopped));
-
-		check(GetRenderCommandAdmissionState()
-			== ERenderCommandAdmissionState::Stopped);
-		check(GetNumPendingRenderCommands() == 0);
-		check(GetNumInitializedRenderResources() == 0);
-		check(GetNumPendingRenderResourceCleanup() == 0);
-		check(FRHIResource::GetNumPendingDeletes() == 0);
+		AdvanceEngineExitPhase(EEngineExitPhase::ClosingRenderAdmission);
+		ShutdownRenderingThreadBeforeRHIExit();
+		AdvanceEngineExitPhase(EEngineExitPhase::RenderingStopped);
 		RHIExit();
 
 		ShutdownApplicationCore();
-		check(AdvanceEngineExitPhase(EEngineExitPhase::Complete));
+		AdvanceEngineExitPhase(EEngineExitPhase::Complete);
 		DURIN_INFO(STR("Durin Engine exited."));
 	}
 } // namespace Durin

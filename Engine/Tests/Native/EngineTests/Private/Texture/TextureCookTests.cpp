@@ -429,7 +429,6 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::MarkAsGarbage(SampleMesh);
 	Durin::MarkAsGarbage(SampleMaterial);
 	Durin::CollectGarbage();
-	Renderer.ReleaseResources();
 	Renderer.SetRenderMode(Durin::ERenderMode::Lit);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(CookedPath));
 	CookedTexture = nullptr;

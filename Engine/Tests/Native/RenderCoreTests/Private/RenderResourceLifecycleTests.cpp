@@ -56,6 +56,24 @@ namespace Durin
 			std::shared_ptr<FRenderResourceEvents> Events;
 		};
 
+		class FTestRHIResource final : public FRHIResource
+		{
+		public:
+			explicit FTestRHIResource(std::atomic<bool>& InDestroyed)
+				: FRHIResource(ERHIResourceType::Buffer)
+				, Destroyed(InDestroyed)
+			{
+			}
+
+			~FTestRHIResource() override
+			{
+				Destroyed.store(true, std::memory_order_release);
+			}
+
+		private:
+			std::atomic<bool>& Destroyed;
+		};
+
 		class FRenderResourceLifecycleTests : public testing::Test
 		{
 		protected:
@@ -196,26 +214,127 @@ namespace Durin
 				});
 		EXPECT_TRUE(bAccepted);
 
-		FinalizeRenderingThreadBeforeRHIExit();
+		ShutdownRenderingThreadBeforeRHIExit();
 
 		EXPECT_TRUE(bAcceptedCommandExecuted.load(
 			std::memory_order_acquire));
 		EXPECT_EQ(GetRenderCommandAdmissionState(),
-			ERenderCommandAdmissionState::Draining);
+			ERenderCommandAdmissionState::Stopped);
 		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
 		EXPECT_FALSE(
 			FRenderThreadCommandPipe::TryEnqueue<
 				FRejectedAfterAdmissionCloseCommand>(
 				[](FRHICommandListImmediate&) {}));
 
-		ShutdownRenderingThread();
-		EXPECT_EQ(GetRenderCommandAdmissionState(),
-			ERenderCommandAdmissionState::Stopped);
-		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
-
 		// Restore the fixture contract and prove the stopped pipe is reusable.
 		InitRenderingThread();
 		EXPECT_EQ(GetRenderCommandAdmissionState(),
 			ERenderCommandAdmissionState::Running);
 	}
+
+	TEST_F(FRenderResourceLifecycleTests,
+		ShutdownAuditRejectsLiveRenderResources)
+	{
+		const auto Events = std::make_shared<FRenderResourceEvents>();
+		auto Resource = std::make_unique<FTestRenderResource>(Events);
+		FTestRenderResource* ResourceView = Resource.get();
+		std::atomic<bool> bAuditAcceptedInvalidState = true;
+
+		BeginInitResource(ResourceView);
+		ENQUEUE_RENDER_COMMAND(AuditLiveTestResource)(
+			[&bAuditAcceptedInvalidState](FRHICommandListImmediate&) {
+				bAuditAcceptedInvalidState.store(
+					ValidateRenderResourceShutdown_RenderThread(
+						"live-resource-fault-injection"),
+					std::memory_order_release);
+			});
+		BeginReleaseResource(ResourceView);
+		FlushRenderingCommands();
+
+		EXPECT_FALSE(bAuditAcceptedInvalidState.load(
+			std::memory_order_acquire));
+		BeginCleanupRenderResource(
+			FDeferredRenderResourceCleanup(std::move(Resource)));
+		FlushRenderingCommands();
+	}
+
+	TEST_F(FRenderResourceLifecycleTests,
+		ShutdownAuditRejectsPendingResourceCleanup)
+	{
+		const auto Events = std::make_shared<FRenderResourceEvents>();
+		auto Resource = std::make_unique<FTestRenderResource>(Events);
+		std::mutex GateMutex;
+		std::condition_variable GateCV;
+		bool bAuditCommandStarted = false;
+		bool bRunAudit = false;
+		std::atomic<bool> bAuditAcceptedInvalidState = true;
+
+		ENQUEUE_RENDER_COMMAND(AuditPendingTestResourceCleanup)(
+			[&](FRHICommandListImmediate&) {
+				{
+					std::unique_lock Lock(GateMutex);
+					bAuditCommandStarted = true;
+					GateCV.notify_one();
+					GateCV.wait(Lock, [&bRunAudit]() {
+						return bRunAudit;
+					});
+				}
+				bAuditAcceptedInvalidState.store(
+					ValidateRenderResourceShutdown_RenderThread(
+						"pending-cleanup-fault-injection"),
+					std::memory_order_release);
+			});
+
+		{
+			std::unique_lock Lock(GateMutex);
+			GateCV.wait(Lock, [&bAuditCommandStarted]() {
+				return bAuditCommandStarted;
+			});
+		}
+		BeginCleanupRenderResource(
+			FDeferredRenderResourceCleanup(std::move(Resource)));
+		EXPECT_EQ(GetNumPendingRenderResourceCleanup(), 1u);
+		{
+			std::lock_guard Lock(GateMutex);
+			bRunAudit = true;
+		}
+		GateCV.notify_one();
+		FlushRenderingCommands();
+
+		EXPECT_FALSE(bAuditAcceptedInvalidState.load(
+			std::memory_order_acquire));
+		EXPECT_TRUE(Events->bDestroyedOnRenderingThread);
+	}
+
+	TEST_F(FRenderResourceLifecycleTests,
+		FinalShutdownDrainsPendingRHIDeletesBeforeStopping)
+	{
+		std::atomic<bool> bDestroyed = false;
+		auto* Resource = new FTestRHIResource(bDestroyed);
+		Resource->AddRef();
+		Resource->Release();
+
+		EXPECT_EQ(FRHIResource::GetNumPendingDeletes(), 1u);
+		ShutdownRenderingThreadBeforeRHIExit();
+
+		EXPECT_TRUE(bDestroyed.load(std::memory_order_acquire));
+		EXPECT_EQ(FRHIResource::GetNumPendingDeletes(), 0u);
+		EXPECT_EQ(GetRenderCommandAdmissionState(),
+			ERenderCommandAdmissionState::Stopped);
+
+		InitRenderingThread();
+	}
+
+#if DO_CHECK
+	TEST_F(FRenderResourceLifecycleTests,
+		FinalShutdownRejectsASecondInvocation)
+	{
+		EXPECT_DEATH_IF_SUPPORTED(
+			{
+				ShutdownRenderingThreadBeforeRHIExit();
+				ShutdownRenderingThreadBeforeRHIExit();
+			},
+			"");
+	}
+#endif
 }

@@ -11,7 +11,6 @@ namespace Durin
 	public:
 		RENDERER_API auto StartupModule() -> void override;
 		RENDERER_API auto ShutdownModule() -> void override;
-		RENDERER_API auto ReleaseResources() -> void override;
 		RENDERER_API auto CreateScene() -> std::unique_ptr<IScene> override;
 		RENDERER_API auto GetViewSettings() const -> FRendererViewSettings override;
 		RENDERER_API auto SetViewSettings(const FRendererViewSettings& InSettings) -> void override;

@@ -353,9 +353,8 @@ namespace
 		~FMaterialPreviewHarness()
 		{
 			Durin::GEngine = nullptr;
-			RendererModule.ReleaseResources();
-			WaitForRenderingThread();
 			RendererModule.ShutdownModule();
+			WaitForRenderingThread();
 			Durin::ShutdownRenderingThread();
 		}
 

@@ -1811,15 +1811,35 @@ namespace Durin
 		}
 	}
 
-	auto FRendererModule::ReleaseResources() -> void
+	static auto ReleaseRendererResources() -> void
 	{
 		ENQUEUE_RENDER_COMMAND(ReleaseRendererResources)([](FRHICommandListImmediate&) {
 			GDefaultTextures = {};
 			GStaticMeshState = {};
 			GTextureCubeThumbnailState = {};
-			GSkyBoxState.Sampler = nullptr;
-			GOverlayIconState.Atlas = nullptr;
-			GOverlayIconState.AtlasSampler = nullptr;
+			GSkyBoxState = {};
+			GGizmoState = {};
+			GOverlayLineState = {};
+			GOverlayIconState = {};
+			GEditorGridState = {};
+			GPostProcessState.CopyShaderMap.reset();
+			GPostProcessState.FXAAShaderMap.reset();
+			GPostProcessState.CopyVertexShader = {};
+			GPostProcessState.FXAAVertexShader = {};
+			GPostProcessState.CopyFragmentShader = {};
+			GPostProcessState.FXAAFragmentShader = {};
+			GPostProcessState.VertexDeclaration = nullptr;
+			GPostProcessState.CopyOffscreenPipelineState = nullptr;
+			GPostProcessState.CopyPresentPipelineState = nullptr;
+			GPostProcessState.FXAAOffscreenPipelineState = nullptr;
+			GPostProcessState.FXAAPresentPipelineState = nullptr;
+			GPostProcessState.VertexBuffer = nullptr;
+			GPostProcessState.IndexBuffer = nullptr;
+			GPostProcessState.SceneColorSampler = nullptr;
+			GPostProcessState.SceneTargetsBySize.clear();
+			GPostProcessState.bCreateAttempted = false;
+			GPostProcessState.bEnableFXAA.store(true, std::memory_order_relaxed);
+			GEditorAssistancePipelineFailureLogged = false;
 		});
 	}
 
@@ -1831,34 +1851,7 @@ namespace Durin
 			RemoveOnEnginePreExit(PreExitHandle);
 			PreExitHandle.Reset();
 		}
-		checkf(GDefaultTextures.White == nullptr && GDefaultTextures.Black == nullptr && GDefaultTextures.FlatNormal == nullptr
-				&& GDefaultTextures.BlackCube == nullptr,
-			"Renderer defaults must be released before the rendering thread stops");
-		GStaticMeshState = {};
-		GTextureCubeThumbnailState = {};
-		GSkyBoxState = {};
-		GGizmoState = {};
-		GOverlayLineState = {};
-		GOverlayIconState = {};
-		GEditorGridState = {};
-		GPostProcessState.CopyShaderMap.reset();
-		GPostProcessState.FXAAShaderMap.reset();
-		GPostProcessState.CopyVertexShader = {};
-		GPostProcessState.FXAAVertexShader = {};
-		GPostProcessState.CopyFragmentShader = {};
-		GPostProcessState.FXAAFragmentShader = {};
-		GPostProcessState.VertexDeclaration = nullptr;
-		GPostProcessState.CopyOffscreenPipelineState = nullptr;
-		GPostProcessState.CopyPresentPipelineState = nullptr;
-		GPostProcessState.FXAAOffscreenPipelineState = nullptr;
-		GPostProcessState.FXAAPresentPipelineState = nullptr;
-		GPostProcessState.VertexBuffer = nullptr;
-		GPostProcessState.IndexBuffer = nullptr;
-		GPostProcessState.SceneColorSampler = nullptr;
-		GPostProcessState.SceneTargetsBySize.clear();
-		GPostProcessState.bCreateAttempted = false;
-		GPostProcessState.bEnableFXAA.store(true, std::memory_order_relaxed);
-		GEditorAssistancePipelineFailureLogged = false;
+		ReleaseRendererResources();
 	}
 
 	auto FRendererModule::CreateScene() -> std::unique_ptr<IScene>

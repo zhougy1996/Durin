@@ -129,7 +129,7 @@ namespace Durin
 	{
 		AssetUpgradeAuditNotifications->Shutdown();
 		AssetUpgradeAuditService->Shutdown();
-		StopPlaySession();
+		TeardownPlaySession();
 		TransactionManager->Clear();
 		for (const uint64 Handle : ConsoleCommandHandles) FConsoleCommandRegistry::Get().UnregisterCommand(Handle);
 		ConsoleCommandHandles.clear();
@@ -232,6 +232,17 @@ namespace Durin
 	auto DEditorEngine::StopPlaySession() -> void
 	{
 		if (PlayState == EEditorPlayState::Stopped) return;
+		DWorld* WorldToRestore = EditorWorld.Get();
+		DLevel* LevelToRestore = EditorLevel.Get();
+		TeardownPlaySession();
+		SetWorld(WorldToRestore);
+		if (WorldToRestore && LevelToRestore)
+			WorldToRestore->SetCurrentLevel(LevelToRestore, false);
+	}
+
+	auto DEditorEngine::TeardownPlaySession() -> void
+	{
+		if (PlayState == EEditorPlayState::Stopped) return;
 		PlayState = EEditorPlayState::Stopping;
 		DWorld* WorldToDestroy = PlayWorld.Get();
 		DLevel* LevelToDestroy = WorldToDestroy ? WorldToDestroy->GetCurrentLevel() : nullptr;
@@ -248,8 +259,7 @@ namespace Durin
 			RetirementFence = std::make_unique<FRenderCommandFence>();
 			RetirementFence->BeginFence();
 		}
-		SetWorld(EditorWorld.Get());
-		if (EditorWorld && EditorLevel) EditorWorld->SetCurrentLevel(EditorLevel.Get(), false);
+		SetWorld(nullptr);
 		if (PlayDestination == EEditorPlayDestination::NewWindow)
 		{
 			SetMainSceneViewport(PreviousSceneViewport);

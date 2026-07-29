@@ -575,8 +575,6 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Durin::GEngine = nullptr;
 	ASSERT_NE(CaptureMesh, nullptr);
 	ASSERT_NE(CaptureSphere, nullptr);
-	Renderer.ReleaseResources();
-	Durin::FlushRenderingCommands();
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureTexturePath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureCubePath));
 	Durin::FlushRenderingCommands();
@@ -600,6 +598,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Durin::FlushRenderingCommands();
 	Durin::CollectGarbage();
 	Renderer.ShutdownModule();
+	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	// The native suite may create another RHI in the same process; force the
 	// process-wide immediate list to acquire that device's context next time.

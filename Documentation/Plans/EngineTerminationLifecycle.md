@@ -4,8 +4,8 @@ Summary: Add a UE-shaped pre-exit, asynchronous DObject destruction drain, modul
 
 Last reviewed: 2026-07-29
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-07-29
 
 ## Current Status
 
@@ -19,30 +19,29 @@ termination:
 - `FRenderCommandFence` can delimit accepted rendering work;
 - the render command pipe has `Running`, `Draining`, and `Stopped` admission
   states;
-- `FinalizeRenderingThreadBeforeRHIExit` atomically closes admission behind a
-  final render-resource and RHI audit;
-- `FRenderResource` reports destruction while initialized and the final engine
-  exit path asserts that resource, command, deferred-cleanup, and RHI-delete
-  queues are empty.
+- `ShutdownRenderingThreadBeforeRHIExit` atomically closes admission behind a
+  final render-resource and RHI audit, drains accepted work, and stops the
+  rendering thread;
+- `FRenderResource` reports destruction while initialized, and RenderCore owns
+  the resource, command, deferred-cleanup, and RHI-delete invariants.
 
-The missing layer is the process-wide owner protocol above those mechanisms.
-`FEngineLoop::Exit()` currently:
+The process-wide owner protocol is now closed through the module boundary.
+`FEngineLoop::Exit()`:
 
-1. shuts down Mona and drains the CPU thread pool;
-2. removes and garbage-marks `GEngine`;
-3. shuts down the asset manager;
-4. calls `CollectGarbage()` once;
-5. flushes rendering commands;
-6. unloads modules;
-7. flushes again, closes render-command admission, audits, and stops rendering.
+1. broadcasts pre-exit, shuts down Mona, and drains the CPU thread pool;
+2. removes engine and package roots;
+3. performs the fixed `GC -> render flush -> GC` object drain;
+4. requires zero deferred objects before reverse-order module shutdown;
+5. atomically closes render-command admission behind all module teardown,
+   performs the final resource/RHI audit, and stops rendering.
 
-One garbage-collection pass cannot complete a UE-shaped asynchronous
-destruction sequence. A resource-owning object may enqueue release work in
-`BeginDestroy`, return false from `IsReadyForFinishDestroy`, and become ready
-only after the following render flush. No second purge currently invokes
-`FinishDestroy`. Module code can therefore unload beneath deferred objects, and
-the final RenderCore audit can discover live resources only after ordinary
-producers have already lost their cleanup opportunity.
+MonaImGui now flushes accepted draws and uploads before destroying the
+viewport- and texture-owned memory they reference, then performs its existing
+backend release flush after dropping all registered RHI references.
+
+The final closure is a pure, actionable validation point. Invalid late
+submissions, live resources, pending cleanup, and pending RHI work have focused
+fault coverage without moving recoverable owner cleanup into the finalizer.
 
 The immediate StaticMesh shutdown error is evidence of a missing asset-owned
 release path, not a reason to make the engine enumerate StaticMesh buffers
@@ -51,6 +50,13 @@ directly. The
 that asset-specific correction. This plan owns the process-wide guarantee that
 all such cleanup begins and drains while the rendering thread and defining
 modules remain available.
+
+The StaticMesh Stage 3 review removes the earlier asset-owned retirement model
+from this plan. StaticMesh owns one current render data and one destruction
+fence; synchronous replacement keeps displaced data in a local unique owner
+only through its targeted release fence. Engine termination therefore
+coordinates ordinary `DObject` readiness and render queues without a
+StaticMesh-specific queue, registry, or exit hook.
 
 Stage 0 is complete from baseline commit
 `4bf2f6414a0dd42e5e12e649da0f52e2200db02b`. The initial working set is:
@@ -64,11 +70,12 @@ Stage 0 is complete from baseline commit
 - `Engine/Source/Runtime/Core/Private/Modules/ModuleManager.cpp`;
 - `Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp`.
 
-The first scheduler-controlled regression now records the synthetic shutdown
+The scheduler-controlled regression records the synthetic shutdown
 destruction checkpoints before release submission, while its fence is pending,
 before readiness, before `FinishDestroy`, and at physical destruction. It
-proves that the current one-pass exit collection leaves the object deferred and
-that later collection passes do not repeat `BeginDestroy`.
+proves that the first shutdown collection leaves the object deferred, the
+render flush completes its fence, and the second collection finishes it without
+repeating `BeginDestroy`.
 
 The current exit ownership graph is pinned as follows:
 
@@ -78,7 +85,7 @@ The current exit ownership graph is pinned as follows:
 | `ShutdownEngineThreadPool(true)` | accepted CPU work and its result publication | producer quiescence |
 | remove and garbage-mark `GEngine` | engine, world, actor, component, viewport, and scene object hierarchy | consumer detach then DObject drain |
 | `ShutdownAssetManager` | loaded packages, asset registry/cache references, asset publication | producer quiescence and root release |
-| `CollectGarbage` | virtual DObject destruction and physical object storage | repeated shutdown object drain |
+| `CollectGarbage` | virtual DObject destruction and physical object storage | fixed release and finalization passes around one render flush |
 | `UnloadModulesAtShutdown` | reverse-order module callbacks and module-static owners | only after zero deferred objects |
 | render flush and finalization | accepted commands, render-resource cleanup, RHI deletes, command admission | module drain then atomic final closure |
 | `ShutdownApplicationCore` | platform application state | after rendering and RHI stop |
@@ -98,7 +105,7 @@ The owner inventory and selected release channels are:
 | --- | --- | --- |
 | permanent/intrinsic DObject | reflected types and intrinsic packages | survivor audit; these must never acquire render affinity |
 | rooted DObject | `GEngine`, loaded packages, preview/thumbnail lights, temporary editor roots | engine, asset, preview/thumbnail, and editor owners remove their own roots before the DObject drain |
-| DObject render resource | texture references/resources and StaticMesh buffer aggregates | the concrete DObject `BeginDestroy` lifecycle |
+| DObject render resource | texture references/resources and StaticMesh render-data resources | the concrete DObject `BeginDestroy` lifecycle |
 | scene/proxy | engine worlds, renderer scenes, component proxies, preview and thumbnail scenes | engine/editor scene owner queues detach before asset release |
 | subsystem/module-static | Mona viewports, renderer state, editor caches and preview services | pre-exit callback or owning `ShutdownModule` |
 | deferred cleanup | `FDeferredRenderResourceCleanup` records | RenderCore flush after the originating owner releases |
@@ -107,7 +114,7 @@ The owner inventory and selected release channels are:
 Exit-time producers are Mona/application ticks and viewport changes; engine
 world/component registration and scene mutation; asset load/save and texture
 resource builds; asynchronous import/build result publication; thumbnail and
-preview scheduling/upload; renderer lazy StaticMesh initialization; accepted
+preview scheduling/upload; component-driven StaticMesh initialization; accepted
 thread-pool tasks; and module callbacks. Stage 1 must give each producer an
 owner-specific rejection or drain callback before any roots or modules are
 released.
@@ -117,7 +124,7 @@ Focused validation passed for
 and the complete `all` target built successfully on
 `Win64-Debug-DurinEditor-Tests`.
 
-The reproducible baseline command is:
+The Stage 0 baseline was captured with the temporary diagnostic command:
 
 ```powershell
 .\DevTool.bat run --project Sandbox\Sandbox.dproject --args `
@@ -125,8 +132,9 @@ The reproducible baseline command is:
 ```
 
 The bounded-tick option requests `RequestEngineExit()` from the ordinary main
-loop, and the baseline option snapshots state at entry to `FEngineLoop::Exit`
-before the first shutdown owner runs. The 2026-07-29 sample contained 93
+loop. The baseline option, removed during Stage 4 after the evidence was frozen,
+snapshotted state at entry to `FEngineLoop::Exit` before the first shutdown
+owner ran. The 2026-07-29 sample contained 93
 `DObject` instances: 8 rooted and 73 permanent. The rooted set was the four
 intrinsic packages (`CoreDObject`, `Engine`, `AssetCore`, and `DurinEd`),
 `EditorEngine`, and the three loaded project packages (`NewLevel`,
@@ -212,6 +220,40 @@ Stage 1 handoff:
 - validation: focused admission tests, all Texture/Thumbnail/package tests,
   full `all` build, and the expected failing runtime baseline above.
 
+Stage 2 is complete on top of baseline commit `f7a5b2ae`. Shutdown object
+destruction now has one fixed protocol rather than a retry loop:
+`CollectGarbage`, one render-command flush, then one final `CollectGarbage`.
+The first pass starts every already-unrooted object's release and fence; the
+flush completes all accepted detach, release, and fence commands; the second
+pass must finalize every deferred object. Any remaining deferred object is a
+lifecycle contract failure before module unload. Additional rounds, timeouts,
+and no-progress heuristics are deliberately excluded because they would hide an
+owner that failed to submit all cleanup from `BeginDestroy`.
+
+AssetManager shutdown now only closes ownership and removes package roots; it no
+longer performs a hidden shutdown GC pass. `DEngine::BeginDestroy` no longer
+globally flushes rendering. It queues world/component detach, scene release,
+renderer resource release, and one owned fence, retains scene storage while the
+fence is pending, and clears that storage from `FinishDestroy`. Engines created
+without a rendering thread do not create a fence and remain immediately ready.
+
+Stage 2 handoff:
+
+- baseline commit: `f7a5b2ae`;
+- working set: this plan, `LaunchEngineLoop.cpp`, AssetManager shutdown,
+  `DEngine` destruction/readiness, and the CoreDObject scheduler regression;
+- key decision: the shutdown GC/render closure is exactly
+  `GC -> render flush -> GC -> assert zero deferred`; it has no retry loop and
+  no new CoreDObject public control surface;
+- open question carried into Stage 3: permanent/rooted module-owned objects and
+  non-DObject resources still need an explicit owner audit before final render
+  admission closes;
+- validation: the focused two-pass destruction regression and no-render-thread
+  engine lifetime tests pass, full `all` builds, and the bounded hidden-window
+  loaded-project run advances from 2 deferred objects before the flush to zero
+  after the final collection, unloads modules, closes rendering, and logs
+  normal engine exit.
+
 ## Goal
 
 Make normal engine termination a deterministic, diagnosable protocol in which:
@@ -220,8 +262,8 @@ Make normal engine termination a deterministic, diagnosable protocol in which:
 - scene and proxy consumers detach before asset-owned resources release;
 - unreachable resource-owning `DObject` instances receive `BeginDestroy` while
   render-command admission remains open;
-- garbage collection and rendering work are alternately drained until every
-  asynchronous object destruction is ready and finalized;
+- one release collection and render flush make every asynchronous object
+  destruction ready, then one final collection completes it;
 - module-owned non-`DObject` resources release before module code unloads;
 - no module unloads while a deferred object may still dispatch its virtual
   cleanup through that module;
@@ -230,7 +272,7 @@ Make normal engine termination a deterministic, diagnosable protocol in which:
 
 The terminating process does not need to destroy every permanent or rooted
 `DObject` before stopping rendering. Any surviving object must have no
-initialized render resource, no pending render work or retirement, and no
+initialized render resource, no pending render work, and no
 post-render-shutdown destructor behavior that touches RenderCore or RHI.
 
 ## Scope
@@ -241,7 +283,8 @@ post-render-shutdown destructor behavior that touches RenderCore or RHI.
   RHI are still operational.
 - Define producer quiescence for editor/preview work, CPU tasks, asset loading,
   scene mutation, resource initialization, and module callbacks.
-- Add a bounded shutdown-only drain for deferred `DObject` destruction.
+- Add a fixed shutdown-only release/flush/finalization sequence for deferred
+  `DObject` destruction.
 - Separate `DObject`-owned resource cleanup from module/global resource
   cleanup.
 - Order scene detach, object release, module shutdown, command admission close,
@@ -294,9 +337,9 @@ include the current phase.
 
 RenderCore command admission remains `Running` through producer quiescence,
 scene detach, object drain, and module shutdown because those phases must still
-submit release work. Admission transitions atomically to `Draining` only inside
-`FinalizeRenderingThreadBeforeRHIExit`, after all ordinary owners report
-completion.
+submit release work. `ShutdownRenderingThreadBeforeRHIExit` inserts one final
+audit behind that accepted work and changes admission atomically to `Draining`.
+There is no separate public close/finalize control pair.
 
 ### UE-Shaped Pre-Exit Notification
 
@@ -359,9 +402,10 @@ resource release.
 as Mona viewports, preview services, and other non-DObject owners before object
 drain begins. It does not enumerate component proxies or replace object-local
 destruction. `DEngine::BeginDestroy` queues release of its owned scenes, and
-resource-owning DObject subclasses detach their registered consumers before
-they queue resource release. Those teardown paths use stable scene/consumer
-detach endpoints rather than consulting the global `GEngine` pointer.
+component and scene owners remove their proxies through stable captured scene
+endpoints rather than consulting the global `GEngine` pointer. Asset objects do
+not maintain or detach a consumer registry; their `BeginDestroy` owns only
+their resource release.
 
 The coordinator, not a DObject subclass, owns the render flush after the first
 shutdown GC pass. `DEngine::BeginDestroy` and asset `BeginDestroy` therefore
@@ -377,16 +421,16 @@ stop producer publication
 -> finish object destruction
 ```
 
-Asset implementations must still detach their registered consumers during
-ordinary runtime replacement or GC. The global scene drain is a shutdown
-barrier, not a substitute for correct per-asset lifetime. A StaticMesh
-destruction path may perform an idempotent detach of any residual registered
-consumer, but it must not recreate render state after object teardown begins.
+Ordinary runtime replacement must still remove component render state before
+publishing new asset data. The global scene drain is a shutdown barrier, not a
+substitute for that replacement protocol. Reachability prevents a live
+component from losing its referenced asset; when both sides are unreachable,
+Stage 2 must order component/scene proxy removal before the asset release
+command. No asset-side residual-consumer fallback is added.
 
 ### Shutdown DObject Drain
 
-Add a game-thread-only `DrainDObjectDestructionForShutdown` operation. One drain
-round performs:
+The game-thread exit coordinator performs one fixed shutdown sequence:
 
 ```text
 CollectGarbage
@@ -395,34 +439,28 @@ CollectGarbage
 -> CollectGarbage again
 ```
 
-Additional rounds run only while deferred objects remain. Each round records:
-
-- objects entering `BeginDestroy`;
-- objects completing `FinishDestroy`;
-- deferred object count and representative object identity/class;
-- pending render fences and resource retirements;
-- initialized render resources, pending render commands, and cleanup owners;
-- elapsed time and whether the round made progress.
-
-Normal termination uses a bounded deadline plus a no-progress threshold. A
-timeout or repeated no-progress state is fatal and reports the blocking owners;
-it does not skip `IsReadyForFinishDestroy`, force-delete their memory, or
-continue to unload modules.
+There are no additional rounds. Producer quiescence and root release happen
+before the first collection, and every resource-owning object must submit its
+complete asynchronous cleanup and fence from `BeginDestroy`. The render flush
+therefore makes every deferred object ready for the second collection. A
+non-zero deferred count after that collection is fatal; shutdown does not retry,
+force-delete object memory, or continue to unload modules.
 
 The drain ends when there are no pending `BeginDestroyed` objects awaiting
 `FinishDestroy`. Permanent or still-rooted objects may remain only under the
 survivor contract below.
 
 Shutdown root-release operations, including AssetManager shutdown, do not call
-`CollectGarbage` internally. The coordinator is the sole owner of shutdown GC
-and render flush alternation, so it observes the first `BeginDestroy` transition
-and every later readiness pass. Ordinary runtime package unload may retain its
-existing local GC behavior.
+`CollectGarbage` internally. The coordinator is the sole owner of the shutdown
+collections and render flush boundary, so it observes both the first
+`BeginDestroy` transition and the final readiness pass. Ordinary runtime package
+unload may retain its existing local GC behavior.
 
-This drain covers objects already participating in GC. Pending replacement
-retirements owned by a still-live/rooted asset are a separate owner-local queue;
-Stage 3 pumps and audits those queues before final render closure. A zero
-deferred-object count does not by itself prove zero asset retirements.
+This drain covers objects already participating in GC. Synchronous asset
+replacement does not contribute a persistent shutdown queue: detached
+candidates and displaced data remain locally owned only until their targeted
+fences complete. Shutdown therefore audits deferred objects and the ordinary
+render-resource/command queues rather than any asset-specific queue.
 
 ### Surviving DObject Contract
 
@@ -430,7 +468,7 @@ Rendering-thread shutdown does not require physical destruction of every
 `DObject`. Before admission closes, every surviving object must satisfy:
 
 - it owns no initialized `FRenderResource`;
-- it has no pending resource initialization, update, release, or retirement;
+- it has no pending resource initialization, update, or release;
 - no scene proxy or render command borrows its storage;
 - its later `FinishDestroy` and C++ destructor do not require RenderCore, a
   renderer module, or RHI.
@@ -447,32 +485,35 @@ then completes virtual destruction while module code is loaded.
 
 Reverse-order `ShutdownModule` may release module-static and subsystem-owned
 resources. Render-command admission remains open throughout module unload.
-After all module shutdown callbacks return, the engine flushes accepted render
-commands and verifies that module-owned resource/cleanup diagnostics are empty.
+After all callbacks return, the final RenderCore audit is queued behind their
+accepted commands while closing admission under the same command-pipe lock.
+This makes a separate post-module flush and duplicate game-thread counter audit
+unnecessary.
 
 No object whose virtual destructor or `FinishDestroy` resides in an unloaded
 module may remain pending.
 
 ### Final Render Closure Is Validation, Not Recovery
 
-`FinalizeRenderingThreadBeforeRHIExit` remains the atomic transition that:
+`ShutdownRenderingThreadBeforeRHIExit` owns the atomic transition that:
 
 1. queues the final RenderCore/RHI audit behind every accepted command;
 2. changes admission from `Running` to `Draining`;
 3. rejects later submissions;
 4. drains accepted commands and deferred RHI deletion;
-5. permits rendering-thread stop only when the audit passes.
+5. stops the rendering thread only when the audit passes.
 
 By this phase, ordinary cleanup must already have converged. The final command
-must not enumerate assets, invoke GC, unload modules, or synthesize missing
-Release calls.
+does not enumerate assets or objects, invoke GC, unload modules, clear deferred
+C++ cleanup, or synthesize missing Release calls. Deferred-object diagnostics
+remain at the object-drain boundary, before module unload.
 
 Before final closure:
 
 ```text
 deferred DObject destruction == 0
-pending asset retirements == 0
 initialized render resources == 0
+pending render commands from owner cleanup == 0
 pending render-resource cleanup == 0
 ```
 
@@ -522,17 +563,16 @@ only then may `RHIExit` execute.
 
 ### Gaps
 
-- there is no process-wide pre-exit notification or high-level exit phase;
 - `CollectGarbage` runs only once before module unload;
 - deferred objects receive no guaranteed post-fence purge during exit;
 - module unload is not gated on completion of asynchronous `DObject`
   destruction;
-- rooted/permanent render-resource owners have no exit-time inventory;
-- producer rejection reports RenderCore admission state but not the higher-level
-  exit phase;
+- rooted/permanent render-resource owners have an inventory but are not yet
+  integrated into the shutdown release boundary;
 - shutdown diagnostics do not identify the `DObject` or fence blocking purge;
-- StaticMesh initializes nested resources from renderer traversal but has no
-  asset-owned destruction protocol;
+- StaticMesh now owns release and one destruction fence, but the process
+  coordinator does not yet perform the later GC pass that completes
+  `FinishDestroy`;
 - no deterministic test pauses object cleanup between release submission,
   fence completion, readiness, final destruction, module unload, and render
   admission closure.
@@ -591,30 +631,29 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Add shutdown-only GC drain rounds with render flushes between readiness
-  polls.
-- [ ] Detach process/subsystem consumers before object drain, while keeping
-  DObject component, scene, and asset detach in their own unload lifecycle.
-- [ ] Ensure scene/proxy detach executes before object-owned resource release
+- [x] Add the fixed shutdown-only `GC -> render flush -> GC` sequence.
+- [x] Detach process/subsystem consumers before object drain, while keeping
+  DObject component and scene detach in their own unload lifecycle.
+- [x] Ensure scene/proxy detach executes before object-owned resource release
   can destroy borrowed storage; FIFO detach, release, and fence commands may be
   queued together.
-- [ ] Make DObject teardown use stable scene/consumer detach endpoints rather
+- [x] Make DObject teardown use stable scene/consumer detach endpoints rather
   than relying on the global `GEngine` pointer after shutdown begins.
-- [ ] Split shutdown root release from AssetManager's ordinary local GC so the
+- [x] Split shutdown root release from AssetManager's ordinary local GC so the
   coordinator owns every shutdown collection pass.
-- [ ] Preserve objects and their concrete resource storage while
+- [x] Preserve objects and their concrete resource storage while
   `IsReadyForFinishDestroy` is false.
-- [ ] Add bounded timeout, no-progress detection, representative blocker
-  reporting, and final deferred-count assertions.
-- [ ] Ensure no-RHI and never-initialized objects complete without waiting on an
+- [x] Assert that the second collection leaves zero deferred objects; do not
+  retry a broken owner protocol.
+- [x] Ensure no-RHI and never-initialized objects complete without waiting on an
   impossible fence.
-- [ ] Prohibit first-time release submission from `FinishDestroy` or a C++
+- [x] Prohibit first-time release submission from `FinishDestroy` or a C++
   destructor.
-- [ ] Remove the global render flush from `DEngine::BeginDestroy`; object
+- [x] Remove the global render flush from `DEngine::BeginDestroy`; object
   teardown queues owned scene release and reports residual local work through
   readiness, while the coordinator performs the following flush.
-- [ ] Add tests for one fence, multiple fences, chained readiness, no progress,
-  timeout diagnostics, and successful second-pass destruction.
+- [x] Add a focused regression proving one pending fence becomes ready after
+  the flush and physical destruction completes in the second collection.
 
 #### Acceptance Gate
 
@@ -624,46 +663,113 @@ Dependencies: Stage 1.
 
 ### Stage 3: Integrate Resource Owners And Module Boundaries
 
-Dependencies: Stage 2 and Stage 2 of
+Dependencies: Stage 2 and Stage 3 of
 `StaticMeshRenderDataLifecycle.md`.
 
-- [ ] Integrate StaticMesh current/pending-retirement ownership without adding
-  type-specific handling to `FEngineLoop`.
-- [ ] Verify Texture2D, TextureCube, material, thumbnail, viewport, scene, and
+- [x] Integrate StaticMesh current render-data release and destruction-fence
+  readiness without adding type-specific handling to `FEngineLoop`.
+- [x] Verify Texture2D, TextureCube, material, thumbnail, viewport, scene, and
   renderer ownership against the two cleanup channels.
-- [ ] Add explicit pre-exit release for permanent/rooted resource owners that
-  cannot become GC candidates.
-- [ ] Move module-owned roots and external-reference release before the object
-  drain.
-- [ ] Gate reverse-order `ShutdownModule` on zero deferred object destruction.
-- [ ] Flush and audit module/subsystem-owned resources after module shutdown
+- [x] Audit permanent and rooted survivors; none owns an initialized render
+  resource or requires a new pre-exit release path.
+- [x] Release workspace, preview, window, and asset-manager external ownership
+  before the object drain.
+- [x] Gate reverse-order `ShutdownModule` on zero deferred object destruction.
+- [x] Flush and audit module/subsystem-owned resources after module shutdown
   callbacks and before final render closure.
-- [ ] Diagnose pending objects whose class or cleanup implementation belongs to
+- [x] Diagnose pending objects whose class or cleanup implementation belongs to
   a module selected for unload.
 
 #### Acceptance Gate
 
 - No module unloads beneath pending virtual cleanup; every initialized resource
   is attributable to an active owner channel; and editor shutdown reaches the
-  final barrier with zero asset retirement and deferred destruction.
+  final barrier with zero initialized resources and deferred destruction.
+
+#### Stage 3 Implementation Handoff
+
+- Baseline: `d0e14a99`.
+- Working set: this plan, `FEngineLoop::Exit`, `DEngine::BeginDestroy`,
+  `IRendererModule`, `FRendererModule`, and renderer-owning Vulkan integration
+  teardown fixtures.
+- Object-channel decision: StaticMesh and textures release only through their
+  ordinary `DObject` lifecycle. The coordinator contains no asset type check,
+  consumer registry, retirement queue, or leaf exit-phase query. A failed
+  second collection prints every deferred object's path, qualified class, and
+  lifecycle flags before rejecting module shutdown.
+- Module-channel decision: engine teardown owns world, viewport, component, and
+  scene detach. Renderer module-static textures, pipelines, shader maps, and
+  cached RHI state are released by `FRendererModule::ShutdownModule`; the
+  public `IRendererModule::ReleaseResources` control was removed. The
+  coordinator inserts one owner-reporting RenderCore audit after all module
+  callbacks, flushes it, and requires zero initialized resources and deferred
+  cleanup before closing command admission.
+- Survivor audit: intrinsic type/package objects have no render affinity.
+  AssetManager removes loaded package roots, Mona window teardown destroys
+  workspace and preview ownership, and thumbnail/cache producers release from
+  their existing pre-exit callbacks. No additional permanent/rooted-object
+  release callback was needed.
+- Open question carried into Stage 4: the final command must combine the
+  already-clean RenderCore state with command-admission and RHI deferred-delete
+  fault diagnostics without becoming another recoverable cleanup pass.
+- Validation: Material tests pass 45/45; StaticModel import, SkyBox, and Texture
+  cook Vulkan integration tests pass 1/1 each; the full `all` target builds;
+  and the bounded loaded-project exit attributes all eight entry resources,
+  drains one deferred object to zero, reports no post-module live resource, and
+  reaches normal engine exit.
 
 ### Stage 4: Harden Final Render And RHI Closure
 
 Dependencies: Stage 3.
 
-- [ ] Move all recoverable owner cleanup before
-  `FinalizeRenderingThreadBeforeRHIExit`.
-- [ ] Extend the final audit with engine-exit phase, pending retirement, and
-  deferred-object summaries.
-- [ ] Prove that admission closes atomically behind all accepted module/resource
+- [x] Move all recoverable owner cleanup before the final RenderCore closure.
+- [x] Keep object diagnostics at the object boundary and resource diagnostics
+  at the RenderCore boundary instead of building a cross-subsystem exit report.
+- [x] Prove that admission closes atomically behind all accepted module/resource
   teardown.
-- [ ] Preserve deferred C++ cleanup before RHI deferred deletion ordering.
-- [ ] Reject all late submissions after closure and verify the pending command
+- [x] Preserve deferred C++ cleanup before RHI deferred deletion ordering.
+- [x] Reject all late submissions after closure and verify the pending command
   count reaches zero.
-- [ ] Stop the rendering thread only after audit success and call `RHIExit`
+- [x] Flush in-flight MonaImGui work before destroying viewport and texture
+  backend state, then flush newly queued backend release work.
+- [x] Stop the rendering thread only after audit success and call `RHIExit`
   only after the deferred-delete queue reaches zero.
-- [ ] Add fault-injection tests for live resources, pending cleanup, late
+- [x] Add fault-injection tests for live resources, pending cleanup, late
   enqueue, pending RHI delete, and shutdown invoked twice.
+
+#### Stage 4 Implementation Handoff
+
+- Baseline: `3124b43c`.
+- `FEngineLoop::Exit` now retains only process ordering and phase transitions.
+  CoreDObject owns deferred-object reporting/assertion, while RenderCore owns
+  its final command, resource/RHI audit, accepted-command drain, and thread
+  stop.
+- The obsolete exit-entry baseline switch and its Launch-local object/resource
+  inventory were removed after the Stage 0-3 evidence was frozen.
+- The separate post-module resource audit was folded into the atomic final
+  command. Module teardown commands are ordered before that command, and late
+  commands are rejected by the same locked admission transition.
+- MonaImGui shutdown now flushes in-flight draws and uploads before destroying
+  viewport snapshots, render buffers, and texture backend objects. Registered
+  texture references are released before the backend's final rendering flush.
+- `FlushPendingRenderResourceCleanup_RenderThread` was removed from the final
+  path: pending cleanup is now strictly an owner failure, not state that the
+  terminal audit repairs.
+- Focused fault injection now proves that live registry entries and pending C++
+  cleanup are rejected by the RenderCore audit, late commands are rejected
+  synchronously after admission closure, accepted RHI deletes drain before the
+  rendering thread stops, and a second final shutdown invocation is rejected
+  in Debug.
+- Validation: CoreObject tests pass 51/51, focused RenderCore lifecycle tests
+  pass 8/8 within RenderContractTests 24/24, editor texture smoke tests pass
+  2/2, the full `all` target builds, and three consecutive loaded-project
+  shutdown runs reach `Complete` with zero deferred objects and no final
+  resource diagnostic.
+- MonaImGui shutdown-order validation: the incremental full `all` target builds,
+  and three consecutive loaded-project exits reach `Mona shutdown`, sweep the
+  final deferred object to zero, and report normal engine exit.
+- Stage 4 is complete. Stage 5 owns broader configuration and workflow
+  validation; it does not add another shutdown control surface.
 
 #### Acceptance Gate
 
@@ -676,19 +782,71 @@ Dependencies: Stage 3.
 Dependencies: Stage 4, Stage 4 of `MultithreadingV1.md`, and Stage 3 of
 `StaticMeshRenderDataLifecycle.md`.
 
-- [ ] Run focused Core, CoreDObject, Engine, RenderCore, Renderer, RHI, asset,
+- [x] Run focused Core, CoreDObject, Engine, RenderCore, Renderer, RHI, asset,
   StaticMesh, thumbnail, viewport, and module lifecycle tests.
-- [ ] Run repeated editor startup/exit with empty, loaded, rendered,
-  replacement-pending, preview, thumbnail, PIE, and project-loaded states.
-- [ ] Run shutdown while accepted CPU work, render uploads, proxy removals,
+- [x] Run repeated editor startup/exit with empty, loaded, rendered,
+  replacement-in-progress, preview, thumbnail, PIE, and project-loaded states.
+- [x] Run shutdown while accepted CPU work, render uploads, proxy removals,
   resource releases, deferred cleanup, and RHI deletes are in flight.
-- [ ] Verify Debug diagnostics and non-Debug behavior on the supported runtime
+- [x] Verify Debug diagnostics and non-Debug behavior on the supported runtime
   variants.
-- [ ] Run the complete native suite and full `all` build through the repository
+- [x] Run the complete native suite and full `all` build through the repository
   workflow.
-- [ ] Publish the stable exit phase, owner channels, object drain, module
+- [x] Publish the stable exit phase, owner channels, object drain, module
   boundary, render closure, and failure rules in
   `Documentation/Runtime/Core/RuntimeLifecycle.md`.
+
+#### Stage 5 Validation Progress
+
+- Baseline: `bcd81601`.
+- Non-Debug validation exposed phase transitions and the pre-exit broadcast
+  being compiled out because their calls appeared only inside `check`
+  expressions. `FEngineLoop::Exit` now executes the linear protocol directly;
+  the exit coordinator owns rejected re-entry and skipped-phase diagnostics.
+- Debug and Release DurinEditor each complete three consecutive hidden,
+  project-loaded exits. Debug, Release, and Shipping DurinGame build and
+  complete project-loaded exits through every phase with zero deferred object
+  destruction after the final collection and no RenderCore or RHI audit error.
+- Three additional Debug DurinEditor project-browser exits cover the empty
+  editor path. Every run reaches `Complete`, the final collection leaves zero
+  deferred objects, and no RenderCore or RHI owner audit reports an error.
+- The complete Debug native run passes 781/781 after correcting three test
+  assumptions exposed by the full matrix: mirrored tangent handedness, explicit
+  fixture-owned GC after collection-free AssetManager shutdown, and allocator
+  address reuse during asynchronous StaticMesh proxy replacement.
+- Deterministic focused coverage exercises CPU drain/rejection, render-command
+  admission, resource release, deferred C++ cleanup, RHI deletion, StaticMesh
+  replacement/proxy removal, material previews, rendered thumbnails, viewports,
+  module teardown, and the two-pass object drain.
+- Manual active-PIE exit exposed the editor's normal stop path attempting to
+  restore the editor level after the engine object graph had already entered
+  teardown. `DEditorEngine` now separates PIE teardown from the public
+  stop-and-restore operation: `BeginDestroy` retires the play world without
+  re-registering editor components, while an ordinary stop still restores the
+  editor world and level.
+- Manual acceptance covers real process exit while PIE is active and while
+  editor preview/thumbnail scenes are live. Active-PIE shutdown no longer
+  attempts to re-register editor components after object teardown begins.
+  No test-only runtime switch or public editor-world setter was added.
+
+#### Stage 5 Implementation Handoff
+
+- Baseline: `d3a2c7f1`.
+- Working set: the termination plan and runtime lifecycle contract, Launch exit
+  ordering, CoreDObject destruction drain, module shutdown, RenderCore/RHI
+  closure, Mona teardown, and editor PIE/preview/thumbnail owners.
+- The stable protocol is pre-exit producer quiescence, Mona consumer detach,
+  CPU drain, `GC -> render flush -> GC`, reverse module unload, atomic render
+  admission closure and audit, rendering-thread stop, then `RHIExit`.
+- `DObject` and subsystem/module owners retain their own cleanup obligations;
+  the coordinator contains ordering only and has no owner registry or
+  type-specific recovery.
+- Full native validation passes 781/781; Debug `all`, Release Editor, and
+  Debug/Release/Shipping Game builds pass; repeated empty and project-loaded
+  exits reach `Complete` with zero deferred objects; manual PIE,
+  preview, and thumbnail exit acceptance passes.
+- Stage 5 and this plan are complete. Future renderer restart, parallel object
+  destruction, and general streaming remain explicitly deferred follow-ups.
 
 #### Acceptance Gate
 
@@ -703,8 +861,8 @@ Dependencies: Stage 4, Stage 4 of `MultithreadingV1.md`, and Stage 3 of
 | Pre-exit | One-shot broadcast, callback order, re-entry rejection, late producer rejection |
 | Scene consumers | Main world, PIE, viewport, thumbnail, preview, auxiliary scenes |
 | DObject lifecycle | BeginDestroy, incomplete readiness, fence completion, FinishDestroy, physical destruction |
-| GC drain | One round, multiple rounds, no progress, timeout, no-RHI |
-| Unique resource ownership | Current asset data, pending retirement, released survivor storage |
+| GC drain | Release collection, one render flush, final collection, zero-deferred assertion, no-RHI |
+| Unique resource ownership | Current asset data, synchronous replacement-local old data, resource-free survivors |
 | CPU work | Accepted-task drain, cancellation, no late publication |
 | Module lifecycle | Root release, deferred-object gate, reverse unload, module-owned resources |
 | Render commands | Accepted teardown, atomic admission close, post-close rejection |

@@ -124,6 +124,47 @@ editor host and workspace ownership belongs to the editor systems.
 Detailed viewport and composition contracts are documented in
 `Documentation/Runtime/Rendering/ViewportRendering.md`.
 
+## Engine Exit Protocol
+
+`FEngineLoop::Exit()` is the single process-level ordering owner. It advances
+one monotonic phase sequence:
+
+| Phase | Boundary |
+| --- | --- |
+| `QuiescingProducers` | Broadcast pre-exit once and close subsystem production. |
+| `DetachingRenderConsumers` | Destroy Mona windows and viewports, detach world, preview, thumbnail, and scene consumers, and drain accepted CPU work. |
+| `DrainingObjects` | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
+| `UnloadingModules` | Run reverse-order module shutdown only after no deferred object's virtual cleanup can target an unloading module. |
+| `ClosingRenderAdmission` | Enqueue the final RenderCore audit while admission is still open, then atomically close it. |
+| `RenderingStopped` | Stop the rendering thread after accepted commands, deferred C++ cleanup, and RHI deletion drain. |
+| `Complete` | Shut down the platform application after `RHIExit()` and publish successful process termination. |
+
+Pre-exit is a producer boundary, not a leaf-object query. `DObject` subclasses
+do not inspect the global exit phase to decide how to destroy themselves.
+Instead, each owner closes its own admission and releases its own references:
+
+- resource-owning `DObject` instances submit release from `BeginDestroy()` and
+  report incomplete local fences through destruction readiness;
+- process, subsystem, and module-static owners release through pre-exit,
+  subsystem shutdown, or their owning module's `ShutdownModule()`;
+- consumers retain stable counted RHI references or non-owning snapshots only
+  while their component, viewport, scene, or preview owner remains attached.
+
+The shutdown object drain has exactly one release collection, one render flush,
+and one finalization collection. It does not retry until an invalid owner
+eventually becomes ready. The first collection starts ordinary object-owned
+release, the flush completes accepted render work, and the second collection
+physically destroys objects whose readiness fence completed. Any remaining
+deferred object is reported with its path, class, and lifecycle flags before
+module unload is rejected in Debug.
+
+Module shutdown is a separate ownership channel from `DObject` destruction.
+Modules unload in reverse load order only after the object channel is empty.
+Their callbacks may still submit resource release commands because render
+admission remains open until every module callback returns. The final RenderCore
+command then validates the registry and deferred cleanup queue; it never sweeps
+unknown resources to make shutdown pass.
+
 ## Render Resource and Shutdown Ordering
 
 RenderCore command admission is observable as `Stopped`, `Running`, or
@@ -139,6 +180,12 @@ reject invalid double initialization or release. Released concrete C++ storage
 is transferred to `FDeferredRenderResourceCleanup`, whose ordered render-thread
 flush destroys it only after all earlier commands that could use its non-owning
 pointer.
+
+MonaImGui shutdown first flushes every previously accepted draw or upload that
+can retain a non-owning pointer into viewport or texture backend state. It then
+destroys platform and renderer viewport data, releases backend RHI ownership,
+and performs a second flush for the newly queued release work before returning
+from module shutdown.
 
 Texture assets uniquely own their stable `FTextureReference` and current
 concrete `FTextureResource`. Render consumers retain only counted
@@ -171,7 +218,12 @@ The final audit reports a live render resource's type, owner, revision,
 lifecycle phase, initialization phase, and pending queue. Shutdown does not
 clear unexplained entries to make the audit pass; any live registry object,
 deferred cleanup owner, accepted command, or pending RHI deletion is a
-lifecycle error that must be resolved before `RHIExit()`.
+lifecycle error that must be resolved before `RHIExit()`. Debug builds reject
+phase re-entry, skipped phases, live resources, pending cleanup, late commands,
+and residual RHI deletes at the boundary where they occur. Non-Debug builds
+execute the same phase transitions, pre-exit callbacks, drains, and owner
+diagnostics; control-flow side effects must never be placed inside `check` or
+`checkf`.
 
 ## Validation Expectations
 

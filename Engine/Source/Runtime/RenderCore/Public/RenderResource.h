@@ -154,8 +154,6 @@ namespace Durin
 	// Transfers unique ownership for destruction after previously accepted resource commands.
 	RENDERCORE_API auto BeginCleanupRenderResource(
 		FDeferredRenderResourceCleanup&& Cleanup) -> void;
-	// Destroys pending cleanup objects after the command pipe has been drained.
-	RENDERCORE_API auto FlushPendingRenderResourceCleanup_RenderThread() -> void;
 
 	// Owns a released or release-pending resource until ordered render-thread destruction.
 	class FDeferredRenderResourceCleanup
@@ -180,8 +178,6 @@ namespace Durin
 	private:
 		friend RENDERCORE_API auto BeginCleanupRenderResource(
 			FDeferredRenderResourceCleanup&& Cleanup) -> void;
-		friend RENDERCORE_API auto
-			FlushPendingRenderResourceCleanup_RenderThread() -> void;
 
 		std::unique_ptr<FRenderResource> Resource;
 	};

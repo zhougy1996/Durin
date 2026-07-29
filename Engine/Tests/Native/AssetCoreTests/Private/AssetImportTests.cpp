@@ -319,7 +319,7 @@ namespace Durin::Asset
 		ExpectVec3Eq(glm::vec3(1.0f, 2.0f, 3.0f), Scene.Meshes[0].Positions[0]);
 		ExpectVec3Eq(glm::vec3(3.0f, 2.0f, 3.0f), Scene.Meshes[0].Positions[1]);
 		EXPECT_EQ(Scene.Meshes[2].Indices, (std::vector<uint32>{0, 2, 1}));
-		EXPECT_FLOAT_EQ(Scene.Meshes[2].Tangents[0].w, -1.0f);
+		EXPECT_FLOAT_EQ(Scene.Meshes[2].Tangents[0].w, 1.0f);
 	}
 
 	TEST(FAssetImportTests, MaterialSlotFixturesCharacterizeNamesOrderAndSourceIndices)

@@ -116,13 +116,27 @@ namespace Durin
 		{
 			MainScene->Release();
 		}
-		if (RendererModule != nullptr) RendererModule->ReleaseResources();
-		// Tests and tools can construct an engine object without starting the render
-		// thread; a fence cannot complete in that state.
-		if (GRenderingThread) FlushRenderingCommands();
-		MainScene.reset();
-		RendererModule = nullptr;
+		if (GRenderingThread)
+		{
+			DestroyFence = std::make_unique<FRenderCommandFence>();
+			DestroyFence->BeginFence();
+		}
 		Super::BeginDestroy();
+	}
+
+	auto DEngine::IsReadyForFinishDestroy() -> bool
+	{
+		return Super::IsReadyForFinishDestroy()
+			&& (!DestroyFence || DestroyFence->IsFenceComplete());
+	}
+
+	auto DEngine::FinishDestroy() -> void
+	{
+		check(!DestroyFence || DestroyFence->IsFenceComplete());
+		MainScene.reset();
+		DestroyFence.reset();
+		RendererModule = nullptr;
+		Super::FinishDestroy();
 	}
 
 	auto DEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void

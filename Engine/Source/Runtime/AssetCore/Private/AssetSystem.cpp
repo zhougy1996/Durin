@@ -2690,7 +2690,6 @@ namespace Durin::Asset
 			RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 		}
-		CollectGarbage();
 	}
 
 	auto FAssetManager::StopAcceptingRequests() -> void

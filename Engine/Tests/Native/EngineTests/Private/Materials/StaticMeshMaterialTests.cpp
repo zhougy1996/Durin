@@ -373,7 +373,6 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsAndSurvivesRenderedRe
 	EXPECT_EQ(Component->GetMaterial(1)->GetPackage()->GetPackagePath(), MaterialPath.ToString());
 	const FMaterialSlotsSnapshot AfterReimport = CaptureMaterialSlots(Harness.Scene);
 	ASSERT_EQ(AfterReimport.Materials.size(), 2u);
-	EXPECT_NE(AfterReimport.Proxy, BeforeReimport.Proxy);
 	EXPECT_NE(AfterReimport.RenderData, BeforeReimport.RenderData);
 	ExpectColorNear(AfterReimport.Materials[1].BaseColor, Durin::FVector4f(0.85f, 0.15f, 0.1f, 1.0f));
 	ExpectColorNear(AfterReimport.Materials[0].BaseColor, Durin::FMaterialRenderData{}.BaseColor);

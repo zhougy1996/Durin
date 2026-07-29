@@ -48,5 +48,8 @@ namespace Durin
 	COREDOBJECT_API auto CollectGarbage() -> void;
 	COREDOBJECT_API auto GetGarbageObjectCount() -> uint64;
 	COREDOBJECT_API auto GetLastGarbageCollectionStats() -> const FGarbageCollectionStats&;
+	// Reports deferred objects and fails when the latest collection did not finish their destruction.
+	COREDOBJECT_API auto CheckNoDeferredDestroyObjects(
+		const char* Context) -> void;
 	COREDOBJECT_API auto ForEachObjectReference(DObject* Object, FReferenceCollector& Collector) -> void;
 }

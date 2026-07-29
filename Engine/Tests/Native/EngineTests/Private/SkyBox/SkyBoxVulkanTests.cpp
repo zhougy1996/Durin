@@ -333,7 +333,6 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::MarkAsGarbage(OcclusionMaterial);
 	Durin::CollectGarbage();
 	SkyBox.TextureReference = nullptr;
-	Renderer.ReleaseResources();
 	struct FRetireSkyBoxValidationResource
 	{
 		static constexpr auto GetName() -> const char* { return "RetireSkyBoxValidationResource"; }
@@ -345,6 +344,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FlushRenderingCommands();
 	Renderer.SetRenderMode(Durin::ERenderMode::Lit);
 	Renderer.ShutdownModule();
+	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
 }

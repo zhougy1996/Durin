@@ -427,8 +427,6 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(StandardPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(LODContractPath));
-	Renderer.ReleaseResources();
-	Durin::FlushRenderingCommands();
 	Durin::CollectGarbage();
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(RootPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(MaterialPath));
@@ -436,6 +434,7 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(StandardPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(LODContractPath));
 	Renderer.ShutdownModule();
+	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);
 	Durin::RHIExit();

@@ -5,6 +5,7 @@
 #include "MonaCoreGlobals.h"
 #include "Misc/Paths.h"
 #include "RHI.h"
+#include "RenderingThread.h"
 
 namespace Durin::MonaImGui
 {
@@ -28,6 +29,11 @@ namespace Durin::MonaImGui
 	auto FMonaImGuiBackend::Shutdown() -> void
 	{
 		ImGui::SetCurrentContext(GMonaImGuiContext);
+
+		// Render commands retain non-owning pointers into viewport draw
+		// snapshots, render buffers, and texture backend data. Drain all
+		// previously accepted work before destroying those owners.
+		FlushRenderingCommands();
 
 		ImGui::DestroyPlatformWindows();
 

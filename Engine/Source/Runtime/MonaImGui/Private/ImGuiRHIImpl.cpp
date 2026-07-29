@@ -392,9 +392,9 @@ namespace Durin::MonaImGui
 
 		ImGui::GetPlatformIO().ClearRendererHandlers();
 
-		FlushRenderingCommands();
 		GRegisteredTextures.clear();
 		GDelayedTextureReleases.clear();
+		FlushRenderingCommands();
 	}
 
 	auto ImGuiRHIImpl_NewFrame() -> void
