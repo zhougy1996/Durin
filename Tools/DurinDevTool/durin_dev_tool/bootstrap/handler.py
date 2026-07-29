@@ -17,6 +17,7 @@ from .dependencies import (
     prepare_dependencies,
     validate_repository_manifests,
 )
+from .preflight import PreflightError
 from .setup import setup_repository
 
 
@@ -141,6 +142,6 @@ def run(
                     ),
                 )
                 return 0
-    except (BootstrapError, RuntimeError, OSError, ValueError) as exc:
+    except (BootstrapError, PreflightError) as exc:
         raise DevToolError(str(exc)) from exc
     raise DevToolError("a bootstrap command is required")

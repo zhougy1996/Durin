@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Sequence
 
-from ..bootstrap.preflight import validate_prerequisites
+from ..bootstrap.preflight import PreflightError, validate_prerequisites
 from ..build.config import BuildToolError, load_local_config
 from ..configuration import load_repository_config
 from ..repository import discover_repository_root
@@ -551,7 +551,7 @@ def validate_preparation_targets(target_root: Path) -> None:
 def run_preflight(target: Path) -> None:
     try:
         validate_prerequisites(target)
-    except RuntimeError as exc:
+    except PreflightError as exc:
         raise WorktreeToolError(str(exc)) from exc
 
 

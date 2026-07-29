@@ -22,6 +22,10 @@ REPO_ROOT = discover_repository_root()
 REPOSITORY_CONFIG = load_repository_config(REPO_ROOT)
 
 
+class PreflightError(RuntimeError):
+    pass
+
+
 def command_path(command: str, environment: Mapping[str, str] | None = None) -> str | None:
     search_path = None if environment is None else environment.get("PATH", "")
     return shutil.which(command, path=search_path)
@@ -35,7 +39,7 @@ def find_vsdevcmd(environment: Mapping[str, str]) -> Path:
     ]
     vswhere = next((path for path in candidates if path.is_file()), None)
     if vswhere is None:
-        raise RuntimeError("Visual Studio Installer (vswhere.exe) was not found.")
+        raise PreflightError("Visual Studio Installer (vswhere.exe) was not found.")
 
     command = [
         str(vswhere),
@@ -49,21 +53,24 @@ def find_vsdevcmd(environment: Mapping[str, str]) -> Path:
         "-property",
         "installationPath",
     ]
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        raise PreflightError(f'Could not run Visual Studio Installer query "{vswhere}": {exc}') from exc
     installation = result.stdout.strip()
     if result.returncode != 0 or not installation:
-        raise RuntimeError(
+        raise PreflightError(
             "Visual Studio 2022 or newer with Desktop development with C++ was not found."
         )
     script = Path(installation) / "Common7" / "Tools" / "VsDevCmd.bat"
     if not script.is_file():
-        raise RuntimeError(f'Visual Studio environment script is missing: "{script}"')
+        raise PreflightError(f'Visual Studio environment script is missing: "{script}"')
     return script
 
 
 def capture_visual_studio_environment(script: Path, arguments: Sequence[str]) -> dict[str, str]:
     if not script.is_file():
-        raise RuntimeError(f'Visual Studio environment script is missing: "{script}"')
+        raise PreflightError(f'Visual Studio environment script is missing: "{script}"')
     comspec = os.environ.get("COMSPEC", "cmd.exe")
     command = [
         comspec,
@@ -77,9 +84,12 @@ def capture_visual_studio_environment(script: Path, arguments: Sequence[str]) ->
         "&&",
         "set",
     ]
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        raise PreflightError(f'Could not initialize the Visual Studio environment with "{script}": {exc}') from exc
     if result.returncode != 0:
-        raise RuntimeError(f"Visual Studio x64 environment initialization failed ({result.returncode}).")
+        raise PreflightError(f"Visual Studio x64 environment initialization failed ({result.returncode}).")
     environment: dict[str, str] = {}
     for line in result.stdout.splitlines():
         if "=" in line:
@@ -99,7 +109,7 @@ def configured_cmake_command(repository_root: Path | None = None) -> str:
     try:
         config = load_local_config(config_path)
     except BuildToolError as exc:
-        raise RuntimeError(str(exc)) from exc
+        raise PreflightError(str(exc)) from exc
     return config.cmake_command or "cmake"
 
 
@@ -111,7 +121,7 @@ def configured_visual_studio_environment(
     try:
         config = load_local_config(config_path)
     except BuildToolError as exc:
-        raise RuntimeError(str(exc)) from exc
+        raise PreflightError(str(exc)) from exc
     script = config.environment_setup.script
     configured_script = (
         Path(script).expanduser().resolve()
@@ -127,7 +137,10 @@ def check_cmake(repository_root: Path | None = None) -> str | None:
     executable = command_path(configured)
     if not executable:
         return f'CMake was not found (requested command: "{configured}").'
-    result = subprocess.run([executable, "--version"], capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run([executable, "--version"], capture_output=True, text=True, check=False)
+    except OSError as exc:
+        return f'CMake could not be launched from "{executable}": {exc}'
     match = re.search(r"cmake version (\d+)\.(\d+)", result.stdout)
     if result.returncode != 0 or not match:
         return f'CMake version could not be determined from "{executable}".'
@@ -242,7 +255,7 @@ def collect_errors(repository_root: Path | None = None) -> list[str]:
         script = configured_script or find_vsdevcmd(os.environ)
         arguments = configured_arguments or ["-arch=x64", "-host_arch=x64"]
         vs_environment = capture_visual_studio_environment(script, arguments)
-    except RuntimeError as exc:
+    except PreflightError as exc:
         errors.append(str(exc))
         return errors
     if not find_ninja(vs_environment):
@@ -263,5 +276,5 @@ def validate_prerequisites(repository_root: Path) -> None:
         for index, error in enumerate(errors, 1):
             print(f"  {index}. {error}", file=sys.stderr)
         print("Resolve every item above, then rerun the setup or prepare command.", file=sys.stderr)
-        raise RuntimeError("setup prerequisite validation failed")
+        raise PreflightError("setup prerequisite validation failed")
     print("Setup prerequisites are ready.")

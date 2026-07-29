@@ -560,6 +560,41 @@ class TestSetupOrchestration:
             services.run_preflight(target)
         validate.assert_called_once_with(target)
 
+    def test_worktree_preflight_preserves_unexpected_runtime_error(self) -> None:
+        failure = RuntimeError('unexpected defect')
+        with mock.patch.object(services, 'validate_prerequisites', side_effect=failure), pytest.raises(RuntimeError) as raised:
+            services.run_preflight(Path('C:/repo-feature'))
+        assert raised.value is failure
+
+    def test_expected_preflight_failure_is_reported_as_devtool_error(self) -> None:
+        namespace = argparse.Namespace(bootstrap_action='setup', plain=True)
+        failure = preflight.PreflightError('missing prerequisite')
+        with mock.patch.object(handler, 'setup_repository', side_effect=failure), pytest.raises(handler.DevToolError, match='missing prerequisite') as raised:
+            handler.run(
+                namespace,
+                repository_root=REPOSITORY_ROOT,
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+        assert raised.value.__cause__ is failure
+
+    def test_unexpected_bootstrap_runtime_error_retains_identity_and_traceback(self) -> None:
+        namespace = argparse.Namespace(bootstrap_action='setup', plain=True)
+        failure = RuntimeError('unexpected defect')
+
+        def fail_setup(_repository_root: Path) -> Path:
+            raise failure
+
+        with mock.patch.object(handler, 'setup_repository', side_effect=fail_setup), pytest.raises(RuntimeError) as raised:
+            handler.run(
+                namespace,
+                repository_root=REPOSITORY_ROOT,
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+            )
+        assert raised.value is failure
+        assert 'fail_setup' in {entry.name for entry in raised.traceback}
+
     def test_successful_system_python_setup_restarts_interactive_shell(self) -> None:
         namespace = argparse.Namespace(bootstrap_action='setup')
         session: dict[str, object] = {}

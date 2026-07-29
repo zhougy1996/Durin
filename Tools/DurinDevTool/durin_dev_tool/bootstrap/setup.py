@@ -220,20 +220,23 @@ def setup_repository(repository_root: Path) -> Path:
             "DevTool setup only initializes the main checkout. "
             "Run 'DevTool worktree prepare' from this linked worktree instead."
         )
-    validate_prerequisites(repository_root)
     try:
-        ensure_agent_config(repository_root)
-    except AgentConfigError as exc:
+        validate_prerequisites(repository_root)
+        try:
+            ensure_agent_config(repository_root)
+        except AgentConfigError as exc:
+            raise BootstrapError(str(exc)) from exc
+        ensure_vscode_configuration(repository_root)
+        python = ensure_python_environment(repository_root)
+        prepare_dependencies(
+            repository_root,
+            DependencyRequest(
+                use_all=True,
+                with_tests=True,
+                with_development=True,
+            ),
+        )
+    except OSError as exc:
         raise BootstrapError(str(exc)) from exc
-    ensure_vscode_configuration(repository_root)
-    python = ensure_python_environment(repository_root)
-    prepare_dependencies(
-        repository_root,
-        DependencyRequest(
-            use_all=True,
-            with_tests=True,
-            with_development=True,
-        ),
-    )
     print("Durin setup completed successfully.")
     return python
