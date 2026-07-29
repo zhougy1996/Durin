@@ -244,8 +244,7 @@ namespace Durin
 		ENQUEUE_RENDER_COMMAND(AuditLiveTestResource)(
 			[&bAuditAcceptedInvalidState](FRHICommandListImmediate&) {
 				bAuditAcceptedInvalidState.store(
-					ValidateRenderResourceShutdown_RenderThread(
-						"live-resource-fault-injection"),
+					ValidateRenderResourceShutdown_RenderThread(),
 					std::memory_order_release);
 			});
 		BeginReleaseResource(ResourceView);
@@ -280,8 +279,7 @@ namespace Durin
 					});
 				}
 				bAuditAcceptedInvalidState.store(
-					ValidateRenderResourceShutdown_RenderThread(
-						"pending-cleanup-fault-injection"),
+					ValidateRenderResourceShutdown_RenderThread(),
 					std::memory_order_release);
 			});
 

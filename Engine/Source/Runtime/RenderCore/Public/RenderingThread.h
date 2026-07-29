@@ -72,41 +72,19 @@ namespace Durin
 				RenderCommandTag::GetName(), std::move(Lambda));
 		}
 
-		static auto Launch() -> void
+		static auto Launch() -> bool
 		{
-			Instance.LaunchImpl();
+			return Instance.LaunchImpl();
 		}
 
-		static auto Wake() -> void
+		static auto Start() -> void
 		{
-			Instance.WakeImpl();
+			Instance.StartImpl();
 		}
 
-		static auto StartAdmission() -> void
+		static auto Shutdown() -> void
 		{
-			Instance.StartAdmissionImpl();
-		}
-
-		static auto CloseAdmission() -> void
-		{
-			Instance.CloseAdmissionImpl();
-		}
-
-		static auto CloseWithFinalCommand(
-			const char* Name,
-			std::function<void(FRHICommandListImmediate&)>&& Function) -> void
-		{
-			Instance.CloseWithFinalCommandImpl(Name, std::move(Function));
-		}
-
-		static auto DrainAcceptedCommands() -> void
-		{
-			Instance.DrainAcceptedCommandsImpl();
-		}
-
-		static auto MarkStopped() -> void
-		{
-			Instance.MarkStoppedImpl();
+			Instance.ShutdownImpl();
 		}
 
 		static auto GetAdmissionState() -> ERenderCommandAdmissionState
@@ -127,16 +105,10 @@ namespace Durin
 			const char* Name,
 			std::function<void(FRHICommandListImmediate&)>&& Function) -> bool;
 
-		RENDERCORE_API auto LaunchImpl() -> void;
+		RENDERCORE_API auto LaunchImpl() -> bool;
 
-		RENDERCORE_API auto WakeImpl() -> void;
-		RENDERCORE_API auto StartAdmissionImpl() -> void;
-		RENDERCORE_API auto CloseAdmissionImpl() -> void;
-		RENDERCORE_API auto CloseWithFinalCommandImpl(
-			const char* Name,
-			std::function<void(FRHICommandListImmediate&)>&& Function) -> void;
-		RENDERCORE_API auto DrainAcceptedCommandsImpl() -> void;
-		RENDERCORE_API auto MarkStoppedImpl() -> void;
+		RENDERCORE_API auto StartImpl() -> void;
+		RENDERCORE_API auto ShutdownImpl() -> void;
 		RENDERCORE_API auto GetAdmissionStateImpl() const
 			-> ERenderCommandAdmissionState;
 		RENDERCORE_API auto GetNumPendingCommandsImpl() const -> size_t;
@@ -157,10 +129,8 @@ namespace Durin
 		std::array<std::vector<FCommand>, 2> CommandQueue;
 		mutable std::mutex Mutex;
 		std::condition_variable CommandAvailableCV;
-		std::condition_variable DrainCompleteCV;
 		uint32 ProduceIndex = 0;
 		size_t ActiveCommandCount = 0;
-		bool bWakeRequested = false;
 		ERenderCommandAdmissionState AdmissionState =
 			ERenderCommandAdmissionState::Stopped;
 	};

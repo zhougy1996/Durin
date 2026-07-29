@@ -19,6 +19,28 @@ namespace Durin
 				return "FenceCommand";
 			}
 		};
+
+		auto CheckRenderingThreadShutdown() -> void
+		{
+			const bool bResourcesReleased =
+				ValidateRenderResourceShutdown_RenderThread();
+			FRHICommandListImmediate::Get().ImmediateFlush(
+				EImmediateFlushType::FlushRHIThreadFlushResources,
+				ERHISubmitFlags::FlushRHIThread);
+			const size_t PendingRHIDeletes =
+				FRHIResource::GetNumPendingDeletes();
+			if (PendingRHIDeletes != 0)
+			{
+				DURIN_ERROR(
+					"Rendering thread shutdown left {} RHI resource(s) "
+					"pending deletion.",
+					PendingRHIDeletes);
+			}
+			checkf(bResourcesReleased,
+				"Rendering thread shutdown found live render resources.");
+			checkf(PendingRHIDeletes == 0,
+				"Rendering thread shutdown left pending RHI deletions.");
+		}
 	}
 
 	class FRenderingThread : public FRunnable
@@ -33,27 +55,21 @@ namespace Durin
 			check(IsInRenderingThread());
 			// RHIInit binds the command-list context; context-free tests may still use the render command pipe.
 			DURIN_DEBUG("Rendering thread started. ({}, id: {})", GetCurrentThread()->GetThreadName(), GetCurrentThread()->GetThreadId());
-			while (!bStopRequested.load(std::memory_order::relaxed))
+			while (FRenderThreadCommandPipe::Launch())
 			{
-				FRenderThreadCommandPipe::Launch();
 			}
 			return 0;
 		}
 
 		auto Stop() -> void override
 		{
-			DURIN_TRACE("Rendering thread stop requested.");
-			bStopRequested.store(true, std::memory_order::relaxed);
-			FRenderThreadCommandPipe::Wake();
+			FRenderThreadCommandPipe::Shutdown();
 		}
 
 		auto Exit() -> void override
 		{
 			DURIN_DEBUG("Rendering thread shut down.");
 		}
-
-	private:
-		std::atomic<bool> bStopRequested = false;
 	};
 
 	static auto StartRenderingThread() -> void
@@ -64,7 +80,7 @@ namespace Durin
 
 	static auto StopRenderingThread() -> void
 	{
-		GRenderingThread->Kill(true);
+		GRenderingThread->WaitForCompletion();
 
 		delete GRenderingThread;
 		GRenderingThread = nullptr;
@@ -147,32 +163,15 @@ namespace Durin
 
 	auto InitRenderingThread() -> void
 	{
-		FRenderThreadCommandPipe::StartAdmission();
+		FRenderThreadCommandPipe::Start();
 		StartRenderingThread();
 	}
 
 	auto ShutdownRenderingThread() -> void
 	{
 		check(IsInGameThread());
-		FRenderThreadCommandPipe::CloseWithFinalCommand(
-			"ShutdownRenderingThread",
-			[](FRHICommandListImmediate& RHICmdList) {
-				const bool bResourcesReleased =
-					ValidateRenderResourceShutdown_RenderThread(
-						"pre-RHI-exit");
-				RHICmdList.ImmediateFlush(
-					EImmediateFlushType::FlushRHIThreadFlushResources,
-					ERHISubmitFlags::FlushRHIThread);
-				checkf(bResourcesReleased,
-					"Render-resource shutdown audit failed before RHIExit.");
-				checkf(FRHIResource::GetNumPendingDeletes() == 0,
-					"RHI deferred-delete queue still contains {} resources "
-					"after the pre-RHI-exit drain.",
-					FRHIResource::GetNumPendingDeletes());
-			});
-		FRenderThreadCommandPipe::DrainAcceptedCommands();
+		FRenderThreadCommandPipe::Shutdown();
 		StopRenderingThread();
-		FRenderThreadCommandPipe::MarkStopped();
 	}
 
 	auto FlushRenderingCommands() -> void
@@ -237,18 +236,26 @@ namespace Durin
 		return true;
 	}
 
-	auto FRenderThreadCommandPipe::LaunchImpl() -> void
+	auto FRenderThreadCommandPipe::LaunchImpl() -> bool
 	{
 		check(IsInRenderingThread());
 		std::unique_lock Lock(Mutex);
 		CommandAvailableCV.wait(Lock, [this]() {
-			return bWakeRequested || !CommandQueue[ProduceIndex].empty();
+			return !CommandQueue[ProduceIndex].empty()
+				|| AdmissionState == ERenderCommandAdmissionState::Draining;
 		});
 
-		bWakeRequested = false;
 		if (CommandQueue[ProduceIndex].empty())
 		{
-			return;
+			check(AdmissionState == ERenderCommandAdmissionState::Draining);
+			Lock.unlock();
+			CheckRenderingThreadShutdown();
+			Lock.lock();
+			check(CommandQueue[0].empty());
+			check(CommandQueue[1].empty());
+			check(ActiveCommandCount == 0);
+			AdmissionState = ERenderCommandAdmissionState::Stopped;
+			return false;
 		}
 
 		std::vector<FCommand>& CommandsToExecute = CommandQueue[ProduceIndex];
@@ -264,22 +271,10 @@ namespace Durin
 		CommandsToExecute.clear();
 		Lock.lock();
 		ActiveCommandCount = 0;
-		if (CommandQueue[0].empty() && CommandQueue[1].empty())
-		{
-			DrainCompleteCV.notify_all();
-		}
+		return true;
 	}
 
-	auto FRenderThreadCommandPipe::WakeImpl() -> void
-	{
-		{
-			std::lock_guard Lock(Mutex);
-			bWakeRequested = true;
-		}
-		CommandAvailableCV.notify_one();
-	}
-
-	auto FRenderThreadCommandPipe::StartAdmissionImpl() -> void
+	auto FRenderThreadCommandPipe::StartImpl() -> void
 	{
 		std::lock_guard Lock(Mutex);
 		checkf(AdmissionState == ERenderCommandAdmissionState::Stopped,
@@ -288,54 +283,18 @@ namespace Durin
 		check(CommandQueue[1].empty());
 		check(ActiveCommandCount == 0);
 		ProduceIndex = 0;
-		bWakeRequested = false;
 		AdmissionState = ERenderCommandAdmissionState::Running;
 	}
 
-	auto FRenderThreadCommandPipe::CloseAdmissionImpl() -> void
-	{
-		std::lock_guard Lock(Mutex);
-		if (AdmissionState == ERenderCommandAdmissionState::Stopped) return;
-		AdmissionState = ERenderCommandAdmissionState::Draining;
-		CommandAvailableCV.notify_one();
-	}
-
-	auto FRenderThreadCommandPipe::CloseWithFinalCommandImpl(
-		const char* Name,
-		std::function<void(FRHICommandListImmediate&)>&& Function) -> void
+	auto FRenderThreadCommandPipe::ShutdownImpl() -> void
 	{
 		{
 			std::lock_guard Lock(Mutex);
 			checkf(AdmissionState == ERenderCommandAdmissionState::Running,
-				"Final rendering-thread shutdown command requires running "
-				"command admission.");
-			CommandQueue[ProduceIndex].emplace_back(
-				Name, std::move(Function));
+				"Rendering thread can only shut down while running.");
 			AdmissionState = ERenderCommandAdmissionState::Draining;
 		}
 		CommandAvailableCV.notify_one();
-	}
-
-	auto FRenderThreadCommandPipe::DrainAcceptedCommandsImpl() -> void
-	{
-		check(IsInGameThread());
-		std::unique_lock Lock(Mutex);
-		checkf(AdmissionState == ERenderCommandAdmissionState::Draining,
-			"Accepted render commands can only drain after admission closes.");
-		CommandAvailableCV.notify_one();
-		DrainCompleteCV.wait(Lock, [this]() {
-			return CommandQueue[0].empty() && CommandQueue[1].empty()
-				&& ActiveCommandCount == 0;
-		});
-	}
-
-	auto FRenderThreadCommandPipe::MarkStoppedImpl() -> void
-	{
-		std::lock_guard Lock(Mutex);
-		check(CommandQueue[0].empty());
-		check(CommandQueue[1].empty());
-		check(ActiveCommandCount == 0);
-		AdmissionState = ERenderCommandAdmissionState::Stopped;
 	}
 
 	auto FRenderThreadCommandPipe::GetAdmissionStateImpl() const

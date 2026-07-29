@@ -213,13 +213,12 @@ only.
 1. Stop editor, preview, scene, renderer, asset, and module producers; release
    their consumer snapshots and asset-owned render resources.
 2. Flush accepted teardown commands while command admission remains open.
-3. Under the command-pipe mutex, enqueue the final render-resource/RHI audit and
-   atomically transition admission from `Running` to `Draining`.
-4. Reject new submissions, drain every accepted queued and active command, and
-   verify the command pipe, render-resource registry, and deferred C++ cleanup
-   queue are empty.
-5. Drain deferred RHI deletion, verify its queue is empty, stop the rendering
-   thread, transition admission to `Stopped`, and only then call `RHIExit()`.
+3. Transition command admission from `Running` to `Draining` and reject new
+   submissions.
+4. Let the rendering thread finish every accepted queued and active command.
+5. On the rendering thread, verify the render-resource registry and deferred
+   C++ cleanup queue, drain deferred RHI deletion, transition admission to
+   `Stopped`, and exit. The game thread waits for completion before `RHIExit()`.
 
 The final audit reports a live render resource's type, owner, revision,
 lifecycle phase, initialization phase, and pending queue. Shutdown does not

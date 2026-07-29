@@ -301,18 +301,27 @@ namespace Durin
 		return PendingCleanup.size();
 	}
 
-	auto ValidateRenderResourceShutdown_RenderThread(
-		const char* Phase) -> bool
+	auto ValidateRenderResourceShutdown_RenderThread() -> bool
 	{
 		check(IsInRenderingThread());
-		bool bValid = RenderResources.empty();
+		const size_t LiveResourceCount = RenderResources.size();
+		std::lock_guard Lock(PendingCleanupMutex);
+		const size_t PendingCleanupCount = PendingCleanup.size();
+		if (LiveResourceCount == 0 && PendingCleanupCount == 0)
+		{
+			return true;
+		}
+
+		DURIN_ERROR(
+			"Rendering thread shutdown found {} live render resource(s) and "
+			"{} pending cleanup(s).",
+			LiveResourceCount, PendingCleanupCount);
 		for (const FRenderResource* Resource : RenderResources)
 		{
 			DURIN_ERROR(
-				"Render resource remained live during '{}': type='{}', "
-				"owner='{}', revision={}, lifecycle_phase={}, "
-				"init_phase={}, queue='registry'.",
-				Phase, Resource->GetFriendlyName(),
+				"Live render resource: type='{}', owner='{}', revision={}, "
+				"state={}, init_phase={}.",
+				Resource->GetFriendlyName(),
 				Resource->GetLifetimeOwner(),
 				Resource->GetLifetimeRevision(),
 				Resource->IsRHIInitialized()
@@ -322,17 +331,14 @@ namespace Durin
 					? "pre" : "default");
 		}
 
-		std::lock_guard Lock(PendingCleanupMutex);
-		bValid &= PendingCleanup.empty();
 		for (const FDeferredRenderResourceCleanup& Cleanup : PendingCleanup)
 		{
 			const FRenderResource* Resource =
 				Cleanup.GetResourceForDiagnostics();
 			DURIN_ERROR(
-				"Render resource remained live during '{}': type='{}', "
-				"owner='{}', revision={}, lifecycle_phase={}, init_phase={}, "
-				"queue='deferred_cpp_cleanup'.",
-				Phase, Resource->GetFriendlyName(),
+				"Pending render resource cleanup: type='{}', owner='{}', "
+				"revision={}, state={}, init_phase={}.",
+				Resource->GetFriendlyName(),
 				Resource->GetLifetimeOwner(),
 				Resource->GetLifetimeRevision(),
 				Resource->IsInitialized()
@@ -341,7 +347,7 @@ namespace Durin
 				Resource->GetInitPhase() == FRenderResource::EInitPhase::Pre
 					? "pre" : "default");
 		}
-		return bValid;
+		return false;
 	}
 
 	FTextureReference::FTextureReference(FTextureRHIRef InFallbackTexture)

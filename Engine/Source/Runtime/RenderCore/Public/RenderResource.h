@@ -191,8 +191,7 @@ namespace Durin
 	RENDERCORE_API auto GetNumInitializedRenderResources() -> size_t;
 	RENDERCORE_API auto GetNumPendingRenderResourceCleanup() -> size_t;
 	// Reports each live resource and cleanup entry when shutdown ordering is incomplete.
-	RENDERCORE_API auto ValidateRenderResourceShutdown_RenderThread(
-		const char* Phase) -> bool;
+	RENDERCORE_API auto ValidateRenderResourceShutdown_RenderThread() -> bool;
 
 	// Owns one stable consumer-facing RHI texture reference for a texture asset.
 	class FTextureReference : public FRenderResource
