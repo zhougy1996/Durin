@@ -214,17 +214,9 @@ def _write_reflection_files(
         if worker_count == 1:
             results = [_generate_reflection_output_worker(args) for args in worker_args]
         else:
-            try:
-                with ProcessPoolExecutor(max_workers=worker_count) as executor:
-                    futures = [executor.submit(_generate_reflection_output_worker, args) for args in worker_args]
-                    results = [future.result() for future in as_completed(futures)]
-            except Exception as error:
-                logging.warning(
-                    "[DHT] Reflection %s: parallel parsing failed (%s), falling back to sequential parsing",
-                    module_name,
-                    error,
-                )
-                results = [_generate_reflection_output_worker(args) for args in worker_args]
+            with ProcessPoolExecutor(max_workers=worker_count) as executor:
+                futures = [executor.submit(_generate_reflection_output_worker, args) for args in worker_args]
+                results = [future.result() for future in as_completed(futures)]
 
         header_order = {header: index for index, header in enumerate(configs.get_module_config(module_name).reflect_headers)}
         for result in sorted(results, key=lambda item: header_order[item["header"]]):

@@ -1,6 +1,7 @@
 import json
 import re
 import sys
+import traceback
 from pathlib import Path
 from unittest import mock
 
@@ -15,6 +16,7 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 from durin_header_tool.config.module_config import DurinModuleConfig
 from durin_header_tool.extractors.export_symbol_extractor import extract_module_export_info
+from durin_header_tool.generators import module_reflection_files_generator as reflection_generator
 from durin_header_tool.generators.module_reflection_files_generator import (
     _write_reflection_files,
     make_new_module_manifest,
@@ -272,6 +274,44 @@ namespace Fixture
             _write_reflection_files("Fixture", [], {}, manifest, max_workers=1)
         module_content = (self.dht_output_dir / "Fixture.module.gen.cpp").read_text(encoding="utf-8")
         assert 'Durin::RegisterCompiledInPackage("Fixture")' in module_content
+
+    def test_parallel_worker_failure_propagates_without_sequential_retry(self):
+        successful_future = mock.Mock()
+        successful_future.result.return_value = {"header": "First.h"}
+        failed_future = mock.Mock()
+        failure = RuntimeError("worker failed")
+
+        def raise_worker_failure():
+            raise failure
+
+        failed_future.result.side_effect = raise_worker_failure
+        executor = mock.MagicMock()
+        executor.__enter__.return_value = executor
+        executor.submit.side_effect = [successful_future, failed_future]
+        worker = mock.Mock()
+        manifest = ModuleManifest(module_name="Fixture")
+
+        with (
+            mock.patch.object(utils, "get_module_dht_output_dir", return_value=self.dht_output_dir),
+            mock.patch.object(reflection_generator, "resolve_worker_count", return_value=2),
+            mock.patch.object(reflection_generator, "ProcessPoolExecutor", return_value=executor),
+            mock.patch.object(reflection_generator, "as_completed", return_value=[successful_future, failed_future]),
+            mock.patch.object(reflection_generator, "_generate_reflection_output_worker", worker),
+            pytest.raises(RuntimeError, match="worker failed") as raised,
+        ):
+            _write_reflection_files(
+                "Fixture",
+                ["First.h", "Second.h"],
+                {},
+                manifest,
+                max_workers=2,
+            )
+
+        assert raised.value is failure
+        assert "raise_worker_failure" in {
+            frame.name for frame in traceback.extract_tb(raised.value.__traceback__)
+        }
+        worker.assert_not_called()
 
     def test_class_display_and_default_object_name_metadata(self):
         assert '"Fixture::ASampleActor",' in self.generated_cpp
