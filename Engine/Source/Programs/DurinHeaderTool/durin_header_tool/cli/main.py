@@ -3,13 +3,7 @@ from contextlib import ExitStack
 import logging
 from durin_header_tool import config as configs
 from durin_header_tool import io as utils
-from .command import (
-    CommandManager,
-    EmptyCommand,
-    GenerateModuleExportFileCommand,
-    GenerateReflectionFilesCommand,
-    PrepareProjectBuildCommand,
-)
+from .command import setup_parser
 
 def init_logging(log_level_str: str):
     log_level = getattr(logging, log_level_str.upper(), logging.INFO)
@@ -34,14 +28,8 @@ def _get_output_lock_paths(args):
     return []
 
 def main():
-    command_manager = CommandManager()
-    command_manager.register_command(EmptyCommand())
-    command_manager.register_command(PrepareProjectBuildCommand())
-    command_manager.register_command(GenerateModuleExportFileCommand())
-    command_manager.register_command(GenerateReflectionFilesCommand())
-
     parser = argparse.ArgumentParser(description="Durin Header Tool")
-    command_manager.setup_parser(parser)
+    setup_parser(parser)
     args = parser.parse_args()
 
     configs.ARCH = args.arch
@@ -56,7 +44,7 @@ def main():
     with ExitStack() as lock_stack:
         for lock_path in _get_output_lock_paths(args):
             lock_stack.enter_context(utils.acquire_output_lock(lock_path, args.function))
-        command_manager.execute_command(args.function, args)
+        args.execute(args)
 
 if __name__ == "__main__":
     main()

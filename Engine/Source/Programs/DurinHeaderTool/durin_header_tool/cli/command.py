@@ -1,5 +1,3 @@
-import logging
-import sys
 import argparse
 from pathlib import Path
 
@@ -33,94 +31,68 @@ def add_common_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("-l", "--log", help="Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).", default="INFO", required=False, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
     parser.add_argument("--project-file", action="append", default=[], type=Path, help="A .dproject file that supplies module ownership and dependency context. May be repeated.")
 
-class Command:
-    def __init__(self, name: str, description: str):
-        self.name = name
-        self.description = description
 
-    # Add command-specific arguments to the parser
-    def add_arguments(self, parser: argparse.ArgumentParser):
-        pass
+def prepare_project_build(args):
+    from durin_header_tool.generators.project_cmake_file_generator import generate_project_cmake_file
+    from durin_header_tool.generators.module_cmake_file_generator import generate_all_module_cmake_files_for_project
+    from durin_header_tool import config as configs
 
-    def execute(self, args):
-        pass
-
-    def run(self, args):
-        self.execute(args)
-
-class CommandManager:
-    commands: dict[str, Command]
-
-    def __init__(self):
-        self.commands = {}
-
-    def register_command(self, command: Command):
-        self.commands[command.name] = command
-
-    def get_command(self, name: str):
-        return self.commands.get(name)
-
-    def setup_parser(self, parser: argparse.ArgumentParser):
-        subparsers = parser.add_subparsers(dest="function", required=True)
-        for command in self.commands.values():
-            sub = subparsers.add_parser(command.name, help=command.description)
-            command.add_arguments(sub)
-
-    def execute_command(self, name: str, args):
-        command = self.get_command(name)
-        if command:
-            command.run(args)
-        else:
-            logging.error(f"Unknown command: {name}")
-            sys.exit(1)
+    project_name = configs.load_project_config_file(args.project).project_name
+    generate_project_cmake_file(project_name)
+    generate_all_module_cmake_files_for_project(project_name)
 
 
-class EmptyCommand(Command):
-    def __init__(self):
-        super().__init__("empty", "An empty command that does nothing.")
+def generate_module_export_file(args):
+    from durin_header_tool.generators.module_export_file_generator import generate_module_export_file as generate
 
-    def add_arguments(self, parser: argparse.ArgumentParser):
-        add_common_arguments(parser)
+    generate(args.module, args.workers)
 
-    def execute(self, args):
-        pass
 
-class PrepareProjectBuildCommand(Command):
-    def __init__(self):
-        super().__init__("prepare_project_build", "Prepare the build environment for the entire project.")
+def generate_reflection_files(args):
+    from durin_header_tool.generators.module_reflection_files_generator import generate_reflection_files as generate
 
-    def add_arguments(self, parser: argparse.ArgumentParser):
-        parser.add_argument("-p","--project", type=Path, help="The full path to the .dproject file to prepare.", required=True)
-        add_common_arguments(parser)
+    generate(args.module, args.workers)
 
-    def execute(self, args):
-        from durin_header_tool.generators.project_cmake_file_generator import generate_project_cmake_file
-        from durin_header_tool.generators.module_cmake_file_generator import generate_all_module_cmake_files_for_project
-        from durin_header_tool import config as configs
-        project_name = configs.load_project_config_file(args.project).project_name
-        generate_project_cmake_file(project_name)
-        generate_all_module_cmake_files_for_project(project_name)
 
-class GenerateModuleExportFileCommand(Command):
-    def __init__(self):
-        super().__init__("generate_module_export_file", "Generate the module export file containing export information extracted from the module's headers.")
+def setup_parser(parser: argparse.ArgumentParser):
+    subparsers = parser.add_subparsers(dest="function", required=True)
 
-    def add_arguments(self, parser: argparse.ArgumentParser):
-        parser.add_argument("-m","--module", help="The name of the module to generate export file for.", required=True)
-        add_common_arguments(parser)
+    prepare_project_parser = subparsers.add_parser(
+        "prepare_project_build",
+        help="Prepare the build environment for the entire project.",
+    )
+    prepare_project_parser.add_argument(
+        "-p",
+        "--project",
+        type=Path,
+        help="The full path to the .dproject file to prepare.",
+        required=True,
+    )
+    add_common_arguments(prepare_project_parser)
+    prepare_project_parser.set_defaults(execute=prepare_project_build)
 
-    def execute(self, args):
-        from durin_header_tool.generators.module_export_file_generator import generate_module_export_file
-        generate_module_export_file(args.module, args.workers)
+    module_export_parser = subparsers.add_parser(
+        "generate_module_export_file",
+        help="Generate the module export file containing export information extracted from the module's headers.",
+    )
+    module_export_parser.add_argument(
+        "-m",
+        "--module",
+        help="The name of the module to generate export file for.",
+        required=True,
+    )
+    add_common_arguments(module_export_parser)
+    module_export_parser.set_defaults(execute=generate_module_export_file)
 
-class GenerateReflectionFilesCommand(Command):
-    def __init__(self):
-        super().__init__("generate_reflection_files", "Run the header tool to generate necessary files for the reflection system.")
-
-    def add_arguments(self, parser: argparse.ArgumentParser):
-        parser.add_argument("-m","--module", help="The name of the module to run the header tool for.", required=True)
-        add_common_arguments(parser)
-
-    def execute(self, args):
-        from durin_header_tool.generators.module_reflection_files_generator import generate_reflection_files
-        generate_reflection_files(args.module, args.workers)
+    reflection_parser = subparsers.add_parser(
+        "generate_reflection_files",
+        help="Run the header tool to generate necessary files for the reflection system.",
+    )
+    reflection_parser.add_argument(
+        "-m",
+        "--module",
+        help="The name of the module to run the header tool for.",
+        required=True,
+    )
+    add_common_arguments(reflection_parser)
+    reflection_parser.set_defaults(execute=generate_reflection_files)

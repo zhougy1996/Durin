@@ -12,7 +12,13 @@ if str(ROOT) not in sys.path:
 
 from durin_header_tool import config as configs
 from durin_header_tool import io as utils
-from durin_header_tool.cli.command import add_common_arguments
+from durin_header_tool.cli.command import (
+    add_common_arguments,
+    generate_module_export_file,
+    generate_reflection_files,
+    prepare_project_build,
+    setup_parser,
+)
 from durin_header_tool.cli.main import _get_output_lock_paths
 from durin_header_tool.generators import module_cmake_file_generator
 from durin_header_tool.generators import project_cmake_file_generator
@@ -188,6 +194,20 @@ class TestIntermediateLayout:
         assert parser.parse_args(["--workers", "2"]).workers == 2
         with pytest.raises(SystemExit):
             parser.parse_args(["--workers", "9"])
+
+    @pytest.mark.parametrize(
+        ("arguments", "expected_function"),
+        [
+            (["prepare_project_build", "--project", "Engine.dproject"], prepare_project_build),
+            (["generate_module_export_file", "--module", "Core"], generate_module_export_file),
+            (["generate_reflection_files", "--module", "Core"], generate_reflection_files),
+        ],
+    )
+    def test_cli_dispatches_active_commands_directly(self, arguments, expected_function):
+        parser = argparse.ArgumentParser()
+        setup_parser(parser)
+
+        assert parser.parse_args(arguments).execute is expected_function
 
     @pytest.mark.parametrize(
         ("task_count", "worker_limit", "expected"),
