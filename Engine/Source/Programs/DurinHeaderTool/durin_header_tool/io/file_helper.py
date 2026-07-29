@@ -4,7 +4,6 @@ import logging
 import hashlib
 import os
 import tempfile
-from typing import Optional, Tuple
 
 @dataclass
 class LightFileFingerprint:
@@ -18,11 +17,6 @@ class FileFingerprint:
     timestamp: float = field(default=0.0, compare=False)
     file_size: int = field(default=0, compare=False)
     md5: str = ""
-
-@dataclass
-class FileCacheEntry:
-    content: str
-    fingerprint: FileFingerprint
 
 def calc_md5(file_path: Path, chunk_size: int = 8192) -> str:
     if not file_path.is_file():
@@ -46,19 +40,6 @@ def get_light_file_fingerprint(file_path: Path) -> LightFileFingerprint:
         return LightFileFingerprint(timestamp=timestamp, file_size=file_size)
     except (PermissionError, OSError) as e:
         raise IOError(f"Error accessing file {file_path}: {e}")
-    
-def get_file_fingerprint(file_path: Path) -> FileFingerprint:
-    if not file_path.is_file():
-        raise FileNotFoundError(f"File {file_path} does not exist.")
-    
-    try:
-        stat = file_path.stat()
-        timestamp = stat.st_mtime
-        file_size = stat.st_size
-        md5_hash = calc_md5(file_path)
-        return FileFingerprint(timestamp=timestamp, file_size=file_size, md5=md5_hash)
-    except (PermissionError, OSError) as e:
-        raise IOError(f"Error accessing file {file_path}: {e}")
 
 def get_file_fingerprint_with_old_cache(file_path: Path, old_fingerprint: FileFingerprint) -> FileFingerprint:
     if not file_path.is_file():
@@ -76,47 +57,6 @@ def get_file_fingerprint_with_old_cache(file_path: Path, old_fingerprint: FileFi
         return FileFingerprint(timestamp=timestamp, file_size=file_size, md5=md5_hash)
     except (PermissionError, OSError) as e:
         raise IOError(f"Error accessing file {file_path}: {e}")
-
-# Returns a tuple indicating whether the file has changed and the fingerprint of the file (either old or new)
-def verify_file_fingerprint(file_path: Path, old_fingerprint: FileFingerprint) -> Tuple[bool, Optional[FileFingerprint]]:
-    if not file_path.is_file():
-        raise FileNotFoundError(f"File {file_path} does not exist.")
-    
-    try:
-        stat = file_path.stat()
-        current_timestamp = stat.st_mtime
-        current_file_size = stat.st_size
-        
-        if current_timestamp == old_fingerprint.timestamp and current_file_size == old_fingerprint.file_size:
-            return False, old_fingerprint
-
-        new_fingerprint = FileFingerprint(timestamp=current_timestamp, file_size=current_file_size, md5=calc_md5(file_path))
-        return new_fingerprint != old_fingerprint, new_fingerprint
-        
-    except (PermissionError, OSError) as e:
-        raise IOError(f"Error accessing file {file_path}: {e}")
-    
-def is_file_changed(file_path: Path, light_fingerprint: LightFileFingerprint) -> bool:
-    if not file_path.is_file():
-        raise FileNotFoundError(f"File {file_path} does not exist.")
-    
-    try:
-        stat = file_path.stat()
-        current_timestamp = stat.st_mtime
-        current_file_size = stat.st_size
-        
-        return current_timestamp != light_fingerprint.timestamp or current_file_size != light_fingerprint.file_size
-        
-    except (PermissionError, OSError) as e:
-        raise IOError(f"Error accessing file {file_path}: {e}")
-    
-def calculate_file_hash(file_path: Path) -> str:
-    if not file_path.exists():
-        raise FileNotFoundError(f"File {file_path} does not exist.")
-    with open(file_path, "r", encoding="utf-8") as f:
-        content = f.read()
-    file_hash = hash(content)
-    return str(file_hash)
 
 def generate_file(file_path: Path, content: str, compare: bool = True) -> None:
     file_path.parent.mkdir(parents=True, exist_ok=True)

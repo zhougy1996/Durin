@@ -1,9 +1,7 @@
 from pathlib import Path
 from dataclasses import MISSING, fields, is_dataclass
-from typing import Dict, Any, List, Type, Union, get_origin, get_args
+from typing import Dict, Any, Type, get_origin, get_args
 
-import os
-import re
 import json
     
 def load_json_file(file_path: Path, required_fields: list = None) -> Dict[str, Any]:
@@ -19,24 +17,6 @@ def load_json_file(file_path: Path, required_fields: list = None) -> Dict[str, A
             raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
     
     return data
-
-def parse_json_content(json_content: str, required_fields: list = None) -> Dict[str, Any]:
-    try:
-        data = json.loads(json_content)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON content: {e}")
-    
-    if required_fields:
-        missing_fields = [field for field in required_fields if field not in data]
-        if missing_fields:
-            raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
-    
-    return data
-
-# Converts a PascalCase string to snake_case
-def _pascal_to_snake(pascal_str: str) -> str:
-    snake_str = re.sub(r'(?<!^)(?=[A-Z])', '_', pascal_str).lower()
-    return snake_str
 
 # Converts a snake_case string to PascalCase
 def _snake_to_pascal(snake_str: str) -> str:
@@ -172,56 +152,3 @@ def dataclass_from_dict(
 
     # Create and return the dataclass instance
     return cls(** init_kwargs)
-
-
-def dict_from_dataclass(cls, instance, auto_convert: bool = True) -> Dict[str, Any]:
-    if not is_dataclass(instance):
-        raise ValueError(f"Expected an instance of a dataclass, got {type(instance)}")
-    
-    if not isinstance(cls, type):
-        raise ValueError(f"Expected a dataclass type, got {type(cls)}")
-    
-    # Build a mapping from dataclass field names to JSON keys, based on the metadata or auto-conversion
-    py_to_json_mapping = {}
-    for field in fields(cls):
-        json_key = field.metadata.get("json_key")
-        if json_key:
-            py_to_json_mapping[field.name] = json_key
-        elif auto_convert:
-            py_to_json_mapping[field.name] = _snake_to_pascal(field.name)
-
-    # Helper function to process values based on their type, handling nested dataclasses, lists, and dictionaries
-    def _process_value(field_type: type, value: Any) -> Any:
-        if value is None:
-            return None
-        
-        if is_dataclass(value) and not isinstance(value, type):
-            value_cls = type(value)
-            return dict_from_dataclass(value_cls, value, auto_convert)
-        
-        if isinstance(value, Dict):
-            processed_dict = {}
-            dict_args = get_args(field_type) if get_origin(field_type) is dict else []
-            value_type = dict_args[1] if len(dict_args) >= 2 else Any
-            
-            for k, v in value.items():
-                processed_dict[k] = _process_value(value_type, v)
-            return processed_dict
-        
-        if isinstance(value, List):
-            processed_list = []
-            list_args = get_args(field_type) if get_origin(field_type) is list else []
-            elem_type = list_args[0] if list_args else Any
-            
-            for elem in value:
-                processed_list.append(_process_value(elem_type, elem))
-            return processed_list
-        
-        return value
-
-    # Build the resulting dictionary by processing each field's value according to its type
-    result = {}
-    for py_field, json_field in py_to_json_mapping.items():
-        value = getattr(instance, py_field)
-        result[json_field] = _process_value(type(value), value)
-    return result
