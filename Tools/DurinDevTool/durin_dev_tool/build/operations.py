@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import replace
+from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Sequence
@@ -41,6 +41,13 @@ TOOLCHAIN_ACTIONS = {
     Action.TEST,
 }
 CREATE_ACTIONS = {Action.CREATE_MODULE, Action.CREATE_PROJECT}
+
+
+@dataclass(frozen=True)
+class AcquiredRequest:
+    request: CommandRequest
+    context: BuildContext | None
+    current_preset: str = ""
 
 
 def execute_create_request(
@@ -201,11 +208,120 @@ def show_status(output: BuildOutput, context: BuildContext) -> None:
     output.console.print(table)
 
 
+def acquire_request_context(
+    request: CommandRequest,
+    *,
+    session_state: dict[str, object] | None,
+) -> AcquiredRequest:
+    if request.action in {Action.SHELL, Action.STOP, *CREATE_ACTIONS}:
+        return AcquiredRequest(request, None)
+    if session_state is None:
+        context = create_context(
+            request,
+            prepare_tools=request.action in TOOLCHAIN_ACTIONS,
+        )
+        return AcquiredRequest(request, context, context.preset.name)
+
+    base = session_state.get("build_context")
+    if base is None:
+        base = create_context(request.with_action(Action.SHELL), prepare_tools=False)
+        session_state["build_context"] = base
+        session_state["build_preset"] = base.preset.name
+    current_preset = str(session_state["build_preset"])
+
+    if request.action is Action.PRESET:
+        if request.preset:
+            current_preset = resolve_shell_preset(request.preset, base)
+            session_state["build_preset"] = current_preset
+        return AcquiredRequest(
+            request.with_preset(current_preset),
+            base,
+            current_preset,
+        )
+
+    request = request.with_preset(request.preset or current_preset)
+    session_profile = base.profile.name
+    needs_independent_context = (
+        request.profile not in {"", session_profile}
+        or request.environment_setup != base.request.environment_setup
+        or (
+            request.action not in TOOLCHAIN_ACTIONS
+            and request.cmake != base.request.cmake
+        )
+    )
+    if needs_independent_context:
+        context = create_context(
+            request,
+            prepare_tools=request.action in TOOLCHAIN_ACTIONS,
+        )
+    else:
+        context = derive_context(base, request)
+        if request.action in TOOLCHAIN_ACTIONS and base.environment is None:
+            prepare_toolchain_environment(base)
+            context = derive_context(base, request)
+        needs_command_preparation = (
+            not context.cmake
+            or not context.jobs
+            or request.cmake != base.request.cmake
+            or request.jobs != base.request.jobs
+        )
+        if request.action in TOOLCHAIN_ACTIONS and needs_command_preparation:
+            prepare_command_context(context)
+            if request.cmake == base.request.cmake:
+                base.cmake = context.cmake
+            if request.jobs == base.request.jobs:
+                base.jobs = context.jobs
+    return AcquiredRequest(request, context, current_preset)
+
+
+def dispatch_request(
+    acquired: AcquiredRequest,
+    output: BuildOutput,
+) -> None:
+    request = acquired.request
+    context = acquired.context
+    if request.action is Action.STOP:
+        if stop_active_operation():
+            output.success("Stopped the active DurinDevTool build operation.")
+        else:
+            output.info("No active DurinDevTool build operation was found.")
+        return
+    if request.action in CREATE_ACTIONS:
+        execute_create_request(request, output)
+        return
+    if context is None:
+        raise BuildToolError(
+            f"{request.action.value} requires an acquired build context."
+        )
+    if request.action is Action.PRESETS:
+        show_presets(output, context, acquired.current_preset)
+        return
+    if request.action is Action.PRESET:
+        output.info(f'CMake preset: "{acquired.current_preset}"')
+        return
+    if request.action is Action.STATUS:
+        show_status(output, context)
+        return
+    if request.action is Action.OPEN_RUNTIME:
+        open_runtime_directory(context, output)
+        return
+    execute_context(
+        context,
+        output,
+        confirm_purge=lambda paths, all_presets: confirm_purge(
+            output,
+            paths,
+            all_presets,
+        ),
+    )
+
+
 def execute_request(
     request: CommandRequest,
     *,
     stdout: Any = None,
     stderr: Any = None,
+    session_state: dict[str, object] | None = None,
 ) -> int:
     started = perf_counter()
     output = BuildOutput(
@@ -216,141 +332,12 @@ def execute_request(
     )
     context: BuildContext | None = None
     try:
-        if request.action is Action.SHELL:
-            run_shell(request, output)
-            return 0
-        if request.action is Action.STOP:
-            if stop_active_operation():
-                output.success("Stopped the active DurinDevTool build operation.")
-            else:
-                output.info("No active DurinDevTool build operation was found.")
-            return 0
-        if request.action in CREATE_ACTIONS:
-            execute_create_request(request, output)
-            return 0
-        prepare_tools = request.action in TOOLCHAIN_ACTIONS
-        context = create_context(request, prepare_tools=prepare_tools)
-        if request.action is Action.PRESETS:
-            show_presets(output, context, context.preset.name)
-            return 0
-        if request.action is Action.PRESET:
-            output.info(f'CMake preset: "{context.preset.name}"')
-            return 0
-        if request.action is Action.STATUS:
-            show_status(output, context)
-            return 0
-        if request.action is Action.OPEN_RUNTIME:
-            open_runtime_directory(context, output)
-            return 0
-        execute_context(
-            context,
-            output,
-            confirm_purge=lambda paths, all_presets: confirm_purge(output, paths, all_presets),
+        acquired = acquire_request_context(
+            request,
+            session_state=session_state,
         )
-        return 0
-    except BuildToolError as exc:
-        output.failure(exc, context, perf_counter() - started, request=request)
-        return 1
-    except OSError as exc:
-        output.failure(
-            BuildToolError(f"Operating system error: {exc}"),
-            context,
-            perf_counter() - started,
-            request=request,
-        )
-        return 1
-def execute_shell_request(
-    request: CommandRequest,
-    *,
-    session_state: dict[str, object],
-    stdout: Any = None,
-    stderr: Any = None,
-) -> int:
-    started = perf_counter()
-    output = BuildOutput(
-        plain=request.plain,
-        output_mode=request.output_mode,
-        stdout=stdout,
-        stderr=stderr,
-    )
-    context: BuildContext | None = None
-    try:
-        if request.action is Action.STOP:
-            if stop_active_operation():
-                output.success("Stopped the active DurinDevTool build operation.")
-            else:
-                output.info("No active DurinDevTool build operation was found.")
-            return 0
-        if request.action in CREATE_ACTIONS:
-            execute_create_request(request, output)
-            return 0
-
-        base = session_state.get("build_context")
-        if base is None:
-            base_request = replace(request, action=Action.SHELL)
-            base = create_context(base_request, prepare_tools=False)
-            session_state["build_context"] = base
-            session_state["build_preset"] = base.preset.name
-        current_preset = str(session_state["build_preset"])
-
-        if request.action is Action.PRESET:
-            if request.preset:
-                current_preset = resolve_shell_preset(request.preset, base)
-                session_state["build_preset"] = current_preset
-            output.info(f'CMake preset: "{current_preset}"')
-            return 0
-
-        request = replace(request, preset=request.preset or current_preset)
-        session_profile = base.profile.name
-        needs_independent_context = (
-            request.profile not in {"", session_profile}
-            or request.environment_setup != base.request.environment_setup
-            or (
-                request.action not in TOOLCHAIN_ACTIONS
-                and request.cmake != base.request.cmake
-            )
-        )
-        if needs_independent_context:
-            context = create_context(
-                request,
-                prepare_tools=request.action in TOOLCHAIN_ACTIONS,
-            )
-        else:
-            context = derive_context(base, request)
-            if request.action in TOOLCHAIN_ACTIONS and base.environment is None:
-                prepare_toolchain_environment(base)
-                context = derive_context(base, request)
-            needs_command_preparation = (
-                not context.cmake
-                or not context.jobs
-                or request.cmake != base.request.cmake
-                or request.jobs != base.request.jobs
-            )
-            if request.action in TOOLCHAIN_ACTIONS and needs_command_preparation:
-                prepare_command_context(context)
-                if request.cmake == base.request.cmake:
-                    base.cmake = context.cmake
-                if request.jobs == base.request.jobs:
-                    base.jobs = context.jobs
-
-        if request.action is Action.PRESETS:
-            show_presets(output, context, current_preset)
-            return 0
-        if request.action is Action.STATUS:
-            show_status(output, context)
-            return 0
-        if request.action is Action.OPEN_RUNTIME:
-            open_runtime_directory(context, output)
-            return 0
-        execute_context(
-            context,
-            output,
-            confirm_purge=lambda paths, all_presets: confirm_purge(
-                output,
-                paths,
-                all_presets,
-            ),
-        )
+        context = acquired.context
+        dispatch_request(acquired, output)
         return 0
     except BuildToolError as exc:
         output.failure(
@@ -358,7 +345,11 @@ def execute_shell_request(
             context,
             perf_counter() - started,
             request=request,
-            preset=str(session_state.get("build_preset", "")),
+            preset=(
+                str(session_state.get("build_preset", ""))
+                if session_state is not None
+                else ""
+            ),
         )
         return 1
     except OSError as exc:
@@ -367,6 +358,10 @@ def execute_shell_request(
             context,
             perf_counter() - started,
             request=request,
-            preset=str(session_state.get("build_preset", "")),
+            preset=(
+                str(session_state.get("build_preset", ""))
+                if session_state is not None
+                else ""
+            ),
         )
         return 1

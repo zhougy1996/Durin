@@ -60,7 +60,7 @@ class TestCore:
         descriptor = root / 'Games' / '示例 Project' / 'Example.dproject'
         descriptor.parent.mkdir(parents=True)
         descriptor.write_text('{}', encoding='utf-8')
-        request = build_config.CommandRequest(build_config.Action.RUN, project_path=Path('Games') / '示例 Project' / 'Example.dproject', run_arguments=('--hidden-window', 'argument with spaces'))
+        request = build_config.CommandRequest(build_config.Action.RUN, options=build_config.RunActionOptions(project_path=Path('Games') / '示例 Project' / 'Example.dproject', arguments=('--hidden-window', 'argument with spaces')))
         normalized = build_core.normalize_run_request(request, root=root)
         assert normalized.project_path == descriptor.resolve()
         assert normalized.run_arguments == request.run_arguments
@@ -71,14 +71,14 @@ class TestCore:
         descriptor = root / 'Sandbox' / 'Sandbox.dproject'
         descriptor.parent.mkdir(parents=True)
         descriptor.write_text('{}', encoding='utf-8')
-        request = build_config.CommandRequest(build_config.Action.RUN)
+        request = build_config.CommandRequest(build_config.Action.RUN, options=build_config.RunActionOptions())
         normalized = build_core.normalize_run_request(request, preset=self.make_preset(runtime_variant='DurinGame'), root=root)
         assert normalized.project_path == descriptor.resolve()
 
     def test_run_does_not_default_editor_or_override_raw_project_selector(self) -> None:
-        request = build_config.CommandRequest(build_config.Action.RUN)
+        request = build_config.CommandRequest(build_config.Action.RUN, options=build_config.RunActionOptions())
         editor_request = build_core.normalize_run_request(request, preset=self.make_preset(runtime_variant='DurinEditor'))
-        raw_game_request = build_config.CommandRequest(build_config.Action.RUN, run_arguments=('--project=Other.dproject',))
+        raw_game_request = build_config.CommandRequest(build_config.Action.RUN, options=build_config.RunActionOptions(arguments=('--project=Other.dproject',)))
         normalized_raw_game_request = build_core.normalize_run_request(raw_game_request, preset=self.make_preset(runtime_variant='DurinGame'))
         assert editor_request.project_path is None
         assert normalized_raw_game_request.project_path is None
@@ -87,10 +87,10 @@ class TestCore:
     def test_run_project_rejects_missing_and_wrong_extension_descriptors(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
-        wrong_extension = build_config.CommandRequest(build_config.Action.RUN, project_path=Path('Example.json'))
+        wrong_extension = build_config.CommandRequest(build_config.Action.RUN, options=build_config.RunActionOptions(project_path=Path('Example.json')))
         with pytest.raises(build_config.BuildToolError, match='\\.dproject extension'):
             build_core.normalize_run_request(wrong_extension, root=root)
-        missing = build_config.CommandRequest(build_config.Action.RUN, project_path=Path('Missing.dproject'))
+        missing = build_config.CommandRequest(build_config.Action.RUN, options=build_config.RunActionOptions(project_path=Path('Missing.dproject')))
         with pytest.raises(build_config.BuildToolError, match='was not found'):
             build_core.normalize_run_request(missing, root=root)
 
@@ -100,7 +100,7 @@ class TestCore:
         descriptor.write_text('{}', encoding='utf-8')
         for arguments in (('--project', 'Other.dproject'), ('--project=Other.dproject',)):
             with pytest.raises(build_config.BuildToolError, match='either through --project or through --args'):
-                build_core.normalize_run_request(build_config.CommandRequest(build_config.Action.RUN, project_path=descriptor, run_arguments=arguments))
+                build_core.normalize_run_request(build_config.CommandRequest(build_config.Action.RUN, options=build_config.RunActionOptions(project_path=descriptor, arguments=arguments)))
 
     def test_environment_output_collapses_windows_case_duplicates(self) -> None:
         environment = build_core.parse_environment_output('PATH=developer\nPath=parent\n', case_insensitive=True)
@@ -175,10 +175,10 @@ class TestCore:
     def test_derive_context_reuses_toolchain_environment(self) -> None:
         profile = self.make_profile()
         presets = {'debug': self.make_preset(), 'release': self.make_preset('release')}
-        request = build_config.CommandRequest(build_config.Action.SHELL, preset='debug')
+        request = build_config.CommandRequest(build_config.Action.SHELL, context=build_config.RequestContext(preset='debug'))
         environment = {'PATH': 'cached'}
         context = build_config.BuildContext(request, build_config.LocalConfig(), profile, presets, presets['debug'], 'windows', cmake='cmake', jobs=8, environment=environment)
-        child = build_core.derive_context(context, build_config.CommandRequest(build_config.Action.BUILD, target='all', preset='release'))
+        child = build_core.derive_context(context, build_config.CommandRequest(build_config.Action.BUILD, context=build_config.RequestContext(preset='release'), options=build_config.BuildActionOptions(target='all')))
         assert child.environment is environment
         assert child.preset.name == 'release'
 
@@ -194,7 +194,7 @@ class TestCore:
 
     def test_run_application_reports_how_to_build_missing_runtime(self) -> None:
         preset = self.make_preset()
-        request = build_config.CommandRequest(build_config.Action.RUN)
+        request = build_config.CommandRequest(build_config.Action.RUN, options=build_config.RunActionOptions())
         context = build_config.BuildContext(request, build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows')
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         with mock.patch.object(build_runtime, 'runtime_executable_path', return_value=Path('missing/DurinEditor.exe')), pytest.raises(build_config.BuildToolError, match='was not found'):
@@ -208,7 +208,7 @@ class TestCore:
         project = root / '示例 Project' / 'Example.dproject'
         project.parent.mkdir()
         project.touch()
-        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.RUN, project_path=project.resolve(), run_arguments=('--hidden-window', 'argument with spaces')), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows')
+        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.RUN, options=build_config.RunActionOptions(project_path=project.resolve(), arguments=('--hidden-window', 'argument with spaces'))), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows')
         executable = root / 'DurinEditor.exe'
         executable.touch()
         with mock.patch.object(build_runtime, 'runtime_executable_path', return_value=executable), mock.patch.object(build_runtime, 'run_command') as run:
@@ -258,13 +258,13 @@ class TestCore:
         assert 'Opened runtime directory' in stdout.getvalue()
 
     def test_test_action_rejects_non_test_preset(self) -> None:
-        request = build_config.CommandRequest(build_config.Action.TEST, target='CoreTests')
+        request = build_config.CommandRequest(build_config.Action.TEST, options=build_config.TestActionOptions(target='CoreTests'))
         with pytest.raises(build_config.BuildToolError, match='does not enable BUILD_TESTING'):
             build_core.validate_request(request, self.make_preset(testing='OFF'))
 
     def test_compact_native_test_enables_gtest_brief_output(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
-        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, target='CoreTests', test_filter='Core.*'), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', environment={})
+        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, options=build_config.TestActionOptions(target='CoreTests', filter='Core.*')), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', environment={})
         output = BuildOutput(plain=True, output_mode=build_config.OutputMode.COMPACT, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         with mock.patch.object(build_runtime, 'test_executable_path', return_value=Path(directory) / 'CoreTests.exe') as executable_path, mock.patch.object(build_runtime, 'run_command') as run:
@@ -275,7 +275,7 @@ class TestCore:
 
     def test_all_native_tests_use_ctest_registration(self) -> None:
         preset = self.make_preset()
-        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, target='ALL', test_timeout_seconds=60, test_schedule_random=True, test_output_junit=Path('Build/results.xml'), test_ctest_regex='^Core\\.'), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake=r'C:\Tools\CMake\bin\cmake.exe', jobs=4, environment={'PATH': 'cached'})
+        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, options=build_config.TestActionOptions(target='ALL', timeout_seconds=60, schedule_random=True, output_junit=Path('Build/results.xml'), ctest_regex='^Core\\.')), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake=r'C:\Tools\CMake\bin\cmake.exe', jobs=4, environment={'PATH': 'cached'})
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         build_directory = Path('Build/debug')
         with mock.patch.object(build_runtime, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_runtime, 'run_command') as run:
@@ -293,8 +293,10 @@ class TestCore:
         preset = self.make_preset()
         request = build_config.CommandRequest(
             build_config.Action.TEST,
-            target='all',
-            test_include_direct=True,
+            options=build_config.TestActionOptions(
+                target='all',
+                include_direct=True,
+            ),
         )
         context = build_config.BuildContext(request, build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={})
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
@@ -303,12 +305,12 @@ class TestCore:
         assert run.call_args.args[0][-4:] == ['-LE', 'native-test-characterization', '--timeout', '300']
 
     def test_all_native_tests_reject_gtest_filter(self) -> None:
-        request = build_config.CommandRequest(build_config.Action.TEST, target='all', test_filter='Core.*')
+        request = build_config.CommandRequest(build_config.Action.TEST, options=build_config.TestActionOptions(target='all', filter='Core.*'))
         with pytest.raises(build_config.BuildToolError, match='cannot be used with --target all'):
             build_core.validate_request(request, self.make_preset())
 
     def test_single_native_test_rejects_ctest_only_options(self) -> None:
-        request = build_config.CommandRequest(build_config.Action.TEST, target='CoreTests', test_include_direct=True)
+        request = build_config.CommandRequest(build_config.Action.TEST, options=build_config.TestActionOptions(target='CoreTests', include_direct=True))
         with pytest.raises(build_config.BuildToolError, match='require --target all'):
             build_core.validate_request(request, self.make_preset())
 
@@ -317,10 +319,10 @@ class TestCore:
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         with mock.patch.object(build_core, 'preset_build_directory', return_value=Path(directory)), mock.patch.object(build_core, 'require_english_msvc_ninja_prefix'), mock.patch.object(build_core, 'run_command') as run:
-            context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.CONFIGURE), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', environment={})
+            context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.CONFIGURE, options=build_config.BuildActionOptions()), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', environment={})
             build_core.perform_action(context, output)
             assert run.call_args.args[0] == ['cmake', '--preset', 'debug']
-            context.request = replace(context.request, fresh=True)
+            context.request = replace(context.request, options=build_config.BuildActionOptions(fresh=True))
             build_core.perform_action(context, output)
             assert run.call_args.args[0] == ['cmake', '--fresh', '--preset', 'debug']
 
@@ -331,7 +333,7 @@ class TestCore:
         cache = Path(directory) / 'CMakeCache.txt'
         cache.write_text('CMAKE_MAKE_PROGRAM:FILEPATH=CMAKE_MAKE_PROGRAM-NOTFOUND\n', encoding='utf-8')
         with mock.patch.object(build_core, 'preset_build_directory', return_value=Path(directory)), mock.patch.object(build_core, 'require_english_msvc_ninja_prefix'), mock.patch.object(build_core, 'run_command') as run:
-            context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.CONFIGURE), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', environment={})
+            context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.CONFIGURE, options=build_config.BuildActionOptions()), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', environment={})
             build_core.perform_action(context, output)
         assert run.call_args.args[0] == ['cmake', '--fresh', '--preset', 'debug']
 
@@ -571,7 +573,7 @@ class TestCore:
 
     def test_native_test_failure_does_not_leave_recovery_marker(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
-        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, target='CoreTests'), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=1, environment={})
+        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, options=build_config.TestActionOptions(target='CoreTests')), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=1, environment={})
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
@@ -583,7 +585,7 @@ class TestCore:
 
     def test_all_native_test_failure_does_not_leave_recovery_marker(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
-        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, target='all'), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=1, environment={})
+        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, options=build_config.TestActionOptions(target='all')), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=1, environment={})
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         root = Path(tmp_path_factory.mktemp('case'))
         marker = root / 'interrupted.json'

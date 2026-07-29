@@ -7,7 +7,7 @@ import shutil
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, TypeAlias
 
 from ..configuration import load_repository_config
 from ..repository import discover_repository_root
@@ -137,28 +137,53 @@ class ConfigurePreset:
 
 
 @dataclass(frozen=True)
-class CommandRequest:
-    action: Action
-    target: str = ""
-    jobs: int | None = None
-    test_filter: str = ""
-    test_timeout_seconds: int = 300
-    test_schedule_random: bool = False
-    test_output_junit: Path | None = None
-    test_ctest_regex: str = ""
-    test_include_direct: bool = False
-    run_arguments: tuple[str, ...] = ()
+class RequestContext:
     profile: str = ""
     preset: str = ""
     cmake: str = ""
     environment_setup: str = ""
+    jobs: int | None = None
+
+
+@dataclass(frozen=True)
+class OutputOptions:
+    plain: bool = False
+    mode: OutputMode = OutputMode.AUTO
+
+
+@dataclass(frozen=True)
+class BuildActionOptions:
+    target: str = ""
+    fresh: bool = False
+
+
+@dataclass(frozen=True)
+class TestActionOptions:
+    target: str = ""
+    filter: str = ""
+    timeout_seconds: int = 300
+    schedule_random: bool = False
+    output_junit: Path | None = None
+    ctest_regex: str = ""
+    include_direct: bool = False
+
+
+@dataclass(frozen=True)
+class RunActionOptions:
+    project_path: Path | None = None
+    arguments: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PurgeActionOptions:
     all_presets: bool = False
     yes: bool = False
-    fresh: bool = False
-    plain: bool = False
-    output_mode: OutputMode = OutputMode.AUTO
-    create_kind: CreateKind | None = None
-    create_name: str = ""
+
+
+@dataclass(frozen=True)
+class CreateActionOptions:
+    kind: CreateKind
+    name: str = ""
     project_path: Path | None = None
     destination_path: Path | None = None
     module_kind: ModuleKind = ModuleKind.RUNTIME
@@ -170,6 +195,249 @@ class CommandRequest:
     optional_private_dependencies: tuple[str, ...] = ()
     enablements: tuple[str, ...] | None = None
     dry_run: bool = False
+
+
+ActionOptions: TypeAlias = (
+    BuildActionOptions
+    | TestActionOptions
+    | RunActionOptions
+    | PurgeActionOptions
+    | CreateActionOptions
+)
+
+
+@dataclass(frozen=True)
+class CommandRequest:
+    action: Action
+    context: RequestContext = RequestContext()
+    output: OutputOptions = OutputOptions()
+    options: ActionOptions | None = None
+
+    def __post_init__(self) -> None:
+        expected_type: type[ActionOptions] | None
+        if self.action in {Action.CONFIGURE, Action.BUILD, Action.REBUILD}:
+            expected_type = BuildActionOptions
+        elif self.action is Action.TEST:
+            expected_type = TestActionOptions
+        elif self.action is Action.RUN:
+            expected_type = RunActionOptions
+        elif self.action is Action.PURGE:
+            expected_type = PurgeActionOptions
+        elif self.action in {Action.CREATE_MODULE, Action.CREATE_PROJECT}:
+            expected_type = CreateActionOptions
+        else:
+            expected_type = None
+        if expected_type is None:
+            if self.options is not None:
+                raise BuildToolError(
+                    f"{self.action.value} does not accept action-specific options."
+                )
+            return
+        if not isinstance(self.options, expected_type):
+            raise BuildToolError(
+                f"{self.action.value} requires {expected_type.__name__}."
+            )
+        if isinstance(self.options, BuildActionOptions):
+            if self.action is Action.CONFIGURE and self.options.target:
+                raise BuildToolError("configure does not accept a build target.")
+            if self.action is not Action.CONFIGURE and self.options.fresh:
+                raise BuildToolError("--fresh is only valid with configure.")
+        if isinstance(self.options, CreateActionOptions):
+            expected_kind = (
+                CreateKind.MODULE
+                if self.action is Action.CREATE_MODULE
+                else CreateKind.PROJECT
+            )
+            if self.options.kind is not expected_kind:
+                raise BuildToolError(
+                    f"{self.action.value} requires create kind {expected_kind.value}."
+                )
+
+    def with_action(self, action: Action) -> "CommandRequest":
+        return CommandRequest(action, context=self.context, output=self.output)
+
+    def with_preset(self, preset: str) -> "CommandRequest":
+        return replace(self, context=replace(self.context, preset=preset))
+
+    def with_project_path(self, project_path: Path) -> "CommandRequest":
+        if not isinstance(self.options, RunActionOptions):
+            raise BuildToolError("Only run requests can select a project.")
+        return replace(
+            self,
+            options=replace(self.options, project_path=project_path),
+        )
+
+    @property
+    def profile(self) -> str:
+        return self.context.profile
+
+    @property
+    def preset(self) -> str:
+        return self.context.preset
+
+    @property
+    def cmake(self) -> str:
+        return self.context.cmake
+
+    @property
+    def environment_setup(self) -> str:
+        return self.context.environment_setup
+
+    @property
+    def jobs(self) -> int | None:
+        return self.context.jobs
+
+    @property
+    def plain(self) -> bool:
+        return self.output.plain
+
+    @property
+    def output_mode(self) -> OutputMode:
+        return self.output.mode
+
+    @property
+    def target(self) -> str:
+        if isinstance(self.options, (BuildActionOptions, TestActionOptions)):
+            return self.options.target
+        return ""
+
+    @property
+    def fresh(self) -> bool:
+        return (
+            self.options.fresh
+            if isinstance(self.options, BuildActionOptions)
+            else False
+        )
+
+    @property
+    def test_filter(self) -> str:
+        return self.options.filter if isinstance(self.options, TestActionOptions) else ""
+
+    @property
+    def test_timeout_seconds(self) -> int:
+        return (
+            self.options.timeout_seconds
+            if isinstance(self.options, TestActionOptions)
+            else 300
+        )
+
+    @property
+    def test_schedule_random(self) -> bool:
+        return (
+            self.options.schedule_random
+            if isinstance(self.options, TestActionOptions)
+            else False
+        )
+
+    @property
+    def test_output_junit(self) -> Path | None:
+        return (
+            self.options.output_junit
+            if isinstance(self.options, TestActionOptions)
+            else None
+        )
+
+    @property
+    def test_ctest_regex(self) -> str:
+        return (
+            self.options.ctest_regex
+            if isinstance(self.options, TestActionOptions)
+            else ""
+        )
+
+    @property
+    def test_include_direct(self) -> bool:
+        return (
+            self.options.include_direct
+            if isinstance(self.options, TestActionOptions)
+            else False
+        )
+
+    @property
+    def run_arguments(self) -> tuple[str, ...]:
+        return self.options.arguments if isinstance(self.options, RunActionOptions) else ()
+
+    @property
+    def all_presets(self) -> bool:
+        return (
+            self.options.all_presets
+            if isinstance(self.options, PurgeActionOptions)
+            else False
+        )
+
+    @property
+    def yes(self) -> bool:
+        return self.options.yes if isinstance(self.options, PurgeActionOptions) else False
+
+    @property
+    def create_options(self) -> CreateActionOptions | None:
+        return self.options if isinstance(self.options, CreateActionOptions) else None
+
+    @property
+    def create_kind(self) -> CreateKind | None:
+        return self.create_options.kind if self.create_options else None
+
+    @property
+    def create_name(self) -> str:
+        return self.create_options.name if self.create_options else ""
+
+    @property
+    def project_path(self) -> Path | None:
+        if isinstance(self.options, (RunActionOptions, CreateActionOptions)):
+            return self.options.project_path
+        return None
+
+    @property
+    def destination_path(self) -> Path | None:
+        return self.create_options.destination_path if self.create_options else None
+
+    @property
+    def module_kind(self) -> ModuleKind:
+        return (
+            self.create_options.module_kind
+            if self.create_options
+            else ModuleKind.RUNTIME
+        )
+
+    @property
+    def link_type(self) -> LinkType:
+        return self.create_options.link_type if self.create_options else LinkType.SHARED
+
+    @property
+    def pch(self) -> str:
+        return self.create_options.pch if self.create_options else ""
+
+    @property
+    def public_dependencies(self) -> tuple[str, ...]:
+        return self.create_options.public_dependencies if self.create_options else ()
+
+    @property
+    def private_dependencies(self) -> tuple[str, ...]:
+        return self.create_options.private_dependencies if self.create_options else ()
+
+    @property
+    def optional_public_dependencies(self) -> tuple[str, ...]:
+        return (
+            self.create_options.optional_public_dependencies
+            if self.create_options
+            else ()
+        )
+
+    @property
+    def optional_private_dependencies(self) -> tuple[str, ...]:
+        return (
+            self.create_options.optional_private_dependencies
+            if self.create_options
+            else ()
+        )
+
+    @property
+    def enablements(self) -> tuple[str, ...] | None:
+        return self.create_options.enablements if self.create_options else None
+
+    @property
+    def dry_run(self) -> bool:
+        return self.create_options.dry_run if self.create_options else False
 
 
 @dataclass

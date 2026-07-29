@@ -149,7 +149,11 @@ class TestOutput:
     def test_failure_without_derived_context_uses_available_request_details(self) -> None:
         stderr = io.StringIO()
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=stderr)
-        request = build_config.CommandRequest(build_config.Action.TEST, target='CoreTests', preset='debug')
+        request = build_config.CommandRequest(
+            build_config.Action.TEST,
+            context=build_config.RequestContext(preset='debug'),
+            options=build_config.TestActionOptions(target='CoreTests'),
+        )
         output.failure(build_config.BuildToolError('validation failed'), None, 0.5, request=request)
         text = stderr.getvalue()
         assert 'ERROR: Test failed: validation failed' in text

@@ -1,84 +1,117 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 from pathlib import Path
 from typing import TextIO
 
 from .config import (
     Action,
+    BuildActionOptions,
     CommandRequest,
+    CreateActionOptions,
     CreateKind,
     LinkType,
     ModuleKind,
+    OutputOptions,
     OutputMode,
+    PurgeActionOptions,
+    RequestContext,
+    RunActionOptions,
+    TestActionOptions,
 )
-from .operations import execute_request, execute_shell_request
+from .operations import execute_request
 
 
-NAMESPACE_FIELDS = {
-    "target": "target",
-    "jobs": "jobs",
-    "filter": "test_filter",
-    "timeout": "test_timeout_seconds",
-    "schedule_random": "test_schedule_random",
-    "output_junit": "test_output_junit",
-    "ctest_regex": "test_ctest_regex",
-    "include_direct": "test_include_direct",
-    "run_arguments": "run_arguments",
-    "profile": "profile",
-    "preset": "preset",
-    "cmake": "cmake",
-    "environment_setup": "environment_setup",
-    "all_presets": "all_presets",
-    "yes": "yes",
-    "fresh": "fresh",
-    "plain": "plain",
-    "output_mode": "output_mode",
-    "create_name": "create_name",
-    "project_path": "project_path",
-    "destination_path": "destination_path",
-    "module_kind": "module_kind",
-    "link_type": "link_type",
-    "pch": "pch",
-    "public_dependencies": "public_dependencies",
-    "private_dependencies": "private_dependencies",
-    "optional_public_dependencies": "optional_public_dependencies",
-    "optional_private_dependencies": "optional_private_dependencies",
-    "enablements": "enablements",
-    "dry_run": "dry_run",
-}
+def namespace_value(
+    namespace: argparse.Namespace,
+    name: str,
+    default: object,
+) -> object:
+    return getattr(namespace, name, default)
 
 
 def request_from_namespace(namespace: argparse.Namespace) -> CommandRequest:
     action = Action(namespace.build_action)
-    changes: dict[str, object] = {"action": action}
-    for namespace_name, request_name in NAMESPACE_FIELDS.items():
-        if not hasattr(namespace, namespace_name):
-            continue
-        value = getattr(namespace, namespace_name)
-        if request_name == "output_mode":
-            value = OutputMode(value)
-        elif request_name == "module_kind":
-            value = ModuleKind(value)
-        elif request_name == "link_type":
-            value = LinkType(value)
-        elif request_name in {
-            "run_arguments",
-            "public_dependencies",
-            "private_dependencies",
-            "optional_public_dependencies",
-            "optional_private_dependencies",
-        }:
-            value = tuple(value or ())
-        elif request_name == "enablements" and value is not None:
-            value = tuple(value)
-        changes[request_name] = value
+    selected_preset = str(namespace_value(namespace, "selected_preset", ""))
+    context = RequestContext(
+        profile=str(namespace_value(namespace, "profile", "")),
+        preset=selected_preset or str(namespace_value(namespace, "preset", "")),
+        cmake=str(namespace_value(namespace, "cmake", "")),
+        environment_setup=str(
+            namespace_value(namespace, "environment_setup", "")
+        ),
+        jobs=namespace_value(namespace, "jobs", None),
+    )
+    output = OutputOptions(
+        plain=bool(namespace_value(namespace, "plain", False)),
+        mode=OutputMode(namespace_value(namespace, "output_mode", OutputMode.AUTO)),
+    )
+    options = None
+    if action in {Action.CONFIGURE, Action.BUILD, Action.REBUILD}:
+        options = BuildActionOptions(
+            target=str(namespace_value(namespace, "target", "")),
+            fresh=bool(namespace_value(namespace, "fresh", False)),
+        )
+    elif action is Action.TEST:
+        options = TestActionOptions(
+            target=str(namespace_value(namespace, "target", "")),
+            filter=str(namespace_value(namespace, "filter", "")),
+            timeout_seconds=int(namespace_value(namespace, "timeout", 300)),
+            schedule_random=bool(
+                namespace_value(namespace, "schedule_random", False)
+            ),
+            output_junit=namespace_value(namespace, "output_junit", None),
+            ctest_regex=str(namespace_value(namespace, "ctest_regex", "")),
+            include_direct=bool(
+                namespace_value(namespace, "include_direct", False)
+            ),
+        )
+    elif action is Action.RUN:
+        options = RunActionOptions(
+            project_path=namespace_value(namespace, "project_path", None),
+            arguments=tuple(namespace_value(namespace, "run_arguments", ()) or ()),
+        )
+    elif action is Action.PURGE:
+        options = PurgeActionOptions(
+            all_presets=bool(namespace_value(namespace, "all_presets", False)),
+            yes=bool(namespace_value(namespace, "yes", False)),
+        )
     if action is Action.CREATE_MODULE:
-        changes["create_kind"] = CreateKind.MODULE
+        create_kind = CreateKind.MODULE
     elif action is Action.CREATE_PROJECT:
-        changes["create_kind"] = CreateKind.PROJECT
-    return replace(CommandRequest(action), **changes)
+        create_kind = CreateKind.PROJECT
+    else:
+        create_kind = None
+    if create_kind is not None:
+        enablements = namespace_value(namespace, "enablements", None)
+        options = CreateActionOptions(
+            kind=create_kind,
+            name=str(namespace_value(namespace, "create_name", "")),
+            project_path=namespace_value(namespace, "project_path", None),
+            destination_path=namespace_value(namespace, "destination_path", None),
+            module_kind=ModuleKind(
+                namespace_value(namespace, "module_kind", ModuleKind.RUNTIME)
+            ),
+            link_type=LinkType(
+                namespace_value(namespace, "link_type", LinkType.SHARED)
+            ),
+            pch=str(namespace_value(namespace, "pch", "")),
+            public_dependencies=tuple(
+                namespace_value(namespace, "public_dependencies", ()) or ()
+            ),
+            private_dependencies=tuple(
+                namespace_value(namespace, "private_dependencies", ()) or ()
+            ),
+            optional_public_dependencies=tuple(
+                namespace_value(namespace, "optional_public_dependencies", ()) or ()
+            ),
+            optional_private_dependencies=tuple(
+                namespace_value(namespace, "optional_private_dependencies", ()) or ()
+            ),
+            enablements=None if enablements is None else tuple(enablements),
+            dry_run=bool(namespace_value(namespace, "dry_run", False)),
+        )
+    return CommandRequest(action, context=context, output=output, options=options)
 
 
 def run(
@@ -91,13 +124,10 @@ def run(
     session_state: dict[str, object] | None = None,
 ) -> int:
     del registry, repository_root
-    if getattr(namespace, "selected_preset", ""):
-        namespace.preset = namespace.selected_preset
     request = request_from_namespace(namespace)
-    executor = execute_request if session_state is None else execute_shell_request
-    return executor(
+    return execute_request(
         request,
         stdout=stdout,
         stderr=stderr,
-        **({} if session_state is None else {"session_state": session_state}),
+        session_state=session_state,
     )

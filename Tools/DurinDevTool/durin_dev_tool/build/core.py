@@ -504,7 +504,7 @@ def normalize_run_request(
             "run accepts project selection either through --project or through "
             "--args, but not both."
         )
-    return replace(request, project_path=project_path)
+    return request.with_project_path(project_path)
 
 
 def validate_request(request: CommandRequest, preset: ConfigurePreset) -> None:

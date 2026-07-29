@@ -10,11 +10,11 @@ if str(PRODUCT_ROOT) not in sys.path:
     sys.path.insert(0, str(PRODUCT_ROOT))
 from durin_dev_tool.build import handler
 from durin_dev_tool.build import operations as build_operations
-from durin_dev_tool.build.config import Action, CommandRequest, CreateKind, LinkType, LocalConfig, ModuleKind, OutputMode
+from durin_dev_tool.build.config import Action, BuildActionOptions, CommandRequest, CreateKind, LinkType, LocalConfig, ModuleKind, OutputMode, OutputOptions, RequestContext
 from durin_dev_tool.configuration import FEATURE_NAMES
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
-from durin_dev_tool.shell import normalize_compact_build_command, split_shell_command
+from durin_dev_tool.shell import normalize_compact_build_command, run_shell, split_shell_command
 
 class TestBuildRegistry:
 
@@ -49,12 +49,49 @@ class TestBuildRegistry:
         with pytest.raises(DevToolError):
             registry.parse(['doc', 'list'])
 
-    def test_direct_and_shell_tokens_produce_identical_namespaces(self) -> None:
+    def test_direct_and_shell_entry_paths_dispatch_identical_requests(self) -> None:
         commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --output full', 'open-runtime --preset win-msvc-x64-debug', 'configure --fresh --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all', 'test --target CoreTests --filter Core.* --timeout 45', 'test --target all --schedule-random --output-junit Build/results.xml --ctest-regex ^Core\\. --include-direct', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
-        for command in commands:
-            direct = vars(self.parse(split_shell_command(command)))
-            shell = vars(self.parse(split_shell_command(command)))
-            assert direct == shell
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        def acquire(request: CommandRequest, *, session_state: dict[str, object] | None):
+            current_preset = request.preset or 'current'
+            return build_operations.AcquiredRequest(request, mock.sentinel.context, current_preset)
+
+        with mock.patch.object(build_operations, 'acquire_request_context', side_effect=acquire) as acquire_context, mock.patch.object(build_operations, 'dispatch_request') as dispatch:
+            for command in commands:
+                specification, namespace = self.registry.parse(split_shell_command(command))
+                assert self.registry.execute(
+                    specification,
+                    namespace,
+                    repository_root=REPOSITORY_ROOT,
+                    stdout=stdout,
+                    stderr=stderr,
+                ) == 0
+            direct_requests = [call.args[0].request for call in dispatch.call_args_list]
+            assert all(call.kwargs['session_state'] is None for call in acquire_context.call_args_list)
+
+            dispatch.reset_mock()
+            acquire_context.reset_mock()
+            shell_lines = iter((*commands, 'exit'))
+            assert run_shell(
+                registry=self.registry,
+                repository_root=REPOSITORY_ROOT,
+                stdout=stdout,
+                stderr=stderr,
+                input_func=lambda _prompt: next(shell_lines),
+            ) == 0
+            shell_requests = [call.args[0].request for call in dispatch.call_args_list]
+            assert all(
+                isinstance(call.kwargs['session_state'], dict)
+                for call in acquire_context.call_args_list
+            )
+
+        assert direct_requests == shell_requests
+
+    def test_request_rejects_options_for_an_unrelated_action(self) -> None:
+        with pytest.raises(build_operations.BuildToolError, match='does not accept'):
+            CommandRequest(Action.STATUS, options=BuildActionOptions())
 
     def test_build_commands_are_case_insensitive_and_keep_slash_aliases(self) -> None:
         canonical = vars(self.parse(['build', '--target', 'Core']))
@@ -122,8 +159,12 @@ class TestBuildRegistry:
             return child
         state: dict[str, object] = {}
         with mock.patch.object(build_operations, 'create_context', return_value=base), mock.patch.object(build_operations, 'prepare_toolchain_environment', side_effect=prepare_environment) as prepare_environment_context, mock.patch.object(build_operations, 'prepare_command_context', side_effect=prepare_command) as prepare_command_context, mock.patch.object(build_operations, 'derive_context', side_effect=derive), mock.patch.object(build_operations, 'execute_context') as execute:
-            for request in (CommandRequest(Action.BUILD, target='Core', plain=True), CommandRequest(Action.PRESET, preset='release', plain=True), CommandRequest(Action.BUILD, target='Core', plain=True)):
-                assert build_operations.execute_shell_request(request, session_state=state, stdout=io.StringIO(), stderr=io.StringIO()) == 0
+            for request in (
+                CommandRequest(Action.BUILD, output=OutputOptions(plain=True), options=BuildActionOptions(target='Core')),
+                CommandRequest(Action.PRESET, context=RequestContext(preset='release'), output=OutputOptions(plain=True)),
+                CommandRequest(Action.BUILD, output=OutputOptions(plain=True), options=BuildActionOptions(target='Core')),
+            ):
+                assert build_operations.execute_request(request, session_state=state, stdout=io.StringIO(), stderr=io.StringIO()) == 0
         prepare_environment_context.assert_called_once_with(base)
         prepare_command_context.assert_called_once()
         assert [call.args[0].preset.name for call in execute.call_args_list] == ['debug', 'release']
