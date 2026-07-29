@@ -124,6 +124,13 @@ namespace
 		ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 			std::as_bytes(std::span(PackageBytes)), PackagePath));
 	}
+
+	auto RestartAssetManager() -> void
+	{
+		Durin::Asset::ShutdownAssetManager();
+		Durin::CollectGarbage();
+		Durin::Asset::FAssetManager::Get().Initialize();
+	}
 }
 
 TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
@@ -276,7 +283,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
 	Durin::Testing::RemoveTestWorkDirectory(Root / "SourceAssets");
-	Durin::Asset::ShutdownAssetManager();
+	RestartAssetManager();
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
 	Durin::PathUtilities::RegisterMountPoint(
@@ -431,7 +438,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::CollectGarbage();
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(CookedPath));
 	CookedTexture = nullptr;
-	Durin::Asset::ShutdownAssetManager();
+	RestartAssetManager();
 	struct FRetireCookedTextureResource
 	{
 		static constexpr auto GetName() -> const char* { return "RetireCookedTextureResource"; }
@@ -455,10 +462,10 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	EXPECT_FALSE(MissingBulk);
 	EXPECT_EQ(CookedTexture, nullptr);
 	EXPECT_NE(MissingBulk.Message.find("Cooked Texture2D"), std::string::npos);
-	Durin::Asset::ShutdownAssetManager();
 
 	auto ExpectCookedFailure = [](const std::filesystem::path& FailureRoot,
 								   std::string_view ExpectedText) {
+		RestartAssetManager();
 		ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 			Durin::Asset::EPackageLoadMode::CookedRuntime, FailureRoot}));
 		Durin::PathUtilities::RegisterMountPoint(
@@ -470,9 +477,10 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		EXPECT_FALSE(Result);
 		EXPECT_EQ(Texture, nullptr);
 		EXPECT_NE(Result.Message.find(ExpectedText), std::string::npos) << Result.Message;
-		Durin::Asset::ShutdownAssetManager();
 	};
 	ExpectCookedFailure(WrongProfileRoot, "target");
 	ExpectCookedFailure(UnsupportedFormatRoot, "pixel format");
 	ExpectCookedFailure(CorruptRoot, "checksum");
+	Durin::Asset::ShutdownAssetManager();
+	Durin::CollectGarbage();
 }
