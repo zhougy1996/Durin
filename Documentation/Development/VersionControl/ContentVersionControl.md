@@ -69,6 +69,74 @@ git lfs pull
 
 `git lfs install` is normally required only once per workstation. A clone made without Git LFS may contain small pointer files instead of the actual assets; install LFS and run `git lfs pull` to populate them.
 
+### Codex Sandbox LFS Storage
+
+Codex `workspace-write` sessions protect the repository `.git` directory
+recursively. Git LFS stores objects and temporary files under `.git/lfs` by
+default, so a read-only command such as `git status` can fail intermittently
+when the LFS clean filter needs to create a temporary file. Adding
+`.git/lfs/tmp` as a Codex writable root does not override the recursive `.git`
+protection.
+
+Developers who use Codex with this repository should move the workstation-local
+LFS storage to a directory beside the checkout and grant Codex write access to
+that directory. Run the following once from any Durin worktree in a normal
+PowerShell session, outside the Codex sandbox:
+
+```powershell
+$repoRoot = (git rev-parse --show-toplevel)
+$repoName = Split-Path -Leaf $repoRoot
+$storageRoot = Join-Path (Split-Path -Parent $repoRoot) "$repoName-LfsStorage"
+$commonGitDir = [System.IO.Path]::GetFullPath(
+    (git rev-parse --git-common-dir),
+    $repoRoot)
+$existingLfsStorage = Join-Path $commonGitDir "lfs"
+
+New-Item -ItemType Directory -Force -Path $storageRoot | Out-Null
+if (Test-Path -LiteralPath $existingLfsStorage) {
+    Get-ChildItem -LiteralPath $existingLfsStorage -Force |
+        Copy-Item -Destination $storageRoot -Recurse -Force
+}
+
+$gitStoragePath = $storageRoot.Replace("\", "/")
+git config --local lfs.storage $gitStoragePath
+```
+
+The local Git configuration is shared by linked worktrees, so all worktrees for
+this clone use the same external LFS storage. Do not point unrelated clones or
+repositories at the same directory. Avoid `git lfs prune` against shared custom
+storage unless every worktree and ref that depends on it has been considered.
+
+Add the resolved `$storageRoot` path to the user-level
+`%USERPROFILE%\.codex\config.toml`. Merge the setting into an existing
+`[sandbox_workspace_write]` table rather than declaring that table twice:
+
+```toml
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+writable_roots = ["D:\\Path\\To\\Durin-LfsStorage"]
+```
+
+Restart Codex or start a new task so the updated sandbox configuration is
+loaded, then verify the effective paths and repository state:
+
+```powershell
+git lfs env | Select-String "LocalMediaDir|TempDir"
+git status --short
+```
+
+`LocalMediaDir` and `TempDir` must resolve under the external storage directory,
+and `git status --short` must complete without an LFS permission error. If the
+cache was not copied, or some required objects are absent, run `git lfs pull`
+from a normal network-enabled shell.
+
+See the
+[Codex protected-path policy](https://learn.chatgpt.com/docs/agent-approvals-security#protected-paths-in-writable-roots)
+and the
+[Git LFS `lfs.storage` reference](https://github.com/git-lfs/git-lfs/blob/main/docs/man/git-lfs-config.adoc)
+for the underlying constraints.
+
 If an optional source checkout is absent, the mount remains unavailable and
 warm DDC-backed editor loading may still succeed. Restore the declared checkout
 or link and fetch its LFS objects; do not copy files into Content or edit the
