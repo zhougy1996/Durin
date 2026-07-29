@@ -1171,12 +1171,12 @@ TEST(FStaticModelImportBuildTests, RollbackRestoresPreexistingLoadedObjectAndPac
 		SeedSource.generic_string(), "/TextureImportTests/StaticModelImport/Existing");
 	ASSERT_TRUE(Seed) << Seed.Message;
 	ASSERT_NE(Seed.Asset, nullptr);
-	Durin::FProperty* LegacySourceProperty =
-		Seed.Asset->GetClass()->FindPropertyByName("SourceFile");
-	ASSERT_NE(LegacySourceProperty, nullptr);
-	auto* LegacySource = static_cast<std::string*>(
-		LegacySourceProperty->GetValuePtr(Seed.Asset));
-	const std::string OriginalValue = *LegacySource;
+	Durin::FProperty* SourceHashProperty =
+		Seed.Asset->GetClass()->FindPropertyByName("SourceContentHash");
+	ASSERT_NE(SourceHashProperty, nullptr);
+	auto* SourceHash = static_cast<std::string*>(
+		SourceHashProperty->GetValuePtr(Seed.Asset));
+	const std::string OriginalValue = *SourceHash;
 	const bool bOriginalDirty = Seed.Asset->GetPackage()->IsDirty();
 	const Durin::FAssetPath ExistingPath =
 		MakeAssetPath("/TextureImportTests/StaticModelImport/Existing");
@@ -1194,12 +1194,12 @@ TEST(FStaticModelImportBuildTests, RollbackRestoresPreexistingLoadedObjectAndPac
 		true));
 	Transaction.AddLoadedObjectMutation(
 		[&](std::string&) {
-			*LegacySource = "mutated-during-attempt";
+			*SourceHash = "mutated-during-attempt";
 			Seed.Asset->MarkPackageDirty();
 			return true;
 		},
 		[&] {
-			*LegacySource = OriginalValue;
+			*SourceHash = OriginalValue;
 			if (bOriginalDirty) Seed.Asset->MarkPackageDirty();
 			else Seed.Asset->GetPackage()->ClearDirty();
 		});
@@ -1207,7 +1207,7 @@ TEST(FStaticModelImportBuildTests, RollbackRestoresPreexistingLoadedObjectAndPac
 		Transaction, Durin::EImportTransactionFailurePoint::RegistryPublication);
 	const Durin::FImportTransactionResult Result = Transaction.Execute();
 	EXPECT_FALSE(Result);
-	EXPECT_EQ(*LegacySource, OriginalValue);
+	EXPECT_EQ(*SourceHash, OriginalValue);
 	EXPECT_EQ(Seed.Asset->GetPackage()->IsDirty(), bOriginalDirty);
 	EXPECT_EQ(*Durin::Asset::GetAssetRegistry().FindAsset(ExistingPath), OriginalRegistry);
 	std::vector<Durin::uint8> RestoredPackageBytes;

@@ -397,33 +397,12 @@ TEST(FTexture2DTests, ReportsMountedSourceBytesChangedSinceImport)
 	EXPECT_NE(Changed.Message.find("changed"), std::string::npos);
 }
 
-TEST(FTexture2DTests, LegacyPackageAdjacentSourceIsRejectedAfterMigration)
+TEST(FTexture2DTests, RetiredSourceFileIsNotReflected)
 {
 	InitializeDObjectSystem();
-	FScopedDerivedDataCacheRoot CacheRoot(
-		Durin::Testing::GetTestWorkDirectory() / "LegacyTextureSourceCache");
-	const std::filesystem::path LegacySource =
-		Durin::Testing::GetTestWorkDirectory() / "TextureImports"
-		/ "Content" / "Legacy.png";
-	WriteTextureFixture(LegacySource);
-
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Legacy", AssetPath));
-	Durin::DTexture2D* Texture = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(AssetPath, Texture));
-	auto* SourceProperty = Texture->GetClass()->FindPropertyByName("SourceFile");
-	ASSERT_NE(SourceProperty, nullptr);
-	*static_cast<std::string*>(SourceProperty->GetValuePtr(Texture)) = "Legacy.png";
-	Texture->MarkPackageDirty();
-	ASSERT_TRUE(Durin::Asset::SavePackage(Texture->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-
-	Texture = nullptr;
-	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(AssetPath, Texture);
-	EXPECT_FALSE(LoadResult);
-	EXPECT_EQ(Texture, nullptr);
-	EXPECT_NE(LoadResult.Message.find("Legacy texture source metadata is unsupported"), std::string::npos)
-		<< LoadResult.Message;
+	EXPECT_EQ(
+		Durin::DTexture2D::StaticClass()->FindPropertyByName("SourceFile"),
+		nullptr);
 }
 
 TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)

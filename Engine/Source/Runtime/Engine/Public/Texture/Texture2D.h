@@ -269,9 +269,6 @@ namespace Durin
 		auto LoadCookedPlatformData(std::string& OutError) -> bool;
 
 		DPROPERTY()
-		std::string SourceFile;
-
-		DPROPERTY()
 		FTexture2DSourceImportData SourceImportData;
 
 		// Imported content identity and lightweight diagnostics remain in the package

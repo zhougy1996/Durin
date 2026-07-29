@@ -209,27 +209,6 @@ namespace Durin
 		DPROPERTY()
 		FTextureCubeSourceImportData SourceImportData;
 
-		DPROPERTY(DisplayName = "Positive X Source")
-		std::string PositiveXSourceFile;
-
-		DPROPERTY(DisplayName = "Negative X Source")
-		std::string NegativeXSourceFile;
-
-		DPROPERTY(DisplayName = "Positive Y Source")
-		std::string PositiveYSourceFile;
-
-		DPROPERTY(DisplayName = "Negative Y Source")
-		std::string NegativeYSourceFile;
-
-		DPROPERTY(DisplayName = "Positive Z Source")
-		std::string PositiveZSourceFile;
-
-		DPROPERTY(DisplayName = "Negative Z Source")
-		std::string NegativeZSourceFile;
-
-		DPROPERTY(DisplayName = "Panorama Source")
-		std::string PanoramaSourceFile;
-
 		DPROPERTY(DisplayName = "Panorama Face Dimension")
 		uint32 PanoramaFaceDimension = 0;
 

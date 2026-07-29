@@ -26,6 +26,10 @@ namespace Durin
 		constexpr std::string_view DefaultTextureSourceRoot = "SourceAssets/Textures";
 		constexpr std::string_view TextureDecoderId = "DurinImage";
 		constexpr uint32 TextureDecoderVersion = 1;
+		constexpr std::string_view Texture2DLegacySourceHandler =
+			"Engine.Texture2D.LegacySourceFile";
+		constexpr std::string_view Texture2DClassName = "Durin::DTexture2D";
+		constexpr std::string_view LegacySourceFileName = "SourceFile";
 
 		auto GetTextureObjectStore() -> Asset::FDerivedDataObjectStore
 		{
@@ -187,6 +191,112 @@ namespace Durin
 			return true;
 		}
 
+		auto FindLegacySourceFile(
+			std::span<const Asset::FAssetLegacyField> Fields)
+			-> const Asset::FAssetLegacyField*
+		{
+			const auto It = std::ranges::find_if(
+				Fields, [](const Asset::FAssetLegacyField& Field) {
+					return Field.DeclaringClass == Texture2DClassName
+						&& Field.Name == LegacySourceFileName
+						&& Field.Kind == DurinCodeGen::EPropertyGenFlags::String
+						&& Field.TypeSignature == "String";
+				});
+			return It == Fields.end() ? nullptr : &*It;
+		}
+
+		auto ReadLegacySourceFile(
+			const Asset::FAssetLegacyField& Field,
+			std::string& OutSourceFile) -> bool
+		{
+			return Asset::FAssetPackageField{
+				.DeclaringClass = Field.DeclaringClass,
+				.Name = Field.Name,
+				.Kind = Field.Kind,
+				.TypeSignature = Field.TypeSignature,
+				.Payload = Field.Payload}.TryReadString(OutSourceFile);
+		}
+
+		auto ResolveLegacySourceFile(
+			const DTexture2D& Texture,
+			std::string_view LegacySourceFile,
+			FMountedSourceFile& OutSource,
+			std::string& OutError) -> bool
+		{
+			if (!Texture.GetPackage())
+			{
+				OutError = "Legacy Texture2D source migration requires an owning package.";
+				return false;
+			}
+			std::string SourcePath(LegacySourceFile);
+			if (LegacySourceFile.starts_with(SourceAssetsRoot))
+			{
+				const PathUtilities::FMountPoint* Mount =
+					FindOwningMount(Texture.GetPackage()->GetPackagePath());
+				if (!Mount)
+				{
+					OutError = "Legacy Texture2D source migration could not resolve the package mount.";
+					return false;
+				}
+				std::string_view Relative = LegacySourceFile.substr(SourceAssetsRoot.size());
+				if (Relative.starts_with('/')) Relative.remove_prefix(1);
+				SourcePath = Mount->VirtualRoot + std::string(Relative);
+			}
+			else if (!LegacySourceFile.starts_with('/'))
+			{
+				OutError =
+					"the legacy path is package-relative and has no unambiguous SourceAssets owner";
+				return false;
+			}
+			return ResolveMountedSourceReference(
+				Texture.GetPackage()->GetPackagePath(), SourcePath, OutSource, OutError);
+		}
+
+		const bool GTexture2DLegacySourceInspectionUpgraderRegistered = [] {
+			Asset::RegisterAssetStructureInspectionUpgrader(
+				std::string(Texture2DClassName),
+				std::string(Texture2DLegacySourceHandler),
+				[](const Asset::FAssetPackageInspection&,
+					const Asset::FAssetPackageObjectInspection& Object,
+					std::span<const Asset::FAssetLegacyField> Fields,
+					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
+					-> Asset::FAssetResult
+				{
+					const Asset::FAssetLegacyField* LegacyField =
+						FindLegacySourceFile(Fields);
+					if (!LegacyField) return {};
+					std::string LegacySourceFile;
+					if (!ReadLegacySourceFile(*LegacyField, LegacySourceFile))
+						return {
+							Asset::EAssetError::CorruptFile,
+							"Invalid legacy Texture2D SourceFile payload."};
+
+					FTexture2DSourceImportData Provenance;
+					const Asset::FAssetPackageField* ProvenanceField =
+						Object.FindField("SourceImportData");
+					const bool bHasCanonicalProvenance = ProvenanceField
+						&& ProvenanceField->TryReadStruct(
+							FTexture2DSourceImportData::StaticStruct(), &Provenance)
+						&& Provenance.HasSource();
+					const bool bSafeCleanup =
+						LegacySourceFile.empty() || bHasCanonicalProvenance;
+					OutIssues.push_back({
+						.DeclaringClass = std::string(Texture2DClassName),
+						.LegacyFields = {*LegacyField},
+						.Classification = bSafeCleanup
+							? Asset::EAssetCompatibilityClassification::SafeCleanup
+							: Asset::EAssetCompatibilityClassification::DataLossRisk,
+						.MigrationSummary = bSafeCleanup
+							? "Will remove the retired Texture2D SourceFile field; canonical provenance is already authoritative."
+							: "Texture2D has only retired SourceFile metadata. Load the asset to attempt SourceAssets migration, or reimport it for manual repair.",
+						.Risk = bSafeCleanup
+							? Asset::EAssetCompatibilityRisk::None
+							: Asset::EAssetCompatibilityRisk::PotentialDataLoss});
+					return {};
+				});
+			return true;
+		}();
+
 		auto MakeTextureDerivedDataKey(const DTexture2D& Texture, std::string& OutKey, std::string& OutError) -> bool
 		{
 			FXxHash128 SourceHash;
@@ -303,6 +413,82 @@ namespace Durin
 	DTexture2D::DTexture2D(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
+		static const bool RegisteredStructureUpgrader = [] {
+			Asset::RegisterAssetStructureUpgrader(
+				DTexture2D::StaticClass(),
+				std::string(Texture2DLegacySourceHandler),
+				[](DObject* Object,
+					std::span<const Asset::FAssetLegacyField> Fields,
+					const Asset::FAssetMigrationContext&,
+					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
+					-> Asset::FAssetResult
+				{
+					auto* Texture = Cast<DTexture2D>(Object);
+					if (!Texture)
+						return {
+							Asset::EAssetError::TypeMismatch,
+							"Texture2D legacy-source upgrader received an incompatible object."};
+					const Asset::FAssetLegacyField* LegacyField =
+						FindLegacySourceFile(Fields);
+					if (!LegacyField) return {};
+					std::string LegacySourceFile;
+					if (!ReadLegacySourceFile(*LegacyField, LegacySourceFile))
+						return {
+							Asset::EAssetError::CorruptFile,
+							"Invalid legacy Texture2D SourceFile payload."};
+
+					if (Texture->SourceImportData.HasSource() || LegacySourceFile.empty())
+					{
+						OutIssues.push_back({
+							.DeclaringClass = std::string(Texture2DClassName),
+							.LegacyFields = {*LegacyField},
+							.Classification =
+								Asset::EAssetCompatibilityClassification::SafeCleanup,
+							.MigrationSummary =
+								"Removed the retired Texture2D SourceFile field; canonical provenance remains authoritative.",
+							.Risk = Asset::EAssetCompatibilityRisk::None});
+						return {};
+					}
+
+					FMountedSourceFile Source;
+					std::string Error;
+					if (!ResolveLegacySourceFile(
+						*Texture, LegacySourceFile, Source, Error))
+						return {
+							Asset::EAssetError::UnsupportedProperty,
+							std::format(
+								"Legacy Texture2D source '{}' requires manual repair: {}. "
+								"Reimport the asset to create canonical SourceAssets provenance.",
+								LegacySourceFile, Error)};
+					FXxHash128 SourceHash;
+					if (!HashTextureSource(Source.PhysicalPath, SourceHash, Error))
+						return {
+							Asset::EAssetError::UnsupportedProperty,
+							std::format(
+								"Legacy Texture2D source '{}' requires manual repair: {}.",
+								LegacySourceFile, Error)};
+					Texture->SourceImportData = {
+						.Source = {
+							.SourcePath = Source.SourcePath,
+							.SourceContentHashLow = SourceHash.HashLow,
+							.SourceContentHashHigh = SourceHash.HashHigh},
+						.DecoderId = std::string(TextureDecoderId),
+						.DecoderVersion = TextureDecoderVersion};
+					Texture->SourceContentHash = SourceHash.ToString();
+					OutIssues.push_back({
+						.DeclaringClass = std::string(Texture2DClassName),
+						.LegacyFields = {*LegacyField},
+						.Classification =
+							Asset::EAssetCompatibilityClassification::Migrated,
+						.MigrationSummary =
+							"Migrated retired Texture2D SourceFile metadata to canonical SourceImportData provenance.",
+						.MigratedDataCount = 1,
+						.Risk = Asset::EAssetCompatibilityRisk::None});
+					return {};
+				});
+			return true;
+		}();
+		(void)RegisteredStructureUpgrader;
 		static const bool RegisteredAssetContributors = [] {
 			Asset::RegisterAssetMoveContributor(DTexture2D::StaticClass(), [](DObject*, const FAssetPath&, const FAssetPath&,
 				Asset::FAssetMoveContribution&) -> Asset::FAssetResult {
@@ -411,9 +597,7 @@ namespace Durin
 		if (SourceData && SourceData->IsValid()) return true;
 		if (!SourceImportData.HasSource())
 		{
-			OutError = SourceFile.empty()
-				? "Texture asset has no source file."
-				: "Legacy texture source metadata is unsupported. Reimport the asset to create normalized SourceAssets provenance.";
+			OutError = "Texture asset has no source file.";
 			return false;
 		}
 		std::filesystem::path PhysicalPath;
@@ -627,13 +811,7 @@ namespace Durin
 	auto DTexture2D::InspectSource() const -> FTextureSourceDiagnostic
 	{
 		if (!SourceImportData.HasSource())
-		{
-			if (SourceFile.empty()) return {};
-			return {
-				ETextureSourceStatus::Invalid,
-				{},
-				"Legacy texture source metadata is unsupported. Reimport the asset to create normalized SourceAssets provenance."};
-		}
+			return {};
 		std::filesystem::path PhysicalPath;
 		std::string Error;
 		if (!ResolveTextureSource(*this, PhysicalPath, Error))
@@ -733,7 +911,6 @@ namespace Durin
 				.SourceContentHashHigh = SourceHash.HashHigh},
 			.DecoderId = std::string(TextureDecoderId),
 			.DecoderVersion = TextureDecoderVersion};
-		SourceFile.clear();
 		SourceContentHash = SourceHash.ToString();
 		UpdateSourceFingerprint(Destination);
 		SourceWidth = CandidateSourceData.Width;
@@ -897,9 +1074,7 @@ namespace Durin
 		bLoadedFromDerivedDataCache = false;
 		if (!SourceImportData.HasSource())
 		{
-			OutError = SourceFile.empty()
-				? "Texture asset has no source file."
-				: "Legacy texture source metadata is unsupported. Reimport the asset to create normalized SourceAssets provenance.";
+			OutError = "Texture asset has no source file.";
 			DerivedDataDiagnostic.Status = ETextureDerivedDataStatus::SourceUnavailable;
 			DerivedDataDiagnostic.Message = OutError;
 			BuildStatus = ETextureBuildStatus::MissingSource;
@@ -1187,7 +1362,6 @@ namespace Durin
 					return false;
 				}
 
-				const std::string SavedSourceFile = SourceFile;
 				const FTexture2DSourceImportData SavedSourceImportData = SourceImportData;
 				const std::string SavedSourceContentHash = SourceContentHash;
 				const uint64 SavedSourceFileSize = SourceFileSize;
@@ -1200,7 +1374,6 @@ namespace Durin
 				CookedPayload = Descriptors.front();
 				if (!bRetainDiagnosticSourceMetadata)
 				{
-					SourceFile.clear();
 					SourceImportData = {};
 					SourceContentHash.clear();
 					SourceFileSize = 0;
@@ -1218,8 +1391,7 @@ namespace Durin
 						const DObject* Object, const FProperty* Property) {
 						if (Object != this) return true;
 						const FName Name = Property->NamePrivate;
-						return Name != FName("SourceFile")
-							&& Name != FName("SourceImportData")
+						return Name != FName("SourceImportData")
 							&& Name != FName("SourceContentHash")
 							&& Name != FName("SourceFileSize")
 							&& Name != FName("SourceLastWriteTime")
@@ -1231,7 +1403,6 @@ namespace Durin
 				}
 				const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(
 					GetPackage(), OutPackageBytes, SerializationOptions);
-				SourceFile = SavedSourceFile;
 				SourceImportData = SavedSourceImportData;
 				SourceContentHash = SavedSourceContentHash;
 				SourceFileSize = SavedSourceFileSize;
@@ -1422,7 +1593,6 @@ namespace Durin
 	auto DTexture2D::ExchangeImportedState(DTexture2D& Other) -> void
 	{
 		if (&Other == this) return;
-		std::swap(SourceFile, Other.SourceFile);
 		std::swap(SourceImportData, Other.SourceImportData);
 		std::swap(SourceContentHash, Other.SourceContentHash);
 		std::swap(SourceFileSize, Other.SourceFileSize);
@@ -1573,7 +1743,6 @@ namespace Durin
 				.SourceContentHashHigh = SourceHash.HashHigh},
 			.DecoderId = std::string(TextureDecoderId),
 			.DecoderVersion = TextureDecoderVersion};
-		SourceFile.clear();
 		SourceContentHash = SourceHash.ToString();
 		SourceFileSize = EncodedBytes.size();
 		SourceLastWriteTime = 0;
@@ -1673,7 +1842,6 @@ namespace Durin
 				.SourceContentHashHigh = SourceHash.HashHigh},
 			.DecoderId = std::string(TextureDecoderId),
 			.DecoderVersion = TextureDecoderVersion};
-		Texture->SourceFile.clear();
 		Texture->UpdateSourceFingerprint(Destination);
 		Asset::FAssetResult SaveResult = Asset::SavePackage(Texture->GetPackage());
 		if (!SaveResult)

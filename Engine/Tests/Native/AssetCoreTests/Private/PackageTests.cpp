@@ -244,7 +244,7 @@ TEST(FPackageAssetTests, HeaderReaderStopsBeforeLargeObjectPayload)
 	Durin::Asset::FAssetPackageHeader Header;
 	ASSERT_TRUE(Durin::Asset::ReadAssetPackageHeader(File.generic_string(), Header));
 	EXPECT_EQ(Header.AssetClassName, "Tests::DPackageAssetForTest");
-	EXPECT_EQ(Header.FormatVersion, 2u);
+	EXPECT_EQ(Header.FormatVersion, 3u);
 	EXPECT_EQ(Header.ObjectCount, 2u);
 	EXPECT_LT(Header.BytesRead, 1024u);
 }
@@ -879,7 +879,7 @@ TEST(FPackageAssetTests, RejectsTruncatedPackagesWithoutCachingPartialObjects)
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), nullptr);
 }
 
-TEST(FPackageAssetTests, VersionTwoDoesNotStoreItsOwnPathAndDirectoryMoveIsByteStable)
+TEST(FPackageAssetTests, VersionThreeDoesNotStoreItsOwnPathAndDirectoryMoveIsByteStable)
 {
 	InitializeAssetTests();
 	Durin::FAssetPath OldPath, NewPath;
@@ -892,7 +892,7 @@ TEST(FPackageAssetTests, VersionTwoDoesNotStoreItsOwnPathAndDirectoryMoveIsByteS
 	const auto OldFile = Durin::Testing::GetTestWorkDirectory() / "Assets" / "MoveSource.dasset";
 	std::vector<Durin::uint8> Before;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Before, OldFile.generic_string()));
-	EXPECT_EQ(*reinterpret_cast<const Durin::uint32*>(Before.data() + sizeof(Durin::uint32)), 2u);
+	EXPECT_EQ(*reinterpret_cast<const Durin::uint32*>(Before.data() + sizeof(Durin::uint32)), 3u);
 	EXPECT_EQ(std::search(Before.begin(), Before.end(), OldPath.GetView().begin(), OldPath.GetView().end()), Before.end());
 
 	ASSERT_TRUE(Durin::Asset::MoveAsset(OldPath, NewPath));
@@ -1094,6 +1094,37 @@ TEST(FPackageAssetTests, VersionOneIsExplicitlyUnsupported)
 	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(Path), nullptr);
 	ASSERT_FALSE(Durin::Asset::GetAssetRegistry().GetScanErrors().empty());
 	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetScanErrors().back().Error, Durin::Asset::EAssetError::UnsupportedVersion);
+}
+
+TEST(FPackageAssetTests, VersionTwoLoadsAndRewritesAsVersionThree)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/VersionTwoUpgrade", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	Asset->Value = 42;
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	const auto File =
+		Durin::Testing::GetTestWorkDirectory() / "Assets" / "VersionTwoUpgrade.dasset";
+	std::fstream Stream(File, std::ios::in | std::ios::out | std::ios::binary);
+	ASSERT_TRUE(Stream.is_open());
+	const Durin::uint32 Version = 2;
+	Stream.seekp(sizeof(Durin::uint32));
+	Stream.write(reinterpret_cast<const char*>(&Version), sizeof(Version));
+	Stream.close();
+
+	Durin::Asset::FAssetPackageHeader Header;
+	ASSERT_TRUE(Durin::Asset::ReadAssetPackageHeader(File.generic_string(), Header));
+	EXPECT_EQ(Header.FormatVersion, 2u);
+	DPackageAssetForTest* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->Value, 42);
+	ASSERT_TRUE(Durin::Asset::SavePackage(Loaded->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::ReadAssetPackageHeader(File.generic_string(), Header));
+	EXPECT_EQ(Header.FormatVersion, 3u);
 }
 
 TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInvalidCache)

@@ -126,7 +126,6 @@ TEST(FSourcePathContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 	EXPECT_EQ(Durin::Cast<Durin::DTexture>(TextureCubeObject), TextureCubeObject);
 
 	static constexpr std::array Texture2DProperties = {
-		std::string_view("SourceFile"),
 		std::string_view("SourceImportData"),
 		std::string_view("SourceContentHash"),
 		std::string_view("SourceFileSize"),
@@ -145,13 +144,6 @@ TEST(FSourcePathContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 	static constexpr std::array TextureCubeProperties = {
 		std::string_view("SourceLayout"),
 		std::string_view("SourceImportData"),
-		std::string_view("PositiveXSourceFile"),
-		std::string_view("NegativeXSourceFile"),
-		std::string_view("PositiveYSourceFile"),
-		std::string_view("NegativeYSourceFile"),
-		std::string_view("PositiveZSourceFile"),
-		std::string_view("NegativeZSourceFile"),
-		std::string_view("PanoramaSourceFile"),
 		std::string_view("PanoramaFaceDimension"),
 		std::string_view("PanoramaExposureEV"),
 		std::string_view("OriginalSourceWidth"),
@@ -172,6 +164,16 @@ TEST(FSourcePathContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 	};
 	ExpectDeclaredProperties(Texture2DClass, Texture2DProperties);
 	ExpectDeclaredProperties(TextureCubeClass, TextureCubeProperties);
+	EXPECT_EQ(Texture2DClass->FindPropertyByName("SourceFile"), nullptr);
+	for (std::string_view RetiredField : {
+		"PositiveXSourceFile",
+		"NegativeXSourceFile",
+		"PositiveYSourceFile",
+		"NegativeYSourceFile",
+		"PositiveZSourceFile",
+		"NegativeZSourceFile",
+		"PanoramaSourceFile"})
+		EXPECT_EQ(TextureCubeClass->FindPropertyByName(RetiredField), nullptr);
 }
 
 TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesDomainsAndDependencyCases)

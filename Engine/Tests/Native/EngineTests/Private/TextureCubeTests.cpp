@@ -68,25 +68,20 @@ namespace
 	}
 }
 
-TEST(FTextureCubeTests, LegacySourceMetadataIsRejectedAfterMigration)
+TEST(FTextureCubeTests, RetiredSourceStringsAreNotReflected)
 {
 	InitializeCubeMount();
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/Legacy", AssetPath));
-	Durin::DTextureCube* Texture = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(AssetPath, Texture));
-	auto* SourceProperty = Texture->GetClass()->FindPropertyByName("PositiveXSourceFile");
-	ASSERT_NE(SourceProperty, nullptr);
-	*static_cast<std::string*>(SourceProperty->GetValuePtr(Texture)) = "Legacy_PositiveX.png";
-	Texture->MarkPackageDirty();
-	ASSERT_TRUE(Durin::Asset::SavePackage(Texture->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-
-	Texture = nullptr;
-	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(AssetPath, Texture);
-	EXPECT_FALSE(LoadResult);
-	EXPECT_EQ(Texture, nullptr);
-	EXPECT_NE(LoadResult.Message.find("legacy source metadata is unsupported"), std::string::npos);
+	for (std::string_view RetiredField : {
+		"PositiveXSourceFile",
+		"NegativeXSourceFile",
+		"PositiveYSourceFile",
+		"NegativeYSourceFile",
+		"PositiveZSourceFile",
+		"NegativeZSourceFile",
+		"PanoramaSourceFile"})
+		EXPECT_EQ(
+			Durin::DTextureCube::StaticClass()->FindPropertyByName(RetiredField),
+			nullptr);
 }
 
 TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
