@@ -6,6 +6,7 @@ namespace Durin
 		: Super(ObjectInitializer)
 		, ParameterDefinitions(MakeCanonicalMaterialParameterDefinitions())
 	{
+		PublishMaterialRenderProxyState();
 	}
 
 	auto DMaterial::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>
@@ -97,10 +98,35 @@ namespace Durin
 		return true;
 	}
 
+	auto DMaterial::BuildMaterialLocalRenderLayer() const
+		-> FMaterialLocalRenderLayer
+	{
+		FMaterialLocalRenderLayer Result;
+		Result.Parameters.reserve(ParameterDefinitions.size());
+		for (const FMaterialParameterDefinition& Definition
+			: ParameterDefinitions)
+		{
+			Result.Parameters.push_back(
+				BuildMaterialLocalRenderParameter(
+					Definition.Id,
+					Definition.Type,
+					Definition.Value));
+		}
+		Result.StaticProperties = StaticProperties;
+		return Result;
+	}
+
 	auto DMaterial::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
-		return ValidateCanonicalMaterialParameterDefinitions(ParameterDefinitions, OutError)
-			&& ValidateMaterialStaticProperties(StaticProperties, OutError);
+		if (!ValidateCanonicalMaterialParameterDefinitions(
+				ParameterDefinitions, OutError)
+			|| !ValidateMaterialStaticProperties(
+				StaticProperties, OutError))
+		{
+			return false;
+		}
+		PublishMaterialRenderProxyState();
+		return true;
 	}
 }

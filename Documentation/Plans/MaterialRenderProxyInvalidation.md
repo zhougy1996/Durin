@@ -9,17 +9,22 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete. The existing copied-slot implementation now has explicit
-characterization coverage for local and inherited updates, parent reassignment,
-multi-level chains, multi-slot consumers, stale component revisions, and
-material destruction after render work is accepted. A fixed affected graph
-also records that the baseline scan counters grow with unrelated loaded
-materials, objects, and static-mesh components.
+Stages 0 and 1 are complete. The existing copied-slot implementation retains
+its characterization and scaling baseline, while every material interface now
+owns one stable counted `FMaterialRenderProxy`. Base materials publish complete
+render-safe local layers; instances publish sparse non-orphan overrides plus a
+retained parent proxy. Render-thread resolution is parent-first and reuses the
+resolved snapshot only for the locked three-part cache key.
 
-The proxy contract below locks the immutable local-layer boundary, cache key,
-fallback behavior, and structural-operation classification. Stage 1 is next
-and may introduce proxy types and publication without changing scene-proxy
-bindings yet.
+Construction, ordinary mutation, static-property changes, parent changes,
+reflected edits, import-state exchange, PostLoad, and duplication all reach the
+same ordered publication path. Owner teardown transfers its reference into the
+accepted render-command stream, while accepted publications, parent links, and
+external proxy references retain storage independently of the `DObject`.
+
+Stage 2 is next and will replace copied static-mesh scene-proxy material slots
+with these stable proxy references. Stage 1 intentionally leaves the existing
+`FMaterialUpdateContext` and component-slot update behavior active in parallel.
 
 Material setters currently route through `FMaterialUpdateContext`, which
 snapshots `GDObjectArray`, discovers dependent materials by testing parent
@@ -327,22 +332,22 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
 
 ### Stage 1: Introduce Stable Material Render Proxies
 
-- [ ] Add a ref-counted `FMaterialRenderProxy` whose render-thread state contains
+- [x] Add a ref-counted `FMaterialRenderProxy` whose render-thread state contains
   an immutable local layer, optional parent proxy reference, local version,
   cached resolved snapshot, observed parent resolved version, and resolved
   version.
-- [ ] Give every `DMaterialInterface` one stable proxy identity without
+- [x] Give every `DMaterialInterface` one stable proxy identity without
   registering it in a material-consumer table.
-- [ ] Publish initial proxy state after load and publish replacement local
+- [x] Publish initial proxy state after load and publish replacement local
   state from material mutation paths.
-- [ ] Publish parent proxy changes from `SetParent`,
+- [x] Publish parent proxy changes from `SetParent`,
   `PostEditChangeProperty`, import-state exchange, duplication/load, and other
   direct parent-write paths.
-- [ ] Implement parent-first render-thread resolution and cache reuse based on
+- [x] Implement parent-first render-thread resolution and cache reuse based on
   local and parent versions.
-- [ ] Route proxy release through counted render-thread lifetime and existing
+- [x] Route proxy release through counted render-thread lifetime and existing
   shutdown/deferred-cleanup rules.
-- [ ] Add unit coverage for version monotonicity, stale-publication rejection,
+- [x] Add unit coverage for version monotonicity, stale-publication rejection,
   lazy descendant observation, long parent chains, parent replacement, and
   owner destruction.
 
@@ -354,6 +359,32 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
   enumerating children.
 - No render-thread state retains a `DObject` pointer.
 - Proxy destruction passes focused lifecycle and shutdown-audit tests.
+
+#### Stage 1 Handoff
+
+- Baseline commit:
+  `72bb03cc7bffd17bddea2106b1a784ca33dbf7f6`.
+- Working set:
+  `MaterialRenderProxy.h/.cpp`, `MaterialInterface.h/.cpp`,
+  `Material.h/.cpp`, `MaterialInstance.h/.cpp`,
+  `MaterialRenderProxyTests.cpp`, the `MaterialTests` source registration, and
+  this plan.
+- Key symbols:
+  `FMaterialLocalRenderParameter`, `FMaterialLocalRenderLayer`,
+  `FMaterialRenderProxyPublication`, `FMaterialRenderProxy`,
+  `DMaterialInterface::GetMaterialRenderProxy`,
+  `DMaterialInterface::PublishMaterialRenderProxyState`, and
+  `ReleaseMaterialRenderProxy_GameThread`.
+- Decisions: stable proxy storage uses intrusive atomic reference counting;
+  game-thread publication sorts and captures a render-safe immutable layer;
+  render-thread state owns the retained parent proxy and resolved cache; owner
+  teardown releases through an ordered render command when admission is open.
+- Open questions: none block Stage 2. Scene proxies still store copied
+  `FMaterialRenderData`, so ordinary setters continue to publish the new proxy
+  and execute the characterized legacy scan until slot bindings migrate.
+- Validation: all four `FMaterialRenderProxyTests` and the complete
+  `MaterialTests` target pass under
+  `Win64-Debug-DurinEditor-Tests`.
 
 ### Stage 2: Bind Scene Proxies to Material Proxies
 

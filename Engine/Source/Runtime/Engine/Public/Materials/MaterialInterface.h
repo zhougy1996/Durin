@@ -2,6 +2,7 @@
 
 #include "DObject/CoreDObject.h"
 #include "EngineAPI.h"
+#include "Materials/MaterialRenderProxy.h"
 #include "Materials/MaterialTypes.h"
 
 #include "MaterialInterface.gen.h"
@@ -34,10 +35,16 @@ namespace Durin
 		// Tests the canonical Parent chain without relying on reverse registration state.
 		ENGINE_API auto IsDependent(const DMaterialInterface* TestDependency) const -> bool;
 		ENGINE_API auto GetRenderData() const -> FMaterialRenderData;
+		ENGINE_API auto GetMaterialRenderProxy() const
+			-> FMaterialRenderProxyRef;
 		auto GetRenderStateVersion() const -> uint64 { return RenderStateVersion; }
+		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
 	protected:
+		ENGINE_API virtual auto BuildMaterialLocalRenderLayer() const
+			-> FMaterialLocalRenderLayer;
+		ENGINE_API auto PublishMaterialRenderProxyState() -> void;
 		ENGINE_API auto MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void;
 		// Adds this material to a caller-owned batch without flushing it.
 		ENGINE_API auto MarkRenderDataDirty(
@@ -46,7 +53,13 @@ namespace Durin
 		) -> void;
 
 	private:
+		auto SubmitMaterialRenderProxyState() const -> void;
+
 		uint64 RenderStateVersion = 1;
+		mutable FMaterialRenderProxyRef MaterialRenderProxy;
+		mutable uint64 MaterialProxyLocalVersion = 0;
+		mutable uint64 LastSubmittedMaterialProxyLocalVersion = 0;
+		bool bAcceptingMaterialProxyPublications = true;
 
 		friend class FMaterialUpdateContext;
 	};

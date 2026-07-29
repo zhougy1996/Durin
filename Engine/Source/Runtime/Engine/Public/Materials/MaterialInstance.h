@@ -54,6 +54,10 @@ namespace Durin
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;
 		ENGINE_API auto PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void override;
 
+	protected:
+		ENGINE_API auto BuildMaterialLocalRenderLayer() const
+			-> FMaterialLocalRenderLayer override;
+
 	private:
 		DPROPERTY(Edit)
 		TObjectPtr<DMaterialInterface> Parent;

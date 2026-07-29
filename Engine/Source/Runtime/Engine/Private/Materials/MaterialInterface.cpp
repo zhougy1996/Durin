@@ -6,6 +6,7 @@
 #include "DObject/Property.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialUpdateContext.h"
+#include "RenderingThread.h"
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
 
@@ -31,6 +32,7 @@ namespace Durin
 
 	DMaterialInterface::DMaterialInterface(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
+		, MaterialRenderProxy(MakeRefCount<FMaterialRenderProxy>())
 	{
 	}
 
@@ -138,6 +140,31 @@ namespace Durin
 		return Result;
 	}
 
+	auto DMaterialInterface::GetMaterialRenderProxy() const
+		-> FMaterialRenderProxyRef
+	{
+		CheckMaterialQueryThread();
+		if (!bAcceptingMaterialProxyPublications) return {};
+		if (MaterialProxyLocalVersion == 0)
+		{
+			MaterialProxyLocalVersion = 1;
+		}
+		if (LastSubmittedMaterialProxyLocalVersion
+			< MaterialProxyLocalVersion)
+		{
+			SubmitMaterialRenderProxyState();
+		}
+		return MaterialRenderProxy;
+	}
+
+	auto DMaterialInterface::BeginDestroy() -> void
+	{
+		bAcceptingMaterialProxyPublications = false;
+		ReleaseMaterialRenderProxy_GameThread(
+			std::move(MaterialRenderProxy));
+		Super::BeginDestroy();
+	}
+
 	auto DMaterialInterface::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
@@ -157,8 +184,71 @@ namespace Durin
 		}
 	}
 
+	auto DMaterialInterface::BuildMaterialLocalRenderLayer() const
+		-> FMaterialLocalRenderLayer
+	{
+		return {};
+	}
+
+	auto DMaterialInterface::PublishMaterialRenderProxyState() -> void
+	{
+		CheckMaterialQueryThread();
+		if (!bAcceptingMaterialProxyPublications) return;
+		++MaterialProxyLocalVersion;
+		if (MaterialProxyLocalVersion == 0) ++MaterialProxyLocalVersion;
+		SubmitMaterialRenderProxyState();
+	}
+
+	auto DMaterialInterface::SubmitMaterialRenderProxyState() const -> void
+	{
+		if (!bAcceptingMaterialProxyPublications
+			|| !MaterialRenderProxy
+			|| MaterialProxyLocalVersion == 0)
+		{
+			return;
+		}
+
+		FMaterialRenderProxyPublication Publication{
+			.LocalLayer = BuildMaterialLocalRenderLayer(),
+			.LocalVersion = MaterialProxyLocalVersion,
+		};
+		std::ranges::sort(
+			Publication.LocalLayer.Parameters,
+			{},
+			&FMaterialLocalRenderParameter::Id);
+		if (DMaterialInterface* Parent = GetParent();
+			IsValid(Parent) && Parent != this)
+		{
+			Publication.ParentProxy = Parent->MaterialRenderProxy;
+		}
+
+		const uint64 SubmittedVersion = Publication.LocalVersion;
+		FMaterialRenderProxyRef Proxy = MaterialRenderProxy;
+		struct FPublishMaterialRenderProxyCommand
+		{
+			static constexpr auto GetName() -> const char*
+			{
+				return "PublishMaterialRenderProxy";
+			}
+		};
+		const bool bAccepted =
+			FRenderThreadCommandPipe::TryEnqueue<
+				FPublishMaterialRenderProxyCommand>(
+				[Proxy = std::move(Proxy),
+				 Publication = std::move(Publication)](
+					FRHICommandListImmediate&) mutable {
+					Proxy->ApplyPublication_RenderThread(
+						std::move(Publication));
+				});
+		if (bAccepted)
+		{
+			LastSubmittedMaterialProxyLocalVersion = SubmittedVersion;
+		}
+	}
+
 	auto DMaterialInterface::MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void
 	{
+		PublishMaterialRenderProxyState();
 		FMaterialUpdateContext Context;
 		MarkRenderDataDirty(Context, DirtyFlags);
 		Context.Flush();

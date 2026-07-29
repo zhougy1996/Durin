@@ -60,6 +60,7 @@ namespace Durin
 	DMaterialInstance::DMaterialInstance(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
+		PublishMaterialRenderProxyState();
 	}
 
 	auto DMaterialInstance::SetParent(DMaterialInterface* InParent) -> bool
@@ -307,6 +308,26 @@ namespace Durin
 		return true;
 	}
 
+	auto DMaterialInstance::BuildMaterialLocalRenderLayer() const
+		-> FMaterialLocalRenderLayer
+	{
+		FMaterialLocalRenderLayer Result;
+		Result.Parameters.reserve(ParameterOverrides.size());
+		for (const FMaterialParameterOverride& Override
+			: ParameterOverrides)
+		{
+			const FMaterialParameterDefinition* Definition =
+				FindParameterDefinition(Override.ParameterId);
+			if (!Definition) continue;
+			Result.Parameters.push_back(
+				BuildMaterialLocalRenderParameter(
+					Override.ParameterId,
+					Definition->Type,
+					Override.Value));
+		}
+		return Result;
+	}
+
 	auto DMaterialInstance::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
@@ -331,6 +352,7 @@ namespace Durin
 			OutError = "A material instance asset contains a parent cycle.";
 			return false;
 		}
+		PublishMaterialRenderProxyState();
 		return true;
 	}
 }

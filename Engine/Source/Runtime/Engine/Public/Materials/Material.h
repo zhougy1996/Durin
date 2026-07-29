@@ -28,6 +28,10 @@ namespace Durin
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 
+	protected:
+		ENGINE_API auto BuildMaterialLocalRenderLayer() const
+			-> FMaterialLocalRenderLayer override;
+
 	private:
 		// These values are inherited by instances and will form shader and pipeline keys.
 		DPROPERTY(Edit)
