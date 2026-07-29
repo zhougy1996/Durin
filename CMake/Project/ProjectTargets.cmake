@@ -212,8 +212,13 @@ function(add_durin_test target_name)
 	set(_durin_test_bin_dir "${DURIN_PROJECT_TEST_OUTPUT_ROOT}/Bin")
 	set(_durin_test_data_dir "${_durin_test_root_dir}/Data")
 	set(_durin_test_work_dir "${_durin_test_root_dir}/Work")
+	# Generated sources share the current binary directory, so retain a stable
+	# per-target suffix without repeating long target names in object paths.
+	string(SHA256 _durin_native_test_main_hash "${target_name}")
+	string(SUBSTRING "${_durin_native_test_main_hash}" 0 12
+		_durin_native_test_main_suffix)
 	set(_durin_native_test_main
-		"${CMAKE_CURRENT_BINARY_DIR}/Generated/$<CONFIG>/${target_name}NativeTestMain.cpp")
+		"${CMAKE_CURRENT_BINARY_DIR}/Generated/$<CONFIG>/NativeTestMain-${_durin_native_test_main_suffix}.cpp")
 	set(DURIN_NATIVE_TEST_WORK_ROOT "${_durin_test_work_dir}")
 	file(READ
 		"${CMAKE_SOURCE_DIR}/Engine/Tests/NativeTestSupport/Private/NativeTestMain.cpp.in"
