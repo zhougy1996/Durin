@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Materials/MaterialTypes.h"
+#include "Materials/MaterialRenderProxy.h"
 #include "RHIResources.h"
 
 namespace Durin
@@ -57,7 +57,9 @@ namespace Durin
 
 		virtual auto UpdatePrimitiveTransform(FPrimitiveSceneId PrimitiveId, const FMatrix& Transform) -> void = 0;
 
-		virtual auto UpdatePrimitiveMaterial(FPrimitiveSceneId PrimitiveId, const FMaterialRenderUpdate& Update) -> void = 0;
+		virtual auto UpdatePrimitiveMaterialBinding(
+			FPrimitiveSceneId PrimitiveId,
+			const FMaterialRenderProxyBindingUpdate& Update) -> void = 0;
 
 		virtual auto Release() -> void = 0;
 

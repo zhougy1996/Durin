@@ -9,22 +9,25 @@ Completed:
 
 ## Current Status
 
-Stages 0 and 1 are complete. The existing copied-slot implementation retains
-its characterization and scaling baseline, while every material interface now
-owns one stable counted `FMaterialRenderProxy`. Base materials publish complete
-render-safe local layers; instances publish sparse non-orphan overrides plus a
-retained parent proxy. Render-thread resolution is parent-first and reuses the
-resolved snapshot only for the locked three-part cache key.
+Stages 0 through 2 are complete. Every material interface owns one stable
+counted `FMaterialRenderProxy`, and static-mesh scene proxies now retain those
+proxy references per stable slot instead of copied `FMaterialRenderData`,
+material versions, and dirty flags. Renderer section draws resolve the bound
+proxy on the rendering thread; null slot bindings retain the existing default
+material fallback.
 
-Construction, ordinary mutation, static-property changes, parent changes,
-reflected edits, import-state exchange, PostLoad, and duplication all reach the
-same ordered publication path. Owner teardown transfers its reference into the
-accepted render-command stream, while accepted publications, parent links, and
-external proxy references retain storage independently of the `DObject`.
+Material content publication and component-slot binding are now independent.
+Parameter, static-property, and inherited changes update the stable proxy
+without changing component revision or sending slot updates. Assigning,
+clearing, or replacing a slot material sends a binding-only packet ordered by
+component revision, while structural mesh/default/bulk changes still recreate
+the scene proxy. The legacy `FMaterialUpdateContext` discovery pass remains
+active only as transitional characterized work and no longer pushes material
+content into components.
 
-Stage 2 is next and will replace copied static-mesh scene-proxy material slots
-with these stable proxy references. Stage 1 intentionally leaves the existing
-`FMaterialUpdateContext` and component-slot update behavior active in parallel.
+Stage 3 is next and will remove ordinary-setter construction and flushing of
+that global discovery path, introduce publication/coalescing ownership, and
+replace its scan-oriented counters.
 
 Material setters currently route through `FMaterialUpdateContext`, which
 snapshots `GDObjectArray`, discovers dependent materials by testing parent
@@ -388,19 +391,19 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
 
 ### Stage 2: Bind Scene Proxies to Material Proxies
 
-- [ ] Replace `FStaticMeshSceneProxy` material snapshots and parallel material
+- [x] Replace `FStaticMeshSceneProxy` material snapshots and parallel material
   version arrays with per-slot `FMaterialRenderProxyRef` bindings.
-- [ ] Change scene-proxy construction to capture the effective material proxy
+- [x] Change scene-proxy construction to capture the effective material proxy
   for each stable mesh slot.
-- [ ] Replace material-content `FMaterialRenderUpdate` packets with a
+- [x] Replace material-content `FMaterialRenderUpdate` packets with a
   binding-only update for operations that assign, clear, or replace the
   material occupying a component slot.
-- [ ] Make renderer section draws resolve the slot proxy and consume the
+- [x] Make renderer section draws resolve the slot proxy and consume the
   resulting immutable snapshot without reading a material object.
-- [ ] Preserve current component revision ordering for slot-binding changes;
+- [x] Preserve current component revision ordering for slot-binding changes;
   remove material-version ordering from component updates once the proxy owns
   content versioning.
-- [ ] Cover shared materials, duplicate material use across slots, fallback
+- [x] Cover shared materials, duplicate material use across slots, fallback
   bindings, material replacement, component unregister, scene-proxy
   replacement, and rapid binding changes.
 
@@ -414,6 +417,34 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
   references in its scene proxy, not modifying material update code.
 - Existing rendered output remains unchanged for the current material feature
   set.
+
+#### Stage 2 Handoff
+
+- Baseline commit:
+  `610e43d2de210491e780e81572a2a9f7027cb010`.
+- Working set: `PrimitiveSceneProxy`, primitive/static-mesh component
+  render-state dispatch, `IScene`/`FScene`, renderer static-mesh section draws,
+  the transitional material update context, and native material, thumbnail,
+  and editor-rendering tests.
+- Key symbols: `FMaterialRenderProxyBindingUpdate`,
+  `EPrimitiveRenderStateDirtyFlags::MaterialBinding`,
+  `BuildMaterialRenderProxyBindingUpdate`,
+  `UpdatePrimitiveMaterialBinding`,
+  `FStaticMeshSceneProxy::GetMaterialRenderProxy`, and
+  `ResolveMaterialRenderData_RenderThread`.
+- Decisions: a slot owns either one counted material proxy or a null fallback
+  binding; only binding changes advance component revision; content changes
+  resolve through the stable proxy and never enqueue component-slot updates;
+  structural mesh/default/bulk edits keep the existing proxy-recreation path;
+  legacy scan counters continue to count matched slots until Stage 3 retires
+  the scan.
+- Open questions: none block Stage 3. Ordinary setters still synchronously
+  construct and flush `FMaterialUpdateContext`, even though its component
+  matches no longer publish content packets.
+- Validation: `MaterialTests` 51/51, `ThumbnailTests` 45/45, and
+  `EditorRenderingTests` 10/10 pass under
+  `Win64-Debug-DurinEditor-Tests`; the material rendered-thumbnail Vulkan case
+  confirms unchanged current output.
 
 ### Stage 3: Remove Ordinary-Setter Global Discovery
 

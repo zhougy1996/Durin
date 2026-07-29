@@ -18,8 +18,7 @@ TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 	const FSceneSnapshot ParentChanged = CaptureScene(Harness.Scene);
 	EXPECT_EQ(ParentChanged.Proxy, Initial.Proxy);
 	EXPECT_GT(Base->GetRenderStateVersion(), VersionBefore);
-	EXPECT_GT(ParentChanged.ComponentRevision, Initial.ComponentRevision);
-	EXPECT_EQ(ParentChanged.MaterialVersion, Instance->GetRenderStateVersion());
+	EXPECT_EQ(ParentChanged.ComponentRevision, Initial.ComponentRevision);
 	ExpectColorNear(ParentChanged.Material.BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 1.0f));
 
 	const Durin::uint64 NoOpVersion = Base->GetRenderStateVersion();
@@ -58,7 +57,7 @@ TEST(FMaterialTests, MeshDefaultsBindWhileOrphanOverridesStayDetached)
 	Default->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.6));
 	const FSceneSnapshot DefaultChanged = CaptureScene(Harness.Scene);
 	EXPECT_EQ(DefaultChanged.Proxy, Initial.Proxy);
-	EXPECT_GT(DefaultChanged.ComponentRevision, Initial.ComponentRevision);
+	EXPECT_EQ(DefaultChanged.ComponentRevision, Initial.ComponentRevision);
 	ExpectColorNear(DefaultChanged.Material.BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 1.0f));
 
 	const Durin::FGuid OldSlotId = Mesh->GetMaterialSlot(0)->SlotId;
@@ -103,7 +102,7 @@ TEST(FMaterialTests, BoundTextureChangesUpdateProxyResourceSnapshotInPlace)
 	Instance->SetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), OverrideTexture);
 	FSceneSnapshot Overridden = CaptureScene(Harness.Scene);
 	EXPECT_EQ(Overridden.Proxy, Initial.Proxy);
-	EXPECT_GT(Overridden.ComponentRevision, Initial.ComponentRevision);
+	EXPECT_EQ(Overridden.ComponentRevision, Initial.ComponentRevision);
 	EXPECT_EQ(Overridden.Material.BaseColorTexture, OverrideTexture->GetTextureReferenceRHI());
 
 	EXPECT_TRUE(Instance->ClearTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName()));

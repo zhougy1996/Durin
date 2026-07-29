@@ -179,7 +179,8 @@ namespace Durin
 						return HandlesEqual(Affected.Handle, SlotMaterialHandle);
 					});
 				if (It == AffectedMaterials.end()) continue;
-				Component->HandleMaterialRenderDataChanged(SlotIndex, It->DirtyFlags);
+				// Preserve the legacy matched-slot counter until scan-oriented
+				// counters retire; content reaches the slot through its retained proxy.
 				++Counters.UpdatedSlotCount;
 			}
 		}

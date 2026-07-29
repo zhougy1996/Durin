@@ -525,7 +525,7 @@ TEST(FMaterialTests, ParentTransactionsRenderFromCurrentCanonicalStorage)
 	SecondParent->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.8, 0.4));
 	const FSceneSnapshot CurrentParentChanged = CaptureScene(Harness.Scene);
-	EXPECT_GT(CurrentParentChanged.ComponentRevision, PreviousParentChanged.ComponentRevision);
+	EXPECT_EQ(CurrentParentChanged.ComponentRevision, PreviousParentChanged.ComponentRevision);
 	ExpectColorNear(CurrentParentChanged.Material.BaseColor, Durin::FVector4f(0.2f, 0.8f, 0.4f, 1.0f));
 	Transactions.Clear();
 

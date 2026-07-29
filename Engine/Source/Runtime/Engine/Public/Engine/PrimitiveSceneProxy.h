@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Materials/MaterialTypes.h"
+#include "Materials/MaterialRenderProxy.h"
 #include "RHIResources.h"
 
 namespace Durin
@@ -24,28 +24,35 @@ namespace Durin
 		FVector3 ActorPosition_;
 	};
 
-	// Couples static-mesh render resources with revisioned per-slot material data.
+	// Couples static-mesh render resources with revisioned per-slot material bindings.
 	class FStaticMeshSceneProxy : public PrimitiveSceneProxy
 	{
 	public:
-		ENGINE_API explicit FStaticMeshSceneProxy(const FStaticMeshRenderData* InRenderData, std::vector<FMaterialRenderUpdate> InMaterials);
+		ENGINE_API explicit FStaticMeshSceneProxy(
+			const FStaticMeshRenderData* InRenderData,
+			std::vector<FMaterialRenderProxyRef> InMaterialProxies,
+			uint64 InMaterialComponentRevision);
 
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
-		ENGINE_API auto GetMaterialRenderData(uint32 SlotIndex) const -> const FMaterialRenderData&;
+		ENGINE_API auto ResolveMaterialRenderData_RenderThread(
+			uint32 SlotIndex) const -> const FMaterialRenderData&;
 		auto GetNumMaterials() const -> uint32 { return static_cast<uint32>(Materials.size()); }
-		auto GetMaterialRenderData() const -> const FMaterialRenderData& { return GetMaterialRenderData(0); }
+		auto ResolveMaterialRenderData_RenderThread() const
+			-> const FMaterialRenderData&
+		{
+			return ResolveMaterialRenderData_RenderThread(0);
+		}
 		auto GetMaterialComponentRevision() const -> uint64 { return MaterialComponentRevision; }
-		auto GetMaterialVersion(uint32 SlotIndex = 0) const -> uint64 { return SlotIndex < MaterialVersions.size() ? MaterialVersions[SlotIndex] : 0; }
-		auto GetLastMaterialDirtyFlags(uint32 SlotIndex = 0) const -> EMaterialRenderDirtyFlags { return SlotIndex < LastMaterialDirtyFlags.size() ? LastMaterialDirtyFlags[SlotIndex] : EMaterialRenderDirtyFlags::None; }
-		ENGINE_API auto UpdateMaterialRenderData(const FMaterialRenderUpdate& Update) -> void;
+		ENGINE_API auto GetMaterialRenderProxy(uint32 SlotIndex) const
+			-> const FMaterialRenderProxyRef&;
+		ENGINE_API auto UpdateMaterialRenderProxyBinding(
+			const FMaterialRenderProxyBindingUpdate& Update) -> void;
 
 	private:
 		// Non-owning borrow bounded by the component render-state lifetime. The
 		// component removes this proxy before the asset retires the render data.
 		const FStaticMeshRenderData* RenderData = nullptr;
-		std::vector<FMaterialRenderData> Materials;
-		std::vector<uint64> MaterialVersions;
-		std::vector<EMaterialRenderDirtyFlags> LastMaterialDirtyFlags;
+		std::vector<FMaterialRenderProxyRef> Materials;
 		uint64 MaterialComponentRevision = 0;
 	};
 

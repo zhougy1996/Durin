@@ -13,7 +13,7 @@ namespace Durin
 		None = 0,
 		Proxy = 1 << 0,
 		Transform = 1 << 1,
-		MaterialData = 1 << 2
+		MaterialBinding = 1 << 2
 	};
 	ENUM_CLASS_FLAGS(EPrimitiveRenderStateDirtyFlags);
 
@@ -36,7 +36,8 @@ namespace Durin
 
 	protected:
 		ENGINE_API auto OnUpdateTransform() -> void override;
-		ENGINE_API virtual auto BuildMaterialRenderUpdate(EMaterialRenderDirtyFlags DirtyFlags, FMaterialRenderUpdate& OutUpdate) -> bool;
+		ENGINE_API virtual auto BuildMaterialRenderProxyBindingUpdate(
+			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool;
 
 	private:
 		auto EnsurePrimitiveSceneId() -> FPrimitiveSceneId;

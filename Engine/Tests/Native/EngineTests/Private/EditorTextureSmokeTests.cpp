@@ -84,8 +84,26 @@ namespace Durin
 			LOD.VertexBuffers.StaticMeshVertexBuffer
 				.TexCoordVertexBuffer.GetTexCoords()[0].size(),
 			LOD.GetNumVertices());
+		auto CaptureMaterialTextureReference = [StaticMeshProxy]() {
+			FRHITextureReferenceRef Result;
+			struct FCaptureEditorTextureMaterialReference
+			{
+				static constexpr auto GetName() -> const char*
+				{
+					return "CaptureEditorTextureMaterialReference";
+				}
+			};
+			EnqueueRenderCommand<FCaptureEditorTextureMaterialReference>(
+				[StaticMeshProxy, &Result](FRHICommandListImmediate&) {
+					Result = StaticMeshProxy
+						->ResolveMaterialRenderData_RenderThread()
+						.BaseColorTexture;
+				});
+			FlushRenderingCommands();
+			return Result;
+		};
 		EXPECT_EQ(
-			StaticMeshProxy->GetMaterialRenderData().BaseColorTexture,
+			CaptureMaterialTextureReference(),
 			TextureImport.Asset->GetTextureReferenceRHI());
 
 		FRHITextureReference* StableTextureReference =
@@ -99,8 +117,7 @@ namespace Durin
 			TextureImport.Asset->GetTextureReferenceRHI().GetReference(),
 			StableTextureReference);
 		EXPECT_EQ(
-			StaticMeshProxy->GetMaterialRenderData()
-				.BaseColorTexture.GetReference(),
+			CaptureMaterialTextureReference().GetReference(),
 			StableTextureReference);
 		FAssetPath MeshPath;
 		FAssetPath TexturePath;
@@ -116,6 +133,8 @@ namespace Durin
 			AllowCommandCompletion->get_future().share();
 		auto bAcceptedReferenceObserved =
 			std::make_shared<std::atomic<bool>>(false);
+		FRHITextureReferenceRef AcceptedMaterialReference =
+			CaptureMaterialTextureReference();
 		struct FObserveAcceptedMaterialTextureReference
 		{
 			static constexpr auto GetName() -> const char*
@@ -124,8 +143,7 @@ namespace Durin
 			}
 		};
 		EnqueueRenderCommand<FObserveAcceptedMaterialTextureReference>(
-			[Reference =
-				 StaticMeshProxy->GetMaterialRenderData().BaseColorTexture,
+			[Reference = std::move(AcceptedMaterialReference),
 			 CommandStarted,
 			 AllowCommandCompletionFuture,
 			 bAcceptedReferenceObserved,

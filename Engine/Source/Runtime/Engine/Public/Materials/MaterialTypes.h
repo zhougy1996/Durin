@@ -242,13 +242,4 @@ namespace Durin
 	};
 	ENUM_CLASS_FLAGS(EMaterialRenderDirtyFlags);
 
-	// Carries one revision-ordered material-slot update to an existing scene proxy.
-	struct FMaterialRenderUpdate
-	{
-		uint32 SlotIndex = 0;
-		FMaterialRenderData RenderData;
-		uint64 MaterialVersion = 0;
-		uint64 ComponentRevision = 0;
-		EMaterialRenderDirtyFlags DirtyFlags = EMaterialRenderDirtyFlags::None;
-	};
 }

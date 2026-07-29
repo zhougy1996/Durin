@@ -6,6 +6,7 @@
 #include "Engine/PrimitiveSceneProxy.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
 
 #include <gtest/gtest.h>
@@ -136,6 +137,7 @@ TEST(FMaterialAssetThumbnailTests, ProviderRejectsMissingRegistryData)
 
 TEST(FMaterialAssetThumbnailTests, PreviewComponentResolvesInstanceInheritanceAndOverrides)
 {
+	Durin::InitRenderingThread();
 	Durin::Tests::FRenderedAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error)) << Error;
@@ -160,10 +162,24 @@ TEST(FMaterialAssetThumbnailTests, PreviewComponentResolvesInstanceInheritanceAn
 	ASSERT_NE(MaterialProxy, nullptr);
 	ASSERT_NE(InstanceProxy, nullptr);
 
-	const Durin::FMaterialRenderData& MaterialData =
-		MaterialProxy->GetMaterialRenderData(0);
-	const Durin::FMaterialRenderData& InstanceData =
-		InstanceProxy->GetMaterialRenderData(0);
+	Durin::FMaterialRenderData MaterialData;
+	Durin::FMaterialRenderData InstanceData;
+	struct FCaptureThumbnailMaterialProxiesCommand
+	{
+		static constexpr const char* GetName()
+		{
+			return "CaptureThumbnailMaterialProxies";
+		}
+	};
+	Durin::EnqueueRenderCommand<FCaptureThumbnailMaterialProxiesCommand>(
+		[MaterialProxy, InstanceProxy, &MaterialData, &InstanceData](
+			Durin::FRHICommandListImmediate&) {
+			MaterialData =
+				MaterialProxy->ResolveMaterialRenderData_RenderThread(0);
+			InstanceData =
+				InstanceProxy->ResolveMaterialRenderData_RenderThread(0);
+		});
+	Durin::FlushRenderingCommands();
 	EXPECT_NE(MaterialData.BaseColor, InstanceData.BaseColor);
 	EXPECT_NE(MaterialData.SpecularStrength, InstanceData.SpecularStrength);
 	EXPECT_NE(MaterialData.BaseColorTexture, InstanceData.BaseColorTexture);
@@ -174,6 +190,7 @@ TEST(FMaterialAssetThumbnailTests, PreviewComponentResolvesInstanceInheritanceAn
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Mesh);
 	Durin::CollectGarbage();
+	Durin::ShutdownRenderingThread();
 }
 
 TEST(FMaterialAssetThumbnailTests, InvalidInstancePublishesOneStableDiagnostic)

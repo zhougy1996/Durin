@@ -81,17 +81,18 @@ namespace Durin
 		{
 			Scene->UpdatePrimitiveTransform(SceneId, GetRenderMatrix());
 		}
-		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::MaterialData))
+		if (EnumHasAnyFlags(DirtyFlags, EPrimitiveRenderStateDirtyFlags::MaterialBinding))
 		{
-			FMaterialRenderUpdate Update;
-			if (BuildMaterialRenderUpdate(EMaterialRenderDirtyFlags::DynamicParameters, Update))
+			FMaterialRenderProxyBindingUpdate Update;
+			if (BuildMaterialRenderProxyBindingUpdate(Update))
 			{
-				Scene->UpdatePrimitiveMaterial(SceneId, Update);
+				Scene->UpdatePrimitiveMaterialBinding(SceneId, Update);
 			}
 		}
 	}
 
-	auto DPrimitiveComponent::BuildMaterialRenderUpdate(EMaterialRenderDirtyFlags DirtyFlags, FMaterialRenderUpdate& OutUpdate) -> bool
+	auto DPrimitiveComponent::BuildMaterialRenderProxyBindingUpdate(
+		FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool
 	{
 		return false;
 	}

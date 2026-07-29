@@ -95,15 +95,9 @@ TEST(FMaterialUpdateContextTests, FlushMergesRootsAndScansLoadedComponentsOnce)
 	EXPECT_EQ(Grandchild->GetRenderStateVersion(), GrandchildVersion + 1);
 
 	const FMaterialSlotsSnapshot Updated = CaptureMaterialSlots(Harness.Scene);
-	ASSERT_EQ(Updated.MaterialDirtyFlags.size(), 3);
-	const Durin::EMaterialRenderDirtyFlags MergedFlags =
-		Durin::EMaterialRenderDirtyFlags::AllRenderState
-		| Durin::EMaterialRenderDirtyFlags::ParentChain;
-	for (Durin::EMaterialRenderDirtyFlags DirtyFlags : Updated.MaterialDirtyFlags)
-	{
-		EXPECT_TRUE(Durin::EnumHasAllFlags(DirtyFlags, MergedFlags));
-	}
-	EXPECT_EQ(Updated.ComponentRevision, Initial.ComponentRevision + 3);
+	EXPECT_EQ(Updated.Proxy, Initial.Proxy);
+	EXPECT_EQ(Updated.MaterialProxies, Initial.MaterialProxies);
+	EXPECT_EQ(Updated.ComponentRevision, Initial.ComponentRevision);
 
 	SharedComponent->UnregisterComponent();
 	OtherComponent->UnregisterComponent();
@@ -238,7 +232,8 @@ TEST(FMaterialUpdateContextTests, AcceptedRenderUpdateSurvivesMaterialDestructio
 	EXPECT_TRUE(bChanged);
 	EXPECT_TRUE(bMaterialDestroyed);
 	EXPECT_EQ(Updated.Proxy, Initial.Proxy);
-	EXPECT_GT(Updated.ComponentRevision, Initial.ComponentRevision);
+	EXPECT_EQ(Updated.MaterialProxies, Initial.MaterialProxies);
+	EXPECT_EQ(Updated.ComponentRevision, Initial.ComponentRevision);
 	ASSERT_EQ(Updated.Materials.size(), 1u);
 	ExpectColorNear(
 		Updated.Materials[0].BaseColor,

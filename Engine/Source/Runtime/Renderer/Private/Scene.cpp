@@ -47,16 +47,18 @@ namespace Durin
 		});
 	}
 
-	auto FScene::UpdatePrimitiveMaterial(FPrimitiveSceneId PrimitiveId, const FMaterialRenderUpdate& Update) -> void
+	auto FScene::UpdatePrimitiveMaterialBinding(
+		FPrimitiveSceneId PrimitiveId,
+		const FMaterialRenderProxyBindingUpdate& Update) -> void
 	{
 		if (PrimitiveId == InvalidPrimitiveSceneId) return;
-		ENQUEUE_RENDER_COMMAND(UpdatePrimitiveMaterial)([this, PrimitiveId, Update](FRHICommandListImmediate& CommandList) {
+		ENQUEUE_RENDER_COMMAND(UpdatePrimitiveMaterialBinding)([this, PrimitiveId, Update](FRHICommandListImmediate& CommandList) {
 			CheckRenderingThread();
 			const auto FoundIt = PrimitiveToProxy.find(PrimitiveId);
 			if (FoundIt == PrimitiveToProxy.end()) return;
 			if (auto* StaticMeshProxy = dynamic_cast<FStaticMeshSceneProxy*>(FoundIt->second.get()))
 			{
-				StaticMeshProxy->UpdateMaterialRenderData(Update);
+				StaticMeshProxy->UpdateMaterialRenderProxyBinding(Update);
 			}
 		});
 	}

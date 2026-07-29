@@ -223,7 +223,6 @@ namespace
 		Durin::FMaterialRenderData Material;
 		Durin::FMatrix Transform{1.0};
 		Durin::uint64 ComponentRevision = 0;
-		Durin::uint64 MaterialVersion = 0;
 		Durin::uint64 ProxyCount = 0;
 	};
 
@@ -232,8 +231,7 @@ namespace
 		Durin::FStaticMeshSceneProxy* Proxy = nullptr;
 		const Durin::FStaticMeshRenderData* RenderData = nullptr;
 		std::vector<Durin::FMaterialRenderData> Materials;
-		std::vector<Durin::uint64> MaterialVersions;
-		std::vector<Durin::EMaterialRenderDirtyFlags> MaterialDirtyFlags;
+		std::vector<const Durin::FMaterialRenderProxy*> MaterialProxies;
 		Durin::uint64 ComponentRevision = 0;
 	};
 
@@ -249,10 +247,10 @@ namespace
 			if (Scene->GetPrimitiveSceneProxies().empty()) return;
 			Snapshot.Proxy = dynamic_cast<Durin::FStaticMeshSceneProxy*>(Scene->GetPrimitiveSceneProxies().front());
 			if (Snapshot.Proxy == nullptr) return;
-			Snapshot.Material = Snapshot.Proxy->GetMaterialRenderData();
+			Snapshot.Material =
+				Snapshot.Proxy->ResolveMaterialRenderData_RenderThread();
 			Snapshot.Transform = Snapshot.Proxy->GetLocalToWorld();
 			Snapshot.ComponentRevision = Snapshot.Proxy->GetMaterialComponentRevision();
-			Snapshot.MaterialVersion = Snapshot.Proxy->GetMaterialVersion();
 		});
 		WaitForRenderingThread();
 		return Snapshot;
@@ -273,9 +271,11 @@ namespace
 			Snapshot.ComponentRevision = Snapshot.Proxy->GetMaterialComponentRevision();
 			for (Durin::uint32 SlotIndex = 0; SlotIndex < Snapshot.Proxy->GetNumMaterials(); ++SlotIndex)
 			{
-				Snapshot.Materials.push_back(Snapshot.Proxy->GetMaterialRenderData(SlotIndex));
-				Snapshot.MaterialVersions.push_back(Snapshot.Proxy->GetMaterialVersion(SlotIndex));
-				Snapshot.MaterialDirtyFlags.push_back(Snapshot.Proxy->GetLastMaterialDirtyFlags(SlotIndex));
+				Snapshot.Materials.push_back(
+					Snapshot.Proxy->ResolveMaterialRenderData_RenderThread(
+						SlotIndex));
+				Snapshot.MaterialProxies.push_back(
+					Snapshot.Proxy->GetMaterialRenderProxy(SlotIndex).GetReference());
 			}
 		});
 		WaitForRenderingThread();

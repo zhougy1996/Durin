@@ -15,20 +15,14 @@ namespace Durin
 		return LocalToWorld_;
 	}
 
-	FStaticMeshSceneProxy::FStaticMeshSceneProxy(const FStaticMeshRenderData* InRenderData, std::vector<FMaterialRenderUpdate> InMaterials)
+	FStaticMeshSceneProxy::FStaticMeshSceneProxy(
+		const FStaticMeshRenderData* InRenderData,
+		std::vector<FMaterialRenderProxyRef> InMaterialProxies,
+		uint64 InMaterialComponentRevision)
 		: RenderData(InRenderData)
+		, Materials(std::move(InMaterialProxies))
+		, MaterialComponentRevision(InMaterialComponentRevision)
 	{
-		Materials.resize(InMaterials.size());
-		MaterialVersions.resize(InMaterials.size());
-		LastMaterialDirtyFlags.resize(InMaterials.size(), EMaterialRenderDirtyFlags::None);
-		for (const FMaterialRenderUpdate& Update : InMaterials)
-		{
-			if (Update.SlotIndex >= Materials.size()) continue;
-			Materials[Update.SlotIndex] = Update.RenderData;
-			MaterialVersions[Update.SlotIndex] = Update.MaterialVersion;
-			LastMaterialDirtyFlags[Update.SlotIndex] = Update.DirtyFlags;
-			MaterialComponentRevision = std::max(MaterialComponentRevision, Update.ComponentRevision);
-		}
 	}
 
 	auto FStaticMeshSceneProxy::GetRenderData() const -> const FStaticMeshRenderData*
@@ -36,21 +30,32 @@ namespace Durin
 		return RenderData;
 	}
 
-	auto FStaticMeshSceneProxy::GetMaterialRenderData(uint32 SlotIndex) const -> const FMaterialRenderData&
+	auto FStaticMeshSceneProxy::ResolveMaterialRenderData_RenderThread(
+		uint32 SlotIndex) const -> const FMaterialRenderData&
 	{
 		static const FMaterialRenderData DefaultMaterial;
-		return SlotIndex < Materials.size() ? Materials[SlotIndex] : DefaultMaterial;
+		const FMaterialRenderProxyRef& MaterialProxy =
+			GetMaterialRenderProxy(SlotIndex);
+		return MaterialProxy
+			? MaterialProxy->Resolve_RenderThread()
+			: DefaultMaterial;
 	}
 
-	auto FStaticMeshSceneProxy::UpdateMaterialRenderData(const FMaterialRenderUpdate& Update) -> void
+	auto FStaticMeshSceneProxy::GetMaterialRenderProxy(uint32 SlotIndex) const
+		-> const FMaterialRenderProxyRef&
+	{
+		static const FMaterialRenderProxyRef EmptyProxy;
+		return SlotIndex < Materials.size() ? Materials[SlotIndex] : EmptyProxy;
+	}
+
+	auto FStaticMeshSceneProxy::UpdateMaterialRenderProxyBinding(
+		const FMaterialRenderProxyBindingUpdate& Update) -> void
 	{
 		CheckRenderingThread();
 		if (Update.ComponentRevision <= MaterialComponentRevision) return;
 		if (Update.SlotIndex >= Materials.size()) return;
-		Materials[Update.SlotIndex] = Update.RenderData;
+		Materials[Update.SlotIndex] = Update.MaterialProxy;
 		MaterialComponentRevision = Update.ComponentRevision;
-		MaterialVersions[Update.SlotIndex] = Update.MaterialVersion;
-		LastMaterialDirtyFlags[Update.SlotIndex] = Update.DirtyFlags;
 	}
 
 	FTextureCubePreviewSceneProxy::FTextureCubePreviewSceneProxy(

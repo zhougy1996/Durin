@@ -751,7 +751,9 @@ namespace Durin
 				{
 					continue;
 				}
-				const FMaterialRenderData& Material = Proxy.GetMaterialRenderData(Section.MaterialSlotIndex);
+				const FMaterialRenderData& Material =
+					Proxy.ResolveMaterialRenderData_RenderThread(
+						Section.MaterialSlotIndex);
 				FStaticMeshRendererState::FPipelineEntry* PipelineEntry =
 					GetOrCreateStaticMeshPipeline(Material.PipelineIdentity);
 				if (PipelineEntry == nullptr) continue;

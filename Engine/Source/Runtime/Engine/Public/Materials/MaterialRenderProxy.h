@@ -28,6 +28,14 @@ namespace Durin
 	class FMaterialRenderProxy;
 	using FMaterialRenderProxyRef = TRefCountPtr<FMaterialRenderProxy>;
 
+	// Rebinds one stable primitive slot without copying material content.
+	struct FMaterialRenderProxyBindingUpdate
+	{
+		uint32 SlotIndex = 0;
+		FMaterialRenderProxyRef MaterialProxy;
+		uint64 ComponentRevision = 0;
+	};
+
 	struct FMaterialRenderProxyPublication
 	{
 		FMaterialLocalRenderLayer LocalLayer;

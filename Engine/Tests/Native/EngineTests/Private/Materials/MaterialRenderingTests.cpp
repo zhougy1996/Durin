@@ -12,23 +12,26 @@
 
 TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 {
-	InitializeDObjectSystem();
+	FRenderSceneHarness Harness;
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "ProxyMaterial");
 	Material->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.25, 0.5, 0.75));
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "MeshComponent");
+	Durin::DStaticMeshComponent* Component = Harness.CreateStaticMeshComponent("MeshComponent");
 	Component->SetStaticMesh(Mesh);
 	Component->SetMaterial(Material);
+	Component->RegisterComponent();
 
-	std::unique_ptr<Durin::PrimitiveSceneProxy> Proxy = Component->CreateSceneProxy();
-	auto* StaticMeshProxy = dynamic_cast<Durin::FStaticMeshSceneProxy*>(Proxy.get());
-	ASSERT_NE(StaticMeshProxy, nullptr);
-	ExpectColorNear(StaticMeshProxy->GetMaterialRenderData(0).BaseColor, Durin::FVector4f(0.25f, 0.5f, 0.75f, 1.0f));
+	const FMaterialSlotsSnapshot Snapshot = CaptureMaterialSlots(Harness.Scene);
+	ASSERT_NE(Snapshot.Proxy, nullptr);
+	ASSERT_EQ(Snapshot.Materials.size(), 1u);
+	ExpectColorNear(Snapshot.Materials[0].BaseColor, Durin::FVector4f(0.25f, 0.5f, 0.75f, 1.0f));
 
-	Proxy.reset();
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Mesh);
 	Durin::MarkAsGarbage(Material);
+	Harness.Shutdown();
 	Durin::CollectGarbage();
 }
 
@@ -56,18 +59,11 @@ TEST(FMaterialTests, StaticPropertyChangesUpdatePipelineIdentityWithoutRecreatin
 	const FMaterialSlotsSnapshot Updated = CaptureMaterialSlots(Harness.Scene);
 	ASSERT_EQ(Updated.Materials.size(), 1u);
 	EXPECT_EQ(Updated.Proxy, Initial.Proxy);
-	EXPECT_GT(Updated.ComponentRevision, Initial.ComponentRevision);
+	EXPECT_EQ(Updated.ComponentRevision, Initial.ComponentRevision);
+	EXPECT_EQ(Updated.MaterialProxies, Initial.MaterialProxies);
 	EXPECT_NE(
 		Updated.Materials[0].PipelineIdentity,
 		Initial.Materials[0].PipelineIdentity);
-	ASSERT_EQ(Updated.MaterialDirtyFlags.size(), 1u);
-	EXPECT_TRUE(Durin::EnumHasAllFlags(
-		Updated.MaterialDirtyFlags[0],
-		Durin::EMaterialRenderDirtyFlags::ShaderMap
-			| Durin::EMaterialRenderDirtyFlags::PipelineState));
-	EXPECT_FALSE(Durin::EnumHasAnyFlags(
-		Updated.MaterialDirtyFlags[0],
-		Durin::EMaterialRenderDirtyFlags::DynamicParameters));
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
@@ -80,61 +76,64 @@ TEST(FMaterialTests, StaticPropertyChangesUpdatePipelineIdentityWithoutRecreatin
 
 TEST(FMaterialTests, StaticMeshProxyCapturesPerSlotMaterials)
 {
-	InitializeDObjectSystem();
+	FRenderSceneHarness Harness;
 	Durin::DMaterial* First = Durin::NewObject<Durin::DMaterial>(nullptr, "FirstSlotMaterial");
 	Durin::DMaterial* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "SecondSlotMaterial");
 	First->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.3, 0.4));
 	Second->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	AddDebugMaterialSlot(Mesh, "Second");
-	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "MultiMaterialMeshComponent");
+	Durin::DStaticMeshComponent* Component = Harness.CreateStaticMeshComponent("MultiMaterialMeshComponent");
 	Component->SetStaticMesh(Mesh);
 	Component->SetMaterial(0, First);
 	Component->SetMaterial(1, Second);
+	Component->RegisterComponent();
 
 	EXPECT_EQ(Component->GetNumMaterials(), 2u);
 	EXPECT_EQ(Component->GetMaterial(), First);
 	EXPECT_EQ(Component->GetMaterial(1), Second);
-	std::unique_ptr<Durin::PrimitiveSceneProxy> Proxy = Component->CreateSceneProxy();
-	auto* StaticMeshProxy = dynamic_cast<Durin::FStaticMeshSceneProxy*>(Proxy.get());
-	ASSERT_NE(StaticMeshProxy, nullptr);
-	EXPECT_EQ(StaticMeshProxy->GetNumMaterials(), 2u);
-	ExpectColorNear(StaticMeshProxy->GetMaterialRenderData(0).BaseColor, Durin::FVector4f(0.2f, 0.3f, 0.4f, 1.0f));
-	ExpectColorNear(StaticMeshProxy->GetMaterialRenderData(1).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
+	const FMaterialSlotsSnapshot Snapshot = CaptureMaterialSlots(Harness.Scene);
+	ASSERT_EQ(Snapshot.Materials.size(), 2u);
+	ExpectColorNear(Snapshot.Materials[0].BaseColor, Durin::FVector4f(0.2f, 0.3f, 0.4f, 1.0f));
+	ExpectColorNear(Snapshot.Materials[1].BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
 
-	Proxy.reset();
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Mesh);
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
+	Harness.Shutdown();
 	Durin::CollectGarbage();
 }
 
 TEST(FMaterialTests, StaticMeshProxyUsesEmptyFallbackForUnassignedSlots)
 {
-	InitializeDObjectSystem();
+	FRenderSceneHarness Harness;
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	Durin::FStaticMeshTestAccess::GetMutableRenderData(Mesh)
 		->MaterialSlots.push_back({"Second", 1});
-	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "FallbackMeshComponent");
+	Durin::DStaticMeshComponent* Component = Harness.CreateStaticMeshComponent("FallbackMeshComponent");
 	Component->SetStaticMesh(Mesh);
+	Component->RegisterComponent();
 
-	std::unique_ptr<Durin::PrimitiveSceneProxy> Proxy = Component->CreateSceneProxy();
-	auto* StaticMeshProxy = dynamic_cast<Durin::FStaticMeshSceneProxy*>(Proxy.get());
-	ASSERT_NE(StaticMeshProxy, nullptr);
-	EXPECT_EQ(StaticMeshProxy->GetNumMaterials(), 2u);
+	const FMaterialSlotsSnapshot Snapshot = CaptureMaterialSlots(Harness.Scene);
+	ASSERT_EQ(Snapshot.Materials.size(), 2u);
 	for (Durin::uint32 SlotIndex = 0; SlotIndex < 2; ++SlotIndex)
 	{
-		const Durin::FMaterialRenderData& Fallback = StaticMeshProxy->GetMaterialRenderData(SlotIndex);
+		const Durin::FMaterialRenderData& Fallback = Snapshot.Materials[SlotIndex];
 		ExpectColorNear(Fallback.BaseColor, Durin::FMaterialRenderData{}.BaseColor);
 		EXPECT_EQ(Fallback.BaseColorTexture, nullptr);
 		EXPECT_FLOAT_EQ(Fallback.SpecularStrength, Durin::FMaterialRenderData{}.SpecularStrength);
 		EXPECT_FLOAT_EQ(Fallback.Shininess, Durin::FMaterialRenderData{}.Shininess);
+		EXPECT_EQ(Snapshot.MaterialProxies[SlotIndex], nullptr);
 	}
 
-	Proxy.reset();
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Mesh);
+	Harness.Shutdown();
 	Durin::CollectGarbage();
 }
 
@@ -169,7 +168,8 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	Shared->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.4, 0.5, 0.6));
 	const FMaterialSlotsSnapshot Updated = CaptureMaterialSlots(Harness.Scene);
 	EXPECT_EQ(Updated.Proxy, Initial.Proxy);
-	EXPECT_GT(Updated.ComponentRevision, Initial.ComponentRevision);
+	EXPECT_EQ(Updated.ComponentRevision, Initial.ComponentRevision);
+	EXPECT_EQ(Updated.MaterialProxies, Initial.MaterialProxies);
 	ExpectColorNear(Updated.Materials[0].BaseColor, Durin::FVector4f(0.4f, 0.5f, 0.6f, 1.0f));
 	ExpectColorNear(Updated.Materials[1].BaseColor, Durin::FVector4f(0.8f, 0.7f, 0.6f, 1.0f));
 	ExpectColorNear(Updated.Materials[2].BaseColor, Durin::FVector4f(0.4f, 0.5f, 0.6f, 1.0f));
@@ -177,12 +177,7 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	EXPECT_EQ(
 		Updated.Materials[0].PipelineIdentity,
 		Initial.Materials[0].PipelineIdentity);
-	for (const Durin::uint32 SlotIndex : {0u, 2u})
-	{
-		EXPECT_EQ(
-			Updated.MaterialDirtyFlags[SlotIndex],
-			Durin::EMaterialRenderDirtyFlags::DynamicParameters);
-	}
+	EXPECT_EQ(Updated.MaterialProxies[0], Updated.MaterialProxies[2]);
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
@@ -194,11 +189,12 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, StaticMeshProxyOrdersRapidCrossSlotUpdatesAndRejectsStaleRevisions)
+TEST(FMaterialTests, StaticMeshProxyOrdersRapidBindingChangesAndRejectsStaleRevisions)
 {
 	FRenderSceneHarness Harness;
 	auto* First = Durin::NewObject<Durin::DMaterial>(nullptr, "RapidFirstMaterial");
 	auto* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "RapidSecondMaterial");
+	auto* Replacement = Durin::NewObject<Durin::DMaterial>(nullptr, "RapidReplacementMaterial");
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	AddDebugMaterialSlot(Mesh, "Second");
 	auto* Component = Harness.CreateStaticMeshComponent("RapidSlotComponent");
@@ -214,31 +210,43 @@ TEST(FMaterialTests, StaticMeshProxyOrdersRapidCrossSlotUpdatesAndRejectsStaleRe
 	ASSERT_EQ(Rapid.Materials.size(), 2u);
 	ExpectColorNear(Rapid.Materials[0].BaseColor, Durin::FVector4f(0.2f, 0.3f, 0.4f, 1.0f));
 	ExpectColorNear(Rapid.Materials[1].BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
+	EXPECT_EQ(Rapid.ComponentRevision, Initial.ComponentRevision);
 
-	Durin::FMaterialRenderUpdate Newer;
-	Newer.SlotIndex = 0;
-	Newer.ComponentRevision = Rapid.ComponentRevision + 2;
-	Newer.RenderData.BaseColor = Durin::FVector4f(0.9f, 0.8f, 0.7f, 1.0f);
-	Durin::FMaterialRenderUpdate Stale = Newer;
-	Stale.ComponentRevision = Rapid.ComponentRevision + 1;
-	Stale.RenderData.BaseColor = Durin::FVector4f(0.0f, 0.0f, 0.0f, 1.0f);
-	struct FApplyOrderedMaterialUpdatesCommand
+	Replacement->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(),
+		Durin::FVector3(0.9, 0.8, 0.7));
+	Component->SetMaterial(0, Replacement);
+	const FMaterialSlotsSnapshot Rebound = CaptureMaterialSlots(Harness.Scene);
+	EXPECT_EQ(Rebound.Proxy, Initial.Proxy);
+	EXPECT_GT(Rebound.ComponentRevision, Rapid.ComponentRevision);
+	EXPECT_NE(Rebound.MaterialProxies[0], Rapid.MaterialProxies[0]);
+	EXPECT_EQ(Rebound.MaterialProxies[1], Rapid.MaterialProxies[1]);
+	ExpectColorNear(
+		Rebound.Materials[0].BaseColor,
+		Durin::FVector4f(0.9f, 0.8f, 0.7f, 1.0f));
+
+	Durin::FMaterialRenderProxyBindingUpdate Stale;
+	Stale.SlotIndex = 0;
+	Stale.ComponentRevision = Rapid.ComponentRevision;
+	Stale.MaterialProxy = First->GetMaterialRenderProxy();
+	struct FApplyStaleMaterialBindingCommand
 	{
-		static constexpr const char* GetName() { return "ApplyOrderedMaterialUpdates"; }
+		static constexpr const char* GetName() { return "ApplyStaleMaterialBinding"; }
 	};
-	Durin::EnqueueRenderCommand<FApplyOrderedMaterialUpdatesCommand>(
-		[Proxy = Rapid.Proxy, Newer, Stale](Durin::FRHICommandListImmediate&) {
-			Proxy->UpdateMaterialRenderData(Newer);
-			Proxy->UpdateMaterialRenderData(Stale);
+	Durin::EnqueueRenderCommand<FApplyStaleMaterialBindingCommand>(
+		[Proxy = Rebound.Proxy, Stale](Durin::FRHICommandListImmediate&) {
+			Proxy->UpdateMaterialRenderProxyBinding(Stale);
 		});
 	const FMaterialSlotsSnapshot Ordered = CaptureMaterialSlots(Harness.Scene);
-	ExpectColorNear(Ordered.Materials[0].BaseColor, Newer.RenderData.BaseColor);
-	EXPECT_EQ(Ordered.ComponentRevision, Newer.ComponentRevision);
+	ExpectColorNear(Ordered.Materials[0].BaseColor, Rebound.Materials[0].BaseColor);
+	EXPECT_EQ(Ordered.ComponentRevision, Rebound.ComponentRevision);
+	EXPECT_EQ(Ordered.MaterialProxies[0], Rebound.MaterialProxies[0]);
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(Replacement);
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);
 	Harness.Shutdown();

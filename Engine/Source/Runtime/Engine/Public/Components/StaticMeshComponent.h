@@ -52,8 +52,8 @@ namespace Durin
 	private:
 		friend class FStaticMeshRenderStateRecreateContext;
 
-		ENGINE_API auto BuildMaterialRenderUpdate(EMaterialRenderDirtyFlags DirtyFlags, FMaterialRenderUpdate& OutUpdate) -> bool override;
-		auto HandleMaterialRenderDataChanged(uint32 SlotIndex, EMaterialRenderDirtyFlags DirtyFlags) -> void;
+		ENGINE_API auto BuildMaterialRenderProxyBindingUpdate(
+			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool override;
 		auto HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void;
 		auto ValidateMaterialOverrides(std::span<const FStaticMeshMaterialOverride> Overrides, std::string& OutError) const -> bool;
 
@@ -65,9 +65,7 @@ namespace Durin
 
 		uint64 MaterialComponentRevision = 1;
 		uint32 PendingMaterialSlotIndex = 0;
-		EMaterialRenderDirtyFlags PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::None;
 
 		friend class DStaticMesh;
-		friend class FMaterialUpdateContext;
 	};
 }

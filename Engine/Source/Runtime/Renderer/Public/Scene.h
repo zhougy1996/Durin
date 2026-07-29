@@ -14,7 +14,9 @@ namespace Durin
 		RENDERER_API auto RemovePrimitive(FPrimitiveSceneId PrimitiveId) -> void override;
 
 		RENDERER_API auto UpdatePrimitiveTransform(FPrimitiveSceneId PrimitiveId, const FMatrix& Transform) -> void override;
-		RENDERER_API auto UpdatePrimitiveMaterial(FPrimitiveSceneId PrimitiveId, const FMaterialRenderUpdate& Update) -> void override;
+		RENDERER_API auto UpdatePrimitiveMaterialBinding(
+			FPrimitiveSceneId PrimitiveId,
+			const FMaterialRenderProxyBindingUpdate& Update) -> void override;
 		RENDERER_API auto Release() -> void override;
 		RENDERER_API auto AddDirectionalLight(DDirectionalLightComponent* Light) -> void override;
 		RENDERER_API auto RemoveDirectionalLight(DDirectionalLightComponent* Light) -> void override;

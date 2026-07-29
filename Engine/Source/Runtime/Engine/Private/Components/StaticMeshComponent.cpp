@@ -297,7 +297,9 @@ namespace Durin
 
 	auto DStaticMeshComponent::SetMaterialBySlotId(const FGuid& SlotId, DMaterialInterface* InMaterial) -> bool
 	{
-		if (!SlotId.IsValid() || StaticMesh == nullptr || StaticMesh->FindMaterialSlot(SlotId) == nullptr) return false;
+		const FStaticMeshMaterialSlotDefinition* Slot =
+			StaticMesh != nullptr ? StaticMesh->FindMaterialSlot(SlotId) : nullptr;
+		if (!SlotId.IsValid() || Slot == nullptr) return false;
 		if (InMaterial == nullptr) return ResetMaterialBySlotId(SlotId);
 		if (FStaticMeshMaterialOverride* Override = const_cast<FStaticMeshMaterialOverride*>(FindOverride(MaterialOverrides, SlotId)))
 		{
@@ -306,9 +308,10 @@ namespace Durin
 		}
 		else MaterialOverrides.push_back({.SlotId = SlotId, .Material = InMaterial});
 		++MaterialComponentRevision;
-		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::AllRenderState | EMaterialRenderDirtyFlags::ParentChain;
+		PendingMaterialSlotIndex = static_cast<uint32>(
+			Slot - StaticMesh->GetMaterialSlots().data());
 		MarkPackageDirty();
-		MarkRenderStateDirty();
+		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
 		return true;
 	}
 
@@ -320,13 +323,20 @@ namespace Durin
 
 	auto DStaticMeshComponent::RemoveMaterialOverride(const FGuid& SlotId) -> bool
 	{
+		const FStaticMeshMaterialSlotDefinition* Slot =
+			StaticMesh != nullptr ? StaticMesh->FindMaterialSlot(SlotId) : nullptr;
 		const size_t PreviousSize = MaterialOverrides.size();
 		std::erase_if(MaterialOverrides, [&SlotId](const FStaticMeshMaterialOverride& Override) { return Override.SlotId == SlotId; });
 		if (MaterialOverrides.size() == PreviousSize) return false;
 		++MaterialComponentRevision;
-		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::AllRenderState | EMaterialRenderDirtyFlags::ParentChain;
+		PendingMaterialSlotIndex = Slot != nullptr
+			? static_cast<uint32>(Slot - StaticMesh->GetMaterialSlots().data())
+			: 0;
 		MarkPackageDirty();
-		if (StaticMesh != nullptr && StaticMesh->FindMaterialSlot(SlotId) != nullptr) MarkRenderStateDirty();
+		if (Slot != nullptr)
+		{
+			MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialBinding);
+		}
 		return true;
 	}
 
@@ -423,7 +433,6 @@ namespace Durin
 		}
 		if (Name != FName("MaterialOverrides")) return;
 		++MaterialComponentRevision;
-		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::AllRenderState | EMaterialRenderDirtyFlags::ParentChain;
 		MarkRenderStateDirty();
 	}
 
@@ -443,20 +452,20 @@ namespace Durin
 			return nullptr;
 		}
 
-		std::vector<FMaterialRenderUpdate> MaterialUpdates;
-		MaterialUpdates.reserve(RenderData->MaterialSlots.size());
+		std::vector<FMaterialRenderProxyRef> MaterialProxies;
+		MaterialProxies.reserve(RenderData->MaterialSlots.size());
 		for (uint32 SlotIndex = 0; SlotIndex < RenderData->MaterialSlots.size(); ++SlotIndex)
 		{
 			DMaterialInterface* SlotMaterial = GetMaterial(SlotIndex);
-			FMaterialRenderUpdate& Update = MaterialUpdates.emplace_back();
-			Update.SlotIndex = SlotIndex;
-			Update.RenderData = SlotMaterial != nullptr ? SlotMaterial->GetRenderData() : FMaterialRenderData{};
-			Update.MaterialVersion = SlotMaterial != nullptr ? SlotMaterial->GetRenderStateVersion() : 0;
-			Update.ComponentRevision = MaterialComponentRevision;
-			Update.DirtyFlags = EMaterialRenderDirtyFlags::AllRenderState | EMaterialRenderDirtyFlags::ParentChain;
+			MaterialProxies.push_back(
+				SlotMaterial != nullptr
+					? SlotMaterial->GetMaterialRenderProxy()
+					: FMaterialRenderProxyRef{});
 		}
-		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::None;
-		return std::make_unique<FStaticMeshSceneProxy>(RenderData, std::move(MaterialUpdates));
+		return std::make_unique<FStaticMeshSceneProxy>(
+			RenderData,
+			std::move(MaterialProxies),
+			MaterialComponentRevision);
 	}
 
 	auto DStaticMeshComponent::HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void
@@ -466,29 +475,16 @@ namespace Durin
 		MarkRenderStateDirty();
 	}
 
-	auto DStaticMeshComponent::BuildMaterialRenderUpdate(EMaterialRenderDirtyFlags DirtyFlags, FMaterialRenderUpdate& OutUpdate) -> bool
+	auto DStaticMeshComponent::BuildMaterialRenderProxyBindingUpdate(
+		FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool
 	{
 		DMaterialInterface* CurrentMaterial = GetMaterial(PendingMaterialSlotIndex);
 		OutUpdate.SlotIndex = PendingMaterialSlotIndex;
-		OutUpdate.RenderData = CurrentMaterial != nullptr ? CurrentMaterial->GetRenderData() : FMaterialRenderData{};
-		OutUpdate.MaterialVersion = CurrentMaterial != nullptr ? CurrentMaterial->GetRenderStateVersion() : 0;
+		OutUpdate.MaterialProxy = CurrentMaterial != nullptr
+			? CurrentMaterial->GetMaterialRenderProxy()
+			: FMaterialRenderProxyRef{};
 		OutUpdate.ComponentRevision = MaterialComponentRevision;
-		OutUpdate.DirtyFlags = PendingMaterialDirtyFlags != EMaterialRenderDirtyFlags::None ? PendingMaterialDirtyFlags : DirtyFlags;
-		PendingMaterialDirtyFlags = EMaterialRenderDirtyFlags::None;
 		return true;
-	}
-
-	auto DStaticMeshComponent::HandleMaterialRenderDataChanged(
-		uint32 SlotIndex,
-		EMaterialRenderDirtyFlags DirtyFlags
-	) -> void
-	{
-		if (SlotIndex >= GetNumMaterials()) return;
-		// Component revisions order updates even when different slots refer to assets with unrelated versions.
-		++MaterialComponentRevision;
-		PendingMaterialSlotIndex = SlotIndex;
-		PendingMaterialDirtyFlags = DirtyFlags;
-		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::MaterialData);
 	}
 
 	auto DStaticMeshComponent::ValidateMaterialOverrides(
