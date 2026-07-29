@@ -5,6 +5,7 @@
 #include "MonaUIBackend.h"
 #include "RHI.h"
 #include "RHICommandList.h"
+#include "RenderResourceCreation.h"
 #include "RenderingThread.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
@@ -56,6 +57,22 @@ namespace Durin
 
 		struct FTexturePreviewRendererState
 		{
+			struct FPayload
+			{
+				std::shared_ptr<FShaderMapBase> ShaderMap;
+				TShaderRef<FTexturePreviewVertexShader> VertexShader;
+				TShaderRef<FTexturePreviewFragmentShader> FragmentShader;
+				FVertexDeclarationRHIRef VertexDeclaration;
+				FGraphicsPipelineStateRHIRef PipelineState;
+				FBufferRHIRef VertexBuffer;
+				FBufferRHIRef IndexBuffer;
+				FSamplerRHIRef Sampler;
+			};
+
+			FRenderResourceGeneration Generation;
+			TRenderResourceCreationSlot<FPayload> Slot{
+				ERenderResourceGenerationDependency::Shader
+					| ERenderResourceGenerationDependency::Device};
 			std::shared_ptr<FShaderMapBase> ShaderMap;
 			TShaderRef<FTexturePreviewVertexShader> VertexShader;
 			TShaderRef<FTexturePreviewFragmentShader> FragmentShader;
@@ -64,7 +81,6 @@ namespace Durin
 			FBufferRHIRef VertexBuffer;
 			FBufferRHIRef IndexBuffer;
 			FSamplerRHIRef Sampler;
-			bool bCreateAttempted = false;
 		};
 
 		FTexturePreviewRendererState GTexturePreviewRendererState;
@@ -87,90 +103,162 @@ namespace Durin
 		auto EnsureTexturePreviewRendererResources(FRHICommandListImmediate& CommandList) -> bool
 		{
 			FTexturePreviewRendererState& State = GTexturePreviewRendererState;
-			if (State.bCreateAttempted)
-			{
-				return State.PipelineState != nullptr
-					&& State.VertexBuffer != nullptr
-					&& State.IndexBuffer != nullptr
-					&& State.Sampler != nullptr;
-			}
-			State.bCreateAttempted = true;
-
-			FShaderCompileOptions CompileOptions;
-			FShaderType& VertexShaderType = FTexturePreviewVertexShader::StaticType();
-			FShaderType& FragmentShaderType = FTexturePreviewFragmentShader::StaticType();
-			std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
-			std::shared_ptr<FShaderMapBase> ShaderMap = std::make_shared<FShaderMapBase>();
-			std::string ErrorMessage;
-			if (!ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions, ErrorMessage))
-			{
-				DURIN_ERROR("Failed to initialize Texture Editor preview shader map: {}", ErrorMessage);
+			using FResult = TRenderResourceCreateResult<
+				FTexturePreviewRendererState::FPayload>;
+			auto* Payload = State.Slot.Resolve(
+				State.Generation,
+				[&CommandList]() -> FResult {
+					FShaderCompileOptions CompileOptions;
+					FShaderType& VertexShaderType =
+						FTexturePreviewVertexShader::StaticType();
+					FShaderType& FragmentShaderType =
+						FTexturePreviewFragmentShader::StaticType();
+					std::array<const FShaderType*, 2> ShaderTypes = {
+						&VertexShaderType, &FragmentShaderType};
+					auto ShaderMap = std::make_shared<FShaderMapBase>();
+					std::string ErrorMessage;
+					auto MakeError = [](auto Category, std::string Message) {
+						return FRenderResourceCreateError{
+							.Category = Category,
+							.Context = "TextureEditorPreview",
+							.Identity = "channel-filter",
+							.Message = std::move(Message),
+							.RetryDependencies =
+								ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Device
+								| ERenderResourceGenerationDependency::Manual,
+						};
+					};
+					if (!ShaderMap->InitializeFromShaderTypes(
+							ShaderTypes, CompileOptions, ErrorMessage))
+						return FResult::Failure(MakeError(
+							ERenderResourceCreateErrorCategory::ShaderCompile,
+							std::move(ErrorMessage)));
+					auto* VertexShader =
+						static_cast<FTexturePreviewVertexShader*>(
+							ShaderMap->GetShader(&VertexShaderType));
+					auto* FragmentShader =
+						static_cast<FTexturePreviewFragmentShader*>(
+							ShaderMap->GetShader(&FragmentShaderType));
+					if (VertexShader == nullptr || FragmentShader == nullptr)
+						return FResult::Failure(MakeError(
+							ERenderResourceCreateErrorCategory::ShaderBinding,
+							"Compiled shader map is missing a typed shader."));
+					FTexturePreviewRendererState::FPayload Candidate;
+					Candidate.ShaderMap = std::move(ShaderMap);
+					Candidate.VertexShader =
+						TShaderRef<FTexturePreviewVertexShader>(
+							VertexShader, Candidate.ShaderMap.get());
+					Candidate.FragmentShader =
+						TShaderRef<FTexturePreviewFragmentShader>(
+							FragmentShader, Candidate.ShaderMap.get());
+					constexpr uint32 VertexStride =
+						sizeof(FTexturePreviewVertex);
+					FVertexDeclarationElementList VertexElements;
+					VertexElements[0] = FVertexElement(
+						0, offsetof(FTexturePreviewVertex, Position),
+						EVertexElementType::Float2, 0, VertexStride);
+					VertexElements[1] = FVertexElement(
+						0, offsetof(FTexturePreviewVertex, UV),
+						EVertexElementType::Float2, 1, VertexStride);
+					Candidate.VertexDeclaration =
+						GDynamicRHI->RHICreateVertexDeclaration(
+							VertexElements);
+					const std::array<FTexturePreviewVertex, 3> Vertices = {
+						FTexturePreviewVertex{
+							FVector2f{-1.0f, -1.0f},
+							FVector2f{0.0f, 0.0f}},
+						FTexturePreviewVertex{
+							FVector2f{3.0f, -1.0f},
+							FVector2f{2.0f, 0.0f}},
+						FTexturePreviewVertex{
+							FVector2f{-1.0f, 3.0f},
+							FVector2f{0.0f, 2.0f}},
+					};
+					const std::array<uint32, 3> Indices = {0, 1, 2};
+					FRHIBufferCreateDesc VertexBufferDesc =
+						FRHIBufferCreateDesc::CreateVertex(
+							"TexturePreviewFullscreenVertexBuffer",
+							static_cast<uint32>(sizeof(Vertices)));
+					VertexBufferDesc.Usage |= EBufferUsageFlags::Static;
+					VertexBufferDesc.InitialData = {
+						Vertices.data(),
+						static_cast<uint32>(sizeof(Vertices))};
+					Candidate.VertexBuffer =
+						GDynamicRHI->RHICreateBuffer(
+							CommandList, VertexBufferDesc);
+					FRHIBufferCreateDesc IndexBufferDesc =
+						FRHIBufferCreateDesc::CreateIndex(
+							"TexturePreviewFullscreenIndexBuffer",
+							static_cast<uint32>(sizeof(Indices)),
+							sizeof(uint32));
+					IndexBufferDesc.Usage |= EBufferUsageFlags::Static;
+					IndexBufferDesc.InitialData = {
+						Indices.data(),
+						static_cast<uint32>(sizeof(Indices))};
+					Candidate.IndexBuffer =
+						GDynamicRHI->RHICreateBuffer(
+							CommandList, IndexBufferDesc);
+					Candidate.Sampler =
+						GDynamicRHI->RHICreateSampler(
+							FRHISamplerDesc::LinearClamp());
+					FGraphicsPipelineStateInitializer PipelineInitializer;
+					PipelineInitializer.RenderTargetLayout =
+						MakeTexturePreviewRenderTargetLayout();
+					PipelineInitializer.BoundShaders.VertexShader =
+						Candidate.VertexShader.GetRHIShader();
+					PipelineInitializer.BoundShaders.FragmentShader =
+						Candidate.FragmentShader.GetRHIShader();
+					PipelineInitializer.VertexDeclaration =
+						Candidate.VertexDeclaration;
+					PipelineInitializer.bEnableAlphaBlend = false;
+					PipelineInitializer.bEnableBackFaceCulling = false;
+					PipelineInitializer.PipelineLayout =
+						Candidate.ShaderMap->GetMergedPipelineLayout();
+					Candidate.PipelineState =
+						GDynamicRHI->RHICreateGraphicsPipelineState(
+							"TexturePreviewChannelPipeline",
+							PipelineInitializer);
+					if (Candidate.VertexDeclaration == nullptr
+						|| Candidate.PipelineState == nullptr
+						|| Candidate.VertexBuffer == nullptr
+						|| Candidate.IndexBuffer == nullptr
+						|| Candidate.Sampler == nullptr)
+						return FResult::Failure(MakeError(
+							ERenderResourceCreateErrorCategory::RHIResource,
+							"RHI resource creation returned null."));
+					return FResult::Success(std::move(Candidate));
+				},
+				[](const FRenderResourceCreateDiagnostic& Diagnostic) {
+					if (!Diagnostic.Error)
+						return;
+					if (Diagnostic.Kind
+						== ERenderResourceCreateDiagnosticKind::Recovery)
+					{
+						DURIN_INFO(
+							"Recovered Texture Editor preview resources.");
+						return;
+					}
+					DURIN_ERROR(
+						"Texture Editor preview resource creation failed: category={}, generation={}/{}/{}, retained={}, message={}",
+						static_cast<uint8>(Diagnostic.Error->Category),
+						Diagnostic.Error->AttemptedGeneration.Shader,
+						Diagnostic.Error->AttemptedGeneration.Device,
+						Diagnostic.Error->AttemptedGeneration.Manual,
+						Diagnostic.Error->bRetainedFallback,
+						Diagnostic.Error->Message);
+				});
+			if (Payload == nullptr)
 				return false;
-			}
-
-			auto* VertexShader = static_cast<FTexturePreviewVertexShader*>(ShaderMap->GetShader(&VertexShaderType));
-			auto* FragmentShader = static_cast<FTexturePreviewFragmentShader*>(ShaderMap->GetShader(&FragmentShaderType));
-			check(VertexShader);
-			check(FragmentShader);
-			State.ShaderMap = ShaderMap;
-			State.VertexShader = TShaderRef<FTexturePreviewVertexShader>(VertexShader, ShaderMap.get());
-			State.FragmentShader = TShaderRef<FTexturePreviewFragmentShader>(FragmentShader, ShaderMap.get());
-
-			constexpr uint32 VertexStride = sizeof(FTexturePreviewVertex);
-			FVertexDeclarationElementList VertexElements;
-			VertexElements[0] = FVertexElement(
-				0,
-				offsetof(FTexturePreviewVertex, Position),
-				EVertexElementType::Float2,
-				0,
-				VertexStride);
-			VertexElements[1] = FVertexElement(
-				0,
-				offsetof(FTexturePreviewVertex, UV),
-				EVertexElementType::Float2,
-				1,
-				VertexStride);
-			State.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexElements);
-
-			const std::array<FTexturePreviewVertex, 3> Vertices = {
-				FTexturePreviewVertex{FVector2f{-1.0f, -1.0f}, FVector2f{0.0f, 0.0f}},
-				FTexturePreviewVertex{FVector2f{3.0f, -1.0f}, FVector2f{2.0f, 0.0f}},
-				FTexturePreviewVertex{FVector2f{-1.0f, 3.0f}, FVector2f{0.0f, 2.0f}},
-			};
-			const std::array<uint32, 3> Indices = {0, 1, 2};
-
-			FRHIBufferCreateDesc VertexBufferDesc = FRHIBufferCreateDesc::CreateVertex(
-				"TexturePreviewFullscreenVertexBuffer",
-				static_cast<uint32>(sizeof(Vertices)));
-			VertexBufferDesc.Usage |= EBufferUsageFlags::Static;
-			VertexBufferDesc.InitialData = {Vertices.data(), static_cast<uint32>(sizeof(Vertices))};
-			State.VertexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, VertexBufferDesc);
-
-			FRHIBufferCreateDesc IndexBufferDesc = FRHIBufferCreateDesc::CreateIndex(
-				"TexturePreviewFullscreenIndexBuffer",
-				static_cast<uint32>(sizeof(Indices)),
-				sizeof(uint32));
-			IndexBufferDesc.Usage |= EBufferUsageFlags::Static;
-			IndexBufferDesc.InitialData = {Indices.data(), static_cast<uint32>(sizeof(Indices))};
-			State.IndexBuffer = GDynamicRHI->RHICreateBuffer(CommandList, IndexBufferDesc);
-			State.Sampler = GDynamicRHI->RHICreateSampler(FRHISamplerDesc::LinearClamp());
-
-			FGraphicsPipelineStateInitializer PipelineInitializer;
-			PipelineInitializer.RenderTargetLayout = MakeTexturePreviewRenderTargetLayout();
-			PipelineInitializer.BoundShaders.VertexShader = State.VertexShader.GetRHIShader();
-			PipelineInitializer.BoundShaders.FragmentShader = State.FragmentShader.GetRHIShader();
-			PipelineInitializer.VertexDeclaration = State.VertexDeclaration;
-			PipelineInitializer.bEnableAlphaBlend = false;
-			PipelineInitializer.bEnableBackFaceCulling = false;
-			PipelineInitializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
-			State.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
-				"TexturePreviewChannelPipeline",
-				PipelineInitializer);
-
-			return State.PipelineState != nullptr
-				&& State.VertexBuffer != nullptr
-				&& State.IndexBuffer != nullptr
-				&& State.Sampler != nullptr;
+			State.ShaderMap = Payload->ShaderMap;
+			State.VertexShader = Payload->VertexShader;
+			State.FragmentShader = Payload->FragmentShader;
+			State.VertexDeclaration = Payload->VertexDeclaration;
+			State.PipelineState = Payload->PipelineState;
+			State.VertexBuffer = Payload->VertexBuffer;
+			State.IndexBuffer = Payload->IndexBuffer;
+			State.Sampler = Payload->Sampler;
+			return true;
 		}
 
 		auto RenderTexturePreviewChannel(
@@ -181,6 +269,11 @@ namespace Durin
 			ETexturePreviewChannel Channel
 		) -> FTextureRHIRef
 		{
+			if (GTexturePreviewRendererState.Slot.GetFailure() != nullptr)
+			{
+				GTexturePreviewRendererState.Generation.Advance(
+					ERenderResourceGenerationDependency::Manual);
+			}
 			if (!InputTexture
 				|| Channel == ETexturePreviewChannel::RGBA
 				|| !EnsureTexturePreviewRendererResources(CommandList))
@@ -349,12 +442,14 @@ namespace Durin
 	{
 		if (!GDynamicRHI)
 		{
+			GTexturePreviewRendererState.Slot.Reset();
 			GTexturePreviewRendererState = {};
 			return;
 		}
 
 		ENQUEUE_RENDER_COMMAND(ReleaseTexturePreviewSharedResources)(
 			[](FRHICommandListImmediate&) {
+				GTexturePreviewRendererState.Slot.Reset();
 				GTexturePreviewRendererState = {};
 			});
 		FlushRenderingCommands();

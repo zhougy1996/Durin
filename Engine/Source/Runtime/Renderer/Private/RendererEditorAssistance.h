@@ -3,6 +3,7 @@
 #include "EditorGridRendering.h"
 #include "Misc/CoreTypes.h"
 #include "RHIResources.h"
+#include "RenderResourceCreation.h"
 #include "RendererAPI.h"
 #include "RendererRenderTargetLayouts.h"
 #include "SceneView.h"
@@ -36,44 +37,6 @@ namespace Durin::RendererEditorAssistance
 		NotApplicable,
 		Solid,
 		Wire,
-	};
-
-	// Tracks the independent invalidation domains used by lazy assistance resources.
-	struct FResourceGeneration
-	{
-		uint64 Shader = 0;
-		uint64 Device = 0;
-		uint64 Manual = 0;
-
-		auto operator==(const FResourceGeneration&) const -> bool = default;
-	};
-
-	// Selects which generation counters make one resource attempt stale.
-	struct FResourceGenerationDependencies
-	{
-		bool bShader = false;
-		bool bDevice = false;
-		bool bManual = false;
-	};
-
-	// Separates payload availability from the latest generation-scoped attempt.
-	enum class EResourceAvailability : uint8
-	{
-		Uninitialized,
-		Ready,
-		Failed,
-	};
-
-	struct FGenerationScopedAttempt
-	{
-		EResourceAvailability Availability =
-			EResourceAvailability::Uninitialized;
-		FResourceGeneration PayloadGeneration;
-		FResourceGeneration AttemptedGeneration;
-		bool bHasPayload = false;
-		bool bHasAttempt = false;
-		bool bLastAttemptFailed = false;
-		std::string FailureDetail;
 	};
 
 	// Identifies one independently cached assistance pipeline variant.
@@ -151,18 +114,6 @@ namespace Durin::RendererEditorAssistance
 		std::span<const FPipelineKey> AvailablePipelines)
 		-> std::vector<EDrawOperation>;
 	RENDERER_API auto GetDrawOrder() -> std::span<const EDrawOperation>;
-	RENDERER_API auto ShouldAttemptResource(
-		const FGenerationScopedAttempt& Attempt,
-		const FResourceGeneration& Generation,
-		const FResourceGenerationDependencies& Dependencies) -> bool;
-	RENDERER_API auto RecordResourceAttemptSuccess(
-		FGenerationScopedAttempt& Attempt,
-		const FResourceGeneration& Generation) -> void;
-	RENDERER_API auto RecordResourceAttemptFailure(
-		FGenerationScopedAttempt& Attempt,
-		const FResourceGeneration& Generation,
-		std::string_view Detail = {}) -> void;
-
 	// Prepares only resources and operations demanded by this view.
 	auto Prepare(
 		FRHICommandListImmediate& CommandList,

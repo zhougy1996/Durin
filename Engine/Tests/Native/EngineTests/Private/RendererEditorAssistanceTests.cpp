@@ -8,12 +8,8 @@ namespace Durin
 	using RendererEditorAssistance::EDepthMode;
 	using RendererEditorAssistance::EFeature;
 	using RendererEditorAssistance::EGizmoTopology;
-	using RendererEditorAssistance::EResourceAvailability;
-	using RendererEditorAssistance::FGenerationScopedAttempt;
 	using RendererEditorAssistance::FPipelineKey;
 	using RendererEditorAssistance::FRequest;
-	using RendererEditorAssistance::FResourceGeneration;
-	using RendererEditorAssistance::FResourceGenerationDependencies;
 	using RendererRenderTargetLayouts::EViewportOutput;
 
 	namespace
@@ -239,54 +235,6 @@ namespace Durin
 			}));
 	}
 
-	TEST(FRendererEditorAssistanceTests, FailedAttemptRetriesOnlyAfterRelevantGeneration)
-	{
-		const FResourceGenerationDependencies Dependencies{
-			.bShader = true,
-			.bManual = true,
-		};
-		FResourceGeneration Generation;
-		FGenerationScopedAttempt Attempt;
-
-		EXPECT_TRUE(RendererEditorAssistance::ShouldAttemptResource(
-			Attempt, Generation, Dependencies));
-		RendererEditorAssistance::RecordResourceAttemptFailure(
-			Attempt, Generation, "compile failed");
-		EXPECT_EQ(Attempt.Availability, EResourceAvailability::Failed);
-		EXPECT_EQ(Attempt.FailureDetail, "compile failed");
-		EXPECT_FALSE(RendererEditorAssistance::ShouldAttemptResource(
-			Attempt, Generation, Dependencies));
-
-		++Generation.Device;
-		EXPECT_FALSE(RendererEditorAssistance::ShouldAttemptResource(
-			Attempt, Generation, Dependencies));
-		++Generation.Shader;
-		EXPECT_TRUE(RendererEditorAssistance::ShouldAttemptResource(
-			Attempt, Generation, Dependencies));
-		RendererEditorAssistance::RecordResourceAttemptSuccess(
-			Attempt, Generation);
-		EXPECT_EQ(Attempt.Availability, EResourceAvailability::Ready);
-		EXPECT_TRUE(Attempt.FailureDetail.empty());
-
-		++Generation.Manual;
-		EXPECT_FALSE(RendererEditorAssistance::ShouldAttemptResource(
-			Attempt, Generation, Dependencies));
-		++Generation.Shader;
-		EXPECT_TRUE(RendererEditorAssistance::ShouldAttemptResource(
-			Attempt, Generation, Dependencies));
-		RendererEditorAssistance::RecordResourceAttemptFailure(
-			Attempt, Generation, "refresh failed");
-		EXPECT_EQ(Attempt.Availability, EResourceAvailability::Ready);
-		EXPECT_TRUE(Attempt.bHasPayload);
-		EXPECT_EQ(Attempt.PayloadGeneration.Shader, 1);
-		EXPECT_FALSE(RendererEditorAssistance::ShouldAttemptResource(
-			Attempt, Generation, Dependencies));
-
-		++Generation.Manual;
-		EXPECT_TRUE(RendererEditorAssistance::ShouldAttemptResource(
-			Attempt, Generation, Dependencies));
-	}
-
 	TEST(FRendererEditorAssistanceTests, DrawOrderKeepsAllAssistanceAfterGridAndXRayBeforeVisible)
 	{
 		const std::span<const EDrawOperation> Order = RendererEditorAssistance::GetDrawOrder();
@@ -311,5 +259,109 @@ namespace Durin
 		{
 			EXPECT_EQ(std::ranges::count(Order, Operation), 1);
 		}
+	}
+
+	TEST(
+		FRendererEditorAssistanceTests,
+		FixedFeatureAndPreviewFailuresStayIndependentAndRecover)
+	{
+		using EDependency = ERenderResourceGenerationDependency;
+		using FResult = TRenderResourceCreateResult<std::string>;
+		struct FInjectedResource
+		{
+			std::string Name;
+			TRenderResourceCreationSlot<std::string> Slot{
+				EDependency::Shader | EDependency::Device};
+			int Attempts = 0;
+			bool bFailNextAttempt = false;
+		};
+		std::array<FInjectedResource, 8> Resources{{
+			{.Name = "SkyBox"},
+			{.Name = "PostProcess"},
+			{.Name = "TextureCubeThumbnail"},
+			{.Name = "Gizmo"},
+			{.Name = "OverlayLine"},
+			{.Name = "OverlayIcon"},
+			{.Name = "EditorGrid"},
+			{.Name = "TextureEditorPreview"},
+		}};
+		FRenderResourceGeneration Generation;
+		std::vector<FRenderResourceCreateDiagnostic> Diagnostics;
+		Resources[4].bFailNextAttempt = true;
+
+		for (FInjectedResource& Resource : Resources)
+		{
+			auto* Payload = Resource.Slot.Resolve(
+				Generation,
+				[&Resource]() -> FResult {
+					++Resource.Attempts;
+					if (std::exchange(
+							Resource.bFailNextAttempt, false))
+					{
+						return FResult::Failure({
+							.Category =
+								ERenderResourceCreateErrorCategory::
+									RHIResource,
+							.Context = "FixedResource",
+							.Identity = Resource.Name,
+							.Message = "injected failure",
+							.RetryDependencies =
+								EDependency::Device
+								| EDependency::Manual,
+						});
+					}
+					return FResult::Success(Resource.Name);
+				},
+				[&Diagnostics](
+					FRenderResourceCreateDiagnostic Diagnostic) {
+					Diagnostics.push_back(std::move(Diagnostic));
+				});
+			if (Resource.Name == "OverlayLine")
+				EXPECT_EQ(Payload, nullptr);
+			else
+			{
+				ASSERT_NE(Payload, nullptr);
+				EXPECT_EQ(*Payload, Resource.Name);
+			}
+		}
+		ASSERT_EQ(Diagnostics.size(), 1);
+		EXPECT_EQ(Diagnostics[0].Error->Identity, "OverlayLine");
+		for (const FInjectedResource& Resource : Resources)
+		{
+			if (Resource.Name != "OverlayLine")
+				EXPECT_EQ(
+					Resource.Slot.GetAvailability(),
+					ERenderResourceAvailability::Ready);
+		}
+
+		Generation.Advance(EDependency::Manual);
+		for (FInjectedResource& Resource : Resources)
+		{
+			ASSERT_NE(
+				Resource.Slot.Resolve(
+					Generation,
+					[&Resource]() {
+						++Resource.Attempts;
+						return FResult::Success(Resource.Name);
+					},
+					[&Diagnostics](
+						FRenderResourceCreateDiagnostic Diagnostic) {
+						Diagnostics.push_back(std::move(Diagnostic));
+					}),
+				nullptr);
+		}
+		for (const FInjectedResource& Resource : Resources)
+		{
+			EXPECT_EQ(
+				Resource.Attempts,
+				Resource.Name == "OverlayLine" ? 2 : 1);
+		}
+		ASSERT_EQ(Diagnostics.size(), 2);
+		EXPECT_EQ(
+			Diagnostics.back().Kind,
+			ERenderResourceCreateDiagnosticKind::Recovery);
+		EXPECT_EQ(
+			Diagnostics.back().Error->Identity,
+			"OverlayLine");
 	}
 } // namespace Durin

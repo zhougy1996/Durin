@@ -118,7 +118,20 @@ namespace Durin::RendererEditorAssistance
 
 		struct FGizmoState
 		{
-			FGenerationScopedAttempt BaseAttempt;
+			struct FBasePayload
+			{
+				std::shared_ptr<FShaderMapBase> ShaderMap;
+				TShaderRef<FGizmoVertexShader> VertexShader;
+				TShaderRef<FGizmoFragmentShader> FragmentShader;
+				FVertexDeclarationRHIRef VertexDeclaration;
+				FBufferRHIRef VertexBuffer;
+				FBufferRHIRef IndexBuffer;
+				std::array<FGizmoMeshRange, 6> MeshRanges{};
+			};
+
+			TRenderResourceCreationSlot<FBasePayload> Base{
+				ERenderResourceGenerationDependency::Shader
+					| ERenderResourceGenerationDependency::Device};
 			std::shared_ptr<FShaderMapBase> ShaderMap;
 			TShaderRef<FGizmoVertexShader> VertexShader;
 			TShaderRef<FGizmoFragmentShader> FragmentShader;
@@ -130,7 +143,17 @@ namespace Durin::RendererEditorAssistance
 
 		struct FOverlayLineState
 		{
-			FGenerationScopedAttempt BaseAttempt;
+			struct FBasePayload
+			{
+				std::shared_ptr<FShaderMapBase> ShaderMap;
+				TShaderRef<FOverlayLineVertexShader> VertexShader;
+				TShaderRef<FOverlayLineFragmentShader> FragmentShader;
+				FVertexDeclarationRHIRef VertexDeclaration;
+			};
+
+			TRenderResourceCreationSlot<FBasePayload> Base{
+				ERenderResourceGenerationDependency::Shader
+					| ERenderResourceGenerationDependency::Device};
 			std::shared_ptr<FShaderMapBase> ShaderMap;
 			TShaderRef<FOverlayLineVertexShader> VertexShader;
 			TShaderRef<FOverlayLineFragmentShader> FragmentShader;
@@ -143,7 +166,19 @@ namespace Durin::RendererEditorAssistance
 
 		struct FOverlayIconState
 		{
-			FGenerationScopedAttempt BaseAttempt;
+			struct FBasePayload
+			{
+				std::shared_ptr<FShaderMapBase> ShaderMap;
+				TShaderRef<FOverlayIconVertexShader> VertexShader;
+				TShaderRef<FOverlayIconFragmentShader> FragmentShader;
+				FVertexDeclarationRHIRef VertexDeclaration;
+				FTextureRHIRef Atlas;
+				FSamplerRHIRef AtlasSampler;
+			};
+
+			TRenderResourceCreationSlot<FBasePayload> Base{
+				ERenderResourceGenerationDependency::Shader
+					| ERenderResourceGenerationDependency::Device};
 			std::shared_ptr<FShaderMapBase> ShaderMap;
 			TShaderRef<FOverlayIconVertexShader> VertexShader;
 			TShaderRef<FOverlayIconFragmentShader> FragmentShader;
@@ -158,7 +193,17 @@ namespace Durin::RendererEditorAssistance
 
 		struct FEditorGridState
 		{
-			FGenerationScopedAttempt BaseAttempt;
+			struct FBasePayload
+			{
+				std::shared_ptr<FShaderMapBase> ShaderMap;
+				TShaderRef<FEditorGridVertexShader> VertexShader;
+				TShaderRef<FEditorGridFragmentShader> FragmentShader;
+				FVertexDeclarationRHIRef VertexDeclaration;
+			};
+
+			TRenderResourceCreationSlot<FBasePayload> Base{
+				ERenderResourceGenerationDependency::Shader
+					| ERenderResourceGenerationDependency::Device};
 			std::shared_ptr<FShaderMapBase> ShaderMap;
 			TShaderRef<FEditorGridVertexShader> VertexShader;
 			TShaderRef<FEditorGridFragmentShader> FragmentShader;
@@ -168,14 +213,15 @@ namespace Durin::RendererEditorAssistance
 		struct FPipelineEntry
 		{
 			FPipelineKey Key;
-			FGenerationScopedAttempt Attempt;
-			FGraphicsPipelineStateRHIRef Pipeline;
+			TRenderResourceCreationSlot<FGraphicsPipelineStateRHIRef> Slot{
+				ERenderResourceGenerationDependency::Shader
+					| ERenderResourceGenerationDependency::Device};
 		};
 
 		// Owns reusable assistance resources; prepared view data never enters this state.
 		struct FRendererState
 		{
-			FResourceGeneration Generation;
+			FRenderResourceGeneration Generation;
 			FGizmoState Gizmo;
 			FOverlayLineState OverlayLine;
 			FOverlayIconState OverlayIcon;
@@ -184,28 +230,6 @@ namespace Durin::RendererEditorAssistance
 		};
 
 		FRendererState GState;
-
-		constexpr FResourceGenerationDependencies BaseDependencies{
-			.bShader = true,
-			.bDevice = true,
-			.bManual = true,
-		};
-		constexpr FResourceGenerationDependencies PipelineDependencies{
-			.bShader = true,
-			.bDevice = true,
-			.bManual = true,
-		};
-
-		auto AdvanceGenerationCounter(
-			uint64& Counter,
-			std::string_view Domain) -> void
-		{
-			checkf(
-				Counter != std::numeric_limits<uint64>::max(),
-				"Editor assistance {} generation overflowed.",
-				Domain);
-			++Counter;
-		}
 
 		auto ToShaderMatrix(const FMatrix& Matrix) -> glm::mat4
 		{
@@ -390,206 +414,282 @@ namespace Durin::RendererEditorAssistance
 			}
 		}
 
-		auto FailBase(
-			FGenerationScopedAttempt& Attempt,
-			std::string_view Feature,
-			std::string_view Detail) -> bool
+		auto MakeCreateError(
+			ERenderResourceCreateErrorCategory Category,
+			std::string Context,
+			std::string Identity,
+			std::string Message)
+			-> FRenderResourceCreateError
 		{
-			RecordResourceAttemptFailure(
-				Attempt, GState.Generation, Detail);
-			DURIN_ERROR(
-				"Failed to initialize editor assistance {} base resources at shader/device/manual generation {}/{}/{} (retained={}): {}",
-				Feature,
-				GState.Generation.Shader,
-				GState.Generation.Device,
-				GState.Generation.Manual,
-				Attempt.bHasPayload,
-				Detail);
-			return Attempt.bHasPayload;
+			return {
+				.Category = Category,
+				.Context = std::move(Context),
+				.Identity = std::move(Identity),
+				.Message = std::move(Message),
+				.RetryDependencies =
+					ERenderResourceGenerationDependency::Shader
+					| ERenderResourceGenerationDependency::Device
+					| ERenderResourceGenerationDependency::Manual,
+			};
 		}
 
-		auto CompleteBaseAttempt(
-			FGenerationScopedAttempt& Attempt,
-			std::string_view Feature) -> void
+		auto ReportCreateDiagnostic(
+			const FRenderResourceCreateDiagnostic& Diagnostic) -> void
 		{
-			const bool bRecovered = Attempt.bLastAttemptFailed;
-			RecordResourceAttemptSuccess(Attempt, GState.Generation);
-			if (bRecovered)
+			if (!Diagnostic.Error)
+				return;
+			const FRenderResourceCreateError& Error = *Diagnostic.Error;
+			if (Diagnostic.Kind
+				== ERenderResourceCreateDiagnosticKind::Recovery)
 			{
 				DURIN_INFO(
-					"Recovered editor assistance {} base resources at shader/device/manual generation {}/{}/{}",
-					Feature,
-					GState.Generation.Shader,
-					GState.Generation.Device,
-					GState.Generation.Manual);
+					"Recovered editor assistance resource: context={}, identity={}",
+					Error.Context,
+					Error.Identity);
+				return;
 			}
+			DURIN_ERROR(
+				"Editor assistance resource creation failed: category={}, context={}, identity={}, generation={}/{}/{}, retained={}, message={}",
+				static_cast<uint8>(Error.Category),
+				Error.Context,
+				Error.Identity,
+				Error.AttemptedGeneration.Shader,
+				Error.AttemptedGeneration.Device,
+				Error.AttemptedGeneration.Manual,
+				Error.bRetainedFallback,
+				Error.Message);
 		}
 
 		auto EnsureGizmoBase(FRHICommandListImmediate& CommandList) -> bool
 		{
 			FGizmoState& State = GState.Gizmo;
-			if (!ShouldAttemptResource(
-					State.BaseAttempt, GState.Generation, BaseDependencies))
-				return State.BaseAttempt.bHasPayload;
+			using FResult =
+				TRenderResourceCreateResult<FGizmoState::FBasePayload>;
+			FGizmoState::FBasePayload* Payload = State.Base.Resolve(
+				GState.Generation,
+				[&CommandList]() -> FResult {
+					FShaderCompileOptions CompileOptions;
+					FShaderType& VertexShaderType =
+						FGizmoVertexShader::StaticType();
+					FShaderType& FragmentShaderType =
+						FGizmoFragmentShader::StaticType();
+					const std::array<const FShaderType*, 2> ShaderTypes = {
+						&VertexShaderType, &FragmentShaderType};
+					auto ShaderMap = std::make_shared<FShaderMapBase>();
+					std::string ErrorMessage;
+					if (!ShaderMap->InitializeFromShaderTypes(
+							ShaderTypes, CompileOptions, ErrorMessage))
+						return FResult::Failure(MakeCreateError(
+							ERenderResourceCreateErrorCategory::ShaderCompile,
+							"EditorAssistanceBase",
+							"Gizmo",
+							std::move(ErrorMessage)));
+					auto* VertexShader = static_cast<FGizmoVertexShader*>(
+						ShaderMap->GetShader(&VertexShaderType));
+					auto* FragmentShader = static_cast<FGizmoFragmentShader*>(
+						ShaderMap->GetShader(&FragmentShaderType));
+					if (VertexShader == nullptr || FragmentShader == nullptr)
+						return FResult::Failure(MakeCreateError(
+							ERenderResourceCreateErrorCategory::ShaderBinding,
+							"EditorAssistanceBase",
+							"Gizmo",
+							"Compiled shader map is missing a typed shader."));
 
-			FShaderCompileOptions CompileOptions;
-			FShaderType& VertexShaderType = FGizmoVertexShader::StaticType();
-			FShaderType& FragmentShaderType = FGizmoFragmentShader::StaticType();
-			const std::array<const FShaderType*, 2> ShaderTypes = {
-				&VertexShaderType, &FragmentShaderType};
-			auto ShaderMap = std::make_shared<FShaderMapBase>();
-			std::string ErrorMessage;
-			if (!ShaderMap->InitializeFromShaderTypes(
-					ShaderTypes, CompileOptions, ErrorMessage))
-				return FailBase(State.BaseAttempt, "Gizmo", ErrorMessage);
-			auto* VertexShader = static_cast<FGizmoVertexShader*>(
-				ShaderMap->GetShader(&VertexShaderType));
-			auto* FragmentShader = static_cast<FGizmoFragmentShader*>(
-				ShaderMap->GetShader(&FragmentShaderType));
-			if (VertexShader == nullptr || FragmentShader == nullptr)
-				return FailBase(
-					State.BaseAttempt, "Gizmo", "missing compiled shader");
+					FGizmoState::FBasePayload Candidate;
+					Candidate.ShaderMap = std::move(ShaderMap);
+					Candidate.VertexShader = TShaderRef<FGizmoVertexShader>(
+						VertexShader, Candidate.ShaderMap.get());
+					Candidate.FragmentShader =
+						TShaderRef<FGizmoFragmentShader>(
+							FragmentShader, Candidate.ShaderMap.get());
+					FVertexDeclarationElementList Elements;
+					Elements[0] = FVertexElement(
+						0, 0, EVertexElementType::Float3, 0,
+						sizeof(FVector3f));
+					Candidate.VertexDeclaration =
+						GDynamicRHI->RHICreateVertexDeclaration(Elements);
 
-			FVertexDeclarationElementList Elements;
-			Elements[0] = FVertexElement(
-				0, 0, EVertexElementType::Float3, 0, sizeof(FVector3f));
-			FVertexDeclarationRHIRef VertexDeclaration =
-				GDynamicRHI->RHICreateVertexDeclaration(Elements);
+					std::vector<FVector3f> Vertices;
+					std::vector<uint32> Indices;
+					auto& MeshRanges = Candidate.MeshRanges;
+					MeshRanges[static_cast<size_t>(
+						EViewOverlayShape::Arrow)] = BeginGizmoMesh(Indices);
+					AppendCylinder(
+						Vertices, Indices, 0.0f, 0.76f, 0.032f, 12);
+					AppendCone(
+						Vertices, Indices, 0.72f, 1.0f, 0.085f, 12);
+					EndGizmoMesh(
+						MeshRanges[static_cast<size_t>(
+							EViewOverlayShape::Arrow)],
+						Indices);
+					MeshRanges[static_cast<size_t>(
+						EViewOverlayShape::Axis)] = BeginGizmoMesh(Indices);
+					AppendCylinder(
+						Vertices, Indices, 0.0f, 0.94f, 0.032f, 12);
+					EndGizmoMesh(
+						MeshRanges[static_cast<size_t>(
+							EViewOverlayShape::Axis)],
+						Indices);
+					MeshRanges[static_cast<size_t>(
+						EViewOverlayShape::Plane)] = BeginGizmoMesh(Indices);
+					AppendPlane(Vertices, Indices);
+					EndGizmoMesh(
+						MeshRanges[static_cast<size_t>(
+							EViewOverlayShape::Plane)],
+						Indices);
+					MeshRanges[static_cast<size_t>(
+						EViewOverlayShape::Ring)] = BeginGizmoMesh(Indices);
+					AppendRing(Vertices, Indices, 64);
+					EndGizmoMesh(
+						MeshRanges[static_cast<size_t>(
+							EViewOverlayShape::Ring)],
+						Indices);
+					MeshRanges[static_cast<size_t>(
+						EViewOverlayShape::Box)] = BeginGizmoMesh(Indices);
+					AppendBox(Vertices, Indices);
+					EndGizmoMesh(
+						MeshRanges[static_cast<size_t>(
+							EViewOverlayShape::Box)],
+						Indices);
+					MeshRanges[static_cast<size_t>(
+						EViewOverlayShape::WireBox)] =
+						BeginGizmoMesh(Indices);
+					AppendWireBox(Vertices, Indices);
+					EndGizmoMesh(
+						MeshRanges[static_cast<size_t>(
+							EViewOverlayShape::WireBox)],
+						Indices);
 
-			std::vector<FVector3f> Vertices;
-			std::vector<uint32> Indices;
-			std::array<FGizmoMeshRange, 6> MeshRanges{};
-			MeshRanges[static_cast<size_t>(EViewOverlayShape::Arrow)] =
-				BeginGizmoMesh(Indices);
-			AppendCylinder(Vertices, Indices, 0.0f, 0.76f, 0.032f, 12);
-			AppendCone(Vertices, Indices, 0.72f, 1.0f, 0.085f, 12);
-			EndGizmoMesh(
-				MeshRanges[static_cast<size_t>(EViewOverlayShape::Arrow)],
-				Indices);
-			MeshRanges[static_cast<size_t>(EViewOverlayShape::Axis)] =
-				BeginGizmoMesh(Indices);
-			AppendCylinder(Vertices, Indices, 0.0f, 0.94f, 0.032f, 12);
-			EndGizmoMesh(
-				MeshRanges[static_cast<size_t>(EViewOverlayShape::Axis)],
-				Indices);
-			MeshRanges[static_cast<size_t>(EViewOverlayShape::Plane)] =
-				BeginGizmoMesh(Indices);
-			AppendPlane(Vertices, Indices);
-			EndGizmoMesh(
-				MeshRanges[static_cast<size_t>(EViewOverlayShape::Plane)],
-				Indices);
-			MeshRanges[static_cast<size_t>(EViewOverlayShape::Ring)] =
-				BeginGizmoMesh(Indices);
-			AppendRing(Vertices, Indices, 64);
-			EndGizmoMesh(
-				MeshRanges[static_cast<size_t>(EViewOverlayShape::Ring)],
-				Indices);
-			MeshRanges[static_cast<size_t>(EViewOverlayShape::Box)] =
-				BeginGizmoMesh(Indices);
-			AppendBox(Vertices, Indices);
-			EndGizmoMesh(
-				MeshRanges[static_cast<size_t>(EViewOverlayShape::Box)],
-				Indices);
-			MeshRanges[static_cast<size_t>(EViewOverlayShape::WireBox)] =
-				BeginGizmoMesh(Indices);
-			AppendWireBox(Vertices, Indices);
-			EndGizmoMesh(
-				MeshRanges[static_cast<size_t>(EViewOverlayShape::WireBox)],
-				Indices);
-
-			FRHIBufferCreateDesc VertexDesc =
-				FRHIBufferCreateDesc::CreateVertex(
-					"GizmoVertexBuffer",
-					static_cast<uint32>(
-						Vertices.size() * sizeof(FVector3f)));
-			VertexDesc.Usage |= EBufferUsageFlags::Static;
-			VertexDesc.InitialData = {
-				Vertices.data(),
-				static_cast<uint32>(Vertices.size() * sizeof(FVector3f))};
-			FBufferRHIRef VertexBuffer =
-				GDynamicRHI->RHICreateBuffer(CommandList, VertexDesc);
-			FRHIBufferCreateDesc IndexDesc =
-				FRHIBufferCreateDesc::CreateIndex(
-					"GizmoIndexBuffer",
-					static_cast<uint32>(Indices.size() * sizeof(uint32)),
-					sizeof(uint32));
-			IndexDesc.Usage |= EBufferUsageFlags::Static;
-			IndexDesc.InitialData = {
-				Indices.data(),
-				static_cast<uint32>(Indices.size() * sizeof(uint32))};
-			FBufferRHIRef IndexBuffer =
-				GDynamicRHI->RHICreateBuffer(CommandList, IndexDesc);
-			if (VertexDeclaration == nullptr || VertexBuffer == nullptr
-				|| IndexBuffer == nullptr)
-				return FailBase(
-					State.BaseAttempt, "Gizmo", "RHI creation failed");
-
-			State.ShaderMap = std::move(ShaderMap);
-			State.VertexShader = TShaderRef<FGizmoVertexShader>(
-				VertexShader, State.ShaderMap.get());
-			State.FragmentShader = TShaderRef<FGizmoFragmentShader>(
-				FragmentShader, State.ShaderMap.get());
-			State.VertexDeclaration = std::move(VertexDeclaration);
-			State.VertexBuffer = std::move(VertexBuffer);
-			State.IndexBuffer = std::move(IndexBuffer);
-			State.MeshRanges = MeshRanges;
-			CompleteBaseAttempt(State.BaseAttempt, "Gizmo");
+					FRHIBufferCreateDesc VertexDesc =
+						FRHIBufferCreateDesc::CreateVertex(
+							"GizmoVertexBuffer",
+							static_cast<uint32>(
+								Vertices.size() * sizeof(FVector3f)));
+					VertexDesc.Usage |= EBufferUsageFlags::Static;
+					VertexDesc.InitialData = {
+						Vertices.data(),
+						static_cast<uint32>(
+							Vertices.size() * sizeof(FVector3f))};
+					Candidate.VertexBuffer =
+						GDynamicRHI->RHICreateBuffer(
+							CommandList, VertexDesc);
+					FRHIBufferCreateDesc IndexDesc =
+						FRHIBufferCreateDesc::CreateIndex(
+							"GizmoIndexBuffer",
+							static_cast<uint32>(
+								Indices.size() * sizeof(uint32)),
+							sizeof(uint32));
+					IndexDesc.Usage |= EBufferUsageFlags::Static;
+					IndexDesc.InitialData = {
+						Indices.data(),
+						static_cast<uint32>(
+							Indices.size() * sizeof(uint32))};
+					Candidate.IndexBuffer =
+						GDynamicRHI->RHICreateBuffer(
+							CommandList, IndexDesc);
+					if (Candidate.VertexDeclaration == nullptr
+						|| Candidate.VertexBuffer == nullptr
+						|| Candidate.IndexBuffer == nullptr)
+						return FResult::Failure(MakeCreateError(
+							ERenderResourceCreateErrorCategory::RHIResource,
+							"EditorAssistanceBase",
+							"Gizmo",
+							"RHI creation returned null."));
+					return FResult::Success(std::move(Candidate));
+				},
+				ReportCreateDiagnostic);
+			if (Payload == nullptr)
+				return false;
+			State.ShaderMap = Payload->ShaderMap;
+			State.VertexShader = Payload->VertexShader;
+			State.FragmentShader = Payload->FragmentShader;
+			State.VertexDeclaration = Payload->VertexDeclaration;
+			State.VertexBuffer = Payload->VertexBuffer;
+			State.IndexBuffer = Payload->IndexBuffer;
+			State.MeshRanges = Payload->MeshRanges;
 			return true;
 		}
 
 		auto EnsureOverlayLineBase() -> bool
 		{
 			FOverlayLineState& State = GState.OverlayLine;
-			if (!ShouldAttemptResource(
-					State.BaseAttempt, GState.Generation, BaseDependencies))
-				return State.BaseAttempt.bHasPayload;
-
-			FShaderCompileOptions CompileOptions;
-			FShaderType& VertexShaderType =
-				FOverlayLineVertexShader::StaticType();
-			FShaderType& FragmentShaderType =
-				FOverlayLineFragmentShader::StaticType();
-			const std::array<const FShaderType*, 2> ShaderTypes = {
-				&VertexShaderType, &FragmentShaderType};
-			auto ShaderMap = std::make_shared<FShaderMapBase>();
-			std::string ErrorMessage;
-			if (!ShaderMap->InitializeFromShaderTypes(
-					ShaderTypes, CompileOptions, ErrorMessage))
-				return FailBase(
-					State.BaseAttempt, "Overlay Line", ErrorMessage);
-			auto* VertexShader = static_cast<FOverlayLineVertexShader*>(
-				ShaderMap->GetShader(&VertexShaderType));
-			auto* FragmentShader = static_cast<FOverlayLineFragmentShader*>(
-				ShaderMap->GetShader(&FragmentShaderType));
-			if (VertexShader == nullptr || FragmentShader == nullptr)
-				return FailBase(
-					State.BaseAttempt,
-					"Overlay Line",
-					"missing compiled shader");
-
-			FVertexDeclarationElementList Elements;
-			Elements[0] = FVertexElement(
-				0, static_cast<uint8>(offsetof(FOverlayLineVertex, Position)),
-				EVertexElementType::Float4, 0, sizeof(FOverlayLineVertex));
-			Elements[1] = FVertexElement(
-				0, static_cast<uint8>(offsetof(FOverlayLineVertex, Color)),
-				EVertexElementType::Float4, 1, sizeof(FOverlayLineVertex));
-			Elements[2] = FVertexElement(
-				0, static_cast<uint8>(offsetof(FOverlayLineVertex, Pattern)),
-				EVertexElementType::Float2, 2, sizeof(FOverlayLineVertex));
-			FVertexDeclarationRHIRef VertexDeclaration =
-				GDynamicRHI->RHICreateVertexDeclaration(Elements);
-			if (VertexDeclaration == nullptr)
-				return FailBase(
-					State.BaseAttempt, "Overlay Line", "RHI creation failed");
-
-			State.ShaderMap = std::move(ShaderMap);
-			State.VertexShader = TShaderRef<FOverlayLineVertexShader>(
-				VertexShader, State.ShaderMap.get());
-			State.FragmentShader = TShaderRef<FOverlayLineFragmentShader>(
-				FragmentShader, State.ShaderMap.get());
-			State.VertexDeclaration = std::move(VertexDeclaration);
-			CompleteBaseAttempt(State.BaseAttempt, "Overlay Line");
+			using FResult = TRenderResourceCreateResult<
+				FOverlayLineState::FBasePayload>;
+			auto* Payload = State.Base.Resolve(
+				GState.Generation,
+				[]() -> FResult {
+					FShaderCompileOptions CompileOptions;
+					FShaderType& VertexShaderType =
+						FOverlayLineVertexShader::StaticType();
+					FShaderType& FragmentShaderType =
+						FOverlayLineFragmentShader::StaticType();
+					const std::array<const FShaderType*, 2> ShaderTypes = {
+						&VertexShaderType, &FragmentShaderType};
+					auto ShaderMap = std::make_shared<FShaderMapBase>();
+					std::string ErrorMessage;
+					if (!ShaderMap->InitializeFromShaderTypes(
+							ShaderTypes, CompileOptions, ErrorMessage))
+						return FResult::Failure(MakeCreateError(
+							ERenderResourceCreateErrorCategory::ShaderCompile,
+							"EditorAssistanceBase",
+							"OverlayLine",
+							std::move(ErrorMessage)));
+					auto* VertexShader =
+						static_cast<FOverlayLineVertexShader*>(
+							ShaderMap->GetShader(&VertexShaderType));
+					auto* FragmentShader =
+						static_cast<FOverlayLineFragmentShader*>(
+							ShaderMap->GetShader(&FragmentShaderType));
+					if (VertexShader == nullptr || FragmentShader == nullptr)
+						return FResult::Failure(MakeCreateError(
+							ERenderResourceCreateErrorCategory::ShaderBinding,
+							"EditorAssistanceBase",
+							"OverlayLine",
+							"Compiled shader map is missing a typed shader."));
+					FOverlayLineState::FBasePayload Candidate;
+					Candidate.ShaderMap = std::move(ShaderMap);
+					Candidate.VertexShader =
+						TShaderRef<FOverlayLineVertexShader>(
+							VertexShader, Candidate.ShaderMap.get());
+					Candidate.FragmentShader =
+						TShaderRef<FOverlayLineFragmentShader>(
+							FragmentShader, Candidate.ShaderMap.get());
+					FVertexDeclarationElementList Elements;
+					Elements[0] = FVertexElement(
+						0,
+						static_cast<uint8>(offsetof(
+							FOverlayLineVertex, Position)),
+						EVertexElementType::Float4, 0,
+						sizeof(FOverlayLineVertex));
+					Elements[1] = FVertexElement(
+						0,
+						static_cast<uint8>(offsetof(
+							FOverlayLineVertex, Color)),
+						EVertexElementType::Float4, 1,
+						sizeof(FOverlayLineVertex));
+					Elements[2] = FVertexElement(
+						0,
+						static_cast<uint8>(offsetof(
+							FOverlayLineVertex, Pattern)),
+						EVertexElementType::Float2, 2,
+						sizeof(FOverlayLineVertex));
+					Candidate.VertexDeclaration =
+						GDynamicRHI->RHICreateVertexDeclaration(Elements);
+					if (Candidate.VertexDeclaration == nullptr)
+						return FResult::Failure(MakeCreateError(
+							ERenderResourceCreateErrorCategory::RHIResource,
+							"EditorAssistanceBase",
+							"OverlayLine",
+							"RHI vertex declaration creation returned null."));
+					return FResult::Success(std::move(Candidate));
+				},
+				ReportCreateDiagnostic);
+			if (Payload == nullptr)
+				return false;
+			State.ShaderMap = Payload->ShaderMap;
+			State.VertexShader = Payload->VertexShader;
+			State.FragmentShader = Payload->FragmentShader;
+			State.VertexDeclaration = Payload->VertexDeclaration;
 			return true;
 		}
 
@@ -702,131 +802,174 @@ namespace Durin::RendererEditorAssistance
 			FRHICommandListImmediate& CommandList) -> bool
 		{
 			FOverlayIconState& State = GState.OverlayIcon;
-			if (!ShouldAttemptResource(
-					State.BaseAttempt, GState.Generation, BaseDependencies))
-				return State.BaseAttempt.bHasPayload;
-
-			FShaderCompileOptions CompileOptions;
-			FShaderType& VertexShaderType =
-				FOverlayIconVertexShader::StaticType();
-			FShaderType& FragmentShaderType =
-				FOverlayIconFragmentShader::StaticType();
-			const std::array<const FShaderType*, 2> ShaderTypes = {
-				&VertexShaderType, &FragmentShaderType};
-			auto ShaderMap = std::make_shared<FShaderMapBase>();
-			std::string ErrorMessage;
-			if (!ShaderMap->InitializeFromShaderTypes(
-					ShaderTypes, CompileOptions, ErrorMessage))
-				return FailBase(
-					State.BaseAttempt, "Overlay Icon", ErrorMessage);
-			auto* VertexShader = static_cast<FOverlayIconVertexShader*>(
-				ShaderMap->GetShader(&VertexShaderType));
-			auto* FragmentShader = static_cast<FOverlayIconFragmentShader*>(
-				ShaderMap->GetShader(&FragmentShaderType));
-			if (VertexShader == nullptr || FragmentShader == nullptr)
-				return FailBase(
-					State.BaseAttempt,
-					"Overlay Icon",
-					"missing compiled shader");
-
-			FVertexDeclarationElementList Elements;
-			Elements[0] = FVertexElement(
-				0, static_cast<uint8>(offsetof(FOverlayIconVertex, Position)),
-				EVertexElementType::Float4, 0, sizeof(FOverlayIconVertex));
-			Elements[1] = FVertexElement(
-				0, static_cast<uint8>(offsetof(FOverlayIconVertex, UV)),
-				EVertexElementType::Float2, 1, sizeof(FOverlayIconVertex));
-			Elements[2] = FVertexElement(
-				0, static_cast<uint8>(offsetof(FOverlayIconVertex, Color)),
-				EVertexElementType::Float4, 2, sizeof(FOverlayIconVertex));
-			FVertexDeclarationRHIRef VertexDeclaration =
-				GDynamicRHI->RHICreateVertexDeclaration(Elements);
-
-			const std::array<uint8, 128 * 64 * 4> Pixels =
-				BuildEditorIconAtlasPixels();
-			FRHITextureCreateDesc TextureDesc =
-				FRHITextureCreateDesc::Create2D(
-					"EditorOverlayIconAtlas",
-					128,
-					64,
-					EPixelFormat::RGBA8_UNORM)
-				.SetFlags(ETextureCreateFlags::ShaderResource);
-			FTextureRHIRef Atlas =
-				GDynamicRHI->RHICreateTexture(CommandList, TextureDesc);
-			if (Atlas != nullptr)
-			{
-				const FUpdateTextureRegion2D Region(0, 0, 0, 0, 128, 64);
-				GDynamicRHI->RHIUpdateTexture2D(
-					CommandList, Atlas, 0, 0, Region, 128 * 4, Pixels.data());
-			}
-			FSamplerRHIRef AtlasSampler =
-				RHICreateSampler(FRHISamplerDesc::LinearClamp());
-			if (VertexDeclaration == nullptr || Atlas == nullptr
-				|| AtlasSampler == nullptr)
-				return FailBase(
-					State.BaseAttempt, "Overlay Icon", "RHI creation failed");
-
-			State.ShaderMap = std::move(ShaderMap);
-			State.VertexShader = TShaderRef<FOverlayIconVertexShader>(
-				VertexShader, State.ShaderMap.get());
-			State.FragmentShader = TShaderRef<FOverlayIconFragmentShader>(
-				FragmentShader, State.ShaderMap.get());
-			State.VertexDeclaration = std::move(VertexDeclaration);
-			State.Atlas = std::move(Atlas);
-			State.AtlasSampler = std::move(AtlasSampler);
-			CompleteBaseAttempt(State.BaseAttempt, "Overlay Icon");
+			using FResult = TRenderResourceCreateResult<
+				FOverlayIconState::FBasePayload>;
+			auto* Payload = State.Base.Resolve(
+				GState.Generation,
+				[&CommandList]() -> FResult {
+					FShaderCompileOptions CompileOptions;
+					FShaderType& VertexShaderType =
+						FOverlayIconVertexShader::StaticType();
+					FShaderType& FragmentShaderType =
+						FOverlayIconFragmentShader::StaticType();
+					const std::array<const FShaderType*, 2> ShaderTypes = {
+						&VertexShaderType, &FragmentShaderType};
+					auto ShaderMap = std::make_shared<FShaderMapBase>();
+					std::string ErrorMessage;
+					if (!ShaderMap->InitializeFromShaderTypes(
+							ShaderTypes, CompileOptions, ErrorMessage))
+						return FResult::Failure(MakeCreateError(
+							ERenderResourceCreateErrorCategory::ShaderCompile,
+							"EditorAssistanceBase",
+							"OverlayIcon",
+							std::move(ErrorMessage)));
+					auto* VertexShader =
+						static_cast<FOverlayIconVertexShader*>(
+							ShaderMap->GetShader(&VertexShaderType));
+					auto* FragmentShader =
+						static_cast<FOverlayIconFragmentShader*>(
+							ShaderMap->GetShader(&FragmentShaderType));
+					if (VertexShader == nullptr || FragmentShader == nullptr)
+						return FResult::Failure(MakeCreateError(
+							ERenderResourceCreateErrorCategory::ShaderBinding,
+							"EditorAssistanceBase",
+							"OverlayIcon",
+							"Compiled shader map is missing a typed shader."));
+					FOverlayIconState::FBasePayload Candidate;
+					Candidate.ShaderMap = std::move(ShaderMap);
+					Candidate.VertexShader =
+						TShaderRef<FOverlayIconVertexShader>(
+							VertexShader, Candidate.ShaderMap.get());
+					Candidate.FragmentShader =
+						TShaderRef<FOverlayIconFragmentShader>(
+							FragmentShader, Candidate.ShaderMap.get());
+					FVertexDeclarationElementList Elements;
+					Elements[0] = FVertexElement(
+						0, static_cast<uint8>(offsetof(
+							FOverlayIconVertex, Position)),
+						EVertexElementType::Float4, 0,
+						sizeof(FOverlayIconVertex));
+					Elements[1] = FVertexElement(
+						0, static_cast<uint8>(offsetof(
+							FOverlayIconVertex, UV)),
+						EVertexElementType::Float2, 1,
+						sizeof(FOverlayIconVertex));
+					Elements[2] = FVertexElement(
+						0, static_cast<uint8>(offsetof(
+							FOverlayIconVertex, Color)),
+						EVertexElementType::Float4, 2,
+						sizeof(FOverlayIconVertex));
+					Candidate.VertexDeclaration =
+						GDynamicRHI->RHICreateVertexDeclaration(Elements);
+					const auto Pixels = BuildEditorIconAtlasPixels();
+					FRHITextureCreateDesc TextureDesc =
+						FRHITextureCreateDesc::Create2D(
+							"EditorOverlayIconAtlas", 128, 64,
+							EPixelFormat::RGBA8_UNORM)
+						.SetFlags(ETextureCreateFlags::ShaderResource);
+					Candidate.Atlas = GDynamicRHI->RHICreateTexture(
+						CommandList, TextureDesc);
+					if (Candidate.Atlas != nullptr)
+					{
+						const FUpdateTextureRegion2D Region(
+							0, 0, 0, 0, 128, 64);
+						GDynamicRHI->RHIUpdateTexture2D(
+							CommandList, Candidate.Atlas, 0, 0, Region,
+							128 * 4, Pixels.data());
+					}
+					Candidate.AtlasSampler =
+						RHICreateSampler(FRHISamplerDesc::LinearClamp());
+					if (Candidate.VertexDeclaration == nullptr
+						|| Candidate.Atlas == nullptr
+						|| Candidate.AtlasSampler == nullptr)
+						return FResult::Failure(MakeCreateError(
+							ERenderResourceCreateErrorCategory::RHIResource,
+							"EditorAssistanceBase",
+							"OverlayIcon",
+							"RHI creation returned null."));
+					return FResult::Success(std::move(Candidate));
+				},
+				ReportCreateDiagnostic);
+			if (Payload == nullptr)
+				return false;
+			State.ShaderMap = Payload->ShaderMap;
+			State.VertexShader = Payload->VertexShader;
+			State.FragmentShader = Payload->FragmentShader;
+			State.VertexDeclaration = Payload->VertexDeclaration;
+			State.Atlas = Payload->Atlas;
+			State.AtlasSampler = Payload->AtlasSampler;
 			return true;
 		}
 
 		auto EnsureEditorGridBase() -> bool
 		{
 			FEditorGridState& State = GState.EditorGrid;
-			if (!ShouldAttemptResource(
-					State.BaseAttempt, GState.Generation, BaseDependencies))
-				return State.BaseAttempt.bHasPayload;
-
-			FShaderCompileOptions CompileOptions;
-			FShaderType& VertexShaderType = FEditorGridVertexShader::StaticType();
-			FShaderType& FragmentShaderType =
-				FEditorGridFragmentShader::StaticType();
-			const std::array<const FShaderType*, 2> ShaderTypes = {
-				&VertexShaderType, &FragmentShaderType};
-			auto ShaderMap = std::make_shared<FShaderMapBase>();
-			std::string ErrorMessage;
-			if (!ShaderMap->InitializeFromShaderTypes(
-					ShaderTypes, CompileOptions, ErrorMessage))
-				return FailBase(
-					State.BaseAttempt, "Editor Grid", ErrorMessage);
-			auto* VertexShader = static_cast<FEditorGridVertexShader*>(
-				ShaderMap->GetShader(&VertexShaderType));
-			auto* FragmentShader = static_cast<FEditorGridFragmentShader*>(
-				ShaderMap->GetShader(&FragmentShaderType));
-			if (VertexShader == nullptr || FragmentShader == nullptr)
-				return FailBase(
-					State.BaseAttempt,
-					"Editor Grid",
-					"missing compiled shader");
-
-			FVertexDeclarationElementList Elements;
-			Elements[0] = FVertexElement(
-				0,
-				offsetof(RendererFullscreenGeometry::FVertex, Position),
-				EVertexElementType::Float2,
-				0,
-				sizeof(RendererFullscreenGeometry::FVertex));
-			FVertexDeclarationRHIRef VertexDeclaration =
-				GDynamicRHI->RHICreateVertexDeclaration(Elements);
-			if (VertexDeclaration == nullptr)
-				return FailBase(
-					State.BaseAttempt, "Editor Grid", "RHI creation failed");
-
-			State.ShaderMap = std::move(ShaderMap);
-			State.VertexShader = TShaderRef<FEditorGridVertexShader>(
-				VertexShader, State.ShaderMap.get());
-			State.FragmentShader = TShaderRef<FEditorGridFragmentShader>(
-				FragmentShader, State.ShaderMap.get());
-			State.VertexDeclaration = std::move(VertexDeclaration);
-			CompleteBaseAttempt(State.BaseAttempt, "Editor Grid");
+			using FResult = TRenderResourceCreateResult<
+				FEditorGridState::FBasePayload>;
+			auto* Payload = State.Base.Resolve(
+				GState.Generation,
+				[]() -> FResult {
+					FShaderCompileOptions CompileOptions;
+					FShaderType& VertexShaderType =
+						FEditorGridVertexShader::StaticType();
+					FShaderType& FragmentShaderType =
+						FEditorGridFragmentShader::StaticType();
+					const std::array<const FShaderType*, 2> ShaderTypes = {
+						&VertexShaderType, &FragmentShaderType};
+					auto ShaderMap = std::make_shared<FShaderMapBase>();
+					std::string ErrorMessage;
+					if (!ShaderMap->InitializeFromShaderTypes(
+							ShaderTypes, CompileOptions, ErrorMessage))
+						return FResult::Failure(MakeCreateError(
+							ERenderResourceCreateErrorCategory::ShaderCompile,
+							"EditorAssistanceBase",
+							"EditorGrid",
+							std::move(ErrorMessage)));
+					auto* VertexShader =
+						static_cast<FEditorGridVertexShader*>(
+							ShaderMap->GetShader(&VertexShaderType));
+					auto* FragmentShader =
+						static_cast<FEditorGridFragmentShader*>(
+							ShaderMap->GetShader(&FragmentShaderType));
+					if (VertexShader == nullptr || FragmentShader == nullptr)
+						return FResult::Failure(MakeCreateError(
+							ERenderResourceCreateErrorCategory::ShaderBinding,
+							"EditorAssistanceBase",
+							"EditorGrid",
+							"Compiled shader map is missing a typed shader."));
+					FEditorGridState::FBasePayload Candidate;
+					Candidate.ShaderMap = std::move(ShaderMap);
+					Candidate.VertexShader =
+						TShaderRef<FEditorGridVertexShader>(
+							VertexShader, Candidate.ShaderMap.get());
+					Candidate.FragmentShader =
+						TShaderRef<FEditorGridFragmentShader>(
+							FragmentShader, Candidate.ShaderMap.get());
+					FVertexDeclarationElementList Elements;
+					Elements[0] = FVertexElement(
+						0,
+						offsetof(
+							RendererFullscreenGeometry::FVertex, Position),
+						EVertexElementType::Float2,
+						0,
+						sizeof(RendererFullscreenGeometry::FVertex));
+					Candidate.VertexDeclaration =
+						GDynamicRHI->RHICreateVertexDeclaration(Elements);
+					if (Candidate.VertexDeclaration == nullptr)
+						return FResult::Failure(MakeCreateError(
+							ERenderResourceCreateErrorCategory::RHIResource,
+							"EditorAssistanceBase",
+							"EditorGrid",
+							"RHI vertex declaration creation returned null."));
+					return FResult::Success(std::move(Candidate));
+				},
+				ReportCreateDiagnostic);
+			if (Payload == nullptr)
+				return false;
+			State.ShaderMap = Payload->ShaderMap;
+			State.VertexShader = Payload->VertexShader;
+			State.FragmentShader = Payload->FragmentShader;
+			State.VertexDeclaration = Payload->VertexDeclaration;
 			return true;
 		}
 
@@ -868,25 +1011,28 @@ namespace Durin::RendererEditorAssistance
 			return "Unknown";
 		}
 
-		auto GetBaseAttempt(EFeature Feature)
-			-> const FGenerationScopedAttempt&
+		auto GetBasePayloadGeneration(EFeature Feature)
+			-> const FRenderResourceGeneration&
 		{
 			switch (Feature)
 			{
-			case EFeature::EditorGrid: return GState.EditorGrid.BaseAttempt;
-			case EFeature::Gizmo: return GState.Gizmo.BaseAttempt;
-			case EFeature::OverlayLine: return GState.OverlayLine.BaseAttempt;
-			case EFeature::OverlayIcon: return GState.OverlayIcon.BaseAttempt;
+			case EFeature::EditorGrid:
+				return GState.EditorGrid.Base.GetPayloadGeneration();
+			case EFeature::Gizmo:
+				return GState.Gizmo.Base.GetPayloadGeneration();
+			case EFeature::OverlayLine:
+				return GState.OverlayLine.Base.GetPayloadGeneration();
+			case EFeature::OverlayIcon:
+				return GState.OverlayIcon.Base.GetPayloadGeneration();
 			}
-			return GState.EditorGrid.BaseAttempt;
+			return GState.EditorGrid.Base.GetPayloadGeneration();
 		}
 
-		auto GetPipelineGeneration(EFeature Feature) -> FResourceGeneration
+		auto GetPipelineGeneration(EFeature Feature)
+			-> FRenderResourceGeneration
 		{
-			FResourceGeneration Generation = GState.Generation;
-			const FGenerationScopedAttempt& BaseAttempt =
-				GetBaseAttempt(Feature);
-			Generation.Shader = BaseAttempt.PayloadGeneration.Shader;
+			FRenderResourceGeneration Generation = GState.Generation;
+			Generation.Shader = GetBasePayloadGeneration(Feature).Shader;
 			return Generation;
 		}
 
@@ -901,72 +1047,8 @@ namespace Durin::RendererEditorAssistance
 					GState.Pipelines.end(), FPipelineEntry{.Key = Key});
 			}
 			FPipelineEntry& Entry = *EntryIt;
-			const FResourceGeneration Generation =
+			const FRenderResourceGeneration Generation =
 				GetPipelineGeneration(Key.Feature);
-			if (!ShouldAttemptResource(
-					Entry.Attempt, Generation, PipelineDependencies))
-				return Entry.Pipeline;
-
-			FGraphicsPipelineStateInitializer Initializer;
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			switch (Key.Feature)
-			{
-			case EFeature::EditorGrid:
-				ShaderMap = GState.EditorGrid.ShaderMap;
-				Initializer.BoundShaders.VertexShader =
-					GState.EditorGrid.VertexShader.GetRHIShader();
-				Initializer.BoundShaders.FragmentShader =
-					GState.EditorGrid.FragmentShader.GetRHIShader();
-				Initializer.VertexDeclaration =
-					GState.EditorGrid.VertexDeclaration;
-				break;
-			case EFeature::Gizmo:
-				ShaderMap = GState.Gizmo.ShaderMap;
-				Initializer.BoundShaders.VertexShader =
-					GState.Gizmo.VertexShader.GetRHIShader();
-				Initializer.BoundShaders.FragmentShader =
-					GState.Gizmo.FragmentShader.GetRHIShader();
-				Initializer.VertexDeclaration =
-					GState.Gizmo.VertexDeclaration;
-				if (Key.GizmoTopology == EGizmoTopology::Wire)
-				{
-					Initializer.PrimitiveTopology =
-						FGraphicsPipelineStateInitializer::
-							EPrimitiveTopology::LineList;
-				}
-				break;
-			case EFeature::OverlayLine:
-				ShaderMap = GState.OverlayLine.ShaderMap;
-				Initializer.BoundShaders.VertexShader =
-					GState.OverlayLine.VertexShader.GetRHIShader();
-				Initializer.BoundShaders.FragmentShader =
-					GState.OverlayLine.FragmentShader.GetRHIShader();
-				Initializer.VertexDeclaration =
-					GState.OverlayLine.VertexDeclaration;
-				break;
-			case EFeature::OverlayIcon:
-				ShaderMap = GState.OverlayIcon.ShaderMap;
-				Initializer.BoundShaders.VertexShader =
-					GState.OverlayIcon.VertexShader.GetRHIShader();
-				Initializer.BoundShaders.FragmentShader =
-					GState.OverlayIcon.FragmentShader.GetRHIShader();
-				Initializer.VertexDeclaration =
-					GState.OverlayIcon.VertexDeclaration;
-				break;
-			}
-
-			Initializer.RenderTargetLayout =
-				RendererRenderTargetLayouts::MakeEditorAssistanceOutput(
-					Key.Output);
-			Initializer.bEnableAlphaBlend = true;
-			Initializer.bEnableBackFaceCulling = false;
-			Initializer.bEnableDepthTest =
-				Key.DepthMode == EDepthMode::Visible;
-			Initializer.bEnableDepthWrite = false;
-			if (ShaderMap != nullptr)
-				Initializer.PipelineLayout =
-					ShaderMap->GetMergedPipelineLayout();
-
 			const std::string PipelineName = std::format(
 				"{}{}{}{}Pipeline",
 				GetFeatureName(Key.Feature),
@@ -975,40 +1057,81 @@ namespace Durin::RendererEditorAssistance
 					: std::string_view{},
 				GetDepthName(Key.DepthMode),
 				GetOutputName(Key.Output));
-			FGraphicsPipelineStateRHIRef Candidate =
-				GDynamicRHI->RHICreateGraphicsPipelineState(
-				FName(PipelineName), Initializer);
-			if (Candidate == nullptr)
-			{
-				RecordResourceAttemptFailure(
-					Entry.Attempt, Generation, PipelineName);
-				DURIN_ERROR(
-					"Failed to create editor assistance pipeline at shader/device/manual generation {}/{}/{} (retained={}): feature={}, output={}, depth={}, topology={}, pipeline={}",
-					Generation.Shader,
-					Generation.Device,
-					Generation.Manual,
-					Entry.Attempt.bHasPayload,
-					GetFeatureName(Key.Feature),
-					GetOutputName(Key.Output),
-					GetDepthName(Key.DepthMode),
-					GetTopologyName(Key.GizmoTopology),
-					PipelineName);
-				return Entry.Pipeline;
-			}
-			const bool bRecovered = Entry.Attempt.bLastAttemptFailed;
-			Entry.Pipeline = std::move(Candidate);
-			RecordResourceAttemptSuccess(Entry.Attempt, Generation);
-			if (bRecovered)
-			{
-				DURIN_INFO(
-					"Recovered editor assistance pipeline: feature={}, output={}, depth={}, topology={}, pipeline={}",
-					GetFeatureName(Key.Feature),
-					GetOutputName(Key.Output),
-					GetDepthName(Key.DepthMode),
-					GetTopologyName(Key.GizmoTopology),
-					PipelineName);
-			}
-			return Entry.Pipeline;
+			using FResult =
+				TRenderResourceCreateResult<FGraphicsPipelineStateRHIRef>;
+			auto* Payload = Entry.Slot.Resolve(
+				Generation,
+				[&Key, &PipelineName]() -> FResult {
+					FGraphicsPipelineStateInitializer Initializer;
+					std::shared_ptr<FShaderMapBase> ShaderMap;
+					switch (Key.Feature)
+					{
+					case EFeature::EditorGrid:
+						ShaderMap = GState.EditorGrid.ShaderMap;
+						Initializer.BoundShaders.VertexShader =
+							GState.EditorGrid.VertexShader.GetRHIShader();
+						Initializer.BoundShaders.FragmentShader =
+							GState.EditorGrid.FragmentShader.GetRHIShader();
+						Initializer.VertexDeclaration =
+							GState.EditorGrid.VertexDeclaration;
+						break;
+					case EFeature::Gizmo:
+						ShaderMap = GState.Gizmo.ShaderMap;
+						Initializer.BoundShaders.VertexShader =
+							GState.Gizmo.VertexShader.GetRHIShader();
+						Initializer.BoundShaders.FragmentShader =
+							GState.Gizmo.FragmentShader.GetRHIShader();
+						Initializer.VertexDeclaration =
+							GState.Gizmo.VertexDeclaration;
+						if (Key.GizmoTopology == EGizmoTopology::Wire)
+							Initializer.PrimitiveTopology =
+								FGraphicsPipelineStateInitializer::
+									EPrimitiveTopology::LineList;
+						break;
+					case EFeature::OverlayLine:
+						ShaderMap = GState.OverlayLine.ShaderMap;
+						Initializer.BoundShaders.VertexShader =
+							GState.OverlayLine.VertexShader.GetRHIShader();
+						Initializer.BoundShaders.FragmentShader =
+							GState.OverlayLine.FragmentShader.GetRHIShader();
+						Initializer.VertexDeclaration =
+							GState.OverlayLine.VertexDeclaration;
+						break;
+					case EFeature::OverlayIcon:
+						ShaderMap = GState.OverlayIcon.ShaderMap;
+						Initializer.BoundShaders.VertexShader =
+							GState.OverlayIcon.VertexShader.GetRHIShader();
+						Initializer.BoundShaders.FragmentShader =
+							GState.OverlayIcon.FragmentShader.GetRHIShader();
+						Initializer.VertexDeclaration =
+							GState.OverlayIcon.VertexDeclaration;
+						break;
+					}
+					Initializer.RenderTargetLayout =
+						RendererRenderTargetLayouts::
+							MakeEditorAssistanceOutput(Key.Output);
+					Initializer.bEnableAlphaBlend = true;
+					Initializer.bEnableBackFaceCulling = false;
+					Initializer.bEnableDepthTest =
+						Key.DepthMode == EDepthMode::Visible;
+					Initializer.bEnableDepthWrite = false;
+					if (ShaderMap != nullptr)
+						Initializer.PipelineLayout =
+							ShaderMap->GetMergedPipelineLayout();
+					FGraphicsPipelineStateRHIRef Candidate =
+						GDynamicRHI->RHICreateGraphicsPipelineState(
+							FName(PipelineName), Initializer);
+					if (Candidate == nullptr)
+						return FResult::Failure(MakeCreateError(
+							ERenderResourceCreateErrorCategory::
+								GraphicsPipeline,
+							"EditorAssistancePipeline",
+							PipelineName,
+							"RHI graphics pipeline creation returned null."));
+					return FResult::Success(std::move(Candidate));
+				},
+				ReportCreateDiagnostic);
+			return Payload != nullptr ? *Payload : nullptr;
 		}
 
 		auto AddPreparedPipeline(FPrepared& Prepared, const FPipelineKey& Key)
@@ -1402,49 +1525,6 @@ namespace Durin::RendererEditorAssistance
 		}
 	}
 
-	auto ShouldAttemptResource(
-		const FGenerationScopedAttempt& Attempt,
-		const FResourceGeneration& Generation,
-		const FResourceGenerationDependencies& Dependencies) -> bool
-	{
-		if (!Attempt.bHasAttempt)
-			return true;
-		return (Dependencies.bShader
-				&& Attempt.AttemptedGeneration.Shader != Generation.Shader)
-			|| (Dependencies.bDevice
-				&& Attempt.AttemptedGeneration.Device != Generation.Device)
-			|| (Dependencies.bManual
-				&& Attempt.bLastAttemptFailed
-				&& Attempt.AttemptedGeneration.Manual != Generation.Manual);
-	}
-
-	auto RecordResourceAttemptSuccess(
-		FGenerationScopedAttempt& Attempt,
-		const FResourceGeneration& Generation) -> void
-	{
-		Attempt.Availability = EResourceAvailability::Ready;
-		Attempt.PayloadGeneration = Generation;
-		Attempt.AttemptedGeneration = Generation;
-		Attempt.bHasPayload = true;
-		Attempt.bHasAttempt = true;
-		Attempt.bLastAttemptFailed = false;
-		Attempt.FailureDetail.clear();
-	}
-
-	auto RecordResourceAttemptFailure(
-		FGenerationScopedAttempt& Attempt,
-		const FResourceGeneration& Generation,
-		std::string_view Detail) -> void
-	{
-		Attempt.Availability = Attempt.bHasPayload
-			? EResourceAvailability::Ready
-			: EResourceAvailability::Failed;
-		Attempt.AttemptedGeneration = Generation;
-		Attempt.bHasAttempt = true;
-		Attempt.bLastAttemptFailed = true;
-		Attempt.FailureDetail = Detail;
-	}
-
 	auto Prepare(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& View,
@@ -1616,25 +1696,34 @@ namespace Durin::RendererEditorAssistance
 
 	auto ReleaseResources() -> void
 	{
+		GState.Gizmo.Base.Reset();
+		GState.OverlayLine.Base.Reset();
+		GState.OverlayIcon.Base.Reset();
+		GState.EditorGrid.Base.Reset();
+		for (FPipelineEntry& Entry : GState.Pipelines)
+			Entry.Slot.Reset();
 		GState = {};
 	}
 
 	auto InvalidateShaderResources() -> void
 	{
-		AdvanceGenerationCounter(GState.Generation.Shader, "shader");
+		GState.Generation.Advance(
+			ERenderResourceGenerationDependency::Shader);
 	}
 
 	auto InvalidateDeviceResources() -> void
 	{
-		FResourceGeneration Generation = GState.Generation;
-		AdvanceGenerationCounter(Generation.Device, "device");
-		GState = {};
+		FRenderResourceGeneration Generation = GState.Generation;
+		Generation.Advance(ERenderResourceGenerationDependency::Device);
+		ReleaseResources();
 		GState.Generation = Generation;
 		RendererFullscreenGeometry::ReleaseResources();
 	}
 
 	auto RetryFailedResources() -> void
 	{
-		AdvanceGenerationCounter(GState.Generation.Manual, "manual");
+		GState.Generation.Advance(
+			ERenderResourceGenerationDependency::Manual);
+		RendererFullscreenGeometry::RetryFailedResources();
 	}
 } // namespace Durin::RendererEditorAssistance

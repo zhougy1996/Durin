@@ -244,17 +244,43 @@ namespace Durin
 
 		struct FTextureCubeThumbnailRendererState
 		{
+			struct FPayload
+			{
+				std::shared_ptr<FShaderMapBase> ShaderMap;
+				TShaderRef<FTextureCubeThumbnailVertexShader> VertexShader;
+				TShaderRef<FTextureCubeThumbnailFragmentShader> FragmentShader;
+				FVertexDeclarationRHIRef VertexDeclaration;
+				FGraphicsPipelineStateRHIRef PipelineState;
+				FSamplerRHIRef Sampler;
+			};
+
+			TRenderResourceCreationSlot<FPayload> Slot{
+				ERenderResourceGenerationDependency::Shader
+					| ERenderResourceGenerationDependency::Device};
 			std::shared_ptr<FShaderMapBase> ShaderMap;
 			TShaderRef<FTextureCubeThumbnailVertexShader> VertexShader;
 			TShaderRef<FTextureCubeThumbnailFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FGraphicsPipelineStateRHIRef PipelineState;
 			FSamplerRHIRef Sampler;
-			bool bCreateAttempted = false;
 		};
 
 		struct FSkyBoxRendererState
 		{
+			struct FPayload
+			{
+				std::shared_ptr<FShaderMapBase> ShaderMap;
+				TShaderRef<FSkyBoxVertexShader> VertexShader;
+				TShaderRef<FSkyBoxFragmentShader> FragmentShader;
+				FVertexDeclarationRHIRef VertexDeclaration;
+				FGraphicsPipelineStateRHIRef PipelineState;
+				FBufferRHIRef IndexBuffer;
+				FSamplerRHIRef Sampler;
+			};
+
+			TRenderResourceCreationSlot<FPayload> Slot{
+				ERenderResourceGenerationDependency::Shader
+					| ERenderResourceGenerationDependency::Device};
 			std::shared_ptr<FShaderMapBase> ShaderMap;
 			TShaderRef<FSkyBoxVertexShader> VertexShader;
 			TShaderRef<FSkyBoxFragmentShader> FragmentShader;
@@ -262,11 +288,31 @@ namespace Durin
 			FGraphicsPipelineStateRHIRef PipelineState;
 			FBufferRHIRef IndexBuffer;
 			FSamplerRHIRef Sampler;
-			bool bCreateAttempted = false;
 		};
 
 		struct FPostProcessRendererState
 		{
+			struct FPayload
+			{
+				std::shared_ptr<FShaderMapBase> CopyShaderMap;
+				std::shared_ptr<FShaderMapBase> FXAAShaderMap;
+				TShaderRef<FPostProcessVertexShader> CopyVertexShader;
+				TShaderRef<FPostProcessVertexShader> FXAAVertexShader;
+				TShaderRef<FCopySceneColorFragmentShader> CopyFragmentShader;
+				TShaderRef<FFXAAFragmentShader> FXAAFragmentShader;
+				FVertexDeclarationRHIRef VertexDeclaration;
+				FGraphicsPipelineStateRHIRef CopyIntermediatePipelineState;
+				FGraphicsPipelineStateRHIRef FXAAIntermediatePipelineState;
+				FGraphicsPipelineStateRHIRef CopyOffscreenPipelineState;
+				FGraphicsPipelineStateRHIRef CopyPresentPipelineState;
+				FGraphicsPipelineStateRHIRef FXAAOffscreenPipelineState;
+				FGraphicsPipelineStateRHIRef FXAAPresentPipelineState;
+				FSamplerRHIRef SceneColorSampler;
+			};
+
+			TRenderResourceCreationSlot<FPayload> Slot{
+				ERenderResourceGenerationDependency::Shader
+					| ERenderResourceGenerationDependency::Device};
 			struct FSceneTargets
 			{
 				FTextureRHIRef Color;
@@ -288,7 +334,6 @@ namespace Durin
 			FGraphicsPipelineStateRHIRef FXAAPresentPipelineState;
 			FSamplerRHIRef SceneColorSampler;
 			std::unordered_map<uint64, FSceneTargets> SceneTargetsBySize;
-			bool bCreateAttempted = false;
 		};
 
 		FStaticMeshRendererState GStaticMeshState;
@@ -296,53 +341,120 @@ namespace Durin
 		FTextureCubeThumbnailRendererState GTextureCubeThumbnailState;
 		FSkyBoxRendererState GSkyBoxState;
 		FPostProcessRendererState GPostProcessState;
+		auto ReportStaticMeshCreateDiagnostic(
+			const FRenderResourceCreateDiagnostic& Diagnostic) -> void;
+		auto MakeStaticMeshCreateError(
+			ERenderResourceCreateErrorCategory Category,
+			std::string Context,
+			std::string Identity,
+			std::string Message,
+			ERenderResourceGenerationDependency RetryDependencies)
+			-> FRenderResourceCreateError;
+
 		auto EnsureSkyBoxResources() -> void
 		{
-			if (GSkyBoxState.bCreateAttempted) return;
-			GSkyBoxState.bCreateAttempted = true;
-
-			FShaderCompileOptions CompileOptions;
-			FShaderType& VertexShaderType = FSkyBoxVertexShader::StaticType();
-			FShaderType& FragmentShaderType = FSkyBoxFragmentShader::StaticType();
-			std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
-			auto ShaderMap = std::make_shared<FShaderMapBase>();
-			std::string ErrorMessage;
-			if (!ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions, ErrorMessage))
-			{
-				DURIN_ERROR("Failed to initialize SkyBox shader map: {}", ErrorMessage);
+			using FResult =
+				TRenderResourceCreateResult<FSkyBoxRendererState::FPayload>;
+			auto* Payload = GSkyBoxState.Slot.Resolve(
+				GRendererResourceGeneration,
+				[]() -> FResult {
+					FShaderCompileOptions CompileOptions;
+					FShaderType& VertexShaderType =
+						FSkyBoxVertexShader::StaticType();
+					FShaderType& FragmentShaderType =
+						FSkyBoxFragmentShader::StaticType();
+					std::array<const FShaderType*, 2> ShaderTypes = {
+						&VertexShaderType, &FragmentShaderType};
+					auto ShaderMap = std::make_shared<FShaderMapBase>();
+					std::string ErrorMessage;
+					if (!ShaderMap->InitializeFromShaderTypes(
+							ShaderTypes, CompileOptions, ErrorMessage))
+						return FResult::Failure(MakeStaticMeshCreateError(
+							ERenderResourceCreateErrorCategory::ShaderCompile,
+							"SkyBox",
+							"default",
+							std::move(ErrorMessage),
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Manual));
+					auto* VertexShader = static_cast<FSkyBoxVertexShader*>(
+						ShaderMap->GetShader(&VertexShaderType));
+					auto* FragmentShader = static_cast<FSkyBoxFragmentShader*>(
+						ShaderMap->GetShader(&FragmentShaderType));
+					if (VertexShader == nullptr || FragmentShader == nullptr)
+						return FResult::Failure(MakeStaticMeshCreateError(
+							ERenderResourceCreateErrorCategory::ShaderBinding,
+							"SkyBox",
+							"default",
+							"Compiled shader map is missing a typed shader.",
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Manual));
+					FSkyBoxRendererState::FPayload Candidate;
+					Candidate.ShaderMap = std::move(ShaderMap);
+					Candidate.VertexShader = TShaderRef<FSkyBoxVertexShader>(
+						VertexShader, Candidate.ShaderMap.get());
+					Candidate.FragmentShader =
+						TShaderRef<FSkyBoxFragmentShader>(
+							FragmentShader, Candidate.ShaderMap.get());
+					FVertexDeclarationElementList EmptyVertexElements{};
+					Candidate.VertexDeclaration =
+						GDynamicRHI->RHICreateVertexDeclaration(
+							EmptyVertexElements);
+					FGraphicsPipelineStateInitializer Initializer;
+					Initializer.RenderTargetLayout =
+						RendererRenderTargetLayouts::MakeSceneTargets();
+					Initializer.BoundShaders.VertexShader =
+						Candidate.VertexShader.GetRHIShader();
+					Initializer.BoundShaders.FragmentShader =
+						Candidate.FragmentShader.GetRHIShader();
+					Initializer.VertexDeclaration =
+						Candidate.VertexDeclaration;
+					Initializer.bEnableAlphaBlend = false;
+					Initializer.bEnableBackFaceCulling = false;
+					Initializer.bEnableDepthTest = false;
+					Initializer.bEnableDepthWrite = false;
+					Initializer.PipelineLayout =
+						Candidate.ShaderMap->GetMergedPipelineLayout();
+					Candidate.PipelineState =
+						GDynamicRHI->RHICreateGraphicsPipelineState(
+							"SkyBoxPipeline", Initializer);
+					const std::array<uint32, 3> FullscreenIndices = {
+						0, 1, 2};
+					FRHIBufferCreateDesc IndexBufferDesc =
+						FRHIBufferCreateDesc::CreateIndex(
+							"SkyBoxFullscreenIndexBuffer",
+							sizeof(FullscreenIndices),
+							sizeof(uint32));
+					IndexBufferDesc.Usage |= EBufferUsageFlags::Static;
+					IndexBufferDesc.InitialData = {
+						FullscreenIndices.data(),
+						sizeof(FullscreenIndices)};
+					Candidate.IndexBuffer = RHICreateBuffer(IndexBufferDesc);
+					Candidate.Sampler =
+						RHICreateSampler(FRHISamplerDesc::LinearClamp());
+					if (Candidate.VertexDeclaration == nullptr
+						|| Candidate.PipelineState == nullptr
+						|| Candidate.IndexBuffer == nullptr
+						|| Candidate.Sampler == nullptr)
+						return FResult::Failure(MakeStaticMeshCreateError(
+							ERenderResourceCreateErrorCategory::RHIResource,
+							"SkyBox",
+							"default",
+							"RHI resource creation returned null.",
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Device
+								| ERenderResourceGenerationDependency::Manual));
+					return FResult::Success(std::move(Candidate));
+				},
+				ReportStaticMeshCreateDiagnostic);
+			if (Payload == nullptr)
 				return;
-			}
-
-			GSkyBoxState.ShaderMap = ShaderMap;
-			GSkyBoxState.VertexShader = TShaderRef<FSkyBoxVertexShader>(
-				static_cast<FSkyBoxVertexShader*>(ShaderMap->GetShader(&VertexShaderType)), ShaderMap.get());
-			GSkyBoxState.FragmentShader = TShaderRef<FSkyBoxFragmentShader>(
-				static_cast<FSkyBoxFragmentShader*>(ShaderMap->GetShader(&FragmentShaderType)), ShaderMap.get());
-
-			// The sky vertex shader derives the fullscreen triangle from SV_VertexID.
-			// Vulkan still requires a vertex declaration object, but it has no elements
-			// and no vertex buffer is bound.
-			FVertexDeclarationElementList EmptyVertexElements{};
-			GSkyBoxState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(EmptyVertexElements);
-
-			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderTargetLayout = RendererRenderTargetLayouts::MakeSceneTargets();
-			Initializer.BoundShaders.VertexShader = GSkyBoxState.VertexShader.GetRHIShader();
-			Initializer.BoundShaders.FragmentShader = GSkyBoxState.FragmentShader.GetRHIShader();
-			Initializer.VertexDeclaration = GSkyBoxState.VertexDeclaration;
-			Initializer.bEnableAlphaBlend = false;
-			Initializer.bEnableBackFaceCulling = false;
-			Initializer.bEnableDepthTest = false;
-			Initializer.bEnableDepthWrite = false;
-			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
-			GSkyBoxState.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState("SkyBoxPipeline", Initializer);
-			const std::array<uint32, 3> FullscreenIndices = {0, 1, 2};
-			FRHIBufferCreateDesc IndexBufferDesc = FRHIBufferCreateDesc::CreateIndex(
-				"SkyBoxFullscreenIndexBuffer", sizeof(FullscreenIndices), sizeof(uint32));
-			IndexBufferDesc.Usage |= EBufferUsageFlags::Static;
-			IndexBufferDesc.InitialData = {FullscreenIndices.data(), sizeof(FullscreenIndices)};
-			GSkyBoxState.IndexBuffer = RHICreateBuffer(IndexBufferDesc);
-			GSkyBoxState.Sampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
+			GSkyBoxState.ShaderMap = Payload->ShaderMap;
+			GSkyBoxState.VertexShader = Payload->VertexShader;
+			GSkyBoxState.FragmentShader = Payload->FragmentShader;
+			GSkyBoxState.VertexDeclaration = Payload->VertexDeclaration;
+			GSkyBoxState.PipelineState = Payload->PipelineState;
+			GSkyBoxState.IndexBuffer = Payload->IndexBuffer;
+			GSkyBoxState.Sampler = Payload->Sampler;
 		}
 
 		auto GetStaticMeshIdentityText(
@@ -633,61 +745,108 @@ namespace Durin
 
 		auto EnsureTextureCubeThumbnailPipeline() -> void
 		{
-			if (GTextureCubeThumbnailState.bCreateAttempted) return;
-			GTextureCubeThumbnailState.bCreateAttempted = true;
-
-			FShaderCompileOptions CompileOptions;
-			FShaderType& VertexShaderType = FTextureCubeThumbnailVertexShader::StaticType();
-			FShaderType& FragmentShaderType = FTextureCubeThumbnailFragmentShader::StaticType();
-			std::array<const FShaderType*, 2> ShaderTypes = {&VertexShaderType, &FragmentShaderType};
-			std::shared_ptr<FShaderMapBase> ShaderMap = std::make_shared<FShaderMapBase>();
-			std::string ErrorMessage;
-			if (!ShaderMap->InitializeFromShaderTypes(ShaderTypes, CompileOptions, ErrorMessage))
-			{
-				DURIN_ERROR("Failed to initialize TextureCube thumbnail shader map: {}", ErrorMessage);
+			using FResult = TRenderResourceCreateResult<
+				FTextureCubeThumbnailRendererState::FPayload>;
+			auto* Payload = GTextureCubeThumbnailState.Slot.Resolve(
+				GRendererResourceGeneration,
+				[]() -> FResult {
+					FShaderCompileOptions CompileOptions;
+					FShaderType& VertexShaderType =
+						FTextureCubeThumbnailVertexShader::StaticType();
+					FShaderType& FragmentShaderType =
+						FTextureCubeThumbnailFragmentShader::StaticType();
+					std::array<const FShaderType*, 2> ShaderTypes = {
+						&VertexShaderType, &FragmentShaderType};
+					auto ShaderMap = std::make_shared<FShaderMapBase>();
+					std::string ErrorMessage;
+					if (!ShaderMap->InitializeFromShaderTypes(
+							ShaderTypes, CompileOptions, ErrorMessage))
+						return FResult::Failure(MakeStaticMeshCreateError(
+							ERenderResourceCreateErrorCategory::ShaderCompile,
+							"TextureCubeThumbnail",
+							"default",
+							std::move(ErrorMessage),
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Manual));
+					auto* VertexShader =
+						static_cast<FTextureCubeThumbnailVertexShader*>(
+							ShaderMap->GetShader(&VertexShaderType));
+					auto* FragmentShader =
+						static_cast<FTextureCubeThumbnailFragmentShader*>(
+							ShaderMap->GetShader(&FragmentShaderType));
+					if (VertexShader == nullptr || FragmentShader == nullptr)
+						return FResult::Failure(MakeStaticMeshCreateError(
+							ERenderResourceCreateErrorCategory::ShaderBinding,
+							"TextureCubeThumbnail",
+							"default",
+							"Compiled shader map is missing a typed shader.",
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Manual));
+					FTextureCubeThumbnailRendererState::FPayload Candidate;
+					Candidate.ShaderMap = std::move(ShaderMap);
+					Candidate.VertexShader =
+						TShaderRef<FTextureCubeThumbnailVertexShader>(
+							VertexShader, Candidate.ShaderMap.get());
+					Candidate.FragmentShader =
+						TShaderRef<FTextureCubeThumbnailFragmentShader>(
+							FragmentShader, Candidate.ShaderMap.get());
+					const FVertexDeclarationElementList VertexDeclElements =
+						GetStaticMeshVertexDeclarationElements();
+					Candidate.VertexDeclaration =
+						GDynamicRHI->RHICreateVertexDeclaration(
+							VertexDeclElements);
+					FGraphicsPipelineStateInitializer Initializer;
+					Initializer.RenderTargetLayout =
+						RendererRenderTargetLayouts::MakeSceneTargets();
+					Initializer.BoundShaders.VertexShader =
+						Candidate.VertexShader.GetRHIShader();
+					Initializer.BoundShaders.FragmentShader =
+						Candidate.FragmentShader.GetRHIShader();
+					Initializer.VertexDeclaration =
+						Candidate.VertexDeclaration;
+					Initializer.bEnableAlphaBlend = false;
+					Initializer.bEnableDepthTest = true;
+					Initializer.bEnableDepthWrite = true;
+					Initializer.bEnableBackFaceCulling = false;
+					Initializer.PipelineLayout =
+						Candidate.ShaderMap->GetMergedPipelineLayout();
+					Candidate.PipelineState =
+						GDynamicRHI->RHICreateGraphicsPipelineState(
+							"TextureCubeThumbnailPipeline", Initializer);
+					Candidate.Sampler =
+						RHICreateSampler(FRHISamplerDesc::LinearClamp());
+					if (Candidate.VertexDeclaration == nullptr
+						|| Candidate.PipelineState == nullptr
+						|| Candidate.Sampler == nullptr)
+						return FResult::Failure(MakeStaticMeshCreateError(
+							ERenderResourceCreateErrorCategory::RHIResource,
+							"TextureCubeThumbnail",
+							"default",
+							"RHI resource creation returned null.",
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Device
+								| ERenderResourceGenerationDependency::Manual));
+					return FResult::Success(std::move(Candidate));
+				},
+				ReportStaticMeshCreateDiagnostic);
+			if (Payload == nullptr)
 				return;
-			}
-
-			auto* VertexShader = static_cast<FTextureCubeThumbnailVertexShader*>(
-				ShaderMap->GetShader(&VertexShaderType));
-			auto* FragmentShader = static_cast<FTextureCubeThumbnailFragmentShader*>(
-				ShaderMap->GetShader(&FragmentShaderType));
-			check(VertexShader);
-			check(FragmentShader);
-			GTextureCubeThumbnailState.ShaderMap = ShaderMap;
-			GTextureCubeThumbnailState.VertexShader =
-				TShaderRef<FTextureCubeThumbnailVertexShader>(VertexShader, ShaderMap.get());
+			GTextureCubeThumbnailState.ShaderMap = Payload->ShaderMap;
+			GTextureCubeThumbnailState.VertexShader = Payload->VertexShader;
 			GTextureCubeThumbnailState.FragmentShader =
-				TShaderRef<FTextureCubeThumbnailFragmentShader>(FragmentShader, ShaderMap.get());
-
-			const FVertexDeclarationElementList VertexDeclElements =
-				GetStaticMeshVertexDeclarationElements();
+				Payload->FragmentShader;
 			GTextureCubeThumbnailState.VertexDeclaration =
-				GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
-
-			FGraphicsPipelineStateInitializer Initializer;
-			Initializer.RenderTargetLayout = RendererRenderTargetLayouts::MakeSceneTargets();
-			Initializer.BoundShaders.VertexShader =
-				GTextureCubeThumbnailState.VertexShader.GetRHIShader();
-			Initializer.BoundShaders.FragmentShader =
-				GTextureCubeThumbnailState.FragmentShader.GetRHIShader();
-			Initializer.VertexDeclaration = GTextureCubeThumbnailState.VertexDeclaration;
-			Initializer.bEnableAlphaBlend = false;
-			Initializer.bEnableDepthTest = true;
-			Initializer.bEnableDepthWrite = true;
-			Initializer.bEnableBackFaceCulling = false;
-			Initializer.PipelineLayout = ShaderMap->GetMergedPipelineLayout();
+				Payload->VertexDeclaration;
 			GTextureCubeThumbnailState.PipelineState =
-				GDynamicRHI->RHICreateGraphicsPipelineState(
-					"TextureCubeThumbnailPipeline", Initializer);
-			GTextureCubeThumbnailState.Sampler =
-				RHICreateSampler(FRHISamplerDesc::LinearClamp());
+				Payload->PipelineState;
+			GTextureCubeThumbnailState.Sampler = Payload->Sampler;
 		}
 
 		auto CreatePostProcessPipeline(
 			FName PipelineName,
 			FRHIShader* VertexShader,
 			FRHIShader* FragmentShader,
+			const FVertexDeclarationRHIRef& VertexDeclaration,
 			const FPipelineLayoutDesc& PipelineLayout,
 			const FRHIRenderTargetLayout& RenderTargetLayout
 		) -> FGraphicsPipelineStateRHIRef
@@ -696,7 +855,7 @@ namespace Durin
 			Initializer.RenderTargetLayout = RenderTargetLayout;
 			Initializer.BoundShaders.VertexShader = VertexShader;
 			Initializer.BoundShaders.FragmentShader = FragmentShader;
-			Initializer.VertexDeclaration = GPostProcessState.VertexDeclaration;
+			Initializer.VertexDeclaration = VertexDeclaration;
 			Initializer.bEnableAlphaBlend = false;
 			Initializer.bEnableBackFaceCulling = false;
 			Initializer.PipelineLayout = PipelineLayout;
@@ -705,111 +864,218 @@ namespace Durin
 
 		auto EnsurePostProcessResources(FRHICommandListImmediate& CommandList) -> void
 		{
-			if (GPostProcessState.bCreateAttempted)
-			{
+			using FPayload = FPostProcessRendererState::FPayload;
+			using FResult = TRenderResourceCreateResult<FPayload>;
+			auto* Payload = GPostProcessState.Slot.Resolve(
+				GRendererResourceGeneration,
+				[&CommandList]() -> FResult {
+					FShaderCompileOptions CompileOptions;
+					FShaderType& VertexShaderType =
+						FPostProcessVertexShader::StaticType();
+					FShaderType& CopyFragmentShaderType =
+						FCopySceneColorFragmentShader::StaticType();
+					FShaderType& FXAAFragmentShaderType =
+						FFXAAFragmentShader::StaticType();
+					std::array<const FShaderType*, 2> CopyShaderTypes = {
+						&VertexShaderType, &CopyFragmentShaderType};
+					std::array<const FShaderType*, 2> FXAAShaderTypes = {
+						&VertexShaderType, &FXAAFragmentShaderType};
+					FPayload Candidate;
+					Candidate.CopyShaderMap =
+						std::make_shared<FShaderMapBase>();
+					Candidate.FXAAShaderMap =
+						std::make_shared<FShaderMapBase>();
+					std::string ErrorMessage;
+					if (!Candidate.CopyShaderMap->InitializeFromShaderTypes(
+							CopyShaderTypes, CompileOptions, ErrorMessage))
+						return FResult::Failure(MakeStaticMeshCreateError(
+							ERenderResourceCreateErrorCategory::ShaderCompile,
+							"PostProcess",
+							"copy",
+							std::move(ErrorMessage),
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Manual));
+					if (!Candidate.FXAAShaderMap->InitializeFromShaderTypes(
+							FXAAShaderTypes, CompileOptions, ErrorMessage))
+						return FResult::Failure(MakeStaticMeshCreateError(
+							ERenderResourceCreateErrorCategory::ShaderCompile,
+							"PostProcess",
+							"fxaa",
+							std::move(ErrorMessage),
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Manual));
+					auto* CopyVertexShader =
+						static_cast<FPostProcessVertexShader*>(
+							Candidate.CopyShaderMap->GetShader(
+								&VertexShaderType));
+					auto* FXAAVertexShader =
+						static_cast<FPostProcessVertexShader*>(
+							Candidate.FXAAShaderMap->GetShader(
+								&VertexShaderType));
+					auto* CopyFragmentShader =
+						static_cast<FCopySceneColorFragmentShader*>(
+							Candidate.CopyShaderMap->GetShader(
+								&CopyFragmentShaderType));
+					auto* FXAAFragmentShader =
+						static_cast<FFXAAFragmentShader*>(
+							Candidate.FXAAShaderMap->GetShader(
+								&FXAAFragmentShaderType));
+					if (CopyVertexShader == nullptr
+						|| FXAAVertexShader == nullptr
+						|| CopyFragmentShader == nullptr
+						|| FXAAFragmentShader == nullptr)
+						return FResult::Failure(MakeStaticMeshCreateError(
+							ERenderResourceCreateErrorCategory::ShaderBinding,
+							"PostProcess",
+							"copy+fxaa",
+							"Compiled shader map is missing a typed shader.",
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Manual));
+					Candidate.CopyVertexShader =
+						TShaderRef<FPostProcessVertexShader>(
+							CopyVertexShader,
+							Candidate.CopyShaderMap.get());
+					Candidate.FXAAVertexShader =
+						TShaderRef<FPostProcessVertexShader>(
+							FXAAVertexShader,
+							Candidate.FXAAShaderMap.get());
+					Candidate.CopyFragmentShader =
+						TShaderRef<FCopySceneColorFragmentShader>(
+							CopyFragmentShader,
+							Candidate.CopyShaderMap.get());
+					Candidate.FXAAFragmentShader =
+						TShaderRef<FFXAAFragmentShader>(
+							FXAAFragmentShader,
+							Candidate.FXAAShaderMap.get());
+					FVertexDeclarationElementList VertexDeclElements;
+					constexpr uint32 VertexStride =
+						sizeof(RendererFullscreenGeometry::FVertex);
+					VertexDeclElements[0] = FVertexElement(
+						0,
+						offsetof(
+							RendererFullscreenGeometry::FVertex, Position),
+						EVertexElementType::Float2, 0, VertexStride);
+					VertexDeclElements[1] = FVertexElement(
+						0,
+						offsetof(RendererFullscreenGeometry::FVertex, UV),
+						EVertexElementType::Float2, 1, VertexStride);
+					Candidate.VertexDeclaration =
+						GDynamicRHI->RHICreateVertexDeclaration(
+							VertexDeclElements);
+					if (!RendererFullscreenGeometry::EnsureResources(
+							CommandList))
+						return FResult::Failure(MakeStaticMeshCreateError(
+							ERenderResourceCreateErrorCategory::RHIResource,
+							"PostProcess",
+							"fullscreen-geometry",
+							"Shared fullscreen geometry is unavailable.",
+							ERenderResourceGenerationDependency::Device
+								| ERenderResourceGenerationDependency::Manual));
+					Candidate.SceneColorSampler =
+						RHICreateSampler(FRHISamplerDesc::LinearClamp());
+					auto MakePipeline = [&](FName Name, FRHIShader* VS,
+											FRHIShader* FS,
+											const FPipelineLayoutDesc& Layout,
+											const FRHIRenderTargetLayout& RT) {
+						return CreatePostProcessPipeline(
+							Name, VS, FS, Candidate.VertexDeclaration,
+							Layout, RT);
+					};
+					Candidate.CopyIntermediatePipelineState = MakePipeline(
+						"PostProcessCopyIntermediatePipeline",
+						Candidate.CopyVertexShader.GetRHIShader(),
+						Candidate.CopyFragmentShader.GetRHIShader(),
+						Candidate.CopyShaderMap->GetMergedPipelineLayout(),
+						RendererRenderTargetLayouts::
+							MakeScenePostProcessOutput());
+					Candidate.FXAAIntermediatePipelineState = MakePipeline(
+						"PostProcessFXAAIntermediatePipeline",
+						Candidate.FXAAVertexShader.GetRHIShader(),
+						Candidate.FXAAFragmentShader.GetRHIShader(),
+						Candidate.FXAAShaderMap->GetMergedPipelineLayout(),
+						RendererRenderTargetLayouts::
+							MakeScenePostProcessOutput());
+					Candidate.CopyOffscreenPipelineState = MakePipeline(
+						"PostProcessCopyOffscreenPipeline",
+						Candidate.CopyVertexShader.GetRHIShader(),
+						Candidate.CopyFragmentShader.GetRHIShader(),
+						Candidate.CopyShaderMap->GetMergedPipelineLayout(),
+						RendererRenderTargetLayouts::
+							MakeFinalScenePostProcessOutput(
+								RendererRenderTargetLayouts::
+									EViewportOutput::Offscreen));
+					Candidate.CopyPresentPipelineState = MakePipeline(
+						"PostProcessCopyPresentPipeline",
+						Candidate.CopyVertexShader.GetRHIShader(),
+						Candidate.CopyFragmentShader.GetRHIShader(),
+						Candidate.CopyShaderMap->GetMergedPipelineLayout(),
+						RendererRenderTargetLayouts::
+							MakeFinalScenePostProcessOutput(
+								RendererRenderTargetLayouts::
+									EViewportOutput::Present));
+					Candidate.FXAAOffscreenPipelineState = MakePipeline(
+						"PostProcessFXAAOffscreenPipeline",
+						Candidate.FXAAVertexShader.GetRHIShader(),
+						Candidate.FXAAFragmentShader.GetRHIShader(),
+						Candidate.FXAAShaderMap->GetMergedPipelineLayout(),
+						RendererRenderTargetLayouts::
+							MakeFinalScenePostProcessOutput(
+								RendererRenderTargetLayouts::
+									EViewportOutput::Offscreen));
+					Candidate.FXAAPresentPipelineState = MakePipeline(
+						"PostProcessFXAAPresentPipeline",
+						Candidate.FXAAVertexShader.GetRHIShader(),
+						Candidate.FXAAFragmentShader.GetRHIShader(),
+						Candidate.FXAAShaderMap->GetMergedPipelineLayout(),
+						RendererRenderTargetLayouts::
+							MakeFinalScenePostProcessOutput(
+								RendererRenderTargetLayouts::
+									EViewportOutput::Present));
+					if (Candidate.VertexDeclaration == nullptr
+						|| Candidate.SceneColorSampler == nullptr
+						|| Candidate.CopyIntermediatePipelineState == nullptr
+						|| Candidate.FXAAIntermediatePipelineState == nullptr
+						|| Candidate.CopyOffscreenPipelineState == nullptr
+						|| Candidate.CopyPresentPipelineState == nullptr
+						|| Candidate.FXAAOffscreenPipelineState == nullptr
+						|| Candidate.FXAAPresentPipelineState == nullptr)
+						return FResult::Failure(MakeStaticMeshCreateError(
+							ERenderResourceCreateErrorCategory::
+								GraphicsPipeline,
+							"PostProcess",
+							"copy+fxaa",
+							"RHI resource or pipeline creation returned null.",
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Device
+								| ERenderResourceGenerationDependency::Manual));
+					return FResult::Success(std::move(Candidate));
+				},
+				ReportStaticMeshCreateDiagnostic);
+			if (Payload == nullptr)
 				return;
-			}
-
-			GPostProcessState.bCreateAttempted = true;
-
-			FShaderCompileOptions CompileOptions;
-			FShaderType& VertexShaderType = FPostProcessVertexShader::StaticType();
-			FShaderType& CopyFragmentShaderType = FCopySceneColorFragmentShader::StaticType();
-			FShaderType& FXAAFragmentShaderType = FFXAAFragmentShader::StaticType();
-			std::array<const FShaderType*, 2> CopyShaderTypes = {&VertexShaderType, &CopyFragmentShaderType};
-			std::array<const FShaderType*, 2> FXAAShaderTypes = {&VertexShaderType, &FXAAFragmentShaderType};
-			std::shared_ptr<FShaderMapBase> CopyShaderMap = std::make_shared<FShaderMapBase>();
-			std::shared_ptr<FShaderMapBase> FXAAShaderMap = std::make_shared<FShaderMapBase>();
-			std::string ErrorMessage;
-			if (!CopyShaderMap->InitializeFromShaderTypes(CopyShaderTypes, CompileOptions, ErrorMessage))
-			{
-				DURIN_ERROR("Failed to initialize PostProcess copy shader map: {}", ErrorMessage);
-				return;
-			}
-			if (!FXAAShaderMap->InitializeFromShaderTypes(FXAAShaderTypes, CompileOptions, ErrorMessage))
-			{
-				DURIN_ERROR("Failed to initialize PostProcess FXAA shader map: {}", ErrorMessage);
-				return;
-			}
-
-			auto* CopyVertexShader = static_cast<FPostProcessVertexShader*>(CopyShaderMap->GetShader(&VertexShaderType));
-			auto* FXAAVertexShader = static_cast<FPostProcessVertexShader*>(FXAAShaderMap->GetShader(&VertexShaderType));
-			auto* CopyFragmentShader = static_cast<FCopySceneColorFragmentShader*>(CopyShaderMap->GetShader(&CopyFragmentShaderType));
-			auto* FXAAFragmentShader = static_cast<FFXAAFragmentShader*>(FXAAShaderMap->GetShader(&FXAAFragmentShaderType));
-			check(CopyVertexShader);
-			check(FXAAVertexShader);
-			check(CopyFragmentShader);
-			check(FXAAFragmentShader);
-
-			GPostProcessState.CopyShaderMap = CopyShaderMap;
-			GPostProcessState.FXAAShaderMap = FXAAShaderMap;
-			GPostProcessState.CopyVertexShader = TShaderRef<FPostProcessVertexShader>(CopyVertexShader, CopyShaderMap.get());
-			GPostProcessState.FXAAVertexShader = TShaderRef<FPostProcessVertexShader>(FXAAVertexShader, FXAAShaderMap.get());
-			GPostProcessState.CopyFragmentShader = TShaderRef<FCopySceneColorFragmentShader>(CopyFragmentShader, CopyShaderMap.get());
-			GPostProcessState.FXAAFragmentShader = TShaderRef<FFXAAFragmentShader>(FXAAFragmentShader, FXAAShaderMap.get());
-
-			FVertexDeclarationElementList VertexDeclElements;
-			constexpr uint32 VertexStride =
-				sizeof(RendererFullscreenGeometry::FVertex);
-			VertexDeclElements[0] = FVertexElement(
-				0, offsetof(RendererFullscreenGeometry::FVertex, Position),
-				EVertexElementType::Float2, 0, VertexStride);
-			VertexDeclElements[1] = FVertexElement(
-				0, offsetof(RendererFullscreenGeometry::FVertex, UV),
-				EVertexElementType::Float2, 1, VertexStride);
-			GPostProcessState.VertexDeclaration = GDynamicRHI->RHICreateVertexDeclaration(VertexDeclElements);
-
-			RendererFullscreenGeometry::EnsureResources(CommandList);
-
-			GPostProcessState.SceneColorSampler = RHICreateSampler(FRHISamplerDesc::LinearClamp());
-
-			GPostProcessState.CopyIntermediatePipelineState = CreatePostProcessPipeline(
-				"PostProcessCopyIntermediatePipeline",
-				GPostProcessState.CopyVertexShader.GetRHIShader(),
-				GPostProcessState.CopyFragmentShader.GetRHIShader(),
-				CopyShaderMap->GetMergedPipelineLayout(),
-				RendererRenderTargetLayouts::MakeScenePostProcessOutput()
-			);
-			GPostProcessState.FXAAIntermediatePipelineState = CreatePostProcessPipeline(
-				"PostProcessFXAAIntermediatePipeline",
-				GPostProcessState.FXAAVertexShader.GetRHIShader(),
-				GPostProcessState.FXAAFragmentShader.GetRHIShader(),
-				FXAAShaderMap->GetMergedPipelineLayout(),
-				RendererRenderTargetLayouts::MakeScenePostProcessOutput()
-			);
-			GPostProcessState.CopyOffscreenPipelineState = CreatePostProcessPipeline(
-				"PostProcessCopyOffscreenPipeline",
-				GPostProcessState.CopyVertexShader.GetRHIShader(),
-				GPostProcessState.CopyFragmentShader.GetRHIShader(),
-				CopyShaderMap->GetMergedPipelineLayout(),
-				RendererRenderTargetLayouts::MakeFinalScenePostProcessOutput(
-					RendererRenderTargetLayouts::EViewportOutput::Offscreen)
-			);
-			GPostProcessState.CopyPresentPipelineState = CreatePostProcessPipeline(
-				"PostProcessCopyPresentPipeline",
-				GPostProcessState.CopyVertexShader.GetRHIShader(),
-				GPostProcessState.CopyFragmentShader.GetRHIShader(),
-				CopyShaderMap->GetMergedPipelineLayout(),
-				RendererRenderTargetLayouts::MakeFinalScenePostProcessOutput(
-					RendererRenderTargetLayouts::EViewportOutput::Present)
-			);
-			GPostProcessState.FXAAOffscreenPipelineState = CreatePostProcessPipeline(
-				"PostProcessFXAAOffscreenPipeline",
-				GPostProcessState.FXAAVertexShader.GetRHIShader(),
-				GPostProcessState.FXAAFragmentShader.GetRHIShader(),
-				FXAAShaderMap->GetMergedPipelineLayout(),
-				RendererRenderTargetLayouts::MakeFinalScenePostProcessOutput(
-					RendererRenderTargetLayouts::EViewportOutput::Offscreen)
-			);
-			GPostProcessState.FXAAPresentPipelineState = CreatePostProcessPipeline(
-				"PostProcessFXAAPresentPipeline",
-				GPostProcessState.FXAAVertexShader.GetRHIShader(),
-				GPostProcessState.FXAAFragmentShader.GetRHIShader(),
-				FXAAShaderMap->GetMergedPipelineLayout(),
-				RendererRenderTargetLayouts::MakeFinalScenePostProcessOutput(
-					RendererRenderTargetLayouts::EViewportOutput::Present)
-			);
-
+			GPostProcessState.CopyShaderMap = Payload->CopyShaderMap;
+			GPostProcessState.FXAAShaderMap = Payload->FXAAShaderMap;
+			GPostProcessState.CopyVertexShader = Payload->CopyVertexShader;
+			GPostProcessState.FXAAVertexShader = Payload->FXAAVertexShader;
+			GPostProcessState.CopyFragmentShader =
+				Payload->CopyFragmentShader;
+			GPostProcessState.FXAAFragmentShader =
+				Payload->FXAAFragmentShader;
+			GPostProcessState.VertexDeclaration =
+				Payload->VertexDeclaration;
+			GPostProcessState.CopyIntermediatePipelineState =
+				Payload->CopyIntermediatePipelineState;
+			GPostProcessState.FXAAIntermediatePipelineState =
+				Payload->FXAAIntermediatePipelineState;
+			GPostProcessState.CopyOffscreenPipelineState =
+				Payload->CopyOffscreenPipelineState;
+			GPostProcessState.CopyPresentPipelineState =
+				Payload->CopyPresentPipelineState;
+			GPostProcessState.FXAAOffscreenPipelineState =
+				Payload->FXAAOffscreenPipelineState;
+			GPostProcessState.FXAAPresentPipelineState =
+				Payload->FXAAPresentPipelineState;
+			GPostProcessState.SceneColorSampler = Payload->SceneColorSampler;
 		}
 
 		auto EnsureSceneTargets(uint32 Width, uint32 Height) -> FPostProcessRendererState::FSceneTargets*
@@ -1164,25 +1430,13 @@ namespace Durin
 			GDefaultTextures = {};
 			GStaticMeshState = {};
 			GRendererResourceGeneration = {};
+			GTextureCubeThumbnailState.Slot.Reset();
 			GTextureCubeThumbnailState = {};
+			GSkyBoxState.Slot.Reset();
 			GSkyBoxState = {};
 			RendererEditorAssistance::ReleaseResources();
-			GPostProcessState.CopyShaderMap.reset();
-			GPostProcessState.FXAAShaderMap.reset();
-			GPostProcessState.CopyVertexShader = {};
-			GPostProcessState.FXAAVertexShader = {};
-			GPostProcessState.CopyFragmentShader = {};
-			GPostProcessState.FXAAFragmentShader = {};
-			GPostProcessState.VertexDeclaration = nullptr;
-			GPostProcessState.CopyIntermediatePipelineState = nullptr;
-			GPostProcessState.FXAAIntermediatePipelineState = nullptr;
-			GPostProcessState.CopyOffscreenPipelineState = nullptr;
-			GPostProcessState.CopyPresentPipelineState = nullptr;
-			GPostProcessState.FXAAOffscreenPipelineState = nullptr;
-			GPostProcessState.FXAAPresentPipelineState = nullptr;
-			GPostProcessState.SceneColorSampler = nullptr;
-			GPostProcessState.SceneTargetsBySize.clear();
-			GPostProcessState.bCreateAttempted = false;
+			GPostProcessState.Slot.Reset();
+			GPostProcessState = {};
 			RendererFullscreenGeometry::ReleaseResources();
 		});
 	}

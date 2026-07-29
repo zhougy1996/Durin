@@ -19,5 +19,6 @@ namespace Durin::RendererFullscreenGeometry
 	auto EnsureResources(FRHICommandListImmediate& CommandList) -> bool;
 	auto GetVertexBuffer() -> const FBufferRHIRef&;
 	auto GetIndexBuffer() -> const FBufferRHIRef&;
+	auto RetryFailedResources() -> void;
 	auto ReleaseResources() -> void;
 } // namespace Durin::RendererFullscreenGeometry

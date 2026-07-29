@@ -5,7 +5,7 @@ Summary: Replace permanent one-shot renderer resource failures with transactiona
 Last reviewed: 2026-07-30
 
 Status: Active
-Completed:
+Completed: Stages 0-3
 
 ## Current Status
 
@@ -21,14 +21,11 @@ state. Availability is derived as `Uninitialized`, `Creating`, `Ready`,
 `Refreshing`, `Failed`, or `StaleReady`; reentrant resolution returns the
 already valid fallback, if any, without invoking the factory again.
 
-The current inventory is six permanent one-shot flags: Static Mesh base
-resources, Sky Box, Texture Cube thumbnail, Post Process, shared fullscreen
-geometry, and Texture Editor preview. Static Mesh additionally inserts empty
-shader-map and pipeline vector entries before compilation or complete
-solid/wire PSO construction. Demand-driven editor assistance, landed in
-`347a1ab0`, already has four base attempts and keyed pipeline attempts, but its
-module-private tri-state and string-only diagnostics are superseded by the
-common slot in this plan.
+All previously inventoried one-shot flags are now migrated. Static Mesh, Sky
+Box, Texture Cube thumbnail, Post Process, shared fullscreen geometry, Texture
+Editor preview, and the four demand-driven editor-assistance features use the
+common slot. Assistance pipelines remain independently keyed while their
+module-private tri-state and string-only diagnostics have been removed.
 
 The post-planning relevant diff is the demand-driven assistance extraction and
 the Material render-proxy identity work through the implementation baseline.
@@ -122,13 +119,35 @@ keyed-cache cases, 9/9 common slot cases, 26/26 `EditorRenderingTests`, and
 35/35 `FMaterialTests.*` cases, including the Vulkan-backed rendered thumbnail
 path.
 
-At the implementation baseline, Renderer and Texture Editor preview resources
-used one-shot `bCreateAttempted` flags, and Static Mesh shader-map/pipeline
-caches inserted incomplete entries before construction. Stage 2 removed both
-defects from Static Mesh. Sky Box, Post Process, Texture Cube thumbnail,
-fullscreen geometry, and Texture Editor preview retain their one-shot flags
-until Stage 3; editor assistance retains its earlier module-private attempt
-adapter until the same migration.
+Stage 3 handoff: baseline commit `53c870d6`; the working set adds
+`RendererEditorAssistance.h`, `RendererEditorAssistanceRenderer.cpp`,
+`RendererFullscreenGeometry.h/.cpp`, Texture Editor's `TexturePreview.cpp`,
+and the assistance owner tests, while continuing the fixed-resource work in
+`RendererModule.cpp`. Sky Box, Texture Cube thumbnail, and Post Process now
+build complete shader/RHI/pipeline aggregates before slot commit. Shared
+fullscreen geometry owns one device-dependent buffer aggregate. Texture Editor
+preview owns its slot and generation in Texture Editor and advances manual
+retry only when a later preview demand observes a retained failure.
+
+Gizmo, Overlay Line, Overlay Icon, and Editor Grid keep the demand and keyed
+pipeline decomposition established by the assistance plan, but their base
+payloads and pipeline entries now use `TRenderResourceCreationSlot`. Dynamic
+per-view line/icon buffers remain outside the fixed base payloads. Shader
+refresh can retain a complete last-known-good payload; device invalidation
+remains destructive. Renderer and Texture Editor shutdown explicitly reset
+slots inside their existing render-thread-ordered release paths before clearing
+owner mirrors and dynamic caches.
+
+The private `FGenerationScopedAttempt`, its three-state availability enum, and
+its public test adapter functions are removed. A grouped failure-injection test
+covers every migrated fixed feature and Texture Editor preview identity,
+proving one injected failure leaves all other identities ready and that a
+manual retry recovers only the failed slot. There are no open Stage 3 design
+questions; command registration and generation invalidation wiring remain in
+Stage 4. Validation passed 13/13 focused assistance cases, all 26/26
+`EditorRenderingTests`, all 32/32 `RenderContractTests`, and 35/35
+`FMaterialTests.*` cases including the Vulkan-backed rendered-thumbnail path;
+the TextureEditor module rebuilt and linked its modified preview source.
 
 The lower shader compile service does not cache failed compiler output.
 Dependency fingerprints already make a changed shader source produce a
@@ -520,21 +539,21 @@ resource:
 
 ### Stage 3: Migrate fixed Renderer and Texture Editor resources
 
-- [ ] Convert Sky Box, Post Process, Texture Cube thumbnail, Gizmo, Overlay
+- [x] Convert Sky Box, Post Process, Texture Cube thumbnail, Gizmo, Overlay
   Line, Overlay Icon, and Editor Grid base states to transactional slots.
-- [ ] Coordinate Grid, Gizmo, Line, and Icon migration with the active
+- [x] Coordinate Grid, Gizmo, Line, and Icon migration with the active
   demand-driven assistance stages so feature demand and pipeline decomposition
   are not implemented twice.
-- [ ] Convert Texture Editor preview resource creation to the common attempt
+- [x] Convert Texture Editor preview resource creation to the common attempt
   and failure semantics while preserving its module ownership.
-- [ ] Split monolithic candidate aggregates only where shader, device, dynamic
+- [x] Split monolithic candidate aggregates only where shader, device, dynamic
   per-view, or pipeline-key dependencies require different invalidation or
   failure domains.
-- [ ] Remove migrated `bCreateAttempted` flags and independent
+- [x] Remove migrated `bCreateAttempted` flags and independent
   failure-log-suppression booleans.
-- [ ] Route renderer and preview shutdown through explicit slot reset/release
+- [x] Route renderer and preview shutdown through explicit slot reset/release
   operations.
-- [ ] Add per-feature and preview failure-injection tests proving independent
+- [x] Add per-feature and preview failure-injection tests proving independent
   availability and recovery.
 
 #### Acceptance Gate
