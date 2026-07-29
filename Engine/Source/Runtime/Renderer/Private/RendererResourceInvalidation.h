@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Console/ConsoleCommand.h"
+#include "RenderResourceCreation.h"
 #include "RendererAPI.h"
 
 namespace Durin
@@ -47,4 +48,15 @@ namespace Durin
 	// Internal device-recovery seam. No backend publishes this request yet.
 	RENDERER_API auto RequestRendererDeviceInvalidation()
 		-> FConsoleCommandResult;
+
+	struct FRendererResourceInvalidationSnapshot
+	{
+		FRenderResourceGeneration Generation;
+		bool bForceShaderRecompile = false;
+	};
+
+	// Exposes the render-thread generation selected by the ordered command path
+	// to focused owner integration tests.
+	RENDERER_API auto GetRendererResourceInvalidationSnapshot_RenderThread()
+		-> FRendererResourceInvalidationSnapshot;
 } // namespace Durin

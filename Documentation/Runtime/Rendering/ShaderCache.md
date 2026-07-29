@@ -49,6 +49,28 @@ On lookup, the compile service:
 
 `bForceRecompile` skips compiled-output and disk-artifact hits, but still validates dependencies and republishes the successful result.
 
+## Development Reload and Recovery
+
+Failed compiler output is not stored in the in-process output cache or
+published to disk. Correcting authored source therefore produces a new
+dependency fingerprint and variant key without restarting the compile service.
+
+Renderer exposes two demand-driven reload modes. The
+`renderer.reload-shaders changed` command advances the Renderer shader-resource
+generation; the next lookup for each demanded shader-backed resource validates
+its dependencies and reuses or compiles the resulting variant normally.
+`renderer.reload-shaders all` advances the same generation but also sets
+`bForceRecompile` on shader candidates first demanded in that generation,
+bypassing both successful memory and disk output reuse.
+
+Neither command eagerly recompiles every registered shader type or material
+identity. The console request is ordered through the render-command queue, and
+resource slots decide when a stale identity is next demanded. Shader refresh
+is transactional: a compile, binding, RHI, or pipeline failure leaves a valid
+last-known-good payload drawable when one exists, while a successful candidate
+replaces it atomically. See [Viewport Rendering](ViewportRendering.md) for the
+generation, diagnostic, device-invalidation, and shutdown contracts.
+
 ## Validation and Publication
 
 A disk hit is published only when every requested artifact passes all checks:

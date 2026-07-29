@@ -152,6 +152,50 @@ last-known-good payload if refresh fails; device invalidation clears dependent
 RHI payloads before retry. Renderer shutdown resets payloads, generation-scoped
 attempts, dynamic capacities, and diagnostics together.
 
+## Recoverable Renderer Resources
+
+Fixed Renderer resources, static-mesh shader and pipeline identities, editor
+assistance, shared fullscreen geometry, and Texture Editor preview resources
+use `TRenderResourceCreationSlot`. A slot constructs a complete candidate in
+local ownership and publishes it only after every shader binding, RHI resource,
+and pipeline required by that identity succeeds. Callers therefore observe
+either the prior complete payload, a newly committed complete payload, or no
+payload; partially initialized aggregates are never visible.
+
+Each owner tracks independent shader, device, and manual generations. A failed
+attempt records the selected generation, error category, context, identity,
+owned diagnostic text, retry dependencies, and whether a fallback remains.
+Another lookup in the same relevant generation does not call the factory or log
+the same failure again. A later relevant generation permits one new lazy
+attempt. Shader and manual refresh failures may retain a complete
+last-known-good payload as stale-ready; device-generation changes discard old
+RHI payloads before attempting replacement.
+
+Renderer owns these development commands:
+
+- `renderer.reload-shaders changed` advances shader generation and lets normal
+  dependency fingerprints select changed output on the next demanded lookup.
+- `renderer.reload-shaders all` advances shader generation and forces
+  compilation for each next-demanded shader candidate in that generation.
+- `renderer.retry-resources` advances manual generation for failed resources
+  whose retained error permits explicit retry.
+
+Console callbacks enqueue one render command. Views submitted before that
+command retain the old generation, while later views observe the new one;
+resource construction remains synchronous and demand-driven on the render
+thread. New failures and changed failure fingerprints produce one structured
+diagnostic, retained stale-ready failures identify their fallback, and a
+successful retry reports one recovery transition.
+
+The internal device-invalidation request is a tested Renderer seam rather than
+a claim of Vulkan device-loss recovery. It clears fixed and keyed payloads,
+scene targets, assistance state, dynamic capacities, fullscreen geometry, and
+diagnostics before publishing the new device generation. Renderer shutdown
+first closes command admission and unregisters the development commands, then
+enqueues resource release and flushes rendering work. Texture Editor retains
+module ownership of its preview slot and releases it through its own ordered
+shutdown path.
+
 ## Interface Boundary
 
 `MViewport` talks only to `Mona::IMonaViewport`, not to `FSceneViewport`.

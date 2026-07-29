@@ -329,6 +329,16 @@ durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
+durin_add_engine_functional_test(RendererResourceReloadVulkanTests
+	GPU
+	TIMEOUT 900
+	RUNTIME_STACK_RATIONALE "Exercises in-process renderer shader failure, reload, and recovery on Vulkan."
+	SOURCES Private/RendererResourceReloadVulkanTests.cpp
+	LIBRARIES ApplicationCore RenderCore Renderer
+	DEPLOY_TARGETS ApplicationCore RHI RenderCore Renderer VulkanRHI
+	RUNTIME_FILES Slang_Imported
+)
+
 durin_add_engine_functional_test(EditorRenderingTests
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed editor assistance and grid rendering."
 	SOURCES

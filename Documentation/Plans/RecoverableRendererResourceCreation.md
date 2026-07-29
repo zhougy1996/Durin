@@ -4,12 +4,12 @@ Summary: Replace permanent one-shot renderer resource failures with transactiona
 
 Last reviewed: 2026-07-30
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-07-30
 
 ## Current Status
 
-Completed stages: 0-4.
+Completed stages: 0-5.
 
 Implementation baseline: `2081dd81` (`feat(material): bind scene proxies to
 material proxies`).
@@ -182,6 +182,36 @@ caching failure and `bForceRecompile` bypasses successful memory/disk reuse.
 Validation passed 3/3 focused invalidation cases, all 29/29
 `EditorRenderingTests`, all 5/5 `RenderShaderServiceTests`, all 32/32
 `RenderContractTests`, and 35/35 `FMaterialTests.*` cases.
+
+Stage 5 handoff: baseline commit `3585f036`; the final working set adds a
+controlled Vulkan shader-reload test, a Renderer-private read-only generation
+snapshot seam for that test, this plan, the owning viewport and shader-cache
+runtime documentation, and the completed assistance plan's coordination note.
+The Vulkan test compiles and draws a red shader, breaks its source, executes the
+real `renderer.reload-shaders changed` command, and proves the retained PSO
+still draws red with one diagnostic and no same-generation retry. It then fixes
+the shader, executes `changed` again, proves a distinct PSO draws green in the
+same process, and verifies that `all` reaches the next candidate with forced
+recompilation. Candidate publication remains atomic throughout.
+
+Focused validation passed all 32 `RenderContractTests`, 5
+`RenderShaderServiceTests`, 29 `EditorRenderingTests`, 51 `MaterialTests`, 45
+`ThumbnailTests`, 9 `SkyBoxTests`, the existing Sky Box Vulkan integration
+test, and the new renderer reload Vulkan integration test. The assistance
+plan's established interactive matrix remains the behavioral evidence for
+sequential main and auxiliary views, Offscreen followed by Present, window and
+render-target output, constrained scissor, post-process, assistance, thumbnail,
+and camera-preview behavior. The final Debug Editor `all` target built
+successfully, and the same profile's hidden-window Vulkan editor completed 30
+ticks with normal Texture Editor and Renderer shutdown and no Shader, Pipeline,
+Vulkan Validation, Error, or Fatal diagnostic.
+
+As supplemental non-gating coverage, `TextureTests` passed 68/69 cases. Its
+isolated pre-existing `FTextureCubeTests.CookIsDeterministicAndRuntimeLoadsWithoutSources`
+failure reproduced in Asset Manager shutdown/cook-manifest setup, outside the
+Renderer, Texture Editor preview, and thumbnail paths covered by this plan.
+There are no open Stage 5 questions; all acceptance gates are satisfied and the
+plan is complete.
 
 The lower shader compile service does not cache failed compiler output.
 Dependency fingerprints already make a changed shader source produce a
@@ -626,25 +656,25 @@ resource:
 
 ### Stage 5: End-to-end validation and lasting documentation
 
-- [ ] Run focused RenderCore, Renderer, Material, thumbnail, Texture Editor,
+- [x] Run focused RenderCore, Renderer, Material, thumbnail, Texture Editor,
   assistance, Sky Box, and Vulkan tests through the repository-native workflow.
-- [ ] Run a successful full `all` build through the root DurinDevTool workflow.
-- [ ] Run the verified `DurinEditor` with the same Agent Build Profile.
-- [ ] In a development shader copy or controlled test shader, introduce a
+- [x] Run a successful full `all` build through the root DurinDevTool workflow.
+- [x] Run the verified `DurinEditor` with the same Agent Build Profile.
+- [x] In a development shader copy or controlled test shader, introduce a
   compile error, observe one retained diagnostic, fix it, run the changed
   reload command, and verify recovery without restarting the module.
-- [ ] Verify a failed refresh continues drawing the last-known-good shader/PSO
+- [x] Verify a failed refresh continues drawing the last-known-good shader/PSO
   and a successful refresh swaps output without a partial-resource frame.
-- [ ] Verify initial resource failure skips only the affected draw, does not
+- [x] Verify initial resource failure skips only the affected draw, does not
   spam logs, and recovers after explicit retry.
-- [ ] Verify main, auxiliary, window-backed, and render-target-backed views
+- [x] Verify main, auxiliary, window-backed, and render-target-backed views
   retain existing output, scissor, post-process, assistance, and thumbnail
   behavior.
-- [ ] Update the owning runtime rendering documentation with the landed state,
+- [x] Update the owning runtime rendering documentation with the landed state,
   transaction, generation, diagnostics, and shutdown contracts.
-- [ ] Update the Demand-Driven Editor Assistance Renderer plan with landed
+- [x] Update the Demand-Driven Editor Assistance Renderer plan with landed
   common-state evidence and remove any superseded permanent-failure wording.
-- [ ] Record validation evidence and complete this plan only after every
+- [x] Record validation evidence and complete this plan only after every
   required gate passes.
 
 #### Acceptance Gate
@@ -747,4 +777,5 @@ resource:
 - `Engine/Tests/Native/RenderCoreTests/Private/ShaderCompileServiceTests.cpp`
 - `Engine/Tests/Native/RenderCoreTests/Private/RenderResourceLifecycleTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/RendererEditorAssistanceTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/RendererResourceReloadVulkanTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/Materials/MaterialRenderingTests.cpp`

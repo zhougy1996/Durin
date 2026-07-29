@@ -101,6 +101,16 @@ that the full Grid, solid/wire Gizmo, Line, Icon, depth occlusion,
 X-Ray/Visible, FXAA on/off, constrained-scissor, and camera-preview matrix
 passes. Stage 4 and the plan are complete.
 
+Post-completion coordination evidence: the Recoverable Renderer Resource
+Creation plan has landed its public RenderCore
+`TRenderResourceCreationSlot`. Grid, Gizmo, Overlay Line, and Overlay Icon base
+resources and their keyed pipelines now use that common state directly; the
+temporary module-private `FGenerationScopedAttempt` and its three-state
+availability enum have been removed. Focused failure injection proves
+independent feature availability and generation-scoped recovery, while the
+Renderer-owned changed/all/manual commands now provide the ordered invalidation
+path anticipated by this plan.
+
 The existing renderer already composes editor assistance after scene post-processing
 and preserves scene depth for grid and overlay occlusion. The remaining resource
 and failure boundaries are too broad:
@@ -187,7 +197,7 @@ each `FSceneView`:
 - Combining post-processing and assistance into one render pass.
 - Introducing a general render graph, pass scheduler, PSO cache framework, or
   public RHI abstraction.
-- Retrying permanent shader, static-resource, or pipeline failures every frame.
+- Retrying shader, static-resource, or pipeline failures every frame.
 - Refactoring unrelated eager renderer resources such as Sky Box resources.
 
 ## Design Decisions and Invariants
@@ -303,9 +313,10 @@ each `FSceneView`:
 - This plan owns view-driven demand, feature states, pipeline-key
   decomposition, prepared operations, and failure isolation after resource
   lookup.
-- Stage 3 must consume the common resource-state contract if it has landed. If
-  the assistance extraction lands first, it must keep its private state narrow
-  enough to migrate without changing demand or pipeline keys.
+- The landed assistance implementation consumes the common RenderCore
+  resource-state contract without changing this plan's demand or pipeline
+  keys. Recoverable-resource Stage 4 owns its ordered changed/all/manual
+  invalidation commands.
 - Neither plan authorizes per-frame retry or an unsupported device-recovery
   lifecycle.
 
@@ -521,10 +532,10 @@ each `FSceneView`:
 - Pipeline variants are lazy and independently keyed by output, depth mode,
   and topology.
 - No global readiness condition can disable unrelated assistance.
-- Permanent failures are sticky and diagnosed once; transient per-view
-  preparation failures do not permanently disable a feature. "Permanent" is
-  scoped to the same relevant resource generation; the common recovery plan
-  owns explicit retry after shader, device, or manual invalidation.
+- Resource failures are sticky and diagnosed once only for the same relevant
+  generation; shader, device, or manual invalidation permits the retry selected
+  by the retained dependency mask. Transient per-view preparation failures do
+  not change reusable feature state.
 - Dynamic prepared data belongs to one rendered view and cannot leak into a
   sequential viewport.
 - Grid no longer reaches into post-process private state.

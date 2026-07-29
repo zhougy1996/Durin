@@ -1499,6 +1499,18 @@ namespace Durin
 			ERendererResourceInvalidationCause::Device);
 	}
 
+	auto GetRendererResourceInvalidationSnapshot_RenderThread()
+		-> FRendererResourceInvalidationSnapshot
+	{
+		check(IsInRenderingThread());
+		return {
+			.Generation = GRendererResourceGeneration,
+			.bForceShaderRecompile =
+				GForceRecompileShaderGeneration
+					== GRendererResourceGeneration.Shader,
+		};
+	}
+
 	auto FRendererModule::StartupModule() -> void
 	{
 		const bool bCommandsRegistered =
