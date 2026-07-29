@@ -30,12 +30,13 @@ Compiled-in reflection metadata uses a separate `Cpp` package kind. Each reflect
 ## File Format
 
 Every authored or cooked `.dasset`, regardless of its main asset class, uses the
-same DAST object-package envelope. The v3 binary header records the `DAST`
+same DAST object-package envelope. The v2 binary header records the `DAST`
 magic, format version, main asset class, dependencies, and object count. The
 asset path is derived from the mounted package filename, so moving a package
 within a content mount does not rewrite its payload. The registry reads only
-this header. The reader accepts v2 packages so registered structure upgraders
-can consume retired reflected fields; every save writes v3.
+this header. The current reader and writer require v2; the planned v3
+custom-version and compact-schema contract remains in its active implementation
+plan until the v3 reader and writer are delivered together.
 
 Asset-specific magic values belong to external derived or cooked payloads, not
 to alternative `.dasset` envelopes. StaticMesh payloads use DMSH and texture

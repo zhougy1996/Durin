@@ -9,6 +9,37 @@ Completed:
 
 ## Current Status
 
+Stage 0 completed on 2026-07-30 against baseline `b45cd3b0`. The active writer
+and registry cache contract again identify the unchanged DAST bytes as v2, and
+the package tests pin the exact eight-byte `DAST`/version prefix. Future v3
+details remain in the frozen wire appendix of this active plan until Stage 2
+implements them; this keeps the Runtime documentation truthful about the
+currently supported format.
+
+The frozen v3 contract places a bounded custom-version table in the
+header and the compact schema-symbol table at the start of the body. Stable
+schema GUIDs, little-endian primitive encoding, canonical ordering, explicit
+limits, malformed-input errors, missing/newer schema behavior, ordered
+`N -> N+1` migration, audit/apply parity, and editor/cook/runtime boundaries
+are selected. Texture source provenance is assigned one production schema ID
+and two test-only IDs cover deterministic multi-entry golden vectors.
+
+### Stage 0 Handoff
+
+- Baseline: `b45cd3b0`.
+- Working set: this plan; `AssetPackages.md`; `AssetSystem.cpp`;
+  `PackageTests.cpp`.
+- Key symbols: `AssetMagic`, `AssetVersion`, `ReadPackageHeader`,
+  `LoadRegistryCache`, `FAssetPackageHeader`.
+- Decisions: current writer remains v2 until the complete v3 reader/writer;
+  package-wide bounded custom versions; version zero means absent; schema
+  symbols remain outside the bounded discovery header; one-step migrations;
+  no cross-schema ordering; strict-current cook/runtime policy.
+- Open questions: none for Stage 1. Exact public C++ type names may change
+  without changing the frozen identities, bytes, limits, or behavior.
+- Validation: all 28 focused AssetPackageTests passed; all active, completed,
+  and archived plans passed repository plan validation.
+
 DAST v2 is a field-tagged object-package format shared by every authored and
 cooked `.dasset`, regardless of main asset class. It stores each schema string
 inline with a fixed-width `uint64` byte length. Every object record repeats its
@@ -21,8 +52,8 @@ strings from reflected runtime objects and added raw-field structure upgraders.
 It also advanced the global `AssetVersion` from 2 to 3 so old fields could be
 read and rewritten. That numeric promotion is premature: the serialized
 envelope has not gained a v3 layout, and a texture-only schema migration is not
-a package-format change. The first implementation checkpoint must restore the
-current writer identity to v2 until the complete v3 reader and writer land.
+a package-format change. Stage 0 restored the current writer identity to v2;
+it remains v2 until the complete v3 reader and writer land.
 
 AssetCore already retains unknown serialized fields, supports object-free
 inspection, class-owned inspection and materialized upgrade contributors,
@@ -116,19 +147,20 @@ their custom schema version while the DAST format remains v3.
 - The uncompressed, self-contained v3 header stores a count followed by
   `(SchemaGuid, Version)` entries. A schema GUID occupies 128 bits and a version
   is an unsigned 32-bit integer.
-- Entries are sorted by GUID bytes and contain no friendly name. Names and
-  current policy come from the registered descriptor; an unknown GUID remains
-  diagnosable by its exact value.
+- Entries are sorted by the numeric `(A, B, C, D)` tuple of `FGuid` and contain
+  no friendly name. Names and current policy come from the registered
+  descriptor; an unknown GUID remains diagnosable by its exact value.
 - Version `0` is reserved for `BeforeCustomVersionWasAdded` and is never
   serialized as an entry. A missing entry, including every v2 package, queries
   as version `0`.
-- Duplicate GUIDs, serialized zero versions, excessive entry counts,
+- At most 256 entries may be serialized. Duplicate GUIDs, serialized zero
+  versions, excessive entry counts,
   truncation, and non-canonical ordering are corrupt input.
 - The table is package-wide. A save records only schemas declared by at least
   one serialized object and records the registered latest version after every
   participating object has passed current-schema validation.
-- Header-only registry discovery remains bounded. Exact count and byte limits
-  are frozen in Stage 0 and enforced before allocation.
+- Header-only registry discovery remains bounded and validates the complete
+  version table before reaching the body.
 
 ### Schema ownership and granularity
 
@@ -229,38 +261,238 @@ their custom schema version while the DAST format remains v3.
 - Current content is rewritten once after v3 and the custom migration framework
   pass compatibility validation. Purpose-built v2 fixtures remain v2.
 
+## Frozen DAST V3 Wire Contract
+
+This section is the Stage 0 design authority for bytes that are not emitted
+yet. Stage 2 promotes the implemented form into
+`Documentation/Runtime/Assets/AssetPackages.md`. Until then, runtime
+documentation and code continue to identify DAST v2 as current.
+
+### Primitive encoding
+
+- Every integer is unsigned and little-endian unless a payload type explicitly
+  defines a signed interpretation.
+- `u8`, `u32`, and `u64` occupy exactly 1, 4, and 8 bytes.
+- `String64` is `u64 ByteCount` followed by exact UTF-8 bytes without a
+  terminator. It is used by authored or diagnostic strings retained from v2.
+- `SchemaString32` is `u32 ByteCount` followed by exact UTF-8 bytes without a
+  terminator. It is used only inside the v3 schema-symbol table.
+- `Guid128` is `u32 A`, `u32 B`, `u32 C`, `u32 D`, matching `FGuid` members in
+  that order. Canonical comparison uses the numeric tuple, not host-memory byte
+  comparison.
+- No metadata structure relies on native padding, `sizeof` a compound C++
+  structure, host endianness, pointer width, or hash iteration order.
+
+### Header
+
+The body begins immediately after `BodyByteCount`.
+
+| Field | Encoding | Constraint |
+| --- | --- | --- |
+| Magic | `u32` | `0x54534144`, bytes `44 41 53 54` (`DAST`) |
+| FormatVersion | `u32` | Exactly `3` |
+| MainAssetClass | `String64` | Non-empty, at most 1 MiB |
+| DependencyCount | `u64` | At most 100,000 |
+| Dependencies | `DependencyCount * String64` | Valid canonical asset paths, each at most 1 MiB |
+| ObjectCount | `u64` | 1 through 1,000,000 |
+| CustomVersionCount | `u32` | 0 through 256 |
+| CustomVersions | repeated `Guid128, u32 Version` | Valid nonzero GUID and version, strictly increasing GUID tuples |
+| BodyByteCount | `u64` | At most 1 GiB and exactly the remaining file bytes |
+
+The registry header reader consumes through `BodyByteCount`, validates every
+header declaration and the physical remaining byte count, then stops. It never
+reads the schema-symbol table or an object payload.
+
+### Body schema-symbol table
+
+The body begins with:
+
+```text
+u32 SchemaSymbolCount
+repeat SchemaSymbolCount:
+    SchemaString32 Symbol
+```
+
+The table contains at most 1,048,576 entries, at most 64 MiB of aggregate UTF-8
+symbol bytes, and at most 1 MiB per symbol. Entries are unique and strictly
+increasing by bytewise UTF-8 value. Indices are zero-based `u32`; `0xffffffff`
+is invalid rather than a null sentinel. An empty symbol is encoded as a normal
+zero-length entry only where the owning logical field permits an empty
+identity. Records may not use an index whose logical kind forbids empty text.
+
+The logical symbol input is the union of class names, struct names, declaring
+type names, property names, and canonical type signatures used anywhere in the
+object graph, including nested structs. Collection deduplicates before sorting.
+Object names, asset paths, authored strings, source paths, and object-reference
+paths are not schema symbols.
+
+### Object and field records
+
+After the symbol table, exactly `ObjectCount` records follow:
+
+```text
+u64 ObjectId
+u64 OuterId
+u32 ClassSymbol
+String64 ObjectName
+u32 FieldCount
+repeat FieldCount:
+    u32 DeclaringClassSymbol
+    u32 NameSymbol
+    u8  PropertyKind
+    u32 TypeSignatureSymbol
+    u64 PayloadByteCount
+    byte[PayloadByteCount] Payload
+```
+
+Object IDs retain the v2 graph rules. `FieldCount` is at most 100,000 per
+object. A field payload is at most 512 MiB and must fit completely within the
+declared body. After the final object, no trailing bytes are permitted.
+
+Scalar and ordinary container payloads preserve their logical v2
+representations. A reflected struct payload replaces inline schema strings
+with package-symbol indices:
+
+```text
+u32 StructTypeSymbol
+u32 FieldCount
+repeat FieldCount:
+    u32 DeclaringStructSymbol
+    u32 NameSymbol
+    u8  PropertyKind
+    u32 TypeSignatureSymbol
+    u64 PayloadByteCount
+    byte[PayloadByteCount] Payload
+```
+
+Struct `FieldCount` is at most 100,000. Arrays and maps retain their `u64`
+element count with the existing 10,000,000-element bound. Object-reference
+payloads remain `u8 Kind`, followed by no data for null, `u64 ObjectId` for an
+internal reference, or `String64 AssetPath` for an external reference.
+
+### Frozen schema identities
+
+| Diagnostic name | Stable GUID | Stage 0 role |
+| --- | --- | --- |
+| `Engine.TextureSourceProvenance` | `a934d5bc-9d16-409d-ae2e-22147f5344b9` | Production Texture2D/TextureCube `0 -> 1` migration |
+| `Tests.AssetSchema.Alpha` | `59cd03b5-cb70-4fb4-a251-6c54428a5126` | Ordered-chain and canonical-table tests |
+| `Tests.AssetSchema.Beta` | `5b1d8d74-2cf6-42bb-8ca9-efb95bf33914` | Multiple-domain and inheritance tests |
+
+These identities never change after this stage. Renaming a diagnostic label
+does not change its GUID. Production code must not register either `Tests.*`
+identity.
+
+### Error classification
+
+| Input condition | Result |
+| --- | --- |
+| Wrong magic, truncation, overflow, excessive count/size, invalid UTF-8 policy, duplicate/non-canonical table, zero custom version, invalid symbol index, payload overrun, or trailing bytes | `CorruptFile` |
+| DAST format other than a supported v2 or v3 | `UnsupportedVersion` |
+| Unknown custom schema GUID or stored version newer than registered latest | Audit `BlockedUnsupported`; materialization returns `UnsupportedProperty` |
+| Stored version below the registered minimum, or a missing `N -> N+1` edge | Audit `BlockedUnsupported`; materialization returns `UnsupportedProperty` with schema and version diagnostics |
+| Recognized migration requiring ambiguous inference, external recovery, or removal | Risky upgrade with package-scoped consent; never an ordinary cook migration |
+
+Readers validate additions and products before allocation or iterator
+advancement. A corrupt or unsupported package is not inserted into the
+registry, loaded-package cache, or partially published object graph.
+
+### Golden vectors
+
+Hex vectors use the primitive encodings above. Whitespace is not significant.
+The first complete vector is a 144-byte package with no custom versions, one
+class symbol, and one empty-field object named `Golden`:
+
+```text
+44 41 53 54 03 00 00 00 1b 00 00 00 00 00 00 00
+54 65 73 74 73 3a 3a 44 50 61 63 6b 61 67 65 41
+73 73 65 74 46 6f 72 54 65 73 74 00 00 00 00 00
+00 00 00 01 00 00 00 00 00 00 00 00 00 00 00 49
+00 00 00 00 00 00 00 01 00 00 00 1b 00 00 00 54
+65 73 74 73 3a 3a 44 50 61 63 6b 61 67 65 41 73
+73 65 74 46 6f 72 54 65 73 74 01 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 06 00
+00 00 00 00 00 00 47 6f 6c 64 65 6e 00 00 00 00
+```
+
+The canonical three-entry version table fragment is Alpha version 2, Beta
+version 7, then TextureSourceProvenance version 1:
+
+```text
+03 00 00 00
+b5 03 cd 59 b4 4f 70 cb 54 6c 51 a2 26 51 8a 42 02 00 00 00
+74 8d 1d 5b bb 42 f6 2c b9 ef a9 8c 14 39 f3 5b 07 00 00 00
+bc d5 34 a9 9d 40 16 9d 14 22 2e ae b9 44 53 7f 01 00 00 00
+```
+
+Deduplicating logical inputs `Tests::DGoldenStruct`,
+`Tests::DPackageAssetForTest`, `Value`, `int32`, and repeated copies produces
+this symbol-table fragment:
+
+```text
+04 00 00 00
+14 00 00 00 54 65 73 74 73 3a 3a 44 47 6f 6c 64 65 6e 53 74 72 75 63 74
+1b 00 00 00 54 65 73 74 73 3a 3a 44 50 61 63 6b 61 67 65 41 73 73 65
+74 46 6f 72 54 65 73 74
+05 00 00 00 56 61 6c 75 65
+05 00 00 00 69 6e 74 33 32
+```
+
+With those indices, a `Tests::DGoldenStruct` containing one `int32 Value = 42`
+has this 33-byte struct payload:
+
+```text
+00 00 00 00 01 00 00 00 00 00 00 00 02 00 00 00
+04 03 00 00 00 04 00 00 00 00 00 00 00 2a 00 00 00
+```
+
+An external object reference to `/Game/Dependency` is:
+
+```text
+02 10 00 00 00 00 00 00 00
+2f 47 61 6d 65 2f 44 65 70 65 6e 64 65 6e 63 79
+```
+
+Malformed custom-version fixtures are derived deterministically:
+
+- count 257 begins `01 01 00 00` and fails before entry allocation;
+- replacing Alpha's version with `00 00 00 00` is a serialized-zero failure;
+- repeating Alpha twice is a duplicate failure;
+- ordering Beta before Alpha is a non-canonical-order failure; and
+- truncating any 20-byte entry is a truncation failure.
+
 ## Current Foundations and Gaps
 
 | Area | Current foundation | Gap |
 | --- | --- | --- |
-| Package envelope | Field-tagged DAST body and bounded header reader | Version was numerically advanced without a real v3 layout |
+| Package envelope | Truthful v2 writer, field-tagged body, and bounded header reader | No dual-version dispatch or implemented v3 layout |
 | Compatibility | Retained legacy payloads, risk classification, save refusal | No durable custom schema version or migration chain |
 | Inspection | All-object snapshots without object construction | Inspection and apply contributors are separately registered |
 | Execution | Fingerprinted fresh load, audit parity, atomic save | Migration selection depends mainly on legacy field shape |
 | Reflection | Class-owned structure upgraders | One effective upgrader per class; no composable schema domains |
 | Object metadata | Exact class/property/type identities | Schema strings and 8-byte lengths repeat inline |
 | Registry | Package format and dependencies from bounded headers | No custom-version metadata in v2 |
-| Texture migration | Legacy strings retired; canonical provenance migration exists | Global DAST version is carrying a texture-only semantic change |
+| Texture migration | Legacy strings retired; canonical provenance migration exists without a false DAST promotion | No durable texture schema version carrier |
 | Cook | Asset-specific validation and deterministic publication | No shared strict-current authored-schema preflight |
 
 ## Implementation Stages
 
 ### Stage 0: Freeze The V3 And Migration Contracts
 
-Dependencies: baseline `a147fe24`.
+Dependencies: baseline `b45cd3b0`.
 
-- [ ] Restore the active writer and runtime documentation to DAST v2 until the
+- [x] Restore the active writer and runtime documentation to DAST v2 until the
   real v3 reader and writer are delivered together.
-- [ ] Assign and record stable GUIDs and names for test schemas and
+- [x] Assign and record stable GUIDs and names for test schemas and
   `Engine.TextureSourceProvenance`.
-- [ ] Freeze the byte-level v3 header, custom-version table, schema-symbol
-  table, object record, field record, and nested-struct layouts in the owning
-  runtime documentation.
-- [ ] Select maximum custom-version count, symbol counts and bytes, field and
+- [x] Freeze the byte-level v3 header, custom-version table, schema-symbol
+  table, object record, field record, and nested-struct layouts in this active
+  plan; promote them to the owning runtime documentation after Stage 2
+  implements the contract.
+- [x] Select maximum custom-version count, symbol counts and bytes, field and
   object counts, payload sizes, and every overflow/error classification.
-- [ ] Freeze descriptor registration, class schema declaration, migration-step
+- [x] Freeze descriptor registration, class schema declaration, migration-step
   ordering, missing-version, unknown/newer-version, and minimum-readable rules.
-- [ ] Add golden byte vectors for an empty version table, multiple
+- [x] Add golden byte vectors for an empty version table, multiple
   deterministically ordered schemas, repeated symbols, nested structs, an
   external reference, and each malformed table case.
 

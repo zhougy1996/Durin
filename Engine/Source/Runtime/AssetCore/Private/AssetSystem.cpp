@@ -18,8 +18,7 @@ namespace Durin::Asset
 		thread_local FAssetLoadReport* GActiveAssetLoadReport = nullptr;
 
 		constexpr uint32 AssetMagic = 0x54534144; // DAST
-		constexpr uint32 MinimumReadableAssetVersion = 2;
-		constexpr uint32 AssetVersion = 3;
+		constexpr uint32 AssetVersion = 2;
 		constexpr uint64 MaximumPackageStringBytes = 1024 * 1024;
 
 		struct FByteWriter
@@ -621,7 +620,7 @@ namespace Durin::Asset
 			uint32 Magic = 0, Version = 0;
 			if (!Reader.Read(Magic) || !Reader.Read(Version)) return Error(EAssetError::CorruptFile, "Truncated asset header.");
 			if (Magic != AssetMagic) return Error(EAssetError::CorruptFile, "Invalid asset magic.");
-			if (Version < MinimumReadableAssetVersion || Version > AssetVersion)
+			if (Version != AssetVersion)
 				return Error(EAssetError::UnsupportedVersion, std::format("Unsupported asset version {}.", Version));
 			OutFile.FormatVersion = Version;
 			if (!Reader.ReadString(OutFile.AssetClassName, MaximumPackageStringBytes)) return Error(EAssetError::CorruptFile, "Invalid asset header strings.");
@@ -771,8 +770,7 @@ namespace Durin::Asset
 					Entry.Dependencies.push_back(std::move(Dependency));
 				}
 				if (!Reader.ReadU64(Entry.FileSize) || !Reader.ReadI64(Entry.LastWriteTimeTicks)
-					|| Entry.FormatVersion < MinimumReadableAssetVersion
-					|| Entry.FormatVersion > AssetVersion
+					|| Entry.FormatVersion != AssetVersion
 					|| !std::ranges::binary_search(ExpectedMounts, Entry.MountRoot)
 					|| std::filesystem::path(Entry.RelativePath).is_absolute()
 					|| std::filesystem::path(Entry.RelativePath).extension() != ".dasset"
