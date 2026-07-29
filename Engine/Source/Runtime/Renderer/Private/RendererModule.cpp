@@ -1801,7 +1801,6 @@ namespace Durin
 
 	auto FRendererModule::StartupModule() -> void
 	{
-		bAcceptingSceneCreation = true;
 		if (GDynamicRHI != nullptr)
 		{
 			ENQUEUE_RENDER_COMMAND(InitializeDefaultTextures)(
@@ -1844,25 +1843,13 @@ namespace Durin
 
 	auto FRendererModule::ShutdownModule() -> void
 	{
-		StopAcceptingSceneCreation();
 		ReleaseRendererResources();
 	}
 
 	auto FRendererModule::CreateScene() -> std::unique_ptr<IScene>
 	{
-		if (!bAcceptingSceneCreation)
-		{
-			DURIN_WARN("Renderer scene creation rejected after renderer quiescence.");
-			return nullptr;
-		}
+		check(IsInGameThread());
 		return std::make_unique<FScene>();
-	}
-
-	auto FRendererModule::StopAcceptingSceneCreation() -> void
-	{
-		if (!bAcceptingSceneCreation) return;
-		bAcceptingSceneCreation = false;
-		DURIN_DEBUG("Renderer stopped accepting scene creation.");
 	}
 
 	auto FRendererModule::RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void
