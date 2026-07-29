@@ -93,6 +93,10 @@ class TestBuildRegistry:
         with pytest.raises(build_operations.BuildToolError, match='does not accept'):
             CommandRequest(Action.STATUS, options=BuildActionOptions())
 
+    def test_omitted_status_context_options_remain_empty(self) -> None:
+        request = handler.request_from_namespace(self.parse(['status']))
+        assert request.context == RequestContext()
+
     def test_build_commands_are_case_insensitive_and_keep_slash_aliases(self) -> None:
         canonical = vars(self.parse(['build', '--target', 'Core']))
         assert canonical == vars(self.parse(['BUILD', '--target', 'Core']))

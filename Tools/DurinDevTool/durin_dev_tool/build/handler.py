@@ -27,7 +27,8 @@ def namespace_value(
     name: str,
     default: object,
 ) -> object:
-    return getattr(namespace, name, default)
+    value = getattr(namespace, name, default)
+    return default if value is None else value
 
 
 def request_from_namespace(namespace: argparse.Namespace) -> CommandRequest:
