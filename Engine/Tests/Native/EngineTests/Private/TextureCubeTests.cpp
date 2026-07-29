@@ -66,6 +66,13 @@ namespace
 		}
 		return Root;
 	}
+
+	auto RestartAssetManager() -> void
+	{
+		Durin::Asset::ShutdownAssetManager();
+		Durin::CollectGarbage();
+		Durin::Asset::FAssetManager::Get().Initialize();
+	}
 }
 
 TEST(FTextureCubeTests, RetiredSourceStringsAreNotReflected)
@@ -586,7 +593,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	Durin::FAssetPath AuthoredPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/CookedCube", AuthoredPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AuthoredPath));
-	Durin::Asset::ShutdownAssetManager();
+	RestartAssetManager();
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, FirstRoot}));
 	Durin::PathUtilities::RegisterMountPoint(
@@ -608,6 +615,6 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 		EXPECT_EQ(Cooked->GetPlatformData()->Faces[FaceIndex].Mips[0].Pixels,
 			Expected.Faces[FaceIndex].Mips[0].Pixels);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(CookedPath));
-	Durin::Asset::ShutdownAssetManager();
+	RestartAssetManager();
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({}));
 }

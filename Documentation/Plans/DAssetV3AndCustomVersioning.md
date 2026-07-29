@@ -568,14 +568,12 @@ Dependencies: Stage 0.
   merge only when their class and handler match.
 - Open questions: none for Stage 2. Stage 2 must populate the new report fields
   from v3 headers and use the same plans during audit and materialization.
-- Validation: all 33 focused AssetPackageTests passed. The TextureTests target
-  and all Engine texture registrations compiled; 68 of 69 tests passed. The
-  remaining out-of-scope
-  `FTextureCubeTests.CookIsDeterministicAndRuntimeLoadsWithoutSources` failure
-  reproduces alone because that test calls `ShutdownAssetManager` and then
-  attempts a load without reopening request admission. Repository-wide plan
-  validation was attempted but is independently blocked by the invalid
-  `Completed` field in `RecoverableRendererResourceCreation.md`.
+- Validation: all 33 focused AssetPackageTests passed. All 69 TextureTests
+  passed after the cooked TextureCube lifecycle test adopted the required
+  `Shutdown -> garbage collection -> Initialize` restart sequence before
+  changing package-load context. Repository-wide plan validation was attempted
+  but is independently blocked by the invalid `Completed` field in
+  `RecoverableRendererResourceCreation.md`.
 
 ### Stage 2: Implement Dual-Version Reading And Deterministic V3 Writing
 
