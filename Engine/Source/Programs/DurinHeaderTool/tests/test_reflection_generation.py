@@ -30,13 +30,18 @@ from durin_header_tool.model.reflection_manifest import ModuleManifest, save_mod
 from durin_header_tool.model.reflection_info import (
     ReflectedEnumInfo,
     ReflectedEnumValueInfo,
-    _parse_translation_unit,
-    _scan_generated_body_line,
-    make_dht_parse_source,
     make_generated_enum_helper_name,
     make_generated_helper_name,
 )
-from durin_header_tool.parser.reflection_parser import parse_reflection_header
+from durin_header_tool.parser.reflection_parser import (
+    _make_property_from_spelling,
+    _make_property_from_type,
+    _parse_translation_unit,
+    _scan_generated_body_line,
+    make_dht_parse_source,
+    parse_reflection_header,
+)
+from durin_header_tool.parser import reflection_parser
 from durin_header_tool.resolver.reflection_resolver import (
     load_available_symbols,
     resolved_symbol_dependencies_for_header,
@@ -267,6 +272,116 @@ namespace Fixture
         with pytest.raises(ValueError):
             make_generated_helper_name("Durin::Gameplay_AActor")
 
+    def test_ambiguous_source_property_symbols_are_not_selected_by_insertion_order(self):
+        symbols = {
+            "Beta::FData": ExportedSymbolInfo(
+                Kind="struct",
+                ShortName="FData",
+                Namespace="Beta",
+                QualifiedName="Beta::FData",
+                GeneratedHelperName="Z_Construct_DStruct_Beta_FData",
+                Header="Beta.h",
+                API="BETA_API",
+            ),
+            "Alpha::FData": ExportedSymbolInfo(
+                Kind="struct",
+                ShortName="FData",
+                Namespace="Alpha",
+                QualifiedName="Alpha::FData",
+                GeneratedHelperName="Z_Construct_DStruct_Alpha_FData",
+                Header="Alpha.h",
+                API="ALPHA_API",
+            ),
+            "Beta::EMode": ExportedSymbolInfo(
+                Kind="enum",
+                ShortName="EMode",
+                Namespace="Beta",
+                QualifiedName="Beta::EMode",
+                GeneratedHelperName="Z_Construct_DEnum_Beta_EMode",
+                Header="Beta.h",
+                API="BETA_API",
+                UnderlyingSize=4,
+            ),
+            "Alpha::EMode": ExportedSymbolInfo(
+                Kind="enum",
+                ShortName="EMode",
+                Namespace="Alpha",
+                QualifiedName="Alpha::EMode",
+                GeneratedHelperName="Z_Construct_DEnum_Alpha_EMode",
+                Header="Alpha.h",
+                API="ALPHA_API",
+                UnderlyingSize=4,
+            ),
+        }
+
+        assert _make_property_from_spelling("Data", "FData", symbols) is None
+        assert _make_property_from_spelling("Mode", "EMode", symbols) is None
+        assert (
+            _make_property_from_spelling("Data", "Alpha::FData", symbols).referenced_struct_type
+            == "Alpha::FData"
+        )
+        assert (
+            _make_property_from_spelling("Mode", "Alpha::EMode", symbols).referenced_enum_type
+            == "Alpha::EMode"
+        )
+
+    def test_ast_and_source_properties_share_qualified_symbol_policy(self):
+        struct_symbol = ExportedSymbolInfo(
+            Kind="struct",
+            ShortName="FData",
+            Namespace="Alpha",
+            QualifiedName="Alpha::FData",
+            GeneratedHelperName="Z_Construct_DStruct_Alpha_FData",
+            Header="Alpha.h",
+            API="ALPHA_API",
+        )
+        enum_symbol = ExportedSymbolInfo(
+            Kind="enum",
+            ShortName="EMode",
+            Namespace="Alpha",
+            QualifiedName="Alpha::EMode",
+            GeneratedHelperName="Z_Construct_DEnum_Alpha_EMode",
+            Header="Alpha.h",
+            API="ALPHA_API",
+            UnderlyingSize=4,
+        )
+        symbols = {
+            struct_symbol.QualifiedName: struct_symbol,
+            enum_symbol.QualifiedName: enum_symbol,
+        }
+
+        struct_type = mock.Mock()
+        struct_type.spelling = "FData"
+        struct_type.get_canonical.return_value.spelling = "Alpha::FData"
+        struct_type.get_declaration.return_value.kind = clang.cindex.CursorKind.STRUCT_DECL
+        struct_type.get_size.return_value = 16
+        ast_struct = _make_property_from_type("Data", struct_type, symbols)
+        source_struct = _make_property_from_spelling("Data", "Alpha::FData", symbols)
+
+        enum_type = mock.Mock()
+        enum_type.spelling = "EMode"
+        enum_type.get_canonical.return_value.spelling = "EMode"
+        enum_declaration = enum_type.get_declaration.return_value
+        enum_declaration.kind = clang.cindex.CursorKind.ENUM_DECL
+        enum_declaration.spelling = "EMode"
+        enum_type.get_size.return_value = 4
+        with mock.patch.object(
+            reflection_parser,
+            "_qualified_name",
+            return_value="Alpha::EMode",
+        ):
+            ast_enum = _make_property_from_type("Mode", enum_type, symbols)
+        source_enum = _make_property_from_spelling("Mode", "Alpha::EMode", symbols)
+
+        assert (ast_struct.kind, ast_struct.referenced_struct_type) == (
+            source_struct.kind,
+            source_struct.referenced_struct_type,
+        )
+        assert (ast_enum.kind, ast_enum.referenced_enum_type) == (
+            source_enum.kind,
+            source_enum.referenced_enum_type,
+        )
+
     def test_generated_types_use_module_cpp_package(self):
         assert '"/Cpp/Fixture",' in self.generated_cpp
 
@@ -414,10 +529,10 @@ const char* Text = "DMETA(Unknown = \\"string\\")";
         index = mock.Mock()
         index.parse.return_value = mock.sentinel.translation_unit
         with (
-            mock.patch("durin_header_tool.model.reflection_info._init_clang"),
+            mock.patch("durin_header_tool.parser.reflection_parser._init_clang"),
             mock.patch.object(clang.cindex.Index, "create", return_value=index),
-            mock.patch("durin_header_tool.model.reflection_info._clang_args", return_value=[]),
-            mock.patch("durin_header_tool.model.reflection_info._fake_generated_headers", return_value=[]),
+            mock.patch("durin_header_tool.parser.reflection_parser._clang_args", return_value=[]),
+            mock.patch("durin_header_tool.parser.reflection_parser._fake_generated_headers", return_value=[]),
         ):
             translation_unit, dmeta_uses = _parse_translation_unit(
                 "Fixture",
@@ -541,7 +656,7 @@ namespace Beta
             mock.patch.object(configs, "get_module_config", return_value=config),
             mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
             mock.patch.object(utils, "get_module_dht_output_dir", return_value=self.dht_output_dir),
-            mock.patch("durin_header_tool.model.reflection_info._make_property", return_value=None),
+            mock.patch("durin_header_tool.parser.reflection_parser._make_property", return_value=None),
         ):
             header_info = parse_reflection_header("Fixture", header)
 

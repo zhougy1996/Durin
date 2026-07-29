@@ -2,13 +2,15 @@ import logging
 
 from durin_header_tool import config as configs
 from durin_header_tool import io as utils
-from durin_header_tool.model.export_info import load_module_export_file
-from durin_header_tool.model.export_info import ExportedSymbolInfo
+from durin_header_tool.model.export_info import ExportedSymbolInfo, load_module_export_file
 from durin_header_tool.model.reflection_info import ReflectedHeaderInfo
 
 
-def load_available_symbols(module_name: str) -> dict[str, object]:
-    symbols: dict[str, object] = {}
+ExportedSymbols = dict[str, ExportedSymbolInfo]
+
+
+def load_available_symbols(module_name: str) -> ExportedSymbols:
+    symbols: ExportedSymbols = {}
     dep_modules = configs.collect_all_dependent_module_with_export_file(module_name)
     logging.debug("[DHT] Reflection %s: loading exports from %d modules", module_name, len(dep_modules))
     for dep_module in dep_modules:
@@ -34,7 +36,7 @@ def load_available_symbols(module_name: str) -> dict[str, object]:
     return symbols
 
 
-def resolve_header_symbols(header: ReflectedHeaderInfo, symbols: dict[str, object]) -> None:
+def resolve_header_symbols(header: ReflectedHeaderInfo, symbols: ExportedSymbols) -> None:
     for class_info in header.classes:
         class_info.base_qualified_name = _resolve_short_symbol(class_info.base_qualified_name, symbols)
         for prop in class_info.properties:
@@ -44,7 +46,7 @@ def resolve_header_symbols(header: ReflectedHeaderInfo, symbols: dict[str, objec
             _resolve_property_symbols(prop, symbols)
 
 
-def resolved_symbol_dependencies_for_header(header_info: ReflectedHeaderInfo, symbols: dict[str, object]) -> dict[str, dict[str, str]]:
+def resolved_symbol_dependencies_for_header(header_info: ReflectedHeaderInfo, symbols: ExportedSymbols) -> dict[str, dict[str, str]]:
     dependencies: dict[str, dict[str, str]] = {}
     for class_info in header_info.classes:
         if class_info.base_qualified_name in symbols:
@@ -57,7 +59,7 @@ def resolved_symbol_dependencies_for_header(header_info: ReflectedHeaderInfo, sy
     return dependencies
 
 
-def header_symbol_dependencies_changed(header: str, old_manifest, symbols: dict[str, object]) -> bool:
+def header_symbol_dependencies_changed(header: str, old_manifest, symbols: ExportedSymbols) -> bool:
     if header not in old_manifest.resolved_symbol_dependencies:
         return True
     for symbol_name, old_snapshot in old_manifest.resolved_symbol_dependencies[header].items():
@@ -69,25 +71,45 @@ def header_symbol_dependencies_changed(header: str, old_manifest, symbols: dict[
     return False
 
 
-def symbol_dependency_snapshot(symbol: object) -> dict[str, str]:
+def symbol_dependency_snapshot(symbol: ExportedSymbolInfo) -> dict[str, str]:
     return {
-        "GeneratedHelperName": getattr(symbol, "GeneratedHelperName", ""),
-        "API": getattr(symbol, "API", ""),
-        "BaseQualifiedName": getattr(symbol, "BaseQualifiedName", ""),
-        "Kind": getattr(symbol, "Kind", ""),
-        "UnderlyingKind": getattr(symbol, "UnderlyingKind", ""),
-        "UnderlyingType": getattr(symbol, "UnderlyingType", ""),
+        "GeneratedHelperName": symbol.GeneratedHelperName,
+        "API": symbol.API,
+        "BaseQualifiedName": symbol.BaseQualifiedName,
+        "Kind": symbol.Kind,
+        "UnderlyingKind": symbol.UnderlyingKind,
+        "UnderlyingType": symbol.UnderlyingType,
     }
 
 
-def _resolve_short_symbol(short_or_qualified_name: str, symbols: dict[str, object]) -> str:
+def resolve_symbol_name(
+    short_or_qualified_name: str,
+    symbols: ExportedSymbols,
+    *,
+    kinds: tuple[str, ...] = ("class", "enum", "struct"),
+) -> str | None:
+    if "::" in short_or_qualified_name:
+        symbol = symbols.get(short_or_qualified_name)
+        return (
+            short_or_qualified_name
+            if symbol is not None and symbol.Kind in kinds
+            else None
+        )
+    matches = [
+        qualified_name
+        for qualified_name, candidate in symbols.items()
+        if candidate.Kind in kinds and candidate.ShortName == short_or_qualified_name
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _resolve_short_symbol(short_or_qualified_name: str, symbols: ExportedSymbols) -> str:
     if not short_or_qualified_name or "::" in short_or_qualified_name:
         return short_or_qualified_name
-    matches = [qualified_name for qualified_name, symbol in symbols.items() if getattr(symbol, "ShortName", "") == short_or_qualified_name]
-    return matches[0] if len(matches) == 1 else short_or_qualified_name
+    return resolve_symbol_name(short_or_qualified_name, symbols) or short_or_qualified_name
 
 
-def _resolve_property_symbols(prop, symbols: dict[str, object]) -> None:
+def _resolve_property_symbols(prop, symbols: ExportedSymbols) -> None:
     prop.referenced_type = _resolve_short_symbol(prop.referenced_type, symbols)
     prop.referenced_enum_type = _resolve_short_symbol(prop.referenced_enum_type, symbols)
     prop.referenced_struct_type = _resolve_short_symbol(prop.referenced_struct_type, symbols)
@@ -99,7 +121,7 @@ def _resolve_property_symbols(prop, symbols: dict[str, object]) -> None:
         _resolve_property_symbols(prop.value, symbols)
 
 
-def _collect_property_dependencies(prop, symbols: dict[str, object], dependencies: dict[str, dict[str, str]]) -> None:
+def _collect_property_dependencies(prop, symbols: ExportedSymbols, dependencies: dict[str, dict[str, str]]) -> None:
     if prop.referenced_type in symbols:
         dependencies[prop.referenced_type] = symbol_dependency_snapshot(symbols[prop.referenced_type])
     if prop.referenced_enum_type in symbols:

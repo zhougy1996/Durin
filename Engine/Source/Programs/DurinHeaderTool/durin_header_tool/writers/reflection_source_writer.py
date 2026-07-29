@@ -1,11 +1,15 @@
+from durin_header_tool.model.export_info import ExportedSymbolInfo
 from durin_header_tool.model.reflection_info import (
     ReflectedClassInfo,
     ReflectedEnumInfo,
     ReflectedHeaderInfo,
     ReflectedPropertyInfo,
     ReflectedStructInfo,
-    _cpp_type_spelling,
 )
+from durin_header_tool.parser.reflection_parser import _cpp_type_spelling
+
+
+ExportedSymbols = dict[str, ExportedSymbolInfo]
 
 
 PROPERTY_PARAM_BY_KIND = {
@@ -122,7 +126,7 @@ def generate_header_content(header: ReflectedHeaderInfo) -> str:
     return "".join(builder)
 
 
-def generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object]) -> str:
+def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) -> str:
     builder: list[str] = [
         "// Generated code exported from DurinHeaderTool.\n\n",
         '#include "DObject/GeneratedCppIncludes.h"\n',
@@ -138,7 +142,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: dict[str, object]
         if class_info.base_qualified_name and class_info.base_qualified_name != class_info.qualified_name:
             symbol = symbols.get(class_info.base_qualified_name)
             if symbol:
-                referenced_class_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
+                referenced_class_helpers[symbol.GeneratedHelperName] = symbol.API
         for prop in class_info.properties:
             _collect_referenced_helpers(prop, symbols, referenced_class_helpers, referenced_enum_helpers, referenced_struct_helpers)
     for struct_info in header.structs:
@@ -428,7 +432,7 @@ def _enum_definitions(enum_info: ReflectedEnumInfo, package_path: str) -> str:
     return "".join(builder)
 
 
-def _struct_definitions(struct_info: ReflectedStructInfo, symbols: dict[str, object], package_path: str) -> str:
+def _struct_definitions(struct_info: ReflectedStructInfo, symbols: ExportedSymbols, package_path: str) -> str:
     builder: list[str] = []
     statics = struct_info.generated_statics_name
     properties = struct_info.properties
@@ -518,7 +522,7 @@ def _property_decls(prop: ReflectedPropertyInfo) -> list[str]:
     return decls
 
 
-def _property_definitions(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: dict[str, object], nested: bool = False) -> str:
+def _property_definitions(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: ExportedSymbols, nested: bool = False) -> str:
     content = []
     if prop.inner:
         content.append(_property_definitions(class_info, prop.inner, symbols, True))
@@ -530,7 +534,7 @@ def _property_definitions(class_info: ReflectedClassInfo, prop: ReflectedPropert
     return "".join(content)
 
 
-def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: dict[str, object], nested: bool) -> str:
+def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: ExportedSymbols, nested: bool) -> str:
     content = ""
     if prop.kind == "Array":
         content += _array_helper_definition(class_info, prop, symbols)
@@ -551,17 +555,17 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
     if prop.referenced_type:
         referenced_symbol = symbols.get(prop.referenced_type)
         if referenced_symbol:
-            referenced_class_helper = getattr(referenced_symbol, "GeneratedHelperName")
+            referenced_class_helper = referenced_symbol.GeneratedHelperName
     referenced_enum_helper = "nullptr"
     if prop.referenced_enum_type:
         referenced_symbol = symbols.get(prop.referenced_enum_type)
         if referenced_symbol:
-            referenced_enum_helper = getattr(referenced_symbol, "GeneratedHelperName")
+            referenced_enum_helper = referenced_symbol.GeneratedHelperName
     referenced_struct_helper = "nullptr"
     if prop.referenced_struct_type:
         referenced_symbol = symbols.get(prop.referenced_struct_type)
         if referenced_symbol:
-            referenced_struct_helper = getattr(referenced_symbol, "GeneratedHelperName")
+            referenced_struct_helper = referenced_symbol.GeneratedHelperName
     property_flags = prop.flags
     if property_flags == "None":
         property_flags = "Durin::EPropertyFlags::None"
@@ -587,7 +591,7 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
     return content
 
 
-def _array_helper_definition(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: dict[str, object]) -> str:
+def _array_helper_definition(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: ExportedSymbols) -> str:
     vector_type = _cpp_type_spelling(prop.type_name, symbols)
     statics = class_info.generated_statics_name
     name = f"NewProp_{prop.name}"
@@ -621,7 +625,7 @@ def _array_helper_definition(class_info: ReflectedClassInfo, prop: ReflectedProp
     )
 
 
-def _map_helper_definition(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: dict[str, object]) -> str:
+def _map_helper_definition(class_info: ReflectedClassInfo, prop: ReflectedPropertyInfo, symbols: ExportedSymbols) -> str:
     map_type = _cpp_type_spelling(prop.type_name, symbols)
     statics = class_info.generated_statics_name
     name = f"NewProp_{prop.name}"
@@ -705,7 +709,7 @@ def _map_helper_definition(class_info: ReflectedClassInfo, prop: ReflectedProper
 
 def _collect_referenced_helpers(
     prop: ReflectedPropertyInfo,
-    symbols: dict[str, object],
+    symbols: ExportedSymbols,
     referenced_class_helpers: dict[str, str],
     referenced_enum_helpers: dict[str, str],
     referenced_struct_helpers: dict[str, str],
@@ -713,15 +717,15 @@ def _collect_referenced_helpers(
     if prop.referenced_type:
         symbol = symbols.get(prop.referenced_type)
         if symbol:
-            referenced_class_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
+            referenced_class_helpers[symbol.GeneratedHelperName] = symbol.API
     if prop.referenced_enum_type:
         symbol = symbols.get(prop.referenced_enum_type)
         if symbol:
-            referenced_enum_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
+            referenced_enum_helpers[symbol.GeneratedHelperName] = symbol.API
     if prop.referenced_struct_type:
         symbol = symbols.get(prop.referenced_struct_type)
         if symbol:
-            referenced_struct_helpers[getattr(symbol, "GeneratedHelperName")] = getattr(symbol, "API")
+            referenced_struct_helpers[symbol.GeneratedHelperName] = symbol.API
     if prop.inner:
         _collect_referenced_helpers(prop.inner, symbols, referenced_class_helpers, referenced_enum_helpers, referenced_struct_helpers)
     if prop.key:

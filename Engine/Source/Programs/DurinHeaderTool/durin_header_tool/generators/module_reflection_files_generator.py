@@ -19,6 +19,7 @@ from durin_header_tool.model.reflection_info import (
     SYMBOL_NAME_SCHEME,
     TOOL_VERSION,
 )
+from durin_header_tool.model.export_info import ExportedSymbolInfo
 from durin_header_tool.parser.reflection_parser import parse_reflection_header
 from durin_header_tool.resolver.reflection_resolver import (
     header_symbol_dependencies_changed,
@@ -64,7 +65,7 @@ def get_reflection_headers_requiring_regeneration(
     module_name: str,
     old_manifest: ModuleManifest,
     new_manifest: ModuleManifest,
-    symbols: dict[str, object] | None = None,
+    symbols: dict[str, ExportedSymbolInfo] | None = None,
 ) -> list[str]:
     if old_manifest is None:
         return list(new_manifest.reflect_headers.keys())
@@ -136,7 +137,7 @@ def _cleanup_stale_generated_outputs(module_name: str, output_names: list[str]) 
     )
 
 
-def _generate_reflection_output_impl(module_name: str, header: str, symbols: dict[str, object]) -> dict[str, object]:
+def _generate_reflection_output_impl(module_name: str, header: str, symbols: dict[str, ExportedSymbolInfo]) -> dict[str, object]:
     header_info = parse_reflection_header(module_name, header, exported_symbols=symbols)
     resolve_header_symbols(header_info, symbols)
     return {
@@ -184,7 +185,7 @@ def _write_reflection_output(module_name: str, result: dict[str, object], manife
 def _write_reflection_files(
     module_name: str,
     headers_to_regenerate: list[str],
-    symbols: dict[str, object],
+    symbols: dict[str, ExportedSymbolInfo],
     manifest: ModuleManifest,
     max_workers: int,
 ) -> tuple[int, int]:
