@@ -512,6 +512,20 @@ class TestCore:
         assert popen.call_args.kwargs['close_fds']
         assert popen.call_args.kwargs['stdout'] is build_process.subprocess.PIPE
 
+    def test_unavailable_command_log_prevents_child_launch(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        unavailable = Path(directory) / 'unavailable'
+        unavailable.write_text('not a directory', encoding='utf-8')
+        log_path = unavailable / 'command.log'
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        child = [os.sys.executable, '-c', "print('x' * 1_000_000)"]
+        with mock.patch.object(build_process, 'command_log_path', return_value=log_path), mock.patch.object(build_process.subprocess, 'Popen') as popen, pytest.raises(build_config.BuildToolError, match='Could not capture command output') as raised:
+            build_core.run_command(child, environment=os.environ, output=output)
+        popen.assert_not_called()
+        assert raised.value.log_path == log_path
+        assert str(log_path) in str(raised.value)
+        assert isinstance(raised.value.__cause__, OSError)
+
     def test_command_timeout_terminates_child_process_tree(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         process = mock.Mock()
         process.stdout = io.StringIO('compiler.cpp(7): error C1234: broken\n')

@@ -64,7 +64,6 @@ class CommandTranscript:
 
 def command_log_path(command: Sequence[str], root: Path = STATE_DIR) -> Path:
     log_directory = root / "logs"
-    log_directory.mkdir(parents=True, exist_ok=True)
     executable = state_file_component(Path(command[0]).stem or "command")
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     return log_directory / f"{timestamp}-{os.getpid()}-{executable}.log"
@@ -269,6 +268,17 @@ def run_command(
         popen_options["start_new_session"] = True
     process_job = WindowsProcessJob() if wait_for_descendants and os.name == "nt" else None
     try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log = log_path.open("w", encoding="utf-8", newline="")
+    except OSError as exc:
+        if process_job:
+            process_job.close()
+        raise BuildToolError(
+            f'Could not capture command output in "{log_path}": {exc}',
+            command=command_list,
+            log_path=log_path,
+        ) from exc
+    try:
         process = subprocess.Popen(
             command_list,
             cwd=REPO_ROOT,
@@ -283,33 +293,48 @@ def run_command(
             **popen_options,
         )
     except OSError as exc:
+        try:
+            log.close()
+        except OSError:
+            pass
         if process_job:
             process_job.close()
         raise BuildToolError(f'Could not start command "{command_list[0]}": {exc}', command=command_list) from exc
 
     def drain_output() -> None:
         try:
-            with log_path.open("w", encoding="utf-8", newline="") as log:
-                if process.stdout is None:
-                    return
-                with process.stdout:
-                    for line in process.stdout:
-                        log.write(line)
-                        transcript.add(line)
-                        if not output.compact:
-                            output.child_output(
-                                line,
-                                colorize_log_levels=colorize_log_levels,
-                                colorize_test_output=colorize_test_output,
-                            )
-        except OSError as exc:
-            reader_error.append(exc)
+            if process.stdout is None:
+                return
+            with process.stdout:
+                for line in process.stdout:
+                    if not reader_error:
+                        try:
+                            log.write(line)
+                        except OSError as exc:
+                            reader_error.append(exc)
+                    transcript.add(line)
+                    if not output.compact:
+                        output.child_output(
+                            line,
+                            colorize_log_levels=colorize_log_levels,
+                            colorize_test_output=colorize_test_output,
+                        )
+        finally:
+            try:
+                log.close()
+            except OSError as exc:
+                if not reader_error:
+                    reader_error.append(exc)
 
     if process_job:
         try:
             process_job.assign(process)
         except BuildToolError:
             terminate_process_tree(process)
+            try:
+                log.close()
+            except OSError:
+                pass
             process_job.close()
             raise
     reader = threading.Thread(target=drain_output, name="DurinDevToolOutputReader", daemon=True)
