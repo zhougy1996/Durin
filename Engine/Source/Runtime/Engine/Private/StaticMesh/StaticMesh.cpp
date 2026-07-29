@@ -251,13 +251,20 @@ namespace Durin
 
 			FStaticMeshPayloadData Payload;
 			std::string Error;
-			if (!DecodeStaticMeshPayload(Bytes, EStaticMeshTargetPlatform::Win64, Payload, Error)
-				|| !MakeStaticMeshRenderData(Payload, OutRenderData, Error)
-				|| !RestoreStaticMeshRuntimeMetadata(MaterialSlots, *OutRenderData, Error))
+			FPayloadDecodeResult DecodeResult =
+				DecodeStaticMeshPayload(Bytes, EStaticMeshTargetPlatform::Win64, Payload);
+			if (!DecodeResult)
 			{
-				OutStatus = Error.find("unsupported") != std::string::npos
+				OutStatus = DecodeResult.Code == EPayloadDecodeError::Incompatible
 					? EStaticMeshDerivedDataStatus::Incompatible
 					: EStaticMeshDerivedDataStatus::Corrupt;
+				OutMessage = std::move(DecodeResult.Message);
+				return false;
+			}
+			if (!MakeStaticMeshRenderData(Payload, OutRenderData, Error)
+				|| !RestoreStaticMeshRuntimeMetadata(MaterialSlots, *OutRenderData, Error))
+			{
+				OutStatus = EStaticMeshDerivedDataStatus::Corrupt;
 				OutMessage = std::move(Error);
 				return false;
 			}
@@ -1710,9 +1717,11 @@ namespace Durin
 
 		FStaticMeshPayloadData Payload;
 		std::unique_ptr<FStaticMeshRenderData> CandidateRenderData;
-		if (!DecodeStaticMeshPayload(
-			Bytes, EStaticMeshTargetPlatform::Win64, Payload, OutError)
-			|| !ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, OutError)
+		const FPayloadDecodeResult DecodeResult =
+			DecodeStaticMeshPayload(Bytes, EStaticMeshTargetPlatform::Win64, Payload);
+		if (!DecodeResult)
+			return FailCooked(DecodeResult.Message);
+		if (!ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, OutError)
 			|| !MakeStaticMeshRenderData(Payload, CandidateRenderData, OutError)
 			|| !RestoreStaticMeshRuntimeMetadata(MaterialSlots, *CandidateRenderData, OutError))
 		{

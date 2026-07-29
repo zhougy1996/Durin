@@ -581,16 +581,21 @@ namespace Durin
 		return true;
 	}
 
-	auto DecodeStaticMeshPayload(
+	auto DecodeStaticMeshPayloadImpl(
 		std::span<const uint8> Bytes,
 		EStaticMeshTargetPlatform ExpectedPlatform,
 		FStaticMeshPayloadData& OutPayload,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		EPayloadDecodeError& OutCode) -> bool
 	{
 		OutError.clear();
+		OutCode = EPayloadDecodeError::Corrupt;
 		if (Bytes.size() < StaticMeshPayloadHeaderSize) return Fail(OutError, "Static-mesh payload header is truncated.");
 		if (ExpectedPlatform != EStaticMeshTargetPlatform::Win64)
+		{
+			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail(OutError, "A concrete target platform is required to decode a static-mesh payload.");
+		}
 
 		uint32 Magic = 0;
 		uint32 SchemaVersion = 0;
@@ -612,8 +617,16 @@ namespace Durin
 			|| !ReadU64At(Bytes, 48, StoredSize) || !ReadU64At(Bytes, 56, StoredHash))
 			return Fail(OutError, "Static-mesh payload header is truncated.");
 		if (Magic != StaticMeshPayloadMagic) return Fail(OutError, "Static-mesh payload magic is invalid.");
-		if (SchemaVersion != StaticMeshPayloadSchemaVersion) return Fail(OutError, "Static-mesh payload schema version is unsupported.");
-		if (BuilderVersion != StaticMeshBuilderVersion) return Fail(OutError, "Static-mesh payload builder version is unsupported.");
+		if (SchemaVersion != StaticMeshPayloadSchemaVersion)
+		{
+			OutCode = EPayloadDecodeError::Incompatible;
+			return Fail(OutError, "Static-mesh payload schema version is unsupported.");
+		}
+		if (BuilderVersion != StaticMeshBuilderVersion)
+		{
+			OutCode = EPayloadDecodeError::Incompatible;
+			return Fail(OutError, "Static-mesh payload builder version is unsupported.");
+		}
 		if (Platform != static_cast<uint32>(ExpectedPlatform)) return Fail(OutError, "Static-mesh payload target platform does not match.");
 		if ((PayloadFlags & ~StaticMeshPayloadFlagCompressed) != 0 || HeaderSize != StaticMeshPayloadHeaderSize
 			|| Reserved != 0 || ChunkTableOffset != StaticMeshPayloadHeaderSize)
@@ -646,10 +659,16 @@ namespace Durin
 				|| !ReadU64At(Bytes, EntryOffset + 24, Chunk.UncompressedSize))
 				return Fail(OutError, "Static-mesh payload chunk table is truncated.");
 			if ((Chunk.Flags & ~StaticMeshChunkKnownFlags) != 0)
+			{
+				OutCode = EPayloadDecodeError::Incompatible;
 				return Fail(OutError, "Static-mesh payload chunk contains unsupported flags.");
+			}
 			const uint32 Compression = (Chunk.Flags & StaticMeshChunkCompressionMask) >> 8;
 			if (Compression > StaticMeshChunkCompressionZstandard)
+			{
+				OutCode = EPayloadDecodeError::Incompatible;
 				return Fail(OutError, "Static-mesh payload chunk uses an unsupported compression method.");
+			}
 			if (Chunk.Offset % StaticMeshPayloadAlignment != 0 || Chunk.Offset < PreviousEnd)
 				return Fail(OutError, "Static-mesh payload chunks are misaligned, unordered, or overlapping.");
 			if (Chunk.Offset > StoredSize || Chunk.StoredSize > StoredSize - Chunk.Offset)
@@ -681,6 +700,7 @@ namespace Durin
 			}
 			else if ((Chunk.Flags & StaticMeshChunkFlagRequired) != 0)
 			{
+				OutCode = EPayloadDecodeError::Incompatible;
 				return Fail(OutError, "Static-mesh payload contains an unknown required chunk.");
 			}
 		}
@@ -694,7 +714,10 @@ namespace Durin
 			if (Bytes[static_cast<size_t>(PaddingOffset)] != 0)
 				return Fail(OutError, "Static-mesh payload contains non-zero trailing padding.");
 		if (bHasCompressedChunk)
+		{
+			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail(OutError, "Compressed static-mesh chunks are not supported by this build.");
+		}
 
 		std::array<std::span<const uint8>, StaticMeshPayloadRequiredChunkCount> RequiredChunks;
 		for (uint32 Index = 0; Index < StaticMeshPayloadRequiredChunkCount; ++Index)
@@ -706,6 +729,18 @@ namespace Durin
 		if (!ReadPayloadChunks(RequiredChunks, Decoded, OutError)) return false;
 		OutPayload = std::move(Decoded);
 		return true;
+	}
+
+	auto DecodeStaticMeshPayload(
+		std::span<const uint8> Bytes,
+		EStaticMeshTargetPlatform ExpectedPlatform,
+		FStaticMeshPayloadData& OutPayload) -> FPayloadDecodeResult
+	{
+		FPayloadDecodeResult Result;
+		if (!DecodeStaticMeshPayloadImpl(
+			Bytes, ExpectedPlatform, OutPayload, Result.Message, Result.Code))
+			return Result;
+		return {};
 	}
 
 	auto MakeStaticMeshPayloadData(

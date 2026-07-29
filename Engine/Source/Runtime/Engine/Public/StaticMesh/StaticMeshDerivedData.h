@@ -2,6 +2,7 @@
 
 #include "EngineAPI.h"
 #include "Hash/XxHash.h"
+#include "PayloadDecodeResult.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 
@@ -114,8 +115,7 @@ namespace Durin
 	ENGINE_API auto DecodeStaticMeshPayload(
 		std::span<const uint8> Bytes,
 		EStaticMeshTargetPlatform ExpectedPlatform,
-		FStaticMeshPayloadData& OutPayload,
-		std::string& OutError) -> bool;
+		FStaticMeshPayloadData& OutPayload) -> FPayloadDecodeResult;
 
 	// Copies serializable CPU data from runtime render data into the explicit payload model.
 	ENGINE_API auto MakeStaticMeshPayloadData(

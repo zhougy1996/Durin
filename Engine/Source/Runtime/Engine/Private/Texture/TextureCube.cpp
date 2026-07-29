@@ -279,12 +279,14 @@ namespace Durin
 				OutMessage = Read.Message;
 				return false;
 			}
-			if (!DecodeTextureCubePayload(
+			FPayloadDecodeResult DecodeResult = DecodeTextureCubePayload(
 				Bytes, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
-				OutPlatformData, OutMessage))
+				OutPlatformData);
+			if (!DecodeResult)
 			{
-				OutStatus = OutMessage.find("unsupported") != std::string::npos
+				OutStatus = DecodeResult.Code == EPayloadDecodeError::Incompatible
 					? ETextureDerivedDataStatus::Incompatible : ETextureDerivedDataStatus::Corrupt;
+				OutMessage = std::move(DecodeResult.Message);
 				return false;
 			}
 			OutStatus = ETextureDerivedDataStatus::Hit;
@@ -421,15 +423,24 @@ namespace Durin
 #endif
 		}
 
+		enum class EPanoramaDecodeError
+		{
+			None,
+			Decode,
+			Build
+		};
+
 		auto DecodePanoramaInput(const std::filesystem::path& Input,
 			const FTextureCubePanoramaImportSettings& Settings, FTextureCubeSourceData& OutSourceData,
-			uint32& OutSourceWidth, uint32& OutSourceHeight, bool& bOutHDR, std::string& OutError) -> bool
+			uint32& OutSourceWidth, uint32& OutSourceHeight, bool& bOutHDR,
+			EPanoramaDecodeError& OutCode, std::string& OutError) -> bool
 		{
 #if DURIN_WITH_EDITOR
 			OutSourceData = {};
 			OutSourceWidth = 0;
 			OutSourceHeight = 0;
 			bOutHDR = false;
+			OutCode = EPanoramaDecodeError::Build;
 			if (!std::filesystem::is_regular_file(Input))
 			{
 				OutError = "Panorama source file does not exist.";
@@ -447,6 +458,7 @@ namespace Durin
 				Asset::FDecodedFloatImage Panorama;
 				if (!Asset::DecodeRadianceHDRFromFile(Input.generic_string(), Panorama, OutError))
 				{
+					OutCode = EPanoramaDecodeError::Decode;
 					OutError = std::format("Panorama HDR decode failed: {}", OutError);
 					return false;
 				}
@@ -458,6 +470,7 @@ namespace Durin
 					OutError = std::format("Panorama projection failed: {}", OutError);
 					return false;
 				}
+				OutCode = EPanoramaDecodeError::None;
 				return true;
 			}
 			if (!Asset::IsSupportedImageExtension(Extension))
@@ -471,6 +484,7 @@ namespace Durin
 			Limits.MaximumDecodedPixels = TextureBuild::MaximumPanoramaPixels;
 			if (!Asset::DecodeImageFromFile(Input.generic_string(), Panorama, OutError, Limits))
 			{
+				OutCode = EPanoramaDecodeError::Decode;
 				OutError = std::format("Panorama LDR decode failed: {}", OutError);
 				return false;
 			}
@@ -482,6 +496,7 @@ namespace Durin
 				OutError = std::format("Panorama projection failed: {}", OutError);
 				return false;
 			}
+			OutCode = EPanoramaDecodeError::None;
 			return true;
 #else
 			(void)Input;
@@ -490,6 +505,7 @@ namespace Durin
 			OutSourceWidth = 0;
 			OutSourceHeight = 0;
 			bOutHDR = false;
+			OutCode = EPanoramaDecodeError::Build;
 			OutError = "TextureCube panorama decoding and projection are unavailable in runtime-only builds.";
 			return false;
 #endif
@@ -500,7 +516,10 @@ namespace Durin
 			FTextureCubePlatformData& OutPlatformData, uint32& OutSourceWidth, uint32& OutSourceHeight,
 			bool& bOutHDR, std::string& OutError) -> bool
 		{
-			if (!DecodePanoramaInput(Input, Settings, OutSourceData, OutSourceWidth, OutSourceHeight, bOutHDR, OutError))
+			EPanoramaDecodeError DecodeCode = EPanoramaDecodeError::None;
+			if (!DecodePanoramaInput(
+				Input, Settings, OutSourceData, OutSourceWidth, OutSourceHeight,
+				bOutHDR, DecodeCode, OutError))
 				return false;
 			return BuildCubePlatformData(OutSourceData, true, OutPlatformData, OutError);
 		}
@@ -730,12 +749,14 @@ namespace Durin
 				return false;
 			}
 			bool bHDR = false;
+			EPanoramaDecodeError DecodeCode = EPanoramaDecodeError::None;
 			DerivedDataDiagnostic.bSourceDecoderInvoked = true;
 			if (!DecodePanoramaInput(SourcePath,
 				{.FaceDimension = PanoramaFaceDimension, .ExposureEV = PanoramaExposureEV},
-				*NewSourceData, OriginalSourceWidth, OriginalSourceHeight, bHDR, OutError))
+				*NewSourceData, OriginalSourceWidth, OriginalSourceHeight,
+				bHDR, DecodeCode, OutError))
 			{
-				BuildStatus = OutError.find("decode failed") != std::string::npos
+				BuildStatus = DecodeCode == EPanoramaDecodeError::Decode
 					? ETextureBuildStatus::DecodeFailure : ETextureBuildStatus::BuildFailure;
 				LastBuildError = OutError;
 				DerivedDataDiagnostic.Message = OutError;
@@ -870,10 +891,11 @@ namespace Durin
 		if (!Asset::ResolveCookedPayload(Container, CookedPayload, Bytes, &OutError))
 			return FailCooked(OutError);
 		std::unique_ptr<FTextureCubePlatformData> CandidatePlatformData;
-		if (!DecodeTextureCubePayload(
+		const FPayloadDecodeResult DecodeResult = DecodeTextureCubePayload(
 			Bytes, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
-			CandidatePlatformData, OutError))
-			return FailCooked(OutError);
+			CandidatePlatformData);
+		if (!DecodeResult)
+			return FailCooked(DecodeResult.Message);
 
 		SourceData.reset();
 		PlatformData = std::move(CandidatePlatformData);
@@ -913,10 +935,14 @@ namespace Durin
 		std::unique_ptr<FTextureCubePlatformData> ValidatedPlatformData;
 		const Asset::FDerivedDataObjectReadResult Read =
 			GetTextureCubeObjectStore().Read(ExpectedKey, PayloadBytes);
-		if (!Read
-			|| !DecodeTextureCubePayload(
+		const FPayloadDecodeResult DecodeResult = Read
+			? DecodeTextureCubePayload(
 				PayloadBytes, Asset::ECookTargetPlatform::Win64,
-				Asset::ECookTargetProfile::Game, ValidatedPlatformData, OutError))
+				Asset::ECookTargetProfile::Game, ValidatedPlatformData)
+			: FPayloadDecodeResult{
+				.Code = EPayloadDecodeError::Corrupt,
+				.Message = Read.Message};
+		if (!DecodeResult)
 		{
 			if (!PlatformData && !PostLoad(OutError))
 			{

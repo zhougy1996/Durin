@@ -275,16 +275,21 @@ namespace Durin
 		return true;
 	}
 
-	auto DecodeTexture2DPayload(
+	auto DecodeTexture2DPayloadImpl(
 		std::span<const uint8> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
 		std::unique_ptr<FTexturePlatformData>& OutPlatformData,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		EPayloadDecodeError& OutCode) -> bool
 	{
 		OutError.clear();
+		OutCode = EPayloadDecodeError::Corrupt;
 		if (!IsSupportedTarget(ExpectedPlatform, ExpectedProfile))
+		{
+			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail(OutError, "Texture payload expected target is unsupported.");
+		}
 		if (Bytes.size() < TexturePayloadHeaderSize)
 			return Fail(OutError, "Texture payload header is truncated.");
 
@@ -315,9 +320,15 @@ namespace Durin
 			return Fail(OutError, "Texture payload header is truncated.");
 		if (Magic != TexturePayloadMagic) return Fail(OutError, "Texture payload magic is invalid.");
 		if (SchemaVersion != TexturePayloadSchemaVersion)
+		{
+			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail(OutError, "Texture payload schema version is unsupported.");
+		}
 		if (BuilderVersion != Texture2DBuilderVersion)
+		{
+			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail(OutError, "Texture2D payload builder version is unsupported.");
+		}
 		if (Platform != static_cast<uint32>(ExpectedPlatform)
 			|| Profile != static_cast<uint32>(ExpectedProfile))
 			return Fail(OutError, "Texture payload target platform or profile does not match.");
@@ -334,7 +345,10 @@ namespace Durin
 
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 		if (!FromStablePixelFormat(StableFormat, PixelFormat))
+		{
+			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail(OutError, "Texture payload pixel format identifier is unsupported.");
+		}
 		const uint64 TableEnd = RecordTableOffset + static_cast<uint64>(RecordCount) * RecordSize;
 		if (TableEnd < RecordTableOffset || TableEnd > StoredSize)
 			return Fail(OutError, "Texture payload record table is outside the stored object.");
@@ -396,6 +410,19 @@ namespace Durin
 			return Fail(OutError, "Texture payload mip chain is incomplete or invalid.");
 		OutPlatformData = std::move(Candidate);
 		return true;
+	}
+
+	auto DecodeTexture2DPayload(
+		std::span<const uint8> Bytes,
+		Asset::ECookTargetPlatform ExpectedPlatform,
+		Asset::ECookTargetProfile ExpectedProfile,
+		std::unique_ptr<FTexturePlatformData>& OutPlatformData) -> FPayloadDecodeResult
+	{
+		FPayloadDecodeResult Result;
+		if (!DecodeTexture2DPayloadImpl(
+			Bytes, ExpectedPlatform, ExpectedProfile, OutPlatformData, Result.Message, Result.Code))
+			return Result;
+		return {};
 	}
 
 	auto EncodeTextureCubePayload(
@@ -489,16 +516,21 @@ namespace Durin
 		return true;
 	}
 
-	auto DecodeTextureCubePayload(
+	auto DecodeTextureCubePayloadImpl(
 		std::span<const uint8> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
 		std::unique_ptr<FTextureCubePlatformData>& OutPlatformData,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		EPayloadDecodeError& OutCode) -> bool
 	{
 		OutError.clear();
+		OutCode = EPayloadDecodeError::Corrupt;
 		if (!IsSupportedTarget(ExpectedPlatform, ExpectedProfile))
+		{
+			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail(OutError, "Texture payload expected target is unsupported.");
+		}
 		if (Bytes.size() < TexturePayloadHeaderSize)
 			return Fail(OutError, "Texture payload header is truncated.");
 
@@ -529,9 +561,15 @@ namespace Durin
 			return Fail(OutError, "Texture payload header is truncated.");
 		if (Magic != TexturePayloadMagic) return Fail(OutError, "Texture payload magic is invalid.");
 		if (SchemaVersion != TexturePayloadSchemaVersion)
+		{
+			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail(OutError, "Texture payload schema version is unsupported.");
+		}
 		if (BuilderVersion != TextureCubeBuilderVersion)
+		{
+			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail(OutError, "TextureCube payload builder version is unsupported.");
+		}
 		if (Platform != static_cast<uint32>(ExpectedPlatform)
 			|| Profile != static_cast<uint32>(ExpectedProfile))
 			return Fail(OutError, "Texture payload target platform or profile does not match.");
@@ -551,7 +589,10 @@ namespace Durin
 
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 		if (!FromStablePixelFormat(StableFormat, PixelFormat))
+		{
+			OutCode = EPayloadDecodeError::Incompatible;
 			return Fail(OutError, "Texture payload pixel format identifier is unsupported.");
+		}
 		const uint64 TableEnd =
 			RecordTableOffset + static_cast<uint64>(RecordCount) * RecordSize;
 		if (TableEnd < RecordTableOffset || TableEnd > StoredSize)
@@ -634,5 +675,18 @@ namespace Durin
 			return Fail(OutError, "TextureCube payload mip chains are incomplete or invalid.");
 		OutPlatformData = std::move(Candidate);
 		return true;
+	}
+
+	auto DecodeTextureCubePayload(
+		std::span<const uint8> Bytes,
+		Asset::ECookTargetPlatform ExpectedPlatform,
+		Asset::ECookTargetProfile ExpectedProfile,
+		std::unique_ptr<FTextureCubePlatformData>& OutPlatformData) -> FPayloadDecodeResult
+	{
+		FPayloadDecodeResult Result;
+		if (!DecodeTextureCubePayloadImpl(
+			Bytes, ExpectedPlatform, ExpectedProfile, OutPlatformData, Result.Message, Result.Code))
+			return Result;
+		return {};
 	}
 }

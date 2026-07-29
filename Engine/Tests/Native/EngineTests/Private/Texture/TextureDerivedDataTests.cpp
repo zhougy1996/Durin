@@ -120,9 +120,10 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 		ASSERT_GE(First.size(), Durin::TexturePayloadHeaderSize);
 
 		std::unique_ptr<Durin::FTexturePlatformData> Actual;
-		ASSERT_TRUE(Durin::DecodeTexture2DPayload(
+		const Durin::FPayloadDecodeResult DecodeResult = Durin::DecodeTexture2DPayload(
 			First, Durin::Asset::ECookTargetPlatform::Win64,
-			Durin::Asset::ECookTargetProfile::Game, Actual, Error)) << Error;
+			Durin::Asset::ECookTargetProfile::Game, Actual);
+		ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 		ASSERT_NE(Actual, nullptr);
 		ExpectPlatformDataEqual(*Actual, Expected);
 	}
@@ -141,23 +142,38 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 
 	auto WrongProfile = Bytes;
 	WriteU32(WrongProfile, 16, static_cast<Durin::uint32>(Durin::Asset::ECookTargetProfile::EditorValidation));
-	EXPECT_FALSE(Durin::DecodeTexture2DPayload(
+	Durin::FPayloadDecodeResult DecodeResult = Durin::DecodeTexture2DPayload(
 		WrongProfile, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Existing, Error));
+		Durin::Asset::ECookTargetProfile::Game, Existing);
+	EXPECT_FALSE(DecodeResult);
+	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Corrupt);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto Corrupt = Bytes;
 	Corrupt.back() ^= 0xff;
-	EXPECT_FALSE(Durin::DecodeTexture2DPayload(
+	DecodeResult = Durin::DecodeTexture2DPayload(
 		Corrupt, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Existing, Error));
+		Durin::Asset::ECookTargetProfile::Game, Existing);
+	EXPECT_FALSE(DecodeResult);
+	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Corrupt);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto WrongRange = Bytes;
 	WriteU32(WrongRange, Durin::TexturePayloadHeaderSize + 16, 1);
-	EXPECT_FALSE(Durin::DecodeTexture2DPayload(
+	DecodeResult = Durin::DecodeTexture2DPayload(
 		WrongRange, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Existing, Error));
+		Durin::Asset::ECookTargetProfile::Game, Existing);
+	EXPECT_FALSE(DecodeResult);
+	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Corrupt);
+	EXPECT_EQ(Existing.get(), ExistingAddress);
+
+	auto UnsupportedSchema = Bytes;
+	WriteU32(UnsupportedSchema, 4, Durin::TexturePayloadSchemaVersion + 1);
+	DecodeResult = Durin::DecodeTexture2DPayload(
+		UnsupportedSchema, Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, Existing);
+	EXPECT_FALSE(DecodeResult);
+	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Incompatible);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 }
 
@@ -225,9 +241,10 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	EXPECT_EQ(First, Second);
 
 	std::unique_ptr<Durin::FTextureCubePlatformData> Actual;
-	ASSERT_TRUE(Durin::DecodeTextureCubePayload(
+	Durin::FPayloadDecodeResult DecodeResult = Durin::DecodeTextureCubePayload(
 		First, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Actual, Error)) << Error;
+		Durin::Asset::ECookTargetProfile::Game, Actual);
+	ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 	ASSERT_NE(Actual, nullptr);
 	for (size_t FaceIndex = 0; FaceIndex < Expected.Faces.size(); ++FaceIndex)
 		ExpectPlatformDataEqual(Actual->Faces[FaceIndex], Expected.Faces[FaceIndex]);
@@ -235,8 +252,10 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	auto WrongOrder = First;
 	WriteU32(WrongOrder, Durin::TexturePayloadHeaderSize, 1);
 	Durin::FTextureCubePlatformData* Existing = Actual.get();
-	EXPECT_FALSE(Durin::DecodeTextureCubePayload(
+	DecodeResult = Durin::DecodeTextureCubePayload(
 		WrongOrder, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Actual, Error));
+		Durin::Asset::ECookTargetProfile::Game, Actual);
+	EXPECT_FALSE(DecodeResult);
+	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Corrupt);
 	EXPECT_EQ(Actual.get(), Existing);
 }

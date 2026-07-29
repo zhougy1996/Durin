@@ -207,12 +207,12 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	ASSERT_EQ(DecodedBulk.Payloads.size(), 1u);
 	EXPECT_EQ(DecodedBulk.Entries.front().PayloadId, Durin::Texture2DPrimaryCookedPayloadId);
 	std::unique_ptr<Durin::FTexturePlatformData> DecodedPlatformData;
-	ASSERT_TRUE(Durin::DecodeTexture2DPayload(
+	const Durin::FPayloadDecodeResult DecodeResult = Durin::DecodeTexture2DPayload(
 		DecodedBulk.Payloads.front(),
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game,
-		DecodedPlatformData,
-		Error)) << Error;
+		DecodedPlatformData);
+	ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 	ASSERT_NE(DecodedPlatformData, nullptr);
 	ExpectPlatformDataEqual(*DecodedPlatformData, ExpectedPlatformData);
 	ASSERT_EQ(DecodedPlatformData->Mips.back().Width, 1u);

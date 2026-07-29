@@ -3,6 +3,7 @@
 #include "CookedAsset.h"
 #include "EngineAPI.h"
 #include "Hash/XxHash.h"
+#include "PayloadDecodeResult.h"
 #include "Texture/Texture2D.h"
 
 namespace Durin
@@ -108,8 +109,7 @@ namespace Durin
 		std::span<const uint8> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		std::unique_ptr<FTexturePlatformData>& OutPlatformData,
-		std::string& OutError) -> bool;
+		std::unique_ptr<FTexturePlatformData>& OutPlatformData) -> FPayloadDecodeResult;
 
 	ENGINE_API auto EncodeTextureCubePayload(
 		const FTextureCubePlatformData& PlatformData,
@@ -122,6 +122,5 @@ namespace Durin
 		std::span<const uint8> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		std::unique_ptr<FTextureCubePlatformData>& OutPlatformData,
-		std::string& OutError) -> bool;
+		std::unique_ptr<FTextureCubePlatformData>& OutPlatformData) -> FPayloadDecodeResult;
 }

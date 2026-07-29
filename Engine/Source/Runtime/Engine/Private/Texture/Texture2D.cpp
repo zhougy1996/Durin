@@ -234,15 +234,15 @@ namespace Durin
 				OutMessage = Read.Message;
 				return false;
 			}
-			std::string Error;
-			if (!DecodeTexture2DPayload(
+			FPayloadDecodeResult DecodeResult = DecodeTexture2DPayload(
 				Bytes, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
-				OutPlatformData, Error))
+				OutPlatformData);
+			if (!DecodeResult)
 			{
-				OutStatus = Error.find("unsupported") != std::string::npos
+				OutStatus = DecodeResult.Code == EPayloadDecodeError::Incompatible
 					? ETextureDerivedDataStatus::Incompatible
 					: ETextureDerivedDataStatus::Corrupt;
-				OutMessage = std::move(Error);
+				OutMessage = std::move(DecodeResult.Message);
 				return false;
 			}
 			OutStatus = ETextureDerivedDataStatus::Hit;
@@ -1087,14 +1087,14 @@ namespace Durin
 			return FailCooked(OutError);
 
 		std::unique_ptr<FTexturePlatformData> CandidatePlatformData;
-		if (!DecodeTexture2DPayload(
+		const FPayloadDecodeResult DecodeResult = DecodeTexture2DPayload(
 			Bytes,
 			Asset::ECookTargetPlatform::Win64,
 			Asset::ECookTargetProfile::Game,
-			CandidatePlatformData,
-			OutError))
+			CandidatePlatformData);
+		if (!DecodeResult)
 		{
-			return FailCooked(OutError);
+			return FailCooked(DecodeResult.Message);
 		}
 
 		SourceData.reset();
@@ -1136,13 +1136,16 @@ namespace Durin
 		std::unique_ptr<FTexturePlatformData> ValidatedPlatformData;
 		const Asset::FDerivedDataObjectReadResult Read =
 			GetTextureObjectStore().Read(ExpectedKey, PayloadBytes);
-		if (!Read
-			|| !DecodeTexture2DPayload(
+		const FPayloadDecodeResult DecodeResult = Read
+			? DecodeTexture2DPayload(
 				PayloadBytes,
 				Asset::ECookTargetPlatform::Win64,
 				Asset::ECookTargetProfile::Game,
-				ValidatedPlatformData,
-				OutError))
+				ValidatedPlatformData)
+			: FPayloadDecodeResult{
+				.Code = EPayloadDecodeError::Corrupt,
+				.Message = Read.Message};
+		if (!DecodeResult)
 		{
 			if (!PlatformData && !PostLoad(OutError))
 			{

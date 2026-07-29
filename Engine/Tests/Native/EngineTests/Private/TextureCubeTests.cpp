@@ -571,9 +571,10 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	ASSERT_EQ(Container.Entries.size(), 1u);
 	EXPECT_EQ(Container.Entries[0].PayloadId, Durin::TextureCubePrimaryCookedPayloadId);
 	std::unique_ptr<Durin::FTextureCubePlatformData> Decoded;
-	ASSERT_TRUE(Durin::DecodeTextureCubePayload(
+	const Durin::FPayloadDecodeResult DecodeResult = Durin::DecodeTextureCubePayload(
 		Container.Payloads[0], Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Decoded, Error)) << Error;
+		Durin::Asset::ECookTargetProfile::Game, Decoded);
+	ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 	ASSERT_NE(Decoded, nullptr);
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 		EXPECT_EQ(Decoded->Faces[FaceIndex].Mips[0].Pixels,

@@ -173,13 +173,18 @@ namespace
 		WriteU64(Bytes, 56, FXxHash64::HashBuffer(std::span<const uint8>(Bytes).subspan(64)).HashValue);
 	}
 
-	auto ExpectDecodeFailure(const std::vector<uint8>& Bytes) -> void
+	auto ExpectDecodeFailure(
+		const std::vector<uint8>& Bytes,
+		EPayloadDecodeError ExpectedCode = EPayloadDecodeError::None) -> void
 	{
 		FStaticMeshPayloadData Sentinel = MakeMultiMaterialFixture();
 		const FGuid SentinelSlot = Sentinel.MaterialSlotIds.front();
-		std::string Error;
-		EXPECT_FALSE(DecodeStaticMeshPayload(Bytes, EStaticMeshTargetPlatform::Win64, Sentinel, Error));
-		EXPECT_FALSE(Error.empty());
+		const FPayloadDecodeResult Result =
+			DecodeStaticMeshPayload(Bytes, EStaticMeshTargetPlatform::Win64, Sentinel);
+		EXPECT_FALSE(Result);
+		if (ExpectedCode != EPayloadDecodeError::None)
+			EXPECT_EQ(Result.Code, ExpectedCode);
+		EXPECT_FALSE(Result.Message.empty());
 		EXPECT_EQ(Sentinel.MaterialSlotIds.front(), SentinelSlot);
 		EXPECT_EQ(Sentinel.MaterialSlotIds.size(), 2u);
 	}
@@ -290,7 +295,9 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 
 		FStaticMeshPayloadData Decoded;
 		std::string Error;
-		ASSERT_TRUE(DecodeStaticMeshPayload(First, EStaticMeshTargetPlatform::Win64, Decoded, Error)) << Error;
+		const FPayloadDecodeResult DecodeResult =
+			DecodeStaticMeshPayload(First, EStaticMeshTargetPlatform::Win64, Decoded);
+		ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 		ExpectEquivalent(Decoded, Fixture);
 
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
@@ -308,7 +315,9 @@ TEST(FStaticMeshPayloadCodecTests, SupportsMeshWithoutUVChannels)
 
 	FStaticMeshPayloadData Decoded;
 	std::string Error;
-	ASSERT_TRUE(DecodeStaticMeshPayload(Bytes, EStaticMeshTargetPlatform::Win64, Decoded, Error)) << Error;
+	const FPayloadDecodeResult DecodeResult =
+		DecodeStaticMeshPayload(Bytes, EStaticMeshTargetPlatform::Win64, Decoded);
+	ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 	ExpectEquivalent(Decoded, Fixture);
 
 	std::unique_ptr<FStaticMeshRenderData> RenderData;
@@ -546,7 +555,6 @@ TEST(FStaticMeshPayloadCodecTests, RejectsInvalidEnvelopeAndChunkRanges)
 	};
 
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 0, 0); });
-	Mutate([](auto& Bytes) { WriteU32(Bytes, 4, 3); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 8, 2); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 12, 0); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 16, 2); });
@@ -554,6 +562,11 @@ TEST(FStaticMeshPayloadCodecTests, RejectsInvalidEnvelopeAndChunkRanges)
 	Mutate([](auto& Bytes) { WriteU64(Bytes, 64 + 8, std::numeric_limits<uint64>::max() - 8); });
 	Mutate([](auto& Bytes) { WriteU64(Bytes, 64 + 32 + 8, ReadU64(Bytes, 64 + 8)); });
 	Mutate([](auto& Bytes) { WriteU64(Bytes, 64 + 8, ReadU64(Bytes, 64 + 8) + 1); });
+
+	std::vector<uint8> UnsupportedSchema = Valid;
+	WriteU32(UnsupportedSchema, 4, StaticMeshPayloadSchemaVersion + 1);
+	Rehash(UnsupportedSchema);
+	ExpectDecodeFailure(UnsupportedSchema, EPayloadDecodeError::Incompatible);
 }
 
 TEST(FStaticMeshPayloadCodecTests, RejectsLimitsCompressionBombAndInvalidEnumValues)
@@ -609,11 +622,13 @@ TEST(FStaticMeshPayloadCodecTests, SkipsUnknownOptionalChunksAndRejectsUnknownRe
 	const std::vector<uint8> Valid = Encode(MakeSingleSectionFixture());
 	const std::vector<uint8> Optional = AddUnknownOptionalChunk(Valid, false);
 	FStaticMeshPayloadData Decoded;
-	std::string Error;
-	ASSERT_TRUE(DecodeStaticMeshPayload(Optional, EStaticMeshTargetPlatform::Win64, Decoded, Error)) << Error;
+	const FPayloadDecodeResult DecodeResult =
+		DecodeStaticMeshPayload(Optional, EStaticMeshTargetPlatform::Win64, Decoded);
+	ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 	ExpectEquivalent(Decoded, MakeSingleSectionFixture());
 
-	ExpectDecodeFailure(AddUnknownOptionalChunk(Valid, true));
+	ExpectDecodeFailure(
+		AddUnknownOptionalChunk(Valid, true), EPayloadDecodeError::Incompatible);
 }
 
 TEST(FStaticMeshPayloadCodecTests, EncoderRejectsInvalidLogicalDataWithoutPublishingBytes)
