@@ -9,6 +9,18 @@ Completed:
 
 ## Current Status
 
+Stage 0 is complete. The existing copied-slot implementation now has explicit
+characterization coverage for local and inherited updates, parent reassignment,
+multi-level chains, multi-slot consumers, stale component revisions, and
+material destruction after render work is accepted. A fixed affected graph
+also records that the baseline scan counters grow with unrelated loaded
+materials, objects, and static-mesh components.
+
+The proxy contract below locks the immutable local-layer boundary, cache key,
+fallback behavior, and structural-operation classification. Stage 1 is next
+and may introduce proxy types and publication without changing scene-proxy
+bindings yet.
+
 Material setters currently route through `FMaterialUpdateContext`, which
 snapshots `GDObjectArray`, discovers dependent materials by testing parent
 chains, finds concrete `DStaticMeshComponent` consumers, and pushes copied
@@ -114,6 +126,67 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
   Render-thread resolution treats a cycle as a debug-fatal contract violation,
   not as a recoverable graph search.
 
+### Locked local-layer and cache contract
+
+- `FMaterialLocalRenderLayer` is distinct from resolved
+  `FMaterialRenderData`. It contains a sorted immutable set of render parameter
+  entries keyed by parameter GUID and type. Each entry stores only its active
+  scalar/vector value or a counted `FRHITextureReferenceRef`; it stores no
+  `DObject`, `TObjectPtr`, editor metadata, display name, range, or resolved
+  source object.
+- A base material local layer contains the complete canonical render parameter
+  values plus one render-safe static-property value. An instance local layer
+  contains only active, non-orphan overrides and no static-property value.
+  Static properties therefore resolve from the first ancestor layer that owns
+  them.
+- Shader-map and pipeline identities are derived while producing the resolved
+  snapshot. They are not flattened into descendant local layers. The resolved
+  snapshot remains the current `FMaterialRenderData` shape so renderer
+  consumption can migrate independently from local publication.
+- Parent linkage is proxy metadata beside the local layer, not a field inside
+  `FMaterialRenderData`. Root proxies use a null parent identity and parent
+  resolved version zero.
+- Resolution first resolves the retained parent proxy, then tests the exact
+  cache key `(LocalVersion, ParentProxyIdentity, ParentResolvedVersion)`.
+  Reusing a cache requires all three values to match. Rebuilding a cache
+  publishes a new nonzero resolved version even when the resulting values
+  compare equal, so every accepted parent/local publication becomes observable
+  lazily by descendants.
+- A proxy accepts a publication only when its local version is newer than the
+  currently published version. Equal or older publications are stale no-ops
+  and increment the stale-publication diagnostic.
+
+### Locked fallback contract
+
+- A null or missing parent proxy is treated as an empty parent layer. Local
+  instance overrides still resolve; every missing render field uses the
+  existing default `FMaterialRenderData`.
+- A null or unavailable texture reference remains null in the resolved
+  snapshot and selects the existing renderer-owned default texture. Resolution
+  never reacquires a texture through a `DTexture2D` pointer.
+- An unresolved shader-map or pipeline identity remains the requested identity
+  in the resolved snapshot. Renderer lookup may use its existing fallback
+  shader/pipeline until the requested cache entry is available; it does not
+  rewrite the material proxy to the fallback identity.
+- Destroying the owning material prevents new game-thread publication but does
+  not invalidate accepted render commands or the last published local layer.
+  Parent and scene-proxy references keep proxy storage and counted render
+  resources alive until those references and accepted work are released.
+
+### Structural dirty-operation table
+
+| Operation | Target path | Structural fallback |
+| --- | --- | --- |
+| Base scalar, vector, or texture value setter; reflected value edit; Undo/Redo | Publish/coalesce a replacement local layer | No |
+| Instance override set/clear; reflected override value edit; Undo/Redo | Publish/coalesce instance local overrides | No |
+| Base `FMaterialStaticProperties` change | Publish the local static value; resolution derives new shader-map/pipeline identities | No |
+| `SetParent`, reflected parent edit, Undo/Redo, or instance import-state exchange | Publish the retained parent proxy identity and a new local version; explicit import completion may synchronously flush visibility | No |
+| Initial load, duplication, or reload with the current fixed canonical schema | Publish initial/replacement local state and parent proxy | No |
+| Material parameter declaration count, GUID, type, or renderer binding-layout change | Explicit structural update context until a compiled layout contract represents the transition safely | Yes |
+| Shader resource-layout or root-signature transition not representable by the current identity values | Explicit structural update context named by the initiating operation | Yes |
+| Unknown or newly added static dirty operation not listed above | Existing structural path until focused tests and this table classify it as proxy-safe | Yes |
+| Component mesh/default/override assignment | Component-owned slot-binding or scene-proxy path, not material-content invalidation | Not a material structural update |
+
 ### Update classes
 
 - `DynamicParameters` publishes a new local layer. It must not enumerate
@@ -197,24 +270,24 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
 
 ### Stage 0: Lock the Proxy and Invalidation Contract
 
-- [ ] Add characterization tests for local instance updates, inherited base
+- [x] Add characterization tests for local instance updates, inherited base
   updates, parent reassignment, multi-level instance chains, multi-slot
   components, stale component revisions, and material destruction with queued
   render work.
-- [ ] Record current `FMaterialUpdateCounters` for a fixed affected material
+- [x] Record current `FMaterialUpdateCounters` for a fixed affected material
   graph while increasing unrelated `DObject` and component counts.
-- [ ] Specify the immutable local layer independently from the resolved
+- [x] Specify the immutable local layer independently from the resolved
   `FMaterialRenderData` representation so Stage 2 material-domain evolution
   does not require changing proxy lifetime rules.
-- [ ] Specify the exact render-thread cache key:
+- [x] Specify the exact render-thread cache key:
   `(LocalVersion, ParentProxyIdentity, ParentResolvedVersion)`.
-- [ ] Specify fallback behavior for missing parents, unavailable textures,
+- [x] Specify fallback behavior for missing parents, unavailable textures,
   unresolved shader maps, and a material destroyed before its proxy references.
-- [ ] Decide which existing static dirty operations require an explicit
+- [x] Decide which existing static dirty operations require an explicit
   structural rebuild because proxy publication cannot safely represent them.
   Default the undecided cases to the existing structural path until a focused
   test proves proxy-only publication safe.
-- [ ] Update this plan with the selected structural dirty-operation table
+- [x] Update this plan with the selected structural dirty-operation table
   before Stage 1 changes runtime behavior.
 
 #### Acceptance Gate
@@ -225,6 +298,32 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
   contract.
 - The baseline scaling test demonstrates the current unrelated-object
   sensitivity and can detect its removal later.
+
+#### Stage 0 Handoff
+
+- Baseline commit:
+  `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
+- Working set:
+  `Documentation/Plans/MaterialRenderProxyInvalidation.md` and
+  `Engine/Tests/Native/EngineTests/Private/Materials/MaterialUpdateContextTests.cpp`.
+- Key symbols and evidence:
+  `FMaterialUpdateCounters`,
+  `FMaterialUpdateContextTests.ScanCostGrowsWithUnrelatedLoadedObjectsAndComponents`,
+  `FMaterialUpdateContextTests.AcceptedRenderUpdateSurvivesMaterialDestruction`,
+  `FMaterialTests.BoundMaterialAndParentChangesUpdateProxyInPlace`,
+  `FMaterialTests.ParentTransactionsRenderFromCurrentCanonicalStorage`,
+  `FMaterialTests.MultiLevelResolutionReportsSupplyingSourceAndCurrentOverrideState`,
+  `FMaterialTests.StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMaterialSlot`,
+  and
+  `FMaterialTests.StaticMeshProxyOrdersRapidCrossSlotUpdatesAndRejectsStaleRevisions`.
+- Decisions: local layers are sparse render-safe publications, resolved
+  snapshots retain the current renderer-facing shape, parent linkage is proxy
+  metadata, the three-part cache key is exact, and declaration/layout changes
+  remain structural by default.
+- Open questions: none block Stage 1. Concrete container and allocation choices
+  may vary if they preserve the locked observable contract.
+- Validation: focused `MaterialUpdateContext` characterization tests pass under
+  the `Win64-Debug-DurinEditor-Tests` Agent Build Profile.
 
 ### Stage 1: Introduce Stable Material Render Proxies
 
