@@ -1,6 +1,8 @@
 if(NOT DEFINED CTEST_COMMAND OR NOT DEFINED BUILD_DIRECTORY
-	OR NOT DEFINED PROBE_WORK_DIRECTORY OR NOT DEFINED PROBE_EXECUTABLE)
-	message(FATAL_ERROR "The isolation probe requires CTest, build, work, and executable paths.")
+	OR NOT DEFINED PROBE_WORK_DIRECTORY OR NOT DEFINED PROBE_EXECUTABLE
+	OR NOT DEFINED SANDBOX_EXECUTABLE)
+	message(FATAL_ERROR
+		"The isolation probe requires CTest, build, work, probe, and sandbox executable paths.")
 endif()
 
 set(control_directory "${PROBE_WORK_DIRECTORY}/ProcessIsolationProbeControl")
@@ -25,8 +27,8 @@ if(NOT probe_result EQUAL 0)
 endif()
 
 execute_process(
-	COMMAND "${PROBE_EXECUTABLE}"
-		--gtest_filter=FNativeTestProcessIsolationProbeTests.ProcessAOwnsSameLogicalFilename
+	COMMAND "${SANDBOX_EXECUTABLE}"
+		--gtest_filter=FNativeTestProcessSandboxTests.ProvidesCanonicalUniqueRunDirectory
 		--durin-keep-test-work
 	RESULT_VARIABLE keep_result
 	OUTPUT_VARIABLE keep_output
@@ -46,7 +48,7 @@ file(REMOVE_RECURSE "${kept_directory}")
 execute_process(
 	COMMAND "${CMAKE_COMMAND}" -E env
 		"DURIN_TEST_FORCE_CLEANUP_FAILURE=1"
-		"${PROBE_EXECUTABLE}"
+		"${SANDBOX_EXECUTABLE}"
 		--gtest_filter=FNativeTestProcessSandboxTests.ProvidesCanonicalUniqueRunDirectory
 	RESULT_VARIABLE cleanup_result
 	OUTPUT_VARIABLE cleanup_output
@@ -65,7 +67,7 @@ endif()
 file(REMOVE_RECURSE "${cleanup_directory}")
 
 execute_process(
-	COMMAND "${PROBE_EXECUTABLE}" --durin-crash-after-sandbox-create
+	COMMAND "${SANDBOX_EXECUTABLE}" --durin-crash-after-sandbox-create
 	RESULT_VARIABLE crash_result
 	OUTPUT_VARIABLE crash_output
 	ERROR_VARIABLE crash_error

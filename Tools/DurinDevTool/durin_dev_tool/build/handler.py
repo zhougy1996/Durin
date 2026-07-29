@@ -24,6 +24,7 @@ NAMESPACE_FIELDS = {
     "schedule_random": "test_schedule_random",
     "output_junit": "test_output_junit",
     "ctest_regex": "test_ctest_regex",
+    "include_direct": "test_include_direct",
     "run_arguments": "run_arguments",
     "profile": "profile",
     "preset": "preset",

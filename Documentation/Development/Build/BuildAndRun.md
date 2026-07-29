@@ -113,6 +113,7 @@ Use the root wrapper for configuration, builds, and tests:
 .\DevTool.bat build --target LevelEditor
 .\DevTool.bat run
 .\DevTool.bat test --target CoreTests --filter FJsonDocumentTests.*
+.\DevTool.bat test --target all
 .\DevTool.bat clean
 .\DevTool.bat recover
 .\DevTool.bat rebuild --target all

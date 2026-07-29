@@ -146,6 +146,7 @@ class CommandRequest:
     test_schedule_random: bool = False
     test_output_junit: Path | None = None
     test_ctest_regex: str = ""
+    test_include_direct: bool = False
     run_arguments: tuple[str, ...] = ()
     profile: str = ""
     preset: str = ""

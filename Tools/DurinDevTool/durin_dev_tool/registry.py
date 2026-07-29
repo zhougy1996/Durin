@@ -511,6 +511,11 @@ COMMAND_SPECS = (
                 default="",
                 help="run CTest names matching a regex for --target all",
             ),
+            _argument(
+                "--include-direct",
+                action="store_true",
+                help="also run whole-target direct lifecycle tests for --target all",
+            ),
         ),
     ),
     _build_command(

@@ -281,7 +281,7 @@ class TestCore:
         with mock.patch.object(build_runtime, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_runtime, 'run_command') as run:
             build_core.run_all_native_tests(context, output)
         run.assert_called_once_with(
-            [r'C:\Tools\CMake\bin\ctest.exe', '--test-dir', str(build_directory), '--output-on-failure', '--no-tests=error', '-j', '4', '--timeout', '60', '--schedule-random', '-R', '^Core\\.', '--output-junit', str(build_core.REPO_ROOT / 'Build/results.xml')],
+            [r'C:\Tools\CMake\bin\ctest.exe', '--test-dir', str(build_directory), '--output-on-failure', '--no-tests=error', '-j', '4', '-LE', 'native-test-characterization|native-test-direct', '--timeout', '60', '--schedule-random', '-R', '^Core\\.', '--output-junit', str(build_core.REPO_ROOT / 'Build/results.xml')],
             environment={'PATH': 'cached'},
             output=output,
             recovery_required_on_interrupt=False,
@@ -289,13 +289,26 @@ class TestCore:
             colorize_test_output=True,
         )
 
+    def test_all_native_tests_can_include_direct_lifecycle_tests(self) -> None:
+        preset = self.make_preset()
+        request = build_config.CommandRequest(
+            build_config.Action.TEST,
+            target='all',
+            test_include_direct=True,
+        )
+        context = build_config.BuildContext(request, build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={})
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(build_runtime, 'run_command') as run:
+            build_core.run_all_native_tests(context, output)
+        assert run.call_args.args[0][-4:] == ['-LE', 'native-test-characterization', '--timeout', '300']
+
     def test_all_native_tests_reject_gtest_filter(self) -> None:
         request = build_config.CommandRequest(build_config.Action.TEST, target='all', test_filter='Core.*')
         with pytest.raises(build_config.BuildToolError, match='cannot be used with --target all'):
             build_core.validate_request(request, self.make_preset())
 
     def test_single_native_test_rejects_ctest_only_options(self) -> None:
-        request = build_config.CommandRequest(build_config.Action.TEST, target='CoreTests', test_schedule_random=True)
+        request = build_config.CommandRequest(build_config.Action.TEST, target='CoreTests', test_include_direct=True)
         with pytest.raises(build_config.BuildToolError, match='require --target all'):
             build_core.validate_request(request, self.make_preset())
 

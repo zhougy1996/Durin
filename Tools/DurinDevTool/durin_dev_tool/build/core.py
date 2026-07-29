@@ -528,10 +528,12 @@ def validate_request(request: CommandRequest, preset: ConfigurePreset) -> None:
             request.test_schedule_random
             or request.test_output_junit is not None
             or request.test_ctest_regex
+            or request.test_include_direct
         )
     ):
         raise BuildToolError(
-            "--schedule-random, --output-junit, and --ctest-regex require --target all."
+            "--schedule-random, --output-junit, --ctest-regex, and --include-direct "
+            "require --target all."
         )
     if request.action is Action.TEST and not preset_cache_bool(preset, "BUILD_TESTING"):
         raise BuildToolError(f'Preset "{preset.name}" does not enable BUILD_TESTING.')

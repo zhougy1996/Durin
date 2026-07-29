@@ -578,6 +578,15 @@ function(durin_discover_tests target_name)
 	if(_durin_timeout MATCHES "-NOTFOUND$")
 		set(_durin_timeout 300)
 	endif()
+	get_target_property(_durin_direct_lifecycle
+		${target_name} DURIN_TEST_DIRECT_LIFECYCLE)
+	if(_durin_direct_lifecycle MATCHES "-NOTFOUND$")
+		set(_durin_direct_lifecycle TRUE)
+	elseif(NOT _durin_direct_lifecycle STREQUAL "TRUE"
+		AND NOT _durin_direct_lifecycle STREQUAL "FALSE")
+		message(FATAL_ERROR
+			"${target_name} DURIN_TEST_DIRECT_LIFECYCLE must be TRUE or FALSE.")
+	endif()
 	get_target_property(_durin_target_lock_rationale ${target_name}
 		DURIN_TEST_TARGET_LOCK_RATIONALE)
 	if(_durin_target_lock_rationale MATCHES "-NOTFOUND$")
@@ -624,26 +633,28 @@ function(durin_discover_tests target_name)
 		PROPERTIES ${_durin_test_properties}
 	)
 
-	add_test(
-		NAME "Durin.NativeTestDirect.${target_name}"
-		COMMAND "$<TARGET_FILE:${target_name}>" --gtest_brief=1
-		WORKING_DIRECTORY "${_durin_work_dir}"
-	)
-	set(_durin_direct_labels
-		${_durin_labels}
-		native-test-direct
-	)
-	set_tests_properties(
-		"Durin.NativeTestDirect.${target_name}"
-		PROPERTIES
-			TIMEOUT "${_durin_timeout}"
-			LABELS "${_durin_direct_labels}"
-	)
-	if(_durin_resource_locks)
+	if(_durin_direct_lifecycle)
+		add_test(
+			NAME "Durin.NativeTestDirect.${target_name}"
+			COMMAND "$<TARGET_FILE:${target_name}>" --gtest_brief=1
+			WORKING_DIRECTORY "${_durin_work_dir}"
+		)
+		set(_durin_direct_labels
+			${_durin_labels}
+			native-test-direct
+		)
 		set_tests_properties(
 			"Durin.NativeTestDirect.${target_name}"
 			PROPERTIES
-				RESOURCE_LOCK "${_durin_resource_locks}"
+				TIMEOUT "${_durin_timeout}"
+				LABELS "${_durin_direct_labels}"
 		)
+		if(_durin_resource_locks)
+			set_tests_properties(
+				"Durin.NativeTestDirect.${target_name}"
+				PROPERTIES
+					RESOURCE_LOCK "${_durin_resource_locks}"
+			)
+		endif()
 	endif()
 endfunction()

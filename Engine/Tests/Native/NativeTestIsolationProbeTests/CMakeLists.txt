@@ -4,29 +4,34 @@ add_durin_test(NativeTestIsolationProbeTests
 	Private/NativeTestProcessIsolationProbeTests.cpp
 )
 
+add_durin_test(NativeTestIsolationCharacterizationTests
+	Private/NativeTestProcessIsolationCharacterizationTests.cpp
+)
+
+set_target_properties(NativeTestIsolationCharacterizationTests PROPERTIES
+	DURIN_TEST_LABELS native-test-characterization
+	DURIN_TEST_DIRECT_LIFECYCLE FALSE
+)
+
 target_include_directories(NativeTestIsolationProbeTests PRIVATE
 	"${CMAKE_CURRENT_LIST_DIR}/../../NativeTestSupport/Private"
 )
 
-target_link_libraries(NativeTestIsolationProbeTests PRIVATE
-	Core
+foreach(_durin_isolation_target IN ITEMS
+	NativeTestIsolationProbeTests
+	NativeTestIsolationCharacterizationTests
 )
-
-durin_test_deploy_target_binary(NativeTestIsolationProbeTests Core)
-
-set_target_properties(NativeTestIsolationProbeTests PROPERTIES
-	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
-	DURIN_TEST_LABELS native-test-isolation-characterization
-)
-
-# The cases skip in routine runs. The characterization target supplies a shared
-# synchronization directory and proves that two CTest processes retain distinct
-# writable roots while using the same logical filename.
-durin_discover_tests(NativeTestIsolationProbeTests)
+	target_link_libraries(${_durin_isolation_target} PRIVATE Core)
+	durin_test_deploy_target_binary(${_durin_isolation_target} Core)
+	set_target_properties(${_durin_isolation_target} PROPERTIES
+		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
+	)
+	durin_discover_tests(${_durin_isolation_target})
+endforeach()
 
 get_target_property(
 	_durin_native_test_isolation_probe_work_dir
-	NativeTestIsolationProbeTests
+	NativeTestIsolationCharacterizationTests
 	DURIN_TEST_WORK_DIR
 )
 
@@ -35,9 +40,12 @@ add_custom_target(NativeTestIsolationProbeCharacterization
 		"-DCTEST_COMMAND=${CMAKE_CTEST_COMMAND}"
 		"-DBUILD_DIRECTORY=${CMAKE_BINARY_DIR}"
 		"-DPROBE_WORK_DIRECTORY=${_durin_native_test_isolation_probe_work_dir}"
-		"-DPROBE_EXECUTABLE=$<TARGET_FILE:NativeTestIsolationProbeTests>"
+		"-DPROBE_EXECUTABLE=$<TARGET_FILE:NativeTestIsolationCharacterizationTests>"
+		"-DSANDBOX_EXECUTABLE=$<TARGET_FILE:NativeTestIsolationProbeTests>"
 		-P "${CMAKE_CURRENT_SOURCE_DIR}/VerifyNativeTestIsolationProbe.cmake"
-	DEPENDS NativeTestIsolationProbeTests
+	DEPENDS
+		NativeTestIsolationProbeTests
+		NativeTestIsolationCharacterizationTests
 	COMMENT "Verifying shared-root collision and isolated-root control"
 	VERBATIM
 )

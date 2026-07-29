@@ -121,6 +121,10 @@ def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
         "-j",
         str(context.jobs),
     ]
+    excluded_labels = ["native-test-characterization"]
+    if not request.test_include_direct:
+        excluded_labels.append("native-test-direct")
+    command.extend(["-LE", "|".join(excluded_labels)])
     if request.test_timeout_seconds:
         command.extend(["--timeout", str(request.test_timeout_seconds)])
     if request.test_schedule_random:
