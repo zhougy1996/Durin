@@ -1,6 +1,6 @@
 #pragma once
 
-#include "IRendererModule.h"
+#include "SceneView.h"
 #include "RendererAPI.h"
 
 #include <glm/mat4x4.hpp>

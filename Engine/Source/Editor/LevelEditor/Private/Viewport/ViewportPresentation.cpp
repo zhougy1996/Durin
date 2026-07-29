@@ -450,19 +450,21 @@ namespace Durin
 		DrawPlayStateBorder(ViewportMin, ViewportMax, bPaused);
 	}
 
-	auto FViewportToolbar::CalculateLayout(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> FViewportToolbarLayout
+	auto FViewportToolbar::CalculateLayout(
+		const FLevelEditorViewportClient* ViewportClient,
+		const ImVec2& ViewportMin,
+		const ImVec2& ViewportMax
+	) const -> FViewportToolbarLayout
 	{
 		FViewportToolbarLayout Layout;
 		Layout.ViewportMin = ViewportMin;
 		Layout.ViewportMax = ViewportMax;
-		if (GEngine != nullptr)
+		if (ViewportClient != nullptr)
 		{
-			Layout.RendererModule = GEngine->GetRendererModule();
-			if (Layout.RendererModule != nullptr)
-			{
-				Layout.RenderMode = Layout.RendererModule->GetRenderMode();
-				Layout.RasterMode = Layout.RendererModule->GetRasterMode();
-			}
+			const FSceneViewSettings& Settings = ViewportClient->GetViewSettings();
+			Layout.bEnableFXAA = Settings.bEnableFXAA;
+			Layout.RenderMode = Settings.RenderMode;
+			Layout.RasterMode = Settings.RasterMode;
 		}
 
 		Layout.ViewModeLabel = std::format("{} / {}", GetModeLabel(Layout.RenderMode, RenderModeOptions), GetModeLabel(Layout.RasterMode, RasterModeOptions));
@@ -531,20 +533,31 @@ namespace Durin
 		if (ImGui::BeginPopup("ViewModePopup"))
 		{
 			ImGui::TextDisabled("Shading");
-			DrawModeOptions(Layout.RenderMode, RenderModeOptions, [RendererModule = Layout.RendererModule](ERenderMode Mode) {
-				if (RendererModule != nullptr) RendererModule->SetRenderMode(Mode);
+			DrawModeOptions(Layout.RenderMode, RenderModeOptions, [ViewportClient](ERenderMode Mode) {
+				if (ViewportClient == nullptr) return;
+				FSceneViewSettings Settings = ViewportClient->GetViewSettings();
+				Settings.RenderMode = Mode;
+				ViewportClient->SetViewSettings(Settings);
 			});
 			ImGui::Separator();
 			ImGui::TextDisabled("Rasterization");
-			DrawModeOptions(Layout.RasterMode, RasterModeOptions, [RendererModule = Layout.RendererModule](ERasterMode Mode) {
-				if (RendererModule != nullptr) RendererModule->SetRasterMode(Mode);
+			DrawModeOptions(Layout.RasterMode, RasterModeOptions, [ViewportClient](ERasterMode Mode) {
+				if (ViewportClient == nullptr) return;
+				FSceneViewSettings Settings = ViewportClient->GetViewSettings();
+				Settings.RasterMode = Mode;
+				ViewportClient->SetViewSettings(Settings);
 			});
 			ImGui::Separator();
 			ImGui::TextDisabled("Post Processing");
-			if (Layout.RendererModule != nullptr)
+			if (ViewportClient != nullptr)
 			{
-				bool bEnableFXAA = Layout.RendererModule->IsFXAAEnabled();
-				if (ImGui::Checkbox("FXAA", &bEnableFXAA)) Layout.RendererModule->SetFXAAEnabled(bEnableFXAA);
+				bool bEnableFXAA = Layout.bEnableFXAA;
+				if (ImGui::Checkbox("FXAA", &bEnableFXAA))
+				{
+					FSceneViewSettings Settings = ViewportClient->GetViewSettings();
+					Settings.bEnableFXAA = bEnableFXAA;
+					ViewportClient->SetViewSettings(Settings);
+				}
 			}
 			ImGui::Separator();
 			ImGui::TextDisabled("Overlays");

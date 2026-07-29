@@ -20,7 +20,6 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		Durin::GDynamicRHI->RHIBeginFrame();
 	});
 	Renderer.StartupModule();
-	Renderer.SetRenderMode(Durin::ERenderMode::Unlit);
 
 	Durin::FTextureCubeImportResult CubeResult = Durin::DTextureCube::ImportPanoramaAsset(
 		GetSkyBoxPanoramaFixture("AnalyticalLDR.tga").generic_string(),
@@ -211,7 +210,9 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			}
 
 			auto Render = [&](const Durin::FSceneView& View, std::vector<Durin::uint8>& OutPixels) {
-				Renderer.RenderView(CommandList, &Scene, View, Color, false);
+				Durin::FSceneView RenderView = View;
+				RenderView.Settings.RenderMode = Durin::ERenderMode::Unlit;
+				Renderer.RenderView(CommandList, &Scene, RenderView, Color, false);
 				if (!Durin::GDynamicRHI->RHIReadTexture2D(CommandList, Color, 0, 0, OutPixels))
 				{
 					Result->bSucceeded = false;
@@ -342,7 +343,6 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			HdrReference = std::move(HdrCubeReference)](
 			Durin::FRHICommandListImmediate&) {});
 	Durin::FlushRenderingCommands();
-	Renderer.SetRenderMode(Durin::ERenderMode::Lit);
 	Renderer.ShutdownModule();
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();

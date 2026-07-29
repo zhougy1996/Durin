@@ -7,12 +7,12 @@
 #include "Engine/Actor.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
-#include "IRendererModule.h"
 #include "IScene.h"
 #include "Materials/MaterialInterface.h"
 #include "Mona/SceneViewport.h"
 #include "MonaImGui.h"
 #include "Preview/PreviewScene.h"
+#include "SceneView.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Widgets/MViewport.h"
 

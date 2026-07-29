@@ -3,7 +3,7 @@
 #include "LevelEditorAPI.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Editor/ReflectedPropertyView.h"
-#include "IRendererModule.h"
+#include "SceneView.h"
 
 namespace Durin
 {

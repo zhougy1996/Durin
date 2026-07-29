@@ -449,7 +449,6 @@ namespace Durin
 			FSamplerRHIRef SceneColorSampler;
 			std::unordered_map<uint64, FSceneTargets> SceneTargetsBySize;
 			bool bCreateAttempted = false;
-			std::atomic_bool bEnableFXAA = true;
 		};
 
 		FStaticMeshRendererState GStaticMeshState;
@@ -460,8 +459,6 @@ namespace Durin
 		FOverlayLineRendererState GOverlayLineState;
 		FOverlayIconRendererState GOverlayIconState;
 		FEditorGridRendererState GEditorGridState;
-		std::atomic<ERenderMode> GRenderMode = ERenderMode::Lit;
-		std::atomic<ERasterMode> GRasterMode = ERasterMode::Solid;
 		bool GEditorAssistancePipelineFailureLogged = false;
 
 		auto CreateEditorAssistanceOutputPipelines(
@@ -1690,10 +1687,16 @@ namespace Durin
 			CommandList.DrawIndexed(GOverlayIconState.IndexCount, 0, 0);
 		}
 
-		auto DrawPostProcess(FRHICommandListImmediate& CommandList, FRHITexture* SceneColor, uint32 Width, uint32 Height, bool bPresentOutput) -> void
+		auto DrawPostProcess(
+			FRHICommandListImmediate& CommandList,
+			FRHITexture* SceneColor,
+			uint32 Width,
+			uint32 Height,
+			bool bPresentOutput,
+			bool bEnableFXAA
+		) -> void
 		{
-			const bool bUseFXAA = GPostProcessState.bEnableFXAA.load(std::memory_order_relaxed);
-			FGraphicsPipelineStateRHIRef PipelineState = bUseFXAA
+			FGraphicsPipelineStateRHIRef PipelineState = bEnableFXAA
 				? (bPresentOutput ? GPostProcessState.FXAAPresentPipelineState : GPostProcessState.FXAAOffscreenPipelineState)
 				: (bPresentOutput ? GPostProcessState.CopyPresentPipelineState : GPostProcessState.CopyOffscreenPipelineState);
 			if (PipelineState == nullptr || GPostProcessState.VertexBuffer == nullptr || GPostProcessState.IndexBuffer == nullptr)
@@ -1707,7 +1710,7 @@ namespace Durin
 			CommandList.BindVertexBuffer(0, GPostProcessState.VertexBuffer, 0);
 			CommandList.BindIndexBuffer(GPostProcessState.IndexBuffer, 0);
 
-			if (bUseFXAA)
+			if (bEnableFXAA)
 			{
 				FPostProcessViewUniform ViewUniform;
 				ViewUniform.InvRenderTargetSize = FVector2f(1.0f / static_cast<float>(Width), 1.0f / static_cast<float>(Height));
@@ -1835,7 +1838,6 @@ namespace Durin
 			GPostProcessState.SceneColorSampler = nullptr;
 			GPostProcessState.SceneTargetsBySize.clear();
 			GPostProcessState.bCreateAttempted = false;
-			GPostProcessState.bEnableFXAA.store(true, std::memory_order_relaxed);
 			GEditorAssistancePipelineFailureLogged = false;
 		});
 	}
@@ -1861,52 +1863,6 @@ namespace Durin
 		if (!bAcceptingSceneCreation) return;
 		bAcceptingSceneCreation = false;
 		DURIN_DEBUG("Renderer stopped accepting scene creation.");
-	}
-
-	auto FRendererModule::GetViewSettings() const -> FRendererViewSettings
-	{
-		FRendererViewSettings Settings;
-		Settings.bEnableFXAA = GPostProcessState.bEnableFXAA.load(std::memory_order_relaxed);
-		Settings.RenderMode = GRenderMode.load(std::memory_order_relaxed);
-		Settings.RasterMode = GRasterMode.load(std::memory_order_relaxed);
-		return Settings;
-	}
-
-	auto FRendererModule::SetViewSettings(const FRendererViewSettings& InSettings) -> void
-	{
-		SetFXAAEnabled(InSettings.bEnableFXAA);
-		SetRenderMode(InSettings.RenderMode);
-		SetRasterMode(InSettings.RasterMode);
-	}
-
-	auto FRendererModule::SetFXAAEnabled(bool bInEnabled) -> void
-	{
-		GPostProcessState.bEnableFXAA.store(bInEnabled, std::memory_order_relaxed);
-	}
-
-	auto FRendererModule::IsFXAAEnabled() const -> bool
-	{
-		return GPostProcessState.bEnableFXAA.load(std::memory_order_relaxed);
-	}
-
-	auto FRendererModule::SetRenderMode(ERenderMode Mode) -> void
-	{
-		GRenderMode.store(Mode, std::memory_order_relaxed);
-	}
-
-	auto FRendererModule::GetRenderMode() const -> ERenderMode
-	{
-		return GRenderMode.load(std::memory_order_relaxed);
-	}
-
-	auto FRendererModule::SetRasterMode(ERasterMode Mode) -> void
-	{
-		GRasterMode.store(Mode, std::memory_order_relaxed);
-	}
-
-	auto FRendererModule::GetRasterMode() const -> ERasterMode
-	{
-		return GRasterMode.load(std::memory_order_relaxed);
 	}
 
 	auto FRendererModule::RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void
@@ -1976,7 +1932,7 @@ namespace Durin
 		PostProcessPassInfo.ColorClearValues[0] = FClearValueBinding(
 			View.ClearColor.r, View.ClearColor.g, View.ClearColor.b, View.ClearColor.a);
 		CommandList.BeginRenderPass(PostProcessPassInfo, bPresentOutput ? "PostProcessPresentRenderPass" : "PostProcessOffscreenRenderPass");
-		DrawPostProcess(CommandList, SceneColor, Width, Height, bPresentOutput);
+		DrawPostProcess(CommandList, SceneColor, Width, Height, bPresentOutput, View.Settings.bEnableFXAA);
 		CommandList.EndRenderPass();
 		if (bEditorAssistanceOutputPipelinesReady)
 		{
@@ -2014,8 +1970,8 @@ namespace Durin
 
 		if (!EnsureStaticMeshBaseResources()) return;
 
-		const ERenderMode RenderMode = GRenderMode.load(std::memory_order_relaxed);
-		const ERasterMode RasterMode = GRasterMode.load(std::memory_order_relaxed);
+		const ERenderMode RenderMode = View.Settings.RenderMode;
+		const ERasterMode RasterMode = View.Settings.RasterMode;
 		FDirectionalLightSceneData Light;
 		Scene->GetDirectionalLight(Light);
 		ForEachStaticMeshProxy(Scene, [&CommandList, &View, &Light, RenderMode, RasterMode](FStaticMeshSceneProxy& Proxy) {

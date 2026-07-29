@@ -7,7 +7,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
-#include "IRendererModule.h"
+#include "SceneView.h"
 #include "SceneViewProjection.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"

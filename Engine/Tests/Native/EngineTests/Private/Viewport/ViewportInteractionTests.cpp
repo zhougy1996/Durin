@@ -302,9 +302,24 @@ TEST(FViewportSelectionTests, PrefersViewportClientAndFallsBackToPrimaryCamera)
 	InitializeDObjectSystem();
 	FTestEngine Engine;
 	FTestViewportClient Client;
+	Client.SetViewSettings({
+		.bEnableFXAA = false,
+		.RenderMode = Durin::ERenderMode::Unlit,
+		.RasterMode = Durin::ERasterMode::Wireframe,
+	});
 	auto ClientViewport = std::make_shared<Durin::FSceneViewport>(&Client, std::shared_ptr<Durin::MViewport>{});
 	Engine.SetTestViewport(ClientViewport);
-	ExpectVectorNear(Engine.BuildMainSceneView(640, 480).ViewLocation, {11.0, 12.0, 13.0});
+	const Durin::FSceneView ClientView = Engine.BuildMainSceneView(640, 480);
+	ExpectVectorNear(ClientView.ViewLocation, {11.0, 12.0, 13.0});
+	EXPECT_FALSE(ClientView.Settings.bEnableFXAA);
+	EXPECT_EQ(ClientView.Settings.RenderMode, Durin::ERenderMode::Unlit);
+	EXPECT_EQ(ClientView.Settings.RasterMode, Durin::ERasterMode::Wireframe);
+
+	Client.SetViewSettings({});
+	EXPECT_EQ(ClientView.Settings.RenderMode, Durin::ERenderMode::Unlit);
+	EXPECT_EQ(
+		Engine.BuildMainSceneView(640, 480).Settings.RenderMode,
+		Durin::ERenderMode::Lit);
 
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(&Engine, "ViewportTestWorld");
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "ViewportTestLevel");

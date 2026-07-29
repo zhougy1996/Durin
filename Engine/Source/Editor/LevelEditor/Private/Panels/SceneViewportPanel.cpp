@@ -184,7 +184,7 @@ namespace Durin
 					}
 					ImGui::EndDragDropTarget();
 				}
-				const FViewportToolbarLayout ToolbarLayout = ViewportToolbar->CalculateLayout(VpMin, VpMax);
+				const FViewportToolbarLayout ToolbarLayout = ViewportToolbar->CalculateLayout(ViewportClient.get(), VpMin, VpMax);
 				bViewportHovered = ImGui::IsItemHovered();
 				const bool bRightMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Right);
 				const bool bNavigationMousePressed = bRightMousePressed || ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || (ImGui::GetIO().KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left));

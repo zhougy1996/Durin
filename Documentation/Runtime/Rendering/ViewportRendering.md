@@ -40,6 +40,20 @@ Window-backed viewports render directly to the native window backbuffer. Render-
 - `FSceneViewport(FViewportClient*, std::shared_ptr<MWindow>)` creates a window-backed viewport.
 - `FSceneViewport(FViewportClient*, std::shared_ptr<MViewport>)` creates a render-target-backed viewport.
 
+## Scene View Settings
+
+Output mode and scene-view policy have separate ownership. `FSceneViewport`
+selects window-backed or render-target-backed output, while its
+`FViewportClient` owns persistent shading, rasterization, and post-process
+choices. When the engine builds an `FSceneView`, it copies those choices into
+`FSceneView::Settings` before enqueueing the render command.
+
+The renderer consumes only that immutable per-view snapshot. Two viewports may
+therefore render the same `IScene` with independent Lit/Unlit,
+Solid/Wireframe, and FXAA choices, and a later UI change cannot alter an
+already-enqueued view. Renderer-global state remains limited to shared GPU
+resources and size-keyed intermediate caches rather than semantic view policy.
+
 ## Game Window Path
 
 `DGameEngine::Init()` creates the standalone game window, creates an `MViewport` widget, installs that widget as the window content, then creates a window-backed `FSceneViewport`.

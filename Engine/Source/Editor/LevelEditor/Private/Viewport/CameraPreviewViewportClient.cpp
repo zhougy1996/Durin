@@ -1,7 +1,7 @@
 #include "Viewport/CameraPreviewViewportClient.h"
 
 #include "Components/CameraComponent.h"
-#include "IRendererModule.h"
+#include "SceneView.h"
 
 namespace Durin
 {

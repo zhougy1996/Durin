@@ -320,7 +320,6 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::FRendererModule Renderer;
 	Durin::FScene Scene;
 	Renderer.StartupModule();
-	Renderer.SetRenderMode(Durin::ERenderMode::Unlit);
 	auto* SampleMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	for (Durin::FVector2f& TexCoord :
 		Durin::FStaticMeshTestAccess::GetMutableRenderData(SampleMesh)
@@ -401,6 +400,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 			Durin::FTextureRHIRef Color =
 				Durin::GDynamicRHI->RHICreateTexture(CommandList, ColorDesc);
 			Durin::FSceneView View;
+			View.Settings.RenderMode = Durin::ERenderMode::Unlit;
 			View.ViewProjectionMatrix = Durin::FMatrix(1.0);
 			View.ViewLocation = {0.0, 0.0, -1.0};
 			View.ViewportWidth = 17;
@@ -429,7 +429,6 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::MarkAsGarbage(SampleMesh);
 	Durin::MarkAsGarbage(SampleMaterial);
 	Durin::CollectGarbage();
-	Renderer.SetRenderMode(Durin::ERenderMode::Lit);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(CookedPath));
 	CookedTexture = nullptr;
 	Durin::Asset::ShutdownAssetManager();

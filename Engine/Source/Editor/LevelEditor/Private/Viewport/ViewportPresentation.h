@@ -1,6 +1,6 @@
 #pragma once
 
-#include "IRendererModule.h"
+#include "SceneView.h"
 #include "ThirdParty/ImGui/imgui.h"
 
 namespace Durin
@@ -13,7 +13,7 @@ namespace Durin
 	// Retains responsive toolbar group placement for the current viewport size.
 	struct FViewportToolbarLayout
 	{
-		IRendererModule* RendererModule = nullptr;
+		bool bEnableFXAA = true;
 		ERenderMode RenderMode = ERenderMode::Lit;
 		ERasterMode RasterMode = ERasterMode::Solid;
 		std::string ViewModeLabel;
@@ -43,7 +43,7 @@ namespace Durin
 	class FViewportToolbar final
 	{
 	public:
-		auto CalculateLayout(const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> FViewportToolbarLayout;
+		auto CalculateLayout(const FLevelEditorViewportClient* ViewportClient, const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> FViewportToolbarLayout;
 		auto Draw(
 			FLevelEditorContext& Context,
 			FLevelEditorViewportClient* ViewportClient,

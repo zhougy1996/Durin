@@ -1,7 +1,7 @@
 #pragma once
 
-#include "IRendererModule.h"
 #include "RenderCoreAPI.h"
+#include "SceneView.h"
 
 namespace Durin::SceneViewProjection
 {

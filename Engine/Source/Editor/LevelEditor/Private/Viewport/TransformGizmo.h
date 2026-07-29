@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DObject/ObjectPtr.h"
-#include "IRendererModule.h"
+#include "SceneView.h"
 
 namespace Durin
 {

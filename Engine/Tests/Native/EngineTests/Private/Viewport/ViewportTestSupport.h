@@ -22,7 +22,7 @@
 #include "Engine/World.h"
 #include "EngineTestSupport.h"
 #include "Editor/EditorTransaction.h"
-#include "IRendererModule.h"
+#include "SceneView.h"
 #include "NativeTestSupport.h"
 #include "Settings/LevelViewportSessionSettings.h"
 #include "Workspace/LevelEditorContext.h"
