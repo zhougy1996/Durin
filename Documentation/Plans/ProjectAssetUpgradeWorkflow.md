@@ -2,7 +2,7 @@
 
 Summary: Add a project-wide asset upgrade audit, consolidated editor upgrade center, and safe batch execution without making startup eagerly retain every asset.
 
-Last reviewed: 2026-07-28
+Last reviewed: 2026-07-30
 
 Status: Active
 Completed:
@@ -14,7 +14,10 @@ inventory found two authored upgrade domains: AssetCore field-structure
 compatibility, including the registered `DStaticMeshComponent` material-field
 upgrader, and `DStaticMesh::MaterialSlotsVersion`. Supported older DAST
 envelopes are a third rewrite-only domain once dual-version reading lands in
-the DAsset Format Compaction plan.
+the DAsset V3 And Custom Asset Versioning plan. That plan also owns the durable
+package custom-version table and chained migration framework; this workflow
+consumes their audit and execution results without duplicating wire or
+asset-schema policy.
 
 Texture2D source identity reconciliation and StaticMesh source-hash refresh can
 also mark packages Dirty during `PostLoad()`, but they represent external source
@@ -315,9 +318,9 @@ blocking editor startup or silently discarding incompatible data.
 
 ### Stage 0: Freeze The Audit And Migration Contract
 
-Dependencies: coordinate with the active DAsset Format Compaction plan so its
-v2/v3 payload context and rewrite semantics remain inputs rather than duplicate
-wire-format work.
+Dependencies: coordinate with the active DAsset V3 And Custom Asset Versioning
+plan so its v2/v3 payload context, custom schema versions, migration plans, and
+rewrite semantics remain inputs rather than duplicate wire-format work.
 
 - [x] Inventory every repository-owned path that changes authored package state
   during load, including structure upgraders, explicit schema versions,
@@ -345,8 +348,8 @@ wire-format work.
   staleness, and failure behavior contain no unresolved decisions.
 - The selected incremental budget keeps the editor responsive on the measured
   representative project and is reproducible in a focused test harness.
-- The contract consumes DAST version metadata without changing or competing
-  with the DAsset Format Compaction plan.
+- The contract consumes DAST and custom asset-schema version metadata without
+  changing or competing with the DAsset V3 And Custom Asset Versioning plan.
 
 ### Stage 1: Add AssetCore Audit And Execution Primitives
 
@@ -555,7 +558,7 @@ Build, test, and runtime execution follow
   metadata can preserve complete migration classification.
 - A non-interactive command-line write mode after an explicit repository content
   migration policy is designed.
-- Chained multi-version schema migrations and downgrade tooling.
+- Downgrade tooling.
 - Remote or source-control-aware checkout before upgrading read-only authored
   packages.
 - Persistent audit caches beyond registry fingerprints if measured projects
@@ -569,7 +572,7 @@ Build, test, and runtime execution follow
 - [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
 - [Build And Run](../Development/Build/BuildAndRun.md)
 - [Native C++ Tests](../Development/Build/NativeTests.md)
-- [DAsset Format Compaction Plan](DAssetFormatCompaction.md)
+- [DAsset V3 And Custom Asset Versioning Plan](DAssetV3AndCustomVersioning.md)
 - [Level Editor Modularization Plan](LevelEditorModularization.md)
 - [Asset Structure Upgrade Plan](Archive/2026-07/AssetStructureUpgrade.md)
 
