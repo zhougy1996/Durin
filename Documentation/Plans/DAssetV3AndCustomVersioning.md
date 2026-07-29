@@ -24,6 +24,21 @@ limits, malformed-input errors, missing/newer schema behavior, ordered
 are selected. Texture source provenance is assigned one production schema ID
 and two test-only IDs cover deterministic multi-entry golden vectors.
 
+Stage 1 completed on 2026-07-30 against baseline `8fe21b5f`. AssetCore now owns
+an ordered custom-version container, stable schema declarations, duplicate and
+conflict validation, deterministic base/derived class collection, and explicit
+plans for current, migratable, unknown, newer, too-old, and incomplete-chain
+state. Each registered step keeps inspection and application callbacks,
+declared consumed legacy fields, handler identity, summary, and risk together.
+Audit and load reports can carry the same callback-free plan records.
+
+The two legacy structure-upgrader entrypoints now populate one internal
+contributor descriptor and remain source-compatible. This preserves existing
+texture, static-mesh, component, and test registrations while allowing
+base/derived legacy contributors to compose. DAST remains v2: no package bytes
+or registry-cache records contain custom versions until Stage 2 implements the
+complete v3 reader and writer.
+
 ### Stage 0 Handoff
 
 - Baseline: `b45cd3b0`.
@@ -508,20 +523,20 @@ Dependencies: baseline `b45cd3b0`.
 
 Dependencies: Stage 0.
 
-- [ ] Add public schema ID, descriptor, version-container, declaration, and
+- [x] Add public schema ID, descriptor, version-container, declaration, and
   migration-step types in AssetCore without depending on Engine asset classes.
-- [ ] Register schemas and class usage with duplicate/conflict validation and
+- [x] Register schemas and class usage with duplicate/conflict validation and
   deterministic class-hierarchy collection.
-- [ ] Query missing versions as zero and compute complete `N -> N+1` chains
+- [x] Query missing versions as zero and compute complete `N -> N+1` chains
   with explicit unknown, newer, too-old, and missing-step failures.
-- [ ] Replace separate inspection/materialization policy registration with one
+- [x] Replace separate inspection/materialization policy registration with one
   contributor descriptor while preserving compatibility shims for existing
   callers during migration.
-- [ ] Allow multiple schema domains and base/derived contributors to compose
+- [x] Allow multiple schema domains and base/derived contributors to compose
   without overwriting one another.
-- [ ] Extend audit reports and load reports with schema ID, stored/current
+- [x] Extend audit reports and load reports with schema ID, stored/current
   version, selected steps, risk, and stable handler information.
-- [ ] Add focused tests for registration conflicts, absent versions, complete
+- [x] Add focused tests for registration conflicts, absent versions, complete
   chains, gaps, newer input, minimum-readable input, multiple domains,
   inheritance, inspection/apply parity, and unconsumed legacy fields.
 
@@ -534,6 +549,33 @@ Dependencies: Stage 0.
   final versions.
 - Existing structure-upgrade behavior remains available through the temporary
   compatibility adapter.
+
+#### Stage 1 Handoff
+
+- Baseline: `8fe21b5f` (the rebased Stage 0 commit is `fcd1b37f`).
+- Working set: this plan; `AssetSystem.h`; `AssetSystem.cpp`;
+  `PackageTests.cpp`.
+- Key symbols: `FAssetCustomVersionContainer`, `FAssetSchemaDescriptor`,
+  `FAssetSchemaMigrationStep`, `RegisterAssetSchema`,
+  `CollectAssetSchemasForClass`, `PlanAssetSchemaMigration`,
+  `PlanAssetSchemaMigrations`, `FRegisteredStructureContributor`.
+- Decisions: schema registration is atomic and rejects duplicate IDs, names,
+  affected classes, or migration edges; version zero is represented only by
+  absence from the ordered container; gaps are diagnosable at planning time
+  rather than rejected at registration; schema plans contain no callbacks and
+  are safe to retain in audit/load reports; executable callbacks are resolved
+  from the registered `(SchemaId, FromVersion)` edge; old inspection/apply APIs
+  merge only when their class and handler match.
+- Open questions: none for Stage 2. Stage 2 must populate the new report fields
+  from v3 headers and use the same plans during audit and materialization.
+- Validation: all 33 focused AssetPackageTests passed. The TextureTests target
+  and all Engine texture registrations compiled; 68 of 69 tests passed. The
+  remaining out-of-scope
+  `FTextureCubeTests.CookIsDeterministicAndRuntimeLoadsWithoutSources` failure
+  reproduces alone because that test calls `ShutdownAssetManager` and then
+  attempts a load without reopening request admission. Repository-wide plan
+  validation was attempted but is independently blocked by the invalid
+  `Completed` field in `RecoverableRendererResourceCreation.md`.
 
 ### Stage 2: Implement Dual-Version Reading And Deterministic V3 Writing
 
