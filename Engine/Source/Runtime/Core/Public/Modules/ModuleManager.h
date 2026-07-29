@@ -71,6 +71,9 @@ namespace Durin
 
 		CORE_API auto GetModule(const FName& InModuleName) -> IModuleInterface*;
 
+		// Runs a module's shutdown callback without releasing its instance or native library.
+		CORE_API auto ShutdownModule(const FName& InModuleName) -> void;
+
 		CORE_API auto UnloadModule(const FName& InModuleName) -> void;
 
 		CORE_API auto StartProcessingNewlyLoadedObjects() -> void;

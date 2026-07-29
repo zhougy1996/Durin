@@ -19,6 +19,7 @@
 #include "Misc/Project.h"
 #include "Misc/Time.h"
 #include "Misc/Version.h"
+#include "Modules/ModuleManager.h"
 #include "Profiling/Profiling.h"
 
 #include "Shader/ShaderPaths.h"
@@ -90,7 +91,7 @@ namespace Durin
 		// Command admission must be running before Mona, the renderer, or editor
 		// modules can publish their first render-thread work.
 		InitRenderingThread();
-		Mona::MonaInit();
+		FModuleManager::Get().LoadModuleChecked("Mona");
 
 		GEngine->Init();
 		LastTickTime = FTime::Seconds();
@@ -216,7 +217,7 @@ namespace Durin
 	{
 		if (!BeginEngineExit()) return;
 		AdvanceEngineExitPhase(EEngineExitPhase::DetachingRenderConsumers);
-		Mona::MonaShutdown();
+		FModuleManager::Get().ShutdownModule("Mona");
 
 		ShutdownEngineThreadPool(true);
 

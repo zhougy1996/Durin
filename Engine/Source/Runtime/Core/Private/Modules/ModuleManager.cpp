@@ -147,6 +147,18 @@ namespace Durin
 		return Result;
 	}
 
+	auto FModuleManager::ShutdownModule(const FName& InModuleName) -> void
+	{
+		const FModuleInfoPtr ModuleInfo = FindModule(InModuleName);
+		if (!ModuleInfo || !ModuleInfo->Module || !ModuleInfo->bIsReady.exchange(false))
+		{
+			return;
+		}
+
+		ModuleInfo->Module->ShutdownModule();
+		DURIN_DEBUG(STR("Module shutdown: {}"), InModuleName.ToString());
+	}
+
 	auto FModuleManager::UnloadModule(const FName& InModuleName) -> void
 	{
 		auto ModuleIt = Modules.find(InModuleName);
@@ -156,12 +168,7 @@ namespace Durin
 		}
 
 		FModuleInfoPtr ModuleInfo = ModuleIt->second;
-		if (ModuleInfo->bIsReady && ModuleInfo->Module)
-		{
-			ModuleInfo->Module->ShutdownModule();
-			ModuleInfo->bIsReady = false;
-			DURIN_DEBUG(STR("Module shutdown: {}"), InModuleName.ToString());
-		}
+		ShutdownModule(InModuleName);
 
 		ModuleInfo->Module.reset();
 		if (ModuleInfo->Handle)
@@ -202,12 +209,7 @@ namespace Durin
 
 		for (const auto& ModuleInfo : ModulesToUnload)
 		{
-			if (ModuleInfo->bIsReady)
-			{
-				ModuleInfo->Module->ShutdownModule();
-				ModuleInfo->bIsReady = false;
-				DURIN_DEBUG(STR("Module shutdown: {}"), ModuleInfo->ModuleName.ToString());
-			}
+			ShutdownModule(ModuleInfo->ModuleName);
 		}
 
 		ModulesToUnload.clear();

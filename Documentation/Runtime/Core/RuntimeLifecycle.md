@@ -24,7 +24,8 @@ loading, path mount points, `RenderCore` loading, and reflected object
 initialization.
 
 `FEngineLoop::Init()` handles common runtime startup, including
-`ApplicationCore`, `RHI`, the rendering thread, `Mona`, and `GEngine`.
+`ApplicationCore`, `RHI`, the rendering thread, the `Mona` module, and
+`GEngine`.
 Render-command admission opens immediately after `RHIInit()` and before Mona,
 the renderer, editor previews, or engine initialization can enqueue work.
 
@@ -107,6 +108,9 @@ Behavior summary:
 - filenames derive from the active runtime variant
 - filenames follow `<RuntimeVariant>-<ModuleName>.dll`
 - shutdown order is reverse load order
+- a module may run its shutdown callback early while its instance remains
+  available through the object drain; the final module pass releases instances,
+  while native libraries remain mapped until process exit
 
 When changing cross-module behavior, verify both CMake dependencies and runtime
 load order expectations.
@@ -126,8 +130,10 @@ Detailed viewport and composition contracts are documented in
 
 ## Engine Exit Protocol
 
-`FEngineLoop::Exit()` is the single process-level ordering owner. It advances
-one monotonic phase sequence:
+`FEngineLoop::Exit()` is the single process-level ordering owner. Mona's module
+shutdown callback runs during consumer detachment to close its windows and UI
+backend, while the stopped module instance remains loaded until the ordinary
+post-object-drain module pass. The loop advances one monotonic phase sequence:
 
 | Phase | Boundary |
 | --- | --- |

@@ -3,31 +3,42 @@
 #include "Application/MonaApplication.h"
 #include "MonaUIBackend.h"
 #include "MonaCoreGlobals.h"
+#include "Modules/ModuleManager.h"
+
+namespace Durin
+{
+	// Owns the process-wide Mona application while allowing its code to outlive UI shutdown.
+	class FMonaModule final : public IModuleInterface
+	{
+	public:
+		auto StartupModule() -> void override
+		{
+			Mona::FMonaApplication::Create();
+			Mona::FMonaApplication::Get().Initialize();
+
+#if DURIN_WITH_EDITOR
+			FModuleManager::Get().LoadModule("MonaImGui");
+#endif
+
+			DURIN_DEBUG(STR("Mona initialized successfully."));
+		}
+
+		auto ShutdownModule() -> void override
+		{
+#if DURIN_WITH_EDITOR
+			FModuleManager::Get().UnloadModule("MonaImGui");
+#endif
+
+			Mona::FMonaApplication::Shutdown();
+			DURIN_DEBUG(STR("Mona shutdown."));
+		}
+	};
+
+	IMPLEMENT_MODULE(FMonaModule, Mona)
+}
 
 namespace Durin::Mona
 {
-	auto MonaInit() -> void
-	{
-		FMonaApplication::Create();
-		FMonaApplication::Get().Initialize();
-
-#if DURIN_WITH_EDITOR
-		FModuleManager::Get().LoadModule("MonaImGui");
-#endif
-
-		DURIN_DEBUG(STR("Mona initialized successfully."));
-	}
-
-	auto MonaShutdown() -> void
-	{
-#if DURIN_WITH_EDITOR
-		FModuleManager::Get().UnloadModule("MonaImGui");
-#endif
-
-		FMonaApplication::Shutdown();
-		DURIN_DEBUG(STR("Mona shutdown."));
-	}
-
 	auto NewFrame() -> void
 	{
 		if (GActiveUIBackend)
