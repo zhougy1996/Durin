@@ -214,7 +214,7 @@ namespace Durin
 				});
 		EXPECT_TRUE(bAccepted);
 
-		ShutdownRenderingThreadBeforeRHIExit();
+		ShutdownRenderingThread();
 
 		EXPECT_TRUE(bAcceptedCommandExecuted.load(
 			std::memory_order_acquire));
@@ -315,7 +315,7 @@ namespace Durin
 		Resource->Release();
 
 		EXPECT_EQ(FRHIResource::GetNumPendingDeletes(), 1u);
-		ShutdownRenderingThreadBeforeRHIExit();
+		ShutdownRenderingThread();
 
 		EXPECT_TRUE(bDestroyed.load(std::memory_order_acquire));
 		EXPECT_EQ(FRHIResource::GetNumPendingDeletes(), 0u);
@@ -331,8 +331,8 @@ namespace Durin
 	{
 		EXPECT_DEATH_IF_SUPPORTED(
 			{
-				ShutdownRenderingThreadBeforeRHIExit();
-				ShutdownRenderingThreadBeforeRHIExit();
+				ShutdownRenderingThread();
+				ShutdownRenderingThread();
 			},
 			"");
 	}

@@ -151,11 +151,11 @@ namespace Durin
 		StartRenderingThread();
 	}
 
-	auto ShutdownRenderingThreadBeforeRHIExit() -> void
+	auto ShutdownRenderingThread() -> void
 	{
 		check(IsInGameThread());
 		FRenderThreadCommandPipe::CloseWithFinalCommand(
-			"ShutdownRenderingThreadBeforeRHIExit",
+			"ShutdownRenderingThread",
 			[](FRHICommandListImmediate& RHICmdList) {
 				const bool bResourcesReleased =
 					ValidateRenderResourceShutdown_RenderThread(
@@ -170,14 +170,6 @@ namespace Durin
 					"after the pre-RHI-exit drain.",
 					FRHIResource::GetNumPendingDeletes());
 			});
-		FRenderThreadCommandPipe::DrainAcceptedCommands();
-		StopRenderingThread();
-		FRenderThreadCommandPipe::MarkStopped();
-	}
-
-	auto ShutdownRenderingThread() -> void
-	{
-		FRenderThreadCommandPipe::CloseAdmission();
 		FRenderThreadCommandPipe::DrainAcceptedCommands();
 		StopRenderingThread();
 		FRenderThreadCommandPipe::MarkStopped();

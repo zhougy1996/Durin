@@ -45,10 +45,6 @@ namespace Durin
 		Draining,
 	};
 
-	// Atomically closes admission behind the final resource/RHI audit, drains
-	// accepted work, and stops the rendering thread.
-	RENDERCORE_API auto ShutdownRenderingThreadBeforeRHIExit() -> void;
-
 	RENDERCORE_API auto ShutdownRenderingThread() -> void;
 
 	// Waits for the rendering thread to finish processing all enqueued commands. Should only be used from the game thread.

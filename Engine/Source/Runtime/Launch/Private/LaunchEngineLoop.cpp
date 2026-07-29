@@ -212,7 +212,7 @@ namespace Durin
 		CollectGarbage();
 		CheckNoDeferredDestroyObjects("shutdown object destruction");
 		FModuleManager::Get().UnloadModulesAtShutdown();
-		ShutdownRenderingThreadBeforeRHIExit();
+		ShutdownRenderingThread();
 		RHIExit();
 
 		ShutdownApplicationCore();

@@ -153,7 +153,7 @@ namespace Durin
 		EXPECT_TRUE(TextureUnload) << TextureUnload.Message;
 		EXPECT_TRUE(
 			bAcceptedReferenceObserved->load(std::memory_order_acquire));
-		ShutdownRenderingThreadBeforeRHIExit();
+		ShutdownRenderingThread();
 		EXPECT_EQ(GetRenderCommandAdmissionState(),
 			ERenderCommandAdmissionState::Stopped);
 		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
@@ -223,7 +223,7 @@ namespace Durin
 		EXPECT_EQ(
 			GetNumPendingRenderResourceCleanup(), InitialDeferredCleanupCount);
 
-		ShutdownRenderingThreadBeforeRHIExit();
+		ShutdownRenderingThread();
 		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
 	}
 } // namespace Durin
