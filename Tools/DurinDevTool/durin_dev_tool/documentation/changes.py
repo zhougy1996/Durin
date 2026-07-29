@@ -63,7 +63,7 @@ class DocumentChangeSet:
         )
 
 
-def _content_hash(content: bytes) -> str:
+def content_hash(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
@@ -363,7 +363,7 @@ def prepare_move(
             raise DevToolError(
                 f'could not read Markdown file "{document}": {error}'
             ) from error
-        source_hash = _content_hash(original)
+        source_hash = content_hash(original)
         preconditions.append(FilePrecondition(document, source_hash))
         output_document = move_map.get(document, document)
         rewritten = rewrite_repository_paths(
@@ -439,7 +439,7 @@ def prepare_task_remove(
         deletions=(
             FileDeletion(
                 path=absolute_task,
-                expected_hash=_content_hash(source),
+                expected_hash=content_hash(source),
             ),
         ),
     )
@@ -457,7 +457,7 @@ def apply_change_set(
                 f'"{precondition.path}"'
             )
         if (
-            _content_hash(precondition.path.read_bytes())
+            content_hash(precondition.path.read_bytes())
             != precondition.expected_hash
         ):
             raise DevToolError(
@@ -474,7 +474,7 @@ def apply_change_set(
             raise DevToolError(
                 f'change source disappeared after preview: "{change.source}"'
             )
-        if _content_hash(change.source.read_bytes()) != change.expected_source_hash:
+        if content_hash(change.source.read_bytes()) != change.expected_source_hash:
             raise DevToolError(
                 f'change source was modified after preview: "{change.source}"'
             )
@@ -490,7 +490,7 @@ def apply_change_set(
             raise DevToolError(
                 f'deletion target disappeared after preview: "{deletion.path}"'
             )
-        if _content_hash(deletion.path.read_bytes()) != deletion.expected_hash:
+        if content_hash(deletion.path.read_bytes()) != deletion.expected_hash:
             raise DevToolError(
                 f'deletion target was modified after preview: "{deletion.path}"'
             )

@@ -173,7 +173,7 @@ class TestArchive:
         assert load_catalog(self.plans).errors == ()
 
     def test_apply_rolls_back_every_file_when_a_write_fails(self) -> None:
-        original_write = archive_module._atomic_write
+        original_write = changes_module.atomic_write
         calls = 0
 
         def fail_second_write(path: Path, content: bytes) -> None:
@@ -182,8 +182,46 @@ class TestArchive:
             if calls == 2:
                 raise OSError('simulated write failure')
             original_write(path, content)
-        with mock.patch.object(archive_module, '_atomic_write', side_effect=fail_second_write):
+        with mock.patch.object(changes_module, 'atomic_write', side_effect=fail_second_write):
             with pytest.raises(OSError, match='simulated write failure'):
+                apply_archive(self.plans, '2026-07')
+        assert self.plan.exists()
+        assert self.reference.read_text(encoding='utf-8') == '[Feature](Documentation/Plans/Feature.md)\n'
+        assert not (self.plans / 'Archive' / '2026-07' / 'Feature.md').exists()
+
+    def test_apply_rejects_stale_inputs_before_writing(self) -> None:
+        original_apply = archive_module.apply_change_set
+
+        def edit_then_apply(change_set, *, validator):
+            self.reference.write_text(
+                '[Feature](Documentation/Plans/Feature.md)\n\nUser edit.\n',
+                encoding='utf-8',
+            )
+            return original_apply(change_set, validator=validator)
+
+        with mock.patch.object(
+            archive_module,
+            'apply_change_set',
+            side_effect=edit_then_apply,
+        ):
+            with pytest.raises(DevToolError, match='modified after preview'):
+                apply_archive(self.plans, '2026-07')
+        assert self.plan.exists()
+        assert self.reference.read_text(encoding='utf-8').endswith('User edit.\n')
+        assert not (self.plans / 'Archive' / '2026-07' / 'Feature.md').exists()
+
+    def test_apply_rolls_back_after_post_validation_failure(self) -> None:
+        with mock.patch.object(
+            archive_module,
+            '_validate_archive',
+            side_effect=archive_module.ArchiveError(
+                'simulated validation failure'
+            ),
+        ):
+            with pytest.raises(
+                archive_module.ArchiveError,
+                match='simulated validation failure',
+            ):
                 apply_archive(self.plans, '2026-07')
         assert self.plan.exists()
         assert self.reference.read_text(encoding='utf-8') == '[Feature](Documentation/Plans/Feature.md)\n'

@@ -8,7 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .changes import (
-    atomic_write as _atomic_write,
+    DocumentChangeSet,
+    FileChange,
+    FilePrecondition,
+    apply_change_set,
+    content_hash,
     repository_markdown_files as _repository_markdown_files,
     rewrite_markdown_links as _rewrite_markdown_links,
     rewrite_repository_paths as _rewrite_repository_paths,
@@ -49,7 +53,7 @@ def parse_month(value: str) -> str:
 def _prepare(
     plans_directory: Path,
     month: str,
-) -> tuple[ArchivePreview, dict[Path, str]]:
+) -> tuple[ArchivePreview, DocumentChangeSet | None]:
     month = parse_month(month)
     catalog = load_catalog(plans_directory)
     if catalog.errors:
@@ -60,7 +64,7 @@ def _prepare(
         if plan.completed is not None and plan.completed.strftime("%Y-%m") == month
     ]
     if not selected:
-        return ArchivePreview(month, (), ()), {}
+        return ArchivePreview(month, (), ()), None
 
     repository = plans_directory.parent.parent.resolve()
     archive_directory = plans_directory / "Archive" / month
@@ -79,12 +83,17 @@ def _prepare(
     }
     markdown_files = set(_repository_markdown_files(repository))
     markdown_files.update(move.source.resolve() for move in moves)
-    rewrites: dict[Path, str] = {}
+    preconditions: list[FilePrecondition] = []
+    changes: list[FileChange] = []
+    reference_files: list[Path] = []
     for document in sorted(markdown_files):
         try:
-            text = document.read_text(encoding="utf-8")
+            original = document.read_bytes()
+            text = original.decode("utf-8")
         except (OSError, UnicodeError) as error:
             raise ArchiveError(f'could not read "{document}": {error}') from error
+        source_hash = content_hash(original)
+        preconditions.append(FilePrecondition(document, source_hash))
         output_document = move_map.get(document, document)
         rewritten = _rewrite_repository_paths(
             _rewrite_markdown_links(
@@ -98,8 +107,8 @@ def _prepare(
         )
         if document in move_map:
             rewritten, replacements = re.subn(
-                r"^Status: Completed$",
-                "Status: Archived",
+                r"^Status: Completed(?P<line_ending>\r?)$",
+                lambda match: "Status: Archived" + match.group("line_ending"),
                 rewritten,
                 count=1,
                 flags=re.MULTILINE,
@@ -108,13 +117,27 @@ def _prepare(
                 raise ArchiveError(
                     f'completed status was not found exactly once in "{document}"'
                 )
-        if rewritten != text:
-            rewrites[document] = rewritten
+        content = rewritten.encode("utf-8")
+        if content != original or document in move_map:
+            changes.append(
+                FileChange(
+                    source=document,
+                    destination=output_document,
+                    content=content,
+                    expected_source_hash=source_hash,
+                )
+            )
+            if document not in move_map:
+                reference_files.append(document)
 
-    reference_files = tuple(
-        path for path in rewrites if path not in move_map
+    preview = ArchivePreview(month, moves, tuple(reference_files))
+    return preview, DocumentChangeSet(
+        operation="archive",
+        changes=tuple(changes),
+        preconditions=tuple(preconditions),
+        primary_source=moves[0].source,
+        primary_destination=moves[0].destination,
     )
-    return ArchivePreview(month, moves, reference_files), rewrites
 
 
 def preview_archive(plans_directory: Path, month: str) -> ArchivePreview:
@@ -122,77 +145,39 @@ def preview_archive(plans_directory: Path, month: str) -> ArchivePreview:
     return preview
 
 
+def _validate_archive(plans_directory: Path, repository: Path) -> None:
+    catalog = load_catalog(plans_directory)
+    if catalog.errors:
+        raise ArchiveError(
+            "archive validation failed:\n- " + "\n- ".join(catalog.errors)
+        )
+    document_catalog = load_document_catalog(
+        repository,
+        include_archive=True,
+    )
+    document_errors = [
+        diagnostic
+        for diagnostic in validate_documents(document_catalog)
+        if diagnostic.severity is DiagnosticSeverity.ERROR
+    ]
+    if document_errors:
+        details = "\n- ".join(
+            f"{diagnostic.path.as_posix()}: {diagnostic.message}"
+            for diagnostic in document_errors
+        )
+        raise ArchiveError(
+            "documentation validation failed after archive:\n- " + details
+        )
+
+
 def apply_archive(plans_directory: Path, month: str) -> ArchivePreview:
     plans_directory = plans_directory.resolve()
     repository = plans_directory.parent.parent
-    preview, rewrites = _prepare(plans_directory, month)
-    if not preview.moves:
+    preview, change_set = _prepare(plans_directory, month)
+    if change_set is None:
         return preview
-
-    move_map = {
-        move.source.resolve(): move.destination.resolve() for move in preview.moves
-    }
-    touched = set(rewrites)
-    touched.update(move_map.values())
-    snapshots = {
-        path: path.read_bytes() if path.exists() else None for path in touched
-    }
-    created_directories: set[Path] = set()
-    try:
-        for move in preview.moves:
-            if not move.destination.parent.exists():
-                candidate = move.destination.parent
-                while not candidate.exists():
-                    created_directories.add(candidate)
-                    candidate = candidate.parent
-                move.destination.parent.mkdir(parents=True)
-        for original, rewritten in rewrites.items():
-            destination = move_map.get(original.resolve(), original)
-            _atomic_write(destination, rewritten.encode("utf-8"))
-        for move in preview.moves:
-            move.source.unlink()
-
-        catalog = load_catalog(plans_directory)
-        if catalog.errors:
-            raise ArchiveError(
-                "archive validation failed:\n- " + "\n- ".join(catalog.errors)
-            )
-        document_catalog = load_document_catalog(
-            repository,
-            include_archive=True,
-        )
-        document_errors = [
-            diagnostic
-            for diagnostic in validate_documents(document_catalog)
-            if diagnostic.severity is DiagnosticSeverity.ERROR
-        ]
-        if document_errors:
-            details = "\n- ".join(
-                f"{diagnostic.path.as_posix()}: {diagnostic.message}"
-                for diagnostic in document_errors
-            )
-            raise ArchiveError(
-                "documentation validation failed after archive:\n- "
-                + details
-            )
-    except BaseException:
-        for path, content in snapshots.items():
-            if content is None:
-                path.unlink(missing_ok=True)
-            else:
-                _atomic_write(path, content)
-        for move in preview.moves:
-            source = move.source.resolve()
-            if source not in snapshots:
-                _atomic_write(source, move.destination.read_bytes())
-        for directory in sorted(
-            created_directories,
-            key=lambda path: len(path.parts),
-            reverse=True,
-        ):
-            try:
-                directory.rmdir()
-            except OSError:
-                pass
-        raise
+    apply_change_set(
+        change_set,
+        validator=lambda: _validate_archive(plans_directory, repository),
+    )
     return preview
