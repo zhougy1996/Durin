@@ -414,22 +414,24 @@ class TestCore:
         directory = tmp_path_factory.mktemp('case')
         marker = Path(directory) / 'interrupted.json'
 
-        def interrupt() -> None:
+        def interrupt(_target_override: str | None) -> None:
             raise build_config.BuildToolInterruptedError('interrupted')
         with pytest.raises(build_config.BuildToolInterruptedError):
             build_core.execute_with_recovery_marker(action=build_config.Action.BUILD, marker_file=marker, metadata={'pid': 1, 'action': 'build', 'target': 'Core'}, operation=interrupt)
         with pytest.raises(build_config.BuildToolError, match='did not return normally') as blocked:
-            build_core.execute_with_recovery_marker(action=build_config.Action.BUILD, marker_file=marker, metadata={'pid': 1, 'action': 'build', 'target': 'Core'}, operation=lambda: None)
+            build_core.execute_with_recovery_marker(action=build_config.Action.BUILD, marker_file=marker, metadata={'pid': 1, 'action': 'build', 'target': 'Core'}, operation=lambda _target: None)
         assert 'run recover' in blocked.value.recovery
-        build_core.execute_with_recovery_marker(action=build_config.Action.REBUILD, marker_file=marker, metadata={'pid': 1, 'action': 'rebuild', 'target': 'Core'}, operation=lambda: None)
+        build_core.execute_with_recovery_marker(action=build_config.Action.REBUILD, marker_file=marker, metadata={'pid': 1, 'action': 'rebuild', 'target': 'Core'}, operation=lambda _target: None)
         assert not marker.exists()
 
     def test_rebuild_rejects_an_unrelated_recovery_target(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         marker = Path(directory) / 'interrupted.json'
         marker.write_text(json.dumps({'pid': 1, 'action': 'build', 'target': 'Core'}), encoding='utf-8')
+        operation = mock.Mock()
         with pytest.raises(build_config.BuildToolError, match='Interrupted target "Core"'):
-            build_core.execute_with_recovery_marker(action=build_config.Action.REBUILD, marker_file=marker, metadata={'pid': 2, 'action': 'rebuild', 'target': 'Editor'}, operation=lambda: None)
+            build_core.execute_with_recovery_marker(action=build_config.Action.REBUILD, marker_file=marker, metadata={'pid': 2, 'action': 'rebuild', 'target': 'Editor'}, operation=operation)
+        operation.assert_not_called()
         assert build_core.recovery_target(marker) == 'Core'
 
     def test_invalid_or_non_target_recovery_state_falls_back_to_all(self, tmp_path_factory: pytest.TempPathFactory) -> None:
@@ -446,8 +448,21 @@ class TestCore:
         directory = tmp_path_factory.mktemp('case')
         marker = Path(directory) / 'interrupted.json'
         marker.write_text(json.dumps({'pid': 1, 'action': 'build', 'target': 'Core'}), encoding='utf-8')
-        build_core.execute_with_recovery_marker(action=build_config.Action.RECOVER, marker_file=marker, metadata={'pid': 2, 'action': 'recover', 'target': 'Core'}, operation=lambda: None)
+        operation = mock.Mock()
+        build_core.execute_with_recovery_marker(action=build_config.Action.RECOVER, marker_file=marker, metadata={'pid': 2, 'action': 'recover', 'target': 'recorded-target'}, operation=operation)
+        operation.assert_called_once_with('Core')
         assert not marker.exists()
+
+    def test_recover_validation_failure_does_not_execute_or_replace_marker(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        marker = Path(directory) / 'interrupted.json'
+        original = b'{"action": "unknown", "target": "Core"}'
+        marker.write_bytes(original)
+        operation = mock.Mock()
+        with pytest.raises(build_config.BuildToolError, match='cannot be resumed safely'):
+            build_core.execute_with_recovery_marker(action=build_config.Action.RECOVER, marker_file=marker, metadata={'pid': 2, 'action': 'recover', 'target': 'recorded-target'}, operation=operation)
+        operation.assert_not_called()
+        assert marker.read_bytes() == original
 
     def test_recover_builds_incrementally_without_cleaning(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = self.make_preset()
@@ -463,8 +478,17 @@ class TestCore:
         directory = tmp_path_factory.mktemp('case')
         marker = Path(directory) / 'interrupted.json'
         with pytest.raises(build_config.BuildToolError, match='failed'):
-            build_core.execute_with_recovery_marker(action=build_config.Action.BUILD, marker_file=marker, metadata={'pid': 1}, operation=lambda: (_ for _ in ()).throw(build_config.BuildToolError('failed')))
+            build_core.execute_with_recovery_marker(action=build_config.Action.BUILD, marker_file=marker, metadata={'pid': 1}, operation=lambda _target: (_ for _ in ()).throw(build_config.BuildToolError('failed')))
         assert not marker.exists()
+
+    def test_recover_command_failure_restores_interruption_marker(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        marker = Path(directory) / 'interrupted.json'
+        original = b'{"pid": 1, "action": "build", "target": "Core"}'
+        marker.write_bytes(original)
+        with pytest.raises(build_config.BuildToolError, match='failed'):
+            build_core.execute_with_recovery_marker(action=build_config.Action.RECOVER, marker_file=marker, metadata={'pid': 2, 'action': 'recover', 'target': 'recorded-target'}, operation=lambda _target: (_ for _ in ()).throw(build_config.BuildToolError('failed')))
+        assert marker.read_bytes() == original
 
     def test_keyboard_interrupt_terminates_child_process_tree(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         process = mock.Mock()

@@ -69,7 +69,7 @@ def execute_with_recovery_marker(
     action: Action,
     marker_file: Path,
     metadata: Mapping[str, Any],
-    operation: Callable[[], None],
+    operation: Callable[[str | None], None],
 ) -> None:
     try:
         previous_content = marker_file.read_bytes()
@@ -77,6 +77,7 @@ def execute_with_recovery_marker(
         previous_content = None
     except OSError as exc:
         raise BuildToolError(f'Could not read DurinDevTool recovery state "{marker_file}": {exc}') from exc
+    target_override: str | None = None
     if previous_content is None and action is Action.RECOVER:
         raise BuildToolError("No interrupted DurinDevTool operation was found for this preset.")
     if previous_content is not None and action in {Action.BUILD, Action.TEST}:
@@ -104,26 +105,20 @@ def execute_with_recovery_marker(
             )
     if previous_content is not None and action is Action.RECOVER:
         required_target = recoverable_target(marker_file)
-        requested_target = metadata.get("target")
         if required_target is None:
             raise BuildToolError(
                 "The interrupted DurinDevTool state cannot be resumed safely.",
                 recovery="Run rebuild --target all with the affected preset.",
             )
-        if requested_target != required_target:
-            raise BuildToolError(
-                f'Recovery target changed from "{required_target}" to "{requested_target}".',
-                recovery="Run DevTool status again before recovering.",
-            )
+        target_override = required_target
+        metadata = {**metadata, "target": required_target}
     write_json_state(marker_file, metadata)
     try:
-        operation()
+        operation(target_override)
     except BuildToolInterruptedError:
         raise
     except BuildToolError:
         restore_state_file(marker_file, previous_content)
-        raise
-    except BaseException:
         raise
     else:
         if action in {Action.REBUILD, Action.RECOVER} or previous_content is None:

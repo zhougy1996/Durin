@@ -794,30 +794,18 @@ def execute_context(
         elif context.request.action is Action.RUN:
             run_application(context, output)
         else:
-            recovery_target_override: str | None = None
-            if context.request.action is Action.RECOVER:
-                recovery_target_override = recoverable_target(marker_file)
-                if recovery_target_override is None:
-                    if marker_file.is_file():
-                        raise BuildToolError(
-                            "The interrupted DurinDevTool state cannot be resumed safely.",
-                            recovery="Run rebuild --target all with the affected preset.",
-                        )
-                    raise BuildToolError(
-                        "No interrupted DurinDevTool operation was found for this preset."
-                    )
             metadata = operation_metadata(
                 context,
-                target=recovery_target_override or context.target,
+                target=context.target,
             )
             execute_with_recovery_marker(
                 action=context.request.action,
                 marker_file=marker_file,
                 metadata=metadata,
-                operation=lambda: perform_action(
+                operation=lambda target_override: perform_action(
                     context,
                     output,
-                    target_override=recovery_target_override,
+                    target_override=target_override,
                 ),
             )
             # Native tests only read completed build outputs. Their assertion failures,
