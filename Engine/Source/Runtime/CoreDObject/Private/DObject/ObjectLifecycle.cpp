@@ -214,6 +214,9 @@ namespace Durin
 	{
 		CheckObjectThread();
 		GLastGarbageCollectionStats = {};
+		const uint64 ObjectCountBeforeCollection = GDObjectArray.GetNum();
+		const uint64 PendingKillCountBeforeCollection = GetGarbageObjectCount();
+		const double CollectionStartTime = FTime::Seconds();
 		const double MarkStartTime = FTime::Seconds();
 		for (DObject* Object : GDObjectArray.GetAll()) Object->ClearInternalFlags(EObjectInternalFlags::Reachable);
 
@@ -269,6 +272,20 @@ namespace Durin
 			static_cast<uint64>(DestroyOrder.size()) - DestroyedObjectCount;
 		GLastGarbageCollectionStats.SweepMilliseconds = (FTime::Seconds() - SweepStartTime) * 1000.0;
 		NotifyGarbageCollectionCompleted(FTime::Seconds(), GLastGarbageCollectionStats);
+		DURIN_INFO_CATEGORY(
+			"GC",
+			"Garbage collection completed in {:.3f} ms (mark {:.3f} ms, sweep {:.3f} ms): "
+			"objects {} -> {}, marked {}, candidates {}, swept {}, deferred {}, pending kill {}.",
+			(FTime::Seconds() - CollectionStartTime) * 1000.0,
+			GLastGarbageCollectionStats.MarkMilliseconds,
+			GLastGarbageCollectionStats.SweepMilliseconds,
+			ObjectCountBeforeCollection,
+			GDObjectArray.GetNum(),
+			GLastGarbageCollectionStats.MarkedObjectCount,
+			GLastGarbageCollectionStats.CandidateObjectCount,
+			GLastGarbageCollectionStats.SweptObjectCount,
+			GLastGarbageCollectionStats.DeferredDestroyObjectCount,
+			PendingKillCountBeforeCollection);
 	}
 
 	auto GetGarbageObjectCount() -> uint64

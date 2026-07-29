@@ -181,26 +181,9 @@ namespace Durin
 			Mona::NewFrame();
 			RenderFrame();
 		}
-		const uint64 ObjectsBeforeGC = GDObjectArray.GetNum();
-		const uint64 PendingKillBeforeGC = GetGarbageObjectCount();
-		const double GCStartTime = FTime::Seconds();
-		EGarbageCollectionTrigger GCTrigger;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.GarbageCollection");
-			GCTrigger = TryCollectGarbage(GCStartTime);
-		}
-		if (GCTrigger != EGarbageCollectionTrigger::None)
-		{
-			const FGarbageCollectionStats& GCStats = GetLastGarbageCollectionStats();
-			const char* TriggerName = GCTrigger == EGarbageCollectionTrigger::Interval ? "interval"
-				: GCTrigger == EGarbageCollectionTrigger::PendingKillPressure ? "pending-kill pressure"
-				: "object-growth pressure";
-			DURIN_INFO_CATEGORY("GC", "Automatic GC ({}) completed in {:.3f} ms (mark {:.3f} ms, sweep {:.3f} ms): "
-				"objects {} -> {}, marked {}, candidates {}, swept {}, deferred {}, pending kill {}, next interval {:.1f} s.", TriggerName,
-				(FTime::Seconds() - GCStartTime) * 1000.0, GCStats.MarkMilliseconds, GCStats.SweepMilliseconds,
-				ObjectsBeforeGC, GDObjectArray.GetNum(), GCStats.MarkedObjectCount, GCStats.CandidateObjectCount,
-				GCStats.SweptObjectCount, GCStats.DeferredDestroyObjectCount, PendingKillBeforeGC,
-				GetCurrentAutomaticGarbageCollectionIntervalSeconds());
+			TryCollectGarbage(FTime::Seconds());
 		}
 
 		CalculateFPSTimings();
@@ -227,20 +210,9 @@ namespace Durin
 		GEngine = nullptr;
 		Asset::ShutdownAssetManager();
 		CollectGarbage();
-		const uint64 DeferredBeforeRenderFlush =
-			GetLastGarbageCollectionStats().DeferredDestroyObjectCount;
-		DURIN_INFO_CATEGORY(
-			"GC",
-			"Shutdown object release pass deferred {} object(s) before the render flush.",
-			DeferredBeforeRenderFlush);
 
 		if (GRenderingThread) FlushRenderingCommands();
 		CollectGarbage();
-		DURIN_INFO_CATEGORY(
-			"GC",
-			"Shutdown object finalization pass swept {} object(s) and left {} deferred.",
-			GetLastGarbageCollectionStats().SweptObjectCount,
-			GetLastGarbageCollectionStats().DeferredDestroyObjectCount);
 		CheckNoDeferredDestroyObjects("shutdown object destruction");
 		AdvanceEngineExitPhase(EEngineExitPhase::UnloadingModules);
 		FModuleManager::Get().UnloadModulesAtShutdown();

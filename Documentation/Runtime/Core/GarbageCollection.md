@@ -124,7 +124,10 @@ The engine checks the garbage-collection scheduler after end-of-frame render syn
 
 The elapsed interval starts at `IntervalSeconds`. A collection with no sweep candidates backs it off by `IntervalBackoffMultiplier`, capped by `MaxIntervalSeconds`; finding any candidate restores the base interval. The cap is the correctness fallback for garbage created only by removing a strong reference, because reference mutations do not currently have a write barrier. Pending-kill and object-growth pressure continue to trigger during backoff.
 
-`CollectGarbage()` remains available for explicit collection. Automatic and explicit collection both execute synchronously on the game thread.
+`TryCollectGarbage()` logs the selected automatic trigger immediately before
+collection. `CollectGarbage()` remains available for explicit collection and
+logs the completed mark-and-sweep statistics for every collection. Automatic
+and explicit collection both execute synchronously on the game thread.
 
 ## Required Invariants
 

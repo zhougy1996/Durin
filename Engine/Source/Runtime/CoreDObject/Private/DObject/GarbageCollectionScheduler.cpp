@@ -8,6 +8,21 @@ namespace Durin
 	namespace
 	{
 		FGarbageCollectionScheduler GGarbageCollectionScheduler;
+
+		constexpr auto GetGarbageCollectionTriggerName(EGarbageCollectionTrigger Trigger) -> std::string_view
+		{
+			switch (Trigger)
+			{
+			case EGarbageCollectionTrigger::Interval:
+				return "elapsed interval";
+			case EGarbageCollectionTrigger::PendingKillPressure:
+				return "pending-kill pressure";
+			case EGarbageCollectionTrigger::ObjectGrowthPressure:
+				return "object-growth pressure";
+			default:
+				return "none";
+			}
+		}
 	}
 
 	FGarbageCollectionScheduler::FGarbageCollectionScheduler(FGarbageCollectionSettings InSettings)
@@ -66,10 +81,13 @@ namespace Durin
 	auto TryCollectGarbage(double CurrentTime) -> EGarbageCollectionTrigger
 	{
 		const EGarbageCollectionTrigger Trigger = GGarbageCollectionScheduler.ShouldCollect(CurrentTime, GDObjectArray.GetNum(), GetGarbageObjectCount());
-		if (Trigger != EGarbageCollectionTrigger::None)
-		{
-			CollectGarbage();
-		}
+		if (Trigger == EGarbageCollectionTrigger::None) return Trigger;
+
+		DURIN_INFO_CATEGORY(
+			"GC",
+			"Automatic garbage collection triggered by {}.",
+			GetGarbageCollectionTriggerName(Trigger));
+		CollectGarbage();
 		return Trigger;
 	}
 
