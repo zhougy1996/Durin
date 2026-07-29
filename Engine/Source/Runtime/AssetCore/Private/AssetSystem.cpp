@@ -1,6 +1,7 @@
 #include "AssetSystem.h"
 #include "Profiling/Profiling.h"
 
+#include "CoreGlobals.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
@@ -1865,9 +1866,18 @@ namespace Durin::Asset
 		return Instance;
 	}
 
+	FAssetManager::FAssetManager()
+	{
+		PreExitHandle = AddOnEnginePreExit(
+			[this]() { StopAcceptingRequests(); });
+		check(PreExitHandle.IsValid());
+	}
+
 	auto FAssetManager::CreateAsset(const FAssetPath& Path, DClass* Class, size_t Size, DObject*& OutAsset) -> FAssetResult
 	{
 		OutAsset = nullptr;
+		if (!bAcceptingRequests)
+			return Error(EAssetError::ShuttingDown, "Asset creation is closed while the asset manager is shutting down.");
 		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit asset creation.");
 		if (!Path.IsValid() || !Class || !Class->ClassConstructor) return Error(EAssetError::InvalidPath, "Invalid asset path or class.");
@@ -2385,6 +2395,13 @@ namespace Durin::Asset
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.Load");
+		if (!bAcceptingRequests)
+		{
+			OutAsset = nullptr;
+			return Error(
+				EAssetError::ShuttingDown,
+				"Asset loading is closed while the asset manager is shutting down.");
+		}
 		if (OutReport) *OutReport = {.PackagePath = Path};
 		const bool bRootLoad = LoadDepth++ == 0;
 		if (bRootLoad) TransactionPackages.clear();
@@ -2649,6 +2666,11 @@ namespace Durin::Asset
 
 	auto FAssetManager::Shutdown() -> void
 	{
+		if (!bAcceptingRequests && PreExitHandle.IsValid())
+		{
+			RemoveOnEnginePreExit(PreExitHandle);
+			PreExitHandle.Reset();
+		}
 		Registry.FlushPersistentSnapshot();
 		std::vector<DPackage*> Packages;
 		Packages.reserve(LoadedPackages.size());
@@ -2669,6 +2691,13 @@ namespace Durin::Asset
 			MarkObjectHierarchyAsGarbage(Package);
 		}
 		CollectGarbage();
+	}
+
+	auto FAssetManager::StopAcceptingRequests() -> void
+	{
+		if (!bAcceptingRequests) return;
+		bAcceptingRequests = false;
+		DURIN_DEBUG("Asset manager stopped accepting new requests.");
 	}
 
 	auto FAssetManager::ConfigurePackageLoadContext(FPackageLoadContext InContext) -> FAssetResult

@@ -6,8 +6,9 @@
 
 namespace Durin
 {
+	class DMaterialInterface;
 	class DStaticMesh;
-	class PrimitiveSceneProxy;
+	class DTextureCube;
 
 	enum class ERenderedAssetThumbnailCaptureState : uint8
 	{
@@ -32,10 +33,15 @@ namespace Durin
 		DURINED_API auto IsAvailable() const -> bool;
 		DURINED_API auto GetDiagnostic() const -> std::string;
 		DURINED_API auto GetSphereMesh() const -> DStaticMesh*;
-		// Replaces all provider-owned scene state while no capture is outstanding.
-		DURINED_API auto SetPrimitive(
-			std::unique_ptr<PrimitiveSceneProxy> Proxy,
-			const FMatrix& Transform,
+		// Replaces all provider-owned component state while no capture is outstanding.
+		DURINED_API auto SetMaterial(
+			DStaticMesh* Mesh,
+			DMaterialInterface* Material,
+			const FTransform& Transform,
+			std::string& OutError) -> bool;
+		DURINED_API auto SetTextureCube(
+			DTextureCube* TextureCube,
+			const FTransform& Transform,
 			std::string& OutError) -> bool;
 		// Enqueues one render and one readback on the rendering thread. Transparent
 		// captures clear to transparent black so UI compositing has no color fringe.

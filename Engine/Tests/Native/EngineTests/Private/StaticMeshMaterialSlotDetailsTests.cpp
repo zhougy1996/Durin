@@ -13,6 +13,7 @@
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "StaticMeshTestAccess.h"
 #include "Texture/Texture2D.h"
 #include "Workspace/LevelEditorContext.h"
 
@@ -32,7 +33,11 @@ namespace
 		Slot->SourceName = std::string(Name);
 		Slot->SourceMaterialIndex = static_cast<Durin::uint32>(Index);
 		Slot->DefaultMaterial = Default;
-		Mesh->GetRenderData()->MaterialSlots.push_back({std::string(Name), static_cast<Durin::uint32>(Index), Slot->SlotId});
+		Durin::FStaticMeshTestAccess::GetMutableRenderData(Mesh)
+			->MaterialSlots.push_back(
+				{std::string(Name),
+					static_cast<Durin::uint32>(Index),
+					Slot->SlotId});
 		return Slot->SlotId;
 	}
 

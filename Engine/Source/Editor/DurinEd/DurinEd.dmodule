@@ -15,6 +15,7 @@
         "MonaImGui"
     ],
     "ReflectHeaders": [
-        "Public/Editor/EditorEngine.h"
+        "Public/Editor/EditorEngine.h",
+        "Public/Preview/TextureCubePreviewComponent.h"
     ]
 }

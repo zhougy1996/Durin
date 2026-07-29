@@ -378,15 +378,18 @@ namespace Durin
 	// renderer paths without changing their ownership yet.
 	ENGINE_API auto GetStaticMeshVertexDeclarationElements() -> FVertexDeclarationElementList;
 
-	// Owns all renderable LODs, material slots, and aggregate bounds for a static mesh.
+	// Owns all renderable LODs, material slots, and bounds for a static mesh.
 	struct FStaticMeshRenderData
 	{
 		std::vector<FStaticMeshLODResources> LODResources;
 		std::vector<FStaticMeshMaterialSlot> MaterialSlots;
 		FBox LocalBounds;
 
-		ENGINE_API auto InitResources(FRHICommandListImmediate& RHICmdList) -> void;
+		ENGINE_API auto InitResources(FRHICommandListImmediate& RHICmdList) -> bool;
 		ENGINE_API auto ReleaseResources() -> void;
+		ENGINE_API auto SetResourceLifetimeDiagnostics(
+			std::string_view Owner) -> void;
+		ENGINE_API auto GetNumInitializedResources() const -> size_t;
 		ENGINE_API auto IsReadyForRendering(uint32 LODIndex = 0) const -> bool;
 		ENGINE_API auto RecalculateBounds() -> void;
 	};

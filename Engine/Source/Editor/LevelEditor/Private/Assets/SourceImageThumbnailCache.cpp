@@ -48,6 +48,7 @@ namespace Durin
 			std::vector<FDecodeResult> DecodedResults;
 			std::vector<FUploadResult> UploadedResults;
 			std::shared_ptr<FSourceImageThumbnailDiskCache> DiskCache = std::make_shared<FSourceImageThumbnailDiskCache>();
+			bool bAcceptingResults = true;
 		};
 	} // namespace
 
@@ -85,6 +86,7 @@ namespace Durin
 		std::shared_ptr<FAsyncThumbnailState> AsyncState = std::make_shared<FAsyncThumbnailState>();
 		uint64 FrameNumber = 0;
 		uint32 ActiveDecodeCount = 0;
+		bool bShuttingDown = false;
 
 		auto UnregisterTexture(FEntry& Entry) -> void
 		{
@@ -188,6 +190,7 @@ namespace Durin
 					if (const std::shared_ptr<FAsyncThumbnailState> State = WeakState.lock())
 					{
 						std::lock_guard Lock(State->Mutex);
+						if (!State->bAcceptingResults) return;
 						State->UploadedResults.push_back({PhysicalPath, Serial, std::move(Texture), Width, Height, bHasTransparency});
 					}
 				});
@@ -218,6 +221,7 @@ namespace Durin
 					if (const std::shared_ptr<FAsyncThumbnailState> State = WeakState.lock())
 					{
 						std::lock_guard Lock(State->Mutex);
+						if (!State->bAcceptingResults) return;
 						State->DecodedResults.push_back(std::move(Result));
 					}
 				});
@@ -256,16 +260,24 @@ namespace Durin
 	FSourceImageThumbnailCache::FSourceImageThumbnailCache()
 		: Impl(std::make_unique<FImpl>())
 	{
+		PreExitHandle = AddOnEnginePreExit([this]() { Shutdown(); });
+		check(PreExitHandle.IsValid());
 	}
 
 	FSourceImageThumbnailCache::~FSourceImageThumbnailCache()
 	{
-		Clear();
+		if (PreExitHandle.IsValid())
+		{
+			RemoveOnEnginePreExit(PreExitHandle);
+			PreExitHandle.Reset();
+		}
+		Shutdown();
 		Impl->AsyncState.reset();
 	}
 
 	auto FSourceImageThumbnailCache::BeginFrame() -> void
 	{
+		if (Impl->bShuttingDown) return;
 		++Impl->FrameNumber;
 		for (auto& [Path, Entry] : Impl->Entries) Entry.bVisible = false;
 		Impl->DrainUploadResults();
@@ -275,6 +287,11 @@ namespace Durin
 
 	auto FSourceImageThumbnailCache::Request(const FSourceImageThumbnailRequest& Request) -> void
 	{
+		if (Impl->bShuttingDown)
+		{
+			DURIN_WARN("Source-image thumbnail request rejected after cache shutdown.");
+			return;
+		}
 		if (Request.Identity.empty() || Request.PhysicalPath.empty()) return;
 		const std::string Identity(Request.Identity);
 		const std::string Key(Request.PhysicalPath);
@@ -342,6 +359,7 @@ namespace Durin
 
 	auto FSourceImageThumbnailCache::EndFrame() -> void
 	{
+		if (Impl->bShuttingDown) return;
 		Impl->LaunchPendingDecodes();
 		Impl->EvictToBudget();
 	}
@@ -364,5 +382,23 @@ namespace Durin
 		for (auto& [Path, Entry] : Impl->Entries) Impl->UnregisterTexture(Entry);
 		Impl->Entries.clear();
 		Impl->IdentityToSource.clear();
+	}
+
+	auto FSourceImageThumbnailCache::Shutdown() -> void
+	{
+		if (Impl->bShuttingDown) return;
+		Impl->bShuttingDown = true;
+		{
+			std::lock_guard Lock(Impl->AsyncState->Mutex);
+			Impl->AsyncState->bAcceptingResults = false;
+			Impl->AsyncState->DecodedResults.clear();
+			Impl->AsyncState->UploadedResults.clear();
+		}
+		Clear();
+	}
+
+	auto FSourceImageThumbnailCache::IsShuttingDown() const -> bool
+	{
+		return Impl->bShuttingDown;
 	}
 } // namespace Durin

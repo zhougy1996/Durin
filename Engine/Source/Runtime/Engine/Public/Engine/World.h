@@ -9,11 +9,13 @@
 namespace Durin
 {
 	class AActor;
+	class IScene;
 
 	// Distinguishes editor, play-session, and standalone game world behavior.
 	enum class EWorldType : uint8
 	{
 		Editor,
+		Preview,
 		PlayInEditor,
 		Game
 	};
@@ -44,6 +46,7 @@ namespace Durin
 		ENGINE_API auto BeginPlay() -> void;
 		ENGINE_API auto Tick(float DeltaSeconds) -> void;
 		ENGINE_API auto EndPlay() -> void;
+		ENGINE_API auto SetRenderScene(IScene* InRenderScene) -> void;
 		auto HasBegunPlay() const -> bool { return bHasBegunPlay; }
 		auto IsPaused() const -> bool { return bPaused; }
 		auto SetPaused(bool bInPaused) -> void { bPaused = bInPaused; }
@@ -52,6 +55,7 @@ namespace Durin
 		auto SetPhysicsSimulationEnabled(bool bEnabled) -> void { bPhysicsSimulationEnabled = bEnabled; }
 		auto GetWorldType() const -> EWorldType { return WorldType; }
 		auto SetWorldType(EWorldType InType) -> void { WorldType = InType; }
+		auto GetRenderScene() const -> IScene* { return RenderScene; }
 		// A world is valid without an active level. Editor and runtime callers must handle nullptr.
 		auto GetCurrentLevel() const -> DLevel* { return CurrentLevel.Get(); }
 
@@ -60,6 +64,9 @@ namespace Durin
 		DPROPERTY(Transient)
 		TObjectPtr<DLevel> CurrentLevel;
 
+		// Owned by the world host (DEngine or an editor preview scene). Components
+		// retain this endpoint only for the duration of one registration.
+		IScene* RenderScene = nullptr;
 		EWorldType WorldType = EWorldType::Game;
 		bool bHasBegunPlay = false;
 		bool bPaused = false;

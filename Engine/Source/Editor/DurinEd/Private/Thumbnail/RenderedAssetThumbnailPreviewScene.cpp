@@ -2,23 +2,26 @@
 
 #include "Asset/EditorAssetRetention.h"
 #include "Components/DirectionalLightComponent.h"
-#include "DObject/DObjectGlobals.h"
-#include "DObject/ObjectLifecycle.h"
+#include "Components/StaticMeshComponent.h"
 #include "DynamicRHI.h"
+#include "Engine/Actor.h"
 #include "Engine/Engine.h"
-#include "Engine/PrimitiveSceneProxy.h"
+#include "Engine/World.h"
 #include "IRendererModule.h"
 #include "IScene.h"
+#include "Materials/MaterialInterface.h"
+#include "Preview/PreviewScene.h"
+#include "Preview/TextureCubePreviewComponent.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
+#include "Texture/TextureCube.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
 {
 	namespace
 	{
-		constexpr FPrimitiveSceneId ThumbnailPrimitiveId = 1;
 		constexpr double RotationTolerance = 1.0e-8;
 
 		auto RotationFromForward(const FVector3& Direction) -> FQuat
@@ -97,8 +100,10 @@ namespace Durin
 		};
 
 		FRenderedAssetThumbnailVisualContract Contract;
-		std::unique_ptr<IScene> Scene;
+		std::unique_ptr<FPreviewScene> PreviewScene;
 		FRetainedEditorAsset SphereAsset;
+		TObjectPtr<DStaticMeshComponent> MaterialComponent;
+		TObjectPtr<DTextureCubePreviewComponent> TextureCubeComponent;
 		TObjectPtr<DDirectionalLightComponent> Light;
 		FTextureRHIRef RenderTarget;
 		FSceneView View;
@@ -125,7 +130,12 @@ namespace Durin
 				Error = "The renderer is not available.";
 				return;
 			}
-			Scene = GEngine->GetRendererModule()->CreateScene();
+			PreviewScene = std::make_unique<FPreviewScene>("RenderedAssetThumbnailPreview");
+			if (!PreviewScene->IsAvailable())
+			{
+				Error = PreviewScene->GetDiagnostic();
+				return;
+			}
 			FAssetPath SpherePath;
 			if (!FAssetPath::TryCreate(
 					FRenderedAssetThumbnailVisualContract::SphereVirtualPath, SpherePath, &Error)
@@ -136,9 +146,27 @@ namespace Durin
 				return;
 			}
 
-			Light = NewObject<DDirectionalLightComponent>(
-				GEngine, "RenderedAssetThumbnailPreviewLight");
-			AddToRoot(Light.Get());
+			AActor* PreviewActor = PreviewScene->GetWorld()->SpawnActor<AActor>(
+				"RenderedAssetThumbnailPreviewActor");
+			MaterialComponent = PreviewActor
+				? Cast<DStaticMeshComponent>(PreviewActor->AddInstanceComponent(
+					DStaticMeshComponent::StaticClass(), "MaterialPreview"))
+				: nullptr;
+			TextureCubeComponent = PreviewActor
+				? Cast<DTextureCubePreviewComponent>(PreviewActor->AddInstanceComponent(
+					DTextureCubePreviewComponent::StaticClass(), "TextureCubePreview"))
+				: nullptr;
+			AActor* LightActor = PreviewScene->GetWorld()->SpawnActor<AActor>(
+				"RenderedAssetThumbnailLightActor");
+			Light = LightActor
+				? Cast<DDirectionalLightComponent>(LightActor->AddInstanceComponent(
+					DDirectionalLightComponent::StaticClass(), "PreviewLight"))
+				: nullptr;
+			if (MaterialComponent == nullptr || TextureCubeComponent == nullptr || Light == nullptr)
+			{
+				Error = "The rendered-thumbnail preview components could not be created.";
+				return;
+			}
 			Light->SetWorldRotation(RotationFromForward({
 				Contract.KeyLightDirectionX,
 				Contract.KeyLightDirectionY,
@@ -146,7 +174,6 @@ namespace Durin
 			Light->SetIntensity(Contract.KeyLightIntensity);
 			Light->SetAmbientIntensity(Contract.FillLightIntensity);
 			Light->SetRimLightIntensity(0.16f);
-			Scene->AddDirectionalLight(Light);
 			View = BuildThumbnailView(Contract);
 
 			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
@@ -170,13 +197,7 @@ namespace Durin
 			}
 			if (GRenderingThread) FlushRenderingCommands();
 			RenderTarget = nullptr;
-			if (Scene != nullptr)
-			{
-				Scene->Release();
-				if (GRenderingThread) FlushRenderingCommands();
-				Scene.reset();
-			}
-			RemoveFromRoot(Light.Get());
+			PreviewScene.reset();
 		}
 	};
 
@@ -191,7 +212,8 @@ namespace Durin
 
 	auto FRenderedAssetThumbnailPreviewScenePool::IsAvailable() const -> bool
 	{
-		return Impl->Error.empty() && Impl->Scene != nullptr && Impl->RenderTarget != nullptr;
+		return Impl->Error.empty() && Impl->PreviewScene != nullptr
+			&& Impl->PreviewScene->IsAvailable() && Impl->RenderTarget != nullptr;
 	}
 
 	auto FRenderedAssetThumbnailPreviewScenePool::GetDiagnostic() const -> std::string
@@ -204,9 +226,10 @@ namespace Durin
 		return Cast<DStaticMesh>(Impl->SphereAsset.Get());
 	}
 
-	auto FRenderedAssetThumbnailPreviewScenePool::SetPrimitive(
-		std::unique_ptr<PrimitiveSceneProxy> Proxy,
-		const FMatrix& Transform,
+	auto FRenderedAssetThumbnailPreviewScenePool::SetMaterial(
+		DStaticMesh* Mesh,
+		DMaterialInterface* Material,
+		const FTransform& Transform,
 		std::string& OutError) -> bool
 	{
 		checkf(IsInGameThread(), "Rendered thumbnail scene mutation must run on the game thread.");
@@ -224,12 +247,52 @@ namespace Durin
 				return false;
 			}
 		}
-		if (Proxy == nullptr)
+		if (Material == nullptr || Mesh == nullptr)
 		{
-			OutError = "The rendered-thumbnail primitive is null.";
+			OutError = "The rendered-thumbnail material or preview mesh is null.";
 			return false;
 		}
-		Impl->Scene->AddOrReplacePrimitive(ThumbnailPrimitiveId, std::move(Proxy), Transform);
+		Impl->TextureCubeComponent->SetTextureCube(nullptr);
+		Impl->TextureCubeComponent->SetStaticMesh(nullptr);
+		Impl->MaterialComponent->SetStaticMesh(Mesh);
+		for (uint32 SlotIndex = 0; SlotIndex < Impl->MaterialComponent->GetNumMaterials(); ++SlotIndex)
+			Impl->MaterialComponent->SetMaterial(SlotIndex, Material);
+		Impl->MaterialComponent->SetWorldTransform(Transform);
+		Impl->bHasPrimitive = true;
+		return true;
+	}
+
+	auto FRenderedAssetThumbnailPreviewScenePool::SetTextureCube(
+		DTextureCube* TextureCube,
+		const FTransform& Transform,
+		std::string& OutError) -> bool
+	{
+		checkf(IsInGameThread(), "Rendered thumbnail scene mutation must run on the game thread.");
+		OutError.clear();
+		if (!IsAvailable())
+		{
+			OutError = Impl->Error;
+			return false;
+		}
+		{
+			std::lock_guard Lock(Impl->Capture->Mutex);
+			if (Impl->Capture->State == ERenderedAssetThumbnailCaptureState::Rendering)
+			{
+				OutError = "A rendered-thumbnail capture is already in flight.";
+				return false;
+			}
+		}
+		DStaticMesh* SphereMesh = GetSphereMesh();
+		if (TextureCube == nullptr || TextureCube->GetTextureReferenceRHI() == nullptr
+			|| SphereMesh == nullptr)
+		{
+			OutError = "The rendered-thumbnail TextureCube or preview mesh is unavailable.";
+			return false;
+		}
+		Impl->MaterialComponent->SetStaticMesh(nullptr);
+		Impl->TextureCubeComponent->SetStaticMesh(SphereMesh);
+		Impl->TextureCubeComponent->SetTextureCube(TextureCube);
+		Impl->TextureCubeComponent->SetWorldTransform(Transform);
 		Impl->bHasPrimitive = true;
 		return true;
 	}
@@ -264,7 +327,7 @@ namespace Durin
 
 		std::shared_ptr Capture = Impl->Capture;
 		IRendererModule* Renderer = GEngine->GetRendererModule();
-		IScene* Scene = Impl->Scene.get();
+		IScene* Scene = Impl->PreviewScene->GetRenderScene();
 		FTextureRHIRef RenderTarget = Impl->RenderTarget;
 		FSceneView View = Impl->View;
 		if (!bOutputOpaque) View.ClearColor = FVector4f(0.0f);
@@ -280,7 +343,6 @@ namespace Durin
 				else
 				{
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
-					Renderer->PrepareSceneResources(CommandList, Scene);
 					Renderer->RenderView(CommandList, Scene, View, RenderTarget, false);
 					if (!GDynamicRHI->RHIReadTexture2D(
 							CommandList, RenderTarget, 0, 0, Pixels))
@@ -322,8 +384,12 @@ namespace Durin
 			Impl->Capture->Pixels.clear();
 			Impl->Capture->Error.clear();
 		}
-		if (Impl->Scene != nullptr && Impl->bHasPrimitive)
-			Impl->Scene->RemovePrimitive(ThumbnailPrimitiveId);
+		if (Impl->MaterialComponent) Impl->MaterialComponent->SetStaticMesh(nullptr);
+		if (Impl->TextureCubeComponent)
+		{
+			Impl->TextureCubeComponent->SetTextureCube(nullptr);
+			Impl->TextureCubeComponent->SetStaticMesh(nullptr);
+		}
 		Impl->bHasPrimitive = false;
 	}
 } // namespace Durin

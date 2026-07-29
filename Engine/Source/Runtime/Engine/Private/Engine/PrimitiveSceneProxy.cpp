@@ -15,7 +15,7 @@ namespace Durin
 		return LocalToWorld_;
 	}
 
-	FStaticMeshSceneProxy::FStaticMeshSceneProxy(FStaticMeshRenderData* InRenderData, std::vector<FMaterialRenderUpdate> InMaterials)
+	FStaticMeshSceneProxy::FStaticMeshSceneProxy(const FStaticMeshRenderData* InRenderData, std::vector<FMaterialRenderUpdate> InMaterials)
 		: RenderData(InRenderData)
 	{
 		Materials.resize(InMaterials.size());
@@ -31,7 +31,7 @@ namespace Durin
 		}
 	}
 
-	auto FStaticMeshSceneProxy::GetRenderData() const -> FStaticMeshRenderData*
+	auto FStaticMeshSceneProxy::GetRenderData() const -> const FStaticMeshRenderData*
 	{
 		return RenderData;
 	}
@@ -54,7 +54,7 @@ namespace Durin
 	}
 
 	FTextureCubePreviewSceneProxy::FTextureCubePreviewSceneProxy(
-		FStaticMeshRenderData* InRenderData,
+		const FStaticMeshRenderData* InRenderData,
 		FRHITextureReferenceRef InTextureReference)
 		: RenderData(InRenderData)
 		, TextureReference(std::move(InTextureReference))

@@ -17,7 +17,7 @@ TEST(FMaterialUpdateContextTests, FlushMergesRootsAndScansLoadedComponentsOnce)
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	const Durin::FGuid SecondSlot = AddDebugMaterialSlot(Mesh, "SecondBatchSlot");
 	const Durin::FGuid ThirdSlot = AddDebugMaterialSlot(Mesh, "ThirdBatchSlot");
-	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "BatchComponent");
+	auto* Component = Harness.CreateStaticMeshComponent("BatchComponent");
 	Component->SetStaticMesh(Mesh);
 	Component->SetMaterial(0, Grandchild);
 	ASSERT_TRUE(Component->SetMaterialBySlotId(SecondSlot, Grandchild));
@@ -25,11 +25,11 @@ TEST(FMaterialUpdateContextTests, FlushMergesRootsAndScansLoadedComponentsOnce)
 	Component->RegisterComponent();
 
 	auto* OtherMesh = Durin::DStaticMesh::CreateDebugTriangle();
-	auto* OtherComponent = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "BatchOtherComponent");
+	auto* OtherComponent = Harness.CreateStaticMeshComponent("BatchOtherComponent");
 	OtherComponent->SetStaticMesh(OtherMesh);
 	OtherComponent->SetMaterial(Unrelated);
 	OtherComponent->RegisterComponent();
-	auto* SharedComponent = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "BatchSharedComponent");
+	auto* SharedComponent = Harness.CreateStaticMeshComponent("BatchSharedComponent");
 	SharedComponent->SetStaticMesh(Mesh);
 	SharedComponent->SetMaterial(0, Sibling);
 	ASSERT_TRUE(SharedComponent->SetMaterialBySlotId(SecondSlot, Grandchild));

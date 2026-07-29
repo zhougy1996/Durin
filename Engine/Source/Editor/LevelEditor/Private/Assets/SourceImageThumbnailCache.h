@@ -30,9 +30,12 @@ namespace Durin
 		auto EndFrame() -> void;
 		auto CancelPendingRequests() -> void;
 		auto Clear() -> void;
+		auto Shutdown() -> void;
+		auto IsShuttingDown() const -> bool;
 
 	private:
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
+		FDelegateHandle PreExitHandle;
 	};
 } // namespace Durin

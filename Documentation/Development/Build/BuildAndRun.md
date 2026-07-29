@@ -218,6 +218,17 @@ argument is always forwarded before them:
 .\DevTool.bat run --preset Win64-Debug-DurinGame --project Sandbox\Sandbox.dproject --args -ExampleArgument
 ```
 
+For non-interactive lifecycle smoke tests, pass
+`--args --hidden-window --exit-after-ticks=<positive-count>`. The runtime still
+completes initialization, executes the requested number of engine ticks, and
+uses the normal `FEngineLoop::Exit` path; this option does not impose a
+wall-clock timeout or force-terminate the process.
+
+Add `--termination-lifecycle-baseline` to log the rooted/permanent `DObject`
+inventory and initialized render-resource registry at exit entry before any
+shutdown owner starts releasing state. This diagnostic is intentionally
+read-only and is useful with the bounded-tick option above.
+
 Do not repeat `--project` or `--project=...` after `--args` when the typed
 `--project` option is present; DurinDevTool rejects the two project selectors as
 ambiguous. Raw project selection after `--args` remains accepted for backwards

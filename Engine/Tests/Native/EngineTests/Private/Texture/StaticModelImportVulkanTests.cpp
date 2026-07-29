@@ -17,6 +17,7 @@
 #include "RendererModule.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "StaticMeshTestAccess.h"
 #include "StaticModelImportBuild.h"
 #include "Thumbnail/AssetThumbnail.h"
 #include "Thumbnail/MaterialAssetThumbnail.h"
@@ -25,6 +26,9 @@
 #include "TextureTestSupport.h"
 
 #include <gtest/gtest.h>
+
+#include <condition_variable>
+#include <mutex>
 
 namespace
 {
@@ -165,6 +169,140 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 
+	const size_t InitialRenderResourceCount =
+		Durin::GetNumInitializedRenderResources();
+	Durin::DStaticMesh* LifecycleMesh =
+		Durin::DStaticMesh::CreateDebugTriangle();
+	Durin::AddToRoot(LifecycleMesh);
+	LifecycleMesh->InitResources();
+	LifecycleMesh->InitResources();
+	Durin::FlushRenderingCommands();
+	ASSERT_NE(LifecycleMesh->GetRenderData(), nullptr);
+	EXPECT_EQ(
+		LifecycleMesh->GetRenderData()->GetNumInitializedResources(),
+		6u);
+	EXPECT_EQ(
+		Durin::GetNumInitializedRenderResources(),
+		InitialRenderResourceCount + 6u);
+
+	const Durin::FStaticMeshRenderData* OriginalRenderData =
+		LifecycleMesh->GetRenderData();
+	Durin::DStaticMesh* ReplacementCandidate =
+		Durin::DStaticMesh::CreateDebugTriangle();
+	Durin::AddToRoot(ReplacementCandidate);
+	const Durin::FStaticMeshRenderData* ReplacementRenderData =
+		ReplacementCandidate->GetRenderData();
+	std::string ReplacementError;
+	ASSERT_TRUE(LifecycleMesh->ExchangeImportedState(
+		*ReplacementCandidate, ReplacementError))
+		<< ReplacementError;
+	EXPECT_EQ(LifecycleMesh->GetRenderData(), ReplacementRenderData);
+	EXPECT_EQ(ReplacementCandidate->GetRenderData(), OriginalRenderData);
+	EXPECT_EQ(
+		Durin::GetNumInitializedRenderResources(),
+		InitialRenderResourceCount + 6u);
+
+	ASSERT_TRUE(LifecycleMesh->ExchangeImportedState(
+		*ReplacementCandidate, ReplacementError))
+		<< ReplacementError;
+	EXPECT_EQ(LifecycleMesh->GetRenderData(), OriginalRenderData);
+	EXPECT_EQ(
+		ReplacementCandidate->GetRenderData(),
+		ReplacementRenderData);
+	EXPECT_EQ(
+		Durin::GetNumInitializedRenderResources(),
+		InitialRenderResourceCount + 6u);
+
+	Durin::DStaticMesh* FailedReplacementCandidate =
+		Durin::DStaticMesh::CreateDebugTriangle();
+	Durin::AddToRoot(FailedReplacementCandidate);
+	Durin::FStaticMeshTestAccess::GetMutableRenderData(
+		FailedReplacementCandidate)
+		->LODResources.push_back(
+			FailedReplacementCandidate->GetRenderData()
+				->LODResources[0]);
+	Durin::FStaticMeshTestAccess::GetMutableRenderData(
+		FailedReplacementCandidate)
+		->LODResources[1].Sections[0].MaterialSlotIndex = 99;
+	EXPECT_FALSE(LifecycleMesh->ExchangeImportedState(
+		*FailedReplacementCandidate, ReplacementError));
+	EXPECT_EQ(LifecycleMesh->GetRenderData(), OriginalRenderData);
+	EXPECT_EQ(
+		FailedReplacementCandidate->GetRenderData()
+			->GetNumInitializedResources(),
+		0u);
+	EXPECT_EQ(
+		Durin::GetNumInitializedRenderResources(),
+		InitialRenderResourceCount + 6u);
+
+	Durin::DStaticMesh* InvalidMesh =
+		Durin::DStaticMesh::CreateDebugTriangle();
+	Durin::AddToRoot(InvalidMesh);
+	Durin::FStaticMeshTestAccess::GetMutableRenderData(InvalidMesh)
+		->LODResources.push_back(
+		InvalidMesh->GetRenderData()->LODResources[0]);
+	Durin::FStaticMeshTestAccess::GetMutableRenderData(InvalidMesh)
+		->LODResources[1].Sections[0].MaterialSlotIndex = 99;
+	InvalidMesh->InitResources();
+	Durin::FlushRenderingCommands();
+	EXPECT_EQ(
+		InvalidMesh->GetRenderData()->GetNumInitializedResources(),
+		0u);
+
+	struct FBlockedRenderCommandState
+	{
+		std::mutex Mutex;
+		std::condition_variable CV;
+		bool bContinue = false;
+	};
+	auto BlockedRenderCommand =
+		std::make_shared<FBlockedRenderCommandState>();
+	struct FBlockStaticMeshRelease
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "BlockStaticMeshRelease";
+		}
+	};
+	Durin::EnqueueRenderCommand<FBlockStaticMeshRelease>(
+		[BlockedRenderCommand](Durin::FRHICommandListImmediate&) {
+			std::unique_lock Lock(BlockedRenderCommand->Mutex);
+			BlockedRenderCommand->CV.wait(
+				Lock, [&] { return BlockedRenderCommand->bContinue; });
+		});
+	const Durin::FObjectHandle LifecycleHandle =
+		Durin::MakeObjectHandle(LifecycleMesh);
+	Durin::RemoveFromRoot(LifecycleMesh);
+	Durin::MarkAsGarbage(LifecycleMesh);
+	Durin::CollectGarbage();
+	EXPECT_NE(Durin::ResolveObjectHandle(LifecycleHandle), nullptr);
+	EXPECT_FALSE(LifecycleMesh->IsReadyForFinishDestroy());
+	{
+		std::lock_guard Lock(BlockedRenderCommand->Mutex);
+		BlockedRenderCommand->bContinue = true;
+	}
+	BlockedRenderCommand->CV.notify_all();
+	Durin::FlushRenderingCommands();
+	EXPECT_TRUE(LifecycleMesh->IsReadyForFinishDestroy());
+	EXPECT_EQ(
+		LifecycleMesh->GetRenderData()->GetNumInitializedResources(),
+		0u);
+	Durin::CollectGarbage();
+	EXPECT_EQ(Durin::ResolveObjectHandle(LifecycleHandle), nullptr);
+
+	Durin::RemoveFromRoot(InvalidMesh);
+	Durin::MarkAsGarbage(InvalidMesh);
+	Durin::RemoveFromRoot(FailedReplacementCandidate);
+	Durin::MarkAsGarbage(FailedReplacementCandidate);
+	Durin::RemoveFromRoot(ReplacementCandidate);
+	Durin::MarkAsGarbage(ReplacementCandidate);
+	Durin::CollectGarbage();
+	Durin::FlushRenderingCommands();
+	Durin::CollectGarbage();
+	EXPECT_EQ(
+		Durin::GetNumInitializedRenderResources(),
+		InitialRenderResourceCount);
+
 	Durin::DStaticMesh* ReloadedMesh = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(RootPath, ReloadedMesh));
 	ASSERT_FALSE(ReloadedMesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
@@ -221,16 +359,10 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 		ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
 		auto Capture = [&](
 			Durin::DStaticMesh* Mesh,
-			Durin::DMaterialInterface* Material,
-			Durin::uint64 Revision) {
+			Durin::DMaterialInterface* Material) {
 			std::vector<Durin::uint8> Pixels;
-			std::unique_ptr<Durin::PrimitiveSceneProxy> Proxy =
-				Durin::CreateMaterialPreviewPrimitive(
-					Mesh, Material, Revision, Error);
-			EXPECT_NE(Proxy, nullptr) << Error;
-			if (Proxy == nullptr) return Pixels;
-			EXPECT_TRUE(Pool.SetPrimitive(
-				std::move(Proxy), Durin::FMatrix(1.0), Error)) << Error;
+			EXPECT_TRUE(Pool.SetMaterial(
+				Mesh, Material, Durin::FTransform(), Error)) << Error;
 			EXPECT_TRUE(Pool.BeginCapture(Error, false)) << Error;
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
@@ -241,13 +373,13 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 		};
 
 		const std::vector<Durin::uint8> ImportedPixels =
-			Capture(ReloadedMesh, ReloadedMaterial, 1);
+			Capture(ReloadedMesh, ReloadedMaterial);
 		const std::vector<Durin::uint8> TextureOnlyPixels =
-			Capture(ReloadedMesh, TextureOnly, 2);
+			Capture(ReloadedMesh, TextureOnly);
 		const std::vector<Durin::uint8> FactorOnlyPixels =
-			Capture(ReloadedMesh, FactorOnly, 3);
+			Capture(ReloadedMesh, FactorOnly);
 		const std::vector<Durin::uint8> LODContractPixels =
-			Capture(LODContractMesh, ReloadedMaterial, 4);
+			Capture(LODContractMesh, ReloadedMaterial);
 		ASSERT_EQ(ImportedPixels.size(), 64u * 64u * 4u);
 		ASSERT_EQ(TextureOnlyPixels.size(), ImportedPixels.size());
 		ASSERT_EQ(FactorOnlyPixels.size(), ImportedPixels.size());
@@ -279,24 +411,13 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 	Durin::GEngine = nullptr;
 	auto* Sphere = Durin::Cast<Durin::DStaticMesh>(PreloadedSphere.Get());
 	ASSERT_NE(Sphere, nullptr);
-	struct FReleaseStaticModelMeshResources
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "ReleaseStaticModelMeshResources";
-		}
-	};
-	Durin::EnqueueRenderCommand<FReleaseStaticModelMeshResources>(
-		[ReloadedRenderData = ReloadedMesh->GetRenderData(),
-			LODContractData = LODContractMesh->GetRenderData(),
-			SphereRenderData = Sphere->GetRenderData()](
-			Durin::FRHICommandListImmediate&) {
-			ReloadedRenderData->ReleaseResources();
-			LODContractData->ReleaseResources();
-			SphereRenderData->ReleaseResources();
-		});
-	Renderer.ReleaseResources();
-	Durin::FlushRenderingCommands();
+	EXPECT_GT(
+		ReloadedMesh->GetRenderData()->GetNumInitializedResources(),
+		0u);
+	EXPECT_GT(
+		LODContractMesh->GetRenderData()->GetNumInitializedResources(),
+		0u);
+	EXPECT_EQ(Sphere->GetRenderData()->GetNumInitializedResources(), 0u);
 	Durin::MarkAsGarbage(FactorOnly);
 	Durin::MarkAsGarbage(TextureOnly);
 	PreloadedSphere = {};
@@ -306,6 +427,9 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(StandardPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(LODContractPath));
+	Renderer.ReleaseResources();
+	Durin::FlushRenderingCommands();
+	Durin::CollectGarbage();
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(RootPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(MaterialPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(TexturePath));

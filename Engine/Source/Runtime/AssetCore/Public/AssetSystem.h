@@ -2,6 +2,7 @@
 
 #include "AssetCoreAPI.h"
 #include "CookedAsset.h"
+#include "Delegates/Delegate.h"
 #include "DObject/CoreDObject.h"
 #include "Hash/XxHash.h"
 
@@ -26,7 +27,8 @@ namespace Durin::Asset
 		InvalidPackageType,
 		InUse,
 		StaleData,
-		ReadOnlyMode
+		ReadOnlyMode,
+		ShuttingDown
 	};
 
 	// Returns an asset operation status with an optional diagnostic message.
@@ -519,6 +521,8 @@ namespace Durin::Asset
 		ASSETCORE_API auto DeleteAsset(const FAssetPath& Path) -> FAssetResult;
 		ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) const -> DPackage*;
 		ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;
+		ASSETCORE_API auto StopAcceptingRequests() -> void;
+		auto IsAcceptingRequests() const -> bool { return bAcceptingRequests; }
 		ASSETCORE_API auto Shutdown() -> void;
 		// Configuration is rejected after the first successful package load until shutdown.
 		ASSETCORE_API auto ConfigurePackageLoadContext(FPackageLoadContext InContext) -> FAssetResult;
@@ -528,7 +532,7 @@ namespace Durin::Asset
 		auto GetRegistry() const -> const FAssetRegistry& { return Registry; }
 
 	private:
-		FAssetManager() = default;
+		FAssetManager();
 		auto LoadPackageInternal(
 			const FAssetPath& Path,
 			DPackage*& OutPackage,
@@ -551,6 +555,8 @@ namespace Durin::Asset
 		std::vector<FAssetPath> TransactionPackages;
 		FPackageLoadContext PackageLoadContext;
 		bool bPackageLoadStarted = false;
+		bool bAcceptingRequests = true;
+		FDelegateHandle PreExitHandle;
 
 		friend ASSETCORE_API auto SavePackagesAtomically(
 			std::span<DPackage* const>,

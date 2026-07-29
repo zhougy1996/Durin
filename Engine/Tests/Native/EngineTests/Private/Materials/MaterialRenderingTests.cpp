@@ -37,7 +37,7 @@ TEST(FMaterialTests, StaticPropertyChangesUpdatePipelineIdentityWithoutRecreatin
 	FRenderSceneHarness Harness;
 	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "StaticIdentityMaterial");
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "StaticIdentityComponent");
+	auto* Component = Harness.CreateStaticMeshComponent("StaticIdentityComponent");
 	Component->SetStaticMesh(Mesh);
 	Component->SetMaterial(Material);
 	Component->RegisterComponent();
@@ -114,7 +114,8 @@ TEST(FMaterialTests, StaticMeshProxyUsesEmptyFallbackForUnassignedSlots)
 {
 	InitializeDObjectSystem();
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	Mesh->GetRenderData()->MaterialSlots.push_back({"Second", 1});
+	Durin::FStaticMeshTestAccess::GetMutableRenderData(Mesh)
+		->MaterialSlots.push_back({"Second", 1});
 	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "FallbackMeshComponent");
 	Component->SetStaticMesh(Mesh);
 
@@ -152,7 +153,7 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	AddDebugMaterialSlot(Mesh, "Fallback");
 	static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 1))->DefaultMaterial = Shared;
 	static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 2))->DefaultMaterial = Shared;
-	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "SharedSlotComponent");
+	auto* Component = Harness.CreateStaticMeshComponent("SharedSlotComponent");
 	Component->SetStaticMesh(Mesh);
 	ASSERT_TRUE(Component->SetMaterialBySlotId(OverrideId, Override));
 	Component->RegisterComponent();
@@ -200,7 +201,7 @@ TEST(FMaterialTests, StaticMeshProxyOrdersRapidCrossSlotUpdatesAndRejectsStaleRe
 	auto* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "RapidSecondMaterial");
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	AddDebugMaterialSlot(Mesh, "Second");
-	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "RapidSlotComponent");
+	auto* Component = Harness.CreateStaticMeshComponent("RapidSlotComponent");
 	Component->SetStaticMesh(Mesh);
 	Component->SetMaterial(0, First);
 	Component->SetMaterial(1, Second);
@@ -475,15 +476,10 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
 		Durin::FlushRenderingCommands();
 
-		auto Capture = [&](Durin::DMaterialInterface* Material, Durin::uint64 Revision) {
+		auto Capture = [&](Durin::DMaterialInterface* Material) {
 			std::vector<Durin::uint8> Pixels;
-			std::unique_ptr<Durin::PrimitiveSceneProxy> Proxy =
-				Durin::CreateMaterialPreviewPrimitive(
-					CaptureMesh, Material, Revision, Error);
-			EXPECT_NE(Proxy, nullptr) << Error;
-			if (Proxy == nullptr) return Pixels;
-			EXPECT_TRUE(Pool.SetPrimitive(
-				std::move(Proxy), Durin::FMatrix(1.0), Error)) << Error;
+			EXPECT_TRUE(Pool.SetMaterial(
+				CaptureMesh, Material, Durin::FTransform(), Error)) << Error;
 			EXPECT_TRUE(Pool.BeginCapture(Error, false)) << Error;
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
@@ -494,13 +490,13 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		};
 
 		const std::vector<Durin::uint8> MaterialPixels =
-			Capture(CaptureMaterial, 1);
+			Capture(CaptureMaterial);
 		const std::vector<Durin::uint8> InstancePixels =
-			Capture(CaptureInstance, 2);
+			Capture(CaptureInstance);
 		ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
 			Durin::MaterialParameters::BaseColorTextureName(), nullptr));
 		const std::vector<Durin::uint8> UntexturedPixels =
-			Capture(CaptureMaterial, 3);
+			Capture(CaptureMaterial);
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/TC_Preview", CaptureCubePath));
 		const Durin::FTextureCubeImportResult CubeResult =
@@ -512,12 +508,8 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		CaptureCubeReference = CaptureCube->GetTextureReferenceRHI();
 		Durin::FlushRenderingCommands();
 		std::vector<Durin::uint8> CubePixels;
-		std::unique_ptr<Durin::PrimitiveSceneProxy> CubeProxy =
-			Durin::CreateTextureCubePreviewPrimitive(
-				Sphere, CubeResult.Asset, Error);
-		ASSERT_NE(CubeProxy, nullptr) << Error;
-		ASSERT_TRUE(Pool.SetPrimitive(
-			std::move(CubeProxy), Durin::FMatrix(1.0), Error)) << Error;
+		ASSERT_TRUE(Pool.SetTextureCube(
+			CubeResult.Asset, Durin::FTransform(), Error)) << Error;
 		ASSERT_TRUE(Pool.BeginCapture(Error)) << Error;
 		Durin::FlushRenderingCommands();
 		ASSERT_EQ(
@@ -583,21 +575,6 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Durin::GEngine = nullptr;
 	ASSERT_NE(CaptureMesh, nullptr);
 	ASSERT_NE(CaptureSphere, nullptr);
-	struct FReleaseRenderedThumbnailMeshResources
-	{
-		static constexpr auto GetName() -> const char*
-		{
-			return "ReleaseRenderedThumbnailMeshResources";
-		}
-	};
-	Durin::EnqueueRenderCommand<
-		FReleaseRenderedThumbnailMeshResources>(
-		[CaptureMeshData = CaptureMesh->GetRenderData(),
-			CaptureSphereData = CaptureSphere->GetRenderData()](
-			Durin::FRHICommandListImmediate&) {
-			CaptureMeshData->ReleaseResources();
-			CaptureSphereData->ReleaseResources();
-		});
 	Renderer.ReleaseResources();
 	Durin::FlushRenderingCommands();
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureTexturePath));
@@ -608,6 +585,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Durin::MarkAsGarbage(CaptureMaterial);
 	Durin::MarkAsGarbage(CaptureMesh);
 	PreloadedSphere = {};
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SpherePath));
 	Durin::CollectGarbage();
 	struct FRetireRenderedThumbnailCubeResource
 	{
@@ -620,6 +598,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		[Reference = std::move(CaptureCubeReference)](
 			Durin::FRHICommandListImmediate&) {});
 	Durin::FlushRenderingCommands();
+	Durin::CollectGarbage();
 	Renderer.ShutdownModule();
 	Durin::ShutdownRenderingThread();
 	// The native suite may create another RHI in the same process; force the

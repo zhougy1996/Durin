@@ -275,7 +275,6 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			OccluderTransform = glm::rotate(
 				OccluderTransform, glm::pi<double>(), Durin::FVectorConstants::Right);
 			Scene.AddOrReplacePrimitive(1, std::move(*OcclusionProxy), OccluderTransform);
-			Renderer.PrepareSceneResources(CommandList, &Scene);
 			Render(MakePrincipalAxisView(Directions[4], {}, 17, 17), Result->Occluded);
 		});
 	Durin::FlushRenderingCommands();

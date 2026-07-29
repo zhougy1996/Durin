@@ -2,7 +2,6 @@
 
 #include "AssetSystem.h"
 #include "DynamicRHI.h"
-#include "Engine/PrimitiveSceneProxy.h"
 #include "ImageDecoder.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -11,7 +10,6 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshResources.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DRenderResource.h"
 #include "Texture/TextureCube.h"
@@ -47,29 +45,6 @@ namespace Durin
 				.PackageFormatVersion = Data.FormatVersion,
 				.FileSize = static_cast<uint64>(Data.FileSize),
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks};
-		}
-
-		auto MakeMaterialUpdates(
-			DStaticMesh* Mesh,
-			DMaterialInterface* Material,
-			uint64 ComponentRevision) -> std::vector<FMaterialRenderUpdate>
-		{
-			const FStaticMeshRenderData* RenderData = Mesh != nullptr ? Mesh->GetRenderData() : nullptr;
-			const uint32 SlotCount =
-				RenderData != nullptr ? static_cast<uint32>(RenderData->MaterialSlots.size()) : 0;
-			std::vector<FMaterialRenderUpdate> Updates;
-			Updates.reserve(SlotCount);
-			for (uint32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
-			{
-				Updates.push_back({
-					.SlotIndex = SlotIndex,
-					.RenderData = Material->GetRenderData(),
-					.MaterialVersion = Material->GetRenderStateVersion(),
-					.ComponentRevision = ComponentRevision,
-					.DirtyFlags = EMaterialRenderDirtyFlags::AllRenderState
-						| EMaterialRenderDirtyFlags::ParentChain});
-			}
-			return Updates;
 		}
 
 		auto GetMaterialResourceRevision(
@@ -192,29 +167,6 @@ namespace Durin
 			std::vector<FMaterialThumbnailUploadResult> Uploads;
 		};
 	} // namespace
-
-	auto CreateMaterialPreviewPrimitive(
-		DStaticMesh* Mesh,
-		DMaterialInterface* Material,
-		uint64 ComponentRevision,
-		std::string& OutError) -> std::unique_ptr<PrimitiveSceneProxy>
-	{
-		OutError.clear();
-		if (Mesh == nullptr || Mesh->GetRenderData() == nullptr
-			|| Mesh->GetRenderData()->LODResources.empty())
-		{
-			OutError = "The material preview mesh has no render data.";
-			return nullptr;
-		}
-		if (Material == nullptr)
-		{
-			OutError = "The material preview has no material.";
-			return nullptr;
-		}
-		return std::make_unique<FStaticMeshSceneProxy>(
-			Mesh->GetRenderData(),
-			MakeMaterialUpdates(Mesh, Material, ComponentRevision));
-	}
 
 	FMaterialAssetThumbnailProvider::FMaterialAssetThumbnailProvider(std::string InAssetClassName)
 		: AssetClassName(std::move(InAssetClassName))
@@ -548,23 +500,15 @@ namespace Durin
 				ActiveTextureCube = nullptr;
 				return;
 			}
-			std::unique_ptr<PrimitiveSceneProxy> Proxy =
-				ActiveTextureCube != nullptr
-				? CreateTextureCubePreviewPrimitive(
-					ScenePool->GetSphereMesh(), ActiveTextureCube, Error)
-				: CreateMaterialPreviewPrimitive(
-					ScenePool->GetSphereMesh(),
-					ActiveMaterial,
-					ActiveJob->ResourceRevision,
-					Error);
 			const bool bTextureCube = ActiveTextureCube != nullptr;
-			const FMatrix PreviewTransform = bTextureCube
-				? FMatrix(1.0)
-				: glm::scale(
-					FMatrix(1.0),
-					FVector3(MaterialThumbnailSphereScale));
-			if (Proxy == nullptr
-				|| !ScenePool->SetPrimitive(std::move(Proxy), PreviewTransform, Error)
+			FTransform PreviewTransform;
+			if (!bTextureCube)
+				PreviewTransform.Scale3D = FVector3(MaterialThumbnailSphereScale);
+			const bool bSceneReady = bTextureCube
+				? ScenePool->SetTextureCube(ActiveTextureCube, PreviewTransform, Error)
+				: ScenePool->SetMaterial(
+					ScenePool->GetSphereMesh(), ActiveMaterial, PreviewTransform, Error);
+			if (!bSceneReady
 				|| !ScenePool->BeginCapture(Error, bTextureCube))
 			{
 				Pipeline.CompleteRender(

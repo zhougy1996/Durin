@@ -2,7 +2,6 @@
 
 #include "DObject/Property.h"
 #include "Engine/Actor.h"
-#include "Engine/Engine.h"
 #include "IScene.h"
 #include "Texture/TextureCube.h"
 
@@ -29,11 +28,8 @@ namespace Durin
 
 	auto DSkyBoxComponent::OnUnregister() -> void
 	{
-		if (GEngine != nullptr)
-		{
-			if (IScene* Scene = GEngine->GetMainScene())
-				Scene->RemoveSkyBox(SkyBoxInstanceId, ++SkyBoxRevision);
-		}
+		if (IScene* Scene = GetRenderScene())
+			Scene->RemoveSkyBox(SkyBoxInstanceId, ++SkyBoxRevision);
 		Super::OnUnregister();
 	}
 
@@ -96,8 +92,8 @@ namespace Durin
 
 	auto DSkyBoxComponent::MarkSkyBoxRenderStateDirty() -> void
 	{
-		if (!IsRegistered() || GEngine == nullptr) return;
-		IScene* Scene = GEngine->GetMainScene();
+		if (!IsRegistered()) return;
+		IScene* Scene = GetRenderScene();
 		if (Scene == nullptr) return;
 
 		const uint64 Revision = ++SkyBoxRevision;

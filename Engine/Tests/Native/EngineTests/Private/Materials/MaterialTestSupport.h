@@ -1,5 +1,7 @@
 #pragma once
 
+#include "StaticMeshTestAccess.h"
+
 #include "AssetSystem.h"
 #include "Asset/EditorAssetRetention.h"
 #include "Components/DirectionalLightComponent.h"
@@ -10,7 +12,10 @@
 #include "DObject/ObjectLifecycle.h"
 #include "EngineTestSupport.h"
 #include "Engine/PrimitiveSceneProxy.h"
+#include "Engine/Actor.h"
 #include "Engine/Engine.h"
+#include "Engine/Level.h"
+#include "Engine/World.h"
 #include "Editor/ReflectedPropertyEditing.h"
 #include "Editor/ReflectedPropertyView.h"
 #include "DObject/Class.h"
@@ -225,7 +230,7 @@ namespace
 	struct FMaterialSlotsSnapshot
 	{
 		Durin::FStaticMeshSceneProxy* Proxy = nullptr;
-		Durin::FStaticMeshRenderData* RenderData = nullptr;
+		const Durin::FStaticMeshRenderData* RenderData = nullptr;
 		std::vector<Durin::FMaterialRenderData> Materials;
 		std::vector<Durin::uint64> MaterialVersions;
 		std::vector<Durin::EMaterialRenderDirtyFlags> MaterialDirtyFlags;
@@ -286,6 +291,10 @@ namespace
 			Durin::InitRenderingThread();
 			Scene = Engine.CreateTestScene();
 			Durin::GEngine = &Engine;
+			World = Durin::NewObject<Durin::DWorld>(&Engine, "MaterialTestWorld");
+			Durin::AddToRoot(World.Get());
+			World->SetCurrentLevel(Durin::NewObject<Durin::DLevel>(World.Get(), "MaterialTestLevel"));
+			Engine.SetWorld(World.Get());
 		}
 
 		~FRenderSceneHarness() { Shutdown(); }
@@ -293,6 +302,7 @@ namespace
 		auto Shutdown() -> void
 		{
 			if (!bActive) return;
+			Engine.SetWorld(nullptr);
 			if (Scene != nullptr)
 			{
 				Scene->Release();
@@ -300,13 +310,31 @@ namespace
 				Engine.ResetTestScene();
 				Scene = nullptr;
 			}
+			if (World)
+			{
+				Durin::RemoveFromRoot(World.Get());
+				Durin::MarkObjectHierarchyAsGarbage(World.Get());
+				World = nullptr;
+			}
 			Durin::GEngine = nullptr;
 			Durin::ShutdownRenderingThread();
 			bActive = false;
 		}
 
+		auto CreateStaticMeshComponent(Durin::FName Name)
+			-> Durin::DStaticMeshComponent*
+		{
+			Durin::AActor* Actor = World->SpawnActor<Durin::AActor>(
+				Durin::FName(std::format("{}Owner", Name.ToString())));
+			return Actor
+				? Durin::Cast<Durin::DStaticMeshComponent>(Actor->AddInstanceComponent(
+					Durin::DStaticMeshComponent::StaticClass(), Name))
+				: nullptr;
+		}
+
 		FMaterialTestEngine Engine;
 		Durin::FScene* Scene = nullptr;
+		Durin::TObjectPtr<Durin::DWorld> World;
 		bool bActive = true;
 	};
 
@@ -317,6 +345,7 @@ namespace
 		{
 			InitializeDObjectSystem();
 			Durin::InitRenderingThread();
+			RendererModule.StartupModule();
 			Engine.SetTestRendererModule(&RendererModule);
 			Durin::GEngine = &Engine;
 		}
@@ -324,7 +353,9 @@ namespace
 		~FMaterialPreviewHarness()
 		{
 			Durin::GEngine = nullptr;
+			RendererModule.ReleaseResources();
 			WaitForRenderingThread();
+			RendererModule.ShutdownModule();
 			Durin::ShutdownRenderingThread();
 		}
 
@@ -360,7 +391,11 @@ namespace
 		Slot->Name = Durin::FName(Name);
 		Slot->SourceName = std::string(Name);
 		Slot->SourceMaterialIndex = static_cast<Durin::uint32>(Index);
-		Mesh->GetRenderData()->MaterialSlots.push_back({std::string(Name), static_cast<Durin::uint32>(Index), Slot->SlotId});
+		Durin::FStaticMeshTestAccess::GetMutableRenderData(Mesh)
+			->MaterialSlots.push_back(
+				{std::string(Name),
+					static_cast<Durin::uint32>(Index),
+					Slot->SlotId});
 		return Slot->SlotId;
 	}
 

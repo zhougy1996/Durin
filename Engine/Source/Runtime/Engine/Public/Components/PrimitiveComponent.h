@@ -30,6 +30,8 @@ namespace Durin
 		ENGINE_API virtual auto CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy>;
 		ENGINE_API auto GetRenderMatrix() const -> FMatrix;
 		ENGINE_API auto GetPrimitiveSceneId() const -> FPrimitiveSceneId { return PrimitiveSceneId; }
+		ENGINE_API auto DestroyRenderState() -> void;
+		ENGINE_API auto RecreateRenderState() -> void;
 		ENGINE_API auto MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags DirtyFlags = EPrimitiveRenderStateDirtyFlags::Proxy) -> void;
 
 	protected:

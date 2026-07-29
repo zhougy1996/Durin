@@ -1,7 +1,6 @@
 #include "Components/DirectionalLightComponent.h"
 
 #include "Engine/Actor.h"
-#include "Engine/Engine.h"
 #include "IScene.h"
 
 namespace Durin
@@ -9,22 +8,24 @@ namespace Durin
 	auto DDirectionalLightComponent::OnRegister() -> void
 	{
 		Super::OnRegister();
-		if (GEngine != nullptr && GEngine->GetMainScene() != nullptr && (!GetOwner() || !GetOwner()->IsHidden())) GEngine->GetMainScene()->AddDirectionalLight(this);
+		if (IScene* Scene = GetRenderScene(); Scene && (!GetOwner() || !GetOwner()->IsHidden())) Scene->AddDirectionalLight(this);
 	}
 
 	auto DDirectionalLightComponent::OnUnregister() -> void
 	{
-		if (GEngine != nullptr && GEngine->GetMainScene() != nullptr) GEngine->GetMainScene()->RemoveDirectionalLight(this);
+		if (IScene* Scene = GetRenderScene()) Scene->RemoveDirectionalLight(this);
 		Super::OnUnregister();
 	}
 
 	auto DDirectionalLightComponent::OnOwnerVisibilityChanged() -> void
 	{
-		if (!IsRegistered() || GEngine == nullptr || GEngine->GetMainScene() == nullptr) return;
+		if (!IsRegistered()) return;
+		IScene* Scene = GetRenderScene();
+		if (Scene == nullptr) return;
 		if (GetOwner() && GetOwner()->IsHidden())
-			GEngine->GetMainScene()->RemoveDirectionalLight(this);
+			Scene->RemoveDirectionalLight(this);
 		else
-			GEngine->GetMainScene()->AddDirectionalLight(this);
+			Scene->AddDirectionalLight(this);
 	}
 
 	auto DDirectionalLightComponent::GetSceneData() const -> FDirectionalLightSceneData

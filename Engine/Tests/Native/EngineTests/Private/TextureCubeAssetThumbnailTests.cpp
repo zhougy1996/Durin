@@ -4,6 +4,7 @@
 
 #include "AssetSystem.h"
 #include "Engine/PrimitiveSceneProxy.h"
+#include "Preview/TextureCubePreviewComponent.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/TextureCube.h"
 
@@ -74,7 +75,7 @@ TEST(FTextureCubeAssetThumbnailTests, ProviderCapturesPackageAndCubeVisualContra
 	EXPECT_NE(OriginalKey, Durin::BuildAssetThumbnailCacheKey(Rebuilt));
 }
 
-TEST(FTextureCubeAssetThumbnailTests, PreviewPrimitiveRetainsStableCubeReference)
+TEST(FTextureCubeAssetThumbnailTests, PreviewComponentCreatesStableCubeReference)
 {
 	Durin::Tests::FRenderedAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
@@ -83,9 +84,12 @@ TEST(FTextureCubeAssetThumbnailTests, PreviewPrimitiveRetainsStableCubeReference
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	ASSERT_NE(Mesh, nullptr);
 
+	auto* Component = Durin::NewObject<Durin::DTextureCubePreviewComponent>(
+		nullptr, "TextureCubeThumbnailPreviewComponent");
+	Component->SetStaticMesh(Mesh);
+	Component->SetTextureCube(Fixtures.DirectionalCube);
 	std::unique_ptr<Durin::PrimitiveSceneProxy> Primitive =
-		Durin::CreateTextureCubePreviewPrimitive(
-			Mesh, Fixtures.DirectionalCube, Error);
+		Component->CreateSceneProxy();
 	ASSERT_NE(Primitive, nullptr) << Error;
 	auto* CubeProxy =
 		dynamic_cast<Durin::FTextureCubePreviewSceneProxy*>(Primitive.get());
@@ -96,6 +100,7 @@ TEST(FTextureCubeAssetThumbnailTests, PreviewPrimitiveRetainsStableCubeReference
 		Fixtures.DirectionalCube->GetTextureReferenceRHI());
 
 	Primitive.reset();
+	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Mesh);
 	Durin::CollectGarbage();
 }

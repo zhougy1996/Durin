@@ -1,6 +1,5 @@
 #include "Components/PrimitiveComponent.h"
 
-#include "Engine/Engine.h"
 #include "Engine/Actor.h"
 #include "IScene.h"
 
@@ -20,13 +19,7 @@ namespace Durin
 
 	auto DPrimitiveComponent::OnUnregister() -> void
 	{
-		if (GEngine != nullptr)
-		{
-			if (IScene* Scene = GEngine->GetMainScene())
-			{
-				Scene->RemovePrimitive(PrimitiveSceneId);
-			}
-		}
+		DestroyRenderState();
 		Super::OnUnregister();
 	}
 
@@ -45,10 +38,21 @@ namespace Durin
 		return GetComponentToWorldMatrix();
 	}
 
+	auto DPrimitiveComponent::DestroyRenderState() -> void
+	{
+		if (!IsRegistered()) return;
+		if (IScene* Scene = GetRenderScene()) Scene->RemovePrimitive(PrimitiveSceneId);
+	}
+
+	auto DPrimitiveComponent::RecreateRenderState() -> void
+	{
+		MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags::Proxy);
+	}
+
 	auto DPrimitiveComponent::MarkRenderStateDirty(EPrimitiveRenderStateDirtyFlags DirtyFlags) -> void
 	{
-		if (!IsRegistered() || GEngine == nullptr) return;
-		IScene* Scene = GEngine->GetMainScene();
+		if (!IsRegistered()) return;
+		IScene* Scene = GetRenderScene();
 		if (Scene == nullptr) return;
 
 		const FPrimitiveSceneId SceneId = EnsurePrimitiveSceneId();

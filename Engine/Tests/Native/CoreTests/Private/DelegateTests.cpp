@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "CoreGlobals.h"
 #include "Delegates/Delegate.h"
 
 namespace Durin
@@ -323,6 +324,41 @@ namespace Durin
 		Destination.Broadcast();
 		EXPECT_EQ(1, Calls);
 		EXPECT_TRUE(Destination.Remove(Handle));
+	}
+
+	TEST(FEngineExitCoordinatorTests, BroadcastsPreExitOnceInRegistrationOrder)
+	{
+		FEngineExitCoordinator Coordinator;
+		std::vector<int> Calls;
+		Coordinator.AddPreExitCallback([&Calls]() { Calls.push_back(1); });
+		Coordinator.AddPreExitCallback([&Calls]() { Calls.push_back(2); });
+
+		EXPECT_TRUE(Coordinator.BeginExit());
+		EXPECT_EQ((std::vector<int>{ 1, 2 }), Calls);
+		EXPECT_EQ(EEngineExitPhase::QuiescingProducers, Coordinator.GetPhase());
+		EXPECT_FALSE(Coordinator.BeginExit());
+		EXPECT_EQ((std::vector<int>{ 1, 2 }), Calls);
+	}
+
+	TEST(FEngineExitCoordinatorTests, RejectsLateRegistrationReentryAndPhaseSkips)
+	{
+		FEngineExitCoordinator Coordinator;
+		bool bReentryAccepted = true;
+		bool bLateRegistrationAccepted = true;
+		Coordinator.AddPreExitCallback([&]() {
+			bReentryAccepted = Coordinator.BeginExit();
+			bLateRegistrationAccepted =
+				Coordinator.AddPreExitCallback([]() {}).IsValid();
+		});
+
+		EXPECT_TRUE(Coordinator.BeginExit());
+		EXPECT_FALSE(bReentryAccepted);
+		EXPECT_FALSE(bLateRegistrationAccepted);
+		EXPECT_FALSE(Coordinator.AdvanceTo(EEngineExitPhase::DrainingObjects));
+		EXPECT_TRUE(Coordinator.AdvanceTo(
+			EEngineExitPhase::DetachingRenderConsumers));
+		EXPECT_FALSE(Coordinator.AdvanceTo(
+			EEngineExitPhase::DetachingRenderConsumers));
 	}
 
 	TEST(FThreadSafeDelegateTests, ConcurrentMutationAndBroadcastCompleteWithoutDeadlock)

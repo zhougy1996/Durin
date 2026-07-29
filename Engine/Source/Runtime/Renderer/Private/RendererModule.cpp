@@ -1,6 +1,7 @@
 #include "RendererModule.h"
 #include "Profiling/Profiling.h"
 
+#include "CoreGlobals.h"
 #include "DefaultTextures.h"
 #include "EditorGridRendering.h"
 #include "RendererEditorAssistance.h"
@@ -1394,7 +1395,7 @@ namespace Durin
 
 		auto DrawStaticMeshProxy(FRHICommandListImmediate& CommandList, const FSceneView& View, const FDirectionalLightSceneData& Light, ERenderMode RenderMode, ERasterMode RasterMode, const FStaticMeshSceneProxy& Proxy) -> void
 		{
-			FStaticMeshRenderData* RenderData = Proxy.GetRenderData();
+			const FStaticMeshRenderData* RenderData = Proxy.GetRenderData();
 			if (RenderData == nullptr || RenderData->LODResources.empty())
 			{
 				return;
@@ -1797,9 +1798,17 @@ namespace Durin
 
 	auto FRendererModule::StartupModule() -> void
 	{
-		ENQUEUE_RENDER_COMMAND(InitializeDefaultTextures)([](FRHICommandListImmediate& CommandList) {
-			InitializeDefaultTextures_RenderThread(CommandList);
-		});
+		bAcceptingSceneCreation = true;
+		PreExitHandle =
+			AddOnEnginePreExit([this]() { StopAcceptingSceneCreation(); });
+		check(PreExitHandle.IsValid());
+		if (GDynamicRHI != nullptr)
+		{
+			ENQUEUE_RENDER_COMMAND(InitializeDefaultTextures)(
+				[](FRHICommandListImmediate& CommandList) {
+					InitializeDefaultTextures_RenderThread(CommandList);
+				});
+		}
 	}
 
 	auto FRendererModule::ReleaseResources() -> void
@@ -1816,6 +1825,12 @@ namespace Durin
 
 	auto FRendererModule::ShutdownModule() -> void
 	{
+		StopAcceptingSceneCreation();
+		if (PreExitHandle.IsValid())
+		{
+			RemoveOnEnginePreExit(PreExitHandle);
+			PreExitHandle.Reset();
+		}
 		checkf(GDefaultTextures.White == nullptr && GDefaultTextures.Black == nullptr && GDefaultTextures.FlatNormal == nullptr
 				&& GDefaultTextures.BlackCube == nullptr,
 			"Renderer defaults must be released before the rendering thread stops");
@@ -1848,7 +1863,19 @@ namespace Durin
 
 	auto FRendererModule::CreateScene() -> std::unique_ptr<IScene>
 	{
+		if (!bAcceptingSceneCreation)
+		{
+			DURIN_WARN("Renderer scene creation rejected after renderer quiescence.");
+			return nullptr;
+		}
 		return std::make_unique<FScene>();
+	}
+
+	auto FRendererModule::StopAcceptingSceneCreation() -> void
+	{
+		if (!bAcceptingSceneCreation) return;
+		bAcceptingSceneCreation = false;
+		DURIN_DEBUG("Renderer stopped accepting scene creation.");
 	}
 
 	auto FRendererModule::GetViewSettings() const -> FRendererViewSettings
@@ -1895,21 +1922,6 @@ namespace Durin
 	auto FRendererModule::GetRasterMode() const -> ERasterMode
 	{
 		return GRasterMode.load(std::memory_order_relaxed);
-	}
-
-	auto FRendererModule::PrepareSceneResources(FRHICommandListImmediate& CommandList, IScene* Scene) -> void
-	{
-		ForEachStaticMeshProxy(Scene, [&CommandList](FStaticMeshSceneProxy& Proxy) {
-			if (FStaticMeshRenderData* RenderData = Proxy.GetRenderData())
-			{
-				RenderData->InitResources(CommandList);
-			}
-		});
-		ForEachTextureCubeThumbnailProxy(
-			Scene, [&CommandList](FTextureCubePreviewSceneProxy& Proxy) {
-				if (FStaticMeshRenderData* RenderData = Proxy.GetRenderData())
-					RenderData->InitResources(CommandList);
-			});
 	}
 
 	auto FRendererModule::RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void

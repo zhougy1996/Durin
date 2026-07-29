@@ -92,6 +92,7 @@ namespace Durin
 
 	public:
 		ENGINE_API ~DTexture() override;
+		ENGINE_API auto BeginDestroy() -> void override;
 
 		ENGINE_API auto GetTextureReferenceRHI() const
 			-> FRHITextureReferenceRef;
@@ -118,10 +119,13 @@ namespace Durin
 			-> std::unique_ptr<FTextureAssetResource> = 0;
 
 	private:
+		auto ReleaseRenderResources() -> void;
+
 		std::unique_ptr<FTextureReference> TextureReference;
 		std::unique_ptr<FTextureAssetResource> RenderResource;
 		std::shared_ptr<FTextureResourceCompletion> RenderCompletion;
 		bool bTextureReferenceInitializationQueued = false;
+		bool bAcceptingRenderResourceBuilds = true;
 		uint64 BuildRevision = 0;
 	};
 }

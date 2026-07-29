@@ -1,4 +1,5 @@
 #pragma once
+#include "CoreGlobals.h"
 #include "RendererAPI.h"
 #include "IRendererModule.h"
 
@@ -20,12 +21,15 @@ namespace Durin
 		RENDERER_API auto GetRenderMode() const -> ERenderMode override;
 		RENDERER_API auto SetRasterMode(ERasterMode Mode) -> void override;
 		RENDERER_API auto GetRasterMode() const -> ERasterMode override;
-		RENDERER_API auto PrepareSceneResources(FRHICommandListImmediate& CommandList, IScene* Scene) -> void override;
 		RENDERER_API auto RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void override;
 		RENDERER_API auto RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* RenderTarget) -> void override;
 
 	private:
+		auto StopAcceptingSceneCreation() -> void;
 		auto PrepareEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void;
 		auto DrawEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bPresentOutput) -> void;
+
+		FDelegateHandle PreExitHandle;
+		bool bAcceptingSceneCreation = false;
 	};
 }

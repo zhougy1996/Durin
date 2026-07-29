@@ -54,6 +54,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	EXPECT_EQ(LoadedComponent->GetWorldRotation(), Transform.Rotation);
 
 	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "SkyBoxEditorWorkflowWorld");
+	World->SetRenderScene(Scene);
 	ASSERT_TRUE(World->SetCurrentLevel(LoadedLevel));
 	FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
 	ASSERT_TRUE(Observation.bHasActive);
@@ -79,6 +80,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	EXPECT_FALSE(Durin::FSkyBoxConflictModel(LoadedLevel).HasConflict());
 
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
+	World->SetRenderScene(nullptr);
 	Durin::FlushRenderingCommands();
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
@@ -144,6 +146,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	EXPECT_EQ(LoadedCube->GetBuiltPixelFormat(), Durin::EPixelFormat::BC1_UNORM_SRGB);
 
 	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "PanoramaWorkflowWorld");
+	World->SetRenderScene(Scene);
 	ASSERT_TRUE(World->SetCurrentLevel(LoadedLevel));
 	const FSkyBoxObservation Observation = ObserveSkyBoxes(*Scene);
 	ASSERT_TRUE(Observation.bHasActive);
@@ -152,6 +155,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 		LoadedCube->GetTextureReferenceRHI());
 
 	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
+	World->SetRenderScene(nullptr);
 	Durin::FlushRenderingCommands();
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();

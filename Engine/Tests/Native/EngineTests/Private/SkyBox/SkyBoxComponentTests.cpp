@@ -104,7 +104,11 @@ TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProper
 	FSkyBoxTestEngine Engine;
 	Durin::FScene* Scene = Engine.CreateTestScene();
 	Durin::GEngine = &Engine;
-	auto* Actor = Durin::NewObject<Durin::ASkyBoxActor>(nullptr, "LiveSkyBoxActor");
+	auto* World = Durin::NewObject<Durin::DWorld>(&Engine, "LiveSkyBoxWorld");
+	ASSERT_TRUE(World->SetCurrentLevel(
+		Durin::NewObject<Durin::DLevel>(World, "LiveSkyBoxLevel")));
+	Engine.SetWorld(World);
+	auto* Actor = World->SpawnActor<Durin::ASkyBoxActor>("LiveSkyBoxActor");
 	Durin::DSkyBoxComponent* Component = Actor->GetSkyBoxComponent();
 	auto* Cube = Durin::NewObject<Durin::DTextureCube>(nullptr, "LiveSkyBoxCube");
 
@@ -135,12 +139,45 @@ TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProper
 	Component->UnregisterComponent();
 	EXPECT_FALSE(ObserveSkyBoxes(*Scene).bHasActive);
 
+	Engine.SetWorld(nullptr);
 	Scene->Release();
 	Durin::FlushRenderingCommands();
 	Engine.ResetTestScene();
 	Durin::GEngine = nullptr;
-	Durin::MarkAsGarbage(Actor);
+	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::MarkAsGarbage(Cube);
+	Durin::CollectGarbage();
+	Durin::ShutdownRenderingThread();
+}
+
+TEST(FSkyBoxTests, WorldSceneEndpointIsIndependentOfGlobalEngine)
+{
+	InitializeDObjectSystem();
+	Durin::InitRenderingThread();
+	FSkyBoxTestEngine Engine;
+	Durin::FScene* MainScene = Engine.CreateTestScene();
+	auto AuxiliaryScene = std::make_unique<Durin::FScene>();
+	Durin::GEngine = &Engine;
+
+	auto* World = Durin::NewObject<Durin::DWorld>(&Engine, "AuxiliarySkyBoxWorld");
+	World->SetRenderScene(AuxiliaryScene.get());
+	ASSERT_TRUE(World->SetCurrentLevel(
+		Durin::NewObject<Durin::DLevel>(World, "AuxiliarySkyBoxLevel")));
+	ASSERT_NE(World->SpawnActor<Durin::ASkyBoxActor>("AuxiliarySkyBox"), nullptr);
+	EXPECT_FALSE(ObserveSkyBoxes(*MainScene).bHasActive);
+	EXPECT_TRUE(ObserveSkyBoxes(*AuxiliaryScene).bHasActive);
+
+	Durin::GEngine = nullptr;
+	ASSERT_TRUE(World->SetCurrentLevel(nullptr));
+	EXPECT_FALSE(ObserveSkyBoxes(*AuxiliaryScene).bHasActive);
+	World->SetRenderScene(nullptr);
+
+	AuxiliaryScene->Release();
+	MainScene->Release();
+	Durin::FlushRenderingCommands();
+	AuxiliaryScene.reset();
+	Engine.ResetTestScene();
+	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
 	Durin::ShutdownRenderingThread();
 }

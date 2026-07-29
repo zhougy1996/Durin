@@ -355,7 +355,10 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsAndSurvivesRenderedRe
 	ASSERT_NE(Component, nullptr);
 	ASSERT_NE(Component->GetStaticMesh(), nullptr);
 	ASSERT_EQ(Component->GetMaterialBySlotId(RedId)->GetPackage()->GetPackagePath(), MaterialPath.ToString());
-	Component->RegisterComponent();
+	auto* RenderComponent = Harness.CreateStaticMeshComponent("ReimportRenderComponent");
+	RenderComponent->SetStaticMesh(Component->GetStaticMesh());
+	ASSERT_TRUE(RenderComponent->SetMaterialBySlotId(
+		RedId, Component->GetMaterialBySlotId(RedId)));
 	const FMaterialSlotsSnapshot BeforeReimport = CaptureMaterialSlots(Harness.Scene);
 
 	const std::filesystem::path ReimportSource = Root / "SourceAssets" / "Models" / "Mesh.gltf";
@@ -374,7 +377,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsAndSurvivesRenderedRe
 	EXPECT_NE(AfterReimport.RenderData, BeforeReimport.RenderData);
 	ExpectColorNear(AfterReimport.Materials[1].BaseColor, Durin::FVector4f(0.85f, 0.15f, 0.1f, 1.0f));
 	ExpectColorNear(AfterReimport.Materials[0].BaseColor, Durin::FMaterialRenderData{}.BaseColor);
-	Component->UnregisterComponent();
+	RenderComponent->UnregisterComponent();
 	WaitForRenderingThread();
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ComponentPath));

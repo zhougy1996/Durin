@@ -28,9 +28,9 @@ namespace Durin
 	class FStaticMeshSceneProxy : public PrimitiveSceneProxy
 	{
 	public:
-		ENGINE_API explicit FStaticMeshSceneProxy(FStaticMeshRenderData* InRenderData, std::vector<FMaterialRenderUpdate> InMaterials);
+		ENGINE_API explicit FStaticMeshSceneProxy(const FStaticMeshRenderData* InRenderData, std::vector<FMaterialRenderUpdate> InMaterials);
 
-		ENGINE_API auto GetRenderData() const -> FStaticMeshRenderData*;
+		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
 		ENGINE_API auto GetMaterialRenderData(uint32 SlotIndex) const -> const FMaterialRenderData&;
 		auto GetNumMaterials() const -> uint32 { return static_cast<uint32>(Materials.size()); }
 		auto GetMaterialRenderData() const -> const FMaterialRenderData& { return GetMaterialRenderData(0); }
@@ -40,7 +40,9 @@ namespace Durin
 		ENGINE_API auto UpdateMaterialRenderData(const FMaterialRenderUpdate& Update) -> void;
 
 	private:
-		FStaticMeshRenderData* RenderData = nullptr;
+		// Non-owning borrow bounded by the component render-state lifetime. The
+		// component removes this proxy before the asset retires the render data.
+		const FStaticMeshRenderData* RenderData = nullptr;
 		std::vector<FMaterialRenderData> Materials;
 		std::vector<uint64> MaterialVersions;
 		std::vector<EMaterialRenderDirtyFlags> LastMaterialDirtyFlags;
@@ -52,17 +54,18 @@ namespace Durin
 	{
 	public:
 		ENGINE_API FTextureCubePreviewSceneProxy(
-			FStaticMeshRenderData* InRenderData,
+			const FStaticMeshRenderData* InRenderData,
 			FRHITextureReferenceRef InTextureReference);
 
-		auto GetRenderData() const -> FStaticMeshRenderData* { return RenderData; }
+		auto GetRenderData() const -> const FStaticMeshRenderData* { return RenderData; }
 		auto GetTextureReference() const -> const FRHITextureReferenceRef&
 		{
 			return TextureReference;
 		}
 
 	private:
-		FStaticMeshRenderData* RenderData = nullptr;
+		// Same component-render-state bounded borrow as FStaticMeshSceneProxy.
+		const FStaticMeshRenderData* RenderData = nullptr;
 		FRHITextureReferenceRef TextureReference;
 	};
 }

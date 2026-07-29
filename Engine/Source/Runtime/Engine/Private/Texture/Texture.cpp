@@ -15,6 +15,20 @@ namespace Durin
 
 	DTexture::~DTexture()
 	{
+		check(!bAcceptingRenderResourceBuilds);
+		check(RenderResource == nullptr);
+		check(TextureReference == nullptr);
+	}
+
+	auto DTexture::BeginDestroy() -> void
+	{
+		bAcceptingRenderResourceBuilds = false;
+		ReleaseRenderResources();
+		Super::BeginDestroy();
+	}
+
+	auto DTexture::ReleaseRenderResources() -> void
+	{
 		RenderCompletion->BeginRequest(++BuildRevision);
 		if (RenderResource)
 		{
@@ -29,6 +43,11 @@ namespace Durin
 			BeginCleanupRenderResource(
 				FDeferredRenderResourceCleanup(std::move(TextureReference)));
 		}
+		else
+		{
+			TextureReference.reset();
+		}
+		bTextureReferenceInitializationQueued = false;
 	}
 
 	auto DTexture::GetTextureReferenceRHI() const
@@ -52,6 +71,13 @@ namespace Durin
 
 	auto DTexture::QueueRenderResourceBuild() -> void
 	{
+		if (!bAcceptingRenderResourceBuilds || IsPendingKill())
+		{
+			DURIN_WARN(
+				"Texture render-resource build rejected after object teardown began. (texture: {})",
+				GetObjectPath());
+			return;
+		}
 		const uint64 Revision = ++BuildRevision;
 		const std::string OwnerDiagnostic = GetPackage()
 			? GetPackage()->GetPackagePath()

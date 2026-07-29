@@ -103,6 +103,38 @@ namespace Durin
 		EXPECT_EQ(AssetView.RequestSerial, SourceView.RequestSerial);
 	}
 
+	TEST(FSourceImageThumbnailTests, ShutdownRejectsRequestsAndIsIdempotent)
+	{
+		FSourceImageThumbnailCache Cache;
+		Cache.BeginFrame();
+		Cache.Request({
+			.Identity = "/Game/Textures/Pending",
+			.PhysicalPath = "C:/Project/Content/Textures/Pending.png",
+			.FileSize = 128,
+			.LastWriteTime = std::filesystem::file_time_type::clock::now()});
+		ASSERT_EQ(
+			Cache.Find("/Game/Textures/Pending").State,
+			EAssetThumbnailState::Queued);
+
+		Cache.Shutdown();
+		Cache.Shutdown();
+		EXPECT_TRUE(Cache.IsShuttingDown());
+		EXPECT_EQ(
+			Cache.Find("/Game/Textures/Pending").State,
+			EAssetThumbnailState::NotRequested);
+
+		Cache.Request({
+			.Identity = "/Game/Textures/Late",
+			.PhysicalPath = "C:/Project/Content/Textures/Late.png",
+			.FileSize = 128,
+			.LastWriteTime = std::filesystem::file_time_type::clock::now()});
+		Cache.BeginFrame();
+		Cache.EndFrame();
+		EXPECT_EQ(
+			Cache.Find("/Game/Textures/Late").State,
+			EAssetThumbnailState::NotRequested);
+	}
+
 	TEST(FSourceImageThumbnailTests, DecodesTransparentPngAndPreservesAspectRatio)
 	{
 		// 2x1 RGBA PNG with one opaque red texel and one transparent texel.

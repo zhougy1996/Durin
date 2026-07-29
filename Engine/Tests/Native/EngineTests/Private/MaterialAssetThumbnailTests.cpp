@@ -2,6 +2,7 @@
 
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 
+#include "Components/StaticMeshComponent.h"
 #include "Engine/PrimitiveSceneProxy.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -133,7 +134,7 @@ TEST(FMaterialAssetThumbnailTests, ProviderRejectsMissingRegistryData)
 	EXPECT_NE(Error.find(MissingPath.ToString()), std::string::npos);
 }
 
-TEST(FMaterialAssetThumbnailTests, SharedPreviewPrimitiveResolvesInstanceInheritanceAndOverrides)
+TEST(FMaterialAssetThumbnailTests, PreviewComponentResolvesInstanceInheritanceAndOverrides)
 {
 	Durin::Tests::FRenderedAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
@@ -141,11 +142,16 @@ TEST(FMaterialAssetThumbnailTests, SharedPreviewPrimitiveResolvesInstanceInherit
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	ASSERT_NE(Mesh, nullptr);
 
+	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(
+		nullptr, "MaterialThumbnailPreviewComponent");
+	Component->SetStaticMesh(Mesh);
+	Component->SetMaterial(Fixtures.Material);
 	std::unique_ptr<Durin::PrimitiveSceneProxy> MaterialPrimitive =
-		Durin::CreateMaterialPreviewPrimitive(Mesh, Fixtures.Material, 10, Error);
+		Component->CreateSceneProxy();
 	ASSERT_NE(MaterialPrimitive, nullptr) << Error;
+	Component->SetMaterial(Fixtures.MaterialInstance);
 	std::unique_ptr<Durin::PrimitiveSceneProxy> InstancePrimitive =
-		Durin::CreateMaterialPreviewPrimitive(Mesh, Fixtures.MaterialInstance, 11, Error);
+		Component->CreateSceneProxy();
 	ASSERT_NE(InstancePrimitive, nullptr) << Error;
 	auto* MaterialProxy =
 		dynamic_cast<Durin::FStaticMeshSceneProxy*>(MaterialPrimitive.get());
@@ -165,6 +171,7 @@ TEST(FMaterialAssetThumbnailTests, SharedPreviewPrimitiveResolvesInstanceInherit
 
 	MaterialPrimitive.reset();
 	InstancePrimitive.reset();
+	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Mesh);
 	Durin::CollectGarbage();
 }

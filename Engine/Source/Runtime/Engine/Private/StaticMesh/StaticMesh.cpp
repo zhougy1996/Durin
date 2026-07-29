@@ -1,11 +1,8 @@
 #include "StaticMesh/StaticMesh.h"
 
-#include "Components/StaticMeshComponent.h"
-
 #include "AssetSystem.h"
 #include "DerivedDataObjectStore.h"
 #include "CoreGlobals.h"
-#include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
@@ -15,10 +12,13 @@
 #include "Misc/Paths.h"
 #include "Source/SourcePath.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
+#include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Threading/RunnableThread.h"
 
 #include "RHI.h"
+#include "DynamicRHI.h"
+#include "RenderingThread.h"
 
 #if DURIN_WITH_EDITOR
 	#include "AssetImport.h"
@@ -28,11 +28,65 @@ namespace Durin
 {
 	namespace
 	{
-		FStaticMeshUpdateCounters GLastStaticMeshUpdateCounters;
-
 		auto CheckStaticMeshUpdateThread() -> void
 		{
 			if (GIsGameThreadIdInitialized) CheckGameThread();
+		}
+
+		auto InitializeStaticMeshCandidate(
+			FStaticMeshRenderData& Candidate,
+			std::string_view OwnerDiagnostic,
+			std::string& OutError) -> bool
+		{
+			Candidate.RecalculateBounds();
+			Candidate.SetResourceLifetimeDiagnostics(OwnerDiagnostic);
+			if (GDynamicRHI == nullptr)
+			{
+				OutError.clear();
+				return true;
+			}
+
+			std::atomic<bool> bInitialized = false;
+			ENQUEUE_RENDER_COMMAND(InitStaticMeshCandidateResources)(
+				[&Candidate, &bInitialized](
+					FRHICommandListImmediate& CommandList) {
+					bInitialized.store(
+						Candidate.InitResources(CommandList),
+						std::memory_order_release);
+				});
+			FRenderCommandFence InitFence;
+			InitFence.BeginFence();
+			InitFence.Wait();
+			if (!bInitialized.load(std::memory_order_acquire))
+			{
+				check(Candidate.GetNumInitializedResources() == 0);
+				OutError =
+					"Static-mesh candidate resource initialization failed.";
+				return false;
+			}
+			OutError.clear();
+			return true;
+		}
+
+		auto RetireStaticMeshRenderData(
+			std::unique_ptr<FStaticMeshRenderData>& RenderData) -> void
+		{
+			if (RenderData == nullptr) return;
+			if (GDynamicRHI == nullptr)
+			{
+				check(RenderData->GetNumInitializedResources() == 0);
+				return;
+			}
+
+			FStaticMeshRenderData* RenderDataToRelease = RenderData.get();
+			ENQUEUE_RENDER_COMMAND(ReleaseRetiredStaticMeshResources)(
+				[RenderDataToRelease](FRHICommandListImmediate&) {
+					RenderDataToRelease->ReleaseResources();
+				});
+			FRenderCommandFence ReleaseFence;
+			ReleaseFence.BeginFence();
+			ReleaseFence.Wait();
+			check(RenderData->GetNumInitializedResources() == 0);
 		}
 
 		inline constexpr uint32 StaticMeshMaterialSlotsVersion = 1;
@@ -624,20 +678,81 @@ namespace Durin
 
 	DStaticMesh::~DStaticMesh() = default;
 
-	auto GetLastStaticMeshUpdateCounters() -> FStaticMeshUpdateCounters
-	{
-		CheckStaticMeshUpdateThread();
-		return GLastStaticMeshUpdateCounters;
-	}
-
 	auto DStaticMesh::GetRenderData() const -> const FStaticMeshRenderData*
 	{
 		return RenderData.get();
 	}
 
-	auto DStaticMesh::GetRenderData() -> FStaticMeshRenderData*
+	auto DStaticMesh::InitResources() -> void
 	{
-		return RenderData.get();
+		CheckStaticMeshUpdateThread();
+		if (RenderData == nullptr || GDynamicRHI == nullptr) return;
+
+		EStaticMeshRenderResourceState Expected =
+			EStaticMeshRenderResourceState::Uninitialized;
+		if (!RenderResourceState.compare_exchange_strong(
+			Expected,
+			EStaticMeshRenderResourceState::InitializationQueued,
+			std::memory_order_acq_rel))
+		{
+			return;
+		}
+
+		const std::string OwnerDiagnostic = GetPackage()
+			? GetPackage()->GetPackagePath()
+			: std::format("<transient DStaticMesh:{}>", GetName());
+		RenderData->SetResourceLifetimeDiagnostics(OwnerDiagnostic);
+		FStaticMeshRenderData* RenderDataToInitialize = RenderData.get();
+		ENQUEUE_RENDER_COMMAND(InitStaticMeshResources)(
+			[this, RenderDataToInitialize](
+				FRHICommandListImmediate& CommandList) {
+				const EStaticMeshRenderResourceState Result =
+					RenderDataToInitialize->InitResources(CommandList)
+					? EStaticMeshRenderResourceState::Ready
+					: EStaticMeshRenderResourceState::Failed;
+				EStaticMeshRenderResourceState Pending =
+					EStaticMeshRenderResourceState::InitializationQueued;
+				RenderResourceState.compare_exchange_strong(
+					Pending, Result, std::memory_order_acq_rel);
+			});
+	}
+
+	auto DStaticMesh::ReleaseResources() -> void
+	{
+		CheckStaticMeshUpdateThread();
+		EStaticMeshRenderResourceState State =
+			RenderResourceState.load(std::memory_order_acquire);
+		if (State == EStaticMeshRenderResourceState::Released
+			|| State == EStaticMeshRenderResourceState::ReleaseQueued)
+		{
+			return;
+		}
+
+		if (RenderData == nullptr
+			|| State == EStaticMeshRenderResourceState::Uninitialized)
+		{
+			check(RenderData == nullptr
+				|| RenderData->GetNumInitializedResources() == 0);
+			RenderResourceState.store(
+				EStaticMeshRenderResourceState::Released,
+				std::memory_order_release);
+			return;
+		}
+
+		RenderResourceState.store(
+			EStaticMeshRenderResourceState::ReleaseQueued,
+			std::memory_order_release);
+		FStaticMeshRenderData* RenderDataToRelease = RenderData.get();
+		ENQUEUE_RENDER_COMMAND(ReleaseStaticMeshResources)(
+			[this, RenderDataToRelease](FRHICommandListImmediate&) {
+				RenderDataToRelease->ReleaseResources();
+				check(
+					RenderDataToRelease->GetNumInitializedResources()
+					== 0);
+				RenderResourceState.store(
+					EStaticMeshRenderResourceState::Released,
+					std::memory_order_release);
+			});
 	}
 
 	auto DStaticMesh::GetMaterialSlot(uint32 SlotIndex) const -> const FStaticMeshMaterialSlotDefinition*
@@ -657,44 +772,96 @@ namespace Durin
 		return It == MaterialSlots.end() ? nullptr : &*It;
 	}
 
-	auto DStaticMesh::SetRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData) -> void
-	{
-		if (InRenderData != nullptr) InRenderData->RecalculateBounds();
-		RenderData = std::move(InRenderData);
-		NotifyLoadedComponents();
-	}
-
-	auto DStaticMesh::NotifyLoadedComponents() -> void
+	auto DStaticMesh::CommitRenderDataCandidate(
+		std::unique_ptr<FStaticMeshRenderData> InRenderData,
+		std::vector<FStaticMeshMaterialSlotDefinition>* InMaterialSlots,
+		std::string& OutError) -> bool
 	{
 		CheckStaticMeshUpdateThread();
-		FStaticMeshUpdateCounters Counters;
-		std::vector<FObjectHandle> ComponentHandles;
-		const std::vector<DObject*> Objects = GDObjectArray.Snapshot();
-		Counters.ObjectSnapshotCount = 1;
-		Counters.ScannedObjectCount = static_cast<uint64>(Objects.size());
-		for (DObject* Object : Objects)
+		if (InRenderData == nullptr)
 		{
-			auto* Component = Cast<DStaticMeshComponent>(Object);
-			if (!IsValid(Component)) continue;
-			++Counters.ScannedComponentCount;
-			if (Component->GetStaticMesh() != this) continue;
-			const FObjectHandle Handle = MakeObjectHandle(Component);
-			if (IsObjectHandleNull(Handle)) continue;
-			ComponentHandles.push_back(Handle);
-			++Counters.MatchedComponentCount;
+			OutError = "Static-mesh publication requires render data.";
+			return false;
 		}
-		std::ranges::sort(ComponentHandles, [](FObjectHandle Left, FObjectHandle Right) {
-			return Left.Index < Right.Index
-				|| (Left.Index == Right.Index && Left.Generation < Right.Generation);
-		});
-		for (FObjectHandle Handle : ComponentHandles)
+
+		const std::string OwnerDiagnostic = GetPackage()
+			? GetPackage()->GetPackagePath()
+			: std::format("<transient DStaticMesh:{}>", GetName());
+		if (RenderData == nullptr)
 		{
-			auto* Component = Cast<DStaticMeshComponent>(ResolveObjectHandle(Handle));
-			if (!IsValid(Component) || Component->GetStaticMesh() != this) continue;
-			Component->HandleStaticMeshRenderDataChanged(this);
-			++Counters.UpdatedComponentCount;
+			InRenderData->RecalculateBounds();
+			InRenderData->SetResourceLifetimeDiagnostics(
+				OwnerDiagnostic);
+			if (InMaterialSlots != nullptr)
+			{
+				MaterialSlots = std::move(*InMaterialSlots);
+				MaterialSlotsVersion = StaticMeshMaterialSlotsVersion;
+			}
+			RenderData = std::move(InRenderData);
+			RenderResourceState.store(
+				EStaticMeshRenderResourceState::Uninitialized,
+				std::memory_order_release);
+			OutError.clear();
+			return true;
 		}
-		GLastStaticMeshUpdateCounters = Counters;
+		if (!InitializeStaticMeshCandidate(
+			*InRenderData, OwnerDiagnostic, OutError))
+		{
+			return false;
+		}
+
+		const EStaticMeshRenderResourceState CandidateState =
+			GDynamicRHI != nullptr
+				? EStaticMeshRenderResourceState::Ready
+				: EStaticMeshRenderResourceState::Uninitialized;
+		{
+			FStaticMeshRenderStateRecreateContext RecreateContext(this);
+			std::unique_ptr<FStaticMeshRenderData> OldRenderData =
+				std::move(RenderData);
+			if (InMaterialSlots != nullptr)
+			{
+				MaterialSlots = std::move(*InMaterialSlots);
+				MaterialSlotsVersion = StaticMeshMaterialSlotsVersion;
+			}
+			RenderData = std::move(InRenderData);
+			RenderResourceState.store(
+				CandidateState, std::memory_order_release);
+			RetireStaticMeshRenderData(OldRenderData);
+		}
+		OutError.clear();
+		return true;
+	}
+
+	auto DStaticMesh::BeginDestroy() -> void
+	{
+		const EStaticMeshRenderResourceState State =
+			RenderResourceState.load(std::memory_order_acquire);
+		const bool bHasQueuedResourceWork =
+			State != EStaticMeshRenderResourceState::Uninitialized
+			&& State != EStaticMeshRenderResourceState::Released;
+		ReleaseResources();
+		if (bHasQueuedResourceWork)
+		{
+			ReleaseResourcesFence.BeginFence();
+		}
+		Super::BeginDestroy();
+	}
+
+	auto DStaticMesh::IsReadyForFinishDestroy() -> bool
+	{
+		return ReleaseResourcesFence.IsFenceComplete()
+			&& Super::IsReadyForFinishDestroy();
+	}
+
+	auto DStaticMesh::FinishDestroy() -> void
+	{
+		check(ReleaseResourcesFence.IsFenceComplete());
+		check(RenderResourceState.load(std::memory_order_acquire)
+			== EStaticMeshRenderResourceState::Released);
+		check(RenderData == nullptr
+			|| RenderData->GetNumInitializedResources() == 0);
+		RenderData.reset();
+		Super::FinishDestroy();
 	}
 
 	auto DStaticMesh::CreateDebugTriangle(DObject* Outer) -> DStaticMesh*
@@ -722,7 +889,16 @@ namespace Durin
 		LOD.VertexBuffers.Finalize(
 			LOD.NumTexCoords, LOD.bHasColorVertexData);
 		LOD.Sections.push_back({"Default", 0, 3, 0, 2, 0, {}});
-		Mesh->SetRenderData(std::move(RenderData));
+		std::string PublishError;
+		if (!Mesh->CommitRenderDataCandidate(
+			std::move(RenderData), nullptr, PublishError))
+		{
+			DURIN_ERROR(
+				"Failed to create debug static mesh: {}",
+				PublishError);
+			MarkAsGarbage(Mesh);
+			return nullptr;
+		}
 		return Mesh;
 	}
 
@@ -755,19 +931,24 @@ namespace Durin
 		bool bSlotMetadataChanged = false;
 		if (!BuildRenderDataCandidate(
 			FilePath, CandidateRenderData, CandidateMaterialSlots, bSlotMetadataChanged, OutError)) return false;
-		PublishRenderData(
-			std::move(CandidateRenderData), std::move(CandidateMaterialSlots), bSlotMetadataChanged);
-		return true;
+		return PublishRenderData(
+			std::move(CandidateRenderData),
+			std::move(CandidateMaterialSlots),
+			bSlotMetadataChanged,
+			OutError);
 	}
 
 	auto DStaticMesh::PublishRenderData(
 		std::unique_ptr<FStaticMeshRenderData> InRenderData,
 		std::vector<FStaticMeshMaterialSlotDefinition> InMaterialSlots,
-		bool bSlotMetadataChanged) -> void
+		bool bSlotMetadataChanged,
+		std::string& OutError) -> bool
 	{
-		MaterialSlots = std::move(InMaterialSlots);
-		MaterialSlotsVersion = StaticMeshMaterialSlotsVersion;
-		SetRenderData(std::move(InRenderData));
+		if (!CommitRenderDataCandidate(
+			std::move(InRenderData), &InMaterialSlots, OutError))
+		{
+			return false;
+		}
 		if (bSlotMetadataChanged)
 		{
 			MarkPackageDirty();
@@ -777,6 +958,7 @@ namespace Durin
 				"Static mesh material-slot identity metadata was upgraded.",
 				Asset::EAssetLoadMutationKind::Upgrade);
 		}
+		return true;
 	}
 
 	auto DStaticMesh::BuildRenderDataCandidate(
@@ -1123,10 +1305,15 @@ namespace Durin
 			SourceImportData = PreviousSource;
 			return false;
 		}
-		PublishRenderData(
+		if (!PublishRenderData(
 			std::move(CandidateRenderData),
 			std::move(CandidateMaterialSlots),
-			bSlotMetadataChanged);
+			bSlotMetadataChanged,
+			OutError))
+		{
+			SourceImportData = PreviousSource;
+			return false;
+		}
 		DerivedDataDiagnostic = {
 			.Status = EStaticMeshDerivedDataStatus::Rebuilt,
 			.Key = std::move(DerivedDataKey),
@@ -1214,23 +1401,86 @@ namespace Durin
 		return true;
 	}
 
-	auto DStaticMesh::ExchangeImportedState(DStaticMesh& Other) -> void
+	auto DStaticMesh::ExchangeImportedState(
+		DStaticMesh& Other,
+		std::string& OutError) -> bool
 	{
-		if (&Other == this) return;
-		std::swap(SourceFile, Other.SourceFile);
-		std::swap(SourceImportData, Other.SourceImportData);
-		std::swap(NormalizedSize, Other.NormalizedSize);
-		std::swap(ImportSettings, Other.ImportSettings);
-		std::swap(MaterialSlotsVersion, Other.MaterialSlotsVersion);
-		std::swap(MaterialSlots, Other.MaterialSlots);
-		std::swap(ImportManifest, Other.ImportManifest);
-		std::swap(CookedPayload, Other.CookedPayload);
-		std::swap(RenderData, Other.RenderData);
-		std::swap(DerivedDataDiagnostic, Other.DerivedDataDiagnostic);
-		NotifyLoadedComponents();
-		Other.NotifyLoadedComponents();
+		if (&Other == this)
+		{
+			OutError.clear();
+			return true;
+		}
+		CheckStaticMeshUpdateThread();
+		const EStaticMeshRenderResourceState OtherState =
+			Other.RenderResourceState.load(std::memory_order_acquire);
+		const bool bCandidateAlreadyReady =
+			OtherState == EStaticMeshRenderResourceState::Ready;
+		const bool bCandidateCanInitialize =
+			(OtherState == EStaticMeshRenderResourceState::Uninitialized
+				|| OtherState ==
+					EStaticMeshRenderResourceState::Released)
+			&& Other.RenderData != nullptr
+			&& Other.RenderData->GetNumInitializedResources() == 0;
+		if (Other.RenderData == nullptr
+			|| (!bCandidateAlreadyReady
+				&& !bCandidateCanInitialize))
+		{
+			OutError =
+				"Static-mesh imported-state exchange requires a detached "
+				"ready or uninitialized candidate.";
+			return false;
+		}
+
+		const std::string OwnerDiagnostic = GetPackage()
+			? GetPackage()->GetPackagePath()
+			: std::format("<transient DStaticMesh:{}>", GetName());
+		if (bCandidateAlreadyReady)
+		{
+			Other.RenderData->SetResourceLifetimeDiagnostics(
+				OwnerDiagnostic);
+		}
+		else if (!InitializeStaticMeshCandidate(
+			*Other.RenderData, OwnerDiagnostic, OutError))
+		{
+			return false;
+		}
+
+		const EStaticMeshRenderResourceState IncomingState =
+			bCandidateAlreadyReady || GDynamicRHI != nullptr
+				? EStaticMeshRenderResourceState::Ready
+				: EStaticMeshRenderResourceState::Uninitialized;
+		{
+			FStaticMeshRenderStateRecreateContext RecreateContext(this);
+			std::unique_ptr<FStaticMeshRenderData> PreviousRenderData =
+				std::move(RenderData);
+			std::unique_ptr<FStaticMeshRenderData> IncomingRenderData =
+				std::move(Other.RenderData);
+
+			std::swap(SourceFile, Other.SourceFile);
+			std::swap(SourceImportData, Other.SourceImportData);
+			std::swap(NormalizedSize, Other.NormalizedSize);
+			std::swap(ImportSettings, Other.ImportSettings);
+			std::swap(MaterialSlotsVersion, Other.MaterialSlotsVersion);
+			std::swap(MaterialSlots, Other.MaterialSlots);
+			std::swap(ImportManifest, Other.ImportManifest);
+			std::swap(CookedPayload, Other.CookedPayload);
+			std::swap(
+				DerivedDataDiagnostic,
+				Other.DerivedDataDiagnostic);
+
+			RenderData = std::move(IncomingRenderData);
+			RenderResourceState.store(
+				IncomingState, std::memory_order_release);
+			RetireStaticMeshRenderData(PreviousRenderData);
+			Other.RenderData = std::move(PreviousRenderData);
+			Other.RenderResourceState.store(
+				EStaticMeshRenderResourceState::Uninitialized,
+				std::memory_order_release);
+		}
 		MarkPackageDirty();
 		Other.MarkPackageDirty();
+		OutError.clear();
+		return true;
 	}
 
 	auto DStaticMesh::PostLoad(std::string& OutError) -> bool
@@ -1291,7 +1541,14 @@ namespace Durin
 		if (!bSourceMetadataStale && !bMaterialSlotsUpgradeRequired && LoadStaticMeshDerivedData(
 			DerivedDataDiagnostic.Key, MaterialSlots, CachedRenderData, CacheStatus, CacheMessage))
 		{
-			SetRenderData(std::move(CachedRenderData));
+			if (!CommitRenderDataCandidate(
+				std::move(CachedRenderData), nullptr, OutError))
+			{
+				DerivedDataDiagnostic.Status =
+					EStaticMeshDerivedDataStatus::Incompatible;
+				DerivedDataDiagnostic.Message = OutError;
+				return false;
+			}
 			DerivedDataDiagnostic.Status = Diagnostic.IsAvailable()
 				? EStaticMeshDerivedDataStatus::Hit
 				: EStaticMeshDerivedDataStatus::SourceUnavailableCached;
@@ -1361,8 +1618,17 @@ namespace Durin
 			return false;
 		}
 
-		PublishRenderData(
-			std::move(CandidateRenderData), std::move(CandidateMaterialSlots), bSlotMetadataChanged);
+		if (!PublishRenderData(
+			std::move(CandidateRenderData),
+			std::move(CandidateMaterialSlots),
+			bSlotMetadataChanged,
+			OutError))
+		{
+			DerivedDataDiagnostic.Status =
+				EStaticMeshDerivedDataStatus::Incompatible;
+			DerivedDataDiagnostic.Message = OutError;
+			return false;
+		}
 		DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::Rebuilt;
 		DerivedDataDiagnostic.Message = std::format(
 			"Rebuilt static mesh and stored DDC key {} after cache miss: {}",
@@ -1437,7 +1703,11 @@ namespace Durin
 			return FailCooked(OutError);
 		}
 
-		SetRenderData(std::move(CandidateRenderData));
+		if (!CommitRenderDataCandidate(
+			std::move(CandidateRenderData), nullptr, OutError))
+		{
+			return FailCooked(OutError);
+		}
 		DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::CookedLoaded;
 		DerivedDataDiagnostic.Message = std::format(
 			"Loaded cooked static-mesh payload for '{}'.", GetObjectPath());
@@ -1652,8 +1922,17 @@ namespace Durin
 			ImportSettings = PreviousLegacySettings;
 			return false;
 		}
-		PublishRenderData(
-			std::move(CandidateRenderData), std::move(CandidateMaterialSlots), bSlotMetadataChanged);
+		if (!PublishRenderData(
+			std::move(CandidateRenderData),
+			std::move(CandidateMaterialSlots),
+			bSlotMetadataChanged,
+			OutError))
+		{
+			SourceImportData = PreviousSource;
+			SourceFile = PreviousLegacySource;
+			ImportSettings = PreviousLegacySettings;
+			return false;
+		}
 		DerivedDataDiagnostic = {
 			.Status = EStaticMeshDerivedDataStatus::Rebuilt,
 			.Key = std::move(DerivedDataKey),
@@ -1759,8 +2038,16 @@ namespace Durin
 			Asset::UnloadPackage(ParsedAssetPath);
 			return {false, std::move(BuildError), nullptr};
 		}
-		Mesh->PublishRenderData(
-			std::move(CandidateRenderData), std::move(CandidateMaterialSlots), bSlotMetadataChanged);
+		if (!Mesh->PublishRenderData(
+			std::move(CandidateRenderData),
+			std::move(CandidateMaterialSlots),
+			bSlotMetadataChanged,
+			BuildError))
+		{
+			RollbackMountedSourceFile(MountedSource);
+			Asset::UnloadPackage(ParsedAssetPath);
+			return {false, std::move(BuildError), nullptr};
+		}
 		Mesh->DerivedDataDiagnostic = {
 			.Status = EStaticMeshDerivedDataStatus::Rebuilt,
 			.Key = std::move(DerivedDataKey),
@@ -2245,7 +2532,7 @@ namespace Durin
 		}
 	}
 
-	auto FStaticMeshRenderData::InitResources(FRHICommandListImmediate& RHICmdList) -> void
+	auto FStaticMeshRenderData::InitResources(FRHICommandListImmediate& RHICmdList) -> bool
 	{
 		check(IsInRenderingThread());
 		for (FStaticMeshLODResources& LOD : LODResources)
@@ -2260,21 +2547,83 @@ namespace Durin
 					LOD.bHasColorVertexData);
 			}
 			if (!IsStaticMeshLODGeometryValid(
-				LOD, MaterialSlots.size())) continue;
+				LOD, MaterialSlots.size()))
+			{
+				ReleaseResources();
+				return false;
+			}
 
 			LOD.VertexBuffers.InitResources(RHICmdList);
 			InitStaticMeshResource(LOD.IndexBuffer, RHICmdList);
 		}
+		if (LODResources.empty()
+			|| !std::ranges::all_of(
+				LODResources,
+				[this](const FStaticMeshLODResources& LOD) {
+					return LOD.VertexBuffers.IsReady()
+						&& LOD.IndexBuffer.IsReady()
+						&& IsStaticMeshLODGeometryValid(
+							LOD, MaterialSlots.size());
+				}))
+		{
+			ReleaseResources();
+			return false;
+		}
+		return true;
 	}
 
 	auto FStaticMeshRenderData::ReleaseResources() -> void
 	{
 		check(IsInRenderingThread());
-		for (FStaticMeshLODResources& LOD : LODResources)
+		for (FStaticMeshLODResources& LOD
+			: LODResources | std::views::reverse)
 		{
 			ReleaseStaticMeshResource(LOD.IndexBuffer);
 			LOD.VertexBuffers.ReleaseResources();
 		}
+	}
+
+	auto FStaticMeshRenderData::SetResourceLifetimeDiagnostics(
+		std::string_view Owner) -> void
+	{
+		auto SetDiagnostic = [Owner](FRenderResource& Resource) {
+			Resource.SetLifetimeDiagnostic(std::string(Owner));
+		};
+		for (FStaticMeshLODResources& LOD : LODResources)
+		{
+			SetDiagnostic(LOD.VertexBuffers.PositionVertexBuffer);
+			SetDiagnostic(
+				LOD.VertexBuffers.StaticMeshVertexBuffer
+					.TangentsVertexBuffer);
+			SetDiagnostic(
+				LOD.VertexBuffers.StaticMeshVertexBuffer
+					.TexCoordVertexBuffer);
+			SetDiagnostic(LOD.VertexBuffers.ColorVertexBuffer);
+			SetDiagnostic(LOD.VertexBuffers.StaticMeshVertexBuffer);
+			SetDiagnostic(LOD.IndexBuffer);
+		}
+	}
+
+	auto FStaticMeshRenderData::GetNumInitializedResources() const -> size_t
+	{
+		size_t Count = 0;
+		auto CountResource = [&Count](const FRenderResource& Resource) {
+			if (Resource.IsInitialized()) ++Count;
+		};
+		for (const FStaticMeshLODResources& LOD : LODResources)
+		{
+			CountResource(LOD.VertexBuffers.PositionVertexBuffer);
+			CountResource(
+				LOD.VertexBuffers.StaticMeshVertexBuffer
+					.TangentsVertexBuffer);
+			CountResource(
+				LOD.VertexBuffers.StaticMeshVertexBuffer
+					.TexCoordVertexBuffer);
+			CountResource(LOD.VertexBuffers.ColorVertexBuffer);
+			CountResource(LOD.VertexBuffers.StaticMeshVertexBuffer);
+			CountResource(LOD.IndexBuffer);
+		}
+		return Count;
 	}
 
 	auto FStaticMeshRenderData::IsReadyForRendering(uint32 LODIndex) const -> bool

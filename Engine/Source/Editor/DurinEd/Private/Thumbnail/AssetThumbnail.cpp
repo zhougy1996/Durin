@@ -202,10 +202,17 @@ namespace Durin
 			.Registry = Registry,
 			.Budgets = Budgets}))
 	{
+		PreExitHandle = AddOnEnginePreExit([this]() { Shutdown(); });
+		check(PreExitHandle.IsValid());
 	}
 
 	FAssetThumbnailScheduler::~FAssetThumbnailScheduler()
 	{
+		if (PreExitHandle.IsValid())
+		{
+			RemoveOnEnginePreExit(PreExitHandle);
+			PreExitHandle.Reset();
+		}
 		Shutdown();
 	}
 

@@ -2,9 +2,8 @@
 
 #include "DObject/Property.h"
 #include "Engine/Actor.h"
-#if DURIN_WITH_EDITOR
 #include "Engine/Level.h"
-#endif
+#include "Engine/World.h"
 
 namespace Durin
 {
@@ -14,6 +13,21 @@ namespace Durin
 		{
 			return Event.Phase != EPropertyChangePhase::Committed || Event.Origin != EPropertyChangeOrigin::Edit;
 		}
+	}
+
+	auto DSceneComponent::OnRegister() -> void
+	{
+		Super::OnRegister();
+		AActor* Owner = GetOwner();
+		DLevel* Level = Owner ? Cast<DLevel>(Owner->GetOuter()) : nullptr;
+		DWorld* World = Level ? Level->GetWorld() : nullptr;
+		RenderScene = World ? World->GetRenderScene() : nullptr;
+	}
+
+	auto DSceneComponent::OnUnregister() -> void
+	{
+		Super::OnUnregister();
+		RenderScene = nullptr;
 	}
 
 	auto DSceneComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool

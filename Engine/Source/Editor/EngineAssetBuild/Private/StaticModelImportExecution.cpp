@@ -341,13 +341,28 @@ namespace Durin
 				for (const auto& [AssetIndex, Instance] : MaterialsByPlannedIndex)
 					Instance->ExchangeImportedState(
 						*MaterialCandidatesByPlannedIndex.at(AssetIndex));
-				Mesh->ExchangeImportedState(*MeshCandidate);
+				if (!Mesh->ExchangeImportedState(
+					*MeshCandidate, MutationError))
+				{
+					for (const auto& [AssetIndex, Instance]
+						: MaterialsByPlannedIndex)
+					{
+						Instance->ExchangeImportedState(
+							*MaterialCandidatesByPlannedIndex.at(
+								AssetIndex));
+					}
+					return false;
+				}
 				bCandidateStatePublished = true;
 				return true;
 			},
 			[&] {
 				if (!bCandidateStatePublished) return;
-				Mesh->ExchangeImportedState(*MeshCandidate);
+				std::string RollbackError;
+				const bool bMeshRolledBack =
+					Mesh->ExchangeImportedState(
+						*MeshCandidate, RollbackError);
+				check(bMeshRolledBack);
 				for (const auto& [AssetIndex, Instance] : MaterialsByPlannedIndex)
 					Instance->ExchangeImportedState(
 						*MaterialCandidatesByPlannedIndex.at(AssetIndex));

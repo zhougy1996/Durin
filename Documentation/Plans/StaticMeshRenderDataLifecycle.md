@@ -1,6 +1,6 @@
 # Static Mesh Render-Data Lifecycle Plan
 
-Summary: Adopt UE-style unique StaticMesh render-data ownership with explicit resource initialization, render-state recreation, release fences, and deferred retirement.
+Summary: Adopt UE-style unique StaticMesh render-data ownership with explicit resource initialization, component render-state recreation, and one destruction release fence.
 
 Last reviewed: 2026-07-29
 
@@ -9,12 +9,12 @@ Completed:
 
 ## Current Status
 
-`DStaticMesh` currently owns one `std::unique_ptr<FStaticMeshRenderData>`, but
-`SetRenderData` replaces that pointer immediately while scene-proxy replacement
-is only queued. Existing proxies retain raw `FStaticMeshRenderData*`, so the old
-C++ storage can disappear before already accepted render commands stop using
-it. Once the nested buffers have initialized, ordinary replacement and asset
-destruction also skip their required render-thread release.
+`DStaticMesh` now owns one `std::unique_ptr<FStaticMeshRenderData>` and exposes
+no public render-data setter or publication primitive. Initial CPU data is
+installed privately in the uninitialized state. Live replacement initializes a
+detached candidate behind a targeted fence, removes component render state,
+publishes once, then releases and fences the locally owned old data before
+components recreate their proxies.
 
 The verified evidence and UE comparison are recorded in
 [StaticMesh Render-Data Lifetime](../Investigations/StaticMeshRenderDataLifetime.md).
@@ -23,9 +23,10 @@ counted render-data handle:
 
 - `DStaticMesh` uniquely owns its current render data;
 - detached builders uniquely own unpublished candidates;
-- `DStaticMesh` uniquely owns pending retirement records after replacement or
-  `BeginDestroy`;
-- render-state recreation removes every raw-pointer consumer before release;
+- synchronous replacement temporarily owns the old render data in a local
+  `std::unique_ptr`;
+- component render-state recreation removes every raw-pointer consumer before
+  replacement releases the old render data;
 - release commands precede a fence;
 - old C++ storage is destroyed only after that fence completes.
 
@@ -33,15 +34,113 @@ The active
 [Static Mesh LOD Resources Refactor](StaticMeshLODResourcesRefactor.md) has
 completed its named-buffer stage and is about to add vertex factories. This
 lifecycle plan is its prerequisite because each additional vertex factory is
-another registered child whose release must precede aggregate destruction.
+another registered child whose release must precede render-data destruction.
 
-Implementation has not started. Stage 0 first freezes the unsafe schedules and
-the complete consumer inventory.
+Stage 0 is complete from baseline `9cfee542`. The deterministic contract suite
+now reproduces the current immediate-destruction violation without executing
+undefined behavior, pauses the selected replacement/destruction protocol at
+draw, detach, release, fence, and render-data-delete boundaries, and covers rapid
+replacement, registered/unregistered/garbage/reassigned consumers, thumbnails,
+auxiliary scenes, GC-style readiness, and no-RHI teardown. The existing
+StaticMesh, material-preview, thumbnail, and Vulkan rendered-output baselines
+remain green.
+
+The Stage 0 scheduler remains useful as proof of the unsafe baseline and FIFO
+ordering boundaries, but its asset-owned multiple-retirement model is
+superseded by this review. Stage 1 converts editor consumers to components, and
+Stage 3 replaces the model with serialized local-old ownership.
+
+Stage 1 is complete from baseline `1115c0dd`. Worlds now supply the stable
+renderer-scene endpoint retained by registered scene components; main and
+preview scenes share that registration contract; MaterialPreview, material
+thumbnails, and TextureCube thumbnails install only component-owned render
+state; and the scoped StaticMesh recreate context uses generation-checked
+component handles without an asset consumer registry.
+
+Stage 2 is complete from baseline `c379c1f7`. `DStaticMesh` now explicitly
+initializes and releases its current render data, component proxy creation
+queues initialization before proxy addition, resource initialization rolls
+back completely on partial failure, and object destruction uses one
+non-blocking release fence only when that mesh actually submitted resource
+work. The obsolete renderer-wide `PrepareSceneResources` hook has been removed.
+
+Stage 3 is complete from baseline `7f9b6c3a`. DDC, cooked load, source rebuild,
+transient/debug construction, reimport, and bundle rollback all use the same
+private publication primitive. `ExchangeImportedState` accepts a detached
+import candidate, never swaps asset release fences or resource states, and
+leaves only fully released CPU data on the candidate object for symmetric
+rollback.
+
+The post-Stage 3 API review also narrowed the runtime control surface while
+preserving UE's explicit resource lifecycle shape. `GetRenderData()` is a
+const, side-effect-free inspection; `InitResources()` remains the explicit
+initialization operation used before component proxy creation; resource
+release, aggregate state, and the destruction fence are asset-private.
+Scene proxies retain only const render-data borrows.
+
+The cross-plan boundary with
+[Engine Termination Lifecycle](EngineTerminationLifecycle.md) is now pinned:
+engine shutdown first detaches non-DObject process/subsystem consumers, then
+the shutdown coordinator owns all GC/render-flush rounds. Worlds expose their
+own renderer scene, and registered components retain that stable endpoint
+instead of consulting the global `GEngine` pointer. `DStaticMesh` owns only its
+current render data and release fence; process exit phase and a separate
+StaticMesh admission state are not asset APIs.
+
+### Stage 0 Frozen Inventory and Handoff
+
+The source inventory classifies StaticMesh render-data access as follows:
+
+| Access class | Sites | Frozen rule |
+| --- | --- | --- |
+| Detached build ownership | import, DDC/cooked decode, transient/debug builders | A detached `std::unique_ptr` may be inspected only by the synchronous builder until publication transfers ownership. |
+| Synchronous inspection | asset details, cook/payload code, bounds/slot queries, level-editor hit tests, tests | `GetRenderData()` results cannot survive a call that can publish or destroy mesh data. |
+| Installed render state | `FStaticMeshSceneProxy` created by `DStaticMeshComponent`, material thumbnails, and MaterialPreview; `FTextureCubePreviewSceneProxy` created by TextureCube thumbnails | These are the only production stored raw pointers. Stage 1 converts every editor path to component-owned render state so replacement needs no asset-side consumer registry. |
+| Queued render-thread borrow | renderer traversal/draw through an installed proxy; Vulkan capture tests with retained assets | The borrow is bounded by proxy/asset retention and FIFO commands; no queued production command independently owns render data. |
+
+The selected correction for the frozen consumer inventory is:
+
+- `DWorld` exposes its renderer scene; `DPrimitiveComponent` captures that scene
+  from its owning actor's world at registration and uses the same endpoint for
+  proxy removal and recreation.
+- a reusable `FPreviewScene` owns a preview `DWorld`, level, renderer scene, and
+  preview actors/components. It is a general editor facility intended for
+  mesh, material, texture, particle, and later effect previews.
+- material thumbnails and MaterialPreview use ordinary
+  `DStaticMeshComponent` instances inside an `FPreviewScene`.
+- TextureCube thumbnails use a transient preview component that owns the
+  specialized proxy inside the preview world but still participates in the
+  same component render-state lifecycle.
+- `FStaticMeshRenderStateRecreateContext` scans component objects using the mesh,
+  matching UE's component context. `DStaticMesh` stores no consumer callbacks,
+  scene list, or consumer registry.
+
+The Stage 0 working set is:
+
+- `Documentation/Plans/StaticMeshRenderDataLifecycle.md`;
+- `Engine/Tests/Native/EngineTests/Private/Materials/StaticMeshRenderDataLifetimeContractTests.cpp`;
+- `Engine/Tests/Native/EngineTests/CMakeLists.txt`;
+- `Engine/Tests/Native/EngineTests/Private/Materials/MaterialTestSupport.h`;
+- `Engine/Source/Runtime/Renderer/Private/RendererModule.cpp`.
+
+The renderer change only restores the complete test/module lifecycle for a
+no-RHI preview owner: `StartupModule` opens scene admission but skips default
+GPU texture creation when no RHI exists; the preview harness now pairs
+Startup/Release/Shutdown instead of relying on the old default-open state.
+
+Stage 0 validation:
+
+- `StaticMeshTests`: 50/50 passed, covering canonical DMSH, DDC, material-slot,
+  and bounds contracts;
+- `FStaticMeshRenderDataLifetimeContractTests.*`: 6/6 passed;
+- material and TextureCube thumbnail consumers: 7/7 passed;
+- `FMaterialTests.*`: 35/35 passed, including MaterialPreview lifecycle;
+- `StaticModelImportVulkanTests`: 1/1 passed rendered-output baseline.
 
 ## Goal
 
 Give StaticMesh render data the same high-level shape used by Unreal Engine:
-one asset-selected render-data aggregate, explicit `InitResources` and
+one asset-selected `FStaticMeshRenderData`, explicit `InitResources` and
 `ReleaseResources`, scoped render-state recreation around replacement, and a
 fence that prevents final storage destruction until rendering-thread cleanup is
 complete.
@@ -63,20 +162,20 @@ The completed design must provide:
 
 - Add asset-level `InitResources`, `ReleaseResources`, initialized-state, and
   resource-state diagnostics to `DStaticMesh`.
-- Introduce `FPendingStaticMeshRenderDataRetirement`, which uniquely owns one
-  old aggregate plus its release fence until destruction becomes legal.
-- Allow a `DStaticMesh` to retain multiple pending retirements so rapid
-  replacements remain ordered without transferring concrete ownership to
-  proxies.
+- Add one asset-owned release fence used only by asynchronous object
+  destruction.
 - Add a scoped `FStaticMeshRenderStateRecreateContext`, modeled on UE's
   `FStaticMeshComponentRecreateRenderStateContext`, that detaches and recreates
-  every repository consumer of a mesh revision.
+  every component using a mesh.
+- Add a reusable preview-scene/world owner and convert editor preview and
+  thumbnail StaticMesh proxy producers to component-owned render state inside
+  that world.
 - Keep renderer-side proxy access non-owning and valid only between render-state
   creation and destruction commands.
 - Move resource initialization out of per-frame renderer preparation and into
   the asset/candidate lifecycle.
 - Initialize and validate replacement candidates before detaching the current
-  successful revision.
+  successful render data.
 - Route import, DDC load, cooked load, reimport, rollback, transient/debug
   creation, unload, and GC through the same lifecycle primitives.
 - Add release-fence and final-shutdown diagnostics.
@@ -86,11 +185,13 @@ The completed design must provide:
 
 - Adding `FStaticMeshReference`, `FStaticMeshRenderDataHandle`,
   `FRHIStaticMeshReference`, or shared ownership of concrete render data.
-- Retargeting a stable mesh identity from one aggregate to another.
+- Retargeting a stable mesh identity from one render-data object to another.
 - Reproducing Unreal Engine's complete `UStreamableRenderAsset`, async
   compilation, Nanite, ray tracing, PSO precache, distance-field, or LOD
   streaming systems.
 - Adding background source import or derived-data construction.
+- Adding a StaticMesh-specific admission state, consumer registry, consumer
+  callbacks, pending-retirement queue, or lifecycle pump.
 - Making asynchronous replacement publication a prerequisite; current
   synchronous reimport/build APIs may wait on a targeted candidate-init fence.
 - Changing payload schemas, builder versions, DDC keys, source provenance,
@@ -98,6 +199,8 @@ The completed design must provide:
 - Redesigning material slots, component overrides, transforms, or render-pass
   ownership.
 - Letting renderer consumers retain `DStaticMesh`.
+- Supporting overlapping live replacement publications; synchronous callers
+  serialize replacement and retire their local old render data before returning.
 
 ## Design Decisions and Invariants
 
@@ -108,7 +211,7 @@ The selected design follows these public Unreal Engine boundaries:
 - `UStaticMesh` uniquely owns `FStaticMeshRenderData` and exposes
   `InitResources`, `ReleaseResources`, initialized-state observation, a release
   fence, and `IsReadyForFinishDestroy`.
-- `FStaticMeshRenderData` owns the complete renderable aggregate and explicitly
+- `FStaticMeshRenderData` owns the complete renderable data and explicitly
   initializes/releases its children.
 - `FStaticMeshComponentRecreateRenderStateContext` destroys render state for
   components using the mesh and recreates it after the asset operation.
@@ -116,14 +219,14 @@ The selected design follows these public Unreal Engine boundaries:
   destruction callbacks.
 - `BeginInitResource`, `BeginReleaseResource`, and `FRenderCommandFence`
   preserve game-thread/render-thread ordering without sharing ownership of the
-  concrete aggregate.
+  concrete render-data object.
 
 Durin adopts those responsibilities rather than their complete implementation.
 Its command pipe is FIFO and its `DObject` lifecycle already supports
 `BeginDestroy`, deferred `IsReadyForFinishDestroy`, and `FinishDestroy`, so the
 required foundation exists.
 
-### Exactly One Owner per Aggregate
+### Exactly One Owner per Render-Data Object
 
 One concrete `FStaticMeshRenderData` moves through these ownership states:
 
@@ -133,37 +236,75 @@ detached builder/candidate
         v
 DStaticMesh::RenderData
         |
-        v
-FPendingStaticMeshRenderDataRetirement::RenderData
+        +-- object destruction: retained until DStaticMesh::ReleaseResourcesFence
         |
+        +-- synchronous replacement: local old unique_ptr until a targeted fence
         v
-destroyed after release fence
+destroyed
 ```
 
 Each arrow is a `std::unique_ptr` move. There is never more than one owner and
 no proxy, scene, preview, thumbnail, or render command acquires ownership.
 
-`DStaticMesh` may own:
+`DStaticMesh` owns at most one current `RenderData`. A synchronous publication
+operation owns at most one detached candidate and one local old render data. It
+does not return until the old render data's targeted release fence completes, so
+no retired versions accumulate on the asset.
 
-- at most one current `RenderData`;
-- at most one detached replacement candidate while a synchronous publication
-  request is in progress;
-- zero or more `PendingRenderDataRetirements`.
+### No Asset Admission or Consumer Registry
 
-Pending retirements are asset-owned lifecycle records, not additional current
-versions.
+StaticMesh adds no lifecycle state parallel to `DObject`. Once `BeginDestroy`
+has started, build, publication, and initialization calls violate the existing
+object lifecycle contract; they do not consult a separate asset admission
+flag. If background mesh compilation is added later, its task owner must cancel
+or finish work before object cleanup rather than adding a generic gate to
+`DStaticMesh`.
+
+`DStaticMesh` also stores no components, scenes, callbacks, or consumer
+registrations. Component references keep an ordinary live mesh reachable;
+replacement uses a scoped component scan; package/world teardown unregisters
+components; and engine shutdown detaches process-owned scenes before the
+DObject drain.
+
+### World and Preview-Scene Ownership
+
+Renderer scene selection is a world responsibility rather than a StaticMesh or
+component special case.
+
+- `DWorld` exposes the `IScene` used by components registered through actors in
+  that world.
+- `DEngine` installs the main renderer scene on the active main world.
+- a reusable editor `FPreviewScene` owns one renderer scene plus a preview
+  `DWorld` and level; its actors and components use ordinary registration.
+- `EWorldType::Preview` distinguishes preview behavior from Editor,
+  PlayInEditor, and Game policy.
+- the preview world may tick when a preview requires simulation. Static mesh
+  and thumbnail previews may leave play/tick disabled; particle and effect
+  previews can opt into the same world lifecycle later.
+- teardown runs component unregister/end-play first, releases the renderer
+  scene second, and releases or garbage-marks the preview world hierarchy last.
+
+Components capture their world's scene when registered and retain that
+non-owning endpoint until unregister completes. Changing a component to another
+world therefore requires unregister followed by registration; there is no
+public arbitrary `SetRenderScene` escape hatch.
+
+This refactor applies the world-scene lookup consistently to primitive,
+directional-light, and sky components. A preview world must not partially use
+its own primitive scene while its lights still mutate `GEngine->GetMainScene()`.
 
 ### Raw Proxy Pointers Are Bounded Borrows
 
-`FStaticMeshSceneProxy`, `FTextureCubePreviewSceneProxy`, and other render-state
-objects may retain a raw `FStaticMeshRenderData*` only under this contract:
+`FStaticMeshSceneProxy`, `FTextureCubePreviewSceneProxy`, and other component
+render-state objects may retain a raw `FStaticMeshRenderData*` only under this
+contract:
 
 - the pointer is captured when render state is created;
 - all commands using that proxy execute before its removal command;
-- every removal command is queued before the pointed-to aggregate's resource
+- every removal command is queued before the pointed-to render data's resource
   release commands;
 - the release fence is queued after every release command;
-- aggregate C++ storage remains uniquely owned until the fence completes.
+- render-data C++ storage remains uniquely owned until the fence completes.
 
 The FIFO command order is:
 
@@ -173,12 +314,13 @@ earlier draw/use
 -> release old vertex factories
 -> release old index/vertex buffers
 -> release fence
--> destroy old aggregate storage
+-> destroy old render-data storage
 ```
 
-Keeping a raw pointer is therefore acceptable only for registered render-state
-consumers. Synchronous game-thread/editor inspection through `GetRenderData()`
-must not retain the returned pointer across a replacement call.
+Keeping a raw pointer is therefore acceptable only inside component-owned
+render state. Synchronous game-thread/editor inspection through
+`GetRenderData()` must not retain the returned pointer across a replacement
+call.
 
 ### Render-State Recreate Context
 
@@ -189,36 +331,39 @@ On construction it:
 
 - snapshots every live `DStaticMeshComponent` using the mesh with generation
   checked object handles;
-- snapshots registered preview, thumbnail, and auxiliary-scene consumers;
-- requests destruction/removal of their old render state;
-- preserves only the producer information required to recreate those consumers.
+- requests destruction/removal of their old render state through each
+  component's retained scene endpoint.
 
 On destruction it:
 
 - rebuilds component material/proxy snapshots from the new current render data;
-- requests recreation of registered preview and auxiliary render states;
 - refreshes bounds or other current component state where required.
 
-Every long-lived raw-pointer consumer must either participate in this context
-or prove that its command completes synchronously before publication. A
-component scan alone is insufficient because preview and thumbnail scenes are
-not components.
+The context applies only to live synchronous replacement. Asset destruction
+does not recreate render state: ordinary reachability keeps a mesh alive while
+a component references it, package/world and preview-scene teardown unregister
+components, and the engine shutdown coordinator detaches remaining
+process-owned scenes before the DObject drain. No context destructor may
+recreate a proxy for an object already in `BeginDestroy`.
+
+Every long-lived raw-pointer consumer must be component-owned. Direct editor
+proxy installation is removed instead of being accommodated with callbacks or
+an asset-side registry.
 
 ### Current Resource Initialization
 
 `DStaticMesh::InitResources` is the sole high-level initializer for current
 render data.
 
-- It assigns owner/revision diagnostics to every child.
+- It assigns owner diagnostics to every child.
 - It queues LOD buffer initialization before per-LOD vertex factories.
-- It queues a completion fence after initialization.
-- It records whether initialization has been requested and whether the current
-  revision is ready or failed.
-- It is idempotent for one current revision.
+- The initialization command records whether the current render data is ready
+  or failed.
+- It is idempotent for the current render data.
 
-`FRendererModule::PrepareSceneResources` no longer initializes mesh resources
-opportunistically every frame. It only validates readiness and renders a proxy
-whose asset lifecycle has already requested initialization.
+The renderer has no scene-wide StaticMesh initialization hook. Draw code only
+validates readiness and renders a proxy whose component already requested asset
+initialization before proxy addition.
 
 Initial load or transient creation with no active RHI may retain CPU render
 data in an uninitialized state. The first render-state creation requests
@@ -226,7 +371,7 @@ initialization before it queues proxy creation.
 
 ### Replacement Candidate Publication
 
-Replacement retains the last successful live revision until the candidate is
+Replacement retains the last successful live render data until the candidate is
 known to be renderable:
 
 1. build and CPU-validate a detached candidate;
@@ -234,69 +379,45 @@ known to be renderable:
    publication operation retains the candidate's unique ownership;
 3. queue a candidate-init fence;
 4. for current synchronous reimport/build APIs, wait for that targeted fence;
-5. if initialization fails, release and retire the candidate and keep the
-   current asset/proxies unchanged;
+5. if initialization fails, release the candidate, wait for its targeted fence,
+   destroy it, and keep the current asset/proxies unchanged;
 6. construct `FStaticMeshRenderStateRecreateContext` for the current mesh;
-7. move the old current aggregate into a pending retirement and queue its
-   release/fence after context construction has queued detach work;
-8. move the initialized candidate into `DStaticMesh::RenderData`;
-9. destroy the recreate context, which queues new proxy creation after
-   candidate initialization.
+7. move the old current render data into a local `std::unique_ptr`;
+8. install the initialized candidate as `DStaticMesh::RenderData`;
+9. queue reverse-order release for the local old render data, begin a targeted
+   fence after those commands, and wait for that fence;
+10. destroy the local old render data;
+11. destroy the recreate context, which queues new component proxy creation
+   after candidate initialization.
 
-This targeted wait is not a full renderer flush. A later asynchronous
-publication design may poll candidate completion and perform steps 6–9 in a
-game-thread finalize task, without changing ownership or proxy ordering.
-
-### Pending Retirement
-
-`FPendingStaticMeshRenderDataRetirement` contains:
-
-- `std::unique_ptr<FStaticMeshRenderData> RenderData`;
-- owner package and render revision diagnostics;
-- one `FRenderCommandFence ReleaseFence`;
-- lifecycle state distinguishing release queued, fence pending, and ready to
-  destroy.
-
-Creating a retirement:
-
-1. requires all consumer detach commands already to be queued;
-2. queues reverse-order `ReleaseResources`;
-3. begins the fence after release commands;
-4. stores the unique old aggregate until the fence completes.
-
-Completed retirements may be pruned during later asset operations, GC
-readiness checks, or an explicit lifecycle pump. Destruction after fence
-completion may occur on the game thread because every nested
-`FRenderResource` is already unregistered and its RHI references were released
-on the rendering thread.
-
-No retirement destructor waits. Destroying an incomplete retirement is a
-lifecycle error.
+This targeted wait is not a full renderer flush. Synchronous publication is
+intentionally serialized and cannot accumulate old render-data objects. A future
+asynchronous publication design may introduce a dedicated compilation result
+owner, but it must not turn `DStaticMesh` into a general retired-version queue.
 
 ### Asset Destruction
 
 `DStaticMesh::BeginDestroy`:
 
-1. prevents new builds, initialization, or render-state recreation;
-2. requests detach/removal of any remaining registered consumers;
-3. moves current render data into a pending retirement;
-4. queues resource release and begins its fence;
-5. calls `Super::BeginDestroy`.
+1. relies on the existing `DObject` destruction state as the mutation boundary;
+2. queues reverse-order release for the current render data;
+3. begins its single `ReleaseResourcesFence`;
+4. calls `Super::BeginDestroy`.
 
 `DStaticMesh::IsReadyForFinishDestroy` returns true only when:
 
-- every pending retirement fence is complete;
-- no current render data remains;
-- no initialization/publication request can still target the asset;
+- its single release fence is complete;
 - the superclass is ready.
 
-`FinishDestroy` verifies and clears completed retirements before physical
-destruction. GC therefore defers destruction without blocking its initiating
-game-thread call.
+`FinishDestroy` verifies the fence, verifies that every nested resource is
+unregistered, and clears current render data. GC therefore defers destruction
+without blocking `BeginDestroy`. During orderly engine shutdown,
+process/subsystem scene owners and components detach before the DObject drain;
+`DStaticMesh` does not discover or manage its consumers.
 
 ### Resource and RHI Release
 
-For one aggregate, initialization is:
+For one render-data object, initialization is:
 
 ```text
 LOD vertex/index buffers
@@ -309,27 +430,27 @@ Release is:
 ```text
 LOD vertex factories
 -> LOD index/vertex buffers
--> FRenderResource registry empty for this revision
+-> FRenderResource registry empty for this render data
 -> release fence
--> aggregate C++ destruction
+-> render-data C++ destruction
 ```
 
 Final RHI object destruction may remain in the RHI deferred-delete queue after
-the aggregate's RHI references are dropped. Engine shutdown drains that queue
-after RenderCore resource and aggregate-retirement audits pass.
+the render data's RHI references are dropped. Engine shutdown drains that queue
+after RenderCore resource and StaticMesh resource audits pass.
 
 Repeated init/release is idempotent. Partial initialization failure releases
-all successfully initialized children before the candidate's retirement fence
+all successfully initialized children before the candidate's targeted fence
 can complete.
 
 ### Import, Reimport, and Exchange
 
 Detached import candidates must not initialize against or inherit the live
-asset's owner/revision identity before bundle commit.
+asset's identity before bundle commit.
 
-`ExchangeImportedState` no longer swaps active `RenderData`, initialization
-flags, release fences, or pending retirements between assets. The import
-workflow instead:
+`ExchangeImportedState` no longer uses a raw swap of active `RenderData`,
+initialization flags, or release fences between assets. The import workflow
+instead:
 
 1. builds detached authored state plus detached render data;
 2. commits source, material-slot, manifest, and cooked metadata to the intended
@@ -338,7 +459,10 @@ workflow instead:
 4. performs a symmetric replacement request when bundle rollback restores old
    authored state.
 
-Owner diagnostics and fences therefore remain attached to the correct package.
+The destination receives the initialized candidate. The displaced data is
+released first and only then moved to the candidate object as CPU rollback
+state. Owner diagnostics are rebound on initialization, while asset destruction
+fences never move.
 
 ### No StaticMesh Reference or Counted Handle
 
@@ -346,10 +470,10 @@ StaticMesh does not need texture-style RHI indirection:
 
 - a texture is one bindable RHI identity that can retarget without rebuilding
   every consumer;
-- a mesh revision contains buffers, sections, bounds, slot layout, and vertex
+- mesh render data contains buffers, sections, bounds, slot layout, and vertex
   factories, so structural replacement recreates proxy state;
-- unique current/pending-retirement ownership plus explicit fences already
-  protects raw-pointer consumers.
+- unique current/local-old ownership plus explicit fences already protects
+  component proxy borrows.
 
 A counted handle becomes eligible only if Stage 0 proves that a required
 long-lived consumer cannot participate in render-state detach/recreate or
@@ -373,19 +497,25 @@ revision; it is not the default design.
   slots, and bounds and exposes render-thread-only init/release entry points.
 - The LOD-resource plan already specifies buffer-before-factory initialization
   and factory-before-buffer release.
-- `DStaticMesh::NotifyLoadedComponents` and primitive scene IDs provide a
-  starting point for component render-state recreation.
+- primitive scene IDs and the scoped recreate context provide component
+  render-state recreation without a second asset-side notification scan.
+- `DWorld`, `DLevel`, actor/component registration, and `IScene` already provide
+  the pieces needed for a reusable preview world; ownership is not yet joined.
 
 ### Gaps
 
-- `SetRenderData` destroys old storage before queued proxies stop using it.
-- `DStaticMesh` has no initialization state, release fence, pending retirement,
-  or destruction readiness override.
+- the removed public `SetRenderData` destroyed old storage before queued
+  proxies stopped using it.
+- `DStaticMesh` has no initialization state, release fence, or destruction
+  readiness override.
 - production replacement and destruction do not release initialized nested
   `FRenderResource` objects.
 - initialization is renderer-discovered and repeated during scene preparation.
-- the loaded-component scan does not cover preview, thumbnail, and auxiliary
-  scene consumers.
+- editor preview and thumbnail paths bypass components and install StaticMesh
+  raw-pointer proxies directly.
+- `DEngine` owns `MainScene` separately from `DWorld`, and primitive, light, and
+  sky components discover it through `GEngine`; this prevents an independent
+  preview world from using ordinary component registration.
 - `ExchangeImportedState` swaps live render ownership between package
   identities.
 - selected tests manually call `ReleaseResources`, masking missing asset
@@ -397,22 +527,21 @@ revision; it is not the default design.
 
 ### Stage 0: Freeze Consumers and Unsafe Schedules
 
-- [ ] Record baseline commit
-  `b9deab4cbedf2dea93e56e8f11f6773216d93ea1` and the initial working set.
-- [ ] Inventory every stored, captured, returned, and immediate-use
+- [x] Record baseline commit `9cfee542` and the initial working set.
+- [x] Inventory every stored, captured, returned, and immediate-use
   `FStaticMeshRenderData*` and classify it as detached build access,
   synchronous inspection, registered render state, or queued render-thread
   borrow.
-- [ ] Identify the detach/recreate entry point for components, material
+- [x] Identify the detach/recreate entry point for components, material
   thumbnails, TextureCube previews, and every auxiliary scene.
-- [ ] Add scheduler-controlled tests paused before old-proxy removal, resource
-  release, fence completion, and aggregate destruction.
-- [ ] Reproduce replacement while an old draw/proxy remains queued and asset GC
+- [x] Add scheduler-controlled tests paused before old-proxy removal, resource
+  release, fence completion, and render-data destruction.
+- [x] Reproduce replacement while an old draw/proxy remains queued and asset GC
   after buffers initialize.
-- [ ] Cover registered, unregistered, garbage-marked, preview, thumbnail,
+- [x] Cover registered, unregistered, garbage-marked, preview, thumbnail,
   rapid-replacement, and no-RHI cases.
-- [ ] Pin DMSH, DDC, material-slot, bounds, and rendered-output behavior.
-- [ ] Record diagnostics sufficient to prove exact command and destruction
+- [x] Pin DMSH, DDC, material-slot, bounds, and rendered-output behavior.
+- [x] Record diagnostics sufficient to prove exact command and destruction
   order without timing sleeps.
 
 Dependencies: none.
@@ -423,76 +552,138 @@ Dependencies: none.
   replacement and unload schedules fail deterministically against the baseline;
   and compatibility baselines remain unchanged.
 
-### Stage 1: Add Explicit Asset Resource and Retirement Lifecycles
+### Stage 1: Normalize Component-Owned Render State
 
-- [ ] Add `DStaticMesh::InitResources`, `ReleaseResources`,
-  `AreRenderingResourcesInitialized`, resource revision/state, and diagnostic
-  accessors.
-- [ ] Add `FPendingStaticMeshRenderDataRetirement` with unique aggregate
-  ownership, release fence, and lifecycle diagnostics.
-- [ ] Add asset-owned pending-retirement storage and completion pruning without
-  blocking destructors.
-- [ ] Implement reverse-order release, partial-init rollback, idempotent
-  init/release, and fence-after-release ordering.
-- [ ] Implement `BeginDestroy`, `IsReadyForFinishDestroy`, and `FinishDestroy`
-  using pending retirement fences.
-- [ ] Remove per-frame initialization ownership from
-  `FRendererModule::PrepareSceneResources`.
-- [ ] Add focused tests for initial init, repeated init, partial failure,
-  replacement retirement, multiple simultaneous retirements, GC deferral, and
-  final registry cleanup.
+- [x] Add `EWorldType::Preview` and a world renderer-scene endpoint with an
+  explicit owner-before-world teardown contract.
+- [x] Make primitive, directional-light, and sky components obtain their scene
+  from their owning world, retain it while registered, and use it for every
+  add, update, and remove operation.
+- [x] Add a reusable `FPreviewScene` that owns a preview world, level, renderer
+  scene, and ordinary preview actors/components, with optional play/tick.
+- [x] Add `FStaticMeshRenderStateRecreateContext` with generation-checked
+  `DStaticMeshComponent` handles; construction detaches and destruction
+  recreates.
+- [x] Convert material thumbnails and MaterialPreview to ordinary
+  `DStaticMeshComponent` instances in `FPreviewScene`.
+- [x] Convert TextureCube thumbnail geometry to a transient component that owns
+  its specialized proxy inside `FPreviewScene`.
+- [x] Remove direct long-lived editor installation of proxies containing
+  `FStaticMeshRenderData*`.
+- [x] Keep proxy render-data fields non-owning and document their
+  component-render-state bounded-borrow contract.
+- [x] Add focused component and preview tests for registered, unregistered,
+  reassigned, garbage-marked, reused-generation, auxiliary-scene, and
+  no-`GEngine` detach cases.
 
 Dependencies: Stage 0.
 
 #### Acceptance Gate
 
-- Current and retiring aggregates always have exactly one owner; old storage
-  survives until its release fence completes; GC defers without blocking; and
-  every initialized nested resource unregisters before aggregate destruction.
+- Every long-lived StaticMesh proxy is owned by component render state; main and
+  preview components obtain stable scene endpoints through their worlds;
+  preview teardown is ordered; and `DStaticMesh` contains no consumer registry,
+  callback list, world, or scene discovery logic.
 
-### Stage 2: Recreate Every Render-State Consumer
+#### Stage 1 Implementation Handoff
 
-- [ ] Add `FStaticMeshRenderStateRecreateContext` with component object-handle
-  generation checks and registered non-component consumer adapters.
-- [ ] Queue all old render-state detach commands during context construction and
-  all new render-state creation commands during destruction.
-- [ ] Ensure init commands for the selected current revision precede every new
-  proxy-add command.
-- [ ] Keep proxy render-data fields non-owning and document their bounded-borrow
-  contract.
-- [ ] Integrate material-thumbnail, TextureCube preview, and auxiliary-scene
-  paths rather than relying only on `GDObjectArray` component scanning.
-- [ ] Handle garbage-marked, concurrently unregistered, reassigned, and reused
-  object slots without stranding an old proxy.
-- [ ] Add command-order tests proving draw → detach → release → fence → delete
-  and init → add-proxy ordering.
+- Baseline: `1115c0dd`.
+- Runtime working set: `DWorld`, `DEngine`, `DSceneComponent`, primitive,
+  directional-light, and sky components, plus
+  `FStaticMeshRenderStateRecreateContext`.
+- Editor working set: reusable `FPreviewScene`, ordinary StaticMesh preview
+  components, the specialized `DTextureCubePreviewComponent`, MaterialPreview,
+  and the rendered-thumbnail preview-scene pool.
+- Key decisions: the scene remains owned by the host (`DEngine` or
+  `FPreviewScene`) and is non-owningly exposed by its world; components capture
+  it at registration; scene changes re-register only components that were
+  already registered; preview teardown unregisters the level before releasing
+  scene storage; and recreate-context destruction revalidates both mesh and
+  component generations plus current assignment.
+- Open question carried to Stage 2: initial resource initialization must precede
+  component proxy-add commands without restoring renderer-side per-frame
+  initialization.
+- Validation: `MaterialTests` 45/45, `StaticMeshTests` 53/53,
+  `ThumbnailTests` 45/45, `WorldTests` 35/35, `SkyBoxTests` 9/9, and
+  `StaticModelImportVulkanTests` 1/1 passed; the full `all` target built
+  successfully for `Win64-Debug-DurinEditor-Tests`.
+
+### Stage 2: Add Explicit Asset Resource Lifecycle
+
+- [x] Add `DStaticMesh::InitResources`, `ReleaseResources`,
+  `AreRenderingResourcesInitialized`, resource state, and diagnostic
+  accessors.
+- [x] Add one asset-owned `ReleaseResourcesFence` used only by
+  `BeginDestroy`/`IsReadyForFinishDestroy`/`FinishDestroy`.
+- [x] Implement reverse-order release, partial-init rollback, and idempotent
+  init/release.
+- [x] Remove per-frame initialization ownership from
+  `FRendererModule::PrepareSceneResources`.
+- [x] Ensure initialization commands precede every component proxy-add command.
+- [x] Add focused tests for initial init, repeated init, partial failure,
+  non-blocking GC deferral, final resource-registry cleanup, and no-RHI
+  destruction.
 
 Dependencies: Stage 1.
 
 #### Acceptance Gate
 
-- No long-lived raw-pointer consumer exists outside a registered render-state
-  interval; every old consumer detaches before release begins; and proxy
-  recreation observes only the selected initialized aggregate.
+- The asset has exactly one current render-data object and one destruction release
+  fence; GC defers without blocking; and every initialized nested resource
+  unregisters before render-data destruction.
+
+#### Stage 2 Implementation Handoff
+
+- Baseline: `c379c1f7`.
+- Runtime working set: `DStaticMesh`, `FStaticMeshRenderData`,
+  `DStaticMeshComponent`, `DTextureCubePreviewComponent`, renderer interfaces,
+  engine and thumbnail render calls, and StaticMesh proxy lifetime diagnostics.
+- Key decisions: there is no StaticMesh lifecycle revision; state belongs to
+  the one current render-data object. A component requests initialization
+  synchronously on the game thread before its scene queues proxy addition.
+  Initialization is idempotent, validates every LOD, and rolls back all earlier
+  LOD resources if a later LOD fails. Release walks LODs and nested buffers in
+  reverse order.
+- Destruction decision: `BeginDestroy` queues release and begins the one asset
+  fence when initialization or release work was submitted. A mesh that never
+  submitted render work, including no-RHI use, keeps the fence in its default
+  completed state and destroys without consulting global engine or command-pipe
+  phases.
+- Removed fallback: `IRendererModule::PrepareSceneResources` and all callers
+  were deleted; draw paths only consume ready resources and skip unavailable
+  data.
+- Open question carried to Stage 3: candidate initialization and synchronous
+  replacement must bind commands to the exact candidate/current render-data
+  pointer while their unique owners retain storage through targeted fences.
+- Validation: `StaticMeshTests` 54/54, `MaterialTests` 45/45,
+  `ThumbnailTests` 45/45, `StaticModelImportVulkanTests` 1/1,
+  `SkyBoxVulkanIntegrationTests` 1/1, and
+  `TextureCookIntegrationTests` 1/1 passed; the full `all` target built
+  successfully for `Win64-Debug-DurinEditor-Tests`.
 
 ### Stage 3: Publish Candidates and Integrate Asset Workflows
 
-- [ ] Replace public `SetRenderData` with detached candidate publication and
-  retain narrow builder/test helpers only where required.
-- [ ] Initialize replacement candidates before live commit and use a targeted
+- [x] Remove public `SetRenderData`; keep detached candidate publication private
+  to `DStaticMesh` with no public builder/test lifecycle helper.
+- [x] Keep public render-data inspection const and side-effect-free; expose no
+  public release, aggregate resource-state, or destruction-fence controls.
+- [x] Initialize replacement candidates before live commit and use a targeted
   candidate-init fence for current synchronous APIs.
-- [ ] Keep the last successful asset/proxies unchanged when candidate
-  initialization fails; release and retire the failed detached candidate.
-- [ ] Route DDC hit, source rebuild, cooked load, debug/transient creation,
+- [x] Keep the last successful asset/proxies unchanged when candidate
+  initialization fails; release and destroy the failed detached candidate after
+  its targeted fence.
+- [x] Serialize synchronous replacement: detach components, move current data
+  to a local unique owner, install the candidate, release/fence/delete the local
+  old render data, then recreate components.
+- [x] Route DDC hit, source rebuild, cooked load, debug/transient creation,
   reimport, undo/redo, and rollback through the same lifecycle.
-- [ ] Refactor `ExchangeImportedState` and static-model bundle commit/rollback
-  so current data, release fences, and pending retirements never move between
-  assets.
-- [ ] Remove manual test-only mesh `ReleaseResources` compensation.
-- [ ] Validate rapid consecutive replacement, failed replacement, unload,
-  package reload, ordinary GC, engine exit, and command-admission close.
-- [ ] Audit pending retirements by owner, revision, state, and fence status at
-  final shutdown.
+- [x] Refactor `ExchangeImportedState` and static-model bundle commit/rollback
+  so active resource state and release fences never move between assets.
+- [x] Remove manual test-only mesh `ReleaseResources` compensation.
+- [x] Validate serialized consecutive replacement, failed replacement, unload,
+  package reload, ordinary GC, and engine exit.
+- [x] Audit current StaticMesh resources by owner, state, and fence
+  status at final shutdown.
 
 Dependencies: Stage 2.
 
@@ -500,7 +691,36 @@ Dependencies: Stage 2.
 
 - Every asset workflow uses one publication primitive; failed candidates retain
   the last successful mesh; package-qualified lifecycle state never swaps
-  between assets; and shutdown leaves no current or pending mesh resource.
+  between assets; and shutdown leaves no initialized mesh resource.
+
+#### Stage 3 Implementation Handoff
+
+- Baseline: `7f9b6c3a`.
+- Runtime working set: `DStaticMesh`, its private candidate initialization and
+  retirement helpers, and `FStaticMeshRenderStateRecreateContext`.
+- Editor working set: static-model bundle mutation/rollback and retained
+  preview-asset teardown.
+- Key decisions: no candidate publication method is public. Initial load only
+  installs CPU data; first component registration initializes it. Replacement
+  alone performs the synchronous candidate-init wait. Recreate-context
+  destruction performs the one component update, so there is no overlapping
+  `NotifyLoadedComponents` scan. Following UE's semantic split,
+  `InitResources()` is explicit and `GetRenderData()` performs no initialization;
+  unlike UE's broad engine-internal API, Durin exposes only const render-data
+  inspection and keeps release/state/fence control private.
+- Rollback decision: `ExchangeImportedState` transfers a ready candidate into
+  the destination, releases the displaced data behind a local fence, and leaves
+  that released CPU data on the candidate object. A symmetric call restores it;
+  neither asset's resource state nor destruction fence is transferred.
+- Validation: `StaticMeshTests` 54/54, `MaterialTests` 45/45,
+  `TextureTests` 69/69, `ThumbnailTests` 45/45,
+  `StaticModelImportVulkanTests` 1/1,
+  `SkyBoxVulkanIntegrationTests` 1/1, and
+  `TextureCookIntegrationTests` 1/1 passed. The Vulkan lifecycle case covers
+  consecutive publication, symmetric rollback, candidate-init failure,
+  last-successful retention, resource-count stability, GC, package
+  reload/unload, and clean RHI exit. The full `all` target built successfully
+  for `Win64-Debug-DurinEditor-Tests`, and the plan validator passed.
 
 ### Stage 4: Coordinate Vertex Factories, Validate, and Document
 
@@ -534,15 +754,16 @@ Dependencies: Stage 3, Stage 3 of
 
 | Boundary | Required validation |
 | --- | --- |
-| Unique ownership | Detached candidate, current asset data, pending retirement, final destruction |
+| Unique ownership | Detached candidate, current asset data, local old data during synchronous replacement, final destruction |
 | DObject lifecycle | BeginDestroy, non-blocking readiness polling, FinishDestroy, repeated GC |
-| Command order | Draw/use, detach, reverse release, fence, aggregate destruction |
+| Command order | Draw/use, detach, reverse release, fence, render-data destruction |
 | Candidate publication | Init fence, success, partial failure, last-successful retention |
 | Buffer lifecycle | Complete/partial init, retry, reverse release, registry removal |
-| Components | Registered, unregistered, reassigned, garbage-marked, reused generation |
-| Non-component consumers | Material thumbnail, TextureCube preview, auxiliary scene |
+| Components | Registered, unregistered, reassigned, garbage-marked, reused generation, main and preview worlds |
+| Preview world | Scene ownership, optional tick, component-before-scene teardown, no main-scene mutation |
+| Editor previews | Material thumbnail, TextureCube thumbnail, MaterialPreview through preview-world components |
 | Import | DDC hit, source rebuild, transient/debug, reimport, bundle commit/rollback |
-| Asset lifecycle | Rapid replacement, package unload/reload, no RHI, shutdown, admission close |
+| Asset lifecycle | Serialized replacement, package unload/reload, no RHI, shutdown |
 | Compatibility | DMSH fixture, DDC key, cook payload, slots, bounds, rendered output |
 | Performance | Targeted fence duration, proxy churn, no duplicate per-component geometry |
 
@@ -554,24 +775,27 @@ profile-specific commands.
 
 - `DStaticMesh` uniquely owns current `FStaticMeshRenderData` and explicitly
   initializes/releases its resources.
-- Detached candidates and pending retirements preserve exactly one owner during
-  build, replacement, failure, and destruction.
+- Detached candidates, current data, and the synchronous local old render data
+  preserve exactly one owner during build, replacement, failure, and
+  destruction.
 - No StaticMesh reference, counted render-data handle, or proxy-side concrete
   ownership is introduced.
-- Every long-lived raw-pointer consumer participates in render-state
-  detach/recreate.
+- Every long-lived raw-pointer consumer is component-owned and participates in
+  render-state detach/recreate.
+- Main and preview scenes share the same world/component registration contract;
+  particle and effect previews require no new scene-lifetime model.
 - Replacement order is draw → detach → reverse release → fence → delete, and
   new resource init precedes new proxy creation.
 - GC uses `IsReadyForFinishDestroy` rather than blocking `BeginDestroy`.
 - Failed replacement retains the last successful published mesh.
 - Vertex factories release before LOD buffers and every nested
-  `FRenderResource` unregisters before aggregate destruction.
+  `FRenderResource` unregisters before render-data destruction.
 - Import, rollback, unload, GC, and shutdown require no manual test-only
   release.
 - DMSH, DDC, cook, package, slot, bounds, and rendered-output contracts remain
   compatible.
-- Final retirement, RenderCore registry, deferred cleanup, command-pipe, and RHI
-  deletion audits are empty.
+- Final StaticMesh resource, RenderCore registry, deferred cleanup, command-pipe,
+  and RHI deletion audits are empty.
 - Lasting lifecycle rules are published under Runtime rendering documentation.
 
 ## Deferred Follow-ups
@@ -609,6 +833,8 @@ Unreal Engine reference contracts:
 - `Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMesh.h`
 - `Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshResources.h`
 - `Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp`
+- `Engine/Source/Runtime/Engine/Public/Engine/World.h`
+- `Engine/Source/Runtime/Engine/Private/Engine/World.cpp`
 - `Engine/Source/Runtime/Engine/Public/Engine/PrimitiveSceneProxy.h`
 - `Engine/Source/Runtime/Engine/Private/Engine/PrimitiveSceneProxy.cpp`
 - `Engine/Source/Runtime/Engine/Private/Components/StaticMeshComponent.cpp`

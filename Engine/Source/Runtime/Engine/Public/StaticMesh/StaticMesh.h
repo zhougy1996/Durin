@@ -4,6 +4,7 @@
 #include "EngineAPI.h"
 #include "CookedAsset.h"
 #include "DObject/CoreDObject.h"
+#include "RenderingThread.h"
 
 #include "StaticMesh.gen.h"
 
@@ -132,19 +133,6 @@ namespace Durin
 		std::string Message;
 		bool bSourceImporterInvoked = false;
 	};
-
-	// Reports the deterministic work performed by one static-mesh component scan.
-	struct FStaticMeshUpdateCounters
-	{
-		uint64 ObjectSnapshotCount = 0;
-		uint64 ScannedObjectCount = 0;
-		uint64 ScannedComponentCount = 0;
-		uint64 MatchedComponentCount = 0;
-		uint64 UpdatedComponentCount = 0;
-	};
-
-	// Returns the counters from the most recently completed static-mesh component scan.
-	ENGINE_API auto GetLastStaticMeshUpdateCounters() -> FStaticMeshUpdateCounters;
 
 	// Preserves one material slot's stable identity and source-import provenance.
 	DSTRUCT()
@@ -281,7 +269,7 @@ namespace Durin
 		ENGINE_API explicit DStaticMesh(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DStaticMesh() override;
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
-		ENGINE_API auto GetRenderData() -> FStaticMeshRenderData*;
+		ENGINE_API auto InitResources() -> void;
 		auto GetSourceFile() const -> const std::string& { return SourceImportData.SourcePath.Path; }
 		auto GetImportSettings() const -> const FStaticMeshImportSettings& { return SourceImportData.ImportSettings; }
 		auto GetSourceImportData() const -> const FStaticMeshSourceImportData& { return SourceImportData; }
@@ -292,7 +280,6 @@ namespace Durin
 		ENGINE_API auto FindMaterialSlot(const FGuid& SlotId) const -> const FStaticMeshMaterialSlotDefinition*;
 		ENGINE_API auto FindMaterialSlot(FName Name) const -> const FStaticMeshMaterialSlotDefinition*;
 
-		ENGINE_API auto SetRenderData(std::unique_ptr<FStaticMeshRenderData> InRenderData) -> void;
 		ENGINE_API auto InspectSource() const -> FStaticMeshSourceDiagnostic;
 		auto GetDerivedDataDiagnostic() const -> const FStaticMeshDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
@@ -341,11 +328,29 @@ namespace Durin
 		ENGINE_API auto SetImportManifest(
 			FStaticModelImportManifest InManifest,
 			std::string& OutError) -> bool;
-		// Exchanges all importer-owned mesh state while preserving this asset's
-		// package identity and component overrides.
-		ENGINE_API auto ExchangeImportedState(DStaticMesh& Other) -> void;
+		// Transactionally applies a detached import candidate while preserving
+		// this asset's package identity and component overrides. The displaced
+		// CPU data is left on Other for symmetric bundle rollback; resource
+		// state and destruction fences never move between assets.
+		ENGINE_API auto ExchangeImportedState(
+			DStaticMesh& Other,
+			std::string& OutError) -> bool;
+		ENGINE_API auto BeginDestroy() -> void override;
+		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
+		ENGINE_API auto FinishDestroy() -> void override;
 
 	private:
+		enum class EStaticMeshRenderResourceState : uint8
+		{
+			Uninitialized,
+			InitializationQueued,
+			Ready,
+			Failed,
+			ReleaseQueued,
+			Released
+		};
+
+		auto ReleaseResources() -> void;
 		auto BuildRenderData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
 		auto BuildRenderDataCandidate(
 			std::string_view PhysicalFilePath,
@@ -363,8 +368,13 @@ namespace Durin
 		auto PublishRenderData(
 			std::unique_ptr<FStaticMeshRenderData> InRenderData,
 			std::vector<FStaticMeshMaterialSlotDefinition> InMaterialSlots,
-			bool bSlotMetadataChanged) -> void;
-		auto NotifyLoadedComponents() -> void;
+			bool bSlotMetadataChanged,
+			std::string& OutError) -> bool;
+		auto CommitRenderDataCandidate(
+			std::unique_ptr<FStaticMeshRenderData> InRenderData,
+			std::vector<FStaticMeshMaterialSlotDefinition>*
+				InMaterialSlots,
+			std::string& OutError) -> bool;
 		auto LoadCookedRenderData(std::string& OutError) -> bool;
 
 		DPROPERTY()
@@ -395,6 +405,9 @@ namespace Durin
 
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
 		FStaticMeshDerivedDataDiagnostic DerivedDataDiagnostic;
+		FRenderCommandFence ReleaseResourcesFence;
+		std::atomic<EStaticMeshRenderResourceState> RenderResourceState{
+			EStaticMeshRenderResourceState::Uninitialized};
 	};
 
 	// Reports static-mesh import success and the created asset, when available.

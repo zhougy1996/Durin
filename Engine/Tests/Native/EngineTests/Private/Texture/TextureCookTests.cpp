@@ -19,6 +19,7 @@
 #include "Scene.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "StaticMeshTestAccess.h"
 #include "Texture/TextureDerivedData.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DRenderResource.h"
@@ -322,7 +323,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Renderer.SetRenderMode(Durin::ERenderMode::Unlit);
 	auto* SampleMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	for (Durin::FVector2f& TexCoord :
-		SampleMesh->GetRenderData()->LODResources.front()
+		Durin::FStaticMeshTestAccess::GetMutableRenderData(SampleMesh)
+			->LODResources.front()
 			.VertexBuffers.StaticMeshVertexBuffer
 				.TexCoordVertexBuffer.GetMutableTexCoords().front())
 	{
@@ -390,7 +392,6 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 
 			Scene.AddOrReplacePrimitive(
 				1, std::move(*SampleProxy), Durin::FMatrix(1.0));
-			Renderer.PrepareSceneResources(CommandList, &Scene);
 			Durin::FRHITextureCreateDesc ColorDesc =
 				Durin::FRHITextureCreateDesc::Create2D(
 					"CookedTextureSampleColor", 17, 17, Durin::EPixelFormat::SRGBA8_UNORM)

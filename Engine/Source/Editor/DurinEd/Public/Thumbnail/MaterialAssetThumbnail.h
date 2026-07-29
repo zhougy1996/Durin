@@ -5,15 +5,6 @@
 namespace Durin
 {
 	class DMaterialInterface;
-	class DStaticMesh;
-	class PrimitiveSceneProxy;
-
-	// Builds the shared material-on-mesh proxy used by interactive and rendered previews.
-	DURINED_API auto CreateMaterialPreviewPrimitive(
-		DStaticMesh* Mesh,
-		DMaterialInterface* Material,
-		uint64 ComponentRevision,
-		std::string& OutError) -> std::unique_ptr<PrimitiveSceneProxy>;
 
 	// Captures deterministic material dependency keys for one exact material asset class.
 	class FMaterialAssetThumbnailProvider final : public IAssetThumbnailProvider

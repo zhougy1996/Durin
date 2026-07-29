@@ -13,6 +13,13 @@ namespace Durin
 	}
 	auto DActorComponent::RegisterComponent() -> void
 	{
+		if (IsPendingKill())
+		{
+			DURIN_WARN(
+				"Component registration rejected after object teardown began. (component: {})",
+				GetObjectPath());
+			return;
+		}
 		if (!bHasBeenCreated) OnComponentCreated();
 		ExecuteRegisterEvents();
 		if (!bHasBeenInitialized) InitializeComponent();

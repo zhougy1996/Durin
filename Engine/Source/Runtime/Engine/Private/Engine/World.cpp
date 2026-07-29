@@ -16,6 +16,7 @@ namespace Durin
 	{
 		EndPlay();
 		SetCurrentLevel(nullptr);
+		RenderScene = nullptr;
 		Super::BeginDestroy();
 	}
 
@@ -76,6 +77,34 @@ namespace Durin
 		}
 		if (bDestroyPreviousOwnedLevel && Previous && Previous->GetOuter() == this) MarkObjectHierarchyAsGarbage(Previous);
 		return true;
+	}
+
+	auto DWorld::SetRenderScene(IScene* InRenderScene) -> void
+	{
+		if (RenderScene == InRenderScene) return;
+
+		std::vector<TObjectPtr<DActorComponent>> RegisteredComponents;
+		if (CurrentLevel)
+		{
+			for (const TObjectPtr<AActor>& Actor : CurrentLevel->GetActors())
+			{
+				if (!Actor) continue;
+				for (const TObjectPtr<DActorComponent>& Component : Actor->GetOwnedComponents())
+				{
+					if (Component && Component->IsRegistered())
+					{
+						RegisteredComponents.push_back(Component);
+						Component->UnregisterComponent();
+					}
+				}
+			}
+		}
+
+		RenderScene = InRenderScene;
+		for (const TObjectPtr<DActorComponent>& Component : RegisteredComponents)
+		{
+			if (Component && !Component->IsPendingKill()) Component->RegisterComponent();
+		}
 	}
 
 	auto DWorld::BeginPlay() -> void

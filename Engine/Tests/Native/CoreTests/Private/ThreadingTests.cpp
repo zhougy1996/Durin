@@ -262,6 +262,27 @@ namespace Durin
 		EXPECT_FALSE(Pool.Enqueue("RejectedAfterDrain", []() {}));
 	}
 
+	TEST(FQueuedThreadPoolTests, StopAcceptingWorkRejectsNewTasksAndDrainsAcceptedTasks)
+	{
+		FQueuedThreadPool Pool;
+		ASSERT_TRUE(Pool.Create(1, "QueuedPoolQuiesce"));
+
+		std::atomic<uint32> CompletedTaskCount = 0;
+		for (uint32 TaskIndex = 0; TaskIndex < 8; ++TaskIndex)
+		{
+			ASSERT_TRUE(Pool.Enqueue("AcceptedBeforeQuiesce", [&]() {
+				CompletedTaskCount.fetch_add(1, std::memory_order_acq_rel);
+			}));
+		}
+
+		Pool.StopAcceptingWork();
+		EXPECT_FALSE(Pool.IsRunning());
+		EXPECT_FALSE(Pool.Enqueue("RejectedAfterQuiesce", []() {}));
+		Pool.WaitForIdle();
+		EXPECT_EQ(8u, CompletedTaskCount.load(std::memory_order_acquire));
+		Pool.Destroy(true);
+	}
+
 	TEST(FQueuedThreadPoolTests, DestroyFalseDiscardsQueuedWorkAndRejectsLaterWork)
 	{
 		FQueuedThreadPool Pool;

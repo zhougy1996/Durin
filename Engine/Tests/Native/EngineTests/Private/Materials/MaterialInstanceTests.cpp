@@ -7,7 +7,7 @@ TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "LiveMaterialInstance");
 	EXPECT_TRUE(Instance->SetParent(Base));
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "LiveMaterialComponent");
+	Durin::DStaticMeshComponent* Component = Harness.CreateStaticMeshComponent("LiveMaterialComponent");
 	Component->SetStaticMesh(Mesh);
 	Component->SetMaterial(Instance);
 	Component->RegisterComponent();
@@ -51,7 +51,7 @@ TEST(FMaterialTests, MeshDefaultsBindWhileOrphanOverridesStayDetached)
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
 	static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 0))->DefaultMaterial = Default;
-	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "DefaultDependencyComponent");
+	Durin::DStaticMeshComponent* Component = Harness.CreateStaticMeshComponent("DefaultDependencyComponent");
 	Component->SetStaticMesh(Mesh);
 	Component->RegisterComponent();
 	const FSceneSnapshot Initial = CaptureScene(Harness.Scene);
@@ -93,7 +93,7 @@ TEST(FMaterialTests, BoundTextureChangesUpdateProxyResourceSnapshotInPlace)
 	Base->SetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), BaseTexture);
 	ASSERT_TRUE(Instance->SetParent(Base));
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "LiveTextureMaterialComponent");
+	Durin::DStaticMeshComponent* Component = Harness.CreateStaticMeshComponent("LiveTextureMaterialComponent");
 	Component->SetStaticMesh(Mesh);
 	Component->SetMaterial(Instance);
 	Component->RegisterComponent();
@@ -135,7 +135,7 @@ TEST(FMaterialTests, SceneCommandsPreserveLatestTransformAndReleaseAllProxies)
 {
 	FRenderSceneHarness Harness;
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "SceneCommandComponent");
+	Durin::DStaticMeshComponent* Component = Harness.CreateStaticMeshComponent("SceneCommandComponent");
 	Component->SetStaticMesh(Mesh);
 	Component->RegisterComponent();
 	Component->SetWorldLocation(Durin::FVector3(4.0, 5.0, 6.0));

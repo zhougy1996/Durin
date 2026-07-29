@@ -103,7 +103,7 @@ namespace Durin
 	{
 		RendererModule = &FModuleManager::LoadModuleChecked<IRendererModule>("Renderer");
 		MainScene = RendererModule->CreateScene();
-		MainWorld = NewObject<DWorld>(this, "MainWorld");
+		SetWorld(NewObject<DWorld>(this, "MainWorld"));
 		Mona::FMonaApplication::Get().SetGameEventHandler(std::make_unique<FEngineInputEventHandler>());
 	}
 
@@ -111,7 +111,7 @@ namespace Durin
 	{
 		AuxiliarySceneViewports.clear();
 		MainSceneViewport.reset();
-		MainWorld = nullptr;
+		SetWorld(nullptr);
 		if (MainScene != nullptr)
 		{
 			MainScene->Release();
@@ -151,7 +151,6 @@ namespace Durin
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 					if (RendererModule != nullptr)
 					{
-						RendererModule->PrepareSceneResources(CommandList, Scene);
 						RendererModule->RenderView(CommandList, Scene, View, RenderTargetRHI, false);
 					}
 				}
@@ -188,7 +187,6 @@ namespace Durin
 
 							if (RendererModule != nullptr)
 							{
-								RendererModule->PrepareSceneResources(CommandList, Scene);
 								RendererModule->RenderView(CommandList, Scene, View, BackBuffer, true);
 							}
 
@@ -232,7 +230,10 @@ namespace Durin
 
 	auto DEngine::SetWorld(DWorld* InWorld) -> void
 	{
+		if (MainWorld.Get() == InWorld) return;
+		if (MainWorld) MainWorld->SetRenderScene(nullptr);
 		MainWorld = InWorld;
+		if (MainWorld) MainWorld->SetRenderScene(MainScene.get());
 	}
 
 	auto DEngine::SetGameInputEnabled(bool bEnabled) -> void

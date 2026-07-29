@@ -143,7 +143,7 @@ TEST(FMaterialTests, ReflectedSparseMaterialOverrideUsesSharedTransactions)
 	First->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3));
 	Second->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "DetailsMeshComponent");
+	Durin::DStaticMeshComponent* Component = Harness.CreateStaticMeshComponent("DetailsMeshComponent");
 	Component->SetStaticMesh(Mesh);
 	Component->SetMaterial(First);
 	Component->RegisterComponent();
@@ -468,7 +468,7 @@ TEST(FMaterialTests, ParentTransactionsRenderFromCurrentCanonicalStorage)
 	ASSERT_TRUE(Instance->SetParent(FirstParent));
 
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "CanonicalParentComponent");
+	auto* Component = Harness.CreateStaticMeshComponent("CanonicalParentComponent");
 	Component->SetStaticMesh(Mesh);
 	Component->SetMaterial(Instance);
 	Component->RegisterComponent();

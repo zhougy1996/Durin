@@ -1,11 +1,7 @@
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 
 #include "AssetSystem.h"
-#include "Engine/PrimitiveSceneProxy.h"
-#include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshResources.h"
 #include "Texture/TextureCube.h"
-#include "Texture/TextureCubeRenderResource.h"
 
 namespace Durin
 {
@@ -83,33 +79,5 @@ namespace Durin
 		OutRequest.ProviderGeneration = ProviderGeneration;
 		OutRequest.RequestSerial = Request.RequestSerial;
 		return true;
-	}
-
-	auto CreateTextureCubePreviewPrimitive(
-		DStaticMesh* Mesh,
-		DTextureCube* TextureCube,
-		std::string& OutError) -> std::unique_ptr<PrimitiveSceneProxy>
-	{
-		OutError.clear();
-		if (Mesh == nullptr || Mesh->GetRenderData() == nullptr
-			|| Mesh->GetRenderData()->LODResources.empty())
-		{
-			OutError = "The TextureCube preview mesh has no render data.";
-			return nullptr;
-		}
-		if (TextureCube == nullptr)
-		{
-			OutError = "The TextureCube preview asset is unavailable.";
-			return nullptr;
-		}
-		FRHITextureReferenceRef TextureReference =
-			TextureCube->GetTextureReferenceRHI();
-		if (TextureReference == nullptr)
-		{
-			OutError = "The TextureCube has no texture reference.";
-			return nullptr;
-		}
-		return std::make_unique<FTextureCubePreviewSceneProxy>(
-			Mesh->GetRenderData(), std::move(TextureReference));
 	}
 } // namespace Durin

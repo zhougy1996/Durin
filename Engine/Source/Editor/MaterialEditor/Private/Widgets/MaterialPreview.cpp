@@ -3,26 +3,23 @@
 #include "Asset/EditorAssetRetention.h"
 #include "Client/ViewportClient.h"
 #include "Components/DirectionalLightComponent.h"
-#include "DObject/DObjectGlobals.h"
-#include "DObject/ObjectLifecycle.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/Actor.h"
 #include "Engine/Engine.h"
-#include "Engine/PrimitiveSceneProxy.h"
+#include "Engine/World.h"
 #include "IRendererModule.h"
 #include "IScene.h"
 #include "Materials/MaterialInterface.h"
 #include "Mona/SceneViewport.h"
 #include "MonaImGui.h"
-#include "RenderingThread.h"
+#include "Preview/PreviewScene.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshResources.h"
-#include "Thumbnail/MaterialAssetThumbnail.h"
 #include "Widgets/MViewport.h"
 
 namespace Durin
 {
 	namespace
 	{
-		constexpr FPrimitiveSceneId PreviewPrimitiveId = 1;
 		constexpr double RotationTolerance = 1.0e-8;
 		constexpr float PreviewRotationSensitivity = 0.25f;
 		constexpr double PreviewMinDistance = 1.5;
@@ -117,13 +114,14 @@ namespace Durin
 	public:
 		explicit FImpl(uint64 PreviewId)
 		{
-			if (GEngine == nullptr || GEngine->GetRendererModule() == nullptr)
+			PreviewScene = std::make_unique<FPreviewScene>(
+				FName(std::format("MaterialPreview_{}", PreviewId)));
+			if (!PreviewScene->IsAvailable())
 			{
-				Error = "The renderer is not available.";
+				Error = PreviewScene->GetDiagnostic();
 				return;
 			}
 
-			PreviewScene = GEngine->GetRendererModule()->CreateScene();
 			FAssetPath SpherePath;
 			FAssetPath BoxPath;
 			if (!FAssetPath::TryCreate(PreviewSpherePath, SpherePath, &Error)
@@ -134,15 +132,31 @@ namespace Durin
 				return;
 			}
 
-			PreviewLight = NewObject<DDirectionalLightComponent>(GEngine, std::format("MaterialPreviewLight_{}", PreviewId));
-			AddToRoot(PreviewLight.Get());
+			AActor* PreviewActor = PreviewScene->GetWorld()->SpawnActor<AActor>(
+				FName(std::format("MaterialPreviewActor_{}", PreviewId)));
+			PreviewMesh = PreviewActor
+				? Cast<DStaticMeshComponent>(PreviewActor->AddInstanceComponent(
+					DStaticMeshComponent::StaticClass(), "PreviewMesh"))
+				: nullptr;
+			AActor* LightActor = PreviewScene->GetWorld()->SpawnActor<AActor>(
+				FName(std::format("MaterialPreviewLightActor_{}", PreviewId)));
+			PreviewLight = LightActor
+				? Cast<DDirectionalLightComponent>(LightActor->AddInstanceComponent(
+					DDirectionalLightComponent::StaticClass(),
+					FName(std::format("MaterialPreviewLight_{}", PreviewId))))
+				: nullptr;
+			if (PreviewMesh == nullptr || PreviewLight == nullptr)
+			{
+				Error = "The material preview components could not be created.";
+				return;
+			}
 			// Aim the key light from just above the camera so color and specular edits remain readable on every shape.
 			PreviewLight->SetWorldRotation(RotationFromForward(FVector3(-2.6, 2.6, -2.4)));
-			PreviewScene->AddDirectionalLight(PreviewLight);
 
 			ViewportClient = std::make_unique<FMaterialPreviewViewportClient>();
 			ViewportWidget = std::make_shared<MViewport>();
-			SceneViewport = std::make_shared<FSceneViewport>(ViewportClient.get(), ViewportWidget, PreviewScene.get());
+			SceneViewport = std::make_shared<FSceneViewport>(
+				ViewportClient.get(), ViewportWidget, PreviewScene->GetRenderScene());
 			ViewportWidget->SetViewportInterface(SceneViewport);
 			GEngine->RegisterAuxiliarySceneViewport(SceneViewport);
 		}
@@ -153,14 +167,7 @@ namespace Durin
 			SceneViewport.reset();
 			ViewportWidget.reset();
 			ViewportClient.reset();
-			if (PreviewScene != nullptr)
-			{
-				PreviewScene->Release();
-				// Scene commands capture the scene pointer, so its storage must outlive the release command.
-				if (GRenderingThread) FlushRenderingCommands();
-				PreviewScene.reset();
-			}
-			RemoveFromRoot(PreviewLight.Get());
+			PreviewScene.reset();
 		}
 
 		auto SetVisible(bool bInVisible) -> void
@@ -236,8 +243,7 @@ namespace Durin
 					glm::radians(-static_cast<double>(IO.MouseDelta.y * PreviewRotationSensitivity)),
 					CameraRight);
 				PreviewRotation = glm::normalize(Yaw * Pitch * PreviewRotation);
-				if (PreviewScene != nullptr && CurrentMaterial != nullptr)
-					PreviewScene->UpdatePrimitiveTransform(PreviewPrimitiveId, glm::mat4_cast(PreviewRotation));
+				if (PreviewMesh != nullptr) PreviewMesh->SetWorldRotation(PreviewRotation);
 			}
 			if (bHovered && IO.MouseWheel != 0.0f) ViewportClient->Zoom(IO.MouseWheel);
 		}
@@ -249,60 +255,33 @@ namespace Durin
 
 		auto UpdateScene(DMaterialInterface* Material) -> void
 		{
-			if (PreviewScene == nullptr || Material == nullptr) return;
-			const uint64 Version = Material->GetRenderStateVersion();
+			if (PreviewMesh == nullptr || Material == nullptr) return;
 			if (bProxyDirty || Material != CurrentMaterial)
 			{
-				++MaterialRevision;
 				DStaticMesh* Mesh = GetSelectedMesh();
-				std::string Error;
-				std::unique_ptr<PrimitiveSceneProxy> Proxy =
-					CreateMaterialPreviewPrimitive(
-						Mesh, Material, MaterialRevision, Error);
-				if (Proxy == nullptr)
+				if (Mesh == nullptr || Mesh->GetRenderData() == nullptr)
 				{
-					this->Error = std::format("Material preview unavailable: {}", Error);
+					Error = "The selected material preview mesh has no render data.";
 					return;
 				}
-				PreviewScene->AddOrReplacePrimitive(
-					PreviewPrimitiveId,
-					std::move(Proxy),
-					glm::mat4_cast(PreviewRotation));
+				PreviewMesh->SetStaticMesh(Mesh);
+				for (uint32 SlotIndex = 0; SlotIndex < PreviewMesh->GetNumMaterials(); ++SlotIndex)
+					PreviewMesh->SetMaterial(SlotIndex, Material);
+				PreviewMesh->SetWorldRotation(PreviewRotation);
 				CurrentMaterial = Material;
-				MaterialVersion = Version;
 				bProxyDirty = false;
-				return;
 			}
-			if (Version == MaterialVersion) return;
-
-			++MaterialRevision;
-			const FStaticMeshRenderData* RenderData = GetSelectedMesh()->GetRenderData();
-			for (uint32 SlotIndex = 0;
-				RenderData != nullptr && SlotIndex < RenderData->MaterialSlots.size();
-				++SlotIndex)
-			{
-				FMaterialRenderUpdate Update{
-					.SlotIndex = SlotIndex,
-					.RenderData = Material->GetRenderData(),
-					.MaterialVersion = Material->GetRenderStateVersion(),
-					.ComponentRevision = MaterialRevision,
-					.DirtyFlags = EMaterialRenderDirtyFlags::AllRenderState
-						| EMaterialRenderDirtyFlags::ParentChain};
-				PreviewScene->UpdatePrimitiveMaterial(PreviewPrimitiveId, Update);
-			}
-			MaterialVersion = Version;
 		}
 
-		std::unique_ptr<IScene> PreviewScene;
+		std::unique_ptr<FPreviewScene> PreviewScene;
 		std::unique_ptr<FMaterialPreviewViewportClient> ViewportClient;
 		std::shared_ptr<MViewport> ViewportWidget;
 		std::shared_ptr<FSceneViewport> SceneViewport;
 		FRetainedEditorAsset SphereAsset;
 		FRetainedEditorAsset BoxAsset;
+		TObjectPtr<DStaticMeshComponent> PreviewMesh;
 		TObjectPtr<DDirectionalLightComponent> PreviewLight;
 		DMaterialInterface* CurrentMaterial = nullptr;
-		uint64 MaterialVersion = 0;
-		uint64 MaterialRevision = 1;
 		FQuat PreviewRotation = glm::identity<FQuat>();
 		EMaterialPreviewShape Shape = EMaterialPreviewShape::Sphere;
 		bool bProxyDirty = true;
