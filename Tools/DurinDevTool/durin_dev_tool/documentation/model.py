@@ -11,6 +11,7 @@ class DocumentKind(str, Enum):
     ROUTER = "router"
     CONTRACT = "contract"
     GUIDE = "guide"
+    TASK = "task"
     PLAN = "plan"
     INVESTIGATION = "investigation"
     POLICY = "policy"
@@ -94,6 +95,8 @@ def infer_document_kind(path: Path) -> DocumentKind:
         return DocumentKind.POLICY
     if path.name.casefold() == "readme.md":
         return DocumentKind.ROUTER
+    if len(parts) > 1 and parts[1] == "Tasks":
+        return DocumentKind.TASK
     if len(parts) > 1 and parts[1] == "Plans":
         return DocumentKind.PLAN
     if len(parts) > 1 and parts[1] == "Investigations":

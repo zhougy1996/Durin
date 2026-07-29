@@ -338,6 +338,7 @@ request:
 ```powershell
 .\DevTool.bat doc list --under Documentation\Runtime
 .\DevTool.bat doc find "asset package" --kind contract
+.\DevTool.bat doc list --kind task
 .\DevTool.bat doc refs Documentation\Runtime\Assets\AssetPackages.md
 .\DevTool.bat doc validate --scope changed
 .\DevTool.bat doc validate --scope all --format json
@@ -347,8 +348,8 @@ request:
 schema-versioned JSON output. Direct calls default to Markdown and the
 interactive shell defaults to terminal output. Validation checks mechanical
 repository contracts such as UTF-8 Markdown, top-level titles, local-link
-targets, and required investigation metadata. It does not replace the
-human/Agent review of the document ownership boundaries in
+targets, required investigation metadata, and open-task structure. It does not
+replace human/Agent review of the document ownership boundaries in
 `Documentation/AGENTS.md`.
 
 Create ordinary documents with a type, repository-relative destination, and
@@ -365,8 +366,26 @@ paths in tracked and untracked Markdown files:
 Both operations are dry runs unless `--apply` is present. Applying verifies
 that every previewed source still has the same content, writes atomically,
 validates the resulting documentation tree, and rolls back every affected file
-if the transaction fails. Plan, investigation, and policy creation remains
+if the transaction fails. Task, plan, investigation, and policy creation remains
 owned by their nearest authoring rules rather than a generic template.
+
+Open-task commands are nested under `doc task`. The list is derived directly
+from task files and uses the first Outcome paragraph as its compact summary; no
+separate task index is maintained:
+
+```powershell
+.\DevTool.bat doc task list
+.\DevTool.bat doc task list --query "HeaderTool" --format json
+.\DevTool.bat doc task validate
+.\DevTool.bat doc task remove Documentation\Tasks\CompletedTask.md
+.\DevTool.bat doc task remove Documentation\Tasks\CompletedTask.md --apply
+```
+
+Task removal is a dry run unless `--apply` is present. Applying verifies the
+previewed task fingerprint, rejects remaining inbound repository-Markdown
+references, deletes the task, validates the resulting documentation tree, and
+restores the task if validation fails. Completion and cancellation history
+remains in Git; tasks have no status field or archive.
 
 Implementation-plan lifecycle commands are nested under `doc plan`:
 

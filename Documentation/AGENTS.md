@@ -23,8 +23,9 @@ These instructions apply under `Documentation/`.
 - `Editor/Design`: visual language, tokens, layout, interaction, and themes.
 - `Editor/Guides`: user-facing editor workflows.
 - `Workspace`: cross-cutting workspace, project, module, and profile ownership.
-- `Tasks`: bounded, selected implementation work that is deleted after
-  validation; task history belongs in Git rather than a documentation archive.
+- `Tasks`: bounded, selected implementation work discovered with
+  `.\DevTool.bat doc task list` and deleted after validation; task history
+  belongs in Git rather than a documentation archive.
 - `Plans`: selected paths, stages, and acceptance gates; `Plans/Archive`
   preserves completed decisions and evidence.
 - `Investigations`: verified unresolved problems without a selected path.

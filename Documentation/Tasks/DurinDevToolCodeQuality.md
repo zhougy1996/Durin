@@ -10,8 +10,7 @@ of maintaining parallel fallback implementations.
 
 This is a bounded code-quality task, not a command-line, build-recovery, or
 worktree workflow redesign. Complete the required changes and validation as one
-outcome, then delete this file and its entry from
-`Documentation/Tasks/README.md` in the implementation commit.
+outcome, then delete this file in the implementation commit.
 
 ## Evidence
 
@@ -174,6 +173,5 @@ requirements are explicitly selected for implementation.
   ```
 
 - Inspect the final status and diff, update any lasting build or documentation
-  contracts affected by the implementation, then delete this task file and its
-  open-task index entry in the same commit. Do not archive it or add Plan
-  provenance.
+  contracts affected by the implementation, then delete this task file in the
+  same commit. Do not archive it or add Plan provenance.

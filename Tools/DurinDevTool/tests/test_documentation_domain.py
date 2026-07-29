@@ -17,9 +17,112 @@ from durin_dev_tool.documentation.archive import apply_archive, preview_archive
 from durin_dev_tool.documentation.model import DocumentKind, DocumentRef
 from durin_dev_tool.documentation.plans import PlanStatus, load_catalog, parse_plan, render_listing
 from durin_dev_tool.documentation.service import DocumentWorkspace, ListDocumentsRequest
+from durin_dev_tool.documentation.tasks import load_task_catalog, parse_task
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
 PLAN_TEMPLATE = '# {title} Plan\n\nSummary: {summary}\n\nLast reviewed: 2026-07-27\n\nStatus: {status}\nCompleted:{completed}\n\n## Current Status\n'
+TASK_TEMPLATE = '''# {title}
+
+## Outcome
+
+{outcome}
+
+## Evidence
+
+Concrete evidence.
+
+## Required Changes
+
+- Required change.
+
+## Protected Invariants
+
+- Protected invariant.
+
+## Likely Working Set
+
+- `Source/File.cpp`
+
+## Acceptance
+
+- Acceptance gate.
+'''
+
+
+class TestTaskCatalog:
+
+    def test_catalog_extracts_outcome_and_sorts_tasks(self, tmp_path: Path) -> None:
+        tasks = tmp_path / 'Documentation' / 'Tasks'
+        tasks.mkdir(parents=True)
+        (tasks / 'Second.md').write_text(
+            TASK_TEMPLATE.format(title='Second Task', outcome='Second outcome.'),
+            encoding='utf-8',
+        )
+        (tasks / 'First.md').write_text(
+            TASK_TEMPLATE.format(
+                title='First Task',
+                outcome='First outcome wraps\nacross lines.\n\nMore detail.',
+            ),
+            encoding='utf-8',
+        )
+        catalog = load_task_catalog(tasks)
+        assert catalog.diagnostics == ()
+        assert [task.title for task in catalog.tasks] == [
+            'First Task',
+            'Second Task',
+        ]
+        assert catalog.tasks[0].summary == 'First outcome wraps across lines.'
+
+    def test_parser_reports_missing_empty_and_lifecycle_sections(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        tasks = tmp_path / 'Documentation' / 'Tasks'
+        tasks.mkdir(parents=True)
+        task = tasks / 'Broken.md'
+        task.write_text(
+            '# Broken\n\n## Outcome\n\n<!-- empty -->\n\n'
+            '## Current Status\n\nStatus: Active\n',
+            encoding='utf-8',
+        )
+        _, diagnostics = parse_task(task, tasks_directory=tasks)
+        codes = {diagnostic.code for diagnostic in diagnostics}
+        assert 'doc.task.section_empty' in codes
+        assert 'doc.task.section_missing' in codes
+        assert 'doc.task.lifecycle_metadata' in codes
+        assert 'doc.task.lifecycle_section' in codes
+
+    def test_catalog_rejects_nested_tasks_and_duplicate_titles(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        tasks = tmp_path / 'Documentation' / 'Tasks'
+        nested = tasks / 'Nested'
+        nested.mkdir(parents=True)
+        (tasks / 'One.md').write_text(
+            TASK_TEMPLATE.format(title='Shared Task', outcome='One.'),
+            encoding='utf-8',
+        )
+        (nested / 'Two.md').write_text(
+            TASK_TEMPLATE.format(title='shared task', outcome='Two.'),
+            encoding='utf-8',
+        )
+        codes = {
+            diagnostic.code
+            for diagnostic in load_task_catalog(tasks).diagnostics
+        }
+        assert 'doc.task.layout_invalid' in codes
+        assert 'doc.task.title_duplicate' in codes
+
+    def test_catalog_rejects_a_separate_task_index(self, tmp_path: Path) -> None:
+        tasks = tmp_path / 'Documentation' / 'Tasks'
+        tasks.mkdir(parents=True)
+        (tasks / 'README.md').write_text('# Open Tasks\n', encoding='utf-8')
+        codes = {
+            diagnostic.code
+            for diagnostic in load_task_catalog(tasks).diagnostics
+        }
+        assert 'doc.task.index_unsupported' in codes
 
 class TestPlanCatalog:
 
@@ -112,6 +215,26 @@ class TestUnifiedCommand:
         assert expected == self._parse_values(['DOC', 'PLAN', 'LIST'])
         assert expected == self._parse_values(['/doc', '/plan', '/list'])
 
+    def test_task_commands_register_expected_requests(self) -> None:
+        expected = self._parse_values(['doc', 'task', 'list'])
+        assert expected == self._parse_values(['doc', 'task'])
+        assert expected == self._parse_values(['/doc', '/task', '/list'])
+        filtered = self._parse_values(
+            ['doc', 'task', 'list', '--query', 'tool', '--format', 'json']
+        )
+        assert filtered['task_action'] == 'list'
+        assert filtered['task_query'] == 'tool'
+        assert filtered['output_format'] == 'json'
+        validate = self._parse_values(
+            ['doc', 'task', 'validate', '--format', 'markdown']
+        )
+        assert validate['task_action'] == 'validate'
+        remove = self._parse_values(
+            ['doc', 'task', 'remove', 'Documentation/Tasks/Tool.md']
+        )
+        assert remove['task_action'] == 'remove'
+        assert remove['task_path'] == 'Documentation/Tasks/Tool.md'
+
     def test_list_defaults_to_markdown_direct_and_terminal_in_shell(self) -> None:
         direct_spec, direct = self.registry.parse(['doc', 'plan', 'list'])
         shell_spec, shell = self.registry.parse(['doc', 'plan', 'list'])
@@ -179,6 +302,157 @@ class TestUnifiedCommand:
         catalog = load_catalog(plans)
         output = render_listing(catalog.archived, plans, scope='archive', output_format='markdown', color='never')
         assert output.index('## 2026-07') < output.index('## 2026-06')
+
+
+class TestTaskCommands:
+
+    @pytest.fixture(autouse=True)
+    def _setup_repository(self, tmp_path: Path) -> None:
+        self.repository = tmp_path
+        self.tasks = self.repository / 'Documentation' / 'Tasks'
+        self.tasks.mkdir(parents=True)
+        subprocess.run(['git', 'init', '-q', str(self.repository)], check=True)
+        self.task = self.tasks / 'Tool.md'
+        self.task.write_text(
+            TASK_TEMPLATE.format(
+                title='Improve Tool',
+                outcome='Make the tool behavior explicit.',
+            ),
+            encoding='utf-8',
+        )
+        self.workspace = DocumentWorkspace(self.repository)
+
+    def test_list_is_compact_and_supports_json_query(self) -> None:
+        output = io.StringIO()
+        assert cli.run(
+            ['doc', 'task', 'list', '--query', 'explicit', '--format', 'json'],
+            repository_root=self.repository,
+            stdout=output,
+            stderr=io.StringIO(),
+        ) == 0
+        rendered = output.getvalue()
+        assert '"title": "Improve Tool"' in rendered
+        assert '"summary": "Make the tool behavior explicit."' in rendered
+        assert 'Required change' not in rendered
+
+    def test_remove_defaults_to_preview_and_apply_deletes_only_the_task(
+        self,
+    ) -> None:
+        arguments = [
+            'doc',
+            'task',
+            'remove',
+            'Documentation/Tasks/Tool.md',
+        ]
+        assert cli.run(
+            arguments,
+            repository_root=self.repository,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        ) == 0
+        assert self.task.exists()
+        assert cli.run(
+            [*arguments, '--apply'],
+            repository_root=self.repository,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        ) == 0
+        assert not self.task.exists()
+
+    def test_remove_rejects_external_document_references(self) -> None:
+        reference = self.repository / 'README.md'
+        reference.write_text(
+            '# Repository\n\n[Task](Documentation/Tasks/Tool.md)\n',
+            encoding='utf-8',
+        )
+        with pytest.raises(DevToolError, match='still referenced'):
+            self.workspace.prepare_task_remove(
+                task=DocumentRef.parse('Documentation/Tasks/Tool.md')
+            )
+        assert self.task.exists()
+
+    def test_remove_ignores_unrelated_deleted_tracked_markdown(self) -> None:
+        obsolete = self.repository / 'Obsolete.md'
+        obsolete.write_text('# Obsolete\n', encoding='utf-8')
+        subprocess.run(
+            ['git', 'add', 'Obsolete.md'],
+            cwd=self.repository,
+            check=True,
+        )
+        obsolete.unlink()
+        change_set = self.workspace.prepare_task_remove(
+            task=DocumentRef.parse('Documentation/Tasks/Tool.md')
+        )
+        assert change_set.deletions[0].path == self.task
+
+    def test_remove_is_fingerprint_checked_and_rolls_back_validation_failure(
+        self,
+    ) -> None:
+        ref = DocumentRef.parse('Documentation/Tasks/Tool.md')
+        stale = self.workspace.prepare_task_remove(task=ref)
+        self.task.write_text(
+            self.task.read_text(encoding='utf-8') + '\nUser edit.\n',
+            encoding='utf-8',
+        )
+        with pytest.raises(DevToolError, match='modified after preview'):
+            self.workspace.apply(stale)
+        assert self.task.exists()
+
+        change_set = self.workspace.prepare_task_remove(task=ref)
+
+        def reject_final_state() -> None:
+            raise OSError('simulated validation failure')
+
+        with pytest.raises(OSError, match='simulated validation failure'):
+            changes_module.apply_change_set(
+                change_set,
+                validator=reject_final_state,
+            )
+        assert self.task.exists()
+
+    def test_changed_validation_checks_cross_task_uniqueness(self) -> None:
+        second = self.tasks / 'Other.md'
+        second.write_text(
+            TASK_TEMPLATE.format(
+                title='Other Task',
+                outcome='Keep another task.',
+            ),
+            encoding='utf-8',
+        )
+        subprocess.run(
+            ['git', 'add', 'Documentation'],
+            cwd=self.repository,
+            check=True,
+        )
+        subprocess.run(
+            [
+                'git',
+                '-c',
+                'user.name=Test',
+                '-c',
+                'user.email=test@example.invalid',
+                'commit',
+                '-qm',
+                'baseline',
+            ],
+            cwd=self.repository,
+            check=True,
+        )
+        second.write_text(
+            TASK_TEMPLATE.format(
+                title='Improve Tool',
+                outcome='Now duplicates another title.',
+            ),
+            encoding='utf-8',
+        )
+        output = io.StringIO()
+        assert cli.run(
+            ['doc', 'validate', '--scope', 'changed', '--format', 'json'],
+            repository_root=self.repository,
+            stdout=output,
+            stderr=io.StringIO(),
+        ) == 1
+        assert '"code": "doc.task.title_duplicate"' in output.getvalue()
 
 
 class TestOrdinaryDocumentation:
@@ -330,5 +604,14 @@ class TestOrdinaryDocumentation:
                 ),
                 kind=DocumentKind.CONTRACT,
                 title='Not A Plan',
+                summary='Invalid placement.',
+            )
+        with pytest.raises(DevToolError, match='task workflow'):
+            self.workspace.prepare_create(
+                destination=DocumentRef.parse(
+                    'Documentation/Tasks/NotATask.md'
+                ),
+                kind=DocumentKind.CONTRACT,
+                title='Not A Task',
                 summary='Invalid placement.',
             )

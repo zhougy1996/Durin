@@ -86,6 +86,7 @@ DOCUMENT_KINDS = (
     "router",
     "contract",
     "guide",
+    "task",
     "plan",
     "investigation",
     "policy",
@@ -303,6 +304,44 @@ DOCUMENT_MOVE = CommandSpec(
         DOCUMENT_OUTPUT,
     ),
     defaults=(("document_action", "move"),),
+)
+TASK_LIST = CommandSpec(
+    "list",
+    "list open engineering tasks",
+    DOCUMENTATION_HANDLER,
+    arguments=(
+        _argument(
+            "--query",
+            dest="task_query",
+            help="filter by title, outcome, or filename",
+        ),
+        DOCUMENT_OUTPUT,
+    ),
+    defaults=(("task_action", "list"),),
+)
+TASK_VALIDATE = CommandSpec(
+    "validate",
+    "validate open engineering tasks",
+    DOCUMENTATION_HANDLER,
+    arguments=(DOCUMENT_OUTPUT,),
+    defaults=(("task_action", "validate"),),
+)
+TASK_REMOVE = CommandSpec(
+    "remove",
+    "preview or remove an open engineering task",
+    DOCUMENTATION_HANDLER,
+    arguments=(
+        _argument("task_path", metavar="PATH"),
+        _argument("--apply", action="store_true"),
+        DOCUMENT_OUTPUT,
+    ),
+    defaults=(("task_action", "remove"),),
+)
+DOCUMENT_TASK = CommandSpec(
+    "task",
+    "discover, validate, and remove open engineering tasks",
+    subcommands=(TASK_LIST, TASK_VALIDATE, TASK_REMOVE),
+    default_subcommand="list",
 )
 DOCUMENT_PLAN = CommandSpec(
     "plan",
@@ -543,6 +582,7 @@ COMMAND_SPECS = (
             DOCUMENT_VALIDATE,
             DOCUMENT_CREATE,
             DOCUMENT_MOVE,
+            DOCUMENT_TASK,
             DOCUMENT_PLAN,
         ),
         feature="documentation",

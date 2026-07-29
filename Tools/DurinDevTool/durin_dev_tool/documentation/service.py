@@ -15,6 +15,7 @@ from .changes import (
     apply_change_set,
     prepare_create,
     prepare_move,
+    prepare_task_remove,
 )
 from .model import (
     Diagnostic,
@@ -115,20 +116,41 @@ class DocumentWorkspace:
     ) -> ValidationResult:
         catalog = self.catalog(include_archive=include_archive)
         documents: Sequence[Document] | None = None
+        task_domain_changed = False
         if scope is ValidationScope.CHANGED:
             changed = self._changed_document_paths()
+            task_domain_changed = any(
+                len(path.parts) > 1
+                and path.parts[0:2] == ("Documentation", "Tasks")
+                for path in changed
+            )
             documents = tuple(
                 document
                 for document in catalog.documents
                 if document.ref.path in changed
+                or (
+                    task_domain_changed
+                    and document.kind is DocumentKind.TASK
+                )
             )
+        else:
+            changed = set()
         return ValidationResult(
             document_count=(
                 len(catalog.documents)
                 if documents is None
                 else len(documents)
             ),
-            diagnostics=tuple(validate_documents(catalog, documents)),
+            diagnostics=tuple(
+                validate_documents(
+                    catalog,
+                    documents,
+                    validate_task_domain=(
+                        documents is None
+                        or task_domain_changed
+                    ),
+                )
+            ),
         )
 
     def prepare_create(
@@ -157,6 +179,16 @@ class DocumentWorkspace:
             self.repository_root,
             source=source,
             destination=destination,
+        )
+
+    def prepare_task_remove(
+        self,
+        *,
+        task: DocumentRef,
+    ) -> DocumentChangeSet:
+        return prepare_task_remove(
+            self.repository_root,
+            task=task,
         )
 
     def apply(self, change_set: DocumentChangeSet) -> None:

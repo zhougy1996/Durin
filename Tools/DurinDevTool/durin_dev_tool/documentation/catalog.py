@@ -18,6 +18,7 @@ from .model import (
     infer_document_kind,
 )
 from .plans import parse_plan
+from .tasks import load_task_catalog
 
 
 INLINE_LINK_PATTERN = re.compile(r"!?\[[^\]\n]*\]\((?P<target>[^)\n]+)\)")
@@ -210,6 +211,8 @@ def filter_documents(
 def validate_documents(
     catalog: DocumentCatalog,
     documents: Sequence[Document] | None = None,
+    *,
+    validate_task_domain: bool | None = None,
 ) -> list[Diagnostic]:
     selected = tuple(documents) if documents is not None else catalog.documents
     selected_paths = {document.ref.path for document in selected}
@@ -218,6 +221,19 @@ def validate_documents(
         for diagnostic in catalog.diagnostics
         if diagnostic.path in selected_paths or documents is None
     ]
+    if validate_task_domain is None:
+        validate_task_domain = documents is None or any(
+            len(document.ref.path.parts) > 1
+            and document.ref.path.parts[1] == "Tasks"
+            for document in selected
+        )
+    if validate_task_domain:
+        diagnostics.extend(
+            load_task_catalog(
+                catalog.repository_root / "Documentation" / "Tasks"
+            ).diagnostics
+        )
+
     for document in selected:
         for link in document.links:
             if link.external or link.target.startswith("#"):

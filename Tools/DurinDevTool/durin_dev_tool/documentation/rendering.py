@@ -9,6 +9,7 @@ from typing import Sequence
 from .changes import DocumentChangeSet
 from .model import Diagnostic, Document
 from .service import DocumentReferences
+from .tasks import Task
 
 
 def render_documents(
@@ -43,6 +44,47 @@ def render_documents(
         f"[{document.kind.value}] {document.title}\n"
         f"  {document.ref.as_posix()}"
         for document in documents
+    )
+
+
+def render_tasks(
+    tasks: Sequence[Task],
+    *,
+    repository_root: Path,
+    output_format: str,
+) -> str:
+    def relative(task: Task) -> str:
+        return task.path.relative_to(repository_root).as_posix()
+
+    def markdown_cell(value: str) -> str:
+        return value.replace("\\", "\\\\").replace("|", "\\|")
+
+    if output_format == "json":
+        return json.dumps(
+            {
+                "schemaVersion": 1,
+                "tasks": [
+                    {
+                        "path": relative(task),
+                        "title": task.title,
+                        "summary": task.summary,
+                    }
+                    for task in tasks
+                ],
+            },
+            indent=2,
+        )
+    if output_format == "markdown":
+        lines = ["| Task | Outcome |", "| --- | --- |"]
+        lines.extend(
+            f"| [{markdown_cell(task.title)}]({relative(task)}) | "
+            f"{markdown_cell(task.summary)} |"
+            for task in tasks
+        )
+        return "\n".join(lines)
+    return "\n\n".join(
+        f"{task.title}\n  {relative(task)}\n  {task.summary}"
+        for task in tasks
     )
 
 
@@ -162,6 +204,13 @@ def render_change_set(
                         "destination": relative(change.destination),
                     }
                     for change in change_set.changes
+                ]
+                + [
+                    {
+                        "source": relative(deletion.path),
+                        "destination": None,
+                    }
+                    for deletion in change_set.deletions
                 ],
             },
             indent=2,
@@ -176,6 +225,8 @@ def render_change_set(
             if source is not None and source != destination
             else f"  {destination}"
         )
+    for deletion in change_set.deletions:
+        lines.append(f"  {relative(deletion.path)} -> deleted")
     if not applied:
         lines.append("Dry-run only; add --apply to perform the change.")
     return "\n".join(lines)

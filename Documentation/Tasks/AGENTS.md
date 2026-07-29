@@ -15,10 +15,10 @@ These instructions apply under `Documentation/Tasks/`.
 
 ## Reading And Selection
 
-- Agents asked to pick work read `README.md`, select one task, then open only
-  that task and its required links.
-- Do not scan every task body to choose work. Keep each index description
-  specific enough to expose the outcome, affected area, and important gate.
+- Agents asked to pick work run `.\DevTool.bat doc task list`, select one task,
+  then open only that task and its required links.
+- Do not scan every task body to choose work. The command derives its compact
+  description from each task's Outcome section.
 - A task document authorizes only its stated scope. Follow repository build,
   test, coding, and commit rules normally.
 
@@ -36,12 +36,10 @@ These instructions apply under `Documentation/Tasks/`.
 
 ## Lifecycle
 
-- Add or remove the task and its `README.md` entry together.
 - If implementation reveals a material unresolved decision or requires staged
   delivery, replace the task with an Investigation or Plan rather than
   maintaining two sources of truth.
 - Completion requires the stated validation and any lasting documentation
-  updates. In the same implementation commit, delete the task file and remove
-  its index entry.
-- Do not move completed or cancelled tasks to an archive and do not retain a
-  resolved index. Git history is the task record.
+  updates. In the same implementation commit, delete the task file.
+- Do not move completed or cancelled tasks to an archive or retain a resolved
+  index. Git history is the task record.

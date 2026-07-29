@@ -14,6 +14,7 @@ from .service import (
     ValidationResult,
     ValidationScope,
 )
+from .tasks import Task, TaskCatalog, load_task_catalog
 
 __all__ = [
     "Diagnostic",
@@ -26,7 +27,10 @@ __all__ = [
     "Plan",
     "PlanCatalog",
     "PlanStatus",
+    "Task",
+    "TaskCatalog",
     "ValidationResult",
     "ValidationScope",
     "load_catalog",
+    "load_task_catalog",
 ]

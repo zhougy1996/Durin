@@ -13,6 +13,7 @@ from typing import Callable
 
 from ..errors import DevToolError
 from .model import DocumentKind, DocumentRef, infer_document_kind
+from .tasks import load_task_catalog
 
 
 MARKDOWN_LINK_PATTERN = re.compile(
@@ -39,12 +40,19 @@ class FilePrecondition:
 
 
 @dataclass(frozen=True)
+class FileDeletion:
+    path: Path
+    expected_hash: str
+
+
+@dataclass(frozen=True)
 class DocumentChangeSet:
     operation: str
     changes: tuple[FileChange, ...]
     preconditions: tuple[FilePrecondition, ...]
     primary_source: Path | None
     primary_destination: Path
+    deletions: tuple[FileDeletion, ...] = ()
 
     @property
     def reference_files(self) -> tuple[Path, ...]:
@@ -169,11 +177,49 @@ def repository_markdown_files(repository: Path) -> list[Path]:
         raise DevToolError(
             f"could not discover repository Markdown files: {detail}"
         )
-    return sorted(
+    candidates = (
         (repository / os.fsdecode(raw_path)).resolve()
         for raw_path in result.stdout.split(b"\0")
         if raw_path
     )
+    return sorted(path for path in candidates if path.is_file())
+
+
+def repository_references_to(
+    repository: Path,
+    target: Path,
+) -> list[tuple[Path, int]]:
+    references: list[tuple[Path, int]] = []
+    for document in repository_markdown_files(repository):
+        if document == target:
+            continue
+        try:
+            lines = document.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError) as error:
+            raise DevToolError(
+                f'could not read Markdown file "{document}": {error}'
+            ) from error
+        in_fence = False
+        for line_number, line in enumerate(lines, start=1):
+            stripped = line.lstrip()
+            if stripped.startswith(("```", "~~~")):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
+            for pattern in (MARKDOWN_LINK_PATTERN, REFERENCE_LINK_PATTERN):
+                for match in pattern.finditer(line):
+                    path_text, _, _ = _split_target(match.group("target"))
+                    if (
+                        not path_text
+                        or "://" in path_text
+                        or path_text.startswith(("mailto:", "/"))
+                        or Path(path_text).is_absolute()
+                    ):
+                        continue
+                    if (document.parent / path_text).resolve() == target:
+                        references.append((document, line_number))
+    return references
 
 
 def atomic_write(path: Path, content: bytes) -> None:
@@ -214,6 +260,7 @@ def prepare_create(
             f'document already exists: "{destination.as_posix()}"'
         )
     if kind in {
+        DocumentKind.TASK,
         DocumentKind.PLAN,
         DocumentKind.INVESTIGATION,
         DocumentKind.POLICY,
@@ -224,6 +271,7 @@ def prepare_create(
         )
     inferred_kind = infer_document_kind(destination.path)
     if inferred_kind in {
+        DocumentKind.TASK,
         DocumentKind.PLAN,
         DocumentKind.INVESTIGATION,
         DocumentKind.POLICY,
@@ -292,6 +340,7 @@ def prepare_move(
     for ref in (source, destination):
         kind = infer_document_kind(ref.path)
         if kind in {
+            DocumentKind.TASK,
             DocumentKind.PLAN,
             DocumentKind.INVESTIGATION,
             DocumentKind.POLICY,
@@ -345,6 +394,57 @@ def prepare_move(
     )
 
 
+def prepare_task_remove(
+    repository_root: Path,
+    *,
+    task: DocumentRef,
+) -> DocumentChangeSet:
+    repository_root = repository_root.resolve()
+    absolute_task = (repository_root / task.path).resolve()
+    tasks_directory = repository_root / "Documentation" / "Tasks"
+    if (
+        infer_document_kind(task.path) is not DocumentKind.TASK
+        or absolute_task.parent != tasks_directory
+    ):
+        raise DevToolError(
+            "task removal requires a direct Documentation/Tasks/*.md path"
+        )
+    if not absolute_task.is_file():
+        raise DevToolError(f'task does not exist: "{task.as_posix()}"')
+    catalog = load_task_catalog(tasks_directory)
+    if catalog.diagnostics:
+        details = "\n- ".join(
+            f"{diagnostic.path.as_posix()}: {diagnostic.message}"
+            for diagnostic in catalog.diagnostics
+        )
+        raise DevToolError(
+            "task validation failed before removal:\n- " + details
+        )
+    inbound = repository_references_to(repository_root, absolute_task)
+    if inbound:
+        details = "\n- ".join(
+            f"{path.relative_to(repository_root).as_posix()}:{line}"
+            for path, line in inbound
+        )
+        raise DevToolError(
+            "task is still referenced by repository Markdown:\n- " + details
+        )
+    source = absolute_task.read_bytes()
+    return DocumentChangeSet(
+        operation="remove-task",
+        changes=(),
+        preconditions=(),
+        primary_source=absolute_task,
+        primary_destination=absolute_task,
+        deletions=(
+            FileDeletion(
+                path=absolute_task,
+                expected_hash=_content_hash(source),
+            ),
+        ),
+    )
+
+
 def apply_change_set(
     change_set: DocumentChangeSet,
     *,
@@ -385,6 +485,15 @@ def apply_change_set(
             raise DevToolError(
                 f'change destination appeared after preview: "{change.destination}"'
             )
+    for deletion in change_set.deletions:
+        if not deletion.path.is_file():
+            raise DevToolError(
+                f'deletion target disappeared after preview: "{deletion.path}"'
+            )
+        if _content_hash(deletion.path.read_bytes()) != deletion.expected_hash:
+            raise DevToolError(
+                f'deletion target was modified after preview: "{deletion.path}"'
+            )
 
     touched = {
         path
@@ -392,6 +501,7 @@ def apply_change_set(
         for path in (change.source, change.destination)
         if path is not None
     }
+    touched.update(deletion.path for deletion in change_set.deletions)
     snapshots = {
         path: path.read_bytes() if path.exists() else None for path in touched
     }
@@ -409,6 +519,8 @@ def apply_change_set(
                 and change.source != change.destination
             ):
                 change.source.unlink()
+        for deletion in change_set.deletions:
+            deletion.path.unlink()
         if validator is not None:
             validator()
     except BaseException:

@@ -8,8 +8,8 @@ and has one clear implementation path for its active CLI, parsing, and I/O
 responsibilities.
 
 This is a bounded code-quality task, not a reflection feature redesign. Complete
-the required changes and validation as one outcome, then delete this file and
-its entry from `Documentation/Tasks/README.md` in the implementation commit.
+the required changes and validation as one outcome, then delete this file in
+the implementation commit.
 
 ## Evidence
 
@@ -133,5 +133,5 @@ update. Do not edit generated DHT outputs by hand.
   ```
 
 - Inspect the final status and diff, update any lasting reflection contract
-  affected by the implementation, then delete this task file and its open-task
-  index entry in the same commit. Do not archive it or add Plan provenance.
+  affected by the implementation, then delete this task file in the same
+  commit. Do not archive it or add Plan provenance.

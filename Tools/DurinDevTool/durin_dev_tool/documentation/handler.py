@@ -15,12 +15,18 @@ from .rendering import (
     render_diagnostics,
     render_documents,
     render_references,
+    render_tasks,
 )
 from .service import DocumentWorkspace, ListDocumentsRequest, ValidationScope
+from .tasks import filter_tasks, load_task_catalog
 
 
 def _plans_directory(repository_root: Path) -> Path:
     return repository_root / "Documentation" / "Plans"
+
+
+def _tasks_directory(repository_root: Path) -> Path:
+    return repository_root / "Documentation" / "Tasks"
 
 
 def _default_output_format(
@@ -175,6 +181,107 @@ def _write_errors(errors: list[str], stderr: TextIO) -> None:
         print(f"error: {error}", file=stderr)
 
 
+def _run_task_list(
+    namespace: argparse.Namespace,
+    *,
+    repository_root: Path,
+    interactive: bool,
+    stdout: TextIO,
+    stderr: TextIO,
+) -> int:
+    catalog = load_task_catalog(_tasks_directory(repository_root))
+    if catalog.diagnostics:
+        print(
+            render_diagnostics(
+                catalog.diagnostics,
+                output_format=_default_output_format(
+                    namespace,
+                    interactive=interactive,
+                ),
+                document_count=len(catalog.tasks),
+            ),
+            file=stderr,
+        )
+        return 1
+    tasks = filter_tasks(catalog.tasks, namespace.task_query)
+    if not tasks:
+        if namespace.task_query:
+            raise DevToolError(
+                f"no open tasks match query {namespace.task_query!r}"
+            )
+        print("No open engineering tasks.", file=stdout)
+        return 0
+    print(
+        render_tasks(
+            tasks,
+            repository_root=repository_root,
+            output_format=_default_output_format(
+                namespace,
+                interactive=interactive,
+            ),
+        ),
+        file=stdout,
+    )
+    return 0
+
+
+def _run_task_validate(
+    namespace: argparse.Namespace,
+    *,
+    repository_root: Path,
+    interactive: bool,
+    stdout: TextIO,
+) -> int:
+    catalog = load_task_catalog(_tasks_directory(repository_root))
+    print(
+        render_diagnostics(
+            catalog.diagnostics,
+            output_format=_default_output_format(
+                namespace,
+                interactive=interactive,
+            ),
+            document_count=len(catalog.tasks),
+        ),
+        file=stdout,
+    )
+    return (
+        1
+        if any(
+            diagnostic.severity is DiagnosticSeverity.ERROR
+            for diagnostic in catalog.diagnostics
+        )
+        else 0
+    )
+
+
+def _run_task_remove(
+    namespace: argparse.Namespace,
+    *,
+    repository_root: Path,
+    interactive: bool,
+    stdout: TextIO,
+) -> int:
+    workspace = DocumentWorkspace(repository_root)
+    change_set = workspace.prepare_task_remove(
+        task=DocumentRef.parse(namespace.task_path),
+    )
+    if namespace.apply:
+        workspace.apply(change_set)
+    print(
+        render_change_set(
+            change_set,
+            repository_root=repository_root.resolve(),
+            applied=namespace.apply,
+            output_format=_default_output_format(
+                namespace,
+                interactive=interactive,
+            ),
+        ),
+        file=stdout,
+    )
+    return 0
+
+
 def _run_list(
     namespace: argparse.Namespace,
     *,
@@ -322,6 +429,7 @@ def run(
     plans_directory = _plans_directory(repository_root)
     try:
         document_action = getattr(namespace, "document_action", "")
+        task_action = getattr(namespace, "task_action", "")
         interactive = session_state is not None
         if document_action in {"list", "find"}:
             return _run_document_list(
@@ -351,7 +459,29 @@ def run(
                 interactive=interactive,
                 stdout=stdout,
             )
-        if namespace.plan_action == "list":
+        if task_action == "list":
+            return _run_task_list(
+                namespace,
+                repository_root=repository_root,
+                interactive=interactive,
+                stdout=stdout,
+                stderr=stderr,
+            )
+        if task_action == "validate":
+            return _run_task_validate(
+                namespace,
+                repository_root=repository_root,
+                interactive=interactive,
+                stdout=stdout,
+            )
+        if task_action == "remove":
+            return _run_task_remove(
+                namespace,
+                repository_root=repository_root,
+                interactive=interactive,
+                stdout=stdout,
+            )
+        if getattr(namespace, "plan_action", "") == "list":
             return _run_list(
                 namespace,
                 plans_directory=plans_directory,

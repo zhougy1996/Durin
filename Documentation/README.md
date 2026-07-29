@@ -19,7 +19,7 @@ not open the other rows or scan an entire directory.
 | Runtime startup, shutdown, or frame lifecycle | [Runtime lifecycle](Runtime/Core/RuntimeLifecycle.md) |
 | Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/ViewportRendering.md) |
 | Editor architecture, design, or user workflow | Use a targeted search under `Editor/Architecture/`, `Editor/Design/`, or `Editor/Guides/` |
-| Bounded implementation task or task selection | [Open tasks](Tasks/README.md) |
+| Bounded implementation task or task selection | Run `.\DevTool.bat doc task list`, then open only the selected task |
 | Active implementation plan | Humans run `.\DevTool.bat` for the interactive shell; agents run `.\DevTool.bat doc plan list` for the compact Markdown index, then open only the matching plan |
 | Completed plans awaiting monthly archive | Run `.\DevTool.bat doc plan list --scope completed` |
 | Named historical plan or required provenance | Run `.\DevTool.bat doc plan list --scope archive --query "<title-or-filename>"`, then open only the selected archived plan |
