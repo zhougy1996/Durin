@@ -34,7 +34,6 @@ class DurinModuleConfig:
         instance = dataclass_from_dict(cls, raw_json_data)
         instance.config_file_path = module_config_file_path
         instance.module_dir = instance.config_file_path.parent
-        instance.__post_init__()
         return instance
     
     def get_reflect_header_paths(self) -> list[Path]:
@@ -46,21 +45,16 @@ class DurinModuleConfig:
 # Load the configuration for a module from a file, and caches it
 def _load_module_config_file(module_config_file_path: Path, owning_project: str) -> DurinModuleConfig:
     module_config = DurinModuleConfig.from_file(module_config_file_path)
-    if module_config:
-        module_config.owning_project = owning_project
-        MODULE_CONFIGS[module_config.module_name] = module_config
-        return module_config
-    raise ValueError(f"Module config file '{module_config_file_path}' could not be loaded.")
+    module_config.owning_project = owning_project
+    MODULE_CONFIGS[module_config.module_name] = module_config
+    return module_config
 
 # Load the configuration for a module, optionally within a specific project, and caches it
 def _load_module_config(module_name: str) -> DurinModuleConfig:
     owning_project_name = find_module(module_name)
-    if owning_project_name:
-        project_config = get_project_config(owning_project_name)
-        module_config_path = project_config.project_dir /  project_config.modules[module_name]
-        return _load_module_config_file(module_config_path, owning_project=owning_project_name)
-
-    raise ValueError(f"Module '{module_name}' not found in any project.")
+    project_config = get_project_config(owning_project_name)
+    module_config_path = project_config.project_dir / project_config.modules[module_name]
+    return _load_module_config_file(module_config_path, owning_project=owning_project_name)
 
 # Retrieves the configuration for a module
 def get_module_config(module_name: str) -> DurinModuleConfig:

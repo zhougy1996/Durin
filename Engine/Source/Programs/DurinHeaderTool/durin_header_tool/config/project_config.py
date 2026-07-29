@@ -56,7 +56,6 @@ class DurinProjectConfig:
         instance = dataclass_from_dict(cls, raw_json_data)
         instance.config_file_path = project_config_file_path
         instance.project_dir = instance.config_file_path.parent
-        instance.__post_init__()
         return instance
 
 def is_project_config_loaded(project_name: str) -> bool:

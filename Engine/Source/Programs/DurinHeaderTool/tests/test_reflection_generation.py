@@ -41,6 +41,7 @@ from durin_header_tool.resolver.reflection_resolver import (
     load_available_symbols,
     resolved_symbol_dependencies_for_header,
 )
+from durin_header_tool.resolver import reflection_resolver
 from durin_header_tool.writers.reflection_source_writer import (
     _enum_definitions,
     generate_cpp_content,
@@ -611,6 +612,44 @@ namespace Beta
             qualified_name = f"Durin::{type_name}"
             assert qualified_name in symbols
             assert symbols[qualified_name].GeneratedHelperName == f"Z_Construct_DStruct_Durin_{type_name}"
+
+    def test_available_symbols_load_current_module_export_once(self):
+        dependency_export = self.temp_root / "Dependency.export"
+        current_export = self.temp_root / "Fixture.export"
+        dependency_export.touch()
+        current_export.touch()
+        exports = {
+            dependency_export: mock.Mock(Symbols={"Dependency::Type": object()}),
+            current_export: mock.Mock(Symbols={"Fixture::Type": object()}),
+        }
+        with (
+            mock.patch.object(
+                configs,
+                "collect_all_dependent_module_with_export_file",
+                return_value=["Dependency", "Fixture"],
+            ),
+            mock.patch.object(
+                utils,
+                "get_module_export_file_path",
+                side_effect=lambda module_name: {
+                    "Dependency": dependency_export,
+                    "Fixture": current_export,
+                }[module_name],
+            ),
+            mock.patch.object(
+                reflection_resolver,
+                "load_module_export_file",
+                side_effect=exports.__getitem__,
+            ) as load_export,
+        ):
+            symbols = load_available_symbols("Fixture")
+
+        assert load_export.call_args_list == [
+            mock.call(dependency_export),
+            mock.call(current_export),
+        ]
+        assert "Dependency::Type" in symbols
+        assert "Fixture::Type" in symbols
 
     def test_manifest_records_generator_contract(self):
         manifest_path = self.temp_root / "Fixture.manifest"

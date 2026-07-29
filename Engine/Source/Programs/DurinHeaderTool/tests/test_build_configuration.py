@@ -44,6 +44,41 @@ def initialized_configs():
 
 @pytest.mark.usefixtures("initialized_configs")
 class TestModuleDependency:
+    def test_config_files_initialize_dataclasses_once(
+        self,
+        tmp_path_factory: pytest.TempPathFactory,
+    ):
+        root = Path(tmp_path_factory.mktemp("case"))
+        module_path = root / "Fixture.dmodule"
+        module_path.write_text('{"ModuleName": "Fixture"}', encoding="utf-8")
+        project_path = root / "Fixture.dproject"
+        project_path.write_text(
+            '{"ProjectName": "Fixture", "ModuleDirs": {"Fixture": "Source/Fixture"}}',
+            encoding="utf-8",
+        )
+
+        module_post_init = configs.module_config.DurinModuleConfig.__post_init__
+        project_post_init = configs.project_config.DurinProjectConfig.__post_init__
+        with (
+            mock.patch.object(
+                configs.module_config.DurinModuleConfig,
+                "__post_init__",
+                autospec=True,
+                side_effect=module_post_init,
+            ) as initialize_module,
+            mock.patch.object(
+                configs.project_config.DurinProjectConfig,
+                "__post_init__",
+                autospec=True,
+                side_effect=project_post_init,
+            ) as initialize_project,
+        ):
+            module_config = configs.module_config.DurinModuleConfig.from_file(module_path)
+            project_config = configs.project_config.DurinProjectConfig.from_file(project_path)
+
+        initialize_module.assert_called_once_with(module_config)
+        initialize_project.assert_called_once_with(project_config)
+
     def test_enabled_optional_dependencies_join_recursive_dependency_graph(self):
         module_configs = {
             "Root": SimpleNamespace(

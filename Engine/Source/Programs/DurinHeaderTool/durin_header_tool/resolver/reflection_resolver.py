@@ -9,9 +9,6 @@ from durin_header_tool.model.reflection_info import ReflectedHeaderInfo
 
 def load_available_symbols(module_name: str) -> dict[str, object]:
     symbols: dict[str, object] = {}
-    own_export_file = utils.get_module_export_file_path(module_name)
-    if own_export_file.exists():
-        symbols.update(load_module_export_file(own_export_file).Symbols)
     dep_modules = configs.collect_all_dependent_module_with_export_file(module_name)
     logging.debug("[DHT] Reflection %s: loading exports from %d modules", module_name, len(dep_modules))
     for dep_module in dep_modules:
