@@ -9,7 +9,76 @@ Completed:
 
 ## Current Status
 
-Planning baseline: `241b6ea4` (`docs(renderer): plan demand-driven editor assistance`).
+Implementation baseline: `2081dd81` (`feat(material): bind scene proxies to
+material proxies`).
+
+Stage 0 locked the common state contract and test boundary. The public,
+RHI-independent primitive lives in RenderCore because Renderer, Renderer editor
+assistance, and Texture Editor require the same payload/attempt/failure
+semantics. The slot owns a complete payload candidate, full and selected
+generations, structured failure, latest attempt, and diagnostic transition
+state. Availability is derived as `Uninitialized`, `Creating`, `Ready`,
+`Refreshing`, `Failed`, or `StaleReady`; reentrant resolution returns the
+already valid fallback, if any, without invoking the factory again.
+
+The current inventory is six permanent one-shot flags: Static Mesh base
+resources, Sky Box, Texture Cube thumbnail, Post Process, shared fullscreen
+geometry, and Texture Editor preview. Static Mesh additionally inserts empty
+shader-map and pipeline vector entries before compilation or complete
+solid/wire PSO construction. Demand-driven editor assistance, landed in
+`347a1ab0`, already has four base attempts and keyed pipeline attempts, but its
+module-private tri-state and string-only diagnostics are superseded by the
+common slot in this plan.
+
+The post-planning relevant diff is the demand-driven assistance extraction and
+the Material render-proxy identity work through the implementation baseline.
+Those changes preserve the plan's ownership boundary: the assistance plan owns
+feature demand and pipeline keys, Material System owns shader-map/pipeline
+identity, and this plan owns attempt, failure, retry, refresh, and invalidation
+semantics.
+
+The initial implementation working set is:
+
+- `Engine/Source/Runtime/RenderCore/Public/RenderResourceCreation.h`
+- `Engine/Tests/Native/RenderCoreTests/Private/RenderResourceCreationTests.cpp`
+- `Engine/Tests/Native/RenderCoreTests/CMakeLists.txt`
+- `Engine/Source/Runtime/Renderer/Private/RendererModule.cpp`
+- `Engine/Source/Runtime/Renderer/Private/RendererEditorAssistance.h`
+- `Engine/Source/Runtime/Renderer/Private/RendererEditorAssistanceRenderer.cpp`
+- `Engine/Source/Runtime/Renderer/Private/RendererFullscreenGeometry.cpp`
+- `Engine/Source/Editor/TextureEditor/Private/Widgets/TexturePreview.cpp`
+- the narrow invalidation interface and focused owner tests selected in later
+  stages
+
+The current release path is render-thread ordered: Renderer shutdown enqueues
+one `ReleaseRendererResources` command, resets fixed and keyed state, releases
+editor assistance and fullscreen geometry, then flushes rendering commands.
+Texture Editor enqueues its own shared-preview reset and flushes before module
+shutdown. No supported device-recovery event exists: `RHIInit()`/`RHIExit()`
+cover whole-process RHI lifetime, while Vulkan `Init()`/`Shutdown()` do not
+publish device-loss recovery. This plan therefore adds and tests an internal
+Renderer device-invalidation request without connecting it to a fictitious
+event.
+
+The exact development commands are `renderer.reload-shaders changed`,
+`renderer.reload-shaders all`, and `renderer.retry-resources`. Renderer module
+startup owns registration. Shutdown first stops admission and unregisters the
+handles, then enqueues the existing ordered release; callbacks enqueue one
+render command and never mutate slots from the console thread. The narrow
+Renderer invalidation request accepts shader-changed, shader-all, device, or
+manual-retry causes; the device cause remains an internal API until an RHI
+recovery lifecycle exists.
+
+Keyed Static Mesh and assistance state retains vectors. Lookup and construction
+are synchronous on the render thread; callers receive payload ownership or RHI
+references, never slot pointers that survive another insertion. Factory
+injection occurs at the common result boundary and can deterministically fail
+shader, declaration, sampler, buffer, texture, or individual PSO steps without
+a driver failure. The focused contract tests intentionally fail against the
+Stage 0 one-shot scaffold on relevant-generation retry, last-known-good
+refresh, device invalidation, and recovery diagnostics; suppression,
+transaction rollback, reentrancy rejection, and one-time initial diagnostics
+already characterize the boundary.
 
 Renderer and Texture Editor preview resources currently use one-shot
 `bCreateAttempted` flags. Those flags are set before shader compilation or RHI
@@ -324,31 +393,31 @@ resource:
 
 ### Stage 0: Lock the state owner, invalidation surface, and test seams
 
-- [ ] Record the implementation baseline, relevant diff, exact
+- [x] Record the implementation baseline, relevant diff, exact
   `bCreateAttempted` and incomplete-entry inventory, working set, and current
   render-thread release path.
-- [ ] Decide whether the reusable slot lives in a narrow public RenderCore
+- [x] Decide whether the reusable slot lives in a narrow public RenderCore
   header or remains module-private with a second small Texture Editor adapter.
   Select the public helper only if two owners require identical semantics and
   the type can remain independent of Renderer identities and RHI backend types.
-- [ ] Define the exact payload/attempt/failure data model, legal transitions,
+- [x] Define the exact payload/attempt/failure data model, legal transitions,
   generation comparison, wrap handling, and last-known-good rules.
-- [ ] Define the narrow renderer invalidation API, command registration owner,
+- [x] Define the narrow renderer invalidation API, command registration owner,
   shutdown ordering, and final `changed`, `all`, and manual-retry command
   spelling.
-- [ ] Confirm which RHI-reinitialization hooks actually exist. Record the
+- [x] Confirm which RHI-reinitialization hooks actually exist. Record the
   device-invalidation call contract without inventing a device-recovery event.
-- [ ] Select a deterministic factory-injection seam that can fail shader,
+- [x] Select a deterministic factory-injection seam that can fail shader,
   declaration, sampler, buffer, texture, and individual pipeline steps without
   requiring a real driver failure.
-- [ ] Decide whether keyed static-mesh state retains vectors or needs
+- [x] Decide whether keyed static-mesh state retains vectors or needs
   node-stable storage; document pointer lifetime and synchronous lookup
   assumptions.
-- [ ] Add focused failing tests for initial failure suppression, retry after a
+- [x] Add focused failing tests for initial failure suppression, retry after a
   relevant generation, no retry after an unrelated generation, transactional
   rollback, last-known-good refresh, device invalidation, reentrant creation,
   and one-time diagnostics.
-- [ ] Record the dependency boundary with the Demand-Driven Editor Assistance
+- [x] Record the dependency boundary with the Demand-Driven Editor Assistance
   Renderer and Material System plans before editing overlapping state.
 
 #### Acceptance Gate

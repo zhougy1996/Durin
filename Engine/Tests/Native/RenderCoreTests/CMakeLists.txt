@@ -83,6 +83,7 @@ durin_add_render_functional_test(RenderShaderServiceTests
 
 durin_add_render_functional_test(RenderContractTests
 	SOURCES
+		Private/RenderResourceCreationTests.cpp
 		Private/RenderResourceLifecycleTests.cpp
 		Private/RenderTargetLayoutTests.cpp
 		Private/RHITextureTests.cpp
