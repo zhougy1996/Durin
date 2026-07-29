@@ -76,14 +76,23 @@ function(durin_test_get_target_binary_deployment dependent_target test_bin_dir o
 		"DurinTestDeployTarget_${deployment_label}_${deployment_hash}")
 
 	if(NOT TARGET ${deployment_target})
-		add_custom_target(${deployment_target}
+		set(deployment_stamp
+			"${CMAKE_CURRENT_BINARY_DIR}/${deployment_target}.stamp")
+		add_custom_command(
+			OUTPUT "${deployment_stamp}"
 			COMMAND ${CMAKE_COMMAND} -E make_directory
 			"${test_bin_dir}"
 			COMMAND ${CMAKE_COMMAND} -E copy_if_different
 			"$<TARGET_FILE:${deployment_source_target}>"
 			"${test_bin_dir}/$<TARGET_FILE_NAME:${deployment_source_target}>"
+			COMMAND ${CMAKE_COMMAND} -E touch
+			"${deployment_stamp}"
+			DEPENDS ${deployment_source_target}
 			COMMENT "Deploying shared test binary target: ${deployment_source_target}"
 			VERBATIM
+		)
+		add_custom_target(${deployment_target}
+			DEPENDS "${deployment_stamp}"
 		)
 		set_target_properties(${deployment_target} PROPERTIES
 			FOLDER "Tests/Infrastructure/Runtime"
@@ -132,7 +141,8 @@ function(durin_test_get_runtime_file_deployment file_path test_bin_dir out_var)
 
 	if(NOT TARGET ${deployment_target})
 		get_filename_component(test_bin_dir "${destination_path}" DIRECTORY)
-		add_custom_target(${deployment_target}
+		add_custom_command(
+			OUTPUT "${destination_path}"
 			COMMAND ${CMAKE_COMMAND} -E make_directory
 			"${test_bin_dir}"
 			COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -141,6 +151,9 @@ function(durin_test_get_runtime_file_deployment file_path test_bin_dir out_var)
 			DEPENDS "${source_path}"
 			COMMENT "Deploying shared test runtime file: ${file_name}"
 			VERBATIM
+		)
+		add_custom_target(${deployment_target}
+			DEPENDS "${destination_path}"
 		)
 		set_target_properties(${deployment_target} PROPERTIES
 			FOLDER "Tests/Infrastructure/Runtime"
