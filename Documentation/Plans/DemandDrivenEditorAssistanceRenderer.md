@@ -131,14 +131,19 @@ each `FSceneView`:
 
 ### Resource ownership and lazy state
 
-- Grid, Gizmo, Line, and Icon each own a base-resource state with explicit
-  `Uninitialized`, `Ready`, and `Failed` states.
+- Grid, Gizmo, Line, and Icon each own an independent base-resource slot whose
+  availability, attempt, failure, generation, and retry semantics follow the
+  Recoverable Renderer Resource Creation plan.
 - Base resources are constructed into temporaries and committed to the feature
   state only after the complete base set succeeds. This prevents accidental use
   of partially initialized shaders, declarations, static buffers, atlases, or
   samplers.
-- Permanent base-resource failures are sticky until renderer resource reset or
-  RHI reinitialization; they log once at the failing feature boundary.
+- A base-resource failure is sticky and logs once for the same relevant
+  generation. Shader or explicit-reload invalidation may retry shader-backed
+  state without a module restart; device invalidation clears dependent RHI
+  payloads before retry.
+- A failed shader refresh retains a valid last-known-good payload. Device
+  invalidation never treats an old RHI payload as a fallback.
 - Dynamic line and icon buffer allocation or geometry-generation failure is a
   per-view preparation failure. It does not permanently mark the feature
   failed.
@@ -199,6 +204,20 @@ each `FSceneView`:
 - Partial assistance remains safe now because every surviving operation is
   still composed after post-processing; no fallback moves any assistance
   feature into scene color or FXAA input.
+
+### Relationship to recoverable resource creation
+
+- `Documentation/Plans/RecoverableRendererResourceCreation.md` owns the common
+  transactional candidate, retained failure, generation dependency,
+  last-known-good, retry, diagnostic, and invalidation semantics.
+- This plan owns view-driven demand, feature states, pipeline-key
+  decomposition, prepared operations, and failure isolation after resource
+  lookup.
+- Stage 3 must consume the common resource-state contract if it has landed. If
+  the assistance extraction lands first, it must keep its private state narrow
+  enough to migrate without changing demand or pipeline keys.
+- Neither plan authorizes per-frame retry or an unsupported device-recovery
+  lifecycle.
 
 ### Unreal Engine comparison boundary
 
@@ -413,7 +432,9 @@ each `FSceneView`:
   and topology.
 - No global readiness condition can disable unrelated assistance.
 - Permanent failures are sticky and diagnosed once; transient per-view
-  preparation failures do not permanently disable a feature.
+  preparation failures do not permanently disable a feature. "Permanent" is
+  scoped to the same relevant resource generation; the common recovery plan
+  owns explicit retry after shader, device, or manual invalidation.
 - Dynamic prepared data belongs to one rendered view and cannot leak into a
   sequential viewport.
 - Grid no longer reaches into post-process private state.
@@ -438,6 +459,7 @@ each `FSceneView`:
 
 - `Documentation/Runtime/Rendering/ViewportRendering.md`
 - `Documentation/Plans/EditorIconAtlas.md`
+- `Documentation/Plans/RecoverableRendererResourceCreation.md`
 - `Documentation/Plans/Archive/2026-07/ScenePostProcessEditorAssistanceBoundary.md`
 - `Documentation/Plans/Archive/2026-07/EditorWorldGridV2.md`
 - `Documentation/Development/Build/BuildAndRun.md`
