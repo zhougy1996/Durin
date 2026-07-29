@@ -7,6 +7,10 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 - Start from the task and affected code. When an unnamed repository contract,
   workflow, plan, or investigation is needed, route through
   `Documentation/README.md`; open only the matching topic and required links.
+- When asked to select or continue a bounded repository task, route through
+  `Documentation/Tasks/README.md`. Task files are live work items: complete
+  their acceptance criteria, then delete the file and its index entry in the
+  implementation commit instead of archiving them.
 - Read `Documentation/Development/Standards/CodingStandards.md` only when the
   user explicitly requests refactoring repository-owned C++.
 - Follow the nearest `AGENTS.md` for authoring and lifecycle rules; do not infer
