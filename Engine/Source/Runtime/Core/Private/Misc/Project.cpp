@@ -19,30 +19,17 @@ namespace Durin
 			const std::filesystem::path Absolute = std::filesystem::absolute(Path, Error).lexically_normal();
 			return (Error ? Path.lexically_normal() : Absolute).generic_string();
 		}
-
-		auto FindArgument(std::span<const std::string_view> Arguments, std::string_view Prefix) -> std::string
-		{
-			for (const std::string_view Argument : Arguments)
-				if (Argument.starts_with(Prefix)) return std::string(Argument.substr(Prefix.size()));
-			return {};
-		}
 	}
 
 	auto NormalizeProjectFile(std::string_view ProjectFile) -> std::string { return Normalize(ProjectFile); }
 	auto GetCurrentProject() -> const FProjectInfo* { return GCurrentProject ? &*GCurrentProject : nullptr; }
 	auto HasCurrentProject() -> bool { return GCurrentProject.has_value(); }
 
-	auto InitializeCurrentProject(std::span<const std::string_view> Arguments, std::string* OutError) -> bool
+	auto InitializeCurrentProject(const FProjectInitializationParams& Params, std::string* OutError) -> bool
 	{
 		GCurrentProject.reset();
-		const bool bForceBrowser = std::ranges::find(Arguments, std::string_view("--project-browser")) != Arguments.end();
-		std::string Requested = FindArgument(Arguments, "--project=");
-		if (Requested.empty())
-		{
-			for (size_t Index = 0; Index + 1 < Arguments.size(); ++Index)
-				if (Arguments[Index] == "--project") { Requested = Arguments[Index + 1]; break; }
-		}
-		if (bForceBrowser) return true;
+		if (Params.bOpenProjectBrowser) return true;
+		std::string Requested = Params.RequestedProjectFile;
 		if (Requested.empty())
 		{
 			FProjectHistory History = MakeDefaultProjectHistory();

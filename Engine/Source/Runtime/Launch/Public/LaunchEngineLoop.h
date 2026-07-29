@@ -1,14 +1,22 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/Project.h"
 
 namespace Durin
 {
+	// Carries semantic process startup choices into the engine loop.
+	struct FEngineStartupParams
+	{
+		bool bSuppressWindowDisplay = false;
+		FProjectInitializationParams Project;
+	};
+
 	// Drives process-wide engine startup, ticking, and ordered shutdown.
 	class FEngineLoop
 	{
 	public:
-		auto PreInit(std::span<const std::string_view> Arguments = {}) -> void;
+		auto PreInit(const FEngineStartupParams& Params) -> void;
 		auto Init() -> void;
 		auto Tick() -> void;
 		auto Exit() -> void;

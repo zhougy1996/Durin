@@ -443,8 +443,9 @@ namespace Durin
 		RootWindow->ReshapeWindow({100.0f, 100.0f}, {static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
 
 		ProjectBrowser->SetOpenProject([WorkspaceManager, bWorkspaceReady, WeakRootWindow, LevelEditorModulePtr, MaterialEditorModulePtr, TextureEditorModulePtr](std::string_view ProjectFile, std::string& OutError) {
-			const std::array<std::string_view, 2> Arguments = {"--project", ProjectFile};
-			if (!InitializeCurrentProject(Arguments, &OutError)) return false;
+			FProjectInitializationParams Params;
+			Params.RequestedProjectFile = ProjectFile;
+			if (!InitializeCurrentProject(Params, &OutError)) return false;
 			DURIN_PROFILE_PROGRAM_IDENTITY(
 				DURIN_RUNTIME_VARIANT,
 				GetCurrentProject() ? std::string_view{GetCurrentProject()->Name} : std::string_view{},

@@ -38,12 +38,12 @@ namespace Durin
 
 	FEngineLoop GEngineLoop;
 
-	auto FEngineLoop::PreInit(std::span<const std::string_view> Arguments) -> void
+	auto FEngineLoop::PreInit(const FEngineStartupParams& Params) -> void
 	{
 		DURIN_PROFILE_THREAD("GameThread");
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
-		GIsWindowDisplaySuppressed = std::ranges::find(Arguments, std::string_view("--hidden-window")) != Arguments.end();
+		GIsWindowDisplaySuppressed = Params.bSuppressWindowDisplay;
 
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
@@ -60,7 +60,7 @@ namespace Durin
 		DURIN_DEBUG(STR("Launch directory: {}"), FPaths::LaunchDir());
 		DURIN_DEBUG(STR("Engine directory: {}"), FPaths::EngineDir());
 		std::string ProjectError;
-		if (!InitializeCurrentProject(Arguments, &ProjectError) && !ProjectError.empty()) DURIN_WARN("{}", ProjectError);
+		if (!InitializeCurrentProject(Params.Project, &ProjectError) && !ProjectError.empty()) DURIN_WARN("{}", ProjectError);
 		DURIN_PROFILE_PROGRAM_IDENTITY(
 			DURIN_RUNTIME_VARIANT,
 			GetCurrentProject() ? std::string_view{GetCurrentProject()->Name} : std::string_view{},

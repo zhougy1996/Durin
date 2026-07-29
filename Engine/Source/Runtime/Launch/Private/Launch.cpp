@@ -10,8 +10,12 @@ int LAUNCH_API main(int argc, char** argv)
 {
 	constexpr std::string_view WaitForProcessPrefix = "--wait-for-process=";
 	constexpr std::string_view ExitAfterTicksPrefix = "--exit-after-ticks=";
+	constexpr std::string_view ProjectPrefix = "--project=";
 	std::optional<uint32> WaitForProcessId;
 	std::optional<uint64> ExitAfterTicks;
+	std::optional<std::string_view> ProjectEqualsArgument;
+	std::optional<std::string_view> ProjectSeparateArgument;
+	FEngineStartupParams StartupParams;
 	for (int Index = 1; Index < argc; ++Index)
 	{
 		const std::string_view Argument = argv[Index];
@@ -31,12 +35,30 @@ int LAUNCH_API main(int argc, char** argv)
 			if (Error != std::errc{} || End != TickCountText.data() + TickCountText.size() || TickCount == 0) return 1;
 			ExitAfterTicks = TickCount;
 		}
+		else if (Argument == "--hidden-window")
+		{
+			StartupParams.bSuppressWindowDisplay = true;
+		}
+		else if (Argument == "--project-browser")
+		{
+			StartupParams.Project.bOpenProjectBrowser = true;
+		}
+		else if (Argument.starts_with(ProjectPrefix) && !ProjectEqualsArgument)
+		{
+			ProjectEqualsArgument = Argument.substr(ProjectPrefix.size());
+		}
+		else if (Argument == "--project" && Index + 1 < argc && !ProjectSeparateArgument)
+		{
+			ProjectSeparateArgument = argv[Index + 1];
+		}
 	}
 	if (WaitForProcessId && !FPlatformProcess::WaitForProcessExit(*WaitForProcessId)) return 1;
 
-	std::vector<std::string_view> Arguments;
-	for (int Index = 1; Index < argc; ++Index) Arguments.emplace_back(argv[Index]);
-	GEngineLoop.PreInit(Arguments);
+	if (ProjectEqualsArgument && !ProjectEqualsArgument->empty())
+		StartupParams.Project.RequestedProjectFile = *ProjectEqualsArgument;
+	else if (ProjectSeparateArgument)
+		StartupParams.Project.RequestedProjectFile = *ProjectSeparateArgument;
+	GEngineLoop.PreInit(StartupParams);
 	GEngineLoop.Init();
 
 	uint64 CompletedTicks = 0;

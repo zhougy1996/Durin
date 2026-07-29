@@ -70,11 +70,10 @@ TEST(FProjectTests, PlatformProcessLaunchFailureIncludesPathAndSystemError)
 
 TEST(FProjectTests, LoadsExplicitProjectFile)
 {
-	const std::string ProjectFile = Durin::FPaths::RootDir() + "Sandbox/Sandbox.dproject";
-	const std::array<std::string, 1> OwnedArguments{std::format("--project={}", ProjectFile)};
-	const std::array<std::string_view, 1> Arguments{OwnedArguments[0]};
+	Durin::FProjectInitializationParams Params;
+	Params.RequestedProjectFile = Durin::FPaths::RootDir() + "Sandbox/Sandbox.dproject";
 	std::string Error;
-	ASSERT_TRUE(Durin::InitializeCurrentProject(Arguments, &Error)) << Error;
+	ASSERT_TRUE(Durin::InitializeCurrentProject(Params, &Error)) << Error;
 	ASSERT_TRUE(Durin::HasCurrentProject());
 	EXPECT_EQ(Durin::GetCurrentProject()->Name, "Sandbox");
 	EXPECT_EQ(Durin::GetCurrentProject()->MountRoot, "/Game/");
@@ -83,18 +82,20 @@ TEST(FProjectTests, LoadsExplicitProjectFile)
 
 TEST(FProjectTests, RejectsMissingProject)
 {
-	const std::array<std::string_view, 1> Arguments{"--project=Missing.dproject"};
+	Durin::FProjectInitializationParams Params;
+	Params.RequestedProjectFile = "Missing.dproject";
 	std::string Error;
-	EXPECT_FALSE(Durin::InitializeCurrentProject(Arguments, &Error));
+	EXPECT_FALSE(Durin::InitializeCurrentProject(Params, &Error));
 	EXPECT_FALSE(Error.empty());
 	EXPECT_FALSE(Durin::HasCurrentProject());
 }
 
 TEST(FProjectTests, ExplicitBrowserSkipsRecentProject)
 {
-	const std::array<std::string_view, 1> Arguments{"--project-browser"};
+	Durin::FProjectInitializationParams Params;
+	Params.bOpenProjectBrowser = true;
 	std::string Error;
-	EXPECT_TRUE(Durin::InitializeCurrentProject(Arguments, &Error));
+	EXPECT_TRUE(Durin::InitializeCurrentProject(Params, &Error));
 	EXPECT_FALSE(Durin::HasCurrentProject());
 }
 
@@ -131,10 +132,10 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 	std::filesystem::create_directories(MountedRoot / "Extensions/PCG/SourceAssets");
 	std::filesystem::create_directories(MountedRoot / "Libraries/StudioArt");
 	std::ofstream(MountedRoot / "Extensions/PCG/SourceAssets/Noise.png") << "noise";
-	const std::array<std::string, 1> ValidOwned{std::format("--project={}", Valid)};
-	const std::array<std::string_view, 1> ValidArguments{ValidOwned[0]};
+	Durin::FProjectInitializationParams Params;
+	Params.RequestedProjectFile = Valid;
 	std::string Error;
-	ASSERT_TRUE(Durin::InitializeCurrentProject(ValidArguments, &Error)) << Error;
+	ASSERT_TRUE(Durin::InitializeCurrentProject(Params, &Error)) << Error;
 	ASSERT_NE(Durin::GetCurrentProject(), nullptr);
 	EXPECT_EQ(Durin::GetCurrentProject()->MountRoot, "/Game/");
 	if (!Durin::GIsGameThreadIdInitialized)
@@ -176,10 +177,9 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 				"Dependencies":["/Engine/"]}]})")};
 	for (const std::string& Descriptor : InvalidDescriptors)
 	{
-		const std::array<std::string, 1> Owned{std::format("--project={}", Descriptor)};
-		const std::array<std::string_view, 1> Arguments{Owned[0]};
+		Params.RequestedProjectFile = Descriptor;
 		Error.clear();
-		EXPECT_FALSE(Durin::InitializeCurrentProject(Arguments, &Error));
+		EXPECT_FALSE(Durin::InitializeCurrentProject(Params, &Error));
 		EXPECT_FALSE(Error.empty());
 		EXPECT_FALSE(Durin::HasCurrentProject());
 	}

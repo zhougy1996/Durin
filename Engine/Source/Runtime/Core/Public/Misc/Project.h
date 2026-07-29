@@ -14,9 +14,18 @@ namespace Durin
 		std::string MountRoot;
 	};
 
+	// Describes how startup selects the process's initial project.
+	struct FProjectInitializationParams
+	{
+		bool bOpenProjectBrowser = false;
+
+		// An empty path falls back to project history unless the browser is requested.
+		std::string RequestedProjectFile;
+	};
+
 	CORE_API auto GetCurrentProject() -> const FProjectInfo*;
 	CORE_API auto HasCurrentProject() -> bool;
-	CORE_API auto InitializeCurrentProject(std::span<const std::string_view> Arguments, std::string* OutError = nullptr) -> bool;
+	CORE_API auto InitializeCurrentProject(const FProjectInitializationParams& Params, std::string* OutError = nullptr) -> bool;
 	CORE_API auto NormalizeProjectFile(std::string_view ProjectFile) -> std::string;
 	CORE_API auto RelaunchEditorForProject(std::string_view ProjectFile, std::string* OutError = nullptr) -> bool;
 	CORE_API auto LaunchPendingEditorRelaunch(std::string* OutError = nullptr) -> bool;
