@@ -3,6 +3,7 @@
 #include "Misc/CoreTypes.h"
 #include "Misc/AssertionMacros.h"
 
+#include <cstddef>
 #include <functional>
 #include <limits>
 #include <optional>
@@ -240,6 +241,8 @@ namespace Durin
 				Payload.swap(Candidate);
 				PayloadGeneration = Generation;
 				const bool bReportRecovery = bFailureReported;
+				std::optional<FRenderResourceCreateError> RecoveredError =
+					Failure;
 				Failure.reset();
 				FailureFingerprint.reset();
 				Availability = ERenderResourceAvailability::Ready;
@@ -250,6 +253,7 @@ namespace Durin
 						FRenderResourceCreateDiagnostic{
 							.Kind =
 								ERenderResourceCreateDiagnosticKind::Recovery,
+							.Error = std::move(RecoveredError),
 						});
 				}
 				return &*Payload;

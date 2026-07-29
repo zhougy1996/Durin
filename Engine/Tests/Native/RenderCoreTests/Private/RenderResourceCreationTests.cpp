@@ -58,6 +58,9 @@ namespace Durin
 			EXPECT_EQ(
 				Diagnostics.back().Kind,
 				ERenderResourceCreateDiagnosticKind::Recovery);
+			ASSERT_TRUE(Diagnostics.back().Error.has_value());
+			EXPECT_EQ(Diagnostics.back().Error->Context, "TestResource");
+			EXPECT_EQ(Diagnostics.back().Error->Identity, "variant=1");
 		}
 
 		TEST(

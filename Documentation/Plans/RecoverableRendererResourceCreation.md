@@ -102,13 +102,33 @@ invalidation wiring remain in Stages 2-4. The focused run passed 9/9 cases and
 the complete `RenderContractTests` target passed 32/32 cases through
 DurinDevTool.
 
-Renderer and Texture Editor preview resources currently use one-shot
-`bCreateAttempted` flags. Those flags are set before shader compilation or RHI
-creation begins, so any failure becomes sticky until the owning module state is
-destroyed. Static-mesh shader-map and pipeline caches have a second form of the
-same defect: they insert an entry before construction and leave the incomplete
-entry behind when compilation or PSO creation fails. A later lookup finds that
-entry and returns `nullptr` without another attempt.
+Stage 2 handoff: baseline commit `bc493527`; the working set adds
+`RendererModule.cpp`, `RendererResourceSlotCache.h`, the focused keyed-cache
+tests, and EngineTests target metadata. Static Mesh base resources now commit
+one device-dependent declaration/sampler aggregate. Shader-map identities own
+shader-dependent slots whose candidates bind both typed shaders before commit.
+Pipeline identities own shader-and-device-dependent slots whose candidates
+create both solid and wire PSOs before commit and retain their owning shader
+map. Pipeline shader generation is taken from the committed shader-map payload,
+so a failed shader refresh continues using the complete old shader-map/pipeline
+pair rather than rebuilding a new-generation pipeline from stale shaders.
+
+The keyed containers remain insertion-ordered vectors behind
+`TRendererResourceSlotCache`; empty entries are explicit failed/uninitialized
+slots, never incomplete payloads. The common failure callback now carries the
+owned prior error on recovery so recovery diagnostics retain context and
+identity. There are no open Stage 2 questions. Validation passed 4/4 focused
+keyed-cache cases, 9/9 common slot cases, 26/26 `EditorRenderingTests`, and
+35/35 `FMaterialTests.*` cases, including the Vulkan-backed rendered thumbnail
+path.
+
+At the implementation baseline, Renderer and Texture Editor preview resources
+used one-shot `bCreateAttempted` flags, and Static Mesh shader-map/pipeline
+caches inserted incomplete entries before construction. Stage 2 removed both
+defects from Static Mesh. Sky Box, Post Process, Texture Cube thumbnail,
+fullscreen geometry, and Texture Editor preview retain their one-shot flags
+until Stage 3; editor assistance retains its earlier module-private attempt
+adapter until the same migration.
 
 The lower shader compile service does not cache failed compiler output.
 Dependency fingerprints already make a changed shader source produce a
@@ -394,10 +414,12 @@ resource:
 
 ### Gaps to close
 
-- `bCreateAttempted` conflates attempted, ready, and failed states.
-- Renderer feature factories mutate global state before complete success.
-- Static-mesh shader-map and pipeline vectors retain incomplete payload
-  entries after failure.
+- Remaining fixed-resource `bCreateAttempted` flags conflate attempted, ready,
+  and failed states.
+- Remaining fixed Renderer feature factories mutate global state before
+  complete success.
+- Editor assistance still uses its module-private string-only attempt adapter
+  rather than the common structured slot.
 - Error messages are logged and discarded rather than retained with the failed
   slot.
 - There is no generation that makes one failed slot eligible after relevant
@@ -473,21 +495,21 @@ resource:
 
 ### Stage 2: Repair static-mesh base, shader-map, and pipeline caches
 
-- [ ] Convert static-mesh base declarations and samplers from
+- [x] Convert static-mesh base declarations and samplers from
   `bBaseResourcesCreateAttempted` to one device-dependent transactional slot.
-- [ ] Convert shader-map entries to shader-generation-dependent state slots.
-- [ ] Compile and bind a complete local shader-map candidate before commit.
-- [ ] Convert pipeline entries to shader-and-device-dependent state slots.
-- [ ] Create the complete current PSO aggregate locally and commit only after
+- [x] Convert shader-map entries to shader-generation-dependent state slots.
+- [x] Compile and bind a complete local shader-map candidate before commit.
+- [x] Convert pipeline entries to shader-and-device-dependent state slots.
+- [x] Create the complete current PSO aggregate locally and commit only after
   every required pipeline succeeds.
-- [ ] Make lookup return a payload only from a ready or valid stale-ready slot;
+- [x] Make lookup return a payload only from a ready or valid stale-ready slot;
   never infer permanent failure from an empty resource member.
-- [ ] Preserve old pipeline and owning shader-map references across a failed
+- [x] Preserve old pipeline and owning shader-map references across a failed
   shader refresh.
-- [ ] Add focused tests for first compile failure then same-identity recovery,
+- [x] Add focused tests for first compile failure then same-identity recovery,
   first PSO failure then recovery, unrelated identity isolation, same-generation
   suppression, and old-pipeline preservation.
-- [ ] Keep Material System identity and render-output behavior unchanged.
+- [x] Keep Material System identity and render-output behavior unchanged.
 
 #### Acceptance Gate
 
