@@ -14,5 +14,7 @@ namespace Durin::RendererRenderTargetLayouts
 
 	RENDERER_API auto MakeSceneTargets() -> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeScenePostProcessOutput() -> FRHIRenderTargetLayout;
+	RENDERER_API auto MakeFinalScenePostProcessOutput(EViewportOutput Output)
+		-> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeEditorAssistanceOutput(EViewportOutput Output) -> FRHIRenderTargetLayout;
 } // namespace Durin::RendererRenderTargetLayouts

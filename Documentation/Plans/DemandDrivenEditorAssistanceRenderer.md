@@ -4,12 +4,102 @@ Summary: Refactor editor assistance into a demand-driven Renderer phase with laz
 
 Last reviewed: 2026-07-30
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-07-30
 
 ## Current Status
 
 Planning baseline: `f3a2e3ab` (`refactor(renderer): simplify scene creation lifecycle`).
+
+Stage 0 implementation baseline: `241b6ea4`
+(`docs(renderer): plan demand-driven editor assistance`). The planning baseline
+is tree-equivalent for the Renderer working set; the only relevant baseline
+diff is this active plan.
+
+Stage 0 selected a Renderer-private, render-thread-only assistance state object.
+It remains independent of `FRendererModule` object lifetime and is reset by the
+existing queued `ReleaseRendererResources` command, so no queued render command
+can observe a destroyed module member. Grid, Gizmo, Line, and Icon feature state,
+lazy pipeline entries, dynamic capacities, and one-time diagnostic state will be
+reset together by that owner.
+
+The request contract is `FEditorAssistanceRequest`-style pure data derived from
+`FSceneView` and the current `EViewportOutput`. Pipeline keys are feature,
+output, depth mode, and Gizmo topology. A local prepared result will retain
+per-view Line/Icon index counts plus the available pipeline references for each
+draw operation; global feature state retains only reusable capacity and RHI
+resources.
+
+Post Process and Grid will share one explicit Renderer-private fullscreen
+geometry owner. Post Process remains its ordinary eager caller, while Grid only
+uses the already-created shared buffers after its own demand is established.
+The owner is reset in the same renderer release command after all drawing has
+drained.
+
+The narrow test seam is pure request analysis, required pipeline-key mapping,
+and drawable-operation selection from an available-key set. It covers failure
+isolation without exposing or injecting an RHI resource factory. RHI creation
+tracing remains Stage 4 integration evidence.
+
+Stage 0 validation: the focused `EditorRenderingTests` build reached the link
+step and failed only on the three intentionally undeclared implementations for
+that pure seam (`AnalyzeRequest`, `GetRequiredPipelineKeys`, and
+`BuildDrawableOperations`). This is the expected red contract against the
+current eager and globally gated implementation.
+
+Stage 1 handoff: baseline `284d742a`; working set was the assistance request
+unit, `RendererModule.cpp`, render-target layouts, the private module header,
+and focused Editor Rendering tests. Request analysis now precedes all assistance
+initialization. Line/Icon preparation returns per-view index counts, Grid
+uniform preparation occurs before the draw pass, and the local prepared result
+decides whether any assistance operation survives. When none survives, Post
+Process uses an output-specific final layout and the assistance render pass is
+elided. Validation passed 13 focused request, draw-order, and render-target
+layout tests through `EditorRenderingTests`.
+
+Stage 2 handoff: baseline `abb09e3a`; working set expanded only to the
+Renderer-private assistance implementation and fullscreen-geometry owner.
+`RendererModule.cpp` now performs request, scene, post-process, and assistance
+phase orchestration without Grid/Gizmo/Line/Icon shader types, feature states,
+pipeline construction, preparation, or drawing. The assistance unit owns its
+complete render-thread state and prepared-frame boundary, and the existing
+queued renderer release command calls its single reset path. Post Process and
+Grid now consume one explicit fullscreen-geometry owner, whose state is reset
+in that same command. Renderer source glob discovery required no build metadata
+change. The complete `EditorRenderingTests` target passed all 17 tests.
+
+Stage 3 handoff: baseline `df3289a7`; working set was the Renderer-private
+assistance header and implementation plus focused Editor Rendering tests. The
+common recoverable-resource slot has not landed, so assistance uses a narrow
+private `FGenerationScopedAttempt` that keeps payload availability separate
+from latest-attempt state and is ready to migrate without changing demand or
+pipeline keys. Base resources and keyed pipelines suppress repeated attempts
+for the same relevant shader/device/manual generation, retry after a relevant
+generation change, retain last-known-good payloads after shader/manual refresh
+failure, and clear device-dependent payloads before device-generation retry.
+Manual generation changes select only failed attempts rather than refreshing
+ready resources. Each feature and pipeline key retains its own failure detail
+and emits one failure diagnostic per attempted generation plus one recovery
+diagnostic. The Stage 0 pure seam covers Icon-base, Line X-Ray, and wire-Gizmo
+failure isolation and sequential Offscreen/Present key creation without an RHI
+factory seam. The complete `EditorRenderingTests` target passed all 22 tests.
+
+Stage 4 completion handoff: baseline `224583c8`; the final working set was this
+plan, with no further code or long-lived documentation changes required. The
+complete 22-test
+`EditorRenderingTests` target passed, source inspection confirmed that empty
+requests bypass assistance preparation and that feature/pipeline creation
+occurs only after demand and valid geometry, and the complete Debug Editor
+`all` target built successfully. A 30-tick hidden-window Vulkan editor smoke
+exited normally with no Shader, Pipeline, Vulkan Validation, Error, or Fatal
+diagnostics. A maximized editor capture verified the Grid, axis, light Icon,
+scene composition, and viewport boundary without visible corruption. The user
+then completed the interactive validation and confirmed that sequential main
+and auxiliary views with different contents and sizes remain isolated, that
+Offscreen followed by Present creates the later output path correctly, and
+that the full Grid, solid/wire Gizmo, Line, Icon, depth occlusion,
+X-Ray/Visible, FXAA on/off, constrained-scissor, and camera-preview matrix
+passes. Stage 4 and the plan are complete.
 
 The existing renderer already composes editor assistance after scene post-processing
 and preserves scene depth for grid and overlay occlusion. The remaining resource
@@ -267,24 +357,24 @@ each `FSceneView`:
 
 ### Stage 0: Lock ownership, request, and test contracts
 
-- [ ] Record the implementation baseline, relevant diff, working set, and
+- [x] Record the implementation baseline, relevant diff, working set, and
   existing render-thread release path before editing.
-- [ ] Confirm whether the assistance renderer is safest as a module-private
+- [x] Confirm whether the assistance renderer is safest as a module-private
   render-thread state object or a private `FRendererModule` member whose
   destruction is ordered after queued release commands. Record the selected
   ownership and shutdown reasoning before implementation.
-- [ ] Define `FEditorAssistanceRequest`, the exact request-to-pipeline-key
+- [x] Define `FEditorAssistanceRequest`, the exact request-to-pipeline-key
   mapping, and the local prepared-result boundary.
-- [ ] Confirm the shared fullscreen-geometry owner and its initialization and
+- [x] Confirm the shared fullscreen-geometry owner and its initialization and
   release ordering.
-- [ ] Select the narrowest non-public test seam for observing requested
+- [x] Select the narrowest non-public test seam for observing requested
   pipeline keys and simulating one unavailable operation. Prefer pure request
   and draw-plan helpers; use an injectable resource factory only if RHI-backed
   behavior cannot otherwise be covered.
-- [ ] Add focused failing tests for an empty request, Grid-only Offscreen,
+- [x] Add focused failing tests for an empty request, Grid-only Offscreen,
   solid-only Gizmos, wire-only Gizmos, Line/Icon demand, and independent
   operation availability.
-- [ ] Record the intentional failure-policy change from the archived
+- [x] Record the intentional failure-policy change from the archived
   phase-boundary plan in this plan if implementation discoveries refine it.
 
 #### Acceptance Gate
@@ -295,19 +385,19 @@ each `FSceneView`:
 
 ### Stage 1: Introduce view-driven demand and empty-phase elision
 
-- [ ] Implement pure assistance request analysis from `FSceneView` and the
+- [x] Implement pure assistance request analysis from `FSceneView` and the
   current output type.
-- [ ] Move the empty-request decision ahead of all Gizmo, Line, Icon, and Grid
+- [x] Move the empty-request decision ahead of all Gizmo, Line, Icon, and Grid
   initialization.
-- [ ] Make Overlay Line and Icon geometry preparation report whether any valid
+- [x] Make Overlay Line and Icon geometry preparation report whether any valid
   geometry survived clipping and input validation.
-- [ ] Represent per-view dynamic counts and operation demand in a local
+- [x] Represent per-view dynamic counts and operation demand in a local
   prepared result rather than relying on stale global counts.
-- [ ] Skip the final assistance render pass when the request is empty or
+- [x] Skip the final assistance render pass when the request is empty or
   preparation produces no drawable operation.
-- [ ] Preserve current phase order, depth attachment, viewport/scissor, and
+- [x] Preserve current phase order, depth attachment, viewport/scissor, and
   final layout behavior for every non-empty request.
-- [ ] Pass focused request, preparation, and draw-order tests.
+- [x] Pass focused request, preparation, and draw-order tests.
 
 #### Acceptance Gate
 
@@ -317,21 +407,21 @@ each `FSceneView`:
 
 ### Stage 2: Extract the independent assistance renderer
 
-- [ ] Turn the existing Renderer-private assistance unit into the selected
+- [x] Turn the existing Renderer-private assistance unit into the selected
   `FEditorAssistanceRenderer`-style owner without exposing it through
   `IRendererModule`.
-- [ ] Move Grid, Gizmo, Line, and Icon feature states plus their initialization,
+- [x] Move Grid, Gizmo, Line, and Icon feature states plus their initialization,
   preparation, and draw helpers out of `RendererModule.cpp`.
-- [ ] Keep `RendererModule.cpp` responsible only for scene, post-process, and
+- [x] Keep `RendererModule.cpp` responsible only for scene, post-process, and
   assistance-stage orchestration.
-- [ ] Introduce the explicit shared fullscreen-geometry owner selected in
+- [x] Introduce the explicit shared fullscreen-geometry owner selected in
   Stage 0 and remove Grid access to post-process internals.
-- [ ] Route renderer shutdown and any RHI reset through one assistance resource
+- [x] Route renderer shutdown and any RHI reset through one assistance resource
   reset path.
-- [ ] Preserve the existing public `FSceneView` representation unless a direct
+- [x] Preserve the existing public `FSceneView` representation unless a direct
   implementation conflict proves that a private derived request cannot express
   the required workload.
-- [ ] Keep the Renderer source and build metadata changes limited to files
+- [x] Keep the Renderer source and build metadata changes limited to files
   required by the extracted private owner.
 
 #### Acceptance Gate
@@ -343,23 +433,23 @@ each `FSceneView`:
 
 ### Stage 3: Add lazy output-specific pipelines and isolated failure
 
-- [ ] Add explicit tri-state base-resource initialization independently for
+- [x] Add explicit tri-state base-resource initialization independently for
   Grid, Gizmo, Line, and Icon.
-- [ ] Replace paired Present/Offscreen pipeline construction with independent
+- [x] Replace paired Present/Offscreen pipeline construction with independent
   lazy entries keyed by current output, depth mode, and topology.
-- [ ] Create base resources and pipeline entries only after the request and
+- [x] Create base resources and pipeline entries only after the request and
   prepared geometry prove they are needed.
-- [ ] Commit base-resource aggregates only after full base initialization;
+- [x] Commit base-resource aggregates only after full base initialization;
   retain independent pipeline-entry success or failure.
-- [ ] Remove `AreEditorAssistanceOutputPipelinesReady()` and the global
+- [x] Remove `AreEditorAssistanceOutputPipelinesReady()` and the global
   assistance-pipeline failure flag and message.
-- [ ] Make the prepared operation set include every successfully available
+- [x] Make the prepared operation set include every successfully available
   operation even when a sibling feature or variant failed.
-- [ ] Add feature- and key-specific one-time diagnostics without per-frame
+- [x] Add feature- and key-specific one-time diagnostics without per-frame
   retries or log spam.
-- [ ] Reset all lazy and diagnostic states through the assistance owner's
+- [x] Reset all lazy and diagnostic states through the assistance owner's
   release path.
-- [ ] Extend focused tests to cover one failed Icon base resource, one failed
+- [x] Extend focused tests to cover one failed Icon base resource, one failed
   Line X-Ray pipeline, one failed wire Gizmo pipeline, and independent
   Offscreen/Present creation.
 
@@ -372,25 +462,25 @@ each `FSceneView`:
 
 ### Stage 4: Integration, rendering validation, and lasting documentation
 
-- [ ] Run focused request, ordering, render-target layout, grid, Renderer, and
+- [x] Run focused request, ordering, render-target layout, grid, Renderer, and
   viewport tests through the repository-native test workflow.
-- [ ] Instrument or inspect the RHI creation path in a development build to
+- [x] Instrument or inspect the RHI creation path in a development build to
   verify zero assistance pipeline creation for a pure game view and the
   expected demand counts for representative editor views.
-- [ ] Validate sequential main and auxiliary views with different assistance
+- [x] Validate sequential main and auxiliary views with different assistance
   contents and target sizes; confirm prepared data does not leak across views.
-- [ ] Validate Offscreen and Present paths, including creating one output mode
+- [x] Validate Offscreen and Present paths, including creating one output mode
   first and the other later.
-- [ ] Run a successful full `all` build through the root DurinDevTool workflow.
-- [ ] Run the verified `DurinEditor` with the same Agent Build Profile and
+- [x] Run a successful full `all` build through the root DurinDevTool workflow.
+- [x] Run the verified `DurinEditor` with the same Agent Build Profile and
   confirm Shader, Pipeline, Vulkan Validation, Error, and Fatal logs remain
   clean.
-- [ ] Perform the focused visual matrix for Grid, solid/wire Gizmos, Lines, and
+- [x] Perform the focused visual matrix for Grid, solid/wire Gizmos, Lines, and
   Icons with depth occlusion, X-Ray/Visible ordering, FXAA on/off, constrained
   viewport scissor, and an auxiliary camera preview.
-- [ ] Update `Documentation/Runtime/Rendering/ViewportRendering.md` with the
+- [x] Update `Documentation/Runtime/Rendering/ViewportRendering.md` with the
   demand, ownership, pass-elision, and failure-isolation contracts.
-- [ ] Update this plan's status and evidence, and keep the Editor Icon Atlas
+- [x] Update this plan's status and evidence, and keep the Editor Icon Atlas
   plan independent.
 
 #### Acceptance Gate

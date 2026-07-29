@@ -134,6 +134,24 @@ Scene post-processing produces the image that is then composed with editor assis
 
 The editor-assistance draw order is grid first, then X-Ray gizmos, lines, and icons, followed by their depth-tested visible variants. Main and auxiliary viewports reuse size-keyed scene intermediates sequentially, while each output target receives its own post-process and final assistance passes.
 
+Editor-assistance demand is derived from the immutable `FSceneView` submitted
+for the current output. An empty view initializes no assistance feature or
+pipeline and omits the final assistance pass. Grid, Gizmo, Line, and Icon base
+resources belong to one Renderer-private, render-thread-owned assistance
+renderer, while dynamic geometry counts and available operations belong to the
+prepared result for one view. The shared fullscreen geometry used by Post
+Process and Grid has its own explicit Renderer-private lifetime.
+
+Each demanded operation requests only the pipeline identified by its feature,
+current Present or Offscreen output, depth mode, and Gizmo topology. Base and
+pipeline failures are isolated to their feature or exact key, so every
+independent available operation remains drawable. Failed creation is suppressed
+for the same relevant resource generation rather than retried every frame.
+Shader or explicit manual invalidation permits a lazy retry and retains a valid
+last-known-good payload if refresh fails; device invalidation clears dependent
+RHI payloads before retry. Renderer shutdown resets payloads, generation-scoped
+attempts, dynamic capacities, and diagnostics together.
+
 ## Interface Boundary
 
 `MViewport` talks only to `Mona::IMonaViewport`, not to `FSceneViewport`.

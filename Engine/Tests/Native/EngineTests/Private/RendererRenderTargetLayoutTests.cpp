@@ -30,6 +30,23 @@ namespace Durin
 		EXPECT_EQ(Layout.ColorAttachments[0].RenderTarget.FinalAccess, ERHIAccess::ColorAttachmentWrite);
 	}
 
+	TEST(FRendererRenderTargetLayoutTests, FinalScenePostProcessOwnsOutputTransition)
+	{
+		const FRHIRenderTargetLayout Offscreen =
+			MakeFinalScenePostProcessOutput(EViewportOutput::Offscreen);
+		const FRHIRenderTargetLayout Present =
+			MakeFinalScenePostProcessOutput(EViewportOutput::Present);
+
+		EXPECT_EQ(Offscreen.ColorAttachments[0].RenderTarget.FinalLayout,
+			ERHITextureLayout::ShaderReadOnly);
+		EXPECT_EQ(Offscreen.ColorAttachments[0].RenderTarget.FinalAccess,
+			ERHIAccess::ShaderRead);
+		EXPECT_EQ(Present.ColorAttachments[0].RenderTarget.FinalLayout,
+			ERHITextureLayout::Present);
+		EXPECT_EQ(Present.ColorAttachments[0].RenderTarget.FinalAccess,
+			ERHIAccess::Present);
+	}
+
 	TEST(FRendererRenderTargetLayoutTests, EditorAssistanceOutputLoadsPreservedColorAndDepth)
 	{
 		for (const EViewportOutput Output : {EViewportOutput::Offscreen, EViewportOutput::Present})

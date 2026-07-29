@@ -15,7 +15,5 @@ namespace Durin
 
 	private:
 		auto RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* RenderTarget) -> void;
-		auto PrepareEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void;
-		auto DrawEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bPresentOutput) -> void;
 	};
 }

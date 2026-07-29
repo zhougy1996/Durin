@@ -67,6 +67,22 @@ namespace Durin::RendererRenderTargetLayouts
 		return Layout;
 	}
 
+	auto MakeFinalScenePostProcessOutput(EViewportOutput Output)
+		-> FRHIRenderTargetLayout
+	{
+		const bool bPresent = Output == EViewportOutput::Present;
+		FRHIRenderTargetLayout Layout;
+		Layout.NumColorRenderTargets = 1;
+		Layout.ColorAttachments[0].RenderTarget = MakeColorAttachment(
+			ERHIRenderTargetLoadAction::Clear,
+			ERHITextureLayout::Undefined,
+			ERHIAccess::None,
+			bPresent ? ERHITextureLayout::Present : ERHITextureLayout::ShaderReadOnly,
+			bPresent ? ERHIAccess::Present : ERHIAccess::ShaderRead
+		);
+		return Layout;
+	}
+
 	auto MakeEditorAssistanceOutput(EViewportOutput Output) -> FRHIRenderTargetLayout
 	{
 		const bool bPresent = Output == EViewportOutput::Present;
