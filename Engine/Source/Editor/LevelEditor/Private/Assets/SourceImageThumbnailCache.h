@@ -36,6 +36,5 @@ namespace Durin
 	private:
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
-		FDelegateHandle PreExitHandle;
 	};
 } // namespace Durin

@@ -1799,9 +1799,6 @@ namespace Durin
 	auto FRendererModule::StartupModule() -> void
 	{
 		bAcceptingSceneCreation = true;
-		PreExitHandle =
-			AddOnEnginePreExit([this]() { StopAcceptingSceneCreation(); });
-		check(PreExitHandle.IsValid());
 		if (GDynamicRHI != nullptr)
 		{
 			ENQUEUE_RENDER_COMMAND(InitializeDefaultTextures)(
@@ -1846,11 +1843,6 @@ namespace Durin
 	auto FRendererModule::ShutdownModule() -> void
 	{
 		StopAcceptingSceneCreation();
-		if (PreExitHandle.IsValid())
-		{
-			RemoveOnEnginePreExit(PreExitHandle);
-			PreExitHandle.Reset();
-		}
 		ReleaseRendererResources();
 	}
 

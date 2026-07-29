@@ -198,13 +198,10 @@ namespace Durin
 
 	auto FEngineLoop::Exit() -> void
 	{
-		if (!BeginEngineExit()) return;
-		AdvanceEngineExitPhase(EEngineExitPhase::DetachingRenderConsumers);
 		FModuleManager::Get().ShutdownModule("Mona");
 
 		ShutdownEngineThreadPool(true);
 
-		AdvanceEngineExitPhase(EEngineExitPhase::DrainingObjects);
 		RemoveFromRoot(GEngine);
 		MarkObjectHierarchyAsGarbage(GEngine);
 		GEngine = nullptr;
@@ -214,15 +211,11 @@ namespace Durin
 		if (GRenderingThread) FlushRenderingCommands();
 		CollectGarbage();
 		CheckNoDeferredDestroyObjects("shutdown object destruction");
-		AdvanceEngineExitPhase(EEngineExitPhase::UnloadingModules);
 		FModuleManager::Get().UnloadModulesAtShutdown();
-		AdvanceEngineExitPhase(EEngineExitPhase::ClosingRenderAdmission);
 		ShutdownRenderingThreadBeforeRHIExit();
-		AdvanceEngineExitPhase(EEngineExitPhase::RenderingStopped);
 		RHIExit();
 
 		ShutdownApplicationCore();
-		AdvanceEngineExitPhase(EEngineExitPhase::Complete);
 		DURIN_INFO(STR("Durin Engine exited."));
 	}
 } // namespace Durin

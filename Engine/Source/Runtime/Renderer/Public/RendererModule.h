@@ -1,5 +1,4 @@
 #pragma once
-#include "CoreGlobals.h"
 #include "RendererAPI.h"
 #include "IRendererModule.h"
 
@@ -28,7 +27,6 @@ namespace Durin
 		auto PrepareEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View) -> void;
 		auto DrawEditorAssistance(FRHICommandListImmediate& CommandList, const FSceneView& View, bool bPresentOutput) -> void;
 
-		FDelegateHandle PreExitHandle;
 		bool bAcceptingSceneCreation = false;
 	};
 }

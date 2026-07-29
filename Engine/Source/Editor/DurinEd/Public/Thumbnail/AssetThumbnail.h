@@ -275,7 +275,6 @@ namespace Durin
 	private:
 		struct FImpl;
 		std::unique_ptr<FImpl> Impl;
-		FDelegateHandle PreExitHandle;
 	};
 
 	// Exposes one service-owned result without transferring UI texture ownership.

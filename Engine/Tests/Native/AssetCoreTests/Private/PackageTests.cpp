@@ -181,6 +181,7 @@ namespace
 	{
 		Durin::Asset::ShutdownAssetManager();
 		Durin::CollectGarbage();
+		Durin::Asset::FAssetManager::Get().Initialize();
 	}
 
 	auto WriteTestBytes(const std::filesystem::path& Path, std::span<const Durin::uint8> Bytes) -> void

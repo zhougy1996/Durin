@@ -133,26 +133,27 @@ Detailed viewport and composition contracts are documented in
 `FEngineLoop::Exit()` is the single process-level ordering owner. Mona's module
 shutdown callback runs during consumer detachment to close its windows and UI
 backend, while the stopped module instance remains loaded until the ordinary
-post-object-drain module pass. The loop advances one monotonic phase sequence:
+post-object-drain module pass. The function expresses the shutdown order
+directly:
 
-| Phase | Boundary |
+| Step | Boundary |
 | --- | --- |
-| `QuiescingProducers` | Broadcast pre-exit once and close subsystem production. |
-| `DetachingRenderConsumers` | Destroy Mona windows and viewports, detach world, preview, thumbnail, and scene consumers, and drain accepted CPU work. |
-| `DrainingObjects` | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
-| `UnloadingModules` | Run reverse-order module shutdown only after no deferred object's virtual cleanup can target an unloading module. |
-| `ClosingRenderAdmission` | Enqueue the final RenderCore audit while admission is still open, then atomically close it. |
-| `RenderingStopped` | Stop the rendering thread after accepted commands, deferred C++ cleanup, and RHI deletion drain. |
-| `Complete` | Shut down the platform application after `RHIExit()` and publish successful process termination. |
+| Detach render consumers | Shut down Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
+| Stop CPU work | Stop accepting thread-pool work and drain accepted tasks. |
+| Drain objects | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
+| Unload modules | Run reverse-order module shutdown only after no deferred object's virtual cleanup can target an unloading module. |
+| Close render admission | Enqueue the final RenderCore audit while admission is still open, then atomically close it. |
+| Stop rendering | Stop the rendering thread after accepted commands, deferred C++ cleanup, and RHI deletion drain. |
+| Close the application | Run `RHIExit()`, shut down the platform application, and publish successful process termination. |
 
-Pre-exit is a producer boundary, not a leaf-object query. `DObject` subclasses
-do not inspect the global exit phase to decide how to destroy themselves.
-Instead, each owner closes its own admission and releases its own references:
+There is no global exit phase or pre-exit callback registry. Each owner closes
+its own admission as part of its ordinary shutdown and releases its own
+references:
 
 - resource-owning `DObject` instances submit release from `BeginDestroy()` and
   report incomplete local fences through destruction readiness;
-- process, subsystem, and module-static owners release through pre-exit,
-  subsystem shutdown, or their owning module's `ShutdownModule()`;
+- process, subsystem, and module-static owners release through subsystem
+  shutdown or their owning module's `ShutdownModule()`;
 - consumers retain stable counted RHI references or non-owning snapshots only
   while their component, viewport, scene, or preview owner remains attached.
 
@@ -225,11 +226,10 @@ lifecycle phase, initialization phase, and pending queue. Shutdown does not
 clear unexplained entries to make the audit pass; any live registry object,
 deferred cleanup owner, accepted command, or pending RHI deletion is a
 lifecycle error that must be resolved before `RHIExit()`. Debug builds reject
-phase re-entry, skipped phases, live resources, pending cleanup, late commands,
-and residual RHI deletes at the boundary where they occur. Non-Debug builds
-execute the same phase transitions, pre-exit callbacks, drains, and owner
-diagnostics; control-flow side effects must never be placed inside `check` or
-`checkf`.
+live resources, pending cleanup, late commands, and residual RHI deletes at the
+boundary where they occur. Non-Debug builds execute the same drains, shutdown
+calls, and owner diagnostics; control-flow side effects must never be placed
+inside `check` or `checkf`.
 
 ## Validation Expectations
 

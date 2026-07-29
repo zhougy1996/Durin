@@ -260,17 +260,10 @@ namespace Durin
 	FSourceImageThumbnailCache::FSourceImageThumbnailCache()
 		: Impl(std::make_unique<FImpl>())
 	{
-		PreExitHandle = AddOnEnginePreExit([this]() { Shutdown(); });
-		check(PreExitHandle.IsValid());
 	}
 
 	FSourceImageThumbnailCache::~FSourceImageThumbnailCache()
 	{
-		if (PreExitHandle.IsValid())
-		{
-			RemoveOnEnginePreExit(PreExitHandle);
-			PreExitHandle.Reset();
-		}
 		Shutdown();
 		Impl->AsyncState.reset();
 	}

@@ -18,7 +18,6 @@ namespace Durin
 
 		std::mutex GThreadPoolMutex;
 		std::unique_ptr<FQueuedThreadPool> GThreadPoolStorage;
-		FDelegateHandle GThreadPoolPreExitHandle;
 	}
 
 	FQueuedThreadPool* GThreadPool = nullptr;
@@ -414,21 +413,8 @@ namespace Durin
 		}
 
 		GThreadPool = GThreadPoolStorage.get();
-		GThreadPoolPreExitHandle =
-			AddOnEnginePreExit([]() { QuiesceEngineThreadPool(); });
-		check(GThreadPoolPreExitHandle.IsValid());
 		DURIN_DEBUG("Engine thread pool initialized. (workers: {})", GThreadPool->GetNumThreads());
 		return true;
-	}
-
-	auto QuiesceEngineThreadPool() -> void
-	{
-		std::lock_guard Lock(GThreadPoolMutex);
-		if (GThreadPool)
-		{
-			GThreadPool->StopAcceptingWork();
-			DURIN_DEBUG("Engine thread pool stopped accepting new work.");
-		}
 	}
 
 	auto ShutdownEngineThreadPool(bool bWaitForQueuedWork) -> void
@@ -436,11 +422,6 @@ namespace Durin
 		std::unique_ptr<FQueuedThreadPool> ThreadPoolToDestroy;
 		{
 			std::lock_guard Lock(GThreadPoolMutex);
-			if (GThreadPoolPreExitHandle.IsValid())
-			{
-				RemoveOnEnginePreExit(GThreadPoolPreExitHandle);
-				GThreadPoolPreExitHandle.Reset();
-			}
 			ThreadPoolToDestroy = std::move(GThreadPoolStorage);
 			GThreadPool = nullptr;
 		}

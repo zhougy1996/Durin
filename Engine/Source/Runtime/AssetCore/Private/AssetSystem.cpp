@@ -1866,12 +1866,7 @@ namespace Durin::Asset
 		return Instance;
 	}
 
-	FAssetManager::FAssetManager()
-	{
-		PreExitHandle = AddOnEnginePreExit(
-			[this]() { StopAcceptingRequests(); });
-		check(PreExitHandle.IsValid());
-	}
+	FAssetManager::FAssetManager() = default;
 
 	auto FAssetManager::CreateAsset(const FAssetPath& Path, DClass* Class, size_t Size, DObject*& OutAsset) -> FAssetResult
 	{
@@ -2666,11 +2661,7 @@ namespace Durin::Asset
 
 	auto FAssetManager::Shutdown() -> void
 	{
-		if (!bAcceptingRequests && PreExitHandle.IsValid())
-		{
-			RemoveOnEnginePreExit(PreExitHandle);
-			PreExitHandle.Reset();
-		}
+		StopAcceptingRequests();
 		Registry.FlushPersistentSnapshot();
 		std::vector<DPackage*> Packages;
 		Packages.reserve(LoadedPackages.size());
@@ -2690,6 +2681,14 @@ namespace Durin::Asset
 			RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 		}
+	}
+
+	auto FAssetManager::Initialize() -> void
+	{
+		check(LoadedPackages.empty());
+		check(LoadingPackages.empty());
+		check(TransactionPackages.empty());
+		bAcceptingRequests = true;
 	}
 
 	auto FAssetManager::StopAcceptingRequests() -> void
