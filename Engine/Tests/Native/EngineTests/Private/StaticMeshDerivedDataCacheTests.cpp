@@ -118,6 +118,13 @@ namespace
 		ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 			std::as_bytes(std::span(PackageBytes)), PackagePath));
 	}
+
+	auto RestartAssetManager() -> void
+	{
+		Durin::Asset::ShutdownAssetManager();
+		Durin::CollectGarbage();
+		Durin::Asset::FAssetManager::Get().Initialize();
+	}
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, ColdWarmAndSourceUnavailableLoadsFollowEditorPolicy)
@@ -348,7 +355,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 
 	Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
 	Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "SourceAssets");
-	Durin::Asset::ShutdownAssetManager();
+	RestartAssetManager();
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
 	Durin::PathUtilities::RegisterMountPoint(
@@ -385,9 +392,9 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	EXPECT_FALSE(MissingBulk);
 	EXPECT_EQ(CookedMesh, nullptr);
 	EXPECT_NE(MissingBulk.Message.find("Cooked static mesh"), std::string::npos);
-	Durin::Asset::ShutdownAssetManager();
 
 	auto ExpectCookedFailure = [](const std::filesystem::path& Root, std::string_view ExpectedText) {
+		RestartAssetManager();
 		ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 			Durin::Asset::EPackageLoadMode::CookedRuntime, Root}));
 		Durin::PathUtilities::RegisterMountPoint(
@@ -399,10 +406,10 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		EXPECT_FALSE(Result);
 		EXPECT_EQ(Mesh, nullptr);
 		EXPECT_NE(Result.Message.find(ExpectedText), std::string::npos) << Result.Message;
-		Durin::Asset::ShutdownAssetManager();
 	};
 	ExpectCookedFailure(WrongPlatformRoot, "target");
 	ExpectCookedFailure(WrongSchemaRoot, "schema version");
 	ExpectCookedFailure(CorruptPayloadRoot, "checksum");
 	ExpectCookedFailure(MaterialMismatchRoot, "material slot");
+	RestartAssetManager();
 }

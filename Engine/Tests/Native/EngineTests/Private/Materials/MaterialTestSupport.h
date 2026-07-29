@@ -288,7 +288,10 @@ namespace
 		FRenderSceneHarness()
 		{
 			InitializeDObjectSystem();
-			Durin::InitRenderingThread();
+			bOwnsRenderingThread =
+				Durin::GetRenderCommandAdmissionState()
+				== Durin::ERenderCommandAdmissionState::Stopped;
+			if (bOwnsRenderingThread) Durin::InitRenderingThread();
 			Scene = Engine.CreateTestScene();
 			Durin::GEngine = &Engine;
 			World = Durin::NewObject<Durin::DWorld>(&Engine, "MaterialTestWorld");
@@ -317,7 +320,7 @@ namespace
 				World = nullptr;
 			}
 			Durin::GEngine = nullptr;
-			Durin::ShutdownRenderingThread();
+			if (bOwnsRenderingThread) Durin::ShutdownRenderingThread();
 			bActive = false;
 		}
 
@@ -336,6 +339,7 @@ namespace
 		Durin::FScene* Scene = nullptr;
 		Durin::TObjectPtr<Durin::DWorld> World;
 		bool bActive = true;
+		bool bOwnsRenderingThread = false;
 	};
 
 	class FMaterialPreviewHarness
@@ -344,7 +348,10 @@ namespace
 		FMaterialPreviewHarness()
 		{
 			InitializeDObjectSystem();
-			Durin::InitRenderingThread();
+			bOwnsRenderingThread =
+				Durin::GetRenderCommandAdmissionState()
+				== Durin::ERenderCommandAdmissionState::Stopped;
+			if (bOwnsRenderingThread) Durin::InitRenderingThread();
 			RendererModule.StartupModule();
 			Engine.SetTestRendererModule(&RendererModule);
 			Durin::GEngine = &Engine;
@@ -355,11 +362,12 @@ namespace
 			Durin::GEngine = nullptr;
 			RendererModule.ShutdownModule();
 			WaitForRenderingThread();
-			Durin::ShutdownRenderingThread();
+			if (bOwnsRenderingThread) Durin::ShutdownRenderingThread();
 		}
 
 		FMaterialTestEngine Engine;
 		Durin::FRendererModule RendererModule;
+		bool bOwnsRenderingThread = false;
 	};
 
 	auto ExpectColorNear(const Durin::FVector4f& Actual, const Durin::FVector4f& Expected) -> void

@@ -464,12 +464,6 @@ TEST(FStaticMeshPayloadCodecTests,
 				LOD.GetNumIndices() * sizeof(uint32)),
 			sizeof(uint32)));
 
-	if (!GIsGameThreadIdInitialized)
-	{
-		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
-		GIsGameThreadIdInitialized = true;
-	}
-	InitRenderingThread();
 	EnqueueRenderCommand<FSetPartialStaticMeshReadinessResources>(
 		[&LOD, PositionBuffer, AttributeBuffer](
 			FRHICommandListImmediate&) {
@@ -529,7 +523,6 @@ TEST(FStaticMeshPayloadCodecTests,
 		});
 	FlushRenderingCommands();
 	EXPECT_FALSE(RenderData->IsReadyForRendering());
-	ShutdownRenderingThread();
 }
 
 TEST(FStaticMeshPayloadCodecTests, RejectsEveryTruncationAndChecksumCorruptionTransactionally)
