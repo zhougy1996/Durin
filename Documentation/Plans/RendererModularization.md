@@ -9,9 +9,35 @@ Completed:
 
 ## Current Status
 
-The implementation path is selected, but no source refactoring has begun.
-Stage 0 is next. The planning baseline is commit
-`a42700dbe143fe2f72c8442d674647c17a8130ec`.
+Stage 0 is complete from clean implementation baseline
+`3092da1f58bd89126be49db2bc9a00d3c2673af9`. No source refactoring has begun.
+The frozen owner inventory below assigns every current persistent state object,
+creation slot, cache, callback, shader, helper, proxy traversal, and release
+action to one Stage 1 through 6 destination. The target filenames and public
+rename consumer list have no unresolved ownership decisions.
+
+The adjacent-plan handoffs were reconciled against the current Git history:
+
+- Static Mesh Render-Data Lifecycle Stage 3 recorded `7f9b6c3a`, while the
+  current lineage contains the integrated implementation as
+  `f92c06ff833bfb3677d10e082a7539f749fa381b`
+  (`feat(staticmesh): establish render-data ownership lifecycle`).
+- Static Mesh LOD Resources Refactor recorded the pre-rewrite Stage 1 baseline
+  `2f7363d0`, which is not present in the current object database. Its current
+  Stage 0 contract and Stage 1 named-buffer implementation are
+  `9d0e228b4f7fa1c39d6ec7083b879a57b42ad8a3` and
+  `04bb1a4c95b0950e0c96ac19dd59d48a47f2598e`.
+- Material Render-Proxy Invalidation recorded the pre-rewrite Stage 2 baseline
+  `610e43d2`, which is not present in the current object database. The
+  corresponding current-lineage implementation is
+  `551cbfe130d94ff82376bcbba6dc0377883ff902`
+  (`feat(material): bind scene proxies to material proxies`).
+
+Stage 1 is next. Its bounded working set is the existing default-texture,
+resource-invalidation, fullscreen-geometry, and render-target-layout sources;
+their focused tests; the Renderer module lifecycle adapter; the new
+`Private/Resources/` owners; and this plan. It does not include feature shader,
+draw, scene-proxy, StaticMesh render-data, or material render-proxy changes.
 
 The current Renderer module has two dominant implementation units:
 `RendererModule.cpp` combines module lifecycle, default textures, renderer
@@ -27,6 +53,108 @@ Static Mesh Render-Data Lifecycle, Static Mesh LOD Resources Refactor, and
 Material Render-Proxy Invalidation plans. In particular,
 `FStaticMeshRenderer` extraction must not redefine asset render-data
 ownership, vertex-factory ownership, or material render-proxy invalidation.
+
+### Stage 0 Frozen Baseline and Handoff
+
+#### Current owner inventory
+
+| Current state or behavior | Frozen destination |
+| --- | --- |
+| `GRendererResourceGeneration`, `GForceRecompileShaderGeneration`, `GRendererResourceInvalidationController`, controller shared admission state and command handles | `FRendererResourceCoordinator` |
+| `renderer.reload-shaders changed/all`, `renderer.retry-resources`, internal device request, `QueueRequest`, `Start`, `Stop`, `Request`, `EnqueueRendererResourceInvalidation`, `ApplyRendererResourceInvalidation_RenderThread`, and generation snapshots | `FRendererResourceCoordinator`; `FSceneRenderer` performs explicit concrete-owner fan-out |
+| `GDefaultTextures`, solid 2D/cube creation, render-thread initialization, default accessors, and texture-reference fallback resolution | `FDefaultTextureResources`; public accessors remain forwarding functions |
+| `RendererFullscreenGeometry::GState`, device creation slot, fullscreen vertex/index buffers, lazy ensure/get, retry, and release | `FFullscreenGeometryResources` |
+| `RendererRenderTargetLayouts` output enum, color/depth attachment builders, Scene Color layout, intermediate/final post-process layout, and assistance load layout | `Resources/RenderTargetLayouts.*` as pure helpers |
+| StaticMesh shader classes, transform/lighting/material uniforms, base creation slot, material shader-map cache, material pipeline cache, diagnostic and identity formatting, compile options, resource creation, section draw, and StaticMesh proxy traversal | `FStaticMeshRenderer` |
+| TextureCube thumbnail shader classes, transform uniform, creation slot and copied payload fields, sampler/declaration/pipeline creation, draw submission, and preview-proxy traversal | `FTextureCubeThumbnailRenderer`; copied payload fields collapse to the committed payload |
+| SkyBox shader classes, creation slot and copied payload fields, sampler/declaration/pipeline/index resources, resource creation, validation, uniform preparation, and draw submission | `FSkyBoxRenderer`; `SkyBoxRendering::BuildUniform` and its finite/matrix helpers become owner methods or remain a narrow deterministic helper beside it |
+| Post-process shader classes, FXAA uniform, creation slot and copied payload fields, copy/FXAA pipeline variants, sampler, size-keyed Scene Color/depth map, target creation, and post-process draw | `FPostProcessRenderer`; copied payload fields collapse to the committed payload |
+| View/output rejection, output-kind derivation, assistance demand, target resolution, constrained viewport fitting, render-pass construction, pass ordering, viewport/scissor restoration, and final output transition selection | `FSceneRenderer` |
+| `RendererEditorAssistance::AnalyzeRequest`, required-key calculation, drawable-operation filtering, immutable `FPrepared`, draw-order table, aggregate preparation, and aggregate draw dispatch | `FEditorAssistanceRenderer` |
+| Gizmo shaders, uniforms, mesh ranges, base creation slot and copied payload fields, cylinder/cone/box/wire-box/plane/ring generation, pipeline identities, prepare, and draw | `FGizmoRenderer`; copied payload fields collapse to the committed payload |
+| Overlay Line shaders, style/vertex types, base creation slot and copied payload fields, dynamic buffers and capacities, clipped quad geometry, upload, pipeline identities, prepare, and draw | `FOverlayLineRenderer`; copied payload fields collapse to the committed payload |
+| Overlay Icon shaders, style/vertex types, base creation slot and copied payload fields, atlas/sampler, dynamic buffers and capacities, atlas construction, quad geometry, upload, pipeline identities, prepare, and draw | `FOverlayIconRenderer`; copied payload fields collapse to the committed payload |
+| Editor Grid shaders, base creation slot and copied payload fields, fullscreen geometry use, pipeline identities, uniform validation/preparation, and draw | `FEditorGridRenderer`; deterministic `EditorGridRendering::BuildUniform` remains independently testable either as an owner static method or a narrow adjacent helper |
+| Editor-assistance generation, force-recompile selection, feature/output/depth/topology identity formatting, diagnostic formatting, base/pipeline generation lookup, shared pipeline vector, `EnsurePipeline`, `AddPreparedPipeline`, invalidation, retry, and release | Generation and force selection move to `FRendererResourceCoordinator`; exact-key pipeline slots, diagnostics, invalidation, retry, and release move to each concrete assistance renderer; aggregate prepared-key collection stays in `FEditorAssistanceRenderer` |
+| `FScene` primitive, light, and SkyBox mutation queues, render-thread containers, revision checks, release command, and render-thread queries | Rename atomically to `FRenderScene` in Stage 6 without changing ownership or behavior |
+| `FRendererModule` command startup, default-resource startup, scene construction, resource release enqueue, shutdown flush, `RenderView`, and `RenderScene` | Startup/shutdown and scene construction remain in `FRendererModule`; rendering and concrete resource fan-out delegate to its owned `FSceneRenderer` |
+
+Every `TRenderResourceCreationSlot` therefore has one selected owner: StaticMesh
+base resources, each StaticMesh material shader map and pipeline identity,
+TextureCube thumbnail, SkyBox, Post Process, shared fullscreen geometry, four
+editor-assistance base resources, and each exact assistance pipeline identity.
+The two current size/key containers likewise have one owner:
+`FPostProcessRenderer::SceneTargetsBySize` and the per-feature assistance
+pipeline caches. No creation slot or keyed cache remains module-global.
+
+#### Frozen lifecycle and frame behavior
+
+- `InitializeDefaultTextures_RenderThread`, default texture access, resource
+  invalidation application and snapshot access retain explicit render-thread
+  assertions. `FRenderScene` render-command bodies and SkyBox queries retain
+  `CheckRenderingThread`; scene creation retains its game-thread assertion.
+  Extracted feature entry points add or retain render-thread assertions rather
+  than relying only on their caller.
+- Startup registers both development commands before enqueuing default texture
+  initialization, and skips GPU texture creation when no RHI exists.
+- Shutdown closes command admission and unregisters commands, enqueues release
+  of default textures, feature payloads, generations, assistance resources,
+  Post Process resources, and fullscreen geometry, flushes rendering commands,
+  and only then permits owner destruction. Each extracted release remains
+  idempotent.
+- Shader invalidation advances only the shader generation, records forced
+  recompilation only for `all`, and retains last-known-good payloads. Manual
+  retry advances only the manual generation. Device invalidation first clears
+  device-dependent payloads, advances only the device generation, then
+  recreates demanded startup defaults; feature reconstruction remains lazy.
+- A null or zero-sized output returns before demand or resource creation.
+  Scene Color/depth resolution precedes constrained viewport fitting. Scene
+  drawing is SkyBox, StaticMesh, then TextureCube preview. Assistance prepares
+  after the scene pass. Copy/FXAA writes the output, followed only when
+  drawable by a preserved-color/depth assistance pass ordered Grid, X-Ray
+  Gizmo/Line/Icon, then visible Gizmo/Line/Icon. The last pass alone selects
+  Present or ShaderReadOnly output.
+
+#### Frozen public rename consumers
+
+Stage 6 atomically renames the interface declaration in
+`Engine/Source/Runtime/Engine/Public/IScene.h`, the concrete
+`Renderer/Public/Scene.h` and `Renderer/Private/Scene.cpp`, and the module
+contract in `RenderCore/Public/IRendererModule.h` and
+`Renderer/Public/RendererModule.h`. Direct runtime consumers are Engine
+forward declarations and ownership in `EngineFwd.h`, `Engine.h/.cpp`,
+`World.h/.cpp`, `SceneComponent.h`, `PrimitiveComponent.h/.cpp`,
+`DirectionalLightComponent.cpp`, `SkyBoxComponent.cpp`, and
+`Mona/SceneViewport.h/.cpp`. Direct editor consumers are
+`DurinEd/Public/Preview/PreviewScene.h`,
+`DurinEd/Private/Preview/PreviewScene.cpp`,
+`DurinEd/Private/Thumbnail/RenderedAssetThumbnailPreviewScene.cpp`, and
+`MaterialEditor/Private/Widgets/MaterialPreview.cpp`.
+
+The direct concrete-scene test consumers are
+`Materials/MaterialTestSupport.h`, `Materials/StaticMeshUpdateTests.cpp`,
+`SkyBox/SkyBoxTestSupport.h`, `SkyBox/SkyBoxComponentTests.cpp`,
+`SkyBox/SkyBoxEditorTests.cpp`, `SkyBox/SkyBoxVulkanTests.cpp`,
+`Texture/TextureCookTests.cpp`, and `World/WorldTestSupport.h`. Documentation
+references are updated only where they describe the live renderer scene;
+historical plan handoffs and investigations keep their historical vocabulary.
+
+#### Baseline validation
+
+The `Win64-Debug-DurinEditor-Tests` Agent Build Profile completed
+`.\DevTool.bat test --target all --output compact --plain` on 2026-07-30.
+The complete `all` build passed, followed by 807 registered tests with zero
+failures and one existing platform-dependent skip. The run included
+`EditorRenderingTests` (29), `RendererResourceReloadVulkanTests` (1),
+`SkyBoxTests` (9), `SkyBoxVulkanIntegrationTests` (1), `MaterialTests` (51),
+`StaticMeshTests` (54), `StaticModelImportVulkanTests` (1), and
+`ThumbnailTests` (45), plus the RenderCore resource, shader, and contract
+targets. The CTest log is
+`Build/.agent-state/logs/20260730-145045-340644-8028-ctest.log`.
+
+Open questions: none. Stage 1 must preserve the inventory and behavior above;
+any conflict discovered during movement returns here as an explicit changed
+decision before implementation continues.
 
 ## Goal
 
@@ -311,20 +439,20 @@ continue to come from the immutable per-view snapshot.
 
 Dependencies: stable handoffs from overlapping active-plan stages.
 
-- [ ] Record the implementation baseline commit and confirm the Renderer
+- [x] Record the implementation baseline commit and confirm the Renderer
   working set has no overlapping uncommitted edits.
-- [ ] Inventory every Renderer anonymous global, creation slot, keyed cache,
+- [x] Inventory every Renderer anonymous global, creation slot, keyed cache,
   console callback, shader type, draw helper, proxy enumeration path, and
   release action, assigning exactly one target owner.
-- [ ] Record the current render-thread assertions, render-pass order, viewport
+- [x] Record the current render-thread assertions, render-pass order, viewport
   and scissor changes, resource-generation transitions, and shutdown order.
-- [ ] Run the existing focused Renderer, render-resource, shader reload,
+- [x] Run the existing focused Renderer, render-resource, shader reload,
   editor-assistance, render-target-layout, SkyBox, Editor Grid, material,
   StaticMesh, and rendered-output baselines.
-- [ ] Confirm the exact handoff commits and affected symbols from the active
+- [x] Confirm the exact handoff commits and affected symbols from the active
   StaticMesh and material plans before selecting the
   `FStaticMeshRenderer` working set.
-- [ ] Freeze the target filenames and public rename consumer list; put any
+- [x] Freeze the target filenames and public rename consumer list; put any
   unresolved ownership decision in this stage before source movement begins.
 
 #### Acceptance Gate
@@ -332,6 +460,26 @@ Dependencies: stable handoffs from overlapping active-plan stages.
 - Every current state object and free function has one selected destination,
   adjacent-plan ownership is non-overlapping, existing behavioral baselines
   pass, and Stage 1 has a bounded working set.
+
+#### Stage 0 Implementation Handoff
+
+- Baseline: `3092da1f58bd89126be49db2bc9a00d3c2673af9`.
+- Working set: the Renderer sources and direct consumers enumerated in the
+  frozen inventory above; Stage 1 is limited to shared-resource ownership.
+- Key symbols: `FRendererResourceInvalidationController`,
+  `FRenderResourceGeneration`, `TRenderResourceCreationSlot`,
+  `TRendererResourceSlotCache`, `GDefaultTextures`,
+  `RendererFullscreenGeometry`, `RendererRenderTargetLayouts`,
+  `GStaticMeshState`, `GTextureCubeThumbnailState`, `GSkyBoxState`,
+  `GPostProcessState`, and `RendererEditorAssistance::GState`.
+- Decisions: the target composition and filenames in this plan are frozen;
+  creation slots move intact before feature behavior changes; current
+  post-process and assistance keyed storage remains bounded and demand-driven;
+  adjacent StaticMesh and material ownership APIs are inputs, not migration
+  targets.
+- Open questions: none.
+- Validation: complete Tests-profile `all` build and aggregate passed; 807
+  registered tests, zero failures, one existing skip.
 
 ### Stage 1: Establish explicit shared resource ownership
 
