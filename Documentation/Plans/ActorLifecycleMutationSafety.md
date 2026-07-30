@@ -9,30 +9,29 @@ Completed:
 
 ## Current Status
 
-Stage 3 is complete on Stage 2 baseline commit
-`db55a9707bd2b1215b58cd2b594bd0d8d1d7a290`. The original planning baseline
+Stage 4 is complete on Stage 3 baseline commit
+`a78263854f2c28a9deb04c8b020ac455317ba902`. The original planning baseline
 remains `a91eaf5f97f20f36c881d22dd9e231eae6985b73`.
 
-Stage 3 working set:
+Stage 4 working set:
 
-- `Engine/Source/Runtime/Engine/Public/Components/ActorComponent.h`
-- `Engine/Source/Runtime/Engine/Public/Engine/Actor.h`
-- `Engine/Source/Runtime/Engine/Private/Components/ActorComponent.cpp`
-- `Engine/Source/Runtime/Engine/Private/Engine/World.cpp`
-- `Engine/Source/Runtime/Engine/Private/Engine/Level.cpp`
-- `Engine/Source/Runtime/Engine/Private/Engine/Actor.cpp`
-- `Engine/Tests/Native/EngineTests/Private/World/WorldLifecycleMutationTests.cpp`
+- `Engine/Source/Runtime/Engine/Public/Engine/ActorIterator.h`
+- `Engine/Source/Runtime/Engine/Private/Engine/ActorIterator.cpp`
+- `Engine/Tests/Native/EngineTests/Private/World/WorldActorIteratorTests.cpp`
+- `Engine/Tests/Native/EngineTests/CMakeLists.txt`
 
-Component BeginPlay, EndPlay, and destruction now use explicit engine-owned
-state and dispatch entry points. Actor lifecycle and visibility routing own
-handle snapshots, revalidate owner and membership, and defer Component
-self-destruction until the active callback unwinds. World and Level
-registration/unregistration loops likewise separate candidate collection from
-callback publication. Component Tick remains unchanged by explicit scope.
-All 52 `WorldTests` pass.
+`FActorRange` now owns a shared finite candidate snapshot and produces standard
+forward iterators that revalidate captured World/Level identity, structural
+membership, retirement state, and optional reflected class filtering before
+publication. Copies share stable candidate state without registrations or
+callbacks. Spawn is not observed after construction, invalidated current/next
+candidates are skipped, and Level replacement or GC makes remaining candidates
+ineligible. No lifecycle or Tick call site migrated because their explicit
+ordering/performance contracts are clearer in their current snapshot paths.
+All 59 `WorldTests` pass.
 
-Stage 4 is next. It will introduce the frozen `FActorIterator` and range
-surface without changing lifecycle ordering.
+Stage 5 is next. It will run integration/build validation and publish the
+lasting lifecycle and iterator contracts.
 
 `DWorld::BeginPlay()` and `DWorld::EndPlay()` currently retain iterators into
 `DLevel::Actors` while invoking virtual actor callbacks. `SpawnActor()` may
@@ -403,19 +402,19 @@ Dependencies: Stage 2.
 
 Dependencies: Stages 1 through 3.
 
-- [ ] Add a game-thread Actor iterator state that owns generation-checked
+- [x] Add a game-thread Actor iterator state that owns generation-checked
   Actor handles captured from one World and its current Level.
-- [ ] Add default filtering for retired/destroying Actors and wrong World or
+- [x] Add default filtering for retired/destroying Actors and wrong World or
   Level membership.
-- [ ] Add optional reflected-class filtering without introducing C++ RTTI.
-- [ ] Define end-iterator, copy/move, dereference, increment, and range-for
+- [x] Add optional reflected-class filtering without introducing C++ RTTI.
+- [x] Define end-iterator, copy/move, dereference, increment, and range-for
   behavior without registration callbacks tied to iterator object addresses.
-- [ ] Add tests for empty World, empty Level, class filtering, Spawn during
+- [x] Add tests for empty World, empty Level, class filtering, Spawn during
   iteration, destroy-current, destroy-next, level replacement, copied
   iterators, and garbage collection after iterator destruction.
-- [ ] Replace ad hoc forward Actor enumeration only where frozen-set and
+- [x] Replace ad hoc forward Actor enumeration only where frozen-set and
   ordering semantics match exactly.
-- [ ] Retain explicit reverse snapshot routing for EndPlay unless a reverse
+- [x] Retain explicit reverse snapshot routing for EndPlay unless a reverse
   Actor range preserves the same contract without extra complexity.
 
 #### Acceptance Gate

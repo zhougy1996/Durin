@@ -264,6 +264,7 @@ durin_add_engine_functional_test(WorldTests
 	SOURCES
 		Private/World/WorldPlayTests.cpp
 		Private/World/WorldLifecycleMutationTests.cpp
+		Private/World/WorldActorIteratorTests.cpp
 		Private/World/WorldActorTests.cpp
 		Private/World/WorldComponentTests.cpp
 		Private/World/WorldLifetimeTests.cpp
