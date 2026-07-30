@@ -9,13 +9,13 @@ Completed:
 
 ## Current Status
 
-Stages 0 through 2 are complete. Stage 2 landed against clean baseline
-`04b8dd47e85a41e91664098f0fe8c7a9bad0faa7`: SkyBox, TextureCube thumbnail,
-and Post Process shaders, creation slots, committed payloads, render targets,
-and draw submission now have matching concrete owners beneath
-`Private/Renderers/`. The module-private lifecycle container composes those
-owners with the shared resources from Stage 1, while `RendererModule.cpp`
-retains scene queries, proxy enumeration, and total pass ordering.
+Stages 0 through 3 are complete. Stage 3 landed against clean baseline
+`800176d5a6bc169bb6cbc942ef504d015d3cce91`: StaticMesh shaders, base
+resources, material shader-map and pipeline slots, diagnostics, uniforms, and
+proxy draw submission now have one concrete `FStaticMeshRenderer` owner
+beneath `Private/Renderers/`. The module-private lifecycle container composes
+that owner with the Stage 1 and Stage 2 owners, while `RendererModule.cpp`
+retains non-owning proxy enumeration, scene queries, and total pass ordering.
 
 The adjacent-plan handoffs were reconciled against the current Git history:
 
@@ -34,23 +34,20 @@ The adjacent-plan handoffs were reconciled against the current Git history:
   `551cbfe130d94ff82376bcbba6dc0377883ff902`
   (`feat(material): bind scene proxies to material proxies`).
 
-Stage 3 is next. Its bounded working set is the StaticMesh shader types,
-uniforms, base-resource slot, shader-map and pipeline caches, creation
-diagnostics, pipeline identities, draw helper, and proxy callback currently in
-`RendererModule.cpp`; the matching new files under `Private/Renderers/`; the
-established StaticMesh render-data, LOD-resource, and material render-proxy
-interfaces; their focused StaticMesh, material, resource reload, and Vulkan
-tests; and this plan. It excludes Editor Assistance, scene-order changes,
-scene-proxy ownership, asset render-data ownership, LOD buffer ownership, and
-material render-proxy invalidation behavior.
+Stage 4 is next. Its bounded working set is Editor Assistance request analysis,
+per-view preparation and draw ordering; Grid, Gizmo, Overlay Line, and Overlay
+Icon resources, exact-key pipeline caches, geometry, diagnostics, and drawing;
+the matching new files beneath `Private/Renderers/`; focused Editor Rendering
+and rendered-output tests; and this plan. It excludes scene orchestration,
+scene renaming, module lifecycle changes, and the already extracted scene
+feature renderers.
 
-The remaining Renderer monoliths are `RendererModule.cpp`, which combines
-module lifecycle, renderer resource invalidation, scene orchestration, and
-StaticMesh rendering, and `RendererEditorAssistanceRenderer.cpp`, which
-combines Grid, Gizmo, Overlay Line, and Overlay Icon resource creation,
-geometry preparation, pipeline selection, and drawing. Their remaining
-persistent feature state is still stored in anonymous-namespace globals rather
-than in an object whose lifetime expresses ownership.
+The remaining feature monolith is
+`RendererEditorAssistanceRenderer.cpp`, which combines Grid, Gizmo, Overlay
+Line, and Overlay Icon resource creation, geometry preparation, pipeline
+selection, and drawing. Its persistent feature state is still stored in
+anonymous-namespace globals rather than in objects whose lifetimes express
+ownership.
 
 The refactoring must consume the established handoffs from the active
 Static Mesh Render-Data Lifecycle, Static Mesh LOD Resources Refactor, and
@@ -603,19 +600,19 @@ Dependencies: Stage 1.
 Dependencies: Stages 1 and 2 plus the recorded StaticMesh/material handoffs
 from Stage 0.
 
-- [ ] Introduce `FStaticMeshRenderer` as the owner of base resources,
+- [x] Introduce `FStaticMeshRenderer` as the owner of base resources,
   material shader-map slots, material pipeline slots, StaticMesh shader types,
   draw uniforms, diagnostics, and proxy draw submission.
-- [ ] Consume the established `FStaticMeshSceneProxy`, material render-proxy,
+- [x] Consume the established `FStaticMeshSceneProxy`, material render-proxy,
   render-data, buffer, and vertex-factory APIs without introducing adapter
   ownership.
-- [ ] Move Lit/Unlit and Solid/Wireframe selection without changing shader-map
+- [x] Move Lit/Unlit and Solid/Wireframe selection without changing shader-map
   or pipeline identities.
-- [ ] Preserve last-known-good shader/pipeline payload behavior across shader
+- [x] Preserve last-known-good shader/pipeline payload behavior across shader
   and manual invalidation and clear device-dependent payloads on device
   invalidation.
-- [ ] Keep scene-proxy enumeration non-owning and render-thread confined.
-- [ ] Run focused material binding, material invalidation, StaticMesh
+- [x] Keep scene-proxy enumeration non-owning and render-thread confined.
+- [x] Run focused material binding, material invalidation, StaticMesh
   render-data lifetime, resource reload, pipeline identity, and Vulkan
   rendered-output tests.
 
@@ -625,6 +622,35 @@ from Stage 0.
   adjacent-plan lifetime or invalidation contract changed, and the established
   Lit/Unlit, Solid/Wireframe, material, reload, and rendered-output baselines
   pass.
+
+#### Stage 3 Implementation Handoff
+
+- Baseline: `800176d5a6bc169bb6cbc942ef504d015d3cce91`.
+- Working set: `RendererModule.cpp`, the new
+  `Renderers/StaticMeshRenderer.*` owner, the established StaticMesh
+  render-data and material render-proxy interfaces consumed without changes,
+  focused StaticMesh, material, resource-reload, and Vulkan validation
+  targets, and this plan.
+- Key symbols: `FStaticMeshRenderer`,
+  `FStaticMeshRenderer::FState`, `EnsureResources_RenderThread`,
+  `DrawProxy_RenderThread`, `ReleaseResources_RenderThread`,
+  `FRendererModule::FSharedResources`, and `ForEachStaticMeshProxy`.
+- Decisions: the module lifecycle container constructor-injects the shared
+  resource coordinator and default textures into `FStaticMeshRenderer`.
+  Shader-map slots remain keyed by `FMaterialShaderMapIdentity`; pipeline slots
+  remain keyed by `FMaterialPipelineIdentity`, including their existing
+  insertion-index pipeline names. Generation-driven resolve preserves
+  last-known-good shader and pipeline payloads across shader and manual
+  invalidation, while device invalidation and shutdown explicitly clear all
+  device-backed StaticMesh payloads. Proxy enumeration remains a non-owning
+  module orchestration concern and draw submission remains render-thread-only.
+- Open questions: none.
+- Validation: the focused `StaticMeshTests` passed 54 tests, `MaterialTests`
+  passed 51 tests, `RendererResourceReloadVulkanTests` passed its reload test,
+  and `StaticModelImportVulkanTests` passed its rendered-output test. The
+  complete Tests-profile `all` build and aggregate passed with 807 registered
+  tests, zero failures, and one existing platform-dependent skip; CTest log
+  `Build/.agent-state/logs/20260730-202617-953794-35012-ctest.log`.
 
 ### Stage 4: Decompose Editor Assistance
 
