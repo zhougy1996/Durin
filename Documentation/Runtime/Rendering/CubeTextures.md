@@ -325,10 +325,13 @@ source pixel.
 - `FScene` owns snapshots only on the rendering thread. A snapshot contains no
   reflected object pointer or concrete render-resource owner; it retains a
   counted stable `FRHITextureReferenceRef`.
-- `DTextureCube` alone owns its `FTextureReference` and current concrete
-  `FTextureCubeResource`. Rebuild publication retargets the stable RHI
-  reference, so active sky snapshots and preview proxies observe a new cube
-  without reacquiring the asset or concrete resource.
+- The abstract `DTexture` base owns the stable `FTextureReference`, shared
+  revision/completion state, and current generic texture resource for every
+  texture leaf. `DTextureCube` owns cube source, platform data, and the hook
+  that snapshots validated data into an `FTextureCubeResource`. Common rebuild
+  publication retargets the stable RHI reference, so active sky snapshots and
+  preview proxies observe a new cube without reacquiring the asset or concrete
+  resource.
 - Scene removal, proxy closure, thumbnail cancellation, and accepted queued
   draws drop their counted stable references independently. A copied stable
   reference may keep the targeted GPU texture alive until RHI deferred

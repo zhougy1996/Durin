@@ -114,10 +114,20 @@ rebuild rule and dirty the package after success.
 
 ## Render-Thread Boundary
 
-`DTexture2D` is the sole high-level owner of one stable `FTextureReference` and
-at most one current concrete `FTexture2DResource`. Neither object is shared
-through a C++ smart pointer. The concrete resource owns the uploaded
-`FTextureRHIRef`; the stable reference owns a counted
+`DTexture` is the reflected abstract boundary shared by `DTexture2D` and
+`DTextureCube`. It cannot be instantiated or registered as a concrete asset
+type. The leaves retain their own reflected source, build-setting,
+platform-data, import, DDC, and cook contracts: material parameters remain
+`DTexture2D`-typed, while sky components remain `DTextureCube`-typed.
+
+`DTexture` is the sole high-level owner of one stable `FTextureReference`, one
+revision/completion contract, and at most one current
+`FTextureAssetResource`. The reference and resource are uniquely owned rather
+than shared through C++ smart pointers. Each leaf snapshots validated immutable
+platform data into its topology-specific `FTexture2DResource` or
+`FTextureCubeResource`; the common base owns publication, replacement,
+invalidation, release, and deferred cleanup. The concrete resource owns the
+uploaded `FTextureRHIRef`; the stable reference owns a counted
 `FRHITextureReferenceRef` whose target can change without changing the
 consumer-visible binding identity. `FRHITextureReference` derives from
 `FRHITexture`, matching the RHI texture type hierarchy, while current renderer
@@ -144,11 +154,11 @@ target. Missing or not-yet-ready resources resolve through renderer-owned
 default textures.
 
 Ordinary replacement and unload are asynchronous. After publication of a new
-candidate, the old concrete resource is released through `FRenderResource` and
-its C++ storage is transferred to ordered deferred RenderCore cleanup. Asset
-destruction first prevents further publication, retargets or clears the stable
-reference, releases the concrete resource, retires its storage, and finally
-releases the asset-owned `FTextureReference`. Non-owning concrete pointers in
+candidate, `DTexture` releases the old concrete resource through
+`FRenderResource` and transfers its C++ storage to ordered deferred RenderCore
+cleanup. Asset destruction first prevents further publication, advances the
+shared revision, releases and retires the concrete resource, then releases and
+retires the base-owned stable reference. Non-owning concrete pointers in
 commands are valid only because their release and cleanup commands are queued
 after every accepted command that can dereference them.
 

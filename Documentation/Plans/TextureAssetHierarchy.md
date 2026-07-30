@@ -2,10 +2,10 @@
 
 Summary: Introduce an abstract shared texture asset and resource-lifecycle layer without changing Texture2D or TextureCube serialized data, import behavior, or sampling semantics.
 
-Last reviewed: 2026-07-29
+Last reviewed: 2026-07-30
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-07-30
 
 ## Current Status
 
@@ -27,12 +27,15 @@ remain typed as `DTextureCube`. No current renderer consumer requires an
 unqualified texture asset, so this refactor must preserve those domain-specific
 types rather than using the new base class as a reason to widen every API.
 
-Stages 0 through 3 are complete. Stage 4 is the current integration stage.
+Stages 0 through 4 are complete. The reflected hierarchy, shared asset and
+resource lifecycle, dimension-specific consumer contracts, package
+compatibility, editor workflows, rendering paths, and lasting documentation
+have passed final integration validation.
 
 Stage 0 handoff:
 
 - Baseline commit:
-  `eda371e0ac11383987e21baa5d28f12557900eeb`.
+  `0a632e16e20c9910eee4b684be05cc127d7847f6`.
 - Working set: `SourceLibraryReferenceContractTests.cpp`,
   `TextureCubeTests.cpp`, the affected EngineTests deployment declaration, and
   this plan.
@@ -65,7 +68,7 @@ Stage 0 handoff:
 Stage 1 handoff:
 
 - Baseline commit:
-  `b04eed8857ce69fd277859557cdfe3ae70c0b30f`.
+  `76546e192eb40d6288b84e7adb026eaebd0802d4`.
 - Working set: DurinHeaderTool reflection model/export cache/writer and tests,
   CoreDObject reflection tests, Engine texture public declarations and module
   manifest, texture hierarchy/source-compatibility tests, editor asset-picker
@@ -100,7 +103,7 @@ Stage 1 handoff:
 Stage 2 handoff:
 
 - Baseline commit:
-  `459e433c9f23d92cf14f7e60229550646f5d5f69`.
+  `f1a4e7a3a0d694a49d64255aface88f45961293c`.
 - Working set: shared and concrete Engine texture render-resource declarations
   and definitions, Texture2D/TextureCube completion storage and construction,
   shared completion tests, the former cube-specific completion test, and this
@@ -132,7 +135,7 @@ Stage 2 handoff:
 Stage 3 handoff:
 
 - Baseline commit:
-  `9fa4cdba8c688b8a0f14254d81a8d262245f9953`.
+  `dfe1185eed2e465c33c78cd014dddfdc5c257b33`.
 - Working set: the common and leaf Engine texture asset declarations and
   definitions, the editor texture queued-unload smoke test, and this plan.
 - Key symbols: `DTexture::QueueRenderResourceBuild`,
@@ -164,6 +167,34 @@ Stage 3 handoff:
   tests passed; all four parameterized RenderCore texture-resource lifetime
   tests passed; the hierarchy compatibility test and the new deterministic
   queued-unload/resource-count test passed.
+
+Stage 4 handoff:
+
+- Baseline commit:
+  `ecf96d0ff2e8951ffefe0bde82d083d03b492716`.
+- Working set: `TextureSystem.md`, `CubeTextures.md`, and this plan.
+- Key symbols and contracts: `DTexture`, `FTextureAssetResource`,
+  `FTextureResourceCompletion`, dimension-specific material and sky asset
+  properties, concrete editor picker filters, and stable leaf package schemas.
+- Decisions: `TextureSystem.md` is authoritative for common reflected asset and
+  render-resource ownership. `CubeTextures.md` retains cube topology, sky, and
+  preview contracts while referring common lifetime behavior to `DTexture`.
+  Earlier stage baseline hashes were reconciled with the reachable integrated
+  commit chain.
+- Compatibility and editor validation: the hierarchy/legacy fixture,
+  Texture2D/TextureCube import, DDC, cook, material, thumbnail, editor asset
+  workflow, editor shell, editor rendering, and sky-box targets passed with
+  their existing concrete class restrictions.
+- Rendering validation: the RenderCore contract, texture cook integration,
+  Vulkan texture sampling, and Vulkan sky-box integration targets passed,
+  including stable-reference replacement and queued-unload coverage.
+- Repository validation: DurinHeaderTool tests, changed-document validation,
+  all-plan validation, the complete native aggregate, a full `all` build, and a
+  hidden Sandbox editor startup/ten-tick/normal-exit smoke test passed under
+  `Win64-Debug-DurinEditor-Tests`.
+- Open questions: none. Generic material texture dimensions, additional
+  texture kinds, streaming, and serialized common build settings remain the
+  explicitly deferred follow-ups below.
 
 ## Goal
 
@@ -405,19 +436,19 @@ Dependencies: Stage 2.
 
 ### Stage 4: Integrate, Validate, and Document the Contract
 
-- [ ] Update texture, cube texture, render-resource lifetime, and related code
+- [x] Update texture, cube texture, render-resource lifetime, and related code
   documentation so `DTexture` is authoritative for common ownership and leaf
   types are authoritative for topology-specific data.
-- [ ] Verify Content Browser class filtering, Texture2D editor previews,
+- [x] Verify Content Browser class filtering, Texture2D editor previews,
   TextureCube and material thumbnails, source relocation, material texture
   pickers, and sky assignment retain their existing concrete-type restrictions.
-- [ ] Verify existing editor and cooked package fixtures load without upgrade or
+- [x] Verify existing editor and cooked package fixtures load without upgrade or
   resave requirements.
-- [ ] Run focused CoreDObject, DurinHeaderTool, texture, cube, material,
+- [x] Run focused CoreDObject, DurinHeaderTool, texture, cube, material,
   thumbnail, RenderCore, cook, and Vulkan texture sampling validation.
-- [ ] Run the complete native test suite, successful full `all` build, and
+- [x] Run the complete native test suite, successful full `all` build, and
   normal editor startup/exit using the repository build workflow.
-- [ ] Record final validation evidence, move lasting contracts to their owning
+- [x] Record final validation evidence, move lasting contracts to their owning
   runtime documentation, and complete the plan lifecycle metadata.
 
 Dependencies: Stage 3.
