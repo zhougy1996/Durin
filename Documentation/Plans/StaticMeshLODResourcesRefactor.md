@@ -2,50 +2,42 @@
 
 Summary: Reshape static-mesh render resources around Unreal Engine-compatible buffer and vertex-factory names while preserving Durin's cooked payload, RHI buffer model, and rendered output.
 
-Last reviewed: 2026-07-29
+Last reviewed: 2026-07-30
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Stage 0 is complete. The existing two-stream vertex layout, Slang input order,
-uint32 indices, section draw ranges, fallback UV/color materialization,
-resource readiness, canonical derived-data payloads, and a Vulkan rendered
-fixture are now pinned by focused tests. Both renderer paths obtain their
-otherwise unchanged declaration elements from
-`GetStaticMeshVertexDeclarationElements()`, which is explicitly transitional
-until `FLocalVertexFactory` assumes ownership in Stage 2.
-
 The deterministic Vulkan baseline imports `MultiSection.gltf`, whose data now
 contains an angled normal, negative tangent handedness, authored UVs, and
 non-white vertex colors. Its 64-by-64 RGBA output hash is
 `52fdb5113401075fabb77a111012afd1`.
 
-Stages 0 and 1 are complete. `FStaticMeshLODResources` now owns
+Stages 0 through 2 are complete. `FStaticMeshLODResources` now owns
 `FStaticMeshVertexBuffers`, `FRawStaticIndexBuffer`, sections, bounds, and
 semantic metadata rather than writable semantic arrays plus raw LOD-level RHI
 references. Import, payload conversion, editor inspection, renderer binding,
 and tests all consume the named resource APIs.
 
-The current renderer still binds `FStaticMeshVertexBuffer`'s transitional
-packed attribute allocation so the Stage 0 two-stream declaration and rendered
-baseline remain unchanged. The nested tangent and texcoord resources and the
-color resource already own their CPU data, metadata, and independent RHI
-allocations; Stage 2 will centralize stream interpretation in
-`FLocalVertexFactory`, and Stage 3 will select those physical streams and remove
-the packed compatibility allocation.
+`FVertexFactory` now owns declaration lifetime and draw-facing stream bindings.
+Each `FStaticMeshRenderData` owns one `FStaticMeshVertexFactories` container per
+LOD, initializes all LOD buffers before factories, releases all factories before
+buffers, and includes factories in readiness and resource diagnostics.
+`FLocalVertexFactory` preserves the Stage 0 two-stream physical layout while
+owning its declaration and stream interpretation; the renderer selects the
+index buffer independently and contains no static-mesh declaration construction
+or static-mesh stream-index binding.
 
-Static Mesh Render-Data Lifecycle Stage 0 is next. This plan's Stage 2 resumes
-after that prerequisite reaches Stage 3 acceptance.
+The TextureCube thumbnail implementation changed after Stage 0 and now draws the
+shared SkyBox fullscreen triangle rather than static-mesh geometry. Stage 2
+removed its unreachable legacy static-mesh declaration/pipeline state instead
+of introducing a vertex factory into a path that no longer consumes mesh
+vertices.
 
-Before Stage 2 implementation begins, the ownership and replacement foundation
-in [Static Mesh Render-Data Lifecycle](StaticMeshRenderDataLifecycle.md) must
-reach its Stage 3 acceptance gate. The named buffers introduced here are now
-registered `FRenderResource` objects, while current scene proxies retain a raw
-pointer across asynchronous replacement and ordinary asset destruction does not
-retire initialized mesh resources. Adding vertex factories before closing that
-boundary would add more registered children to an unsafe aggregate lifetime.
+Stage 3 is next. It will select the already independently allocated tangent,
+texcoord, and color resources as four physical streams and remove the packed
+compatibility allocation.
 
 ## Goal
 
@@ -469,27 +461,28 @@ current/pending-retirement ownership, ordered release fence, and asset-led
 initialization contract. It must not introduce shared render-data ownership,
 unbounded raw-pointer access, or renderer-driven lazy initialization.
 
-- [ ] Add the minimal `FVertexFactory` RenderCore base needed for declaration
+- [x] Add the minimal `FVertexFactory` RenderCore base needed for declaration
   lifetime, readiness, type identity, and vertex-stream descriptions.
-- [ ] Add `FLocalVertexFactory::FDataType` using UE-compatible terminology for
+- [x] Add `FLocalVertexFactory::FDataType` using UE-compatible terminology for
   position, tangent basis, texture coordinates, color, and vertex-count
   metadata.
-- [ ] Implement `FLocalVertexFactory::SetData()` and resource initialization
+- [x] Implement `FLocalVertexFactory::SetData()` and resource initialization
   from `FStaticMeshVertexBuffers`.
-- [ ] Make `FLocalVertexFactory` build and own the current static-mesh
+- [x] Make `FLocalVertexFactory` build and own the current static-mesh
   `FVertexDeclarationRHIRef`.
-- [ ] Add a draw-facing API that supplies or binds the required vertex streams
+- [x] Add a draw-facing API that supplies or binds the required vertex streams
   without accepting an index buffer.
-- [ ] Add `FStaticMeshVertexFactories` containing one primary
+- [x] Add `FStaticMeshVertexFactories` containing one primary
   `FLocalVertexFactory`; leave override-color and spline factories absent until
   their features exist.
-- [ ] Add `FStaticMeshRenderData::LODVertexFactories` and enforce one factory
+- [x] Add `FStaticMeshRenderData::LODVertexFactories` and enforce one factory
   container per LOD.
-- [ ] Initialize LOD buffers before factories and release factories before
+- [x] Initialize LOD buffers before factories and release factories before
   buffers.
-- [ ] Move the main static-mesh renderer and texture-cube thumbnail path to the
-  same local vertex-factory declaration contract.
-- [ ] Remove static-mesh declaration construction and hard-coded per-stream
+- [x] Move the main static-mesh renderer to the local vertex-factory declaration
+  contract; remove the unreachable legacy static-mesh pipeline from the current
+  SkyBox-based TextureCube thumbnail path.
+- [x] Remove static-mesh declaration construction and hard-coded per-stream
   binding from `RendererModule.cpp`.
 
 #### Acceptance Gate
@@ -498,10 +491,52 @@ unbounded raw-pointer access, or renderer-driven lazy initialization.
   `FLocalVertexFactory`.
 - Static-mesh draws select `FRawStaticIndexBuffer` independently while all
   vertex streams come from the vertex factory.
-- Main viewport and texture-cube thumbnail paths use the same declaration
-  source and pass the Stage 0 rendered baseline.
+- The main viewport passes the Stage 0 rendered baseline; the current
+  SkyBox-based TextureCube thumbnail path retains no static-mesh declaration.
 - LOD/factory array mismatch, invalid stream counts, or incompatible strides
   fail deterministically before issuing a draw.
+
+#### Stage 2 Handoff
+
+- Baseline commit: `074fab41` (`docs(world): publish lifecycle mutation contracts`).
+- Working set:
+  `VertexFactory.h/.cpp`, `LocalVertexFactory.h/.cpp`,
+  `StaticMeshResources.h`, `StaticMesh.cpp`, `RendererModule.cpp`,
+  `StaticMeshPayloadCodecTests.cpp`, and
+  `StaticModelImportVulkanTests.cpp`.
+- Key symbols:
+  `FVertexStreamComponent`, `FVertexInputStream`, `FVertexFactory`,
+  `FLocalVertexFactory::FDataType`, `FLocalVertexFactory::SetData()`,
+  `FStaticMeshVertexFactories`, and
+  `FStaticMeshRenderData::LODVertexFactories`.
+- Decision: Stage 2 preserves the packed attribute allocation as physical
+  stream 1. The local vertex factory maps position to stream 0 and every other
+  semantic to that compatibility stream; Stage 3 changes only the physical
+  source selection.
+- Decision: render data creates an initially absent factory array during
+  initialization, but rejects a non-empty length mismatch. This lets ordinary
+  decoded/build data acquire factories without storing render policy in the
+  payload while malformed replacement candidates fail and roll back.
+- Decision: TextureCube thumbnails now render through the shared SkyBox path.
+  Their unreachable legacy static-mesh shader/pipeline state was removed; the
+  current path has no static-mesh declaration contract to migrate.
+- Decision: static-mesh material pipeline caching retains one layout identity
+  because every primary local vertex factory has the same declaration contract.
+  Creation takes the drawing LOD's factory declaration; cached reuse relies on
+  the validated invariant.
+- Open questions: none for Stage 3.
+
+Validation:
+
+- `StaticMeshTests`: 54 tests passed.
+- `FStaticMeshPayloadCodecTests.*`: 10 focused tests passed.
+- `RenderContractTests`: 32 tests passed.
+- `ThumbnailTests`: 45 tests passed.
+- Full `all` target build passed for
+  `Win64-Debug-DurinEditor-Tests`.
+- `FStaticModelImportVulkanTests.RendersReloadedSrgbTextureAndBaseColorFactor`:
+  lifecycle, rendered output, and resource-count baseline passed with one
+  added vertex-factory resource per LOD.
 
 ### Stage 3: Split the Physical Attribute Streams
 

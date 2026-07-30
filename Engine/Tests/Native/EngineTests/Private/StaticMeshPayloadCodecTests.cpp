@@ -349,8 +349,19 @@ TEST(FStaticMeshPayloadCodecTests, SupportsMeshWithoutUVChannels)
 TEST(FStaticMeshPayloadCodecTests,
 	CurrentVertexInputAndSectionDrawContractIsPinned)
 {
+	std::string Error;
+	std::unique_ptr<FStaticMeshRenderData> RenderData;
+	ASSERT_TRUE(MakeStaticMeshRenderData(
+		MakeMultiMaterialFixture(), RenderData, Error)) << Error;
+	ASSERT_NE(RenderData, nullptr);
+	ASSERT_EQ(RenderData->LODResources.size(), 1u);
+	RenderData->LODVertexFactories.resize(1);
+	FLocalVertexFactory& VertexFactory =
+		RenderData->LODVertexFactories[0].VertexFactory;
+	ASSERT_TRUE(VertexFactory.SetData(
+		RenderData->LODResources[0].VertexBuffers));
 	const FVertexDeclarationElementList Elements =
-		GetStaticMeshVertexDeclarationElements();
+		VertexFactory.GetDeclarationElements();
 	constexpr uint16 PositionStride = sizeof(FVector3f);
 	constexpr uint16 AttributeStride = sizeof(FStaticMeshPackedVertex);
 	const std::array Expected{
@@ -384,6 +395,16 @@ TEST(FStaticMeshPayloadCodecTests,
 		EXPECT_EQ(Elements[Index], Expected[Index]);
 	for (size_t Index = Expected.size(); Index < Elements.size(); ++Index)
 		EXPECT_EQ(Elements[Index].Type, EVertexElementType::None);
+	EXPECT_EQ(VertexFactory.GetTypeName(), "FLocalVertexFactory");
+	EXPECT_EQ(VertexFactory.GetData().NumVertices, 4u);
+	EXPECT_EQ(
+		VertexFactory.GetData().PositionComponent.VertexBuffer,
+		&RenderData->LODResources[0]
+			.VertexBuffers.PositionVertexBuffer);
+	EXPECT_EQ(
+		VertexFactory.GetData().ColorComponent.VertexBuffer,
+		&RenderData->LODResources[0]
+			.VertexBuffers.StaticMeshVertexBuffer);
 
 	FRawStaticIndexBuffer IndexBuffer;
 	EXPECT_EQ(IndexBuffer.GetStride(), 4u);
@@ -490,7 +511,11 @@ TEST(FStaticMeshPayloadCodecTests,
 			LOD.IndexBuffer.SetRHI(IndexBuffer);
 		});
 	FlushRenderingCommands();
-	EXPECT_TRUE(RenderData->IsReadyForRendering());
+	EXPECT_FALSE(RenderData->IsReadyForRendering());
+	RenderData->LODVertexFactories.resize(1);
+	EXPECT_TRUE(RenderData->LODVertexFactories[0].VertexFactory.SetData(
+		LOD.VertexBuffers));
+	EXPECT_FALSE(RenderData->IsReadyForRendering());
 	EXPECT_EQ(
 		LOD.VertexBuffers.PositionVertexBuffer.GetFriendlyName(),
 		"FPositionVertexBuffer");
@@ -514,7 +539,7 @@ TEST(FStaticMeshPayloadCodecTests,
 		std::exchange(Normals, {});
 	EXPECT_FALSE(RenderData->IsReadyForRendering());
 	Normals = SavedNormals;
-	EXPECT_TRUE(RenderData->IsReadyForRendering());
+	EXPECT_FALSE(RenderData->IsReadyForRendering());
 
 	EnqueueRenderCommand<FReleaseStaticMeshReadinessResources>(
 		[RenderDataView = RenderData.get()](
