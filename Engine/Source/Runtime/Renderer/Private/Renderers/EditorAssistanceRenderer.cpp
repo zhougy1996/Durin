@@ -1,7 +1,17 @@
-#include "RendererEditorAssistance.h"
+#include "Renderers/EditorAssistanceRenderer.h"
 
-namespace Durin::RendererEditorAssistance
+#include "Renderers/EditorGridRenderer.h"
+#include "Renderers/GizmoRenderer.h"
+#include "Renderers/OverlayIconRenderer.h"
+#include "Renderers/OverlayLineRenderer.h"
+#include "Misc/AssertionMacros.h"
+#include "RHICommandList.h"
+#include "RenderingThread.h"
+
+namespace Durin
 {
+	using namespace RendererEditorAssistance;
+
 	namespace
 	{
 		auto ContainsPipelineKey(
@@ -25,9 +35,24 @@ namespace Durin::RendererEditorAssistance
 				.GizmoTopology = GizmoTopology,
 			};
 		}
+	} // namespace
+
+	FEditorAssistanceRenderer::FEditorAssistanceRenderer(
+		FRendererResourceCoordinator& InCoordinator,
+		FFullscreenGeometryResources& InFullscreenGeometry)
+		: EditorGridRenderer(std::make_unique<FEditorGridRenderer>(
+			InCoordinator, InFullscreenGeometry))
+		, GizmoRenderer(std::make_unique<FGizmoRenderer>(InCoordinator))
+		, OverlayLineRenderer(
+			std::make_unique<FOverlayLineRenderer>(InCoordinator))
+		, OverlayIconRenderer(
+			std::make_unique<FOverlayIconRenderer>(InCoordinator))
+	{
 	}
 
-	auto AnalyzeRequest(
+	FEditorAssistanceRenderer::~FEditorAssistanceRenderer() = default;
+
+	auto FEditorAssistanceRenderer::AnalyzeRequest(
 		const FSceneView& View,
 		RenderTargetLayouts::EViewportOutput Output) -> FRequest
 	{
@@ -46,13 +71,15 @@ namespace Durin::RendererEditorAssistance
 		return Request;
 	}
 
-	auto GetRequiredPipelineKeys(const FRequest& Request)
-		-> std::vector<FPipelineKey>
+	auto FEditorAssistanceRenderer::GetRequiredPipelineKeys(
+		const FRequest& Request) -> std::vector<FPipelineKey>
 	{
 		std::vector<FPipelineKey> Keys;
 		if (Request.bEditorGrid)
+		{
 			Keys.push_back(MakePipelineKey(
 				Request, EFeature::EditorGrid, EDepthMode::Visible));
+		}
 		auto AddDepthVariants = [&Keys, &Request](
 			EFeature Feature,
 			EGizmoTopology GizmoTopology = EGizmoTopology::NotApplicable) {
@@ -72,7 +99,7 @@ namespace Durin::RendererEditorAssistance
 		return Keys;
 	}
 
-	auto BuildDrawableOperations(
+	auto FEditorAssistanceRenderer::BuildDrawableOperations(
 		const FRequest& Request,
 		std::span<const FPipelineKey> AvailablePipelines)
 		-> std::vector<EDrawOperation>
@@ -139,7 +166,8 @@ namespace Durin::RendererEditorAssistance
 		return Operations;
 	}
 
-	auto GetDrawOrder() -> std::span<const EDrawOperation>
+	auto FEditorAssistanceRenderer::GetDrawOrder()
+		-> std::span<const EDrawOperation>
 	{
 		static constexpr std::array DrawOrder{
 			EDrawOperation::EditorGrid,
@@ -152,4 +180,97 @@ namespace Durin::RendererEditorAssistance
 		};
 		return DrawOrder;
 	}
-} // namespace Durin::RendererEditorAssistance
+
+	auto FEditorAssistanceRenderer::Prepare_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneView& View,
+		const FRequest& Request) -> FPrepared
+	{
+		check(IsInRenderingThread());
+		FPrepared Prepared;
+		if (Request.bEditorGrid)
+		{
+			EditorGridRenderer->Prepare_RenderThread(
+				CommandList, View, Request.Output, Prepared);
+		}
+		if (Request.bSolidGizmos || Request.bWireGizmos)
+		{
+			GizmoRenderer->Prepare_RenderThread(
+				CommandList, Request, Prepared);
+		}
+		if (Request.bOverlayLines)
+		{
+			OverlayLineRenderer->Prepare_RenderThread(
+				CommandList, View, Request.Output, Prepared);
+		}
+		if (Request.bOverlayIcons)
+		{
+			OverlayIconRenderer->Prepare_RenderThread(
+				CommandList, View, Request.Output, Prepared);
+		}
+		return Prepared;
+	}
+
+	auto FEditorAssistanceRenderer::Draw_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		const FSceneView& View,
+		const FPrepared& Prepared) -> void
+	{
+		check(IsInRenderingThread());
+		CommandList.SetViewport(
+			static_cast<float>(View.ViewportX),
+			static_cast<float>(View.ViewportY),
+			0.0f,
+			static_cast<float>(View.ViewportX + View.ViewportWidth),
+			static_cast<float>(View.ViewportY + View.ViewportHeight),
+			1.0f);
+		CommandList.SetScissor(
+			static_cast<float>(View.ViewportX),
+			static_cast<float>(View.ViewportY),
+			static_cast<float>(View.ViewportWidth),
+			static_cast<float>(View.ViewportHeight));
+
+		for (const EDrawOperation Operation : GetDrawOrder())
+		{
+			switch (Operation)
+			{
+			case EDrawOperation::EditorGrid:
+				EditorGridRenderer->Draw_RenderThread(CommandList, Prepared);
+				break;
+			case EDrawOperation::XRayGizmos:
+				GizmoRenderer->Draw_RenderThread(
+					CommandList, View, Prepared, EDepthMode::XRay);
+				break;
+			case EDrawOperation::XRayOverlayLines:
+				OverlayLineRenderer->Draw_RenderThread(
+					CommandList, Prepared, EDepthMode::XRay);
+				break;
+			case EDrawOperation::XRayOverlayIcons:
+				OverlayIconRenderer->Draw_RenderThread(
+					CommandList, Prepared, EDepthMode::XRay);
+				break;
+			case EDrawOperation::VisibleGizmos:
+				GizmoRenderer->Draw_RenderThread(
+					CommandList, View, Prepared, EDepthMode::Visible);
+				break;
+			case EDrawOperation::VisibleOverlayLines:
+				OverlayLineRenderer->Draw_RenderThread(
+					CommandList, Prepared, EDepthMode::Visible);
+				break;
+			case EDrawOperation::VisibleOverlayIcons:
+				OverlayIconRenderer->Draw_RenderThread(
+					CommandList, Prepared, EDepthMode::Visible);
+				break;
+			}
+		}
+	}
+
+	auto FEditorAssistanceRenderer::ReleaseResources_RenderThread() -> void
+	{
+		check(IsInRenderingThread());
+		EditorGridRenderer->ReleaseResources_RenderThread();
+		GizmoRenderer->ReleaseResources_RenderThread();
+		OverlayLineRenderer->ReleaseResources_RenderThread();
+		OverlayIconRenderer->ReleaseResources_RenderThread();
+	}
+} // namespace Durin

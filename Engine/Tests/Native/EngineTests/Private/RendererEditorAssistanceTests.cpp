@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
-#include "RendererEditorAssistance.h"
+#include "RenderResourceCreation.h"
+#include "Renderers/EditorAssistanceRenderer.h"
 
 namespace Durin
 {
@@ -24,12 +25,12 @@ namespace Durin
 
 	TEST(FRendererEditorAssistanceTests, EmptyViewRequestsNoAssistance)
 	{
-		const FRequest Request = RendererEditorAssistance::AnalyzeRequest(
+		const FRequest Request = FEditorAssistanceRenderer::AnalyzeRequest(
 			FSceneView{}, EViewportOutput::Offscreen);
 
 		EXPECT_TRUE(Request.IsEmpty());
-		EXPECT_TRUE(RendererEditorAssistance::GetRequiredPipelineKeys(Request).empty());
-		EXPECT_TRUE(RendererEditorAssistance::BuildDrawableOperations(Request, {}).empty());
+		EXPECT_TRUE(FEditorAssistanceRenderer::GetRequiredPipelineKeys(Request).empty());
+		EXPECT_TRUE(FEditorAssistanceRenderer::BuildDrawableOperations(Request, {}).empty());
 	}
 
 	TEST(FRendererEditorAssistanceTests, GridOnlyRequestsCurrentOffscreenPipeline)
@@ -37,10 +38,10 @@ namespace Durin
 		FSceneView View;
 		View.EditorGrid.bVisible = true;
 
-		const FRequest Request = RendererEditorAssistance::AnalyzeRequest(
+		const FRequest Request = FEditorAssistanceRenderer::AnalyzeRequest(
 			View, EViewportOutput::Offscreen);
 		const std::vector<FPipelineKey> Keys =
-			RendererEditorAssistance::GetRequiredPipelineKeys(Request);
+			FEditorAssistanceRenderer::GetRequiredPipelineKeys(Request);
 
 		ASSERT_EQ(Keys.size(), 1);
 		EXPECT_EQ(Keys[0], (FPipelineKey{
@@ -55,10 +56,10 @@ namespace Durin
 		FSceneView View;
 		View.OverlayPrimitives.push_back(MakePrimitive(EViewOverlayShape::Arrow));
 
-		const FRequest Request = RendererEditorAssistance::AnalyzeRequest(
+		const FRequest Request = FEditorAssistanceRenderer::AnalyzeRequest(
 			View, EViewportOutput::Present);
 		const std::vector<FPipelineKey> Keys =
-			RendererEditorAssistance::GetRequiredPipelineKeys(Request);
+			FEditorAssistanceRenderer::GetRequiredPipelineKeys(Request);
 
 		EXPECT_TRUE(Request.bSolidGizmos);
 		EXPECT_FALSE(Request.bWireGizmos);
@@ -75,10 +76,10 @@ namespace Durin
 		FSceneView View;
 		View.OverlayPrimitives.push_back(MakePrimitive(EViewOverlayShape::WireBox));
 
-		const FRequest Request = RendererEditorAssistance::AnalyzeRequest(
+		const FRequest Request = FEditorAssistanceRenderer::AnalyzeRequest(
 			View, EViewportOutput::Offscreen);
 		const std::vector<FPipelineKey> Keys =
-			RendererEditorAssistance::GetRequiredPipelineKeys(Request);
+			FEditorAssistanceRenderer::GetRequiredPipelineKeys(Request);
 
 		EXPECT_FALSE(Request.bSolidGizmos);
 		EXPECT_TRUE(Request.bWireGizmos);
@@ -96,10 +97,10 @@ namespace Durin
 		View.OverlayLines.emplace_back();
 		View.OverlayIcons.emplace_back();
 
-		const FRequest Request = RendererEditorAssistance::AnalyzeRequest(
+		const FRequest Request = FEditorAssistanceRenderer::AnalyzeRequest(
 			View, EViewportOutput::Present);
 		const std::vector<FPipelineKey> Keys =
-			RendererEditorAssistance::GetRequiredPipelineKeys(Request);
+			FEditorAssistanceRenderer::GetRequiredPipelineKeys(Request);
 
 		EXPECT_TRUE(Request.bOverlayLines);
 		EXPECT_TRUE(Request.bOverlayIcons);
@@ -125,7 +126,7 @@ namespace Durin
 		Request.bOverlayLines = true;
 		Request.bOverlayIcons = true;
 		std::vector<FPipelineKey> Available =
-			RendererEditorAssistance::GetRequiredPipelineKeys(Request);
+			FEditorAssistanceRenderer::GetRequiredPipelineKeys(Request);
 		std::erase_if(Available, [](const FPipelineKey& Key) {
 			return Key.Feature == EFeature::OverlayIcon
 				|| (Key.Feature == EFeature::OverlayLine
@@ -135,7 +136,7 @@ namespace Durin
 		});
 
 		const std::vector<EDrawOperation> Operations =
-			RendererEditorAssistance::BuildDrawableOperations(Request, Available);
+			FEditorAssistanceRenderer::BuildDrawableOperations(Request, Available);
 		const std::array Expected{
 			EDrawOperation::EditorGrid,
 			EDrawOperation::XRayGizmos,
@@ -153,13 +154,13 @@ namespace Durin
 		Request.bEditorGrid = true;
 		Request.bOverlayIcons = true;
 		std::vector<FPipelineKey> Available =
-			RendererEditorAssistance::GetRequiredPipelineKeys(Request);
+			FEditorAssistanceRenderer::GetRequiredPipelineKeys(Request);
 		std::erase_if(Available, [](const FPipelineKey& Key) {
 			return Key.Feature == EFeature::OverlayIcon;
 		});
 
 		const std::vector<EDrawOperation> Operations =
-			RendererEditorAssistance::BuildDrawableOperations(Request, Available);
+			FEditorAssistanceRenderer::BuildDrawableOperations(Request, Available);
 
 		ASSERT_EQ(Operations.size(), 1);
 		EXPECT_EQ(Operations[0], EDrawOperation::EditorGrid);
@@ -171,13 +172,13 @@ namespace Durin
 		Request.Output = EViewportOutput::Present;
 		Request.bOverlayLines = true;
 		std::vector<FPipelineKey> Available =
-			RendererEditorAssistance::GetRequiredPipelineKeys(Request);
+			FEditorAssistanceRenderer::GetRequiredPipelineKeys(Request);
 		std::erase_if(Available, [](const FPipelineKey& Key) {
 			return Key.DepthMode == EDepthMode::XRay;
 		});
 
 		const std::vector<EDrawOperation> Operations =
-			RendererEditorAssistance::BuildDrawableOperations(Request, Available);
+			FEditorAssistanceRenderer::BuildDrawableOperations(Request, Available);
 
 		ASSERT_EQ(Operations.size(), 1);
 		EXPECT_EQ(Operations[0], EDrawOperation::VisibleOverlayLines);
@@ -190,13 +191,13 @@ namespace Durin
 		Request.bSolidGizmos = true;
 		Request.bWireGizmos = true;
 		std::vector<FPipelineKey> Available =
-			RendererEditorAssistance::GetRequiredPipelineKeys(Request);
+			FEditorAssistanceRenderer::GetRequiredPipelineKeys(Request);
 		std::erase_if(Available, [](const FPipelineKey& Key) {
 			return Key.GizmoTopology == EGizmoTopology::Wire;
 		});
 
 		const std::vector<EDrawOperation> Operations =
-			RendererEditorAssistance::BuildDrawableOperations(Request, Available);
+			FEditorAssistanceRenderer::BuildDrawableOperations(Request, Available);
 		const std::array Expected{
 			EDrawOperation::XRayGizmos,
 			EDrawOperation::VisibleGizmos,
@@ -211,10 +212,10 @@ namespace Durin
 		Request.bEditorGrid = true;
 		Request.bOverlayLines = true;
 		const std::vector<FPipelineKey> OffscreenKeys =
-			RendererEditorAssistance::GetRequiredPipelineKeys(Request);
+			FEditorAssistanceRenderer::GetRequiredPipelineKeys(Request);
 		Request.Output = EViewportOutput::Present;
 		const std::vector<FPipelineKey> PresentKeys =
-			RendererEditorAssistance::GetRequiredPipelineKeys(Request);
+			FEditorAssistanceRenderer::GetRequiredPipelineKeys(Request);
 
 		ASSERT_EQ(OffscreenKeys.size(), PresentKeys.size());
 		EXPECT_TRUE(std::ranges::all_of(
@@ -237,7 +238,7 @@ namespace Durin
 
 	TEST(FRendererEditorAssistanceTests, DrawOrderKeepsAllAssistanceAfterGridAndXRayBeforeVisible)
 	{
-		const std::span<const EDrawOperation> Order = RendererEditorAssistance::GetDrawOrder();
+		const std::span<const EDrawOperation> Order = FEditorAssistanceRenderer::GetDrawOrder();
 		const std::array Expected{
 			EDrawOperation::EditorGrid,
 			EDrawOperation::XRayGizmos,
@@ -254,7 +255,7 @@ namespace Durin
 
 	TEST(FRendererEditorAssistanceTests, EveryAssistanceOperationAppearsExactlyOnce)
 	{
-		const std::span<const EDrawOperation> Order = RendererEditorAssistance::GetDrawOrder();
+		const std::span<const EDrawOperation> Order = FEditorAssistanceRenderer::GetDrawOrder();
 		for (const EDrawOperation Operation : Order)
 		{
 			EXPECT_EQ(std::ranges::count(Order, Operation), 1);

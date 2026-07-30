@@ -5,7 +5,7 @@
 #include "Console/ConsoleCommand.h"
 #include "CoreGlobals.h"
 #include "Engine/PrimitiveSceneProxy.h"
-#include "RendererEditorAssistance.h"
+#include "Renderers/EditorAssistanceRenderer.h"
 #include "Renderers/PostProcessRenderer.h"
 #include "Renderers/SkyBoxRenderer.h"
 #include "Renderers/StaticMeshRenderer.h"
@@ -29,6 +29,7 @@ namespace Durin
 			, SkyBoxRenderer(Coordinator, DefaultTextures)
 			, TextureCubeThumbnailRenderer(Coordinator)
 			, PostProcessRenderer(Coordinator, FullscreenGeometry)
+			, EditorAssistanceRenderer(Coordinator, FullscreenGeometry)
 		{
 		}
 
@@ -39,6 +40,7 @@ namespace Durin
 		FSkyBoxRenderer SkyBoxRenderer;
 		FTextureCubeThumbnailRenderer TextureCubeThumbnailRenderer;
 		FPostProcessRenderer PostProcessRenderer;
+		FEditorAssistanceRenderer EditorAssistanceRenderer;
 	};
 
 	namespace
@@ -104,32 +106,31 @@ namespace Durin
 		FStaticMeshRenderer& StaticMeshRenderer,
 		FSkyBoxRenderer& SkyBoxRenderer,
 		FTextureCubeThumbnailRenderer& TextureCubeThumbnailRenderer,
-		FPostProcessRenderer& PostProcessRenderer) -> void
+		FPostProcessRenderer& PostProcessRenderer,
+		FEditorAssistanceRenderer& EditorAssistanceRenderer) -> void
 	{
 		check(IsInRenderingThread());
 		Coordinator.Apply_RenderThread(
 			Cause,
 			{
 				.InvalidateShaderResources =
-					[](bool bForceRecompile) {
-						RendererEditorAssistance::InvalidateShaderResources(
-							bForceRecompile);
-					},
+					[](bool) {},
 				.ReleaseDeviceResources =
 					[&DefaultTextures,
 					 &FullscreenGeometry,
 					 &StaticMeshRenderer,
 					 &SkyBoxRenderer,
 					 &TextureCubeThumbnailRenderer,
-					 &PostProcessRenderer] {
+					 &PostProcessRenderer,
+					 &EditorAssistanceRenderer] {
 						DefaultTextures.ReleaseResources_RenderThread();
 						StaticMeshRenderer.ReleaseResources_RenderThread();
 						TextureCubeThumbnailRenderer.
 							ReleaseResources_RenderThread();
 						SkyBoxRenderer.ReleaseResources_RenderThread();
 						PostProcessRenderer.ReleaseResources_RenderThread();
-						RendererEditorAssistance::
-							InvalidateDeviceResources();
+						EditorAssistanceRenderer.
+							ReleaseResources_RenderThread();
 						FullscreenGeometry.ReleaseResources_RenderThread();
 					},
 				.RecreateStartupResources =
@@ -139,7 +140,6 @@ namespace Durin
 					},
 				.RetryFailedResources =
 					[&FullscreenGeometry] {
-						RendererEditorAssistance::RetryFailedResources();
 						FullscreenGeometry.
 							RetryFailedResources_RenderThread();
 					},
@@ -154,7 +154,8 @@ namespace Durin
 		FStaticMeshRenderer* StaticMeshRenderer,
 		FSkyBoxRenderer* SkyBoxRenderer,
 		FTextureCubeThumbnailRenderer* TextureCubeThumbnailRenderer,
-		FPostProcessRenderer* PostProcessRenderer) -> void
+		FPostProcessRenderer* PostProcessRenderer,
+		FEditorAssistanceRenderer* EditorAssistanceRenderer) -> void
 	{
 		ENQUEUE_RENDER_COMMAND(InvalidateRendererResources)(
 			[Cause,
@@ -164,7 +165,8 @@ namespace Durin
 			 StaticMeshRenderer,
 			 SkyBoxRenderer,
 			 TextureCubeThumbnailRenderer,
-			 PostProcessRenderer](FRHICommandListImmediate& CommandList) {
+			 PostProcessRenderer,
+			 EditorAssistanceRenderer](FRHICommandListImmediate& CommandList) {
 				ApplyRendererResourceInvalidation_RenderThread(
 					CommandList,
 					Cause,
@@ -174,7 +176,8 @@ namespace Durin
 					*StaticMeshRenderer,
 					*SkyBoxRenderer,
 					*TextureCubeThumbnailRenderer,
-					*PostProcessRenderer);
+					*PostProcessRenderer,
+					*EditorAssistanceRenderer);
 			});
 	}
 
@@ -205,7 +208,9 @@ namespace Durin
 				 TextureCubeThumbnailRenderer =
 					 &SharedResources->TextureCubeThumbnailRenderer,
 				 PostProcessRenderer =
-					 &SharedResources->PostProcessRenderer](
+					 &SharedResources->PostProcessRenderer,
+				 EditorAssistanceRenderer =
+					 &SharedResources->EditorAssistanceRenderer](
 					ERendererResourceInvalidationCause Cause) {
 					EnqueueRendererResourceInvalidation(
 						Cause,
@@ -215,7 +220,8 @@ namespace Durin
 						StaticMeshRenderer,
 						SkyBoxRenderer,
 						TextureCubeThumbnailRenderer,
-						PostProcessRenderer);
+						PostProcessRenderer,
+						EditorAssistanceRenderer);
 				});
 		checkf(
 			bCommandsRegistered,
@@ -254,7 +260,8 @@ namespace Durin
 				Resources->TextureCubeThumbnailRenderer.
 					ReleaseResources_RenderThread();
 				Resources->SkyBoxRenderer.ReleaseResources_RenderThread();
-				RendererEditorAssistance::ReleaseResources();
+				Resources->EditorAssistanceRenderer.
+					ReleaseResources_RenderThread();
 				Resources->PostProcessRenderer.
 					ReleaseResources_RenderThread();
 				Resources->FullscreenGeometry.ReleaseResources_RenderThread();
@@ -291,7 +298,7 @@ namespace Durin
 		const RenderTargetLayouts::EViewportOutput ViewportOutput =
 			GetViewportOutput(bPresentOutput);
 		const RendererEditorAssistance::FRequest EditorAssistanceRequest =
-			RendererEditorAssistance::AnalyzeRequest(View, ViewportOutput);
+			FEditorAssistanceRenderer::AnalyzeRequest(View, ViewportOutput);
 
 		SharedResources->PostProcessRenderer.EnsureResources_RenderThread(
 			CommandList);
@@ -354,10 +361,12 @@ namespace Durin
 		RendererEditorAssistance::FPrepared PreparedEditorAssistance;
 		if (!EditorAssistanceRequest.IsEmpty())
 		{
-			PreparedEditorAssistance = RendererEditorAssistance::Prepare(
-				CommandList,
-				RenderView,
-				EditorAssistanceRequest);
+			PreparedEditorAssistance =
+				SharedResources->EditorAssistanceRenderer.
+					Prepare_RenderThread(
+						CommandList,
+						RenderView,
+						EditorAssistanceRequest);
 		}
 		const bool bHasEditorAssistance =
 			PreparedEditorAssistance.HasDrawableOperation();
@@ -402,7 +411,7 @@ namespace Durin
 			bPresentOutput
 				? "EditorAssistancePresentRenderPass"
 				: "EditorAssistanceOffscreenRenderPass");
-		RendererEditorAssistance::Draw(
+		SharedResources->EditorAssistanceRenderer.Draw_RenderThread(
 			CommandList,
 			RenderView,
 			PreparedEditorAssistance);

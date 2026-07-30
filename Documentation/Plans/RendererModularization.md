@@ -9,13 +9,13 @@ Completed:
 
 ## Current Status
 
-Stages 0 through 3 are complete. Stage 3 landed against clean baseline
-`800176d5a6bc169bb6cbc942ef504d015d3cce91`: StaticMesh shaders, base
-resources, material shader-map and pipeline slots, diagnostics, uniforms, and
-proxy draw submission now have one concrete `FStaticMeshRenderer` owner
-beneath `Private/Renderers/`. The module-private lifecycle container composes
-that owner with the Stage 1 and Stage 2 owners, while `RendererModule.cpp`
-retains non-owning proxy enumeration, scene queries, and total pass ordering.
+Stages 0 through 4 are complete. Stage 4 landed against clean baseline
+`4e99491d4a451c669090a3fb7c44e10674efc83e`: editor-assistance request
+analysis, immutable per-view preparation, and aggregate draw ordering now have
+one `FEditorAssistanceRenderer` owner. Editor Grid, Gizmo, Overlay Line, and
+Overlay Icon each have a concrete renderer beneath `Private/Renderers/` that
+owns its base resources, exact-key pipeline cache, geometry, diagnostics,
+dynamic capacity where applicable, and release.
 
 The adjacent-plan handoffs were reconciled against the current Git history:
 
@@ -34,20 +34,13 @@ The adjacent-plan handoffs were reconciled against the current Git history:
   `551cbfe130d94ff82376bcbba6dc0377883ff902`
   (`feat(material): bind scene proxies to material proxies`).
 
-Stage 4 is next. Its bounded working set is Editor Assistance request analysis,
-per-view preparation and draw ordering; Grid, Gizmo, Overlay Line, and Overlay
-Icon resources, exact-key pipeline caches, geometry, diagnostics, and drawing;
-the matching new files beneath `Private/Renderers/`; focused Editor Rendering
-and rendered-output tests; and this plan. It excludes scene orchestration,
-scene renaming, module lifecycle changes, and the already extracted scene
-feature renderers.
-
-The remaining feature monolith is
-`RendererEditorAssistanceRenderer.cpp`, which combines Grid, Gizmo, Overlay
-Line, and Overlay Icon resource creation, geometry preparation, pipeline
-selection, and drawing. Its persistent feature state is still stored in
-anonymous-namespace globals rather than in objects whose lifetimes express
-ownership.
+Stage 5 is next. Its bounded working set is fitted viewport and render-target
+resolution, scene-pass and post-process setup, scene feature ordering,
+editor-assistance preparation/final pass, output transitions, proxy
+enumeration, concrete renderer composition, module delegation and lifecycle
+fan-out, focused multi-view/viewport/output tests, and this plan. It excludes
+the Stage 6 scene rename and changes to the established feature-resource
+ownership contracts.
 
 The refactoring must consume the established handoffs from the active
 Static Mesh Render-Data Lifecycle, Static Mesh LOD Resources Refactor, and
@@ -656,23 +649,23 @@ from Stage 0.
 
 Dependencies: Stages 1 and 2.
 
-- [ ] Introduce `FEditorAssistanceRenderer` as the owner of request analysis,
+- [x] Introduce `FEditorAssistanceRenderer` as the owner of request analysis,
   per-view preparation, operation ordering, and aggregate draw orchestration.
-- [ ] Extract `FEditorGridRenderer`, `FGizmoRenderer`,
+- [x] Extract `FEditorGridRenderer`, `FGizmoRenderer`,
   `FOverlayLineRenderer`, and `FOverlayIconRenderer` with their own base
   resources, exact-key pipeline caches, geometry preparation, dynamic
   capacities, diagnostics, invalidation, retry, and release.
-- [ ] Retain one immutable prepared result per view; do not move dynamic
+- [x] Retain one immutable prepared result per view; do not move dynamic
   per-view counts or selected operations into persistent global state.
-- [ ] Preserve demand-driven initialization: an empty view creates no
+- [x] Preserve demand-driven initialization: an empty view creates no
   assistance resources, and one demanded feature does not initialize
   unrelated features.
-- [ ] Preserve independent failure isolation and current Grid, X-Ray, and
+- [x] Preserve independent failure isolation and current Grid, X-Ray, and
   visible operation ordering.
-- [ ] Absorb `EditorGridRendering` helpers into `FEditorGridRenderer` only if
+- [x] Absorb `EditorGridRendering` helpers into `FEditorGridRenderer` only if
   their deterministic uniform tests remain independent of RHI setup;
   otherwise retain a narrowly named private helper.
-- [ ] Remove the ambiguous split between
+- [x] Remove the ambiguous split between
   `RendererEditorAssistance.cpp` and
   `RendererEditorAssistanceRenderer.cpp`.
 
@@ -682,6 +675,38 @@ Dependencies: Stages 1 and 2.
   monolith remains, empty-demand and partial-failure behavior is unchanged,
   and all assistance request, pipeline, ordering, geometry, and rendered
   editor tests pass.
+
+#### Stage 4 Implementation Handoff
+
+- Baseline: `4e99491d4a451c669090a3fb7c44e10674efc83e`.
+- Working set: `RendererModule.cpp`, the new
+  `Renderers/EditorAssistanceRenderer.*`, `EditorGridRenderer.*`,
+  `GizmoRenderer.*`, `OverlayLineRenderer.*`, and `OverlayIconRenderer.*`
+  owners, the retained deterministic `EditorGridRendering.*` helper, the
+  focused Editor Assistance tests, and this plan.
+- Key symbols: `FEditorAssistanceRenderer`, `FEditorGridRenderer`,
+  `FGizmoRenderer`, `FOverlayLineRenderer`, `FOverlayIconRenderer`,
+  `RendererEditorAssistance::FRequest`,
+  `RendererEditorAssistance::FPrepared`, and
+  `FRendererModule::FSharedResources`.
+- Decisions: the aggregate renderer constructor-composes the four concrete
+  owners and retains only request analysis, immutable per-view preparation,
+  operation filtering, and total assistance draw ordering. Each feature
+  resolves its creation slots from `FRendererResourceCoordinator`, so shader
+  and manual retry generations no longer need an assistance-specific global.
+  Device invalidation and shutdown explicitly release the aggregate owner.
+  Editor Grid receives the shared fullscreen geometry by reference, while its
+  deterministic uniform builder remains a narrow RHI-independent helper.
+  Dynamic line/icon buffers and capacities remain feature-owned persistent
+  resources; per-view index counts and selected pipelines remain only in
+  `FPrepared`.
+- Open questions: none.
+- Validation: the Renderer target built, `EditorRenderingTests` passed all 29
+  request, pipeline, ordering, geometry, and rendered-output tests, and
+  `RendererResourceReloadVulkanTests` passed its reload test. The complete
+  Tests-profile `all` build and aggregate passed with 807 registered tests,
+  zero failures, and one existing platform-dependent skip; CTest log
+  `Build/.agent-state/logs/20260730-204341-506080-27468-ctest.log`.
 
 ### Stage 5: Introduce the Scene Renderer and thin the module
 
