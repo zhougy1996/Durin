@@ -31,20 +31,31 @@ namespace Durin
 		FBox LocalBounds;
 	};
 
-	// Stores the packed tangent frame, UVs, and color uploaded beside vertex positions.
-	struct FStaticMeshPackedVertex
+	// Stores one normalized 16-bit tangent frame in the tangent stream.
+	struct FStaticMeshPackedTangentBasis
 	{
 		std::array<int16, 4> Normal{};
 		std::array<int16, 4> Tangent{};
+	};
+
+	// Stores all materialized UV channels for one vertex in the texcoord stream.
+	struct FStaticMeshTexcoordVertex
+	{
 		std::array<FVector2f, MaxStaticMeshUVChannels> TexCoords{};
+	};
+
+	// Stores one normalized 8-bit vertex color in the color stream.
+	struct FStaticMeshColorVertex
+	{
 		std::array<uint8, 4> Color{};
 	};
 
-	static_assert(sizeof(FStaticMeshPackedVertex) == 52);
+	static_assert(sizeof(FStaticMeshPackedTangentBasis) == 16);
+	static_assert(sizeof(FStaticMeshTexcoordVertex) == 32);
+	static_assert(sizeof(FStaticMeshColorVertex) == 4);
 
-	// Owns tangent-basis and texture-coordinate semantics plus the transitional
-	// packed attribute upload consumed until Stage 3 splits the physical streams.
-	class FStaticMeshVertexBuffer : public FVertexBuffer
+	// Groups independently bindable tangent-basis and texture-coordinate buffers.
+	class FStaticMeshVertexBuffer
 	{
 	public:
 		class FTangentsVertexBuffer : public FVertexBuffer
@@ -66,7 +77,7 @@ namespace Durin
 			}
 			auto GetStride() const -> uint32
 			{
-				return sizeof(std::array<int16, 4>) * 2;
+				return sizeof(FStaticMeshPackedTangentBasis);
 			}
 			auto NeedsCPUAccess() const -> bool
 			{
@@ -131,7 +142,7 @@ namespace Durin
 			}
 			auto GetStride() const -> uint32
 			{
-				return sizeof(FVector2f) * MaxStaticMeshUVChannels;
+				return sizeof(FStaticMeshTexcoordVertex);
 			}
 			auto IsReady() const -> bool
 			{
@@ -181,31 +192,9 @@ namespace Durin
 			bool bNeedsCPUAccess = true;
 		};
 
-		ENGINE_API auto Init(
-			std::vector<FVector3f> InNormals,
-			std::vector<FVector4f> InTangents,
-			std::array<
-				std::vector<FVector2f>,
-				MaxStaticMeshUVChannels> InTexCoords,
-			uint32 NumVertices,
-			uint8 NumTexCoords,
-			const std::vector<FVector4f>& Colors,
-			bool bInNeedsCPUAccess = true) -> void;
-		ENGINE_API auto Finalize(
-			const std::vector<FVector4f>& Colors) -> void;
-		ENGINE_API auto InitRHI(
-			FRHICommandListBase& RHICmdList) -> void override;
-		auto GetFriendlyName() const -> std::string override
-		{
-			return "FStaticMeshVertexBuffer";
-		}
 		auto GetNumVertices() const -> uint32
 		{
 			return TangentsVertexBuffer.GetNumVertices();
-		}
-		auto GetStride() const -> uint32
-		{
-			return sizeof(FStaticMeshPackedVertex);
 		}
 		auto NeedsCPUAccess() const -> bool
 		{
@@ -215,17 +204,12 @@ namespace Durin
 		auto IsReady() const -> bool
 		{
 			return GetNumVertices() > 0
-				&& PackedVertices.size() == GetNumVertices()
-				&& GetRHI() != nullptr
 				&& TangentsVertexBuffer.IsReady()
 				&& TexCoordVertexBuffer.IsReady();
 		}
 
 		FTangentsVertexBuffer TangentsVertexBuffer;
 		FTexcoordVertexBuffer TexCoordVertexBuffer;
-
-	private:
-		std::vector<FStaticMeshPackedVertex> PackedVertices;
 	};
 
 	// Owns materialized per-vertex color data and its independently bindable RHI.
@@ -248,7 +232,7 @@ namespace Durin
 		}
 		auto GetStride() const -> uint32
 		{
-			return sizeof(std::array<uint8, 4>);
+			return sizeof(FStaticMeshColorVertex);
 		}
 		auto NeedsCPUAccess() const -> bool
 		{
@@ -367,11 +351,11 @@ namespace Durin
 
 	class FRHICommandListImmediate;
 
-	ENGINE_API auto PackStaticMeshVertex(
+	ENGINE_API auto PackStaticMeshTangentBasis(
 		const FVector3f& Normal,
-		const FVector4f& Tangent,
-		const std::array<FVector2f, MaxStaticMeshUVChannels>& TexCoords,
-		const FVector4f& Color) -> FStaticMeshPackedVertex;
+		const FVector4f& Tangent) -> FStaticMeshPackedTangentBasis;
+	ENGINE_API auto PackStaticMeshColor(
+		const FVector4f& Color) -> FStaticMeshColorVertex;
 
 	// Owns all renderable LODs, material slots, and bounds for a static mesh.
 	struct FStaticMeshRenderData

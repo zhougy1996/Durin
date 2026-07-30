@@ -174,9 +174,15 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 	Durin::DStaticMesh* LifecycleMesh =
 		Durin::DStaticMesh::CreateDebugTriangle();
 	Durin::AddToRoot(LifecycleMesh);
+	const auto StaticMeshInitStart =
+		std::chrono::steady_clock::now();
 	LifecycleMesh->InitResources();
 	LifecycleMesh->InitResources();
 	Durin::FlushRenderingCommands();
+	const auto StaticMeshInitMicroseconds =
+		std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::steady_clock::now() - StaticMeshInitStart)
+			.count();
 	ASSERT_NE(LifecycleMesh->GetRenderData(), nullptr);
 	ASSERT_EQ(
 		LifecycleMesh->GetRenderData()->LODVertexFactories.size(),
@@ -188,24 +194,57 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 			->LODVertexFactories[0].VertexFactory;
 	ASSERT_TRUE(LifecycleVertexFactory.IsReady());
 	ASSERT_NE(LifecycleVertexFactory.GetDeclaration(), nullptr);
-	ASSERT_EQ(LifecycleVertexFactory.GetStreams().size(), 2u);
+	ASSERT_EQ(LifecycleVertexFactory.GetStreams().size(), 4u);
 	EXPECT_EQ(
 		LifecycleVertexFactory.GetStreams()[0].VertexBuffer,
 		LifecycleLOD.VertexBuffers.PositionVertexBuffer.GetRHI());
 	EXPECT_EQ(
 		LifecycleVertexFactory.GetStreams()[1].VertexBuffer,
-		LifecycleLOD.VertexBuffers.StaticMeshVertexBuffer.GetRHI());
+		LifecycleLOD.VertexBuffers.StaticMeshVertexBuffer
+			.TangentsVertexBuffer.GetRHI());
+	EXPECT_EQ(
+		LifecycleVertexFactory.GetStreams()[2].VertexBuffer,
+		LifecycleLOD.VertexBuffers.StaticMeshVertexBuffer
+			.TexCoordVertexBuffer.GetRHI());
+	EXPECT_EQ(
+		LifecycleVertexFactory.GetStreams()[3].VertexBuffer,
+		LifecycleLOD.VertexBuffers.ColorVertexBuffer.GetRHI());
 	EXPECT_TRUE(std::ranges::none_of(
 		LifecycleVertexFactory.GetStreams(),
 		[&LifecycleLOD](const Durin::FVertexInputStream& Stream) {
 			return Stream.VertexBuffer == LifecycleLOD.IndexBuffer.GetRHI();
 		}));
+	const auto StaticMeshBufferBytes =
+		LifecycleLOD.VertexBuffers.PositionVertexBuffer.GetRHI()->GetSize()
+		+ LifecycleLOD.VertexBuffers.StaticMeshVertexBuffer
+			.TangentsVertexBuffer.GetRHI()->GetSize()
+		+ LifecycleLOD.VertexBuffers.StaticMeshVertexBuffer
+			.TexCoordVertexBuffer.GetRHI()->GetSize()
+		+ LifecycleLOD.VertexBuffers.ColorVertexBuffer.GetRHI()->GetSize()
+		+ LifecycleLOD.IndexBuffer.GetRHI()->GetSize();
+	const auto ExpectedStaticMeshBufferBytes =
+		LifecycleLOD.GetNumVertices()
+			* (sizeof(Durin::FVector3f)
+				+ sizeof(Durin::FStaticMeshPackedTangentBasis)
+				+ sizeof(Durin::FStaticMeshTexcoordVertex)
+				+ sizeof(Durin::FStaticMeshColorVertex))
+		+ LifecycleLOD.GetNumIndices() * sizeof(Durin::uint32);
+	EXPECT_EQ(
+		StaticMeshBufferBytes,
+		ExpectedStaticMeshBufferBytes);
+	std::cout
+		<< "[StaticMeshLODResourcesMetric] init_us="
+		<< StaticMeshInitMicroseconds
+		<< " buffers=5 bytes=" << StaticMeshBufferBytes
+		<< " vertex_factory_streams="
+		<< LifecycleVertexFactory.GetStreams().size()
+		<< " indexed_draws_per_section=1\n";
 	EXPECT_EQ(
 		LifecycleMesh->GetRenderData()->GetNumInitializedResources(),
-		7u);
+		6u);
 	EXPECT_EQ(
 		Durin::GetNumInitializedRenderResources(),
-		InitialRenderResourceCount + 7u);
+		InitialRenderResourceCount + 6u);
 
 	const Durin::FStaticMeshRenderData* OriginalRenderData =
 		LifecycleMesh->GetRenderData();
@@ -222,7 +261,7 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 	EXPECT_EQ(ReplacementCandidate->GetRenderData(), OriginalRenderData);
 	EXPECT_EQ(
 		Durin::GetNumInitializedRenderResources(),
-		InitialRenderResourceCount + 7u);
+		InitialRenderResourceCount + 6u);
 
 	ASSERT_TRUE(LifecycleMesh->ExchangeImportedState(
 		*ReplacementCandidate, ReplacementError))
@@ -233,7 +272,7 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 		ReplacementRenderData);
 	EXPECT_EQ(
 		Durin::GetNumInitializedRenderResources(),
-		InitialRenderResourceCount + 7u);
+		InitialRenderResourceCount + 6u);
 
 	Durin::DStaticMesh* FailedReplacementCandidate =
 		Durin::DStaticMesh::CreateDebugTriangle();
@@ -255,7 +294,7 @@ TEST(FStaticModelImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor
 		0u);
 	EXPECT_EQ(
 		Durin::GetNumInitializedRenderResources(),
-		InitialRenderResourceCount + 7u);
+		InitialRenderResourceCount + 6u);
 
 	Durin::DStaticMesh* InvalidMesh =
 		Durin::DStaticMesh::CreateDebugTriangle();

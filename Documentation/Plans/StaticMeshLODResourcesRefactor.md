@@ -14,7 +14,7 @@ contains an angled normal, negative tangent handedness, authored UVs, and
 non-white vertex colors. Its 64-by-64 RGBA output hash is
 `52fdb5113401075fabb77a111012afd1`.
 
-Stages 0 through 2 are complete. `FStaticMeshLODResources` now owns
+Stages 0 through 3 are complete. `FStaticMeshLODResources` now owns
 `FStaticMeshVertexBuffers`, `FRawStaticIndexBuffer`, sections, bounds, and
 semantic metadata rather than writable semantic arrays plus raw LOD-level RHI
 references. Import, payload conversion, editor inspection, renderer binding,
@@ -24,10 +24,11 @@ and tests all consume the named resource APIs.
 Each `FStaticMeshRenderData` owns one `FStaticMeshVertexFactories` container per
 LOD, initializes all LOD buffers before factories, releases all factories before
 buffers, and includes factories in readiness and resource diagnostics.
-`FLocalVertexFactory` preserves the Stage 0 two-stream physical layout while
-owning its declaration and stream interpretation; the renderer selects the
-index buffer independently and contains no static-mesh declaration construction
-or static-mesh stream-index binding.
+`FLocalVertexFactory` owns its declaration and stream interpretation and now
+selects four independently bindable physical streams: position, tangent basis,
+texture coordinates, and color. The renderer selects the index buffer
+independently and contains no static-mesh declaration construction or
+static-mesh stream-index binding.
 
 The TextureCube thumbnail implementation changed after Stage 0 and now draws the
 shared SkyBox fullscreen triangle rather than static-mesh geometry. Stage 2
@@ -35,9 +36,9 @@ removed its unreachable legacy static-mesh declaration/pipeline state instead
 of introducing a vertex factory into a path that no longer consumes mesh
 vertices.
 
-Stage 3 is next. It will select the already independently allocated tangent,
-texcoord, and color resources as four physical streams and remove the packed
-compatibility allocation.
+The transitional packed attribute allocation and
+`FStaticMeshPackedVertex` are gone. Stage 4 is next and will move the matching
+shader input/decoding contract into `VertexFactory/LocalVertexFactory.slang`.
 
 ## Goal
 
@@ -543,22 +544,22 @@ Validation:
 Outcome: the UE-named semantic resources correspond to independently bindable
 position, tangent, texture-coordinate, and color streams.
 
-- [ ] Replace `FStaticMeshPackedVertex` as persistent upload ownership with
+- [x] Replace `FStaticMeshPackedVertex` as persistent upload ownership with
   explicit packed tangent-basis, UV, and color element/storage types.
-- [ ] Require separate RHI allocations and vertex streams for
+- [x] Require separate RHI allocations and vertex streams for
   `TangentsVertexBuffer` and `TexCoordVertexBuffer`; neither is an interleaved
   view into the other.
-- [ ] Preserve the current normalized tangent precision, full-precision UVs,
+- [x] Preserve the current normalized tangent precision, full-precision UVs,
   and normalized 8-bit color behavior.
-- [ ] Upload position, tangent basis, texture coordinates, and color as the
+- [x] Upload position, tangent basis, texture coordinates, and color as the
   target physical streams selected in this plan.
-- [ ] Update `FLocalVertexFactory::FDataType` and declaration generation
+- [x] Update `FLocalVertexFactory::FDataType` and declaration generation
   without exposing stream indices to renderer call sites.
-- [ ] Preserve white color and zero UV fallbacks so current shader permutations
+- [x] Preserve white color and zero UV fallbacks so current shader permutations
   remain stable.
-- [ ] Remove transitional packed-attribute accessors and upload code after all
+- [x] Remove transitional packed-attribute accessors and upload code after all
   consumers migrate.
-- [ ] Measure buffer count, total uploaded bytes, static-mesh initialization
+- [x] Measure buffer count, total uploaded bytes, static-mesh initialization
   time, and draw submission behavior against the Stage 0 baseline; record any
   meaningful regression before continuing.
 
@@ -570,6 +571,52 @@ position, tangent, texture-coordinate, and color streams.
 - Position-only binding is possible through the vertex factory without
   touching tangent, UV, or color buffers.
 - No persistent `FStaticMeshPackedVertex` ownership remains.
+
+#### Stage 3 Handoff
+
+- Baseline commit: `497eeff4`
+  (`refactor(rendering): introduce local vertex factory`).
+- Working set:
+  `StaticMeshResources.h`, `StaticMesh.cpp`, `StaticMeshDerivedData.cpp`,
+  `LocalVertexFactory.h/.cpp`, `StaticMeshPayloadCodecTests.cpp`,
+  `MaterialRenderingTests.cpp`,
+  `StaticModelImportVulkanTests.cpp`, and this plan.
+- Key symbols:
+  `FStaticMeshPackedTangentBasis`, `FStaticMeshTexcoordVertex`,
+  `FStaticMeshColorVertex`, `PackStaticMeshTangentBasis()`,
+  `PackStaticMeshColor()`, `FLocalVertexFactory::SetData()`, and
+  `FLocalVertexFactory::BindPositionStream()`.
+- Decision: stream 0 is position, stream 1 is the 16-byte normalized tangent
+  basis, stream 2 is the 32-byte four-channel full-precision UV element, and
+  stream 3 is the 4-byte normalized color element. These indices remain private
+  to the local vertex factory.
+- Decision: `FStaticMeshVertexBuffer` is now a semantic aggregate rather than a
+  registered `FVertexBuffer`; only its independently bindable tangent and
+  texcoord children participate in the render-resource lifecycle.
+- Decision: fallback materialization remains CPU-side before upload. Missing UV
+  channels become zero-filled stream data and missing colors become white stream
+  data, so no shader permutation or payload version changes.
+- Performance evidence: the identical DebugTriangle Vulkan lifecycle window
+  measured 3816 microseconds before the split and 3064–4205 microseconds across
+  two Stage 3 runs on the current machine. The variation is treated as test
+  noise rather than a meaningful initialization regression. GPU allocations
+  changed from six buffers/360 bytes in the Stage 2 transitional state to five
+  buffers/204 bytes in Stage 3; 204 bytes matches the Stage 0
+  position-plus-packed-attribute-plus-index byte total. Vertex-factory bindings
+  changed from two to four streams, while draw submission remains one indexed
+  draw per section.
+- Open questions: none for Stage 4.
+
+Validation:
+
+- `FStaticMeshPayloadCodecTests.*`: 10 focused tests passed.
+- `StaticMeshTests`: 54 tests passed.
+- `MaterialTests`: 51 tests passed.
+- `FStaticModelImportVulkanTests.RendersReloadedSrgbTextureAndBaseColorFactor`:
+  the rendered hash, four-stream binding, independent index selection,
+  replacement lifecycle, and resource counts passed.
+- Full `all` target build passed for
+  `Win64-Debug-DurinEditor-Tests`.
 
 ### Stage 4: Extract the Slang Local Vertex Factory Module
 

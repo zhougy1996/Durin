@@ -253,7 +253,7 @@ TEST(FMaterialTests, StaticMeshProxyOrdersRapidBindingChangesAndRejectsStaleRevi
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, DebugStaticMeshProvidesCompleteLODAndPackedAttributes)
+TEST(FMaterialTests, DebugStaticMeshProvidesCompleteSplitVertexAttributes)
 {
 	InitializeDObjectSystem();
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
@@ -286,16 +286,20 @@ TEST(FMaterialTests, DebugStaticMeshProvidesCompleteLODAndPackedAttributes)
 	EXPECT_EQ(LOD.Sections[0].FirstIndex, 0u);
 	EXPECT_EQ(LOD.Sections[0].IndexCount, 3u);
 
-	std::array<Durin::FVector2f, Durin::MaxStaticMeshUVChannels> TexCoords{};
-	const Durin::FStaticMeshPackedVertex Packed = Durin::PackStaticMeshVertex(
-		Durin::FVector3f(0.0f, 0.0f, 1.0f), Durin::FVector4f(1.0f, 0.0f, 0.0f, -1.0f), TexCoords, Durin::FVector4f(1.0f, 0.5f, 0.0f, 0.25f));
-	EXPECT_EQ(Packed.Normal[2], 32767);
-	EXPECT_EQ(Packed.Tangent[0], 32767);
-	EXPECT_EQ(Packed.Tangent[3], -32767);
-	EXPECT_EQ(Packed.Color[0], 255);
-	EXPECT_EQ(Packed.Color[1], 128);
-	EXPECT_EQ(Packed.Color[2], 0);
-	EXPECT_EQ(Packed.Color[3], 64);
+	const Durin::FStaticMeshPackedTangentBasis PackedTangentBasis =
+		Durin::PackStaticMeshTangentBasis(
+			Durin::FVector3f(0.0f, 0.0f, 1.0f),
+			Durin::FVector4f(1.0f, 0.0f, 0.0f, -1.0f));
+	const Durin::FStaticMeshColorVertex PackedColor =
+		Durin::PackStaticMeshColor(
+			Durin::FVector4f(1.0f, 0.5f, 0.0f, 0.25f));
+	EXPECT_EQ(PackedTangentBasis.Normal[2], 32767);
+	EXPECT_EQ(PackedTangentBasis.Tangent[0], 32767);
+	EXPECT_EQ(PackedTangentBasis.Tangent[3], -32767);
+	EXPECT_EQ(PackedColor.Color[0], 255);
+	EXPECT_EQ(PackedColor.Color[1], 128);
+	EXPECT_EQ(PackedColor.Color[2], 0);
+	EXPECT_EQ(PackedColor.Color[3], 64);
 
 	Durin::MarkAsGarbage(Mesh);
 	Durin::CollectGarbage();

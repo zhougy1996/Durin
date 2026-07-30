@@ -24,6 +24,8 @@ namespace Durin
 			const FStaticMeshVertexBuffers& VertexBuffers) -> bool;
 		ENGINE_API auto InitRHI(
 			FRHICommandListBase& RHICmdList) -> void override;
+		ENGINE_API auto BindPositionStream(
+			FRHICommandListImmediate& CommandList) const -> void;
 		auto GetFriendlyName() const -> std::string override
 		{
 			return "FLocalVertexFactory";

@@ -1,5 +1,6 @@
 #include "StaticMesh/LocalVertexFactory.h"
 
+#include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "StaticMesh/StaticMeshResources.h"
 
@@ -26,48 +27,52 @@ namespace Durin
 			return false;
 		}
 
-		constexpr uint16 PositionStride = sizeof(FVector3f);
-		constexpr uint16 AttributeStride =
-			sizeof(FStaticMeshPackedVertex);
+		const auto& TangentsBuffer =
+			StaticMeshBuffer.TangentsVertexBuffer;
+		const auto& TexCoordBuffer =
+			StaticMeshBuffer.TexCoordVertexBuffer;
+		const auto& ColorBuffer =
+			VertexBuffers.ColorVertexBuffer;
 		Data.PositionComponent = {
 			.VertexBuffer = &PositionBuffer,
 			.Offset = 0,
-			.Stride = PositionStride,
+			.Stride = static_cast<uint16>(PositionBuffer.GetStride()),
 			.Type = EVertexElementType::Float3,
 			.AttributeIndex = 0,
 			.StreamIndex = 0};
 		Data.TangentBasisComponents[0] = {
-			.VertexBuffer = &StaticMeshBuffer,
-			.Offset = offsetof(FStaticMeshPackedVertex, Normal),
-			.Stride = AttributeStride,
+			.VertexBuffer = &TangentsBuffer,
+			.Offset = offsetof(FStaticMeshPackedTangentBasis, Normal),
+			.Stride = static_cast<uint16>(TangentsBuffer.GetStride()),
 			.Type = EVertexElementType::Short4N,
 			.AttributeIndex = 1,
 			.StreamIndex = 1};
 		Data.TangentBasisComponents[1] = {
-			.VertexBuffer = &StaticMeshBuffer,
-			.Offset = offsetof(FStaticMeshPackedVertex, Tangent),
-			.Stride = AttributeStride,
+			.VertexBuffer = &TangentsBuffer,
+			.Offset = offsetof(FStaticMeshPackedTangentBasis, Tangent),
+			.Stride = static_cast<uint16>(TangentsBuffer.GetStride()),
 			.Type = EVertexElementType::Short4N,
 			.AttributeIndex = 2,
 			.StreamIndex = 1};
 		for (uint8 Channel = 0; Channel < MaxStaticMeshUVChannels; ++Channel)
 		{
 			Data.TextureCoordinates[Channel] = {
-				.VertexBuffer = &StaticMeshBuffer,
-				.Offset = offsetof(FStaticMeshPackedVertex, TexCoords)
+				.VertexBuffer = &TexCoordBuffer,
+				.Offset = offsetof(FStaticMeshTexcoordVertex, TexCoords)
 					+ sizeof(FVector2f) * Channel,
-				.Stride = AttributeStride,
+				.Stride =
+					static_cast<uint16>(TexCoordBuffer.GetStride()),
 				.Type = EVertexElementType::Float2,
 				.AttributeIndex = static_cast<uint8>(3 + Channel),
-				.StreamIndex = 1};
+				.StreamIndex = 2};
 		}
 		Data.ColorComponent = {
-			.VertexBuffer = &StaticMeshBuffer,
-			.Offset = offsetof(FStaticMeshPackedVertex, Color),
-			.Stride = AttributeStride,
+			.VertexBuffer = &ColorBuffer,
+			.Offset = offsetof(FStaticMeshColorVertex, Color),
+			.Stride = static_cast<uint16>(ColorBuffer.GetStride()),
 			.Type = EVertexElementType::UByte4N,
 			.AttributeIndex = 7,
-			.StreamIndex = 1};
+			.StreamIndex = 3};
 		Data.NumVertices = NumVertices;
 		return true;
 	}
@@ -128,19 +133,30 @@ namespace Durin
 
 		const FVertexBuffer* PositionBuffer =
 			Data.PositionComponent.VertexBuffer;
-		const FVertexBuffer* AttributeBuffer =
+		const FVertexBuffer* TangentsBuffer =
 			Data.TangentBasisComponents[0].VertexBuffer;
+		const FVertexBuffer* TexCoordBuffer =
+			Data.TextureCoordinates[0].VertexBuffer;
+		const FVertexBuffer* ColorBuffer =
+			Data.ColorComponent.VertexBuffer;
 		return PositionBuffer->GetRHI() != nullptr
-			&& AttributeBuffer->GetRHI() != nullptr
+			&& TangentsBuffer->GetRHI() != nullptr
+			&& TexCoordBuffer->GetRHI() != nullptr
+			&& ColorBuffer->GetRHI() != nullptr
 			&& Data.TangentBasisComponents[1].VertexBuffer
-				== AttributeBuffer
+				== TangentsBuffer
 			&& std::ranges::all_of(
 				Data.TextureCoordinates,
-				[AttributeBuffer](
+				[TexCoordBuffer](
 					const FVertexStreamComponent& Component) {
-					return Component.VertexBuffer == AttributeBuffer;
+					return Component.VertexBuffer == TexCoordBuffer;
 				})
-			&& Data.ColorComponent.VertexBuffer == AttributeBuffer;
+			&& PositionBuffer != TangentsBuffer
+			&& PositionBuffer != TexCoordBuffer
+			&& PositionBuffer != ColorBuffer
+			&& TangentsBuffer != TexCoordBuffer
+			&& TangentsBuffer != ColorBuffer
+			&& TexCoordBuffer != ColorBuffer;
 	}
 
 	auto FLocalVertexFactory::InitRHI(
@@ -164,7 +180,34 @@ namespace Durin
 					Data.TangentBasisComponents[0].VertexBuffer->GetRHI(),
 				.Offset = 0,
 				.Stride = Data.TangentBasisComponents[0].Stride,
+			},
+			{
+				.StreamIndex =
+					Data.TextureCoordinates[0].StreamIndex,
+				.VertexBuffer =
+					Data.TextureCoordinates[0].VertexBuffer->GetRHI(),
+				.Offset = 0,
+				.Stride = Data.TextureCoordinates[0].Stride,
+			},
+			{
+				.StreamIndex = Data.ColorComponent.StreamIndex,
+				.VertexBuffer =
+					Data.ColorComponent.VertexBuffer->GetRHI(),
+				.Offset = 0,
+				.Stride = Data.ColorComponent.Stride,
 			}});
 		FVertexFactory::InitRHI(RHICmdList);
+	}
+
+	auto FLocalVertexFactory::BindPositionStream(
+		FRHICommandListImmediate& CommandList) const -> void
+	{
+		check(IsInRenderingThread());
+		check(Data.PositionComponent.IsValid());
+		check(Data.PositionComponent.VertexBuffer->GetRHI() != nullptr);
+		CommandList.BindVertexBuffer(
+			Data.PositionComponent.StreamIndex,
+			Data.PositionComponent.VertexBuffer->GetRHI(),
+			0);
 	}
 }

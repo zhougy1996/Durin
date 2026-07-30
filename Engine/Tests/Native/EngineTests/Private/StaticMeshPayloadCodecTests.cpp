@@ -363,34 +363,39 @@ TEST(FStaticMeshPayloadCodecTests,
 	const FVertexDeclarationElementList Elements =
 		VertexFactory.GetDeclarationElements();
 	constexpr uint16 PositionStride = sizeof(FVector3f);
-	constexpr uint16 AttributeStride = sizeof(FStaticMeshPackedVertex);
+	constexpr uint16 TangentStride =
+		sizeof(FStaticMeshPackedTangentBasis);
+	constexpr uint16 TexCoordStride =
+		sizeof(FStaticMeshTexcoordVertex);
+	constexpr uint16 ColorStride =
+		sizeof(FStaticMeshColorVertex);
 	const std::array Expected{
 		FVertexElement(
 			0, 0, EVertexElementType::Float3, 0, PositionStride),
 		FVertexElement(
-			1, offsetof(FStaticMeshPackedVertex, Normal),
-			EVertexElementType::Short4N, 1, AttributeStride),
+			1, offsetof(FStaticMeshPackedTangentBasis, Normal),
+			EVertexElementType::Short4N, 1, TangentStride),
 		FVertexElement(
-			1, offsetof(FStaticMeshPackedVertex, Tangent),
-			EVertexElementType::Short4N, 2, AttributeStride),
+			1, offsetof(FStaticMeshPackedTangentBasis, Tangent),
+			EVertexElementType::Short4N, 2, TangentStride),
 		FVertexElement(
-			1, offsetof(FStaticMeshPackedVertex, TexCoords),
-			EVertexElementType::Float2, 3, AttributeStride),
+			2, offsetof(FStaticMeshTexcoordVertex, TexCoords),
+			EVertexElementType::Float2, 3, TexCoordStride),
 		FVertexElement(
-			1, offsetof(FStaticMeshPackedVertex, TexCoords)
+			2, offsetof(FStaticMeshTexcoordVertex, TexCoords)
 				+ sizeof(FVector2f),
-			EVertexElementType::Float2, 4, AttributeStride),
+			EVertexElementType::Float2, 4, TexCoordStride),
 		FVertexElement(
-			1, offsetof(FStaticMeshPackedVertex, TexCoords)
+			2, offsetof(FStaticMeshTexcoordVertex, TexCoords)
 				+ sizeof(FVector2f) * 2,
-			EVertexElementType::Float2, 5, AttributeStride),
+			EVertexElementType::Float2, 5, TexCoordStride),
 		FVertexElement(
-			1, offsetof(FStaticMeshPackedVertex, TexCoords)
+			2, offsetof(FStaticMeshTexcoordVertex, TexCoords)
 				+ sizeof(FVector2f) * 3,
-			EVertexElementType::Float2, 6, AttributeStride),
+			EVertexElementType::Float2, 6, TexCoordStride),
 		FVertexElement(
-			1, offsetof(FStaticMeshPackedVertex, Color),
-			EVertexElementType::UByte4N, 7, AttributeStride)};
+			3, offsetof(FStaticMeshColorVertex, Color),
+			EVertexElementType::UByte4N, 7, ColorStride)};
 	for (size_t Index = 0; Index < Expected.size(); ++Index)
 		EXPECT_EQ(Elements[Index], Expected[Index]);
 	for (size_t Index = Expected.size(); Index < Elements.size(); ++Index)
@@ -402,9 +407,20 @@ TEST(FStaticMeshPayloadCodecTests,
 		&RenderData->LODResources[0]
 			.VertexBuffers.PositionVertexBuffer);
 	EXPECT_EQ(
+		VertexFactory.GetData()
+			.TangentBasisComponents[0].VertexBuffer,
+		&RenderData->LODResources[0]
+			.VertexBuffers.StaticMeshVertexBuffer
+				.TangentsVertexBuffer);
+	EXPECT_EQ(
+		VertexFactory.GetData().TextureCoordinates[0].VertexBuffer,
+		&RenderData->LODResources[0]
+			.VertexBuffers.StaticMeshVertexBuffer
+				.TexCoordVertexBuffer);
+	EXPECT_EQ(
 		VertexFactory.GetData().ColorComponent.VertexBuffer,
 		&RenderData->LODResources[0]
-			.VertexBuffers.StaticMeshVertexBuffer);
+			.VertexBuffers.ColorVertexBuffer);
 
 	FRawStaticIndexBuffer IndexBuffer;
 	EXPECT_EQ(IndexBuffer.GetStride(), 4u);
@@ -459,25 +475,18 @@ TEST(FStaticMeshPayloadCodecTests,
 			"StaticMeshReadinessPosition",
 			static_cast<uint32>(
 				NumVertices * sizeof(FVector3f))));
-	const FBufferRHIRef AttributeBuffer = MakeTestBuffer(
-		FRHIBufferCreateDesc::CreateVertex(
-			"StaticMeshReadinessAttributes",
-			static_cast<uint32>(
-				NumVertices
-				* sizeof(FStaticMeshPackedVertex))));
 	const FBufferRHIRef TangentsBuffer = MakeTestBuffer(
 		FRHIBufferCreateDesc::CreateVertex(
 			"StaticMeshReadinessTangents",
-			NumVertices * sizeof(std::array<int16, 8>)));
+			NumVertices * sizeof(FStaticMeshPackedTangentBasis)));
 	const FBufferRHIRef TexCoordBuffer = MakeTestBuffer(
 		FRHIBufferCreateDesc::CreateVertex(
 			"StaticMeshReadinessTexCoords",
-			NumVertices * sizeof(std::array<
-				FVector2f, MaxStaticMeshUVChannels>)));
+			NumVertices * sizeof(FStaticMeshTexcoordVertex)));
 	const FBufferRHIRef ColorBuffer = MakeTestBuffer(
 		FRHIBufferCreateDesc::CreateVertex(
 			"StaticMeshReadinessColors",
-			NumVertices * sizeof(std::array<uint8, 4>)));
+			NumVertices * sizeof(FStaticMeshColorVertex)));
 	const FBufferRHIRef IndexBuffer = MakeTestBuffer(
 		FRHIBufferCreateDesc::CreateIndex(
 			"StaticMeshReadinessIndices",
@@ -486,12 +495,10 @@ TEST(FStaticMeshPayloadCodecTests,
 			sizeof(uint32)));
 
 	EnqueueRenderCommand<FSetPartialStaticMeshReadinessResources>(
-		[&LOD, PositionBuffer, AttributeBuffer](
+		[&LOD, PositionBuffer](
 			FRHICommandListImmediate&) {
 			LOD.VertexBuffers.PositionVertexBuffer.SetRHI(
 				PositionBuffer);
-			LOD.VertexBuffers.StaticMeshVertexBuffer.SetRHI(
-				AttributeBuffer);
 		});
 	FlushRenderingCommands();
 	EXPECT_FALSE(RenderData->IsReadyForRendering());

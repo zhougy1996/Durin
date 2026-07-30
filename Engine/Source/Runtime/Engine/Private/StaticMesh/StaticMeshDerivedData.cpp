@@ -821,15 +821,15 @@ namespace Durin
 				static_cast<uint32>(
 					SourceLOD.Positions.size()));
 			LOD.VertexBuffers.StaticMeshVertexBuffer
-				.Init(
+				.TangentsVertexBuffer.Init(
 					SourceLOD.Normals,
-					SourceLOD.Tangents,
+					SourceLOD.Tangents);
+			LOD.VertexBuffers.StaticMeshVertexBuffer
+				.TexCoordVertexBuffer.Init(
 					SourceLOD.TexCoords,
 					static_cast<uint32>(
 						SourceLOD.Positions.size()),
-					SourceLOD.NumTexCoords,
-					LOD.VertexBuffers.ColorVertexBuffer
-						.GetColors());
+					SourceLOD.NumTexCoords);
 			LOD.IndexBuffer.Init(SourceLOD.Indices);
 			LOD.LocalBounds = SourceLOD.LocalBounds;
 			LOD.NumTexCoords = SourceLOD.NumTexCoords;
