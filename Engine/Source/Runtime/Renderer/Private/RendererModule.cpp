@@ -4,10 +4,11 @@
 #include "CoreGlobals.h"
 #include "DefaultTextures.h"
 #include "RendererEditorAssistance.h"
-#include "RendererFullscreenGeometry.h"
-#include "RendererResourceInvalidation.h"
 #include "RendererResourceSlotCache.h"
-#include "RendererRenderTargetLayouts.h"
+#include "Resources/DefaultTextureResources.h"
+#include "Resources/FullscreenGeometryResources.h"
+#include "Resources/RendererResourceCoordinator.h"
+#include "Resources/RenderTargetLayouts.h"
 #include "RenderResourceCreation.h"
 #include "SkyBoxRendering.h"
 #include "RHI.h"
@@ -25,62 +26,22 @@
 
 namespace Durin
 {
+	// Groups shared owners until FSceneRenderer assumes their composition.
+	struct FRendererModule::FSharedResources
+	{
+		FRendererResourceCoordinator Coordinator;
+		FDefaultTextureResources DefaultTextures;
+		FFullscreenGeometryResources FullscreenGeometry;
+	};
+
 	namespace
 	{
-		struct FDefaultTextureState
+		auto GetViewportOutput(bool bPresent)
+			-> RenderTargetLayouts::EViewportOutput
 		{
-			FTextureRHIRef White;
-			FTextureRHIRef Black;
-			FTextureRHIRef FlatNormal;
-			FTextureRHIRef BlackCube;
-		};
-
-		FDefaultTextureState GDefaultTextures;
-
-		auto CreateSolidTexture(FRHICommandListImmediate& CommandList, const char* DebugName, const std::array<uint8, 4>& Color) -> FTextureRHIRef
-		{
-			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(DebugName, 1, 1, EPixelFormat::RGBA8_UNORM)
-				.SetFlags(ETextureCreateFlags::ShaderResource);
-			FTextureRHIRef Texture = GDynamicRHI->RHICreateTexture(CommandList, Desc);
-			if (Texture != nullptr)
-			{
-				const FUpdateTextureRegion2D Region(0, 0, 0, 0, 1, 1);
-				GDynamicRHI->RHIUpdateTexture2D(CommandList, Texture, 0, 0, Region, 4, Color.data());
-			}
-			return Texture;
-		}
-
-		auto CreateSolidCubeTexture(FRHICommandListImmediate& CommandList, const char* DebugName, const std::array<uint8, 4>& Color) -> FTextureRHIRef
-		{
-			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::CreateCube(DebugName)
-				.SetExtent(1)
-				.SetFormat(EPixelFormat::RGBA8_UNORM)
-				.SetFlags(ETextureCreateFlags::ShaderResource);
-			FTextureRHIRef Texture = GDynamicRHI->RHICreateTexture(CommandList, Desc);
-			if (Texture != nullptr)
-			{
-				const FUpdateTextureRegion2D Region(0, 0, 0, 0, 1, 1);
-				for (uint32 ArraySlice = 0; ArraySlice < TextureCubeFaceCount; ++ArraySlice)
-				{
-					GDynamicRHI->RHIUpdateTexture2D(CommandList, Texture, 0, ArraySlice, Region, 4, Color.data());
-				}
-			}
-			return Texture;
-		}
-
-		auto InitializeDefaultTextures_RenderThread(FRHICommandListImmediate& CommandList) -> void
-		{
-			check(IsInRenderingThread());
-			if (GDefaultTextures.White != nullptr) return;
-			GDefaultTextures.White = CreateSolidTexture(CommandList, "DefaultWhite", {255, 255, 255, 255});
-			GDefaultTextures.Black = CreateSolidTexture(CommandList, "DefaultBlack", {0, 0, 0, 255});
-			GDefaultTextures.FlatNormal = CreateSolidTexture(CommandList, "DefaultFlatNormal", {128, 128, 255, 255});
-			GDefaultTextures.BlackCube = CreateSolidCubeTexture(CommandList, "DefaultBlackCube", {0, 0, 0, 255});
-		}
-
-		auto GetViewportOutput(bool bPresent) -> RendererRenderTargetLayouts::EViewportOutput
-		{
-			return bPresent ? RendererRenderTargetLayouts::EViewportOutput::Present : RendererRenderTargetLayouts::EViewportOutput::Offscreen;
+			return bPresent
+				? RenderTargetLayouts::EViewportOutput::Present
+				: RenderTargetLayouts::EViewportOutput::Offscreen;
 		}
 
 		class FStaticMeshVertexShader : public FShader
@@ -287,12 +248,9 @@ namespace Durin
 		};
 
 		FStaticMeshRendererState GStaticMeshState;
-		FRenderResourceGeneration GRendererResourceGeneration;
-		std::optional<uint64> GForceRecompileShaderGeneration;
+		FTextureCubeThumbnailRendererState GTextureCubeThumbnailState;
 		FSkyBoxRendererState GSkyBoxState;
 		FPostProcessRendererState GPostProcessState;
-		FRendererResourceInvalidationController
-			GRendererResourceInvalidationController;
 		auto ReportStaticMeshCreateDiagnostic(
 			const FRenderResourceCreateDiagnostic& Diagnostic) -> void;
 		auto MakeStaticMeshCreateError(
@@ -307,8 +265,8 @@ namespace Durin
 			FShaderCompileOptions& CompileOptions) -> void
 		{
 			CompileOptions.bForceRecompile =
-				GForceRecompileShaderGeneration
-					== GRendererResourceGeneration.Shader;
+				GetRendererResourceCoordinator()
+					.ShouldForceShaderRecompile_RenderThread();
 		}
 
 		auto EnsureSkyBoxResources() -> void
@@ -316,7 +274,7 @@ namespace Durin
 			using FResult =
 				TRenderResourceCreateResult<FSkyBoxRendererState::FPayload>;
 			auto* Payload = GSkyBoxState.Slot.Resolve(
-				GRendererResourceGeneration,
+				GetRendererResourceCoordinator().GetGeneration_RenderThread(),
 				[]() -> FResult {
 					FShaderCompileOptions CompileOptions;
 					ConfigureRendererShaderCompileOptions(CompileOptions);
@@ -362,7 +320,7 @@ namespace Durin
 							EmptyVertexElements);
 					FGraphicsPipelineStateInitializer Initializer;
 					Initializer.RenderTargetLayout =
-						RendererRenderTargetLayouts::MakeSceneTargets();
+						RenderTargetLayouts::MakeSceneTargets();
 					Initializer.BoundShaders.VertexShader =
 						Candidate.VertexShader.GetRHIShader();
 					Initializer.BoundShaders.FragmentShader =
@@ -492,7 +450,7 @@ namespace Durin
 				TRenderResourceCreateResult<
 					FStaticMeshRendererState::FBaseResources>;
 			return GStaticMeshState.BaseResources.Resolve(
-				GRendererResourceGeneration,
+				GetRendererResourceCoordinator().GetGeneration_RenderThread(),
 				[]() -> FResult {
 					FStaticMeshRendererState::FBaseResources Candidate;
 					Candidate.BaseColorSampler =
@@ -521,7 +479,7 @@ namespace Durin
 					FStaticMeshRendererState::FShaderMapPayload>;
 			auto& Entry = GStaticMeshState.ShaderMaps.FindOrAdd(Identity);
 			return Entry.Slot.Resolve(
-				GRendererResourceGeneration,
+				GetRendererResourceCoordinator().GetGeneration_RenderThread(),
 				[&Identity]() -> FResult {
 					FShaderCompileOptions CompileOptions;
 					ConfigureRendererShaderCompileOptions(CompileOptions);
@@ -615,7 +573,7 @@ namespace Durin
 					FStaticMeshRendererState::FPipelinePayload>;
 			auto& Entry = GStaticMeshState.Pipelines.FindOrAdd(Identity);
 			FRenderResourceGeneration PipelineGeneration =
-				GRendererResourceGeneration;
+				GetRendererResourceCoordinator().GetGeneration_RenderThread();
 			const auto* ShaderMapEntry =
 				GStaticMeshState.ShaderMaps.Find(Identity.ShaderMap);
 			check(ShaderMapEntry);
@@ -634,7 +592,7 @@ namespace Durin
 
 					FGraphicsPipelineStateInitializer Initializer;
 					Initializer.RenderTargetLayout =
-						RendererRenderTargetLayouts::MakeSceneTargets();
+						RenderTargetLayouts::MakeSceneTargets();
 					Initializer.BoundShaders.VertexShader =
 						Candidate.VertexShader.GetRHIShader();
 					Initializer.BoundShaders.FragmentShader =
@@ -691,6 +649,106 @@ namespace Durin
 				ReportStaticMeshCreateDiagnostic);
 		}
 
+		auto EnsureTextureCubeThumbnailPipeline() -> void
+		{
+			using FResult = TRenderResourceCreateResult<
+				FTextureCubeThumbnailRendererState::FPayload>;
+			auto* Payload = GTextureCubeThumbnailState.Slot.Resolve(
+				GetRendererResourceCoordinator().GetGeneration_RenderThread(),
+				[]() -> FResult {
+					FShaderCompileOptions CompileOptions;
+					ConfigureRendererShaderCompileOptions(CompileOptions);
+					FShaderType& VertexShaderType =
+						FTextureCubeThumbnailVertexShader::StaticType();
+					FShaderType& FragmentShaderType =
+						FTextureCubeThumbnailFragmentShader::StaticType();
+					std::array<const FShaderType*, 2> ShaderTypes = {
+						&VertexShaderType, &FragmentShaderType};
+					auto ShaderMap = std::make_shared<FShaderMapBase>();
+					std::string ErrorMessage;
+					if (!ShaderMap->InitializeFromShaderTypes(
+							ShaderTypes, CompileOptions, ErrorMessage))
+						return FResult::Failure(MakeStaticMeshCreateError(
+							ERenderResourceCreateErrorCategory::ShaderCompile,
+							"TextureCubeThumbnail",
+							"default",
+							std::move(ErrorMessage),
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Manual));
+					auto* VertexShader =
+						static_cast<FTextureCubeThumbnailVertexShader*>(
+							ShaderMap->GetShader(&VertexShaderType));
+					auto* FragmentShader =
+						static_cast<FTextureCubeThumbnailFragmentShader*>(
+							ShaderMap->GetShader(&FragmentShaderType));
+					if (VertexShader == nullptr || FragmentShader == nullptr)
+						return FResult::Failure(MakeStaticMeshCreateError(
+							ERenderResourceCreateErrorCategory::ShaderBinding,
+							"TextureCubeThumbnail",
+							"default",
+							"Compiled shader map is missing a typed shader.",
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Manual));
+					FTextureCubeThumbnailRendererState::FPayload Candidate;
+					Candidate.ShaderMap = std::move(ShaderMap);
+					Candidate.VertexShader =
+						TShaderRef<FTextureCubeThumbnailVertexShader>(
+							VertexShader, Candidate.ShaderMap.get());
+					Candidate.FragmentShader =
+						TShaderRef<FTextureCubeThumbnailFragmentShader>(
+							FragmentShader, Candidate.ShaderMap.get());
+					const FVertexDeclarationElementList VertexDeclElements =
+						GetStaticMeshVertexDeclarationElements();
+					Candidate.VertexDeclaration =
+						GDynamicRHI->RHICreateVertexDeclaration(
+							VertexDeclElements);
+					FGraphicsPipelineStateInitializer Initializer;
+					Initializer.RenderTargetLayout =
+						RenderTargetLayouts::MakeSceneTargets();
+					Initializer.BoundShaders.VertexShader =
+						Candidate.VertexShader.GetRHIShader();
+					Initializer.BoundShaders.FragmentShader =
+						Candidate.FragmentShader.GetRHIShader();
+					Initializer.VertexDeclaration =
+						Candidate.VertexDeclaration;
+					Initializer.bEnableAlphaBlend = false;
+					Initializer.bEnableDepthTest = true;
+					Initializer.bEnableDepthWrite = true;
+					Initializer.bEnableBackFaceCulling = false;
+					Initializer.PipelineLayout =
+						Candidate.ShaderMap->GetMergedPipelineLayout();
+					Candidate.PipelineState =
+						GDynamicRHI->RHICreateGraphicsPipelineState(
+							"TextureCubeThumbnailPipeline", Initializer);
+					Candidate.Sampler =
+						RHICreateSampler(FRHISamplerDesc::LinearClamp());
+					if (Candidate.VertexDeclaration == nullptr
+						|| Candidate.PipelineState == nullptr
+						|| Candidate.Sampler == nullptr)
+						return FResult::Failure(MakeStaticMeshCreateError(
+							ERenderResourceCreateErrorCategory::RHIResource,
+							"TextureCubeThumbnail",
+							"default",
+							"RHI resource creation returned null.",
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Device
+								| ERenderResourceGenerationDependency::Manual));
+					return FResult::Success(std::move(Candidate));
+				},
+				ReportStaticMeshCreateDiagnostic);
+			if (Payload == nullptr)
+				return;
+			GTextureCubeThumbnailState.ShaderMap = Payload->ShaderMap;
+			GTextureCubeThumbnailState.VertexShader = Payload->VertexShader;
+			GTextureCubeThumbnailState.FragmentShader =
+				Payload->FragmentShader;
+			GTextureCubeThumbnailState.VertexDeclaration =
+				Payload->VertexDeclaration;
+			GTextureCubeThumbnailState.PipelineState =
+				Payload->PipelineState;
+			GTextureCubeThumbnailState.Sampler = Payload->Sampler;
+		}
+
 		auto CreatePostProcessPipeline(
 			FName PipelineName,
 			FRHIShader* VertexShader,
@@ -716,7 +774,7 @@ namespace Durin
 			using FPayload = FPostProcessRendererState::FPayload;
 			using FResult = TRenderResourceCreateResult<FPayload>;
 			auto* Payload = GPostProcessState.Slot.Resolve(
-				GRendererResourceGeneration,
+				GetRendererResourceCoordinator().GetGeneration_RenderThread(),
 				[&CommandList]() -> FResult {
 					FShaderCompileOptions CompileOptions;
 					ConfigureRendererShaderCompileOptions(CompileOptions);
@@ -799,21 +857,21 @@ namespace Durin
 							Candidate.FXAAShaderMap.get());
 					FVertexDeclarationElementList VertexDeclElements;
 					constexpr uint32 VertexStride =
-						sizeof(RendererFullscreenGeometry::FVertex);
+						sizeof(FFullscreenGeometryResources::FVertex);
 					VertexDeclElements[0] = FVertexElement(
 						0,
 						offsetof(
-							RendererFullscreenGeometry::FVertex, Position),
+							FFullscreenGeometryResources::FVertex, Position),
 						EVertexElementType::Float2, 0, VertexStride);
 					VertexDeclElements[1] = FVertexElement(
 						0,
-						offsetof(RendererFullscreenGeometry::FVertex, UV),
+						offsetof(FFullscreenGeometryResources::FVertex, UV),
 						EVertexElementType::Float2, 1, VertexStride);
 					Candidate.VertexDeclaration =
 						GDynamicRHI->RHICreateVertexDeclaration(
 							VertexDeclElements);
-					if (!RendererFullscreenGeometry::EnsureResources(
-							CommandList))
+					if (!GetFullscreenGeometryResources()
+							.EnsureResources_RenderThread(CommandList))
 						return FResult::Failure(MakeStaticMeshCreateError(
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"PostProcess",
@@ -836,50 +894,50 @@ namespace Durin
 						Candidate.CopyVertexShader.GetRHIShader(),
 						Candidate.CopyFragmentShader.GetRHIShader(),
 						Candidate.CopyShaderMap->GetMergedPipelineLayout(),
-						RendererRenderTargetLayouts::
+						RenderTargetLayouts::
 							MakeScenePostProcessOutput());
 					Candidate.FXAAIntermediatePipelineState = MakePipeline(
 						"PostProcessFXAAIntermediatePipeline",
 						Candidate.FXAAVertexShader.GetRHIShader(),
 						Candidate.FXAAFragmentShader.GetRHIShader(),
 						Candidate.FXAAShaderMap->GetMergedPipelineLayout(),
-						RendererRenderTargetLayouts::
+						RenderTargetLayouts::
 							MakeScenePostProcessOutput());
 					Candidate.CopyOffscreenPipelineState = MakePipeline(
 						"PostProcessCopyOffscreenPipeline",
 						Candidate.CopyVertexShader.GetRHIShader(),
 						Candidate.CopyFragmentShader.GetRHIShader(),
 						Candidate.CopyShaderMap->GetMergedPipelineLayout(),
-						RendererRenderTargetLayouts::
+						RenderTargetLayouts::
 							MakeFinalScenePostProcessOutput(
-								RendererRenderTargetLayouts::
+								RenderTargetLayouts::
 									EViewportOutput::Offscreen));
 					Candidate.CopyPresentPipelineState = MakePipeline(
 						"PostProcessCopyPresentPipeline",
 						Candidate.CopyVertexShader.GetRHIShader(),
 						Candidate.CopyFragmentShader.GetRHIShader(),
 						Candidate.CopyShaderMap->GetMergedPipelineLayout(),
-						RendererRenderTargetLayouts::
+						RenderTargetLayouts::
 							MakeFinalScenePostProcessOutput(
-								RendererRenderTargetLayouts::
+								RenderTargetLayouts::
 									EViewportOutput::Present));
 					Candidate.FXAAOffscreenPipelineState = MakePipeline(
 						"PostProcessFXAAOffscreenPipeline",
 						Candidate.FXAAVertexShader.GetRHIShader(),
 						Candidate.FXAAFragmentShader.GetRHIShader(),
 						Candidate.FXAAShaderMap->GetMergedPipelineLayout(),
-						RendererRenderTargetLayouts::
+						RenderTargetLayouts::
 							MakeFinalScenePostProcessOutput(
-								RendererRenderTargetLayouts::
+								RenderTargetLayouts::
 									EViewportOutput::Offscreen));
 					Candidate.FXAAPresentPipelineState = MakePipeline(
 						"PostProcessFXAAPresentPipeline",
 						Candidate.FXAAVertexShader.GetRHIShader(),
 						Candidate.FXAAFragmentShader.GetRHIShader(),
 						Candidate.FXAAShaderMap->GetMergedPipelineLayout(),
-						RendererRenderTargetLayouts::
+						RenderTargetLayouts::
 							MakeFinalScenePostProcessOutput(
-								RendererRenderTargetLayouts::
+								RenderTargetLayouts::
 									EViewportOutput::Present));
 					if (Candidate.VertexDeclaration == nullptr
 						|| Candidate.SceneColorSampler == nullptr
@@ -1157,8 +1215,10 @@ namespace Durin
 						: GPostProcessState.CopyOffscreenPipelineState);
 			}
 			if (PipelineState == nullptr
-				|| RendererFullscreenGeometry::GetVertexBuffer() == nullptr
-				|| RendererFullscreenGeometry::GetIndexBuffer() == nullptr)
+				|| GetFullscreenGeometryResources()
+					.GetVertexBuffer_RenderThread() == nullptr
+				|| GetFullscreenGeometryResources()
+					.GetIndexBuffer_RenderThread() == nullptr)
 			{
 				return;
 			}
@@ -1167,9 +1227,14 @@ namespace Durin
 			CommandList.SetViewport(0.0f, 0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height), 1.0f);
 			CommandList.SetScissor(0.0f, 0.0f, static_cast<float>(Width), static_cast<float>(Height));
 			CommandList.BindVertexBuffer(
-				0, RendererFullscreenGeometry::GetVertexBuffer(), 0);
+				0,
+				GetFullscreenGeometryResources()
+					.GetVertexBuffer_RenderThread(),
+				0);
 			CommandList.BindIndexBuffer(
-				RendererFullscreenGeometry::GetIndexBuffer(), 0);
+				GetFullscreenGeometryResources()
+					.GetIndexBuffer_RenderThread(),
+				0);
 
 			if (bEnableFXAA)
 			{
@@ -1226,89 +1291,48 @@ namespace Durin
 		}
 	}
 
-	auto GetDefaultTexture_RenderThread(EDefaultTexture Texture) -> FRHITexture*
-	{
-		check(IsInRenderingThread());
-		switch (Texture)
-		{
-		case EDefaultTexture::White: return GDefaultTextures.White;
-		case EDefaultTexture::Black: return GDefaultTextures.Black;
-		case EDefaultTexture::FlatNormal: return GDefaultTextures.FlatNormal;
-		}
-		return GDefaultTextures.White;
-	}
-
-	auto ResolveTexture_RenderThread(
-		const FRHITextureReferenceRef& TextureReference,
-		EDefaultTexture Fallback) -> FRHITexture*
-	{
-		check(IsInRenderingThread());
-		if (TextureReference != nullptr)
-		{
-			if (FRHITexture* Texture =
-				TextureReference->GetReferencedTexture_RenderThread())
-			{
-				return Texture;
-			}
-		}
-		return GetDefaultTexture_RenderThread(Fallback);
-	}
-
-	auto GetDefaultCubeTexture_RenderThread() -> FRHITexture*
-	{
-		check(IsInRenderingThread());
-		return GDefaultTextures.BlackCube;
-	}
-
 	static auto ApplyRendererResourceInvalidation_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		ERendererResourceInvalidationCause Cause) -> void
 	{
 		check(IsInRenderingThread());
-		switch (Cause)
-		{
-		case ERendererResourceInvalidationCause::ShaderChanged:
-		case ERendererResourceInvalidationCause::ShaderAll:
-			GRendererResourceGeneration.Advance(
-				ERenderResourceGenerationDependency::Shader);
-			GForceRecompileShaderGeneration =
-				Cause == ERendererResourceInvalidationCause::ShaderAll
-					? std::optional<uint64>(
-						GRendererResourceGeneration.Shader)
-					: std::nullopt;
-			RendererEditorAssistance::InvalidateShaderResources(
-				Cause == ERendererResourceInvalidationCause::ShaderAll);
-			break;
-		case ERendererResourceInvalidationCause::Device:
-		{
-			FRenderResourceGeneration Generation =
-				GRendererResourceGeneration;
-			Generation.Advance(
-				ERenderResourceGenerationDependency::Device);
-			GDefaultTextures = {};
-			GStaticMeshState = {};
-			GSkyBoxState.Slot.Reset();
-			GSkyBoxState = {};
-			GPostProcessState.Slot.Reset();
-			GPostProcessState = {};
-			RendererEditorAssistance::InvalidateDeviceResources();
-			GRendererResourceGeneration = Generation;
-			InitializeDefaultTextures_RenderThread(CommandList);
-			break;
-		}
-		case ERendererResourceInvalidationCause::ManualRetry:
-			GRendererResourceGeneration.Advance(
-				ERenderResourceGenerationDependency::Manual);
-			RendererEditorAssistance::RetryFailedResources();
-			break;
-		}
-
-		DURIN_INFO(
-			"Renderer resource invalidation applied: cause={}, generation={}/{}/{}; reconstruction is demand-driven",
-			static_cast<uint8>(Cause),
-			GRendererResourceGeneration.Shader,
-			GRendererResourceGeneration.Device,
-			GRendererResourceGeneration.Manual);
+		GetRendererResourceCoordinator().Apply_RenderThread(
+			Cause,
+			{
+				.InvalidateShaderResources =
+					[](bool bForceRecompile) {
+						RendererEditorAssistance::InvalidateShaderResources(
+							bForceRecompile);
+					},
+				.ReleaseDeviceResources =
+					[] {
+						GetDefaultTextureResources()
+							.ReleaseResources_RenderThread();
+						GStaticMeshState = {};
+						GTextureCubeThumbnailState.Slot.Reset();
+						GTextureCubeThumbnailState = {};
+						GSkyBoxState.Slot.Reset();
+						GSkyBoxState = {};
+						GPostProcessState.Slot.Reset();
+						GPostProcessState = {};
+						RendererEditorAssistance::
+							InvalidateDeviceResources();
+						GetFullscreenGeometryResources()
+							.ReleaseResources_RenderThread();
+					},
+				.RecreateStartupResources =
+					[&CommandList] {
+						check(GDynamicRHI != nullptr);
+						GetDefaultTextureResources()
+							.Initialize_RenderThread(CommandList);
+					},
+				.RetryFailedResources =
+					[] {
+						RendererEditorAssistance::RetryFailedResources();
+						GetFullscreenGeometryResources()
+							.RetryFailedResources_RenderThread();
+					},
+			});
 	}
 
 	static auto EnqueueRendererResourceInvalidation(
@@ -1321,28 +1345,23 @@ namespace Durin
 			});
 	}
 
-	auto RequestRendererDeviceInvalidation() -> FConsoleCommandResult
-	{
-		return GRendererResourceInvalidationController.Request(
-			ERendererResourceInvalidationCause::Device);
-	}
+	FRendererModule::FRendererModule() = default;
 
-	auto GetRendererResourceInvalidationSnapshot_RenderThread()
-		-> FRendererResourceInvalidationSnapshot
-	{
-		check(IsInRenderingThread());
-		return {
-			.Generation = GRendererResourceGeneration,
-			.bForceShaderRecompile =
-				GForceRecompileShaderGeneration
-					== GRendererResourceGeneration.Shader,
-		};
-	}
+	FRendererModule::~FRendererModule() = default;
 
 	auto FRendererModule::StartupModule() -> void
 	{
+		check(SharedResources == nullptr);
+		SharedResources = std::make_unique<FSharedResources>();
+		SetActiveRendererResourceCoordinator(
+			&SharedResources->Coordinator);
+		SetActiveDefaultTextureResources(
+			&SharedResources->DefaultTextures);
+		SetActiveFullscreenGeometryResources(
+			&SharedResources->FullscreenGeometry);
+
 		const bool bCommandsRegistered =
-			GRendererResourceInvalidationController.Start(
+			SharedResources->Coordinator.Start(
 				FConsoleCommandRegistry::Get(),
 				[](ERendererResourceInvalidationCause Cause) {
 					EnqueueRendererResourceInvalidation(Cause);
@@ -1359,32 +1378,40 @@ namespace Durin
 		{
 			ENQUEUE_RENDER_COMMAND(InitializeDefaultTextures)(
 				[](FRHICommandListImmediate& CommandList) {
-					InitializeDefaultTextures_RenderThread(CommandList);
+					GetDefaultTextureResources()
+						.Initialize_RenderThread(CommandList);
 				});
 		}
 	}
 
-	static auto ReleaseRendererResources() -> void
-	{
-		ENQUEUE_RENDER_COMMAND(ReleaseRendererResources)([](FRHICommandListImmediate&) {
-			GDefaultTextures = {};
-			GStaticMeshState = {};
-			GRendererResourceGeneration = {};
-			GForceRecompileShaderGeneration.reset();
-			GSkyBoxState.Slot.Reset();
-			GSkyBoxState = {};
-			RendererEditorAssistance::ReleaseResources();
-			GPostProcessState.Slot.Reset();
-			GPostProcessState = {};
-			RendererFullscreenGeometry::ReleaseResources();
-		});
-	}
-
 	auto FRendererModule::ShutdownModule() -> void
 	{
-		GRendererResourceInvalidationController.Stop();
-		ReleaseRendererResources();
+		if (SharedResources == nullptr)
+		{
+			return;
+		}
+		SharedResources->Coordinator.Stop();
+		FSharedResources* Resources = SharedResources.get();
+		ENQUEUE_RENDER_COMMAND(ReleaseRendererResources)(
+			[Resources](FRHICommandListImmediate&) {
+				check(IsInRenderingThread());
+				Resources->DefaultTextures.ReleaseResources_RenderThread();
+				GStaticMeshState = {};
+				Resources->Coordinator.ReleaseResources_RenderThread();
+				GTextureCubeThumbnailState.Slot.Reset();
+				GTextureCubeThumbnailState = {};
+				GSkyBoxState.Slot.Reset();
+				GSkyBoxState = {};
+				RendererEditorAssistance::ReleaseResources();
+				GPostProcessState.Slot.Reset();
+				GPostProcessState = {};
+				Resources->FullscreenGeometry.ReleaseResources_RenderThread();
+			});
 		FlushRenderingCommands();
+		SetActiveFullscreenGeometryResources(nullptr);
+		SetActiveDefaultTextureResources(nullptr);
+		SetActiveRendererResourceCoordinator(nullptr);
+		SharedResources.reset();
 	}
 
 	auto FRendererModule::CreateScene() -> std::unique_ptr<IScene>
@@ -1402,7 +1429,7 @@ namespace Durin
 		{
 			return;
 		}
-		const RendererRenderTargetLayouts::EViewportOutput ViewportOutput =
+		const RenderTargetLayouts::EViewportOutput ViewportOutput =
 			GetViewportOutput(bPresentOutput);
 		const RendererEditorAssistance::FRequest EditorAssistanceRequest =
 			RendererEditorAssistance::AnalyzeRequest(View, ViewportOutput);
@@ -1438,7 +1465,8 @@ namespace Durin
 			RenderView.ViewportY = (Height - RenderView.ViewportHeight) / 2;
 		}
 		FRHIRenderPassInfo ScenePassInfo{};
-		ScenePassInfo.RenderTargetLayout = RendererRenderTargetLayouts::MakeSceneTargets();
+		ScenePassInfo.RenderTargetLayout =
+			RenderTargetLayouts::MakeSceneTargets();
 		ScenePassInfo.ColorRenderTargets[0] = SceneColor;
 		ScenePassInfo.DepthStencilRenderTarget = SceneTargets->Depth;
 		ScenePassInfo.ColorClearValues[0] = FClearValueBinding(
@@ -1458,8 +1486,8 @@ namespace Durin
 			PreparedEditorAssistance.HasDrawableOperation();
 		FRHIRenderPassInfo PostProcessPassInfo{};
 		PostProcessPassInfo.RenderTargetLayout = bHasEditorAssistance
-			? RendererRenderTargetLayouts::MakeScenePostProcessOutput()
-			: RendererRenderTargetLayouts::MakeFinalScenePostProcessOutput(
+			? RenderTargetLayouts::MakeScenePostProcessOutput()
+			: RenderTargetLayouts::MakeFinalScenePostProcessOutput(
 				ViewportOutput);
 		PostProcessPassInfo.ColorRenderTargets[0] = OutputTarget;
 		PostProcessPassInfo.ColorClearValues[0] = FClearValueBinding(
@@ -1473,7 +1501,7 @@ namespace Durin
 
 		FRHIRenderPassInfo EditorAssistancePassInfo{};
 		EditorAssistancePassInfo.RenderTargetLayout =
-			RendererRenderTargetLayouts::MakeEditorAssistanceOutput(ViewportOutput);
+			RenderTargetLayouts::MakeEditorAssistanceOutput(ViewportOutput);
 		EditorAssistancePassInfo.ColorRenderTargets[0] = OutputTarget;
 		EditorAssistancePassInfo.DepthStencilRenderTarget = SceneTargets->Depth;
 		CommandList.BeginRenderPass(EditorAssistancePassInfo,

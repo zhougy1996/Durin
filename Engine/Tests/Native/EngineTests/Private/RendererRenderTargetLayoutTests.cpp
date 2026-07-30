@@ -1,10 +1,10 @@
 #include <gtest/gtest.h>
 
-#include "RendererRenderTargetLayouts.h"
+#include "Resources/RenderTargetLayouts.h"
 
 namespace Durin
 {
-	using namespace RendererRenderTargetLayouts;
+	using namespace RenderTargetLayouts;
 
 	TEST(FRendererRenderTargetLayoutTests, SceneTargetsPreserveDepthForEditorAssistance)
 	{

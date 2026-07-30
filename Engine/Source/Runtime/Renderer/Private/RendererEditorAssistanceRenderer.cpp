@@ -4,7 +4,7 @@
 #include "Misc/AssertionMacros.h"
 #include "RHI.h"
 #include "RHICommandList.h"
-#include "RendererFullscreenGeometry.h"
+#include "Resources/FullscreenGeometryResources.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
 
@@ -962,10 +962,10 @@ namespace Durin::RendererEditorAssistance
 					Elements[0] = FVertexElement(
 						0,
 						offsetof(
-							RendererFullscreenGeometry::FVertex, Position),
+							FFullscreenGeometryResources::FVertex, Position),
 						EVertexElementType::Float2,
 						0,
-						sizeof(RendererFullscreenGeometry::FVertex));
+						sizeof(FFullscreenGeometryResources::FVertex));
 					Candidate.VertexDeclaration =
 						GDynamicRHI->RHICreateVertexDeclaration(Elements);
 					if (Candidate.VertexDeclaration == nullptr)
@@ -999,11 +999,11 @@ namespace Durin::RendererEditorAssistance
 		}
 
 		auto GetOutputName(
-			RendererRenderTargetLayouts::EViewportOutput Output)
+			RenderTargetLayouts::EViewportOutput Output)
 			-> std::string_view
 		{
 			return Output
-					== RendererRenderTargetLayouts::EViewportOutput::Present
+					== RenderTargetLayouts::EViewportOutput::Present
 				? "Present"
 				: "Offscreen";
 		}
@@ -1121,7 +1121,7 @@ namespace Durin::RendererEditorAssistance
 						break;
 					}
 					Initializer.RenderTargetLayout =
-						RendererRenderTargetLayouts::
+						RenderTargetLayouts::
 							MakeEditorAssistanceOutput(Key.Output);
 					Initializer.bEnableAlphaBlend = true;
 					Initializer.bEnableBackFaceCulling = false;
@@ -1412,14 +1412,21 @@ namespace Durin::RendererEditorAssistance
 				FindPreparedPipeline(
 					Prepared, EFeature::EditorGrid, EDepthMode::Visible);
 			if (Pipeline == nullptr
-				|| RendererFullscreenGeometry::GetVertexBuffer() == nullptr
-				|| RendererFullscreenGeometry::GetIndexBuffer() == nullptr)
+				|| GetFullscreenGeometryResources()
+					.GetVertexBuffer_RenderThread() == nullptr
+				|| GetFullscreenGeometryResources()
+					.GetIndexBuffer_RenderThread() == nullptr)
 				return;
 			CommandList.SetGraphicsPipelineState(*Pipeline);
 			CommandList.BindVertexBuffer(
-				0, RendererFullscreenGeometry::GetVertexBuffer(), 0);
+				0,
+				GetFullscreenGeometryResources()
+					.GetVertexBuffer_RenderThread(),
+				0);
 			CommandList.BindIndexBuffer(
-				RendererFullscreenGeometry::GetIndexBuffer(), 0);
+				GetFullscreenGeometryResources()
+					.GetIndexBuffer_RenderThread(),
+				0);
 			FEditorGridFragmentShader::FParameters Parameters;
 			Parameters.Grid = CommandList.AllocateDynamicUniformBuffer(
 				&*Prepared.EditorGridUniform,
@@ -1734,13 +1741,11 @@ namespace Durin::RendererEditorAssistance
 		Generation.Advance(ERenderResourceGenerationDependency::Device);
 		ReleaseResources();
 		GState.Generation = Generation;
-		RendererFullscreenGeometry::ReleaseResources();
 	}
 
 	auto RetryFailedResources() -> void
 	{
 		GState.Generation.Advance(
 			ERenderResourceGenerationDependency::Manual);
-		RendererFullscreenGeometry::RetryFailedResources();
 	}
 } // namespace Durin::RendererEditorAssistance

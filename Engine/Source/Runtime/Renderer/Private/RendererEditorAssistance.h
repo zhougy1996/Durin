@@ -5,7 +5,7 @@
 #include "RHIResources.h"
 #include "RenderResourceCreation.h"
 #include "RendererAPI.h"
-#include "RendererRenderTargetLayouts.h"
+#include "Resources/RenderTargetLayouts.h"
 #include "SceneView.h"
 
 namespace Durin
@@ -43,8 +43,8 @@ namespace Durin::RendererEditorAssistance
 	struct FPipelineKey
 	{
 		EFeature Feature = EFeature::EditorGrid;
-		RendererRenderTargetLayouts::EViewportOutput Output =
-			RendererRenderTargetLayouts::EViewportOutput::Offscreen;
+		RenderTargetLayouts::EViewportOutput Output =
+			RenderTargetLayouts::EViewportOutput::Offscreen;
 		EDepthMode DepthMode = EDepthMode::Visible;
 		EGizmoTopology GizmoTopology = EGizmoTopology::NotApplicable;
 
@@ -54,8 +54,8 @@ namespace Durin::RendererEditorAssistance
 	// Records assistance demand derived from one immutable scene view.
 	struct FRequest
 	{
-		RendererRenderTargetLayouts::EViewportOutput Output =
-			RendererRenderTargetLayouts::EViewportOutput::Offscreen;
+		RenderTargetLayouts::EViewportOutput Output =
+			RenderTargetLayouts::EViewportOutput::Offscreen;
 		bool bEditorGrid = false;
 		bool bSolidGizmos = false;
 		bool bWireGizmos = false;
@@ -106,7 +106,7 @@ namespace Durin::RendererEditorAssistance
 
 	RENDERER_API auto AnalyzeRequest(
 		const FSceneView& View,
-		RendererRenderTargetLayouts::EViewportOutput Output) -> FRequest;
+		RenderTargetLayouts::EViewportOutput Output) -> FRequest;
 	RENDERER_API auto GetRequiredPipelineKeys(const FRequest& Request)
 		-> std::vector<FPipelineKey>;
 	RENDERER_API auto BuildDrawableOperations(

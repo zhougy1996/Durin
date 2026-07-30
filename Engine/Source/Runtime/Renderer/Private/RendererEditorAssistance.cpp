@@ -29,7 +29,7 @@ namespace Durin::RendererEditorAssistance
 
 	auto AnalyzeRequest(
 		const FSceneView& View,
-		RendererRenderTargetLayouts::EViewportOutput Output) -> FRequest
+		RenderTargetLayouts::EViewportOutput Output) -> FRequest
 	{
 		FRequest Request;
 		Request.Output = Output;

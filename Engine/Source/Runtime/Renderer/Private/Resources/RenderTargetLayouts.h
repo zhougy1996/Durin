@@ -3,7 +3,7 @@
 #include "RendererAPI.h"
 #include "RHIResources.h"
 
-namespace Durin::RendererRenderTargetLayouts
+namespace Durin::RenderTargetLayouts
 {
 	// Identifies the renderer output layout used for offscreen or presented views.
 	enum class EViewportOutput : uint8
@@ -17,4 +17,4 @@ namespace Durin::RendererRenderTargetLayouts
 	RENDERER_API auto MakeFinalScenePostProcessOutput(EViewportOutput Output)
 		-> FRHIRenderTargetLayout;
 	RENDERER_API auto MakeEditorAssistanceOutput(EViewportOutput Output) -> FRHIRenderTargetLayout;
-} // namespace Durin::RendererRenderTargetLayouts
+} // namespace Durin::RenderTargetLayouts

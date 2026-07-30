@@ -8,12 +8,19 @@ namespace Durin
 	class FRendererModule final : public IRendererModule
 	{
 	public:
+		RENDERER_API FRendererModule();
+		RENDERER_API ~FRendererModule() override;
+
 		RENDERER_API auto StartupModule() -> void override;
 		RENDERER_API auto ShutdownModule() -> void override;
 		RENDERER_API auto CreateScene() -> std::unique_ptr<IScene> override;
 		RENDERER_API auto RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void override;
 
 	private:
+		struct FSharedResources;
+
 		auto RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* RenderTarget) -> void;
+
+		std::unique_ptr<FSharedResources> SharedResources;
 	};
 }

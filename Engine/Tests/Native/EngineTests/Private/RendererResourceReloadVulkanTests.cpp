@@ -10,7 +10,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "RendererModule.h"
-#include "RendererResourceInvalidation.h"
+#include "Resources/RendererResourceCoordinator.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderPaths.h"
 
@@ -156,6 +156,66 @@ float4 FragmentMain() : SV_Target
 		RHIInit();
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
+
+		FRendererResourceCoordinator OwnershipCoordinator;
+		std::vector<std::string> OwnershipEvents;
+		FRendererResourceInvalidationSnapshot OwnershipSnapshot;
+		struct FValidateCoordinatorOwnership
+		{
+			static constexpr auto GetName() -> const char*
+			{
+				return "ValidateCoordinatorOwnership";
+			}
+		};
+		EnqueueRenderCommand<FValidateCoordinatorOwnership>(
+			[&OwnershipCoordinator, &OwnershipEvents, &OwnershipSnapshot](
+				FRHICommandListImmediate&) {
+				const FRendererResourceInvalidationTargets Targets{
+					.InvalidateShaderResources =
+						[&OwnershipEvents](bool bForceRecompile) {
+							OwnershipEvents.push_back(
+								bForceRecompile
+									? "shader-all"
+									: "shader-changed");
+						},
+					.ReleaseDeviceResources =
+						[&OwnershipEvents] {
+							OwnershipEvents.push_back("device-release");
+						},
+					.RecreateStartupResources =
+						[&OwnershipEvents] {
+							OwnershipEvents.push_back("startup-recreate");
+						},
+					.RetryFailedResources =
+						[&OwnershipEvents] {
+							OwnershipEvents.push_back("manual-retry");
+						},
+				};
+				OwnershipCoordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ShaderAll,
+					Targets);
+				OwnershipCoordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::Device,
+					Targets);
+				OwnershipCoordinator.Apply_RenderThread(
+					ERendererResourceInvalidationCause::ManualRetry,
+					Targets);
+				OwnershipSnapshot =
+					OwnershipCoordinator.GetSnapshot_RenderThread();
+			});
+		FlushRenderingCommands();
+		EXPECT_EQ(OwnershipSnapshot.Generation.Shader, 1);
+		EXPECT_EQ(OwnershipSnapshot.Generation.Device, 1);
+		EXPECT_EQ(OwnershipSnapshot.Generation.Manual, 1);
+		EXPECT_TRUE(OwnershipSnapshot.bForceShaderRecompile);
+		const std::array<std::string, 4> ExpectedOwnershipEvents{
+			"shader-all",
+			"device-release",
+			"startup-recreate",
+			"manual-retry",
+		};
+		EXPECT_TRUE(std::ranges::equal(
+			OwnershipEvents, ExpectedOwnershipEvents));
 
 		struct FBeginReloadValidationFrame
 		{

@@ -9,12 +9,13 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete from clean implementation baseline
-`3092da1f58bd89126be49db2bc9a00d3c2673af9`. No source refactoring has begun.
-The frozen owner inventory below assigns every current persistent state object,
-creation slot, cache, callback, shader, helper, proxy traversal, and release
-action to one Stage 1 through 6 destination. The target filenames and public
-rename consumer list have no unresolved ownership decisions.
+Stages 0 and 1 are complete. Stage 1 landed against clean baseline
+`15e80b30595ba3ddeedcca39b2ca75f3ade02f1b`: renderer generations, command
+admission, default textures, fullscreen geometry, and render-target layouts now
+have explicit owners or a pure resource helper beneath `Private/Resources/`.
+The module owns the stateful shared resources through a private lifecycle
+container, and the remaining active globals in those resource files are
+non-owning adapters cleared only after the shutdown flush.
 
 The adjacent-plan handoffs were reconciled against the current Git history:
 
@@ -33,11 +34,14 @@ The adjacent-plan handoffs were reconciled against the current Git history:
   `551cbfe130d94ff82376bcbba6dc0377883ff902`
   (`feat(material): bind scene proxies to material proxies`).
 
-Stage 1 is next. Its bounded working set is the existing default-texture,
-resource-invalidation, fullscreen-geometry, and render-target-layout sources;
-their focused tests; the Renderer module lifecycle adapter; the new
-`Private/Resources/` owners; and this plan. It does not include feature shader,
-draw, scene-proxy, StaticMesh render-data, or material render-proxy changes.
+Stage 2 is next. Its bounded working set is the SkyBox, TextureCube thumbnail,
+and Post Process declarations, creation slots, payloads, and draw helpers
+currently in `RendererModule.cpp`; `SkyBoxRendering.*`; the shared fullscreen
+geometry and render-target layout interfaces; their focused renderer,
+thumbnail, SkyBox, post-process, and Vulkan tests; the new matching files under
+`Private/Renderers/`; and this plan. It excludes StaticMesh, Editor Assistance,
+scene-proxy ownership, scene-order changes, asset render data, and material
+render-proxy behavior.
 
 The current Renderer module has two dominant implementation units:
 `RendererModule.cpp` combines module lifecycle, default textures, renderer
@@ -485,21 +489,21 @@ Dependencies: stable handoffs from overlapping active-plan stages.
 
 Dependencies: Stage 0.
 
-- [ ] Introduce `FRendererResourceCoordinator` for resource generations,
+- [x] Introduce `FRendererResourceCoordinator` for resource generations,
   force-recompile selection, console-command admission, invalidation
   sequencing, and snapshots.
-- [ ] Convert default texture globals into `FDefaultTextureResources` while
+- [x] Convert default texture globals into `FDefaultTextureResources` while
   preserving the public default texture accessors and render-thread-only
   initialization.
-- [ ] Convert shared fullscreen geometry state into
+- [x] Convert shared fullscreen geometry state into
   `FFullscreenGeometryResources` without assigning it to Post Process or
   Editor Grid exclusively.
-- [ ] Move and rename renderer-private render-target layout helpers to
+- [x] Move and rename renderer-private render-target layout helpers to
   `Resources/RenderTargetLayouts.*`, preserving their pure layout API and
   focused tests.
-- [ ] Make release explicit and idempotent for each new owner; keep destruction
+- [x] Make release explicit and idempotent for each new owner; keep destruction
   after the shutdown flush.
-- [ ] Add focused ownership/lifecycle tests where existing resource-slot tests
+- [x] Add focused ownership/lifecycle tests where existing resource-slot tests
   do not cover moved coordinator behavior.
 
 #### Acceptance Gate
@@ -507,6 +511,36 @@ Dependencies: Stage 0.
 - Shared resources and generation state have explicit owners, the development
   commands and retry snapshots are behaviorally unchanged, and no feature
   renderer has gained ownership of a resource shared by another feature.
+
+#### Stage 1 Implementation Handoff
+
+- Baseline: `15e80b30595ba3ddeedcca39b2ca75f3ade02f1b`.
+- Working set: `RendererModule.h/.cpp`, the default-texture, fullscreen
+  geometry, resource-invalidation, and render-target-layout implementations
+  moved or introduced under `Renderer/Private/Resources/`, the direct Editor
+  Assistance consumers of fullscreen geometry and layout types, the four
+  focused renderer test sources, and this plan.
+- Key symbols: `FRendererModule::FSharedResources`,
+  `FRendererResourceCoordinator`,
+  `FRendererResourceInvalidationTargets`, `FDefaultTextureResources`,
+  `FFullscreenGeometryResources`, `RenderTargetLayouts`,
+  `GetRendererResourceCoordinator`, and the unchanged public default-texture
+  and invalidation snapshot forwarding functions.
+- Decisions: the module lifecycle container temporarily composes the three
+  stateful shared owners until `FSceneRenderer` assumes that composition;
+  active resource pointers are non-owning forwarding adapters rather than
+  resource owners. The module remains the temporary explicit invalidation
+  fan-out site. Fullscreen geometry release and retry were removed from Editor
+  Assistance so only the shared owner lifecycle mutates it. Layout helpers
+  remain pure free functions in the narrowed `RenderTargetLayouts` namespace.
+- Open questions: none.
+- Validation: focused `EditorRenderingTests` passed 21 tests across resource
+  invalidation, render-target layouts, and Editor Assistance. The focused
+  Vulkan reload test passed and now verifies coordinator generation ownership
+  plus device release-before-recreate ordering. The complete Tests-profile
+  `all` build and aggregate passed with 807 registered tests, zero failures,
+  and one existing platform-dependent skip; CTest log
+  `Build/.agent-state/logs/20260730-192846-976431-6728-ctest.log`.
 
 ### Stage 2: Extract independent scene feature renderers
 
@@ -750,12 +784,14 @@ commands or output paths that may change.
 - `Engine/Source/Runtime/Renderer/Private/RendererEditorAssistance.h`
 - `Engine/Source/Runtime/Renderer/Private/RendererEditorAssistance.cpp`
 - `Engine/Source/Runtime/Renderer/Private/RendererEditorAssistanceRenderer.cpp`
-- `Engine/Source/Runtime/Renderer/Private/RendererFullscreenGeometry.h`
-- `Engine/Source/Runtime/Renderer/Private/RendererFullscreenGeometry.cpp`
-- `Engine/Source/Runtime/Renderer/Private/RendererRenderTargetLayouts.h`
-- `Engine/Source/Runtime/Renderer/Private/RendererRenderTargetLayouts.cpp`
-- `Engine/Source/Runtime/Renderer/Private/RendererResourceInvalidation.h`
-- `Engine/Source/Runtime/Renderer/Private/RendererResourceInvalidation.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Resources/DefaultTextureResources.h`
+- `Engine/Source/Runtime/Renderer/Private/Resources/DefaultTextureResources.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Resources/FullscreenGeometryResources.h`
+- `Engine/Source/Runtime/Renderer/Private/Resources/FullscreenGeometryResources.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Resources/RenderTargetLayouts.h`
+- `Engine/Source/Runtime/Renderer/Private/Resources/RenderTargetLayouts.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Resources/RendererResourceCoordinator.h`
+- `Engine/Source/Runtime/Renderer/Private/Resources/RendererResourceCoordinator.cpp`
 - `Engine/Source/Runtime/Renderer/Private/RendererResourceSlotCache.h`
 - `Engine/Source/Runtime/Renderer/Private/SkyBoxRendering.h`
 - `Engine/Source/Runtime/Renderer/Private/SkyBoxRendering.cpp`

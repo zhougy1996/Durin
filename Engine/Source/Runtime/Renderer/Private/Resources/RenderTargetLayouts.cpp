@@ -1,6 +1,6 @@
-#include "RendererRenderTargetLayouts.h"
+#include "Resources/RenderTargetLayouts.h"
 
-namespace Durin::RendererRenderTargetLayouts
+namespace Durin::RenderTargetLayouts
 {
 	namespace
 	{
@@ -99,4 +99,4 @@ namespace Durin::RendererRenderTargetLayouts
 		Layout.DepthStencilAttachment = MakePreservedDepthAttachment(ERHIRenderTargetLoadAction::Load);
 		return Layout;
 	}
-} // namespace Durin::RendererRenderTargetLayouts
+} // namespace Durin::RenderTargetLayouts

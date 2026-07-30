@@ -10,7 +10,7 @@ namespace Durin
 	using RendererEditorAssistance::EGizmoTopology;
 	using RendererEditorAssistance::FPipelineKey;
 	using RendererEditorAssistance::FRequest;
-	using RendererRenderTargetLayouts::EViewportOutput;
+	using RenderTargetLayouts::EViewportOutput;
 
 	namespace
 	{

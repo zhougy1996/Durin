@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "RenderResourceCreation.h"
-#include "RendererResourceInvalidation.h"
+#include "Resources/RendererResourceCoordinator.h"
 
 namespace Durin
 {
@@ -9,9 +9,9 @@ namespace Durin
 		CommandsQueueExactCausesAndShutdownRejectsCopiedCallbacks)
 	{
 		FConsoleCommandRegistry Registry;
-		FRendererResourceInvalidationController Controller;
+		FRendererResourceCoordinator Coordinator;
 		std::vector<ERendererResourceInvalidationCause> QueuedCauses;
-		ASSERT_TRUE(Controller.Start(
+		ASSERT_TRUE(Coordinator.Start(
 			Registry,
 			[&QueuedCauses](ERendererResourceInvalidationCause Cause) {
 				QueuedCauses.push_back(Cause);
@@ -47,7 +47,7 @@ namespace Durin
 			&FConsoleCommandDesc::Name);
 		ASSERT_NE(ReloadIt, Registered.end());
 		const FConsoleCommandDesc CopiedReload = *ReloadIt;
-		Controller.Stop();
+		Coordinator.Stop();
 
 		EXPECT_FALSE(
 			Registry.Execute("renderer.reload-shaders changed").bSuccess);
@@ -64,9 +64,9 @@ namespace Durin
 		using FResult = TRenderResourceCreateResult<FPayload>;
 
 		FConsoleCommandRegistry Registry;
-		FRendererResourceInvalidationController Controller;
+		FRendererResourceCoordinator Coordinator;
 		std::vector<ERendererResourceInvalidationCause> QueuedCauses;
-		ASSERT_TRUE(Controller.Start(
+		ASSERT_TRUE(Coordinator.Start(
 			Registry,
 			[&QueuedCauses](ERendererResourceInvalidationCause Cause) {
 				QueuedCauses.push_back(Cause);
@@ -85,7 +85,7 @@ namespace Durin
 		std::weak_ptr<int> OldPayload = *Initial;
 		int Attempts = 1;
 
-		ASSERT_TRUE(Controller.Request(
+		ASSERT_TRUE(Coordinator.Request(
 			ERendererResourceInvalidationCause::Device).bSuccess);
 		EXPECT_NE(
 			Slot.Resolve(Generation, [&Attempts] {
@@ -141,9 +141,9 @@ namespace Durin
 		using FResult = TRenderResourceCreateResult<std::string>;
 
 		FConsoleCommandRegistry Registry;
-		FRendererResourceInvalidationController Controller;
+		FRendererResourceCoordinator Coordinator;
 		std::vector<ERendererResourceInvalidationCause> QueuedCauses;
-		ASSERT_TRUE(Controller.Start(
+		ASSERT_TRUE(Coordinator.Start(
 			Registry,
 			[&QueuedCauses](ERendererResourceInvalidationCause Cause) {
 				QueuedCauses.push_back(Cause);

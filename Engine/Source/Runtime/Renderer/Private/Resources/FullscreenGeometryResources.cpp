@@ -1,34 +1,24 @@
-#include "RendererFullscreenGeometry.h"
+#include "Resources/FullscreenGeometryResources.h"
 
 #include "RHI.h"
 #include "RHICommandList.h"
-#include "RenderResourceCreation.h"
+#include "RenderingThread.h"
 
-namespace Durin::RendererFullscreenGeometry
+namespace Durin
 {
 	namespace
 	{
-		struct FState
-		{
-			struct FPayload
-			{
-				FBufferRHIRef VertexBuffer;
-				FBufferRHIRef IndexBuffer;
-			};
-
-			FRenderResourceGeneration Generation;
-			TRenderResourceCreationSlot<FPayload> Slot{
-				ERenderResourceGenerationDependency::Device};
-		};
-
-		FState GState;
+		FFullscreenGeometryResources* GActiveFullscreenGeometryResources =
+			nullptr;
 	}
 
-	auto EnsureResources(FRHICommandListImmediate& CommandList) -> bool
+	auto FFullscreenGeometryResources::EnsureResources_RenderThread(
+		FRHICommandListImmediate& CommandList) -> bool
 	{
-		using FResult = TRenderResourceCreateResult<FState::FPayload>;
-		return GState.Slot.Resolve(
-			GState.Generation,
+		check(IsInRenderingThread());
+		using FResult = TRenderResourceCreateResult<FPayload>;
+		return Slot.Resolve(
+			Generation,
 			[&CommandList]() -> FResult {
 				const std::array<FVertex, 3> Vertices = {
 					FVertex{FVector2f{-1.0f, -1.0f}, FVector2f{0.0f, 0.0f}},
@@ -36,7 +26,7 @@ namespace Durin::RendererFullscreenGeometry
 					FVertex{FVector2f{-1.0f, 3.0f}, FVector2f{0.0f, 2.0f}},
 				};
 				const std::array<uint32, 3> Indices = {0, 1, 2};
-				FState::FPayload Candidate;
+				FPayload Candidate;
 				FRHIBufferCreateDesc VertexDesc =
 					FRHIBufferCreateDesc::CreateVertex(
 						"RendererFullscreenVertexBuffer",
@@ -64,21 +54,25 @@ namespace Durin::RendererFullscreenGeometry
 					GDynamicRHI->RHICreateBuffer(CommandList, IndexDesc);
 				if (Candidate.VertexBuffer == nullptr
 					|| Candidate.IndexBuffer == nullptr)
+				{
 					return FResult::Failure({
 						.Category =
 							ERenderResourceCreateErrorCategory::RHIResource,
-						.Context = "RendererFullscreenGeometry",
+						.Context = "FullscreenGeometryResources",
 						.Identity = "shared-triangle",
 						.Message = "RHI buffer creation returned null.",
 						.RetryDependencies =
 							ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual,
 					});
+				}
 				return FResult::Success(std::move(Candidate));
 			},
 			[](const FRenderResourceCreateDiagnostic& Diagnostic) {
 				if (!Diagnostic.Error)
+				{
 					return;
+				}
 				if (Diagnostic.Kind
 					== ERenderResourceCreateDiagnosticKind::Recovery)
 				{
@@ -91,29 +85,49 @@ namespace Durin::RendererFullscreenGeometry
 			}) != nullptr;
 	}
 
-	auto GetVertexBuffer() -> const FBufferRHIRef&
+	auto FFullscreenGeometryResources::GetVertexBuffer_RenderThread() const
+		-> const FBufferRHIRef&
 	{
+		check(IsInRenderingThread());
 		static const FBufferRHIRef NullBuffer;
-		const FState::FPayload* Payload = GState.Slot.GetPayload();
+		const FPayload* Payload = Slot.GetPayload();
 		return Payload != nullptr ? Payload->VertexBuffer : NullBuffer;
 	}
 
-	auto GetIndexBuffer() -> const FBufferRHIRef&
+	auto FFullscreenGeometryResources::GetIndexBuffer_RenderThread() const
+		-> const FBufferRHIRef&
 	{
+		check(IsInRenderingThread());
 		static const FBufferRHIRef NullBuffer;
-		const FState::FPayload* Payload = GState.Slot.GetPayload();
+		const FPayload* Payload = Slot.GetPayload();
 		return Payload != nullptr ? Payload->IndexBuffer : NullBuffer;
 	}
 
-	auto RetryFailedResources() -> void
+	auto FFullscreenGeometryResources::RetryFailedResources_RenderThread()
+		-> void
 	{
-		GState.Generation.Advance(
+		check(IsInRenderingThread());
+		Generation.Advance(
 			ERenderResourceGenerationDependency::Manual);
 	}
 
-	auto ReleaseResources() -> void
+	auto FFullscreenGeometryResources::ReleaseResources_RenderThread() -> void
 	{
-		GState.Slot.Reset();
-		GState = {};
+		check(IsInRenderingThread());
+		Slot.Reset();
+		Generation = {};
 	}
-} // namespace Durin::RendererFullscreenGeometry
+
+	auto GetFullscreenGeometryResources()
+		-> FFullscreenGeometryResources&
+	{
+		check(GActiveFullscreenGeometryResources != nullptr);
+		return *GActiveFullscreenGeometryResources;
+	}
+
+	auto SetActiveFullscreenGeometryResources(
+		FFullscreenGeometryResources* Resources) -> void
+	{
+		GActiveFullscreenGeometryResources = Resources;
+	}
+} // namespace Durin
