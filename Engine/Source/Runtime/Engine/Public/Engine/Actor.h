@@ -9,6 +9,22 @@
 namespace Durin
 {
 	class DActorComponent;
+	class DLevel;
+
+	enum class EActorPlayState : uint8
+	{
+		NotBegun,
+		BeginningPlay,
+		Playing,
+		EndingPlay
+	};
+
+	enum class EActorDestructionState : uint8
+	{
+		Alive,
+		Requested,
+		Destroying
+	};
 
 	// Owns a root scene component plus default and runtime-added component lifecycles.
 	DCLASS()
@@ -42,11 +58,16 @@ namespace Durin
 		ENGINE_API auto AttachToActor(AActor* ParentActor, EAttachmentTransformRule Rule = EAttachmentTransformRule::KeepWorld) -> bool;
 		ENGINE_API auto DetachFromActor(EDetachmentTransformRule Rule = EDetachmentTransformRule::KeepWorld) -> bool;
 		ENGINE_API auto GetAttachParentActor() const -> AActor*;
+		ENGINE_API auto DispatchBeginPlay() -> void;
+		ENGINE_API auto RouteEndPlay() -> void;
 		ENGINE_API virtual auto BeginPlay() -> void;
 		ENGINE_API virtual auto Tick(float DeltaSeconds) -> void;
 		ENGINE_API virtual auto EndPlay() -> void;
 		ENGINE_API auto BeginDestroy() -> void override;
-		auto HasBegunPlay() const -> bool { return bHasBegunPlay; }
+		auto HasBegunPlay() const -> bool { return PlayState != EActorPlayState::NotBegun; }
+		auto IsBeginningPlay() const -> bool { return PlayState == EActorPlayState::BeginningPlay; }
+		auto IsEndingPlay() const -> bool { return PlayState == EActorPlayState::EndingPlay; }
+		auto IsBeingDestroyed() const -> bool { return DestructionState != EActorDestructionState::Alive; }
 		auto IsActorTickEnabled() const -> bool { return bTickEnabled; }
 		auto SetActorTickEnabled(bool bEnabled) -> void { bTickEnabled = bEnabled; }
 		auto GetOwnedComponents() const -> const std::vector<TObjectPtr<DActorComponent>>& { return OwnedComponents; }
@@ -139,7 +160,11 @@ namespace Durin
 		DPROPERTY()
 		bool bHidden = false;
 
-		uint8 bHasBegunPlay : 1 = false;
+		EActorPlayState PlayState = EActorPlayState::NotBegun;
+		EActorDestructionState DestructionState = EActorDestructionState::Alive;
+		bool bEndPlayRequested = false;
 		uint8 bTickEnabled : 1 = false;
+
+		friend class DLevel;
 	};
 } // namespace Durin

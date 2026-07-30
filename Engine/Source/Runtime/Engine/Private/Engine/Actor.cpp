@@ -2,9 +2,7 @@
 
 #include "Components/ActorComponent.h"
 #include "Components/SceneComponent.h"
-#if DURIN_WITH_EDITOR
 #include "Engine/Level.h"
-#endif
 
 namespace Durin
 {
@@ -86,7 +84,10 @@ namespace Durin
 			else SetRootComponent(SceneComponent);
 		}
 		Component->RegisterComponent();
-		if (bHasBegunPlay) Component->BeginPlay();
+		if (PlayState == EActorPlayState::BeginningPlay || PlayState == EActorPlayState::Playing)
+		{
+			Component->BeginPlay();
+		}
 		MarkPackageDirty();
 		return Component;
 	}
@@ -176,10 +177,52 @@ namespace Durin
 		return ParentActor != this ? ParentActor : nullptr;
 	}
 
+	auto AActor::DispatchBeginPlay() -> void
+	{
+		if (PlayState != EActorPlayState::NotBegun
+			|| DestructionState != EActorDestructionState::Alive
+			|| IsPendingKill())
+		{
+			return;
+		}
+
+		PlayState = EActorPlayState::BeginningPlay;
+		BeginPlay();
+		if (PlayState == EActorPlayState::BeginningPlay) PlayState = EActorPlayState::Playing;
+
+		if (bEndPlayRequested)
+		{
+			bEndPlayRequested = false;
+			RouteEndPlay();
+		}
+
+		if (DestructionState == EActorDestructionState::Requested)
+		{
+			if (DLevel* Level = Cast<DLevel>(GetOuter())) Level->DestroyActor(this);
+		}
+	}
+
+	auto AActor::RouteEndPlay() -> void
+	{
+		if (PlayState == EActorPlayState::NotBegun || PlayState == EActorPlayState::EndingPlay) return;
+		if (PlayState == EActorPlayState::BeginningPlay)
+		{
+			bEndPlayRequested = true;
+			return;
+		}
+
+		PlayState = EActorPlayState::EndingPlay;
+		EndPlay();
+		if (PlayState == EActorPlayState::EndingPlay) PlayState = EActorPlayState::NotBegun;
+
+		if (DestructionState == EActorDestructionState::Requested)
+		{
+			if (DLevel* Level = Cast<DLevel>(GetOuter())) Level->DestroyActor(this);
+		}
+	}
+
 	auto AActor::BeginPlay() -> void
 	{
-		check(!bHasBegunPlay);
-		bHasBegunPlay = true;
 		for (const TObjectPtr<DActorComponent>& Component : OwnedComponents)
 		{
 			if (Component && Component->IsRegistered() && !Component->HasBegunPlay()) Component->BeginPlay();
@@ -196,17 +239,15 @@ namespace Durin
 
 	auto AActor::EndPlay() -> void
 	{
-		if (!bHasBegunPlay) return;
 		for (auto It = OwnedComponents.rbegin(); It != OwnedComponents.rend(); ++It)
 		{
 			if (*It && (*It)->HasBegunPlay()) (*It)->EndPlay();
 		}
-		bHasBegunPlay = false;
 	}
 
 	auto AActor::BeginDestroy() -> void
 	{
-		EndPlay();
+		RouteEndPlay();
 		Super::BeginDestroy();
 	}
 

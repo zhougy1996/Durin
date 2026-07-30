@@ -109,26 +109,28 @@ namespace Durin
 
 	auto DWorld::BeginPlay() -> void
 	{
-		if (bHasBegunPlay || !CurrentLevel) return;
+		if (PlayState != EWorldPlayState::Stopped || !CurrentLevel) return;
 		DLevel* CapturedLevel = CurrentLevel.Get();
 		const std::vector<TObjectPtr<AActor>> Actors = CapturedLevel->GetActors();
-		bHasBegunPlay = true;
+		PlayState = EWorldPlayState::BeginningPlay;
 		for (const TObjectPtr<AActor>& Actor : Actors)
 		{
-			if (CurrentLevel.Get() != CapturedLevel) break;
+			if (PlayState != EWorldPlayState::BeginningPlay || CurrentLevel.Get() != CapturedLevel) break;
 			if (Actor
 				&& !Actor->IsPendingKill()
-				&& CapturedLevel->ContainsActor(Actor.Get())
+				&& Actor->GetOuter() == CapturedLevel
+				&& !Actor->IsBeingDestroyed()
 				&& !Actor->HasBegunPlay())
 			{
-				Actor->BeginPlay();
+				Actor->DispatchBeginPlay();
 			}
 		}
+		if (PlayState == EWorldPlayState::BeginningPlay) PlayState = EWorldPlayState::Playing;
 	}
 
 	auto DWorld::Tick(float DeltaSeconds) -> void
 	{
-		if (!bHasBegunPlay || !CurrentLevel) return;
+		if (!HasBegunPlay() || !CurrentLevel) return;
 		if (bPaused && !std::exchange(bSingleStepRequested, false)) return;
 		const std::vector<TObjectPtr<AActor>> Actors = CurrentLevel->GetActors();
 		for (const TObjectPtr<AActor>& Actor : Actors)
@@ -139,22 +141,24 @@ namespace Durin
 
 	auto DWorld::EndPlay() -> void
 	{
-		if (!bHasBegunPlay) return;
+		if (PlayState == EWorldPlayState::Stopped || PlayState == EWorldPlayState::EndingPlay) return;
 		DLevel* CapturedLevel = CurrentLevel.Get();
 		std::vector<TObjectPtr<AActor>> Actors;
 		if (CapturedLevel) Actors = CapturedLevel->GetActors();
-		bHasBegunPlay = false;
+		PlayState = EWorldPlayState::EndingPlay;
 		bSingleStepRequested = false;
 		for (auto It = Actors.rbegin(); It != Actors.rend(); ++It)
 		{
-			if (CurrentLevel.Get() != CapturedLevel) break;
+			if (PlayState != EWorldPlayState::EndingPlay || CurrentLevel.Get() != CapturedLevel) break;
 			if (*It
 				&& !(*It)->IsPendingKill()
-				&& CapturedLevel->ContainsActor(It->Get())
+				&& (*It)->GetOuter() == CapturedLevel
+				&& !(*It)->IsBeingDestroyed()
 				&& (*It)->HasBegunPlay())
 			{
-				(*It)->EndPlay();
+				(*It)->RouteEndPlay();
 			}
 		}
+		if (PlayState == EWorldPlayState::EndingPlay) PlayState = EWorldPlayState::Stopped;
 	}
 } // namespace Durin

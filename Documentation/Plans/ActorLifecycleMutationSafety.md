@@ -9,25 +9,30 @@ Completed:
 
 ## Current Status
 
-Stage 1 is complete on Stage 0 baseline commit
-`9be9fc383fd74b45f854fa64a52bb8696093e612`. The original planning baseline
+Stage 2 is complete on Stage 1 baseline commit
+`bcf432ea7c89fd975b451e83de1bb3bdae19a213`. The original planning baseline
 remains `a91eaf5f97f20f36c881d22dd9e231eae6985b73`.
 
-Stage 1 working set:
+Stage 2 working set:
 
+- `Engine/Source/Runtime/Engine/Public/Engine/World.h`
+- `Engine/Source/Runtime/Engine/Public/Engine/Actor.h`
 - `Engine/Source/Runtime/Engine/Private/Engine/World.cpp`
+- `Engine/Source/Runtime/Engine/Private/Engine/Level.cpp`
+- `Engine/Source/Runtime/Engine/Private/Engine/Actor.cpp`
 - `Engine/Tests/Native/EngineTests/Private/World/WorldLifecycleMutationTests.cpp`
 
-`DWorld::BeginPlay()` and `DWorld::EndPlay()` now own frozen Actor handle
-snapshots, preserve forward/reverse order, revalidate Level identity,
-membership, pending-kill state, and Actor play state, and stop when the captured
-Level is no longer current. EndPlay publishes the non-playing compatibility
-state before user callbacks. Six focused Stage 1 mutation cases and all 35
-pre-existing non-mutation World tests pass.
+World and Actor play transitions are now explicit and published before user
+callbacks. Every engine-owned Actor lifecycle path uses `DispatchBeginPlay()`
+or `RouteEndPlay()`. Actor destroy requests made while BeginPlay or EndPlay is
+active are completed after the virtual callback unwinds, and repeated requests
+remain successful without duplicate routing. Spawn is rejected before
+allocation while World EndPlay is active. All 46 World and Actor tests outside
+the intentionally pending Component mutation suite pass.
 
-Stage 2 is next. It will replace the compatibility boolean with explicit World
-and Actor states, reject Spawn while ending, and close recursive/self-destroy
-routing.
+Stage 3 is next. It will apply the same state-owned dispatch and snapshot rules
+to Component BeginPlay, EndPlay, and destruction while leaving Component Tick
+unchanged.
 
 `DWorld::BeginPlay()` and `DWorld::EndPlay()` currently retain iterators into
 `DLevel::Actors` while invoking virtual actor callbacks. `SpawnActor()` may
@@ -340,19 +345,19 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Introduce explicit World play transition state and preserve the public
+- [x] Introduce explicit World play transition state and preserve the public
   compatibility query.
-- [ ] Add non-virtual Actor BeginPlay and EndPlay dispatch entry points with
+- [x] Add non-virtual Actor BeginPlay and EndPlay dispatch entry points with
   explicit Actor play state.
-- [ ] Route World, Level Spawn, Level Destroy, and Actor destruction through
+- [x] Route World, Level Spawn, Level Destroy, and Actor destruction through
   the dispatch entry points instead of calling virtual callbacks directly.
-- [ ] Add Actor destruction request/active-destruction guards.
-- [ ] Defer self-destruction requested during Actor BeginPlay until the
+- [x] Add Actor destruction request/active-destruction guards.
+- [x] Defer self-destruction requested during Actor BeginPlay until the
   BeginPlay callback unwinds.
-- [ ] Reject Spawn before allocation while the owning World is ending.
-- [ ] Make repeated and recursive BeginPlay, EndPlay, and Destroy calls
+- [x] Reject Spawn before allocation while the owning World is ending.
+- [x] Make repeated and recursive BeginPlay, EndPlay, and Destroy calls
   deterministic and idempotent.
-- [ ] Replace Stage 1 linear membership checks with O(1) state checks where the
+- [x] Replace Stage 1 linear membership checks with O(1) state checks where the
   new state proves equivalent membership and liveness.
 
 #### Acceptance Gate

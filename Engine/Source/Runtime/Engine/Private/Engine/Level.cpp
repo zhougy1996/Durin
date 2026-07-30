@@ -16,6 +16,7 @@ namespace Durin
 
 	auto DLevel::SpawnActor(DClass* ActorClass, FName InName) -> AActor*
 	{
+		if (OwningWorld && OwningWorld->IsEndingPlay()) return nullptr;
 		if (!CanConstructObjectOfClass(ActorClass, AActor::StaticClass())) return nullptr;
 		const FName RequestedName = InName.IsNone() ? FName(ActorClass->GetDefaultObjectName()) : InName;
 		AActor* Actor = NewObject<AActor>(ActorClass, this, MakeUniqueActorName(RequestedName));
@@ -25,7 +26,7 @@ namespace Durin
 		NotifyEditorActorHierarchyChanged();
 #endif
 		OnActorAdded(Actor);
-		if (OwningWorld && OwningWorld->HasBegunPlay()) Actor->BeginPlay();
+		if (OwningWorld && OwningWorld->HasBegunPlay()) Actor->DispatchBeginPlay();
 		if (!PrimaryCameraActor)
 		{
 			if (auto* Camera = Cast<ACameraActor>(Actor)) PrimaryCameraActor = Camera;
@@ -37,8 +38,21 @@ namespace Durin
 	auto DLevel::DestroyActor(AActor* Actor) -> bool
 	{
 		const auto It = std::find_if(Actors.begin(), Actors.end(), [Actor](const TObjectPtr<AActor>& Entry) { return Entry.Get() == Actor; });
-		if (It == Actors.end()) return false;
-		if (Actor->HasBegunPlay()) Actor->EndPlay();
+		if (It == Actors.end())
+		{
+			return Actor
+				&& Actor->GetOuter() == this
+				&& Actor->DestructionState != EActorDestructionState::Alive;
+		}
+		if (Actor->DestructionState == EActorDestructionState::Destroying) return true;
+		if (Actor->PlayState == EActorPlayState::BeginningPlay
+			|| Actor->PlayState == EActorPlayState::EndingPlay)
+		{
+			Actor->DestructionState = EActorDestructionState::Requested;
+			return true;
+		}
+		Actor->DestructionState = EActorDestructionState::Destroying;
+		Actor->RouteEndPlay();
 		const bool bWasPrimaryCamera = PrimaryCameraActor.Get() == Actor;
 		const std::vector<TObjectPtr<DActorComponent>> Components = Actor->GetOwnedComponents();
 		for (const TObjectPtr<DActorComponent>& Component : Components)
@@ -47,7 +61,8 @@ namespace Durin
 			if (Component->IsRegistered()) Component->UnregisterComponent();
 			Component->DestroyComponent();
 		}
-		Actors.erase(It);
+		const auto RemovalIt = std::find_if(Actors.begin(), Actors.end(), [Actor](const TObjectPtr<AActor>& Entry) { return Entry.Get() == Actor; });
+		if (RemovalIt != Actors.end()) Actors.erase(RemovalIt);
 #if DURIN_WITH_EDITOR
 		NotifyEditorActorHierarchyChanged();
 #endif
@@ -66,7 +81,11 @@ namespace Durin
 
 	auto DLevel::DestroyAllActors() -> void
 	{
-		while (!Actors.empty()) DestroyActor(Actors.back().Get());
+		const std::vector<TObjectPtr<AActor>> Snapshot = Actors;
+		for (auto It = Snapshot.rbegin(); It != Snapshot.rend(); ++It)
+		{
+			if (*It) DestroyActor(It->Get());
+		}
 	}
 
 	auto DLevel::ContainsActor(const AActor* Actor) const -> bool

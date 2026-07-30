@@ -20,6 +20,14 @@ namespace Durin
 		Game
 	};
 
+	enum class EWorldPlayState : uint8
+	{
+		Stopped,
+		BeginningPlay,
+		Playing,
+		EndingPlay
+	};
+
 	// Owns the active level and drives actor lifetime, play state, ticking, and physics policy.
 	DCLASS()
 	class DWorld : public DObject
@@ -47,7 +55,8 @@ namespace Durin
 		ENGINE_API auto Tick(float DeltaSeconds) -> void;
 		ENGINE_API auto EndPlay() -> void;
 		ENGINE_API auto SetRenderScene(IScene* InRenderScene) -> void;
-		auto HasBegunPlay() const -> bool { return bHasBegunPlay; }
+		auto HasBegunPlay() const -> bool { return PlayState == EWorldPlayState::BeginningPlay || PlayState == EWorldPlayState::Playing; }
+		auto IsEndingPlay() const -> bool { return PlayState == EWorldPlayState::EndingPlay; }
 		auto IsPaused() const -> bool { return bPaused; }
 		auto SetPaused(bool bInPaused) -> void { bPaused = bInPaused; }
 		auto RequestSingleStep() -> void { bSingleStepRequested = true; }
@@ -68,7 +77,7 @@ namespace Durin
 		// retain this endpoint only for the duration of one registration.
 		IScene* RenderScene = nullptr;
 		EWorldType WorldType = EWorldType::Game;
-		bool bHasBegunPlay = false;
+		EWorldPlayState PlayState = EWorldPlayState::Stopped;
 		bool bPaused = false;
 		bool bSingleStepRequested = false;
 		bool bPhysicsSimulationEnabled = true;
