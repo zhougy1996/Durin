@@ -39,7 +39,7 @@ namespace Durin
 		auto operator++() -> FActorIterator&;
 		auto operator++(int) -> FActorIterator;
 
-		friend auto operator==(const FActorIterator& Left, const FActorIterator& Right) -> bool;
+		friend ENGINE_API auto operator==(const FActorIterator& Left, const FActorIterator& Right) -> bool;
 
 	private:
 		struct FState;
