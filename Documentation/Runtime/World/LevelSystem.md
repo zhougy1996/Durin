@@ -18,3 +18,49 @@ package. Version one intentionally supports a single active level and does not
 include sub-level streaming, PIE cloning, or Save As.
 
 At startup the editor opens the project's optional `Editor.DefaultLevel`. Projects without a default level start with an empty editor; levels are otherwise opened directly from the Content Browser. Missing or invalid defaults and failed level loads are non-fatal.
+
+## Lifecycle Mutation
+
+World and Actor lifecycle passes never retain an iterator or element reference
+into a mutable Actor or Component container across a virtual callback. Each
+pass copies generation-checked `TObjectPtr` handles at entry and revalidates a
+candidate immediately before publication. The snapshot is a finite entry set:
+Spawn during traversal is not appended, and an object destroyed before its turn
+is skipped.
+
+Ordering is stable:
+
+- World and Component BeginPlay are forward ordered.
+- World and Component EndPlay are reverse ordered.
+- the existing World Actor Tick snapshot is forward ordered.
+
+Level switching ends the active World play lifetime before detaching the old
+Level. A callback-driven clear or replacement stops the captured lifecycle
+batch after the Level identity changes. During World EndPlay, Spawn is rejected
+before object allocation.
+
+## Actor Iteration
+
+`FActorRange` and `FActorIterator` provide finite, game-thread Actor
+enumeration. A range captures the World's current Level and makes one
+contiguous copy of its `TObjectPtr<AActor>` candidates. Iterator copies share
+that stable candidate state; they never borrow a `std::vector` iterator or
+register a Spawn callback.
+
+Before dereference, the iterator filters candidates whose captured World or
+Level is no longer valid, whose Level no longer belongs to the captured World,
+whose structural Level membership changed, or which are destroying or pending
+kill. `FActorIteratorFilter::ActorClass` optionally accepts only Actors whose
+reflected class derives from the requested class without using C++ RTTI.
+`bRequireCurrentLevel` additionally requires the captured Level to remain the
+World's active Level.
+
+The initial candidate count never changes. Actors spawned after range
+construction are not observed, so iteration terminates even when each visited
+Actor spawns another. Destroying the current or a later candidate is safe; the
+invalid entry is skipped when iteration advances. Replacing the active Level
+invalidates every remaining candidate from the captured Level.
+
+Lifecycle dispatch keeps its explicit forward or reverse snapshots rather than
+routing through this public range, and the per-frame Tick path is not migrated
+to it. Those paths retain their own ordering and performance contracts.

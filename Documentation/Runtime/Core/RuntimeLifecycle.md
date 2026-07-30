@@ -58,6 +58,59 @@ The runtime lifecycle is:
 - actor and component `EndPlay()`
 - component uninitialization and unregistration
 
+### World Play State
+
+`DWorld` publishes one authoritative game-thread play state:
+
+```text
+Stopped -> BeginningPlay -> Playing -> EndingPlay -> Stopped
+```
+
+`HasBegunPlay()` is a compatibility query. It is true while beginning or
+playing and false while ending, so EndPlay callbacks cannot create a newly
+playing Actor. Spawn is accepted while stopped, beginning, or playing. A Spawn
+while beginning or playing dispatches Actor BeginPlay exactly once through the
+Spawn path. Spawn is rejected before allocation while the World is ending.
+Repeated or recursive World BeginPlay and EndPlay calls are idempotent.
+
+World BeginPlay owns a forward-ordered snapshot of the Actors present at entry;
+World EndPlay owns a reverse-ordered snapshot. A callback may Spawn, Destroy,
+clear, or replace the current Level without invalidating the active traversal.
+Before every callback, the World verifies the captured Level, structural
+membership, retirement state, and Actor play state. A candidate destroyed
+before its turn is skipped. A batch stops when its captured Level ceases to be
+current.
+
+### Actor And Component Dispatch
+
+Engine-owned code enters Actor lifecycle through non-virtual
+`DispatchBeginPlay()` and `RouteEndPlay()`. The virtual `BeginPlay()` and
+`EndPlay()` functions remain user extension points; derived implementations
+call their base implementation when they want the base Component routing.
+Actor state is published before virtual code runs and distinguishes not begun,
+beginning, playing, and ending.
+
+Destroy requested during Actor BeginPlay or EndPlay is recorded and completed
+after the active callback unwinds. Actor membership remains visible throughout
+its EndPlay callback; owner-controlled removal and garbage marking follow it.
+Destroying an Actor that is already being destroyed succeeds without repeating
+EndPlay, Component teardown, or Level removal. An Actor destroyed before it has
+begun play receives no synthetic EndPlay.
+
+Component BeginPlay and EndPlay use equivalent engine-owned dispatch and
+destruction states. Actor Component BeginPlay uses a forward snapshot and
+EndPlay uses a reverse snapshot. Owner, membership, registration, retirement,
+and play state are revalidated before publication. Components added while an
+Actor is beginning or playing begin exactly once through the add path.
+Components added while the Actor is ending remain registered and owned but do
+not begin in that ending lifetime. Self-destruction during Component BeginPlay
+or EndPlay completes after the active callback returns and removes owned and
+instance membership exactly once.
+
+Actor-owned Component Tick remains a direct Actor traversal. Mutation safety,
+registration, ordering, dependencies, and scheduling for that high-frequency
+path are intentionally deferred to a dedicated Tick scheduling contract.
+
 Editor-hosted runtime sessions follow the same world lifecycle but add isolation
 and restoration rules documented in
 `Documentation/Editor/Architecture/PlayInEditorArchitecture.md`.

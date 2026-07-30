@@ -618,25 +618,34 @@ function(durin_discover_tests target_name)
 		DURIN_TEST_DISCOVERY_LABELS "${_durin_labels}"
 	)
 
-	# gtest_discover_tests forwards PROPERTIES through a generated -D argument
-	# and a second CMake script. Preserve list-valued property arguments across
-	# both list expansions.
-	string(REPLACE ";" "\\\\;" _durin_labels_property "${_durin_labels}")
-	string(REPLACE ";" "\\\\;" _durin_locks_property "${_durin_resource_locks}")
-	set(_durin_test_properties
-		TIMEOUT "${_durin_timeout}"
-		LABELS "${_durin_labels_property}"
-	)
-	if(_durin_resource_locks)
-		list(APPEND _durin_test_properties
-			RESOURCE_LOCK "${_durin_locks_property}")
-	endif()
-
 	gtest_discover_tests(${target_name}
 		WORKING_DIRECTORY "${_durin_work_dir}"
 		DISCOVERY_TIMEOUT 30
-		PROPERTIES ${_durin_test_properties}
+		PROPERTIES TIMEOUT "${_durin_timeout}"
 	)
+
+	# GoogleTest's discovery helper loses the grouping of semicolon-separated
+	# property values while forwarding them through its generated -D argument.
+	# Apply list-valued policy from a CTest include after discovery instead.
+	set(_durin_policy_file
+		"${CMAKE_CURRENT_BINARY_DIR}/${target_name}-durin-test-policy.cmake")
+	string(CONCAT _durin_policy_content
+		"foreach(_durin_discovered_test IN LISTS ${target_name}_TESTS)\n"
+		"  set_tests_properties(\"\${_durin_discovered_test}\" PROPERTIES\n"
+		"    LABELS \"${_durin_labels}\"\n")
+	if(_durin_resource_locks)
+		string(APPEND _durin_policy_content
+			"    RESOURCE_LOCK \"${_durin_resource_locks}\"\n")
+	endif()
+	string(APPEND _durin_policy_content
+		"  )\n"
+		"endforeach()\n")
+	file(GENERATE
+		OUTPUT "${_durin_policy_file}"
+		CONTENT "${_durin_policy_content}"
+	)
+	set_property(DIRECTORY APPEND PROPERTY TEST_INCLUDE_FILES
+		"${_durin_policy_file}")
 
 	if(_durin_direct_lifecycle)
 		add_test(

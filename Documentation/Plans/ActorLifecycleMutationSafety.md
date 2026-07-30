@@ -4,34 +4,29 @@ Summary: Make world, actor, and component lifecycle dispatch safe when callbacks
 
 Last reviewed: 2026-07-30
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-07-30
 
 ## Current Status
 
-Stage 4 is complete on Stage 3 baseline commit
-`a78263854f2c28a9deb04c8b020ac455317ba902`. The original planning baseline
+All five stages are complete. Stage 5 used Stage 4 baseline commit
+`04f5fb1cf9a46e240111da58e819a1df5b2ccd2e`; the original planning baseline
 remains `a91eaf5f97f20f36c881d22dd9e231eae6985b73`.
 
-Stage 4 working set:
+The final implementation provides frozen World and Component lifecycle entry
+sets, explicit World/Actor/Component play and destruction routing, deferred
+self-destruction, mutation-tolerant `FActorRange`/`FActorIterator`, and lasting
+Runtime documentation. Component Tick remains explicitly deferred.
 
-- `Engine/Source/Runtime/Engine/Public/Engine/ActorIterator.h`
-- `Engine/Source/Runtime/Engine/Private/Engine/ActorIterator.cpp`
-- `Engine/Tests/Native/EngineTests/Private/World/WorldActorIteratorTests.cpp`
-- `Engine/Tests/Native/EngineTests/CMakeLists.txt`
+Final validation under the `windows-msvc-x64`
+`Win64-Debug-DurinEditor-Tests` profile:
 
-`FActorRange` now owns a shared finite candidate snapshot and produces standard
-forward iterators that revalidate captured World/Level identity, structural
-membership, retirement state, and optional reflected class filtering before
-publication. Copies share stable candidate state without registrations or
-callbacks. Spawn is not observed after construction, invalidated current/next
-candidates are skipped, and Level replacement or GC makes remaining candidates
-ineligible. No lifecycle or Tick call site migrated because their explicit
-ordering/performance contracts are clearer in their current snapshot paths.
-All 59 `WorldTests` pass.
-
-Stage 5 is next. It will run integration/build validation and publish the
-lasting lifecycle and iterator contracts.
+- all 59 `WorldTests` passed;
+- all 51 `CoreObjectTests` passed;
+- the complete `all` build succeeded;
+- the aggregate test run passed all 807 selected tests, with one expected
+  skip;
+- changed-document validation and the all-plan validator passed.
 
 `DWorld::BeginPlay()` and `DWorld::EndPlay()` currently retain iterators into
 `DLevel::Actors` while invoking virtual actor callbacks. `SpawnActor()` may
@@ -430,13 +425,13 @@ Dependencies: Stages 1 through 3.
 
 Dependencies: Stages 1 through 4.
 
-- [ ] Run the complete focused World/Actor/Component native test target through
+- [x] Run the complete focused World/Actor/Component native test target through
   DurinDevTool.
-- [ ] Run relevant object-lifecycle and PIE isolation regressions.
-- [ ] Run the required build validation for the final affected target set.
-- [ ] Update Level and runtime lifecycle documentation with stable state,
+- [x] Run relevant object-lifecycle and PIE isolation regressions.
+- [x] Run the required build validation for the final affected target set.
+- [x] Update Level and runtime lifecycle documentation with stable state,
   ordering, mutation, and iterator contracts.
-- [ ] Record final validation evidence, update plan status, and run the
+- [x] Record final validation evidence, update plan status, and run the
   all-plan validator.
 
 #### Acceptance Gate
