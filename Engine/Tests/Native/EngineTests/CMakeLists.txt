@@ -263,11 +263,12 @@ durin_add_engine_functional_test(WorldTests
 	RUNTIME_STACK_RATIONALE "Exercises DurinEd world editing integration."
 	SOURCES
 		Private/World/WorldPlayTests.cpp
+		Private/World/WorldLifecycleMutationTests.cpp
 		Private/World/WorldActorTests.cpp
 		Private/World/WorldComponentTests.cpp
 		Private/World/WorldLifetimeTests.cpp
 	LIBRARIES DurinEd
-	DEPLOY_TARGETS DurinEd
+	DEPLOY_TARGETS RenderCore DurinEd
 )
 
 durin_add_engine_functional_test(ViewportTests

@@ -9,8 +9,29 @@ Completed:
 
 ## Current Status
 
-Planning is complete against baseline commit
-`a91eaf5f97f20f36c881d22dd9e231eae6985b73`.
+Stage 0 is complete against baseline commit
+`a91eaf5f97f20f36c881d22dd9e231eae6985b73`. The current implementation
+baseline at execution start was `a42700dbe143fe2f72c8442d674647c17a8130ec`.
+
+Stage 0 working set:
+
+- `Engine/Tests/Native/EngineTests/Private/World/WorldLifecycleMutationTests.cpp`
+- `Engine/Tests/Native/EngineTests/CMakeLists.txt`
+- World, Level, Actor, and ActorComponent lifecycle entry points named by
+  Related Code.
+
+The focused fixtures use test-only reflected class descriptors and record
+callback entry, mutation, and exit separately. Container capacity is retained
+before Spawn-addition cases so contract failures do not require allocator
+reallocation. The unsafe baseline deterministically routed BeginPlay to an
+Actor destroyed before its turn and routed Actor EndPlay before a self-destroying
+BeginPlay callback unwound. MSVC debug iterators independently detected the
+known invalid reverse Actor iterator during the focused run.
+
+Stage 1 is next. The open implementation question is limited to how much of the
+temporary Stage 1 membership validation can be replaced immediately by the
+Stage 2 state model; no Spawn, Destroy, ordering, or re-entry behavior remains
+undecided.
 
 `DWorld::BeginPlay()` and `DWorld::EndPlay()` currently retain iterators into
 `DLevel::Actors` while invoking virtual actor callbacks. `SpawnActor()` may
@@ -31,6 +52,11 @@ The selected path is incremental:
 3. apply equivalent mutation safety to component dispatch;
 4. introduce a Durin-owned `FActorIterator` whose state owns a candidate
    snapshot instead of borrowing mutable Level storage.
+
+Component Tick mutation safety is intentionally deferred from this plan as of
+2026-07-30. The current Actor-owned Tick path remains unchanged; a later
+registration-based Tick scheduling plan will own its mutation and performance
+contracts.
 
 The archived
 [Actor Component System](Archive/2026-07/ActorComponentSystem.md) plan remains
@@ -82,6 +108,8 @@ The final API must also provide a reusable Actor iterator that:
   remain game-thread operations.
 - Optimizing the existing per-frame Tick snapshot before profiling identifies
   it as a material cost.
+- Changing Actor-owned Component Tick dispatch, including mutation safety,
+  registration, ordering, or scheduling.
 - Changing Actor or Component BeginPlay ordering beyond the rules selected in
   this plan.
 
@@ -91,7 +119,8 @@ The final API must also provide a reusable Actor iterator that:
 
 No iterator, reference, reverse iterator, span, or pointer to an element inside
 `DLevel::Actors`, `AActor::OwnedComponents`, or `InstanceComponents` may remain
-live across a virtual lifecycle or Tick callback.
+live across an in-scope virtual lifecycle callback. `DWorld::Tick()` retains
+its existing Actor snapshot; Component Tick dispatch is deferred.
 
 A dispatch pass owns independent `TObjectPtr` values. Every candidate is
 revalidated immediately before callback publication. Garbage collection owns
@@ -174,15 +203,19 @@ routing.
 
 ### Component Dispatch Follows The Same Re-entry Rules
 
-Component callback routing must not directly mutate an Actor-owned vector being
-traversed. Actor dispatch copies component handles, then verifies owner,
-membership, registration/play state, and retirement state before each call.
+Component BeginPlay and EndPlay routing must not directly mutate an Actor-owned
+vector being traversed. Actor dispatch copies component handles, then verifies
+owner, membership, registration/play state, and retirement state before each
+call.
 
 Component play state distinguishes beginning, begun, and ending so a component
 cannot recursively BeginPlay or EndPlay itself. Component destruction is
 idempotent and removes the component from both owned collections exactly once.
 Destroying the current component during BeginPlay defers final destructive
 routing until that BeginPlay call returns.
+
+A Component added while its Actor is ending play is registered and owned but
+does not begin play in that ending lifetime.
 
 ### Membership Validation Is Correct Before It Is Optimized
 
@@ -252,8 +285,9 @@ Verified gaps:
   explicit recursive-destruction guard.
 - direct virtual Actor lifecycle entry points mix state transitions with user
   extension points.
-- Actor BeginPlay, Tick, and EndPlay borrow mutable component-container
-  iterators across Component callbacks.
+- Actor BeginPlay and EndPlay borrow mutable component-container iterators
+  across Component callbacks. Actor-owned Component Tick has the same pattern
+  but is deferred from this plan.
 - Component destruction removes itself from Actor arrays before completing all
   callbacks and has no explicit play/destruction re-entry state.
 - there is no reusable Actor iterator or range with documented mutation
@@ -263,15 +297,15 @@ Verified gaps:
 
 ### Stage 0: Freeze Mutation Semantics And Regressions
 
-- [ ] Record the baseline commit, initial working set, and symbols listed by
+- [x] Record the baseline commit, initial working set, and symbols listed by
   this plan.
-- [ ] Add focused test Actor and Component types capable of spawning,
+- [x] Add focused test Actor and Component types capable of spawning,
   destroying, switching Level, and recording callback order.
-- [ ] Add regressions for BeginPlay Spawn, destroy-before-turn, self-destroy,
+- [x] Add regressions for BeginPlay Spawn, destroy-before-turn, self-destroy,
   EndPlay Spawn, sibling destruction, repeated calls, and level replacement.
-- [ ] Add component regressions for add, destroy-before-turn, and self-destroy
-  during BeginPlay, Tick, and EndPlay.
-- [ ] Confirm failing tests identify iterator invalidation or lifecycle
+- [x] Add component regressions for add, destroy-before-turn, and self-destroy
+  during BeginPlay and EndPlay.
+- [x] Confirm failing tests identify iterator invalidation or lifecycle
   contract violations without depending on allocator-specific crashes.
 
 #### Acceptance Gate
@@ -340,10 +374,10 @@ Dependencies: Stage 2.
 
 - [ ] Add engine-owned Component play/destruction dispatch state where direct
   virtual routing is re-entrant.
-- [ ] Snapshot owned component handles for Actor BeginPlay, Tick, and EndPlay.
+- [ ] Snapshot owned component handles for Actor BeginPlay and EndPlay.
 - [ ] Revalidate owner, owned membership, registration, pending-kill, and play
   state before each Component callback.
-- [ ] Preserve forward BeginPlay/Tick and reverse EndPlay ordering.
+- [ ] Preserve forward BeginPlay and reverse EndPlay ordering.
 - [ ] Make `DestroyComponent()` remove owned and instance membership exactly
   once and tolerate repeated or recursive calls.
 - [ ] Defer Component self-destruction requested during its BeginPlay callback
@@ -351,11 +385,13 @@ Dependencies: Stage 2.
 - [ ] Audit registration, unregistration, visibility, and destruction loops
   for the same borrowed-container pattern; fix only paths that invoke
   mutation-capable callbacks.
+- [ ] Leave Actor-owned Component Tick dispatch unchanged and record it as a
+  deferred registration-based scheduling task.
 
 #### Acceptance Gate
 
-- Adding or destroying a Component from Component BeginPlay, Tick, or EndPlay
-  cannot invalidate Actor iteration.
+- Adding or destroying a Component from Component BeginPlay or EndPlay cannot
+  invalidate Actor iteration.
 - A component destroyed before its turn is skipped.
 - A component added while its Actor is already playing begins exactly once
   through the add/register path.
@@ -418,7 +454,7 @@ Dependencies: Stages 1 through 4.
 | World BeginPlay | Spawn, destroy-next, self-destroy, level clear/replace, repeated BeginPlay, forward order |
 | World EndPlay | Spawn rejection/non-play, destroy-next, self-destroy, level clear/replace, repeated EndPlay, reverse order |
 | Actor destruction | not-begun, beginning, begun, ending, repeated and recursive Destroy |
-| Component lifecycle | add/destroy/self-destroy during BeginPlay, Tick, and EndPlay; owned/instance membership |
+| Component lifecycle | add/destroy/self-destroy during BeginPlay and EndPlay; owned/instance membership |
 | Actor iterator | empty state, filtering, frozen Spawn semantics, current/next destruction, copied state, level replacement |
 | Ownership and GC | Level/Outer invariants, pending-kill filtering, no stale callback after garbage marking |
 | PIE/runtime integration | play start, pause/single-step, play stop, transient World retirement |
@@ -448,8 +484,9 @@ Build and test commands must follow
 - Add an explicit UE-style `IncludeSpawned` iterator policy with a World
   actor-added subscription only when a concrete caller needs live Spawn
   observation.
-- Replace the per-frame Tick snapshot with a registered Tick-function
-  scheduler only after profiling demonstrates a material frame cost.
+- Replace Actor-owned Component Tick traversal and the World Actor Tick
+  snapshot with a registered Tick-function scheduler under a dedicated plan
+  that owns mutation, ordering, dependency, and performance semantics.
 - Add stable/tombstoned Level Actor slots only when editor deletion churn or
   large-Level compaction cost justifies the persistent complexity.
 - Add multi-Level and streaming-aware iterator filters with the corresponding
