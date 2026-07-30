@@ -27,7 +27,6 @@ namespace Durin
 		FSharedResources()
 			: StaticMeshRenderer(Coordinator, DefaultTextures)
 			, SkyBoxRenderer(Coordinator, DefaultTextures)
-			, TextureCubeThumbnailRenderer(Coordinator)
 			, PostProcessRenderer(Coordinator, FullscreenGeometry)
 			, EditorAssistanceRenderer(Coordinator, FullscreenGeometry)
 		{
@@ -105,7 +104,6 @@ namespace Durin
 		FFullscreenGeometryResources& FullscreenGeometry,
 		FStaticMeshRenderer& StaticMeshRenderer,
 		FSkyBoxRenderer& SkyBoxRenderer,
-		FTextureCubeThumbnailRenderer& TextureCubeThumbnailRenderer,
 		FPostProcessRenderer& PostProcessRenderer,
 		FEditorAssistanceRenderer& EditorAssistanceRenderer) -> void
 	{
@@ -120,13 +118,10 @@ namespace Durin
 					 &FullscreenGeometry,
 					 &StaticMeshRenderer,
 					 &SkyBoxRenderer,
-					 &TextureCubeThumbnailRenderer,
 					 &PostProcessRenderer,
 					 &EditorAssistanceRenderer] {
 						DefaultTextures.ReleaseResources_RenderThread();
 						StaticMeshRenderer.ReleaseResources_RenderThread();
-						TextureCubeThumbnailRenderer.
-							ReleaseResources_RenderThread();
 						SkyBoxRenderer.ReleaseResources_RenderThread();
 						PostProcessRenderer.ReleaseResources_RenderThread();
 						EditorAssistanceRenderer.
@@ -153,7 +148,6 @@ namespace Durin
 		FFullscreenGeometryResources* FullscreenGeometry,
 		FStaticMeshRenderer* StaticMeshRenderer,
 		FSkyBoxRenderer* SkyBoxRenderer,
-		FTextureCubeThumbnailRenderer* TextureCubeThumbnailRenderer,
 		FPostProcessRenderer* PostProcessRenderer,
 		FEditorAssistanceRenderer* EditorAssistanceRenderer) -> void
 	{
@@ -164,7 +158,6 @@ namespace Durin
 			 FullscreenGeometry,
 			 StaticMeshRenderer,
 			 SkyBoxRenderer,
-			 TextureCubeThumbnailRenderer,
 			 PostProcessRenderer,
 			 EditorAssistanceRenderer](FRHICommandListImmediate& CommandList) {
 				ApplyRendererResourceInvalidation_RenderThread(
@@ -175,7 +168,6 @@ namespace Durin
 					*FullscreenGeometry,
 					*StaticMeshRenderer,
 					*SkyBoxRenderer,
-					*TextureCubeThumbnailRenderer,
 					*PostProcessRenderer,
 					*EditorAssistanceRenderer);
 			});
@@ -205,8 +197,6 @@ namespace Durin
 				 StaticMeshRenderer =
 					 &SharedResources->StaticMeshRenderer,
 				 SkyBoxRenderer = &SharedResources->SkyBoxRenderer,
-				 TextureCubeThumbnailRenderer =
-					 &SharedResources->TextureCubeThumbnailRenderer,
 				 PostProcessRenderer =
 					 &SharedResources->PostProcessRenderer,
 				 EditorAssistanceRenderer =
@@ -219,7 +209,6 @@ namespace Durin
 						FullscreenGeometry,
 						StaticMeshRenderer,
 						SkyBoxRenderer,
-						TextureCubeThumbnailRenderer,
 						PostProcessRenderer,
 						EditorAssistanceRenderer);
 				});
@@ -257,8 +246,6 @@ namespace Durin
 				Resources->StaticMeshRenderer.
 					ReleaseResources_RenderThread();
 				Resources->Coordinator.ReleaseResources_RenderThread();
-				Resources->TextureCubeThumbnailRenderer.
-					ReleaseResources_RenderThread();
 				Resources->SkyBoxRenderer.ReleaseResources_RenderThread();
 				Resources->EditorAssistanceRenderer.
 					ReleaseResources_RenderThread();

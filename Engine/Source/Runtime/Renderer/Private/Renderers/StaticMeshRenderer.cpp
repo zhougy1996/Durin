@@ -112,7 +112,6 @@ namespace Durin
 	{
 		struct FBaseResources
 		{
-			FVertexDeclarationRHIRef VertexDeclaration;
 			FSamplerRHIRef BaseColorSampler;
 		};
 
@@ -166,22 +165,6 @@ namespace Durin
 			Coordinator.GetGeneration_RenderThread(),
 			[]() -> FResult {
 				FState::FBaseResources Candidate;
-				const FVertexDeclarationElementList VertexDeclElements =
-					GetStaticMeshVertexDeclarationElements();
-				Candidate.VertexDeclaration =
-					GDynamicRHI->RHICreateVertexDeclaration(
-						VertexDeclElements);
-				if (Candidate.VertexDeclaration == nullptr)
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"StaticMeshBaseResources",
-							"vertex-declaration",
-							"RHI vertex declaration creation returned null.",
-							ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
-				}
 				Candidate.BaseColorSampler =
 					RHICreateSampler(FRHISamplerDesc::LinearRepeat());
 				if (Candidate.BaseColorSampler == nullptr)
@@ -218,6 +201,8 @@ namespace Durin
 		}
 
 		const FStaticMeshLODResources& LOD = RenderData->LODResources[0];
+		const FLocalVertexFactory& VertexFactory =
+			RenderData->LODVertexFactories[0].VertexFactory;
 		FStaticMeshTransformUniform TransformUniform;
 		TransformUniform.LocalToClip = ToShaderMatrix(
 			View.ViewProjectionMatrix * Proxy.GetLocalToWorld());
@@ -248,14 +233,7 @@ namespace Durin
 				&LightingUniform,
 				sizeof(LightingUniform));
 
-		CommandList.BindVertexBuffer(
-			0,
-			LOD.VertexBuffers.PositionVertexBuffer.GetRHI(),
-			0);
-		CommandList.BindVertexBuffer(
-			1,
-			LOD.VertexBuffers.StaticMeshVertexBuffer.GetRHI(),
-			0);
+		VertexFactory.BindStreams(CommandList);
 		CommandList.BindIndexBuffer(LOD.IndexBuffer.GetRHI(), 0);
 		const auto& Indices = LOD.IndexBuffer.GetIndices();
 		for (const FStaticMeshSection& Section : LOD.Sections)
@@ -385,8 +363,8 @@ namespace Durin
 					PipelineGeneration,
 					[&Material,
 					 &PipelineEntry,
-					 BaseResources,
-					 ShaderMapPayload]() -> FPipelineResult {
+					 ShaderMapPayload,
+					 &VertexFactory]() -> FPipelineResult {
 						const FMaterialPipelineIdentity& Identity =
 							Material.PipelineIdentity;
 						FState::FPipelinePayload Candidate;
@@ -404,7 +382,7 @@ namespace Durin
 						Initializer.BoundShaders.FragmentShader =
 							Candidate.FragmentShader.GetRHIShader();
 						Initializer.VertexDeclaration =
-							BaseResources->VertexDeclaration;
+							VertexFactory.GetDeclaration();
 						Initializer.bEnableAlphaBlend = false;
 						Initializer.bEnableDepthTest = true;
 						Initializer.bEnableDepthWrite = true;
