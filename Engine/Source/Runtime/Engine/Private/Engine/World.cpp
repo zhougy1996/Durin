@@ -60,12 +60,18 @@ namespace Durin
 		DLevel* Previous = CurrentLevel.Get();
 		if (Previous)
 		{
+			std::vector<TObjectPtr<DActorComponent>> Components;
 			for (const TObjectPtr<AActor>& Actor : Previous->GetActors())
 			{
+				if (!Actor) continue;
 				for (const TObjectPtr<DActorComponent>& Component : Actor->GetOwnedComponents())
 				{
-					if (Component && Component->IsRegistered()) Component->UnregisterComponent();
+					if (Component && Component->IsRegistered()) Components.push_back(Component);
 				}
+			}
+			for (const TObjectPtr<DActorComponent>& Component : Components)
+			{
+				if (Component && !Component->IsPendingKill() && Component->IsRegistered()) Component->UnregisterComponent();
 			}
 			Previous->SetOwningWorld(nullptr);
 		}
@@ -73,7 +79,18 @@ namespace Durin
 		if (Level)
 		{
 			Level->SetOwningWorld(this);
-			for (const TObjectPtr<AActor>& Actor : Level->GetActors()) Level->OnActorAdded(Actor.Get());
+			const std::vector<TObjectPtr<AActor>> Actors = Level->GetActors();
+			for (const TObjectPtr<AActor>& Actor : Actors)
+			{
+				if (CurrentLevel.Get() != Level) break;
+				if (Actor
+					&& !Actor->IsPendingKill()
+					&& Actor->GetOuter() == Level
+					&& !Actor->IsBeingDestroyed())
+				{
+					Level->OnActorAdded(Actor.Get());
+				}
+			}
 		}
 		if (bDestroyPreviousOwnedLevel && Previous && Previous->GetOuter() == this) MarkObjectHierarchyAsGarbage(Previous);
 		return true;
@@ -91,13 +108,13 @@ namespace Durin
 				if (!Actor) continue;
 				for (const TObjectPtr<DActorComponent>& Component : Actor->GetOwnedComponents())
 				{
-					if (Component && Component->IsRegistered())
-					{
-						RegisteredComponents.push_back(Component);
-						Component->UnregisterComponent();
-					}
+					if (Component && Component->IsRegistered()) RegisteredComponents.push_back(Component);
 				}
 			}
+		}
+		for (const TObjectPtr<DActorComponent>& Component : RegisteredComponents)
+		{
+			if (Component && !Component->IsPendingKill() && Component->IsRegistered()) Component->UnregisterComponent();
 		}
 
 		RenderScene = InRenderScene;

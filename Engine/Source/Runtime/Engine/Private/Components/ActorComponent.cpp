@@ -27,13 +27,24 @@ namespace Durin
 
 	auto DActorComponent::UnregisterComponent() -> void
 	{
-		if (bHasBegunPlay) EndPlay();
+		RouteEndPlay();
 		if (bHasBeenInitialized) UninitializeComponent();
 		ExecuteUnregisterEvents();
 	}
 
 	auto DActorComponent::DestroyComponent() -> void
 	{
+		if (DestructionState == EComponentDestructionState::Destroying) return;
+		if (PlayState == EComponentPlayState::BeginningPlay
+			|| PlayState == EComponentPlayState::EndingPlay)
+		{
+			DestructionState = EComponentDestructionState::Requested;
+			return;
+		}
+
+		DestructionState = EComponentDestructionState::Destroying;
+		OnComponentPendingKill();
+
 		if (AActor* Owner = GetOwner())
 		{
 			Owner->RemoveInstanceComponent(this);
@@ -45,12 +56,12 @@ namespace Durin
 			}
 		}
 
-		OnComponentPendingKill();
 		MarkAsGarbage(this);
 	}
 
 	auto DActorComponent::BeginDestroy() -> void
 	{
+		DestructionState = EComponentDestructionState::Destroying;
 		OnComponentPendingKill();
 		Super::BeginDestroy();
 	}
@@ -92,7 +103,7 @@ namespace Durin
 
 	auto DActorComponent::OnComponentPendingKill() -> void
 	{
-		if (bHasBegunPlay) EndPlay();
+		RouteEndPlay();
 		if (bHasBeenInitialized) UninitializeComponent();
 		ExecuteUnregisterEvents();
 		if (bHasBeenCreated)
@@ -106,11 +117,48 @@ namespace Durin
 	{
 	}
 
+	auto DActorComponent::DispatchBeginPlay() -> void
+	{
+		if (PlayState != EComponentPlayState::NotBegun
+			|| DestructionState != EComponentDestructionState::Alive
+			|| IsPendingKill()
+			|| !bRegistered)
+		{
+			return;
+		}
+
+		PlayState = EComponentPlayState::BeginningPlay;
+		BeginPlay();
+		if (PlayState == EComponentPlayState::BeginningPlay) PlayState = EComponentPlayState::Playing;
+
+		if (bEndPlayRequested)
+		{
+			bEndPlayRequested = false;
+			RouteEndPlay();
+		}
+
+		if (DestructionState == EComponentDestructionState::Requested) DestroyComponent();
+	}
+
+	auto DActorComponent::RouteEndPlay() -> void
+	{
+		if (PlayState == EComponentPlayState::NotBegun || PlayState == EComponentPlayState::EndingPlay) return;
+		if (PlayState == EComponentPlayState::BeginningPlay)
+		{
+			bEndPlayRequested = true;
+			return;
+		}
+
+		PlayState = EComponentPlayState::EndingPlay;
+		EndPlay();
+		if (PlayState == EComponentPlayState::EndingPlay) PlayState = EComponentPlayState::NotBegun;
+
+		if (DestructionState == EComponentDestructionState::Requested) DestroyComponent();
+	}
+
 	auto DActorComponent::BeginPlay() -> void
 	{
 		check(bRegistered);
-		check(!bHasBegunPlay);
-		bHasBegunPlay = true;
 	}
 
 	auto DActorComponent::TickComponent(float DeltaSeconds) -> void
@@ -120,8 +168,6 @@ namespace Durin
 
 	auto DActorComponent::EndPlay() -> void
 	{
-		check(bHasBegunPlay);
-		bHasBegunPlay = false;
 	}
 
 	auto DActorComponent::ExecuteRegisterEvents() -> void

@@ -49,6 +49,7 @@ namespace Durin
 		ENGINE_API auto RenameComponent(DActorComponent* Component, FName RequestedName) -> bool;
 		ENGINE_API auto DestroyInstanceComponent(DActorComponent* Component) -> bool;
 		ENGINE_API auto IsInstanceComponent(const DActorComponent* Component) const -> bool;
+		ENGINE_API auto OwnsComponent(const DActorComponent* Component) const -> bool;
 
 		ENGINE_API auto GetActorTransform() const -> FTransform;
 		ENGINE_API auto SetActorTransform(const FTransform& InTransform) -> bool;

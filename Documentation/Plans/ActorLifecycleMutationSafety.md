@@ -9,30 +9,30 @@ Completed:
 
 ## Current Status
 
-Stage 2 is complete on Stage 1 baseline commit
-`bcf432ea7c89fd975b451e83de1bb3bdae19a213`. The original planning baseline
+Stage 3 is complete on Stage 2 baseline commit
+`db55a9707bd2b1215b58cd2b594bd0d8d1d7a290`. The original planning baseline
 remains `a91eaf5f97f20f36c881d22dd9e231eae6985b73`.
 
-Stage 2 working set:
+Stage 3 working set:
 
-- `Engine/Source/Runtime/Engine/Public/Engine/World.h`
+- `Engine/Source/Runtime/Engine/Public/Components/ActorComponent.h`
 - `Engine/Source/Runtime/Engine/Public/Engine/Actor.h`
+- `Engine/Source/Runtime/Engine/Private/Components/ActorComponent.cpp`
 - `Engine/Source/Runtime/Engine/Private/Engine/World.cpp`
 - `Engine/Source/Runtime/Engine/Private/Engine/Level.cpp`
 - `Engine/Source/Runtime/Engine/Private/Engine/Actor.cpp`
 - `Engine/Tests/Native/EngineTests/Private/World/WorldLifecycleMutationTests.cpp`
 
-World and Actor play transitions are now explicit and published before user
-callbacks. Every engine-owned Actor lifecycle path uses `DispatchBeginPlay()`
-or `RouteEndPlay()`. Actor destroy requests made while BeginPlay or EndPlay is
-active are completed after the virtual callback unwinds, and repeated requests
-remain successful without duplicate routing. Spawn is rejected before
-allocation while World EndPlay is active. All 46 World and Actor tests outside
-the intentionally pending Component mutation suite pass.
+Component BeginPlay, EndPlay, and destruction now use explicit engine-owned
+state and dispatch entry points. Actor lifecycle and visibility routing own
+handle snapshots, revalidate owner and membership, and defer Component
+self-destruction until the active callback unwinds. World and Level
+registration/unregistration loops likewise separate candidate collection from
+callback publication. Component Tick remains unchanged by explicit scope.
+All 52 `WorldTests` pass.
 
-Stage 3 is next. It will apply the same state-owned dispatch and snapshot rules
-to Component BeginPlay, EndPlay, and destruction while leaving Component Tick
-unchanged.
+Stage 4 is next. It will introduce the frozen `FActorIterator` and range
+surface without changing lifecycle ordering.
 
 `DWorld::BeginPlay()` and `DWorld::EndPlay()` currently retain iterators into
 `DLevel::Actors` while invoking virtual actor callbacks. `SpawnActor()` may
@@ -373,20 +373,20 @@ Dependencies: Stage 1.
 
 Dependencies: Stage 2.
 
-- [ ] Add engine-owned Component play/destruction dispatch state where direct
+- [x] Add engine-owned Component play/destruction dispatch state where direct
   virtual routing is re-entrant.
-- [ ] Snapshot owned component handles for Actor BeginPlay and EndPlay.
-- [ ] Revalidate owner, owned membership, registration, pending-kill, and play
+- [x] Snapshot owned component handles for Actor BeginPlay and EndPlay.
+- [x] Revalidate owner, owned membership, registration, pending-kill, and play
   state before each Component callback.
-- [ ] Preserve forward BeginPlay and reverse EndPlay ordering.
-- [ ] Make `DestroyComponent()` remove owned and instance membership exactly
+- [x] Preserve forward BeginPlay and reverse EndPlay ordering.
+- [x] Make `DestroyComponent()` remove owned and instance membership exactly
   once and tolerate repeated or recursive calls.
-- [ ] Defer Component self-destruction requested during its BeginPlay callback
+- [x] Defer Component self-destruction requested during its BeginPlay callback
   until the callback unwinds.
-- [ ] Audit registration, unregistration, visibility, and destruction loops
+- [x] Audit registration, unregistration, visibility, and destruction loops
   for the same borrowed-container pattern; fix only paths that invoke
   mutation-capable callbacks.
-- [ ] Leave Actor-owned Component Tick dispatch unchanged and record it as a
+- [x] Leave Actor-owned Component Tick dispatch unchanged and record it as a
   deferred registration-based scheduling task.
 
 #### Acceptance Gate

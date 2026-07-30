@@ -132,9 +132,18 @@ namespace Durin
 	auto DLevel::OnActorAdded(AActor* Actor) -> void
 	{
 		if (!Actor || !OwningWorld) return;
-		for (const TObjectPtr<DActorComponent>& Component : Actor->GetOwnedComponents())
+		const std::vector<TObjectPtr<DActorComponent>> Components = Actor->GetOwnedComponents();
+		for (const TObjectPtr<DActorComponent>& Component : Components)
 		{
-			if (Component && !Component->IsRegistered()) Component->RegisterComponent();
+			if (Component
+				&& !Component->IsPendingKill()
+				&& Component->GetOwner() == Actor
+				&& Actor->OwnsComponent(Component.Get())
+				&& !Component->IsBeingDestroyed()
+				&& !Component->IsRegistered())
+			{
+				Component->RegisterComponent();
+			}
 		}
 	}
 

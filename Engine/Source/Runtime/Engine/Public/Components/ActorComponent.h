@@ -9,6 +9,21 @@ namespace Durin
 {
 	class AActor;
 
+	enum class EComponentPlayState : uint8
+	{
+		NotBegun,
+		BeginningPlay,
+		Playing,
+		EndingPlay
+	};
+
+	enum class EComponentDestructionState : uint8
+	{
+		Alive,
+		Requested,
+		Destroying
+	};
+
 	// Defines actor-owned lifecycle, registration, play, and optional tick behavior.
 	DCLASS()
 	class DActorComponent : public DObject
@@ -35,10 +50,13 @@ namespace Durin
 		ENGINE_API auto BeginDestroy() -> void override;
 
 		auto IsRegistered() const -> bool { return bRegistered; }
-		auto HasBegunPlay() const -> bool { return bHasBegunPlay; }
+		auto HasBegunPlay() const -> bool { return PlayState != EComponentPlayState::NotBegun; }
+		auto IsBeingDestroyed() const -> bool { return DestructionState != EComponentDestructionState::Alive; }
 		auto IsComponentTickEnabled() const -> bool { return bTickEnabled; }
 		auto SetComponentTickEnabled(bool bEnabled) -> void { bTickEnabled = bEnabled; }
 
+		ENGINE_API auto DispatchBeginPlay() -> void;
+		ENGINE_API auto RouteEndPlay() -> void;
 		ENGINE_API virtual auto BeginPlay() -> void;
 		ENGINE_API virtual auto TickComponent(float DeltaSeconds) -> void;
 		ENGINE_API virtual auto EndPlay() -> void;
@@ -75,7 +93,9 @@ namespace Durin
 
 		uint8 bHasBeenInitialized : 1 = false;
 
-		uint8 bHasBegunPlay : 1 = false;
+		EComponentPlayState PlayState = EComponentPlayState::NotBegun;
+		EComponentDestructionState DestructionState = EComponentDestructionState::Alive;
+		bool bEndPlayRequested = false;
 
 		uint8 bTickEnabled : 1 = false;
 	};

@@ -86,7 +86,7 @@ namespace Durin
 		Component->RegisterComponent();
 		if (PlayState == EActorPlayState::BeginningPlay || PlayState == EActorPlayState::Playing)
 		{
-			Component->BeginPlay();
+			Component->DispatchBeginPlay();
 		}
 		MarkPackageDirty();
 		return Component;
@@ -126,6 +126,11 @@ namespace Durin
 		return Component && std::ranges::any_of(InstanceComponents, [Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; });
 	}
 
+	auto AActor::OwnsComponent(const DActorComponent* Component) const -> bool
+	{
+		return Component && std::ranges::any_of(OwnedComponents, [Component](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == Component; });
+	}
+
 	auto AActor::GetActorTransform() const -> FTransform
 	{
 		return RootComponent ? RootComponent->GetWorldTransform() : FTransform();
@@ -145,9 +150,16 @@ namespace Durin
 	{
 		if (bHidden == bInHidden) return;
 		bHidden = bInHidden;
-		for (const TObjectPtr<DActorComponent>& Component : OwnedComponents)
+		const std::vector<TObjectPtr<DActorComponent>> Components = OwnedComponents;
+		for (const TObjectPtr<DActorComponent>& Component : Components)
 		{
-			if (Component) Component->OnOwnerVisibilityChanged();
+			if (Component
+				&& !Component->IsPendingKill()
+				&& Component->GetOwner() == this
+				&& OwnsComponent(Component.Get()))
+			{
+				Component->OnOwnerVisibilityChanged();
+			}
 		}
 		MarkPackageDirty();
 	}
@@ -223,9 +235,19 @@ namespace Durin
 
 	auto AActor::BeginPlay() -> void
 	{
-		for (const TObjectPtr<DActorComponent>& Component : OwnedComponents)
+		const std::vector<TObjectPtr<DActorComponent>> Components = OwnedComponents;
+		for (const TObjectPtr<DActorComponent>& Component : Components)
 		{
-			if (Component && Component->IsRegistered() && !Component->HasBegunPlay()) Component->BeginPlay();
+			if (Component
+				&& !Component->IsPendingKill()
+				&& Component->GetOwner() == this
+				&& OwnsComponent(Component.Get())
+				&& Component->IsRegistered()
+				&& !Component->IsBeingDestroyed()
+				&& !Component->HasBegunPlay())
+			{
+				Component->DispatchBeginPlay();
+			}
 		}
 	}
 
@@ -239,9 +261,18 @@ namespace Durin
 
 	auto AActor::EndPlay() -> void
 	{
-		for (auto It = OwnedComponents.rbegin(); It != OwnedComponents.rend(); ++It)
+		const std::vector<TObjectPtr<DActorComponent>> Components = OwnedComponents;
+		for (auto It = Components.rbegin(); It != Components.rend(); ++It)
 		{
-			if (*It && (*It)->HasBegunPlay()) (*It)->EndPlay();
+			if (*It
+				&& !(*It)->IsPendingKill()
+				&& (*It)->GetOwner() == this
+				&& OwnsComponent(It->Get())
+				&& !(*It)->IsBeingDestroyed()
+				&& (*It)->HasBegunPlay())
+			{
+				(*It)->RouteEndPlay();
+			}
 		}
 	}
 
