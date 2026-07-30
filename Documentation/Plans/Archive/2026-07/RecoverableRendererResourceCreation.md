@@ -4,7 +4,7 @@ Summary: Replace permanent one-shot renderer resource failures with transactiona
 
 Last reviewed: 2026-07-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-07-30
 
 ## Current Status
@@ -752,7 +752,7 @@ resource:
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`
 - `Documentation/Runtime/Rendering/ViewportRendering.md`
 - `Documentation/Runtime/Rendering/ShaderCache.md`
-- `Documentation/Plans/DemandDrivenEditorAssistanceRenderer.md`
+- `Documentation/Plans/Archive/2026-07/DemandDrivenEditorAssistanceRenderer.md`
 - `Documentation/Plans/MaterialSystem.md`
 - `Documentation/Plans/Archive/2026-07/ShaderCacheHardening.md`
 - `Documentation/Development/Build/BuildAndRun.md`

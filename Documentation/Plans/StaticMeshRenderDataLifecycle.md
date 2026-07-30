@@ -79,7 +79,7 @@ release, aggregate state, and the destruction fence are asset-private.
 Scene proxies retain only const render-data borrows.
 
 The cross-plan boundary with
-[Engine Termination Lifecycle](EngineTerminationLifecycle.md) is now pinned:
+[Engine Termination Lifecycle](Archive/2026-07/EngineTerminationLifecycle.md) is now pinned:
 engine shutdown first detaches non-DObject process/subsystem consumers, then
 the shutdown coordinator owns all GC/render-flush rounds. Worlds expose their
 own renderer scene, and registered components retain that stable endpoint
@@ -811,7 +811,7 @@ profile-specific commands.
 
 ## Related Documentation
 
-- [Engine Termination Lifecycle](EngineTerminationLifecycle.md)
+- [Engine Termination Lifecycle](Archive/2026-07/EngineTerminationLifecycle.md)
 - [StaticMesh Render-Data Lifetime Investigation](../Investigations/StaticMeshRenderDataLifetime.md)
 - [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
 - [Texture System](../Runtime/Rendering/TextureSystem.md)

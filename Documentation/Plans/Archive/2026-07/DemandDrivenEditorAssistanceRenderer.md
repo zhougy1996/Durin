@@ -4,7 +4,7 @@ Summary: Refactor editor assistance into a demand-driven Renderer phase with laz
 
 Last reviewed: 2026-07-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-07-30
 
 ## Current Status
@@ -307,7 +307,7 @@ each `FSceneView`:
 
 ### Relationship to recoverable resource creation
 
-- `Documentation/Plans/RecoverableRendererResourceCreation.md` owns the common
+- `Documentation/Plans/Archive/2026-07/RecoverableRendererResourceCreation.md` owns the common
   transactional candidate, retained failure, generation dependency,
   last-known-good, retry, diagnostic, and invalidation semantics.
 - This plan owns view-driven demand, feature states, pipeline-key
@@ -560,7 +560,7 @@ each `FSceneView`:
 
 - `Documentation/Runtime/Rendering/ViewportRendering.md`
 - `Documentation/Plans/EditorIconAtlas.md`
-- `Documentation/Plans/RecoverableRendererResourceCreation.md`
+- `Documentation/Plans/Archive/2026-07/RecoverableRendererResourceCreation.md`
 - `Documentation/Plans/Archive/2026-07/ScenePostProcessEditorAssistanceBoundary.md`
 - `Documentation/Plans/Archive/2026-07/EditorWorldGridV2.md`
 - `Documentation/Development/Build/BuildAndRun.md`

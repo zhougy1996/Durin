@@ -4,7 +4,7 @@ Summary: Use DAST tagged-field identity and scoped legacy-field upgraders for au
 
 Last reviewed: 2026-07-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-07-30
 
 ## Current Status
@@ -234,8 +234,8 @@ snapshots and upgrade code, never as competing reflected runtime state.
 | Regression | AssetCore package suite, TextureTests, and plan validation |
 
 Build and test execution follow
-[Build And Run](../Development/Build/BuildAndRun.md) and
-[Native C++ Tests](../Development/Build/NativeTests.md).
+[Build And Run](../../../Development/Build/BuildAndRun.md) and
+[Native C++ Tests](../../../Development/Build/NativeTests.md).
 
 ## Definition of Done
 
@@ -262,11 +262,11 @@ Build and test execution follow
 
 ## Related Documentation
 
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Project Asset Upgrade Workflow](ProjectAssetUpgradeWorkflow.md)
-- [Asset Structure Upgrade](Archive/2026-07/AssetStructureUpgrade.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Native C++ Tests](../Development/Build/NativeTests.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Project Asset Upgrade Workflow](../../ProjectAssetUpgradeWorkflow.md)
+- [Asset Structure Upgrade](AssetStructureUpgrade.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 
