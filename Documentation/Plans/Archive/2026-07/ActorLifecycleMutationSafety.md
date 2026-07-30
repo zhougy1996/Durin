@@ -4,7 +4,7 @@ Summary: Make world, actor, and component lifecycle dispatch safe when callbacks
 
 Last reviewed: 2026-07-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-07-30
 
 ## Current Status
@@ -54,7 +54,7 @@ registration-based Tick scheduling plan will own its mutation and performance
 contracts.
 
 The archived
-[Actor Component System](Archive/2026-07/ActorComponentSystem.md) plan remains
+[Actor Component System](ActorComponentSystem.md) plan remains
 the ownership baseline. This plan preserves `DWorld` as the session owner,
 `DLevel` as the Actor owner, `Outer` as structural containment, and garbage
 marking as logical retirement.
@@ -457,8 +457,8 @@ Dependencies: Stages 1 through 4.
 | Documentation | changed-document checks and all-plan validation |
 
 Build and test commands must follow
-[Build And Run](../Development/Build/BuildAndRun.md) and
-[Native C++ Tests](../Development/Build/NativeTests.md).
+[Build And Run](../../../Development/Build/BuildAndRun.md) and
+[Native C++ Tests](../../../Development/Build/NativeTests.md).
 
 ## Definition of Done
 
@@ -491,11 +491,11 @@ Build and test commands must follow
 
 ## Related Documentation
 
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Level System](../Runtime/World/LevelSystem.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Native C++ Tests](../Development/Build/NativeTests.md)
-- [Actor Component System](Archive/2026-07/ActorComponentSystem.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Level System](../../../Runtime/World/LevelSystem.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
+- [Actor Component System](ActorComponentSystem.md)
 
 ## Related Code
 

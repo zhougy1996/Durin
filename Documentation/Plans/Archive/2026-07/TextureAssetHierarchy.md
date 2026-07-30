@@ -4,7 +4,7 @@ Summary: Introduce an abstract shared texture asset and resource-lifecycle layer
 
 Last reviewed: 2026-07-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-07-30
 
 ## Current Status
