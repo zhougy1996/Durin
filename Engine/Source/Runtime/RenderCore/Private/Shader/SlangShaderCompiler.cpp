@@ -552,14 +552,23 @@ namespace Durin
 			ComponentTypes.push_back(EntryPoint.get());
 		}
 
+		Slang::ComPtr<slang::IComponentType> ComposedProgram;
 		SLANG_RETURN_ON_FAIL(InSession->createCompositeComponentType(
 			ComponentTypes.data(),
 			ComponentTypes.size(),
-			OutComposedProgram.writeRef(),
+			ComposedProgram.writeRef(),
 			OutDiagnostics.writeRef()
 		));
 
-		return SLANG_OK;
+		Slang::ComPtr<slang::IBlob> LinkDiagnostics;
+		const Slang::Result LinkResult = ComposedProgram->link(
+			OutComposedProgram.writeRef(),
+			LinkDiagnostics.writeRef());
+		if (LinkDiagnostics)
+		{
+			OutDiagnostics = LinkDiagnostics;
+		}
+		return LinkResult;
 	}
 
 	static auto ConvertBlobToArray(const Slang::ComPtr<slang::IBlob>& FromBlob, std::vector<std::byte>& OutCode) -> bool
@@ -604,9 +613,18 @@ namespace Durin
 		}
 
 		Slang::ComPtr<slang::IBlob> CodeBlob;
-		if (SLANG_FAILED(ComposedProgram->getEntryPointCode(0, 0, CodeBlob.writeRef(), nullptr)))
+		Slang::ComPtr<slang::IBlob> CodeDiagnostics;
+		if (SLANG_FAILED(ComposedProgram->getEntryPointCode(
+			0,
+			0,
+			CodeBlob.writeRef(),
+			CodeDiagnostics.writeRef())))
 		{
-			OutErrorMessage = "Failed to generate SPIR-V for entry point";
+			OutErrorMessage = CodeDiagnostics
+				? std::string{"Failed to generate SPIR-V for entry point. Diagnostics: \n"}
+					+ static_cast<const char*>(
+						CodeDiagnostics->getBufferPointer())
+				: "Failed to generate SPIR-V for entry point";
 			return false;
 		}
 

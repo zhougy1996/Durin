@@ -1,16 +1,8 @@
-// Static mesh material foundation shader.
+module StaticMesh;
 
-struct VSInput
-{
-    float3 pos : POSITION;
-    float4 normal : NORMAL;
-    float4 tangent : TANGENT;
-    float2 uv0 : TEXCOORD0;
-    float2 uv1 : TEXCOORD1;
-    float2 uv2 : TEXCOORD2;
-    float2 uv3 : TEXCOORD3;
-    float4 color : COLOR;
-};
+import VertexFactory.LocalVertexFactory;
+
+// Static mesh material foundation shader.
 
 struct VSOutput
 {
@@ -53,17 +45,19 @@ struct MaterialUniform
 [[vk::binding(4, 0)]] SamplerState BaseColorSampler;
 
 [shader("vertex")]
-VSOutput VertexMain(VSInput input)
+VSOutput VertexMain(FLocalVertexFactoryInput input)
 {
+    FLocalVertexFactoryIntermediates vertex =
+        GetLocalVertexFactoryIntermediates(input);
     VSOutput output;
-    output.pos = mul(Transform.LocalToClip, float4(input.pos, 1.0));
-    output.color = input.color;
-    output.worldPosition = mul(Transform.LocalToWorld, float4(input.pos, 1.0)).xyz;
-    output.worldNormal = normalize(mul(Transform.NormalToWorld, float4(input.normal.xyz, 0.0)).xyz);
-    float3 worldTangent = mul(Transform.LocalToWorld, float4(input.tangent.xyz, 0.0)).xyz;
+    output.pos = mul(Transform.LocalToClip, float4(vertex.localPosition, 1.0));
+    output.color = vertex.color;
+    output.worldPosition = mul(Transform.LocalToWorld, float4(vertex.localPosition, 1.0)).xyz;
+    output.worldNormal = normalize(mul(Transform.NormalToWorld, float4(vertex.localNormal, 0.0)).xyz);
+    float3 worldTangent = mul(Transform.LocalToWorld, float4(vertex.localTangent.xyz, 0.0)).xyz;
     worldTangent = normalize(worldTangent - output.worldNormal * dot(output.worldNormal, worldTangent));
-    output.worldTangent = float4(worldTangent, input.tangent.w * Transform.TransformParams.x);
-    output.uv0 = input.uv0;
+    output.worldTangent = float4(worldTangent, vertex.localTangent.w * Transform.TransformParams.x);
+    output.uv0 = vertex.texCoords[0];
     return output;
 }
 

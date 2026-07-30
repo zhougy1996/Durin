@@ -3,8 +3,100 @@
 #include "Shader/Shader.h"
 #include "Shader/SlangShaderCompiler.h"
 
+#include <cstring>
+#include <set>
+#include <unordered_map>
+
 namespace Durin
 {
+	namespace
+	{
+		auto FindBinding(
+			const FCompiledShader& Shader,
+			std::string_view Name) -> const FShaderResourceBinding*
+		{
+			const auto It = std::ranges::find(
+				Shader.Reflection.ResourceBindings,
+				Name,
+				&FShaderResourceBinding::Name);
+			return It == Shader.Reflection.ResourceBindings.end()
+				? nullptr
+				: &*It;
+		}
+
+		auto GetSpirvInputLocations(
+			const FCompiledShader& Shader) -> std::set<uint32>
+		{
+			constexpr uint16 OpDecorate = 71;
+			constexpr uint16 OpVariable = 59;
+			constexpr uint32 DecorationLocation = 30;
+			constexpr uint32 StorageClassInput = 1;
+			std::vector<uint32> Words(
+				Shader.Code->size() / sizeof(uint32));
+			std::memcpy(
+				Words.data(),
+				Shader.Code->data(),
+				Shader.Code->size());
+
+			std::unordered_map<uint32, uint32> LocationsById;
+			std::set<uint32> InputIds;
+			for (size_t Offset = 5; Offset < Words.size();)
+			{
+				const uint32 Instruction = Words[Offset];
+				const uint16 WordCount =
+					static_cast<uint16>(Instruction >> 16);
+				const uint16 OpCode =
+					static_cast<uint16>(Instruction & 0xffffu);
+				if (WordCount == 0
+					|| Offset + WordCount > Words.size())
+				{
+					return {};
+				}
+				if (OpCode == OpDecorate && WordCount >= 4
+					&& Words[Offset + 2] == DecorationLocation)
+				{
+					LocationsById.emplace(
+						Words[Offset + 1],
+						Words[Offset + 3]);
+				}
+				else if (OpCode == OpVariable && WordCount >= 4
+					&& Words[Offset + 3] == StorageClassInput)
+				{
+					InputIds.insert(Words[Offset + 2]);
+				}
+				Offset += WordCount;
+			}
+
+			std::set<uint32> InputLocations;
+			for (const uint32 InputId : InputIds)
+			{
+				if (const auto It = LocationsById.find(InputId);
+					It != LocationsById.end())
+				{
+					InputLocations.insert(It->second);
+				}
+			}
+			return InputLocations;
+		}
+
+		auto ExpectBinding(
+			const FCompiledShader& Shader,
+			std::string_view Name,
+			uint32 BindingIndex,
+			ERHIBindingType Type,
+			EShaderStageFlags StageFlags) -> void
+		{
+			const FShaderResourceBinding* Binding =
+				FindBinding(Shader, Name);
+			ASSERT_NE(Binding, nullptr) << Name;
+			EXPECT_EQ(Binding->SetIndex, 0u) << Name;
+			EXPECT_EQ(Binding->BindingIndex, BindingIndex) << Name;
+			EXPECT_EQ(Binding->Type, Type) << Name;
+			EXPECT_EQ(Binding->ArraySize, 1u) << Name;
+			EXPECT_EQ(Binding->StageFlags, StageFlags) << Name;
+		}
+	}
+
 	TEST(FShaderReflectionTests, ReflectsStorageBuffersAndImages)
 	{
 		const std::filesystem::path ShaderPath = std::filesystem::path(DURIN_TEST_DATA_DIR) / "StorageResources.slang";
@@ -49,6 +141,119 @@ namespace Durin
 		std::string ErrorMessage;
 		ASSERT_TRUE(BuildPipelineLayoutFromShaders(Output.CompiledShaders, PipelineLayout, ErrorMessage)) << ErrorMessage;
 		EXPECT_TRUE(PipelineLayout.BindingLayouts.empty());
+		EXPECT_TRUE(PipelineLayout.PushConstantRanges.empty());
+	}
+
+	TEST(FShaderReflectionTests,
+		StaticMeshModuleExtractionPreservesShaderAbi)
+	{
+		const std::filesystem::path ShaderPath =
+			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
+			/ "StaticMesh.slang";
+		FShaderCompileOptions Options;
+		Options.VirtualShaderPath = "/Engine/StaticMesh";
+		Options.EntryPoints = {"VertexMain", "FragmentMain"};
+		Options.Frequencies = {
+			EShaderFrequency::Vertex,
+			EShaderFrequency::Fragment};
+
+		FSlangShaderCompiler Compiler;
+		const FShaderCompilerOutput Output =
+			Compiler.Compile(ShaderPath.string(), Options);
+		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		ASSERT_EQ(Output.CompiledShaders.size(), 2u);
+		const FCompiledShader& VertexShader =
+			Output.CompiledShaders[0];
+		const FCompiledShader& FragmentShader =
+			Output.CompiledShaders[1];
+
+		EXPECT_EQ(VertexShader.SourceEntryPoint, "VertexMain");
+		EXPECT_EQ(FragmentShader.SourceEntryPoint, "FragmentMain");
+		EXPECT_EQ(VertexShader.BinaryEntryPoint, "main");
+		EXPECT_EQ(FragmentShader.BinaryEntryPoint, "main");
+		EXPECT_EQ(
+			GetSpirvInputLocations(VertexShader),
+			(std::set<uint32>{0, 1, 2, 3, 7}));
+
+		ASSERT_EQ(
+			VertexShader.Reflection.ResourceBindings.size(), 1u);
+		ExpectBinding(
+			VertexShader,
+			"Transform",
+			0,
+			ERHIBindingType::UniformBuffer,
+			EShaderStageFlags::Vertex);
+		ASSERT_EQ(
+			FragmentShader.Reflection.ResourceBindings.size(), 4u);
+		ExpectBinding(
+			FragmentShader,
+			"Lighting",
+			1,
+			ERHIBindingType::UniformBuffer,
+			EShaderStageFlags::Fragment);
+		ExpectBinding(
+			FragmentShader,
+			"Material",
+			2,
+			ERHIBindingType::UniformBuffer,
+			EShaderStageFlags::Fragment);
+		ExpectBinding(
+			FragmentShader,
+			"BaseColorTexture",
+			3,
+			ERHIBindingType::Texture,
+			EShaderStageFlags::Fragment);
+		ExpectBinding(
+			FragmentShader,
+			"BaseColorSampler",
+			4,
+			ERHIBindingType::Sampler,
+			EShaderStageFlags::Fragment);
+
+		FPipelineLayoutDesc PipelineLayout;
+		std::string ErrorMessage;
+		ASSERT_TRUE(BuildPipelineLayoutFromShaders(
+			Output.CompiledShaders,
+			PipelineLayout,
+			ErrorMessage)) << ErrorMessage;
+		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 1u);
+		const auto& SetLayout =
+			PipelineLayout.BindingLayouts[0].BindingLayouts;
+		ASSERT_EQ(SetLayout.size(), 5u);
+		for (uint32 BindingIndex = 0;
+			BindingIndex < SetLayout.size();
+			++BindingIndex)
+		{
+			EXPECT_EQ(
+				SetLayout[BindingIndex].Slot,
+				BindingIndex);
+		}
+		EXPECT_EQ(
+			SetLayout[0].Type,
+			ERHIBindingType::UniformBuffer);
+		EXPECT_EQ(
+			SetLayout[0].StageFlags,
+			EShaderStageFlags::Vertex);
+		EXPECT_EQ(
+			SetLayout[1].Type,
+			ERHIBindingType::UniformBuffer);
+		EXPECT_EQ(
+			SetLayout[1].StageFlags,
+			EShaderStageFlags::Fragment);
+		EXPECT_EQ(
+			SetLayout[2].Type,
+			ERHIBindingType::UniformBuffer);
+		EXPECT_EQ(
+			SetLayout[2].StageFlags,
+			EShaderStageFlags::Fragment);
+		EXPECT_EQ(SetLayout[3].Type, ERHIBindingType::Texture);
+		EXPECT_EQ(
+			SetLayout[3].StageFlags,
+			EShaderStageFlags::Fragment);
+		EXPECT_EQ(SetLayout[4].Type, ERHIBindingType::Sampler);
+		EXPECT_EQ(
+			SetLayout[4].StageFlags,
+			EShaderStageFlags::Fragment);
 		EXPECT_TRUE(PipelineLayout.PushConstantRanges.empty());
 	}
 } // namespace Durin

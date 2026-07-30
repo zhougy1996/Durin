@@ -35,6 +35,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 
 		auto WriteTextFile(const std::filesystem::path& FilePath, std::string_view Text) -> void
 		{
+			std::filesystem::create_directories(FilePath.parent_path());
 			std::ofstream Stream(FilePath, std::ios::binary | std::ios::trunc);
 			Stream << Text;
 			ASSERT_TRUE(Stream.good());
@@ -214,5 +215,85 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(WarmStats.ContentReads, 0u);
 		EXPECT_EQ(WarmStats.ManifestHits, 2u);
 		EXPECT_EQ(WarmStats.DiskHits, 2u);
+	}
+
+	TEST_F(FShaderCompileServiceTests,
+		ImportedModuleChangeRecompilesEveryDependentShader)
+	{
+		const std::filesystem::path SourceRoot =
+			GetServiceTestRoot() / "Source";
+		const std::filesystem::path ModulePath =
+			SourceRoot / "VertexFactory" / "Shared.slang";
+		constexpr std::string_view FirstModule = R"(module Shared;
+public float GetPositionOffset()
+{
+    return 1.0;
+}
+)";
+		constexpr std::string_view SecondModule = R"(module Shared;
+public float GetPositionOffset()
+{
+    return 2.0;
+}
+)";
+		constexpr std::string_view DependentTemplate = R"(module DEPENDENT_MODULE;
+import VertexFactory.Shared;
+
+[shader("vertex")]
+float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
+{
+    return float4(GetPositionOffset() + float(vertexID), 0.0, 0.0, 1.0);
+}
+)";
+		WriteTextFile(ModulePath, FirstModule);
+		for (const std::string_view Name : {"DependentA", "DependentB"})
+		{
+			std::string Source(DependentTemplate);
+			Source.replace(
+				Source.find("DEPENDENT_MODULE"),
+				std::string_view("DEPENDENT_MODULE").size(),
+				Name);
+			WriteTextFile(
+				SourceRoot / (std::string(Name) + ".slang"),
+				Source);
+		}
+
+		InitShaderCompileService();
+		const FShaderCompileOptions Options = MakeServiceOptions();
+		const FShaderCompilerOutput FirstA = GetOrCompileShader(
+			"/ShaderCompileServiceTests/DependentA", Options);
+		const FShaderCompilerOutput FirstB = GetOrCompileShader(
+			"/ShaderCompileServiceTests/DependentB", Options);
+		ASSERT_TRUE(FirstA) << FirstA.ErrorMessage;
+		ASSERT_TRUE(FirstB) << FirstB.ErrorMessage;
+		ASSERT_EQ(FirstA.CompiledShaders.size(), 1u);
+		ASSERT_EQ(FirstB.CompiledShaders.size(), 1u);
+		const FXxHash128 FirstAHash =
+			FirstA.CompiledShaders[0].Hash;
+		const FXxHash128 FirstBHash =
+			FirstB.CompiledShaders[0].Hash;
+
+		WriteTextFile(ModulePath, SecondModule);
+		std::filesystem::last_write_time(
+			ModulePath,
+			std::filesystem::last_write_time(ModulePath)
+				+ std::chrono::seconds(2));
+		const FShaderCompilerOutput SecondA = GetOrCompileShader(
+			"/ShaderCompileServiceTests/DependentA", Options);
+		const FShaderCompilerOutput SecondB = GetOrCompileShader(
+			"/ShaderCompileServiceTests/DependentB", Options);
+		ASSERT_TRUE(SecondA) << SecondA.ErrorMessage;
+		ASSERT_TRUE(SecondB) << SecondB.ErrorMessage;
+		ASSERT_EQ(SecondA.CompiledShaders.size(), 1u);
+		ASSERT_EQ(SecondB.CompiledShaders.size(), 1u);
+		EXPECT_NE(SecondA.CompiledShaders[0].Hash, FirstAHash);
+		EXPECT_NE(SecondB.CompiledShaders[0].Hash, FirstBHash);
+
+		const FShaderCompileServiceStats Stats =
+			GetShaderCompileServiceStats();
+		EXPECT_EQ(Stats.DependencyResolutions, 4u);
+		EXPECT_EQ(Stats.Compilations, 4u);
+		EXPECT_EQ(Stats.MemoryHits, 0u);
+		EXPECT_EQ(Stats.DiskHits, 0u);
 	}
 } // namespace Durin

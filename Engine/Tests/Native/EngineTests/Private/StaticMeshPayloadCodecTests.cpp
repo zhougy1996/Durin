@@ -401,6 +401,9 @@ TEST(FStaticMeshPayloadCodecTests,
 	for (size_t Index = Expected.size(); Index < Elements.size(); ++Index)
 		EXPECT_EQ(Elements[Index].Type, EVertexElementType::None);
 	EXPECT_EQ(VertexFactory.GetTypeName(), "FLocalVertexFactory");
+	EXPECT_EQ(
+		FLocalVertexFactory::GetShaderModuleName(),
+		"VertexFactory.LocalVertexFactory");
 	EXPECT_EQ(VertexFactory.GetData().NumVertices, 4u);
 	EXPECT_EQ(
 		VertexFactory.GetData().PositionComponent.VertexBuffer,
@@ -432,24 +435,55 @@ TEST(FStaticMeshPayloadCodecTests,
 	EXPECT_EQ(Fixture.LODs[0].Sections[1].FirstIndex, 3u);
 	EXPECT_EQ(Fixture.LODs[0].Sections[1].IndexCount, 3u);
 
-	std::string ShaderSource;
-	const std::filesystem::path ShaderPath =
+	std::string EntryPointSource;
+	const std::filesystem::path EntryPointPath =
 		std::filesystem::path(FPaths::EngineDir())
 		/ "Shaders/Slang/StaticMesh.slang";
 	ASSERT_TRUE(FFileHelper::LoadFileToString(
-		ShaderSource, ShaderPath.generic_string()));
+		EntryPointSource, EntryPointPath.generic_string()));
+	EXPECT_NE(
+		EntryPointSource.find(
+			"import VertexFactory.LocalVertexFactory;"),
+		std::string::npos);
+	EXPECT_EQ(
+		EntryPointSource.find("struct FLocalVertexFactoryInput"),
+		std::string::npos);
+	EXPECT_EQ(
+		EntryPointSource.find("float3 position : POSITION;"),
+		std::string::npos);
+	EXPECT_EQ(
+		EntryPointSource.find("float4 packedNormal : NORMAL;"),
+		std::string::npos);
+	EXPECT_EQ(
+		EntryPointSource.find("float4 packedTangent : TANGENT;"),
+		std::string::npos);
+	EXPECT_EQ(
+		EntryPointSource.find("float4 packedColor : COLOR;"),
+		std::string::npos);
+
+	std::string VertexFactorySource;
+	const std::filesystem::path VertexFactoryPath =
+		EntryPointPath.parent_path()
+		/ "VertexFactory/LocalVertexFactory.slang";
+	ASSERT_TRUE(FFileHelper::LoadFileToString(
+		VertexFactorySource, VertexFactoryPath.generic_string()));
+	EXPECT_NE(
+		VertexFactorySource.find(
+			"module LocalVertexFactory;"),
+		std::string::npos);
 	size_t Previous = 0;
 	for (const std::string_view Input : {
-		"float3 pos : POSITION;",
-		"float4 normal : NORMAL;",
-		"float4 tangent : TANGENT;",
-		"float2 uv0 : TEXCOORD0;",
-		"float2 uv1 : TEXCOORD1;",
-		"float2 uv2 : TEXCOORD2;",
-		"float2 uv3 : TEXCOORD3;",
-		"float4 color : COLOR;"})
+		"public float3 position : POSITION;",
+		"public float4 packedNormal : NORMAL;",
+		"public float4 packedTangent : TANGENT;",
+		"public float2 texCoord0 : TEXCOORD0;",
+		"public float2 texCoord1 : TEXCOORD1;",
+		"public float2 texCoord2 : TEXCOORD2;",
+		"public float2 texCoord3 : TEXCOORD3;",
+		"public float4 packedColor : COLOR;"})
 	{
-		const size_t Position = ShaderSource.find(Input, Previous);
+		const size_t Position =
+			VertexFactorySource.find(Input, Previous);
 		ASSERT_NE(Position, std::string::npos) << Input;
 		Previous = Position + Input.size();
 	}

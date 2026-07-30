@@ -34,6 +34,10 @@ namespace Durin
 		{
 			return "FLocalVertexFactory";
 		}
+		static constexpr auto GetShaderModuleName() -> std::string_view
+		{
+			return "VertexFactory.LocalVertexFactory";
+		}
 		auto GetData() const -> const FDataType& { return Data; }
 		ENGINE_API auto GetDeclarationElements() const
 			-> FVertexDeclarationElementList;

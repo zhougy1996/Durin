@@ -59,6 +59,9 @@ durin_add_render_functional_test(RenderShaderContractTests
 		${_durin_render_core_private_dir}/Shader/ShaderCompileUtilities.cpp
 		${_durin_render_core_private_dir}/Shader/SlangShaderDependencyResolver.cpp
 )
+target_compile_definitions(RenderShaderContractTests PRIVATE
+	DURIN_ENGINE_SHADER_SOURCE_DIR="${DURIN_PROJECT_ROOT_DIR}/Shaders/Slang"
+)
 
 durin_add_render_functional_test(RenderShaderCacheTests
 	USE_SLANG

@@ -14,7 +14,7 @@ contains an angled normal, negative tangent handedness, authored UVs, and
 non-white vertex colors. Its 64-by-64 RGBA output hash is
 `52fdb5113401075fabb77a111012afd1`.
 
-Stages 0 through 3 are complete. `FStaticMeshLODResources` now owns
+Stages 0 through 4 are complete. `FStaticMeshLODResources` now owns
 `FStaticMeshVertexBuffers`, `FRawStaticIndexBuffer`, sections, bounds, and
 semantic metadata rather than writable semantic arrays plus raw LOD-level RHI
 references. Import, payload conversion, editor inspection, renderer binding,
@@ -37,8 +37,13 @@ of introducing a vertex factory into a path that no longer consumes mesh
 vertices.
 
 The transitional packed attribute allocation and
-`FStaticMeshPackedVertex` are gone. Stage 4 is next and will move the matching
-shader input/decoding contract into `VertexFactory/LocalVertexFactory.slang`.
+`FStaticMeshPackedVertex` are gone. The matching shader input and decoding
+contract now lives in the imported
+`VertexFactory/LocalVertexFactory.slang` module. The compiler links imported
+Slang module dependencies before code generation, and the shader compile
+service fingerprints imported modules so their dependents invalidate together.
+Stage 5 integration, cleanup, smoke validation, and stable contract
+documentation are next.
 
 ## Goal
 
@@ -623,20 +628,20 @@ Validation:
 Outcome: shader vertex-fetch ownership matches the C++ vertex-factory
 boundary.
 
-- [ ] Add `VertexFactory/LocalVertexFactory.slang` using Slang
+- [x] Add `VertexFactory/LocalVertexFactory.slang` using Slang
   `module`/`import`, public access only for the pass-facing contract, and
   internal visibility for packing helpers.
-- [ ] Move the static-mesh input structure and packed-value decoding out of
+- [x] Move the static-mesh input structure and packed-value decoding out of
   `StaticMesh.slang`.
-- [ ] Keep transform, material, lighting, and pass entry points outside the
+- [x] Keep transform, material, lighting, and pass entry points outside the
   vertex-factory module.
-- [ ] Update static-mesh entry points to import and consume the local
+- [x] Update static-mesh entry points to import and consume the local
   vertex-factory contract.
-- [ ] Verify shader dependency resolution and cache invalidation when the
+- [x] Verify shader dependency resolution and cache invalidation when the
   imported module changes.
-- [ ] Add reflection/ABI tests for entry-point names, vertex inputs, descriptor
+- [x] Add reflection/ABI tests for entry-point names, vertex inputs, descriptor
   bindings, and pipeline layout before and after extraction.
-- [ ] Document how a future vertex-factory type identifies its Slang module or
+- [x] Document how a future vertex-factory type identifies its Slang module or
   composition component without adding unused generic composition machinery.
 
 #### Acceptance Gate
@@ -646,6 +651,61 @@ boundary.
 - Static-mesh shader reflection and descriptor bindings remain compatible.
 - No pass entry point directly duplicates the C++ local vertex-factory stream
   layout.
+
+#### Stage 4 Handoff
+
+- Baseline commit: `2959f53e`
+  (`refactor(rendering): split static mesh vertex streams`).
+- Working set:
+  `StaticMesh.slang`, `VertexFactory/LocalVertexFactory.slang`,
+  `LocalVertexFactory.h`, `SlangShaderCompiler.cpp`,
+  `ShaderCompileServiceTests.cpp`, `ShaderReflectionTests.cpp`,
+  `StaticMeshPayloadCodecTests.cpp`, the RenderCoreTests CMake file, and this
+  plan.
+- Key symbols:
+  `FLocalVertexFactoryInput`, `FLocalVertexFactoryIntermediates`,
+  `GetLocalVertexFactoryIntermediates()`,
+  `FLocalVertexFactory::GetShaderModuleName()`, and
+  `FSlangShaderCompiler::CompileInternal()`.
+- Decision: C++ identifies the shader implementation with the stable import
+  name `VertexFactory.LocalVertexFactory`. A future concrete vertex-factory
+  type adds its own static module identifier; no interface, generic
+  composition registry, or unused permutation machinery is introduced before
+  a second implementation requires it.
+- Decision: the repository's Slang version accepts the compound name for
+  `import VertexFactory.LocalVertexFactory` while the primary file declares
+  the single-segment module name `LocalVertexFactory`. Only the input,
+  pass-neutral intermediates, and decode entry function are public; decode
+  helpers remain internal.
+- Decision: imported module functions require a linked Slang component.
+  `FSlangShaderCompiler` now links the root module and entry point against
+  unresolved imports before reflection and SPIR-V generation, and preserves
+  code-generation diagnostics on failure.
+- ABI evidence: source layout remains locations 0 through 7 for position,
+  normal, tangent, four UV channels, and color. The current optimized vertex
+  SPIR-V exposes the used locations `0, 1, 2, 3, 7`, matching the
+  pre-extraction shader behavior. Entry points remain `VertexMain` and
+  `FragmentMain`; descriptor set 0 remains bindings 0 through 4 for
+  Transform, Lighting, Material, BaseColorTexture, and BaseColorSampler with
+  the same per-stage visibility and merged pipeline layout.
+- Cache evidence: a compile-service test builds two shaders importing one
+  module, edits that module, and proves both dependents resolve again,
+  recompile, and produce new artifact hashes with no memory or disk cache hit.
+- Open questions: none for Stage 5.
+
+Validation:
+
+- `RenderShaderContractTests`: 26 tests passed, including compiled static-mesh
+  entry-point, SPIR-V vertex-input, descriptor-reflection, and merged-pipeline
+  ABI coverage.
+- `RenderShaderServiceTests`: 6 tests passed, including imported-module
+  dependency invalidation across two dependent shaders.
+- `StaticMeshTests`: 54 tests passed.
+- `MaterialTests`: 51 tests passed.
+- `FStaticModelImportVulkanTests.RendersReloadedSrgbTextureAndBaseColorFactor`:
+  rendered output and resource lifecycle baseline passed.
+- Full `all` target build passed for
+  `Win64-Debug-DurinEditor-Tests`.
 
 ### Stage 5: Integration, Cleanup, and Contract Documentation
 
