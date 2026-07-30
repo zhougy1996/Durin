@@ -9,13 +9,13 @@ Completed:
 
 ## Current Status
 
-Stages 0 and 1 are complete. Stage 1 landed against clean baseline
-`15e80b30595ba3ddeedcca39b2ca75f3ade02f1b`: renderer generations, command
-admission, default textures, fullscreen geometry, and render-target layouts now
-have explicit owners or a pure resource helper beneath `Private/Resources/`.
-The module owns the stateful shared resources through a private lifecycle
-container, and the remaining active globals in those resource files are
-non-owning adapters cleared only after the shutdown flush.
+Stages 0 through 2 are complete. Stage 2 landed against clean baseline
+`04b8dd47e85a41e91664098f0fe8c7a9bad0faa7`: SkyBox, TextureCube thumbnail,
+and Post Process shaders, creation slots, committed payloads, render targets,
+and draw submission now have matching concrete owners beneath
+`Private/Renderers/`. The module-private lifecycle container composes those
+owners with the shared resources from Stage 1, while `RendererModule.cpp`
+retains scene queries, proxy enumeration, and total pass ordering.
 
 The adjacent-plan handoffs were reconciled against the current Git history:
 
@@ -34,23 +34,23 @@ The adjacent-plan handoffs were reconciled against the current Git history:
   `551cbfe130d94ff82376bcbba6dc0377883ff902`
   (`feat(material): bind scene proxies to material proxies`).
 
-Stage 2 is next. Its bounded working set is the SkyBox, TextureCube thumbnail,
-and Post Process declarations, creation slots, payloads, and draw helpers
-currently in `RendererModule.cpp`; `SkyBoxRendering.*`; the shared fullscreen
-geometry and render-target layout interfaces; their focused renderer,
-thumbnail, SkyBox, post-process, and Vulkan tests; the new matching files under
-`Private/Renderers/`; and this plan. It excludes StaticMesh, Editor Assistance,
-scene-proxy ownership, scene-order changes, asset render data, and material
-render-proxy behavior.
+Stage 3 is next. Its bounded working set is the StaticMesh shader types,
+uniforms, base-resource slot, shader-map and pipeline caches, creation
+diagnostics, pipeline identities, draw helper, and proxy callback currently in
+`RendererModule.cpp`; the matching new files under `Private/Renderers/`; the
+established StaticMesh render-data, LOD-resource, and material render-proxy
+interfaces; their focused StaticMesh, material, resource reload, and Vulkan
+tests; and this plan. It excludes Editor Assistance, scene-order changes,
+scene-proxy ownership, asset render-data ownership, LOD buffer ownership, and
+material render-proxy invalidation behavior.
 
-The current Renderer module has two dominant implementation units:
-`RendererModule.cpp` combines module lifecycle, default textures, renderer
-resource invalidation, scene orchestration, static-mesh rendering, skybox
-rendering, TextureCube thumbnail rendering, and post-processing, while
-`RendererEditorAssistanceRenderer.cpp` combines Grid, Gizmo, Overlay Line, and
-Overlay Icon resource creation, geometry preparation, pipeline selection, and
-drawing. Most persistent feature state is stored in anonymous-namespace
-globals rather than in an object whose lifetime expresses ownership.
+The remaining Renderer monoliths are `RendererModule.cpp`, which combines
+module lifecycle, renderer resource invalidation, scene orchestration, and
+StaticMesh rendering, and `RendererEditorAssistanceRenderer.cpp`, which
+combines Grid, Gizmo, Overlay Line, and Overlay Icon resource creation,
+geometry preparation, pipeline selection, and drawing. Their remaining
+persistent feature state is still stored in anonymous-namespace globals rather
+than in an object whose lifetime expresses ownership.
 
 The refactoring must consume the established handoffs from the active
 Static Mesh Render-Data Lifecycle, Static Mesh LOD Resources Refactor, and
@@ -546,18 +546,18 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Extract `FSkyBoxRenderer`, including shader types, resource slot,
+- [x] Extract `FSkyBoxRenderer`, including shader types, resource slot,
   uniform preparation, validation, and draw submission.
-- [ ] Extract `FTextureCubeThumbnailRenderer`, including its shader/pipeline
+- [x] Extract `FTextureCubeThumbnailRenderer`, including its shader/pipeline
   slot, sampler, vertex declaration, proxy filtering input, and drawing.
-- [ ] Extract `FPostProcessRenderer`, including copy/FXAA shaders and
+- [x] Extract `FPostProcessRenderer`, including copy/FXAA shaders and
   pipelines, bounded size-keyed Scene Color/depth targets, fullscreen drawing,
   and output variants.
-- [ ] Replace copied payload fields with one authoritative committed payload
+- [x] Replace copied payload fields with one authoritative committed payload
   per owner unless a documented mutable field requires separate storage.
-- [ ] Preserve lazy creation, exact pipeline identities, fallback behavior,
+- [x] Preserve lazy creation, exact pipeline identities, fallback behavior,
   viewport sizing, and Present/Offscreen transitions.
-- [ ] Keep proxy enumeration and total scene ordering in the current
+- [x] Keep proxy enumeration and total scene ordering in the current
   orchestrator until `FSceneRenderer` is introduced.
 
 #### Acceptance Gate
@@ -565,6 +565,38 @@ Dependencies: Stage 1.
 - SkyBox, TextureCube thumbnail, and Post Process shaders, resources, caches,
   and drawing no longer live in `RendererModule.cpp`; each concrete renderer
   passes focused and rendered-output validation with unchanged output.
+
+#### Stage 2 Implementation Handoff
+
+- Baseline: `04b8dd47e85a41e91664098f0fe8c7a9bad0faa7`.
+- Working set: `RendererModule.cpp`, `SkyBoxRendering.*`, the three new
+  concrete owners plus shared creation diagnostics under
+  `Renderer/Private/Renderers/`, the Stage 1 shared-resource interfaces used by
+  those owners, the focused SkyBox, thumbnail, Editor Rendering, and Vulkan
+  validation targets, and this plan.
+- Key symbols: `FRendererModule::FSharedResources`, `FSkyBoxRenderer`,
+  `FTextureCubeThumbnailRenderer`, `FPostProcessRenderer`,
+  `FPostProcessRenderer::FSceneTargets`,
+  `MakeRendererResourceCreateError`, and
+  `ReportRendererResourceCreateDiagnostic`.
+- Decisions: each renderer stores one authoritative committed payload inside
+  its `TRenderResourceCreationSlot`; only Post Process retains separate mutable
+  state for its bounded eight-entry size-keyed target cache. Resource
+  dependencies are constructor-injected from the module lifecycle container,
+  and invalidation fan-out calls concrete owners directly. The existing
+  TextureCube thumbnail output remains the wide environment preview driven by
+  the SkyBox fullscreen path; its previously lazy, unrequested dedicated
+  pipeline slot remains owned and behaviorally unchanged rather than being
+  activated during this structural stage. Scene SkyBox lookup, proxy
+  enumeration, viewport fitting, pass construction, and total ordering remain
+  in the module for Stage 5.
+- Open questions: none.
+- Validation: `SkyBoxTests` passed 9 tests, `ThumbnailTests` passed 45 tests,
+  `EditorRenderingTests` passed 29 tests, and both focused Vulkan targets
+  passed their rendered/reload tests. The complete Tests-profile `all` build
+  and aggregate passed with 807 registered tests, zero failures, and one
+  existing platform-dependent skip; CTest log
+  `Build/.agent-state/logs/20260730-195007-784894-34556-ctest.log`.
 
 ### Stage 3: Extract the StaticMesh renderer
 
