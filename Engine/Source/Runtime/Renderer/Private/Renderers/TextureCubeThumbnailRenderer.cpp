@@ -4,10 +4,39 @@
 #include "Engine/PrimitiveSceneProxy.h"
 #include "IScene.h"
 #include "RHICommandList.h"
+#include "RenderingThread.h"
+#include "Scene.h"
 #include "SceneView.h"
 
 namespace Durin
 {
+	auto FTextureCubeThumbnailRenderer::DrawScene_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		IScene* Scene,
+		const FSceneView& View,
+		FSkyBoxRenderer& SkyBoxRenderer) -> void
+	{
+		check(IsInRenderingThread());
+		auto* RendererScene = dynamic_cast<FScene*>(Scene);
+		if (RendererScene == nullptr)
+		{
+			return;
+		}
+		for (PrimitiveSceneProxy* Proxy :
+			RendererScene->GetPrimitiveSceneProxies())
+		{
+			if (auto* TextureCubeProxy =
+					dynamic_cast<FTextureCubePreviewSceneProxy*>(Proxy))
+			{
+				DrawProxy_RenderThread(
+					CommandList,
+					View,
+					*TextureCubeProxy,
+					SkyBoxRenderer);
+			}
+		}
+	}
+
 	auto FTextureCubeThumbnailRenderer::DrawProxy_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& View,

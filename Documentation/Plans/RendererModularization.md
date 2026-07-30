@@ -9,10 +9,21 @@ Completed:
 
 ## Current Status
 
-Stages 0 through 4 are complete. Stage 4 landed against clean baseline
+Stages 0 through 5 are complete. Stage 5 landed against clean baseline
+`22baca4307f0b8c1f6b92e1d1f7e319659af0dfe`: `FSceneRenderer` now owns the
+resource coordinator, shared resources, and every concrete feature renderer,
+and is the sole owner of fitted-view calculation, scene and post-process pass
+setup, feature ordering, editor-assistance preparation/final drawing, output
+transitions, resource invalidation fan-out, and render-thread release.
+`FRendererModule` retains only owner lifecycle, active-resource forwarding
+bindings, render-scene construction, and public render delegation. StaticMesh
+and TextureCube preview renderers now enumerate the concrete scene proxies they
+consume.
+
+Stage 4 landed against clean baseline
 `4ee0f77e3e2184ade0f7961bda3d73bf6ef095e2`: editor-assistance request
-analysis, immutable per-view preparation, and aggregate draw ordering now have
-one `FEditorAssistanceRenderer` owner. Editor Grid, Gizmo, Overlay Line, and
+analysis, immutable per-view preparation, and aggregate draw ordering have one
+`FEditorAssistanceRenderer` owner. Editor Grid, Gizmo, Overlay Line, and
 Overlay Icon each have a concrete renderer beneath `Private/Renderers/` that
 owns its base resources, exact-key pipeline cache, geometry, diagnostics,
 dynamic capacity where applicable, and release.
@@ -34,19 +45,16 @@ The adjacent-plan handoffs were reconciled against the current Git history:
   `551cbfe130d94ff82376bcbba6dc0377883ff902`
   (`feat(material): bind scene proxies to material proxies`).
 
-Stage 5 is next. Its bounded working set is fitted viewport and render-target
-resolution, scene-pass and post-process setup, scene feature ordering,
-editor-assistance preparation/final pass, output transitions, proxy
-enumeration, concrete renderer composition, module delegation and lifecycle
-fan-out, focused multi-view/viewport/output tests, and this plan. It excludes
-the Stage 6 scene rename and changes to the established feature-resource
-ownership contracts.
+Stage 6 is next. Its bounded working set is the public `IScene`/`FScene`
+renderer vocabulary, the direct engine/editor/test consumers frozen in Stage
+0, matching `RenderScene` filenames, focused scene-lifetime and viewport
+validation, and this plan. It excludes unrelated scene abstractions, behavior
+changes, and Stage 7 cleanup/documentation work.
 
-The rebased Stages 1 through 4 were reconciled with the local-vertex-factory
-baseline on 2026-07-30. The complete Tests-profile `all` build and aggregate
-passed with 809 registered tests, zero failures, and one existing
-platform-dependent skip; CTest log
-`Build/.agent-state/logs/20260730-211004-721146-32604-ctest.log`.
+Stage 5 completed the Tests-profile `all` build and aggregate with 811
+registered tests, zero failures, and one existing platform-dependent skip;
+CTest log
+`Build/.agent-state/logs/20260730-221607-917962-34376-ctest.log`.
 
 The refactoring must consume the established handoffs from the active
 Static Mesh Render-Data Lifecycle, Static Mesh LOD Resources Refactor, and
@@ -721,17 +729,17 @@ Dependencies: Stages 1 and 2.
 
 Dependencies: Stages 2 through 4.
 
-- [ ] Introduce `FSceneRenderer` and transfer fitted viewport calculation,
+- [x] Introduce `FSceneRenderer` and transfer fitted viewport calculation,
   render-target resolution, scene-pass setup, feature ordering, post-process
   setup, editor-assistance preparation/final pass, and final transitions.
-- [ ] Compose all feature renderers and shared resources under
+- [x] Compose all feature renderers and shared resources under
   `FSceneRenderer`.
-- [ ] Move proxy enumeration to the concrete renderer that consumes each
+- [x] Move proxy enumeration to the concrete renderer that consumes each
   proxy, while keeping `FSceneRenderer` responsible for ordering renderers.
-- [ ] Make invalidation and shutdown fan-out explicit and deterministic.
-- [ ] Reduce `FRendererModule::RenderView` to validation/delegation and
+- [x] Make invalidation and shutdown fan-out explicit and deterministic.
+- [x] Reduce `FRendererModule::RenderView` to validation/delegation and
   `FRendererModule::StartupModule`/`ShutdownModule` to owner lifecycle.
-- [ ] Ensure `RendererModule.cpp` contains no feature shader declaration,
+- [x] Ensure `RendererModule.cpp` contains no feature shader declaration,
   pipeline factory, resource payload, procedural geometry, or feature draw
   implementation.
 
@@ -741,6 +749,39 @@ Dependencies: Stages 2 through 4.
   orchestrator, concrete renderers own feature work, and multi-view,
   fixed-aspect, Present/Offscreen, FXAA, assistance, and shutdown behavior
   match the baseline.
+
+#### Stage 5 Implementation Handoff
+
+- Baseline: `22baca4307f0b8c1f6b92e1d1f7e319659af0dfe`.
+- Working set: `RendererModule.*`, the new
+  `Renderers/SceneRenderer.*`, `StaticMeshRenderer.*`,
+  `TextureCubeThumbnailRenderer.*`, the focused scene-view test and
+  `EngineTests` registration, and this plan.
+- Key symbols: `FSceneRenderer`, `FSceneRenderer::FitViewToOutput`,
+  `FSceneRenderer::RenderView_RenderThread`,
+  `FSceneRenderer::RenderScene_RenderThread`,
+  `FStaticMeshRenderer::DrawScene_RenderThread`,
+  `FTextureCubeThumbnailRenderer::DrawScene_RenderThread`, and
+  `FRendererModule::SceneRenderer`.
+- Decisions: `FSceneRenderer` directly composes the coordinator, default
+  textures, fullscreen geometry, and all concrete renderer owners. It owns the
+  invalidation request sink and explicit render-thread release fan-out while
+  the module installs and clears the existing active-resource forwarding
+  pointers around that owner lifetime. StaticMesh resource failure retains the
+  established early return before TextureCube preview drawing. View fitting is
+  a deterministic module-private static operation so main and auxiliary output
+  sizing can be validated without RHI state. Stage 6 scene naming remains
+  untouched.
+- Open questions: none.
+- Validation: `EditorRenderingTests` passed all 31 tests, including the two new
+  independent-output and fixed-aspect scene-view cases; `ThumbnailTests`
+  passed 45 tests; `SkyBoxVulkanIntegrationTests`,
+  `StaticModelImportVulkanTests`, and
+  `RendererResourceReloadVulkanTests` passed their rendered-output and
+  lifecycle cases. The complete Tests-profile `all` build and aggregate passed
+  with 811 registered tests, zero failures, and one existing
+  platform-dependent skip; CTest log
+  `Build/.agent-state/logs/20260730-221607-917962-34376-ctest.log`.
 
 ### Stage 6: Align the public render-scene naming
 

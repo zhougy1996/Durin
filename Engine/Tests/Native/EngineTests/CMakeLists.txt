@@ -350,6 +350,7 @@ durin_add_engine_functional_test(EditorRenderingTests
 		Private/RendererResourceInvalidationTests.cpp
 		Private/RendererResourceSlotCacheTests.cpp
 		Private/RendererRenderTargetLayoutTests.cpp
+		Private/RendererSceneViewTests.cpp
 		Private/EditorTextureSmokeTests.cpp
 	LIBRARIES ApplicationCore RenderCore Renderer DurinEd
 	DEPLOY_TARGETS ApplicationCore RHI RenderCore Renderer DurinEd

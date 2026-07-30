@@ -9,6 +9,7 @@ namespace Durin
 	class FDefaultTextureResources;
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
+	class IScene;
 	class FStaticMeshSceneProxy;
 	enum class ERasterMode : uint8;
 	enum class ERenderMode : uint8;
@@ -29,6 +30,16 @@ namespace Durin
 			-> FStaticMeshRenderer& = delete;
 
 		auto EnsureResources_RenderThread() -> bool;
+		auto DrawScene_RenderThread(
+			FRHICommandListImmediate& CommandList,
+			IScene* Scene,
+			const FSceneView& View,
+			const FDirectionalLightSceneData& Light,
+			ERenderMode RenderMode,
+			ERasterMode RasterMode) -> void;
+		auto ReleaseResources_RenderThread() -> void;
+
+	private:
 		auto DrawProxy_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
@@ -36,9 +47,6 @@ namespace Durin
 			ERenderMode RenderMode,
 			ERasterMode RasterMode,
 			const FStaticMeshSceneProxy& Proxy) -> void;
-		auto ReleaseResources_RenderThread() -> void;
-
-	private:
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;

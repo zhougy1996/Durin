@@ -4,7 +4,9 @@
 
 namespace Durin
 {
-	// Owns renderer services, default resources, and the concrete scene rendering pipeline.
+	class FSceneRenderer;
+
+	// Adapts the public renderer-module contract to one private scene renderer.
 	class FRendererModule final : public IRendererModule
 	{
 	public:
@@ -17,10 +19,6 @@ namespace Durin
 		RENDERER_API auto RenderView(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* OutputTarget, bool bPresentOutput) -> void override;
 
 	private:
-		struct FSharedResources;
-
-		auto RenderScene(FRHICommandListImmediate& CommandList, IScene* Scene, const FSceneView& View, FRHITexture* RenderTarget) -> void;
-
-		std::unique_ptr<FSharedResources> SharedResources;
+		std::unique_ptr<FSceneRenderer> SceneRenderer;
 	};
 }

@@ -10,6 +10,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "Scene.h"
 #include "SceneView.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
@@ -182,6 +183,42 @@ namespace Durin
 			},
 			ReportRendererResourceCreateDiagnostic)
 			!= nullptr;
+	}
+
+	auto FStaticMeshRenderer::DrawScene_RenderThread(
+		FRHICommandListImmediate& CommandList,
+		IScene* Scene,
+		const FSceneView& View,
+		const FDirectionalLightSceneData& Light,
+		ERenderMode RenderMode,
+		ERasterMode RasterMode) -> void
+	{
+		check(IsInRenderingThread());
+		if (RenderMode != ERenderMode::Unlit
+			&& RenderMode != ERenderMode::Lit)
+		{
+			return;
+		}
+		auto* RendererScene = dynamic_cast<FScene*>(Scene);
+		if (RendererScene == nullptr)
+		{
+			return;
+		}
+		for (PrimitiveSceneProxy* Proxy :
+			RendererScene->GetPrimitiveSceneProxies())
+		{
+			if (auto* StaticMeshProxy =
+					dynamic_cast<FStaticMeshSceneProxy*>(Proxy))
+			{
+				DrawProxy_RenderThread(
+					CommandList,
+					View,
+					Light,
+					RenderMode,
+					RasterMode,
+					*StaticMeshProxy);
+			}
+		}
 	}
 
 	auto FStaticMeshRenderer::DrawProxy_RenderThread(
