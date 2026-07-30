@@ -9,29 +9,25 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete against baseline commit
-`a91eaf5f97f20f36c881d22dd9e231eae6985b73`. The current implementation
-baseline at execution start was `a42700dbe143fe2f72c8442d674647c17a8130ec`.
+Stage 1 is complete on Stage 0 baseline commit
+`9be9fc383fd74b45f854fa64a52bb8696093e612`. The original planning baseline
+remains `a91eaf5f97f20f36c881d22dd9e231eae6985b73`.
 
-Stage 0 working set:
+Stage 1 working set:
 
+- `Engine/Source/Runtime/Engine/Private/Engine/World.cpp`
 - `Engine/Tests/Native/EngineTests/Private/World/WorldLifecycleMutationTests.cpp`
-- `Engine/Tests/Native/EngineTests/CMakeLists.txt`
-- World, Level, Actor, and ActorComponent lifecycle entry points named by
-  Related Code.
 
-The focused fixtures use test-only reflected class descriptors and record
-callback entry, mutation, and exit separately. Container capacity is retained
-before Spawn-addition cases so contract failures do not require allocator
-reallocation. The unsafe baseline deterministically routed BeginPlay to an
-Actor destroyed before its turn and routed Actor EndPlay before a self-destroying
-BeginPlay callback unwound. MSVC debug iterators independently detected the
-known invalid reverse Actor iterator during the focused run.
+`DWorld::BeginPlay()` and `DWorld::EndPlay()` now own frozen Actor handle
+snapshots, preserve forward/reverse order, revalidate Level identity,
+membership, pending-kill state, and Actor play state, and stop when the captured
+Level is no longer current. EndPlay publishes the non-playing compatibility
+state before user callbacks. Six focused Stage 1 mutation cases and all 35
+pre-existing non-mutation World tests pass.
 
-Stage 1 is next. The open implementation question is limited to how much of the
-temporary Stage 1 membership validation can be replaced immediately by the
-Stage 2 state model; no Spawn, Destroy, ordering, or re-entry behavior remains
-undecided.
+Stage 2 is next. It will replace the compatibility boolean with explicit World
+and Actor states, reject Spawn while ending, and close recursive/self-destroy
+routing.
 
 `DWorld::BeginPlay()` and `DWorld::EndPlay()` currently retain iterators into
 `DLevel::Actors` while invoking virtual actor callbacks. `SpawnActor()` may
@@ -320,16 +316,16 @@ Verified gaps:
 
 Dependencies: Stage 0.
 
-- [ ] Capture the current Level and a handle snapshot at entry to World
+- [x] Capture the current Level and a handle snapshot at entry to World
   BeginPlay and EndPlay.
-- [ ] Revalidate current-Level identity, Actor membership, pending-kill state,
+- [x] Revalidate current-Level identity, Actor membership, pending-kill state,
   and Actor play state before every callback.
-- [ ] Preserve forward BeginPlay and reverse EndPlay order.
-- [ ] Publish the non-playing state before EndPlay callbacks so an EndPlay
+- [x] Preserve forward BeginPlay and reverse EndPlay order.
+- [x] Publish the non-playing state before EndPlay callbacks so an EndPlay
   callback cannot create a newly playing Actor outside the batch.
-- [ ] Stop the captured batch if a callback replaces or clears the current
+- [x] Stop the captured batch if a callback replaces or clears the current
   Level.
-- [ ] Keep the existing Tick snapshot behavior unchanged in this stage.
+- [x] Keep the existing Tick snapshot behavior unchanged in this stage.
 
 #### Acceptance Gate
 

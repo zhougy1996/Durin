@@ -110,10 +110,19 @@ namespace Durin
 	auto DWorld::BeginPlay() -> void
 	{
 		if (bHasBegunPlay || !CurrentLevel) return;
+		DLevel* CapturedLevel = CurrentLevel.Get();
+		const std::vector<TObjectPtr<AActor>> Actors = CapturedLevel->GetActors();
 		bHasBegunPlay = true;
-		for (const TObjectPtr<AActor>& Actor : CurrentLevel->GetActors())
+		for (const TObjectPtr<AActor>& Actor : Actors)
 		{
-			if (Actor && !Actor->HasBegunPlay()) Actor->BeginPlay();
+			if (CurrentLevel.Get() != CapturedLevel) break;
+			if (Actor
+				&& !Actor->IsPendingKill()
+				&& CapturedLevel->ContainsActor(Actor.Get())
+				&& !Actor->HasBegunPlay())
+			{
+				Actor->BeginPlay();
+			}
 		}
 	}
 
@@ -131,14 +140,21 @@ namespace Durin
 	auto DWorld::EndPlay() -> void
 	{
 		if (!bHasBegunPlay) return;
-		if (CurrentLevel)
-		{
-			for (auto It = CurrentLevel->GetActors().rbegin(); It != CurrentLevel->GetActors().rend(); ++It)
-			{
-				if (*It && (*It)->HasBegunPlay()) (*It)->EndPlay();
-			}
-		}
+		DLevel* CapturedLevel = CurrentLevel.Get();
+		std::vector<TObjectPtr<AActor>> Actors;
+		if (CapturedLevel) Actors = CapturedLevel->GetActors();
 		bHasBegunPlay = false;
 		bSingleStepRequested = false;
+		for (auto It = Actors.rbegin(); It != Actors.rend(); ++It)
+		{
+			if (CurrentLevel.Get() != CapturedLevel) break;
+			if (*It
+				&& !(*It)->IsPendingKill()
+				&& CapturedLevel->ContainsActor(It->Get())
+				&& (*It)->HasBegunPlay())
+			{
+				(*It)->EndPlay();
+			}
+		}
 	}
 } // namespace Durin

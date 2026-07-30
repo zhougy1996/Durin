@@ -287,6 +287,33 @@ TEST(FWorldLifecycleMutationTests, EndPlayRejectsSpawnBeforeAllocation)
 	Durin::CollectGarbage();
 }
 
+TEST(FWorldLifecycleMutationTests, EndPlayNeverBeginsAnActorRequestedByACallback)
+{
+	FMutationCallbackScope CallbackScope;
+	Durin::DWorld* World = CreateWorld();
+	FActorLifecycleMutationTestActor* Actor = SpawnMutationActor(World, "Actor");
+	ASSERT_NE(Actor, nullptr);
+	World->BeginPlay();
+	bool bObservedWorldPlaying = true;
+	FActorLifecycleMutationTestActor* SpawnResult = nullptr;
+	FActorLifecycleMutationTestActor::Callback =
+		[&](FActorLifecycleMutationTestActor& Candidate, ETestLifecycleEvent Event)
+		{
+			if (&Candidate == Actor && Event == ETestLifecycleEvent::EndMutation)
+			{
+				bObservedWorldPlaying = World->HasBegunPlay();
+				SpawnResult = SpawnMutationActor(World, "Requested");
+			}
+		};
+
+	World->EndPlay();
+
+	EXPECT_FALSE(bObservedWorldPlaying);
+	EXPECT_TRUE(!SpawnResult || !SpawnResult->HasBegunPlay());
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
+}
+
 TEST(FWorldLifecycleMutationTests, EndPlaySkipsASiblingDestroyedBeforeItsTurn)
 {
 	FMutationCallbackScope CallbackScope;
@@ -298,18 +325,23 @@ TEST(FWorldLifecycleMutationTests, EndPlaySkipsASiblingDestroyedBeforeItsTurn)
 	RetainActorCapacity(World);
 	World->BeginPlay();
 	std::vector<std::string> Events;
+	Durin::uint32 DestroyRequests = 0;
+	bool bDestroyResult = false;
 	FActorLifecycleMutationTestActor::Callback =
 		[&](FActorLifecycleMutationTestActor& Actor, ETestLifecycleEvent Event)
 		{
 			Events.push_back(EventName(Actor, Event));
 			if (&Actor == Destroyer && Event == ETestLifecycleEvent::EndMutation)
 			{
-				EXPECT_TRUE(World->DestroyActor(Target));
+				++DestroyRequests;
+				bDestroyResult = World->DestroyActor(Target);
 			}
 		};
 
 	World->EndPlay();
 
+	EXPECT_EQ(DestroyRequests, 1u);
+	EXPECT_TRUE(bDestroyResult);
 	EXPECT_EQ(std::ranges::count(Events, "Target.EndEnter"), 1);
 	EXPECT_FALSE(World->ContainsActor(Target));
 	Durin::MarkObjectHierarchyAsGarbage(World);
