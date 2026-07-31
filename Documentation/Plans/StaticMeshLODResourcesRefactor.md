@@ -2,7 +2,7 @@
 
 Summary: Reshape static-mesh render resources around Unreal Engine-compatible buffer and vertex-factory names while preserving Durin's cooked payload, RHI buffer model, and rendered output.
 
-Last reviewed: 2026-07-30
+Last reviewed: 2026-08-01
 
 Status: Active
 Completed:
@@ -42,8 +42,14 @@ contract now lives in the imported
 `VertexFactory/LocalVertexFactory.slang` module. The compiler links imported
 Slang module dependencies before code generation, and the shader compile
 service fingerprints imported modules so their dependents invalidate together.
-Stage 5 integration, cleanup, smoke validation, and stable contract
-documentation are next.
+Stage 5 cleanup and contract documentation are complete; focused validation,
+the full `all` build, and the editor smoke workflow remain.
+
+The obsolete packed-vertex type, legacy raw RHI fields, and duplicate
+static-mesh declaration builder are absent from engine source. The lasting
+ownership, per-LOD lifecycle, vertex-stream, and shader-module contracts are
+published in `Documentation/Runtime/Rendering/StaticMeshRendering.md`, and the
+Material System plan records the landed vertex-factory dependency.
 
 ## Goal
 
@@ -712,7 +718,7 @@ Validation:
 Outcome: the new ownership model is the only supported path and its lasting
 contracts are documented.
 
-- [ ] Remove obsolete raw buffer fields, compatibility accessors, duplicate
+- [x] Remove obsolete raw buffer fields, compatibility accessors, duplicate
   declaration builders, and stale packing helpers.
 - [ ] Confirm release/reinitialize behavior across renderer shutdown, static
   mesh replacement, reimport, and failed resource initialization.
@@ -722,9 +728,9 @@ contracts are documented.
   Engine, RenderCore, RHI-facing declarations, Renderer, and shaders.
 - [ ] Run the editor static-mesh import/render/reimport smoke workflow and
   inspect representative vertex-colored and textured meshes.
-- [ ] Move stable ownership, lifecycle, and vertex-factory shader contracts
+- [x] Move stable ownership, lifecycle, and vertex-factory shader contracts
   into the appropriate Runtime rendering documentation.
-- [ ] Update the Material System plan only where its vertex-factory requirement
+- [x] Update the Material System plan only where its vertex-factory requirement
   now has a landed dependency; do not absorb material-pass work into this
   plan.
 
@@ -736,6 +742,24 @@ contracts are documented.
   `RendererModule.cpp`.
 - Lasting runtime contracts are documented outside the plan and all required
   checklists contain evidence.
+
+#### Stage 5 Documentation Handoff
+
+- Baseline commit: `4796044c` (`refactor(renderer): complete modularization`).
+- Working set:
+  `Documentation/Runtime/Rendering/StaticMeshRendering.md`,
+  `Documentation/Runtime/Rendering/MaterialSystem.md`,
+  `Documentation/Plans/MaterialSystem.md`, and this plan.
+- Key symbols: `FLocalVertexFactory`, `FStaticMeshVertexFactories`,
+  `FStaticMeshLODResources`, `FStaticMeshVertexBuffers`,
+  `FRawStaticIndexBuffer`, and `VertexFactory.LocalVertexFactory`.
+- Decision: lasting contracts live in Runtime rendering documentation rather
+  than the plan; the plan retains only provenance and remaining validation.
+- Open questions: none; remaining work is the unchecked Stage 5 validation
+  checklist.
+- Validation: repository searches found no `FStaticMeshPackedVertex`, legacy
+  raw RHI fields, or duplicate static-mesh declaration builder; no tests or
+  build were run in this documentation-only change.
 
 ## Validation Matrix
 
@@ -793,6 +817,7 @@ profiles defined in [Build and Run](../Development/Build/BuildAndRun.md).
 
 - [Material System Plan](MaterialSystem.md)
 - [Static Mesh Render-Data Lifecycle](StaticMeshRenderDataLifecycle.md)
+- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
 - [Shader Cache](../Runtime/Rendering/ShaderCache.md)
 - [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
 - [Build and Run](../Development/Build/BuildAndRun.md)

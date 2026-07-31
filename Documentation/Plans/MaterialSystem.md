@@ -48,6 +48,14 @@ and scene proxies consume compact slot-ordered snapshots. The completed design
 and compatibility boundary are preserved in
 `Documentation/Plans/Archive/2026-07/StaticMeshMaterialSlots.md`.
 
+The static-mesh vertex-factory dependency for material permutation identity is
+now landed: `FLocalVertexFactory` owns the vertex declaration, the four
+physical vertex streams, and the `VertexFactory.LocalVertexFactory` Slang
+input contract. Stage 4 can derive the vertex-factory component of shader-map
+identity from that factory without re-introducing declaration or
+stream-layout ownership in the renderer. See
+[Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md).
+
 ## Implemented
 
 - [x] `DMaterialInterface`, `DMaterial`, and inherited `DMaterialInstance`
@@ -257,4 +265,6 @@ properties and the compiled render representation remain in this stage.
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`
 - `Documentation/Plans/Archive/2026-07/StaticMeshMaterialSlots.md`
 - `Documentation/Plans/Archive/2026-07/MaterialParameterDomainRefactor.md`
+- `Documentation/Plans/StaticMeshLODResourcesRefactor.md`
+- `Documentation/Runtime/Rendering/StaticMeshRendering.md`
 - `Documentation/Plans/TextureSupport.md`

@@ -131,6 +131,9 @@ they are not migrated.
 - Missing normals and tangents are generated deterministically. Missing vertex colors use linear white, so they do not change the material base color.
 - Each imported node-mesh instance becomes a section. Sections keep contiguous index ranges and reference a stable source material slot; source material assets are not created automatically.
 
+The render-resource ownership, physical stream layout, and vertex-factory
+boundary are defined in [Static Mesh Rendering](StaticMeshRendering.md).
+
 ## Static Mesh Derived Data and Cooking
 
 StaticMesh source provenance is an optional complete `FSourcePath` in any

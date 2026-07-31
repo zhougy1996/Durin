@@ -1,0 +1,138 @@
+# Static Mesh Rendering
+
+This document defines the implemented static-mesh render-resource ownership,
+per-LOD lifecycle, vertex-factory boundary, and shader input contract.
+
+## Resource Ownership
+
+`FStaticMeshRenderData` owns parallel per-LOD arrays. `LODResources` owns
+geometry and CPU metadata; `LODVertexFactories` owns the vertex-fetch policy
+that reads those buffers:
+
+```text
+FStaticMeshRenderData
+  LODResources[LODIndex]       -> FStaticMeshLODResources
+  LODVertexFactories[LODIndex] -> FStaticMeshVertexFactories
+```
+
+`FStaticMeshLODResources` owns `FStaticMeshVertexBuffers`,
+`FRawStaticIndexBuffer`, `Sections`, `LocalBounds`, `NumTexCoords`, and
+`bHasColorVertexData`. It exposes no raw RHI references and no writable legacy
+vector fields.
+
+The UE-named buffer resources have these responsibilities:
+
+| Type | Responsibility |
+| --- | --- |
+| `FPositionVertexBuffer` | Position CPU storage and vertex-buffer RHI allocation. |
+| `FStaticMeshVertexBuffer` | Semantic aggregate of tangent-basis and texture-coordinate storage. |
+| `FStaticMeshVertexBuffer::FTangentsVertexBuffer` | Independently bindable packed tangent-basis stream. |
+| `FStaticMeshVertexBuffer::FTexcoordVertexBuffer` | Independently bindable texture-coordinate stream. |
+| `FColorVertexBuffer` | Vertex-color CPU storage and RHI allocation. |
+| `FStaticMeshVertexBuffers` | Aggregate of position, static-mesh attribute, and color buffers. |
+| `FRawStaticIndexBuffer` | uint32 index storage and index-buffer RHI allocation. |
+| `FVertexFactory` | RenderCore base for declaration lifetime and draw-facing streams. |
+| `FLocalVertexFactory` | Local-space vertex-fetch policy, declaration, and shader module identity. |
+| `FStaticMeshVertexFactories` | Per-LOD container of static-mesh vertex factories. |
+
+## Per-LOD Lifecycle
+
+Initialization is render-thread-only and follows a fixed order:
+
+1. Validate every LOD's geometry, index ranges, sections, and material-slot
+   references.
+2. Initialize position, tangent, texcoord, color, then index buffers for every
+   LOD.
+3. Initialize each LOD's `FLocalVertexFactory` after its buffers are ready.
+
+Release runs in reverse order: all vertex factories first, then each LOD's
+index buffer and vertex buffers. Initialization is idempotent, and any partial
+failure releases all resources already initialized so a later retry starts
+clean.
+
+`IsReadyForRendering()` requires the selected LOD's vertex buffers, index
+buffer, and vertex factory to be ready and the same geometry validation to
+pass. A populated RHI reference cannot make a malformed LOD renderable.
+
+High-level render-data ownership, replacement, proxy recreation, release
+fences, and deferred destruction are owned by the
+[Static Mesh Render-Data Lifecycle Plan](../../Plans/StaticMeshRenderDataLifecycle.md).
+
+## Vertex Streams and Declaration
+
+`FLocalVertexFactory::FDataType` describes the four physical streams. The
+declaration and stream indices are private to the factory; renderer call sites
+do not reconstruct them.
+
+| Stream | Data | Format | Stride | Attribute locations |
+| --- | --- | --- | --- | --- |
+| 0 | Position | `Float3` | 12 | 0 |
+| 1 | Packed normal and tangent basis | `Short4N` x2 | 16 | 1, 2 |
+| 2 | Four UV channels | `Float2` x4 | 32 | 3-6 |
+| 3 | Vertex color | `UByte4N` | 4 | 7 |
+
+Missing UV channels are zero-filled and missing colors are linear white,
+materialized CPU-side before upload. The tangent stream stores normal and
+tangent `xyz` plus handedness in `w`; the bitangent is reconstructed in the
+shader as `cross(N, T) * sign`.
+
+`FLocalVertexFactory::SetData()` validates matching vertex counts and stores
+buffer references. `InitRHI()` builds the declaration from the data and binds
+all four streams. `BindStreams()` binds the complete vertex-factory set,
+`BindPositionStream()` binds stream 0 alone for position-only passes, and
+`GetDeclaration()` supplies the PSO declaration.
+
+The static-mesh renderer selects `FRawStaticIndexBuffer` independently with
+`BindIndexBuffer` and uses the factory declaration and streams for every
+static-mesh draw. It contains no static-mesh vertex declaration construction
+and no hard-coded static-mesh stream selection.
+
+## Shader Module Boundary
+
+`StaticMesh.slang` imports `VertexFactory.LocalVertexFactory`. The vertex
+factory module owns:
+
+- `FLocalVertexFactoryInput`, the pass-facing vertex input structure;
+- `FLocalVertexFactoryIntermediates`, pass-neutral decoded vertex data;
+- `GetLocalVertexFactoryIntermediates()`, the decode entry function.
+
+Decode helpers are module-internal. Transform, material, lighting, and pass
+entry points remain in `StaticMesh.slang`. Vulkan vertex fetch expands the
+normalized integer tangent and color streams to floats before the module
+receives them.
+
+`FLocalVertexFactory::GetShaderModuleName()` returns the stable import name
+`VertexFactory.LocalVertexFactory`. The shader compiler links imported module
+dependencies before code generation and fingerprints imported modules so a
+change invalidates every dependent shader artifact.
+
+## Payload Compatibility
+
+The DMSH payload schema and builder/cache identity are unchanged by the
+in-memory resource ownership. Encode reads semantic data back from the named
+buffer resources; decode constructs them from the payload's position, normal,
+tangent, UV, color, and index arrays.
+
+CPU storage is retained while editor and test consumers inspect LOD data.
+`NeedsCPUAccess` is the explicit policy for a future discard path; this
+refactor does not silently drop arrays after upload.
+
+## Related Documentation
+
+- [Material System](MaterialSystem.md)
+- [Shader Cache](ShaderCache.md)
+- [Viewport Rendering](ViewportRendering.md)
+- [Static Mesh Render-Data Lifecycle Plan](../../Plans/StaticMeshRenderDataLifecycle.md)
+- [Static Mesh LOD Resources Refactor Plan](../../Plans/StaticMeshLODResourcesRefactor.md)
+
+## Related Code
+
+- `Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshResources.h`
+- `Engine/Source/Runtime/Engine/Public/StaticMesh/LocalVertexFactory.h`
+- `Engine/Source/Runtime/Engine/Private/StaticMesh/LocalVertexFactory.cpp`
+- `Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp`
+- `Engine/Source/Runtime/RenderCore/Public/VertexFactory.h`
+- `Engine/Source/Runtime/RenderCore/Public/RenderResource.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/StaticMeshRenderer.cpp`
+- `Engine/Shaders/Slang/StaticMesh.slang`
+- `Engine/Shaders/Slang/VertexFactory/LocalVertexFactory.slang`
