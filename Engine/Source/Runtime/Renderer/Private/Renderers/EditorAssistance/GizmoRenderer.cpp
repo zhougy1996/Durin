@@ -1,4 +1,4 @@
-#include "Renderers/GizmoRenderer.h"
+#include "Renderers/EditorAssistance/GizmoRenderer.h"
 
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/RendererResourceCoordinator.h"

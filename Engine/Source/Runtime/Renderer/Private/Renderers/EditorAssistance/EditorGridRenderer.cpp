@@ -1,4 +1,4 @@
-#include "Renderers/EditorGridRenderer.h"
+#include "Renderers/EditorAssistance/EditorGridRenderer.h"
 
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/FullscreenGeometryResources.h"

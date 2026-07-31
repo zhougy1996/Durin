@@ -37,9 +37,4 @@ namespace Durin
 			ERenderResourceGenerationDependency::Device};
 	};
 
-	// Returns the shared geometry owner installed by the active renderer module.
-	auto GetFullscreenGeometryResources()
-		-> FFullscreenGeometryResources&;
-	auto SetActiveFullscreenGeometryResources(
-		FFullscreenGeometryResources* Resources) -> void;
 } // namespace Durin

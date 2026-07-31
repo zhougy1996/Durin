@@ -1,23 +1,21 @@
 #pragma once
 
-#include "Renderers/EditorAssistanceRenderer.h"
+#include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
 
 namespace Durin
 {
-	class FFullscreenGeometryResources;
 	class FRendererResourceCoordinator;
 
-	class FEditorGridRenderer final
+	class FOverlayLineRenderer final
 	{
 	public:
-		FEditorGridRenderer(
-			FRendererResourceCoordinator& InCoordinator,
-			FFullscreenGeometryResources& InFullscreenGeometry);
-		~FEditorGridRenderer();
+		explicit FOverlayLineRenderer(
+			FRendererResourceCoordinator& InCoordinator);
+		~FOverlayLineRenderer();
 
-		FEditorGridRenderer(const FEditorGridRenderer&) = delete;
-		auto operator=(const FEditorGridRenderer&)
-			-> FEditorGridRenderer& = delete;
+		FOverlayLineRenderer(const FOverlayLineRenderer&) = delete;
+		auto operator=(const FOverlayLineRenderer&)
+			-> FOverlayLineRenderer& = delete;
 
 		auto Prepare_RenderThread(
 			FRHICommandListImmediate& CommandList,
@@ -26,14 +24,14 @@ namespace Durin
 			RendererEditorAssistance::FPrepared& Prepared) -> void;
 		auto Draw_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			const RendererEditorAssistance::FPrepared& Prepared) -> void;
+			const RendererEditorAssistance::FPrepared& Prepared,
+			RendererEditorAssistance::EDepthMode DepthMode) -> void;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;
-		FFullscreenGeometryResources& FullscreenGeometry;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

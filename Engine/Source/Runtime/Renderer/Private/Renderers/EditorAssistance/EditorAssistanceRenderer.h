@@ -104,8 +104,8 @@ namespace Durin::RendererEditorAssistance
 
 namespace Durin
 {
-	// Owns editor-assistance request preparation, feature composition, and draw
-	// ordering while concrete renderers own their independent GPU resources.
+	// Owns editor-assistance request preparation, sub-renderer composition, and
+	// draw ordering while concrete renderers own their independent GPU resources.
 	class FEditorAssistanceRenderer final
 	{
 	public:

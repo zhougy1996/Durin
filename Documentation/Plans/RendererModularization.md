@@ -2,14 +2,14 @@
 
 Summary: Replace Renderer module monoliths and anonymous global feature state with composed module-private renderer types whose files, ownership, lifecycle, and responsibilities align.
 
-Last reviewed: 2026-07-30
+Last reviewed: 2026-07-31
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-07-31
 
 ## Current Status
 
-Stages 0 through 5 are complete. Stage 5 landed against clean baseline
+Stages 0 through 7 are complete. Stage 5 landed against clean baseline
 `22baca4307f0b8c1f6b92e1d1f7e319659af0dfe`: `FSceneRenderer` now owns the
 resource coordinator, shared resources, and every concrete feature renderer,
 and is the sole owner of fitted-view calculation, scene and post-process pass
@@ -45,11 +45,22 @@ The adjacent-plan handoffs were reconciled against the current Git history:
   `551cbfe130d94ff82376bcbba6dc0377883ff902`
   (`feat(material): bind scene proxies to material proxies`).
 
-Stage 6 is next. Its bounded working set is the public `IScene`/`FScene`
-renderer vocabulary, the direct engine/editor/test consumers frozen in Stage
-0, matching `RenderScene` filenames, focused scene-lifetime and viewport
-validation, and this plan. It excludes unrelated scene abstractions, behavior
-changes, and Stage 7 cleanup/documentation work.
+Stage 6 retained the established public `IScene`/`FScene` vocabulary. `World`
+is Durin's high-level owner of actors, levels, components, and game logic;
+`FScene` is its renderer-facing scene representation, so another public
+`RenderScene` vocabulary would add migration cost without resolving an actual
+domain collision.
+
+Stage 7 completed the target file layout, removed the unused active fullscreen
+geometry forwarding layer, and published the lasting ownership, scene naming,
+resource invalidation, and render-order contracts in Runtime rendering
+documentation. The final Tests-profile `all` build and aggregate passed with
+811 registered tests, zero failures, and one existing platform-dependent skip;
+CTest log
+`Build/.agent-state/logs/20260731-111611-533922-38408-ctest.log`. The
+hidden-window editor smoke initialized successfully, rendered, exited after
+five ticks, and completed ordered Renderer and rendering-thread shutdown; log
+`Build/.agent-state/logs/20260731-111637-668461-3684-DurinEditor.log`.
 
 Stage 5 completed the Tests-profile `all` build and aggregate with 811
 registered tests, zero failures, and one existing platform-dependent skip;
@@ -84,7 +95,7 @@ ownership, vertex-factory ownership, or material render-proxy invalidation.
 | Overlay Icon shaders, style/vertex types, base creation slot and copied payload fields, atlas/sampler, dynamic buffers and capacities, atlas construction, quad geometry, upload, pipeline identities, prepare, and draw | `FOverlayIconRenderer`; copied payload fields collapse to the committed payload |
 | Editor Grid shaders, base creation slot and copied payload fields, fullscreen geometry use, pipeline identities, uniform validation/preparation, and draw | `FEditorGridRenderer`; deterministic `EditorGridRendering::BuildUniform` remains independently testable either as an owner static method or a narrow adjacent helper |
 | Editor-assistance generation, force-recompile selection, feature/output/depth/topology identity formatting, diagnostic formatting, base/pipeline generation lookup, shared pipeline vector, `EnsurePipeline`, `AddPreparedPipeline`, invalidation, retry, and release | Generation and force selection move to `FRendererResourceCoordinator`; exact-key pipeline slots, diagnostics, invalidation, retry, and release move to each concrete assistance renderer; aggregate prepared-key collection stays in `FEditorAssistanceRenderer` |
-| `FScene` primitive, light, and SkyBox mutation queues, render-thread containers, revision checks, release command, and render-thread queries | Rename atomically to `FRenderScene` in Stage 6 without changing ownership or behavior |
+| `FScene` primitive, light, and SkyBox mutation queues, render-thread containers, revision checks, release command, and render-thread queries | Retain as the renderer-facing scene representation owned by `World`; Stage 6 changes no names or behavior |
 | `FRendererModule` command startup, default-resource startup, scene construction, resource release enqueue, shutdown flush, `RenderView`, and `RenderScene` | Startup/shutdown and scene construction remain in `FRendererModule`; rendering and concrete resource fan-out delegate to its owned `FSceneRenderer` |
 
 Every `TRenderResourceCreationSlot` therefore has one selected owner: StaticMesh
@@ -99,7 +110,7 @@ pipeline caches. No creation slot or keyed cache remains module-global.
 
 - `InitializeDefaultTextures_RenderThread`, default texture access, resource
   invalidation application and snapshot access retain explicit render-thread
-  assertions. `FRenderScene` render-command bodies and SkyBox queries retain
+  assertions. `FScene` render-command bodies and SkyBox queries retain
   `CheckRenderingThread`; scene creation retains its game-thread assertion.
   Extracted feature entry points add or retain render-thread assertions rather
   than relying only on their caller.
@@ -123,13 +134,14 @@ pipeline caches. No creation slot or keyed cache remains module-global.
   Gizmo/Line/Icon, then visible Gizmo/Line/Icon. The last pass alone selects
   Present or ShaderReadOnly output.
 
-#### Frozen public rename consumers
+#### Frozen public scene-name consumers
 
-Stage 6 atomically renames the interface declaration in
+Stage 0 froze the potential rename surface for the interface declaration in
 `Engine/Source/Runtime/Engine/Public/IScene.h`, the concrete
 `Renderer/Public/Scene.h` and `Renderer/Private/Scene.cpp`, and the module
 contract in `RenderCore/Public/IRendererModule.h` and
-`Renderer/Public/RendererModule.h`. Direct runtime consumers are Engine
+`Renderer/Public/RendererModule.h`. Stage 6 superseded that proposed rename
+and left these consumers unchanged. Direct runtime consumers are Engine
 forward declarations and ownership in `EngineFwd.h`, `Engine.h/.cpp`,
 `World.h/.cpp`, `SceneComponent.h`, `PrimitiveComponent.h/.cpp`,
 `DirectionalLightComponent.cpp`, `SkyBoxComponent.cpp`, and
@@ -178,8 +190,8 @@ decision before implementation continues.
 - Preserve rendered output, render-thread confinement, lazy resource creation,
   invalidation behavior, failure isolation, and shutdown ordering at every
   stage.
-- Replace the ambiguous public `IScene`/`FScene` renderer types with
-  `IRenderScene`/`FRenderScene` after the private ownership split is stable.
+- Retain `IScene`/`FScene` as the renderer-facing scene contract and concrete
+  representation owned by `World`.
 
 ## Scope
 
@@ -193,8 +205,7 @@ decision before implementation continues.
   Assistance.
 - Default texture, fullscreen geometry, render-target layout, resource
   generation, retry, invalidation, and diagnostic ownership.
-- Renderer-facing tests and direct `IScene`/`FScene` consumers affected by the
-  final public rename.
+- Renderer-facing tests and the established `IScene`/`FScene` contract.
 - Lasting Renderer ownership and lifecycle documentation after implementation.
 
 ## Non-Goals
@@ -213,6 +224,8 @@ decision before implementation continues.
   or editor-assistance visuals.
 - Broad naming cleanup outside Renderer and the direct scene-interface
   consumers.
+- Renaming `IScene`/`FScene` or `Scene.h`/`Scene.cpp`; `World` already names
+  the high-level actor, level, component, and game-logic domain.
 - Performance tuning beyond preventing structural regressions in current
   demand-driven creation and bounded size-keyed caches.
 
@@ -228,11 +241,11 @@ Feature renderers and their primary files align one-to-one:
 Engine/Source/Runtime/Renderer/
 |-- Public/
 |   |-- RendererModule.h
-|   |-- RenderScene.h
+|   |-- Scene.h
 |   `-- DefaultTextures.h
 `-- Private/
     |-- RendererModule.cpp
-    |-- RenderScene.cpp
+    |-- Scene.cpp
     |-- Renderers/
     |   |-- SceneRenderer.h
     |   |-- SceneRenderer.cpp
@@ -382,9 +395,10 @@ continue to come from the immutable per-view snapshot.
   exported through `RENDERER_API`.
 - The public module implementation remains `FRendererModule` because it
   implements `IRendererModule`.
-- The renderer-owned scene becomes `IRenderScene`/`FRenderScene`, with
-  `RenderScene.h`/`RenderScene.cpp`. `FSceneViewport` retains its current name
-  because it is a viewport implementation rather than the renderer scene.
+- The renderer-facing scene remains `IScene`/`FScene`, with
+  `Scene.h`/`Scene.cpp`. `World` is the high-level gameplay container, while
+  `FSceneViewport` and editor preview scenes retain their domain-specific
+  names.
 
 ### Adjacent-plan sequencing
 
@@ -461,7 +475,7 @@ Dependencies: stable handoffs from overlapping active-plan stages.
 - [x] Confirm the exact handoff commits and affected symbols from the active
   StaticMesh and material plans before selecting the
   `FStaticMeshRenderer` working set.
-- [x] Freeze the target filenames and public rename consumer list; put any
+- [x] Freeze the target filenames and public scene-name consumer list; put any
   unresolved ownership decision in this stage before source movement begins.
 
 #### Acceptance Gate
@@ -783,44 +797,58 @@ Dependencies: Stages 2 through 4.
   platform-dependent skip; CTest log
   `Build/.agent-state/logs/20260730-221607-917962-34376-ctest.log`.
 
-### Stage 6: Align the public render-scene naming
+### Stage 6: Retain the established public scene naming
 
 Dependencies: Stage 5.
 
-- [ ] Rename `IScene` to `IRenderScene`, `FScene` to `FRenderScene`, and
-  `Scene.h`/`Scene.cpp` to `RenderScene.h`/`RenderScene.cpp`.
-- [ ] Update `IRendererModule::CreateScene`, `RenderView`, engine world scene
-  ownership, scene proxies, tests, and direct renderer consumers atomically.
-- [ ] Keep `FSceneViewport`, engine world, actor/component, and editor preview
-  scene names unchanged where they represent different abstractions.
-- [ ] Preserve game-thread mutation, render-command capture, release, light,
-  SkyBox, proxy replacement, and revision behavior.
-- [ ] Remove obsolete compatibility aliases in the same stage; the repository
-  must have one render-scene vocabulary.
+- [x] Re-evaluate the proposed `IRenderScene`/`FRenderScene` rename against
+  Durin's established `World` domain model.
+- [x] Retain `IScene`, `FScene`, and `Scene.h`/`Scene.cpp` as the public
+  renderer-facing scene contract, concrete representation, and filenames.
+- [x] Keep `World` as the high-level owner of actors, levels, components, and
+  game logic; do not introduce a second general-purpose scene abstraction.
+- [x] Leave `IRendererModule`, engine/editor consumers, scene proxies, and
+  tests unchanged because this stage selects a naming contract, not a
+  migration.
+- [x] Record the retained vocabulary as a Stage 7 requirement for the final
+  Runtime rendering documentation.
 
 #### Acceptance Gate
 
-- Renderer APIs and files consistently use RenderScene terminology, unrelated
-  scene abstractions are untouched, and all scene lifetime, viewport,
-  component render-state, preview-scene, and renderer tests pass.
+- The plan consistently retains `IScene`/`FScene`, explains its relationship
+  to `World`, and introduces no compatibility aliases, source changes, or
+  behavioral validation burden.
+
+#### Stage 6 Decision Handoff
+
+- Baseline: `3a29e0789172679bbcbc8de69ecbb073aef8192c`.
+- Working set: this plan only.
+- Key symbols: `World`, `IScene`, `FScene`, and `FSceneRenderer`.
+- Decisions: `World` already names the high-level gameplay domain.
+  `IScene`/`FScene` remains the renderer-facing scene representation, while
+  `FSceneRenderer` remains the owner that executes per-view rendering. The
+  proposed rename would clarify a suffix but would not resolve an actual
+  domain collision, so its cross-module migration cost is not justified.
+- Open questions: none.
+- Validation: plan validation passed; no source or runtime behavior changed.
 
 ### Stage 7: Validate and publish the lasting contract
 
 Dependencies: Stages 1 through 6.
 
-- [ ] Remove obsolete files, anonymous feature globals, redundant state
+- [x] Remove obsolete files, anonymous feature globals, redundant state
   copies, old namespaces, temporary forwarding functions, and stale includes.
-- [ ] Confirm every module-private `FXxxRenderer` has matching files and owns
+- [x] Confirm every module-private `FXxxRenderer` has matching files and owns
   one coherent draw responsibility.
-- [ ] Confirm no feature resource can be released twice, survive module
+- [x] Confirm no feature resource can be released twice, survive module
   shutdown, or mutate outside the rendering thread.
-- [ ] Run the focused validation matrix, the applicable native suites, a
+- [x] Run the focused validation matrix, the applicable native suites, a
   successful full `all` build, and the hidden-window editor smoke test through
   the repository DurinDevTool workflow.
-- [ ] Update the Runtime rendering documentation with the implemented
-  ownership hierarchy, resource invalidation flow, scene naming, and render
-  order.
-- [ ] Validate all plans and record the final implementation handoff and
+- [x] Update the Runtime rendering documentation with the implemented
+  ownership hierarchy, resource invalidation flow, retained `IScene`/`FScene`
+  naming and its relationship to `World`, and render order.
+- [x] Validate all plans and record the final implementation handoff and
   evidence.
 
 #### Acceptance Gate
@@ -829,6 +857,35 @@ Dependencies: Stages 1 through 6.
   all behavioral and lifecycle validation succeeds, lasting contracts are
   documented outside the plan, and no required cleanup or compatibility path
   remains.
+
+#### Stage 7 Implementation Handoff
+
+- Baseline: `3a29e0789172679bbcbc8de69ecbb073aef8192c`.
+- Working set: `RendererModule.cpp`, `Renderers/SceneRenderer.h`, the
+  `Renderers/EditorAssistance/` owner files,
+  `Resources/FullscreenGeometryResources.*`, the focused Editor Assistance
+  test include, Runtime `ViewportRendering.md`, and this plan.
+- Key symbols: `FRendererModule`, `FSceneRenderer`,
+  `FFullscreenGeometryResources`, `FEditorAssistanceRenderer`,
+  `FEditorGridRenderer`, `FGizmoRenderer`, `FOverlayLineRenderer`, and
+  `FOverlayIconRenderer`.
+- Decisions: the five Editor Assistance owner pairs now occupy their selected
+  subdirectory without changing their types or behavior. The unused active
+  fullscreen-geometry pointer and its module bindings were removed. Active
+  default-texture and resource-coordinator bindings remain because they back
+  the exported fallback-texture API and focused device-invalidation seam.
+  Runtime rendering documentation is now the lasting contract for the owner
+  hierarchy, `World`/`IScene`/`FScene` vocabulary, frame order, resource
+  invalidation, and shutdown.
+- Open questions: none.
+- Validation: changed-document and all-plan validation passed. The
+  `Win64-Debug-DurinEditor-Tests` profile completed a full `all` build and all
+  811 registered tests with zero failures and one existing
+  platform-dependent skip; CTest log
+  `Build/.agent-state/logs/20260731-111611-533922-38408-ctest.log`.
+  The hidden-window editor initialized and exited normally after five ticks;
+  runtime log
+  `Build/.agent-state/logs/20260731-111637-668461-3684-DurinEditor.log`.
 
 ## Validation Matrix
 
@@ -868,8 +925,8 @@ commands or output paths that may change.
   creation, independent generation tracking, last-known-good fallback,
   failure isolation, output transitions, and ordered shutdown match the
   established contract.
-- `IRenderScene`/`FRenderScene` is the only renderer-scene vocabulary, while
-  other scene abstractions retain their domain-specific names.
+- `IScene`/`FScene` is documented as the renderer-facing representation owned
+  by `World`; `FSceneRenderer` remains the per-view rendering owner.
 - Adjacent StaticMesh and material plans retain ownership of their selected
   lifecycle, vertex-factory, and invalidation designs.
 - Each stage lands as a bounded commit with its checklist, baseline, working
@@ -914,9 +971,17 @@ commands or output paths that may change.
 - `Engine/Source/Runtime/Renderer/Public/DefaultTextures.h`
 - `Engine/Source/Runtime/Renderer/Private/RendererModule.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Scene.cpp`
-- `Engine/Source/Runtime/Renderer/Private/RendererEditorAssistance.h`
-- `Engine/Source/Runtime/Renderer/Private/RendererEditorAssistance.cpp`
-- `Engine/Source/Runtime/Renderer/Private/RendererEditorAssistanceRenderer.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/StaticMeshRenderer.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SkyBoxRenderer.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/TextureCubeThumbnailRenderer.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/PostProcessRenderer.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/EditorAssistanceRenderer.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/EditorGridRenderer.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/GizmoRenderer.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/OverlayLineRenderer.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/OverlayIconRenderer.h`
 - `Engine/Source/Runtime/Renderer/Private/Resources/DefaultTextureResources.h`
 - `Engine/Source/Runtime/Renderer/Private/Resources/DefaultTextureResources.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Resources/FullscreenGeometryResources.h`

@@ -1,29 +1,27 @@
 #pragma once
 
-#include "Renderers/EditorAssistanceRenderer.h"
+#include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
 
 namespace Durin
 {
 	class FRendererResourceCoordinator;
 
-	class FOverlayLineRenderer final
+	class FGizmoRenderer final
 	{
 	public:
-		explicit FOverlayLineRenderer(
-			FRendererResourceCoordinator& InCoordinator);
-		~FOverlayLineRenderer();
+		explicit FGizmoRenderer(FRendererResourceCoordinator& InCoordinator);
+		~FGizmoRenderer();
 
-		FOverlayLineRenderer(const FOverlayLineRenderer&) = delete;
-		auto operator=(const FOverlayLineRenderer&)
-			-> FOverlayLineRenderer& = delete;
+		FGizmoRenderer(const FGizmoRenderer&) = delete;
+		auto operator=(const FGizmoRenderer&) -> FGizmoRenderer& = delete;
 
 		auto Prepare_RenderThread(
 			FRHICommandListImmediate& CommandList,
-			const FSceneView& View,
-			RenderTargetLayouts::EViewportOutput Output,
+			const RendererEditorAssistance::FRequest& Request,
 			RendererEditorAssistance::FPrepared& Prepared) -> void;
 		auto Draw_RenderThread(
 			FRHICommandListImmediate& CommandList,
+			const FSceneView& View,
 			const RendererEditorAssistance::FPrepared& Prepared,
 			RendererEditorAssistance::EDepthMode DepthMode) -> void;
 		auto ReleaseResources_RenderThread() -> void;

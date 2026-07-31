@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "RenderResourceCreation.h"
-#include "Renderers/EditorAssistanceRenderer.h"
+#include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
 
 namespace Durin
 {

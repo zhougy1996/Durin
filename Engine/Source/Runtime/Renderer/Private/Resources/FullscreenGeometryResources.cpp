@@ -6,12 +6,6 @@
 
 namespace Durin
 {
-	namespace
-	{
-		FFullscreenGeometryResources* GActiveFullscreenGeometryResources =
-			nullptr;
-	}
-
 	auto FFullscreenGeometryResources::EnsureResources_RenderThread(
 		FRHICommandListImmediate& CommandList) -> bool
 	{
@@ -118,16 +112,4 @@ namespace Durin
 		Generation = {};
 	}
 
-	auto GetFullscreenGeometryResources()
-		-> FFullscreenGeometryResources&
-	{
-		check(GActiveFullscreenGeometryResources != nullptr);
-		return *GActiveFullscreenGeometryResources;
-	}
-
-	auto SetActiveFullscreenGeometryResources(
-		FFullscreenGeometryResources* Resources) -> void
-	{
-		GActiveFullscreenGeometryResources = Resources;
-	}
 } // namespace Durin

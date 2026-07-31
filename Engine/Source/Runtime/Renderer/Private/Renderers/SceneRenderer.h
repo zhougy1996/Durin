@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Renderers/EditorAssistanceRenderer.h"
+#include "Renderers/EditorAssistance/EditorAssistanceRenderer.h"
 #include "Renderers/PostProcessRenderer.h"
 #include "Renderers/SkyBoxRenderer.h"
 #include "Renderers/StaticMeshRenderer.h"
@@ -53,11 +53,6 @@ namespace Durin
 		auto GetDefaultTextures() -> FDefaultTextureResources&
 		{
 			return DefaultTextures;
-		}
-
-		auto GetFullscreenGeometry() -> FFullscreenGeometryResources&
-		{
-			return FullscreenGeometry;
 		}
 
 	private:

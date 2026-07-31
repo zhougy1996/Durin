@@ -29,6 +29,42 @@ The current paths are:
 
 This keeps the widget composition path consistent while still allowing each viewport to choose a different render mode.
 
+### Renderer Ownership and Scene Vocabulary
+
+`World` is Durin's high-level owner of actors, levels, components, and game
+logic. The renderer-facing representation of that world remains `IScene` in
+public contracts and `FScene` in the Renderer implementation. `FScene` owns
+render-thread primitive proxies, directional-light data, and SkyBox snapshots;
+it is not a second gameplay scene abstraction.
+
+`FSceneRenderer` is distinct from `FScene`: it executes one view and owns the
+resources and feature renderers used to produce that view. `FRendererModule`
+is the module-lifecycle and public-interface adapter around this private
+composition:
+
+```text
+FRendererModule
+`-- FSceneRenderer
+    |-- FRendererResourceCoordinator
+    |-- FDefaultTextureResources
+    |-- FFullscreenGeometryResources
+    |-- FStaticMeshRenderer
+    |-- FSkyBoxRenderer
+    |-- FTextureCubeThumbnailRenderer
+    |-- FPostProcessRenderer
+    `-- FEditorAssistanceRenderer
+        |-- FEditorGridRenderer
+        |-- FGizmoRenderer
+        |-- FOverlayLineRenderer
+        `-- FOverlayIconRenderer
+```
+
+Feature renderers own their shader maps, pipelines, RHI payloads, keyed
+caches, geometry, retry state, diagnostics, and release paths. Shared
+facilities are explicit resource owners rather than anonymous feature globals.
+All GPU resource mutation, invalidation, retry, and release remains confined
+to the rendering thread.
+
 ## Render Modes
 
 `Mona::IMonaViewport` exposes the render mode through `GetRenderMode()` and `IsWindowBacked()`.
@@ -53,6 +89,18 @@ therefore render the same `IScene` with independent Lit/Unlit,
 Solid/Wireframe, and FXAA choices, and a later UI change cannot alter an
 already-enqueued view. Renderer-global state remains limited to shared GPU
 resources and size-keyed intermediate caches rather than semantic view policy.
+
+For each valid non-zero output, `FSceneRenderer` preserves this order:
+
+1. Resolve size-keyed Scene Color and depth targets and fit the view to the
+   output.
+2. Draw SkyBox, StaticMesh, then TextureCube preview proxies into Scene Color.
+3. Prepare demanded editor-assistance operations after the scene pass.
+4. Copy or apply FXAA from Scene Color to the final output.
+5. When assistance has drawable work, load the preserved color and depth and
+   draw Grid, X-Ray Gizmo/Line/Icon, then visible Gizmo/Line/Icon.
+6. Transition only the final pass to Present for a window-backed output or
+   ShaderReadOnly for an offscreen output.
 
 ## Game Window Path
 
@@ -186,6 +234,14 @@ resource construction remains synchronous and demand-driven on the render
 thread. New failures and changed failure fingerprints produce one structured
 diagnostic, retained stale-ready failures identify their fallback, and a
 successful retry reports one recovery transition.
+
+`FRendererResourceCoordinator` owns command admission and the shader, device,
+and manual generation counters. `FSceneRenderer` receives each accepted
+request and explicitly fans it out to the concrete resource owners. Shader and
+manual invalidation advance their relevant generation and leave reconstruction
+lazy. Device invalidation releases every dependent payload before advancing
+the device generation, then recreates only startup defaults; feature resources
+are rebuilt on their next demand.
 
 The internal device-invalidation request is a tested Renderer seam rather than
 a claim of Vulkan device-loss recovery. It clears fixed and keyed payloads,

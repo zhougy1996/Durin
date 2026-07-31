@@ -1,4 +1,4 @@
-#include "Renderers/OverlayLineRenderer.h"
+#include "Renderers/EditorAssistance/OverlayIconRenderer.h"
 
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -16,148 +16,219 @@ namespace Durin
 
 	namespace
 	{
-		class FOverlayLineVertexShader : public FShader
+		class FOverlayIconVertexShader : public FShader
 		{
 		public:
 			DURIN_DECLARE_SHADER(
-				FOverlayLineVertexShader,
+				FOverlayIconVertexShader,
 				FShader,
 				"/Engine/Gizmo",
 				EShaderFrequency::Vertex,
-				"LineVertexMain");
+				"IconVertexMain");
 		};
 
-		class FOverlayLineFragmentShader : public FShader
+		class FOverlayIconFragmentShader : public FShader
 		{
 		public:
-			DURIN_BEGIN_SHADER_PARAMETERS(FOverlayLineFragmentShader)
-				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Style);
+			DURIN_BEGIN_SHADER_PARAMETERS(FOverlayIconFragmentShader)
+				DURIN_SHADER_PARAMETER_TEXTURE(Atlas);
+				DURIN_SHADER_PARAMETER_SAMPLER(AtlasSampler);
+				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(IconStyle);
 			DURIN_END_SHADER_PARAMETERS();
 
 			DURIN_DECLARE_SHADER(
-				FOverlayLineFragmentShader,
+				FOverlayIconFragmentShader,
 				FShader,
 				"/Engine/Gizmo",
 				EShaderFrequency::Fragment,
-				"LineFragmentMain");
+				"IconFragmentMain");
 		};
 
-		struct FOverlayLineStyleUniform
+		struct FOverlayIconStyleUniform
 		{
 			float AlphaScale = 1.0f;
 			FVector3f Padding{0.0f};
 		};
 
-		struct FOverlayLineVertex
+		struct FOverlayIconVertex
 		{
 			FVector4f Position{0.0f};
+			FVector2f UV{0.0f};
 			FVector4f Color{1.0f};
-			FVector2f Pattern{0.0f};
 		};
+
+		auto BuildAtlasPixels() -> std::array<uint8, 128 * 64 * 4>
+		{
+			constexpr uint32 Size = 64;
+			constexpr uint32 SamplesPerAxis = 4;
+			constexpr uint32 AtlasWidth = Size * 2;
+			std::array<uint8, AtlasWidth * Size * 4> Pixels{};
+			auto InsideCircle = [](
+				float X,
+				float Y,
+				float CenterX,
+				float CenterY,
+				float Radius) {
+				const float DX = X - CenterX;
+				const float DY = Y - CenterY;
+				return DX * DX + DY * DY <= Radius * Radius;
+			};
+			auto InsideLens = [](float X, float Y) {
+				if (X < 42.0f || X > 57.0f)
+					return false;
+				const float T = (X - 42.0f) / 15.0f;
+				const float Top = glm::mix(29.0f, 20.0f, T);
+				const float Bottom = glm::mix(43.0f, 52.0f, T);
+				return Y >= Top && Y <= Bottom;
+			};
+			for (uint32 Y = 0; Y < Size; ++Y)
+			{
+				for (uint32 X = 0; X < Size; ++X)
+				{
+					uint32 CoveredSamples = 0;
+					for (uint32 SampleY = 0; SampleY < SamplesPerAxis; ++SampleY)
+					{
+						for (uint32 SampleX = 0;
+							SampleX < SamplesPerAxis;
+							++SampleX)
+						{
+							const float PX = static_cast<float>(X)
+								+ (static_cast<float>(SampleX) + 0.5f)
+									/ SamplesPerAxis;
+							const float PY = static_cast<float>(Y)
+								+ (static_cast<float>(SampleY) + 0.5f)
+									/ SamplesPerAxis;
+							const bool bBody =
+								PX >= 9.0f && PX <= 44.0f
+								&& PY >= 27.0f && PY <= 49.0f;
+							const bool bReels =
+								InsideCircle(PX, PY, 19.0f, 21.0f, 10.0f)
+								|| InsideCircle(
+									PX, PY, 37.0f, 20.0f, 9.0f);
+							const bool bReelHole =
+								InsideCircle(PX, PY, 19.0f, 21.0f, 3.5f)
+								|| InsideCircle(
+									PX, PY, 37.0f, 20.0f, 3.0f);
+							if ((bBody || bReels || InsideLens(PX, PY))
+								&& !bReelHole)
+							{
+								++CoveredSamples;
+							}
+						}
+					}
+					const size_t Offset =
+						(static_cast<size_t>(Y) * AtlasWidth + X) * 4;
+					Pixels[Offset + 0] = 255;
+					Pixels[Offset + 1] = 255;
+					Pixels[Offset + 2] = 255;
+					Pixels[Offset + 3] = static_cast<uint8>(
+						CoveredSamples * 255
+						/ (SamplesPerAxis * SamplesPerAxis));
+				}
+			}
+			for (uint32 Y = 0; Y < Size; ++Y)
+			{
+				for (uint32 X = 0; X < Size; ++X)
+				{
+					uint32 CoveredSamples = 0;
+					for (uint32 SampleY = 0; SampleY < SamplesPerAxis; ++SampleY)
+					{
+						for (uint32 SampleX = 0;
+							SampleX < SamplesPerAxis;
+							++SampleX)
+						{
+							const float PX = static_cast<float>(X)
+								+ (static_cast<float>(SampleX) + 0.5f)
+									/ SamplesPerAxis
+								- 32.0f;
+							const float PY = static_cast<float>(Y)
+								+ (static_cast<float>(SampleY) + 0.5f)
+									/ SamplesPerAxis
+								- 32.0f;
+							const float Radius = std::sqrt(PX * PX + PY * PY);
+							const float Angle = std::atan2(PY, PX);
+							const float RayAxisDistance =
+								std::abs(std::sin(Angle * 4.0f)) * Radius;
+							const bool bDisc = Radius <= 12.0f;
+							const bool bRay = Radius >= 17.0f
+								&& Radius <= 27.0f
+								&& RayAxisDistance <= 2.2f;
+							if (bDisc || bRay)
+								++CoveredSamples;
+						}
+					}
+					const size_t Offset =
+						(static_cast<size_t>(Y) * AtlasWidth + Size + X) * 4;
+					Pixels[Offset + 0] = 255;
+					Pixels[Offset + 1] = 255;
+					Pixels[Offset + 2] = 255;
+					Pixels[Offset + 3] = static_cast<uint8>(
+						CoveredSamples * 255
+						/ (SamplesPerAxis * SamplesPerAxis));
+				}
+			}
+			return Pixels;
+		}
 
 		auto BuildGeometry(
 			const FSceneView& View,
-			std::vector<FOverlayLineVertex>& OutVertices,
+			std::vector<FOverlayIconVertex>& OutVertices,
 			std::vector<uint32>& OutIndices) -> void
 		{
-			constexpr double ClipEpsilon = 1.e-8;
-			auto ClipSegment = [](FVector4& Start, FVector4& End) {
-				auto ClipPlane = [&](auto PlaneDistance, double Minimum) {
-					const double StartDistance = PlaneDistance(Start);
-					const double EndDistance = PlaneDistance(End);
-					if (StartDistance < Minimum && EndDistance < Minimum)
-						return false;
-					if (StartDistance < Minimum || EndDistance < Minimum)
-					{
-						const double T =
-							(Minimum - StartDistance)
-							/ (EndDistance - StartDistance);
-						const FVector4 Intersection = glm::mix(Start, End, T);
-						if (StartDistance < Minimum)
-							Start = Intersection;
-						else
-							End = Intersection;
-					}
-					return true;
-				};
-				return ClipPlane(
-						   [](const FVector4& Value) { return Value.w; },
-						   ClipEpsilon)
-					&& ClipPlane(
-						[](const FVector4& Value) { return Value.z; }, 0.0);
-			};
-
-			for (const FViewOverlayLine& Line : View.OverlayLines)
+			for (const FViewOverlayIcon& Icon : View.OverlayIcons)
 			{
-				FVector4 ClipStart =
-					View.ViewProjectionMatrix * FVector4(Line.Start, 1.0);
-				FVector4 ClipEnd =
-					View.ViewProjectionMatrix * FVector4(Line.End, 1.0);
-				if (!std::isfinite(ClipStart.w)
-					|| !std::isfinite(ClipEnd.w)
-					|| !std::isfinite(ClipStart.z)
-					|| !std::isfinite(ClipEnd.z)
-					|| !ClipSegment(ClipStart, ClipEnd))
+				if (!std::isfinite(Icon.SizePixels) || Icon.SizePixels <= 0.0f)
+					continue;
+				const float MinU =
+					Icon.Icon == EViewOverlayIcon::DirectionalLight
+					? 0.5f
+					: 0.0f;
+				const float MaxU = MinU + 0.5f;
+				const FVector4 Clip =
+					View.ViewProjectionMatrix
+					* FVector4(Icon.WorldPosition, 1.0);
+				if (!std::isfinite(Clip.x)
+					|| !std::isfinite(Clip.y)
+					|| !std::isfinite(Clip.z)
+					|| !std::isfinite(Clip.w)
+					|| Clip.w <= 1.e-8
+					|| Clip.z < 0.0)
 				{
 					continue;
 				}
-				const FVector2 NdcStart = FVector2(ClipStart) / ClipStart.w;
-				const FVector2 NdcEnd = FVector2(ClipEnd) / ClipEnd.w;
-				const FVector2f PixelDelta{
-					static_cast<float>(
-						(NdcEnd.x - NdcStart.x) * 0.5 * View.ViewportWidth),
-					static_cast<float>(
-						(NdcEnd.y - NdcStart.y) * 0.5 * View.ViewportHeight),
-				};
-				const float PixelLength = glm::length(PixelDelta);
-				if (!std::isfinite(PixelLength) || PixelLength <= 0.001f)
-					continue;
-				const FVector2f PixelNormal{
-					-PixelDelta.y / PixelLength,
-					PixelDelta.x / PixelLength,
-				};
-				const float HalfWidth =
-					std::max(0.5f, Line.WidthPixels * 0.5f);
-				const FVector2 NdcOffset{
-					static_cast<double>(
-						PixelNormal.x * HalfWidth * 2.0f
-						/ std::max(1u, View.ViewportWidth)),
-					static_cast<double>(
-						PixelNormal.y * HalfWidth * 2.0f
-						/ std::max(1u, View.ViewportHeight)),
-				};
-				auto MakePosition = [](
-					const FVector4& Clip, const FVector2& Offset) {
+				const double HalfNdcX =
+					static_cast<double>(Icon.SizePixels)
+					/ std::max(1u, View.ViewportWidth);
+				const double HalfNdcY =
+					static_cast<double>(Icon.SizePixels)
+					/ std::max(1u, View.ViewportHeight);
+				auto MakePosition = [&](double X, double Y) {
 					return FVector4f(
-						static_cast<float>(Clip.x + Offset.x * Clip.w),
-						static_cast<float>(Clip.y + Offset.y * Clip.w),
+						static_cast<float>(Clip.x + X * Clip.w),
+						static_cast<float>(Clip.y + Y * Clip.w),
 						static_cast<float>(Clip.z),
 						static_cast<float>(Clip.w));
 				};
-				const float PatternPeriod =
-					Line.Pattern == EViewOverlayLinePattern::Dashed
-					? std::max(2.0f, Line.PatternPeriodPixels)
-					: 0.0f;
 				const uint32 Base = static_cast<uint32>(OutVertices.size());
 				OutVertices.push_back({
-					MakePosition(ClipStart, NdcOffset),
-					Line.Color,
-					{0.0f, PatternPeriod},
+					MakePosition(-HalfNdcX, -HalfNdcY),
+					{MinU, 0.0f},
+					Icon.Color,
 				});
 				OutVertices.push_back({
-					MakePosition(ClipStart, -NdcOffset),
-					Line.Color,
-					{0.0f, PatternPeriod},
+					MakePosition(HalfNdcX, -HalfNdcY),
+					{MaxU, 0.0f},
+					Icon.Color,
 				});
 				OutVertices.push_back({
-					MakePosition(ClipEnd, NdcOffset),
-					Line.Color,
-					{PixelLength, PatternPeriod},
+					MakePosition(-HalfNdcX, HalfNdcY),
+					{MinU, 1.0f},
+					Icon.Color,
 				});
 				OutVertices.push_back({
-					MakePosition(ClipEnd, -NdcOffset),
-					Line.Color,
-					{PixelLength, PatternPeriod},
+					MakePosition(HalfNdcX, HalfNdcY),
+					{MaxU, 1.0f},
+					Icon.Color,
 				});
 				OutIndices.insert(OutIndices.end(), {
 					Base,
@@ -190,21 +261,23 @@ namespace Durin
 			const auto It = std::ranges::find_if(
 				Prepared.Pipelines,
 				[DepthMode](const FPreparedPipeline& Pipeline) {
-					return Pipeline.Key.Feature == EFeature::OverlayLine
+					return Pipeline.Key.Feature == EFeature::OverlayIcon
 						&& Pipeline.Key.DepthMode == DepthMode;
 				});
 			return It != Prepared.Pipelines.end() ? It->Pipeline : nullptr;
 		}
 	} // namespace
 
-	struct FOverlayLineRenderer::FState
+	struct FOverlayIconRenderer::FState
 	{
 		struct FBasePayload
 		{
 			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FOverlayLineVertexShader> VertexShader;
-			TShaderRef<FOverlayLineFragmentShader> FragmentShader;
+			TShaderRef<FOverlayIconVertexShader> VertexShader;
+			TShaderRef<FOverlayIconFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
+			FTextureRHIRef Atlas;
+			FSamplerRHIRef AtlasSampler;
 		};
 
 		struct FPipelineEntry
@@ -225,26 +298,26 @@ namespace Durin
 		uint32 IndexCapacity = 0;
 	};
 
-	FOverlayLineRenderer::FOverlayLineRenderer(
+	FOverlayIconRenderer::FOverlayIconRenderer(
 		FRendererResourceCoordinator& InCoordinator)
 		: Coordinator(InCoordinator)
 		, State(std::make_unique<FState>())
 	{
 	}
 
-	FOverlayLineRenderer::~FOverlayLineRenderer() = default;
+	FOverlayIconRenderer::~FOverlayIconRenderer() = default;
 
-	auto FOverlayLineRenderer::Prepare_RenderThread(
+	auto FOverlayIconRenderer::Prepare_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& View,
 		RenderTargetLayouts::EViewportOutput Output,
 		FPrepared& Prepared) -> void
 	{
 		check(IsInRenderingThread());
-		std::vector<FOverlayLineVertex> Vertices;
+		std::vector<FOverlayIconVertex> Vertices;
 		std::vector<uint32> Indices;
-		Vertices.reserve(View.OverlayLines.size() * 4);
-		Indices.reserve(View.OverlayLines.size() * 6);
+		Vertices.reserve(View.OverlayIcons.size() * 4);
+		Indices.reserve(View.OverlayIcons.size() * 6);
 		BuildGeometry(View, Vertices, Indices);
 		if (Vertices.empty() || Indices.empty())
 			return;
@@ -253,14 +326,14 @@ namespace Durin
 		using FBaseResult = TRenderResourceCreateResult<FBasePayload>;
 		FBasePayload* Base = State->Base.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
-			[this]() -> FBaseResult {
+			[this, &CommandList]() -> FBaseResult {
 				FShaderCompileOptions CompileOptions;
 				CompileOptions.bForceRecompile =
 					Coordinator.ShouldForceShaderRecompile_RenderThread();
 				FShaderType& VertexShaderType =
-					FOverlayLineVertexShader::StaticType();
+					FOverlayIconVertexShader::StaticType();
 				FShaderType& FragmentShaderType =
-					FOverlayLineFragmentShader::StaticType();
+					FOverlayIconFragmentShader::StaticType();
 				const std::array<const FShaderType*, 2> ShaderTypes = {
 					&VertexShaderType,
 					&FragmentShaderType};
@@ -274,66 +347,93 @@ namespace Durin
 					return FBaseResult::Failure(
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,
-							"OverlayLine",
+							"OverlayIcon",
 							"base",
 							std::move(ErrorMessage),
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}
 				auto* VertexShader =
-					static_cast<FOverlayLineVertexShader*>(
+					static_cast<FOverlayIconVertexShader*>(
 						Candidate.ShaderMap->GetShader(&VertexShaderType));
 				auto* FragmentShader =
-					static_cast<FOverlayLineFragmentShader*>(
+					static_cast<FOverlayIconFragmentShader*>(
 						Candidate.ShaderMap->GetShader(&FragmentShaderType));
 				if (VertexShader == nullptr || FragmentShader == nullptr)
 				{
 					return FBaseResult::Failure(
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::ShaderBinding,
-							"OverlayLine",
+							"OverlayIcon",
 							"base",
 							"Compiled shader map is missing a typed shader.",
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}
 				Candidate.VertexShader =
-					TShaderRef<FOverlayLineVertexShader>(
+					TShaderRef<FOverlayIconVertexShader>(
 						VertexShader, Candidate.ShaderMap.get());
 				Candidate.FragmentShader =
-					TShaderRef<FOverlayLineFragmentShader>(
+					TShaderRef<FOverlayIconFragmentShader>(
 						FragmentShader, Candidate.ShaderMap.get());
 				FVertexDeclarationElementList Elements;
 				Elements[0] = FVertexElement(
 					0,
 					static_cast<uint8>(
-						offsetof(FOverlayLineVertex, Position)),
+						offsetof(FOverlayIconVertex, Position)),
 					EVertexElementType::Float4,
 					0,
-					sizeof(FOverlayLineVertex));
+					sizeof(FOverlayIconVertex));
 				Elements[1] = FVertexElement(
 					0,
-					static_cast<uint8>(offsetof(FOverlayLineVertex, Color)),
-					EVertexElementType::Float4,
+					static_cast<uint8>(offsetof(FOverlayIconVertex, UV)),
+					EVertexElementType::Float2,
 					1,
-					sizeof(FOverlayLineVertex));
+					sizeof(FOverlayIconVertex));
 				Elements[2] = FVertexElement(
 					0,
 					static_cast<uint8>(
-						offsetof(FOverlayLineVertex, Pattern)),
-					EVertexElementType::Float2,
+						offsetof(FOverlayIconVertex, Color)),
+					EVertexElementType::Float4,
 					2,
-					sizeof(FOverlayLineVertex));
+					sizeof(FOverlayIconVertex));
 				Candidate.VertexDeclaration =
 					GDynamicRHI->RHICreateVertexDeclaration(Elements);
-				if (Candidate.VertexDeclaration == nullptr)
+				const auto Pixels = BuildAtlasPixels();
+				FRHITextureCreateDesc TextureDesc =
+					FRHITextureCreateDesc::Create2D(
+						"EditorOverlayIconAtlas",
+						128,
+						64,
+						EPixelFormat::RGBA8_UNORM)
+						.SetFlags(ETextureCreateFlags::ShaderResource);
+				Candidate.Atlas =
+					GDynamicRHI->RHICreateTexture(CommandList, TextureDesc);
+				if (Candidate.Atlas != nullptr)
+				{
+					const FUpdateTextureRegion2D Region(
+						0, 0, 0, 0, 128, 64);
+					GDynamicRHI->RHIUpdateTexture2D(
+						CommandList,
+						Candidate.Atlas,
+						0,
+						0,
+						Region,
+						128 * 4,
+						Pixels.data());
+				}
+				Candidate.AtlasSampler =
+					RHICreateSampler(FRHISamplerDesc::LinearClamp());
+				if (Candidate.VertexDeclaration == nullptr
+					|| Candidate.Atlas == nullptr
+					|| Candidate.AtlasSampler == nullptr)
 				{
 					return FBaseResult::Failure(
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::RHIResource,
-							"OverlayLine",
+							"OverlayIcon",
 							"base",
-							"RHI vertex declaration creation returned null.",
+							"RHI creation returned null.",
 							ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));
 				}
@@ -344,7 +444,7 @@ namespace Durin
 			return;
 
 		const uint32 VertexBytes =
-			static_cast<uint32>(Vertices.size() * sizeof(FOverlayLineVertex));
+			static_cast<uint32>(Vertices.size() * sizeof(FOverlayIconVertex));
 		const uint32 IndexBytes =
 			static_cast<uint32>(Indices.size() * sizeof(uint32));
 		if (VertexBytes > State->VertexCapacity)
@@ -352,7 +452,7 @@ namespace Durin
 			const uint32 Capacity = std::bit_ceil(VertexBytes);
 			FRHIBufferCreateDesc Desc =
 				FRHIBufferCreateDesc::CreateVertex(
-					"OverlayLineVertexBuffer", Capacity);
+					"OverlayIconVertexBuffer", Capacity);
 			Desc.Usage |= EBufferUsageFlags::Dynamic;
 			FBufferRHIRef Buffer =
 				GDynamicRHI->RHICreateBuffer(CommandList, Desc);
@@ -366,7 +466,7 @@ namespace Durin
 			const uint32 Capacity = std::bit_ceil(IndexBytes);
 			FRHIBufferCreateDesc Desc =
 				FRHIBufferCreateDesc::CreateIndex(
-					"OverlayLineIndexBuffer", Capacity, sizeof(uint32));
+					"OverlayIconIndexBuffer", Capacity, sizeof(uint32));
 			Desc.Usage |= EBufferUsageFlags::Dynamic;
 			FBufferRHIRef Buffer =
 				GDynamicRHI->RHICreateBuffer(CommandList, Desc);
@@ -381,7 +481,7 @@ namespace Durin
 			State->VertexBuffer, Vertices.data(), VertexBytes, 0);
 		CommandList.WriteBuffer(
 			State->IndexBuffer, Indices.data(), IndexBytes, 0);
-		Prepared.OverlayLineIndexCount =
+		Prepared.OverlayIconIndexCount =
 			static_cast<uint32>(Indices.size());
 
 		for (const EDepthMode DepthMode : {
@@ -389,7 +489,7 @@ namespace Durin
 				EDepthMode::Visible})
 		{
 			const FPipelineKey Key{
-				.Feature = EFeature::OverlayLine,
+				.Feature = EFeature::OverlayIcon,
 				.Output = Output,
 				.DepthMode = DepthMode,
 			};
@@ -406,7 +506,7 @@ namespace Durin
 			PipelineGeneration.Shader =
 				State->Base.GetPayloadGeneration().Shader;
 			const std::string PipelineName = std::format(
-				"OverlayLine{}{}Pipeline",
+				"OverlayIcon{}{}Pipeline",
 				GetDepthName(DepthMode),
 				GetOutputName(Output));
 			using FPipelineResult =
@@ -440,7 +540,7 @@ namespace Durin
 							MakeRendererResourceCreateError(
 								ERenderResourceCreateErrorCategory::
 									GraphicsPipeline,
-								"OverlayLine",
+								"OverlayIcon",
 								PipelineName,
 								"RHI graphics pipeline creation returned null.",
 								ERenderResourceGenerationDependency::Shader
@@ -462,7 +562,7 @@ namespace Durin
 		}
 	}
 
-	auto FOverlayLineRenderer::Draw_RenderThread(
+	auto FOverlayIconRenderer::Draw_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FPrepared& Prepared,
 		EDepthMode DepthMode) -> void
@@ -471,28 +571,32 @@ namespace Durin
 		const FState::FBasePayload* Base = State->Base.GetPayload();
 		const FGraphicsPipelineStateRHIRef Pipeline =
 			FindPreparedPipeline(Prepared, DepthMode);
-		if (Prepared.OverlayLineIndexCount == 0
+		if (Prepared.OverlayIconIndexCount == 0
 			|| Base == nullptr
 			|| Pipeline == nullptr
 			|| State->VertexBuffer == nullptr
-			|| State->IndexBuffer == nullptr)
+			|| State->IndexBuffer == nullptr
+			|| Base->Atlas == nullptr
+			|| Base->AtlasSampler == nullptr)
 		{
 			return;
 		}
 		CommandList.SetGraphicsPipelineState(*Pipeline);
 		CommandList.BindVertexBuffer(0, State->VertexBuffer, 0);
 		CommandList.BindIndexBuffer(State->IndexBuffer, 0);
-		const FOverlayLineStyleUniform Style{
-			DepthMode == EDepthMode::XRay ? 0.32f : 1.0f};
-		FOverlayLineFragmentShader::FParameters Parameters;
-		Parameters.Style = CommandList.AllocateDynamicUniformBuffer(
+		const FOverlayIconStyleUniform Style{
+			DepthMode == EDepthMode::XRay ? 0.3f : 1.0f};
+		FOverlayIconFragmentShader::FParameters Parameters;
+		Parameters.Atlas = Base->Atlas;
+		Parameters.AtlasSampler = Base->AtlasSampler;
+		Parameters.IconStyle = CommandList.AllocateDynamicUniformBuffer(
 			&Style, sizeof(Style));
 		SetShaderParameters(
 			CommandList, Base->FragmentShader, Parameters);
-		CommandList.DrawIndexed(Prepared.OverlayLineIndexCount, 0, 0);
+		CommandList.DrawIndexed(Prepared.OverlayIconIndexCount, 0, 0);
 	}
 
-	auto FOverlayLineRenderer::ReleaseResources_RenderThread() -> void
+	auto FOverlayIconRenderer::ReleaseResources_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
 		State->Base.Reset();

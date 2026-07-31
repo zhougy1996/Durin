@@ -4,7 +4,6 @@
 #include "CoreGlobals.h"
 #include "Renderers/SceneRenderer.h"
 #include "Resources/DefaultTextureResources.h"
-#include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "RHI.h"
 #include "RenderingThread.h"
@@ -24,9 +23,6 @@ namespace Durin
 			&SceneRenderer->GetResourceCoordinator());
 		SetActiveDefaultTextureResources(
 			&SceneRenderer->GetDefaultTextures());
-		SetActiveFullscreenGeometryResources(
-			&SceneRenderer->GetFullscreenGeometry());
-
 		const bool bCommandsRegistered =
 			SceneRenderer->Start(FConsoleCommandRegistry::Get());
 		checkf(
@@ -61,7 +57,6 @@ namespace Durin
 				Renderer->ReleaseResources_RenderThread();
 			});
 		FlushRenderingCommands();
-		SetActiveFullscreenGeometryResources(nullptr);
 		SetActiveDefaultTextureResources(nullptr);
 		SetActiveRendererResourceCoordinator(nullptr);
 		SceneRenderer.reset();
