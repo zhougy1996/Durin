@@ -1,5 +1,71 @@
 #include "WorldTestSupport.h"
 
+namespace
+{
+	class FWorldSceneLifecycleTestScene final : public Durin::IScene
+	{
+	public:
+		auto AddOrReplacePrimitive(
+			Durin::FPrimitiveSceneId,
+			std::unique_ptr<Durin::PrimitiveSceneProxy>,
+			const Durin::FMatrix&) -> void override
+		{
+		}
+
+		auto RemovePrimitive(Durin::FPrimitiveSceneId) -> void override
+		{
+			++RemovePrimitiveCount;
+		}
+
+		auto UpdatePrimitiveTransform(Durin::FPrimitiveSceneId, const Durin::FMatrix&) -> void override
+		{
+		}
+
+		auto UpdatePrimitiveMaterialBinding(
+			Durin::FPrimitiveSceneId,
+			const Durin::FMaterialRenderProxyBindingUpdate&) -> void override
+		{
+		}
+
+		auto Release() -> void override
+		{
+		}
+
+		auto AddDirectionalLight(Durin::DDirectionalLightComponent*) -> void override
+		{
+		}
+
+		auto RemoveDirectionalLight(Durin::DDirectionalLightComponent*) -> void override
+		{
+		}
+
+		auto GetDirectionalLight(Durin::FDirectionalLightSceneData&) const -> bool override
+		{
+			return false;
+		}
+
+		auto AddOrReplaceSkyBox(Durin::FSkyBoxSceneData) -> void override
+		{
+		}
+
+		auto RemoveSkyBox(Durin::uint64, Durin::uint64) -> void override
+		{
+		}
+
+		auto GetActiveSkyBox_RenderThread(Durin::FSkyBoxSceneData&) const -> bool override
+		{
+			return false;
+		}
+
+		auto GetSkyBoxCount_RenderThread() const -> size_t override
+		{
+			return 0;
+		}
+
+		Durin::uint32 RemovePrimitiveCount = 0;
+	};
+}
+
 TEST(FWorldTests, DestroyAllActorsInvalidatesObjectPointers)
 {
 	Durin::DWorld* World = CreateWorld();
@@ -40,6 +106,51 @@ TEST(FWorldTests, DestroyingWorldCascadesToActorsAndComponents)
 	EXPECT_EQ(WorldPtr.Get(), nullptr);
 	EXPECT_EQ(ActorPtr.Get(), nullptr);
 	EXPECT_EQ(ComponentPtr.Get(), nullptr);
+}
+
+TEST(FWorldTests, DetachingRenderSceneUnregistersPendingKillComponents)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::AStaticMeshActor* Mesh = World->SpawnActor<Durin::AStaticMeshActor>("Mesh");
+	ASSERT_NE(Mesh, nullptr);
+	Durin::DStaticMeshComponent* Component = Mesh->GetStaticMeshComponent();
+	ASSERT_NE(Component, nullptr);
+
+	FWorldSceneLifecycleTestScene Scene;
+	World->SetRenderScene(&Scene);
+	ASSERT_TRUE(Component->IsRegistered());
+	ASSERT_EQ(World->GetRenderScene(), &Scene);
+	Scene.RemovePrimitiveCount = 0;
+
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	World->SetRenderScene(nullptr);
+
+	EXPECT_FALSE(Component->IsRegistered());
+	EXPECT_EQ(World->GetRenderScene(), nullptr);
+	EXPECT_EQ(Scene.RemovePrimitiveCount, 1u);
+	Durin::CollectGarbage();
+}
+
+TEST(FWorldTests, DetachingPendingKillLevelUnregistersComponents)
+{
+	Durin::DWorld* World = CreateWorld();
+	Durin::AStaticMeshActor* Mesh = World->SpawnActor<Durin::AStaticMeshActor>("Mesh");
+	ASSERT_NE(Mesh, nullptr);
+	Durin::DStaticMeshComponent* Component = Mesh->GetStaticMeshComponent();
+	ASSERT_NE(Component, nullptr);
+
+	FWorldSceneLifecycleTestScene Scene;
+	World->SetRenderScene(&Scene);
+	Scene.RemovePrimitiveCount = 0;
+
+	Durin::MarkObjectHierarchyAsGarbage(World->GetCurrentLevel());
+	ASSERT_TRUE(World->SetCurrentLevel(nullptr, false));
+
+	EXPECT_FALSE(Component->IsRegistered());
+	EXPECT_EQ(Scene.RemovePrimitiveCount, 1u);
+	World->SetRenderScene(nullptr);
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FEngineObjectTests, EngineAndWorldHaveReflectedOwnership)

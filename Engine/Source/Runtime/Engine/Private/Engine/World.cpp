@@ -71,7 +71,7 @@ namespace Durin
 			}
 			for (const TObjectPtr<DActorComponent>& Component : Components)
 			{
-				if (Component && !Component->IsPendingKill() && Component->IsRegistered()) Component->UnregisterComponent();
+				if (Component && Component->IsRegistered()) Component->UnregisterComponent();
 			}
 			Previous->SetOwningWorld(nullptr);
 		}
@@ -114,7 +114,7 @@ namespace Durin
 		}
 		for (const TObjectPtr<DActorComponent>& Component : RegisteredComponents)
 		{
-			if (Component && !Component->IsPendingKill() && Component->IsRegistered()) Component->UnregisterComponent();
+			if (Component && Component->IsRegistered()) Component->UnregisterComponent();
 		}
 
 		RenderScene = InRenderScene;
