@@ -20,12 +20,6 @@ namespace Durin
 		ENGINE_API auto GetStaticProperties() const -> const FMaterialStaticProperties& override;
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
 		ENGINE_API auto GetParameterOverrides() const -> std::span<const FMaterialParameterOverride>;
-		auto IsImporterManaged() const -> bool { return ImportOwner.IsValid(); }
-		auto GetImportOwner() const -> const FAssetPath& { return ImportOwner; }
-		static constexpr std::string_view ImporterManagedPolicy =
-			"Reimport replaces imported parameter values. Create a child material "
-			"instance or component override for durable customization.";
-		ENGINE_API auto SetImportOwner(const FAssetPath& InOwner) -> void;
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		ENGINE_API auto SetParameterOverride(
 			const FGuid& Id,
@@ -64,8 +58,5 @@ namespace Durin
 
 		DPROPERTY(Edit)
 		std::vector<FMaterialParameterOverride> ParameterOverrides;
-
-		DPROPERTY()
-		FAssetPath ImportOwner;
 	};
 }

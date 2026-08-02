@@ -1,6 +1,7 @@
 #include "Widgets/MTextureEditor.h"
 
 #include "Asset/AssetUpgradeAuditService.h"
+#include "AssetImportCore.h"
 #include "AssetSystem.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
@@ -710,7 +711,25 @@ namespace Durin
 				DrawInfoRow("Status", "Source data unavailable");
 		}
 		MonaImGui::PropertyEdit::EndTable();
-		if (ImGui::Button("Reimport Source")) ReimportSource(Texture);
+		const AssetImport::FSingleAssetCapabilitySet ImportCapabilities =
+			AssetImport::QuerySingleAssetCapabilities(
+				*Texture, AssetImport::GetProviderRegistry(),
+				AssetImport::GetSingleAssetHandlerRegistry());
+		const AssetImport::FSingleAssetCapability* ReimportCapability =
+			ImportCapabilities.Find(
+				AssetImport::ESingleAssetImportCapability::ReimportCurrentSource);
+		const bool bCanReimport = ReimportCapability && ReimportCapability->bAvailable;
+		if (!bCanReimport) ImGui::BeginDisabled();
+		if (ImGui::Button(ReimportCapability
+			? ReimportCapability->Label.c_str() : "Reimport from Current Source"))
+			ReimportSource(Texture);
+		if (!bCanReimport) ImGui::EndDisabled();
+		if (ImGui::IsItemHovered() && ReimportCapability)
+			ImGui::SetTooltip("%s", bCanReimport
+				? ReimportCapability->ReplacedStateDescription.c_str()
+				: (ReimportCapability->Diagnostics.empty()
+					? "Reimport is unavailable."
+					: ReimportCapability->Diagnostics.back().Message.c_str()));
 		ImGui::SameLine();
 		if (ImGui::Button("Reference Existing...")) ChangeSourceReference(Texture);
 		if (ImGui::IsItemHovered())
@@ -746,8 +765,18 @@ namespace Durin
 	auto MTextureEditor::ReimportSource(DTexture2D* Texture) -> void
 	{
 		if (!Texture) return;
-		std::string Error;
-		if (!Texture->ReimportSource({}, Error)) SetError(std::move(Error));
+		const AssetImport::FSingleAssetPlanResult Planned =
+			AssetImport::CreateSingleAssetReimportPlan(
+				{.Asset = Texture}, AssetImport::GetProviderRegistry(),
+				AssetImport::GetSingleAssetHandlerRegistry());
+		if (!Planned)
+		{
+			SetError(Planned.Message);
+			return;
+		}
+		const AssetImport::FSingleAssetExecutionResult Executed =
+			AssetImport::ExecuteSingleAssetImport(Planned.Plan);
+		if (!Executed) SetError(Executed.Message);
 	}
 
 	auto MTextureEditor::ChangeSourceReference(DTexture2D* Texture) -> void

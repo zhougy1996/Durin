@@ -1,5 +1,6 @@
 #include "Source/SourcePath.h"
 
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
 #include <fstream>
@@ -39,6 +40,38 @@ namespace Durin
 						FirstBuffer.begin(), FirstBuffer.begin() + FirstStream.gcount(),
 						SecondBuffer.begin()))
 					return false;
+			}
+			return true;
+		}
+
+		auto FileEqualsBytes(
+			const std::filesystem::path& File,
+			std::span<const uint8> Bytes,
+			std::string& OutError) -> bool
+		{
+			std::error_code Error;
+			if (std::filesystem::file_size(File, Error) != Bytes.size() || Error)
+			{
+				if (Error) OutError = Error.message();
+				return false;
+			}
+			std::ifstream Stream(File, std::ios::binary);
+			if (!Stream)
+			{
+				OutError = "Failed to read the mounted source for collision comparison.";
+				return false;
+			}
+			constexpr size_t BufferSize = 64 * 1024;
+			std::array<uint8, BufferSize> Buffer{};
+			size_t Offset = 0;
+			while (Offset < Bytes.size())
+			{
+				const size_t Count = std::min(Buffer.size(), Bytes.size() - Offset);
+				Stream.read(reinterpret_cast<char*>(Buffer.data()), Count);
+				if (static_cast<size_t>(Stream.gcount()) != Count
+					|| !std::equal(Buffer.begin(), Buffer.begin() + Count, Bytes.begin() + Offset))
+					return false;
+				Offset += Count;
 			}
 			return true;
 		}
@@ -173,6 +206,83 @@ namespace Durin
 			std::error_code CleanupError;
 			std::filesystem::remove(Temporary, CleanupError);
 			OutError = std::format("Failed to publish source ingestion: {}", Error.message());
+			OutSource = {};
+			return false;
+		}
+		OutSource.Disposition = ESourceFileDisposition::IngestedExternal;
+		OutSource.bCreatedFile = true;
+		OutError.clear();
+		return true;
+	}
+
+	auto PrepareMountedSourceBytes(
+		std::span<const uint8> Bytes,
+		std::string_view ReferencingAssetPath,
+		std::string_view DestinationSourcePath,
+		FMountedSourceFile& OutSource,
+		std::string& OutError) -> bool
+	{
+		OutSource = {};
+		if (Bytes.empty())
+		{
+			OutError = "Mounted source bytes cannot be empty.";
+			return false;
+		}
+		const PathUtilities::FSourcePathResult Destination =
+			PathUtilities::ResolveSourcePath(
+				DestinationSourcePath, PathUtilities::EPathExistence::AllowMissing);
+		if (!Destination)
+		{
+			OutError = Destination.Message;
+			return false;
+		}
+		const PathUtilities::FMountPolicyResult Mutation =
+			PathUtilities::CheckSourceMutation(
+				ReferencingAssetPath, Destination.NormalizedVirtualPath);
+		if (!Mutation)
+		{
+			OutError = Mutation.Message;
+			return false;
+		}
+
+		OutSource.SourcePath.Path = Destination.NormalizedVirtualPath;
+		OutSource.PhysicalPath = Destination.PhysicalPath;
+		std::error_code Error;
+		if (std::filesystem::is_regular_file(Destination.PhysicalPath, Error))
+		{
+			std::string CompareError;
+			if (!FileEqualsBytes(Destination.PhysicalPath, Bytes, CompareError))
+			{
+				OutError = CompareError.empty()
+					? std::format(
+						"A different source payload already exists at {}.",
+						Destination.PhysicalPath.generic_string())
+					: std::move(CompareError);
+				OutSource = {};
+				return false;
+			}
+			OutSource.Disposition = ESourceFileDisposition::ReusedIdentical;
+			OutError.clear();
+			return true;
+		}
+		Error.clear();
+		std::filesystem::create_directories(Destination.PhysicalPath.parent_path(), Error);
+		if (Error)
+		{
+			OutError = std::format(
+				"Failed to create source directory {}: {}",
+				Destination.PhysicalPath.parent_path().generic_string(), Error.message());
+			OutSource = {};
+			return false;
+		}
+		FFileHelper::FAtomicFileError SaveError;
+		if (!FFileHelper::SaveArrayToFileAtomically(
+			std::span{
+				reinterpret_cast<const std::byte*>(Bytes.data()), Bytes.size()},
+			Destination.PhysicalPath,
+			&SaveError))
+		{
+			OutError = SaveError.ToString();
 			OutSource = {};
 			return false;
 		}

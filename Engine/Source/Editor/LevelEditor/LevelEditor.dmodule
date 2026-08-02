@@ -12,7 +12,8 @@
         "Mona",
         "MonaImGui",
         "AssetCore",
-        "EngineAssetBuild",
+        "AssetImportCore",
+        "StandardAssetImport",
         "DurinEd"
     ]
 }

@@ -10,6 +10,8 @@
         "RenderCore",
         "Engine",
         "AssetCore",
+        "AssetImportCore",
+        "StandardAssetImport",
         "MonaImGui",
         "MonaCore",
         "DurinEd"

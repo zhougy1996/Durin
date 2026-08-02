@@ -262,6 +262,17 @@ namespace Durin
 					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
 					-> Asset::FAssetResult
 				{
+					const auto LegacyOwner = std::ranges::find(
+						Fields, std::string_view("ImportOwner"),
+						&Asset::FAssetLegacyField::Name);
+					if (LegacyOwner != Fields.end())
+						OutIssues.push_back({
+							.DeclaringClass = std::string(Texture2DClassName),
+							.LegacyFields = {*LegacyOwner},
+							.Classification = Asset::EAssetCompatibilityClassification::DataLossRisk,
+							.MigrationSummary =
+								"The retired importer-owner relationship requires StandardAssetImport migration to a DImportRecord.",
+							.Risk = Asset::EAssetCompatibilityRisk::PotentialDataLoss});
 					const Asset::FAssetLegacyField* LegacyField =
 						FindLegacySourceFile(Fields);
 					if (!LegacyField) return {};
@@ -428,6 +439,17 @@ namespace Durin
 						return {
 							Asset::EAssetError::TypeMismatch,
 							"Texture2D legacy-source upgrader received an incompatible object."};
+					const auto LegacyOwner = std::ranges::find(
+						Fields, std::string_view("ImportOwner"),
+						&Asset::FAssetLegacyField::Name);
+					if (LegacyOwner != Fields.end())
+						OutIssues.push_back({
+							.DeclaringClass = std::string(Texture2DClassName),
+							.LegacyFields = {*LegacyOwner},
+							.Classification = Asset::EAssetCompatibilityClassification::DataLossRisk,
+							.MigrationSummary =
+								"The retired importer-owner relationship requires StandardAssetImport migration to a DImportRecord.",
+							.Risk = Asset::EAssetCompatibilityRisk::PotentialDataLoss});
 					const Asset::FAssetLegacyField* LegacyField =
 						FindLegacySourceFile(Fields);
 					if (!LegacyField) return {};
@@ -1608,7 +1630,6 @@ namespace Durin
 		std::swap(AlphaMipMode, Other.AlphaMipMode);
 		std::swap(AlphaCoverageThreshold, Other.AlphaCoverageThreshold);
 		std::swap(CookedPayload, Other.CookedPayload);
-		std::swap(ImportOwner, Other.ImportOwner);
 		std::swap(SourceData, Other.SourceData);
 		std::swap(PlatformData, Other.PlatformData);
 		std::swap(DerivedDataKey, Other.DerivedDataKey);
@@ -1620,13 +1641,6 @@ namespace Durin
 		Other.QueueRenderResourceBuild();
 		MarkPackageDirty();
 		Other.MarkPackageDirty();
-	}
-
-	auto DTexture2D::SetImportOwner(const FAssetPath& InOwner) -> void
-	{
-		if (ImportOwner == InOwner) return;
-		ImportOwner = InOwner;
-		MarkPackageDirty();
 	}
 
 	auto DTexture2D::BuildFromEncodedBytes(

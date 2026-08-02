@@ -29,6 +29,15 @@ namespace Durin
 		std::string_view ExternalIngestDestination,
 		FMountedSourceFile& OutSource,
 		std::string& OutError) -> bool;
+	// Publishes an immutable byte payload at an explicit SourceAssets path. This
+	// is used for container-embedded authoring inputs that need an independently
+	// reloadable source identity.
+	ENGINE_API auto PrepareMountedSourceBytes(
+		std::span<const uint8> Bytes,
+		std::string_view ReferencingAssetPath,
+		std::string_view DestinationSourcePath,
+		FMountedSourceFile& OutSource,
+		std::string& OutError) -> bool;
 	ENGINE_API auto CommitMountedSourceFile(FMountedSourceFile& Source) -> void;
 	ENGINE_API auto RollbackMountedSourceFile(FMountedSourceFile& Source) -> void;
 

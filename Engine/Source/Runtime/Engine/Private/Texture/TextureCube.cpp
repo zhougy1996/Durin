@@ -1786,6 +1786,190 @@ namespace Durin
 		return true;
 	}
 
+	auto DTextureCube::BuildPanoramaFromEncodedBytes(
+		std::span<const uint8> EncodedBytes,
+		std::string_view ExtensionHint,
+		const FSourcePath& InSourcePath,
+		const FTextureCubePanoramaImportSettings& Settings,
+		std::string& OutError) -> bool
+	{
+#if DURIN_WITH_EDITOR
+		if (EncodedBytes.empty() || InSourcePath.IsEmpty())
+		{
+			OutError = "Panorama candidate requires captured bytes and mounted provenance.";
+			return false;
+		}
+		auto NewSourceData = std::make_unique<FTextureCubeSourceData>();
+		uint32 SourceWidth = 0;
+		uint32 SourceHeight = 0;
+		const TextureBuild::FEquirectangularTextureCubeProjectionSettings ProjectionSettings{
+			.FaceDimension = Settings.FaceDimension,
+			.ExposureEV = Settings.ExposureEV};
+		std::string Extension(ExtensionHint);
+		std::ranges::transform(Extension, Extension.begin(), [](unsigned char Character) {
+			return static_cast<char>(std::tolower(Character));
+		});
+		if (Asset::IsRadianceHDRExtension(Extension))
+		{
+			Asset::FDecodedFloatImage Panorama;
+			Asset::FRadianceHDRDecodeLimits Limits;
+			Limits.MaximumDecodedPixels = TextureBuild::MaximumPanoramaPixels;
+			if (!Asset::DecodeRadianceHDRFromMemory(EncodedBytes, Panorama, OutError, Limits)
+				|| !TextureBuild::ProjectEquirectangularTextureCube(
+					Panorama, ProjectionSettings, *NewSourceData, OutError)) return false;
+			SourceWidth = Panorama.Width;
+			SourceHeight = Panorama.Height;
+		}
+		else
+		{
+			Asset::FDecodedImage Panorama;
+			Asset::FImageDecodeLimits Limits;
+			Limits.MaximumDecodedPixels = TextureBuild::MaximumPanoramaPixels;
+			if (!Asset::DecodeImageFromMemory(EncodedBytes, Panorama, OutError, Limits)
+				|| !TextureBuild::ProjectEquirectangularTextureCube(
+					Panorama, ProjectionSettings, *NewSourceData, OutError)) return false;
+			SourceWidth = Panorama.Width;
+			SourceHeight = Panorama.Height;
+		}
+		auto NewPlatformData = std::make_unique<FTextureCubePlatformData>();
+		if (!BuildCubePlatformData(*NewSourceData, true, *NewPlatformData, OutError)) return false;
+		const FXxHash128 Hash = FXxHash128::HashBuffer(EncodedBytes);
+		std::string NewDerivedKey;
+		if (!BuildTextureCubeDerivedDataKey({
+			.SourceLayout = ETextureCubeDerivedDataSourceLayout::EquirectangularPanorama,
+			.PanoramaContentHash = Hash,
+			.FaceDimension = Settings.FaceDimension,
+			.ExposureEV = Settings.ExposureEV,
+			.bSRGB = true,
+			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
+			.TargetProfile = Asset::ECookTargetProfile::Game}, NewDerivedKey, OutError)
+			|| !StoreTextureCubeDerivedData(NewDerivedKey, *NewPlatformData, OutError)) return false;
+		SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama;
+		SourceImportData = {
+			.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama,
+			.Panorama = MakeSourceFile(InSourcePath.Path, Hash),
+			.DecoderId = std::string(TextureDecoderId),
+			.DecoderVersion = TextureDecoderVersion,
+			.ProjectionVersion = TextureCubeProjectionVersion};
+		PanoramaFaceDimension = Settings.FaceDimension;
+		PanoramaExposureEV = Settings.ExposureEV;
+		OriginalSourceWidth = SourceWidth;
+		OriginalSourceHeight = SourceHeight;
+		bSRGB = true;
+		SourceData = std::move(NewSourceData);
+		PlatformData = std::move(NewPlatformData);
+		DerivedDataKey = std::move(NewDerivedKey);
+		DerivedDataDiagnostic = {
+			.Status = ETextureDerivedDataStatus::Rebuilt,
+			.Key = DerivedDataKey,
+			.Message = "Built TextureCube panorama candidate from captured bytes.",
+			.bSourceDecoderInvoked = true};
+		BuildStatus = ETextureBuildStatus::Ready;
+		LastBuildError.clear();
+		bLoadedFromDerivedDataCache = false;
+		QueueRenderResourceBuild();
+		MarkPackageDirty();
+		OutError.clear();
+		return true;
+#else
+		(void)EncodedBytes; (void)ExtensionHint; (void)InSourcePath; (void)Settings;
+		OutError = "TextureCube source building is unavailable in runtime-only targets.";
+		return false;
+#endif
+	}
+
+	auto DTextureCube::BuildFacesFromEncodedBytes(
+		const std::array<std::span<const uint8>, TextureCubeFaceCount>& EncodedFaces,
+		const std::array<FSourcePath, TextureCubeFaceCount>& SourcePaths,
+		const FTextureCubeImportSettings& Settings,
+		std::string& OutError) -> bool
+	{
+#if DURIN_WITH_EDITOR
+		auto NewSourceData = std::make_unique<FTextureCubeSourceData>();
+		std::array<FXxHash128, TextureCubeFaceCount> Hashes;
+		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
+		{
+			if (EncodedFaces[Index].empty() || SourcePaths[Index].IsEmpty()
+				|| !TextureBuild::DecodeRGBA8(
+					EncodedFaces[Index], NewSourceData->Faces[Index], OutError))
+			{
+				if (OutError.empty()) OutError = std::format("{} face source is invalid.", FaceNames[Index]);
+				return false;
+			}
+			Hashes[Index] = FXxHash128::HashBuffer(EncodedFaces[Index]);
+		}
+		if (!ValidateCubeSourceData(*NewSourceData, OutError)) return false;
+		auto NewPlatformData = std::make_unique<FTextureCubePlatformData>();
+		if (!BuildCubePlatformData(*NewSourceData, Settings.bSRGB, *NewPlatformData, OutError))
+			return false;
+		std::string NewDerivedKey;
+		if (!BuildTextureCubeDerivedDataKey({
+			.SourceLayout = ETextureCubeDerivedDataSourceLayout::SixFaces,
+			.FaceContentHashes = Hashes,
+			.bSRGB = Settings.bSRGB,
+			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
+			.TargetProfile = Asset::ECookTargetProfile::Game}, NewDerivedKey, OutError)
+			|| !StoreTextureCubeDerivedData(NewDerivedKey, *NewPlatformData, OutError)) return false;
+		SourceLayout = ETextureCubeSourceLayout::SixFaces;
+		SourceImportData = {};
+		SourceImportData.SourceLayout = ETextureCubeSourceLayout::SixFaces;
+		SourceImportData.DecoderId = std::string(TextureDecoderId);
+		SourceImportData.DecoderVersion = TextureDecoderVersion;
+		SourceImportData.ProjectionVersion = TextureCubeProjectionVersion;
+		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
+			SourceImportData.GetMutableFace(static_cast<ETextureCubeFace>(Index)) =
+				MakeSourceFile(SourcePaths[Index].Path, Hashes[Index]);
+		PanoramaFaceDimension = 0;
+		PanoramaExposureEV = 0.0f;
+		OriginalSourceWidth = NewSourceData->Faces[0].Width;
+		OriginalSourceHeight = NewSourceData->Faces[0].Height;
+		bSRGB = Settings.bSRGB;
+		SourceData = std::move(NewSourceData);
+		PlatformData = std::move(NewPlatformData);
+		DerivedDataKey = std::move(NewDerivedKey);
+		DerivedDataDiagnostic = {
+			.Status = ETextureDerivedDataStatus::Rebuilt,
+			.Key = DerivedDataKey,
+			.Message = "Built six-face TextureCube candidate from captured bytes.",
+			.bSourceDecoderInvoked = true};
+		BuildStatus = ETextureBuildStatus::Ready;
+		LastBuildError.clear();
+		bLoadedFromDerivedDataCache = false;
+		QueueRenderResourceBuild();
+		MarkPackageDirty();
+		OutError.clear();
+		return true;
+#else
+		(void)EncodedFaces; (void)SourcePaths; (void)Settings;
+		OutError = "TextureCube source building is unavailable in runtime-only targets.";
+		return false;
+#endif
+	}
+
+	auto DTextureCube::ExchangeImportedState(DTextureCube& Other) noexcept -> void
+	{
+		if (&Other == this) return;
+		std::swap(SourceLayout, Other.SourceLayout);
+		std::swap(SourceImportData, Other.SourceImportData);
+		std::swap(PanoramaFaceDimension, Other.PanoramaFaceDimension);
+		std::swap(PanoramaExposureEV, Other.PanoramaExposureEV);
+		std::swap(OriginalSourceWidth, Other.OriginalSourceWidth);
+		std::swap(OriginalSourceHeight, Other.OriginalSourceHeight);
+		std::swap(bSRGB, Other.bSRGB);
+		std::swap(CookedPayload, Other.CookedPayload);
+		std::swap(SourceData, Other.SourceData);
+		std::swap(PlatformData, Other.PlatformData);
+		std::swap(DerivedDataKey, Other.DerivedDataKey);
+		std::swap(DerivedDataDiagnostic, Other.DerivedDataDiagnostic);
+		std::swap(bLoadedFromDerivedDataCache, Other.bLoadedFromDerivedDataCache);
+		std::swap(BuildStatus, Other.BuildStatus);
+		std::swap(LastBuildError, Other.LastBuildError);
+		QueueRenderResourceBuild();
+		Other.QueueRenderResourceBuild();
+		MarkPackageDirty();
+		Other.MarkPackageDirty();
+	}
+
 	auto DTextureCube::ChangePanoramaSourceReference(
 		std::string_view SourceVirtualPath,
 		const FTextureCubePanoramaImportSettings& Settings,

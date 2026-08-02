@@ -763,6 +763,30 @@ TEST(FPackageAssetTests, RejectsSavingCppPackages)
 	EXPECT_EQ(Durin::Asset::SavePackage(Package).Error, Durin::Asset::EAssetError::InvalidPackageType);
 }
 
+TEST(FPackageAssetTests, PackageEditRevisionAdvancesForRepeatedDirtyEdits)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/EditRevision", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	Durin::DPackage* Package = Asset->GetPackage();
+	ASSERT_NE(Package, nullptr);
+
+	const Durin::uint64 CreatedRevision = Package->GetEditRevision();
+	Package->ClearDirty();
+	EXPECT_EQ(Package->GetEditRevision(), CreatedRevision);
+
+	Package->MarkDirty();
+	const Durin::uint64 FirstEditRevision = Package->GetEditRevision();
+	EXPECT_GT(FirstEditRevision, CreatedRevision);
+	EXPECT_TRUE(Package->IsDirty());
+
+	Package->MarkDirty();
+	EXPECT_GT(Package->GetEditRevision(), FirstEditRevision);
+	EXPECT_TRUE(Package->IsDirty());
+}
+
 TEST(FPackageAssetTests, SequentialPackageSavesPublishEarlierPackagesBeforeLaterFailure)
 {
 	InitializeAssetTests();

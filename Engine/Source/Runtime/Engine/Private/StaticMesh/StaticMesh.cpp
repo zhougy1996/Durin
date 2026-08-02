@@ -20,14 +20,12 @@
 #include "DynamicRHI.h"
 #include "RenderingThread.h"
 
-#if DURIN_WITH_EDITOR
-	#include "AssetImport.h"
-#endif
-
 namespace Durin
 {
 	namespace
 	{
+		std::atomic<FStaticMeshSourceDecodeFunction> GStaticMeshSourceDecoder = nullptr;
+
 		auto CheckStaticMeshUpdateThread() -> void
 		{
 			if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -102,10 +100,21 @@ namespace Durin
 				"Engine.StaticMesh.MaterialSlotsV1",
 				[](const Asset::FAssetPackageInspection&,
 					const Asset::FAssetPackageObjectInspection& Object,
-					std::span<const Asset::FAssetLegacyField>,
+					std::span<const Asset::FAssetLegacyField> Fields,
 					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
 					-> Asset::FAssetResult
 				{
+					const auto LegacyManifest = std::ranges::find(
+						Fields, std::string_view("ImportManifest"),
+						&Asset::FAssetLegacyField::Name);
+					if (LegacyManifest != Fields.end())
+						OutIssues.push_back({
+							.DeclaringClass = "Durin::DStaticMesh",
+							.LegacyFields = {*LegacyManifest},
+							.Classification = Asset::EAssetCompatibilityClassification::DataLossRisk,
+							.MigrationSummary =
+								"The retired StaticMesh-owned Scene relationship requires StandardAssetImport migration to a DImportRecord.",
+							.Risk = Asset::EAssetCompatibilityRisk::PotentialDataLoss});
 					// Semantic schema versions retain their reflected field shape, so they
 					// must be inspected even when there are no incompatible field records.
 					const Asset::FAssetPackageField* VersionField =
@@ -356,27 +365,6 @@ namespace Durin
 		}
 
 #if DURIN_WITH_EDITOR
-		auto MakeImportOptions(const FStaticMeshImportSettings& Settings) -> Asset::FMeshImportOptions
-		{
-			FVector3f Forward;
-			FVector3f Right;
-			FVector3f Up;
-			uint32 UnusedComponent = 0;
-			ImportAxisVector(Settings.ForwardAxis, Forward, UnusedComponent);
-			ImportAxisVector(Settings.RightAxis, Right, UnusedComponent);
-			ImportAxisVector(Settings.UpAxis, Up, UnusedComponent);
-
-			Asset::FMeshImportOptions Options;
-			Options.SourceToEngine = glm::mat4(1.0f);
-			for (uint32 SourceComponent = 0; SourceComponent < 3; ++SourceComponent)
-			{
-				Options.SourceToEngine[SourceComponent][0] = Forward[SourceComponent];
-				Options.SourceToEngine[SourceComponent][1] = Right[SourceComponent];
-				Options.SourceToEngine[SourceComponent][2] = Up[SourceComponent];
-			}
-			return Options;
-		}
-
 		auto IsFinite(const FVector2f& Value) -> bool
 		{
 			return std::isfinite(Value.x) && std::isfinite(Value.y);
@@ -485,7 +473,7 @@ namespace Durin
 			});
 		}
 
-		auto ValidateImportedMesh(const Asset::FImportedMeshData& Mesh, std::string& OutError) -> bool
+		auto ValidateImportedMesh(const FStaticMeshImportedMesh& Mesh, std::string& OutError) -> bool
 		{
 			if (Mesh.Positions.empty() || Mesh.Indices.empty()) return false;
 			if (Mesh.Positions.size() > std::numeric_limits<uint32>::max())
@@ -624,6 +612,21 @@ namespace Durin
 		}
 	}
 
+	auto RegisterStaticMeshSourceDecoder(
+		FStaticMeshSourceDecodeFunction Decoder) -> bool
+	{
+		if (!Decoder) return false;
+		FStaticMeshSourceDecodeFunction Expected = nullptr;
+		return GStaticMeshSourceDecoder.compare_exchange_strong(Expected, Decoder);
+	}
+
+	auto UnregisterStaticMeshSourceDecoder(
+		FStaticMeshSourceDecodeFunction Decoder) -> void
+	{
+		FStaticMeshSourceDecodeFunction Expected = Decoder;
+		(void)GStaticMeshSourceDecoder.compare_exchange_strong(Expected, nullptr);
+	}
+
 	auto FStaticMeshImportSettings::IsValid(std::string* OutError) const -> bool
 	{
 		FVector3f UnusedVector;
@@ -664,6 +667,30 @@ namespace Durin
 	DStaticMesh::DStaticMesh(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
+		static const bool RegisteredLegacySceneUpgrader = [] {
+			Asset::RegisterAssetStructureUpgrader(
+				DStaticMesh::StaticClass(),
+				"Engine.StaticMesh.RetiredSceneManifest",
+				[](DObject*, std::span<const Asset::FAssetLegacyField> Fields,
+					const Asset::FAssetMigrationContext&,
+					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
+					-> Asset::FAssetResult
+				{
+					const auto Manifest = std::ranges::find(
+						Fields, std::string_view("ImportManifest"),
+						&Asset::FAssetLegacyField::Name);
+					if (Manifest != Fields.end())
+						OutIssues.push_back({
+							.DeclaringClass = "Durin::DStaticMesh",
+							.LegacyFields = {*Manifest},
+							.Classification = Asset::EAssetCompatibilityClassification::DataLossRisk,
+							.MigrationSummary =
+								"The retired StaticMesh-owned Scene relationship requires StandardAssetImport migration to a DImportRecord.",
+							.Risk = Asset::EAssetCompatibilityRisk::PotentialDataLoss});
+					return {};
+				});
+			return true;
+		}();
 		static const bool RegisteredMoveContributor = [] {
 			Asset::RegisterAssetMoveContributor(DStaticMesh::StaticClass(), [](
 				DObject*, const FAssetPath&, const FAssetPath&, Asset::FAssetMoveContribution&) -> Asset::FAssetResult {
@@ -678,6 +705,7 @@ namespace Durin
 			});
 			return true;
 		}();
+		(void)RegisteredLegacySceneUpgrader;
 		(void)RegisteredMoveContributor;
 	}
 
@@ -982,7 +1010,7 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 #if DURIN_WITH_EDITOR
-		Asset::FImportedSceneData ImportedScene;
+		FStaticMeshImportedData ImportedData;
 		const FStaticMeshImportSettings& EffectiveImportSettings = GetImportSettings();
 		std::string ImportSettingsError;
 		if (!EffectiveImportSettings.IsValid(&ImportSettingsError))
@@ -990,13 +1018,20 @@ namespace Durin
 			OutError = std::move(ImportSettingsError);
 			return false;
 		}
-		if (!Asset::ImportFromFile(FilePath, ImportedScene, MakeImportOptions(EffectiveImportSettings)))
+		const FStaticMeshSourceDecodeFunction Decoder = GStaticMeshSourceDecoder.load();
+		if (!Decoder)
 		{
-			OutError = std::format("Failed to import static mesh source file: {}", FilePath);
+			OutError = "No editor StaticMesh source decoder is registered.";
+			return false;
+		}
+		if (!Decoder(FilePath, EffectiveImportSettings, ImportedData, OutError))
+		{
+			if (OutError.empty())
+				OutError = std::format("Failed to import static mesh source file: {}", FilePath);
 			return false;
 		}
 		return BuildRenderDataCandidate(
-			ImportedScene,
+			ImportedData,
 			FilePath,
 			OutRenderData,
 			OutMaterialSlots,
@@ -1013,7 +1048,7 @@ namespace Durin
 	}
 
 	auto DStaticMesh::BuildRenderDataCandidate(
-		const Asset::FImportedSceneData& ImportedScene,
+		const FStaticMeshImportedData& ImportedData,
 		std::string_view SourceLabel,
 		std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
 		std::vector<FStaticMeshMaterialSlotDefinition>& OutMaterialSlots,
@@ -1023,16 +1058,16 @@ namespace Durin
 #if DURIN_WITH_EDITOR
 		const bool bVersionZeroMigration = MaterialSlotsVersion == 0 && !GetSourceFile().empty();
 		const std::vector<FStaticMeshMaterialSlotDefinition> PreviousSlots = MaterialSlots;
-		std::vector<FStaticMeshMaterialSlotDefinition> ReconciledSlots(ImportedScene.MaterialSlots.size());
+		std::vector<FStaticMeshMaterialSlotDefinition> ReconciledSlots(ImportedData.MaterialSlots.size());
 		std::vector<bool> OldConsumed(PreviousSlots.size(), false);
 		std::vector<bool> NewMatched(ReconciledSlots.size(), false);
 		std::unordered_map<std::string, uint32> OldNameCounts;
 		std::unordered_map<std::string, uint32> NewNameCounts;
 		for (const FStaticMeshMaterialSlotDefinition& Slot : PreviousSlots) ++OldNameCounts[Slot.SourceName];
-		for (const Asset::FImportedMaterialSlot& Slot : ImportedScene.MaterialSlots) ++NewNameCounts[Slot.SourceName];
+		for (const FStaticMeshImportedMaterialSlot& Slot : ImportedData.MaterialSlots) ++NewNameCounts[Slot.SourceName];
 
 		auto PreserveSlot = [&](size_t NewIndex, size_t OldIndex) {
-			const Asset::FImportedMaterialSlot& Imported = ImportedScene.MaterialSlots[NewIndex];
+			const FStaticMeshImportedMaterialSlot& Imported = ImportedData.MaterialSlots[NewIndex];
 			ReconciledSlots[NewIndex] = PreviousSlots[OldIndex];
 			ReconciledSlots[NewIndex].Name = FName(Imported.Name);
 			ReconciledSlots[NewIndex].SourceName = Imported.SourceName;
@@ -1041,18 +1076,18 @@ namespace Durin
 			NewMatched[NewIndex] = true;
 		};
 
-		for (size_t NewIndex = 0; NewIndex < ImportedScene.MaterialSlots.size(); ++NewIndex)
+		for (size_t NewIndex = 0; NewIndex < ImportedData.MaterialSlots.size(); ++NewIndex)
 		{
-			const std::string& SourceName = ImportedScene.MaterialSlots[NewIndex].SourceName;
+			const std::string& SourceName = ImportedData.MaterialSlots[NewIndex].SourceName;
 			if (OldNameCounts[SourceName] != 1 || NewNameCounts[SourceName] != 1) continue;
 			const auto It = std::ranges::find(PreviousSlots, SourceName, &FStaticMeshMaterialSlotDefinition::SourceName);
 			if (It != PreviousSlots.end()) PreserveSlot(NewIndex, static_cast<size_t>(It - PreviousSlots.begin()));
 		}
 
-		for (size_t NewIndex = 0; NewIndex < ImportedScene.MaterialSlots.size(); ++NewIndex)
+		for (size_t NewIndex = 0; NewIndex < ImportedData.MaterialSlots.size(); ++NewIndex)
 		{
 			if (NewMatched[NewIndex]) continue;
-			const Asset::FImportedMaterialSlot& Imported = ImportedScene.MaterialSlots[NewIndex];
+			const FStaticMeshImportedMaterialSlot& Imported = ImportedData.MaterialSlots[NewIndex];
 			if (NewNameCounts[Imported.SourceName] != 1) continue;
 			for (size_t OldIndex = 0; OldIndex < PreviousSlots.size(); ++OldIndex)
 			{
@@ -1065,10 +1100,10 @@ namespace Durin
 		}
 
 		const std::string PackagePath = GetPackage() ? GetPackage()->GetPackagePath() : std::string{};
-		for (size_t NewIndex = 0; NewIndex < ImportedScene.MaterialSlots.size(); ++NewIndex)
+		for (size_t NewIndex = 0; NewIndex < ImportedData.MaterialSlots.size(); ++NewIndex)
 		{
 			if (NewMatched[NewIndex]) continue;
-			const Asset::FImportedMaterialSlot& Imported = ImportedScene.MaterialSlots[NewIndex];
+			const FStaticMeshImportedMaterialSlot& Imported = ImportedData.MaterialSlots[NewIndex];
 			FStaticMeshMaterialSlotDefinition& Definition = ReconciledSlots[NewIndex];
 			Definition.SlotId = bVersionZeroMigration
 				? MakeLegacySlotGuid(PackagePath, Imported.SourceName, Imported.SourceMaterialIndex)
@@ -1095,7 +1130,7 @@ namespace Durin
 			|| !SlotDefinitionsEqual(MaterialSlots, ReconciledSlots);
 
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
-		RenderData->MaterialSlots.reserve(ImportedScene.MaterialSlots.size());
+		RenderData->MaterialSlots.reserve(ImportedData.MaterialSlots.size());
 		for (const FStaticMeshMaterialSlotDefinition& Slot : ReconciledSlots)
 		{
 			RenderData->MaterialSlots.push_back({Slot.Name.ToString(), Slot.SourceMaterialIndex, Slot.SlotId});
@@ -1117,7 +1152,7 @@ namespace Durin
 			LOD.VertexBuffers.ColorVertexBuffer.GetMutableColors();
 		auto& Indices = LOD.IndexBuffer.GetMutableIndices();
 		std::unordered_map<std::string, uint32> SectionNameCounts;
-		for (const Asset::FImportedMeshData& ImportedMesh : ImportedScene.Meshes)
+		for (const FStaticMeshImportedMesh& ImportedMesh : ImportedData.Meshes)
 		{
 			if (!ValidateImportedMesh(ImportedMesh, OutError))
 			{
@@ -1261,7 +1296,7 @@ namespace Durin
 		OutError.clear();
 		return true;
 #else
-		(void)ImportedScene;
+		(void)ImportedData;
 		(void)SourceLabel;
 		(void)OutRenderData;
 		(void)OutMaterialSlots;
@@ -1271,8 +1306,8 @@ namespace Durin
 #endif
 	}
 
-	auto DStaticMesh::InitializeFromImportedScene(
-		const Asset::FImportedSceneData& ImportedScene,
+	auto DStaticMesh::InitializeFromImportedData(
+		const FStaticMeshImportedData& ImportedData,
 		const FStaticMeshSourceImportData& InSourceImportData,
 		std::string_view SourceLabel,
 		std::string& OutError) -> bool
@@ -1294,7 +1329,7 @@ namespace Durin
 		std::vector<FStaticMeshMaterialSlotDefinition> CandidateMaterialSlots;
 		bool bSlotMetadataChanged = false;
 		if (!BuildRenderDataCandidate(
-			ImportedScene,
+			ImportedData,
 			SourceLabel,
 			CandidateRenderData,
 			CandidateMaterialSlots,
@@ -1336,7 +1371,7 @@ namespace Durin
 		OutError.clear();
 		return true;
 #else
-		(void)ImportedScene;
+		(void)ImportedData;
 		(void)InSourceImportData;
 		(void)SourceLabel;
 		OutError = "Imported static-mesh initialization is unavailable in runtime-only targets.";
@@ -1378,37 +1413,6 @@ namespace Durin
 			return false;
 		}
 		Slot->DefaultMaterial = Material;
-		MarkPackageDirty();
-		OutError.clear();
-		return true;
-	}
-
-	auto DStaticMesh::SetImportManifest(
-		FStaticModelImportManifest InManifest,
-		std::string& OutError) -> bool
-	{
-		if (!InManifest.IsValid())
-		{
-			OutError = "Static-model import manifest is incomplete.";
-			return false;
-		}
-		for (const FStaticModelImportMaterialRecord& Material : InManifest.Materials)
-		{
-			if (!Material.SlotId.IsValid() || !Material.GeneratedMaterial)
-			{
-				OutError = "Static-model import manifest has an invalid material record.";
-				return false;
-			}
-		}
-		for (const FStaticModelImportTextureRecord& Texture : InManifest.Textures)
-		{
-			if (Texture.StableIdentity.empty() || !Texture.GeneratedTexture)
-			{
-				OutError = "Static-model import manifest has an invalid texture record.";
-				return false;
-			}
-		}
-		ImportManifest = std::move(InManifest);
 		MarkPackageDirty();
 		OutError.clear();
 		return true;
@@ -1485,7 +1489,6 @@ namespace Durin
 			std::swap(ImportSettings, Other.ImportSettings);
 			std::swap(MaterialSlotsVersion, Other.MaterialSlotsVersion);
 			std::swap(MaterialSlots, Other.MaterialSlots);
-			std::swap(ImportManifest, Other.ImportManifest);
 			std::swap(CookedPayload, Other.CookedPayload);
 			std::swap(
 				DerivedDataDiagnostic,
@@ -1504,6 +1507,97 @@ namespace Durin
 		Other.MarkPackageDirty();
 		OutError.clear();
 		return true;
+	}
+
+	auto DStaticMesh::PrepareImportedStateExchange(
+		DStaticMesh& Candidate,
+		std::string& OutError) -> std::unique_ptr<FStaticMeshImportedStateExchange>
+	{
+		if (&Candidate == this || !RenderData || !Candidate.RenderData)
+		{
+			OutError = "Static-mesh imported-state exchange requires distinct assets with render data.";
+			return nullptr;
+		}
+		CheckStaticMeshUpdateThread();
+		const EStaticMeshRenderResourceState CandidateState =
+			Candidate.RenderResourceState.load(std::memory_order_acquire);
+		if (CandidateState != EStaticMeshRenderResourceState::Ready)
+		{
+			if ((CandidateState != EStaticMeshRenderResourceState::Uninitialized
+					&& CandidateState != EStaticMeshRenderResourceState::Released)
+				|| Candidate.RenderData->GetNumInitializedResources() != 0
+				|| !InitializeStaticMeshCandidate(*Candidate.RenderData, OutError))
+			{
+				if (OutError.empty())
+					OutError = "Static-mesh candidate cannot be prepared for imported-state exchange.";
+				return nullptr;
+			}
+			Candidate.RenderResourceState.store(
+				GDynamicRHI ? EStaticMeshRenderResourceState::Ready
+					: EStaticMeshRenderResourceState::Uninitialized,
+				std::memory_order_release);
+		}
+		OutError.clear();
+		return std::unique_ptr<FStaticMeshImportedStateExchange>(
+			new FStaticMeshImportedStateExchange(*this, Candidate));
+	}
+
+	FStaticMeshImportedStateExchange::FStaticMeshImportedStateExchange(
+		DStaticMesh& InTarget,
+		DStaticMesh& InCandidate)
+		: Target(&InTarget), Candidate(&InCandidate) {}
+
+	FStaticMeshImportedStateExchange::~FStaticMeshImportedStateExchange() = default;
+
+	auto FStaticMeshImportedStateExchange::Swap() noexcept -> void
+	{
+		check(Target && Candidate && Target != Candidate);
+		CheckStaticMeshUpdateThread();
+		FStaticMeshRenderStateRecreateContext RecreateContext(Target);
+		std::swap(Target->SourceFile, Candidate->SourceFile);
+		std::swap(Target->SourceImportData, Candidate->SourceImportData);
+		std::swap(Target->NormalizedSize, Candidate->NormalizedSize);
+		std::swap(Target->ImportSettings, Candidate->ImportSettings);
+		std::swap(Target->MaterialSlotsVersion, Candidate->MaterialSlotsVersion);
+		std::swap(Target->MaterialSlots, Candidate->MaterialSlots);
+		std::swap(Target->CookedPayload, Candidate->CookedPayload);
+		std::swap(Target->DerivedDataDiagnostic, Candidate->DerivedDataDiagnostic);
+		std::swap(Target->RenderData, Candidate->RenderData);
+		const DStaticMesh::EStaticMeshRenderResourceState TargetState =
+			Target->RenderResourceState.load(std::memory_order_acquire);
+		const DStaticMesh::EStaticMeshRenderResourceState CandidateState =
+			Candidate->RenderResourceState.load(std::memory_order_acquire);
+		Target->RenderResourceState.store(CandidateState, std::memory_order_release);
+		Candidate->RenderResourceState.store(TargetState, std::memory_order_release);
+#if DURIN_BUILD_DEBUG
+		if (Target->RenderData)
+			Target->RenderData->SetResourceDebugOwner(Target->GetPackage()
+				? FName(Target->GetPackage()->GetPackagePath()) : FName("<transient-static-mesh>"));
+		if (Candidate->RenderData)
+			Candidate->RenderData->SetResourceDebugOwner(Candidate->GetPackage()
+				? FName(Candidate->GetPackage()->GetPackagePath()) : FName("<static-mesh-candidate>"));
+#endif
+		Target->MarkPackageDirty();
+	}
+
+	auto FStaticMeshImportedStateExchange::Commit() noexcept -> void
+	{
+		if (bCommitted) return;
+		Swap();
+		bCommitted = true;
+	}
+
+	auto FStaticMeshImportedStateExchange::Reverse() noexcept -> void
+	{
+		if (!bCommitted) return;
+		Swap();
+		bCommitted = false;
+	}
+
+	auto FStaticMeshImportedStateExchange::Finalize() noexcept -> void
+	{
+		Target = nullptr;
+		Candidate = nullptr;
 	}
 
 	auto DStaticMesh::PostLoad(std::string& OutError) -> bool
@@ -1819,8 +1913,7 @@ namespace Durin
 					const FName Name = Property->NamePrivate;
 					return Name != FName("SourceFile")
 						&& Name != FName("SourceImportData")
-						&& Name != FName("ImportSettings")
-						&& Name != FName("ImportManifest");
+						&& Name != FName("ImportSettings");
 				};
 				}
 				const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(

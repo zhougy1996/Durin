@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "AssetImport.h"
+#include "ImportedScene.h"
 #include "Json/Json.h"
 #include "NativeTestSupport.h"
 #include "Threading/Task.h"
@@ -360,7 +360,7 @@ namespace Durin::Asset
 		}
 	}
 
-	TEST(FAssetImportTests, StaticModelMaterialContractFixturesRemainImportable)
+	TEST(FAssetImportTests, SceneMaterialContractFixturesRemainImportable)
 	{
 		struct FCase
 		{
@@ -415,9 +415,9 @@ namespace Durin::Asset
 			[](const FImportedMaterialSlot& Slot) { return Slot.SourceName == "Unused"; }));
 	}
 
-	TEST(FAssetImportTests, StaticModelGoldenSnapshotFreezesRequiredAndOptionalCases)
+	TEST(FAssetImportTests, SceneGoldenSnapshotFreezesRequiredAndOptionalCases)
 	{
-		EXPECT_EQ(StaticModelImporterVersion, 3u);
+		EXPECT_EQ(ImportedSceneParserVersion, 3u);
 		for (const std::string_view FileName : {
 			"StaticModelMaterials/RequiredExtension.gltf",
 			"StaticModelMaterials/OptionalExtension.gltf"})
@@ -464,7 +464,7 @@ namespace Durin::Asset
 			TestDataPath("StaticModelMaterials/MaterialContract.gltf"), Scene, Options));
 
 		ASSERT_EQ(Scene.Dependencies.size(), 3u);
-		EXPECT_EQ(Scene.Dependencies[0].Role, EImportedDependencyRole::RootModel);
+		EXPECT_EQ(Scene.Dependencies[0].Role, EImportedDependencyRole::RootScene);
 		EXPECT_EQ(Scene.Dependencies[0].StableIdentity, "root");
 		EXPECT_EQ(Scene.Dependencies[0].Source.Path, "/Game/Models/MaterialContract.gltf");
 		EXPECT_EQ(Scene.Dependencies[1].Role, EImportedDependencyRole::GeometryBuffer);
@@ -544,7 +544,7 @@ namespace Durin::Asset
 			EXPECT_FALSE(Scene.Images[0].ExternalDependencyIndex.has_value());
 			EXPECT_EQ(Scene.Images[0].EmbeddedEncodedBytes.size(), Scene.Images[0].EncodedByteCount);
 			ASSERT_EQ(Scene.Dependencies.size(), 1u);
-			EXPECT_EQ(Scene.Dependencies[0].Role, EImportedDependencyRole::RootModel);
+			EXPECT_EQ(Scene.Dependencies[0].Role, EImportedDependencyRole::RootScene);
 		}
 	}
 
@@ -695,7 +695,7 @@ namespace Durin::Asset
 
 		FAsyncMeshImportHandle Handle = ImportFromFileAsync(TestDataPath("Triangle.obj"));
 		ASSERT_TRUE(Handle.IsValid());
-		EXPECT_STREQ("AssetImport.Mesh", Handle.GetDebugName());
+		EXPECT_STREQ("StandardAssetImport.Scene", Handle.GetDebugName());
 		EXPECT_FALSE(Handle.IsComplete());
 
 		Handle.Wait();

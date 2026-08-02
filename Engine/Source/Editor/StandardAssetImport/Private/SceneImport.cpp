@@ -1,0 +1,1624 @@
+#include "SceneImport.h"
+
+#include "ImportedScene.h"
+#include "AssetSystem.h"
+#include "LegacySceneImport.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
+#include "Materials/MaterialTypes.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "SceneImportInternal.h"
+#include "StandardAssetImportProviders.h"
+#include "StaticMeshImportAdapter.h"
+#include "Texture/Texture2D.h"
+
+namespace Durin
+{
+	namespace
+	{
+		using namespace AssetImport;
+
+		enum class ESceneOutputKind : uint8
+		{
+			StaticMesh,
+			MaterialInstance,
+			Texture2D
+		};
+
+		struct FSceneOutputData
+		{
+			std::string StableIdentity;
+			ESceneOutputKind Kind = ESceneOutputKind::StaticMesh;
+			uint32 SourceIndex = 0;
+			std::string TextureIdentity;
+		};
+
+		struct FSceneProviderPlanData
+		{
+			Asset::FImportedSceneData Scene;
+			FStaticMeshImportSettings MeshSettings;
+			std::vector<FSceneOutputData> Outputs;
+			std::vector<std::string> Warnings;
+		};
+
+		struct FDecodedSceneSettings
+		{
+			FAssetPath PrimaryOutput;
+			FStaticMeshImportSettings MeshSettings;
+		};
+
+		template<typename T>
+		auto AppendValue(std::vector<uint8>& Bytes, const T& Value) -> void
+		{
+			static_assert(std::is_trivially_copyable_v<T>);
+			const auto* Begin = reinterpret_cast<const uint8*>(&Value);
+			Bytes.insert(Bytes.end(), Begin, Begin + sizeof(T));
+		}
+
+		template<typename T>
+		auto ReadValue(std::span<const uint8> Bytes, size_t& Offset, T& OutValue) -> bool
+		{
+			static_assert(std::is_trivially_copyable_v<T>);
+			if (Offset > Bytes.size() || sizeof(T) > Bytes.size() - Offset) return false;
+			std::memcpy(&OutValue, Bytes.data() + Offset, sizeof(T));
+			Offset += sizeof(T);
+			return true;
+		}
+
+		auto MakeSceneSettings(
+			const FAssetPath& PrimaryOutput,
+			const FStaticMeshImportSettings& Settings,
+			FImportPayload& OutPayload,
+			std::string& OutError) -> bool
+		{
+			const std::string Path = PrimaryOutput.ToString();
+			if (Path.size() > std::numeric_limits<uint32>::max())
+			{
+				OutError = "Scene primary output path is too large.";
+				return false;
+			}
+			std::vector<uint8> Bytes;
+			AppendValue(Bytes, static_cast<uint32>(Path.size()));
+			Bytes.insert(Bytes.end(), Path.begin(), Path.end());
+			AppendValue(Bytes, Settings.ForwardAxis);
+			AppendValue(Bytes, Settings.RightAxis);
+			AppendValue(Bytes, Settings.UpAxis);
+			OutPayload = {
+				.SchemaId = "Durin.Scene.ImportSettings",
+				.SchemaVersion = 1,
+				.Bytes = std::move(Bytes)};
+			return OutPayload.Finalize(OutError);
+		}
+
+		auto DecodeSceneSettings(
+			const FImportPayload& Payload,
+			FDecodedSceneSettings& OutSettings,
+			std::string& OutError) -> bool
+		{
+			if (Payload.SchemaId != "Durin.Scene.ImportSettings"
+				|| Payload.SchemaVersion != 1)
+			{
+				OutError = "Scene settings schema is unsupported.";
+				return false;
+			}
+			size_t Offset = 0;
+			uint32 PathSize = 0;
+			if (!ReadValue(std::span<const uint8>(Payload.Bytes), Offset, PathSize)
+				|| Offset > Payload.Bytes.size()
+				|| PathSize > Payload.Bytes.size() - Offset)
+			{
+				OutError = "Scene settings payload is truncated.";
+				return false;
+			}
+			const std::string Path(
+				reinterpret_cast<const char*>(Payload.Bytes.data() + Offset), PathSize);
+			Offset += PathSize;
+			if (!FAssetPath::TryCreate(Path, OutSettings.PrimaryOutput, &OutError)
+				|| !ReadValue(std::span<const uint8>(Payload.Bytes), Offset,
+					OutSettings.MeshSettings.ForwardAxis)
+				|| !ReadValue(std::span<const uint8>(Payload.Bytes), Offset,
+					OutSettings.MeshSettings.RightAxis)
+				|| !ReadValue(std::span<const uint8>(Payload.Bytes), Offset,
+					OutSettings.MeshSettings.UpAxis)
+				|| Offset != Payload.Bytes.size()
+				|| !OutSettings.MeshSettings.IsValid(&OutError))
+			{
+				if (OutError.empty()) OutError = "Scene settings payload is invalid.";
+				return false;
+			}
+			return true;
+		}
+
+		auto AddDiagnostic(
+			std::vector<FImportDiagnostic>& Diagnostics,
+			EImportDiagnosticCategory Category,
+			std::string_view Phase,
+			std::string_view Message,
+			std::string_view SourceIdentity = {}) -> void
+		{
+			Diagnostics.push_back({
+				.Severity = EImportDiagnosticSeverity::Error,
+				.Category = Category,
+				.Phase = std::string(Phase),
+				.SourceIdentity = std::string(SourceIdentity),
+				.Message = std::string(Message)});
+		}
+
+		class FSceneDiagnosticScope
+		{
+		public:
+			FSceneDiagnosticScope(
+				bool& InSucceeded,
+				std::string& InMessage,
+				std::vector<FImportDiagnostic>& InDiagnostics,
+				std::string_view InPhase)
+				: bSucceeded(InSucceeded), Message(InMessage), Diagnostics(InDiagnostics),
+				  Phase(InPhase) {}
+			~FSceneDiagnosticScope()
+			{
+				if (!bSucceeded && Diagnostics.empty() && !Message.empty())
+					AddDiagnostic(Diagnostics, EImportDiagnosticCategory::ProviderFailure,
+						Phase, Message, "root");
+				FinalizeImportDiagnostics(Diagnostics, Phase, "root", "request");
+			}
+		private:
+			bool& bSucceeded;
+			std::string& Message;
+			std::vector<FImportDiagnostic>& Diagnostics;
+			std::string Phase;
+		};
+
+		auto ImportAxisVector(EStaticMeshImportAxis Axis) -> FVector3f
+		{
+			switch (Axis)
+			{
+			case EStaticMeshImportAxis::PositiveX: return {1.0f, 0.0f, 0.0f};
+			case EStaticMeshImportAxis::NegativeX: return {-1.0f, 0.0f, 0.0f};
+			case EStaticMeshImportAxis::PositiveY: return {0.0f, 1.0f, 0.0f};
+			case EStaticMeshImportAxis::NegativeY: return {0.0f, -1.0f, 0.0f};
+			case EStaticMeshImportAxis::PositiveZ: return {0.0f, 0.0f, 1.0f};
+			case EStaticMeshImportAxis::NegativeZ: return {0.0f, 0.0f, -1.0f};
+			}
+			return {};
+		}
+
+		auto MakeMeshImportOptions(
+			const FStaticMeshImportSettings& Settings,
+			const FSourcePath& RootSource) -> Asset::FMeshImportOptions
+		{
+			const FVector3f Forward = ImportAxisVector(Settings.ForwardAxis);
+			const FVector3f Right = ImportAxisVector(Settings.RightAxis);
+			const FVector3f Up = ImportAxisVector(Settings.UpAxis);
+			Asset::FMeshImportOptions Options;
+			for (uint32 Component = 0; Component < 3; ++Component)
+			{
+				Options.SourceToEngine[Component][0] = Forward[Component];
+				Options.SourceToEngine[Component][1] = Right[Component];
+				Options.SourceToEngine[Component][2] = Up[Component];
+			}
+			Options.RootSource = RootSource;
+			return Options;
+		}
+
+		auto FoldAscii(std::string Value) -> std::string
+		{
+			std::ranges::transform(Value, Value.begin(), [](const char Character) {
+				return static_cast<char>(std::tolower(static_cast<unsigned char>(Character)));
+			});
+			return Value;
+		}
+
+		auto SanitizeAssetName(
+			std::string_view Value,
+			std::string_view Fallback) -> std::string
+		{
+			std::string Result;
+			bool bLastWasSeparator = false;
+			for (const char Character : Value)
+			{
+				const bool bValid = std::isalnum(static_cast<unsigned char>(Character)) != 0;
+				if (bValid)
+				{
+					Result.push_back(Character);
+					bLastWasSeparator = false;
+				}
+				else if (!Result.empty() && !bLastWasSeparator)
+				{
+					Result.push_back('_');
+					bLastWasSeparator = true;
+				}
+			}
+			while (!Result.empty() && Result.back() == '_') Result.pop_back();
+			return Result.empty() ? std::string(Fallback) : Result;
+		}
+
+		auto MakeUniqueName(
+			std::string_view Requested,
+			std::string_view Fallback,
+			std::unordered_set<std::string>& UsedNames) -> std::string
+		{
+			const std::string Base = SanitizeAssetName(Requested, Fallback);
+			std::string Candidate = Base;
+			for (uint32 Suffix = 2; !UsedNames.insert(FoldAscii(Candidate)).second; ++Suffix)
+				Candidate = std::format("{}_{}", Base, Suffix);
+			return Candidate;
+		}
+
+		auto MakeChildPath(
+			const FAssetPath& Root,
+			std::string_view DirectorySuffix,
+			std::string_view Leaf,
+			FAssetPath& OutPath,
+			std::string& OutError) -> bool
+		{
+			const std::filesystem::path RootPath(Root.ToString());
+			return FAssetPath::TryCreate((
+				RootPath.parent_path()
+					/ (RootPath.filename().generic_string() + std::string(DirectorySuffix))
+					/ std::string(Leaf)).generic_string(), OutPath, &OutError);
+		}
+
+		auto StableSuffix(std::string_view Value) -> std::string
+		{
+			return FXxHash128::HashBuffer(std::as_bytes(std::span(Value))).ToString();
+		}
+
+		template<typename FVisitor>
+		auto VisitGltfUris(
+			std::span<const uint8> Bytes,
+			FVisitor&& Visitor) -> bool
+		{
+			const std::string Text(reinterpret_cast<const char*>(Bytes.data()), Bytes.size());
+			size_t Cursor = 0;
+			uint32 Index = 0;
+			while ((Cursor = Text.find("\"uri\"", Cursor)) != std::string::npos)
+			{
+				const size_t Colon = Text.find(':', Cursor + 5);
+				const size_t Quote = Colon == std::string::npos
+					? std::string::npos : Text.find('"', Colon + 1);
+				const size_t End = Quote == std::string::npos
+					? std::string::npos : Text.find('"', Quote + 1);
+				if (End == std::string::npos) return false;
+				std::string Uri = Text.substr(Quote + 1, End - Quote - 1);
+				Cursor = End + 1;
+				if (Uri.starts_with("data:")) continue;
+				if (Uri.find("\\u") != std::string::npos
+					|| Uri.find(':') != std::string::npos) return false;
+				for (size_t Slash = 0; (Slash = Uri.find("\\/", Slash)) != std::string::npos;)
+					Uri.replace(Slash, 2, "/");
+				if (!Visitor(Uri, Index++)) return false;
+			}
+			return true;
+		}
+
+		auto DiscoverGltfUris(
+			std::span<const uint8> Bytes,
+			FDependencyRequestSink& Sink) -> bool
+		{
+			return VisitGltfUris(Bytes,
+				[&](std::string_view Uri, uint32 Index) {
+					return Sink.AddRelative("root",
+						std::format("scene-dependency:{}", Index),
+						"SceneDependency", Uri);
+				});
+		}
+
+		class FTemporarySceneFiles
+		{
+		public:
+			~FTemporarySceneFiles()
+			{
+				if (Root.empty()) return;
+				std::error_code Error;
+				std::filesystem::remove_all(Root, Error);
+			}
+
+			auto Stage(const FSourceSnapshot& Snapshot, std::string& OutError) -> bool
+			{
+				const FSourceSnapshotEntry* RootSource = Snapshot.FindSource("root");
+				if (!RootSource || RootSource->SourcePath.IsEmpty())
+				{
+					OutError = "Scene snapshot has no logical root source.";
+					return false;
+				}
+				static std::atomic<uint64> Serial = 0;
+				Root = std::filesystem::temp_directory_path()
+					/ std::format("DurinSceneImport_{}_{}",
+						RootSource->ContentHash.ToString(), ++Serial);
+				const std::filesystem::path VirtualRoot(RootSource->SourcePath.Path);
+				const std::filesystem::path VirtualParent = VirtualRoot.parent_path();
+				for (const FSourceSnapshotEntry& Source : Snapshot.GetSources())
+				{
+					if (Source.SourcePath.IsEmpty()) continue;
+					const std::filesystem::path Virtual(Source.SourcePath.Path);
+					std::filesystem::path Relative = Virtual.lexically_relative(VirtualParent);
+					if (Relative.empty() || Relative.is_absolute()
+						|| std::ranges::find(Relative, std::filesystem::path("..")) != Relative.end())
+					{
+						OutError = std::format(
+							"Scene source {} escapes its logical root.", Source.SourcePath.Path);
+						return false;
+					}
+					const std::filesystem::path Target = Root / Relative;
+					std::error_code Error;
+					std::filesystem::create_directories(Target.parent_path(), Error);
+					if (Error || !FFileHelper::SaveArrayToFile(
+						std::as_bytes(Source.GetBytes()), Target))
+					{
+						OutError = std::format("Failed to stage captured Scene source {}.",
+							Source.StableIdentity);
+						return false;
+					}
+					if (Source.StableIdentity == "root") PhysicalRoot = Target;
+				}
+				return !PhysicalRoot.empty();
+			}
+
+			auto GetRoot() const -> const std::filesystem::path& { return PhysicalRoot; }
+
+		private:
+			std::filesystem::path Root;
+			std::filesystem::path PhysicalRoot;
+		};
+
+		auto DecodeSceneSnapshot(
+			const FSourceSnapshot& Snapshot,
+			const FStaticMeshImportSettings& Settings,
+			Asset::FImportedSceneData& OutScene,
+			std::string& OutError) -> bool
+		{
+			FTemporarySceneFiles Files;
+			if (!Files.Stage(Snapshot, OutError)) return false;
+			const FSourceSnapshotEntry* Root = Snapshot.FindSource("root");
+			if (!Asset::ImportFromFile(Files.GetRoot().generic_string(), OutScene,
+				MakeMeshImportOptions(Settings, Root->SourcePath)))
+			{
+				OutError = "Captured Scene sources could not be decoded.";
+				return false;
+			}
+			return true;
+		}
+
+		class FSceneProvider final : public IImportProvider
+		{
+		public:
+			auto GetProviderId() const -> std::string_view override
+			{
+				return SceneImportProviderId;
+			}
+			auto GetContractVersion() const -> uint32 override
+			{
+				return SceneImportProviderContractVersion;
+			}
+			auto CanImport(const FImportSourceRecognition& Source) const -> bool override
+			{
+				const std::string Extension = FoldAscii(Source.Extension);
+				return Extension == ".gltf" || Extension == ".glb" || Extension == ".fbx";
+			}
+			auto CaptureSettings(FImportPayload& OutSettings,
+				std::vector<FImportDiagnostic>&) const -> bool override
+			{
+				std::string Error;
+				FAssetPath DefaultOutput;
+				if (!FAssetPath::TryCreate("/Imported/Scene", DefaultOutput, &Error)) return false;
+				return MakeSceneSettings(
+					DefaultOutput,
+					FStaticMeshImportSettings::MakeDurin(), OutSettings, Error);
+			}
+			auto DiscoverDependencies(
+				std::span<const FSourceSnapshotEntry> Sources,
+				FDependencyRequestSink& Sink,
+				std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool override
+			{
+				const auto Root = std::ranges::find(
+					Sources, std::string_view("root"), &FSourceSnapshotEntry::StableIdentity);
+				if (Root == Sources.end()) return false;
+				const std::string Extension = FoldAscii(
+					std::filesystem::path(Root->SourcePath.Path).extension().generic_string());
+				if (Extension != ".gltf") return true;
+				if (!DiscoverGltfUris(Root->GetBytes(), Sink))
+				{
+					AddDiagnostic(OutDiagnostics, EImportDiagnosticCategory::UnsafeDependency,
+						"dependency-discovery", "glTF contains an unsupported or unsafe URI.", "root");
+					return false;
+				}
+				return true;
+			}
+			auto Plan(
+				const FSourceSnapshot& Snapshot,
+				const FImportPayload& Settings,
+				FImportPlanBuilder& Builder,
+				std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool override
+			{
+				FDecodedSceneSettings Decoded;
+				std::string Error;
+				if (!DecodeSceneSettings(Settings, Decoded, Error))
+				{
+					AddDiagnostic(OutDiagnostics, EImportDiagnosticCategory::InvalidPlan,
+						"scene-plan", Error);
+					return false;
+				}
+				auto Data = std::make_shared<FSceneProviderPlanData>();
+				Data->MeshSettings = Decoded.MeshSettings;
+				if (!DecodeSceneSnapshot(Snapshot, Decoded.MeshSettings, Data->Scene, Error))
+				{
+					AddDiagnostic(OutDiagnostics, EImportDiagnosticCategory::ProviderFailure,
+						"scene-parse", Error, "root");
+					return false;
+				}
+				uint64 MeshBytes = 0;
+				for (const Asset::FImportedMeshData& Mesh : Data->Scene.Meshes)
+				{
+					MeshBytes += Mesh.Positions.size() * sizeof(Mesh.Positions.front());
+					MeshBytes += Mesh.Normals.size() * sizeof(Mesh.Normals.front());
+					MeshBytes += Mesh.Tangents.size() * sizeof(Mesh.Tangents.front());
+					MeshBytes += Mesh.Colors.size() * sizeof(Mesh.Colors.front());
+					MeshBytes += Mesh.Indices.size() * sizeof(Mesh.Indices.front());
+					for (const auto& UVs : Mesh.UVChannels)
+						MeshBytes += UVs.size() * sizeof(UVs.front());
+				}
+
+				Builder.AddOutput({
+					.StableIdentity = "scene:mesh:primary",
+					.Role = "StaticMesh",
+					.AssetPath = Decoded.PrimaryOutput,
+					.AssetClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString(),
+					.Policy = EImportOutputPolicy::Create,
+					.Collision = EImportCollisionAction::Create,
+					.EstimatedCpuBytes = MeshBytes,
+					.EstimatedGpuBytes = MeshBytes,
+					.EstimatedDiskBytes = MeshBytes});
+				Data->Outputs.push_back({
+					.StableIdentity = "scene:mesh:primary",
+					.Kind = ESceneOutputKind::StaticMesh});
+
+				std::unordered_set<uint32> UsedMaterialIndices;
+				std::vector<uint32> MaterialIndices;
+				for (const Asset::FImportedMaterialSlot& Slot : Data->Scene.MaterialSlots)
+					if (UsedMaterialIndices.insert(Slot.SourceMaterialIndex).second)
+						MaterialIndices.push_back(Slot.SourceMaterialIndex);
+				std::unordered_map<std::string, uint32> MaterialNameCounts;
+				for (const Asset::FImportedMaterial& Material : Data->Scene.Materials)
+					++MaterialNameCounts[FoldAscii(Material.SourceName)];
+				std::unordered_set<std::string> MaterialNames;
+				std::unordered_set<std::string> TextureNames;
+				std::unordered_map<std::string, std::string> TextureByKey;
+				for (const uint32 MaterialIndex : MaterialIndices)
+				{
+					const auto Material = std::ranges::find(
+						Data->Scene.Materials, MaterialIndex,
+						&Asset::FImportedMaterial::SourceMaterialIndex);
+					if (Material == Data->Scene.Materials.end()) return false;
+					const std::string MaterialKey = !Material->SourceName.empty()
+						&& MaterialNameCounts[FoldAscii(Material->SourceName)] == 1
+						? std::string("name:") + FoldAscii(Material->SourceName)
+						: std::format("index:{}", MaterialIndex);
+					const std::string MaterialIdentity =
+						std::string("scene:material:") + StableSuffix(MaterialKey);
+					FAssetPath MaterialPath;
+					if (!MakeChildPath(Decoded.PrimaryOutput, "_Materials",
+						MakeUniqueName(Material->SourceName, "Material", MaterialNames),
+						MaterialPath, Error)) return false;
+					FSceneOutputData MaterialOutput{
+						.StableIdentity = MaterialIdentity,
+						.Kind = ESceneOutputKind::MaterialInstance,
+						.SourceIndex = MaterialIndex};
+					const auto BaseColor = std::ranges::find(
+						Material->TextureBindings, Asset::EImportedTextureSemantic::BaseColor,
+						&Asset::FImportedTextureBinding::Semantic);
+					if (BaseColor != Material->TextureBindings.end())
+					{
+						if (BaseColor->ImageIndex >= Data->Scene.Images.size()) return false;
+						const Asset::FImportedImage& Image = Data->Scene.Images[BaseColor->ImageIndex];
+						const std::string TextureKey = Image.StableIdentity + ":BaseColor:sRGB";
+						auto Texture = TextureByKey.find(TextureKey);
+						if (Texture == TextureByKey.end())
+						{
+							const std::string TextureIdentity =
+								std::string("scene:texture:") + StableSuffix(TextureKey);
+							FAssetPath TexturePath;
+							if (!MakeChildPath(Decoded.PrimaryOutput, "_Textures",
+								MakeUniqueName(Image.SuggestedName + "_BaseColor",
+									"Image_BaseColor", TextureNames), TexturePath, Error)) return false;
+							Builder.AddOutput({
+								.StableIdentity = TextureIdentity,
+								.Role = "Texture2D.BaseColor",
+								.AssetPath = TexturePath,
+								.AssetClassName = DTexture2D::StaticClass()->GetQualifiedName().ToString(),
+								.Policy = EImportOutputPolicy::Create,
+								.Collision = EImportCollisionAction::Create,
+								.EstimatedCpuBytes = Image.EncodedByteCount * 4,
+								.EstimatedGpuBytes = Image.EncodedByteCount * 4,
+								.EstimatedDiskBytes = Image.EncodedByteCount});
+							Data->Outputs.push_back({
+								.StableIdentity = TextureIdentity,
+								.Kind = ESceneOutputKind::Texture2D,
+								.SourceIndex = BaseColor->ImageIndex});
+							Texture = TextureByKey.emplace(TextureKey, TextureIdentity).first;
+						}
+						MaterialOutput.TextureIdentity = Texture->second;
+					}
+					Builder.AddOutput({
+						.StableIdentity = MaterialIdentity,
+						.Role = "MaterialInstance",
+						.AssetPath = MaterialPath,
+						.AssetClassName = DMaterialInstance::StaticClass()->GetQualifiedName().ToString(),
+						.Policy = EImportOutputPolicy::Create,
+						.Collision = EImportCollisionAction::Create,
+						.EstimatedCpuBytes = 4096,
+						.EstimatedGpuBytes = 256,
+						.EstimatedDiskBytes = 4096});
+					Data->Outputs.push_back(std::move(MaterialOutput));
+				}
+				for (const Asset::FImportDiagnostic& Diagnostic : Data->Scene.Diagnostics)
+				{
+					if (Diagnostic.Severity != Asset::EImportDiagnosticSeverity::Warning) continue;
+					Data->Warnings.push_back(Diagnostic.Message);
+					EImportDiagnosticCategory Category = EImportDiagnosticCategory::ProviderFailure;
+					if (Diagnostic.Category == Asset::EImportDiagnosticCategory::MissingDependency)
+						Category = EImportDiagnosticCategory::MissingDependency;
+					else if (Diagnostic.Category == Asset::EImportDiagnosticCategory::UnsafeDependencyPath)
+						Category = EImportDiagnosticCategory::UnsafeDependency;
+					else if (Diagnostic.Category == Asset::EImportDiagnosticCategory::ResourceLimitExceeded)
+						Category = EImportDiagnosticCategory::ResourceLimitExceeded;
+					OutDiagnostics.push_back({
+						.Severity = EImportDiagnosticSeverity::Warning,
+						.Category = Category,
+						.Phase = "scene-parse",
+						.SourceIdentity = Diagnostic.SourceIdentity.empty()
+							? "root" : Diagnostic.SourceIdentity,
+						.OutputIdentity = Diagnostic.Subject.empty()
+							? "scene" : Diagnostic.Subject,
+						.Message = Diagnostic.Message});
+				}
+				Builder.SetProviderData<FSceneProviderPlanData>(std::move(Data));
+				return true;
+			}
+		};
+
+		auto MakeCandidatePath(const FAssetPath& TargetPath, FAssetPath& OutPath) -> bool
+		{
+			for (uint32 Suffix = 1; Suffix != 0; ++Suffix)
+			{
+				if (!FAssetPath::TryCreate(std::format(
+					"{}_SceneCandidate_{}", TargetPath.ToString(), Suffix), OutPath)) return false;
+				if (!Asset::FindLoadedPackage(OutPath)
+					&& !Asset::GetAssetRegistry().FindAsset(OutPath)) return true;
+			}
+			return false;
+		}
+
+		auto InspectAuthoredPackage(
+			const FAssetPath& Path,
+			Asset::FAssetPackageInspection& OutInspection,
+			std::string& OutError) -> bool
+		{
+			const PathUtilities::FContentPathResult Resolved =
+				PathUtilities::ResolveContentPath(Path.GetView());
+			if (!Resolved)
+			{
+				OutError = Resolved.Message;
+				return false;
+			}
+			const Asset::FAssetResult Inspected = Asset::InspectAssetPackage(
+				Resolved.PhysicalPath.generic_string() + ".dasset", OutInspection);
+			if (!Inspected)
+			{
+				OutError = Inspected.Message;
+				return false;
+			}
+			return true;
+		}
+
+		auto ValidateLegacyOwner(
+			const FAssetPath& Path,
+			const FAssetPath& ExpectedOwner,
+			std::string& OutError) -> bool
+		{
+			Asset::FAssetPackageInspection Inspection;
+			if (!InspectAuthoredPackage(Path, Inspection, OutError)) return false;
+			const Asset::FAssetPackageField* Field = Inspection.FindField("ImportOwner");
+			// Early schema-1 packages could omit this unsupported helper field; the
+			// manifest's direct output reference remains unambiguous ownership evidence.
+			if (!Field) return true;
+			std::string OwnerPath;
+			FAssetPath Owner;
+			if (!Field->TryReadString(OwnerPath)
+				|| !FAssetPath::TryCreate(OwnerPath, Owner)
+				|| Owner != ExpectedOwner)
+			{
+				OutError = std::format(
+					"Legacy Scene output {} has no readable importer owner.", Path.ToString());
+				return false;
+			}
+			return true;
+		}
+
+		class FSceneCandidate final : public ISingleAssetCandidate
+		{
+		public:
+			FSceneCandidate(DObject* InAsset, bool bInNewAsset)
+				: AssetObject(InAsset), Package(InAsset ? InAsset->GetPackage() : nullptr),
+				  bNewAsset(bInNewAsset) {}
+			auto GetAsset() const -> DObject* override { return AssetObject; }
+			auto GetPackage() const -> DPackage* override { return Package; }
+			auto IsNewAsset() const -> bool override { return bNewAsset; }
+			auto GetAuthoredFingerprint() const -> std::string override
+			{
+				if (const auto* Mesh = Cast<DStaticMesh>(AssetObject))
+					return Mesh->GetSourceImportData().SourceContentHash;
+				if (const auto* Texture = Cast<DTexture2D>(AssetObject))
+					return Texture->GetDerivedDataKey();
+				std::string Fingerprint;
+				std::string Error;
+				return ComputeImportPackageFingerprint(Package, Fingerprint, Error)
+					? Fingerprint : std::string{};
+			}
+			auto Validate(std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool override
+			{
+				const bool bValid = AssetObject && Package
+					&& (!AssetObject->IsA<DStaticMesh>()
+						|| Cast<DStaticMesh>(AssetObject)->GetRenderData())
+					&& (!AssetObject->IsA<DTexture2D>()
+						|| (Cast<DTexture2D>(AssetObject)->GetPlatformData()
+							&& Cast<DTexture2D>(AssetObject)->GetBuildStatus()
+								== ETextureBuildStatus::Ready))
+					&& (!AssetObject->IsA<DMaterialInstance>()
+						|| Cast<DMaterialInstance>(AssetObject)->GetParent());
+				if (!bValid) AddDiagnostic(OutDiagnostics,
+					EImportDiagnosticCategory::ValidationFailure,
+					"candidate-validation", "Scene output candidate is incomplete.");
+				return bValid;
+			}
+			auto Abandon() noexcept -> void override
+			{
+				if (Package) (void)Asset::DiscardUnpublishedPackage(Package);
+				Package = nullptr;
+				AssetObject = nullptr;
+			}
+
+		private:
+			DObject* AssetObject = nullptr;
+			DPackage* Package = nullptr;
+			bool bNewAsset = false;
+		};
+
+		template<typename T>
+		class TNoFailExchange final : public IPreparedImportedStateExchange
+		{
+		public:
+			TNoFailExchange(T& InTarget, T& InCandidate)
+				: Target(&InTarget), Candidate(&InCandidate) {}
+			auto Commit() noexcept -> void override
+			{
+				if (!bCommitted) { Target->ExchangeImportedState(*Candidate); bCommitted = true; }
+			}
+			auto Reverse() noexcept -> void override
+			{
+				if (bCommitted) { Target->ExchangeImportedState(*Candidate); bCommitted = false; }
+			}
+			auto Finalize() noexcept -> void override { Target = nullptr; Candidate = nullptr; }
+
+		private:
+			T* Target = nullptr;
+			T* Candidate = nullptr;
+			bool bCommitted = false;
+		};
+
+		class FStaticMeshExchange final : public IPreparedImportedStateExchange
+		{
+		public:
+			explicit FStaticMeshExchange(
+				std::unique_ptr<FStaticMeshImportedStateExchange> InExchange)
+				: Exchange(std::move(InExchange)) {}
+			auto Commit() noexcept -> void override { Exchange->Commit(); }
+			auto Reverse() noexcept -> void override { Exchange->Reverse(); }
+			auto Finalize() noexcept -> void override { Exchange->Finalize(); }
+
+		private:
+			std::unique_ptr<FStaticMeshImportedStateExchange> Exchange;
+		};
+
+		auto FindSnapshotImageBytes(
+			const FSourceSnapshot& Snapshot,
+			const Asset::FImportedSceneData& Scene,
+			const Asset::FImportedImage& Image,
+			std::span<const uint8>& OutBytes,
+			FSourcePath& OutSource) -> bool
+		{
+			if (!Image.EmbeddedEncodedBytes.empty())
+			{
+				OutBytes = Image.EmbeddedEncodedBytes;
+				const FSourceSnapshotEntry* Root = Snapshot.FindSource("root");
+				if (!Root) return false;
+				OutSource = Root->SourcePath;
+				return true;
+			}
+			if (!Image.ExternalDependencyIndex
+				|| *Image.ExternalDependencyIndex >= Scene.Dependencies.size()) return false;
+			const FSourcePath& Dependency =
+				Scene.Dependencies[*Image.ExternalDependencyIndex].Source;
+			const auto Source = std::ranges::find_if(
+				Snapshot.GetSources(), [&](const FSourceSnapshotEntry& Entry) {
+					return Entry.SourcePath == Dependency;
+				});
+			if (Source == Snapshot.GetSources().end()) return false;
+			OutBytes = Source->GetBytes();
+			OutSource = Source->SourcePath;
+			return true;
+		}
+
+		auto EmbeddedImageExtension(Asset::EImportedImageEncoding Encoding)
+			-> std::string_view
+		{
+			switch (Encoding)
+			{
+			case Asset::EImportedImageEncoding::Png: return ".png";
+			case Asset::EImportedImageEncoding::Jpeg: return ".jpg";
+			case Asset::EImportedImageEncoding::Bmp: return ".bmp";
+			case Asset::EImportedImageEncoding::Tga: return ".tga";
+			}
+			return ".image";
+		}
+
+		auto MakeEmbeddedImageSourcePath(
+			const FSourcePath& RootSource,
+			const Asset::FImportedImage& Image,
+			std::span<const uint8> Bytes) -> std::string
+		{
+			const std::filesystem::path RootPath(RootSource.Path);
+			const std::string FileName = std::format(
+				"{}_{}{}",
+				StableSuffix(Image.StableIdentity),
+				FXxHash128::HashBuffer(Bytes).ToString(),
+				EmbeddedImageExtension(Image.Encoding));
+			return (RootPath.parent_path()
+				/ (RootPath.stem().generic_string() + "_Embedded")
+				/ FileName).generic_string();
+		}
+
+		auto CreateOrLoadTarget(
+			const FMultiOutputReconciliation& Entry,
+			DObject*& OutTarget,
+			DObject*& OutCandidate,
+			bool& bOutNew,
+			std::string& OutError) -> bool
+		{
+			bOutNew = Entry.ProposedAction == EMultiOutputProposedAction::Create;
+			FAssetPath CandidatePath = Entry.AssetPath;
+			if (!bOutNew && !MakeCandidatePath(Entry.AssetPath, CandidatePath))
+			{
+				OutError = "Could not allocate a Scene candidate path.";
+				return false;
+			}
+			if (!bOutNew)
+			{
+				const Asset::FAssetResult Load = Asset::LoadAsset(Entry.AssetPath, OutTarget);
+				if (!Load) { OutError = Load.Message; return false; }
+			}
+			DClass* Class = nullptr;
+			if (Entry.AssetClassName == DStaticMesh::StaticClass()->GetQualifiedName().ToString())
+				Class = DStaticMesh::StaticClass();
+			else if (Entry.AssetClassName == DMaterialInstance::StaticClass()->GetQualifiedName().ToString())
+				Class = DMaterialInstance::StaticClass();
+			else if (Entry.AssetClassName == DTexture2D::StaticClass()->GetQualifiedName().ToString())
+				Class = DTexture2D::StaticClass();
+			if (!Class)
+			{
+				OutError = "Scene plan contains an unsupported output class.";
+				return false;
+			}
+			Asset::FAssetResult Create;
+			if (Class == DStaticMesh::StaticClass())
+			{
+				DStaticMesh* AssetObject = nullptr;
+				Create = Asset::CreateAsset(CandidatePath, AssetObject);
+				OutCandidate = AssetObject;
+			}
+			else if (Class == DMaterialInstance::StaticClass())
+			{
+				DMaterialInstance* AssetObject = nullptr;
+				Create = Asset::CreateAsset(CandidatePath, AssetObject);
+				OutCandidate = AssetObject;
+			}
+			else
+			{
+				DTexture2D* AssetObject = nullptr;
+				Create = Asset::CreateAsset(CandidatePath, AssetObject);
+				OutCandidate = AssetObject;
+			}
+			if (!Create) { OutError = Create.Message; return false; }
+			return true;
+		}
+	}
+
+	auto CreateSceneImportProvider() -> std::shared_ptr<IImportProvider>
+	{
+		return std::make_shared<FSceneProvider>();
+	}
+
+	auto RollbackSceneSourceBundle(FPreparedSceneSourceBundle& Bundle) -> void
+	{
+		for (auto It = Bundle.Sources.rbegin(); It != Bundle.Sources.rend(); ++It)
+			RollbackMountedSourceFile(*It);
+		Bundle = {};
+	}
+
+	auto CommitSceneSourceBundle(FPreparedSceneSourceBundle& Bundle) -> void
+	{
+		for (FMountedSourceFile& Source : Bundle.Sources)
+			CommitMountedSourceFile(Source);
+	}
+
+	auto PrepareSceneSourceBundle(
+		const std::filesystem::path& InputRoot,
+		std::string_view ReferencingAssetPath,
+		std::string_view ExternalIngestDestination,
+		FPreparedSceneSourceBundle& OutBundle,
+		std::string& OutError) -> bool
+	{
+		OutBundle = {};
+		FMountedSourceFile Root;
+		if (!PrepareMountedSourceFile(InputRoot, ReferencingAssetPath,
+			ExternalIngestDestination, Root, OutError)) return false;
+		OutBundle.RootSource = Root.SourcePath;
+		OutBundle.Sources.push_back(std::move(Root));
+		const std::string Extension = FoldAscii(
+			InputRoot.extension().generic_string());
+		if (Extension != ".gltf") return true;
+
+		std::vector<uint8> RootBytes;
+		if (!FFileHelper::LoadFileToArray(RootBytes, InputRoot.generic_string())
+			|| RootBytes.size() > Asset::MaxImportedSceneSourceBytes)
+		{
+			RollbackSceneSourceBundle(OutBundle);
+			OutError = "The glTF root source cannot be read or exceeds the source limit.";
+			return false;
+		}
+		const std::filesystem::path InputParent =
+			std::filesystem::absolute(InputRoot).lexically_normal().parent_path();
+		const std::filesystem::path TargetParent =
+			std::filesystem::path(OutBundle.RootSource.Path).parent_path();
+		const bool bVisited = VisitGltfUris(RootBytes,
+			[&](std::string_view Uri, uint32) {
+				const std::filesystem::path Relative =
+					std::filesystem::path(Uri).lexically_normal();
+				if (Relative.empty() || Relative.is_absolute()
+					|| std::ranges::find(Relative, std::filesystem::path(".."))
+						!= Relative.end())
+				{
+					OutError = std::format(
+						"glTF dependency '{}' escapes the source document directory.", Uri);
+					return false;
+				}
+				FMountedSourceFile Dependency;
+				if (!PrepareMountedSourceFile(
+					InputParent / Relative, ReferencingAssetPath,
+					(TargetParent / Relative).generic_string(), Dependency, OutError))
+					return false;
+				OutBundle.Sources.push_back(std::move(Dependency));
+				return true;
+			});
+		if (!bVisited)
+		{
+			RollbackSceneSourceBundle(OutBundle);
+			if (OutError.empty())
+				OutError = "glTF dependency discovery found an unsafe or unsupported URI.";
+			return false;
+		}
+		return true;
+	}
+
+	auto PlanSceneImport(const FSceneImportRequest& Request) -> FSceneImportPlanResult
+	{
+		FSceneImportPlanResult Result;
+		FSceneDiagnosticScope DiagnosticScope(
+			Result.bSucceeded, Result.Message, Result.Diagnostics, "scene-plan");
+		if (Request.RootSource.IsEmpty() || !Request.PrimaryOutput.IsValid()
+			|| !Request.MeshSettings.IsValid(&Result.Message))
+		{
+			if (Result.Message.empty()) Result.Message =
+				"Scene import requires a mounted root source and valid primary output.";
+			return Result;
+		}
+		std::string Error;
+		if (!RegisterStandardAssetImportProviders(Error))
+		{
+			Result.Message = std::move(Error);
+			return Result;
+		}
+		ReportImportProgress(Request.Progress, EImportPhase::Snapshot,
+			EImportProgressState::Started);
+		FProviderRegistry& Providers = GetProviderRegistry();
+		const FProviderLease Provider = Providers.Find(SceneImportProviderId);
+		FSourceSnapshotBuilder SnapshotBuilder;
+		if (!SnapshotBuilder.CaptureRoot(Request.RootSource, Result.Diagnostics)
+			|| !SnapshotBuilder.DiscoverDependencies(Provider, Result.Diagnostics))
+		{
+			Result.Message = Result.Diagnostics.empty()
+				? "Scene source capture failed." : Result.Diagnostics.back().Message;
+			FinalizeImportDiagnostics(Result.Diagnostics, "source-capture");
+			ReportImportProgress(Request.Progress, EImportPhase::Snapshot,
+				EImportProgressState::Failed, "root", "request", 0, 0, Result.Message);
+			return Result;
+		}
+		std::shared_ptr<const FSourceSnapshot> Snapshot =
+			SnapshotBuilder.Freeze(Result.Diagnostics);
+		FImportPayload Settings;
+		if (!Snapshot || !MakeSceneSettings(
+			Request.PrimaryOutput, Request.MeshSettings, Settings, Result.Message))
+		{
+			ReportImportProgress(Request.Progress, EImportPhase::Snapshot,
+				EImportProgressState::Failed, "root", "request", 0, 0, Result.Message);
+			return Result;
+		}
+		ReportImportProgress(Request.Progress, EImportPhase::Snapshot,
+			EImportProgressState::Succeeded, "root", "request",
+			Snapshot->GetAggregateByteCount(), Snapshot->GetAggregateByteCount());
+		FImportPlanResult Generic = BuildImportPlan(
+			Provider, std::move(Snapshot), Settings, Providers.GetRevision(),
+			Result.Diagnostics, Request.Progress);
+		if (!Generic)
+		{
+			Result.Message = std::move(Generic.Message);
+			Result.Diagnostics = std::move(Generic.Diagnostics);
+			return Result;
+		}
+		if (Request.ExistingRecord)
+		{
+			for (const FImportRecordOutput& Output : Request.ExistingRecord->GetOutputs())
+			{
+				if (Output.Policy != EImportRecordOutputPolicy::Managed) continue;
+				DObject* Loaded = nullptr;
+				const Asset::FAssetResult Load = Asset::LoadAsset(Output.AssetPath, Loaded);
+				if (!Load && Load.Error != Asset::EAssetError::NotFound)
+				{
+					Result.Message = Load.Message;
+					return Result;
+				}
+			}
+		}
+		FAssetPath RecordPath;
+		if (Request.ExistingRecord)
+		{
+			if (!Request.ExistingRecord->GetPackage()
+				|| !FAssetPath::TryCreate(Request.ExistingRecord->GetPackage()->GetPackagePath(),
+					RecordPath, &Result.Message)) return Result;
+		}
+		else if (!MakeSiblingImportRecordPath(Request.PrimaryOutput,
+			std::filesystem::path(Request.RootSource.Path).stem().generic_string(),
+			RecordPath, Result.Message)) return Result;
+		FImportRecordPayload ProviderState;
+		if (!MakeImportRecordPayload("Durin.Scene.ProviderState", 1, {},
+			MaximumImportRecordProviderStateBytes, ProviderState, Result.Message)) return Result;
+		FMultiOutputPlanResult Multi = CreateMultiOutputImportPlan({
+			.GenericPlan = std::move(Generic.Plan),
+			.RecordPath = RecordPath,
+			.ExistingRecord = Request.ExistingRecord,
+			.ProviderState = std::move(ProviderState),
+			.PrimaryOutput = Request.PrimaryOutput,
+			.bRecreateMissingManagedOutputs = Request.bRecreateMissingManagedOutputs,
+			.Progress = Request.Progress},
+			GetImportRecordIndex());
+		if (!Multi)
+		{
+			Result.Message = std::move(Multi.Message);
+			Result.Diagnostics = std::move(Multi.Diagnostics);
+			return Result;
+		}
+		const auto Data = std::static_pointer_cast<const FSceneProviderPlanData>(
+			Multi.Plan.GetGenericPlan().GetProviderData());
+		Result.Plan.MultiOutputPlan = std::move(Multi.Plan);
+		if (Data) Result.Plan.Warnings = Data->Warnings;
+		Result.Diagnostics.assign(
+			Result.Plan.MultiOutputPlan.GetGenericPlan().GetDiagnostics().begin(),
+			Result.Plan.MultiOutputPlan.GetGenericPlan().GetDiagnostics().end());
+		Result.bSucceeded = true;
+		return Result;
+	}
+
+	auto PlanSceneReimport(
+		DImportRecord& Record,
+		bool bRecreateMissingManagedOutputs,
+		IImportProgressReporter* Progress) -> FSceneImportPlanResult
+	{
+		FSceneImportPlanResult Result;
+		if (Record.GetProviderId() != SceneImportProviderId
+			|| Record.GetProviderContractVersion() != SceneImportProviderContractVersion)
+		{
+			Result.Message = "Import record is not owned by the supported Scene provider.";
+			return Result;
+		}
+		const auto Root = std::ranges::find(
+			Record.GetSources(), std::string_view("root"),
+			&FImportRecordSource::StableIdentity);
+		FDecodedSceneSettings Settings;
+		FImportPayload Payload{
+			.SchemaId = Record.GetSettings().SchemaId,
+			.SchemaVersion = Record.GetSettings().SchemaVersion,
+			.Bytes = Record.GetSettings().Bytes,
+			.ContentHash = {
+				Record.GetSettings().ContentHashLow,
+				Record.GetSettings().ContentHashHigh}};
+		if (Root == Record.GetSources().end()
+			|| !DecodeSceneSettings(Payload, Settings, Result.Message)) return Result;
+		return PlanSceneImport({
+			.RootSource = Root->SourcePath,
+			.PrimaryOutput = Record.GetPrimaryOutput(),
+			.MeshSettings = Settings.MeshSettings,
+			.ExistingRecord = &Record,
+			.bRecreateMissingManagedOutputs = bRecreateMissingManagedOutputs,
+			.Progress = Progress});
+	}
+
+	auto ExecuteSceneImport(
+		const FSceneImportPlan& Plan,
+		const FMultiOutputExecutionOptions& Options) -> FSceneImportExecutionResult
+	{
+		FSceneImportExecutionResult Result;
+		FSceneDiagnosticScope DiagnosticScope(
+			Result.bSucceeded, Result.Message, Result.Diagnostics, "scene-execution");
+		const auto Data = std::static_pointer_cast<const FSceneProviderPlanData>(
+			Plan.MultiOutputPlan.GetGenericPlan().GetProviderData());
+		if (!Data)
+		{
+			Result.Message = "Scene provider plan data is unavailable.";
+			return Result;
+		}
+		std::string Error;
+		FAssetPath StandardMaterialPath;
+		DMaterial* StandardMaterial = nullptr;
+		if (!FAssetPath::TryCreate(
+			StandardImportedSurfaceMaterialPath, StandardMaterialPath, &Error))
+		{
+			Result.Message = std::move(Error);
+			return Result;
+		}
+		const Asset::FAssetResult LoadStandard =
+			Asset::LoadAsset(StandardMaterialPath, StandardMaterial);
+		if (!LoadStandard || !StandardMaterial)
+		{
+			Result.Message = LoadStandard ? "Standard imported material is unavailable."
+				: LoadStandard.Message;
+			return Result;
+		}
+
+		std::unordered_map<std::string, const FSceneOutputData*> OutputData;
+		for (const FSceneOutputData& Output : Data->Outputs)
+			OutputData.emplace(Output.StableIdentity, &Output);
+		FPreparedMultiOutputImport Prepared(
+			Plan.MultiOutputPlan.GetGenericPlan().GetProvider());
+		ReportImportProgress(Options.Progress, EImportPhase::CandidateBuild,
+			EImportProgressState::Started);
+		std::vector<FMountedSourceFile> EmbeddedSources;
+		std::unordered_map<std::string, DObject*> PublishedObjects;
+		auto FailPrepared = [&](std::string Message) -> FSceneImportExecutionResult {
+			for (auto It = EmbeddedSources.rbegin(); It != EmbeddedSources.rend(); ++It)
+				RollbackMountedSourceFile(*It);
+			Result.Message = std::move(Message);
+			ReportImportProgress(Options.Progress, EImportPhase::CandidateBuild,
+				EImportProgressState::Failed, "root", "request", 0, 0, Result.Message);
+			return std::move(Result);
+		};
+		for (const FMultiOutputReconciliation& Entry
+			: Plan.MultiOutputPlan.GetReconciliation())
+		{
+			if (Entry.ProposedAction != EMultiOutputProposedAction::Reference) continue;
+			DObject* Referenced = nullptr;
+			const Asset::FAssetResult Load = Asset::LoadAsset(Entry.AssetPath, Referenced);
+			if (!Load || !Referenced)
+			{
+				return FailPrepared(
+					Load ? "Referenced Scene output is unavailable." : Load.Message);
+			}
+			PublishedObjects.emplace(Entry.StableIdentity, Referenced);
+		}
+		for (const FMultiOutputReconciliation& Entry
+			: Plan.MultiOutputPlan.GetReconciliation())
+		{
+			if (Entry.ProposedAction != EMultiOutputProposedAction::Create
+				&& Entry.ProposedAction != EMultiOutputProposedAction::ReplaceManaged) continue;
+			DObject* Target = nullptr;
+			DObject* Candidate = nullptr;
+			bool bNew = false;
+			if (!CreateOrLoadTarget(Entry, Target, Candidate, bNew, Error))
+			{
+				return FailPrepared(std::move(Error));
+			}
+			FPreparedMultiOutput Output{
+				.StableIdentity = Entry.StableIdentity,
+				.ExistingTarget = Target,
+				.Candidate = std::make_unique<FSceneCandidate>(Candidate, bNew)};
+			if (!bNew)
+			{
+				if (auto* MeshTarget = Cast<DStaticMesh>(Target))
+				{
+					auto* MeshCandidate = Cast<DStaticMesh>(Candidate);
+					MeshCandidate->SeedMaterialReconciliationFrom(*MeshTarget);
+				}
+			}
+			PublishedObjects.emplace(Entry.StableIdentity, bNew ? Candidate : Target);
+			Prepared.Outputs.push_back(std::move(Output));
+		}
+
+		auto FindPrepared = [&](std::string_view Identity) -> FPreparedMultiOutput* {
+			const auto It = std::ranges::find(
+				Prepared.Outputs, Identity, &FPreparedMultiOutput::StableIdentity);
+			return It == Prepared.Outputs.end() ? nullptr : &*It;
+		};
+		for (const auto& [Identity, Descriptor] : OutputData)
+		{
+			if (Descriptor->Kind != ESceneOutputKind::Texture2D) continue;
+			FPreparedMultiOutput* Output = FindPrepared(Identity);
+			if (!Output) continue;
+			auto* Texture = Cast<DTexture2D>(Output->Candidate->GetAsset());
+			if (!Texture || Descriptor->SourceIndex >= Data->Scene.Images.size())
+			{
+				return FailPrepared("Scene texture candidate mapping is invalid.");
+			}
+			const Asset::FImportedImage& Image = Data->Scene.Images[Descriptor->SourceIndex];
+			std::span<const uint8> Bytes;
+			FSourcePath Source;
+			if (!FindSnapshotImageBytes(Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot(),
+				Data->Scene, Image, Bytes, Source))
+			{
+				return FailPrepared("Scene image snapshot mapping is invalid.");
+			}
+			if (!Image.EmbeddedEncodedBytes.empty())
+			{
+				FMountedSourceFile EmbeddedSource;
+				const FSourceSnapshotEntry* Root =
+					Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot().FindSource("root");
+				if (!Root || !PrepareMountedSourceBytes(
+					Bytes,
+					Plan.MultiOutputPlan.GetPrimaryOutput().ToString(),
+					MakeEmbeddedImageSourcePath(Root->SourcePath, Image, Bytes),
+					EmbeddedSource,
+					Error))
+				{
+					return FailPrepared(
+						Error.empty() ? "Embedded Scene image source publication failed."
+							: std::move(Error));
+				}
+				Source = EmbeddedSource.SourcePath;
+				EmbeddedSources.push_back(std::move(EmbeddedSource));
+			}
+			if (!Texture->BuildFromEncodedBytes(Bytes, Source,
+					{.Usage = ETextureUsage::Color, .bSRGB = true}, Error))
+			{
+				return FailPrepared(
+					Error.empty() ? "Scene image candidate failed." : std::move(Error));
+			}
+			if (Output->ExistingTarget)
+				Output->Exchange = std::make_unique<TNoFailExchange<DTexture2D>>(
+					*Cast<DTexture2D>(Output->ExistingTarget), *Texture);
+		}
+
+		for (const auto& [Identity, Descriptor] : OutputData)
+		{
+			if (Descriptor->Kind != ESceneOutputKind::MaterialInstance) continue;
+			FPreparedMultiOutput* Output = FindPrepared(Identity);
+			if (!Output) continue;
+			auto* Material = Cast<DMaterialInstance>(Output->Candidate->GetAsset());
+			const auto Imported = std::ranges::find(
+				Data->Scene.Materials, Descriptor->SourceIndex,
+				&Asset::FImportedMaterial::SourceMaterialIndex);
+			if (!Material || Imported == Data->Scene.Materials.end()
+				|| !Material->SetParent(StandardMaterial)
+				|| !Material->SetVectorParameterValue(
+					MaterialParameters::BaseColorName(), FVector3(Imported->BaseColorFactor))
+				|| !Material->SetScalarParameterValue(
+					MaterialParameters::OpacityName(), Imported->BaseColorFactor.a))
+			{
+				return FailPrepared("Scene material candidate mapping failed.");
+			}
+			if (!Descriptor->TextureIdentity.empty())
+			{
+				auto Texture = PublishedObjects.find(Descriptor->TextureIdentity);
+				if (Texture == PublishedObjects.end()
+					|| !Material->SetTextureParameterValue(
+						MaterialParameters::BaseColorTextureName(), Cast<DTexture2D>(Texture->second)))
+				{
+					return FailPrepared("Scene material texture mapping failed.");
+				}
+			}
+			if (Output->ExistingTarget)
+				Output->Exchange = std::make_unique<TNoFailExchange<DMaterialInstance>>(
+					*Cast<DMaterialInstance>(Output->ExistingTarget), *Material);
+		}
+
+		const FSceneOutputData* MeshDescriptor = nullptr;
+		for (const FSceneOutputData& Descriptor : Data->Outputs)
+			if (Descriptor.Kind == ESceneOutputKind::StaticMesh) MeshDescriptor = &Descriptor;
+		FPreparedMultiOutput* MeshOutput = MeshDescriptor
+			? FindPrepared(MeshDescriptor->StableIdentity) : nullptr;
+		if (MeshOutput)
+		{
+			auto* Mesh = Cast<DStaticMesh>(MeshOutput->Candidate->GetAsset());
+			const FSourceSnapshotEntry* Root =
+				Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot().FindSource("root");
+			if (!Mesh || !Root || !Mesh->InitializeFromImportedData(
+				MakeStaticMeshImportedData(Data->Scene),
+				{
+					.SourcePath = Root->SourcePath,
+					.SourceContentHash = Root->ContentHash.ToString(),
+					.ImporterId = std::string(SceneImportProviderId),
+					.ImporterVersion = SceneImportProviderContractVersion,
+					.ImportSettings = Data->MeshSettings},
+				Root->SourcePath.Path, Error))
+			{
+				return FailPrepared(
+					Error.empty() ? "Scene mesh candidate failed." : std::move(Error));
+			}
+			for (const FSceneOutputData& Descriptor : Data->Outputs)
+			{
+				if (Descriptor.Kind != ESceneOutputKind::MaterialInstance) continue;
+				auto Material = PublishedObjects.find(Descriptor.StableIdentity);
+				if (Material == PublishedObjects.end()
+					|| !Mesh->SetImportedDefaultMaterial(
+						Descriptor.SourceIndex, Cast<DMaterialInstance>(Material->second), Error))
+				{
+					return FailPrepared(Error.empty()
+						? "Scene mesh material mapping failed." : std::move(Error));
+				}
+			}
+			if (MeshOutput->ExistingTarget)
+			{
+				auto Exchange = Cast<DStaticMesh>(MeshOutput->ExistingTarget)
+					->PrepareImportedStateExchange(*Mesh, Error);
+				if (!Exchange) return FailPrepared(std::move(Error));
+				MeshOutput->Exchange =
+					std::make_unique<FStaticMeshExchange>(std::move(Exchange));
+			}
+		}
+
+		ReportImportProgress(Options.Progress, EImportPhase::CandidateBuild,
+			EImportProgressState::Succeeded, "root", "request",
+			Prepared.Outputs.size(), Prepared.Outputs.size());
+		FMultiOutputExecutionResult Executed = ExecuteMultiOutputImport(
+			Plan.MultiOutputPlan, std::move(Prepared), GetImportRecordIndex(), Options);
+		if (Executed)
+		{
+			for (FMountedSourceFile& Source : EmbeddedSources)
+				CommitMountedSourceFile(Source);
+		}
+		else
+		{
+			for (auto It = EmbeddedSources.rbegin(); It != EmbeddedSources.rend(); ++It)
+				RollbackMountedSourceFile(*It);
+		}
+		Result.bSucceeded = Executed.bSucceeded;
+		Result.Message = std::move(Executed.Message);
+		Result.Record = Executed.Record;
+		Result.OrphanedAssets = std::move(Executed.Orphans);
+		Result.Diagnostics = std::move(Executed.Diagnostics);
+		Result.Provider = std::move(Executed.Provider);
+		for (DObject* Output : Executed.Outputs)
+		{
+			if (auto* Mesh = Cast<DStaticMesh>(Output)) Result.StaticMesh = Mesh;
+			else if (auto* Material = Cast<DMaterialInstance>(Output))
+				Result.Materials.push_back(Material);
+			else if (auto* Texture = Cast<DTexture2D>(Output))
+				Result.Textures.push_back(Texture);
+		}
+		return Result;
+	}
+
+	auto MigrateLegacySceneImport(
+		DStaticMesh& StaticMesh) -> FLegacySceneMigrationResult
+	{
+		FLegacySceneMigrationResult Result;
+		auto RequireRepair = [&](std::string Message) -> FLegacySceneMigrationResult {
+			Result.Status = ELegacySceneMigrationStatus::RepairRequired;
+			Result.Message = std::move(Message);
+			return Result;
+		};
+		if (!StaticMesh.GetPackage())
+			return RequireRepair("Legacy Scene migration requires a packaged StaticMesh.");
+
+		FAssetPath MeshPath;
+		if (!FAssetPath::TryCreate(
+			StaticMesh.GetPackage()->GetPackagePath(), MeshPath, &Result.Message))
+		{
+			Result.Status = ELegacySceneMigrationStatus::Failed;
+			return Result;
+		}
+		Asset::FAssetPackageInspection Inspection;
+		if (!InspectAuthoredPackage(MeshPath, Inspection, Result.Message))
+		{
+			Result.Status = ELegacySceneMigrationStatus::Failed;
+			return Result;
+		}
+		const Asset::FAssetPackageField* ManifestField =
+			Inspection.FindField("ImportManifest");
+		if (!ManifestField)
+		{
+			Result.Message.clear();
+			return Result;
+		}
+		FStaticModelImportManifest Manifest;
+		if (!ManifestField->TryReadStruct(
+			FStaticModelImportManifest::StaticStruct(), &Manifest)
+			|| !Manifest.IsValid())
+			return RequireRepair(
+				"The retired StaticMesh-owned Scene manifest is incomplete, ambiguous, or newer than supported.");
+
+		const FStaticMeshSourceImportData& Provenance =
+			StaticMesh.GetSourceImportData();
+		FSourcePath RootSource = Provenance.SourcePath;
+		if (RootSource.IsEmpty() && !Manifest.Dependencies.empty())
+			RootSource = Manifest.Dependencies.front().SourcePath;
+		if (RootSource.IsEmpty())
+			return RequireRepair("The legacy Scene relationship has no mounted root source.");
+
+		std::string Error;
+		if (!RegisterStandardAssetImportProviders(Error))
+		{
+			Result.Status = ELegacySceneMigrationStatus::Failed;
+			Result.Message = std::move(Error);
+			return Result;
+		}
+		FProviderRegistry& Providers = GetProviderRegistry();
+		const FProviderLease Provider = Providers.Find(SceneImportProviderId);
+		FSourceSnapshotBuilder SnapshotBuilder;
+		std::vector<FImportDiagnostic> Diagnostics;
+		if (!SnapshotBuilder.CaptureRoot(RootSource, Diagnostics)
+			|| !SnapshotBuilder.DiscoverDependencies(Provider, Diagnostics))
+			return RequireRepair(Diagnostics.empty()
+				? "The legacy Scene sources cannot be captured."
+				: Diagnostics.back().Message);
+		std::shared_ptr<const FSourceSnapshot> Snapshot =
+			SnapshotBuilder.Freeze(Diagnostics);
+		FImportPayload Settings;
+		const FStaticMeshImportSettings MeshSettings =
+			Provenance.ImportSettings.IsValid() ? Provenance.ImportSettings
+			: FStaticMeshImportSettings::MakeDurin();
+		if (!Snapshot || !MakeSceneSettings(
+			MeshPath, MeshSettings, Settings, Result.Message))
+		{
+			Result.Status = ELegacySceneMigrationStatus::Failed;
+			return Result;
+		}
+		FImportPlanResult Generic = BuildImportPlan(
+			Provider, Snapshot, Settings, Providers.GetRevision(), Diagnostics);
+		if (!Generic)
+			return RequireRepair(Generic.Message);
+		const auto Data = std::static_pointer_cast<const FSceneProviderPlanData>(
+			Generic.Plan.GetProviderData());
+		if (!Data)
+		{
+			Result.Status = ELegacySceneMigrationStatus::Failed;
+			Result.Message = "Scene provider migration data is unavailable.";
+			return Result;
+		}
+		if (!GetImportRecordIndex().EnsureCurrent(Result.Message))
+		{
+			Result.Status = ELegacySceneMigrationStatus::Failed;
+			return Result;
+		}
+
+		FImportRecordState State;
+		State.ProviderId = std::string(SceneImportProviderId);
+		State.ProviderContractVersion = SceneImportProviderContractVersion;
+		if (!MakeImportRecordPayload(Settings.SchemaId, Settings.SchemaVersion,
+			Settings.Bytes, MaximumImportRecordSettingsBytes, State.Settings, Result.Message)
+			|| !MakeImportRecordPayload("Durin.Scene.ProviderState", 1, {},
+				MaximumImportRecordProviderStateBytes, State.ProviderState, Result.Message))
+		{
+			Result.Status = ELegacySceneMigrationStatus::Failed;
+			return Result;
+		}
+		for (const FSourceSnapshotEntry& Source : Snapshot->GetSources())
+			State.Sources.push_back({
+				.StableIdentity = Source.StableIdentity,
+				.Role = Source.Role,
+				.SourcePath = Source.SourcePath,
+				.ContentHashLow = Source.ContentHash.HashLow,
+				.ContentHashHigh = Source.ContentHash.HashHigh,
+				.ByteCount = Source.ByteCount});
+
+		std::vector<DPackage*> Packages{StaticMesh.GetPackage()};
+		std::unordered_set<std::string> ClaimedPaths{MeshPath.ToString()};
+		for (const FSceneOutputData& Descriptor : Data->Outputs)
+		{
+			const auto Preview = std::ranges::find(
+				Generic.Plan.GetOutputs(), Descriptor.StableIdentity,
+				&FImportOutputPreview::StableIdentity);
+			if (Preview == Generic.Plan.GetOutputs().end())
+			{
+				Result.Status = ELegacySceneMigrationStatus::Failed;
+				Result.Message = "Scene migration output descriptors are inconsistent.";
+				return Result;
+			}
+			FAssetPath OutputPath;
+			EImportRecordOutputPolicy Policy = EImportRecordOutputPolicy::Managed;
+			if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
+				OutputPath = MeshPath;
+			else if (Descriptor.Kind == ESceneOutputKind::MaterialInstance)
+			{
+				const auto Legacy = std::ranges::find(
+					Manifest.Materials, Descriptor.SourceIndex,
+					&FStaticModelImportMaterialRecord::SourceMaterialIndex);
+				if (Legacy == Manifest.Materials.end())
+					return RequireRepair(
+						"The legacy Scene material relationship cannot be matched by source identity.");
+				OutputPath = Legacy->GeneratedMaterialPath;
+				if (!OutputPath.IsValid() && Legacy->GeneratedMaterial
+					&& Legacy->GeneratedMaterial->GetPackage())
+					FAssetPath::TryCreate(
+						Legacy->GeneratedMaterial->GetPackage()->GetPackagePath(), OutputPath);
+				if (!OutputPath.IsValid())
+					return RequireRepair(
+						"The legacy Scene material output path is unavailable.");
+				Policy = Legacy->bImporterManaged
+					? EImportRecordOutputPolicy::Managed
+					: EImportRecordOutputPolicy::Referenced;
+			}
+			else
+			{
+				if (Descriptor.SourceIndex >= Data->Scene.Images.size())
+					return RequireRepair("The legacy Scene image relationship is invalid.");
+				const std::string& ImageIdentity =
+					Data->Scene.Images[Descriptor.SourceIndex].StableIdentity;
+				auto Legacy = std::ranges::find(
+					Manifest.Textures, ImageIdentity,
+					&FStaticModelImportTextureRecord::StableIdentity);
+				if (Legacy == Manifest.Textures.end() && Manifest.Textures.size() == 1)
+					Legacy = Manifest.Textures.begin();
+				if (Legacy == Manifest.Textures.end())
+					return RequireRepair(
+						"The legacy Scene texture relationship cannot be matched by source identity.");
+				OutputPath = Legacy->GeneratedTexturePath;
+				if (!OutputPath.IsValid() && Legacy->GeneratedTexture
+					&& Legacy->GeneratedTexture->GetPackage())
+					FAssetPath::TryCreate(
+						Legacy->GeneratedTexture->GetPackage()->GetPackagePath(), OutputPath);
+				if (!OutputPath.IsValid())
+					return RequireRepair(
+						"The legacy Scene texture output path is unavailable.");
+			}
+			if (!ClaimedPaths.insert(OutputPath.ToString()).second)
+				return RequireRepair("The legacy Scene relationship maps multiple outputs to one package.");
+
+			DObject* Output = &StaticMesh;
+			if (OutputPath != MeshPath)
+			{
+				if (Policy == EImportRecordOutputPolicy::Managed
+					&& !ValidateLegacyOwner(OutputPath, MeshPath, Error))
+					return RequireRepair(Error.empty()
+						? std::format("Legacy output {} is not owned by the selected StaticMesh.",
+							OutputPath.ToString()) : Error);
+				const Asset::FAssetResult Load = Asset::LoadAsset(OutputPath, Output);
+				if (!Load || !Output)
+					return RequireRepair(Load.Message);
+			}
+			if (Output->GetClass()->GetQualifiedName().ToString()
+				!= Preview->AssetClassName)
+				return RequireRepair(std::format(
+					"Legacy output {} has an unexpected asset class.", OutputPath.ToString()));
+			if (!GetImportRecordIndex().FindManagers(OutputPath).empty())
+				return RequireRepair(std::format(
+					"Legacy output {} is already managed by another import record.",
+					OutputPath.ToString()));
+			std::string Fingerprint;
+			if (!ComputeImportPackageFingerprint(
+				Output->GetPackage(), Fingerprint, Result.Message))
+			{
+				Result.Status = ELegacySceneMigrationStatus::Failed;
+				return Result;
+			}
+			State.Outputs.push_back({
+				.StableIdentity = Descriptor.StableIdentity,
+				.Role = Preview->Role,
+				.AssetPath = OutputPath,
+				.AssetClassName = Preview->AssetClassName,
+				.Policy = Policy,
+				.AuthoredFingerprint = std::move(Fingerprint)});
+			Packages.push_back(Output->GetPackage());
+		}
+		if (State.Outputs.size() != Data->Outputs.size()
+			|| Manifest.Materials.size() != std::ranges::count_if(
+				Data->Outputs, [](const FSceneOutputData& Output) {
+					return Output.Kind == ESceneOutputKind::MaterialInstance;
+				})
+			|| Manifest.Textures.size() != std::ranges::count_if(
+				Data->Outputs, [](const FSceneOutputData& Output) {
+					return Output.Kind == ESceneOutputKind::Texture2D;
+				}))
+			return RequireRepair(
+				"The legacy Scene relationship does not match the current source output set.");
+		std::ranges::sort(State.Outputs, {}, &FImportRecordOutput::StableIdentity);
+		State.PrimaryOutput = MeshPath;
+
+		FAssetPath RecordPath;
+		if (!MakeSiblingImportRecordPath(MeshPath,
+			std::filesystem::path(RootSource.Path).stem().generic_string(),
+			RecordPath, Result.Message))
+		{
+			Result.Status = ELegacySceneMigrationStatus::Failed;
+			return Result;
+		}
+		if (Asset::GetAssetRegistry().FindAsset(RecordPath)
+			|| Asset::FindLoadedPackage(RecordPath))
+			return RequireRepair("The legacy Scene import-record destination is occupied.");
+		DImportRecord* Record = nullptr;
+		const Asset::FAssetResult Create = Asset::CreateAsset(RecordPath, Record);
+		if (!Create || !Record)
+		{
+			Result.Status = ELegacySceneMigrationStatus::Failed;
+			Result.Message = Create.Message;
+			return Result;
+		}
+		if (!Record->SetState(std::move(State), Result.Message))
+		{
+			(void)Asset::DiscardUnpublishedPackage(Record->GetPackage());
+			Result.Status = ELegacySceneMigrationStatus::Failed;
+			return Result;
+		}
+		Packages.push_back(Record->GetPackage());
+		std::unordered_set<DPackage*> UniquePackages;
+		std::erase_if(Packages, [&](DPackage* Package) {
+			return !Package || !UniquePackages.insert(Package).second;
+		});
+		Asset::FAssetBundleSaveOptions SaveOptions;
+		SaveOptions.RootPackage = Record->GetPackage();
+		SaveOptions.bAllowCompatibilityDataLoss = true;
+		const Asset::FAssetResult Save =
+			Asset::SavePackagesAtomically(Packages, SaveOptions);
+		if (!Save)
+		{
+			(void)Asset::DiscardUnpublishedPackage(Record->GetPackage());
+			Result.Status = ELegacySceneMigrationStatus::Failed;
+			Result.Message = Save.Message;
+			return Result;
+		}
+		if (!GetImportRecordIndex().Rebuild(Result.Message))
+		{
+			Result.Status = ELegacySceneMigrationStatus::Failed;
+			return Result;
+		}
+		Result.Status = ELegacySceneMigrationStatus::Migrated;
+		Result.Record = Record;
+		Result.Message = "Migrated the retired StaticMesh-owned Scene relationship to an import record.";
+		return Result;
+	}
+
+	auto FindSceneImportRecordForOutput(
+		const DObject& Output,
+		std::string& OutError) -> DImportRecord*
+	{
+		if (!Output.GetPackage())
+		{
+			OutError = "Scene output is not packaged.";
+			return nullptr;
+		}
+		FAssetPath OutputPath;
+		if (!FAssetPath::TryCreate(
+			Output.GetPackage()->GetPackagePath(), OutputPath, &OutError)) return nullptr;
+		FImportRecordIndex& Index = GetImportRecordIndex();
+		if (!Index.EnsureCurrent(OutError)) return nullptr;
+		const std::vector<FImportRecordManagement> Managers = Index.FindManagers(OutputPath);
+		if (Managers.size() != 1)
+		{
+			OutError = Managers.empty()
+				? "Output is not managed by an import record."
+				: "Output has conflicting import-record managers.";
+			return nullptr;
+		}
+		DImportRecord* Record = nullptr;
+		const Asset::FAssetResult Load = Asset::LoadAsset(Managers.front().RecordPath, Record);
+		if (!Load || !Record)
+		{
+			OutError = Load.Message;
+			return nullptr;
+		}
+		if (Record->GetProviderId() != SceneImportProviderId)
+		{
+			OutError = "Managing import record belongs to another provider.";
+			return nullptr;
+		}
+		OutError.clear();
+		return Record;
+	}
+}

@@ -1,6 +1,7 @@
 #include "Panels/ContentBrowserPanel.h"
 
-#include "StaticModelImportBuild.h"
+#include "AssetImportCore.h"
+#include "SceneImport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "AssetSystem.h"
 #include "Assets/ContentBrowserThumbnailCache.h"
@@ -288,42 +289,103 @@ namespace Durin
 				"The material was created, but its editor could not be opened.");
 	}
 
-	auto FContentBrowserPanel::ReimportStaticModel(
+	auto FContentBrowserPanel::ReimportAsset(
 		const FContentBrowserItem& Item,
-		bool bRecreateMissingAssets) -> void
+		AssetImport::EImportRecordAction Action) -> void
 	{
+		const bool bRecreateMissingAssets =
+			Action != AssetImport::EImportRecordAction::Reimport;
 		FAssetPath Path;
 		if (!FAssetPath::TryCreate(Item.VirtualPath, Path))
 		{
 			SetError("The selected static-mesh asset path is invalid.");
 			return;
 		}
-		DStaticMesh* Mesh = nullptr;
-		const Asset::FAssetResult Load = Asset::LoadAsset(Path, Mesh);
-		if (!Load || !Mesh)
+		DObject* AssetObject = nullptr;
+		const Asset::FAssetResult Load =
+			Asset::FAssetManager::Get().LoadAsset(Path, AssetObject);
+		if (!Load || !AssetObject)
 		{
-			SetError(Load ? "The selected asset is not a static mesh." : Load.Message);
+			SetError(Load ? "The selected asset could not be loaded." : Load.Message);
 			return;
 		}
-		const FStaticModelImportPlanResult Planned =
-			PlanStaticModelReimport({
-				.StaticMesh = Mesh,
-				.bRecreateMissingAssets = bRecreateMissingAssets});
-		if (!Planned)
+		AssetImport::FImportRecordInspection Inspection =
+			Cast<AssetImport::DImportRecord>(AssetObject)
+				? AssetImport::InspectImportRecord(
+					Path, AssetImport::GetImportRecordIndex())
+				: AssetImport::InspectImportRecordForOutput(
+					Path, AssetImport::GetImportRecordIndex());
+		if (Inspection && Inspection.Record)
 		{
-			SetError(Planned.Message);
+			const AssetImport::FImportRecordActionResult Executed =
+				AssetImport::ExecuteImportRecordAction(
+					*Inspection.Record, Action,
+					AssetImport::GetImportRecordHandlerRegistry());
+			if (!Executed) { SetError(Executed.Message); return; }
+			LastReimportOrphans = Executed.Orphans;
+			Refresh(true);
+			RevealAsset(Path.ToString());
 			return;
 		}
-		const FStaticModelImportExecutionResult Executed =
-			ExecuteStaticModelImport(Planned.Plan);
-		if (!Executed)
+		if (DStaticMesh* Mesh = Cast<DStaticMesh>(AssetObject))
 		{
-			SetError(Executed.Message);
+			const FLegacySceneMigrationResult Migration =
+				MigrateLegacySceneImport(*Mesh);
+			if (Migration)
+			{
+				const FSceneImportPlanResult Planned =
+					PlanSceneReimport(*Migration.Record, bRecreateMissingAssets);
+				if (!Planned) { SetError(Planned.Message); return; }
+				const FSceneImportExecutionResult Executed =
+					ExecuteSceneImport(Planned.Plan);
+				if (!Executed) { SetError(Executed.Message); return; }
+				LastReimportOrphans = Executed.OrphanedAssets;
+				Refresh(true);
+				RevealAsset(Path.ToString());
+				return;
+			}
+			if (Migration.Status == ELegacySceneMigrationStatus::RepairRequired
+				|| Migration.Status == ELegacySceneMigrationStatus::Failed)
+			{
+				SetError(Migration.Message);
+				return;
+			}
+		}
+		const AssetImport::FSingleAssetCapabilitySet Capabilities =
+			AssetImport::QuerySingleAssetCapabilities(
+				*AssetObject, AssetImport::GetProviderRegistry(),
+				AssetImport::GetSingleAssetHandlerRegistry());
+		const AssetImport::FSingleAssetCapability* Reimport = Capabilities.Find(
+			AssetImport::ESingleAssetImportCapability::ReimportCurrentSource);
+		if (Reimport && Reimport->bAvailable && !bRecreateMissingAssets)
+		{
+			const AssetImport::FSingleAssetPlanResult Planned =
+				AssetImport::CreateSingleAssetReimportPlan(
+					{.Asset = AssetObject}, AssetImport::GetProviderRegistry(),
+					AssetImport::GetSingleAssetHandlerRegistry());
+			if (!Planned)
+			{
+				SetError(Planned.Message);
+				return;
+			}
+			const AssetImport::FSingleAssetExecutionResult Executed =
+				AssetImport::ExecuteSingleAssetImport(Planned.Plan);
+			if (!Executed)
+			{
+				SetError(Executed.Message);
+				return;
+			}
+			LastReimportOrphans.clear();
+			Refresh(true);
+			RevealAsset(Path.ToString());
 			return;
 		}
-		LastReimportOrphans = Executed.OrphanedAssets;
-		Refresh(true);
-		RevealAsset(Path.ToString());
+
+		SetError(Reimport && !Reimport->Diagnostics.empty()
+			? Reimport->Diagnostics.back().Message
+			: Inspection.Message.empty()
+				? "The selected asset has no available reimport capability."
+				: Inspection.Message);
 	}
 
 	auto FContentBrowserPanel::FocusFolderInParent(

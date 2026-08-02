@@ -23,8 +23,8 @@ function(durin_add_asset_functional_test target_name)
 	durin_test_deploy_target_binary(${target_name} AssetCore)
 
 	if(DURIN_ASSET_TEST_IMPORT_RUNTIME)
-		target_link_libraries(${target_name} PRIVATE AssetImport)
-		durin_test_deploy_target_binary(${target_name} AssetImport)
+		target_link_libraries(${target_name} PRIVATE StandardAssetImport)
+		durin_test_deploy_target_binary(${target_name} StandardAssetImport)
 		durin_test_deploy_runtime_files(${target_name} assimp::assimp)
 		durin_test_deploy_directory_to_data(
 			${target_name}
@@ -60,3 +60,9 @@ durin_add_asset_functional_test(AssetImportTests
 	SOURCES Private/AssetImportTests.cpp
 )
 set_target_properties(AssetImportTests PROPERTIES DURIN_TEST_TIMEOUT 600)
+
+durin_add_asset_functional_test(AssetImportCoreTests
+	SOURCES Private/AssetImportCoreTests.cpp Private/ImportRecordTests.cpp
+)
+target_link_libraries(AssetImportCoreTests PRIVATE AssetImportCore)
+durin_test_deploy_target_binary(AssetImportCoreTests AssetImportCore)

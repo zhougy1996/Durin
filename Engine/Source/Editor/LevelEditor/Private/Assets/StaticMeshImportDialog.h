@@ -2,7 +2,7 @@
 
 #include "Assets/ImportDialogState.h"
 #include "Assets/MountedSourceImport.h"
-#include "StaticModelImportBuild.h"
+#include "SceneImport.h"
 #include "StaticMesh/StaticMesh.h"
 
 namespace Durin
@@ -43,6 +43,6 @@ namespace Durin
 		EMountedSourceImportMode SourceMode =
 			EMountedSourceImportMode::IngestExternal;
 		std::string PreviewKey;
-		std::optional<FStaticModelImportPlanResult> Preview;
+		std::optional<FSceneImportPlanResult> Preview;
 	};
 } // namespace Durin

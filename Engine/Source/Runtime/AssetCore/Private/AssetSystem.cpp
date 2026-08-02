@@ -1011,7 +1011,8 @@ namespace Durin::Asset
 		std::unordered_set<FAssetPath> Paths;
 		for (DPackage* Package : Packages)
 		{
-			if (Manager.CompatibilityRiskPackages.contains(Package))
+			if (Manager.CompatibilityRiskPackages.contains(Package)
+				&& !Options.bAllowCompatibilityDataLoss)
 				return Error(
 					EAssetError::UnsupportedProperty,
 					"The asset bundle contains compatibility-risk data and cannot be saved.");
@@ -2203,6 +2204,14 @@ namespace Durin::Asset
 			if (!std::filesystem::is_regular_file(From)) return Error(EAssetError::NotFound, std::format("Companion file {} was not found.", From.generic_string()));
 			if (std::filesystem::exists(To)) return Error(EAssetError::AlreadyExists, std::format("Companion destination {} already exists.", To.generic_string()));
 		}
+		std::vector<DPackage*> AdditionalPackages;
+		std::unordered_set<DPackage*> SeenAdditional;
+		for (DPackage* Package : Contribution.AdditionalPackages)
+		{
+			if (!Package || Package == MovingPackage || !SeenAdditional.insert(Package).second
+				|| std::ranges::find(Referrers, Package) != Referrers.end()) continue;
+			AdditionalPackages.push_back(Package);
+		}
 
 		const auto RegistryBackup = Registry.Assets;
 		const std::string OldName = MovingPackage->GetAsset()->GetName();
@@ -2217,6 +2226,13 @@ namespace Durin::Asset
 		};
 		if (!Backup(OldFile)) return Error(EAssetError::IoError, "Failed to back up source asset.");
 		for (const FAssetPath& Path : ReferrerPaths) if (!Backup(GetPhysicalPath(Path))) return Error(EAssetError::IoError, "Failed to back up an asset referrer.");
+		for (DPackage* Package : AdditionalPackages)
+		{
+			FAssetPath AdditionalPath;
+			if (!FAssetPath::TryCreate(Package->GetPackagePath(), AdditionalPath)
+				|| !Backup(GetPhysicalPath(AdditionalPath)))
+				return Error(EAssetError::IoError, "Failed to back up an additional move contributor package.");
+		}
 		for (const auto& [From, To] : Contribution.Files) if (!Backup(From)) return Error(EAssetError::IoError, "Failed to back up a companion file.");
 
 		auto Rollback = [&]() {
@@ -2248,6 +2264,7 @@ namespace Durin::Asset
 		if (DirectoryEc) { LoadedPackages.erase(NewPath); LoadedPackages.emplace(OldPath, MovingPackage); Rollback(); return Error(EAssetError::IoError, "Failed to create the destination directory."); }
 		Result = SavePackage(MovingPackage);
 		if (Result) for (DPackage* Referrer : Referrers) { Result = SavePackage(Referrer); if (!Result) break; }
+		if (Result) for (DPackage* Additional : AdditionalPackages) { Result = SavePackage(Additional); if (!Result) break; }
 		if (!Result) { LoadedPackages.erase(NewPath); LoadedPackages.emplace(OldPath, MovingPackage); Rollback(); return Result; }
 		std::error_code Ec; std::filesystem::remove(OldFile, Ec);
 		if (Ec) { LoadedPackages.erase(NewPath); LoadedPackages.emplace(OldPath, MovingPackage); Rollback(); return Error(EAssetError::IoError, "Failed to remove the old asset file."); }

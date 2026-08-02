@@ -9,6 +9,7 @@
 
 namespace Durin
 {
+	namespace AssetImport { enum class EImportRecordAction : uint8; }
 	class FLevelEditorSessionSettings;
 	class FContentBrowserThumbnailCache;
 	struct FLevelEditorContext;
@@ -77,9 +78,9 @@ namespace Durin
 		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
 		auto CreateLevelAsset(std::string_view VirtualDirectory) -> void;
 		auto CreateMaterialAsset(std::string_view VirtualDirectory, bool bInstance) -> void;
-		auto ReimportStaticModel(
+		auto ReimportAsset(
 			const FContentBrowserItem& Item,
-			bool bRecreateMissingAssets) -> void;
+			AssetImport::EImportRecordAction Action) -> void;
 		auto FocusFolderInParent(std::string_view PhysicalDirectory) -> const FContentBrowserItem*;
 		auto RequestDeleteSelection() -> void;
 		auto AnalyzeDeleteSelection() -> void;

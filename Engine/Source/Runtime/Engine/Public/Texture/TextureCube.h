@@ -173,6 +173,18 @@ namespace Durin
 			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 			const FTextureCubeImportSettings& Settings,
 			std::string& OutError) -> bool;
+		ENGINE_API auto BuildPanoramaFromEncodedBytes(
+			std::span<const uint8> EncodedBytes,
+			std::string_view ExtensionHint,
+			const FSourcePath& SourcePath,
+			const FTextureCubePanoramaImportSettings& Settings,
+			std::string& OutError) -> bool;
+		ENGINE_API auto BuildFacesFromEncodedBytes(
+			const std::array<std::span<const uint8>, TextureCubeFaceCount>& EncodedFaces,
+			const std::array<FSourcePath, TextureCubeFaceCount>& SourcePaths,
+			const FTextureCubeImportSettings& Settings,
+			std::string& OutError) -> bool;
+		ENGINE_API auto ExchangeImportedState(DTextureCube& Other) noexcept -> void;
 		ENGINE_API auto ChangePanoramaSourceReference(
 			std::string_view SourceVirtualPath,
 			const FTextureCubePanoramaImportSettings& Settings,

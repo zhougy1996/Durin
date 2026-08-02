@@ -1,0 +1,18 @@
+{
+    "ModuleName": "StandardAssetImport",
+    "LinkType": "Shared",
+    "PCH": "Self",
+    "PrivateDependencies": [],
+    "PublicDependencies": [
+		"AssetImportCore",
+        "AssetCore",
+        "Core",
+        "CoreDObject",
+        "Engine"
+    ],
+	"ReflectHeaders": [
+		"Public/LegacySceneImport.h"
+	],
+    "OptionalPrivateDependencies": [],
+    "OptionalPublicDependencies": []
+}

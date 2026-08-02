@@ -209,33 +209,34 @@ durin_add_engine_functional_test(TextureTests
 		Private/Texture/TextureDerivedDataTests.cpp
 		Private/Texture/TextureBuildTests.cpp
 		Private/Texture/TextureFailureTests.cpp
-		Private/Texture/StaticModelImportBuildTests.cpp
+		Private/Texture/SceneImportTests.cpp
+		Private/Texture/SingleAssetImportTests.cpp
 		Private/Texture/EquirectangularTextureCubeTests.cpp
 		Private/TextureCubeTests.cpp
-	LIBRARIES EngineAssetBuild RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
-	DEPLOY_TARGETS EngineAssetBuild RHI RenderCore Renderer DurinEd
+	LIBRARIES AssetImportCore StandardAssetImport RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
+	DEPLOY_TARGETS AssetImportCore StandardAssetImport RHI RenderCore Renderer DurinEd
 	RUNTIME_FILES Slang_Imported
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 	)
 target_include_directories(TextureTests PRIVATE
-	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/EngineAssetBuild/Private)
+	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private)
 
-durin_add_engine_functional_test(StaticModelImportVulkanTests
+durin_add_engine_functional_test(SceneImportVulkanTests
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Owns the Vulkan-backed static-model import acceptance lifecycle."
-	SOURCES Private/Texture/StaticModelImportVulkanTests.cpp
-	LIBRARIES ApplicationCore EngineAssetBuild RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
-	DEPLOY_TARGETS ApplicationCore EngineAssetBuild RHI RenderCore Renderer VulkanRHI DurinEd
+	SOURCES Private/Texture/SceneImportVulkanTests.cpp
+	LIBRARIES ApplicationCore StandardAssetImport RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
+	DEPLOY_TARGETS ApplicationCore StandardAssetImport RHI RenderCore Renderer VulkanRHI DurinEd
 	RUNTIME_FILES assimp::assimp Slang_Imported
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
-target_include_directories(StaticModelImportVulkanTests PRIVATE
-	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/EngineAssetBuild/Private)
+target_include_directories(SceneImportVulkanTests PRIVATE
+	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private)
 
 durin_add_engine_functional_test(ThumbnailTests
 	TIMEOUT 600

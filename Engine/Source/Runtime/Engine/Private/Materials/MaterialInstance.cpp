@@ -1,5 +1,6 @@
 #include "Materials/MaterialInstance.h"
 
+#include "AssetSystem.h"
 #include "DObject/DurinPropertyTypes.h"
 
 namespace Durin
@@ -55,11 +56,63 @@ namespace Durin
 			}
 			return false;
 		}
+
+		const bool GLegacyMaterialImportOwnerInspectionRegistered = [] {
+			Asset::RegisterAssetStructureInspectionUpgrader(
+				"Durin::DMaterialInstance",
+				"Engine.MaterialInstance.RetiredImportOwner",
+				[](const Asset::FAssetPackageInspection&,
+					const Asset::FAssetPackageObjectInspection&,
+					std::span<const Asset::FAssetLegacyField> Fields,
+					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
+					-> Asset::FAssetResult
+				{
+					const auto Owner = std::ranges::find(
+						Fields, std::string_view("ImportOwner"),
+						&Asset::FAssetLegacyField::Name);
+					if (Owner != Fields.end())
+						OutIssues.push_back({
+							.DeclaringClass = "Durin::DMaterialInstance",
+							.LegacyFields = {*Owner},
+							.Classification = Asset::EAssetCompatibilityClassification::DataLossRisk,
+							.MigrationSummary =
+								"The retired importer-owner relationship requires StandardAssetImport migration to a DImportRecord.",
+							.Risk = Asset::EAssetCompatibilityRisk::PotentialDataLoss});
+					return {};
+				});
+			return true;
+		}();
 	}
 
 	DMaterialInstance::DMaterialInstance(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
+		static const bool RegisteredLegacyOwnerUpgrader = [] {
+			Asset::RegisterAssetStructureUpgrader(
+				DMaterialInstance::StaticClass(),
+				"Engine.MaterialInstance.RetiredImportOwner",
+				[](DObject*, std::span<const Asset::FAssetLegacyField> Fields,
+					const Asset::FAssetMigrationContext&,
+					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
+					-> Asset::FAssetResult
+				{
+					const auto Owner = std::ranges::find(
+						Fields, std::string_view("ImportOwner"),
+						&Asset::FAssetLegacyField::Name);
+					if (Owner != Fields.end())
+						OutIssues.push_back({
+							.DeclaringClass = "Durin::DMaterialInstance",
+							.LegacyFields = {*Owner},
+							.Classification = Asset::EAssetCompatibilityClassification::DataLossRisk,
+							.MigrationSummary =
+								"The retired importer-owner relationship requires StandardAssetImport migration to a DImportRecord.",
+							.Risk = Asset::EAssetCompatibilityRisk::PotentialDataLoss});
+					return {};
+				});
+			return true;
+		}();
+		(void)RegisteredLegacyOwnerUpgrader;
+		(void)GLegacyMaterialImportOwnerInspectionRegistered;
 		PublishMaterialRenderProxyState();
 	}
 
@@ -129,19 +182,11 @@ namespace Durin
 		return ParameterOverrides;
 	}
 
-	auto DMaterialInstance::SetImportOwner(const FAssetPath& InOwner) -> void
-	{
-		if (ImportOwner == InOwner) return;
-		ImportOwner = InOwner;
-		MarkPackageDirty();
-	}
-
 	auto DMaterialInstance::ExchangeImportedState(DMaterialInstance& Other) -> void
 	{
 		if (&Other == this) return;
 		std::swap(Parent, Other.Parent);
 		std::swap(ParameterOverrides, Other.ParameterOverrides);
-		std::swap(ImportOwner, Other.ImportOwner);
 		MarkPackageDirty();
 		Other.MarkPackageDirty();
 		MarkRenderDataDirty(

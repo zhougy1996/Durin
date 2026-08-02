@@ -1,6 +1,8 @@
 #include "Panels/ContentBrowserPanel.h"
 
 #include "StaticMesh/StaticMesh.h"
+#include "AssetImportCore.h"
+#include "MultiOutputImport.h"
 #include "Panels/ContentBrowserItemView.h"
 
 #include "AssetSystem.h"
@@ -658,17 +660,129 @@ namespace Durin
 	auto FContentBrowserPanel::DrawItemContextMenu(const FContentBrowserItem& Item) -> void
 	{
 		if (ImGui::MenuItem(Item.Kind == EContentBrowserItemKind::Folder ? "Open Folder" : "Open")) OpenItem(Item);
-		if (Item.Kind == EContentBrowserItemKind::Asset
-			&& Item.AssetClassName
-				== DStaticMesh::StaticClass()->GetQualifiedName().ToString())
+		bool bManagedByRecord = false;
+		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
-			if (ImGui::MenuItem("Reimport Static Model"))
+			FAssetPath ItemPath;
+			AssetImport::FImportRecordInspection Inspection;
+			if (FAssetPath::TryCreate(Item.VirtualPath, ItemPath))
+			{
+				Inspection = Item.AssetClassName ==
+					AssetImport::DImportRecord::StaticClass()->GetQualifiedName().ToString()
+					? AssetImport::InspectImportRecord(
+						ItemPath, AssetImport::GetImportRecordIndex())
+					: AssetImport::InspectImportRecordForOutput(
+						ItemPath, AssetImport::GetImportRecordIndex());
+			}
+			if (Inspection && Inspection.Record)
+			{
+				bManagedByRecord = Inspection.SelectedOutputPath.IsValid();
+				if (bManagedByRecord && ImGui::MenuItem("Reveal Import Record"))
+					DeferredContentAction = [this, Path = Inspection.RecordPath.ToString()] {
+						RevealAsset(Path);
+					};
+				if (ImGui::BeginMenu("Reveal Managed Output"))
+				{
+					for (const AssetImport::FImportRecordManagement& Output : Inspection.Outputs)
+					{
+						const auto Recorded = std::ranges::find(
+							Inspection.Record->GetOutputs(), Output.OutputIdentity,
+							&AssetImport::FImportRecordOutput::StableIdentity);
+						if (Recorded != Inspection.Record->GetOutputs().end()
+							&& ImGui::MenuItem(Recorded->AssetPath.GetAssetName().data()))
+							DeferredContentAction = [this, Path = Recorded->AssetPath.ToString()] {
+								RevealAsset(Path);
+							};
+					}
+					ImGui::EndMenu();
+				}
+				const AssetImport::FImportRecordCapabilitySet Capabilities =
+					AssetImport::QueryImportRecordCapabilities(
+						Inspection, AssetImport::GetImportRecordHandlerRegistry());
+				for (const AssetImport::EImportRecordAction Action : {
+					AssetImport::EImportRecordAction::Reimport,
+					AssetImport::EImportRecordAction::RecreateMissingOutputs,
+					AssetImport::EImportRecordAction::RepairManagedOutputs})
+				{
+					const AssetImport::FImportRecordCapability* Capability = Capabilities.Find(Action);
+					if (!Capability) continue;
+					if (ImGui::MenuItem(Capability->Label.c_str(), nullptr, false, Capability->bAvailable))
+						DeferredContentAction = [this, Item, Action] { ReimportAsset(Item, Action); };
+					if (!Capability->bAvailable && ImGui::IsItemHovered()
+						&& !Capability->Diagnostics.empty())
+						ImGui::SetTooltip("%s", Capability->Diagnostics.back().Message.c_str());
+				}
+				if (bManagedByRecord && ImGui::MenuItem("Detach from Import Record"))
+				{
+					const auto Managed = std::ranges::find_if(
+						Inspection.Record->GetOutputs(), [&](const AssetImport::FImportRecordOutput& Output) {
+							return Output.AssetPath == Inspection.SelectedOutputPath;
+						});
+					if (Managed != Inspection.Record->GetOutputs().end())
+						DeferredContentAction = [this,
+							RecordPath = Inspection.RecordPath,
+							Identity = Managed->StableIdentity] {
+							AssetImport::DImportRecord* Record = nullptr;
+							const Asset::FAssetResult Load = Asset::LoadAsset(RecordPath, Record);
+							if (!Load || !Record) { SetError(Load ? "Import record is unavailable." : Load.Message); return; }
+							const AssetImport::FImportRecordEditResult Result =
+								AssetImport::DetachImportRecordOutput(
+									*Record, Identity, AssetImport::GetImportRecordIndex());
+							if (!Result) { SetError(Result.Message); return; }
+							Refresh(true);
+							RevealAsset(Result.RevealPath.ToString());
+						};
+				}
+				if (Inspection.bConflicted && ImGui::MenuItem("Repair Record Identity"))
+					DeferredContentAction = [this, RecordPath = Inspection.RecordPath] {
+						AssetImport::DImportRecord* Record = nullptr;
+						const Asset::FAssetResult Load = Asset::LoadAsset(RecordPath, Record);
+						if (!Load || !Record) { SetError(Load ? "Import record is unavailable." : Load.Message); return; }
+						const AssetImport::FImportRecordEditResult Result =
+							AssetImport::RepairDuplicatedImportRecord(
+								*Record, AssetImport::GetImportRecordIndex());
+						if (!Result) { SetError(Result.Message); return; }
+						Refresh(true);
+						RevealAsset(Result.RevealPath.ToString());
+					};
+				ImGui::Separator();
+			}
+		}
+		if (Item.Kind == EContentBrowserItemKind::Asset
+			&& !bManagedByRecord
+			&& AssetImport::GetSingleAssetHandlerRegistry().Find(Item.AssetClassName))
+		{
+			FAssetPath CapabilityPath;
+			DObject* CapabilityAsset = nullptr;
+			const bool bLoadedForCapabilities = FAssetPath::TryCreate(Item.VirtualPath, CapabilityPath)
+				&& Asset::FAssetManager::Get().LoadAsset(CapabilityPath, CapabilityAsset);
+			const AssetImport::FSingleAssetCapability* ReimportCapability = nullptr;
+			AssetImport::FSingleAssetCapabilitySet CapabilitySet;
+			if (bLoadedForCapabilities && CapabilityAsset)
+			{
+				CapabilitySet = AssetImport::QuerySingleAssetCapabilities(
+					*CapabilityAsset, AssetImport::GetProviderRegistry(),
+					AssetImport::GetSingleAssetHandlerRegistry());
+				ReimportCapability = CapabilitySet.Find(
+					AssetImport::ESingleAssetImportCapability::ReimportCurrentSource);
+			}
+			const bool bCanSingleReimport = ReimportCapability && ReimportCapability->bAvailable;
+			if (ImGui::MenuItem(
+				bCanSingleReimport ? ReimportCapability->Label.c_str() : "Reimport from Current Source",
+				nullptr, false, bCanSingleReimport))
 				DeferredContentAction = [this, Item] {
-					ReimportStaticModel(Item, false);
+					ReimportAsset(Item, AssetImport::EImportRecordAction::Reimport);
 				};
-			if (ImGui::MenuItem("Reimport and Recreate Missing Outputs"))
+			if (ReimportCapability && ImGui::IsItemHovered())
+				ImGui::SetTooltip("%s", ReimportCapability->ReplacedStateDescription.c_str());
+			if (!bCanSingleReimport && ReimportCapability && ImGui::IsItemHovered()
+				&& !ReimportCapability->Diagnostics.empty())
+				ImGui::SetTooltip("%s", ReimportCapability->Diagnostics.back().Message.c_str());
+			if (Item.AssetClassName == DStaticMesh::StaticClass()->GetQualifiedName().ToString()
+				&& !bCanSingleReimport
+				&& ImGui::MenuItem("Reimport Legacy Scene and Recreate Missing Outputs"))
 				DeferredContentAction = [this, Item] {
-					ReimportStaticModel(Item, true);
+					ReimportAsset(Item, AssetImport::EImportRecordAction::RecreateMissingOutputs);
 				};
 			if (!LastReimportOrphans.empty()
 				&& ImGui::BeginMenu("Reveal Last Reimport Orphan"))

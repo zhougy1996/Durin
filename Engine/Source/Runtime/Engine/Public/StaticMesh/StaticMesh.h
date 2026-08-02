@@ -10,16 +10,7 @@
 
 namespace Durin
 {
-	inline constexpr uint32 StaticModelImportManifestVersion = 1;
-	inline constexpr uint32 StaticModelMaterialMapperVersion = 1;
-
 	class DMaterialInterface;
-	class DMaterialInstance;
-	class DTexture2D;
-	namespace Asset
-	{
-		struct FImportedSceneData;
-	}
 
 	// Selects a signed source axis when converting imported geometry to Durin space.
 	DENUM()
@@ -56,6 +47,46 @@ namespace Durin
 		auto operator==(const FStaticMeshImportSettings&) const -> bool = default;
 	};
 
+	inline constexpr uint32 MaximumStaticMeshImportedUVChannels = 4;
+
+	struct FStaticMeshImportedMaterialSlot
+	{
+		std::string Name;
+		uint32 SourceMaterialIndex = 0;
+		std::string SourceName;
+	};
+
+	struct FStaticMeshImportedMesh
+	{
+		std::string Name;
+		std::vector<FVector3f> Positions;
+		std::vector<FVector3f> Normals;
+		std::vector<FVector4f> Tangents;
+		std::array<std::vector<FVector2f>, MaximumStaticMeshImportedUVChannels> UVChannels;
+		std::vector<FVector4f> Colors;
+		std::vector<uint32> Indices;
+		uint32 SourceMaterialIndex = 0;
+	};
+
+	struct FStaticMeshImportedData
+	{
+		std::vector<FStaticMeshImportedMaterialSlot> MaterialSlots;
+		std::vector<FStaticMeshImportedMesh> Meshes;
+	};
+
+	using FStaticMeshSourceDecodeFunction = bool (*)(
+		std::string_view FilePath,
+		const FStaticMeshImportSettings& Settings,
+		FStaticMeshImportedData& OutData,
+		std::string& OutError);
+
+	// Editor import modules register concrete source decoders without adding a
+	// reverse Runtime Engine dependency on those modules or their third parties.
+	ENGINE_API auto RegisterStaticMeshSourceDecoder(
+		FStaticMeshSourceDecodeFunction Decoder) -> bool;
+	ENGINE_API auto UnregisterStaticMeshSourceDecoder(
+		FStaticMeshSourceDecodeFunction Decoder) -> void;
+
 	// Stores optional portable source provenance used only for editor rebuild and reimport.
 	DSTRUCT()
 	struct FStaticMeshSourceImportData
@@ -86,6 +117,7 @@ namespace Durin
 	struct FStaticMeshBuildData;
 	struct FStaticMeshRenderData;
 	struct FStaticMeshImportResult;
+	class FStaticMeshImportedStateExchange;
 
 	enum class EStaticMeshSourceStatus : uint8
 	{
@@ -158,108 +190,6 @@ namespace Durin
 		TObjectPtr<DMaterialInterface> DefaultMaterial;
 	};
 
-	DSTRUCT()
-	struct FStaticModelImportDependencyRecord
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		uint8 Role = 0;
-
-		DPROPERTY()
-		std::string StableIdentity;
-
-		DPROPERTY()
-		FSourcePath SourcePath;
-
-		DPROPERTY()
-		std::string ContentHash;
-
-		DPROPERTY()
-		uint64 ByteCount = 0;
-	};
-
-	DSTRUCT()
-	struct FStaticModelImportMaterialRecord
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		FGuid SlotId;
-
-		DPROPERTY()
-		uint32 SourceMaterialIndex = 0;
-
-		DPROPERTY()
-		std::string SourceName;
-
-		DPROPERTY()
-		FVector4 BaseColorFactor{1.0};
-
-		DPROPERTY()
-		FAssetPath GeneratedMaterialPath;
-
-		DPROPERTY()
-		bool bImporterManaged = true;
-
-		DPROPERTY()
-		TObjectPtr<DMaterialInstance> GeneratedMaterial;
-	};
-
-	DSTRUCT()
-	struct FStaticModelImportTextureRecord
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		std::string StableIdentity;
-
-		DPROPERTY()
-		uint8 Semantic = 0;
-
-		DPROPERTY()
-		FAssetPath GeneratedTexturePath;
-
-		DPROPERTY()
-		TObjectPtr<DTexture2D> GeneratedTexture;
-	};
-
-	DSTRUCT()
-	struct FStaticModelImportManifest
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		uint32 Version = 0;
-
-		DPROPERTY()
-		std::string DependencyFingerprint;
-
-		DPROPERTY()
-		uint32 ImporterVersion = 0;
-
-		DPROPERTY()
-		uint32 MaterialMapperVersion = 0;
-
-		DPROPERTY()
-		std::vector<FStaticModelImportDependencyRecord> Dependencies;
-
-		DPROPERTY()
-		std::vector<FStaticModelImportMaterialRecord> Materials;
-
-		DPROPERTY()
-		std::vector<FStaticModelImportTextureRecord> Textures;
-
-		DPROPERTY()
-		std::vector<std::string> Warnings;
-
-		auto IsValid() const -> bool
-		{
-			return Version > 0 && !DependencyFingerprint.empty()
-				&& ImporterVersion > 0 && MaterialMapperVersion > 0;
-		}
-	};
-
 	// Owns imported mesh metadata, material slots, and rebuilt render resources.
 	DCLASS()
 	class DStaticMesh : public DObject
@@ -273,7 +203,6 @@ namespace Durin
 		auto GetSourceFile() const -> const std::string& { return SourceImportData.SourcePath.Path; }
 		auto GetImportSettings() const -> const FStaticMeshImportSettings& { return SourceImportData.ImportSettings; }
 		auto GetSourceImportData() const -> const FStaticMeshSourceImportData& { return SourceImportData; }
-		auto GetImportManifest() const -> const FStaticModelImportManifest& { return ImportManifest; }
 		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }
 		auto GetMaterialSlots() const -> std::span<const FStaticMeshMaterialSlotDefinition> { return MaterialSlots; }
 		ENGINE_API auto GetMaterialSlot(uint32 SlotIndex) const -> const FStaticMeshMaterialSlotDefinition*;
@@ -312,8 +241,8 @@ namespace Durin
 			std::string_view AssetPath,
 			const FStaticMeshImportSettings& InImportSettings = {},
 			std::string_view SourceDestination = {}) -> FStaticMeshImportResult;
-		ENGINE_API auto InitializeFromImportedScene(
-			const Asset::FImportedSceneData& ImportedScene,
+		ENGINE_API auto InitializeFromImportedData(
+			const FStaticMeshImportedData& ImportedData,
 			const FStaticMeshSourceImportData& InSourceImportData,
 			std::string_view SourceLabel,
 			std::string& OutError) -> bool;
@@ -325,9 +254,6 @@ namespace Durin
 			uint32 SourceMaterialIndex,
 			DMaterialInterface* Material,
 			std::string& OutError) -> bool;
-		ENGINE_API auto SetImportManifest(
-			FStaticModelImportManifest InManifest,
-			std::string& OutError) -> bool;
 		// Transactionally applies a detached import candidate while preserving
 		// this asset's package identity and component overrides. The displaced
 		// CPU data is left on Other for symmetric bundle rollback; resource
@@ -335,6 +261,11 @@ namespace Durin
 		ENGINE_API auto ExchangeImportedState(
 			DStaticMesh& Other,
 			std::string& OutError) -> bool;
+		// Performs all failable render-resource work up front. The returned token
+		// commits and reverses the complete imported state without failure.
+		ENGINE_API auto PrepareImportedStateExchange(
+			DStaticMesh& Candidate,
+			std::string& OutError) -> std::unique_ptr<FStaticMeshImportedStateExchange>;
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto IsReadyForFinishDestroy() -> bool override;
 		ENGINE_API auto FinishDestroy() -> void override;
@@ -359,7 +290,7 @@ namespace Durin
 			bool& bOutSlotMetadataChanged,
 			std::string& OutError) -> bool;
 		auto BuildRenderDataCandidate(
-			const Asset::FImportedSceneData& ImportedScene,
+			const FStaticMeshImportedData& ImportedData,
 			std::string_view SourceLabel,
 			std::unique_ptr<FStaticMeshRenderData>& OutRenderData,
 			std::vector<FStaticMeshMaterialSlotDefinition>& OutMaterialSlots,
@@ -398,9 +329,6 @@ namespace Durin
 		std::vector<FStaticMeshMaterialSlotDefinition> MaterialSlots;
 
 		DPROPERTY()
-		FStaticModelImportManifest ImportManifest;
-
-		DPROPERTY()
 		Asset::FCookedPayloadDescriptor CookedPayload;
 
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
@@ -408,6 +336,31 @@ namespace Durin
 		FRenderCommandFence ReleaseResourcesFence;
 		std::atomic<EStaticMeshRenderResourceState> RenderResourceState{
 			EStaticMeshRenderResourceState::Uninitialized};
+
+		friend class FStaticMeshImportedStateExchange;
+	};
+
+	class ENGINE_API FStaticMeshImportedStateExchange
+	{
+	public:
+		~FStaticMeshImportedStateExchange();
+		FStaticMeshImportedStateExchange(const FStaticMeshImportedStateExchange&) = delete;
+		auto operator=(const FStaticMeshImportedStateExchange&)
+			-> FStaticMeshImportedStateExchange& = delete;
+
+		auto Commit() noexcept -> void;
+		auto Reverse() noexcept -> void;
+		auto Finalize() noexcept -> void;
+
+	private:
+		FStaticMeshImportedStateExchange(DStaticMesh& InTarget, DStaticMesh& InCandidate);
+		auto Swap() noexcept -> void;
+
+		DStaticMesh* Target = nullptr;
+		DStaticMesh* Candidate = nullptr;
+		bool bCommitted = false;
+
+		friend class DStaticMesh;
 	};
 
 	// Reports static-mesh import success and the created asset, when available.

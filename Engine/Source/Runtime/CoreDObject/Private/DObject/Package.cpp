@@ -79,7 +79,7 @@ namespace Durin
 		if (!IsAssetPackage()) return false;
 		if (InAsset && InAsset->GetOuter() != this) return false;
 		Asset = InAsset;
-		bDirty = true;
+		MarkDirty();
 		return true;
 	}
 

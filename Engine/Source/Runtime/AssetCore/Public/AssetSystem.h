@@ -219,6 +219,10 @@ namespace Durin::Asset
 		// The root package is published after every dependency package.
 		DPackage* RootPackage = nullptr;
 
+		// Explicit compatibility migration may retire preserved legacy fields
+		// across one failure-atomic package bundle.
+		bool bAllowCompatibilityDataLoss = false;
+
 		// Tests and higher-level transactions may stop immediately before a phase.
 		std::function<bool(EAssetBundleSavePhase, size_t)> ShouldFail;
 	};
@@ -434,6 +438,9 @@ namespace Durin::Asset
 	struct FAssetMoveContribution
 	{
 		std::vector<std::pair<std::filesystem::path, std::filesystem::path>> Files;
+		// Additional authored packages whose path references are changed by the
+		// move. They are backed up, saved, and restored in the same move boundary.
+		std::vector<DPackage*> AdditionalPackages;
 		std::function<void()> Apply;
 		std::function<void()> Rollback;
 	};

@@ -30,6 +30,7 @@ namespace Durin
 		auto GetPackagePath() const -> const std::string& { return PackagePath; }
 		auto GetAsset() const -> DObject* { return Asset.Get(); }
 		auto IsDirty() const -> bool { return bDirty; }
+		auto GetEditRevision() const -> uint64 { return EditRevision; }
 		auto GetPackageFlags() const -> EPackageFlags { return PackageFlags; }
 		auto IsAssetPackage() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::Asset); }
 		auto IsCppPackage() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::Cpp); }
@@ -41,7 +42,12 @@ namespace Durin
 
 		// Asset packages accept only an asset whose Outer is this package.
 		COREDOBJECT_API auto SetAsset(DObject* InAsset) -> bool;
-		auto MarkDirty() -> void { if (IsAssetPackage()) bDirty = true; }
+		auto MarkDirty() -> void
+		{
+			if (!IsAssetPackage()) return;
+			bDirty = true;
+			++EditRevision;
+		}
 		auto ClearDirty() -> void { bDirty = false; }
 
 	private:
@@ -58,6 +64,10 @@ namespace Durin
 		// Tracks unsaved asset-package changes; compiled-in packages never become dirty.
 		DPROPERTY(Transient)
 		bool bDirty = false;
+
+		// Monotonic process-local token for optimistic editor plans. Unlike dirty
+		// state, repeated edits remain distinguishable before the next save.
+		uint64 EditRevision = 1;
 	};
 
 	COREDOBJECT_API auto FindPackage(std::string_view PackagePath) -> DPackage*;
