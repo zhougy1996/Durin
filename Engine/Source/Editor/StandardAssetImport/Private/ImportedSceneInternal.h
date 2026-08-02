@@ -4,6 +4,16 @@
 
 struct aiScene;
 
+namespace Durin::Asset
+{
+	struct FSceneDecodeResult
+	{
+		bool bSucceeded = false;
+		FImportedSceneData Scene;
+		std::string ErrorMessage;
+	};
+}
+
 namespace Durin::Asset::Private
 {
 	// Carries one authoritative source and result sink across a format adapter.
@@ -12,7 +22,7 @@ namespace Durin::Asset::Private
 		const std::filesystem::path& RootPath;
 		std::string_view RootSourcePath;
 		std::span<const uint8> RootBytes;
-		FAsyncMeshImportResult& Result;
+		FSceneDecodeResult& Result;
 	};
 
 	auto AddDiagnostic(
@@ -23,11 +33,14 @@ namespace Durin::Asset::Private
 		std::string Subject,
 		std::string Message) -> bool;
 	auto FailImport(
-		FAsyncMeshImportResult& Result,
+		FSceneDecodeResult& Result,
 		EImportDiagnosticCategory Category,
 		std::string Subject,
 		std::string Message,
 		std::string SourceIdentity = "root") -> bool;
+	auto CheckSceneDecodeCancellation(
+		FSceneDecodeResult& Result,
+		std::string_view Subject) -> bool;
 	auto ReadFileBytes(
 		const std::filesystem::path& Path,
 		uint64 Limit,

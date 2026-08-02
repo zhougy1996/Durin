@@ -10,11 +10,12 @@ namespace Durin::Asset::Private
 		const std::filesystem::path& RootPath,
 		std::string_view RootSourcePath,
 		std::string TexturePath,
-		FAsyncMeshImportResult& Result,
+		FSceneDecodeResult& Result,
 		std::unordered_map<std::string, uint32>& ImageIndices,
 		uint64& EmbeddedByteCount,
 		uint32& OutImageIndex) -> bool
 	{
+		if (CheckSceneDecodeCancellation(Result, TexturePath)) return false;
 		std::ranges::replace(TexturePath, '\\', '/');
 		if (const auto Existing = ImageIndices.find(TexturePath); Existing != ImageIndices.end())
 		{
@@ -111,7 +112,7 @@ namespace Durin::Asset::Private
 	auto AddAssimpShadingDiagnostic(
 		const aiMaterial& SourceMaterial,
 		uint32 MaterialIndex,
-		FAsyncMeshImportResult& Result) -> bool
+		FSceneDecodeResult& Result) -> bool
 	{
 		int ShadingModel = aiShadingMode_NoShading;
 		const bool bHasShadingModel =
@@ -153,7 +154,7 @@ namespace Durin::Asset::Private
 		const aiScene& Scene,
 		const std::filesystem::path& RootPath,
 		std::string_view RootSourcePath,
-		FAsyncMeshImportResult& Result) -> bool
+		FSceneDecodeResult& Result) -> bool
 	{
 		if (Scene.mNumMaterials > MaxImportedSourceMaterials)
 		{
@@ -162,6 +163,7 @@ namespace Durin::Asset::Private
 		}
 		for (uint32 MaterialIndex = 0; MaterialIndex < Scene.mNumMaterials; ++MaterialIndex)
 		{
+			if (CheckSceneDecodeCancellation(Result, "materials")) return false;
 			const aiMaterial* SourceMaterial = Scene.mMaterials[MaterialIndex];
 			if (SourceMaterial == nullptr)
 			{
@@ -174,6 +176,7 @@ namespace Durin::Asset::Private
 		uint64 EmbeddedByteCount = 0;
 		for (uint32 TextureIndex = 0; TextureIndex < Scene.mNumTextures; ++TextureIndex)
 		{
+			if (CheckSceneDecodeCancellation(Result, "images")) return false;
 			uint32 ImportedImageIndex = 0;
 			if (!ImportAssimpImage(Scene, RootPath, RootSourcePath,
 				std::format("*{}", TextureIndex), Result, ImageIndices,
@@ -182,6 +185,7 @@ namespace Durin::Asset::Private
 		Result.Scene.Materials.reserve(Scene.mNumMaterials);
 		for (uint32 MaterialIndex = 0; MaterialIndex < Scene.mNumMaterials; ++MaterialIndex)
 		{
+			if (CheckSceneDecodeCancellation(Result, "materials")) return false;
 			const aiMaterial* SourceMaterial = Scene.mMaterials[MaterialIndex];
 			if (SourceMaterial == nullptr)
 			{

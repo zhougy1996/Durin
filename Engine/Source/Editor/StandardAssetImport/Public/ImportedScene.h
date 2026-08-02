@@ -153,36 +153,6 @@ namespace Durin::Asset
 		std::vector<FImportDiagnostic> Diagnostics;
 	};
 
-	struct FAsyncMeshImportResult
-	{
-		bool bSucceeded = false;
-		FImportedSceneData Scene;
-		std::string ErrorMessage;
-	};
-
-	struct FAsyncMeshImportSharedState;
-
-	class FAsyncMeshImportHandle
-	{
-	public:
-		STANDARDASSETIMPORT_API FAsyncMeshImportHandle();
-
-		STANDARDASSETIMPORT_API auto IsValid() const -> bool;
-		STANDARDASSETIMPORT_API auto IsComplete() const -> bool;
-		STANDARDASSETIMPORT_API auto Wait() const -> void;
-		STANDARDASSETIMPORT_API auto GetDebugName() const -> const char*;
-		STANDARDASSETIMPORT_API auto TryGetResult(FAsyncMeshImportResult& OutResult) const -> bool;
-
-	private:
-		explicit FAsyncMeshImportHandle(std::shared_ptr<FAsyncMeshImportSharedState> InState);
-
-		std::shared_ptr<FAsyncMeshImportSharedState> State;
-
-		friend STANDARDASSETIMPORT_API auto ImportFromFileAsync(
-			std::string_view FilePath,
-			const FMeshImportOptions& Options) -> FAsyncMeshImportHandle;
-	};
-
 	STANDARDASSETIMPORT_API auto ImportFromFile(
 		std::string_view FilePath,
 		FImportedSceneData& OutData,
@@ -194,7 +164,4 @@ namespace Durin::Asset
 		std::string_view ExtensionHint,
 		FImportedSceneData& OutData,
 		const FMeshImportOptions& Options = {}) -> bool;
-	STANDARDASSETIMPORT_API auto ImportFromFileAsync(
-		std::string_view FilePath,
-		const FMeshImportOptions& Options = {}) -> FAsyncMeshImportHandle;
 }

@@ -1,6 +1,6 @@
 #include "AssetImportCore.h"
+#include "AsyncImport.h"
 
-#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
 namespace Durin::AssetImport
@@ -32,6 +32,18 @@ namespace Durin::AssetImport
 						|| Character == '.' || Character == '_' || Character == '-'
 						|| Character == ':' || Character == '/';
 				});
+		}
+
+		auto AddCancellationDiagnostic(
+			FImportPlanResult& Result,
+			std::string_view Phase) -> bool
+		{
+			if (!IsImportCancellationRequested()) return false;
+			Result.Message = "Import preparation was canceled.";
+			AddDiagnostic(Result.Diagnostics, EImportDiagnosticSeverity::Error,
+				EImportDiagnosticCategory::Canceled, Phase, "root", Result.Message);
+			FinalizeImportDiagnostics(Result.Diagnostics, Phase, "root", "request");
+			return true;
 		}
 
 		auto FoldAscii(std::string_view Value) -> std::string
@@ -422,6 +434,36 @@ namespace Durin::AssetImport
 		bool bRootCaptured = false;
 		bool bDiscoveryComplete = false;
 		bool bFrozen = false;
+		static constexpr size_t CancellationChunkBytes = 4ull * 1024ull * 1024ull;
+
+		auto CheckCanceled(
+			std::string_view StableIdentity,
+			std::vector<FImportDiagnostic>& Diagnostics) const -> bool
+		{
+			if (!IsImportCancellationRequested()) return false;
+			AddDiagnostic(Diagnostics, EImportDiagnosticSeverity::Error,
+				EImportDiagnosticCategory::Canceled, "source-capture",
+				StableIdentity, "Import source capture was canceled.");
+			return true;
+		}
+
+		auto HashBytes(
+			std::span<const uint8> Bytes,
+			std::string_view StableIdentity,
+			std::vector<FImportDiagnostic>& Diagnostics,
+			FXxHash128& OutHash) const -> bool
+		{
+			FXxHash128Builder Builder;
+			for (size_t Offset = 0; Offset < Bytes.size(); Offset += CancellationChunkBytes)
+			{
+				if (CheckCanceled(StableIdentity, Diagnostics)) return false;
+				Builder.Update(Bytes.subspan(Offset,
+					std::min(CancellationChunkBytes, Bytes.size() - Offset)));
+			}
+			if (CheckCanceled(StableIdentity, Diagnostics)) return false;
+			OutHash = Builder.Finalize();
+			return true;
+		}
 
 		auto CaptureBytes(
 			std::string StableIdentity,
@@ -457,14 +499,24 @@ namespace Durin::AssetImport
 				}
 				return true;
 			}
-			auto Bytes = std::make_shared<const std::vector<uint8>>(
-				InputBytes.begin(), InputBytes.end());
+			auto MutableBytes = std::make_shared<std::vector<uint8>>(InputBytes.size());
+			for (size_t Offset = 0; Offset < InputBytes.size();
+				Offset += CancellationChunkBytes)
+			{
+				if (CheckCanceled(StableIdentity, Diagnostics)) return false;
+				const size_t Count = std::min(
+					CancellationChunkBytes, InputBytes.size() - Offset);
+				std::memcpy(MutableBytes->data() + Offset, InputBytes.data() + Offset, Count);
+			}
+			std::shared_ptr<const std::vector<uint8>> Bytes = std::move(MutableBytes);
+			FXxHash128 ContentHash;
+			if (!HashBytes(*Bytes, StableIdentity, Diagnostics, ContentHash)) return false;
 			FSourceSnapshotEntry Entry{
 				.StableIdentity = std::move(StableIdentity),
 				.Role = std::move(Role),
 				.SourcePath = std::move(SourcePath),
 				.DeclaringIdentity = std::move(DeclaringIdentity),
-				.ContentHash = FXxHash128::HashBuffer(std::span<const uint8>(*Bytes)),
+				.ContentHash = ContentHash,
 				.ByteCount = Bytes->size(),
 				.Depth = Depth,
 				.bEmbedded = bEmbedded};
@@ -533,8 +585,21 @@ namespace Durin::AssetImport
 						StableIdentity, Error.message());
 					return false;
 				}
-				auto MutableBytes = std::make_shared<std::vector<uint8>>();
-				if (!FFileHelper::LoadFileToArray(*MutableBytes, Resolved.PhysicalPath.generic_string()))
+				auto MutableBytes = std::make_shared<std::vector<uint8>>(
+					static_cast<size_t>(FileSize));
+				std::ifstream Stream(Resolved.PhysicalPath, std::ios::binary);
+				bool bRead = Stream.is_open();
+				for (size_t Offset = 0; bRead && Offset < MutableBytes->size();
+					Offset += CancellationChunkBytes)
+				{
+					if (CheckCanceled(StableIdentity, Diagnostics)) return false;
+					const size_t Count = std::min(
+						CancellationChunkBytes, MutableBytes->size() - Offset);
+					Stream.read(reinterpret_cast<char*>(MutableBytes->data() + Offset),
+						static_cast<std::streamsize>(Count));
+					bRead = Stream.gcount() == static_cast<std::streamsize>(Count);
+				}
+				if (!bRead)
 				{
 					AddDiagnostic(Diagnostics, EImportDiagnosticSeverity::Error,
 						EImportDiagnosticCategory::InvalidSource, "source-capture",
@@ -569,12 +634,14 @@ namespace Durin::AssetImport
 				}
 				return true;
 			}
+			FXxHash128 ContentHash;
+			if (!HashBytes(*Bytes, StableIdentity, Diagnostics, ContentHash)) return false;
 			FSourceSnapshotEntry Entry{
 				.StableIdentity = std::move(StableIdentity),
 				.Role = std::move(Role),
 				.SourcePath = std::move(SourcePath),
 				.DeclaringIdentity = std::move(DeclaringIdentity),
-				.ContentHash = FXxHash128::HashBuffer(std::span<const uint8>(*Bytes)),
+				.ContentHash = ContentHash,
 				.ByteCount = Bytes->size(),
 				.Depth = Depth,
 				.bEmbedded = false};
@@ -863,6 +930,7 @@ namespace Durin::AssetImport
 		FImportPlanResult Result;
 		Result.Diagnostics.assign(PriorDiagnostics.begin(), PriorDiagnostics.end());
 		ReportImportProgress(Progress, EImportPhase::Parse, EImportProgressState::Started);
+		if (AddCancellationDiagnostic(Result, "parse")) return Result;
 		if (!Provider || !Provider.GetProvider() || !Snapshot)
 		{
 			Result.Message = "Import planning requires a provider lease and frozen snapshot.";
@@ -899,6 +967,7 @@ namespace Durin::AssetImport
 				EImportProgressState::Failed, "root", "request", 0, 0, Result.Message);
 			return Result;
 		}
+		if (AddCancellationDiagnostic(Result, "parse")) return Result;
 		FinalizeImportDiagnostics(Result.Diagnostics, "parse");
 		ReportImportProgress(Progress, EImportPhase::Parse,
 			EImportProgressState::Succeeded, "root", "request", 1, 1);
@@ -1016,6 +1085,7 @@ namespace Durin::AssetImport
 		FImportPlanResult Result;
 		ReportImportProgress(Request.Progress, EImportPhase::Snapshot,
 			EImportProgressState::Started);
+		if (AddCancellationDiagnostic(Result, "source-capture")) return Result;
 		FSourceSnapshotBuilder SnapshotBuilder(Request.Limits);
 		if (!SnapshotBuilder.CaptureRoot(Request.RootSource, Result.Diagnostics))
 		{
@@ -1025,6 +1095,7 @@ namespace Durin::AssetImport
 				EImportProgressState::Failed, "root", "request", 0, 0, Result.Message);
 			return Result;
 		}
+		if (AddCancellationDiagnostic(Result, "source-capture")) return Result;
 		const FSourceSnapshotEntry& Root = SnapshotBuilder.GetCapturedSources().front();
 		const size_t PrefixSize = static_cast<size_t>(std::min<uint64>(
 			Root.ByteCount, SnapshotBuilder.GetLimits().RecognitionPrefixBytes));
@@ -1082,7 +1153,8 @@ namespace Durin::AssetImport
 		}
 
 		FImportPayload Settings;
-		if (!Provider.GetProvider()->CaptureSettings(Settings, Result.Diagnostics))
+		if (Request.Settings) Settings = *Request.Settings;
+		else if (!Provider.GetProvider()->CaptureSettings(Settings, Result.Diagnostics))
 		{
 			Result.Message = Result.Diagnostics.empty()
 				? "Import provider settings capture failed." : Result.Diagnostics.back().Message;
@@ -1095,6 +1167,7 @@ namespace Durin::AssetImport
 				EImportProgressState::Failed, "root", "request", 0, 0, Result.Message);
 			return Result;
 		}
+		if (AddCancellationDiagnostic(Result, "settings-capture")) return Result;
 		std::string PayloadError;
 		if (Settings.Bytes.size() > Request.Limits.MaximumSettingsBytes
 			|| !Settings.Finalize(PayloadError))
@@ -1117,6 +1190,7 @@ namespace Durin::AssetImport
 				EImportProgressState::Failed, "root", "request", 0, 0, Result.Message);
 			return Result;
 		}
+		if (AddCancellationDiagnostic(Result, "dependency-discovery")) return Result;
 		std::shared_ptr<const FSourceSnapshot> Snapshot =
 			SnapshotBuilder.Freeze(Result.Diagnostics);
 		if (!Snapshot)
@@ -1127,6 +1201,7 @@ namespace Durin::AssetImport
 				EImportProgressState::Failed, "root", "request", 0, 0, Result.Message);
 			return Result;
 		}
+		if (AddCancellationDiagnostic(Result, "source-freeze")) return Result;
 		ReportImportProgress(Request.Progress, EImportPhase::Snapshot,
 			EImportProgressState::Succeeded, "root", "request",
 			Snapshot->GetAggregateByteCount(), Snapshot->GetAggregateByteCount());

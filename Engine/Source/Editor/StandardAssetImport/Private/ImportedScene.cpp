@@ -3,7 +3,6 @@
 #include "ImportedSceneInternal.h"
 
 #include "Logging/LogMacros.h"
-#include "Threading/Task.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
@@ -11,19 +10,12 @@
 
 namespace Durin::Asset
 {
-	struct FAsyncMeshImportSharedState
-	{
-		FTaskHandle Task;
-		mutable std::mutex Mutex;
-		std::optional<FAsyncMeshImportResult> Result;
-	};
-
 	namespace
 	{
 		auto ValidateGltfMaterialProjection(
 			const aiScene& Scene,
 			std::span<const uint32> SourcePrimitiveMaterialIndices,
-			FAsyncMeshImportResult& Result) -> bool
+			FSceneDecodeResult& Result) -> bool
 		{
 			if (SourcePrimitiveMaterialIndices.size() != Scene.mNumMeshes)
 			{
@@ -63,9 +55,9 @@ namespace Durin::Asset
 
 		auto ImportMeshesFromFile(
 			std::string_view FilePath,
-			const FMeshImportOptions& Options) -> FAsyncMeshImportResult
+			const FMeshImportOptions& Options) -> FSceneDecodeResult
 		{
-			FAsyncMeshImportResult Result;
+			FSceneDecodeResult Result;
 			const std::filesystem::path RootPath = std::filesystem::path(std::string(FilePath));
 			if (!Private::IsValidSourcePath(Options.RootSource.Path))
 			{
@@ -237,49 +229,12 @@ namespace Durin::Asset
 		}
 	}
 
-	FAsyncMeshImportHandle::FAsyncMeshImportHandle() = default;
-
-	FAsyncMeshImportHandle::FAsyncMeshImportHandle(
-		std::shared_ptr<FAsyncMeshImportSharedState> InState)
-		: State(std::move(InState))
-	{
-	}
-
-	auto FAsyncMeshImportHandle::IsValid() const -> bool
-	{
-		return State && State->Task.IsValid();
-	}
-
-	auto FAsyncMeshImportHandle::IsComplete() const -> bool
-	{
-		return State && State->Task.IsComplete();
-	}
-
-	auto FAsyncMeshImportHandle::Wait() const -> void
-	{
-		if (State) WaitTask(State->Task);
-	}
-
-	auto FAsyncMeshImportHandle::GetDebugName() const -> const char*
-	{
-		return State ? State->Task.GetDebugName() : "";
-	}
-
-	auto FAsyncMeshImportHandle::TryGetResult(FAsyncMeshImportResult& OutResult) const -> bool
-	{
-		if (!State || !State->Task.IsComplete()) return false;
-		std::lock_guard Lock(State->Mutex);
-		if (!State->Result.has_value()) return false;
-		OutResult = *State->Result;
-		return true;
-	}
-
 	auto ImportFromFile(
 		std::string_view FilePath,
 		FImportedSceneData& OutData,
 		const FMeshImportOptions& Options) -> bool
 	{
-		FAsyncMeshImportResult Result = ImportMeshesFromFile(FilePath, Options);
+		FSceneDecodeResult Result = ImportMeshesFromFile(FilePath, Options);
 		OutData = std::move(Result.Scene);
 		return Result.bSucceeded;
 	}
@@ -290,7 +245,7 @@ namespace Durin::Asset
 		FImportedSceneData& OutData,
 		const FMeshImportOptions& Options) -> bool
 	{
-		FAsyncMeshImportResult Result;
+		FSceneDecodeResult Result;
 		if (!Private::IsValidSourcePath(Options.RootSource.Path)
 			|| EncodedBytes.empty() || EncodedBytes.size() > MaxImportedSceneSourceBytes)
 		{
@@ -374,20 +329,4 @@ namespace Durin::Asset
 		return true;
 	}
 
-	auto ImportFromFileAsync(
-		std::string_view FilePath,
-		const FMeshImportOptions& Options) -> FAsyncMeshImportHandle
-	{
-		auto SharedState = std::make_shared<FAsyncMeshImportSharedState>();
-		std::string OwnedFilePath(FilePath);
-		SharedState->Task = LaunchTask(
-			"StandardAssetImport.Scene",
-			[SharedState, FilePath = std::move(OwnedFilePath), Options]() mutable {
-				FAsyncMeshImportResult Result = ImportMeshesFromFile(FilePath, Options);
-				std::lock_guard Lock(SharedState->Mutex);
-				SharedState->Result = std::move(Result);
-			});
-		if (!SharedState->Task.IsValid()) return {};
-		return FAsyncMeshImportHandle(std::move(SharedState));
-	}
 }

@@ -34,7 +34,9 @@ namespace Durin::AssetImport
 		ResourceLimitExceeded,
 		InvalidPlan,
 		Collision,
-		StalePlan
+		StalePlan,
+		Canceled,
+		AsyncFailure
 	};
 
 	struct FImportDiagnostic
@@ -519,6 +521,9 @@ namespace Durin::AssetImport
 		FSourcePath RootSource;
 		std::string ProviderId;
 		FSourceCaptureLimits Limits;
+		// When present, the caller has already captured and normalized the
+		// provider settings. This value is copied into asynchronous request state.
+		std::optional<FImportPayload> Settings;
 		IImportProgressReporter* Progress = nullptr;
 	};
 

@@ -2,7 +2,7 @@
 
 Summary: Replace asset-specific import orchestration with a synchronous-first provider framework for immutable source snapshots, single-asset reimport, multi-output records, detached candidates, and failure-atomic publication.
 
-Last reviewed: 2026-08-02
+Last reviewed: 2026-08-03
 
 Status: Active
 Completed:
@@ -27,25 +27,26 @@ a multi-output graph.
 
 Stages 0 through 5 are complete in the squashed framework commit
 `f24bdca143986e151c6d57ac00aef7d5d8c5e86e`, based directly on Multithreading
-V1 commit `0d2851c95c311c3465e4199d11958b603541b0be`. Stage 6 is the current stage;
-its scheduler dependency is satisfied. The
+V1 commit `0d2851c95c311c3465e4199d11958b603541b0be`. Stage 6 is complete on baseline
+`12aaf149`; Stage 7 is the current stage. The
 legacy glTF/FBX workflow and the transitional `EngineAssetBuild` and
 Assimp-backed `AssetImport` modules have been replaced by
 `StandardAssetImport`, the default aggregate for built-in
 provider implementations.
-The first implementation is deliberately synchronous on the editor thread.
-It validates deterministic planning, persistence, reconciliation, and failure
-semantics without depending on the unfinished task-system lifecycle. A later
-stage may schedule immutable preparation work asynchronously without changing
-the provider, plan, candidate, or publication contracts.
+The synchronous implementation remains the semantic reference. Stage 6 added
+one `AssetImportCore` asynchronous preparation coordinator without adding
+provider-specific task APIs: source capture, hashing, dependency discovery,
+Scene decoding, normalization, and move-owned CPU plan data run on the Core
+scheduler, while multi-output reconciliation, `DObject` candidate creation,
+validation, and publication remain on the editor thread. The StaticMesh import
+dialog drains the coordinator mailbox from its existing draw tick and keeps
+both preview and execution parsing responsive.
 
-The Stage 6 baseline qualification passed all 47 focused concurrency tests,
-all 16 `AssetImportCoreTests`, all 59 `TextureTests`, and the full DurinEditor
-`all` build. Task-scheduler lifecycle smoke passed with both the project browser
-and Sandbox loaded. The first Sandbox run nevertheless exited once with a
-non-reproduced access violation after the scheduler audit had succeeded;
-immediate equivalent reruns completed cleanly, so repeated loaded-project
-shutdown remains an explicit Stage 6 gate rather than assumed evidence.
+The Stage 6 qualification passed all 64 focused concurrency tests, all 20
+`AssetImportCoreTests`, all 13 remaining synchronous `AssetImportTests`, all 60
+`TextureTests`, the full DurinEditor `all` build, and 20 consecutive loaded
+Sandbox shutdowns with the scheduler lifecycle audit. The previously observed
+non-reproduced access violation did not recur.
 
 ## Goal
 
@@ -202,15 +203,23 @@ Editor hosts
   and a synchronized completed-result mailbox. Providers and editor hosts do
   not launch phase-specific tasks or own private worker pools.
 - Core V1 deliberately has no typed task result or universal game-thread
-  continuation pump. Workers publish move-owned import results into the
-  coordinator mailbox; an existing editor-thread tick calls a narrow drain API.
-  A mailbox entry is consumable only after its matching task handle is terminal.
+  continuation pump. A worker moves its preparation result into synchronized
+  request state and publishes only a value-only request serial to the
+  coordinator mailbox. An existing editor-thread tick calls a narrow drain API;
+  a request result is consumable only after its serial is current and its
+  matching task handle is terminal.
 - A task handle reaching terminal state does not by itself prove that the
   worker's callable wrapper has been destroyed. Before returning, the
-  framework-owned callable must move its provider lease into the mailbox entry
-  or release it explicitly, leaving no provider-owned capture for worker-side
-  cleanup. Provider unload additionally drains or discards matching mailbox
-  entries before checking that outstanding leases reached zero.
+  framework-owned callable moves its result and provider lease into request
+  state, queues the serial notice, and retains no provider-owned capture for
+  worker-side cleanup. Provider unload closes provider admission, cancels and
+  drains matching tasks, discards matching request results and mailbox notices,
+  then verifies that outstanding leases reached zero.
+- `StandardAssetImport` no longer exposes or implements its retired
+  `ImportFromFileAsync` task handle. Concrete provider code is invoked only
+  through the framework-owned synchronous provider contract inside the single
+  coordinator task; provider modules and editor hosts do not launch private
+  task graphs or capture arbitrary module lambdas for deferred execution.
 - Asynchronous execution is an adapter over the same semantic phases, not a
   second provider API. For the same snapshot, settings, prior state, and target
   revisions, synchronous and asynchronous preparation produce equivalent plans,
@@ -1072,39 +1081,39 @@ preparation while preserving the synchronous framework as the reference path.
 Dependencies: Stage 5 and Multithreading V1 commit
 `0d2851c95c311c3465e4199d11958b603541b0be` (satisfied).
 
-- [ ] Add one framework-owned asynchronous coordinator and adapter for source
+- [x] Add one framework-owned asynchronous coordinator and adapter for source
   capture, hashing, dependency discovery, parsing, normalization, and candidate
   CPU preparation. The coordinator owns request serials, task handles,
   cancellation sources, immutable inputs, and local admission; do not add
   asynchronous methods to providers or launch one task per provider phase.
-- [ ] Define a move-owned preparation result that contains no `DObject`, package,
+- [x] Define a move-owned preparation result that contains no `DObject`, package,
   registry, editor-model, render-resource, or RHI reference. Keep reflection
   object creation, package lookup, typed exchange, registry mutation, and
   publication on the editor thread.
-- [ ] Deliver results through an `AssetImportCore` synchronized mailbox drained
+- [x] Deliver results through an `AssetImportCore` synchronized mailbox drained
   by an existing editor-thread tick. Consume an entry only when its request
   serial is current and its task handle is terminal; synthesize stable failure
   or cancellation diagnostics when a terminal task produced no entry, and
   treat an invalid launch handle as work that was never accepted.
-- [ ] Retain provider leases and immutable inputs until each accepted task and
+- [x] Retain provider leases and immutable inputs until each accepted task and
   mailbox entry reaches one terminal disposition. Before a worker callable
   returns, move its provider lease into the mailbox entry or release it so
   callable-wrapper destruction cannot execute provider cleanup after a terminal
   wait. Add a latch-controlled provider-unload race test for this boundary.
-- [ ] Add cooperative cancellation checks at bounded intervals during capture,
+- [x] Add cooperative cancellation checks at bounded intervals during capture,
   parse, normalization, and CPU preparation, then check again between
   editor-thread candidate creation and validation steps. Publication remains
   guarded, revalidated, non-interruptible, and failure-atomic once it starts.
-- [ ] Add scoped `CancelAndDrain` barriers for request/dialog, project, provider,
+- [x] Add scoped `CancelAndDrain` barriers for request/dialog, project, provider,
   and process ownership. Project selection invokes the project barrier before
   replacing mounts or editor state; provider shutdown drains its requests and
   mailbox entries before unregistering handlers/providers; process shutdown
   detaches import producers before the global scheduler drain and Asset Manager
   shutdown.
-- [ ] Run synchronous-versus-asynchronous equivalence tests for plans,
+- [x] Run synchronous-versus-asynchronous equivalence tests for plans,
   candidates, diagnostics, DDC keys, authored bytes, failures, and stale-plan
   rejection.
-- [ ] Add repeated loaded-project shutdown qualification with accepted and
+- [x] Add repeated loaded-project shutdown qualification with accepted and
   canceled import work, retained terminal handles, provider unload, and render
   activity. Require at least 20 consecutive clean Sandbox shutdowns because the
   Stage 6 baseline audit observed one non-reproduced access violation after a
@@ -1119,6 +1128,40 @@ Dependencies: Stage 5 and Multithreading V1 commit
   produce equivalent synchronous and asynchronous outcomes before the common
   editor-thread publication path, and repeated loaded-project shutdown passes
   without a crash or late callback.
+
+#### Stage 6 Handoff
+
+- Baseline: `12aaf149` (`fix(asset-import): initialize static mesh test
+  providers`). Working set: `AssetImportCore` asynchronous request state,
+  serial-notice mailbox, cancellation and lifecycle barriers;
+  `StandardAssetImport` Scene preparation and provider teardown; MainFrame
+  project selection; LevelEditor StaticMesh import dialog; focused Core, import,
+  and Scene tests.
+- Key symbols and decisions: `FAsyncImportPlanHandle` observes one
+  coordinator-owned request; `LaunchAsyncImportPlan` submits exactly one Core
+  task; `DrainAsyncImportCompletionMailbox` consumes only value serials after
+  terminal-handle confirmation; `TryTakeAsyncImportPlanResult` moves the plan
+  and provider lease out of request state. Owner serials reject stale results,
+  invalid scheduler handles report never-accepted work, and terminal tasks
+  without notices synthesize stable diagnostics.
+- Thread and lifecycle boundaries: Scene plan data contains source snapshots,
+  normalized imported data, value paths, diagnostics, and provider leases but no
+  `DObject`, package, registry/editor model, render resource, or RHI reference.
+  Dialog close drains request scope, project selection drains all import work,
+  provider shutdown closes and drains provider scope before unregister, and
+  editor-host destruction detaches import producers before the process scheduler
+  drain. Source reads, hashing, Scene array normalization, and geometry loops
+  poll cooperative cancellation at bounded intervals; third-party decode calls
+  are checked immediately before and after the call.
+- Validation: 64/64 `CoreConcurrencyTests`, 20/20
+  `AssetImportCoreTests`, 13/13 `AssetImportTests`, and 60/60 `TextureTests`
+  passed. Scene asynchronous reimport matched synchronous generic plans,
+  diagnostics, Texture DDC keys, and every authored package byte through the
+  common editor-thread publication path. The full DurinEditor `all` target
+  built successfully, and 20/20 loaded Sandbox shutdown runs with scheduler
+  lifecycle smoke exited cleanly. Open questions: none for the Stage 6 gate;
+  Stage 7 owns compatibility removal, cooking/runtime qualification, lasting
+  documentation, and plan archival.
 
 ### Stage 7: Close compatibility, cooking, and architecture handoff
 

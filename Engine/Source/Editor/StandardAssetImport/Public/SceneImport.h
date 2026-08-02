@@ -2,6 +2,7 @@
 
 #include "ImportRecordIndex.h"
 #include "MultiOutputImport.h"
+#include "AsyncImport.h"
 #include "StandardAssetImportAPI.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Source/SourcePath.h"
@@ -50,6 +51,9 @@ namespace Durin
 
 		friend STANDARDASSETIMPORT_API auto PlanSceneImport(
 			const FSceneImportRequest&) -> FSceneImportPlanResult;
+		friend auto FinalizeSceneImportPlan(
+			const FSceneImportRequest&,
+			AssetImport::FImportPlanResult) -> FSceneImportPlanResult;
 		friend STANDARDASSETIMPORT_API auto ExecuteSceneImport(
 			const FSceneImportPlan&,
 			const AssetImport::FMultiOutputExecutionOptions&)
@@ -81,6 +85,32 @@ namespace Durin
 		explicit operator bool() const { return bSucceeded; }
 	};
 
+	class FSceneImportAsyncPlanHandle
+	{
+	public:
+		auto IsValid() const -> bool
+		{
+			return GenericHandle.IsValid() || ImmediateResult.has_value();
+		}
+		explicit operator bool() const { return IsValid(); }
+		auto GetStatus() const -> AssetImport::EAsyncImportPlanStatus;
+
+	private:
+		FSceneImportRequest Request;
+		AssetImport::FAsyncImportPlanHandle GenericHandle;
+		std::optional<FSceneImportPlanResult> ImmediateResult;
+		bool bConsumed = false;
+
+		friend STANDARDASSETIMPORT_API auto BeginSceneImportPlan(
+			const FSceneImportRequest&, std::string_view)
+			-> FSceneImportAsyncPlanHandle;
+		friend STANDARDASSETIMPORT_API auto PollSceneImportPlan(
+			FSceneImportAsyncPlanHandle&, FSceneImportPlanResult&)
+			-> AssetImport::EAsyncImportPlanStatus;
+		friend STANDARDASSETIMPORT_API auto CancelAndDrainSceneImportPlan(
+			FSceneImportAsyncPlanHandle&) -> void;
+	};
+
 	enum class ELegacySceneMigrationStatus : uint8
 	{
 		NotLegacy,
@@ -103,6 +133,15 @@ namespace Durin
 
 	STANDARDASSETIMPORT_API auto PlanSceneImport(
 		const FSceneImportRequest& Request) -> FSceneImportPlanResult;
+	STANDARDASSETIMPORT_API auto BeginSceneImportPlan(
+		const FSceneImportRequest& Request,
+		std::string_view OwnerId) -> FSceneImportAsyncPlanHandle;
+	STANDARDASSETIMPORT_API auto PollSceneImportPlan(
+		FSceneImportAsyncPlanHandle& Handle,
+		FSceneImportPlanResult& OutResult)
+		-> AssetImport::EAsyncImportPlanStatus;
+	STANDARDASSETIMPORT_API auto CancelAndDrainSceneImportPlan(
+		FSceneImportAsyncPlanHandle& Handle) -> void;
 	STANDARDASSETIMPORT_API auto PrepareSceneSourceBundle(
 		const std::filesystem::path& InputRoot,
 		std::string_view ReferencingAssetPath,

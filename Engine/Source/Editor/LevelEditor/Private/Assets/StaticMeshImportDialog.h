@@ -20,6 +20,7 @@ namespace Durin
 	{
 	public:
 		explicit FStaticMeshImportDialog(FImportDialogCallbacks InCallbacks);
+		~FStaticMeshImportDialog();
 
 		auto Open(std::string_view DestinationDirectory = {}) -> void;
 		auto Draw() -> void;
@@ -30,6 +31,8 @@ namespace Durin
 		auto BrowseSourceDestination() -> void;
 		auto RefreshPreview(const FAssetPath& RootAssetPath) -> void;
 		auto Import() -> bool;
+		auto PollImport() -> bool;
+		auto CancelRequests() -> void;
 		auto SetError(std::string Message) const -> void;
 
 		FImportDialogCallbacks Callbacks;
@@ -44,5 +47,7 @@ namespace Durin
 			EMountedSourceImportMode::IngestExternal;
 		std::string PreviewKey;
 		std::optional<FSceneImportPlanResult> Preview;
+		std::optional<FSceneImportAsyncPlanHandle> PreviewRequest;
+		std::optional<FSceneImportAsyncPlanHandle> ImportRequest;
 	};
 } // namespace Durin

@@ -144,6 +144,9 @@ namespace Durin::AssetImport
 	{
 		Asset::FAssetBundleSaveOptions SaveOptions;
 		IImportProgressReporter* Progress = nullptr;
+		// Called only on the editor thread between candidate preparation and
+		// validation boundaries. Publication ignores cancellation once started.
+		std::function<bool()> IsCancellationRequested;
 	};
 
 	struct FMultiOutputExecutionResult

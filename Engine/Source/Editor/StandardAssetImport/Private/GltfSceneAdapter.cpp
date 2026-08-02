@@ -184,7 +184,7 @@ namespace Durin::Asset::Private
 		return Extension == "KHR_texture_transform";
 	}
 
-	auto ValidateGltfExtensions(FJsonNodeView Root, FAsyncMeshImportResult& Result) -> bool
+	auto ValidateGltfExtensions(FJsonNodeView Root, FSceneDecodeResult& Result) -> bool
 	{
 		std::unordered_set<std::string> Required;
 		const FJsonNodeView RequiredNode = Root.GetView("extensionsRequired");
@@ -195,6 +195,7 @@ namespace Durin::Asset::Private
 		}
 		for (size_t Index = 0; Index < RequiredNode.Num(); ++Index)
 		{
+			if (CheckSceneDecodeCancellation(Result, "extensionsRequired")) return false;
 			const FJsonNodeView ExtensionNode = RequiredNode.GetView(Index);
 			if (!ExtensionNode.IsString())
 			{
@@ -217,6 +218,7 @@ namespace Durin::Asset::Private
 		}
 		for (size_t Index = 0; Index < UsedNode.Num(); ++Index)
 		{
+			if (CheckSceneDecodeCancellation(Result, "extensionsUsed")) return false;
 			const FJsonNodeView ExtensionNode = UsedNode.GetView(Index);
 			if (!ExtensionNode.IsString())
 			{
@@ -244,7 +246,7 @@ namespace Durin::Asset::Private
 		const std::filesystem::path& RootPath,
 		std::string_view RootSourcePath,
 		FGltfSource& Source,
-		FAsyncMeshImportResult& Result) -> bool
+		FSceneDecodeResult& Result) -> bool
 	{
 		const FJsonNodeView Buffers = Root.GetView("buffers");
 		if (Buffers.IsValid() && !Buffers.IsArray())
@@ -255,6 +257,7 @@ namespace Durin::Asset::Private
 		Source.Buffers.resize(Buffers.Num());
 		for (size_t Index = 0; Index < Buffers.Num(); ++Index)
 		{
+			if (CheckSceneDecodeCancellation(Result, "buffers")) return false;
 			const FJsonNodeView Buffer = Buffers.GetView(Index);
 			const uint64 DeclaredLength = Buffer.GetView("byteLength").GetUInt(std::numeric_limits<uint64>::max());
 			if (!Buffer.IsObject() || DeclaredLength == std::numeric_limits<uint64>::max() ||
@@ -348,7 +351,7 @@ namespace Durin::Asset::Private
 		const std::filesystem::path& RootPath,
 		std::string_view RootSourcePath,
 		FGltfSource& Source,
-		FAsyncMeshImportResult& Result) -> bool
+		FSceneDecodeResult& Result) -> bool
 	{
 		const FJsonNodeView Images = Root.GetView("images");
 		if (Images.IsValid() && !Images.IsArray())
@@ -367,6 +370,7 @@ namespace Durin::Asset::Private
 		Result.Scene.Images.reserve(Images.Num());
 		for (size_t Index = 0; Index < Images.Num(); ++Index)
 		{
+			if (CheckSceneDecodeCancellation(Result, "images")) return false;
 			const FJsonNodeView Image = Images.GetView(Index);
 			if (!Image.IsObject())
 			{
@@ -532,7 +536,7 @@ namespace Durin::Asset::Private
 		EImportedTextureSemantic Semantic,
 		float DefaultStrength,
 		FImportedTextureBinding& OutBinding,
-		FAsyncMeshImportResult& Result,
+		FSceneDecodeResult& Result,
 		std::string_view Subject) -> bool
 	{
 		if (!TextureInfo.IsObject())
@@ -642,7 +646,7 @@ namespace Durin::Asset::Private
 		EImportedTextureSemantic Semantic,
 		float Strength,
 		FImportedMaterial& Material,
-		FAsyncMeshImportResult& Result,
+		FSceneDecodeResult& Result,
 		std::string_view Subject) -> bool
 	{
 		if (!TextureInfo.IsValid()) return true;
@@ -662,7 +666,7 @@ namespace Durin::Asset::Private
 	auto ImportGltfMaterials(
 		FJsonNodeView Root,
 		std::span<const uint32> SourceImageIndices,
-		FAsyncMeshImportResult& Result) -> bool
+		FSceneDecodeResult& Result) -> bool
 	{
 		const FJsonNodeView Materials = Root.GetView("materials");
 		if (Materials.IsValid() && !Materials.IsArray())
@@ -678,6 +682,7 @@ namespace Durin::Asset::Private
 		Result.Scene.Materials.reserve(Materials.Num());
 		for (size_t Index = 0; Index < Materials.Num(); ++Index)
 		{
+			if (CheckSceneDecodeCancellation(Result, "materials")) return false;
 			const FJsonNodeView MaterialNode = Materials.GetView(Index);
 			if (!MaterialNode.IsObject())
 			{
@@ -747,7 +752,7 @@ namespace Durin::Asset::Private
 	auto AppendGltfMeshProjection(
 		FJsonNodeView Meshes,
 		uint64 MeshIndex,
-		FAsyncMeshImportResult& Result,
+		FSceneDecodeResult& Result,
 		std::vector<uint32>& OutMeshMaterialIndices) -> bool
 	{
 		if (MeshIndex >= Meshes.Num())
@@ -763,6 +768,7 @@ namespace Durin::Asset::Private
 		}
 		for (size_t PrimitiveIndex = 0; PrimitiveIndex < Primitives.Num(); ++PrimitiveIndex)
 		{
+			if (CheckSceneDecodeCancellation(Result, "mesh-primitives")) return false;
 			const uint64 MaterialIndex =
 				Primitives.GetView(PrimitiveIndex).GetView("material").GetUInt(0);
 			if (MaterialIndex >= Result.Scene.Materials.size())
@@ -782,7 +788,7 @@ namespace Durin::Asset::Private
 		uint64 NodeIndex,
 		std::vector<uint8>& NodeStates,
 		std::vector<bool>& SeenMeshes,
-		FAsyncMeshImportResult& Result,
+		FSceneDecodeResult& Result,
 		std::vector<uint32>& OutMeshMaterialIndices) -> bool
 	{
 		if (NodeIndex >= Nodes.Num())
@@ -832,6 +838,7 @@ namespace Durin::Asset::Private
 		}
 		for (size_t ChildIndex = 0; ChildIndex < Children.Num(); ++ChildIndex)
 		{
+			if (CheckSceneDecodeCancellation(Result, "nodes")) return false;
 			uint64 ChildNodeIndex = 0;
 			if (!Children.GetView(ChildIndex).GetValue(ChildNodeIndex)
 				|| !VisitGltfProjectionNode(
@@ -847,7 +854,7 @@ namespace Durin::Asset::Private
 
 	auto BuildGltfAssimpMeshProjection(
 		FJsonNodeView Root,
-		FAsyncMeshImportResult& Result,
+		FSceneDecodeResult& Result,
 		std::vector<uint32>& OutMeshMaterialIndices) -> bool
 	{
 		const FJsonNodeView Meshes = Root.GetView("meshes");
@@ -875,6 +882,7 @@ namespace Durin::Asset::Private
 		std::vector<bool> SeenMeshes(Meshes.Num());
 		for (size_t RootNodeIndex = 0; RootNodeIndex < RootNodes.Num(); ++RootNodeIndex)
 		{
+			if (CheckSceneDecodeCancellation(Result, "scene-nodes")) return false;
 			uint64 NodeIndex = 0;
 			if (!RootNodes.GetView(RootNodeIndex).GetValue(NodeIndex)
 				|| !VisitGltfProjectionNode(
@@ -892,7 +900,7 @@ namespace Durin::Asset::Private
 		std::string_view RootSourcePath,
 		std::span<const uint8> RootBytes,
 		bool bGlb,
-		FAsyncMeshImportResult& Result,
+		FSceneDecodeResult& Result,
 		std::vector<uint32>& OutMeshMaterialIndices) -> bool
 	{
 		FGltfSource Source;

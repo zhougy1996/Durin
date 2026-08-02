@@ -1,5 +1,6 @@
 #include "ImportedSceneInternal.h"
 
+#include "AsyncImport.h"
 #include "Logging/LogMacros.h"
 
 #include <assimp/matrix3x3.h>
@@ -79,6 +80,12 @@ namespace Durin::Asset::Private
 
 		for (unsigned int VertexIndex = 0; VertexIndex < Mesh.mNumVertices; ++VertexIndex)
 		{
+			if ((VertexIndex & 0xfffu) == 0
+				&& AssetImport::IsImportCancellationRequested())
+			{
+				OutError = "Scene geometry decoding was canceled.";
+				return false;
+			}
 			const aiVector3D Position = Transform * Mesh.mVertices[VertexIndex];
 			if (!IsFinite(Position))
 			{
@@ -134,6 +141,12 @@ namespace Durin::Asset::Private
 		OutMesh.Indices.reserve(Mesh.mNumFaces * 3u);
 		for (unsigned int FaceIndex = 0; FaceIndex < Mesh.mNumFaces; ++FaceIndex)
 		{
+			if ((FaceIndex & 0xfffu) == 0
+				&& AssetImport::IsImportCancellationRequested())
+			{
+				OutError = "Scene geometry decoding was canceled.";
+				return false;
+			}
 			const aiFace& Face = Mesh.mFaces[FaceIndex];
 			if (Face.mNumIndices != 3)
 			{
@@ -163,6 +176,11 @@ namespace Durin::Asset::Private
 		FImportedSceneData& OutScene,
 		std::string& OutError) -> bool
 	{
+		if (AssetImport::IsImportCancellationRequested())
+		{
+			OutError = "Scene geometry decoding was canceled.";
+			return false;
+		}
 		const aiMatrix4x4 Transform = ParentTransform * Node.mTransformation;
 		for (unsigned int MeshReferenceIndex = 0; MeshReferenceIndex < Node.mNumMeshes; ++MeshReferenceIndex)
 		{

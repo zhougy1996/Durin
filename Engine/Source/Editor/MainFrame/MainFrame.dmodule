@@ -10,6 +10,7 @@
         "MonaCore",
         "Mona",
         "MonaImGui",
+		"AssetImportCore",
         "LevelEditor",
         "MaterialEditor",
         "TextureEditor",

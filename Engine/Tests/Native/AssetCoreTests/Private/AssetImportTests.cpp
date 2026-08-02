@@ -3,21 +3,11 @@
 #include "ImportedScene.h"
 #include "Json/Json.h"
 #include "NativeTestSupport.h"
-#include "Threading/Task.h"
 
 namespace Durin::Asset
 {
 	namespace
 	{
-		class FEngineThreadPoolTestGuard
-		{
-		public:
-			~FEngineThreadPoolTestGuard()
-			{
-				ShutdownTaskScheduler(false);
-			}
-		};
-
 		auto ExpectVec3Eq(const glm::vec3& Expected, const glm::vec3& Actual) -> void
 		{
 			EXPECT_FLOAT_EQ(Expected.x, Actual.x);
@@ -665,102 +655,4 @@ namespace Durin::Asset
 		EXPECT_EQ(Mesh.Indices, (std::vector<uint32>{0, 2, 1}));
 	}
 
-	TEST(FAssetImportTests, AsyncImportAppliesSourceCoordinateSystem)
-	{
-		ShutdownTaskScheduler(false);
-		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-
-		FAsyncMeshImportHandle Handle = ImportFromFileAsync(TestDataPath("AsymmetricAxes.obj"), MakeYUpNegativeZForwardOptions());
-		ASSERT_TRUE(Handle.IsValid());
-		Handle.Wait();
-
-		FAsyncMeshImportResult Result;
-		ASSERT_TRUE(Handle.TryGetResult(Result));
-		ASSERT_TRUE(Result.bSucceeded);
-		ASSERT_EQ(Result.Scene.Meshes.size(), 1u);
-		ExpectVec3Eq(glm::vec3(0.0f, 1.0f, 0.0f), Result.Scene.Meshes[0].Positions[1]);
-		ExpectVec3Eq(glm::vec3(-1.0f, 0.0f, 0.0f), Result.Scene.Meshes[0].Normals[0]);
-		EXPECT_EQ(Result.Scene.Meshes[0].Indices, (std::vector<uint32>{0, 2, 1}));
-	}
-
-	TEST(FAssetImportTests, ImportFromFileAsyncMatchesSynchronousImport)
-	{
-		ShutdownTaskScheduler(false);
-		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitializeTaskScheduler(2));
-
-		FImportedSceneData SyncScene;
-		ASSERT_TRUE(ImportFromFile(TestDataPath("Triangle.obj"), SyncScene));
-
-		FAsyncMeshImportHandle Handle = ImportFromFileAsync(TestDataPath("Triangle.obj"));
-		ASSERT_TRUE(Handle.IsValid());
-		EXPECT_STREQ("StandardAssetImport.Scene", Handle.GetDebugName());
-		EXPECT_FALSE(Handle.IsComplete());
-
-		Handle.Wait();
-
-		EXPECT_TRUE(Handle.IsComplete());
-
-		FAsyncMeshImportResult AsyncResult;
-		ASSERT_TRUE(Handle.TryGetResult(AsyncResult));
-		ASSERT_TRUE(AsyncResult.bSucceeded);
-		ASSERT_TRUE(AsyncResult.ErrorMessage.empty());
-		ASSERT_EQ(SyncScene.Meshes.size(), AsyncResult.Scene.Meshes.size());
-		ASSERT_EQ(SyncScene.MaterialSlots.size(), AsyncResult.Scene.MaterialSlots.size());
-		ASSERT_EQ(1u, AsyncResult.Scene.Meshes.size());
-
-		ExpectTriangleMesh(AsyncResult.Scene.Meshes[0]);
-		ExpectMeshEq(SyncScene.Meshes[0], AsyncResult.Scene.Meshes[0]);
-	}
-
-	TEST(FAssetImportTests, NormalizedMaterialImportMatchesExactlyAcrossSyncAndAsync)
-	{
-		ShutdownTaskScheduler(false);
-		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-		const std::string FilePath = TestDataPath("StaticModelMaterials/MaterialContract.gltf");
-		FMeshImportOptions Options;
-		Options.RootSource.Path = "/Game/Models/MaterialContract.gltf";
-
-		FImportedSceneData SyncScene;
-		ASSERT_TRUE(ImportFromFile(FilePath, SyncScene, Options));
-		FAsyncMeshImportHandle Handle = ImportFromFileAsync(FilePath, Options);
-		ASSERT_TRUE(Handle.IsValid());
-		Handle.Wait();
-		FAsyncMeshImportResult AsyncResult;
-		ASSERT_TRUE(Handle.TryGetResult(AsyncResult));
-		ASSERT_TRUE(AsyncResult.bSucceeded) << AsyncResult.ErrorMessage;
-
-		ExpectNormalizedSceneEq(SyncScene, AsyncResult.Scene);
-	}
-
-	TEST(FAssetImportTests, ImportFromFileAsyncReportsImporterFailure)
-	{
-		ShutdownTaskScheduler(false);
-		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitializeTaskScheduler(1));
-
-		FAsyncMeshImportHandle Handle = ImportFromFileAsync("Missing/NoSuchMesh.obj");
-		ASSERT_TRUE(Handle.IsValid());
-
-		Handle.Wait();
-
-		FAsyncMeshImportResult Result;
-		ASSERT_TRUE(Handle.TryGetResult(Result));
-		EXPECT_FALSE(Result.bSucceeded);
-		EXPECT_TRUE(Result.Scene.Meshes.empty());
-		EXPECT_FALSE(Result.ErrorMessage.empty());
-	}
-
-	TEST(FAssetImportTests, ImportFromFileAsyncReturnsInvalidHandleWhenThreadPoolStopped)
-	{
-		ShutdownTaskScheduler(false);
-		FEngineThreadPoolTestGuard Guard;
-
-		FAsyncMeshImportHandle Handle = ImportFromFileAsync(TestDataPath("Triangle.obj"));
-		EXPECT_FALSE(Handle.IsValid());
-		EXPECT_FALSE(Handle.IsComplete());
-		EXPECT_STREQ("", Handle.GetDebugName());
-	}
 }

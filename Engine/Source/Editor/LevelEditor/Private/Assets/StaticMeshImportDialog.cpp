@@ -37,8 +37,14 @@ namespace Durin
 	{
 	}
 
+	FStaticMeshImportDialog::~FStaticMeshImportDialog()
+	{
+		CancelRequests();
+	}
+
 	auto FStaticMeshImportDialog::Open(std::string_view DestinationDirectory) -> void
 	{
+		CancelRequests();
 		SourcePathBuffer.fill(0);
 		SourceDestinationBuffer.fill(0);
 		LastSuggestedSourceDestination.clear();
@@ -65,6 +71,14 @@ namespace Durin
 			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings
 		))
 			return;
+		if (PollImport())
+		{
+			ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			return;
+		}
+		const bool bImportPending = ImportRequest.has_value();
+		ImGui::BeginDisabled(bImportPending);
 
 		ImGui::TextUnformatted("Create a static mesh asset from a model file.");
 		ImGui::TextDisabled("Reference a mounted source in place, or ingest an external model into SourceAssets.");
@@ -149,6 +163,11 @@ namespace Durin
 		}
 		else
 		{
+			if (PreviewRequest)
+			{
+				CancelAndDrainSceneImportPlan(*PreviewRequest);
+				PreviewRequest.reset();
+			}
 			PreviewKey.clear();
 			Preview.reset();
 		}
@@ -210,8 +229,12 @@ namespace Durin
 			ValidationMessage = DestinationValidation.Message;
 		else if (!SourceDiagnostic.bValid)
 			ValidationMessage = SourceDiagnostic.Message;
+		else if (PreviewRequest)
+			ValidationMessage = "Preparing import preview...";
 		else if (Preview && !*Preview)
 			ValidationMessage = Preview->Message;
+		else if (ImportRequest)
+			ValidationMessage = "Import preparation is running...";
 
 		DrawImportDialogWarning(ValidationMessage);
 
@@ -220,8 +243,13 @@ namespace Durin
 		ImGui::BeginDisabled(!ValidationMessage.empty());
 		if (ImGui::Button("Import Static Mesh", ImVec2(MonaImGui::ScaleUI(150.0f), 0.0f)) && Import()) ImGui::CloseCurrentPopup();
 		ImGui::EndDisabled();
+		ImGui::EndDisabled();
 		ImGui::SameLine();
-		if (MonaImGui::DialogButton("Cancel", true)) ImGui::CloseCurrentPopup();
+		if (MonaImGui::DialogButton("Cancel", true))
+		{
+			CancelRequests();
+			ImGui::CloseCurrentPopup();
+		}
 		ImGui::EndPopup();
 	}
 
@@ -364,28 +392,40 @@ namespace Durin
 			static_cast<int32>(ImportSettings.ForwardAxis),
 			static_cast<int32>(ImportSettings.RightAxis),
 			static_cast<int32>(ImportSettings.UpAxis));
-		if (Key == PreviewKey) return;
-		PreviewKey = Key;
-		if (SourceMode == EMountedSourceImportMode::IngestExternal)
+		if (Key != PreviewKey)
 		{
+			if (PreviewRequest) CancelAndDrainSceneImportPlan(*PreviewRequest);
+			PreviewRequest.reset();
 			Preview.reset();
-			return;
+			PreviewKey = Key;
+			if (SourceMode == EMountedSourceImportMode::IngestExternal) return;
+			const PathUtilities::FSourcePathResult Source =
+				PathUtilities::ClassifySourcePath(SourcePathBuffer.data());
+			if (!Source)
+			{
+				Preview = FSceneImportPlanResult{.Message = Source.Message};
+				return;
+			}
+			PreviewRequest = BeginSceneImportPlan({
+				.RootSource = {.Path = Source.NormalizedVirtualPath},
+				.PrimaryOutput = RootAssetPath,
+				.MeshSettings = ImportSettings},
+				"LevelEditor.StaticMeshImportDialog.Preview");
 		}
-		const PathUtilities::FSourcePathResult Source =
-			PathUtilities::ClassifySourcePath(SourcePathBuffer.data());
-		if (!Source)
+		if (!PreviewRequest) return;
+		FSceneImportPlanResult Completed;
+		const AssetImport::EAsyncImportPlanStatus Status =
+			PollSceneImportPlan(*PreviewRequest, Completed);
+		if (Status != AssetImport::EAsyncImportPlanStatus::Pending)
 		{
-			Preview = FSceneImportPlanResult{.Message = Source.Message};
-			return;
+			Preview = std::move(Completed);
+			PreviewRequest.reset();
 		}
-		Preview = PlanSceneImport({
-			.RootSource = {.Path = Source.NormalizedVirtualPath},
-			.PrimaryOutput = RootAssetPath,
-			.MeshSettings = ImportSettings});
 	}
 
 	auto FStaticMeshImportDialog::Import() -> bool
 	{
+		if (ImportRequest) return false;
 		Callbacks.Clear();
 		FAssetPath RootPath;
 		std::string Error;
@@ -407,10 +447,22 @@ namespace Durin
 		// Source ingestion is an explicit authoring operation and remains even if
 		// the subsequent asset publication is rejected or fails.
 		CommitSceneSourceBundle(Sources);
-		const FSceneImportPlanResult Planned = PlanSceneImport({
+		ImportRequest = BeginSceneImportPlan({
 			.RootSource = Sources.RootSource,
 			.PrimaryOutput = RootPath,
-			.MeshSettings = ImportSettings});
+			.MeshSettings = ImportSettings},
+			"LevelEditor.StaticMeshImportDialog.Execute");
+		return false;
+	}
+
+	auto FStaticMeshImportDialog::PollImport() -> bool
+	{
+		if (!ImportRequest) return false;
+		FSceneImportPlanResult Planned;
+		const AssetImport::EAsyncImportPlanStatus Status =
+			PollSceneImportPlan(*ImportRequest, Planned);
+		if (Status == AssetImport::EAsyncImportPlanStatus::Pending) return false;
+		ImportRequest.reset();
 		if (!Planned)
 		{
 			SetError(Planned.Message);
@@ -428,6 +480,14 @@ namespace Durin
 			: Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs())
 			Asset::UnloadPackage(Asset.AssetPath);
 		return true;
+	}
+
+	auto FStaticMeshImportDialog::CancelRequests() -> void
+	{
+		if (PreviewRequest) CancelAndDrainSceneImportPlan(*PreviewRequest);
+		if (ImportRequest) CancelAndDrainSceneImportPlan(*ImportRequest);
+		PreviewRequest.reset();
+		ImportRequest.reset();
 	}
 
 	auto FStaticMeshImportDialog::SetError(std::string Message) const -> void

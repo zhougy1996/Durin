@@ -524,6 +524,15 @@ namespace Durin::AssetImport
 		std::unordered_map<std::string, FPreparedMultiOutput*> PreparedByIdentity;
 		for (FPreparedMultiOutput& Output : Prepared.Outputs)
 		{
+			if (Options.IsCancellationRequested
+				&& Options.IsCancellationRequested())
+			{
+				Result.Message = "Multi-output candidate validation was canceled.";
+				AddDiagnostic(Result.Diagnostics, EImportDiagnosticCategory::Canceled,
+					"candidate-validation", Output.StableIdentity, Result.Message);
+				AbandonPrepared(Prepared);
+				return Result;
+			}
 			if (Output.StableIdentity.empty()
 				|| !PreparedByIdentity.emplace(Output.StableIdentity, &Output).second
 				|| !Output.Candidate || !Output.Candidate->GetAsset()
@@ -577,6 +586,14 @@ namespace Durin::AssetImport
 				return Result;
 			}
 		}
+		if (Options.IsCancellationRequested && Options.IsCancellationRequested())
+		{
+			Result.Message = "Multi-output candidate preparation was canceled.";
+			AddDiagnostic(Result.Diagnostics, EImportDiagnosticCategory::Canceled,
+				"candidate-validation", "record", Result.Message);
+			AbandonPrepared(Prepared);
+			return Result;
+		}
 
 		FImportRecordState RecordState;
 		if (!BuildRecordState(Plan, PreparedByIdentity, RecordState, Result.Message))
@@ -602,6 +619,15 @@ namespace Durin::AssetImport
 		}
 		if (!RecordCandidate->SetState(std::move(RecordState), Result.Message))
 		{
+			(void)Asset::DiscardUnpublishedPackage(RecordCandidate->GetPackage());
+			AbandonPrepared(Prepared);
+			return Result;
+		}
+		if (Options.IsCancellationRequested && Options.IsCancellationRequested())
+		{
+			Result.Message = "Import-record candidate preparation was canceled.";
+			AddDiagnostic(Result.Diagnostics, EImportDiagnosticCategory::Canceled,
+				"candidate-validation", "record", Result.Message);
 			(void)Asset::DiscardUnpublishedPackage(RecordCandidate->GetPackage());
 			AbandonPrepared(Prepared);
 			return Result;

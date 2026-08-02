@@ -1,9 +1,11 @@
 #include <gtest/gtest.h>
 
 #include "AssetImportCore.h"
+#include "AsyncImport.h"
 #include "AssetSystem.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
+#include "Threading/Task.h"
 
 namespace
 {
@@ -133,6 +135,98 @@ namespace
 		std::string Id;
 		bool bMatches = true;
 	};
+
+	class FTaskSchedulerGuard
+	{
+	public:
+		~FTaskSchedulerGuard()
+		{
+			Durin::AssetImport::CancelAndDrainAllAsyncImports();
+			Durin::ShutdownTaskScheduler(false);
+		}
+	};
+
+	struct FBlockingProviderState
+	{
+		std::mutex Mutex;
+		std::condition_variable Condition;
+		bool bEntered = false;
+		bool bRelease = false;
+	};
+
+	class FBlockingGraphProvider final : public Durin::AssetImport::IImportProvider
+	{
+	public:
+		FBlockingGraphProvider(std::string InId,
+			std::shared_ptr<FBlockingProviderState> InState)
+			: Id(std::move(InId)), State(std::move(InState)) {}
+
+		auto GetProviderId() const -> std::string_view override { return Id; }
+		auto GetContractVersion() const -> Durin::uint32 override { return 1; }
+		auto CanImport(const Durin::AssetImport::FImportSourceRecognition& Source) const
+			-> bool override { return Source.Extension == ".graph"; }
+		auto CaptureSettings(Durin::AssetImport::FImportPayload& OutSettings,
+			std::vector<Durin::AssetImport::FImportDiagnostic>&) const -> bool override
+		{
+			OutSettings.SchemaId = "Tests.Blocking.Settings";
+			OutSettings.SchemaVersion = 1;
+			OutSettings.Bytes = {1};
+			return true;
+		}
+		auto DiscoverDependencies(
+			std::span<const Durin::AssetImport::FSourceSnapshotEntry>,
+			Durin::AssetImport::FDependencyRequestSink&,
+			std::vector<Durin::AssetImport::FImportDiagnostic>&) const -> bool override
+		{
+			return true;
+		}
+		auto Plan(const Durin::AssetImport::FSourceSnapshot&,
+			const Durin::AssetImport::FImportPayload&,
+			Durin::AssetImport::FImportPlanBuilder& Builder,
+			std::vector<Durin::AssetImport::FImportDiagnostic>&) const -> bool override
+		{
+			{
+				std::lock_guard Lock(State->Mutex);
+				State->bEntered = true;
+			}
+			State->Condition.notify_all();
+			std::unique_lock Lock(State->Mutex);
+			while (!State->bRelease
+				&& !Durin::AssetImport::IsImportCancellationRequested())
+				State->Condition.wait_for(Lock, std::chrono::milliseconds(1));
+			if (Durin::AssetImport::IsImportCancellationRequested()) return false;
+			Durin::FAssetPath Path;
+			if (!Durin::FAssetPath::TryCreate("/ImportCoreTests/Planned/blocking", Path))
+				return false;
+			Builder.AddOutput({
+				.StableIdentity = "blocking",
+				.Role = "Blocking",
+				.AssetPath = std::move(Path),
+				.AssetClassName = "Tests.GraphAsset"});
+			return true;
+		}
+
+	private:
+		std::string Id;
+		std::shared_ptr<FBlockingProviderState> State;
+	};
+
+	auto WaitForAsyncResult(
+		const Durin::AssetImport::FAsyncImportPlanHandle& Handle,
+		Durin::AssetImport::FImportPlanResult& OutResult)
+		-> Durin::AssetImport::EAsyncImportPlanStatus
+	{
+		for (Durin::uint32 Attempt = 0; Attempt < 5'000; ++Attempt)
+		{
+			(void)Durin::AssetImport::DrainAsyncImportCompletionMailbox();
+			const auto Status = Durin::AssetImport::TryTakeAsyncImportPlanResult(
+				Handle, OutResult);
+			if (Status != Durin::AssetImport::EAsyncImportPlanStatus::Pending)
+				return Status;
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+		return Durin::AssetImport::EAsyncImportPlanStatus::Pending;
+	}
 
 	class FProgressRecorder final : public Durin::AssetImport::IImportProgressReporter
 	{
@@ -421,4 +515,135 @@ TEST(FAssetImportCoreTests, ReportsSynchronousPhaseBoundariesAndDiagnosticContex
 	ASSERT_EQ(FailureProgress.Events.size(), 2u);
 	EXPECT_EQ(FailureProgress.Events.back().State,
 		Durin::AssetImport::EImportProgressState::Failed);
+}
+
+TEST(FAssetImportCoreTests, AsyncPreparationMatchesSynchronousPlan)
+{
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+	const std::filesystem::path Root =
+		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreAsyncEquivalence");
+	WriteSource(Root / "SourceAssets" / "Root.graph",
+		"graph\ndep child Child.graph\nembedded inline bytes\n");
+	WriteSource(Root / "SourceAssets" / "Child.graph", "graph\n");
+	const std::array Mounts = {MakeMount(Root)};
+	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
+	auto& Registry = Durin::AssetImport::GetProviderRegistry();
+	const std::string ProviderId = "Tests.AsyncEquivalence";
+	Durin::AssetImport::OpenAsyncImportProviderAdmission(ProviderId);
+	std::string Error;
+	ASSERT_TRUE(Registry.Register(
+		std::make_shared<FGraphProvider>(ProviderId), Error)) << Error;
+
+	Durin::AssetImport::FImportPlanRequest Request{
+		.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
+		.ProviderId = ProviderId};
+	Durin::AssetImport::FImportPlanResult Synchronous =
+		Durin::AssetImport::CreateImportPlan(Request, Registry);
+	ASSERT_TRUE(Synchronous) << Synchronous.Message;
+	const Durin::AssetImport::FAsyncImportPlanHandle Handle =
+		Durin::AssetImport::LaunchAsyncImportPlan(
+			Request, "Tests.AsyncEquivalence.Owner");
+	ASSERT_TRUE(Handle);
+	Durin::AssetImport::FImportPlanResult Asynchronous;
+	ASSERT_EQ(WaitForAsyncResult(Handle, Asynchronous),
+		Durin::AssetImport::EAsyncImportPlanStatus::Succeeded);
+	ASSERT_TRUE(Asynchronous) << Asynchronous.Message;
+	EXPECT_EQ(Synchronous.Plan.GetFingerprint(), Asynchronous.Plan.GetFingerprint());
+	EXPECT_TRUE(std::ranges::equal(
+		Synchronous.Plan.GetOutputs(), Asynchronous.Plan.GetOutputs()));
+	EXPECT_EQ(Synchronous.Diagnostics, Asynchronous.Diagnostics);
+
+	Synchronous = {};
+	Asynchronous = {};
+	EXPECT_EQ(Registry.GetOutstandingLeaseCount(ProviderId), 0u);
+	EXPECT_TRUE(Registry.Unregister(ProviderId));
+}
+
+TEST(FAssetImportCoreTests, NewOwnerSerialSupersedesOlderMailboxResult)
+{
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
+	const std::filesystem::path Root =
+		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreAsyncSerial");
+	WriteSource(Root / "SourceAssets" / "Root.graph", "graph\n");
+	const std::array Mounts = {MakeMount(Root)};
+	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
+	auto& Registry = Durin::AssetImport::GetProviderRegistry();
+	const std::string ProviderId = "Tests.AsyncSerial";
+	Durin::AssetImport::OpenAsyncImportProviderAdmission(ProviderId);
+	std::string Error;
+	ASSERT_TRUE(Registry.Register(
+		std::make_shared<FGraphProvider>(ProviderId), Error)) << Error;
+	const Durin::AssetImport::FImportPlanRequest Request{
+		.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
+		.ProviderId = ProviderId};
+	const auto First = Durin::AssetImport::LaunchAsyncImportPlan(
+		Request, "Tests.AsyncSerial.Owner");
+	const auto Second = Durin::AssetImport::LaunchAsyncImportPlan(
+		Request, "Tests.AsyncSerial.Owner");
+	ASSERT_LT(First.GetSerial(), Second.GetSerial());
+	Durin::AssetImport::FImportPlanResult FirstResult;
+	EXPECT_EQ(WaitForAsyncResult(First, FirstResult),
+		Durin::AssetImport::EAsyncImportPlanStatus::Superseded);
+	Durin::AssetImport::FImportPlanResult SecondResult;
+	EXPECT_EQ(WaitForAsyncResult(Second, SecondResult),
+		Durin::AssetImport::EAsyncImportPlanStatus::Succeeded);
+	EXPECT_TRUE(SecondResult);
+	SecondResult = {};
+	EXPECT_EQ(Registry.GetOutstandingLeaseCount(ProviderId), 0u);
+	EXPECT_TRUE(Registry.Unregister(ProviderId));
+}
+
+TEST(FAssetImportCoreTests, ProviderBarrierCancelsWorkerAndReleasesLeaseBeforeUnload)
+{
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
+	const std::filesystem::path Root =
+		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreAsyncUnload");
+	WriteSource(Root / "SourceAssets" / "Root.graph", "graph\n");
+	const std::array Mounts = {MakeMount(Root)};
+	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
+	auto& Registry = Durin::AssetImport::GetProviderRegistry();
+	const std::string ProviderId = "Tests.AsyncUnload";
+	Durin::AssetImport::OpenAsyncImportProviderAdmission(ProviderId);
+	const auto BlockingState = std::make_shared<FBlockingProviderState>();
+	std::string Error;
+	ASSERT_TRUE(Registry.Register(
+		std::make_shared<FBlockingGraphProvider>(ProviderId, BlockingState), Error))
+		<< Error;
+	const auto Handle = Durin::AssetImport::LaunchAsyncImportPlan({
+		.RootSource = {.Path = "/ImportCoreTests/Root.graph"},
+		.ProviderId = ProviderId}, "Tests.AsyncUnload.Owner");
+	ASSERT_TRUE(Handle);
+	{
+		std::unique_lock Lock(BlockingState->Mutex);
+		ASSERT_TRUE(BlockingState->Condition.wait_for(
+			Lock, std::chrono::seconds(5), [&] { return BlockingState->bEntered; }));
+	}
+	Durin::AssetImport::CancelAndDrainAsyncImportsForProvider(ProviderId);
+	EXPECT_EQ(Handle.GetStatus(), Durin::AssetImport::EAsyncImportPlanStatus::Canceled);
+	EXPECT_EQ(Registry.GetOutstandingLeaseCount(ProviderId), 0u);
+	EXPECT_TRUE(Registry.Unregister(ProviderId));
+}
+
+TEST(FAssetImportCoreTests, RejectedSchedulerLaunchIsReportedAsNeverAccepted)
+{
+	Durin::ShutdownTaskScheduler(false);
+	FTaskSchedulerGuard SchedulerGuard;
+	const auto Handle = Durin::AssetImport::LaunchAsyncImportPlan({
+		.RootSource = {.Path = "/ImportCoreTests/Unavailable.graph"},
+		.ProviderId = "Tests.Rejected"}, "Tests.Rejected.Owner");
+	ASSERT_TRUE(Handle);
+	EXPECT_EQ(Handle.GetStatus(), Durin::AssetImport::EAsyncImportPlanStatus::Rejected);
+	Durin::AssetImport::FImportPlanResult Result;
+	EXPECT_EQ(Durin::AssetImport::TryTakeAsyncImportPlanResult(Handle, Result),
+		Durin::AssetImport::EAsyncImportPlanStatus::Rejected);
+	ASSERT_FALSE(Result.Diagnostics.empty());
+	EXPECT_EQ(Result.Diagnostics.back().Category,
+		Durin::AssetImport::EImportDiagnosticCategory::AsyncFailure);
+	EXPECT_NE(Result.Message.find("never accepted"), std::string::npos);
 }

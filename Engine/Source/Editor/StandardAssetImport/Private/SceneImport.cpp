@@ -411,6 +411,7 @@ namespace Durin
 				FDependencyRequestSink& Sink,
 				std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool override
 			{
+				if (IsImportCancellationRequested()) return false;
 				const auto Root = std::ranges::find(
 					Sources, std::string_view("root"), &FSourceSnapshotEntry::StableIdentity);
 				if (Root == Sources.end()) return false;
@@ -423,7 +424,7 @@ namespace Durin
 						"dependency-discovery", "glTF contains an unsupported or unsafe URI.", "root");
 					return false;
 				}
-				return true;
+				return !IsImportCancellationRequested();
 			}
 			auto Plan(
 				const FSourceSnapshot& Snapshot,
@@ -431,6 +432,13 @@ namespace Durin
 				FImportPlanBuilder& Builder,
 				std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool override
 			{
+				auto CheckCanceled = [&]() -> bool {
+					if (!IsImportCancellationRequested()) return false;
+					AddDiagnostic(OutDiagnostics, EImportDiagnosticCategory::Canceled,
+						"scene-parse", "Scene import preparation was canceled.", "root");
+					return true;
+				};
+				if (CheckCanceled()) return false;
 				FDecodedSceneSettings Decoded;
 				std::string Error;
 				if (!DecodeSceneSettings(Settings, Decoded, Error))
@@ -447,9 +455,11 @@ namespace Durin
 						"scene-parse", Error, "root");
 					return false;
 				}
+				if (CheckCanceled()) return false;
 				uint64 MeshBytes = 0;
 				for (const Asset::FImportedMeshData& Mesh : Data->Scene.Meshes)
 				{
+					if (CheckCanceled()) return false;
 					MeshBytes += Mesh.Positions.size() * sizeof(Mesh.Positions.front());
 					MeshBytes += Mesh.Normals.size() * sizeof(Mesh.Normals.front());
 					MeshBytes += Mesh.Tangents.size() * sizeof(Mesh.Tangents.front());
@@ -463,7 +473,7 @@ namespace Durin
 					.StableIdentity = "scene:mesh:primary",
 					.Role = "StaticMesh",
 					.AssetPath = Decoded.PrimaryOutput,
-					.AssetClassName = DStaticMesh::StaticClass()->GetQualifiedName().ToString(),
+					.AssetClassName = "Durin::DStaticMesh",
 					.Policy = EImportOutputPolicy::Create,
 					.Collision = EImportCollisionAction::Create,
 					.EstimatedCpuBytes = MeshBytes,
@@ -486,6 +496,7 @@ namespace Durin
 				std::unordered_map<std::string, std::string> TextureByKey;
 				for (const uint32 MaterialIndex : MaterialIndices)
 				{
+					if (CheckCanceled()) return false;
 					const auto Material = std::ranges::find(
 						Data->Scene.Materials, MaterialIndex,
 						&Asset::FImportedMaterial::SourceMaterialIndex);
@@ -525,7 +536,7 @@ namespace Durin
 								.StableIdentity = TextureIdentity,
 								.Role = "Texture2D.BaseColor",
 								.AssetPath = TexturePath,
-								.AssetClassName = DTexture2D::StaticClass()->GetQualifiedName().ToString(),
+								.AssetClassName = "Durin::DTexture2D",
 								.Policy = EImportOutputPolicy::Create,
 								.Collision = EImportCollisionAction::Create,
 								.EstimatedCpuBytes = Image.EncodedByteCount * 4,
@@ -543,7 +554,7 @@ namespace Durin
 						.StableIdentity = MaterialIdentity,
 						.Role = "MaterialInstance",
 						.AssetPath = MaterialPath,
-						.AssetClassName = DMaterialInstance::StaticClass()->GetQualifiedName().ToString(),
+						.AssetClassName = "Durin::DMaterialInstance",
 						.Policy = EImportOutputPolicy::Create,
 						.Collision = EImportCollisionAction::Create,
 						.EstimatedCpuBytes = 4096,
@@ -572,6 +583,7 @@ namespace Durin
 							? "scene" : Diagnostic.Subject,
 						.Message = Diagnostic.Message});
 				}
+				if (CheckCanceled()) return false;
 				Builder.SetProviderData<FSceneProviderPlanData>(std::move(Data));
 				return true;
 			}
@@ -910,55 +922,13 @@ namespace Durin
 		return true;
 	}
 
-	auto PlanSceneImport(const FSceneImportRequest& Request) -> FSceneImportPlanResult
+	auto FinalizeSceneImportPlan(
+		const FSceneImportRequest& Request,
+		FImportPlanResult Generic) -> FSceneImportPlanResult
 	{
 		FSceneImportPlanResult Result;
 		FSceneDiagnosticScope DiagnosticScope(
 			Result.bSucceeded, Result.Message, Result.Diagnostics, "scene-plan");
-		if (Request.RootSource.IsEmpty() || !Request.PrimaryOutput.IsValid()
-			|| !Request.MeshSettings.IsValid(&Result.Message))
-		{
-			if (Result.Message.empty()) Result.Message =
-				"Scene import requires a mounted root source and valid primary output.";
-			return Result;
-		}
-		std::string Error;
-		if (!RegisterStandardAssetImportProviders(Error))
-		{
-			Result.Message = std::move(Error);
-			return Result;
-		}
-		ReportImportProgress(Request.Progress, EImportPhase::Snapshot,
-			EImportProgressState::Started);
-		FProviderRegistry& Providers = GetProviderRegistry();
-		const FProviderLease Provider = Providers.Find(SceneImportProviderId);
-		FSourceSnapshotBuilder SnapshotBuilder;
-		if (!SnapshotBuilder.CaptureRoot(Request.RootSource, Result.Diagnostics)
-			|| !SnapshotBuilder.DiscoverDependencies(Provider, Result.Diagnostics))
-		{
-			Result.Message = Result.Diagnostics.empty()
-				? "Scene source capture failed." : Result.Diagnostics.back().Message;
-			FinalizeImportDiagnostics(Result.Diagnostics, "source-capture");
-			ReportImportProgress(Request.Progress, EImportPhase::Snapshot,
-				EImportProgressState::Failed, "root", "request", 0, 0, Result.Message);
-			return Result;
-		}
-		std::shared_ptr<const FSourceSnapshot> Snapshot =
-			SnapshotBuilder.Freeze(Result.Diagnostics);
-		FImportPayload Settings;
-		if (!Snapshot || !MakeSceneSettings(
-			Request.PrimaryOutput, Request.MeshSettings, Settings, Result.Message))
-		{
-			ReportImportProgress(Request.Progress, EImportPhase::Snapshot,
-				EImportProgressState::Failed, "root", "request", 0, 0, Result.Message);
-			return Result;
-		}
-		ReportImportProgress(Request.Progress, EImportPhase::Snapshot,
-			EImportProgressState::Succeeded, "root", "request",
-			Snapshot->GetAggregateByteCount(), Snapshot->GetAggregateByteCount());
-		FImportPlanResult Generic = BuildImportPlan(
-			Provider, std::move(Snapshot), Settings, Providers.GetRevision(),
-			Result.Diagnostics, Request.Progress);
 		if (!Generic)
 		{
 			Result.Message = std::move(Generic.Message);
@@ -1016,6 +986,122 @@ namespace Durin
 			Result.Plan.MultiOutputPlan.GetGenericPlan().GetDiagnostics().end());
 		Result.bSucceeded = true;
 		return Result;
+	}
+
+	auto PlanSceneImport(const FSceneImportRequest& Request) -> FSceneImportPlanResult
+	{
+		FSceneImportPlanResult Invalid;
+		if (Request.RootSource.IsEmpty() || !Request.PrimaryOutput.IsValid()
+			|| !Request.MeshSettings.IsValid(&Invalid.Message))
+		{
+			if (Invalid.Message.empty()) Invalid.Message =
+				"Scene import requires a mounted root source and valid primary output.";
+			return Invalid;
+		}
+		std::string Error;
+		if (!RegisterStandardAssetImportProviders(Error))
+		{
+			Invalid.Message = std::move(Error);
+			return Invalid;
+		}
+		FImportPayload Settings;
+		if (!MakeSceneSettings(
+			Request.PrimaryOutput, Request.MeshSettings, Settings, Invalid.Message))
+			return Invalid;
+		FImportPlanResult Generic = CreateImportPlan({
+			.RootSource = Request.RootSource,
+			.ProviderId = std::string(SceneImportProviderId),
+			.Settings = std::move(Settings),
+			.Progress = Request.Progress}, GetProviderRegistry());
+		return FinalizeSceneImportPlan(Request, std::move(Generic));
+	}
+
+	auto FSceneImportAsyncPlanHandle::GetStatus() const
+		-> EAsyncImportPlanStatus
+	{
+		if (bConsumed) return EAsyncImportPlanStatus::Invalid;
+		if (ImmediateResult) return ImmediateResult->bSucceeded
+			? EAsyncImportPlanStatus::Succeeded : EAsyncImportPlanStatus::Failed;
+		return GenericHandle.GetStatus();
+	}
+
+	auto BeginSceneImportPlan(
+		const FSceneImportRequest& Request,
+		std::string_view OwnerId) -> FSceneImportAsyncPlanHandle
+	{
+		FSceneImportAsyncPlanHandle Handle;
+		Handle.Request = Request;
+		Handle.Request.Progress = nullptr;
+		FSceneImportPlanResult Invalid;
+		if (Request.RootSource.IsEmpty() || !Request.PrimaryOutput.IsValid()
+			|| !Request.MeshSettings.IsValid(&Invalid.Message))
+		{
+			if (Invalid.Message.empty()) Invalid.Message =
+				"Scene import requires a mounted root source and valid primary output.";
+			Handle.ImmediateResult = std::move(Invalid);
+			return Handle;
+		}
+		std::string Error;
+		if (!RegisterStandardAssetImportProviders(Error))
+		{
+			Invalid.Message = std::move(Error);
+			Handle.ImmediateResult = std::move(Invalid);
+			return Handle;
+		}
+		FImportPayload Settings;
+		if (!MakeSceneSettings(
+			Request.PrimaryOutput, Request.MeshSettings, Settings, Invalid.Message))
+		{
+			Handle.ImmediateResult = std::move(Invalid);
+			return Handle;
+		}
+		Handle.GenericHandle = LaunchAsyncImportPlan({
+			.RootSource = Request.RootSource,
+			.ProviderId = std::string(SceneImportProviderId),
+			.Settings = std::move(Settings)}, OwnerId);
+		return Handle;
+	}
+
+	auto PollSceneImportPlan(
+		FSceneImportAsyncPlanHandle& Handle,
+		FSceneImportPlanResult& OutResult) -> EAsyncImportPlanStatus
+	{
+		if (Handle.bConsumed) return EAsyncImportPlanStatus::Invalid;
+		if (Handle.ImmediateResult)
+		{
+			OutResult = std::move(*Handle.ImmediateResult);
+			Handle.ImmediateResult.reset();
+			Handle.bConsumed = true;
+			return OutResult ? EAsyncImportPlanStatus::Succeeded
+				: EAsyncImportPlanStatus::Failed;
+		}
+		(void)DrainAsyncImportCompletionMailbox();
+		FImportPlanResult Generic;
+		const EAsyncImportPlanStatus Status =
+			TryTakeAsyncImportPlanResult(Handle.GenericHandle, Generic);
+		if (Status == EAsyncImportPlanStatus::Pending) return Status;
+		if (Status == EAsyncImportPlanStatus::Succeeded)
+			OutResult = FinalizeSceneImportPlan(Handle.Request, std::move(Generic));
+		else
+		{
+			OutResult.Message = std::move(Generic.Message);
+			OutResult.Diagnostics = std::move(Generic.Diagnostics);
+			if (OutResult.Message.empty()) OutResult.Message =
+				"Asynchronous Scene import preparation did not complete.";
+		}
+		Handle.bConsumed = true;
+		return Status == EAsyncImportPlanStatus::Succeeded && !OutResult
+			? EAsyncImportPlanStatus::Failed : Status;
+	}
+
+	auto CancelAndDrainSceneImportPlan(
+		FSceneImportAsyncPlanHandle& Handle) -> void
+	{
+		if (Handle.bConsumed) return;
+		if (Handle.GenericHandle)
+			(void)CancelAndDrainAsyncImport(Handle.GenericHandle);
+		Handle.ImmediateResult.reset();
+		Handle.bConsumed = true;
 	}
 
 	auto PlanSceneReimport(
@@ -1101,9 +1187,24 @@ namespace Durin
 				EImportProgressState::Failed, "root", "request", 0, 0, Result.Message);
 			return std::move(Result);
 		};
+		auto IsCanceled = [&]() -> bool {
+			return Options.IsCancellationRequested
+				&& Options.IsCancellationRequested();
+		};
+		auto FailCanceled = [&]() -> FSceneImportExecutionResult {
+			Result.Diagnostics.push_back({
+				.Severity = EImportDiagnosticSeverity::Error,
+				.Category = EImportDiagnosticCategory::Canceled,
+				.Phase = "candidate-build",
+				.SourceIdentity = "root",
+				.OutputIdentity = "request",
+				.Message = "Scene candidate preparation was canceled."});
+			return FailPrepared("Scene candidate preparation was canceled.");
+		};
 		for (const FMultiOutputReconciliation& Entry
 			: Plan.MultiOutputPlan.GetReconciliation())
 		{
+			if (IsCanceled()) return FailCanceled();
 			if (Entry.ProposedAction != EMultiOutputProposedAction::Reference) continue;
 			DObject* Referenced = nullptr;
 			const Asset::FAssetResult Load = Asset::LoadAsset(Entry.AssetPath, Referenced);
@@ -1117,6 +1218,7 @@ namespace Durin
 		for (const FMultiOutputReconciliation& Entry
 			: Plan.MultiOutputPlan.GetReconciliation())
 		{
+			if (IsCanceled()) return FailCanceled();
 			if (Entry.ProposedAction != EMultiOutputProposedAction::Create
 				&& Entry.ProposedAction != EMultiOutputProposedAction::ReplaceManaged) continue;
 			DObject* Target = nullptr;
@@ -1149,6 +1251,7 @@ namespace Durin
 		};
 		for (const auto& [Identity, Descriptor] : OutputData)
 		{
+			if (IsCanceled()) return FailCanceled();
 			if (Descriptor->Kind != ESceneOutputKind::Texture2D) continue;
 			FPreparedMultiOutput* Output = FindPrepared(Identity);
 			if (!Output) continue;
@@ -1197,6 +1300,7 @@ namespace Durin
 
 		for (const auto& [Identity, Descriptor] : OutputData)
 		{
+			if (IsCanceled()) return FailCanceled();
 			if (Descriptor->Kind != ESceneOutputKind::MaterialInstance) continue;
 			FPreparedMultiOutput* Output = FindPrepared(Identity);
 			if (!Output) continue;
@@ -1235,6 +1339,7 @@ namespace Durin
 			? FindPrepared(MeshDescriptor->StableIdentity) : nullptr;
 		if (MeshOutput)
 		{
+			if (IsCanceled()) return FailCanceled();
 			auto* Mesh = Cast<DStaticMesh>(MeshOutput->Candidate->GetAsset());
 			const FSourceSnapshotEntry* Root =
 				Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot().FindSource("root");
@@ -1276,6 +1381,7 @@ namespace Durin
 		ReportImportProgress(Options.Progress, EImportPhase::CandidateBuild,
 			EImportProgressState::Succeeded, "root", "request",
 			Prepared.Outputs.size(), Prepared.Outputs.size());
+		if (IsCanceled()) return FailCanceled();
 		FMultiOutputExecutionResult Executed = ExecuteMultiOutputImport(
 			Plan.MultiOutputPlan, std::move(Prepared), GetImportRecordIndex(), Options);
 		if (Executed)

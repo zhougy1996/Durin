@@ -1,5 +1,7 @@
 #include "ImportedSceneInternal.h"
 
+#include "AsyncImport.h"
+
 #include <fstream>
 
 namespace Durin::Asset::Private
@@ -31,7 +33,7 @@ namespace Durin::Asset::Private
 	}
 
 	auto FailImport(
-		FAsyncMeshImportResult& Result,
+		FSceneDecodeResult& Result,
 		EImportDiagnosticCategory Category,
 		std::string Subject,
 		std::string Message,
@@ -45,6 +47,16 @@ namespace Durin::Asset::Private
 		Result.Scene.MaterialSlots.clear();
 		Result.Scene.Meshes.clear();
 		return false;
+	}
+
+	auto CheckSceneDecodeCancellation(
+		FSceneDecodeResult& Result,
+		std::string_view Subject) -> bool
+	{
+		if (!AssetImport::IsImportCancellationRequested()) return false;
+		(void)FailImport(Result, EImportDiagnosticCategory::InvalidValue,
+			std::string(Subject), "Scene decoding was canceled.");
+		return true;
 	}
 
 	auto ReadFileBytes(
@@ -72,8 +84,25 @@ namespace Durin::Asset::Private
 			return false;
 		}
 		OutBytes.resize(static_cast<size_t>(Size));
-		if (Size > 0) Stream.read(reinterpret_cast<char*>(OutBytes.data()), static_cast<std::streamsize>(Size));
-		if (!Stream.good() && !Stream.eof())
+		constexpr size_t CancellationChunkBytes = 4ull * 1024ull * 1024ull;
+		bool bRead = true;
+		for (size_t Offset = 0; Offset < OutBytes.size();
+			Offset += CancellationChunkBytes)
+		{
+			if (AssetImport::IsImportCancellationRequested())
+			{
+				OutError = "Scene source read was canceled.";
+				OutBytes.clear();
+				return false;
+			}
+			const size_t Count = std::min(
+				CancellationChunkBytes, OutBytes.size() - Offset);
+			Stream.read(reinterpret_cast<char*>(OutBytes.data() + Offset),
+				static_cast<std::streamsize>(Count));
+			bRead = Stream.gcount() == static_cast<std::streamsize>(Count);
+			if (!bRead) break;
+		}
+		if (!bRead)
 		{
 			OutError = std::format("Could not read all bytes from '{}'.", Path.generic_string());
 			OutBytes.clear();

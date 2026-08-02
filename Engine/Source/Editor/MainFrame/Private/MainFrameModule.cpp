@@ -1,5 +1,7 @@
 #include "MainFrameModule.h"
 
+#include "AsyncImport.h"
+
 #include "ProjectBrowser.h"
 #include "ProfilingToolService.h"
 
@@ -443,6 +445,7 @@ namespace Durin
 		RootWindow->ReshapeWindow({100.0f, 100.0f}, {static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
 
 		ProjectBrowser->SetOpenProject([WorkspaceManager, bWorkspaceReady, WeakRootWindow, LevelEditorModulePtr, MaterialEditorModulePtr, TextureEditorModulePtr](std::string_view ProjectFile, std::string& OutError) {
+			AssetImport::CancelAndDrainAllAsyncImports();
 			FProjectInitializationParams Params;
 			Params.RequestedProjectFile = ProjectFile;
 			if (!InitializeCurrentProject(Params, &OutError)) return false;

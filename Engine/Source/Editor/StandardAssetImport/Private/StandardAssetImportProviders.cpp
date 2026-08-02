@@ -7,6 +7,7 @@
 #include "Materials/MaterialInstance.h"
 #include "SceneImport.h"
 #include "SceneImportInternal.h"
+#include "AsyncImport.h"
 #include "StaticMeshImportAdapter.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
@@ -698,6 +699,9 @@ namespace Durin
 	{
 		std::lock_guard Lock(GRegistrationMutex);
 		if (GRegistered) { OutError.clear(); return true; }
+		AssetImport::OpenAsyncImportProviderAdmission(SceneImportProviderId);
+		AssetImport::OpenAsyncImportProviderAdmission("Assimp");
+		AssetImport::OpenAsyncImportProviderAdmission("DurinImage");
 		if (!GStaticMeshSourceDecoderRegistered)
 		{
 			GStaticMeshSourceDecoderRegistered =
@@ -757,6 +761,9 @@ namespace Durin
 	{
 		std::lock_guard Lock(GRegistrationMutex);
 		if (!GRegistered) return;
+		AssetImport::CancelAndDrainAsyncImportsForProvider(SceneImportProviderId);
+		AssetImport::CancelAndDrainAsyncImportsForProvider("Assimp");
+		AssetImport::CancelAndDrainAsyncImportsForProvider("DurinImage");
 		auto& Handlers = AssetImport::GetSingleAssetHandlerRegistry();
 		Handlers.Unregister("Durin::DStaticMesh");
 		Handlers.Unregister("Durin::DTexture2D");
