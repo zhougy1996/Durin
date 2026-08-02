@@ -15,6 +15,7 @@
 #include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
+#include "StandardAssetImportProviders.h"
 #include "Texture/Texture2D.h"
 
 namespace Durin
@@ -37,6 +38,8 @@ namespace Durin
 		MaterialSnapshotSurvivesTextureReplacementProxyClosureAndAssetUnload)
 	{
 		InitializeDObjectSystem();
+		std::string ProviderError;
+		ASSERT_TRUE(RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
 		InitRenderingThread();
 		const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "EditorTextureSmoke";
 		static std::unordered_set<std::filesystem::path> InitializedRoots;

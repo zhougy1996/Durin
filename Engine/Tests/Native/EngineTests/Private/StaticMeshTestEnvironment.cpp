@@ -1,5 +1,6 @@
 #include "EngineTestSupport.h"
 #include "RenderingThread.h"
+#include "StandardAssetImportProviders.h"
 
 #include <gtest/gtest.h>
 
@@ -12,6 +13,8 @@ namespace
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
+			std::string Error;
+			ASSERT_TRUE(Durin::RegisterStandardAssetImportProviders(Error)) << Error;
 			ASSERT_EQ(
 				Durin::GetRenderCommandAdmissionState(),
 				Durin::ERenderCommandAdmissionState::Stopped);
@@ -25,6 +28,7 @@ namespace
 				Durin::ERenderCommandAdmissionState::Running);
 			Durin::FlushRenderingCommands();
 			Durin::ShutdownRenderingThread();
+			Durin::UnregisterStandardAssetImportProviders();
 		}
 	};
 

@@ -195,8 +195,8 @@ durin_add_engine_functional_test(StaticMeshTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
-	DEPLOY_TARGETS RHI RenderCore Renderer DurinEd
+	LIBRARIES StandardAssetImport RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
+	DEPLOY_TARGETS StandardAssetImport RHI RenderCore Renderer DurinEd
 	RUNTIME_FILES assimp::assimp
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
@@ -353,8 +353,8 @@ durin_add_engine_functional_test(EditorRenderingTests
 		Private/RendererRenderTargetLayoutTests.cpp
 		Private/RendererSceneViewTests.cpp
 		Private/EditorTextureSmokeTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd
-	DEPLOY_TARGETS ApplicationCore RHI RenderCore Renderer DurinEd
+	LIBRARIES ApplicationCore StandardAssetImport RenderCore Renderer DurinEd
+	DEPLOY_TARGETS ApplicationCore StandardAssetImport RHI RenderCore Renderer DurinEd
 	RUNTIME_FILES Slang_Imported
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
