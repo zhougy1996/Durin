@@ -8,6 +8,7 @@ namespace Durin
 	{
 	public:
 		FRunnableThreadStd() = default;
+		~FRunnableThreadStd() override;
 
 		auto Kill(bool bShouldWait = false) -> void override;
 		auto Suspend(bool bShouldPause = true) -> void override;
@@ -19,5 +20,6 @@ namespace Durin
 
 		std::thread Thread;
 		std::atomic<bool> bStopRequested = false;
+		std::atomic<bool> bCompleted = false;
 	};
 }

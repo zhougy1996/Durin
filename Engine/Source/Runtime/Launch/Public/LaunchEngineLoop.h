@@ -9,6 +9,7 @@ namespace Durin
 	struct FEngineStartupParams
 	{
 		bool bSuppressWindowDisplay = false;
+		bool bRunTaskSchedulerLifecycleSmoke = false;
 		FProjectInitializationParams Project;
 	};
 
@@ -16,7 +17,8 @@ namespace Durin
 	class FEngineLoop
 	{
 	public:
-		auto PreInit(const FEngineStartupParams& Params) -> void;
+		// Returns false when mandatory process services cannot be initialized safely.
+		auto PreInit(const FEngineStartupParams& Params) -> bool;
 		auto Init() -> void;
 		auto Tick() -> void;
 		auto Exit() -> void;
@@ -24,6 +26,7 @@ namespace Durin
 	private:
 		// Previous tick timestamp in the platform clock's seconds domain.
 		double LastTickTime = 0.0;
+		bool bRunTaskSchedulerLifecycleSmoke = false;
 	};
 
 	extern FEngineLoop GEngineLoop;

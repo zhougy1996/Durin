@@ -192,7 +192,7 @@ directly:
 | Step | Boundary |
 | --- | --- |
 | Detach render consumers | Shut down Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
-| Stop CPU work | Stop accepting thread-pool work and drain accepted tasks. |
+| Stop CPU work | Close process task-scheduler admission and drain every accepted task and dependency to a terminal state. |
 | Drain objects | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
 | Unload modules | Run reverse-order module shutdown only after no deferred object's virtual cleanup can target an unloading module. |
 | Close render admission | Enqueue the final RenderCore audit while admission is still open, then atomically close it. |
@@ -209,6 +209,11 @@ references:
   shutdown or their owning module's `ShutdownModule()`;
 - consumers retain stable counted RHI references or non-owning snapshots only
   while their component, viewport, scene, or preview owner remains attached.
+
+The process scheduler starts once in `PreInit()` and stops once here; the normal
+engine never restarts it. Task admission, dependencies, cancellation, waiting,
+diagnostics, worker helping, and CPU-side ownership rules are defined in
+`Documentation/Runtime/Core/TaskSystem.md`.
 
 The shutdown object drain has exactly one release collection, one render flush,
 and one finalization collection. It does not retry until an invalid owner
@@ -303,3 +308,4 @@ be placed inside `check` or `checkf`.
 - `Documentation/Editor/Architecture/WorkspaceFramework.md`
 - `Documentation/Plans/MultithreadingV1.md`
 - `Documentation/Runtime/Rendering/ViewportRendering.md`
+- `Documentation/Runtime/Core/TaskSystem.md`

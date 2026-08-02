@@ -6,6 +6,23 @@
 
 namespace Durin
 {
+	FRunnableThreadStd::~FRunnableThreadStd()
+	{
+		if (!Thread.joinable())
+		{
+			return;
+		}
+
+		if (bCompleted.load(std::memory_order::acquire))
+		{
+			WaitForCompletion();
+		}
+		else
+		{
+			Kill(true);
+		}
+	}
+
 	auto FRunnableThreadStd::Kill(bool bShouldWait) -> void
 	{
 		if (bStopRequested.exchange(true, std::memory_order::acq_rel))
@@ -60,27 +77,50 @@ namespace Durin
 
 	auto FRunnableThreadStd::CreateInternal(FRunnable* InRunnable, const char* InThreadName, uint32 InStackSize, EThreadPriority InThreadPriority, EThreadRole InThreadRole) -> bool
 	{
-		ThreadName = InThreadName;
+		if (InStackSize != 0)
+		{
+			DURIN_WARN("Thread creation rejected because custom stack sizes are unsupported. (name: {}, stack size: {})", InThreadName ? InThreadName : "", InStackSize);
+			return false;
+		}
+
+		if (InThreadPriority != EThreadPriority::Normal)
+		{
+			DURIN_WARN("Thread creation rejected because custom priorities are unsupported. (name: {}, priority: {})", InThreadName ? InThreadName : "", static_cast<uint32>(InThreadPriority));
+			return false;
+		}
+
+		ThreadName = InThreadName ? InThreadName : "Thread";
 		Runnable = InRunnable;
 		ThreadPriority = InThreadPriority;
 		ThreadRole = InThreadRole;
 		bStopRequested.store(false, std::memory_order::release);
+		bCompleted.store(false, std::memory_order::release);
 
-		Thread = std::thread([this]() {
-			ThreadId.store(FPlatformLTS::GetCurrentThreadId(), std::memory_order::release);
-			this->AsCurrentThread();
-			DURIN_PROFILE_THREAD(GetThreadName());
-			DURIN_DEBUG("Thread started. (name: {}, id: {}, role: {})", GetThreadName(), GetThreadId(), GetThreadRoleName(GetThreadRole()));
+		try
+		{
+			Thread = std::thread([this]() {
+				ThreadId.store(FPlatformLTS::GetCurrentThreadId(), std::memory_order::release);
+				this->AsCurrentThread();
+				DURIN_PROFILE_THREAD(GetThreadName());
+				DURIN_DEBUG("Thread started. (name: {}, id: {}, role: {})", GetThreadName(), GetThreadId(), GetThreadRoleName(GetThreadRole()));
 
-			const bool bInitialized = Runnable->Init();
-			if (bInitialized)
-			{
-				Runnable->Run();
-			}
-			Runnable->Exit();
+				const bool bInitialized = Runnable->Init();
+				if (bInitialized)
+				{
+					Runnable->Run();
+				}
+				Runnable->Exit();
+				bCompleted.store(true, std::memory_order::release);
 
-			DURIN_DEBUG("Thread exited. (name: {}, id: {}, role: {})", GetThreadName(), GetThreadId(), GetThreadRoleName(GetThreadRole()));
-		});
+				DURIN_DEBUG("Thread exited. (name: {}, id: {}, role: {})", GetThreadName(), GetThreadId(), GetThreadRoleName(GetThreadRole()));
+			});
+		}
+		catch (const std::exception& Exception)
+		{
+			DURIN_ERROR("Thread creation failed. (name: {}, error: {})", GetThreadName(), Exception.what());
+			Runnable = nullptr;
+			return false;
+		}
 
 		ThreadId.store(PlatformGetThreadIdFromStdThread(Thread), std::memory_order::release);
 		return true;

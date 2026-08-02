@@ -14,13 +14,11 @@ namespace Durin
 		{
 			std::string Name;
 			FQueuedWorkFunction Function;
+			FQueuedWorkDiscardFunction Discard;
 		};
 
-		std::mutex GThreadPoolMutex;
-		std::unique_ptr<FQueuedThreadPool> GThreadPoolStorage;
+		thread_local const void* GCurrentQueuedThreadPool = nullptr;
 	}
-
-	FQueuedThreadPool* GThreadPool = nullptr;
 
 	class FQueuedThreadPool::FImpl
 	{
@@ -53,7 +51,7 @@ namespace Durin
 			Destroy(false);
 		}
 
-		auto Create(uint32 InNumThreads, const char* InPoolName) -> bool
+		auto Create(uint32 InNumThreads, const char* InPoolName, uint32 WorkerCreationFailureIndex) -> bool
 		{
 			if (InNumThreads == 0)
 			{
@@ -83,7 +81,9 @@ namespace Durin
 				{
 					auto Runnable = std::make_unique<FWorkerRunnable>(*this);
 					std::string WorkerName = PoolName + "-" + std::to_string(WorkerIndex);
-					FRunnableThread* Thread = FRunnableThread::Create(Runnable.get(), WorkerName.c_str(), 0, EThreadPriority::Normal, EThreadRole::WorkerThread);
+					FRunnableThread* Thread = WorkerIndex == WorkerCreationFailureIndex
+						? nullptr
+						: FRunnableThread::Create(Runnable.get(), WorkerName.c_str(), 0, EThreadPriority::Normal, EThreadRole::WorkerThread);
 					if (!Thread)
 					{
 						DURIN_WARN("Queued thread pool worker creation failed. (pool: {}, worker: {})", PoolName, WorkerIndex);
@@ -112,6 +112,7 @@ namespace Durin
 		{
 			std::vector<std::unique_ptr<FRunnableThread>> ThreadsToJoin;
 			std::vector<std::unique_ptr<FWorkerRunnable>> RunnablesToDestroy;
+			std::deque<FQueuedWork> DiscardedWork;
 			std::string DestroyedPoolName;
 			size_t DestroyedWorkerCount = 0;
 
@@ -129,13 +130,15 @@ namespace Durin
 				bDrainQueuedWorkOnStop = bWaitForQueuedWork;
 				if (!bWaitForQueuedWork)
 				{
-					Queue.clear();
+					DiscardedWork = std::move(Queue);
 					NotifyIdleIfNeeded();
 				}
 
 				ThreadsToJoin = std::move(WorkerThreads);
 				RunnablesToDestroy = std::move(WorkerRunnables);
 			}
+
+			DiscardWork(std::move(DiscardedWork));
 
 			WorkAvailableCV.notify_all();
 
@@ -164,7 +167,7 @@ namespace Durin
 			bAcceptingWork = false;
 		}
 
-		auto Enqueue(const char* TaskName, FQueuedWorkFunction&& Work) -> bool
+		auto Enqueue(const char* TaskName, FQueuedWorkFunction&& Work, FQueuedWorkDiscardFunction&& Discard) -> bool
 		{
 			if (!Work)
 			{
@@ -181,6 +184,7 @@ namespace Durin
 				Queue.emplace_back(FQueuedWork{
 					TaskName ? TaskName : "QueuedWork",
 					std::move(Work),
+					std::move(Discard),
 				});
 			}
 
@@ -200,12 +204,19 @@ namespace Durin
 			return true;
 		}
 
-		auto WaitForIdle() -> void
+		auto WaitForIdle() -> bool
 		{
+			if (GCurrentQueuedThreadPool == this)
+			{
+				DURIN_WARN("Queued thread pool idle wait rejected from one of its workers. (pool: {})", PoolName);
+				return false;
+			}
+
 			std::unique_lock Lock(Mutex);
 			IdleCV.wait(Lock, [this]() {
 				return Queue.empty() && ActiveTaskCount == 0;
 			});
+			return true;
 		}
 
 		auto GetNumThreads() const -> uint32
@@ -229,6 +240,7 @@ namespace Durin
 	private:
 		auto RequestStop(bool bWaitForQueuedWork) -> void
 		{
+			std::deque<FQueuedWork> DiscardedWork;
 			{
 				std::lock_guard Lock(Mutex);
 				bAcceptingWork = false;
@@ -236,16 +248,19 @@ namespace Durin
 				bDrainQueuedWorkOnStop = bWaitForQueuedWork;
 				if (!bWaitForQueuedWork)
 				{
-					Queue.clear();
+					DiscardedWork = std::move(Queue);
 					NotifyIdleIfNeeded();
 				}
 			}
+			DiscardWork(std::move(DiscardedWork));
 
 			WorkAvailableCV.notify_all();
 		}
 
 		auto RunWorkerLoop() -> void
 		{
+			const void* PreviousPool = GCurrentQueuedThreadPool;
+			GCurrentQueuedThreadPool = this;
 			while (true)
 			{
 				FQueuedWork Work;
@@ -272,6 +287,7 @@ namespace Durin
 
 				ExecuteQueuedWork(std::move(Work));
 			}
+			GCurrentQueuedThreadPool = PreviousPool;
 		}
 
 		auto TryDequeueWork(FQueuedWork& OutWork) -> bool
@@ -297,13 +313,48 @@ namespace Durin
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("QueuedTask.Execute");
 			DURIN_TRACE("Queued task started. (task: {}, thread: {}, id: {})", Work.Name, GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
-			Work.Function();
+			try
+			{
+				Work.Function();
+			}
+			catch (const std::exception& Exception)
+			{
+				DURIN_ERROR("Queued task escaped its callable boundary. (task: {}, error: {})", Work.Name, Exception.what());
+			}
+			catch (...)
+			{
+				DURIN_ERROR("Queued task escaped its callable boundary with an unknown exception. (task: {})", Work.Name);
+			}
 			DURIN_TRACE("Queued task finished. (task: {}, thread: {}, id: {})", Work.Name, GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
 
 			{
 				std::lock_guard Lock(Mutex);
 				--ActiveTaskCount;
 				NotifyIdleIfNeeded();
+			}
+		}
+
+		auto DiscardWork(std::deque<FQueuedWork>&& WorkItems) -> void
+		{
+			for (FQueuedWork& Work : WorkItems)
+			{
+				if (!Work.Discard)
+				{
+					continue;
+				}
+
+				try
+				{
+					Work.Discard();
+				}
+				catch (const std::exception& Exception)
+				{
+					DURIN_ERROR("Queued task discard callback failed. (task: {}, error: {})", Work.Name, Exception.what());
+				}
+				catch (...)
+				{
+					DURIN_ERROR("Queued task discard callback failed with an unknown exception. (task: {})", Work.Name);
+				}
 			}
 		}
 
@@ -338,9 +389,9 @@ namespace Durin
 
 	FQueuedThreadPool::~FQueuedThreadPool() = default;
 
-	auto FQueuedThreadPool::Create(uint32 InNumThreads, const char* InPoolName) -> bool
+	auto FQueuedThreadPool::Create(uint32 InNumThreads, const char* InPoolName, uint32 WorkerCreationFailureIndex) -> bool
 	{
-		return Impl->Create(InNumThreads, InPoolName);
+		return Impl->Create(InNumThreads, InPoolName, WorkerCreationFailureIndex);
 	}
 
 	auto FQueuedThreadPool::Destroy(bool bWaitForQueuedWork) -> void
@@ -353,9 +404,9 @@ namespace Durin
 		Impl->StopAcceptingWork();
 	}
 
-	auto FQueuedThreadPool::Enqueue(const char* TaskName, FQueuedWorkFunction&& Work) -> bool
+	auto FQueuedThreadPool::Enqueue(const char* TaskName, FQueuedWorkFunction&& Work, FQueuedWorkDiscardFunction&& Discard) -> bool
 	{
-		return Impl->Enqueue(TaskName, std::move(Work));
+		return Impl->Enqueue(TaskName, std::move(Work), std::move(Discard));
 	}
 
 	auto FQueuedThreadPool::TryExecuteOneQueuedTask() -> bool
@@ -363,9 +414,9 @@ namespace Durin
 		return Impl->TryExecuteOneQueuedTask();
 	}
 
-	auto FQueuedThreadPool::WaitForIdle() -> void
+	auto FQueuedThreadPool::WaitForIdle() -> bool
 	{
-		Impl->WaitForIdle();
+		return Impl->WaitForIdle();
 	}
 
 	auto FQueuedThreadPool::GetNumThreads() const -> uint32
@@ -394,42 +445,4 @@ namespace Durin
 		return HardwareThreadCount - 2;
 	}
 
-	auto InitEngineThreadPool(uint32 InNumThreads) -> bool
-	{
-		std::lock_guard Lock(GThreadPoolMutex);
-		if (GThreadPool && GThreadPool->IsRunning())
-		{
-			DURIN_WARN("Engine thread pool initialization ignored because it is already running. (workers: {})", GThreadPool->GetNumThreads());
-			return true;
-		}
-
-		const uint32 NumThreads = InNumThreads > 0 ? InNumThreads : GetDefaultThreadPoolThreadCount();
-		GThreadPoolStorage = std::make_unique<FQueuedThreadPool>();
-		if (!GThreadPoolStorage->Create(NumThreads, "EngineWorker"))
-		{
-			GThreadPoolStorage.reset();
-			GThreadPool = nullptr;
-			return false;
-		}
-
-		GThreadPool = GThreadPoolStorage.get();
-		DURIN_DEBUG("Engine thread pool initialized. (workers: {})", GThreadPool->GetNumThreads());
-		return true;
-	}
-
-	auto ShutdownEngineThreadPool(bool bWaitForQueuedWork) -> void
-	{
-		std::unique_ptr<FQueuedThreadPool> ThreadPoolToDestroy;
-		{
-			std::lock_guard Lock(GThreadPoolMutex);
-			ThreadPoolToDestroy = std::move(GThreadPoolStorage);
-			GThreadPool = nullptr;
-		}
-
-		if (ThreadPoolToDestroy)
-		{
-			ThreadPoolToDestroy->Destroy(bWaitForQueuedWork);
-			DURIN_DEBUG("Engine thread pool shut down. (drained: {})", bWaitForQueuedWork);
-		}
-	}
 }

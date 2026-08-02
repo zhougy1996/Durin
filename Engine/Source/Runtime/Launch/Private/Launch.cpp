@@ -39,6 +39,10 @@ int LAUNCH_API main(int argc, char** argv)
 		{
 			StartupParams.bSuppressWindowDisplay = true;
 		}
+		else if (Argument == "--task-scheduler-lifecycle-smoke")
+		{
+			StartupParams.bRunTaskSchedulerLifecycleSmoke = true;
+		}
 		else if (Argument == "--project-browser")
 		{
 			StartupParams.Project.bOpenProjectBrowser = true;
@@ -58,7 +62,11 @@ int LAUNCH_API main(int argc, char** argv)
 		StartupParams.Project.RequestedProjectFile = *ProjectEqualsArgument;
 	else if (ProjectSeparateArgument)
 		StartupParams.Project.RequestedProjectFile = *ProjectSeparateArgument;
-	GEngineLoop.PreInit(StartupParams);
+	if (!GEngineLoop.PreInit(StartupParams))
+	{
+		LoggerShutdown();
+		return 1;
+	}
 	GEngineLoop.Init();
 
 	uint64 CompletedTicks = 0;

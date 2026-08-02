@@ -3,7 +3,7 @@
 #include "AssetImport.h"
 #include "Json/Json.h"
 #include "NativeTestSupport.h"
-#include "Threading/QueuedThreadPool.h"
+#include "Threading/Task.h"
 
 namespace Durin::Asset
 {
@@ -14,7 +14,7 @@ namespace Durin::Asset
 		public:
 			~FEngineThreadPoolTestGuard()
 			{
-				ShutdownEngineThreadPool(false);
+				ShutdownTaskScheduler(false);
 			}
 		};
 
@@ -667,9 +667,9 @@ namespace Durin::Asset
 
 	TEST(FAssetImportTests, AsyncImportAppliesSourceCoordinateSystem)
 	{
-		ShutdownEngineThreadPool(false);
+		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitEngineThreadPool(1));
+		ASSERT_TRUE(InitializeTaskScheduler(1));
 
 		FAsyncMeshImportHandle Handle = ImportFromFileAsync(TestDataPath("AsymmetricAxes.obj"), MakeYUpNegativeZForwardOptions());
 		ASSERT_TRUE(Handle.IsValid());
@@ -686,9 +686,9 @@ namespace Durin::Asset
 
 	TEST(FAssetImportTests, ImportFromFileAsyncMatchesSynchronousImport)
 	{
-		ShutdownEngineThreadPool(false);
+		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitEngineThreadPool(2));
+		ASSERT_TRUE(InitializeTaskScheduler(2));
 
 		FImportedSceneData SyncScene;
 		ASSERT_TRUE(ImportFromFile(TestDataPath("Triangle.obj"), SyncScene));
@@ -716,9 +716,9 @@ namespace Durin::Asset
 
 	TEST(FAssetImportTests, NormalizedMaterialImportMatchesExactlyAcrossSyncAndAsync)
 	{
-		ShutdownEngineThreadPool(false);
+		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitEngineThreadPool(1));
+		ASSERT_TRUE(InitializeTaskScheduler(1));
 		const std::string FilePath = TestDataPath("StaticModelMaterials/MaterialContract.gltf");
 		FMeshImportOptions Options;
 		Options.RootSource.Path = "/Game/Models/MaterialContract.gltf";
@@ -737,9 +737,9 @@ namespace Durin::Asset
 
 	TEST(FAssetImportTests, ImportFromFileAsyncReportsImporterFailure)
 	{
-		ShutdownEngineThreadPool(false);
+		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
-		ASSERT_TRUE(InitEngineThreadPool(1));
+		ASSERT_TRUE(InitializeTaskScheduler(1));
 
 		FAsyncMeshImportHandle Handle = ImportFromFileAsync("Missing/NoSuchMesh.obj");
 		ASSERT_TRUE(Handle.IsValid());
@@ -755,7 +755,7 @@ namespace Durin::Asset
 
 	TEST(FAssetImportTests, ImportFromFileAsyncReturnsInvalidHandleWhenThreadPoolStopped)
 	{
-		ShutdownEngineThreadPool(false);
+		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
 
 		FAsyncMeshImportHandle Handle = ImportFromFileAsync(TestDataPath("Triangle.obj"));

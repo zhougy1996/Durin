@@ -5,6 +5,8 @@
 #include "RHICommandList.h"
 #include "RenderResource.h"
 #include "RenderingThread.h"
+#include "Threading/Task.h"
+#include "Threading/ThreadEvent.h"
 
 namespace Durin
 {
@@ -89,6 +91,7 @@ namespace Durin
 
 			void TearDown() override
 			{
+				ShutdownTaskScheduler(false);
 				FlushRenderingCommands();
 				EXPECT_EQ(GetNumInitializedRenderResources(), 0u);
 				EXPECT_EQ(GetNumPendingRenderResourceCleanup(), 0u);
@@ -109,6 +112,22 @@ namespace Durin
 			static constexpr auto GetName() -> const char*
 			{
 				return "AcceptedBeforeAdmissionClose";
+			}
+		};
+
+		struct FAcceptedDuringSchedulerDrainCommand
+		{
+			static constexpr auto GetName() -> const char*
+			{
+				return "AcceptedDuringSchedulerDrain";
+			}
+		};
+
+		struct FRejectedAfterIntegratedShutdownCommand
+		{
+			static constexpr auto GetName() -> const char*
+			{
+				return "RejectedAfterIntegratedShutdown";
 			}
 		};
 	}
@@ -207,6 +226,104 @@ namespace Durin
 		InitRenderingThread();
 		EXPECT_EQ(GetRenderCommandAdmissionState(),
 			ERenderCommandAdmissionState::Running);
+	}
+
+	TEST_F(FRenderResourceLifecycleTests,
+		SchedulerDrainCompletesBeforeRenderAdmissionCloses)
+	{
+		ShutdownTaskScheduler(false);
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		FThreadEvent ProbeStarted;
+		std::atomic<bool> bRenderCommandAccepted = false;
+		std::atomic<bool> bRenderCommandExecuted = false;
+		std::atomic<bool> bTaskAdmissionRejected = false;
+		FTaskHandle Probe = LaunchTask("RenderLifecycle.AdmissionProbe", [&]() {
+			ProbeStarted.Trigger();
+			while (IsTaskSchedulerRunning())
+			{
+				std::this_thread::yield();
+			}
+			bRenderCommandAccepted.store(
+				FRenderThreadCommandPipe::TryEnqueue<
+					FAcceptedDuringSchedulerDrainCommand>(
+					[&bRenderCommandExecuted](FRHICommandListImmediate&) {
+						bRenderCommandExecuted.store(
+							true, std::memory_order_release);
+					}),
+				std::memory_order_release);
+			bTaskAdmissionRejected.store(
+				!LaunchTask("RenderLifecycle.RejectedAfterClose", []() {}).IsValid(),
+				std::memory_order_release);
+		});
+		ASSERT_TRUE(ProbeStarted.WaitFor(1.0));
+
+		ShutdownTaskScheduler(true);
+
+		EXPECT_EQ(ETaskState::Succeeded, Probe.GetState());
+		EXPECT_TRUE(bTaskAdmissionRejected.load(std::memory_order_acquire));
+		EXPECT_TRUE(bRenderCommandAccepted.load(std::memory_order_acquire));
+		FlushRenderingCommands();
+		EXPECT_TRUE(bRenderCommandExecuted.load(std::memory_order_acquire));
+		const FTaskSchedulerDiagnostics SchedulerDiagnostics =
+			GetTaskSchedulerDiagnostics();
+		EXPECT_FALSE(SchedulerDiagnostics.bRunning);
+		EXPECT_EQ(0u, SchedulerDiagnostics.NonterminalTaskCount);
+		EXPECT_GE(SchedulerDiagnostics.RejectedTaskCount, 1u);
+		EXPECT_GE(SchedulerDiagnostics.RetainedTerminalHandleCount, 1u);
+
+		ShutdownRenderingThread();
+		EXPECT_EQ(ERenderCommandAdmissionState::Stopped,
+			GetRenderCommandAdmissionState());
+		EXPECT_EQ(0u, GetNumPendingRenderCommands());
+		EXPECT_FALSE(FRenderThreadCommandPipe::TryEnqueue<
+			FRejectedAfterIntegratedShutdownCommand>(
+			[](FRHICommandListImmediate&) {}));
+
+		InitRenderingThread();
+	}
+
+	TEST_F(FRenderResourceLifecycleTests,
+		SchedulerDiscardCancelsAcceptedWorkAndRetainedHandlesSurviveRestart)
+	{
+		ShutdownTaskScheduler(false);
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		FThreadEvent RunningTaskStarted;
+		FTaskHandle RunningTask = LaunchCancelableTask(
+			"RenderLifecycle.RunningDuringDiscard",
+			[&RunningTaskStarted](const FTaskCancellationToken& Token) {
+				RunningTaskStarted.Trigger();
+				while (!Token.IsCancellationRequested())
+				{
+					std::this_thread::yield();
+				}
+			});
+		ASSERT_TRUE(RunningTaskStarted.WaitFor(1.0));
+		FTaskHandle QueuedTask = LaunchTask(
+			"RenderLifecycle.QueuedDuringDiscard", []() {});
+		ASSERT_TRUE(QueuedTask.IsValid());
+
+		ShutdownTaskScheduler(false);
+
+		EXPECT_EQ(ETaskState::Canceled, RunningTask.GetState());
+		EXPECT_EQ(ETaskState::Canceled, QueuedTask.GetState());
+		const FTaskSchedulerDiagnostics DiscardDiagnostics =
+			GetTaskSchedulerDiagnostics();
+		EXPECT_FALSE(DiscardDiagnostics.bRunning);
+		EXPECT_EQ(0u, DiscardDiagnostics.NonterminalTaskCount);
+		EXPECT_EQ(0u, DiscardDiagnostics.ActiveWorkerCount);
+		EXPECT_GE(DiscardDiagnostics.CanceledTaskCount, 2u);
+		EXPECT_GE(DiscardDiagnostics.RetainedTerminalHandleCount, 2u);
+
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FTaskHandle RestartedTask = LaunchTask(
+			"RenderLifecycle.AfterRestart", []() {});
+		ASSERT_TRUE(RestartedTask.IsValid());
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(RestartedTask));
+		EXPECT_EQ(ETaskState::Canceled, RunningTask.GetState());
+		EXPECT_EQ(ETaskState::Canceled, QueuedTask.GetState());
+		ShutdownTaskScheduler(true);
 	}
 
 	TEST_F(FRenderResourceLifecycleTests,

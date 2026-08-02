@@ -225,6 +225,12 @@ completes initialization, executes the requested number of engine ticks, and
 uses the normal `FEngineLoop::Exit` path; this option does not impose a
 wall-clock timeout or force-terminate the process.
 
+Append `--task-scheduler-lifecycle-smoke` to that argument list when qualifying
+the process task scheduler. This diagnostic-only workload starts controlled
+short, long, dependent, failed, canceled, waiting, and parallel CPU tasks at
+exit, then audits admission close, drain outcomes, and final scheduler
+diagnostics before rendering shutdown continues.
+
 Do not repeat `--project` or `--project=...` after `--args` when the typed
 `--project` option is present; DurinDevTool rejects the two project selectors as
 ambiguous. Raw project selection after `--args` remains accepted for backwards

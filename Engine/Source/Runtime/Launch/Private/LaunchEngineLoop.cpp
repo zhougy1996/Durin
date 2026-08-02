@@ -1,7 +1,8 @@
 #include "LaunchEngineLoop.h"
 
-#include "Threading/QueuedThreadPool.h"
 #include "Threading/RunnableThread.h"
+#include "Threading/Task.h"
+#include "Threading/ThreadEvent.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "ApplicationCore.h"
@@ -36,14 +37,171 @@ namespace Durin
 {
 	constexpr std::string_view AppConfigFileName = DURIN_RUNTIME_VARIANT ".yaml";
 
+	namespace
+	{
+		struct FEngineTaskSchedulerLifecycleSmoke
+		{
+			auto Begin() -> void
+			{
+				ShortTask = LaunchTask("EngineSmoke.Short", []() {});
+				std::array<FTaskHandle, 1> ShortPrerequisites{ShortTask};
+				FTaskLaunchOptions DependentOptions;
+				DependentOptions.Prerequisites = ShortPrerequisites;
+				DependentTask = LaunchTask(
+					"EngineSmoke.Dependent", []() {}, DependentOptions);
+
+				FailedTask = LaunchTask("EngineSmoke.Failure", []() {
+					throw std::runtime_error("intentional engine lifecycle smoke failure");
+				});
+				std::array<FTaskHandle, 1> FailedPrerequisites{FailedTask};
+				FTaskLaunchOptions FailedDependentOptions;
+				FailedDependentOptions.Prerequisites = FailedPrerequisites;
+				FailedDependentTask = LaunchTask(
+					"EngineSmoke.FailureDependent", []() {},
+					FailedDependentOptions);
+
+				CancelableTask = LaunchCancelableTask(
+					"EngineSmoke.Canceled",
+					[](const FTaskCancellationToken& Token) {
+						while (!Token.IsCancellationRequested())
+						{
+							std::this_thread::yield();
+						}
+					});
+				checkf(CancelTask(CancelableTask),
+					"Engine scheduler lifecycle smoke could not cancel its task.");
+
+				ParallelTask = LaunchTask("EngineSmoke.ParallelFor", [this]() {
+					constexpr uint64 Num = 65'536;
+					std::vector<uint64> Output(Num);
+					FParallelForOptions Options;
+					Options.MinBatchSize = 256;
+					ParallelResult = ParallelFor(
+						"EngineSmoke.ParallelWork", Num,
+						[&Output](uint64 Index) {
+							uint64 Value = Index + 0x9e3779b97f4a7c15ull;
+							for (uint32 Round = 0; Round < 64; ++Round)
+							{
+								Value ^= Value >> 12;
+								Value ^= Value << 25;
+								Value ^= Value >> 27;
+								Value *= 0x2545f4914f6cdd1dull;
+							}
+							Output[Index] = Value;
+						}, Options);
+					ParallelChecksum = Output[Num / 2];
+				});
+
+				WaiterTask = LaunchTask("EngineSmoke.Waiter", [this]() {
+					WaitedState = WaitTask(DependentTask);
+				});
+
+				checkf(ShortTask.IsValid() && DependentTask.IsValid()
+					&& FailedTask.IsValid()
+					&& FailedDependentTask.IsValid() && CancelableTask.IsValid()
+					&& ParallelTask.IsValid() && WaiterTask.IsValid(),
+					"Engine scheduler lifecycle smoke could not launch its workload.");
+				const std::array<FTaskHandle, 7> QualificationTasks{
+					ShortTask, DependentTask, FailedTask, FailedDependentTask,
+					CancelableTask, ParallelTask, WaiterTask};
+				WaitAll(QualificationTasks);
+
+				AdmissionProbe = LaunchTask("EngineSmoke.AdmissionProbe", [this]() {
+					AdmissionProbeStarted.Trigger();
+					while (IsTaskSchedulerRunning())
+					{
+						std::this_thread::yield();
+					}
+					bAdmissionRejected = !LaunchTask(
+						"EngineSmoke.RejectedAfterClose", []() {}).IsValid();
+				});
+				checkf(AdmissionProbe.IsValid(),
+					"Engine scheduler lifecycle smoke could not launch its admission probe.");
+				checkf(AdmissionProbeStarted.WaitFor(1.0),
+					"Engine scheduler lifecycle smoke admission probe did not start.");
+				SlowTask = LaunchTask("EngineSmoke.Long", []() {
+					std::this_thread::sleep_for(std::chrono::milliseconds(200));
+				});
+				checkf(SlowTask.IsValid(),
+					"Engine scheduler lifecycle smoke could not launch its long task.");
+				const FTaskSchedulerDiagnostics Diagnostics =
+					GetTaskSchedulerDiagnostics();
+				checkf(Diagnostics.bRunning
+					&& Diagnostics.NonterminalTaskCount > 0,
+					"Engine scheduler lifecycle smoke found no active workload before exit.");
+			}
+
+			auto ValidateAfterShutdown() const -> void
+			{
+				checkf(!IsTaskSchedulerRunning(),
+					"Engine scheduler lifecycle smoke left the scheduler running.");
+				checkf(bAdmissionRejected,
+					"Engine scheduler lifecycle smoke admitted work after close.");
+				checkf(AdmissionProbe.GetState() == ETaskState::Succeeded
+					&& SlowTask.GetState() == ETaskState::Succeeded
+					&& ShortTask.GetState() == ETaskState::Succeeded
+					&& DependentTask.GetState() == ETaskState::Succeeded
+					&& WaiterTask.GetState() == ETaskState::Succeeded,
+					"Engine scheduler lifecycle smoke did not drain accepted work.");
+				checkf(FailedTask.GetState() == ETaskState::Failed
+					&& FailedDependentTask.GetState() == ETaskState::Canceled
+					&& CancelableTask.GetState() == ETaskState::Canceled,
+					"Engine scheduler lifecycle smoke produced incorrect failure or cancellation propagation.");
+				checkf(WaitedState == ETaskState::Succeeded,
+					"Engine scheduler lifecycle smoke waiter observed the wrong state.");
+				checkf(ParallelTask.GetState() == ETaskState::Succeeded
+					&& ParallelResult.State == ETaskState::Succeeded
+					&& ParallelResult.ChunkCount > 1 && ParallelChecksum != 0,
+					"Engine scheduler lifecycle smoke parallel workload failed.");
+
+				const FTaskSchedulerDiagnostics Diagnostics =
+					GetTaskSchedulerDiagnostics();
+				checkf(!Diagnostics.bRunning
+					&& Diagnostics.NonterminalTaskCount == 0
+					&& Diagnostics.ActiveWorkerCount == 0
+					&& Diagnostics.FailedTaskCount >= 1
+					&& Diagnostics.CanceledTaskCount >= 2
+					&& Diagnostics.RejectedTaskCount >= 1
+					&& Diagnostics.LongWaitCount >= 1
+					&& Diagnostics.RetainedTerminalHandleCount >= 9,
+					"Engine scheduler lifecycle smoke diagnostics were incomplete.");
+				DURIN_INFO(
+					"Task scheduler lifecycle smoke passed. (completed: {}, failed: {}, canceled: {}, rejected: {}, long waits: {}, retained handles: {})",
+					Diagnostics.CompletedTaskCount,
+					Diagnostics.FailedTaskCount,
+					Diagnostics.CanceledTaskCount,
+					Diagnostics.RejectedTaskCount,
+					Diagnostics.LongWaitCount,
+					Diagnostics.RetainedTerminalHandleCount);
+			}
+
+			FThreadEvent AdmissionProbeStarted;
+			FTaskHandle AdmissionProbe;
+			FTaskHandle SlowTask;
+			FTaskHandle ShortTask;
+			FTaskHandle DependentTask;
+			FTaskHandle FailedTask;
+			FTaskHandle FailedDependentTask;
+			FTaskHandle CancelableTask;
+			FTaskHandle ParallelTask;
+			FTaskHandle WaiterTask;
+			FParallelForResult ParallelResult;
+			ETaskState WaitedState = ETaskState::Invalid;
+			uint64 ParallelChecksum = 0;
+			bool bAdmissionRejected = false;
+		};
+	}
+
 	FEngineLoop GEngineLoop;
 
-	auto FEngineLoop::PreInit(const FEngineStartupParams& Params) -> void
+	auto FEngineLoop::PreInit(const FEngineStartupParams& Params) -> bool
 	{
 		DURIN_PROFILE_THREAD("GameThread");
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
 		GIsWindowDisplaySuppressed = Params.bSuppressWindowDisplay;
+		bRunTaskSchedulerLifecycleSmoke =
+			Params.bRunTaskSchedulerLifecycleSmoke;
 
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
@@ -71,10 +229,15 @@ namespace Durin
 		checkf(
 			PathUtilities::InitDefaultMountPoints(&MountError),
 			"Failed to initialize mount registry: {}", MountError);
-		InitEngineThreadPool();
+		if (!InitializeTaskScheduler())
+		{
+			DURIN_ERROR("Engine pre-initialization failed because the task scheduler could not start.");
+			return false;
+		}
 
 		FModuleManager::Get().LoadModule("RenderCore");
 		DObjectInit();
+		return true;
 	}
 
 	auto FEngineLoop::Init() -> void
@@ -198,9 +361,21 @@ namespace Durin
 
 	auto FEngineLoop::Exit() -> void
 	{
+		std::unique_ptr<FEngineTaskSchedulerLifecycleSmoke> TaskSchedulerSmoke;
+		if (bRunTaskSchedulerLifecycleSmoke)
+		{
+			TaskSchedulerSmoke =
+				std::make_unique<FEngineTaskSchedulerLifecycleSmoke>();
+			TaskSchedulerSmoke->Begin();
+		}
+
 		FModuleManager::Get().ShutdownModule("Mona");
 
-		ShutdownEngineThreadPool(true);
+		ShutdownTaskScheduler(true);
+		if (TaskSchedulerSmoke)
+		{
+			TaskSchedulerSmoke->ValidateAfterShutdown();
+		}
 
 		RemoveFromRoot(GEngine);
 		MarkObjectHierarchyAsGarbage(GEngine);

@@ -4,15 +4,22 @@ Summary: Production-safe CPU scheduler lifecycle, task states, dependencies, can
 
 Last reviewed: 2026-08-02
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-02
 
 ## Current Status
 
-Durin has the foundations of a CPU task system, but the public task API is not
-yet safe enough to become a general runtime dependency.
+V1 is complete. The process scheduler now has a UE-style one-start,
+one-shutdown engine lifetime, observable terminal outcomes, immutable
+dependencies, cooperative cancellation, bounded waiting and worker helping,
+diagnostics, and a measured `ParallelFor`. Sequential restarts remain available
+only for isolated tests and programs, and scheduler instances never overlap.
+The complete native-test suite, full `all` build, and hidden-window editor exit
+with representative CPU work passed on `Win64-Debug-DurinEditor-Tests`.
+`Documentation/Runtime/Core/TaskSystem.md` now owns the lasting task-system and
+thread-ownership contracts; `RuntimeLifecycle.md` owns process shutdown order.
 
-Implemented today:
+Established before Stage 1:
 
 - named `FRunnableThread` instances with game, rendering, worker, and IO roles
 - cooperative stop, join, thread identity queries, and unsupported
@@ -28,9 +35,36 @@ Implemented today:
   rejection of late commands, accepted-command drain, render-resource audit,
   and deterministic rendering-thread termination
 
-The focused task validation recorded before this revision covered the existing
-thread, pool, handle, and wait suites. Later rendering lifecycle work added
-command-admission and shutdown coverage. There is not yet one V1
+Stage 1 added:
+
+- process-owned scheduler admission and shutdown without public raw-pool access
+- serialized `Stopped`, `Running`, and `ShuttingDown` scheduler lifetime plus
+  accepted-node quiescence
+- `Waiting`, `Queued`, `Running`, `Succeeded`, `Failed`, and `Canceled` task
+  states, copied diagnostics, and outcome-returning waits
+- explicit queued-work discard callbacks and exception-safe pool bookkeeping
+- callable failure capture for standard and unknown exceptions
+- mandatory scheduler startup failure propagation through engine `PreInit()`
+- safe joinable native-thread destruction and explicit rejection of unsupported
+  stack-size and priority requests
+- deterministic rejection of self-wait, rendering-thread wait, same-pool worker
+  idle wait, and restart while shutdown is in progress
+
+Stage 2 added:
+
+- scheduler-owned nonterminal task nodes with immutable prerequisite lists
+- exactly-once release for dependency chains, fan-in, fan-out, and terminal
+  registration races
+- failure and cancellation propagation without executing blocked dependents
+- per-task cancellation plus shared cancellation sources and callable tokens
+- cooperative running-task cancellation with exception-over-cancellation
+  precedence
+- outcome-preserving `WaitAll` and graph-aware drain/discard quiescence
+
+Stages 1 through 3 validate the thread, pool, scheduler, handle, dependency,
+cancellation, failure, discard, drain, admission-close, serialized lifecycle,
+wait boundaries, bounded parallel loops, and queryable diagnostics. Existing
+rendering lifecycle work covers command admission and shutdown. There is not yet one V1
 qualification run covering concurrent scheduler shutdown, discarded task
 handles, callable failures, dependency propagation, cancellation races,
 `ParallelFor`, editor shutdown under CPU load, and the final full editor smoke
@@ -100,9 +134,14 @@ ownership model before scheduler integration is designed.
   submission. `FQueuedThreadPool` remains a low-level primitive for its owning
   scheduler, focused tests, and explicitly owned dedicated pools; callers do not
   acquire or retain the process scheduler's raw pool or `GThreadPool` storage.
-- Every successful scheduler initialization receives a monotonically increasing,
-  nonzero generation. A task node and its public handles retain that generation
-  without retaining raw scheduler or pool storage.
+- The engine starts the process scheduler once during `PreInit()` and shuts it
+  down once during `Exit()`. Core keeps explicit sequential startup/shutdown for
+  isolated tests and programs, but initialization during `ShuttingDown` is
+  rejected and two process scheduler instances never overlap.
+- Task nodes and public handles do not expose scheduler generations. A node
+  weakly references its owning scheduler only where waiting and terminal
+  bookkeeping require lifetime participation; retained terminal handles remain
+  queryable after scheduler shutdown.
 - Submission acquires scheduler lifetime participation before testing admission.
   Acceptance publishes and counts the task node before participation is
   released. Shutdown closes admission at one linearization boundary, waits for
@@ -188,9 +227,10 @@ ownership model before scheduler integration is designed.
 
 - Prerequisites are immutable after submission. A task is queued exactly once
   when all prerequisites succeed.
-- The dependency API accepts only valid, already-submitted tasks from the current
-  scheduler generation. Every new edge therefore points to an older published
-  node, which makes cycles structurally impossible.
+- The dependency API accepts only valid, already-submitted tasks owned by the
+  currently running scheduler instance. Every new edge therefore points to an
+  older published node, which makes cycles structurally impossible. Retained
+  handles from an earlier sequential test/program lifetime are rejected.
 - Registration handles prerequisites that become terminal concurrently: the
   dependent is either registered before terminal fan-out or observes the
   terminal state itself, never both and never neither.
@@ -220,10 +260,9 @@ ownership model before scheduler integration is designed.
 
 - Game-thread waits are allowed only at explicit synchronization points and
   never while holding subsystem or registry locks.
-- A worker waiting for a task from its own scheduler generation may execute an
+- A worker waiting for a task owned by its scheduler instance may execute an
   eligible queued task while retaining scheduler lifetime participation. It
-  does not help a different or stale generation and never executes itself or a
-  dependent that is still waiting.
+  never executes itself or a dependent that is still waiting.
 - Self-wait is rejected deterministically. Dependency cycles are prevented by
   publication order, and defensive diagnostics reject any internal violation
   rather than spinning or recursing forever.
@@ -232,8 +271,8 @@ ownership model before scheduler integration is designed.
   quiescence rather than using pool idle as a substitute.
 - Routine waits on the rendering thread are unsupported. Render work uses render
   fences and game/render frame synchronization.
-- Long waits report the waiting task or thread, target task ID and state,
-  scheduler generation, and elapsed duration without changing wait semantics.
+- Long waits report the waiting task or thread, target task ID and state, and
+  elapsed duration without changing wait semantics.
 
 ### `ParallelFor`
 
@@ -268,10 +307,9 @@ ownership model before scheduler integration is designed.
 - Enqueue, start, and finish timestamps use one monotonic clock. Queue delay and
   duration are derived from that clock and never from wall-clock time.
 - Aggregate queue depth, active workers, completed, failed, canceled, rejected,
-  and long-wait counters are scoped by scheduler generation. Shutdown reports
-  accepted nodes that remain nonterminal and handles that outlive their node's
-  scheduler generation without treating a valid retained terminal handle as a
-  leak.
+  and long-wait counters are scoped to the process scheduler lifetime. Shutdown
+  reports accepted nodes that remain nonterminal and distinguishes retained
+  terminal handles from scheduler-storage leaks.
 - Per-task trace logging remains optional. Aggregate counters and slow/failure
   diagnostics are available without tracing every task.
 
@@ -286,18 +324,18 @@ ownership model before scheduler integration is designed.
   missing ownership or shutdown test. It does not reopen the rendering lifecycle
   design or route render commands through the CPU scheduler.
 
-## Current Foundations and Gaps
+## V1 Result
 
-| Area | Current foundation | V1 gap |
+| Area | Implemented foundation | V1 disposition |
 | --- | --- | --- |
-| Native threads | Cooperative `Kill`, join, roles, names | A joinable `std::thread` can still reach destruction; stack size and priority requests are stored but not applied or rejected |
-| Worker pool | Fixed workers, FIFO queue, drain/discard modes | Discard erases closures without completing task state; exception-safe active-work bookkeeping is not guaranteed |
-| Global lifetime | Mutex protects pool replacement | `LaunchTask` and worker helping read raw `GThreadPool` outside that lifetime lock |
-| Engine lifecycle | Pool starts in `PreInit` and drains during ordered `Exit` | Startup ignores initialization failure; concurrent admission/shutdown and scheduler quiescence are undefined |
-| Task handle | Name, completion poll, waits | Boolean-only completion; no failure, cancellation, dependency, or scheduler generation |
-| Waiting | Worker helping prevents the tested one-worker parent/child deadlock | No self-wait, pool-idle, stale-generation, or rendering-thread enforcement |
-| Rendering | Deterministic command admission, drain, audit, and thread termination | Scheduler shutdown ordering still needs controlled CPU-load regression evidence |
-| Diagnostics | Names, IDs, thread logs, trace per launch/execution | No state, queue delay, duration, parent, cancellation, rejection, or generation-scoped counters |
+| Native threads | Cooperative stop, idempotent join, destructor join, roles, names, and explicit unsupported-attribute rejection | Callable bounded-return remains a scheduler contract; native preemption is out of scope |
+| Worker pool | Fixed workers, FIFO queue, drain/discard modes, explicit discard callbacks, exception-safe bookkeeping, dependency release, cooperative running-task cancellation, bounded `ParallelFor`, and scheduler counters | Complete and qualified by framework workload and full regression tests |
+| Global lifetime | Process scheduler facade serializes `Stopped`, `Running`, and `ShuttingDown`; production starts once, isolated fixtures may restart only after shutdown completes, and shutdown waits graph quiescence | Complete and qualified under concurrent admission close and CPU-load shutdown |
+| Engine lifecycle | Mandatory scheduler startup propagates failure from `PreInit`; ordered exit drains accepted tasks | Complete through real editor startup and controlled exit workload |
+| Task handle | Name, ID, parent/dependency IDs, monotonic timing, executing thread, full state query, copied diagnostic, completion poll, immutable dependencies, cancellation, and outcome-returning waits | Complete through deterministic unit, graph, and shutdown integration coverage |
+| Waiting | Same-scheduler worker helping plus self-wait, same-pool idle, rendering-thread enforcement, and queryable long-wait diagnostics | Complete through boundary tests and engine-exit long-wait evidence |
+| Rendering | Deterministic command admission, drain, audit, and thread termination | Existing contract passed regression and scheduler-before-render shutdown integration |
+| Diagnostics | Per-task relationships/timing/outcome snapshots, scheduler-lifetime gauges and counters, retained-handle distinction, long-wait records, and optional trace per launch/execution | Complete through final zero-nonterminal snapshot and retained-handle evidence |
 
 ## Implementation Stages
 
@@ -327,21 +365,21 @@ Dependencies: none.
 
 Dependencies: Stage 0.
 
-- [ ] Introduce the scheduler facade and remove general task submission's direct
+- [x] Introduce the scheduler facade and remove general task submission's direct
   dependence on `GThreadPool`.
-- [ ] Synchronize admission with shutdown, assign scheduler generations, and
-  count accepted nodes through terminal propagation.
-- [ ] Replace boolean completion with the V1 task state and diagnostic model.
-- [ ] Give queued work an explicit discard callback that terminalizes its task
+- [x] Synchronize admission with shutdown, serialize process scheduler lifetime,
+  and count accepted nodes through terminal propagation.
+- [x] Replace boolean completion with the V1 task state and diagnostic model.
+- [x] Give queued work an explicit discard callback that terminalizes its task
   node; Stage 2 extends that terminalization through dependency propagation.
-- [ ] Catch standard and unknown exceptions at the task-callable boundary and
+- [x] Catch standard and unknown exceptions at the task-callable boundary and
   guarantee pool bookkeeping for every queued-work exit path.
-- [ ] Make failed worker-pool initialization fail engine `PreInit()` with complete
+- [x] Make failed worker-pool initialization fail engine `PreInit()` with complete
   partial-worker cleanup.
-- [ ] Make native-thread destruction safe against a joinable `std::thread`, and
+- [x] Make native-thread destruction safe against a joinable `std::thread`, and
   explicitly reject or apply unsupported stack-size and priority requests.
-- [ ] Add self-wait, same-pool worker `WaitForIdle`, rendering-thread wait, and
-  stale-generation helping checks.
+- [x] Add self-wait, same-pool worker `WaitForIdle`, rendering-thread wait, and
+  shutdown-in-progress restart checks.
 
 #### Acceptance Gate
 
@@ -353,25 +391,45 @@ Dependencies: Stage 0.
 - Thread and scheduler startup failure cannot leave the engine partially
   initialized, and no public path dereferences unpinned scheduler storage.
 
+#### Stage 1 Handoff
+
+- Baseline commit: `a92c76227e651b73a2b0aad9efda9b5d779e7ffd`.
+- Resulting stage commits: the original `fix(core): make task scheduler
+  lifecycle safe` commit and the `refactor(core): align scheduler with process
+  lifetime` follow-up containing this revised handoff.
+- Working set: Core task, queued-pool, and standard-thread APIs and
+  implementations; Launch startup/exit; Core concurrency and AssetImport tests.
+- Key decisions: the scheduler owns its pool privately; global admission is one
+  serialized linearization boundary; engine startup/shutdown is one process
+  lifetime; isolated fixtures may restart only after shutdown completes;
+  handles retain task nodes but only weakly reference scheduler storage;
+  discard callbacks publish `Canceled`; worker helping compares actual
+  scheduler ownership rather than a public generation identifier.
+- Open questions: none that invalidate the Stage 1 gate. Dependency waiting and
+  running-task cancellation deliberately remain Stage 2 work.
+- Validation: `CoreConcurrencyTests` passed; the scheduler/task cases passed 100
+  repeated runs; `AssetImportTests` passed; the `DurinLauncher` target built;
+  and the all-plan validator passed on `Win64-Debug-DurinEditor-Tests`.
+
 ### Stage 2: Add immutable dependencies and cooperative cancellation
 
 Dependencies: Stage 1.
 
-- [ ] Represent scheduler-owned task nodes separately from public handles and
+- [x] Represent scheduler-owned task nodes separately from public handles and
   queued callable storage.
-- [ ] Add immutable prerequisite submission, prerequisite counters, and
+- [x] Add immutable prerequisite submission, prerequisite counters, and
   dependent release for chains, fan-in, and fan-out.
-- [ ] Handle prerequisite completion racing dependent registration exactly once.
-- [ ] Reject invalid and cross-generation prerequisites at the public boundary;
-  keep the one-shot API unable to construct cycles.
-- [ ] Propagate prerequisite failure and cancellation without executing blocked
+- [x] Handle prerequisite completion racing dependent registration exactly once.
+- [x] Reject invalid prerequisites and handles not owned by the currently
+  running scheduler instance; keep publication order unable to construct cycles.
+- [x] Propagate prerequisite failure and cancellation without executing blocked
   dependents and include the direct cause in diagnostics.
-- [ ] Add cancellation source/token support for waiting, queued, and running
+- [x] Add cancellation source/token support for waiting, queued, and running
   tasks with the selected terminal-state precedence.
-- [ ] Return and expose wait outcomes without conflating terminal completion with
+- [x] Return and expose wait outcomes without conflating terminal completion with
   success.
-- [ ] Preserve worker helping without allowing a task to execute itself, an
-  ineligible dependent, or work from another scheduler generation.
+- [x] Preserve worker helping without allowing a task to execute itself or an
+  ineligible dependent.
 
 #### Acceptance Gate
 
@@ -385,24 +443,49 @@ Dependencies: Stage 1.
 - Common CPU pipelines express ordering without a blocking wait inside each
   stage.
 
+#### Stage 2 Handoff
+
+- Baseline commit: `34a3de007abc461682d8f4cb45cd1706fb9fc902`.
+- Resulting stage commit: `feat(core): add task dependencies and cancellation`.
+- Working set: Core task API and implementation plus Core concurrency tests;
+  the private queued-pool implementation required no change because scheduler
+  admission now distinguishes new submissions from internal release of already
+  accepted nodes.
+- Key symbols: `FTaskLaunchOptions`, `FTaskCancellationSource`,
+  `FTaskCancellationToken`, `LaunchCancelableTask`, `CancelTask`,
+  `FTaskStateData::OnPrerequisiteTerminal`, and
+  `FTaskScheduler::QueueTask`.
+- Key decisions: the scheduler strongly owns every nonterminal node; dependency
+  edges only target older handles from the same live scheduler; a shared source
+  maintains an unregistering weak task registry; failure wins over a concurrent
+  cancellation request; discard requests running-task cancellation and waits
+  for callables to return; and drain keeps internal queueing available until the
+  accepted graph reaches quiescence.
+- Open questions: none that invalidate the Stage 2 gate. Long-wait detection,
+  parent/dependency timing diagnostics, and scheduler counters remain Stage 3.
+- Validation: `CoreConcurrencyTests` passed; the scheduler/task cases passed 100
+  repeated runs, with the dependency registration race itself using 64
+  barrier-synchronized iterations per run; `AssetImportTests` passed; the
+  `DurinLauncher` target built; and the all-plan validator passed on
+  `Win64-Debug-DurinEditor-Tests`.
+
 ### Stage 3: Add bounded `ParallelFor` and diagnostics
 
 Dependencies: Stage 2.
 
-- [ ] Add `ParallelFor` with empty/small synchronous paths, bounded static
+- [x] Add `ParallelFor` with empty/small synchronous paths, bounded static
   chunking, caller participation, serial nested behavior, and task-group outcome
   aggregation.
-- [ ] Capture exceptions and cancellation uniformly across caller and worker
+- [x] Capture exceptions and cancellation uniformly across caller and worker
   chunks and prevent silent success after partial coverage.
-- [ ] Measure crossover cost and choose defaults from recorded native-test or
+- [x] Measure crossover cost and choose defaults from recorded native-test or
   benchmark data rather than hardware-thread count alone.
-- [ ] Record task ID, parent ID, dependency IDs, scheduler generation,
-  monotonic enqueue/start/finish timestamps, executing thread, and terminal
-  state.
-- [ ] Add generation-scoped queue-depth, active-worker, completed, failed,
+- [x] Record task ID, parent ID, dependency IDs, monotonic
+  enqueue/start/finish timestamps, executing thread, and terminal state.
+- [x] Add scheduler-lifetime queue-depth, active-worker, completed, failed,
   canceled, rejected, and long-wait counters without requiring per-task trace
   logging.
-- [ ] Diagnose nonterminal nodes and distinguish them from valid retained
+- [x] Diagnose nonterminal nodes and distinguish them from valid retained
   terminal handles at shutdown.
 
 #### Acceptance Gate
@@ -415,24 +498,142 @@ Dependencies: Stage 2.
 - A failed or slow task can be identified from diagnostics without enabling
   trace logging for every task.
 
+#### Stage 3 Measurement
+
+- Agent Build Profile: `windows-msvc-x64`; preset:
+  `Win64-Debug-DurinEditor-Tests`; baseline commit:
+  `6200241500c2829f7ccf0ab583e6bf351a94e822`.
+- Hardware: 12th Gen Intel Core i7-12700, 20 logical processors; Windows NT
+  `10.0.26200.0`; the controlled scheduler used four workers.
+- Workload: one independent 64-round xorshift/multiply transform and one
+  contiguous `uint64` store per iteration. Each range used two warm-ups and
+  nine samples; the table records median `steady_clock` nanoseconds. The
+  parallel candidate used a minimum batch of 256 and at most four worker chunks
+  plus the caller chunk.
+- Repeat command: run `CoreConcurrencyTests.exe` with
+  `--gtest_filter=DISABLED_FParallelForBenchmarks.MeasuresSerialParallelCrossover`
+  and `--gtest_also_run_disabled_tests` from the documented native-test binary
+  directory.
+
+| Range | Serial median ns | Parallel median ns | Chunks |
+| ---: | ---: | ---: | ---: |
+| 64 | 9,400 | 31,800 | 1 |
+| 256 | 36,100 | 70,300 | 1 |
+| 1,024 | 156,300 | 343,300 | 4 |
+| 4,096 | 593,300 | 901,800 | 5 |
+| 16,384 | 2,346,500 | 3,076,300 | 5 |
+| 65,536 | 8,758,800 | 10,427,700 | 5 |
+| 262,144 | 36,013,000 | 41,275,500 | 5 |
+| 1,048,576 | 234,348,800 | 252,036,700 | 5 |
+
+No crossover appeared in this Debug native workload. The evidence-based V1
+default therefore uses the sentinel maximum batch size and remains serial;
+callers with measured heavy iterations may opt into a smaller batch. Stage 4
+owns framework/profiling qualification and may lower the default only when its
+recorded workload demonstrates a crossover.
+
+#### Stage 3 Handoff
+
+- Baseline commit: `6200241500c2829f7ccf0ab583e6bf351a94e822`.
+- Resulting stage commit: `feat(core): add bounded parallel loops and diagnostics`.
+- Working set: Core task API and implementation, Core concurrency tests, and
+  this plan. The queued-pool implementation required no change because its
+  existing queue-depth query and bounded worker ownership were sufficient.
+- Key symbols: `FParallelForOptions`, `FParallelForResult`,
+  `FParallelForCancellationToken`, `ParallelFor`, `ParallelForCancelable`,
+  `FTaskDiagnostics`, `FTaskSchedulerDiagnostics`,
+  `FTaskHandle::GetDiagnostics`, and `GetTaskSchedulerDiagnostics`.
+- Key decisions: static contiguous chunks are bounded by range, batch, and
+  worker count plus the caller; nesting is task-local and serial; group failure
+  cancels unclaimed work and selects the lowest failing chunk start; diagnostic
+  snapshots own copied strings and monotonic timestamps; scheduler storage owns
+  only nonterminal nodes while weak lifetime records distinguish retained
+  terminal handles; and the default remains serial because the Stage 3 Debug
+  measurement found no crossover.
+- Open questions: none that invalidate the Stage 3 gate. Stage 4 must decide
+  whether a framework/profiling workload justifies lowering the conservative
+  default, then qualify engine shutdown with CPU work and rendering active.
+- Validation: `CoreConcurrencyTests` passed; the `ParallelFor` and diagnostic
+  cases passed 50 repeated runs; the disabled crossover measurement completed
+  and its medians are recorded above; `AssetImportTests` passed; the
+  `DurinLauncher` target built; and the all-plan validator passed on
+  `Win64-Debug-DurinEditor-Tests`.
+
 ### Stage 4: Qualify framework workloads and engine lifecycle
 
 Dependencies: Stage 3.
 
-- [ ] Add a repeatable Core benchmark or qualification workload for
+- [x] Add a repeatable Core benchmark or qualification workload for
   `ParallelFor` and retain its defaults only when measurement beats the serial
   path above the selected threshold. No production feature migration is required
   for V1 completion.
-- [ ] Exercise scheduler startup, admission close, drain, discard, generation
-  rollover, and retained terminal handles through framework-owned integration
-  fixtures with controlled task gates.
-- [ ] Verify existing render-command admission, accepted-command drain, late
+- [x] Exercise engine one-shot scheduler startup, admission close, drain,
+  discard, serialized fixture restart, and retained terminal handles through
+  framework-owned integration fixtures with controlled task gates.
+- [x] Verify existing render-command admission, accepted-command drain, late
   rejection, and final audit while controlled CPU tasks are active; change
   rendering code only for an evidenced lifecycle gap.
-- [ ] Verify engine exit ordering while short and long tasks, dependency
+- [x] Verify engine exit ordering while short and long tasks, dependency
   propagation, cancellation, waits, and scheduler diagnostics are active.
-- [ ] Run the full `all` build and hidden-window editor startup/shutdown smoke on
+- [x] Run the full `all` build and hidden-window editor startup/shutdown smoke on
   the same Agent Build Profile used for final handoff.
+
+#### Stage 4 Qualification Evidence
+
+The repeatable Core qualification workload added in Stage 3 was rerun for the
+Stage 4 gate on `windows-msvc-x64`, preset
+`Win64-Debug-DurinEditor-Tests`, with four controlled workers, a candidate
+minimum batch of 256, two warmups, nine samples, and median steady-clock
+nanoseconds. It again found no crossover:
+
+| Range | Serial median (ns) | Parallel median (ns) | Parallel chunks |
+|---:|---:|---:|---:|
+| 64 | 7,700 | 20,300 | 1 |
+| 256 | 30,400 | 74,200 | 1 |
+| 1,024 | 121,800 | 343,900 | 4 |
+| 4,096 | 482,400 | 766,900 | 5 |
+| 16,384 | 1,946,600 | 2,652,300 | 5 |
+| 65,536 | 7,880,000 | 9,856,600 | 5 |
+| 262,144 | 31,963,200 | 38,988,200 | 5 |
+| 1,048,576 | 130,638,300 | 242,380,500 | 5 |
+
+The V1 default therefore remains the serial sentinel. Callers may opt into a
+smaller batch only with workload-specific evidence.
+
+The hidden editor smoke ran three ticks and then entered the normal
+`FEngineLoop::Exit` path with the diagnostic lifecycle workload enabled. Its
+final scheduler snapshot recorded 27 completed tasks, one intentionally failed
+task, two canceled tasks, one admission rejection, one long-wait diagnostic,
+zero nonterminal tasks, zero active workers, and nine retained terminal handles.
+Rendering then reached `Stopped` without a live render resource, pending
+deferred cleanup, or pending RHI deletion diagnostic.
+
+#### Stage 4 Handoff
+
+- Baseline commit: `c1dea23765ace87f17a55a1ef32a761cee9d16f8`.
+- Resulting stage commit: `feat(launch): qualify scheduler engine lifecycle`.
+- Working set: Launch startup parameters and engine exit workload, RenderCore
+  lifecycle integration tests, build/run documentation, and this plan.
+- Key symbols: `FEngineStartupParams::bRunTaskSchedulerLifecycleSmoke`,
+  `FEngineTaskSchedulerLifecycleSmoke`,
+  `SchedulerDrainCompletesBeforeRenderAdmissionCloses`, and
+  `SchedulerDiscardCancelsAcceptedWorkAndRetainedHandlesSurviveRestart`.
+- Key decisions: the diagnostic workload is opt-in through
+  `--task-scheduler-lifecycle-smoke`; normal editor sessions pay no workload
+  cost; production rendering code was unchanged because existing admission,
+  drain, final resource audit, and RHI deletion contracts passed under CPU load;
+  and the `ParallelFor` default remains serial because qualification still found
+  no crossover.
+- Open questions: none that invalidate the Stage 4 gate. Stage 5 must run the
+  complete validation matrix and move stable contracts into owning runtime
+  documentation.
+- Validation: Core concurrency and RenderCore contract suites passed; the new
+  CPU/render lifecycle fixtures passed 50 repeated runs; the disabled
+  qualification workload completed; the full `all` target built; and the
+  hidden-window editor lifecycle smoke passed on
+  `Win64-Debug-DurinEditor-Tests`. The first 18-job full build encountered
+  concurrent GoogleTest discovery timeouts; the clean incremental rerun with
+  one job completed successfully without source changes.
 
 #### Acceptance Gate
 
@@ -448,13 +649,55 @@ Dependencies: Stage 3.
 
 Dependencies: Stages 1 through 4.
 
-- [ ] Run the complete validation matrix using the root DurinDevTool workflow.
-- [ ] Move stable scheduler, waiting, shutdown, cancellation, and thread-ownership
+- [x] Run the complete validation matrix using the root DurinDevTool workflow.
+- [x] Move stable scheduler, waiting, shutdown, cancellation, and thread-ownership
   contracts into explicitly named owning runtime documentation.
-- [ ] Record profiler or benchmark evidence for any feature proposed beyond V1.
-- [ ] Update `Current Status`, every evidence-backed checklist, `Last reviewed`,
+- [x] Record profiler or benchmark evidence for any feature proposed beyond V1.
+- [x] Update `Current Status`, every evidence-backed checklist, `Last reviewed`,
   `Status: Completed`, and `Completed: YYYY-MM-DD` after all gates pass.
-- [ ] Run the all-plan validator after marking the plan completed.
+- [x] Run the all-plan validator after marking the plan completed.
+
+#### Stage 5 Evidence
+
+- Agent Build Profile: `windows-msvc-x64`; preset:
+  `Win64-Debug-DurinEditor-Tests`; baseline commit:
+  `3df6fab05a18b4a21beb2854fe1f35b6f73bc896`.
+- The root DurinDevTool completed the full `all` build and full `all` native-test
+  suite with one job. The single-job setting avoids the GoogleTest discovery
+  resource contention already characterized during Stage 4; it does not reduce
+  target or test coverage.
+- The hidden-window editor ran three ticks with
+  `--task-scheduler-lifecycle-smoke` and exited successfully. Its final CPU
+  snapshot recorded 27 completed tasks, one intentional failure, two canceled
+  tasks, one post-close rejection, one long-wait diagnostic, zero nonterminal
+  tasks, zero active workers, and nine retained terminal handles. Rendering
+  then stopped without a live-resource, deferred-cleanup, or pending-RHI-delete
+  diagnostic.
+- `Documentation/Runtime/Core/TaskSystem.md` owns scheduler lifetime, task
+  states, dependencies, cancellation, waiting, `ParallelFor`, diagnostics, and
+  CPU-side ownership. `RuntimeLifecycle.md` owns the engine's CPU/object/module/
+  render shutdown order.
+- No post-V1 feature was selected or proposed for implementation. Every deferred
+  feature remains explicitly gated on future workload-specific profiler or
+  benchmark evidence, so Stage 5 adds no speculative measurement or default.
+
+#### Stage 5 Handoff
+
+- Baseline commit: `3df6fab05a18b4a21beb2854fe1f35b6f73bc896`.
+- Resulting stage commit: `docs(core): complete multithreading v1 handoff`.
+- Working set: the new CPU task-system runtime contract, runtime lifecycle and
+  documentation routing links, and this completed plan.
+- Key documents: `Documentation/Runtime/Core/TaskSystem.md` and
+  `Documentation/Runtime/Core/RuntimeLifecycle.md`.
+- Key decisions: the runtime contract, rather than the completed plan, is the
+  lasting source of truth; the production scheduler remains one-start/
+  one-shutdown; the `ParallelFor` default remains serial; and all advanced
+  scheduling features remain evidence-gated.
+- Open questions: none. Monthly physical archival is a separate maintenance
+  action and is not required for V1 completion.
+- Validation: the changed-document validator, full `all` build, full `all`
+  native-test suite, hidden-window lifecycle smoke, diff check, and all-plan
+  validator passed on `Win64-Debug-DurinEditor-Tests`.
 
 #### Acceptance Gate
 
@@ -483,10 +726,10 @@ rediscovering completed architecture.
 | Concern | Unit | Integration | Runtime / stress |
 | --- | --- | --- | --- |
 | Thread lifecycle | cooperative stop, natural join, duplicate join, unsupported attributes | partial worker creation cleanup | repeated engine startup/shutdown where supported |
-| Scheduler lifetime | reject before init/after close, generation pinning, drain, discard | concurrent producers and running child submission racing close/reinit | mixed short/long tasks and retained old-generation handles during exit |
+| Scheduler lifetime | reject before init/after close, reject restart during shutdown, drain, discard | concurrent producers and running child submission racing close | mixed short/long tasks and retained terminal handles during exit |
 | Task states | success, standard/unknown exception, queued cancel, running cancel, cancel/complete precedence | failure and cancellation propagation through graphs | nonterminal-node and retained-terminal-handle shutdown diagnostics |
-| Waiting | invalid handle, multiple waiters, self-wait, one-worker nested wait | game-thread sync point, same-pool idle rejection, stale-generation wait | long-wait diagnostics without starvation |
-| Dependencies | chain, fan-in, fan-out, registration/terminal race, invalid and cross-generation rejection | scheduler quiescence and generation rollover | seeded randomized DAG completion, failure, cancellation, drain, and discard |
+| Waiting | invalid handle, multiple waiters, self-wait, one-worker nested wait | game-thread sync point and same-pool idle rejection | long-wait diagnostics without starvation |
+| Dependencies | chain, fan-in, fan-out, registration/terminal race, invalid and foreign-lifetime handle rejection | scheduler quiescence and serialized fixture restart | seeded randomized DAG completion, failure, cancellation, drain, and discard |
 | `ParallelFor` | edge ranges, uneven chunks, serial nesting, worker/caller failure and cancellation | measured framework qualification workload | crossover, throughput, bounded task count, and fairness measurement |
 | Render command lifecycle | established admission, drain, fence order, late rejection regressions | scheduler closes before render admission | hidden-window shutdown with controlled CPU tasks active |
 | Thread boundaries | launch, wait, and affinity checks where applicable | synthetic CPU payload crosses only through explicit game/render handoff | engine exit preserves CPU, object, module, and rendering order |
@@ -503,22 +746,22 @@ documentation; this plan does not duplicate commands or mutable test totals.
 
 ## Definition of Done
 
-- [ ] Every Stage 1 through Stage 5 acceptance gate passes.
-- [ ] No public task path retains an unsynchronized raw pointer to process
+- [x] Every Stage 1 through Stage 5 acceptance gate passes.
+- [x] No public task path retains an unsynchronized raw pointer to process
   scheduler storage.
-- [ ] Every accepted task and dependent reaches exactly one terminal state, and
+- [x] Every accepted task and dependent reaches exactly one terminal state, and
   shutdown quiescence includes waiting dependency nodes and propagation work.
-- [ ] Dependencies, cancellation, waiting, admission close, and shutdown
+- [x] Dependencies, cancellation, waiting, admission close, and shutdown
   precedence are enforced by deterministic tests.
-- [ ] Framework APIs remain independent of subsystem-specific object ownership,
+- [x] Framework APIs remain independent of subsystem-specific object ownership,
   result delivery, and feature lifecycle policy.
-- [ ] `ParallelFor` has a measured threshold from a repeatable framework
+- [x] `ParallelFor` has a measured threshold from a repeatable framework
   qualification workload while its API tests remain complete.
-- [ ] Existing render-command admission and shutdown contracts pass regression
+- [x] Existing render-command admission and shutdown contracts pass regression
   and CPU-load integration validation.
-- [ ] The full `all` build and hidden-window `DurinEditor` startup/shutdown smoke
+- [x] The full `all` build and hidden-window `DurinEditor` startup/shutdown smoke
   pass on the same Agent Build Profile.
-- [ ] Lasting contracts are documented in their owning domain, the plan is marked
+- [x] Lasting contracts are documented in their owning domain, the plan is marked
   `Completed`, and the all-plan validator passes. Monthly physical archival
   remains a separate maintenance operation.
 
@@ -541,6 +784,7 @@ documentation; this plan does not duplicate commands or mutable test totals.
 
 ## Related Documentation
 
+- `Documentation/Runtime/Core/TaskSystem.md`
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`
 - `Documentation/Runtime/Core/GarbageCollection.md`
 - `Documentation/Development/Build/BuildAndRun.md`
