@@ -2,9 +2,27 @@
 
 Summary: Turn supported static glTF and FBX sources into immediately renderable StaticMesh, texture, and material assets through one deterministic import and reimport workflow.
 
-Last reviewed: 2026-07-29
+Last reviewed: 2026-08-02
+
+Status: Archived
+Completed: 2026-08-02
 
 ## Current Status
+
+This plan is complete as a superseded implementation direction. Stages 0
+through 4 landed and remain historical evidence for the current code, but the
+selected root-StaticMesh ownership model, `StaticModel` vocabulary, manifest
+placement, and model-specific multi-asset transaction are no longer the
+repository's intended long-term asset-import architecture. Stages 5 through 7
+and their acceptance gates are intentionally retired rather than claimed as
+implemented.
+
+The successor Asset Import Framework plan starts from the authored package,
+source-provenance, DDC, and atomic package-publication contracts while allowing
+the existing import orchestration and persisted import graph to be replaced.
+Until that migration lands, the Stage 4 implementation remains supported code
+but not an architectural foundation to extend. No build or test was required
+for this documentation-only lifecycle decision.
 
 Stages 0 through 4 are complete. Stage 4 started from baseline
 `b95049e6ae2bbb8a78765e4860ac6136843e715c` and adds manifest-driven

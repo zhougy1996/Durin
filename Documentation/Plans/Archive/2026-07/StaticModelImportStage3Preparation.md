@@ -572,7 +572,7 @@ Dependencies: Stages 1 through 3.
 
 ## Related Documentation
 
-- `Documentation/Plans/ReadyToUseStaticModelImport.md`
+- `Documentation/Plans/Archive/2026-08/ReadyToUseStaticModelImport.md`
 - `Documentation/Plans/MaterialSystem.md`
 - `Documentation/Plans/TextureSupport.md`
 - `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`

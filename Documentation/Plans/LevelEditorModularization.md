@@ -613,7 +613,7 @@ commands or output paths that may change.
 - [Build and Run](../Development/Build/BuildAndRun.md)
 - [Rendered Asset Thumbnails Plan](Archive/2026-07/RenderedAssetThumbnails.md)
 - [Source Library References Plan](Archive/2026-07/SourceLibraryReferences.md)
-- [Ready-to-Use Static Model Import Plan](ReadyToUseStaticModelImport.md)
+- [Ready-to-Use Static Model Import Plan](Archive/2026-08/ReadyToUseStaticModelImport.md)
 
 ## Related Code
 
