@@ -327,30 +327,6 @@ namespace Durin
 			RevealAsset(Path.ToString());
 			return;
 		}
-		if (DStaticMesh* Mesh = Cast<DStaticMesh>(AssetObject))
-		{
-			const FLegacySceneMigrationResult Migration =
-				MigrateLegacySceneImport(*Mesh);
-			if (Migration)
-			{
-				const FSceneImportPlanResult Planned =
-					PlanSceneReimport(*Migration.Record, bRecreateMissingAssets);
-				if (!Planned) { SetError(Planned.Message); return; }
-				const FSceneImportExecutionResult Executed =
-					ExecuteSceneImport(Planned.Plan);
-				if (!Executed) { SetError(Executed.Message); return; }
-				LastReimportOrphans = Executed.OrphanedAssets;
-				Refresh(true);
-				RevealAsset(Path.ToString());
-				return;
-			}
-			if (Migration.Status == ELegacySceneMigrationStatus::RepairRequired
-				|| Migration.Status == ELegacySceneMigrationStatus::Failed)
-			{
-				SetError(Migration.Message);
-				return;
-			}
-		}
 		const AssetImport::FSingleAssetCapabilitySet Capabilities =
 			AssetImport::QuerySingleAssetCapabilities(
 				*AssetObject, AssetImport::GetProviderRegistry(),

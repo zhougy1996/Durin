@@ -56,9 +56,10 @@ and optional handler identifier. Related legacy fields may be grouped into one
 issue.
 
 AssetCore owns report construction, payload retention, object-reference
-resolution helpers, and class-specific upgrader registration. Modules that own
-concrete reflected types register their legacy-field rules without introducing
-an AssetCore dependency on those types. A registered rule may classify a
+resolution helpers, and optional class-specific upgrader registration. The
+current repository baseline ships no production asset-specific structure
+upgrader; unrecognized fields therefore remain explicit incompatibilities.
+When deliberately used by another integration, a registered rule may classify a
 complete change as `SafeCleanup` or `Migrated`; either classification marks the
 loaded package Dirty so an explicit save can persist it. Unhandled fields are
 `UnknownIncompatible` with `UnknownNewerSchema` risk and do not themselves mark
@@ -89,7 +90,8 @@ runtime helpers fail package saving instead of being silently omitted.
 - `CoreDObject` owns `DPackage`, `FAssetPath`, object paths, qualified reflected class identities, and type-erased container access.
 - `AssetCore` owns `.dasset` I/O, the synchronous asset registry, package caching, dependency loading, structure-compatibility reports and upgrader registration, DDC storage, and cooked container/publication primitives.
 - `Engine` owns asset-specific source provenance, import/build policy, derived-data keys and codecs, and cook contributions.
-- Editor modules invoke the asset-specific import and reimport workflows.
+- Editor modules invoke the provider-neutral import and reimport framework
+  documented in [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
 - `DLevel` objects are main assets inside packages; a `DWorld` remains a runtime/editor session container and activates one level at a time.
 
 Asset-level cooking and deterministic cooked publication are implemented for

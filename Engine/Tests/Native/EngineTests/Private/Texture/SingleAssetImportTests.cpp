@@ -102,7 +102,7 @@ TEST(FSingleAssetImportTests, RejectsStalePackageRevisionBeforeExchange)
 	}));
 }
 
-TEST(FSingleAssetImportTests, ReimportsLegacyGeometryWithoutStaticModelManifest)
+TEST(FSingleAssetImportTests, ReimportsGeometryWithoutAnImportRecord)
 {
 	InitializeSingleAssetImportTests();
 	FScopedDerivedDataCacheRoot CacheRoot(
@@ -110,7 +110,7 @@ TEST(FSingleAssetImportTests, ReimportsLegacyGeometryWithoutStaticModelManifest)
 	const std::filesystem::path Source =
 		std::filesystem::path(DURIN_TEST_DATA_DIR) / "Triangle.obj";
 	Durin::FStaticMeshImportResult Imported = Durin::DStaticMesh::ImportAsset(
-		Source.generic_string(), "/SingleAssetStage2/LegacyGeometry");
+		Source.generic_string(), "/SingleAssetStage2/Geometry");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	auto PlanResult = PlanCurrent(Imported.Asset);
 	ASSERT_TRUE(PlanResult) << PlanResult.Message;

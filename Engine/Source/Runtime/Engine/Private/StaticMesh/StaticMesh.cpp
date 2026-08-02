@@ -89,63 +89,9 @@ namespace Durin
 		inline constexpr uint32 StaticMeshAssimpImporterVersion = 3;
 		inline constexpr std::string_view StaticMeshImporterId = "Assimp";
 		inline constexpr std::string_view StaticMeshSourceRoot = "SourceAssets/Models";
-		inline constexpr std::string_view LegacySlotGuidDomain = "Durin.StaticMeshMaterialSlot.v1";
 		inline constexpr uint64 StaticMeshDerivedDataBudgetBytes = 8ull * 1024ull * 1024ull * 1024ull;
 		inline constexpr uint32 StaticMeshDerivedDataCleanupDeleteLimit = 16;
 		constexpr float VectorTolerance = 1.0e-10f;
-
-		const bool GStaticMeshMaterialSlotsInspectionUpgraderRegistered = [] {
-			Asset::RegisterAssetStructureInspectionUpgrader(
-				"Durin::DStaticMesh",
-				"Engine.StaticMesh.MaterialSlotsV1",
-				[](const Asset::FAssetPackageInspection&,
-					const Asset::FAssetPackageObjectInspection& Object,
-					std::span<const Asset::FAssetLegacyField> Fields,
-					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
-					-> Asset::FAssetResult
-				{
-					const auto LegacyManifest = std::ranges::find(
-						Fields, std::string_view("ImportManifest"),
-						&Asset::FAssetLegacyField::Name);
-					if (LegacyManifest != Fields.end())
-						OutIssues.push_back({
-							.DeclaringClass = "Durin::DStaticMesh",
-							.LegacyFields = {*LegacyManifest},
-							.Classification = Asset::EAssetCompatibilityClassification::DataLossRisk,
-							.MigrationSummary =
-								"The retired StaticMesh-owned Scene relationship requires StandardAssetImport migration to a DImportRecord.",
-							.Risk = Asset::EAssetCompatibilityRisk::PotentialDataLoss});
-					// Semantic schema versions retain their reflected field shape, so they
-					// must be inspected even when there are no incompatible field records.
-					const Asset::FAssetPackageField* VersionField =
-						Object.FindField("MaterialSlotsVersion");
-					uint32 Version = 0;
-					if (!VersionField || !VersionField->TryReadScalar(Version))
-						return {
-							Asset::EAssetError::CorruptFile,
-							"Static mesh material-slot schema version is missing or invalid."};
-					if (Version == StaticMeshMaterialSlotsVersion) return {};
-					if (Version > StaticMeshMaterialSlotsVersion)
-					{
-						OutIssues.push_back({
-							.Classification = Asset::EAssetCompatibilityClassification::UnknownIncompatible,
-							.MigrationSummary = std::format(
-								"Static mesh material-slot schema {} is newer than supported schema {}.",
-								Version,
-								StaticMeshMaterialSlotsVersion),
-							.Risk = Asset::EAssetCompatibilityRisk::UnknownNewerSchema});
-						return {};
-					}
-					OutIssues.push_back({
-						.Classification = Asset::EAssetCompatibilityClassification::Migrated,
-						.MigrationSummary =
-							"Will upgrade static mesh material-slot identity metadata during execution.",
-						.MigratedDataCount = 1,
-						.Risk = Asset::EAssetCompatibilityRisk::None});
-					return {};
-				});
-			return true;
-		}();
 
 		auto GetStaticMeshObjectStore() -> Asset::FDerivedDataObjectStore
 		{
@@ -302,37 +248,7 @@ namespace Durin
 			return true;
 		}
 
-		auto MakeGuidFromHash(const FXxHash128& Hash) -> FGuid
-		{
-			FGuid Result(
-				static_cast<uint32>(Hash.HashLow),
-				static_cast<uint32>(Hash.HashLow >> 32),
-				static_cast<uint32>(Hash.HashHigh),
-				static_cast<uint32>(Hash.HashHigh >> 32));
-			// A valid identity is required even for the theoretical all-zero hash result.
-			if (!Result.IsValid()) Result = FGuid(0, 0, 0, 1);
-			return Result;
-		}
-
 #if DURIN_WITH_EDITOR
-		auto MakeLegacySlotGuid(
-			std::string_view PackagePath,
-			std::string_view SourceName,
-			uint32 SourceMaterialIndex) -> FGuid
-		{
-			FXxHash128Builder Builder;
-			Builder.Update(LegacySlotGuidDomain);
-			Builder.Update(PackagePath);
-			Builder.Update(SourceName);
-			const std::array<uint8, 4> LittleEndianIndex{
-				static_cast<uint8>(SourceMaterialIndex),
-				static_cast<uint8>(SourceMaterialIndex >> 8),
-				static_cast<uint8>(SourceMaterialIndex >> 16),
-				static_cast<uint8>(SourceMaterialIndex >> 24)};
-			Builder.Update(std::span<const uint8>(LittleEndianIndex));
-			return MakeGuidFromHash(Builder.Finalize());
-		}
-
 		auto SlotDefinitionsEqual(
 			std::span<const FStaticMeshMaterialSlotDefinition> A,
 			std::span<const FStaticMeshMaterialSlotDefinition> B) -> bool
@@ -667,30 +583,6 @@ namespace Durin
 	DStaticMesh::DStaticMesh(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
-		static const bool RegisteredLegacySceneUpgrader = [] {
-			Asset::RegisterAssetStructureUpgrader(
-				DStaticMesh::StaticClass(),
-				"Engine.StaticMesh.RetiredSceneManifest",
-				[](DObject*, std::span<const Asset::FAssetLegacyField> Fields,
-					const Asset::FAssetMigrationContext&,
-					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
-					-> Asset::FAssetResult
-				{
-					const auto Manifest = std::ranges::find(
-						Fields, std::string_view("ImportManifest"),
-						&Asset::FAssetLegacyField::Name);
-					if (Manifest != Fields.end())
-						OutIssues.push_back({
-							.DeclaringClass = "Durin::DStaticMesh",
-							.LegacyFields = {*Manifest},
-							.Classification = Asset::EAssetCompatibilityClassification::DataLossRisk,
-							.MigrationSummary =
-								"The retired StaticMesh-owned Scene relationship requires StandardAssetImport migration to a DImportRecord.",
-							.Risk = Asset::EAssetCompatibilityRisk::PotentialDataLoss});
-					return {};
-				});
-			return true;
-		}();
 		static const bool RegisteredMoveContributor = [] {
 			Asset::RegisterAssetMoveContributor(DStaticMesh::StaticClass(), [](
 				DObject*, const FAssetPath&, const FAssetPath&, Asset::FAssetMoveContribution&) -> Asset::FAssetResult {
@@ -705,7 +597,6 @@ namespace Durin
 			});
 			return true;
 		}();
-		(void)RegisteredLegacySceneUpgrader;
 		(void)RegisteredMoveContributor;
 	}
 
@@ -1056,7 +947,6 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 #if DURIN_WITH_EDITOR
-		const bool bVersionZeroMigration = MaterialSlotsVersion == 0 && !GetSourceFile().empty();
 		const std::vector<FStaticMeshMaterialSlotDefinition> PreviousSlots = MaterialSlots;
 		std::vector<FStaticMeshMaterialSlotDefinition> ReconciledSlots(ImportedData.MaterialSlots.size());
 		std::vector<bool> OldConsumed(PreviousSlots.size(), false);
@@ -1099,15 +989,12 @@ namespace Durin
 			}
 		}
 
-		const std::string PackagePath = GetPackage() ? GetPackage()->GetPackagePath() : std::string{};
 		for (size_t NewIndex = 0; NewIndex < ImportedData.MaterialSlots.size(); ++NewIndex)
 		{
 			if (NewMatched[NewIndex]) continue;
 			const FStaticMeshImportedMaterialSlot& Imported = ImportedData.MaterialSlots[NewIndex];
 			FStaticMeshMaterialSlotDefinition& Definition = ReconciledSlots[NewIndex];
-			Definition.SlotId = bVersionZeroMigration
-				? MakeLegacySlotGuid(PackagePath, Imported.SourceName, Imported.SourceMaterialIndex)
-				: FGuid::NewGuid();
+			Definition.SlotId = FGuid::NewGuid();
 			Definition.Name = FName(Imported.Name);
 			Definition.SourceName = Imported.SourceName;
 			Definition.SourceMaterialIndex = Imported.SourceMaterialIndex;
@@ -1126,8 +1013,8 @@ namespace Durin
 			DURIN_WARN("Static mesh '{}' replaced an invalid or duplicate material slot identity.", GetObjectPath());
 		}
 
-		const bool bSlotMetadataChanged = MaterialSlotsVersion != StaticMeshMaterialSlotsVersion
-			|| !SlotDefinitionsEqual(MaterialSlots, ReconciledSlots);
+		const bool bSlotMetadataChanged =
+			!SlotDefinitionsEqual(MaterialSlots, ReconciledSlots);
 
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
 		RenderData->MaterialSlots.reserve(ImportedData.MaterialSlots.size());
@@ -1483,10 +1370,8 @@ namespace Durin
 			std::unique_ptr<FStaticMeshRenderData> IncomingRenderData =
 				std::move(Other.RenderData);
 
-			std::swap(SourceFile, Other.SourceFile);
 			std::swap(SourceImportData, Other.SourceImportData);
 			std::swap(NormalizedSize, Other.NormalizedSize);
-			std::swap(ImportSettings, Other.ImportSettings);
 			std::swap(MaterialSlotsVersion, Other.MaterialSlotsVersion);
 			std::swap(MaterialSlots, Other.MaterialSlots);
 			std::swap(CookedPayload, Other.CookedPayload);
@@ -1554,10 +1439,8 @@ namespace Durin
 		check(Target && Candidate && Target != Candidate);
 		CheckStaticMeshUpdateThread();
 		FStaticMeshRenderStateRecreateContext RecreateContext(Target);
-		std::swap(Target->SourceFile, Candidate->SourceFile);
 		std::swap(Target->SourceImportData, Candidate->SourceImportData);
 		std::swap(Target->NormalizedSize, Candidate->NormalizedSize);
-		std::swap(Target->ImportSettings, Candidate->ImportSettings);
 		std::swap(Target->MaterialSlotsVersion, Candidate->MaterialSlotsVersion);
 		std::swap(Target->MaterialSlots, Candidate->MaterialSlots);
 		std::swap(Target->CookedPayload, Candidate->CookedPayload);
@@ -1605,6 +1488,14 @@ namespace Durin
 		DerivedDataDiagnostic = {};
 		if (Asset::GetPackageLoadContext().Mode == Asset::EPackageLoadMode::CookedRuntime)
 			return LoadCookedRenderData(OutError);
+		if (MaterialSlotsVersion != StaticMeshMaterialSlotsVersion)
+		{
+			OutError = std::format(
+				"Static mesh material-slot schema {} is unsupported; this build requires schema {}.",
+				MaterialSlotsVersion,
+				StaticMeshMaterialSlotsVersion);
+			return false;
+		}
 
 		const FStaticMeshSourceDiagnostic Diagnostic = InspectSource();
 		if (Diagnostic.Status == EStaticMeshSourceStatus::NoSource)
@@ -1653,9 +1544,7 @@ namespace Durin
 		std::string CacheMessage;
 		const bool bSourceMetadataStale = Diagnostic.IsAvailable()
 			&& SourceImportData.SourceContentHash != CurrentSourceHash;
-		const bool bMaterialSlotsUpgradeRequired =
-			MaterialSlotsVersion != StaticMeshMaterialSlotsVersion;
-		if (!bSourceMetadataStale && !bMaterialSlotsUpgradeRequired && LoadStaticMeshDerivedData(
+		if (!bSourceMetadataStale && LoadStaticMeshDerivedData(
 			DerivedDataDiagnostic.Key, MaterialSlots, CachedRenderData, CacheStatus, CacheMessage))
 		{
 			if (!CommitRenderDataCandidate(
@@ -1692,12 +1581,6 @@ namespace Durin
 			CacheStatus = EStaticMeshDerivedDataStatus::Missing;
 			CacheMessage = "Source content changed; importer metadata reconciliation is required.";
 		}
-		else if (bMaterialSlotsUpgradeRequired)
-		{
-			CacheStatus = EStaticMeshDerivedDataStatus::Missing;
-			CacheMessage = "Material-slot identity metadata requires a source-backed schema upgrade.";
-		}
-
 		DerivedDataDiagnostic.Status = CacheStatus;
 		DerivedDataDiagnostic.Message = std::format(
 			"Static-mesh DDC miss for key {}: {}", DerivedDataDiagnostic.Key, CacheMessage);
@@ -1887,17 +1770,13 @@ namespace Durin
 					return false;
 				}
 
-				const std::string SavedSourceFile = SourceFile;
 				const FStaticMeshSourceImportData SavedSourceImportData = SourceImportData;
-				const FStaticMeshImportSettings SavedImportSettings = ImportSettings;
 				const std::vector<FStaticMeshMaterialSlotDefinition> SavedMaterialSlots = MaterialSlots;
 				const Asset::FCookedPayloadDescriptor SavedCookedPayload = CookedPayload;
 				CookedPayload = Descriptors.front();
 				if (!bRetainDiagnosticSourceMetadata)
 				{
-					SourceFile.clear();
 					SourceImportData = {};
-					ImportSettings = {};
 					for (FStaticMeshMaterialSlotDefinition& Slot : MaterialSlots)
 					{
 						Slot.SourceName.clear();
@@ -1911,16 +1790,12 @@ namespace Durin
 					SerializationOptions.PropertyFilter = [this](const DObject* Object, const FProperty* Property) {
 					if (Object != this) return true;
 					const FName Name = Property->NamePrivate;
-					return Name != FName("SourceFile")
-						&& Name != FName("SourceImportData")
-						&& Name != FName("ImportSettings");
+					return Name != FName("SourceImportData");
 				};
 				}
 				const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(
 					GetPackage(), OutPackageBytes, SerializationOptions);
-				SourceFile = SavedSourceFile;
 				SourceImportData = SavedSourceImportData;
-				ImportSettings = SavedImportSettings;
 				MaterialSlots = SavedMaterialSlots;
 				CookedPayload = SavedCookedPayload;
 				if (!Result)
@@ -1965,11 +1840,7 @@ namespace Durin
 			}
 			return {EStaticMeshSourceStatus::Available, PhysicalPath.generic_string(), {}};
 		}
-		if (SourceFile.empty()) return {};
-		return {
-			EStaticMeshSourceStatus::Invalid,
-			{},
-			"Legacy static-mesh source metadata is unsupported. Reimport the asset to create normalized SourceAssets provenance."};
+		return {};
 	}
 
 	auto DStaticMesh::RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool
@@ -2004,8 +1875,6 @@ namespace Durin
 		if (!HashStaticMeshSource(Destination, SourceHash, OutError)) return false;
 
 		const FStaticMeshSourceImportData PreviousSource = SourceImportData;
-		const std::string PreviousLegacySource = SourceFile;
-		const FStaticMeshImportSettings PreviousLegacySettings = ImportSettings;
 		const FStaticMeshImportSettings EffectiveSettings = GetImportSettings();
 		SourceImportData = {
 			.SourcePath = std::move(Source.SourcePath),
@@ -2013,7 +1882,6 @@ namespace Durin
 			.ImporterId = std::string(StaticMeshImporterId),
 			.ImporterVersion = StaticMeshAssimpImporterVersion,
 			.ImportSettings = EffectiveSettings};
-		SourceFile.clear();
 		std::unique_ptr<FStaticMeshRenderData> CandidateRenderData;
 		std::vector<FStaticMeshMaterialSlotDefinition> CandidateMaterialSlots;
 		bool bSlotMetadataChanged = false;
@@ -2036,8 +1904,6 @@ namespace Durin
 		if (!bCached)
 		{
 			SourceImportData = PreviousSource;
-			SourceFile = PreviousLegacySource;
-			ImportSettings = PreviousLegacySettings;
 			return false;
 		}
 		if (!PublishRenderData(
@@ -2047,8 +1913,6 @@ namespace Durin
 			OutError))
 		{
 			SourceImportData = PreviousSource;
-			SourceFile = PreviousLegacySource;
-			ImportSettings = PreviousLegacySettings;
 			return false;
 		}
 		DerivedDataDiagnostic = {

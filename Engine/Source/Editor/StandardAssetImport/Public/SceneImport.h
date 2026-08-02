@@ -111,26 +111,6 @@ namespace Durin
 			FSceneImportAsyncPlanHandle&) -> void;
 	};
 
-	enum class ELegacySceneMigrationStatus : uint8
-	{
-		NotLegacy,
-		Migrated,
-		RepairRequired,
-		Failed
-	};
-
-	struct FLegacySceneMigrationResult
-	{
-		ELegacySceneMigrationStatus Status = ELegacySceneMigrationStatus::NotLegacy;
-		std::string Message;
-		AssetImport::DImportRecord* Record = nullptr;
-
-		explicit operator bool() const
-		{
-			return Status == ELegacySceneMigrationStatus::Migrated;
-		}
-	};
-
 	STANDARDASSETIMPORT_API auto PlanSceneImport(
 		const FSceneImportRequest& Request) -> FSceneImportPlanResult;
 	STANDARDASSETIMPORT_API auto BeginSceneImportPlan(
@@ -163,8 +143,6 @@ namespace Durin
 	STANDARDASSETIMPORT_API auto FindSceneImportRecordForOutput(
 		const DObject& Output,
 		std::string& OutError) -> AssetImport::DImportRecord*;
-	STANDARDASSETIMPORT_API auto MigrateLegacySceneImport(
-		DStaticMesh& StaticMesh) -> FLegacySceneMigrationResult;
 	STANDARDASSETIMPORT_API auto EnsureStandardImportedSurfaceMaterial(
 		std::string& OutError) -> DMaterial*;
 }

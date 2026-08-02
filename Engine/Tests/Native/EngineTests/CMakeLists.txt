@@ -184,7 +184,6 @@ durin_add_engine_functional_test(StaticMeshTests
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed static-mesh editing and derived data."
 	SOURCES
 		Private/Materials/StaticMeshMaterialTests.cpp
-		Private/Materials/StaticMeshMaterialUpgradeTests.cpp
 		Private/Materials/StaticMeshRenderDataLifetimeContractTests.cpp
 		Private/Materials/StaticMeshUpdateTests.cpp
 		Private/StaticMeshTestEnvironment.cpp

@@ -4,8 +4,8 @@ Summary: Replace asset-specific import orchestration with a synchronous-first pr
 
 Last reviewed: 2026-08-03
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-03
 
 ## Current Status
 
@@ -47,6 +47,30 @@ The Stage 6 qualification passed all 64 focused concurrency tests, all 20
 `TextureTests`, the full DurinEditor `all` build, and 20 consecutive loaded
 Sandbox shutdowns with the scheduler lifecycle audit. The previously observed
 non-reproduced access violation did not recur.
+
+Stage 7 uses a repository-baseline compatibility policy: the authored assets
+versioned in this Git repository are the complete supported migration set.
+They are upgraded or regenerated together with the implementation. Production
+ships no asset-specific structure upgrader: retired Scene `ImportManifest`,
+generated-output `ImportOwner`, StaticMesh source duplicates,
+StaticMeshComponent indexed materials, Texture2D/TextureCube source strings,
+import-record schema 1, and StaticMesh material-slot schema 0 have no reader or
+migration handler. AssetCore's generic unknown-field reporting and explicit
+data-loss guard remain safety boundaries for unsupported packages, not a legacy
+import promise.
+
+Stage 7 is complete on baseline `a7460636`. All seven authored packages in the
+Engine/Sandbox project mounts pass the object-free audit with current schemas.
+The five affected repository assets were rewritten, historical compatibility
+fixtures were removed, and production contains no asset-specific structure
+upgrader. AssetImportCore (20), synchronous AssetImport (13), Texture (60),
+StaticMesh (44), Vulkan Scene (1), the complete native test aggregate, Game and
+Editor `all` builds, DDC/cook suites, runtime deployment inspection, and a
+60-tick loaded Sandbox editor smoke pass. The first full aggregate observed one
+isolated CRT mutex failure in a material transaction test; the focused rerun
+and complete aggregate rerun both passed. No other active plan requires an
+evidence update from this stage. Physical archival remains part of the normal
+monthly completed-plan batch.
 
 ## Goal
 
@@ -238,8 +262,8 @@ Editor hosts
 - available declared source inputs.
 
 It produces one candidate and failure-atomically saves one authored package.
-StaticMesh geometry reimport follows this path and must work for compatible
-legacy assets without a `DImportRecord`.
+StaticMesh geometry reimport follows this path for current repository assets
+without requiring a `DImportRecord`.
 
 **Import-record reimport** starts from a `DImportRecord`, not from a selected
 root output. It reparses the source snapshot, reconciles every managed output,
@@ -1170,30 +1194,49 @@ does not burden runtime targets.
 
 Dependencies: Stage 6.
 
-- [ ] Remove obsolete workflow files, public APIs, serialized fields, menu
+- [x] Remove obsolete workflow files, public APIs, serialized fields, menu
   actions, compatibility accessors, and model-specific transaction tests only
   after their replacements pass.
-- [ ] Prove cooked outputs contain no import records, source paths, provider
+- [x] Prove cooked outputs contain no import records, source paths, provider
   state, editor diagnostics, or provider module dependencies.
-- [ ] Inspect runtime target dependency graphs and deployment output for
+- [x] Inspect runtime target dependency graphs and deployment output for
   `AssetImportCore`, `StandardAssetImport`, optional independent providers,
   Assimp, and editor image decoders.
-- [ ] Run provider-focused suites, complete Engine tests, the repository full
+- [x] Run provider-focused suites, complete Engine tests, the repository full
   `all` build, editor import/reimport smoke workflows, DDC cold/warm cases, and
   cooked runtime smoke coverage.
-- [ ] Publish lasting package, provenance, import-record, provider, reimport,
+- [x] Publish lasting package, provenance, import-record, provider, reimport,
   DDC, cooking, and editor workflow contracts under their owning Runtime and
   Editor Architecture documentation.
-- [ ] Update other active plans only for dependencies whose implementation and
+- [x] Update other active plans only for dependencies whose implementation and
   acceptance evidence actually landed.
-- [ ] Complete and archive this plan after all required gates and documentation
-  handoffs pass.
+- [x] Complete this plan after all required gates and documentation handoffs
+  pass; archive it with the normal monthly completed-plan batch.
+
+#### Stage 7 Handoff
+
+- Baseline: `a7460636` (Stage 6 result).
+- Working set: AssetImportCore record validation; StandardAssetImport Scene
+  migration removal; Engine StaticMesh, component, material, and texture
+  schemas; five repository-authored packages; compatibility fixtures/tests;
+  owning Runtime/Editor documentation.
+- Key decisions: Git-authored packages are the only supported authored
+  baseline; production asset-specific structure upgraders are not shipped;
+  AssetCore unknown-field reporting and explicit data-loss consent remain.
+- Open questions: none.
+- Validation: repository audit 7/7 current; focused suites and complete native
+  aggregate passed; Win64 Debug Game/Editor `all` builds passed; Game deployment
+  contains no provider/editor import modules or Assimp; loaded Sandbox editor
+  initialized and exited cleanly after 60 ticks.
 
 #### Acceptance Gate
 
-- Existing supported authored assets migrate or remain usable, runtime-only
-  builds load all imported outputs without editor/provider code, full validation
-  passes, and no lasting framework contract remains owned only by this plan.
+- Every authored asset in the repository baseline uses the current schema,
+  runtime-only builds load all imported outputs without editor/provider code,
+  full validation passes, and no lasting framework contract remains owned only
+  by this plan. Pre-baseline import manifests and generated-owner fields are
+  unsupported and have no migration path. Production contains no asset-specific
+  structure upgrader.
 
 ## Validation Matrix
 
@@ -1202,7 +1245,7 @@ Dependencies: Stage 6.
 | Provider discovery | unique IDs, bounded prefix recognition, ambiguity, explicit selection, unavailable persisted provider, contract and schema compatibility |
 | Source snapshots | root and recursive declared dependencies, embedded bytes, containment, traversal, link escape, duplicate/cycle/depth/size/count budgets, post-capture changes |
 | Planning | mutation-free output preview, canonical ordering, stable identities, target preconditions, stale revision, collision and estimate completeness |
-| Single-asset reimport | legacy StaticMesh, Texture2D, TextureCube, changed/missing source, package-save failure, runtime-state restore |
+| Single-asset reimport | current StaticMesh, Texture2D, TextureCube, changed/missing source, package-save failure, runtime-state restore |
 | Import records | settings and provider-state round trip/bounds/version, unknown provider, peer outputs, move/rename/delete, duplicate ID and manager |
 | Reconciliation | unchanged, reorder, rename, add/remove, moved/missing output, detach tombstone, recreate, orphan, unrelated collision |
 | Publication | new/existing mixed packages, stale-plan rejection, root-last save, registry failure, no-fail reverse exchange, interrupted-save mismatch detection, restart after success |
@@ -1210,7 +1253,7 @@ Dependencies: Stage 6.
 | Synchronous execution | no task submission, phase ordering, deterministic results, provider lease, diagnostics, navigation, repair |
 | Asynchronous execution | sync equivalence, progress, rejected launch, cancel, stale serial, terminal-without-result, dialog close, project switch, provider unload, callable-cleanup race, mailbox drain, task failure, repeated loaded-project shutdown |
 | Cooking/runtime | record and provenance stripping, no provider dependencies, dependency closure, cooked load and rendered smoke |
-| Compatibility | no record, current static-model manifest, generated owner fields, unknown newer data, explicit data-loss refusal |
+| Compatibility | current repository assets and no-record single-asset reimport; retired import fields are unsupported while unknown-field data-loss refusal remains intact |
 
 ## Definition of Done
 

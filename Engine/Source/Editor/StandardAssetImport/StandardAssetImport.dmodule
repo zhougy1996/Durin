@@ -10,9 +10,7 @@
         "CoreDObject",
         "Engine"
     ],
-	"ReflectHeaders": [
-		"Public/LegacySceneImport.h"
-	],
+	"ReflectHeaders": [],
     "OptionalPrivateDependencies": [],
     "OptionalPublicDependencies": []
 }

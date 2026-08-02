@@ -14,30 +14,6 @@
 
 namespace
 {
-	struct FLegacySourceFixture
-	{
-		std::string_view FileName;
-		std::string_view AssetClass;
-		std::string_view OwnerRoot;
-		std::span<const std::string_view> TopLevelFields;
-		std::span<const std::string_view> SourcePaths;
-	};
-
-	auto PayloadContainsText(const Durin::Asset::FAssetPackageField& Field, std::string_view Text) -> bool
-	{
-		return std::search(Field.Payload.begin(), Field.Payload.end(), Text.begin(), Text.end())
-			!= Field.Payload.end();
-	}
-
-	auto InspectFixture(std::string_view FileName) -> Durin::Asset::FAssetPackageInspection
-	{
-		const std::filesystem::path Path =
-			std::filesystem::path(DURIN_TEST_DATA_DIR) / "SourceLibraryReferences" / FileName;
-		Durin::Asset::FAssetPackageInspection Inspection;
-		EXPECT_TRUE(Durin::Asset::InspectAssetPackage(Path.generic_string(), Inspection)) << Path;
-		return Inspection;
-	}
-
 	auto FindNamedEntry(Durin::FJsonNodeView Entries, std::string_view Name) -> Durin::FJsonNodeView
 	{
 		for (size_t Index = 0; Index < Entries.Num(); ++Index)
@@ -49,20 +25,6 @@ namespace
 		return {};
 	}
 
-	auto CopyLegacyMigrationFixture(
-		const std::filesystem::path& FixtureRoot,
-		const std::filesystem::path& WorkRoot,
-		std::string_view FileName,
-		std::string_view Owner,
-		std::string_view AssetName) -> void
-	{
-		const std::filesystem::path ContentRoot = WorkRoot / Owner / "Content";
-		std::filesystem::create_directories(ContentRoot);
-		std::filesystem::copy_file(
-			FixtureRoot / FileName,
-			ContentRoot / (std::string(AssetName) + ".dasset"),
-			std::filesystem::copy_options::overwrite_existing);
-	}
 }
 
 TEST(FSourcePathContractTests, ReflectedValueHasOneCompleteVirtualPath)
@@ -164,6 +126,8 @@ TEST(FSourcePathContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 	};
 	ExpectDeclaredProperties(Texture2DClass, Texture2DProperties);
 	ExpectDeclaredProperties(TextureCubeClass, TextureCubeProperties);
+	EXPECT_EQ(Durin::DStaticMesh::StaticClass()->FindPropertyByName("SourceFile"), nullptr);
+	EXPECT_EQ(Durin::DStaticMesh::StaticClass()->FindPropertyByName("ImportSettings"), nullptr);
 	EXPECT_EQ(Texture2DClass->FindPropertyByName("SourceFile"), nullptr);
 	for (std::string_view RetiredField : {
 		"PositiveXSourceFile",
@@ -295,153 +259,4 @@ TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
 	std::string RestoredBytes(
 		(std::istreambuf_iterator<char>(Restored)), std::istreambuf_iterator<char>());
 	EXPECT_EQ(RestoredBytes, "external-bytes");
-}
-
-TEST(FSourcePathContractTests, LegacyFixturesPreserveVersionTwoSourceLayouts)
-{
-	static constexpr std::array StaticMeshFields = {
-		std::string_view("SourceFile"),
-		std::string_view("SourceImportData")};
-	static constexpr std::array Texture2DFields = {
-		std::string_view("SourceFile"),
-		std::string_view("SourceImportData")};
-	static constexpr std::array TextureCubeFields = {
-		std::string_view("SourceImportData"),
-		std::string_view("PositiveXSourceFile"),
-		std::string_view("NegativeXSourceFile"),
-		std::string_view("PositiveYSourceFile"),
-		std::string_view("NegativeYSourceFile"),
-		std::string_view("PositiveZSourceFile"),
-		std::string_view("NegativeZSourceFile")};
-	static constexpr std::array ProjectStaticMeshSources = {
-		std::string_view("SourceAssets/Models/Models/Mesh_Teapot.obj")};
-	static constexpr std::array EngineStaticMeshSources = {
-		std::string_view("SourceAssets/Models/Editor/MaterialPreview/Sphere.obj")};
-	static constexpr std::array Texture2DSources = {
-		std::string_view("SourceAssets/Textures/Textures/TEX_StoneHead.jpg")};
-	static constexpr std::array TextureCubeSixFaceSources = {
-		std::string_view("SourceAssets/Textures/Convention_px.png"),
-		std::string_view("SourceAssets/Textures/Convention_nx.png"),
-		std::string_view("SourceAssets/Textures/Convention_py.png"),
-		std::string_view("SourceAssets/Textures/Convention_ny.png"),
-		std::string_view("SourceAssets/Textures/Convention_pz.png"),
-		std::string_view("SourceAssets/Textures/Convention_nz.png")};
-	static constexpr std::array TextureCubePanoramaSources = {
-		std::string_view("SourceAssets/Textures/Panorama_panorama.tga")};
-	static constexpr std::array Fixtures = {
-		FLegacySourceFixture{"LegacyProjectStaticMesh.dasset", "Durin::DStaticMesh",
-			"Project", StaticMeshFields, ProjectStaticMeshSources},
-		FLegacySourceFixture{"LegacyEngineStaticMesh.dasset", "Durin::DStaticMesh",
-			"Engine", StaticMeshFields, EngineStaticMeshSources},
-		FLegacySourceFixture{"LegacyProjectTexture2D.dasset", "Durin::DTexture2D",
-			"Project", Texture2DFields, Texture2DSources},
-		FLegacySourceFixture{"LegacyProjectTextureCubeSixFaces.dasset", "Durin::DTextureCube",
-			"Project", TextureCubeFields, TextureCubeSixFaceSources},
-		FLegacySourceFixture{"LegacyProjectTextureCubePanorama.dasset", "Durin::DTextureCube",
-			"Project", TextureCubeFields, TextureCubePanoramaSources}};
-
-	for (const FLegacySourceFixture& Fixture : Fixtures)
-	{
-		SCOPED_TRACE(Fixture.FileName);
-		const Durin::Asset::FAssetPackageInspection Inspection = InspectFixture(Fixture.FileName);
-		EXPECT_EQ(Inspection.Header.FormatVersion, 2u);
-		EXPECT_EQ(Inspection.Header.AssetClassName, Fixture.AssetClass);
-		for (std::string_view Field : Fixture.TopLevelFields)
-			EXPECT_NE(Inspection.FindField(Field), nullptr) << Field;
-		const Durin::Asset::FAssetPackageField* SourceImportData =
-			Inspection.FindField("SourceImportData");
-		ASSERT_NE(SourceImportData, nullptr);
-		for (std::string_view SourcePath : Fixture.SourcePaths)
-		{
-			EXPECT_TRUE(PayloadContainsText(*SourceImportData, SourcePath)) << SourcePath;
-			EXPECT_TRUE(std::filesystem::is_regular_file(
-				std::filesystem::path(DURIN_TEST_DATA_DIR) / "SourceLibraryReferences"
-				/ Fixture.OwnerRoot / SourcePath)) << SourcePath;
-		}
-	}
-}
-
-TEST(FSourcePathContractTests, LegacyFixturesRetainExplicitSourcePathCarriers)
-{
-	for (std::string_view FileName : {
-		"LegacyProjectStaticMesh.dasset",
-		"LegacyEngineStaticMesh.dasset",
-		"LegacyProjectTexture2D.dasset",
-		"LegacyProjectTextureCubeSixFaces.dasset",
-		"LegacyProjectTextureCubePanorama.dasset"})
-	{
-		SCOPED_TRACE(FileName);
-		const Durin::Asset::FAssetPackageInspection Inspection = InspectFixture(FileName);
-		const Durin::Asset::FAssetPackageField* SourceImportData =
-			Inspection.FindField("SourceImportData");
-		ASSERT_NE(SourceImportData, nullptr);
-		EXPECT_TRUE(PayloadContainsText(*SourceImportData, "SourcePath"));
-		EXPECT_TRUE(PayloadContainsText(*SourceImportData, "SourceContentHash"));
-	}
-}
-
-TEST(FSourcePathContractTests, LegacyFixturesAreRejectedAfterCarrierRetirement)
-{
-	InitializeDObjectSystem();
-	const std::filesystem::path FixtureRoot =
-		std::filesystem::path(DURIN_TEST_DATA_DIR) / "SourceLibraryReferences";
-	const std::filesystem::path WorkRoot =
-		Durin::Testing::GetTestWorkDirectory() / "SourcePathMigration";
-	Durin::Testing::RemoveTestWorkDirectory(WorkRoot);
-	std::filesystem::create_directories(WorkRoot / "Project");
-	std::filesystem::create_directories(WorkRoot / "Engine");
-	std::filesystem::copy(
-		FixtureRoot / "Project" / "SourceAssets",
-		WorkRoot / "Project" / "SourceAssets",
-		std::filesystem::copy_options::recursive);
-	std::filesystem::copy(
-		FixtureRoot / "Engine" / "SourceAssets",
-		WorkRoot / "Engine" / "SourceAssets",
-		std::filesystem::copy_options::recursive);
-	CopyLegacyMigrationFixture(
-		FixtureRoot, WorkRoot, "LegacyProjectStaticMesh.dasset", "Project", "LegacyProjectStaticMesh");
-	CopyLegacyMigrationFixture(
-		FixtureRoot, WorkRoot, "LegacyEngineStaticMesh.dasset", "Engine", "LegacyEngineStaticMesh");
-	CopyLegacyMigrationFixture(
-		FixtureRoot, WorkRoot, "LegacyProjectTexture2D.dasset", "Project", "LegacyProjectTexture2D");
-	CopyLegacyMigrationFixture(
-		FixtureRoot, WorkRoot, "LegacyProjectTextureCubeSixFaces.dasset", "Project", "LegacyProjectTextureCubeSixFaces");
-	CopyLegacyMigrationFixture(
-		FixtureRoot, WorkRoot, "LegacyProjectTextureCubePanorama.dasset", "Project", "LegacyProjectTextureCubePanorama");
-
-	const std::array Mounts = {
-		Durin::PathUtilities::FMountPoint{
-			.VirtualRoot = "/Engine/",
-			.Owner = Durin::PathUtilities::EMountOwner::Engine,
-			.OwnerRoot = WorkRoot / "Engine",
-			.ContentRoot = WorkRoot / "Engine" / "Content",
-			.SourceAssetsRoot = WorkRoot / "Engine" / "SourceAssets",
-			.Dependencies = {}},
-		Durin::PathUtilities::FMountPoint{
-			.VirtualRoot = "/Game/",
-			.Owner = Durin::PathUtilities::EMountOwner::ActiveProject,
-			.OwnerRoot = WorkRoot / "Project",
-			.ContentRoot = WorkRoot / "Project" / "Content",
-			.SourceAssetsRoot = WorkRoot / "Project" / "SourceAssets",
-			.Dependencies = {"/Engine/"}}};
-	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Mounts);
-	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
-
-	for (std::string_view AssetPath : {
-		"/Game/LegacyProjectStaticMesh",
-		"/Engine/LegacyEngineStaticMesh",
-		"/Game/LegacyProjectTexture2D",
-		"/Game/LegacyProjectTextureCubeSixFaces",
-		"/Game/LegacyProjectTextureCubePanorama"})
-	{
-		SCOPED_TRACE(AssetPath);
-		Durin::FAssetPath Path;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(AssetPath, Path));
-		Durin::DObject* Object = nullptr;
-		const Durin::Asset::FAssetResult LoadResult =
-			Durin::Asset::LoadAsset(Path, Object);
-		EXPECT_EQ(LoadResult.Error, Durin::Asset::EAssetError::TypeMismatch);
-		EXPECT_NE(LoadResult.Message.find("SourcePath"), std::string::npos);
-		EXPECT_EQ(Object, nullptr);
-	}
 }

@@ -17,6 +17,12 @@ Choose one source mode:
   Equal existing bytes are reused; a different collision is rejected. A failed
   build or publication rolls back the staged copy and package.
 
+Import captures the selected source and its provider-declared dependency
+closure into one immutable snapshot. A single-output import stores lightweight
+provenance on that asset. A multi-output import publishes peer assets plus an
+editor-only `DImportRecord`; selecting an output does not make it the owner of
+the others. See [Asset Import Framework](../Architecture/AssetImportFramework.md).
+
 The form displays the asset destination and source destination separately,
 along with mount identity, dependency status, availability, containment, and
 write policy. A Game asset may reference an Engine or declared plugin/library

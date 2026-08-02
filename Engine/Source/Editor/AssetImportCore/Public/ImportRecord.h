@@ -10,7 +10,7 @@
 namespace Durin::AssetImport
 {
 	inline constexpr uint32 ImportRecordVersion = 2;
-	inline constexpr uint32 MinimumSupportedImportRecordVersion = 1;
+	inline constexpr uint32 MinimumSupportedImportRecordVersion = ImportRecordVersion;
 	inline constexpr uint64 MaximumImportRecordSettingsBytes = 4ull * 1024ull * 1024ull;
 	inline constexpr uint64 MaximumImportRecordProviderStateBytes = 16ull * 1024ull * 1024ull;
 	inline constexpr uint32 MaximumImportRecordSources = 8192;

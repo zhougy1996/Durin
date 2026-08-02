@@ -175,50 +175,11 @@ namespace Durin::AssetImport
 			Builder.Update(Value);
 		}
 
-		const bool GImportRecordInspectionRegistered = [] {
-			Asset::RegisterAssetStructureInspectionUpgrader(
-				"Durin::AssetImport::DImportRecord",
-				"AssetImportCore.ImportRecordVersion2",
-				[](const Asset::FAssetPackageInspection&,
-					const Asset::FAssetPackageObjectInspection& Object,
-					std::span<const Asset::FAssetLegacyField>,
-					std::vector<Asset::FAssetCompatibilityIssue>& OutIssues)
-					-> Asset::FAssetResult
-				{
-					const Asset::FAssetPackageField* VersionField = Object.FindField("RecordVersion");
-					uint32 Version = 0;
-					if (!VersionField || !VersionField->TryReadScalar(Version))
-						return {Asset::EAssetError::CorruptFile,
-							"Import-record version is missing or invalid."};
-					if (Version == ImportRecordVersion) return {};
-					if (Version == 1)
-					{
-						OutIssues.push_back({
-							.Classification = Asset::EAssetCompatibilityClassification::Migrated,
-							.MigrationSummary =
-								"Import-record schema 1 loads with an empty accepted-diagnostics history.",
-							.Risk = Asset::EAssetCompatibilityRisk::None});
-						return {};
-					}
-					OutIssues.push_back({
-						.Classification = Asset::EAssetCompatibilityClassification::UnknownIncompatible,
-						.MigrationSummary = std::format(
-							"Import-record schema {} is unsupported; this build supports schema {}.",
-							Version, ImportRecordVersion),
-						.Risk = Version > ImportRecordVersion
-							? Asset::EAssetCompatibilityRisk::UnknownNewerSchema
-							: Asset::EAssetCompatibilityRisk::PotentialDataLoss});
-					return {};
-				});
-			return true;
-		}();
 	}
 
 	DImportRecord::DImportRecord(const FObjectInitializer& ObjectInitializer)
 		: DObject(ObjectInitializer), RecordId(FGuid::NewGuid())
-	{
-		(void)GImportRecordInspectionRegistered;
-	}
+	{}
 
 	auto DImportRecord::GetState() const -> FImportRecordState
 	{

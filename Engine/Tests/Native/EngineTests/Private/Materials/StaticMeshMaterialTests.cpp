@@ -153,37 +153,6 @@ TEST(FStaticMeshMaterialTests, StaticMeshWithoutSourceMetadataLoadsAndMissingSou
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 }
 
-TEST(FStaticMeshMaterialTests, LegacyStaticMeshSourceMetadataIsRejectedAfterMigration)
-{
-	InitializeDObjectSystem();
-	const std::filesystem::path Root =
-		Durin::Testing::GetTestWorkDirectory() / "LegacyStaticMeshSource";
-	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPoint(
-		"/LegacyStaticMeshSource/", (Root / "Content").generic_string() + "/");
-
-	std::filesystem::create_directories(Root / "Content");
-	const std::filesystem::path LegacySource = Root / "Content" / "Legacy.gltf";
-	ASSERT_TRUE(std::filesystem::copy_file(
-		std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf", LegacySource));
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/LegacyStaticMeshSource/Legacy", AssetPath));
-	Durin::DStaticMesh* Mesh = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(AssetPath, Mesh));
-	auto* SourceProperty = Mesh->GetClass()->FindPropertyByName("SourceFile");
-	ASSERT_NE(SourceProperty, nullptr);
-	*static_cast<std::string*>(SourceProperty->GetValuePtr(Mesh)) = "Legacy.gltf";
-	Mesh->MarkPackageDirty();
-	ASSERT_TRUE(Durin::Asset::SavePackage(Mesh->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-
-	Mesh = nullptr;
-	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(AssetPath, Mesh);
-	EXPECT_FALSE(LoadResult);
-	EXPECT_EQ(Mesh, nullptr);
-	EXPECT_NE(LoadResult.Message.find("Legacy static-mesh source metadata is unsupported"), std::string::npos);
-}
-
 TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDefaults)
 {
 	InitializeDObjectSystem();
@@ -384,46 +353,6 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsAndSurvivesRenderedRe
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
 	Harness.Shutdown();
 	Durin::CollectGarbage();
-}
-
-TEST(FStaticMeshMaterialTests, VersionZeroStaticMeshMaterialSlotsMigrateDeterministically)
-{
-	InitializeDObjectSystem();
-	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "StaticMeshSlotMigration";
-	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPoint("/StaticMeshSlotMigration/", Root.generic_string() + "/");
-
-	Durin::FAssetPath MeshPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotMigration/Mesh", MeshPath));
-	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	Durin::FStaticMeshImportResult Import = Durin::DStaticMesh::ImportAsset(Source.generic_string(), MeshPath.ToString());
-	ASSERT_TRUE(Import) << Import.Message;
-	auto* VersionProperty = Import.Asset->GetClass()->FindPropertyByName("MaterialSlotsVersion");
-	auto* SlotsProperty = static_cast<Durin::FArrayProperty*>(Import.Asset->GetClass()->FindPropertyByName("MaterialSlots"));
-	ASSERT_NE(VersionProperty, nullptr);
-	ASSERT_NE(SlotsProperty, nullptr);
-	*static_cast<Durin::uint32*>(VersionProperty->GetValuePtr(Import.Asset)) = 0;
-	SlotsProperty->Resize(Import.Asset, 0);
-	Import.Asset->MarkPackageDirty();
-	ASSERT_TRUE(Durin::Asset::SavePackage(Import.Asset->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
-
-	Durin::DStaticMesh* FirstLoad = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(MeshPath, FirstLoad));
-	ASSERT_EQ(FirstLoad->GetNumMaterialSlots(), 2u);
-	const std::array FirstIds{FirstLoad->GetMaterialSlot(0)->SlotId, FirstLoad->GetMaterialSlot(1)->SlotId};
-	EXPECT_TRUE(FirstIds[0].IsValid());
-	EXPECT_TRUE(FirstIds[1].IsValid());
-	EXPECT_NE(FirstIds[0], FirstIds[1]);
-	EXPECT_TRUE(FirstLoad->GetPackage()->IsDirty()) << "Version-zero slot migration must request an asset resave.";
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
-
-	Durin::DStaticMesh* SecondLoad = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(MeshPath, SecondLoad));
-	ASSERT_EQ(SecondLoad->GetNumMaterialSlots(), 2u);
-	EXPECT_EQ(SecondLoad->GetMaterialSlot(0)->SlotId, FirstIds[0]);
-	EXPECT_EQ(SecondLoad->GetMaterialSlot(1)->SlotId, FirstIds[1]);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
 }
 
 TEST(FStaticMeshMaterialTests, StaticMeshImportSettingsValidateDistinctAxes)

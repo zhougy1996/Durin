@@ -309,21 +309,13 @@ namespace Durin
 		auto LoadCookedRenderData(std::string& OutError) -> bool;
 
 		DPROPERTY()
-		std::string SourceFile;
-
-		DPROPERTY()
 		FStaticMeshSourceImportData SourceImportData;
 
 		DPROPERTY()
 		float NormalizedSize = 1.5f;
 
-		// Retained only so packages with the removed legacy schema can be diagnosed
-		// and rejected without losing serialized field compatibility.
 		DPROPERTY()
-		FStaticMeshImportSettings ImportSettings;
-
-		DPROPERTY()
-		uint32 MaterialSlotsVersion = 0;
+		uint32 MaterialSlotsVersion = 1;
 
 		DPROPERTY()
 		std::vector<FStaticMeshMaterialSlotDefinition> MaterialSlots;

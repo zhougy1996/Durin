@@ -107,6 +107,7 @@ TEST(FSceneImportTests, PublishesHeterogeneousPeersUnderGenericRecord)
 	EXPECT_EQ(Executed.Record->GetProviderId(), Durin::SceneImportProviderId);
 	EXPECT_EQ(Executed.Record->GetPrimaryOutput(), Fixture.Primary);
 	EXPECT_EQ(Executed.Record->GetOutputs().size(), 3u);
+	EXPECT_TRUE(Executed.Record->IsCookExcluded());
 }
 
 TEST(FSceneImportTests, AsyncPreparationMatchesSynchronousScenePlan)

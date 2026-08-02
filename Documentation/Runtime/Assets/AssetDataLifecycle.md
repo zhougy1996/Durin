@@ -59,6 +59,13 @@ authored `.dasset`, records portable source provenance, builds data required for
 immediate editor use, and populates the DDC. It does not create `Cooked/`
 packages, `.dbulk` companions, or `CookManifest.bin`.
 
+Multi-output import also creates an editor-only `DImportRecord` companion.
+Outputs remain independent runtime assets; the record stores management and
+reconciliation state and is explicitly excluded from cooking. Provider state,
+accepted editor diagnostics, record indexes, and provider-module identities do
+not enter cooked runtime ownership. See
+[Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
+
 The current import behavior is:
 
 | Asset | Import-time build | Persistent outputs |
@@ -113,6 +120,11 @@ Cook produces a platform-qualified runtime view under
 metadata and moves large, already-built payloads into `.dbulk`. Source files,
 source-only editor metadata, DDC keys, and DDC paths are not runtime
 dependencies.
+
+StaticMesh and texture cooked packages also omit import source provenance and
+editor diagnostics. Import-record packages are not cook inputs, and runtime
+targets do not deploy `AssetImportCore`, `StandardAssetImport`, Assimp, or
+editor image decoders.
 
 The initial loose-file convention is one companion bulk container per package:
 
