@@ -1,14 +1,23 @@
 import logging
 import time
+from dataclasses import replace
 
 from durin_header_tool import config as configs
 from durin_header_tool.model.export_info import ExportedSymbolInfo, ModuleExportInfo
 from durin_header_tool.parser.reflection_parser import parse_reflection_header
+from durin_header_tool.resolver.reflection_resolver import load_dependency_symbols, resolve_symbol_name
 
 
-def _extract_header_export_symbols_impl(module_name: str, header: str) -> dict[str, ExportedSymbolInfo]:
+def _extract_header_export_symbols_impl(
+    module_name: str,
+    header: str,
+) -> dict[str, ExportedSymbolInfo]:
     symbols: dict[str, ExportedSymbolInfo] = {}
-    header_info = parse_reflection_header(module_name, header, export_mode=True)
+    header_info = parse_reflection_header(
+        module_name,
+        header,
+        export_mode=True,
+    )
     for class_info in header_info.classes:
         symbols[class_info.qualified_name] = ExportedSymbolInfo(
             Kind="class",
@@ -48,7 +57,10 @@ def _extract_header_export_symbols_impl(module_name: str, header: str) -> dict[s
     return symbols
 
 
-def extract_header_export_symbols(module_name: str, header: str) -> dict[str, ExportedSymbolInfo]:
+def extract_header_export_symbols(
+    module_name: str,
+    header: str,
+) -> dict[str, ExportedSymbolInfo]:
     header_start_time = time.perf_counter()
     logging.debug("[DHT] Export %s: parsing %s", module_name, header)
     symbols = _extract_header_export_symbols_impl(module_name, header)
@@ -63,11 +75,63 @@ def extract_header_export_symbols(module_name: str, header: str) -> dict[str, Ex
     return symbols
 
 
+def _resolve_base_name(
+    symbol: ExportedSymbolInfo,
+    available_symbols: dict[str, ExportedSymbolInfo],
+) -> str | None:
+    base_name = symbol.BaseQualifiedName
+    if not base_name:
+        return ""
+    if base_name in available_symbols:
+        return base_name
+    if "::" not in base_name and symbol.Namespace:
+        local_name = f"{symbol.Namespace}::{base_name}"
+        if local_name in available_symbols:
+            return local_name
+    return resolve_symbol_name(base_name, available_symbols, kinds=("class",))
+
+
+def resolve_module_export_info(
+    module_name: str,
+    raw_symbols_by_header: dict[str, dict[str, ExportedSymbolInfo]],
+    dependency_symbols: dict[str, ExportedSymbolInfo],
+    *,
+    strict: bool = True,
+) -> ModuleExportInfo:
+    raw_symbols = {
+        qualified_name: symbol
+        for header_symbols in raw_symbols_by_header.values()
+        for qualified_name, symbol in header_symbols.items()
+    }
+    available_symbols = {**dependency_symbols, **raw_symbols}
+    export_info = ModuleExportInfo(Module=module_name)
+    for qualified_name, raw_symbol in sorted(raw_symbols.items()):
+        resolved_base = _resolve_base_name(raw_symbol, available_symbols)
+        if raw_symbol.BaseQualifiedName and resolved_base is None:
+            if strict:
+                raise ValueError(
+                    f"{raw_symbol.Header}: reflected class '{qualified_name}' has unsupported "
+                    f"non-hermetic base type '{raw_symbol.BaseQualifiedName}'"
+                )
+            resolved_base = raw_symbol.BaseQualifiedName
+        export_info.Symbols[qualified_name] = replace(
+            raw_symbol,
+            BaseQualifiedName=resolved_base or "",
+        )
+    return export_info
+
+
 def extract_module_export_info(module_name: str) -> ModuleExportInfo:
     module_config = configs.get_module_config(module_name)
-    export_info = ModuleExportInfo(Module=module_name)
+    raw_symbols_by_header = {}
 
     for header in module_config.reflect_headers:
-        export_info.Symbols.update(extract_header_export_symbols(module_name, header))
+        raw_symbols_by_header[header] = extract_header_export_symbols(module_name, header)
 
-    return export_info
+    dependency_symbols = load_dependency_symbols(module_name)
+    return resolve_module_export_info(
+        module_name,
+        raw_symbols_by_header,
+        dependency_symbols,
+        strict=False,
+    )

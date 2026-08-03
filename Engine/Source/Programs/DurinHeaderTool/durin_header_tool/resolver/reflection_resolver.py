@@ -9,16 +9,7 @@ from durin_header_tool.model.reflection_info import ReflectedHeaderInfo
 ExportedSymbols = dict[str, ExportedSymbolInfo]
 
 
-def load_available_symbols(module_name: str) -> ExportedSymbols:
-    symbols: ExportedSymbols = {}
-    dep_modules = configs.collect_all_dependent_module_with_export_file(module_name)
-    logging.debug("[DHT] Reflection %s: loading exports from %d modules", module_name, len(dep_modules))
-    for dep_module in dep_modules:
-        export_file_path = utils.get_module_export_file_path(dep_module)
-        if not export_file_path.exists():
-            raise FileNotFoundError(f"Export file for module '{dep_module}' not found at expected path: {export_file_path}")
-        export_info = load_module_export_file(export_file_path)
-        symbols.update(export_info.Symbols)
+def _add_builtin_symbols(symbols: ExportedSymbols) -> None:
     for qualified_name, short_name in (
         ("Durin::FVector2", "FVector2"),
         ("Durin::FVector3", "FVector3"),
@@ -32,6 +23,33 @@ def load_available_symbols(module_name: str) -> ExportedSymbols:
             GeneratedHelperName=f"Z_Construct_DStruct_{qualified_name.replace('::', '_')}",
             Header="DObject/MathStructs.h", API="COREDOBJECT_API"
         ))
+
+
+def load_dependency_symbols(module_name: str) -> ExportedSymbols:
+    symbols: ExportedSymbols = {}
+    dep_modules = sorted(
+        dep_module
+        for dep_module in configs.collect_all_dependent_modules(module_name)
+        if configs.get_module_config(dep_module).has_export_file()
+    )
+    logging.debug("[DHT] Export %s: loading exports from %d dependencies", module_name, len(dep_modules))
+    for dep_module in dep_modules:
+        export_file_path = utils.get_module_export_file_path(dep_module)
+        if not export_file_path.exists():
+            raise FileNotFoundError(f"Export file for module '{dep_module}' not found at expected path: {export_file_path}")
+        export_info = load_module_export_file(export_file_path)
+        symbols.update(export_info.Symbols)
+    _add_builtin_symbols(symbols)
+    return symbols
+
+
+def load_available_symbols(module_name: str) -> ExportedSymbols:
+    symbols = load_dependency_symbols(module_name)
+    if module_name in configs.collect_all_dependent_module_with_export_file(module_name):
+        export_file_path = utils.get_module_export_file_path(module_name)
+        if not export_file_path.exists():
+            raise FileNotFoundError(f"Export file for module '{module_name}' not found at expected path: {export_file_path}")
+        symbols.update(load_module_export_file(export_file_path).Symbols)
     logging.debug("[DHT] Reflection %s: loaded %d reflected symbols", module_name, len(symbols))
     return symbols
 
@@ -39,6 +57,11 @@ def load_available_symbols(module_name: str) -> ExportedSymbols:
 def resolve_header_symbols(header: ReflectedHeaderInfo, symbols: ExportedSymbols) -> None:
     for class_info in header.classes:
         class_info.base_qualified_name = _resolve_short_symbol(class_info.base_qualified_name, symbols)
+        if class_info.base_qualified_name and class_info.base_qualified_name not in symbols:
+            raise ValueError(
+                f"{header.header}: reflected class '{class_info.qualified_name}' has unsupported "
+                f"non-hermetic base type '{class_info.base_qualified_name}'"
+            )
         for prop in class_info.properties:
             _resolve_property_symbols(prop, symbols)
     for struct_info in header.structs:

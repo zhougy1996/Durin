@@ -171,6 +171,15 @@ class TestIntermediateLayout:
             utils.get_project_intermediate_dir("Engine") / "Build" / "Win64" / "DurinEditor"
         )
 
+    def test_persistent_header_cache_uses_project_platform_runtime_root(self):
+        assert utils.get_module_dht_cache_root("Core") == (
+            utils.get_project_intermediate_dir("Engine")
+            / "Build"
+            / "Win64"
+            / "DurinEditor"
+            / "DHTCache"
+        )
+
     def test_locks_use_shared_intermediate_root(self):
         assert utils.get_dht_module_lock_file_path("Core") == (
             utils.get_project_intermediate_dir("Engine")
@@ -301,6 +310,7 @@ class TestIntermediateLayout:
         assert "module_private_srcs" not in content
         assert "module_export_manifest_file" in content
         assert "module_manifest_file" in content
+        assert "module_export_dependencies" in content
         assert "module_reflection_export_dependencies" in content
 
     def test_cmake_declares_tool_and_generated_file_contracts(self):
@@ -316,6 +326,7 @@ class TestIntermediateLayout:
         assert "GLOB_RECURSE module_private_srcs CONFIGURE_DEPENDS" in project_targets
         assert ".export.stamp" in project_targets
         assert ".reflection.stamp" in project_targets
+        assert project_targets.count("${module_export_dependencies}") == 1
         assert "JOB_POOLS durin_dht=${DURIN_DHT_JOB_POOL_SIZE}" in build_options
         assert project_targets.count("JOB_POOL durin_dht") == 2
         assert project_targets.count("--workers ${DURIN_DHT_WORKERS}") == 2

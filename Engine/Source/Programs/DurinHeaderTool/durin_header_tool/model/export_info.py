@@ -7,7 +7,7 @@ from durin_header_tool.io import FileFingerprint
 from durin_header_tool.model.reflection_info import SYMBOL_NAME_SCHEME, TOOL_VERSION
 
 EXPORT_SCHEMA_VERSION = 5
-EXPORT_MANIFEST_SCHEMA_VERSION = 6
+EXPORT_MANIFEST_SCHEMA_VERSION = 7
 
 
 @dataclass
@@ -59,7 +59,9 @@ class ModuleExportManifest:
     RuntimeVariant: str = ""
     Platform: str = ""
     GeneratorOptionsHash: str = ""
+    DependencyExports: dict[str, str] = field(default_factory=dict)
     ReflectHeaders: dict[str, FileFingerprint] = field(default_factory=dict)
+    RawSymbolsByHeader: dict[str, dict[str, ExportedSymbolInfo]] = field(default_factory=dict)
 
     @classmethod
     def from_file(cls, module_export_manifest_file_path: Path) -> "ModuleExportManifest":
@@ -75,9 +77,17 @@ class ModuleExportManifest:
             RuntimeVariant=raw_json_data.get("RuntimeVariant", ""),
             Platform=raw_json_data.get("Platform", ""),
             GeneratorOptionsHash=raw_json_data.get("GeneratorOptionsHash", ""),
+            DependencyExports=dict(raw_json_data.get("DependencyExports", {})),
             ReflectHeaders={
                 header: _fingerprint_from_json(fingerprint)
                 for header, fingerprint in raw_json_data.get("ReflectHeaders", {}).items()
+            },
+            RawSymbolsByHeader={
+                header: {
+                    qualified_name: ExportedSymbolInfo(**symbol_data)
+                    for qualified_name, symbol_data in symbols.items()
+                }
+                for header, symbols in raw_json_data.get("RawSymbolsByHeader", {}).items()
             },
         )
 
@@ -116,9 +126,17 @@ def save_module_export_manifest_file(manifest: ModuleExportManifest) -> str:
         "RuntimeVariant": manifest.RuntimeVariant,
         "Platform": manifest.Platform,
         "GeneratorOptionsHash": manifest.GeneratorOptionsHash,
+        "DependencyExports": dict(sorted(manifest.DependencyExports.items())),
         "ReflectHeaders": {
             header: _fingerprint_to_json(fingerprint)
             for header, fingerprint in sorted(manifest.ReflectHeaders.items())
+        },
+        "RawSymbolsByHeader": {
+            header: {
+                qualified_name: asdict(symbol)
+                for qualified_name, symbol in sorted(symbols.items())
+            }
+            for header, symbols in sorted(manifest.RawSymbolsByHeader.items())
         },
     }
     content = json.dumps(json_data, indent=4)

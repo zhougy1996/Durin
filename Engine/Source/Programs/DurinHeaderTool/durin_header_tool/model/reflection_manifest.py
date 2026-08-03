@@ -3,11 +3,11 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 
-from durin_header_tool.io import FileFingerprint, LightFileFingerprint
+from durin_header_tool.io import FileFingerprint
 from durin_header_tool import io as utils
 from durin_header_tool.model.reflection_info import SYMBOL_NAME_SCHEME, TOOL_VERSION
 
-REFLECTION_MANIFEST_SCHEMA_VERSION = 5
+REFLECTION_MANIFEST_SCHEMA_VERSION = 6
 
 
 def make_generated_output_names(module_name: str, reflect_headers: Iterable[str]) -> list[str]:
@@ -58,10 +58,11 @@ class ModuleManifest:
     runtime_variant: str = ""
     platform: str = ""
     generator_options_hash: str = ""
-    dep_module_exports: dict[str, LightFileFingerprint] = field(default_factory=dict)
+    dep_module_exports: dict[str, str] = field(default_factory=dict)
     reflect_headers: dict[str, FileFingerprint] = field(default_factory=dict)
     resolved_symbol_dependencies: dict[str, dict[str, dict[str, str]]] = field(default_factory=dict)
     generated_outputs: list[str] = field(default_factory=list)
+    generated_output_digests: dict[str, str] = field(default_factory=dict)
     pending_cleanup_outputs: list[str] = field(default_factory=list)
 
 
@@ -77,7 +78,12 @@ def load_module_manifest_file(module_name: str) -> ModuleManifest:
     if not isinstance(data, dict):
         raise ValueError(f"Module manifest file '{manifest_file_path}' must contain a JSON object.")
 
-    object_fields = ("DependencyExports", "ReflectHeaders", "ResolvedSymbolDependencies")
+    object_fields = (
+        "DependencyExports",
+        "ReflectHeaders",
+        "ResolvedSymbolDependencies",
+        "GeneratedOutputDigests",
+    )
     for field_name in object_fields:
         if not isinstance(data.get(field_name, {}), dict):
             raise ValueError(f"Field '{field_name}' in module manifest file '{manifest_file_path}' must be a JSON object.")
@@ -91,19 +97,48 @@ def load_module_manifest_file(module_name: str) -> ModuleManifest:
     if data.get("SchemaVersion", 0) < REFLECTION_MANIFEST_SCHEMA_VERSION:
         fallback_outputs = make_generated_output_names(module_name_from_file, reflect_headers)
 
+    schema_version = data.get("SchemaVersion", 0)
+    dependency_exports = data.get("DependencyExports", {})
+    if schema_version >= REFLECTION_MANIFEST_SCHEMA_VERSION:
+        for module, digest in dependency_exports.items():
+            if not isinstance(module, str) or not module or not isinstance(digest, str):
+                raise ValueError(
+                    f"Field 'DependencyExports' in module manifest file '{manifest_file_path}' "
+                    "must contain string content digests."
+                )
+    else:
+        # Preserve legacy output ownership long enough for the schema contract
+        # check and cleanup path. Legacy timestamp records are never treated as
+        # current dependency identities.
+        dependency_exports = {
+            module: json.dumps(fingerprint, sort_keys=True, separators=(",", ":"))
+            for module, fingerprint in dependency_exports.items()
+        }
+
+    generated_output_digests = data.get("GeneratedOutputDigests", {})
+    for output_name, digest in generated_output_digests.items():
+        if (
+            not isinstance(output_name, str)
+            or not output_name
+            or "/" in output_name
+            or "\\" in output_name
+            or not isinstance(digest, str)
+        ):
+            raise ValueError(
+                f"Field 'GeneratedOutputDigests' in module manifest file '{manifest_file_path}' "
+                "contains an invalid output digest."
+            )
+
     return ModuleManifest(
         module_name=module_name_from_file,
-        schema_version=data.get("SchemaVersion", 0),
+        schema_version=schema_version,
         tool_version=data.get("ToolVersion", ""),
         tool_fingerprint=data.get("ToolFingerprint", ""),
         symbol_name_scheme=data.get("SymbolNameScheme", ""),
         runtime_variant=data.get("RuntimeVariant", ""),
         platform=data.get("Platform", ""),
         generator_options_hash=data.get("GeneratorOptionsHash", ""),
-        dep_module_exports={
-            key: _light_fingerprint_from_json(value)
-            for key, value in data.get("DependencyExports", {}).items()
-        },
+        dep_module_exports=dict(dependency_exports),
         reflect_headers=reflect_headers,
         resolved_symbol_dependencies=data.get("ResolvedSymbolDependencies", {}),
         generated_outputs=_load_generated_output_names(
@@ -112,6 +147,7 @@ def load_module_manifest_file(module_name: str) -> ModuleManifest:
             manifest_file_path,
             fallback=fallback_outputs,
         ),
+        generated_output_digests=dict(generated_output_digests),
         pending_cleanup_outputs=_load_generated_output_names(
             data,
             "PendingCleanupOutputs",
@@ -134,11 +170,12 @@ def save_module_manifest_file(manifest: ModuleManifest) -> str:
         "GeneratorOptionsHash": manifest.generator_options_hash,
         "ReflectHeaders": {key: _file_fingerprint_to_json(value) for key, value in sorted(manifest.reflect_headers.items())},
         "GeneratedOutputs": sorted(set(manifest.generated_outputs)),
+        "GeneratedOutputDigests": dict(sorted(manifest.generated_output_digests.items())),
         "PendingCleanupOutputs": sorted(set(manifest.pending_cleanup_outputs)),
-        "DependencyExports": {key: _light_fingerprint_to_json(value) for key, value in sorted(manifest.dep_module_exports.items())},
+        "DependencyExports": dict(sorted(manifest.dep_module_exports.items())),
         "ResolvedSymbolDependencies": {
             header: {
-                symbol_name: dict(symbol_data)
+                symbol_name: dict(sorted(symbol_data.items()))
                 for symbol_name, symbol_data in sorted(symbols.items())
             }
             for header, symbols in sorted(manifest.resolved_symbol_dependencies.items())
@@ -149,26 +186,12 @@ def save_module_manifest_file(manifest: ModuleManifest) -> str:
     return content
 
 
-def _light_fingerprint_to_json(fingerprint: LightFileFingerprint) -> dict[str, object]:
-    return {
-        "Timestamp": fingerprint.timestamp,
-        "FileSize": fingerprint.file_size,
-    }
-
-
 def _file_fingerprint_to_json(fingerprint: FileFingerprint) -> dict[str, object]:
     return {
         "Timestamp": fingerprint.timestamp,
         "FileSize": fingerprint.file_size,
         "MD5": fingerprint.md5,
     }
-
-
-def _light_fingerprint_from_json(data: dict[str, object]) -> LightFileFingerprint:
-    return LightFileFingerprint(
-        timestamp=data.get("Timestamp", 0.0),
-        file_size=data.get("FileSize", 0),
-    )
 
 
 def _file_fingerprint_from_json(data: dict[str, object]) -> FileFingerprint:

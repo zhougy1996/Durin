@@ -14,7 +14,13 @@ from durin_header_tool.cache.reflection_cache import reflection_manifest_contrac
 from durin_header_tool.generators import module_export_file_generator as export_generator
 from durin_header_tool.generators import module_reflection_files_generator as reflection_generator
 from durin_header_tool.io import FileFingerprint
-from durin_header_tool.model.export_info import ModuleExportInfo, ModuleExportManifest
+from durin_header_tool.model.export_info import (
+    ExportedSymbolInfo,
+    ModuleExportInfo,
+    ModuleExportManifest,
+    load_module_export_manifest_file,
+    save_module_export_manifest_file,
+)
 from durin_header_tool.model.reflection_manifest import ModuleManifest
 
 
@@ -34,6 +40,7 @@ class TestCacheRecovery:
         old_export_manifest = ModuleExportManifest(Module="Engine")
         new_export_manifest = ModuleExportManifest(Module="Engine")
         old_export_manifest.ReflectHeaders[header] = old_fingerprint
+        old_export_manifest.RawSymbolsByHeader[header] = {}
         new_export_manifest.ReflectHeaders[header] = touched_fingerprint
 
         assert export_generator._is_export_current(old_export_manifest, new_export_manifest, True)
@@ -43,7 +50,10 @@ class TestCacheRecovery:
         old_reflection_manifest.reflect_headers[header] = old_fingerprint
         new_reflection_manifest.reflect_headers[header] = touched_fingerprint
         old_reflection_manifest.resolved_symbol_dependencies[header] = {}
-        with mock.patch.object(reflection_generator, "_generated_outputs_missing", return_value=False):
+        with (
+            mock.patch.object(reflection_generator, "_generated_outputs_missing", return_value=False),
+            mock.patch.object(reflection_generator, "_generated_outputs_damaged", return_value=False),
+        ):
             headers = reflection_generator.get_reflection_headers_requiring_regeneration(
                 "Engine",
                 old_reflection_manifest,
@@ -57,14 +67,13 @@ class TestCacheRecovery:
         fingerprint = FileFingerprint(timestamp=1.0, file_size=10, md5="content")
         old_manifest = ModuleExportManifest(Module="Engine", ReflectHeaders={header: fingerprint})
         new_manifest = ModuleExportManifest(Module="Engine", ReflectHeaders={header: fingerprint})
-        old_export = ModuleExportInfo(Module="Engine")
+        old_manifest.RawSymbolsByHeader[header] = {}
 
         symbols = export_generator._load_or_parse_header_export(
             "Engine",
             header,
             old_manifest,
             new_manifest,
-            old_export,
         )
 
         assert symbols == {}
@@ -86,6 +95,56 @@ class TestCacheRecovery:
         new_manifest = ModuleExportManifest(Module="Engine", ToolFingerprint="new")
 
         assert not export_generator._is_export_current(old_manifest, new_manifest, True)
+
+    def test_dependency_export_change_reresolves_reused_raw_headers(self):
+        header = "Public/Engine/Actor.h"
+        fingerprint = FileFingerprint(timestamp=1.0, file_size=10, md5="same-content")
+        old_manifest = ModuleExportManifest(
+            Module="Engine",
+            DependencyExports={"CoreDObject": "old"},
+            ReflectHeaders={header: fingerprint},
+            RawSymbolsByHeader={header: {}},
+        )
+        new_manifest = ModuleExportManifest(
+            Module="Engine",
+            DependencyExports={"CoreDObject": "new"},
+            ReflectHeaders={header: fingerprint},
+        )
+
+        assert not export_generator._is_export_current(old_manifest, new_manifest, True)
+        assert export_generator._is_header_current(old_manifest, new_manifest, header)
+        assert export_generator._load_or_parse_header_export(
+            "Engine", header, old_manifest, new_manifest
+        ) == {}
+
+    def test_raw_header_export_projection_round_trips(self, tmp_path, monkeypatch):
+        manifest_path = tmp_path / "Engine.export.manifest"
+        symbol = ExportedSymbolInfo(
+            Kind="class",
+            ShortName="AActor",
+            Namespace="Durin",
+            QualifiedName="Durin::AActor",
+            GeneratedHelperName="Z_Construct_DClass_Durin_AActor",
+            Header="Public/Engine/Actor.h",
+            API="ENGINE_API",
+            BaseQualifiedName="DObject",
+        )
+        manifest = ModuleExportManifest(
+            Module="Engine",
+            DependencyExports={"CoreDObject": "digest"},
+            RawSymbolsByHeader={symbol.Header: {symbol.QualifiedName: symbol}},
+        )
+        monkeypatch.setattr(
+            utils,
+            "get_module_export_manifest_file_path",
+            lambda _module_name: manifest_path,
+        )
+
+        save_module_export_manifest_file(manifest)
+        loaded = load_module_export_manifest_file(manifest_path)
+
+        assert loaded.DependencyExports == manifest.DependencyExports
+        assert loaded.RawSymbolsByHeader == manifest.RawSymbolsByHeader
 
     def test_invalid_reflection_manifest_is_a_cache_miss(self, tmp_path, monkeypatch):
         manifest_path = tmp_path / "Engine.manifest"
@@ -200,6 +259,7 @@ class TestCacheRecovery:
                 return_value=ModuleManifest(module_name="Engine"),
             ),
             mock.patch.object(reflection_generator, "_write_reflection_files", side_effect=RuntimeError("generation failed")),
+            mock.patch.object(reflection_generator, "make_persistent_header_cache", return_value=mock.Mock()),
             mock.patch.object(reflection_generator, "save_module_manifest_file", new=save_manifest),
         ):
             with pytest.raises(RuntimeError, match="generation failed"):
@@ -252,6 +312,7 @@ class TestCacheRecovery:
                 return_value=[],
             ),
             mock.patch.object(reflection_generator, "_write_reflection_files", return_value=(0, 0)),
+            mock.patch.object(reflection_generator, "make_persistent_header_cache", return_value=mock.Mock()),
             mock.patch.object(reflection_generator, "save_module_manifest_file", side_effect=record_manifest_commit),
             mock.patch.object(reflection_generator.utils, "get_module_dht_output_dir", return_value=output_dir),
         ):
@@ -284,6 +345,7 @@ class TestCacheRecovery:
                 return_value=[],
             ),
             mock.patch.object(reflection_generator, "_write_reflection_files", return_value=(0, 0)),
+            mock.patch.object(reflection_generator, "make_persistent_header_cache", return_value=mock.Mock()),
             mock.patch.object(
                 reflection_generator,
                 "save_module_manifest_file",

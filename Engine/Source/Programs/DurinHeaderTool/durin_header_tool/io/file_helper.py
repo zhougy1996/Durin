@@ -29,6 +29,19 @@ def calc_md5(file_path: Path, chunk_size: int = 8192) -> str:
         return hash_obj.hexdigest()
     except (PermissionError, OSError) as e:
         raise IOError(f"Error reading file {file_path}: {e}")
+
+
+def calc_sha256(file_path: Path, chunk_size: int = 8192) -> str:
+    if not file_path.is_file():
+        raise FileNotFoundError(f"File {file_path} does not exist.")
+    try:
+        hash_obj = hashlib.sha256()
+        with open(file_path, "rb") as f:
+            while chunk := f.read(chunk_size):
+                hash_obj.update(chunk)
+        return hash_obj.hexdigest()
+    except (PermissionError, OSError) as e:
+        raise IOError(f"Error reading file {file_path}: {e}")
     
 def get_light_file_fingerprint(file_path: Path) -> LightFileFingerprint:
     if not file_path.is_file():

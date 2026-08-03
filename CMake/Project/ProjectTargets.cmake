@@ -117,7 +117,7 @@ function(add_durin_module module_name)
 			BYPRODUCTS "${module_export_file}" "${module_export_manifest_file}"
 			COMMAND ${DHT_MAIN} generate_module_export_file -m ${module_name} --workers ${DURIN_DHT_WORKERS} --log ${DURIN_DHT_LOG_LEVEL} ${DURIN_DHT_CONTEXT_ARGS} ${DURIN_DHT_PROJECT_FILE_ARGS}
 			COMMAND ${CMAKE_COMMAND} -E touch "${_durin_module_export_stamp}"
-			DEPENDS ${module_reflect_headers} "${_durin_module_cmake_file}" "${DURIN_DHT_TOOL_FINGERPRINT_FILE}"
+			DEPENDS ${module_reflect_headers} "${_durin_module_cmake_file}" "${DURIN_DHT_TOOL_FINGERPRINT_FILE}" ${module_export_dependencies}
 			COMMENT "[DHT] Generating export metadata for ${module_name}"
 			JOB_POOL durin_dht
 			VERBATIM

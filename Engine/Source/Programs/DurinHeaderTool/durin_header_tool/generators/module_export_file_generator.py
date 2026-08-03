@@ -1,8 +1,20 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import hashlib
 import logging
 import time
 
 from durin_header_tool import config as configs
+from durin_header_tool.cache.persistent_header_cache import (
+    CacheDiagnostics,
+    CacheEntryIdentity,
+    CachePhase,
+    ExportHeaderCachePayload,
+    PersistentHeaderCache,
+    canonical_json_bytes,
+    fingerprint_native_libclang,
+    make_persistent_header_cache,
+    sha256_bytes,
+)
 from durin_header_tool.model.export_info import (
     ModuleExportInfo,
     ModuleExportManifest,
@@ -12,9 +24,28 @@ from durin_header_tool.model.export_info import (
     save_module_export_manifest_file,
 )
 from durin_header_tool.model.reflection_info import SYMBOL_NAME_SCHEME, TOOL_VERSION
+from durin_header_tool.parser.reflection_parser import PARSER_CONTEXT_VERSION
 from durin_header_tool import io as utils
 from durin_header_tool.runtime.worker_context import initialize_worker_config
 from durin_header_tool.runtime.parallelism import resolve_worker_count
+from durin_header_tool.resolver.reflection_resolver import load_dependency_symbols
+from durin_header_tool.extractors.export_symbol_extractor import resolve_module_export_info
+
+
+_GENERATOR_OPTIONS_HASH = "default"
+_EMPTY_EXPORT_DEPENDENCY_DIGEST = sha256_bytes(canonical_json_bytes({}))
+
+
+def _export_cache_context_digest() -> str:
+    return sha256_bytes(
+        canonical_json_bytes(
+            {
+                "GeneratorOptionsHash": _GENERATOR_OPTIONS_HASH,
+                "ParserContextVersion": PARSER_CONTEXT_VERSION,
+                "SymbolNameScheme": SYMBOL_NAME_SCHEME,
+            }
+        )
+    )
 
 
 def _load_previous_export(module_name: str) -> tuple[ModuleExportInfo | None, ModuleExportManifest | None]:
@@ -74,8 +105,17 @@ def _make_current_export_manifest(module_name: str, old_manifest: ModuleExportMa
         ToolVersion=TOOL_VERSION,
         ToolFingerprint=configs.TOOL_FINGERPRINT or TOOL_VERSION,
         SymbolNameScheme=SYMBOL_NAME_SCHEME,
-        GeneratorOptionsHash="default",
+        GeneratorOptionsHash=_GENERATOR_OPTIONS_HASH,
     )
+    for dep_module in configs.collect_all_dependent_module_with_export_file(module_name):
+        if dep_module == module_name:
+            continue
+        export_path = utils.get_module_export_file_path(dep_module)
+        if not export_path.exists():
+            raise FileNotFoundError(
+                f"Export file for dependent module '{dep_module}' not found at expected path: {export_path}"
+            )
+        manifest.DependencyExports[dep_module] = hashlib.sha256(export_path.read_bytes()).hexdigest()
     for header in module_config.reflect_headers:
         header_file_path = (module_config.module_dir / header).resolve()
         if not header_file_path.exists():
@@ -97,7 +137,9 @@ def _is_export_current(old_manifest: ModuleExportManifest, new_manifest: ModuleE
         and old_manifest.RuntimeVariant == new_manifest.RuntimeVariant
         and old_manifest.Platform == new_manifest.Platform
         and old_manifest.GeneratorOptionsHash == new_manifest.GeneratorOptionsHash
+        and old_manifest.DependencyExports == new_manifest.DependencyExports
         and old_manifest.ReflectHeaders == new_manifest.ReflectHeaders
+        and set(old_manifest.RawSymbolsByHeader) == set(new_manifest.ReflectHeaders)
     )
 
 
@@ -123,25 +165,14 @@ def _is_header_current(old_manifest: ModuleExportManifest, new_manifest: ModuleE
     )
 
 
-def _symbols_for_header_from_export(export_info: ModuleExportInfo, header: str) -> dict | None:
-    if export_info is None:
-        return None
-    return {
-        qualified_name: symbol
-        for qualified_name, symbol in export_info.Symbols.items()
-        if symbol.Header == header
-    }
-
-
 def _load_or_parse_header_export(
     module_name: str,
     header: str,
     old_manifest: ModuleExportManifest,
     new_manifest: ModuleExportManifest,
-    old_export_info: ModuleExportInfo,
 ) -> dict:
     if _is_header_current(old_manifest, new_manifest, header):
-        symbols = _symbols_for_header_from_export(old_export_info, header)
+        symbols = old_manifest.RawSymbolsByHeader.get(header)
         if symbols is not None:
             logging.debug(
                 "[DHT] Export %s: reused %s from export (%d symbols)",
@@ -155,23 +186,68 @@ def _load_or_parse_header_export(
     return None
 
 
-def _build_module_export_from_manifest_cache(
+def _make_export_cache_identity(
+    module_name: str,
+    header: str,
+    native_libclang_fingerprint: str,
+) -> CacheEntryIdentity:
+    module_config = configs.get_module_config(module_name)
+    header_path = (module_config.module_dir / header).resolve()
+    return CacheEntryIdentity(
+        tool_fingerprint=configs.TOOL_FINGERPRINT or TOOL_VERSION,
+        native_libclang_fingerprint=native_libclang_fingerprint,
+        platform=configs.ARCH,
+        runtime_variant=configs.RUNTIME_VARIANT,
+        context_digest=_export_cache_context_digest(),
+        module=module_name,
+        logical_header=header,
+        header_content_digest=utils.calc_sha256(header_path),
+        dependency_digest=_EMPTY_EXPORT_DEPENDENCY_DIGEST,
+    )
+
+
+def _build_module_export_from_cache(
     module_name: str,
     old_manifest: ModuleExportManifest,
     new_manifest: ModuleExportManifest,
-    old_export_info: ModuleExportInfo,
     max_workers: int,
-) -> tuple[ModuleExportInfo, int]:
+    persistent_cache: PersistentHeaderCache,
+    native_libclang_fingerprint: str,
+    diagnostics: CacheDiagnostics,
+) -> tuple[dict[str, dict], int]:
     module_config = configs.get_module_config(module_name)
-    export_info = ModuleExportInfo(Module=module_name)
+    raw_symbols_by_header: dict[str, dict] = {}
     headers_to_parse: list[str] = []
+    cache_identities: dict[str, CacheEntryIdentity] = {}
 
     for header in module_config.reflect_headers:
-        symbols = _load_or_parse_header_export(module_name, header, old_manifest, new_manifest, old_export_info)
+        symbols = _load_or_parse_header_export(module_name, header, old_manifest, new_manifest)
         if symbols is None:
-            headers_to_parse.append(header)
-        else:
-            export_info.Symbols.update(symbols)
+            identity = _make_export_cache_identity(
+                module_name,
+                header,
+                native_libclang_fingerprint,
+            )
+            cache_identities[header] = identity
+            lookup = persistent_cache.read(CachePhase.EXPORT, identity)
+            diagnostics.record_lookup(lookup)
+            if lookup.is_hit:
+                payload = lookup.payload
+                if not isinstance(payload, ExportHeaderCachePayload):
+                    raise TypeError("Persistent export cache returned an incompatible payload.")
+                symbols = payload.symbols
+                diagnostics.record_materialization()
+                logging.debug(
+                    "[DHT] Export %s: reconstructed %s from persistent cache (%d symbols)",
+                    module_name,
+                    header,
+                    len(symbols),
+                )
+            else:
+                headers_to_parse.append(header)
+
+        if symbols is not None:
+            raw_symbols_by_header[header] = symbols
 
     if headers_to_parse:
         worker_count = resolve_worker_count(len(headers_to_parse), max_workers)
@@ -208,11 +284,23 @@ def _build_module_export_from_manifest_cache(
                 elapsed_ms,
             )
 
+        diagnostics.record_parse(len(parsed_symbols_by_header))
+        for header, symbols in parsed_symbols_by_header.items():
+            persistent_cache.write(
+                CachePhase.EXPORT,
+                cache_identities[header],
+                ExportHeaderCachePayload(symbols=symbols),
+            )
+
         for header in module_config.reflect_headers:
             if header in parsed_symbols_by_header:
-                export_info.Symbols.update(parsed_symbols_by_header[header])
+                raw_symbols_by_header[header] = parsed_symbols_by_header[header]
 
-    return export_info, len(headers_to_parse)
+    ordered_symbols_by_header = {
+        header: raw_symbols_by_header[header]
+        for header in module_config.reflect_headers
+    }
+    return ordered_symbols_by_header, len(headers_to_parse)
 
 
 def generate_module_export_file(module_name: str, max_workers: int = 1) -> None:
@@ -221,7 +309,14 @@ def generate_module_export_file(module_name: str, max_workers: int = 1) -> None:
     export_manifest_path = utils.get_module_export_manifest_file_path(module_name)
     old_export_info, old_manifest = _load_previous_export(module_name)
     new_manifest = _make_current_export_manifest(module_name, old_manifest)
+    persistent_cache = make_persistent_header_cache(module_name)
+    persistent_cache.cleanup_stale_headers(
+        CachePhase.EXPORT,
+        module_name,
+        list(new_manifest.ReflectHeaders),
+    )
     if _is_export_current(old_manifest, new_manifest, old_export_info is not None):
+        new_manifest.RawSymbolsByHeader = old_manifest.RawSymbolsByHeader
         save_module_export_manifest_file(new_manifest)
         elapsed_ms = (time.perf_counter() - start_time) * 1000.0
         logging.info(
@@ -234,16 +329,27 @@ def generate_module_export_file(module_name: str, max_workers: int = 1) -> None:
         return
 
     logging.debug("[DHT] Export %s: scanning %d reflected headers", module_name, len(new_manifest.ReflectHeaders))
-    export_info, parsed_header_count = _build_module_export_from_manifest_cache(
+    diagnostics = CacheDiagnostics()
+    raw_symbols_by_header, parsed_header_count = _build_module_export_from_cache(
         module_name,
         old_manifest,
         new_manifest,
-        old_export_info,
         max_workers,
+        persistent_cache,
+        fingerprint_native_libclang(),
+        diagnostics,
     )
+    dependency_symbols = load_dependency_symbols(module_name)
+    export_info = resolve_module_export_info(
+        module_name,
+        raw_symbols_by_header,
+        dependency_symbols,
+    )
+    new_manifest.RawSymbolsByHeader = raw_symbols_by_header
     save_module_export_file(export_info)
     save_module_export_manifest_file(new_manifest)
     elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+    diagnostics.log_summary(module_name, CachePhase.EXPORT, elapsed_ms)
     logging.info(
         "[DHT] Export %s: updated %d/%d headers, wrote %d symbols in %.0f ms",
         module_name,

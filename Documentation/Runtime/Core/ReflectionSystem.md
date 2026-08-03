@@ -41,20 +41,28 @@ The system does not currently implement CDO behavior, hot reload, function refle
 ## Parsing Scope And Generated-File Naming
 
 DurinHeaderTool is a reflection metadata extractor, not a standalone C++ compiler
-or a complete semantic analyzer. It parses each configured reflected header with
-the available compiler context, which may include transitive headers, a
-precompiled header, and runtime-variant-provided default imports. That context is useful
-when it can resolve a reflected declaration, but DHT does not recursively require
-every referenced declaration or type definition to be available.
+or a complete semantic analyzer. Each parse has a hermetic semantic boundary:
+the current configured reflected header, the versioned DHT built-in prelude, and
+canonical reflected-symbol exports. DHT blanks every ordinary `#include`
+directive before invoking libclang while retaining its newline, so an included
+project, third-party, generated, or system header cannot change extraction or
+source locations.
 
 Reflection marker ownership follows the physical source file. Each configured
 reflected header is responsible for markers written directly in that header;
-transitive project headers, third-party headers, and system headers are parsing
-context rather than diagnostic targets. A transitive reflected header is checked
-by its own DHT parse. Reflection markers must therefore be written directly in a
-configured reflected header rather than introduced indirectly by another macro.
-DHT hot-path AST traversal must preserve this boundary and must not recursively
-lint the complete translation unit.
+ordinary included headers are neither semantic inputs nor diagnostic targets. A
+reflected header is checked by its own DHT parse. Reflection markers must be
+written directly in that configured header rather than introduced indirectly by
+another macro. DHT hot-path AST traversal preserves this boundary and does not
+recursively lint another physical file.
+
+The built-in prelude owns fundamental Durin aliases, supported parser macros,
+container declarations, and intrinsic parser types. Reflected exports provide
+synthetic class, struct, and enum declarations for cross-header references. A
+type alias, conditional macro, base class, or `DPROPERTY()` type whose required
+meaning exists only in an ordinary included header is rejected with a stable
+non-hermetic-dependency diagnostic. Meanings declared directly in the current
+header remain valid.
 
 Clang translation units are parsed without function bodies. Reflection consumes
 declaration signatures, fields, constructor and destructor declarations, enum
@@ -105,27 +113,51 @@ generated artifact while avoiding a repeated command when a semantic export or
 generated source remains byte-for-byte unchanged. In particular, an unchanged
 public `.export` keeps its timestamp so downstream modules are not regenerated.
 
+These disposable outputs are reconstructed from a versioned per-header cache at
+`<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/DHTCache/`. Export
+entries retain the raw symbol projection required for deterministic module
+resolution. Reflection entries retain generated header/source text,
+class/property counts, and resolved-symbol dependency snapshots. Entries are
+canonical checksummed JSON and are keyed by the current header plus the complete
+phase context; reflection also hashes the complete canonical available-symbol
+set. DHT validates an entry completely before publishing any cached output.
+
+CMake clean does not own this cache, so a warm rebuild can rematerialize every
+missing generated output with zero parser calls. Project purge removes the
+enclosing runtime-variant intermediate root and intentionally makes the next
+generation cold. Interrupted cache replacement leaves the previous complete
+entry usable when possible, while interrupted output materialization is repaired
+from already published entries on the next ordinary build.
+
 CMake computes a stable tool fingerprint from the DHT Python implementation and
 its pinned requirements. A tool input change triggers reconfiguration and both
 generation stages. DHT records the fingerprint in its manifests, so parser or
 writer changes invalidate the internal cache even when reflected headers have not
 changed.
 
-The export command runs before reflection generation so other modules can resolve reflected base classes and object-pointer property types without reparsing dependency headers.
+The export command runs before reflection generation so other modules can
+resolve reflected base classes and object-pointer property types without
+reparsing dependency headers. A module export command also depends on the
+public exports of reflected dependency modules; reflection generation depends
+on the same exports plus its owning module export.
 
 Reflection generation also depends directly on the module's reflected headers. A whitespace-only header edit may leave the public `.export` symbol index unchanged, but it still must regenerate that header's `.gen.h/.gen.cpp` because `GENERATED_BODY()` macro names include source line numbers.
 
 DurinHeaderTool logs key build progress at `INFO` level:
 
 - export skip status, scan start/end, and symbol count
-- per-header export parse time and symbol count
+- aggregate export cache hits, misses, materializations, parses, and miss reasons
 - export parse worker count when multiple headers require parsing
 - reflection manifest preparation
 - number of regenerated/skipped headers
+- aggregate reflection cache hits, misses, materializations, parses, and miss reasons
 - reflection parse worker count when multiple headers require regeneration
 - dependency export loading
-- per-header parse/write time, class count, and property count
 - module reflection completion time
+
+Per-header timings and cache decisions are DEBUG-only. Invalid entry shape,
+truncation, or checksum disagreement emits a warning and follows the normal
+parser fallback; manual cache deletion is not required for recovery.
 
 ## Symbol Model
 
@@ -153,11 +185,11 @@ Each reflected module writes:
 <Module>.export
 ```
 
-The export file currently uses schema v4 JSON:
+The export file currently uses schema v5 JSON:
 
 ```json
 {
-  "SchemaVersion": 4,
+  "SchemaVersion": 5,
   "Module": "Engine",
   "Symbols": {
     "Durin::AActor": {
@@ -184,19 +216,23 @@ DurinHeaderTool stores export-generation input fingerprints in a private sibling
 <Module>.export.manifest
 ```
 
-The module export manifest currently uses schema v6 and records the schema, tool
-version, tool fingerprint, options, runtime variant, platform, and reflected-header
-fingerprints. It lets `generate_module_export_file` skip entirely when no inputs
-changed. If only some headers changed, DurinHeaderTool reparses those headers and
-reuses unchanged header symbols by grouping entries from the previous public
-`.export` file, including a cached empty result for a header that exports no
-symbols, then assembles the new public `.export` file. Reflected-header content
-identity is the stored MD5; timestamp and size are only a cheap guard that avoids
+The module export manifest currently uses schema v7 and records the schema, tool
+version, tool fingerprint, options, runtime variant, platform, dependency-export
+content digests, reflected-header fingerprints, and a serializable raw symbol
+projection for each header. It lets `generate_module_export_file` skip entirely
+when no inputs changed. If only some headers changed, DurinHeaderTool reparses
+only those headers and reuses the other raw projections, including an empty
+projection for a header that exports no symbols. It then resolves bases against
+the complete current-module projection and dependency exports in deterministic
+header/name order before writing the unchanged thin public `.export` format.
+The reflected-header content identity is the stored MD5; timestamp and size are
+only a cheap guard that avoids
 rehashing an unchanged file. Touching a header therefore refreshes its cached
 filesystem metadata without invalidating export or reflection parsing when its
 content hash is unchanged. When multiple headers require parsing, the export
 generator parses them in a bounded worker pool and merges results in module
-header order. Other modules should not depend on or read this private cache file.
+header order. Other modules should not depend on or read this private manifest
+directly.
 
 `CoreDObject` uses `DObject/MirrorExportTypes.h` under `_DHT_EXPORTS_PARSER` to publish intrinsic core types such as `Durin::DObject`, `Durin::DType`, `Durin::DStructBase`, and `Durin::DClass` without generating duplicate runtime class registration for those intrinsic types.
 
@@ -208,20 +244,22 @@ Each reflected module writes:
 <Module>.manifest
 ```
 
-The manifest currently uses schema v4 JSON and is private to DurinHeaderTool. It records:
+The manifest currently uses schema v6 JSON and is private to DurinHeaderTool. It records:
 
 - `SchemaVersion`
 - `ToolVersion`
 - `ToolFingerprint`
 - `SymbolNameScheme`
 - `ModuleName`
-- `Profile`
+- `RuntimeVariant`
 - `Platform`
 - `GeneratorOptionsHash`
 - reflected header fingerprints
 - `GeneratedOutputs`, the complete set of reflection outputs owned by the module
+- content digests for generated outputs, used to repair damaged files from a
+  valid persistent entry
 - `PendingCleanupOutputs`, stale owned outputs whose deletion must be retried
-- dependency export fingerprints
+- dependency export content digests
 - resolved reflected-symbol dependencies per header
 
 Changing the tool version, tool fingerprint, schema, symbol-name scheme, runtime variant,
@@ -235,9 +273,9 @@ the difference between the old and new ownership sets in
 `PendingCleanupOutputs`. It then deletes only those named files and clears the
 pending list in a final atomic manifest write. An interrupted or failed deletion
 is therefore retried by the next generation command, while a failed generation
-never removes outputs belonging to the last successful manifest. Schema v3
-manifests derive their initial ownership set from `ReflectHeaders` during the
-one-time schema upgrade.
+never removes outputs belonging to the last successful manifest. Manifests
+older than schema v5 derive their initial ownership set from `ReflectHeaders`
+while upgrading to the current schema.
 
 ## Generated Header Contract
 
@@ -415,6 +453,12 @@ Supported property node types are:
 
 `FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct object-reference access for GC and serialization. `FStringProperty` exposes a `std::string*` pointer helper. Generated array and map helpers provide type-erased traversal and mutation used by GC, both memory/package serialization, and editor container controls. Map helpers expose mutable mapped values while keeping keys immutable in place; key edits use copy, uniqueness validation, and node-based rename operations so `std::unordered_map` invariants remain intact.
 
+Generated element-size expressions for strings, names, GUIDs, and reflected
+struct values use C++ `sizeof(SourceType)` rather than libclang's parser-side
+layout. This keeps ABI ownership with the compiler that builds the generated
+source and prevents synthetic parser declarations or host STL contents from
+changing runtime property sizes.
+
 `DStructBase::ChildProperties` stores only properties declared directly on that reflected type. Superclass properties are reached through the superclass chain. Use `FindPropertyByName(...)` or the property iteration helpers when inherited properties should be visible.
 
 ## Container Properties
@@ -451,7 +495,10 @@ Only the top-level field uses `STRUCT_OFFSET`. Nested inner/key/value properties
 
 Container key restrictions are intentionally stricter than value restrictions. Map keys may be primitive, `bool`, `std::string`, or reflected enum types. Map keys may not be `DObject*` or another container. Vector inner types and map values may be primitive, `bool`, `std::string`, reflected enum, reflected `DObject*`, or another supported container within the depth limit.
 
-Unsupported types are skipped by DHT with stable diagnostics/test behavior. This includes unknown templates, smart pointers, non-reflected object pointers, references, and containers nested deeper than the configured limit.
+Unsupported `DPROPERTY()` types fail DHT with stable diagnostics. This includes
+unknown templates, smart pointers, non-reflected object pointers, references,
+containers nested deeper than the configured limit, and aliases whose meaning
+is available only from a neutralized include.
 
 Runtime nested metadata can be walked with `ForEachNestedProperty(...)`. The helper visits array inner properties and map key/value properties recursively. Nested properties also expose their containing property through `FProperty::GetOwnerProperty()`.
 

@@ -15,7 +15,11 @@ if str(ROOT) not in sys.path:
 from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 from durin_header_tool.config.module_config import DurinModuleConfig
-from durin_header_tool.extractors.export_symbol_extractor import extract_module_export_info
+from durin_header_tool.extractors.export_symbol_extractor import (
+    _extract_header_export_symbols_impl,
+    extract_module_export_info,
+    resolve_module_export_info,
+)
 from durin_header_tool.generators import module_reflection_files_generator as reflection_generator
 from durin_header_tool.generators.module_reflection_files_generator import (
     _write_reflection_files,
@@ -529,24 +533,145 @@ const char* Text = "DMETA(Unknown = \\"string\\")";
         index = mock.Mock()
         index.parse.return_value = mock.sentinel.translation_unit
         with (
-            mock.patch("durin_header_tool.parser.reflection_parser._init_clang"),
             mock.patch.object(clang.cindex.Index, "create", return_value=index),
             mock.patch("durin_header_tool.parser.reflection_parser._clang_args", return_value=[]),
-            mock.patch("durin_header_tool.parser.reflection_parser._fake_generated_headers", return_value=[]),
         ):
             translation_unit, dmeta_uses = _parse_translation_unit(
                 "Fixture",
+                "Public/FixtureTypes.h",
                 Path("FixtureTypes.h"),
-                "",
+                '#include "Ordinary.h"\nDCLASS() class FItem {};\n',
                 export_mode=False,
             )
 
         assert translation_unit is mock.sentinel.translation_unit
         assert dmeta_uses == {}
+        parse_args = index.parse.call_args.kwargs["args"]
+        assert not any(argument.startswith("-I") for argument in parse_args)
+        unsaved_files = index.parse.call_args.kwargs["unsaved_files"]
+        assert len(unsaved_files) == 2
+        assert "Ordinary.h" not in unsaved_files[0][1]
+        assert unsaved_files[0][1].count("\n") == 2
         assert (
             index.parse.call_args.kwargs["options"]
             == clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES
         )
+
+    def test_ordinary_include_content_is_not_a_semantic_input(self):
+        header = "Public/Hermetic.h"
+        header_path = self.module_dir / header
+        included_path = header_path.parent / "Ordinary.h"
+        header_path.write_text(
+            '''#include "Ordinary.h"
+namespace Fixture
+{
+    DCLASS()
+    class AHermetic : public Durin::DObject
+    {
+        GENERATED_BODY()
+        DPROPERTY()
+        float Value = 0.0f;
+    };
+}
+''',
+            encoding="utf-8",
+        )
+        included_path.write_text("using IncludedMeaning = int;\n", encoding="utf-8")
+        config = DurinModuleConfig(
+            module_name="Fixture",
+            module_dir=self.module_dir,
+            reflect_headers=[header],
+        )
+
+        def extract_outputs():
+            header_info = parse_reflection_header("Fixture", header, exported_symbols=self.symbols)
+            return (
+                _extract_header_export_symbols_impl("Fixture", header),
+                generate_header_content(header_info),
+                generate_cpp_content(header_info, self.symbols),
+            )
+
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+        ):
+            expected = extract_outputs()
+            included_path.write_text("this is deliberately invalid C++\n", encoding="utf-8")
+            assert extract_outputs() == expected
+            included_path.unlink()
+            assert extract_outputs() == expected
+
+    def test_missing_include_alias_has_deterministic_diagnostic(self):
+        header = "Public/UnsupportedAlias.h"
+        header_path = self.module_dir / header
+        header_path.write_text(
+            '''#include "Alias.h"
+namespace Fixture
+{
+    DSTRUCT()
+    struct FUnsupportedAlias
+    {
+        GENERATED_BODY()
+        DPROPERTY()
+        IncludedAlias Value;
+    };
+}
+''',
+            encoding="utf-8",
+        )
+        config = DurinModuleConfig(
+            module_name="Fixture",
+            module_dir=self.module_dir,
+            reflect_headers=[header],
+        )
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+            pytest.raises(ValueError, match="unsupported non-hermetic type spelling 'IncludedAlias'"),
+        ):
+            parse_reflection_header("Fixture", header, exported_symbols=self.symbols)
+
+    def test_unknown_conditional_macro_has_deterministic_diagnostic(self):
+        header = "Public/UnsupportedConditional.h"
+        header_path = self.module_dir / header
+        header_path.write_text(
+            "#if INCLUDED_FEATURE\nDCLASS() class FConditional {};\n#endif\n",
+            encoding="utf-8",
+        )
+        config = DurinModuleConfig(
+            module_name="Fixture",
+            module_dir=self.module_dir,
+            reflect_headers=[header],
+        )
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            pytest.raises(ValueError, match="unsupported non-hermetic macro dependency 'INCLUDED_FEATURE'"),
+        ):
+            parse_reflection_header("Fixture", header)
+
+    def test_module_export_resolves_cold_same_module_base(self):
+        base = ExportedSymbolInfo(
+            Kind="class", ShortName="ABase", Namespace="Fixture", QualifiedName="Fixture::ABase",
+            GeneratedHelperName="Z_Construct_DClass_Fixture_ABase", Header="Public/Base.h", API="FIXTURE_API",
+        )
+        derived = ExportedSymbolInfo(
+            Kind="class", ShortName="ADerived", Namespace="Fixture", QualifiedName="Fixture::ADerived",
+            GeneratedHelperName="Z_Construct_DClass_Fixture_ADerived", Header="Public/Derived.h", API="FIXTURE_API",
+            BaseQualifiedName="ABase",
+        )
+        first = resolve_module_export_info(
+            "Fixture",
+            {"Public/Derived.h": {derived.QualifiedName: derived}, "Public/Base.h": {base.QualifiedName: base}},
+            {},
+        )
+        second = resolve_module_export_info(
+            "Fixture",
+            {"Public/Base.h": {base.QualifiedName: base}, "Public/Derived.h": {derived.QualifiedName: derived}},
+            {},
+        )
+
+        assert first == second
+        assert first.Symbols[derived.QualifiedName].BaseQualifiedName == base.QualifiedName
 
     def test_dmeta_outside_reflected_enum_is_rejected(self):
         header = "Public/Misplaced.h"
@@ -719,6 +844,7 @@ namespace Beta
         missing_export = self.temp_root / "missing.export"
         with (
             mock.patch.object(utils, "get_module_export_file_path", return_value=missing_export),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
             mock.patch.object(configs, "collect_all_dependent_module_with_export_file", return_value=[]),
         ):
             symbols = load_available_symbols("Fixture")
@@ -743,6 +869,8 @@ namespace Beta
                 "collect_all_dependent_module_with_export_file",
                 return_value=["Dependency", "Fixture"],
             ),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value={"Dependency"}),
+            mock.patch.object(configs, "get_module_config", return_value=self.module_config),
             mock.patch.object(
                 utils,
                 "get_module_export_file_path",
@@ -781,7 +909,7 @@ namespace Beta
             content = save_module_manifest_file(manifest)
         data = json.loads(content)
 
-        assert data["SchemaVersion"] == 5
+        assert data["SchemaVersion"] == 6
         assert data["ToolFingerprint"] == "fixture-fingerprint"
         assert data["SymbolNameScheme"] == "qualified-underscore-v1"
         assert data["ModuleName"] == "Fixture"
@@ -794,5 +922,6 @@ namespace Beta
             "FixtureTypes.gen.h",
         ]
         assert data["PendingCleanupOutputs"] == []
+        assert data["GeneratedOutputDigests"] == {}
         actor_dependencies = data["ResolvedSymbolDependencies"][self.header]
         assert actor_dependencies["Durin::DObject"]["GeneratedHelperName"] == "Z_Construct_DClass_Durin_DObject"

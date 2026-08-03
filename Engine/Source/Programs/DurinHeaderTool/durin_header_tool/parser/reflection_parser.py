@@ -6,7 +6,6 @@ from typing import TypeAlias
 import clang.cindex
 
 from durin_header_tool import config as configs
-from durin_header_tool import io as utils
 from durin_header_tool.model.export_info import ExportedSymbolInfo
 from durin_header_tool.model.reflection_info import (
     ReflectedClassInfo,
@@ -32,7 +31,9 @@ class _DMetaUse:
 
 _DPROPERTY_PATTERN = re.compile(r"\bDPROPERTY\s*\(([^)]*)\)")
 _GENERATED_BODY_PATTERN = re.compile(r"\bGENERATED_BODY\s*\([^)]*\)")
-_GEN_INCLUDE_PATTERN = re.compile(r'^\s*#\s*include\s+"[^"]+\.gen\.h"\s*$', re.MULTILINE)
+_INCLUDE_PATTERN = re.compile(r'^\s*#\s*include\b[^\r\n]*$', re.MULTILINE)
+_TYPE_DECLARATION_PATTERN = re.compile(r"\b(?:class|struct|enum(?:\s+class)?)\s+([A-Za-z_]\w*)")
+PARSER_CONTEXT_VERSION = "hermetic-v1"
 
 _PROPERTY_KIND_BY_TYPE = {
     "int8": "Int8",
@@ -58,15 +59,6 @@ _PROPERTY_FLAG_BY_SPECIFIER = {
     "Transient": "Transient",
     "ReadOnly": "ReadOnly",
 }
-
-
-def _init_clang() -> None:
-    clang_lib_dir = configs.environment.DURIN_ROOT_DIR / "Engine" / "Source" / "ThirdParty" / "clang" / "bin"
-    if clang_lib_dir.exists():
-        try:
-            clang.cindex.Config.set_library_path(str(clang_lib_dir))
-        except Exception:
-            pass
 
 
 def _annotation_payload(prefix: str, payload: str) -> str:
@@ -266,7 +258,10 @@ def _replace_macro_calls(source: str, macro_name: str, replacement) -> str:
 
 
 def _make_dht_parse_source(source: str) -> tuple[str, dict[int, _DMetaUse]]:
-    source = _GEN_INCLUDE_PATTERN.sub("", source)
+    # Includes are deliberately not part of DHT's semantic input. Replacing
+    # directive text while retaining its newline keeps every later source
+    # location stable for generated-body and metadata diagnostics.
+    source = _INCLUDE_PATTERN.sub("", source)
     dmeta_uses: dict[int, _DMetaUse] = {}
 
     def replace_dmeta(payload: str, line: int, column: int) -> str:
@@ -431,6 +426,19 @@ def _base_qualified_name(class_cursor: clang.cindex.Cursor) -> str:
     return ""
 
 
+def _source_base_name(source: str, class_cursor: clang.cindex.Cursor) -> str:
+    lines = source.splitlines()
+    start = max(class_cursor.location.line - 1, 0)
+    declaration = " ".join(lines[start:min(start + 6, len(lines))])
+    declaration = declaration.split("{", 1)[0]
+    match = re.search(
+        rf"\b(?:class|struct)\s+(?:[A-Za-z_]\w*_API\s+)?{re.escape(class_cursor.spelling)}"
+        r"\s*(?:final\s*)?:\s*(?:(?:public|protected|private)\s+)?([A-Za-z_]\w*(?:::\w+)*)",
+        declaration,
+    )
+    return match.group(1) if match else ""
+
+
 def _normalize_type_spelling(type_spelling: str) -> str:
     return (
         type_spelling
@@ -583,6 +591,8 @@ def _scan_source_properties_for_class(
     source: str,
     class_cursor: clang.cindex.Cursor,
     exported_symbols: ExportedSymbols | None,
+    known_property_names: set[str] | None = None,
+    reject_unsupported: bool = True,
 ) -> list[ReflectedPropertyInfo]:
     properties: list[ReflectedPropertyInfo] = []
     start_line, end_line = _cursor_source_line_range(source, class_cursor)
@@ -593,7 +603,10 @@ def _scan_source_properties_for_class(
     brace_depth = 0
     pending_annotation = ""
 
-    for line in source.splitlines()[start_line - 1:end_line]:
+    for line_number, line in enumerate(
+        source.splitlines()[start_line - 1:end_line],
+        start=start_line,
+    ):
         stripped = line.strip()
         if not in_class:
             if "{" in stripped:
@@ -617,6 +630,17 @@ def _scan_source_properties_for_class(
                 prop = _make_property_from_source_decl(stripped, pending_annotation, exported_symbols)
                 if prop:
                     properties.append(prop)
+                else:
+                    declaration = re.match(r"(.+?)\s+(\w+)(?:\s*\[\d+\])?(?:\s*(?:=.*|\{.*\}))?;", stripped)
+                    property_name = declaration.group(2) if declaration else ""
+                    if reject_unsupported and (
+                        not property_name or property_name not in (known_property_names or set())
+                    ):
+                        type_spelling = declaration.group(1).strip() if declaration else stripped
+                        raise ValueError(
+                            f"DPROPERTY at line {line_number}: unsupported non-hermetic type "
+                            f"spelling '{type_spelling}'"
+                        )
                 pending_annotation = ""
 
         brace_depth += stripped.count("{") - stripped.count("}")
@@ -1070,6 +1094,19 @@ def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: Exported
             array_dim=_array_dim(field_cursor),
         ), annotation)
 
+    if source_type:
+        source_prop = _make_property_from_spelling(
+            field_cursor.spelling,
+            source_type,
+            exported_symbols,
+            flags=_property_flags_from_annotation(annotation),
+            array_dim=_array_dim(field_cursor),
+        )
+        if source_prop and source_prop.kind in ("Struct", "String", "Name", "Guid"):
+            # Non-fundamental layout belongs to the target compiler, not the
+            # synthetic libclang context. Keep it as a C++ sizeof expression.
+            return _apply_property_annotation(source_prop, annotation)
+
     prop = _make_property_from_type(
         field_cursor.spelling,
         _element_type(field_cursor),
@@ -1104,6 +1141,9 @@ def _clang_args(module_name: str, export_mode: bool) -> list[str]:
         "-D_DHT_PARSER=1",
         "-DNDEBUG",
         "-D_MSC_VER=1930",
+        "-D_WIN32=1",
+        "-DFORCEINLINE=inline",
+        f"-DDURIN_WITH_EDITOR={1 if configs.RUNTIME_VARIANT == 'DurinEditor' else 0}",
     ]
     if export_mode:
         args.append("-D_DHT_EXPORTS_PARSER=1")
@@ -1111,15 +1151,93 @@ def _clang_args(module_name: str, export_mode: bool) -> list[str]:
     for dep_module_name in modules:
         dep_config = configs.get_module_config(dep_module_name)
         args.append(f"-D{dep_config.api_macro}=")
-        args.append(f"-I{(dep_config.module_dir / 'Public').resolve()}")
-        args.append(f"-I{(dep_config.module_dir / 'Private').resolve()}")
-        dht_output_dir = utils.get_module_dht_output_dir(dep_module_name)
-        args.append(f"-I{dht_output_dir}")
-
-    args.append(f"-I{configs.environment.DURIN_ROOT_DIR / 'Engine' / 'Source' / 'Runtime' / 'Core' / 'Public'}")
-    args.append(f"-I{configs.environment.DURIN_ROOT_DIR / 'Engine' / 'Source' / 'ThirdParty'}")
     args.append(f"-D{module_config.api_macro}=")
     return args
+
+
+def _validate_preprocessor_context(source: str) -> None:
+    known_macros = {
+        "_DHT_PARSER",
+        "_DHT_EXPORTS_PARSER",
+        "DURIN_WITH_EDITOR",
+        "NDEBUG",
+        "_MSC_VER",
+        "_WIN32",
+    }
+    locally_defined: set[str] = set()
+    for line_number, line in enumerate(source.splitlines(), start=1):
+        directive = re.match(r"\s*#\s*(define|undef|ifdef|ifndef|if|elif)\b(.*)", line)
+        if not directive:
+            continue
+        kind, payload = directive.groups()
+        payload = payload.strip()
+        if kind == "define":
+            name = re.match(r"([A-Za-z_]\w*)", payload)
+            if name:
+                locally_defined.add(name.group(1))
+            continue
+        if kind == "undef":
+            name = re.match(r"([A-Za-z_]\w*)", payload)
+            if name:
+                locally_defined.discard(name.group(1))
+            continue
+        if kind in ("ifdef", "ifndef"):
+            identifiers = [payload]
+        else:
+            expression = re.sub(r"defined\s*(?:\(\s*([A-Za-z_]\w*)\s*\)|\s+([A-Za-z_]\w*))", r"\1\2", payload)
+            identifiers = re.findall(r"\b[A-Za-z_]\w*\b", expression)
+        unknown = sorted({
+            identifier
+            for identifier in identifiers
+            if identifier not in known_macros
+            and identifier not in locally_defined
+            and identifier not in {"true", "false"}
+        })
+        if unknown:
+            raise ValueError(
+                f"preprocessor condition at line {line_number}: unsupported non-hermetic "
+                f"macro dependency '{unknown[0]}'"
+            )
+
+
+def _synthetic_declaration(symbol: ExportedSymbolInfo) -> str:
+    parts = symbol.QualifiedName.split("::")
+    name = parts[-1]
+    namespaces = parts[:-1]
+    if symbol.Kind == "enum":
+        underlying = symbol.UnderlyingType or "int"
+        keyword = "enum class" if symbol.IsScoped else "enum"
+        declaration = f"{keyword} {name} : {underlying};"
+    else:
+        declaration = f"{symbol.Kind} {name} {{}};"
+    for namespace in reversed(namespaces):
+        declaration = f"namespace {namespace} {{ {declaration} }}"
+    return declaration
+
+
+def _synthetic_parser_prelude(
+    source: str,
+    header: str,
+    exported_symbols: ExportedSymbols | None,
+) -> str:
+    declared_names = set(_TYPE_DECLARATION_PATTERN.findall(source))
+    lines = [
+        f"// DHT parser context {PARSER_CONTEXT_VERSION}",
+        "namespace std { class string {}; template<class T> class vector {}; "
+        "template<class K, class V> class unordered_map {}; }",
+        "namespace Durin {",
+        "using int8 = signed char; using int16 = short; using int32 = int; using int64 = long long;",
+        "using uint8 = unsigned char; using uint16 = unsigned short; using uint32 = unsigned int; "
+        "using uint64 = unsigned long long;",
+        "class FName {}; struct FGuid {}; class FObjectInitializer {};",
+        "template<class T> class TObjectPtr {};",
+        "}",
+    ]
+    for symbol in sorted((exported_symbols or {}).values(), key=lambda item: item.QualifiedName):
+        if symbol.Header == header or symbol.ShortName in declared_names:
+            continue
+        lines.append(_synthetic_declaration(symbol))
+    return "\n".join(lines) + "\n"
 
 
 def _include_path_for_header(header: str) -> str:
@@ -1136,45 +1254,24 @@ def _file_id_for_header(module_name: str, header: str) -> str:
     return "FID_DURIN_" + module_name + "_" + include_path.replace("/", "_").replace(".", "_")
 
 
-def _fake_generated_header_content(module_name: str, header: str) -> str:
-    source_path = (configs.get_module_config(module_name).module_dir / header).resolve()
-    source = source_path.read_text(encoding="utf-8")
-    file_id = _file_id_for_header(module_name, header)
-    lines = ["#pragma once\n"]
-    for line_number, line in enumerate(source.splitlines(), start=1):
-        if "GENERATED_BODY" in line:
-            lines.append(f"#define {file_id}_{line_number}_GENERATED_BODY public:\n")
-    lines.append("#undef CURRENT_FILE_ID\n")
-    lines.append(f"#define CURRENT_FILE_ID {file_id}\n")
-    return "".join(lines)
-
-
-def _fake_generated_headers(module_name: str) -> list[tuple[str, str]]:
-    unsaved: list[tuple[str, str]] = []
-    modules = [module_name, *sorted(configs.collect_all_dependent_modules(module_name))]
-    for dep_module_name in modules:
-        dep_config = configs.get_module_config(dep_module_name)
-        output_dir = utils.get_module_dht_output_dir(dep_module_name)
-        for header in dep_config.reflect_headers:
-            gen_header_path = output_dir / f"{Path(header).stem}.gen.h"
-            unsaved.append((str(gen_header_path), _fake_generated_header_content(dep_module_name, header)))
-    return unsaved
-
-
 def _parse_translation_unit(
     module_name: str,
+    header: str,
     header_path: Path,
     source: str,
     export_mode: bool,
+    exported_symbols: ExportedSymbols | None = None,
 ) -> tuple[clang.cindex.TranslationUnit, dict[int, _DMetaUse]]:
-    _init_clang()
     index = clang.cindex.Index.create()
     parsed_source, dmeta_uses = _make_dht_parse_source(source)
-    unsaved_files = [(str(header_path), parsed_source)]
-    unsaved_files.extend(_fake_generated_headers(module_name))
+    prelude_path = header_path.parent / f".__dht_prelude_{header_path.stem}.h"
+    unsaved_files = [
+        (str(header_path), parsed_source),
+        (str(prelude_path), _synthetic_parser_prelude(source, header, exported_symbols)),
+    ]
     translation_unit = index.parse(
         str(header_path),
-        args=_clang_args(module_name, export_mode),
+        args=[*_clang_args(module_name, export_mode), "-include", str(prelude_path)],
         unsaved_files=unsaved_files,
         options=clang.cindex.TranslationUnit.PARSE_SKIP_FUNCTION_BODIES,
     )
@@ -1190,7 +1287,15 @@ def parse_reflection_header(
     module_config = configs.get_module_config(module_name)
     header_path = (module_config.module_dir / header).resolve()
     source = header_path.read_text(encoding="utf-8")
-    tu, dmeta_uses = _parse_translation_unit(module_name, header_path, source, export_mode)
+    _validate_preprocessor_context(source)
+    tu, dmeta_uses = _parse_translation_unit(
+        module_name,
+        header,
+        header_path,
+        source,
+        export_mode,
+        exported_symbols,
+    )
 
     classes: list[ReflectedClassInfo] = []
     enums: list[ReflectedEnumInfo] = []
@@ -1235,7 +1340,13 @@ def parse_reflection_header(
                         if prop:
                             reflected_struct.properties.append(prop)
                 existing_property_names = {prop.name for prop in reflected_struct.properties}
-                for prop in _scan_source_properties_for_class(source, child, exported_symbols):
+                for prop in _scan_source_properties_for_class(
+                    source,
+                    child,
+                    exported_symbols,
+                    existing_property_names,
+                    reject_unsupported=not export_mode,
+                ):
                     if prop.name not in existing_property_names:
                         reflected_struct.properties.append(prop)
                         existing_property_names.add(prop.name)
@@ -1257,7 +1368,7 @@ def parse_reflection_header(
                     generated_helper_name=helper_name,
                     header=header,
                     api=module_config.api_macro,
-                    base_qualified_name=_base_qualified_name(child),
+                    base_qualified_name=_source_base_name(source, child) or _base_qualified_name(child),
                     generated_body_line=_scan_generated_body_line(source, child),
                     is_abstract=is_abstract,
                     display_name=display_name,
@@ -1275,7 +1386,13 @@ def parse_reflection_header(
                         if prop:
                             reflected_class.properties.append(prop)
                 existing_property_names = {prop.name for prop in reflected_class.properties}
-                for prop in _scan_source_properties_for_class(source, child, exported_symbols):
+                for prop in _scan_source_properties_for_class(
+                    source,
+                    child,
+                    exported_symbols,
+                    existing_property_names,
+                    reject_unsupported=not export_mode,
+                ):
                     if prop.name not in existing_property_names:
                         reflected_class.properties.append(prop)
                         existing_property_names.add(prop.name)

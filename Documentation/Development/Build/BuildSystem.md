@@ -46,6 +46,25 @@ variant, project, and module. Conflicting writers serialize while independent
 modules remain parallel. Presets in one worktree intentionally share
 configuration-independent metadata.
 
+Reflected modules also keep a persistent per-header parse cache under
+`<Project>/Intermediate/Build/<Platform>/<RuntimeVariant>/DHTCache/`. Export and
+reflection entries are separate, versioned, checksummed JSON records. Their
+identity includes the DHT and native-libclang fingerprints, platform, runtime
+variant, module, normalized logical header, current header content, and the
+phase-specific parser/generator context. Reflection entries additionally key
+the complete canonical available-symbol export set. Ordinary included-header
+contents are intentionally absent because DHT parses each reflected header
+against its hermetic prelude and exported-symbol model.
+
+The cache is reconstruction data, not a generated compiler input. CMake owns
+the export, manifest, generated source, generated header, and command-stamp
+outputs, but does not list `DHTCache` as an output or byproduct. Consequently,
+`clean` and `rebuild` may delete every generated DHT output while retaining
+valid per-header entries; DHT rematerializes missing outputs without libclang
+parses. DurinDevTool project `purge` owns the enclosing runtime-variant
+intermediate root and removes the cache, so the next generation is deliberately
+cold.
+
 Ninja schedules build-time DHT commands through the `durin_dht` job pool. Each
 command receives an explicit parser-worker limit, and module-internal parallelism
 scales with the number of headers requiring parsing: fewer than 8 uses one worker,
@@ -56,10 +75,17 @@ and each uses at most four parser workers. `DURIN_DHT_JOB_POOL_SIZE` and
 `DURIN_DHT_WORKERS` are cache settings intended for measured preset or CI tuning;
 worker count is constrained to 1-8.
 
-DHT emits one INFO summary per module export/reflection command. Per-header timing,
-cache, dependency-loading, and worker details are DEBUG-only. Set the
-`DURIN_DHT_LOG_LEVEL` cache setting to `DEBUG` for diagnostics or `WARNING` for
-Ninja-only progress unless DHT reports a problem.
+DHT emits one INFO cache summary per module export/reflection command with hit,
+miss, materialized-output, and parser counts plus aggregated miss reasons.
+Per-header timing, dependency-loading, and worker details are DEBUG-only. A
+malformed, truncated, checksum-invalid, or incompatible entry is an ordinary
+miss; damaged entries additionally emit a warning before the parser fallback
+atomically replaces them. If cache publication or output materialization is
+interrupted, rerun the ordinary build: the previous complete entry remains
+usable, or DHT reparses and replaces the incomplete latest result. Manual cache
+deletion is not a recovery step. Set `DURIN_DHT_LOG_LEVEL` to `DEBUG` for
+per-header diagnostics or `WARNING` for Ninja-only progress unless DHT reports
+a problem.
 
 Generated metadata is part of the source of truth. If a module appears
 incomplete, inspect its `Engine/Intermediate/Build/...` metadata
@@ -85,8 +111,12 @@ outputs; it does not freeze the ordinary source list at configure time.
 During configuration, CMake hashes the tracked DHT Python package together with
 `requirements.txt` into `DHT.fingerprint`. Those files are configure dependencies,
 and export/reflection build commands depend on the resulting fingerprint. The
-fingerprint is also passed into DHT's private manifests, so a tool implementation
-change invalidates both CMake's build edge and DHT's internal cache.
+fingerprint is also passed into DHT's private manifests and persistent entries,
+so a tool implementation change invalidates both CMake's build edge and DHT's
+internal cache. Schema, parser/generator context, native-libclang content,
+platform, runtime variant, and current-header content changes likewise miss
+deterministically. Export semantic changes invalidate reflection entries whose
+complete available-symbol digest changed.
 
 ## Build Output Isolation
 

@@ -67,6 +67,10 @@ def get_module_definitions_header_path(module_name: str) -> Path:
 def get_module_dht_output_dir(module_name: str) -> Path:
     return get_module_intermediate_build_dir(module_name) / "DHT"
 
+def get_module_dht_cache_root(module_name: str) -> Path:
+    project_name = configs.get_module_config(module_name).owning_project
+    return get_project_intermediate_build_dir(project_name) / "DHTCache"
+
 def get_module_export_file_path(module_name: str) -> Path:
     if not configs.get_module_config(module_name).has_export_file():
         return Path("")

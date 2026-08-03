@@ -50,18 +50,19 @@ def _append_module_configs_to_cmake_content(content: list[str], module_name: str
             content.append(f"    {dep}\n")
         content.append(")\n\n")
 
-def _append_reflection_export_dependencies_to_cmake_content(content: list[str], module_name: str) -> None:
+def _append_export_dependencies_to_cmake_content(content: list[str], module_name: str) -> None:
     module_export_file = utils.get_module_export_file_path(module_name)
     dependency_export_files = [
         export_file
         for export_file in configs.collect_all_dependent_module_export_files(module_name)
         if export_file != module_export_file
     ]
-    content.append("# Dependency export files consumed by reflection generation\n")
-    content.append("set(module_reflection_export_dependencies\n")
+    content.append("# Dependency export files consumed by export resolution and reflection generation\n")
+    content.append("set(module_export_dependencies\n")
     for dependency_export_file in dependency_export_files:
         content.append(f"    \"{dependency_export_file.as_posix()}\"\n")
     content.append(")\n\n")
+    content.append("set(module_reflection_export_dependencies ${module_export_dependencies})\n\n")
 
 def _append_module_paths_to_cmake_content(content: list[str], module_name: str) -> None:
     module_config = configs.get_module_config(module_name)
@@ -105,7 +106,7 @@ def _make_module_cmake_file_content(module_name: str) -> str:
     _append_module_configs_to_cmake_content(content, module_name)
 
     if module_config.has_export_file():
-        _append_reflection_export_dependencies_to_cmake_content(content, module_name)
+        _append_export_dependencies_to_cmake_content(content, module_name)
 
     _append_generated_sources(content, module_name)
     return "".join(content)

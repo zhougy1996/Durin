@@ -44,7 +44,11 @@ variant and use `DURIN_PRESET_ROLE=Profiling` for output isolation. See
 DurinHeaderTool emits configuration-independent metadata under
 `Engine/Intermediate/Build/<Platform>/<RuntimeVariant>/`. Debug, Release, and
 Profiling presets for the same runtime variant intentionally share this
-metadata within a worktree.
+metadata within a worktree, including the persistent per-header `DHTCache`.
+Cache entries still validate their platform, runtime variant, DHT and
+native-libclang fingerprints, schema, parser/generator context, and semantic
+inputs before reuse. Preset sharing therefore reuses only compatible entries,
+and all presets remain subject to the checkout/module single-writer locks.
 
 ## Derived Build Behavior
 

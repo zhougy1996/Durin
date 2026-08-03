@@ -6,7 +6,6 @@ from .environment import (
     DURIN_ROOT_DIR,
     RUNTIME_VARIANT,
     TOOL_FINGERPRINT,
-    init_clang,
 )
 from .module_config import (
     DurinModuleConfig,
