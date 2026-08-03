@@ -59,7 +59,7 @@ namespace Durin
 			return;
 
 		ImGui::TextUnformatted("Create a Texture2D asset from an image file.");
-		ImGui::TextDisabled("Reference a mounted source in place, or ingest an external file into SourceAssets.");
+		ImGui::TextDisabled("Reference a mounted source in place, or ingest an external file into a writable mount.");
 		ImGui::Spacing();
 		ImGui::SeparatorText("Source image");
 		if (ImGui::RadioButton("Reference Existing Source",
@@ -70,7 +70,7 @@ namespace Durin
 			SourceMode == EMountedSourceImportMode::IngestExternal))
 			SourceMode = EMountedSourceImportMode::IngestExternal;
 		ImGui::TextDisabled(SourceMode == EMountedSourceImportMode::ReferenceExisting
-			? "Keeps a source already inside an allowed mounted SourceAssets domain; no copy is created."
+			? "Keeps a source already inside an allowed mount; no copy is created."
 			: "Copies an external file transactionally to the explicit mounted source path.");
 		const float BrowseButtonWidth = Metrics.StandardButtonWidth;
 		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
@@ -228,7 +228,7 @@ namespace Durin
 			: "Texture.dasset";
 		Destination.Browse("Choose a Texture Asset Path", DefaultFileName,
 			"The selected asset path is too long for the import form.",
-			"Texture assets must be saved inside a mounted Content directory.",
+			"Texture assets must be saved inside a package-enabled mount.",
 			Callbacks);
 	}
 
@@ -244,7 +244,7 @@ namespace Durin
 		const PathUtilities::FMountPoint* Mount = FindOwningMount(AssetPath.GetView());
 		if (!Mount)
 		{
-			SetError("Choose an asset destination inside a mounted Content directory first.");
+			SetError("Choose an asset destination inside a package-enabled mount first.");
 			return;
 		}
 
@@ -276,7 +276,7 @@ namespace Durin
 			PathUtilities::ClassifySourcePath(Result.FilePath);
 		if (!Classified || Classified.Mount != Mount)
 		{
-			SetError("Texture source copies must stay beneath this mount's SourceAssets directory.");
+			SetError("Texture source copies must stay inside the selected mount.");
 			return;
 		}
 		const std::string& VirtualPath = Classified.NormalizedVirtualPath;

@@ -9,9 +9,10 @@ Completed:
 
 ## Current Status
 
-- Stages 0 and 1 completed on 2026-08-03. Stage 1 started from baseline
+- Stages 0 through 2 completed on 2026-08-03. Stage 1 started from baseline
   `dd63da85` (`docs(mounts): freeze single-root migration contract`); Stage 2
-  is current.
+  started from baseline `9064a467` (`refactor(mounts): unify virtual mount
+  roots`). Stage 3 is current.
 - The breaking migration remains one physical root per logical mount, with no
   compatibility parser, fallback resolver, or legacy `SourceAssets` lookup.
 - The frozen C++ mount fields are `Root`, `bAssetPackages`, and
@@ -80,8 +81,25 @@ Completed:
   and package paths share `Mount.Root`, package discovery filters only on
   `bAssetPackages`, source reads have no capability gate, and raw-file mutation
   filters only on `bAuthoringWritable` plus existing ownership/dependency rules.
-  The remaining known legacy behavior is Texture2D's physical `SourceAssets`
-  metadata upgrader and source-domain wording in consumer diagnostics.
+- Stage 2 removed every production `SourceAssets` convention and diagnostic.
+  Texture, TextureCube, and StaticMesh defaults now use mount-relative
+  `Textures` and `Models` locations; explicit destinations remain inside the
+  selected mount without a hidden directory prefix. Asset discovery and
+  Content Browser snapshots filter on `bAssetPackages`, while source resolution
+  has no capability gate and authoring mutation uses `bAuthoringWritable` plus
+  the preserved ownership and dependency checks. Content Browser no longer
+  enumerates or offers a toggle for raw authoring files.
+- Stage 2 validation passed `CoreFileSystemTests` (30 passed, 1 skipped),
+  `AssetPackageTests` (29/29), `AssetImportCoreTests` (20/20),
+  `EditorAssetWorkflowTests` (41/41), `TextureTests` (61/61),
+  `StaticMeshTests` (44/44), `ThumbnailTests` (45/45), and a full `all` build on
+  `Win64-Debug-DurinEditor-Tests`. A production/test search found no remaining
+  `SourceAssets` use except the deliberate old-descriptor rejection literal.
+- Stage 3 working set is exactly the five files frozen in the Stage 0 move
+  manifest plus this plan. Their persisted `/Game/` and `/Engine/` source
+  identities remain unchanged, so no `.dasset` resave or ImportRecord rewrite
+  is required. Validation will compare pre/post hashes and resolve every tracked
+  source reference through the new Content roots.
 
 ## Goal
 
@@ -331,20 +349,20 @@ Dependencies: Stage 0.
 Outcome: all package and source workflows consume the single-root contract
 without direct domain knowledge.
 
-- [ ] Update `FAssetPath`, AssetCore package resolution, registry scanning, and
+- [x] Update `FAssetPath`, AssetCore package resolution, registry scanning, and
   Content Browser mount snapshots to use package-capable single roots.
-- [ ] Update `FSourcePath`, source reference validation, source relocation,
+- [x] Update `FSourcePath`, source reference validation, source relocation,
   hashing, thumbnail caching, Texture2D, TextureCube, StaticMesh, and material
   preview source loading.
-- [ ] Update mounted-source reference and ingestion operations to choose a
+- [x] Update mounted-source reference and ingestion operations to choose a
   mounted destination path without assuming `SourceAssets`.
-- [ ] Update Texture, TextureCube, Scene Source, and Texture Editor pickers to
+- [x] Update Texture, TextureCube, Scene Source, and Texture Editor pickers to
   browse the applicable mount root and use neutral “source destination” wording.
-- [ ] Ensure glTF relative dependencies remain inside and resolve through the
+- [x] Ensure glTF relative dependencies remain inside and resolve through the
   root source's mount after ingestion.
-- [ ] Replace domain-specific diagnostics with mount, dependency, containment,
+- [x] Replace domain-specific diagnostics with mount, dependency, containment,
   existence, and authoring-write diagnostics.
-- [ ] Keep Content Browser package-only even when raw files share its physical
+- [x] Keep Content Browser package-only even when raw files share its physical
   root.
 
 Dependencies: Stage 1.

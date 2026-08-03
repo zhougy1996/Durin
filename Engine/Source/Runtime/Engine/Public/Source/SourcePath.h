@@ -21,7 +21,7 @@ namespace Durin
 	};
 
 	// Classifies an existing physical file. Files already beneath an allowed
-	// SourceAssets domain are referenced in place. External files are copied to
+	// registered mount are referenced in place. External files are copied to
 	// the explicit virtual destination after dependency and write checks.
 	ENGINE_API auto PrepareMountedSourceFile(
 		const std::filesystem::path& InputFile,
@@ -29,7 +29,7 @@ namespace Durin
 		std::string_view ExternalIngestDestination,
 		FMountedSourceFile& OutSource,
 		std::string& OutError) -> bool;
-	// Publishes an immutable byte payload at an explicit SourceAssets path. This
+	// Publishes an immutable byte payload at an explicit mounted source path. This
 	// is used for container-embedded authoring inputs that need an independently
 	// reloadable source identity.
 	ENGINE_API auto PrepareMountedSourceBytes(

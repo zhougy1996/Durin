@@ -952,7 +952,7 @@ namespace Durin
 		ImGui::TextDisabled("%s", PendingSourceReplacement.SourceVirtualPath.c_str());
 		ImGui::TextUnformatted(std::format(
 			"Affected assets ({})", PendingSourceReplacement.AffectedAssets.size()).c_str());
-		ImGui::BeginChild("AffectedSourceAssets",
+		ImGui::BeginChild("AffectedMountedSources",
 			ImVec2(MonaImGui::ScaleUI(520.0f), MonaImGui::ScaleUI(130.0f)),
 			ImGuiChildFlags_Borders);
 		for (const FSourceReference& Reference :
@@ -1082,7 +1082,7 @@ namespace Durin
 		ImGui::TextUnformatted(std::format(
 			"Affected assets ({})",
 			PendingSourceRelocation.AffectedAssets.size()).c_str());
-		ImGui::BeginChild("RelocatedSourceAssets",
+		ImGui::BeginChild("RelocatedMountedSources",
 			ImVec2(MonaImGui::ScaleUI(520.0f), MonaImGui::ScaleUI(130.0f)),
 			ImGuiChildFlags_Borders);
 		for (const FSourceReference& Reference :
@@ -1136,7 +1136,7 @@ namespace Durin
 			FindOwningMount(Texture->GetPackage()->GetPackagePath());
 		if (!Mount)
 		{
-			SetError("The texture is not inside a mounted Content directory.");
+			SetError("The texture is not inside a package-enabled mount.");
 			return;
 		}
 		const FTextureSourceDiagnostic Diagnostic = Texture->InspectSource();
@@ -1165,11 +1165,10 @@ namespace Durin
 			PathUtilities::ClassifySourcePath(Result.FilePath);
 		if (!Classified || Classified.Mount != Mount)
 		{
-			SetError("Texture source must stay inside its mount's SourceAssets domain.");
+			SetError("Texture source must stay inside its owning mount.");
 			return;
 		}
-		const std::string SourceDestination =
-			(std::filesystem::path("SourceAssets") / Classified.RelativePath).generic_string();
+		const std::string SourceDestination = Classified.RelativePath.generic_string();
 		std::string Error;
 		if (!Texture->ChangeSourceLocation(SourceDestination, Error))
 			SetError(std::move(Error));

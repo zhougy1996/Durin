@@ -104,7 +104,7 @@ TEST_F(FAssetDestinationValidationTests, RejectsInvalidUnknownAndLookalikePaths)
 		InspectAssetDestination("/Sources/Textures/Stone", EmptyOccupancy);
 	EXPECT_FALSE(SourceOnly.bAssetPathValid);
 	EXPECT_FALSE(SourceOnly.bMountedDestination);
-	EXPECT_EQ(SourceOnly.Message, "Asset path mount does not declare a Content domain.");
+	EXPECT_EQ(SourceOnly.Message, "Asset path mount does not permit asset packages.");
 }
 
 TEST_F(FAssetDestinationValidationTests, ReportsRegistryAndLoadedPackageCollisions)

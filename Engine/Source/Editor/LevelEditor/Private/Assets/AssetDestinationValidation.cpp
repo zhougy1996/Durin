@@ -29,7 +29,7 @@ namespace Durin
 		Result.Mount = Resolved.Mount;
 		if (!Resolved)
 		{
-			Result.Message = "Choose a destination inside a mounted Content directory.";
+			Result.Message = "Choose a destination inside a package-enabled mount.";
 			return Result;
 		}
 
@@ -75,7 +75,7 @@ namespace Durin
 		Result.Mount = Resolved.Mount;
 		if (!Resolved)
 		{
-			Result.Message = "Choose a directory inside a mounted Content domain.";
+			Result.Message = "Choose a directory inside a package-enabled mount.";
 			return Result;
 		}
 

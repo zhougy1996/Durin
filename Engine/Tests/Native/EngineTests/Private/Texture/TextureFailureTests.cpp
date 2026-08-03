@@ -204,7 +204,7 @@ TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureInvalidateTests/Invalid", AssetPath));
 	const std::filesystem::path CopiedSource =
 		Durin::Testing::GetTestWorkDirectory() / "TextureInvalidateMount"
-		/ "SourceAssets" / "Textures" / "Invalid.png";
+		/ "Textures" / "Invalid.png";
 	ASSERT_TRUE(std::filesystem::remove(CopiedSource));
 
 	std::string Error;

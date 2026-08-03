@@ -92,7 +92,7 @@ namespace Durin
 			SourceMode == EMountedSourceImportMode::IngestExternal))
 			SourceMode = EMountedSourceImportMode::IngestExternal;
 		ImGui::TextDisabled(SourceMode == EMountedSourceImportMode::ReferenceExisting
-			? "Keeps a source already inside an allowed mounted SourceAssets domain; no copy is created."
+			? "Keeps a source already inside an allowed mount; no copy is created."
 			: "Copies an external model transactionally to the explicit mounted source path.");
 		const float BrowseButtonWidth = Metrics.StandardButtonWidth;
 		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
@@ -316,7 +316,7 @@ namespace Durin
 	{
 		DestinationDirectory.Browse("Choose a Scene Output Directory",
 			"The selected directory path is too long for the import form.",
-			"Scene outputs must be saved inside a mounted Content directory.",
+			"Scene outputs must be saved inside a package-enabled mount.",
 			Callbacks);
 	}
 

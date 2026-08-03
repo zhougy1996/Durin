@@ -23,6 +23,7 @@ namespace
 			std::filesystem::create_directories(Root / "StudioArt");
 			std::filesystem::create_directories(Root / "External");
 			std::ofstream(Root / "Engine/Content/Textures/Stone.png") << "stone";
+			std::ofstream(Root / "StudioArt/Stone.png") << "external stone";
 			std::ofstream(Root / "External/Escape.png") << "escape";
 		}
 
@@ -181,6 +182,10 @@ TEST_F(FMountRegistryTests, ResolvesTypedPathsClassifiesRootsAndEnforcesPolicy)
 	EXPECT_EQ(
 		ResolveAssetPath("/Libraries/StudioArt/Texture").Error,
 		EMountPathError::AssetPackagesDisabled);
+	const FSourcePathResult ExternalSource =
+		ResolveSourcePath("/Libraries/StudioArt/Stone.png");
+	ASSERT_TRUE(ExternalSource) << ExternalSource.Message;
+	EXPECT_EQ(ExternalSource.PhysicalPath, Root / "StudioArt/Stone.png");
 	EXPECT_EQ(
 		ResolveSourcePath("/Libraries/Offline/Texture.png").Error,
 		EMountPathError::UnavailableRoot);

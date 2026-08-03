@@ -33,8 +33,6 @@ namespace Durin
 		ViewMode = static_cast<EContentBrowserViewMode>(
 			SessionSettings.GetContentBrowserViewMode());
 		bIconSizeLocked = SessionSettings.IsContentBrowserIconSizeLocked();
-		Model.SetShowSourceFiles(
-			SessionSettings.GetContentBrowserShowSourceFiles());
 		if (!SessionSettings.GetContentBrowserLastDirectory().empty())
 			NavigateToPhysical(
 				SessionSettings.GetContentBrowserLastDirectory());

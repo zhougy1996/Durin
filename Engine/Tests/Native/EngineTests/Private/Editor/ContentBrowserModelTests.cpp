@@ -85,6 +85,19 @@ TEST_F(FContentBrowserModelTests, SearchesRecursivelyButBrowsesImmediateChildren
 	EXPECT_EQ(Model.GetItems().front().Name, "Stone");
 }
 
+TEST_F(FContentBrowserModelTests, HidesRawAuthoringFilesFromPackageView)
+{
+	{
+		std::ofstream RawSource(Root / "Content/Raw.png");
+		RawSource << "raw";
+	}
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+	EXPECT_TRUE(std::ranges::none_of(Model.GetItems(), [](const FContentBrowserItem& Item) {
+		return Item.Kind == EContentBrowserItemKind::SourceFile || Item.Name == "Raw.png";
+	}));
+}
+
 TEST_F(FContentBrowserModelTests, KeepsFoldersFirstAndSortsEqualKeysStably)
 {
 	const std::string RootPath =

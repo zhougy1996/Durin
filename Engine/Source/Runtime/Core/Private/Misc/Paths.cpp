@@ -667,18 +667,6 @@ namespace Durin
 			const auto Existing = std::ranges::find_if(MountPoints, [&](const FMountPoint& Mount) {
 				return FoldAscii(Mount.VirtualRoot) == FoldAscii(VirtualRoot);
 			});
-			const std::filesystem::path Canonical = ComparableRoot(Root, DirectoryError);
-			checkf(!DirectoryError, "Failed to canonicalize test mount root.");
-			for (const FMountPoint& Mount : MountPoints)
-			{
-				if (&Mount == (Existing == MountPoints.end() ? nullptr : &*Existing)) continue;
-				const std::filesystem::path ExistingCanonical = ComparableRoot(Mount.Root, DirectoryError);
-				checkf(!DirectoryError, "Failed to canonicalize an existing test mount root.");
-				checkf(
-					!IsPathWithin(Canonical, ExistingCanonical)
-						&& !IsPathWithin(ExistingCanonical, Canonical),
-					"Test mount roots must not overlap.");
-			}
 			FMountPoint Definition{
 				.VirtualRoot = std::string(VirtualRoot),
 				.Owner = EMountOwner::Test,

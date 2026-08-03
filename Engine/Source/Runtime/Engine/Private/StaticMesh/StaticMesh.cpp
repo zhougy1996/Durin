@@ -88,7 +88,7 @@ namespace Durin
 		inline constexpr uint32 StaticMeshMaterialSlotsVersion = 1;
 		inline constexpr uint32 StaticMeshAssimpImporterVersion = 3;
 		inline constexpr std::string_view StaticMeshImporterId = "Assimp";
-		inline constexpr std::string_view StaticMeshSourceRoot = "SourceAssets/Models";
+		inline constexpr std::string_view StaticMeshSourceRoot = "Models";
 		inline constexpr uint64 StaticMeshDerivedDataBudgetBytes = 8ull * 1024ull * 1024ull * 1024ull;
 		inline constexpr uint32 StaticMeshDerivedDataCleanupDeleteLimit = 16;
 		constexpr float VectorTolerance = 1.0e-10f;
@@ -454,7 +454,7 @@ namespace Durin
 			const PathUtilities::FMountPoint* Mount = FindOwningMount(AssetPath.ToString());
 			if (!Mount)
 			{
-				OutError = std::format("Static mesh asset {} is not beneath a registered content mount.", AssetPath.ToString());
+				OutError = std::format("Static mesh asset {} is not beneath a registered package mount.", AssetPath.ToString());
 				return false;
 			}
 			if (RequestedSourcePath.empty())
@@ -464,9 +464,7 @@ namespace Durin
 				RelativeAssetPath.replace_extension(Extension);
 				const std::filesystem::path StoredPath =
 					std::filesystem::path(StaticMeshSourceRoot) / RelativeAssetPath;
-				const std::filesystem::path Relative =
-					StoredPath.lexically_normal().lexically_relative("SourceAssets");
-				OutStoredPath = Mount->VirtualRoot + Relative.generic_string();
+				OutStoredPath = Mount->VirtualRoot + StoredPath.lexically_normal().generic_string();
 			}
 			else
 			{
@@ -592,7 +590,7 @@ namespace Durin
 			Asset::RegisterAssetDeleteContributor(DStaticMesh::StaticClass(), [](
 				const Asset::FAssetData&, const Asset::FAssetPackageInspection&,
 				Asset::FAssetDeleteContribution&) -> Asset::FAssetResult {
-				// Portable SourceAssets may be shared and require a separate, explicit source operation.
+				// Mounted sources may be shared and require a separate, explicit source operation.
 				return {};
 			});
 			return true;

@@ -53,7 +53,7 @@ namespace Durin
 	{
 		GENERATED_BODY()
 
-		// Complete portable path in a mounted SourceAssets domain.
+		// Complete portable path to an authoring file in a registered mount.
 		DPROPERTY()
 		FSourcePath SourcePath;
 
@@ -138,8 +138,8 @@ namespace Durin
 	// Overrides usage-derived texture import defaults.
 	struct FTexture2DImportSettings
 	{
-		// Portable project-relative copy destination beneath SourceAssets.
-		// Empty stores the source under SourceAssets/Textures using the asset name.
+		// Portable mount-relative copy destination for the authoring file.
+		// Empty stores the source under Textures using the asset name.
 		std::string SourceDestination;
 		ETextureUsage Usage = ETextureUsage::Color;
 		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal;
@@ -204,7 +204,7 @@ namespace Durin
 			std::string_view TargetSourceVirtualPath,
 			std::string& OutError) -> bool;
 		ENGINE_API auto RepairSourcePath(std::string_view FilePath, std::string& OutError) -> bool;
-		// Copies the managed source to a new path beneath SourceAssets and keeps the old copy
+		// Copies the managed source to a new path in the same mount and keeps the old copy
 		// so other assets that share it remain valid.
 		ENGINE_API auto ChangeSourceLocation(
 			std::string_view SourceDestination, std::string& OutError) -> bool;

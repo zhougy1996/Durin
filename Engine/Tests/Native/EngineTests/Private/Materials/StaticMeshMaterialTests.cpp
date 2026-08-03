@@ -77,7 +77,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	EXPECT_EQ(Provenance.ImporterVersion, 3u);
 	const std::string OriginalSourcePath = Provenance.SourcePath.Path;
 	const std::filesystem::path StoredSource =
-		Root / "SourceAssets/Models/Environment/Mesh.gltf";
+		Root / "Content/Models/Environment/Mesh.gltf";
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 	EXPECT_FALSE(std::filesystem::exists(Root / "Content" / "Environment" / "Mesh.gltf"));
 	EXPECT_EQ(Import.Asset->InspectSource().Status, Durin::EStaticMeshSourceStatus::Available);
@@ -136,7 +136,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshWithoutSourceMetadataLoadsAndMissingSou
 		"/StaticMeshSourceRepair/Models/Mesh.gltf");
 	ASSERT_TRUE(Durin::Asset::SavePackage(Mesh->GetPackage()));
 
-	const std::filesystem::path StoredSource = Root / "SourceAssets/Models/Mesh.gltf";
+	const std::filesystem::path StoredSource = Root / "Content/Models/Mesh.gltf";
 	const std::string OriginalHash = Mesh->GetSourceImportData().SourceContentHash;
 	WriteStaticMeshSlotVariant(StoredSource, R"({ "name": "Blue" }, { "name": "Red" })");
 	ASSERT_TRUE(Mesh->PostLoad(RepairError)) << RepairError;
@@ -221,7 +221,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesOnly
 	auto Rebuild = [&](Durin::DStaticMesh* Mesh, std::string_view Name, std::string_view Materials,
 		std::optional<std::pair<std::string_view, std::string_view>> Replacement = std::nullopt, bool LastOnly = false,
 		std::optional<Durin::uint32> AppendedMaterialIndex = std::nullopt) {
-		const std::filesystem::path SourcePath = Root / "SourceAssets" / "Models" / (std::string(Name) + ".gltf");
+		const std::filesystem::path SourcePath = Root / "Models" / (std::string(Name) + ".gltf");
 		WriteStaticMeshSlotVariant(SourcePath, Materials, Replacement, LastOnly, AppendedMaterialIndex);
 		std::string Error;
 		ASSERT_TRUE(Mesh->PostLoad(Error)) << Error;
@@ -330,7 +330,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsAndSurvivesRenderedRe
 		RedId, Component->GetMaterialBySlotId(RedId)));
 	const FMaterialSlotsSnapshot BeforeReimport = CaptureMaterialSlots(Harness.Scene);
 
-	const std::filesystem::path ReimportSource = Root / "SourceAssets" / "Models" / "Mesh.gltf";
+	const std::filesystem::path ReimportSource = Root / "Models" / "Mesh.gltf";
 	WriteStaticMeshSlotVariant(ReimportSource, R"({ "name": "Blue" }, { "name": "Red" })",
 		std::nullopt, false, std::nullopt, true);
 	std::string ReimportError;

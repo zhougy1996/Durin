@@ -22,8 +22,7 @@ namespace Durin
 	{
 		constexpr uint64 TextureDerivedDataBudgetBytes = 4ull * 1024ull * 1024ull * 1024ull;
 		constexpr uint32 TextureDerivedDataCleanupDeleteLimit = 16;
-		constexpr std::string_view SourceAssetsRoot = "SourceAssets";
-		constexpr std::string_view DefaultTextureSourceRoot = "SourceAssets/Textures";
+		constexpr std::string_view DefaultTextureSourceRoot = "Textures";
 		constexpr std::string_view TextureDecoderId = "DurinImage";
 		constexpr uint32 TextureDecoderVersion = 1;
 
@@ -58,7 +57,7 @@ namespace Durin
 			const PathUtilities::FMountPoint* Mount = FindOwningMount(AssetPath.ToString());
 			if (!Mount)
 			{
-				OutError = std::format("Texture asset {} is not beneath a registered content mount.",
+				OutError = std::format("Texture asset {} is not beneath a registered package mount.",
 					AssetPath.ToString());
 				return false;
 			}
@@ -81,22 +80,20 @@ namespace Durin
 					OutError = "Texture source relocation must remain within the asset's owning mount.";
 					return false;
 				}
-				StoredPath = std::filesystem::path(SourceAssetsRoot) / Requested.RelativePath;
+				StoredPath = Requested.RelativePath;
 			}
 			else
 				StoredPath = std::filesystem::path(RequestedSourcePath);
 			StoredPath = StoredPath.lexically_normal();
-			const std::filesystem::path Relative = StoredPath.lexically_relative(SourceAssetsRoot);
-			const std::string RelativeString = Relative.generic_string();
-			if (Relative.empty() || Relative == "." || RelativeString == ".."
-				|| RelativeString.starts_with("../"))
+			const std::string RelativeString = StoredPath.generic_string();
+			if (StoredPath.empty() || StoredPath == "." || StoredPath.is_absolute()
+				|| RelativeString == ".." || RelativeString.starts_with("../"))
 			{
-				OutError = std::format(
-					"Texture source path '{}' must be normalized beneath {}/.",
-					RequestedSourcePath, SourceAssetsRoot);
+				OutError = std::format("Texture source path '{}' must be a normalized mount-relative path.",
+					RequestedSourcePath);
 				return false;
 			}
-			OutStoredPath = Mount->VirtualRoot + Relative.generic_string();
+			OutStoredPath = Mount->VirtualRoot + RelativeString;
 			std::string RequestedExtension = StoredPath.extension().generic_string();
 			std::string InputExtension(Extension);
 			std::ranges::transform(RequestedExtension, RequestedExtension.begin(), [](char Value) {
@@ -167,7 +164,7 @@ namespace Durin
 				OutError.clear();
 				return true;
 			}
-			OutError = "Texture asset has no normalized SourceAssets provenance.";
+			OutError = "Texture asset has no normalized mounted-source provenance.";
 			return false;
 		}
 
@@ -306,12 +303,12 @@ namespace Durin
 		static const bool RegisteredAssetContributors = [] {
 			Asset::RegisterAssetMoveContributor(DTexture2D::StaticClass(), [](DObject*, const FAssetPath&, const FAssetPath&,
 				Asset::FAssetMoveContribution&) -> Asset::FAssetResult {
-				// Portable SourceAssets provenance is independent of package placement.
+				// Portable mounted-source provenance is independent of package placement.
 				return {};
 			});
 			Asset::RegisterAssetDeleteContributor(DTexture2D::StaticClass(), [](const Asset::FAssetData&,
 				const Asset::FAssetPackageInspection&, Asset::FAssetDeleteContribution&) -> Asset::FAssetResult {
-				// Portable SourceAssets may be shared and require a separate, explicit source operation.
+				// Mounted sources may be shared and require a separate, explicit source operation.
 				return {};
 			});
 			return true;
@@ -817,7 +814,7 @@ namespace Durin
 		}
 		if (SourceDestination.empty())
 		{
-			OutError = "Choose a source destination beneath SourceAssets.";
+			OutError = "Choose a source destination inside the asset's mount.";
 			return false;
 		}
 

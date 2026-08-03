@@ -151,7 +151,7 @@ TEST(FStaticMeshDerivedDataCacheTests, ColdWarmAndSourceUnavailableLoadsFollowEd
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Fixture.AssetPath));
 
 	const std::filesystem::path StoredSource =
-		Fixture.Root / "SourceAssets" / "Models" / "Mesh.gltf";
+		Fixture.Root / "Content" / "Models" / "Mesh.gltf";
 	ASSERT_TRUE(std::filesystem::remove(StoredSource));
 	ASSERT_TRUE(Durin::Asset::LoadAsset(Fixture.AssetPath, Fixture.Mesh));
 	EXPECT_EQ(
@@ -170,7 +170,7 @@ TEST(FStaticMeshDerivedDataCacheTests, SourceAndSettingsChangesMissDeterministic
 	ASSERT_NE(Fixture.Mesh, nullptr);
 	const std::string InitialKey = Fixture.Mesh->GetDerivedDataDiagnostic().Key;
 	const std::filesystem::path StoredSource =
-		Fixture.Root / "SourceAssets" / "Models" / "Mesh.gltf";
+		Fixture.Root / "Content" / "Models" / "Mesh.gltf";
 	{
 		std::ofstream Stream(StoredSource, std::ios::binary | std::ios::app);
 		ASSERT_TRUE(Stream.is_open());
@@ -354,7 +354,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		std::as_bytes(std::span(FirstBulk)), MaterialMismatchRoot / "Game/CookedMesh.dbulk"));
 
 	Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
-	Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "SourceAssets");
+	Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");
 	RestartAssetManager();
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));

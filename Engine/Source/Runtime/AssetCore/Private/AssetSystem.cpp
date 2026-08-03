@@ -241,7 +241,7 @@ namespace Durin::Asset
 				PathUtilities::ResolveAssetPath(Path.GetView(), PathUtilities::EPathExistence::AllowMissing);
 			if (!Resolved)
 				DURIN_WARN_CATEGORY(
-					"AssetSystem", "Failed to resolve Content path {}: {}", Path.ToString(), Resolved.Message);
+					"AssetSystem", "Failed to resolve asset path {}: {}", Path.ToString(), Resolved.Message);
 			return Resolved ? Resolved.PhysicalPath.generic_string() + ".dasset" : std::string{};
 		}
 

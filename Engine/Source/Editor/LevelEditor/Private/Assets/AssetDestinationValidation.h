@@ -33,7 +33,7 @@ namespace Durin
 		}
 	};
 
-	// Carries the side-effect-free resolution of one virtual Content directory.
+	// Carries the side-effect-free resolution of one virtual asset directory.
 	struct FContentDirectoryValidation
 	{
 		FAssetPath DirectoryPath;

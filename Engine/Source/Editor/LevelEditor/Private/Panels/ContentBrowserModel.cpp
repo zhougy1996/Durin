@@ -272,28 +272,6 @@ namespace Durin
 						PhysicalToVirtualDirectory(Entry.path().generic_string()),
 						NormalizePath(Entry.path().generic_string())});
 			}
-			else if (
-				Entry.is_regular_file(Ec) && Entry.path().extension() != ".dasset")
-			{
-				FContentBrowserItem Item{
-					EContentBrowserItemKind::SourceFile,
-					Name,
-					{},
-					NormalizePath(Entry.path().generic_string())};
-				Item.Extension = Entry.path().extension().generic_string();
-				std::error_code FileEc;
-				Item.FileSize = Entry.file_size(FileEc);
-				FileEc.clear();
-				Item.LastWriteTime = Entry.last_write_time(FileEc);
-				if (IsSupportedSourceImageExtension(Item.Extension))
-				{
-					Item.ThumbnailIdentity = Item.PhysicalPath;
-					Item.ThumbnailSourcePath = Item.PhysicalPath;
-					Item.ThumbnailFileSize = Item.FileSize;
-					Item.ThumbnailLastWriteTime = Item.LastWriteTime;
-				}
-				ItemsSnapshot.push_back(std::move(Item));
-			}
 		}
 
 		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())

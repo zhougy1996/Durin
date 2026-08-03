@@ -58,7 +58,7 @@ namespace Durin
 			if (!Classified)
 			{
 				Result.Message = Classified.Error == PathUtilities::EMountPathError::UnknownMount
-					? "This file is external. Choose Ingest External Source to copy it into a writable SourceAssets domain."
+					? "This file is external. Choose Ingest External Source to copy it into a writable mount."
 					: Classified.Message;
 				return Result;
 			}

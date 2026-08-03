@@ -25,7 +25,7 @@ namespace Durin
 			"px", "nx", "py", "ny", "pz", "nz"};
 		constexpr uint64 TextureCubeDerivedDataBudgetBytes = 4ull * 1024ull * 1024ull * 1024ull;
 		constexpr uint32 TextureCubeDerivedDataCleanupDeleteLimit = 16;
-		constexpr std::string_view TextureSourceRoot = "SourceAssets/Textures";
+		constexpr std::string_view TextureSourceRoot = "Textures";
 		constexpr std::string_view TextureDecoderId = "DurinImage";
 		constexpr uint32 TextureDecoderVersion = 1;
 
@@ -60,7 +60,7 @@ namespace Durin
 			const PathUtilities::FMountPoint* Mount = FindOwningMount(AssetPath.ToString());
 			if (!Mount)
 			{
-				OutError = std::format("TextureCube asset {} is not beneath a registered content mount.",
+				OutError = std::format("TextureCube asset {} is not beneath a registered package mount.",
 					AssetPath.ToString());
 				return false;
 			}
@@ -73,9 +73,7 @@ namespace Durin
 				RelativeAssetPath.replace_filename(FileName);
 				const std::filesystem::path StoredPath =
 					std::filesystem::path(TextureSourceRoot) / RelativeAssetPath;
-				const std::filesystem::path Relative =
-					StoredPath.lexically_normal().lexically_relative("SourceAssets");
-				OutStoredPath = Mount->VirtualRoot + Relative.generic_string();
+				OutStoredPath = Mount->VirtualRoot + StoredPath.lexically_normal().generic_string();
 			}
 			else
 			{
@@ -585,12 +583,12 @@ namespace Durin
 		static const bool RegisteredAssetContributors = [] {
 			Asset::RegisterAssetMoveContributor(DTextureCube::StaticClass(), [](DObject*, const FAssetPath&, const FAssetPath&,
 				Asset::FAssetMoveContribution&) -> Asset::FAssetResult {
-				// Portable SourceAssets provenance is independent of package placement.
+				// Portable mounted-source provenance is independent of package placement.
 				return {};
 			});
 			Asset::RegisterAssetDeleteContributor(DTextureCube::StaticClass(), [](const Asset::FAssetData&,
 				const Asset::FAssetPackageInspection&, Asset::FAssetDeleteContribution&) -> Asset::FAssetResult {
-				// Portable SourceAssets may be shared and require a separate, explicit source operation.
+				// Mounted sources may be shared and require a separate, explicit source operation.
 				return {};
 			});
 			return true;
@@ -682,7 +680,7 @@ namespace Durin
 		bLoadedFromDerivedDataCache = false;
 		if (!SourceImportData.HasSource())
 		{
-			OutError = "TextureCube has no normalized SourceAssets provenance; legacy source metadata is unsupported.";
+			OutError = "TextureCube has no normalized mounted-source provenance; legacy source metadata is unsupported.";
 			BuildStatus = ETextureBuildStatus::MissingSource;
 			LastBuildError = OutError;
 			DerivedDataDiagnostic = {

@@ -282,7 +282,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		CorruptRoot / "Game/CookedTexture.dbulk"));
 
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
-	Durin::Testing::RemoveTestWorkDirectory(Root / "SourceAssets");
+	Durin::Testing::RemoveTestWorkDirectory(Root / "Content" / "Textures");
 	RestartAssetManager();
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));

@@ -104,7 +104,7 @@ namespace Durin
 		DrawStatusBar();
 		DrawDialogs();
 
-		SessionSettings.SetContentBrowserState(static_cast<uint8>(ViewMode), IconSize, bIconSizeLocked, DirectoryTreeWidth, Model.IsShowingSourceFiles(), Model.GetCurrentPhysicalPath());
+		SessionSettings.SetContentBrowserState(static_cast<uint8>(ViewMode), IconSize, bIconSizeLocked, DirectoryTreeWidth, false, Model.GetCurrentPhysicalPath());
 		ImGui::End();
 	}
 
@@ -207,12 +207,6 @@ namespace Durin
 				ImGui::SetNextItemWidth(-FLT_MIN);
 				ImGui::SliderFloat("##ContentIconSize", &IconSize, FLevelEditorSessionSettings::MinimumContentBrowserIconSize, FLevelEditorSessionSettings::MaximumContentBrowserIconSize, "%.0f px");
 				ImGui::Checkbox("Lock Ctrl + wheel resizing", &bIconSizeLocked);
-				ImGui::Separator();
-				if (ImGui::MenuItem("Show Source Files", nullptr, Model.IsShowingSourceFiles()))
-				{
-					Model.SetShowSourceFiles(!Model.IsShowingSourceFiles());
-					RepairSelection();
-				}
 				ImGui::EndPopup();
 			}
 		};
@@ -873,11 +867,6 @@ namespace Durin
 		if (ImGui::MenuItem("Copy Physical Path")) CopyToClipboard(PhysicalDirectory);
 		if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(PhysicalDirectory);
 		if (ImGui::MenuItem("Refresh", "F5")) Refresh(true);
-		if (ImGui::MenuItem("Show Source Files", nullptr, Model.IsShowingSourceFiles()))
-		{
-			Model.SetShowSourceFiles(!Model.IsShowingSourceFiles());
-			RepairSelection();
-		}
 	}
 
 	auto FContentBrowserPanel::BeginAssetDragDrop(const FContentBrowserItem& Item) -> void
@@ -960,11 +949,6 @@ namespace Durin
 			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("Refresh", "F5")) Refresh(true);
-			if (ImGui::MenuItem("Show Source Files", nullptr, Model.IsShowingSourceFiles()))
-			{
-				Model.SetShowSourceFiles(!Model.IsShowingSourceFiles());
-				RepairSelection();
-			}
 			if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(Model.GetCurrentPhysicalPath());
 			ImGui::EndPopup();
 		}

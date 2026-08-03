@@ -47,7 +47,7 @@ namespace Durin
 		std::string LastSuggestedPath;
 	};
 
-	// Owns an editable virtual Content directory for multi-output imports.
+	// Owns an editable virtual asset directory for multi-output imports.
 	class FImportDialogDirectoryModel
 	{
 	public:

@@ -80,7 +80,7 @@ namespace Durin
 			return;
 
 		ImGui::TextUnformatted("Create a TextureCube asset from six faces or a 2:1 panorama.");
-		ImGui::TextDisabled("Reference mounted images in place, or ingest external images into SourceAssets.");
+		ImGui::TextDisabled("Reference mounted images in place, or ingest external images into a writable mount.");
 		ImGui::Spacing();
 		ImGui::SeparatorText("Source");
 		if (ImGui::RadioButton("Reference Existing Source",
@@ -91,7 +91,7 @@ namespace Durin
 			SourceMode == EMountedSourceImportMode::IngestExternal))
 			SourceMode = EMountedSourceImportMode::IngestExternal;
 		ImGui::TextDisabled(SourceMode == EMountedSourceImportMode::ReferenceExisting
-			? "Keeps images in allowed mounted SourceAssets domains; no copies are created."
+			? "Keeps images in allowed mounts; no copies are created."
 			: "Copies external images transactionally to explicit mounted source paths.");
 		ImGui::TextUnformatted("Source format");
 		if (ImGui::RadioButton("Panorama (2:1)",
@@ -416,7 +416,7 @@ namespace Durin
 		if (Destination.Browse("Choose a Texture Cube Asset Path",
 			DefaultFileName,
 			"The selected asset path is too long for the cube import form.",
-			"Texture Cube assets must be saved inside a mounted Content directory.",
+			"Texture Cube assets must be saved inside a package-enabled mount.",
 			Callbacks))
 			SuggestSourceDestinations();
 	}

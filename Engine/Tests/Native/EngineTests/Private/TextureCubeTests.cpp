@@ -112,7 +112,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 		EXPECT_EQ(Result.Asset->GetSourceFile(Face), std::format("/TextureCubeTests/Textures/Convention_{}.png",
 			std::array<std::string_view, Durin::TextureCubeFaceCount>{"px", "nx", "py", "ny", "pz", "nz"}[FaceIndex]));
 		EXPECT_TRUE(std::filesystem::is_regular_file(Root / std::format(
-			"SourceAssets/Textures/Convention_{}.png",
+			"Textures/Convention_{}.png",
 			std::array<std::string_view, Durin::TextureCubeFaceCount>{"px", "nx", "py", "ny", "pz", "nz"}[FaceIndex])));
 	}
 
@@ -147,9 +147,9 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	for (std::string_view Suffix : {"px", "nx", "py", "ny", "pz", "nz"})
 	{
 		EXPECT_TRUE(std::filesystem::is_regular_file(
-			Root / std::format("SourceAssets/Textures/Convention_{}.png", Suffix)));
+			Root / std::format("Textures/Convention_{}.png", Suffix)));
 		EXPECT_FALSE(std::filesystem::exists(
-			Root / std::format("SourceAssets/Textures/RenamedCube_{}.png", Suffix)));
+			Root / std::format("Textures/RenamedCube_{}.png", Suffix)));
 	}
 	ASSERT_TRUE(Durin::Asset::LoadAsset(RenamedPath, Loaded));
 	EXPECT_EQ(Loaded->GetSourceFile(Durin::ETextureCubeFace::NegativeZ),
@@ -158,7 +158,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(RenamedPath));
 	for (std::string_view Suffix : {"px", "nx", "py", "ny", "pz", "nz"})
 		EXPECT_TRUE(std::filesystem::is_regular_file(
-			Root / std::format("SourceAssets/Textures/Convention_{}.png", Suffix)));
+			Root / std::format("Textures/Convention_{}.png", Suffix)));
 }
 
 TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifacts)
@@ -254,7 +254,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 		"px", "nx", "py", "ny", "pz", "nz"};
 	for (size_t FaceIndex = 0; FaceIndex < Faces.size(); ++FaceIndex)
 		Faces[FaceIndex] = (Root / std::format(
-			"SourceAssets/Textures/ReimportFaces_{}.png", Suffixes[FaceIndex])).generic_string();
+			"Textures/ReimportFaces_{}.png", Suffixes[FaceIndex])).generic_string();
 	std::filesystem::copy_file(
 		Transparent,
 		Faces[static_cast<size_t>(Durin::ETextureCubeFace::NegativeZ)],
@@ -267,7 +267,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 	EXPECT_EQ(Texture->GetSourceFile(Durin::ETextureCubeFace::NegativeZ),
 		"/TextureCubeTests/Textures/ReimportFaces_nz.png");
 	EXPECT_TRUE(std::filesystem::is_regular_file(
-		Root / "SourceAssets/Textures/ReimportFaces_nz.png"));
+		Root / "Textures/ReimportFaces_nz.png"));
 
 	const std::string ValidKey = Texture->GetDerivedDataKey();
 	const Durin::uint64 ValidRevision = Texture->GetBuildRevision();
@@ -297,7 +297,7 @@ TEST(FTextureCubeTests, PostLoadIdentifiesTheMissingFaceAndInvalidatesDerivedDat
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
 	ASSERT_TRUE(std::filesystem::remove(
-		Root / "SourceAssets/Textures/MissingAfterImport_ny.png"));
+		Root / "Textures/MissingAfterImport_ny.png"));
 
 	std::string Error;
 	EXPECT_TRUE(Texture->PostLoad(Error)) << Error;
@@ -307,7 +307,7 @@ TEST(FTextureCubeTests, PostLoadIdentifiesTheMissingFaceAndInvalidatesDerivedDat
 	EXPECT_NE(Texture->GetPlatformData(), nullptr);
 
 	std::filesystem::copy_file(std::filesystem::path(Faces[static_cast<size_t>(Durin::ETextureCubeFace::NegativeY)]),
-		Root / "SourceAssets/Textures/MissingAfterImport_ny.png");
+		Root / "Textures/MissingAfterImport_ny.png");
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/MissingAfterImport", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
@@ -342,7 +342,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	EXPECT_EQ(Result.Asset->GetBuiltMipCount(), 2u);
 	EXPECT_EQ(Result.Asset->GetBuiltPixelFormat(), Durin::EPixelFormat::BC1_UNORM_SRGB);
 	ASSERT_TRUE(std::filesystem::is_regular_file(
-		Root / "SourceAssets/Textures/Panorama_panorama.tga"));
+		Root / "Textures/Panorama_panorama.tga"));
 	const Durin::FTextureCubePlatformData ExpectedPlatform = *Result.Asset->GetPlatformData();
 
 	Durin::FAssetPath AssetPath;
@@ -365,16 +365,16 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/RenamedPanorama", RenamedPath));
 	ASSERT_TRUE(Durin::Asset::MoveAsset(AssetPath, RenamedPath));
 	EXPECT_TRUE(std::filesystem::is_regular_file(
-		Root / "SourceAssets/Textures/Panorama_panorama.tga"));
+		Root / "Textures/Panorama_panorama.tga"));
 	EXPECT_FALSE(std::filesystem::exists(
-		Root / "SourceAssets/Textures/RenamedPanorama_panorama.tga"));
+		Root / "Textures/RenamedPanorama_panorama.tga"));
 	ASSERT_TRUE(Durin::Asset::LoadAsset(RenamedPath, Loaded));
 	EXPECT_EQ(Loaded->GetPanoramaSourceFile(),
 		"/TextureCubeTests/Textures/Panorama_panorama.tga");
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(RenamedPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(RenamedPath));
 	EXPECT_TRUE(std::filesystem::is_regular_file(
-		Root / "SourceAssets/Textures/Panorama_panorama.tga"));
+		Root / "Textures/Panorama_panorama.tga"));
 }
 
 TEST(FTextureCubeTests, SourceLayoutReflectionRetainsSixFaceCompatibilityValue)
@@ -448,13 +448,13 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 2.0f);
 	EXPECT_EQ(Texture->GetBuiltFaceDimension(), 4u);
 	EXPECT_TRUE(std::filesystem::is_regular_file(
-		Root / "SourceAssets/Textures/ReimportPanorama_panorama.tga"));
+		Root / "Textures/ReimportPanorama_panorama.tga"));
 	EXPECT_TRUE(std::filesystem::is_regular_file(
-		Root / "SourceAssets/Textures/ReimportPanorama_panorama.hdr"));
+		Root / "Textures/ReimportPanorama_panorama.hdr"));
 
 	const Durin::uint64 FirstReimportRevision = Texture->GetBuildRevision();
 	ASSERT_TRUE(Texture->ReimportPanorama(
-		(Root / "SourceAssets/Textures/ReimportPanorama_panorama.hdr").generic_string(),
+		(Root / "Textures/ReimportPanorama_panorama.hdr").generic_string(),
 		{.FaceDimension = 4, .ExposureEV = 1.0f}, Error)) << Error;
 	EXPECT_GT(Texture->GetBuildRevision(), FirstReimportRevision);
 	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 1.0f);
@@ -499,7 +499,7 @@ TEST(FTextureCubeTests, PanoramaPostLoadReportsMissingAndCorruptAuthoritativeSou
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
 	const std::filesystem::path CopiedSource =
-		Root / "SourceAssets/Textures/MissingPanorama_panorama.hdr";
+		Root / "Textures/MissingPanorama_panorama.hdr";
 	ASSERT_TRUE(std::filesystem::remove(CopiedSource));
 
 	std::string Error;
