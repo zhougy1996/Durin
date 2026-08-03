@@ -1143,6 +1143,48 @@ TEST(FPackageAssetTests, VersionOneIsExplicitlyUnsupported)
 	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetScanErrors().back().Error, Durin::Asset::EAssetError::UnsupportedVersion);
 }
 
+TEST(FPackageAssetTests, ManualScanMountsRetainPackageIdentityAndDirectLoading)
+{
+	InitializeAssetTests();
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "Assets";
+	const std::array Definitions{
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/TestAssets/",
+			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Root = Root,
+			.ContentPath = ".",
+			.bAutoScan = false,
+			.bAuthoringWritable = true}};
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/ManualScanAsset", Path));
+	{
+		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
+		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+		DPackageAssetForTest* Asset = nullptr;
+		ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+		ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+		ASSERT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(Path));
+
+		auto& Registry = Durin::Asset::GetAssetRegistry();
+		ASSERT_TRUE(Registry.ScanMountedContent(
+			Durin::Asset::EAssetRegistryScanMode::FullValidation));
+		EXPECT_EQ(Registry.GetLastScanStats().Enumerated, 0u);
+		EXPECT_EQ(Registry.FindAsset(Path), nullptr);
+
+		Durin::DObject* Loaded = nullptr;
+		ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
+		EXPECT_NE(Loaded, nullptr);
+		ASSERT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(Path));
+	}
+
+	auto& Registry = Durin::Asset::GetAssetRegistry();
+	ASSERT_TRUE(Registry.ScanMountedContent(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(Path));
+}
+
 TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInvalidCache)
 {
 	InitializeAssetTests();

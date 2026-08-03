@@ -270,7 +270,7 @@ namespace Durin
 			const PathUtilities::FMountLookupResult Lookup =
 				PathUtilities::FindMountForVirtualPath(DestinationDirectory.GetPath());
 			if (Lookup)
-				Request.InitialDirectory = Lookup.Mount->Root.generic_string();
+				Request.InitialDirectory = Lookup.Mount->GetContentDir().generic_string();
 		}
 		if (SourcePathBuffer[0] != '\0') Request.InitialDirectory = std::filesystem::path(SourcePathBuffer.data()).parent_path().generic_string();
 
@@ -340,7 +340,7 @@ namespace Durin
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
 		Request.Title = "Choose Scene Source Destination";
 		Request.Filters = {{"All Files", "*.*"}};
-		Request.InitialDirectory = Lookup.Mount->Root.generic_string();
+		Request.InitialDirectory = Lookup.Mount->GetContentDir().generic_string();
 		Request.DefaultFileName = SourcePathBuffer[0] != '\0'
 			? std::filesystem::path(SourcePathBuffer.data()).filename().generic_string()
 			: "Scene.fbx";

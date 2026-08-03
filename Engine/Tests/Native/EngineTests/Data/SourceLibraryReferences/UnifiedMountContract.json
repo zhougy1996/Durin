@@ -4,7 +4,8 @@
       "VirtualRoot": "/Plugins/PCG/",
       "Owner": "Extension",
       "Root": "Plugin",
-      "AssetPackages": true,
+      "ContentPath": "Content",
+      "AutoScan": true,
       "AuthoringWritable": false,
       "Dependencies": [
         "/Engine/"
@@ -14,7 +15,8 @@
       "VirtualRoot": "/Libraries/StudioArt/",
       "Owner": "ExternalSources",
       "Root": "StudioArt",
-      "AssetPackages": false,
+      "ContentPath": ".",
+      "AutoScan": false,
       "AuthoringWritable": false,
       "Dependencies": [
         "/Engine/"
@@ -44,14 +46,14 @@
       "ExpectedError": "None"
     },
     {
-      "Name": "PackageDisabledAsset",
+      "Name": "ManualScanAsset",
       "ReferencingMount": "/Game/",
       "Path": "/Libraries/StudioArt/Textures/Stone.png",
       "Kind": "Asset",
-      "ExpectedError": "AssetPackagesDisabled"
+      "ExpectedError": "None"
     },
     {
-      "Name": "PackageDisabledSource",
+      "Name": "ManualScanSource",
       "ReferencingMount": "/Game/",
       "Path": "/Libraries/StudioArt/Textures/Stone.png",
       "Kind": "Source",

@@ -50,13 +50,13 @@ namespace
 					.VirtualRoot = "/Engine/",
 					.Owner = Durin::PathUtilities::EMountOwner::Test,
 					.Root = Root / "Engine/Content",
-					.bAssetPackages = true,
+					.bAutoScan = true,
 					.bAuthoringWritable = true},
 				{
 					.VirtualRoot = "/SceneImportTests/",
 					.Owner = Durin::PathUtilities::EMountOwner::Test,
 					.Root = Root / "Project/Content",
-					.bAssetPackages = true,
+					.bAutoScan = true,
 					.bAuthoringWritable = true,
 					.Dependencies = {"/Engine/"}}});
 		EXPECT_TRUE(Mounts->IsValid()) << Mounts->GetError();

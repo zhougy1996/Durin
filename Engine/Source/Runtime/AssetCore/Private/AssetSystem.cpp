@@ -687,7 +687,7 @@ namespace Durin::Asset
 			{
 				std::vector<std::string> Roots;
 				for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-					if (Mount.bAssetPackages) Roots.push_back(Mount.VirtualRoot);
+					if (Mount.bAutoScan) Roots.push_back(Mount.VirtualRoot);
 			std::ranges::sort(Roots);
 			Roots.erase(std::unique(Roots.begin(), Roots.end()), Roots.end());
 			return Roots;
@@ -837,7 +837,7 @@ namespace Durin::Asset
 			{
 				const PathUtilities::FMountLookupResult Lookup =
 					PathUtilities::FindMountForVirtualPath(Path.GetView());
-				if (!Lookup || !Lookup.Mount->bAssetPackages)
+				if (!Lookup || !Lookup.Mount->bAutoScan)
 				{
 					OutWarning = std::format("Could not persist asset registry entry {} because its mount is unavailable.", Path.ToString());
 					OutEntries.clear();
@@ -1711,8 +1711,8 @@ namespace Durin::Asset
 		const bool bCacheLoaded = LoadRegistryCache(MountManifest, CachedEntries, CacheWarning);
 		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
 		{
-			if (!Mount.bAssetPackages) continue;
-			const std::filesystem::path& AssetRoot = Mount.Root;
+			if (!Mount.bAutoScan) continue;
+			const std::filesystem::path AssetRoot = Mount.GetContentDir();
 			std::error_code Ec;
 			if (!std::filesystem::exists(AssetRoot, Ec)) continue;
 			for (std::filesystem::recursive_directory_iterator It(AssetRoot, Ec), End; !Ec && It != End; It.increment(Ec))

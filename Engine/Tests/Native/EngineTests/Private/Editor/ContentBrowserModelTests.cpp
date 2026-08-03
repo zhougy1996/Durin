@@ -27,7 +27,7 @@ namespace
 					.VirtualRoot = "/ContentBrowserTests/",
 					.Owner = PathUtilities::EMountOwner::Test,
 					.Root = Root / "Content",
-					.bAssetPackages = true}};
+					.bAutoScan = true}};
 			Registry =
 				std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
 					Definitions);

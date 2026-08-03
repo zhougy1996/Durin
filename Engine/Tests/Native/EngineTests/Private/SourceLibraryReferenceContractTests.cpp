@@ -156,14 +156,16 @@ TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesSingleRootsCapabilities
 	ASSERT_TRUE(Plugin.IsObject());
 	EXPECT_EQ(Plugin.GetView("Owner").GetString(), "Extension");
 	EXPECT_EQ(Plugin.GetView("Root").GetString(), "Plugin");
-	EXPECT_TRUE(Plugin.GetView("AssetPackages").GetBool());
+	EXPECT_EQ(Plugin.GetView("ContentPath").GetString(), "Content");
+	EXPECT_TRUE(Plugin.GetView("AutoScan").GetBool());
 	EXPECT_FALSE(Plugin.GetView("AuthoringWritable").GetBool());
 
 	const Durin::FJsonNodeView External = FindNamedEntry(Mounts, "/Libraries/StudioArt/");
 	ASSERT_TRUE(External.IsObject());
 	EXPECT_EQ(External.GetView("Owner").GetString(), "ExternalSources");
 	EXPECT_EQ(External.GetView("Root").GetString(), "StudioArt");
-	EXPECT_FALSE(External.GetView("AssetPackages").GetBool());
+	EXPECT_EQ(External.GetView("ContentPath").GetString(), ".");
+	EXPECT_FALSE(External.GetView("AutoScan").GetBool());
 	EXPECT_FALSE(External.GetView("AuthoringWritable").GetBool());
 
 	const Durin::FJsonNodeView Cases = Contract.GetRootView().GetView("Cases");
@@ -172,8 +174,8 @@ TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesSingleRootsCapabilities
 	EXPECT_EQ(FindNamedEntry(Cases, "GameToEngineSource").GetView("ExpectedError").GetString(), "None");
 	EXPECT_EQ(FindNamedEntry(Cases, "EngineToGameSource").GetView("ExpectedError").GetString(), "ForbiddenDependency");
 	EXPECT_EQ(FindNamedEntry(Cases, "GameToPluginSource").GetView("ExpectedError").GetString(), "None");
-	EXPECT_EQ(FindNamedEntry(Cases, "PackageDisabledAsset").GetView("ExpectedError").GetString(), "AssetPackagesDisabled");
-	EXPECT_EQ(FindNamedEntry(Cases, "PackageDisabledSource").GetView("ExpectedError").GetString(), "None");
+	EXPECT_EQ(FindNamedEntry(Cases, "ManualScanAsset").GetView("ExpectedError").GetString(), "None");
+	EXPECT_EQ(FindNamedEntry(Cases, "ManualScanSource").GetView("ExpectedError").GetString(), "None");
 }
 
 TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
@@ -199,14 +201,16 @@ TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
 		Durin::PathUtilities::FMountPoint{
 			.VirtualRoot = "/Engine/",
 			.Owner = Durin::PathUtilities::EMountOwner::Engine,
-			.Root = Root / "Engine" / "Content",
-			.bAssetPackages = true,
+			.Root = Root / "Engine",
+			.ContentPath = "Content",
+			.bAutoScan = true,
 			.bAuthoringWritable = true},
 		Durin::PathUtilities::FMountPoint{
 			.VirtualRoot = "/Game/",
 			.Owner = Durin::PathUtilities::EMountOwner::ActiveProject,
-			.Root = Root / "Game" / "Content",
-			.bAssetPackages = true,
+			.Root = Root / "Game",
+			.ContentPath = "Content",
+			.bAutoScan = true,
 			.bAuthoringWritable = true,
 			.Dependencies = {"/Engine/"}}};
 	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Mounts);

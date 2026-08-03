@@ -351,7 +351,7 @@ namespace Durin
 			const PathUtilities::FMountLookupResult Lookup =
 				PathUtilities::FindMountForVirtualPath(Destination.GetPath());
 			if (Lookup)
-				Request.InitialDirectory = Lookup.Mount->Root.generic_string();
+				Request.InitialDirectory = Lookup.Mount->GetContentDir().generic_string();
 		}
 		if (FacePathBuffers[Index][0] != '\0')
 			Request.InitialDirectory = std::filesystem::path(FacePathBuffers[Index].data()).parent_path().generic_string();
@@ -387,7 +387,7 @@ namespace Durin
 			const PathUtilities::FMountLookupResult Lookup =
 				PathUtilities::FindMountForVirtualPath(Destination.GetPath());
 			if (Lookup)
-				Request.InitialDirectory = Lookup.Mount->Root.generic_string();
+				Request.InitialDirectory = Lookup.Mount->GetContentDir().generic_string();
 		}
 		if (PanoramaPathBuffer[0] != '\0')
 			Request.InitialDirectory = std::filesystem::path(PanoramaPathBuffer.data()).parent_path().generic_string();

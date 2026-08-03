@@ -60,7 +60,7 @@ namespace Durin
 		{
 			const PathUtilities::FMountLookupResult Lookup =
 				PathUtilities::FindMountForVirtualPath(Data.PackagePath.GetView());
-			if (!Lookup || !Lookup.Mount->bAssetPackages)
+			if (!Lookup || !Lookup.Mount->bAutoScan)
 				return {};
 			const PathUtilities::FMountPoint& Mount = *Lookup.Mount;
 
@@ -85,7 +85,8 @@ namespace Durin
 				}
 			}
 
-			const std::filesystem::path SourceRoot = Mount.Root / "Textures";
+			const std::filesystem::path ContentDir = Mount.GetContentDir();
+			const std::filesystem::path SourceRoot = ContentDir / "Textures";
 			if (const std::filesystem::path Direct =
 					FindImageWithStem(
 						SourceRoot / std::string(Data.PackagePath.GetAssetName()));
@@ -93,7 +94,7 @@ namespace Durin
 				return Direct;
 
 			std::filesystem::path RelativePackage =
-				std::filesystem::path(Data.PhysicalPath).lexically_relative(Mount.Root);
+				std::filesystem::path(Data.PhysicalPath).lexically_relative(ContentDir);
 			RelativePackage.replace_extension();
 			return FindImageWithStem(SourceRoot / RelativePackage);
 		}
@@ -119,19 +120,19 @@ namespace Durin
 		const size_t ContentMountCount = std::ranges::count_if(
 			RegisteredMounts,
 			[](const PathUtilities::FMountPoint& Mount) {
-				return Mount.bAssetPackages;
+				return Mount.bAutoScan;
 			});
 		const bool bUnchanged = ContentMountCount == MountSnapshot.size()
 			&& std::ranges::equal(
 				RegisteredMounts
 					| std::views::filter([](const PathUtilities::FMountPoint& Mount) {
-						  return Mount.bAssetPackages;
+						  return Mount.bAutoScan;
 					  }),
 				MountSnapshot,
 				[](const PathUtilities::FMountPoint& Registered,
 					const FMountSnapshot& Cached) {
 					return Registered.VirtualRoot == Cached.VirtualRoot
-						&& Registered.Root.generic_string()
+						&& Registered.GetContentDir().generic_string()
 							== Cached.SourcePhysicalRoot;
 				});
 		if (bUnchanged) return;
@@ -140,8 +141,8 @@ namespace Durin
 		MountSnapshot.reserve(ContentMountCount);
 		for (const PathUtilities::FMountPoint& Mount : RegisteredMounts)
 		{
-			if (!Mount.bAssetPackages) continue;
-			const std::string ContentRoot = Mount.Root.generic_string();
+			if (!Mount.bAutoScan) continue;
+			const std::string ContentRoot = Mount.GetContentDir().generic_string();
 			MountSnapshot.push_back(
 				{Mount.VirtualRoot, ContentRoot, NormalizePath(ContentRoot)});
 		}

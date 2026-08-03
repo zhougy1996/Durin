@@ -39,12 +39,12 @@ namespace
 					.VirtualRoot = "/Project/",
 					.Owner = PathUtilities::EMountOwner::ActiveProject,
 					.Root = Root / "Project/Content",
-					.bAssetPackages = true},
+					.bAutoScan = true},
 				PathUtilities::FMountPoint{
 					.VirtualRoot = "/Engine/",
 					.Owner = PathUtilities::EMountOwner::Engine,
 					.Root = Root / "Engine/Content",
-					.bAssetPackages = true},
+					.bAutoScan = true},
 				PathUtilities::FMountPoint{
 					.VirtualRoot = "/Sources/",
 					.Owner = PathUtilities::EMountOwner::ExternalSources,
@@ -53,7 +53,7 @@ namespace
 					.VirtualRoot = "/NonNormalized/",
 					.Owner = PathUtilities::EMountOwner::Extension,
 					.Root = Root / "Project/../CanonicalContent",
-					.bAssetPackages = true}};
+					.bAutoScan = true}};
 			Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(Definitions);
 			ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
 		}
@@ -100,11 +100,11 @@ TEST_F(FAssetDestinationValidationTests, RejectsInvalidUnknownAndLookalikePaths)
 	EXPECT_FALSE(Lookalike.bMountedDestination);
 	EXPECT_EQ(Lookalike.Message, "Virtual path does not use a registered mount.");
 
-	const FAssetDestinationValidation SourceOnly =
+	const FAssetDestinationValidation ManualScan =
 		InspectAssetDestination("/Sources/Textures/Stone", EmptyOccupancy);
-	EXPECT_FALSE(SourceOnly.bAssetPathValid);
-	EXPECT_FALSE(SourceOnly.bMountedDestination);
-	EXPECT_EQ(SourceOnly.Message, "Asset path mount does not permit asset packages.");
+	EXPECT_TRUE(ManualScan.bAssetPathValid);
+	EXPECT_TRUE(ManualScan.bMountedDestination);
+	EXPECT_TRUE(ManualScan);
 }
 
 TEST_F(FAssetDestinationValidationTests, ReportsRegistryAndLoadedPackageCollisions)

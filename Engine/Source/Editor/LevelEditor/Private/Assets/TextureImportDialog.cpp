@@ -187,7 +187,7 @@ namespace Durin
 			const PathUtilities::FMountLookupResult Lookup =
 				PathUtilities::FindMountForVirtualPath(Destination.GetPath());
 			if (Lookup)
-				Request.InitialDirectory = Lookup.Mount->Root.generic_string();
+				Request.InitialDirectory = Lookup.Mount->GetContentDir().generic_string();
 		}
 		if (SourcePathBuffer[0] != '\0') Request.InitialDirectory = std::filesystem::path(SourcePathBuffer.data()).parent_path().generic_string();
 		const FFileDialogResult Result = OpenFileDialog(Request);
@@ -248,7 +248,7 @@ namespace Durin
 			return;
 		}
 
-		const std::filesystem::path& SourceRoot = Mount->Root;
+		const std::filesystem::path SourceRoot = Mount->GetContentDir();
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
 		Request.Title = "Choose Texture Source Copy Destination";

@@ -39,7 +39,6 @@ namespace Durin
 
 		const PathUtilities::FMountLookupResult Lookup = PathUtilities::FindMountForVirtualPath(InPath);
 		if (!Lookup) return Fail(Lookup.Message, OutError);
-		return Lookup.Mount->bAssetPackages
-			|| Fail("Asset path mount does not permit asset packages.", OutError);
+		return true;
 	}
 }

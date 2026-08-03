@@ -22,7 +22,6 @@ namespace Durin
 			None,
 			InvalidVirtualPath,
 			UnknownMount,
-			AssetPackagesDisabled,
 			UnavailableRoot,
 			InvalidRelativePath,
 			EscapedRoot,
@@ -38,15 +37,21 @@ namespace Durin
 			RequireFile
 		};
 
-		// Maps one virtual namespace to one normalized physical root with explicit package and authoring policies.
+		// Maps one virtual namespace to one configurable content directory beneath a normalized mount root.
 		struct FMountPoint
 		{
 			std::string VirtualRoot;
 			EMountOwner Owner = EMountOwner::Test;
 			std::filesystem::path Root;
-			bool bAssetPackages = false;
+			std::filesystem::path ContentPath = ".";
+			bool bAutoScan = false;
 			bool bAuthoringWritable = false;
 			std::vector<std::string> Dependencies;
+
+			[[nodiscard]] auto GetContentDir() const -> std::filesystem::path
+			{
+				return (Root / ContentPath).lexically_normal();
+			}
 		};
 
 		struct FMountLookupResult
@@ -115,7 +120,7 @@ namespace Durin
 		CORE_API auto RegisterMountPointForTests(
 			std::string_view VirtualRoot,
 			std::string_view PhysicalPath,
-			bool bAssetPackages = true,
+			bool bAutoScan = true,
 			bool bAuthoringWritable = true
 		) -> void;
 

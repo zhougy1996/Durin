@@ -82,13 +82,13 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			.VirtualRoot = "/Engine/",
 			.Owner = Durin::PathUtilities::EMountOwner::Test,
 			.Root = Root / "Engine/Content",
-			.bAssetPackages = true,
+			.bAutoScan = true,
 			.bAuthoringWritable = true},
 		Durin::PathUtilities::FMountPoint{
 			.VirtualRoot = "/SceneImportVulkan/",
 			.Owner = Durin::PathUtilities::EMountOwner::Test,
 			.Root = Root / "Project/Content",
-			.bAssetPackages = true,
+			.bAutoScan = true,
 			.bAuthoringWritable = true,
 			.Dependencies = {"/Engine/"}}};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);

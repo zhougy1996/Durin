@@ -132,7 +132,7 @@ namespace
 			.VirtualRoot = "/ImportRecordTests/",
 			.Owner = Durin::PathUtilities::EMountOwner::Test,
 			.Root = Root / "Content",
-			.bAssetPackages = true,
+			.bAutoScan = true,
 			.bAuthoringWritable = true};
 	}
 

@@ -197,13 +197,18 @@ namespace Durin
 				return std::filesystem::weakly_canonical(Root, Error).lexically_normal();
 			}
 
+			auto CanonicalCandidateForContainment(
+				const std::filesystem::path& Candidate,
+				std::error_code& Error
+			) -> std::filesystem::path;
+
 			auto ComparableRoot(const std::filesystem::path& Root, std::error_code& Error) -> std::filesystem::path
 			{
 				Error.clear();
 				if (!std::filesystem::exists(Root, Error))
 				{
 					Error.clear();
-					return Root.lexically_normal();
+					return CanonicalCandidateForContainment(Root, Error);
 				}
 				const std::filesystem::path Canonical = CanonicalRoot(Root, Error);
 				return Error ? std::filesystem::path{} : Canonical;
@@ -245,7 +250,7 @@ namespace Durin
 			{
 				const FMountLookupResult Lookup = FindMountForVirtualPath(VirtualPath);
 				if (!Lookup) return FailPath<TResult>(Lookup, Lookup.Error, Lookup.Message);
-				const std::filesystem::path& Root = Lookup.Mount->Root;
+				const std::filesystem::path Root = Lookup.Mount->GetContentDir();
 
 				std::error_code Error;
 				if (!std::filesystem::exists(Root, Error))
@@ -299,8 +304,9 @@ namespace Durin
 				std::filesystem::path BestRoot;
 				for (const FMountPoint& Mount : MountPoints)
 				{
-					if (!std::filesystem::exists(Mount.Root, Error)) { Error.clear(); continue; }
-					const std::filesystem::path CanonicalMountRoot = CanonicalRoot(Mount.Root, Error);
+					const std::filesystem::path ContentDir = Mount.GetContentDir();
+					if (!std::filesystem::exists(ContentDir, Error)) { Error.clear(); continue; }
+					const std::filesystem::path CanonicalMountRoot = CanonicalRoot(ContentDir, Error);
 					if (Error) { Error.clear(); continue; }
 					if (IsPathWithin(CanonicalMountRoot, Candidate)
 						&& (!Best || CanonicalMountRoot.native().size() > BestRoot.native().size()))
@@ -351,13 +357,13 @@ namespace Durin
 				for (size_t Index = 0; Index < Mounts.Num(); ++Index)
 				{
 					const FJsonNodeView Entry = Mounts.GetView(Index);
-					if (!Entry.IsObject() || Entry.Num() != 6)
+					if (!Entry.IsObject() || Entry.Num() != 7)
 					{
-						if (OutError) *OutError = std::format("Mounts[{}] must contain exactly six fields.", Index);
+						if (OutError) *OutError = std::format("Mounts[{}] must contain exactly seven fields.", Index);
 						return false;
 					}
-					constexpr std::array<std::string_view, 6> Fields{
-						"VirtualRoot", "Owner", "Root", "AssetPackages", "AuthoringWritable", "Dependencies"};
+					constexpr std::array<std::string_view, 7> Fields{
+						"VirtualRoot", "Owner", "Root", "ContentPath", "AutoScan", "AuthoringWritable", "Dependencies"};
 					bool bUnknownField = false;
 					Entry.ForEachObjectMember([&](const std::string_view Key, FJsonNodeView) {
 						if (std::ranges::find(Fields, Key) == Fields.end()) bUnknownField = true;
@@ -371,16 +377,19 @@ namespace Durin
 					std::string VirtualRoot;
 					std::string OwnerText;
 					std::string RootText;
-					bool bAssetPackages = false;
+					std::string ContentPathText;
+					bool bAutoScan = false;
 					bool bAuthoringWritable = false;
 					const FJsonNodeView Dependencies = Entry.GetView("Dependencies");
 					if (!Entry.GetChildValue("VirtualRoot", VirtualRoot)
 						|| !Entry.GetChildValue("Owner", OwnerText)
 						|| !Entry.GetChildValue("Root", RootText)
-						|| !Entry.GetChildValue("AssetPackages", bAssetPackages)
+						|| !Entry.GetChildValue("ContentPath", ContentPathText)
+						|| !Entry.GetChildValue("AutoScan", bAutoScan)
 						|| !Entry.GetChildValue("AuthoringWritable", bAuthoringWritable)
 						|| !Dependencies.IsArray()
-						|| !ValidateRelativeDefinitionPath(RootText))
+						|| !ValidateRelativeDefinitionPath(RootText)
+						|| !ValidateRelativeDefinitionPath(ContentPathText))
 					{
 						if (OutError) *OutError = std::format("Mounts[{}] has invalid field types or paths.", Index);
 						return false;
@@ -397,7 +406,8 @@ namespace Durin
 						.VirtualRoot = std::move(VirtualRoot),
 						.Owner = Owner,
 						.Root = (ProjectRoot / RootText).lexically_normal(),
-						.bAssetPackages = bAssetPackages,
+						.ContentPath = std::filesystem::path(ContentPathText).lexically_normal(),
+						.bAutoScan = bAutoScan,
 						.bAuthoringWritable = bAuthoringWritable};
 					for (size_t DependencyIndex = 0; DependencyIndex < Dependencies.Num(); ++DependencyIndex)
 					{
@@ -423,8 +433,9 @@ namespace Durin
 				Definitions = {{
 					.VirtualRoot = "/Engine/",
 					.Owner = EMountOwner::Engine,
-					.Root = EngineRoot / "Content",
-					.bAssetPackages = true,
+					.Root = EngineRoot,
+					.ContentPath = "Content",
+					.bAutoScan = true,
 					.bAuthoringWritable = true}};
 				if (FPaths::ProjectFile().empty()) return true;
 
@@ -433,8 +444,9 @@ namespace Durin
 				Definitions.push_back({
 					.VirtualRoot = std::string(ProjectContentMountRoot),
 					.Owner = EMountOwner::ActiveProject,
-					.Root = ProjectRoot / "Content",
-					.bAssetPackages = true,
+					.Root = ProjectRoot,
+					.ContentPath = "Content",
+					.bAutoScan = true,
 					.bAuthoringWritable = true,
 					.Dependencies = {"/Engine/"}});
 				if (!ParseProjectMounts(Definitions, OutError)) return false;
@@ -479,13 +491,7 @@ namespace Durin
 
 		auto ResolveAssetPath(std::string_view VirtualPath, EPathExistence Existence) -> FAssetPathResult
 		{
-			FAssetPathResult Result = ResolveMountPath<FAssetPathResult>(VirtualPath, Existence);
-			if (Result.Mount && !Result.Mount->bAssetPackages)
-			{
-				Result.Error = EMountPathError::AssetPackagesDisabled;
-				Result.Message = "Mount does not permit asset packages.";
-			}
-			return Result;
+			return ResolveMountPath<FAssetPathResult>(VirtualPath, Existence);
 		}
 
 		auto ResolveSourcePath(std::string_view VirtualPath, EPathExistence Existence) -> FSourcePathResult
@@ -495,13 +501,7 @@ namespace Durin
 
 		auto ClassifyAssetPath(const std::filesystem::path& PhysicalPath) -> FAssetPathResult
 		{
-			FAssetPathResult Result = ClassifyMountPath<FAssetPathResult>(PhysicalPath);
-			if (Result.Mount && !Result.Mount->bAssetPackages)
-			{
-				Result.Error = EMountPathError::AssetPackagesDisabled;
-				Result.Message = "Mount does not permit asset packages.";
-			}
-			return Result;
+			return ClassifyMountPath<FAssetPathResult>(PhysicalPath);
 		}
 
 		auto ClassifySourcePath(const std::filesystem::path& PhysicalPath) -> FSourcePathResult
@@ -584,21 +584,38 @@ namespace Durin
 					if (OutError) *OutError = Error.message();
 					return false;
 				}
+				if (!ValidateRelativeDefinitionPath(Definition.ContentPath.generic_string()))
+				{
+					if (OutError) *OutError = std::format(
+						"Mount '{}' declares an invalid content path.", Definition.VirtualRoot);
+					return false;
+				}
+				Definition.ContentPath = Definition.ContentPath.lexically_normal();
+				const std::filesystem::path CanonicalRootPath = ComparableRoot(Definition.Root, Error);
+				if (Error) { if (OutError) *OutError = Error.message(); return false; }
+				const std::filesystem::path CanonicalContentDir = ComparableRoot(Definition.GetContentDir(), Error);
+				if (Error) { if (OutError) *OutError = Error.message(); return false; }
+				if (!IsPathWithin(CanonicalRootPath, CanonicalContentDir))
+				{
+					if (OutError) *OutError = std::format(
+						"Mount '{}' content directory escapes its root.", Definition.VirtualRoot);
+					return false;
+				}
 				for (const std::string& Dependency : Definition.Dependencies)
 				{
 					if (!ValidateVirtualRoot(Dependency, OutError) || FoldAscii(Dependency) == Identity) return false;
 				}
 				for (const FMountPoint& Existing : Validated)
 				{
-					const std::filesystem::path NewCanonical = ComparableRoot(Definition.Root, Error);
+					const std::filesystem::path NewCanonical = ComparableRoot(Definition.GetContentDir(), Error);
 					if (Error) { if (OutError) *OutError = Error.message(); return false; }
-					const std::filesystem::path ExistingCanonical = ComparableRoot(Existing.Root, Error);
+					const std::filesystem::path ExistingCanonical = ComparableRoot(Existing.GetContentDir(), Error);
 					if (Error) { if (OutError) *OutError = Error.message(); return false; }
 					if (IsPathWithin(NewCanonical, ExistingCanonical)
 						|| IsPathWithin(ExistingCanonical, NewCanonical))
 					{
 						if (OutError) *OutError = std::format(
-							"Mounts '{}' and '{}' declare overlapping canonical roots.",
+							"Mounts '{}' and '{}' declare overlapping canonical content directories.",
 							Definition.VirtualRoot, Existing.VirtualRoot);
 						return false;
 					}
@@ -653,7 +670,7 @@ namespace Durin
 		auto RegisterMountPointForTests(
 			std::string_view VirtualRoot,
 			std::string_view PhysicalPath,
-			bool bAssetPackages,
+			bool bAutoScan,
 			bool bAuthoringWritable
 		) -> void
 		{
@@ -671,7 +688,7 @@ namespace Durin
 				.VirtualRoot = std::string(VirtualRoot),
 				.Owner = EMountOwner::Test,
 				.Root = Root,
-				.bAssetPackages = bAssetPackages,
+				.bAutoScan = bAutoScan,
 				.bAuthoringWritable = bAuthoringWritable};
 			if (Existing == MountPoints.end()) MountPoints.push_back(std::move(Definition));
 			else *Existing = std::move(Definition);

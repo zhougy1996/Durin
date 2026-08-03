@@ -402,7 +402,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		.VirtualRoot = "/MaterialThumbnailVulkan/",
 		.Owner = Durin::PathUtilities::EMountOwner::Test,
 		.Root = TextureMount,
-		.bAssetPackages = true,
+		.bAutoScan = true,
 		.bAuthoringWritable = true});
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry(MountDefinitions);
 	ASSERT_TRUE(MountRegistry.IsValid()) << MountRegistry.GetError();

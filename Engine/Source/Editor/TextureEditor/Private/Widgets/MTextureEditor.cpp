@@ -855,7 +855,7 @@ namespace Durin
 		DestinationRequest.Title = "Choose Mounted Texture Source Destination";
 		DestinationRequest.Filters = InputRequest.Filters;
 		DestinationRequest.InitialDirectory =
-			(Mount->Root / "Textures").generic_string();
+			(Mount->GetContentDir() / "Textures").generic_string();
 		DestinationRequest.DefaultFileName =
 			std::filesystem::path(Input.FilePath).filename().generic_string();
 		const FFileDialogResult Destination = SaveFileDialog(DestinationRequest);
@@ -1150,7 +1150,7 @@ namespace Durin
 		};
 		Request.InitialDirectory = !Diagnostic.PhysicalPath.empty()
 			? std::filesystem::path(Diagnostic.PhysicalPath).parent_path().generic_string()
-			: (Mount->Root / "Textures").generic_string();
+			: (Mount->GetContentDir() / "Textures").generic_string();
 		Request.DefaultFileName = !Texture->GetSourceFile().empty()
 			? std::filesystem::path(Texture->GetSourceFile()).filename().generic_string()
 			: "Texture.png";

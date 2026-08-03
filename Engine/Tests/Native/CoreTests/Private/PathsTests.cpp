@@ -19,7 +19,7 @@ namespace
 			Durin::Testing::RemoveTestWorkDirectory(Root, CleanupError);
 			std::filesystem::create_directories(Root / "Engine/Content/Textures");
 			std::filesystem::create_directories(Root / "Game/Content");
-			std::filesystem::create_directories(Root / "PCG");
+			std::filesystem::create_directories(Root / "PCG/Content");
 			std::filesystem::create_directories(Root / "StudioArt");
 			std::filesystem::create_directories(Root / "External");
 			std::ofstream(Root / "Engine/Content/Textures/Stone.png") << "stone";
@@ -40,27 +40,31 @@ namespace
 				{
 					.VirtualRoot = "/Engine/",
 					.Owner = EMountOwner::Engine,
-					.Root = Root / "Engine/Content",
-					.bAssetPackages = true,
+					.Root = Root / "Engine",
+					.ContentPath = "Content",
+					.bAutoScan = true,
 					.bAuthoringWritable = true},
 				{
 					.VirtualRoot = "/Game/",
 					.Owner = EMountOwner::ActiveProject,
-					.Root = Root / "Game/Content",
-					.bAssetPackages = true,
+					.Root = Root / "Game",
+					.ContentPath = "Content",
+					.bAutoScan = true,
 					.bAuthoringWritable = true,
 					.Dependencies = {"/Engine/", "/Plugins/PCG/", "/Libraries/StudioArt/"}},
 				{
 					.VirtualRoot = "/Plugins/PCG/",
 					.Owner = EMountOwner::Extension,
 					.Root = Root / "PCG",
-					.bAssetPackages = true,
+					.ContentPath = "Content",
+					.bAutoScan = true,
 					.bAuthoringWritable = false,
 					.Dependencies = {"/Engine/"}},
 				{
 					.VirtualRoot = "/Libraries/StudioArt/",
 					.Owner = EMountOwner::ExternalSources,
 					.Root = Root / "StudioArt",
+					.ContentPath = ".",
 					.bAuthoringWritable = false,
 					.Dependencies = {"/Engine/"}},
 				{
@@ -92,8 +96,9 @@ TEST(FPathsTests, RootAndEngineMountAreWorkspaceRelative)
 		Durin::PathUtilities::FMountPoint{
 			.VirtualRoot = "/Engine/",
 			.Owner = Durin::PathUtilities::EMountOwner::Engine,
-			.Root = EngineDir / "Content",
-			.bAssetPackages = true,
+			.Root = EngineDir,
+			.ContentPath = "Content",
+			.bAutoScan = true,
 			.bAuthoringWritable = true}};
 	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
@@ -139,8 +144,9 @@ TEST(FPathsTests, ExplicitProjectFileControlsProjectDirectoryAndMount)
 		Durin::PathUtilities::FMountPoint{
 			.VirtualRoot = "/Game/",
 			.Owner = Durin::PathUtilities::EMountOwner::ActiveProject,
-			.Root = ProjectDir / "Content",
-			.bAssetPackages = true,
+			.Root = ProjectDir,
+			.ContentPath = "Content",
+			.bAutoScan = true,
 			.bAuthoringWritable = true}};
 	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
@@ -179,9 +185,7 @@ TEST_F(FMountRegistryTests, ResolvesTypedPathsClassifiesRootsAndEnforcesPolicy)
 	ASSERT_TRUE(ClassifiedGameRoot) << ClassifiedGameRoot.Message;
 	EXPECT_EQ(ClassifiedGameRoot.NormalizedVirtualPath, "/Game/");
 
-	EXPECT_EQ(
-		ResolveAssetPath("/Libraries/StudioArt/Texture").Error,
-		EMountPathError::AssetPackagesDisabled);
+	EXPECT_TRUE(ResolveAssetPath("/Libraries/StudioArt/Texture"));
 	const FSourcePathResult ExternalSource =
 		ResolveSourcePath("/Libraries/StudioArt/Stone.png");
 	ASSERT_TRUE(ExternalSource) << ExternalSource.Message;
@@ -242,9 +246,46 @@ TEST_F(FMountRegistryTests, RejectsNestedLinkEscapesOverlappingRootsAndAcceptsLi
 	EXPECT_EQ(Missing.PhysicalPath.lexically_normal(), (LinkedRoot / "New.png").lexically_normal());
 
 	const std::array OverlappingDefinitions{
-		FMountPoint{.VirtualRoot = "/Outer/", .Root = Root / "Game"},
-		FMountPoint{.VirtualRoot = "/Inner/", .Root = Root / "Game/Content"}};
+		FMountPoint{.VirtualRoot = "/Outer/", .Root = Root / "Game", .ContentPath = "Content"},
+		FMountPoint{.VirtualRoot = "/Inner/", .Root = Root / "Game/Content", .ContentPath = "."}};
 	FScopedMountRegistryFixture OverlappingRegistry(OverlappingDefinitions);
 	EXPECT_FALSE(OverlappingRegistry.IsValid());
 	EXPECT_FALSE(OverlappingRegistry.GetError().empty());
+}
+
+TEST_F(FMountRegistryTests, AllowsSharedOwnerRootsWithDistinctContentDirectories)
+{
+	using namespace Durin::PathUtilities;
+	std::filesystem::create_directories(Root / "Shared/ContentA");
+	std::filesystem::create_directories(Root / "Shared/ContentB");
+	const std::array Definitions{
+		FMountPoint{
+			.VirtualRoot = "/First/",
+			.Root = Root / "Shared",
+			.ContentPath = "ContentA"},
+		FMountPoint{
+			.VirtualRoot = "/Second/",
+			.Root = Root / "Shared",
+			.ContentPath = "ContentB"}};
+	FScopedMountRegistryFixture Registry(Definitions);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+	EXPECT_EQ(
+		ResolveSourcePath("/First/File.bin", EPathExistence::AllowMissing).PhysicalPath,
+		Root / "Shared/ContentA/File.bin");
+	EXPECT_EQ(
+		ResolveAssetPath("/Second/Asset").PhysicalPath,
+		Root / "Shared/ContentB/Asset");
+}
+
+TEST_F(FMountRegistryTests, RejectsContentPathTraversal)
+{
+	using namespace Durin::PathUtilities;
+	const std::array Definitions{
+		FMountPoint{
+			.VirtualRoot = "/Escaped/",
+			.Root = Root / "Game",
+			.ContentPath = "../External"}};
+	FScopedMountRegistryFixture Registry(Definitions);
+	EXPECT_FALSE(Registry.IsValid());
+	EXPECT_FALSE(Registry.GetError().empty());
 }
