@@ -131,10 +131,9 @@ namespace
 		return {
 			.VirtualRoot = "/ImportRecordTests/",
 			.Owner = Durin::PathUtilities::EMountOwner::Test,
-			.OwnerRoot = Root,
-			.ContentRoot = Root / "Content",
-			.SourceAssetsRoot = Root / "SourceAssets",
-			.bSourceWritable = true};
+			.Root = Root / "Content",
+			.bAssetPackages = true,
+			.bAuthoringWritable = true};
 	}
 
 	auto MakePath(std::string_view Text) -> Durin::FAssetPath
@@ -319,7 +318,7 @@ namespace
 		Scenario.ProviderId = std::string("Tests.Multi.") + std::string(Name);
 		Scenario.OutputRoot = std::string("/ImportRecordTests/") + std::string(Name);
 		std::filesystem::create_directories(Scenario.Root / "Content");
-		WriteSource(Scenario.Root / "SourceAssets" / "Source.multi");
+		WriteSource(Scenario.Root / "Content" / "Source.multi");
 
 		std::string Error;
 		const std::array Bytes = {Durin::uint8{0x41}, Durin::uint8{0x42}};

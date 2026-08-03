@@ -100,7 +100,7 @@ namespace
 		if (InitializedRoots.insert(Root).second)
 		{
 			Durin::Testing::RemoveTestWorkDirectory(Root);
-			Durin::PathUtilities::RegisterMountPoint("/SkyBoxAssetTests/", Root.generic_string() + "/");
+			Durin::PathUtilities::RegisterMountPointForTests("/SkyBoxAssetTests/", Root.generic_string() + "/");
 		}
 		return Root;
 	}

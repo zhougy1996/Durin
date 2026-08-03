@@ -20,7 +20,7 @@ namespace Durin
 			if (RegisteredRoots.insert(Root).second)
 			{
 				std::filesystem::create_directories(Root);
-				PathUtilities::RegisterMountPoint("/ThumbnailTests/", Root.generic_string() + "/");
+				PathUtilities::RegisterMountPointForTests("/ThumbnailTests/", Root.generic_string() + "/");
 			}
 			FAssetPath Path;
 			EXPECT_TRUE(FAssetPath::TryCreate(Value, Path));

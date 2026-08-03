@@ -22,13 +22,13 @@ namespace Durin
 			None,
 			InvalidVirtualPath,
 			UnknownMount,
-			UnsupportedDomain,
-			UnavailableDomain,
+			AssetPackagesDisabled,
+			UnavailableRoot,
 			InvalidRelativePath,
 			EscapedRoot,
 			MissingFile,
 			ForbiddenDependency,
-			ReadOnlySource,
+			ReadOnlyMount,
 			IoFailure
 		};
 
@@ -38,15 +38,14 @@ namespace Durin
 			RequireFile
 		};
 
-		// A validated logical mount. Domain roots are absolute and normalized.
+		// Maps one virtual namespace to one normalized physical root with explicit package and authoring policies.
 		struct FMountPoint
 		{
 			std::string VirtualRoot;
 			EMountOwner Owner = EMountOwner::Test;
-			std::filesystem::path OwnerRoot;
-			std::optional<std::filesystem::path> ContentRoot;
-			std::optional<std::filesystem::path> SourceAssetsRoot;
-			bool bSourceWritable = false;
+			std::filesystem::path Root;
+			bool bAssetPackages = false;
+			bool bAuthoringWritable = false;
 			std::vector<std::string> Dependencies;
 		};
 
@@ -61,7 +60,7 @@ namespace Durin
 			explicit operator bool() const { return Error == EMountPathError::None && Mount != nullptr; }
 		};
 
-		struct FDomainPathResult
+		struct FMountPathResult
 		{
 			const FMountPoint* Mount = nullptr;
 			std::string NormalizedVirtualPath;
@@ -73,8 +72,8 @@ namespace Durin
 			explicit operator bool() const { return Error == EMountPathError::None && Mount != nullptr; }
 		};
 
-		struct FContentPathResult : FDomainPathResult {};
-		struct FSourcePathResult : FDomainPathResult {};
+		struct FAssetPathResult : FMountPathResult {};
+		struct FSourcePathResult : FMountPathResult {};
 
 		struct FMountPolicyResult
 		{
@@ -88,21 +87,21 @@ namespace Durin
 
 		CORE_API auto GetRegisteredMountPoints() -> std::span<const FMountPoint>;
 		CORE_API auto FindMountForVirtualPath(std::string_view VirtualPath) -> FMountLookupResult;
-		CORE_API auto ResolveContentPath(
+		CORE_API auto ResolveAssetPath(
 			std::string_view VirtualPath,
 			EPathExistence Existence = EPathExistence::AllowMissing
-		) -> FContentPathResult;
+		) -> FAssetPathResult;
 		CORE_API auto ResolveSourcePath(
 			std::string_view VirtualPath,
 			EPathExistence Existence = EPathExistence::RequireFile
 		) -> FSourcePathResult;
-		CORE_API auto ClassifyContentPath(const std::filesystem::path& PhysicalPath) -> FContentPathResult;
+		CORE_API auto ClassifyAssetPath(const std::filesystem::path& PhysicalPath) -> FAssetPathResult;
 		CORE_API auto ClassifySourcePath(const std::filesystem::path& PhysicalPath) -> FSourcePathResult;
 		CORE_API auto CheckMountDependency(
 			std::string_view ReferencingVirtualPath,
 			std::string_view ReferencedVirtualPath
 		) -> FMountPolicyResult;
-		CORE_API auto CheckSourceMutation(
+		CORE_API auto CheckAuthoringMutation(
 			std::string_view AuthoringVirtualPath,
 			std::string_view SourceVirtualPath,
 			bool bEngineAuthoringContext = false
@@ -112,8 +111,13 @@ namespace Durin
 		CORE_API auto ValidateDefaultMountPoints(std::string* OutError = nullptr) -> bool;
 		CORE_API auto InitDefaultMountPoints(std::string* OutError = nullptr) -> bool;
 
-		// Compatibility for legacy test fixtures. Production startup publishes and freezes the registry.
-		CORE_API auto RegisterMountPoint(std::string_view VirtualRoot, std::string_view PhysicalPath) -> void;
+		// Adds a single-root mount to the mutable registry owned by a scoped test fixture.
+		CORE_API auto RegisterMountPointForTests(
+			std::string_view VirtualRoot,
+			std::string_view PhysicalPath,
+			bool bAssetPackages = true,
+			bool bAuthoringWritable = true
+		) -> void;
 
 		class CORE_API FScopedMountRegistryFixture
 		{
@@ -158,7 +162,7 @@ namespace Durin
 
 		static CORE_API auto EngineThirdPartyRuntimeBinariesDir() -> std::string;
 
-		// Legacy Content resolver. Returns an empty string on failure.
+		// Legacy asset resolver. Returns an empty string on failure.
 		static CORE_API auto Resolve(std::string_view VirtualPath) -> std::string;
 	};
 }

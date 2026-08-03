@@ -46,7 +46,7 @@ namespace Durin
 		if (InitializedRoots.insert(Root).second)
 		{
 			Durin::Testing::RemoveTestWorkDirectory(Root);
-			PathUtilities::RegisterMountPoint("/EditorTextureSmoke/", Root.generic_string() + "/");
+			PathUtilities::RegisterMountPointForTests("/EditorTextureSmoke/", Root.generic_string() + "/");
 		}
 
 		const std::filesystem::path TextureSource = Testing::GetTestWorkDirectory() / "EditorTextureSmoke.png";
@@ -193,7 +193,7 @@ namespace Durin
 		const std::filesystem::path Root =
 			Testing::GetTestWorkDirectory() / "TextureOwnershipSmoke";
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		PathUtilities::RegisterMountPoint(
+		PathUtilities::RegisterMountPointForTests(
 			"/TextureOwnershipSmoke/", Root.generic_string() + "/");
 		const std::filesystem::path Source =
 			Testing::GetTestWorkDirectory() / "TextureOwnershipSmoke.png";

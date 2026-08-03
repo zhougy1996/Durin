@@ -134,7 +134,7 @@ namespace Durin
 			ImGui::TextDisabled("Mount: %s (%s)  |  %s  |  dependency allowed",
 				SourceDiagnostic.Mount->VirtualRoot.c_str(),
 				DescribeMountOwner(SourceDiagnostic.Mount->Owner),
-				SourceDiagnostic.Mount->bSourceWritable ? "writable" : "read-only");
+				SourceDiagnostic.Mount->bAuthoringWritable ? "writable" : "read-only");
 		}
 
 		ImGui::Spacing();
@@ -186,8 +186,8 @@ namespace Durin
 		{
 			const PathUtilities::FMountLookupResult Lookup =
 				PathUtilities::FindMountForVirtualPath(Destination.GetPath());
-			if (Lookup && Lookup.Mount->SourceAssetsRoot)
-				Request.InitialDirectory = Lookup.Mount->SourceAssetsRoot->generic_string();
+			if (Lookup)
+				Request.InitialDirectory = Lookup.Mount->Root.generic_string();
 		}
 		if (SourcePathBuffer[0] != '\0') Request.InitialDirectory = std::filesystem::path(SourcePathBuffer.data()).parent_path().generic_string();
 		const FFileDialogResult Result = OpenFileDialog(Request);
@@ -248,12 +248,7 @@ namespace Durin
 			return;
 		}
 
-		if (!Mount->SourceAssetsRoot)
-		{
-			SetError("The selected asset mount has no SourceAssets domain.");
-			return;
-		}
-		const std::filesystem::path& SourceRoot = *Mount->SourceAssetsRoot;
+		const std::filesystem::path& SourceRoot = Mount->Root;
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
 		Request.Title = "Choose Texture Source Copy Destination";

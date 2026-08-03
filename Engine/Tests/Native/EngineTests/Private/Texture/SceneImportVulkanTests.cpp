@@ -73,9 +73,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	FScopedDerivedDataCacheRoot DerivedDataCache(Root / "DerivedDataCache");
 	for (const std::filesystem::path& Directory : {
 		Root / "Engine/Content",
-		Root / "Engine/SourceAssets",
-		Root / "Project/Content",
-		Root / "Project/SourceAssets"})
+		Root / "Project/Content"})
 	{
 		std::filesystem::create_directories(Directory);
 	}
@@ -83,17 +81,15 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::PathUtilities::FMountPoint{
 			.VirtualRoot = "/Engine/",
 			.Owner = Durin::PathUtilities::EMountOwner::Test,
-			.OwnerRoot = Root / "Engine",
-			.ContentRoot = Root / "Engine/Content",
-			.SourceAssetsRoot = Root / "Engine/SourceAssets",
-			.bSourceWritable = true},
+			.Root = Root / "Engine/Content",
+			.bAssetPackages = true,
+			.bAuthoringWritable = true},
 		Durin::PathUtilities::FMountPoint{
 			.VirtualRoot = "/SceneImportVulkan/",
 			.Owner = Durin::PathUtilities::EMountOwner::Test,
-			.OwnerRoot = Root / "Project",
-			.ContentRoot = Root / "Project/Content",
-			.SourceAssetsRoot = Root / "Project/SourceAssets",
-			.bSourceWritable = true,
+			.Root = Root / "Project/Content",
+			.bAssetPackages = true,
+			.bAuthoringWritable = true,
 			.Dependencies = {"/Engine/"}}};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	ASSERT_TRUE(MountFixture.IsValid()) << MountFixture.GetError();
@@ -104,7 +100,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	const Durin::FAssetPath DestinationDirectory =
 		MakeAssetPath("/SceneImportVulkan/Imports/RenderedOpaque");
 	const std::filesystem::path MountedScene =
-		Root / "Project/SourceAssets/Models/RenderedOpaqueDataUri.gltf";
+		Root / "Project/Content/Models/RenderedOpaqueDataUri.gltf";
 	std::filesystem::create_directories(MountedScene.parent_path());
 	std::filesystem::copy_file(
 		std::filesystem::path(DURIN_TEST_DATA_DIR)

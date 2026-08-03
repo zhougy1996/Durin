@@ -393,7 +393,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	const std::filesystem::path TextureSource =
 		Durin::Testing::GetTestWorkDirectory() / "MaterialThumbnailVulkan.png";
 	Durin::Testing::RemoveTestWorkDirectory(TextureMount);
-	std::filesystem::create_directories(TextureMount / "SourceAssets");
+	std::filesystem::create_directories(TextureMount);
 	WriteMaterialTextureFixture(TextureSource);
 	std::vector<Durin::PathUtilities::FMountPoint> MountDefinitions(
 		Durin::PathUtilities::GetRegisteredMountPoints().begin(),
@@ -401,10 +401,9 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	MountDefinitions.push_back({
 		.VirtualRoot = "/MaterialThumbnailVulkan/",
 		.Owner = Durin::PathUtilities::EMountOwner::Test,
-		.OwnerRoot = TextureMount,
-		.ContentRoot = TextureMount,
-		.SourceAssetsRoot = TextureMount / "SourceAssets",
-		.bSourceWritable = true});
+		.Root = TextureMount,
+		.bAssetPackages = true,
+		.bAuthoringWritable = true});
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry(MountDefinitions);
 	ASSERT_TRUE(MountRegistry.IsValid()) << MountRegistry.GetError();
 	Durin::FAssetPath SpherePath;

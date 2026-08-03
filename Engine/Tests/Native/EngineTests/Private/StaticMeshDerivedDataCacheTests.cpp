@@ -49,7 +49,7 @@ namespace
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.Root);
 		std::filesystem::create_directories(Fixture.Root / "Content");
 		const std::string Mount = std::format("/{}/", Name);
-		Durin::PathUtilities::RegisterMountPoint(
+		Durin::PathUtilities::RegisterMountPointForTests(
 			Mount, (Fixture.Root / "Content").generic_string() + "/");
 		Durin::FPaths::SetDerivedDataCacheDirForTests(Fixture.CacheRoot.generic_string());
 		EXPECT_TRUE(Durin::FAssetPath::TryCreate(Mount + "Mesh", Fixture.AssetPath));
@@ -358,7 +358,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	RestartAssetManager();
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
-	Durin::PathUtilities::RegisterMountPoint(
+	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	Durin::FAssetPath CookedPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedMesh", CookedPath));
@@ -397,7 +397,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		RestartAssetManager();
 		ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 			Durin::Asset::EPackageLoadMode::CookedRuntime, Root}));
-		Durin::PathUtilities::RegisterMountPoint(
+		Durin::PathUtilities::RegisterMountPointForTests(
 			"/Game/", (Root / "Game").generic_string() + "/");
 		Durin::FAssetPath Path;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedMesh", Path));

@@ -103,9 +103,9 @@ namespace Durin
 			const PathUtilities::FMountLookupResult Lookup =
 				PathUtilities::FindMountForVirtualPath(
 					Project->MountRoot + std::string("Destination"));
-			if (Lookup && Lookup.Mount->ContentRoot)
+			if (Lookup && Lookup.Mount->bAssetPackages)
 				Request.InitialDirectory =
-					Lookup.Mount->ContentRoot->generic_string();
+					Lookup.Mount->Root.generic_string();
 		}
 
 		const FFileDialogResult Result = SaveFileDialog(Request);
@@ -206,8 +206,8 @@ namespace Durin
 			const PathUtilities::FMountLookupResult Lookup =
 				PathUtilities::FindMountForVirtualPath(
 					Project->MountRoot + std::string("Destination"));
-			if (Lookup && Lookup.Mount->ContentRoot)
-				Request.InitialDirectory = Lookup.Mount->ContentRoot->generic_string();
+			if (Lookup && Lookup.Mount->bAssetPackages)
+				Request.InitialDirectory = Lookup.Mount->Root.generic_string();
 		}
 
 		const FFileDialogResult Result = OpenFolderDialog(Request);

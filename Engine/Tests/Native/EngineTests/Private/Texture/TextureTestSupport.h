@@ -26,7 +26,7 @@ inline auto InitializeTextureImportMount() -> void
 	if (InitializedRoots.insert(Root).second)
 	{
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::PathUtilities::RegisterMountPoint(
+		Durin::PathUtilities::RegisterMountPointForTests(
 			"/TextureImportTests/", (Root / "Content").generic_string() + "/");
 	}
 }

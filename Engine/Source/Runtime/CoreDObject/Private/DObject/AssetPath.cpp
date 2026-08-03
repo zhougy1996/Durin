@@ -39,7 +39,7 @@ namespace Durin
 
 		const PathUtilities::FMountLookupResult Lookup = PathUtilities::FindMountForVirtualPath(InPath);
 		if (!Lookup) return Fail(Lookup.Message, OutError);
-		return Lookup.Mount->ContentRoot.has_value()
+		return Lookup.Mount->bAssetPackages
 			|| Fail("Asset path mount does not declare a Content domain.", OutError);
 	}
 }

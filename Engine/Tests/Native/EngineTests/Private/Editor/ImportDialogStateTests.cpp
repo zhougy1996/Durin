@@ -95,8 +95,8 @@ TEST(FImportDialogDestinationModelTests, DelegatesValidationToAssetDestination)
 		PathUtilities::FMountPoint{
 			.VirtualRoot = "/Project/",
 			.Owner = PathUtilities::EMountOwner::ActiveProject,
-			.OwnerRoot = Root / "Project",
-			.ContentRoot = Root / "Project/Content"}};
+			.Root = Root / "Project/Content",
+			.bAssetPackages = true}};
 	const PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 

@@ -15,9 +15,9 @@ namespace
 	{
 		InitializeDObjectSystem();
 		static const bool bMounted = [] {
-			Durin::PathUtilities::RegisterMountPoint(
+		Durin::PathUtilities::RegisterMountPointForTests(
 				"/UpgradeModel/",
-				Durin::Testing::GetTestWorkDirectory().generic_string() + "/");
+				(Durin::Testing::GetTestWorkDirectory() / "UpgradeModel").generic_string() + "/");
 			return true;
 		}();
 		(void)bMounted;

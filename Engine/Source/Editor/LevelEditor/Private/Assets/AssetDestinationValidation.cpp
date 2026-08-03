@@ -24,8 +24,8 @@ namespace Durin
 		Result.bAssetPathValid = FAssetPath::TryCreate(VirtualPath, Result.AssetPath, &Result.Message);
 		if (!Result.bAssetPathValid) return Result;
 
-		const PathUtilities::FContentPathResult Resolved =
-			PathUtilities::ResolveContentPath(Result.AssetPath.GetView());
+		const PathUtilities::FAssetPathResult Resolved =
+			PathUtilities::ResolveAssetPath(Result.AssetPath.GetView());
 		Result.Mount = Resolved.Mount;
 		if (!Resolved)
 		{
@@ -48,8 +48,8 @@ namespace Durin
 		FAssetDestinationOccupancyQuery OccupancyQuery
 	) -> FAssetDestinationValidation
 	{
-		const PathUtilities::FContentPathResult Classified =
-			PathUtilities::ClassifyContentPath(PhysicalPath);
+		const PathUtilities::FAssetPathResult Classified =
+			PathUtilities::ClassifyAssetPath(PhysicalPath);
 		if (!Classified)
 		{
 			FAssetDestinationValidation Result;
@@ -70,8 +70,8 @@ namespace Durin
 			VirtualPath, Result.DirectoryPath, &Result.Message);
 		if (!Result.bDirectoryPathValid) return Result;
 
-		const PathUtilities::FContentPathResult Resolved =
-			PathUtilities::ResolveContentPath(Result.DirectoryPath.GetView());
+		const PathUtilities::FAssetPathResult Resolved =
+			PathUtilities::ResolveAssetPath(Result.DirectoryPath.GetView());
 		Result.Mount = Resolved.Mount;
 		if (!Resolved)
 		{
@@ -87,8 +87,8 @@ namespace Durin
 	auto ClassifyContentDirectory(const std::filesystem::path& PhysicalPath)
 		-> FContentDirectoryValidation
 	{
-		const PathUtilities::FContentPathResult Classified =
-			PathUtilities::ClassifyContentPath(PhysicalPath);
+		const PathUtilities::FAssetPathResult Classified =
+			PathUtilities::ClassifyAssetPath(PhysicalPath);
 		if (!Classified)
 		{
 			FContentDirectoryValidation Result;

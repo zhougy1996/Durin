@@ -136,7 +136,7 @@ namespace Durin
 			}
 
 			template<typename TResult>
-			auto FailDomain(
+			auto FailPath(
 				const FMountLookupResult& Lookup,
 				EMountPathError Error,
 				std::string Message
@@ -197,6 +197,18 @@ namespace Durin
 				return std::filesystem::weakly_canonical(Root, Error).lexically_normal();
 			}
 
+			auto ComparableRoot(const std::filesystem::path& Root, std::error_code& Error) -> std::filesystem::path
+			{
+				Error.clear();
+				if (!std::filesystem::exists(Root, Error))
+				{
+					Error.clear();
+					return Root.lexically_normal();
+				}
+				const std::filesystem::path Canonical = CanonicalRoot(Root, Error);
+				return Error ? std::filesystem::path{} : Canonical;
+			}
+
 			auto CanonicalCandidateForContainment(
 				const std::filesystem::path& Candidate,
 				std::error_code& Error
@@ -226,39 +238,37 @@ namespace Durin
 			}
 
 			template<typename TResult>
-			auto ResolveDomain(
+			auto ResolveMountPath(
 				std::string_view VirtualPath,
-				const std::optional<std::filesystem::path> FMountPoint::* Domain,
 				EPathExistence Existence
 			) -> TResult
 			{
 				const FMountLookupResult Lookup = FindMountForVirtualPath(VirtualPath);
-				if (!Lookup) return FailDomain<TResult>(Lookup, Lookup.Error, Lookup.Message);
-				const std::optional<std::filesystem::path>& Root = Lookup.Mount->*Domain;
-				if (!Root) return FailDomain<TResult>(Lookup, EMountPathError::UnsupportedDomain, "Mount does not declare the requested domain.");
+				if (!Lookup) return FailPath<TResult>(Lookup, Lookup.Error, Lookup.Message);
+				const std::filesystem::path& Root = Lookup.Mount->Root;
 
 				std::error_code Error;
-				if (!std::filesystem::exists(*Root, Error))
+				if (!std::filesystem::exists(Root, Error))
 				{
-					return FailDomain<TResult>(
+					return FailPath<TResult>(
 						Lookup,
-						Error ? EMountPathError::IoFailure : EMountPathError::UnavailableDomain,
-						Error ? Error.message() : "The requested mount domain is unavailable.");
+						Error ? EMountPathError::IoFailure : EMountPathError::UnavailableRoot,
+						Error ? Error.message() : "The requested mount root is unavailable.");
 				}
 
-				const std::filesystem::path CanonicalDomain = CanonicalRoot(*Root, Error);
-				if (Error) return FailDomain<TResult>(Lookup, EMountPathError::IoFailure, Error.message());
-				const std::filesystem::path Candidate = (*Root / Lookup.RelativePath).lexically_normal();
+				const std::filesystem::path CanonicalMountRoot = CanonicalRoot(Root, Error);
+				if (Error) return FailPath<TResult>(Lookup, EMountPathError::IoFailure, Error.message());
+				const std::filesystem::path Candidate = (Root / Lookup.RelativePath).lexically_normal();
 				const std::filesystem::path CanonicalCandidate = CanonicalCandidateForContainment(Candidate, Error);
 				if (Error || CanonicalCandidate.empty())
-					return FailDomain<TResult>(Lookup, EMountPathError::IoFailure, Error ? Error.message() : "Failed to resolve physical path.");
-				if (!IsPathWithin(CanonicalDomain, CanonicalCandidate))
-					return FailDomain<TResult>(Lookup, EMountPathError::EscapedRoot, "Physical path escapes its mounted domain.");
+					return FailPath<TResult>(Lookup, EMountPathError::IoFailure, Error ? Error.message() : "Failed to resolve physical path.");
+				if (!IsPathWithin(CanonicalMountRoot, CanonicalCandidate))
+					return FailPath<TResult>(Lookup, EMountPathError::EscapedRoot, "Physical path escapes its mount root.");
 				if (Existence == EPathExistence::RequireFile && !std::filesystem::is_regular_file(Candidate, Error))
 				{
 					if (Error == std::errc::no_such_file_or_directory
 						|| Error == std::errc::not_a_directory) Error.clear();
-					return FailDomain<TResult>(
+					return FailPath<TResult>(
 						Lookup,
 						Error ? EMountPathError::IoFailure : EMountPathError::MissingFile,
 						Error ? Error.message() : "The requested file does not exist.");
@@ -273,10 +283,7 @@ namespace Durin
 			}
 
 			template<typename TResult>
-			auto ClassifyDomain(
-				const std::filesystem::path& PhysicalPath,
-				const std::optional<std::filesystem::path> FMountPoint::* Domain
-			) -> TResult
+			auto ClassifyMountPath(const std::filesystem::path& PhysicalPath) -> TResult
 			{
 				std::error_code Error;
 				const std::filesystem::path Candidate = CanonicalCandidateForContainment(PhysicalPath, Error);
@@ -292,22 +299,21 @@ namespace Durin
 				std::filesystem::path BestRoot;
 				for (const FMountPoint& Mount : MountPoints)
 				{
-					const std::optional<std::filesystem::path>& Root = Mount.*Domain;
-					if (!Root || !std::filesystem::exists(*Root, Error)) { Error.clear(); continue; }
-					const std::filesystem::path CanonicalDomain = CanonicalRoot(*Root, Error);
+					if (!std::filesystem::exists(Mount.Root, Error)) { Error.clear(); continue; }
+					const std::filesystem::path CanonicalMountRoot = CanonicalRoot(Mount.Root, Error);
 					if (Error) { Error.clear(); continue; }
-					if (IsPathWithin(CanonicalDomain, Candidate)
-						&& (!Best || CanonicalDomain.native().size() > BestRoot.native().size()))
+					if (IsPathWithin(CanonicalMountRoot, Candidate)
+						&& (!Best || CanonicalMountRoot.native().size() > BestRoot.native().size()))
 					{
 						Best = &Mount;
-						BestRoot = CanonicalDomain;
+						BestRoot = CanonicalMountRoot;
 					}
 				}
 				if (!Best)
 				{
 					TResult Result;
 					Result.Error = EMountPathError::UnknownMount;
-					Result.Message = "Physical path is outside every registered domain.";
+					Result.Message = "Physical path is outside every registered mount root.";
 					return Result;
 				}
 
@@ -351,7 +357,7 @@ namespace Durin
 						return false;
 					}
 					constexpr std::array<std::string_view, 6> Fields{
-						"VirtualRoot", "Owner", "Root", "Domains", "SourceWritable", "Dependencies"};
+						"VirtualRoot", "Owner", "Root", "AssetPackages", "AuthoringWritable", "Dependencies"};
 					bool bUnknownField = false;
 					Entry.ForEachObjectMember([&](const std::string_view Key, FJsonNodeView) {
 						if (std::ranges::find(Fields, Key) == Fields.end()) bUnknownField = true;
@@ -365,14 +371,14 @@ namespace Durin
 					std::string VirtualRoot;
 					std::string OwnerText;
 					std::string RootText;
-					bool bSourceWritable = false;
-					const FJsonNodeView Domains = Entry.GetView("Domains");
+					bool bAssetPackages = false;
+					bool bAuthoringWritable = false;
 					const FJsonNodeView Dependencies = Entry.GetView("Dependencies");
 					if (!Entry.GetChildValue("VirtualRoot", VirtualRoot)
 						|| !Entry.GetChildValue("Owner", OwnerText)
 						|| !Entry.GetChildValue("Root", RootText)
-						|| !Entry.GetChildValue("SourceWritable", bSourceWritable)
-						|| !Domains.IsObject() || Domains.Num() == 0 || Domains.Num() > 2
+						|| !Entry.GetChildValue("AssetPackages", bAssetPackages)
+						|| !Entry.GetChildValue("AuthoringWritable", bAuthoringWritable)
 						|| !Dependencies.IsArray()
 						|| !ValidateRelativeDefinitionPath(RootText))
 					{
@@ -387,35 +393,12 @@ namespace Durin
 						if (OutError) *OutError = std::format("Mounts[{}].Owner is invalid.", Index);
 						return false;
 					}
-					bool bUnknownDomain = false;
-					Domains.ForEachObjectMember([&](const std::string_view Key, FJsonNodeView Value) {
-						if ((Key != "Content" && Key != "SourceAssets") || !Value.IsString()) bUnknownDomain = true;
-					});
-					if (bUnknownDomain)
-					{
-						if (OutError) *OutError = std::format("Mounts[{}].Domains contains an invalid field.", Index);
-						return false;
-					}
-
-					const std::filesystem::path OwnerRoot = (ProjectRoot / RootText).lexically_normal();
 					FMountPoint Definition{
 						.VirtualRoot = std::move(VirtualRoot),
 						.Owner = Owner,
-						.OwnerRoot = OwnerRoot,
-						.bSourceWritable = bSourceWritable};
-					for (const std::string_view DomainName : {"Content", "SourceAssets"})
-					{
-						if (!Domains.Contains(DomainName)) continue;
-						const std::string DomainText = Domains.GetView(DomainName).GetString();
-						if (!ValidateRelativeDefinitionPath(DomainText))
-						{
-							if (OutError) *OutError = std::format("Mounts[{}].Domains.{} is invalid.", Index, DomainName);
-							return false;
-						}
-						const std::filesystem::path DomainRoot = (OwnerRoot / DomainText).lexically_normal();
-						if (DomainName == "Content") Definition.ContentRoot = DomainRoot;
-						else Definition.SourceAssetsRoot = DomainRoot;
-					}
+						.Root = (ProjectRoot / RootText).lexically_normal(),
+						.bAssetPackages = bAssetPackages,
+						.bAuthoringWritable = bAuthoringWritable};
 					for (size_t DependencyIndex = 0; DependencyIndex < Dependencies.Num(); ++DependencyIndex)
 					{
 						const FJsonNodeView Dependency = Dependencies.GetView(DependencyIndex);
@@ -440,10 +423,9 @@ namespace Durin
 				Definitions = {{
 					.VirtualRoot = "/Engine/",
 					.Owner = EMountOwner::Engine,
-					.OwnerRoot = EngineRoot,
-					.ContentRoot = EngineRoot / "Content",
-					.SourceAssetsRoot = EngineRoot / "SourceAssets",
-					.bSourceWritable = true}};
+					.Root = EngineRoot / "Content",
+					.bAssetPackages = true,
+					.bAuthoringWritable = true}};
 				if (FPaths::ProjectFile().empty()) return true;
 
 				const std::filesystem::path ProjectRoot =
@@ -451,10 +433,9 @@ namespace Durin
 				Definitions.push_back({
 					.VirtualRoot = std::string(ProjectContentMountRoot),
 					.Owner = EMountOwner::ActiveProject,
-					.OwnerRoot = ProjectRoot,
-					.ContentRoot = ProjectRoot / "Content",
-					.SourceAssetsRoot = ProjectRoot / "SourceAssets",
-					.bSourceWritable = true,
+					.Root = ProjectRoot / "Content",
+					.bAssetPackages = true,
+					.bAuthoringWritable = true,
 					.Dependencies = {"/Engine/"}});
 				if (!ParseProjectMounts(Definitions, OutError)) return false;
 				for (size_t Index = 2; Index < Definitions.size(); ++Index)
@@ -496,24 +477,36 @@ namespace Durin
 			return FailLookup(EMountPathError::UnknownMount, "Virtual path does not use a registered mount.");
 		}
 
-		auto ResolveContentPath(std::string_view VirtualPath, EPathExistence Existence) -> FContentPathResult
+		auto ResolveAssetPath(std::string_view VirtualPath, EPathExistence Existence) -> FAssetPathResult
 		{
-			return ResolveDomain<FContentPathResult>(VirtualPath, &FMountPoint::ContentRoot, Existence);
+			FAssetPathResult Result = ResolveMountPath<FAssetPathResult>(VirtualPath, Existence);
+			if (Result.Mount && !Result.Mount->bAssetPackages)
+			{
+				Result.Error = EMountPathError::AssetPackagesDisabled;
+				Result.Message = "Mount does not permit asset packages.";
+			}
+			return Result;
 		}
 
 		auto ResolveSourcePath(std::string_view VirtualPath, EPathExistence Existence) -> FSourcePathResult
 		{
-			return ResolveDomain<FSourcePathResult>(VirtualPath, &FMountPoint::SourceAssetsRoot, Existence);
+			return ResolveMountPath<FSourcePathResult>(VirtualPath, Existence);
 		}
 
-		auto ClassifyContentPath(const std::filesystem::path& PhysicalPath) -> FContentPathResult
+		auto ClassifyAssetPath(const std::filesystem::path& PhysicalPath) -> FAssetPathResult
 		{
-			return ClassifyDomain<FContentPathResult>(PhysicalPath, &FMountPoint::ContentRoot);
+			FAssetPathResult Result = ClassifyMountPath<FAssetPathResult>(PhysicalPath);
+			if (Result.Mount && !Result.Mount->bAssetPackages)
+			{
+				Result.Error = EMountPathError::AssetPackagesDisabled;
+				Result.Message = "Mount does not permit asset packages.";
+			}
+			return Result;
 		}
 
 		auto ClassifySourcePath(const std::filesystem::path& PhysicalPath) -> FSourcePathResult
 		{
-			return ClassifyDomain<FSourcePathResult>(PhysicalPath, &FMountPoint::SourceAssetsRoot);
+			return ClassifyMountPath<FSourcePathResult>(PhysicalPath);
 		}
 
 		auto CheckMountDependency(
@@ -542,7 +535,7 @@ namespace Durin
 			return Result;
 		}
 
-		auto CheckSourceMutation(
+		auto CheckAuthoringMutation(
 			std::string_view AuthoringVirtualPath,
 			std::string_view SourceVirtualPath,
 			bool bEngineAuthoringContext
@@ -550,17 +543,12 @@ namespace Durin
 		{
 			FMountPolicyResult Result = CheckMountDependency(AuthoringVirtualPath, SourceVirtualPath);
 			if (!Result) return Result;
-			if (!Result.ReferencedMount->SourceAssetsRoot)
-			{
-				Result.Error = EMountPathError::UnsupportedDomain;
-				Result.Message = "Referenced mount has no SourceAssets domain.";
-			}
-			else if (!Result.ReferencedMount->bSourceWritable
+			if (!Result.ReferencedMount->bAuthoringWritable
 				|| Result.ReferencingMount != Result.ReferencedMount
 				|| (Result.ReferencedMount->Owner == EMountOwner::Engine && !bEngineAuthoringContext))
 			{
-				Result.Error = EMountPathError::ReadOnlySource;
-				Result.Message = "The authoring context may not mutate this source mount.";
+				Result.Error = EMountPathError::ReadOnlyMount;
+				Result.Message = "The authoring context may not mutate this mount.";
 			}
 			return Result;
 		}
@@ -584,31 +572,17 @@ namespace Durin
 					if (OutError) *OutError = std::format("Duplicate mount root '{}'.", Definition.VirtualRoot);
 					return false;
 				}
-				if (!Definition.ContentRoot && !Definition.SourceAssetsRoot)
+				if (Definition.Root.empty())
 				{
-					if (OutError) *OutError = std::format("Mount '{}' declares no domains.", Definition.VirtualRoot);
+					if (OutError) *OutError = std::format("Mount '{}' declares an empty root.", Definition.VirtualRoot);
 					return false;
 				}
 				std::error_code Error;
-				Definition.OwnerRoot = NormalizeAbsolute(Definition.OwnerRoot, Error);
+				Definition.Root = NormalizeAbsolute(Definition.Root, Error);
 				if (Error)
 				{
 					if (OutError) *OutError = Error.message();
 					return false;
-				}
-				for (std::optional<std::filesystem::path>* Domain : {&Definition.ContentRoot, &Definition.SourceAssetsRoot})
-				{
-					if (!*Domain) continue;
-					*Domain = NormalizeAbsolute(**Domain, Error);
-					if (Error || !IsPathWithin(Definition.OwnerRoot, **Domain))
-					{
-						if (OutError) *OutError = Error ? Error.message() : std::format(
-							"Mount '{}' domain '{}' escapes owner root '{}'.",
-							Definition.VirtualRoot,
-							(**Domain).generic_string(),
-							Definition.OwnerRoot.generic_string());
-						return false;
-					}
 				}
 				for (const std::string& Dependency : Definition.Dependencies)
 				{
@@ -616,32 +590,17 @@ namespace Durin
 				}
 				for (const FMountPoint& Existing : Validated)
 				{
-					for (const auto [NewDomain, ExistingDomain] : {
-						std::pair{Definition.ContentRoot, Existing.ContentRoot},
-						std::pair{Definition.SourceAssetsRoot, Existing.SourceAssetsRoot}})
+					const std::filesystem::path NewCanonical = ComparableRoot(Definition.Root, Error);
+					if (Error) { if (OutError) *OutError = Error.message(); return false; }
+					const std::filesystem::path ExistingCanonical = ComparableRoot(Existing.Root, Error);
+					if (Error) { if (OutError) *OutError = Error.message(); return false; }
+					if (IsPathWithin(NewCanonical, ExistingCanonical)
+						|| IsPathWithin(ExistingCanonical, NewCanonical))
 					{
-						if (!NewDomain || !ExistingDomain) continue;
-						auto ComparableRoot = [&](const std::filesystem::path& Root) {
-							Error.clear();
-							if (!std::filesystem::exists(Root, Error))
-							{
-								Error.clear();
-								return Root.lexically_normal();
-							}
-							const std::filesystem::path Canonical = CanonicalRoot(Root, Error);
-							return Error ? std::filesystem::path{} : Canonical;
-						};
-						const std::filesystem::path NewCanonical = ComparableRoot(*NewDomain);
-						if (Error) { if (OutError) *OutError = Error.message(); return false; }
-						const std::filesystem::path ExistingCanonical = ComparableRoot(*ExistingDomain);
-						if (Error) { if (OutError) *OutError = Error.message(); return false; }
-						if (SamePathComponent(NewCanonical, ExistingCanonical))
-						{
-							if (OutError) *OutError = std::format(
-								"Mounts '{}' and '{}' declare the same canonical domain root.",
-								Definition.VirtualRoot, Existing.VirtualRoot);
-							return false;
-						}
+						if (OutError) *OutError = std::format(
+							"Mounts '{}' and '{}' declare overlapping canonical roots.",
+							Definition.VirtualRoot, Existing.VirtualRoot);
+						return false;
 					}
 				}
 				Validated.push_back(std::move(Definition));
@@ -691,35 +650,41 @@ namespace Durin
 			return bValid;
 		}
 
-		auto RegisterMountPoint(std::string_view VirtualRoot, std::string_view PhysicalPath) -> void
+		auto RegisterMountPointForTests(
+			std::string_view VirtualRoot,
+			std::string_view PhysicalPath,
+			bool bAssetPackages,
+			bool bAuthoringWritable
+		) -> void
 		{
-			checkf(IsInGameThread(), "RegisterMountPoint must be called from the game thread.");
+			checkf(IsInGameThread(), "RegisterMountPointForTests must be called from the game thread.");
 			checkf(!bRegistryPublished, "Mount registry is immutable after publication.");
 			std::error_code DirectoryError;
 			const std::filesystem::path Root = NormalizeAbsolute(PhysicalPath, DirectoryError);
-			checkf(!DirectoryError, "Failed to normalize legacy test mount root.");
+			checkf(!DirectoryError, "Failed to normalize test mount root.");
 			std::filesystem::create_directories(Root, DirectoryError);
-			checkf(!DirectoryError, "Failed to create legacy test mount root.");
-			std::string Leaf = Root.filename().generic_string();
-			std::ranges::transform(Leaf, Leaf.begin(), [](const char Character) {
-				return Character >= 'A' && Character <= 'Z'
-					? static_cast<char>(Character - 'A' + 'a')
-					: Character;
-			});
-			const std::filesystem::path OwnerRoot = Leaf == "content" ? Root.parent_path() : Root;
-			const std::filesystem::path SourceAssetsRoot = OwnerRoot / "SourceAssets";
-			std::filesystem::create_directories(SourceAssetsRoot, DirectoryError);
-			checkf(!DirectoryError, "Failed to create legacy test SourceAssets root.");
+			checkf(!DirectoryError, "Failed to create test mount root.");
 			const auto Existing = std::ranges::find_if(MountPoints, [&](const FMountPoint& Mount) {
 				return FoldAscii(Mount.VirtualRoot) == FoldAscii(VirtualRoot);
 			});
+			const std::filesystem::path Canonical = ComparableRoot(Root, DirectoryError);
+			checkf(!DirectoryError, "Failed to canonicalize test mount root.");
+			for (const FMountPoint& Mount : MountPoints)
+			{
+				if (&Mount == (Existing == MountPoints.end() ? nullptr : &*Existing)) continue;
+				const std::filesystem::path ExistingCanonical = ComparableRoot(Mount.Root, DirectoryError);
+				checkf(!DirectoryError, "Failed to canonicalize an existing test mount root.");
+				checkf(
+					!IsPathWithin(Canonical, ExistingCanonical)
+						&& !IsPathWithin(ExistingCanonical, Canonical),
+					"Test mount roots must not overlap.");
+			}
 			FMountPoint Definition{
 				.VirtualRoot = std::string(VirtualRoot),
 				.Owner = EMountOwner::Test,
-				.OwnerRoot = OwnerRoot,
-				.ContentRoot = Root,
-				.SourceAssetsRoot = SourceAssetsRoot,
-				.bSourceWritable = true};
+				.Root = Root,
+				.bAssetPackages = bAssetPackages,
+				.bAuthoringWritable = bAuthoringWritable};
 			if (Existing == MountPoints.end()) MountPoints.push_back(std::move(Definition));
 			else *Existing = std::move(Definition);
 			std::ranges::sort(MountPoints, [](const FMountPoint& A, const FMountPoint& B) {
@@ -822,8 +787,8 @@ namespace Durin
 
 	auto FPaths::Resolve(std::string_view VirtualPath) -> std::string
 	{
-		const PathUtilities::FContentPathResult Result =
-			PathUtilities::ResolveContentPath(VirtualPath, PathUtilities::EPathExistence::AllowMissing);
+		const PathUtilities::FAssetPathResult Result =
+			PathUtilities::ResolveAssetPath(VirtualPath, PathUtilities::EPathExistence::AllowMissing);
 		return Result ? Result.PhysicalPath.generic_string() : std::string{};
 	}
 

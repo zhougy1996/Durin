@@ -62,7 +62,7 @@ namespace
 		if (InitializedRoots.insert(Root).second)
 		{
 			Durin::Testing::RemoveTestWorkDirectory(Root);
-			Durin::PathUtilities::RegisterMountPoint("/TextureCubeTests/", Root.generic_string() + "/");
+			Durin::PathUtilities::RegisterMountPointForTests("/TextureCubeTests/", Root.generic_string() + "/");
 		}
 		return Root;
 	}
@@ -596,7 +596,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	RestartAssetManager();
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, FirstRoot}));
-	Durin::PathUtilities::RegisterMountPoint(
+	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (FirstRoot / "Game").generic_string() + "/");
 	Durin::FAssetPath CookedPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedCube", CookedPath));

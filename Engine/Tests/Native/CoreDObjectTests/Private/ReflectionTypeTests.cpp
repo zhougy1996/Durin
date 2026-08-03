@@ -1042,9 +1042,9 @@ namespace
 		static const bool bMounted = [] {
 			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
 			Durin::GIsGameThreadIdInitialized = true;
-			Durin::PathUtilities::RegisterMountPoint(
+			Durin::PathUtilities::RegisterMountPointForTests(
 				"/CoreTests/",
-				Durin::Testing::GetTestWorkDirectory().generic_string() + "/");
+				(Durin::Testing::GetTestWorkDirectory() / "CoreTests").generic_string() + "/");
 			return true;
 		}();
 		(void)bMounted;

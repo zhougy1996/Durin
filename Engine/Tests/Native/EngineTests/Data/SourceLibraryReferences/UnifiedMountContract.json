@@ -4,11 +4,8 @@
       "VirtualRoot": "/Plugins/PCG/",
       "Owner": "Extension",
       "Root": "Plugin",
-      "Domains": {
-        "Content": "Content",
-        "SourceAssets": "SourceAssets"
-      },
-      "SourceWritable": false,
+      "AssetPackages": true,
+      "AuthoringWritable": false,
       "Dependencies": [
         "/Engine/"
       ]
@@ -17,10 +14,8 @@
       "VirtualRoot": "/Libraries/StudioArt/",
       "Owner": "ExternalSources",
       "Root": "StudioArt",
-      "Domains": {
-        "SourceAssets": "."
-      },
-      "SourceWritable": false,
+      "AssetPackages": false,
+      "AuthoringWritable": false,
       "Dependencies": [
         "/Engine/"
       ]
@@ -31,35 +26,35 @@
       "Name": "GameToEngineSource",
       "ReferencingMount": "/Game/",
       "Path": "/Engine/Textures/Common/Stone.png",
-      "Domain": "SourceAssets",
+      "Kind": "Source",
       "ExpectedError": "None"
     },
     {
       "Name": "EngineToGameSource",
       "ReferencingMount": "/Engine/",
       "Path": "/Game/Textures/Common/Stone.png",
-      "Domain": "SourceAssets",
+      "Kind": "Source",
       "ExpectedError": "ForbiddenDependency"
     },
     {
       "Name": "GameToPluginSource",
       "ReferencingMount": "/Game/",
       "Path": "/Plugins/PCG/Textures/Noise.png",
-      "Domain": "SourceAssets",
+      "Kind": "Source",
       "ExpectedError": "None"
     },
     {
-      "Name": "SourceOnlyContent",
+      "Name": "PackageDisabledAsset",
       "ReferencingMount": "/Game/",
       "Path": "/Libraries/StudioArt/Textures/Stone.png",
-      "Domain": "Content",
-      "ExpectedError": "UnsupportedDomain"
+      "Kind": "Asset",
+      "ExpectedError": "AssetPackagesDisabled"
     },
     {
-      "Name": "SourceOnlySource",
+      "Name": "PackageDisabledSource",
       "ReferencingMount": "/Game/",
       "Path": "/Libraries/StudioArt/Textures/Stone.png",
-      "Domain": "SourceAssets",
+      "Kind": "Source",
       "ExpectedError": "None"
     }
   ]

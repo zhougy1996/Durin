@@ -215,7 +215,7 @@ namespace Durin
 			ImGui::TextDisabled("Mount: %s (%s)  |  %s  |  dependency allowed",
 				SourceDiagnostic.Mount->VirtualRoot.c_str(),
 				DescribeMountOwner(SourceDiagnostic.Mount->Owner),
-				SourceDiagnostic.Mount->bSourceWritable ? "writable" : "read-only");
+				SourceDiagnostic.Mount->bAuthoringWritable ? "writable" : "read-only");
 		}
 
 		std::string ValidationMessage;
@@ -269,8 +269,8 @@ namespace Durin
 		{
 			const PathUtilities::FMountLookupResult Lookup =
 				PathUtilities::FindMountForVirtualPath(DestinationDirectory.GetPath());
-			if (Lookup && Lookup.Mount->SourceAssetsRoot)
-				Request.InitialDirectory = Lookup.Mount->SourceAssetsRoot->generic_string();
+			if (Lookup)
+				Request.InitialDirectory = Lookup.Mount->Root.generic_string();
 		}
 		if (SourcePathBuffer[0] != '\0') Request.InitialDirectory = std::filesystem::path(SourcePathBuffer.data()).parent_path().generic_string();
 
@@ -331,16 +331,16 @@ namespace Durin
 		}
 		const PathUtilities::FMountLookupResult Lookup =
 			PathUtilities::FindMountForVirtualPath(AssetPath.GetView());
-		if (!Lookup || !Lookup.Mount->SourceAssetsRoot)
+		if (!Lookup)
 		{
-			SetError("The selected asset mount has no available SourceAssets domain.");
+			SetError("The selected asset path does not use a registered mount.");
 			return;
 		}
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
 		Request.Title = "Choose Scene Source Destination";
 		Request.Filters = {{"All Files", "*.*"}};
-		Request.InitialDirectory = Lookup.Mount->SourceAssetsRoot->generic_string();
+		Request.InitialDirectory = Lookup.Mount->Root.generic_string();
 		Request.DefaultFileName = SourcePathBuffer[0] != '\0'
 			? std::filesystem::path(SourcePathBuffer.data()).filename().generic_string()
 			: "Scene.fbx";

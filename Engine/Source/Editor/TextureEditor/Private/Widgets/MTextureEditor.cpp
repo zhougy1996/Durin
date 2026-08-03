@@ -678,7 +678,7 @@ namespace Durin
 					"{} ({})  |  {}",
 					Resolved.Mount->VirtualRoot,
 					DescribeMountOwner(Resolved.Mount->Owner),
-					Resolved.Mount->bSourceWritable ? "writable" : "read-only"));
+					Resolved.Mount->bAuthoringWritable ? "writable" : "read-only"));
 			}
 			const std::span<const FSourceReference> References =
 				SourceReferenceIndex.FindReferences(Texture->GetSourceFile());
@@ -823,9 +823,9 @@ namespace Durin
 		if (!Texture || !Texture->GetPackage()) return;
 		const PathUtilities::FMountPoint* Mount =
 			FindOwningMount(Texture->GetPackage()->GetPackagePath());
-		if (!Mount || !Mount->SourceAssetsRoot)
+		if (!Mount)
 		{
-			SetError("The texture's mount has no available SourceAssets domain.");
+			SetError("The texture does not use a registered mount.");
 			return;
 		}
 
@@ -855,7 +855,7 @@ namespace Durin
 		DestinationRequest.Title = "Choose Mounted Texture Source Destination";
 		DestinationRequest.Filters = InputRequest.Filters;
 		DestinationRequest.InitialDirectory =
-			(*Mount->SourceAssetsRoot / "Textures").generic_string();
+			(Mount->Root / "Textures").generic_string();
 		DestinationRequest.DefaultFileName =
 			std::filesystem::path(Input.FilePath).filename().generic_string();
 		const FFileDialogResult Destination = SaveFileDialog(DestinationRequest);
@@ -1139,11 +1139,6 @@ namespace Durin
 			SetError("The texture is not inside a mounted Content directory.");
 			return;
 		}
-		if (!Mount->SourceAssetsRoot)
-		{
-			SetError("The texture's mount has no SourceAssets domain.");
-			return;
-		}
 		const FTextureSourceDiagnostic Diagnostic = Texture->InspectSource();
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
@@ -1155,7 +1150,7 @@ namespace Durin
 		};
 		Request.InitialDirectory = !Diagnostic.PhysicalPath.empty()
 			? std::filesystem::path(Diagnostic.PhysicalPath).parent_path().generic_string()
-			: (*Mount->SourceAssetsRoot / "Textures").generic_string();
+			: (Mount->Root / "Textures").generic_string();
 		Request.DefaultFileName = !Texture->GetSourceFile().empty()
 			? std::filesystem::path(Texture->GetSourceFile()).filename().generic_string()
 			: "Texture.png";

@@ -38,23 +38,22 @@ namespace
 				PathUtilities::FMountPoint{
 					.VirtualRoot = "/Project/",
 					.Owner = PathUtilities::EMountOwner::ActiveProject,
-					.OwnerRoot = Root / "Project",
-					.ContentRoot = Root / "Project/Content"},
+					.Root = Root / "Project/Content",
+					.bAssetPackages = true},
 				PathUtilities::FMountPoint{
 					.VirtualRoot = "/Engine/",
 					.Owner = PathUtilities::EMountOwner::Engine,
-					.OwnerRoot = Root / "Engine",
-					.ContentRoot = Root / "Engine/Content"},
+					.Root = Root / "Engine/Content",
+					.bAssetPackages = true},
 				PathUtilities::FMountPoint{
 					.VirtualRoot = "/Sources/",
 					.Owner = PathUtilities::EMountOwner::ExternalSources,
-					.OwnerRoot = Root / "Sources",
-					.SourceAssetsRoot = Root / "Sources"},
+					.Root = Root / "Sources"},
 				PathUtilities::FMountPoint{
 					.VirtualRoot = "/NonNormalized/",
 					.Owner = PathUtilities::EMountOwner::Extension,
-					.OwnerRoot = Root,
-					.ContentRoot = Root / "Project/../CanonicalContent"}};
+					.Root = Root / "Project/../CanonicalContent",
+					.bAssetPackages = true}};
 			Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(Definitions);
 			ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
 		}

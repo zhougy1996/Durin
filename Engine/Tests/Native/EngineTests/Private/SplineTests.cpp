@@ -339,7 +339,7 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsSplineControlPoints)
 	if (InitializedRoots.insert(Root).second)
 	{
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::PathUtilities::RegisterMountPoint("/SplineTests/", Root.generic_string() + "/");
+		Durin::PathUtilities::RegisterMountPointForTests("/SplineTests/", Root.generic_string() + "/");
 	}
 
 	Durin::FAssetPath Path;

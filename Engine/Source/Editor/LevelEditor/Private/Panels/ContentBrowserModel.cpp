@@ -60,7 +60,7 @@ namespace Durin
 		{
 			const PathUtilities::FMountLookupResult Lookup =
 				PathUtilities::FindMountForVirtualPath(Data.PackagePath.GetView());
-			if (!Lookup || !Lookup.Mount->SourceAssetsRoot || !Lookup.Mount->ContentRoot)
+			if (!Lookup || !Lookup.Mount->bAssetPackages)
 				return {};
 			const PathUtilities::FMountPoint& Mount = *Lookup.Mount;
 
@@ -85,7 +85,7 @@ namespace Durin
 				}
 			}
 
-			const std::filesystem::path SourceRoot = *Mount.SourceAssetsRoot / "Textures";
+			const std::filesystem::path SourceRoot = Mount.Root / "Textures";
 			if (const std::filesystem::path Direct =
 					FindImageWithStem(
 						SourceRoot / std::string(Data.PackagePath.GetAssetName()));
@@ -93,7 +93,7 @@ namespace Durin
 				return Direct;
 
 			std::filesystem::path RelativePackage =
-				std::filesystem::path(Data.PhysicalPath).lexically_relative(*Mount.ContentRoot);
+				std::filesystem::path(Data.PhysicalPath).lexically_relative(Mount.Root);
 			RelativePackage.replace_extension();
 			return FindImageWithStem(SourceRoot / RelativePackage);
 		}
@@ -119,19 +119,19 @@ namespace Durin
 		const size_t ContentMountCount = std::ranges::count_if(
 			RegisteredMounts,
 			[](const PathUtilities::FMountPoint& Mount) {
-				return Mount.ContentRoot.has_value();
+				return Mount.bAssetPackages;
 			});
 		const bool bUnchanged = ContentMountCount == MountSnapshot.size()
 			&& std::ranges::equal(
 				RegisteredMounts
 					| std::views::filter([](const PathUtilities::FMountPoint& Mount) {
-						  return Mount.ContentRoot.has_value();
+						  return Mount.bAssetPackages;
 					  }),
 				MountSnapshot,
 				[](const PathUtilities::FMountPoint& Registered,
 					const FMountSnapshot& Cached) {
 					return Registered.VirtualRoot == Cached.VirtualRoot
-						&& Registered.ContentRoot->generic_string()
+						&& Registered.Root.generic_string()
 							== Cached.SourcePhysicalRoot;
 				});
 		if (bUnchanged) return;
@@ -140,8 +140,8 @@ namespace Durin
 		MountSnapshot.reserve(ContentMountCount);
 		for (const PathUtilities::FMountPoint& Mount : RegisteredMounts)
 		{
-			if (!Mount.ContentRoot) continue;
-			const std::string ContentRoot = Mount.ContentRoot->generic_string();
+			if (!Mount.bAssetPackages) continue;
+			const std::string ContentRoot = Mount.Root.generic_string();
 			MountSnapshot.push_back(
 				{Mount.VirtualRoot, ContentRoot, NormalizePath(ContentRoot)});
 		}
@@ -157,8 +157,8 @@ namespace Durin
 	auto FContentBrowserModel::PhysicalToVirtualDirectory(
 		std::string_view PhysicalPath) const -> std::string
 	{
-		const PathUtilities::FContentPathResult Classified =
-			PathUtilities::ClassifyContentPath(PhysicalPath);
+		const PathUtilities::FAssetPathResult Classified =
+			PathUtilities::ClassifyAssetPath(PhysicalPath);
 		if (!Classified) return {};
 		std::string Result = Classified.NormalizedVirtualPath;
 		if (!Result.ends_with('/')) Result += '/';
@@ -171,8 +171,8 @@ namespace Durin
 		std::string EntryPath(VirtualPath);
 		if (!EntryPath.ends_with('/')) EntryPath += '/';
 		EntryPath += "_directory_";
-		const PathUtilities::FContentPathResult Resolved =
-			PathUtilities::ResolveContentPath(EntryPath);
+		const PathUtilities::FAssetPathResult Resolved =
+			PathUtilities::ResolveAssetPath(EntryPath);
 		return Resolved
 			? NormalizePath(Resolved.PhysicalPath.parent_path().generic_string())
 			: std::string{};

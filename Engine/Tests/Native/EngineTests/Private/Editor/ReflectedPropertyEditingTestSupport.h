@@ -225,9 +225,9 @@ namespace
 	{
 		InitializeDObjectSystem();
 		Durin::PathUtilities::FScopedMountRegistryFixture MountFixture;
-		Durin::PathUtilities::RegisterMountPoint(
+		Durin::PathUtilities::RegisterMountPointForTests(
 			"/ReflectedRevisionTests/",
-			Durin::Testing::GetTestWorkDirectory().generic_string() + "/"
+			(Durin::Testing::GetTestWorkDirectory() / "ReflectedRevisionTests").generic_string() + "/"
 		);
 		static Durin::uint64 NextPackageId = 1;
 		const std::string Name = "Package" + std::to_string(NextPackageId++);

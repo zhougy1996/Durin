@@ -34,7 +34,7 @@ TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 	if (InitializedRoots.insert(Root).second)
 	{
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::PathUtilities::RegisterMountPoint("/DirectionalLightTests/", Root.generic_string() + "/");
+		Durin::PathUtilities::RegisterMountPointForTests("/DirectionalLightTests/", Root.generic_string() + "/");
 	}
 
 	Durin::FAssetPath Path;

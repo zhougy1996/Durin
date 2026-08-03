@@ -102,7 +102,7 @@ namespace Durin
 			return Result;
 		}
 		const PathUtilities::FMountPolicyResult Mutation =
-			PathUtilities::CheckSourceMutation(AssetPath, Destination.NormalizedVirtualPath);
+			PathUtilities::CheckAuthoringMutation(AssetPath, Destination.NormalizedVirtualPath);
 		if (!Mutation)
 		{
 			Result.Message = Mutation.Message;
@@ -121,7 +121,7 @@ namespace Durin
 	{
 		const PathUtilities::FMountLookupResult Lookup =
 			PathUtilities::FindMountForVirtualPath(AssetPath);
-		if (!Lookup || !Lookup.Mount->SourceAssetsRoot) return {};
+		if (!Lookup) return {};
 		return Lookup.Mount->VirtualRoot + std::string(Category) + "/" + std::string(FileName);
 	}
 } // namespace Durin

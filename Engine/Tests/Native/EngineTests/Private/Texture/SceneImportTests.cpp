@@ -42,31 +42,28 @@ namespace
 			Durin::Testing::GetTestWorkDirectory() / "SceneImport" / std::string(Name);
 		Durin::Testing::RemoveTestWorkDirectory(Root);
 		for (const std::filesystem::path& Directory : {
-			Root / "Engine/Content", Root / "Engine/SourceAssets",
-			Root / "Project/Content", Root / "Project/SourceAssets"})
+			Root / "Engine/Content", Root / "Project/Content"})
 			std::filesystem::create_directories(Directory);
 		auto Mounts = std::make_unique<Durin::PathUtilities::FScopedMountRegistryFixture>(
 			std::vector<Durin::PathUtilities::FMountPoint>{
 				{
 					.VirtualRoot = "/Engine/",
 					.Owner = Durin::PathUtilities::EMountOwner::Test,
-					.OwnerRoot = Root / "Engine",
-					.ContentRoot = Root / "Engine/Content",
-					.SourceAssetsRoot = Root / "Engine/SourceAssets",
-					.bSourceWritable = true},
+					.Root = Root / "Engine/Content",
+					.bAssetPackages = true,
+					.bAuthoringWritable = true},
 				{
 					.VirtualRoot = "/SceneImportTests/",
 					.Owner = Durin::PathUtilities::EMountOwner::Test,
-					.OwnerRoot = Root / "Project",
-					.ContentRoot = Root / "Project/Content",
-					.SourceAssetsRoot = Root / "Project/SourceAssets",
-					.bSourceWritable = true,
+					.Root = Root / "Project/Content",
+					.bAssetPackages = true,
+					.bAuthoringWritable = true,
 					.Dependencies = {"/Engine/"}}});
 		EXPECT_TRUE(Mounts->IsValid()) << Mounts->GetError();
 		EXPECT_NE(Durin::EnsureStandardImportedSurfaceMaterial(Error), nullptr)
 			<< Error;
 		const std::filesystem::path Destination =
-			Root / "Project/SourceAssets" / "Scenes" / (std::string(Name) + ".gltf");
+			Root / "Project/Content" / "Scenes" / (std::string(Name) + ".gltf");
 		std::filesystem::create_directories(Destination.parent_path());
 		std::filesystem::copy_file(
 			std::filesystem::path(DURIN_TEST_DATA_DIR)

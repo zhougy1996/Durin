@@ -52,7 +52,7 @@ namespace Durin::Tests
 	{
 		InitializeDObjectSystem();
 		const std::filesystem::path Root = GetRenderedAssetThumbnailFixtureRoot();
-		PathUtilities::RegisterMountPoint(
+		PathUtilities::RegisterMountPointForTests(
 			FRenderedAssetThumbnailFixtureSet::MountPoint,
 			Root.generic_string() + "/");
 		return Root;

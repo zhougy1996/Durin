@@ -111,27 +111,25 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 					"VirtualRoot":"/Plugins/PCG/",
 					"Owner":"Extension",
 					"Root":"Extensions/PCG",
-					"Domains":{"Content":"Content","SourceAssets":"SourceAssets"},
-					"SourceWritable":false,
+					"AssetPackages":true,
+					"AuthoringWritable":false,
 					"Dependencies":["/Engine/"]
 				},
 				{
 					"VirtualRoot":"/Libraries/StudioArt/",
 					"Owner":"ExternalSources",
 					"Root":"Libraries/StudioArt",
-					"Domains":{"SourceAssets":"."},
-					"SourceWritable":false,
+					"AssetPackages":false,
+					"AuthoringWritable":false,
 					"Dependencies":["/Engine/"]
 				}
 			]
 		})");
 	const std::filesystem::path MountedRoot = std::filesystem::path(Valid).parent_path();
 	std::filesystem::create_directories(MountedRoot / "Content");
-	std::filesystem::create_directories(MountedRoot / "SourceAssets");
-	std::filesystem::create_directories(MountedRoot / "Extensions/PCG/Content");
-	std::filesystem::create_directories(MountedRoot / "Extensions/PCG/SourceAssets");
+	std::filesystem::create_directories(MountedRoot / "Extensions/PCG");
 	std::filesystem::create_directories(MountedRoot / "Libraries/StudioArt");
-	std::ofstream(MountedRoot / "Extensions/PCG/SourceAssets/Noise.png") << "noise";
+	std::ofstream(MountedRoot / "Extensions/PCG/Noise.png") << "noise";
 	Durin::FProjectInitializationParams Params;
 	Params.RequestedProjectFile = Valid;
 	std::string Error;
@@ -144,12 +142,12 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 		Durin::GIsGameThreadIdInitialized = true;
 	}
 	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints(&Error)) << Error;
-	EXPECT_TRUE(Durin::PathUtilities::ResolveContentPath("/Game/Levels/Test"));
-	EXPECT_TRUE(Durin::PathUtilities::ResolveContentPath("/Engine/StaticMeshes/Box"));
+	EXPECT_TRUE(Durin::PathUtilities::ResolveAssetPath("/Game/Levels/Test"));
+	EXPECT_TRUE(Durin::PathUtilities::ResolveAssetPath("/Engine/StaticMeshes/Box"));
 	EXPECT_TRUE(Durin::PathUtilities::ResolveSourcePath("/Plugins/PCG/Noise.png"));
 	EXPECT_EQ(
-		Durin::PathUtilities::ResolveContentPath("/Libraries/StudioArt/Texture").Error,
-		Durin::PathUtilities::EMountPathError::UnsupportedDomain);
+		Durin::PathUtilities::ResolveAssetPath("/Libraries/StudioArt/Texture").Error,
+		Durin::PathUtilities::EMountPathError::AssetPackagesDisabled);
 	EXPECT_TRUE(Durin::PathUtilities::CheckMountDependency("/Game/Asset", "/Engine/Source"));
 	EXPECT_TRUE(Durin::PathUtilities::CheckMountDependency("/Game/Asset", "/Plugins/PCG/Source"));
 	EXPECT_EQ(
@@ -161,19 +159,25 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 			"UnknownField",
 			R"({"ProjectName":"UnknownField","Mounts":[{
 				"VirtualRoot":"/Libraries/Art/","Owner":"ExternalSources",
-				"Root":"Art","Domains":{"SourceAssets":"."},"SourceWritable":false,
+				"Root":"Art","AssetPackages":false,"AuthoringWritable":false,
 				"Dependencies":["/Engine/"],"Unexpected":true}]})"),
 		WriteProject(
 			"BuiltInOverride",
 			R"({"ProjectName":"BuiltInOverride","Mounts":[{
 				"VirtualRoot":"/Engine/","Owner":"Extension",
-				"Root":"Plugin","Domains":{"Content":"Content"},"SourceWritable":false,
+				"Root":"Plugin","AssetPackages":true,"AuthoringWritable":false,
 				"Dependencies":[]}]})"),
 		WriteProject(
 			"Traversal",
 			R"({"ProjectName":"Traversal","Mounts":[{
 				"VirtualRoot":"/Libraries/Art/","Owner":"ExternalSources",
-				"Root":"../Art","Domains":{"SourceAssets":"."},"SourceWritable":false,
+				"Root":"../Art","AssetPackages":false,"AuthoringWritable":false,
+				"Dependencies":["/Engine/"]}]})"),
+		WriteProject(
+			"LegacyDomains",
+			R"({"ProjectName":"LegacyDomains","Mounts":[{
+				"VirtualRoot":"/Libraries/Art/","Owner":"ExternalSources",
+				"Root":"Art","Domains":{"SourceAssets":"."},"SourceWritable":false,
 				"Dependencies":["/Engine/"]}]})")};
 	for (const std::string& Descriptor : InvalidDescriptors)
 	{

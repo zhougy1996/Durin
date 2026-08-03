@@ -144,7 +144,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	const std::filesystem::path SecondCookRoot = std::filesystem::absolute(Root / "CookSecond");
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	std::filesystem::create_directories(ContentRoot);
-	Durin::PathUtilities::RegisterMountPoint(
+	Durin::PathUtilities::RegisterMountPointForTests(
 		"/TextureCookTests/", ContentRoot.generic_string() + "/");
 	FScopedDerivedDataCacheRoot ScopedCache(CacheRoot);
 
@@ -286,7 +286,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	RestartAssetManager();
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
-	Durin::PathUtilities::RegisterMountPoint(
+	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
@@ -455,7 +455,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	ASSERT_TRUE(std::filesystem::remove(CookRoot / "Game/CookedTexture.dbulk"));
 	ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 		Durin::Asset::EPackageLoadMode::CookedRuntime, CookRoot}));
-	Durin::PathUtilities::RegisterMountPoint(
+	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	const Durin::Asset::FAssetResult MissingBulk =
 		Durin::Asset::LoadAsset(CookedPath, CookedTexture);
@@ -468,7 +468,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		RestartAssetManager();
 		ASSERT_TRUE(Durin::Asset::ConfigurePackageLoadContext({
 			Durin::Asset::EPackageLoadMode::CookedRuntime, FailureRoot}));
-		Durin::PathUtilities::RegisterMountPoint(
+		Durin::PathUtilities::RegisterMountPointForTests(
 			"/Game/", (FailureRoot / "Game").generic_string() + "/");
 		Durin::FAssetPath Path;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedTexture", Path));

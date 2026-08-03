@@ -8,7 +8,7 @@ TEST(FLevelEditorViewportClientTests, NavigationDoesNotDirtyTheLevelPackage)
 	if (InitializedRoots.insert(Root).second)
 	{
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::PathUtilities::RegisterMountPoint("/ViewportTests/", Root.generic_string() + "/");
+		Durin::PathUtilities::RegisterMountPointForTests("/ViewportTests/", Root.generic_string() + "/");
 	}
 	Durin::FAssetPath Path;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/ViewportTests/NavigationDirty", Path));

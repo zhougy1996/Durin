@@ -151,7 +151,7 @@ namespace Durin
 			return false;
 		}
 		const PathUtilities::FMountPolicyResult Mutation =
-			PathUtilities::CheckSourceMutation(
+			PathUtilities::CheckAuthoringMutation(
 				ReferencingAssetPath, Destination.NormalizedVirtualPath);
 		if (!Mutation)
 		{
@@ -237,7 +237,7 @@ namespace Durin
 			return false;
 		}
 		const PathUtilities::FMountPolicyResult Mutation =
-			PathUtilities::CheckSourceMutation(
+			PathUtilities::CheckAuthoringMutation(
 				ReferencingAssetPath, Destination.NormalizedVirtualPath);
 		if (!Mutation)
 		{
@@ -335,7 +335,7 @@ namespace Durin
 			return false;
 		}
 		const PathUtilities::FMountPolicyResult Mutation =
-			PathUtilities::CheckSourceMutation(
+			PathUtilities::CheckAuthoringMutation(
 				AuthoringAssetPath, Target.NormalizedVirtualPath, bEngineAuthoringContext);
 		if (!Mutation)
 		{
@@ -452,7 +452,7 @@ namespace Durin
 			return false;
 		}
 		const PathUtilities::FMountPolicyResult OriginalMutation =
-			PathUtilities::CheckSourceMutation(
+			PathUtilities::CheckAuthoringMutation(
 				AuthoringAssetPath, Original.NormalizedVirtualPath,
 				bEngineAuthoringContext);
 		if (!OriginalMutation)
@@ -461,7 +461,7 @@ namespace Durin
 			return false;
 		}
 		const PathUtilities::FMountPolicyResult DestinationMutation =
-			PathUtilities::CheckSourceMutation(
+			PathUtilities::CheckAuthoringMutation(
 				AuthoringAssetPath, Destination.NormalizedVirtualPath,
 				bEngineAuthoringContext);
 		if (!DestinationMutation)

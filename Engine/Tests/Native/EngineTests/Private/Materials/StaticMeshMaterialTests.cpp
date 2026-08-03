@@ -6,7 +6,7 @@ TEST(FStaticMeshMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlo
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "StaticMeshImports";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPoint("/MeshImportTests/", Root.generic_string() + "/");
+	Durin::PathUtilities::RegisterMountPointForTests("/MeshImportTests/", Root.generic_string() + "/");
 
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	Durin::FStaticMeshImportResult ImportResult = Durin::DStaticMesh::ImportAsset(Source.generic_string(), "/MeshImportTests/MultiSection");
@@ -61,7 +61,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "StaticMeshSourceProvenance";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPoint(
+	Durin::PathUtilities::RegisterMountPointForTests(
 		"/StaticMeshSourceProvenance/", (Root / "Content").generic_string() + "/");
 
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
@@ -104,7 +104,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshWithoutSourceMetadataLoadsAndMissingSou
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "StaticMeshSourceRepair";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPoint(
+	Durin::PathUtilities::RegisterMountPointForTests(
 		"/StaticMeshSourceRepair/", (Root / "Content").generic_string() + "/");
 
 	Durin::FAssetPath AssetPath;
@@ -158,7 +158,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDef
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "StaticMeshSlotRoundTrip";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPoint("/StaticMeshSlotRoundTrip/", Root.generic_string() + "/");
+	Durin::PathUtilities::RegisterMountPointForTests("/StaticMeshSlotRoundTrip/", Root.generic_string() + "/");
 
 	Durin::FAssetPath MeshPath;
 	Durin::FAssetPath MaterialPath;
@@ -209,7 +209,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesOnly
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "StaticMeshSlotReimport";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPoint("/StaticMeshSlotReimport/", Root.generic_string() + "/");
+	Durin::PathUtilities::RegisterMountPointForTests("/StaticMeshSlotReimport/", Root.generic_string() + "/");
 	const std::filesystem::path BaseSource = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 
 	auto ImportBase = [&](std::string_view Name) -> Durin::DStaticMesh* {
@@ -282,7 +282,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsAndSurvivesRenderedRe
 	FRenderSceneHarness Harness;
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "StaticMeshSlotEndToEnd";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPoint("/StaticMeshSlotEndToEnd/", Root.generic_string() + "/");
+	Durin::PathUtilities::RegisterMountPointForTests("/StaticMeshSlotEndToEnd/", Root.generic_string() + "/");
 
 	Durin::FAssetPath MeshPath;
 	Durin::FAssetPath MaterialPath;
@@ -370,7 +370,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshImportSettingsPersistAcrossSourceRebuil
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "StaticMeshAxisImports";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPoint("/MeshAxisImportTests/", Root.generic_string() + "/");
+	Durin::PathUtilities::RegisterMountPointForTests("/MeshAxisImportTests/", Root.generic_string() + "/");
 
 	const Durin::FStaticMeshImportSettings Settings = Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "AsymmetricAxes.obj";
@@ -413,7 +413,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "StaticMeshSlotOverrides";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPoint("/StaticMeshSlotOverrides/", Root.generic_string() + "/");
+	Durin::PathUtilities::RegisterMountPointForTests("/StaticMeshSlotOverrides/", Root.generic_string() + "/");
 
 	Durin::FAssetPath MeshPath;
 	Durin::FAssetPath FirstMaterialPath;
@@ -482,7 +482,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "Materials";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPoint("/MaterialTests/", Root.generic_string() + "/");
+	Durin::PathUtilities::RegisterMountPointForTests("/MaterialTests/", Root.generic_string() + "/");
 
 	Durin::FAssetPath BasePath;
 	Durin::FAssetPath InstancePath;
@@ -556,7 +556,7 @@ TEST(FStaticMeshMaterialTests, LegacyParameterMapsAreSkippedWithoutMigration)
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "LegacyMaterials";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPoint("/LegacyMaterialTests/", Root.generic_string() + "/");
+	Durin::PathUtilities::RegisterMountPointForTests("/LegacyMaterialTests/", Root.generic_string() + "/");
 
 	Durin::FAssetPath BasePath;
 	Durin::FAssetPath InstancePath;

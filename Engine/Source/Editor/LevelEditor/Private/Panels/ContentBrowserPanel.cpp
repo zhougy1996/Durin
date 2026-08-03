@@ -53,8 +53,8 @@ namespace Durin
 	auto FContentBrowserPanel::RevealDirectory(
 		std::string_view DirectoryPath) -> void
 	{
-		const PathUtilities::FContentPathResult Resolved =
-			PathUtilities::ResolveContentPath(DirectoryPath);
+		const PathUtilities::FAssetPathResult Resolved =
+			PathUtilities::ResolveAssetPath(DirectoryPath);
 		if (!Resolved)
 		{
 			SetError(Resolved.Message);

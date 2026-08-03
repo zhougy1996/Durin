@@ -237,8 +237,8 @@ namespace Durin::Asset
 				if (!ResolveCookedPackagePath(Context.CookRoot, Path.GetView(), CookedPath)) return {};
 				return CookedPath.generic_string();
 			}
-			const PathUtilities::FContentPathResult Resolved =
-				PathUtilities::ResolveContentPath(Path.GetView(), PathUtilities::EPathExistence::AllowMissing);
+			const PathUtilities::FAssetPathResult Resolved =
+				PathUtilities::ResolveAssetPath(Path.GetView(), PathUtilities::EPathExistence::AllowMissing);
 			if (!Resolved)
 				DURIN_WARN_CATEGORY(
 					"AssetSystem", "Failed to resolve Content path {}: {}", Path.ToString(), Resolved.Message);
@@ -683,11 +683,11 @@ namespace Durin::Asset
 			return std::filesystem::path(FPaths::DerivedDataCacheDir()) / "AssetRegistry" / "Registry.bin";
 		}
 
-		auto GetMountManifest() -> std::vector<std::string>
-		{
-			std::vector<std::string> Roots;
-			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
-				if (Mount.ContentRoot) Roots.push_back(Mount.VirtualRoot);
+			auto GetMountManifest() -> std::vector<std::string>
+			{
+				std::vector<std::string> Roots;
+				for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+					if (Mount.bAssetPackages) Roots.push_back(Mount.VirtualRoot);
 			std::ranges::sort(Roots);
 			Roots.erase(std::unique(Roots.begin(), Roots.end()), Roots.end());
 			return Roots;
@@ -837,7 +837,7 @@ namespace Durin::Asset
 			{
 				const PathUtilities::FMountLookupResult Lookup =
 					PathUtilities::FindMountForVirtualPath(Path.GetView());
-				if (!Lookup || !Lookup.Mount->ContentRoot)
+				if (!Lookup || !Lookup.Mount->bAssetPackages)
 				{
 					OutWarning = std::format("Could not persist asset registry entry {} because its mount is unavailable.", Path.ToString());
 					OutEntries.clear();
@@ -1711,18 +1711,18 @@ namespace Durin::Asset
 		const bool bCacheLoaded = LoadRegistryCache(MountManifest, CachedEntries, CacheWarning);
 		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
 		{
-			if (!Mount.ContentRoot) continue;
-			const std::filesystem::path& ContentRoot = *Mount.ContentRoot;
+			if (!Mount.bAssetPackages) continue;
+			const std::filesystem::path& AssetRoot = Mount.Root;
 			std::error_code Ec;
-			if (!std::filesystem::exists(ContentRoot, Ec)) continue;
-			for (std::filesystem::recursive_directory_iterator It(ContentRoot, Ec), End; !Ec && It != End; It.increment(Ec))
+			if (!std::filesystem::exists(AssetRoot, Ec)) continue;
+			for (std::filesystem::recursive_directory_iterator It(AssetRoot, Ec), End; !Ec && It != End; It.increment(Ec))
 			{
 				std::error_code FileEc;
 				if (!It->is_regular_file(FileEc) || It->path().extension() != ".dasset") continue;
 				++LastScanStats.Enumerated;
 				FAssetPackageHeader PackageHeader;
 				FAssetPath DiskPath;
-				std::filesystem::path Relative = std::filesystem::relative(It->path(), ContentRoot, FileEc).lexically_normal();
+				std::filesystem::path Relative = std::filesystem::relative(It->path(), AssetRoot, FileEc).lexically_normal();
 				const std::string RelativeString = Relative.generic_string();
 				std::filesystem::path PackageRelative = Relative;
 				PackageRelative.replace_extension();

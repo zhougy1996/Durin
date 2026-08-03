@@ -128,7 +128,7 @@ namespace
 	{
 		InitializeDObjectSystem();
 		Durin::PathUtilities::FScopedMountRegistryFixture MountFixture;
-		Durin::PathUtilities::RegisterMountPoint(
+		Durin::PathUtilities::RegisterMountPointForTests(
 			"/EditorRevisionTests/",
 			Durin::Testing::GetTestWorkDirectory().generic_string() + "/"
 		);

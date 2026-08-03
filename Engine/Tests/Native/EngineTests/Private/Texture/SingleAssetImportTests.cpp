@@ -20,7 +20,7 @@ namespace
 			Durin::Testing::GetTestWorkDirectory() / "SingleAssetImportStage2";
 		static const bool Initialized = [&] {
 			Durin::Testing::RemoveTestWorkDirectory(Root);
-			Durin::PathUtilities::RegisterMountPoint(
+			Durin::PathUtilities::RegisterMountPointForTests(
 				"/SingleAssetStage2/", Root.generic_string() + "/");
 			return true;
 		}();

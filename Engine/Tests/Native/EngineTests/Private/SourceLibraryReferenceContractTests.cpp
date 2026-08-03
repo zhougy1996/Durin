@@ -140,7 +140,7 @@ TEST(FSourcePathContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 		EXPECT_EQ(TextureCubeClass->FindPropertyByName(RetiredField), nullptr);
 }
 
-TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesDomainsAndDependencyCases)
+TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesSingleRootsCapabilitiesAndDependencyCases)
 {
 	const std::filesystem::path Path =
 		std::filesystem::path(DURIN_TEST_DATA_DIR) / "SourceLibraryReferences" / "UnifiedMountContract.json";
@@ -156,16 +156,15 @@ TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesDomainsAndDependencyCas
 	ASSERT_TRUE(Plugin.IsObject());
 	EXPECT_EQ(Plugin.GetView("Owner").GetString(), "Extension");
 	EXPECT_EQ(Plugin.GetView("Root").GetString(), "Plugin");
-	EXPECT_EQ(Plugin.GetView("Domains").GetView("Content").GetString(), "Content");
-	EXPECT_EQ(Plugin.GetView("Domains").GetView("SourceAssets").GetString(), "SourceAssets");
-	EXPECT_TRUE(Plugin.GetView("SourceWritable").IsBool());
-	EXPECT_FALSE(Plugin.GetView("SourceWritable").GetBool());
+	EXPECT_TRUE(Plugin.GetView("AssetPackages").GetBool());
+	EXPECT_FALSE(Plugin.GetView("AuthoringWritable").GetBool());
 
-	const Durin::FJsonNodeView SourceOnly = FindNamedEntry(Mounts, "/Libraries/StudioArt/");
-	ASSERT_TRUE(SourceOnly.IsObject());
-	EXPECT_EQ(SourceOnly.GetView("Owner").GetString(), "ExternalSources");
-	EXPECT_FALSE(SourceOnly.GetView("Domains").Contains("Content"));
-	EXPECT_EQ(SourceOnly.GetView("Domains").GetView("SourceAssets").GetString(), ".");
+	const Durin::FJsonNodeView External = FindNamedEntry(Mounts, "/Libraries/StudioArt/");
+	ASSERT_TRUE(External.IsObject());
+	EXPECT_EQ(External.GetView("Owner").GetString(), "ExternalSources");
+	EXPECT_EQ(External.GetView("Root").GetString(), "StudioArt");
+	EXPECT_FALSE(External.GetView("AssetPackages").GetBool());
+	EXPECT_FALSE(External.GetView("AuthoringWritable").GetBool());
 
 	const Durin::FJsonNodeView Cases = Contract.GetRootView().GetView("Cases");
 	ASSERT_TRUE(Cases.IsArray());
@@ -173,8 +172,8 @@ TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesDomainsAndDependencyCas
 	EXPECT_EQ(FindNamedEntry(Cases, "GameToEngineSource").GetView("ExpectedError").GetString(), "None");
 	EXPECT_EQ(FindNamedEntry(Cases, "EngineToGameSource").GetView("ExpectedError").GetString(), "ForbiddenDependency");
 	EXPECT_EQ(FindNamedEntry(Cases, "GameToPluginSource").GetView("ExpectedError").GetString(), "None");
-	EXPECT_EQ(FindNamedEntry(Cases, "SourceOnlyContent").GetView("ExpectedError").GetString(), "UnsupportedDomain");
-	EXPECT_EQ(FindNamedEntry(Cases, "SourceOnlySource").GetView("ExpectedError").GetString(), "None");
+	EXPECT_EQ(FindNamedEntry(Cases, "PackageDisabledAsset").GetView("ExpectedError").GetString(), "AssetPackagesDisabled");
+	EXPECT_EQ(FindNamedEntry(Cases, "PackageDisabledSource").GetView("ExpectedError").GetString(), "None");
 }
 
 TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
@@ -183,11 +182,10 @@ TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
 		Durin::Testing::GetTestWorkDirectory() / "MountedSourceOperations";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	const std::filesystem::path EngineSource =
-		Root / "Engine" / "SourceAssets" / "Textures" / "Shared.bin";
+		Root / "Engine" / "Content" / "Textures" / "Shared.bin";
 	const std::filesystem::path ExternalSource = Root / "External" / "Input.bin";
 	std::filesystem::create_directories(EngineSource.parent_path());
 	std::filesystem::create_directories(ExternalSource.parent_path());
-	std::filesystem::create_directories(Root / "Game" / "SourceAssets");
 	std::filesystem::create_directories(Root / "Game" / "Content");
 	{
 		std::ofstream Stream(EngineSource, std::ios::binary);
@@ -201,17 +199,15 @@ TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
 		Durin::PathUtilities::FMountPoint{
 			.VirtualRoot = "/Engine/",
 			.Owner = Durin::PathUtilities::EMountOwner::Engine,
-			.OwnerRoot = Root / "Engine",
-			.ContentRoot = Root / "Engine" / "Content",
-			.SourceAssetsRoot = Root / "Engine" / "SourceAssets",
-			.bSourceWritable = true},
+			.Root = Root / "Engine" / "Content",
+			.bAssetPackages = true,
+			.bAuthoringWritable = true},
 		Durin::PathUtilities::FMountPoint{
 			.VirtualRoot = "/Game/",
 			.Owner = Durin::PathUtilities::EMountOwner::ActiveProject,
-			.OwnerRoot = Root / "Game",
-			.ContentRoot = Root / "Game" / "Content",
-			.SourceAssetsRoot = Root / "Game" / "SourceAssets",
-			.bSourceWritable = true,
+			.Root = Root / "Game" / "Content",
+			.bAssetPackages = true,
+			.bAuthoringWritable = true,
 			.Dependencies = {"/Engine/"}}};
 	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Mounts);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
@@ -223,7 +219,7 @@ TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
 	EXPECT_EQ(Prepared.SourcePath.Path, "/Engine/Textures/Shared.bin");
 	EXPECT_EQ(Prepared.Disposition, Durin::ESourceFileDisposition::ReferenceExisting);
 	EXPECT_FALSE(Prepared.bCreatedFile);
-	EXPECT_FALSE(std::filesystem::exists(Root / "Game" / "SourceAssets" / "Unused.bin"));
+	EXPECT_FALSE(std::filesystem::exists(Root / "Game" / "Content" / "Unused.bin"));
 
 	ASSERT_TRUE(Durin::PrepareMountedSourceFile(
 		ExternalSource, "/Game/Textures/Asset", "/Game/Textures/Ingested.bin",
@@ -233,7 +229,7 @@ TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
 	ASSERT_TRUE(std::filesystem::is_regular_file(Prepared.PhysicalPath));
 	Durin::RollbackMountedSourceFile(Prepared);
 	EXPECT_FALSE(std::filesystem::exists(
-		Root / "Game" / "SourceAssets" / "Textures" / "Ingested.bin"));
+		Root / "Game" / "Content" / "Textures" / "Ingested.bin"));
 
 	ASSERT_TRUE(Durin::PrepareMountedSourceFile(
 		ExternalSource, "/Game/Textures/Asset", "/Game/Textures/Ingested.bin",
@@ -254,7 +250,7 @@ TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
 	EXPECT_TRUE(Replacement.bPublished);
 	Durin::RollbackMountedSourceReplacement(Replacement);
 	std::ifstream Restored(
-		Root / "Game" / "SourceAssets" / "Textures" / "Ingested.bin",
+		Root / "Game" / "Content" / "Textures" / "Ingested.bin",
 		std::ios::binary);
 	std::string RestoredBytes(
 		(std::istreambuf_iterator<char>(Restored)), std::istreambuf_iterator<char>());

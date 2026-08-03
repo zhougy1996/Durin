@@ -23,10 +23,9 @@ namespace
 		return {
 			.VirtualRoot = "/ImportCoreTests/",
 			.Owner = Durin::PathUtilities::EMountOwner::Test,
-			.OwnerRoot = Root,
-			.ContentRoot = Root / "Content",
-			.SourceAssetsRoot = Root / "SourceAssets",
-			.bSourceWritable = true};
+			.Root = Root / "Content",
+			.bAssetPackages = true,
+			.bAuthoringWritable = true};
 	}
 
 	auto Sanitize(std::string Value) -> std::string
@@ -253,7 +252,7 @@ TEST(FAssetImportCoreTests, CapturedBytesRemainImmutableAfterPhysicalSourceChang
 {
 	const std::filesystem::path Root =
 		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreImmutable");
-	WriteSource(Root / "SourceAssets" / "Root.graph", "graph\nembedded payload original\n");
+	WriteSource(Root / "Content" / "Root.graph", "graph\nembedded payload original\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	Durin::AssetImport::FProviderRegistry Registry;
@@ -262,7 +261,7 @@ TEST(FAssetImportCoreTests, CapturedBytesRemainImmutableAfterPhysicalSourceChang
 	Durin::AssetImport::FSourceSnapshotBuilder Builder;
 	std::vector<Durin::AssetImport::FImportDiagnostic> Diagnostics;
 	ASSERT_TRUE(Builder.CaptureRoot({.Path = "/ImportCoreTests/Root.graph"}, Diagnostics));
-	WriteSource(Root / "SourceAssets" / "Root.graph", "graph\nchanged after capture\n");
+	WriteSource(Root / "Content" / "Root.graph", "graph\nchanged after capture\n");
 	ASSERT_TRUE(Builder.DiscoverDependencies(Registry.Find("Tests.Graph"), Diagnostics));
 	const std::shared_ptr<const Durin::AssetImport::FSourceSnapshot> Snapshot =
 		Builder.Freeze(Diagnostics);
@@ -291,8 +290,8 @@ TEST(FAssetImportCoreTests, RejectsTraversalAndRequiredMissingDependencies)
 {
 	const std::filesystem::path Root =
 		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreUnsafe");
-	WriteSource(Root / "SourceAssets" / "Traversal.graph", "graph\ndep escape ../Outside.bin\n");
-	WriteSource(Root / "SourceAssets" / "Missing.graph", "graph\ndep absent Missing.bin\n");
+	WriteSource(Root / "Content" / "Traversal.graph", "graph\ndep escape ../Outside.bin\n");
+	WriteSource(Root / "Content" / "Missing.graph", "graph\ndep absent Missing.bin\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	Durin::AssetImport::FProviderRegistry Registry;
@@ -315,9 +314,9 @@ TEST(FAssetImportCoreTests, HandlesOptionalDuplicateAndCyclicDependenciesCanonic
 {
 	const std::filesystem::path Root =
 		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreClosure");
-	WriteSource(Root / "SourceAssets" / "Root.graph",
+	WriteSource(Root / "Content" / "Root.graph",
 		"graph\ndep child Child.graph\ndep child Child.graph\noptional absent Missing.bin\n");
-	WriteSource(Root / "SourceAssets" / "Child.graph", "graph\ndep root Root.graph\n");
+	WriteSource(Root / "Content" / "Child.graph", "graph\ndep root Root.graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	Durin::AssetImport::FProviderRegistry Registry;
@@ -342,8 +341,8 @@ TEST(FAssetImportCoreTests, EnforcesSourceCountByteAndSettingsBudgets)
 {
 	const std::filesystem::path Root =
 		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreBudgets");
-	WriteSource(Root / "SourceAssets" / "Root.graph", "graph\ndep child Child.graph\n");
-	WriteSource(Root / "SourceAssets" / "Child.graph", "graph\n");
+	WriteSource(Root / "Content" / "Root.graph", "graph\ndep child Child.graph\n");
+	WriteSource(Root / "Content" / "Child.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	Durin::AssetImport::FProviderRegistry Registry;
@@ -381,7 +380,7 @@ TEST(FAssetImportCoreTests, EnforcesSourceCountByteAndSettingsBudgets)
 	EXPECT_EQ(DepthResult.Diagnostics.back().Category,
 		Durin::AssetImport::EImportDiagnosticCategory::ResourceLimitExceeded);
 
-	WriteSource(Root / "SourceAssets" / "Embedded.graph", "graph\nembedded payload bytes\n");
+	WriteSource(Root / "Content" / "Embedded.graph", "graph\nembedded payload bytes\n");
 	Durin::AssetImport::FImportPlanRequest EmbeddedRequest{
 		.RootSource = {.Path = "/ImportCoreTests/Embedded.graph"}};
 	EmbeddedRequest.Limits.MaximumEmbeddedBytes = 2;
@@ -395,10 +394,10 @@ TEST(FAssetImportCoreTests, ProducesDeterministicMutationFreePlans)
 {
 	const std::filesystem::path Root =
 		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreDeterministic");
-	WriteSource(Root / "SourceAssets" / "Root.graph",
+	WriteSource(Root / "Content" / "Root.graph",
 		"graph\ndep beta B.graph\ndep alpha A.graph\nembedded inline bytes\n");
-	WriteSource(Root / "SourceAssets" / "A.graph", "graph\n");
-	WriteSource(Root / "SourceAssets" / "B.graph", "graph\n");
+	WriteSource(Root / "Content" / "A.graph", "graph\n");
+	WriteSource(Root / "Content" / "B.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	Durin::AssetImport::FProviderRegistry Registry;
@@ -428,7 +427,7 @@ TEST(FAssetImportCoreTests, ReportsProviderAbsenceAmbiguityAndRetainsLeases)
 {
 	const std::filesystem::path Root =
 		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreProviders");
-	WriteSource(Root / "SourceAssets" / "Root.graph", "graph\n");
+	WriteSource(Root / "Content" / "Root.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	Durin::AssetImport::FProviderRegistry Registry;
@@ -466,7 +465,7 @@ TEST(FAssetImportCoreTests, ReportsSynchronousPhaseBoundariesAndDiagnosticContex
 {
 	const std::filesystem::path Root =
 		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreProgress");
-	WriteSource(Root / "SourceAssets" / "Root.graph", "graph\n");
+	WriteSource(Root / "Content" / "Root.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	Durin::AssetImport::FProviderRegistry Registry;
@@ -524,9 +523,9 @@ TEST(FAssetImportCoreTests, AsyncPreparationMatchesSynchronousPlan)
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	const std::filesystem::path Root =
 		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreAsyncEquivalence");
-	WriteSource(Root / "SourceAssets" / "Root.graph",
+	WriteSource(Root / "Content" / "Root.graph",
 		"graph\ndep child Child.graph\nembedded inline bytes\n");
-	WriteSource(Root / "SourceAssets" / "Child.graph", "graph\n");
+	WriteSource(Root / "Content" / "Child.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	auto& Registry = Durin::AssetImport::GetProviderRegistry();
@@ -568,7 +567,7 @@ TEST(FAssetImportCoreTests, NewOwnerSerialSupersedesOlderMailboxResult)
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
 	const std::filesystem::path Root =
 		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreAsyncSerial");
-	WriteSource(Root / "SourceAssets" / "Root.graph", "graph\n");
+	WriteSource(Root / "Content" / "Root.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	auto& Registry = Durin::AssetImport::GetProviderRegistry();
@@ -604,7 +603,7 @@ TEST(FAssetImportCoreTests, ProviderBarrierCancelsWorkerAndReleasesLeaseBeforeUn
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
 	const std::filesystem::path Root =
 		Durin::Testing::CreateTestFixtureDirectory("AssetImportCoreAsyncUnload");
-	WriteSource(Root / "SourceAssets" / "Root.graph", "graph\n");
+	WriteSource(Root / "Content" / "Root.graph", "graph\n");
 	const std::array Mounts = {MakeMount(Root)};
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	auto& Registry = Durin::AssetImport::GetProviderRegistry();

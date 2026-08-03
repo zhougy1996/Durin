@@ -253,7 +253,7 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	if (InitializedRoots.insert(Root).second)
 	{
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::PathUtilities::RegisterMountPoint("/LevelTests/", Root.generic_string() + "/");
+		Durin::PathUtilities::RegisterMountPointForTests("/LevelTests/", Root.generic_string() + "/");
 	}
 
 	Durin::FAssetPath Path;

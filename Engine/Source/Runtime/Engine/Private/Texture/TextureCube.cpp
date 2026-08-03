@@ -167,7 +167,7 @@ namespace Durin
 					PathUtilities::ResolveSourcePath(
 						SourcePath, PathUtilities::EPathExistence::AllowMissing);
 				if (!Resolved
-					&& Resolved.Error != PathUtilities::EMountPathError::UnavailableDomain)
+					&& Resolved.Error != PathUtilities::EMountPathError::UnavailableRoot)
 				{
 					OutError = Resolved.Message;
 					return false;

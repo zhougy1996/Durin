@@ -171,7 +171,7 @@ namespace
 			Durin::Testing::RemoveTestWorkDirectory(Root);
 			Durin::FPaths::SetDerivedDataCacheDirForTests(
 				(Durin::Testing::GetTestWorkDirectory() / "DerivedDataCache").generic_string());
-			Durin::PathUtilities::RegisterMountPoint("/TestAssets/", Root.generic_string() + "/");
+			Durin::PathUtilities::RegisterMountPointForTests("/TestAssets/", Root.generic_string() + "/");
 			return true;
 		}();
 		(void)Initialized;
@@ -1162,7 +1162,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	const auto ValidSource = OriginalAssets / "RegistryReconciliationSeed.dasset";
 	std::filesystem::copy_file(ValidSource, ContentA / "Alpha.dasset");
 	std::filesystem::copy_file(ValidSource, ContentA / "Beta.dasset");
-	Durin::PathUtilities::RegisterMountPoint("/TestAssets/", ContentA.generic_string() + "/");
+	Durin::PathUtilities::RegisterMountPointForTests("/TestAssets/", ContentA.generic_string() + "/");
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	auto& Registry = Durin::Asset::FAssetManager::Get().GetRegistry();
 
@@ -1245,14 +1245,14 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 		std::filesystem::copy_file(Source, Destination);
 		std::filesystem::last_write_time(Destination, std::filesystem::last_write_time(Source));
 	}
-	Durin::PathUtilities::RegisterMountPoint("/TestAssets/", ContentB.generic_string() + "/");
+	Durin::PathUtilities::RegisterMountPointForTests("/TestAssets/", ContentB.generic_string() + "/");
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 2u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
 
 	const auto AdditionalContent = WorkRoot / "AdditionalContent";
 	std::filesystem::create_directories(AdditionalContent);
-	Durin::PathUtilities::RegisterMountPoint("/Additional/", AdditionalContent.generic_string() + "/");
+	Durin::PathUtilities::RegisterMountPointForTests("/Additional/", AdditionalContent.generic_string() + "/");
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
 	EXPECT_NE(Registry.GetCacheWarning().find("mount manifest changed"), std::string::npos);
@@ -1273,7 +1273,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	const auto CacheRoot = WorkRoot / "DerivedDataCache";
 	Durin::Testing::RemoveTestWorkDirectory(WorkRoot);
 	std::filesystem::create_directories(ContentRoot);
-	Durin::PathUtilities::RegisterMountPoint("/TestAssets/", ContentRoot.generic_string() + "/");
+	Durin::PathUtilities::RegisterMountPointForTests("/TestAssets/", ContentRoot.generic_string() + "/");
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	auto& Registry = Durin::Asset::GetAssetRegistry();
 	ASSERT_TRUE(Registry.ScanMountedContent(Durin::Asset::EAssetRegistryScanMode::FullValidation));

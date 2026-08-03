@@ -26,8 +26,8 @@ namespace
 				PathUtilities::FMountPoint{
 					.VirtualRoot = "/ContentBrowserTests/",
 					.Owner = PathUtilities::EMountOwner::Test,
-					.OwnerRoot = Root,
-					.ContentRoot = Root / "Content"}};
+					.Root = Root / "Content",
+					.bAssetPackages = true}};
 			Registry =
 				std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
 					Definitions);

@@ -9,8 +9,9 @@ Completed:
 
 ## Current Status
 
-- Stage 0 completed on 2026-08-03 against baseline `83e1577d`
-  (`refactor(import): make scene imports folder-centric`). Stage 1 is current.
+- Stages 0 and 1 completed on 2026-08-03. Stage 1 started from baseline
+  `dd63da85` (`docs(mounts): freeze single-root migration contract`); Stage 2
+  is current.
 - The breaking migration remains one physical root per logical mount, with no
   compatibility parser, fallback resolver, or legacy `SourceAssets` lookup.
 - The frozen C++ mount fields are `Root`, `bAssetPackages`, and
@@ -57,11 +58,30 @@ Completed:
   `AssetPackageTests` (29/29), `AssetImportCoreTests` (20/20),
   `AssetCookTests` (11/11), `EditorAssetWorkflowTests` (40/40), and
   `TextureTests` (61/61) using `Win64-Debug-DurinEditor-Tests`.
-- Stage 1 working set starts with `Paths.h`, `Paths.cpp`, `PathsTests.cpp`,
+- Stage 0 handed Stage 1 the working set `Paths.h`, `Paths.cpp`, `PathsTests.cpp`,
   `ProjectTests.cpp`, and `UnifiedMountContract.json`. The key symbols are
   `FMountPoint`, the typed resolver/classifier APIs, descriptor parsing,
   registry publication, and `FScopedMountRegistryFixture`; no open ownership
   or schema question remains.
+- Stage 1 replaced the dual roots with `FMountPoint::Root`, added package and
+  authoring capabilities, unified forward and reverse physical mapping,
+  rejected canonical root overlap, replaced the descriptor parser atomically,
+  and removed the sibling-`SourceAssets` test helper. Package-disabled mounts
+  resolve sources but return `AssetPackagesDisabled` from asset APIs. Public API
+  and fixture call sites were migrated mechanically so the repository remains
+  buildable.
+- Stage 1 validation passed `CoreFileSystemTests` (30 passed, 1 skipped),
+  `EditorAssetWorkflowTests` (40/40), and a full `all` build on
+  `Win64-Debug-DurinEditor-Tests`. Searches found no old Core root fields,
+  Content resolver symbols, domain branches, or old fields in the active
+  unified-mount fixture.
+- Stage 2 working set is the runtime and editor consumers named in Related Code,
+  plus their focused native tests. Key decisions carried forward are that raw
+  and package paths share `Mount.Root`, package discovery filters only on
+  `bAssetPackages`, source reads have no capability gate, and raw-file mutation
+  filters only on `bAuthoringWritable` plus existing ownership/dependency rules.
+  The remaining known legacy behavior is Texture2D's physical `SourceAssets`
+  metadata upgrader and source-domain wording in consumer diagnostics.
 
 ## Goal
 
@@ -276,22 +296,22 @@ Dependencies: none.
 Outcome: registry publication and path resolution use one physical root per
 mount, with no dual-domain parser or fallback.
 
-- [ ] Replace `ContentRoot` and `SourceAssetsRoot` with one mount root and the
+- [x] Replace `ContentRoot` and `SourceAssetsRoot` with one mount root and the
   selected policy fields.
-- [ ] Add one shared forward-resolution and reverse-classification primitive;
+- [x] Add one shared forward-resolution and reverse-classification primitive;
   make typed asset and source entrypoints enforce type rules around that
   primitive.
-- [ ] Rename Content-domain result and API types to asset/package terminology
+- [x] Rename Content-domain result and API types to asset/package terminology
   where they remain public; remove unsupported-domain branches that existed
   only because a second root was optional.
-- [ ] Build `/Game/` and `/Engine/` directly from their Content directories.
-- [ ] Replace descriptor `Domains` parsing with the new exact-field schema and
+- [x] Build `/Game/` and `/Engine/` directly from their Content directories.
+- [x] Replace descriptor `Domains` parsing with the new exact-field schema and
   reject old descriptors as unknown/invalid.
-- [ ] Validate normalized roots, canonical overlap, traversal, longest-prefix
+- [x] Validate normalized roots, canonical overlap, traversal, longest-prefix
   behavior, missing roots, dependency edges, and authoring-write policy.
-- [ ] Replace the legacy test registration helper with a single-root fixture API
+- [x] Replace the legacy test registration helper with a single-root fixture API
   and migrate all direct fixture initializers.
-- [ ] Rewrite Core path tests and the unified mount contract fixture around
+- [x] Rewrite Core path tests and the unified mount contract fixture around
   single-root behavior, including package-disabled external mounts.
 
 Dependencies: Stage 0.
