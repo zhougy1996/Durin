@@ -24,7 +24,7 @@
 #include "Panels/LevelEditorPanel.h"
 #include "Panels/SceneViewportPanel.h"
 #include "Panels/WorldOutlinerPanel.h"
-#include "Assets/StaticMeshImportDialog.h"
+#include "Assets/SceneImportDialog.h"
 #include "Assets/TextureImportDialog.h"
 #include "Assets/TextureCubeImportDialog.h"
 #include "Widgets/EditorNotificationOverlay.h"
@@ -119,9 +119,15 @@ namespace Durin
 				Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
 				if (ContentBrowserPanel) ContentBrowserPanel->RevealAsset(AssetPath);
 			},
+			.ImportedDirectory = [this](std::string DirectoryPath) {
+				Asset::GetAssetRegistry().ScanMountedContent(
+					Asset::EAssetRegistryScanMode::Incremental);
+				if (ContentBrowserPanel)
+					ContentBrowserPanel->RevealDirectory(DirectoryPath);
+			},
 		};
-		StaticMeshImportDialog =
-			MakeImportDialog<FStaticMeshImportDialog>(ImportCallbacks);
+		SceneImportDialog =
+			MakeImportDialog<FSceneImportDialog>(ImportCallbacks);
 		TextureImportDialog =
 			MakeImportDialog<FTextureImportDialog>(ImportCallbacks);
 		TextureCubeImportDialog =
@@ -140,7 +146,7 @@ namespace Durin
 				{
 					if (TextureCubeImportDialog) TextureCubeImportDialog->Open(DestinationDirectory);
 				}
-				else if (StaticMeshImportDialog) StaticMeshImportDialog->Open(DestinationDirectory);
+				else if (SceneImportDialog) SceneImportDialog->Open(DestinationDirectory);
 			},
 			[this](std::span<const FEditorAssetMove> Moves) {
 				return AssetMoveCoordinator->MoveAssets(Moves);
@@ -310,7 +316,8 @@ namespace Durin
 
 	auto MLevelEditor::DrawWorkspace(bool bActive) -> bool
 	{
-		if (!Context || !DocumentController || !StaticMeshImportDialog || !TextureImportDialog) return false;
+		if (!Context || !DocumentController || !SceneImportDialog
+			|| !TextureImportDialog) return false;
 		if (bActive && !bWasActive)
 		{
 			// Internal panel windows are not submitted while another workspace is visible, so
@@ -395,7 +402,7 @@ namespace Durin
 		}
 
 		DocumentController->DrawDialogs();
-		StaticMeshImportDialog->Draw();
+		SceneImportDialog->Draw();
 		TextureImportDialog->Draw();
 		TextureCubeImportDialog->Draw();
 		DrawProjectSettings();

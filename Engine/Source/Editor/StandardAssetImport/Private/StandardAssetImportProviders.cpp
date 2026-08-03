@@ -682,7 +682,8 @@ namespace Durin
 				Result.Orphans = std::move(Executed.OrphanedAssets);
 				Result.Diagnostics = std::move(Executed.Diagnostics);
 				Result.Provider = std::move(Executed.Provider);
-				if (Executed.StaticMesh) Result.Outputs.push_back(Executed.StaticMesh);
+				for (DStaticMesh* Mesh : Executed.Meshes)
+					Result.Outputs.push_back(Mesh);
 				for (DMaterialInstance* Material : Executed.Materials)
 					Result.Outputs.push_back(Material);
 				for (DTexture2D* Texture : Executed.Textures)

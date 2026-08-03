@@ -628,8 +628,8 @@ commands or output paths that may change.
 - `Engine/Source/Editor/LevelEditor/Private/Documents/LevelDocumentController.h`
 - `Engine/Source/Editor/LevelEditor/Private/Documents/LevelDocumentController.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Documents/AssetStructureUpgradeModel.h`
-- `Engine/Source/Editor/LevelEditor/Private/Assets/StaticMeshImportDialog.h`
-- `Engine/Source/Editor/LevelEditor/Private/Assets/StaticMeshImportDialog.cpp`
+- `Engine/Source/Editor/LevelEditor/Private/Assets/SceneImportDialog.h`
+- `Engine/Source/Editor/LevelEditor/Private/Assets/SceneImportDialog.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/TextureImportDialog.h`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/TextureImportDialog.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Assets/TextureCubeImportDialog.h`

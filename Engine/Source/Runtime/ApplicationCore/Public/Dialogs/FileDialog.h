@@ -39,5 +39,6 @@ namespace Durin
 	};
 
 	APPLICATIONCORE_API auto OpenFileDialog(const FFileDialogRequest& Request) -> FFileDialogResult;
+	APPLICATIONCORE_API auto OpenFolderDialog(const FFileDialogRequest& Request) -> FFileDialogResult;
 	APPLICATIONCORE_API auto SaveFileDialog(const FFileDialogRequest& Request) -> FFileDialogResult;
 } // namespace Durin

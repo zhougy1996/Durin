@@ -61,4 +61,40 @@ namespace Durin
 		VirtualPath.replace_extension();
 		return InspectAssetDestination(VirtualPath.generic_string(), OccupancyQuery);
 	}
+
+	auto InspectContentDirectory(std::string_view VirtualPath)
+		-> FContentDirectoryValidation
+	{
+		FContentDirectoryValidation Result;
+		Result.bDirectoryPathValid = FAssetPath::TryCreate(
+			VirtualPath, Result.DirectoryPath, &Result.Message);
+		if (!Result.bDirectoryPathValid) return Result;
+
+		const PathUtilities::FContentPathResult Resolved =
+			PathUtilities::ResolveContentPath(Result.DirectoryPath.GetView());
+		Result.Mount = Resolved.Mount;
+		if (!Resolved)
+		{
+			Result.Message = "Choose a directory inside a mounted Content domain.";
+			return Result;
+		}
+
+		Result.bMountedDestination = true;
+		Result.PhysicalPath = Resolved.PhysicalPath;
+		return Result;
+	}
+
+	auto ClassifyContentDirectory(const std::filesystem::path& PhysicalPath)
+		-> FContentDirectoryValidation
+	{
+		const PathUtilities::FContentPathResult Classified =
+			PathUtilities::ClassifyContentPath(PhysicalPath);
+		if (!Classified)
+		{
+			FContentDirectoryValidation Result;
+			Result.Message = Classified.Message;
+			return Result;
+		}
+		return InspectContentDirectory(Classified.NormalizedVirtualPath);
+	}
 } // namespace Durin

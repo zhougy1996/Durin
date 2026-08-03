@@ -20,6 +20,7 @@ TEST(FImportDialogCallbacksTests, RoutesWorkspaceOutcomes)
 	bool bCleared = false;
 	std::string Error;
 	std::string ImportedPath;
+	std::string ImportedDirectory;
 	const FImportDialogCallbacks Callbacks{
 		.ClearError = [&bCleared] { bCleared = true; },
 		.ReportError = [&Error](std::string Message) {
@@ -28,15 +29,20 @@ TEST(FImportDialogCallbacksTests, RoutesWorkspaceOutcomes)
 		.Imported = [&ImportedPath](std::string AssetPath) {
 			ImportedPath = std::move(AssetPath);
 		},
+		.ImportedDirectory = [&ImportedDirectory](std::string DirectoryPath) {
+			ImportedDirectory = std::move(DirectoryPath);
+		},
 	};
 
 	Callbacks.Clear();
 	Callbacks.Report("Import failed.");
 	Callbacks.NotifyImported("/Project/Textures/Stone");
+	Callbacks.NotifyImportedDirectory("/Project/Scenes/Robot");
 
 	EXPECT_TRUE(bCleared);
 	EXPECT_EQ(Error, "Import failed.");
 	EXPECT_EQ(ImportedPath, "/Project/Textures/Stone");
+	EXPECT_EQ(ImportedDirectory, "/Project/Scenes/Robot");
 }
 
 TEST(FImportDialogDestinationModelTests, PreservesManualPathAcrossSuggestions)
@@ -51,10 +57,6 @@ TEST(FImportDialogDestinationModelTests, PreservesManualPathAcrossSuggestions)
 		Destination.MakeSuggestedPath("Second", "/Project/Textures/"));
 	EXPECT_EQ(Destination.GetPath(), "/Project/Chosen/Second");
 
-	Destination.SuggestPath(
-		Destination.MakeSuggestedPath("Robot/Robot", "/Project/StaticMeshes/"));
-	EXPECT_EQ(Destination.GetPath(), "/Project/Chosen/Robot/Robot");
-
 	ASSERT_TRUE(Destination.SetPath("/Project/Manual"));
 	Destination.SuggestPath(
 		Destination.MakeSuggestedPath("Third", "/Project/Textures/"));
@@ -64,6 +66,24 @@ TEST(FImportDialogDestinationModelTests, PreservesManualPathAcrossSuggestions)
 		FImportDialogDestinationModel::AssetPathCapacity, 'x');
 	EXPECT_FALSE(Destination.SetPath(TooLong));
 	EXPECT_EQ(Destination.GetPath(), "/Project/Manual");
+}
+
+TEST(FImportDialogDirectoryModelTests, SuggestsSceneDirectoryAndPreservesManualPath)
+{
+	FImportDialogDirectoryModel Directory;
+	Directory.Reset("/Project/Chosen");
+	Directory.SuggestPath(
+		Directory.MakeSuggestedPath("Robot", "/Project/Scenes/"));
+	EXPECT_EQ(Directory.GetPath(), "/Project/Chosen/Robot");
+
+	Directory.SuggestPath(
+		Directory.MakeSuggestedPath("Vehicle", "/Project/Scenes/"));
+	EXPECT_EQ(Directory.GetPath(), "/Project/Chosen/Vehicle");
+
+	ASSERT_TRUE(Directory.SetPath("/Project/ManualScene"));
+	Directory.SuggestPath(
+		Directory.MakeSuggestedPath("Character", "/Project/Scenes/"));
+	EXPECT_EQ(Directory.GetPath(), "/Project/ManualScene");
 }
 
 TEST(FImportDialogDestinationModelTests, DelegatesValidationToAssetDestination)

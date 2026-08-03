@@ -142,3 +142,23 @@ TEST_F(FAssetDestinationValidationTests, ClassifiesNormalizedAndNonNormalizedPhy
 	EXPECT_FALSE(Outside.bMountedDestination);
 	EXPECT_FALSE(Outside.Message.empty());
 }
+
+TEST_F(FAssetDestinationValidationTests, ResolvesVirtualContentDirectories)
+{
+	const FContentDirectoryValidation Virtual =
+		InspectContentDirectory("/Project/Scenes/Robot");
+	ASSERT_TRUE(Virtual) << Virtual.Message;
+	EXPECT_EQ(Virtual.DirectoryPath.ToString(), "/Project/Scenes/Robot");
+	EXPECT_EQ(Virtual.PhysicalPath.lexically_normal(),
+		(Root / "Project/Content/Scenes/Robot").lexically_normal());
+
+	const FContentDirectoryValidation Physical = ClassifyContentDirectory(
+		Root / "Project/Content/Scenes/Robot");
+	ASSERT_TRUE(Physical) << Physical.Message;
+	EXPECT_EQ(Physical.DirectoryPath.ToString(), "/Project/Scenes/Robot");
+
+	const FContentDirectoryValidation Outside = ClassifyContentDirectory(
+		Root / "Project/ContentLookalike/Scenes/Robot");
+	EXPECT_FALSE(Outside);
+	EXPECT_FALSE(Outside.Message.empty());
+}

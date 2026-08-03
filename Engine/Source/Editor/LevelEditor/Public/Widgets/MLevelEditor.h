@@ -14,7 +14,7 @@ namespace Durin
 	class FEditorWorkspaceManager;
 	class FLevelDocumentController;
 	class FSceneViewportPanel;
-	class FStaticMeshImportDialog;
+	class FSceneImportDialog;
 	class FTextureImportDialog;
 	class FTextureCubeImportDialog;
 	class FContentBrowserPanel;
@@ -66,7 +66,7 @@ namespace Durin
 		FEditorWorkspaceManager& WorkspaceManager;
 		std::unique_ptr<FLevelDocumentController> DocumentController;
 		std::unique_ptr<FEditorAssetMoveCoordinator> AssetMoveCoordinator;
-		std::unique_ptr<FStaticMeshImportDialog> StaticMeshImportDialog;
+		std::unique_ptr<FSceneImportDialog> SceneImportDialog;
 		std::unique_ptr<FTextureImportDialog> TextureImportDialog;
 		std::unique_ptr<FTextureCubeImportDialog> TextureCubeImportDialog;
 		FEditorNotificationOverlay* NotificationOverlay = nullptr;

@@ -33,6 +33,22 @@ namespace Durin
 		}
 	};
 
+	// Carries the side-effect-free resolution of one virtual Content directory.
+	struct FContentDirectoryValidation
+	{
+		FAssetPath DirectoryPath;
+		const PathUtilities::FMountPoint* Mount = nullptr;
+		std::filesystem::path PhysicalPath;
+		bool bDirectoryPathValid = false;
+		bool bMountedDestination = false;
+		std::string Message;
+
+		explicit operator bool() const
+		{
+			return bDirectoryPathValid && bMountedDestination && Message.empty();
+		}
+	};
+
 	// Validates a virtual asset path and queries occupancy only after Content resolution succeeds.
 	auto InspectAssetDestination(
 		std::string_view VirtualPath,
@@ -44,4 +60,9 @@ namespace Durin
 		const std::filesystem::path& PhysicalPath,
 		FAssetDestinationOccupancyQuery OccupancyQuery = nullptr
 	) -> FAssetDestinationValidation;
+
+	auto InspectContentDirectory(std::string_view VirtualPath)
+		-> FContentDirectoryValidation;
+	auto ClassifyContentDirectory(const std::filesystem::path& PhysicalPath)
+		-> FContentDirectoryValidation;
 } // namespace Durin

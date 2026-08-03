@@ -54,6 +54,12 @@ stable output identities and policies, output fingerprints, accepted diagnostic
 identities, and bounded provider reconciliation state. A rebuildable editor
 index maps managed output paths back to their record.
 
+FBX and glTF enter through the Scene source workflow. The request selects one
+Content destination directory rather than a primary StaticMesh. The provider
+places generated assets in type directories such as `Meshes`, `Materials`, and
+`Textures`, keeps the import record at the destination root, and leaves the
+record's optional primary-output identity unset.
+
 Record reimport starts from the record and reconciles every managed output. It
 reports removed outputs as orphans and never silently deletes or adopts an
 occupied path. Detach, recreate, and repair are explicit record actions.
@@ -108,9 +114,10 @@ retired StaticMesh-owned Scene `ImportManifest`, generated material/texture
 `ImportOwner`, StaticMesh `SourceFile` and duplicate `ImportSettings`,
 StaticMeshComponent `Material`/`Materials`, Texture2D `SourceFile`, and
 TextureCube face/panorama source-string fields have no compatibility reader or
-migration API. Import-record schema 1 and StaticMesh material-slot schema 0 are
-also unsupported. Repository assets must be upgraded or regenerated in the
-same change that removes an old schema.
+migration API. Import-record schema 1, Scene provider contract 1 and settings
+schema 1, and StaticMesh material-slot schema 0 are also unsupported.
+Repository assets must be upgraded or regenerated in the same change that
+removes an old schema.
 
 AssetCore's generic unknown-field reporting and explicit data-loss save guard
 remain safety boundaries, not a migration promise. A package containing a
@@ -124,7 +131,9 @@ import then references the mounted source. Preview shows the complete source
 closure, outputs, policies, collisions, replacements, warnings, resource
 estimates, missing outputs, and orphans before execution. Content Browser
 actions inspect framework capabilities, navigate from any managed output to its
-record, and keep single-asset reimport separate from record reimport.
+record, and keep single-asset reimport separate from record reimport. Scene
+source import is exposed independently from StaticMesh single-asset import and
+reveals its destination directory after publication.
 
 See [Mounted Source Workflows](../Guides/MountedSourceWorkflows.md),
 [Asset Packages](../../Runtime/Assets/AssetPackages.md), and

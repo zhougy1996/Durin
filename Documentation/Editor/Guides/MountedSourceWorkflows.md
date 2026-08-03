@@ -23,7 +23,14 @@ provenance on that asset. A multi-output import publishes peer assets plus an
 editor-only `DImportRecord`; selecting an output does not make it the owner of
 the others. See [Asset Import Framework](../Architecture/AssetImportFramework.md).
 
-The form displays the asset destination and source destination separately,
+Use **Scene Source (FBX/glTF)** for supported scene documents. Choose one output
+directory; the importer creates only populated type directories beneath it,
+currently `Meshes`, `Materials`, and `Textures`, and stores
+`<SourceName>_Import` at the output root. No generated Mesh is treated as the
+primary asset.
+
+The form displays the asset or output-directory destination and source
+destination separately,
 along with mount identity, dependency status, availability, containment, and
 write policy. A Game asset may reference an Engine or declared plugin/library
 source. An Engine asset may not reference Game, and ordinary project authoring

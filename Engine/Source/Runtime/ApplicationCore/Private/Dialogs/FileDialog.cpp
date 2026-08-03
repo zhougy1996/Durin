@@ -127,6 +127,78 @@ namespace Durin
 #endif
 	}
 
+	auto OpenFolderDialog(const FFileDialogRequest& Request) -> FFileDialogResult
+	{
+#if defined(_WIN32)
+		FComScope ComScope;
+		if (FAILED(ComScope.Result))
+			return {EFileDialogStatus::Error, {},
+				HResultMessage("COM initialization", ComScope.Result)};
+
+		IFileOpenDialog* Dialog = nullptr;
+		HRESULT Result = ::CoCreateInstance(
+			CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&Dialog));
+		if (FAILED(Result))
+			return {EFileDialogStatus::Error, {},
+				HResultMessage("Creating the folder dialog", Result)};
+
+		if (!Request.Title.empty())
+		{
+			const std::wstring Title = StringUtils::Utf8ToWide(Request.Title);
+			Dialog->SetTitle(Title.c_str());
+		}
+
+		FILEOPENDIALOGOPTIONS Options = 0;
+		if (SUCCEEDED(Dialog->GetOptions(&Options)))
+		{
+			Dialog->SetOptions(Options | FOS_FORCEFILESYSTEM | FOS_PICKFOLDERS
+				| FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR);
+		}
+
+		Result = SetInitialFolder(Dialog, Request.InitialDirectory);
+		if (FAILED(Result))
+		{
+			Dialog->Release();
+			return {EFileDialogStatus::Error, {},
+				HResultMessage("Setting the initial folder dialog directory", Result)};
+		}
+
+		Result = Dialog->Show(static_cast<HWND>(Request.ParentWindowHandle));
+		if (Result == HRESULT_FROM_WIN32(ERROR_CANCELLED))
+		{
+			Dialog->Release();
+			return {EFileDialogStatus::Cancelled, {}, {}};
+		}
+		if (FAILED(Result))
+		{
+			Dialog->Release();
+			return {EFileDialogStatus::Error, {},
+				HResultMessage("Showing the folder dialog", Result)};
+		}
+
+		IShellItem* SelectedItem = nullptr;
+		Result = Dialog->GetResult(&SelectedItem);
+		Dialog->Release();
+		if (FAILED(Result))
+			return {EFileDialogStatus::Error, {},
+				HResultMessage("Reading the selected folder", Result)};
+
+		PWSTR SelectedPath = nullptr;
+		Result = SelectedItem->GetDisplayName(SIGDN_FILESYSPATH, &SelectedPath);
+		SelectedItem->Release();
+		if (FAILED(Result))
+			return {EFileDialogStatus::Error, {},
+				HResultMessage("Reading the selected folder path", Result)};
+
+		std::string FolderPath = StringUtils::WideToUtf8(SelectedPath);
+		::CoTaskMemFree(SelectedPath);
+		return {EFileDialogStatus::Selected, std::move(FolderPath), {}};
+#else
+		return {EFileDialogStatus::Error, {},
+			"Native folder dialogs are not supported on this platform."};
+#endif
+	}
+
 	auto SaveFileDialog(const FFileDialogRequest& Request) -> FFileDialogResult
 	{
 #if defined(_WIN32)

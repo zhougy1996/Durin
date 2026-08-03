@@ -43,7 +43,7 @@ namespace Durin
 
 		struct FDecodedSceneSettings
 		{
-			FAssetPath PrimaryOutput;
+			FAssetPath DestinationDirectory;
 			FStaticMeshImportSettings MeshSettings;
 		};
 
@@ -66,15 +66,15 @@ namespace Durin
 		}
 
 		auto MakeSceneSettings(
-			const FAssetPath& PrimaryOutput,
+			const FAssetPath& DestinationDirectory,
 			const FStaticMeshImportSettings& Settings,
 			FImportPayload& OutPayload,
 			std::string& OutError) -> bool
 		{
-			const std::string Path = PrimaryOutput.ToString();
+			const std::string Path = DestinationDirectory.ToString();
 			if (Path.size() > std::numeric_limits<uint32>::max())
 			{
-				OutError = "Scene primary output path is too large.";
+				OutError = "Scene destination directory path is too large.";
 				return false;
 			}
 			std::vector<uint8> Bytes;
@@ -85,7 +85,7 @@ namespace Durin
 			AppendValue(Bytes, Settings.UpAxis);
 			OutPayload = {
 				.SchemaId = "Durin.Scene.ImportSettings",
-				.SchemaVersion = 1,
+				.SchemaVersion = 2,
 				.Bytes = std::move(Bytes)};
 			return OutPayload.Finalize(OutError);
 		}
@@ -96,7 +96,7 @@ namespace Durin
 			std::string& OutError) -> bool
 		{
 			if (Payload.SchemaId != "Durin.Scene.ImportSettings"
-				|| Payload.SchemaVersion != 1)
+				|| Payload.SchemaVersion != 2)
 			{
 				OutError = "Scene settings schema is unsupported.";
 				return false;
@@ -113,7 +113,7 @@ namespace Durin
 			const std::string Path(
 				reinterpret_cast<const char*>(Payload.Bytes.data() + Offset), PathSize);
 			Offset += PathSize;
-			if (!FAssetPath::TryCreate(Path, OutSettings.PrimaryOutput, &OutError)
+			if (!FAssetPath::TryCreate(Path, OutSettings.DestinationDirectory, &OutError)
 				|| !ReadValue(std::span<const uint8>(Payload.Bytes), Offset,
 					OutSettings.MeshSettings.ForwardAxis)
 				|| !ReadValue(std::span<const uint8>(Payload.Bytes), Offset,
@@ -244,17 +244,18 @@ namespace Durin
 			return Candidate;
 		}
 
-		auto MakeChildPath(
-			const FAssetPath& Root,
+		auto MakeSceneOutputPath(
+			const FAssetPath& DestinationDirectory,
 			std::string_view DirectoryName,
 			std::string_view Leaf,
 			FAssetPath& OutPath,
 			std::string& OutError) -> bool
 		{
-			const std::filesystem::path RootPath(Root.ToString());
+			std::filesystem::path OutputPath(DestinationDirectory.ToString());
+			if (!DirectoryName.empty()) OutputPath /= DirectoryName;
+			OutputPath /= Leaf;
 			return FAssetPath::TryCreate(
-				(RootPath.parent_path() / std::string(DirectoryName)
-					/ std::string(Leaf)).generic_string(), OutPath, &OutError);
+				OutputPath.generic_string(), OutPath, &OutError);
 		}
 
 		auto StableSuffix(std::string_view Value) -> std::string
@@ -398,10 +399,11 @@ namespace Durin
 				std::vector<FImportDiagnostic>&) const -> bool override
 			{
 				std::string Error;
-				FAssetPath DefaultOutput;
-				if (!FAssetPath::TryCreate("/Imported/Scene", DefaultOutput, &Error)) return false;
+				FAssetPath DefaultDirectory;
+				if (!FAssetPath::TryCreate(
+					"/Imported/Scene", DefaultDirectory, &Error)) return false;
 				return MakeSceneSettings(
-					DefaultOutput,
+					DefaultDirectory,
 					FStaticMeshImportSettings::MakeDurin(), OutSettings, Error);
 			}
 			auto DiscoverDependencies(
@@ -454,6 +456,16 @@ namespace Durin
 					return false;
 				}
 				if (CheckCanceled()) return false;
+				const FSourceSnapshotEntry* RootSource = Snapshot.FindSource("root");
+				if (!RootSource)
+				{
+					AddDiagnostic(OutDiagnostics, EImportDiagnosticCategory::InvalidSource,
+						"scene-plan", "Scene snapshot has no root source.", "root");
+					return false;
+				}
+				const std::string SceneName = SanitizeAssetName(
+					std::filesystem::path(RootSource->SourcePath.Path)
+						.stem().generic_string(), "Scene");
 				uint64 MeshBytes = 0;
 				for (const Asset::FImportedMeshData& Mesh : Data->Scene.Meshes)
 				{
@@ -467,10 +479,13 @@ namespace Durin
 						MeshBytes += UVs.size() * sizeof(UVs.front());
 				}
 
+				FAssetPath MeshPath;
+				if (!MakeSceneOutputPath(Decoded.DestinationDirectory, "Meshes",
+					SceneName, MeshPath, Error)) return false;
 				Builder.AddOutput({
-					.StableIdentity = "scene:mesh:primary",
+					.StableIdentity = "scene:mesh:combined",
 					.Role = "StaticMesh",
-					.AssetPath = Decoded.PrimaryOutput,
+					.AssetPath = MeshPath,
 					.AssetClassName = "Durin::DStaticMesh",
 					.Policy = EImportOutputPolicy::Create,
 					.Collision = EImportCollisionAction::Create,
@@ -478,7 +493,7 @@ namespace Durin
 					.EstimatedGpuBytes = MeshBytes,
 					.EstimatedDiskBytes = MeshBytes});
 				Data->Outputs.push_back({
-					.StableIdentity = "scene:mesh:primary",
+					.StableIdentity = "scene:mesh:combined",
 					.Kind = ESceneOutputKind::StaticMesh});
 
 				std::unordered_set<uint32> UsedMaterialIndices;
@@ -506,7 +521,7 @@ namespace Durin
 					const std::string MaterialIdentity =
 						std::string("scene:material:") + StableSuffix(MaterialKey);
 					FAssetPath MaterialPath;
-					if (!MakeChildPath(Decoded.PrimaryOutput, "Materials",
+					if (!MakeSceneOutputPath(Decoded.DestinationDirectory, "Materials",
 						MakeUniqueName(Material->SourceName, "Material", MaterialNames),
 						MaterialPath, Error)) return false;
 					FSceneOutputData MaterialOutput{
@@ -527,7 +542,7 @@ namespace Durin
 							const std::string TextureIdentity =
 								std::string("scene:texture:") + StableSuffix(TextureKey);
 							FAssetPath TexturePath;
-							if (!MakeChildPath(Decoded.PrimaryOutput, "Textures",
+							if (!MakeSceneOutputPath(Decoded.DestinationDirectory, "Textures",
 								MakeUniqueName(Image.SuggestedName + "_BaseColor",
 									"Image_BaseColor", TextureNames), TexturePath, Error)) return false;
 							Builder.AddOutput({
@@ -817,14 +832,14 @@ namespace Durin
 
 	auto PrepareSceneSourceBundle(
 		const std::filesystem::path& InputRoot,
-		std::string_view ReferencingAssetPath,
+		std::string_view ReferencingContentPath,
 		std::string_view ExternalIngestDestination,
 		FPreparedSceneSourceBundle& OutBundle,
 		std::string& OutError) -> bool
 	{
 		OutBundle = {};
 		FMountedSourceFile Root;
-		if (!PrepareMountedSourceFile(InputRoot, ReferencingAssetPath,
+		if (!PrepareMountedSourceFile(InputRoot, ReferencingContentPath,
 			ExternalIngestDestination, Root, OutError)) return false;
 		OutBundle.RootSource = Root.SourcePath;
 		OutBundle.Sources.push_back(std::move(Root));
@@ -858,7 +873,7 @@ namespace Durin
 				}
 				FMountedSourceFile Dependency;
 				if (!PrepareMountedSourceFile(
-					InputParent / Relative, ReferencingAssetPath,
+					InputParent / Relative, ReferencingContentPath,
 					(TargetParent / Relative).generic_string(), Dependency, OutError))
 					return false;
 				OutBundle.Sources.push_back(std::move(Dependency));
@@ -908,9 +923,14 @@ namespace Durin
 				|| !FAssetPath::TryCreate(Request.ExistingRecord->GetPackage()->GetPackagePath(),
 					RecordPath, &Result.Message)) return Result;
 		}
-		else if (!MakeSiblingImportRecordPath(Request.PrimaryOutput,
-			std::filesystem::path(Request.RootSource.Path).stem().generic_string(),
-			RecordPath, Result.Message)) return Result;
+		else
+		{
+			const std::string RecordName = SanitizeAssetName(
+				std::filesystem::path(Request.RootSource.Path).stem().generic_string(),
+				"Scene") + "_Import";
+			if (!MakeSceneOutputPath(Request.DestinationDirectory, {}, RecordName,
+				RecordPath, Result.Message)) return Result;
+		}
 		FImportRecordPayload ProviderState;
 		if (!MakeImportRecordPayload("Durin.Scene.ProviderState", 1, {},
 			MaximumImportRecordProviderStateBytes, ProviderState, Result.Message)) return Result;
@@ -919,7 +939,7 @@ namespace Durin
 			.RecordPath = RecordPath,
 			.ExistingRecord = Request.ExistingRecord,
 			.ProviderState = std::move(ProviderState),
-			.PrimaryOutput = Request.PrimaryOutput,
+			.PrimaryOutput = {},
 			.bRecreateMissingManagedOutputs = Request.bRecreateMissingManagedOutputs,
 			.Progress = Request.Progress},
 			GetImportRecordIndex());
@@ -943,11 +963,11 @@ namespace Durin
 	auto PlanSceneImport(const FSceneImportRequest& Request) -> FSceneImportPlanResult
 	{
 		FSceneImportPlanResult Invalid;
-		if (Request.RootSource.IsEmpty() || !Request.PrimaryOutput.IsValid()
+		if (Request.RootSource.IsEmpty() || !Request.DestinationDirectory.IsValid()
 			|| !Request.MeshSettings.IsValid(&Invalid.Message))
 		{
 			if (Invalid.Message.empty()) Invalid.Message =
-				"Scene import requires a mounted root source and valid primary output.";
+				"Scene import requires a mounted root source and destination directory.";
 			return Invalid;
 		}
 		std::string Error;
@@ -958,7 +978,7 @@ namespace Durin
 		}
 		FImportPayload Settings;
 		if (!MakeSceneSettings(
-			Request.PrimaryOutput, Request.MeshSettings, Settings, Invalid.Message))
+			Request.DestinationDirectory, Request.MeshSettings, Settings, Invalid.Message))
 			return Invalid;
 		FImportPlanResult Generic = CreateImportPlan({
 			.RootSource = Request.RootSource,
@@ -985,11 +1005,11 @@ namespace Durin
 		Handle.Request = Request;
 		Handle.Request.Progress = nullptr;
 		FSceneImportPlanResult Invalid;
-		if (Request.RootSource.IsEmpty() || !Request.PrimaryOutput.IsValid()
+		if (Request.RootSource.IsEmpty() || !Request.DestinationDirectory.IsValid()
 			|| !Request.MeshSettings.IsValid(&Invalid.Message))
 		{
 			if (Invalid.Message.empty()) Invalid.Message =
-				"Scene import requires a mounted root source and valid primary output.";
+				"Scene import requires a mounted root source and destination directory.";
 			Handle.ImmediateResult = std::move(Invalid);
 			return Handle;
 		}
@@ -1002,7 +1022,7 @@ namespace Durin
 		}
 		FImportPayload Settings;
 		if (!MakeSceneSettings(
-			Request.PrimaryOutput, Request.MeshSettings, Settings, Invalid.Message))
+			Request.DestinationDirectory, Request.MeshSettings, Settings, Invalid.Message))
 		{
 			Handle.ImmediateResult = std::move(Invalid);
 			return Handle;
@@ -1083,7 +1103,7 @@ namespace Durin
 			|| !DecodeSceneSettings(Payload, Settings, Result.Message)) return Result;
 		return PlanSceneImport({
 			.RootSource = Root->SourcePath,
-			.PrimaryOutput = Record.GetPrimaryOutput(),
+			.DestinationDirectory = Settings.DestinationDirectory,
 			.MeshSettings = Settings.MeshSettings,
 			.ExistingRecord = &Record,
 			.bRecreateMissingManagedOutputs = bRecreateMissingManagedOutputs,
@@ -1227,7 +1247,7 @@ namespace Durin
 					Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot().FindSource("root");
 				if (!Root || !PrepareMountedSourceBytes(
 					Bytes,
-					Plan.MultiOutputPlan.GetPrimaryOutput().ToString(),
+					Plan.MultiOutputPlan.GetRecordPath().ToString(),
 					MakeEmbeddedImageSourcePath(Root->SourcePath, Image, Bytes),
 					EmbeddedSource,
 					Error))
@@ -1354,7 +1374,7 @@ namespace Durin
 		Result.Provider = std::move(Executed.Provider);
 		for (DObject* Output : Executed.Outputs)
 		{
-			if (auto* Mesh = Cast<DStaticMesh>(Output)) Result.StaticMesh = Mesh;
+			if (auto* Mesh = Cast<DStaticMesh>(Output)) Result.Meshes.push_back(Mesh);
 			else if (auto* Material = Cast<DMaterialInstance>(Output))
 				Result.Materials.push_back(Material);
 			else if (auto* Texture = Cast<DTexture2D>(Output))

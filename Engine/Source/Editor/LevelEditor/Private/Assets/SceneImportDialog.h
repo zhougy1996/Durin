@@ -7,42 +7,42 @@
 
 namespace Durin
 {
-	// Selects a predefined static-mesh import policy.
-	enum class EStaticMeshImportPreset : uint8
+	// Selects the mesh-coordinate policy applied while importing a Scene source.
+	enum class ESceneMeshImportPreset : uint8
 	{
 		Durin,
 		YUpNegativeZForward,
 		Custom
 	};
 
-	// Collects static-mesh import options and reports import progress.
-	class FStaticMeshImportDialog
+	// Imports one supported Scene source into a typed multi-asset directory.
+	class FSceneImportDialog
 	{
 	public:
-		explicit FStaticMeshImportDialog(FImportDialogCallbacks InCallbacks);
-		~FStaticMeshImportDialog();
+		explicit FSceneImportDialog(FImportDialogCallbacks InCallbacks);
+		~FSceneImportDialog();
 
 		auto Open(std::string_view DestinationDirectory = {}) -> void;
 		auto Draw() -> void;
 
 	private:
 		auto BrowseSource() -> void;
-		auto BrowseDestination() -> void;
+		auto BrowseDestinationDirectory() -> void;
 		auto BrowseSourceDestination() -> void;
-		auto RefreshPreview(const FAssetPath& RootAssetPath) -> void;
+		auto RefreshPreview(const FAssetPath& DestinationDirectory) -> void;
 		auto Import() -> bool;
 		auto PollImport() -> bool;
 		auto CancelRequests() -> void;
 		auto SetError(std::string Message) const -> void;
 
 		FImportDialogCallbacks Callbacks;
-		FImportDialogDestinationModel Destination;
+		FImportDialogDirectoryModel DestinationDirectory;
 		FImportDialogModalState ModalState;
 		std::array<char, 512> SourcePathBuffer{};
 		std::array<char, 512> SourceDestinationBuffer{};
 		std::string LastSuggestedSourceDestination;
 		FStaticMeshImportSettings ImportSettings;
-		EStaticMeshImportPreset ImportPreset = EStaticMeshImportPreset::Durin;
+		ESceneMeshImportPreset ImportPreset = ESceneMeshImportPreset::Durin;
 		EMountedSourceImportMode SourceMode =
 			EMountedSourceImportMode::IngestExternal;
 		std::string PreviewKey;

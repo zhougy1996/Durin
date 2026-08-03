@@ -5,6 +5,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "AssetSystem.h"
 #include "Assets/ContentBrowserThumbnailCache.h"
+#include "Misc/Paths.h"
 #include "Panels/ContentBrowserItemView.h"
 #include "Settings/LevelEditorSessionSettings.h"
 
@@ -48,6 +49,19 @@ namespace Durin
 	}
 
 	FContentBrowserPanel::~FContentBrowserPanel() = default;
+
+	auto FContentBrowserPanel::RevealDirectory(
+		std::string_view DirectoryPath) -> void
+	{
+		const PathUtilities::FContentPathResult Resolved =
+			PathUtilities::ResolveContentPath(DirectoryPath);
+		if (!Resolved)
+		{
+			SetError(Resolved.Message);
+			return;
+		}
+		NavigateToPhysical(Resolved.PhysicalPath.generic_string());
+	}
 
 	auto FContentBrowserPanel::RefreshMountSnapshot() -> void
 	{

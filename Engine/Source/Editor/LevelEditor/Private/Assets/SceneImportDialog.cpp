@@ -1,4 +1,4 @@
-#include "Assets/StaticMeshImportDialog.h"
+#include "Assets/SceneImportDialog.h"
 
 #include "Assets/AssetDestinationValidation.h"
 #include "Assets/MountedSourceImport.h"
@@ -31,42 +31,42 @@ namespace Durin
 		}
 	}
 
-	FStaticMeshImportDialog::FStaticMeshImportDialog(
+	FSceneImportDialog::FSceneImportDialog(
 		FImportDialogCallbacks InCallbacks)
 		: Callbacks(std::move(InCallbacks))
 	{
 	}
 
-	FStaticMeshImportDialog::~FStaticMeshImportDialog()
+	FSceneImportDialog::~FSceneImportDialog()
 	{
 		CancelRequests();
 	}
 
-	auto FStaticMeshImportDialog::Open(std::string_view DestinationDirectory) -> void
+	auto FSceneImportDialog::Open(std::string_view InDestinationDirectory) -> void
 	{
 		CancelRequests();
 		SourcePathBuffer.fill(0);
 		SourceDestinationBuffer.fill(0);
 		LastSuggestedSourceDestination.clear();
 		ImportSettings = FStaticMeshImportSettings::MakeDurin();
-		ImportPreset = EStaticMeshImportPreset::Durin;
+		ImportPreset = ESceneMeshImportPreset::Durin;
 		SourceMode = EMountedSourceImportMode::IngestExternal;
 		PreviewKey.clear();
 		Preview.reset();
-		Destination.Reset(DestinationDirectory);
+		DestinationDirectory.Reset(InDestinationDirectory);
 		std::string Error;
 		if (!EnsureStandardImportedSurfaceMaterial(Error)) SetError(std::move(Error));
 		ModalState.RequestOpen();
 	}
 
-	auto FStaticMeshImportDialog::Draw() -> void
+	auto FSceneImportDialog::Draw() -> void
 	{
-		ModalState.OpenPopupIfRequested("Import Static Mesh");
+		ModalState.OpenPopupIfRequested("Import Scene Source");
 
 		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
 		ImGui::SetNextWindowSize(ImVec2(Metrics.WidePopupWidth, 0.0f), ImGuiCond_Appearing);
 		if (!ImGui::BeginPopupModal(
-			"Import Static Mesh",
+			"Import Scene Source",
 			nullptr,
 			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings
 		))
@@ -80,8 +80,8 @@ namespace Durin
 		const bool bImportPending = ImportRequest.has_value();
 		ImGui::BeginDisabled(bImportPending);
 
-		ImGui::TextUnformatted("Create a static mesh asset from a model file.");
-		ImGui::TextDisabled("Reference a mounted source in place, or ingest an external model into SourceAssets.");
+		ImGui::TextUnformatted("Import the assets described by an FBX or glTF Scene source.");
+		ImGui::TextDisabled("Outputs are peer assets grouped by type inside one destination directory.");
 		ImGui::Spacing();
 		ImGui::SeparatorText("Source model");
 		if (ImGui::RadioButton("Reference Existing Source",
@@ -96,7 +96,7 @@ namespace Durin
 			: "Copies an external model transactionally to the explicit mounted source path.");
 		const float BrowseButtonWidth = Metrics.StandardButtonWidth;
 		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
-		ImGui::InputTextWithHint("##ImportSource", "Choose an OBJ, FBX, glTF, or other supported model...", SourcePathBuffer.data(), SourcePathBuffer.size(), ImGuiInputTextFlags_ReadOnly);
+		ImGui::InputTextWithHint("##ImportSource", "Choose an FBX, glTF, or GLB Scene source...", SourcePathBuffer.data(), SourcePathBuffer.size(), ImGuiInputTextFlags_ReadOnly);
 		ImGui::SameLine();
 		if (ImGui::Button("Browse...", ImVec2(BrowseButtonWidth, 0.0f))) BrowseSource();
 
@@ -111,13 +111,13 @@ namespace Durin
 		int PresetIndex = static_cast<int>(ImportPreset);
 		if (ImGui::Combo("Preset", &PresetIndex, ImportPresetNames, std::size(ImportPresetNames)))
 		{
-			ImportPreset = static_cast<EStaticMeshImportPreset>(PresetIndex);
-			if (ImportPreset == EStaticMeshImportPreset::Durin)
+			ImportPreset = static_cast<ESceneMeshImportPreset>(PresetIndex);
+			if (ImportPreset == ESceneMeshImportPreset::Durin)
 				ImportSettings = FStaticMeshImportSettings::MakeDurin();
-			else if (ImportPreset == EStaticMeshImportPreset::YUpNegativeZForward)
+			else if (ImportPreset == ESceneMeshImportPreset::YUpNegativeZForward)
 				ImportSettings = FStaticMeshImportSettings::MakeYUpNegativeZForward();
 		}
-		if (ImportPreset == EStaticMeshImportPreset::Custom)
+		if (ImportPreset == ESceneMeshImportPreset::Custom)
 		{
 			DrawImportAxisCombo("Forward", ImportSettings.ForwardAxis);
 			DrawImportAxisCombo("Right", ImportSettings.RightAxis);
@@ -130,36 +130,36 @@ namespace Durin
 
 		ImGui::Spacing();
 		ImGui::SeparatorText("Destination");
-		if (Destination.DrawRow("Asset path", "##ImportAssetPath",
-			"/Project/StaticMeshes/AssetName", "Choose...", BrowseButtonWidth))
-			BrowseDestination();
+		if (DestinationDirectory.DrawRow("Output directory", "##SceneImportDirectory",
+			"/Project/Scenes/SceneName", "Choose...", BrowseButtonWidth))
+			BrowseDestinationDirectory();
 		if (SourceMode == EMountedSourceImportMode::IngestExternal)
 		{
 			ImGui::TextUnformatted("Source virtual path");
 			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
-			ImGui::InputTextWithHint("##StaticMeshSourceDestination",
-				"/Game/Models/AssetName.fbx", SourceDestinationBuffer.data(),
+			ImGui::InputTextWithHint("##SceneSourceDestination",
+				"/Project/Models/SceneName.fbx", SourceDestinationBuffer.data(),
 				SourceDestinationBuffer.size());
 			ImGui::SameLine();
 			if (ImGui::Button("Choose source...", ImVec2(BrowseButtonWidth, 0.0f)))
 				BrowseSourceDestination();
 		}
 
-		const FAssetDestinationValidation DestinationValidation =
-			Destination.Inspect();
+		const FContentDirectoryValidation DestinationValidation =
+			DestinationDirectory.Inspect();
 		std::string ImportSettingsError;
 		const bool bImportSettingsValid = ImportSettings.IsValid(&ImportSettingsError);
 		const FMountedSourceImportDiagnostic SourceDiagnostic =
-			DestinationValidation.bAssetPathValid
+			DestinationValidation.bDirectoryPathValid
 			? InspectMountedSourceImport(
-				SourcePathBuffer.data(), DestinationValidation.AssetPath.GetView(),
+				SourcePathBuffer.data(), DestinationValidation.DirectoryPath.GetView(),
 				SourceDestinationBuffer.data(), SourceMode)
 			: FMountedSourceImportDiagnostic{};
-		if (DestinationValidation.bAssetPathValid && bSourceExists
+		if (DestinationValidation.bDirectoryPathValid && bSourceExists
 			&& bImportSettingsValid && DestinationValidation
 			&& SourceDiagnostic.bValid)
 		{
-			RefreshPreview(DestinationValidation.AssetPath);
+			RefreshPreview(DestinationValidation.DirectoryPath);
 		}
 		else
 		{
@@ -172,7 +172,7 @@ namespace Durin
 			Preview.reset();
 		}
 
-		if (DestinationValidation.bAssetPathValid
+		if (DestinationValidation.bDirectoryPathValid
 			&& DestinationValidation.bMountedDestination && bHasSource
 			&& SourceDiagnostic.bValid && Preview && *Preview)
 		{
@@ -241,7 +241,7 @@ namespace Durin
 		ImGui::Spacing();
 		ImGui::Separator();
 		ImGui::BeginDisabled(!ValidationMessage.empty());
-		if (ImGui::Button("Import Static Mesh", ImVec2(MonaImGui::ScaleUI(150.0f), 0.0f)) && Import()) ImGui::CloseCurrentPopup();
+		if (ImGui::Button("Import Scene", ImVec2(MonaImGui::ScaleUI(150.0f), 0.0f)) && Import()) ImGui::CloseCurrentPopup();
 		ImGui::EndDisabled();
 		ImGui::EndDisabled();
 		ImGui::SameLine();
@@ -253,24 +253,22 @@ namespace Durin
 		ImGui::EndPopup();
 	}
 
-	auto FStaticMeshImportDialog::BrowseSource() -> void
+	auto FSceneImportDialog::BrowseSource() -> void
 	{
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Select a Static Mesh Source File";
+		Request.Title = "Select an FBX or glTF Scene Source";
 		Request.Filters = {
-			{"All Supported Models", "*.obj;*.fbx;*.gltf;*.glb;*.dae;*.3ds;*.ply;*.stl"},
-			{"Wavefront OBJ", "*.obj"},
+			{"Supported Scene Sources", "*.fbx;*.gltf;*.glb"},
 			{"Autodesk FBX", "*.fbx"},
 			{"glTF", "*.gltf;*.glb"},
-			{"COLLADA", "*.dae"},
 			{"All Files", "*.*"}
 		};
 		if (const FProjectInfo* Project = GetCurrentProject()) Request.InitialDirectory = Project->ProjectDir;
 		if (SourceMode == EMountedSourceImportMode::ReferenceExisting)
 		{
 			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(Destination.GetPath());
+				PathUtilities::FindMountForVirtualPath(DestinationDirectory.GetPath());
 			if (Lookup && Lookup.Mount->SourceAssetsRoot)
 				Request.InitialDirectory = Lookup.Mount->SourceAssetsRoot->generic_string();
 		}
@@ -291,28 +289,18 @@ namespace Durin
 
 		SourcePathBuffer.fill(0);
 		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(), std::min(Result.FilePath.size(), SourcePathBuffer.size() - 1));
-		std::string Extension = std::filesystem::path(Result.FilePath).extension().generic_string();
-		std::ranges::transform(Extension, Extension.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
-		if (Extension == ".obj")
-		{
-			ImportPreset = EStaticMeshImportPreset::YUpNegativeZForward;
-			ImportSettings = FStaticMeshImportSettings::MakeYUpNegativeZForward();
-		}
-		else
-		{
-			ImportPreset = EStaticMeshImportPreset::Durin;
-			ImportSettings = FStaticMeshImportSettings::MakeDurin();
-		}
-		const std::string AssetName = StringUtils::SanitizeFileName(std::filesystem::path(Result.FilePath).stem().generic_string(), "StaticMesh");
+		ImportPreset = ESceneMeshImportPreset::Durin;
+		ImportSettings = FStaticMeshImportSettings::MakeDurin();
+		const std::string SceneName = StringUtils::SanitizeFileName(
+			std::filesystem::path(Result.FilePath).stem().generic_string(), "Scene");
 		const FProjectInfo* Project = GetCurrentProject();
-		const std::string BundledAssetName = std::format("{}/{}", AssetName, AssetName);
-		Destination.SuggestPath(Destination.MakeSuggestedPath(BundledAssetName,
+		DestinationDirectory.SuggestPath(DestinationDirectory.MakeSuggestedPath(SceneName,
 			(Project ? Project->MountRoot : "/")
-				+ std::string("StaticMeshes/")));
+				+ std::string("Scenes/")));
 		const std::string PreviousSourceDestination = SourceDestinationBuffer.data();
 		const std::string SuggestedSourceDestination = MakeDefaultSourceVirtualPath(
-			Destination.GetPath(), "Models",
-			AssetName + std::filesystem::path(Result.FilePath).extension().generic_string());
+			DestinationDirectory.GetPath(), "Models",
+			SceneName + std::filesystem::path(Result.FilePath).extension().generic_string());
 		if (PreviousSourceDestination.empty()
 			|| PreviousSourceDestination == LastSuggestedSourceDestination)
 		{
@@ -324,26 +312,21 @@ namespace Durin
 		LastSuggestedSourceDestination = SuggestedSourceDestination;
 	}
 
-	auto FStaticMeshImportDialog::BrowseDestination() -> void
+	auto FSceneImportDialog::BrowseDestinationDirectory() -> void
 	{
-		const std::string DefaultFileName = SourcePathBuffer[0] != '\0'
-			? StringUtils::SanitizeFileName(
-				std::filesystem::path(SourcePathBuffer.data()).stem().generic_string(),
-				"StaticMesh") + ".dasset"
-			: "StaticMesh.dasset";
-		Destination.Browse("Choose a Static Mesh Asset Path", DefaultFileName,
-			"The selected asset path is too long for the import form.",
-			"Static mesh assets must be saved inside a mounted Content directory.",
+		DestinationDirectory.Browse("Choose a Scene Output Directory",
+			"The selected directory path is too long for the import form.",
+			"Scene outputs must be saved inside a mounted Content directory.",
 			Callbacks);
 	}
 
-	auto FStaticMeshImportDialog::BrowseSourceDestination() -> void
+	auto FSceneImportDialog::BrowseSourceDestination() -> void
 	{
 		FAssetPath AssetPath;
 		std::string Error;
-		if (!FAssetPath::TryCreate(Destination.GetPath(), AssetPath, &Error))
+		if (!FAssetPath::TryCreate(DestinationDirectory.GetPath(), AssetPath, &Error))
 		{
-			SetError("Choose a valid asset destination before selecting the source destination.");
+			SetError("Choose a valid output directory before selecting the source destination.");
 			return;
 		}
 		const PathUtilities::FMountLookupResult Lookup =
@@ -355,12 +338,12 @@ namespace Durin
 		}
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Choose Static Mesh Source Destination";
+		Request.Title = "Choose Scene Source Destination";
 		Request.Filters = {{"All Files", "*.*"}};
 		Request.InitialDirectory = Lookup.Mount->SourceAssetsRoot->generic_string();
 		Request.DefaultFileName = SourcePathBuffer[0] != '\0'
 			? std::filesystem::path(SourcePathBuffer.data()).filename().generic_string()
-			: "StaticMesh.fbx";
+			: "Scene.fbx";
 		const FFileDialogResult Result = SaveFileDialog(Request);
 		if (Result.Status == EFileDialogStatus::Cancelled) return;
 		if (Result.Status == EFileDialogStatus::Error) { SetError(Result.ErrorMessage); return; }
@@ -382,12 +365,13 @@ namespace Durin
 		LastSuggestedSourceDestination.clear();
 	}
 
-	auto FStaticMeshImportDialog::RefreshPreview(const FAssetPath& RootAssetPath) -> void
+	auto FSceneImportDialog::RefreshPreview(
+		const FAssetPath& InDestinationDirectory) -> void
 	{
 		const std::string Key = std::format(
 			"{}|{}|{}|{}|{}|{}|{}",
 			SourcePathBuffer.data(),
-			RootAssetPath.ToString(),
+			InDestinationDirectory.ToString(),
 			SourceDestinationBuffer.data(),
 			static_cast<uint32>(SourceMode),
 			static_cast<int32>(ImportSettings.ForwardAxis),
@@ -409,9 +393,9 @@ namespace Durin
 			}
 			PreviewRequest = BeginSceneImportPlan({
 				.RootSource = {.Path = Source.NormalizedVirtualPath},
-				.PrimaryOutput = RootAssetPath,
+				.DestinationDirectory = InDestinationDirectory,
 				.MeshSettings = ImportSettings},
-				"LevelEditor.StaticMeshImportDialog.Preview");
+				"LevelEditor.SceneImportDialog.Preview");
 		}
 		if (!PreviewRequest) return;
 		FSceneImportPlanResult Completed;
@@ -424,20 +408,21 @@ namespace Durin
 		}
 	}
 
-	auto FStaticMeshImportDialog::Import() -> bool
+	auto FSceneImportDialog::Import() -> bool
 	{
 		if (ImportRequest) return false;
 		Callbacks.Clear();
-		FAssetPath RootPath;
+		FAssetPath OutputDirectory;
 		std::string Error;
-		if (!FAssetPath::TryCreate(Destination.GetPath(), RootPath, &Error))
+		if (!FAssetPath::TryCreate(
+			DestinationDirectory.GetPath(), OutputDirectory, &Error))
 		{
 			SetError(std::move(Error));
 			return false;
 		}
 		FPreparedSceneSourceBundle Sources;
 		if (!PrepareSceneSourceBundle(
-			SourcePathBuffer.data(), RootPath.ToString(),
+			SourcePathBuffer.data(), OutputDirectory.ToString(),
 			SourceMode == EMountedSourceImportMode::IngestExternal
 				? std::string_view(SourceDestinationBuffer.data()) : std::string_view{},
 			Sources, Error))
@@ -450,13 +435,13 @@ namespace Durin
 		CommitSceneSourceBundle(Sources);
 		ImportRequest = BeginSceneImportPlan({
 			.RootSource = Sources.RootSource,
-			.PrimaryOutput = RootPath,
+			.DestinationDirectory = OutputDirectory,
 			.MeshSettings = ImportSettings},
-			"LevelEditor.StaticMeshImportDialog.Execute");
+			"LevelEditor.SceneImportDialog.Execute");
 		return false;
 	}
 
-	auto FStaticMeshImportDialog::PollImport() -> bool
+	auto FSceneImportDialog::PollImport() -> bool
 	{
 		if (!ImportRequest) return false;
 		FSceneImportPlanResult Planned;
@@ -476,14 +461,14 @@ namespace Durin
 			return false;
 		}
 
-		Callbacks.NotifyImported(Destination.GetPath());
+		Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
 		for (const AssetImport::FImportOutputPreview& Asset
 			: Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs())
 			Asset::UnloadPackage(Asset.AssetPath);
 		return true;
 	}
 
-	auto FStaticMeshImportDialog::CancelRequests() -> void
+	auto FSceneImportDialog::CancelRequests() -> void
 	{
 		if (PreviewRequest) CancelAndDrainSceneImportPlan(*PreviewRequest);
 		if (ImportRequest) CancelAndDrainSceneImportPlan(*ImportRequest);
@@ -491,7 +476,7 @@ namespace Durin
 		ImportRequest.reset();
 	}
 
-	auto FStaticMeshImportDialog::SetError(std::string Message) const -> void
+	auto FSceneImportDialog::SetError(std::string Message) const -> void
 	{
 		Callbacks.Report(std::move(Message));
 	}

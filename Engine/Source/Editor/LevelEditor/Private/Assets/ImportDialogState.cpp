@@ -22,6 +22,12 @@ namespace Durin
 		if (Imported) Imported(std::string(AssetPath));
 	}
 
+	auto FImportDialogCallbacks::NotifyImportedDirectory(
+		std::string_view DirectoryPath) const -> void
+	{
+		if (ImportedDirectory) ImportedDirectory(std::string(DirectoryPath));
+	}
+
 	auto FImportDialogDestinationModel::Reset(std::string_view InPreferredDirectory)
 		-> void
 	{
@@ -117,6 +123,108 @@ namespace Durin
 			return false;
 		}
 		if (!SetPath(Destination.AssetPath.ToString()))
+		{
+			Callbacks.Report(std::string(TooLongMessage));
+			return false;
+		}
+		return true;
+	}
+
+	auto FImportDialogDirectoryModel::Reset(
+		std::string_view InPreferredDirectory) -> void
+	{
+		PreferredDirectory = InPreferredDirectory;
+		if (!PreferredDirectory.empty() && !PreferredDirectory.ends_with('/'))
+			PreferredDirectory += '/';
+		DirectoryPathBuffer.fill(0);
+		LastSuggestedPath.clear();
+	}
+
+	auto FImportDialogDirectoryModel::MakeSuggestedPath(
+		std::string_view DirectoryName,
+		std::string_view FallbackDirectory) const -> std::string
+	{
+		return std::string(PreferredDirectory.empty()
+			? FallbackDirectory : PreferredDirectory) + std::string(DirectoryName);
+	}
+
+	auto FImportDialogDirectoryModel::SuggestPath(
+		std::string_view SuggestedPath) -> void
+	{
+		const std::string_view CurrentPath = DirectoryPathBuffer.data();
+		if (CurrentPath.empty() || CurrentPath == LastSuggestedPath)
+		{
+			DirectoryPathBuffer.fill(0);
+			std::memcpy(DirectoryPathBuffer.data(), SuggestedPath.data(),
+				std::min(SuggestedPath.size(), DirectoryPathBuffer.size() - 1));
+		}
+		LastSuggestedPath = SuggestedPath;
+	}
+
+	auto FImportDialogDirectoryModel::SetPath(
+		std::string_view DirectoryPath) -> bool
+	{
+		if (DirectoryPath.size() >= DirectoryPathBuffer.size()) return false;
+		DirectoryPathBuffer.fill(0);
+		std::memcpy(DirectoryPathBuffer.data(), DirectoryPath.data(),
+			DirectoryPath.size());
+		LastSuggestedPath.clear();
+		return true;
+	}
+
+	auto FImportDialogDirectoryModel::Inspect() const
+		-> FContentDirectoryValidation
+	{
+		return InspectContentDirectory(DirectoryPathBuffer.data());
+	}
+
+	auto FImportDialogDirectoryModel::DrawRow(const char* Label,
+		const char* InputId, const char* Hint, const char* BrowseLabel,
+		float BrowseButtonWidth) -> bool
+	{
+		ImGui::TextUnformatted(Label);
+		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x
+			- BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
+		ImGui::InputTextWithHint(InputId, Hint, DirectoryPathBuffer.data(),
+			DirectoryPathBuffer.size());
+		ImGui::SameLine();
+		return ImGui::Button(BrowseLabel, ImVec2(BrowseButtonWidth, 0.0f));
+	}
+
+	auto FImportDialogDirectoryModel::Browse(std::string_view Title,
+		std::string_view TooLongMessage, std::string_view OutsideMountMessage,
+		const FImportDialogCallbacks& Callbacks) -> bool
+	{
+		FFileDialogRequest Request;
+		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
+		Request.Title = Title;
+		const FContentDirectoryValidation Current = Inspect();
+		if (Current && std::filesystem::is_directory(Current.PhysicalPath))
+			Request.InitialDirectory = Current.PhysicalPath.generic_string();
+		else if (const FProjectInfo* Project = GetCurrentProject())
+		{
+			const PathUtilities::FMountLookupResult Lookup =
+				PathUtilities::FindMountForVirtualPath(
+					Project->MountRoot + std::string("Destination"));
+			if (Lookup && Lookup.Mount->ContentRoot)
+				Request.InitialDirectory = Lookup.Mount->ContentRoot->generic_string();
+		}
+
+		const FFileDialogResult Result = OpenFolderDialog(Request);
+		if (Result.Status == EFileDialogStatus::Cancelled) return false;
+		if (Result.Status == EFileDialogStatus::Error)
+		{
+			Callbacks.Report(Result.ErrorMessage);
+			return false;
+		}
+		const FContentDirectoryValidation Directory =
+			ClassifyContentDirectory(Result.FilePath);
+		if (!Directory.bMountedDestination)
+		{
+			Callbacks.Report(std::string(OutsideMountMessage));
+			return false;
+		}
+		if (!SetPath(Directory.DirectoryPath.ToString()))
 		{
 			Callbacks.Report(std::string(TooLongMessage));
 			return false;

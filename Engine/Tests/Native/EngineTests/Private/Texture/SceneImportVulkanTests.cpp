@@ -101,7 +101,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_NE(Durin::EnsureStandardImportedSurfaceMaterial(MaterialError), nullptr)
 		<< MaterialError;
 
-	const Durin::FAssetPath RootPath =
+	const Durin::FAssetPath DestinationDirectory =
 		MakeAssetPath("/SceneImportVulkan/Imports/RenderedOpaque");
 	const std::filesystem::path MountedScene =
 		Root / "Project/SourceAssets/Models/RenderedOpaqueDataUri.gltf";
@@ -113,22 +113,27 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		std::filesystem::copy_options::overwrite_existing);
 	const Durin::FSceneImportPlanResult Planned = Durin::PlanSceneImport({
 		.RootSource = {.Path = "/SceneImportVulkan/Models/RenderedOpaqueDataUri.gltf"},
-		.PrimaryOutput = RootPath,
+		.DestinationDirectory = DestinationDirectory,
 		.MeshSettings = Durin::FStaticMeshImportSettings::MakeDurin()});
 	ASSERT_TRUE(Planned) << Planned.Message;
 	ASSERT_EQ(Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs().size(), 3u);
+	Durin::FAssetPath MeshPath;
 	Durin::FAssetPath TexturePath;
 	Durin::FAssetPath MaterialPath;
 	for (const Durin::AssetImport::FImportOutputPreview& Output
 		: Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs())
 	{
 		if (Output.AssetClassName
+			== Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString())
+			MeshPath = Output.AssetPath;
+		else if (Output.AssetClassName
 			== Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString())
 			TexturePath = Output.AssetPath;
 		else if (Output.AssetClassName
 			== Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString())
 			MaterialPath = Output.AssetPath;
 	}
+	ASSERT_TRUE(MeshPath.IsValid());
 	ASSERT_TRUE(TexturePath.IsValid());
 	ASSERT_TRUE(MaterialPath.IsValid());
 	const Durin::FAssetPath StandardPath =
@@ -136,7 +141,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	const Durin::FSceneImportExecutionResult Executed =
 		Durin::ExecuteSceneImport(Planned.Plan);
 	ASSERT_TRUE(Executed) << Executed.Message;
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(RootPath));
+	ASSERT_EQ(Executed.Meshes.size(), 1u);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(StandardPath));
@@ -386,7 +392,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 
 	Durin::DStaticMesh* ReloadedMesh = nullptr;
 	const Durin::Asset::FAssetResult ReloadMeshResult =
-		Durin::Asset::LoadAsset(RootPath, ReloadedMesh);
+		Durin::Asset::LoadAsset(MeshPath, ReloadedMesh);
 	ASSERT_TRUE(ReloadMeshResult) << ReloadMeshResult.Message;
 	ASSERT_FALSE(ReloadedMesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
 	const Durin::FStaticMeshMaterialSlotDefinition* Slot =
@@ -505,13 +511,13 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::MarkAsGarbage(TextureOnly);
 	PreloadedSphere = {};
 	Durin::CollectGarbage();
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(RootPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(StandardPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(LODContractPath));
 	Durin::CollectGarbage();
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(RootPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(MeshPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(MaterialPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(TexturePath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(StandardPath));

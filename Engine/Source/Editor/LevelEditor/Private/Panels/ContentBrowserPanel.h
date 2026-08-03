@@ -26,7 +26,7 @@ namespace Durin
 	{
 		Texture,
 		TextureCube,
-		StaticMesh
+		Scene
 	};
 
 	// Coordinates content-browser model, operation, thumbnail, and immediate UI state.
@@ -43,6 +43,7 @@ namespace Durin
 		auto GetWindowName() const -> const char* override { return "Content Browser"; }
 		auto Draw(FLevelEditorContext& Context) -> void override;
 		auto RevealAsset(std::string_view AssetPath) -> void;
+		auto RevealDirectory(std::string_view DirectoryPath) -> void;
 
 	private:
 		auto Refresh(bool bRescanRegistry) -> void;

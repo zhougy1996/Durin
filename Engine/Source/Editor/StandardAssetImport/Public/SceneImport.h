@@ -14,7 +14,7 @@ namespace Durin
 	class DTexture2D;
 
 	inline constexpr std::string_view SceneImportProviderId = "Durin.Scene";
-	inline constexpr uint32 SceneImportProviderContractVersion = 1;
+	inline constexpr uint32 SceneImportProviderContractVersion = 2;
 	inline constexpr std::string_view StandardImportedSurfaceMaterialPath =
 		"/Engine/Materials/ImportedSurface";
 
@@ -23,7 +23,7 @@ namespace Durin
 		// Scene import plans consume an already mounted source. Explicit ingestion
 		// of an external authoring file is a separate editor operation.
 		FSourcePath RootSource;
-		FAssetPath PrimaryOutput;
+		FAssetPath DestinationDirectory;
 		FStaticMeshImportSettings MeshSettings;
 		AssetImport::DImportRecord* ExistingRecord = nullptr;
 		bool bRecreateMissingManagedOutputs = false;
@@ -75,7 +75,7 @@ namespace Durin
 		bool bSucceeded = false;
 		std::string Message;
 		AssetImport::DImportRecord* Record = nullptr;
-		DStaticMesh* StaticMesh = nullptr;
+		std::vector<DStaticMesh*> Meshes;
 		std::vector<DMaterialInstance*> Materials;
 		std::vector<DTexture2D*> Textures;
 		std::vector<FAssetPath> OrphanedAssets;
@@ -124,7 +124,7 @@ namespace Durin
 		FSceneImportAsyncPlanHandle& Handle) -> void;
 	STANDARDASSETIMPORT_API auto PrepareSceneSourceBundle(
 		const std::filesystem::path& InputRoot,
-		std::string_view ReferencingAssetPath,
+		std::string_view ReferencingContentPath,
 		std::string_view ExternalIngestDestination,
 		FPreparedSceneSourceBundle& OutBundle,
 		std::string& OutError) -> bool;
