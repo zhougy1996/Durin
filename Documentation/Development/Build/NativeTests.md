@@ -28,8 +28,11 @@ Build and run a test executable through the root wrapper:
 
 The first command runs the target's discovered tests. The second passes a GoogleTest filter. The test executable has a 300-second timeout by default; `--timeout <seconds>` changes it, and `--timeout 0` disables it for an intentionally long diagnostic run. The timeout starts after the target has finished building.
 
-`--target all` builds the complete preset and then runs every test registered in
-that build directory through CTest, excluding qualification-only registrations.
+`--target all` builds the `DurinNativeTests` aggregate and then runs every test
+registered in that build directory through CTest, excluding qualification-only
+registrations. Native-test executables and GoogleTest are excluded from CMake's
+default `all` target, so routine `build` and `rebuild` commands do not compile
+tests even when the selected preset enables `BUILD_TESTING`.
 Its timeout applies to each CTest-registered test. GoogleTest `--filter` syntax
 is executable-specific and therefore cannot be combined with `--target all`.
 Use `--schedule-random` to randomize the CTest launch order and

@@ -97,11 +97,26 @@ def execute_with_recovery_marker(
     if previous_content is not None and action is Action.REBUILD:
         required_target = recovery_target(marker_file)
         requested_target = metadata.get("target")
-        if requested_target not in {required_target, "all"}:
+        previous_action = None
+        try:
+            previous_value = json.loads(previous_content)
+            if isinstance(previous_value, dict):
+                previous_action = previous_value.get("action")
+        except json.JSONDecodeError:
+            pass
+        all_covers_required_target = previous_action != Action.TEST.value
+        if requested_target != required_target and not (
+            requested_target == "all" and all_covers_required_target
+        ):
+            alternatives = (
+                f"Run rebuild --target {required_target}."
+                if previous_action == Action.TEST.value
+                else f"Run rebuild --target {required_target}, or rebuild --target all."
+            )
             raise BuildToolError(
                 f'Interrupted target "{required_target}" cannot be recovered by rebuilding '
                 f'target "{requested_target}".',
-                recovery=f"Run rebuild --target {required_target}, or rebuild --target all.",
+                recovery=alternatives,
             )
     if previous_content is not None and action is Action.RECOVER:
         required_target = recoverable_target(marker_file)

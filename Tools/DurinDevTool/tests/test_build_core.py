@@ -337,6 +337,16 @@ class TestCore:
             build_core.perform_action(context, output)
         assert run.call_args.args[0] == ['cmake', '--fresh', '--preset', 'debug']
 
+    def test_all_native_tests_build_the_explicit_aggregate_target(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        preset = self.make_preset()
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        directory = Path(tmp_path_factory.mktemp('case'))
+        (directory / 'CMakeCache.txt').write_text('CMAKE_MAKE_PROGRAM:FILEPATH=ninja\n', encoding='utf-8')
+        context = build_config.BuildContext(build_config.CommandRequest(build_config.Action.TEST, options=build_config.TestActionOptions(target='ALL')), build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={})
+        with mock.patch.object(build_core, 'preset_build_directory', return_value=directory), mock.patch.object(build_core, 'ninja_uses_english_msvc_prefix', return_value=True), mock.patch.object(build_core, 'run_command') as run:
+            build_core.perform_action(context, output)
+        assert run.call_args.args[0] == ['cmake', '--build', str(directory), '--target', 'DurinNativeTests', '-j', '4']
+
     def test_failed_generator_cache_is_not_reused(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         cache = Path(directory) / 'CMakeCache.txt'
@@ -435,6 +445,16 @@ class TestCore:
             build_core.execute_with_recovery_marker(action=build_config.Action.REBUILD, marker_file=marker, metadata={'pid': 2, 'action': 'rebuild', 'target': 'Editor'}, operation=operation)
         operation.assert_not_called()
         assert build_core.recovery_target(marker) == 'Core'
+
+    def test_rebuild_all_does_not_claim_to_recover_an_excluded_test_target(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        directory = tmp_path_factory.mktemp('case')
+        marker = Path(directory) / 'interrupted.json'
+        marker.write_text(json.dumps({'pid': 1, 'action': 'test', 'target': 'DurinNativeTests'}), encoding='utf-8')
+        operation = mock.Mock()
+        with pytest.raises(build_config.BuildToolError, match='DurinNativeTests') as raised:
+            build_core.execute_with_recovery_marker(action=build_config.Action.REBUILD, marker_file=marker, metadata={'pid': 2, 'action': 'rebuild', 'target': 'all'}, operation=operation)
+        operation.assert_not_called()
+        assert raised.value.recovery == 'Run rebuild --target DurinNativeTests.'
 
     def test_invalid_or_non_target_recovery_state_falls_back_to_all(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')

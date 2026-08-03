@@ -95,6 +95,8 @@ from .runtime import (
     test_executable_path,
 )
 
+ALL_NATIVE_TESTS_TARGET = "DurinNativeTests"
+
 
 def parse_environment_output(output: str, *, case_insensitive: bool = False) -> dict[str, str]:
     environment: dict[str, str] = {}
@@ -686,6 +688,12 @@ def require_english_msvc_ninja_prefix(context: BuildContext, build_directory: Pa
         )
 
 
+def cmake_build_target(context: BuildContext) -> str:
+    if context.request.action is Action.TEST and context.target == "all":
+        return ALL_NATIVE_TESTS_TARGET
+    return context.target
+
+
 def perform_action(
     context: BuildContext,
     output: BuildOutput,
@@ -723,7 +731,7 @@ def perform_action(
             )
         return
 
-    target = target_override or context.target
+    target = target_override or cmake_build_target(context)
     if request.action is Action.REBUILD:
         if cache_is_usable(cache_file):
             with output.stage("Clean"):
@@ -796,7 +804,7 @@ def execute_context(
         else:
             metadata = operation_metadata(
                 context,
-                target=context.target,
+                target=cmake_build_target(context),
             )
             execute_with_recovery_marker(
                 action=context.request.action,

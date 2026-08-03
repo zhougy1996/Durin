@@ -136,9 +136,11 @@ Commands are case-insensitive for compatibility, but lowercase is canonical.
 `--jobs <count>` only when a local limit is required. From another batch file,
 use `call DevTool.bat <arguments>`.
 
-`build` and `rebuild` default to target `all`; `recover` resumes the target
-recorded by an interrupted operation; `test` always requires an explicit
-`--target`, where `--target all` builds the complete preset and runs every
+`build` and `rebuild` default to target `all`; native-test executables and their
+test-only dependencies are excluded from that default target even when the
+selected preset enables `BUILD_TESTING`. `recover` resumes the target recorded
+by an interrupted operation; `test` always requires an explicit `--target`,
+where `--target all` builds the `DurinNativeTests` aggregate and runs every
 CTest-registered test. The interactive shell also accepts the compact
 `test all` form. `presets`, `status`, and `open-runtime` are also available
 directly, so preset discovery, context inspection, and runtime-directory access
@@ -577,7 +579,7 @@ Do not start a second build while an earlier CMake, Ninja, compiler, or linker p
 
 `recover` reuses the existing CMake/Ninja tree and incrementally builds the recorded target. It does not clean first, so completed object files and unrelated outputs remain available. If configuration is missing or unusable, the normal build path configures it before continuing. The recovery marker is cleared only after the incremental build succeeds; another interruption or an ordinary build failure preserves it so recovery can be retried.
 
-DurinDevTool reports `Recovery state: rebuild required` and `rebuild --target all` instead when the marker is damaged, from an unsupported older format, or otherwise lacks enough information to resume safely. An explicit `rebuild` remains available as the conservative fallback: rebuilding the recorded target or `all` may clear a valid marker, while an unrelated target may not.
+DurinDevTool reports `Recovery state: rebuild required` and `rebuild --target all` instead when the marker is damaged, from an unsupported older format, or otherwise lacks enough information to resume safely. An explicit `rebuild` remains available as the conservative fallback: rebuilding the recorded target or `all` may clear a valid marker, while an unrelated target may not. Because native-test targets are excluded from `all`, an interrupted test-target build must be resumed with `recover` or rebuilt with its recorded target; `rebuild --target all` intentionally does not claim to recover that test build.
 
 When the interrupted operation used a non-default preset, run `status --preset <affected-preset>`, then add `--preset <affected-preset>` to its reported recovery command or select that preset in the interactive shell before recovering.
 

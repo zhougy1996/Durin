@@ -16,5 +16,5 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/slang)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/yyjson)
 
 if(BUILD_TESTING)
-	add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/googletest)
+	add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/googletest EXCLUDE_FROM_ALL)
 endif()

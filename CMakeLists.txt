@@ -35,6 +35,10 @@ include("${DURIN_CMAKE_DIR}/DurinWorkspaceSetup.cmake")
 add_subdirectory(Engine)
 add_subdirectory(Sandbox)
 
+if(BUILD_TESTING)
+	durin_add_native_test_aggregate_target(DurinNativeTests)
+endif()
+
 if(DURIN_PROFILE_NAME STREQUAL "DurinGame")
 	durin_assert_target_dependency_closure_excludes(DurinLauncher
 		AssetImport

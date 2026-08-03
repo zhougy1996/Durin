@@ -72,7 +72,9 @@ Project entry scripts such as `Engine/CMake/EngineSetup.cmake` and `Sandbox/CMak
 When `BUILD_TESTING` is enabled, `add_durin_project(...)` registers native tests
 from `DURIN_PROJECT_TESTS_DIR`. The default is
 `<ProjectRoot>/Tests/Native`; a project may override it before calling
-`add_durin_project(...)`.
+`add_durin_project(...)`. Test subdirectories and GoogleTest are excluded from
+CMake's default `all` target. `DurinNativeTests` explicitly aggregates every
+native-test executable for whole-suite builds.
 
 Ordinary module sources under `Public` and `Private` are discovered by per-module
 CMake `GLOB_RECURSE CONFIGURE_DEPENDS` rules. Adding or removing a supported C/C++

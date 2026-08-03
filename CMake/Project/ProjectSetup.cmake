@@ -87,7 +87,7 @@ function(add_durin_project project_name)
 
 	if(BUILD_TESTING)
 		if(EXISTS "${DURIN_PROJECT_TESTS_DIR}/CMakeLists.txt")
-			add_subdirectory("${DURIN_PROJECT_TESTS_DIR}")
+			add_subdirectory("${DURIN_PROJECT_TESTS_DIR}" EXCLUDE_FROM_ALL)
 		endif()
 	endif()
 	durin_end()

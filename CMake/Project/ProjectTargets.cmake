@@ -294,6 +294,7 @@ function(add_durin_test target_name)
 	endif()
 
 	set_target_properties(${target_name} PROPERTIES
+		EXCLUDE_FROM_ALL TRUE
 		RUNTIME_OUTPUT_DIRECTORY "${_durin_test_bin_dir}"
 		LIBRARY_OUTPUT_DIRECTORY "${_durin_test_bin_dir}"
 		ARCHIVE_OUTPUT_DIRECTORY "${DURIN_PROJECT_LIB_OUTPUT_ROOT}/${target_name}"
@@ -315,6 +316,21 @@ function(add_durin_test target_name)
 
 	set_target_properties(${target_name} PROPERTIES FOLDER "Tests/${target_name}")
 	set_property(GLOBAL APPEND PROPERTY DURIN_NATIVE_TEST_TARGETS "${target_name}")
+endfunction()
+
+function(durin_add_native_test_aggregate_target target_name)
+	if(TARGET ${target_name})
+		message(FATAL_ERROR "Native-test aggregate target ${target_name} already exists.")
+	endif()
+
+	get_property(_durin_native_test_targets GLOBAL PROPERTY DURIN_NATIVE_TEST_TARGETS)
+	list(REMOVE_DUPLICATES _durin_native_test_targets)
+
+	add_custom_target(${target_name})
+	if(_durin_native_test_targets)
+		add_dependencies(${target_name} ${_durin_native_test_targets})
+	endif()
+	set_target_properties(${target_name} PROPERTIES FOLDER "Tests")
 endfunction()
 
 function(durin_validate_native_test_source_ownership native_test_root)
