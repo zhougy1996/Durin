@@ -131,14 +131,14 @@ namespace Durin
 		ImGui::Spacing();
 		ImGui::SeparatorText("Destination");
 		if (DestinationDirectory.DrawRow("Output directory", "##SceneImportDirectory",
-			"/Project/Scenes/SceneName", "Choose...", BrowseButtonWidth))
+			"/Project/Imported/SceneName", "Choose...", BrowseButtonWidth))
 			BrowseDestinationDirectory();
 		if (SourceMode == EMountedSourceImportMode::IngestExternal)
 		{
 			ImGui::TextUnformatted("Source virtual path");
 			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
 			ImGui::InputTextWithHint("##SceneSourceDestination",
-				"/Project/Models/SceneName.fbx", SourceDestinationBuffer.data(),
+				"/Project/Sources/Models/SceneName/SceneName.fbx", SourceDestinationBuffer.data(),
 				SourceDestinationBuffer.size());
 			ImGui::SameLine();
 			if (ImGui::Button("Choose source...", ImVec2(BrowseButtonWidth, 0.0f)))
@@ -296,11 +296,11 @@ namespace Durin
 		const FProjectInfo* Project = GetCurrentProject();
 		DestinationDirectory.SuggestPath(DestinationDirectory.MakeSuggestedPath(SceneName,
 			(Project ? Project->MountRoot : "/")
-				+ std::string("Scenes/")));
+				+ std::string("Imported/")));
 		const std::string PreviousSourceDestination = SourceDestinationBuffer.data();
-		const std::string SuggestedSourceDestination = MakeDefaultSourceVirtualPath(
-			DestinationDirectory.GetPath(), "Models",
-			SceneName + std::filesystem::path(Result.FilePath).extension().generic_string());
+		const std::string SuggestedSourceDestination = MakeDefaultSceneSourceVirtualPath(
+			DestinationDirectory.GetPath(), SceneName,
+			std::filesystem::path(Result.FilePath).filename().generic_string());
 		if (PreviousSourceDestination.empty()
 			|| PreviousSourceDestination == LastSuggestedSourceDestination)
 		{

@@ -1,4 +1,5 @@
 #include "Assets/AssetDestinationValidation.h"
+#include "Assets/MountedSourceImport.h"
 
 #include "EngineTestSupport.h"
 #include "NativeTestSupport.h"
@@ -160,4 +161,18 @@ TEST_F(FAssetDestinationValidationTests, ResolvesVirtualContentDirectories)
 		Root / "Project/ContentLookalike/Scenes/Robot");
 	EXPECT_FALSE(Outside);
 	EXPECT_FALSE(Outside.Message.empty());
+}
+
+TEST_F(FAssetDestinationValidationTests, SuggestsSceneSourcesUnderTheOwningMount)
+{
+	EXPECT_EQ(
+		MakeDefaultSceneSourceVirtualPath(
+			"/Project/Imported/Robot", "Robot", "Robot.gltf"),
+		"/Project/Sources/Models/Robot/Robot.gltf");
+	EXPECT_EQ(
+		MakeDefaultSceneSourceVirtualPath(
+			"/Engine/Imported/Robot", "Robot", "Robot.glb"),
+		"/Engine/Sources/Models/Robot/Robot.glb");
+	EXPECT_TRUE(MakeDefaultSceneSourceVirtualPath(
+		"/Unknown/Imported/Robot", "Robot", "Robot.gltf").empty());
 }

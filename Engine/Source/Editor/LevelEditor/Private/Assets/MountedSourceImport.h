@@ -124,4 +124,16 @@ namespace Durin
 		if (!Lookup) return {};
 		return Lookup.Mount->VirtualRoot + std::string(Category) + "/" + std::string(FileName);
 	}
+
+	inline auto MakeDefaultSceneSourceVirtualPath(
+		std::string_view AssetPath,
+		std::string_view SceneName,
+		std::string_view FileName) -> std::string
+	{
+		const PathUtilities::FMountLookupResult Lookup =
+			PathUtilities::FindMountForVirtualPath(AssetPath);
+		if (!Lookup || SceneName.empty() || FileName.empty()) return {};
+		return Lookup.Mount->VirtualRoot
+			+ "Sources/Models/" + std::string(SceneName) + "/" + std::string(FileName);
+	}
 } // namespace Durin
