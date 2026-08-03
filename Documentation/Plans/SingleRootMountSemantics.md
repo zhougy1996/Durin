@@ -145,6 +145,21 @@ Completed:
   (44/44). The first StaticMesh run completed test logic but hit an MSVC
   unowned-mutex failure during process shutdown; an immediate rerun passed.
   Stage 4 is current and starts from baseline `c547b3bc`.
+- Stage 4 completed the full native matrix on baseline `6bbb4b0e`: the second
+  `test --target all` run passed all 845 enabled tests (one Windows symlink test
+  skipped and one benchmark disabled). The first full run passed 844/845 and
+  hit the same isolated Scene Import reader/admission shutdown race already
+  disproved by the focused Texture suite; the unchanged rerun passed.
+- The full matrix covers Core descriptor/content containment and dependency
+  cases, manual-scan direct package loading, package/raw coexistence, Texture
+  and Scene import/reload/reimport, source-reference indexing, Asset Cook,
+  Texture cook integration, source-absent static-mesh behavior, and Vulkan
+  rendering. A subsequent full `all` build succeeded, followed by a Sandbox
+  `DurinEditor` hidden-window 60-tick startup and normal shutdown.
+- Stage 5 is current. Its working set is this plan plus the active Workspace,
+  Runtime asset, Editor import/workflow, version-control, mesh, texture,
+  material, cube-texture, and level-system documentation discovered through
+  the documentation index. No implementation question remains.
 
 ## Goal
 
@@ -464,17 +479,17 @@ Dependencies: Stage 2.
 Outcome: the unified mount works in authoring, reimport, discovery, cooking, and
 source-absent runtime scenarios.
 
-- [ ] Validate Game-to-Engine, Game-to-external-library, forbidden
+- [x] Validate Game-to-Engine, Game-to-external-library, forbidden
   Engine-to-Game, same-mount mutation, read-only mount, missing root, escape,
   and canonical-overlap cases.
-- [ ] Import a texture and an FBX/glTF Scene Source into `/Game/`, close/reload
+- [x] Import a texture and an FBX/glTF Scene Source into `/Game/`, close/reload
   their packages, and reimport from the single-root source paths.
-- [ ] Validate asset and source references from a non-auto-scanned external mount.
-- [ ] Validate Asset Registry and Content Browser behavior when `.dasset` and raw
+- [x] Validate asset and source references from a non-auto-scanned external mount.
+- [x] Validate Asset Registry and Content Browser behavior when `.dasset` and raw
   source files coexist beneath `/Game/`.
-- [ ] Cook representative assets, remove or hide the authoring inputs from the
+- [x] Cook representative assets, remove or hide the authoring inputs from the
   runtime environment, and verify cooked loading and rendering.
-- [ ] Run the complete related native suites, a successful full `all` build, and
+- [x] Run the complete related native suites, a successful full `all` build, and
   an editor startup smoke test through the documented development tool entrypoint.
 
 Dependencies: Stage 3.
