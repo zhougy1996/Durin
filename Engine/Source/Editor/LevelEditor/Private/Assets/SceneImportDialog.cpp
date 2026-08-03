@@ -147,13 +147,15 @@ namespace Durin
 
 		const FContentDirectoryValidation DestinationValidation =
 			DestinationDirectory.Inspect();
+		const bool bEngineAuthoringContext = DestinationValidation.Mount
+			&& DestinationValidation.Mount->Owner == PathUtilities::EMountOwner::Engine;
 		std::string ImportSettingsError;
 		const bool bImportSettingsValid = ImportSettings.IsValid(&ImportSettingsError);
 		const FMountedSourceImportDiagnostic SourceDiagnostic =
 			DestinationValidation.bDirectoryPathValid
 			? InspectMountedSourceImport(
 				SourcePathBuffer.data(), DestinationValidation.DirectoryPath.GetView(),
-				SourceDestinationBuffer.data(), SourceMode)
+				SourceDestinationBuffer.data(), SourceMode, bEngineAuthoringContext)
 			: FMountedSourceImportDiagnostic{};
 		if (DestinationValidation.bDirectoryPathValid && bSourceExists
 			&& bImportSettingsValid && DestinationValidation
@@ -216,6 +218,8 @@ namespace Durin
 				SourceDiagnostic.Mount->VirtualRoot.c_str(),
 				DescribeMountOwner(SourceDiagnostic.Mount->Owner),
 				SourceDiagnostic.Mount->bAuthoringWritable ? "writable" : "read-only");
+			if (bEngineAuthoringContext)
+				ImGui::TextDisabled("Engine authoring: this import writes shared Engine content.");
 		}
 
 		std::string ValidationMessage;
@@ -297,10 +301,20 @@ namespace Durin
 		DestinationDirectory.SuggestPath(DestinationDirectory.MakeSuggestedPath(SceneName,
 			(Project ? Project->MountRoot : "/")
 				+ std::string("Imported/")));
+		SuggestSourceDestination();
+	}
+
+	auto FSceneImportDialog::SuggestSourceDestination() -> void
+	{
+		if (SourcePathBuffer[0] == '\0') return;
+		const std::filesystem::path SourcePath(SourcePathBuffer.data());
+		const std::string SceneName = StringUtils::SanitizeFileName(
+			SourcePath.stem().generic_string(), "Scene");
 		const std::string PreviousSourceDestination = SourceDestinationBuffer.data();
-		const std::string SuggestedSourceDestination = MakeDefaultSceneSourceVirtualPath(
-			DestinationDirectory.GetPath(), SceneName,
-			std::filesystem::path(Result.FilePath).filename().generic_string());
+		const std::string SuggestedSourceDestination =
+			MakeDefaultImportedSourceVirtualPath(
+				DestinationDirectory.GetPath(), "Models",
+				SourcePath.filename().generic_string(), SceneName);
 		if (PreviousSourceDestination.empty()
 			|| PreviousSourceDestination == LastSuggestedSourceDestination)
 		{
@@ -314,10 +328,11 @@ namespace Durin
 
 	auto FSceneImportDialog::BrowseDestinationDirectory() -> void
 	{
-		DestinationDirectory.Browse("Choose a Scene Output Directory",
+		if (DestinationDirectory.Browse("Choose a Scene Output Directory",
 			"The selected directory path is too long for the import form.",
 			"Scene outputs must be saved inside a package-enabled mount.",
-			Callbacks);
+			Callbacks))
+			SuggestSourceDestination();
 	}
 
 	auto FSceneImportDialog::BrowseSourceDestination() -> void
@@ -425,7 +440,7 @@ namespace Durin
 			SourcePathBuffer.data(), OutputDirectory.ToString(),
 			SourceMode == EMountedSourceImportMode::IngestExternal
 				? std::string_view(SourceDestinationBuffer.data()) : std::string_view{},
-			Sources, Error))
+			Sources, Error, IsEngineAuthoringDestination(OutputDirectory.GetView())))
 		{
 			SetError(std::move(Error));
 			return false;

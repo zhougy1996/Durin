@@ -30,8 +30,10 @@ namespace Durin
 		FImportDialogModalState ModalState;
 		std::array<std::array<char, 512>, TextureCubeFaceCount> FacePathBuffers{};
 		std::array<std::array<char, 512>, TextureCubeFaceCount> FaceDestinationBuffers{};
+		std::array<std::string, TextureCubeFaceCount> LastSuggestedFaceDestinations;
 		std::array<char, 512> PanoramaPathBuffer{};
 		std::array<char, 512> PanoramaDestinationBuffer{};
+		std::string LastSuggestedPanoramaDestination;
 		std::string SourceValidationMessage;
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama;
 		uint32 PanoramaFaceDimension = 0;

@@ -163,16 +163,24 @@ TEST_F(FAssetDestinationValidationTests, ResolvesVirtualContentDirectories)
 	EXPECT_FALSE(Outside.Message.empty());
 }
 
-TEST_F(FAssetDestinationValidationTests, SuggestsSceneSourcesUnderTheOwningMount)
+TEST_F(FAssetDestinationValidationTests, SuggestsImportedSourcesByKindAndBundleShape)
 {
 	EXPECT_EQ(
-		MakeDefaultSceneSourceVirtualPath(
-			"/Project/Imported/Robot", "Robot", "Robot.gltf"),
+		MakeDefaultImportedSourceVirtualPath(
+			"/Project/StaticMeshes/Box", "Models", "Box.obj"),
+		"/Project/Sources/Models/Box.obj");
+	EXPECT_EQ(
+		MakeDefaultImportedSourceVirtualPath(
+			"/Engine/Textures/Grid", "Textures", "Grid.png"),
+		"/Engine/Sources/Textures/Grid.png");
+	EXPECT_EQ(
+		MakeDefaultImportedSourceVirtualPath(
+			"/Project/Imported/Robot", "Models", "Robot.gltf", "Robot"),
 		"/Project/Sources/Models/Robot/Robot.gltf");
 	EXPECT_EQ(
-		MakeDefaultSceneSourceVirtualPath(
-			"/Engine/Imported/Robot", "Robot", "Robot.glb"),
-		"/Engine/Sources/Models/Robot/Robot.glb");
-	EXPECT_TRUE(MakeDefaultSceneSourceVirtualPath(
-		"/Unknown/Imported/Robot", "Robot", "Robot.gltf").empty());
+		MakeDefaultImportedSourceVirtualPath(
+			"/Engine/Textures/Sky", "Textures", "Sky_px.hdr", "Sky"),
+		"/Engine/Sources/Textures/Sky/Sky_px.hdr");
+	EXPECT_TRUE(MakeDefaultImportedSourceVirtualPath(
+		"/Unknown/Imported/Robot", "Models", "Robot.gltf", "Robot").empty());
 }

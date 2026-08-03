@@ -231,7 +231,10 @@ namespace Durin
 		// identity. Render resources are rebuilt for both objects.
 		ENGINE_API auto ExchangeImportedState(DTexture2D& Other) -> void;
 
-		ENGINE_API static auto ImportAsset(std::string_view FilePath, std::string_view AssetPath, const FTexture2DImportSettings& Settings = {}) -> FTexture2DImportResult;
+		ENGINE_API static auto ImportAsset(std::string_view FilePath,
+			std::string_view AssetPath,
+			const FTexture2DImportSettings& Settings = {},
+			bool bEngineAuthoringContext = false) -> FTexture2DImportResult;
 
 	protected:
 		auto CreateRenderResourceCandidate(

@@ -31,6 +31,13 @@ namespace Durin
 		return "Unknown";
 	}
 
+	inline auto IsEngineAuthoringDestination(std::string_view VirtualPath) -> bool
+	{
+		const PathUtilities::FMountLookupResult Lookup =
+			PathUtilities::FindMountForVirtualPath(VirtualPath);
+		return Lookup && Lookup.Mount->Owner == PathUtilities::EMountOwner::Engine;
+	}
+
 	inline auto InspectMountedSourceImport(
 		std::string_view InputFile,
 		std::string_view AssetPath,
@@ -116,26 +123,20 @@ namespace Durin
 		return Result;
 	}
 
-	inline auto MakeDefaultSourceVirtualPath(
+	// Keeps every captured source under one mount-wide Sources namespace while
+	// allowing bundle-like inputs to own a stable subdirectory.
+	inline auto MakeDefaultImportedSourceVirtualPath(
 		std::string_view AssetPath,
 		std::string_view Category,
-		std::string_view FileName) -> std::string
+		std::string_view FileName,
+		std::string_view SourceGroup = {}) -> std::string
 	{
 		const PathUtilities::FMountLookupResult Lookup =
 			PathUtilities::FindMountForVirtualPath(AssetPath);
-		if (!Lookup) return {};
-		return Lookup.Mount->VirtualRoot + std::string(Category) + "/" + std::string(FileName);
-	}
-
-	inline auto MakeDefaultSceneSourceVirtualPath(
-		std::string_view AssetPath,
-		std::string_view SceneName,
-		std::string_view FileName) -> std::string
-	{
-		const PathUtilities::FMountLookupResult Lookup =
-			PathUtilities::FindMountForVirtualPath(AssetPath);
-		if (!Lookup || SceneName.empty() || FileName.empty()) return {};
-		return Lookup.Mount->VirtualRoot
-			+ "Sources/Models/" + std::string(SceneName) + "/" + std::string(FileName);
+		if (!Lookup || Category.empty() || FileName.empty()) return {};
+		std::string Result = Lookup.Mount->VirtualRoot
+			+ "Sources/" + std::string(Category) + "/";
+		if (!SourceGroup.empty()) Result += std::string(SourceGroup) + "/";
+		return Result + std::string(FileName);
 	}
 } // namespace Durin

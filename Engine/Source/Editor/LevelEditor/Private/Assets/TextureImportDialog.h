@@ -20,6 +20,7 @@ namespace Durin
 		auto BrowseSource() -> void;
 		auto BrowseDestination() -> void;
 		auto BrowseSourceDestination() -> void;
+		auto SuggestSourceDestination() -> void;
 		auto Import() -> bool;
 		auto SetError(std::string Message) const -> void;
 

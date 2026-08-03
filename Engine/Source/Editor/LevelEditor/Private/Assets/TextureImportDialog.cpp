@@ -96,7 +96,7 @@ namespace Durin
 			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
 			ImGui::InputTextWithHint(
 				"##TextureImportSourceDestination",
-				"/Game/Textures/AssetName.png",
+				"/Project/Sources/Textures/AssetName.png",
 				SourceDestinationBuffer.data(),
 				SourceDestinationBuffer.size());
 			ImGui::SameLine();
@@ -106,10 +106,12 @@ namespace Durin
 
 		const FAssetDestinationValidation DestinationValidation =
 			Destination.Inspect();
+		const bool bEngineAuthoringContext = DestinationValidation.Mount
+			&& DestinationValidation.Mount->Owner == PathUtilities::EMountOwner::Engine;
 		const FMountedSourceImportDiagnostic SourceDiagnostic = DestinationValidation.bAssetPathValid
 			? InspectMountedSourceImport(
 				SourcePathBuffer.data(), DestinationValidation.AssetPath.GetView(),
-				SourceDestinationBuffer.data(), SourceMode)
+				SourceDestinationBuffer.data(), SourceMode, bEngineAuthoringContext)
 			: FMountedSourceImportDiagnostic{};
 		const std::filesystem::path SourceDestination(
 			SourceDiagnostic.VirtualPath.empty()
@@ -135,6 +137,8 @@ namespace Durin
 				SourceDiagnostic.Mount->VirtualRoot.c_str(),
 				DescribeMountOwner(SourceDiagnostic.Mount->Owner),
 				SourceDiagnostic.Mount->bAuthoringWritable ? "writable" : "read-only");
+			if (bEngineAuthoringContext)
+				ImGui::TextDisabled("Engine authoring: this import writes shared Engine content.");
 		}
 
 		ImGui::Spacing();
@@ -201,10 +205,19 @@ namespace Durin
 		const FProjectInfo* Project = GetCurrentProject();
 		Destination.SuggestPath(Destination.MakeSuggestedPath(AssetName,
 			(Project ? Project->MountRoot : "/") + std::string("Textures/")));
+		SuggestSourceDestination();
+	}
+
+	auto FTextureImportDialog::SuggestSourceDestination() -> void
+	{
+		if (SourcePathBuffer[0] == '\0') return;
+		const std::filesystem::path SourcePath(SourcePathBuffer.data());
+		const std::string AssetName = StringUtils::SanitizeFileName(
+			SourcePath.stem().generic_string(), "Texture");
 		const std::string PreviousSourceDestination = SourceDestinationBuffer.data();
-		const std::string SuggestedSourceDestination = MakeDefaultSourceVirtualPath(
+		const std::string SuggestedSourceDestination = MakeDefaultImportedSourceVirtualPath(
 			Destination.GetPath(), "Textures",
-			AssetName + std::filesystem::path(Result.FilePath).extension().generic_string());
+			AssetName + SourcePath.extension().generic_string());
 		if (PreviousSourceDestination.empty()
 			|| PreviousSourceDestination == LastSuggestedSourceDestination)
 		{
@@ -226,10 +239,11 @@ namespace Durin
 				std::filesystem::path(SourcePathBuffer.data()).stem().generic_string(),
 				"Texture") + ".dasset"
 			: "Texture.dasset";
-		Destination.Browse("Choose a Texture Asset Path", DefaultFileName,
+		if (Destination.Browse("Choose a Texture Asset Path", DefaultFileName,
 			"The selected asset path is too long for the import form.",
 			"Texture assets must be saved inside a package-enabled mount.",
-			Callbacks);
+			Callbacks))
+			SuggestSourceDestination();
 	}
 
 	auto FTextureImportDialog::BrowseSourceDestination() -> void
@@ -298,7 +312,8 @@ namespace Durin
 			Settings.SourceDestination = SourceDestinationBuffer.data();
 		Settings.Usage = Usage;
 		FTexture2DImportResult Result = DTexture2D::ImportAsset(
-			SourcePathBuffer.data(), Destination.GetPath(), Settings);
+			SourcePathBuffer.data(), Destination.GetPath(), Settings,
+			IsEngineAuthoringDestination(Destination.GetPath()));
 		if (!Result) { SetError(Result.Message); return false; }
 		Callbacks.NotifyImported(Destination.GetPath());
 		FAssetPath ImportedPath;

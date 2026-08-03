@@ -152,7 +152,8 @@ namespace Durin
 			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 			std::string_view AssetPath,
 			const FTextureCubeImportSettings& Settings = {},
-			const std::array<std::string, TextureCubeFaceCount>& SourceDestinations = {})
+			const std::array<std::string, TextureCubeFaceCount>& SourceDestinations = {},
+			bool bEngineAuthoringContext = false)
 			-> FTextureCubeImportResult;
 		ENGINE_API static auto ValidateImportSources(
 			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
@@ -161,7 +162,8 @@ namespace Durin
 			std::string_view PanoramaFile,
 			std::string_view AssetPath,
 			const FTextureCubePanoramaImportSettings& Settings = {},
-			std::string_view SourceDestination = {}) -> FTextureCubeImportResult;
+			std::string_view SourceDestination = {},
+			bool bEngineAuthoringContext = false) -> FTextureCubeImportResult;
 		ENGINE_API static auto ValidatePanoramaImportSource(
 			std::string_view PanoramaFile,
 			const FTextureCubePanoramaImportSettings& Settings = {}) -> FTextureCubeImportValidation;

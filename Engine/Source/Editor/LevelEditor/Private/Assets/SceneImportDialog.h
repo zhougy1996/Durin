@@ -29,6 +29,7 @@ namespace Durin
 		auto BrowseSource() -> void;
 		auto BrowseDestinationDirectory() -> void;
 		auto BrowseSourceDestination() -> void;
+		auto SuggestSourceDestination() -> void;
 		auto RefreshPreview(const FAssetPath& DestinationDirectory) -> void;
 		auto Import() -> bool;
 		auto PollImport() -> bool;

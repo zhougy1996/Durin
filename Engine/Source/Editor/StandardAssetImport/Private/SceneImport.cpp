@@ -835,12 +835,14 @@ namespace Durin
 		std::string_view ReferencingContentPath,
 		std::string_view ExternalIngestDestination,
 		FPreparedSceneSourceBundle& OutBundle,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		bool bEngineAuthoringContext) -> bool
 	{
 		OutBundle = {};
 		FMountedSourceFile Root;
 		if (!PrepareMountedSourceFile(InputRoot, ReferencingContentPath,
-			ExternalIngestDestination, Root, OutError)) return false;
+			ExternalIngestDestination, Root, OutError,
+			bEngineAuthoringContext)) return false;
 		OutBundle.RootSource = Root.SourcePath;
 		OutBundle.Sources.push_back(std::move(Root));
 		const std::string Extension = FoldAscii(
@@ -874,7 +876,8 @@ namespace Durin
 				FMountedSourceFile Dependency;
 				if (!PrepareMountedSourceFile(
 					InputParent / Relative, ReferencingContentPath,
-					(TargetParent / Relative).generic_string(), Dependency, OutError))
+					(TargetParent / Relative).generic_string(), Dependency, OutError,
+					bEngineAuthoringContext))
 					return false;
 				OutBundle.Sources.push_back(std::move(Dependency));
 				return true;

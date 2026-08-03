@@ -35,14 +35,23 @@ supported model format without creating scene materials or textures. FBX and
 glTF may use either workflow: choose Static Mesh for one geometry asset, or
 Scene Source when the complete multi-output scene relationship is required.
 
+Import dialogs share one source-layout convention within the destination
+mount. A single model defaults to `Sources/Models/<Name>.<ext>` and a Texture2D
+to `Sources/Textures/<Name>.<ext>`. Bundle-like inputs receive a stable source
+directory: Scene Source uses `Sources/Models/<Scene>/<File>` and TextureCube
+uses `Sources/Textures/<Asset>/<File>`. Single-output imports suggest one asset
+in the current Content Browser directory; Scene Source suggests one output
+directory there. Changing an automatically suggested destination updates its
+dependent source suggestions, while a manually edited path is preserved.
+
 The form displays the asset or output-directory destination and source
 destination separately,
 along with mount identity, dependency status, availability, containment, and
 write policy. A Game asset may reference an Engine or declared plugin/library
 source. An Engine asset may not reference Game. Ordinary project authoring
-cannot mutate Engine source; an explicit Static Mesh import whose asset
+cannot mutate Engine source; an explicit editor import whose asset or output
 destination is inside `/Engine/` runs in Engine-authoring context and may
-ingest its source into the same writable Engine mount.
+ingest its sources into the same writable Engine mount.
 
 ## Existing Assets
 

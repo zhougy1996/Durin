@@ -43,12 +43,6 @@ namespace Durin
 			return Lookup ? Lookup.Mount : nullptr;
 		}
 
-		auto IsEngineAuthoringDestination(std::string_view AssetPath) -> bool
-		{
-			const PathUtilities::FMountPoint* Mount = FindOwningMount(AssetPath);
-			return Mount && Mount->Owner == PathUtilities::EMountOwner::Engine;
-		}
-
 		auto DrawImportAxisCombo(const char* Label, EStaticMeshImportAxis& Axis) -> bool
 		{
 			int Value = static_cast<int>(Axis);
@@ -151,7 +145,7 @@ namespace Durin
 			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth
 				- ImGui::GetStyle().ItemSpacing.x);
 			ImGui::InputTextWithHint("##StaticMeshSourceDestination",
-				"/Project/Models/AssetName.obj", SourceDestinationBuffer.data(),
+				"/Project/Sources/Models/AssetName.obj", SourceDestinationBuffer.data(),
 				SourceDestinationBuffer.size());
 			ImGui::SameLine();
 			if (ImGui::Button("Choose source...", ImVec2(BrowseButtonWidth, 0.0f)))
@@ -273,10 +267,19 @@ namespace Durin
 		const FProjectInfo* Project = GetCurrentProject();
 		Destination.SuggestPath(Destination.MakeSuggestedPath(AssetName,
 			(Project ? Project->MountRoot : "/") + std::string("StaticMeshes/")));
+		SuggestSourceDestination();
+	}
+
+	auto FStaticMeshImportDialog::SuggestSourceDestination() -> void
+	{
+		if (SourcePathBuffer[0] == '\0') return;
+		const std::filesystem::path SourcePath(SourcePathBuffer.data());
+		const std::string AssetName = StringUtils::SanitizeFileName(
+			SourcePath.stem().generic_string(), "StaticMesh");
 		const std::string PreviousSourceDestination = SourceDestinationBuffer.data();
-		const std::string SuggestedSourceDestination = MakeDefaultSourceVirtualPath(
-			Destination.GetPath(), "Models", AssetName
-				+ std::filesystem::path(Result.FilePath).extension().generic_string());
+		const std::string SuggestedSourceDestination = MakeDefaultImportedSourceVirtualPath(
+			Destination.GetPath(), "Models",
+			AssetName + SourcePath.extension().generic_string());
 		if (PreviousSourceDestination.empty()
 			|| PreviousSourceDestination == LastSuggestedSourceDestination)
 		{
@@ -294,9 +297,10 @@ namespace Durin
 				std::filesystem::path(SourcePathBuffer.data()).stem().generic_string(),
 				"StaticMesh") + ".dasset"
 			: "StaticMesh.dasset";
-		Destination.Browse("Choose a Static Mesh Asset Path", DefaultFileName,
+		if (Destination.Browse("Choose a Static Mesh Asset Path", DefaultFileName,
 			"The selected asset path is too long for the import form.",
-			"Static mesh assets must be saved inside a package-enabled mount.", Callbacks);
+			"Static mesh assets must be saved inside a package-enabled mount.", Callbacks))
+			SuggestSourceDestination();
 	}
 
 	auto FStaticMeshImportDialog::BrowseSourceDestination() -> void

@@ -127,7 +127,8 @@ namespace Durin
 		std::string_view ReferencingContentPath,
 		std::string_view ExternalIngestDestination,
 		FPreparedSceneSourceBundle& OutBundle,
-		std::string& OutError) -> bool;
+		std::string& OutError,
+		bool bEngineAuthoringContext = false) -> bool;
 	STANDARDASSETIMPORT_API auto CommitSceneSourceBundle(
 		FPreparedSceneSourceBundle& Bundle) -> void;
 	STANDARDASSETIMPORT_API auto RollbackSceneSourceBundle(

@@ -1076,7 +1076,8 @@ namespace Durin
 
 	auto DTextureCube::ImportPanoramaAsset(std::string_view PanoramaFile, std::string_view AssetPath,
 		const FTextureCubePanoramaImportSettings& Settings,
-		std::string_view SourceDestination) -> FTextureCubeImportResult
+		std::string_view SourceDestination,
+		bool bEngineAuthoringContext) -> FTextureCubeImportResult
 	{
 		if (PanoramaFile.empty()) return {false, "Panorama source is missing.", nullptr};
 		const std::filesystem::path Input = std::filesystem::absolute(PanoramaFile).lexically_normal();
@@ -1107,7 +1108,8 @@ namespace Durin
 			return {false, std::move(Error), nullptr};
 		FMountedSourceFile MountedSource;
 		if (!PrepareMountedSourceFile(
-			Input, ParsedAssetPath.ToString(), StoredSourcePath, MountedSource, Error))
+			Input, ParsedAssetPath.ToString(), StoredSourcePath, MountedSource, Error,
+			bEngineAuthoringContext))
 			return {false, std::move(Error), nullptr};
 		Destination = MountedSource.PhysicalPath;
 		StoredSourcePath = MountedSource.SourcePath.Path;
@@ -1838,7 +1840,8 @@ namespace Durin
 
 	auto DTextureCube::ImportAsset(const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 		std::string_view AssetPath, const FTextureCubeImportSettings& Settings,
-		const std::array<std::string, TextureCubeFaceCount>& SourceDestinations)
+		const std::array<std::string, TextureCubeFaceCount>& SourceDestinations,
+		bool bEngineAuthoringContext)
 		-> FTextureCubeImportResult
 	{
 		std::array<std::filesystem::path, TextureCubeFaceCount> Inputs;
@@ -1875,7 +1878,8 @@ namespace Durin
 					Destinations[FaceIndex], StoredSourcePaths[FaceIndex], PathError)
 				|| !PrepareMountedSourceFile(
 					Inputs[FaceIndex], ParsedAssetPath.ToString(),
-					StoredSourcePaths[FaceIndex], MountedSources[FaceIndex], PathError))
+					StoredSourcePaths[FaceIndex], MountedSources[FaceIndex], PathError,
+					bEngineAuthoringContext))
 			{
 				RollbackMountedSources();
 				return {false, std::move(PathError), nullptr};
