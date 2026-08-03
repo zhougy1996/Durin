@@ -723,7 +723,9 @@ namespace Durin
 			return false;
 		}
 		if (!Providers.Register(std::make_shared<FIdentityProvider>("Assimp", 3,
-			std::vector<std::string>{".obj", ".fbx", ".gltf", ".glb"}), OutError))
+			std::vector<std::string>{
+				".obj", ".fbx", ".gltf", ".glb", ".dae", ".3ds", ".ply", ".stl"}),
+			OutError))
 		{
 			RecordHandlers.Unregister(SceneImportProviderId);
 			Providers.Unregister(SceneImportProviderId);

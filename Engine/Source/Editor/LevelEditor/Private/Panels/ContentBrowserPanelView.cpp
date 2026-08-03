@@ -835,6 +835,8 @@ namespace Durin
 			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::Texture); };
 		if (ImGui::MenuItem("Texture Cube..."))
 			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::TextureCube); };
+		if (ImGui::MenuItem("Static Mesh (Geometry Only)..."))
+			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::StaticMesh); };
 		if (ImGui::MenuItem("Scene Source (FBX/glTF)..."))
 			DeferredContentAction = [this, Directory = std::string(VirtualDirectory)] { RequestImport(Directory, EContentBrowserImportType::Scene); };
 		ImGui::EndDisabled();

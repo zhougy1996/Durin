@@ -30,6 +30,11 @@ currently `Meshes`, `Materials`, and `Textures`, and stores
 `<SourceName>_Import` at the output root. No generated Mesh is treated as the
 primary asset.
 
+Use **Static Mesh (Geometry Only)** to create one StaticMesh from OBJ or another
+supported model format without creating scene materials or textures. FBX and
+glTF may use either workflow: choose Static Mesh for one geometry asset, or
+Scene Source when the complete multi-output scene relationship is required.
+
 The form displays the asset or output-directory destination and source
 destination separately,
 along with mount identity, dependency status, availability, containment, and

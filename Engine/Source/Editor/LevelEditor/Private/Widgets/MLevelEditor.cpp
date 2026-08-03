@@ -25,6 +25,7 @@
 #include "Panels/SceneViewportPanel.h"
 #include "Panels/WorldOutlinerPanel.h"
 #include "Assets/SceneImportDialog.h"
+#include "Assets/StaticMeshImportDialog.h"
 #include "Assets/TextureImportDialog.h"
 #include "Assets/TextureCubeImportDialog.h"
 #include "Widgets/EditorNotificationOverlay.h"
@@ -128,6 +129,8 @@ namespace Durin
 		};
 		SceneImportDialog =
 			MakeImportDialog<FSceneImportDialog>(ImportCallbacks);
+		StaticMeshImportDialog =
+			MakeImportDialog<FStaticMeshImportDialog>(ImportCallbacks);
 		TextureImportDialog =
 			MakeImportDialog<FTextureImportDialog>(ImportCallbacks);
 		TextureCubeImportDialog =
@@ -145,6 +148,10 @@ namespace Durin
 				else if (ImportType == EContentBrowserImportType::TextureCube)
 				{
 					if (TextureCubeImportDialog) TextureCubeImportDialog->Open(DestinationDirectory);
+				}
+				else if (ImportType == EContentBrowserImportType::StaticMesh)
+				{
+					if (StaticMeshImportDialog) StaticMeshImportDialog->Open(DestinationDirectory);
 				}
 				else if (SceneImportDialog) SceneImportDialog->Open(DestinationDirectory);
 			},
@@ -316,7 +323,7 @@ namespace Durin
 
 	auto MLevelEditor::DrawWorkspace(bool bActive) -> bool
 	{
-		if (!Context || !DocumentController || !SceneImportDialog
+		if (!Context || !DocumentController || !SceneImportDialog || !StaticMeshImportDialog
 			|| !TextureImportDialog) return false;
 		if (bActive && !bWasActive)
 		{
@@ -403,6 +410,7 @@ namespace Durin
 
 		DocumentController->DrawDialogs();
 		SceneImportDialog->Draw();
+		StaticMeshImportDialog->Draw();
 		TextureImportDialog->Draw();
 		TextureCubeImportDialog->Draw();
 		DrawProjectSettings();

@@ -26,6 +26,7 @@ namespace Durin
 	{
 		Texture,
 		TextureCube,
+		StaticMesh,
 		Scene
 	};
 
