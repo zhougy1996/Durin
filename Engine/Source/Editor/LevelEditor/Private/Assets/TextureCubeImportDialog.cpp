@@ -237,7 +237,7 @@ namespace Durin
 		ImGui::Spacing();
 		ImGui::SeparatorText("Destination");
 		const float BrowseButtonWidth = Metrics.StandardButtonWidth;
-		if (Destination.DrawRow("Asset path", "##TextureCubeAssetPath",
+		if (Destination.DrawRow("Asset path (one .dasset)", "##TextureCubeAssetPath",
 			"/Game/Textures/Sky", "Choose...", BrowseButtonWidth))
 			BrowseDestination();
 		if (SourceMode == EMountedSourceImportMode::IngestExternal)
@@ -313,11 +313,14 @@ namespace Durin
 		{
 			ImGui::BeginChild("TextureCubeOutputPreview",
 				ImVec2(0.0f, MonaImGui::ScaleUI(
-					SourceLayout == ETextureCubeSourceLayout::SixFaces ? 170.0f : 78.0f)),
+					SourceLayout == ETextureCubeSourceLayout::SixFaces ? 204.0f : 112.0f)),
 				ImGuiChildFlags_Borders);
-			ImGui::TextDisabled("Asset destination");
+			ImGui::TextDisabled("Asset identity");
 			ImGui::TextUnformatted(
 				DestinationValidation.AssetPath.ToString().c_str());
+			ImGui::TextDisabled("Package file");
+			ImGui::TextUnformatted(std::format("{}.dasset",
+				DestinationValidation.AssetPath.ToString()).c_str());
 			ImGui::TextDisabled("Source virtual path%s",
 				SourceLayout == ETextureCubeSourceLayout::SixFaces ? "s" : "");
 			if (SourceLayout == ETextureCubeSourceLayout::SixFaces)

@@ -43,6 +43,9 @@ uses `Sources/Textures/<Asset>/<File>`. Single-output imports suggest one asset
 in the current Content Browser directory; Scene Source suggests one output
 directory there. Changing an automatically suggested destination updates its
 dependent source suggestions, while a manually edited path is preserved.
+Single-output forms label the destination as one `.dasset` and preview the
+extension-bearing package filename; the editable asset identity remains the
+canonical extension-free virtual path.
 
 The form displays the asset or output-directory destination and source
 destination separately,

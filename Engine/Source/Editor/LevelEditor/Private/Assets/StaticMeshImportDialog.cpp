@@ -136,7 +136,7 @@ namespace Durin
 
 		ImGui::Spacing();
 		ImGui::SeparatorText("Destination");
-		if (Destination.DrawRow("Asset path", "##StaticMeshImportAssetPath",
+		if (Destination.DrawRow("Asset path (one .dasset)", "##StaticMeshImportAssetPath",
 			"/Project/StaticMeshes/AssetName", "Choose...", BrowseButtonWidth))
 			BrowseDestination();
 		if (SourceMode == EMountedSourceImportMode::IngestExternal)
@@ -176,9 +176,12 @@ namespace Durin
 			&& SourceDiagnostic.bValid)
 		{
 			ImGui::BeginChild("StaticMeshImportOutputPreview",
-				ImVec2(0.0f, MonaImGui::ScaleUI(78.0f)), ImGuiChildFlags_Borders);
-			ImGui::TextDisabled("Asset destination");
+				ImVec2(0.0f, MonaImGui::ScaleUI(112.0f)), ImGuiChildFlags_Borders);
+			ImGui::TextDisabled("Asset identity");
 			ImGui::TextUnformatted(DestinationValidation.AssetPath.ToString().c_str());
+			ImGui::TextDisabled("Package file");
+			ImGui::TextUnformatted(std::format("{}.dasset",
+				DestinationValidation.AssetPath.ToString()).c_str());
 			ImGui::TextDisabled("Source virtual path");
 			ImGui::TextUnformatted(SourceDiagnostic.VirtualPath.c_str());
 			ImGui::EndChild();
