@@ -8,6 +8,7 @@ from typing import Any, Sequence
 
 from rich.markup import escape
 from rich.table import Table
+from rich.text import Text
 
 from .config import (
     Action,
@@ -48,6 +49,7 @@ class AcquiredRequest:
     request: CommandRequest
     context: BuildContext | None
     current_preset: str = ""
+    preset_selected: bool = False
 
 
 def execute_create_request(
@@ -108,17 +110,28 @@ def show_presets(output: BuildOutput, context: BuildContext, current_preset: str
             suffix = f' [{", ".join(markers)}]' if markers else ""
             output.info(escape(f"  {index:>2}  {preset}{suffix}"))
         return
-    table = Table(title="Registered presets")
-    table.add_column("#", justify="right")
+    table = Table(
+        title="Registered presets",
+        title_style="bold cyan",
+        header_style="bold white",
+        border_style="bright_black",
+    )
+    table.add_column("#", justify="right", style="cyan")
     table.add_column("Preset")
     table.add_column("State")
     for index, preset in enumerate(context.profile.presets, start=1):
-        markers = []
+        markers = Text()
         if preset == context.profile.default_preset:
-            markers.append("default")
+            markers.append("default", style="cyan")
         if preset == current_preset:
-            markers.append("current")
-        table.add_row(str(index), preset, ", ".join(markers))
+            if markers:
+                markers.append(", ")
+            markers.append("current", style="bold green")
+        preset_text = Text(
+            preset,
+            style="bold green" if preset == current_preset else "",
+        )
+        table.add_row(str(index), preset_text, markers)
     output.console.print(table)
 
 
@@ -230,13 +243,16 @@ def acquire_request_context(
     current_preset = str(session_state["build_preset"])
 
     if request.action is Action.PRESET:
+        select_by_number = bool(session_state.pop("select_preset_by_number", False))
         if request.preset:
-            current_preset = resolve_shell_preset(request.preset, base)
+            resolver = resolve_shell_preset_number if select_by_number else resolve_shell_preset
+            current_preset = resolver(request.preset, base)
             session_state["build_preset"] = current_preset
         return AcquiredRequest(
             request.with_preset(current_preset),
             base,
             current_preset,
+            preset_selected=bool(request.preset),
         )
 
     request = request.with_preset(request.preset or current_preset)
@@ -297,7 +313,8 @@ def dispatch_request(
         show_presets(output, context, acquired.current_preset)
         return
     if request.action is Action.PRESET:
-        output.info(f'CMake preset: "{acquired.current_preset}"')
+        label = "CMake preset selected" if acquired.preset_selected else "CMake preset"
+        output.info(f'{label}: "{acquired.current_preset}"')
         return
     if request.action is Action.STATUS:
         show_status(output, context)

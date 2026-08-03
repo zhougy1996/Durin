@@ -26,6 +26,21 @@ class TestBuildRegistry:
         _spec, namespace = self.registry.parse(arguments)
         return namespace
 
+    @staticmethod
+    def shell_context() -> mock.Mock:
+        context = mock.Mock()
+        context.request = CommandRequest(Action.SHELL)
+        context.preset.name = 'debug'
+        context.current_host = 'windows'
+        context.environment = None
+        context.cmake = ''
+        context.jobs = 0
+        context.profile.name = 'profile'
+        context.profile.default_preset = 'debug'
+        context.profile.presets = ('debug', 'release')
+        context.config = LocalConfig()
+        return context
+
     def test_every_build_command_uses_the_build_handler(self) -> None:
         expected = {'stop', 'presets', 'preset', 'status', 'open-runtime', 'configure', 'build', 'clean', 'recover', 'purge', 'rebuild', 'test', 'run', 'create'}
         specifications = {specification.name: specification for specification in self.registry.specifications if specification.name in expected}
@@ -73,7 +88,12 @@ class TestBuildRegistry:
 
             dispatch.reset_mock()
             acquire_context.reset_mock()
-            shell_lines = iter((*commands, 'exit'))
+            shell_input = []
+            for command in commands:
+                shell_input.append(command)
+                if split_shell_command(command)[0].lower() == 'presets':
+                    shell_input.append('')
+            shell_lines = iter((*shell_input, 'exit'))
             assert run_shell(
                 registry=self.registry,
                 repository_root=REPOSITORY_ROOT,
@@ -173,3 +193,102 @@ class TestBuildRegistry:
         prepare_command_context.assert_called_once()
         assert [call.args[0].preset.name for call in execute.call_args_list] == ['debug', 'release']
         assert all((call.args[0].environment is cached_environment for call in execute.call_args_list))
+
+    def test_presets_selects_number_from_a_distinct_prompt(self) -> None:
+        base = self.shell_context()
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        prompts: list[str] = []
+        responses = iter(('presets', '2', 'preset', 'exit'))
+
+        def read_input(prompt: str) -> str:
+            prompts.append(prompt)
+            return next(responses)
+
+        with mock.patch.object(build_operations, 'create_context', return_value=base), mock.patch.object(
+            build_operations, 'derive_context', return_value=base
+        ):
+            assert run_shell(
+                registry=self.registry,
+                repository_root=REPOSITORY_ROOT,
+                stdout=stdout,
+                stderr=stderr,
+                input_func=read_input,
+            ) == 0
+
+        assert prompts == ['DurinDevTool> ', 'Preset> ', 'DurinDevTool> ', 'DurinDevTool> ']
+        assert 'CMake preset selected: "release"' in stdout.getvalue()
+        assert 'CMake preset: "release"' in stdout.getvalue()
+        assert stderr.getvalue() == ''
+
+    @pytest.mark.parametrize('response', ('', KeyboardInterrupt()))
+    def test_preset_selection_cancellation_keeps_current_preset(self, response: object) -> None:
+        base = self.shell_context()
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        responses = iter(('presets', response, 'preset', 'exit'))
+
+        def read_input(_prompt: str) -> str:
+            value = next(responses)
+            if isinstance(value, BaseException):
+                raise value
+            return str(value)
+
+        with mock.patch.object(build_operations, 'create_context', return_value=base), mock.patch.object(
+            build_operations, 'derive_context', return_value=base
+        ):
+            assert run_shell(
+                registry=self.registry,
+                repository_root=REPOSITORY_ROOT,
+                stdout=stdout,
+                stderr=stderr,
+                input_func=read_input,
+            ) == 0
+
+        assert 'Preset selection cancelled; current preset unchanged.' in stdout.getvalue()
+        assert 'CMake preset: "debug"' in stdout.getvalue()
+        assert stderr.getvalue() == ''
+
+    def test_preset_selection_rejects_non_numeric_input(self) -> None:
+        base = self.shell_context()
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        responses = iter(('presets', 'release', 'exit'))
+
+        with mock.patch.object(build_operations, 'create_context', return_value=base), mock.patch.object(
+            build_operations, 'derive_context', return_value=base
+        ):
+            assert run_shell(
+                registry=self.registry,
+                repository_root=REPOSITORY_ROOT,
+                stdout=stdout,
+                stderr=stderr,
+                input_func=lambda _prompt: next(responses),
+            ) == 0
+
+        assert 'Invalid preset number "release"' in stderr.getvalue()
+
+    def test_styled_preset_table_highlights_state_without_changing_plain_output(self) -> None:
+        context = self.shell_context()
+        styled_stdout = io.StringIO()
+        styled_output = build_operations.BuildOutput(
+            stdout=styled_stdout,
+            stderr=io.StringIO(),
+            force_terminal=True,
+        )
+        build_operations.show_presets(styled_output, context, 'debug')
+
+        plain_stdout = io.StringIO()
+        plain_output = build_operations.BuildOutput(
+            plain=True,
+            stdout=plain_stdout,
+            stderr=io.StringIO(),
+        )
+        build_operations.show_presets(plain_output, context, 'debug')
+
+        assert '\x1b[' in styled_stdout.getvalue()
+        assert '\x1b[1;32m' in styled_stdout.getvalue()
+        assert plain_stdout.getvalue().splitlines() == [
+            '   1  debug [default, current]',
+            '   2  release',
+        ]

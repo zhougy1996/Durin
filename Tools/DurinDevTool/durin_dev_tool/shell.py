@@ -108,22 +108,43 @@ def run_shell(
     print("Durin Developer Tool shell", file=stdout)
     print("Type help for available commands.", file=stdout)
     session_state: dict[str, object] = {}
+    selecting_preset = False
     while True:
         try:
-            line = input_func("DurinDevTool> ").strip()
+            line = input_func(
+                "Preset> " if selecting_preset else "DurinDevTool> "
+            ).strip()
         except EOFError:
             print("", file=stdout)
             return 0
         except KeyboardInterrupt:
+            if selecting_preset:
+                selecting_preset = False
+                print(
+                    "Preset selection cancelled; current preset unchanged.",
+                    file=stdout,
+                )
+                continue
             print("\nUse exit to leave the shell.", file=stderr)
             continue
-        if not line:
-            continue
-        try:
-            parts = normalize_compact_build_command(split_shell_command(line))
-        except ValueError as exc:
-            print(f"Error: invalid command: {exc}", file=stderr)
-            continue
+        if selecting_preset:
+            selecting_preset = False
+            if not line:
+                print(
+                    "Preset selection cancelled; current preset unchanged.",
+                    file=stdout,
+                )
+                continue
+            parts = ["preset", line]
+            session_state["select_preset_by_number"] = True
+        else:
+            if not line:
+                continue
+            try:
+                parts = normalize_compact_build_command(split_shell_command(line))
+            except ValueError as exc:
+                print(f"Error: invalid command: {exc}", file=stderr)
+                continue
         command = parts[0].lower()
         if command in {"exit", "quit"}:
             return 0
@@ -131,7 +152,7 @@ def run_shell(
             parts = ["help"]
         try:
             spec, namespace = registry.parse(parts)
-            registry.execute(
+            result = registry.execute(
                 spec,
                 namespace,
                 repository_root=repository_root,
@@ -139,6 +160,12 @@ def run_shell(
                 stderr=stderr,
                 session_state=session_state,
             )
+            if result == 0 and spec.name == "presets":
+                print(
+                    "Enter a preset number, or press Enter to keep the current preset.",
+                    file=stdout,
+                )
+                selecting_preset = True
             if session_state.get("exit_requested"):
                 return 0
         except DevToolError as exc:
