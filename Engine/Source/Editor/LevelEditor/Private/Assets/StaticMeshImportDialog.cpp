@@ -43,6 +43,12 @@ namespace Durin
 			return Lookup ? Lookup.Mount : nullptr;
 		}
 
+		auto IsEngineAuthoringDestination(std::string_view AssetPath) -> bool
+		{
+			const PathUtilities::FMountPoint* Mount = FindOwningMount(AssetPath);
+			return Mount && Mount->Owner == PathUtilities::EMountOwner::Engine;
+		}
+
 		auto DrawImportAxisCombo(const char* Label, EStaticMeshImportAxis& Axis) -> bool
 		{
 			int Value = static_cast<int>(Axis);
@@ -153,12 +159,15 @@ namespace Durin
 		}
 
 		const FAssetDestinationValidation DestinationValidation = Destination.Inspect();
+		const bool bEngineAuthoringContext = DestinationValidation.Mount
+			&& DestinationValidation.Mount->Owner == PathUtilities::EMountOwner::Engine;
 		std::string ImportSettingsError;
 		const bool bImportSettingsValid = ImportSettings.IsValid(&ImportSettingsError);
 		const FMountedSourceImportDiagnostic SourceDiagnostic =
 			DestinationValidation.bAssetPathValid
 			? InspectMountedSourceImport(SourcePathBuffer.data(),
-				DestinationValidation.AssetPath.GetView(), SourceDestinationBuffer.data(), SourceMode)
+				DestinationValidation.AssetPath.GetView(), SourceDestinationBuffer.data(),
+				SourceMode, bEngineAuthoringContext)
 			: FMountedSourceImportDiagnostic{};
 		const std::filesystem::path SourceDestination(
 			SourceDiagnostic.VirtualPath.empty()
@@ -183,6 +192,8 @@ namespace Durin
 				SourceDiagnostic.Mount->VirtualRoot.c_str(),
 				DescribeMountOwner(SourceDiagnostic.Mount->Owner),
 				SourceDiagnostic.Mount->bAuthoringWritable ? "writable" : "read-only");
+			if (bEngineAuthoringContext)
+				ImGui::TextDisabled("Engine authoring: this import writes shared Engine content.");
 		}
 
 		std::string ValidationMessage;
@@ -348,7 +359,8 @@ namespace Durin
 		const FStaticMeshImportResult Result = DStaticMesh::ImportAsset(
 			SourcePathBuffer.data(), Destination.GetPath(), ImportSettings,
 			SourceMode == EMountedSourceImportMode::IngestExternal
-				? std::string_view(SourceDestinationBuffer.data()) : std::string_view{});
+				? std::string_view(SourceDestinationBuffer.data()) : std::string_view{},
+			IsEngineAuthoringDestination(Destination.GetPath()));
 		if (!Result)
 		{
 			SetError(Result.Message);

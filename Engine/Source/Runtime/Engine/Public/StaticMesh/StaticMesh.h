@@ -240,7 +240,8 @@ namespace Durin
 			std::string_view FilePath,
 			std::string_view AssetPath,
 			const FStaticMeshImportSettings& InImportSettings = {},
-			std::string_view SourceDestination = {}) -> FStaticMeshImportResult;
+			std::string_view SourceDestination = {},
+			bool bEngineAuthoringContext = false) -> FStaticMeshImportResult;
 		ENGINE_API auto InitializeFromImportedData(
 			const FStaticMeshImportedData& ImportedData,
 			const FStaticMeshSourceImportData& InSourceImportData,

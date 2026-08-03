@@ -39,8 +39,10 @@ The form displays the asset or output-directory destination and source
 destination separately,
 along with mount identity, dependency status, availability, containment, and
 write policy. A Game asset may reference an Engine or declared plugin/library
-source. An Engine asset may not reference Game, and ordinary project authoring
-cannot mutate Engine source.
+source. An Engine asset may not reference Game. Ordinary project authoring
+cannot mutate Engine source; an explicit Static Mesh import whose asset
+destination is inside `/Engine/` runs in Engine-authoring context and may
+ingest its source into the same writable Engine mount.
 
 ## Existing Assets
 

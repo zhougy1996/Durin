@@ -28,7 +28,8 @@ namespace Durin
 		std::string_view ReferencingAssetPath,
 		std::string_view ExternalIngestDestination,
 		FMountedSourceFile& OutSource,
-		std::string& OutError) -> bool;
+		std::string& OutError,
+		bool bEngineAuthoringContext = false) -> bool;
 	// Publishes an immutable byte payload at an explicit mounted source path. This
 	// is used for container-embedded authoring inputs that need an independently
 	// reloadable source identity.

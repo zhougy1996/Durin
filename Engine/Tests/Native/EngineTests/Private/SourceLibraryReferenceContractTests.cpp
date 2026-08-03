@@ -244,6 +244,18 @@ TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
 		Prepared, Error)) << Error;
 	EXPECT_EQ(Prepared.Disposition, Durin::ESourceFileDisposition::ReusedIdentical);
 
+	EXPECT_FALSE(Durin::PrepareMountedSourceFile(
+		ExternalSource, "/Engine/Models/Asset", "/Engine/Models/Ingested.bin",
+		Prepared, Error));
+	ASSERT_TRUE(Durin::PrepareMountedSourceFile(
+		ExternalSource, "/Engine/Models/Asset", "/Engine/Models/Ingested.bin",
+		Prepared, Error, true)) << Error;
+	EXPECT_EQ(Prepared.SourcePath.Path, "/Engine/Models/Ingested.bin");
+	EXPECT_EQ(Prepared.Disposition, Durin::ESourceFileDisposition::IngestedExternal);
+	Durin::RollbackMountedSourceFile(Prepared);
+	EXPECT_FALSE(std::filesystem::exists(
+		Root / "Engine" / "Content" / "Models" / "Ingested.bin"));
+
 	Durin::FMountedSourceReplacement Replacement;
 	EXPECT_FALSE(Durin::PrepareMountedSourceReplacement(
 		ExternalSource, "/Game/Textures/Asset", "/Engine/Textures/Shared.bin",

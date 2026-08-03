@@ -35,7 +35,8 @@ namespace Durin
 		std::string_view InputFile,
 		std::string_view AssetPath,
 		std::string_view IngestTarget,
-		EMountedSourceImportMode Mode) -> FMountedSourceImportDiagnostic
+		EMountedSourceImportMode Mode,
+		bool bEngineAuthoringContext = false) -> FMountedSourceImportDiagnostic
 	{
 		FMountedSourceImportDiagnostic Result;
 		if (InputFile.empty())
@@ -102,7 +103,8 @@ namespace Durin
 			return Result;
 		}
 		const PathUtilities::FMountPolicyResult Mutation =
-			PathUtilities::CheckAuthoringMutation(AssetPath, Destination.NormalizedVirtualPath);
+			PathUtilities::CheckAuthoringMutation(
+				AssetPath, Destination.NormalizedVirtualPath, bEngineAuthoringContext);
 		if (!Mutation)
 		{
 			Result.Message = Mutation.Message;

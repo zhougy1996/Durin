@@ -112,7 +112,8 @@ namespace Durin
 		std::string_view ReferencingAssetPath,
 		std::string_view ExternalIngestDestination,
 		FMountedSourceFile& OutSource,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		bool bEngineAuthoringContext) -> bool
 	{
 		OutSource = {};
 		std::error_code Error;
@@ -152,7 +153,8 @@ namespace Durin
 		}
 		const PathUtilities::FMountPolicyResult Mutation =
 			PathUtilities::CheckAuthoringMutation(
-				ReferencingAssetPath, Destination.NormalizedVirtualPath);
+				ReferencingAssetPath, Destination.NormalizedVirtualPath,
+				bEngineAuthoringContext);
 		if (!Mutation)
 		{
 			OutError = Mutation.Message;

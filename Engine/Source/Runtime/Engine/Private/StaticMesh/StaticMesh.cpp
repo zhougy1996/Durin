@@ -1948,7 +1948,8 @@ namespace Durin
 		std::string_view FilePath,
 		std::string_view AssetPath,
 		const FStaticMeshImportSettings& InImportSettings,
-		std::string_view SourceDestination) -> FStaticMeshImportResult
+		std::string_view SourceDestination,
+		bool bEngineAuthoringContext) -> FStaticMeshImportResult
 	{
 		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
 		if (!std::filesystem::is_regular_file(Input)) return {false, "Source file does not exist.", nullptr};
@@ -1970,7 +1971,8 @@ namespace Durin
 			return {false, std::move(PathError), nullptr};
 		FMountedSourceFile MountedSource;
 		if (!PrepareMountedSourceFile(
-			Input, ParsedAssetPath.ToString(), StoredSourcePath, MountedSource, PathError))
+			Input, ParsedAssetPath.ToString(), StoredSourcePath, MountedSource, PathError,
+			bEngineAuthoringContext))
 			return {false, std::move(PathError), nullptr};
 		Destination = MountedSource.PhysicalPath;
 		StoredSourcePath = MountedSource.SourcePath.Path;
