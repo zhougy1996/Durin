@@ -58,9 +58,9 @@ Before committing or ingesting a model:
    part of the test.
 5. Keep only required texture resolutions and model variants. Do not commit
    preview renders or unrelated files from an asset pack.
-6. Store source models under the owning project's `SourceAssets/Models`
-   directory and textures under `SourceAssets/Textures`. Do not place source
-   art under `Content`; see [Content Version Control](../VersionControl/ContentVersionControl.md).
+6. Store source models under the owning mount's effective `Models` directory
+   and textures under `Textures`; built-in Engine and Game mounts place these
+   beneath `Content`. See [Content Version Control](../VersionControl/ContentVersionControl.md).
 7. Commit model and texture sources through Git LFS according to the repository
    attributes.
 

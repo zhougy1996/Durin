@@ -5,8 +5,8 @@ cooked-runtime, render-resource, editor, and material boundaries.
 
 ## Asset and Build Ownership
 
-- `DTexture2D` owns an optional complete `FSourcePath` in any allowed mounted
-  SourceAssets domain plus the reflected `Usage`,
+- `DTexture2D` owns an optional complete `FSourcePath` in any allowed mount's
+  effective content directory plus the reflected `Usage`,
   `bSRGB`, `MaxResolution`, `CompressionQuality`, `AlphaMipMode`, and
   `AlphaCoverageThreshold` build settings.
 - The package also retains the imported source-content hash, source file

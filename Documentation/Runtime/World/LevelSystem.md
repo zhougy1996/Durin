@@ -13,7 +13,7 @@ Asset Registry. Dirty package switches require Save, Discard, or Cancel.
 Static-mesh components persist cross-package references to `DStaticMesh`
 assets. A static-mesh asset serializes an optional mounted `FSourcePath`, exact
 source identity, and build settings; CPU/GPU render data is restored from DDC or
-rebuilt from the SourceAssets domain and is never serialized in the authored
+rebuilt from its mounted source file and is never serialized in the authored
 package. Version one intentionally supports a single active level and does not
 include sub-level streaming, PIE cloning, or Save As.
 

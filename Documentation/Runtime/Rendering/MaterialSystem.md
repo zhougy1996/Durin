@@ -137,7 +137,7 @@ boundary are defined in [Static Mesh Rendering](StaticMeshRendering.md).
 ## Static Mesh Derived Data and Cooking
 
 StaticMesh source provenance is an optional complete `FSourcePath` in any
-allowed mounted SourceAssets domain and records the exact source hash, Assimp
+allowed mount content directory and records the exact source hash, Assimp
 importer version, and import axes. Source organization is independent of the
 StaticMesh package path. Existing mounted sources are referenced without a
 copy; external files require an explicit writable destination. Reimport reads

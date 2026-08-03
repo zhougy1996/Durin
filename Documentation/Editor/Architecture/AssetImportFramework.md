@@ -126,7 +126,7 @@ rewritten. Recreate or reimport that asset with the current provider framework.
 
 ## Editor workflow
 
-External files are first ingested into a writable mounted SourceAssets domain;
+External files are first ingested into a writable mount content directory;
 import then references the mounted source. Preview shows the complete source
 closure, outputs, policies, collisions, replacements, warnings, resource
 estimates, missing outputs, and orphans before execution. Content Browser

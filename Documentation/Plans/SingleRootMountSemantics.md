@@ -4,8 +4,8 @@ Summary: Replace Content/SourceAssets dual-domain mounts with one configurable c
 
 Last reviewed: 2026-08-03
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-03
 
 ## Current Status
 
@@ -14,7 +14,7 @@ Completed:
   contract`); Stage 2 started from baseline `9064a467` (`refactor(mounts):
   unify virtual mount roots`). Before the Stage 3 move was committed, the
   mount contract was amended by owner decision. The amended Stage 1 and Stage 2
-  have now passed validation; Stage 3 is current.
+  passed validation, and all five stages are now complete.
 - The breaking migration remains one physical content namespace per logical mount, with no
   compatibility parser, fallback resolver, or legacy `SourceAssets` lookup.
 - The amended C++ mount fields are `Root`, `ContentPath`, `bAutoScan`, and
@@ -74,8 +74,8 @@ Completed:
 - The initial Stage 1 replaced the dual roots with `FMountPoint::Root`, added package and
   authoring policies, unified forward and reverse physical mapping,
   rejected canonical root overlap, replaced the descriptor parser atomically,
-  and removed the sibling-`SourceAssets` test helper. Package-disabled mounts
-  resolve both asset and source paths; automatic scanning remains separately configurable. Public API
+  and removed the sibling-`SourceAssets` test helper. Its package-capability
+  decision was superseded by the approved amendment recorded below. Public API
   and fixture call sites were migrated mechanically so the repository remains
   buildable.
 - Stage 1 validation passed `CoreFileSystemTests` (30 passed, 1 skipped),
@@ -83,12 +83,12 @@ Completed:
   `Win64-Debug-DurinEditor-Tests`. Searches found no old Core root fields,
   Content resolver symbols, domain branches, or old fields in the active
   unified-mount fixture.
-- The reopened Stage 1 working set is `Paths.h`, `Paths.cpp`, `PathsTests.cpp`,
+- The reopened Stage 1 working set was `Paths.h`, `Paths.cpp`, `PathsTests.cpp`,
   `ProjectTests.cpp`, and `UnifiedMountContract.json`. The required correction
   is to introduce configurable `ContentPath`, make overlap and containment use
   `GetContentDir()`, rename package capability to scan policy, and remove the
-  scan flag from typed asset validation. The five Stage 3 physical moves remain
-  uncommitted in the working tree.
+  scan flag from typed asset validation. The five Stage 3 physical moves
+  remained uncommitted until that correction passed.
 - The amended Stage 1/2 implementation makes `Root` the owner root and derives
   the single mapping root through configurable `ContentPath` and
   `GetContentDir()`. Built-in mounts use their engine/project roots plus
@@ -123,10 +123,10 @@ Completed:
   `StaticMeshTests` (44/44), `ThumbnailTests` (45/45), and a full `all` build on
   `Win64-Debug-DurinEditor-Tests`. A production/test search found no remaining
   `SourceAssets` use except the deliberate old-descriptor rejection literal.
-- After the reopened Stage 1 and Stage 2 pass, Stage 3 working set is exactly the five files frozen in the Stage 0 move
+- Stage 3's working set was exactly the five files frozen in the Stage 0 move
   manifest plus this plan. Their persisted `/Game/` and `/Engine/` source
   identities remain unchanged, so no `.dasset` resave or ImportRecord rewrite
-  is required. Validation will compare pre/post hashes and resolve every tracked
+  was required. Validation compared pre/post hashes and resolved every tracked
   source reference through the new Content roots.
 - Stage 3 moved all five files into the effective Engine/Game content
   directories and removed the now-empty `Engine/SourceAssets` and
@@ -144,7 +144,7 @@ Completed:
 - Stage 3 validation passed `TextureTests` (61/61) and `StaticMeshTests`
   (44/44). The first StaticMesh run completed test logic but hit an MSVC
   unowned-mutex failure during process shutdown; an immediate rerun passed.
-  Stage 4 is current and starts from baseline `c547b3bc`.
+  Stage 4 started from baseline `6bbb4b0e`.
 - Stage 4 completed the full native matrix on baseline `6bbb4b0e`: the second
   `test --target all` run passed all 845 enabled tests (one Windows symlink test
   skipped and one benchmark disabled). The first full run passed 844/845 and
@@ -156,10 +156,13 @@ Completed:
   Texture cook integration, source-absent static-mesh behavior, and Vulkan
   rendering. A subsequent full `all` build succeeded, followed by a Sandbox
   `DurinEditor` hidden-window 60-tick startup and normal shutdown.
-- Stage 5 is current. Its working set is this plan plus the active Workspace,
+- Stage 5 updated this plan plus the active Workspace,
   Runtime asset, Editor import/workflow, version-control, mesh, texture,
   material, cube-texture, and level-system documentation discovered through
-  the documentation index. No implementation question remains.
+  the documentation index. The changed-document validator passed 14 files and
+  the all-plan validator passed 8 active, 4 completed, and 37 archived plans.
+  Archived historical plans were left unchanged. No implementation question
+  remains.
 
 ## Goal
 
@@ -508,15 +511,15 @@ Dependencies: Stage 3.
 Outcome: authoritative documentation describes only the implemented
 single-root model, and the plan carries complete validation evidence.
 
-- [ ] Update Workspace, runtime asset, editor import, version-control, mesh,
+- [x] Update Workspace, runtime asset, editor import, version-control, mesh,
   texture, material, cube-texture, and level-system documents that currently
   describe SourceAssets domains.
-- [ ] Keep historical archived plans unchanged except for mechanically repaired
+- [x] Keep historical archived plans unchanged except for mechanically repaired
   direct links; they remain historical evidence rather than current contracts.
-- [ ] Update this plan's status, checklist, baseline/working-set handoff, and
+- [x] Update this plan's status, checklist, baseline/working-set handoff, and
   validation evidence after every substantive stage.
-- [ ] Run changed-document validation and the all-plan validator.
-- [ ] Set `Status: Completed` and the completion date only after every required
+- [x] Run changed-document validation and the all-plan validator.
+- [x] Set `Status: Completed` and the completion date only after every required
   gate has passed and lasting rules exist in their owning documentation domains.
 
 Dependencies: Stage 4.
@@ -552,9 +555,10 @@ machine-local commands.
 
 ## Definition of Done
 
-- Every registered virtual mount has exactly one normalized physical root.
-- `/Game/` and `/Engine/` map directly to their Content directories; every
-  custom mount maps directly to its declared root.
+- Every registered virtual mount has one normalized owner root and exactly one
+  effective content directory.
+- `/Game/` and `/Engine/` derive `Content` from their owner roots; every custom
+  mount derives its configured `ContentPath` from its declared `Root`.
 - No source or asset API can reinterpret one virtual mount against a second
   physical directory.
 - `FAssetPath` and `FSourcePath` retain their type-specific validation and

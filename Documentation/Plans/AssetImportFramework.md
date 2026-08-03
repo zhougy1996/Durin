@@ -134,8 +134,8 @@ monthly completed-plan batch.
 
 ## Terminology
 
-- **Source**: an authoritative file identified by `FSourcePath` in a mounted
-  `SourceAssets` domain.
+- **Source**: an authoritative file identified by `FSourcePath` beneath a
+  mount's effective content directory.
 - **Source snapshot**: immutable bytes plus canonical identity and hash captured
   for one plan. Later phases never reopen a snapshot source for content.
 - **Provider**: an editor implementation registered with the framework that
@@ -278,7 +278,7 @@ the presence of one never implies the other.
 
 - Selecting an existing mounted source records a no-copy `FSourcePath`.
 - Selecting an external file first runs the existing explicit ingestion
-  workflow into a chosen writable SourceAssets destination. Successful
+  workflow into a chosen writable mount destination. Successful
   ingestion may leave an unused authored source if subsequent import fails;
   this is safe and visible, unlike a partially published asset graph.
 - Replacing shared source bytes and relocating source files remain separate,
@@ -567,7 +567,7 @@ preflight before candidate publication.
 
 ### Foundations to retain
 
-- `FSourcePath` and mounted SourceAssets containment provide portable source
+- `FSourcePath` and mounted content-directory containment provide portable source
   identity and explicit ingestion, replacement, repair, and relocation flows.
 - `AssetCore` owns versioned packages, unpublished package discard,
   `SavePackagesAtomically`, registry publication, compatibility reports, and

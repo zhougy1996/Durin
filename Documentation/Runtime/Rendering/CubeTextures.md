@@ -375,8 +375,8 @@ source pixel.
   direction and source-image top/right orientation from this document.
 - Each mode explicitly selects Reference Existing Source or Ingest External
   Source. Referencing an allowed mounted source performs no copy; ingestion
-  requires a complete destination in a writable SourceAssets domain. Asset and
-  source destinations are independent.
+  requires a complete destination in a writable mount content directory. Asset
+  and source identities remain typed but share the same physical namespace.
 - Reimport reads the persisted face or panorama sources without writing them.
   Change-reference, shared replacement, repair, and multi-package relocation
   remain explicit operations with impact preview and transactional rollback.

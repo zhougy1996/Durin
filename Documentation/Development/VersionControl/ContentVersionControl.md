@@ -19,9 +19,10 @@ for the `.dasset`, DDC `.bin`, and cooked `.dbulk` boundaries.
 
 StaticMesh, Texture2D, and TextureCube `.dasset` files record complete mounted
 source paths such as `/Game/Models/Chair.fbx` or
-`/Libraries/StudioArt/Textures/Stone.png`. The mount selects a SourceAssets
-domain; no package stores `SourceAssets/`, an absolute checkout path, or a link
-target. Source art is authoring input rather than runtime Content. Moving or
+`/Libraries/StudioArt/Textures/Stone.png`. The mount maps both source and asset
+identities through one configured content directory; no package stores a
+physical directory prefix, absolute checkout path, or link target. Source art
+is authoring input rather than a runtime object asset. Moving or
 deleting a package does not implicitly move or delete potentially shared source
 art.
 
@@ -37,9 +38,8 @@ Projects should use a layout similar to:
 Content/
   Levels/           # Versioned .dasset packages
   Materials/        # Versioned .dasset packages
-  StaticMeshes/     # Versioned .dasset packages; no source models are required here
-SourceAssets/
-  Models/           # Shared LFS-backed model authoring inputs; not content-mounted
+  StaticMeshes/     # Versioned .dasset packages
+  Models/           # Shared LFS-backed model authoring inputs
   Textures/         # Shared texture authoring inputs
 DerivedDataCache/   # Ignored, rebuildable
 Saved/              # Ignored, editor-local state
@@ -47,9 +47,9 @@ Cooked/             # Ignored, distribution output
 ```
 
 Storage is selected by file type in the repository `.gitattributes`, not by
-directory name. Plugin and source-only mounts apply the same policy in their
-own repositories: `.dasset` stays in ordinary Git, while large model, image,
-audio, and font inputs use the matching LFS rules.
+directory name. Plugin and manually scanned external mounts apply the same
+policy in their own repositories: `.dasset` stays in ordinary Git, while large
+model, image, audio, and font inputs use the matching LFS rules.
 
 Project-relative junctions or symbolic links may provide a declared mount root
 whose checkout location differs by workstation. Commit the descriptor path and
@@ -139,8 +139,8 @@ for the underlying constraints.
 
 If an optional source checkout is absent, the mount remains unavailable and
 warm DDC-backed editor loading may still succeed. Restore the declared checkout
-or link and fetch its LFS objects; do not copy files into Content or edit the
-descriptor to a workstation absolute path. Read-only mounts remain valid
+or link and fetch its LFS objects; do not edit the descriptor to a workstation
+absolute path. Read-only mounts remain valid
 reference and reimport sources. Ingest, replacement, and relocation must target
 an authorized writable mount instead.
 
@@ -148,7 +148,7 @@ Before committing, use these checks:
 
 ```powershell
 git lfs ls-files
-git check-attr filter diff merge text -- Engine/SourceAssets/Models/teapot.obj
+git check-attr filter diff merge text -- Engine/Content/Models/Editor/MaterialPreview/Box.obj
 git status
 ```
 

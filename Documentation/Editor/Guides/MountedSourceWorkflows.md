@@ -1,19 +1,20 @@
 # Mounted Source Workflows
 
 StaticMesh, Texture2D, and TextureCube assets keep source provenance as a
-complete virtual `FSourcePath`. Asset packages resolve through a mount's
-Content domain; authoring files resolve through its SourceAssets domain. Their
-locations are independent.
+complete virtual `FSourcePath`. Asset packages and authoring files resolve
+through the same mount `GetContentDir()`. Their typed identities remain
+distinct even when a source file and `.dasset` coexist in one directory.
 
 ## Import
 
 Choose one source mode:
 
 - **Reference Existing Source** selects a file already inside a registered
-  SourceAssets domain. The referencing asset's mount must depend on the source
-  mount. Import records the virtual path and does not copy or rename the file.
+  mount content directory. The referencing asset's mount must depend on the
+  source mount. Import records the virtual path and does not copy or rename the
+  file.
 - **Ingest External Source** selects a file outside every registered source
-  domain. Choose a writable target mount and complete virtual destination.
+  mount. Choose a writable target mount and complete virtual destination.
   Equal existing bytes are reused; a different collision is rejected. A failed
   build or publication rolls back the staged copy and package.
 
@@ -55,14 +56,15 @@ deletes its source. Duplication retains the same source path.
 
 ## Diagnostics And Recovery
 
-Unavailable mount roots, unsupported domains, forbidden dependencies,
+Unavailable content directories, forbidden dependencies,
 read-only policy, containment escapes, missing files, and changed hashes are
 different conditions and are reported separately. A package with valid warm
 derived data may remain usable while its source mount is unavailable.
 
 Restore a missing project-relative checkout or link at the path declared by the
-project descriptor, then retry or repair. Do not place source files under
-Content and do not replace a committed mount with a workstation absolute path.
+project descriptor, then retry or repair. Authoring sources belong beneath the
+selected mount's effective content directory; do not replace a committed mount
+with a workstation absolute path.
 For a read-only source, keep the no-copy reference or ingest into another
 authorized writable mount before changing the asset.
 

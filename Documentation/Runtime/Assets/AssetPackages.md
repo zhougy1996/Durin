@@ -6,18 +6,20 @@ Durin object assets are stored as versioned `.dasset` packages. A package has on
 
 Asset identities use extensionless `FAssetPath` values such as
 `/Engine/Materials/Default` or `/Game/Levels/TestLevel`. The first path segment
-must match a registered mount with a `Content` domain. `FSourcePath` uses the
-same logical mount identity but resolves only through its `SourceAssets`
-domain; it retains the filename extension. Neither virtual path includes the
-physical `Content` or `SourceAssets` directory name.
+must match a registered mount. `FSourcePath` uses the same logical mount and
+retains the filename extension. Both types resolve relative to the mount's
+single `GetContentDir()`; neither virtual path includes `Root` or `ContentPath`.
 
 The immutable Core registry publishes `/Engine/` and `/Game/` plus validated
-project-declared extension and external-source mounts. A mount may expose
-Content only, SourceAssets only, or both. Typed resolution reports invalid
-paths, unknown mounts, unsupported or unavailable domains, escapes, missing
-files, forbidden dependencies, and read-only source policy distinctly.
+project-declared extension and external-source mounts. Every mount may contain
+`.dasset` packages and ordinary authoring files. `AutoScan` controls recursive
+package discovery but never gates typed identity or direct loading. Typed
+resolution reports invalid paths, unknown mounts, unavailable content
+directories, escapes, missing files, forbidden dependencies, and read-only
+authoring policy distinctly.
+
 Existing paths and not-yet-created destinations are checked against canonical
-domain roots, including junction and symbolic-link targets.
+content directories, including junction and symbolic-link targets.
 
 The physical filename is the resolved virtual path plus `.dasset`. Main assets use the package path as their object path; inner objects append a colon and their relative Outer chain, for example `/Game/Objects/Test:Root.Component`.
 

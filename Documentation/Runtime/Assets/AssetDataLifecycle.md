@@ -8,18 +8,18 @@ merely whether a file contains binary bytes.
 
 | Class | Typical location | Suffix | Authoritative for | May be deleted locally |
 | --- | --- | --- | --- | --- |
-| Source input | Mounted `SourceAssets` domain | Source-specific | Reimport and rebuilding | No |
-| Object package | Mounted `Content/` | `.dasset` | Asset identity and editable object state | No |
+| Source input | Mounted content directory | Source-specific | Reimport and rebuilding | No |
+| Object package | Mounted content directory | `.dasset` | Asset identity and editable object state | No |
 | Derived data | `DerivedDataCache/` | `.bin` | Nothing; it accelerates editor and cook work | Yes |
 | Cooked package | `Cooked/<Platform>/...` | `.dasset` | Runtime object metadata for that cook | No |
 | Cooked bulk data | Beside its cooked package initially | `.dbulk` | Runtime payload bytes for that cook | No |
 | Local state | `Saved/` | Format-specific | Diagnostics, sessions, and user-local state | Yes |
 
 `FAssetPath` and reflected asset references always identify the main asset in a
-`.dasset` package through a mount's Content domain. `FSourcePath` identifies an
-editor source file through the same mount's SourceAssets domain. Neither type
-identifies a DDC key, `.bin` object, `.dbulk` file, byte offset, or physical
-workstation path, and the two path types are not interchangeable.
+`.dasset` package through a mount. `FSourcePath` identifies an editor source
+file through the same mount. Both resolve relative to `GetContentDir()`;
+neither type identifies a DDC key, `.bin` object, `.dbulk` file, byte offset,
+or physical workstation path, and the two path types are not interchangeable.
 
 ## Authored Packages
 
@@ -38,13 +38,13 @@ normalized virtual file paths such as `/Engine/Models/Box.obj` or
 directory names are invalid.
 
 The source input is authoritative for rebuilding but is not a runtime asset.
-New shared source art belongs in a registered SourceAssets domain, which is
-versioned independently from runtime Content. Source organization is independent
-of package organization. StaticMesh, Texture2D, and TextureCube persist mounted
-`FSourcePath` provenance plus exact hashes; their former package-relative
-strings are rejected rather than resolved.
+New shared source art belongs in a registered mount's effective content
+directory. Source organization remains independent of package organization
+even though both share one physical namespace. StaticMesh, Texture2D, and
+TextureCube persist mounted `FSourcePath` provenance plus exact hashes; their
+former package-relative strings are rejected rather than resolved.
 
-Selecting a file already inside an allowed SourceAssets domain records a
+Selecting a file already inside an allowed mounted content directory records a
 no-copy reference. Selecting an external file requires an explicit writable
 mount and destination and ingests one transactional copy. Reimport only reads
 the persisted source. Changing one asset's reference, replacing shared source

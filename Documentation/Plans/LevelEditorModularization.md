@@ -13,8 +13,8 @@ panel-owned selection, rename, popup, deferred-command, and thumbnail state.
 The prerequisite thumbnail, typed-mount, mounted-source, and import-workflow
 changes remain established code, not work coordinated by this plan.
 
-The unified Core mount registry already owns virtual-path lookup, typed Content
-and SourceAssets resolution, reverse physical-path classification, canonical
+The unified Core mount registry already owns virtual-path lookup, typed asset
+and source resolution through one effective content directory, reverse physical-path classification, canonical
 containment, and mount-owner metadata. LevelEditor must consume those APIs
 rather than add another mount-owner or path-resolution abstraction. The
 remaining work is panel and document presentation modularization.
@@ -132,7 +132,7 @@ commands. Stage 6 is next and will extract the Outliner and Details submodels.
 ### Established prerequisite contracts
 
 - Core's immutable typed mount registry remains the sole owner of mount lookup,
-  Content and SourceAssets resolution, reverse classification, canonical
+  asset and source resolution through `GetContentDir()`, reverse classification, canonical
   containment, dependency checks, and source-write policy.
 - `DurinEd` retains provider-neutral thumbnail request, scheduling, persistent
   cache, and preview-scene ownership described by
@@ -293,7 +293,7 @@ Dependencies: Stage 0.
 - [x] Replace repeated validation and destination-browse conversion in the
   three import dialogs with the shared result.
 - [x] Keep Content Browser on `FindMountForVirtualPath`,
-  `ResolveContentPath`, and `ClassifyContentPath`; factor only a genuinely
+  `ResolveAssetPath`, and `ClassifyAssetPath`; factor only a genuinely
   shared editor decision rather than wrapping Core APIs mechanically.
 - [x] Cover trailing separators, normalized and non-normalized physical roots,
   unknown virtual roots, prefix lookalikes, case behavior, loaded packages,
@@ -318,8 +318,8 @@ Dependencies: Stage 0.
   `FAssetDestinationValidation`, `InspectAssetDestination`, and
   `ClassifyAssetDestination`.
 - Decisions: `FAssetPath` remains authoritative for asset syntax, registered
-  mount lookup, and Content-domain eligibility; `ResolveContentPath` supplies
-  the owning mount and physical target; `ClassifyContentPath` supplies browse
+  mount lookup, and typed asset eligibility; `ResolveAssetPath` supplies
+  the owning mount and physical target; `ClassifyAssetPath` supplies browse
   conversion. The editor result appends the existing `.dasset` package suffix
   and reads registry/loaded-package occupancy without mutating either service.
 - Open questions: none.
