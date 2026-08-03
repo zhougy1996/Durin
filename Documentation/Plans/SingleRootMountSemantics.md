@@ -128,6 +128,23 @@ Completed:
   identities remain unchanged, so no `.dasset` resave or ImportRecord rewrite
   is required. Validation will compare pre/post hashes and resolve every tracked
   source reference through the new Content roots.
+- Stage 3 moved all five files into the effective Engine/Game content
+  directories and removed the now-empty `Engine/SourceAssets` and
+  `Sandbox/SourceAssets` trees. Their SHA-256 values match the Stage 0 manifest.
+  Recomputed XXH3 fingerprints are `d13531e1dea1c3748494865af7d8f04a`
+  (Box), `79930c3a333117671b3a3b5d2a1ee156` (Sphere),
+  `9f4278be80724a27fd8de4a9e00a89dc` (teapot),
+  `51fd3b71b3e825a26ee5b3f8fb13cf18` (panorama), and
+  `86cc0ee23b7a3271873d9117b8d267fa` (stone-head texture); each matches its
+  persisted package provenance.
+- All five persisted `/Engine/` and `/Game/` source strings still resolve
+  through `GetContentDir()` without resaving packages, and no standalone
+  ImportRecord exists. The only remaining production/test `SourceAssets`
+  string is the deliberate old-descriptor rejection fixture.
+- Stage 3 validation passed `TextureTests` (61/61) and `StaticMeshTests`
+  (44/44). The first StaticMesh run completed test logic but hit an MSVC
+  unowned-mutex failure during process shutdown; an immediate rerun passed.
+  Stage 4 is current and starts from baseline `c547b3bc`.
 
 ## Goal
 
@@ -417,17 +434,17 @@ Dependencies: Stage 1.
 Outcome: the workspace contains no live SourceAssets tree and all checked-in
 authoring references resolve through the new roots.
 
-- [ ] Move the two Engine authoring meshes from `Engine/SourceAssets` to the
+- [x] Move the two Engine authoring meshes from `Engine/SourceAssets` to the
   same relative paths beneath `Engine/Content`.
-- [ ] Move the three Sandbox authoring files from `Sandbox/SourceAssets` to the
+- [x] Move the three Sandbox authoring files from `Sandbox/SourceAssets` to the
   same relative paths beneath `Sandbox/Content`.
-- [ ] Apply the Stage 0 custom-mount fixture/configuration migration.
-- [ ] Audit checked-in `.dasset` packages and ImportRecords. Preserve virtual
+- [x] Apply the Stage 0 custom-mount fixture/configuration migration.
+- [x] Audit checked-in `.dasset` packages and ImportRecords. Preserve virtual
   source strings when their mount root is unchanged; explicitly resave or
   regenerate every record whose virtual root changes.
-- [ ] Remove obsolete SourceAssets directories and update version-control or
+- [x] Remove obsolete SourceAssets directories and update version-control or
   tooling paths that name them.
-- [ ] Verify that all checked-in source references resolve and their persisted
+- [x] Verify that all checked-in source references resolve and their persisted
   fingerprints still match the moved bytes.
 
 Dependencies: Stage 2.
