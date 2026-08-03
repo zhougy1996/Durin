@@ -245,16 +245,21 @@ namespace Durin::Asset
 			return Resolved ? Resolved.PhysicalPath.generic_string() + ".dasset" : std::string{};
 		}
 
-		auto GetTypeSignature(FProperty* Property) -> std::string
+		auto GetSerializedTypeSignature(FProperty* Property) -> std::string
 		{
 			if (!Property) return "Invalid";
 			const auto Kind = Property->GetKind();
 			if (Kind == DurinCodeGen::EPropertyGenFlags::Array)
-				return std::format("Array<{}>", GetTypeSignature(static_cast<FArrayProperty*>(Property)->GetInner()));
+				return std::format(
+					"Array<{}>",
+					GetSerializedTypeSignature(static_cast<FArrayProperty*>(Property)->GetInner()));
 			if (Kind == DurinCodeGen::EPropertyGenFlags::Map)
 			{
 				auto* Map = static_cast<FMapProperty*>(Property);
-				return std::format("Map<{},{}>", GetTypeSignature(Map->GetKeyProp()), GetTypeSignature(Map->GetValueProp()));
+				return std::format(
+					"Map<{},{}>",
+					GetSerializedTypeSignature(Map->GetKeyProp()),
+					GetSerializedTypeSignature(Map->GetValueProp()));
 			}
 			if (Kind == DurinCodeGen::EPropertyGenFlags::Object)
 				return std::format("Object:{}:{}", Property->GetReferencedClass() ? Property->GetReferencedClass()->GetQualifiedName().ToString() : "DObject", Property->IsObjectPtrWrapper());
@@ -268,7 +273,79 @@ namespace Durin::Asset
 				auto* StructProperty = static_cast<FStructProperty*>(Property);
 				return std::format("Struct<{}>", StructProperty->GetStruct() ? StructProperty->GetStruct()->GetQualifiedName().ToString() : "");
 			}
+			if (Kind == DurinCodeGen::EPropertyGenFlags::String
+				|| Kind == DurinCodeGen::EPropertyGenFlags::Name
+				|| Kind == DurinCodeGen::EPropertyGenFlags::Guid)
+				return std::format("{}:v1", static_cast<uint32>(Kind));
 			return std::format("{}:{}", static_cast<uint32>(Kind), Property->GetElementSize());
+		}
+
+		auto IsLegacyAbiSizedLogicalSignature(
+			DurinCodeGen::EPropertyGenFlags Kind,
+			std::string_view Signature) -> bool
+		{
+			if (Kind != DurinCodeGen::EPropertyGenFlags::String
+				&& Kind != DurinCodeGen::EPropertyGenFlags::Name
+				&& Kind != DurinCodeGen::EPropertyGenFlags::Guid)
+				return false;
+
+			const std::string Prefix = std::format("{}:", static_cast<uint32>(Kind));
+			const std::string_view Size = Signature.starts_with(Prefix)
+				? Signature.substr(Prefix.size())
+				: std::string_view{};
+			return !Size.empty() && std::ranges::all_of(Size, [](char Character) {
+				return Character >= '0' && Character <= '9';
+			});
+		}
+
+		auto FindMapSignatureSeparator(std::string_view Signature) -> size_t
+		{
+			uint32 Depth = 0;
+			for (size_t Index = 0; Index < Signature.size(); ++Index)
+			{
+				if (Signature[Index] == '<') ++Depth;
+				else if (Signature[Index] == '>')
+				{
+					if (Depth == 0) return std::string_view::npos;
+					--Depth;
+				}
+				else if (Signature[Index] == ',' && Depth == 0) return Index;
+			}
+			return std::string_view::npos;
+		}
+
+		auto IsSerializedTypeSignatureCompatible(
+			FProperty* Property,
+			std::string_view Signature) -> bool
+		{
+			if (!Property) return false;
+			if (GetSerializedTypeSignature(Property) == Signature) return true;
+
+			const auto Kind = Property->GetKind();
+			if (IsLegacyAbiSizedLogicalSignature(Kind, Signature)) return true;
+			if (Kind == DurinCodeGen::EPropertyGenFlags::Array)
+			{
+				constexpr std::string_view Prefix = "Array<";
+				if (!Signature.starts_with(Prefix) || !Signature.ends_with('>')) return false;
+				return IsSerializedTypeSignatureCompatible(
+					static_cast<FArrayProperty*>(Property)->GetInner(),
+					Signature.substr(Prefix.size(), Signature.size() - Prefix.size() - 1));
+			}
+			if (Kind == DurinCodeGen::EPropertyGenFlags::Map)
+			{
+				constexpr std::string_view Prefix = "Map<";
+				if (!Signature.starts_with(Prefix) || !Signature.ends_with('>')) return false;
+				const std::string_view Entries =
+					Signature.substr(Prefix.size(), Signature.size() - Prefix.size() - 1);
+				const size_t Separator = FindMapSignatureSeparator(Entries);
+				if (Separator == std::string_view::npos) return false;
+				auto* Map = static_cast<FMapProperty*>(Property);
+				return IsSerializedTypeSignatureCompatible(
+						Map->GetKeyProp(), Entries.substr(0, Separator))
+					&& IsSerializedTypeSignatureCompatible(
+						Map->GetValueProp(), Entries.substr(Separator + 1));
+			}
+			return false;
 		}
 
 		auto GatherObjects(DObject* Object, std::vector<DObject*>& OutObjects) -> void
@@ -363,7 +440,7 @@ namespace Durin::Asset
 					Writer.WriteString(Struct->GetQualifiedName().ToString());
 					Writer.WriteString(Field->NamePrivate.ToString());
 					Writer.Write(uint8(Field->GetKind()));
-					Writer.WriteString(GetTypeSignature(Field));
+					Writer.WriteString(GetSerializedTypeSignature(Field));
 					Writer.Write(uint64(Payload.Bytes.size()));
 					Writer.WriteBytes(Payload.Bytes.data(), Payload.Bytes.size());
 				}
@@ -498,7 +575,7 @@ namespace Durin::Asset
 						continue;
 					}
 					if (static_cast<uint8>(Field->GetKind()) != Kind
-						|| GetTypeSignature(Field) != Signature)
+						|| !IsSerializedTypeSignatureCompatible(Field, Signature))
 						return Error(
 							EAssetError::TypeMismatch,
 							std::format(
@@ -922,7 +999,7 @@ namespace Durin::Asset
 						: Object->GetClass()->GetQualifiedName().ToString();
 					Field.Name = Property->NamePrivate.ToString();
 					Field.Kind = Property->GetKind();
-					Field.TypeSignature = GetTypeSignature(Property);
+					Field.TypeSignature = GetSerializedTypeSignature(Property);
 					FByteWriter PayloadWriter;
 					for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
 					{
@@ -1291,7 +1368,7 @@ namespace Durin::Asset
 
 			FProperty* Property = Struct->FindPropertyByName(FName(FieldName), false);
 			if (!Property || static_cast<uint8>(Property->GetKind()) != Kind
-				|| GetTypeSignature(Property) != Signature)
+				|| !IsSerializedTypeSignatureCompatible(Property, Signature))
 				continue;
 
 			FByteReader FieldReader{FieldPayload};
@@ -1445,7 +1522,7 @@ namespace Durin::Asset
 					? DeclaringClass->FindPropertyByName(FName(Field.Name), false)
 					: nullptr;
 				if (Property && Property->GetKind() == Field.Kind
-					&& GetTypeSignature(Property) == Field.TypeSignature)
+					&& IsSerializedTypeSignatureCompatible(Property, Field.TypeSignature))
 					continue;
 				LegacyFields.push_back({
 					.DeclaringClass = Field.DeclaringClass,
@@ -2524,7 +2601,8 @@ namespace Durin::Asset
 				FProperty* Property = DeclaringClass && Object->IsA(DeclaringClass)
 					? DeclaringClass->FindPropertyByName(FName(Field.Name), false)
 					: nullptr;
-				if (!Property || Property->GetKind() != Field.Kind || GetTypeSignature(Property) != Field.TypeSignature)
+				if (!Property || Property->GetKind() != Field.Kind
+					|| !IsSerializedTypeSignatureCompatible(Property, Field.TypeSignature))
 				{
 					LegacyFields.push_back({
 						.DeclaringClass = Field.DeclaringClass,

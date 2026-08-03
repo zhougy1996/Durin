@@ -46,7 +46,13 @@ payloads use TXPL. A cooked `.dbulk` uses the DBLK container format and may
 contain one of those asset-specific payloads; the cooked `.dasset` that
 references it still begins with DAST.
 
-Object records store object id, outer id, qualified class name, object name, and a field table. Fields are identified by declaring qualified class plus property name and include a recursive type signature and payload size. Missing fields retain constructor defaults. Unknown classes, invalid Outer hierarchies, malformed references, truncation, and unsupported versions fail the complete load.
+Object records store object id, outer id, qualified class name, object name, and
+a field table. Fields are identified by declaring qualified class plus property
+name and include a recursive serialized-type signature and payload size.
+Signatures describe the wire encoding, not C++ object size or another
+process-local ABI property. Missing fields retain constructor defaults. Unknown
+classes, invalid Outer hierarchies, malformed references, truncation, and
+unsupported versions fail the complete load.
 
 ## Structure Compatibility
 
@@ -82,10 +88,15 @@ Supported reflected payloads are numeric values, bool, strings, enums,
 Struct payloads contain a qualified-name field table. Missing fields retain
 constructor defaults and unknown names are skipped, but a serialized field
 whose name matches the current struct with a different kind or recursive type
-signature fails loading with `TypeMismatch`; it is never reinterpreted. This
-deliberately rejects retired string `SourcePath` provenance now that mounted
-`FSourcePath` is authoritative. Raw object pointers and property kinds without
-runtime helpers fail package saving instead of being silently omitted.
+signature fails loading with `TypeMismatch`; it is never reinterpreted.
+String, Name, and Guid payloads use explicit logical encodings, so their current
+signatures carry an encoding version rather than `ElementSize`. The reader also
+accepts their v2-era `<kind>:<ABI-size>` signatures, including recursively in
+arrays, maps, and struct fields, because those sizes never controlled their
+payload bytes. Raw scalar and enum payloads are copied using `ElementSize`, so
+their serialized signatures continue to require an exact width. Raw object
+pointers and property kinds without runtime helpers fail package saving instead
+of being silently omitted.
 
 ## Subsystem Boundary
 

@@ -4,8 +4,8 @@ Summary: Preserve versioned per-header DHT parse results across clean and rebuil
 
 Last reviewed: 2026-08-04
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-04
 
 ## Current Status
 
@@ -74,12 +74,15 @@ work. The full `all` build and five-tick hidden-window editor smoke pass, and th
 lasting cache contract is now owned by the build, runtime-variant, and reflection
 documentation.
 
-Final completion is waiting only for the companion asset update after the
-material-preview Sphere/Box move now present in the rebased `dev` baseline. The
-virtual paths correctly resolve to `/Engine/Models/Sphere` and
-`/Engine/Models/Box`, but both new packages still contain the pre-Stage-1
-`FSourcePath::Path` schema; 843/847 runnable tests pass. No asset modification
-belongs to this plan.
+Final qualification is complete. The remaining asset failures were not an
+authored-asset schema change: Stage 1 exposed that AssetCore's serialized type
+signature had incorrectly included process-local `ElementSize` for String,
+Name, and Guid even though their payloads use logical encodings. AssetCore now
+writes versioned wire signatures, recursively accepts the old ABI-sized forms,
+and retains exact widths only for raw scalar and enum payloads. No authored
+asset rewrite was required. All 850 runnable native tests pass and the Sandbox
+editor initializes, opens its default content without compatibility errors,
+ticks five times, and exits normally.
 
 ## Goal
 
@@ -584,12 +587,12 @@ against the production reflected-header corpus before Stage 2 adds storage.
 - [x] Compare medians from at least three cold generation, unchanged warm
   rebuild, no-op build, and non-export-semantic one-header incremental runs
   with the Stage 0 baseline.
-- [ ] Complete a successful `all` build and full native-test run through the
+- [x] Complete a successful `all` build and full native-test run through the
   root build entrypoint, then perform the required hidden-window editor smoke
   test.
 - [x] Document cache ownership, invalidation, clean/rebuild behavior, purge
   behavior, diagnostics, and recovery in the owning build documentation.
-- [ ] Record the baseline commit, working set, key cache schema decisions,
+- [x] Record the baseline commit, working set, key cache schema decisions,
   validation evidence, and any remaining cold-build limitation in the final
   stage handoff.
 
@@ -615,12 +618,15 @@ DurinDevTool; DHT values are Engine Export plus Reflection elapsed time.
 | No-op build | 0.38 s, 0.38 s, 0.38 s | 0.38 s | Ninja reported no work and scheduled no DHT command in all runs. |
 | One-header non-semantic edit | 6.50 s, 7.03 s, 7.01 s | 7.01 s | Engine DHT 0.466 s, 0.456 s, 0.460 s; exactly one export and one reflection parse per run; total median is 21.6% faster than the 8.94 s baseline. |
 
-#### Stage 6 Interim Handoff
+#### Stage 6 Final Handoff
 
-- Baseline commit: `c1a11e5f`.
+- Baseline commit: `5b5f32d1` after the completed plan history was squashed and
+  rebased onto `dev` commit `857131cf`.
 - Working set: owning build/runtime/reflection documentation, this plan, and
-  performance/native/editor validation. Temporary `Actor.h` measurement edits
-  and material-preview fixture diagnostics were restored completely.
+  performance/native/editor validation, plus the AssetCore serialized-signature
+  correction and focused package tests. Temporary `Actor.h` measurement edits
+  and material-preview fixture diagnostics were restored completely; authored
+  assets were not changed.
 - Key contracts: `DHTCache` is reconstruction-only data outside CMake clean
   ownership; project purge owns its enclosing runtime-variant intermediate
   root; entry compatibility includes tool, native-libclang, schema, platform,
@@ -641,17 +647,15 @@ DurinDevTool; DHT values are Engine Export plus Reflection elapsed time.
   `20260804-051458-884828-34052-cmake.log`, and
   `20260804-051521-061433-50380-cmake.log`. All are under
   `Build/.agent-state/logs/`.
-- Validation outcome: 358 DHT and DurinDevTool tests pass; the final `all` build
-  passed in `20260804-052520-379279-26776-cmake.log`; the hidden-window editor
-  initialized, ticked five times, and exited normally in
-  `20260804-052525-055379-11236-DurinEditor.log`. Full native validation is the
-  only open gate: after rebasing onto `dev` commit `857131cf`,
-  `20260804-053005-103145-35048-ctest.log` recorded 843/847 runnable tests
-  passing. The four failures load the relocated material-preview Sphere/Box
-  packages but reject their pre-Stage-1 `FSourcePath::Path` schema. No asset
-  change is kept here; re-run the full native suite after the companion assets
-  are saved with the current schema, then replace this interim handoff with the
-  final handoff and complete the plan.
+- Validation outcome: 358 DHT and DurinDevTool tests pass. The final post-fix
+  `all` build passed in `20260804-054814-038541-17932-cmake.log`; focused
+  `FPackageAssetTests` passed 33/33 in
+  `20260804-054801-682583-58024-AssetPackageTests.log`; the complete native run
+  passed all 850 runnable tests in
+  `20260804-054822-245495-22284-ctest.log` (one fixture-dependent test skipped
+  and one benchmark disabled). The Sandbox editor initialized without asset or
+  level compatibility errors, ticked five times, and exited normally in
+  `20260804-054852-663962-14212-DurinEditor.log`.
 
 ## Validation Matrix
 

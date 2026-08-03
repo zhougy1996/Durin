@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "Asset/SourcePath.h"
 #include "AssetSystem.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
@@ -117,6 +118,7 @@ namespace
 		{
 			static const Durin::DurinCodeGen::FPropertyParamsBase ValueProp = {"Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, Value)), sizeof(Value), Durin::DurinCodeGen::EPropertyGenFlags::Int32};
 			static const Durin::DurinCodeGen::FPropertyParamsBase LabelProp = {"Label", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, Label)), sizeof(Label), Durin::DurinCodeGen::EPropertyGenFlags::String};
+			static const Durin::DurinCodeGen::FNamePropertyParams DisplayNameProp = {"DisplayName", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, DisplayName)), sizeof(DisplayName), Durin::DurinCodeGen::EPropertyGenFlags::Name};
 			static const Durin::DurinCodeGen::FGuidPropertyParams GuidProp = {"PersistentId", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, PersistentId)), sizeof(PersistentId), Durin::DurinCodeGen::EPropertyGenFlags::Guid};
 			static const Durin::DurinCodeGen::FGuidPropertyParams GuidInner = {"RelatedIds_Inner", Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::FGuid), Durin::DurinCodeGen::EPropertyGenFlags::Guid};
 			static const Durin::DurinCodeGen::FArrayPropertyParams GuidsProp = {"RelatedIds", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, RelatedIds)), sizeof(RelatedIds), Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, nullptr, &GuidInner, nullptr, nullptr, false, &GGuidVectorHelper};
@@ -125,9 +127,18 @@ namespace
 			static const Durin::DurinCodeGen::FPropertyParamsBase MapKeyProp = {"NamedScores_Key", Durin::EPropertyFlags::None, 1, 0, sizeof(std::string), Durin::DurinCodeGen::EPropertyGenFlags::String};
 			static const Durin::DurinCodeGen::FPropertyParamsBase MapValueProp = {"NamedScores_Value", Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32), Durin::DurinCodeGen::EPropertyGenFlags::Int32};
 			static const Durin::DurinCodeGen::FPropertyParamsBase NamedScoresProp = {"NamedScores", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, NamedScores)), sizeof(NamedScores), Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, nullptr, nullptr, &MapKeyProp, &MapValueProp, false, nullptr, &GScoreMapHelper};
+			static const Durin::DurinCodeGen::FStructPropertyParams SourcePathProp = {
+				"SourcePath", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, SourcePath)),
+				static_cast<Durin::uint16>(sizeof(SourcePath)),
+				Durin::DurinCodeGen::EPropertyGenFlags::Struct,
+				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr,
+				&Durin::FSourcePath::StaticStruct};
 			static const Durin::DurinCodeGen::FPropertyParamsBase ChildProp = {"DefaultChild", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, DefaultChild)), sizeof(DefaultChild), Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass, nullptr, nullptr, nullptr, nullptr, true};
 			static const Durin::DurinCodeGen::FPropertyParamsBase ExternalProp = {"ExternalReference", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, ExternalReference)), sizeof(ExternalReference), Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass, nullptr, nullptr, nullptr, nullptr, true};
-			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&ValueProp, &LabelProp, &GuidProp, &GuidsProp, &ScoresProp, &NamedScoresProp, &ChildProp, &ExternalProp};
+			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
+				&ValueProp, &LabelProp, &DisplayNameProp, &GuidProp, &GuidsProp, &ScoresProp,
+				&NamedScoresProp, &SourcePathProp, &ChildProp, &ExternalProp};
 			static const Durin::DurinCodeGen::FClassParams Params = {&StaticClassNoRegister, "Tests::DPackageAssetForTest", "DPackageAssetForTest", Properties, std::size(Properties)};
 			static Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(Params);
 			return Class;
@@ -135,10 +146,12 @@ namespace
 
 		Durin::int32 Value = 0;
 		std::string Label;
+		Durin::FName DisplayName;
 		Durin::FGuid PersistentId;
 		std::vector<Durin::FGuid> RelatedIds;
 		std::vector<Durin::int32> Scores;
 		FScoreMap NamedScores;
+		Durin::FSourcePath SourcePath;
 		Durin::TObjectPtr<Durin::DObject> DefaultChild;
 		Durin::TObjectPtr<Durin::DObject> ExternalReference;
 	};
@@ -226,6 +239,16 @@ namespace
 		if (It == Bytes.end()) return false;
 		std::copy(NewValue.begin(), NewValue.end(), It + sizeof(Length));
 		return true;
+	}
+
+	auto RenameAllSerializedStrings(
+		std::vector<Durin::uint8>& Bytes,
+		std::string_view OldValue,
+		std::string_view NewValue) -> Durin::uint64
+	{
+		Durin::uint64 Count = 0;
+		while (RenameSerializedString(Bytes, OldValue, NewValue)) ++Count;
+		return Count;
 	}
 }
 
@@ -325,10 +348,12 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	Asset->Value = 42;
 	Asset->Label = "RoundTrip";
+	Asset->DisplayName = Durin::FName("RoundTripName");
 	Asset->PersistentId = Durin::FGuid(0x00112233, 0x44556677, 0x8899aabb, 0xccddeeff);
 	Asset->RelatedIds = {Durin::FGuid(1, 2, 3, 4), Durin::FGuid(5, 6, 7, 8)};
 	Asset->Scores = {3, 5, 8};
 	Asset->NamedScores = {{"Alpha", 11}, {"Beta", 17}};
+	Asset->SourcePath.Path = "/TestAssets/Sources/RoundTrip.txt";
 	ASSERT_NE(Asset->DefaultChild.Get(), nullptr);
 	EXPECT_EQ(Asset->DefaultChild->GetObjectPath(), "/TestAssets/RoundTrip:DefaultChild");
 
@@ -343,17 +368,123 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->Value, 42);
 	EXPECT_EQ(Loaded->Label, "RoundTrip");
+	EXPECT_EQ(Loaded->DisplayName, Durin::FName("RoundTripName"));
 	EXPECT_EQ(Loaded->PersistentId, (Durin::FGuid(0x00112233, 0x44556677, 0x8899aabb, 0xccddeeff)));
 	EXPECT_EQ(Loaded->RelatedIds, (std::vector<Durin::FGuid>{Durin::FGuid(1, 2, 3, 4), Durin::FGuid(5, 6, 7, 8)}));
 	EXPECT_EQ(Loaded->Scores, (std::vector<Durin::int32>{3, 5, 8}));
 	EXPECT_EQ(Loaded->NamedScores.at("Alpha"), 11);
 	EXPECT_EQ(Loaded->NamedScores.at("Beta"), 17);
+	EXPECT_EQ(Loaded->SourcePath.Path, "/TestAssets/Sources/RoundTrip.txt");
 	ASSERT_NE(Loaded->DefaultChild.Get(), nullptr);
 	EXPECT_EQ(Durin::GDObjectArray.GetObjectsWithOuter(Loaded).size(), 1u);
 	EXPECT_EQ(Loaded->DefaultChild->GetObjectPath(), "/TestAssets/RoundTrip:DefaultChild");
 	EXPECT_EQ(Durin::Asset::FAssetManager::Get().FindLoadedPackage(Path), Loaded->GetPackage());
 
 	EXPECT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(Path));
+}
+
+TEST(FPackageAssetTests, WriterUsesVersionedWireSignaturesForLogicalEncodings)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/WireSignatures", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+
+	const auto File =
+		Durin::Testing::GetTestWorkDirectory() / "Assets" / "WireSignatures.dasset";
+	Durin::Asset::FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(File.generic_string(), Inspection));
+	ASSERT_FALSE(Inspection.Objects.empty());
+	const Durin::Asset::FAssetPackageObjectInspection& Object = Inspection.Objects.front();
+	ASSERT_NE(Object.FindField("Label"), nullptr);
+	ASSERT_NE(Object.FindField("DisplayName"), nullptr);
+	ASSERT_NE(Object.FindField("PersistentId"), nullptr);
+	ASSERT_NE(Object.FindField("RelatedIds"), nullptr);
+	ASSERT_NE(Object.FindField("NamedScores"), nullptr);
+	EXPECT_EQ(Object.FindField("Label")->TypeSignature, "12:v1");
+	EXPECT_EQ(Object.FindField("DisplayName")->TypeSignature, "18:v1");
+	EXPECT_EQ(Object.FindField("PersistentId")->TypeSignature, "19:v1");
+	EXPECT_EQ(Object.FindField("RelatedIds")->TypeSignature, "Array<19:v1>");
+	EXPECT_EQ(Object.FindField("NamedScores")->TypeSignature, "Map<12:v1,4:4>");
+}
+
+TEST(FPackageAssetTests, LoadsAbiSizedLogicalSignaturesWithoutSchemaMigration)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LegacyLogicalSignatures", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	Asset->Label = "LegacyString";
+	Asset->DisplayName = Durin::FName("LegacyName");
+	Asset->PersistentId = Durin::FGuid(1, 2, 3, 4);
+	Asset->RelatedIds = {Durin::FGuid(5, 6, 7, 8)};
+	Asset->NamedScores = {{"Legacy", 42}};
+	Asset->SourcePath.Path = "/TestAssets/Sources/Legacy.txt";
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+
+	const auto File = Durin::Testing::GetTestWorkDirectory()
+		/ "Assets" / "LegacyLogicalSignatures.dasset";
+	std::vector<Durin::uint8> Bytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File.generic_string()));
+	EXPECT_EQ(RenameAllSerializedStrings(Bytes, "12:v1", "12:32"), 2u);
+	EXPECT_EQ(RenameAllSerializedStrings(Bytes, "18:v1", "18:12"), 1u);
+	EXPECT_EQ(RenameAllSerializedStrings(Bytes, "19:v1", "19:16"), 1u);
+	EXPECT_EQ(RenameAllSerializedStrings(Bytes, "Array<19:v1>", "Array<19:16>"), 1u);
+	EXPECT_EQ(RenameAllSerializedStrings(Bytes, "Map<12:v1,4:4>", "Map<12:32,4:4>"), 1u);
+	WriteTestBytes(File, Bytes);
+
+	Durin::Asset::FAssetPackageAuditReport Audit;
+	ASSERT_TRUE(Durin::Asset::AuditAssetPackage(RefreshAssetData(Path, File), Audit));
+	EXPECT_EQ(Audit.State, Durin::Asset::EAssetPackageAuditState::UpToDate);
+
+	Durin::Asset::FAssetLoadReport Report;
+	DPackageAssetForTest* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded, &Report));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_FALSE(Report.HasCompatibilityIssues());
+	EXPECT_EQ(Loaded->Label, "LegacyString");
+	EXPECT_EQ(Loaded->DisplayName, Durin::FName("LegacyName"));
+	EXPECT_EQ(Loaded->PersistentId, Durin::FGuid(1, 2, 3, 4));
+	EXPECT_EQ(Loaded->RelatedIds, (std::vector<Durin::FGuid>{Durin::FGuid(5, 6, 7, 8)}));
+	EXPECT_EQ(Loaded->NamedScores.at("Legacy"), 42);
+	EXPECT_EQ(Loaded->SourcePath.Path, "/TestAssets/Sources/Legacy.txt");
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+}
+
+TEST(FPackageAssetTests, KeepsRawScalarWidthInSerializedSchema)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/RawScalarWidth", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	Asset->Value = 42;
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+
+	const auto File =
+		Durin::Testing::GetTestWorkDirectory() / "Assets" / "RawScalarWidth.dasset";
+	std::vector<Durin::uint8> Bytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File.generic_string()));
+	ASSERT_TRUE(RenameSerializedString(Bytes, "4:4", "4:8"));
+	WriteTestBytes(File, Bytes);
+
+	Durin::Asset::FAssetPackageAuditReport Audit;
+	ASSERT_TRUE(Durin::Asset::AuditAssetPackage(RefreshAssetData(Path, File), Audit));
+	EXPECT_EQ(Audit.State, Durin::Asset::EAssetPackageAuditState::RiskyUpgrade);
+
+	Durin::Asset::FAssetLoadReport Report;
+	DPackageAssetForTest* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded, &Report));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->Value, 0);
+	EXPECT_TRUE(Report.HasRiskItems());
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
 TEST(FPackageAssetTests, CompleteInspectionContainsEveryObjectAndContentFingerprint)
