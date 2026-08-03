@@ -1,0 +1,471 @@
+# Single-Root Mount Semantics Plan
+
+Summary: Replace Content/SourceAssets dual-domain mounts with one physical root per virtual mount while preserving typed asset and source identities.
+
+Last reviewed: 2026-08-03
+
+Status: Active
+Completed:
+
+## Current Status
+
+- The selected direction is a breaking migration from two physical domains per
+  logical mount to one physical root per mount. No compatibility parser,
+  fallback resolver, or legacy `SourceAssets` lookup will remain.
+- Baseline commit: `83e1577d` (`refactor(import): make scene imports
+  folder-centric`).
+- `/Game/` currently maps assets to `Sandbox/Content` and sources to
+  `Sandbox/SourceAssets`; `/Engine/` similarly maps to `Engine/Content` and
+  `Engine/SourceAssets`.
+- The checked-in source migration set is small: two files beneath
+  `Engine/SourceAssets` and three files beneath `Sandbox/SourceAssets`.
+- The checked-in Engine and Sandbox project descriptors declare no custom
+  mounts. The dual-domain custom-mount schema is exercised by the
+  `UnifiedMountContract.json` native-test fixture.
+- Implementation has not started. Stage 0 must freeze the exact descriptor and
+  capability names and confirm that merging the checked-in directories has no
+  physical-path collisions.
+
+## Goal
+
+Give every virtual mount one stable and unsurprising physical interpretation:
+
+```text
+/Game/<relative>       -> <active project>/Content/<relative>
+/Engine/<relative>     -> <engine>/Content/<relative>
+/<custom>/<relative>   -> <custom configured root>/<relative>
+```
+
+`FAssetPath` and `FSourcePath` remain distinct value types, but neither type may
+select a different physical root for the same mount. Asset paths remain
+extensionless package identities resolved as `.dasset`; source paths retain a
+filename extension and identify ordinary authoring files.
+
+## Scope
+
+- Replace `FMountPoint::ContentRoot` and `FMountPoint::SourceAssetsRoot` with one
+  normalized absolute mount root.
+- Replace the project-descriptor `Domains` object with one direct mount `Root`
+  contract.
+- Give `/Game/` and `/Engine/` fixed roots at their existing `Content`
+  directories.
+- Preserve explicit mount ownership, dependency edges, authoring-write policy,
+  canonical containment, immutable publication, and longest-prefix lookup.
+- Preserve a package-discovery capability so external art-library mounts do not
+  become package mounts merely because they share the same resolver.
+- Make asset and source typed resolvers delegate to the same single-root
+  primitive and remove domain-specific error states and terminology.
+- Migrate checked-in files from Engine and Sandbox `SourceAssets` into the
+  corresponding `Content` trees without changing their virtual relative paths.
+- Update source ingestion, reimport, source-reference indexing, thumbnails,
+  import dialogs, asset discovery, project parsing, tests, and active contract
+  documentation.
+- Reject old custom mount descriptors instead of interpreting `Domains` or
+  deriving a legacy sibling `SourceAssets` directory.
+
+## Non-Goals
+
+- Merging `FAssetPath` and `FSourcePath` into one value type.
+- Making raw source files loadable as `DObject` assets or serializing them as
+  `.dasset` packages.
+- Shipping raw authoring files in cooked runtime output.
+- Adding dynamic or session-local mounts; registry publication remains
+  immutable for the active project lifetime.
+- Supporting arbitrary absolute paths in committed project descriptors.
+- Reorganizing source-relative names such as existing repeated
+  `Models/Models` or `Textures/Textures` segments. The initial migration
+  preserves virtual identities exactly.
+- Retaining a hidden `SourceAssets` directory convention, implicit sibling
+  lookup, compatibility reader, or automatic fallback.
+- Redesigning the Content Browser to become a general raw-file browser.
+
+## Design Decisions and Invariants
+
+### One virtual root has one physical root
+
+- `FMountPoint` owns one `Root` path. It is absolute, normalized, canonicalized
+  for containment checks where the target exists, and never inferred from a
+  directory name.
+- `/Game/` is built from `<active project>/Content`; `/Engine/` is built from
+  `<engine>/Content`.
+- A custom descriptor's `Root` is the mount root itself, resolved relative to
+  the active project descriptor. There is no owner-root-plus-domain indirection.
+- Reverse classification considers the same roots used for forward resolution.
+  Published roots may not alias or canonically overlap in a way that makes a
+  physical path classify to more than one mount.
+
+### Typed paths remain typed
+
+- `FAssetPath` remains extensionless and requires a mount that permits asset
+  packages. AssetCore appends the package extension at its existing ownership
+  boundary.
+- `FSourcePath` retains its complete filename and extension. It may reference
+  an ordinary file under any registered mount, subject to dependency and
+  existence checks.
+- Asset and source typed APIs may report different validation errors, but both
+  must resolve the virtual relative path against the same `FMountPoint::Root`.
+- A raw file and a package may coexist by using distinct physical filenames,
+  for example `Robot.gltf` and `Robot.dasset`.
+
+### Capabilities are policy, not alternate mappings
+
+- Built-in `/Game/` and `/Engine/` mounts permit asset packages.
+- Custom mounts declare whether Asset Registry package discovery is enabled.
+  This flag gates `FAssetPath` package identity and recursive `.dasset`
+  discovery; it does not change path resolution.
+- Authoring-file mutation remains an explicit mount policy. Rename the current
+  source-domain-specific field to an authoring-oriented name and keep the
+  existing same-mount, dependency, and Engine-authoring-context restrictions.
+- Read access to a registered source file does not depend on a separate source
+  capability or domain.
+- Dependency checks remain mount-to-mount and independent of file type.
+
+### Descriptor contract is replaced atomically
+
+Custom mounts use one selected schema equivalent to:
+
+```json
+{
+  "VirtualRoot": "/Libraries/StudioArt/",
+  "Owner": "ExternalSources",
+  "Root": "Libraries/StudioArt",
+  "AssetPackages": false,
+  "AuthoringWritable": false,
+  "Dependencies": ["/Engine/"]
+}
+```
+
+- `Root` is the mounted directory, not an owner directory.
+- `AssetPackages` controls package identity and discovery only.
+- `AuthoringWritable` controls ingestion and other raw authoring-file
+  mutations.
+- `Domains`, `Content`, `SourceAssets`, and `SourceWritable` are invalid fields
+  after the migration.
+- Descriptor-relative containment and the ban on `..` and absolute committed
+  paths remain unchanged.
+
+### Persistence and migration
+
+- Existing virtual source identities beneath `/Game/` and `/Engine/` remain
+  unchanged. Their physical files move from `SourceAssets/<relative>` to
+  `Content/<relative>`.
+- Existing ImportRecords and reflected `FSourcePath` properties are rewritten
+  only when an inventory finds a virtual-root change. No reader accepts a
+  physical `SourceAssets` segment or consults the removed directory.
+- Custom dual-root mounts must choose one root before migration. If package and
+  source files cannot share it, they are split into two explicitly named
+  virtual mounts and all affected persisted paths are migrated in the same
+  stage.
+- Import, reimport, hashing, dependency capture, and derived-data keys continue
+  to use normalized virtual source identities plus captured bytes; moving the
+  physical root alone must not change source identity.
+
+### Runtime and cooking boundaries
+
+- Asset Registry scans only mounts with `AssetPackages` enabled and only package
+  files recognized by the existing package contract.
+- Raw FBX, glTF, OBJ, image, and other authoring files under a package-enabled
+  root remain editor inputs and are excluded from cooked runtime output.
+- Cooked loading must succeed when authoring files are absent, exactly as under
+  the current SourceAssets model.
+- Content Browser remains package-oriented. Source-file selection continues
+  through source-aware pickers and import workflows, now rooted at the selected
+  mount's single physical directory.
+
+## Current Foundations and Gaps
+
+### Foundations to preserve
+
+- `PathUtilities` already centralizes mount publication, longest-prefix lookup,
+  dependency policy, canonical containment, reverse classification, and test
+  fixtures.
+- `FAssetPath` and `FSourcePath` already separate package identity from complete
+  source filenames.
+- Asset Registry already recognizes `.dasset` packages rather than treating
+  every file below a Content root as an asset.
+- Mounted-source import already requires explicit destinations and checks
+  dependency and mutation policy before publication.
+- ImportRecords persist virtual source paths and captured fingerprints rather
+  than absolute workstation paths.
+
+### Gaps to close
+
+- `FMountPoint` owns two optional roots, and typed resolution selects one by
+  pointer-to-member.
+- `/Game/` and `/Engine/` publish implicit sibling `SourceAssets` directories.
+- Custom descriptors require a `Domains` object and may map one virtual identity
+  to unrelated physical trees.
+- Editor pickers, import helpers, thumbnails, Texture2D, StaticMesh, and source
+  reference workflows query `SourceAssetsRoot` directly.
+- Asset validation and Content Browser snapshots query `ContentRoot` directly.
+- Tests and active documentation encode domain-specific error cases and
+  `SourceAssets` terminology.
+- The compatibility-only `RegisterMountPoint` fixture helper creates a sibling
+  `SourceAssets` directory and must be replaced rather than preserved.
+
+## Implementation Stages
+
+### Stage 0: Freeze the migration manifest and public contract
+
+Outcome: the exact schema, symbol migration, physical moves, and persisted-path
+impact are recorded before changing the resolver.
+
+- [ ] Confirm the final `FMountPoint` field names for the single root, package
+  discovery capability, and authoring-write policy.
+- [ ] Inventory every checked-in `.dproject`, custom-mount fixture, direct
+  `FMountPoint` initializer, `SourceAssetsRoot`/`ContentRoot` consumer, and
+  persisted `FSourcePath`/ImportRecord source reference.
+- [ ] Compare the five checked-in SourceAssets files against their target
+  Content paths and fail the stage on any non-identical collision.
+- [ ] Record the exact move list, preserving each path relative to its old
+  SourceAssets root.
+- [ ] Decide whether any custom dual-root fixture becomes one combined mount or
+  two explicit mounts; update this plan before implementation if a real project
+  mount is discovered.
+- [ ] Capture the baseline Core path, source reference, import, asset registry,
+  cook, and editor workflow test results.
+
+Dependencies: none.
+
+#### Acceptance Gate
+
+- The migration manifest accounts for every production and test mount and every
+  checked-in SourceAssets file.
+- The replacement descriptor fields and C++ API names are unambiguous.
+- There is no unresolved physical collision or persisted-path ownership choice.
+
+### Stage 1: Replace the Core mount and descriptor model
+
+Outcome: registry publication and path resolution use one physical root per
+mount, with no dual-domain parser or fallback.
+
+- [ ] Replace `ContentRoot` and `SourceAssetsRoot` with one mount root and the
+  selected policy fields.
+- [ ] Add one shared forward-resolution and reverse-classification primitive;
+  make typed asset and source entrypoints enforce type rules around that
+  primitive.
+- [ ] Rename Content-domain result and API types to asset/package terminology
+  where they remain public; remove unsupported-domain branches that existed
+  only because a second root was optional.
+- [ ] Build `/Game/` and `/Engine/` directly from their Content directories.
+- [ ] Replace descriptor `Domains` parsing with the new exact-field schema and
+  reject old descriptors as unknown/invalid.
+- [ ] Validate normalized roots, canonical overlap, traversal, longest-prefix
+  behavior, missing roots, dependency edges, and authoring-write policy.
+- [ ] Replace the legacy test registration helper with a single-root fixture API
+  and migrate all direct fixture initializers.
+- [ ] Rewrite Core path tests and the unified mount contract fixture around
+  single-root behavior, including package-disabled external mounts.
+
+Dependencies: Stage 0.
+
+#### Acceptance Gate
+
+- No Core code or active fixture contains `ContentRoot`, `SourceAssetsRoot`, or
+  descriptor `Domains` handling.
+- The same virtual path produces the same mount-relative physical path in asset
+  and source typed resolution.
+- Old descriptor shapes fail deterministically; no compatibility branch or
+  sibling-directory inference exists.
+- Core path and descriptor contract tests pass.
+
+### Stage 2: Migrate runtime and editor consumers
+
+Outcome: all package and source workflows consume the single-root contract
+without direct domain knowledge.
+
+- [ ] Update `FAssetPath`, AssetCore package resolution, registry scanning, and
+  Content Browser mount snapshots to use package-capable single roots.
+- [ ] Update `FSourcePath`, source reference validation, source relocation,
+  hashing, thumbnail caching, Texture2D, TextureCube, StaticMesh, and material
+  preview source loading.
+- [ ] Update mounted-source reference and ingestion operations to choose a
+  mounted destination path without assuming `SourceAssets`.
+- [ ] Update Texture, TextureCube, Scene Source, and Texture Editor pickers to
+  browse the applicable mount root and use neutral “source destination” wording.
+- [ ] Ensure glTF relative dependencies remain inside and resolve through the
+  root source's mount after ingestion.
+- [ ] Replace domain-specific diagnostics with mount, dependency, containment,
+  existence, and authoring-write diagnostics.
+- [ ] Keep Content Browser package-only even when raw files share its physical
+  root.
+
+Dependencies: Stage 1.
+
+#### Acceptance Gate
+
+- All runtime and editor targets compile without domain-root fields or helpers.
+- Existing import and reimport workflows resolve source bytes from the new root,
+  preserve dependency checks, and never consult `SourceAssets`.
+- Package-disabled mounts can provide source references but cannot form valid
+  asset package identities or enter Asset Registry discovery.
+- Source reference, thumbnail, texture import, scene import, and editor asset
+  workflow tests pass.
+
+### Stage 3: Move checked-in source files and migrate persisted records
+
+Outcome: the workspace contains no live SourceAssets tree and all checked-in
+authoring references resolve through the new roots.
+
+- [ ] Move the two Engine authoring meshes from `Engine/SourceAssets` to the
+  same relative paths beneath `Engine/Content`.
+- [ ] Move the three Sandbox authoring files from `Sandbox/SourceAssets` to the
+  same relative paths beneath `Sandbox/Content`.
+- [ ] Apply the Stage 0 custom-mount fixture/configuration migration.
+- [ ] Audit checked-in `.dasset` packages and ImportRecords. Preserve virtual
+  source strings when their mount root is unchanged; explicitly resave or
+  regenerate every record whose virtual root changes.
+- [ ] Remove obsolete SourceAssets directories and update version-control or
+  tooling paths that name them.
+- [ ] Verify that all checked-in source references resolve and their persisted
+  fingerprints still match the moved bytes.
+
+Dependencies: Stage 2.
+
+#### Acceptance Gate
+
+- `Engine/SourceAssets` and `Sandbox/SourceAssets` contain no tracked or required
+  files.
+- No checked-in package or ImportRecord references an unknown mount or requires
+  a compatibility resolver.
+- Reimport of representative Engine and Game assets succeeds from the moved
+  source files without changing their virtual source identities.
+- Asset registry scans do not expose raw authoring files as assets.
+
+### Stage 4: Validate cooking and end-to-end editor behavior
+
+Outcome: the unified mount works in authoring, reimport, discovery, cooking, and
+source-absent runtime scenarios.
+
+- [ ] Validate Game-to-Engine, Game-to-external-library, forbidden
+  Engine-to-Game, same-mount mutation, read-only mount, missing root, escape,
+  and canonical-overlap cases.
+- [ ] Import a texture and an FBX/glTF Scene Source into `/Game/`, close/reload
+  their packages, and reimport from the single-root source paths.
+- [ ] Validate a source reference from a package-disabled external mount.
+- [ ] Validate Asset Registry and Content Browser behavior when `.dasset` and raw
+  source files coexist beneath `/Game/`.
+- [ ] Cook representative assets, remove or hide the authoring inputs from the
+  runtime environment, and verify cooked loading and rendering.
+- [ ] Run the complete related native suites, a successful full `all` build, and
+  an editor startup smoke test through the documented development tool entrypoint.
+
+Dependencies: Stage 3.
+
+#### Acceptance Gate
+
+- Every row in the validation matrix passes from a clean build profile.
+- Cooked runtime loading has no source-file or authoring-mount dependency.
+- The editor can import, reload, and reimport both local and externally mounted
+  sources using the same mount semantics.
+- No old resolver symbols, dual-domain fields, SourceAssets runtime paths, or
+  compatibility diagnostics remain in production code.
+
+### Stage 5: Publish lasting contracts and complete the plan
+
+Outcome: authoritative documentation describes only the implemented
+single-root model, and the plan carries complete validation evidence.
+
+- [ ] Update Workspace, runtime asset, editor import, version-control, mesh,
+  texture, material, cube-texture, and level-system documents that currently
+  describe SourceAssets domains.
+- [ ] Keep historical archived plans unchanged except for mechanically repaired
+  direct links; they remain historical evidence rather than current contracts.
+- [ ] Update this plan's status, checklist, baseline/working-set handoff, and
+  validation evidence after every substantive stage.
+- [ ] Run changed-document validation and the all-plan validator.
+- [ ] Set `Status: Completed` and the completion date only after every required
+  gate has passed and lasting rules exist in their owning documentation domains.
+
+Dependencies: Stage 4.
+
+#### Acceptance Gate
+
+- Active documentation contains one consistent single-root mount explanation.
+- Documentation and all-plan validation pass.
+- The definition of done is satisfied and completion evidence is recorded in
+  `Current Status`.
+
+## Validation Matrix
+
+| Area | Required evidence |
+| --- | --- |
+| Core mount parsing | New exact descriptor schema accepted; `Domains` and old fields rejected |
+| Forward resolution | Asset and source typed paths share one root and relative mapping |
+| Reverse classification | Game, Engine, custom, missing, escaped, symlink/junction, and overlap cases |
+| Package capability | Package-enabled mounts validate and scan; package-disabled mounts do neither |
+| Dependency policy | Same mount, Game-to-Engine, external dependency, and forbidden reverse edge |
+| Mutation policy | Writable same-mount ingestion succeeds; read-only, cross-mount, and unauthorized Engine writes fail |
+| Asset packages | Save, load, move, delete, registry rebuild, and reload remain correct |
+| Source references | Texture, mesh, cube, material preview, index, relocation, and fingerprint verification |
+| Import framework | Texture and Scene import/reimport, external ingestion, glTF dependency closure, ImportRecord reload |
+| Editor | Source pickers, output destination, Content Browser filtering/navigation, error diagnostics |
+| Cooking | Raw sources excluded; cooked assets load and render with source files unavailable |
+| Repository hygiene | No production `SourceAssetsRoot`, `ContentRoot`, `Domains.SourceAssets`, legacy parser, or required SourceAssets directory |
+| Build and smoke | Related native tests, full `all` build, and editor startup smoke pass using the documented workflow |
+
+Build, test, run, timeout, and recovery behavior follow
+[Build and Run](../Development/Build/BuildAndRun.md); this plan does not duplicate
+machine-local commands.
+
+## Definition of Done
+
+- Every registered virtual mount has exactly one normalized physical root.
+- `/Game/` and `/Engine/` map directly to their Content directories; every
+  custom mount maps directly to its declared root.
+- No source or asset API can reinterpret one virtual mount against a second
+  physical directory.
+- `FAssetPath` and `FSourcePath` retain their type-specific validation and
+  persistence contracts.
+- Package discovery and authoring-write policies remain explicit and do not
+  introduce alternate path mappings.
+- All checked-in SourceAssets files and affected persisted records are migrated
+  without a compatibility reader or fallback.
+- Raw sources remain outside cooked runtime requirements and are not presented
+  as object assets.
+- All implementation stages and validation-matrix rows have evidence-backed
+  completion.
+- Lasting behavior is documented in the authoritative Workspace, Runtime, and
+  Editor documents.
+- The workspace is clean after the final implementation commit.
+
+## Deferred Follow-ups
+
+- A general raw-source browser or combined asset/source Content Browser view.
+- Dynamic user-local absolute mounts and workstation-specific mount overlays.
+- Mount aliases, remapping, or redirectors for third-party project migration.
+- Automatic deduplication or cleanup of repeated relative directory segments.
+- General-purpose packaging of non-asset project files.
+
+## Related Documentation
+
+- [Workspace Projects](../Workspace/WorkspaceProjects.md)
+- [Asset Packages](../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
+- [Mounted Source Workflows](../Editor/Guides/MountedSourceWorkflows.md)
+- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
+- [Build and Run](../Development/Build/BuildAndRun.md)
+
+## Related Code
+
+- `Engine/Source/Runtime/Core/Public/Misc/Paths.h`
+- `Engine/Source/Runtime/Core/Private/Misc/Paths.cpp`
+- `Engine/Source/Runtime/CoreDObject/Private/DObject/AssetPath.cpp`
+- `Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp`
+- `Engine/Source/Runtime/Engine/Private/Source/SourcePath.cpp`
+- `Engine/Source/Runtime/Engine/Private/Texture/Texture2D.cpp`
+- `Engine/Source/Runtime/Engine/Private/Texture/TextureCube.cpp`
+- `Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp`
+- `Engine/Source/Editor/LevelEditor/Private/Assets/MountedSourceImport.h`
+- `Engine/Source/Editor/LevelEditor/Private/Assets/TextureImportDialog.cpp`
+- `Engine/Source/Editor/LevelEditor/Private/Assets/TextureCubeImportDialog.cpp`
+- `Engine/Source/Editor/LevelEditor/Private/Assets/SceneImportDialog.cpp`
+- `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserModel.cpp`
+- `Engine/Source/Editor/TextureEditor/Private/Widgets/MTextureEditor.cpp`
+- `Engine/Tests/Native/CoreTests/Private/PathsTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/SourceLibraryReferenceContractTests.cpp`
+- `Engine/Tests/Native/EngineTests/Data/SourceLibraryReferences/UnifiedMountContract.json`
+- `Engine/Tests/Native/EngineTests/Private/SourceReferenceIndexTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/Texture/TextureImportAndCacheTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/Texture/SceneImportTests.cpp`
