@@ -108,6 +108,43 @@ TEST(FSceneImportTests, PublishesHeterogeneousPeersUnderGenericRecord)
 	EXPECT_EQ(Executed.Record->GetPrimaryOutput(), Fixture.Primary);
 	EXPECT_EQ(Executed.Record->GetOutputs().size(), 3u);
 	EXPECT_TRUE(Executed.Record->IsCookExcluded());
+	EXPECT_EQ(std::filesystem::path(Executed.Materials[0]->GetPackage()->GetPackagePath())
+		.parent_path().generic_string(),
+		"/SceneImportTests/SceneImport/Initial/Materials");
+	EXPECT_EQ(std::filesystem::path(Executed.Textures[0]->GetPackage()->GetPackagePath())
+		.parent_path().generic_string(),
+		"/SceneImportTests/SceneImport/Initial/Textures");
+}
+
+TEST(FSceneImportTests, PlansOutputsInsideDefaultModelBundle)
+{
+	FSceneFixture Fixture = InitializeSceneFixture("Robot");
+	Fixture.Primary = MakeAssetPath(
+		"/SceneImportTests/StaticMeshes/Robot/Robot");
+	const Durin::FSceneImportPlanResult Planned = Durin::PlanSceneImport({
+		.RootSource = Fixture.Source,
+		.PrimaryOutput = Fixture.Primary,
+		.MeshSettings = Durin::FStaticMeshImportSettings::MakeDurin()});
+	ASSERT_TRUE(Planned) << Planned.Message;
+
+	const Durin::AssetImport::FImportPlan& Generic =
+		Planned.Plan.GetMultiOutputPlan().GetGenericPlan();
+	ASSERT_EQ(Generic.GetOutputs().size(), 3u);
+	for (const Durin::AssetImport::FImportOutputPreview& Output : Generic.GetOutputs())
+	{
+		const std::string Parent = std::filesystem::path(
+			Output.AssetPath.ToString()).parent_path().generic_string();
+		if (Output.Role == "StaticMesh")
+			EXPECT_EQ(Output.AssetPath, Fixture.Primary);
+		else if (Output.Role == "MaterialInstance")
+			EXPECT_EQ(Parent, "/SceneImportTests/StaticMeshes/Robot/Materials");
+		else if (Output.Role == "Texture2D.BaseColor")
+			EXPECT_EQ(Parent, "/SceneImportTests/StaticMeshes/Robot/Textures");
+		else
+			FAIL() << "Unexpected Scene output role: " << Output.Role;
+	}
+	EXPECT_EQ(Planned.Plan.GetMultiOutputPlan().GetRecordPath().ToString(),
+		"/SceneImportTests/StaticMeshes/Robot/Robot_Import");
 }
 
 TEST(FSceneImportTests, AsyncPreparationMatchesSynchronousScenePlan)

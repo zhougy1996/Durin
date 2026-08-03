@@ -246,15 +246,14 @@ namespace Durin
 
 		auto MakeChildPath(
 			const FAssetPath& Root,
-			std::string_view DirectorySuffix,
+			std::string_view DirectoryName,
 			std::string_view Leaf,
 			FAssetPath& OutPath,
 			std::string& OutError) -> bool
 		{
 			const std::filesystem::path RootPath(Root.ToString());
-			return FAssetPath::TryCreate((
-				RootPath.parent_path()
-					/ (RootPath.filename().generic_string() + std::string(DirectorySuffix))
+			return FAssetPath::TryCreate(
+				(RootPath.parent_path() / std::string(DirectoryName)
 					/ std::string(Leaf)).generic_string(), OutPath, &OutError);
 		}
 
@@ -507,7 +506,7 @@ namespace Durin
 					const std::string MaterialIdentity =
 						std::string("scene:material:") + StableSuffix(MaterialKey);
 					FAssetPath MaterialPath;
-					if (!MakeChildPath(Decoded.PrimaryOutput, "_Materials",
+					if (!MakeChildPath(Decoded.PrimaryOutput, "Materials",
 						MakeUniqueName(Material->SourceName, "Material", MaterialNames),
 						MaterialPath, Error)) return false;
 					FSceneOutputData MaterialOutput{
@@ -528,7 +527,7 @@ namespace Durin
 							const std::string TextureIdentity =
 								std::string("scene:texture:") + StableSuffix(TextureKey);
 							FAssetPath TexturePath;
-							if (!MakeChildPath(Decoded.PrimaryOutput, "_Textures",
+							if (!MakeChildPath(Decoded.PrimaryOutput, "Textures",
 								MakeUniqueName(Image.SuggestedName + "_BaseColor",
 									"Image_BaseColor", TextureNames), TexturePath, Error)) return false;
 							Builder.AddOutput({

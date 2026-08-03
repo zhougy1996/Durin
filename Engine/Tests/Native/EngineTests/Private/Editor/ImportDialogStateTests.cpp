@@ -51,6 +51,10 @@ TEST(FImportDialogDestinationModelTests, PreservesManualPathAcrossSuggestions)
 		Destination.MakeSuggestedPath("Second", "/Project/Textures/"));
 	EXPECT_EQ(Destination.GetPath(), "/Project/Chosen/Second");
 
+	Destination.SuggestPath(
+		Destination.MakeSuggestedPath("Robot/Robot", "/Project/StaticMeshes/"));
+	EXPECT_EQ(Destination.GetPath(), "/Project/Chosen/Robot/Robot");
+
 	ASSERT_TRUE(Destination.SetPath("/Project/Manual"));
 	Destination.SuggestPath(
 		Destination.MakeSuggestedPath("Third", "/Project/Textures/"));

@@ -305,7 +305,8 @@ namespace Durin
 		}
 		const std::string AssetName = StringUtils::SanitizeFileName(std::filesystem::path(Result.FilePath).stem().generic_string(), "StaticMesh");
 		const FProjectInfo* Project = GetCurrentProject();
-		Destination.SuggestPath(Destination.MakeSuggestedPath(AssetName,
+		const std::string BundledAssetName = std::format("{}/{}", AssetName, AssetName);
+		Destination.SuggestPath(Destination.MakeSuggestedPath(BundledAssetName,
 			(Project ? Project->MountRoot : "/")
 				+ std::string("StaticMeshes/")));
 		const std::string PreviousSourceDestination = SourceDestinationBuffer.data();
