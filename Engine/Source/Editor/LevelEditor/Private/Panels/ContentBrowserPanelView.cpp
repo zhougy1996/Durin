@@ -104,13 +104,13 @@ namespace Durin
 		DrawStatusBar();
 		DrawDialogs();
 
-		SessionSettings.SetContentBrowserState(static_cast<uint8>(ViewMode), IconSize, bIconSizeLocked, DirectoryTreeWidth, false, Model.GetCurrentPhysicalPath());
+		SessionSettings.SetContentBrowserState(static_cast<uint8>(ViewMode), IconSize, bIconSizeLocked, DirectoryTreeWidth, Model.IsShowingHiddenFiles(), Model.GetCurrentPhysicalPath());
 		ImGui::End();
 	}
 
 	auto FContentBrowserPanel::DrawToolbar() -> void
 	{
-		int32 TypeFilter = Model.GetTypeFilter();
+		int32 TypeFilter = static_cast<int32>(Model.GetTypeFilter());
 		const float ToolbarWidth = ImGui::GetContentRegionAvail().x;
 		const EEditorUILayoutMode LayoutMode = ResolveEditorUILayout(ToolbarWidth, MonaImGui::ScaleUI(CompactToolbarWidth), MonaImGui::ScaleUI(FullToolbarWidth));
 		const bool bFullLayout = LayoutMode == EEditorUILayoutMode::Full;
@@ -180,7 +180,7 @@ namespace Durin
 			ImGui::EndChild();
 		};
 
-		const char* Filters[] = {"All types", "Levels", "Static meshes", "Materials", "Textures", "Other"};
+		const char* Filters[] = {"All content", "Assets", "Files", "Levels", "Static meshes", "Materials", "Textures", "Other assets"};
 		const float Spacing = ImGui::GetStyle().ItemSpacing.x;
 
 		auto DrawViewControls = [&]() {
@@ -200,9 +200,14 @@ namespace Durin
 				{
 					ImGui::TextDisabled("Type filter");
 					ImGui::SetNextItemWidth(-FLT_MIN);
-					if (ImGui::Combo("##CompactContentTypeFilter", &TypeFilter, Filters, std::size(Filters))) Model.SetTypeFilter(TypeFilter);
+					if (ImGui::Combo("##CompactContentTypeFilter", &TypeFilter, Filters, std::size(Filters)))
+						Model.SetTypeFilter(static_cast<EContentBrowserTypeFilter>(TypeFilter));
 					ImGui::Separator();
 				}
+				bool bShowHiddenFiles = Model.IsShowingHiddenFiles();
+				if (ImGui::Checkbox("Show hidden files and folders", &bShowHiddenFiles))
+					Model.SetShowHiddenFiles(bShowHiddenFiles);
+				ImGui::Separator();
 				ImGui::TextDisabled("Thumbnail size");
 				ImGui::SetNextItemWidth(-FLT_MIN);
 				ImGui::SliderFloat("##ContentIconSize", &IconSize, FLevelEditorSessionSettings::MinimumContentBrowserIconSize, FLevelEditorSessionSettings::MaximumContentBrowserIconSize, "%.0f px");
@@ -223,7 +228,8 @@ namespace Durin
 			DrawViewControls();
 			ImGui::SameLine();
 			ImGui::SetNextItemWidth(FilterWidth);
-			if (ImGui::Combo("##ContentTypeFilter", &TypeFilter, Filters, std::size(Filters))) Model.SetTypeFilter(TypeFilter);
+			if (ImGui::Combo("##ContentTypeFilter", &TypeFilter, Filters, std::size(Filters)))
+				Model.SetTypeFilter(static_cast<EContentBrowserTypeFilter>(TypeFilter));
 			ImGui::SameLine();
 			ImGui::SetNextItemWidth(SearchWidth);
 			if (ImGui::InputTextWithHint("##ContentSearch", "Search current folder...", SearchBuffer.data(), SearchBuffer.size())) RebuildItems();
@@ -275,7 +281,7 @@ namespace Durin
 			Model.GetDirectoryChildren(Physical);
 		const std::vector<std::filesystem::path> Children(
 			CachedChildren.begin(), CachedChildren.end());
-		const bool bHasChildren = std::ranges::any_of(Children, [&](const std::filesystem::path& Child) { return Model.IsShowingSourceFiles() || !Child.filename().generic_string().starts_with('.'); });
+		const bool bHasChildren = std::ranges::any_of(Children, [&](const std::filesystem::path& Child) { return Model.IsShowingHiddenFiles() || !Child.filename().generic_string().starts_with('.'); });
 		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
 		if (!bHasChildren) Flags |= ImGuiTreeNodeFlags_Leaf;
 		if (Model.GetCurrentPhysicalPath() == Physical) Flags |= ImGuiTreeNodeFlags_Selected;
@@ -294,7 +300,7 @@ namespace Durin
 			for (const std::filesystem::path& Child : Children)
 			{
 				const std::string Name = Child.filename().generic_string();
-				if (!Model.IsShowingSourceFiles() && Name.starts_with('.')) continue;
+				if (!Model.IsShowingHiddenFiles() && Name.starts_with('.')) continue;
 				DrawDirectoryNode(Child, Name, false);
 			}
 			ImGui::TreePop();

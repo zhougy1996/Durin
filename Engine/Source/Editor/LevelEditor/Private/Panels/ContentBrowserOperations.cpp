@@ -83,7 +83,7 @@ namespace Durin
 		if (IsManagedCompanion(Item))
 			return Failure(
 				Asset::EAssetError::InvalidPath,
-				"This source file is managed by an asset. Rename or move the asset instead.");
+				"This file is managed by an asset. Rename or move the asset instead.");
 
 		std::filesystem::path Destination =
 			std::filesystem::path(Item.PhysicalPath).parent_path()
@@ -263,7 +263,7 @@ namespace Durin
 	auto FContentBrowserOperations::IsManagedCompanion(
 		const FContentBrowserItem& Item) const -> bool
 	{
-		if (Item.Kind != EContentBrowserItemKind::SourceFile) return false;
+		if (Item.Kind != EContentBrowserItemKind::File) return false;
 		const std::filesystem::path Source(Item.PhysicalPath);
 		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
 		{
@@ -503,7 +503,7 @@ namespace Durin
 				if (IsManagedCompanion(Item))
 					return {
 						Asset::EAssetError::InvalidPath,
-						"This source file is managed by an asset. Delete the asset instead."};
+						"This file is managed by an asset. Delete the asset instead."};
 				std::error_code Ec;
 				if (!std::filesystem::remove(Item.PhysicalPath, Ec) || Ec)
 					return {

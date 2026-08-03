@@ -53,7 +53,7 @@ namespace Durin
 			.Name = "Sky",
 			.AssetClassName = "Durin::DTextureCube"};
 		FContentBrowserItem Source{
-			.Kind = EContentBrowserItemKind::SourceFile,
+			.Kind = EContentBrowserItemKind::File,
 			.Name = "Sky.hdr",
 			.Extension = ".hdr"};
 

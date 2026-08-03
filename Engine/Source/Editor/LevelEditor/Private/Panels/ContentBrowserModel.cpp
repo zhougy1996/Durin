@@ -110,7 +110,7 @@ namespace Durin
 			return ClassName == "TextureCube" ? "Texture Cube" : ClassName;
 		}
 		return Item.Extension.empty()
-			? "Source File"
+			? "File"
 			: Item.Extension.substr(1) + " file";
 	}
 
@@ -273,6 +273,22 @@ namespace Durin
 						PhysicalToVirtualDirectory(Entry.path().generic_string()),
 						NormalizePath(Entry.path().generic_string())});
 			}
+			else if (Entry.is_regular_file(Ec)
+				&& Entry.path().extension() != ".dasset")
+			{
+				FContentBrowserItem Item{
+					EContentBrowserItemKind::File,
+					Name,
+					{},
+					NormalizePath(Entry.path().generic_string()),
+					{},
+					Entry.path().extension().generic_string()};
+				Item.FileSize = Entry.file_size(Ec);
+				Ec.clear();
+				Item.LastWriteTime = Entry.last_write_time(Ec);
+				Ec.clear();
+				ItemsSnapshot.push_back(std::move(Item));
+			}
 		}
 
 		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
@@ -327,18 +343,26 @@ namespace Durin
 	auto FContentBrowserModel::MatchesTypeFilter(
 		const FContentBrowserItem& Item) const -> bool
 	{
-		if (TypeFilter == 0 || Item.Kind == EContentBrowserItemKind::Folder)
+		if (TypeFilter == EContentBrowserTypeFilter::All
+			|| Item.Kind == EContentBrowserItemKind::Folder)
 			return true;
+		if (TypeFilter == EContentBrowserTypeFilter::Assets)
+			return Item.Kind == EContentBrowserItemKind::Asset;
+		if (TypeFilter == EContentBrowserTypeFilter::Files)
+			return Item.Kind == EContentBrowserItemKind::File;
+		if (Item.Kind != EContentBrowserItemKind::Asset) return false;
 		const std::string Type = ContentBrowserModel::TypeLabel(Item);
-		if (TypeFilter == 1) return Type == "Level";
-		if (TypeFilter == 2) return Type == "StaticMesh";
-		if (TypeFilter == 3) return Type.find("Material") != std::string::npos;
-		if (TypeFilter == 4)
+		if (TypeFilter == EContentBrowserTypeFilter::Levels)
+			return Type == "Level";
+		if (TypeFilter == EContentBrowserTypeFilter::StaticMeshes)
+			return Type == "StaticMesh";
+		if (TypeFilter == EContentBrowserTypeFilter::Materials)
+			return Type.find("Material") != std::string::npos;
+		if (TypeFilter == EContentBrowserTypeFilter::Textures)
 			return Type == "Texture2D" || Type == "Texture Cube";
-		return Item.Kind != EContentBrowserItemKind::Asset
-			|| (Type != "Level" && Type != "StaticMesh"
-				&& Type.find("Material") == std::string::npos
-				&& Type != "Texture2D" && Type != "Texture Cube");
+		return Type != "Level" && Type != "StaticMesh"
+			&& Type.find("Material") == std::string::npos
+			&& Type != "Texture2D" && Type != "Texture Cube";
 	}
 
 	auto FContentBrowserModel::RebuildItems() -> void
@@ -354,10 +378,7 @@ namespace Durin
 				|| Relative.native().starts_with(L".."))
 				continue;
 			if (!bSearching && !Relative.parent_path().empty()) continue;
-			if (!bShowSourceFiles
-				&& Item.Kind == EContentBrowserItemKind::SourceFile)
-				continue;
-			if (!bShowSourceFiles && Item.Kind == EContentBrowserItemKind::Folder
+			if (!bShowHiddenFiles
 				&& std::ranges::any_of(
 					Relative,
 					[](const std::filesystem::path& Component) {
@@ -415,7 +436,7 @@ namespace Durin
 		RebuildItems();
 	}
 
-	auto FContentBrowserModel::SetTypeFilter(int32 Filter) -> void
+	auto FContentBrowserModel::SetTypeFilter(EContentBrowserTypeFilter Filter) -> void
 	{
 		TypeFilter = Filter;
 		RebuildItems();
@@ -430,9 +451,9 @@ namespace Durin
 		RebuildItems();
 	}
 
-	auto FContentBrowserModel::SetShowSourceFiles(bool bShow) -> void
+	auto FContentBrowserModel::SetShowHiddenFiles(bool bShow) -> void
 	{
-		bShowSourceFiles = bShow;
+		bShowHiddenFiles = bShow;
 		RebuildItems();
 	}
 

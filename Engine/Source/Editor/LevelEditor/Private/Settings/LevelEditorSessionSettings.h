@@ -35,9 +35,9 @@ namespace Durin
 		auto GetContentBrowserIconSize() const -> float { return ContentBrowserIconSize; }
 		auto IsContentBrowserIconSizeLocked() const -> bool { return bContentBrowserIconSizeLocked; }
 		auto GetContentBrowserTreeWidth() const -> float { return ContentBrowserTreeWidth; }
-		auto GetContentBrowserShowSourceFiles() const -> bool { return bContentBrowserShowSourceFiles; }
+		auto GetContentBrowserShowHiddenFiles() const -> bool { return bContentBrowserShowHiddenFiles; }
 		auto GetContentBrowserLastDirectory() const -> const std::string& { return ContentBrowserLastDirectory; }
-		auto SetContentBrowserState(uint8 ViewMode, float IconSize, bool bIconSizeLocked, float TreeWidth, bool bShowSourceFiles, std::string LastDirectory) -> void;
+		auto SetContentBrowserState(uint8 ViewMode, float IconSize, bool bIconSizeLocked, float TreeWidth, bool bShowHiddenFiles, std::string LastDirectory) -> void;
 		auto GetDetailsPaneRatio() const -> float { return DetailsPaneRatio; }
 		auto SetDetailsPaneRatio(float Ratio) -> void;
 
@@ -56,7 +56,7 @@ namespace Durin
 		float ContentBrowserIconSize = DefaultContentBrowserIconSize;
 		bool bContentBrowserIconSizeLocked = false;
 		float ContentBrowserTreeWidth = DefaultContentBrowserTreeRatio;
-		bool bContentBrowserShowSourceFiles = false;
+		bool bContentBrowserShowHiddenFiles = false;
 		std::string ContentBrowserLastDirectory;
 		float DetailsPaneRatio = DefaultDetailsPaneRatio;
 	};

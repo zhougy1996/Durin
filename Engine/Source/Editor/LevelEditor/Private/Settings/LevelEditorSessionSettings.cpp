@@ -45,7 +45,7 @@ namespace Durin
 		ContentBrowserIconSize = static_cast<float>(std::clamp(ContentBrowser.GetView("IconSize").GetDouble(DefaultContentBrowserIconSize), static_cast<double>(MinimumContentBrowserIconSize), static_cast<double>(MaximumContentBrowserIconSize)));
 		bContentBrowserIconSizeLocked = ContentBrowser.GetView("IconSizeLocked").GetBool(false);
 		ContentBrowserTreeWidth = static_cast<float>(std::clamp(ContentBrowser.GetView("TreeWidth").GetDouble(DefaultContentBrowserTreeRatio), static_cast<double>(MinimumContentBrowserTreeRatio), static_cast<double>(MaximumContentBrowserTreeRatio)));
-		bContentBrowserShowSourceFiles = ContentBrowser.GetView("ShowSourceFiles").GetBool(false);
+		bContentBrowserShowHiddenFiles = ContentBrowser.GetView("ShowHiddenFiles").GetBool(false);
 		ContentBrowserLastDirectory = ContentBrowser.GetView("LastDirectory").GetString();
 		DetailsPaneRatio = static_cast<float>(std::clamp(Root.GetView("Details").GetView("ComponentPaneRatio").GetDouble(DefaultDetailsPaneRatio), static_cast<double>(MinimumDetailsPaneRatio), static_cast<double>(MaximumDetailsPaneRatio)));
 		return true;
@@ -106,7 +106,7 @@ namespace Durin
 		ContentBrowserNode.SetChildValue("IconSize", static_cast<double>(ContentBrowserIconSize));
 		ContentBrowserNode.SetChildValue("IconSizeLocked", bContentBrowserIconSizeLocked);
 		ContentBrowserNode.SetChildValue("TreeWidth", static_cast<double>(ContentBrowserTreeWidth));
-		ContentBrowserNode.SetChildValue("ShowSourceFiles", bContentBrowserShowSourceFiles);
+		ContentBrowserNode.SetChildValue("ShowHiddenFiles", bContentBrowserShowHiddenFiles);
 		ContentBrowserNode.SetChildValue("LastDirectory", ContentBrowserLastDirectory);
 		FYamlNodeRef DetailsNode = Root.AddMap("Details");
 		DetailsNode.SetChildValue("ComponentPaneRatio", static_cast<double>(DetailsPaneRatio));
@@ -173,13 +173,13 @@ namespace Durin
 		ProjectIt->second[std::string(NewPath)] = State;
 	}
 
-	auto FLevelEditorSessionSettings::SetContentBrowserState(uint8 ViewMode, float IconSize, bool bIconSizeLocked, float TreeWidth, bool bShowSourceFiles, std::string LastDirectory) -> void
+	auto FLevelEditorSessionSettings::SetContentBrowserState(uint8 ViewMode, float IconSize, bool bIconSizeLocked, float TreeWidth, bool bShowHiddenFiles, std::string LastDirectory) -> void
 	{
 		ContentBrowserViewMode = std::min<uint8>(ViewMode, 1);
 		ContentBrowserIconSize = std::clamp(IconSize, MinimumContentBrowserIconSize, MaximumContentBrowserIconSize);
 		bContentBrowserIconSizeLocked = bIconSizeLocked;
 		ContentBrowserTreeWidth = std::clamp(TreeWidth, MinimumContentBrowserTreeRatio, MaximumContentBrowserTreeRatio);
-		bContentBrowserShowSourceFiles = bShowSourceFiles;
+		bContentBrowserShowHiddenFiles = bShowHiddenFiles;
 		ContentBrowserLastDirectory = std::move(LastDirectory);
 	}
 

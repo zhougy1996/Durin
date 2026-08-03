@@ -64,7 +64,6 @@ TEST_F(FContentBrowserModelTests, SearchesRecursivelyButBrowsesImmediateChildren
 	const std::string RootPath =
 		std::filesystem::absolute(Root / "Content").lexically_normal().generic_string();
 	FContentBrowserModel Model;
-	Model.SetShowSourceFiles(true);
 	Model.SetSnapshotForTesting(
 		RootPath,
 		{
@@ -85,17 +84,63 @@ TEST_F(FContentBrowserModelTests, SearchesRecursivelyButBrowsesImmediateChildren
 	EXPECT_EQ(Model.GetItems().front().Name, "Stone");
 }
 
-TEST_F(FContentBrowserModelTests, HidesRawAuthoringFilesFromPackageView)
+TEST_F(FContentBrowserModelTests, ShowsOrdinaryFilesByDefaultAndHidesAssetPackages)
 {
 	{
 		std::ofstream RawSource(Root / "Content/Raw.png");
 		RawSource << "raw";
+		std::ofstream AssetPackage(Root / "Content/Raw.dasset");
+		AssetPackage << "package";
 	}
 	FContentBrowserModel Model;
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
-	EXPECT_TRUE(std::ranges::none_of(Model.GetItems(), [](const FContentBrowserItem& Item) {
-		return Item.Kind == EContentBrowserItemKind::SourceFile || Item.Name == "Raw.png";
-	}));
+	const auto File = std::ranges::find(Model.GetItems(), "Raw.png", &FContentBrowserItem::Name);
+	ASSERT_NE(File, Model.GetItems().end());
+	EXPECT_EQ(File->Kind, EContentBrowserItemKind::File);
+	EXPECT_EQ(File->Extension, ".png");
+	EXPECT_EQ(File->FileSize, 3);
+	EXPECT_TRUE(std::ranges::none_of(
+		Model.GetItems(),
+		[](const FContentBrowserItem& Item) { return Item.Name == "Raw.dasset"; }));
+}
+
+TEST_F(FContentBrowserModelTests, FiltersFilesSeparatelyAndKeepsHiddenContentOptIn)
+{
+	const std::string RootPath =
+		std::filesystem::absolute(Root / "Content").lexically_normal().generic_string();
+	FContentBrowserModel Model;
+	Model.SetSnapshotForTesting(
+		RootPath,
+		{
+			{.Kind = EContentBrowserItemKind::Folder,
+				.Name = ".internal",
+				.PhysicalPath = RootPath + "/.internal"},
+			{.Kind = EContentBrowserItemKind::Asset,
+				.Name = "Stone",
+				.PhysicalPath = RootPath + "/Stone.dasset",
+				.AssetClassName = "Durin::DTexture2D"},
+			{.Kind = EContentBrowserItemKind::File,
+				.Name = "Stone.png",
+				.PhysicalPath = RootPath + "/Stone.png",
+				.Extension = ".png"},
+			{.Kind = EContentBrowserItemKind::File,
+				.Name = "notes.txt",
+				.PhysicalPath = RootPath + "/.internal/notes.txt",
+				.Extension = ".txt"},
+		});
+
+	ASSERT_EQ(Model.GetItems().size(), 2);
+	Model.SetTypeFilter(EContentBrowserTypeFilter::Files);
+	ASSERT_EQ(Model.GetItems().size(), 1);
+	EXPECT_EQ(Model.GetItems().front().Name, "Stone.png");
+	Model.SetShowHiddenFiles(true);
+	ASSERT_EQ(Model.GetItems().size(), 2);
+	EXPECT_TRUE(std::ranges::any_of(
+		Model.GetItems(),
+		[](const FContentBrowserItem& Item) { return Item.Name == ".internal"; }));
+	Model.SetSearch("notes");
+	ASSERT_EQ(Model.GetItems().size(), 1);
+	EXPECT_EQ(Model.GetItems().front().Name, "notes.txt");
 }
 
 TEST_F(FContentBrowserModelTests, KeepsFoldersFirstAndSortsEqualKeysStably)
@@ -147,7 +192,7 @@ TEST_F(FContentBrowserModelTests, OperationsRejectCollisionsAndUnmanagedFolders)
 		CollisionFile << "collision";
 	}
 	const FContentBrowserItem SourceItem{
-		.Kind = EContentBrowserItemKind::SourceFile,
+		.Kind = EContentBrowserItemKind::File,
 		.Name = "source.txt",
 		.PhysicalPath = Source.generic_string(),
 		.Extension = ".txt"};

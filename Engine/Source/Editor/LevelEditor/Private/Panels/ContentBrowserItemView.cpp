@@ -108,7 +108,7 @@ namespace Durin::ContentBrowserItemView
 	auto Icon(const FContentBrowserItem& Item) -> const char*
 	{
 		if (Item.Kind == EContentBrowserItemKind::Folder) return Icons::Folder;
-		if (Item.Kind == EContentBrowserItemKind::SourceFile) return Icons::File;
+		if (Item.Kind == EContentBrowserItemKind::File) return Icons::File;
 		const std::string Type = TypeLabel(Item);
 		if (Type == "StaticMesh" || Type == "Texture Cube") return Icons::Cube;
 		if (Type == "Level") return Icons::Home;

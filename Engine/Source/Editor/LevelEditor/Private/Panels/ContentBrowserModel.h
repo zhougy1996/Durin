@@ -7,12 +7,25 @@
 
 namespace Durin
 {
-	// Distinguishes folders, assets, and source files in the content browser.
+	// Distinguishes folders, registered assets, and ordinary files.
 	enum class EContentBrowserItemKind : uint8
 	{
 		Folder,
 		Asset,
-		SourceFile
+		File
+	};
+
+	// Selects the content category shown without changing directory navigation.
+	enum class EContentBrowserTypeFilter : uint8
+	{
+		All,
+		Assets,
+		Files,
+		Levels,
+		StaticMeshes,
+		Materials,
+		Textures,
+		OtherAssets
 	};
 
 	// Identifies the active content-browser sort key.
@@ -27,7 +40,7 @@ namespace Durin
 	// Captures one mounted content item and its searchable metadata.
 	struct FContentBrowserItem
 	{
-		EContentBrowserItemKind Kind = EContentBrowserItemKind::SourceFile;
+		EContentBrowserItemKind Kind = EContentBrowserItemKind::File;
 		std::string Name;
 		std::string VirtualPath;
 		std::string PhysicalPath;
@@ -71,9 +84,9 @@ namespace Durin
 		auto NavigateHistory(int32 Delta) -> bool;
 
 		auto SetSearch(std::string_view Search) -> void;
-		auto SetTypeFilter(int32 Filter) -> void;
+		auto SetTypeFilter(EContentBrowserTypeFilter Filter) -> void;
 		auto SetSort(EContentBrowserSortColumn Column, bool bAscending) -> void;
-		auto SetShowSourceFiles(bool bShow) -> void;
+		auto SetShowHiddenFiles(bool bShow) -> void;
 
 		auto PhysicalToVirtualDirectory(std::string_view PhysicalPath) const -> std::string;
 		auto VirtualToPhysical(std::string_view VirtualPath) const -> std::string;
@@ -88,10 +101,10 @@ namespace Durin
 		auto GetHistory() const -> std::span<const std::string> { return NavigationHistory; }
 		auto GetHistoryIndex() const -> int32 { return HistoryIndex; }
 		auto GetSearch() const -> const std::string& { return Search; }
-		auto GetTypeFilter() const -> int32 { return TypeFilter; }
+		auto GetTypeFilter() const -> EContentBrowserTypeFilter { return TypeFilter; }
 		auto GetSortColumn() const -> EContentBrowserSortColumn { return SortColumn; }
 		auto IsSortAscending() const -> bool { return bSortAscending; }
-		auto IsShowingSourceFiles() const -> bool { return bShowSourceFiles; }
+		auto IsShowingHiddenFiles() const -> bool { return bShowHiddenFiles; }
 
 		auto GetDirectoryChildren(std::string_view PhysicalDirectory)
 			-> std::span<const std::filesystem::path>;
@@ -114,9 +127,9 @@ namespace Durin
 		std::vector<std::string> NavigationHistory;
 		int32 HistoryIndex = -1;
 		std::string Search;
-		int32 TypeFilter = 0;
+		EContentBrowserTypeFilter TypeFilter = EContentBrowserTypeFilter::All;
 		EContentBrowserSortColumn SortColumn = EContentBrowserSortColumn::Name;
 		bool bSortAscending = true;
-		bool bShowSourceFiles = false;
+		bool bShowHiddenFiles = false;
 	};
 } // namespace Durin
