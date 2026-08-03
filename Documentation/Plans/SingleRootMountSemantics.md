@@ -9,22 +9,59 @@ Completed:
 
 ## Current Status
 
-- The selected direction is a breaking migration from two physical domains per
-  logical mount to one physical root per mount. No compatibility parser,
-  fallback resolver, or legacy `SourceAssets` lookup will remain.
-- Baseline commit: `83e1577d` (`refactor(import): make scene imports
-  folder-centric`).
-- `/Game/` currently maps assets to `Sandbox/Content` and sources to
-  `Sandbox/SourceAssets`; `/Engine/` similarly maps to `Engine/Content` and
-  `Engine/SourceAssets`.
-- The checked-in source migration set is small: two files beneath
-  `Engine/SourceAssets` and three files beneath `Sandbox/SourceAssets`.
-- The checked-in Engine and Sandbox project descriptors declare no custom
-  mounts. The dual-domain custom-mount schema is exercised by the
-  `UnifiedMountContract.json` native-test fixture.
-- Implementation has not started. Stage 0 must freeze the exact descriptor and
-  capability names and confirm that merging the checked-in directories has no
-  physical-path collisions.
+- Stage 0 completed on 2026-08-03 against baseline `83e1577d`
+  (`refactor(import): make scene imports folder-centric`). Stage 1 is current.
+- The breaking migration remains one physical root per logical mount, with no
+  compatibility parser, fallback resolver, or legacy `SourceAssets` lookup.
+- The frozen C++ mount fields are `Root`, `bAssetPackages`, and
+  `bAuthoringWritable`. Public Content-domain path terminology becomes asset
+  terminology: `FAssetPathResult`, `ResolveAssetPath`, and
+  `ClassifyAssetPath`; the raw-file mutation check becomes
+  `CheckAuthoringMutation`. `FMountPathResult` is the shared resolver result.
+- The frozen descriptor fields are exactly `VirtualRoot`, `Owner`, `Root`,
+  `AssetPackages`, `AuthoringWritable`, and `Dependencies`. `Root` is resolved
+  relative to the descriptor directory and names the mount root itself.
+- Checked-in `Engine/Engine.dproject` and `Sandbox/Sandbox.dproject` contain no
+  custom mounts. The only custom-mount contract fixture is
+  `Engine/Tests/Native/EngineTests/Data/SourceLibraryReferences/UnifiedMountContract.json`:
+  `/Plugins/PCG/` becomes one package-enabled `Plugin` root and
+  `/Libraries/StudioArt/` remains one package-disabled `StudioArt` root. No
+  real custom mount needs splitting or persisted virtual-root migration.
+- The five exact physical moves below have no existing target collision:
+  `Engine/SourceAssets/Models/Editor/MaterialPreview/Box.obj` to
+  `Engine/Content/Models/Editor/MaterialPreview/Box.obj`;
+  `Engine/SourceAssets/Models/Editor/MaterialPreview/Sphere.obj` to
+  `Engine/Content/Models/Editor/MaterialPreview/Sphere.obj`;
+  `Sandbox/SourceAssets/Models/Models/Mesh_Teapot.obj` to
+  `Sandbox/Content/Models/Models/Mesh_Teapot.obj`;
+  `Sandbox/SourceAssets/Textures/Textures/TEXCUBE_PureSky_512x512_panorama.hdr`
+  to `Sandbox/Content/Textures/Textures/TEXCUBE_PureSky_512x512_panorama.hdr`;
+  and `Sandbox/SourceAssets/Textures/Textures/TEX_StoneHead.jpg` to
+  `Sandbox/Content/Textures/Textures/TEX_StoneHead.jpg`.
+- Persisted-source inventory found five non-empty `FSourcePath` values in the
+  seven tracked `.dasset` packages: the two material-preview meshes retain
+  their `/Engine/Models/Editor/MaterialPreview/*.obj` identities, and the
+  teapot, stone-head texture, and panorama retain their existing `/Game/`
+  identities. No tracked standalone ImportRecord exists and no package resave
+  is required for the physical-only move.
+- Direct mount initializers are confined to Core plus ten native-test files;
+  root-field consumers are confined to the 24 files returned by the Stage 0
+  `ContentRoot|SourceAssetsRoot` inventory. The legacy PathUtilities test
+  registration helper has 26 test/test-support consumers; shader mount helpers
+  with the same unqualified name are unrelated and remain unchanged. Resolver
+  consumers are confined to the 20 files returned by the
+  `ResolveContentPath|ClassifyContentPath|ResolveSourcePath|ClassifySourcePath|CheckSourceMutation`
+  inventory. These inventories, the two descriptors, and the unified fixture
+  account for every production and test mount surface before implementation.
+- Baseline validation passed with `CoreFileSystemTests` (30 passed, 1 skipped),
+  `AssetPackageTests` (29/29), `AssetImportCoreTests` (20/20),
+  `AssetCookTests` (11/11), `EditorAssetWorkflowTests` (40/40), and
+  `TextureTests` (61/61) using `Win64-Debug-DurinEditor-Tests`.
+- Stage 1 working set starts with `Paths.h`, `Paths.cpp`, `PathsTests.cpp`,
+  `ProjectTests.cpp`, and `UnifiedMountContract.json`. The key symbols are
+  `FMountPoint`, the typed resolver/classifier APIs, descriptor parsing,
+  registry publication, and `FScopedMountRegistryFixture`; no open ownership
+  or schema question remains.
 
 ## Goal
 
@@ -210,19 +247,19 @@ Custom mounts use one selected schema equivalent to:
 Outcome: the exact schema, symbol migration, physical moves, and persisted-path
 impact are recorded before changing the resolver.
 
-- [ ] Confirm the final `FMountPoint` field names for the single root, package
+- [x] Confirm the final `FMountPoint` field names for the single root, package
   discovery capability, and authoring-write policy.
-- [ ] Inventory every checked-in `.dproject`, custom-mount fixture, direct
+- [x] Inventory every checked-in `.dproject`, custom-mount fixture, direct
   `FMountPoint` initializer, `SourceAssetsRoot`/`ContentRoot` consumer, and
   persisted `FSourcePath`/ImportRecord source reference.
-- [ ] Compare the five checked-in SourceAssets files against their target
+- [x] Compare the five checked-in SourceAssets files against their target
   Content paths and fail the stage on any non-identical collision.
-- [ ] Record the exact move list, preserving each path relative to its old
+- [x] Record the exact move list, preserving each path relative to its old
   SourceAssets root.
-- [ ] Decide whether any custom dual-root fixture becomes one combined mount or
+- [x] Decide whether any custom dual-root fixture becomes one combined mount or
   two explicit mounts; update this plan before implementation if a real project
   mount is discovered.
-- [ ] Capture the baseline Core path, source reference, import, asset registry,
+- [x] Capture the baseline Core path, source reference, import, asset registry,
   cook, and editor workflow test results.
 
 Dependencies: none.
