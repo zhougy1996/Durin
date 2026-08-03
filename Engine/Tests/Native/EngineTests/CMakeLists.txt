@@ -158,6 +158,7 @@ durin_add_engine_functional_test(MaterialTests
 		ApplicationCore
 		RenderCore
 		Renderer
+		StandardAssetImport
 		MonaCore
 		Mona
 		MonaImGui
@@ -168,6 +169,7 @@ durin_add_engine_functional_test(MaterialTests
 		RHI
 		RenderCore
 		Renderer
+		StandardAssetImport
 		MonaCore
 		Mona
 		MonaImGui

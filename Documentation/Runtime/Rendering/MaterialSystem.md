@@ -157,8 +157,8 @@ validation. Cook uses stable payload ID
 loads the DMSH payload only through the cooked package descriptor and DBLK
 companion.
 
-Material Preview acquires shared `/Engine/Editor/MaterialPreview/Sphere` and
-`/Engine/Editor/MaterialPreview/Box` StaticMesh assets through the canonical
+Material Preview acquires shared `/Engine/Models/Sphere` and
+`/Engine/Models/Box` StaticMesh assets through the canonical
 editor retention service. Multiple documents coalesce by virtual asset identity;
 preview creation performs no transient OBJ import, and retained handles provide
 the GC lifetime edge.

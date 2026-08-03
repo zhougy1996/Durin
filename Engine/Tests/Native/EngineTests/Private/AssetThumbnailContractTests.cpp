@@ -238,7 +238,7 @@ namespace Durin
 		EXPECT_EQ(Visual.Output.Width, Visual.Output.Height);
 		EXPECT_EQ(Visual.Output.Width, 256u);
 		EXPECT_EQ(FRenderedAssetThumbnailVisualContract::SphereVirtualPath,
-			"/Engine/Editor/MaterialPreview/Sphere");
+			"/Engine/Models/Sphere");
 		EXPECT_EQ(FRenderedAssetThumbnailVisualContract::SphereFixtureVersion, 1u);
 		EXPECT_EQ(FRenderedAssetThumbnailVisualContract::OutputEncoding, "PNG");
 		EXPECT_EQ(FRenderedAssetThumbnailVisualContract::OutputColorSpace, "sRGB");

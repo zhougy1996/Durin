@@ -71,7 +71,7 @@ namespace Durin
 	struct FRenderedAssetThumbnailVisualContract
 	{
 		static constexpr uint32 SchemaVersion = 1;
-		static constexpr std::string_view SphereVirtualPath = "/Engine/Editor/MaterialPreview/Sphere";
+		static constexpr std::string_view SphereVirtualPath = "/Engine/Models/Sphere";
 		static constexpr uint32 SphereFixtureVersion = 1;
 		static constexpr std::string_view TextureCubeEnvironmentViewIdentity =
 			"/Engine/Editor/TextureCubePreview/WideEnvironment";

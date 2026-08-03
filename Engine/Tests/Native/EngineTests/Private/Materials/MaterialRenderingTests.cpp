@@ -4,11 +4,33 @@
 #include "NativeTestSupport.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
+#include "StandardAssetImportProviders.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 #include "Thumbnail/MaterialAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Texture/TextureCubeRenderResource.h"
+
+namespace
+{
+	class FScopedStandardAssetImportProviders
+	{
+	public:
+		~FScopedStandardAssetImportProviders()
+		{
+			if (bRegistered) Durin::UnregisterStandardAssetImportProviders();
+		}
+
+		auto Register(std::string& OutError) -> bool
+		{
+			bRegistered = Durin::RegisterStandardAssetImportProviders(OutError);
+			return bRegistered;
+		}
+
+	private:
+		bool bRegistered = false;
+	};
+}
 
 TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 {
@@ -307,12 +329,15 @@ TEST(FMaterialTests, DebugStaticMeshProvidesCompleteSplitVertexAttributes)
 
 TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 {
+	FScopedStandardAssetImportProviders Providers;
+	std::string ProviderError;
+	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	InitializeDObjectSystem();
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
 	for (const std::string_view PathText : {
-		"/Engine/Editor/MaterialPreview/Sphere",
-		"/Engine/Editor/MaterialPreview/Box"})
+		"/Engine/Models/Sphere",
+		"/Engine/Models/Box"})
 	{
 		Durin::FAssetPath Path;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(PathText, Path));
@@ -342,6 +367,9 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 
 TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionAndTeardown)
 {
+	FScopedStandardAssetImportProviders Providers;
+	std::string ProviderError;
+	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	FMaterialPreviewHarness Harness;
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
@@ -360,8 +388,8 @@ TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionA
 		Durin::CollectGarbage();
 		Durin::FAssetPath SpherePath;
 		Durin::FAssetPath BoxPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Editor/MaterialPreview/Sphere", SpherePath));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Editor/MaterialPreview/Box", BoxPath));
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Models/Sphere", SpherePath));
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Models/Box", BoxPath));
 		Durin::FRetainedEditorAsset SphereAsset;
 		Durin::FRetainedEditorAsset BoxAsset;
 		std::string Error;
@@ -385,6 +413,9 @@ TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionA
 
 TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDifferences)
 {
+	FScopedStandardAssetImportProviders Providers;
+	std::string ProviderError;
+	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	InitializeDObjectSystem();
 	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();

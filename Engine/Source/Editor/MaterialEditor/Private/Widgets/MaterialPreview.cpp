@@ -25,8 +25,8 @@ namespace Durin
 		constexpr double PreviewMinDistance = 1.5;
 		constexpr double PreviewMaxDistance = 12.0;
 		constexpr double PreviewZoomScale = 0.85;
-		constexpr std::string_view PreviewSpherePath = "/Engine/Editor/MaterialPreview/Sphere";
-		constexpr std::string_view PreviewBoxPath = "/Engine/Editor/MaterialPreview/Box";
+		constexpr std::string_view PreviewSpherePath = "/Engine/Models/Sphere";
+		constexpr std::string_view PreviewBoxPath = "/Engine/Models/Box";
 
 		auto RotationFromForward(const FVector3& Direction) -> FQuat
 		{

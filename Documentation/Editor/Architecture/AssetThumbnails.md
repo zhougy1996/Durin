@@ -90,7 +90,7 @@ Failures are not persisted as successful output and do not retry every frame;
 retry requires a changed key, refresh, or explicit retry.
 
 Material and MaterialInstance previews use the retained shared
-`/Engine/Editor/MaterialPreview/Sphere` mesh and the resolved runtime material
+`/Engine/Models/Sphere` mesh and the resolved runtime material
 values. TextureCube previews use the same sphere with the editor-only
 world-reflection shader and the orientation contract in
 [Cube Textures](../../Runtime/Rendering/CubeTextures.md). Content Browser cards
