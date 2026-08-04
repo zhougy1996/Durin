@@ -26,6 +26,9 @@ These instructions apply under `Documentation/`.
 - `Tasks`: bounded, selected implementation work discovered with
   `.\DevTool.bat doc task list` and deleted after validation; task history
   belongs in Git rather than a documentation archive.
+- `Roadmaps`: cross-plan outcomes, milestone ordering, dependency gates, and
+  just-in-time plan boundaries; roadmaps do not carry implementation-stage
+  checklists owned by active plans.
 - `Plans`: selected paths, stages, and acceptance gates; `Plans/Archive`
   preserves completed decisions and evidence.
 - `Investigations`: verified unresolved problems without a selected path.
