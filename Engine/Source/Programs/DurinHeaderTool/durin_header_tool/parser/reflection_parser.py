@@ -18,6 +18,7 @@ from durin_header_tool.model.reflection_info import (
     make_generated_helper_name,
     make_generated_struct_helper_name,
 )
+from durin_header_tool.parser.cpp_source_scanner import CppSourceScanner
 from durin_header_tool.resolver.reflection_resolver import resolve_symbol_name
 
 ExportedSymbols: TypeAlias = dict[str, ExportedSymbolInfo]
@@ -29,8 +30,8 @@ class _DMetaUse:
     column: int
 
 
-_DPROPERTY_PATTERN = re.compile(r"\bDPROPERTY\s*\(([^)]*)\)")
-_GENERATED_BODY_PATTERN = re.compile(r"\bGENERATED_BODY\s*\([^)]*\)")
+_DPROPERTY_PATTERN = re.compile(r"\bDPROPERTY\s*\(")
+_GENERATED_BODY_PATTERN = re.compile(r"\bGENERATED_BODY\s*\(")
 _INCLUDE_PATTERN = re.compile(r'^\s*#\s*include\b[^\r\n]*$', re.MULTILINE)
 _TYPE_DECLARATION_PATTERN = re.compile(r"\b(?:class|struct|enum(?:\s+class)?)\s+([A-Za-z_]\w*)")
 PARSER_CONTEXT_VERSION = "hermetic-v1"
@@ -66,31 +67,23 @@ def _annotation_payload(prefix: str, payload: str) -> str:
     return f'{prefix},{payload}' if payload else prefix
 
 
+def _macro_arguments(payload: str, location: str) -> list[str]:
+    try:
+        return CppSourceScanner(payload).split_macro_arguments()
+    except ValueError as error:
+        raise ValueError(f"{location}: {error}") from None
+
+
+def _unescape_string_literal(value: str) -> str:
+    return CppSourceScanner.unescape_string_literal(value)
+
+
 def _display_name_from_payload(payload: str, macro_name: str, line: int, column: int) -> str:
     location = f"{macro_name} at line {line}, column {column}"
     if not payload.strip():
         return ""
 
-    entries: list[str] = []
-    entry_start = 0
-    in_string = False
-    escaped = False
-    for index, char in enumerate(payload):
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-        elif char == '"':
-            in_string = True
-        elif char == ",":
-            entries.append(payload[entry_start:index])
-            entry_start = index + 1
-    if in_string:
-        raise ValueError(f"{location}: unterminated quoted string")
-    entries.append(payload[entry_start:])
+    entries = _macro_arguments(payload, location)
 
     display_name = ""
     seen_display_name = False
@@ -112,7 +105,7 @@ def _display_name_from_payload(payload: str, macro_name: str, line: int, column:
         match = re.fullmatch(r'"((?:\\.|[^"\\])*)"', raw_value)
         if not match:
             raise ValueError(f"{location}: DisplayName requires a quoted string")
-        display_name = match.group(1).replace(r'\"', '"').replace(r"\\", "\\")
+        display_name = _unescape_string_literal(match.group(1))
     return display_name
 
 
@@ -123,26 +116,7 @@ def _class_specifiers_from_payload(
     if not payload.strip():
         return False, "", ""
 
-    entries: list[str] = []
-    entry_start = 0
-    in_string = False
-    escaped = False
-    for index, char in enumerate(payload):
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-        elif char == '"':
-            in_string = True
-        elif char == ",":
-            entries.append(payload[entry_start:index])
-            entry_start = index + 1
-    if in_string:
-        raise ValueError(f"{location}: unterminated quoted string")
-    entries.append(payload[entry_start:])
+    entries = _macro_arguments(payload, location)
 
     is_abstract = False
     metadata: dict[str, str] = {}
@@ -168,91 +142,37 @@ def _class_specifiers_from_payload(
         match = re.fullmatch(r'"((?:\\.|[^"\\])*)"', raw_value)
         if not match:
             raise ValueError(f"{location}: {key} requires a quoted string")
-        metadata[key] = match.group(1).replace(r'\"', '"').replace(r"\\", "\\")
+        metadata[key] = _unescape_string_literal(match.group(1))
 
     return is_abstract, metadata.get("DisplayName", ""), metadata.get("DefaultObjectName", "")
 
 
-def _is_cpp_code_position(source: str, position: int) -> bool:
-    state = "code"
-    escaped = False
-    index = 0
-    while index < position:
-        char = source[index]
-        next_char = source[index + 1] if index + 1 < position else ""
-        if state in ("string", "character"):
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif (state == "string" and char == '"') or (state == "character" and char == "'"):
-                state = "code"
-        elif state == "line_comment":
-            if char == "\n":
-                state = "code"
-        elif state == "block_comment":
-            if char == "*" and next_char == "/":
-                state = "code"
-                index += 1
-        elif char == "/" and next_char == "/":
-            state = "line_comment"
-            index += 1
-        elif char == "/" and next_char == "*":
-            state = "block_comment"
-            index += 1
-        elif char == '"':
-            state = "string"
-        elif char == "'":
-            state = "character"
-        index += 1
-    return state == "code"
-
-
 def _replace_macro_calls(source: str, macro_name: str, replacement) -> str:
     pattern = re.compile(rf"\b{re.escape(macro_name)}\s*\(")
+    scanner = CppSourceScanner(source)
     search_from = 0
     pieces: list[str] = []
     output_from = 0
     while match := pattern.search(source, search_from):
-        if not _is_cpp_code_position(source, match.start()):
+        if not scanner.is_code_position(match.start()):
             search_from = match.end()
             continue
-        line_start = source.rfind("\n", 0, match.start()) + 1
+        line, column = scanner.line_column(match.start())
+        line_start = match.start() - column + 1
         if source[line_start:match.start()].lstrip().startswith("#"):
             search_from = match.end()
             continue
 
-        depth = 1
-        index = match.end()
-        in_string = False
-        escaped = False
-        while index < len(source) and depth:
-            char = source[index]
-            if in_string:
-                if escaped:
-                    escaped = False
-                elif char == "\\":
-                    escaped = True
-                elif char == '"':
-                    in_string = False
-            elif char == '"':
-                in_string = True
-            elif char == "(":
-                depth += 1
-            elif char == ")":
-                depth -= 1
-            index += 1
-        line = source.count("\n", 0, match.start()) + 1
-        column = match.start() - line_start + 1
-        if depth:
+        closing_parenthesis = scanner.find_matching_parenthesis(match.end() - 1)
+        if closing_parenthesis is None:
             raise ValueError(f"{macro_name} at line {line}, column {column}: missing closing ')'")
 
-        payload = source[match.end():index - 1]
+        payload = source[match.end():closing_parenthesis]
         replacement_text = replacement(payload, line, column)
         replacement_text += "\n" * payload.count("\n")
         pieces.extend((source[output_from:match.start()], replacement_text))
-        output_from = index
-        search_from = index
+        output_from = closing_parenthesis + 1
+        search_from = closing_parenthesis + 1
     pieces.append(source[output_from:])
     return "".join(pieces)
 
@@ -303,7 +223,11 @@ def _make_dht_parse_source(source: str) -> tuple[str, dict[int, _DMetaUse]]:
         lambda payload, _line, _column:
             f'__attribute__((annotate("{_annotation_payload("DPROPERTY", payload)}")))',
     )
-    source = _GENERATED_BODY_PATTERN.sub("void DHT_GENERATED_BODY();", source)
+    source = _replace_macro_calls(
+        source,
+        "GENERATED_BODY",
+        lambda _payload, _line, _column: "void DHT_GENERATED_BODY();",
+    )
     return source, dmeta_uses
 
 
@@ -334,53 +258,20 @@ def _qualified_name(cursor: clang.cindex.Cursor) -> str:
 
 
 def _source_scope_end_line(source: str, start_line: int, start_column: int) -> int:
-    lines = source.splitlines(keepends=True)
-    position = sum(len(line) for line in lines[:start_line - 1]) + max(start_column - 1, 0)
-    state = "code"
-    escaped = False
-    brace_depth = 0
-    body_started = False
-
-    while position < len(source):
-        char = source[position]
-        next_char = source[position + 1] if position + 1 < len(source) else ""
-        if state in ("string", "character"):
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif (state == "string" and char == '"') or (state == "character" and char == "'"):
-                state = "code"
-        elif state == "line_comment":
-            if char == "\n":
-                state = "code"
-        elif state == "block_comment":
-            if char == "*" and next_char == "/":
-                state = "code"
-                position += 1
-        elif char == "/" and next_char == "/":
-            state = "line_comment"
-            position += 1
-        elif char == "/" and next_char == "*":
-            state = "block_comment"
-            position += 1
-        elif char == '"':
-            state = "string"
-        elif char == "'":
-            state = "character"
-        elif char == "{":
-            body_started = True
-            brace_depth += 1
-        elif char == "}" and body_started:
-            brace_depth -= 1
-            if brace_depth == 0:
-                return source.count("\n", 0, position) + 1
-        position += 1
+    scanner = CppSourceScanner(source)
+    position = scanner.position_from_line_column(start_line, start_column)
+    opening_brace = scanner.find_next_code_position("{", position)
+    if opening_brace is None:
+        return 0
+    closing_brace = scanner.find_matching_brace(opening_brace)
+    if closing_brace is not None:
+        return scanner.line_number(closing_brace)
     return 0
 
 
 def _cursor_source_line_range(source: str, cursor: clang.cindex.Cursor) -> tuple[int, int]:
-    line_count = len(source.splitlines())
+    scanner = CppSourceScanner(source)
+    line_count = scanner.line_count
     start_line = cursor.extent.start.line
     if start_line <= 0 or start_line > line_count:
         return 0, 0
@@ -395,9 +286,10 @@ def _scan_generated_body_line(source: str, class_cursor: clang.cindex.Cursor) ->
 
     # Synthetic member locations can collapse to the class declaration in PCH or
     # error-recovery ASTs. The cursor extent selects the class; source owns macro lines.
+    scanner = CppSourceScanner(source)
     for match in _GENERATED_BODY_PATTERN.finditer(source):
-        line = source.count("\n", 0, match.start()) + 1
-        if start_line <= line <= end_line and _is_cpp_code_position(source, match.start()):
+        line = scanner.line_number(match.start())
+        if start_line <= line <= end_line and scanner.is_code_position(match.start()):
             return line
     return 0
 
@@ -452,12 +344,17 @@ def _normalize_type_spelling(type_spelling: str) -> str:
     )
 
 
+def _annotation_entries(annotation: str) -> list[str]:
+    _, separator, payload = annotation.partition(",")
+    if not separator:
+        return []
+    payload = _unescape_string_literal(payload)
+    return CppSourceScanner(payload).split_macro_arguments()
+
+
 def _property_flags_from_annotation(annotation: str) -> str:
-    if "," not in annotation:
-        return "None"
-    payload = annotation.split(",", 1)[1]
     flags: list[str] = []
-    for raw_specifier in payload.split(","):
+    for raw_specifier in _annotation_entries(annotation):
         specifier = raw_specifier.strip()
         if "=" in specifier:
             specifier = specifier.split("=", 1)[0].strip()
@@ -468,20 +365,27 @@ def _property_flags_from_annotation(annotation: str) -> str:
 
 
 def _string_metadata_from_annotation(annotation: str, key: str) -> str:
-    if "," not in annotation:
-        return ""
-    payload = annotation.split(",", 1)[1]
-    match = re.search(rf'(?:^|,)\s*{re.escape(key)}\s*=\s*"((?:\\.|[^"\\])*)"', payload)
-    if not match:
-        return ""
-    return match.group(1).replace(r'\"', '"').replace(r"\\", "\\")
+    for raw_entry in _annotation_entries(annotation):
+        entry = raw_entry.strip()
+        entry_key, separator, raw_value = entry.partition("=")
+        if not separator or entry_key.strip() != key:
+            continue
+        match = re.fullmatch(r'"((?:\\.|[^"\\])*)"', raw_value.strip())
+        if match:
+            return _unescape_string_literal(match.group(1))
+    return ""
 
 
 def _property_metadata_from_annotation(annotation: str) -> list[tuple[str, str]]:
     payload = _string_metadata_from_annotation(annotation, "MetaData")
     if not payload:
-        match = re.search(r"(?:^|,)\s*MetaData\s*=\s*([A-Za-z_][A-Za-z0-9_]*)", annotation)
-        payload = match.group(1) if match else ""
+        for raw_entry in _annotation_entries(annotation):
+            key, separator, value = raw_entry.strip().partition("=")
+            if key.strip() == "MetaData" and separator and re.fullmatch(
+                r"[A-Za-z_][A-Za-z0-9_]*", value.strip()
+            ):
+                payload = value.strip()
+                break
     metadata: list[tuple[str, str]] = []
     for entry in payload.split(";"):
         entry = entry.strip()
@@ -599,34 +503,54 @@ def _scan_source_properties_for_class(
     if start_line == 0:
         return properties
 
+    scanner = CppSourceScanner(source)
+    class_start = scanner.position_from_line_column(start_line, class_cursor.extent.start.column)
+    opening_brace = scanner.find_next_code_position("{", class_start)
+    if opening_brace is None:
+        return properties
+    closing_brace = scanner.find_matching_brace(opening_brace)
+    if closing_brace is None:
+        return properties
+
     in_class = False
-    brace_depth = 0
     pending_annotation = ""
+    lines = source.splitlines()
 
     for line_number, line in enumerate(
-        source.splitlines()[start_line - 1:end_line],
+        lines[start_line - 1:end_line],
         start=start_line,
     ):
-        stripped = line.strip()
+        line_start = scanner.position_from_line_column(line_number, 1)
+        if line_start > closing_brace:
+            break
+        line_end = scanner.position_from_line_column(line_number + 1, 1) if line_number < scanner.line_count else len(source)
         if not in_class:
-            if "{" in stripped:
+            if opening_brace < line_end:
                 in_class = True
-                brace_depth += stripped.count("{") - stripped.count("}")
             continue
 
-        if not in_class:
-            continue
-
-        dproperty_match = _DPROPERTY_PATTERN.search(stripped)
+        dproperty_match = next(
+            (
+                match
+                for match in _DPROPERTY_PATTERN.finditer(source, line_start, line_end)
+                if scanner.is_code_position(match.start())
+            ),
+            None,
+        )
         if dproperty_match:
-            pending_annotation = _annotation_payload("DPROPERTY", dproperty_match.group(1))
-            brace_depth += stripped.count("{") - stripped.count("}")
+            closing_parenthesis = scanner.find_matching_parenthesis(dproperty_match.end() - 1)
+            if closing_parenthesis is None:
+                raise ValueError(f"DPROPERTY at line {line_number}: missing closing ')'")
+            pending_annotation = _annotation_payload(
+                "DPROPERTY", source[dproperty_match.end():closing_parenthesis]
+            )
             continue
 
+        stripped = line.strip()
         if pending_annotation:
             if not stripped or stripped in ("public:", "private:", "protected:"):
                 continue
-            if ";" in stripped:
+            if scanner.find_next_code_position(";", line_start, line_end) is not None:
                 prop = _make_property_from_source_decl(stripped, pending_annotation, exported_symbols)
                 if prop:
                     properties.append(prop)
@@ -642,10 +566,6 @@ def _scan_source_properties_for_class(
                             f"spelling '{type_spelling}'"
                         )
                 pending_annotation = ""
-
-        brace_depth += stripped.count("{") - stripped.count("}")
-        if brace_depth <= 0:
-            break
 
     return properties
 

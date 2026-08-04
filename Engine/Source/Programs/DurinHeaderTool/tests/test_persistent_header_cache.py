@@ -74,10 +74,13 @@ class TestPersistentHeaderCacheRoundTrip:
 
         entry_path = cache.write(CachePhase.EXPORT, identity, payload)
         first_bytes = entry_path.read_bytes()
+        entry_data = json.loads(first_bytes)
         result = cache.read(CachePhase.EXPORT, identity)
 
         assert result.is_hit
         assert result.payload == payload
+        assert entry_data["SchemaVersion"] == CACHE_SCHEMA_VERSION
+        assert "EntryDigest" not in entry_data
         assert first_bytes == canonical_json_bytes(json.loads(first_bytes))
 
         reversed_payload = ExportHeaderCachePayload(symbols=dict(reversed(list(payload.symbols.items()))))
@@ -157,6 +160,22 @@ class TestPersistentHeaderCacheValidation:
 
         assert result.miss_reason is CacheMissReason.PAYLOAD_DIGEST
         assert "payload-digest" in caplog.text
+
+    def test_previous_entry_shape_is_rejected_as_malformed(self, tmp_path, caplog):
+        cache = PersistentHeaderCache(tmp_path / "DHTCache")
+        identity = _identity()
+        entry_path = cache.write(CachePhase.EXPORT, identity, ExportHeaderCachePayload())
+        data = json.loads(entry_path.read_text(encoding="utf-8"))
+        data["SchemaVersion"] = CACHE_SCHEMA_VERSION - 1
+        data["EntryDigest"] = _digest("legacy entry")
+        entry_path.write_bytes(canonical_json_bytes(data))
+
+        with caplog.at_level(logging.WARNING):
+            result = cache.read(CachePhase.EXPORT, identity)
+
+        assert result.miss_reason is CacheMissReason.MALFORMED
+        assert "invalid JSON object shape" in result.detail
+        assert "malformed" in caplog.text
 
     @pytest.mark.parametrize(
         "logical_header",

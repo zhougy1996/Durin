@@ -15,7 +15,7 @@ from durin_header_tool import io as utils
 from durin_header_tool.model.export_info import ExportedSymbolInfo
 
 
-CACHE_SCHEMA_VERSION = 1
+CACHE_SCHEMA_VERSION = 2
 CACHE_ENTRY_KIND_VERSION = 1
 _DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
 _IDENTIFIER_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -42,7 +42,6 @@ class CacheMissReason(str, Enum):
     DEPENDENCY = "dependency"
     PAYLOAD = "payload"
     PAYLOAD_DIGEST = "payload-digest"
-    ENTRY_DIGEST = "entry-digest"
 
 
 @dataclass(frozen=True)
@@ -290,7 +289,6 @@ class PersistentHeaderCache:
             "DependencyDigest",
             "PayloadDigest",
             "Payload",
-            "EntryDigest",
         }
         _require_exact_fields(data, expected_fields, "cache entry")
 
@@ -318,16 +316,6 @@ class PersistentHeaderCache:
                 self.entry_path(phase, identity.module, identity.logical_header),
                 CacheMissReason.PAYLOAD_DIGEST,
                 "payload checksum disagreement",
-                warning=True,
-            )
-
-        entry_without_digest = dict(data)
-        stored_entry_digest = entry_without_digest.pop("EntryDigest")
-        if stored_entry_digest != _digest_json(entry_without_digest):
-            return self._rejected(
-                self.entry_path(phase, identity.module, identity.logical_header),
-                CacheMissReason.ENTRY_DIGEST,
-                "entry checksum disagreement",
                 warning=True,
             )
 
@@ -416,7 +404,6 @@ def _encode_entry(phase: CachePhase, identity: CacheEntryIdentity, payload: Cach
         "PayloadDigest": _digest_json(payload_json),
         "Payload": payload_json,
     }
-    data["EntryDigest"] = _digest_json(data)
     return canonical_json_bytes(data)
 
 

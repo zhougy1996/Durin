@@ -1,12 +1,10 @@
 from .json_helper import load_json_descriptor, load_json_file
 from .file_helper import (
     FileFingerprint,
-    LightFileFingerprint,
     calc_md5,
     calc_sha256,
     generate_file,
     get_file_fingerprint_with_old_cache,
-    get_light_file_fingerprint,
 )
 from .output_lock import acquire_output_lock
 from .path_helper import (

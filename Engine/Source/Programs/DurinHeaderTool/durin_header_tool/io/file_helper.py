@@ -6,11 +6,6 @@ import os
 import tempfile
 
 @dataclass
-class LightFileFingerprint:
-    timestamp: float
-    file_size: int
-
-@dataclass
 class FileFingerprint:
     # Timestamp and size are only a cheap guard for reusing the stored hash.
     # Once a hash is available, content identity is defined by the hash alone.
@@ -43,17 +38,6 @@ def calc_sha256(file_path: Path, chunk_size: int = 8192) -> str:
     except (PermissionError, OSError) as e:
         raise IOError(f"Error reading file {file_path}: {e}")
     
-def get_light_file_fingerprint(file_path: Path) -> LightFileFingerprint:
-    if not file_path.is_file():
-        raise FileNotFoundError(f"File {file_path} does not exist.")
-    try:
-        stat = file_path.stat()
-        timestamp = stat.st_mtime
-        file_size = stat.st_size
-        return LightFileFingerprint(timestamp=timestamp, file_size=file_size)
-    except (PermissionError, OSError) as e:
-        raise IOError(f"Error accessing file {file_path}: {e}")
-
 def get_file_fingerprint_with_old_cache(file_path: Path, old_fingerprint: FileFingerprint) -> FileFingerprint:
     if not file_path.is_file():
         raise FileNotFoundError(f"File {file_path} does not exist.")
