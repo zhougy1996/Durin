@@ -1,7 +1,7 @@
 #include "Documents/LevelDocumentController.h"
 #include "Documents/LevelDocumentRevisionState.h"
 
-#include "Asset/AssetUpgradeAuditService.h"
+#include "Asset/WorkspaceAssetOpenCompatibility.h"
 #include "AssetSystem.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/EditorTransaction.h"
@@ -20,16 +20,6 @@ namespace Durin
 		auto GetLevelTransactions() -> FEditorTransactionManager*
 		{
 			return GEditor ? &GEditor->GetTransactionManager() : nullptr;
-		}
-
-		auto PublishWorkspaceLoadReport(const Asset::FAssetLoadReport& Report) -> void
-		{
-			if (GEditor) GEditor->GetAssetUpgradeAuditService().MergeWorkspaceLoadReport(Report);
-		}
-
-		auto InvalidateAssetUpgradeReport(const FAssetPath& Path) -> void
-		{
-			if (GEditor) GEditor->GetAssetUpgradeAuditService().InvalidatePackage(Path);
 		}
 
 	}
@@ -58,7 +48,6 @@ namespace Durin
 
 	auto FLevelDocumentController::RequestAction(ELevelDocumentAction Action) -> void
 	{
-		if (PendingUpgrade.IsPending()) return;
 		PendingLevelPath.clear();
 		bPendingDocumentOpen = false;
 		PendingAction = Action;
@@ -72,7 +61,6 @@ namespace Durin
 
 	auto FLevelDocumentController::RequestOpenLevel(std::string Path) -> ELevelDocumentOpenResult
 	{
-		if (PendingUpgrade.IsPending()) return ELevelDocumentOpenResult::Rejected;
 		FAssetPath AssetPath;
 		if (!FAssetPath::TryCreate(Path, AssetPath)) return ELevelDocumentOpenResult::Rejected;
 		const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(AssetPath);
@@ -130,20 +118,10 @@ namespace Durin
 	{
 		const bool bOpenUnsavedLevel = QueuedPopup == EQueuedPopup::UnsavedLevel;
 		QueuedPopup = EQueuedPopup::None;
-		// Capture the pending state before resolving an unsaved level so a newly loaded
-		// compatibility report opens on the following frame, matching popup scheduling.
-		const bool bOpenAssetStructureUpgrade = PendingUpgrade.IsPending();
 		(void)UnsavedLevelDialog.Draw(
 			bOpenUnsavedLevel,
 			[this](EUnsavedLevelDialogDecision Decision) {
 				return ResolveUnsavedLevelDialog(Decision);
-			});
-		(void)AssetStructureUpgradeDialog.Draw(
-			PendingUpgrade,
-			bOpenAssetStructureUpgrade,
-			bCompatibilityDataLossConfirmed,
-			[this](EAssetStructureUpgradeDecision Decision) {
-				return ResolvePendingLevelUpgrade(Decision);
 			});
 	}
 
@@ -186,6 +164,7 @@ namespace Durin
 			SetError(PathError);
 			return ELevelDocumentOpenResult::Rejected;
 		}
+		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
 		DLevel* Level = nullptr;
 		Asset::FAssetLoadReport LoadReport;
 		Asset::FAssetResult Result = Asset::LoadAsset(Path, Level, &LoadReport);
@@ -194,60 +173,21 @@ namespace Durin
 			SetError(Result.Message);
 			return ELevelDocumentOpenResult::Rejected;
 		}
-		PublishWorkspaceLoadReport(LoadReport);
-		if (LoadReport.HasCompatibilityIssues())
+		std::string CompatibilityDiagnostic;
+		if (CompatibilityPolicy.RejectIfIncompatible(LoadReport, CompatibilityDiagnostic))
 		{
-			const bool bCompletesDeferredOpen = std::exchange(bPendingDocumentOpen, false);
-			PendingUpgrade.Begin(Level, std::move(LoadReport), bCompletesDeferredOpen);
-			bCompatibilityDataLossConfirmed = false;
-			return ELevelDocumentOpenResult::Deferred;
+			SetError(std::move(CompatibilityDiagnostic));
+			return ELevelDocumentOpenResult::Rejected;
 		}
 		if (!ActivateLevel(Level))
 		{
-			Asset::FAssetResult UnloadResult = Asset::UnloadPackage(Path);
-			if (!UnloadResult && UnloadResult.Error != Asset::EAssetError::NotFound)
-				DURIN_WARN("Failed to unload level after activation failed: {}", UnloadResult.Message);
+			const Asset::FAssetResult ReleaseResult = CompatibilityPolicy.ReleaseIntroducedPackages();
+			if (!ReleaseResult)
+				DURIN_WARN("Failed to release packages after level activation failed: {}", ReleaseResult.Message);
 			return ELevelDocumentOpenResult::Rejected;
 		}
 		PendingAction = ELevelDocumentAction::None;
 		return ELevelDocumentOpenResult::Opened;
-	}
-
-	auto FLevelDocumentController::ResolvePendingLevelUpgrade(
-		EAssetStructureUpgradeDecision Decision) -> EAssetStructureUpgradeResult
-	{
-		FAssetStructureUpgradeOperations Operations{
-			.Save = [this](DLevel* Level, bool bAllowCompatibilityDataLoss) {
-				if (!Level || !Level->GetPackage())
-				return SetError("The pending level is no longer available."), false;
-				Asset::FAssetResult Result = Asset::SavePackage(
-					Level->GetPackage(),
-					{.bAllowCompatibilityDataLoss = bAllowCompatibilityDataLoss});
-				if (Result)
-				{
-					InvalidateAssetUpgradeReport(PendingUpgrade.GetReport().PackagePath);
-					return true;
-				}
-				SetError(Result.Message);
-				return false;
-			},
-			.Activate = [this](DLevel* Level) { return ActivateLevel(Level); },
-			.Unload = [this](const FAssetPath& Path) {
-				Asset::FAssetResult Result = Asset::UnloadPackage(Path);
-				if (!Result && Result.Error != Asset::EAssetError::NotFound)
-					SetError(std::format("Could not unload the pending level: {}", Result.Message));
-			},
-			.CompleteDeferredOpen = [this](bool bSucceeded) {
-				if (CompleteDeferredOpen) CompleteDeferredOpen(bSucceeded);
-			}};
-		const EAssetStructureUpgradeResult Result = PendingUpgrade.Resolve(Decision, Operations);
-		if (Result != EAssetStructureUpgradeResult::SaveFailed)
-		{
-			PendingAction = ELevelDocumentAction::None;
-			PendingLevelPath.clear();
-			bCompatibilityDataLossConfirmed = false;
-		}
-		return Result;
 	}
 
 	auto FLevelDocumentController::CompletePendingDocumentOpen(bool bSucceeded) -> void
@@ -275,9 +215,6 @@ namespace Durin
 			SetError(Result.Message);
 			return false;
 		}
-		FAssetPath SavedPath;
-		if (FAssetPath::TryCreate(Context.Level->GetPackage()->GetPackagePath(), SavedPath))
-			InvalidateAssetUpgradeReport(SavedPath);
 		return true;
 	}
 
@@ -340,7 +277,6 @@ namespace Durin
 				SetError(SaveResult.Message);
 				return false;
 			}
-			InvalidateAssetUpgradeReport(OldPath);
 			return true;
 		}
 
@@ -353,7 +289,6 @@ namespace Durin
 			SetError(MoveResult.Message);
 			return false;
 		}
-		InvalidateAssetUpgradeReport(OldPath);
 		return true;
 	}
 

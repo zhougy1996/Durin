@@ -115,8 +115,8 @@ durin_add_engine_functional_test(EditorPropertyTests
 durin_add_engine_functional_test(EditorAssetWorkflowTests
 	RUNTIME_STACK_RATIONALE "Exercises editor asset workflows across DurinEd and Mona UI models."
 	SOURCES
-		Private/Editor/AssetStructureUpgradeModelTests.cpp
-		Private/Editor/AssetUpgradeAuditServiceTests.cpp
+		Private/Editor/WorkspaceAssetOpenCompatibilityTests.cpp
+		Private/Editor/AssetCompatibilityAuditTests.cpp
 		Private/Editor/AssetDestinationValidationTests.cpp
 		Private/Editor/ImportDialogStateTests.cpp
 		Private/Editor/ContentBrowserItemViewTests.cpp
@@ -124,7 +124,6 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		Private/SourceLibraryReferenceContractTests.cpp
 		Private/SourceReferenceIndexTests.cpp
 	PRIVATE_SOURCES
-		${_durin_level_editor_private}/Documents/AssetStructureUpgradeModel.cpp
 		${_durin_level_editor_private}/Assets/AssetDestinationValidation.cpp
 		${_durin_level_editor_private}/Assets/ImportDialogState.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp

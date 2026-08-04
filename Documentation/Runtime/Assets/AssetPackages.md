@@ -67,19 +67,65 @@ AssetCore owns report construction, payload retention, object-reference
 resolution helpers, and optional class-specific upgrader registration. The
 current repository baseline ships no production asset-specific structure
 upgrader; unrecognized fields therefore remain explicit incompatibilities.
-When deliberately used by another integration, a registered rule may classify a
-complete change as `SafeCleanup` or `Migrated`; either classification marks the
-loaded package Dirty so an explicit save can persist it. Unhandled fields are
+The registration API remains a low-level integration point rather than a
+supported editor migration or resave workflow. Unhandled fields are
 `UnknownIncompatible` with `UnknownNewerSchema` risk and do not themselves mark
 the package Dirty. Rules that cannot preserve the represented data use
 `DataLossRisk`.
 
 A package whose load report contains compatibility-risk payloads rejects an
-ordinary save. Persisting the in-memory representation requires the caller to
-pass explicit data-loss consent; this prevents unknown newer fields from being
-silently discarded by normal editor saves. Opening without saving retains the
-loaded package and its Dirty state, so a later unload and reload presents the
-same compatibility workflow.
+ordinary save. Persisting the in-memory representation requires a low-level
+caller to pass explicit data-loss consent; editor workspaces expose no such
+action. Level, Material, and Texture document opens reject any load report with
+compatibility issues before activation, retain the previous active document or
+world, and release only packages introduced by the rejected request. The error
+directs the user to the read-only Asset Compatibility Audit for complete
+details. This prevents unknown newer fields from being silently discarded by
+normal editor saves while keeping the retained payloads as AssetCore's final
+safety boundary.
+
+The read-only compatibility probe is a separate, compact inspection path. The
+game thread freezes registered class and property identities into a value-only
+`FReflectionCompatibilityCatalog`; a worker can then stream object and field
+descriptors from one package, validate ids, outers, lengths, and payload bounds,
+and seek across payload bytes without copying them. It constructs no `DObject`,
+loads no dependency, invokes no `PostLoad()`, changes no dirty state, and writes
+no authored file. Package size and stable last-write ticks bind each result to
+the registry snapshot and mark a changed input stale.
+
+Each terminal record keeps inspection, compatibility, and freshness as
+orthogonal states and reports stable codes for unknown fields, incompatible
+signatures, unavailable classes, unsupported formats, invalid object graphs,
+corrupt bytes, and I/O failures. Report schema v1 serializes stable string names
+and deterministic virtual-path order; it never includes field payload bytes.
+The frozen fixture corpus under
+`Engine/Tests/Native/AssetCoreTests/Data/Compatibility` covers the current
+format and every terminal classification without defining those incompatible
+inputs as supported migration sources.
+
+The editor exposes this probe only through `Tools > Asset Compatibility Audit`.
+Opening or drawing the non-modal window compares already-published registry
+metadata but performs no registry scan and reads no package bytes. `Run Audit`
+is the sole start action: DurinEd snapshots the registry and reflection catalog,
+launches one cancelable worker, and returns compact records through a
+synchronized request-serial mailbox. The game thread owns the path-keyed live
+index, deterministic sorting, filters, counts, finding details, diagnostic
+copying, fingerprint reconciliation, and Content Browser navigation. A changed
+fingerprint marks only that row stale; additions are not checked, removals
+disappear, and project changes or shutdown cancel and drain the worker before
+editor-owned state is released. The window offers no save, rewrite, discard, or
+other data-loss action.
+
+DurinDevTool exposes the same AssetCore probe as the explicit read-only
+`asset audit --project <project.dproject>` command. Its native host enumerates
+auto-scan mount contents without publishing or persisting an asset-registry
+snapshot, captures the same value-only reflection catalog, and serializes the
+same schema-v1 package records and finding codes in virtual-path order. Human
+output groups the orthogonal states; `--format json` preserves the shared model
+for CI. Independently repeatable `--fail-on incompatible`, `--fail-on
+unsupported`, and `--fail-on error` policies affect only process status and
+never authorize a content write. The command does not initialize an editor
+workspace, renderer, GPU, source/import service, or DDC service.
 
 Internal references use object ids. Cross-package strong references target the other package's main asset by `FAssetPath` and synchronously load that dependency. Circular dependencies work because object skeletons are constructed before dependency fields are applied.
 

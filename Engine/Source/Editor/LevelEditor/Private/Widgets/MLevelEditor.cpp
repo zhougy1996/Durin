@@ -204,6 +204,13 @@ namespace Durin
 		Panels.emplace_back(std::move(ContentBrowser));
 	}
 
+	auto MLevelEditor::RevealAssetInContentBrowser(const FAssetPath& AssetPath) -> bool
+	{
+		if (!ContentBrowserPanel || !AssetPath.IsValid()) return false;
+		ContentBrowserPanel->RevealAsset(AssetPath.ToString());
+		return true;
+	}
+
 	auto MLevelEditor::CreateNotificationOverlay() -> void
 	{
 		auto ActivityHistory = std::make_unique<FEditorNotificationOverlay>();

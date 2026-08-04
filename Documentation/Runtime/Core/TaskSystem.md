@@ -169,6 +169,13 @@ V1 has no universal game-thread continuation pump. Each subsystem drains its
 own completed-result mailbox during an existing game-thread tick or waits at a
 documented synchronization point.
 
+DurinEd's explicit Asset Compatibility Audit follows this contract: one
+cancelable worker consumes copied package inputs and an immutable reflection
+catalog, then publishes value-only records to a request-serial mailbox. The
+game thread drains that mailbox into its path-keyed editor model. Cancellation,
+project changes, and shutdown wait for the worker before releasing its captured
+inputs; no package object or mutable editor state crosses into the task.
+
 ## Shutdown And Diagnostics
 
 `ShutdownTaskScheduler(true)` first closes admission and then drains every

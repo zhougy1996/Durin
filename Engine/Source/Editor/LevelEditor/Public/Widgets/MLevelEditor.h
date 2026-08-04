@@ -10,6 +10,7 @@ namespace Durin
 	enum class EEditorPlayDestination : uint8;
 	class ILevelEditorPanel;
 	class FLevelEditorSessionSettings;
+	class FAssetPath;
 	class FEditorAssetMoveCoordinator;
 	class FEditorWorkspaceManager;
 	class FLevelDocumentController;
@@ -51,6 +52,7 @@ namespace Durin
 		LEVELEDITOR_API auto DrawWindowMenu() -> void override;
 		LEVELEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
 		LEVELEDITOR_API auto ResetLayout() -> void override;
+		LEVELEDITOR_API auto RevealAssetInContentBrowser(const FAssetPath& AssetPath) -> bool;
 
 	private:
 		auto InitializeContext() -> void;

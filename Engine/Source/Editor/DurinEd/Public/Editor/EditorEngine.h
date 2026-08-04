@@ -9,8 +9,6 @@ namespace Durin
 {
 	class FEditorTransactionManager;
 	class FEditorNotificationManager;
-	class FAssetUpgradeAuditService;
-	class FAssetUpgradeAuditNotificationController;
 	class DLevel;
 	class DWorld;
 	class AActor;
@@ -67,8 +65,6 @@ namespace Durin
 		DURINED_API auto BeginDestroy() -> void override;
 		DURINED_API auto GetTransactionManager() -> FEditorTransactionManager&;
 		DURINED_API auto GetNotificationManager() -> FEditorNotificationManager&;
-		DURINED_API auto StartAssetUpgradeAudit() -> void;
-		DURINED_API auto GetAssetUpgradeAuditService() -> FAssetUpgradeAuditService&;
 		DURINED_API auto StartPlaySession(DLevel* SourceLevel, std::string* OutError = nullptr) -> bool;
 		DURINED_API auto StartPlaySession(const FEditorPlayRequest& Request, std::string* OutError = nullptr) -> bool;
 		DURINED_API auto StopPlaySession() -> void;
@@ -89,9 +85,6 @@ namespace Durin
 
 		std::unique_ptr<FEditorTransactionManager> TransactionManager;
 		std::unique_ptr<FEditorNotificationManager> NotificationManager;
-		std::unique_ptr<FAssetUpgradeAuditService> AssetUpgradeAuditService;
-		std::unique_ptr<FAssetUpgradeAuditNotificationController> AssetUpgradeAuditNotifications;
-
 		// Authoritative world being edited; retained for the editor engine lifetime.
 		DPROPERTY(Transient)
 		TObjectPtr<DWorld> EditorWorld;

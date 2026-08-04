@@ -1,6 +1,6 @@
 #include "Widgets/MTextureEditor.h"
 
-#include "Asset/AssetUpgradeAuditService.h"
+#include "Asset/WorkspaceAssetOpenCompatibility.h"
 #include "AssetImportCore.h"
 #include "AssetSystem.h"
 #include "DObject/Class.h"
@@ -129,6 +129,7 @@ namespace Durin
 			SetError(std::move(PathError));
 			return EEditorDocumentOpenResult::Rejected;
 		}
+		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
 		DTexture2D* Texture = nullptr;
 		Asset::FAssetLoadReport LoadReport;
 		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Texture, &LoadReport);
@@ -137,7 +138,12 @@ namespace Durin
 			SetError(Result ? "The selected asset is not a Texture2D." : Result.Message);
 			return EEditorDocumentOpenResult::Rejected;
 		}
-		if (GEditor) GEditor->GetAssetUpgradeAuditService().MergeWorkspaceLoadReport(LoadReport);
+		std::string CompatibilityDiagnostic;
+		if (CompatibilityPolicy.RejectIfIncompatible(LoadReport, CompatibilityDiagnostic))
+		{
+			SetError(std::move(CompatibilityDiagnostic));
+			return EEditorDocumentOpenResult::Rejected;
+		}
 		OpenTextures.emplace(Document.ResourceId, Texture);
 		PreviewStates.try_emplace(Document.ResourceId);
 		return EEditorDocumentOpenResult::Opened;
@@ -275,9 +281,6 @@ namespace Durin
 			SetError(Result.Message);
 			return false;
 		}
-		FAssetPath SavedPath;
-		if (FAssetPath::TryCreate(Texture->GetPackage()->GetPackagePath(), SavedPath) && GEditor)
-			GEditor->GetAssetUpgradeAuditService().InvalidatePackage(SavedPath);
 		return true;
 	}
 

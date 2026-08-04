@@ -42,6 +42,10 @@ endfunction()
 durin_add_asset_functional_test(AssetPackageTests
 	SOURCES Private/PackageTests.cpp
 )
+durin_test_deploy_directory_to_data(
+	AssetPackageTests
+	"${CMAKE_CURRENT_SOURCE_DIR}/Data/Compatibility"
+)
 
 durin_add_asset_functional_test(AssetCookTests
 	SOURCES Private/CookedAssetTests.cpp

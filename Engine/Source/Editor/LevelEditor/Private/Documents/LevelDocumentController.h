@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Documents/AssetStructureUpgradeModel.h"
 #include "Documents/DocumentDialogPresenters.h"
 
 namespace Durin
@@ -60,8 +59,6 @@ namespace Durin
 		auto ExecutePendingAction() -> ELevelDocumentOpenResult;
 		auto OpenLevel(std::string_view Path) -> ELevelDocumentOpenResult;
 		auto ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool;
-		auto ResolvePendingLevelUpgrade(
-			EAssetStructureUpgradeDecision Decision) -> EAssetStructureUpgradeResult;
 		auto CompletePendingDocumentOpen(bool bSucceeded) -> void;
 		auto ActivateLevel(DLevel* Level) -> bool;
 		auto SetError(std::string Message) const -> void;
@@ -77,10 +74,7 @@ namespace Durin
 		ELevelDocumentAction PendingAction = ELevelDocumentAction::None;
 		EQueuedPopup QueuedPopup = EQueuedPopup::None;
 		std::string PendingLevelPath;
-		FAssetStructureUpgradeModel PendingUpgrade;
 		FUnsavedLevelDialogPresenter UnsavedLevelDialog;
-		FAssetStructureUpgradeDialogPresenter AssetStructureUpgradeDialog;
 		bool bPendingDocumentOpen = false;
-		bool bCompatibilityDataLossConfirmed = false;
 	};
 } // namespace Durin

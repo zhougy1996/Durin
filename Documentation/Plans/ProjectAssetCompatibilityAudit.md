@@ -4,8 +4,8 @@ Summary: Remove the obsolete asset-upgrade workflow and add an explicit read-onl
 
 Last reviewed: 2026-08-05
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-05
 
 ## Current Status
 
@@ -31,6 +31,101 @@ and publishes compact path-keyed diagnostics. Opening an incompatible asset is
 rejected with a clear diagnostic and leaves the previous document active; it
 does not open an upgrade modal or offer data-discard persistence. AssetCore's
 save refusal remains the final safety boundary.
+
+Stage 0 is complete from implementation baseline `34712e46` (the plan's
+recorded architecture baseline remains `f18d581e`). The working set removed the
+DurinEd startup service and notification, MainFrame's dead center request,
+LevelEditor upgrade model and dialog, workspace report merging, and
+migration-only AssetCore audit/execution APIs. Level, Material, and Texture now
+route through `FWorkspaceAssetOpenCompatibility` before activation. AssetCore
+captures the pre-request loaded-package set and bulk-releases only packages
+introduced by a rejected request, while preserving `FAssetLoadReport`, retained
+legacy payloads, low-level structure-upgrader registration, ordinary save
+refusal, and general full-package inspection.
+
+Stage 0 validation passed `AssetPackageTests` (30 tests),
+`EditorAssetWorkflowTests` (30 tests), the complete `all` editor build, and a
+hidden-window Sandbox editor startup/exit smoke test. Targeted obsolete-symbol
+searches and `git diff --check` also passed. There are no open Stage 0 questions;
+Stage 1 is complete from implementation baseline `ffb2335b`. The working set
+adds AssetCore's value-only `FReflectionCompatibilityCatalog`, streaming
+`ProbeAssetPackageCompatibility` reader, orthogonal compact record model,
+stable finding names, schema-v1 deterministic JSON serialization, fingerprint
+freshness checks, and cancellation checkpoints. The reader validates headers,
+object/Outer ordering, descriptor lengths, and payload bounds while seeking
+over payload bytes; it never constructs objects, resolves dependencies, calls
+`PostLoad()`, changes dirty state, or writes authored data.
+
+Stage 1 also checks in frozen hex-encoded DAST fixtures for current,
+unknown-field, incompatible-signature, unavailable-class, newer-format,
+invalid-object-graph, corrupt, and truncated packages. Validation passed all 34
+`AssetPackageTests`, including deterministic reports, bounded metadata memory,
+large-payload skipping, stale detection, cancellation, stable serialization,
+and every fixture classification. `git diff --check` and the active-plan
+validator passed. There are no open Stage 1 questions; this established the
+Stage 2 dependency.
+
+Stage 2 is complete from implementation baseline `4b6e0c3f`. The working set
+adds DurinEd's request-scoped `FAssetCompatibilityAuditModel`, copied registry
+inputs, one cancelable task-system worker, request-serial mailbox, path-keyed
+live index, deterministic presentation helpers, fingerprint reconciliation,
+and project-switch/shutdown draining. MainFrame now exposes the explicit
+non-modal `Tools > Asset Compatibility Audit` window with Run/Cancel/Run Again,
+progress, counts, filters, deterministic rows, finding details, stale and
+terminal states, diagnostic copying, and Level Editor Content Browser reveal.
+Opening and drawing the window only compare the published registry map; `Run
+Audit` is the only operation that captures reflection or reads package bytes,
+and the UI exposes no authored-data action.
+
+Stage 2 validation passed all 34 `AssetPackageTests`, all 37
+`EditorAssetWorkflowTests`, the complete `all` editor build, and a hidden-window
+Sandbox editor startup/normal-exit smoke test. The model coverage includes
+explicit-start behavior, deterministic ordering, cancellation without partial
+records, request serials, rerun replacement, path-keyed add/remove handling,
+fingerprint staleness, project changes, shutdown admission, filters, counts, and
+copied diagnostics. There are no open Stage 2 questions; Stage 3 is the next
+implementation stage.
+
+Stage 3 is complete from implementation baseline `6d6fa381`. The working set
+adds the `DevTool asset audit` command, a standalone non-Launch
+`DurinAssetAudit` native host, schema-v1 validation and human grouping, and
+independent incompatible/unsupported/error exit policies. The native host
+enumerates mounted packages without using the persistent registry scan,
+initializes only the project/mount/object-reflection/AssetCore boundary, and
+feeds the same `ProbeAssetPackageCompatibility` and
+`SerializeAssetCompatibilityReportV1`
+model used by the editor. It starts no editor workspace, renderer, GPU, import,
+source, or DDC service and exposes no authored mutation option.
+
+Stage 3 validation covers command parsing, stable JSON names, deterministic
+ordering, human grouping, policy OR combinations, cancellation/process
+failure, the checked-in current/incompatible/unsupported/corrupt fixture
+classifications, stale and missing records, AssetCore/editor serialization
+parity, a focused native-host build, and a live Sandbox JSON audit. There are no
+open Stage 3 questions; Stage 4 is the next validation/documentation stage.
+
+Stage 4 is complete from implementation baseline `8d13b822`. Qualification
+adds repeatable measurement coverage above the original seven-package
+prototype: the 16-package mixed AssetCore corpus averaged 1040 metadata bytes
+for both current and incompatible packages, peaked at 366 bytes of retained
+metadata, and scanned in 13.097 ms. The existing 4 MiB-plus payload case still
+kept metadata below 64 KiB and skipped the payload without proportional
+allocation. The 32-package editor-model corpus completed its worker path in
+0.559 ms with a 0.024 ms peak mailbox tick, and cooperative cancellation
+drained in 0.047 ms on the qualification host. These tests enforce broad
+regression ceilings rather than machine-specific benchmark targets.
+
+Stage 4 validation passed all 35 `AssetPackageTests`, all 39
+`EditorAssetWorkflowTests`, all DurinDevTool tooling tests, live Sandbox human
+and schema-v1 JSON audit parity, the complete `all` editor build, and a hidden
+Sandbox editor startup/normal-exit smoke test. Level, Material, and Texture
+compatible/incompatible open safety runs through the shared policy and retains
+the prior document while releasing only request-owned packages. Active-code
+and owning-document searches contain no removed audit service, center request,
+workspace merge, Level dialog, destructive compatibility action, or supported
+batch write path. The lasting probe/report, workspace rejection, UI ownership,
+task mailbox, and command contracts now live in their owning documentation.
+There are no open Stage 4 questions.
 
 The design follows the useful separation in Unreal Engine between package
 version data, unloaded-asset registry data, explicit validation, and explicit
@@ -257,26 +352,26 @@ removing editor controls that imply unsupported upgrading or destructive repair.
 Dependencies: current authored baseline and existing AssetCore compatibility save
 guard.
 
-- [ ] Remove `FAssetUpgradeAuditService`, its notification controller, editor
+- [x] Remove `FAssetUpgradeAuditService`, its notification controller, editor
   engine ownership/tick/shutdown API, startup calls, tests, and build entries.
-- [ ] Remove MainFrame's `RequestOpenAssetUpgradeCenter` interface, retained open
+- [x] Remove MainFrame's `RequestOpenAssetUpgradeCenter` interface, retained open
   flag, and notification action wiring.
-- [ ] Remove LevelEditor `FAssetStructureUpgradeModel`, its dialog presenter,
+- [x] Remove LevelEditor `FAssetStructureUpgradeModel`, its dialog presenter,
   decision/result types, pending state, focused tests, and upgrade-specific
   controller callbacks.
-- [ ] Remove Material, Texture, and Level workspace calls that merge or invalidate
+- [x] Remove Material, Texture, and Level workspace calls that merge or invalidate
   reports in the obsolete global service.
-- [ ] Add one DurinEd workspace-open compatibility policy and route Level,
+- [x] Add one DurinEd workspace-open compatibility policy and route Level,
   Material, and Texture loads through it before activation.
-- [ ] Make incompatible opens reject cleanly, preserve the prior document/world,
+- [x] Make incompatible opens reject cleanly, preserve the prior document/world,
   release only request-owned packages, and return a stable diagnostic.
-- [ ] Remove `EAssetPackageAuditState`, package/session upgrade reports,
+- [x] Remove `EAssetPackageAuditState`, package/session upgrade reports,
   `AuditAssetPackage`, `ExecutePackageUpgrade`, inspection-upgrader registration,
   and tests that exist only for unsupported project-wide migration execution.
-- [ ] Preserve `FAssetLoadReport`, `FAssetCompatibilityIssue`, legacy payload
+- [x] Preserve `FAssetLoadReport`, `FAssetCompatibilityIssue`, legacy payload
   retention, `RegisterAssetStructureUpgrader`, ordinary save refusal, and full
   `InspectAssetPackage` consumers unrelated to the deleted workflow.
-- [ ] Update Asset Packages and Workspace Framework documentation to describe
+- [x] Update Asset Packages and Workspace Framework documentation to describe
   rejection rather than a Level-specific upgrade decision.
 
 #### Acceptance Gate
@@ -296,22 +391,22 @@ guard.
 
 Dependencies: Stage 0.
 
-- [ ] Define the immutable reflection compatibility catalog, compact report
+- [x] Define the immutable reflection compatibility catalog, compact report
   model, stable finding codes, schema version 1, and deterministic serialization.
-- [ ] Add a package reader that streams every object and field descriptor,
+- [x] Add a package reader that streams every object and field descriptor,
   validates object/outer relationships and payload bounds, and skips payload
   bytes without copying them.
-- [ ] Classify current fields, unknown/retired fields, incompatible signatures,
+- [x] Classify current fields, unknown/retired fields, incompatible signatures,
   unavailable classes, unsupported formats, corrupt packages, and I/O failures.
-- [ ] Record size/timestamp fingerprints and reject or mark a result stale when
+- [x] Record size/timestamp fingerprints and reject or mark a result stale when
   the package no longer matches the registry snapshot.
-- [ ] Keep the probe independent of dependency loading, `DObject` construction,
+- [x] Keep the probe independent of dependency loading, `DObject` construction,
   `PostLoad()`, package dirty state, source files, DDC, import providers, and
   editor modules.
-- [ ] Add checked-in fixtures for current, unknown-field, incompatible-signature,
+- [x] Add checked-in fixtures for current, unknown-field, incompatible-signature,
   unknown-class, newer-format, invalid-object-graph, corrupt, and truncated
   packages.
-- [ ] Add AssetCore tests for deterministic findings, payload skipping, bounded
+- [x] Add AssetCore tests for deterministic findings, payload skipping, bounded
   memory, stale detection, cancellation checkpoints, and schema serialization.
 
 #### Acceptance Gate
@@ -329,22 +424,22 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1 and the existing task-system lifecycle.
 
-- [ ] Add a request-scoped DurinEd audit job that snapshots registry data and the
+- [x] Add a request-scoped DurinEd audit job that snapshots registry data and the
   compatibility catalog, launches one cancelable worker, and drains compact
   results through a synchronized mailbox.
-- [ ] Key the live result index by `FAssetPath`; keep presentation sorting
+- [x] Key the live result index by `FAssetPath`; keep presentation sorting
   separate from mutation and publication.
-- [ ] Implement explicit run, cancel, re-run, request-serial rejection, progress,
+- [x] Implement explicit run, cancel, re-run, request-serial rejection, progress,
   project-switch cancellation, and shutdown drain.
-- [ ] Reconcile completed results with current registry paths and fingerprints so
+- [x] Reconcile completed results with current registry paths and fingerprints so
   only added, removed, moved, saved, imported, or externally changed packages
   become not checked, disappear, or become stale.
-- [ ] Add MainFrame's non-modal Asset Compatibility window with filters, counts,
+- [x] Add MainFrame's non-modal Asset Compatibility window with filters, counts,
   deterministic rows, finding details, empty/cancelled/stale/failure states,
   copy diagnostics, and Content Browser navigation.
-- [ ] Ensure opening or drawing the window performs no hidden scan, package load,
+- [x] Ensure opening or drawing the window performs no hidden scan, package load,
   payload read, or save; `Run Audit` is the only start action.
-- [ ] Add model, task-lifecycle, cancellation, stale-reconciliation, project
+- [x] Add model, task-lifecycle, cancellation, stale-reconciliation, project
   switch, shutdown, and interaction tests.
 
 #### Acceptance Gate
@@ -364,16 +459,16 @@ Dependencies: Stage 1 and the existing task-system lifecycle.
 Dependencies: Stage 1. It may proceed in parallel with Stage 2 after the schema
 version 1 contract is frozen, using a separate worktree and build writer.
 
-- [ ] Add the DurinDevTool `asset audit` command using the same AssetCore probe,
+- [x] Add the DurinDevTool `asset audit` command using the same AssetCore probe,
   report model, finding codes, and deterministic order as the editor.
-- [ ] Add human-readable grouping and `--format json` schema version 1 output.
-- [ ] Add independently selectable `--fail-on incompatible`, `--fail-on
+- [x] Add human-readable grouping and `--format json` schema version 1 output.
+- [x] Add independently selectable `--fail-on incompatible`, `--fail-on
   unsupported`, and `--fail-on error` policies with documented exit behavior.
-- [ ] Ensure the command initializes only the modules and reflection catalog
+- [x] Ensure the command initializes only the modules and reflection catalog
   required for package compatibility and never starts an editor workspace.
-- [ ] Validate current, incompatible, unsupported, corrupt, stale, and missing
+- [x] Validate current, incompatible, unsupported, corrupt, stale, and missing
   package cases against the checked-in fixtures.
-- [ ] Add tooling tests for argument validation, stable JSON names, deterministic
+- [x] Add tooling tests for argument validation, stable JSON names, deterministic
   ordering, policy combinations, cancellation/process failure, and editor/CLI
   report parity.
 
@@ -391,22 +486,22 @@ version 1 contract is frozen, using a separate worktree and build writer.
 
 Dependencies: Stages 0 through 3.
 
-- [ ] Run focused AssetCore, DurinEd, MainFrame, LevelEditor, MaterialEditor,
+- [x] Run focused AssetCore, DurinEd, MainFrame, LevelEditor, MaterialEditor,
   TextureEditor, and tooling tests through repository entrypoints.
-- [ ] Measure current-package metadata bytes read, incompatible-package metadata
+- [x] Measure current-package metadata bytes read, incompatible-package metadata
   bytes read, peak audit memory, worker scan duration, cancellation latency, and
   editor mailbox/frame cost on a corpus large enough to exceed the original
   seven-package prototype.
-- [ ] Demonstrate that one large-payload package does not allocate memory
+- [x] Demonstrate that one large-payload package does not allocate memory
   proportional to its payload and does not stall the game thread while scanned.
-- [ ] Run a complete `all` build and editor startup smoke test because Stage 0
+- [x] Run a complete `all` build and editor startup smoke test because Stage 0
   removes user-visible editor behavior and Stage 2 adds a replacement window.
-- [ ] Smoke-test compatible and incompatible document opens across Level,
+- [x] Smoke-test compatible and incompatible document opens across Level,
   Material, and Texture workspaces.
-- [ ] Move lasting probe, report, workspace rejection, UI ownership, and command
+- [x] Move lasting probe, report, workspace rejection, UI ownership, and command
   behavior into Asset Packages, Workspace Framework, Task System where needed,
   and DurinDevTool documentation.
-- [ ] Run all-plan validation and mark this plan complete only after the old
+- [x] Run all-plan validation and mark this plan complete only after the old
   upgrade terminology and unsupported write path are absent from active code and
   owning documentation.
 

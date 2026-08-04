@@ -162,7 +162,12 @@ namespace Durin::Asset
 	struct FAssetPackageSaveOptions
 	{
 		bool bAllowCompatibilityDataLoss = false;
-		std::optional<FAssetPackageFingerprint> ExpectedFingerprint;
+	};
+
+	// Captures package ownership before a higher-level load request begins.
+	struct FAssetPackageLoadSnapshot
+	{
+		std::vector<FAssetPath> LoadedPackages;
 	};
 
 	// Describes one discoverable package without loading its object graph.
@@ -324,94 +329,6 @@ namespace Durin::Asset
 	// constructing objects, or invoking PostLoad.
 	ASSETCORE_API auto InspectAssetPackage(std::string_view PhysicalPath, FAssetPackageInspection& OutInspection) -> FAssetResult;
 
-	using FAssetStructureInspectionUpgrader = std::function<FAssetResult(
-		const FAssetPackageInspection&,
-		const FAssetPackageObjectInspection&,
-		std::span<const FAssetLegacyField>,
-		std::vector<FAssetCompatibilityIssue>&)>;
-
-	// Registers an object-free counterpart to a structure upgrader for project-wide auditing.
-	ASSETCORE_API auto RegisterAssetStructureInspectionUpgrader(
-		std::string QualifiedClassName,
-		std::string HandlerId,
-		FAssetStructureInspectionUpgrader Upgrader) -> void;
-
-	enum class EAssetPackageAuditState : uint8
-	{
-		NotAudited,
-		UpToDate,
-		SafeUpgrade,
-		RiskyUpgrade,
-		RewriteAvailable,
-		BlockedUnsupported,
-		BlockedReadOnly,
-		BlockedLoadMutation,
-		AuditFailed,
-		Stale
-	};
-
-	// Describes the object-free upgrade state of one registry package.
-	struct FAssetPackageAuditReport
-	{
-		FAssetPath PackagePath;
-		std::string AssetClassName;
-		uint32 FormatVersion = 0;
-		FAssetPackageFingerprint Fingerprint;
-		EAssetPackageAuditState State = EAssetPackageAuditState::NotAudited;
-		std::vector<FAssetCompatibilityIssue> CompatibilityIssues;
-		std::string Diagnostic;
-		double AuditDurationMilliseconds = 0.0;
-
-		auto HasRiskItems() const -> bool
-		{
-			return std::ranges::any_of(CompatibilityIssues, [](const FAssetCompatibilityIssue& Issue) {
-				return Issue.Risk != EAssetCompatibilityRisk::None;
-			});
-		}
-	};
-
-	ASSETCORE_API auto AuditAssetPackage(
-		const FAssetData& Data,
-		FAssetPackageAuditReport& OutReport) -> FAssetResult;
-
-	struct FAssetPackageUpgradeResult
-	{
-		FAssetPath PackagePath;
-		EAssetPackageAuditState State = EAssetPackageAuditState::NotAudited;
-		FAssetLoadReport LoadReport;
-		bool bSaved = false;
-		std::string Diagnostic;
-	};
-
-	struct FAssetPackageUpgradeOptions
-	{
-		bool bAllowCompatibilityDataLoss = false;
-	};
-
-	struct FAssetUpgradeSessionProgress
-	{
-		uint64 Total = 0;
-		uint64 Completed = 0;
-		uint64 UpToDate = 0;
-		uint64 Safe = 0;
-		uint64 Risky = 0;
-		uint64 Blocked = 0;
-		uint64 Failed = 0;
-		uint64 Stale = 0;
-	};
-
-	// Owns one immutable-order audit snapshot for editor and automation consumers.
-	struct FAssetUpgradeSessionReport
-	{
-		uint64 RegistryRevision = 0;
-		std::vector<FAssetPackageAuditReport> Packages;
-		FAssetUpgradeSessionProgress Progress;
-
-		ASSETCORE_API auto RebuildProgressAndSort() -> void;
-		ASSETCORE_API auto FindPackage(const FAssetPath& Path) const
-			-> const FAssetPackageAuditReport*;
-	};
-
 	// Selects whether registry discovery may reuse its persistent snapshot.
 	enum class EAssetRegistryScanMode : uint8
 	{
@@ -570,10 +487,6 @@ namespace Durin::Asset
 		ASSETCORE_API auto SavePackage(
 			DPackage* Package,
 			const FAssetPackageSaveOptions& Options = {}) -> FAssetResult;
-		ASSETCORE_API auto ExecutePackageUpgrade(
-			const FAssetPackageAuditReport& Audit,
-			FAssetPackageUpgradeResult& OutResult,
-			const FAssetPackageUpgradeOptions& Options = {}) -> FAssetResult;
 		ASSETCORE_API auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult;
 		ASSETCORE_API auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
 		ASSETCORE_API auto AnalyzeAssetDeletionBatch(
@@ -597,6 +510,9 @@ namespace Durin::Asset
 		ASSETCORE_API auto DeleteAsset(const FAssetPath& Path) -> FAssetResult;
 		ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) const -> DPackage*;
 		ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;
+		ASSETCORE_API auto CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot;
+		ASSETCORE_API auto ReleasePackagesLoadedSince(
+			const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult;
 		// Reopens an empty manager after Shutdown().
 		ASSETCORE_API auto Initialize() -> void;
 		ASSETCORE_API auto StopAcceptingRequests() -> void;
@@ -672,10 +588,6 @@ namespace Durin::Asset
 	ASSETCORE_API auto SavePackage(
 		DPackage* Package,
 		const FAssetPackageSaveOptions& Options = {}) -> FAssetResult;
-	ASSETCORE_API auto ExecutePackageUpgrade(
-		const FAssetPackageAuditReport& Audit,
-		FAssetPackageUpgradeResult& OutResult,
-		const FAssetPackageUpgradeOptions& Options = {}) -> FAssetResult;
 	ASSETCORE_API auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult;
 	ASSETCORE_API auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
 	ASSETCORE_API auto AnalyzeAssetDeletionBatch(
@@ -697,6 +609,9 @@ namespace Durin::Asset
 	ASSETCORE_API auto DeleteAsset(const FAssetPath& Path) -> FAssetResult;
 	ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) -> DPackage*;
 	ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;
+	ASSETCORE_API auto CapturePackageLoadSnapshot() -> FAssetPackageLoadSnapshot;
+	ASSETCORE_API auto ReleasePackagesLoadedSince(
+		const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult;
 	ASSETCORE_API auto ShutdownAssetManager() -> void;
 	ASSETCORE_API auto ConfigurePackageLoadContext(FPackageLoadContext Context) -> FAssetResult;
 	ASSETCORE_API auto GetPackageLoadContext() -> const FPackageLoadContext&;

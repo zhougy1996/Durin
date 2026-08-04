@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Documents/AssetStructureUpgradeModel.h"
-
 namespace Durin
 {
 	// Identifies the user decision returned by the unsaved-level modal.
@@ -21,19 +19,5 @@ namespace Durin
 
 		auto Draw(bool bRequestOpen, const FResolve& Resolve)
 			-> std::optional<EUnsavedLevelDialogDecision>;
-	};
-
-	// Presents compatibility details while the upgrade model owns the pending package and decision state.
-	class FAssetStructureUpgradeDialogPresenter
-	{
-	public:
-		using FResolve = std::function<EAssetStructureUpgradeResult(EAssetStructureUpgradeDecision)>;
-
-		auto Draw(
-			const FAssetStructureUpgradeModel& Model,
-			bool bRequestOpen,
-			bool& bDataLossConfirmed,
-			const FResolve& Resolve
-		) -> std::optional<EAssetStructureUpgradeDecision>;
 	};
 } // namespace Durin

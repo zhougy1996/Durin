@@ -118,6 +118,7 @@ DOCUMENT_KINDS = (
 CREATABLE_DOCUMENT_KINDS = ("router", "contract", "guide", "generic")
 BOOTSTRAP_HANDLER = "durin_dev_tool.bootstrap.handler:run"
 WORKTREE_HANDLER = "durin_dev_tool.worktree.handler:run"
+ASSET_HANDLER = "durin_dev_tool.asset:run"
 
 
 def _build_command(
@@ -603,6 +604,30 @@ COMMAND_SPECS = (
         + (
             _argument("--project", dest="project_path", type=Path, default=None),
             _argument("--args", dest="run_arguments", nargs=argparse.REMAINDER, default=()),
+        ),
+    ),
+    CommandSpec(
+        "asset",
+        "inspect authored asset packages without modifying them",
+        subcommands=(
+            CommandSpec(
+                "audit",
+                "run a deterministic read-only compatibility audit",
+                ASSET_HANDLER,
+                capability=Capability.PREPARED_ENVIRONMENT,
+                arguments=CONTEXT_ARGUMENTS
+                + (
+                    _argument("--project", dest="project_path", type=Path, required=True),
+                    _argument("--format", dest="format_name", choices=("human", "json"), default="human"),
+                    _argument(
+                        "--fail-on",
+                        dest="fail_on",
+                        choices=("incompatible", "unsupported", "error"),
+                        action="append",
+                        default=(),
+                    ),
+                ),
+            ),
         ),
     ),
     CommandSpec(

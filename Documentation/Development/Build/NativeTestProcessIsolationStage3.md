@@ -70,7 +70,7 @@ Logs:
 
 ## Post-Rebase Test Integration
 
-The `dev` rebase added `AssetUpgradeAuditServiceTests.cpp` to
+The `dev` rebase added editor asset-audit coverage to
 `EditorAssetWorkflowTests` and `StaticModelImportBuildTests.cpp` to
 `TextureTests`. `EngineAssetBuild` is linked and deployed only for the latter
 functional target. Configuration's ownership guard accounts for both sources.
@@ -86,6 +86,7 @@ initialization made the case self-contained in its CTest process.
   `Build/.agent-state/logs/20260728-063008-831086-7564-cmake.log`
 - Final post-rebase aggregate:
   `Build/.agent-state/logs/20260728-063143-078382-26440-ctest.log`
-- Focused new suites: 8/8 upgrade-audit tests and 8/8 static-model-import tests.
+- Focused new suites: all editor asset-audit tests and all static-model-import
+  tests.
 - Whole functional targets: 40/40 editor asset-workflow tests and 51/51 texture
   tests.

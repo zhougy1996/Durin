@@ -63,25 +63,32 @@ Save, Discard, or Cancel back to resource-specific workspace callbacks.
 `MainFrame` renders the one shared confirmation modal. Repeated close requests
 cannot create duplicate confirmations.
 
-The Level workspace also defers opening a loaded level when AssetCore reports
-structure-compatibility changes. Its document controller keeps the loaded
-package pending while the current level, world, and transaction state remain
-active. `FAssetStructureUpgradeModel` owns the pending package, compatibility
-report, and resolution lifecycle; document-dialog presenters only render that
-state and return explicit user decisions. The controller applies persistence,
-activation, unload, and deferred-open callbacks, completing the workspace
-document request only after activation or cancellation.
+Level, Material, and Texture workspaces apply the same compatibility policy
+after loading and before document activation. A load report containing any
+compatibility issue rejects the requested document, leaves the previous active
+document or world unchanged, and reports one error directing the user to Asset
+Compatibility Audit for full details. Each request captures package ownership
+before loading so rejection or activation failure releases only packages
+introduced by that request; packages that were already loaded remain owned by
+their existing users.
 
-For reports without risk, the user may atomically save the upgraded package and
-open it, open the Dirty in-memory level without saving, or cancel and unload the
-pending package. Reports with risk disable normal upgrade-and-save and require a
-separate data-loss acknowledgement before saving. Save failure leaves the
-pending package available for retry or cancellation; cancellation and
-activation failure unload it and preserve the previous active level. The
-compatibility modal is derived from pending state each frame so startup window
-placement cannot dismiss an unresolved decision. The Level workspace composition
-root constructs panels and document services in dependency order, while panel
-and dialog presenters remain module-private implementation details.
+Workspaces expose no save, discard, repair, open-without-saving, or data-loss
+action for an incompatible package. AssetCore's ordinary-save guard remains the
+final persistence boundary if another caller bypasses the workspace policy.
+
+Project-wide compatibility review is an explicit application tool rather than
+a workspace document. `MainFrame` owns the non-modal `Tools > Asset
+Compatibility Audit` window and its presentation actions, while `DurinEd` owns
+the request-scoped worker, cancellation, request-serial mailbox, and path-keyed
+result index. Opening or drawing the window does not start work; only `Run
+Audit` captures the registry and reflection snapshots. The window can reveal a
+selected package in the Level Editor Content Browser, but neither `MainFrame`
+nor a concrete asset workspace owns compatibility classification or a write
+action.
+
+The Level workspace composition root constructs panels and document services in
+dependency order, while panel and dialog presenters remain module-private
+implementation details.
 
 Class-filtered asset selection uses the `DurinEd` asset picker. Its optional path
 prefix limits candidate enumeration without retaining a loaded current

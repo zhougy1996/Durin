@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "asset-audit-v1.schema.json",
+  "title": "Durin asset compatibility audit report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "packages"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "packages": { "type": "array", "items": { "$ref": "#/$defs/package" } }
+  },
+  "$defs": {
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["packagePath", "physicalPath", "inspection", "compatibility", "freshness", "fileSize", "lastWriteTimeTicks", "findings"],
+      "properties": {
+        "packagePath": { "type": "string" },
+        "physicalPath": { "type": "string" },
+        "inspection": { "enum": ["NotChecked", "Ready", "Failed"] },
+        "compatibility": { "enum": ["Compatible", "Incompatible", "Unsupported"] },
+        "freshness": { "enum": ["Current", "Stale"] },
+        "fileSize": { "type": "integer", "minimum": 0 },
+        "lastWriteTimeTicks": { "type": "integer" },
+        "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "objectPath", "classIdentity", "declaringType", "fieldName", "storedKind", "storedTypeSignature", "expectedKind", "expectedTypeSignature", "payloadSize", "payloadOffset", "diagnostic"],
+      "properties": {
+        "code": { "enum": ["UnknownField", "IncompatibleFieldSignature", "UnavailableClass", "UnsupportedPackageFormat", "InvalidObjectGraph", "CorruptPackage", "IoFailure"] },
+        "objectPath": { "type": "string" },
+        "classIdentity": { "type": "string" },
+        "declaringType": { "type": "string" },
+        "fieldName": { "type": "string" },
+        "storedKind": { "type": "string" },
+        "storedTypeSignature": { "type": "string" },
+        "expectedKind": { "type": "string" },
+        "expectedTypeSignature": { "type": "string" },
+        "payloadSize": { "type": "integer", "minimum": 0 },
+        "payloadOffset": { "type": "integer", "minimum": 0 },
+        "diagnostic": { "type": "string" }
+      }
+    }
+  }
+}

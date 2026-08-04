@@ -1,4 +1,5 @@
 #include "MainFrameModule.h"
+#include "AssetCompatibilityWindow.h"
 
 #include "AsyncImport.h"
 
@@ -184,10 +185,13 @@ namespace Durin
 		auto DrawProfilingMenu(
 			const FProfilingToolService& ProfilingTools,
 			std::string& StatusMessage,
-			bool& bStatusOpen
+			bool& bStatusOpen,
+			bool& bAssetCompatibilityOpen
 		) -> void
 		{
 			if (!ImGui::BeginMenu("Tools")) return;
+			if (ImGui::MenuItem("Asset Compatibility Audit")) bAssetCompatibilityOpen = true;
+			ImGui::Separator();
 			if (ImGui::BeginMenu("Profiling"))
 			{
 				const FTracyToolStatus Status = ProfilingTools.QueryStatus();
@@ -296,7 +300,10 @@ namespace Durin
 			bool& bAboutDialogOpen,
 			bool& bEditorPreferencesOpen,
 			std::string& ProfilingStatusMessage,
-			bool& bProfilingStatusOpen
+			bool& bProfilingStatusOpen,
+			FAssetCompatibilityWindow& AssetCompatibilityWindow,
+			bool& bAssetCompatibilityOpen,
+			FLevelEditorModule& LevelEditorModule
 		) -> void
 		{
 			ImGuiViewport* Viewport = ImGui::GetMainViewport();
@@ -349,7 +356,7 @@ namespace Durin
 					for (const std::shared_ptr<IEditorWorkspace>& Workspace : Workspaces) Workspace->DrawEditMenu();
 					ImGui::EndMenu();
 				}
-				DrawProfilingMenu(ProfilingTools, ProfilingStatusMessage, bProfilingStatusOpen);
+				DrawProfilingMenu(ProfilingTools, ProfilingStatusMessage, bProfilingStatusOpen, bAssetCompatibilityOpen);
 				if (ImGui::BeginMenu("Window"))
 				{
 					DrawOpenEditorsMenu(WorkspaceManager);
@@ -371,6 +378,10 @@ namespace Durin
 			DrawAboutDialog(bAboutDialogOpen);
 			DrawEditorPreferences(HostSettings, RootWindow, bEditorPreferencesOpen);
 			DrawProfilingToolStatusDialog(bProfilingStatusOpen, ProfilingStatusMessage);
+			AssetCompatibilityWindow.Draw(bAssetCompatibilityOpen,
+				[&LevelEditorModule](const FAssetPath& Path) {
+					(void)LevelEditorModule.RevealAssetInContentBrowser(Path);
+				});
 
 			const ImVec2 DockSpaceSize = ImGui::GetContentRegionAvail();
 			const ImGuiID DockSpaceId = EditorWorkspaceUI::MakeEditorHostDockSpaceId(EditorWorkspaceUI::HostLayoutVersion);
@@ -403,11 +414,6 @@ namespace Durin
 	{
 	}
 
-	auto FMainFrameModule::RequestOpenAssetUpgradeCenter() -> void
-	{
-		bAssetUpgradeCenterOpenRequested = true;
-	}
-
 	auto FMainFrameModule::CreateDefaultMainFrame() -> void
 	{
 		auto HostSettings = std::make_shared<FEditorHostSettings>();
@@ -429,6 +435,7 @@ namespace Durin
 		auto bWorkspaceReady = std::make_shared<bool>(false);
 		auto ProjectBrowser = std::make_shared<FProjectBrowser>();
 		auto ProfilingTools = std::make_shared<FProfilingToolService>(FPaths::RootDir());
+		auto AssetCompatibilityWindow = std::make_shared<FAssetCompatibilityWindow>();
 		const std::weak_ptr<MWindow> WeakRootWindow = RootWindow;
 		if (HasCurrentProject())
 		{
@@ -437,15 +444,15 @@ namespace Durin
 			else
 			{
 				ProjectBrowser->RecordCurrentProject();
-				if (GEditor) GEditor->StartAssetUpgradeAudit();
 			}
 		}
 
 		RootWindow->SetTitle(GetCurrentProject() ? std::format("Durin Editor - {}", GetCurrentProject()->Name) : "Durin Editor - Project Browser");
 		RootWindow->ReshapeWindow({100.0f, 100.0f}, {static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
 
-		ProjectBrowser->SetOpenProject([WorkspaceManager, bWorkspaceReady, WeakRootWindow, LevelEditorModulePtr, MaterialEditorModulePtr, TextureEditorModulePtr](std::string_view ProjectFile, std::string& OutError) {
+		ProjectBrowser->SetOpenProject([WorkspaceManager, bWorkspaceReady, WeakRootWindow, LevelEditorModulePtr, MaterialEditorModulePtr, TextureEditorModulePtr, AssetCompatibilityWindow](std::string_view ProjectFile, std::string& OutError) {
 			AssetImport::CancelAndDrainAllAsyncImports();
+			AssetCompatibilityWindow->ProjectChanged();
 			FProjectInitializationParams Params;
 			Params.RequestedProjectFile = ProjectFile;
 			if (!InitializeCurrentProject(Params, &OutError)) return false;
@@ -461,15 +468,14 @@ namespace Durin
 				OutError = "Could not initialize the editor workspaces.";
 				return false;
 			}
-			if (GEditor) GEditor->StartAssetUpgradeAudit();
 			if (const std::shared_ptr<MWindow> RootWindow = WeakRootWindow.lock())
 				RootWindow->SetTitle(std::format("Durin Editor - {}", GetCurrentProject()->Name));
 			return true;
 		});
 
-		EditorRootWidget->Construct([WorkspaceManager, bWorkspaceReady, ProjectBrowser, ProfilingTools, HostSettings, WeakRootWindow,
+		EditorRootWidget->Construct([WorkspaceManager, bWorkspaceReady, ProjectBrowser, ProfilingTools, AssetCompatibilityWindow, HostSettings, WeakRootWindow, LevelEditorModulePtr,
 			bAboutDialogOpen = false, bEditorPreferencesOpen = false, ProfilingStatusMessage = std::string{},
-			bProfilingStatusOpen = false]() mutable {
+			bProfilingStatusOpen = false, bAssetCompatibilityOpen = false]() mutable {
 			const std::shared_ptr<MWindow> RootWindow = WeakRootWindow.lock();
 			if (RootWindow) ObserveEditorHostWindowState(*HostSettings, *RootWindow);
 			if (*bWorkspaceReady)
@@ -484,7 +490,10 @@ namespace Durin
 						bAboutDialogOpen,
 						bEditorPreferencesOpen,
 						ProfilingStatusMessage,
-						bProfilingStatusOpen
+						bProfilingStatusOpen,
+						*AssetCompatibilityWindow,
+						bAssetCompatibilityOpen,
+						*LevelEditorModulePtr
 					);
 				}
 				return;

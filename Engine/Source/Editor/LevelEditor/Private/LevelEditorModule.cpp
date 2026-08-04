@@ -82,11 +82,19 @@ namespace Durin
 		});
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<FEditorWorkspaceRegistrationHandle>(std::move(Registration));
+		LevelEditorWorkspace = Workspace;
 		return true;
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::UnregisterLevelEditorWorkspace() -> void
 	{
 		WorkspaceRegistration.reset();
+		LevelEditorWorkspace.reset();
+	}
+
+	auto FLevelEditorModule::RevealAssetInContentBrowser(const FAssetPath& AssetPath) -> bool
+	{
+		const std::shared_ptr<MLevelEditor> Workspace = LevelEditorWorkspace.lock();
+		return Workspace && Workspace->RevealAssetInContentBrowser(AssetPath);
 	}
 }

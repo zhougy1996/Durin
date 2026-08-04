@@ -2,7 +2,7 @@
 #include "Widgets/MaterialParameterPanelModel.h"
 #include "Widgets/MaterialPreview.h"
 
-#include "Asset/AssetUpgradeAuditService.h"
+#include "Asset/WorkspaceAssetOpenCompatibility.h"
 #include "AssetSystem.h"
 #include "DObject/Package.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -65,6 +65,7 @@ namespace Durin
 			SetError(std::move(PathError));
 			return EEditorDocumentOpenResult::Rejected;
 		}
+		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(AssetPath);
 		DMaterialInterface* Material = nullptr;
 		Asset::FAssetLoadReport LoadReport;
 		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Material, &LoadReport);
@@ -73,7 +74,12 @@ namespace Durin
 			SetError(Result ? "The selected asset is not a material." : Result.Message);
 			return EEditorDocumentOpenResult::Rejected;
 		}
-		if (GEditor) GEditor->GetAssetUpgradeAuditService().MergeWorkspaceLoadReport(LoadReport);
+		std::string CompatibilityDiagnostic;
+		if (CompatibilityPolicy.RejectIfIncompatible(LoadReport, CompatibilityDiagnostic))
+		{
+			SetError(std::move(CompatibilityDiagnostic));
+			return EEditorDocumentOpenResult::Rejected;
+		}
 		OpenMaterials.emplace(Document.ResourceId, Material);
 		return EEditorDocumentOpenResult::Opened;
 	}
@@ -178,9 +184,6 @@ namespace Durin
 			SetError(Result.Message);
 			return false;
 		}
-		FAssetPath SavedPath;
-		if (FAssetPath::TryCreate(Material->GetPackage()->GetPackagePath(), SavedPath) && GEditor)
-			GEditor->GetAssetUpgradeAuditService().InvalidatePackage(SavedPath);
 		return true;
 	}
 

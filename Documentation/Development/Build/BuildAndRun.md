@@ -267,6 +267,34 @@ smoke test, launch the runtime with PowerShell `Start-Process`, pass
 process after verification. `-WindowStyle Hidden` only affects process startup
 and is not a substitute for the application argument.
 
+## Read-Only Asset Compatibility Audit
+
+Audit the engine, active project, and configured auto-scan mounts without
+starting an editor workspace:
+
+```powershell
+.\DevTool.bat build --target DurinAssetAudit
+.\DevTool.bat asset audit --project Sandbox\Sandbox.dproject
+.\DevTool.bat asset audit --project Sandbox\Sandbox.dproject --format json
+.\DevTool.bat asset audit --project Sandbox\Sandbox.dproject --fail-on incompatible --fail-on unsupported --fail-on error
+```
+
+The default human output groups incompatible, unsupported, failed, and stale
+records. `--format json` emits the versioned schema in
+`Tools/DurinDevTool/schemas/asset-audit-v1.schema.json`; packages are ordered by
+virtual path and enum values use stable names. The three `--fail-on` options are
+independent and repeated options combine by logical OR. With no policy option,
+incompatible and unsupported packages are reported but do not fail the command.
+
+Exit status `0` means the scan and serialization completed and no selected
+policy matched. Status `3` means a selected policy matched. Status `1` is an
+operational scan/process/schema or command-line validation failure, and
+Ctrl+C/cancellation uses status `130`. The native host initializes only project
+paths, mount definitions, reflected types, and AssetCore probing. It does not
+enter Launch, create an editor or renderer, use the writable registry cache,
+load package objects or dependencies, or expose save, resave, repair, discard,
+checkout, or source mutation options.
+
 Select another registered configure preset with `--preset`:
 
 ```powershell
