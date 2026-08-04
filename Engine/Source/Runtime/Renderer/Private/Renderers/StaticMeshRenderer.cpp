@@ -86,8 +86,9 @@ namespace Durin
 			const FMaterialShaderMapIdentity& Identity) -> std::string
 		{
 			return std::format(
-				"schema={},blend={},shading={},mask-bits={}",
-				Identity.SchemaVersion,
+				"layout-version={},layout-id={},blend={},shading={},mask-bits={}",
+				Identity.RenderLayout.Version,
+				Identity.RenderLayout.Id.ToString(),
 				static_cast<uint8>(Identity.BlendMode),
 				static_cast<uint8>(Identity.ShadingModel),
 				std::bit_cast<uint32>(Identity.OpacityMaskThreshold));

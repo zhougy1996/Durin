@@ -41,6 +41,10 @@ namespace Durin
 		ENGINE_API auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool override;
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
+		auto GetParameterSchemaVersion() const -> FMaterialParameterSchemaVersion
+		{
+			return ParameterSchemaVersion;
+		}
 		// Exchanges importer-owned parent and parameter state without changing
 		// package or object identity. Used by atomic multi-asset reimport.
 		ENGINE_API auto ExchangeImportedState(DMaterialInstance& Other) -> void;
@@ -55,6 +59,10 @@ namespace Durin
 	private:
 		DPROPERTY(Edit)
 		TObjectPtr<DMaterialInterface> Parent;
+
+		// Zero is the legacy on-disk value and is upgraded during PostLoad.
+		DPROPERTY()
+		uint32 ParameterSchemaVersion = 0;
 
 		DPROPERTY(Edit)
 		std::vector<FMaterialParameterOverride> ParameterOverrides;

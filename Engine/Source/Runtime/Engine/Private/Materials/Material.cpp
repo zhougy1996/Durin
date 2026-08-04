@@ -4,6 +4,7 @@ namespace Durin
 {
 	DMaterial::DMaterial(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
+		, ParameterSchemaVersion(CurrentMaterialParameterSchemaVersion)
 		, ParameterDefinitions(MakeCanonicalMaterialParameterDefinitions())
 	{
 		PublishMaterialRenderProxyState();
@@ -119,6 +120,12 @@ namespace Durin
 	auto DMaterial::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
+		std::string SchemaWarning;
+		if (!UpgradeMaterialParameterSchemaVersion(
+				ParameterSchemaVersion, SchemaWarning, OutError))
+		{
+			return false;
+		}
 		if (!ValidateCanonicalMaterialParameterDefinitions(
 				ParameterDefinitions, OutError)
 			|| !ValidateMaterialStaticProperties(

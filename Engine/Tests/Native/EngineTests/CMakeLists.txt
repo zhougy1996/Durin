@@ -156,6 +156,7 @@ durin_add_engine_functional_test(MaterialTests
 		Private/Materials/MaterialRenderProxyTests.cpp
 		Private/Materials/MaterialInstanceTests.cpp
 		Private/Materials/MaterialRenderingTests.cpp
+		Private/Materials/MaterialRenderRepresentationTests.cpp
 		Private/MaterialParameterPanelModelTests.cpp
 	PRIVATE_SOURCES
 		${_durin_material_editor_private}/Widgets/MaterialPreview.cpp

@@ -7,6 +7,11 @@
 
 #include "MaterialTypes.gen.h"
 
+#include <cstddef>
+#include <span>
+#include <string>
+#include <vector>
+
 namespace Durin
 {
 	class DMaterialInterface;
@@ -55,6 +60,136 @@ namespace Durin
 		Enabled,
 		Disabled,
 	};
+
+	using FMaterialParameterSchemaVersion = uint32;
+	inline constexpr FMaterialParameterSchemaVersion CurrentMaterialParameterSchemaVersion = 1;
+
+	// Describes the transient Engine-to-Renderer material payload protocol.
+	enum class EMaterialRenderFieldStorage : uint8
+	{
+		Uniform,
+		Resource,
+	};
+
+	enum class EMaterialRenderValueType : uint8
+	{
+		Scalar,
+		Vector3,
+		Vector4,
+		Texture2D,
+	};
+
+	using FMaterialRenderLayoutVersion = uint32;
+	inline constexpr FMaterialRenderLayoutVersion CurrentMaterialRenderLayoutVersion = 1;
+	inline constexpr uint32 MaterialRenderMaxFieldCount = 256;
+	inline constexpr uint32 MaterialRenderMaxResourceCount = 64;
+	inline constexpr uint32 MaterialRenderMaxUniformPayloadBytes = 16 * 1024;
+
+	// The Id identifies the exact v1 field table and shader binding contract.
+	inline constexpr FGuid MaterialRenderLayoutV1Id{
+		0x4a6f4c01, 0x27d140b2, 0x8a52cc39, 0x6d4f9a77};
+
+	struct FMaterialRenderLayoutIdentity
+	{
+		FMaterialRenderLayoutVersion Version = CurrentMaterialRenderLayoutVersion;
+		FGuid Id = MaterialRenderLayoutV1Id;
+
+		auto operator==(const FMaterialRenderLayoutIdentity&) const -> bool = default;
+	};
+
+	struct FMaterialRenderField
+	{
+		// The GUID is retained for Engine-side compilation and diagnostics only.
+		FGuid ParameterId;
+		EMaterialRenderFieldStorage Storage = EMaterialRenderFieldStorage::Uniform;
+		EMaterialRenderValueType Type = EMaterialRenderValueType::Scalar;
+		uint16 CompactIndex = 0;
+		uint32 Offset = 0;
+		uint32 Size = 0;
+	};
+
+	struct FMaterialRenderLayout
+	{
+		FMaterialRenderLayoutIdentity Identity;
+		uint32 UniformPayloadSize = 0;
+		uint16 UniformFieldCount = 0;
+		uint16 ResourceFieldCount = 0;
+		std::vector<FMaterialRenderField> Fields;
+	};
+
+	enum class EMaterialRenderValidationFailure : uint8
+	{
+		None,
+		UnsupportedVersion,
+		UnsupportedIdentity,
+		InvalidCounts,
+		InvalidPayloadSize,
+		InvalidField,
+		DuplicateField,
+		InvalidOffset,
+		InvalidAlignment,
+		OverlappingFields,
+		NonFiniteValue,
+		NonZeroPadding,
+		InvalidResource,
+	};
+
+	struct FMaterialRenderValidationDiagnostic
+	{
+		EMaterialRenderValidationFailure Failure = EMaterialRenderValidationFailure::None;
+		uint32 FieldIndex = 0;
+		std::string Message;
+	};
+
+	struct FMaterialRenderRepresentationInput
+	{
+		FMaterialRenderLayout Layout;
+		std::vector<std::byte> UniformPayload;
+		std::vector<FRHITextureReferenceRef> Resources;
+	};
+
+	// Immutable after construction; no reflected object or raw resource pointer
+	// is retained in the published representation.
+	class FMaterialRenderRepresentation final
+	{
+	public:
+		ENGINE_API FMaterialRenderRepresentation();
+
+		ENGINE_API static auto TryCreate(
+			FMaterialRenderRepresentationInput Input,
+			FMaterialRenderRepresentation& OutRepresentation,
+			FMaterialRenderValidationDiagnostic& OutDiagnostic
+		) -> bool;
+
+		ENGINE_API auto GetLayout() const -> const FMaterialRenderLayout&;
+		ENGINE_API auto GetUniformPayload() const -> std::span<const std::byte>;
+		ENGINE_API auto GetResources() const
+			-> std::span<const FRHITextureReferenceRef>;
+		ENGINE_API auto IsFallback() const -> bool;
+
+	private:
+		FMaterialRenderRepresentation(
+			FMaterialRenderLayout InLayout,
+			std::vector<std::byte> InUniformPayload,
+			std::vector<FRHITextureReferenceRef> InResources,
+			bool bInFallback);
+
+		FMaterialRenderLayout Layout;
+		std::vector<std::byte> UniformPayload;
+		std::vector<FRHITextureReferenceRef> Resources;
+		bool bFallback = false;
+	};
+
+	ENGINE_API auto MakeDefaultMaterialRenderLayout() -> FMaterialRenderLayout;
+	ENGINE_API auto ValidateMaterialRenderLayout(
+		const FMaterialRenderLayout& Layout,
+		FMaterialRenderValidationDiagnostic& OutDiagnostic
+	) -> bool;
+	ENGINE_API auto UpgradeMaterialParameterSchemaVersion(
+		FMaterialParameterSchemaVersion& InOutVersion,
+		std::string& OutWarning,
+		std::string& OutError
+	) -> bool;
 
 	// Defines base-material properties that participate in shader and pipeline identity.
 	DSTRUCT()
@@ -160,6 +295,9 @@ namespace Durin
 		FGuid ParameterId;
 
 		DPROPERTY()
+		EMaterialParameterType Type = EMaterialParameterType::Scalar;
+
+		DPROPERTY()
 		FMaterialParameterValue Value;
 	};
 
@@ -203,7 +341,7 @@ namespace Durin
 	// Contains the renderer-ready subset of resolved material parameters.
 	struct FMaterialShaderMapIdentity
 	{
-		uint32 SchemaVersion = 1;
+		FMaterialRenderLayoutIdentity RenderLayout;
 		EMaterialBlendMode BlendMode = EMaterialBlendMode::Opaque;
 		EMaterialShadingModel ShadingModel = EMaterialShadingModel::Lit;
 		float OpacityMaskThreshold = 0.333f;
@@ -222,6 +360,7 @@ namespace Durin
 
 	struct FMaterialRenderData
 	{
+		FMaterialRenderRepresentation Representation;
 		FVector4f BaseColor{0.95f, 0.62f, 0.22f, 1.0f};
 		// Scene proxies retain only the counted stable RHI indirection.
 		FRHITextureReferenceRef BaseColorTexture;

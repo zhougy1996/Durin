@@ -41,6 +41,18 @@ namespace Durin
 			return {};
 		}
 
+		auto IsValidParameterType(EMaterialParameterType Type) -> bool
+		{
+			switch (Type)
+			{
+			case EMaterialParameterType::Scalar:
+			case EMaterialParameterType::Vector:
+			case EMaterialParameterType::Texture:
+				return true;
+			}
+			return false;
+		}
+
 		auto WouldCreateParentCycle(
 			const DMaterialInstance* Instance,
 			const DMaterialInterface* CandidateParent
@@ -60,6 +72,7 @@ namespace Durin
 
 	DMaterialInstance::DMaterialInstance(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
+		, ParameterSchemaVersion(CurrentMaterialParameterSchemaVersion)
 	{
 		PublishMaterialRenderProxyState();
 	}
@@ -134,6 +147,7 @@ namespace Durin
 	{
 		if (&Other == this) return;
 		std::swap(Parent, Other.Parent);
+		std::swap(ParameterSchemaVersion, Other.ParameterSchemaVersion);
 		std::swap(ParameterOverrides, Other.ParameterOverrides);
 		MarkPackageDirty();
 		Other.MarkPackageDirty();
@@ -171,12 +185,16 @@ namespace Durin
 		const FMaterialParameterValue CanonicalValue = CanonicalizeParameterValue(Type, Value);
 		if (FMaterialParameterOverride* Override = FindMutableOverride(ParameterOverrides, Id))
 		{
-			if (Override->Value == CanonicalValue) return true;
+			if (Override->Type == Type && Override->Value == CanonicalValue) return true;
+			Override->Type = Type;
 			Override->Value = CanonicalValue;
 		}
 		else
 		{
-			ParameterOverrides.push_back({.ParameterId = Id, .Value = CanonicalValue});
+			ParameterOverrides.push_back({
+				.ParameterId = Id,
+				.Type = Type,
+				.Value = CanonicalValue});
 		}
 		MarkPackageDirty();
 		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
@@ -324,8 +342,15 @@ namespace Durin
 	auto DMaterialInstance::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
+		const bool bLegacySchema = ParameterSchemaVersion == 0;
+		std::string SchemaWarning;
+		if (!UpgradeMaterialParameterSchemaVersion(
+				ParameterSchemaVersion, SchemaWarning, OutError))
+		{
+			return false;
+		}
 		std::unordered_set<FGuid> OverrideIds;
-		for (const FMaterialParameterOverride& Override : ParameterOverrides)
+		for (FMaterialParameterOverride& Override : ParameterOverrides)
 		{
 			if (!Override.ParameterId.IsValid())
 			{
@@ -337,6 +362,28 @@ namespace Durin
 				OutError = std::format(
 					"A material instance asset contains duplicate overrides for parameter GUID {}.",
 					Override.ParameterId.ToString());
+				return false;
+			}
+			if (!IsValidParameterType(Override.Type))
+			{
+				OutError = std::format(
+					"A material instance override for parameter GUID {} has an invalid type.",
+					Override.ParameterId.ToString());
+				return false;
+			}
+			const FMaterialParameterDefinition* Definition =
+				FindParameterDefinition(Override.ParameterId);
+			if (bLegacySchema && Definition != nullptr)
+			{
+				Override.Type = Definition->Type;
+			}
+			if (Definition != nullptr && Override.Type != Definition->Type)
+			{
+				OutError = std::format(
+					"A material instance override for parameter GUID {} changes type from {} to {}.",
+					Override.ParameterId.ToString(),
+					static_cast<uint8>(Definition->Type),
+					static_cast<uint8>(Override.Type));
 				return false;
 			}
 		}

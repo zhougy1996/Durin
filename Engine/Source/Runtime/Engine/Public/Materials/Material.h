@@ -26,6 +26,10 @@ namespace Durin
 		ENGINE_API auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool override;
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
+		auto GetParameterSchemaVersion() const -> FMaterialParameterSchemaVersion
+		{
+			return ParameterSchemaVersion;
+		}
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 
 	protected:
@@ -36,6 +40,10 @@ namespace Durin
 		// These values are inherited by instances and will form shader and pipeline keys.
 		DPROPERTY(Edit)
 		FMaterialStaticProperties StaticProperties;
+
+		// Zero is the legacy on-disk value and is upgraded during PostLoad.
+		DPROPERTY()
+		uint32 ParameterSchemaVersion = 0;
 
 		// Definition identity and metadata are canonical; only the nested Value fields are editable.
 		DPROPERTY()

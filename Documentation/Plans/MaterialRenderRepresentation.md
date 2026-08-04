@@ -10,19 +10,22 @@ Completed:
 ## Current Status
 
 Stage 0 is complete against baseline commit
-`919401389d259c6da9c391cc39a7a2e6e4ed080b` (the exact commit is recorded by
-the Stage 0 handoff below). Material declarations, instance overrides, static
-properties, immutable render snapshots, stable render-proxy publication,
-StaticMesh slot bindings, and material shader-map and pipeline identities are
-already implemented.
+`919401389d259c6da9c391cc39a7a2e6e4ed080b`, and Stage 1 is now complete against
+the Stage 0 handoff commit
+`e72bb5fe0be6b1b9bb9135d5cea6e53c491c8ac7` (the baseline is recorded below).
+Material declarations, instance overrides, static properties, immutable render
+snapshots, stable render-proxy publication, StaticMesh slot bindings, material
+shader-map and pipeline identities, and the validated Engine representation
+foundation are implemented.
 
 `FMaterialRenderData` still exposes fixed `BaseColor`, `BaseColorTexture`,
 `SpecularStrength`, and `Shininess` fields beside its pipeline identity.
 Material resolution addresses the five canonical parameter GUIDs directly,
 and `FStaticMeshRenderer` knows the resulting field layout. Stage 0 froze that
 contract and selected the validated packed uniform/resource table described
-below. Stage 1 is the next implementation stage; it has no unresolved layout,
-validation, ownership, or compatibility decision remaining.
+below. Stage 1 added and tested the Engine representation and serialized
+schema boundary; Stage 2 is the next implementation stage and will compile
+resolved material layers into this representation.
 
 The plan intentionally lands before the PBR surface plan so that PBR inputs
 extend one established render representation instead of creating another fixed
@@ -323,18 +326,18 @@ Renderer modularization handoffs.
 
 Dependencies: Stage 0.
 
-- [ ] Add the Engine-owned layout/version and immutable uniform/resource
+- [x] Add the Engine-owned layout/version and immutable uniform/resource
   payload types selected in Stage 0.
-- [ ] Add checked construction and validation for version, counts, offsets,
+- [x] Add checked construction and validation for version, counts, offsets,
   alignment, types, compact indices, finite values, and resource references.
-- [ ] Keep static shader-map and pipeline identities distinct from dynamic
+- [x] Keep static shader-map and pipeline identities distinct from dynamic
   uniform/resource data and define how the layout identity participates in
   cache selection.
-- [ ] Implement deterministic empty/default/failure representations without
+- [x] Implement deterministic empty/default/failure representations without
   retaining reflected objects.
-- [ ] Add the selected serialized material-schema version and bounded upgrade
+- [x] Add the selected serialized material-schema version and bounded upgrade
   or rejection behavior without conflating it with the runtime render layout.
-- [ ] Add focused Engine tests for valid construction, stable layout identity,
+- [x] Add focused Engine tests for valid construction, stable layout identity,
   malformed data rejection, unsupported versions, defaults, and serialized
   compatibility cases.
 
@@ -344,6 +347,49 @@ Dependencies: Stage 0.
   Renderer, and invalid input cannot become partially published render data.
 - Persistent asset compatibility and transient render-layout compatibility
   have explicit, separately tested behavior.
+
+#### Stage 1 Acceptance Evidence
+
+- `FMaterialRenderLayout`, `FMaterialRenderRepresentation`, the v1 identity,
+  compact field descriptors, finite/padding/resource validation, and the
+  deterministic fallback are implemented in Engine. `FMaterialRenderData` retains
+  the legacy fields only as a migration bridge; no new material input requires
+  another public fixed field.
+- `FMaterialShaderMapIdentity` now carries `FMaterialRenderLayoutIdentity`;
+  dynamic payload bytes/resources are not part of shader or pipeline identity.
+  The Renderer diagnostic text includes the layout version and Id.
+- Base and instance assets carry the reflected parameter-schema version.
+  Missing v0 state upgrades to v1, unsupported future versions reject, and
+  instance override type metadata rejects incompatible schema changes without
+  reinterpreting values.
+- `MaterialRenderRepresentationTests` covers stable v1 layout and defaults,
+  complete valid construction, unsupported versions, misalignment, non-finite
+  values, non-zero padding, and separate schema-version upgrade/rejection.
+  The focused filter passed 4/4 tests; the full `MaterialTests` target passed
+  55/55 tests through `DevTool.bat`.
+
+#### Stage 1 Handoff
+
+- Baseline: Stage 0 commit `e72bb5fe0be6b1b9bb9135d5cea6e53c491c8ac7` before
+  Engine implementation.
+- Working set: `MaterialTypes.h/.cpp`, `Material.h/.cpp`,
+  `MaterialInstance.h/.cpp`, `StaticMeshRenderer.cpp`,
+  `MaterialRenderRepresentationTests.cpp`, and the EngineTests CMake source
+  list. Generated reflection output remains build-owned and untracked.
+- Key symbols: `FMaterialRenderLayoutIdentity`, `FMaterialRenderField`,
+  `FMaterialRenderRepresentation`, `ValidateMaterialRenderLayout`,
+  `UpgradeMaterialParameterSchemaVersion`, `FMaterialShaderMapIdentity`, and
+  `FMaterialParameterOverride::Type`.
+- Decisions carried forward: v1 is the only supported runtime layout; the
+  32-byte current payload and 16-byte alignment are fixed; invalid factory
+  input returns a fallback output and diagnostic; asset schema v0 upgrades to
+  v1 and future/type-incompatible data rejects before publication.
+- Open questions: none blocking Stage 2. Stage 2 must compile base/instance
+  GUID layers into compact indices and populate the representation while
+  preserving the existing proxy publication/coalescing contract.
+- Validation: focused representation tests and the complete `MaterialTests`
+  target passed; no full `all` build or runtime smoke was required for this
+  Engine-only stage.
 
 ### Stage 2: Migrate Material Resolution and Proxy Publication
 
