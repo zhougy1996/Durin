@@ -106,6 +106,8 @@ namespace Durin
 		uint16 CompactIndex = 0;
 		uint32 Offset = 0;
 		uint32 Size = 0;
+
+		auto operator==(const FMaterialRenderField&) const -> bool = default;
 	};
 
 	struct FMaterialRenderLayout
@@ -115,6 +117,8 @@ namespace Durin
 		uint16 UniformFieldCount = 0;
 		uint16 ResourceFieldCount = 0;
 		std::vector<FMaterialRenderField> Fields;
+
+		auto operator==(const FMaterialRenderLayout&) const -> bool = default;
 	};
 
 	enum class EMaterialRenderValidationFailure : uint8
@@ -179,6 +183,23 @@ namespace Durin
 		std::vector<FRHITextureReferenceRef> Resources;
 		bool bFallback = false;
 	};
+
+	// Decodes the supported v1 compact binding without exposing parameter GUIDs
+	// or reflected objects to Renderer.
+	struct FMaterialRenderV1Binding
+	{
+		FVector3 BaseColor{0.95, 0.62, 0.22};
+		float Opacity = 1.0f;
+		float SpecularStrength = 0.35f;
+		float Shininess = 32.0f;
+		FRHITextureReferenceRef BaseColorTexture;
+	};
+
+	ENGINE_API auto TryGetMaterialRenderV1Binding(
+		const FMaterialRenderRepresentation& Representation,
+		FMaterialRenderV1Binding& OutBinding,
+		FMaterialRenderValidationDiagnostic& OutDiagnostic
+	) -> bool;
 
 	// Compiles GUID-addressed Engine values into one layout's compact payload.
 	// GUID lookup is confined to this Engine-side builder; Renderer consumes the

@@ -467,18 +467,18 @@ Dependencies: Stage 1.
 
 Dependencies: Stage 2.
 
-- [ ] Make `FStaticMeshRenderer` accept only validated supported layouts and
+- [x] Make `FStaticMeshRenderer` accept only validated supported layouts and
   obtain its current uniform values and base-color texture through the selected
   compact binding contract.
-- [ ] Remove Renderer dependencies on the legacy fixed
+- [x] Remove Renderer dependencies on the legacy fixed
   `FMaterialRenderData` fields and reject unsupported layouts through the
   deterministic fallback path and resource diagnostics.
-- [ ] Preserve shader compilation options, shader-map and pipeline cache keys,
+- [x] Preserve shader compilation options, shader-map and pipeline cache keys,
   solid/wireframe selection, descriptor bindings, and renderer-owned texture
   fallbacks.
-- [ ] Preserve material thumbnail, preview, level viewport, and multi-slot
+- [x] Preserve material thumbnail, preview, level viewport, and multi-slot
   rendering consumers through the same representation.
-- [ ] Add focused Vulkan coverage for current uniform/texture binding, fallback
+- [x] Add focused Vulkan coverage for current uniform/texture binding, fallback
   switching, static identity changes, and shader/resource reload.
 
 #### Acceptance Gate
@@ -487,6 +487,44 @@ Dependencies: Stage 2.
   GUID/name lookup, or depends on a public fixed field per material input.
 - Lit/Unlit, solid/wireframe, textured/untextured, multi-slot, thumbnail, and
   preview outputs match the Stage 0 baseline.
+
+#### Stage 3 Acceptance Evidence
+
+- `TryGetMaterialRenderV1Binding` validates the exact v1 field table before
+  decoding compact uniform bytes and the resource index. `FStaticMeshRenderer`
+  now consumes that binding only; its draw path has no reads of the legacy
+  `BaseColor`, `SpecularStrength`, `Shininess`, or `BaseColorTexture` fields,
+  no parameter GUID/name lookup, and retains the existing shader uniform ABI,
+  pipeline keys, raster selection, descriptor bindings, and white-texture
+  fallback.
+- An unsupported representation reports a Renderer `ShaderBinding` resource
+  diagnostic and draws with a complete default `FMaterialRenderData`, so no
+  partially decoded payload reaches a shader or pipeline cache.
+- The rendered thumbnail Vulkan test covers base/instance values, texture and
+  untextured fallback switching, static shader identity changes, and
+  `renderer.reload-shaders all` recovery. `MaterialTests` passed 59/59;
+  `RendererResourceReloadVulkanTests` passed 1/1; and
+  `RenderShaderContractTests` passed 26/26 through `DevTool.bat`.
+
+#### Stage 3 Handoff
+
+- Baseline: Stage 2 commit `60b28083` before Renderer consumption migration.
+- Working set: `MaterialTypes.h/.cpp`, `StaticMeshRenderer.cpp`,
+  `MaterialRenderRepresentationTests.cpp`, and
+  `MaterialRenderingTests.cpp`.
+- Key symbols: `FMaterialRenderV1Binding`,
+  `TryGetMaterialRenderV1Binding`, `FStaticMeshRenderer::DrawProxy_RenderThread`,
+  and `FConsoleCommandRegistry::Execute` for renderer shader invalidation.
+- Decisions carried forward: the v1 binding decoder owns the canonical offset
+  interpretation; Renderer receives values only through that contract; an
+  unsupported layout falls back before shader-map/pipeline selection; the
+  existing default texture and uniform ABI remain unchanged.
+- Open questions: none blocking Stage 4. Stage 4 must audit every remaining
+  fixed-field consumer, run the aggregate and full-build validation, update the
+  Runtime contracts and roadmap, and record final PBR-plan evidence.
+- Validation: MaterialTests 59/59, the focused rendered-thumbnail Vulkan test
+  1/1, RendererResourceReloadVulkanTests 1/1, and RenderShaderContractTests
+  26/26 passed. The required full `all` build and editor smoke remain in Stage 4.
 
 ### Stage 4: Close Compatibility, Validation, and Documentation
 

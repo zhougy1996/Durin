@@ -284,9 +284,39 @@ namespace Durin
 				continue;
 			}
 
-			const FMaterialRenderData& Material =
+			const FMaterialRenderData& ResolvedMaterial =
 				Proxy.ResolveMaterialRenderData_RenderThread(
 					Section.MaterialSlotIndex);
+			FMaterialRenderV1Binding MaterialBinding;
+			FMaterialRenderValidationDiagnostic BindingDiagnostic;
+			FMaterialRenderData FallbackMaterial;
+			const FMaterialRenderData* MaterialData = &ResolvedMaterial;
+			if (!TryGetMaterialRenderV1Binding(
+				ResolvedMaterial.Representation,
+				MaterialBinding,
+				BindingDiagnostic))
+			{
+				FRenderResourceCreateDiagnostic Diagnostic;
+				Diagnostic.Error = MakeRendererResourceCreateError(
+					ERenderResourceCreateErrorCategory::ShaderBinding,
+					"StaticMeshMaterialBinding",
+					GetIdentityText(
+						ResolvedMaterial.PipelineIdentity.ShaderMap),
+					BindingDiagnostic.Message,
+					ERenderResourceGenerationDependency::Manual);
+				ReportRendererResourceCreateDiagnostic(Diagnostic);
+
+				MaterialData = &FallbackMaterial;
+				FMaterialRenderValidationDiagnostic FallbackDiagnostic;
+				if (!TryGetMaterialRenderV1Binding(
+					FallbackMaterial.Representation,
+					MaterialBinding,
+					FallbackDiagnostic))
+				{
+					continue;
+				}
+			}
+			const FMaterialRenderData& Material = *MaterialData;
 
 			FState::FBaseResources* BaseResources =
 				State->BaseResources.GetPayload();
@@ -496,10 +526,14 @@ namespace Durin
 				VertexShaderParameters);
 
 			FStaticMeshMaterialUniform MaterialUniform;
-			MaterialUniform.BaseColor = Material.BaseColor;
+			MaterialUniform.BaseColor = FVector4f(
+				static_cast<float>(MaterialBinding.BaseColor.x),
+				static_cast<float>(MaterialBinding.BaseColor.y),
+				static_cast<float>(MaterialBinding.BaseColor.z),
+				MaterialBinding.Opacity);
 			MaterialUniform.Params = FVector4f(
-				Material.SpecularStrength,
-				Material.Shininess,
+				MaterialBinding.SpecularStrength,
+				MaterialBinding.Shininess,
 				RenderMode == ERenderMode::Lit ? 1.0f : 0.0f,
 				0.0f);
 			const FRHIUniformBufferRange MaterialUniformBuffer =
@@ -510,8 +544,8 @@ namespace Durin
 			FragmentShaderParameters.Lighting = LightingUniformBuffer;
 			FragmentShaderParameters.Material = MaterialUniformBuffer;
 			FRHITexture* BaseColorTexture =
-				Material.BaseColorTexture != nullptr
-				? Material.BaseColorTexture
+				MaterialBinding.BaseColorTexture != nullptr
+				? MaterialBinding.BaseColorTexture
 					  ->GetReferencedTexture_RenderThread()
 				: nullptr;
 			FragmentShaderParameters.BaseColorTexture =

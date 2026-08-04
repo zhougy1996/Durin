@@ -1,4 +1,5 @@
 #include "MaterialTestSupport.h"
+#include "Console/ConsoleCommand.h"
 #include "DynamicRHI.h"
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
@@ -550,6 +551,22 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Durin::MaterialParameters::BaseColorTextureName(), nullptr));
 		const std::vector<Durin::uint8> UntexturedPixels =
 			Capture(CaptureMaterial);
+		const Durin::FMaterialPipelineIdentity LitPipelineIdentity =
+			CaptureMaterial->GetRenderData().PipelineIdentity;
+		Durin::FMaterialStaticProperties StaticProperties;
+		StaticProperties.ShadingModel = Durin::EMaterialShadingModel::Unlit;
+		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(StaticProperties));
+		EXPECT_NE(
+			CaptureMaterial->GetRenderData().PipelineIdentity,
+			LitPipelineIdentity);
+		const std::vector<Durin::uint8> StaticIdentityPixels =
+			Capture(CaptureMaterial);
+		const Durin::FConsoleCommandResult ReloadResult =
+			Durin::FConsoleCommandRegistry::Get().Execute(
+				"renderer.reload-shaders all");
+		ASSERT_TRUE(ReloadResult.bSuccess) << ReloadResult.Message;
+		const std::vector<Durin::uint8> ReloadedPixels =
+			Capture(CaptureMaterial);
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/TC_Preview", CaptureCubePath));
 		const Durin::FTextureCubeImportResult CubeResult =
@@ -587,6 +604,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		EXPECT_NE(MaterialCenterRgb, InstanceCenterRgb);
 		EXPECT_NE(InheritedBeforePixels, InheritedAfterPixels);
 		EXPECT_NE(MaterialPixels, UntexturedPixels);
+		EXPECT_EQ(StaticIdentityPixels, ReloadedPixels);
 		ASSERT_EQ(CubePixels.size(), MaterialPixels.size());
 		const std::array CubeCenterRgb = {
 			CubePixels[Center], CubePixels[Center + 1], CubePixels[Center + 2]};

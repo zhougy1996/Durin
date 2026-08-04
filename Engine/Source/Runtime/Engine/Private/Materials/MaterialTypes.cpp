@@ -426,6 +426,74 @@ namespace Durin
 		return bFallback;
 	}
 
+	auto TryGetMaterialRenderV1Binding(
+		const FMaterialRenderRepresentation& Representation,
+		FMaterialRenderV1Binding& OutBinding,
+		FMaterialRenderValidationDiagnostic& OutDiagnostic
+	) -> bool
+	{
+		OutBinding = FMaterialRenderV1Binding{};
+		OutDiagnostic = {};
+
+		const FMaterialRenderLayout ExpectedLayout =
+			MakeDefaultMaterialRenderLayout();
+		const FMaterialRenderLayout& Layout = Representation.GetLayout();
+		if (Layout.Identity != ExpectedLayout.Identity)
+		{
+			return SetValidationFailure(
+				OutDiagnostic,
+				EMaterialRenderValidationFailure::UnsupportedIdentity,
+				0,
+				"Material render binding layout identity is unsupported.");
+		}
+		if (Layout != ExpectedLayout)
+		{
+			return SetValidationFailure(
+				OutDiagnostic,
+				EMaterialRenderValidationFailure::InvalidField,
+				0,
+				"Material render binding layout does not match the v1 contract.");
+		}
+
+		const std::span<const std::byte> Payload =
+			Representation.GetUniformPayload();
+		if (Payload.size() != ExpectedLayout.UniformPayloadSize)
+		{
+			return SetValidationFailure(
+				OutDiagnostic,
+				EMaterialRenderValidationFailure::InvalidPayloadSize,
+				0,
+				"Material render binding payload size is invalid.");
+		}
+		const std::span<const FRHITextureReferenceRef> Resources =
+			Representation.GetResources();
+		if (Resources.size() != ExpectedLayout.ResourceFieldCount)
+		{
+			return SetValidationFailure(
+				OutDiagnostic,
+				EMaterialRenderValidationFailure::InvalidResource,
+				0,
+				"Material render binding resource count is invalid.");
+		}
+
+		auto ReadFloat = [&Payload](uint32 Offset) {
+			float Value = 0.0f;
+			std::memcpy(&Value, Payload.data() + Offset, sizeof(Value));
+			return Value;
+		};
+		OutBinding.BaseColor = FVector3{
+			static_cast<double>(ReadFloat(ExpectedLayout.Fields[0].Offset)),
+			static_cast<double>(ReadFloat(ExpectedLayout.Fields[0].Offset + 4)),
+			static_cast<double>(ReadFloat(ExpectedLayout.Fields[0].Offset + 8)),
+		};
+		OutBinding.Opacity = ReadFloat(ExpectedLayout.Fields[1].Offset);
+		OutBinding.SpecularStrength =
+			ReadFloat(ExpectedLayout.Fields[2].Offset);
+		OutBinding.Shininess = ReadFloat(ExpectedLayout.Fields[3].Offset);
+		OutBinding.BaseColorTexture = Resources[0];
+		return true;
+	}
+
 	FMaterialRenderRepresentationBuilder::FMaterialRenderRepresentationBuilder(
 		const FMaterialRenderRepresentation& Source)
 		: Input{.Layout = Source.GetLayout()}

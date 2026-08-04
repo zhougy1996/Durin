@@ -158,6 +158,59 @@ TEST(FMaterialRenderRepresentationTests, BuilderCompilesValuesIntoCompactSlots)
 	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 20), 64.0f);
 }
 
+TEST(FMaterialRenderRepresentationTests, V1BindingReadsCompactValuesWithoutParameterLookup)
+{
+	const Durin::FMaterialRenderRepresentation Fallback;
+	Durin::FMaterialRenderRepresentationBuilder Builder(Fallback);
+	ASSERT_TRUE(Builder.SetVector(
+		Durin::MaterialParameters::BaseColorId,
+		Durin::FVector3(0.3, 0.5, 0.7)));
+	ASSERT_TRUE(Builder.SetScalar(
+		Durin::MaterialParameters::OpacityId, 0.4f));
+	ASSERT_TRUE(Builder.SetScalar(
+		Durin::MaterialParameters::SpecularStrengthId, 0.6f));
+	ASSERT_TRUE(Builder.SetScalar(
+		Durin::MaterialParameters::ShininessId, 48.0f));
+
+	Durin::FMaterialRenderRepresentation Representation;
+	Durin::FMaterialRenderValidationDiagnostic Diagnostic;
+	ASSERT_TRUE(Builder.Build(Representation, Diagnostic));
+
+	Durin::FMaterialRenderV1Binding Binding;
+	ASSERT_TRUE(Durin::TryGetMaterialRenderV1Binding(
+		Representation, Binding, Diagnostic));
+	EXPECT_FLOAT_EQ(static_cast<float>(Binding.BaseColor.x), 0.3f);
+	EXPECT_FLOAT_EQ(static_cast<float>(Binding.BaseColor.y), 0.5f);
+	EXPECT_FLOAT_EQ(static_cast<float>(Binding.BaseColor.z), 0.7f);
+	EXPECT_FLOAT_EQ(Binding.Opacity, 0.4f);
+	EXPECT_FLOAT_EQ(Binding.SpecularStrength, 0.6f);
+	EXPECT_FLOAT_EQ(Binding.Shininess, 48.0f);
+	EXPECT_EQ(Binding.BaseColorTexture, nullptr);
+}
+
+TEST(FMaterialRenderRepresentationTests, V1BindingRejectsAChangedFieldTable)
+{
+	const Durin::FMaterialRenderRepresentation Fallback;
+	Durin::FMaterialRenderRepresentationInput Input;
+	Input.Layout = Fallback.GetLayout();
+	Input.Layout.Fields[0].ParameterId = Durin::FGuid{1, 2, 3, 4};
+	Input.UniformPayload.assign(
+		Fallback.GetUniformPayload().begin(), Fallback.GetUniformPayload().end());
+	Input.Resources.assign(Fallback.GetResources().begin(), Fallback.GetResources().end());
+
+	Durin::FMaterialRenderRepresentation Representation;
+	Durin::FMaterialRenderValidationDiagnostic Diagnostic;
+	ASSERT_TRUE(Durin::FMaterialRenderRepresentation::TryCreate(
+		std::move(Input), Representation, Diagnostic));
+
+	Durin::FMaterialRenderV1Binding Binding;
+	EXPECT_FALSE(Durin::TryGetMaterialRenderV1Binding(
+		Representation, Binding, Diagnostic));
+	EXPECT_EQ(
+		Diagnostic.Failure,
+		Durin::EMaterialRenderValidationFailure::InvalidField);
+}
+
 TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelectedLayout)
 {
 	InitializeDObjectSystem();
