@@ -371,6 +371,11 @@ class TestSetupPreflight:
             error = preflight.check_cmake(root)
         assert 'requires 3.24 or newer' in (error or '')
 
+    def test_cmake_lookup_passes_case_insensitive_environment_path(self) -> None:
+        with mock.patch.object(preflight.shutil, 'which', return_value='cmake') as which:
+            assert preflight.command_path('cmake', {'Path': 'custom-path'}) == 'cmake'
+        which.assert_called_once_with('cmake', path='custom-path')
+
     def test_visual_studio_environment_override_is_loaded_from_agent_config(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)

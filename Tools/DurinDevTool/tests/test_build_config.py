@@ -142,6 +142,16 @@ class TestBuildConfig:
         resolved = build_config.resolve_cmake_command(str(requested), 'configured', environment={'DURIN_CMAKE_COMMAND': 'environment'})
         assert Path(resolved) == requested.resolve()
 
+    def test_bare_cmake_command_uses_environment_path(self) -> None:
+        with mock.patch.object(build_config.shutil, 'which', return_value='custom/cmake') as which:
+            resolved = build_config.resolve_cmake_command(
+                '',
+                '',
+                environment={'Path': 'custom-path'},
+            )
+        assert resolved == 'custom/cmake'
+        which.assert_called_once_with('cmake', path='custom-path')
+
     def test_preset_build_path_cannot_escape_checkout(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         preset = build_config.ConfigurePreset('escape', {'binaryDir': '${sourceDir}/../outside'})
         directory = tmp_path_factory.mktemp('case')

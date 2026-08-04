@@ -93,26 +93,18 @@ from .runtime import (
     runtime_executable_path,
     test_executable_path,
 )
+from ..toolchain import (
+    ToolchainError,
+    capture_windows_environment,
+    find_vsdevcmd as find_shared_vsdevcmd,
+    parse_environment_output as parse_shared_environment_output,
+)
 
 ALL_NATIVE_TESTS_TARGET = "DurinNativeTests"
 
 
 def parse_environment_output(output: str, *, case_insensitive: bool = False) -> dict[str, str]:
-    environment: dict[str, str] = {}
-    for entry in output.replace("\r\n", "\n").split("\0" if "\0" in output else "\n"):
-        if "=" not in entry:
-            continue
-        name, value = entry.split("=", 1)
-        if name:
-            environment[name] = value
-    if not case_insensitive:
-        return environment
-    normalized: dict[str, str] = {}
-    for name, value in environment.items():
-        normalized_name = name.upper()
-        if normalized_name not in normalized or name == normalized_name:
-            normalized[normalized_name] = value
-    return normalized
+    return parse_shared_environment_output(output, case_insensitive=case_insensitive)
 
 
 def capture_setup_environment(
@@ -126,18 +118,10 @@ def capture_setup_environment(
     if current_host == "windows":
         if script.suffix.lower() not in {".bat", ".cmd"}:
             raise BuildToolError("Windows environment setup scripts must use the .bat or .cmd extension.")
-        command = [
-            os.environ.get("COMSPEC", "cmd.exe"),
-            "/d",
-            "/s",
-            "/c",
-            "call",
-            str(script),
-            *arguments,
-            ">nul",
-            "&&",
-            "set",
-        ]
+        try:
+            return capture_windows_environment(script, arguments, cwd=REPO_ROOT)
+        except ToolchainError as exc:
+            raise BuildToolError(str(exc)) from exc
     else:
         argument_text = " ".join(shlex.quote(item) for item in [str(script), *arguments])
         command = ["/bin/sh", "-c", f". {argument_text} >/dev/null && env -0"]
@@ -155,39 +139,12 @@ def capture_setup_environment(
 
 def find_vsdevcmd(environment: Mapping[str, str] | None = None) -> Path:
     environment = os.environ if environment is None else environment
-    candidates = [
-        Path(root) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
-        for variable in ("ProgramFiles(x86)", "ProgramFiles")
-        if (root := environment.get(variable))
-    ]
-    vswhere = next((candidate for candidate in candidates if candidate.is_file()), None)
-    if vswhere is None:
+    try:
+        return find_shared_vsdevcmd(environment)
+    except ToolchainError as exc:
         raise BuildToolError(
-            "Visual Studio environment could not be detected because vswhere.exe was not found. "
-            'Set toolchain.environmentScript in ".agents/DevTool.user.json".'
-        )
-    command = [
-        str(vswhere),
-        "-latest",
-        "-products",
-        "*",
-        "-requires",
-        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-        "-property",
-        "installationPath",
-    ]
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
-    installation_path = result.stdout.strip()
-    if result.returncode != 0 or not installation_path:
-        raise BuildToolError(
-            "vswhere.exe could not find a Visual Studio installation with the C++ toolchain.",
-            command=command,
-            exit_code=result.returncode,
-        )
-    script = Path(installation_path) / "Common7" / "Tools" / "VsDevCmd.bat"
-    if not script.is_file():
-        raise BuildToolError(f'Visual Studio environment script does not exist: "{script}"')
-    return script
+            f'{exc} Set toolchain.environmentScript in ".agents/DevTool.user.json".'
+        ) from exc
 
 
 _VISUAL_STUDIO_CACHE_VERSION = 2

@@ -12,6 +12,12 @@ from typing import Mapping, Sequence
 from ..build.config import BuildToolError, load_local_config
 from ..configuration import load_repository_config
 from ..repository import discover_repository_root
+from ..toolchain import (
+    ToolchainError,
+    capture_windows_environment,
+    environment_path,
+    find_vsdevcmd as find_shared_vsdevcmd,
+)
 
 MINIMUM_PYTHON = (3, 10)
 MINIMUM_CMAKE = (3, 24)
@@ -27,78 +33,24 @@ class PreflightError(RuntimeError):
 
 
 def command_path(command: str, environment: Mapping[str, str] | None = None) -> str | None:
-    search_path = None if environment is None else environment.get("PATH", "")
+    search_path = None if environment is None else environment_path(environment)
     return shutil.which(command, path=search_path)
 
 
 def find_vsdevcmd(environment: Mapping[str, str]) -> Path:
-    candidates = [
-        Path(root) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
-        for variable in ("ProgramFiles(x86)", "ProgramFiles")
-        if (root := environment.get(variable))
-    ]
-    vswhere = next((path for path in candidates if path.is_file()), None)
-    if vswhere is None:
-        raise PreflightError("Visual Studio Installer (vswhere.exe) was not found.")
-
-    command = [
-        str(vswhere),
-        "-latest",
-        "-products",
-        "*",
-        "-version",
-        "[17.0,)",
-        "-requires",
-        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-        "-property",
-        "installationPath",
-    ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
-    except OSError as exc:
-        raise PreflightError(f'Could not run Visual Studio Installer query "{vswhere}": {exc}') from exc
-    installation = result.stdout.strip()
-    if result.returncode != 0 or not installation:
-        raise PreflightError(
-            "Visual Studio 2022 or newer with Desktop development with C++ was not found."
-        )
-    script = Path(installation) / "Common7" / "Tools" / "VsDevCmd.bat"
-    if not script.is_file():
-        raise PreflightError(f'Visual Studio environment script is missing: "{script}"')
-    return script
+        return find_shared_vsdevcmd(environment)
+    except ToolchainError as exc:
+        raise PreflightError(str(exc)) from exc
 
 
 def capture_visual_studio_environment(script: Path, arguments: Sequence[str]) -> dict[str, str]:
-    if not script.is_file():
-        raise PreflightError(f'Visual Studio environment script is missing: "{script}"')
-    comspec = os.environ.get("COMSPEC", "cmd.exe")
-    command = [
-        comspec,
-        "/d",
-        "/s",
-        "/c",
-        "call",
-        str(script),
-        *arguments,
-        ">nul",
-        "&&",
-        "set",
-    ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
-    except OSError as exc:
-        raise PreflightError(f'Could not initialize the Visual Studio environment with "{script}": {exc}') from exc
-    if result.returncode != 0:
-        raise PreflightError(f"Visual Studio x64 environment initialization failed ({result.returncode}).")
-    environment: dict[str, str] = {}
-    for line in result.stdout.splitlines():
-        if "=" in line:
-            name, value = line.split("=", 1)
-            normalized_name = name.upper()
-            if normalized_name not in environment or name == normalized_name:
-                environment[normalized_name] = value
-    environment["VSLANG"] = "1033"
-    return environment
+        environment = capture_windows_environment(script, arguments)
+        environment["VSLANG"] = "1033"
+        return environment
+    except ToolchainError as exc:
+        raise PreflightError(str(exc)) from exc
 
 
 def configured_cmake_command(repository_root: Path | None = None) -> str:
@@ -131,10 +83,14 @@ def configured_visual_studio_environment(
     return configured_script, list(config.environment_setup.arguments)
 
 
-def check_cmake(repository_root: Path | None = None) -> str | None:
+def check_cmake(
+    repository_root: Path | None = None,
+    *,
+    environment: Mapping[str, str] | None = None,
+) -> str | None:
     repository_root = repository_root or REPO_ROOT
     configured = configured_cmake_command(repository_root)
-    executable = command_path(configured)
+    executable = command_path(configured, environment)
     if not executable:
         return f'CMake was not found (requested command: "{configured}").'
     try:
@@ -245,9 +201,8 @@ def collect_errors(repository_root: Path | None = None) -> list[str]:
         errors.append("Git was not found in PATH.")
     if long_paths_error := check_windows_long_paths():
         errors.append(long_paths_error)
-    if cmake_error := check_cmake(repository_root):
-        errors.append(cmake_error)
-
+    vs_environment: Mapping[str, str] = os.environ
+    environment_setup_failed = False
     try:
         configured_script, configured_arguments = configured_visual_studio_environment(
             repository_root
@@ -257,6 +212,10 @@ def collect_errors(repository_root: Path | None = None) -> list[str]:
         vs_environment = capture_visual_studio_environment(script, arguments)
     except PreflightError as exc:
         errors.append(str(exc))
+        environment_setup_failed = True
+    if cmake_error := check_cmake(repository_root, environment=vs_environment):
+        errors.append(cmake_error)
+    if environment_setup_failed:
         return errors
     if not find_ninja(vs_environment):
         errors.append("Ninja was not found in PATH or in the selected Visual Studio installation.")

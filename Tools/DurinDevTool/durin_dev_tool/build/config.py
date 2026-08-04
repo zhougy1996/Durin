@@ -11,6 +11,7 @@ from typing import Any, Mapping, TypeAlias
 
 from ..configuration import load_repository_config
 from ..repository import discover_repository_root
+from ..toolchain import environment_path
 
 REPO_ROOT = discover_repository_root()
 REPOSITORY_CONFIG = load_repository_config(REPO_ROOT)
@@ -871,7 +872,7 @@ def resolve_cmake_command(
         if not path.is_file():
             raise BuildToolError(f'CMake command does not exist: "{path}"')
         return str(path.resolve())
-    detected = shutil.which(command)
+    detected = shutil.which(command, path=environment_path(environment))
     if not detected:
         raise BuildToolError(
             f'CMake command "{command}" was not found. Set --cmake, DURIN_CMAKE_COMMAND, '
