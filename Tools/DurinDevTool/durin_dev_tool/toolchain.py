@@ -24,6 +24,54 @@ def environment_path(environment: Mapping[str, str]) -> str:
     return environment_value(environment, "PATH")[1]
 
 
+def _program_files_roots(environment: Mapping[str, str]) -> tuple[Path, ...]:
+    roots: list[Path] = []
+    for variable in ("ProgramFiles(x86)", "ProgramW6432", "ProgramFiles"):
+        _, value = environment_value(environment, variable)
+        if value.strip():
+            roots.append(Path(value))
+
+    if os.name == "nt":
+        try:
+            import winreg
+        except ImportError:
+            winreg = None
+        if winreg is not None:
+            registry_path = r"SOFTWARE\Microsoft\Windows\CurrentVersion"
+            access = getattr(winreg, "KEY_READ", 0)
+            views = {
+                0,
+                getattr(winreg, "KEY_WOW64_64KEY", 0),
+                getattr(winreg, "KEY_WOW64_32KEY", 0),
+            }
+            for view in views:
+                try:
+                    with winreg.OpenKey(
+                        winreg.HKEY_LOCAL_MACHINE,
+                        registry_path,
+                        0,
+                        access | view,
+                    ) as key:
+                        for value_name in ("ProgramFilesDir (x86)", "ProgramFilesDir"):
+                            try:
+                                value, _ = winreg.QueryValueEx(key, value_name)
+                            except OSError:
+                                continue
+                            if isinstance(value, str) and value.strip():
+                                roots.append(Path(value))
+                except OSError:
+                    continue
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root).casefold()
+        if key not in seen:
+            seen.add(key)
+            unique.append(root)
+    return tuple(unique)
+
+
 def parse_environment_output(
     output: str,
     *,
@@ -49,9 +97,8 @@ def parse_environment_output(
 
 def find_vsdevcmd(environment: Mapping[str, str]) -> Path:
     candidates = [
-        Path(root) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
-        for variable in ("ProgramFiles(x86)", "ProgramFiles")
-        if (root := environment.get(variable))
+        root / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+        for root in _program_files_roots(environment)
     ]
     vswhere = next((path for path in candidates if path.is_file()), None)
     if vswhere is None:

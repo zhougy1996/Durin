@@ -217,9 +217,12 @@ class TestCMakeCodeModelGuard:
         environment = dict(os.environ)
         ninja = preflight.find_ninja(environment)
         if not ninja and os.name == 'nt':
-            script, arguments = preflight.configured_visual_studio_environment(REPO_ROOT)
-            script = script or preflight.find_vsdevcmd(environment)
-            environment = preflight.capture_visual_studio_environment(script, arguments)
+            try:
+                script, arguments = preflight.configured_visual_studio_environment(REPO_ROOT)
+                script = script or preflight.find_vsdevcmd(environment)
+                environment = preflight.capture_visual_studio_environment(script, arguments)
+            except preflight.PreflightError as exc:
+                pytest.skip(f'Visual Studio environment is not available: {exc}')
             ninja = preflight.find_ninja(environment)
         if not ninja:
             pytest.skip('Ninja is not available')

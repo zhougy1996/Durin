@@ -16,6 +16,7 @@ if str(PRODUCT_ROOT) not in sys.path:
     sys.path.insert(0, str(PRODUCT_ROOT))
 from durin_dev_tool.bootstrap import agent_config, dependencies, handler, preflight, setup
 from durin_dev_tool.build import config as build_config
+from durin_dev_tool import toolchain
 from durin_dev_tool.registry import Capability, CommandRegistry
 from durin_dev_tool.worktree import services
 
@@ -375,6 +376,39 @@ class TestSetupPreflight:
         with mock.patch.object(preflight.shutil, 'which', return_value='cmake') as which:
             assert preflight.command_path('cmake', {'Path': 'custom-path'}) == 'cmake'
         which.assert_called_once_with('cmake', path='custom-path')
+
+    def test_vswhere_lookup_uses_registry_when_program_files_environment_is_missing(
+        self,
+        tmp_path_factory: pytest.TempPathFactory,
+    ) -> None:
+        if os.name != 'nt':
+            pytest.skip('Visual Studio discovery is Windows-only')
+        directory = Path(tmp_path_factory.mktemp('case'))
+        vswhere = directory / 'Microsoft Visual Studio' / 'Installer' / 'vswhere.exe'
+        vswhere.parent.mkdir(parents=True)
+        vswhere.touch()
+        installation = directory / 'Visual Studio' / 'Enterprise'
+        script = installation / 'Common7' / 'Tools' / 'VsDevCmd.bat'
+        script.parent.mkdir(parents=True)
+        script.touch()
+
+        fake_winreg = mock.MagicMock(
+            HKEY_LOCAL_MACHINE=object(),
+            KEY_READ=1,
+            KEY_WOW64_64KEY=2,
+            KEY_WOW64_32KEY=4,
+        )
+        fake_winreg.OpenKey.return_value.__enter__.return_value = object()
+
+        def query_value(_key: object, value_name: str) -> tuple[str, int]:
+            if value_name == 'ProgramFilesDir (x86)':
+                return str(directory), 1
+            raise OSError
+
+        fake_winreg.QueryValueEx.side_effect = query_value
+        completed = subprocess.CompletedProcess([], 0, f'{installation}\n', '')
+        with mock.patch.dict(os.sys.modules, {'winreg': fake_winreg}), mock.patch.object(toolchain.subprocess, 'run', return_value=completed):
+            assert toolchain.find_vsdevcmd({}) == script
 
     def test_visual_studio_environment_override_is_loaded_from_agent_config(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
