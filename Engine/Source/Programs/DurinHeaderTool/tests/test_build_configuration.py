@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -78,6 +79,107 @@ class TestModuleDependency:
 
         initialize_module.assert_called_once_with(module_config)
         initialize_project.assert_called_once_with(project_config)
+
+    def test_config_files_use_explicit_fields_and_preserve_defaults(self, tmp_path: Path):
+        module_path = tmp_path / "Fixture.dmodule"
+        module_path.write_text(
+            json.dumps(
+                {
+                    "ModuleName": "Fixture",
+                    "LinkType": "Static",
+                    "PCH": "SharedPCH_Core",
+                    "PrivateDependencies": ["Core"],
+                    "PublicDependencies": ["AssetCore"],
+                    "OptionalPrivateDependencies": ["DurinEd"],
+                    "OptionalPublicDependencies": ["MonaImGui"],
+                    "ReflectHeaders": ["Public/Fixture.h"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        project_path = tmp_path / "Fixture.dproject"
+        project_path.write_text(
+            json.dumps(
+                {
+                    "ProjectName": "Fixture",
+                    "ModuleDirs": {"Fixture": "Source/Fixture"},
+                    "ExtraModules": {"DurinEditor": {"Modules": ["Fixture"]}},
+                    "Mounts": [
+                        {
+                            "VirtualRoot": "/Plugins/Fixture/",
+                            "Owner": "Extension",
+                            "Root": "Plugins/Fixture",
+                            "ContentPath": "Content",
+                            "AutoScan": True,
+                            "AuthoringWritable": False,
+                            "Dependencies": ["/Engine/"],
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        module_config = configs.module_config.DurinModuleConfig.from_file(module_path)
+        project_config = configs.project_config.DurinProjectConfig.from_file(project_path)
+
+        assert module_config.module_name == "Fixture"
+        assert isinstance(module_config.module_name, str)
+        assert module_config.link_type == "Static"
+        assert module_config.pch == "SharedPCH_Core"
+        assert module_config.private_dependencies == ["Core"]
+        assert module_config.public_dependencies == ["AssetCore"]
+        assert module_config.optional_private_dependencies == ["DurinEd"]
+        assert module_config.optional_public_dependencies == ["MonaImGui"]
+        assert module_config.reflect_headers == ["Public/Fixture.h"]
+        assert module_config.api_macro == "FIXTURE_API"
+        assert module_config.config_file_path == module_path.resolve()
+        assert module_config.module_dir == tmp_path.resolve()
+
+        assert project_config.project_name == "Fixture"
+        assert isinstance(project_config.project_name, str)
+        assert project_config.module_dirs == {"Fixture": "Source/Fixture"}
+        assert project_config.modules == {"Fixture": "Source/Fixture/Fixture.dmodule"}
+        assert project_config.base_modules == ["Fixture"]
+        assert project_config.extra_modules["DurinEditor"].modules == ["Fixture"]
+        assert project_config.config_file_path == project_path.resolve()
+        assert project_config.project_dir == tmp_path.resolve()
+        assert not hasattr(project_config, "mounts")
+
+    @pytest.mark.parametrize(
+        ("file_name", "contents", "expected"),
+        [
+            (
+                "Invalid.dmodule",
+                {"ModuleName": "Invalid", "ConfigFilePath": "injected"},
+                "Additional properties are not allowed",
+            ),
+            (
+                "Invalid.dproject",
+                {"ProjectName": "Invalid", "BaseModules": [False]},
+                "is not of type 'string'",
+            ),
+        ],
+    )
+    def test_explicit_config_parsers_reject_invalid_fields(
+        self,
+        tmp_path: Path,
+        file_name: str,
+        contents: dict[str, object],
+        expected: str,
+    ):
+        path = tmp_path / file_name
+        path.write_text(json.dumps(contents), encoding="utf-8")
+        parser = (
+            configs.module_config.DurinModuleConfig.from_file
+            if path.suffix == ".dmodule"
+            else configs.project_config.DurinProjectConfig.from_file
+        )
+        with pytest.raises(ValueError, match=expected):
+            parser(path)
+
+    def test_generic_dataclass_json_parser_is_not_public(self):
+        assert not hasattr(utils, "dataclass_from_dict")
 
     def test_enabled_optional_dependencies_join_recursive_dependency_graph(self):
         module_configs = {

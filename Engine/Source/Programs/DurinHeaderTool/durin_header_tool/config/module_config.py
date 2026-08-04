@@ -1,7 +1,10 @@
 from pathlib import Path
 from dataclasses import dataclass, field
-from durin_header_tool.io.json_helper import load_json_file, dataclass_from_dict
+from durin_header_tool.io.json_helper import load_json_descriptor
 from .project_config import get_project_config, find_module
+
+
+MODULE_SCHEMA = "durin-module.schema.json"
 
 # Stores all loaded module configurations
 MODULE_CONFIGS: dict[str, "DurinModuleConfig"] = {}
@@ -9,17 +12,17 @@ ENABLED_MODULES: dict[tuple[str, str], set[str]] = {}
 
 @dataclass
 class DurinModuleConfig:
-    module_name: Path = Path("")
+    module_name: str = ""
     link_type: str = "Shared"
-    pch: str = field(default="Self", metadata={"json_key": "PCH"})
+    pch: str = "Self"
     module_dir: Path = Path("")
     config_file_path: Path = Path("")
     owning_project: str = ""
-    private_dependencies: list = field(default_factory=list)
-    public_dependencies: list = field(default_factory=list)
-    optional_private_dependencies: list = field(default_factory=list)
-    optional_public_dependencies: list = field(default_factory=list)
-    reflect_headers: list = field(default_factory=list)
+    private_dependencies: list[str] = field(default_factory=list)
+    public_dependencies: list[str] = field(default_factory=list)
+    optional_private_dependencies: list[str] = field(default_factory=list)
+    optional_public_dependencies: list[str] = field(default_factory=list)
+    reflect_headers: list[str] = field(default_factory=list)
     api_macro: str = ""
 
     def __post_init__(self):
@@ -28,10 +31,22 @@ class DurinModuleConfig:
     @classmethod
     def from_file(cls, module_config_file_path: Path) -> "DurinModuleConfig":
         module_config_file_path = module_config_file_path.resolve()
-        
-        raw_json_data = load_json_file(module_config_file_path, required_fields=["ModuleName"])
 
-        instance = dataclass_from_dict(cls, raw_json_data)
+        raw_json_data = load_json_descriptor(module_config_file_path, MODULE_SCHEMA)
+        instance = cls(
+            module_name=raw_json_data["ModuleName"],
+            link_type=raw_json_data.get("LinkType", "Shared"),
+            pch=raw_json_data.get("PCH", "Self"),
+            private_dependencies=list(raw_json_data.get("PrivateDependencies", [])),
+            public_dependencies=list(raw_json_data.get("PublicDependencies", [])),
+            optional_private_dependencies=list(
+                raw_json_data.get("OptionalPrivateDependencies", [])
+            ),
+            optional_public_dependencies=list(
+                raw_json_data.get("OptionalPublicDependencies", [])
+            ),
+            reflect_headers=list(raw_json_data.get("ReflectHeaders", [])),
+        )
         instance.config_file_path = module_config_file_path
         instance.module_dir = instance.config_file_path.parent
         return instance

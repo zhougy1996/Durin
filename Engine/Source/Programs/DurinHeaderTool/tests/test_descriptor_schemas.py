@@ -160,6 +160,13 @@ def test_malformed_json_reports_line_and_column(tmp_path: Path):
         load_json_descriptor(path, MODULE_SCHEMA)
 
 
+def test_non_utf8_descriptor_is_rejected(tmp_path: Path):
+    path = tmp_path / "Encoded.dmodule"
+    path.write_bytes(b'{"ModuleName":"\xff"}')
+    with pytest.raises(ValueError, match="not valid UTF-8"):
+        load_json_descriptor(path, MODULE_SCHEMA)
+
+
 def test_cmake_fingerprint_tracks_descriptor_schemas():
     project_setup = (WORKSPACE_ROOT / "CMake" / "Project" / "ProjectSetup.cmake").read_text(
         encoding="utf-8"

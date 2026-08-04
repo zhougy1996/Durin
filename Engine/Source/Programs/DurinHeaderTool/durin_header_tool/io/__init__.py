@@ -1,4 +1,4 @@
-from .json_helper import load_json_file, dataclass_from_dict
+from .json_helper import load_json_descriptor, load_json_file
 from .file_helper import (
     FileFingerprint,
     LightFileFingerprint,

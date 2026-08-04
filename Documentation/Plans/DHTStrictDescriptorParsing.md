@@ -9,11 +9,11 @@ Completed:
 
 ## Current Status
 
-Stages 0 and 1 are complete. The complete shared descriptor field set,
-structural constraints, semantic-validation boundary, and `LinkType` contract
-are frozen below. Both schemas, the strict loading boundary, schema tests, and
-CMake fingerprint coverage are implemented. Stage 2 is next: replace DHT's
-reflective construction with explicit project and module parsing.
+Stages 0 through 2 are complete. The schemas and loading boundary are active,
+DHT explicitly constructs both configuration models, model annotations match
+their runtime values, and the reflective dataclass decoder has been removed.
+Stage 3 is next: align DurinDevTool and verify failure-before-publication
+behavior.
 
 DHT currently
 uses the generic `dataclass_from_dict` helper only for `DurinProjectConfig` and
@@ -74,6 +74,24 @@ is valid even though DHT does not retain it in `DurinProjectConfig`.
   projects, 22 tracked modules, rendered project/module templates, complete
   mounts, malformed JSON, duplicate keys, unknown fields, wrong types, nulls,
   and duplicate items passed 15 focused tests.
+
+### Stage 2 Handoff
+
+- Baseline commit: `fd91b6cd`.
+- Working set: DHT project/module configuration models, JSON helper exports,
+  DHT configuration/schema tests, and this plan.
+- Key symbols: `DurinProjectConfig.from_file`,
+  `DurinModuleConfig.from_file`, `DurinProjectRuntimeVariantConfig`, and
+  `load_json_file`.
+- Decisions: preserve programmatic dataclass construction used by focused
+  reflection tests while keeping every internal field out of the explicit JSON
+  extraction map; copy input lists/maps during construction; remove the now
+  unused `required_fields` option from the general generated-JSON loader; treat
+  invalid UTF-8 as a descriptor-boundary error.
+- Open questions: none.
+- Validation: the complete DurinHeaderTool Python suite passed 145 tests;
+  targeted search found no remaining reflective decoder, Pascal-case mapper,
+  or JSON-key dataclass metadata in production DHT code.
 
 ## Goal
 
@@ -283,19 +301,19 @@ filesystem state, case folding, or another descriptor.
 
 ### Stage 2: Replace reflective DHT construction
 
-- [ ] Implement explicit project parsing that constructs
+- [x] Implement explicit project parsing that constructs
   `DurinProjectRuntimeVariantConfig` values and `DurinProjectConfig` from only
   the supported build fields after whole-document validation.
-- [ ] Implement explicit module parsing that supplies each supported field and
+- [x] Implement explicit module parsing that supplies each supported field and
   omission default directly to `DurinModuleConfig`.
-- [ ] Change project/module names to `str`, parameterize every collection, and
+- [x] Change project/module names to `str`, parameterize every collection, and
   mark derived/internal fields so callers cannot confuse them with descriptor
   inputs.
-- [ ] Preserve exactly-once post-initialization, base-module derivation, module
+- [x] Preserve exactly-once post-initialization, base-module derivation, module
   config path derivation, API macro generation, and resolved path ownership.
-- [ ] Remove `dataclass_from_dict`, `_snake_to_pascal`, reflection imports, and
+- [x] Remove `dataclass_from_dict`, `_snake_to_pascal`, reflection imports, and
   the public `durin_header_tool.io` export once no caller remains.
-- [ ] Normalize malformed JSON, schema failure, and file I/O errors at the
+- [x] Normalize malformed JSON, schema failure, and file I/O errors at the
   configuration boundary without hiding their original line/column or property
   context.
 

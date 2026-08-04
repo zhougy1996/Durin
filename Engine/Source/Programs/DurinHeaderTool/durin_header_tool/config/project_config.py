@@ -1,6 +1,9 @@
 from pathlib import Path
 from dataclasses import dataclass, field
-from durin_header_tool.io.json_helper import load_json_file, dataclass_from_dict
+from durin_header_tool.io.json_helper import load_json_descriptor
+
+
+PROJECT_SCHEMA = "durin-project.schema.json"
 
 # Project configurations cached in memory, keyed by project name
 PROJECT_CONFIGS: dict[str, "DurinProjectConfig"] = {}
@@ -12,7 +15,7 @@ class DurinProjectRuntimeVariantConfig:
 
 @dataclass
 class DurinProjectConfig:
-    project_name: Path = Path("")
+    project_name: str = ""
     project_dir: Path = Path("")
     config_file_path: Path = Path("")
     base_modules: list[str] = field(default_factory=list)
@@ -50,10 +53,19 @@ class DurinProjectConfig:
     @classmethod
     def from_file(cls, project_config_file_path: Path) -> "DurinProjectConfig":
         project_config_file_path = project_config_file_path.resolve()
-        
-        raw_json_data = load_json_file(project_config_file_path, required_fields=["ProjectName"])
 
-        instance = dataclass_from_dict(cls, raw_json_data)
+        raw_json_data = load_json_descriptor(project_config_file_path, PROJECT_SCHEMA)
+        instance = cls(
+            project_name=raw_json_data["ProjectName"],
+            base_modules=list(raw_json_data.get("BaseModules", [])),
+            extra_modules={
+                runtime_variant: DurinProjectRuntimeVariantConfig(
+                    modules=list(runtime_variant_data.get("Modules", []))
+                )
+                for runtime_variant, runtime_variant_data in raw_json_data.get("ExtraModules", {}).items()
+            },
+            module_dirs=dict(raw_json_data.get("ModuleDirs", {})),
+        )
         instance.config_file_path = project_config_file_path
         instance.project_dir = instance.config_file_path.parent
         return instance
