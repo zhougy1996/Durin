@@ -9,7 +9,12 @@ Completed:
 
 ## Current Status
 
-The direction is selected and implementation has not started. DHT currently
+Stage 0 is complete. The complete shared descriptor field set, structural
+constraints, semantic-validation boundary, and `LinkType` contract are frozen
+below. Stage 1 is next: add the two schemas, strict loading boundary, schema
+tests, and CMake fingerprint coverage.
+
+DHT currently
 uses the generic `dataclass_from_dict` helper only for `DurinProjectConfig` and
 `DurinModuleConfig`. The helper recursively reflects over dataclass annotations,
 but returns scalar values without checking their types and iterates only known
@@ -30,6 +35,26 @@ The project schema must cover the complete shared `.dproject` contract, not
 only DHT's current projection. In particular, the runtime-owned `Mounts`
 section documented in [Workspace And Projects](../Workspace/WorkspaceProjects.md)
 is valid even though DHT does not retain it in `DurinProjectConfig`.
+
+### Stage 0 Handoff
+
+- Baseline commit: `f6d5b916`.
+- Working set: DHT project/module configuration and JSON helper, DurinDevTool
+  descriptor models and scaffolding, project mount parsing, module target
+  generation, and DHT CMake fingerprint inputs.
+- Key symbols: `DurinProjectConfig.from_file`,
+  `DurinModuleConfig.from_file`, `dataclass_from_dict`,
+  `load_project_descriptor`, `load_module_descriptor`,
+  `ParseProjectMounts`, and `DURIN_DHT_TOOL_INPUTS`.
+- Decisions: Draft 2020-12 schemas own structural validation; `Shared` and
+  `Static` are the only supported `LinkType` values; the incidental DHT
+  `Interface` API-macro branch is not a supported descriptor value; `Mounts`
+  is part of the complete project schema; omitted optional fields retain
+  current defaults; filesystem and cross-descriptor rules remain semantic.
+- Open questions: none.
+- Validation: targeted consumer searches covered all tracked descriptor keys,
+  all 2 project and 22 module descriptors, DurinDevTool scaffolding, CMake
+  linkage selection, and the C++ seven-field mount parser.
 
 ## Goal
 
@@ -157,20 +182,52 @@ schema-validation boundary.
   runtime-variant fields, duplicate keys, diagnostic paths, or mutation-free
   failure.
 
+## Descriptor Contract Matrix
+
+The schemas enforce the structural rows below. "Semantic" constraints are
+validated by the named consumer after schema validation because they depend on
+filesystem state, case folding, or another descriptor.
+
+| Descriptor path | Required | Structural contract | Default or semantic owner |
+| --- | --- | --- | --- |
+| `.dproject.$schema` | No | Non-empty string | Ignored by runtime models; editor association only. |
+| `.dproject.ProjectName` | Yes | C++ identifier string | Workspace identity uniqueness is semantic. |
+| `.dproject.ModuleDirs` | No | Object from C++ identifier keys to non-empty strings | Defaults to `{}`; relative containment and overlap are semantic. |
+| `.dproject.BaseModules` | No | Unique array of C++ identifier strings | Defaults to all `ModuleDirs` keys; ownership is semantic. |
+| `.dproject.ExtraModules` | No | Object from runtime-variant identifier keys to closed objects | Defaults to `{}`; runtime-variant naming is workspace-owned. |
+| `.dproject.ExtraModules.*.Modules` | No | Unique array of C++ identifier strings | Defaults to `[]`; project ownership is semantic. |
+| `.dproject.Mounts` | No | Unique array of closed seven-field mount objects | Defaults to no custom mounts; runtime path system owns semantic checks. |
+| `.dproject.Mounts[].VirtualRoot` | Yes | Non-empty forward-slash virtual-root string | Reserved roots, canonical overlap, and dependency graph are semantic. |
+| `.dproject.Mounts[].Owner` | Yes | `Extension` or `ExternalSources` | No default. |
+| `.dproject.Mounts[].Root` | Yes | Non-empty string | Descriptor-relative containment is semantic. |
+| `.dproject.Mounts[].ContentPath` | Yes | Non-empty string | Root-relative containment is semantic; `.` remains valid. |
+| `.dproject.Mounts[].AutoScan` | Yes | Boolean | No default. |
+| `.dproject.Mounts[].AuthoringWritable` | Yes | Boolean | No default. |
+| `.dproject.Mounts[].Dependencies` | Yes | Unique array of non-empty virtual-root strings | Referenced roots and cycles are semantic. |
+| `.dmodule.$schema` | No | Non-empty string | Ignored by runtime models; editor association only. |
+| `.dmodule.ModuleName` | Yes | C++ identifier string | Registration match and workspace uniqueness are semantic. |
+| `.dmodule.LinkType` | No | `Shared` or `Static` | Defaults to `Shared`. |
+| `.dmodule.PCH` | No | Non-empty CMake-target identifier string | Defaults to `Self`; target existence is semantic. |
+| `.dmodule.PrivateDependencies` | No | Unique array of C++ identifier strings | Defaults to `[]`; graph validity is semantic. |
+| `.dmodule.PublicDependencies` | No | Unique array of C++ identifier strings | Defaults to `[]`; graph validity is semantic. |
+| `.dmodule.OptionalPrivateDependencies` | No | Unique array of C++ identifier strings | Defaults to `[]`; graph validity is semantic. |
+| `.dmodule.OptionalPublicDependencies` | No | Unique array of C++ identifier strings | Defaults to `[]`; graph validity is semantic. |
+| `.dmodule.ReflectHeaders` | No | Unique array of non-empty strings | Defaults to `[]`; path existence/containment is semantic. |
+
 ## Implementation Stages
 
 ### Stage 0: Freeze the shared descriptor contract
 
-- [ ] Inventory every `.dproject` and `.dmodule` field consumed by DHT,
+- [x] Inventory every `.dproject` and `.dmodule` field consumed by DHT,
   DurinDevTool, CMake scaffolding, and the C++ project/mount loader.
-- [ ] Record each field's required/optional state, JSON type, default, non-empty
+- [x] Record each field's required/optional state, JSON type, default, non-empty
   and uniqueness constraints, and whether validation is structural or semantic.
-- [ ] Resolve the supported `LinkType` set from actual CMake behavior rather
+- [x] Resolve the supported `LinkType` set from actual CMake behavior rather
   than preserving unreachable or accidental string values.
-- [ ] Define the schema location, stable `$id` values, optional `$schema`
+- [x] Define the schema location, stable `$id` values, optional `$schema`
   behavior, descriptor-path/JSON-path diagnostic format, and duplicate-key
   behavior.
-- [ ] Capture valid compatibility fixtures for minimal and fully populated
+- [x] Capture valid compatibility fixture requirements for minimal and fully populated
   descriptors, including a project with `Mounts`, plus invalid fixtures for the
   currently silent failure modes.
 
