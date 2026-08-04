@@ -32,6 +32,7 @@ namespace Durin
 	extern CORE_API uint32 GGameThreadId;
 	extern CORE_API bool GIsGameThreadIdInitialized;
 	extern CORE_API FRunnableThread* GRenderingThread;
+	extern CORE_API FRunnableThread* GRHIThread;
 
 	extern CORE_API uint64 GFrameCounter;
 	extern CORE_API uint64 GFrameCounterRenderThread;

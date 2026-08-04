@@ -19,7 +19,8 @@ namespace Durin
 	public:
 		// Returns false when mandatory process services cannot be initialized safely.
 		auto PreInit(const FEngineStartupParams& Params) -> bool;
-		auto Init() -> void;
+		// Returns false after unwinding when mandatory runtime initialization fails.
+		auto Init() -> bool;
 		auto Tick() -> void;
 		auto Exit() -> void;
 

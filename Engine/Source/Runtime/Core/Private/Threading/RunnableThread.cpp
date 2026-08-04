@@ -8,6 +8,7 @@ namespace Durin
 	thread_local FRunnableThread* CurrentThread = nullptr;
 
 	FRunnableThread* GRenderingThread = nullptr;
+	FRunnableThread* GRHIThread = nullptr;
 
 	std::unordered_map<uint32, FRunnableThread*> GThreads;
 
@@ -21,6 +22,8 @@ namespace Durin
 			return "GameThread";
 		case EThreadRole::RenderingThread:
 			return "RenderingThread";
+		case EThreadRole::RHIThread:
+			return "RHIThread";
 		case EThreadRole::WorkerThread:
 			return "WorkerThread";
 		case EThreadRole::IOThread:
@@ -77,6 +80,11 @@ namespace Durin
 		return CurrentThread && (CurrentThread == GRenderingThread || CurrentThread->GetThreadRole() == EThreadRole::RenderingThread);
 	}
 
+	auto IsInRHIThread() -> bool
+	{
+		return CurrentThread && (CurrentThread == GRHIThread || CurrentThread->GetThreadRole() == EThreadRole::RHIThread);
+	}
+
 	auto IsInWorkerThread() -> bool
 	{
 		return GetCurrentThreadRole() == EThreadRole::WorkerThread;
@@ -96,6 +104,11 @@ namespace Durin
 	auto CheckRenderingThread() -> void
 	{
 		checkf(IsInRenderingThread(), "Expected rendering thread, current thread is {}.", GetCurrentThreadName());
+	}
+
+	auto CheckRHIThread() -> void
+	{
+		checkf(IsInRHIThread(), "Expected RHI thread, current thread is {}.", GetCurrentThreadName());
 	}
 
 	auto CheckThreadRole(EThreadRole ThreadRole) -> void

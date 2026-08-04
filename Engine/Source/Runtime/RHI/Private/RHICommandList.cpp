@@ -2,9 +2,29 @@
 
 #include "DynamicRHI.h"
 #include "RHIContext.h"
+#include "RHIThread.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
+	namespace
+	{
+		[[noreturn]] auto FatalPayloadSizeOverflow() -> void
+		{
+			DURIN_FATAL("Recorded RHI command payload byte count overflowed.");
+			std::terminate();
+		}
+
+		auto CheckedAddPayloadBytes(size_t Left, size_t Right) -> size_t
+		{
+			if (Right > std::numeric_limits<size_t>::max() - Left)
+			{
+				FatalPayloadSizeOverflow();
+			}
+			return Left + Right;
+		}
+	}
+
 	class FRHICommandReplayContext
 	{
 	public:
@@ -62,6 +82,11 @@ namespace Durin
 			}
 			checkf(Context, "%s could not resolve an RHI context.", OperationName);
 			return *Context;
+		}
+
+		auto HasGraphicsContextOverride() const -> bool
+		{
+			return GraphicsContextOverride != nullptr;
 		}
 
 	private:
@@ -123,10 +148,11 @@ namespace Durin
 			return {Node, Node->Payload};
 		}
 
-		auto Commit(void* OpaqueNode) -> void
+		auto Commit(void* OpaqueNode, size_t OwnedPayloadBytes) -> void
 		{
 			auto* Node = static_cast<FCommandNode*>(OpaqueNode);
 			check(Node != nullptr && Node == PendingNode);
+			Node->OwnedPayloadBytes = OwnedPayloadBytes;
 			if (Tail)
 			{
 				Tail->Next = Node;
@@ -138,7 +164,10 @@ namespace Durin
 			Tail = Node;
 			PendingNode = nullptr;
 			++CommandCount;
-			PayloadBytes += Node->PayloadSize;
+			PayloadBytes = CheckedAddPayloadBytes(
+				PayloadBytes,
+				CheckedAddPayloadBytes(
+					Node->PayloadSize, Node->OwnedPayloadBytes));
 		}
 
 		auto Replay(FRHICommandReplayContext& ReplayContext) -> void
@@ -166,6 +195,7 @@ namespace Durin
 			FCommandNode* Next = nullptr;
 			void* Payload = nullptr;
 			size_t PayloadSize = 0;
+			size_t OwnedPayloadBytes = 0;
 			FCommandFunction Execute = nullptr;
 			FCommandDestroyFunction Destroy = nullptr;
 		};
@@ -537,6 +567,11 @@ namespace Durin
 						StageFlags, Offset, static_cast<uint32>(Data.size()), Data.data());
 			}
 
+			auto GetOwnedPayloadBytes() const -> size_t
+			{
+				return Data.capacity() * sizeof(Data.front());
+			}
+
 			EShaderStageFlags StageFlags;
 			uint32 Offset;
 			std::vector<uint8> Data;
@@ -566,6 +601,11 @@ namespace Durin
 					.RHIWriteBuffer(Buffer.GetReference(), Offset, Data);
 			}
 
+			auto GetOwnedPayloadBytes() const -> size_t
+			{
+				return Data.capacity() * sizeof(Data.front());
+			}
+
 			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset;
 			std::vector<uint8> Data;
@@ -587,6 +627,24 @@ namespace Durin
 			}
 
 			TRefCountPtr<FRHITexture> Texture;
+		};
+
+		struct FAcquireBackBufferCommand
+		{
+			explicit FAcquireBackBufferCommand(FRHITexture* InBackBuffer)
+				: BackBuffer(InBackBuffer)
+			{
+				check(BackBuffer);
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetOperationContext("AcquireBackBuffer")
+					.RHIAcquireBackBuffer(BackBuffer.GetReference());
+			}
+
+			TRefCountPtr<FRHITexture> BackBuffer;
 		};
 
 		struct FUpdateTexture2DCommand
@@ -650,6 +708,11 @@ namespace Durin
 						Region, SourcePitch, Data);
 			}
 
+			auto GetOwnedPayloadBytes() const -> size_t
+			{
+				return Data.capacity() * sizeof(Data.front());
+			}
+
 			TRefCountPtr<FRHITexture> Texture;
 			uint32 MipIndex;
 			uint32 ArraySlice;
@@ -681,6 +744,15 @@ namespace Durin
 					.RHISetShaderParameters(Shader.GetReference(), Parameters);
 			}
 
+			auto GetOwnedPayloadBytes() const -> size_t
+			{
+				const size_t ParameterBytes = Parameters.capacity()
+					* sizeof(Parameters.front());
+				const size_t ResourceBytes = Resources.capacity()
+					* sizeof(Resources.front());
+				return CheckedAddPayloadBytes(ParameterBytes, ResourceBytes);
+			}
+
 			TRefCountPtr<FRHIShader> Shader;
 			std::vector<FRHIShaderParameterResource> Parameters;
 			std::vector<TRefCountPtr<FRHIResource>> Resources;
@@ -700,6 +772,11 @@ namespace Durin
 				ResourcesToDelete.clear();
 			}
 		}
+	}
+
+	auto RHIFlushDeferredResources() -> void
+	{
+		DeleteDeferredResources();
 	}
 
 	class FRHICommandListExecutor::FState
@@ -751,14 +828,19 @@ namespace Durin
 		{
 		public:
 			FSubmissionGroup(
-				uint64 InSerial,
 				ERHISubmitFlags InFlags,
 				std::vector<FBatch>&& InBatches)
-				: Serial(InSerial)
-				, Flags(InFlags)
+				: Flags(InFlags)
 				, Batches(std::move(InBatches))
 			{
-				check(Serial != 0);
+				BatchCount = Batches.size();
+				for (const FBatch& Batch : Batches)
+				{
+					CommandCount = CheckedAddPayloadBytes(
+						CommandCount, Batch.GetCommandCount());
+					PayloadBytes = CheckedAddPayloadBytes(
+						PayloadBytes, Batch.GetPayloadBytes());
+				}
 			}
 
 			FSubmissionGroup(FSubmissionGroup&&) noexcept = default;
@@ -779,41 +861,35 @@ namespace Durin
 				Batches.clear();
 			}
 
-			auto GetSerial() const -> uint64 { return Serial; }
+			auto TakeBatches() -> std::vector<FBatch>
+			{
+				return std::move(Batches);
+			}
+
 			auto GetFlags() const -> ERHISubmitFlags { return Flags; }
-			auto GetBatchCount() const -> size_t { return Batches.size(); }
-			auto GetCommandCount() const -> size_t
-			{
-				size_t Count = 0;
-				for (const FBatch& Batch : Batches)
-				{
-					Count += Batch.GetCommandCount();
-				}
-				return Count;
-			}
-			auto GetPayloadBytes() const -> size_t
-			{
-				size_t Bytes = 0;
-				for (const FBatch& Batch : Batches)
-				{
-					Bytes += Batch.GetPayloadBytes();
-				}
-				return Bytes;
-			}
+			auto GetBatchCount() const -> size_t { return BatchCount; }
+			auto GetCommandCount() const -> size_t { return CommandCount; }
+			auto GetPayloadBytes() const -> size_t { return PayloadBytes; }
 
 		private:
-			const uint64 Serial;
 			const ERHISubmitFlags Flags;
 			std::vector<FBatch> Batches;
+			size_t BatchCount = 0;
+			size_t CommandCount = 0;
+			size_t PayloadBytes = 0;
 		};
 
-		explicit FState(IRHICommandContext* GraphicsContext = nullptr)
+		explicit FState(
+			IRHICommandContext* GraphicsContext = nullptr,
+			FRHIThread* InRHIThread = nullptr)
 			: ReplayContext(GraphicsContext)
+			, RHIThread(InRHIThread)
 		{
 		}
 
 		std::vector<FBatch> PendingBatches;
 		FRHICommandReplayContext ReplayContext;
+		FRHIThread* RHIThread = nullptr;
 		std::atomic<uint64> LastSubmittedSerial = 0;
 		std::atomic<uint64> CompletedSerial = 0;
 		std::atomic<uint64> RecordedCommandCount = 0;
@@ -822,6 +898,7 @@ namespace Durin
 		std::atomic<uint64> SubmissionGroupCount = 0;
 		std::atomic<uint64> ReplayDurationNanoseconds = 0;
 		mutable std::atomic<uint64> WaitCount = 0;
+		mutable std::atomic<uint64> WaitDurationNanoseconds = 0;
 		std::atomic<uint64> RejectedSubmissionCount = 0;
 		mutable std::mutex CompletionMutex;
 		mutable std::condition_variable CompletionCV;
@@ -893,10 +970,18 @@ namespace Durin
 		return {Allocation.Node, Allocation.Payload};
 	}
 
-	auto FRHICommandListBase::CommitCommand(void* Node) -> void
+	auto FRHICommandListBase::CommitCommand(
+		void* Node,
+		size_t OwnedPayloadBytes) -> void
 	{
 		check(Storage);
-		Storage->Commit(Node);
+		Storage->Commit(Node, OwnedPayloadBytes);
+	}
+
+	auto FRHICommandListBase::RecordAcquireBackBuffer(
+		FRHITexture* BackBuffer) -> void
+	{
+		RecordCommand<FAcquireBackBufferCommand>(BackBuffer);
 	}
 
 	auto FRHICommandListBase::DetachStorage()
@@ -1132,14 +1217,11 @@ namespace Durin
 		{
 			EnumAddFlags(SubmitFlags, ERHISubmitFlags::DeleteResources);
 		}
-		const uint64 Serial = Executor->Submit({}, SubmitFlags);
-		if (FlushType >= EImmediateFlushType::FlushRHIThread
-			|| EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread))
+		if (FlushType >= EImmediateFlushType::FlushRHIThread)
 		{
-			const FRHICommandListFence Fence = Executor->CreateFence();
-			check(Fence.GetTargetSerial() == Serial);
-			Fence.Wait();
+			EnumAddFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread);
 		}
+		Executor->Submit({}, SubmitFlags);
 	}
 
 	auto FRHICommandListImmediate::LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
@@ -1176,8 +1258,12 @@ namespace Durin
 	auto FRHICommandListImmediate::AllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange
 	{
 		check(Data && Size != 0);
-		return Executor->GetSynchronousOperationContext(false)
-			.RHIAllocateDynamicUniformBuffer(Data, Size);
+		FRHIUniformBufferRange Result;
+		Executor->ExecuteSynchronousOperation(false,
+			[Data, Size, &Result](IRHICommandContext& Context) {
+				Result = Context.RHIAllocateDynamicUniformBuffer(Data, Size);
+			});
+		return Result;
 	}
 
 	auto FRHICommandListImmediate::ReadTexture2D(
@@ -1186,20 +1272,28 @@ namespace Durin
 		uint32 ArraySlice,
 		std::vector<uint8>& OutData) -> bool
 	{
-		return Executor->GetSynchronousOperationContext(true)
-			.RHIReadTexture2D(Texture, MipIndex, ArraySlice, OutData);
+		bool bSucceeded = false;
+		Executor->ExecuteSynchronousOperation(true,
+			[Texture, MipIndex, ArraySlice, &OutData, &bSucceeded](
+				IRHICommandContext& Context) {
+				bSucceeded = Context.RHIReadTexture2D(
+					Texture, MipIndex, ArraySlice, OutData);
+			});
+		return bSucceeded;
 	}
 
 	auto FRHICommandListImmediate::AcquireBackBuffer(
 		FRHITexture* BackBuffer) -> void
 	{
-		Executor->GetSynchronousOperationContext(true)
-			.RHIAcquireBackBuffer(BackBuffer);
+		RecordAcquireBackBuffer(BackBuffer);
 	}
 
 	auto FRHICommandListImmediate::BlockUntilGPUIdle() -> void
 	{
-		Executor->GetSynchronousOperationContext(true).RHIBlockUntilGPUIdle();
+		Executor->ExecuteSynchronousOperation(true,
+			[](IRHICommandContext& Context) {
+				Context.RHIBlockUntilGPUIdle();
+			});
 	}
 
 	auto FRHICommandListImmediate::HasOpenBufferLocks() const -> bool
@@ -1241,7 +1335,21 @@ namespace Durin
 	{
 	}
 
-	FRHICommandListExecutor::~FRHICommandListExecutor() = default;
+	FRHICommandListExecutor::FRHICommandListExecutor(
+		IRHICommandContext& InGraphicsContext,
+		FRHIThread& InRHIThread)
+		: State(std::make_unique<FState>(&InGraphicsContext, &InRHIThread))
+		, CommandListImmediate(*this)
+	{
+	}
+
+	FRHICommandListExecutor::~FRHICommandListExecutor()
+	{
+		if (State->RHIThread)
+		{
+			WaitForSerial(GetLastSubmittedSerial());
+		}
+	}
 
 	auto FRHICommandListExecutor::GetImmediateCommandList()
 		-> FRHICommandListImmediate&
@@ -1286,30 +1394,28 @@ namespace Durin
 			CommandListImmediate.DetachStorage());
 	}
 
-	auto FRHICommandListExecutor::Submit(
+	auto FRHICommandListExecutor::TrySubmit(
 		const std::vector<FRHICommandList*>& AdditionalCmdLists,
-		ERHISubmitFlags SubmitFlags) -> uint64
+		ERHISubmitFlags SubmitFlags) -> FRHICommandListSubmission
 	{
-		checkf(!CommandListImmediate.HasOpenBufferLocks(),
-			"Submit requires every recorded buffer lock to be unlocked.");
-		checkf(!CommandListImmediate.bInsideRenderPass,
-			"Submit cannot seal an immediate command list inside a render pass.");
+		if (CommandListImmediate.HasOpenBufferLocks()
+			|| CommandListImmediate.bInsideRenderPass)
+		{
+			State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
+			return {.Result = ERHICommandListSubmitResult::InvalidCommandList};
+		}
 		std::unordered_set<FRHICommandList*> UniqueLists;
 		for (FRHICommandList* CommandList : AdditionalCmdLists)
 		{
 			if (!CommandList || !CommandList->IsFinished())
 			{
 				State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
-				checkf(false,
-					"Additional command lists must be non-null and finished.");
-				return GetLastSubmittedSerial();
+				return {.Result = ERHICommandListSubmitResult::InvalidCommandList};
 			}
 			if (!UniqueLists.emplace(CommandList).second)
 			{
 				State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
-				checkf(false,
-					"An additional command list may only be admitted once.");
-				return GetLastSubmittedSerial();
+				return {.Result = ERHICommandListSubmitResult::InvalidCommandList};
 			}
 		}
 
@@ -1339,72 +1445,235 @@ namespace Durin
 			SubmitFlags,
 			ERHISubmitFlags::SubmitToGPU
 				| ERHISubmitFlags::DeleteResources
-				| ERHISubmitFlags::EndFrame);
+				| ERHISubmitFlags::EndFrame
+				| ERHISubmitFlags::BeginFrame);
 		if (State->PendingBatches.empty() && !bHasOrderedEvent)
 		{
-			return State->LastSubmittedSerial.load(std::memory_order_acquire);
+			const uint64 Serial =
+				State->LastSubmittedSerial.load(std::memory_order_acquire);
+			if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread))
+			{
+				WaitForSerial(Serial);
+			}
+			return {
+				.Result = ERHICommandListSubmitResult::Accepted,
+				.Serial = Serial
+			};
+		}
+
+		auto SubmissionGroup = std::make_shared<FState::FSubmissionGroup>(
+			SubmitFlags, std::move(State->PendingBatches));
+		State->PendingBatches.clear();
+		const size_t GroupCommandCount = SubmissionGroup->GetCommandCount();
+		const size_t GroupPayloadBytes = SubmissionGroup->GetPayloadBytes();
+		const size_t GroupBatchCount = SubmissionGroup->GetBatchCount();
+		auto RecordAcceptedSubmission = [this, GroupCommandCount,
+			GroupPayloadBytes, GroupBatchCount]() {
+			State->RecordedCommandCount.fetch_add(
+				GroupCommandCount, std::memory_order_relaxed);
+			State->RecordedPayloadBytes.fetch_add(
+				GroupPayloadBytes, std::memory_order_relaxed);
+			State->SubmittedBatchCount.fetch_add(
+				GroupBatchCount, std::memory_order_relaxed);
+			State->SubmissionGroupCount.fetch_add(1, std::memory_order_relaxed);
+		};
+		auto Replay = [this](FState::FSubmissionGroup& Group) {
+			if (State->RHIThread)
+			{
+				CheckRHIThread();
+			}
+			const auto ReplayStart = std::chrono::steady_clock::now();
+			if (EnumHasAnyFlags(Group.GetFlags(), ERHISubmitFlags::BeginFrame))
+			{
+				if (State->ReplayContext.HasGraphicsContextOverride())
+				{
+					State->ReplayContext.GetOperationContext("BeginFrame")
+						.RHIBeginFrame();
+				}
+				else
+				{
+					check(GDynamicRHI);
+					GDynamicRHI->RHIBeginFrame();
+				}
+			}
+			Group.Replay(State->ReplayContext);
+			const auto ReplayEnd = std::chrono::steady_clock::now();
+			State->ReplayDurationNanoseconds.fetch_add(
+				static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+					ReplayEnd - ReplayStart).count()),
+				std::memory_order_relaxed);
+
+			if (EnumHasAnyFlags(Group.GetFlags(), ERHISubmitFlags::SubmitToGPU))
+			{
+				State->ReplayContext.GetOperationContext("SubmitToGPU")
+					.RHISubmitCommands();
+			}
+			if (EnumHasAnyFlags(Group.GetFlags(), ERHISubmitFlags::EndFrame))
+			{
+				if (State->ReplayContext.HasGraphicsContextOverride())
+				{
+					State->ReplayContext.GetOperationContext("EndFrame").RHIEndFrame();
+				}
+				else
+				{
+					check(GDynamicRHI);
+					GDynamicRHI->RHIEndFrame();
+				}
+			}
+			Group.ReleaseBatches();
+			if (EnumHasAnyFlags(Group.GetFlags(), ERHISubmitFlags::DeleteResources))
+			{
+				DeleteDeferredResources();
+			}
+		};
+
+		if (State->RHIThread)
+		{
+			static_assert(sizeof(size_t) <= sizeof(uint64));
+			if (GroupBatchCount > std::numeric_limits<uint32>::max())
+			{
+				State->PendingBatches = SubmissionGroup->TakeBatches();
+				State->RejectedSubmissionCount.fetch_add(
+					1, std::memory_order_relaxed);
+				return {.Result = ERHICommandListSubmitResult::Oversized};
+			}
+			FRHIThreadWork Work;
+			Work.BatchCount = static_cast<uint32>(GroupBatchCount);
+			Work.PayloadBytes = static_cast<uint64>(GroupPayloadBytes);
+			Work.Execute = [Replay, SubmissionGroup]() mutable {
+				Replay(*SubmissionGroup);
+				SubmissionGroup.reset();
+				return FRHIThreadWorkResult::Success();
+			};
+			const FRHIThreadSubmission Submission = State->RHIThread->Enqueue(Work);
+			if (!Submission.IsAccepted())
+			{
+				// Enqueue rejection preserves Work, so release its shared capture before
+				// returning every batch to the executor for a later retry.
+				Work.Execute = {};
+				State->PendingBatches = SubmissionGroup->TakeBatches();
+				State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
+				ERHICommandListSubmitResult Result =
+					ERHICommandListSubmitResult::InvalidCommandList;
+				switch (Submission.Result)
+				{
+				case ERHIThreadEnqueueResult::Stopped:
+					Result = ERHICommandListSubmitResult::ThreadStopped;
+					break;
+				case ERHIThreadEnqueueResult::Draining:
+					Result = ERHICommandListSubmitResult::ThreadDraining;
+					break;
+				case ERHIThreadEnqueueResult::Failed:
+					Result = ERHICommandListSubmitResult::ThreadFailed;
+					break;
+				case ERHIThreadEnqueueResult::Oversized:
+					Result = ERHICommandListSubmitResult::Oversized;
+					break;
+				case ERHIThreadEnqueueResult::SerialExhausted:
+					Result = ERHICommandListSubmitResult::SerialExhausted;
+					break;
+				case ERHIThreadEnqueueResult::SelfEnqueue:
+					Result = ERHICommandListSubmitResult::SelfEnqueue;
+					break;
+				case ERHIThreadEnqueueResult::InvalidWork:
+				case ERHIThreadEnqueueResult::Accepted:
+					break;
+				}
+				return {.Result = Result};
+			}
+			RecordAcceptedSubmission();
+			State->LastSubmittedSerial.store(Submission.Serial, std::memory_order_release);
+			if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread))
+			{
+				WaitForSerial(Submission.Serial);
+			}
+			return {
+				.Result = ERHICommandListSubmitResult::Accepted,
+				.Serial = Submission.Serial
+			};
 		}
 
 		const uint64 PreviousSerial =
 			State->LastSubmittedSerial.load(std::memory_order_relaxed);
-		checkf(PreviousSerial != std::numeric_limits<uint64>::max(),
-			"RHI submission serial exhausted.");
+		if (PreviousSerial == std::numeric_limits<uint64>::max())
+		{
+			State->PendingBatches = SubmissionGroup->TakeBatches();
+			State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
+			return {.Result = ERHICommandListSubmitResult::SerialExhausted};
+		}
 		const uint64 Serial = PreviousSerial + 1;
+		RecordAcceptedSubmission();
 		State->LastSubmittedSerial.store(Serial, std::memory_order_release);
-
-		FState::FSubmissionGroup SubmissionGroup(
-			Serial, SubmitFlags, std::move(State->PendingBatches));
-		State->PendingBatches.clear();
-		State->RecordedCommandCount.fetch_add(
-			SubmissionGroup.GetCommandCount(), std::memory_order_relaxed);
-		State->RecordedPayloadBytes.fetch_add(
-			SubmissionGroup.GetPayloadBytes(), std::memory_order_relaxed);
-		State->SubmittedBatchCount.fetch_add(
-			SubmissionGroup.GetBatchCount(), std::memory_order_relaxed);
-		State->SubmissionGroupCount.fetch_add(1, std::memory_order_relaxed);
-		const auto ReplayStart = std::chrono::steady_clock::now();
-		SubmissionGroup.Replay(State->ReplayContext);
-		const auto ReplayEnd = std::chrono::steady_clock::now();
-		State->ReplayDurationNanoseconds.fetch_add(
-			static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-				ReplayEnd - ReplayStart).count()),
-			std::memory_order_relaxed);
-
-		if (EnumHasAnyFlags(
-			SubmissionGroup.GetFlags(), ERHISubmitFlags::SubmitToGPU))
-		{
-			State->ReplayContext.GetOperationContext("SubmitToGPU")
-				.RHISubmitCommands();
-		}
-		if (EnumHasAnyFlags(
-			SubmissionGroup.GetFlags(), ERHISubmitFlags::EndFrame))
-		{
-			State->ReplayContext.GetOperationContext("EndFrame").RHIEndFrame();
-		}
-		SubmissionGroup.ReleaseBatches();
-		if (EnumHasAnyFlags(
-			SubmissionGroup.GetFlags(), ERHISubmitFlags::DeleteResources))
-		{
-			DeleteDeferredResources();
-		}
-
-		State->CompletedSerial.store(
-			SubmissionGroup.GetSerial(), std::memory_order_release);
+		Replay(*SubmissionGroup);
+		SubmissionGroup.reset();
+		State->CompletedSerial.store(Serial, std::memory_order_release);
 		State->CompletionCV.notify_all();
-		return Serial;
+		if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread))
+		{
+			WaitForSerial(Serial);
+		}
+		return {
+			.Result = ERHICommandListSubmitResult::Accepted,
+			.Serial = Serial
+		};
 	}
 
-	auto FRHICommandListExecutor::GetSynchronousOperationContext(
-		bool bFlushRecordedCommands)
-		-> IRHICommandContext&
+	auto FRHICommandListExecutor::Submit(
+		const std::vector<FRHICommandList*>& AdditionalCmdLists,
+		ERHISubmitFlags SubmitFlags) -> uint64
+	{
+		const FRHICommandListSubmission Submission =
+			TrySubmit(AdditionalCmdLists, SubmitFlags);
+		if (!Submission.IsAccepted())
+		{
+			const FRHIThreadStats ThreadStats = State->RHIThread
+				? State->RHIThread->GetStats()
+				: FRHIThreadStats{};
+			DURIN_FATAL(
+				"RHI command-list submission rejected (result {}, state {}, failure '{}').",
+				static_cast<uint32>(Submission.Result),
+				static_cast<uint32>(ThreadStats.AdmissionState),
+				ThreadStats.FailureDiagnostic);
+			std::terminate();
+		}
+		return Submission.Serial;
+	}
+
+	auto FRHICommandListExecutor::ExecuteSynchronousOperation(
+		bool bFlushRecordedCommands,
+		std::function<void(IRHICommandContext&)> Operation) -> void
 	{
 		checkf(!CommandListImmediate.HasOpenBufferLocks(),
 			"A synchronous RHI operation requires every buffer lock to be unlocked.");
+		check(Operation);
 		if (bFlushRecordedCommands)
 		{
 			Submit({}, ERHISubmitFlags::None);
 		}
-		return State->ReplayContext.GetOperationContext("Synchronous RHI operation");
+		if (!State->RHIThread)
+		{
+			Operation(State->ReplayContext.GetOperationContext(
+				"Synchronous RHI operation"));
+			return;
+		}
+
+		FRHIThreadWork Work;
+		Work.Execute = [this, Operation = std::move(Operation)]() mutable {
+			CheckRHIThread();
+			Operation(State->ReplayContext.GetOperationContext(
+				"Synchronous RHI operation"));
+			return FRHIThreadWorkResult::Success();
+		};
+		const FRHIThreadSubmission Submission = State->RHIThread->Enqueue(Work);
+		if (!Submission.IsAccepted())
+		{
+			DURIN_FATAL(
+				"RHI thread rejected synchronous operation ({}).",
+				static_cast<uint32>(Submission.Result));
+			std::terminate();
+		}
+		State->LastSubmittedSerial.store(Submission.Serial, std::memory_order_release);
+		WaitForSerial(Submission.Serial);
 	}
 
 	auto FRHICommandListExecutor::CreateFence() -> FRHICommandListFence
@@ -1419,13 +1688,29 @@ namespace Durin
 
 	auto FRHICommandListExecutor::GetCompletedSerial() const -> uint64
 	{
+		if (State->RHIThread)
+		{
+			return State->RHIThread->GetStats().CompletedSerial;
+		}
 		return State->CompletedSerial.load(std::memory_order_acquire);
 	}
 
 	auto FRHICommandListExecutor::GetStats() const
 		-> FRHICommandListExecutorStats
 	{
+		size_t PendingPayloadBytes = 0;
+		for (const FState::FBatch& Batch : State->PendingBatches)
+		{
+			PendingPayloadBytes = CheckedAddPayloadBytes(
+				PendingPayloadBytes, Batch.GetPayloadBytes());
+		}
+		const FRHIThreadStats ThreadStats = State->RHIThread
+			? State->RHIThread->GetStats()
+			: FRHIThreadStats{};
 		return {
+			.Mode = State->RHIThread
+				? ERHICommandListExecutorMode::Threaded
+				: ERHICommandListExecutorMode::Inline,
 			.RecordedCommandCount = State->RecordedCommandCount.load(std::memory_order_relaxed),
 			.RecordedPayloadBytes = State->RecordedPayloadBytes.load(std::memory_order_relaxed),
 			.SubmittedBatchCount = State->SubmittedBatchCount.load(std::memory_order_relaxed),
@@ -1434,7 +1719,41 @@ namespace Durin
 			.WaitCount = State->WaitCount.load(std::memory_order_relaxed),
 			.RejectedSubmissionCount = State->RejectedSubmissionCount.load(std::memory_order_relaxed),
 			.PendingBatchCount = static_cast<uint64>(State->PendingBatches.size())
+				+ ThreadStats.OutstandingBatchCount,
+			.PendingPayloadBytes = CheckedAddPayloadBytes(
+				PendingPayloadBytes,
+				static_cast<size_t>(ThreadStats.OutstandingPayloadBytes)),
+			.LastSubmittedSerial = GetLastSubmittedSerial(),
+			.CompletedSerial = GetCompletedSerial(),
+			.WaitDurationNanoseconds = State->WaitDurationNanoseconds.load(
+				std::memory_order_relaxed),
+			.BackpressureWaitCount = ThreadStats.BackpressureWaitCount,
 		};
+	}
+
+	auto FRHICommandListExecutor::SetThreadedMode(FRHIThread& InRHIThread) -> void
+	{
+		checkf(State->RHIThread == nullptr,
+			"RHI command-list executor is already threaded.");
+		checkf(GetLastSubmittedSerial() == GetCompletedSerial(),
+			"Threaded mode requires an idle inline executor.");
+		const FRHIThreadStats ThreadStats = InRHIThread.GetStats();
+		checkf(ThreadStats.AdmissionState == ERHIThreadAdmissionState::Running,
+			"Threaded mode requires a running RHI thread.");
+		State->LastSubmittedSerial.store(
+			ThreadStats.LastSubmittedSerial, std::memory_order_release);
+		State->RHIThread = &InRHIThread;
+	}
+
+	auto FRHICommandListExecutor::SetInlineMode() -> void
+	{
+		if (State->RHIThread)
+		{
+			WaitForSerial(GetLastSubmittedSerial());
+			State->CompletedSerial.store(
+				GetLastSubmittedSerial(), std::memory_order_release);
+			State->RHIThread = nullptr;
+		}
 	}
 
 	auto FRHICommandListExecutor::IsSerialComplete(uint64 Serial) const -> bool
@@ -1445,13 +1764,33 @@ namespace Durin
 	auto FRHICommandListExecutor::WaitForSerial(uint64 Serial) const -> void
 	{
 		State->WaitCount.fetch_add(1, std::memory_order_relaxed);
+		const auto WaitStart = std::chrono::steady_clock::now();
 		if (IsSerialComplete(Serial))
 		{
 			return;
 		}
-		std::unique_lock Lock(State->CompletionMutex);
-		State->CompletionCV.wait(Lock, [this, Serial]() {
-			return IsSerialComplete(Serial);
-		});
+		if (State->RHIThread)
+		{
+			const ERHIThreadWaitResult WaitResult =
+				State->RHIThread->WaitForSerial(Serial);
+			if (WaitResult != ERHIThreadWaitResult::Completed)
+			{
+				DURIN_FATAL(
+					"RHI thread failed while waiting for serial {} (result {}).",
+					Serial, static_cast<uint32>(WaitResult));
+				std::terminate();
+			}
+		}
+		else
+		{
+			std::unique_lock Lock(State->CompletionMutex);
+			State->CompletionCV.wait(Lock, [this, Serial]() {
+				return IsSerialComplete(Serial);
+			});
+		}
+		const auto WaitEnd = std::chrono::steady_clock::now();
+		State->WaitDurationNanoseconds.fetch_add(
+			static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				WaitEnd - WaitStart).count()), std::memory_order_relaxed);
 	}
 } // namespace Durin

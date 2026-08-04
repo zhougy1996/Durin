@@ -28,9 +28,20 @@ namespace Durin
 		auto operator=(const FRHICommandListBase&) -> FRHICommandListBase& = delete;
 
 		// Stores an owned callable in the command arena. Captures must own every
-		// value they need when the callable eventually replays.
+		// value they need when the callable eventually replays. Callers must report
+		// heap storage exclusively owned by the capture so queue byte limits remain
+		// accurate; retained external resource objects are not payload bytes.
 		template<typename CallableType>
+		requires std::is_trivially_copyable_v<std::remove_cvref_t<CallableType>>
 		auto EnqueueLambda(CallableType&& Callable) -> void
+		{
+			EnqueueLambda(std::forward<CallableType>(Callable), 0);
+		}
+
+		template<typename CallableType>
+		auto EnqueueLambda(
+			CallableType&& Callable,
+			size_t OwnedPayloadBytes) -> void
 		{
 			using FStoredCallable = std::remove_cvref_t<CallableType>;
 			static_assert(std::is_invocable_r_v<void, FStoredCallable&>);
@@ -48,7 +59,7 @@ namespace Durin
 			std::construct_at(
 				static_cast<FStoredCallable*>(Allocation.Payload),
 				std::forward<CallableType>(Callable));
-			CommitCommand(Allocation.Node);
+			CommitCommand(Allocation.Node, OwnedPayloadBytes);
 		}
 
 		RHI_API auto IsRecording() const -> bool;
@@ -78,6 +89,7 @@ namespace Durin
 		RHI_API FRHICommandListBase();
 		RHI_API FRHICommandListBase(FRHICommandListBase&& Other) noexcept;
 		RHI_API auto operator=(FRHICommandListBase&& Other) noexcept -> FRHICommandListBase&;
+		RHI_API auto RecordAcquireBackBuffer(FRHITexture* BackBuffer) -> void;
 
 	private:
 		enum class ERecordingState : uint8
@@ -118,9 +130,18 @@ namespace Durin
 			std::construct_at(
 				static_cast<CommandType*>(Allocation.Payload),
 				std::forward<ArgumentTypes>(Arguments)...);
-			CommitCommand(Allocation.Node);
+			const auto* Command = static_cast<const CommandType*>(Allocation.Payload);
+			size_t OwnedPayloadBytes = 0;
+			if constexpr (requires(const CommandType& RecordedCommand) {
+				RecordedCommand.GetOwnedPayloadBytes();
+			})
+			{
+				OwnedPayloadBytes = static_cast<size_t>(
+					Command->GetOwnedPayloadBytes());
+			}
+			CommitCommand(Allocation.Node, OwnedPayloadBytes);
 		}
-		RHI_API auto CommitCommand(void* Node) -> void;
+		RHI_API auto CommitCommand(void* Node, size_t OwnedPayloadBytes) -> void;
 		auto DetachStorage() -> std::unique_ptr<FRHICommandStorage>;
 		auto IsFinished() const -> bool;
 		auto MarkAdmitted() -> void;
@@ -170,12 +191,44 @@ namespace Durin
 		DeleteResources = 1 << 1,
 		FlushRHIThread = 1 << 2,
 		EndFrame = 1 << 3,
+		BeginFrame = 1 << 4,
 	};
 
 	ENUM_CLASS_FLAGS(ERHISubmitFlags)
 
+	enum class ERHICommandListExecutorMode : uint8
+	{
+		Inline,
+		Threaded,
+	};
+
+	enum class ERHICommandListSubmitResult : uint8
+	{
+		Accepted,
+		InvalidCommandList,
+		ThreadStopped,
+		ThreadDraining,
+		ThreadFailed,
+		Oversized,
+		SerialExhausted,
+		SelfEnqueue,
+	};
+
+	struct FRHICommandListSubmission
+	{
+		ERHICommandListSubmitResult Result =
+			ERHICommandListSubmitResult::InvalidCommandList;
+		uint64 Serial = 0;
+
+		auto IsAccepted() const -> bool
+		{
+			return Result == ERHICommandListSubmitResult::Accepted;
+		}
+	};
+
 	struct FRHICommandListExecutorStats
 	{
+		ERHICommandListExecutorMode Mode = ERHICommandListExecutorMode::Inline;
 		uint64 RecordedCommandCount = 0;
 		uint64 RecordedPayloadBytes = 0;
 		uint64 SubmittedBatchCount = 0;
@@ -184,6 +237,11 @@ namespace Durin
 		uint64 WaitCount = 0;
 		uint64 RejectedSubmissionCount = 0;
 		uint64 PendingBatchCount = 0;
+		uint64 PendingPayloadBytes = 0;
+		uint64 LastSubmittedSerial = 0;
+		uint64 CompletedSerial = 0;
+		uint64 WaitDurationNanoseconds = 0;
+		uint64 BackpressureWaitCount = 0;
 	};
 
 	// Owns the primary timeline and immediate-only coordination operations.
@@ -241,23 +299,34 @@ namespace Durin
 		friend class FRHICommandListExecutor;
 	};
 
-	// Owns the immediate command list and replays immutable batches inline.
+	class FRHIThread;
+
+	// Owns the immediate command list and replays immutable batches inline or on the RHI thread.
 	class FRHICommandListExecutor
 	{
 	public:
 		RHI_API FRHICommandListExecutor();
 		RHI_API explicit FRHICommandListExecutor(IRHICommandContext& InGraphicsContext);
+		RHI_API FRHICommandListExecutor(
+			IRHICommandContext& InGraphicsContext,
+			FRHIThread& InRHIThread);
 		RHI_API ~FRHICommandListExecutor();
 
 		FRHICommandListExecutor(const FRHICommandListExecutor&) = delete;
 		auto operator=(const FRHICommandListExecutor&) -> FRHICommandListExecutor& = delete;
 
 		RHI_API auto GetImmediateCommandList() -> FRHICommandListImmediate&;
+		// Rejection preserves command ownership in the executor for a later retry.
+		RHI_API auto TrySubmit(
+			const std::vector<FRHICommandList*>& AdditionalCmdLists,
+			ERHISubmitFlags SubmitFlags) -> FRHICommandListSubmission;
 		RHI_API auto Submit(const std::vector<FRHICommandList*>& AdditionalCmdLists, ERHISubmitFlags SubmitFlags) -> uint64;
 		RHI_API auto CreateFence() -> FRHICommandListFence;
 		RHI_API auto GetLastSubmittedSerial() const -> uint64;
 		RHI_API auto GetCompletedSerial() const -> uint64;
 		RHI_API auto GetStats() const -> FRHICommandListExecutorStats;
+		RHI_API auto SetThreadedMode(FRHIThread& InRHIThread) -> void;
+		RHI_API auto SetInlineMode() -> void;
 
 	private:
 		class FState;
@@ -266,7 +335,9 @@ namespace Durin
 		auto SealImmediateSegment() -> void;
 		auto IsSerialComplete(uint64 Serial) const -> bool;
 		auto WaitForSerial(uint64 Serial) const -> void;
-		auto GetSynchronousOperationContext(bool bFlushRecordedCommands) -> IRHICommandContext&;
+		auto ExecuteSynchronousOperation(
+			bool bFlushRecordedCommands,
+			std::function<void(IRHICommandContext&)> Operation) -> void;
 
 		std::unique_ptr<FState> State;
 		FRHICommandListImmediate CommandListImmediate;
@@ -276,6 +347,7 @@ namespace Durin
 	};
 
 	extern RHI_API FRHICommandListExecutor GCommandListExecutor;
+	RHI_API auto RHIFlushDeferredResources() -> void;
 
 	FORCEINLINE TRefCountPtr<FRHITexture> RHICreateTexture(const FRHITextureCreateDesc& CreateDesc)
 	{

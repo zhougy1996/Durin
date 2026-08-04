@@ -20,6 +20,8 @@ namespace Durin
 		virtual auto Shutdown() -> void = 0;
 
 		virtual auto RHIBeginFrame() -> void = 0;
+		RHI_API virtual auto RHIBeginFrame_RenderThread(
+			FRHICommandListImmediate& RHICmdList) -> void;
 		virtual auto RHIEndFrame() -> void = 0;
 		RHI_API virtual auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void;
 

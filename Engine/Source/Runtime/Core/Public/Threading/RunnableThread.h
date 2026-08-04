@@ -22,6 +22,7 @@ namespace Durin
 		Unknown,
 		GameThread,
 		RenderingThread,
+		RHIThread,
 		WorkerThread,
 		IOThread,
 	};
@@ -67,11 +68,13 @@ namespace Durin
 
 	CORE_API auto IsInGameThread() -> bool;
 	CORE_API auto IsInRenderingThread() -> bool;
+	CORE_API auto IsInRHIThread() -> bool;
 	CORE_API auto IsInWorkerThread() -> bool;
 	CORE_API auto IsInTaskThread() -> bool;
 
 	CORE_API auto CheckGameThread() -> void;
 	CORE_API auto CheckRenderingThread() -> void;
+	CORE_API auto CheckRHIThread() -> void;
 	CORE_API auto CheckThreadRole(EThreadRole ThreadRole) -> void;
 
 

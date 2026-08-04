@@ -67,7 +67,11 @@ int LAUNCH_API main(int argc, char** argv)
 		LoggerShutdown();
 		return 1;
 	}
-	GEngineLoop.Init();
+	if (!GEngineLoop.Init())
+	{
+		LoggerShutdown();
+		return 1;
+	}
 
 	uint64 CompletedTicks = 0;
 	while (!IsEngineExitRequested())

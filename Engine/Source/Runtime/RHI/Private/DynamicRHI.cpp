@@ -14,6 +14,14 @@ namespace Durin
 		TextureReference->SetReferencedTexture_RenderThread(NewTexture);
 	}
 
+	auto FDynamicRHI::RHIBeginFrame_RenderThread(
+		FRHICommandListImmediate& RHICmdList) -> void
+	{
+		RHICmdList.ImmediateFlush(
+			EImmediateFlushType::DispatchToRHIThread,
+			ERHISubmitFlags::BeginFrame);
+	}
+
 	auto FDynamicRHI::RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void
 	{
 		RHICmdList.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread, ERHISubmitFlags::EndFrame | ERHISubmitFlags::DeleteResources);

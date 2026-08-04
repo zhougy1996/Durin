@@ -1,6 +1,7 @@
 #include "VulkanDevice.h"
 
 #include "RHICommandList.h"
+#include "Threading/RunnableThread.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanExtensions.h"
 #include "VulkanContext.h"
@@ -418,7 +419,15 @@ namespace Durin::VulkanRHI
 
 		delete PipelineManager;
 		PipelineManager = nullptr;
-		GCommandListExecutor.GetImmediateCommandList().ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+		if (IsInRHIThread())
+		{
+			RHIFlushDeferredResources();
+		}
+		else
+		{
+			GCommandListExecutor.GetImmediateCommandList().ImmediateFlush(
+				EImmediateFlushType::FlushRHIThreadFlushResources);
+		}
 		DeferredDeletionQueue.Clear();
 		MemoryManager.Deinit();
 

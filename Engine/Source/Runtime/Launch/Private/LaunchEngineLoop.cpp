@@ -240,7 +240,7 @@ namespace Durin
 		return true;
 	}
 
-	auto FEngineLoop::Init() -> void
+	auto FEngineLoop::Init() -> bool
 	{
 #if DURIN_WITH_EDITOR
 		GEngine = NewObject<DEditorEngine>(nullptr, "EditorEngine");
@@ -250,7 +250,19 @@ namespace Durin
 		AddToRoot(GEngine);
 
 		InitializeApplicationCore();
-		RHIInit();
+		if (!RHIInit())
+		{
+			DURIN_ERROR(
+				"Engine initialization stopped because the dynamic RHI could not start.");
+			ShutdownTaskScheduler(true);
+			RemoveFromRoot(GEngine);
+			MarkObjectHierarchyAsGarbage(GEngine);
+			GEngine = nullptr;
+			CollectGarbage();
+			FModuleManager::Get().UnloadModulesAtShutdown();
+			ShutdownApplicationCore();
+			return false;
+		}
 		// Command admission must be running before Mona, the renderer, or editor
 		// modules can publish their first render-thread work.
 		InitRenderingThread();
@@ -260,6 +272,7 @@ namespace Durin
 		LastTickTime = FTime::Seconds();
 
 		DURIN_INFO(STR("Durin engine initialized."));
+		return true;
 	}
 
 	// Called from render thread
@@ -267,10 +280,12 @@ namespace Durin
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("RenderFrame.Begin");
 		check(IsInRenderingThread());
+		// Retire the previous frame before publishing the counter used by backend frame selection.
+		CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 		GFrameCounterRenderThread = LogicFrameCounter;
 		GRenderFrameCounterRenderThread = RenderFrameCounter;
 		CommandList.SwitchPipeline(ERHIPipeline::Graphics);
-		GDynamicRHI->RHIBeginFrame();
+		GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 	}
 
 	// Called from render thread

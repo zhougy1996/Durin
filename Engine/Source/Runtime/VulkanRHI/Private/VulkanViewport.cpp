@@ -87,7 +87,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::BeginDrawing(FRHICommandListImmediate& RHICmdList) -> void
 	{
-		check(IsInRenderingThread());
+		check(GRHIThread ? IsInRHIThread() : IsInRenderingThread());
 		PrepareSwapchain(RHICmdList);
 	}
 

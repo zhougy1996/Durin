@@ -2,6 +2,8 @@
 
 #include "RHICommandList.h"
 #include "RHIContext.h"
+#include "RHIThread.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin
 {
@@ -131,6 +133,7 @@ namespace Durin
 				std::vector<uint8>& OutData) -> bool override
 			{
 				Operations.emplace_back("ReadTexture2D");
+				OperationThreadRoles.emplace_back(IsInRHIThread());
 				OutData = {7, 8, 9};
 				return true;
 			}
@@ -138,15 +141,18 @@ namespace Durin
 				const void*, uint32) -> FRHIUniformBufferRange override
 			{
 				Operations.emplace_back("AllocateDynamicUniformBuffer");
+				OperationThreadRoles.emplace_back(IsInRHIThread());
 				return {};
 			}
 			auto RHIAcquireBackBuffer(FRHITexture*) -> void override
 			{
 				Operations.emplace_back("AcquireBackBuffer");
+				OperationThreadRoles.emplace_back(IsInRHIThread());
 			}
 			auto RHIBlockUntilGPUIdle() -> void override
 			{
 				Operations.emplace_back("BlockUntilGPUIdle");
+				OperationThreadRoles.emplace_back(IsInRHIThread());
 			}
 			auto RHIPushConstants(EShaderStageFlags, uint32, uint32 Size, const void* Data) -> void override
 			{
@@ -168,6 +174,7 @@ namespace Durin
 			}
 
 			std::vector<std::string> Operations;
+			std::vector<bool> OperationThreadRoles;
 			FRHITexture* ObservedColorTarget = nullptr;
 			std::array<float, 4> ObservedClearValue{};
 			std::vector<uint8> ObservedPushConstants;
@@ -241,8 +248,11 @@ namespace Durin
 		FRHICommandListExecutor Executor;
 		std::vector<uint8> Source{1, 2, 3, 4};
 		std::vector<uint8> Replayed;
+		std::vector<uint8> Owned = Source;
+		const size_t OwnedPayloadBytes = Owned.capacity() * sizeof(Owned.front());
 		Executor.GetImmediateCommandList().EnqueueLambda(
-			[Owned = Source, &Replayed]() { Replayed = Owned; });
+			[Owned = std::move(Owned), &Replayed]() { Replayed = Owned; },
+			OwnedPayloadBytes);
 		std::fill(Source.begin(), Source.end(), 9);
 
 		Executor.Submit({}, ERHISubmitFlags::None);
@@ -260,7 +270,7 @@ namespace Durin
 		Executor.GetImmediateCommandList().EnqueueLambda(
 			[Owned = Resource, &bObservedDuringReplay]() {
 				bObservedDuringReplay = Owned.GetReference() != nullptr;
-			});
+			}, 0);
 		Resource = nullptr;
 
 		EXPECT_FALSE(bDestroyed);
@@ -316,7 +326,8 @@ namespace Durin
 		int DestructionCount = 0;
 		Executor.GetImmediateCommandList().EnqueueLambda(
 			[Owned = std::unique_ptr<int, FCountedDelete>(
-				new int(1), FCountedDelete{&DestructionCount})]() {});
+				new int(1), FCountedDelete{&DestructionCount})]() {},
+			sizeof(int));
 
 		Executor.Submit({}, ERHISubmitFlags::None);
 
@@ -331,7 +342,8 @@ namespace Durin
 			FRHICommandList Rejected;
 			Rejected.EnqueueLambda(
 				[Owned = std::unique_ptr<int, FCountedDelete>(
-					new int(1), FCountedDelete{&DestructionCount})]() {});
+					new int(1), FCountedDelete{&DestructionCount})]() {},
+				sizeof(int));
 			EXPECT_FALSE(
 				Executor.GetImmediateCommandList().TryQueueCommandList(
 					std::move(Rejected)));
@@ -375,6 +387,136 @@ namespace Durin
 		EXPECT_EQ(Executor.GetLastSubmittedSerial(), 2u);
 		EXPECT_EQ(Executor.GetCompletedSerial(), 2u);
 		EXPECT_EQ(Executor.GetStats().WaitCount, 1u);
+
+		Immediate.EnqueueLambda([]() {});
+		Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
+			ERHISubmitFlags::FlushRHIThread);
+		EXPECT_EQ(Executor.GetLastSubmittedSerial(), 3u);
+		EXPECT_EQ(Executor.GetCompletedSerial(), 3u);
+		EXPECT_EQ(Executor.GetStats().WaitCount, 2u);
+	}
+
+	TEST(FRHICommandListTests, ThreadedDispatchReturnsBeforeReplayAndFenceWaits)
+	{
+		FRecordingCommandContext Context;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor Executor(Context, RHIThread);
+		std::promise<void> ReleaseReplay;
+		std::shared_future<void> ReplayGate = ReleaseReplay.get_future().share();
+		std::atomic<bool> bReplayStarted = false;
+		std::atomic<bool> bExecutedOnRHIThread = false;
+		Executor.GetImmediateCommandList().EnqueueLambda(
+			[ReplayGate, &bReplayStarted, &bExecutedOnRHIThread]() {
+				bReplayStarted.store(true, std::memory_order_release);
+				bExecutedOnRHIThread.store(IsInRHIThread(), std::memory_order_release);
+				ReplayGate.wait();
+			}, 0);
+
+		const uint64 Serial = Executor.Submit({}, ERHISubmitFlags::None);
+		while (!bReplayStarted.load(std::memory_order_acquire))
+		{
+			std::this_thread::yield();
+		}
+		EXPECT_LT(Executor.GetCompletedSerial(), Serial);
+		EXPECT_EQ(Executor.GetStats().Mode, ERHICommandListExecutorMode::Threaded);
+
+		ReleaseReplay.set_value();
+		Executor.CreateFence().Wait();
+		EXPECT_EQ(Executor.GetCompletedSerial(), Serial);
+		EXPECT_TRUE(bExecutedOnRHIThread.load(std::memory_order_acquire));
+	}
+
+	TEST(FRHICommandListTests, ThreadedReplayMatchesInlineOrderedEvents)
+	{
+		FRecordingCommandContext InlineContext;
+		FRHICommandListExecutor InlineExecutor(InlineContext);
+		InlineExecutor.GetImmediateCommandList().EnqueueLambda(
+			[&InlineContext]() { InlineContext.Operations.emplace_back("Replay"); });
+		FRHICommandList InlineAdditional;
+		InlineAdditional.EnqueueLambda(
+			[&InlineContext]() { InlineContext.Operations.emplace_back("Additional"); });
+		InlineAdditional.FinishRecording();
+		InlineExecutor.Submit(
+			{&InlineAdditional}, ERHISubmitFlags::BeginFrame
+				| ERHISubmitFlags::SubmitToGPU | ERHISubmitFlags::EndFrame);
+
+		FRecordingCommandContext ThreadedContext;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor ThreadedExecutor(ThreadedContext, RHIThread);
+		ThreadedExecutor.GetImmediateCommandList().EnqueueLambda(
+			[&ThreadedContext]() { ThreadedContext.Operations.emplace_back("Replay"); });
+		FRHICommandList ThreadedAdditional;
+		ThreadedAdditional.EnqueueLambda(
+			[&ThreadedContext]() { ThreadedContext.Operations.emplace_back("Additional"); });
+		ThreadedAdditional.FinishRecording();
+		const uint64 Serial = ThreadedExecutor.Submit(
+			{&ThreadedAdditional}, ERHISubmitFlags::BeginFrame
+				| ERHISubmitFlags::SubmitToGPU | ERHISubmitFlags::EndFrame);
+		ThreadedExecutor.CreateFence().Wait();
+
+		EXPECT_EQ(ThreadedExecutor.GetCompletedSerial(), Serial);
+		EXPECT_EQ(ThreadedContext.Operations, InlineContext.Operations);
+		EXPECT_EQ(ThreadedContext.Operations, (std::vector<std::string>{
+			"BeginFrame", "Replay", "Additional", "SubmitToGPU", "EndFrame"}));
+	}
+
+	TEST(FRHICommandListTests, ThreadedImmediateOperationsStayOnRHIThread)
+	{
+		FRecordingCommandContext Context;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor Executor(Context, RHIThread);
+		FRHICommandListImmediate& Immediate = Executor.GetImmediateCommandList();
+		TRefCountPtr<FRHITexture> Texture = MakeRefCount<FRHITexture>();
+		const std::array<uint8, 4> UniformData{1, 2, 3, 4};
+		std::vector<uint8> Readback;
+
+		Immediate.AcquireBackBuffer(Texture.GetReference());
+		Immediate.AllocateDynamicUniformBuffer(
+			UniformData.data(), static_cast<uint32>(UniformData.size()));
+		EXPECT_TRUE(Immediate.ReadTexture2D(
+			Texture.GetReference(), 0, 0, Readback));
+		Immediate.BlockUntilGPUIdle();
+
+		EXPECT_EQ(Readback, (std::vector<uint8>{7, 8, 9}));
+		EXPECT_EQ(Context.Operations, (std::vector<std::string>{
+			"AllocateDynamicUniformBuffer", "AcquireBackBuffer",
+			"ReadTexture2D", "BlockUntilGPUIdle"}));
+		EXPECT_EQ(Context.OperationThreadRoles,
+			(std::vector<bool>{true, true, true, true}));
+	}
+
+	TEST(FRHICommandListTests, EmptySubmitFlushFlagWaitsForOutstandingSerial)
+	{
+		FRecordingCommandContext Context;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor Executor(Context, RHIThread);
+		std::promise<void> ReleaseReplay;
+		std::shared_future<void> ReplayGate = ReleaseReplay.get_future().share();
+		std::atomic<bool> bReplayStarted = false;
+		Executor.GetImmediateCommandList().EnqueueLambda(
+			[ReplayGate, &bReplayStarted]() {
+				bReplayStarted.store(true, std::memory_order_release);
+				ReplayGate.wait();
+			}, 0);
+		const uint64 Serial = Executor.Submit({}, ERHISubmitFlags::None);
+		while (!bReplayStarted.load(std::memory_order_acquire))
+		{
+			std::this_thread::yield();
+		}
+
+		auto Flush = std::async(std::launch::async, [&Executor]() {
+			return Executor.Submit({}, ERHISubmitFlags::FlushRHIThread);
+		});
+		EXPECT_EQ(Flush.wait_for(std::chrono::milliseconds(0)),
+			std::future_status::timeout);
+		ReleaseReplay.set_value();
+		EXPECT_EQ(Flush.get(), Serial);
+		EXPECT_EQ(Executor.GetCompletedSerial(), Serial);
+		EXPECT_EQ(Executor.GetStats().WaitCount, 1u);
 	}
 
 	TEST(FRHICommandListTests, OrderedEventsReleaseBatchesBeforeDeferredDeletion)
@@ -389,7 +531,7 @@ namespace Durin
 			[Owned = Resource, &Context]() {
 				Context.Operations.emplace_back("Replay");
 				EXPECT_NE(Owned.GetReference(), nullptr);
-			});
+			}, 0);
 		Resource = nullptr;
 
 		const uint64 Serial = Executor.Submit({},
@@ -425,6 +567,122 @@ namespace Durin
 		EXPECT_EQ(Stats.SubmissionGroupCount, 1u);
 		EXPECT_EQ(Stats.RejectedSubmissionCount, 1u);
 		EXPECT_EQ(Stats.PendingBatchCount, 0u);
+	}
+
+	TEST(FRHICommandListTests,
+		OwnedBufferAndTexturePayloadBytesRejectWithoutLosingBatches)
+	{
+		FRecordingCommandContext Context;
+		FRHIThreadQueueLimits Limits;
+		Limits.MaxPayloadBytes = 1024;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start(Limits));
+		FRHICommandListExecutor Executor(Context, RHIThread);
+
+		TRefCountPtr<FTestBuffer> Buffer = MakeRefCount<FTestBuffer>(2048);
+		std::vector<uint8> BufferSource(2048, 7);
+		FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
+			"PayloadAccountingTexture", 32, 32, EPixelFormat::RGBA8_UNORM);
+		TRefCountPtr<FRHITexture> Texture = MakeRefCount<FRHITexture>(Desc);
+		std::vector<uint8> TextureSource(32 * 32 * 4, 9);
+		FUpdateTextureRegion2D Region(0, 0, 0, 0, 32, 32);
+
+		FRHICommandListImmediate& Immediate = Executor.GetImmediateCommandList();
+		Immediate.WriteBuffer(
+			Buffer.GetReference(), BufferSource.data(),
+			static_cast<uint32>(BufferSource.size()), 0);
+		Immediate.UpdateTexture2D(
+			Texture.GetReference(), 0, 0, Region, 32 * 4,
+			TextureSource.data());
+
+		const FRHICommandListSubmission Rejected =
+			Executor.TrySubmit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Rejected.Result, ERHICommandListSubmitResult::Oversized);
+		EXPECT_EQ(Rejected.Serial, 0u);
+		const FRHICommandListExecutorStats RejectedStats = Executor.GetStats();
+		EXPECT_EQ(RejectedStats.RecordedCommandCount, 0u);
+		EXPECT_EQ(RejectedStats.RecordedPayloadBytes, 0u);
+		EXPECT_EQ(RejectedStats.SubmittedBatchCount, 0u);
+		EXPECT_EQ(RejectedStats.SubmissionGroupCount, 0u);
+		EXPECT_EQ(RejectedStats.RejectedSubmissionCount, 1u);
+		EXPECT_EQ(RejectedStats.PendingBatchCount, 1u);
+		EXPECT_GE(
+			RejectedStats.PendingPayloadBytes,
+			BufferSource.size() + TextureSource.size());
+
+		Executor.SetInlineMode();
+		const FRHICommandListSubmission Retried =
+			Executor.TrySubmit({}, ERHISubmitFlags::None);
+		EXPECT_TRUE(Retried.IsAccepted());
+		EXPECT_EQ(Retried.Serial, 1u);
+		EXPECT_EQ(Context.ObservedBufferData, BufferSource);
+		EXPECT_EQ(Context.ObservedTextureData, TextureSource);
+		RHIThread.Stop();
+	}
+
+	TEST(FRHICommandListTests,
+		ClosingThreadRejectionPreservesCommandsForRetry)
+	{
+		FRecordingCommandContext Context;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor Executor(Context, RHIThread);
+		bool bExecuted = false;
+		Executor.GetImmediateCommandList().EnqueueLambda(
+			[&bExecuted]() { bExecuted = true; });
+		RHIThread.BeginDrain();
+
+		const FRHICommandListSubmission Rejected =
+			Executor.TrySubmit({}, ERHISubmitFlags::None);
+		EXPECT_TRUE(
+			Rejected.Result == ERHICommandListSubmitResult::ThreadDraining
+			|| Rejected.Result == ERHICommandListSubmitResult::ThreadStopped);
+		EXPECT_EQ(Rejected.Serial, 0u);
+		EXPECT_FALSE(bExecuted);
+		EXPECT_EQ(Executor.GetStats().PendingBatchCount, 1u);
+
+		Executor.SetInlineMode();
+		const FRHICommandListSubmission Retried =
+			Executor.TrySubmit({}, ERHISubmitFlags::None);
+		EXPECT_TRUE(Retried.IsAccepted());
+		EXPECT_TRUE(bExecuted);
+		RHIThread.Stop();
+	}
+
+	TEST(FRHICommandListTests,
+		FailedThreadRejectionPreservesCommandsForRetry)
+	{
+		FRecordingCommandContext Context;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor Executor(Context, RHIThread);
+		FRHIThreadWork FailingWork;
+		FailingWork.Execute = []() {
+			return FRHIThreadWorkResult::Failure("intentional consumer failure");
+		};
+		const FRHIThreadSubmission FailureSubmission =
+			RHIThread.Enqueue(FailingWork);
+		ASSERT_TRUE(FailureSubmission.IsAccepted());
+		EXPECT_EQ(
+			RHIThread.WaitForSerial(FailureSubmission.Serial),
+			ERHIThreadWaitResult::Failed);
+
+		bool bExecuted = false;
+		Executor.GetImmediateCommandList().EnqueueLambda(
+			[&bExecuted]() { bExecuted = true; });
+		const FRHICommandListSubmission Rejected =
+			Executor.TrySubmit({}, ERHISubmitFlags::None);
+		EXPECT_EQ(Rejected.Result, ERHICommandListSubmitResult::ThreadFailed);
+		EXPECT_EQ(Rejected.Serial, 0u);
+		EXPECT_FALSE(bExecuted);
+		EXPECT_EQ(Executor.GetStats().PendingBatchCount, 1u);
+
+		Executor.SetInlineMode();
+		const FRHICommandListSubmission Retried =
+			Executor.TrySubmit({}, ERHISubmitFlags::None);
+		EXPECT_TRUE(Retried.IsAccepted());
+		EXPECT_TRUE(bExecuted);
+		RHIThread.Stop();
 	}
 
 	TEST(FRHICommandListTests, EmptySubmitDoesNotCreateASerial)

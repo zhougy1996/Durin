@@ -29,16 +29,21 @@ namespace Durin
 				ERHISubmitFlags::FlushRHIThread);
 			const FRHICommandListExecutorStats ExecutorStats =
 				GCommandListExecutor.GetStats();
+			const char* ExecutorMode = ExecutorStats.Mode
+				== ERHICommandListExecutorMode::Threaded ? "threaded" : "inline";
 			DURIN_DEBUG(
-				"Inline RHI executor drained: {} command(s), {} payload byte(s), "
+				"RHI executor drained (mode: {}): {} command(s), {} payload byte(s), "
 				"{} batch(es), {} submission group(s), {} ns replay, {} wait(s), "
-				"{} rejection(s).",
+				"{} ns wait duration, {} backpressure event(s), {} rejection(s).",
+				ExecutorMode,
 				ExecutorStats.RecordedCommandCount,
 				ExecutorStats.RecordedPayloadBytes,
 				ExecutorStats.SubmittedBatchCount,
 				ExecutorStats.SubmissionGroupCount,
 				ExecutorStats.ReplayDurationNanoseconds,
 				ExecutorStats.WaitCount,
+				ExecutorStats.WaitDurationNanoseconds,
+				ExecutorStats.BackpressureWaitCount,
 				ExecutorStats.RejectedSubmissionCount);
 			const size_t PendingRHIDeletes =
 				FRHIResource::GetNumPendingDeletes();
