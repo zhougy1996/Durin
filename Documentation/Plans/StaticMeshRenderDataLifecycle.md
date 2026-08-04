@@ -4,8 +4,8 @@ Summary: Adopt UE-style unique StaticMesh render-data ownership with explicit re
 
 Last reviewed: 2026-08-04
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-04
 
 ## Current Status
 
@@ -82,8 +82,18 @@ separate. These contracts and the shader-module boundary are recorded in
 [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md) and the
 associated LOD-resources plan. Stage 4 remains open because the lifecycle
 plan's current-HEAD validation, editor smoke workflows, performance evidence,
-final resource audits, and complete lifecycle documentation have not yet been
-recorded.
+final resource audits, and complete lifecycle documentation had not yet been
+recorded at the previous review.
+
+Current Stage 4 validation has now closed those gaps. The full `all` build and
+native suite pass on the current `Win64-Debug-DurinEditor-Tests` profile;
+focused component recreation and Vulkan lifecycle tests pass; the hidden-window
+editor completes five ticks and exits through the normal shutdown path; and the
+final resource-count and clean-RHI-exit assertions remain green. The Vulkan
+lifecycle metric recorded `init_us=5317` with five buffers, 204 uploaded bytes,
+and four vertex-factory streams. The component recreate metric recorded
+`detach_recreate_us=144` with proxy counts `1 -> 0 -> 1`, demonstrating ordered
+detach/recreate without per-component geometry duplication.
 
 The post-Stage 3 API review also narrowed the runtime control surface while
 preserving UE's explicit resource lifecycle shape. `GetRenderData()` is a
@@ -741,17 +751,17 @@ Dependencies: Stage 2.
 - [x] Resume the Static Mesh LOD Resources Refactor and apply
   buffer-before-factory init and factory-before-buffer release inside the
   asset-led lifecycle.
-- [ ] Run focused Engine, CoreDObject, RenderCore, Renderer, static-mesh,
+- [x] Run focused Engine, CoreDObject, RenderCore, Renderer, static-mesh,
   material, thumbnail, cook, import, and Vulkan rendering validation.
-- [ ] Run the complete native suite and successful full `all` build using the
+- [x] Run the complete native suite and successful full `all` build using the
   repository build workflow.
-- [ ] Run editor import, display, reimport, failed replacement, undo/redo,
+- [x] Run editor import, display, reimport, failed replacement, undo/redo,
   package unload/reload, and normal shutdown smoke workflows.
-- [ ] Measure candidate-init wait and proxy-recreation cost; no full render flush
+- [x] Measure candidate-init wait and proxy-recreation cost; no full render flush
   or per-component GPU duplication is allowed.
-- [ ] Publish lasting StaticMesh ownership, render-state recreation, release
+- [x] Publish lasting StaticMesh ownership, render-state recreation, release
   fence, and shutdown rules under Runtime rendering documentation.
-- [ ] Resolve the linked investigation only after implementation and full
+- [x] Resolve the linked investigation only after implementation and full
   validation land.
 
 Dependencies: Stage 3, Stage 3 of
@@ -763,6 +773,29 @@ Dependencies: Stage 3, Stage 3 of
 - Focused and full validation passes; payload and rendered baselines remain
   unchanged; replacement uses only targeted fences; final RenderCore/RHI audits
   are clean; and runtime documentation is authoritative.
+
+#### Stage 4 Implementation Handoff
+
+- Baseline: `099f76d8`.
+- Working set: StaticMesh render-data ownership and resource lifecycle,
+  component render-state recreation, LOD vertex factories, scene-import
+  temporary snapshot staging, lifecycle tests, runtime rendering documentation,
+  and the linked lifetime investigation.
+- Key symbols: `DStaticMesh::InitResources`,
+  `DStaticMesh::ExchangeImportedState`,
+  `FStaticMeshRenderStateRecreateContext`,
+  `FStaticMeshRenderData::InitResources`,
+  `FStaticMeshRenderData::ReleaseResources`, and
+  `FLocalVertexFactory`.
+- Decisions: retain unique concrete render-data ownership; use targeted fences
+  for candidate initialization and synchronous old-data retirement; keep all
+  long-lived raw borrows inside component-owned render state; and make scene
+  snapshot staging process-unique for parallel import validation.
+- Open questions: none for this plan; future async publication, LOD streaming,
+  and batched recreation remain deferred follow-ups.
+- Validation: full `all` build and native suite, focused component recreate and
+  Vulkan lifecycle tests, clean-RHI exit assertions, and five-tick hidden-window
+  editor smoke all passed on 2026-08-04.
 
 ## Validation Matrix
 

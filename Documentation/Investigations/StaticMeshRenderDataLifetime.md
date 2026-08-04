@@ -1,15 +1,15 @@
 # StaticMesh Render-Data Lifetime
 
-**Status:** Verified; implementation planned
-**Last reviewed:** 2026-07-29
+**Status:** Resolved; implementation validated
+**Last reviewed:** 2026-08-04
 
 ## Scope And Verdict
 
-`DStaticMesh` already uses `std::unique_ptr<FStaticMeshRenderData>`, but the
-current code treats pointer replacement as sufficient lifetime management.
-That is unsafe because scene mutation and render-resource work are asynchronous:
-the game thread can destroy the old aggregate while an accepted render command
-or an installed scene proxy still holds its raw address.
+This investigation records the baseline lifetime violation and the selected
+UE-shaped correction. The implementation is now landed: `DStaticMesh` retains
+unique ownership through candidate initialization, component render-state
+recreation, reverse child-resource release, targeted fences, and deferred
+object destruction.
 
 The appropriate correction is UE-style unique ownership, not a
 `FTextureReference`-style indirection or a counted render-data handle:
@@ -23,6 +23,30 @@ The appropriate correction is UE-style unique ownership, not a
 
 The implementation is tracked by
 [Static Mesh Render-Data Lifecycle](../Plans/StaticMeshRenderDataLifecycle.md).
+
+The detailed findings below are historical baseline evidence. They describe
+the unsafe pre-implementation schedules and remain useful for explaining why
+the ownership and ordering rules are required.
+
+## Resolution And Validation
+
+- `DStaticMesh` owns one current render-data aggregate and one destruction
+  release fence; detached candidates and synchronous displaced data retain
+  exactly one unique owner.
+- `FStaticMeshRenderStateRecreateContext` removes registered component proxies
+  before replacement release and recreates them only against current data.
+- `FStaticMeshRenderData` initializes LOD buffers before vertex factories and
+  releases vertex factories before buffers.
+- DDC, cooked load, source rebuild, reimport, rollback, package unload, GC,
+  and no-RHI destruction use the same asset lifecycle primitives.
+- The current-head full `all` build, complete native suite, focused StaticMesh
+  recreate tests, Vulkan lifecycle test, and hidden-window editor startup/
+  shutdown smoke all pass.
+
+The parallel validation run also exposed a temporary scene-snapshot directory
+collision across test processes. Scene import staging now includes the process
+ID in its temporary directory identity, so concurrent reimport tests cannot
+delete one another's captured source files.
 
 ## Verified Findings
 

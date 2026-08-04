@@ -58,6 +58,37 @@ High-level render-data ownership, replacement, proxy recreation, release
 fences, and deferred destruction are owned by the
 [Static Mesh Render-Data Lifecycle Plan](../../Plans/StaticMeshRenderDataLifecycle.md).
 
+## Asset Lifecycle
+
+`DStaticMesh` uniquely owns its current `FStaticMeshRenderData`. Detached
+builders own unpublished candidates, and synchronous replacement temporarily
+owns the displaced render data in a local `std::unique_ptr`. No scene proxy,
+vertex factory, render command, or material/thumbnail consumer owns concrete
+render data.
+
+Replacement follows one ordered protocol:
+
+1. Build and CPU-validate a detached candidate.
+2. Initialize the candidate and wait on its targeted fence before publication.
+3. Remove component render state through
+   `FStaticMeshRenderStateRecreateContext`.
+4. Publish the candidate and release the local old render data in reverse
+   child-resource order.
+5. Wait on the targeted release fence before destroying old C++ storage.
+6. Recreate component render state against the new current data.
+
+Scene proxies retain only const, non-owning render-data borrows between
+component render-state creation and removal. The renderer does not lazily
+initialize StaticMesh resources during scene preparation; components request
+asset initialization before proxy creation.
+
+`BeginDestroy()` queues release for initialized resources and starts the
+asset's one destruction fence. `IsReadyForFinishDestroy()` remains false until
+that fence and the normal `DObject` lifecycle are complete; `FinishDestroy()`
+then destroys the aggregate. Engine termination drains ordinary DObject and
+render-command ownership while the asset keeps this same release contract—no
+StaticMesh-specific shutdown registry or global render flush is required.
+
 ## Vertex Streams and Declaration
 
 `FLocalVertexFactory::FDataType` describes the four physical streams. The

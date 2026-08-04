@@ -2,6 +2,7 @@
 
 #include "ImportedScene.h"
 #include "AssetSystem.h"
+#include "HAL/PlatformProcess.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialTypes.h"
@@ -323,8 +324,9 @@ namespace Durin
 				}
 				static std::atomic<uint64> Serial = 0;
 				Root = std::filesystem::temp_directory_path()
-					/ std::format("DurinSceneImport_{}_{}",
-						RootSource->ContentHash.ToString(), ++Serial);
+					/ std::format("DurinSceneImport_{}_{}_{}",
+						RootSource->ContentHash.ToString(),
+						FPlatformProcess::CurrentProcessId(), ++Serial);
 				const std::filesystem::path VirtualRoot(RootSource->SourcePath.Path);
 				const std::filesystem::path VirtualParent = VirtualRoot.parent_path();
 				for (const FSourceSnapshotEntry& Source : Snapshot.GetSources())

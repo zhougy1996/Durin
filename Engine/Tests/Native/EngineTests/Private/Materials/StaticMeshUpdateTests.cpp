@@ -2,6 +2,9 @@
 #include "DynamicRHI.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
 
+#include <chrono>
+#include <iostream>
+
 namespace
 {
 	auto ReplaceWithDebugCandidate(Durin::DStaticMesh* Mesh) -> bool
@@ -66,11 +69,20 @@ TEST(FStaticMeshRenderStateRecreateContextTests, UsesRetainedWorldSceneWithoutGl
 
 	Durin::DEngine* SavedEngine = Durin::GEngine;
 	Durin::GEngine = nullptr;
+	const auto RecreateStart = std::chrono::steady_clock::now();
 	{
 		Durin::FStaticMeshRenderStateRecreateContext Context(Mesh);
 		EXPECT_EQ(CapturePrimitiveCount(Harness.Scene), 0u);
 	}
 	EXPECT_EQ(CapturePrimitiveCount(Harness.Scene), 1u);
+	const auto RecreateMicroseconds =
+		std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::steady_clock::now() - RecreateStart)
+			.count();
+	std::cout
+		<< "[StaticMeshRenderStateMetric] detach_recreate_us="
+		<< RecreateMicroseconds
+		<< " proxies_before=1 proxies_during=0 proxies_after=1\n";
 	Durin::GEngine = SavedEngine;
 
 	Component->UnregisterComponent();
