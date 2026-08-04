@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,7 +21,7 @@ from durin_header_tool.cli.command import (
     prepare_project_build,
     setup_parser,
 )
-from durin_header_tool.cli.main import _get_output_lock_paths
+from durin_header_tool.cli.main import _get_output_lock_paths, init_logging
 from durin_header_tool.generators import module_cmake_file_generator
 from durin_header_tool.generators import project_cmake_file_generator
 from durin_header_tool.runtime.parallelism import resolve_worker_count
@@ -340,6 +341,18 @@ class TestIntermediateLayout:
         assert parser.parse_args(["--workers", "2"]).workers == 2
         with pytest.raises(SystemExit):
             parser.parse_args(["--workers", "9"])
+
+    def test_cli_quiet_mode_overrides_info_log_level(self):
+        parser = argparse.ArgumentParser()
+        add_common_arguments(parser)
+        args = parser.parse_args(["--log", "DEBUG", "--quiet"])
+        assert args.quiet
+        with mock.patch("durin_header_tool.cli.main.logging.basicConfig") as configure:
+            init_logging(args.log, quiet=args.quiet)
+        configure.assert_called_once_with(
+            level=logging.WARNING,
+            format="[%(levelname)s] %(message)s",
+        )
 
     @pytest.mark.parametrize(
         ("arguments", "expected_function"),

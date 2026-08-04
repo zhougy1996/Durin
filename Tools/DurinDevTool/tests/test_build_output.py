@@ -70,6 +70,7 @@ class TestOutput:
         stdout = io.StringIO()
         output = BuildOutput(plain=True, output_mode=build_config.OutputMode.PROGRESS, stdout=stdout, stderr=io.StringIO(), force_terminal=True)
         output.child_output('[1/2] Building first.cpp\n')
+        output.child_output('\n')
         output.child_output('[2/2] Linking result.dll\n')
         output.child_output('compiler diagnostic\n')
         text = stdout.getvalue()
@@ -77,6 +78,24 @@ class TestOutput:
         assert '\r[2/2] Linking result.dll' in text
         assert '[1/2] Building first.cpp\n' not in text
         assert '[2/2] Linking result.dll\ncompiler diagnostic\n' in text
+
+    def test_progress_mode_hides_routine_dht_logs_but_preserves_diagnostics(self) -> None:
+        stdout = io.StringIO()
+        output = BuildOutput(plain=True, output_mode=build_config.OutputMode.PROGRESS, stdout=stdout, stderr=io.StringIO(), force_terminal=True)
+        output.child_output('[1/2] [DHT] Generating reflection files for Core\n')
+        output.child_output('[INFO] [DHT] Reflection Core: up to date\n')
+        output.child_output('[DEBUG] [DHT] Reflection Core: preparing manifest\n')
+        output.child_output('[WARNING] [DHT] Ignoring invalid cache entry\n')
+        text = stdout.getvalue()
+        assert '[INFO] [DHT]' not in text
+        assert '[DEBUG] [DHT]' not in text
+        assert '[WARNING] [DHT] Ignoring invalid cache entry' in text
+        assert '[1/2] [DHT] Generating reflection files for Core\n' in text
+
+        full_stdout = io.StringIO()
+        full = BuildOutput(plain=True, output_mode=build_config.OutputMode.FULL, stdout=full_stdout, stderr=io.StringIO())
+        full.child_output('[INFO] [DHT] Reflection Core: up to date\n')
+        assert '[INFO] [DHT] Reflection Core: up to date' in full_stdout.getvalue()
 
     def test_runtime_log_levels_are_colored_for_terminal_output(self) -> None:
         stdout = io.StringIO()

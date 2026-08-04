@@ -24,6 +24,7 @@ from .config import (
 
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 NINJA_PROGRESS_PATTERN = re.compile(r"^\[\d+/\d+(?:\s+[^\]]+)?\](?:\s|$)")
+DHT_ROUTINE_LOG_PATTERN = re.compile(r"^\[(?:DEBUG|INFO)\]\s+\[DHT\](?:\s|$)")
 RUNTIME_LOG_LEVEL_PATTERN = re.compile(
     r"^\[\d{2}:\d{2}:\d{2}\]\[(trace|debug|info|warning|error|critical)\]",
     re.IGNORECASE,
@@ -168,6 +169,10 @@ class BuildOutput:
     ) -> None:
         with self._output_lock:
             clean = ANSI_ESCAPE_PATTERN.sub("", text.rstrip("\r\n"))
+            if self.progress and DHT_ROUTINE_LOG_PATTERN.match(clean):
+                return
+            if self.progress and self._progress_width and not clean:
+                return
             if self.progress and NINJA_PROGRESS_PATTERN.match(clean):
                 maximum_width = max(1, self.console.width - 1)
                 visible = clean

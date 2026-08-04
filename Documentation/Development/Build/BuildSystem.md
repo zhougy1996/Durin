@@ -85,7 +85,8 @@ interrupted, rerun the ordinary build: the previous complete entry remains
 usable, or DHT reparses and replaces the incomplete latest result. Manual cache
 deletion is not a recovery step. Set `DURIN_DHT_LOG_LEVEL` to `DEBUG` for
 per-header diagnostics or `WARNING` for Ninja-only progress unless DHT reports
-a problem.
+a problem. Direct DHT invocations may pass `--quiet` to override `--log` and
+retain only warnings and errors.
 
 Generated metadata is part of the source of truth. If a module appears
 incomplete, inspect its `Engine/Intermediate/Build/...` metadata

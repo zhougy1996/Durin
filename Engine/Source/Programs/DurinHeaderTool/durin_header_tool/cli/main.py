@@ -5,8 +5,12 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 from .command import setup_parser
 
-def init_logging(log_level_str: str):
-    log_level = getattr(logging, log_level_str.upper(), logging.INFO)
+def init_logging(log_level_str: str, *, quiet: bool = False):
+    log_level = (
+        logging.WARNING
+        if quiet
+        else getattr(logging, log_level_str.upper(), logging.INFO)
+    )
     logging.basicConfig(level=log_level, format="[%(levelname)s] %(message)s")
 
 
@@ -35,7 +39,7 @@ def main():
     configs.ARCH = args.arch
     configs.RUNTIME_VARIANT = args.runtime_variant
     configs.TOOL_FINGERPRINT = args.tool_fingerprint
-    init_logging(args.log)
+    init_logging(args.log, quiet=args.quiet)
     project_files = list(args.project_file)
     if args.function == "prepare_project_build":
         project_files.append(args.project)

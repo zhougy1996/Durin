@@ -173,9 +173,12 @@ Child-process output has four modes, selected with
 `--output auto|compact|progress|full`. The default `auto` mode selects progress
 output in an interactive terminal and compact output when stdout is redirected
 or consumed by an Agent. Progress mode updates routine Ninja `[n/total]` status
-in place while preserving other child output, compiler diagnostics, and the
-complete command log. When explicitly requested without an interactive terminal,
-progress mode falls back to compact output.
+in place and hides DHT DEBUG/INFO lines from the terminal while preserving DHT
+warnings, other child output, compiler diagnostics, and the complete command
+log. Empty child-output records do not finalize an active Ninja progress line.
+Use `--output full` when routine DHT diagnostics must also be streamed.
+When explicitly requested without an interactive terminal, progress mode falls
+back to compact output.
 Compact mode keeps stage boundaries, command lines, heartbeats, and final
 results, but suppresses routine CMake, Ninja, and successful GoogleTest lines.
 It writes the complete raw output under `Build/.agent-state/logs/`, reports the
