@@ -151,6 +151,7 @@ class RequestContext:
 class OutputOptions:
     plain: bool = False
     mode: OutputMode = OutputMode.AUTO
+    agent: bool = False
 
 
 @dataclass(frozen=True)
@@ -313,6 +314,10 @@ class CommandRequest:
     @property
     def output_mode(self) -> OutputMode:
         return self.output.mode
+
+    @property
+    def agent(self) -> bool:
+        return self.output.agent
 
     @property
     def target(self) -> str:

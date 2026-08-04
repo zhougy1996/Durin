@@ -75,6 +75,11 @@ PLAIN = _argument(
     action="store_true",
     help="disable colors and styled terminal output",
 )
+AGENT = _argument(
+    "--agent",
+    action="store_true",
+    help="use stable compact output with liveness heartbeats for Agent execution",
+)
 NON_INTERACTIVE = _argument(
     "--non-interactive",
     action="store_true",
@@ -84,7 +89,7 @@ OUTPUT_MODE = _argument(
     "--output",
     dest="output_mode",
     choices=("auto", "compact", "progress", "full"),
-    default="auto",
+    default=None,
     help="child output mode (default: auto)",
 )
 CONTEXT_ARGUMENTS = (PROFILE, PRESET)
@@ -96,6 +101,7 @@ TOOL_ARGUMENTS = (
     CMAKE,
     ENVIRONMENT_SETUP,
     JOBS,
+    AGENT,
     PLAIN,
     OUTPUT_MODE,
 )

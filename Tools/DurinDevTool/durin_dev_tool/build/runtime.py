@@ -70,6 +70,7 @@ def run_native_test(context: BuildContext, output: BuildOutput) -> None:
             interruption_message="Native test run was interrupted.",
             timeout_seconds=request.test_timeout_seconds or None,
             colorize_test_output=True,
+            show_heartbeat=request.agent,
         )
 
 
@@ -116,6 +117,7 @@ def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
             recovery_required_on_interrupt=False,
             interruption_message="Native test run was interrupted.",
             colorize_test_output=True,
+            show_heartbeat=request.agent,
         )
 
 

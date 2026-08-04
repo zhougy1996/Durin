@@ -44,9 +44,16 @@ def request_from_namespace(namespace: argparse.Namespace) -> CommandRequest:
         ),
         jobs=namespace_value(namespace, "jobs", None),
     )
+    agent = bool(namespace_value(namespace, "agent", False))
+    selected_output_mode = namespace_value(namespace, "output_mode", None)
     output = OutputOptions(
-        plain=bool(namespace_value(namespace, "plain", False)),
-        mode=OutputMode(namespace_value(namespace, "output_mode", OutputMode.AUTO)),
+        plain=agent or bool(namespace_value(namespace, "plain", False)),
+        mode=(
+            OutputMode.COMPACT
+            if agent and selected_output_mode is None
+            else OutputMode(selected_output_mode or OutputMode.AUTO)
+        ),
+        agent=agent,
     )
     options = None
     if action in {Action.CONFIGURE, Action.BUILD, Action.REBUILD}:

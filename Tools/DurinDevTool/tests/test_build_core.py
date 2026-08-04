@@ -275,6 +275,7 @@ class TestCore:
             recovery_required_on_interrupt=False,
             interruption_message='Native test run was interrupted.',
             colorize_test_output=True,
+            show_heartbeat=False,
         )
 
     def test_all_native_tests_can_include_direct_lifecycle_tests(self) -> None:
@@ -482,7 +483,21 @@ class TestCore:
         build_directory = Path(directory)
         with mock.patch.object(build_core, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_core, 'cache_is_usable', return_value=True), mock.patch.object(build_core, 'ninja_uses_english_msvc_prefix', return_value=True), mock.patch.object(build_core, 'run_command') as run:
             build_core.perform_action(context, output, target_override='Core')
-        run.assert_called_once_with(['cmake', '--build', str(build_directory), '--target', 'Core', '-j', '4'], environment={'PATH': 'cached'}, output=output)
+        run.assert_called_once_with(['cmake', '--build', str(build_directory), '--target', 'Core', '-j', '4'], environment={'PATH': 'cached'}, output=output, show_heartbeat=False)
+
+    def test_agent_build_enables_child_process_heartbeat(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        preset = self.make_preset()
+        request = build_config.CommandRequest(
+            build_config.Action.BUILD,
+            output=build_config.OutputOptions(agent=True),
+            options=build_config.BuildActionOptions(target='Core'),
+        )
+        context = build_config.BuildContext(request, build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={'PATH': 'cached'})
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        build_directory = Path(tmp_path_factory.mktemp('case'))
+        with mock.patch.object(build_core, 'preset_build_directory', return_value=build_directory), mock.patch.object(build_core, 'cache_is_usable', return_value=True), mock.patch.object(build_core, 'ninja_uses_english_msvc_prefix', return_value=True), mock.patch.object(build_core, 'run_command') as run:
+            build_core.perform_action(context, output)
+        assert run.call_args.kwargs['show_heartbeat']
 
     def test_normal_command_failure_restores_marker(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')

@@ -78,7 +78,7 @@ class TestBuildRegistry:
             registry.parse(['doc', 'list'])
 
     def test_direct_and_shell_entry_paths_dispatch_identical_requests(self) -> None:
-        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all', 'test --target CoreTests --filter Core.* --timeout 45', 'test --target all --schedule-random --output-junit Build/results.xml --ctest-regex ^Core\\. --include-direct', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
+        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all --agent', 'test --target CoreTests --filter Core.* --timeout 45', 'test --target all --schedule-random --output-junit Build/results.xml --ctest-regex ^Core\\. --include-direct', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
         stdout = io.StringIO()
         stderr = io.StringIO()
 
@@ -217,6 +217,19 @@ class TestBuildRegistry:
         assert request.link_type is LinkType.STATIC
         assert request.output_mode is OutputMode.AUTO
         assert request.enablements == ('base',)
+
+    def test_agent_build_preset_selects_plain_compact_output_and_allows_override(self) -> None:
+        request = handler.request_from_namespace(self.parse(['build', '--agent']))
+        assert request.agent
+        assert request.plain
+        assert request.output_mode is OutputMode.COMPACT
+
+        overridden = handler.request_from_namespace(
+            self.parse(['build', '--agent', '--output', 'full'])
+        )
+        assert overridden.agent
+        assert overridden.plain
+        assert overridden.output_mode is OutputMode.FULL
 
     def test_preset_command_preserves_inspection_semantics(self) -> None:
         spec, namespace = self.registry.parse(['preset', 'Win64-Debug-DurinEditor'])

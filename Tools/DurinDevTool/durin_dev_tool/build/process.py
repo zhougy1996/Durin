@@ -254,7 +254,7 @@ def run_command(
     interruption_message: str | None = None,
     timeout_seconds: int | None = None,
     wait_for_descendants: bool = False,
-    show_heartbeat: bool = True,
+    show_heartbeat: bool = False,
 ) -> None:
     command_list = list(command)
     output.command(subprocess.list2cmdline(command_list))

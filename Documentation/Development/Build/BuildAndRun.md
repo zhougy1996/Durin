@@ -198,7 +198,20 @@ failed statuses are colored consistently even when the child process disables
 its own terminal colors.
 `--plain` controls styling independently and does not select an output volume.
 
-While a build, configure, clean, or test child command is alive, DurinDevTool emits a short heartbeat every 30 seconds until the child produces a final result. This distinguishes a genuinely running operation from a completed command without requiring a second status or build invocation. The interactive `run` command suppresses this heartbeat because the runtime is expected to remain open until the user exits it.
+Agents invoke toolchain-backed commands with `--agent`. This preset selects
+plain compact output and emits a short heartbeat every 30 seconds while a
+configure, build, clean, or test child command remains alive. An explicit
+`--output` value overrides the compact-output part of the preset. Complete raw
+child output remains available in the command log, including DHT cache and
+generation summaries suppressed by compact mode:
+
+```powershell
+.\DevTool.bat build --target all --agent
+```
+
+Ordinary human-driven commands do not emit liveness heartbeats. The interactive
+`run` command also suppresses them because the runtime is expected to remain
+open until the user exits it.
 
 On Windows, the first toolchain-backed command captures and validates the Visual Studio environment. DurinDevTool caches that environment delta under `Build/.agent-state/` so later invocations avoid rerunning `VsDevCmd.bat` and the compiler language probe. The cache refreshes automatically when the setup script, its arguments, or `cl.exe` changes, while caller-provided environment values and `PATH` changes remain live.
 

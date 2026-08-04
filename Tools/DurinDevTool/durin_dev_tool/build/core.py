@@ -672,6 +672,7 @@ def perform_action(
                 command,
                 environment=environment,
                 output=output,
+                show_heartbeat=request.agent,
             )
         require_english_msvc_ninja_prefix(context, build_directory)
         return
@@ -684,6 +685,7 @@ def perform_action(
                 [context.cmake, "--build", str(build_directory), "--target", "clean"],
                 environment=environment,
                 output=output,
+                show_heartbeat=request.agent,
             )
         return
 
@@ -695,6 +697,7 @@ def perform_action(
                     [context.cmake, "--build", str(build_directory), "--target", "clean"],
                     environment=environment,
                     output=output,
+                    show_heartbeat=request.agent,
                 )
         else:
             output.warning(f'Skipping clean because the build tree is unconfigured: "{build_directory}"')
@@ -703,6 +706,7 @@ def perform_action(
                 [context.cmake, "--fresh", "--preset", context.preset.name],
                 environment=environment,
                 output=output,
+                show_heartbeat=request.agent,
             )
         require_english_msvc_ninja_prefix(context, build_directory)
     elif not cache_is_usable(cache_file) or (
@@ -722,6 +726,7 @@ def perform_action(
                 command,
                 environment=environment,
                 output=output,
+                show_heartbeat=request.agent,
             )
         require_english_msvc_ninja_prefix(context, build_directory)
 
@@ -730,6 +735,7 @@ def perform_action(
             [context.cmake, "--build", str(build_directory), "--target", target, "-j", str(context.jobs)],
             environment=environment,
             output=output,
+            show_heartbeat=request.agent,
         )
 
 
