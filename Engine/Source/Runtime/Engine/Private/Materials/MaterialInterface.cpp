@@ -136,34 +136,59 @@ namespace Durin
 	auto DMaterialInterface::GetRenderData() const -> FMaterialRenderData
 	{
 		FMaterialRenderData Result;
+		FMaterialRenderRepresentationBuilder RepresentationBuilder(
+			Result.Representation);
+		bool bRepresentationValid = true;
 		FResolvedMaterialParameter Parameter;
 		if (ResolveParameterValue(MaterialParameters::BaseColorId, Parameter))
 		{
 			const FVector3& BaseColor = Parameter.Value.VectorValue;
-			Result.BaseColor.r = static_cast<float>(std::clamp(BaseColor.x, 0.0, 1.0));
-			Result.BaseColor.g = static_cast<float>(std::clamp(BaseColor.y, 0.0, 1.0));
-			Result.BaseColor.b = static_cast<float>(std::clamp(BaseColor.z, 0.0, 1.0));
+			const FVector3 ClampedBaseColor{
+				std::clamp(BaseColor.x, 0.0, 1.0),
+				std::clamp(BaseColor.y, 0.0, 1.0),
+				std::clamp(BaseColor.z, 0.0, 1.0)};
+			Result.BaseColor.r = static_cast<float>(ClampedBaseColor.x);
+			Result.BaseColor.g = static_cast<float>(ClampedBaseColor.y);
+			Result.BaseColor.b = static_cast<float>(ClampedBaseColor.z);
+			bRepresentationValid = RepresentationBuilder.SetVector(
+				MaterialParameters::BaseColorId, ClampedBaseColor)
+				&& bRepresentationValid;
 		}
 
-		if (ResolveParameterValue(MaterialParameters::BaseColorTextureId, Parameter)
-			&& Parameter.Value.TextureValue != nullptr)
+		if (ResolveParameterValue(MaterialParameters::BaseColorTextureId, Parameter))
 		{
-			Result.BaseColorTexture =
-				Parameter.Value.TextureValue->GetTextureReferenceRHI();
+			if (Parameter.Value.TextureValue != nullptr)
+			{
+				Result.BaseColorTexture =
+					Parameter.Value.TextureValue->GetTextureReferenceRHI();
+			}
+			bRepresentationValid = RepresentationBuilder.SetTexture(
+				MaterialParameters::BaseColorTextureId,
+				Result.BaseColorTexture)
+				&& bRepresentationValid;
 		}
 
 		if (ResolveParameterValue(MaterialParameters::OpacityId, Parameter))
 		{
 			Result.BaseColor.a = std::clamp(Parameter.Value.ScalarValue, 0.0f, 1.0f);
+			bRepresentationValid = RepresentationBuilder.SetScalar(
+				MaterialParameters::OpacityId, Result.BaseColor.a)
+				&& bRepresentationValid;
 		}
 
 		if (ResolveParameterValue(MaterialParameters::SpecularStrengthId, Parameter))
 		{
 			Result.SpecularStrength = std::clamp(Parameter.Value.ScalarValue, 0.0f, 1.0f);
+			bRepresentationValid = RepresentationBuilder.SetScalar(
+				MaterialParameters::SpecularStrengthId, Result.SpecularStrength)
+				&& bRepresentationValid;
 		}
 		if (ResolveParameterValue(MaterialParameters::ShininessId, Parameter))
 		{
 			Result.Shininess = std::clamp(Parameter.Value.ScalarValue, 1.0f, 256.0f);
+			bRepresentationValid = RepresentationBuilder.SetScalar(
+				MaterialParameters::ShininessId, Result.Shininess)
+				&& bRepresentationValid;
 		}
 		const FMaterialStaticProperties& StaticProperties = GetStaticProperties();
 		Result.PipelineIdentity.ShaderMap.BlendMode = StaticProperties.BlendMode;
@@ -171,6 +196,22 @@ namespace Durin
 		Result.PipelineIdentity.ShaderMap.OpacityMaskThreshold = StaticProperties.OpacityMaskThreshold;
 		Result.PipelineIdentity.bTwoSided = StaticProperties.bTwoSided;
 		Result.PipelineIdentity.DepthWritePolicy = StaticProperties.DepthWritePolicy;
+
+		FMaterialRenderRepresentation CompiledRepresentation;
+		FMaterialRenderValidationDiagnostic ValidationDiagnostic;
+		if (bRepresentationValid
+			&& RepresentationBuilder.Build(
+				CompiledRepresentation, ValidationDiagnostic))
+		{
+			Result.Representation = std::move(CompiledRepresentation);
+		}
+		else
+		{
+			const FMaterialPipelineIdentity PipelineIdentity =
+				Result.PipelineIdentity;
+			Result = FMaterialRenderData{};
+			Result.PipelineIdentity = PipelineIdentity;
+		}
 		return Result;
 	}
 

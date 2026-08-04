@@ -426,6 +426,110 @@ namespace Durin
 		return bFallback;
 	}
 
+	FMaterialRenderRepresentationBuilder::FMaterialRenderRepresentationBuilder(
+		const FMaterialRenderRepresentation& Source)
+		: Input{.Layout = Source.GetLayout()}
+	{
+		Input.UniformPayload.assign(
+			Source.GetUniformPayload().begin(),
+			Source.GetUniformPayload().end());
+		Input.Resources.assign(
+			Source.GetResources().begin(),
+			Source.GetResources().end());
+	}
+
+	auto FMaterialRenderRepresentationBuilder::FindField(
+		const FGuid& ParameterId) const -> const FMaterialRenderField*
+	{
+		const auto It = std::ranges::find(
+			Input.Layout.Fields,
+			ParameterId,
+			&FMaterialRenderField::ParameterId);
+		return It == Input.Layout.Fields.end() ? nullptr : &*It;
+	}
+
+	auto FMaterialRenderRepresentationBuilder::RejectField(
+		const FGuid& ParameterId) -> bool
+	{
+		bInvalid = true;
+		InvalidParameterId = ParameterId;
+		return false;
+	}
+
+	auto FMaterialRenderRepresentationBuilder::SetScalar(
+		const FGuid& ParameterId,
+		float Value
+	) -> bool
+	{
+		const FMaterialRenderField* Field = FindField(ParameterId);
+		if (Field == nullptr) return false;
+		if (Field->Storage != EMaterialRenderFieldStorage::Uniform
+			|| Field->Type != EMaterialRenderValueType::Scalar)
+		{
+			return RejectField(ParameterId);
+		}
+		WriteFloat(Input.UniformPayload, Field->Offset, Value);
+		return true;
+	}
+
+	auto FMaterialRenderRepresentationBuilder::SetVector(
+		const FGuid& ParameterId,
+		const FVector3& Value
+	) -> bool
+	{
+		const FMaterialRenderField* Field = FindField(ParameterId);
+		if (Field == nullptr) return false;
+		if (Field->Storage != EMaterialRenderFieldStorage::Uniform
+			|| Field->Type != EMaterialRenderValueType::Vector3)
+		{
+			return RejectField(ParameterId);
+		}
+		WriteFloat(Input.UniformPayload, Field->Offset, static_cast<float>(Value.x));
+		WriteFloat(Input.UniformPayload, Field->Offset + 4, static_cast<float>(Value.y));
+		WriteFloat(Input.UniformPayload, Field->Offset + 8, static_cast<float>(Value.z));
+		return true;
+	}
+
+	auto FMaterialRenderRepresentationBuilder::SetTexture(
+		const FGuid& ParameterId,
+		const FRHITextureReferenceRef& Value
+	) -> bool
+	{
+		const FMaterialRenderField* Field = FindField(ParameterId);
+		if (Field == nullptr) return false;
+		if (Field->Storage != EMaterialRenderFieldStorage::Resource
+			|| Field->Type != EMaterialRenderValueType::Texture2D
+			|| Field->CompactIndex >= Input.Resources.size())
+		{
+			return RejectField(ParameterId);
+		}
+		Input.Resources[Field->CompactIndex] = Value;
+		return true;
+	}
+
+	auto FMaterialRenderRepresentationBuilder::Build(
+		FMaterialRenderRepresentation& OutRepresentation,
+		FMaterialRenderValidationDiagnostic& OutDiagnostic
+	) -> bool
+	{
+		if (bInvalid)
+		{
+			OutRepresentation = FMaterialRenderRepresentation();
+			OutDiagnostic = {
+				.Failure = EMaterialRenderValidationFailure::InvalidField,
+				.FieldIndex = 0,
+				.Message = std::format(
+					"Material render parameter {} does not match the selected layout.",
+					InvalidParameterId.ToString()),
+			};
+			return false;
+		}
+		return FMaterialRenderRepresentation::TryCreate(
+			Input,
+			OutRepresentation,
+			OutDiagnostic);
+	}
+
 	auto UpgradeMaterialParameterSchemaVersion(
 		FMaterialParameterSchemaVersion& InOutVersion,
 		std::string& OutWarning,

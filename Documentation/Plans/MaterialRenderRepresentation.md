@@ -10,9 +10,11 @@ Completed:
 ## Current Status
 
 Stage 0 is complete against baseline commit
-`919401389d259c6da9c391cc39a7a2e6e4ed080b`, and Stage 1 is now complete against
-the Stage 0 handoff commit
-`e72bb5fe0be6b1b9bb9135d5cea6e53c491c8ac7` (the baseline is recorded below).
+`919401389d259c6da9c391cc39a7a2e6e4ed080b`, Stage 1 is complete against the
+Stage 0 handoff commit
+`e72bb5fe0be6b1b9bb9135d5cea6e53c491c8ac7`, and Stage 2 is now complete against
+the Stage 1 handoff commit
+`42e959afacf00a57941a157f8a944338a00bb2e2` (the baselines are recorded below).
 Material declarations, instance overrides, static properties, immutable render
 snapshots, stable render-proxy publication, StaticMesh slot bindings, material
 shader-map and pipeline identities, and the validated Engine representation
@@ -24,8 +26,10 @@ Material resolution addresses the five canonical parameter GUIDs directly,
 and `FStaticMeshRenderer` knows the resulting field layout. Stage 0 froze that
 contract and selected the validated packed uniform/resource table described
 below. Stage 1 added and tested the Engine representation and serialized
-schema boundary; Stage 2 is the next implementation stage and will compile
-resolved material layers into this representation.
+schema boundary; Stage 2 compiled resolved material layers into this
+representation and preserved the existing stable proxy publication contract.
+Stage 3 is the next implementation stage and will remove the Renderer draw
+path's legacy field reads.
 
 The plan intentionally lands before the PBR surface plan so that PBR inputs
 extend one established render representation instead of creating another fixed
@@ -395,17 +399,17 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Compile canonical base-material definitions into the selected compact
+- [x] Compile canonical base-material definitions into the selected compact
   layout and resolve instance overrides into layout-compatible values.
-- [ ] Preserve orphan override exclusion, parent-cycle protection, static
+- [x] Preserve orphan override exclusion, parent-cycle protection, static
   property inheritance, and deterministic fallback for missing parents or
   definitions.
-- [ ] Publish the new immutable representation through the existing stable
+- [x] Publish the new immutable representation through the existing stable
   material proxy without weakening coalescing, startup replay, stale
   publication rejection, or parent resolution caching.
-- [ ] Preserve counted texture-reference lifetime and current missing,
+- [x] Preserve counted texture-reference lifetime and current missing,
   unloaded, not-ready, replaced, and destroyed resource behavior.
-- [ ] Update material and StaticMesh snapshot tests for the new representation,
+- [x] Update material and StaticMesh snapshot tests for the new representation,
   including long parent chains, repeated rapid updates, multiple bound slots,
   and fallback after validation failure.
 
@@ -415,6 +419,49 @@ Dependencies: Stage 1.
   through the versioned representation.
 - Proxy publications remain ordered, coalesced, leak-free, and visible to all
   current slot bindings without scene-proxy recreation.
+
+#### Stage 2 Acceptance Evidence
+
+- `FMaterialRenderRepresentationBuilder` copies a validated parent payload and
+  compiles BaseColor, Opacity, SpecularStrength, Shininess, and BaseColorTexture
+  from Engine-side GUID declarations into v1 offsets/resource index 0. The
+  renderer-facing snapshot now carries the same effective values in both the
+  legacy migration fields and the selected compact representation.
+- `DMaterialInterface::GetRenderData` and
+  `FMaterialRenderProxy::Resolve_RenderThread` use the builder. Parent-first
+  lazy resolution, local-version/resolved-version caching, stale rejection,
+  coalescing, startup replay, counted texture references, orphan filtering, and
+  static identity inheritance remain on the existing paths. A builder or
+  payload validation failure returns a complete default representation while
+  retaining the resolved static identity and increments the proxy diagnostic
+  counter.
+- Proxy snapshot assertions now compare layout identity, uniform bytes, and
+  resource references in addition to the legacy values. The new builder and
+  base/instance compact-resolution tests pass, and the complete `MaterialTests`
+  target passes 57/57 tests through `DevTool.bat`.
+
+#### Stage 2 Handoff
+
+- Baseline: Stage 1 commit
+  `42e959afacf00a57941a157f8a944338a00bb2e2` before proxy migration.
+- Working set: `MaterialRenderProxy.h/.cpp`, `MaterialInterface.cpp`,
+  `MaterialTypes.h/.cpp`, `MaterialRenderProxyTests.cpp`, and
+  `MaterialRenderRepresentationTests.cpp`.
+- Key symbols: `FMaterialRenderRepresentationBuilder`,
+  `FMaterialRenderProxy::Resolve_RenderThread`,
+  `DMaterialInterface::GetRenderData`,
+  `FMaterialRenderProxyCounters::RepresentationValidationFailureCount`, and
+  `FMaterialRenderData::Representation`.
+- Decisions carried forward: GUID lookup is an Engine resolution concern only;
+  compact payloads are complete before publication; fallback never publishes a
+  partially filled representation; fixed fields remain only as the Stage 3
+  migration bridge.
+- Open questions: none blocking Stage 3. Renderer must accept only the v1
+  layout identity, read the compact slots without GUID/name lookup, preserve
+  the current shader uniform ABI and texture fallback, and remove legacy field
+  dependencies.
+- Validation: full `MaterialTests` passed 57/57 after the Stage 2 changes; no
+  Vulkan output or full `all` build was required before Renderer migration.
 
 ### Stage 3: Migrate StaticMesh Renderer Consumption
 

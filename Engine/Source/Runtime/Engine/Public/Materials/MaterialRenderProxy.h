@@ -53,6 +53,7 @@ namespace Durin
 		uint64 ResolutionCacheMissCount = 0;
 		uint64 StalePublicationCount = 0;
 		uint64 BindingUpdateCount = 0;
+		uint64 RepresentationValidationFailureCount = 0;
 	};
 
 	ENGINE_API auto GetMaterialRenderProxyCounters()

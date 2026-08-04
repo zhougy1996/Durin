@@ -180,6 +180,36 @@ namespace Durin
 		bool bFallback = false;
 	};
 
+	// Compiles GUID-addressed Engine values into one layout's compact payload.
+	// GUID lookup is confined to this Engine-side builder; Renderer consumes the
+	// resulting representation through offsets and resource indices.
+	class FMaterialRenderRepresentationBuilder final
+	{
+	public:
+		ENGINE_API explicit FMaterialRenderRepresentationBuilder(
+			const FMaterialRenderRepresentation& Source);
+
+		ENGINE_API auto SetScalar(const FGuid& ParameterId, float Value) -> bool;
+		ENGINE_API auto SetVector(const FGuid& ParameterId, const FVector3& Value) -> bool;
+		ENGINE_API auto SetTexture(
+			const FGuid& ParameterId,
+			const FRHITextureReferenceRef& Value
+		) -> bool;
+		ENGINE_API auto Build(
+			FMaterialRenderRepresentation& OutRepresentation,
+			FMaterialRenderValidationDiagnostic& OutDiagnostic
+		) -> bool;
+
+	private:
+		ENGINE_API auto FindField(const FGuid& ParameterId) const
+			-> const FMaterialRenderField*;
+		ENGINE_API auto RejectField(const FGuid& ParameterId) -> bool;
+
+		FMaterialRenderRepresentationInput Input;
+		bool bInvalid = false;
+		FGuid InvalidParameterId;
+	};
+
 	ENGINE_API auto MakeDefaultMaterialRenderLayout() -> FMaterialRenderLayout;
 	ENGINE_API auto ValidateMaterialRenderLayout(
 		const FMaterialRenderLayout& Layout,

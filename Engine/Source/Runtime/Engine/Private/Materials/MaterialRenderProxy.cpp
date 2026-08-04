@@ -18,48 +18,58 @@ namespace Durin
 			std::atomic<uint64> ResolutionCacheMissCount = 0;
 			std::atomic<uint64> StalePublicationCount = 0;
 			std::atomic<uint64> BindingUpdateCount = 0;
+			std::atomic<uint64> RepresentationValidationFailureCount = 0;
 		};
 
 		FMaterialRenderProxyAtomicCounters GMaterialRenderProxyCounters;
 
 		auto ApplyLocalParameter(
 			FMaterialRenderData& RenderData,
+			FMaterialRenderRepresentationBuilder& RepresentationBuilder,
 			const FMaterialLocalRenderParameter& Parameter
-		) -> void
+		) -> bool
 		{
 			if (Parameter.Id == MaterialParameters::BaseColorId
 				&& Parameter.Type == EMaterialParameterType::Vector)
 			{
-				RenderData.BaseColor.r = static_cast<float>(
-					std::clamp(Parameter.VectorValue.x, 0.0, 1.0));
-				RenderData.BaseColor.g = static_cast<float>(
-					std::clamp(Parameter.VectorValue.y, 0.0, 1.0));
-				RenderData.BaseColor.b = static_cast<float>(
-					std::clamp(Parameter.VectorValue.z, 0.0, 1.0));
+				const FVector3 Value{
+					std::clamp(Parameter.VectorValue.x, 0.0, 1.0),
+					std::clamp(Parameter.VectorValue.y, 0.0, 1.0),
+					std::clamp(Parameter.VectorValue.z, 0.0, 1.0)};
+				RenderData.BaseColor.r = static_cast<float>(Value.x);
+				RenderData.BaseColor.g = static_cast<float>(Value.y);
+				RenderData.BaseColor.b = static_cast<float>(Value.z);
+				return RepresentationBuilder.SetVector(Parameter.Id, Value);
 			}
 			else if (Parameter.Id == MaterialParameters::BaseColorTextureId
 				&& Parameter.Type == EMaterialParameterType::Texture)
 			{
 				RenderData.BaseColorTexture = Parameter.TextureValue;
+				return RepresentationBuilder.SetTexture(
+					Parameter.Id, Parameter.TextureValue);
 			}
 			else if (Parameter.Id == MaterialParameters::OpacityId
 				&& Parameter.Type == EMaterialParameterType::Scalar)
 			{
-				RenderData.BaseColor.a =
-					std::clamp(Parameter.ScalarValue, 0.0f, 1.0f);
+				const float Value = std::clamp(Parameter.ScalarValue, 0.0f, 1.0f);
+				RenderData.BaseColor.a = Value;
+				return RepresentationBuilder.SetScalar(Parameter.Id, Value);
 			}
 			else if (Parameter.Id == MaterialParameters::SpecularStrengthId
 				&& Parameter.Type == EMaterialParameterType::Scalar)
 			{
-				RenderData.SpecularStrength =
-					std::clamp(Parameter.ScalarValue, 0.0f, 1.0f);
+				const float Value = std::clamp(Parameter.ScalarValue, 0.0f, 1.0f);
+				RenderData.SpecularStrength = Value;
+				return RepresentationBuilder.SetScalar(Parameter.Id, Value);
 			}
 			else if (Parameter.Id == MaterialParameters::ShininessId
 				&& Parameter.Type == EMaterialParameterType::Scalar)
 			{
-				RenderData.Shininess =
-					std::clamp(Parameter.ScalarValue, 1.0f, 256.0f);
+				const float Value = std::clamp(Parameter.ScalarValue, 1.0f, 256.0f);
+				RenderData.Shininess = Value;
+				return RepresentationBuilder.SetScalar(Parameter.Id, Value);
 			}
+			return true;
 		}
 
 		auto ApplyStaticProperties(
@@ -89,6 +99,7 @@ namespace Durin
 			.ResolutionCacheMissCount = GMaterialRenderProxyCounters.ResolutionCacheMissCount.load(),
 			.StalePublicationCount = GMaterialRenderProxyCounters.StalePublicationCount.load(),
 			.BindingUpdateCount = GMaterialRenderProxyCounters.BindingUpdateCount.load(),
+			.RepresentationValidationFailureCount = GMaterialRenderProxyCounters.RepresentationValidationFailureCount.load(),
 		};
 	}
 
@@ -100,6 +111,7 @@ namespace Durin
 		GMaterialRenderProxyCounters.ResolutionCacheMissCount.store(0);
 		GMaterialRenderProxyCounters.StalePublicationCount.store(0);
 		GMaterialRenderProxyCounters.BindingUpdateCount.store(0);
+		GMaterialRenderProxyCounters.RepresentationValidationFailureCount.store(0);
 	}
 
 	auto RecordMaterialBindingUpdate() -> void
@@ -274,15 +286,40 @@ namespace Durin
 
 		CachedResolvedData =
 			ParentData ? *ParentData : FMaterialRenderData{};
+		FMaterialRenderRepresentationBuilder RepresentationBuilder(
+			CachedResolvedData.Representation);
+		bool bRepresentationValid = true;
 		for (const FMaterialLocalRenderParameter& Parameter
 			: LocalLayer.Parameters)
 		{
-			ApplyLocalParameter(CachedResolvedData, Parameter);
+			if (!ApplyLocalParameter(
+					CachedResolvedData, RepresentationBuilder, Parameter))
+			{
+				bRepresentationValid = false;
+			}
 		}
 		if (LocalLayer.StaticProperties)
 		{
 			ApplyStaticProperties(
 				CachedResolvedData, *LocalLayer.StaticProperties);
+		}
+
+		FMaterialRenderRepresentation CompiledRepresentation;
+		FMaterialRenderValidationDiagnostic ValidationDiagnostic;
+		if (!bRepresentationValid
+			|| !RepresentationBuilder.Build(
+				CompiledRepresentation, ValidationDiagnostic))
+		{
+			const FMaterialPipelineIdentity PipelineIdentity =
+				CachedResolvedData.PipelineIdentity;
+			CachedResolvedData = FMaterialRenderData{};
+			CachedResolvedData.PipelineIdentity = PipelineIdentity;
+			GMaterialRenderProxyCounters.RepresentationValidationFailureCount
+				.fetch_add(1);
+		}
+		else
+		{
+			CachedResolvedData.Representation = std::move(CompiledRepresentation);
 		}
 
 		CachedLocalVersion = LocalVersion;

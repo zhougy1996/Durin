@@ -129,6 +129,64 @@ TEST(FMaterialRenderRepresentationTests, RejectsUnsupportedLayoutAndMalformedPay
 	}
 }
 
+TEST(FMaterialRenderRepresentationTests, BuilderCompilesValuesIntoCompactSlots)
+{
+	const Durin::FMaterialRenderRepresentation Fallback;
+	Durin::FMaterialRenderRepresentationBuilder Builder(Fallback);
+	ASSERT_TRUE(Builder.SetVector(
+		Durin::MaterialParameters::BaseColorId,
+		Durin::FVector3(0.2, 0.4, 0.6)));
+	ASSERT_TRUE(Builder.SetScalar(
+		Durin::MaterialParameters::OpacityId, 0.35f));
+	ASSERT_TRUE(Builder.SetScalar(
+		Durin::MaterialParameters::SpecularStrengthId, 0.8f));
+	ASSERT_TRUE(Builder.SetScalar(
+		Durin::MaterialParameters::ShininessId, 64.0f));
+	ASSERT_TRUE(Builder.SetTexture(
+		Durin::MaterialParameters::BaseColorTextureId,
+		Durin::FRHITextureReferenceRef{}));
+
+	Durin::FMaterialRenderRepresentation Representation;
+	Durin::FMaterialRenderValidationDiagnostic Diagnostic;
+	ASSERT_TRUE(Builder.Build(Representation, Diagnostic));
+	EXPECT_FALSE(Representation.IsFallback());
+	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 0), 0.2f);
+	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 4), 0.4f);
+	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 8), 0.6f);
+	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 12), 0.35f);
+	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 16), 0.8f);
+	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 20), 64.0f);
+}
+
+TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelectedLayout)
+{
+	InitializeDObjectSystem();
+	Durin::DMaterial* Base =
+		Durin::NewObject<Durin::DMaterial>(nullptr, "RepresentationBase");
+	Durin::DMaterialInstance* Instance =
+		Durin::NewObject<Durin::DMaterialInstance>(nullptr, "RepresentationInstance");
+	ASSERT_TRUE(Instance->SetParent(Base));
+	ASSERT_TRUE(Base->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.15, 0.25, 0.35)));
+	ASSERT_TRUE(Base->SetScalarParameterValue(
+		Durin::MaterialParameters::OpacityName(), 0.45f));
+	ASSERT_TRUE(Instance->SetScalarParameterValue(
+		Durin::MaterialParameters::ShininessName(), 96.0f));
+
+	const Durin::FMaterialRenderData RenderData = Instance->GetRenderData();
+	EXPECT_FLOAT_EQ(RenderData.BaseColor.r, 0.15f);
+	EXPECT_FLOAT_EQ(RenderData.BaseColor.g, 0.25f);
+	EXPECT_FLOAT_EQ(RenderData.BaseColor.b, 0.35f);
+	EXPECT_FLOAT_EQ(RenderData.BaseColor.a, 0.45f);
+	EXPECT_FLOAT_EQ(RenderData.Shininess, 96.0f);
+	EXPECT_FALSE(RenderData.Representation.IsFallback());
+	EXPECT_FLOAT_EQ(ReadFloat(RenderData.Representation.GetUniformPayload(), 0), 0.15f);
+	EXPECT_FLOAT_EQ(ReadFloat(RenderData.Representation.GetUniformPayload(), 4), 0.25f);
+	EXPECT_FLOAT_EQ(ReadFloat(RenderData.Representation.GetUniformPayload(), 8), 0.35f);
+	EXPECT_FLOAT_EQ(ReadFloat(RenderData.Representation.GetUniformPayload(), 12), 0.45f);
+	EXPECT_FLOAT_EQ(ReadFloat(RenderData.Representation.GetUniformPayload(), 20), 96.0f);
+}
+
 TEST(FMaterialRenderRepresentationTests, AssetSchemaVersionIsSeparateAndBounded)
 {
 	Durin::FMaterialParameterSchemaVersion Version = 0;

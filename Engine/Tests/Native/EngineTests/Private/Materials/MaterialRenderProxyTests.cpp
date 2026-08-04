@@ -2,6 +2,7 @@
 
 #include "Materials/MaterialRenderProxy.h"
 
+#include <algorithm>
 #include <future>
 
 namespace
@@ -63,6 +64,15 @@ namespace
 			Actual.SpecularStrength, Expected.SpecularStrength);
 		EXPECT_FLOAT_EQ(Actual.Shininess, Expected.Shininess);
 		EXPECT_EQ(Actual.PipelineIdentity, Expected.PipelineIdentity);
+		EXPECT_EQ(
+			Actual.Representation.GetLayout().Identity,
+			Expected.Representation.GetLayout().Identity);
+		EXPECT_TRUE(std::ranges::equal(
+			Actual.Representation.GetUniformPayload(),
+			Expected.Representation.GetUniformPayload()));
+		EXPECT_TRUE(std::ranges::equal(
+			Actual.Representation.GetResources(),
+			Expected.Representation.GetResources()));
 	}
 }
 
