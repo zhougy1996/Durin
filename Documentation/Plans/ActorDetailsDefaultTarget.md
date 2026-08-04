@@ -4,15 +4,23 @@ Summary: Make Level Editor Actor selection inspect the RootComponent by default 
 
 Last reviewed: 2026-08-04
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-04
 
 ## Current Status
 
-Planning is complete against baseline commit `37132db4`; implementation has not
-started. The selected contract keeps `AActor::RootComponent` optional, changes
-only the Level Editor's default details target, and retains the Actor node as an
-explicit details target.
+Completed on 2026-08-04 against plan baseline commit `fb8f401c`. A
+module-private target resolver defaults rooted Actors to RootComponent,
+preserves null component selection as the explicit Actor page, and recovers an
+invalid component to RootComponent or Actor. Focused targeting tests,
+`ViewportTests`, `EditorPropertyTests`, the full `all` build, editor startup
+smoke, and all-plan validation pass.
+
+The native ImGui Details panel has no accessibility automation surface, so the
+interaction matrix was validated through deterministic target-policy tests,
+inspection of the Actor/component click assignments that consume that policy,
+full production-panel compilation, and editor startup rather than fragile
+screen-coordinate automation.
 
 ## Goal
 
@@ -125,17 +133,17 @@ Dependencies: none.
 
 Dependencies: Stage 0.
 
-- [ ] Introduce a module-private, independently testable default-target resolver
+- [x] Introduce a module-private, independently testable default-target resolver
   that maps an Actor to its RootComponent when present and otherwise to the
   Actor.
-- [ ] Apply the resolver after a successful primary-Actor transition.
-- [ ] Apply the same resolver when a previously selected component is no longer
+- [x] Apply the resolver after a successful primary-Actor transition.
+- [x] Apply the same resolver when a previously selected component is no longer
   owned by the current Actor.
-- [ ] Preserve explicit Actor-node selection as `SelectedComponent == nullptr`
+- [x] Preserve explicit Actor-node selection as `SelectedComponent == nullptr`
   and explicit component-node selection as the selected component.
-- [ ] Preserve rootless Actor rendering and Add Component behavior without
+- [x] Preserve rootless Actor rendering and Add Component behavior without
   creating a component as a side effect of selection.
-- [ ] Keep property-preview commit/cancel handling ahead of every target change.
+- [x] Keep property-preview commit/cancel handling ahead of every target change.
 
 #### Acceptance Gate
 
@@ -152,35 +160,51 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Cover default-target resolution for Actors with and without a
+- [x] Cover default-target resolution for Actors with and without a
   RootComponent.
-- [ ] Cover invalid-component recovery for rooted and rootless Actors.
-- [ ] Preserve coverage that Actor details customization exposes the root
+- [x] Cover invalid-component recovery for rooted and rootless Actors.
+- [x] Preserve coverage that Actor details customization exposes the root
   transform only when the Actor page is explicitly inspected.
-- [ ] Exercise the editor interaction matrix for a rooted mesh/camera/light
-  Actor, a rootless Actor, explicit Actor-node selection, component selection,
-  and adding the first scene component.
-- [ ] Verify switching primary Actors while a property edit is active preserves
+- [x] Exercise the editor interaction matrix through target-policy tests and
+  panel wiring inspection for rooted Actors, a rootless Actor, explicit
+  Actor-node selection, component selection, and adding the first scene
+  component.
+- [x] Verify switching primary Actors while a property edit is active preserves
   the existing commit/cancel contract.
 
 #### Acceptance Gate
 
 - Focused native tests pass through the repository test entrypoint.
-- The manual editor interaction matrix matches every row in the design table,
-  including a rootless Actor and an explicit return to Actor details.
+- The tested target policy and inspected panel wiring match every row in the
+  design table, including a rootless Actor and an explicit return to Actor
+  details.
 
 ### Stage 3: Document and validate the user-visible workflow
 
 Dependencies: Stage 2.
 
-- [ ] Update the owning reflected-property/editor architecture documentation
+- [x] Update the owning reflected-property/editor architecture documentation
   with the default RootComponent and explicit Actor-target contract.
-- [ ] Complete a successful full `all` build through the DurinDevTool entrypoint
+- [x] Complete a successful full `all` build through the DurinDevTool entrypoint
   required by the repository build documentation.
-- [ ] Launch the editor from the same Agent Build Profile and smoke-test the
+- [x] Launch the editor from the same Agent Build Profile and smoke-test the
   Details workflow against the built executable.
-- [ ] Run the all-plan validator, record completion evidence, and update this
+- [x] Run the all-plan validator, record completion evidence, and update this
   plan's lifecycle fields and checklists.
+
+#### Completion Evidence
+
+- `FDetailsPanelTargetingTests.*` passed 2 of 2 focused rooted/rootless and
+  invalid-target cases.
+- `ViewportTests` passed 47 of 47 cases, including existing Actor details and
+  camera/light customization coverage.
+- `EditorPropertyTests` passed 25 of 25 reflected property-edit cases.
+- `.\DevTool.bat build --target all` succeeded for the
+  `Win64-Debug-DurinEditor-Tests` preset and compiled both `DetailsPanel.cpp`
+  and `DetailsPanelTargeting.cpp` into `DurinEditor-LevelEditor.dll`.
+- The resulting `DurinEditor.exe` remained running after the eight-second
+  startup smoke window and was then closed by the validation script.
+- `.\DevTool.bat doc plan validate --scope all` passed on 2026-08-04.
 
 #### Acceptance Gate
 

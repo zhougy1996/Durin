@@ -334,6 +334,16 @@ UI presents those slots through shared non-resizable array helpers, and the
 shared asset picker reserves a persistent trailing reset action. Edits still
 submit the stable reflected override root through the host property view.
 
+When the primary Level Editor Actor changes, Details targets its RootComponent
+by default when one exists; a rootless Actor targets the Actor itself. This is a
+presentation choice and never creates a component. The component tree retains
+separate Actor and component targets, so explicitly selecting the Actor keeps
+Actor details and Actor-specific customizations visible until another target or
+primary Actor is selected. If an inspected component stops belonging to the
+current Actor, Details applies the same RootComponent-or-Actor default. These
+target transitions continue through the property view's owner-context handling
+so an active preview is committed or restored before its owner changes.
+
 Material Editor owns another property view and a reusable parameter-panel model.
 Runtime Engine definitions provide parameter type, labels, ordering,
 presentation, ranges, and texture hints. The model snapshots each definition,

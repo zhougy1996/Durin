@@ -1,4 +1,5 @@
 #include "Panels/DetailsPanel.h"
+#include "Panels/DetailsPanelTargeting.h"
 #include "Editor/ReflectedPropertyView.h"
 
 #include "Components/ActorComponent.h"
@@ -79,7 +80,7 @@ namespace Durin
 			else
 			{
 				PropertyActor = Actor;
-				SelectedComponent = nullptr;
+				SelectedComponent = DetailsPanelTargeting::ResolveDefaultComponent(Actor);
 				RenamingComponent = nullptr;
 				RenameDialog.Cancel();
 				PendingExpandComponent = nullptr;
@@ -90,10 +91,7 @@ namespace Durin
 			ImGui::End();
 			return;
 		}
-		if (SelectedComponent && std::ranges::none_of(Actor->GetOwnedComponents(), [this](const TObjectPtr<DActorComponent>& Entry) { return Entry.Get() == SelectedComponent.Get(); }))
-		{
-			SelectedComponent = nullptr;
-		}
+		SelectedComponent = DetailsPanelTargeting::ResolveSelectedComponent(Actor, SelectedComponent.Get());
 
 		ImGui::TextUnformatted(Actor->GetName().c_str());
 		ImGui::TextDisabled("%s", Actor->GetClass()->GetName().c_str());
