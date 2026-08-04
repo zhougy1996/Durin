@@ -62,6 +62,18 @@ namespace Durin
 
 	auto MLevelEditor::Construct() -> void
 	{
+		InitializeContext();
+		InitializeSession();
+		CreatePanels();
+		CreateDocumentServices();
+		CreateImportDialogs();
+		CreateContentBrowser();
+		CreateNotificationOverlay();
+		FinalizeConstruction();
+	}
+
+	auto MLevelEditor::InitializeContext() -> void
+	{
 		Context = std::make_unique<FLevelEditorContext>();
 		Context->ReportError = [this](std::string Message) { SetError(std::move(Message)); };
 		Context->RenameLevel = [this](std::string_view NewName) {
@@ -71,12 +83,18 @@ namespace Durin
 			StartPlay(StartLocation, Destination);
 		};
 		Context->ApplyPlayChanges = [this](bool bSelectedOnly) { ApplyPlayChanges(bSelectedOnly); };
+	}
 
+	auto MLevelEditor::InitializeSession() -> void
+	{
 		Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
 		SessionSettings.PruneInvalidViewportStates();
 		LoadProjectSettings();
 		SessionSettings.Save(nullptr);
+	}
 
+	auto MLevelEditor::CreatePanels() -> void
+	{
 		auto SceneViewport = std::make_unique<FSceneViewportPanel>();
 		SceneViewportPanel = SceneViewport.get();
 		Context->FocusActor = [this](AActor* Actor) {
@@ -89,6 +107,10 @@ namespace Durin
 		DetailsPanel = Details.get();
 		Panels.emplace_back(std::move(Details));
 		Panels.emplace_back(std::make_unique<FConsolePanel>());
+	}
+
+	auto MLevelEditor::CreateDocumentServices() -> void
+	{
 		AssetMoveCoordinator = std::make_unique<FEditorAssetMoveCoordinator>(
 			*Context,
 			SessionSettings,
@@ -112,6 +134,10 @@ namespace Durin
 					SetError("The deferred level document request is no longer available.");
 			}
 		);
+	}
+
+	auto MLevelEditor::CreateImportDialogs() -> void
+	{
 		const FImportDialogCallbacks ImportCallbacks{
 			.ClearError = [this] { EditorError.clear(); },
 			.ReportError =
@@ -135,6 +161,10 @@ namespace Durin
 			MakeImportDialog<FTextureImportDialog>(ImportCallbacks);
 		TextureCubeImportDialog =
 			MakeImportDialog<FTextureCubeImportDialog>(ImportCallbacks);
+	}
+
+	auto MLevelEditor::CreateContentBrowser() -> void
+	{
 		auto ContentBrowser = std::make_unique<FContentBrowserPanel>(
 			SessionSettings,
 			[this](const std::string& Path, const std::string& AssetClassName) {
@@ -161,10 +191,17 @@ namespace Durin
 		);
 		ContentBrowserPanel = ContentBrowser.get();
 		Panels.emplace_back(std::move(ContentBrowser));
+	}
+
+	auto MLevelEditor::CreateNotificationOverlay() -> void
+	{
 		auto ActivityHistory = std::make_unique<FEditorNotificationOverlay>();
 		NotificationOverlay = ActivityHistory.get();
 		Panels.emplace_back(std::move(ActivityHistory));
+	}
 
+	auto MLevelEditor::FinalizeConstruction() -> void
+	{
 		Context->Synchronize(GEditor != nullptr ? GEditor->GetEditorWorld() : (GEngine != nullptr ? GEngine->GetWorld() : nullptr));
 		DocumentController->OpenDefaultLevel();
 		if (!EditorError.empty())

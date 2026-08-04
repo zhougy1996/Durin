@@ -53,6 +53,14 @@ namespace Durin
 		LEVELEDITOR_API auto ResetLayout() -> void override;
 
 	private:
+		auto InitializeContext() -> void;
+		auto InitializeSession() -> void;
+		auto CreatePanels() -> void;
+		auto CreateDocumentServices() -> void;
+		auto CreateImportDialogs() -> void;
+		auto CreateContentBrowser() -> void;
+		auto CreateNotificationOverlay() -> void;
+		auto FinalizeConstruction() -> void;
 		auto DrawProjectSettings() -> void;
 		auto LoadProjectSettings() -> bool;
 		auto SaveProjectSettings() -> bool;

@@ -66,8 +66,11 @@ cannot create duplicate confirmations.
 The Level workspace also defers opening a loaded level when AssetCore reports
 structure-compatibility changes. Its document controller keeps the loaded
 package pending while the current level, world, and transaction state remain
-active. A testable decision model owns this pending state and completes the
-workspace document request only after activation or cancellation.
+active. `FAssetStructureUpgradeModel` owns the pending package, compatibility
+report, and resolution lifecycle; document-dialog presenters only render that
+state and return explicit user decisions. The controller applies persistence,
+activation, unload, and deferred-open callbacks, completing the workspace
+document request only after activation or cancellation.
 
 For reports without risk, the user may atomically save the upgraded package and
 open it, open the Dirty in-memory level without saving, or cancel and unload the
@@ -76,7 +79,9 @@ separate data-loss acknowledgement before saving. Save failure leaves the
 pending package available for retry or cancellation; cancellation and
 activation failure unload it and preserve the previous active level. The
 compatibility modal is derived from pending state each frame so startup window
-placement cannot dismiss an unresolved decision.
+placement cannot dismiss an unresolved decision. The Level workspace composition
+root constructs panels and document services in dependency order, while panel
+and dialog presenters remain module-private implementation details.
 
 Class-filtered asset selection uses the `DurinEd` asset picker. Its optional path
 prefix limits candidate enumeration without retaining a loaded current

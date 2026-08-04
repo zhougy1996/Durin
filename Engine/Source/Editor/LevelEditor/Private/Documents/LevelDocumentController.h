@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Documents/AssetStructureUpgradeModel.h"
+#include "Documents/DocumentDialogPresenters.h"
 
 namespace Durin
 {
@@ -53,14 +54,12 @@ namespace Durin
 		enum class EQueuedPopup
 		{
 			None,
-			UnsavedLevel,
-			AssetStructureUpgrade
+			UnsavedLevel
 		};
 
 		auto ExecutePendingAction() -> ELevelDocumentOpenResult;
 		auto OpenLevel(std::string_view Path) -> ELevelDocumentOpenResult;
-		auto DrawUnsavedLevelDialog() -> void;
-		auto DrawAssetStructureUpgradeDialog() -> void;
+		auto ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool;
 		auto ResolvePendingLevelUpgrade(
 			EAssetStructureUpgradeDecision Decision) -> EAssetStructureUpgradeResult;
 		auto CompletePendingDocumentOpen(bool bSucceeded) -> void;
@@ -79,6 +78,8 @@ namespace Durin
 		EQueuedPopup QueuedPopup = EQueuedPopup::None;
 		std::string PendingLevelPath;
 		FAssetStructureUpgradeModel PendingUpgrade;
+		FUnsavedLevelDialogPresenter UnsavedLevelDialog;
+		FAssetStructureUpgradeDialogPresenter AssetStructureUpgradeDialog;
 		bool bPendingDocumentOpen = false;
 		bool bCompatibilityDataLossConfirmed = false;
 	};

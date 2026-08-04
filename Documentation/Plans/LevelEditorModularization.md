@@ -4,9 +4,12 @@ Summary: Extract reusable editor destination and import primitives and split ove
 
 Last reviewed: 2026-08-04
 
+Status: Completed
+Completed: 2026-08-04
+
 ## Current Status
 
-Stages 0 through 6 are complete. Stage 5 began from commit `950cf82f` and
+Stages 0 through 7 are complete. Stage 5 began from commit `950cf82f` and
 separated Content Browser navigation, snapshots, filtering, sorting, cache
 invalidation, and mutation workflows from the panel while retaining
 panel-owned selection, rename, popup, deferred-command, and thumbnail state.
@@ -16,9 +19,11 @@ changes remain established code, not work coordinated by this plan.
 The unified Core mount registry already owns virtual-path lookup, typed asset
 and source resolution through one effective content directory, reverse physical-path classification, canonical
 containment, and mount-owner metadata. LevelEditor must consume those APIs
-rather than add another mount-owner or path-resolution abstraction. The
-remaining work is document presentation modularization and final composition
-cleanup.
+rather than add another mount-owner or path-resolution abstraction. Document
+workflow presentation is now split into module-private presenters.
+`FLevelDocumentController` retains document transitions and
+`FAssetStructureUpgradeModel` retains pending compatibility state, while
+`MLevelEditor::Construct` is a short dependency-ordered composition sequence.
 
 `SceneViewportPanel.cpp` now contains panel orchestration rather than toolbar
 implementation. Asset destination parsing, Content resolution, physical package
@@ -31,7 +36,8 @@ bounded panel views own ImGui submission. `FContentBrowserModel` now owns the
 immutable mounted-location and item projections, including the searchable type
 label consumed by the item view, and `FContentBrowserOperations` owns
 filesystem, asset creation, move, rename, delete, Explorer, and clipboard
-commands. Stage 6 is next and will extract the Outliner and Details submodels.
+commands. Stages 6 and 7 complete the Outliner, Details, document-dialog, and
+composition boundaries.
 
 ## Goal
 
@@ -549,19 +555,19 @@ Dependencies: Stage 0.
 
 Dependencies: Stages 1 through 6 as applicable.
 
-- [ ] Move unsaved-level and structure-upgrade rendering into document-dialog
+- [x] Move unsaved-level and structure-upgrade rendering into document-dialog
   presenters that derive their content from controller/model state and return
   explicit decisions.
-- [ ] Keep `FAssetStructureUpgradeModel` as the owner of pending compatibility
+- [x] Keep `FAssetStructureUpgradeModel` as the owner of pending compatibility
   decisions and preserve retry, cancel, unload, activation, and deferred-open
   completion behavior.
-- [ ] Reduce `MLevelEditor::Construct` to clear service/panel construction and
+- [x] Reduce `MLevelEditor::Construct` to clear service/panel construction and
   callback wiring helpers without changing ownership or destruction order.
-- [ ] Review extracted APIs and keep module-private types private; promote only
+- [x] Review extracted APIs and keep module-private types private; promote only
   path/import primitives with demonstrated cross-editor consumers.
-- [ ] Move lasting ownership and lifecycle contracts into the applicable
+- [x] Move lasting ownership and lifecycle contracts into the applicable
   Editor Architecture document and leave this plan as implementation history.
-- [ ] Run plan validation, focused native/editor suites, a successful full
+- [x] Run plan validation, focused native/editor suites, a successful full
   `all` build, and the hidden-window editor smoke test through the repository
   DurinDevTool workflow.
 
@@ -571,6 +577,24 @@ Dependencies: Stages 1 through 6 as applicable.
   construction and destruction order remain explicit, lasting contracts are
   documented in their owning domain, and the final full build and runtime smoke
   validation succeed.
+
+#### Stage 7 Handoff
+
+- Baseline: `6b1657ea` (`refactor(level-editor): extract outliner and details models`).
+- Working set: `DocumentDialogPresenters.h/.cpp`,
+  `LevelDocumentController.h/.cpp`, `MLevelEditor.h/.cpp`,
+  `Documentation/Editor/Architecture/WorkspaceFramework.md`, and this plan.
+- Key symbols: `FUnsavedLevelDialogPresenter`,
+  `FAssetStructureUpgradeDialogPresenter`,
+  `FLevelDocumentController::ResolveUnsavedLevelDialog`, and
+  `MLevelEditor::{InitializeContext,CreatePanels,CreateDocumentServices,FinalizeConstruction}`.
+- Decisions: presenters own only ImGui submission and modal-close timing;
+  controllers apply explicit decisions through callbacks; the upgrade model
+  remains the owner of pending package and compatibility lifecycle state. The
+  composition helpers preserve the existing member construction order.
+- Validation: `EditorAssetWorkflowTests`, `EditorPropertyTests`, `ViewportTests`,
+  `WorldTests`, full `all` build, hidden-window editor smoke, and plan validation
+  passed on 2026-08-04.
 
 ## Validation Matrix
 

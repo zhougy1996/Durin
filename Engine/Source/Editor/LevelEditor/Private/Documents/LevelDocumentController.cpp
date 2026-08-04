@@ -11,7 +11,6 @@
 #include "Engine/World.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Misc/Project.h"
-#include "MonaImGui.h"
 #include "Panels/SceneViewportPanel.h"
 
 namespace Durin
@@ -33,74 +32,6 @@ namespace Durin
 			if (GEditor) GEditor->GetAssetUpgradeAuditService().InvalidatePackage(Path);
 		}
 
-		constexpr auto GetClassificationLabel(Asset::EAssetCompatibilityClassification Classification) -> std::string_view
-		{
-			switch (Classification)
-			{
-			case Asset::EAssetCompatibilityClassification::SafeCleanup: return "Safe Cleanup";
-			case Asset::EAssetCompatibilityClassification::Migrated: return "Migrated";
-			case Asset::EAssetCompatibilityClassification::DataLossRisk: return "Data Loss Risk";
-			case Asset::EAssetCompatibilityClassification::UnknownIncompatible: return "Unknown Incompatible";
-			}
-			return "Unknown";
-		}
-
-		constexpr auto GetRiskLabel(Asset::EAssetCompatibilityRisk Risk) -> std::string_view
-		{
-			switch (Risk)
-			{
-			case Asset::EAssetCompatibilityRisk::None: return "None";
-			case Asset::EAssetCompatibilityRisk::PotentialDataLoss: return "Potential Data Loss";
-			case Asset::EAssetCompatibilityRisk::UnknownNewerSchema: return "Unknown Newer Schema";
-			}
-			return "Unknown";
-		}
-
-		auto GetTargetStructureLabel(const Asset::FAssetCompatibilityIssue& Issue) -> std::string
-		{
-			switch (Issue.Classification)
-			{
-			case Asset::EAssetCompatibilityClassification::SafeCleanup:
-				return "Removed fields; no replacement storage";
-			case Asset::EAssetCompatibilityClassification::Migrated:
-				return std::format("Current reflected structure on {}", Issue.DeclaringClass);
-			case Asset::EAssetCompatibilityClassification::DataLossRisk:
-			case Asset::EAssetCompatibilityClassification::UnknownIncompatible:
-				return "No recognized target structure";
-			}
-			return "Unknown";
-		}
-
-		auto DrawCompatibilityDetail(std::string_view Label, std::string_view Value) -> void
-		{
-			ImGui::TableNextRow();
-			ImGui::TableSetColumnIndex(0);
-			ImGui::TextDisabled("%.*s", static_cast<int>(Label.size()), Label.data());
-			ImGui::TableSetColumnIndex(1);
-			ImGui::TextWrapped("%.*s", static_cast<int>(Value.size()), Value.data());
-		}
-
-		auto JoinLegacyFieldNames(const Asset::FAssetCompatibilityIssue& Issue) -> std::string
-		{
-			std::string Result;
-			for (const Asset::FAssetLegacyField& Field : Issue.LegacyFields)
-			{
-				if (!Result.empty()) Result += ", ";
-				Result += Field.Name;
-			}
-			return Result;
-		}
-
-		auto JoinLegacyFieldTypes(const Asset::FAssetCompatibilityIssue& Issue) -> std::string
-		{
-			std::string Result;
-			for (const Asset::FAssetLegacyField& Field : Issue.LegacyFields)
-			{
-				if (!Result.empty()) Result += "\n";
-				Result += std::format("{}: {}", Field.Name, Field.TypeSignature);
-			}
-			return Result;
-		}
 	}
 
 	// Owns level document transitions and the unsaved-change workflow.
@@ -197,181 +128,45 @@ namespace Durin
 
 	auto FLevelDocumentController::DrawDialogs() -> void
 	{
-		switch (QueuedPopup)
-		{
-		case EQueuedPopup::UnsavedLevel: ImGui::OpenPopup("Unsaved Level"); break;
-		case EQueuedPopup::AssetStructureUpgrade: break;
-		case EQueuedPopup::None: break;
-		}
+		const bool bOpenUnsavedLevel = QueuedPopup == EQueuedPopup::UnsavedLevel;
 		QueuedPopup = EQueuedPopup::None;
-		// Startup window placement may invalidate a popup opened during the first frame.
-		// Pending compatibility state is authoritative, so keep the modal available until resolved.
-		if (PendingUpgrade.IsPending() && !ImGui::IsPopupOpen("Asset Structure Upgrade Required"))
-			ImGui::OpenPopup("Asset Structure Upgrade Required");
-		DrawUnsavedLevelDialog();
-		DrawAssetStructureUpgradeDialog();
+		// Capture the pending state before resolving an unsaved level so a newly loaded
+		// compatibility report opens on the following frame, matching popup scheduling.
+		const bool bOpenAssetStructureUpgrade = PendingUpgrade.IsPending();
+		(void)UnsavedLevelDialog.Draw(
+			bOpenUnsavedLevel,
+			[this](EUnsavedLevelDialogDecision Decision) {
+				return ResolveUnsavedLevelDialog(Decision);
+			});
+		(void)AssetStructureUpgradeDialog.Draw(
+			PendingUpgrade,
+			bOpenAssetStructureUpgrade,
+			bCompatibilityDataLossConfirmed,
+			[this](EAssetStructureUpgradeDecision Decision) {
+				return ResolvePendingLevelUpgrade(Decision);
+			});
 	}
 
-	auto FLevelDocumentController::DrawUnsavedLevelDialog() -> void
+	auto FLevelDocumentController::ResolveUnsavedLevelDialog(EUnsavedLevelDialogDecision Decision) -> bool
 	{
-		if (ImGui::BeginPopupModal("Unsaved Level", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
+		if (Decision == EUnsavedLevelDialogDecision::None) return false;
+		if (Decision == EUnsavedLevelDialogDecision::Save && !SaveCurrentLevel()) return false;
+		if (Decision == EUnsavedLevelDialogDecision::Cancel)
 		{
-			ImGui::TextUnformatted("The current level has unsaved changes.");
-			if (ImGui::Button("Save"))
-			{
-				if (SaveCurrentLevel())
-				{
-					ImGui::CloseCurrentPopup();
-					const bool bCompletesDeferredOpen = PendingAction == ELevelDocumentAction::OpenLevel;
-					const ELevelDocumentOpenResult Result = ExecutePendingAction();
-					if (bCompletesDeferredOpen && Result != ELevelDocumentOpenResult::Deferred)
-						CompletePendingDocumentOpen(Result == ELevelDocumentOpenResult::Opened);
-				}
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Discard"))
-			{
-				ImGui::CloseCurrentPopup();
-				const bool bCompletesDeferredOpen = PendingAction == ELevelDocumentAction::OpenLevel;
-				const ELevelDocumentOpenResult Result = ExecutePendingAction();
-				if (bCompletesDeferredOpen && Result != ELevelDocumentOpenResult::Deferred)
-					CompletePendingDocumentOpen(Result == ELevelDocumentOpenResult::Opened);
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Cancel"))
-			{
-				const bool bCancelsDeferredOpen = PendingAction == ELevelDocumentAction::OpenLevel;
-				PendingAction = ELevelDocumentAction::None;
-				PendingLevelPath.clear();
-				if (bCancelsDeferredOpen) CompletePendingDocumentOpen(false);
-				ImGui::CloseCurrentPopup();
-			}
-			ImGui::EndPopup();
+			const bool bCancelsDeferredOpen = PendingAction == ELevelDocumentAction::OpenLevel;
+			PendingAction = ELevelDocumentAction::None;
+			PendingLevelPath.clear();
+			if (bCancelsDeferredOpen) CompletePendingDocumentOpen(false);
+			return true;
 		}
-	}
-
-	auto FLevelDocumentController::DrawAssetStructureUpgradeDialog() -> void
-	{
-		ImGui::SetNextWindowPos(
-			ImGui::GetMainViewport()->GetCenter(),
-			ImGuiCond_Appearing,
-			ImVec2(0.5f, 0.5f));
-		ImGui::SetNextWindowSizeConstraints(
-			ImVec2(MonaImGui::ScaleUI(620.0f), MonaImGui::ScaleUI(480.0f)),
-			ImVec2(MonaImGui::ScaleUI(960.0f), MonaImGui::ScaleUI(760.0f)));
-		if (!ImGui::BeginPopupModal(
-			"Asset Structure Upgrade Required",
-			nullptr,
-			ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
-			return;
-
-		const Asset::FAssetLoadReport& PendingLoadReport = PendingUpgrade.GetReport();
-		const bool bHasRisk = PendingLoadReport.HasRiskItems();
-		ImGui::TextWrapped(
-			"%s contains %llu compatibility change%s across %llu object%s and %llu serialized field%s.",
-			PendingLoadReport.PackagePath.ToString().c_str(),
-			PendingLoadReport.CompatibilityIssues.size(),
-			PendingLoadReport.CompatibilityIssues.size() == 1 ? "" : "s",
-			PendingLoadReport.GetAffectedObjectCount(),
-			PendingLoadReport.GetAffectedObjectCount() == 1 ? "" : "s",
-			PendingLoadReport.GetLegacyFieldCount(),
-			PendingLoadReport.GetLegacyFieldCount() == 1 ? "" : "s");
-		if (bHasRisk)
-		{
-			ImGui::Spacing();
-			ImGui::TextWrapped(
-				"%llu change%s may discard data. Normal upgrade-and-save is disabled.",
-				PendingLoadReport.GetRiskItemCount(),
-				PendingLoadReport.GetRiskItemCount() == 1 ? "" : "s");
-		}
-
-		ImGui::Spacing();
-		if (ImGui::BeginChild(
-			"CompatibilityChanges",
-			ImVec2(0.0f, -MonaImGui::ScaleUI(bHasRisk ? 118.0f : 72.0f)),
-			true))
-		{
-			const std::string PackageLabel = std::format("{}##Package", PendingLoadReport.PackagePath.ToString());
-			if (ImGui::TreeNodeEx(PackageLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
-			{
-				for (size_t IssueIndex = 0; IssueIndex < PendingLoadReport.CompatibilityIssues.size(); ++IssueIndex)
-				{
-					const Asset::FAssetCompatibilityIssue& Issue = PendingLoadReport.CompatibilityIssues[IssueIndex];
-					const bool bFirstForObject = std::ranges::find_if(
-						PendingLoadReport.CompatibilityIssues,
-						[&Issue](const Asset::FAssetCompatibilityIssue& Candidate) {
-							return Candidate.ObjectPath == Issue.ObjectPath;
-						}) == PendingLoadReport.CompatibilityIssues.begin() + static_cast<std::ptrdiff_t>(IssueIndex);
-					if (!bFirstForObject) continue;
-
-					const std::string ObjectLabel = std::format("{}##Object{}", Issue.ObjectPath, IssueIndex);
-					if (!ImGui::TreeNodeEx(ObjectLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) continue;
-					for (size_t ChangeIndex = IssueIndex; ChangeIndex < PendingLoadReport.CompatibilityIssues.size(); ++ChangeIndex)
-					{
-						const Asset::FAssetCompatibilityIssue& Change = PendingLoadReport.CompatibilityIssues[ChangeIndex];
-						if (Change.ObjectPath != Issue.ObjectPath) continue;
-						const std::string ChangeLabel = std::format(
-							"{}: {}##Change{}",
-							GetClassificationLabel(Change.Classification),
-							Change.MigrationSummary,
-							ChangeIndex);
-						if (!ImGui::TreeNodeEx(ChangeLabel.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth)) continue;
-						if (ImGui::BeginTable(
-							"CompatibilityDetail",
-							2,
-							ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg))
-						{
-							ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, MonaImGui::ScaleUI(132.0f));
-							ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-							DrawCompatibilityDetail("Old type", JoinLegacyFieldTypes(Change));
-							DrawCompatibilityDetail("Target structure", GetTargetStructureLabel(Change));
-							DrawCompatibilityDetail("Migration rule", Change.HandlerId.empty() ? "No registered rule" : Change.HandlerId);
-							DrawCompatibilityDetail("Original fields", JoinLegacyFieldNames(Change));
-							DrawCompatibilityDetail("Classification", GetClassificationLabel(Change.Classification));
-							DrawCompatibilityDetail("Summary", Change.MigrationSummary);
-							DrawCompatibilityDetail("Risk", GetRiskLabel(Change.Risk));
-							ImGui::EndTable();
-						}
-						ImGui::TreePop();
-					}
-					ImGui::TreePop();
-				}
-				ImGui::TreePop();
-			}
-		}
-		ImGui::EndChild();
-
-		if (bHasRisk)
-		{
-			ImGui::Checkbox("I understand that saving will permanently discard the incompatible data.", &bCompatibilityDataLossConfirmed);
-			ImGui::BeginDisabled(!bCompatibilityDataLossConfirmed);
-			if (ImGui::Button("Discard Incompatible Data, Save and Open"))
-			{
-				const EAssetStructureUpgradeResult Result = ResolvePendingLevelUpgrade(
-					EAssetStructureUpgradeDecision::DiscardIncompatibleDataSaveAndOpen);
-				if (Result != EAssetStructureUpgradeResult::SaveFailed) ImGui::CloseCurrentPopup();
-			}
-			ImGui::EndDisabled();
-		}
-		else if (ImGui::Button("Upgrade, Save and Open"))
-		{
-			const EAssetStructureUpgradeResult Result =
-				ResolvePendingLevelUpgrade(EAssetStructureUpgradeDecision::SaveAndOpen);
-			if (Result != EAssetStructureUpgradeResult::SaveFailed) ImGui::CloseCurrentPopup();
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Open Without Saving"))
-		{
-			ResolvePendingLevelUpgrade(EAssetStructureUpgradeDecision::OpenWithoutSaving);
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Cancel Open"))
-		{
-			ResolvePendingLevelUpgrade(EAssetStructureUpgradeDecision::Cancel);
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::EndPopup();
+		if (Decision != EUnsavedLevelDialogDecision::Save
+			&& Decision != EUnsavedLevelDialogDecision::Discard)
+			return false;
+		const bool bCompletesDeferredOpen = PendingAction == ELevelDocumentAction::OpenLevel;
+		const ELevelDocumentOpenResult Result = ExecutePendingAction();
+		if (bCompletesDeferredOpen && Result != ELevelDocumentOpenResult::Deferred)
+			CompletePendingDocumentOpen(Result == ELevelDocumentOpenResult::Opened);
+		return true;
 	}
 
 	auto FLevelDocumentController::OpenDefaultLevel() -> void
@@ -405,7 +200,6 @@ namespace Durin
 			const bool bCompletesDeferredOpen = std::exchange(bPendingDocumentOpen, false);
 			PendingUpgrade.Begin(Level, std::move(LoadReport), bCompletesDeferredOpen);
 			bCompatibilityDataLossConfirmed = false;
-			QueuedPopup = EQueuedPopup::AssetStructureUpgrade;
 			return ELevelDocumentOpenResult::Deferred;
 		}
 		if (!ActivateLevel(Level))
