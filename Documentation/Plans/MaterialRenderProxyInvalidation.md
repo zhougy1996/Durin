@@ -2,14 +2,14 @@
 
 Summary: Replace object-wide material invalidation scans with stable render-proxy indirection, lazy parent-chain resolution, and explicit low-frequency structural rebuilds.
 
-Last reviewed: 2026-07-30
+Last reviewed: 2026-08-04
 
 Status: Active
-Completed:
+Completed: Stages 0 through 3
 
 ## Current Status
 
-Stages 0 through 2 are complete. Every material interface owns one stable
+Stages 0 through 3 are complete. Every material interface owns one stable
 counted `FMaterialRenderProxy`, and static-mesh scene proxies now retain those
 proxy references per stable slot instead of copied `FMaterialRenderData`,
 material versions, and dirty flags. Renderer section draws resolve the bound
@@ -25,17 +25,16 @@ the scene proxy. The legacy `FMaterialUpdateContext` discovery pass remains
 active only as transitional characterized work and no longer pushes material
 content into components.
 
-Stage 3 is next and will remove ordinary-setter construction and flushing of
-that global discovery path, introduce publication/coalescing ownership, and
-replace its scan-oriented counters.
+Stage 4 is next and will restrict the remaining context to explicit
+structural/tool operations, centralize loaded-material queries, and remove the
+transitional scan-only implementation details.
 
-Material setters currently route through `FMaterialUpdateContext`, which
-snapshots `GDObjectArray`, discovers dependent materials by testing parent
-chains, finds concrete `DStaticMeshComponent` consumers, and pushes copied
-`FMaterialRenderData` into each affected scene-proxy slot. This preserves live
-updates, but ordinary parameter changes scale with the total loaded object
-population and make the material subsystem responsible for discovering every
-consumer type.
+The ordinary setter path now publishes immutable state through each material's
+stable proxy. One pending publication wave per proxy is coalesced before the
+render command applies it, so ordinary parameter and inherited changes do not
+snapshot `GDObjectArray`, enumerate components, or push copied material data
+into scene-proxy slots. `FMaterialUpdateContext` remains an explicit
+structural/batch compatibility path until Stage 4 completes its migration.
 
 The selected replacement is stable render-proxy indirection. Scene proxies
 will retain a render-thread-safe `FMaterialRenderProxyRef` for each material
@@ -436,11 +435,10 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
   binding; only binding changes advance component revision; content changes
   resolve through the stable proxy and never enqueue component-slot updates;
   structural mesh/default/bulk edits keep the existing proxy-recreation path;
-  legacy scan counters continue to count matched slots until Stage 3 retires
-  the scan.
-- Open questions: none block Stage 3. Ordinary setters still synchronously
-  construct and flush `FMaterialUpdateContext`, even though its component
-  matches no longer publish content packets.
+  explicit structural work remains outside ordinary material publication.
+- Open questions: none block Stage 4. The explicit `FMaterialUpdateContext`
+  path still owns transitional loaded-object/component diagnostics until the
+  structural cleanup stage removes those scan-only details.
 - Validation: `MaterialTests` 51/51, `ThumbnailTests` 45/45, and
   `EditorRenderingTests` 10/10 pass under
   `Win64-Debug-DurinEditor-Tests`; the material rendered-thumbnail Vulkan case
@@ -448,20 +446,20 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
 
 ### Stage 3: Remove Ordinary-Setter Global Discovery
 
-- [ ] Change ordinary `MarkRenderDataDirty(DynamicParameters)` and proxy-safe
+- [x] Change ordinary `MarkRenderDataDirty(DynamicParameters)` and proxy-safe
   static dirtiness to publish/coalesce proxy state directly.
-- [ ] Stop constructing and synchronously flushing
+- [x] Stop constructing and synchronously flushing
   `FMaterialUpdateContext` from ordinary parameter setters.
-- [ ] Ensure updates produced during world tick and application/editor event
+- [x] Ensure updates produced during world tick and application/editor event
   processing are submitted before frame rendering consumes the proxies.
-- [ ] Preserve an explicit synchronous flush entry point for tests, import
+- [x] Preserve an explicit synchronous flush entry point for tests, import
   completion, save/preview boundaries, and operations that require immediate
   visibility.
-- [ ] Remove component enumeration, per-slot material matching, handle sorting,
+- [x] Remove component enumeration, per-slot material matching, handle sorting,
   and repeated handle resolution from the ordinary material update path.
-- [ ] Replace the process-global reentrancy assertion with queue ownership and
+- [x] Replace the process-global reentrancy assertion with queue ownership and
   next-wave semantics.
-- [ ] Replace scan-oriented counters with proxy publication, coalescing,
+- [x] Replace ordinary-path scan diagnostics with proxy publication, coalescing,
   resolution-cache hit/miss, structural fallback, stale-publication, and
   binding-update counters.
 
@@ -475,6 +473,30 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
   and component counts increase.
 - Synchronous editor preview and test paths retain explicit, deterministic
   visibility.
+
+#### Stage 3 Handoff
+
+- Baseline commit: `551cbfe1` (`feat(material): bind scene proxies to material proxies`).
+- Working set: material proxy publication/lifetime, material interface setter
+  invalidation, explicit material update context, primitive proxy binding
+  diagnostics, material runtime documentation, and native material tests.
+- Key symbols: `FMaterialRenderProxy::QueuePublication_GameThread`,
+  `FMaterialRenderProxy::ApplyPendingPublication_RenderThread`,
+  `FMaterialRenderProxyCounters`,
+  `DMaterialInterface::MarkRenderDataDirty`, and
+  `RecordMaterialStructuralFallback`.
+- Decisions: each proxy owns one pending game-thread publication wave; later
+  versions replace that wave until render-thread ownership begins; ordinary
+  setters increment the material's own revision and publish only proxy state;
+  `FMaterialUpdateContext` is explicit structural/batch compatibility work;
+  the obsolete material-interface context adapter and global reentrancy flag
+  were removed.
+- Open questions: Stage 4 still needs to make structural traversal generic and
+  remove its transitional scan-only counters.
+- Validation: focused proxy/update-context tests pass 9/9 and the complete
+  `MaterialTests` target passes 54/54 under `Win64-Debug-DurinEditor-Tests`.
+  The same profile completes `build --target all` and a hidden five-tick
+  `DurinEditor` runtime smoke.
 
 ### Stage 4: Isolate Structural Updates and Dependency Queries
 

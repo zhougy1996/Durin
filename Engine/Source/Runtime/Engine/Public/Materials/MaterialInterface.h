@@ -46,11 +46,6 @@ namespace Durin
 			-> FMaterialLocalRenderLayer;
 		ENGINE_API auto PublishMaterialRenderProxyState() -> void;
 		ENGINE_API auto MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void;
-		// Adds this material to a caller-owned batch without flushing it.
-		ENGINE_API auto MarkRenderDataDirty(
-			FMaterialUpdateContext& Context,
-			EMaterialRenderDirtyFlags DirtyFlags
-		) -> void;
 
 	private:
 		auto SubmitMaterialRenderProxyState() const -> void;

@@ -56,6 +56,7 @@ namespace Durin
 		if (Update.SlotIndex >= Materials.size()) return;
 		Materials[Update.SlotIndex] = Update.MaterialProxy;
 		MaterialComponentRevision = Update.ComponentRevision;
+		RecordMaterialBindingUpdate();
 	}
 
 	FTextureCubePreviewSceneProxy::FTextureCubePreviewSceneProxy(

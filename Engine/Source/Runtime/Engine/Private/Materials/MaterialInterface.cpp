@@ -5,8 +5,6 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
 #include "Materials/MaterialInstance.h"
-#include "Materials/MaterialUpdateContext.h"
-#include "RenderingThread.h"
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
 
@@ -223,23 +221,8 @@ namespace Durin
 		}
 
 		const uint64 SubmittedVersion = Publication.LocalVersion;
-		FMaterialRenderProxyRef Proxy = MaterialRenderProxy;
-		struct FPublishMaterialRenderProxyCommand
-		{
-			static constexpr auto GetName() -> const char*
-			{
-				return "PublishMaterialRenderProxy";
-			}
-		};
-		const bool bAccepted =
-			FRenderThreadCommandPipe::TryEnqueue<
-				FPublishMaterialRenderProxyCommand>(
-				[Proxy = std::move(Proxy),
-				 Publication = std::move(Publication)](
-					FRHICommandListImmediate&) mutable {
-					Proxy->ApplyPublication_RenderThread(
-						std::move(Publication));
-				});
+		const bool bAccepted = MaterialRenderProxy->QueuePublication_GameThread(
+			std::move(Publication));
 		if (bAccepted)
 		{
 			LastSubmittedMaterialProxyLocalVersion = SubmittedVersion;
@@ -248,18 +231,10 @@ namespace Durin
 
 	auto DMaterialInterface::MarkRenderDataDirty(EMaterialRenderDirtyFlags DirtyFlags) -> void
 	{
+		if (DirtyFlags == EMaterialRenderDirtyFlags::None) return;
+		++RenderStateVersion;
+		if (RenderStateVersion == 0) ++RenderStateVersion;
 		PublishMaterialRenderProxyState();
-		FMaterialUpdateContext Context;
-		MarkRenderDataDirty(Context, DirtyFlags);
-		Context.Flush();
-	}
-
-	auto DMaterialInterface::MarkRenderDataDirty(
-		FMaterialUpdateContext& Context,
-		EMaterialRenderDirtyFlags DirtyFlags
-	) -> void
-	{
-		Context.AddMaterial(this, DirtyFlags);
 	}
 
 	auto GetLoadedDirectMaterialChildren(

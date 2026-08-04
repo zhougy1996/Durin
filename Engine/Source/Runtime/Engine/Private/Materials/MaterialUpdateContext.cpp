@@ -12,7 +12,6 @@ namespace Durin
 {
 	namespace
 	{
-		bool GIsFlushingMaterialUpdates = false;
 		FMaterialUpdateCounters GLastMaterialUpdateCounters;
 
 		auto HandlesEqual(FObjectHandle Left, FObjectHandle Right) -> bool
@@ -30,20 +29,6 @@ namespace Durin
 		{
 			if (GIsGameThreadIdInitialized) CheckGameThread();
 		}
-
-		struct FScopedMaterialUpdateFlush
-		{
-			FScopedMaterialUpdateFlush()
-			{
-				checkf(!GIsFlushingMaterialUpdates, "Material update context flush cannot be re-entered.");
-				GIsFlushingMaterialUpdates = true;
-			}
-
-			~FScopedMaterialUpdateFlush()
-			{
-				GIsFlushingMaterialUpdates = false;
-			}
-		};
 
 		struct FAffectedMaterial
 		{
@@ -100,7 +85,9 @@ namespace Durin
 	{
 		CheckMaterialUpdateThread();
 		if (ChangedRoots.empty()) return;
-		FScopedMaterialUpdateFlush FlushScope;
+		// This is an explicit structural/batch operation. Ordinary material
+		// setters publish through their stable proxy and never enter this path.
+		RecordMaterialStructuralFallback();
 
 		std::ranges::sort(ChangedRoots, [](const FChangedRoot& Left, const FChangedRoot& Right) {
 			return HandleLess(Left.Handle, Right.Handle);

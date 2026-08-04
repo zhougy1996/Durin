@@ -59,24 +59,21 @@ declarations and a compiled renderer layout are deferred work.
 - Material-side code resolves the five built-in GUIDs into immutable
   `FMaterialRenderData`. The renderer never performs GUID or `FName` lookup and
   never reads reflected material objects.
-- Scene-proxy construction walks the current mesh slots in order and emits one
-  compact `FMaterialRenderUpdate` snapshot per slot. A mesh assignment or
+- Scene-proxy construction walks the current mesh slots in order and retains
+  one stable `FMaterialRenderProxyRef` binding per slot. A mesh assignment or
   rebuilt mesh render layout replaces the proxy; dynamic parameter, static
-  identity, and parent changes update the existing proxy in place.
-- A material update context batches changed roots, computes the affected loaded
-  material closure from canonical parent chains, advances each affected
-  material version once, and scans one stable loaded-object snapshot for
-  static-mesh component slots that currently resolve to an affected material.
-  Multiple roots merge dirty flags before any component update, and an inherited
-  change adds the parent-chain dirty flag.
-- Dirty flags distinguish dynamic parameters, shader-map identity, and
-  pipeline-state identity. Parent changes carry all three because an inherited
-  static-property set can change together with resolved parameter values.
-- The component scan reads only current mesh defaults and component overrides.
-  One changed material emits an update for every current slot that resolves to
-  it; duplicate slot use does not repeat the component scan. A component-wide
-  revision orders rapid changes across independent slots and rejects stale
-  render commands.
+  identity, and parent changes publish through the existing proxy in place.
+- Dirty flags classify the publication that a material mutation produces:
+  dynamic parameters and proxy-safe static properties publish a new immutable
+  local layer, while parent changes publish a new parent-proxy identity and
+  local version. The render thread resolves inherited state lazily.
+- A material publication owns one pending wave per proxy. Repeated edits before
+  the render command is consumed replace that pending wave, so only the newest
+  immutable state is applied. The command stream preserves publication order
+  before later rendering commands consume the proxy.
+- Component material assignment is a binding update, not material-content
+  invalidation. A component-wide revision orders rapid changes across
+  independent slots and rejects stale render commands.
 - The static mesh shader implements a fixed directional-light Blinn-Phong path
   plus an unlit viewport mode. Missing values preserve the orange fallback
   material and renderer-owned default textures.
@@ -96,19 +93,23 @@ declarations and a compiled renderer layout are deferred work.
   or material assignments. Loading, reflected edits, transactions,
   duplication, destruction, and garbage collection therefore have no
   registration-reconciliation step.
-- Material mutation flushes an Engine-owned `FMaterialUpdateContext`
-  synchronously unless a caller supplies a context to batch several roots.
-  Flush takes one loaded-object snapshot, computes the complete affected
-  material set, scans loaded static-mesh components once, and resolves each
-  handle immediately before use. Repeated flush without new roots is a no-op.
+- Ordinary material mutation does not construct or flush
+  `FMaterialUpdateContext`. It publishes directly to the stable material proxy,
+  performs no `GDObjectArray` snapshot, and performs no component enumeration.
+  Parent and descendant proxies observe inherited changes during their next
+  render-thread resolution without a child enumeration.
+- `FMaterialUpdateContext` remains an explicit structural/batch compatibility
+  path for callers that require a deterministic synchronous operation. Until
+  structural migration completes, that path may still traverse loaded objects;
+  ordinary setters never enter it. `FlushRenderingCommands()` remains the
+  explicit visibility boundary for tests, import, preview, and save workflows.
 - Static-mesh render-data changes use a separate on-demand loaded-component
   scan and select components whose current mesh assignment equals the changed
   mesh. Rebuilding render state then resolves current slot definitions,
   defaults, overrides, and orphans directly from canonical storage.
-- Deterministic counters expose roots, scanned objects, tested and affected
-  materials, scanned components, and updated slots. These counters characterize
-  batching and scan cost; they are diagnostics, not a persistent dependency
-  index.
+- Proxy diagnostics expose publication, coalescing, resolution-cache hit/miss,
+  structural-fallback, stale-publication, and binding-update counts. They are
+  diagnostics, not a persistent dependency index.
 
 ## Compatibility Boundary
 

@@ -4,6 +4,7 @@
 #include "Materials/MaterialTypes.h"
 #include "Templates/RefCounting.h"
 
+#include <mutex>
 #include <optional>
 
 namespace Durin
@@ -43,6 +44,24 @@ namespace Durin
 		uint64 LocalVersion = 0;
 	};
 
+	// Reports proxy-owned publication and render-thread resolution work.
+	struct FMaterialRenderProxyCounters
+	{
+		uint64 PublicationCount = 0;
+		uint64 CoalescedPublicationCount = 0;
+		uint64 ResolutionCacheHitCount = 0;
+		uint64 ResolutionCacheMissCount = 0;
+		uint64 StructuralFallbackCount = 0;
+		uint64 StalePublicationCount = 0;
+		uint64 BindingUpdateCount = 0;
+	};
+
+	ENGINE_API auto GetMaterialRenderProxyCounters()
+		-> FMaterialRenderProxyCounters;
+	ENGINE_API auto ResetMaterialRenderProxyCounters() -> void;
+	ENGINE_API auto RecordMaterialStructuralFallback() -> void;
+	ENGINE_API auto RecordMaterialBindingUpdate() -> void;
+
 	// Owns render-thread material state behind one stable counted identity.
 	class FMaterialRenderProxy final
 	{
@@ -61,6 +80,13 @@ namespace Durin
 			FMaterialRenderProxyPublication Publication
 			) -> bool;
 
+		// Queues the newest game-thread publication. At most one render command
+		// owns the pending wave for this proxy; later publications replace that
+		// wave until the render thread takes ownership.
+		ENGINE_API auto QueuePublication_GameThread(
+			FMaterialRenderProxyPublication Publication
+			) -> bool;
+
 		// Resolves parent-first and reuses the cached snapshot only for the exact
 		// (local version, parent identity, parent resolved version) key.
 		ENGINE_API auto Resolve_RenderThread() -> const FMaterialRenderData&;
@@ -75,6 +101,8 @@ namespace Durin
 			-> uint64;
 
 	private:
+		ENGINE_API auto ApplyPendingPublication_RenderThread() -> bool;
+
 		~FMaterialRenderProxy() = default;
 
 		mutable std::atomic<uint32> ReferenceCount = 0;
@@ -90,6 +118,13 @@ namespace Durin
 		uint64 StalePublicationCount = 0;
 		bool bHasResolvedData = false;
 		bool bIsResolving = false;
+
+		// PendingPublication is the game-thread publication wave. It is never
+		// read by render code without taking this mutex; the render-thread state
+		// above remains owned exclusively by the rendering thread.
+		mutable std::mutex PublicationMutex;
+		std::optional<FMaterialRenderProxyPublication> PendingPublication;
+		bool bPublicationCommandQueued = false;
 	};
 
 	// Converts one reflected value to its counted render-safe representation.

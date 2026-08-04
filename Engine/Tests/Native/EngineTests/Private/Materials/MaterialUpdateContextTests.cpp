@@ -1,5 +1,6 @@
 #include "MaterialTestSupport.h"
 
+#include "Materials/MaterialRenderProxy.h"
 #include "Materials/MaterialUpdateContext.h"
 
 #include <future>
@@ -187,6 +188,118 @@ TEST(FMaterialUpdateContextTests, ScanCostGrowsWithUnrelatedLoadedObjectsAndComp
 	Durin::MarkAsGarbage(Grandchild);
 	Durin::MarkAsGarbage(Child);
 	Durin::MarkAsGarbage(Base);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialUpdateContextTests, OrdinarySetterPublishesWithoutStructuralScan)
+{
+	FRenderSceneHarness Harness;
+	auto* Material = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "ProxyOnlyMaterial");
+	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	auto* Component = Harness.CreateStaticMeshComponent(
+		"ProxyOnlyComponent");
+	Component->SetStaticMesh(Mesh);
+	Component->SetMaterial(Material);
+	Component->RegisterComponent();
+	const FMaterialSlotsSnapshot Initial = CaptureMaterialSlots(Harness.Scene);
+	Durin::ResetMaterialRenderProxyCounters();
+
+	ASSERT_TRUE(Material->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(),
+		Durin::FVector3(0.15, 0.35, 0.65)));
+	const FMaterialSlotsSnapshot Updated = CaptureMaterialSlots(Harness.Scene);
+	const Durin::FMaterialRenderProxyCounters Counters =
+		Durin::GetMaterialRenderProxyCounters();
+	EXPECT_EQ(Counters.StructuralFallbackCount, 0);
+	EXPECT_EQ(Counters.BindingUpdateCount, 0);
+	EXPECT_EQ(Counters.PublicationCount, 1);
+	EXPECT_EQ(Updated.Proxy, Initial.Proxy);
+	EXPECT_EQ(Updated.ComponentRevision, Initial.ComponentRevision);
+	ExpectColorNear(
+		Updated.Materials[0].BaseColor,
+		Durin::FVector4f(0.15f, 0.35f, 0.65f, 1.0f));
+
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
+	Durin::MarkAsGarbage(Component);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(Material);
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialUpdateContextTests, OrdinarySetterCostIgnoresUnrelatedObjects)
+{
+	FRenderSceneHarness Harness;
+	auto* Base = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "ProxyScalingBase");
+	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	auto* Component = Harness.CreateStaticMeshComponent(
+		"ProxyScalingComponent");
+	Component->SetStaticMesh(Mesh);
+	Component->SetMaterial(Base);
+	Component->RegisterComponent();
+	CaptureMaterialSlots(Harness.Scene);
+
+	Durin::ResetMaterialRenderProxyCounters();
+	ASSERT_TRUE(Base->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(),
+		Durin::FVector3(0.1, 0.2, 0.3)));
+	CaptureMaterialSlots(Harness.Scene);
+	const Durin::FMaterialRenderProxyCounters Baseline =
+		Durin::GetMaterialRenderProxyCounters();
+
+	constexpr Durin::uint64 UnrelatedCount = 12;
+	auto* UnrelatedMesh = Durin::DStaticMesh::CreateDebugTriangle();
+	std::vector<Durin::DMaterial*> UnrelatedMaterials;
+	std::vector<Durin::DStaticMeshComponent*> UnrelatedComponents;
+	UnrelatedMaterials.reserve(UnrelatedCount);
+	UnrelatedComponents.reserve(UnrelatedCount);
+	for (Durin::uint64 Index = 0; Index < UnrelatedCount; ++Index)
+	{
+		auto* Material = Durin::NewObject<Durin::DMaterial>(
+			nullptr,
+			Durin::FName(std::format("ProxyScalingUnrelatedMaterial{}", Index)));
+		auto* UnrelatedComponent = Harness.CreateStaticMeshComponent(
+			Durin::FName(std::format("ProxyScalingUnrelatedComponent{}", Index)));
+		ASSERT_NE(UnrelatedComponent, nullptr);
+		UnrelatedComponent->SetStaticMesh(UnrelatedMesh);
+		UnrelatedComponent->SetMaterial(Material);
+		UnrelatedMaterials.push_back(Material);
+		UnrelatedComponents.push_back(UnrelatedComponent);
+	}
+
+	WaitForRenderingThread();
+	Durin::ResetMaterialRenderProxyCounters();
+	ASSERT_TRUE(Base->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(),
+		Durin::FVector3(0.7, 0.8, 0.9)));
+	CaptureMaterialSlots(Harness.Scene);
+	const Durin::FMaterialRenderProxyCounters Expanded =
+		Durin::GetMaterialRenderProxyCounters();
+	EXPECT_EQ(Expanded.PublicationCount, Baseline.PublicationCount);
+	EXPECT_EQ(
+		Expanded.CoalescedPublicationCount,
+		Baseline.CoalescedPublicationCount);
+	EXPECT_EQ(Expanded.StructuralFallbackCount, 0);
+	EXPECT_EQ(Expanded.BindingUpdateCount, 0);
+
+	Component->UnregisterComponent();
+	WaitForRenderingThread();
+	Durin::MarkAsGarbage(Component);
+	for (Durin::DStaticMeshComponent* UnrelatedComponent : UnrelatedComponents)
+	{
+		Durin::MarkAsGarbage(UnrelatedComponent);
+	}
+	Durin::MarkAsGarbage(UnrelatedMesh);
+	Durin::MarkAsGarbage(Mesh);
+	for (Durin::DMaterial* Material : UnrelatedMaterials)
+	{
+		Durin::MarkAsGarbage(Material);
+	}
+	Durin::MarkAsGarbage(Base);
+	Harness.Shutdown();
 	Durin::CollectGarbage();
 }
 

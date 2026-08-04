@@ -2,6 +2,8 @@
 
 #include "Materials/MaterialRenderProxy.h"
 
+#include <future>
+
 namespace
 {
 	struct FMaterialProxySnapshot
@@ -158,6 +160,68 @@ TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleSt
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
 	Durin::ReleaseMaterialRenderProxy_GameThread(
 		std::move(SameProxy));
+	WaitForRenderingThread();
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialRenderProxyTests, CoalescesQueuedPublicationsPerProxy)
+{
+	FRenderSceneHarness Harness;
+	auto* Material = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "CoalescedProxyMaterial");
+	Durin::FMaterialRenderProxyRef Proxy =
+		Material->GetMaterialRenderProxy();
+	CaptureMaterialProxy(Proxy);
+	Durin::ResetMaterialRenderProxyCounters();
+
+	auto CommandStarted = std::make_shared<std::promise<void>>();
+	std::future<void> CommandStartedFuture = CommandStarted->get_future();
+	auto AllowCommandCompletion = std::make_shared<std::promise<void>>();
+	std::shared_future<void> AllowCommandCompletionFuture =
+		AllowCommandCompletion->get_future().share();
+	struct FBlockMaterialPublicationCommand
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "BlockMaterialPublication";
+		}
+	};
+	Durin::EnqueueRenderCommand<FBlockMaterialPublicationCommand>(
+		[CommandStarted, AllowCommandCompletionFuture](
+			Durin::FRHICommandListImmediate&) {
+			CommandStarted->set_value();
+			AllowCommandCompletionFuture.wait();
+		});
+	CommandStartedFuture.wait();
+
+	ASSERT_TRUE(Material->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(),
+		Durin::FVector3(0.2, 0.3, 0.4)));
+	ASSERT_TRUE(Material->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(),
+		Durin::FVector3(0.4, 0.5, 0.6)));
+	ASSERT_TRUE(Material->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(),
+		Durin::FVector3(0.7, 0.8, 0.9)));
+	const Durin::FMaterialRenderProxyCounters Queued =
+		Durin::GetMaterialRenderProxyCounters();
+	EXPECT_EQ(Queued.PublicationCount, 0);
+	EXPECT_EQ(Queued.CoalescedPublicationCount, 2);
+
+	AllowCommandCompletion->set_value();
+	const FMaterialProxySnapshot Updated = CaptureMaterialProxy(Proxy);
+	ExpectColorNear(
+		Updated.RenderData.BaseColor,
+		Durin::FVector4f(0.7f, 0.8f, 0.9f, 1.0f));
+	const Durin::FMaterialRenderProxyCounters Applied =
+		Durin::GetMaterialRenderProxyCounters();
+	EXPECT_EQ(Applied.PublicationCount, 1);
+	EXPECT_EQ(Applied.CoalescedPublicationCount, 2);
+
+	Durin::MarkAsGarbage(Material);
+	Durin::CollectGarbage();
+	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
 	WaitForRenderingThread();
 	Harness.Shutdown();
 	Durin::CollectGarbage();
