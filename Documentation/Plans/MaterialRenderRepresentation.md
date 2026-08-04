@@ -9,22 +9,24 @@ Completed:
 
 ## Current Status
 
-The current baseline is commit `a7e6d2650b2b9ea83610a3bc15f875ba914d588a`.
-Material declarations, instance overrides, static properties, immutable
-render snapshots, stable render-proxy publication, StaticMesh slot bindings,
-and material shader-map and pipeline identities are already implemented.
+Stage 0 is complete against baseline commit
+`919401389d259c6da9c391cc39a7a2e6e4ed080b` (the exact commit is recorded by
+the Stage 0 handoff below). Material declarations, instance overrides, static
+properties, immutable render snapshots, stable render-proxy publication,
+StaticMesh slot bindings, and material shader-map and pipeline identities are
+already implemented.
 
 `FMaterialRenderData` still exposes fixed `BaseColor`, `BaseColorTexture`,
 `SpecularStrength`, and `Shininess` fields beside its pipeline identity.
 Material resolution addresses the five canonical parameter GUIDs directly,
-and `FStaticMeshRenderer` knows the resulting field layout. This is sufficient
-for the first vertical slice but makes every additional material input a
-coordinated Engine/Renderer structure edit and provides no explicit runtime
-compatibility boundary for future layouts.
+and `FStaticMeshRenderer` knows the resulting field layout. Stage 0 froze that
+contract and selected the validated packed uniform/resource table described
+below. Stage 1 is the next implementation stage; it has no unresolved layout,
+validation, ownership, or compatibility decision remaining.
 
-No implementation stage in this plan has started. The plan intentionally lands
-before the PBR surface plan so that PBR inputs extend one established render
-representation instead of creating another fixed structure.
+The plan intentionally lands before the PBR surface plan so that PBR inputs
+extend one established render representation instead of creating another fixed
+structure.
 
 ## Goal
 
@@ -130,20 +132,184 @@ shader/pipeline cache selection.
 Dependencies: current baseline and the completed material render-proxy and
 Renderer modularization handoffs.
 
-- [ ] Inventory every producer, publisher, consumer, serializer assumption,
+- [x] Inventory every producer, publisher, consumer, serializer assumption,
   diagnostic, and test that depends on `FMaterialRenderData` or its fixed
   fields.
-- [ ] Freeze the current parameter values, uniform packing, texture fallback,
+- [x] Freeze the current parameter values, uniform packing, texture fallback,
   Lit/Unlit behavior, shader/pipeline identities, and rendered-output baseline.
-- [ ] Compare bounded layout alternatives, including typed compact fields and a
+- [x] Compare bounded layout alternatives, including typed compact fields and a
   validated packed-uniform/resource table, and select one representation.
-- [ ] Define layout identity, version ownership, supported-version behavior,
+- [x] Define layout identity, version ownership, supported-version behavior,
   limits, alignment, type metadata, resource indexing, and validation failure
   diagnostics.
-- [ ] Define the separate persistent material-schema version and its rules for
+- [x] Define the separate persistent material-schema version and its rules for
   missing, renamed, added, removed, and type-changed declarations.
-- [ ] Record the selected symbols, owners, migration order, and exact working
+- [x] Record the selected symbols, owners, migration order, and exact working
   set before implementation.
+
+#### Selected Representation and Version Authorities
+
+- The selected model is a validated packed uniform/resource table. A
+  `FMaterialRenderRepresentation` owns one immutable `FMaterialRenderLayout`
+  descriptor, a byte-packed uniform payload, and counted texture-reference
+  resources. `FMaterialRenderData` retains the representation beside the
+  existing `FMaterialPipelineIdentity`; it no longer grows one public C++ field
+  for each material input.
+- The layout is Engine-owned and contains compact field descriptors. Each
+  descriptor records a stable parameter GUID for Engine-side compilation and
+  diagnostics, a render value type, storage class, compact field/resource
+  index, byte offset, and byte size. Renderer draw code consumes compact
+  indices and typed accessors only; it never searches a GUID or `FName`.
+- Uniform storage uses little-endian native float lanes with a 16-byte payload
+  alignment. Supported v1 numeric field types are `Scalar` (4 bytes),
+  `Vector3` (12 bytes), and `Vector4` (16 bytes). Scalar offsets are 4-byte
+  aligned; vector offsets are 16-byte aligned; the total payload size is a
+  non-zero multiple of 16 bytes. Padding is zero-filled and validated. The
+  current v1 StaticMesh payload is 32 bytes: BaseColor at bytes `[0, 12)`,
+  Opacity at `[12, 16)`, SpecularStrength at `[16, 20)`, Shininess at
+  `[20, 24)`, and zero padding at `[24, 32)`. The renderer preserves the
+  existing `MaterialUniform` ABI when it adds the viewport Lit/Unlit mode in
+  its local draw binding.
+- Texture storage is a separate compact resource table. v1 supports only
+  `DTexture2D`/`FRHITextureReferenceRef` entries; null references are valid
+  absent values and are resolved by Renderer-owned defaults. Every published
+  entry is counted through `FRHITextureReferenceRef`; no concrete texture
+  pointer is retained without ownership.
+- `FMaterialRenderLayoutIdentity` is the pair `(Version, Id)`. Version is the
+  transient layout validation/interpretation authority and is currently `1`.
+  `Id` is an Engine-assigned stable `FGuid` for the exact field order, type,
+  packing, resource table, and shader binding contract. A packing or binding
+  change receives a new Id; a change to the interpretation rules also
+  increments Version. Neither value is a package migration version.
+- `FMaterialShaderMapIdentity` carries the supported render-layout identity in
+  addition to static blend/shading/mask inputs. `FMaterialPipelineIdentity`
+  continues to nest the shader identity and pipeline-only properties. Dynamic
+  bytes and resource references are excluded from both identities, so a
+  dynamic-only edit reuses shader-map and pipeline cache entries.
+- The Engine factory validates layout version/identity, count and size limits,
+  contiguous compact indices, offset and alignment rules, non-overlapping
+  ranges, supported types, finite float data, zero padding, and resource-index
+  bounds before it returns a representation. The selected limits are 256
+  fields, 64 resources, and 16 KiB of uniform data; these are hard rejection
+  bounds, not renderer hints. The factory returns either a complete immutable
+  representation or a deterministic v1 fallback and an Engine-owned
+  validation diagnostic. It never publishes a partially filled payload.
+- v1 is the only supported render-layout version and current layout identity
+  during this plan. Engine may describe a newer version only after its
+  validator and Renderer adapter land; Renderer rejects an unknown version or
+  identity before reading payload bytes, reports a material-binding diagnostic,
+  and uses the same orange/default-texture fallback representation. Missing or
+  not-ready texture resources remain valid representation values and continue
+  through the existing white fallback path.
+
+#### Frozen Baseline and Inventory
+
+- The default effective values are BaseColor `(0.95, 0.62, 0.22, 1.0)`,
+  SpecularStrength `0.35`, Shininess `32.0`, and no texture. Opacity clamps to
+  `[0, 1]`, SpecularStrength to `[0, 1]`, Shininess to `[1, 256]`, and vector
+  channels to `[0, 1]`. Null, unloaded, replaced, not-ready, and destroyed
+  texture resources resolve through the Renderer white texture fallback.
+- The StaticMesh shader binding baseline is Transform binding `0`, Lighting
+  binding `1`, Material binding `2`, BaseColorTexture binding `3`, and
+  BaseColorSampler binding `4`. Lit and Unlit differ only through the existing
+  local mode value; solid and wireframe use the same material values and their
+  existing pipeline pair. Multi-slot, thumbnail, preview, and level-viewport
+  draws consume the same resolved snapshot.
+- Material producers are `DMaterialInterface::GetRenderData`,
+  `DMaterial::BuildMaterialLocalRenderLayer`, and
+  `DMaterialInstance::BuildMaterialLocalRenderLayer`. Publication is owned by
+  `DMaterialInterface::SubmitMaterialRenderProxyState`; render-thread
+  inheritance, caching, static-property application, fallback construction,
+  and counted resource retention are owned by `FMaterialRenderProxy`.
+- Scene-proxy binding and empty-slot fallback are owned by
+  `FStaticMeshSceneProxy::ResolveMaterialRenderData_RenderThread`. The only
+  production field consumer is `FStaticMeshRenderer::DrawProxy_RenderThread`,
+  which currently builds `FStaticMeshMaterialUniform` and resolves the
+  texture reference before typed shader-parameter submission. Editor previews
+  and thumbnails reach this path through the scene proxy.
+- `DMaterial::ParameterDefinitions`, `DMaterialInstance::ParameterOverrides`,
+  and `FMaterialStaticProperties` are reflected serialized state. The render
+  representation is transient and is not a reflected/serialized object. The
+  existing field-table loader skips incompatible legacy scalar/vector/texture
+  maps with a warning; `DMaterial::PostLoad`, `DMaterialInstance::PostLoad`,
+  and the canonical/static validators remain the asset boundary.
+- Existing diagnostics are the canonical/static validation `OutError` strings,
+  material proxy publication/coalescing/resolution/stale/binding counters,
+  and Renderer resource diagnostics for shader/pipeline creation. Stage 1 adds
+  a typed Engine representation-failure code and message; Stage 3 maps
+  unsupported render bindings to the existing Renderer diagnostic channel.
+- The focused test inventory is `MaterialRenderProxyTests`,
+  `MaterialRenderingTests`, `MaterialSchemaAndEditingTests`,
+  `MaterialInstanceTests`, `StaticMeshMaterialTests`, `StaticMeshUpdateTests`,
+  `MaterialAssetThumbnailTests`, `EditorTextureSmokeTests`, and the shared
+  `MaterialTestSupport` snapshot helpers. `RenderedAssetThumbnailFixtureTests`,
+  `SceneImportVulkanTests`, and `RenderCoreTests/ShaderReflectionTests` freeze
+  thumbnail/import/Vulkan shader binding behavior. Their fixed-field assertions
+  will be translated to layout/index/value assertions during Stages 1–3.
+
+#### Persistent Material-Schema Compatibility
+
+- Persistent material authoring uses a separate reflected
+  `FMaterialParameterSchemaVersion`, currently `1`, on base and instance
+  material state. It describes the serialized declaration/override encoding;
+  it is never copied into or compared as the transient render-layout version.
+- A missing or zero schema version is accepted only as the current legacy
+  package shape after the existing canonical/type validation succeeds; it is
+  normalized to v1 with a warning before render publication. A known older
+  version uses an explicit bounded migration. A version newer than the
+  supported version, malformed field data, duplicate/invalid identities, or an
+  ambiguous legacy shape rejects the asset and publishes no partial render
+  state.
+- Renaming a declaration preserves its GUID and therefore preserves values and
+  instance overrides; the new name/metadata is adopted during migration.
+  Adding a declaration supplies the base default and leaves instances without
+  an override. Removing a declaration drops it from a migrated base schema,
+  while an instance override with that GUID remains an explicit orphan and is
+  ignored until removed. No rule matches by display name or vector position.
+- Changing the type of an existing GUID is a hard compatibility error. Values
+  are never reinterpreted between scalar, vector, and texture encodings. An
+  explicit future migration may replace the value, but that migration must be
+  versioned and validated before publication.
+
+#### Stage 0 Acceptance Evidence
+
+- Targeted symbol/file searches found every production `FMaterialRenderData`
+  access, the reflected material fields and PostLoad validators, the proxy and
+  scene-proxy fallback paths, renderer diagnostics, shader bindings, and the
+  focused test groups listed above. No serializer owns the transient render
+  structure.
+- The selected v1 byte/resource contract and identity split account for the
+  current shader ABI, texture fallback, parent/proxy lifetime, static cache
+  keys, and dynamic invalidation behavior. Stage 1 therefore has no open
+  alignment, ownership, supported-version, or schema-compatibility choice.
+
+#### Stage 0 Handoff
+
+- Baseline: `919401389d259c6da9c391cc39a7a2e6e4ed080b` before the Stage 0
+  documentation commit.
+- Working set: `MaterialTypes.h/.cpp`, `MaterialRenderProxy.h/.cpp`,
+  `MaterialInterface.h/.cpp`, `Material.h/.cpp`, `MaterialInstance.h/.cpp`,
+  `PrimitiveSceneProxy.h/.cpp`, `StaticMeshRenderer.h/.cpp`,
+  `StaticMesh.slang`, the focused Engine material tests and support helpers,
+  RenderCore shader-reflection coverage, and the Runtime material/shader
+  contract documents updated by later stages.
+- Key symbols: `FMaterialRenderData`, the new
+  `FMaterialRenderRepresentation`/`FMaterialRenderLayout` family,
+  `FMaterialRenderProxy::Resolve_RenderThread`,
+  `DMaterialInterface::GetRenderData`,
+  `FStaticMeshSceneProxy::ResolveMaterialRenderData_RenderThread`,
+  `FStaticMeshRenderer::DrawProxy_RenderThread`,
+  `FMaterialShaderMapIdentity`, and `FMaterialPipelineIdentity`.
+- Migration order: Engine layout/value/validation types and schema version;
+  base/instance compilation and proxy publication; scene-proxy and StaticMesh
+  compact binding; shader/Vulkan and end-to-end regressions; then Runtime
+  contract and roadmap evidence.
+- Open questions: none blocking Stage 1. PBR may introduce a new layout Id or
+  Version after this plan lands, but it must preserve the selected table and
+  compatibility rules and re-review this handoff before implementation.
+- Validation: Stage 0 inventory and targeted searches completed; no build or
+  runtime test was required because this stage changed only the executable
+  plan contract.
 
 #### Acceptance Gate
 
