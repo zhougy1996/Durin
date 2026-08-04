@@ -989,10 +989,7 @@ def _underlying_kind_from_type_spelling(type_spelling: str) -> str:
 
 
 def _is_scoped_enum(enum_cursor: clang.cindex.Cursor) -> bool:
-    try:
-        return bool(enum_cursor.is_scoped_enum())
-    except Exception:
-        return "enum class" in enum_cursor.type.spelling
+    return bool(enum_cursor.is_scoped_enum())
 
 
 def _dmeta_use_id(annotation: str) -> int | None:
