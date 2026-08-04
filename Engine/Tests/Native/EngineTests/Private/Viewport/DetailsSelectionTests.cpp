@@ -27,6 +27,10 @@ TEST(FDetailsPanelTargetingTests, DefaultsToRootComponentAndPreservesRootlessAct
 	ASSERT_NE(RootComponent, nullptr);
 	EXPECT_EQ(RootlessActor->GetRootComponent(), RootComponent);
 	EXPECT_EQ(Durin::DetailsPanelTargeting::ResolveDefaultComponent(RootlessActor), RootComponent);
+	ASSERT_TRUE(RootlessActor->DestroyInstanceComponent(RootComponent));
+	EXPECT_EQ(RootlessActor->GetRootComponent(), nullptr);
+	EXPECT_FALSE(RootlessActor->OwnsComponent(RootComponent));
+	EXPECT_EQ(Durin::DetailsPanelTargeting::ResolveSelectedComponent(RootlessActor, RootComponent), nullptr);
 
 	Durin::MarkObjectHierarchyAsGarbage(RootlessActor);
 	Durin::CollectGarbage();

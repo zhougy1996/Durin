@@ -263,7 +263,7 @@ namespace Durin
 					ImGui::EndDisabled();
 				}
 				ImGui::Separator();
-				if (bIsInstance && !bIsRoot)
+				if (bIsInstance)
 				{
 					if (ImGui::MenuItem("Delete Component", "Del"))
 					{
@@ -274,7 +274,7 @@ namespace Durin
 				else
 				{
 					ImGui::BeginDisabled();
-					ImGui::MenuItem(bIsRoot ? "Root component cannot be deleted" : "Default component cannot be deleted");
+					ImGui::MenuItem("Default component cannot be deleted");
 					ImGui::EndDisabled();
 				}
 				if (Context.bReadOnly) ImGui::EndDisabled();
@@ -381,7 +381,7 @@ namespace Durin
 		{
 			if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) BeginRenameComponent(SelectedComponent.Get());
 			if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false) && Actor->IsInstanceComponent(SelectedComponent.Get()) && SelectedComponent.Get() != Actor->GetRootComponent()) DuplicateComponent(SelectedComponent.Get());
-			if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && Actor->IsInstanceComponent(SelectedComponent.Get()) && SelectedComponent.Get() != Actor->GetRootComponent())
+			if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && Actor->IsInstanceComponent(SelectedComponent.Get()))
 			{
 				PendingDeleteComponent = SelectedComponent;
 				bOpenDeletePopup = true;
