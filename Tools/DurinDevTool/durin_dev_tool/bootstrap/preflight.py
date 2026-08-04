@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -30,6 +31,17 @@ REPOSITORY_CONFIG = load_repository_config(REPO_ROOT)
 
 class PreflightError(RuntimeError):
     pass
+
+
+DEFAULT_ENVIRONMENT_ARGUMENTS = ("-arch=x64", "-host_arch=x64")
+
+
+@dataclass(frozen=True)
+class ToolchainSelection:
+    cmake_command: str
+    environment_script: Path
+    environment_arguments: tuple[str, ...]
+    environment: dict[str, str]
 
 
 def command_path(command: str, environment: Mapping[str, str] | None = None) -> str | None:
@@ -83,18 +95,77 @@ def configured_visual_studio_environment(
     return configured_script, list(config.environment_setup.arguments)
 
 
+def resolve_cmake_executable(
+    command: str,
+    environment: Mapping[str, str],
+) -> str:
+    executable = command_path(command, environment)
+    if not executable:
+        raise PreflightError(f'CMake was not found (requested command: "{command}").')
+    return str(Path(executable).resolve())
+
+
+def resolve_toolchain(
+    repository_root: Path | None = None,
+    *,
+    cmake_command: str | None = None,
+    environment_script: Path | None = None,
+    environment_arguments: Sequence[str] | None = None,
+) -> ToolchainSelection:
+    repository_root = repository_root or REPO_ROOT
+    configured_script, configured_arguments = configured_visual_studio_environment(
+        repository_root
+    )
+    script = environment_script or configured_script
+    if script is None:
+        script = find_vsdevcmd(os.environ)
+    arguments = tuple(
+        environment_arguments
+        if environment_arguments is not None
+        else configured_arguments or DEFAULT_ENVIRONMENT_ARGUMENTS
+    )
+    environment = capture_visual_studio_environment(script, arguments)
+    configured_cmake = cmake_command or configured_cmake_command(repository_root)
+    executable = resolve_cmake_executable(configured_cmake, environment)
+    if cmake_error := check_cmake(
+        repository_root,
+        environment=environment,
+        command=executable,
+    ):
+        raise PreflightError(cmake_error)
+    if not find_ninja(environment):
+        raise PreflightError(
+            "Ninja was not found in PATH or in the selected Visual Studio installation."
+        )
+    if msvc_error := check_msvc_version(environment):
+        raise PreflightError(msvc_error)
+    return ToolchainSelection(
+        cmake_command=executable,
+        environment_script=script,
+        environment_arguments=arguments,
+        environment=environment,
+    )
+
+
 def check_cmake(
     repository_root: Path | None = None,
     *,
     environment: Mapping[str, str] | None = None,
+    command: str | None = None,
 ) -> str | None:
     repository_root = repository_root or REPO_ROOT
-    configured = configured_cmake_command(repository_root)
+    configured = command or configured_cmake_command(repository_root)
     executable = command_path(configured, environment)
     if not executable:
         return f'CMake was not found (requested command: "{configured}").'
     try:
-        result = subprocess.run([executable, "--version"], capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            [executable, "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=dict(environment) if environment is not None else None,
+        )
     except OSError as exc:
         return f'CMake could not be launched from "{executable}": {exc}'
     match = re.search(r"cmake version (\d+)\.(\d+)", result.stdout)
@@ -184,7 +255,11 @@ def check_windows_long_paths() -> str | None:
     )
 
 
-def collect_errors(repository_root: Path | None = None) -> list[str]:
+def collect_errors(
+    repository_root: Path | None = None,
+    *,
+    selection: ToolchainSelection | None = None,
+) -> list[str]:
     repository_root = repository_root or REPO_ROOT
     errors: list[str] = []
     if sys.version_info < MINIMUM_PYTHON:
@@ -203,17 +278,24 @@ def collect_errors(repository_root: Path | None = None) -> list[str]:
         errors.append(long_paths_error)
     vs_environment: Mapping[str, str] = os.environ
     environment_setup_failed = False
-    try:
-        configured_script, configured_arguments = configured_visual_studio_environment(
-            repository_root
-        )
-        script = configured_script or find_vsdevcmd(os.environ)
-        arguments = configured_arguments or ["-arch=x64", "-host_arch=x64"]
-        vs_environment = capture_visual_studio_environment(script, arguments)
-    except PreflightError as exc:
-        errors.append(str(exc))
-        environment_setup_failed = True
-    if cmake_error := check_cmake(repository_root, environment=vs_environment):
+    if selection is None:
+        try:
+            configured_script, configured_arguments = configured_visual_studio_environment(
+                repository_root
+            )
+            script = configured_script or find_vsdevcmd(os.environ)
+            arguments = configured_arguments or DEFAULT_ENVIRONMENT_ARGUMENTS
+            vs_environment = capture_visual_studio_environment(script, arguments)
+        except PreflightError as exc:
+            errors.append(str(exc))
+            environment_setup_failed = True
+    else:
+        vs_environment = selection.environment
+    if cmake_error := check_cmake(
+        repository_root,
+        environment=vs_environment,
+        command=selection.cmake_command if selection is not None else None,
+    ):
         errors.append(cmake_error)
     if environment_setup_failed:
         return errors
@@ -226,10 +308,14 @@ def collect_errors(repository_root: Path | None = None) -> list[str]:
     return errors
 
 
-def validate_prerequisites(repository_root: Path) -> None:
+def validate_prerequisites(
+    repository_root: Path,
+    *,
+    selection: ToolchainSelection | None = None,
+) -> None:
     """Validate every prerequisite before setup mutates repository state."""
     print("Checking Durin setup prerequisites...")
-    errors = collect_errors(repository_root)
+    errors = collect_errors(repository_root, selection=selection)
     if errors:
         print(f"Setup prerequisite check found {len(errors)} problem(s):", file=sys.stderr)
         for index, error in enumerate(errors, 1):

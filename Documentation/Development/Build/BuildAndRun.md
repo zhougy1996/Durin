@@ -29,14 +29,22 @@ local file is missing. It also copies missing VS Code `settings.json` and
 `.vscode` directory. When `launch.json` is missing, Setup generates one entry
 for every preset registered to the selected Agent Build Profile, deriving each
 runtime executable from the resolved CMake preset. Existing local configuration
-files are never overwritten, so if preflight reports a tool that automatic
-detection cannot find, edit the configuration and rerun `DevTool setup`.
+files are never replaced; only the confirmed toolchain fields may be updated.
+If preflight reports a tool that automatic detection cannot find, edit the
+configuration and rerun `DevTool setup`.
 Preflight reports all detected prerequisite problems together so an old MSVC
 toolset, incomplete Vulkan SDK, or missing command does not first appear halfway
 through bootstrap or during the main build. DurinDevTool separately validates
 the Visual Studio English language pack when it first initializes MSVC. Setup
 initializes only the main checkout; a linked worktree exits with an error
 directing the caller to `DevTool worktree prepare`.
+On the first interactive setup, automatic CMake and `VsDevCmd.bat` detection is
+shown for confirmation. If detection is incomplete or the proposed settings are
+declined, Setup prompts for the CMake executable, environment script, and script
+arguments, validates them, and saves the confirmed absolute paths in
+`.agents/DevTool.user.json`. Use `DevTool setup --non-interactive` for scripts
+or CI; it accepts valid automatic or already-configured settings and fails with
+an actionable message instead of waiting for input.
 Because Setup must install DurinDevTool's Python packages, its terminal styling
 uses a standard-library-only fallback until the prepared environment is ready.
 `setup --plain` and `NO_COLOR` disable that styling as usual.
@@ -45,6 +53,9 @@ In a normal checkout, `DevTool setup` creates `.venv`, installs the pinned
 Python dependencies from `requirements.txt` (including the `clang.cindex`
 bindings and native `libclang` library), and prepares all repository-managed
 third-party libraries, including development-only dependencies such as Tracy.
+The confirmed Visual Studio environment is passed to every third-party CMake
+configure and build subprocess, and later `DevTool dependency prepare` calls
+recreate it from the saved local configuration.
 The operation is idempotent and can be rerun after a failed prerequisite check
 or interrupted download. `DevTool worktree prepare` owns linked-worktree
 preparation: it links `.agents`, `.vscode`, `Engine/External`, and `.venv` from

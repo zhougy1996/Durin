@@ -15,7 +15,7 @@ import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 from ..build.config import BuildToolError, load_local_config
 from ..configuration import load_repository_config
@@ -105,9 +105,18 @@ def ensure_command_available(command: str) -> None:
     raise BootstrapError(f"Required command was not found in PATH: {command}")
 
 
-def run_command(command: list[str], *, cwd: Path | None = None) -> None:
+def run_command(
+    command: list[str],
+    *,
+    cwd: Path | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> None:
     print(f"[run] {' '.join(command)}")
-    result = subprocess.run(command, cwd=str(cwd) if cwd else None)
+    result = subprocess.run(
+        command,
+        cwd=str(cwd) if cwd else None,
+        env=dict(environment) if environment is not None else None,
+    )
     if result.returncode != 0:
         raise BootstrapError(f"Command failed with exit code {result.returncode}: {' '.join(command)}")
 
@@ -290,7 +299,14 @@ def get_install_dir(manifest: dict[str, Any], platform_name: str, config: str) -
     )
 
 
-def install_shared_library(manifest: dict[str, Any], platform_name: str, config: str, cmake_command: str) -> None:
+def install_shared_library(
+    manifest: dict[str, Any],
+    platform_name: str,
+    config: str,
+    cmake_command: str,
+    *,
+    environment: Mapping[str, str] | None = None,
+) -> None:
     install_dir = get_install_dir(manifest, platform_name, config)
     required_sets = manifest["install_required_file_sets"][config]
     if verify_any_required_file_set(install_dir, required_sets):
@@ -314,9 +330,13 @@ def install_shared_library(manifest: dict[str, Any], platform_name: str, config:
             f"CMAKE_BUILD_TYPE={config}",
             "-D",
             f"CMAKE_INSTALL_PREFIX={install_dir}",
-        ]
+        ],
+        environment=environment,
     )
-    run_command([cmake_command, "--build", str(build_dir), "--config", config, "--target", "install"])
+    run_command(
+        [cmake_command, "--build", str(build_dir), "--config", config, "--target", "install"],
+        environment=environment,
+    )
 
     if not verify_any_required_file_set(install_dir, required_sets):
         raise BootstrapError(
@@ -330,6 +350,7 @@ def process_manifest(
     platform_name: str,
     configs: list[str],
     cmake_command: str,
+    environment: Mapping[str, str] | None = None,
 ) -> None:
     print(f"==> Preparing {manifest['name']} ({manifest['kind']})")
     if (
@@ -366,7 +387,13 @@ def process_manifest(
 
     if manifest["kind"] == "shared_install":
         for config in configs:
-            install_shared_library(manifest, platform_name, config, cmake_command)
+            install_shared_library(
+                manifest,
+                platform_name,
+                config,
+                cmake_command,
+                environment=environment,
+            )
         return
 
     raise BootstrapError(f"Unsupported manifest kind for {manifest['name']}: {manifest['kind']}")
@@ -505,6 +532,8 @@ def validate_repository_manifests(repository_root: Path) -> int:
 def prepare_dependencies(
     repository_root: Path,
     request: DependencyRequest,
+    *,
+    environment: Mapping[str, str] | None = None,
 ) -> tuple[str, ...]:
     if request.use_all == bool(request.libraries):
         raise BootstrapError("Specify exactly one of --all or --libs.")
@@ -519,11 +548,40 @@ def prepare_dependencies(
             with_tests=request.with_tests,
             with_development=request.with_development,
         )
+        effective_environment = environment
+        cmake_command = request.cmake_command
+        if any(manifest["kind"] == "shared_install" for manifest in selected_manifests):
+            from .preflight import (
+                PreflightError,
+                resolve_cmake_executable,
+                resolve_toolchain,
+            )
+
+            if effective_environment is None and sys.platform == "win32":
+                try:
+                    selection = resolve_toolchain(
+                        repository_root,
+                        cmake_command=cmake_command,
+                    )
+                except PreflightError as exc:
+                    raise BootstrapError(str(exc)) from exc
+                effective_environment = selection.environment
+                cmake_command = selection.cmake_command
+            elif cmake_command is None:
+                try:
+                    cmake_command = resolve_cmake_executable(
+                        configured_cmake_command(),
+                        effective_environment or os.environ,
+                    )
+                except PreflightError as exc:
+                    raise BootstrapError(str(exc)) from exc
+        cmake_command = cmake_command or configured_cmake_command()
         for manifest in selected_manifests:
             process_manifest(
                 manifest,
                 platform_name=platform_name,
                 configs=normalize_configs(request.config),
-                cmake_command=request.cmake_command or configured_cmake_command(),
+                cmake_command=cmake_command,
+                environment=effective_environment,
             )
     return tuple(manifest["name"] for manifest in selected_manifests)

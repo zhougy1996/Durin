@@ -75,6 +75,11 @@ PLAIN = _argument(
     action="store_true",
     help="disable colors and styled terminal output",
 )
+NON_INTERACTIVE = _argument(
+    "--non-interactive",
+    action="store_true",
+    help="use configured or automatically detected toolchain settings without prompting",
+)
 OUTPUT_MODE = _argument(
     "--output",
     dest="output_mode",
@@ -478,7 +483,7 @@ COMMAND_SPECS = (
         "setup",
         "prepare this main checkout",
         BOOTSTRAP_HANDLER,
-        arguments=(PLAIN,),
+        arguments=(PLAIN, NON_INTERACTIVE),
         defaults=(("bootstrap_action", "setup"),),
         feature="setup",
     ),

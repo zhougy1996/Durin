@@ -38,6 +38,15 @@ class TestThirdPartyBootstrap:
         selected = dependencies.resolve_selected_manifests(self.make_manifests(), use_all=False, libs_arg='tracy,normal', with_tests=False, with_development=False)
         assert [manifest['name'] for manifest in selected] == ['tracy', 'normal']
 
+    def test_shared_install_commands_receive_toolchain_environment(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        manifest = {'name': 'library', 'kind': 'shared_install', 'cmake_dir': 'CMake', 'install_required_file_sets': {'Debug': [['include/library.h']]}}
+        (root / 'CMake').mkdir()
+        with mock.patch.object(dependencies, 'REPO_ROOT', root), mock.patch.object(dependencies, 'verify_any_required_file_set', side_effect=[False, True]), mock.patch.object(dependencies, 'run_command') as run:
+            dependencies.install_shared_library(manifest, 'Win64', 'Debug', 'C:/cmake/bin/cmake.exe', environment={'PATH': 'ready'})
+        assert run.call_count == 2
+        assert all(call.kwargs['environment'] == {'PATH': 'ready'} for call in run.call_args_list)
+
     def test_configured_cmake_uses_typed_local_config(
         self,
         tmp_path_factory: pytest.TempPathFactory,
@@ -377,6 +386,36 @@ class TestSetupPreflight:
             assert preflight.command_path('cmake', {'Path': 'custom-path'}) == 'cmake'
         which.assert_called_once_with('cmake', path='custom-path')
 
+    def test_setup_interactively_confirms_automatic_toolchain(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        selection = preflight.ToolchainSelection('C:/cmake/bin/cmake.exe', root / 'VsDevCmd.bat', ('-arch=x64',), {'PATH': 'ready'})
+        with mock.patch.object(setup, 'resolve_toolchain', return_value=selection), mock.patch('builtins.input', return_value=''):
+            assert setup.select_setup_toolchain(root, interactive=True) == selection
+
+    def test_setup_interactively_accepts_manual_toolchain(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        selection = preflight.ToolchainSelection('C:/cmake/bin/cmake.exe', root / 'VsDevCmd.bat', ('-arch=x64',), {'PATH': 'ready'})
+        with mock.patch.object(setup, 'resolve_toolchain', side_effect=[preflight.PreflightError('automatic detection failed'), selection]), mock.patch('builtins.input', side_effect=['C:/cmake/bin/cmake.exe', str(root / 'VsDevCmd.bat'), '-arch=x64']):
+            assert setup.select_setup_toolchain(root, interactive=True) == selection
+
+    def test_setup_non_interactive_reports_unusable_automatic_toolchain(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        with mock.patch.object(setup, 'resolve_toolchain', side_effect=preflight.PreflightError('automatic detection failed')), pytest.raises(dependencies.BootstrapError, match='--non-interactive'):
+            setup.select_setup_toolchain(root, interactive=False)
+
+    def test_toolchain_config_is_saved_without_overwriting_other_settings(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        config = root / '.agents' / 'DevTool.user.json'
+        config.parent.mkdir()
+        config.write_text(json.dumps({'version': 1, 'build': {'parallelJobs': 8}}), encoding='utf-8')
+        script = root / 'VsDevCmd.bat'
+        agent_config.save_toolchain_config(root, cmake_command='C:/cmake/bin/cmake.exe', environment_script=script, environment_arguments=['-arch=x64'])
+        saved = json.loads(config.read_text(encoding='utf-8'))
+        assert saved['build']['parallelJobs'] == 8
+        assert saved['cmake']['command'] == 'C:/cmake/bin/cmake.exe'
+        assert saved['toolchain']['environmentScript'] == script.as_posix()
+        assert saved['toolchain']['environmentArguments'] == ['-arch=x64']
+
     def test_vswhere_lookup_uses_registry_when_program_files_environment_is_missing(
         self,
         tmp_path_factory: pytest.TempPathFactory,
@@ -557,6 +596,11 @@ class TestBootstrapRegistry:
             specification, _ = self.registry.parse(arguments)
             assert specification.capability is Capability.BOOTSTRAP
 
+    def test_setup_accepts_non_interactive_mode(self) -> None:
+        specification, namespace = self.registry.parse(['setup', '--non-interactive'])
+        assert specification.name == 'setup'
+        assert namespace.non_interactive
+
     def test_dependency_prepare_requires_exactly_one_selection_mode(self) -> None:
         for arguments in (['dependency', 'prepare'], ['dependency', 'prepare', '--all', '--libs', 'tracy']):
             specification, namespace = self.registry.parse(arguments)
@@ -594,9 +638,10 @@ class TestSetupOrchestration:
         root = Path(directory)
         events: list[str] = []
         python = root / '.venv' / 'Scripts' / 'python.exe'
-        with mock.patch.object(setup, 'validate_prerequisites', side_effect=lambda _: events.append('preflight')), mock.patch.object(setup, 'ensure_agent_config', side_effect=lambda _: events.append('config')), mock.patch.object(setup, 'ensure_vscode_configuration', side_effect=lambda _: events.append('vscode')), mock.patch.object(setup, 'ensure_python_environment', side_effect=lambda _: events.append('python') or python), mock.patch.object(setup, 'prepare_dependencies', side_effect=lambda *_: events.append('dependencies')):
+        selection = preflight.ToolchainSelection('cmake.exe', root / 'VsDevCmd.bat', ('x64',), {'PATH': 'ready'})
+        with mock.patch.object(setup, 'select_setup_toolchain', return_value=selection), mock.patch.object(setup, 'validate_prerequisites', side_effect=lambda _, **__: events.append('preflight')), mock.patch.object(setup, 'ensure_agent_config', side_effect=lambda _: events.append('config')), mock.patch.object(setup, 'save_toolchain_config', side_effect=lambda *_args, **_kwargs: events.append('toolchain')), mock.patch.object(setup, 'ensure_vscode_configuration', side_effect=lambda _: events.append('vscode')), mock.patch.object(setup, 'ensure_python_environment', side_effect=lambda _: events.append('python') or python), mock.patch.object(setup, 'prepare_dependencies', side_effect=lambda *_args, **_kwargs: events.append('dependencies')):
             assert setup.setup_repository(root) == python
-        assert events == ['preflight', 'config', 'vscode', 'python', 'dependencies']
+        assert events == ['preflight', 'config', 'toolchain', 'vscode', 'python', 'dependencies']
 
     def test_linked_worktree_setup_points_only_to_unified_prepare(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
@@ -610,12 +655,15 @@ class TestSetupOrchestration:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
         python = root / '.venv' / 'Scripts' / 'python.exe'
-        with mock.patch.object(setup, 'validate_prerequisites'), mock.patch.object(setup, 'ensure_agent_config'), mock.patch.object(setup, 'ensure_vscode_configuration'), mock.patch.object(setup, 'ensure_python_environment', return_value=python), mock.patch.object(setup, 'prepare_dependencies') as prepare:
+        selection = preflight.ToolchainSelection('cmake.exe', root / 'VsDevCmd.bat', ('x64',), {'PATH': 'ready'})
+        with mock.patch.object(setup, 'select_setup_toolchain', return_value=selection), mock.patch.object(setup, 'validate_prerequisites'), mock.patch.object(setup, 'ensure_agent_config'), mock.patch.object(setup, 'save_toolchain_config'), mock.patch.object(setup, 'ensure_vscode_configuration'), mock.patch.object(setup, 'ensure_python_environment', return_value=python), mock.patch.object(setup, 'prepare_dependencies') as prepare:
             setup.setup_repository(root)
         request = prepare.call_args.args[1]
         assert request.use_all
         assert request.with_tests
         assert request.with_development
+        assert request.cmake_command == 'cmake.exe'
+        assert prepare.call_args.kwargs['environment'] == {'PATH': 'ready'}
 
     def test_worktree_preparation_uses_shared_python_preflight(self) -> None:
         target = Path('C:/repo-feature')
@@ -645,7 +693,7 @@ class TestSetupOrchestration:
         namespace = argparse.Namespace(bootstrap_action='setup', plain=True)
         failure = RuntimeError('unexpected defect')
 
-        def fail_setup(_repository_root: Path) -> Path:
+        def fail_setup(_repository_root: Path, *, interactive: bool) -> Path:
             raise failure
 
         with mock.patch.object(handler, 'setup_repository', side_effect=fail_setup), pytest.raises(RuntimeError) as raised:

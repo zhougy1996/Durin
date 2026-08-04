@@ -118,7 +118,12 @@ def run(
     try:
         with redirect_stdout(styled_stdout), redirect_stderr(styled_stderr):
             if namespace.bootstrap_action == "setup":
-                python = setup_repository(repository_root)
+                interactive = (
+                    not getattr(namespace, "non_interactive", False)
+                    and bool(getattr(sys.stdin, "isatty", lambda: False)())
+                    and bool(getattr(stdout, "isatty", lambda: False)())
+                )
+                python = setup_repository(repository_root, interactive=interactive)
                 if session_state is not None:
                     _restart_prepared_shell(
                         repository_root,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -20,9 +22,23 @@ from ..build.config import (
     preset_output_configuration,
     select_profile,
 )
-from .agent_config import AgentConfigError, ensure_agent_config
+from .agent_config import (
+    AgentConfigError,
+    config_path,
+    ensure_agent_config,
+    save_toolchain_config,
+)
 from .dependencies import BootstrapError, DependencyRequest, prepare_dependencies
-from .preflight import validate_prerequisites
+from .preflight import (
+    DEFAULT_ENVIRONMENT_ARGUMENTS,
+    PreflightError,
+    ToolchainSelection,
+    configured_cmake_command,
+    configured_visual_studio_environment,
+    find_vsdevcmd,
+    resolve_toolchain,
+    validate_prerequisites,
+)
 
 
 REPOSITORY_CONFIG = load_repository_config()
@@ -212,7 +228,107 @@ def ensure_vscode_configuration(repository_root: Path) -> Path:
     return target_directory
 
 
-def setup_repository(repository_root: Path) -> Path:
+def _prompt_value(label: str, default: str = "") -> str:
+    suffix = f" [{default}]" if default else ""
+    try:
+        value = input(f"{label}{suffix}: ").strip()
+    except EOFError as exc:
+        raise BootstrapError(
+            "Interactive toolchain setup requires a terminal. "
+            "Use --non-interactive with configured paths instead."
+        ) from exc
+    return value or default
+
+
+def _confirm_toolchain(selection: ToolchainSelection) -> bool:
+    print("Automatically detected toolchain:")
+    print(f'  CMake: {selection.cmake_command}')
+    print(f'  VsDevCmd: {selection.environment_script}')
+    print(f'  Arguments: {" ".join(selection.environment_arguments)}')
+    return _prompt_value("Use these settings?", "Y").casefold() in {"y", "yes"}
+
+
+def _manual_toolchain_selection(
+    repository_root: Path,
+    *,
+    default_cmake: str,
+    default_script: Path | None,
+    default_arguments: Sequence[str],
+) -> ToolchainSelection:
+    while True:
+        cmake_command = _prompt_value("CMake executable or command", default_cmake)
+        script_value = _prompt_value(
+            "VsDevCmd.bat path",
+            str(default_script) if default_script else "",
+        )
+        if not script_value:
+            print("VsDevCmd.bat path is required.")
+            continue
+        arguments_text = _prompt_value(
+            "VsDevCmd.bat arguments",
+            " ".join(default_arguments),
+        )
+        try:
+            arguments = tuple(shlex.split(arguments_text, posix=False))
+            selection = resolve_toolchain(
+                repository_root,
+                cmake_command=cmake_command,
+                environment_script=Path(script_value).expanduser().resolve(),
+                environment_arguments=arguments,
+            )
+        except (PreflightError, ValueError) as exc:
+            print(f"Toolchain settings are not usable: {exc}")
+            continue
+        print(f'Validated CMake {selection.cmake_command}.')
+        return selection
+
+
+def select_setup_toolchain(
+    repository_root: Path,
+    *,
+    interactive: bool,
+) -> ToolchainSelection:
+    config_exists = config_path(repository_root).is_file()
+    automatic_error = ""
+    try:
+        selection = resolve_toolchain(repository_root)
+    except PreflightError as exc:
+        automatic_error = str(exc)
+        selection = None
+    if selection is not None and (config_exists or not interactive):
+        return selection
+    if selection is not None and _confirm_toolchain(selection):
+        return selection
+    if not interactive:
+        detail = automatic_error if selection is None else "automatic settings were declined"
+        raise BootstrapError(
+            f"Toolchain setup was not confirmed: {detail}. "
+            "Set cmake.command and toolchain.environmentScript in "
+            '".agents/DevTool.user.json", then rerun with --non-interactive.'
+        )
+
+    configured_script, configured_arguments = configured_visual_studio_environment(repository_root)
+    if configured_script is None:
+        try:
+            configured_script = find_vsdevcmd(os.environ)
+        except PreflightError:
+            pass
+    default_cmake = configured_cmake_command(repository_root)
+    if selection is not None:
+        default_cmake = selection.cmake_command
+        configured_script = selection.environment_script
+        configured_arguments = list(selection.environment_arguments)
+    if selection is None:
+        print(f"Automatic toolchain detection failed: {automatic_error}")
+    return _manual_toolchain_selection(
+        repository_root,
+        default_cmake=default_cmake,
+        default_script=configured_script,
+        default_arguments=configured_arguments or DEFAULT_ENVIRONMENT_ARGUMENTS,
+    )
+
+
+def setup_repository(repository_root: Path, *, interactive: bool = False) -> Path:
     """Prepare a main checkout in preflight-before-mutation order."""
     repository_root = repository_root.resolve()
     if is_linked_worktree(repository_root):
@@ -221,9 +337,19 @@ def setup_repository(repository_root: Path) -> Path:
             "Run 'DevTool worktree prepare' from this linked worktree instead."
         )
     try:
-        validate_prerequisites(repository_root)
+        selection = select_setup_toolchain(repository_root, interactive=interactive)
+        validate_prerequisites(repository_root, selection=selection)
         try:
             ensure_agent_config(repository_root)
+        except AgentConfigError as exc:
+            raise BootstrapError(str(exc)) from exc
+        try:
+            save_toolchain_config(
+                repository_root,
+                cmake_command=selection.cmake_command,
+                environment_script=selection.environment_script,
+                environment_arguments=selection.environment_arguments,
+            )
         except AgentConfigError as exc:
             raise BootstrapError(str(exc)) from exc
         ensure_vscode_configuration(repository_root)
@@ -234,7 +360,9 @@ def setup_repository(repository_root: Path) -> Path:
                 use_all=True,
                 with_tests=True,
                 with_development=True,
+                cmake_command=selection.cmake_command,
             ),
+            environment=selection.environment,
         )
     except OSError as exc:
         raise BootstrapError(str(exc)) from exc
