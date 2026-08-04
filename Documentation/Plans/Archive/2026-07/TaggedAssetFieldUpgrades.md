@@ -33,7 +33,7 @@ surface before any wire-format dependency is introduced. DAST remains v2.
 
 Stage 2 completed on 2026-07-30 against baseline `2ebf0614`. The working set
 was AssetCore's public package API and implementation, AssetPackageTests, this
-plan, Asset Packages, and the dependent Project Asset Upgrade Workflow plan.
+plan, and Asset Packages.
 The AssetCore code and PackageTests now match the pre-`b6e9c9de` baseline:
 `FAssetCustomVersionContainer`, every `FAssetSchema*` type and registry, ordered
 planning, schema report fields, and their five native tests are gone. Existing
@@ -207,8 +207,8 @@ snapshots and upgrade code, never as competing reflected runtime state.
 - [x] Restore the established structure inspection/application registration
   behavior without changing the texture legacy handlers.
 - [x] Remove the planned DAST v3 Custom Version table and symbol-table work.
-- [x] Update Asset Packages and Project Asset Upgrade Workflow documentation to
-  consume tagged-field reports instead of schema-version plans.
+- [x] Update Asset Packages documentation to consume tagged-field reports
+  instead of schema-version plans.
 - [x] Run AssetCore package tests and texture migration/runtime tests.
 - [x] Run the repository plan validator and record any unrelated pre-existing
   failure.
@@ -263,7 +263,7 @@ Build and test execution follow
 ## Related Documentation
 
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Project Asset Upgrade Workflow](../../ProjectAssetUpgradeWorkflow.md)
+- [Project Asset Compatibility Audit](../../ProjectAssetCompatibilityAudit.md)
 - [Asset Structure Upgrade](AssetStructureUpgrade.md)
 - [Build And Run](../../../Development/Build/BuildAndRun.md)
 - [Native C++ Tests](../../../Development/Build/NativeTests.md)
