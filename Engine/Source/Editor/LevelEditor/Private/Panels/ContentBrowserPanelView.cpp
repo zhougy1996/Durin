@@ -815,9 +815,13 @@ namespace Durin
 		if (ImGui::MenuItem("Rename", "F2", false, Selection.size() == 1)) BeginRename(Item);
 		if (ImGui::MenuItem("Delete", "Delete")) RequestDeleteSelection();
 		ImGui::Separator();
-		if (ImGui::MenuItem("Copy Name")) CopyToClipboard(Item.Name);
-		if (!Item.VirtualPath.empty() && ImGui::MenuItem("Copy Virtual Path")) CopyToClipboard(Item.VirtualPath);
-		if (ImGui::MenuItem("Copy Physical Path")) CopyToClipboard(Item.PhysicalPath);
+		if (ImGui::BeginMenu("Copy"))
+		{
+			if (ImGui::MenuItem("Name")) CopyToClipboard(Item.Name);
+			if (!Item.VirtualPath.empty() && ImGui::MenuItem("Virtual Path")) CopyToClipboard(Item.VirtualPath);
+			if (ImGui::MenuItem("Physical Path")) CopyToClipboard(Item.PhysicalPath);
+			ImGui::EndMenu();
+		}
 		if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(Item.PhysicalPath);
 	}
 
