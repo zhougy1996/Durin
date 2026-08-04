@@ -136,7 +136,6 @@ def get_reflection_headers_requiring_regeneration(
     module_name: str,
     old_manifest: ModuleManifest,
     new_manifest: ModuleManifest,
-    symbols: dict[str, ExportedSymbolInfo] | None = None,
 ) -> list[str]:
     if old_manifest is None:
         return list(new_manifest.reflect_headers.keys())

@@ -82,18 +82,6 @@ def resolved_symbol_dependencies_for_header(header_info: ReflectedHeaderInfo, sy
     return dependencies
 
 
-def header_symbol_dependencies_changed(header: str, old_manifest, symbols: ExportedSymbols) -> bool:
-    if header not in old_manifest.resolved_symbol_dependencies:
-        return True
-    for symbol_name, old_snapshot in old_manifest.resolved_symbol_dependencies[header].items():
-        current_symbol = symbols.get(symbol_name)
-        if current_symbol is None:
-            return True
-        if symbol_dependency_snapshot(current_symbol) != old_snapshot:
-            return True
-    return False
-
-
 def symbol_dependency_snapshot(symbol: ExportedSymbolInfo) -> dict[str, str]:
     return {
         "GeneratedHelperName": symbol.GeneratedHelperName,
