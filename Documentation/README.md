@@ -20,6 +20,7 @@ not open the other rows or scan an entire directory.
 | CPU tasks, dependencies, cancellation, waiting, or worker-thread ownership | [CPU task system](Runtime/Core/TaskSystem.md) |
 | Scene viewport or window-backed rendering | [Viewport rendering](Runtime/Rendering/ViewportRendering.md) |
 | Editor architecture, design, or user workflow | Use a targeted search under `Editor/Architecture/`, `Editor/Design/`, or `Editor/Guides/` |
+| Material-system long-term status, sequencing, or future milestones | [Material system roadmap](Roadmaps/MaterialSystem.md) |
 | Bounded implementation task or task selection | Run `.\DevTool.bat doc task list`, then open only the selected task |
 | Active implementation plan | Humans run `.\DevTool.bat` for the interactive shell; agents run `.\DevTool.bat doc plan list` for the compact Markdown index, then open only the matching plan |
 | Cross-plan engineering roadmap | [Engineering roadmaps](Roadmaps/README.md) |

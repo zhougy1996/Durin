@@ -23,9 +23,9 @@ base defaults are restored, parent links survive, and old instance overrides
 are absent. Final validation passed all 178 EngineTests, the full `all` build,
 and an eight-second hidden-window DurinEditor smoke test.
 
-This plan is an independently executable slice of Stage 2 in
-`Documentation/Plans/MaterialSystem.md`. Check off each stage only after its
-acceptance gate has been satisfied.
+This plan is an independently executable slice of the material-system roadmap
+now stored at `Documentation/Roadmaps/MaterialSystem.md`. Check off each stage
+only after its acceptance gate has been satisfied.
 
 ## Goal
 
@@ -246,7 +246,7 @@ dependency propagation, and render-thread snapshots.
 
 ## Related Documentation
 
-- `Documentation/Plans/MaterialSystem.md`
+- `Documentation/Roadmaps/MaterialSystem.md`
 - `Documentation/Plans/Archive/2026-07/ReflectedPropertyEditing.md`
 - `Documentation/Runtime/Rendering/MaterialSystem.md`
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`

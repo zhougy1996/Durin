@@ -295,7 +295,7 @@ These features are intentionally outside the first Texture2D/material slice:
 - `Documentation/Runtime/Rendering/MaterialSystem.md`
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`
 - `Documentation/Runtime/Rendering/TextureSystem.md`
-- `Documentation/Plans/MaterialSystem.md`
+- `Documentation/Roadmaps/MaterialSystem.md`
 - `Documentation/Plans/Archive/2026-07/AssetRegistryAndThumbnailCache.md`
 - `Documentation/Plans/Archive/2026-07/MaterialParameterDomainRefactor.md`
 - `Documentation/Plans/Archive/2026-07/StaticMeshMaterialSlots.md`

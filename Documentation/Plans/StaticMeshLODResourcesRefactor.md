@@ -753,7 +753,7 @@ contracts are documented.
   `Engine/Tests/Native/EngineTests/CMakeLists.txt`,
   `Documentation/Runtime/Rendering/StaticMeshRendering.md`,
   `Documentation/Runtime/Rendering/MaterialSystem.md`,
-  `Documentation/Plans/MaterialSystem.md`, and this plan.
+  `Documentation/Roadmaps/MaterialSystem.md`, and this plan.
 - Key symbols: `FLocalVertexFactory`, `FStaticMeshVertexFactories`,
   `FStaticMeshLODResources`, `FStaticMeshVertexBuffers`,
   `FRawStaticIndexBuffer`, and `VertexFactory.LocalVertexFactory`.
@@ -826,7 +826,7 @@ profiles defined in [Build and Run](../Development/Build/BuildAndRun.md).
 
 ## Related Documentation
 
-- [Material System Plan](MaterialSystem.md)
+- [Material System Roadmap](../Roadmaps/MaterialSystem.md)
 - [Static Mesh Render-Data Lifecycle](StaticMeshRenderDataLifecycle.md)
 - [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
 - [Shader Cache](../Runtime/Rendering/ShaderCache.md)

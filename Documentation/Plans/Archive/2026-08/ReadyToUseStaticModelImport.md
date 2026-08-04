@@ -1120,7 +1120,7 @@ subset.
 ## Related Documentation
 
 - `Documentation/Runtime/Rendering/MaterialSystem.md`
-- `Documentation/Plans/MaterialSystem.md`
+- `Documentation/Roadmaps/MaterialSystem.md`
 - `Documentation/Plans/TextureSupport.md`
 - `Documentation/Plans/Archive/2026-07/StaticModelImportStage3Preparation.md`
 - `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`

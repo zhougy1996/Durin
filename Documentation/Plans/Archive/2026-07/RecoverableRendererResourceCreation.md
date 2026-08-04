@@ -753,7 +753,7 @@ resource:
 - `Documentation/Runtime/Rendering/ViewportRendering.md`
 - `Documentation/Runtime/Rendering/ShaderCache.md`
 - `Documentation/Plans/Archive/2026-07/DemandDrivenEditorAssistanceRenderer.md`
-- `Documentation/Plans/MaterialSystem.md`
+- `Documentation/Roadmaps/MaterialSystem.md`
 - `Documentation/Plans/Archive/2026-07/ShaderCacheHardening.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/NativeTests.md`

@@ -567,7 +567,7 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
 - [x] Move lasting proxy ownership, publication, parent-resolution, and
   structural-fallback contracts into the owning runtime rendering
   documentation.
-- [x] Update `Documentation/Plans/MaterialSystem.md` to reference the completed
+- [x] Update `Documentation/Roadmaps/MaterialSystem.md` to reference the completed
   work and remove superseded scan-based claims.
 
 #### Stage 5 Handoff
@@ -649,7 +649,7 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
 
 ## Related Documentation
 
-- `Documentation/Plans/MaterialSystem.md`
+- `Documentation/Roadmaps/MaterialSystem.md`
 - `Documentation/Runtime/Rendering/MaterialSystem.md`
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`
 - `Documentation/Development/Build/BuildAndRun.md`

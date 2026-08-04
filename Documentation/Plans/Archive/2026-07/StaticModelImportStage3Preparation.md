@@ -573,7 +573,7 @@ Dependencies: Stages 1 through 3.
 ## Related Documentation
 
 - `Documentation/Plans/Archive/2026-08/ReadyToUseStaticModelImport.md`
-- `Documentation/Plans/MaterialSystem.md`
+- `Documentation/Roadmaps/MaterialSystem.md`
 - `Documentation/Plans/TextureSupport.md`
 - `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`
 - `Documentation/Development/Build/BuildAndRun.md`

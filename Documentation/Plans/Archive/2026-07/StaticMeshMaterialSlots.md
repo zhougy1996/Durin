@@ -464,7 +464,7 @@ The reconciliation fixtures establish these expected identity results:
 - [x] Update `Documentation/Editor/Architecture/ReflectedPropertyEditing.md` to
   replace the ordinary `Materials` array description with the Details
   customization and collection-root transaction behavior.
-- [x] Update `Documentation/Plans/MaterialSystem.md` to reference the landed
+- [x] Update `Documentation/Roadmaps/MaterialSystem.md` to reference the landed
   slot architecture and remove any stale index-array claims.
 - [x] Run focused native tests, the complete affected test suites, the full
   `all` build, and the hidden-window `DurinEditor` smoke procedure documented
@@ -540,7 +540,7 @@ All build, test, and smoke operations must use the root workflow documented in
 - `Documentation/Runtime/Rendering/MaterialSystem.md`
 - `Documentation/Editor/Architecture/ReflectedPropertyEditing.md`
 - `Documentation/Runtime/World/LevelSystem.md`
-- `Documentation/Plans/MaterialSystem.md`
+- `Documentation/Roadmaps/MaterialSystem.md`
 - `Documentation/Plans/Archive/2026-07/MaterialParameterDomainRefactor.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 - `Documentation/Development/Build/NativeTests.md`

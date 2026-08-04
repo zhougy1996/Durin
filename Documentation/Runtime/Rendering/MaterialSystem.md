@@ -204,4 +204,6 @@ and UI behavior belongs to the editor
   update commands. Replacing the material assigned to a component still
   rebuilds its scene proxy because the set of render snapshots changes.
 
-The prioritized implementation backlog and current editor/rendering limitations are tracked in `Documentation/Plans/MaterialSystem.md`.
+Long-term sequencing and current editor/rendering limitations are tracked in
+the [Material System Roadmap](../../Roadmaps/MaterialSystem.md); executable work
+uses the bounded plans linked from that roadmap.
