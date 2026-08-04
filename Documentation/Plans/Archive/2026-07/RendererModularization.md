@@ -4,7 +4,7 @@ Summary: Replace Renderer module monoliths and anonymous global feature state wi
 
 Last reviewed: 2026-07-31
 
-Status: Completed
+Status: Archived
 Completed: 2026-07-31
 
 ## Current Status
@@ -905,7 +905,7 @@ Dependencies: Stages 1 through 6.
 | Final integration | focused tests, applicable native suites, full `all` build, hidden-window editor smoke | All required validation succeeds from one Agent Build Profile |
 
 Build, test, and runtime validation use
-[Build and Run](../Development/Build/BuildAndRun.md); this plan does not copy
+[Build and Run](../../../Development/Build/BuildAndRun.md); this plan does not copy
 commands or output paths that may change.
 
 ## Definition of Done
@@ -953,15 +953,15 @@ commands or output paths that may change.
 
 ## Related Documentation
 
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Shader Cache](../Runtime/Rendering/ShaderCache.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
-- [Static Mesh Render-Data Lifecycle Plan](StaticMeshRenderDataLifecycle.md)
-- [Static Mesh LOD Resources Refactor Plan](StaticMeshLODResourcesRefactor.md)
-- [Material Render-Proxy Invalidation Plan](MaterialRenderProxyInvalidation.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
+- [Static Mesh Render-Data Lifecycle Plan](../2026-08/StaticMeshRenderDataLifecycle.md)
+- [Static Mesh LOD Resources Refactor Plan](../2026-08/StaticMeshLODResourcesRefactor.md)
+- [Material Render-Proxy Invalidation Plan](../2026-08/MaterialRenderProxyInvalidation.md)
 
 ## Related Code
 

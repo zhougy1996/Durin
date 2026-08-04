@@ -4,7 +4,7 @@ Summary: Reshape static-mesh render resources around Unreal Engine-compatible bu
 
 Last reviewed: 2026-08-04
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-04
 
 ## Current Status
@@ -789,7 +789,7 @@ contracts are documented.
 | Performance | GPU bytes, buffer count, resource initialization time, and representative draw submission comparison. |
 
 Build, test, and runtime commands must use the repository entrypoint and
-profiles defined in [Build and Run](../Development/Build/BuildAndRun.md).
+profiles defined in [Build and Run](../../../Development/Build/BuildAndRun.md).
 
 ## Definition of Done
 
@@ -826,12 +826,12 @@ profiles defined in [Build and Run](../Development/Build/BuildAndRun.md).
 
 ## Related Documentation
 
-- [Material System Roadmap](../Roadmaps/MaterialSystem.md)
+- [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
 - [Static Mesh Render-Data Lifecycle](StaticMeshRenderDataLifecycle.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Shader Cache](../Runtime/Rendering/ShaderCache.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

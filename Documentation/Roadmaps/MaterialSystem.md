@@ -32,7 +32,7 @@ baseline.
 
 | Roadmap milestone | Execution plan | State |
 | --- | --- | --- |
-| 2. Versioned renderer-facing material representation | [Material Render Representation](../Plans/MaterialRenderRepresentation.md) | Complete; final handoff recorded |
+| 2. Versioned renderer-facing material representation | [Material Render Representation](../Plans/Archive/2026-08/MaterialRenderRepresentation.md) | Complete; final handoff recorded |
 | 3. Metallic/roughness PBR surface contract | [PBR Material Surface](../Plans/PBRMaterialSurface.md) | Planned; implementation waits for milestone 2 |
 
 Only the first plan is the current implementation priority. The PBR plan is

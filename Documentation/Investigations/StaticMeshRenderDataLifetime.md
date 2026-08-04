@@ -22,7 +22,7 @@ The appropriate correction is UE-style unique ownership, not a
 - only fence completion permits destruction of the old C++ storage.
 
 The implementation is tracked by
-[Static Mesh Render-Data Lifecycle](../Plans/StaticMeshRenderDataLifecycle.md).
+[Static Mesh Render-Data Lifecycle](../Plans/Archive/2026-08/StaticMeshRenderDataLifecycle.md).
 
 The detailed findings below are historical baseline evidence. They describe
 the unsafe pre-implementation schedules and remain useful for explaining why

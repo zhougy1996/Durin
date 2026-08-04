@@ -4,7 +4,7 @@ Summary: Refine DurinDevTool around explicit location resolution, predictable sh
 
 Last reviewed: 2026-08-04
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-04
 
 ## Current Status

@@ -11,7 +11,7 @@ Completed:
 
 This plan remains prepared and implementation-blocked until its own Stage 0
 starts, but its predecessor is now complete through the Stage 4 handoff of
-[Material Render Representation](MaterialRenderRepresentation.md). The next
+[Material Render Representation](Archive/2026-08/MaterialRenderRepresentation.md). The next
 implementation baseline is the predecessor's completion commit, whose parent
 is `81392097`; the old scope-only baseline
 `a7e6d2650b2b9ea83610a3bc15f875ba914d588a` is no longer a valid code baseline.
@@ -359,7 +359,7 @@ Dependencies: Stage 4.
 ## Related Documentation
 
 - [Material System Roadmap](../Roadmaps/MaterialSystem.md)
-- [Material Render Representation Plan](MaterialRenderRepresentation.md)
+- [Material Render Representation Plan](Archive/2026-08/MaterialRenderRepresentation.md)
 - [Material System](../Runtime/Rendering/MaterialSystem.md)
 - [Texture Support Plan](TextureSupport.md)
 - [Texture System](../Runtime/Rendering/TextureSystem.md)

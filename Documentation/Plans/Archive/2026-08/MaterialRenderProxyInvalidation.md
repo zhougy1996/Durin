@@ -4,7 +4,7 @@ Summary: Replace object-wide material invalidation scans with stable render-prox
 
 Last reviewed: 2026-08-04
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-04
 
 ## Current Status
@@ -309,7 +309,7 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
 - Baseline commit:
   `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
 - Working set:
-  `Documentation/Plans/MaterialRenderProxyInvalidation.md` and
+  `Documentation/Plans/Archive/2026-08/MaterialRenderProxyInvalidation.md` and
   `Engine/Tests/Native/EngineTests/Private/Materials/MaterialUpdateContextTests.cpp`.
 - Key symbols and evidence:
   `FMaterialUpdateCounters`,

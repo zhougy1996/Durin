@@ -4,7 +4,7 @@ Summary: Adopt UE-style unique StaticMesh render-data ownership with explicit re
 
 Last reviewed: 2026-08-04
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-04
 
 ## Current Status
@@ -17,7 +17,7 @@ publishes once, then releases and fences the locally owned old data before
 components recreate their proxies.
 
 The verified evidence and UE comparison are recorded in
-[StaticMesh Render-Data Lifetime](../Investigations/StaticMeshRenderDataLifetime.md).
+[StaticMesh Render-Data Lifetime](../../../Investigations/StaticMeshRenderDataLifetime.md).
 The selected correction preserves unique ownership instead of introducing a
 counted render-data handle:
 
@@ -79,7 +79,7 @@ LOD, initializes all LOD buffers before vertex factories, and releases vertex
 factories before LOD buffers. The renderer obtains declarations and vertex
 streams from `FLocalVertexFactory`, while index-buffer selection remains
 separate. These contracts and the shader-module boundary are recorded in
-[Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md) and the
+[Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md) and the
 associated LOD-resources plan. Stage 4 remains open because the lifecycle
 plan's current-HEAD validation, editor smoke workflows, performance evidence,
 final resource audits, and complete lifecycle documentation had not yet been
@@ -103,7 +103,7 @@ release, aggregate state, and the destruction fence are asset-private.
 Scene proxies retain only const render-data borrows.
 
 The cross-plan boundary with
-[Engine Termination Lifecycle](Archive/2026-07/EngineTerminationLifecycle.md) is now pinned:
+[Engine Termination Lifecycle](../2026-07/EngineTerminationLifecycle.md) is now pinned:
 engine shutdown first detaches non-DObject process/subsystem consumers, then
 the shutdown coordinator owns all GC/render-flush rounds. Worlds expose their
 own renderer scene, and registered components retain that stable endpoint
@@ -141,7 +141,7 @@ The selected correction for the frozen consumer inventory is:
 
 The Stage 0 working set is:
 
-- `Documentation/Plans/StaticMeshRenderDataLifecycle.md`;
+- `Documentation/Plans/Archive/2026-08/StaticMeshRenderDataLifecycle.md`;
 - `Engine/Tests/Native/EngineTests/Private/Materials/StaticMeshRenderDataLifetimeContractTests.cpp`;
 - `Engine/Tests/Native/EngineTests/CMakeLists.txt`;
 - `Engine/Tests/Native/EngineTests/Private/Materials/MaterialTestSupport.h`;
@@ -858,12 +858,12 @@ profile-specific commands.
 
 ## Related Documentation
 
-- [Engine Termination Lifecycle](Archive/2026-07/EngineTerminationLifecycle.md)
-- [StaticMesh Render-Data Lifetime Investigation](../Investigations/StaticMeshRenderDataLifetime.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Texture System](../Runtime/Rendering/TextureSystem.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Engine Termination Lifecycle](../2026-07/EngineTerminationLifecycle.md)
+- [StaticMesh Render-Data Lifetime Investigation](../../../Investigations/StaticMeshRenderDataLifetime.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Static Mesh LOD Resources Refactor](StaticMeshLODResourcesRefactor.md)
 
 Unreal Engine reference contracts:

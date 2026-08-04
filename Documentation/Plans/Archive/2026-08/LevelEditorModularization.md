@@ -4,7 +4,7 @@ Summary: Extract reusable editor destination and import primitives and split ove
 
 Last reviewed: 2026-08-04
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-04
 
 ## Current Status
@@ -143,7 +143,7 @@ composition boundaries.
   containment, dependency checks, and source-write policy.
 - `DurinEd` retains provider-neutral thumbnail request, scheduling, persistent
   cache, and preview-scene ownership described by
-  [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md). Content Browser
+  [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md). Content Browser
   refactoring may move only LevelEditor state and presentation.
 - Existing mounted-source reference/ingest/repair/relocation behavior and the
   three current import forms are the behavioral baseline. Common dialog
@@ -614,7 +614,7 @@ Dependencies: Stages 1 through 6 as applicable.
 | Final integration | focused tests, applicable editor suites, full `all` build, hidden-window smoke | All required validation succeeds from one Agent Build Profile |
 
 Build, test, and runtime validation use
-[Build and Run](../Development/Build/BuildAndRun.md); this plan does not copy
+[Build and Run](../../../Development/Build/BuildAndRun.md); this plan does not copy
 commands or output paths that may change.
 
 ## Definition of Done
@@ -657,13 +657,13 @@ commands or output paths that may change.
 
 ## Related Documentation
 
-- [Editor Workspace Framework](../Editor/Architecture/WorkspaceFramework.md)
-- [Editor UI Style](../Editor/Design/UIStyle.md)
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Rendered Asset Thumbnails Plan](Archive/2026-07/RenderedAssetThumbnails.md)
-- [Source Library References Plan](Archive/2026-07/SourceLibraryReferences.md)
-- [Ready-to-Use Static Model Import Plan](Archive/2026-08/ReadyToUseStaticModelImport.md)
+- [Editor Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
+- [Editor UI Style](../../../Editor/Design/UIStyle.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Rendered Asset Thumbnails Plan](../2026-07/RenderedAssetThumbnails.md)
+- [Source Library References Plan](../2026-07/SourceLibraryReferences.md)
+- [Ready-to-Use Static Model Import Plan](ReadyToUseStaticModelImport.md)
 
 ## Related Code
 

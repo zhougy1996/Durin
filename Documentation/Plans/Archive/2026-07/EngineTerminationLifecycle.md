@@ -46,7 +46,7 @@ fault coverage without moving recoverable owner cleanup into the finalizer.
 The immediate StaticMesh shutdown error is evidence of a missing asset-owned
 release path, not a reason to make the engine enumerate StaticMesh buffers
 directly. The
-[Static Mesh Render-Data Lifecycle](../../StaticMeshRenderDataLifecycle.md) plan owns
+[Static Mesh Render-Data Lifecycle](../2026-08/StaticMeshRenderDataLifecycle.md) plan owns
 that asset-specific correction. This plan owns the process-wide guarantee that
 all such cleanup begins and drains while the rendering thread and defining
 modules remain available.
@@ -903,7 +903,7 @@ Dependencies: Stage 4, Stage 4 of `MultithreadingV1.md`, and Stage 3 of
 ## Related Documentation
 
 - [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
-- [Static Mesh Render-Data Lifecycle](../../StaticMeshRenderDataLifecycle.md)
+- [Static Mesh Render-Data Lifecycle](../2026-08/StaticMeshRenderDataLifecycle.md)
 - [Static Mesh Render-Data Lifetime Investigation](../../../Investigations/StaticMeshRenderDataLifetime.md)
 - [Multithreading V1](../2026-08/MultithreadingV1.md)
 - [Render Resource Lifetime](RenderResourceLifetime.md)

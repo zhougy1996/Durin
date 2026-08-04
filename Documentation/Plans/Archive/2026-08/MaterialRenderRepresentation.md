@@ -4,7 +4,7 @@ Summary: Replace fixed material render fields with a validated, versioned repres
 
 Last reviewed: 2026-08-04
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-04
 
 ## Current Status
@@ -631,7 +631,7 @@ Dependencies: Stage 3.
 ## Deferred Follow-ups
 
 - Metallic/roughness PBR inputs and visual output, owned by
-  [PBR Material Surface](PBRMaterialSurface.md).
+  [PBR Material Surface](../../PBRMaterialSurface.md).
 - Opaque, masked, translucent, culling, depth, shadow, and sorting policies.
 - Material graph compilation, generated shader source/IR, derived shader maps,
   and asynchronous compilation.
@@ -640,13 +640,13 @@ Dependencies: Stage 3.
 
 ## Related Documentation
 
-- [Material System Roadmap](../Roadmaps/MaterialSystem.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Texture System](../Runtime/Rendering/TextureSystem.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

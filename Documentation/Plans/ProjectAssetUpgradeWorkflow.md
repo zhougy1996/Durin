@@ -575,7 +575,7 @@ Build, test, and runtime execution follow
 - [Build And Run](../Development/Build/BuildAndRun.md)
 - [Native C++ Tests](../Development/Build/NativeTests.md)
 - [Tagged Asset Field Upgrades Plan](Archive/2026-07/TaggedAssetFieldUpgrades.md)
-- [Level Editor Modularization Plan](LevelEditorModularization.md)
+- [Level Editor Modularization Plan](Archive/2026-08/LevelEditorModularization.md)
 - [Asset Structure Upgrade Plan](Archive/2026-07/AssetStructureUpgrade.md)
 
 ## Related Code

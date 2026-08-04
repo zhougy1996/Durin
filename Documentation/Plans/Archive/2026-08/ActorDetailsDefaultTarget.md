@@ -263,7 +263,7 @@ Builds, tests, and runtime launches must follow
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Native Tests](../../../Development/Build/NativeTests.md)
 - [Actor Component System Plan](../2026-07/ActorComponentSystem.md)
-- [Level Editor Modularization Plan](../../LevelEditorModularization.md)
+- [Level Editor Modularization Plan](LevelEditorModularization.md)
 
 ## Related Code
 

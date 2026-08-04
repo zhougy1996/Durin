@@ -56,7 +56,7 @@ pass. A populated RHI reference cannot make a malformed LOD renderable.
 
 High-level render-data ownership, replacement, proxy recreation, release
 fences, and deferred destruction are owned by the
-[Static Mesh Render-Data Lifecycle Plan](../../Plans/StaticMeshRenderDataLifecycle.md).
+[Static Mesh Render-Data Lifecycle Plan](../../Plans/Archive/2026-08/StaticMeshRenderDataLifecycle.md).
 
 ## Asset Lifecycle
 
@@ -176,8 +176,8 @@ refactor does not silently drop arrays after upload.
 - [Material System](MaterialSystem.md)
 - [Shader Cache](ShaderCache.md)
 - [Viewport Rendering](ViewportRendering.md)
-- [Static Mesh Render-Data Lifecycle Plan](../../Plans/StaticMeshRenderDataLifecycle.md)
-- [Static Mesh LOD Resources Refactor Plan](../../Plans/StaticMeshLODResourcesRefactor.md)
+- [Static Mesh Render-Data Lifecycle Plan](../../Plans/Archive/2026-08/StaticMeshRenderDataLifecycle.md)
+- [Static Mesh LOD Resources Refactor Plan](../../Plans/Archive/2026-08/StaticMeshLODResourcesRefactor.md)
 
 ## Related Code
 
