@@ -4,16 +4,21 @@ Summary: Replace DHT's reflective dataclass loader with schema-backed, explicit 
 
 Last reviewed: 2026-08-04
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-04
 
 ## Current Status
 
-Stages 0 through 3 are complete. DHT and DurinDevTool now apply the same
-structural schemas, generated scaffolding conforms, VS Code setup associates
-both descriptor extensions, and real DHT CLI coverage proves invalid module
-configuration fails before metadata publication. Stage 4 qualification and
-contract documentation are next.
+All stages are complete. DHT and DurinDevTool apply the same structural
+schemas, DHT explicitly constructs its two configuration models, generated
+scaffolding conforms, VS Code setup associates both descriptor extensions, and
+real CLI coverage proves malformed configuration fails before metadata
+publication. The lasting contract is documented in
+[Workspace And Projects](../Workspace/WorkspaceProjects.md).
+
+Final qualification passed 153 DurinHeaderTool tests and 238 DurinDevTool
+tests. Root configure and the complete `all` build succeeded with the
+`windows-msvc-x64` / `Win64-Debug-DurinEditor-Tests` Agent Build Profile.
 
 DHT currently
 uses the generic `dataclass_from_dict` helper only for `DurinProjectConfig` and
@@ -112,6 +117,23 @@ is valid even though DHT does not retain it in `DurinProjectConfig`.
   cover valid mounts, unknown fields, wrong types, nulls, duplicate items, and
   duplicate keys. A real invalid `prepare_project_build` subprocess published
   no `.cmake` file or stamp.
+
+### Stage 4 Handoff
+
+- Baseline commit: `8f541bc1`.
+- Working set: descriptor schema/CLI tests, workspace descriptor
+  documentation, and this plan.
+- Key symbols and contracts: DHT `prepare_project_build`, the shared project
+  and module schemas, workspace structural-versus-semantic validation rules,
+  and CMake's DHT tool-input fingerprint.
+- Decisions: retain completed plans in place for the repository's scheduled
+  archive workflow; qualify invalid inputs through real DHT subprocesses while
+  keeping the full build focused on valid tracked descriptors.
+- Open questions: none.
+- Validation: schema/CLI matrix passed 24 focused tests; the complete DHT suite
+  passed 153 tests; the complete DurinDevTool suite passed 238 tests; plan
+  validation passed; root configure completed in 7.77 seconds; `all` completed
+  in 62.85 seconds with no recovery state.
 
 ## Goal
 
@@ -368,17 +390,17 @@ filesystem state, case folding, or another descriptor.
 
 ### Stage 4: Qualification and contract handoff
 
-- [ ] Run the focused DurinHeaderTool and DurinDevTool Python suites through the
+- [x] Run the focused DurinHeaderTool and DurinDevTool Python suites through the
   repository environment described in [Build And Run](../Development/Build/BuildAndRun.md).
-- [ ] Run a normal root configuration for the registered Engine and Sandbox
+- [x] Run a normal root configuration for the registered Engine and Sandbox
   descriptors and complete an `all` build through DurinDevTool.
-- [ ] Exercise representative unknown-field, wrong-element-type, malformed
+- [x] Exercise representative unknown-field, wrong-element-type, malformed
   JSON, duplicate-key, invalid nested runtime variant, and valid `Mounts`
   failures through the real DHT CLI entrypoint.
-- [ ] Update [Workspace And Projects](../Workspace/WorkspaceProjects.md) with
+- [x] Update [Workspace And Projects](../Workspace/WorkspaceProjects.md) with
   schema locations, optional-field defaults, strict unknown-field behavior,
   and the structural-versus-semantic validation boundary.
-- [ ] Record the baseline commit, working set, schema/version decision, accepted
+- [x] Record the baseline commit, working set, schema/version decision, accepted
   field matrix, diagnostic examples, and validation outcome in the final stage
   handoff.
 

@@ -38,6 +38,43 @@ project root plus its explicit `Content` path publishes the fixed logical
 
 CMake passes complete `.dproject` paths to DurinHeaderTool. Generated build metadata preserves the complete set of project descriptors needed to resolve cross-project module dependencies; there is no global project registry file.
 
+### Descriptor Schemas And Validation
+
+The repository-owned structural contracts are
+[`durin-project.schema.json`](../../Engine/Source/Programs/DurinHeaderTool/schemas/durin-project.schema.json)
+and
+[`durin-module.schema.json`](../../Engine/Source/Programs/DurinHeaderTool/schemas/durin-module.schema.json).
+Both use JSON Schema Draft 2020-12. DurinHeaderTool and DurinDevTool validate
+descriptors against the same files before extracting their own model fields;
+the VS Code settings template associates `*.dproject` and `*.dmodule` files
+with them for completion and inline diagnostics. A descriptor may include a
+non-empty `$schema` string for another editor, but it is optional and does not
+select the runtime validator.
+
+`ProjectName` and `ModuleName` are the only required construction fields.
+Omitted project maps/lists are empty, except that omitting `BaseModules`
+enables every `ModuleDirs` entry as a base root. Omitted module dependency and
+reflection-header lists are empty, `LinkType` defaults to `Shared`, and `PCH`
+defaults to `Self`. The supported link types are exactly `Shared` and `Static`.
+The project schema covers the complete descriptor, including the runtime-owned
+`Mounts` section described below, even though DHT retains only build fields in
+its project model.
+
+Descriptor loading is strict and does not coerce values. Unknown root or
+nested fields, wrong scalar/container/element types, typed fields set to
+`null`, empty required names/paths, exact duplicate list items, duplicate JSON
+object members, and unsupported closed-set values fail configuration. Errors
+identify the descriptor and JSON property path; malformed JSON additionally
+reports its line and column. This makes misspellings such as
+`PrivateDependecies` fail before generated CMake metadata is published instead
+of silently selecting an empty dependency list.
+
+Schemas own structural validation only. Case-insensitive project/module
+uniqueness, project ownership, dependency graph validity, runtime-variant
+references, filesystem existence, relative-path containment, canonical mount
+overlap, and mount dependency rules remain explicit semantic checks in the
+owning tool or runtime because they require workspace or filesystem context.
+
 ## Mounted Content And Sources
 
 A logical mount has one owner `Root`, one configurable relative `ContentPath`,

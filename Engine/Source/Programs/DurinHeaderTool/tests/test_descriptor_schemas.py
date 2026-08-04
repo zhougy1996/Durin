@@ -213,8 +213,19 @@ def test_vscode_template_associates_both_descriptor_schemas():
     assert associations[("*.dmodule",)].endswith("/durin-module.schema.json")
 
 
+@pytest.mark.parametrize(
+    ("module_text", "expected_error"),
+    [
+        ('{"ModuleName":"Broken","PrivateDependecies":[]}', "PrivateDependecies"),
+        ('{"ModuleName":"Broken","PrivateDependencies":[7]}', "PrivateDependencies[0]"),
+        ('{"ModuleName":"Broken",}', "malformed JSON"),
+        ('{"ModuleName":"Broken","ModuleName":"Duplicate"}', 'duplicate field "ModuleName"'),
+    ],
+)
 def test_prepare_project_build_rejects_invalid_module_before_metadata_publication(
     tmp_path: Path,
+    module_text: str,
+    expected_error: str,
 ):
     project_root = tmp_path / "Invalid"
     module_root = project_root / "Source" / "Broken"
@@ -227,9 +238,39 @@ def test_prepare_project_build_rejects_invalid_module_before_metadata_publicatio
             "BaseModules": ["Broken"],
         },
     )
-    _write_json(
-        module_root / "Broken.dmodule",
-        {"ModuleName": "Broken", "PrivateDependecies": []},
+    (module_root / "Broken.dmodule").write_text(module_text, encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "durin_header_tool" / "__main__.py"),
+            "prepare_project_build",
+            "--project",
+            str(project_path),
+            "--runtime-variant",
+            "DurinEditor",
+        ],
+        cwd=WORKSPACE_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode != 0
+    assert expected_error in result.stderr
+    assert not list(project_root.rglob("*.cmake"))
+    assert not list(project_root.rglob("*.stamp"))
+
+
+def test_prepare_project_build_rejects_invalid_nested_project_field(tmp_path: Path):
+    project_root = tmp_path / "Invalid"
+    project_root.mkdir()
+    project_path = _write_json(
+        project_root / "Invalid.dproject",
+        {
+            "ProjectName": "Invalid",
+            "ExtraModules": {"DurinEditor": {"Moduels": []}},
+        },
     )
 
     result = subprocess.run(
@@ -249,6 +290,51 @@ def test_prepare_project_build_rejects_invalid_module_before_metadata_publicatio
     )
 
     assert result.returncode != 0
-    assert "PrivateDependecies" in result.stderr
+    assert "Moduels" in result.stderr
     assert not list(project_root.rglob("*.cmake"))
     assert not list(project_root.rglob("*.stamp"))
+
+
+def test_prepare_project_build_accepts_valid_mounts(tmp_path: Path):
+    project_root = tmp_path / "Mounted"
+    module_root = project_root / "Source" / "Mounted"
+    module_root.mkdir(parents=True)
+    project_path = _write_json(
+        project_root / "Mounted.dproject",
+        {
+            "ProjectName": "Mounted",
+            "ModuleDirs": {"Mounted": "Source/Mounted"},
+            "BaseModules": ["Mounted"],
+            "Mounts": [
+                {
+                    "VirtualRoot": "/Plugins/Mounted/",
+                    "Owner": "Extension",
+                    "Root": "Plugins/Mounted",
+                    "ContentPath": "Content",
+                    "AutoScan": True,
+                    "AuthoringWritable": False,
+                    "Dependencies": ["/Engine/"],
+                }
+            ],
+        },
+    )
+    _write_json(module_root / "Mounted.dmodule", {"ModuleName": "Mounted"})
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "durin_header_tool" / "__main__.py"),
+            "prepare_project_build",
+            "--project",
+            str(project_path),
+            "--runtime-variant",
+            "DurinEditor",
+        ],
+        cwd=WORKSPACE_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert len(list(project_root.rglob("*.cmake"))) == 2
