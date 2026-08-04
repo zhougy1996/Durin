@@ -129,6 +129,12 @@ class BuildOutput:
             self.console.print(message)
             self.flush()
 
+    def raw_line(self, message: str) -> None:
+        with self._output_lock:
+            self._finish_progress()
+            self.console.file.write(f"{message}\n")
+            self.flush()
+
     def warning(self, message: str) -> None:
         with self._output_lock:
             self._finish_progress()

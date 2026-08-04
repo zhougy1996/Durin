@@ -333,18 +333,17 @@ class TestWorktreeTool:
         assert namespace.worktree_action == 'open'
         assert namespace.dry_run
 
-    def test_worktree_family_defaults_to_open(self) -> None:
+    def test_worktree_family_defaults_to_list(self) -> None:
         registry = CommandRegistry()
         specification, namespace = registry.parse(['worktree'])
-        assert specification.name == 'open'
-        assert namespace.worktree_action == 'open'
-        assert not namespace.dry_run
+        assert specification.name == 'list'
+        assert namespace.worktree_action == 'list'
 
     def test_registry_owns_exactly_five_worktree_commands(self) -> None:
         registry = CommandRegistry()
         family = next((specification for specification in registry.specifications if specification.name == 'worktree'))
         assert tuple((child.name for child in family.subcommands)) == ('open', 'list', 'add', 'prepare', 'remove')
-        assert family.default_subcommand == 'open'
+        assert family.default_subcommand == 'list'
         assert 'list' in family.summary
         assert 'inspect' not in family.summary
         assert not hasattr(services, 'create_parser')

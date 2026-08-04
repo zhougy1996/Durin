@@ -8,7 +8,7 @@ from ..registry import CommandRegistry
 
 
 def show_help(
-    _namespace: argparse.Namespace,
+    namespace: argparse.Namespace,
     *,
     registry: CommandRegistry,
     repository_root: Path,
@@ -17,7 +17,7 @@ def show_help(
     session_state: dict[str, object] | None = None,
 ) -> int:
     del repository_root, stderr, session_state
-    print(registry.format_help(), file=stdout)
+    print(registry.format_command_help(namespace.command_path), file=stdout)
     return 0
 
 

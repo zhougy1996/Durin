@@ -3,20 +3,18 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
 
 from .config import (
     REPO_ROOT,
-    REPOSITORY_CONFIG,
     BuildContext,
     BuildProfile,
     BuildToolError,
     ConfigurePreset,
     preset_build_directory,
     preset_cache_string,
-    preset_output_configuration,
 )
+from .locations import resolve_location
 from .output import BuildOutput
 from .process import run_command
 
@@ -28,56 +26,29 @@ def runtime_executable_path(
     root: Path = REPO_ROOT,
 ) -> Path:
     runtime_variant = preset_cache_string(preset, "DURIN_RUNTIME_VARIANT")
-    return (
-        root
-        / REPOSITORY_CONFIG.paths.runtime_binaries_directory
-        / profile.platform
-        / preset_output_configuration(preset)
-        / "Runtime"
-        / runtime_variant
-        / f"{runtime_variant}{profile.test_executable_suffix}"
-    )
-
-
-def open_runtime_directory(context: BuildContext, output: BuildOutput) -> None:
-    directory = runtime_executable_path(context.profile, context.preset).parent
-    if not directory.is_dir():
-        raise BuildToolError(
-            f'Runtime directory was not found: "{directory}".',
-            recovery="Build the complete runtime first with build --target all.",
-        )
-    try:
-        if context.current_host == "windows":
-            os.startfile(directory)  # type: ignore[attr-defined]
-        else:
-            opener = "open" if context.current_host == "macos" else "xdg-open"
-            subprocess.Popen(
-                [opener, str(directory)],
-                cwd=REPO_ROOT,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-    except (AttributeError, OSError) as exc:
-        raise BuildToolError(f'Could not open runtime directory "{directory}": {exc}') from exc
-    output.success(f'Opened runtime directory: "{directory}"')
+    directory = resolve_location(
+        "runtime",
+        profile=profile,
+        preset=preset,
+        root=root,
+    ).path
+    return directory / f"{runtime_variant}{profile.test_executable_suffix}"
 
 
 def test_executable_path(
     profile: BuildProfile,
     preset: ConfigurePreset,
     target: str,
+    *,
+    root: Path = REPO_ROOT,
 ) -> Path:
-    runtime_variant = preset_cache_string(preset, "DURIN_RUNTIME_VARIANT")
-    return (
-        REPO_ROOT
-        / REPOSITORY_CONFIG.paths.runtime_binaries_directory
-        / profile.platform
-        / preset_output_configuration(preset)
-        / "Tests"
-        / runtime_variant
-        / "Bin"
-        / f"{target}{profile.test_executable_suffix}"
-    )
+    directory = resolve_location(
+        "tests",
+        profile=profile,
+        preset=preset,
+        root=root,
+    ).path
+    return directory / f"{target}{profile.test_executable_suffix}"
 
 
 def run_native_test(context: BuildContext, output: BuildOutput) -> None:

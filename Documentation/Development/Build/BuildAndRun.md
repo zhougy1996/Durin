@@ -102,7 +102,8 @@ invoking Git. Do not recursively delete a prepared worktree or call
 `git worktree remove` directly: a deletion implementation that follows an NTFS
 junction can erase the corresponding directory in the main worktree. Use
 `remove --dry-run` to inspect the operation, and pass `--force` only to discard
-modified or untracked files.
+modified or untracked files. `DevTool worktree` without a leaf command uses the
+safe `list` default; opening terminals always requires `worktree open`.
 
 Use the root wrapper for configuration, builds, and tests:
 
@@ -119,7 +120,10 @@ Use the root wrapper for configuration, builds, and tests:
 .\DevTool.bat rebuild --target all
 .\DevTool.bat presets
 .\DevTool.bat status
-.\DevTool.bat open-runtime
+.\DevTool.bat path build
+.\DevTool.bat path bin
+.\DevTool.bat open runtime
+.\DevTool.bat open logs
 .\DevTool.bat stop
 ```
 
@@ -142,9 +146,9 @@ selected preset enables `BUILD_TESTING`. `recover` resumes the target recorded
 by an interrupted operation; `test` always requires an explicit `--target`,
 where `--target all` builds the `DurinNativeTests` aggregate and runs every
 CTest-registered test. The interactive shell also accepts the compact
-`test all` form. `presets`, `status`, and `open-runtime` are also available
-directly, so preset discovery, context inspection, and runtime-directory access
-do not require entering the interactive shell.
+`test all` form. `presets`, `status`, `path`, and `open` are also available
+directly, so preset discovery, context inspection, path capture, and artifact
+directory access do not require entering the interactive shell.
 
 An ordinary `configure` preserves the existing CMake cache. Pass `--fresh` to discard it explicitly. `rebuild` and automatic recovery from an unusable or incompatible build tree always fresh-configure before building.
 
@@ -299,7 +303,7 @@ DurinDevTool> presets
    6  Win64-Release-DurinGame
    7  Win64-Release-DurinGame-Profiling
    8  Win64-Shipping-DurinGame
-Preset> 3
+DurinDevTool> preset 3
 DurinDevTool> preset
 CMake preset: "Win64-Release-DurinEditor"
 DurinDevTool> preset Win64-Debug-DurinGame
@@ -309,32 +313,62 @@ DurinDevTool> recover
 DurinDevTool> rebuild --target DurinLauncher
 DurinDevTool> test --target CoreTests --filter FJsonDocumentTests.* --timeout 300
 DurinDevTool> run --project Sandbox\Sandbox.dproject --args --hidden-window
-DurinDevTool> open-runtime
+DurinDevTool> path runtime
+DurinDevTool> open runtime
 DurinDevTool> status
 DurinDevTool> stop
 DurinDevTool> exit
 ```
 
-`presets` displays the registered list and accepts a number on a distinct
-`Preset>` prompt. Pressing Enter or Ctrl+C explicitly cancels selection without
-changing the current preset; invalid numeric or non-numeric input is reported as
-an invalid selection. `preset` without an argument displays the current preset;
-with an argument it requires the full preset name. `build` and `rebuild` default
-to target `all`. Shell commands accept the same named options as their direct
-forms. The compact forms `build <target>`, `rebuild <target>`, `test <target>
+`presets` only displays the registered list and immediately returns to the
+normal prompt. `preset` without an argument displays the current preset;
+`preset <number>` selects the corresponding displayed entry, and `preset
+<full-name>` selects a preset by its case-insensitive full name. Direct and
+interactive selection resolve the same entry, while only an interactive shell
+retains it for later commands. `build` and `rebuild` default to target `all`.
+Shell commands accept the same named options as their direct forms. The compact
+forms `build <target>`, `rebuild <target>`, `test <target>
 [filter]`, and `run [arguments...]` remain accepted for compatibility, while help
 shows the canonical named syntax. `run` launches the current preset's existing
 runtime executable and returns to the shell when it exits. Its typed
 `--project <descriptor>` option follows the same normalization and conflict
-rules as the direct command; place it before compact runtime arguments.
-`open-runtime` opens
-the selected preset's existing runtime directory in the platform file manager.
+rules as the direct command; place it before compact runtime arguments. `path`
+prints a registered absolute path and `open` opens the same registered location
+in the platform file manager. The deprecated `open-runtime` spelling remains a
+hidden compatibility alias for `open runtime` and prints a migration warning.
 `status` reports the host build profile, preset, runtime variant, build
 directory, configuration, recovery
 state, and whether CMake, parallelism, and the toolchain environment are resolved
 or still deferred. `stop` stops an operation held by another DurinDevTool process.
-Use `help` for the complete command list. A leading slash remains accepted for
-compatibility but is not required.
+Use `help` for the complete command list, `help <command>` for a command, and
+`help <group> <command>` for a nested command such as `help worktree add`. A
+leading slash remains accepted for compatibility but is not required. A bare
+group without a selected safe default displays its group help and returns to the
+interactive prompt.
+
+## Repository Locations
+
+`path <location>` writes one absolute native path without a label, so scripts
+can capture it directly. `path --all --plain` writes one stable tab-separated
+`name<TAB>path` record per canonical location. Location names are
+case-insensitive:
+
+| Location | Resolved directory |
+| --- | --- |
+| `root` | Current repository checkout root |
+| `build` | Selected CMake preset's `binaryDir` |
+| `binaries` | Configured runtime-binaries root, currently `Engine/Binaries` |
+| `output` | Selected platform and configuration below `binaries` |
+| `runtime` | Selected runtime variant directory containing its launcher |
+| `tests` | Selected runtime variant's native-test `Bin` directory |
+| `logs` | DurinDevTool command-log directory below the configured state directory |
+
+`bin` is the documented compact alias for `binaries`. `path` resolves and
+prints a registered location even before its directory has been created. `open`
+requires an existing directory and otherwise reports the resolved path plus the
+command expected to create it. Neither command initializes the compiler
+toolchain or acquires the checkout operation lock; only `open` launches an
+external process. Arbitrary filesystem paths are intentionally not accepted.
 
 ## Documentation Operations
 

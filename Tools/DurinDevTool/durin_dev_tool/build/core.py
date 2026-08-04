@@ -87,7 +87,6 @@ from .recovery import (
 )
 from .runtime import (
     ctest_command,
-    open_runtime_directory,
     run_all_native_tests,
     run_application,
     run_native_test,

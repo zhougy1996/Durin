@@ -56,7 +56,8 @@ class Action(str, Enum):
     PRESETS = "presets"
     PRESET = "preset"
     STATUS = "status"
-    OPEN_RUNTIME = "open-runtime"
+    PATH = "path"
+    OPEN = "open"
     CONFIGURE = "configure"
     BUILD = "build"
     CLEAN = "clean"
@@ -181,6 +182,12 @@ class PurgeActionOptions:
 
 
 @dataclass(frozen=True)
+class LocationActionOptions:
+    location: str = ""
+    all_locations: bool = False
+
+
+@dataclass(frozen=True)
 class CreateActionOptions:
     kind: CreateKind
     name: str = ""
@@ -202,6 +209,7 @@ ActionOptions: TypeAlias = (
     | TestActionOptions
     | RunActionOptions
     | PurgeActionOptions
+    | LocationActionOptions
     | CreateActionOptions
 )
 
@@ -223,6 +231,8 @@ class CommandRequest:
             expected_type = RunActionOptions
         elif self.action is Action.PURGE:
             expected_type = PurgeActionOptions
+        elif self.action in {Action.PATH, Action.OPEN}:
+            expected_type = LocationActionOptions
         elif self.action in {Action.CREATE_MODULE, Action.CREATE_PROJECT}:
             expected_type = CreateActionOptions
         else:
@@ -252,6 +262,14 @@ class CommandRequest:
                 raise BuildToolError(
                     f"{self.action.value} requires create kind {expected_kind.value}."
                 )
+        if isinstance(self.options, LocationActionOptions):
+            if self.action is Action.PATH:
+                if bool(self.options.location) == self.options.all_locations:
+                    raise BuildToolError(
+                        "path requires either one location or --all."
+                    )
+            elif not self.options.location:
+                raise BuildToolError("open requires one location.")
 
     def with_action(self, action: Action) -> "CommandRequest":
         return CommandRequest(action, context=self.context, output=self.output)
@@ -368,6 +386,22 @@ class CommandRequest:
     @property
     def yes(self) -> bool:
         return self.options.yes if isinstance(self.options, PurgeActionOptions) else False
+
+    @property
+    def location(self) -> str:
+        return (
+            self.options.location
+            if isinstance(self.options, LocationActionOptions)
+            else ""
+        )
+
+    @property
+    def all_locations(self) -> bool:
+        return (
+            self.options.all_locations
+            if isinstance(self.options, LocationActionOptions)
+            else False
+        )
 
     @property
     def create_options(self) -> CreateActionOptions | None:

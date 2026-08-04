@@ -4,8 +4,8 @@ Summary: Refine DurinDevTool around explicit location resolution, predictable sh
 
 Last reviewed: 2026-08-04
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-04
 
 ## Current Status
 
@@ -25,9 +25,35 @@ stateful than their names imply:
 - `help` lists top-level commands but cannot resolve a command or nested command
   path such as `help build` or `help worktree add`.
 
-No implementation work has started. The existing command registry, build
-context, preset path helpers, platform opener, and focused tooling tests are the
-baseline for this plan.
+All stages are complete. Baseline characterization fixes the selected location
+vocabulary and deprecation wording and explicitly captures the standalone
+`open-runtime`, shared-output-option, and top-level-only help behavior that later
+stages replace. Repository searches found no tracked automation outside the
+tooling tests and owning build documentation that depends on the `Preset>` mode,
+bare `worktree` opening terminals, or `open-runtime` spelling. The implementation
+baseline is commit `d5a13620`; Stage 0 landed in `0f00a004`. A typed location
+registry now owns the seven selected locations and `bin` alias, runtime and test
+executable paths consume it, status reuses its build-directory resolver, and a
+separate host opener owns external file-manager dispatch. The Stage 1 location
+and build-core matrix passes 71 tests. Canonical `path` and `open` commands now
+share typed requests and location resolution, raw path output remains directly
+capturable, irrelevant child-output options are rejected, and `open-runtime`
+normalizes through centrally declared deprecation metadata without a standalone
+action. The Stage 2 focused registry, location, and build-core matrix passes 94
+tests; direct `help`, `path root`, `path bin`, and plain `path --all` smoke tests
+also pass. The shell no longer has a `Preset>` mode, numeric and named preset
+selectors share one resolver in direct and interactive use, bare `worktree`
+lists safely, and nested help is generated from leaf command metadata. The Stage
+3 registry, worktree, and shell matrix passes 89 tests; direct nested-help,
+numeric-preset, and bare-worktree smoke tests also pass. The lasting command and
+location contracts now live in the build-and-run and build-system documentation.
+The complete DurinDevTool suite passes 256 tests; the test process explicitly
+prepended the bundled Ninja directory because this machine's Visual Studio lives
+under the non-standard `D:\Programs` root. A scripted interactive shell verified
+list-only presets, numeric selection, retained selection, runtime path output,
+and nested help. All-plan validation passes. Stage commits are `0f00a004`,
+`27ae4ae4`, `5ad05372`, and `0d187cac`; this final stage contains documentation,
+completion metadata, and aggregate validation only.
 
 ## Goal
 
@@ -202,16 +228,16 @@ The initial registered locations are fixed and case-insensitive:
 
 ### Stage 0: Freeze the command and compatibility contract
 
-- [ ] Add characterization tests for current direct and shell parsing of
+- [x] Add characterization tests for current direct and shell parsing of
   `open-runtime`, `presets`, `preset`, bare `worktree`, nested help, and
   context/output options.
-- [ ] Add table-driven contract cases for every planned canonical location,
+- [x] Add table-driven contract cases for every planned canonical location,
   alias, context requirement, missing-directory policy, and display order.
-- [ ] Record the final command examples and exact deprecation warning expected
+- [x] Record the final command examples and exact deprecation warning expected
   for `open-runtime` in focused tests before implementation.
-- [ ] Confirm repository searches find no automation that requires the modal
+- [x] Confirm repository searches find no automation that requires the modal
   `Preset>` prompt or relies on bare `worktree` opening terminals.
-- [ ] If a real in-repository dependency conflicts with the selected contract,
+- [x] If a real in-repository dependency conflicts with the selected contract,
   record the dependency and decision change in this plan before continuing.
 
 #### Acceptance Gate
@@ -224,20 +250,20 @@ The initial registered locations are fixed and case-insensitive:
 
 ### Stage 1: Introduce typed location and opener services
 
-- [ ] Add a typed location registry whose entries declare canonical name,
+- [x] Add a typed location registry whose entries declare canonical name,
   aliases, display order, required context, resolver, and missing-directory
   recovery guidance.
-- [ ] Represent a resolved location with its canonical name, absolute path, and
+- [x] Represent a resolved location with its canonical name, absolute path, and
   existence state so formatting and opening do not repeat filesystem queries.
-- [ ] Extract the Windows, macOS, and Linux file-manager launch behavior into a
+- [x] Extract the Windows, macOS, and Linux file-manager launch behavior into a
   platform opener that accepts only an existing directory.
-- [ ] Implement resolvers for `root`, `build`, `binaries`, `output`, `runtime`,
+- [x] Implement resolvers for `root`, `build`, `binaries`, `output`, `runtime`,
   `tests`, and `logs` using repository config and selected preset/profile data.
-- [ ] Refactor runtime executable and native-test path helpers to consume shared
+- [x] Refactor runtime executable and native-test path helpers to consume shared
   location results while preserving their current filenames and validation.
-- [ ] Reuse the shared `build`, `runtime`, and log location resolvers in status
+- [x] Reuse the shared `build`, `runtime`, and log location resolvers in status
   or diagnostics where they currently duplicate the same path assembly.
-- [ ] Keep context creation lazy: location resolution must not prepare the
+- [x] Keep context creation lazy: location resolution must not prepare the
   compiler environment, resolve build jobs, or acquire the checkout lock.
 
 #### Acceptance Gate
@@ -253,21 +279,21 @@ The initial registered locations are fixed and case-insensitive:
 
 ### Stage 2: Add canonical path and open commands
 
-- [ ] Register `path` and `open` in the shared command model with identical
+- [x] Register `path` and `open` in the shared command model with identical
   direct and interactive grammar.
-- [ ] Implement one-location and `path --all` formatting, including stable raw
+- [x] Implement one-location and `path --all` formatting, including stable raw
   and tab-separated plain output.
-- [ ] Make `open` use the same resolved location object as `path` and report a
+- [x] Make `open` use the same resolved location object as `path` and report a
   concise success message containing the canonical location and absolute path.
-- [ ] Extend command metadata with canonical aliases and deprecated aliases,
+- [x] Extend command metadata with canonical aliases and deprecated aliases,
   including help visibility and migration warnings.
-- [ ] Normalize `open-runtime` to `open runtime`, remove the standalone
+- [x] Normalize `open-runtime` to `open runtime`, remove the standalone
   `Action.OPEN_RUNTIME` execution branch, and retain only the centralized
   deprecated alias registration.
-- [ ] Split `CONTEXT_ARGUMENTS` into precise context, display, toolchain, and
+- [x] Split `CONTEXT_ARGUMENTS` into precise context, display, toolchain, and
   child-output bundles; reject previously accepted options that had no
   observable effect.
-- [ ] Ensure feature filtering and prepared-environment checks are derived from
+- [x] Ensure feature filtering and prepared-environment checks are derived from
   the selected canonical command and location requirements rather than from the
   deprecated spelling.
 
@@ -287,19 +313,19 @@ The initial registered locations are fixed and case-insensitive:
 
 ### Stage 3: Remove implicit shell modes and unsafe defaults
 
-- [ ] Remove `selecting_preset`, the `Preset>` prompt, and the post-`presets`
+- [x] Remove `selecting_preset`, the `Preset>` prompt, and the post-`presets`
   dispatch hook from the interactive shell.
-- [ ] Move numeric preset resolution into the canonical `preset` request path
+- [x] Move numeric preset resolution into the canonical `preset` request path
   while retaining full-name selection and session-local persistence.
-- [ ] Make direct `preset <number>` report the same resolved preset that an
+- [x] Make direct `preset <number>` report the same resolved preset that an
   interactive shell would retain.
-- [ ] Change the `worktree` default subcommand from `open` to `list`; preserve
+- [x] Change the `worktree` default subcommand from `open` to `list`; preserve
   explicit `worktree open` behavior and `--dry-run` support.
-- [ ] Implement `help [COMMAND ...]` by resolving the existing registry tree,
+- [x] Implement `help [COMMAND ...]` by resolving the existing registry tree,
   including nested commands and aliases.
-- [ ] Make a bare group with no safe default render its group help inside the
+- [x] Make a bare group with no safe default render its group help inside the
   interactive shell without exiting the shell.
-- [ ] Remove obsolete compact-normalization and prompt tests, replacing them
+- [x] Remove obsolete compact-normalization and prompt tests, replacing them
   with direct/shell parity and continued-session tests for the new semantics.
 
 #### Acceptance Gate
@@ -315,19 +341,19 @@ The initial registered locations are fixed and case-insensitive:
 
 ### Stage 4: Migrate documentation and validate the complete interface
 
-- [ ] Replace canonical `open-runtime` examples with `open runtime` and add
+- [x] Replace canonical `open-runtime` examples with `open runtime` and add
   representative `path build`, `path bin`, `path runtime`, and `open logs`
   workflows to the owning build-and-run guide.
-- [ ] Document the location table, missing-directory behavior, safe worktree
+- [x] Document the location table, missing-directory behavior, safe worktree
   default, explicit preset selection, nested help, and deprecated alias policy.
-- [ ] Search tracked scripts, templates, tests, and documentation for old
+- [x] Search tracked scripts, templates, tests, and documentation for old
   command spellings or assumptions and migrate every canonical caller.
-- [ ] Run the complete DurinDevTool Python test suite using the repository
+- [x] Run the complete DurinDevTool Python test suite using the repository
   workflow in the build-and-run guide.
-- [ ] Run focused direct-command and scripted interactive-shell smoke tests for
+- [x] Run focused direct-command and scripted interactive-shell smoke tests for
   paths, opening with mocked or dry-run boundaries, preset selection, worktree
   listing, option rejection, and nested help.
-- [ ] Run all-plan documentation validation and update this plan's status and
+- [x] Run all-plan documentation validation and update this plan's status and
   evidence-backed checklists.
 
 #### Acceptance Gate

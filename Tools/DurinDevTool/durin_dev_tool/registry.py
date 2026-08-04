@@ -45,6 +45,13 @@ class CommandSpec:
         return getattr(module, attribute)
 
 
+@dataclass(frozen=True)
+class CommandAlias:
+    name: str
+    expansion: tuple[str, ...]
+    warning: str = ""
+
+
 def _argument(*flags: str, **kwargs: object) -> ArgumentSpec:
     return ArgumentSpec(flags, kwargs)
 
@@ -75,8 +82,19 @@ OUTPUT_MODE = _argument(
     default="auto",
     help="child output mode (default: auto)",
 )
-TOOL_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, PLAIN, OUTPUT_MODE)
-CONTEXT_ARGUMENTS = (PROFILE, PRESET, PLAIN, OUTPUT_MODE)
+CONTEXT_ARGUMENTS = (PROFILE, PRESET)
+DISPLAY_ARGUMENTS = (PLAIN,)
+CHILD_OUTPUT_ARGUMENTS = (PLAIN, OUTPUT_MODE)
+TOOL_ARGUMENTS = (
+    PROFILE,
+    PRESET,
+    CMAKE,
+    ENVIRONMENT_SETUP,
+    JOBS,
+    PLAIN,
+    OUTPUT_MODE,
+)
+STATUS_ARGUMENTS = (PROFILE, PRESET, CMAKE, ENVIRONMENT_SETUP, JOBS, PLAIN)
 BUILD_HANDLER = "durin_dev_tool.build.handler:run"
 BUILD_CAPABILITY = Capability.PREPARED_ENVIRONMENT
 BUILD_MODULES = ("rich",)
@@ -449,6 +467,7 @@ COMMAND_SPECS = (
         "help",
         "show command help",
         "durin_dev_tool.commands.core:show_help",
+        arguments=(_argument("command_path", nargs="*"),),
     ),
     CommandSpec(
         "shell",
@@ -464,7 +483,11 @@ COMMAND_SPECS = (
         feature="setup",
     ),
     _build_command("stop", "stop the active build operation", (PLAIN,)),
-    _build_command("presets", "list registered presets", CONTEXT_ARGUMENTS),
+    _build_command(
+        "presets",
+        "list registered presets",
+        CONTEXT_ARGUMENTS + DISPLAY_ARGUMENTS,
+    ),
     _build_command(
         "preset",
         "inspect a selected preset",
@@ -472,14 +495,23 @@ COMMAND_SPECS = (
             _argument("selected_preset", nargs="?", default=""),
             PROFILE,
             PLAIN,
-            OUTPUT_MODE,
         ),
     ),
-    _build_command("status", "show build context and toolchain state", TOOL_ARGUMENTS),
+    _build_command("status", "show build context and toolchain state", STATUS_ARGUMENTS),
     _build_command(
-        "open-runtime",
-        "open the selected preset's runtime directory",
-        CONTEXT_ARGUMENTS,
+        "path",
+        "print a registered repository location",
+        CONTEXT_ARGUMENTS
+        + DISPLAY_ARGUMENTS
+        + (
+            _argument("location", nargs="?"),
+            _argument("--all", dest="all_locations", action="store_true"),
+        ),
+    ),
+    _build_command(
+        "open",
+        "open a registered repository location",
+        CONTEXT_ARGUMENTS + DISPLAY_ARGUMENTS + (_argument("location"),),
     ),
     _build_command(
         "configure",
@@ -501,6 +533,7 @@ COMMAND_SPECS = (
         "purge",
         "delete generated build artifacts",
         CONTEXT_ARGUMENTS
+        + DISPLAY_ARGUMENTS
         + (
             _argument("--all-presets", action="store_true"),
             _argument("--yes", action="store_true"),
@@ -561,6 +594,7 @@ COMMAND_SPECS = (
         "run",
         "run the selected preset's existing application",
         CONTEXT_ARGUMENTS
+        + CHILD_OUTPUT_ARGUMENTS
         + (
             _argument("--project", dest="project_path", type=Path, default=None),
             _argument("--args", dest="run_arguments", nargs=argparse.REMAINDER, default=()),
@@ -603,8 +637,17 @@ COMMAND_SPECS = (
             WORKTREE_PREPARE,
             WORKTREE_REMOVE,
         ),
-        default_subcommand="open",
+        default_subcommand="list",
         feature="worktrees",
+    ),
+)
+
+
+COMMAND_ALIASES = (
+    CommandAlias(
+        "open-runtime",
+        ("open", "runtime"),
+        'Warning: "open-runtime" is deprecated; use "open runtime".',
     ),
 )
 
@@ -619,6 +662,7 @@ class CommandRegistry:
         self,
         specifications: Sequence[CommandSpec] = COMMAND_SPECS,
         *,
+        aliases: Sequence[CommandAlias] = COMMAND_ALIASES,
         enabled_features: Mapping[str, bool] | None = None,
     ) -> None:
         features = (
@@ -651,6 +695,12 @@ class CommandRegistry:
             if (specification := enabled(candidate)) is not None
         )
         self._by_name = {spec.name: spec for spec in self.specifications}
+        self._aliases_by_name = {
+            alias.name.casefold(): alias
+            for alias in aliases
+            if alias.expansion and alias.expansion[0] in self._by_name
+        }
+        self._emitted_warnings: set[str] = set()
 
     def parser(self) -> DevToolArgumentParser:
         parser = DevToolArgumentParser(
@@ -691,6 +741,7 @@ class CommandRegistry:
                 self._configure_parser(child_parser, child)
 
     def parse(self, arguments: Sequence[str]) -> tuple[CommandSpec, argparse.Namespace]:
+        warning = ""
         if not arguments:
             normalized = ["shell"]
         elif arguments[0] in {"-h", "--help", "/?"}:
@@ -698,6 +749,11 @@ class CommandRegistry:
         else:
             normalized = list(arguments)
             command = normalized[0].removeprefix("/").lower()
+            alias = self._aliases_by_name.get(command)
+            if alias is not None:
+                normalized = [*alias.expansion, *normalized[1:]]
+                command = normalized[0]
+                warning = alias.warning
             current = self._by_name.get(command)
             if current is not None:
                 normalized[0] = command
@@ -722,6 +778,7 @@ class CommandRegistry:
                     current = child
                     index += 1
         namespace = self.parser().parse_args(normalized)
+        namespace._deprecation_warning = warning
         return namespace._command_spec, namespace
 
     def format_help(self) -> str:
@@ -740,6 +797,52 @@ class CommandRegistry:
         )
         return "\n".join(lines)
 
+    def resolve_command_path(
+        self,
+        command_path: Sequence[str],
+    ) -> tuple[CommandSpec, tuple[str, ...]]:
+        if not command_path:
+            raise DevToolError("a command path is required")
+        first = command_path[0].removeprefix("/").casefold()
+        alias = self._aliases_by_name.get(first)
+        canonical_first = alias.expansion[0] if alias is not None else first
+        current = self._by_name.get(canonical_first)
+        if current is None:
+            raise DevToolError(f'Unknown command "{command_path[0]}".')
+        canonical_path = [current.name]
+        for value in command_path[1:]:
+            child_name = value.removeprefix("/").casefold()
+            child = next(
+                (
+                    candidate
+                    for candidate in current.subcommands
+                    if candidate.name == child_name
+                ),
+                None,
+            )
+            if child is None:
+                joined = " ".join(command_path)
+                raise DevToolError(f'Unknown command path "{joined}".')
+            current = child
+            canonical_path.append(current.name)
+        return current, tuple(canonical_path)
+
+    def format_command_help(self, command_path: Sequence[str]) -> str:
+        if not command_path:
+            return self.format_help()
+        spec, canonical_path = self.resolve_command_path(command_path)
+        parser = DevToolArgumentParser(
+            prog=f'DevTool {" ".join(canonical_path)}',
+            description=spec.summary,
+        )
+        self._configure_parser(parser, spec)
+        return parser.format_help().rstrip()
+
+    def group_without_default(self, command: str) -> bool:
+        normalized = command.removeprefix("/").casefold()
+        spec = self._by_name.get(normalized)
+        return bool(spec and spec.subcommands and not spec.default_subcommand)
+
     def execute(
         self,
         spec: CommandSpec,
@@ -750,6 +853,10 @@ class CommandRegistry:
         stderr: TextIO,
         session_state: dict[str, object] | None = None,
     ) -> int:
+        warning = str(getattr(namespace, "_deprecation_warning", ""))
+        if warning and warning not in self._emitted_warnings:
+            print(warning, file=stderr)
+            self._emitted_warnings.add(warning)
         if spec.capability is Capability.PREPARED_ENVIRONMENT:
             require_prepared_environment(
                 repository_root,

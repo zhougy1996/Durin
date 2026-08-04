@@ -11,6 +11,7 @@ from .config import (
     CreateActionOptions,
     CreateKind,
     LinkType,
+    LocationActionOptions,
     ModuleKind,
     OutputOptions,
     OutputMode,
@@ -76,6 +77,13 @@ def request_from_namespace(namespace: argparse.Namespace) -> CommandRequest:
         options = PurgeActionOptions(
             all_presets=bool(namespace_value(namespace, "all_presets", False)),
             yes=bool(namespace_value(namespace, "yes", False)),
+        )
+    elif action in {Action.PATH, Action.OPEN}:
+        options = LocationActionOptions(
+            location=str(namespace_value(namespace, "location", "")),
+            all_locations=bool(
+                namespace_value(namespace, "all_locations", False)
+            ),
         )
     if action is Action.CREATE_MODULE:
         create_kind = CreateKind.MODULE

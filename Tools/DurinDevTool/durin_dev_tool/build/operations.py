@@ -18,9 +18,10 @@ from .config import (
     CommandRequest,
     JOBS_ENV_VAR,
     REPO_ROOT,
-    preset_build_directory,
     preset_cache_string,
 )
+from .locations import resolve_all_locations, resolve_location
+from .opener import open_location
 from .core import (
     create_context,
     derive_context,
@@ -31,7 +32,6 @@ from .core import (
 from .locking import stop_active_operation
 from .output import BuildOutput
 from .recovery import interruption_marker_path, recoverable_target, recovery_target
-from .runtime import open_runtime_directory
 
 TOOLCHAIN_ACTIONS = {
     Action.CONFIGURE,
@@ -148,6 +148,14 @@ def resolve_shell_preset_number(value: str, context: BuildContext) -> str:
     raise BuildToolError(f'Invalid preset number "{value}". Enter a number shown by presets.')
 
 
+def resolve_preset_selector(value: str, context: BuildContext) -> str:
+    return (
+        resolve_shell_preset_number(value, context)
+        if value.isdigit()
+        else resolve_shell_preset(value, context)
+    )
+
+
 def show_status(output: BuildOutput, context: BuildContext) -> None:
     marker = interruption_marker_path(context.preset.name)
     recovery_required = marker.is_file()
@@ -175,7 +183,11 @@ def show_status(output: BuildOutput, context: BuildContext) -> None:
             required=False,
         )
         or "unspecified",
-        "Build directory": preset_build_directory(context.preset),
+        "Build directory": resolve_location(
+            "build",
+            profile=context.profile,
+            preset=context.preset,
+        ).path,
         "Configuration": preset_cache_string(context.preset, "CMAKE_BUILD_TYPE"),
         "Preset role": preset_cache_string(
             context.preset,
@@ -221,6 +233,45 @@ def show_status(output: BuildOutput, context: BuildContext) -> None:
     output.console.print(table)
 
 
+def show_locations(output: BuildOutput, context: BuildContext) -> None:
+    locations = resolve_all_locations(
+        profile=context.profile,
+        preset=context.preset,
+    )
+    if output.plain:
+        for location in locations:
+            output.raw_line(f"{location.spec.name}\t{location.path}")
+        return
+    table = Table(title="DurinDevTool locations")
+    table.add_column("Location", style="bold cyan")
+    table.add_column("Path")
+    for location in locations:
+        table.add_row(location.spec.name, str(location.path))
+    output.console.print(table)
+
+
+def execute_location_request(
+    request: CommandRequest,
+    context: BuildContext,
+    output: BuildOutput,
+) -> None:
+    if request.action is Action.PATH and request.all_locations:
+        show_locations(output, context)
+        return
+    location = resolve_location(
+        request.location,
+        profile=context.profile,
+        preset=context.preset,
+    )
+    if request.action is Action.PATH:
+        output.raw_line(str(location.path))
+        return
+    open_location(location, current_host=context.current_host)
+    output.success(
+        f'Opened {location.spec.name} directory: "{location.path}"'
+    )
+
+
 def acquire_request_context(
     request: CommandRequest,
     *,
@@ -229,6 +280,22 @@ def acquire_request_context(
     if request.action in {Action.SHELL, Action.STOP, *CREATE_ACTIONS}:
         return AcquiredRequest(request, None)
     if session_state is None:
+        if request.action is Action.PRESET:
+            base = create_context(
+                request.with_preset("").with_action(Action.SHELL),
+                prepare_tools=False,
+            )
+            selected = (
+                resolve_preset_selector(request.preset, base)
+                if request.preset
+                else base.preset.name
+            )
+            return AcquiredRequest(
+                request.with_preset(selected),
+                base,
+                selected,
+                preset_selected=bool(request.preset),
+            )
         context = create_context(
             request,
             prepare_tools=request.action in TOOLCHAIN_ACTIONS,
@@ -237,16 +304,15 @@ def acquire_request_context(
 
     base = session_state.get("build_context")
     if base is None:
-        base = create_context(request.with_action(Action.SHELL), prepare_tools=False)
+        base_request = request.with_preset("") if request.action is Action.PRESET else request
+        base = create_context(base_request.with_action(Action.SHELL), prepare_tools=False)
         session_state["build_context"] = base
         session_state["build_preset"] = base.preset.name
     current_preset = str(session_state["build_preset"])
 
     if request.action is Action.PRESET:
-        select_by_number = bool(session_state.pop("select_preset_by_number", False))
         if request.preset:
-            resolver = resolve_shell_preset_number if select_by_number else resolve_shell_preset
-            current_preset = resolver(request.preset, base)
+            current_preset = resolve_preset_selector(request.preset, base)
             session_state["build_preset"] = current_preset
         return AcquiredRequest(
             request.with_preset(current_preset),
@@ -319,8 +385,8 @@ def dispatch_request(
     if request.action is Action.STATUS:
         show_status(output, context)
         return
-    if request.action is Action.OPEN_RUNTIME:
-        open_runtime_directory(context, output)
+    if request.action in {Action.PATH, Action.OPEN}:
+        execute_location_request(request, context, output)
         return
     execute_context(
         context,

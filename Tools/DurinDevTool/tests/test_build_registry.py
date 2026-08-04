@@ -10,11 +10,24 @@ if str(PRODUCT_ROOT) not in sys.path:
     sys.path.insert(0, str(PRODUCT_ROOT))
 from durin_dev_tool.build import handler
 from durin_dev_tool.build import operations as build_operations
-from durin_dev_tool.build.config import Action, BuildActionOptions, CommandRequest, CreateKind, LinkType, LocalConfig, ModuleKind, OutputMode, OutputOptions, RequestContext
+from durin_dev_tool.build.config import Action, BuildActionOptions, CommandRequest, CreateKind, LinkType, LocalConfig, LocationActionOptions, ModuleKind, OutputMode, OutputOptions, RequestContext
 from durin_dev_tool.configuration import FEATURE_NAMES
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
 from durin_dev_tool.shell import normalize_compact_build_command, run_shell, split_shell_command
+
+EXPECTED_LOCATION_CONTRACT = (
+    ('root', ()),
+    ('build', ()),
+    ('binaries', ('bin',)),
+    ('output', ()),
+    ('runtime', ()),
+    ('tests', ()),
+    ('logs', ()),
+)
+DEPRECATED_OPEN_RUNTIME_WARNING = (
+    'Warning: "open-runtime" is deprecated; use "open runtime".'
+)
 
 class TestBuildRegistry:
 
@@ -42,7 +55,7 @@ class TestBuildRegistry:
         return context
 
     def test_every_build_command_uses_the_build_handler(self) -> None:
-        expected = {'stop', 'presets', 'preset', 'status', 'open-runtime', 'configure', 'build', 'clean', 'recover', 'purge', 'rebuild', 'test', 'run', 'create'}
+        expected = {'stop', 'presets', 'preset', 'status', 'path', 'open', 'configure', 'build', 'clean', 'recover', 'purge', 'rebuild', 'test', 'run', 'create'}
         specifications = {specification.name: specification for specification in self.registry.specifications if specification.name in expected}
         assert set(specifications) == expected
         for name, specification in specifications.items():
@@ -65,7 +78,7 @@ class TestBuildRegistry:
             registry.parse(['doc', 'list'])
 
     def test_direct_and_shell_entry_paths_dispatch_identical_requests(self) -> None:
-        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --output full', 'open-runtime --preset win-msvc-x64-debug', 'configure --fresh --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all', 'test --target CoreTests --filter Core.* --timeout 45', 'test --target all --schedule-random --output-junit Build/results.xml --ctest-regex ^Core\\. --include-direct', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
+        commands = ('stop --plain', 'presets --profile windows-msvc-x64 --preset win-msvc-x64-debug', 'preset win-msvc-x64-release --plain', 'status --jobs 8', 'path runtime --preset win-msvc-x64-debug', 'open runtime --preset win-msvc-x64-debug', 'configure --fresh --jobs 8', 'build --target Core --output compact', 'clean --plain', 'recover --cmake cmake', 'purge --all-presets --yes', 'rebuild --target all', 'test --target CoreTests --filter Core.* --timeout 45', 'test --target all --schedule-random --output-junit Build/results.xml --ctest-regex ^Core\\. --include-direct', 'run --project "Examples/Sandbox/Sandbox.dproject" --args --scene Sample', 'create module Sample --project Examples/Sandbox/Sandbox.dproject --kind editor --link static --public-dependency Core --enable base --dry-run', 'create project Sample --path Examples/Sample --dry-run')
         stdout = io.StringIO()
         stderr = io.StringIO()
 
@@ -91,8 +104,6 @@ class TestBuildRegistry:
             shell_input = []
             for command in commands:
                 shell_input.append(command)
-                if split_shell_command(command)[0].lower() == 'presets':
-                    shell_input.append('')
             shell_lines = iter((*shell_input, 'exit'))
             assert run_shell(
                 registry=self.registry,
@@ -108,6 +119,71 @@ class TestBuildRegistry:
             )
 
         assert direct_requests == shell_requests
+
+    def test_stage_zero_location_contract_has_stable_unique_names(self) -> None:
+        canonical_names = tuple(name for name, _aliases in EXPECTED_LOCATION_CONTRACT)
+        all_names = [
+            candidate
+            for name, aliases in EXPECTED_LOCATION_CONTRACT
+            for candidate in (name, *aliases)
+        ]
+        assert canonical_names == (
+            'root',
+            'build',
+            'binaries',
+            'output',
+            'runtime',
+            'tests',
+            'logs',
+        )
+        assert len(all_names) == len(set(all_names))
+        assert DEPRECATED_OPEN_RUNTIME_WARNING.endswith('use "open runtime".')
+
+    def test_open_runtime_alias_normalizes_to_canonical_open_request(self) -> None:
+        specification, namespace = self.registry.parse(['open-runtime'])
+        assert specification.name == 'open'
+        assert namespace.build_action == 'open'
+        assert namespace.location == 'runtime'
+        assert namespace._deprecation_warning == DEPRECATED_OPEN_RUNTIME_WARNING
+        request = handler.request_from_namespace(namespace)
+        assert request.action is Action.OPEN
+        assert request.options == LocationActionOptions(location='runtime')
+
+    def test_discovery_commands_reject_child_output_mode(self) -> None:
+        for command in ('presets', 'status', 'path root', 'open root', 'purge'):
+            with pytest.raises(DevToolError, match='unrecognized arguments'):
+                self.registry.parse([*split_shell_command(command), '--output', 'full'])
+
+    def test_deprecated_alias_warns_once_per_registry(self) -> None:
+        stderr = io.StringIO()
+        with mock.patch.object(handler, 'execute_request', return_value=0):
+            for _ in range(2):
+                specification, namespace = self.registry.parse(['open-runtime'])
+                assert self.registry.execute(
+                    specification,
+                    namespace,
+                    repository_root=REPOSITORY_ROOT,
+                    stdout=io.StringIO(),
+                    stderr=stderr,
+                ) == 0
+        assert stderr.getvalue().splitlines() == [DEPRECATED_OPEN_RUNTIME_WARNING]
+
+    def test_path_request_requires_one_location_or_all(self) -> None:
+        assert handler.request_from_namespace(self.parse(['path', 'root'])).options == (
+            LocationActionOptions(location='root')
+        )
+        assert handler.request_from_namespace(self.parse(['path', '--all'])).options == (
+            LocationActionOptions(all_locations=True)
+        )
+        with pytest.raises(build_operations.BuildToolError, match='either one location or --all'):
+            handler.request_from_namespace(self.parse(['path']))
+        with pytest.raises(build_operations.BuildToolError, match='either one location or --all'):
+            handler.request_from_namespace(self.parse(['path', 'root', '--all']))
+
+    def test_help_accepts_nested_command_operands(self) -> None:
+        specification, namespace = self.registry.parse(['help', 'worktree', 'add'])
+        assert specification.name == 'help'
+        assert namespace.command_path == ['worktree', 'add']
 
     def test_request_rejects_options_for_an_unrelated_action(self) -> None:
         with pytest.raises(build_operations.BuildToolError, match='does not accept'):
@@ -194,12 +270,12 @@ class TestBuildRegistry:
         assert [call.args[0].preset.name for call in execute.call_args_list] == ['debug', 'release']
         assert all((call.args[0].environment is cached_environment for call in execute.call_args_list))
 
-    def test_presets_selects_number_from_a_distinct_prompt(self) -> None:
+    def test_presets_lists_and_explicit_numeric_preset_selects(self) -> None:
         base = self.shell_context()
         stdout = io.StringIO()
         stderr = io.StringIO()
         prompts: list[str] = []
-        responses = iter(('presets', '2', 'preset', 'exit'))
+        responses = iter(('presets', 'preset 2', 'preset', 'exit'))
 
         def read_input(prompt: str) -> str:
             prompts.append(prompt)
@@ -216,48 +292,20 @@ class TestBuildRegistry:
                 input_func=read_input,
             ) == 0
 
-        assert prompts == ['DurinDevTool> ', 'Preset> ', 'DurinDevTool> ', 'DurinDevTool> ']
+        assert prompts == ['DurinDevTool> '] * 4
         assert 'CMake preset selected: "release"' in stdout.getvalue()
         assert 'CMake preset: "release"' in stdout.getvalue()
         assert stderr.getvalue() == ''
 
-    @pytest.mark.parametrize('response', ('', KeyboardInterrupt()))
-    def test_preset_selection_cancellation_keeps_current_preset(self, response: object) -> None:
+    def test_command_after_presets_is_parsed_normally(self) -> None:
         base = self.shell_context()
         stdout = io.StringIO()
         stderr = io.StringIO()
-        responses = iter(('presets', response, 'preset', 'exit'))
-
-        def read_input(_prompt: str) -> str:
-            value = next(responses)
-            if isinstance(value, BaseException):
-                raise value
-            return str(value)
+        responses = iter(('presets', 'status', 'exit'))
 
         with mock.patch.object(build_operations, 'create_context', return_value=base), mock.patch.object(
             build_operations, 'derive_context', return_value=base
-        ):
-            assert run_shell(
-                registry=self.registry,
-                repository_root=REPOSITORY_ROOT,
-                stdout=stdout,
-                stderr=stderr,
-                input_func=read_input,
-            ) == 0
-
-        assert 'Preset selection cancelled; current preset unchanged.' in stdout.getvalue()
-        assert 'CMake preset: "debug"' in stdout.getvalue()
-        assert stderr.getvalue() == ''
-
-    def test_preset_selection_rejects_non_numeric_input(self) -> None:
-        base = self.shell_context()
-        stdout = io.StringIO()
-        stderr = io.StringIO()
-        responses = iter(('presets', 'release', 'exit'))
-
-        with mock.patch.object(build_operations, 'create_context', return_value=base), mock.patch.object(
-            build_operations, 'derive_context', return_value=base
-        ):
+        ), mock.patch.object(build_operations, 'show_status') as show_status:
             assert run_shell(
                 registry=self.registry,
                 repository_root=REPOSITORY_ROOT,
@@ -266,7 +314,51 @@ class TestBuildRegistry:
                 input_func=lambda _prompt: next(responses),
             ) == 0
 
-        assert 'Invalid preset number "release"' in stderr.getvalue()
+        show_status.assert_called_once()
+        assert stderr.getvalue() == ''
+
+    def test_direct_numeric_preset_uses_registered_order(self) -> None:
+        base = self.shell_context()
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        request = CommandRequest(
+            Action.PRESET,
+            context=RequestContext(preset='2'),
+            output=OutputOptions(plain=True),
+        )
+        with mock.patch.object(build_operations, 'create_context', return_value=base):
+            assert build_operations.execute_request(
+                request,
+                stdout=stdout,
+                stderr=stderr,
+            ) == 0
+        assert 'CMake preset selected: "release"' in stdout.getvalue()
+        assert stderr.getvalue() == ''
+
+    def test_nested_help_uses_registered_leaf_parser(self) -> None:
+        build_help = self.registry.format_command_help(('build',))
+        worktree_help = self.registry.format_command_help(('worktree', 'add'))
+        alias_help = self.registry.format_command_help(('open-runtime',))
+        assert 'DevTool build' in build_help
+        assert '--target' in build_help
+        assert 'DevTool worktree add' in worktree_help
+        assert '--branch' in worktree_help
+        assert 'DevTool open' in alias_help
+        assert 'location' in alias_help
+
+    def test_shell_bare_group_displays_help_and_continues(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        responses = iter(('dependency', 'exit'))
+        assert run_shell(
+            registry=self.registry,
+            repository_root=REPOSITORY_ROOT,
+            stdout=stdout,
+            stderr=stderr,
+            input_func=lambda _prompt: next(responses),
+        ) == 0
+        assert 'DevTool dependency' in stdout.getvalue()
+        assert stderr.getvalue() == ''
 
     def test_styled_preset_table_highlights_state_without_changing_plain_output(self) -> None:
         context = self.shell_context()

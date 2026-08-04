@@ -245,18 +245,6 @@ class TestCore:
         process_job.terminate.assert_called_once_with()
         process_job.close.assert_called_once_with()
 
-    def test_open_runtime_directory_uses_selected_preset_directory(self, tmp_path_factory: pytest.TempPathFactory) -> None:
-        preset = self.make_preset()
-        request = build_config.CommandRequest(build_config.Action.SHELL)
-        context = build_config.BuildContext(request, build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows')
-        stdout = io.StringIO()
-        output = BuildOutput(plain=True, stdout=stdout, stderr=io.StringIO())
-        directory = tmp_path_factory.mktemp('case')
-        with mock.patch.object(build_runtime, 'runtime_executable_path', return_value=Path(directory) / 'DurinEditor.exe'), mock.patch.object(build_runtime.os, 'startfile', create=True) as startfile:
-            build_core.open_runtime_directory(context, output)
-        startfile.assert_called_once_with(Path(directory))
-        assert 'Opened runtime directory' in stdout.getvalue()
-
     def test_test_action_rejects_non_test_preset(self) -> None:
         request = build_config.CommandRequest(build_config.Action.TEST, options=build_config.TestActionOptions(target='CoreTests'))
         with pytest.raises(build_config.BuildToolError, match='does not enable BUILD_TESTING'):

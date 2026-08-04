@@ -161,9 +161,18 @@ slash prefixes and compact operands remain compatibility forms.
 
 `build` and `rebuild` default to target `all`, while `test` requires an explicit
 target. An option belongs only to commands that consume it: toolchain and job
-overrides are not accepted by artifact-only commands such as `purge`, `run`, or
-`open-runtime`. The direct `presets`, `status`, and `open-runtime` actions use the
-same display and context paths as their interactive counterparts.
+overrides are not accepted by artifact-only commands such as `purge`, `run`,
+`path`, or `open`, and child-output selection is not accepted by discovery or
+external-opening commands. The direct `presets`, `status`, `path`, and `open`
+actions use the same display and context paths as their interactive counterparts.
+Registered aliases normalize through command metadata before dispatch;
+`open-runtime` is a hidden deprecated alias for `open runtime`, not a separate
+build action.
+
+`presets` is list-only. Explicit `preset <number-or-full-name>` selection uses
+one resolver in direct and interactive entry paths. Bare `worktree` defaults to
+the side-effect-free `list` leaf, and nested help such as `help worktree add` is
+generated from the same command specification as `worktree add --help`.
 
 Interactive shell startup resolves only repository configuration, the host build
 profile, registered presets, and the selected preset. CMake discovery, job-count
