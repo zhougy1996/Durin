@@ -2,7 +2,7 @@
 
 Summary: Adopt UE-style unique StaticMesh render-data ownership with explicit resource initialization, component render-state recreation, and one destruction release fence.
 
-Last reviewed: 2026-07-29
+Last reviewed: 2026-08-04
 
 Status: Active
 Completed:
@@ -32,9 +32,11 @@ counted render-data handle:
 
 The active
 [Static Mesh LOD Resources Refactor](StaticMeshLODResourcesRefactor.md) has
-completed its named-buffer stage and is about to add vertex factories. This
-lifecycle plan is its prerequisite because each additional vertex factory is
-another registered child whose release must precede render-data destruction.
+completed its named-buffer, vertex-factory, physical-stream, and shader-module
+implementation stages. Its remaining work is focused validation and editor
+smoke coverage. This lifecycle plan remains the ownership prerequisite because
+each vertex factory is another registered child whose release must precede
+render-data destruction.
 
 Stage 0 is complete from baseline `9cfee542`. The deterministic contract suite
 now reproduces the current immediate-destruction violation without executing
@@ -70,6 +72,18 @@ private publication primitive. `ExchangeImportedState` accepts a detached
 import candidate, never swaps asset release fences or resource states, and
 leaves only fully released CPU data on the candidate object for symmetric
 rollback.
+
+The Stage 4 implementation dependency is now present in the current codebase.
+`FStaticMeshRenderData` owns one `FStaticMeshVertexFactories` container per
+LOD, initializes all LOD buffers before vertex factories, and releases vertex
+factories before LOD buffers. The renderer obtains declarations and vertex
+streams from `FLocalVertexFactory`, while index-buffer selection remains
+separate. These contracts and the shader-module boundary are recorded in
+[Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md) and the
+associated LOD-resources plan. Stage 4 remains open because the lifecycle
+plan's current-HEAD validation, editor smoke workflows, performance evidence,
+final resource audits, and complete lifecycle documentation have not yet been
+recorded.
 
 The post-Stage 3 API review also narrowed the runtime control surface while
 preserving UE's explicit resource lifecycle shape. `GetRenderData()` is a
@@ -724,7 +738,7 @@ Dependencies: Stage 2.
 
 ### Stage 4: Coordinate Vertex Factories, Validate, and Document
 
-- [ ] Resume the Static Mesh LOD Resources Refactor and apply
+- [x] Resume the Static Mesh LOD Resources Refactor and apply
   buffer-before-factory init and factory-before-buffer release inside the
   asset-led lifecycle.
 - [ ] Run focused Engine, CoreDObject, RenderCore, Renderer, static-mesh,
