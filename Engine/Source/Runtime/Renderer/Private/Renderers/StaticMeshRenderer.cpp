@@ -289,7 +289,6 @@ namespace Durin
 					Section.MaterialSlotIndex);
 			FMaterialRenderV1Binding MaterialBinding;
 			FMaterialRenderValidationDiagnostic BindingDiagnostic;
-			FMaterialRenderData FallbackMaterial;
 			const FMaterialRenderData* MaterialData = &ResolvedMaterial;
 			if (!TryGetMaterialRenderV1Binding(
 				ResolvedMaterial.Representation,
@@ -306,6 +305,7 @@ namespace Durin
 					ERenderResourceGenerationDependency::Manual);
 				ReportRendererResourceCreateDiagnostic(Diagnostic);
 
+				static const FMaterialRenderData FallbackMaterial;
 				MaterialData = &FallbackMaterial;
 				FMaterialRenderValidationDiagnostic FallbackDiagnostic;
 				if (!TryGetMaterialRenderV1Binding(

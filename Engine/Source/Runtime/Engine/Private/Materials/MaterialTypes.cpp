@@ -435,7 +435,7 @@ namespace Durin
 		OutBinding = FMaterialRenderV1Binding{};
 		OutDiagnostic = {};
 
-		const FMaterialRenderLayout ExpectedLayout =
+		static const FMaterialRenderLayout ExpectedLayout =
 			MakeDefaultMaterialRenderLayout();
 		const FMaterialRenderLayout& Layout = Representation.GetLayout();
 		if (Layout.Identity != ExpectedLayout.Identity)
