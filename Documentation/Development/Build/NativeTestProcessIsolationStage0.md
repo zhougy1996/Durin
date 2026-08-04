@@ -89,8 +89,8 @@ files sharing one fixture name remain in the same target.
   `FReflectedPropertyEditSessionTests`.
 - `EditorAssetWorkflowTests` owns the destination, structure-upgrade,
   content-browser, import-dialog, source-path, and source-index suites.
-- `MaterialTests` owns `FMaterialTests`, `FMaterialDependencyTests`,
-  `FMaterialUpdateContextTests`, and `FMaterialParameterPanelModelTests`.
+- `MaterialTests` owns `FMaterialTests`, `FMaterialDependencyTests`, and
+  `FMaterialParameterPanelModelTests`.
 - `StaticMeshTests` owns the payload, derived-data, upgrade, update, and slot
   detail suites.
 - `TextureTests` owns `FTexture2DTests`, `FTextureDerivedDataTests`,

@@ -165,6 +165,33 @@ TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleSt
 	Durin::CollectGarbage();
 }
 
+TEST(FMaterialRenderProxyTests, OrdinarySetterDoesNotRunLoadedMaterialQuery)
+{
+	FRenderSceneHarness Harness;
+	auto* Material = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "ProxyOnlyQueryMaterial");
+	Durin::FMaterialRenderProxyRef Proxy = Material->GetMaterialRenderProxy();
+	Durin::ResetMaterialLoadedQueryDiagnostics();
+
+	ASSERT_TRUE(Material->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(),
+		Durin::FVector3(0.25, 0.5, 0.75)));
+	const Durin::FMaterialLoadedQueryDiagnostics Diagnostics =
+		Durin::GetMaterialLoadedQueryDiagnostics();
+	EXPECT_EQ(Diagnostics.LastOperation, Durin::EMaterialLoadedQueryOperation::None);
+	EXPECT_EQ(Diagnostics.QueryCount, 0);
+	EXPECT_EQ(Diagnostics.SnapshotCount, 0);
+	EXPECT_EQ(Diagnostics.ScannedObjectCount, 0);
+	EXPECT_EQ(Diagnostics.ScannedMaterialCount, 0);
+
+	Durin::MarkAsGarbage(Material);
+	Durin::CollectGarbage();
+	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
+	WaitForRenderingThread();
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}
+
 TEST(FMaterialRenderProxyTests, CoalescesQueuedPublicationsPerProxy)
 {
 	FRenderSceneHarness Harness;

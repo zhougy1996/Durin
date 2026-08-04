@@ -84,25 +84,28 @@ declarations and a compiled renderer layout are deferred work.
   canonical relationship, and dependency tests walk that chain iteratively with
   a cycle guard. A material depends on itself; a base material has no other
   material dependency.
-- Loaded direct-child and transitive-dependent queries scan a stable
-  `GDObjectArray` snapshot on the game thread and return sorted,
+- Loaded direct-child and transitive-dependent queries share one stable
+  `GDObjectArray` snapshot helper on the game thread and return sorted,
   generation-safe object handles. They do not load assets, retain dependents, or
-  expose the live object array during callbacks.
+  expose the live object array during callbacks. The helper reports the query
+  operation, snapshot count, scanned work, and result count for diagnostics.
 - Materials and static meshes own no reverse component collections, and
   instances and components keep no registered-value mirrors for Parent, mesh,
   or material assignments. Loading, reflected edits, transactions,
   duplication, destruction, and garbage collection therefore have no
   registration-reconciliation step.
-- Ordinary material mutation does not construct or flush
-  `FMaterialUpdateContext`. It publishes directly to the stable material proxy,
-  performs no `GDObjectArray` snapshot, and performs no component enumeration.
+- Ordinary material mutation does not construct or flush a global material
+  update context. It publishes directly to the stable material proxy, performs
+  no `GDObjectArray` snapshot, and performs no component enumeration.
   Parent and descendant proxies observe inherited changes during their next
   render-thread resolution without a child enumeration.
-- `FMaterialUpdateContext` remains an explicit structural/batch compatibility
-  path for callers that require a deterministic synchronous operation. Until
-  structural migration completes, that path may still traverse loaded objects;
-  ordinary setters never enter it. `FlushRenderingCommands()` remains the
+- The removed global material update context had no production callers after
+  proxy publication. Explicit structural work now uses the generic primitive
+  and scene lifecycle APIs owned by the initiating subsystem; material queries
+  remain loaded-runtime queries only. `FlushRenderingCommands()` remains the
   explicit visibility boundary for tests, import, preview, and save workflows.
+- Editor hierarchy queries that must include unloaded assets belong to the asset
+  registry and package systems, not the runtime material object relationship.
 - Static-mesh render-data changes use a separate on-demand loaded-component
   scan and select components whose current mesh assignment equals the changed
   mesh. Rebuilding render state then resolves current slot definitions,

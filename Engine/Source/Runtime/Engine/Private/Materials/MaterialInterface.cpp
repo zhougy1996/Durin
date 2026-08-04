@@ -12,20 +12,56 @@ namespace Durin
 {
 	namespace
 	{
+		FMaterialLoadedQueryDiagnostics GMaterialLoadedQueryDiagnostics;
+
 		auto CheckMaterialQueryThread() -> void
 		{
 			if (GIsGameThreadIdInitialized) CheckGameThread();
 		}
 
-		auto SortObjectHandles(std::vector<FObjectHandle>& Handles) -> void
-		{
-			std::ranges::sort(Handles, [](FObjectHandle Left, FObjectHandle Right) {
-				return Left.Index < Right.Index
-					|| (Left.Index == Right.Index && Left.Generation < Right.Generation);
-			});
-		}
-
 		const FMaterialStaticProperties GDefaultMaterialStaticProperties;
+
+		template <typename Predicate>
+		auto QueryLoadedMaterialHandles(
+			EMaterialLoadedQueryOperation Operation,
+			Predicate&& PredicateFn
+		) -> std::vector<FObjectHandle>
+		{
+			CheckMaterialQueryThread();
+			std::vector<FObjectHandle> Result;
+			const std::vector<DObject*> Objects = GDObjectArray.Snapshot();
+			++GMaterialLoadedQueryDiagnostics.QueryCount;
+			++GMaterialLoadedQueryDiagnostics.SnapshotCount;
+			GMaterialLoadedQueryDiagnostics.LastOperation = Operation;
+			GMaterialLoadedQueryDiagnostics.ScannedObjectCount += Objects.size();
+			for (DObject* Object : Objects)
+			{
+				auto* Material = Cast<DMaterialInterface>(Object);
+				if (!IsValid(Material)) continue;
+				++GMaterialLoadedQueryDiagnostics.ScannedMaterialCount;
+				if (!PredicateFn(Material)) continue;
+				const FObjectHandle Handle = MakeObjectHandle(Material);
+				if (!IsObjectHandleNull(Handle)) Result.push_back(Handle);
+			}
+			std::ranges::sort(Result, [](FObjectHandle Left, FObjectHandle Right) {
+				return Left.Index < Right.Index
+				|| (Left.Index == Right.Index && Left.Generation < Right.Generation);
+			});
+			GMaterialLoadedQueryDiagnostics.LastResultCount = Result.size();
+			return Result;
+		}
+	}
+
+	auto GetMaterialLoadedQueryDiagnostics() -> FMaterialLoadedQueryDiagnostics
+	{
+		CheckMaterialQueryThread();
+		return GMaterialLoadedQueryDiagnostics;
+	}
+
+	auto ResetMaterialLoadedQueryDiagnostics() -> void
+	{
+		CheckMaterialQueryThread();
+		GMaterialLoadedQueryDiagnostics = {};
 	}
 
 	DMaterialInterface::DMaterialInterface(const FObjectInitializer& ObjectInitializer)
@@ -241,39 +277,24 @@ namespace Durin
 		const DMaterialInterface* Parent
 	) -> std::vector<FObjectHandle>
 	{
-		CheckMaterialQueryThread();
 		if (!IsValid(Parent)) return {};
-
-		std::vector<FObjectHandle> Result;
-		const std::vector<DObject*> Objects = GDObjectArray.Snapshot();
-		for (DObject* Object : Objects)
-		{
-			auto* Instance = Cast<DMaterialInstance>(Object);
-			if (!IsValid(Instance) || Instance->GetParent() != Parent) continue;
-			const FObjectHandle Handle = MakeObjectHandle(Instance);
-			if (!IsObjectHandleNull(Handle)) Result.push_back(Handle);
-		}
-		SortObjectHandles(Result);
-		return Result;
+		return QueryLoadedMaterialHandles(
+			EMaterialLoadedQueryOperation::DirectChildren,
+			[Parent](DMaterialInterface* Material) {
+				auto* Instance = Cast<DMaterialInstance>(Material);
+				return IsValid(Instance) && Instance->GetParent() == Parent;
+			});
 	}
 
 	auto GetLoadedMaterialDependents(
 		const DMaterialInterface* Dependency
 	) -> std::vector<FObjectHandle>
 	{
-		CheckMaterialQueryThread();
 		if (!IsValid(Dependency)) return {};
-
-		std::vector<FObjectHandle> Result;
-		const std::vector<DObject*> Objects = GDObjectArray.Snapshot();
-		for (DObject* Object : Objects)
-		{
-			auto* Material = Cast<DMaterialInterface>(Object);
-			if (!IsValid(Material) || !Material->IsDependent(Dependency)) continue;
-			const FObjectHandle Handle = MakeObjectHandle(Material);
-			if (!IsObjectHandleNull(Handle)) Result.push_back(Handle);
-		}
-		SortObjectHandles(Result);
-		return Result;
+		return QueryLoadedMaterialHandles(
+			EMaterialLoadedQueryOperation::Dependents,
+			[Dependency](DMaterialInterface* Material) {
+				return Material->IsDependent(Dependency);
+			});
 	}
 }

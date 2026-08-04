@@ -51,7 +51,6 @@ namespace Durin
 		uint64 CoalescedPublicationCount = 0;
 		uint64 ResolutionCacheHitCount = 0;
 		uint64 ResolutionCacheMissCount = 0;
-		uint64 StructuralFallbackCount = 0;
 		uint64 StalePublicationCount = 0;
 		uint64 BindingUpdateCount = 0;
 	};
@@ -59,7 +58,6 @@ namespace Durin
 	ENGINE_API auto GetMaterialRenderProxyCounters()
 		-> FMaterialRenderProxyCounters;
 	ENGINE_API auto ResetMaterialRenderProxyCounters() -> void;
-	ENGINE_API auto RecordMaterialStructuralFallback() -> void;
 	ENGINE_API auto RecordMaterialBindingUpdate() -> void;
 
 	// Owns render-thread material state behind one stable counted identity.

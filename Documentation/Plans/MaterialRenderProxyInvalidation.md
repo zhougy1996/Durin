@@ -5,11 +5,10 @@ Summary: Replace object-wide material invalidation scans with stable render-prox
 Last reviewed: 2026-08-04
 
 Status: Active
-Completed: Stages 0 through 3
 
 ## Current Status
 
-Stages 0 through 3 are complete. Every material interface owns one stable
+Stages 0 through 4 are complete. Every material interface owns one stable
 counted `FMaterialRenderProxy`, and static-mesh scene proxies now retain those
 proxy references per stable slot instead of copied `FMaterialRenderData`,
 material versions, and dirty flags. Renderer section draws resolve the bound
@@ -21,20 +20,19 @@ Parameter, static-property, and inherited changes update the stable proxy
 without changing component revision or sending slot updates. Assigning,
 clearing, or replacing a slot material sends a binding-only packet ordered by
 component revision, while structural mesh/default/bulk changes still recreate
-the scene proxy. The legacy `FMaterialUpdateContext` discovery pass remains
-active only as transitional characterized work and no longer pushes material
-content into components.
+the scene proxy. The unused global `FMaterialUpdateContext` discovery pass has
+been removed; structural work stays with the initiating primitive/scene
+lifecycle owner.
 
-Stage 4 is next and will restrict the remaining context to explicit
-structural/tool operations, centralize loaded-material queries, and remove the
-transitional scan-only implementation details.
+Stage 5 is next and covers the broader integration, editor, rendered-output,
+and shutdown validation matrix.
 
 The ordinary setter path now publishes immutable state through each material's
 stable proxy. One pending publication wave per proxy is coalesced before the
 render command applies it, so ordinary parameter and inherited changes do not
 snapshot `GDObjectArray`, enumerate components, or push copied material data
-into scene-proxy slots. `FMaterialUpdateContext` remains an explicit
-structural/batch compatibility path until Stage 4 completes its migration.
+into scene-proxy slots. No global material update context remains on the
+ordinary or structural material-content path.
 
 The selected replacement is stable render-proxy indirection. Scene proxies
 will retain a render-thread-safe `FMaterialRenderProxyRef` for each material
@@ -63,8 +61,8 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
   parent-to-children or material-to-consumer registration graph.
 - Separate frequent data publication from rare shader-layout or render-state
   reconstruction.
-- Reduce `FMaterialUpdateContext` to an explicit structural/batch operation
-  rather than the mandatory path for every setter.
+- Remove the unused global material update context after ordinary publication
+  no longer has any production caller of that path.
 
 ## Scope
 
@@ -500,24 +498,24 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
 
 ### Stage 4: Isolate Structural Updates and Dependency Queries
 
-- [ ] Restrict `FMaterialUpdateContext` to the structural operations selected
-  in Stage 0 and to explicit tool/import batches.
-- [ ] Remove `DStaticMeshComponent` knowledge from the structural material
-  context; structural render-state work must use the existing generic
-  primitive/scene lifecycle surface or an explicit caller-provided component
-  set.
-- [ ] Centralize loaded-material parent-chain queries so
+- [x] Remove the unused global `FMaterialUpdateContext` after confirming that
+  no production caller remains; structural render-state work stays with the
+  initiating generic primitive/scene lifecycle surface.
+- [x] Remove `DStaticMeshComponent` knowledge from the material subsystem;
+  structural work is owned by the generic primitive/scene lifecycle.
+- [x] Centralize loaded-material parent-chain queries so
   `GetLoadedDirectMaterialChildren`, `GetLoadedMaterialDependents`, and rare
   structural updates do not carry separate implementations.
-- [ ] Keep the centralized query scan scoped to loaded material interfaces
+- [x] Keep the centralized query scan scoped to loaded material interfaces
   when practical. Do not introduce a permanent parent-to-children index without
   new profiling evidence.
-- [ ] Define editor hierarchy queries that require unloaded assets as asset
+- [x] Define editor hierarchy queries that require unloaded assets as asset
   registry operations rather than runtime object relationships.
-- [ ] Delete obsolete affected-material/component handles, sorting helpers,
-  global flush state, and scan-only counters after all call sites migrate.
-- [ ] Add diagnostics identifying the operation that selected a structural
-  fallback and the amount of work it performed.
+- [x] Delete obsolete affected-material/component handles, the global flush
+  state, the dedicated sorting helper, and scan-only counters with the removed
+  context.
+- [x] Add loaded-query diagnostics identifying the operation and the amount of
+  snapshot/material/result work it performed.
 
 #### Acceptance Gate
 
@@ -527,8 +525,30 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
   traversal or generic render-state reconstruction.
 - All runtime loaded-dependent queries share one implementation and preserve
   deterministic public results.
-- Debug diagnostics make accidental use of the structural path by an ordinary
-  parameter setter test-fatal.
+- Debug diagnostics make accidental loaded-relationship traversal visible in
+  ordinary parameter setter tests, which require zero loaded-query work.
+
+#### Stage 4 Handoff
+
+- Baseline commit: `c2ea71fd` (`feat(material): coalesce ordinary proxy publications`).
+- Working set: loaded material relationship queries, material proxy diagnostics,
+  the removed material update context and scan tests/build references, runtime
+  rendering documentation, and dependency-query tests.
+- Key symbols: `QueryLoadedMaterialHandles`,
+  `GetMaterialLoadedQueryDiagnostics`,
+  `EMaterialLoadedQueryOperation`, and
+  `DMaterialInterface::GetMaterialRenderProxy`.
+- Decisions: no production caller justified retaining the global material
+  update context; material relationship queries share one loaded-object scan
+  helper and remain deterministic; unloaded hierarchy queries belong to the
+  asset registry; proxy counters no longer expose an unreachable structural
+  fallback counter.
+- Open questions: Stage 5 still needs broad editor, renderer readback,
+  lifecycle, and stress coverage.
+- Validation: focused dependency/proxy tests pass 10/10; complete
+  `MaterialTests` passes 50/50; the same `Win64-Debug-DurinEditor-Tests`
+  profile completes `build --target all` and a hidden five-tick `DurinEditor`
+  runtime smoke.
 
 ### Stage 5: Complete Validation and Document the Runtime Contract
 
@@ -613,11 +633,10 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
 
 - `Engine/Source/Runtime/Engine/Public/Materials/MaterialInterface.h`
 - `Engine/Source/Runtime/Engine/Public/Materials/MaterialTypes.h`
-- `Engine/Source/Runtime/Engine/Public/Materials/MaterialUpdateContext.h`
+- `Engine/Source/Runtime/Engine/Public/Materials/MaterialRenderProxy.h`
 - `Engine/Source/Runtime/Engine/Public/Engine/PrimitiveSceneProxy.h`
 - `Engine/Source/Runtime/Engine/Private/Materials/MaterialInterface.cpp`
 - `Engine/Source/Runtime/Engine/Private/Materials/MaterialInstance.cpp`
-- `Engine/Source/Runtime/Engine/Private/Materials/MaterialUpdateContext.cpp`
 - `Engine/Source/Runtime/Engine/Private/Components/StaticMeshComponent.cpp`
 - `Engine/Source/Runtime/Engine/Private/Engine/PrimitiveSceneProxy.cpp`
 - `Engine/Source/Runtime/Renderer/Private/RendererModule.cpp`

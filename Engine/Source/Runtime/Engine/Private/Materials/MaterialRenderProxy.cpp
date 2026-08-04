@@ -16,7 +16,6 @@ namespace Durin
 			std::atomic<uint64> CoalescedPublicationCount = 0;
 			std::atomic<uint64> ResolutionCacheHitCount = 0;
 			std::atomic<uint64> ResolutionCacheMissCount = 0;
-			std::atomic<uint64> StructuralFallbackCount = 0;
 			std::atomic<uint64> StalePublicationCount = 0;
 			std::atomic<uint64> BindingUpdateCount = 0;
 		};
@@ -88,7 +87,6 @@ namespace Durin
 			.CoalescedPublicationCount = GMaterialRenderProxyCounters.CoalescedPublicationCount.load(),
 			.ResolutionCacheHitCount = GMaterialRenderProxyCounters.ResolutionCacheHitCount.load(),
 			.ResolutionCacheMissCount = GMaterialRenderProxyCounters.ResolutionCacheMissCount.load(),
-			.StructuralFallbackCount = GMaterialRenderProxyCounters.StructuralFallbackCount.load(),
 			.StalePublicationCount = GMaterialRenderProxyCounters.StalePublicationCount.load(),
 			.BindingUpdateCount = GMaterialRenderProxyCounters.BindingUpdateCount.load(),
 		};
@@ -100,14 +98,8 @@ namespace Durin
 		GMaterialRenderProxyCounters.CoalescedPublicationCount.store(0);
 		GMaterialRenderProxyCounters.ResolutionCacheHitCount.store(0);
 		GMaterialRenderProxyCounters.ResolutionCacheMissCount.store(0);
-		GMaterialRenderProxyCounters.StructuralFallbackCount.store(0);
 		GMaterialRenderProxyCounters.StalePublicationCount.store(0);
 		GMaterialRenderProxyCounters.BindingUpdateCount.store(0);
-	}
-
-	auto RecordMaterialStructuralFallback() -> void
-	{
-		GMaterialRenderProxyCounters.StructuralFallbackCount.fetch_add(1);
 	}
 
 	auto RecordMaterialBindingUpdate() -> void

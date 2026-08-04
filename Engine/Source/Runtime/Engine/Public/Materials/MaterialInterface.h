@@ -11,7 +11,27 @@ namespace Durin
 {
 	class DMaterialInstance;
 	class DTexture2D;
-	class FMaterialUpdateContext;
+
+	enum class EMaterialLoadedQueryOperation : uint8
+	{
+		None,
+		DirectChildren,
+		Dependents,
+	};
+
+	struct FMaterialLoadedQueryDiagnostics
+	{
+		EMaterialLoadedQueryOperation LastOperation = EMaterialLoadedQueryOperation::None;
+		uint64 QueryCount = 0;
+		uint64 SnapshotCount = 0;
+		uint64 ScannedObjectCount = 0;
+		uint64 ScannedMaterialCount = 0;
+		uint64 LastResultCount = 0;
+	};
+
+	ENGINE_API auto GetMaterialLoadedQueryDiagnostics()
+		-> FMaterialLoadedQueryDiagnostics;
+	ENGINE_API auto ResetMaterialLoadedQueryDiagnostics() -> void;
 
 	// Defines the shared parameter-resolution and render-update contract for materials.
 	DCLASS()
@@ -56,7 +76,6 @@ namespace Durin
 		mutable uint64 LastSubmittedMaterialProxyLocalVersion = 0;
 		bool bAcceptingMaterialProxyPublications = true;
 
-		friend class FMaterialUpdateContext;
 	};
 
 	// Returns loaded material instances whose canonical Parent is exactly Parent.

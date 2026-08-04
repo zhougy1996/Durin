@@ -89,6 +89,7 @@ TEST(FMaterialDependencyTests, CorruptParentCycleTerminatesDependencyQueries)
 TEST(FMaterialDependencyTests, LoadedQueriesSeparateDirectChildrenFromTransitiveDependents)
 {
 	InitializeDObjectSystem();
+	Durin::ResetMaterialLoadedQueryDiagnostics();
 	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "LoadedQueryBase");
 	Durin::DMaterial* Unrelated = Durin::NewObject<Durin::DMaterial>(nullptr, "LoadedQueryUnrelated");
 	Durin::DMaterialInstance* First = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "LoadedQueryFirst");
@@ -99,13 +100,26 @@ TEST(FMaterialDependencyTests, LoadedQueriesSeparateDirectChildrenFromTransitive
 	ASSERT_TRUE(Other->SetParent(Unrelated));
 
 	const std::vector<Durin::FObjectHandle> Direct = Durin::GetLoadedDirectMaterialChildren(Base);
+	const Durin::FMaterialLoadedQueryDiagnostics DirectDiagnostics =
+		Durin::GetMaterialLoadedQueryDiagnostics();
 	ASSERT_EQ(Direct.size(), 1);
+	EXPECT_EQ(DirectDiagnostics.LastOperation, Durin::EMaterialLoadedQueryOperation::DirectChildren);
+	EXPECT_EQ(DirectDiagnostics.QueryCount, 1);
+	EXPECT_EQ(DirectDiagnostics.SnapshotCount, 1);
+	EXPECT_GE(DirectDiagnostics.ScannedMaterialCount, 5);
+	EXPECT_EQ(DirectDiagnostics.LastResultCount, Direct.size());
 	EXPECT_TRUE(HandleEquals(Direct.front(), Durin::MakeObjectHandle(First)));
 	EXPECT_FALSE(ContainsHandle(Direct, Durin::MakeObjectHandle(Base)));
 	EXPECT_FALSE(ContainsHandle(Direct, Durin::MakeObjectHandle(Second)));
 
 	const std::vector<Durin::FObjectHandle> Dependents = Durin::GetLoadedMaterialDependents(Base);
+	const Durin::FMaterialLoadedQueryDiagnostics DependentDiagnostics =
+		Durin::GetMaterialLoadedQueryDiagnostics();
 	EXPECT_EQ(Dependents.size(), 3);
+	EXPECT_EQ(DependentDiagnostics.LastOperation, Durin::EMaterialLoadedQueryOperation::Dependents);
+	EXPECT_EQ(DependentDiagnostics.QueryCount, 2);
+	EXPECT_EQ(DependentDiagnostics.SnapshotCount, 2);
+	EXPECT_EQ(DependentDiagnostics.LastResultCount, Dependents.size());
 	EXPECT_TRUE(ContainsHandle(Dependents, Durin::MakeObjectHandle(Base)));
 	EXPECT_TRUE(ContainsHandle(Dependents, Durin::MakeObjectHandle(First)));
 	EXPECT_TRUE(ContainsHandle(Dependents, Durin::MakeObjectHandle(Second)));
