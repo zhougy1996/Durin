@@ -16,10 +16,19 @@ creation and draw submission, the command list rejects the compute pipeline,
 and synchronization is limited to render-pass and resource upload/readback
 paths.
 
-No child implementation plan is active yet. The first plan should establish a
-general resource-transition contract so the compute vertical slice does not
-introduce a one-off synchronization mechanism that must immediately be
-replaced.
+Two upstream RHI submission plans are now active:
+[Recorded RHI Command List](../Plans/RecordedRHICommandList.md) establishes the
+record/replay and payload-lifetime boundary required by new compute commands,
+and [Dedicated RHI Thread](../Plans/DedicatedRHIThread.md) moves replay onto its
+own CPU thread. The recorded-command-list contract is required before the
+resource-transition and synchronous-compute implementations. The dedicated RHI
+thread is not a prerequisite for synchronous compute, but is required before
+the evidence-gated asynchronous-compute milestone.
+
+No compute child implementation plan is active yet. The first compute plan
+should establish a general resource-transition contract so the compute vertical
+slice does not introduce a one-off synchronization mechanism that must
+immediately be replaced.
 
 ## Outcome
 
@@ -63,6 +72,9 @@ prerequisites for the core outcome.
 
 ### Execution order
 
+- Complete the recorded RHI command-list contract before implementing new
+  transition or compute commands. Synchronous compute may replay through either
+  the inline or threaded executor.
 - Ship synchronous compute before considering asynchronous compute.
 - The initial execution path uses one immediate queue whose family explicitly
   supports compute. A combined graphics-and-compute family is preferred for the
@@ -70,6 +82,9 @@ prerequisites for the core outcome.
   synchronous milestone.
 - `Dispatch` is invalid inside an active graphics render pass unless a later
   backend contract explicitly introduces compatible subpass behavior.
+- A dedicated CPU RHI thread does not imply GPU queue concurrency. Async compute
+  still requires its own measured workload, queue, synchronization, ownership,
+  and fallback work.
 
 ### RHI ownership
 
@@ -124,26 +139,43 @@ prerequisites for the core outcome.
 
 ```mermaid
 flowchart LR
-    M1["M1: Resource transitions"] --> M2["M2: Synchronous compute core"]
+    RC["Recorded RHI CommandList"] --> M1["M1: Resource transitions"]
+    RC --> RT["Dedicated RHI thread"]
+    M1 --> M2["M2: Synchronous compute core"]
     M2 --> M3["M3: Renderer integration"]
     M2 --> M4["M4: Indirect dispatch (conditional)"]
     M3 --> M5["M5: Async compute (evidence-gated)"]
     M1 --> M5
+    RT --> M5
 ```
 
 | Milestone | Requirement | Proposed child plan | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
-| M1: Resource transitions | Required | `GPUResourceTransitions` | Existing render-pass, upload, readback, and subresource state paths have a documented working set. | Public buffer/image transitions pass focused Vulkan tests without breaking current render-pass or transfer behavior. |
+| M1: Resource transitions | Required | `GPUResourceTransitions` | The recorded-command-list encoding and replay contract is stable; existing render-pass, upload, readback, and subresource state paths have a documented working set. | Public buffer/image transitions pass focused Vulkan tests without breaking current render-pass or transfer behavior. |
 | M2: Synchronous compute core | Required | `SynchronousComputePipeline` | M1 access-state and barrier contracts are stable enough for compute mappings. | Public RHI creates and caches a compute PSO, binds reflected resources/push constants, dispatches outside a render pass, and validates storage buffer and image results. |
 | M3: Renderer integration | Required | `ComputeRendererIntegration` | M2 vertical slice and interop validation pass; a consumer is selected with an explicit fallback and measurable benefit. | The selected renderer path consumes compute output without Vulkan escape hatches, survives resource refresh/lifetime scenarios, and passes its runtime validation. |
 | M4: Indirect dispatch | Conditional | `ComputeDispatchExtensions` | A concrete GPU-driven workload requires indirect dispatch and M2 is complete. | Indirect argument creation, transitions, bounds validation, and `DispatchIndirect` pass focused and runtime tests. |
-| M5: Async compute | Evidence-gated | `AsyncComputeExecution` | M1-M3 are complete; profiling identifies overlap opportunity that exceeds scheduling and ownership costs on target hardware. | Separate compute submission, cross-queue synchronization, ownership transfer, resource lifetime, fallback, and frame shutdown are validated without global idle waits. |
+| M5: Async compute | Evidence-gated | `AsyncComputeExecution` | M1-M3 and the dedicated RHI thread plan are complete; profiling identifies overlap opportunity that exceeds scheduling and ownership costs on target hardware. | Separate compute submission, cross-queue synchronization, ownership transfer, resource lifetime, fallback, and frame shutdown are validated without global idle waits. |
 
 M1 through M3 define the required roadmap. M4 and M5 do not block roadmap
 completion when their entry evidence is absent; they must instead be explicitly
 marked deferred with the evidence reviewed.
 
 ## Child Plan Boundaries
+
+### Upstream RHI submission plans
+
+[Recorded RHI Command List](../Plans/RecordedRHICommandList.md) owns immutable
+command batches, payload/resource lifetime, inline replay, submission serials,
+and precise flush semantics. Compute child plans add transition and dispatch
+command types to that established recording surface; they do not restore direct
+context calls.
+
+[Dedicated RHI Thread](../Plans/DedicatedRHIThread.md) owns CPU-thread transfer,
+backend affinity, replay, queue submission, frame/present lifecycle, and
+shutdown drain. It can proceed independently of synchronous compute after its
+recorded-command-list prerequisite. Only M5 requires it; M1 through M3 remain
+valid in inline executor mode.
 
 ### `GPUResourceTransitions`
 
@@ -220,6 +252,7 @@ editor.
 | Named graphics and compute PSO caches collide. | M2 gives pipeline type an explicit identity boundary and validates same-name behavior. |
 | Readback barriers retain graphics-only stage masks. | M1 covers shader-write-to-transfer/readback with compute stages before M2 readback acceptance. |
 | Async compute is implemented without an overlap opportunity. | M5 cannot start without workload traces and a target-hardware benefit hypothesis. |
+| A CPU RHI thread is mistaken for GPU async compute readiness. | M5 requires the dedicated-thread plan plus explicit GPU queue, ownership, synchronization, and profiling gates. |
 | The first consumer turns the core plan into a renderer redesign. | M3 selects a bounded consumer with fallback and excludes unrelated renderer architecture work. |
 
 ## Completion Criteria
@@ -243,6 +276,8 @@ The required roadmap is complete when:
 ## Related Documentation
 
 - [Implementation plan rules](../Plans/AGENTS.md)
+- [Recorded RHI Command List](../Plans/RecordedRHICommandList.md)
+- [Dedicated RHI Thread](../Plans/DedicatedRHIThread.md)
 - [Build and run](../Development/Build/BuildAndRun.md)
 - [Shader parameters](../Runtime/Rendering/ShaderParameters.md)
 - [Texture system](../Runtime/Rendering/TextureSystem.md)
