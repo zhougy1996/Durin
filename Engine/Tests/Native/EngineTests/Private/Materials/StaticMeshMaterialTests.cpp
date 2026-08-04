@@ -346,7 +346,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsAndSurvivesRenderedRe
 	ExpectColorNear(GetMaterialBinding(AfterReimport.Materials[1]).BaseColor, Durin::FVector4f(0.85f, 0.15f, 0.1f, 1.0f));
 	ExpectColorNear(
 		GetMaterialBinding(AfterReimport.Materials[0]).BaseColor,
-		Durin::FMaterialRenderV1Binding{}.BaseColor);
+		Durin::FMaterialRenderV2Binding{}.BaseColor);
 	RenderComponent->UnregisterComponent();
 	WaitForRenderingThread();
 
@@ -503,6 +503,8 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	Durin::DMaterial* Base = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(BasePath, Base));
 	Base->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.6));
+	Base->SetVectorParameterValue(Durin::MaterialParameters::NormalName(), Durin::FVector3(0.0, 1.0, 1.0));
+	Base->SetScalarParameterValue(Durin::MaterialParameters::RoughnessName(), 0.7f);
 	Durin::FMaterialStaticProperties StaticProperties;
 	StaticProperties.BlendMode = Durin::EMaterialBlendMode::Masked;
 	StaticProperties.ShadingModel = Durin::EMaterialShadingModel::Unlit;
@@ -516,6 +518,10 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	ASSERT_TRUE(Durin::Asset::CreateAsset(InstancePath, Instance));
 	ASSERT_TRUE(Instance->SetParent(Base));
 	Instance->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.35f);
+	Instance->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.8f);
+	Instance->SetScalarParameterValue(Durin::FName("BaseColorUVChannel"), 2.0f);
+	Instance->SetVectorParameterValue(Durin::FName("BaseColorUVScale"), Durin::FVector3(2.0, -1.0, 0.0));
+	Instance->SetVectorParameterValue(Durin::FName("BaseColorUVOffset"), Durin::FVector3(0.25, 0.5, 0.0));
 	Instance->SetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Instance->GetPackage()));
 	const Durin::Asset::FAssetData* InstanceData =
@@ -538,11 +544,17 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	ASSERT_NE(Loaded->GetParent(), nullptr);
 	EXPECT_EQ(Loaded->GetStaticProperties(), StaticProperties);
 	ExpectColorNear(GetMaterialBinding(Loaded->GetRenderData()).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 0.35f));
+	const Durin::FMaterialRenderV2Binding LoadedBinding = GetMaterialBinding(Loaded->GetRenderData());
+	EXPECT_FLOAT_EQ(LoadedBinding.Metallic, 0.8f);
+	EXPECT_FLOAT_EQ(LoadedBinding.Roughness, 0.7f);
+	EXPECT_FLOAT_EQ(LoadedBinding.UVChannels[0], 2.0f);
+	EXPECT_EQ(LoadedBinding.UVScales[0], Durin::FVector3f(2.0f, -1.0f, 0.0f));
+	EXPECT_EQ(LoadedBinding.UVOffsets[0], Durin::FVector3f(0.25f, 0.5f, 0.0f));
 	Durin::DTexture2D* LoadedTexture = nullptr;
 	ASSERT_TRUE(Loaded->GetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), LoadedTexture));
 	ASSERT_NE(LoadedTexture, nullptr);
 	EXPECT_EQ(
-		GetMaterialBinding(Loaded->GetRenderData()).BaseColorTexture,
+		GetMaterialBinding(Loaded->GetRenderData()).Textures[0],
 		LoadedTexture->GetTextureReferenceRHI());
 	auto* LoadedBase = Durin::Cast<Durin::DMaterial>(Loaded->GetParent());
 	ASSERT_NE(LoadedBase, nullptr);

@@ -342,7 +342,7 @@ namespace Durin
 	auto DMaterialInstance::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
-		const bool bLegacySchema = ParameterSchemaVersion == 0;
+		const bool bLegacySchema = ParameterSchemaVersion < CurrentMaterialParameterSchemaVersion;
 		std::string SchemaWarning;
 		if (!UpgradeMaterialParameterSchemaVersion(
 				ParameterSchemaVersion, SchemaWarning, OutError))
@@ -373,7 +373,9 @@ namespace Durin
 			}
 			const FMaterialParameterDefinition* Definition =
 				FindParameterDefinition(Override.ParameterId);
-			if (bLegacySchema && Definition != nullptr)
+			if (bLegacySchema && Definition != nullptr
+				&& Override.ParameterId != MaterialParameters::SpecularStrengthId
+				&& Override.ParameterId != MaterialParameters::ShininessId)
 			{
 				Override.Type = Definition->Type;
 			}

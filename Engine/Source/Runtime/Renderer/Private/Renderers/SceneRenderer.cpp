@@ -2,7 +2,9 @@
 
 #include "Profiling/Profiling.h"
 
+#include "AssetSystem.h"
 #include "Console/ConsoleCommand.h"
+#include "EnvironmentLighting/EnvironmentLighting.h"
 #include "IScene.h"
 #include "RHI.h"
 #include "RHICommandList.h"
@@ -24,7 +26,8 @@ namespace Durin
 	} // namespace
 
 	FSceneRenderer::FSceneRenderer()
-		: StaticMeshRenderer(Coordinator, DefaultTextures)
+		: EnvironmentLighting(Coordinator)
+		, StaticMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
 		, SkyBoxRenderer(Coordinator, DefaultTextures)
 		, PostProcessRenderer(Coordinator, FullscreenGeometry)
 		, EditorAssistanceRenderer(Coordinator, FullscreenGeometry)
@@ -35,6 +38,26 @@ namespace Durin
 
 	auto FSceneRenderer::Start(FConsoleCommandRegistry& Registry) -> bool
 	{
+		FAssetPath EnvironmentPath;
+		DEnvironmentLighting* EnvironmentAsset = nullptr;
+		std::string PathError;
+		Asset::FAssetResult EnvironmentResult =
+			FAssetPath::TryCreate(
+				"/Engine/Renderer/DefaultStudioEnvironment",
+				EnvironmentPath,
+				&PathError)
+			? Asset::LoadAsset(EnvironmentPath, EnvironmentAsset)
+			: Asset::FAssetResult{Asset::EAssetError::InvalidPath, std::move(PathError)};
+		if (EnvironmentResult && EnvironmentAsset != nullptr)
+		{
+			EnvironmentLighting.Initialize(EnvironmentAsset->GetData());
+		}
+		else
+		{
+			DURIN_ERROR(
+				"Failed to load the built-in studio environment: {}",
+				EnvironmentResult.Message);
+		}
 		return Coordinator.Start(
 			Registry,
 			[this](ERendererResourceInvalidationCause Cause) {
@@ -58,6 +81,7 @@ namespace Durin
 	{
 		check(IsInRenderingThread());
 		DefaultTextures.ReleaseResources_RenderThread();
+		EnvironmentLighting.ReleaseResources_RenderThread();
 		StaticMeshRenderer.ReleaseResources_RenderThread();
 		Coordinator.ReleaseResources_RenderThread();
 		SkyBoxRenderer.ReleaseResources_RenderThread();
@@ -120,6 +144,7 @@ namespace Durin
 				.ReleaseDeviceResources =
 					[this] {
 						DefaultTextures.ReleaseResources_RenderThread();
+						EnvironmentLighting.ReleaseResources_RenderThread();
 						StaticMeshRenderer.ReleaseResources_RenderThread();
 						SkyBoxRenderer.ReleaseResources_RenderThread();
 						PostProcessRenderer.ReleaseResources_RenderThread();
@@ -163,6 +188,10 @@ namespace Durin
 			FEditorAssistanceRenderer::AnalyzeRequest(View, ViewportOutput);
 
 		PostProcessRenderer.EnsureResources_RenderThread(CommandList);
+		// Generated IBL uploads must finish before entering the Scene Color pass.
+		// Failure is non-fatal: StaticMeshRenderer binds the complete black
+		// environment fallback set instead.
+		EnvironmentLighting.EnsureResources_RenderThread(CommandList);
 		// Sky resources include a static index upload, so initialize them before
 		// entering the Scene Color render pass.
 		SkyBoxRenderer.EnsureResources_RenderThread();
@@ -293,7 +322,6 @@ namespace Durin
 		{
 			return;
 		}
-
 		const ERenderMode RenderMode = View.Settings.RenderMode;
 		const ERasterMode RasterMode = View.Settings.RasterMode;
 		FDirectionalLightSceneData Light;

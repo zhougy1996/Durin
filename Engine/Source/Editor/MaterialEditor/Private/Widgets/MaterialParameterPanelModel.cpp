@@ -135,10 +135,11 @@ namespace Durin
 		switch (Definition.Presentation)
 		{
 		case EMaterialParameterPresentation::Drag:
-			return Definition.Type == EMaterialParameterType::Scalar
-				? (Definition.bHasRange ? EMaterialParameterControlKind::RangedScalar
-					: EMaterialParameterControlKind::Scalar)
-				: EMaterialParameterControlKind::Unsupported;
+		case EMaterialParameterPresentation::Integer:
+			if (Definition.Type == EMaterialParameterType::Scalar)
+				return Definition.bHasRange ? EMaterialParameterControlKind::RangedScalar : EMaterialParameterControlKind::Scalar;
+			return Definition.Type == EMaterialParameterType::Vector
+				? EMaterialParameterControlKind::Vector : EMaterialParameterControlKind::Unsupported;
 		case EMaterialParameterPresentation::Color:
 			return Definition.Type == EMaterialParameterType::Vector
 				? EMaterialParameterControlKind::Color : EMaterialParameterControlKind::Unsupported;

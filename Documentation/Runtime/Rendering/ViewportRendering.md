@@ -94,7 +94,9 @@ For each valid non-zero output, `FSceneRenderer` preserves this order:
 
 1. Resolve size-keyed Scene Color and depth targets and fit the view to the
    output.
-2. Draw SkyBox, StaticMesh, then TextureCube preview proxies into Scene Color.
+2. Draw SkyBox, PBR StaticMesh, then TextureCube preview proxies into Scene
+   Color. StaticMesh draws share the hidden Engine studio-environment asset;
+   it lights surfaces but does not replace or follow the scene SkyBox.
 3. Prepare demanded editor-assistance operations after the scene pass.
 4. Copy or apply FXAA from Scene Color to the final output.
 5. When assistance has drawable work, load the preserved color and depth and
@@ -177,6 +179,14 @@ depth interaction, so geometry replaces the background normally. The complete
 target is still cleared first; fixed-aspect regions outside the content
 rectangle remain black. Main, auxiliary camera-preview, and window-backed views
 all use this same `FSceneView`-driven sky path.
+
+Lit StaticMesh output uses the same direct-light and image-based PBR surface
+contract in the main level viewport, auxiliary camera preview, Material
+Preview, and thumbnails. Unlit mode uses BaseColor plus Emissive. Surface alpha
+is carried to output, but StaticMesh still renders through the fixed opaque,
+depth-writing pass: Opacity does not blend and OpacityMask does not change
+coverage or depth. Those visible policies remain deferred to the future
+render-pass milestone.
 
 Scene post-processing produces the image that is then composed with editor assistance for both window-backed and render-target-backed viewports. Editor assistance is a Renderer phase, not Mona or ImGui content: it loads preserved scene depth for occlusion, but remains outside scene anti-aliasing and any future temporal history. The final assistance pass restores the view's constrained content viewport and scissor after the fullscreen post-process pass, so fixed-aspect black bars remain untouched. Window-backed output then transitions to Present; render-target-backed output becomes ShaderReadOnly and continues through `MonaUI::DrawTexture(...)` without exposing intermediate scene targets to the widget layer.
 

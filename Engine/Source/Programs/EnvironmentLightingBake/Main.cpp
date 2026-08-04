@@ -1,0 +1,100 @@
+#include "CoreMinimal.h"
+
+#include "AssetSystem.h"
+#include "CoreGlobals.h"
+#include "DObject/DObjectGlobals.h"
+#include "EnvironmentLighting/EnvironmentLighting.h"
+#include "Misc/DerivedDataCache.h"
+#include "Misc/Name.h"
+#include "Misc/Paths.h"
+
+#include <iostream>
+
+namespace
+{
+	constexpr std::string_view DefaultAssetPath = "/Engine/Renderer/DefaultStudioEnvironment";
+}
+
+auto main(int ArgumentCount, char** Arguments) -> int
+{
+	if (ArgumentCount != 2)
+	{
+		std::cerr << "Usage: EnvironmentLightingBake <Engine/Content directory>\n";
+		return 2;
+	}
+
+	const std::filesystem::path ContentDirectory =
+		std::filesystem::absolute(Arguments[1]).lexically_normal();
+	std::error_code ErrorCode;
+	std::filesystem::create_directories(ContentDirectory / "Renderer", ErrorCode);
+	if (ErrorCode)
+	{
+		std::cerr << "Failed to create output directory: " << ErrorCode.message() << '\n';
+		return 1;
+	}
+
+	Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+	Durin::GIsGameThreadIdInitialized = true;
+	Durin::FNameInit();
+	Durin::DObjectInit();
+
+	std::string Error;
+	const Durin::PathUtilities::FMountPoint EngineMount{
+		.VirtualRoot = "/Engine/",
+		.Owner = Durin::PathUtilities::EMountOwner::Engine,
+		.Root = ContentDirectory.parent_path(),
+		.ContentPath = ContentDirectory.filename(),
+		.bAutoScan = false,
+		.bAuthoringWritable = true};
+	if (!Durin::PathUtilities::PublishMountRegistry({&EngineMount, 1}, &Error))
+	{
+		std::cerr << "Failed to mount Engine Content: " << Error << '\n';
+		return 1;
+	}
+	Durin::Asset::FAssetManager::Get().Initialize();
+
+	std::cout << "Generating default studio environment...\n";
+	const Durin::FEnvironmentLightingData Data =
+		Durin::BuildDefaultStudioEnvironmentData();
+	std::vector<Durin::uint8> PayloadBytes;
+	if (!Durin::EncodeEnvironmentLightingPayload(Data, PayloadBytes, Error))
+	{
+		std::cerr << "Failed to encode environment lighting: " << Error << '\n';
+		return 1;
+	}
+
+	Durin::FAssetPath AssetPath;
+	if (!Durin::FAssetPath::TryCreate(DefaultAssetPath, AssetPath, &Error))
+	{
+		std::cerr << "Invalid built-in asset path: " << Error << '\n';
+		return 1;
+	}
+	Durin::DEnvironmentLighting* Asset = nullptr;
+	const Durin::Asset::FAssetResult CreateResult =
+		Durin::Asset::CreateAsset(AssetPath, Asset);
+	if (!CreateResult)
+	{
+		std::cerr << "Failed to create environment-lighting asset: "
+			<< CreateResult.Message << '\n';
+		return 1;
+	}
+
+	const std::filesystem::path PayloadPath =
+		Durin::DEnvironmentLighting::GetAuthoringPayloadPath(DefaultAssetPath);
+	if (!Durin::DerivedDataCache::WriteFileAtomically(PayloadPath, PayloadBytes, &Error))
+	{
+		std::cerr << "Failed to write environment-lighting payload: " << Error << '\n';
+		return 1;
+	}
+	const Durin::Asset::FAssetResult SaveResult = Durin::Asset::SavePackage(Asset->GetPackage());
+	if (!SaveResult)
+	{
+		std::cerr << "Failed to save environment-lighting asset: "
+			<< SaveResult.Message << '\n';
+		return 1;
+	}
+
+	std::cout << "Wrote " << PayloadBytes.size() << " payload bytes to "
+		<< PayloadPath.generic_string() << '\n';
+	return 0;
+}

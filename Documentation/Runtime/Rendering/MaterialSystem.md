@@ -30,19 +30,21 @@ editor presentation, and renderer consumption at explicit boundaries.
   two-sided state, and depth-write policy). The renderer lazily caches shader
   maps by shader identity and solid/wireframe pairs by pipeline identity, so a
   pipeline-only change does not rebuild the shader map.
-- The identity split does not yet implement the policies. Cached entries still
-  use the fixed opaque, depth-writing, two-sided pipeline and the fixed shader;
-  Stage 4 owns visible blend, mask, culling, depth, and shading behavior.
+- The identity split does not yet implement the render-pass policies. Cached
+  entries still use the fixed opaque, depth-writing, two-sided pipeline;
+  visible blend, mask, culling, and depth behavior belongs to a future
+  render-pass plan.
 
-The current shader contract has exactly five built-in declarations:
-`BaseColor`, `BaseColorTexture`, `Opacity`, `SpecularStrength`, and `Shininess`.
+The current shader contract is the canonical metallic/roughness PBR schema.
+It declares BaseColor, tangent-space Normal, Metallic, Roughness, Ambient
+Occlusion, Emissive, Opacity, and OpacityMask constants and Texture2D roles.
+Every texture role also owns a UV-channel, UV-scale, and UV-offset parameter.
 Their GUIDs are permanent because serialized overrides must survive renames.
-Engine resolution compiles those declarations into the versioned v1 render
-layout identified by `MaterialRenderLayoutV1Id`; the layout owns compact uniform
-offsets and resource indices, while the asset schema version remains a
-separate persistent compatibility boundary. This does not make five a general
-material-system limit; user-authored declarations and later compiled layouts
-remain deferred work.
+Engine resolution compiles the declarations into the versioned v2 render
+layout identified by `MaterialRenderLayoutV2Id`; the layout owns compact
+uniform offsets and eight resource indices, while the asset schema version
+remains a separate persistent compatibility boundary. User-authored
+declarations and compiled layouts remain deferred work.
 
 ## Renderer Boundary
 
@@ -60,15 +62,15 @@ remain deferred work.
   deterministic renderer fallback. Overrides whose GUID is absent from the
   current mesh remain serialized as explicit orphans but do not resolve, bind
   dependencies, or reach the scene proxy.
-- Material-side code resolves the five built-in GUIDs into one immutable
+- Material-side code resolves the canonical built-in GUIDs into one immutable
   `FMaterialRenderRepresentation` carried by `FMaterialRenderData` alongside
   the static shader/pipeline identity. `FMaterialRenderRepresentationBuilder`
   is the only GUID-to-layout compilation seam. The renderer consumes the
-  validated v1 binding contract and never performs GUID or `FName` lookup or
+  validated v2 binding contract and never performs GUID or `FName` lookup or
   reads reflected material objects.
-- `FStaticMeshRenderer` accepts only the exact supported v1 field table. It
+- `FStaticMeshRenderer` accepts only the exact supported v2 field table. It
   decodes the compact uniform bytes and resource slot through
-  `TryGetMaterialRenderV1Binding`; an unsupported layout emits a
+  `TryGetMaterialRenderV2Binding`; an unsupported layout emits a
   `ShaderBinding` resource diagnostic and uses a complete default snapshot
   before shader-map or pipeline selection.
 - Scene-proxy construction walks the current mesh slots in order and retains
@@ -89,17 +91,21 @@ remain deferred work.
 - Component material assignment is a binding update, not material-content
   invalidation. A component-wide revision orders rapid changes across
   independent slots and rejects stale render commands.
-- The static mesh shader implements a fixed directional-light Blinn-Phong path
-  plus an unlit viewport mode. Missing values preserve the orange fallback
-  material and renderer-owned default textures.
+- The static mesh shader implements Cook-Torrance GGX direct lighting and
+  split-sum image-based environment lighting, plus an unlit viewport mode.
+  Missing values preserve the orange PBR fallback material and
+  role-appropriate Renderer-owned white, black, or flat-normal textures.
 
 ## Versioned Render Representation
 
 `FMaterialRenderRepresentation` is an Engine-owned immutable snapshot with
 three parts: a `FMaterialRenderLayoutIdentity`, a validated uniform byte
-payload, and counted RHI texture-reference resources. The current v1 layout is
-32-byte, 16-byte-aligned data with four uniform fields and one resource field;
-its exact field table is identified by `MaterialRenderLayoutV1Id`.
+payload, and counted RHI texture-reference resources. The current v2 layout is
+352-byte, 16-byte-aligned data with 32 uniform fields and eight resource
+fields; its exact field table is identified by `MaterialRenderLayoutV2Id`.
+The immutable v1 factory, validator, and decoder remain available only as a
+compatibility boundary; current materials publish v2 and current StaticMesh
+draws consume only v2.
 
 Construction validates the version and identity, field counts, compact-index
 contiguity, types, sizes, alignment, non-overlapping ranges, finite values,
@@ -157,15 +163,35 @@ identity.
 
 Legacy scalar/vector/texture maps have no compatibility properties or implicit
 migration. The asset loader skips their incompatible field records with a
-warning. A legacy base material therefore retains constructor-provided canonical
-defaults, while a legacy instance retains its compatible `Parent` reference and
-has no old map overrides.
+warning. Material schema v1 upgrades copy BaseColor, BaseColorTexture, and
+Opacity by their permanent GUIDs into the canonical v2 schema. Removed base
+SpecularStrength and Shininess values are discarded with a warning; instance
+overrides for those GUIDs remain explicit unresolved orphans. They are never
+reinterpreted as Metallic or Roughness.
 
 Static-mesh components persist only the GUID-keyed override collection. The
 former index-shaped `Materials` collection, slot-zero `Material` mirror, and
 unused override version field have been removed. If an older package still
 contains those field records, the field-table loader skips them as unknown data;
 they are not migrated.
+
+## Environment Lighting
+
+The studio image-based-lighting baseline is a hidden Engine asset at
+`/Engine/Renderer/DefaultStudioEnvironment`, shared by level, preview, and
+thumbnail rendering. It is neither a user material parameter nor scene
+SkyBox state. The checked-in authoring payload contains deterministic
+irradiance, GGX-prefiltered radiance, and a split-sum BRDF LUT generated only
+by the independent `EnvironmentLightingBake` offline tool.
+
+`DEnvironmentLighting` validates the versioned, checksummed authoring payload
+and owns its Cook operation. Cook publishes the payload through the generic
+package `.dbulk` companion without consulting DDC. Runtime loading accepts
+only that cooked descriptor/payload pair. Renderer creates the RHI resources
+on the render thread; an absent, invalid, or unavailable set resolves as one
+black environment set, preserving direct lighting and Emissive. This internal
+asset follows Engine content and asset-cook ownership rather than `DevTool`
+build orchestration.
 
 ## Static Mesh Vertex Contract
 

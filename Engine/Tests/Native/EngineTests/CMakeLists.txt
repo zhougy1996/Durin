@@ -233,6 +233,11 @@ durin_add_engine_functional_test(TextureTests
 target_include_directories(TextureTests PRIVATE
 	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private)
 
+durin_add_engine_functional_test(EnvironmentLightingTests
+	RUNTIME_STACK_RATIONALE "Exercises built-in environment payload and direct cook behavior."
+	SOURCES Private/EnvironmentLightingTests.cpp
+)
+
 durin_add_engine_functional_test(SceneImportVulkanTests
 	GPU
 	TIMEOUT 900

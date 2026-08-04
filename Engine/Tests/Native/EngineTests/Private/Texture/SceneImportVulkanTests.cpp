@@ -69,6 +69,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "SceneImportVulkan";
+	const std::filesystem::path BuiltInEnvironmentRoot =
+		std::filesystem::path(Durin::FPaths::EngineContentDir()) / "Renderer";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	FScopedDerivedDataCacheRoot DerivedDataCache(Root / "DerivedDataCache");
 	for (const std::filesystem::path& Directory : {
@@ -76,6 +78,16 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Root / "Project/Content"})
 	{
 		std::filesystem::create_directories(Directory);
+	}
+	std::filesystem::create_directories(Root / "Engine/Content/Renderer");
+	for (const std::string_view File : {
+		"DefaultStudioEnvironment.dasset",
+		"DefaultStudioEnvironment.iblbulk"})
+	{
+		std::filesystem::copy_file(
+			BuiltInEnvironmentRoot / File,
+			Root / "Engine/Content/Renderer" / File,
+			std::filesystem::copy_options::overwrite_existing);
 	}
 	const std::array Mounts{
 		Durin::PathUtilities::FMountPoint{
@@ -480,7 +492,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		EXPECT_EQ(
 			Durin::FXxHash128::HashBuffer(
 				LODContractPixels).ToString(),
-			"52fdb5113401075fabb77a111012afd1");
+			"a1ed3347de03e60732a644c9ed8dce40");
 
 		struct FEndSceneImportFrame
 		{

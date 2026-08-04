@@ -6,6 +6,7 @@
 #include "Renderers/StaticMeshRenderer.h"
 #include "Renderers/TextureCubeThumbnailRenderer.h"
 #include "Resources/DefaultTextureResources.h"
+#include "Resources/EnvironmentLightingResources.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "RendererAPI.h"
@@ -69,6 +70,7 @@ namespace Durin
 
 		FRendererResourceCoordinator Coordinator;
 		FDefaultTextureResources DefaultTextures;
+		FEnvironmentLightingResources EnvironmentLighting;
 		FFullscreenGeometryResources FullscreenGeometry;
 		FStaticMeshRenderer StaticMeshRenderer;
 		FSkyBoxRenderer SkyBoxRenderer;

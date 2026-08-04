@@ -98,16 +98,16 @@ namespace Durin
 			};
 			EnqueueRenderCommand<FCaptureEditorTextureMaterialReference>(
 				[StaticMeshProxy, &Result](FRHICommandListImmediate&) {
-					FMaterialRenderV1Binding Binding;
+					FMaterialRenderV2Binding Binding;
 					FMaterialRenderValidationDiagnostic Diagnostic;
-					const bool bValid = TryGetMaterialRenderV1Binding(
+					const bool bValid = TryGetMaterialRenderV2Binding(
 						StaticMeshProxy
 							->ResolveMaterialRenderData_RenderThread()
 							.Representation,
 						Binding,
 						Diagnostic);
 					EXPECT_TRUE(bValid) << Diagnostic.Message;
-					Result = Binding.BaseColorTexture;
+					Result = Binding.Textures[0];
 				});
 			FlushRenderingCommands();
 			return Result;

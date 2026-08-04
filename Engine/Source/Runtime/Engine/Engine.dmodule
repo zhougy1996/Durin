@@ -39,6 +39,7 @@
         "Public/Texture/Texture.h",
         "Public/Texture/Texture2D.h",
         "Public/Texture/TextureCube.h",
+        "Public/EnvironmentLighting/EnvironmentLighting.h",
         "Public/Materials/MaterialTypes.h",
         "Public/Materials/MaterialInterface.h",
         "Public/Materials/Material.h",

@@ -3,6 +3,7 @@
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "RendererResourceSlotCache.h"
 #include "Resources/DefaultTextureResources.h"
+#include "Resources/EnvironmentLightingResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "Engine/PrimitiveSceneProxy.h"
@@ -50,7 +51,18 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Material);
 				DURIN_SHADER_PARAMETER_TEXTURE(BaseColorTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER(BaseColorSampler);
+				DURIN_SHADER_PARAMETER_TEXTURE(NormalTexture);
+				DURIN_SHADER_PARAMETER_TEXTURE(MetallicTexture);
+				DURIN_SHADER_PARAMETER_TEXTURE(RoughnessTexture);
+				DURIN_SHADER_PARAMETER_TEXTURE(AmbientOcclusionTexture);
+				DURIN_SHADER_PARAMETER_TEXTURE(EmissiveTexture);
+				DURIN_SHADER_PARAMETER_TEXTURE(OpacityTexture);
+				DURIN_SHADER_PARAMETER_TEXTURE(OpacityMaskTexture);
+				DURIN_SHADER_PARAMETER_SAMPLER(MaterialSampler);
+				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentIrradiance);
+				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentPrefiltered);
+				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentBrdfLut);
+				DURIN_SHADER_PARAMETER_SAMPLER(EnvironmentSampler);
 			DURIN_END_SHADER_PARAMETERS();
 
 			DURIN_DECLARE_SHADER(
@@ -73,13 +85,18 @@ namespace Durin
 		{
 			FVector4f LightDirection{-0.5f, -0.5f, -1.0f, 0.0f};
 			FVector4f LightColorIntensity{1.0f, 1.0f, 1.0f, 1.0f};
-			FVector4f ViewPositionAmbient{0.0f, 0.0f, 0.0f, 0.08f};
+			FVector4f ViewPosition{0.0f};
 		};
 
 		struct FStaticMeshMaterialUniform
 		{
 			FVector4f BaseColor{1.0f};
-			FVector4f Params{0.35f, 32.0f, 1.0f, 0.0f};
+			FVector4f EmissiveMetallic{0.0f};
+			FVector4f NormalRoughness{0.0f, 0.0f, 1.0f, 0.5f};
+			FVector4f SurfaceParams{1.0f, 1.0f, 1.0f, 0.0f};
+			std::array<FVector4f, 8> UVTransforms{};
+			FVector4f UVChannels0{0.0f};
+			FVector4f UVChannels1{0.0f};
 		};
 
 		auto GetIdentityText(
@@ -114,7 +131,7 @@ namespace Durin
 	{
 		struct FBaseResources
 		{
-			FSamplerRHIRef BaseColorSampler;
+			FSamplerRHIRef MaterialSampler;
 		};
 
 		struct FShaderMapPayload
@@ -149,9 +166,11 @@ namespace Durin
 
 	FStaticMeshRenderer::FStaticMeshRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FDefaultTextureResources& InDefaultTextures)
+		FDefaultTextureResources& InDefaultTextures,
+		FEnvironmentLightingResources& InEnvironmentLighting)
 		: Coordinator(InCoordinator)
 		, DefaultTextures(InDefaultTextures)
+		, EnvironmentLighting(InEnvironmentLighting)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -167,15 +186,15 @@ namespace Durin
 			Coordinator.GetGeneration_RenderThread(),
 			[]() -> FResult {
 				FState::FBaseResources Candidate;
-				Candidate.BaseColorSampler =
+				Candidate.MaterialSampler =
 					RHICreateSampler(FRHISamplerDesc::LinearRepeat());
-				if (Candidate.BaseColorSampler == nullptr)
+				if (Candidate.MaterialSampler == nullptr)
 				{
 					return FResult::Failure(
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"StaticMeshBaseResources",
-							"base-color-sampler",
+							"material-sampler",
 							"RHI sampler creation returned null.",
 							ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));
@@ -260,12 +279,12 @@ namespace Durin
 		FStaticMeshLightingUniform LightingUniform;
 		LightingUniform.LightDirection = FVector4f(
 			FVector3f(Light.Direction),
-			Light.RimLightIntensity);
+			0.0f);
 		LightingUniform.LightColorIntensity =
 			FVector4f(Light.Color, Light.Intensity);
-		LightingUniform.ViewPositionAmbient = FVector4f(
+		LightingUniform.ViewPosition = FVector4f(
 			FVector3f(View.ViewLocation),
-			Light.AmbientIntensity);
+			0.0f);
 		const FRHIUniformBufferRange LightingUniformBuffer =
 			CommandList.AllocateDynamicUniformBuffer(
 				&LightingUniform,
@@ -287,10 +306,10 @@ namespace Durin
 			const FMaterialRenderData& ResolvedMaterial =
 				Proxy.ResolveMaterialRenderData_RenderThread(
 					Section.MaterialSlotIndex);
-			FMaterialRenderV1Binding MaterialBinding;
+			FMaterialRenderV2Binding MaterialBinding;
 			FMaterialRenderValidationDiagnostic BindingDiagnostic;
 			const FMaterialRenderData* MaterialData = &ResolvedMaterial;
-			if (!TryGetMaterialRenderV1Binding(
+			if (!TryGetMaterialRenderV2Binding(
 				ResolvedMaterial.Representation,
 				MaterialBinding,
 				BindingDiagnostic))
@@ -308,7 +327,7 @@ namespace Durin
 				static const FMaterialRenderData FallbackMaterial;
 				MaterialData = &FallbackMaterial;
 				FMaterialRenderValidationDiagnostic FallbackDiagnostic;
-				if (!TryGetMaterialRenderV1Binding(
+				if (!TryGetMaterialRenderV2Binding(
 					FallbackMaterial.Representation,
 					MaterialBinding,
 					FallbackDiagnostic))
@@ -527,11 +546,35 @@ namespace Durin
 
 			FStaticMeshMaterialUniform MaterialUniform;
 			MaterialUniform.BaseColor = MaterialBinding.BaseColor;
-			MaterialUniform.Params = FVector4f(
-				MaterialBinding.SpecularStrength,
-				MaterialBinding.Shininess,
-				RenderMode == ERenderMode::Lit ? 1.0f : 0.0f,
+			MaterialUniform.EmissiveMetallic = FVector4f(
+				MaterialBinding.Emissive,
+				MaterialBinding.Metallic);
+			MaterialUniform.NormalRoughness = FVector4f(
+				MaterialBinding.Normal,
+				MaterialBinding.Roughness);
+			MaterialUniform.SurfaceParams = FVector4f(
+				MaterialBinding.AmbientOcclusion,
+				MaterialBinding.OpacityMask,
+				RenderMode == ERenderMode::Lit
+						&& Material.PipelineIdentity.ShaderMap.ShadingModel
+							== EMaterialShadingModel::Lit
+					? 1.0f
+					: 0.0f,
 				0.0f);
+			for (size_t Role = 0; Role < MaterialBinding.Textures.size(); ++Role)
+			{
+				MaterialUniform.UVTransforms[Role] = FVector4f(
+					MaterialBinding.UVScales[Role].x,
+					MaterialBinding.UVScales[Role].y,
+					MaterialBinding.UVOffsets[Role].x,
+					MaterialBinding.UVOffsets[Role].y);
+			}
+			MaterialUniform.UVChannels0 = FVector4f(
+				MaterialBinding.UVChannels[0], MaterialBinding.UVChannels[1],
+				MaterialBinding.UVChannels[2], MaterialBinding.UVChannels[3]);
+			MaterialUniform.UVChannels1 = FVector4f(
+				MaterialBinding.UVChannels[4], MaterialBinding.UVChannels[5],
+				MaterialBinding.UVChannels[6], MaterialBinding.UVChannels[7]);
 			const FRHIUniformBufferRange MaterialUniformBuffer =
 				CommandList.AllocateDynamicUniformBuffer(
 					&MaterialUniform,
@@ -539,18 +582,42 @@ namespace Durin
 			FStaticMeshFragmentShader::FParameters FragmentShaderParameters;
 			FragmentShaderParameters.Lighting = LightingUniformBuffer;
 			FragmentShaderParameters.Material = MaterialUniformBuffer;
-			FRHITexture* BaseColorTexture =
-				MaterialBinding.BaseColorTexture != nullptr
-				? MaterialBinding.BaseColorTexture
-					  ->GetReferencedTexture_RenderThread()
-				: nullptr;
-			FragmentShaderParameters.BaseColorTexture =
-				BaseColorTexture != nullptr
-					? BaseColorTexture
-					: DefaultTextures.Get_RenderThread(
-						EDefaultTexture::White);
-			FragmentShaderParameters.BaseColorSampler =
-				BaseResources->BaseColorSampler;
+			auto ResolveTexture = [&](size_t Role, EDefaultTexture Fallback) {
+				FRHITexture* Texture = MaterialBinding.Textures[Role] != nullptr
+					? MaterialBinding.Textures[Role]->GetReferencedTexture_RenderThread()
+					: nullptr;
+				return Texture != nullptr
+					? Texture
+					: DefaultTextures.Get_RenderThread(Fallback);
+			};
+			FragmentShaderParameters.BaseColorTexture = ResolveTexture(0, EDefaultTexture::White);
+			FragmentShaderParameters.NormalTexture = ResolveTexture(1, EDefaultTexture::FlatNormal);
+			FragmentShaderParameters.MetallicTexture = ResolveTexture(2, EDefaultTexture::White);
+			FragmentShaderParameters.RoughnessTexture = ResolveTexture(3, EDefaultTexture::White);
+			FragmentShaderParameters.AmbientOcclusionTexture = ResolveTexture(4, EDefaultTexture::White);
+			FragmentShaderParameters.EmissiveTexture = ResolveTexture(5, EDefaultTexture::Black);
+			FragmentShaderParameters.OpacityTexture = ResolveTexture(6, EDefaultTexture::White);
+			FragmentShaderParameters.OpacityMaskTexture = ResolveTexture(7, EDefaultTexture::White);
+			FragmentShaderParameters.MaterialSampler = BaseResources->MaterialSampler;
+			FRHITexture* EnvironmentIrradiance =
+				EnvironmentLighting.GetIrradiance_RenderThread();
+			FRHITexture* EnvironmentPrefiltered =
+				EnvironmentLighting.GetPrefiltered_RenderThread();
+			FRHITexture* EnvironmentBrdfLut =
+				EnvironmentLighting.GetBrdfLut_RenderThread();
+			FRHISampler* EnvironmentSampler =
+				EnvironmentLighting.GetSampler_RenderThread();
+			const bool bHasCompleteEnvironment = EnvironmentIrradiance != nullptr
+				&& EnvironmentPrefiltered != nullptr && EnvironmentBrdfLut != nullptr
+				&& EnvironmentSampler != nullptr;
+			FragmentShaderParameters.EnvironmentIrradiance = bHasCompleteEnvironment
+				? EnvironmentIrradiance : DefaultTextures.GetCube_RenderThread();
+			FragmentShaderParameters.EnvironmentPrefiltered = bHasCompleteEnvironment
+				? EnvironmentPrefiltered : DefaultTextures.GetCube_RenderThread();
+			FragmentShaderParameters.EnvironmentBrdfLut = bHasCompleteEnvironment
+				? EnvironmentBrdfLut : DefaultTextures.Get_RenderThread(EDefaultTexture::Black);
+			FragmentShaderParameters.EnvironmentSampler = bHasCompleteEnvironment
+				? EnvironmentSampler : BaseResources->MaterialSampler.GetReference();
 			SetShaderParameters(
 				CommandList,
 				Pipeline->FragmentShader,

@@ -71,13 +71,21 @@ namespace Durin
 
 		auto MakeDefaultUniformPayload() -> std::vector<std::byte>
 		{
-			std::vector<std::byte> Result(32, std::byte{0});
+			std::vector<std::byte> Result(352, std::byte{0});
 			WriteFloat(Result, 0, 0.95f);
 			WriteFloat(Result, 4, 0.62f);
 			WriteFloat(Result, 8, 0.22f);
 			WriteFloat(Result, 12, 1.0f);
-			WriteFloat(Result, 16, 0.35f);
-			WriteFloat(Result, 20, 32.0f);
+			WriteFloat(Result, 28, 0.0f);
+			WriteFloat(Result, 40, 1.0f);
+			WriteFloat(Result, 44, 0.5f);
+			WriteFloat(Result, 48, 1.0f);
+			WriteFloat(Result, 52, 1.0f);
+			for (uint32 Role = 0; Role < 8; ++Role)
+			{
+				WriteFloat(Result, 96 + Role * 16, 1.0f);
+				WriteFloat(Result, 100 + Role * 16, 1.0f);
+			}
 			return Result;
 		}
 
@@ -93,11 +101,11 @@ namespace Durin
 		}
 	}
 
-	auto MakeDefaultMaterialRenderLayout() -> FMaterialRenderLayout
+	auto MakeMaterialRenderLayoutV1() -> FMaterialRenderLayout
 	{
 		using namespace MaterialParameters;
 		FMaterialRenderLayout Result;
-		Result.Identity = {};
+		Result.Identity = {.Version = 1, .Id = MaterialRenderLayoutV1Id};
 		Result.UniformPayloadSize = 32;
 		Result.UniformFieldCount = 4;
 		Result.ResourceFieldCount = 1;
@@ -146,13 +154,53 @@ namespace Durin
 		return Result;
 	}
 
+	auto MakeDefaultMaterialRenderLayout() -> FMaterialRenderLayout
+	{
+		using namespace MaterialParameters;
+		FMaterialRenderLayout Result;
+		Result.Identity = {.Version = 2, .Id = MaterialRenderLayoutV2Id};
+		Result.UniformPayloadSize = 352;
+		Result.UniformFieldCount = 32;
+		Result.ResourceFieldCount = 8;
+		auto AddUniform = [&Result](FGuid Id, EMaterialRenderValueType Type, uint16 Index, uint32 Offset) {
+			Result.Fields.push_back({.ParameterId = Id, .Storage = EMaterialRenderFieldStorage::Uniform,
+				.Type = Type, .CompactIndex = Index, .Offset = Offset, .Size = GetUniformFieldSize(Type)});
+		};
+		AddUniform(BaseColorId, EMaterialRenderValueType::Vector3, 0, 0);
+		AddUniform(OpacityId, EMaterialRenderValueType::Scalar, 1, 12);
+		AddUniform(EmissiveId, EMaterialRenderValueType::Vector3, 2, 16);
+		AddUniform(MetallicId, EMaterialRenderValueType::Scalar, 3, 28);
+		AddUniform(NormalId, EMaterialRenderValueType::Vector3, 4, 32);
+		AddUniform(RoughnessId, EMaterialRenderValueType::Scalar, 5, 44);
+		AddUniform(AmbientOcclusionId, EMaterialRenderValueType::Scalar, 6, 48);
+		AddUniform(OpacityMaskId, EMaterialRenderValueType::Scalar, 7, 52);
+		for (uint16 Role = 0; Role < 8; ++Role)
+		{
+			AddUniform(UVChannelIds[Role], EMaterialRenderValueType::Scalar, 8 + Role, 64 + Role * 4);
+		}
+		for (uint16 Role = 0; Role < 8; ++Role)
+		{
+			AddUniform(UVScaleIds[Role], EMaterialRenderValueType::Vector3, 16 + Role, 96 + Role * 16);
+		}
+		for (uint16 Role = 0; Role < 8; ++Role)
+		{
+			AddUniform(UVOffsetIds[Role], EMaterialRenderValueType::Vector3, 24 + Role, 224 + Role * 16);
+		}
+		for (uint16 Role = 0; Role < 8; ++Role)
+		{
+			Result.Fields.push_back({.ParameterId = TextureIds[Role], .Storage = EMaterialRenderFieldStorage::Resource,
+				.Type = EMaterialRenderValueType::Texture2D, .CompactIndex = Role});
+		}
+		return Result;
+	}
+
 	auto ValidateMaterialRenderLayout(
 		const FMaterialRenderLayout& Layout,
 		FMaterialRenderValidationDiagnostic& OutDiagnostic
 	) -> bool
 	{
 		OutDiagnostic = {};
-		if (Layout.Identity.Version != CurrentMaterialRenderLayoutVersion)
+		if (Layout.Identity.Version != 1 && Layout.Identity.Version != 2)
 		{
 			return SetValidationFailure(
 				OutDiagnostic,
@@ -163,13 +211,12 @@ namespace Durin
 					Layout.Identity.Version,
 					CurrentMaterialRenderLayoutVersion));
 		}
-		if (Layout.Identity.Id != MaterialRenderLayoutV1Id)
+		const FGuid ExpectedIdentity = Layout.Identity.Version == 1
+			? MaterialRenderLayoutV1Id : MaterialRenderLayoutV2Id;
+		if (Layout.Identity.Id != ExpectedIdentity)
 		{
-			return SetValidationFailure(
-				OutDiagnostic,
-				EMaterialRenderValidationFailure::UnsupportedIdentity,
-				0,
-				"Material render layout identity is unsupported.");
+			return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::UnsupportedIdentity, 0,
+				"Material render layout identity is unsupported for its version.");
 		}
 		if (Layout.UniformPayloadSize == 0
 			|| Layout.UniformPayloadSize > MaterialRenderMaxUniformPayloadBytes
@@ -305,7 +352,7 @@ namespace Durin
 	FMaterialRenderRepresentation::FMaterialRenderRepresentation()
 		: Layout(MakeDefaultMaterialRenderLayout())
 		, UniformPayload(MakeDefaultUniformPayload())
-		, Resources(1)
+		, Resources(8)
 		, bFallback(true)
 	{
 	}
@@ -436,7 +483,7 @@ namespace Durin
 		OutDiagnostic = {};
 
 		static const FMaterialRenderLayout ExpectedLayout =
-			MakeDefaultMaterialRenderLayout();
+			MakeMaterialRenderLayoutV1();
 		const FMaterialRenderLayout& Layout = Representation.GetLayout();
 		if (Layout.Identity != ExpectedLayout.Identity)
 		{
@@ -490,6 +537,49 @@ namespace Durin
 			ReadFloat(ExpectedLayout.Fields[2].Offset);
 		OutBinding.Shininess = ReadFloat(ExpectedLayout.Fields[3].Offset);
 		OutBinding.BaseColorTexture = Resources[0];
+		return true;
+	}
+
+	auto TryGetMaterialRenderV2Binding(
+		const FMaterialRenderRepresentation& Representation,
+		FMaterialRenderV2Binding& OutBinding,
+		FMaterialRenderValidationDiagnostic& OutDiagnostic
+	) -> bool
+	{
+		OutBinding = FMaterialRenderV2Binding{};
+		OutDiagnostic = {};
+		static const FMaterialRenderLayout ExpectedLayout = MakeDefaultMaterialRenderLayout();
+		const FMaterialRenderLayout& Layout = Representation.GetLayout();
+		if (Layout.Identity != ExpectedLayout.Identity)
+		{
+			return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::UnsupportedIdentity, 0,
+				"Material render binding layout identity is not v2.");
+		}
+		if (Layout != ExpectedLayout)
+		{
+			return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidField, 0,
+				"Material render binding layout does not match the v2 contract.");
+		}
+		const auto Payload = Representation.GetUniformPayload();
+		const auto Resources = Representation.GetResources();
+		if (Payload.size() != 352) return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidPayloadSize, 0, "Material render v2 payload size is invalid.");
+		if (Resources.size() != 8) return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidResource, 0, "Material render v2 resource count is invalid.");
+		auto ReadFloat = [&Payload](uint32 Offset) { float Value = 0.0f; std::memcpy(&Value, Payload.data() + Offset, sizeof(Value)); return Value; };
+		auto ReadVector = [&ReadFloat](uint32 Offset) { return FVector3f(ReadFloat(Offset), ReadFloat(Offset + 4), ReadFloat(Offset + 8)); };
+		OutBinding.BaseColor = FVector4f(ReadFloat(0), ReadFloat(4), ReadFloat(8), ReadFloat(12));
+		OutBinding.Emissive = ReadVector(16);
+		OutBinding.Metallic = ReadFloat(28);
+		OutBinding.Normal = ReadVector(32);
+		OutBinding.Roughness = ReadFloat(44);
+		OutBinding.AmbientOcclusion = ReadFloat(48);
+		OutBinding.OpacityMask = ReadFloat(52);
+		for (uint32 Role = 0; Role < 8; ++Role)
+		{
+			OutBinding.UVChannels[Role] = ReadFloat(64 + Role * 4);
+			OutBinding.UVScales[Role] = ReadVector(96 + Role * 16);
+			OutBinding.UVOffsets[Role] = ReadVector(224 + Role * 16);
+			OutBinding.Textures[Role] = Resources[Role];
+		}
 		return true;
 	}
 
@@ -607,8 +697,13 @@ namespace Durin
 		OutError.clear();
 		if (InOutVersion == 0)
 		{
+			InOutVersion = 1;
+			OutWarning = "Material parameter schema version was missing; assumed version 1 and upgraded to version 2.";
+		}
+		if (InOutVersion == 1)
+		{
 			InOutVersion = CurrentMaterialParameterSchemaVersion;
-			OutWarning = "Material parameter schema version was missing; assumed version 1.";
+			if (OutWarning.empty()) OutWarning = "Material parameter schema version 1 was upgraded to version 2; base SpecularStrength and Shininess values were discarded while instance overrides remain orphans.";
 			return true;
 		}
 		if (InOutVersion == CurrentMaterialParameterSchemaVersion) return true;
@@ -671,6 +766,23 @@ namespace Durin
 			static const FName Name("Shininess");
 			return Name;
 		}
+
+#define DURIN_DEFINE_MATERIAL_PARAMETER_NAME(FunctionName, Literal) \
+		auto FunctionName() -> const FName& { static const FName Name(Literal); return Name; }
+		DURIN_DEFINE_MATERIAL_PARAMETER_NAME(NormalName, "Normal")
+		DURIN_DEFINE_MATERIAL_PARAMETER_NAME(NormalTextureName, "NormalTexture")
+		DURIN_DEFINE_MATERIAL_PARAMETER_NAME(MetallicName, "Metallic")
+		DURIN_DEFINE_MATERIAL_PARAMETER_NAME(MetallicTextureName, "MetallicTexture")
+		DURIN_DEFINE_MATERIAL_PARAMETER_NAME(RoughnessName, "Roughness")
+		DURIN_DEFINE_MATERIAL_PARAMETER_NAME(RoughnessTextureName, "RoughnessTexture")
+		DURIN_DEFINE_MATERIAL_PARAMETER_NAME(AmbientOcclusionName, "AmbientOcclusion")
+		DURIN_DEFINE_MATERIAL_PARAMETER_NAME(AmbientOcclusionTextureName, "AmbientOcclusionTexture")
+		DURIN_DEFINE_MATERIAL_PARAMETER_NAME(EmissiveName, "Emissive")
+		DURIN_DEFINE_MATERIAL_PARAMETER_NAME(EmissiveTextureName, "EmissiveTexture")
+		DURIN_DEFINE_MATERIAL_PARAMETER_NAME(OpacityTextureName, "OpacityTexture")
+		DURIN_DEFINE_MATERIAL_PARAMETER_NAME(OpacityMaskName, "OpacityMask")
+		DURIN_DEFINE_MATERIAL_PARAMETER_NAME(OpacityMaskTextureName, "OpacityMaskTexture")
+#undef DURIN_DEFINE_MATERIAL_PARAMETER_NAME
 	}
 
 	namespace
@@ -686,7 +798,8 @@ namespace Durin
 			bool bHasRange = false,
 			float MinimumValue = 0.0f,
 			float MaximumValue = 0.0f,
-			ETextureUsage TextureUsage = ETextureUsage::Color
+			ETextureUsage TextureUsage = ETextureUsage::Color,
+			FName GroupName = FName("Surface")
 		) -> FMaterialParameterDefinition
 		{
 			FMaterialParameterDefinition Result;
@@ -695,7 +808,7 @@ namespace Durin
 			Result.Type = Type;
 			Result.Value = std::move(Value);
 			Result.DisplayName = std::move(DisplayName);
-			Result.GroupName = FName("Surface");
+			Result.GroupName = GroupName;
 			Result.SortOrder = SortOrder;
 			Result.Presentation = Presentation;
 			Result.bHasRange = bHasRange;
@@ -728,22 +841,44 @@ namespace Durin
 	{
 		using namespace MaterialParameters;
 		std::vector<FMaterialParameterDefinition> Result;
-		Result.reserve(5);
-		Result.push_back(MakeDefinition(BaseColorId, BaseColorName(), EMaterialParameterType::Vector,
-			FMaterialParameterValue::MakeVector({0.95, 0.62, 0.22}), "Base Color", 0,
-			EMaterialParameterPresentation::Color, true, 0.0f, 1.0f));
-		Result.push_back(MakeDefinition(BaseColorTextureId, BaseColorTextureName(), EMaterialParameterType::Texture,
-			FMaterialParameterValue::MakeTexture(nullptr), "Base Color Texture", 1,
-			EMaterialParameterPresentation::AssetPicker, false, 0.0f, 0.0f, ETextureUsage::Color));
-		Result.push_back(MakeDefinition(OpacityId, OpacityName(), EMaterialParameterType::Scalar,
-			FMaterialParameterValue::MakeScalar(1.0f), "Opacity", 2,
-			EMaterialParameterPresentation::Drag, true, 0.0f, 1.0f));
-		Result.push_back(MakeDefinition(SpecularStrengthId, SpecularStrengthName(), EMaterialParameterType::Scalar,
-			FMaterialParameterValue::MakeScalar(0.35f), "Specular Strength", 3,
-			EMaterialParameterPresentation::Drag, true, 0.0f, 1.0f));
-		Result.push_back(MakeDefinition(ShininessId, ShininessName(), EMaterialParameterType::Scalar,
-			FMaterialParameterValue::MakeScalar(32.0f), "Shininess", 4,
-			EMaterialParameterPresentation::Drag, true, 1.0f, 256.0f));
+		Result.reserve(40);
+		const std::array ConstantIds{BaseColorId, NormalId, MetallicId, RoughnessId, AmbientOcclusionId, EmissiveId, OpacityId, OpacityMaskId};
+		const std::array ConstantNames{&BaseColorName(), &NormalName(), &MetallicName(), &RoughnessName(), &AmbientOcclusionName(), &EmissiveName(), &OpacityName(), &OpacityMaskName()};
+		const std::array TextureNames{&BaseColorTextureName(), &NormalTextureName(), &MetallicTextureName(), &RoughnessTextureName(), &AmbientOcclusionTextureName(), &EmissiveTextureName(), &OpacityTextureName(), &OpacityMaskTextureName()};
+		const std::array RoleNames{"BaseColor", "Normal", "Metallic", "Roughness", "AmbientOcclusion", "Emissive", "Opacity", "OpacityMask"};
+		const std::array DisplayNames{"Base Color", "Normal", "Metallic", "Roughness", "Ambient Occlusion", "Emissive", "Opacity", "Opacity Mask"};
+		const std::array GroupNames{"Surface/Base", "Surface/Normal", "Surface/Metallic", "Surface/Roughness", "Surface/Ambient Occlusion", "Surface/Emissive", "Surface/Opacity", "Surface/Opacity Mask"};
+		const std::array TextureUsages{ETextureUsage::Color, ETextureUsage::Normal, ETextureUsage::DataMask, ETextureUsage::DataMask, ETextureUsage::DataMask, ETextureUsage::Color, ETextureUsage::DataMask, ETextureUsage::DataMask};
+		for (size_t Role = 0; Role < 8; ++Role)
+		{
+			const bool bVector = Role == 0 || Role == 1 || Role == 5;
+			FMaterialParameterValue ConstantValue;
+			float Minimum = 0.0f;
+			float Maximum = 1.0f;
+			if (Role == 0) ConstantValue = FMaterialParameterValue::MakeVector({0.95, 0.62, 0.22});
+			else if (Role == 1) { ConstantValue = FMaterialParameterValue::MakeVector({0.0, 0.0, 1.0}); Minimum = -1.0f; }
+			else if (Role == 3) ConstantValue = FMaterialParameterValue::MakeScalar(0.5f);
+			else if (Role == 5) { ConstantValue = FMaterialParameterValue::MakeVector(FVector3(0.0)); Maximum = 64.0f; }
+			else if (Role == 2) ConstantValue = FMaterialParameterValue::MakeScalar(0.0f);
+			else ConstantValue = FMaterialParameterValue::MakeScalar(1.0f);
+			const int32 Sort = static_cast<int32>(Role * 5);
+			const FName Group(GroupNames[Role]);
+			Result.push_back(MakeDefinition(ConstantIds[Role], *ConstantNames[Role], bVector ? EMaterialParameterType::Vector : EMaterialParameterType::Scalar,
+				ConstantValue, DisplayNames[Role], Sort, (Role == 0 || Role == 5) ? EMaterialParameterPresentation::Color : EMaterialParameterPresentation::Drag,
+				true, Minimum, Maximum, ETextureUsage::Color, Group));
+			Result.push_back(MakeDefinition(TextureIds[Role], *TextureNames[Role], EMaterialParameterType::Texture,
+				FMaterialParameterValue::MakeTexture(nullptr), std::string(DisplayNames[Role]) + " Texture", Sort + 1,
+				EMaterialParameterPresentation::AssetPicker, false, 0.0f, 0.0f, TextureUsages[Role], Group));
+			Result.push_back(MakeDefinition(UVChannelIds[Role], FName(std::string(RoleNames[Role]) + "UVChannel"), EMaterialParameterType::Scalar,
+				FMaterialParameterValue::MakeScalar(0.0f), "UV Channel", Sort + 2, EMaterialParameterPresentation::Integer,
+				true, 0.0f, 3.0f, ETextureUsage::Color, Group));
+			Result.push_back(MakeDefinition(UVScaleIds[Role], FName(std::string(RoleNames[Role]) + "UVScale"), EMaterialParameterType::Vector,
+				FMaterialParameterValue::MakeVector({1.0, 1.0, 0.0}), "UV Scale", Sort + 3, EMaterialParameterPresentation::Drag,
+				true, -1024.0f, 1024.0f, ETextureUsage::Color, Group));
+			Result.push_back(MakeDefinition(UVOffsetIds[Role], FName(std::string(RoleNames[Role]) + "UVOffset"), EMaterialParameterType::Vector,
+				FMaterialParameterValue::MakeVector(FVector3(0.0)), "UV Offset", Sort + 4, EMaterialParameterPresentation::Drag,
+				true, -1024.0f, 1024.0f, ETextureUsage::Color, Group));
+		}
 		return Result;
 	}
 

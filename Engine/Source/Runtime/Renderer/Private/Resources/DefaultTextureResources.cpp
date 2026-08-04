@@ -69,6 +69,30 @@ namespace Durin
 			}
 			return Texture;
 		}
+
+		auto CreateFlatNormalTexture(
+			FRHICommandListImmediate& CommandList) -> FTextureRHIRef
+		{
+			FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
+				"DefaultFlatNormal", 1, 1, EPixelFormat::RGBA32_FLOAT)
+				.SetFlags(ETextureCreateFlags::ShaderResource);
+			FTextureRHIRef Texture =
+				GDynamicRHI->RHICreateTexture(CommandList, Desc);
+			if (Texture != nullptr)
+			{
+				const std::array<float, 4> Color{0.5f, 0.5f, 1.0f, 1.0f};
+				const FUpdateTextureRegion2D Region(0, 0, 0, 0, 1, 1);
+				GDynamicRHI->RHIUpdateTexture2D(
+					CommandList,
+					Texture,
+					0,
+					0,
+					Region,
+					sizeof(Color),
+					reinterpret_cast<const uint8*>(Color.data()));
+			}
+			return Texture;
+		}
 	}
 
 	auto FDefaultTextureResources::Initialize_RenderThread(
@@ -83,8 +107,7 @@ namespace Durin
 			CommandList, "DefaultWhite", {255, 255, 255, 255});
 		Black = CreateSolidTexture(
 			CommandList, "DefaultBlack", {0, 0, 0, 255});
-		FlatNormal = CreateSolidTexture(
-			CommandList, "DefaultFlatNormal", {128, 128, 255, 255});
+		FlatNormal = CreateFlatNormalTexture(CommandList);
 		BlackCube = CreateSolidCubeTexture(
 			CommandList, "DefaultBlackCube", {0, 0, 0, 255});
 	}

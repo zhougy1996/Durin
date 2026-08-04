@@ -182,18 +182,14 @@ TEST(FMaterialAssetThumbnailTests, PreviewComponentResolvesInstanceInheritanceAn
 				InstanceProxy->ResolveMaterialRenderData_RenderThread(0);
 		});
 	Durin::FlushRenderingCommands();
-	const Durin::FMaterialRenderV1Binding MaterialBinding =
+	const Durin::FMaterialRenderV2Binding MaterialBinding =
 		GetMaterialBinding(MaterialData);
-	const Durin::FMaterialRenderV1Binding InstanceBinding =
+	const Durin::FMaterialRenderV2Binding InstanceBinding =
 		GetMaterialBinding(InstanceData);
 	EXPECT_NE(MaterialBinding.BaseColor, InstanceBinding.BaseColor);
 	EXPECT_NE(
-		MaterialBinding.SpecularStrength,
-		InstanceBinding.SpecularStrength);
-	EXPECT_NE(
-		MaterialBinding.BaseColorTexture,
-		InstanceBinding.BaseColorTexture);
-	EXPECT_FLOAT_EQ(InstanceBinding.Shininess, MaterialBinding.Shininess);
+		MaterialBinding.Textures[0],
+		InstanceBinding.Textures[0]);
 
 	MaterialPrimitive.reset();
 	InstancePrimitive.reset();

@@ -173,7 +173,7 @@ namespace Durin
 		EXPECT_EQ(FragmentShader.BinaryEntryPoint, "main");
 		EXPECT_EQ(
 			GetSpirvInputLocations(VertexShader),
-			(std::set<uint32>{0, 1, 2, 3, 7}));
+			(std::set<uint32>{0, 1, 2, 3, 4, 5, 6, 7}));
 
 		ASSERT_EQ(
 			VertexShader.Reflection.ResourceBindings.size(), 1u);
@@ -184,7 +184,7 @@ namespace Durin
 			ERHIBindingType::UniformBuffer,
 			EShaderStageFlags::Vertex);
 		ASSERT_EQ(
-			FragmentShader.Reflection.ResourceBindings.size(), 4u);
+			FragmentShader.Reflection.ResourceBindings.size(), 15u);
 		ExpectBinding(
 			FragmentShader,
 			"Lighting",
@@ -205,10 +205,36 @@ namespace Durin
 			EShaderStageFlags::Fragment);
 		ExpectBinding(
 			FragmentShader,
-			"BaseColorSampler",
+			"NormalTexture",
 			4,
+			ERHIBindingType::Texture,
+			EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "MetallicTexture", 5,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "RoughnessTexture", 6,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "AmbientOcclusionTexture", 7,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "EmissiveTexture", 8,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "OpacityTexture", 9,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "OpacityMaskTexture", 10,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(
+			FragmentShader,
+			"MaterialSampler",
+			11,
 			ERHIBindingType::Sampler,
 			EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "EnvironmentIrradiance", 12,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "EnvironmentPrefiltered", 13,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "EnvironmentBrdfLut", 14,
+			ERHIBindingType::Texture, EShaderStageFlags::Fragment);
+		ExpectBinding(FragmentShader, "EnvironmentSampler", 15,
+			ERHIBindingType::Sampler, EShaderStageFlags::Fragment);
 
 		FPipelineLayoutDesc PipelineLayout;
 		std::string ErrorMessage;
@@ -219,7 +245,7 @@ namespace Durin
 		ASSERT_EQ(PipelineLayout.BindingLayouts.size(), 1u);
 		const auto& SetLayout =
 			PipelineLayout.BindingLayouts[0].BindingLayouts;
-		ASSERT_EQ(SetLayout.size(), 5u);
+		ASSERT_EQ(SetLayout.size(), 16u);
 		for (uint32 BindingIndex = 0;
 			BindingIndex < SetLayout.size();
 			++BindingIndex)
@@ -246,14 +272,24 @@ namespace Durin
 		EXPECT_EQ(
 			SetLayout[2].StageFlags,
 			EShaderStageFlags::Fragment);
-		EXPECT_EQ(SetLayout[3].Type, ERHIBindingType::Texture);
+		for (uint32 BindingIndex = 3; BindingIndex <= 10; ++BindingIndex)
+		{
+			EXPECT_EQ(SetLayout[BindingIndex].Type, ERHIBindingType::Texture);
+			EXPECT_EQ(
+				SetLayout[BindingIndex].StageFlags,
+				EShaderStageFlags::Fragment);
+		}
+		EXPECT_EQ(SetLayout[11].Type, ERHIBindingType::Sampler);
 		EXPECT_EQ(
-			SetLayout[3].StageFlags,
+			SetLayout[11].StageFlags,
 			EShaderStageFlags::Fragment);
-		EXPECT_EQ(SetLayout[4].Type, ERHIBindingType::Sampler);
-		EXPECT_EQ(
-			SetLayout[4].StageFlags,
-			EShaderStageFlags::Fragment);
+		for (uint32 BindingIndex = 12; BindingIndex <= 14; ++BindingIndex)
+		{
+			EXPECT_EQ(SetLayout[BindingIndex].Type, ERHIBindingType::Texture);
+			EXPECT_EQ(SetLayout[BindingIndex].StageFlags, EShaderStageFlags::Fragment);
+		}
+		EXPECT_EQ(SetLayout[15].Type, ERHIBindingType::Sampler);
+		EXPECT_EQ(SetLayout[15].StageFlags, EShaderStageFlags::Fragment);
 		EXPECT_TRUE(PipelineLayout.PushConstantRanges.empty());
 	}
 } // namespace Durin

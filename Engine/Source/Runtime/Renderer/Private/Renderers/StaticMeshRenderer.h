@@ -7,6 +7,7 @@
 namespace Durin
 {
 	class FDefaultTextureResources;
+	class FEnvironmentLightingResources;
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 	class IScene;
@@ -22,7 +23,8 @@ namespace Durin
 	public:
 		FStaticMeshRenderer(
 			FRendererResourceCoordinator& InCoordinator,
-			FDefaultTextureResources& InDefaultTextures);
+			FDefaultTextureResources& InDefaultTextures,
+			FEnvironmentLightingResources& InEnvironmentLighting);
 		~FStaticMeshRenderer();
 
 		FStaticMeshRenderer(const FStaticMeshRenderer&) = delete;
@@ -51,6 +53,7 @@ namespace Durin
 
 		FRendererResourceCoordinator& Coordinator;
 		FDefaultTextureResources& DefaultTextures;
+		FEnvironmentLightingResources& EnvironmentLighting;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

@@ -129,9 +129,9 @@ namespace Durin::Tests
 		if (!OutFixtures.Material->SetVectorParameterValue(
 				MaterialParameters::BaseColorName(), FVector3(0.35, 0.55, 0.75))
 			|| !OutFixtures.Material->SetScalarParameterValue(
-				MaterialParameters::SpecularStrengthName(), 0.4f)
+				MaterialParameters::MetallicName(), 0.4f)
 			|| !OutFixtures.Material->SetScalarParameterValue(
-				MaterialParameters::ShininessName(), 24.0f)
+				MaterialParameters::RoughnessName(), 0.24f)
 			|| !OutFixtures.Material->SetTextureParameterValue(
 				MaterialParameters::BaseColorTextureName(), OutFixtures.ParentTexture))
 		{
@@ -146,7 +146,7 @@ namespace Durin::Tests
 			|| !OutFixtures.MaterialInstance->SetVectorParameterValue(
 				MaterialParameters::BaseColorName(), FVector3(0.8, 0.28, 0.12))
 			|| !OutFixtures.MaterialInstance->SetScalarParameterValue(
-				MaterialParameters::SpecularStrengthName(), 0.7f)
+				MaterialParameters::MetallicName(), 0.7f)
 			|| !OutFixtures.MaterialInstance->SetTextureParameterValue(
 				MaterialParameters::BaseColorTextureName(), OutFixtures.OverrideTexture))
 		{

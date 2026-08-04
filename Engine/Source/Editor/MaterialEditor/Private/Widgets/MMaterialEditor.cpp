@@ -445,6 +445,9 @@ namespace Durin
 		case EMaterialParameterControlKind::RangedScalar:
 			DrawScalarParameter(Model, Entry);
 			break;
+		case EMaterialParameterControlKind::Vector:
+			DrawVectorParameter(Model, Entry);
+			break;
 		case EMaterialParameterControlKind::Color:
 			DrawColorParameter(Model, Entry);
 			break;
@@ -457,6 +460,44 @@ namespace Durin
 			MonaImGui::PropertyEdit::EndRow(true);
 			break;
 		}
+	}
+
+	auto MMaterialEditor::DrawVectorParameter(
+		const FMaterialParameterPanelModel& Model,
+		const FMaterialParameterPanelEntry& Entry
+	) -> void
+	{
+		const FMaterialParameterDefinition& Definition = *Entry.Definition;
+		DMaterialInstance* Instance = Model.GetInstance();
+		bool bOverride = !Instance || Entry.bHasLocalOverride;
+		ImGui::PushID(Definition.Name.ToString().c_str());
+		MonaImGui::PropertyEdit::BeginRow(Definition.DisplayName.c_str());
+		if (Instance)
+		{
+			if (ImGui::Checkbox("##Override", &bOverride)
+				&& !Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, bOverride)) bOverride = !bOverride;
+			ImGui::SameLine();
+			if (bOverride && ImGui::SmallButton("Reset")
+				&& Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, false)) bOverride = false;
+			if (!bOverride) ImGui::BeginDisabled();
+		}
+		float Value[3] = {static_cast<float>(Entry.Value.VectorValue.x), static_cast<float>(Entry.Value.VectorValue.y), static_cast<float>(Entry.Value.VectorValue.z)};
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		const float Minimum = Definition.bHasRange ? Definition.MinimumValue : 0.0f;
+		const float Maximum = Definition.bHasRange ? Definition.MaximumValue : 0.0f;
+		if (ImGui::DragFloat3("##Value", Value, 0.01f, Minimum, Maximum, "%.3f", Definition.bHasRange ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None) && bOverride)
+		{
+			FMaterialParameterValue Edited = Entry.Value;
+			Edited.VectorValue = FVector3(Value[0], Value[1], Value[2]);
+			if (!Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
+				SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
+		}
+		if (ImGui::IsItemDeactivatedAfterEdit() && PropertyView.IsEditing()) FinishActivePropertyEdit(false);
+		else if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
+		if (Instance && !bOverride) ImGui::EndDisabled();
+		if (Instance) ImGui::TextDisabled("%s", FormatParameterSource(Entry).c_str());
+		MonaImGui::PropertyEdit::EndRow();
+		ImGui::PopID();
 	}
 
 	auto MMaterialEditor::DrawColorParameter(

@@ -211,18 +211,21 @@ Material resolution is completed before a Renderer draw reaches this typed
 shader-parameter path. Engine publishes an immutable
 `FMaterialRenderRepresentation` containing the validated layout identity,
 uniform bytes, and counted texture-reference resources. The current
-`FMaterialRenderV1Binding` decoder accepts only the exact v1 field table and
-turns that compact payload into the values required by the StaticMesh shader.
+`FMaterialRenderV2Binding` decoder accepts only the exact v2 field table and
+turns that compact payload into the PBR constants, UV transforms, and eight
+texture roles required by the StaticMesh shader.
 
 `FStaticMeshRenderer` does not perform material parameter GUID or `FName`
 lookup, inspect reflected material objects, or read ad-hoc fixed fields from a
 material snapshot. It builds the existing `FStaticMeshMaterialUniform` ABI
 from the decoded binding and submits the typed shader parameters together
-with the binding's texture reference. A layout mismatch is reported as a
+with the binding's counted texture references and shared environment-lighting
+resources. A layout mismatch is reported as a
 Renderer `ShaderBinding` diagnostic and is replaced by a complete default
 material snapshot before shader-map, pipeline, or descriptor selection. The
-Renderer-owned white texture remains the final resource fallback when the
-validated resource slot is null or not ready.
+Renderer-owned white, black, or flat-normal texture remains the final
+role-specific fallback when a validated resource slot is null or not ready;
+the environment set falls back atomically to black cube/LUT resources.
 
 ### Stable Descriptor Write Inputs
 

@@ -3,6 +3,7 @@
 #include "DynamicRHI.h"
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
+#include "PBRLighting.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "StandardAssetImportProviders.h"
@@ -11,6 +12,9 @@
 #include "Thumbnail/MaterialAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Texture/TextureCubeRenderResource.h"
+
+#include <cmath>
+#include <limits>
 
 namespace
 {
@@ -31,6 +35,113 @@ namespace
 	private:
 		bool bRegistered = false;
 	};
+}
+
+TEST(FMaterialTests, DirectPBRReferenceMatchesFrozenAlignedLightValues)
+{
+	Durin::FPBRDirectLightingInput Input;
+	Input.BaseColor = Durin::FVector3f(0.5f);
+	Input.Metallic = 0.0f;
+	Input.Roughness = 0.5f;
+	const Durin::FVector3f Dielectric =
+		Durin::EvaluatePBRDirectLighting(Input);
+	EXPECT_NEAR(Dielectric.r, 0.20371833f, 1.0e-6f);
+	EXPECT_NEAR(Dielectric.g, 0.20371833f, 1.0e-6f);
+	EXPECT_NEAR(Dielectric.b, 0.20371833f, 1.0e-6f);
+
+	Input.BaseColor = Durin::FVector3f(0.8f, 0.2f, 0.1f);
+	Input.Metallic = 1.0f;
+	const Durin::FVector3f Metal =
+		Durin::EvaluatePBRDirectLighting(Input);
+	EXPECT_NEAR(Metal.r, 1.01859164f, 1.0e-6f);
+	EXPECT_NEAR(Metal.g, 0.25464791f, 1.0e-6f);
+	EXPECT_NEAR(Metal.b, 0.12732395f, 1.0e-6f);
+
+	Input.BaseColor = Durin::FVector3f(0.5f);
+	Input.Metallic = 0.0f;
+	Input.Roughness = 1.0f;
+	const Durin::FVector3f RoughDielectric =
+		Durin::EvaluatePBRDirectLighting(Input);
+	EXPECT_NEAR(RoughDielectric.r, 0.15597184f, 1.0e-6f);
+	EXPECT_NEAR(RoughDielectric.g, 0.15597184f, 1.0e-6f);
+	EXPECT_NEAR(RoughDielectric.b, 0.15597184f, 1.0e-6f);
+}
+
+TEST(FMaterialTests, DirectPBRReferenceStabilizesValidatedExtremes)
+{
+	Durin::FPBRDirectLightingInput Input;
+	Input.BaseColor = Durin::FVector3f(
+		std::numeric_limits<float>::infinity(), -1.0f, 2.0f);
+	Input.Metallic = std::numeric_limits<float>::quiet_NaN();
+	Input.Roughness = 0.0f;
+	Input.Normal = Durin::FVector3f(0.0f);
+	Input.ToLight = Durin::FVector3f(0.0f);
+	Input.ToView = Durin::FVector3f(0.0f);
+	Input.LightRadiance = Durin::FVector3f(
+		std::numeric_limits<float>::infinity());
+	const Durin::FVector3f Result =
+		Durin::EvaluatePBRDirectLighting(Input);
+	EXPECT_TRUE(std::isfinite(Result.r));
+	EXPECT_TRUE(std::isfinite(Result.g));
+	EXPECT_TRUE(std::isfinite(Result.b));
+	EXPECT_EQ(Result, Durin::FVector3f(0.0f));
+}
+
+TEST(FMaterialTests, MappedNormalReferencePreservesRNMAndMirroredHandedness)
+{
+	Durin::FPBRMappedNormalInput Input;
+	Input.EncodedTextureNormal = Durin::FVector2f(0.5f, 0.75f);
+	const Durin::FVector3f Ordinary = Durin::EvaluatePBRMappedNormal(Input);
+	EXPECT_NEAR(Ordinary.x, 0.0f, 1.0e-6f);
+	EXPECT_NEAR(Ordinary.y, 0.5f, 1.0e-6f);
+	EXPECT_NEAR(Ordinary.z, 0.8660254f, 1.0e-6f);
+
+	Input.DeterminantSign = -1.0f;
+	const Durin::FVector3f Mirrored = Durin::EvaluatePBRMappedNormal(Input);
+	EXPECT_NEAR(Mirrored.x, Ordinary.x, 1.0e-6f);
+	EXPECT_NEAR(Mirrored.y, -Ordinary.y, 1.0e-6f);
+	EXPECT_NEAR(Mirrored.z, Ordinary.z, 1.0e-6f);
+
+	Input.ConstantTangentNormal = Durin::FVector3f(0.6f, 0.0f, 0.8f);
+	Input.EncodedTextureNormal = Durin::FVector2f(0.5f, 0.5f);
+	Input.DeterminantSign = 1.0f;
+	const Durin::FVector3f ConstantOnly =
+		Durin::EvaluatePBRMappedNormal(Input);
+	EXPECT_NEAR(ConstantOnly.x, 0.6f, 1.0e-6f);
+	EXPECT_NEAR(ConstantOnly.y, 0.0f, 1.0e-6f);
+	EXPECT_NEAR(ConstantOnly.z, 0.8f, 1.0e-6f);
+}
+
+TEST(FMaterialTests, MappedNormalReferenceFallsBackForMissingTangentData)
+{
+	Durin::FPBRMappedNormalInput Input;
+	Input.EncodedTextureNormal = Durin::FVector2f(1.0f, 1.0f);
+	Input.GeometricNormal = Durin::FVector3f(0.0f, 1.0f, 0.0f);
+	Input.Tangent = Durin::FVector3f(0.0f);
+	EXPECT_EQ(
+		Durin::EvaluatePBRMappedNormal(Input), Input.GeometricNormal);
+}
+
+TEST(FMaterialTests, EnvironmentPBRReferenceScopesAOToIndirectLighting)
+{
+	Durin::FPBREnvironmentLightingInput Input;
+	Input.BaseColor = Durin::FVector3f(0.5f, 0.25f, 0.125f);
+	Input.Irradiance = Durin::FVector3f(0.3f, 0.4f, 0.5f);
+	Input.PrefilteredRadiance = Durin::FVector3f(0.8f, 0.7f, 0.6f);
+	Input.BrdfLut = Durin::FVector2f(0.75f, 0.02f);
+	const Durin::FVector3f Full = Durin::EvaluatePBREnvironmentLighting(Input);
+	EXPECT_GT(Full.r, 0.0f);
+	EXPECT_GT(Full.g, 0.0f);
+	EXPECT_GT(Full.b, 0.0f);
+	Input.AmbientOcclusion = 0.25f;
+	const Durin::FVector3f Occluded = Durin::EvaluatePBREnvironmentLighting(Input);
+	EXPECT_NEAR(Occluded.r, Full.r * 0.25f, 1.0e-6f);
+	EXPECT_NEAR(Occluded.g, Full.g * 0.25f, 1.0e-6f);
+	EXPECT_NEAR(Occluded.b, Full.b * 0.25f, 1.0e-6f);
+	Input.AmbientOcclusion = 0.0f;
+	EXPECT_EQ(
+		Durin::EvaluatePBREnvironmentLighting(Input),
+		Durin::FVector3f(0.0f));
 }
 
 TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
@@ -145,12 +256,10 @@ TEST(FMaterialTests, StaticMeshProxyUsesEmptyFallbackForUnassignedSlots)
 	for (Durin::uint32 SlotIndex = 0; SlotIndex < 2; ++SlotIndex)
 	{
 		const Durin::FMaterialRenderData& Fallback = Snapshot.Materials[SlotIndex];
-		const Durin::FMaterialRenderV1Binding Binding = GetMaterialBinding(Fallback);
-		EXPECT_EQ(Binding.BaseColorTexture, nullptr);
-		EXPECT_FLOAT_EQ(Binding.SpecularStrength, Durin::FMaterialRenderV1Binding{}.SpecularStrength);
-		EXPECT_FLOAT_EQ(Binding.Shininess, Durin::FMaterialRenderV1Binding{}.Shininess);
+		const Durin::FMaterialRenderV2Binding Binding = GetMaterialBinding(Fallback);
+		EXPECT_EQ(Binding.Textures[0], nullptr);
 		ExpectColorNear(
-			Binding.BaseColor, Durin::FMaterialRenderV1Binding{}.BaseColor);
+			Binding.BaseColor, Durin::FMaterialRenderV2Binding{}.BaseColor);
 		EXPECT_EQ(Snapshot.MaterialProxies[SlotIndex], nullptr);
 	}
 
@@ -189,7 +298,7 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	ExpectColorNear(GetMaterialBinding(Initial.Materials[2]).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
 	ExpectColorNear(
 		GetMaterialBinding(Initial.Materials[3]).BaseColor,
-		Durin::FMaterialRenderV1Binding{}.BaseColor);
+		Durin::FMaterialRenderV2Binding{}.BaseColor);
 	EXPECT_EQ(Component->GetMaterialBySlotId(SharedId), Shared);
 
 	Shared->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.4, 0.5, 0.6));
@@ -202,7 +311,7 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	ExpectColorNear(GetMaterialBinding(Updated.Materials[2]).BaseColor, Durin::FVector4f(0.4f, 0.5f, 0.6f, 1.0f));
 	ExpectColorNear(
 		GetMaterialBinding(Updated.Materials[3]).BaseColor,
-		Durin::FMaterialRenderV1Binding{}.BaseColor);
+		Durin::FMaterialRenderV2Binding{}.BaseColor);
 	EXPECT_EQ(
 		Updated.Materials[0].PipelineIdentity,
 		Initial.Materials[0].PipelineIdentity);
@@ -493,6 +602,8 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Durin::DTextureCube* CaptureCube = nullptr;
 	Durin::FRHITextureReferenceRef CaptureCubeReference;
 	Durin::FAssetPath CaptureTexturePath;
+	Durin::FAssetPath DataTexturePath;
+	Durin::FAssetPath NormalTexturePath;
 	Durin::FAssetPath CaptureCubePath;
 	{
 		Durin::FRenderedAssetThumbnailPreviewScenePool Pool(Contract);
@@ -513,13 +624,13 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(0.8, 0.15, 0.05)));
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
-			Durin::MaterialParameters::SpecularStrengthName(), 0.2f));
+			Durin::MaterialParameters::RoughnessName(), 0.2f));
 		ASSERT_TRUE(CaptureInstance->SetParent(CaptureMaterial));
 		ASSERT_TRUE(CaptureInstance->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(0.05, 0.2, 0.8)));
 		ASSERT_TRUE(CaptureInstance->SetScalarParameterValue(
-			Durin::MaterialParameters::SpecularStrengthName(), 0.8f));
+			Durin::MaterialParameters::RoughnessName(), 0.8f));
 		ASSERT_TRUE(InheritedInstance->SetParent(CaptureMaterial));
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Preview", CaptureTexturePath));
@@ -527,6 +638,40 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Durin::DTexture2D::ImportAsset(
 				TextureSource.generic_string(), CaptureTexturePath.ToString());
 		ASSERT_TRUE(TextureResult) << TextureResult.Message;
+		ASSERT_NE(TextureResult.Asset->GetPlatformData(), nullptr);
+		EXPECT_TRUE(TextureResult.Asset->IsSRGB());
+		EXPECT_EQ(
+			TextureResult.Asset->GetPlatformData()->PixelFormat,
+			Durin::EPixelFormat::BC3_UNORM_SRGB);
+		EXPECT_GT(TextureResult.Asset->GetPlatformData()->Mips.size(), 1u);
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			"/MaterialThumbnailVulkan/T_Data", DataTexturePath));
+		const Durin::FTexture2DImportResult DataTextureResult =
+			Durin::DTexture2D::ImportAsset(
+				TextureSource.generic_string(), DataTexturePath.ToString());
+		ASSERT_TRUE(DataTextureResult) << DataTextureResult.Message;
+		ASSERT_TRUE(DataTextureResult.Asset->SetUsage(
+			Durin::ETextureUsage::DataMask, Error)) << Error;
+		ASSERT_NE(DataTextureResult.Asset->GetPlatformData(), nullptr);
+		EXPECT_FALSE(DataTextureResult.Asset->IsSRGB());
+		EXPECT_EQ(
+			DataTextureResult.Asset->GetPlatformData()->PixelFormat,
+			Durin::EPixelFormat::BC7_UNORM);
+		EXPECT_GT(DataTextureResult.Asset->GetPlatformData()->Mips.size(), 1u);
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			"/MaterialThumbnailVulkan/T_Normal", NormalTexturePath));
+		const Durin::FTexture2DImportResult NormalTextureResult =
+			Durin::DTexture2D::ImportAsset(
+				TextureSource.generic_string(), NormalTexturePath.ToString());
+		ASSERT_TRUE(NormalTextureResult) << NormalTextureResult.Message;
+		ASSERT_TRUE(NormalTextureResult.Asset->SetUsage(
+			Durin::ETextureUsage::Normal, Error)) << Error;
+		ASSERT_NE(NormalTextureResult.Asset->GetPlatformData(), nullptr);
+		EXPECT_FALSE(NormalTextureResult.Asset->IsSRGB());
+		EXPECT_EQ(
+			NormalTextureResult.Asset->GetPlatformData()->PixelFormat,
+			Durin::EPixelFormat::BC5_UNORM);
+		EXPECT_GT(NormalTextureResult.Asset->GetPlatformData()->Mips.size(), 1u);
 		ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
 			Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
 		Durin::FlushRenderingCommands();
@@ -543,7 +688,6 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Pool.Reset();
 			return Pixels;
 		};
-
 		const std::vector<Durin::uint8> MaterialPixels =
 			Capture(CaptureMaterial);
 		const std::vector<Durin::uint8> InstancePixels =
@@ -559,8 +703,86 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Durin::MaterialParameters::BaseColorTextureName(), nullptr));
 		const std::vector<Durin::uint8> UntexturedPixels =
 			Capture(CaptureMaterial);
+		ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
+			Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::FName("BaseColorUVScale"), Durin::FVector3(1.0, 1.0, 0.0)));
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::FName("BaseColorUVOffset"), Durin::FVector3(0.0, 0.0, 0.0)));
+		const std::vector<Durin::uint8> UV0Pixels = Capture(CaptureMaterial);
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::FName("BaseColorUVChannel"), 3.0f));
+		const std::vector<Durin::uint8> MissingUVFallbackPixels =
+			Capture(CaptureMaterial);
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::FName("BaseColorUVScale"), Durin::FVector3(-1.0, 1.0, 0.0)));
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::FName("BaseColorUVOffset"), Durin::FVector3(1.0, 0.0, 0.0)));
+		const std::vector<Durin::uint8> TransformedUVPixels =
+			Capture(CaptureMaterial);
+		EXPECT_EQ(UV0Pixels, MissingUVFallbackPixels);
+		EXPECT_EQ(TransformedUVPixels.size(), UV0Pixels.size());
+		const Durin::FMaterialRenderV2Binding TransformedUVBinding =
+			GetMaterialBinding(CaptureMaterial->GetRenderData());
+		EXPECT_FLOAT_EQ(TransformedUVBinding.UVChannels[0], 3.0f);
+		EXPECT_EQ(
+			TransformedUVBinding.UVScales[0],
+			Durin::FVector3f(-1.0f, 1.0f, 0.0f));
+		EXPECT_EQ(
+			TransformedUVBinding.UVOffsets[0],
+			Durin::FVector3f(1.0f, 0.0f, 0.0f));
+
+		const std::array<const Durin::FName*, 8> TextureNames{
+			&Durin::MaterialParameters::BaseColorTextureName(),
+			&Durin::MaterialParameters::NormalTextureName(),
+			&Durin::MaterialParameters::MetallicTextureName(),
+			&Durin::MaterialParameters::RoughnessTextureName(),
+			&Durin::MaterialParameters::AmbientOcclusionTextureName(),
+			&Durin::MaterialParameters::EmissiveTextureName(),
+			&Durin::MaterialParameters::OpacityTextureName(),
+			&Durin::MaterialParameters::OpacityMaskTextureName()};
+		const std::array<Durin::DTexture2D*, 8> RoleTextures{
+			TextureResult.Asset,
+			NormalTextureResult.Asset,
+			DataTextureResult.Asset,
+			DataTextureResult.Asset,
+			DataTextureResult.Asset,
+			TextureResult.Asset,
+			DataTextureResult.Asset,
+			DataTextureResult.Asset};
+		for (size_t Role = 0; Role < TextureNames.size(); ++Role)
+		{
+			ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
+				*TextureNames[Role], RoleTextures[Role]));
+		}
+		const Durin::FMaterialRenderV2Binding MultiTextureBinding =
+			GetMaterialBinding(CaptureMaterial->GetRenderData());
+		for (size_t Role = 0; Role < MultiTextureBinding.Textures.size(); ++Role)
+		{
+			EXPECT_EQ(
+				MultiTextureBinding.Textures[Role].GetReference(),
+				RoleTextures[Role]->GetTextureReferenceRHI().GetReference());
+		}
+		const std::vector<Durin::uint8> MultiTexturePixels =
+			Capture(CaptureMaterial);
+		EXPECT_NE(MultiTexturePixels, UntexturedPixels);
+		for (const Durin::FName* TextureName : TextureNames)
+		{
+			ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
+				*TextureName, nullptr));
+		}
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::MaterialParameters::BaseColorName(),
+			Durin::FVector3(0.15, 0.7, 0.2)));
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::MaterialParameters::EmissiveName(),
+			Durin::FVector3(0.1, 0.05, 0.0)));
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::OpacityName(), 0.4f));
 		const Durin::FMaterialPipelineIdentity LitPipelineIdentity =
 			CaptureMaterial->GetRenderData().PipelineIdentity;
+		const std::vector<Durin::uint8> LitEmissivePixels =
+			Capture(CaptureMaterial);
 		Durin::FMaterialStaticProperties StaticProperties;
 		StaticProperties.ShadingModel = Durin::EMaterialShadingModel::Unlit;
 		ASSERT_TRUE(CaptureMaterial->SetStaticProperties(StaticProperties));
@@ -612,7 +834,10 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		EXPECT_NE(MaterialCenterRgb, InstanceCenterRgb);
 		EXPECT_NE(InheritedBeforePixels, InheritedAfterPixels);
 		EXPECT_NE(MaterialPixels, UntexturedPixels);
+		EXPECT_NE(LitEmissivePixels, StaticIdentityPixels);
 		EXPECT_EQ(StaticIdentityPixels, ReloadedPixels);
+		EXPECT_NEAR(static_cast<int>(StaticIdentityPixels[Center + 2]), 124, 2);
+		EXPECT_NEAR(static_cast<int>(StaticIdentityPixels[Center + 3]), 102, 2);
 		ASSERT_EQ(CubePixels.size(), MaterialPixels.size());
 		const std::array CubeCenterRgb = {
 			CubePixels[Center], CubePixels[Center + 1], CubePixels[Center + 2]};
@@ -656,6 +881,8 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	ASSERT_NE(CaptureMesh, nullptr);
 	ASSERT_NE(CaptureSphere, nullptr);
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureTexturePath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(DataTexturePath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(NormalTexturePath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureCubePath));
 	Durin::FlushRenderingCommands();
 	Durin::MarkAsGarbage(CaptureCube);

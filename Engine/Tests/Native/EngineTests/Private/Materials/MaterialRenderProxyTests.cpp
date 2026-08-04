@@ -58,17 +58,14 @@ namespace
 		const Durin::FMaterialRenderData& Expected
 	) -> void
 	{
-		const Durin::FMaterialRenderV1Binding ActualBinding =
+		const Durin::FMaterialRenderV2Binding ActualBinding =
 			GetMaterialBinding(Actual);
-		const Durin::FMaterialRenderV1Binding ExpectedBinding =
+		const Durin::FMaterialRenderV2Binding ExpectedBinding =
 			GetMaterialBinding(Expected);
 		ExpectColorNear(ActualBinding.BaseColor, ExpectedBinding.BaseColor);
 		EXPECT_EQ(
-			ActualBinding.BaseColorTexture,
-			ExpectedBinding.BaseColorTexture);
-		EXPECT_FLOAT_EQ(
-			ActualBinding.SpecularStrength, ExpectedBinding.SpecularStrength);
-		EXPECT_FLOAT_EQ(ActualBinding.Shininess, ExpectedBinding.Shininess);
+			ActualBinding.Textures[0],
+			ExpectedBinding.Textures[0]);
 		EXPECT_EQ(Actual.PipelineIdentity, Expected.PipelineIdentity);
 		EXPECT_EQ(
 			Actual.Representation.GetLayout().Identity,

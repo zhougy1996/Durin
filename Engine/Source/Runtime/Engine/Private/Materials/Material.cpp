@@ -120,11 +120,26 @@ namespace Durin
 	auto DMaterial::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
+		const bool bUpgradeDefinitions = ParameterSchemaVersion < CurrentMaterialParameterSchemaVersion;
 		std::string SchemaWarning;
 		if (!UpgradeMaterialParameterSchemaVersion(
 				ParameterSchemaVersion, SchemaWarning, OutError))
 		{
 			return false;
+		}
+		if (bUpgradeDefinitions)
+		{
+			std::vector<FMaterialParameterDefinition> Upgraded = MakeCanonicalMaterialParameterDefinitions();
+			for (const FGuid& PreservedId : {MaterialParameters::BaseColorId, MaterialParameters::BaseColorTextureId, MaterialParameters::OpacityId})
+			{
+				const auto Old = std::ranges::find(ParameterDefinitions, PreservedId, &FMaterialParameterDefinition::Id);
+				const auto New = std::ranges::find(Upgraded, PreservedId, &FMaterialParameterDefinition::Id);
+				if (Old != ParameterDefinitions.end() && New != Upgraded.end() && Old->Type == New->Type)
+				{
+					New->Value = Old->Value;
+				}
+			}
+			ParameterDefinitions = std::move(Upgraded);
 		}
 		if (!ValidateCanonicalMaterialParameterDefinitions(
 				ParameterDefinitions, OutError)

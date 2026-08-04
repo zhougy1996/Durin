@@ -142,22 +142,24 @@ change invalidates every dependent shader artifact.
 Each StaticMesh section resolves one stable material proxy snapshot. The
 snapshot carries an Engine-owned `FMaterialRenderRepresentation` and a
 separate static shader/pipeline identity. `FStaticMeshRenderer` accepts only
-the exact v1 layout identified by `MaterialRenderLayoutV1Id`; it decodes the
-compact BaseColor/Opacity/SpecularStrength/Shininess slots and the
-BaseColorTexture resource slot through `TryGetMaterialRenderV1Binding`.
+the exact v2 layout identified by `MaterialRenderLayoutV2Id`; it decodes the
+compact PBR constants, eight UV transforms, and eight texture roles through
+`TryGetMaterialRenderV2Binding`.
 
 The draw path does not perform parameter GUID or `FName` lookup and does not
 read reflected material objects or legacy fixed material fields. Dynamic
 uniform/resource bytes are not part of shader-map or pipeline cache keys, so
 dynamic edits reuse the existing identity while static-property edits select
 the corresponding cached shader/pipeline pair. The current uniform ABI,
-solid/wireframe choice, typed descriptor submission, and Renderer-owned white
-texture fallback remain unchanged.
+solid/wireframe choice and typed descriptor submission remain unchanged.
+Texture resources use role-specific white, black, or flat-normal fallbacks;
+environment irradiance, prefilter, and BRDF-LUT resources are shared by the
+scene renderer and fall back together to black.
 
 If the representation identity or field table is unsupported, the Renderer
 reports a `ShaderBinding` resource diagnostic and switches to a complete
 default material snapshot before shader-map or pipeline lookup. The fallback
-contains the same validated v1 contract, so no partial payload can reach a
+contains the same validated v2 contract, so no partial payload can reach a
 draw.
 
 ## Payload Compatibility

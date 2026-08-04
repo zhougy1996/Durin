@@ -59,14 +59,18 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 	InitializeDObjectSystem();
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "SchemaMaterial");
 	const std::span Definitions = Material->GetParameterDefinitions();
-	ASSERT_EQ(Definitions.size(), 5u);
-	const std::array ExpectedIds{
-		Durin::MaterialParameters::BaseColorId,
-		Durin::MaterialParameters::BaseColorTextureId,
-		Durin::MaterialParameters::OpacityId,
-		Durin::MaterialParameters::SpecularStrengthId,
-		Durin::MaterialParameters::ShininessId,
-	};
+	ASSERT_EQ(Definitions.size(), 40u);
+	const std::array ConstantIds{Durin::MaterialParameters::BaseColorId, Durin::MaterialParameters::NormalId,
+		Durin::MaterialParameters::MetallicId, Durin::MaterialParameters::RoughnessId,
+		Durin::MaterialParameters::AmbientOcclusionId, Durin::MaterialParameters::EmissiveId,
+		Durin::MaterialParameters::OpacityId, Durin::MaterialParameters::OpacityMaskId};
+	std::vector<Durin::FGuid> ExpectedIds;
+	for (size_t Role = 0; Role < 8; ++Role)
+	{
+		ExpectedIds.insert(ExpectedIds.end(), {ConstantIds[Role], Durin::MaterialParameters::TextureIds[Role],
+			Durin::MaterialParameters::UVChannelIds[Role], Durin::MaterialParameters::UVScaleIds[Role],
+			Durin::MaterialParameters::UVOffsetIds[Role]});
+	}
 	std::unordered_set<Durin::FGuid> Ids;
 	std::unordered_set<Durin::FName> Names;
 	for (size_t Index = 0; Index < Definitions.size(); ++Index)
@@ -81,9 +85,13 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 		switch (Definition.Presentation)
 		{
 		case Durin::EMaterialParameterPresentation::Drag:
-			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Scalar);
 			EXPECT_TRUE(Definition.bHasRange);
 			EXPECT_LT(Definition.MinimumValue, Definition.MaximumValue);
+			break;
+		case Durin::EMaterialParameterPresentation::Integer:
+			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Scalar);
+			EXPECT_FLOAT_EQ(Definition.MinimumValue, 0.0f);
+			EXPECT_FLOAT_EQ(Definition.MaximumValue, 3.0f);
 			break;
 		case Durin::EMaterialParameterPresentation::Color:
 			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Vector);
@@ -94,8 +102,8 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 		case Durin::EMaterialParameterPresentation::Default: FAIL() << "Built-in parameters require an explicit presentation."; break;
 		}
 	}
-	EXPECT_EQ(Material->FindParameterDefinition(Durin::MaterialParameters::OpacityId), &Definitions[2]);
-	EXPECT_EQ(Material->FindParameterDefinition(Durin::FName("oPaCiTy")), &Definitions[2]);
+	EXPECT_EQ(Material->FindParameterDefinition(Durin::MaterialParameters::OpacityId), &Definitions[30]);
+	EXPECT_EQ(Material->FindParameterDefinition(Durin::FName("oPaCiTy")), &Definitions[30]);
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::MaterialParameters::BaseColorName(), 0.5f));
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::FName("UnknownParameter"), 0.5f));
 	Durin::MarkAsGarbage(Material);
@@ -131,6 +139,57 @@ TEST(FMaterialTests, RuntimeSchemaValidationReportsSpecificCorruption)
 	Opacity->Type = Durin::EMaterialParameterType::Vector;
 	EXPECT_FALSE(Material->PostLoad(Error));
 	EXPECT_NE(Error.find("canonical identity"), std::string::npos);
+	Durin::MarkAsGarbage(Material);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, SchemaV1UpgradePreservesStableValuesAndLegacyInstanceOrphans)
+{
+	InitializeDObjectSystem();
+	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "LegacySchemaMaterial");
+	auto* VersionProperty = Material->GetClass()->FindPropertyByName("ParameterSchemaVersion");
+	auto* DefinitionsProperty = static_cast<Durin::FArrayProperty*>(Material->GetClass()->FindPropertyByName("ParameterDefinitions"));
+	ASSERT_NE(VersionProperty, nullptr);
+	ASSERT_NE(DefinitionsProperty, nullptr);
+	*VersionProperty->ContainerPtrToValuePtr<Durin::uint32>(Material) = 1;
+	DefinitionsProperty->Resize(Material, 3);
+	auto* BaseColor = static_cast<Durin::FMaterialParameterDefinition*>(DefinitionsProperty->GetMutableElementPtr(Material, 0));
+	auto* BaseTexture = static_cast<Durin::FMaterialParameterDefinition*>(DefinitionsProperty->GetMutableElementPtr(Material, 1));
+	auto* Opacity = static_cast<Durin::FMaterialParameterDefinition*>(DefinitionsProperty->GetMutableElementPtr(Material, 2));
+	*BaseColor = Durin::MakeCanonicalMaterialParameterDefinitions()[0];
+	*BaseTexture = Durin::MakeCanonicalMaterialParameterDefinitions()[1];
+	*Opacity = Durin::MakeCanonicalMaterialParameterDefinitions()[30];
+	BaseColor->Value.VectorValue = Durin::FVector3(0.1, 0.2, 0.3);
+	Opacity->Value.ScalarValue = 0.4f;
+	std::string Error;
+	ASSERT_TRUE(Material->PostLoad(Error)) << Error;
+	ASSERT_EQ(Material->GetParameterDefinitions().size(), 40u);
+	Durin::FVector3 LoadedColor;
+	float LoadedOpacity = 0.0f;
+	EXPECT_TRUE(Material->GetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), LoadedColor));
+	EXPECT_EQ(LoadedColor, Durin::FVector3(0.1, 0.2, 0.3));
+	EXPECT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), LoadedOpacity));
+	EXPECT_FLOAT_EQ(LoadedOpacity, 0.4f);
+	EXPECT_EQ(Material->FindParameterDefinition(Durin::MaterialParameters::SpecularStrengthId), nullptr);
+
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "LegacySchemaInstance");
+	ASSERT_TRUE(Instance->SetParent(Material));
+	auto* InstanceVersion = Instance->GetClass()->FindPropertyByName("ParameterSchemaVersion");
+	auto* OverridesProperty = static_cast<Durin::FArrayProperty*>(Instance->GetClass()->FindPropertyByName("ParameterOverrides"));
+	ASSERT_NE(InstanceVersion, nullptr);
+	ASSERT_NE(OverridesProperty, nullptr);
+	*InstanceVersion->ContainerPtrToValuePtr<Durin::uint32>(Instance) = 1;
+	OverridesProperty->Resize(Instance, 1);
+	auto* LegacyOverride = static_cast<Durin::FMaterialParameterOverride*>(OverridesProperty->GetMutableElementPtr(Instance, 0));
+	*LegacyOverride = {.ParameterId = Durin::MaterialParameters::SpecularStrengthId,
+		.Type = Durin::EMaterialParameterType::Scalar,
+		.Value = Durin::FMaterialParameterValue::MakeScalar(0.8f)};
+	ASSERT_TRUE(Instance->PostLoad(Error)) << Error;
+	EXPECT_TRUE(Instance->IsParameterOverrideOrphan(Durin::MaterialParameters::SpecularStrengthId));
+	Durin::FResolvedMaterialParameter OrphanResolution;
+	EXPECT_FALSE(Instance->ResolveParameterValue(Durin::MaterialParameters::SpecularStrengthId, OrphanResolution));
+
+	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
 }

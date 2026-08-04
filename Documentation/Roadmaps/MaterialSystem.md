@@ -2,7 +2,7 @@
 
 Summary: Long-term sequencing for material authoring, surface models, render passes, compilation, and runtime scalability.
 
-Last reviewed: 2026-08-04
+Last reviewed: 2026-08-05
 
 ## Current State
 
@@ -14,13 +14,13 @@ and shader-map and pipeline identities. The Material Editor supports creation,
 save, parent selection, built-in parameter editing, instance overrides, and
 rendered thumbnails.
 
-The visible surface remains the fixed `StaticMesh.slang` Blinn-Phong path, now
-fed by the validated, versioned Engine render representation and compact v1
-binding contract. Cached material identities still do not make blend, culling,
-depth, masking, or shading policies visibly different. The representation
-implementation and its final aggregate-validation/documentation handoff are
-complete; PBR, material graph compilation, transient runtime instances, and
-renderer scalability work have not landed.
+The visible StaticMesh surface now uses the validated v2 metallic/roughness PBR
+contract across level, preview, and thumbnail rendering. It includes eight
+texture roles with explicit color-space and UV behavior, tangent-space normal
+mapping, Cook-Torrance GGX direct lighting, and a shared pre-baked studio IBL
+asset. Cached material identities still do not make blend, culling, depth, or
+masking policies visibly different. Material graph compilation, transient
+runtime instances, and renderer scalability work have not landed.
 
 This roadmap records ordering and activation gates only. Executable decisions,
 working sets, stages, and acceptance evidence belong to the linked active
@@ -33,11 +33,11 @@ baseline.
 | Roadmap milestone | Execution plan | State |
 | --- | --- | --- |
 | 2. Versioned renderer-facing material representation | [Material Render Representation](../Plans/Archive/2026-08/MaterialRenderRepresentation.md) | Complete; final handoff recorded |
-| 3. Metallic/roughness PBR surface contract | [PBR Material Surface](../Plans/PBRMaterialSurface.md) | Planned; implementation waits for milestone 2 |
+| 3. Metallic/roughness PBR surface contract | [PBR Material Surface](../Plans/PBRMaterialSurface.md) | Complete; final handoff recorded |
 
-Only the first plan is the current implementation priority. The PBR plan is
-checked in now to freeze its scope and dependency boundary, not to authorize
-overlapping implementation.
+Milestones 2 and 3 are complete. No render-pass execution plan is active; the
+landed surface outputs and limitations below are the review baseline for any
+future milestone 4 plan.
 
 ## Completed Foundations
 
@@ -70,6 +70,11 @@ overlapping implementation.
   streams, up to four UV channels, and packed tangent handedness.
 - Concrete Renderer-private feature owners, including `FStaticMeshRenderer`,
   under one `FSceneRenderer` orchestration boundary.
+- Canonical PBR v2 constants and eight texture roles, per-role UV0-UV3
+  transforms, usage/color-space validation, and deterministic role fallbacks.
+- Tangent-space RNM normal composition with mirrored-transform handedness,
+  Cook-Torrance GGX direct lighting, and split-sum environment lighting from a
+  pre-baked internal Engine asset shared across scene and preview output.
 
 Milestone 2 completion evidence is recorded in the linked plan. The landed
 contract is `FMaterialRenderRepresentation` v1 identified by
@@ -79,6 +84,15 @@ fallback, stable proxy publication, and no fixed material-value fields in
 `FMaterialRenderData`. StaticMesh draws preserve the existing uniform ABI and
 texture fallback, and the aggregate native/Vulkan/reload coverage plus full
 `all` build and editor smoke passed before this roadmap was marked complete.
+
+Milestone 3 completion evidence is recorded in the linked PBR plan. The landed
+surface writes finite scene-linear RGB and carries effective Opacity in alpha;
+OpacityMask is evaluated but intentionally changes neither color nor coverage.
+StaticMesh remains in the fixed opaque, depth-writing, two-sided pass, so
+blending, alpha test, culling, depth policy, depth-only/shadow passes, and
+translucent ordering are not implemented. The hidden studio IBL is an
+Engine-content asset with asset-owned Cook and an independent bake tool, not a
+SkyBox or material parameter.
 
 ## Remaining Editor Workflow
 
@@ -102,8 +116,10 @@ surface contract owned by milestones 2 and 3.
 
 ### 4. Static Permutations and Render Passes
 
-Create a dedicated plan only after the PBR surface contract is complete. It
-will own actual opaque, masked, and translucent behavior; culling and
+The PBR closure review above supplies the required concrete input, but no
+render-pass plan is created or activated by that completion. When milestone 4
+is explicitly selected, its plan will own actual opaque, masked, and
+translucent behavior; culling and
 depth-write policy; depth-only and shadow-depth passes; translucent sorting;
 pass, platform, quality, and vertex-factory permutation identity; and the
 forward-versus-deferred decision. Until then, existing static properties remain
@@ -131,11 +147,10 @@ owned by the texture roadmap and plans rather than this milestone.
 2. Update this roadmap with its completion evidence and the resulting concrete
    render contract.
 3. Re-review the prepared PBR plan against that landed contract before starting
-   its first implementation stage; amend its baseline and any invalidated
-   assumptions before code changes. This re-review is now recorded in
-   `PBRMaterialSurface.md`; PBR implementation remains unstarted.
-4. Complete and validate the PBR plan, then decide the exact scope and number
-   of plans required for milestone 4.
+   its first implementation stage; the review and implementation are complete.
+4. Use the landed PBR output and limitation review above when milestone 4 is
+   explicitly selected; do not infer an active render-pass plan from PBR
+   completion.
 5. Do not create detailed milestone 5 or 6 plans until the preceding milestone
    exposes the decisions and performance evidence they require.
 

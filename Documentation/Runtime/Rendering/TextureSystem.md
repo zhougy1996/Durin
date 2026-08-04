@@ -222,7 +222,15 @@ directory from Content.
 
 - Build work is synchronous, every mip is fully resident, and there is no memory
   accounting or streaming.
-- The shipped material shader consumes only the base-color texture parameter.
+- The shipped material shader consumes eight explicit roles: BaseColor and
+  Emissive require Color/sRGB textures; Normal requires Normal/linear;
+  Metallic, Roughness, AmbientOcclusion, Opacity, and OpacityMask require
+  Data/Mask/linear and sample the R channel. Each role has independent UV0-UV3
+  selection, scale, and offset. A mismatched Usage or sRGB setting stays
+  authored for correction but compiles to the role fallback with an
+  asset-qualified diagnostic.
+- Opacity and OpacityMask texture data are resolved into the surface, but the
+  current fixed opaque pass does not use either value for coverage or depth.
 
 ## Related Code
 
