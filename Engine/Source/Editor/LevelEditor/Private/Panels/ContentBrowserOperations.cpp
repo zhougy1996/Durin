@@ -16,6 +16,9 @@ namespace Durin
 {
 	namespace
 	{
+		constexpr uint64 FnvOffset = 14695981039346656037ull;
+		constexpr uint64 FnvPrime = 1099511628211ull;
+
 		auto NormalizePath(std::string_view Path) -> std::string
 		{
 			if (Path.empty()) return {};
@@ -28,6 +31,98 @@ namespace Durin
 			-> FContentBrowserOperationResult
 		{
 			return {{Error, std::move(Message)}};
+		}
+
+		auto HashAppend(uint64 Hash, std::string_view Value) -> uint64
+		{
+			for (const unsigned char Byte : Value)
+			{
+				Hash ^= Byte;
+				Hash *= FnvPrime;
+			}
+			return Hash;
+		}
+
+		auto CalculateFingerprintDigest(
+			const FContentDeletionFingerprint& Fingerprint) -> uint64
+		{
+			uint64 Hash = HashAppend(FnvOffset, Fingerprint.PhysicalPath);
+			Hash = HashAppend(
+				Hash, std::to_string(static_cast<uint8>(Fingerprint.Kind)));
+			Hash = HashAppend(Hash, std::to_string(Fingerprint.FileSize));
+			return HashAppend(
+				Hash, std::to_string(Fingerprint.LastWriteTimeTicks));
+		}
+
+		auto IsReparsePoint(
+			const std::filesystem::path& Path,
+			std::error_code& OutError) -> bool
+		{
+			OutError.clear();
+			const std::filesystem::file_status Status =
+				std::filesystem::symlink_status(Path, OutError);
+			if (OutError || std::filesystem::is_symlink(Status))
+				return !OutError;
+#ifdef _WIN32
+			const DWORD Attributes = GetFileAttributesW(Path.c_str());
+			if (Attributes == INVALID_FILE_ATTRIBUTES)
+			{
+				OutError = std::error_code(
+					static_cast<int>(GetLastError()), std::system_category());
+				return false;
+			}
+			return (Attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+#else
+			return false;
+#endif
+		}
+
+		auto MakeFingerprint(
+			const std::filesystem::path& Path,
+			EContentDeletionEntryKind Kind,
+			FContentDeletionFingerprint& OutFingerprint,
+			std::error_code& OutError) -> bool
+		{
+			OutError.clear();
+			OutFingerprint = {};
+			OutFingerprint.PhysicalPath = NormalizePath(Path.generic_string());
+			OutFingerprint.Kind = Kind;
+			if (Kind != EContentDeletionEntryKind::Directory)
+			{
+				OutFingerprint.FileSize = std::filesystem::file_size(Path, OutError);
+				if (OutError) return false;
+			}
+			const auto WriteTime = std::filesystem::last_write_time(Path, OutError);
+			if (OutError) return false;
+			OutFingerprint.LastWriteTimeTicks =
+				static_cast<int64>(WriteTime.time_since_epoch().count());
+			OutFingerprint.Digest = CalculateFingerprintDigest(OutFingerprint);
+			return true;
+		}
+
+		auto IsSameVolume(
+			const std::filesystem::path& A,
+			const std::filesystem::path& B) -> bool
+		{
+			std::string Left = A.root_name().generic_string();
+			std::string Right = B.root_name().generic_string();
+#ifdef _WIN32
+			std::ranges::transform(Left, Left.begin(), [](unsigned char Character) {
+				return static_cast<char>(std::tolower(Character));
+			});
+			std::ranges::transform(Right, Right.begin(), [](unsigned char Character) {
+				return static_cast<char>(std::tolower(Character));
+			});
+#endif
+			return Left == Right;
+		}
+
+		auto AreSamePath(std::string_view A, std::string_view B) -> bool
+		{
+			std::filesystem::path Relative;
+			return PathUtilities::TryMakeLexicalRelativePath(
+				std::filesystem::path(A), std::filesystem::path(B), Relative)
+				&& Relative.empty();
 		}
 	} // namespace
 
@@ -450,6 +545,474 @@ namespace Durin
 			else
 				Errors.emplace_back(Item.StableId(), std::move(Result));
 		}
+	}
+
+	auto FContentBrowserOperations::BuildDeletionPlan(
+		std::span<const FContentBrowserItem> Items,
+		const std::unordered_set<std::string>& Selection) const
+		-> FContentDeletionPlanPtr
+	{
+		auto Plan = std::make_shared<FContentDeletionPlan>();
+		Plan->RegistryRevision = Asset::GetAssetRegistry().GetRevision();
+		Plan->StagingVolumeRoot = NormalizePath(
+			(std::filesystem::path(FPaths::ProjectDir())
+				/ "Saved/ContentBrowserUndo").generic_string());
+
+		auto AddBlocker = [&](EContentDeletionBlocker Kind,
+			std::string DisplayName,
+			std::string PhysicalPath,
+			std::string RelatedAssetPath,
+			std::string Details) {
+			Plan->Blockers.push_back({
+				.Kind = Kind,
+				.DisplayName = std::move(DisplayName),
+				.PhysicalPath = std::move(PhysicalPath),
+				.RelatedAssetPath = std::move(RelatedAssetPath),
+				.Details = std::move(Details)});
+		};
+
+		if (Selection.empty())
+		{
+			AddBlocker(
+				EContentDeletionBlocker::InvalidSelection,
+				"Selection", {}, {}, "No content is selected.");
+			return Plan;
+		}
+
+		Model.RefreshMountSnapshot();
+		struct FSelectedRoot
+		{
+			const FContentBrowserItem* Item = nullptr;
+			std::string PhysicalPath;
+			const FContentBrowserModel::FMountSnapshot* Mount = nullptr;
+		};
+		std::vector<FSelectedRoot> SelectedRoots;
+		for (const FContentBrowserItem& Item : Items)
+		{
+			if (!Selection.contains(Item.StableId())) continue;
+			const std::string PhysicalPath = NormalizePath(Item.PhysicalPath);
+			const auto Mount = std::ranges::find_if(
+				Model.GetMounts(),
+				[&](const FContentBrowserModel::FMountSnapshot& Candidate) {
+					return AreSamePath(PhysicalPath, Candidate.PhysicalRoot)
+						|| PathUtilities::IsLexicalDescendantPath(
+							PhysicalPath, Candidate.PhysicalRoot, true);
+				});
+			if (Mount == Model.GetMounts().end())
+			{
+				AddBlocker(
+					EContentDeletionBlocker::OutsideMount,
+					Item.Name,
+					PhysicalPath,
+					{},
+					"Selected path is outside every mounted content root.");
+				continue;
+			}
+			if (AreSamePath(PhysicalPath, Mount->PhysicalRoot))
+				AddBlocker(
+					EContentDeletionBlocker::MountRoot,
+					Item.Name,
+					PhysicalPath,
+					{},
+					"A mounted content root cannot be deleted.");
+			if (!Mount->bAuthoringWritable)
+				AddBlocker(
+					EContentDeletionBlocker::ReadOnlyMount,
+					Item.Name,
+					PhysicalPath,
+					{},
+					"The selected mount is read-only for authoring.");
+			if (!IsSameVolume(PhysicalPath, Plan->StagingVolumeRoot))
+				AddBlocker(
+					EContentDeletionBlocker::CrossVolumeStaging,
+					Item.Name,
+					PhysicalPath,
+					{},
+					"The selected root cannot be renamed into the Undo staging volume.");
+			SelectedRoots.push_back({&Item, PhysicalPath, &*Mount});
+		}
+
+		if (SelectedRoots.size() != Selection.size())
+			AddBlocker(
+				EContentDeletionBlocker::InvalidSelection,
+				"Selection",
+				{},
+				{},
+				"One or more selected items are absent from the analyzed item set.");
+		std::ranges::sort(
+			SelectedRoots,
+			[](const FSelectedRoot& A, const FSelectedRoot& B) {
+				if (A.PhysicalPath.size() != B.PhysicalPath.size())
+					return A.PhysicalPath.size() < B.PhysicalPath.size();
+				return A.PhysicalPath < B.PhysicalPath;
+			});
+		std::vector<FSelectedRoot> MaximalRoots;
+		for (const FSelectedRoot& Candidate : SelectedRoots)
+		{
+			if (!MaximalRoots.empty()
+				&& Candidate.Mount != MaximalRoots.front().Mount)
+				AddBlocker(
+					EContentDeletionBlocker::UnsupportedMount,
+					Candidate.Item->Name,
+					Candidate.PhysicalPath,
+					{},
+					"One deletion plan cannot span multiple content mounts.");
+			if (std::ranges::any_of(
+					MaximalRoots,
+					[&](const FSelectedRoot& Existing) {
+						return PathUtilities::IsLexicalDescendantPath(
+							Candidate.PhysicalPath, Existing.PhysicalPath, true);
+					}))
+				continue;
+			MaximalRoots.push_back(Candidate);
+		}
+		if (MaximalRoots.size() == 1)
+			Plan->DisplayName = MaximalRoots.front().Item->Name;
+		else
+			Plan->DisplayName = std::format("{} Items", MaximalRoots.size());
+
+		std::unordered_map<std::string, const Asset::FAssetData*> AssetsByPhysicalPath;
+		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+			AssetsByPhysicalPath.emplace(NormalizePath(Data.PhysicalPath), &Data);
+		std::vector<FAssetPath> AssetPaths;
+		std::vector<std::filesystem::path> PhysicalRoots;
+
+		auto AddPhysicalEntry = [&](const std::filesystem::path& Physical,
+			bool bDirectory) {
+			const std::string Normalized = NormalizePath(Physical.generic_string());
+			EContentDeletionEntryKind Kind = bDirectory
+				? EContentDeletionEntryKind::Directory
+				: EContentDeletionEntryKind::OrdinaryFile;
+			if (!bDirectory && Physical.extension() == ".dasset")
+			{
+				if (const auto Asset = AssetsByPhysicalPath.find(Normalized);
+					Asset != AssetsByPhysicalPath.end())
+				{
+					Kind = EContentDeletionEntryKind::AssetPackage;
+					AssetPaths.push_back(Asset->second->PackagePath);
+				}
+				else
+				{
+					Kind = EContentDeletionEntryKind::UnknownPackage;
+					AddBlocker(
+						EContentDeletionBlocker::UnknownPackage,
+						Physical.filename().generic_string(),
+						Normalized,
+						{},
+						"Package file is not registered or has invalid metadata.");
+				}
+			}
+			FContentDeletionFingerprint Fingerprint;
+			std::error_code Ec;
+			if (!MakeFingerprint(Physical, Kind, Fingerprint, Ec))
+			{
+				AddBlocker(
+					EContentDeletionBlocker::InspectionFailed,
+					Physical.filename().generic_string(),
+					Normalized,
+					{},
+					std::format("Could not fingerprint content: {}", Ec.message()));
+				return;
+			}
+			Plan->Entries.push_back(std::move(Fingerprint));
+		};
+
+		for (const FSelectedRoot& Root : MaximalRoots)
+		{
+			const std::filesystem::path Physical(Root.PhysicalPath);
+			PhysicalRoots.push_back(Physical);
+			std::error_code Ec;
+			const bool bReparse = IsReparsePoint(Physical, Ec);
+			if (Ec)
+			{
+				AddBlocker(
+					EContentDeletionBlocker::InspectionFailed,
+					Root.Item->Name,
+					Root.PhysicalPath,
+					{},
+					std::format("Could not inspect selected path: {}", Ec.message()));
+				continue;
+			}
+			if (bReparse)
+			{
+				AddBlocker(
+					EContentDeletionBlocker::ReparsePoint,
+					Root.Item->Name,
+					Root.PhysicalPath,
+					{},
+					"Reparse points cannot be traversed or staged.");
+				continue;
+			}
+			const bool bDirectory = std::filesystem::is_directory(Physical, Ec);
+			if (Ec || (!bDirectory && !std::filesystem::is_regular_file(Physical, Ec)))
+			{
+				AddBlocker(
+					EContentDeletionBlocker::InvalidSelection,
+					Root.Item->Name,
+					Root.PhysicalPath,
+					{},
+					"Selected content no longer exists as a supported file or directory.");
+				continue;
+			}
+			AddPhysicalEntry(Physical, bDirectory);
+			Plan->MaximalRoots.push_back({
+				.OriginalPath = Root.PhysicalPath,
+				.Kind = bDirectory
+					? EContentDeletionEntryKind::Directory
+					: EContentDeletionEntryKind::OrdinaryFile});
+			if (!bDirectory) continue;
+
+			for (std::filesystem::recursive_directory_iterator It(
+					 Physical, std::filesystem::directory_options::none, Ec),
+				 End;
+				 !Ec && It != End;
+				 It.increment(Ec))
+			{
+				std::error_code EntryEc;
+				if (IsReparsePoint(It->path(), EntryEc))
+				{
+					AddBlocker(
+						EContentDeletionBlocker::ReparsePoint,
+						It->path().filename().generic_string(),
+						NormalizePath(It->path().generic_string()),
+						{},
+						"Reparse points cannot be traversed or staged.");
+					It.disable_recursion_pending();
+					continue;
+				}
+				if (EntryEc)
+				{
+					AddBlocker(
+						EContentDeletionBlocker::InspectionFailed,
+						It->path().filename().generic_string(),
+						NormalizePath(It->path().generic_string()),
+						{},
+						std::format("Could not inspect descendant: {}", EntryEc.message()));
+					It.disable_recursion_pending();
+					continue;
+				}
+				const bool bChildDirectory = It->is_directory(EntryEc);
+				if (!EntryEc && (bChildDirectory || It->is_regular_file(EntryEc)))
+					AddPhysicalEntry(It->path(), bChildDirectory);
+				else if (EntryEc)
+					AddBlocker(
+						EContentDeletionBlocker::InspectionFailed,
+						It->path().filename().generic_string(),
+						NormalizePath(It->path().generic_string()),
+						{},
+						std::format("Could not classify descendant: {}", EntryEc.message()));
+			}
+			if (Ec)
+				AddBlocker(
+					EContentDeletionBlocker::InspectionFailed,
+					Root.Item->Name,
+					Root.PhysicalPath,
+					{},
+					std::format("Could not enumerate folder contents: {}", Ec.message()));
+		}
+
+		std::ranges::sort(AssetPaths, [](const FAssetPath& A, const FAssetPath& B) {
+			return A.GetView() < B.GetView();
+		});
+		AssetPaths.erase(std::unique(AssetPaths.begin(), AssetPaths.end()), AssetPaths.end());
+		std::vector<Asset::FAssetDeletionBatchBlocker> AssetBlockers;
+		const Asset::FAssetResult AssetResult = Asset::AnalyzeAssetDeletionBatch(
+			AssetPaths, PhysicalRoots, Plan->AssetBatch, AssetBlockers);
+		if (!AssetResult)
+			AddBlocker(
+				EContentDeletionBlocker::InspectionFailed,
+				"Assets", {}, {}, AssetResult.Message);
+
+		std::unordered_set<std::string> CompanionPaths;
+		for (const Asset::FAssetDeletionBatchEntry& Entry :
+			Plan->AssetBatch.GetEntries())
+			for (const std::filesystem::path& Companion : Entry.CompanionFiles)
+				CompanionPaths.insert(NormalizePath(Companion.generic_string()));
+		for (FContentDeletionFingerprint& Entry : Plan->Entries)
+			if (CompanionPaths.contains(Entry.PhysicalPath)
+				&& Entry.Kind == EContentDeletionEntryKind::OrdinaryFile)
+				Entry.Kind = EContentDeletionEntryKind::ManagedCompanion;
+
+		for (const std::string& CompanionPath : CompanionPaths)
+		{
+			if (std::ranges::any_of(
+					Plan->Entries,
+					[&](const FContentDeletionFingerprint& Entry) {
+						return Entry.PhysicalPath == CompanionPath;
+					}))
+				continue;
+			std::error_code Ec;
+			if (!std::filesystem::is_regular_file(CompanionPath, Ec)) continue;
+			FContentDeletionFingerprint Fingerprint;
+			if (!MakeFingerprint(
+					CompanionPath,
+					EContentDeletionEntryKind::ManagedCompanion,
+					Fingerprint,
+					Ec))
+			{
+				AddBlocker(
+					EContentDeletionBlocker::InspectionFailed,
+					std::filesystem::path(CompanionPath).filename().generic_string(),
+					CompanionPath,
+					{},
+					std::format("Could not fingerprint companion: {}", Ec.message()));
+				continue;
+			}
+			Plan->Entries.push_back(Fingerprint);
+			Plan->MaximalRoots.push_back({
+				.OriginalPath = CompanionPath,
+				.Kind = EContentDeletionEntryKind::ManagedCompanion,
+				.Fingerprint = Fingerprint});
+		}
+
+		for (const Asset::FAssetDeletionBatchBlocker& Blocker : AssetBlockers)
+		{
+			EContentDeletionBlocker Kind = EContentDeletionBlocker::InspectionFailed;
+			switch (Blocker.Kind)
+			{
+			case Asset::EAssetDeletionBatchBlocker::ExternalPersistentReference:
+			case Asset::EAssetDeletionBatchBlocker::ExternalLoadedReference:
+				Kind = EContentDeletionBlocker::ExternalReference;
+				break;
+			case Asset::EAssetDeletionBatchBlocker::LoadingPackage:
+				Kind = EContentDeletionBlocker::LoadingPackage;
+				break;
+			case Asset::EAssetDeletionBatchBlocker::DirtyPackage:
+				Kind = EContentDeletionBlocker::DirtyPackage;
+				break;
+			case Asset::EAssetDeletionBatchBlocker::CompanionInspectionFailed:
+				Kind = EContentDeletionBlocker::CompanionInspectionFailed;
+				break;
+			case Asset::EAssetDeletionBatchBlocker::CompanionOwnershipConflict:
+				Kind = EContentDeletionBlocker::CompanionOwnershipConflict;
+				break;
+			case Asset::EAssetDeletionBatchBlocker::ExternalCompanionOwner:
+				Kind = EContentDeletionBlocker::ExternalCompanionOwner;
+				break;
+			default:
+				break;
+			}
+			AddBlocker(
+				Kind,
+				Blocker.AssetPath.ToString(),
+				NormalizePath(Blocker.PhysicalPath.generic_string()),
+				Blocker.RelatedAssetPath.ToString(),
+				Blocker.Details);
+		}
+
+		std::ranges::sort(
+			Plan->Entries,
+			{},
+			&FContentDeletionFingerprint::PhysicalPath);
+		for (FContentDeletionFingerprint& Entry : Plan->Entries)
+			Entry.Digest = CalculateFingerprintDigest(Entry);
+		for (FContentDeletionFingerprint& Directory : Plan->Entries)
+		{
+			if (Directory.Kind != EContentDeletionEntryKind::Directory) continue;
+			uint64 Digest = FnvOffset;
+			for (const FContentDeletionFingerprint& Descendant : Plan->Entries)
+			{
+				if (!PathUtilities::IsLexicalDescendantPath(
+						Descendant.PhysicalPath, Directory.PhysicalPath, true))
+					continue;
+				const std::string Relative = std::filesystem::path(
+					Descendant.PhysicalPath).lexically_relative(
+						Directory.PhysicalPath).generic_string();
+				Digest = HashAppend(Digest, Relative);
+				Digest = HashAppend(Digest, std::to_string(
+					static_cast<uint8>(Descendant.Kind)));
+				Digest = HashAppend(Digest, std::to_string(Descendant.FileSize));
+				Digest = HashAppend(
+					Digest, std::to_string(Descendant.LastWriteTimeTicks));
+			}
+			Directory.Digest = Digest;
+		}
+		for (FContentDeletionRoot& Root : Plan->MaximalRoots)
+		{
+			const auto Fingerprint = std::ranges::find(
+				Plan->Entries,
+				Root.OriginalPath,
+				&FContentDeletionFingerprint::PhysicalPath);
+			if (Fingerprint != Plan->Entries.end())
+			{
+				Root.Kind = Fingerprint->Kind;
+				Root.Fingerprint = *Fingerprint;
+			}
+		}
+		for (const FContentDeletionFingerprint& Entry : Plan->Entries)
+			switch (Entry.Kind)
+			{
+			case EContentDeletionEntryKind::Directory:
+				++Plan->Summary.FolderCount;
+				break;
+			case EContentDeletionEntryKind::AssetPackage:
+				++Plan->Summary.AssetCount;
+				break;
+			case EContentDeletionEntryKind::ManagedCompanion:
+				++Plan->Summary.CompanionCount;
+				break;
+			case EContentDeletionEntryKind::OrdinaryFile:
+			case EContentDeletionEntryKind::UnknownPackage:
+				++Plan->Summary.FileCount;
+				break;
+			}
+		std::ranges::sort(
+			Plan->Blockers,
+			[](const FContentDeletionBlocker& A, const FContentDeletionBlocker& B) {
+				return std::tie(A.PhysicalPath, A.RelatedAssetPath, A.Kind, A.Details)
+					< std::tie(B.PhysicalPath, B.RelatedAssetPath, B.Kind, B.Details);
+			});
+		Plan->Blockers.erase(
+			std::unique(Plan->Blockers.begin(), Plan->Blockers.end(),
+				[](const FContentDeletionBlocker& A,
+					const FContentDeletionBlocker& B) {
+					return A.Kind == B.Kind
+						&& A.PhysicalPath == B.PhysicalPath
+						&& A.RelatedAssetPath == B.RelatedAssetPath
+						&& A.Details == B.Details;
+				}),
+			Plan->Blockers.end());
+		return Plan;
+	}
+
+	auto FContentBrowserOperations::IsDeletionPlanCurrent(
+		const FContentDeletionPlan& Plan) const -> bool
+	{
+		if (!Plan.CanExecute()
+			|| Plan.RegistryRevision != Asset::GetAssetRegistry().GetRevision())
+			return false;
+		std::vector<FContentBrowserItem> Items;
+		std::unordered_set<std::string> Selection;
+		Items.reserve(Plan.MaximalRoots.size());
+		for (const FContentDeletionRoot& Root : Plan.MaximalRoots)
+		{
+			FContentBrowserItem Item{
+				.Kind = Root.Kind == EContentDeletionEntryKind::Directory
+					? EContentBrowserItemKind::Folder
+					: EContentBrowserItemKind::File,
+				.Name = std::filesystem::path(Root.OriginalPath)
+					.filename().generic_string(),
+				.PhysicalPath = Root.OriginalPath};
+			Selection.insert(Item.StableId());
+			Items.push_back(std::move(Item));
+		}
+		const FContentDeletionPlanPtr Current =
+			BuildDeletionPlan(Items, Selection);
+		if (!Current || !Current->CanExecute()
+			|| Current->Entries.size() != Plan.Entries.size())
+			return false;
+		for (size_t Index = 0; Index < Plan.Entries.size(); ++Index)
+		{
+			const FContentDeletionFingerprint& Before = Plan.Entries[Index];
+			const FContentDeletionFingerprint& After = Current->Entries[Index];
+			if (Before.PhysicalPath != After.PhysicalPath
+				|| Before.Kind != After.Kind
+				|| Before.FileSize != After.FileSize
+				|| Before.LastWriteTimeTicks != After.LastWriteTimeTicks
+				|| Before.Digest != After.Digest)
+				return false;
+		}
+		return true;
 	}
 
 	auto FContentBrowserOperations::DeleteEmptyFolder(

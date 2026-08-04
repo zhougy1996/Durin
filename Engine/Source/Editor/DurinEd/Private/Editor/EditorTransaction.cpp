@@ -47,6 +47,7 @@ namespace Durin
 		RedoStack.clear();
 		UndoStack.emplace_back(std::move(Entry));
 		ApplyPackageTransitions(UndoStack.back(), true);
+		if (UndoStack.back().Transaction->MutatesContent()) ++ContentMutationRevision;
 		if (UndoStack.size() > MaxHistory) UndoStack.erase(UndoStack.begin());
 		PendingEvents.push_back({EEditorTransactionEventType::Executed, EEditorTransactionOperation::Execute, Id, Description, Details});
 		return true;
@@ -63,6 +64,7 @@ namespace Durin
 		RedoStack.clear();
 		UndoStack.emplace_back(std::move(Entry));
 		ApplyPackageTransitions(UndoStack.back(), true);
+		if (UndoStack.back().Transaction->MutatesContent()) ++ContentMutationRevision;
 		if (UndoStack.size() > MaxHistory) UndoStack.erase(UndoStack.begin());
 		PendingEvents.push_back({EEditorTransactionEventType::Executed, EEditorTransactionOperation::Execute, Id, Description, Details});
 		return true;
@@ -85,6 +87,7 @@ namespace Durin
 		}
 		const std::string Details(Entry.Transaction->GetDetails(EEditorTransactionOperation::Undo));
 		ApplyPackageTransitions(Entry, false);
+		if (Entry.Transaction->MutatesContent()) ++ContentMutationRevision;
 		FEntry Applied = std::move(Entry);
 		UndoStack.pop_back();
 		RedoStack.emplace_back(std::move(Applied));
@@ -109,6 +112,7 @@ namespace Durin
 		}
 		const std::string Details(Entry.Transaction->GetDetails(EEditorTransactionOperation::Redo));
 		ApplyPackageTransitions(Entry, true);
+		if (Entry.Transaction->MutatesContent()) ++ContentMutationRevision;
 		FEntry Applied = std::move(Entry);
 		RedoStack.pop_back();
 		UndoStack.emplace_back(std::move(Applied));

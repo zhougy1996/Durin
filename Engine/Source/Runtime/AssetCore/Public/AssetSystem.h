@@ -468,6 +468,57 @@ namespace Durin::Asset
 		auto CanDelete() const -> bool { return DirectReferencers.empty() && !bLoading; }
 	};
 
+	// Classifies a condition that prevents an asset set from being deleted as one batch.
+	enum class EAssetDeletionBatchBlocker : uint8
+	{
+		MissingAsset,
+		ExternalPersistentReference,
+		ExternalLoadedReference,
+		LoadingPackage,
+		DirtyPackage,
+		CompanionInspectionFailed,
+		CompanionOwnershipConflict,
+		ExternalCompanionOwner,
+	};
+
+	// Identifies one actionable batch-deletion failure without flattening it into UI copy.
+	struct FAssetDeletionBatchBlocker
+	{
+		EAssetDeletionBatchBlocker Kind = EAssetDeletionBatchBlocker::MissingAsset;
+		FAssetPath AssetPath;
+		FAssetPath RelatedAssetPath;
+		std::filesystem::path PhysicalPath;
+		std::string Details;
+	};
+
+	// Captures one asset's registry and companion state for reversible batch deletion.
+	struct FAssetDeletionBatchEntry
+	{
+		FAssetData RegistryEntry;
+		std::vector<std::filesystem::path> CompanionFiles;
+		bool bLoaded = false;
+	};
+
+	// Owns the immutable-order AssetCore portion of a content-deletion plan. AssetCore
+	// changes package cache and registry projection through this token; its caller owns
+	// all physical file staging.
+	class FAssetDeletionBatchToken
+	{
+	public:
+		auto GetRegistryRevision() const -> uint64 { return RegistryRevision; }
+		auto GetEntries() const -> std::span<const FAssetDeletionBatchEntry>
+		{
+			return Entries;
+		}
+
+	private:
+		uint64 RegistryRevision = 0;
+		std::vector<FAssetDeletionBatchEntry> Entries;
+		std::vector<std::filesystem::path> PhysicalRoots;
+
+		friend class FAssetManager;
+	};
+
 	using FAssetMoveContributor = std::function<FAssetResult(DObject*, const FAssetPath&, const FAssetPath&, FAssetMoveContribution&)>;
 	ASSETCORE_API auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void;
 	using FAssetDeleteContributor = std::function<FAssetResult(const FAssetData&, const FAssetPackageInspection&, FAssetDeleteContribution&)>;
@@ -525,6 +576,24 @@ namespace Durin::Asset
 			const FAssetPackageUpgradeOptions& Options = {}) -> FAssetResult;
 		ASSETCORE_API auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult;
 		ASSETCORE_API auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
+		ASSETCORE_API auto AnalyzeAssetDeletionBatch(
+			std::span<const FAssetPath> Paths,
+			std::span<const std::filesystem::path> PhysicalRoots,
+			FAssetDeletionBatchToken& OutToken,
+			std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult;
+		ASSETCORE_API auto RevalidateAssetDeletionBatch(
+			const FAssetDeletionBatchToken& Token,
+			std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult;
+		ASSETCORE_API auto UnloadAssetDeletionBatch(
+			const FAssetDeletionBatchToken& Token) -> FAssetResult;
+		ASSETCORE_API auto ApplyAssetDeletionBatch(
+			const FAssetDeletionBatchToken& Token) -> FAssetResult;
+		// Commit-only half used after the editor transaction has already revalidated,
+		// unloaded, and staged the exact token-owned physical roots.
+		ASSETCORE_API auto RemoveAssetDeletionBatchRegistryProjection(
+			const FAssetDeletionBatchToken& Token) -> FAssetResult;
+		ASSETCORE_API auto RestoreAssetDeletionBatch(
+			const FAssetDeletionBatchToken& Token) -> FAssetResult;
 		ASSETCORE_API auto DeleteAsset(const FAssetPath& Path) -> FAssetResult;
 		ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) const -> DPackage*;
 		ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;
@@ -609,6 +678,22 @@ namespace Durin::Asset
 		const FAssetPackageUpgradeOptions& Options = {}) -> FAssetResult;
 	ASSETCORE_API auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult;
 	ASSETCORE_API auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
+	ASSETCORE_API auto AnalyzeAssetDeletionBatch(
+		std::span<const FAssetPath> Paths,
+		std::span<const std::filesystem::path> PhysicalRoots,
+		FAssetDeletionBatchToken& OutToken,
+		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult;
+	ASSETCORE_API auto RevalidateAssetDeletionBatch(
+		const FAssetDeletionBatchToken& Token,
+		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult;
+	ASSETCORE_API auto UnloadAssetDeletionBatch(
+		const FAssetDeletionBatchToken& Token) -> FAssetResult;
+	ASSETCORE_API auto ApplyAssetDeletionBatch(
+		const FAssetDeletionBatchToken& Token) -> FAssetResult;
+	ASSETCORE_API auto RemoveAssetDeletionBatchRegistryProjection(
+		const FAssetDeletionBatchToken& Token) -> FAssetResult;
+	ASSETCORE_API auto RestoreAssetDeletionBatch(
+		const FAssetDeletionBatchToken& Token) -> FAssetResult;
 	ASSETCORE_API auto DeleteAsset(const FAssetPath& Path) -> FAssetResult;
 	ASSETCORE_API auto FindLoadedPackage(const FAssetPath& Path) -> DPackage*;
 	ASSETCORE_API auto UnloadPackage(const FAssetPath& Path) -> FAssetResult;

@@ -2,39 +2,112 @@
 
 Summary: Add reference-aware recursive Content Browser deletion with same-volume staged Undo/Redo and no visible recycle-bin surface.
 
-Last reviewed: 2026-08-04
+Last reviewed: 2026-08-05
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-05
 
 ## Current Status
 
-- `FContentBrowserPanel::DrawDialogs` already owns a delete confirmation modal,
-  but it reports only the selected item count and asset-level blockers.
-- `FContentBrowserOperations::AnalyzeDeletion` analyzes selected assets only.
-- `FContentBrowserOperations::DeleteEmptyFolder` rejects every non-empty folder,
-  which forces users to delete descendants manually before deleting the folder.
-- `FAssetManager::DeleteAsset` stages and rolls back one asset operation
-  internally, but removes its recovery copies before returning; it does not
-  expose an editor-level undo boundary.
-- `FContentBrowserModel::ItemsSnapshot` contains recursive content while
-  `GetItems()` is the immediate, filtered presentation. Folder deletion must
-  use physical filesystem state as its discovery source and join the registry
-  and unfiltered snapshot as metadata rather than trusting the visible
-  projection.
-- The model omits unregistered `.dasset` files: filesystem enumeration skips
-  packages and then adds back only registered assets. Recursive analysis needs
-  an explicit unknown-package blocker rather than silently omitting those
-  bytes.
-- `FEditorTransactionManager` already provides bounded global Undo/Redo,
-  descriptions, failure events, and `Execute`. The editor notification
-  overlay already turns transaction events into transient notifications with
-  Undo/Redo actions. Content Browser deletion is not yet registered as a
-  transaction.
-- This plan selects an immutable deletion plan, a transaction executed through
-  `FEditorTransactionManager::Execute`, and same-volume rename staging of
-  deduplicated maximal roots. AssetCore contributes batch safety, companion,
-  unload, and registry state; it does not own a second file-staging layer.
+- Stage 0 is complete. Baseline `34712e46`; working set:
+  `ContentBrowserOperations.h`, `AssetSystem.h`, and this plan.
+- The frozen interfaces introduce `FContentDeletionPlan`, deterministic physical
+  fingerprints, maximal staging roots, typed blockers, an AssetCore
+  `FAssetDeletionBatchToken`, and the deletion transaction/journal state enums.
+  The modal and future transaction share `shared_ptr<const
+  FContentDeletionPlan>`; AssetCore owns registry/package state while the
+  operation transaction alone owns physical moves.
+- Stage 0 validation: interface-only compilation through the DurinDevTool
+  LevelEditor target and all-plan validation passed. No mutation path calls the
+  new interfaces yet.
+- Stage 1 is complete. Baseline `d693b512`; working set:
+  `ContentBrowserModel.h/.cpp`, `ContentBrowserOperations.h/.cpp`,
+  `AssetSystem.h/.cpp`, `ContentBrowserModelTests.cpp`, and this plan.
+- `BuildDeletionPlan` now deduplicates selected ancestors, enumerates the
+  physical tree independently of filters, classifies every descendant,
+  fingerprints sorted content, and produces typed mount, reparse, unknown
+  package, AssetCore, and stale-plan blockers without mutating content or the
+  registry. `IsDeletionPlanCurrent` performs registry-revision and physical
+  fingerprint revalidation against the immutable plan.
+- AssetCore batch analysis sorts its token, filters references originating
+  inside the deletion set, blocks external persistent/loaded references and
+  loading/dirty packages, and detects failed or ambiguous companion ownership.
+  Mount snapshots now retain the existing authoring-writable policy bit.
+- Stage 1 validation: `LevelEditor` compiled; 13 focused deletion/model tests
+  passed and one reparse traversal test skipped because this Windows account
+  lacks symlink privilege; the complete `EditorAssetWorkflowTests` target passed
+  48 tests with the same one capability skip. No physical deletion occurs.
+- Stage 2 is complete. Baseline `cbd4aced`; working set:
+  `ContentBrowserOperations.h`, `ContentDeletionTransaction.cpp`,
+  `AssetSystem.h/.cpp`, `ContentBrowserModelTests.cpp`, the editor asset workflow
+  test target, and this plan.
+- `FContentDeletionTransaction` now executes through the shared transaction
+  manager, owns an atomically allocated same-volume staging root and marker,
+  validates the immutable physical manifest on every transition, unloads the
+  AssetCore batch, moves deterministic maximal roots, and commits or restores
+  the registry projection without reloading packages.
+- Move and AssetCore batch seams cover deterministic failure injection. Ordinary
+  failures compensate completed moves in reverse order; failed compensation
+  enters `RecoveryRequired`, reports original and staged paths, and retains the
+  operation root. Destruction and history eviction remove only an exact marked
+  operation root, while recovery roots are deliberately preserved.
+- Stage 2 validation: the final `LevelEditor` target compiled; 18 focused
+  Content Browser tests passed and one reparse traversal test skipped because
+  this Windows account lacks symlink privilege; the full
+  `EditorAssetWorkflowTests` target passed 53 tests with the same capability
+  skip. Next: integrate the immutable plan and transaction into the deletion
+  modal, global history notifications, and Content Browser refresh events.
+- Stage 3 is complete. Baseline `201f5f71`; working set:
+  `EditorTransaction.h/.cpp`, `ContentBrowserOperations.h`,
+  `ContentBrowserPanel.h/.cpp`, `ContentBrowserPanelView.cpp`,
+  `MLevelEditor.cpp`, `ContentBrowserModelTests.cpp`, and this plan.
+- The modal now retains and renders one immutable recursive plan, limits useful
+  blocker detail, disables confirmation for every blocker, and replaces a
+  stale plan in place while requiring a second confirmation. Successful
+  confirmation injects the transaction into global history; notification
+  Undo/Redo continues to use stable history-head identifiers.
+- Content deletion transactions publish the editor transaction manager's
+  monotonic content-mutation revision only after successful Execute, Undo, or
+  Redo. The Content Browser observes that lifetime-safe revision, cancels
+  thumbnail work, refreshes registry/model state, repairs selection, preserves
+  a surviving directory, and otherwise navigates to its nearest surviving
+  parent without holding a panel pointer in history.
+- Stage 3 validation: the `LevelEditor` target and full `all` target compiled;
+  `EditorAssetWorkflowTests` ran 54 tests with 53 passing and the existing
+  Windows directory-symlink capability test skipped. Transaction coverage now
+  verifies that successful deletion Execute/Undo/Redo each advance the content
+  revision. Next: run the Stage 4 editor interaction matrix and end-to-end
+  workflow validation.
+- Stage 4 automated validation is complete against baseline `982f2b29`;
+  working set: `ContentBrowserModelTests.cpp` and this plan. New coverage
+  round-trips an empty folder and a mixed nested folder containing a registered
+  asset, ordinary file, and managed companion outside the selected root as one
+  transaction. Conflict tests also prove failed Undo/Redo does not publish a
+  content-mutation revision.
+- `EditorAssetWorkflowTests` now runs 56 tests with 55 passing and the Windows
+  directory-symlink capability test skipped. The complete native suite passed
+  all 877 CTest-registered tests; two link-capability tests were skipped and one
+  benchmark remained disabled by design. The full `all` target built, and the
+  verified editor loaded `Sandbox/Sandbox.dproject` for 30 hidden-window ticks
+  and exited normally with no Error or Fatal log entries.
+- Delete-key, item-context-menu, and directory-context-menu routes were audited
+  to converge on `RequestDeleteSelection`; global Edit menu and Ctrl+Z/Ctrl+Y
+  routes converge on the active workspace transaction manager. The repository
+  has no enabled ImGui interaction-test harness, so the final interaction
+  matrix was validated manually in the verified editor. Delete-key and both
+  context-menu entry points, notification Undo, global Ctrl+Z/Ctrl+Y, Redo
+  invalidation after a new edit, and refresh/navigation/focus behavior all
+  passed. Stage 4 is complete against baseline `982f2b29`; the automated
+  evidence is committed at `e88c326a`.
+- Stage 5 is complete against baseline `5059923e`; working set:
+  `Documentation/Editor/Architecture/ContentBrowser.md` and this plan. The
+  owning architecture document now records physical-source discovery,
+  reference and companion safety, immutable-plan revalidation, same-volume
+  staging, compensation/recovery, history ownership, and refresh invariants.
+- `WorkspaceFramework.md` remains unchanged because the feature consumes the
+  existing workspace Undo/Redo and notification contract without changing its
+  ownership or shared command surface. All stages and acceptance gates are
+  complete; the plan is ready for the normal monthly archive workflow.
 
 ## Goal
 
@@ -187,6 +260,67 @@ Completed:
   Undo, and Redo publish that event; panels refresh and repair selection without
   a transaction retaining a raw panel pointer.
 
+### Frozen Stage 0 contract
+
+- Supported deletion roots are normalized absolute descendants of one writable,
+  authoring mount. Selecting the mount root itself, escaping the resolved mount,
+  selecting a read-only or unsupported mount, encountering any directory
+  reparse point, or requiring a rename across volumes blocks the complete plan.
+  Staging is always the hidden, unmounted
+  `Saved/ContentBrowserUndo/<operation-id>` tree on the same volume.
+- Source-control restrictions are reported as `SourceControlRestricted` (and
+  writable mount failures as `ReadOnlyMount`) before mutation. The operation
+  does not alter permissions, check out files, or bypass the provider's existing
+  ownership policy.
+- `FContentDeletionPlan` is published only as
+  `shared_ptr<const FContentDeletionPlan>`. Its sorted entries classify every
+  descendant as directory, registered package, ordinary file, or managed
+  companion; an unreconciled `.dasset` is instead an `UnknownPackage` blocker.
+  Its maximal roots are the only physical paths renamed by the transaction.
+- A file fingerprint contains normalized path, entry kind, size, and native
+  last-write ticks. A directory fingerprint hashes the deterministic sorted list
+  of every relative descendant path, kind, size, and last-write tick. Execute
+  requires the captured registry revision and all original fingerprints to
+  match. Undo requires every original destination to be absent. Redo requires
+  every staged fingerprint to match and AssetCore batch revalidation to find no
+  new external references or package-state blockers.
+- AssetCore batch analysis removes referencers that are members of the batch,
+  captures registry entries and loaded-state facts, and assigns every companion
+  to exactly one owner. It reports missing assets, external persistent/loaded
+  references, loading or dirty packages, contributor inspection failure,
+  ownership conflict, and an outside owner. Apply unloads eligible packages and
+  removes registry projection; Restore reinstates registry projection without
+  loading packages. Neither operation stages bytes.
+- Content-layer blocker categories are: invalid selection, unsupported mount,
+  mount root, outside mount, read-only mount, source-control restriction,
+  cross-volume staging, reparse point, unknown package, external reference,
+  loading package, dirty package, companion inspection failure, companion
+  ownership conflict, external companion owner, filesystem inspection failure,
+  and stale plan. Any blocker disables confirmation; no force-delete path is
+  offered.
+- Modal heading is `Delete Folder "<name>"?` for one folder and `Delete <N>
+  Items?` for mixed or nested selection. Summary copy is `<A> assets, <F> files,
+  <C> companion files, and <D> folders will be deleted.` Zero categories are
+  omitted. The first five blockers show display name, category-specific reason,
+  and external asset or physical path; remaining blockers collapse into `and
+  <N> more blockers`. Filtered/hidden descendants use the same counts and add
+  no separate warning because analysis is physical-source authoritative. A
+  stale confirmation reads `Contents changed while this dialog was open.
+  Review the updated deletion summary.` and requires a second confirmation.
+- Transaction state is `Restored -> Applying -> Applied -> Restoring ->
+  Restored`; ordinary failure compensates completed journal entries in reverse
+  order and returns to the prior stable state. Failed compensation enters
+  `RecoveryRequired`, reports the failed step plus original and staged paths,
+  and never enters or advances history. Journal entries record AssetCore batch
+  application/restoration and each root move exactly once.
+- The transaction owns its collision-safe operation root and marker. Destruction
+  in `Applied` or `Restored` validates the exact normalized operation root,
+  marker, non-mounted location, and absence of reparse traversal before cleanup;
+  `RecoveryRequired` deliberately retains it. Editor shutdown first stops new
+  content operations, then clears transaction history while AssetCore and mount
+  services are alive, then tears those services down. Cleanup failure is logged
+  and leaves the owned root intact.
+
 ## Current Foundations and Gaps
 
 | Area | Existing foundation | Gap this plan closes |
@@ -203,24 +337,24 @@ Completed:
 
 Dependencies: Existing Content Browser and editor transaction architecture.
 
-- [ ] Confirm the same-volume, writable-mount boundary, hidden staging location,
+- [x] Confirm the same-volume, writable-mount boundary, hidden staging location,
   mount-root rejection, and no-reparse-traversal policy described above.
-- [ ] Define `FContentDeletionPlan`, the AssetCore batch token, the transaction
+- [x] Define `FContentDeletionPlan`, the AssetCore batch token, the transaction
   state machine, the compensation journal, and their ownership interfaces.
-- [ ] Define the physical fingerprint and registry-revision checks used to
+- [x] Define the physical fingerprint and registry-revision checks used to
   reject stale Execute, conflicting Undo destinations, and modified Redo input.
-- [ ] Define rollback-failure reporting, retained-staging behavior, cleanup on
+- [x] Define rollback-failure reporting, retained-staging behavior, cleanup on
   transaction eviction, and teardown ordering between history and editor
   services.
-- [ ] Define the exact blocker categories and the modal summary wording for
+- [x] Define the exact blocker categories and the modal summary wording for
   folders, mixed/nested selections, filtered views, unknown packages, dirty or
   loading packages, companion ambiguity, stale plans, and unsupported mounts.
-- [ ] Record how source-controlled and read-only mounts are rejected without
+- [x] Record how source-controlled and read-only mounts are rejected without
   bypassing existing mount policy.
 
 #### Acceptance Gate
 
-- [ ] The supported roots, deletion set, reference/companion policy, staging
+- [x] The supported roots, deletion set, reference/companion policy, staging
   lifetime, transaction owner, conflict checks, and compensation-failure state
   are unambiguous and reflected in interfaces before mutation code is changed.
 
@@ -228,72 +362,72 @@ Dependencies: Existing Content Browser and editor transaction architecture.
 
 Dependencies: Stage 0; `FContentBrowserModel` snapshot and mount contracts.
 
-- [ ] Add an operation-layer builder that normalizes selected roots, rejects
+- [x] Add an operation-layer builder that normalizes selected roots, rejects
   unsupported roots, expands folders from physical filesystem state, and
   deduplicates nested selections into maximal staging roots.
-- [ ] Join registry/model metadata by normalized physical path and classify
+- [x] Join registry/model metadata by normalized physical path and classify
   registered assets, managed companions, ordinary files, directories, and
   unregistered/invalid package files without omitting hidden descendants.
-- [ ] Add AssetCore batch analysis that filters internal referencers, retains
+- [x] Add AssetCore batch analysis that filters internal referencers, retains
   external persistent or loaded-package blockers, verifies loading/dirty state,
   and contributes companions with unambiguous ownership.
-- [ ] Capture the registry revision and deterministic physical fingerprints
+- [x] Capture the registry revision and deterministic physical fingerprints
   needed for stale-plan, Undo-destination, and Redo-modification checks.
-- [ ] Keep analysis side-effect free and return one immutable plan retained by
+- [x] Keep analysis side-effect free and return one immutable plan retained by
   both the delete modal and transaction constructor.
-- [ ] Add native tests for nested roots, hidden/filter-independent discovery,
+- [x] Add native tests for nested roots, hidden/filter-independent discovery,
   unknown packages, internal versus external references, companion ambiguity,
   unsupported mounts/reparse points, and stale fingerprints.
 
 #### Acceptance Gate
 
-- [ ] A non-empty folder produces a complete deterministic plan without
+- [x] A non-empty folder produces a complete deterministic plan without
   changing the filesystem or asset registry.
-- [ ] Every physical descendant is represented exactly once or produces a
+- [x] Every physical descendant is represented exactly once or produces a
   specific blocker; no package, companion, or external reference is silently
   ignored.
-- [ ] The modal and executor can share the same immutable plan and can detect
+- [x] The modal and executor can share the same immutable plan and can detect
   when it is no longer current.
-- [ ] Focused Content Browser tests pass through the DurinDevTool test entry
+- [x] Focused Content Browser tests pass through the DurinDevTool test entry
   point described by the repository build guide.
 
 ### Stage 2: Implement a compensating reversible deletion transaction
 
 Dependencies: Stage 1; AssetCore package/registry ownership; file I/O contract.
 
-- [ ] Add the AssetCore batch token that verifies unload preconditions, captures
+- [x] Add the AssetCore batch token that verifies unload preconditions, captures
   registry entries, batch-unloads packages, removes registry projection, and
   restores registry projection without staging physical bytes.
-- [ ] Add `FContentDeletionTransaction` with a collision-safe owned staging
+- [x] Add `FContentDeletionTransaction` with a collision-safe owned staging
   directory, immutable plan, explicit applied/restored state, and compensation
   journal.
-- [ ] Implement first `Redo` through `FEditorTransactionManager::Execute`:
+- [x] Implement first `Redo` through `FEditorTransactionManager::Execute`:
   revalidate the plan, batch-unload packages, rename maximal directory roots and
   numbered standalone entries into staging, and apply registry removal.
-- [ ] Implement `Undo` by validating every original destination, reversing the
+- [x] Implement `Undo` by validating every original destination, reversing the
   root moves, and restoring registry entries without reloading packages.
-- [ ] Implement later `Redo` from the same manifest after rechecking physical
+- [x] Implement later `Redo` from the same manifest after rechecking physical
   fingerprints, current external references, and AssetCore preconditions.
-- [ ] Reverse completed steps on ordinary failure. If compensation fails, keep
+- [x] Reverse completed steps on ordinary failure. If compensation fails, keep
   the staging root and report both paths and the incomplete step without
   advancing transaction history.
-- [ ] Tie cleanup to transaction lifetime and validate the ownership marker and
+- [x] Tie cleanup to transaction lifetime and validate the ownership marker and
   exact operation root before removing staged data.
-- [ ] Add transaction tests for initial Execute, Undo/Redo, destination and
+- [x] Add transaction tests for initial Execute, Undo/Redo, destination and
   modification conflicts, external-reference changes, mid-operation failure,
   compensation failure, multi-root ordering, eviction, and cleanup.
 
 #### Acceptance Gate
 
-- [ ] Deleting a folder, undoing it, and redoing it produces the same visible
+- [x] Deleting a folder, undoing it, and redoing it produces the same visible
   persisted content and registry state each time without restoring package
   residency.
-- [ ] An ordinary failed batch restores all changed targets. A deliberately
+- [x] An ordinary failed batch restores all changed targets. A deliberately
   failed compensation retains recoverable staging data and reports its exact
   state instead of claiming success.
-- [ ] No staged data appears in any mounted Content Browser view, including
+- [x] No staged data appears in any mounted Content Browser view, including
   when hidden files are enabled.
-- [ ] No per-asset delete routine independently stages bytes already owned by
+- [x] No per-asset delete routine independently stages bytes already owned by
   the Content Browser transaction.
 
 ### Stage 3: Integrate the modal, global Undo, and notifications
@@ -301,61 +435,61 @@ Dependencies: Stage 1; AssetCore package/registry ownership; file I/O contract.
 Dependencies: Stage 2; existing `DrawDialogs`, `FEditorTransactionManager`,
 and notification overlay.
 
-- [ ] Retain one immutable plan in the pending dialog state and replace the
+- [x] Retain one immutable plan in the pending dialog state and replace the
   current empty-folder-only error path with its recursive summary and blocker
   presentation.
-- [ ] Keep the destructive action disabled while blockers or analysis errors
+- [x] Keep the destructive action disabled while blockers or analysis errors
   remain; show enough detail to identify the external referencer or invalid
   file without flooding the modal.
-- [ ] Revalidate on confirmation. If the plan is stale, keep the dialog open,
+- [x] Revalidate on confirmation. If the plan is stale, keep the dialog open,
   rebuild its analysis, and require confirmation of the updated scope.
-- [ ] Execute the transaction through the injected `Execute` callback so the
+- [x] Execute the transaction through the injected `Execute` callback so the
   global Edit menu and keyboard commands expose `Delete Folder "..."` as the
   Undo description only after the first `Redo` succeeds.
-- [ ] Publish an editor-owned content-mutation revision/event after successful
+- [x] Publish an editor-owned content-mutation revision/event after successful
   Delete, Undo, and Redo. Refresh registry/model state, cancel obsolete
   thumbnails, and repair selection without storing a raw panel pointer in the
   transaction.
-- [ ] Keep the current directory when it survives. If the directly deleted root
+- [x] Keep the current directory when it survives. If the directly deleted root
   contains it, navigate to the nearest surviving parent; global Undo/Redo
   refreshes without otherwise stealing Content Browser focus.
-- [ ] Verify the notification overlay presents Undo after delete and Redo after
+- [x] Verify the notification overlay presents Undo after delete and Redo after
   Undo, with actions disabled when the transaction is no longer the history
   head.
 
 #### Acceptance Gate
 
-- [ ] The UI never asks the user to manually empty a folder.
-- [ ] The normal flow contains no Recycle Bin control, but the same operation is
+- [x] The UI never asks the user to manually empty a folder.
+- [x] The normal flow contains no Recycle Bin control, but the same operation is
   reversible through the notification action and global Undo/Redo commands.
-- [ ] External reference blockers remain visible and cannot be bypassed by the
+- [x] External reference blockers remain visible and cannot be bypassed by the
   folder path.
-- [ ] Stale confirmation state cannot execute a deletion set different from the
+- [x] Stale confirmation state cannot execute a deletion set different from the
   one currently displayed to the user.
-- [ ] Content Browser state refreshes after global or notification Undo/Redo
+- [x] Content Browser state refreshes after global or notification Undo/Redo
   without relying on panel lifetime assumptions.
 
 ### Stage 4: Validate the end-to-end workflow
 
 Dependencies: Stages 1 through 3.
 
-- [ ] Extend focused native coverage for operation analysis, asset/file
+- [x] Extend focused native coverage for operation analysis, asset/file
   transactions, registry refresh, conflict rejection, ordinary compensation,
   and retained staging after compensation failure.
-- [ ] Run the editor interaction matrix in the validation table below,
+- [x] Run the editor interaction matrix in the validation table below,
   including Delete-key and context-menu entry points.
-- [ ] Validate notification Undo, global Ctrl+Z/Ctrl+Y, and redo invalidation
+- [x] Validate notification Undo, global Ctrl+Z/Ctrl+Y, and redo invalidation
   after a new edit, as well as refresh without unwanted navigation after global
   history commands.
-- [ ] Run the repository's complete `all` build and required native test targets
+- [x] Run the repository's complete `all` build and required native test targets
   through `DevTool.bat`; record the results and verified editor executable in
   the implementation handoff.
 
 #### Acceptance Gate
 
-- [ ] All focused tests, end-to-end scenarios, and full-build checks pass with
+- [x] All focused tests, end-to-end scenarios, and full-build checks pass with
   no unrelated working-tree changes.
-- [ ] The operation remains safe when the folder contains ordinary files,
+- [x] The operation remains safe when the folder contains ordinary files,
   hidden descendants, loaded assets, managed companions, nested folders, or an
   unsupported entry that must block the operation.
 
@@ -363,20 +497,20 @@ Dependencies: Stages 1 through 3.
 
 Dependencies: Stage 4 evidence.
 
-- [ ] Update `Documentation/Editor/Architecture/ContentBrowser.md` with the
+- [x] Update `Documentation/Editor/Architecture/ContentBrowser.md` with the
   recursive delete, physical-source discovery, reference, companion, staging,
   conflict, compensation, and transaction invariants.
-- [ ] Update `Documentation/Editor/Architecture/WorkspaceFramework.md` only if
+- [x] Update `Documentation/Editor/Architecture/WorkspaceFramework.md` only if
   the transaction/notification ownership boundary changes the shared editor
   command contract.
-- [ ] Record validation evidence in this plan, set `Status: Completed`, fill
+- [x] Record validation evidence in this plan, set `Status: Completed`, fill
   `Completed: YYYY-MM-DD`, and run the all-plan validator before archival.
 
 #### Acceptance Gate
 
-- [ ] The owning architecture document contains the implemented long-lived
+- [x] The owning architecture document contains the implemented long-lived
   behavior, while this plan contains only execution history and evidence.
-- [ ] The completed plan validates and is ready for the normal monthly archive
+- [x] The completed plan validates and is ready for the normal monthly archive
   workflow.
 
 ## Validation Matrix
@@ -458,6 +592,7 @@ Dependencies: Stage 4 evidence.
 - `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserModel.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserOperations.h`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserOperations.cpp`
+- `Engine/Source/Editor/LevelEditor/Private/Panels/ContentDeletionTransaction.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserPanel.h`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserPanel.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserPanelView.cpp`

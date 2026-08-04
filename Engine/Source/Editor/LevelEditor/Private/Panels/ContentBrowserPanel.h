@@ -37,8 +37,17 @@ namespace Durin
 		using FOpenAsset = std::function<bool(const std::string&, const std::string&)>;
 		using FRequestImport = std::function<void(const std::string&, EContentBrowserImportType)>;
 		using FMoveAssets = std::function<Asset::FAssetResult(std::span<const FEditorAssetMove>)>;
+		using FExecuteTransaction =
+			std::function<bool(std::unique_ptr<IEditorTransaction>)>;
+		using FGetContentMutationRevision = std::function<uint64()>;
 
-		FContentBrowserPanel(FLevelEditorSessionSettings& InSessionSettings, FOpenAsset InOpenAsset, FRequestImport InRequestImport, FMoveAssets InMoveAssets);
+		FContentBrowserPanel(
+			FLevelEditorSessionSettings& InSessionSettings,
+			FOpenAsset InOpenAsset,
+			FRequestImport InRequestImport,
+			FMoveAssets InMoveAssets,
+			FExecuteTransaction InExecuteTransaction,
+			FGetContentMutationRevision InGetContentMutationRevision);
 		~FContentBrowserPanel() override;
 
 		auto GetWindowName() const -> const char* override { return "Content Browser"; }
@@ -85,8 +94,8 @@ namespace Durin
 			AssetImport::EImportRecordAction Action) -> void;
 		auto FocusFolderInParent(std::string_view PhysicalDirectory) -> const FContentBrowserItem*;
 		auto RequestDeleteSelection() -> void;
-		auto AnalyzeDeleteSelection() -> void;
 		auto DeleteSelection() -> void;
+		auto SynchronizeContentMutation() -> void;
 		auto ShowInExplorer(std::string_view PhysicalPath) const -> void;
 		auto CopyToClipboard(std::string_view Text) const -> void;
 
@@ -100,6 +109,8 @@ namespace Durin
 		FLevelEditorSessionSettings& SessionSettings;
 		FOpenAsset OpenAsset;
 		FRequestImport RequestImport;
+		FExecuteTransaction ExecuteTransaction;
+		FGetContentMutationRevision GetContentMutationRevision;
 		FContentBrowserModel Model;
 		FContentBrowserOperations Operations;
 		std::unordered_set<std::string> Selection;
@@ -117,8 +128,9 @@ namespace Durin
 		bool bFocusRename = false;
 		bool bRenameEditorHovered = false;
 		bool bDeletePopupRequested = false;
-		std::vector<std::pair<std::string, Asset::FAssetDeleteAnalysis>> DeleteAnalysis;
-		std::vector<std::pair<std::string, Asset::FAssetResult>> DeleteAnalysisErrors;
+		bool bDeletionPlanRefreshed = false;
+		FContentDeletionPlanPtr PendingDeletionPlan;
+		uint64 ObservedContentMutationRevision = 0;
 		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;
 		std::vector<FAssetPath> LastReimportOrphans;

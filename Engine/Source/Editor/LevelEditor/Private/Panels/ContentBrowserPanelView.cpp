@@ -70,6 +70,7 @@ namespace Durin
 	auto FContentBrowserPanel::Draw(FLevelEditorContext& Context) -> void
 	{
 		(void)Context;
+		SynchronizeContentMutation();
 		RefreshMountSnapshot();
 		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "Content Browser", "ContentBrowser", GetOpenPtr()))
 		{
@@ -1009,65 +1010,72 @@ namespace Durin
 		}
 		if (ImGui::BeginPopupModal("Delete Content", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 		{
-			ImGui::Text("Permanently delete %zu selected item%s?", Selection.size(), Selection.size() == 1 ? "" : "s");
-			ImGui::TextDisabled("Loaded assets will be unloaded automatically. This cannot be undone.");
-			bool bBlocked = false;
-			bool bWillUnload = false;
-			for (const FContentBrowserItem& Item : Model.GetItems())
+			const FContentDeletionPlan* Plan = PendingDeletionPlan.get();
+			if (Plan)
 			{
-				if (!Selection.contains(Item.StableId()) || Item.Kind != EContentBrowserItemKind::Asset) continue;
-				const auto ErrorIt = std::ranges::find(DeleteAnalysisErrors, Item.StableId(),
-					&std::pair<std::string, Asset::FAssetResult>::first);
-				if (ErrorIt != DeleteAnalysisErrors.end())
+				ImGui::Text("Delete %s?", Plan->DisplayName.c_str());
+				ImGui::TextDisabled(
+					"%llu asset%s, %llu file%s, %llu companion file%s, %llu folder%s",
+					static_cast<unsigned long long>(Plan->Summary.AssetCount),
+					Plan->Summary.AssetCount == 1 ? "" : "s",
+					static_cast<unsigned long long>(Plan->Summary.FileCount),
+					Plan->Summary.FileCount == 1 ? "" : "s",
+					static_cast<unsigned long long>(Plan->Summary.CompanionCount),
+					Plan->Summary.CompanionCount == 1 ? "" : "s",
+					static_cast<unsigned long long>(Plan->Summary.FolderCount),
+					Plan->Summary.FolderCount == 1 ? "" : "s");
+				ImGui::TextDisabled(
+					"The operation is reversible from Edit > Undo or the notification action.");
+				if (bDeletionPlanRefreshed)
 				{
-					bBlocked = true;
-					ImGui::TextWrapped("%s: %s", Item.Name.c_str(), ErrorIt->second.Message.c_str());
-					continue;
+					ImGui::Spacing();
+					ImGui::TextWrapped(
+						"Content changed after this dialog opened. Review the updated summary and confirm again.");
 				}
-				const auto AnalysisIt = std::ranges::find(DeleteAnalysis, Item.StableId(),
-					&std::pair<std::string, Asset::FAssetDeleteAnalysis>::first);
-				if (AnalysisIt == DeleteAnalysis.end())
+				if (!Plan->Blockers.empty())
 				{
-					bBlocked = true;
-					ImGui::TextWrapped("%s could not be analyzed.", Item.Name.c_str());
-					continue;
-				}
-				const Asset::FAssetDeleteAnalysis& Analysis = AnalysisIt->second;
-				if (!Analysis.Warning.empty())
-					ImGui::TextWrapped("%s: Warning: %s", Item.Name.c_str(), Analysis.Warning.c_str());
-				if (Analysis.bLoading)
-				{
-					bBlocked = true;
-					ImGui::TextWrapped("%s is currently loading. Try again when loading finishes.", Item.Name.c_str());
-				}
-				else if (!Analysis.DirectReferencers.empty())
-				{
-					bBlocked = true;
-					ImGui::TextWrapped("%s is referenced by:", Item.Name.c_str());
-					const size_t VisibleReferencerCount = std::min<size_t>(Analysis.DirectReferencers.size(), 4);
-					for (size_t Index = 0; Index < VisibleReferencerCount; ++Index)
+					ImGui::Spacing();
+					ImGui::Text("Deletion is blocked:");
+					const size_t VisibleBlockerCount =
+						std::min<size_t>(Plan->Blockers.size(), 6);
+					for (size_t Index = 0; Index < VisibleBlockerCount; ++Index)
 					{
-						ImGui::BulletText("%s", Analysis.DirectReferencers[Index].ToString().c_str());
+						const FContentDeletionBlocker& Blocker = Plan->Blockers[Index];
+						const std::string& Label = Blocker.DisplayName.empty()
+							? Blocker.PhysicalPath
+							: Blocker.DisplayName;
+						ImGui::BulletText("%s", Label.c_str());
+						if (!Blocker.RelatedAssetPath.empty())
+							ImGui::TextDisabled("Referenced by %s", Blocker.RelatedAssetPath.c_str());
+						if (!Blocker.Details.empty())
+							ImGui::TextWrapped("%s", Blocker.Details.c_str());
 					}
-					if (VisibleReferencerCount < Analysis.DirectReferencers.size())
-						ImGui::TextDisabled("... and %zu more", Analysis.DirectReferencers.size() - VisibleReferencerCount);
-					ImGui::TextDisabled("Remove the references and save those assets before deleting.");
-				}
-				else if (Analysis.bLoaded)
-				{
-					bWillUnload = true;
-					ImGui::TextWrapped("%s is loaded and will be unloaded before deletion.", Item.Name.c_str());
+					if (VisibleBlockerCount < Plan->Blockers.size())
+						ImGui::TextDisabled(
+							"... and %zu more blocker%s",
+							Plan->Blockers.size() - VisibleBlockerCount,
+							Plan->Blockers.size() - VisibleBlockerCount == 1 ? "" : "s");
 				}
 			}
+			else
+				ImGui::TextWrapped("The selected content could not be analyzed.");
+
+			const bool bBlocked = !Plan || !Plan->CanExecute();
+			const bool bDeletesFolder = Plan && Plan->Summary.FolderCount != 0;
 			ImGui::BeginDisabled(bBlocked);
-			if (MonaImGui::DialogButton(bWillUnload ? "Unload & Delete" : "Delete"))
+			if (MonaImGui::DialogButton(bDeletesFolder ? "Delete Folder" : "Delete"))
 			{
 				DeleteSelection();
-				ImGui::CloseCurrentPopup();
+				if (!PendingDeletionPlan) ImGui::CloseCurrentPopup();
 			}
 			ImGui::EndDisabled();
 			ImGui::SameLine();
-			if (MonaImGui::DialogButton("Cancel")) ImGui::CloseCurrentPopup();
+			if (MonaImGui::DialogButton("Cancel"))
+			{
+				PendingDeletionPlan.reset();
+				bDeletionPlanRefreshed = false;
+				ImGui::CloseCurrentPopup();
+			}
 			ImGui::EndPopup();
 		}
 

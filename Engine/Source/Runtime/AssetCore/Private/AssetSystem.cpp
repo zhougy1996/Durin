@@ -9,6 +9,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "Misc/FileHelper.h"
 #include "Misc/DerivedDataCache.h"
+#include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 
 namespace Durin::Asset
@@ -2390,6 +2391,343 @@ namespace Durin::Asset
 		return {};
 	}
 
+	auto FAssetManager::AnalyzeAssetDeletionBatch(
+		std::span<const FAssetPath> Paths,
+		std::span<const std::filesystem::path> PhysicalRoots,
+		FAssetDeletionBatchToken& OutToken,
+		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
+	{
+		OutToken = {};
+		OutBlockers.clear();
+		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+			return Error(
+				EAssetError::ReadOnlyMode,
+				"Cooked runtime package mode does not permit asset deletion.");
+
+		std::vector<FAssetPath> SortedPaths(Paths.begin(), Paths.end());
+		std::ranges::sort(
+			SortedPaths,
+			[](const FAssetPath& A, const FAssetPath& B) {
+				return A.GetView() < B.GetView();
+			});
+		SortedPaths.erase(
+			std::unique(SortedPaths.begin(), SortedPaths.end()),
+			SortedPaths.end());
+		const std::unordered_set<FAssetPath> DeletionSet(
+			SortedPaths.begin(), SortedPaths.end());
+		OutToken.RegistryRevision = Registry.GetRevision();
+		OutToken.PhysicalRoots.reserve(PhysicalRoots.size());
+		for (const std::filesystem::path& Root : PhysicalRoots)
+			OutToken.PhysicalRoots.push_back(
+				std::filesystem::absolute(Root).lexically_normal());
+
+		auto AddBlocker = [&](EAssetDeletionBatchBlocker Kind,
+			const FAssetPath& AssetPath,
+			const FAssetPath& RelatedAssetPath,
+			std::filesystem::path PhysicalPath,
+			std::string Details) {
+			OutBlockers.push_back({
+				.Kind = Kind,
+				.AssetPath = AssetPath,
+				.RelatedAssetPath = RelatedAssetPath,
+				.PhysicalPath = std::move(PhysicalPath),
+				.Details = std::move(Details)});
+		};
+
+		auto InspectCompanions = [&](const FAssetData& Data,
+			std::vector<std::filesystem::path>& OutFiles) -> FAssetResult {
+			DClass* AssetClass = FindClassByQualifiedName(FName(Data.AssetClassName));
+			for (DClass* Class = AssetClass; Class; Class = Class->GetSuperClass())
+			{
+				auto It = GetDeleteContributors().find(Class);
+				if (It == GetDeleteContributors().end()) continue;
+				FAssetPackageInspection Inspection;
+				FAssetResult Result = InspectAssetPackage(Data.PhysicalPath, Inspection);
+				if (!Result) return Result;
+				FAssetDeleteContribution Contribution;
+				Result = It->second(Data, Inspection, Contribution);
+				if (!Result) return Result;
+				for (const std::filesystem::path& File : Contribution.Files)
+				{
+					const std::filesystem::path Normalized =
+						std::filesystem::absolute(File).lexically_normal();
+					if (std::ranges::find(OutFiles, Normalized) == OutFiles.end())
+						OutFiles.push_back(Normalized);
+				}
+				std::ranges::sort(OutFiles);
+				break;
+			}
+			return {};
+		};
+
+		for (const FAssetPath& Path : SortedPaths)
+		{
+			const FAssetData* Data = Registry.FindAsset(Path);
+			if (!Path.IsValid() || !Data)
+			{
+				AddBlocker(
+					EAssetDeletionBatchBlocker::MissingAsset,
+					Path,
+					{},
+					{},
+					std::format("Asset {} was not found.", Path.ToString()));
+				continue;
+			}
+
+			FAssetDeletionBatchEntry Entry{
+				.RegistryEntry = *Data,
+				.bLoaded = LoadedPackages.contains(Path)};
+			if (LoadingPackages.contains(Path))
+				AddBlocker(
+					EAssetDeletionBatchBlocker::LoadingPackage,
+					Path,
+					{},
+					Data->PhysicalPath,
+					"Asset is currently loading.");
+			if (const auto Loaded = LoadedPackages.find(Path);
+				Loaded != LoadedPackages.end() && Loaded->second
+				&& Loaded->second->IsDirty())
+				AddBlocker(
+					EAssetDeletionBatchBlocker::DirtyPackage,
+					Path,
+					{},
+					Data->PhysicalPath,
+					"Asset has unsaved changes.");
+
+			const FAssetResult CompanionResult =
+				InspectCompanions(*Data, Entry.CompanionFiles);
+			if (!CompanionResult)
+				AddBlocker(
+					EAssetDeletionBatchBlocker::CompanionInspectionFailed,
+					Path,
+					{},
+					Data->PhysicalPath,
+					CompanionResult.Message);
+			OutToken.Entries.push_back(std::move(Entry));
+		}
+
+		for (const auto& [OtherPath, OtherData] : Registry.GetAssets())
+		{
+			if (DeletionSet.contains(OtherPath)) continue;
+			for (const FAssetPath& Dependency : OtherData.Dependencies)
+			{
+				if (!DeletionSet.contains(Dependency)) continue;
+				const bool bLoadedReference = LoadedPackages.contains(OtherPath);
+				AddBlocker(
+					bLoadedReference
+						? EAssetDeletionBatchBlocker::ExternalLoadedReference
+						: EAssetDeletionBatchBlocker::ExternalPersistentReference,
+					Dependency,
+					OtherPath,
+					OtherData.PhysicalPath,
+					std::format(
+						"Asset {} is referenced by {}.",
+						Dependency.ToString(),
+						OtherPath.ToString()));
+			}
+		}
+
+		std::unordered_map<std::string, std::vector<FAssetPath>> CompanionOwners;
+		for (const auto& [OwnerPath, OwnerData] : Registry.GetAssets())
+		{
+			std::vector<std::filesystem::path> Files;
+			if (!InspectCompanions(OwnerData, Files)) continue;
+			for (const std::filesystem::path& File : Files)
+				CompanionOwners[File.generic_string()].push_back(OwnerPath);
+		}
+		for (const FAssetDeletionBatchEntry& Entry : OutToken.Entries)
+		{
+			for (const std::filesystem::path& File : Entry.CompanionFiles)
+			{
+				auto Owners = CompanionOwners[File.generic_string()];
+				std::ranges::sort(
+					Owners,
+					[](const FAssetPath& A, const FAssetPath& B) {
+						return A.GetView() < B.GetView();
+					});
+				Owners.erase(std::unique(Owners.begin(), Owners.end()), Owners.end());
+				if (Owners.size() > 1)
+					AddBlocker(
+						EAssetDeletionBatchBlocker::CompanionOwnershipConflict,
+						Entry.RegistryEntry.PackagePath,
+						{},
+						File,
+						"Companion file is claimed by multiple assets.");
+				for (const FAssetPath& Owner : Owners)
+					if (!DeletionSet.contains(Owner))
+						AddBlocker(
+							EAssetDeletionBatchBlocker::ExternalCompanionOwner,
+							Entry.RegistryEntry.PackagePath,
+							Owner,
+							File,
+							std::format(
+								"Companion file is owned by asset {} outside the deletion set.",
+								Owner.ToString()));
+			}
+		}
+		for (const auto& [PhysicalPath, Owners] : CompanionOwners)
+		{
+			const bool bInsidePhysicalRoot = std::ranges::any_of(
+				PhysicalRoots,
+				[&](const std::filesystem::path& Root) {
+					const std::string NormalizedRoot =
+						std::filesystem::absolute(Root).lexically_normal().generic_string();
+					return PhysicalPath == NormalizedRoot
+						|| PathUtilities::IsLexicalDescendantPath(
+							PhysicalPath, NormalizedRoot, true);
+				});
+			if (!bInsidePhysicalRoot) continue;
+			for (const FAssetPath& Owner : Owners)
+				if (!DeletionSet.contains(Owner))
+					AddBlocker(
+						EAssetDeletionBatchBlocker::ExternalCompanionOwner,
+						Owner,
+						Owner,
+						PhysicalPath,
+						std::format(
+							"Selected content contains a companion owned by asset {} outside the deletion set.",
+							Owner.ToString()));
+		}
+
+		std::ranges::sort(
+			OutBlockers,
+			[](const FAssetDeletionBatchBlocker& A,
+				const FAssetDeletionBatchBlocker& B) {
+				if (A.AssetPath.GetView() != B.AssetPath.GetView())
+					return A.AssetPath.GetView() < B.AssetPath.GetView();
+				if (A.RelatedAssetPath.GetView() != B.RelatedAssetPath.GetView())
+					return A.RelatedAssetPath.GetView()
+						< B.RelatedAssetPath.GetView();
+				if (A.PhysicalPath != B.PhysicalPath)
+					return A.PhysicalPath.generic_string()
+						< B.PhysicalPath.generic_string();
+				return A.Kind < B.Kind;
+			});
+		return {};
+	}
+
+	auto FAssetManager::RevalidateAssetDeletionBatch(
+		const FAssetDeletionBatchToken& Token,
+		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
+	{
+		std::vector<FAssetPath> Paths;
+		Paths.reserve(Token.Entries.size());
+		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
+			Paths.push_back(Entry.RegistryEntry.PackagePath);
+
+		FAssetDeletionBatchToken Current;
+		FAssetResult Result = AnalyzeAssetDeletionBatch(
+			Paths, Token.PhysicalRoots, Current, OutBlockers);
+		if (!Result || !OutBlockers.empty()) return Result;
+		if (Current.Entries.size() != Token.Entries.size())
+			return Error(EAssetError::InUse,
+				"The asset deletion set changed after confirmation.");
+		for (size_t Index = 0; Index < Token.Entries.size(); ++Index)
+		{
+			const FAssetDeletionBatchEntry& Expected = Token.Entries[Index];
+			const FAssetDeletionBatchEntry& Actual = Current.Entries[Index];
+			if (!(Expected.RegistryEntry == Actual.RegistryEntry)
+				|| Expected.CompanionFiles != Actual.CompanionFiles)
+				return Error(EAssetError::InUse, std::format(
+					"Asset {} changed after confirmation.",
+					Expected.RegistryEntry.PackagePath.ToString()));
+		}
+		return {};
+	}
+
+	auto FAssetManager::UnloadAssetDeletionBatch(
+		const FAssetDeletionBatchToken& Token) -> FAssetResult
+	{
+		std::vector<DPackage*> Packages;
+		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
+		{
+			const FAssetPath& Path = Entry.RegistryEntry.PackagePath;
+			if (LoadingPackages.contains(Path))
+				return Error(EAssetError::InUse, std::format(
+					"Asset {} is currently loading.", Path.ToString()));
+			const auto Loaded = LoadedPackages.find(Path);
+			if (Loaded == LoadedPackages.end()) continue;
+			if (Loaded->second && Loaded->second->IsDirty())
+				return Error(EAssetError::InUse, std::format(
+					"Asset {} has unsaved changes.", Path.ToString()));
+			if (Loaded->second) Packages.push_back(Loaded->second);
+		}
+		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
+			LoadedPackages.erase(Entry.RegistryEntry.PackagePath);
+		for (DPackage* Package : Packages)
+		{
+			CompatibilityRiskPackages.erase(Package);
+			RemoveFromRoot(Package);
+			MarkObjectHierarchyAsGarbage(Package);
+		}
+		if (!Packages.empty()) CollectGarbage();
+		return {};
+	}
+
+	auto FAssetManager::ApplyAssetDeletionBatch(
+		const FAssetDeletionBatchToken& Token) -> FAssetResult
+	{
+		std::vector<FAssetDeletionBatchBlocker> Blockers;
+		FAssetResult Result = RevalidateAssetDeletionBatch(Token, Blockers);
+		if (!Result) return Result;
+		if (!Blockers.empty())
+			return Error(EAssetError::InUse, Blockers.front().Details);
+		Result = UnloadAssetDeletionBatch(Token);
+		if (!Result) return Result;
+		return RemoveAssetDeletionBatchRegistryProjection(Token);
+	}
+
+	auto FAssetManager::RemoveAssetDeletionBatchRegistryProjection(
+		const FAssetDeletionBatchToken& Token) -> FAssetResult
+	{
+		std::unordered_set<FAssetPath> DeletionSet;
+		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
+			DeletionSet.insert(Entry.RegistryEntry.PackagePath);
+		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
+		{
+			const FAssetData* Current = Registry.FindAsset(
+				Entry.RegistryEntry.PackagePath);
+			if (!Current || !(*Current == Entry.RegistryEntry))
+				return Error(EAssetError::InUse, std::format(
+					"Asset {} changed before registry removal.",
+					Entry.RegistryEntry.PackagePath.ToString()));
+		}
+		for (const auto& [OtherPath, OtherData] : Registry.GetAssets())
+		{
+			if (DeletionSet.contains(OtherPath)) continue;
+			for (const FAssetPath& Dependency : OtherData.Dependencies)
+				if (DeletionSet.contains(Dependency))
+					return Error(EAssetError::InUse, std::format(
+						"Asset {} gained external referencer {}.",
+						Dependency.ToString(), OtherPath.ToString()));
+		}
+		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
+			Registry.Remove(Entry.RegistryEntry.PackagePath);
+		return {};
+	}
+
+	auto FAssetManager::RestoreAssetDeletionBatch(
+		const FAssetDeletionBatchToken& Token) -> FAssetResult
+	{
+		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
+		{
+			const FAssetPath& Path = Entry.RegistryEntry.PackagePath;
+			if (Registry.FindAsset(Path) || LoadedPackages.contains(Path))
+				return Error(EAssetError::AlreadyExists, std::format(
+					"Asset {} already exists and cannot be restored.",
+					Path.ToString()));
+			std::error_code Ec;
+			if (!std::filesystem::is_regular_file(
+					Entry.RegistryEntry.PhysicalPath, Ec))
+				return Error(EAssetError::NotFound, std::format(
+					"Restored package file is missing: {}.",
+					Entry.RegistryEntry.PhysicalPath));
+		}
+		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
+			Registry.AddOrUpdate(Entry.RegistryEntry);
+		return {};
+	}
+
 	auto FAssetManager::DeleteAsset(const FAssetPath& Path) -> FAssetResult
 	{
 		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
@@ -2826,6 +3164,42 @@ namespace Durin::Asset
 	}
 	auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult { return FAssetManager::Get().MoveAsset(OldPath, NewPath); }
 	auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult { return FAssetManager::Get().AnalyzeAssetDeletion(Path, OutAnalysis); }
+	auto AnalyzeAssetDeletionBatch(
+		std::span<const FAssetPath> Paths,
+		std::span<const std::filesystem::path> PhysicalRoots,
+		FAssetDeletionBatchToken& OutToken,
+		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
+	{
+		return FAssetManager::Get().AnalyzeAssetDeletionBatch(
+			Paths, PhysicalRoots, OutToken, OutBlockers);
+	}
+	auto RevalidateAssetDeletionBatch(
+		const FAssetDeletionBatchToken& Token,
+		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
+	{
+		return FAssetManager::Get().RevalidateAssetDeletionBatch(
+			Token, OutBlockers);
+	}
+	auto UnloadAssetDeletionBatch(
+		const FAssetDeletionBatchToken& Token) -> FAssetResult
+	{
+		return FAssetManager::Get().UnloadAssetDeletionBatch(Token);
+	}
+	auto ApplyAssetDeletionBatch(
+		const FAssetDeletionBatchToken& Token) -> FAssetResult
+	{
+		return FAssetManager::Get().ApplyAssetDeletionBatch(Token);
+	}
+	auto RemoveAssetDeletionBatchRegistryProjection(
+		const FAssetDeletionBatchToken& Token) -> FAssetResult
+	{
+		return FAssetManager::Get().RemoveAssetDeletionBatchRegistryProjection(Token);
+	}
+	auto RestoreAssetDeletionBatch(
+		const FAssetDeletionBatchToken& Token) -> FAssetResult
+	{
+		return FAssetManager::Get().RestoreAssetDeletionBatch(Token);
+	}
 	auto DeleteAsset(const FAssetPath& Path) -> FAssetResult { return FAssetManager::Get().DeleteAsset(Path); }
 	auto FindLoadedPackage(const FAssetPath& Path) -> DPackage* { return FAssetManager::Get().FindLoadedPackage(Path); }
 	auto UnloadPackage(const FAssetPath& Path) -> FAssetResult { return FAssetManager::Get().UnloadPackage(Path); }

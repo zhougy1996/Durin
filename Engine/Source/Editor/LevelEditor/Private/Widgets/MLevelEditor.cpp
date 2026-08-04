@@ -187,6 +187,17 @@ namespace Durin
 			},
 			[this](std::span<const FEditorAssetMove> Moves) {
 				return AssetMoveCoordinator->MoveAssets(Moves);
+			},
+			[](std::unique_ptr<IEditorTransaction> Transaction) {
+				return GEditor
+					&& GEditor->GetTransactionManager().Execute(
+						std::move(Transaction));
+			},
+			[] {
+				return GEditor
+					? GEditor->GetTransactionManager()
+						.GetContentMutationRevision()
+					: uint64{0};
 			}
 		);
 		ContentBrowserPanel = ContentBrowser.get();

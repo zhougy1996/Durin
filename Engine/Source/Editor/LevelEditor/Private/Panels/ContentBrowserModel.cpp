@@ -133,7 +133,9 @@ namespace Durin
 					const FMountSnapshot& Cached) {
 					return Registered.VirtualRoot == Cached.VirtualRoot
 						&& Registered.GetContentDir().generic_string()
-							== Cached.SourcePhysicalRoot;
+							== Cached.SourcePhysicalRoot
+						&& Registered.bAuthoringWritable
+							== Cached.bAuthoringWritable;
 				});
 		if (bUnchanged) return;
 
@@ -143,8 +145,11 @@ namespace Durin
 		{
 			if (!Mount.bAutoScan) continue;
 			const std::string ContentRoot = Mount.GetContentDir().generic_string();
-			MountSnapshot.push_back(
-				{Mount.VirtualRoot, ContentRoot, NormalizePath(ContentRoot)});
+			MountSnapshot.push_back({
+				Mount.VirtualRoot,
+				ContentRoot,
+				NormalizePath(ContentRoot),
+				Mount.bAuthoringWritable});
 		}
 		DirectoryChildrenCache.clear();
 	}

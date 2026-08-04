@@ -19,10 +19,14 @@ namespace Durin
 		FLevelEditorSessionSettings& InSessionSettings,
 		FOpenAsset InOpenAsset,
 		FRequestImport InRequestImport,
-		FMoveAssets InMoveAssets)
+		FMoveAssets InMoveAssets,
+		FExecuteTransaction InExecuteTransaction,
+		FGetContentMutationRevision InGetContentMutationRevision)
 		: SessionSettings(InSessionSettings)
 		, OpenAsset(std::move(InOpenAsset))
 		, RequestImport(std::move(InRequestImport))
+		, ExecuteTransaction(std::move(InExecuteTransaction))
+		, GetContentMutationRevision(std::move(InGetContentMutationRevision))
 		, Model()
 		, Operations(Model, std::move(InMoveAssets))
 		, IconSize(InSessionSettings.GetContentBrowserIconSize())
@@ -35,6 +39,8 @@ namespace Durin
 		bIconSizeLocked = SessionSettings.IsContentBrowserIconSizeLocked();
 		Model.SetShowHiddenFiles(
 			SessionSettings.GetContentBrowserShowHiddenFiles());
+		if (GetContentMutationRevision)
+			ObservedContentMutationRevision = GetContentMutationRevision();
 		if (!SessionSettings.GetContentBrowserLastDirectory().empty())
 			NavigateToPhysical(
 				SessionSettings.GetContentBrowserLastDirectory());
@@ -414,25 +420,63 @@ namespace Durin
 	auto FContentBrowserPanel::RequestDeleteSelection() -> void
 	{
 		if (Selection.empty()) return;
-		AnalyzeDeleteSelection();
+		PendingDeletionPlan = Operations.BuildDeletionPlan(
+			Model.GetItems(), Selection);
+		bDeletionPlanRefreshed = false;
 		bDeletePopupRequested = true;
-	}
-
-	auto FContentBrowserPanel::AnalyzeDeleteSelection() -> void
-	{
-		Operations.AnalyzeDeletion(
-			Model.GetItems(),
-			Selection,
-			DeleteAnalysis,
-			DeleteAnalysisErrors);
 	}
 
 	auto FContentBrowserPanel::DeleteSelection() -> void
 	{
-		const Asset::FAssetResult Result =
-			Operations.Delete(Model.GetItems(), Selection);
-		if (!Result) SetError(Result.Message);
+		if (!PendingDeletionPlan || !ExecuteTransaction)
+		{
+			SetError("Content deletion is unavailable because editor history is not active.");
+			return;
+		}
+		if (!Operations.IsDeletionPlanCurrent(*PendingDeletionPlan))
+		{
+			PendingDeletionPlan = Operations.BuildDeletionPlan(
+				Model.GetItems(), Selection);
+			bDeletionPlanRefreshed = true;
+			return;
+		}
+		if (!PendingDeletionPlan->CanExecute()) return;
+
+		if (!ExecuteTransaction(
+				std::make_unique<FContentDeletionTransaction>(PendingDeletionPlan)))
+			return;
 		Selection.clear();
+		SelectionAnchor.clear();
+		PendingDeletionPlan.reset();
+		bDeletionPlanRefreshed = false;
+		SynchronizeContentMutation();
+	}
+
+	auto FContentBrowserPanel::SynchronizeContentMutation() -> void
+	{
+		if (!GetContentMutationRevision) return;
+		const uint64 Revision = GetContentMutationRevision();
+		if (Revision == ObservedContentMutationRevision) return;
+		ObservedContentMutationRevision = Revision;
+
+		ThumbnailCache->CancelPendingRequests();
+		std::filesystem::path Directory = Model.GetCurrentPhysicalPath();
+		while (!Directory.empty() && !std::filesystem::is_directory(Directory))
+		{
+			const std::filesystem::path Parent = Directory.parent_path();
+			if (Parent == Directory) break;
+			Directory = Parent;
+		}
+		Model.RefreshMountSnapshot();
+		if (!Directory.empty()
+			&& Directory.generic_string() != Model.GetCurrentPhysicalPath()
+			&& NavigateToPhysical(Directory.generic_string()))
+		{
+			const Asset::FAssetResult Result = Model.RescanRegistry();
+			if (!Result) SetError(Result.Message);
+			RefreshItemsSnapshot();
+			return;
+		}
 		Refresh(true);
 	}
 

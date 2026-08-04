@@ -74,6 +74,7 @@ namespace Durin
 			std::string VirtualRoot;
 			std::string SourcePhysicalRoot;
 			std::string PhysicalRoot;
+			bool bAuthoringWritable = false;
 		};
 
 		auto RefreshMountSnapshot() -> void;
