@@ -526,11 +526,7 @@ namespace Durin
 				VertexShaderParameters);
 
 			FStaticMeshMaterialUniform MaterialUniform;
-			MaterialUniform.BaseColor = FVector4f(
-				static_cast<float>(MaterialBinding.BaseColor.x),
-				static_cast<float>(MaterialBinding.BaseColor.y),
-				static_cast<float>(MaterialBinding.BaseColor.z),
-				MaterialBinding.Opacity);
+			MaterialUniform.BaseColor = MaterialBinding.BaseColor;
 			MaterialUniform.Params = FVector4f(
 				MaterialBinding.SpecularStrength,
 				MaterialBinding.Shininess,

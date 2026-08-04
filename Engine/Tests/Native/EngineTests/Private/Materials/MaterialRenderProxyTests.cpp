@@ -53,16 +53,22 @@ namespace
 		return Snapshot;
 	}
 
-	auto ExpectRenderDataMatches(
+		auto ExpectRenderDataMatches(
 		const Durin::FMaterialRenderData& Actual,
 		const Durin::FMaterialRenderData& Expected
 	) -> void
 	{
-		ExpectColorNear(Actual.BaseColor, Expected.BaseColor);
-		EXPECT_EQ(Actual.BaseColorTexture, Expected.BaseColorTexture);
+		const Durin::FMaterialRenderV1Binding ActualBinding =
+			GetMaterialBinding(Actual);
+		const Durin::FMaterialRenderV1Binding ExpectedBinding =
+			GetMaterialBinding(Expected);
+		ExpectColorNear(ActualBinding.BaseColor, ExpectedBinding.BaseColor);
+		EXPECT_EQ(
+			ActualBinding.BaseColorTexture,
+			ExpectedBinding.BaseColorTexture);
 		EXPECT_FLOAT_EQ(
-			Actual.SpecularStrength, Expected.SpecularStrength);
-		EXPECT_FLOAT_EQ(Actual.Shininess, Expected.Shininess);
+			ActualBinding.SpecularStrength, ExpectedBinding.SpecularStrength);
+		EXPECT_FLOAT_EQ(ActualBinding.Shininess, ExpectedBinding.Shininess);
 		EXPECT_EQ(Actual.PipelineIdentity, Expected.PipelineIdentity);
 		EXPECT_EQ(
 			Actual.Representation.GetLayout().Identity,
@@ -249,7 +255,7 @@ TEST(FMaterialRenderProxyTests, CoalescesQueuedPublicationsPerProxy)
 	AllowCommandCompletion->set_value();
 	const FMaterialProxySnapshot Updated = CaptureMaterialProxy(Proxy);
 	ExpectColorNear(
-		Updated.RenderData.BaseColor,
+		GetMaterialBinding(Updated.RenderData).BaseColor,
 		Durin::FVector4f(0.7f, 0.8f, 0.9f, 1.0f));
 	const Durin::FMaterialRenderProxyCounters Applied =
 		Durin::GetMaterialRenderProxyCounters();
@@ -331,7 +337,8 @@ TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossLongC
 	const FMaterialProxySnapshot LocallyOverridden =
 		CaptureMaterialProxy(LeafProxy);
 	EXPECT_FLOAT_EQ(
-		LocallyOverridden.RenderData.BaseColor.a, 0.35f);
+		GetMaterialBinding(LocallyOverridden.RenderData).BaseColor.a,
+		0.35f);
 	ExpectRenderDataMatches(
 		LocallyOverridden.RenderData, Leaf->GetRenderData());
 
@@ -670,13 +677,13 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 		CapturePrimitiveCount(),
 		static_cast<size_t>(SharedUserCount));
 	ExpectColorNear(
-		UpdatedSlots.Materials[0].BaseColor,
+		GetMaterialBinding(UpdatedSlots.Materials[0]).BaseColor,
 		Durin::FVector4f(0.55f, 0.60f, 0.50f, 1.0f));
 
 	const FMaterialProxySnapshot UpdatedLeaf = CaptureMaterialProxy(LeafProxy);
 	EXPECT_GT(UpdatedLeaf.ResolvedVersion, InitialLeaf.ResolvedVersion);
 	ExpectColorNear(
-		UpdatedLeaf.RenderData.BaseColor,
+		GetMaterialBinding(UpdatedLeaf.RenderData).BaseColor,
 		Durin::FVector4f(0.50f, 0.55f, 0.60f, 1.0f));
 	const Durin::FMaterialLoadedQueryDiagnostics QueryDiagnostics =
 		Durin::GetMaterialLoadedQueryDiagnostics();

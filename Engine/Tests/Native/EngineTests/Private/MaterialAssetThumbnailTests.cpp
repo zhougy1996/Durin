@@ -1,5 +1,7 @@
 #include "Thumbnail/MaterialAssetThumbnail.h"
 
+#include "Materials/MaterialTestSupport.h"
+
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 
 #include "Components/StaticMeshComponent.h"
@@ -180,10 +182,18 @@ TEST(FMaterialAssetThumbnailTests, PreviewComponentResolvesInstanceInheritanceAn
 				InstanceProxy->ResolveMaterialRenderData_RenderThread(0);
 		});
 	Durin::FlushRenderingCommands();
-	EXPECT_NE(MaterialData.BaseColor, InstanceData.BaseColor);
-	EXPECT_NE(MaterialData.SpecularStrength, InstanceData.SpecularStrength);
-	EXPECT_NE(MaterialData.BaseColorTexture, InstanceData.BaseColorTexture);
-	EXPECT_FLOAT_EQ(InstanceData.Shininess, MaterialData.Shininess);
+	const Durin::FMaterialRenderV1Binding MaterialBinding =
+		GetMaterialBinding(MaterialData);
+	const Durin::FMaterialRenderV1Binding InstanceBinding =
+		GetMaterialBinding(InstanceData);
+	EXPECT_NE(MaterialBinding.BaseColor, InstanceBinding.BaseColor);
+	EXPECT_NE(
+		MaterialBinding.SpecularStrength,
+		InstanceBinding.SpecularStrength);
+	EXPECT_NE(
+		MaterialBinding.BaseColorTexture,
+		InstanceBinding.BaseColorTexture);
+	EXPECT_FLOAT_EQ(InstanceBinding.Shininess, MaterialBinding.Shininess);
 
 	MaterialPrimitive.reset();
 	InstancePrimitive.reset();

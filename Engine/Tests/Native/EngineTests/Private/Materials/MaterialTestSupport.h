@@ -217,6 +217,18 @@ namespace
 		Fence.Wait();
 	}
 
+	auto GetMaterialBinding(
+		const Durin::FMaterialRenderData& RenderData)
+		-> Durin::FMaterialRenderV1Binding
+	{
+		Durin::FMaterialRenderV1Binding Binding;
+		Durin::FMaterialRenderValidationDiagnostic Diagnostic;
+		EXPECT_TRUE(Durin::TryGetMaterialRenderV1Binding(
+			RenderData.Representation, Binding, Diagnostic))
+			<< Diagnostic.Message;
+		return Binding;
+	}
+
 	struct FSceneSnapshot
 	{
 		Durin::FStaticMeshSceneProxy* Proxy = nullptr;

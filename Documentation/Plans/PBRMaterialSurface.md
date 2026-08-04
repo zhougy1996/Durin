@@ -9,24 +9,32 @@ Completed:
 
 ## Current Status
 
-This plan is prepared but blocked on completion of
-[Material Render Representation](MaterialRenderRepresentation.md). Its starting
-repository baseline is `a7e6d2650b2b9ea83610a3bc15f875ba914d588a` only for
-scope definition; implementation must record the completed predecessor commit
-and revalidate every symbol and assumption before Stage 0 closes.
+This plan remains prepared and implementation-blocked until its own Stage 0
+starts, but its predecessor is now complete through the Stage 4 handoff of
+[Material Render Representation](MaterialRenderRepresentation.md). The next
+implementation baseline is the predecessor's completion commit, whose parent
+is `81392097`; the old scope-only baseline
+`a7e6d2650b2b9ea83610a3bc15f875ba914d588a` is no longer a valid code baseline.
+Stage 0 must still revalidate every symbol and assumption before selecting the
+PBR layout.
 
 The current StaticMesh surface combines vertex color, `BaseColor`, and
 `BaseColorTexture`, then applies a directional-light Blinn-Phong calculation
 controlled by `SpecularStrength` and `Shininess`. `Opacity` is carried in output
-alpha, but the current pipeline remains opaque. StaticMesh render data already
-provides normals, tangent handedness, vertex color, and up to four UV channels.
+alpha, but the current pipeline remains opaque. These five canonical values
+are now compiled into the immutable v1 `FMaterialRenderRepresentation` and
+consumed through `FMaterialRenderV1Binding`; `FMaterialRenderData` no longer
+publishes one fixed field per input. StaticMesh render data already provides
+normals, tangent handedness, vertex color, and up to four UV channels.
 The texture pipeline already distinguishes Color, Normal, and Data/Mask usage,
 builds usage-appropriate mips and desktop formats, and provides renderer-owned
 white, black, and flat-normal fallbacks.
 
-No PBR implementation stage may begin until the predecessor plan has landed
-its validated versioned representation and this plan has been amended to use
-that exact contract.
+No PBR implementation stage may begin until Stage 0 records the exact
+predecessor completion commit, revalidates `MaterialRenderLayoutV1Id`,
+`FMaterialRenderRepresentationBuilder`, `TryGetMaterialRenderV1Binding`, and
+the proxy/resource recovery tests, then explicitly chooses a compatible PBR
+layout identity.
 
 ## Goal
 
@@ -103,7 +111,8 @@ rewrite.
   actual coverage, blending, sorting, and depth behavior remain owned by the
   later Material Render Pass plan.
 - Renderer consumes only the completed versioned material render
-  representation. It does not read reflected definitions or resolve GUIDs and
+  representation through its selected binding contract. It does not read
+  reflected definitions, fixed public material fields, or resolve GUIDs and
   names per draw.
 - Level rendering, material preview, and thumbnails use the same surface shader
   and fallback semantics; preview-specific lighting may differ only through an
@@ -127,7 +136,9 @@ rewrite.
 - Material instances inherit values and publish changes through stable proxies
   without scene-proxy recreation.
 - StaticMesh shader and pipeline identities already distinguish static material
-  properties even though most policies remain visually fixed.
+  properties even though most policies remain visually fixed. The v1 layout
+  identity is separate from those static properties and must not be mutated in
+  place when PBR inputs are added.
 
 ### Gaps
 
@@ -138,8 +149,10 @@ rewrite.
 - There is no selected environment-lighting contract for assessing metallic
   reflection and roughness.
 - UV choice and transform are not material inputs; the shader always uses UV0.
-- Existing SpecularStrength and Shininess parameters do not have a defined PBR
-  compatibility mapping.
+- Existing `SpecularStrength` and `Shininess` parameters remain in v1 with
+  their current Blinn-Phong meaning; the PBR plan must explicitly choose a
+  migration/default rule rather than silently reinterpret them as metallic or
+  roughness.
 - Rendered-image coverage does not yet validate PBR constants, texture roles,
   color-space behavior, tangent normals, mirrored transforms, or fallback
   substitution.

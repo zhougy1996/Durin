@@ -343,8 +343,10 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsAndSurvivesRenderedRe
 	const FMaterialSlotsSnapshot AfterReimport = CaptureMaterialSlots(Harness.Scene);
 	ASSERT_EQ(AfterReimport.Materials.size(), 2u);
 	EXPECT_NE(AfterReimport.RenderData, BeforeReimport.RenderData);
-	ExpectColorNear(AfterReimport.Materials[1].BaseColor, Durin::FVector4f(0.85f, 0.15f, 0.1f, 1.0f));
-	ExpectColorNear(AfterReimport.Materials[0].BaseColor, Durin::FMaterialRenderData{}.BaseColor);
+	ExpectColorNear(GetMaterialBinding(AfterReimport.Materials[1]).BaseColor, Durin::FVector4f(0.85f, 0.15f, 0.1f, 1.0f));
+	ExpectColorNear(
+		GetMaterialBinding(AfterReimport.Materials[0]).BaseColor,
+		Durin::FMaterialRenderV1Binding{}.BaseColor);
 	RenderComponent->UnregisterComponent();
 	WaitForRenderingThread();
 
@@ -535,17 +537,17 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	ASSERT_TRUE(Durin::Asset::LoadAsset(InstancePath, Loaded));
 	ASSERT_NE(Loaded->GetParent(), nullptr);
 	EXPECT_EQ(Loaded->GetStaticProperties(), StaticProperties);
-	ExpectColorNear(Loaded->GetRenderData().BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 0.35f));
+	ExpectColorNear(GetMaterialBinding(Loaded->GetRenderData()).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 0.35f));
 	Durin::DTexture2D* LoadedTexture = nullptr;
 	ASSERT_TRUE(Loaded->GetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), LoadedTexture));
 	ASSERT_NE(LoadedTexture, nullptr);
 	EXPECT_EQ(
-		Loaded->GetRenderData().BaseColorTexture,
+		GetMaterialBinding(Loaded->GetRenderData()).BaseColorTexture,
 		LoadedTexture->GetTextureReferenceRHI());
 	auto* LoadedBase = Durin::Cast<Durin::DMaterial>(Loaded->GetParent());
 	ASSERT_NE(LoadedBase, nullptr);
 	LoadedBase->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.6, 0.4, 0.2));
-	ExpectColorNear(Loaded->GetRenderData().BaseColor, Durin::FVector4f(0.6f, 0.4f, 0.2f, 0.35f));
+	ExpectColorNear(GetMaterialBinding(Loaded->GetRenderData()).BaseColor, Durin::FVector4f(0.6f, 0.4f, 0.2f, 0.35f));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(InstancePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(BasePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));

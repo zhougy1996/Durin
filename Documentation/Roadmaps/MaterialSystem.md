@@ -14,11 +14,13 @@ and shader-map and pipeline identities. The Material Editor supports creation,
 save, parent selection, built-in parameter editing, instance overrides, and
 rendered thumbnails.
 
-The visible surface remains the fixed `StaticMesh.slang` Blinn-Phong path. The
-renderer consumes ad-hoc `FMaterialRenderData` fields, and cached material
-identities do not yet make blend, culling, depth, masking, or shading policies
-visibly different. PBR, material graph compilation, transient runtime
-instances, and renderer scalability work have not landed.
+The visible surface remains the fixed `StaticMesh.slang` Blinn-Phong path, now
+fed by the validated, versioned Engine render representation and compact v1
+binding contract. Cached material identities still do not make blend, culling,
+depth, masking, or shading policies visibly different. The representation
+implementation and its final aggregate-validation/documentation handoff are
+complete; PBR, material graph compilation, transient runtime instances, and
+renderer scalability work have not landed.
 
 This roadmap records ordering and activation gates only. Executable decisions,
 working sets, stages, and acceptance evidence belong to the linked active
@@ -30,7 +32,7 @@ baseline.
 
 | Roadmap milestone | Execution plan | State |
 | --- | --- | --- |
-| 2. Versioned renderer-facing material representation | [Material Render Representation](../Plans/MaterialRenderRepresentation.md) | Ready to implement |
+| 2. Versioned renderer-facing material representation | [Material Render Representation](../Plans/MaterialRenderRepresentation.md) | Complete; final handoff recorded |
 | 3. Metallic/roughness PBR surface contract | [PBR Material Surface](../Plans/PBRMaterialSurface.md) | Planned; implementation waits for milestone 2 |
 
 Only the first plan is the current implementation priority. The PBR plan is
@@ -48,6 +50,14 @@ overlapping implementation.
 - Immutable renderer-facing snapshots and stable material render proxies with
   coalesced publication, lazy parent resolution, startup replay, and stale
   update rejection.
+- Versioned, Engine-owned material render layouts with validated compact
+  uniform/resource payloads, separate persistent asset-schema compatibility,
+  complete deterministic fallbacks, and stable layout identity in shader-map
+  cache keys.
+- StaticMesh Renderer consumption through the v1 compact binding contract;
+  unsupported layouts report ShaderBinding diagnostics before shader-map or
+  pipeline selection, while texture fallback and Vulkan resource reload remain
+  covered by integration tests.
 - Persistent StaticMesh material-slot identities, mesh defaults, sparse
   component overrides, explicit orphans, and compact slot-ordered scene-proxy
   bindings.
@@ -60,6 +70,15 @@ overlapping implementation.
   streams, up to four UV channels, and packed tangent handedness.
 - Concrete Renderer-private feature owners, including `FStaticMeshRenderer`,
   under one `FSceneRenderer` orchestration boundary.
+
+Milestone 2 completion evidence is recorded in the linked plan. The landed
+contract is `FMaterialRenderRepresentation` v1 identified by
+`MaterialRenderLayoutV1Id`, with Engine-side GUID compilation, exact compact
+binding validation, separate persistent asset-schema versioning, deterministic
+fallback, stable proxy publication, and no fixed material-value fields in
+`FMaterialRenderData`. StaticMesh draws preserve the existing uniform ABI and
+texture fallback, and the aggregate native/Vulkan/reload coverage plus full
+`all` build and editor smoke passed before this roadmap was marked complete.
 
 ## Remaining Editor Workflow
 
@@ -113,7 +132,8 @@ owned by the texture roadmap and plans rather than this milestone.
    render contract.
 3. Re-review the prepared PBR plan against that landed contract before starting
    its first implementation stage; amend its baseline and any invalidated
-   assumptions before code changes.
+   assumptions before code changes. This re-review is now recorded in
+   `PBRMaterialSurface.md`; PBR implementation remains unstarted.
 4. Complete and validate the PBR plan, then decide the exact scope and number
    of plans required for milestone 4.
 5. Do not create detailed milestone 5 or 6 plans until the preceding milestone

@@ -47,7 +47,7 @@ TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 	const FMaterialSlotsSnapshot Snapshot = CaptureMaterialSlots(Harness.Scene);
 	ASSERT_NE(Snapshot.Proxy, nullptr);
 	ASSERT_EQ(Snapshot.Materials.size(), 1u);
-	ExpectColorNear(Snapshot.Materials[0].BaseColor, Durin::FVector4f(0.25f, 0.5f, 0.75f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Snapshot.Materials[0]).BaseColor, Durin::FVector4f(0.25f, 0.5f, 0.75f, 1.0f));
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
@@ -117,8 +117,8 @@ TEST(FMaterialTests, StaticMeshProxyCapturesPerSlotMaterials)
 	EXPECT_EQ(Component->GetMaterial(1), Second);
 	const FMaterialSlotsSnapshot Snapshot = CaptureMaterialSlots(Harness.Scene);
 	ASSERT_EQ(Snapshot.Materials.size(), 2u);
-	ExpectColorNear(Snapshot.Materials[0].BaseColor, Durin::FVector4f(0.2f, 0.3f, 0.4f, 1.0f));
-	ExpectColorNear(Snapshot.Materials[1].BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Snapshot.Materials[0]).BaseColor, Durin::FVector4f(0.2f, 0.3f, 0.4f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Snapshot.Materials[1]).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
@@ -145,10 +145,12 @@ TEST(FMaterialTests, StaticMeshProxyUsesEmptyFallbackForUnassignedSlots)
 	for (Durin::uint32 SlotIndex = 0; SlotIndex < 2; ++SlotIndex)
 	{
 		const Durin::FMaterialRenderData& Fallback = Snapshot.Materials[SlotIndex];
-		ExpectColorNear(Fallback.BaseColor, Durin::FMaterialRenderData{}.BaseColor);
-		EXPECT_EQ(Fallback.BaseColorTexture, nullptr);
-		EXPECT_FLOAT_EQ(Fallback.SpecularStrength, Durin::FMaterialRenderData{}.SpecularStrength);
-		EXPECT_FLOAT_EQ(Fallback.Shininess, Durin::FMaterialRenderData{}.Shininess);
+		const Durin::FMaterialRenderV1Binding Binding = GetMaterialBinding(Fallback);
+		EXPECT_EQ(Binding.BaseColorTexture, nullptr);
+		EXPECT_FLOAT_EQ(Binding.SpecularStrength, Durin::FMaterialRenderV1Binding{}.SpecularStrength);
+		EXPECT_FLOAT_EQ(Binding.Shininess, Durin::FMaterialRenderV1Binding{}.Shininess);
+		ExpectColorNear(
+			Binding.BaseColor, Durin::FMaterialRenderV1Binding{}.BaseColor);
 		EXPECT_EQ(Snapshot.MaterialProxies[SlotIndex], nullptr);
 	}
 
@@ -182,10 +184,12 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 
 	const FMaterialSlotsSnapshot Initial = CaptureMaterialSlots(Harness.Scene);
 	ASSERT_EQ(Initial.Materials.size(), 4u);
-	ExpectColorNear(Initial.Materials[0].BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
-	ExpectColorNear(Initial.Materials[1].BaseColor, Durin::FVector4f(0.8f, 0.7f, 0.6f, 1.0f));
-	ExpectColorNear(Initial.Materials[2].BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
-	ExpectColorNear(Initial.Materials[3].BaseColor, Durin::FMaterialRenderData{}.BaseColor);
+	ExpectColorNear(GetMaterialBinding(Initial.Materials[0]).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Initial.Materials[1]).BaseColor, Durin::FVector4f(0.8f, 0.7f, 0.6f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Initial.Materials[2]).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
+	ExpectColorNear(
+		GetMaterialBinding(Initial.Materials[3]).BaseColor,
+		Durin::FMaterialRenderV1Binding{}.BaseColor);
 	EXPECT_EQ(Component->GetMaterialBySlotId(SharedId), Shared);
 
 	Shared->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.4, 0.5, 0.6));
@@ -193,10 +197,12 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	EXPECT_EQ(Updated.Proxy, Initial.Proxy);
 	EXPECT_EQ(Updated.ComponentRevision, Initial.ComponentRevision);
 	EXPECT_EQ(Updated.MaterialProxies, Initial.MaterialProxies);
-	ExpectColorNear(Updated.Materials[0].BaseColor, Durin::FVector4f(0.4f, 0.5f, 0.6f, 1.0f));
-	ExpectColorNear(Updated.Materials[1].BaseColor, Durin::FVector4f(0.8f, 0.7f, 0.6f, 1.0f));
-	ExpectColorNear(Updated.Materials[2].BaseColor, Durin::FVector4f(0.4f, 0.5f, 0.6f, 1.0f));
-	ExpectColorNear(Updated.Materials[3].BaseColor, Durin::FMaterialRenderData{}.BaseColor);
+	ExpectColorNear(GetMaterialBinding(Updated.Materials[0]).BaseColor, Durin::FVector4f(0.4f, 0.5f, 0.6f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Updated.Materials[1]).BaseColor, Durin::FVector4f(0.8f, 0.7f, 0.6f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Updated.Materials[2]).BaseColor, Durin::FVector4f(0.4f, 0.5f, 0.6f, 1.0f));
+	ExpectColorNear(
+		GetMaterialBinding(Updated.Materials[3]).BaseColor,
+		Durin::FMaterialRenderV1Binding{}.BaseColor);
 	EXPECT_EQ(
 		Updated.Materials[0].PipelineIdentity,
 		Initial.Materials[0].PipelineIdentity);
@@ -231,8 +237,8 @@ TEST(FMaterialTests, StaticMeshProxyOrdersRapidBindingChangesAndRejectsStaleRevi
 	Second->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
 	const FMaterialSlotsSnapshot Rapid = CaptureMaterialSlots(Harness.Scene);
 	ASSERT_EQ(Rapid.Materials.size(), 2u);
-	ExpectColorNear(Rapid.Materials[0].BaseColor, Durin::FVector4f(0.2f, 0.3f, 0.4f, 1.0f));
-	ExpectColorNear(Rapid.Materials[1].BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Rapid.Materials[0]).BaseColor, Durin::FVector4f(0.2f, 0.3f, 0.4f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Rapid.Materials[1]).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
 	EXPECT_EQ(Rapid.ComponentRevision, Initial.ComponentRevision);
 
 	Replacement->SetVectorParameterValue(
@@ -245,7 +251,7 @@ TEST(FMaterialTests, StaticMeshProxyOrdersRapidBindingChangesAndRejectsStaleRevi
 	EXPECT_NE(Rebound.MaterialProxies[0], Rapid.MaterialProxies[0]);
 	EXPECT_EQ(Rebound.MaterialProxies[1], Rapid.MaterialProxies[1]);
 	ExpectColorNear(
-		Rebound.Materials[0].BaseColor,
+		GetMaterialBinding(Rebound.Materials[0]).BaseColor,
 		Durin::FVector4f(0.9f, 0.8f, 0.7f, 1.0f));
 
 	Durin::FMaterialRenderProxyBindingUpdate Stale;
@@ -261,7 +267,9 @@ TEST(FMaterialTests, StaticMeshProxyOrdersRapidBindingChangesAndRejectsStaleRevi
 			Proxy->UpdateMaterialRenderProxyBinding(Stale);
 		});
 	const FMaterialSlotsSnapshot Ordered = CaptureMaterialSlots(Harness.Scene);
-	ExpectColorNear(Ordered.Materials[0].BaseColor, Rebound.Materials[0].BaseColor);
+	ExpectColorNear(
+		GetMaterialBinding(Ordered.Materials[0]).BaseColor,
+		GetMaterialBinding(Rebound.Materials[0]).BaseColor);
 	EXPECT_EQ(Ordered.ComponentRevision, Rebound.ComponentRevision);
 	EXPECT_EQ(Ordered.MaterialProxies[0], Rebound.MaterialProxies[0]);
 

@@ -188,8 +188,7 @@ namespace Durin
 	// or reflected objects to Renderer.
 	struct FMaterialRenderV1Binding
 	{
-		FVector3 BaseColor{0.95, 0.62, 0.22};
-		float Opacity = 1.0f;
+		FVector4f BaseColor{0.95f, 0.62f, 0.22f, 1.0f};
 		float SpecularStrength = 0.35f;
 		float Shininess = 32.0f;
 		FRHITextureReferenceRef BaseColorTexture;
@@ -412,11 +411,6 @@ namespace Durin
 	struct FMaterialRenderData
 	{
 		FMaterialRenderRepresentation Representation;
-		FVector4f BaseColor{0.95f, 0.62f, 0.22f, 1.0f};
-		// Scene proxies retain only the counted stable RHI indirection.
-		FRHITextureReferenceRef BaseColorTexture;
-		float SpecularStrength = 0.35f;
-		float Shininess = 32.0f;
 		FMaterialPipelineIdentity PipelineIdentity;
 	};
 

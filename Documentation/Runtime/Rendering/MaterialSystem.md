@@ -36,10 +36,13 @@ editor presentation, and renderer consumption at explicit boundaries.
 
 The current shader contract has exactly five built-in declarations:
 `BaseColor`, `BaseColorTexture`, `Opacity`, `SpecularStrength`, and `Shininess`.
-Their GUIDs are permanent because serialized overrides must survive renames and
-because renderer extraction currently addresses this fixed contract directly.
-This does not make five a general material-system limit; user-authored
-declarations and a compiled renderer layout are deferred work.
+Their GUIDs are permanent because serialized overrides must survive renames.
+Engine resolution compiles those declarations into the versioned v1 render
+layout identified by `MaterialRenderLayoutV1Id`; the layout owns compact uniform
+offsets and resource indices, while the asset schema version remains a
+separate persistent compatibility boundary. This does not make five a general
+material-system limit; user-authored declarations and later compiled layouts
+remain deferred work.
 
 ## Renderer Boundary
 
@@ -53,12 +56,21 @@ declarations and a compiled renderer layout are deferred work.
   assignment to another surface.
 - `DStaticMeshComponent` persists a sparse collection of GUID-keyed material
   overrides. Resolution for each current slot is component override, mesh
-  default, then empty `FMaterialRenderData` for renderer fallback. Overrides
-  whose GUID is absent from the current mesh remain serialized as explicit
-  orphans but do not resolve, bind dependencies, or reach the scene proxy.
-- Material-side code resolves the five built-in GUIDs into immutable
-  `FMaterialRenderData`. The renderer never performs GUID or `FName` lookup and
-  never reads reflected material objects.
+  default, then an empty `FMaterialRenderData` whose representation is the
+  deterministic renderer fallback. Overrides whose GUID is absent from the
+  current mesh remain serialized as explicit orphans but do not resolve, bind
+  dependencies, or reach the scene proxy.
+- Material-side code resolves the five built-in GUIDs into one immutable
+  `FMaterialRenderRepresentation` carried by `FMaterialRenderData` alongside
+  the static shader/pipeline identity. `FMaterialRenderRepresentationBuilder`
+  is the only GUID-to-layout compilation seam. The renderer consumes the
+  validated v1 binding contract and never performs GUID or `FName` lookup or
+  reads reflected material objects.
+- `FStaticMeshRenderer` accepts only the exact supported v1 field table. It
+  decodes the compact uniform bytes and resource slot through
+  `TryGetMaterialRenderV1Binding`; an unsupported layout emits a
+  `ShaderBinding` resource diagnostic and uses a complete default snapshot
+  before shader-map or pipeline selection.
 - Scene-proxy construction walks the current mesh slots in order and retains
   one stable `FMaterialRenderProxyRef` binding per slot. A mesh assignment or
   rebuilt mesh render layout replaces the proxy; dynamic parameter, static
@@ -80,6 +92,29 @@ declarations and a compiled renderer layout are deferred work.
 - The static mesh shader implements a fixed directional-light Blinn-Phong path
   plus an unlit viewport mode. Missing values preserve the orange fallback
   material and renderer-owned default textures.
+
+## Versioned Render Representation
+
+`FMaterialRenderRepresentation` is an Engine-owned immutable snapshot with
+three parts: a `FMaterialRenderLayoutIdentity`, a validated uniform byte
+payload, and counted RHI texture-reference resources. The current v1 layout is
+32-byte, 16-byte-aligned data with four uniform fields and one resource field;
+its exact field table is identified by `MaterialRenderLayoutV1Id`.
+
+Construction validates the version and identity, field counts, compact-index
+contiguity, types, sizes, alignment, non-overlapping ranges, finite values,
+zero padding, and resource counts before publication. Invalid construction
+returns the complete deterministic fallback representation and a diagnostic;
+it never publishes a partially filled payload. The representation retains no
+reflected object or raw texture pointer.
+
+`FMaterialRenderProxy` resolves parent and local layers into a copied builder,
+publishes only a complete representation, and keeps the existing cache,
+coalescing, stale-update, startup-replay, and counted-resource contracts. A
+material schema version on `DMaterial` and `DMaterialInstance` upgrades missing
+v0 state to the current asset schema and rejects unsupported future versions;
+that persistent version is intentionally not the transient render-layout
+identity.
 
 ## Dependency And Invalidation Model
 

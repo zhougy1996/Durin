@@ -481,12 +481,11 @@ namespace Durin
 			std::memcpy(&Value, Payload.data() + Offset, sizeof(Value));
 			return Value;
 		};
-		OutBinding.BaseColor = FVector3{
-			static_cast<double>(ReadFloat(ExpectedLayout.Fields[0].Offset)),
-			static_cast<double>(ReadFloat(ExpectedLayout.Fields[0].Offset + 4)),
-			static_cast<double>(ReadFloat(ExpectedLayout.Fields[0].Offset + 8)),
-		};
-		OutBinding.Opacity = ReadFloat(ExpectedLayout.Fields[1].Offset);
+		OutBinding.BaseColor = FVector4f(
+			ReadFloat(ExpectedLayout.Fields[0].Offset),
+			ReadFloat(ExpectedLayout.Fields[0].Offset + 4),
+			ReadFloat(ExpectedLayout.Fields[0].Offset + 8),
+			ReadFloat(ExpectedLayout.Fields[1].Offset));
 		OutBinding.SpecularStrength =
 			ReadFloat(ExpectedLayout.Fields[2].Offset);
 		OutBinding.Shininess = ReadFloat(ExpectedLayout.Fields[3].Offset);

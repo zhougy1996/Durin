@@ -19,7 +19,7 @@ TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 	EXPECT_EQ(ParentChanged.Proxy, Initial.Proxy);
 	EXPECT_GT(Base->GetRenderStateVersion(), VersionBefore);
 	EXPECT_EQ(ParentChanged.ComponentRevision, Initial.ComponentRevision);
-	ExpectColorNear(ParentChanged.Material.BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(ParentChanged.Material).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 1.0f));
 
 	const Durin::uint64 NoOpVersion = Base->GetRenderStateVersion();
 	Base->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.6));
@@ -29,7 +29,7 @@ TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 	Base->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.9, 0.1, 0.3));
 	const FSceneSnapshot Final = CaptureScene(Harness.Scene);
 	EXPECT_EQ(Final.Proxy, Initial.Proxy);
-	ExpectColorNear(Final.Material.BaseColor, Durin::FVector4f(0.9f, 0.1f, 0.3f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Final.Material).BaseColor, Durin::FVector4f(0.9f, 0.1f, 0.3f, 1.0f));
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
@@ -58,7 +58,7 @@ TEST(FMaterialTests, MeshDefaultsBindWhileOrphanOverridesStayDetached)
 	const FSceneSnapshot DefaultChanged = CaptureScene(Harness.Scene);
 	EXPECT_EQ(DefaultChanged.Proxy, Initial.Proxy);
 	EXPECT_EQ(DefaultChanged.ComponentRevision, Initial.ComponentRevision);
-	ExpectColorNear(DefaultChanged.Material.BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(DefaultChanged.Material).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 1.0f));
 
 	const Durin::FGuid OldSlotId = Mesh->GetMaterialSlot(0)->SlotId;
 	ASSERT_TRUE(Component->SetMaterialBySlotId(OldSlotId, Orphan));
@@ -97,22 +97,22 @@ TEST(FMaterialTests, BoundTextureChangesUpdateProxyResourceSnapshotInPlace)
 	Component->SetMaterial(Instance);
 	Component->RegisterComponent();
 	FSceneSnapshot Initial = CaptureScene(Harness.Scene);
-	EXPECT_EQ(Initial.Material.BaseColorTexture, BaseTexture->GetTextureReferenceRHI());
+	EXPECT_EQ(GetMaterialBinding(Initial.Material).BaseColorTexture, BaseTexture->GetTextureReferenceRHI());
 
 	Instance->SetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), OverrideTexture);
 	FSceneSnapshot Overridden = CaptureScene(Harness.Scene);
 	EXPECT_EQ(Overridden.Proxy, Initial.Proxy);
 	EXPECT_EQ(Overridden.ComponentRevision, Initial.ComponentRevision);
-	EXPECT_EQ(Overridden.Material.BaseColorTexture, OverrideTexture->GetTextureReferenceRHI());
+	EXPECT_EQ(GetMaterialBinding(Overridden.Material).BaseColorTexture, OverrideTexture->GetTextureReferenceRHI());
 
 	EXPECT_TRUE(Instance->ClearTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName()));
 	FSceneSnapshot Inherited = CaptureScene(Harness.Scene);
 	EXPECT_EQ(Inherited.Proxy, Initial.Proxy);
-	EXPECT_EQ(Inherited.Material.BaseColorTexture, BaseTexture->GetTextureReferenceRHI());
+	EXPECT_EQ(GetMaterialBinding(Inherited.Material).BaseColorTexture, BaseTexture->GetTextureReferenceRHI());
 	// Test snapshots cross back to the game thread, so release their proxy owners while each asset still owns its resource.
-	Initial.Material.BaseColorTexture = nullptr;
-	Overridden.Material.BaseColorTexture = nullptr;
-	Inherited.Material.BaseColorTexture = nullptr;
+	Initial.Material = {};
+	Overridden.Material = {};
+	Inherited.Material = {};
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
@@ -167,11 +167,11 @@ TEST(FMaterialTests, InstancesInheritOverrideAndRejectParentCycles)
 	Base->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3));
 	ASSERT_TRUE(First->SetParent(Base));
 	ASSERT_TRUE(Second->SetParent(First));
-	ExpectColorNear(Second->GetRenderData().BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Second->GetRenderData()).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
 
 	First->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.4f);
 	Second->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.8, 0.7, 0.6));
-	ExpectColorNear(Second->GetRenderData().BaseColor, Durin::FVector4f(0.8f, 0.7f, 0.6f, 0.4f));
+	ExpectColorNear(GetMaterialBinding(Second->GetRenderData()).BaseColor, Durin::FVector4f(0.8f, 0.7f, 0.6f, 0.4f));
 	EXPECT_FALSE(First->SetParent(Second));
 	EXPECT_EQ(First->GetParent(), Base);
 
@@ -231,11 +231,11 @@ TEST(FMaterialTests, ParentRemovalPreservesOrphansAndExcludesThemFromRendering)
 	EXPECT_TRUE(Instance->IsParameterOverrideOrphan(Durin::MaterialParameters::BaseColorId));
 	Durin::FResolvedMaterialParameter Resolved;
 	EXPECT_FALSE(Instance->ResolveParameterValue(Durin::MaterialParameters::BaseColorId, Resolved));
-	ExpectColorNear(Instance->GetRenderData().BaseColor, Durin::FVector4f(0.95f, 0.62f, 0.22f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Instance->GetRenderData()).BaseColor, Durin::FVector4f(0.95f, 0.62f, 0.22f, 1.0f));
 
 	ASSERT_TRUE(Instance->SetParent(Base));
 	EXPECT_FALSE(Instance->IsParameterOverrideOrphan(Durin::MaterialParameters::BaseColorId));
-	ExpectColorNear(Instance->GetRenderData().BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Instance->GetRenderData()).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
 	ASSERT_TRUE(Instance->ClearParameterOverride(Durin::MaterialParameters::BaseColorId));
 	EXPECT_TRUE(Instance->GetParameterOverrides().empty());
 
@@ -322,16 +322,16 @@ TEST(FMaterialTests, TextureParametersInheritOverrideAndPreserveExplicitNull)
 	Base->SetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), BaseTexture);
 	ASSERT_TRUE(First->SetParent(Base));
 	ASSERT_TRUE(Second->SetParent(First));
-	EXPECT_EQ(Second->GetRenderData().BaseColorTexture, BaseTexture->GetTextureReferenceRHI());
+	EXPECT_EQ(GetMaterialBinding(Second->GetRenderData()).BaseColorTexture, BaseTexture->GetTextureReferenceRHI());
 
 	First->SetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), OverrideTexture);
-	EXPECT_EQ(Second->GetRenderData().BaseColorTexture, OverrideTexture->GetTextureReferenceRHI());
+	EXPECT_EQ(GetMaterialBinding(Second->GetRenderData()).BaseColorTexture, OverrideTexture->GetTextureReferenceRHI());
 	Second->SetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), nullptr);
-	EXPECT_EQ(Second->GetRenderData().BaseColorTexture, nullptr);
+	EXPECT_EQ(GetMaterialBinding(Second->GetRenderData()).BaseColorTexture, nullptr);
 	EXPECT_TRUE(Second->ClearTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName()));
-	EXPECT_EQ(Second->GetRenderData().BaseColorTexture, OverrideTexture->GetTextureReferenceRHI());
+	EXPECT_EQ(GetMaterialBinding(Second->GetRenderData()).BaseColorTexture, OverrideTexture->GetTextureReferenceRHI());
 	EXPECT_TRUE(First->ClearTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName()));
-	EXPECT_EQ(Second->GetRenderData().BaseColorTexture, BaseTexture->GetTextureReferenceRHI());
+	EXPECT_EQ(GetMaterialBinding(Second->GetRenderData()).BaseColorTexture, BaseTexture->GetTextureReferenceRHI());
 
 	Durin::MarkAsGarbage(Second);
 	Durin::MarkAsGarbage(First);

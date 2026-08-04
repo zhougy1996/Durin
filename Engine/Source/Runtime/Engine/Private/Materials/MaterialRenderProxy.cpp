@@ -24,7 +24,6 @@ namespace Durin
 		FMaterialRenderProxyAtomicCounters GMaterialRenderProxyCounters;
 
 		auto ApplyLocalParameter(
-			FMaterialRenderData& RenderData,
 			FMaterialRenderRepresentationBuilder& RepresentationBuilder,
 			const FMaterialLocalRenderParameter& Parameter
 		) -> bool
@@ -36,15 +35,11 @@ namespace Durin
 					std::clamp(Parameter.VectorValue.x, 0.0, 1.0),
 					std::clamp(Parameter.VectorValue.y, 0.0, 1.0),
 					std::clamp(Parameter.VectorValue.z, 0.0, 1.0)};
-				RenderData.BaseColor.r = static_cast<float>(Value.x);
-				RenderData.BaseColor.g = static_cast<float>(Value.y);
-				RenderData.BaseColor.b = static_cast<float>(Value.z);
 				return RepresentationBuilder.SetVector(Parameter.Id, Value);
 			}
 			else if (Parameter.Id == MaterialParameters::BaseColorTextureId
 				&& Parameter.Type == EMaterialParameterType::Texture)
 			{
-				RenderData.BaseColorTexture = Parameter.TextureValue;
 				return RepresentationBuilder.SetTexture(
 					Parameter.Id, Parameter.TextureValue);
 			}
@@ -52,21 +47,18 @@ namespace Durin
 				&& Parameter.Type == EMaterialParameterType::Scalar)
 			{
 				const float Value = std::clamp(Parameter.ScalarValue, 0.0f, 1.0f);
-				RenderData.BaseColor.a = Value;
 				return RepresentationBuilder.SetScalar(Parameter.Id, Value);
 			}
 			else if (Parameter.Id == MaterialParameters::SpecularStrengthId
 				&& Parameter.Type == EMaterialParameterType::Scalar)
 			{
 				const float Value = std::clamp(Parameter.ScalarValue, 0.0f, 1.0f);
-				RenderData.SpecularStrength = Value;
 				return RepresentationBuilder.SetScalar(Parameter.Id, Value);
 			}
 			else if (Parameter.Id == MaterialParameters::ShininessId
 				&& Parameter.Type == EMaterialParameterType::Scalar)
 			{
 				const float Value = std::clamp(Parameter.ScalarValue, 1.0f, 256.0f);
-				RenderData.Shininess = Value;
 				return RepresentationBuilder.SetScalar(Parameter.Id, Value);
 			}
 			return true;
@@ -293,7 +285,7 @@ namespace Durin
 			: LocalLayer.Parameters)
 		{
 			if (!ApplyLocalParameter(
-					CachedResolvedData, RepresentationBuilder, Parameter))
+					RepresentationBuilder, Parameter))
 			{
 				bRepresentationValid = false;
 			}

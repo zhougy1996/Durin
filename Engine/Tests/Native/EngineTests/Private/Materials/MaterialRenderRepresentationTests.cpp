@@ -179,10 +179,10 @@ TEST(FMaterialRenderRepresentationTests, V1BindingReadsCompactValuesWithoutParam
 	Durin::FMaterialRenderV1Binding Binding;
 	ASSERT_TRUE(Durin::TryGetMaterialRenderV1Binding(
 		Representation, Binding, Diagnostic));
-	EXPECT_FLOAT_EQ(static_cast<float>(Binding.BaseColor.x), 0.3f);
-	EXPECT_FLOAT_EQ(static_cast<float>(Binding.BaseColor.y), 0.5f);
-	EXPECT_FLOAT_EQ(static_cast<float>(Binding.BaseColor.z), 0.7f);
-	EXPECT_FLOAT_EQ(Binding.Opacity, 0.4f);
+	EXPECT_FLOAT_EQ(Binding.BaseColor.r, 0.3f);
+	EXPECT_FLOAT_EQ(Binding.BaseColor.g, 0.5f);
+	EXPECT_FLOAT_EQ(Binding.BaseColor.b, 0.7f);
+	EXPECT_FLOAT_EQ(Binding.BaseColor.a, 0.4f);
 	EXPECT_FLOAT_EQ(Binding.SpecularStrength, 0.6f);
 	EXPECT_FLOAT_EQ(Binding.Shininess, 48.0f);
 	EXPECT_EQ(Binding.BaseColorTexture, nullptr);
@@ -227,11 +227,12 @@ TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelec
 		Durin::MaterialParameters::ShininessName(), 96.0f));
 
 	const Durin::FMaterialRenderData RenderData = Instance->GetRenderData();
-	EXPECT_FLOAT_EQ(RenderData.BaseColor.r, 0.15f);
-	EXPECT_FLOAT_EQ(RenderData.BaseColor.g, 0.25f);
-	EXPECT_FLOAT_EQ(RenderData.BaseColor.b, 0.35f);
-	EXPECT_FLOAT_EQ(RenderData.BaseColor.a, 0.45f);
-	EXPECT_FLOAT_EQ(RenderData.Shininess, 96.0f);
+	const Durin::FMaterialRenderV1Binding Binding = GetMaterialBinding(RenderData);
+	EXPECT_FLOAT_EQ(Binding.BaseColor.r, 0.15f);
+	EXPECT_FLOAT_EQ(Binding.BaseColor.g, 0.25f);
+	EXPECT_FLOAT_EQ(Binding.BaseColor.b, 0.35f);
+	EXPECT_FLOAT_EQ(Binding.BaseColor.a, 0.45f);
+	EXPECT_FLOAT_EQ(Binding.Shininess, 96.0f);
 	EXPECT_FALSE(RenderData.Representation.IsFallback());
 	EXPECT_FLOAT_EQ(ReadFloat(RenderData.Representation.GetUniformPayload(), 0), 0.15f);
 	EXPECT_FLOAT_EQ(ReadFloat(RenderData.Representation.GetUniformPayload(), 4), 0.25f);

@@ -172,7 +172,7 @@ TEST(FStaticMeshUpdateTests, CurrentAssignmentsAndDefaultsDriveLoadedComponentSc
 	Component->RegisterComponent();
 	const FMaterialSlotsSnapshot Initial = CaptureMaterialSlots(Harness.Scene);
 	ASSERT_EQ(Initial.Materials.size(), 1);
-	ExpectColorNear(Initial.Materials[0].BaseColor, Durin::FVector4f(0.2f, 0.3f, 0.4f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Initial.Materials[0]).BaseColor, Durin::FVector4f(0.2f, 0.3f, 0.4f, 1.0f));
 
 	ASSERT_TRUE(ReplaceWithDebugCandidate(SecondMesh));
 	const FMaterialSlotsSnapshot UnrelatedUpdate = CaptureMaterialSlots(Harness.Scene);
@@ -185,7 +185,7 @@ TEST(FStaticMeshUpdateTests, CurrentAssignmentsAndDefaultsDriveLoadedComponentSc
 	EXPECT_GT(
 		DefaultUpdate.ComponentRevision,
 		Initial.ComponentRevision);
-	ExpectColorNear(DefaultUpdate.Materials[0].BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(DefaultUpdate.Materials[0]).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
 
 	Component->SetStaticMesh(SecondMesh);
 	const FMaterialSlotsSnapshot Reassigned = CaptureMaterialSlots(Harness.Scene);

@@ -4,32 +4,32 @@ Summary: Replace fixed material render fields with a validated, versioned repres
 
 Last reviewed: 2026-08-04
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-04
 
 ## Current Status
 
 Stage 0 is complete against baseline commit
 `919401389d259c6da9c391cc39a7a2e6e4ed080b`, Stage 1 is complete against the
 Stage 0 handoff commit
-`e72bb5fe0be6b1b9bb9135d5cea6e53c491c8ac7`, and Stage 2 is now complete against
-the Stage 1 handoff commit
-`42e959afacf00a57941a157f8a944338a00bb2e2` (the baselines are recorded below).
+`e72bb5fe0be6b1b9bb9135d5cea6e53c491c8ac7`, Stage 2 is complete against the
+Stage 1 handoff commit
+`42e959afacf00a57941a157f8a944338a00bb2e2`, and Stages 3-4 are complete
+against the Stage 2 handoff commit `60b28083` (the baselines are recorded
+below).
 Material declarations, instance overrides, static properties, immutable render
 snapshots, stable render-proxy publication, StaticMesh slot bindings, material
 shader-map and pipeline identities, and the validated Engine representation
-foundation are implemented.
+are implemented.
 
-`FMaterialRenderData` still exposes fixed `BaseColor`, `BaseColorTexture`,
-`SpecularStrength`, and `Shininess` fields beside its pipeline identity.
-Material resolution addresses the five canonical parameter GUIDs directly,
-and `FStaticMeshRenderer` knows the resulting field layout. Stage 0 froze that
-contract and selected the validated packed uniform/resource table described
-below. Stage 1 added and tested the Engine representation and serialized
-schema boundary; Stage 2 compiled resolved material layers into this
-representation and preserved the existing stable proxy publication contract.
-Stage 3 is the next implementation stage and will remove the Renderer draw
-path's legacy field reads.
+`FMaterialRenderData` now carries only the immutable representation and its
+static shader/pipeline identity. Engine resolution compiles the five canonical
+parameter GUIDs into the validated v1 table; `FStaticMeshRenderer` consumes
+only `FMaterialRenderV1Binding`, with no fixed material input fields or
+per-draw GUID/name lookup. Stage 0 froze the contract, Stage 1 added the
+versioned Engine representation and serialized schema boundary, Stage 2
+compiled resolved layers through stable proxies, and Stages 3-4 completed the
+Renderer migration, compatibility audit, validation, and documentation.
 
 The plan intentionally lands before the PBR surface plan so that PBR inputs
 extend one established render representation instead of creating another fixed
@@ -356,9 +356,10 @@ Dependencies: Stage 0.
 
 - `FMaterialRenderLayout`, `FMaterialRenderRepresentation`, the v1 identity,
   compact field descriptors, finite/padding/resource validation, and the
-  deterministic fallback are implemented in Engine. `FMaterialRenderData` retains
-  the legacy fields only as a migration bridge; no new material input requires
-  another public fixed field.
+  deterministic fallback are implemented in Engine. During this stage
+  `FMaterialRenderData` temporarily retained the old fields as a migration
+  bridge; no new material input required another public fixed field, and the
+  bridge was removed by Stage 4.
 - `FMaterialShaderMapIdentity` now carries `FMaterialRenderLayoutIdentity`;
   dynamic payload bytes/resources are not part of shader or pipeline identity.
   The Renderer diagnostic text includes the layout version and Id.
@@ -425,8 +426,9 @@ Dependencies: Stage 1.
 - `FMaterialRenderRepresentationBuilder` copies a validated parent payload and
   compiles BaseColor, Opacity, SpecularStrength, Shininess, and BaseColorTexture
   from Engine-side GUID declarations into v1 offsets/resource index 0. The
-  renderer-facing snapshot now carries the same effective values in both the
-  legacy migration fields and the selected compact representation.
+  renderer-facing snapshot carried the same effective values in the temporary
+  migration fields and the selected compact representation; Stage 4 now
+  retains only the compact representation.
 - `DMaterialInterface::GetRenderData` and
   `FMaterialRenderProxy::Resolve_RenderThread` use the builder. Parent-first
   lazy resolution, local-version/resolved-version caching, stale rejection,
@@ -435,8 +437,8 @@ Dependencies: Stage 1.
   payload validation failure returns a complete default representation while
   retaining the resolved static identity and increments the proxy diagnostic
   counter.
-- Proxy snapshot assertions now compare layout identity, uniform bytes, and
-  resource references in addition to the legacy values. The new builder and
+- Proxy snapshot assertions compare layout identity, uniform bytes, and
+  resource references alongside the compatibility values. The new builder and
   base/instance compact-resolution tests pass, and the complete `MaterialTests`
   target passes 57/57 tests through `DevTool.bat`.
 
@@ -454,8 +456,8 @@ Dependencies: Stage 1.
   `FMaterialRenderData::Representation`.
 - Decisions carried forward: GUID lookup is an Engine resolution concern only;
   compact payloads are complete before publication; fallback never publishes a
-  partially filled representation; fixed fields remain only as the Stage 3
-  migration bridge.
+  partially filled representation; the fixed-field bridge was temporary and
+  was removed before the final Renderer/docs handoff.
 - Open questions: none blocking Stage 3. Renderer must accept only the v1
   layout identity, read the compact slots without GUID/name lookup, preserve
   the current shader uniform ABI and texture fallback, and remove legacy field
@@ -530,16 +532,16 @@ Dependencies: Stage 2.
 
 Dependencies: Stage 3.
 
-- [ ] Search production and test code for legacy fixed-field access, duplicate
+- [x] Search production and test code for legacy fixed-field access, duplicate
   layout descriptors, unchecked payload access, and obsolete compatibility
   assumptions; remove or justify every remaining result.
-- [ ] Run focused material, StaticMesh, texture, thumbnail, RenderCore, shader,
+- [x] Run focused material, StaticMesh, texture, thumbnail, RenderCore, shader,
   renderer-resource reload, and Vulkan rendered-output coverage.
-- [ ] Run the required full `all` build and hidden-window `DurinEditor` runtime
+- [x] Run the required full `all` build and hidden-window `DurinEditor` runtime
   smoke through the repository build entrypoint.
-- [ ] Update Runtime material and shader-parameter contracts with the landed
+- [x] Update Runtime material and shader-parameter contracts with the landed
   representation, ownership, versioning, fallback, and thread rules.
-- [ ] Update the Material System Roadmap with completion evidence and re-review
+- [x] Update the Material System Roadmap with completion evidence and re-review
   the PBR Material Surface plan against the final symbols and layout.
 
 #### Acceptance Gate
@@ -549,6 +551,57 @@ Dependencies: Stage 3.
 - Long-lived contracts live in Runtime documentation, this plan contains a
   compact final handoff, and the PBR plan has an evidence-backed starting
   baseline.
+
+#### Stage 4 Acceptance Evidence
+
+- The final production search has no legacy fixed material-value reads outside
+  the compact binding contract and shader parameter names. `FMaterialRenderData`
+  now contains only `FMaterialRenderRepresentation` and
+  `FMaterialPipelineIdentity`; test snapshots decode values through
+  `TryGetMaterialRenderV1Binding`. The only layout descriptor factory is
+  `MakeDefaultMaterialRenderLayout`, and construction plus binding decoding
+  validate the exact v1 table before consumption.
+- Focused validation passed through `DevTool.bat`: MaterialTests 59/59,
+  StaticMeshTests 44/44, TextureTests 61/61, ThumbnailTests 45/45,
+  RenderContractTests 34/34, RenderShaderContractTests 26/26,
+  EditorRenderingTests 31/31, RendererResourceReloadVulkanTests 1/1,
+  SceneImportVulkanTests 1/1, and VulkanRHIIntegrationTests 1/1. Aggregate
+  `DevTool.bat test --target all` passed 864/864 executed tests; one test was
+  skipped and one benchmark was disabled by the repository test labels.
+- `DevTool.bat build --target all` passed with the
+  `Win64-Debug-DurinEditor-Tests` profile. The same profile's hidden-window
+  `DurinEditor.exe` remained alive for the eight-second smoke interval.
+- Runtime material, shader-parameter, StaticMesh-rendering, and roadmap
+  contracts now describe the versioned representation, ownership, schema and
+  layout identities, fallback, thread boundary, and Renderer consumption.
+  `PBRMaterialSurface.md` remains implementation-blocked but now records the
+  landed v1 identity and exact binding seam as the required Stage 0 baseline;
+  it does not authorize PBR implementation in this plan.
+
+#### Stage 4 Handoff
+
+- Baseline: Stage 3 commit `81392097` before the final compatibility removal
+  and documentation pass.
+- Working set: `MaterialTypes.h/.cpp`, `MaterialInterface.cpp`,
+  `MaterialRenderProxy.cpp`, `StaticMeshRenderer.cpp`, the material and
+  thumbnail test snapshots, `MaterialTestSupport.h`, this plan, the Runtime
+  material/shader/StaticMesh contracts, the Material System Roadmap, and the
+  re-reviewed `PBRMaterialSurface.md`.
+- Key symbols: `FMaterialRenderData`, `FMaterialRenderRepresentation`,
+  `FMaterialRenderV1Binding`, `TryGetMaterialRenderV1Binding`,
+  `FMaterialRenderRepresentationBuilder`, and
+  `FStaticMeshRenderer::DrawProxy_RenderThread`.
+- Decisions carried forward: persistent parameter schema versioning remains
+  separate from transient layout identity; v1 is immutable and exact; dynamic
+  payload bytes/resources never enter shader/pipeline identity; invalid data
+  falls back as one complete snapshot; Renderer performs no reflected-object or
+  GUID/name lookup.
+- Open questions: none for this plan. PBR must add or version its layout
+  explicitly rather than mutating v1, revalidate compatibility for the five
+  existing parameters, and preserve the established proxy/resource/reload
+  contracts before implementation begins.
+- Validation: all focused and aggregate tests, full `all` build, and editor
+  smoke listed above passed on 2026-08-04.
 
 ## Validation Matrix
 

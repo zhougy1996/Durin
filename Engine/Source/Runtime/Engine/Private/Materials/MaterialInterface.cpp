@@ -147,9 +147,6 @@ namespace Durin
 				std::clamp(BaseColor.x, 0.0, 1.0),
 				std::clamp(BaseColor.y, 0.0, 1.0),
 				std::clamp(BaseColor.z, 0.0, 1.0)};
-			Result.BaseColor.r = static_cast<float>(ClampedBaseColor.x);
-			Result.BaseColor.g = static_cast<float>(ClampedBaseColor.y);
-			Result.BaseColor.b = static_cast<float>(ClampedBaseColor.z);
 			bRepresentationValid = RepresentationBuilder.SetVector(
 				MaterialParameters::BaseColorId, ClampedBaseColor)
 				&& bRepresentationValid;
@@ -157,37 +154,41 @@ namespace Durin
 
 		if (ResolveParameterValue(MaterialParameters::BaseColorTextureId, Parameter))
 		{
+			FRHITextureReferenceRef BaseColorTexture;
 			if (Parameter.Value.TextureValue != nullptr)
 			{
-				Result.BaseColorTexture =
+				BaseColorTexture =
 					Parameter.Value.TextureValue->GetTextureReferenceRHI();
 			}
 			bRepresentationValid = RepresentationBuilder.SetTexture(
 				MaterialParameters::BaseColorTextureId,
-				Result.BaseColorTexture)
+				BaseColorTexture)
 				&& bRepresentationValid;
 		}
 
 		if (ResolveParameterValue(MaterialParameters::OpacityId, Parameter))
 		{
-			Result.BaseColor.a = std::clamp(Parameter.Value.ScalarValue, 0.0f, 1.0f);
+			const float Opacity =
+				std::clamp(Parameter.Value.ScalarValue, 0.0f, 1.0f);
 			bRepresentationValid = RepresentationBuilder.SetScalar(
-				MaterialParameters::OpacityId, Result.BaseColor.a)
+				MaterialParameters::OpacityId, Opacity)
 				&& bRepresentationValid;
 		}
 
 		if (ResolveParameterValue(MaterialParameters::SpecularStrengthId, Parameter))
 		{
-			Result.SpecularStrength = std::clamp(Parameter.Value.ScalarValue, 0.0f, 1.0f);
+			const float SpecularStrength =
+				std::clamp(Parameter.Value.ScalarValue, 0.0f, 1.0f);
 			bRepresentationValid = RepresentationBuilder.SetScalar(
-				MaterialParameters::SpecularStrengthId, Result.SpecularStrength)
+				MaterialParameters::SpecularStrengthId, SpecularStrength)
 				&& bRepresentationValid;
 		}
 		if (ResolveParameterValue(MaterialParameters::ShininessId, Parameter))
 		{
-			Result.Shininess = std::clamp(Parameter.Value.ScalarValue, 1.0f, 256.0f);
+			const float Shininess =
+				std::clamp(Parameter.Value.ScalarValue, 1.0f, 256.0f);
 			bRepresentationValid = RepresentationBuilder.SetScalar(
-				MaterialParameters::ShininessId, Result.Shininess)
+				MaterialParameters::ShininessId, Shininess)
 				&& bRepresentationValid;
 		}
 		const FMaterialStaticProperties& StaticProperties = GetStaticProperties();
