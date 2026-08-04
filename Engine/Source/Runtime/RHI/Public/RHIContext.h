@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RHIShaderParameters.h"
+#include "RHIResources.h"
 
 namespace Durin
 {
@@ -15,6 +16,7 @@ namespace Durin
 	public:
 		virtual ~IRHICommandContext() = default;
 		virtual auto RHIBeginFrame() -> void = 0;
+		virtual auto RHISubmitCommands() -> void = 0;
 		virtual auto RHIEndFrame() -> void = 0;
 		virtual auto RHIBeginRenderPass(const FRHIRenderPassInfo& InInfo, FName InName) -> void = 0;
 		virtual auto RHIEndRenderPass() -> void = 0;
@@ -25,6 +27,13 @@ namespace Durin
 		virtual auto RHISetGraphicsPipelineState(FRHIGraphicsPipelineState& InGraphicsPipelineState) -> void = 0;
 		virtual auto RHIBindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void = 0;
 		virtual auto RHIBindIndexBuffer(FRHIBuffer* IndexBuffer, uint32 Offset) -> void = 0;
+		virtual auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, std::span<const uint8> Data) -> void = 0;
+		virtual auto RHIInitializeTexture(FRHITexture* Texture) -> void = 0;
+		virtual auto RHIUpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, std::span<const uint8> SourceData) -> void = 0;
+		virtual auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, std::vector<uint8>& OutData) -> bool = 0;
+		virtual auto RHIAllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange = 0;
+		virtual auto RHIAcquireBackBuffer(FRHITexture* BackBuffer) -> void = 0;
+		virtual auto RHIBlockUntilGPUIdle() -> void = 0;
 		virtual auto RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void = 0;
 		virtual auto RHISetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void = 0;
 		virtual auto RHIDrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void = 0;

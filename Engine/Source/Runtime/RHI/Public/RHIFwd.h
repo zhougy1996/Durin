@@ -12,7 +12,9 @@ namespace Durin
 	class IRHICommandContext;
 	class FRHIViewport;
 	class FRHICommandListBase;
+	class FRHICommandList;
 	class FRHICommandListImmediate;
+	class FRHICommandListFence;
 	class FRHITexture;
 	class FRHIBuffer;
 	class FVertexShader;

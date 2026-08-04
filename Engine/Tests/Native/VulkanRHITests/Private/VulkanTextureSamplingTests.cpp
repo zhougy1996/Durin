@@ -407,7 +407,12 @@ namespace Durin
 			VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, nullptr, &BufferInfo};
 		vkUpdateDescriptorSets(Device, static_cast<uint32>(Writes.size()), Writes.data(), 0, nullptr);
 
-		const VkCommandBuffer CommandBuffer = VulkanRHI->RHIGetVkCommandBuffer(RHICmdList);
+		// Compute is not yet part of the portable command surface. This explicit
+		// Vulkan integration path is independent of the RHI recorder. Replay the
+		// portable uploads first so native compute follows them in the same context.
+		RHICmdList.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread);
+		const VkCommandBuffer CommandBuffer =
+			VulkanRHI->RHIGetVkCommandBufferForBackendIntegration();
 		vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, Pipeline);
 		vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, PipelineLayout, 0, 1, &DescriptorSet, 0, nullptr);
 		vkCmdDispatch(CommandBuffer, 1, 1, 1);

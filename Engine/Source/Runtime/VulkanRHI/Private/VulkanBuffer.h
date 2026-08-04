@@ -6,6 +6,7 @@
 namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
+	class FVulkanCommandListContext;
 
 	// Owns a Vulkan buffer allocation and enforces its CPU lock lifecycle.
 	class FVulkanBuffer : public FRHIBuffer
@@ -14,10 +15,6 @@ namespace Durin::VulkanRHI
 		FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc);
 
 		~FVulkanBuffer() override;
-
-		auto Lock(const FRHICommandListImmediate& RHICmdList, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
-
-		auto Unlock(const FRHICommandListImmediate& RHICmdList) -> void;
 
 		auto IsDynamic() const -> bool;
 
@@ -29,22 +26,15 @@ namespace Durin::VulkanRHI
 
 		auto FlushMappedMemory(uint32 Offset = 0, uint32 Size = 0) -> void;
 
-	protected:
-		// Tracks whether a buffer lock uses direct mapping or a staging allocation.
-		enum class ELockStatus : uint8
-		{
-			Unlocked,
-			Locked,
-			PersistentMapping,
-		};
+		auto Write(FVulkanCommandListContext& Context, uint32 Offset, std::span<const uint8> Data) -> void;
 
+	protected:
 		FVulkanDevice& Device;
 
 		vk::Buffer Buffer{};
 
 		FVulkanAllocation Allocation{};
 
-		ELockStatus LockStatus = ELockStatus::Unlocked;
 	};
 
 	// Suballocates per-frame uniform ranges from persistently mapped Vulkan buffers.

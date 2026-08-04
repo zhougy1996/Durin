@@ -17,8 +17,11 @@ namespace Durin::VulkanRHI
 		virtual auto RHIGetVkDevice() const -> vk::Device = 0;
 		virtual auto RHIGetVkInstance() const -> vk::Instance = 0;
 		virtual auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice = 0;
+		// Native escape used by Vulkan-only integrations that are outside the
+		// portable command surface (currently compute integration tests).
+		virtual auto RHIGetVkCommandBufferForBackendIntegration() const
+			-> vk::CommandBuffer = 0;
 
-		virtual auto RHIGetVkCommandBuffer(FRHICommandListBase& RHICmdList) const -> vk::CommandBuffer = 0;
 	};
 
 	// Owns the Vulkan instance and device and implements the backend-neutral RHI contract.
@@ -41,7 +44,8 @@ namespace Durin::VulkanRHI
 		auto RHIGetDynamicLoader() -> vk::DynamicLoader& { return DynamicLoader; }
 		auto RHIGetVkInstance() const -> vk::Instance override;
 		auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice override;
-		auto RHIGetVkCommandBuffer(FRHICommandListBase& RHICmdList) const -> vk::CommandBuffer override;
+		auto RHIGetVkCommandBufferForBackendIntegration() const
+			-> vk::CommandBuffer override;
 		auto IsInstanceExtensionEnabled(const char* ExtensionName) const -> bool;
 
 		auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy) const -> FViewportRHIRef override;
@@ -57,20 +61,24 @@ namespace Durin::VulkanRHI
 		auto RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> FTextureRHIRef override;
 		auto RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler> override;
 		auto RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> FBufferRHIRef override;
-		auto RHIAllocateDynamicUniformBuffer(FRHICommandListImmediate& RHICmdList, const void* Data, uint32 Size) -> FRHIUniformBufferRange override;
 		auto RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef override;
-		auto RHILockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void* override;
-		auto RHIUnlockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer) -> void override;
-		auto RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, const uint8* SourceData) -> void override;
-		auto RHIReadTexture2D(
-			FRHICommandListBase& RHICmdList,
+
+		auto InitializeTexture(FVulkanCommandListContext& Context, FRHITexture* Texture) -> void;
+		auto UpdateTexture2D(
+			FVulkanCommandListContext& Context,
+			FRHITexture* Texture,
+			uint32 MipIndex,
+			uint32 ArraySlice,
+			const FUpdateTextureRegion2D& UpdateRegion,
+			uint32 SourcePitch,
+			std::span<const uint8> SourceData) -> void;
+		auto ReadTexture2D(
+			FVulkanCommandListContext& Context,
 			FRHITexture* Texture,
 			uint32 MipIndex,
 			uint32 ArraySlice,
 			std::vector<uint8>& OutData
-		) -> bool override;
-
-		auto RHIBlockUntilGPUIdle() -> void override;
+		) -> bool;
 
 	protected:
 		auto CreateInstance() -> void;

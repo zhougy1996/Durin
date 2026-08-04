@@ -180,6 +180,9 @@ editor host and workspace ownership belongs to the editor systems.
 
 Detailed viewport and composition contracts are documented in
 `Documentation/Runtime/Rendering/ViewportRendering.md`.
+RHI recording, inline replay, flush, completion, and batch ownership are
+documented in
+`Documentation/Runtime/Rendering/RHICommandExecution.md`.
 
 ## Engine Exit Protocol
 
@@ -308,4 +311,5 @@ be placed inside `check` or `checkf`.
 - `Documentation/Editor/Architecture/WorkspaceFramework.md`
 - `Documentation/Plans/Archive/2026-08/MultithreadingV1.md`
 - `Documentation/Runtime/Rendering/ViewportRendering.md`
+- `Documentation/Runtime/Rendering/RHICommandExecution.md`
 - `Documentation/Runtime/Core/TaskSystem.md`

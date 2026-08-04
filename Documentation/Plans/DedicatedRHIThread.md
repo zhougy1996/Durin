@@ -2,27 +2,32 @@
 
 Summary: Move RHI command replay and backend submission onto one independently owned thread with explicit lifecycle, synchronization, and shutdown behavior.
 
-Last reviewed: 2026-08-04
+Last reviewed: 2026-08-05
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Durin has a game thread and a rendering thread, but no RHI thread. The rendering
-thread executes queued lambdas against the process-wide
-`FRHICommandListImmediate`, whose methods currently call the Vulkan command
-context immediately. `EImmediateFlushType::DispatchToRHIThread`,
-`FlushRHIThread`, and the corresponding submit flags are names without a
-separate consumer or wait boundary. Vulkan command-buffer recording and
-`FVulkanCommandListContext::Finalize` therefore run on the rendering thread,
-and `Finalize` submits directly to the queue.
+Durin has a game thread and a rendering thread, but no RHI thread. The completed
+[Recorded RHI Command List](RecordedRHICommandList.md) predecessor replaced
+direct command-list forwarding with always-recorded immediate and regular
+lists, private immutable batches, ordered inline replay, monotonic serials,
+executor fences, owned upload payloads, retained resources, and declared
+synchronous operations. Vulkan context mutation, command-buffer finalization,
+queue submission, and present still execute inline on the rendering thread.
 
-This plan depends on completed acceptance gates in
-[Recorded RHI Command List](RecordedRHICommandList.md). It does not begin
-backend migration until immutable command batches, inline replay, serial
-fences, payload ownership, and synchronous-result classification are stable.
-No implementation stage has started.
+The implemented producer/consumer contract is now owned by
+[RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md). This plan
+must move that consumer without changing batch representation or payload
+ownership. The inline baseline exposes cumulative commands, payload bytes,
+batches, submission groups, replay nanoseconds, waits, rejections, and pending
+batches. Three 60-tick predecessor samples observed 14,257-14,259 commands,
+555,145-555,305 payload bytes, 122-124 batches, 129-131 submission groups, and
+69.6-72.7 ms cumulative inline replay: approximately 238 commands, 9.25 KB of
+payload, 2.2 groups, and 1.18 ms replay per tick. Stage 0 will use this
+representative-frame baseline to select bounded queue capacity. No
+implementation stage has started.
 
 ## Goal
 
@@ -381,6 +386,7 @@ defined there.
 ## Related Documentation
 
 - [Recorded RHI Command List](RecordedRHICommandList.md)
+- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
 - [Compute Shader Pipeline roadmap](../Roadmaps/ComputeShaderPipeline.md)
 - [Runtime lifecycle](../Runtime/Core/RuntimeLifecycle.md)
 - [Viewport rendering](../Runtime/Rendering/ViewportRendering.md)

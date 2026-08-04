@@ -27,6 +27,19 @@ namespace Durin
 			FRHICommandListImmediate::Get().ImmediateFlush(
 				EImmediateFlushType::FlushRHIThreadFlushResources,
 				ERHISubmitFlags::FlushRHIThread);
+			const FRHICommandListExecutorStats ExecutorStats =
+				GCommandListExecutor.GetStats();
+			DURIN_DEBUG(
+				"Inline RHI executor drained: {} command(s), {} payload byte(s), "
+				"{} batch(es), {} submission group(s), {} ns replay, {} wait(s), "
+				"{} rejection(s).",
+				ExecutorStats.RecordedCommandCount,
+				ExecutorStats.RecordedPayloadBytes,
+				ExecutorStats.SubmittedBatchCount,
+				ExecutorStats.SubmissionGroupCount,
+				ExecutorStats.ReplayDurationNanoseconds,
+				ExecutorStats.WaitCount,
+				ExecutorStats.RejectedSubmissionCount);
 			const size_t PendingRHIDeletes =
 				FRHIResource::GetNumPendingDeletes();
 			if (PendingRHIDeletes != 0)
@@ -40,6 +53,11 @@ namespace Durin
 				"Rendering thread shutdown found live render resources.");
 			checkf(PendingRHIDeletes == 0,
 				"Rendering thread shutdown left pending RHI deletions.");
+			checkf(ExecutorStats.PendingBatchCount == 0,
+				"Rendering thread shutdown left unreplayed RHI command batches.");
+			checkf(GCommandListExecutor.GetLastSubmittedSerial()
+				== GCommandListExecutor.GetCompletedSerial(),
+				"Rendering thread shutdown left incomplete RHI submissions.");
 		}
 	}
 

@@ -116,6 +116,14 @@ namespace Durin::VulkanRHI
 		PendingGfxState->ClearDescriptorSetCache();
 	}
 
+	auto FVulkanCommandListContext::RHISubmitCommands() -> void
+	{
+		if (!Payloads.empty())
+		{
+			Finalize();
+		}
+	}
+
 	auto FVulkanCommandListContext::RHIEndFrame() -> void
 	{
 		FVulkanFrame& Frame = Device.GetCurrentFrame();
@@ -215,6 +223,64 @@ namespace Durin::VulkanRHI
 			const FVulkanBuffer* IndexBuffer = static_cast<FVulkanBuffer*>(InIndexBuffer);
 			GetCommandBuffer()->GetHandle().bindIndexBuffer(IndexBuffer->GetHandle(), Offset, DeduceIndexType(IndexBuffer->GetStride()));
 		}
+	}
+
+	auto FVulkanCommandListContext::RHIWriteBuffer(
+		FRHIBuffer* Buffer,
+		uint32 Offset,
+		std::span<const uint8> Data) -> void
+	{
+		check(Buffer);
+		static_cast<FVulkanBuffer*>(Buffer)->Write(*this, Offset, Data);
+	}
+
+	auto FVulkanCommandListContext::RHIInitializeTexture(
+		FRHITexture* Texture) -> void
+	{
+		RHI->InitializeTexture(*this, Texture);
+	}
+
+	auto FVulkanCommandListContext::RHIUpdateTexture2D(
+		FRHITexture* Texture,
+		uint32 MipIndex,
+		uint32 ArraySlice,
+		const FUpdateTextureRegion2D& UpdateRegion,
+		uint32 SourcePitch,
+		std::span<const uint8> SourceData) -> void
+	{
+		RHI->UpdateTexture2D(
+			*this, Texture, MipIndex, ArraySlice,
+			UpdateRegion, SourcePitch, SourceData);
+	}
+
+	auto FVulkanCommandListContext::RHIReadTexture2D(
+		FRHITexture* Texture,
+		uint32 MipIndex,
+		uint32 ArraySlice,
+		std::vector<uint8>& OutData) -> bool
+	{
+		return RHI->ReadTexture2D(
+			*this, Texture, MipIndex, ArraySlice, OutData);
+	}
+
+	auto FVulkanCommandListContext::RHIAllocateDynamicUniformBuffer(
+		const void* Data,
+		uint32 Size) -> FRHIUniformBufferRange
+	{
+		return Device.GetDynamicUniformBufferAllocator().Allocate(Data, Size);
+	}
+
+	auto FVulkanCommandListContext::RHIAcquireBackBuffer(
+		FRHITexture* BackBuffer) -> void
+	{
+		check(BackBuffer);
+		static_cast<FVulkanBackBuffer*>(BackBuffer)->AcquireBackBufferImage(*this);
+	}
+
+	auto FVulkanCommandListContext::RHIBlockUntilGPUIdle() -> void
+	{
+		Finalize();
+		Device.WaitUtilIdle();
 	}
 
 	auto FVulkanCommandListContext::RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void

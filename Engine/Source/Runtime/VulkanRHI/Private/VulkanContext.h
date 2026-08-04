@@ -31,6 +31,8 @@ namespace Durin::VulkanRHI
 
 		auto RHIBeginFrame() -> void override;
 
+		auto RHISubmitCommands() -> void override;
+
 		auto RHIEndFrame() -> void override;
 
 		auto RHIBeginRenderPass(const FRHIRenderPassInfo& RenderPassInfo, FName Name) -> void override;
@@ -46,6 +48,20 @@ namespace Durin::VulkanRHI
 		auto RHIBindVertexBuffer(uint32 StreamIndex, FRHIBuffer* InVertexBuffer, uint32 Offset) -> void override;
 
 		auto RHIBindIndexBuffer(FRHIBuffer* InIndexBuffer, uint32 Offset) -> void override;
+
+		auto RHIWriteBuffer(FRHIBuffer* Buffer, uint32 Offset, std::span<const uint8> Data) -> void override;
+
+		auto RHIInitializeTexture(FRHITexture* Texture) -> void override;
+
+		auto RHIUpdateTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, std::span<const uint8> SourceData) -> void override;
+
+		auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, std::vector<uint8>& OutData) -> bool override;
+
+		auto RHIAllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange override;
+
+		auto RHIAcquireBackBuffer(FRHITexture* BackBuffer) -> void override;
+
+		auto RHIBlockUntilGPUIdle() -> void override;
 
 		auto RHIPushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void override;
 

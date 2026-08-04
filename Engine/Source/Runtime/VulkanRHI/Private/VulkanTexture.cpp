@@ -159,31 +159,44 @@ namespace Durin::VulkanRHI
 		TRefCountPtr<FVulkanTexture> Texture = new FVulkanTexture(*Device, CreateDesc);
 		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::Storage))
 		{
-			// Storage descriptors require GENERAL. Establish it once at creation so an
-			// image without initial upload is immediately valid for shader access.
-			vk::ImageMemoryBarrier Barrier;
-			Barrier.setSrcAccessMask(vk::AccessFlagBits::eNone)
-				.setDstAccessMask(vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite)
-				.setOldLayout(vk::ImageLayout::eUndefined)
-				.setNewLayout(vk::ImageLayout::eGeneral)
-				.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-				.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-				.setImage(Texture->Image)
-				.setSubresourceRange(vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, CreateDesc.NumMips, 0, CreateDesc.ArraySize));
-
-			RHIGetVkCommandBuffer(RHICmdList).pipelineBarrier(
-				vk::PipelineStageFlagBits::eTopOfPipe,
-				vk::PipelineStageFlagBits::eAllGraphics,
-				vk::DependencyFlags{}, {}, {}, Barrier);
-			for (uint32 ArrayLayer = 0; ArrayLayer < CreateDesc.ArraySize; ++ArrayLayer)
-			{
-				for (uint32 MipIndex = 0; MipIndex < CreateDesc.NumMips; ++MipIndex)
-				{
-					Texture->SetSubresourceLayout(MipIndex, ArrayLayer, vk::ImageLayout::eGeneral);
-				}
-			}
+			RHICmdList.InitializeTexture(Texture.GetReference());
 		}
 		return Texture;
+	}
+
+	auto FVulkanDynamicRHI::InitializeTexture(
+		FVulkanCommandListContext& Context,
+		FRHITexture* Texture) -> void
+	{
+		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
+		check(VulkanTexture);
+		if (!EnumHasAnyFlags(VulkanTexture->CreateFlags, ETextureCreateFlags::Storage))
+		{
+			return;
+		}
+		vk::ImageMemoryBarrier Barrier;
+		Barrier.setSrcAccessMask(vk::AccessFlagBits::eNone)
+			.setDstAccessMask(vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite)
+			.setOldLayout(vk::ImageLayout::eUndefined)
+			.setNewLayout(vk::ImageLayout::eGeneral)
+			.setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+			.setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+			.setImage(VulkanTexture->Image)
+			.setSubresourceRange(vk::ImageSubresourceRange(
+				vk::ImageAspectFlagBits::eColor, 0,
+				VulkanTexture->GetNumMips(), 0, VulkanTexture->GetArraySize()));
+		Context.GetCommandBuffer()->GetHandle().pipelineBarrier(
+			vk::PipelineStageFlagBits::eTopOfPipe,
+			vk::PipelineStageFlagBits::eAllGraphics,
+			vk::DependencyFlags{}, {}, {}, Barrier);
+		for (uint32 ArrayLayer = 0; ArrayLayer < VulkanTexture->GetArraySize(); ++ArrayLayer)
+		{
+			for (uint32 MipIndex = 0; MipIndex < VulkanTexture->GetNumMips(); ++MipIndex)
+			{
+				VulkanTexture->SetSubresourceLayout(
+					MipIndex, ArrayLayer, vk::ImageLayout::eGeneral);
+			}
+		}
 	}
 
 	auto FVulkanDynamicRHI::RHIIsTextureFormatSupported(const FRHITextureCreateDesc& CreateDesc) const -> bool
@@ -211,10 +224,17 @@ namespace Durin::VulkanRHI
 		return new FVulkanSampler(*Device, CreateDesc);
 	}
 
-	auto FVulkanDynamicRHI::RHIUpdateTexture2D(FRHICommandListBase& RHICmdList, FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, const FUpdateTextureRegion2D& UpdateRegion, uint32 SourcePitch, const uint8* SourceData) -> void
+	auto FVulkanDynamicRHI::UpdateTexture2D(
+		FVulkanCommandListContext& Context,
+		FRHITexture* Texture,
+		uint32 MipIndex,
+		uint32 ArraySlice,
+		const FUpdateTextureRegion2D& UpdateRegion,
+		uint32 SourcePitch,
+		std::span<const uint8> SourceData) -> void
 	{
 		checkf(Texture != nullptr, "RHIUpdateTexture2D requires a texture.");
-		checkf(SourceData != nullptr, "RHIUpdateTexture2D requires source data.");
+		checkf(!SourceData.empty(), "RHIUpdateTexture2D requires source data.");
 		FRHITextureDesc TextureDesc;
 		TextureDesc.Dimension = Texture->GetDimension();
 		TextureDesc.Extent = FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
@@ -230,7 +250,7 @@ namespace Durin::VulkanRHI
 		);
 
 		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
-		const auto CmdBuffer = RHIGetVkCommandBuffer(RHICmdList);
+		const auto CmdBuffer = Context.GetCommandBuffer()->GetHandle();
 		const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(VulkanTexture->GetFormat());
 		const uint32 BlockSize = FormatInfo.BlockSize;
 		const uint32 BytesPerBlock = FormatInfo.BytesPerBlock;
@@ -244,7 +264,7 @@ namespace Durin::VulkanRHI
 		const uint32 DataSize = static_cast<uint32>(PackedLayout.DataSize);
 		FStagingBuffer StagingBuffer(*Device, DataSize);
 		auto* Mapped = static_cast<uint8*>(StagingBuffer.GetMappedPointer());
-		const auto* SourceRegion = SourceData + SourceBlockY * SourcePitch + SourceBlockX * BytesPerBlock;
+		const auto* SourceRegion = SourceData.data() + SourceBlockY * SourcePitch + SourceBlockX * BytesPerBlock;
 		for (uint64 BlockRow = 0; BlockRow < PackedLayout.BlocksHigh; ++BlockRow)
 		{
 			std::memcpy(Mapped + BlockRow * PackedRowPitch, SourceRegion + BlockRow * SourcePitch, PackedRowPitch);
@@ -302,8 +322,8 @@ namespace Durin::VulkanRHI
 		VulkanTexture->SetSubresourceLayout(MipIndex, ArraySlice, FinalLayout);
 	}
 
-	auto FVulkanDynamicRHI::RHIReadTexture2D(
-		FRHICommandListBase& RHICmdList,
+	auto FVulkanDynamicRHI::ReadTexture2D(
+		FVulkanCommandListContext& Context,
 		FRHITexture* Texture,
 		uint32 MipIndex,
 		uint32 ArraySlice,
@@ -386,7 +406,7 @@ namespace Durin::VulkanRHI
 			.setImage(VulkanTexture->Image)
 			.setSubresourceRange(SubresourceRange);
 
-		const vk::CommandBuffer CmdBuffer = RHIGetVkCommandBuffer(RHICmdList);
+		const vk::CommandBuffer CmdBuffer = Context.GetCommandBuffer()->GetHandle();
 		CmdBuffer.pipelineBarrier(
 			OldStage, vk::PipelineStageFlagBits::eTransfer, vk::DependencyFlags{}, {}, {}, PreCopyBarrier);
 		vk::BufferImageCopy CopyRegion;
@@ -412,7 +432,6 @@ namespace Durin::VulkanRHI
 		CmdBuffer.pipelineBarrier(
 			vk::PipelineStageFlagBits::eTransfer, OldStage, vk::DependencyFlags{}, {}, {}, PostCopyBarrier);
 
-		auto& Context = static_cast<FVulkanCommandListContext&>(RHICmdList.GetContext());
 		Context.Finalize();
 		Device->WaitUtilIdle();
 		MemoryManager.Invalidate(ReadbackAllocation, 0, Layout.DataSize);

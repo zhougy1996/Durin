@@ -5,170 +5,1453 @@
 
 namespace Durin
 {
+	class FRHICommandReplayContext
+	{
+	public:
+		explicit FRHICommandReplayContext(IRHICommandContext* InGraphicsContext = nullptr)
+			: GraphicsContextOverride(InGraphicsContext)
+		{
+		}
+
+		auto SwitchPipeline(ERHIPipeline Pipeline) -> void
+		{
+			ActivePipeline = Pipeline;
+			switch (Pipeline)
+			{
+			case ERHIPipeline::Graphics:
+				if (GraphicsContextOverride)
+				{
+					ActiveContext = GraphicsContextOverride;
+				}
+				else
+				{
+					checkf(GDynamicRHI,
+						"SwitchPipeline(Graphics) replay requires an initialized dynamic RHI.");
+					ActiveContext = GDynamicRHI->RHIGetDefaultContext();
+				}
+				checkf(ActiveContext,
+					"SwitchPipeline(Graphics) replay could not resolve a graphics context.");
+				break;
+			case ERHIPipeline::None:
+				ActiveContext = nullptr;
+				break;
+			default:
+				ActiveContext = nullptr;
+				checkf(false, "SwitchPipeline replay encountered an unsupported pipeline.");
+				break;
+			}
+		}
+
+		auto GetGraphicsContext(const char* CommandName) const
+			-> IRHICommandContext&
+		{
+			checkf(ActivePipeline == ERHIPipeline::Graphics && ActiveContext,
+				"%s replay requires an active graphics pipeline.", CommandName);
+			return *ActiveContext;
+		}
+
+		auto GetOperationContext(const char* OperationName) const
+			-> IRHICommandContext&
+		{
+			IRHICommandContext* Context = GraphicsContextOverride;
+			if (!Context)
+			{
+				checkf(GDynamicRHI,
+					"%s requires an initialized dynamic RHI.", OperationName);
+				Context = GDynamicRHI->RHIGetDefaultContext();
+			}
+			checkf(Context, "%s could not resolve an RHI context.", OperationName);
+			return *Context;
+		}
+
+	private:
+		IRHICommandContext* GraphicsContextOverride = nullptr;
+		IRHICommandContext* ActiveContext = nullptr;
+		ERHIPipeline ActivePipeline = ERHIPipeline::None;
+	};
+
+	class FRHICommandStorage
+	{
+	public:
+		using FCommandFunction = void (*)(void*, void*);
+		using FCommandDestroyFunction = void (*)(void*);
+
+		struct FAllocation
+		{
+			void* Node = nullptr;
+			void* Payload = nullptr;
+		};
+
+		FRHICommandStorage() = default;
+		FRHICommandStorage(const FRHICommandStorage&) = delete;
+		auto operator=(const FRHICommandStorage&) -> FRHICommandStorage& = delete;
+
+		~FRHICommandStorage()
+		{
+			DestroyCommands();
+		}
+
+		auto Allocate(
+			size_t PayloadSize,
+			size_t PayloadAlignment,
+			FCommandFunction Execute,
+			FCommandDestroyFunction Destroy) -> FAllocation
+		{
+			check(PendingNode == nullptr);
+			check(PayloadSize > 0);
+			check(PayloadAlignment > 0);
+			check(PayloadAlignment <= alignof(std::max_align_t));
+			check((PayloadAlignment & (PayloadAlignment - 1)) == 0);
+
+			const size_t AllocationSize = sizeof(FCommandNode)
+				+ PayloadAlignment - 1 + PayloadSize;
+			void* Allocation = AllocateBytes(
+				AllocationSize, alignof(FCommandNode));
+			auto* Node = std::construct_at(
+				static_cast<FCommandNode*>(Allocation));
+			std::byte* PayloadBegin = reinterpret_cast<std::byte*>(Node)
+				+ sizeof(FCommandNode);
+			const uintptr_t AlignedPayload =
+				(reinterpret_cast<uintptr_t>(PayloadBegin)
+					+ PayloadAlignment - 1)
+				& ~(static_cast<uintptr_t>(PayloadAlignment) - 1);
+			Node->Payload = reinterpret_cast<void*>(AlignedPayload);
+			Node->PayloadSize = PayloadSize;
+			Node->Execute = Execute;
+			Node->Destroy = Destroy;
+			PendingNode = Node;
+			return {Node, Node->Payload};
+		}
+
+		auto Commit(void* OpaqueNode) -> void
+		{
+			auto* Node = static_cast<FCommandNode*>(OpaqueNode);
+			check(Node != nullptr && Node == PendingNode);
+			if (Tail)
+			{
+				Tail->Next = Node;
+			}
+			else
+			{
+				Head = Node;
+			}
+			Tail = Node;
+			PendingNode = nullptr;
+			++CommandCount;
+			PayloadBytes += Node->PayloadSize;
+		}
+
+		auto Replay(FRHICommandReplayContext& ReplayContext) -> void
+		{
+			check(PendingNode == nullptr);
+			for (FCommandNode* Node = Head; Node; Node = Node->Next)
+			{
+				Node->Execute(Node->Payload, &ReplayContext);
+			}
+		}
+
+		auto GetCommandCount() const -> size_t
+		{
+			return CommandCount;
+		}
+
+		auto GetPayloadBytes() const -> size_t
+		{
+			return PayloadBytes;
+		}
+
+	private:
+		struct alignas(std::max_align_t) FCommandNode
+		{
+			FCommandNode* Next = nullptr;
+			void* Payload = nullptr;
+			size_t PayloadSize = 0;
+			FCommandFunction Execute = nullptr;
+			FCommandDestroyFunction Destroy = nullptr;
+		};
+
+		struct FBlock
+		{
+			FBlock() = default;
+
+			explicit FBlock(size_t InSize)
+				: Data(static_cast<std::byte*>(::operator new(
+					InSize,
+					std::align_val_t{alignof(std::max_align_t)})))
+				, Size(InSize)
+			{
+			}
+
+			FBlock(const FBlock&) = delete;
+			auto operator=(const FBlock&) -> FBlock& = delete;
+
+			FBlock(FBlock&& Other) noexcept
+				: Data(std::exchange(Other.Data, nullptr))
+				, Size(std::exchange(Other.Size, 0))
+				, Used(std::exchange(Other.Used, 0))
+			{
+			}
+
+			auto operator=(FBlock&& Other) noexcept -> FBlock&
+			{
+				if (this != &Other)
+				{
+					Release();
+					Data = std::exchange(Other.Data, nullptr);
+					Size = std::exchange(Other.Size, 0);
+					Used = std::exchange(Other.Used, 0);
+				}
+				return *this;
+			}
+
+			~FBlock()
+			{
+				Release();
+			}
+
+			auto Release() -> void
+			{
+				if (Data)
+				{
+					::operator delete(
+						Data,
+						std::align_val_t{alignof(std::max_align_t)});
+					Data = nullptr;
+				}
+			}
+
+			std::byte* Data = nullptr;
+			size_t Size = 0;
+			size_t Used = 0;
+		};
+
+		static constexpr size_t DefaultBlockSize = 16 * 1024;
+
+		auto AllocateBytes(size_t Size, size_t Alignment) -> void*
+		{
+			check(Alignment <= alignof(std::max_align_t));
+			auto TryAllocate = [Size, Alignment](FBlock& Block) -> void* {
+				const uintptr_t Begin = reinterpret_cast<uintptr_t>(Block.Data)
+					+ Block.Used;
+				const uintptr_t Aligned = (Begin + Alignment - 1)
+					& ~(static_cast<uintptr_t>(Alignment) - 1);
+				const size_t NewUsed = static_cast<size_t>(
+					Aligned - reinterpret_cast<uintptr_t>(Block.Data)) + Size;
+				if (NewUsed > Block.Size)
+				{
+					return nullptr;
+				}
+				Block.Used = NewUsed;
+				return reinterpret_cast<void*>(Aligned);
+			};
+
+			if (!Blocks.empty())
+			{
+				if (void* Allocation = TryAllocate(Blocks.back()))
+				{
+					return Allocation;
+				}
+			}
+
+			Blocks.emplace_back(std::max(DefaultBlockSize, Size + Alignment));
+			void* Allocation = TryAllocate(Blocks.back());
+			check(Allocation);
+			return Allocation;
+		}
+
+		auto DestroyCommands() -> void
+		{
+			check(PendingNode == nullptr);
+			for (FCommandNode* Node = Head; Node;)
+			{
+				FCommandNode* Next = Node->Next;
+				Node->Destroy(Node->Payload);
+				std::destroy_at(Node);
+				Node = Next;
+			}
+			Head = nullptr;
+			Tail = nullptr;
+			CommandCount = 0;
+			PayloadBytes = 0;
+		}
+
+		std::vector<FBlock> Blocks;
+		FCommandNode* Head = nullptr;
+		FCommandNode* Tail = nullptr;
+		FCommandNode* PendingNode = nullptr;
+		size_t CommandCount = 0;
+		size_t PayloadBytes = 0;
+	};
+
+	namespace
+	{
+		auto GetReplayContext(void* OpaqueContext)
+			-> FRHICommandReplayContext&
+		{
+			check(OpaqueContext);
+			return *static_cast<FRHICommandReplayContext*>(OpaqueContext);
+		}
+
+		struct FSwitchPipelineCommand
+		{
+			explicit FSwitchPipelineCommand(ERHIPipeline InPipeline)
+				: Pipeline(InPipeline)
+			{
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext).SwitchPipeline(Pipeline);
+			}
+
+			ERHIPipeline Pipeline;
+		};
+
+		struct FBeginRenderPassCommand
+		{
+			FBeginRenderPassCommand(const FRHIRenderPassInfo& InInfo, FName InName)
+				: Info(InInfo)
+				, Name(InName)
+			{
+				for (uint32 Index = 0; Index < MaxSimultaneousRenderTargets; ++Index)
+				{
+					ColorRenderTargets[Index] = Info.ColorRenderTargets[Index];
+					ColorResolveTargets[Index] = Info.ColorResolveTargets[Index];
+					Info.ColorRenderTargets[Index] = ColorRenderTargets[Index].GetReference();
+					Info.ColorResolveTargets[Index] = ColorResolveTargets[Index].GetReference();
+				}
+				DepthStencilRenderTarget = Info.DepthStencilRenderTarget;
+				Info.DepthStencilRenderTarget = DepthStencilRenderTarget.GetReference();
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetGraphicsContext("BeginRenderPass")
+					.RHIBeginRenderPass(Info, Name);
+			}
+
+			FRHIRenderPassInfo Info;
+			FName Name;
+			std::array<TRefCountPtr<FRHITexture>, MaxSimultaneousRenderTargets>
+				ColorRenderTargets;
+			std::array<TRefCountPtr<FRHITexture>, MaxSimultaneousRenderTargets>
+				ColorResolveTargets;
+			TRefCountPtr<FRHITexture> DepthStencilRenderTarget;
+		};
+
+		struct FEndRenderPassCommand
+		{
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetGraphicsContext("EndRenderPass")
+					.RHIEndRenderPass();
+			}
+		};
+
+		struct FBeginDrawingViewportCommand
+		{
+			FBeginDrawingViewportCommand(
+				FRHIViewport* InViewport,
+				FRHITexture* InRenderTargetTexture)
+				: Viewport(InViewport)
+				, RenderTargetTexture(InRenderTargetTexture)
+			{
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetGraphicsContext("BeginDrawingViewport")
+					.RHIBeginDrawingViewport(
+						Viewport.GetReference(), RenderTargetTexture.GetReference());
+			}
+
+			TRefCountPtr<FRHIViewport> Viewport;
+			TRefCountPtr<FRHITexture> RenderTargetTexture;
+		};
+
+		struct FEndDrawingViewportCommand
+		{
+			FEndDrawingViewportCommand(
+				FRHIViewport* InViewport,
+				bool bInPresent,
+				bool bInLockToVsync)
+				: Viewport(InViewport)
+				, bPresent(bInPresent)
+				, bLockToVsync(bInLockToVsync)
+			{
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetGraphicsContext("EndDrawingViewport")
+					.RHIEndDrawingViewport(
+						Viewport.GetReference(), bPresent, bLockToVsync);
+			}
+
+			TRefCountPtr<FRHIViewport> Viewport;
+			bool bPresent;
+			bool bLockToVsync;
+		};
+
+		struct FSetGraphicsPipelineStateCommand
+		{
+			explicit FSetGraphicsPipelineStateCommand(
+				FRHIGraphicsPipelineState& InState)
+				: State(&InState)
+			{
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetGraphicsContext("SetGraphicsPipelineState")
+					.RHISetGraphicsPipelineState(*State);
+			}
+
+			TRefCountPtr<FRHIGraphicsPipelineState> State;
+		};
+
+		struct FBindVertexBufferCommand
+		{
+			FBindVertexBufferCommand(
+				uint32 InStreamIndex,
+				FRHIBuffer* InBuffer,
+				uint32 InOffset)
+				: StreamIndex(InStreamIndex), Buffer(InBuffer), Offset(InOffset)
+			{
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetGraphicsContext("BindVertexBuffer")
+					.RHIBindVertexBuffer(StreamIndex, Buffer.GetReference(), Offset);
+			}
+
+			uint32 StreamIndex;
+			TRefCountPtr<FRHIBuffer> Buffer;
+			uint32 Offset;
+		};
+
+		struct FBindIndexBufferCommand
+		{
+			FBindIndexBufferCommand(FRHIBuffer* InBuffer, uint32 InOffset)
+				: Buffer(InBuffer), Offset(InOffset)
+			{
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetGraphicsContext("BindIndexBuffer")
+					.RHIBindIndexBuffer(Buffer.GetReference(), Offset);
+			}
+
+			TRefCountPtr<FRHIBuffer> Buffer;
+			uint32 Offset;
+		};
+
+		struct FDrawIndexedCommand
+		{
+			FDrawIndexedCommand(
+				uint32 InIndexCount,
+				uint32 InStartIndexLocation,
+				int32 InVertexOffset)
+				: IndexCount(InIndexCount)
+				, StartIndexLocation(InStartIndexLocation)
+				, VertexOffset(InVertexOffset)
+			{
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetGraphicsContext("DrawIndexed")
+					.RHIDrawIndexed(IndexCount, StartIndexLocation, VertexOffset);
+			}
+
+			uint32 IndexCount;
+			uint32 StartIndexLocation;
+			int32 VertexOffset;
+		};
+
+		struct FSetViewportCommand
+		{
+			FSetViewportCommand(float A, float B, float C, float D, float E, float F)
+				: MinX(A), MinY(B), MinZ(C), MaxX(D), MaxY(E), MaxZ(F)
+			{
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetGraphicsContext("SetViewport")
+					.RHISetViewport(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
+			}
+
+			float MinX, MinY, MinZ, MaxX, MaxY, MaxZ;
+		};
+
+		struct FSetScissorCommand
+		{
+			FSetScissorCommand(float A, float B, float C, float D)
+				: MinX(A), MinY(B), Width(C), Height(D)
+			{
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetGraphicsContext("SetScissor")
+					.RHISetScissor(MinX, MinY, Width, Height);
+			}
+
+			float MinX, MinY, Width, Height;
+		};
+
+		struct FPushConstantsCommand
+		{
+			FPushConstantsCommand(
+				EShaderStageFlags InStageFlags,
+				uint32 InOffset,
+				uint32 InSize,
+				const void* InData)
+				: StageFlags(InStageFlags), Offset(InOffset), Data(InSize)
+			{
+				check(InSize == 0 || InData);
+				if (InSize != 0)
+				{
+					std::memcpy(Data.data(), InData, InSize);
+				}
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetGraphicsContext("PushConstants")
+					.RHIPushConstants(
+						StageFlags, Offset, static_cast<uint32>(Data.size()), Data.data());
+			}
+
+			EShaderStageFlags StageFlags;
+			uint32 Offset;
+			std::vector<uint8> Data;
+		};
+
+		struct FWriteBufferCommand
+		{
+			FWriteBufferCommand(
+				FRHIBuffer* InBuffer,
+				uint32 InOffset,
+				const void* InData,
+				uint32 InSize)
+				: Buffer(InBuffer), Offset(InOffset), Data(InSize)
+			{
+				check(Buffer && InData && InSize != 0);
+				check(Offset <= Buffer->GetSize() && InSize <= Buffer->GetSize() - Offset);
+				if (InSize != 0)
+				{
+					std::memcpy(Data.data(), InData, InSize);
+				}
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetOperationContext("WriteBuffer")
+					.RHIWriteBuffer(Buffer.GetReference(), Offset, Data);
+			}
+
+			TRefCountPtr<FRHIBuffer> Buffer;
+			uint32 Offset;
+			std::vector<uint8> Data;
+		};
+
+		struct FInitializeTextureCommand
+		{
+			explicit FInitializeTextureCommand(FRHITexture* InTexture)
+				: Texture(InTexture)
+			{
+				check(Texture);
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetOperationContext("InitializeTexture")
+					.RHIInitializeTexture(Texture.GetReference());
+			}
+
+			TRefCountPtr<FRHITexture> Texture;
+		};
+
+		struct FUpdateTexture2DCommand
+		{
+			FUpdateTexture2DCommand(
+				FRHITexture* InTexture,
+				uint32 InMipIndex,
+				uint32 InArraySlice,
+				const FUpdateTextureRegion2D& InRegion,
+				uint32 InSourcePitch,
+				const uint8* InSourceData)
+				: Texture(InTexture)
+				, MipIndex(InMipIndex)
+				, ArraySlice(InArraySlice)
+				, Region(InRegion)
+			{
+				check(Texture && InSourceData);
+				FRHITextureDesc Desc;
+				Desc.Dimension = Texture->GetDimension();
+				Desc.Extent = FIntPoint(Texture->GetSizeX(), Texture->GetSizeY());
+				Desc.Format = Texture->GetFormat();
+				Desc.ArraySize = Texture->GetArraySize();
+				Desc.NumMips = Texture->GetNumMips();
+				Desc.NumSamples = Texture->GetNumSamples();
+				std::string Error;
+				checkf(ValidateTexture2DUpdate(
+					Desc, MipIndex, ArraySlice, Region, InSourcePitch, Error),
+					"Invalid RHI texture upload: {}", Error);
+
+				const FPixelFormatInfo& FormatInfo = GetPixelFormatInfo(Texture->GetFormat());
+				const FPixelFormatLayout Layout = GetPixelFormatLayout(
+					Texture->GetFormat(), Region.Width, Region.Height);
+				check(Layout.RowPitch <= std::numeric_limits<uint32>::max());
+				check(Layout.DataSize <= std::numeric_limits<uint32>::max());
+				SourcePitch = static_cast<uint32>(Layout.RowPitch);
+				Data.resize(static_cast<size_t>(Layout.DataSize));
+				const uint64 SourceBlockX = static_cast<uint32>(Region.SrcX)
+					/ FormatInfo.BlockSize;
+				const uint64 SourceBlockY = static_cast<uint32>(Region.SrcY)
+					/ FormatInfo.BlockSize;
+				const uint8* SourceRegion = InSourceData
+					+ SourceBlockY * InSourcePitch
+					+ SourceBlockX * FormatInfo.BytesPerBlock;
+				for (uint64 Row = 0; Row < Layout.BlocksHigh; ++Row)
+				{
+					std::memcpy(
+						Data.data() + Row * SourcePitch,
+						SourceRegion + Row * InSourcePitch,
+						SourcePitch);
+				}
+				Region.SrcX = 0;
+				Region.SrcY = 0;
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetOperationContext("UpdateTexture2D")
+					.RHIUpdateTexture2D(
+						Texture.GetReference(), MipIndex, ArraySlice,
+						Region, SourcePitch, Data);
+			}
+
+			TRefCountPtr<FRHITexture> Texture;
+			uint32 MipIndex;
+			uint32 ArraySlice;
+			FUpdateTextureRegion2D Region;
+			uint32 SourcePitch = 0;
+			std::vector<uint8> Data;
+		};
+
+		struct FSetShaderParametersCommand
+		{
+			FSetShaderParametersCommand(
+				FRHIShader* InShader,
+				std::span<FRHIShaderParameterResource> InParameters)
+				: Shader(InShader)
+				, Parameters(InParameters.begin(), InParameters.end())
+			{
+				Resources.reserve(Parameters.size());
+				for (FRHIShaderParameterResource& Parameter : Parameters)
+				{
+					Resources.emplace_back(Parameter.Resource);
+					Parameter.Resource = Resources.back().GetReference();
+				}
+			}
+
+			auto Execute(void* ReplayContext) -> void
+			{
+				GetReplayContext(ReplayContext)
+					.GetGraphicsContext("SetShaderParameters")
+					.RHISetShaderParameters(Shader.GetReference(), Parameters);
+			}
+
+			TRefCountPtr<FRHIShader> Shader;
+			std::vector<FRHIShaderParameterResource> Parameters;
+			std::vector<TRefCountPtr<FRHIResource>> Resources;
+		};
+
+		auto DeleteDeferredResources() -> void
+		{
+			std::vector<FRHIResource*> ResourcesToDelete;
+			while (true)
+			{
+				FRHIResource::GatherResourcesToDelete(ResourcesToDelete);
+				if (ResourcesToDelete.empty())
+				{
+					break;
+				}
+				FRHIResource::DeleteResources(ResourcesToDelete);
+				ResourcesToDelete.clear();
+			}
+		}
+	}
+
+	class FRHICommandListExecutor::FState
+	{
+	public:
+		class FBatch
+		{
+		public:
+			explicit FBatch(std::unique_ptr<FRHICommandStorage>&& InStorage)
+				: Storage(std::move(InStorage))
+			{
+				check(Storage);
+			}
+
+			FBatch(FBatch&&) noexcept = default;
+			auto operator=(FBatch&&) noexcept -> FBatch& = default;
+			FBatch(const FBatch&) = delete;
+			auto operator=(const FBatch&) -> FBatch& = delete;
+
+			auto Replay(FRHICommandReplayContext& ReplayContext) -> void
+			{
+				check(State == EState::Submitted);
+				Storage->Replay(ReplayContext);
+				State = EState::Consumed;
+			}
+
+			auto GetCommandCount() const -> size_t
+			{
+				return Storage->GetCommandCount();
+			}
+
+			auto GetPayloadBytes() const -> size_t
+			{
+				return Storage->GetPayloadBytes();
+			}
+
+		private:
+			enum class EState : uint8
+			{
+				Submitted,
+				Consumed
+			};
+
+			std::unique_ptr<FRHICommandStorage> Storage;
+			EState State = EState::Submitted;
+		};
+
+		class FSubmissionGroup
+		{
+		public:
+			FSubmissionGroup(
+				uint64 InSerial,
+				ERHISubmitFlags InFlags,
+				std::vector<FBatch>&& InBatches)
+				: Serial(InSerial)
+				, Flags(InFlags)
+				, Batches(std::move(InBatches))
+			{
+				check(Serial != 0);
+			}
+
+			FSubmissionGroup(FSubmissionGroup&&) noexcept = default;
+			FSubmissionGroup(const FSubmissionGroup&) = delete;
+			auto operator=(const FSubmissionGroup&)
+				-> FSubmissionGroup& = delete;
+
+			auto Replay(FRHICommandReplayContext& ReplayContext) -> void
+			{
+				for (FBatch& Batch : Batches)
+				{
+					Batch.Replay(ReplayContext);
+				}
+			}
+
+			auto ReleaseBatches() -> void
+			{
+				Batches.clear();
+			}
+
+			auto GetSerial() const -> uint64 { return Serial; }
+			auto GetFlags() const -> ERHISubmitFlags { return Flags; }
+			auto GetBatchCount() const -> size_t { return Batches.size(); }
+			auto GetCommandCount() const -> size_t
+			{
+				size_t Count = 0;
+				for (const FBatch& Batch : Batches)
+				{
+					Count += Batch.GetCommandCount();
+				}
+				return Count;
+			}
+			auto GetPayloadBytes() const -> size_t
+			{
+				size_t Bytes = 0;
+				for (const FBatch& Batch : Batches)
+				{
+					Bytes += Batch.GetPayloadBytes();
+				}
+				return Bytes;
+			}
+
+		private:
+			const uint64 Serial;
+			const ERHISubmitFlags Flags;
+			std::vector<FBatch> Batches;
+		};
+
+		explicit FState(IRHICommandContext* GraphicsContext = nullptr)
+			: ReplayContext(GraphicsContext)
+		{
+		}
+
+		std::vector<FBatch> PendingBatches;
+		FRHICommandReplayContext ReplayContext;
+		std::atomic<uint64> LastSubmittedSerial = 0;
+		std::atomic<uint64> CompletedSerial = 0;
+		std::atomic<uint64> RecordedCommandCount = 0;
+		std::atomic<uint64> RecordedPayloadBytes = 0;
+		std::atomic<uint64> SubmittedBatchCount = 0;
+		std::atomic<uint64> SubmissionGroupCount = 0;
+		std::atomic<uint64> ReplayDurationNanoseconds = 0;
+		mutable std::atomic<uint64> WaitCount = 0;
+		std::atomic<uint64> RejectedSubmissionCount = 0;
+		mutable std::mutex CompletionMutex;
+		mutable std::condition_variable CompletionCV;
+	};
+
+	class FRHICommandListImmediate::FLockState
+	{
+	public:
+		struct FPendingLock
+		{
+			TRefCountPtr<FRHIBuffer> Buffer;
+			uint32 Offset = 0;
+			std::vector<uint8> Data;
+		};
+
+		std::unordered_map<FRHIBuffer*, std::unique_ptr<FPendingLock>> PendingLocks;
+	};
+
 	FRHICommandListExecutor GCommandListExecutor;
 
-	FRHICommandListBase::FRHICommandListBase() = default;
+	FRHICommandListBase::FRHICommandListBase()
+		: Storage(std::make_unique<FRHICommandStorage>())
+	{
+	}
+
+	FRHICommandListBase::~FRHICommandListBase() = default;
+
+	FRHICommandListBase::FRHICommandListBase(FRHICommandListBase&& Other) noexcept
+		: Storage(std::move(Other.Storage))
+		, RecordingState(Other.RecordingState)
+		, ActivePipeline(Other.ActivePipeline)
+		, bInsideRenderPass(Other.bInsideRenderPass)
+	{
+		Other.RecordingState = ERecordingState::MovedFrom;
+		Other.ActivePipeline = ERHIPipeline::None;
+		Other.bInsideRenderPass = false;
+	}
+
+	auto FRHICommandListBase::operator=(FRHICommandListBase&& Other) noexcept
+		-> FRHICommandListBase&
+	{
+		if (this != &Other)
+		{
+			check(RecordingState == ERecordingState::MovedFrom
+				|| (RecordingState == ERecordingState::Recording
+					&& Storage && Storage->GetCommandCount() == 0));
+			Storage = std::move(Other.Storage);
+			RecordingState = Other.RecordingState;
+			ActivePipeline = Other.ActivePipeline;
+			bInsideRenderPass = Other.bInsideRenderPass;
+			Other.RecordingState = ERecordingState::MovedFrom;
+			Other.ActivePipeline = ERHIPipeline::None;
+			Other.bInsideRenderPass = false;
+		}
+		return *this;
+	}
+
+	auto FRHICommandListBase::AllocateCommand(
+		size_t PayloadSize,
+		size_t PayloadAlignment,
+		FCommandFunction Execute,
+		FCommandDestroyFunction Destroy) -> FCommandAllocation
+	{
+		checkf(RecordingState == ERecordingState::Recording,
+			"RHI commands can only be recorded into a recording command list.");
+		check(Storage);
+		const FRHICommandStorage::FAllocation Allocation = Storage->Allocate(
+			PayloadSize, PayloadAlignment, Execute, Destroy);
+		return {Allocation.Node, Allocation.Payload};
+	}
+
+	auto FRHICommandListBase::CommitCommand(void* Node) -> void
+	{
+		check(Storage);
+		Storage->Commit(Node);
+	}
+
+	auto FRHICommandListBase::DetachStorage()
+		-> std::unique_ptr<FRHICommandStorage>
+	{
+		check(Storage);
+		std::unique_ptr<FRHICommandStorage> Detached = std::move(Storage);
+		Storage = std::make_unique<FRHICommandStorage>();
+		return Detached;
+	}
+
+	auto FRHICommandListBase::IsFinished() const -> bool
+	{
+		return RecordingState == ERecordingState::Finished;
+	}
+
+	auto FRHICommandListBase::MarkAdmitted() -> void
+	{
+		check(RecordingState == ERecordingState::Finished);
+		RecordingState = ERecordingState::Admitted;
+	}
+
+	auto FRHICommandListBase::IsRecording() const -> bool
+	{
+		return RecordingState == ERecordingState::Recording;
+	}
+
+	auto FRHICommandListBase::GetNumRecordedCommands() const -> size_t
+	{
+		return Storage ? Storage->GetCommandCount() : 0;
+	}
+
+	FRHICommandList::FRHICommandList() = default;
+	FRHICommandList::FRHICommandList(bool bImmediate)
+	{
+		(void)bImmediate;
+	}
+	FRHICommandList::~FRHICommandList() = default;
+	FRHICommandList::FRHICommandList(FRHICommandList&& Other) noexcept = default;
+	auto FRHICommandList::operator=(FRHICommandList&& Other) noexcept
+		-> FRHICommandList& = default;
+
+	auto FRHICommandList::FinishRecording() -> void
+	{
+		checkf(RecordingState == ERecordingState::Recording,
+			"FinishRecording requires a recording regular command list.");
+		checkf(!bInsideRenderPass,
+			"FinishRecording cannot seal a command list inside a render pass.");
+		RecordingState = ERecordingState::Finished;
+	}
+
+	auto FRHICommandList::IsFinished() const -> bool
+	{
+		return FRHICommandListBase::IsFinished();
+	}
 
 	auto FRHICommandListBase::SwitchPipeline(ERHIPipeline Pipeline) -> void
 	{
-		switch (Pipeline)
+		checkf(!bInsideRenderPass,
+			"SwitchPipeline cannot be recorded inside a render pass.");
+		if (ActivePipeline == Pipeline)
 		{
-		case ERHIPipeline::Graphics:
-			{
-				check(GDynamicRHI);
-				IRHICommandContext* Context = GDynamicRHI->RHIGetDefaultContext();
-				if (ActivePipeline == Pipeline && GraphicsContext == Context) return;
-				GraphicsContext = Context;
-			}
-			break;
-			// TODO: compute
-		default:
-			GraphicsContext = nullptr;
-			break;
+			return;
 		}
+		RecordCommand<FSwitchPipelineCommand>(Pipeline);
 		ActivePipeline = Pipeline;
 	}
 
 	auto FRHICommandListBase::BeginRenderPass(const FRHIRenderPassInfo& Info, FName Name) -> void
 	{
-		GetContext().RHIBeginRenderPass(Info, Name);
+		checkf(ActivePipeline == ERHIPipeline::Graphics,
+			"BeginRenderPass requires an active graphics pipeline while recording.");
+		checkf(!bInsideRenderPass,
+			"BeginRenderPass cannot be nested while recording.");
+		RecordCommand<FBeginRenderPassCommand>(Info, Name);
+		bInsideRenderPass = true;
 	}
 
 	auto FRHICommandListBase::EndRenderPass() -> void
 	{
-		GetContext().RHIEndRenderPass();
+		checkf(bInsideRenderPass,
+			"EndRenderPass requires a matching BeginRenderPass while recording.");
+		RecordCommand<FEndRenderPassCommand>();
+		bInsideRenderPass = false;
 	}
 
 	auto FRHICommandListBase::BeginDrawingViewport(FRHIViewport* Viewport, FRHITexture* RenderTargetTexture) -> void
 	{
-		GetContext().RHIBeginDrawingViewport(Viewport, RenderTargetTexture);
+		checkf(ActivePipeline == ERHIPipeline::Graphics,
+			"BeginDrawingViewport requires an active graphics pipeline while recording.");
+		RecordCommand<FBeginDrawingViewportCommand>(Viewport, RenderTargetTexture);
 	}
 
 	auto FRHICommandListBase::EndDrawingViewport(FRHIViewport* Viewport, bool bPresent, bool bLockToVsync) -> void
 	{
-		GetContext().RHIEndDrawingViewport(Viewport, bPresent, bLockToVsync);
+		checkf(ActivePipeline == ERHIPipeline::Graphics,
+			"EndDrawingViewport requires an active graphics pipeline while recording.");
+		RecordCommand<FEndDrawingViewportCommand>(Viewport, bPresent, bLockToVsync);
 	}
 
 	auto FRHICommandListBase::SetGraphicsPipelineState(FRHIGraphicsPipelineState& State) -> void
 	{
-		GetContext().RHISetGraphicsPipelineState(State);
+		checkf(ActivePipeline == ERHIPipeline::Graphics,
+			"SetGraphicsPipelineState requires an active graphics pipeline while recording.");
+		RecordCommand<FSetGraphicsPipelineStateCommand>(State);
 	}
 
 	auto FRHICommandListBase::BindVertexBuffer(uint32 StreamIndex, FRHIBuffer* VertexBuffer, uint32 Offset) -> void
 	{
-		GetContext().RHIBindVertexBuffer(StreamIndex, VertexBuffer, Offset);
+		checkf(ActivePipeline == ERHIPipeline::Graphics,
+			"BindVertexBuffer requires an active graphics pipeline while recording.");
+		RecordCommand<FBindVertexBufferCommand>(StreamIndex, VertexBuffer, Offset);
 	}
 
 	auto FRHICommandListBase::BindIndexBuffer(FRHIBuffer* Buffer, uint32 Offset) -> void
 	{
-		GetContext().RHIBindIndexBuffer(Buffer, Offset);
+		checkf(ActivePipeline == ERHIPipeline::Graphics,
+			"BindIndexBuffer requires an active graphics pipeline while recording.");
+		RecordCommand<FBindIndexBufferCommand>(Buffer, Offset);
 	}
 
 	auto FRHICommandListBase::DrawIndexed(uint32 IndexCount, uint32 StartIndexLocation, int32 VertexOffset) -> void
 	{
-		GetContext().RHIDrawIndexed(IndexCount, StartIndexLocation, VertexOffset);
+		checkf(ActivePipeline == ERHIPipeline::Graphics,
+			"DrawIndexed requires an active graphics pipeline while recording.");
+		RecordCommand<FDrawIndexedCommand>(IndexCount, StartIndexLocation, VertexOffset);
 	}
 
 	auto FRHICommandListBase::SetViewport(float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) -> void
 	{
-		GetContext().RHISetViewport(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
+		checkf(ActivePipeline == ERHIPipeline::Graphics,
+			"SetViewport requires an active graphics pipeline while recording.");
+		RecordCommand<FSetViewportCommand>(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
 	}
 
 	auto FRHICommandListBase::SetScissor(float MinX, float MinY, float Width, float Height) -> void
 	{
-		GetContext().RHISetScissor(MinX, MinY, Width, Height);
+		checkf(ActivePipeline == ERHIPipeline::Graphics,
+			"SetScissor requires an active graphics pipeline while recording.");
+		RecordCommand<FSetScissorCommand>(MinX, MinY, Width, Height);
 	}
 
-	auto FRHICommandListBase::GetContext() const -> IRHICommandContext&
+	auto FRHICommandListBase::WriteBuffer(
+		FRHIBuffer* Buffer,
+		const void* Data,
+		uint32 Size,
+		uint32 OffsetBytes) -> void
 	{
-		check(GraphicsContext && "No active pipeline or pipeline not supported yet.");
-		return *GraphicsContext;
+		RecordCommand<FWriteBufferCommand>(Buffer, OffsetBytes, Data, Size);
+	}
+
+	auto FRHICommandListBase::UpdateUniformBuffer(
+		FRHIBuffer* UniformBuffer,
+		const void* Data,
+		uint32 Size,
+		uint32 Offset) -> void
+	{
+		check(Size % 16 == 0 && Offset % 16 == 0);
+		WriteBuffer(UniformBuffer, Data, Size, Offset);
+	}
+
+	auto FRHICommandListBase::InitializeTexture(FRHITexture* Texture) -> void
+	{
+		RecordCommand<FInitializeTextureCommand>(Texture);
+	}
+
+	auto FRHICommandListBase::UpdateTexture2D(
+		FRHITexture* Texture,
+		uint32 MipIndex,
+		uint32 ArraySlice,
+		const FUpdateTextureRegion2D& UpdateRegion,
+		uint32 SourcePitch,
+		const uint8* SourceData) -> void
+	{
+		RecordCommand<FUpdateTexture2DCommand>(
+			Texture, MipIndex, ArraySlice, UpdateRegion, SourcePitch, SourceData);
 	}
 
 	auto FRHICommandListBase::PushConstants(EShaderStageFlags StageFlags, uint32 Offset, uint32 Size, const void* Data) -> void
 	{
-		GetContext().RHIPushConstants(StageFlags, Offset, Size, Data);
+		checkf(ActivePipeline == ERHIPipeline::Graphics,
+			"PushConstants requires an active graphics pipeline while recording.");
+		RecordCommand<FPushConstantsCommand>(StageFlags, Offset, Size, Data);
 	}
 
 	auto FRHICommandListBase::SetShaderParameters(FRHIShader* InShader, const std::span<FRHIShaderParameterResource>& InResourceParameters) -> void
 	{
-		GetContext().RHISetShaderParameters(InShader, InResourceParameters);
+		checkf(ActivePipeline == ERHIPipeline::Graphics,
+			"SetShaderParameters requires an active graphics pipeline while recording.");
+		RecordCommand<FSetShaderParametersCommand>(InShader, InResourceParameters);
 	}
+
+	FRHICommandListImmediate::FRHICommandListImmediate(
+		FRHICommandListExecutor& InExecutor)
+		: FRHICommandList(true)
+		, Executor(&InExecutor)
+		, LockState(std::make_unique<FLockState>())
+	{
+	}
+
+	FRHICommandListImmediate::~FRHICommandListImmediate() = default;
 
 	auto FRHICommandListImmediate::Get() -> FRHICommandListImmediate&
 	{
 		return GCommandListExecutor.GetImmediateCommandList();
 	}
 
-	auto FRHICommandListImmediate::ImmediateFlush(EImmediateFlushType FlushType, ERHISubmitFlags SubmitFlags /* = ERHISubmitFlags::None */) -> void
+	auto FRHICommandListImmediate::QueueCommandList(
+		FRHICommandList&& CommandList) -> void
 	{
-		if (FlushType >= EImmediateFlushType::FlushRHIThread)
+		if (!TryQueueCommandList(std::move(CommandList)))
+		{
+			checkf(false,
+				"QueueCommandList requires a finished command list that has not been admitted.");
+		}
+	}
+
+	auto FRHICommandListImmediate::TryQueueCommandList(
+		FRHICommandList&& CommandList) -> bool
+	{
+		return Executor->TryQueueCommandList(CommandList);
+	}
+
+	auto FRHICommandListImmediate::ImmediateFlush(
+		EImmediateFlushType FlushType,
+		ERHISubmitFlags SubmitFlags) -> void
+	{
+		if (FlushType == EImmediateFlushType::WaitForOutstandingTasksOnly)
+		{
+			return;
+		}
+		if (FlushType == EImmediateFlushType::FlushRHIThreadFlushResources)
 		{
 			EnumAddFlags(SubmitFlags, ERHISubmitFlags::DeleteResources);
 		}
-		GCommandListExecutor.Submit({}, SubmitFlags);
+		const uint64 Serial = Executor->Submit({}, SubmitFlags);
+		if (FlushType >= EImmediateFlushType::FlushRHIThread
+			|| EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread))
+		{
+			const FRHICommandListFence Fence = Executor->CreateFence();
+			check(Fence.GetTargetSerial() == Serial);
+			Fence.Wait();
+		}
 	}
 
 	auto FRHICommandListImmediate::LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
 	{
-		return GDynamicRHI->RHILockBuffer(*this, Buffer, Offset, Size, LockMode);
+		check(Buffer);
+		checkf(LockMode == EResourceLockMode::WriteOnly,
+			"Recorded buffer locks currently support WriteOnly mode.");
+		check(Size != 0 && Offset <= Buffer->GetSize()
+			&& Size <= Buffer->GetSize() - Offset);
+		checkf(!LockState->PendingLocks.contains(Buffer),
+			"A buffer may only have one open recorded lock.");
+		auto Pending = std::make_unique<FLockState::FPendingLock>();
+		Pending->Buffer = Buffer;
+		Pending->Offset = Offset;
+		Pending->Data.resize(Size);
+		void* Result = Pending->Data.data();
+		LockState->PendingLocks.emplace(Buffer, std::move(Pending));
+		return Result;
 	}
 
 	auto FRHICommandListImmediate::UnlockBuffer(FRHIBuffer* Buffer) -> void
 	{
-		return GDynamicRHI->RHIUnlockBuffer(*this, Buffer);
-	}
-
-	auto FRHICommandListImmediate::WriteBuffer(FRHIBuffer* Buffer, const void* Data, uint32 Size, uint32 OffsetBytes) -> void
-	{
-		void* MappedPointer = LockBuffer(Buffer, OffsetBytes, Size, EResourceLockMode::WriteOnly);
-		std::memcpy(MappedPointer, Data, Size);
-		UnlockBuffer(Buffer);
-	}
-
-	auto FRHICommandListImmediate::UpdateUniformBuffer(FRHIBuffer* UniformBuffer, const void* Data, uint32 Size, uint32 Offset) -> void
-	{
-		check(Size % 16 == 0 && Offset % 16 == 0);
-		WriteBuffer(UniformBuffer, Data, Size, Offset);
+		check(Buffer);
+		const auto It = LockState->PendingLocks.find(Buffer);
+		checkf(It != LockState->PendingLocks.end(),
+			"UnlockBuffer requires a matching LockBuffer.");
+		std::unique_ptr<FLockState::FPendingLock> Pending = std::move(It->second);
+		LockState->PendingLocks.erase(It);
+		WriteBuffer(
+			Pending->Buffer.GetReference(), Pending->Data.data(),
+			static_cast<uint32>(Pending->Data.size()), Pending->Offset);
 	}
 
 	auto FRHICommandListImmediate::AllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange
 	{
-		return GDynamicRHI->RHIAllocateDynamicUniformBuffer(*this, Data, Size);
+		check(Data && Size != 0);
+		return Executor->GetSynchronousOperationContext(false)
+			.RHIAllocateDynamicUniformBuffer(Data, Size);
+	}
+
+	auto FRHICommandListImmediate::ReadTexture2D(
+		FRHITexture* Texture,
+		uint32 MipIndex,
+		uint32 ArraySlice,
+		std::vector<uint8>& OutData) -> bool
+	{
+		return Executor->GetSynchronousOperationContext(true)
+			.RHIReadTexture2D(Texture, MipIndex, ArraySlice, OutData);
+	}
+
+	auto FRHICommandListImmediate::AcquireBackBuffer(
+		FRHITexture* BackBuffer) -> void
+	{
+		Executor->GetSynchronousOperationContext(true)
+			.RHIAcquireBackBuffer(BackBuffer);
+	}
+
+	auto FRHICommandListImmediate::BlockUntilGPUIdle() -> void
+	{
+		Executor->GetSynchronousOperationContext(true).RHIBlockUntilGPUIdle();
+	}
+
+	auto FRHICommandListImmediate::HasOpenBufferLocks() const -> bool
+	{
+		return !LockState->PendingLocks.empty();
+	}
+
+	FRHICommandListFence::FRHICommandListFence(
+		FRHICommandListExecutor& InExecutor,
+		uint64 InTargetSerial)
+		: Executor(&InExecutor)
+		, TargetSerial(InTargetSerial)
+	{
+	}
+
+	auto FRHICommandListFence::IsComplete() const -> bool
+	{
+		return !Executor || Executor->IsSerialComplete(TargetSerial);
+	}
+
+	auto FRHICommandListFence::Wait() const -> void
+	{
+		if (Executor)
+		{
+			Executor->WaitForSerial(TargetSerial);
+		}
 	}
 
 	FRHICommandListExecutor::FRHICommandListExecutor()
+		: State(std::make_unique<FState>())
+		, CommandListImmediate(*this)
 	{
 	}
 
-	auto FRHICommandListExecutor::GetImmediateCommandList() -> FRHICommandListImmediate&
+	FRHICommandListExecutor::FRHICommandListExecutor(
+		IRHICommandContext& InGraphicsContext)
+		: State(std::make_unique<FState>(&InGraphicsContext))
+		, CommandListImmediate(*this)
 	{
-		return GCommandListExecutor.CommandListImmediate;
 	}
 
-	auto FRHICommandListExecutor::Submit(const std::vector<FRHICommandListBase*>& AdditionalCmdLists, ERHISubmitFlags SubmitFlags) -> void
+	FRHICommandListExecutor::~FRHICommandListExecutor() = default;
+
+	auto FRHICommandListExecutor::GetImmediateCommandList()
+		-> FRHICommandListImmediate&
 	{
-		if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::DeleteResources))
+		return CommandListImmediate;
+	}
+
+	auto FRHICommandListExecutor::TryQueueCommandList(
+		FRHICommandList& CommandList) -> bool
+	{
+		checkf(!CommandListImmediate.bInsideRenderPass,
+			"QueueCommandList cannot split an active immediate render pass.");
+		if (!CommandList.IsFinished())
 		{
-			std::vector<FRHIResource*> ResourcesToDelete;
-			while (true)
+			State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
+			return false;
+		}
+		if (CommandList.GetNumRecordedCommands() == 0)
+		{
+			CommandList.MarkAdmitted();
+			return true;
+		}
+		SealImmediateSegment();
+		const ERHIPipeline InsertedFinalPipeline = CommandList.ActivePipeline;
+		State->PendingBatches.emplace_back(CommandList.DetachStorage());
+		CommandList.MarkAdmitted();
+		if (InsertedFinalPipeline != CommandListImmediate.ActivePipeline)
+		{
+			CommandListImmediate.RecordCommand<FSwitchPipelineCommand>(
+				CommandListImmediate.ActivePipeline);
+		}
+		return true;
+	}
+
+	auto FRHICommandListExecutor::SealImmediateSegment() -> void
+	{
+		if (CommandListImmediate.GetNumRecordedCommands() == 0)
+		{
+			return;
+		}
+		State->PendingBatches.emplace_back(
+			CommandListImmediate.DetachStorage());
+	}
+
+	auto FRHICommandListExecutor::Submit(
+		const std::vector<FRHICommandList*>& AdditionalCmdLists,
+		ERHISubmitFlags SubmitFlags) -> uint64
+	{
+		checkf(!CommandListImmediate.HasOpenBufferLocks(),
+			"Submit requires every recorded buffer lock to be unlocked.");
+		checkf(!CommandListImmediate.bInsideRenderPass,
+			"Submit cannot seal an immediate command list inside a render pass.");
+		std::unordered_set<FRHICommandList*> UniqueLists;
+		for (FRHICommandList* CommandList : AdditionalCmdLists)
+		{
+			if (!CommandList || !CommandList->IsFinished())
 			{
-				FRHIResource::GatherResourcesToDelete(ResourcesToDelete);
-				if (!ResourcesToDelete.empty())
-				{
-					FRHIResource::DeleteResources(ResourcesToDelete);
-					ResourcesToDelete.clear();
-				}
-				else
-				{
-					break;
-				}
+				State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
+				checkf(false,
+					"Additional command lists must be non-null and finished.");
+				return GetLastSubmittedSerial();
+			}
+			if (!UniqueLists.emplace(CommandList).second)
+			{
+				State->RejectedSubmissionCount.fetch_add(1, std::memory_order_relaxed);
+				checkf(false,
+					"An additional command list may only be admitted once.");
+				return GetLastSubmittedSerial();
 			}
 		}
 
-		if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::EndFrame))
+		SealImmediateSegment();
+		ERHIPipeline AppendedFinalPipeline = CommandListImmediate.ActivePipeline;
+		bool bAppendedCommands = false;
+		for (FRHICommandList* CommandList : AdditionalCmdLists)
 		{
-			GDynamicRHI->RHIEndFrame();
+			if (CommandList->GetNumRecordedCommands() != 0)
+			{
+				State->PendingBatches.emplace_back(
+					CommandList->DetachStorage());
+				AppendedFinalPipeline = CommandList->ActivePipeline;
+				bAppendedCommands = true;
+			}
+			CommandList->MarkAdmitted();
 		}
+		if (bAppendedCommands
+			&& AppendedFinalPipeline != CommandListImmediate.ActivePipeline)
+		{
+			CommandListImmediate.RecordCommand<FSwitchPipelineCommand>(
+				CommandListImmediate.ActivePipeline);
+			SealImmediateSegment();
+		}
+
+		const bool bHasOrderedEvent = EnumHasAnyFlags(
+			SubmitFlags,
+			ERHISubmitFlags::SubmitToGPU
+				| ERHISubmitFlags::DeleteResources
+				| ERHISubmitFlags::EndFrame);
+		if (State->PendingBatches.empty() && !bHasOrderedEvent)
+		{
+			return State->LastSubmittedSerial.load(std::memory_order_acquire);
+		}
+
+		const uint64 PreviousSerial =
+			State->LastSubmittedSerial.load(std::memory_order_relaxed);
+		checkf(PreviousSerial != std::numeric_limits<uint64>::max(),
+			"RHI submission serial exhausted.");
+		const uint64 Serial = PreviousSerial + 1;
+		State->LastSubmittedSerial.store(Serial, std::memory_order_release);
+
+		FState::FSubmissionGroup SubmissionGroup(
+			Serial, SubmitFlags, std::move(State->PendingBatches));
+		State->PendingBatches.clear();
+		State->RecordedCommandCount.fetch_add(
+			SubmissionGroup.GetCommandCount(), std::memory_order_relaxed);
+		State->RecordedPayloadBytes.fetch_add(
+			SubmissionGroup.GetPayloadBytes(), std::memory_order_relaxed);
+		State->SubmittedBatchCount.fetch_add(
+			SubmissionGroup.GetBatchCount(), std::memory_order_relaxed);
+		State->SubmissionGroupCount.fetch_add(1, std::memory_order_relaxed);
+		const auto ReplayStart = std::chrono::steady_clock::now();
+		SubmissionGroup.Replay(State->ReplayContext);
+		const auto ReplayEnd = std::chrono::steady_clock::now();
+		State->ReplayDurationNanoseconds.fetch_add(
+			static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				ReplayEnd - ReplayStart).count()),
+			std::memory_order_relaxed);
+
+		if (EnumHasAnyFlags(
+			SubmissionGroup.GetFlags(), ERHISubmitFlags::SubmitToGPU))
+		{
+			State->ReplayContext.GetOperationContext("SubmitToGPU")
+				.RHISubmitCommands();
+		}
+		if (EnumHasAnyFlags(
+			SubmissionGroup.GetFlags(), ERHISubmitFlags::EndFrame))
+		{
+			State->ReplayContext.GetOperationContext("EndFrame").RHIEndFrame();
+		}
+		SubmissionGroup.ReleaseBatches();
+		if (EnumHasAnyFlags(
+			SubmissionGroup.GetFlags(), ERHISubmitFlags::DeleteResources))
+		{
+			DeleteDeferredResources();
+		}
+
+		State->CompletedSerial.store(
+			SubmissionGroup.GetSerial(), std::memory_order_release);
+		State->CompletionCV.notify_all();
+		return Serial;
+	}
+
+	auto FRHICommandListExecutor::GetSynchronousOperationContext(
+		bool bFlushRecordedCommands)
+		-> IRHICommandContext&
+	{
+		checkf(!CommandListImmediate.HasOpenBufferLocks(),
+			"A synchronous RHI operation requires every buffer lock to be unlocked.");
+		if (bFlushRecordedCommands)
+		{
+			Submit({}, ERHISubmitFlags::None);
+		}
+		return State->ReplayContext.GetOperationContext("Synchronous RHI operation");
+	}
+
+	auto FRHICommandListExecutor::CreateFence() -> FRHICommandListFence
+	{
+		return FRHICommandListFence(*this, GetLastSubmittedSerial());
+	}
+
+	auto FRHICommandListExecutor::GetLastSubmittedSerial() const -> uint64
+	{
+		return State->LastSubmittedSerial.load(std::memory_order_acquire);
+	}
+
+	auto FRHICommandListExecutor::GetCompletedSerial() const -> uint64
+	{
+		return State->CompletedSerial.load(std::memory_order_acquire);
+	}
+
+	auto FRHICommandListExecutor::GetStats() const
+		-> FRHICommandListExecutorStats
+	{
+		return {
+			.RecordedCommandCount = State->RecordedCommandCount.load(std::memory_order_relaxed),
+			.RecordedPayloadBytes = State->RecordedPayloadBytes.load(std::memory_order_relaxed),
+			.SubmittedBatchCount = State->SubmittedBatchCount.load(std::memory_order_relaxed),
+			.SubmissionGroupCount = State->SubmissionGroupCount.load(std::memory_order_relaxed),
+			.ReplayDurationNanoseconds = State->ReplayDurationNanoseconds.load(std::memory_order_relaxed),
+			.WaitCount = State->WaitCount.load(std::memory_order_relaxed),
+			.RejectedSubmissionCount = State->RejectedSubmissionCount.load(std::memory_order_relaxed),
+			.PendingBatchCount = static_cast<uint64>(State->PendingBatches.size())
+		};
+	}
+
+	auto FRHICommandListExecutor::IsSerialComplete(uint64 Serial) const -> bool
+	{
+		return GetCompletedSerial() >= Serial;
+	}
+
+	auto FRHICommandListExecutor::WaitForSerial(uint64 Serial) const -> void
+	{
+		State->WaitCount.fetch_add(1, std::memory_order_relaxed);
+		if (IsSerialComplete(Serial))
+		{
+			return;
+		}
+		std::unique_lock Lock(State->CompletionMutex);
+		State->CompletionCV.wait(Lock, [this, Serial]() {
+			return IsSerialComplete(Serial);
+		});
 	}
 } // namespace Durin

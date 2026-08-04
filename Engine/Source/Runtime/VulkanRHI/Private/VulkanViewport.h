@@ -37,7 +37,7 @@ namespace Durin::VulkanRHI
 	public:
 		FVulkanBackBuffer(FVulkanDevice& InDevice, FVulkanViewport* InViewport);
 
-		auto AcquireBackBufferImage(FVulkanCommandListContext& Context);
+		auto AcquireBackBufferImage(FVulkanCommandListContext& Context) -> void;
 
 	private:
 		FVulkanViewport* Viewport;

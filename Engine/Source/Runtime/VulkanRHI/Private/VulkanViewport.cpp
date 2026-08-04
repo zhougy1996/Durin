@@ -26,7 +26,8 @@ namespace Durin::VulkanRHI
 		NumSamples = 1;
 	}
 
-	auto FVulkanBackBuffer::AcquireBackBufferImage(FVulkanCommandListContext& Context)
+	auto FVulkanBackBuffer::AcquireBackBufferImage(
+		FVulkanCommandListContext& Context) -> void
 	{
 		check(Viewport->AcquiredBackBufferIndex >= 0 && Viewport->AcquiredBackBufferIndex < static_cast<int32>(Viewport->TextureViews.size()));
 		const FVulkanView& View = Viewport->TextureViews[Viewport->AcquiredBackBufferIndex];
@@ -207,7 +208,7 @@ namespace Durin::VulkanRHI
 			AcquiredBackBufferIndex = static_cast<int32>(AcquiredImageIndex);
 		}
 
-		RHIBackBuffer->AcquireBackBufferImage(static_cast<FVulkanCommandListContext&>(InRHICmdList.GetContext()));
+		InRHICmdList.AcquireBackBuffer(RHIBackBuffer.GetReference());
 		return RHIBackBuffer;
 	}
 

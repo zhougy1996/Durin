@@ -9,41 +9,6 @@
 
 namespace Durin::VulkanRHI
 {
-	struct FVulkanPendingBufferLock
-	{
-		FStagingBuffer* StagingBuffer = nullptr;
-		uint32 Offset = 0;
-		uint32 Size = 0;
-		EResourceLockMode LockMode = EResourceLockMode::WriteOnly;
-		bool FirstLock = false;
-	};
-
-	namespace
-	{
-		std::unordered_map<const FRHIBuffer*, FVulkanPendingBufferLock> GPendingLocks;
-
-		std::mutex GPendingLocksMutex;
-
-		// Add a pending lock for the given buffer.
-		auto AddPendingLock(const FRHIBuffer* Buffer, const FVulkanPendingBufferLock& BufferLock) -> void
-		{
-			std::lock_guard Lock(GPendingLocksMutex);
-			check(!GPendingLocks.contains(Buffer));
-			GPendingLocks.emplace(Buffer, BufferLock);
-		}
-
-		// Retrieve and remove the pending lock for the given buffer.
-		auto RetrievePendingLock(const FRHIBuffer* Buffer) -> FVulkanPendingBufferLock
-		{
-			std::lock_guard Lock(GPendingLocksMutex);
-			const auto It = GPendingLocks.find(Buffer);
-			check(It != GPendingLocks.end() && "Buffer Lock/Unlock mismatch.");
-			FVulkanPendingBufferLock Result = It->second;
-			GPendingLocks.erase(It);
-			return Result;
-		}
-	} // namespace
-
 	FVulkanBuffer::FVulkanBuffer(FVulkanDevice& InDevice, const FRHIBufferCreateDesc& InCreateDesc)
 		: FRHIBuffer(InCreateDesc)
 		, Device(InDevice)
@@ -65,97 +30,41 @@ namespace Durin::VulkanRHI
 
 	FVulkanBuffer::~FVulkanBuffer()
 	{
-		check(LockStatus != ELockStatus::Locked);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Buffer, Buffer, Allocation);
 	}
 
-	auto FVulkanBuffer::Lock(const FRHICommandListImmediate& RHICmdList, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
+	auto FVulkanBuffer::Write(
+		FVulkanCommandListContext& Context,
+		uint32 Offset,
+		std::span<const uint8> Data) -> void
 	{
-		check(LockStatus == ELockStatus::Unlocked);
-		check(Size != 0 && Offset + Size <= Desc.Size);
-
-		LockStatus = ELockStatus::Locked;
-		void* Data = nullptr;
-		uint32 MappedOffset = Offset;
-
-		if (LockMode == EResourceLockMode::ReadOnly)
+		check(!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset);
+		if (void* MappedData = Allocation.GetMappedData(); MappedData != nullptr)
 		{
-			DURIN_ERROR("Failed to lock a Vulkan buffer: mode=ReadOnly is unsupported, offset={}, size={}, bufferSize={}.", Offset, Size, Desc.Size);
-			LockStatus = ELockStatus::Unlocked;
-			return nullptr;
+			std::memcpy(static_cast<uint8*>(MappedData) + Offset, Data.data(), Data.size());
+			FlushMappedMemory(Offset, static_cast<uint32>(Data.size()));
+			return;
 		}
 
-		if (LockMode == EResourceLockMode::WriteOnly)
-		{
-			if (IsStatic()) // Static buffers require a staging buffer for locking.
-			{
-				auto* StagingBuffer = new FStagingBuffer(Device, Size);
-				Data = StagingBuffer->GetMappedPointer();
-				MappedOffset = 0;
-				AddPendingLock(this, FVulkanPendingBufferLock{StagingBuffer, Offset, Size, LockMode, true});
-			}
-			else
-			{
-				Data = Allocation.GetMappedData();
-				if (Data != nullptr)
-				{
-					// For dynamic buffers, we can return the mapped pointer directly.
-					LockStatus = ELockStatus::PersistentMapping;
-				}
-				else
-				{
-					checkf(false, "Failed to map buffer memory for dynamic buffer. This should not happen as the buffer was created with persistent mapping.");
-				}
-			}
-		}
+		FStagingBuffer StagingBuffer(Device, static_cast<uint32>(Data.size()));
+		std::memcpy(StagingBuffer.GetMappedPointer(), Data.data(), Data.size());
+		StagingBuffer.FlushMappedMemory();
+		vk::CommandBuffer CmdBuffer = Context.GetCommandBuffer()->GetHandle();
+		CmdBuffer.copyBuffer(
+			StagingBuffer.GetHandle(), Buffer,
+			vk::BufferCopy(0, Offset, Data.size()));
 
-		check(Data);
-		return static_cast<uint8*>(Data) + MappedOffset;
-	}
-
-	auto FVulkanBuffer::Unlock(const FRHICommandListImmediate& RHICmdList) -> void
-	{
-		check(LockStatus != ELockStatus::Unlocked);
-
-		if (LockStatus == ELockStatus::PersistentMapping)
-		{
-			FlushMappedMemory(0, Desc.Size);
-		}
-		else
-		{
-			FVulkanPendingBufferLock BufferLock = RetrievePendingLock(this);
-
-			FStagingBuffer* StagingBuffer = BufferLock.StagingBuffer;
-
-			check(StagingBuffer);
-			StagingBuffer->FlushMappedMemory();
-			auto& Context = static_cast<FVulkanCommandListContext&>(RHICmdList.GetContext());
-			vk::CommandBuffer CmdBufferHandle = Context.GetCommandBuffer()->GetHandle();
-			vk::BufferCopy CopyRegion;
-			CopyRegion.setSrcOffset(0);
-			CopyRegion.setDstOffset(BufferLock.Offset);
-			CopyRegion.setSize(BufferLock.Size);
-			CmdBufferHandle.copyBuffer(StagingBuffer->GetHandle(), Buffer, CopyRegion);
-
-			// Insert a memory barrier to ensure the copy is visible to subsequent buffer reads.
-			vk::BufferMemoryBarrier BufferBarrier;
-			BufferBarrier.setBuffer(Buffer);
-			BufferBarrier.setOffset(BufferLock.Offset);
-			BufferBarrier.setSize(BufferLock.Size);
-			BufferBarrier.setSrcAccessMask(vk::AccessFlagBits::eTransferWrite);
-			BufferBarrier.setDstAccessMask(vk::AccessFlagBits::eMemoryRead | vk::AccessFlagBits::eMemoryWrite);
-
-			CmdBufferHandle.pipelineBarrier(
-				vk::PipelineStageFlagBits::eTransfer,
-				vk::PipelineStageFlagBits::eAllCommands,
-				{},
-				{},
-				BufferBarrier,
-				{});
-
-			delete StagingBuffer;
-		}
-		LockStatus = ELockStatus::Unlocked;
+		vk::BufferMemoryBarrier Barrier;
+		Barrier.setBuffer(Buffer)
+			.setOffset(Offset)
+			.setSize(Data.size())
+			.setSrcAccessMask(vk::AccessFlagBits::eTransferWrite)
+			.setDstAccessMask(
+				vk::AccessFlagBits::eMemoryRead | vk::AccessFlagBits::eMemoryWrite);
+		CmdBuffer.pipelineBarrier(
+			vk::PipelineStageFlagBits::eTransfer,
+			vk::PipelineStageFlagBits::eAllCommands,
+			{}, {}, Barrier, {});
 	}
 
 	auto FVulkanBuffer::IsDynamic() const -> bool
@@ -315,21 +224,6 @@ namespace Durin::VulkanRHI
 			RHICmdList.WriteBuffer(CreatedBuffer, InitialData.Data, InitialData.Size, 0);
 		}
 		return CreatedBuffer;
-	}
-
-	auto FVulkanDynamicRHI::RHIAllocateDynamicUniformBuffer(FRHICommandListImmediate& RHICmdList, const void* Data, uint32 Size) -> FRHIUniformBufferRange
-	{
-		return Device->GetDynamicUniformBufferAllocator().Allocate(Data, Size);
-	}
-
-	auto FVulkanDynamicRHI::RHILockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*
-	{
-		return static_cast<FVulkanBuffer*>(Buffer)->Lock(RHICmdList, Offset, Size, LockMode);
-	}
-
-	auto FVulkanDynamicRHI::RHIUnlockBuffer(FRHICommandListImmediate& RHICmdList, FRHIBuffer* Buffer) -> void
-	{
-		return static_cast<FVulkanBuffer*>(Buffer)->Unlock(RHICmdList);
 	}
 
 } // namespace Durin::VulkanRHI

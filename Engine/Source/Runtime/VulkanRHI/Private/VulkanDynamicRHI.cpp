@@ -58,8 +58,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHIEndFrame() -> void
 	{
-		auto& Context = FRHICommandListImmediate::Get().GetContext();
-		Context.RHIEndFrame();
+		Device->GetImmediateContext()->RHIEndFrame();
 	}
 
 	auto FVulkanDynamicRHI::RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void
@@ -85,16 +84,10 @@ namespace Durin::VulkanRHI
 		return Device->GetGpu();
 	}
 
-	auto FVulkanDynamicRHI::RHIGetVkCommandBuffer(FRHICommandListBase& RHICmdList) const -> vk::CommandBuffer
+	auto FVulkanDynamicRHI::RHIGetVkCommandBufferForBackendIntegration() const
+		-> vk::CommandBuffer
 	{
-		auto& Context = static_cast<FVulkanCommandListContext&>(RHICmdList.GetContext());
-		return Context.GetCommandBuffer()->GetHandle();
-	}
-
-	auto FVulkanDynamicRHI::RHIBlockUntilGPUIdle() -> void
-	{
-
-		Device->WaitUtilIdle();
+		return Device->GetImmediateContext()->GetCommandBuffer()->GetHandle();
 	}
 
 	auto FVulkanDynamicRHI::CreateInstance() -> void
