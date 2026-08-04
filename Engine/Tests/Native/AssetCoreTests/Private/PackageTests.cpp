@@ -184,6 +184,7 @@ namespace
 			Durin::GIsGameThreadIdInitialized = true;
 			Durin::FNameInit();
 			Durin::DObjectInit();
+			(void)DPackageAssetForTest::StaticClass();
 			const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "Assets";
 			Durin::Testing::RemoveTestWorkDirectory(Root);
 			Durin::FPaths::SetDerivedDataCacheDirForTests(
