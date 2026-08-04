@@ -155,6 +155,7 @@ durin_add_engine_functional_test(MaterialTests
 		${_durin_material_editor_private}/Widgets/MaterialParameterPanelModel.cpp
 	LIBRARIES
 		ApplicationCore
+		AssetImportCore
 		RenderCore
 		Renderer
 		StandardAssetImport
@@ -165,6 +166,7 @@ durin_add_engine_functional_test(MaterialTests
 		bc7enc_rdo::bc7enc_rdo
 	DEPLOY_TARGETS
 		ApplicationCore
+		AssetImportCore
 		RHI
 		RenderCore
 		Renderer
@@ -195,8 +197,8 @@ durin_add_engine_functional_test(StaticMeshTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES StandardAssetImport RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
-	DEPLOY_TARGETS StandardAssetImport RHI RenderCore Renderer DurinEd
+	LIBRARIES AssetImportCore StandardAssetImport RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
+	DEPLOY_TARGETS AssetImportCore StandardAssetImport RHI RenderCore Renderer DurinEd
 	RUNTIME_FILES assimp::assimp
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
@@ -215,7 +217,7 @@ durin_add_engine_functional_test(TextureTests
 		Private/TextureCubeTests.cpp
 	LIBRARIES AssetImportCore StandardAssetImport RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
 	DEPLOY_TARGETS AssetImportCore StandardAssetImport RHI RenderCore Renderer DurinEd
-	RUNTIME_FILES Slang_Imported
+	RUNTIME_FILES assimp::assimp Slang_Imported
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -228,8 +230,8 @@ durin_add_engine_functional_test(SceneImportVulkanTests
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Owns the Vulkan-backed static-model import acceptance lifecycle."
 	SOURCES Private/Texture/SceneImportVulkanTests.cpp
-	LIBRARIES ApplicationCore StandardAssetImport RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
-	DEPLOY_TARGETS ApplicationCore StandardAssetImport RHI RenderCore Renderer VulkanRHI DurinEd
+	LIBRARIES ApplicationCore AssetImportCore StandardAssetImport RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
+	DEPLOY_TARGETS ApplicationCore AssetImportCore StandardAssetImport RHI RenderCore Renderer VulkanRHI DurinEd
 	RUNTIME_FILES assimp::assimp Slang_Imported
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
@@ -354,8 +356,8 @@ durin_add_engine_functional_test(EditorRenderingTests
 		Private/RendererRenderTargetLayoutTests.cpp
 		Private/RendererSceneViewTests.cpp
 		Private/EditorTextureSmokeTests.cpp
-	LIBRARIES ApplicationCore StandardAssetImport RenderCore Renderer DurinEd
-	DEPLOY_TARGETS ApplicationCore StandardAssetImport RHI RenderCore Renderer DurinEd
+	LIBRARIES ApplicationCore AssetImportCore StandardAssetImport RenderCore Renderer DurinEd
+	DEPLOY_TARGETS ApplicationCore AssetImportCore StandardAssetImport RHI RenderCore Renderer DurinEd
 	RUNTIME_FILES Slang_Imported
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport

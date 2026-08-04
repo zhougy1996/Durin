@@ -2,10 +2,10 @@
 
 Summary: Reshape static-mesh render resources around Unreal Engine-compatible buffer and vertex-factory names while preserving Durin's cooked payload, RHI buffer model, and rendered output.
 
-Last reviewed: 2026-08-01
+Last reviewed: 2026-08-04
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-04
 
 ## Current Status
 
@@ -42,8 +42,10 @@ contract now lives in the imported
 `VertexFactory/LocalVertexFactory.slang` module. The compiler links imported
 Slang module dependencies before code generation, and the shader compile
 service fingerprints imported modules so their dependents invalidate together.
-Stage 5 cleanup and contract documentation are complete; focused validation,
-the full `all` build, and the editor smoke workflow remain.
+Stage 5 cleanup and contract documentation are complete. Focused Engine,
+RenderCore, shader-cache, material, viewport, renderer-lifecycle, and Vulkan
+static-mesh import tests pass; the full `all` build and native-test aggregate
+pass; and the Sandbox editor completes a hidden-window 120-tick smoke run.
 
 The obsolete packed-vertex type, legacy raw RHI fields, and duplicate
 static-mesh declaration builder are absent from engine source. The lasting
@@ -720,13 +722,13 @@ contracts are documented.
 
 - [x] Remove obsolete raw buffer fields, compatibility accessors, duplicate
   declaration builders, and stale packing helpers.
-- [ ] Confirm release/reinitialize behavior across renderer shutdown, static
+- [x] Confirm release/reinitialize behavior across renderer shutdown, static
   mesh replacement, reimport, and failed resource initialization.
-- [ ] Run focused Engine, RenderCore, Renderer, shader-cache, static-mesh
+- [x] Run focused Engine, RenderCore, Renderer, shader-cache, static-mesh
   derived-data, material rendering, and viewport tests.
-- [ ] Run the repository-prescribed full `all` build because the change crosses
+- [x] Run the repository-prescribed full `all` build because the change crosses
   Engine, RenderCore, RHI-facing declarations, Renderer, and shaders.
-- [ ] Run the editor static-mesh import/render/reimport smoke workflow and
+- [x] Run the editor static-mesh import/render/reimport smoke workflow and
   inspect representative vertex-colored and textured meshes.
 - [x] Move stable ownership, lifecycle, and vertex-factory shader contracts
   into the appropriate Runtime rendering documentation.
@@ -747,6 +749,8 @@ contracts are documented.
 
 - Baseline commit: `4796044c` (`refactor(renderer): complete modularization`).
 - Working set:
+  `Engine/Tests/Native/AssetCoreTests/CMakeLists.txt`,
+  `Engine/Tests/Native/EngineTests/CMakeLists.txt`,
   `Documentation/Runtime/Rendering/StaticMeshRendering.md`,
   `Documentation/Runtime/Rendering/MaterialSystem.md`,
   `Documentation/Plans/MaterialSystem.md`, and this plan.
@@ -754,12 +758,19 @@ contracts are documented.
   `FStaticMeshLODResources`, `FStaticMeshVertexBuffers`,
   `FRawStaticIndexBuffer`, and `VertexFactory.LocalVertexFactory`.
 - Decision: lasting contracts live in Runtime rendering documentation rather
-  than the plan; the plan retains only provenance and remaining validation.
-- Open questions: none; remaining work is the unchecked Stage 5 validation
-  checklist.
+  than the plan; the plan retains provenance and completion evidence.
+- Decision: native tests that load `StandardAssetImport` explicitly deploy its
+  `AssetImportCore` dependency and delay-loaded `assimp` runtime so isolated
+  and aggregate test runs use the same complete runtime set.
+- Open questions: none.
 - Validation: repository searches found no `FStaticMeshPackedVertex`, legacy
-  raw RHI fields, or duplicate static-mesh declaration builder; no tests or
-  build were run in this documentation-only change.
+  raw RHI fields, or duplicate static-mesh declaration builder. `StaticMeshTests`
+  passed 44/44; `TextureTests` passed 61/61; RenderCore contract/shader/cache
+  targets passed 34/26/13/6; `MaterialTests` 51/51; `ViewportTests` 47/47;
+  renderer reload, Vulkan scene import/render, and editor rendering targets
+  passed. The native aggregate passed 853/853 tests, the full `all` build
+  passed, and the Sandbox editor completed the hidden-window 120-tick smoke
+  run.
 
 ## Validation Matrix
 
