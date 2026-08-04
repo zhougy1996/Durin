@@ -70,28 +70,34 @@ TEST(FObjectPropertyViewBuilderTests, ComposesPropertiesHidingReplacementAndSear
 	Durin::CollectGarbage();
 }
 
-TEST(FObjectPropertyViewCustomizationTests, DeclaresActorTransformRow)
+TEST(FObjectPropertyViewCustomizationTests, CameraDetailsOnlyCustomizeTheCameraComponent)
 {
 	InitializeDObjectSystem();
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "PropertyCustomizationWorld");
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "PropertyCustomizationLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
-	auto* Actor = Level->SpawnActor<Durin::AStaticMeshActor>("StaticMesh");
+	auto* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Actor, nullptr);
-	Durin::DStaticMeshComponent* Component = Actor->GetStaticMeshComponent();
-	Component->SetStaticMesh(Durin::DStaticMesh::CreateDebugTriangle(Level));
+	Durin::DCameraComponent* Component = Actor->GetCameraComponent();
+	ASSERT_NE(Component, nullptr);
 
 	Durin::FLevelEditorContext Context;
-	Durin::FObjectPropertyViewBuilder ActorBuilder("scale");
-	Durin::CreateActorDetailsCustomization()->CustomizeDetails(Context, Actor, ActorBuilder);
-	EXPECT_EQ(ActorBuilder.GetVisibleRowCount(), 1u);
+	const std::shared_ptr<Durin::IObjectDetailsCustomization> Customization = Durin::CreateCameraDetailsCustomization();
+	Durin::FObjectPropertyViewBuilder ActorBuilder("camera");
+	Customization->CustomizeDetails(Context, Actor, ActorBuilder);
+	EXPECT_EQ(ActorBuilder.GetVisibleRowCount(), 0u);
+	EXPECT_FALSE(ActorBuilder.IsReplacingDefaultProperties());
 
-	EXPECT_EQ(Component->GetClass()->FindPropertyByName("Material"), nullptr);
-	EXPECT_EQ(Component->GetClass()->FindPropertyByName("Materials"), nullptr);
-	EXPECT_EQ(Component->GetClass()->FindPropertyByName("MaterialOverridesVersion"), nullptr);
-	Durin::FProperty* OverridesProperty = Component->GetClass()->FindPropertyByName("MaterialOverrides");
-	ASSERT_NE(OverridesProperty, nullptr);
-	EXPECT_FALSE(OverridesProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Edit));
+	Durin::FObjectPropertyViewBuilder ComponentBuilder("camera");
+	Customization->CustomizeDetails(Context, Component, ComponentBuilder);
+	EXPECT_EQ(ComponentBuilder.GetVisibleRowCount(), 1u);
+	EXPECT_FALSE(ComponentBuilder.IsReplacingDefaultProperties());
+	Durin::FProperty* TransformProperty = Component->GetClass()->FindPropertyByName("RelativeTransform");
+	Durin::FProperty* ProjectionProperty = Component->GetClass()->FindPropertyByName("ProjectionSettings");
+	ASSERT_NE(TransformProperty, nullptr);
+	ASSERT_NE(ProjectionProperty, nullptr);
+	EXPECT_FALSE(ComponentBuilder.IsPropertyHidden(*TransformProperty));
+	EXPECT_TRUE(ComponentBuilder.IsPropertyHidden(*ProjectionProperty));
 
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();

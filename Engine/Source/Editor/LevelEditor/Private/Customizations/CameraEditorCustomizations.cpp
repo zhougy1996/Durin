@@ -92,20 +92,16 @@ namespace Durin
 			}
 		};
 
-		// Adds camera projection controls and preview behavior to actor details.
+		// Adds camera projection controls to camera component details.
 		class FCameraDetailsCustomization final : public IObjectDetailsCustomization
 		{
 		public:
 			auto CustomizeDetails(FLevelEditorContext& Context, DObject* Object,
 				FObjectPropertyViewBuilder& Builder) -> void override
 			{
-				DCameraComponent* Camera = Cast<DCameraComponent>(Object);
-				if (!Camera)
-				{
-					if (auto* Actor = Cast<ACameraActor>(Object)) Camera = Actor->GetCameraComponent();
-				}
+				auto* Camera = Cast<DCameraComponent>(Object);
 				if (!Camera) return;
-				if (Cast<DCameraComponent>(Object)) Builder.ReplaceDefaultProperties();
+				Builder.HideProperty(Camera->GetClass()->FindPropertyByName("ProjectionSettings"));
 				Builder.AddCustomRow(
 					"Camera Projection Field Of View Near Clip Far Clip Aspect Ratio Custom Ratio",
 					[&Context, Camera](FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& ViewContext) {

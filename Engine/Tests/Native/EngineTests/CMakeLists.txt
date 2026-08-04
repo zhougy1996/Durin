@@ -107,7 +107,6 @@ durin_add_engine_functional_test(EditorPropertyTests
 		Private/Editor/ReflectedPropertyTransactionTests.cpp
 		Private/Editor/ReflectedPropertyContainerTests.cpp
 	PRIVATE_SOURCES
-		${_durin_level_editor_private}/Customizations/ObjectPropertyEditorCustomizations.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES DurinEd
 	DEPLOY_TARGETS DurinEd
@@ -292,7 +291,6 @@ durin_add_engine_functional_test(ViewportTests
 		${_durin_level_editor_private}/Customizations/CameraEditorCustomizations.cpp
 		${_durin_level_editor_private}/Customizations/DirectionalLightEditorCustomizations.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-		${_durin_level_editor_private}/Customizations/ObjectPropertyEditorCustomizations.cpp
 		${_durin_level_editor_private}/Customizations/SplineEditorCustomizations.cpp
 		${_durin_level_editor_private}/Settings/LevelViewportSessionSettings.cpp
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp

@@ -28,7 +28,6 @@
 #include "Workspace/LevelEditorContext.h"
 #include "LevelEditorCustomizations.h"
 #include "MonaImGui.h"
-#include "Customizations/ObjectPropertyEditorCustomizations.h"
 #include "Mona/SceneViewport.h"
 #include "Misc/Paths.h"
 #include "SceneViewProjection.h"
