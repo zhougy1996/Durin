@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "durin-project.schema.json",
+  "title": "Durin project descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ProjectName"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ProjectName": {
+      "$ref": "#/$defs/identifier"
+    },
+    "ModuleDirs": {
+      "type": "object",
+      "default": {},
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    },
+    "BaseModules": {
+      "$ref": "#/$defs/identifierList",
+      "default": []
+    },
+    "ExtraModules": {
+      "type": "object",
+      "default": {},
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/runtimeVariant"
+      }
+    },
+    "Mounts": {
+      "type": "array",
+      "default": [],
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/mount"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "virtualRoot": {
+      "type": "string",
+      "pattern": "^/(?:[^/\\\\]+/)+$"
+    },
+    "identifierList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/identifier"
+      }
+    },
+    "runtimeVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "Modules": {
+          "$ref": "#/$defs/identifierList",
+          "default": []
+        }
+      }
+    },
+    "mount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "VirtualRoot",
+        "Owner",
+        "Root",
+        "ContentPath",
+        "AutoScan",
+        "AuthoringWritable",
+        "Dependencies"
+      ],
+      "properties": {
+        "VirtualRoot": {
+          "$ref": "#/$defs/virtualRoot"
+        },
+        "Owner": {
+          "enum": ["Extension", "ExternalSources"]
+        },
+        "Root": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "ContentPath": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "AutoScan": {
+          "type": "boolean"
+        },
+        "AuthoringWritable": {
+          "type": "boolean"
+        },
+        "Dependencies": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/virtualRoot"
+          }
+        }
+      }
+    }
+  }
+}

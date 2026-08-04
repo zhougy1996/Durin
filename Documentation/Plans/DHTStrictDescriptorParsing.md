@@ -9,10 +9,11 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete. The complete shared descriptor field set, structural
-constraints, semantic-validation boundary, and `LinkType` contract are frozen
-below. Stage 1 is next: add the two schemas, strict loading boundary, schema
-tests, and CMake fingerprint coverage.
+Stages 0 and 1 are complete. The complete shared descriptor field set,
+structural constraints, semantic-validation boundary, and `LinkType` contract
+are frozen below. Both schemas, the strict loading boundary, schema tests, and
+CMake fingerprint coverage are implemented. Stage 2 is next: replace DHT's
+reflective construction with explicit project and module parsing.
 
 DHT currently
 uses the generic `dataclass_from_dict` helper only for `DurinProjectConfig` and
@@ -55,6 +56,24 @@ is valid even though DHT does not retain it in `DurinProjectConfig`.
 - Validation: targeted consumer searches covered all tracked descriptor keys,
   all 2 project and 22 module descriptors, DurinDevTool scaffolding, CMake
   linkage selection, and the C++ seven-field mount parser.
+
+### Stage 1 Handoff
+
+- Baseline commit: `f1c03be0`.
+- Working set: `requirements.txt`, DHT descriptor schemas and JSON helper,
+  schema-focused DHT tests, CMake DHT fingerprint inputs, and this plan.
+- Key symbols: `load_json_descriptor`, `_load_schema_validator`,
+  `_object_without_duplicate_keys`, `_json_path`, and
+  `DURIN_DHT_TOOL_INPUTS`.
+- Decisions: use pinned `jsonschema==4.25.1`; keep schemas outside the Python
+  package under the DHT root; cache checked Draft 2020-12 validators; report the
+  first deterministic schema error; retain `load_json_file` without implicit
+  descriptor validation for generated JSON formats.
+- Open questions: none.
+- Validation: both schemas passed Draft 2020-12 self-validation; 2 tracked
+  projects, 22 tracked modules, rendered project/module templates, complete
+  mounts, malformed JSON, duplicate keys, unknown fields, wrong types, nulls,
+  and duplicate items passed 15 focused tests.
 
 ## Goal
 
@@ -239,21 +258,21 @@ filesystem state, case folding, or another descriptor.
 
 ### Stage 1: Add schemas and the strict loading boundary
 
-- [ ] Pin `jsonschema` in `requirements.txt` and add the two Draft 2020-12
+- [x] Pin `jsonschema` in `requirements.txt` and add the two Draft 2020-12
   schema files with closed objects, typed map values, typed array elements,
   `minLength`, `uniqueItems`, required fields, defaults-as-annotations, and the
   selected `LinkType` enum.
-- [ ] Add a small descriptor loader that reads a top-level JSON object, rejects
+- [x] Add a small descriptor loader that reads a top-level JSON object, rejects
   duplicate member names, validates it with a cached schema validator, and
   raises deterministic file/path-qualified errors.
-- [ ] Keep `load_json_file` available to non-configuration JSON models without
+- [x] Keep `load_json_file` available to non-configuration JSON models without
   implicitly applying a descriptor schema.
-- [ ] Extend `DURIN_DHT_TOOL_INPUTS` to cover the schema files and add a focused
+- [x] Extend `DURIN_DHT_TOOL_INPUTS` to cover the schema files and add a focused
   check proving schema content changes affect the computed tool fingerprint.
-- [ ] Add schema self-validation and data-driven tests over minimal, complete,
+- [x] Add schema self-validation and data-driven tests over minimal, complete,
   malformed, wrong-type, null, unknown-field, nested-unknown, duplicate-key,
   empty-string, and duplicate-list fixtures.
-- [ ] Validate every tracked descriptor and every rendered project/module
+- [x] Validate every tracked descriptor and every rendered project/module
   scaffolding template against the schemas.
 
 #### Acceptance Gate

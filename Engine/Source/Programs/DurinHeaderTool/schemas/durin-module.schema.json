@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "durin-module.schema.json",
+  "title": "Durin module descriptor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ModuleName"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ModuleName": {
+      "$ref": "#/$defs/identifier"
+    },
+    "LinkType": {
+      "enum": ["Shared", "Static"],
+      "default": "Shared"
+    },
+    "PCH": {
+      "$ref": "#/$defs/identifier",
+      "default": "Self"
+    },
+    "PrivateDependencies": {
+      "$ref": "#/$defs/identifierList",
+      "default": []
+    },
+    "PublicDependencies": {
+      "$ref": "#/$defs/identifierList",
+      "default": []
+    },
+    "OptionalPrivateDependencies": {
+      "$ref": "#/$defs/identifierList",
+      "default": []
+    },
+    "OptionalPublicDependencies": {
+      "$ref": "#/$defs/identifierList",
+      "default": []
+    },
+    "ReflectHeaders": {
+      "type": "array",
+      "uniqueItems": true,
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "identifierList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/identifier"
+      }
+    }
+  }
+}

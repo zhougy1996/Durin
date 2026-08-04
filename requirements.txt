@@ -1,6 +1,8 @@
 # DurinHeaderTool imports clang.cindex and uses the libclang binary bundled by
 # this wheel. Keep the binding and native library on the same LLVM version.
 libclang==18.1.1
+# Validate the repository-owned .dproject and .dmodule structural contracts.
+jsonschema==4.25.1
 # Repository Python tests, including DurinHeaderTool and DurinDevTool, run with pytest.
 pytest==9.1.1
 rich==14.2.0

@@ -11,6 +11,7 @@ set(DHT_MAIN ${Python_EXECUTABLE} "${DHT_DIR}/durin_header_tool/__main__.py")
 file(GLOB_RECURSE DURIN_DHT_TOOL_INPUTS CONFIGURE_DEPENDS
 	LIST_DIRECTORIES FALSE
 	"${DHT_DIR}/durin_header_tool/*.py"
+	"${DHT_DIR}/schemas/*.json"
 )
 list(APPEND DURIN_DHT_TOOL_INPUTS "${DURIN_WORKSPACE_DIR}/requirements.txt")
 list(SORT DURIN_DHT_TOOL_INPUTS)
