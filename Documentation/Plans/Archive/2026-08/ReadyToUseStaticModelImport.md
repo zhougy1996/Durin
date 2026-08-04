@@ -330,7 +330,7 @@ roughness PBR surface contract owned by the Material System plan.
   Package creation, reflected object mutation, asset-registry publication, and
   final save occur on the game/editor thread.
 - Async result state uses the task lifecycle and cancellation contract selected
-  by `Documentation/Plans/MultithreadingV1.md`. Closing the dialog or project
+  by `Documentation/Plans/Archive/2026-08/MultithreadingV1.md`. Closing the dialog or project
   cancels or safely abandons unpublished candidates.
 - Errors carry stage, source identity, asset path when known, and a stable
   category. Warnings are retained separately and never convert a failed
@@ -1124,7 +1124,7 @@ subset.
 - `Documentation/Plans/TextureSupport.md`
 - `Documentation/Plans/Archive/2026-07/StaticModelImportStage3Preparation.md`
 - `Documentation/Plans/Archive/2026-07/SourceLibraryReferences.md`
-- `Documentation/Plans/MultithreadingV1.md`
+- `Documentation/Plans/Archive/2026-08/MultithreadingV1.md`
 - `Documentation/Development/Build/BuildAndRun.md`
 
 ## Related Code

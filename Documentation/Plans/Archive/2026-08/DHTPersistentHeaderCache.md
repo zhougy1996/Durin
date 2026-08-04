@@ -4,7 +4,7 @@ Summary: Preserve versioned per-header DHT parse results across clean and rebuil
 
 Last reviewed: 2026-08-04
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-04
 
 ## Current Status
@@ -114,7 +114,7 @@ purge semantics.
 
 - Eliminating the separate Export and Reflection libclang parses on a true cold
   cache miss; that work belongs to the
-  [DHT Single-Parse Semantic Pipeline](DHTSingleParseSemanticPipeline.md).
+  [DHT Single-Parse Semantic Pipeline](../../DHTSingleParseSemanticPipeline.md).
 - Changing reflected C++ syntax, symbol naming, or runtime reflection behavior.
   Stage 1's one-time `sizeof(SourceType)` normalization is the required removal
   of parser-host layout from generated metadata; later cache stages preserve
@@ -694,9 +694,9 @@ DurinDevTool; DHT values are Engine Export plus Reflection elapsed time.
 ## Deferred Follow-ups
 
 - Reusing one semantic parse across Export and Reflection is tracked by
-  [DHT Single-Parse Semantic Pipeline](DHTSingleParseSemanticPipeline.md).
+  [DHT Single-Parse Semantic Pipeline](../../DHTSingleParseSemanticPipeline.md).
 - Coordinating hidden parser workers with Ninja remains tracked by
-  [DHT And Ninja Parallelism Coordination](../Investigations/DHTNinjaParallelismCoordination.md).
+  [DHT And Ninja Parallelism Coordination](../../../Investigations/DHTNinjaParallelismCoordination.md).
 - Per-symbol reflection cache invalidation may replace the safe whole-export-set
   key after correctness and hit-rate measurements justify the added complexity.
 - Cross-worktree or remote cache sharing requires a separate trust, eviction,
@@ -704,18 +704,18 @@ DurinDevTool; DHT values are Engine Export plus Reflection elapsed time.
 
 ## Related Documentation
 
-- [Build System](../Development/Build/BuildSystem.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Runtime Variants](../Development/Build/RuntimeVariants.md)
-- [Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [DHT And Ninja Parallelism Coordination](../Investigations/DHTNinjaParallelismCoordination.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Runtime Variants](../../../Development/Build/RuntimeVariants.md)
+- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [DHT And Ninja Parallelism Coordination](../../../Investigations/DHTNinjaParallelismCoordination.md)
 
 ## Related Code
 
-- [`CMake/Project/ProjectTargets.cmake`](../../CMake/Project/ProjectTargets.cmake)
-- [`CMake/Project/ProjectSetup.cmake`](../../CMake/Project/ProjectSetup.cmake)
-- [`module_export_file_generator.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/generators/module_export_file_generator.py)
-- [`module_reflection_files_generator.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/generators/module_reflection_files_generator.py)
-- [`reflection_cache.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/cache/reflection_cache.py)
-- [`file_helper.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/io/file_helper.py)
-- [`output_lock.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/io/output_lock.py)
+- [`CMake/Project/ProjectTargets.cmake`](../../../../CMake/Project/ProjectTargets.cmake)
+- [`CMake/Project/ProjectSetup.cmake`](../../../../CMake/Project/ProjectSetup.cmake)
+- [`module_export_file_generator.py`](../../../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/generators/module_export_file_generator.py)
+- [`module_reflection_files_generator.py`](../../../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/generators/module_reflection_files_generator.py)
+- [`reflection_cache.py`](../../../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/cache/reflection_cache.py)
+- [`file_helper.py`](../../../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/io/file_helper.py)
+- [`output_lock.py`](../../../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/io/output_lock.py)

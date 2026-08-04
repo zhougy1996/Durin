@@ -4,7 +4,7 @@ Summary: Production-safe CPU scheduler lifecycle, task states, dependencies, can
 
 Last reviewed: 2026-08-02
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-02
 
 ## Current Status

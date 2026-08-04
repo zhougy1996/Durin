@@ -4,7 +4,7 @@ Summary: Make Level Editor Actor selection inspect the RootComponent by default 
 
 Last reviewed: 2026-08-04
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-04
 
 ## Current Status
@@ -227,8 +227,8 @@ Dependencies: Stage 2.
 | Plan integrity | `.\DevTool.bat doc plan validate --scope all` |
 
 Builds, tests, and runtime launches must follow
-[Build and Run](../Development/Build/BuildAndRun.md); native tests must follow
-[Native Tests](../Development/Build/NativeTests.md).
+[Build and Run](../../../Development/Build/BuildAndRun.md); native tests must follow
+[Native Tests](../../../Development/Build/NativeTests.md).
 
 ## Definition of Done
 
@@ -259,11 +259,11 @@ Builds, tests, and runtime launches must follow
 
 ## Related Documentation
 
-- [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
-- [Actor Component System Plan](Archive/2026-07/ActorComponentSystem.md)
-- [Level Editor Modularization Plan](LevelEditorModularization.md)
+- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
+- [Actor Component System Plan](../2026-07/ActorComponentSystem.md)
+- [Level Editor Modularization Plan](../../LevelEditorModularization.md)
 
 ## Related Code
 

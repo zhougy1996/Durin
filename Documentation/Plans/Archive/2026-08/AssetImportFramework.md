@@ -4,13 +4,13 @@ Summary: Replace asset-specific import orchestration with a synchronous-first pr
 
 Last reviewed: 2026-08-03
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-03
 
 ## Current Status
 
 This plan supersedes the archived
-[Ready-to-Use Static Model Import](Archive/2026-08/ReadyToUseStaticModelImport.md)
+[Ready-to-Use Static Model Import](ReadyToUseStaticModelImport.md)
 direction. Its completed stages remain evidence for existing glTF/FBX parsing,
 generated material and texture behavior, failure injection, and package
 publication, but none of its `StaticModel` names, root-StaticMesh ownership,
@@ -1300,14 +1300,14 @@ Dependencies: Stage 6.
 
 ## Related Documentation
 
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Mounted Source Workflows](../Editor/Guides/MountedSourceWorkflows.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Texture System](../Runtime/Rendering/TextureSystem.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
 - [Multithreading V1 Plan](MultithreadingV1.md)
-- [Archived Ready-to-Use Static Model Import](Archive/2026-08/ReadyToUseStaticModelImport.md)
-- [Archived Source Library References](Archive/2026-07/SourceLibraryReferences.md)
+- [Archived Ready-to-Use Static Model Import](ReadyToUseStaticModelImport.md)
+- [Archived Source Library References](../2026-07/SourceLibraryReferences.md)
 
 ## Related Code
 

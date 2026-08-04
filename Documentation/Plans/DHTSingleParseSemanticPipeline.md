@@ -15,7 +15,7 @@ reflection mode. A measured cold Engine generation parsed the same 29 headers
 for 22.921 seconds during Export and 19.834 seconds during Reflection.
 
 Implementation is ordered after the cache schema and storage primitives in
-[DHT Persistent Header Cache](DHTPersistentHeaderCache.md) reach a stable stage.
+[DHT Persistent Header Cache](Archive/2026-08/DHTPersistentHeaderCache.md) reach a stable stage.
 This plan reuses that ownership, versioning, atomic-publication, and corruption
 contract instead of creating a second intermediate format.
 
@@ -48,7 +48,7 @@ after dependency exports become available.
 ## Non-Goals
 
 - Preserving cache entries across clean/rebuild; that lifecycle belongs to
-  [DHT Persistent Header Cache](DHTPersistentHeaderCache.md).
+  [DHT Persistent Header Cache](Archive/2026-08/DHTPersistentHeaderCache.md).
 - Changing reflected declarations, supported property types, generated symbol
   names, generated file layout, or runtime reflection behavior.
 - Merging Export and Reflection into one CMake command or delaying module export
@@ -281,7 +281,7 @@ after dependency exports become available.
 
 ## Related Documentation
 
-- [DHT Persistent Header Cache](DHTPersistentHeaderCache.md)
+- [DHT Persistent Header Cache](Archive/2026-08/DHTPersistentHeaderCache.md)
 - [Build System](../Development/Build/BuildSystem.md)
 - [Build And Run](../Development/Build/BuildAndRun.md)
 - [Reflection System](../Runtime/Core/ReflectionSystem.md)

@@ -4,7 +4,7 @@ Summary: Replace Content/SourceAssets dual-domain mounts with one configurable c
 
 Last reviewed: 2026-08-03
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-03
 
 ## Current Status
@@ -550,7 +550,7 @@ Dependencies: Stage 4.
 | Build and smoke | Related native tests, full `all` build, and editor startup smoke pass using the documented workflow |
 
 Build, test, run, timeout, and recovery behavior follow
-[Build and Run](../Development/Build/BuildAndRun.md); this plan does not duplicate
+[Build and Run](../../../Development/Build/BuildAndRun.md); this plan does not duplicate
 machine-local commands.
 
 ## Definition of Done
@@ -585,13 +585,13 @@ machine-local commands.
 
 ## Related Documentation
 
-- [Workspace Projects](../Workspace/WorkspaceProjects.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Mounted Source Workflows](../Editor/Guides/MountedSourceWorkflows.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Workspace Projects](../../../Workspace/WorkspaceProjects.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

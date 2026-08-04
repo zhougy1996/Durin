@@ -306,6 +306,6 @@ be placed inside `check` or `checkf`.
 - `Documentation/Development/Build/Profiling.md`
 - `Documentation/Editor/Architecture/PlayInEditorArchitecture.md`
 - `Documentation/Editor/Architecture/WorkspaceFramework.md`
-- `Documentation/Plans/MultithreadingV1.md`
+- `Documentation/Plans/Archive/2026-08/MultithreadingV1.md`
 - `Documentation/Runtime/Rendering/ViewportRendering.md`
 - `Documentation/Runtime/Core/TaskSystem.md`

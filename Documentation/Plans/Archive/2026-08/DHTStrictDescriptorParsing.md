@@ -4,7 +4,7 @@ Summary: Replace DHT's reflective dataclass loader with schema-backed, explicit 
 
 Last reviewed: 2026-08-04
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-04
 
 ## Current Status
@@ -14,7 +14,7 @@ schemas, DHT explicitly constructs its two configuration models, generated
 scaffolding conforms, VS Code setup associates both descriptor extensions, and
 real CLI coverage proves malformed configuration fails before metadata
 publication. The lasting contract is documented in
-[Workspace And Projects](../Workspace/WorkspaceProjects.md).
+[Workspace And Projects](../../../Workspace/WorkspaceProjects.md).
 
 Final qualification passed 153 DurinHeaderTool tests and 238 DurinDevTool
 tests. Root configure and the complete `all` build succeeded with the
@@ -39,7 +39,7 @@ schema shared by DHT, DurinDevTool scaffolding, and descriptor authors.
 
 The project schema must cover the complete shared `.dproject` contract, not
 only DHT's current projection. In particular, the runtime-owned `Mounts`
-section documented in [Workspace And Projects](../Workspace/WorkspaceProjects.md)
+section documented in [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
 is valid even though DHT does not retain it in `DurinProjectConfig`.
 
 ### Stage 0 Handoff
@@ -391,13 +391,13 @@ filesystem state, case folding, or another descriptor.
 ### Stage 4: Qualification and contract handoff
 
 - [x] Run the focused DurinHeaderTool and DurinDevTool Python suites through the
-  repository environment described in [Build And Run](../Development/Build/BuildAndRun.md).
+  repository environment described in [Build And Run](../../../Development/Build/BuildAndRun.md).
 - [x] Run a normal root configuration for the registered Engine and Sandbox
   descriptors and complete an `all` build through DurinDevTool.
 - [x] Exercise representative unknown-field, wrong-element-type, malformed
   JSON, duplicate-key, invalid nested runtime variant, and valid `Mounts`
   failures through the real DHT CLI entrypoint.
-- [x] Update [Workspace And Projects](../Workspace/WorkspaceProjects.md) with
+- [x] Update [Workspace And Projects](../../../Workspace/WorkspaceProjects.md) with
   schema locations, optional-field defaults, strict unknown-field behavior,
   and the structural-versus-semantic validation boundary.
 - [x] Record the baseline commit, working set, schema/version decision, accepted
@@ -470,15 +470,15 @@ filesystem state, case folding, or another descriptor.
 
 ## Related Documentation
 
-- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [Build System](../Development/Build/BuildSystem.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
+- [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 
-- [`json_helper.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/io/json_helper.py)
-- [`project_config.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/config/project_config.py)
-- [`module_config.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/config/module_config.py)
-- [`test_build_configuration.py`](../../Engine/Source/Programs/DurinHeaderTool/tests/test_build_configuration.py)
-- [`descriptors.py`](../../Tools/DurinDevTool/durin_dev_tool/build/descriptors.py)
-- [`ProjectSetup.cmake`](../../CMake/Project/ProjectSetup.cmake)
+- [`json_helper.py`](../../../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/io/json_helper.py)
+- [`project_config.py`](../../../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/config/project_config.py)
+- [`module_config.py`](../../../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/config/module_config.py)
+- [`test_build_configuration.py`](../../../../Engine/Source/Programs/DurinHeaderTool/tests/test_build_configuration.py)
+- [`descriptors.py`](../../../../Tools/DurinDevTool/durin_dev_tool/build/descriptors.py)
+- [`ProjectSetup.cmake`](../../../../CMake/Project/ProjectSetup.cmake)
