@@ -17,7 +17,7 @@ def generate_module_definitions_header(module_name: str) -> None:
     content = [f"// Auto-generated header for module {module_name} of project {module_config.owning_project}. Do not edit manually.\n\n"]
     content.append(f"#pragma once\n\n")
     content.append(f"#include \"HAL/Platform.h\"\n\n")
-    if (module_config.link_type.upper() == "SHARED") or (module_config.link_type.upper() == "INTERFACE"):
+    if module_config.link_type.upper() == "SHARED":
         content.append(f"#define {get_module_api_macro(module_name)} DLLEXPORT\n\n")
     append_dependent_module_api_macros(content, module_name)
     output_path = utils.get_module_definitions_header_path(module_name)

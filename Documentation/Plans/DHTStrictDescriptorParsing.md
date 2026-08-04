@@ -9,11 +9,11 @@ Completed:
 
 ## Current Status
 
-Stages 0 through 2 are complete. The schemas and loading boundary are active,
-DHT explicitly constructs both configuration models, model annotations match
-their runtime values, and the reflective dataclass decoder has been removed.
-Stage 3 is next: align DurinDevTool and verify failure-before-publication
-behavior.
+Stages 0 through 3 are complete. DHT and DurinDevTool now apply the same
+structural schemas, generated scaffolding conforms, VS Code setup associates
+both descriptor extensions, and real DHT CLI coverage proves invalid module
+configuration fails before metadata publication. Stage 4 qualification and
+contract documentation are next.
 
 DHT currently
 uses the generic `dataclass_from_dict` helper only for `DurinProjectConfig` and
@@ -92,6 +92,26 @@ is valid even though DHT does not retain it in `DurinProjectConfig`.
 - Validation: the complete DurinHeaderTool Python suite passed 145 tests;
   targeted search found no remaining reflective decoder, Pascal-case mapper,
   or JSON-key dataclass metadata in production DHT code.
+
+### Stage 3 Handoff
+
+- Baseline commit: `a908881e`.
+- Working set: DurinDevTool descriptor loading, DHT schema/parity tests, VS Code
+  settings template, module API-definition generation, and this plan.
+- Key symbols: `_load_json_object`, `load_project_descriptor`,
+  `load_module_descriptor`, `TemplateRenderer`, `prepare_project_build`, and
+  `generate_module_definitions_header`.
+- Decisions: DurinDevTool retains its explicit semantic models and thin loader
+  but uses the same checked schema files; workspace-local VS Code associations
+  provide completion without writing relative `$schema` paths into external
+  project files; the unsupported `Interface` API-macro branch is removed.
+- Open questions: none.
+- Validation: DurinDevTool passed 238 tests with the bundled Ninja exposed as
+  uppercase `PATH`; DHT passed 147 tests before the final editor-association
+  assertion; 35 focused schema/scaffolding tests then passed. Parity fixtures
+  cover valid mounts, unknown fields, wrong types, nulls, duplicate items, and
+  duplicate keys. A real invalid `prepare_project_build` subprocess published
+  no `.cmake` file or stamp.
 
 ## Goal
 
@@ -325,19 +345,19 @@ filesystem state, case folding, or another descriptor.
 
 ### Stage 3: Align tooling and configuration failure behavior
 
-- [ ] Make DurinDevTool's project/module descriptor loaders apply the same
+- [x] Make DurinDevTool's project/module descriptor loaders apply the same
   structural schemas before their existing semantic checks.
-- [ ] Preserve DurinDevTool's stronger case-insensitive uniqueness,
+- [x] Preserve DurinDevTool's stronger case-insensitive uniqueness,
   self-dependency, missing-reference, and path-containment diagnostics after
   structural validation.
-- [ ] Update scaffolding/schema editor associations or schema references without
+- [x] Update scaffolding/schema editor associations or schema references without
   embedding location-fragile paths in generated external project descriptors.
-- [ ] Add parity tests showing DHT and DurinDevTool accept the same structural
+- [x] Add parity tests showing DHT and DurinDevTool accept the same structural
   fixtures and reject unknown/wrong-type fields before semantic graph checks.
-- [ ] Add a DHT `prepare_project_build` integration test proving an invalid
+- [x] Add a DHT `prepare_project_build` integration test proving an invalid
   project or owned module fails before generated metadata or stamps are
   published.
-- [ ] Verify a valid project containing runtime `Mounts` passes DHT validation
+- [x] Verify a valid project containing runtime `Mounts` passes DHT validation
   even though the DHT project model intentionally does not retain that section.
 
 #### Acceptance Gate

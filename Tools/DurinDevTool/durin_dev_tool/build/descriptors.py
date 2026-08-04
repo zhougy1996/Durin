@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-from .config import BuildToolError, CommandRequest, CreateKind, ModuleKind
+from jsonschema import validators
+
+from .config import BuildToolError, CommandRequest, CreateKind, ModuleKind, REPO_ROOT
 
 
 DEPENDENCY_FIELDS = (
@@ -16,6 +19,45 @@ DEPENDENCY_FIELDS = (
     "OptionalPublicDependencies",
 )
 CPP_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+DESCRIPTOR_SCHEMA_DIR = (
+    REPO_ROOT / "Engine" / "Source" / "Programs" / "DurinHeaderTool" / "schemas"
+)
+PROJECT_SCHEMA = "durin-project.schema.json"
+MODULE_SCHEMA = "durin-module.schema.json"
+
+
+class _DuplicateJsonKeyError(ValueError):
+    pass
+
+
+def _object_without_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateJsonKeyError(f'duplicate field "{key}"')
+        result[key] = value
+    return result
+
+
+def _json_path(parts: Iterable[Any]) -> str:
+    path = "$"
+    for part in parts:
+        if isinstance(part, int):
+            path += f"[{part}]"
+        elif isinstance(part, str) and part.isidentifier():
+            path += f".{part}"
+        else:
+            path += f"[{json.dumps(part, ensure_ascii=False)}]"
+    return path
+
+
+@lru_cache(maxsize=None)
+def _load_schema_validator(schema_file_name: str):
+    schema_path = DESCRIPTOR_SCHEMA_DIR / schema_file_name
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    validator_type = validators.validator_for(schema)
+    validator_type.check_schema(schema)
+    return validator_type(schema)
 
 
 @dataclass(frozen=True)
@@ -83,19 +125,36 @@ class WorkspaceDescriptors:
         return next((module for module in self.modules if module.name.casefold() == folded), None)
 
 
-def _load_json_object(path: Path, label: str) -> dict[str, Any]:
+def _load_json_object(path: Path, label: str, schema_file_name: str) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=_object_without_duplicate_keys,
+        )
     except FileNotFoundError as exc:
         raise BuildToolError(f'{label} was not found: "{path}"') from exc
     except json.JSONDecodeError as exc:
         raise BuildToolError(
             f'{label} contains malformed JSON at line {exc.lineno}, column {exc.colno}: "{path}"'
         ) from exc
+    except _DuplicateJsonKeyError as exc:
+        raise BuildToolError(f'{label} "{path}" contains {exc}.') from exc
+    except UnicodeError as exc:
+        raise BuildToolError(f'{label} is not valid UTF-8: "{path}": {exc}') from exc
     except OSError as exc:
         raise BuildToolError(f'Could not read {label.lower()} "{path}": {exc}') from exc
-    if not isinstance(value, dict):
-        raise BuildToolError(f'{label} must contain a JSON object: "{path}"')
+
+    validator = _load_schema_validator(schema_file_name)
+    errors = sorted(
+        validator.iter_errors(value),
+        key=lambda error: tuple(str(part) for part in error.absolute_path),
+    )
+    if errors:
+        error = errors[0]
+        raise BuildToolError(
+            f'{label} "{path}" is invalid at '
+            f"{_json_path(error.absolute_path)}: {error.message}."
+        )
     return value
 
 
@@ -129,7 +188,7 @@ def _string_list(data: Mapping[str, Any], key: str, path: Path) -> tuple[str, ..
 
 def load_project_descriptor(path: Path) -> ProjectDescriptor:
     resolved = path.resolve()
-    data = _load_json_object(resolved, "Project descriptor")
+    data = _load_json_object(resolved, "Project descriptor", PROJECT_SCHEMA)
     name = _required_string(data, "ProjectName", resolved)
     raw_module_dirs = data.get("ModuleDirs", {})
     if not isinstance(raw_module_dirs, dict) or any(
@@ -183,7 +242,7 @@ def load_project_descriptor(path: Path) -> ProjectDescriptor:
 
 def load_module_descriptor(path: Path, owning_project: str) -> ModuleDescriptor:
     resolved = path.resolve()
-    data = _load_json_object(resolved, "Module descriptor")
+    data = _load_json_object(resolved, "Module descriptor", MODULE_SCHEMA)
     name = _required_string(data, "ModuleName", resolved)
     dependencies = {field: _string_list(data, field, resolved) for field in DEPENDENCY_FIELDS}
     return ModuleDescriptor(

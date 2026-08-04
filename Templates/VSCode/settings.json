@@ -3,6 +3,16 @@
     "--compile-commands-dir=${workspaceFolder}/Build/Win64-Debug-DurinEditor-Tests",
     "--background-index"
   ],
+  "json.schemas": [
+    {
+      "fileMatch": ["*.dproject"],
+      "url": "./Engine/Source/Programs/DurinHeaderTool/schemas/durin-project.schema.json"
+    },
+    {
+      "fileMatch": ["*.dmodule"],
+      "url": "./Engine/Source/Programs/DurinHeaderTool/schemas/durin-module.schema.json"
+    }
+  ],
   "cmake.configureOnOpen": false,
   "cmake.configureOnEdit": false,
   "cmake.automaticReconfigure": false,
