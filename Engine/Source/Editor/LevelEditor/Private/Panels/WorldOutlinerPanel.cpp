@@ -106,11 +106,6 @@ namespace Durin
 			bool bShow = false;
 		};
 
-		auto ActorMatchesFilter(const AActor* Actor, std::string_view Filter) -> bool
-		{
-			return Actor && (ContainsInsensitive(Actor->GetName(), Filter) || ContainsInsensitive(ClassDisplayName(Actor->GetClass()), Filter));
-		}
-
 		auto LevelDisplayName(const DLevel* Level) -> std::string
 		{
 			if (!Level) return "No Level";
@@ -134,14 +129,7 @@ namespace Durin
 
 	auto FWorldOutlinerPanel::ResetHierarchyCache() -> void
 	{
-		CachedHierarchyLevel = nullptr;
-		CachedHierarchyRevision = 0;
-		HierarchyNodes.clear();
-		RootNodeIndices.clear();
-		ActorToNode.clear();
-		FilterVisibility.clear();
-		CachedFilter.clear();
-		bFilterCacheValid = false;
+		HierarchyModel.Reset();
 		VisibleActors.clear();
 		LastVisibleActors.clear();
 		ExpandedActors.clear();
@@ -149,323 +137,240 @@ namespace Durin
 
 	auto FWorldOutlinerPanel::RebuildHierarchyCache(DLevel* Level) -> void
 	{
-		CachedHierarchyLevel = Level;
-		CachedHierarchyRevision = Level ? Level->GetEditorActorHierarchyRevision() : 0;
-		HierarchyNodes.clear();
-		RootNodeIndices.clear();
-		ActorToNode.clear();
-		FilterVisibility.clear();
-		bFilterCacheValid = false;
 		VisibleActors.clear();
 		LastVisibleActors.clear();
-
 		if (!Level)
 		{
+			HierarchyModel.Reset();
 			ExpandedActors.clear();
 			return;
 		}
 
-		std::vector<AActor*> SortedActors;
-		SortedActors.reserve(Level->GetActors().size());
+		std::vector<FWorldOutlinerHierarchyModel::FInput> Inputs;
+		Inputs.reserve(Level->GetActors().size());
 		for (const TObjectPtr<AActor>& ActorPtr : Level->GetActors())
 		{
-			if (AActor* Actor = ActorPtr.Get()) SortedActors.push_back(Actor);
-		}
-		std::ranges::sort(SortedActors, [](AActor* Left, AActor* Right) { return Left->GetName() < Right->GetName(); });
-
-		HierarchyNodes.reserve(SortedActors.size());
-		ActorToNode.reserve(SortedActors.size());
-		for (AActor* Actor : SortedActors)
-		{
-			const uint32 NodeIndex = static_cast<uint32>(HierarchyNodes.size());
-			HierarchyNodes.push_back({.Actor = Actor});
-			ActorToNode.emplace(Actor, NodeIndex);
-		}
-
-		for (uint32 NodeIndex = 0; NodeIndex < HierarchyNodes.size(); ++NodeIndex)
-		{
-			AActor* Parent = HierarchyNodes[NodeIndex].Actor->GetAttachParentActor();
-			if (const auto It = ActorToNode.find(Parent); It != ActorToNode.end() && It->second != NodeIndex)
-				HierarchyNodes[NodeIndex].Parent = It->second;
-		}
-
-		// Loaded levels already reject cycles. Keep the cache defensive without walking every parent chain.
-		std::vector<uint8> VisitState(HierarchyNodes.size(), 0);
-		std::vector<uint32> Path;
-		Path.reserve(HierarchyNodes.size());
-		for (uint32 StartIndex = 0; StartIndex < HierarchyNodes.size(); ++StartIndex)
-		{
-			if (VisitState[StartIndex] != 0) continue;
-			Path.clear();
-			uint32 NodeIndex = StartIndex;
-			while (NodeIndex != InvalidNodeIndex && VisitState[NodeIndex] == 0)
+			if (AActor* Actor = ActorPtr.Get())
 			{
-				VisitState[NodeIndex] = 1;
-				Path.push_back(NodeIndex);
-				NodeIndex = HierarchyNodes[NodeIndex].Parent;
+				Inputs.push_back({
+					.Key = Actor,
+					.ParentKey = Actor->GetAttachParentActor(),
+					.Name = Actor->GetName(),
+					.TypeLabel = ClassDisplayName(Actor->GetClass())});
 			}
-			if (NodeIndex != InvalidNodeIndex && VisitState[NodeIndex] == 1)
-				HierarchyNodes[Path.back()].Parent = InvalidNodeIndex;
-			for (uint32 PathNode : Path) VisitState[PathNode] = 2;
 		}
-
-		RootNodeIndices.reserve(HierarchyNodes.size());
-		for (uint32 NodeIndex = 0; NodeIndex < HierarchyNodes.size(); ++NodeIndex)
-		{
-			const uint32 ParentIndex = HierarchyNodes[NodeIndex].Parent;
-			if (ParentIndex == InvalidNodeIndex)
-				RootNodeIndices.push_back(NodeIndex);
-			else
-				HierarchyNodes[ParentIndex].Children.push_back(NodeIndex);
-		}
-
-		uint32 TraversalPosition = 0;
-		auto CacheTraversal = [&](auto&& Self, uint32 NodeIndex, uint32 Depth) -> void {
-			FOutlinerNode& Node = HierarchyNodes[NodeIndex];
-			Node.Depth = Depth;
-			Node.TraversalBegin = TraversalPosition++;
-			for (uint32 ChildIndex : Node.Children) Self(Self, ChildIndex, Depth + 1);
-			Node.TraversalEnd = TraversalPosition;
-		};
-		for (uint32 RootIndex : RootNodeIndices) CacheTraversal(CacheTraversal, RootIndex, 0);
-
-		std::erase_if(ExpandedActors, [&](const auto& Entry) { return !ActorToNode.contains(Entry.first); });
+		HierarchyModel.Rebuild(Level, Level->GetEditorActorHierarchyRevision(), Inputs);
+		std::erase_if(ExpandedActors, [this](const auto& Entry) { return !HierarchyModel.Contains(Entry.first); });
 	}
 
 	auto FWorldOutlinerPanel::RebuildFilterCache(std::string_view Filter) -> void
 	{
-		CachedFilter = Filter;
-		FilterVisibility.assign(HierarchyNodes.size(), Filter.empty());
-		bFilterCacheValid = true;
-		if (Filter.empty()) return;
-
-		auto CacheVisibility = [&](auto&& Self, uint32 NodeIndex) -> bool {
-			bool bVisible = ActorMatchesFilter(HierarchyNodes[NodeIndex].Actor.Get(), Filter);
-			for (uint32 ChildIndex : HierarchyNodes[NodeIndex].Children)
-				bVisible |= Self(Self, ChildIndex);
-			FilterVisibility[NodeIndex] = bVisible;
-			return bVisible;
-		};
-		for (uint32 RootIndex : RootNodeIndices) CacheVisibility(CacheVisibility, RootIndex);
+		HierarchyModel.SetFilter(Filter);
 	}
 
 	auto FWorldOutlinerPanel::IsNodeVisible(uint32 NodeIndex) const -> bool
 	{
-		return NodeIndex < FilterVisibility.size() && FilterVisibility[NodeIndex] != 0;
+		return HierarchyModel.IsNodeVisible(NodeIndex);
 	}
 
 	auto FWorldOutlinerPanel::IsDescendantOf(const AActor* Actor, const AActor* CandidateAncestor) const -> bool
 	{
-		if (!Actor || !CandidateAncestor || Actor == CandidateAncestor) return false;
-		const auto ActorIt = ActorToNode.find(Actor);
-		const auto AncestorIt = ActorToNode.find(CandidateAncestor);
-		if (ActorIt == ActorToNode.end() || AncestorIt == ActorToNode.end()) return false;
-		const FOutlinerNode& Node = HierarchyNodes[ActorIt->second];
-		const FOutlinerNode& Ancestor = HierarchyNodes[AncestorIt->second];
-		return Ancestor.TraversalBegin <= Node.TraversalBegin && Node.TraversalEnd <= Ancestor.TraversalEnd;
+		return HierarchyModel.IsDescendantOf(Actor, CandidateAncestor);
 	}
 
 	auto FWorldOutlinerPanel::GetActorDepth(const AActor* Actor) const -> uint32
 	{
-		const auto It = ActorToNode.find(Actor);
-		return It != ActorToNode.end() ? HierarchyNodes[It->second].Depth : 0;
+		return HierarchyModel.GetDepth(Actor);
 	}
 
-	auto FWorldOutlinerPanel::Draw(FLevelEditorContext& Context) -> void
+	auto FWorldOutlinerPanel::SetActorVisibility(const std::vector<TObjectPtr<AActor>>& TargetActors, bool bHidden) -> void
 	{
-		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "World Outliner", "WorldOutliner", GetOpenPtr()))
+		std::vector<FActorVisibilityTransaction::FEntry> Entries;
+		for (const TObjectPtr<AActor>& Actor : TargetActors)
 		{
-			ImGui::End();
-			return;
+			if (Actor && Actor->IsHidden() != bHidden) Entries.push_back({Actor, Actor->IsHidden(), bHidden});
 		}
+		if (Entries.empty()) return;
+		auto Transaction = std::make_unique<FActorVisibilityTransaction>(std::move(Entries), !bHidden);
+		if (GEditor) GEditor->GetTransactionManager().Execute(std::move(Transaction));
+		else Transaction->Redo();
+	}
+
+	auto FWorldOutlinerPanel::ShowAllActors() -> void
+	{
+		std::vector<TObjectPtr<AActor>> AllActors;
+		AllActors.reserve(HierarchyModel.GetNodes().size());
+		for (const FWorldOutlinerHierarchyModel::FNode& Node : HierarchyModel.GetNodes())
+			AllActors.push_back(static_cast<AActor*>(Node.Key));
+		SetActorVisibility(AllActors, false);
+	}
+
+	auto FWorldOutlinerPanel::AreAllActorsHidden(const std::vector<TObjectPtr<AActor>>& Actors) const -> bool
+	{
+		return std::ranges::all_of(Actors, [](const TObjectPtr<AActor>& Actor) { return Actor && Actor->IsHidden(); });
+	}
+
+	auto FWorldOutlinerPanel::HasSelectedAncestor(const std::vector<TObjectPtr<AActor>>& Actors, AActor* Candidate) const -> bool
+	{
+		return std::ranges::any_of(Actors, [this, Candidate](const TObjectPtr<AActor>& Other) {
+			return Other.Get() != Candidate && IsDescendantOf(Candidate, Other.Get());
+		});
+	}
+
+	auto FWorldOutlinerPanel::BeginActorRename(AActor* Actor) -> void
+	{
+		if (!Actor) return;
+		RenamingActor = Actor;
+		bRenamingLevel = false;
+		RenameDialog.Open(Actor->GetName());
+	}
+
+	auto FWorldOutlinerPanel::BeginLevelRename(std::string_view LevelName) -> void
+	{
+		RenamingActor = nullptr;
+		bRenamingLevel = true;
+		RenameDialog.Open(LevelName);
+	}
+
+	auto FWorldOutlinerPanel::DrawActorContextMenu(FLevelEditorContext& Context, AActor* Actor, bool bPrimaryCamera, bool& bRequestDelete) -> void
+	{
+		if (!ImGui::BeginPopupContextItem("ActorContext")) return;
+		bLevelSelected = false;
+		if (!Context.IsActorSelected(Actor)) Context.SelectActor(Actor);
+		if (ImGui::MenuItem("Focus", "F") && Context.FocusActor) Context.FocusActor(Actor);
 		if (Context.bReadOnly)
 		{
-			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning), "Runtime World (read-only)");
 			ImGui::Separator();
+			ImGui::TextDisabled("Runtime actor");
 		}
-
-		if (ImGui::Button(Icons::Expand)) ExpandRequest = 1;
-		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Expand all");
-		ImGui::SameLine();
-		if (ImGui::Button(Icons::Compress)) ExpandRequest = -1;
-		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Collapse all");
-
-		ImGui::SetNextItemWidth(-1.0f);
-		ImGui::InputTextWithHint("###OutlinerSearch", "Search actors or types...", SearchText.data(), SearchText.size());
-		ImGui::Separator();
-
-		if (Context.Level == nullptr)
+		else
 		{
-			DisplayedLevel = nullptr;
-			ResetHierarchyCache();
-			bLevelSelected = false;
-			bRenamingLevel = false;
-			RenamingActor = nullptr;
-			RenameDialog.Cancel();
-			ImGui::TextDisabled("No level is open.");
-			ImGui::End();
-			return;
+			ImGui::Separator();
+			const bool bAllSelectedHidden = AreAllActorsHidden(Context.GetSelectedActors());
+			if (ImGui::MenuItem(bAllSelectedHidden ? "Show Selected" : "Hide Selected", "H")) SetActorVisibility(Context.GetSelectedActors(), !bAllSelectedHidden);
+			if (ImGui::MenuItem("Show All Actors", "Ctrl+H")) ShowAllActors();
+			ImGui::Separator();
+			if (auto* Camera = Cast<ACameraActor>(Actor))
+			{
+				if (bPrimaryCamera)
+				{
+					ImGui::BeginDisabled();
+					ImGui::MenuItem("Primary Camera", nullptr, true);
+					ImGui::EndDisabled();
+				}
+				else if (ImGui::MenuItem("Set as Primary Camera"))
+				{
+					auto Transaction = std::make_unique<FPrimaryCameraTransaction>(Context.Level, Context.Level->GetPrimaryCameraActor(), Camera);
+					if (GEditor) GEditor->GetTransactionManager().Execute(std::move(Transaction));
+					else Context.Level->SetPrimaryCameraActor(Camera);
+				}
+			}
+			if (ImGui::MenuItem("Rename", "F2")) BeginActorRename(Actor);
+			if (ImGui::MenuItem("Delete", "Del")) bRequestDelete = true;
 		}
-		if (DisplayedLevel.Get() != Context.Level)
+		ImGui::EndPopup();
+	}
+
+	auto FWorldOutlinerPanel::DrawActorDragDrop(FLevelEditorContext& Context, AActor* Actor) -> void
+	{
+		if (!Context.bReadOnly && ImGui::BeginDragDropSource())
 		{
-			DisplayedLevel = Context.Level;
-			bLevelSelected = false;
-			bRenamingLevel = false;
-			RenamingActor = nullptr;
-			RenameDialog.Cancel();
+			if (!Context.IsActorSelected(Actor)) Context.SelectActor(Actor);
+			AActor* PayloadActor = Actor;
+			ImGui::SetDragDropPayload(ActorPayloadType, &PayloadActor, sizeof(PayloadActor));
+			ImGui::Text("Move %zu actor(s)", Context.GetSelectedActors().size());
+			ImGui::EndDragDropSource();
 		}
-
-		if (CachedHierarchyLevel.Get() != Context.Level
-			|| CachedHierarchyRevision != Context.Level->GetEditorActorHierarchyRevision())
-			RebuildHierarchyCache(Context.Level);
-		const std::string_view Filter(SearchText.data());
-		if (!bFilterCacheValid || CachedFilter != Filter) RebuildFilterCache(Filter);
-		const bool bRestoreExpansion = bWasSearching && Filter.empty();
-
-		VisibleActors.clear();
-		bool bRequestDelete = false;
-		auto SetActorVisibility = [&](const std::vector<TObjectPtr<AActor>>& TargetActors, bool bHidden) {
-			std::vector<FActorVisibilityTransaction::FEntry> Entries;
-			for (const TObjectPtr<AActor>& Actor : TargetActors)
+		if (!Context.bReadOnly && ImGui::BeginDragDropTarget())
+		{
+			if (ImGui::AcceptDragDropPayload(ActorPayloadType))
 			{
-				if (Actor && Actor->IsHidden() != bHidden) Entries.push_back({Actor, Actor->IsHidden(), bHidden});
+				std::vector<AActor*> MoveActors;
+				for (const TObjectPtr<AActor>& Selected : Context.GetSelectedActors())
+				{
+					AActor* Candidate = Selected.Get();
+					if (!Candidate || Candidate == Actor || IsDescendantOf(Actor, Candidate)) continue;
+					if (HasSelectedAncestor(Context.GetSelectedActors(), Candidate)) continue;
+					MoveActors.push_back(Candidate);
+				}
+				for (AActor* Moving : MoveActors)
+					if (!Moving->AttachToActor(Actor, EAttachmentTransformRule::KeepWorld))
+						Context.SetError(std::format("Failed to attach '{}' to '{}'.", Moving->GetName(), Actor->GetName()));
+					else
+						Context.InvalidatePackageSavedState(Moving->GetPackage());
 			}
-			if (Entries.empty()) return;
-			auto Transaction = std::make_unique<FActorVisibilityTransaction>(std::move(Entries), !bHidden);
-			if (GEditor) GEditor->GetTransactionManager().Execute(std::move(Transaction));
-			else Transaction->Redo();
-		};
-		auto ShowAllActors = [&]() {
-			std::vector<TObjectPtr<AActor>> AllActors;
-			AllActors.reserve(HierarchyNodes.size());
-			for (const FOutlinerNode& Node : HierarchyNodes) AllActors.push_back(Node.Actor);
-			SetActorVisibility(AllActors, false);
-		};
-		auto BeginActorRename = [&](AActor* Actor) {
-			if (!Actor) return;
-			RenamingActor = Actor;
-			bRenamingLevel = false;
-			RenameDialog.Open(Actor->GetName());
-		};
-		auto DrawNode = [&](auto&& Self, uint32 NodeIndex) -> void {
-			if (!IsNodeVisible(NodeIndex)) return;
-			const FOutlinerNode& Node = HierarchyNodes[NodeIndex];
-			AActor* Actor = Node.Actor.Get();
-			if (!Actor) return;
-			VisibleActors.push_back(Actor);
-			const bool bHasVisibleChildren = std::ranges::any_of(Node.Children, [&](uint32 ChildIndex) { return IsNodeVisible(ChildIndex); });
-			ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
-			if (!bHasVisibleChildren) Flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-			if (Context.IsActorSelected(Actor)) Flags |= ImGuiTreeNodeFlags_Selected;
-			if (!Filter.empty() || ExpandRequest != 0)
-				ImGui::SetNextItemOpen(!Filter.empty() || ExpandRequest > 0, ImGuiCond_Always);
-			else if (bRestoreExpansion)
-			{
-				if (const auto It = ExpandedActors.find(Actor); It != ExpandedActors.end()) ImGui::SetNextItemOpen(It->second, ImGuiCond_Always);
-			}
-			ImGui::PushID(Actor);
-			const bool bPrimaryCamera = Context.Level->GetPrimaryCameraActor() == Actor;
-			const std::string VisibilityIcon = Actor->IsHidden() ? std::format("{}  ", Icons::EyeSlash) : std::string();
-			const std::string Label = bPrimaryCamera ? std::format("{}{}  {}  [Primary]", VisibilityIcon, ActorIcon(Actor), Actor->GetName()) : std::format("{}{}  {}", VisibilityIcon, ActorIcon(Actor), Actor->GetName());
-			if (Actor->IsHidden()) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-			const bool bOpen = MonaImGui::CompactTreeNode("ActorNode", Flags, "%s", Label.c_str());
-			if (Actor->IsHidden()) ImGui::PopStyleColor();
-			if (Filter.empty()) ExpandedActors[Actor] = bOpen;
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Actor->GetClass()->GetName().c_str());
+			ImGui::EndDragDropTarget();
+		}
+	}
 
-			if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
+	auto FWorldOutlinerPanel::DrawActorNode(FLevelEditorContext& Context, uint32 NodeIndex, std::string_view Filter, bool bRestoreExpansion, bool& bRequestDelete) -> void
+	{
+		if (!IsNodeVisible(NodeIndex)) return;
+		const FWorldOutlinerHierarchyModel::FNode& Node = HierarchyModel.GetNodes()[NodeIndex];
+		AActor* Actor = static_cast<AActor*>(Node.Key);
+		if (!Actor) return;
+		VisibleActors.push_back(Actor);
+		const bool bHasVisibleChildren = std::ranges::any_of(Node.Children, [this](uint32 ChildIndex) { return IsNodeVisible(ChildIndex); });
+		ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
+		if (!bHasVisibleChildren) Flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+		if (Context.IsActorSelected(Actor)) Flags |= ImGuiTreeNodeFlags_Selected;
+		if (!Filter.empty() || ExpandRequest != 0)
+			ImGui::SetNextItemOpen(!Filter.empty() || ExpandRequest > 0, ImGuiCond_Always);
+		else if (bRestoreExpansion)
+		{
+			if (const auto It = ExpandedActors.find(Actor); It != ExpandedActors.end()) ImGui::SetNextItemOpen(It->second, ImGuiCond_Always);
+		}
+		ImGui::PushID(Actor);
+		const bool bPrimaryCamera = Context.Level->GetPrimaryCameraActor() == Actor;
+		const std::string VisibilityIcon = Actor->IsHidden() ? std::format("{}  ", Icons::EyeSlash) : std::string();
+		const std::string Label = bPrimaryCamera ? std::format("{}{}  {}  [Primary]", VisibilityIcon, ActorIcon(Actor), Actor->GetName()) : std::format("{}{}  {}", VisibilityIcon, ActorIcon(Actor), Actor->GetName());
+		if (Actor->IsHidden()) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+		const bool bOpen = MonaImGui::CompactTreeNode("ActorNode", Flags, "%s", Label.c_str());
+		if (Actor->IsHidden()) ImGui::PopStyleColor();
+		if (Filter.empty()) ExpandedActors[Actor] = bOpen;
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Actor->GetClass()->GetName().c_str());
+		if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
+		{
+			bLevelSelected = false;
+			const ImGuiIO& IO = ImGui::GetIO();
+			if (IO.KeyShift)
+				Context.SelectActorRange(Actor, LastVisibleActors.empty() ? VisibleActors : LastVisibleActors);
+			else if (IO.KeyCtrl)
+				Context.ToggleActorSelection(Actor);
+			else
+				Context.SelectActor(Actor);
+		}
+		DrawActorContextMenu(Context, Actor, bPrimaryCamera, bRequestDelete);
+		DrawActorDragDrop(Context, Actor);
+		if (bOpen && bHasVisibleChildren)
+		{
+			for (uint32 ChildIndex : Node.Children) DrawActorNode(Context, ChildIndex, Filter, bRestoreExpansion, bRequestDelete);
+			ImGui::TreePop();
+		}
+		ImGui::PopID();
+	}
+
+	auto FWorldOutlinerPanel::DrawLevelDragDrop(FLevelEditorContext& Context) -> void
+	{
+		if (Context.bReadOnly || !ImGui::BeginDragDropTarget()) return;
+		if (ImGui::AcceptDragDropPayload(ActorPayloadType))
+		{
+			for (const TObjectPtr<AActor>& Selected : Context.GetSelectedActors())
 			{
-				bLevelSelected = false;
-				const ImGuiIO& IO = ImGui::GetIO();
-				if (IO.KeyShift)
-					Context.SelectActorRange(Actor, LastVisibleActors.empty() ? VisibleActors : LastVisibleActors);
-				else if (IO.KeyCtrl)
-					Context.ToggleActorSelection(Actor);
+				AActor* Actor = Selected.Get();
+				if (!Actor || !Actor->GetAttachParentActor()) continue;
+				if (HasSelectedAncestor(Context.GetSelectedActors(), Actor)) continue;
+				if (!Actor->DetachFromActor(EDetachmentTransformRule::KeepWorld))
+					Context.SetError(std::format("Failed to detach '{}'.", Actor->GetName()));
 				else
-					Context.SelectActor(Actor);
+					Context.InvalidatePackageSavedState(Actor->GetPackage());
 			}
+		}
+		ImGui::EndDragDropTarget();
+	}
 
-			if (ImGui::BeginPopupContextItem("ActorContext"))
-			{
-				bLevelSelected = false;
-				if (!Context.IsActorSelected(Actor)) Context.SelectActor(Actor);
-				if (ImGui::MenuItem("Focus", "F") && Context.FocusActor) Context.FocusActor(Actor);
-				if (Context.bReadOnly)
-				{
-					ImGui::Separator();
-					ImGui::TextDisabled("Runtime actor");
-				}
-				else
-				{
-					ImGui::Separator();
-					const bool bAllSelectedHidden = std::ranges::all_of(Context.GetSelectedActors(), [](const TObjectPtr<AActor>& Selected) { return Selected && Selected->IsHidden(); });
-					if (ImGui::MenuItem(bAllSelectedHidden ? "Show Selected" : "Hide Selected", "H")) SetActorVisibility(Context.GetSelectedActors(), !bAllSelectedHidden);
-					if (ImGui::MenuItem("Show All Actors", "Ctrl+H")) ShowAllActors();
-					ImGui::Separator();
-					if (auto* Camera = Cast<ACameraActor>(Actor))
-					{
-						if (bPrimaryCamera)
-						{
-							ImGui::BeginDisabled();
-							ImGui::MenuItem("Primary Camera", nullptr, true);
-							ImGui::EndDisabled();
-						}
-						else if (ImGui::MenuItem("Set as Primary Camera"))
-						{
-							auto Transaction = std::make_unique<FPrimaryCameraTransaction>(Context.Level, Context.Level->GetPrimaryCameraActor(), Camera);
-							if (GEditor) GEditor->GetTransactionManager().Execute(std::move(Transaction));
-							else Context.Level->SetPrimaryCameraActor(Camera);
-						}
-					}
-					if (ImGui::MenuItem("Rename", "F2")) BeginActorRename(Actor);
-					if (ImGui::MenuItem("Delete", "Del")) bRequestDelete = true;
-				}
-				ImGui::EndPopup();
-			}
-
-			if (!Context.bReadOnly && ImGui::BeginDragDropSource())
-			{
-				if (!Context.IsActorSelected(Actor)) Context.SelectActor(Actor);
-				AActor* PayloadActor = Actor;
-				ImGui::SetDragDropPayload(ActorPayloadType, &PayloadActor, sizeof(PayloadActor));
-				ImGui::Text("Move %zu actor(s)", Context.GetSelectedActors().size());
-				ImGui::EndDragDropSource();
-			}
-			if (!Context.bReadOnly && ImGui::BeginDragDropTarget())
-			{
-				if (ImGui::AcceptDragDropPayload(ActorPayloadType))
-				{
-					std::vector<AActor*> MoveActors;
-					for (const TObjectPtr<AActor>& Selected : Context.GetSelectedActors())
-					{
-						AActor* Candidate = Selected.Get();
-						if (!Candidate || Candidate == Actor || IsDescendantOf(Actor, Candidate)) continue;
-						const bool bHasSelectedAncestor = std::ranges::any_of(Context.GetSelectedActors(), [&](const TObjectPtr<AActor>& Other) { return Other.Get() != Candidate && IsDescendantOf(Candidate, Other.Get()); });
-						if (!bHasSelectedAncestor) MoveActors.push_back(Candidate);
-					}
-					for (AActor* Moving : MoveActors)
-						if (!Moving->AttachToActor(Actor, EAttachmentTransformRule::KeepWorld))
-							Context.SetError(std::format("Failed to attach '{}' to '{}'.", Moving->GetName(), Actor->GetName()));
-						else
-							Context.InvalidatePackageSavedState(Moving->GetPackage());
-				}
-				ImGui::EndDragDropTarget();
-			}
-
-			if (bOpen && bHasVisibleChildren)
-			{
-				for (uint32 ChildIndex : Node.Children) Self(Self, ChildIndex);
-				ImGui::TreePop();
-			}
-			ImGui::PopID();
-		};
-
-		const std::string LevelName = LevelDisplayName(Context.Level);
-		auto BeginLevelRename = [&]() {
-			RenamingActor = nullptr;
-			bRenamingLevel = true;
-			RenameDialog.Open(LevelName);
-		};
+	auto FWorldOutlinerPanel::DrawLevelNode(FLevelEditorContext& Context, std::string_view LevelName, std::string_view Filter, bool bRestoreExpansion, bool& bRequestDelete) -> void
+	{
 		if (!Filter.empty() || ExpandRequest != 0)
 			ImGui::SetNextItemOpen(!Filter.empty() || ExpandRequest > 0, ImGuiCond_Always);
 		else
@@ -513,43 +418,22 @@ namespace Durin
 			}
 			if (ImGui::MenuItem("Show All Actors", "Ctrl+H")) ShowAllActors();
 			ImGui::Separator();
-			if (ImGui::MenuItem("Rename", "F2")) BeginLevelRename();
+			if (ImGui::MenuItem("Rename", "F2")) BeginLevelRename(LevelName);
 			if (Context.bReadOnly) ImGui::EndDisabled();
 			ImGui::EndPopup();
 		}
-
-		if (!Context.bReadOnly && ImGui::BeginDragDropTarget())
-		{
-			if (ImGui::AcceptDragDropPayload(ActorPayloadType))
-			{
-				for (const TObjectPtr<AActor>& Selected : Context.GetSelectedActors())
-				{
-					AActor* Actor = Selected.Get();
-					if (!Actor || !Actor->GetAttachParentActor()) continue;
-					const bool bHasSelectedAncestor = std::ranges::any_of(Context.GetSelectedActors(), [&](const TObjectPtr<AActor>& Other) { return Other.Get() != Actor && IsDescendantOf(Actor, Other.Get()); });
-					if (bHasSelectedAncestor) continue;
-					if (!Actor->DetachFromActor(EDetachmentTransformRule::KeepWorld))
-						Context.SetError(std::format("Failed to detach '{}'.", Actor->GetName()));
-					else
-						Context.InvalidatePackageSavedState(Actor->GetPackage());
-				}
-			}
-			ImGui::EndDragDropTarget();
-		}
-
+		DrawLevelDragDrop(Context);
 		if (bLevelOpen)
 		{
-			for (uint32 RootIndex : RootNodeIndices) DrawNode(DrawNode, RootIndex);
+			for (uint32 RootIndex : HierarchyModel.GetRootNodeIndices()) DrawActorNode(Context, RootIndex, Filter, bRestoreExpansion, bRequestDelete);
 			if (VisibleActors.empty()) ImGui::TextDisabled(Filter.empty() ? "No actors in this level." : "No actors match '%s'.", SearchText.data());
 			ImGui::TreePop();
 		}
 		ImGui::PopID();
-		ExpandRequest = 0;
-		bWasSearching = !Filter.empty();
+	}
 
-		ImGui::Spacing();
-		ImGui::TextDisabled("%zu actors | %zu selected", HierarchyNodes.size(), Context.GetSelectedActors().size());
-
+	auto FWorldOutlinerPanel::DrawShortcuts(FLevelEditorContext& Context, std::string_view LevelName, bool& bRequestDelete) -> void
+	{
 		const ImGuiIO& IO = ImGui::GetIO();
 		const bool bOutlinerFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 		if (bOutlinerFocused && !IO.WantTextInput && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A, false)) Context.SetSelectedActors(VisibleActors);
@@ -562,22 +446,24 @@ namespace Durin
 			if (AActor* Actor = Context.GetPrimarySelectedActor())
 				BeginActorRename(Actor);
 			else if (bLevelSelected)
-				BeginLevelRename();
+				BeginLevelRename(LevelName);
 		}
 		if (!Context.bReadOnly && bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_H, false))
 		{
 			if (IO.KeyCtrl)
 				ShowAllActors();
 			else if (!Context.GetSelectedActors().empty())
-			{
-				const bool bAllSelectedHidden = std::ranges::all_of(Context.GetSelectedActors(), [](const TObjectPtr<AActor>& Actor) { return Actor && Actor->IsHidden(); });
-				SetActorVisibility(Context.GetSelectedActors(), !bAllSelectedHidden);
-			}
+				SetActorVisibility(Context.GetSelectedActors(), !AreAllActorsHidden(Context.GetSelectedActors()));
 		}
+		if (!Context.bReadOnly && !Context.GetSelectedActors().empty() && bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete, false))
+			bRequestDelete = true;
+	}
 
+	auto FWorldOutlinerPanel::DrawRenameDialog(FLevelEditorContext& Context, std::string_view LevelName) -> void
+	{
 		const bool bRenameActor = RenamingActor.IsValid();
 		const char* RenamePopupTitle = bRenameActor ? "Rename Actor###OutlinerRename" : "Rename Level###OutlinerRename";
-		const std::string CurrentRenameName = bRenameActor ? RenamingActor->GetName() : LevelName;
+		const std::string CurrentRenameName = bRenameActor ? RenamingActor->GetName() : std::string(LevelName);
 		const EEditorRenameDialogResult RenameResult = RenameDialog.Draw(RenamePopupTitle, CurrentRenameName, [&](std::string_view NewName) -> std::string {
 			if (bRenameActor)
 			{
@@ -592,12 +478,10 @@ namespace Durin
 			RenamingActor = nullptr;
 			bRenamingLevel = false;
 		}
-		if (!Context.bReadOnly && !Context.GetSelectedActors().empty() && bOutlinerFocused && !IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete, false)) bRequestDelete = true;
-		if (bRequestDelete)
-		{
-			PendingDeleteActors = Context.GetSelectedActors();
-			ImGui::OpenPopup("Delete Actors?");
-		}
+	}
+
+	auto FWorldOutlinerPanel::DrawDeletePopup(FLevelEditorContext& Context) -> void
+	{
 		if (ImGui::BeginPopupModal("Delete Actors?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings))
 		{
 			ImGui::Text("Delete %zu actor(s)?", PendingDeleteActors.size());
@@ -607,7 +491,7 @@ namespace Durin
 			ImGui::TextDisabled("This action cannot be undone.");
 			if (ImGui::Button("Delete"))
 			{
-				std::ranges::sort(PendingDeleteActors, [&](const TObjectPtr<AActor>& Left, const TObjectPtr<AActor>& Right) { return GetActorDepth(Left.Get()) > GetActorDepth(Right.Get()); });
+				std::ranges::sort(PendingDeleteActors, [this](const TObjectPtr<AActor>& Left, const TObjectPtr<AActor>& Right) { return GetActorDepth(Left.Get()) > GetActorDepth(Right.Get()); });
 				bool bDestroyedAny = false;
 				for (const TObjectPtr<AActor>& Actor : PendingDeleteActors)
 				{
@@ -630,6 +514,76 @@ namespace Durin
 			}
 			ImGui::EndPopup();
 		}
+	}
+
+	auto FWorldOutlinerPanel::Draw(FLevelEditorContext& Context) -> void
+	{
+		if (!EditorWorkspaceUI::BeginDockablePanel(LevelEditorWorkspace::Type, "World Outliner", "WorldOutliner", GetOpenPtr()))
+		{
+			ImGui::End();
+			return;
+		}
+		if (Context.bReadOnly)
+		{
+			ImGui::TextColored(MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning), "Runtime World (read-only)");
+			ImGui::Separator();
+		}
+
+		if (ImGui::Button(Icons::Expand)) ExpandRequest = 1;
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Expand all");
+		ImGui::SameLine();
+		if (ImGui::Button(Icons::Compress)) ExpandRequest = -1;
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Collapse all");
+
+		ImGui::SetNextItemWidth(-1.0f);
+		ImGui::InputTextWithHint("###OutlinerSearch", "Search actors or types...", SearchText.data(), SearchText.size());
+		ImGui::Separator();
+
+		if (Context.Level == nullptr)
+		{
+			DisplayedLevel = nullptr;
+			ResetHierarchyCache();
+			bLevelSelected = false;
+			bRenamingLevel = false;
+			RenamingActor = nullptr;
+			RenameDialog.Cancel();
+			ImGui::TextDisabled("No level is open.");
+			ImGui::End();
+			return;
+		}
+		if (DisplayedLevel.Get() != Context.Level)
+		{
+			DisplayedLevel = Context.Level;
+			bLevelSelected = false;
+			bRenamingLevel = false;
+			RenamingActor = nullptr;
+			RenameDialog.Cancel();
+		}
+
+		if (HierarchyModel.NeedsRebuild(Context.Level, Context.Level->GetEditorActorHierarchyRevision()))
+			RebuildHierarchyCache(Context.Level);
+		const std::string_view Filter(SearchText.data());
+		if (HierarchyModel.GetFilter() != Filter) RebuildFilterCache(Filter);
+		const bool bRestoreExpansion = bWasSearching && Filter.empty();
+
+		VisibleActors.clear();
+		bool bRequestDelete = false;
+
+		const std::string LevelName = LevelDisplayName(Context.Level);
+		DrawLevelNode(Context, LevelName, Filter, bRestoreExpansion, bRequestDelete);
+		ExpandRequest = 0;
+		bWasSearching = !Filter.empty();
+
+		ImGui::Spacing();
+		ImGui::TextDisabled("%zu actors | %zu selected", HierarchyModel.GetNodes().size(), Context.GetSelectedActors().size());
+		DrawShortcuts(Context, LevelName, bRequestDelete);
+		DrawRenameDialog(Context, LevelName);
+		if (bRequestDelete)
+		{
+			PendingDeleteActors = Context.GetSelectedActors();
+			ImGui::OpenPopup("Delete Actors?");
+		}
+		DrawDeletePopup(Context);
 
 		if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered())
 		{

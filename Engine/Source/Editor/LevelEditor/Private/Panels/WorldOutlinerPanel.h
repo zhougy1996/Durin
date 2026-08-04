@@ -2,6 +2,7 @@
 
 #include "DObject/ObjectPtr.h"
 #include "Panels/LevelEditorPanel.h"
+#include "Panels/WorldOutlinerHierarchyModel.h"
 #include "Widgets/EditorRenameDialog.h"
 
 namespace Durin
@@ -17,25 +18,26 @@ namespace Durin
 		auto Draw(FLevelEditorContext& Context) -> void override;
 
 	private:
-		static constexpr uint32 InvalidNodeIndex = ~uint32{0};
-
-		// Stores one flattened hierarchy row and indices into the same node array.
-		struct FOutlinerNode
-		{
-			TObjectPtr<AActor> Actor;
-			std::vector<uint32> Children;
-			uint32 Parent = InvalidNodeIndex;
-			uint32 Depth = 0;
-			uint32 TraversalBegin = 0;
-			uint32 TraversalEnd = 0;
-		};
-
 		auto ResetHierarchyCache() -> void;
 		auto RebuildHierarchyCache(DLevel* Level) -> void;
 		auto RebuildFilterCache(std::string_view Filter) -> void;
 		auto IsNodeVisible(uint32 NodeIndex) const -> bool;
 		auto IsDescendantOf(const AActor* Actor, const AActor* CandidateAncestor) const -> bool;
 		auto GetActorDepth(const AActor* Actor) const -> uint32;
+		auto SetActorVisibility(const std::vector<TObjectPtr<AActor>>& TargetActors, bool bHidden) -> void;
+		auto ShowAllActors() -> void;
+		auto AreAllActorsHidden(const std::vector<TObjectPtr<AActor>>& Actors) const -> bool;
+		auto HasSelectedAncestor(const std::vector<TObjectPtr<AActor>>& Actors, AActor* Candidate) const -> bool;
+		auto BeginActorRename(AActor* Actor) -> void;
+		auto BeginLevelRename(std::string_view LevelName) -> void;
+		auto DrawActorNode(FLevelEditorContext& Context, uint32 NodeIndex, std::string_view Filter, bool bRestoreExpansion, bool& bRequestDelete) -> void;
+		auto DrawActorContextMenu(FLevelEditorContext& Context, AActor* Actor, bool bPrimaryCamera, bool& bRequestDelete) -> void;
+		auto DrawActorDragDrop(FLevelEditorContext& Context, AActor* Actor) -> void;
+		auto DrawLevelNode(FLevelEditorContext& Context, std::string_view LevelName, std::string_view Filter, bool bRestoreExpansion, bool& bRequestDelete) -> void;
+		auto DrawLevelDragDrop(FLevelEditorContext& Context) -> void;
+		auto DrawShortcuts(FLevelEditorContext& Context, std::string_view LevelName, bool& bRequestDelete) -> void;
+		auto DrawRenameDialog(FLevelEditorContext& Context, std::string_view LevelName) -> void;
+		auto DrawDeletePopup(FLevelEditorContext& Context) -> void;
 
 		std::array<char, 128> SearchText{};
 		std::array<char, 128> ActorTypeSearchText{};
@@ -46,14 +48,7 @@ namespace Durin
 		std::vector<AActor*> VisibleActors;
 		std::vector<AActor*> LastVisibleActors;
 		std::unordered_map<AActor*, bool> ExpandedActors;
-		std::vector<FOutlinerNode> HierarchyNodes;
-		std::vector<uint32> RootNodeIndices;
-		std::unordered_map<const AActor*, uint32> ActorToNode;
-		std::vector<uint8> FilterVisibility;
-		TObjectPtr<DLevel> CachedHierarchyLevel;
-		std::string CachedFilter;
-		uint64 CachedHierarchyRevision = 0;
-		bool bFilterCacheValid = false;
+		FWorldOutlinerHierarchyModel HierarchyModel;
 		bool bWasSearching = false;
 		bool bLevelSelected = false;
 		bool bRenamingLevel = false;

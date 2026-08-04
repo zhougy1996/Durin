@@ -138,6 +138,14 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
+durin_add_engine_functional_test(EditorHierarchyTests
+	RUNTIME_STACK_RATIONALE "Exercises the deterministic Level Editor hierarchy model without editor startup."
+	SOURCES
+		Private/Editor/WorldOutlinerHierarchyModelTests.cpp
+	PRIVATE_SOURCES
+		${_durin_level_editor_private}/Panels/WorldOutlinerHierarchyModel.cpp
+)
+
 durin_add_engine_functional_test(MaterialTests
 	GPU
 	TIMEOUT 900

@@ -2,11 +2,11 @@
 
 Summary: Extract reusable editor destination and import primitives and split oversized LevelEditor panels along stable model, operation, and presentation boundaries without changing user-visible behavior.
 
-Last reviewed: 2026-07-28
+Last reviewed: 2026-08-04
 
 ## Current Status
 
-Stages 0 through 5 are complete. Stage 5 began from commit `210b19d0` and
+Stages 0 through 6 are complete. Stage 5 began from commit `950cf82f` and
 separated Content Browser navigation, snapshots, filtering, sorting, cache
 invalidation, and mutation workflows from the panel while retaining
 panel-owned selection, rename, popup, deferred-command, and thumbnail state.
@@ -17,7 +17,8 @@ The unified Core mount registry already owns virtual-path lookup, typed asset
 and source resolution through one effective content directory, reverse physical-path classification, canonical
 containment, and mount-owner metadata. LevelEditor must consume those APIs
 rather than add another mount-owner or path-resolution abstraction. The
-remaining work is panel and document presentation modularization.
+remaining work is document presentation modularization and final composition
+cleanup.
 
 `SceneViewportPanel.cpp` now contains panel orchestration rather than toolbar
 implementation. Asset destination parsing, Content resolution, physical package
@@ -461,7 +462,7 @@ Dependencies: Stages 2 and 4.
 
 #### Stage 5 Handoff
 
-- Baseline: `210b19d0`.
+- Baseline: `950cf82f`.
 - Working set:
   `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserModel.h`,
   `Engine/Source/Editor/LevelEditor/Private/Panels/ContentBrowserModel.cpp`,
@@ -490,26 +491,26 @@ Dependencies: Stages 2 and 4.
   analysis and non-empty-folder blockers, cache invalidation, refresh after
   mutation, and the Stage 4 presentation contracts. The
   `Win64-Debug-DurinEditor-Tests` `LevelEditor` and `all` builds, exact
-  interaction-literal comparison against `210b19d0`, and a hidden-window
+  interaction-literal comparison against `950cf82f`, and a hidden-window
   Sandbox editor smoke test passed on 2026-07-28.
 
 ### Stage 6: Extract Outliner and Details submodels
 
 Dependencies: Stage 0.
 
-- [ ] Extract an Outliner hierarchy model that owns node construction, cycle
+- [x] Extract an Outliner hierarchy model that owns node construction, cycle
   defense, parent/child indices, traversal intervals, depth, revision
   invalidation, and filter visibility.
-- [ ] Add deterministic tests for roots, nested ordering, cycle defense,
+- [x] Add deterministic tests for roots, nested ordering, cycle defense,
   descendant queries, filter ancestor retention, revision changes, and deleted
   actors.
-- [ ] Replace the recursive lambda and operation lambdas in
+- [x] Replace the recursive lambda and operation lambdas in
   `FWorldOutlinerPanel::Draw` with named row, context-menu, drag/drop,
   visibility, rename, shortcut, and delete methods or components.
-- [ ] Extract the Details component-tree view/model only after freezing
+- [x] Extract the Details component-tree view/model only after freezing
   instance-component ordering, attachment, duplicate, rename, removal,
   selection, and active property-edit interactions.
-- [ ] Do not move `FReflectedPropertyView` ownership or change its edit
+- [x] Do not move `FReflectedPropertyView` ownership or change its edit
   completion/cancellation contract.
 
 #### Acceptance Gate
@@ -518,6 +519,31 @@ Dependencies: Stage 0.
   Details draw functions are bounded by named responsibilities, and actor/
   component selection, hierarchy, mutation, undo/redo, and property editing
   pass focused integration tests.
+
+#### Stage 6 Handoff
+
+- Baseline: `8880a494`.
+- Working set: the private `WorldOutlinerHierarchyModel`, `WorldOutlinerPanel`,
+  `DetailsComponentTree`, and `DetailsPanel` implementations, the
+  `WorldOutlinerHierarchyModelTests` source, the EngineTests source list, and
+  this plan.
+- Key symbols: `FWorldOutlinerHierarchyModel`,
+  `FWorldOutlinerPanel::DrawActorNode`,
+  `FWorldOutlinerPanel::DrawActorContextMenu`,
+  `FWorldOutlinerPanel::DrawDeletePopup`, and `FDetailsComponentTree`.
+- Decisions: the hierarchy model consumes opaque actor identities and immutable
+  display inputs so cycle defense, traversal intervals, filtering, revision
+  invalidation, and deleted-node behavior remain deterministic without ImGui.
+  The panel translates those identities back to actors and retains workspace,
+  selection, transaction, rename, and delete ownership. The component-tree
+  component owns component selection and mutation presentation state, while
+  `FReflectedPropertyView` and its edit lifecycle remain owned by
+  `FDetailsPanel`.
+- Open questions: none.
+- Validation: the new hierarchy target, existing editor property, viewport,
+  and world tests, the `LevelEditor` target, the full `all` build, the native
+  aggregate, and the hidden-window Sandbox editor smoke test passed on
+  2026-08-04.
 
 ### Stage 7: Separate document dialogs and finish composition cleanup
 
