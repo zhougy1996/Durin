@@ -4,11 +4,12 @@ Summary: Replace object-wide material invalidation scans with stable render-prox
 
 Last reviewed: 2026-08-04
 
-Status: Active
+Status: Completed
+Completed: 2026-08-04
 
 ## Current Status
 
-Stages 0 through 4 are complete. Every material interface owns one stable
+Stages 0 through 5 are complete. Every material interface owns one stable
 counted `FMaterialRenderProxy`, and static-mesh scene proxies now retain those
 proxy references per stable slot instead of copied `FMaterialRenderData`,
 material versions, and dirty flags. Renderer section draws resolve the bound
@@ -24,8 +25,10 @@ the scene proxy. The unused global `FMaterialUpdateContext` discovery pass has
 been removed; structural work stays with the initiating primitive/scene
 lifecycle owner.
 
-Stage 5 is next and covers the broader integration, editor, rendered-output,
-and shutdown validation matrix.
+The broader integration, editor, rendered-output, and shutdown validation
+matrix is complete. The runtime contract now also covers replaying a retained
+publication after render-command admission restarts, which keeps preview and
+scene-proxy creation correct when assets were edited before renderer startup.
 
 The ordinary setter path now publishes immutable state through each material's
 stable proxy. One pending publication wave per proxy is coalesced before the
@@ -215,7 +218,7 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
 - The implementation must not introduce register/unregister calls for every
   material consumer solely to support material invalidation.
 - New primitive types become material consumers by storing proxy references in
-  their scene proxies; `FMaterialUpdateContext` must not know their concrete
+  their scene proxies; the material subsystem must not know their concrete
   component types.
 - If later profiling requires reverse lookup, the first candidate is a
   renderer-owned index derived from canonical scene-proxy state. A second
@@ -256,20 +259,17 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
 - Render resources, render commands, fences, and deferred cleanup already have
   explicit engine shutdown contracts.
 
-### Gaps
+### Historical Gaps Resolved by Stages 1-4
 
-- `FStaticMeshSceneProxy` stores copied `FMaterialRenderData` and material
-  versions per slot.
-- Material content changes must therefore discover and push updates to every
-  copied slot.
-- `FMaterialUpdateContext` snapshots all objects and hard-codes
-  `DStaticMeshComponent` as the only consumer.
-- `GetLoadedDirectMaterialChildren` and `GetLoadedMaterialDependents` repeat
-  object-wide dependency discovery outside the update context.
-- Ordinary `MarkRenderDataDirty()` constructs and flushes a context
-  synchronously, preventing natural coalescing.
-- Current tests assert the copied-slot update mechanism rather than a stable
-  proxy and lazy inherited-version contract.
+- [x] Static-mesh scene proxies no longer retain copied material snapshots or
+  material versions per slot.
+- [x] Material content changes publish through stable proxies without finding
+  every copied slot or consuming component.
+- [x] Loaded direct-child and transitive-dependent queries share one
+  deterministic implementation with explicit diagnostics.
+- [x] Ordinary `MarkRenderDataDirty()` publishes a coalesced proxy wave rather
+  than constructing and flushing a global context.
+- [x] Tests cover stable proxy identity and lazy inherited-version resolution.
 
 ## Implementation Stages
 
@@ -552,23 +552,48 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
 
 ### Stage 5: Complete Validation and Document the Runtime Contract
 
-- [ ] Run the focused material, static-mesh, renderer, object-lifecycle, and
+- [x] Run the focused material, static-mesh, renderer, object-lifecycle, and
   shutdown test suites.
-- [ ] Add a stress test covering long parent chains, many shared users, many
+- [x] Add a stress test covering long parent chains, many shared users, many
   slots, rapid update/binding interleaving, queued destruction, and a large
   unrelated object population.
-- [ ] Add rendered-image or deterministic render-readback coverage proving
+- [x] Add rendered-image or deterministic render-readback coverage proving
   local parameters, inherited parameters, textures, shader-map identities, and
   pipeline identities update through the proxy.
-- [ ] Validate editor edits, Undo/Redo, asset reload, import-state exchange,
+- [x] Validate editor edits, Undo/Redo, asset reload, import-state exchange,
   preview/thumbnail updates, save/reload, and repeated clean exit.
-- [ ] Complete the full build and editor runtime smoke validation required by
+- [x] Complete the full build and editor runtime smoke validation required by
   `Documentation/Development/Build/BuildAndRun.md`.
-- [ ] Move lasting proxy ownership, publication, parent-resolution, and
+- [x] Move lasting proxy ownership, publication, parent-resolution, and
   structural-fallback contracts into the owning runtime rendering
   documentation.
-- [ ] Update `Documentation/Plans/MaterialSystem.md` to reference the completed
+- [x] Update `Documentation/Plans/MaterialSystem.md` to reference the completed
   work and remove superseded scan-based claims.
+
+#### Stage 5 Handoff
+
+- Baseline commit: `ad4d5bb2` (`refactor(material): remove unused global update scan`).
+- Working set: proxy publication retry behavior, the combined material stress
+  test, Vulkan inherited-parameter readback coverage, runtime material
+  documentation, the Material System plan reference, and this completed plan.
+- Key symbols: `FMaterialRenderProxy::QueuePublication_GameThread`,
+  `FMaterialRenderProxyTests.StressSharedUsersSlotsInterleavedPublicationAndDestruction`,
+  `FMaterialTests.RenderedThumbnailPreviewSceneCapturesResolvedMaterialDifferences`,
+  and `DMaterialInterface::GetMaterialRenderProxy`.
+- Decisions: a retained pending wave is replayed after render-command
+  admission restarts; proxy publication and loaded-query diagnostics remain
+  separate; rendered output proves local, inherited, and texture changes while
+  deterministic proxy snapshots prove shader-map and pipeline identity changes.
+- Open questions: none block completion. Future surface policies, shader graph
+  compilation, and dynamic runtime material APIs remain in the separate
+  material-system backlog.
+- Validation: `MaterialTests` 51/51, `StaticMeshTests` 44/44,
+  `WorldTests` 61/61, `EditorRenderingTests` 31/31, `ThumbnailTests` 45/45,
+  `RendererResourceReloadVulkanTests` 1/1, `EditorPropertyTests` 25/25, and
+  `EditorAssetWorkflowTests` 43/43 passed under
+  `Win64-Debug-DurinEditor-Tests`; the focused stress and inherited readback
+  cases also passed. The same profile completed `build --target all` and two
+  hidden five-tick `DurinEditor` runs with clean exit.
 
 #### Acceptance Gate
 
@@ -609,7 +634,7 @@ Baseline commit: `f443868fbd46902fa6339c8a7c31de1ae4af8ea2`.
   and scan-counter code is removed.
 - Required unit, integration, renderer, lifecycle, performance, editor, full
   build, and runtime smoke validation passes.
-- Lasting behavior is documented outside the active plan.
+- Lasting behavior is documented outside this completed plan.
 
 ## Deferred Follow-ups
 

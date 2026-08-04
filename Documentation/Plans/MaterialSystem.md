@@ -56,6 +56,13 @@ identity from that factory without re-introducing declaration or
 stream-layout ownership in the renderer. See
 [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md).
 
+Stable material render-proxy publication, lazy parent resolution, explicit
+static-mesh binding updates, generic structural ownership, and the removal of
+the unused global material update scan are completed in
+[Material Render-Proxy Invalidation](MaterialRenderProxyInvalidation.md).
+This plan continues to track the separate future work for material surface
+policies, shader permutations, graph compilation, and dynamic runtime APIs.
+
 ## Implemented
 
 - [x] `DMaterialInterface`, `DMaterial`, and inherited `DMaterialInstance`

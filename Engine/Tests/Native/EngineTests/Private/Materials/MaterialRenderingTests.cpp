@@ -480,6 +480,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Durin::DStaticMesh* CaptureSphere = nullptr;
 	Durin::DMaterial* CaptureMaterial = nullptr;
 	Durin::DMaterialInstance* CaptureInstance = nullptr;
+	Durin::DMaterialInstance* InheritedInstance = nullptr;
 	Durin::DTextureCube* CaptureCube = nullptr;
 	Durin::FRHITextureReferenceRef CaptureCubeReference;
 	Durin::FAssetPath CaptureTexturePath;
@@ -497,6 +498,8 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			nullptr, "RenderedThumbnailCaptureMaterial");
 		CaptureInstance = Durin::NewObject<Durin::DMaterialInstance>(
 			nullptr, "RenderedThumbnailCaptureInstance");
+		InheritedInstance = Durin::NewObject<Durin::DMaterialInstance>(
+			nullptr, "RenderedThumbnailInheritedInstance");
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(0.8, 0.15, 0.05)));
@@ -508,6 +511,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Durin::FVector3(0.05, 0.2, 0.8)));
 		ASSERT_TRUE(CaptureInstance->SetScalarParameterValue(
 			Durin::MaterialParameters::SpecularStrengthName(), 0.8f));
+		ASSERT_TRUE(InheritedInstance->SetParent(CaptureMaterial));
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Preview", CaptureTexturePath));
 		const Durin::FTexture2DImportResult TextureResult =
@@ -535,6 +539,13 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Capture(CaptureMaterial);
 		const std::vector<Durin::uint8> InstancePixels =
 			Capture(CaptureInstance);
+		const std::vector<Durin::uint8> InheritedBeforePixels =
+			Capture(InheritedInstance);
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::MaterialParameters::BaseColorName(),
+			Durin::FVector3(0.15, 0.7, 0.2)));
+		const std::vector<Durin::uint8> InheritedAfterPixels =
+			Capture(InheritedInstance);
 		ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
 			Durin::MaterialParameters::BaseColorTextureName(), nullptr));
 		const std::vector<Durin::uint8> UntexturedPixels =
@@ -574,6 +585,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			InstancePixels[Center], InstancePixels[Center + 1], InstancePixels[Center + 2]};
 		EXPECT_NE(CornerRgb, MaterialCenterRgb);
 		EXPECT_NE(MaterialCenterRgb, InstanceCenterRgb);
+		EXPECT_NE(InheritedBeforePixels, InheritedAfterPixels);
 		EXPECT_NE(MaterialPixels, UntexturedPixels);
 		ASSERT_EQ(CubePixels.size(), MaterialPixels.size());
 		const std::array CubeCenterRgb = {
@@ -621,6 +633,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureCubePath));
 	Durin::FlushRenderingCommands();
 	Durin::MarkAsGarbage(CaptureCube);
+	Durin::MarkAsGarbage(InheritedInstance);
 	Durin::MarkAsGarbage(CaptureInstance);
 	Durin::MarkAsGarbage(CaptureMaterial);
 	Durin::MarkAsGarbage(CaptureMesh);

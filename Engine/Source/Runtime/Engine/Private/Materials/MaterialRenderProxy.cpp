@@ -142,17 +142,25 @@ namespace Durin
 			if (PendingPublication.has_value()
 				&& Publication.LocalVersion <= PendingPublication->LocalVersion)
 			{
-				return false;
-			}
-			if (PendingPublication.has_value())
-			{
-				GMaterialRenderProxyCounters.CoalescedPublicationCount.fetch_add(1);
-			}
-			PendingPublication = std::move(Publication);
-			if (!bPublicationCommandQueued)
-			{
+				// A publication can remain pending when render-command admission was
+				// stopped. Retry that retained wave once the rendering thread starts
+				// again instead of treating it as an already-queued stale update.
+				if (bPublicationCommandQueued) return false;
 				bPublicationCommandQueued = true;
 				bNeedsRenderCommand = true;
+			}
+			else
+			{
+				if (PendingPublication.has_value())
+				{
+					GMaterialRenderProxyCounters.CoalescedPublicationCount.fetch_add(1);
+				}
+				PendingPublication = std::move(Publication);
+				if (!bPublicationCommandQueued)
+				{
+					bPublicationCommandQueued = true;
+					bNeedsRenderCommand = true;
+				}
 			}
 		}
 

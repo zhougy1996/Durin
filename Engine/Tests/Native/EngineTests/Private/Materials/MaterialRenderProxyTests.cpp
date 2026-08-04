@@ -467,3 +467,252 @@ TEST(FMaterialRenderProxyTests, PublishedStateOutlivesOwnersAndPostLoadDuplicati
 	Harness.Shutdown();
 	Durin::CollectGarbage();
 }
+
+TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndDestruction)
+{
+	FRenderSceneHarness Harness;
+	constexpr Durin::uint32 ChainLength = 48;
+	constexpr Durin::uint32 SharedUserCount = 12;
+	constexpr Durin::uint32 SlotCount = 8;
+	constexpr Durin::uint32 UnrelatedMaterialCount = 256;
+	auto CapturePrimitiveCount = [&Harness]() -> size_t {
+		size_t Count = 0;
+		struct FCaptureMaterialStressPrimitiveCountCommand
+		{
+			static constexpr auto GetName() -> const char*
+			{
+				return "CaptureMaterialStressPrimitiveCount";
+			}
+		};
+		Durin::EnqueueRenderCommand<
+			FCaptureMaterialStressPrimitiveCountCommand>(
+			[&Count, Scene = Harness.Scene](
+				Durin::FRHICommandListImmediate&) {
+				Count = Scene->GetPrimitiveSceneProxies().size();
+			});
+		WaitForRenderingThread();
+		return Count;
+	};
+
+	auto* Base = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "ProxyStressBase");
+	auto* AlternateBase = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "ProxyStressAlternateBase");
+	ASSERT_TRUE(Base->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(),
+		Durin::FVector3(0.1, 0.2, 0.3)));
+	ASSERT_TRUE(AlternateBase->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(),
+		Durin::FVector3(0.8, 0.7, 0.6)));
+
+	std::vector<Durin::DMaterialInstance*> Chain;
+	Chain.reserve(ChainLength);
+	Durin::DMaterialInterface* Parent = Base;
+	for (Durin::uint32 Index = 0; Index < ChainLength; ++Index)
+	{
+		auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
+			nullptr,
+			Durin::FName(std::format("ProxyStressChain{}", Index)));
+		ASSERT_TRUE(Instance->SetParent(Parent));
+		Chain.push_back(Instance);
+		Parent = Instance;
+	}
+	Durin::DMaterialInstance* Leaf = Chain.back();
+	Durin::FMaterialRenderProxyRef LeafProxy =
+		Leaf->GetMaterialRenderProxy();
+	ASSERT_TRUE(LeafProxy);
+	const FMaterialProxySnapshot InitialLeaf = CaptureMaterialProxy(LeafProxy);
+
+	auto* Shared = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "ProxyStressShared");
+	auto* Replacement = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "ProxyStressReplacement");
+	std::vector<Durin::DMaterial*> SlotMaterials;
+	SlotMaterials.reserve(SlotCount);
+	for (Durin::uint32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
+	{
+		auto* Material = Durin::NewObject<Durin::DMaterial>(
+			nullptr,
+			Durin::FName(std::format("ProxyStressSlotMaterial{}", SlotIndex)));
+		ASSERT_TRUE(Material->SetVectorParameterValue(
+			Durin::MaterialParameters::BaseColorName(),
+			Durin::FVector3(
+				0.05 + 0.05 * SlotIndex,
+				0.15 + 0.04 * SlotIndex,
+				0.25 + 0.03 * SlotIndex)));
+		SlotMaterials.push_back(Material);
+	}
+	ASSERT_TRUE(Shared->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(),
+		Durin::FVector3(0.2, 0.4, 0.6)));
+	ASSERT_TRUE(Replacement->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(),
+		Durin::FVector3(0.9, 0.1, 0.2)));
+
+	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
+	ASSERT_NE(Mesh, nullptr);
+	for (Durin::uint32 SlotIndex = 1; SlotIndex < SlotCount; ++SlotIndex)
+	{
+		AddDebugMaterialSlot(
+			Mesh,
+			std::format("ProxyStressSlot{}", SlotIndex));
+	}
+
+	std::vector<Durin::DStaticMeshComponent*> Components;
+	Components.reserve(SharedUserCount);
+	for (Durin::uint32 UserIndex = 0; UserIndex < SharedUserCount; ++UserIndex)
+	{
+		auto* Component = Harness.CreateStaticMeshComponent(
+			Durin::FName(std::format("ProxyStressUser{}", UserIndex)));
+		ASSERT_NE(Component, nullptr);
+		Component->SetStaticMesh(Mesh);
+		Component->SetMaterial(0, Shared);
+		for (Durin::uint32 SlotIndex = 1; SlotIndex < SlotCount; ++SlotIndex)
+		{
+			Component->SetMaterial(SlotIndex, SlotMaterials[SlotIndex]);
+		}
+		Component->RegisterComponent();
+		Components.push_back(Component);
+	}
+
+	const FMaterialSlotsSnapshot InitialSlots =
+		CaptureMaterialSlots(Harness.Scene);
+	ASSERT_EQ(InitialSlots.Materials.size(), SlotCount);
+	EXPECT_EQ(
+		InitialSlots.MaterialProxies[0],
+		Shared->GetMaterialRenderProxy().GetReference());
+	EXPECT_EQ(
+		CapturePrimitiveCount(),
+		static_cast<size_t>(SharedUserCount));
+
+	std::vector<Durin::DMaterial*> UnrelatedMaterials;
+	UnrelatedMaterials.reserve(UnrelatedMaterialCount);
+	for (Durin::uint32 Index = 0; Index < UnrelatedMaterialCount; ++Index)
+	{
+		UnrelatedMaterials.push_back(Durin::NewObject<Durin::DMaterial>(
+			nullptr,
+			Durin::FName(std::format("ProxyStressUnrelated{}", Index))));
+	}
+
+	Durin::FMaterialRenderProxyRef SharedProxy =
+		Shared->GetMaterialRenderProxy();
+	Durin::FMaterialRenderProxyRef QueuedDestructionProxy;
+	{
+		auto* QueuedDestructionMaterial = Durin::NewObject<Durin::DMaterial>(
+			nullptr, "ProxyStressQueuedDestruction");
+		QueuedDestructionProxy =
+			QueuedDestructionMaterial->GetMaterialRenderProxy();
+		ASSERT_TRUE(QueuedDestructionProxy);
+		CaptureMaterialProxy(QueuedDestructionProxy);
+		Durin::MarkAsGarbage(QueuedDestructionMaterial);
+	}
+
+	Durin::ResetMaterialLoadedQueryDiagnostics();
+	Durin::ResetMaterialRenderProxyCounters();
+	const auto CommandStarted = std::make_shared<std::promise<void>>();
+	std::future<void> CommandStartedFuture = CommandStarted->get_future();
+	const auto AllowCommandCompletion = std::make_shared<std::promise<void>>();
+	std::shared_future<void> AllowCommandCompletionFuture =
+		AllowCommandCompletion->get_future().share();
+	struct FBlockMaterialStressCommand
+	{
+		static constexpr auto GetName() -> const char*
+		{
+			return "BlockMaterialStressPublication";
+		}
+	};
+	Durin::EnqueueRenderCommand<FBlockMaterialStressCommand>(
+		[CommandStarted, AllowCommandCompletionFuture](
+			Durin::FRHICommandListImmediate&) {
+			CommandStarted->set_value();
+			AllowCommandCompletionFuture.wait();
+		});
+	CommandStartedFuture.wait();
+
+	for (Durin::uint32 UpdateIndex = 0; UpdateIndex < 6; ++UpdateIndex)
+	{
+		ASSERT_TRUE(Base->SetVectorParameterValue(
+			Durin::MaterialParameters::BaseColorName(),
+			Durin::FVector3(
+				0.25 + 0.05 * UpdateIndex,
+				0.35 + 0.04 * UpdateIndex,
+				0.45 + 0.03 * UpdateIndex)));
+		ASSERT_TRUE(Shared->SetVectorParameterValue(
+			Durin::MaterialParameters::BaseColorName(),
+			Durin::FVector3(
+				0.3 + 0.05 * UpdateIndex,
+				0.45 + 0.03 * UpdateIndex,
+				0.6 - 0.02 * UpdateIndex)));
+	}
+	Components[0]->SetMaterial(0, Replacement);
+	Components[0]->SetMaterial(0, Shared);
+	Components[1]->SetMaterial(1, Replacement);
+	Components[1]->SetMaterial(1, SlotMaterials[1]);
+
+	AllowCommandCompletion->set_value();
+	const FMaterialSlotsSnapshot UpdatedSlots =
+		CaptureMaterialSlots(Harness.Scene);
+	ASSERT_EQ(UpdatedSlots.Materials.size(), SlotCount);
+	EXPECT_EQ(
+		UpdatedSlots.MaterialProxies[0],
+		SharedProxy.GetReference());
+	EXPECT_EQ(
+		CapturePrimitiveCount(),
+		static_cast<size_t>(SharedUserCount));
+	ExpectColorNear(
+		UpdatedSlots.Materials[0].BaseColor,
+		Durin::FVector4f(0.55f, 0.60f, 0.50f, 1.0f));
+
+	const FMaterialProxySnapshot UpdatedLeaf = CaptureMaterialProxy(LeafProxy);
+	EXPECT_GT(UpdatedLeaf.ResolvedVersion, InitialLeaf.ResolvedVersion);
+	ExpectColorNear(
+		UpdatedLeaf.RenderData.BaseColor,
+		Durin::FVector4f(0.50f, 0.55f, 0.60f, 1.0f));
+	const Durin::FMaterialLoadedQueryDiagnostics QueryDiagnostics =
+		Durin::GetMaterialLoadedQueryDiagnostics();
+	EXPECT_EQ(
+		QueryDiagnostics.LastOperation,
+		Durin::EMaterialLoadedQueryOperation::None);
+	EXPECT_EQ(QueryDiagnostics.QueryCount, 0);
+	EXPECT_EQ(QueryDiagnostics.SnapshotCount, 0);
+	EXPECT_EQ(QueryDiagnostics.ScannedObjectCount, 0);
+	EXPECT_EQ(QueryDiagnostics.ScannedMaterialCount, 0);
+	const Durin::FMaterialRenderProxyCounters ProxyCounters =
+		Durin::GetMaterialRenderProxyCounters();
+	EXPECT_GE(ProxyCounters.PublicationCount, 1);
+	EXPECT_GE(ProxyCounters.CoalescedPublicationCount, 1);
+
+	Durin::CollectGarbage();
+	const FMaterialProxySnapshot AfterQueuedDestruction =
+		CaptureMaterialProxy(QueuedDestructionProxy);
+	EXPECT_GT(AfterQueuedDestruction.ResolvedVersion, 0);
+
+	for (Durin::DStaticMeshComponent* Component : Components)
+	{
+		Component->UnregisterComponent();
+		Durin::MarkAsGarbage(Component);
+	}
+	for (Durin::DMaterial* Material : UnrelatedMaterials)
+	{
+		Durin::MarkAsGarbage(Material);
+	}
+	for (Durin::DMaterial* Material : SlotMaterials)
+	{
+		Durin::MarkAsGarbage(Material);
+	}
+	for (Durin::DMaterialInstance* Instance : Chain)
+	{
+		Durin::MarkAsGarbage(Instance);
+	}
+	Durin::MarkAsGarbage(Replacement);
+	Durin::MarkAsGarbage(Shared);
+	Durin::MarkAsGarbage(Mesh);
+	Durin::MarkAsGarbage(AlternateBase);
+	Durin::MarkAsGarbage(Base);
+	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(QueuedDestructionProxy));
+	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(SharedProxy));
+	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(LeafProxy));
+	WaitForRenderingThread();
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}

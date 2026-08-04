@@ -70,7 +70,10 @@ declarations and a compiled renderer layout are deferred work.
 - A material publication owns one pending wave per proxy. Repeated edits before
   the render command is consumed replace that pending wave, so only the newest
   immutable state is applied. The command stream preserves publication order
-  before later rendering commands consume the proxy.
+  before later rendering commands consume the proxy. If a material is edited
+  while render-command admission is stopped, the retained wave is replayed when
+  the rendering thread starts; the first preview or scene-proxy consumer does
+  not observe an uninitialized snapshot.
 - Component material assignment is a binding update, not material-content
   invalidation. A component-wide revision orders rapid changes across
   independent slots and rejects stale render commands.
@@ -111,7 +114,8 @@ declarations and a compiled renderer layout are deferred work.
   mesh. Rebuilding render state then resolves current slot definitions,
   defaults, overrides, and orphans directly from canonical storage.
 - Proxy diagnostics expose publication, coalescing, resolution-cache hit/miss,
-  structural-fallback, stale-publication, and binding-update counts. They are
+  stale-publication, and binding-update counts. Loaded relationship queries
+  expose their own operation, snapshot, scan, and result diagnostics. Both are
   diagnostics, not a persistent dependency index.
 
 ## Compatibility Boundary
