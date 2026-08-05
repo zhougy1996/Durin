@@ -104,6 +104,35 @@ TEST(FMaterialParameterPanelModelTests, IntegerPresentationCanonicalizesSubmitte
 	Durin::CollectGarbage();
 }
 
+TEST(FMaterialParameterPanelModelTests, EnablingOverrideCopiesTheParameterType)
+{
+	InitializeDObjectSystem();
+	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "PanelTypedOverrideBase");
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PanelTypedOverrideInstance");
+	ASSERT_TRUE(Instance->SetParent(Base));
+
+	Durin::FEditorTransactionManager Transactions;
+	Durin::FReflectedPropertyView PropertyView;
+	std::string Error;
+	const auto Context = MakeContext(Transactions, Error);
+	const Durin::FMaterialParameterPanelModel Model(Instance);
+	const auto* BaseColor = FindEntry(Model, Durin::MaterialParameters::BaseColorId);
+	ASSERT_NE(BaseColor, nullptr);
+	ASSERT_EQ(BaseColor->Definition->Type, Durin::EMaterialParameterType::Vector);
+	ASSERT_TRUE(Model.SetOverrideEnabled(PropertyView, Context, *BaseColor, true));
+
+	const auto Overrides = Instance->GetParameterOverrides();
+	ASSERT_EQ(Overrides.size(), 1u);
+	EXPECT_EQ(Overrides.front().ParameterId, Durin::MaterialParameters::BaseColorId);
+	EXPECT_EQ(Overrides.front().Type, Durin::EMaterialParameterType::Vector);
+	EXPECT_TRUE(Error.empty());
+
+	Transactions.Clear();
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
+	Durin::CollectGarbage();
+}
+
 TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoalesceOrCancel)
 {
 	InitializeDObjectSystem();

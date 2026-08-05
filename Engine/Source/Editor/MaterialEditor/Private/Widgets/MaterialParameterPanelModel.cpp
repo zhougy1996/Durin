@@ -230,7 +230,8 @@ namespace Durin
 		FArrayProperty* Property = FindArrayProperty(Instance, FName("ParameterOverrides"));
 		return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
 			bEnabled ? EPropertyChangeKind::ArrayAdd : EPropertyChangeKind::ArrayRemove, false,
-			[Id = Entry.ParameterId, Value = CanonicalizeValue(*Entry.Definition, Entry.Value), bEnabled](
+			[Id = Entry.ParameterId, Type = Entry.Definition->Type,
+				Value = CanonicalizeValue(*Entry.Definition, Entry.Value), bEnabled](
 				const FArrayProperty& ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 				if (bEnabled)
 				{
@@ -238,7 +239,7 @@ namespace Durin
 					ScratchProperty.Resize(ScratchContainer, Count + 1, ScratchArrayIndex);
 					auto* Override = static_cast<FMaterialParameterOverride*>(
 						ScratchProperty.GetMutableElementPtr(ScratchContainer, Count, ScratchArrayIndex));
-					*Override = {.ParameterId = Id, .Value = Value};
+					*Override = {.ParameterId = Id, .Type = Type, .Value = Value};
 				}
 				else
 				{
