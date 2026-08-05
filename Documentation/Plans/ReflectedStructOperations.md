@@ -9,26 +9,29 @@ Completed:
 
 ## Current Status
 
-- DHT currently emits default construction, destruction, and placement copy
-  construction functions for every `DSTRUCT()` and registers all three on
-  `DStruct`.
-- This generated code requires every reflected struct to be publicly default
-  constructible, copy constructible, and destructible even when no runtime
-  consumer needs one of those operations.
-- `DStruct` stores three nullable callbacks but exposes no capability flags,
-  copy destination contract, logical equality, custom serialization, post-load,
-  or hidden-reference semantics.
-- CoreDObject and AssetCore serializers recursively walk reflected struct
-  fields. They do not consult `DStruct` lifecycle callbacks or dispatch to a
-  struct-owned serializer.
-- Core math types such as `FVector3` cannot include CoreDObject reflection
-  declarations. They are registered as intrinsic structs through an external
-  CoreDObject bridge; that bridge currently publishes fields but no lifecycle
-  operations.
-- The selected path is a C++ trait and compiler-generated operation table,
-  analogous in purpose to UE StructOps but limited to Durin's demonstrated
-  runtime needs.
-- No implementation stage has started.
+- Stage 0 completed on 2026-08-05 from baseline commit `560907a0`. The audit
+  covers 20 DHT-generated structs, six externally registered Core math structs,
+  and every current registration, lifecycle, equality, Archive, authored-asset,
+  snapshot, editor-draft, and GC consumer.
+- Twenty-four structs have complete reflected authored state. The two
+  exceptions, `FImportRecordOutput` and
+  `FImportRecordDetachedTombstone`, keep parsed `FAssetPath` values derived from
+  reflected path text and are classified as reflected state plus repairable
+  derived state. No current struct requires an authored custom codec.
+- The only object references inside current reflected structs are the reflected
+  `TextureValue` and `DefaultMaterial` properties. No current hidden strong
+  reference requires a collector callback before GC migration.
+- The version-1 `FDStructOps`, `TDStructOpsTraits<T>`, post-deserialize context,
+  callback signatures, capability/failure rules, and registration lifetime are
+  frozen in the Stage 0 contract below.
+- DHT also unconditionally instantiates property-level default construction and
+  destruction helpers for every generated `DPROPERTY`. Struct-valued property
+  lifecycle must therefore migrate to `FDStructOps`; replacing only the legacy
+  three callbacks on `DStruct` would not satisfy the unavailable-operation
+  contract.
+- Stage 1 is next. Its initial working set is `Class.h`, `DObjectGlobals.h/.cpp`,
+  `reflection_source_writer.py`, `MathStructs.cpp`, and the focused DHT and
+  CoreDObject reflection tests. Stage 0 changed only this plan.
 
 ## Goal
 
@@ -220,6 +223,10 @@ future package formats.
 
 - Direct generated expressions make deleted, private, or absent lifecycle
   operations fail during generated-code compilation.
+- Generated `FProperty` metadata independently instantiates
+  `InitializePropertyValue<T>` and `DestroyPropertyValue<T>` for struct-valued
+  properties, so the same invalid requirement survives even if only the
+  descriptor-level callbacks are removed.
 - There is no immutable capability table or distinction between construction
   and assignment.
 - No generic RAII owner pairs struct construction and destruction.
@@ -229,27 +236,192 @@ future package formats.
 - AssetCore cannot distinguish a complete field representation from a struct
   that requires an authored custom codec.
 
+## Stage 0 Frozen Contract and Audit
+
+### Version 1 Operation ABI
+
+- The public ABI names are `DStructOpsVersion`, `EDStructOpsFlags`,
+  `FDStructOps`, `EDStructDeserializeSource`,
+  `FDStructPostDeserializeContext`, `TDStructOpsTraitsBase<T>`,
+  `TDStructOpsTraits<T>`, and `GetDStructOps<T>()`. Version 1 has the numeric
+  value `1`; registration rejects a table whose version is not supported.
+- `EDStructOpsFlags` contains `DefaultConstruct`, `TriviallyDestructible`,
+  `Destroy`, `CopyConstruct`, `CopyAssign`, `ZeroConstruct`, `Identical`,
+  `Serialize`, `PostDeserialize`, `CollectReferences`, and
+  `AuthoredFieldsComplete`. Except for `TriviallyDestructible` and
+  `AuthoredFieldsComplete`, a set flag requires the same-named callback to be
+  non-null. The builder is the only producer of flag/callback combinations.
+- `FDStructOps` stores `Version`, `Flags`, and the following type-erased
+  callbacks. The corresponding trait method is the compiler-checked typed
+  customization point.
+
+| Callback | Erased signature | Trait method signature |
+| --- | --- | --- |
+| `DefaultConstruct` | `void(void* Destination)` | `static void DefaultConstruct(void* Destination)` |
+| `Destroy` | `void(void* Value)` | `static void Destroy(T& Value)` |
+| `CopyConstruct` | `void(void* Destination, const void* Source)` | `static void CopyConstruct(void* Destination, const T& Source)` |
+| `CopyAssign` | `void(void* Destination, const void* Source)` | `static void CopyAssign(T& Destination, const T& Source)` |
+| `ZeroConstruct` | `void(void* Destination)` | `static void ZeroConstruct(void* Destination)` |
+| `Identical` | `bool(const void* Left, const void* Right)` | `static bool Identical(const T& Left, const T& Right)` |
+| `Serialize` | `void(FArchive& Archive, void* Value)` | `static void Serialize(FArchive& Archive, T& Value)` |
+| `PostDeserialize` | `bool(void* Value, FDStructPostDeserializeContext& Context)` | `static bool PostDeserialize(T& Value, FDStructPostDeserializeContext& Context)` |
+| `CollectReferences` | `void(void* Value, FReferenceCollector& Collector)` | `static void CollectReferences(T& Value, FReferenceCollector& Collector)` |
+
+- `TDStructOpsTraitsBase<T>` mechanically enables default construction,
+  destruction, copy construction, and copy assignment from the corresponding
+  standard type traits. It exposes `bWithDefaultConstruct`, `bWithDestroy`,
+  `bIsTriviallyDestructible`, `bWithCopyConstruct`, and `bWithCopyAssign`.
+  `bWithZeroConstruct`, `bWithIdentical`, `bWithSerializer`,
+  `bWithPostDeserialize`, and `bWithReferenceCollector` default to false.
+  `bHasCompleteAuthoredFields` defaults to true to preserve the current tagged
+  field representation; a specialization sets it false only to fail closed.
+- `TDStructOpsTraits<T>` derives from the base unchanged. A specialization may
+  disable a mechanically available operation or replace its typed method. If it
+  enables an optional operation, `GetDStructOps<T>()` uses `requires` checks and
+  a focused `static_assert` to require the exact signature above. No disabled
+  method is instantiated.
+- `DStruct` publishes `GetOps()`, `CanDefaultConstruct()`, `CanDestroy()`,
+  `NeedsDestroy()`, `CanCopyConstruct()`, `CanCopyAssign()`,
+  `CanZeroConstruct()`, `HasIdentical()`, `HasSerializer()`,
+  `HasPostDeserialize()`, `HasReferenceCollector()`, and
+  `HasCompleteAuthoredFields()`. `CanDestroy()` is true when either `Destroy` or
+  `TriviallyDestructible` is present; `NeedsDestroy()` is true only for the
+  callback case.
+- `FStructParams` carries `const FDStructOps* Ops`. Generated code and the
+  intrinsic bridge pass the address of the function-local static table returned
+  by `GetDStructOps<T>()`. `ConstructDStruct` installs that pointer exactly once
+  before GC schema finalization. The table has program lifetime, `DStruct`
+  exposes it as const, and re-registration with a different pointer is an
+  assertion failure.
+- `EDStructDeserializeSource` has `RuntimeArchive` and `AuthoredAsset`.
+  `FDStructPostDeserializeContext` contains `Source`, `uint32 SourceVersion`, an
+  error string channel, and `Fail(std::string_view) -> bool`. Runtime Archive
+  calls use version zero; AssetCore supplies the authored format version.
+
+### Memory, Failure, Equality, and Reference Rules
+
+- `DefaultConstruct`, `CopyConstruct`, and `ZeroConstruct` require correctly
+  aligned uninitialized storage. `CopyAssign` requires a live destination.
+  Source and destination may not overlap. A successful construction makes one
+  value live; a failed capability preflight makes no value live and changes no
+  caller storage.
+- Generic ownership calls `Destroy` exactly once only when `NeedsDestroy()` is
+  true. Trivially destructible live values require no callback. A type that is
+  neither trivially destructible nor equipped with `Destroy` cannot be owned by
+  generic storage.
+- Lifecycle callbacks do not report semantic failure. Unsupported requests use
+  the stable diagnostic identifier `DStructOperationUnavailable` plus the
+  operation name and qualified struct name, and return before allocation or
+  mutation. Archive failure uses sticky `ArchiveFailure`; post-deserialize
+  rejection uses `PostDeserializeRejected`. AssetCore uses
+  `CustomStructCodecRequired` when `AuthoredFieldsComplete` is absent.
+- Default logical equality recursively visits every non-transient reflected
+  field. Integers, booleans, enums, names, strings, GUIDs, and object references
+  compare by value, with object value defined as pointer identity. Arrays are
+  ordered. Maps compare key/value associations independently of iteration
+  order. `float` and `double` compare their complete bit patterns: positive and
+  negative zero are distinct, and NaNs compare equal only when sign, exponent,
+  and payload bits match. This matches the current wire-significant scalar
+  representation and preserves NaN payload policy.
+- An `Identical` callback, when declared, is authoritative for the complete
+  struct value; it is not combined with an additional automatic field walk.
+  No current struct requires one.
+- GC and detached-value rooting first traverse the reflected schema and then
+  call `CollectReferences` exactly once. The callback contract is to enumerate
+  only strong references outside reflected properties; authors must not repeat
+  reflected references. No current struct requires this callback.
+- A runtime `Serialize` callback is dispatched exactly once instead of the
+  Archive field walk. It cannot clear a sticky Archive error. It has no effect
+  on AssetCore's authored representation. `PostDeserialize` runs only after the
+  complete value succeeds, and a rejecting callback is evaluated on temporary
+  managed storage so the live destination remains unchanged.
+
+### Reflected Struct Inventory
+
+`D/Cc/Ca/X` below means publicly default constructible, copy constructible,
+copy assignable, and destructible. All 20 generated structs have that mechanical
+capability set today. `Complete` means all durable logical and authored state is
+represented by non-transient reflected fields and needs neither a custom
+equality callback nor an authored codec.
+
+| Generated type | Lifecycle and default notes | State classification | Reference and current-use classification |
+| --- | --- | --- | --- |
+| `AssetImport::FImportRecordPayload` | `D/Cc/Ca/X`; ordinary member defaults | Complete | No references; nested authored/Archive import-record state |
+| `AssetImport::FImportRecordSource` | `D/Cc/Ca/X`; ordinary member defaults | Complete | No references; nested authored/Archive import-record state |
+| `AssetImport::FImportRecordOutput` | `D/Cc/Ca/X`; parsed path starts empty | Reflected fields plus repairable `AssetPath` derived from `AssetPathText` | No references; nested authored/Archive import-record state; requires post-deserialize repair, not a codec |
+| `AssetImport::FImportRecordDetachedTombstone` | `D/Cc/Ca/X`; parsed path starts empty | Reflected fields plus repairable `LastAssetPath` derived from `LastAssetPathText` | No references; nested authored/Archive import-record state; requires post-deserialize repair, not a codec |
+| `AssetImport::FImportRecordDiagnostic` | `D/Cc/Ca/X`; ordinary member defaults | Complete | No references; nested authored/Archive import-record state |
+| `Durin::FSourcePath` | `D/Cc/Ca/X`; empty path is the defined default | Complete | No references; shared nested source-provenance state |
+| `Durin::Asset::FCookedPayloadDescriptor` | `D/Cc/Ca/X`; zero/empty descriptor default | Complete | No references; authored properties on mesh, texture, and environment assets plus cooked-container use |
+| `Durin::FTextureSourceFile` | `D/Cc/Ca/X`; empty source default | Complete | No references; nested Texture2D/TextureCube provenance |
+| `Durin::FTexture2DSourceImportData` | `D/Cc/Ca/X`; empty source default | Complete | No references; authored Texture2D property |
+| `Durin::FTextureCubeSourceImportData` | `D/Cc/Ca/X`; six-face layout with empty sources | Complete | No references; authored TextureCube property |
+| `Durin::FSplinePoint` | `D/Cc/Ca/X`; default construction creates a new GUID | Complete | No references; nested in `FSplineCurve` |
+| `Durin::FSplineCurve` | `D/Cc/Ca/X`; default construction creates the established two-point curve | Complete; evaluation data is owned by a separate immutable snapshot, not the struct | No references; authored/editable spline-component property |
+| `Durin::FStaticMeshImportSettings` | `D/Cc/Ca/X`; Durin-axis defaults | Complete | No references; nested static-mesh provenance |
+| `Durin::FStaticMeshSourceImportData` | `D/Cc/Ca/X`; empty source default | Complete | No references; authored static-mesh property |
+| `Durin::FStaticMeshMaterialSlotDefinition` | `D/Cc/Ca/X`; empty slot default | Complete | Reflected `DefaultMaterial` is the only reference; nested authored static-mesh array |
+| `Durin::FCameraProjectionSettings` | `D/Cc/Ca/X`; established perspective defaults | Complete | No references; authored/editable camera property |
+| `Durin::FMaterialStaticProperties` | `D/Cc/Ca/X`; established opaque/lit defaults | Complete | No references; authored/editable material property |
+| `Durin::FMaterialParameterValue` | `D/Cc/Ca/X`; scalar/vector alternatives start at zero | Complete; inactive alternatives remain deliberately durable | Reflected `TextureValue` is the only reference; nested material definition/override state |
+| `Durin::FMaterialParameterDefinition` | `D/Cc/Ca/X`; ordinary member defaults | Complete | References only through reflected nested value; authored material definition array |
+| `Durin::FMaterialParameterOverride` | `D/Cc/Ca/X`; ordinary member defaults | Complete | References only through reflected nested value; authored material-instance override array |
+
+The six Core-owned structs are externally described by `MathStructs.cpp`; none
+currently receives legacy lifecycle callbacks. All are mechanically copy
+constructible, copy assignable, and trivially destructible. Their fields are the
+complete logical, Archive, GC, and authored representation and contain no object
+references.
+
+| Intrinsic type | Stable reflected fields | Version-1 operation policy |
+| --- | --- | --- |
+| `Durin::FVector2` | `x`, `y` as `Double` | Mechanical default/copy operations; default is not advertised as semantic zero |
+| `Durin::FVector3` | `x`, `y`, `z` as `Double` member accessors | Explicit specialization constructs `(0, 0, 0)`; copy construct/assign; trivial destruction; no optional callbacks |
+| `Durin::FVector4` | `x`, `y`, `z`, `w` as `Double` | Mechanical default/copy operations; default is not advertised as semantic zero |
+| `Durin::FQuat` | `w`, `x`, `y`, `z` as `Double` | Mechanical default/copy operations; default is not advertised as identity or semantic zero |
+| `Durin::FTransform` | `Rotation`, `Translation`, `Scale3D` | Existing default remains identity rotation, zero translation, and unit scale; mechanical copy operations |
+| `Durin::FLinearColor` | `R`, `G`, `B`, `A` as `Float` | Mechanical default/copy operations; the existing default constructor is not advertised as semantic zero |
+
+No current type is in the authored-custom-codec class, so Stage 0 creates no
+follow-up codec plan and adds no blocker to the compact-serialization roadmap.
+
+### Generic Consumer Inventory
+
+| Consumer | Current behavior | Required migration |
+| --- | --- | --- |
+| DHT struct registration | Emits direct placement default construction, explicit destruction, and placement copy construction for every generated struct | Emit only `GetDStructOps<T>()` registration and let the builder instantiate available operations |
+| DHT property registration | Emits direct `InitializePropertyValue<T>` and `DestroyPropertyValue<T>` for every property, including struct-valued properties | Stop instantiating struct lifecycle directly; route struct property ownership through its `DStruct` capabilities |
+| `ConstructDStruct` / `DStruct` | Installs three nullable mutable callbacks through `SetCppOps`; production code does not call them | Install one immutable versioned table and expose capability queries |
+| `MathStructs.cpp` | Publishes six field schemas through `FStructParams` but no lifecycle callbacks | Register the same operation table as generated structs; specialize only `FVector3` default construction |
+| `FPropertyValueDraft` | Allocates aligned detached storage, calls generated property initialize/destroy callbacks, restores a serialized snapshot, and tracks liveness locally | Use the single managed struct-value owner for struct roots and report unavailable capabilities before allocation |
+| Array and map helpers | Array resize default-constructs elements; Archive and AssetCore map load create, insert/copy-assign, and destroy temporary key/value objects through generated container helpers | Keep scalar/container helpers, but preflight nested struct capabilities and use explicit construct/assign semantics where reflection owns the value |
+| Runtime Archive | Recursively field-walks structs in object graphs, duplication, editable-property copy, and snapshots; readers have no sticky error | Dispatch `Serialize`, retain field walk by default, add sticky errors, and run post-deserialize transactionally |
+| Property snapshots | Serialize detached values into bytes, separately root reflected object references, and compare property identity, bytes, and reference-vector order | Use recursive logical equality and include declared hidden references while preserving detached rooting |
+| AssetCore DAST v2 | Tags and recursively serializes struct fields directly into live storage; unknown fields skip and mismatches fail | Preserve bytes, preflight `AuthoredFieldsComplete`, and run post-deserialize on temporary managed storage |
+| GC schema | Compiles reflected object, struct, array, and map operations and recursively visits reflected fields | Add one struct collector operation after reflected traversal; no current callback migration is required |
+| Tests and hand-authored descriptors | DHT string fixtures and CoreDObject/AssetCore test descriptors reproduce generated/intrinsic registration and nested GC/serialization behavior | Convert fixtures to the common builder and add unavailable/malformed operation coverage |
+
 ## Implementation Stages
 
 ### Stage 0: Freeze the Operations Contract and Audit Structs
 
-- [ ] Inventory every DHT-generated and intrinsic `DStruct`, its constructors,
+- [x] Inventory every DHT-generated and intrinsic `DStruct`, its constructors,
   destructor, copy behavior, reflected and unreflected state, object references,
   and current serialization use.
-- [ ] Record the intrinsic `FVector3` contract: stable qualified name and
+- [x] Record the intrinsic `FVector3` contract: stable qualified name and
   component fields, explicit zero default, trivial destruction, copy support,
   complete reflected authored state, and no raw-layout dependency.
-- [ ] Inventory every current call site that constructs, destroys, copies,
+- [x] Inventory every current call site that constructs, destroys, copies,
   snapshots, compares, serializes, or GC-traces struct storage.
-- [ ] Freeze the names, signatures, flags, ABI version, registration lifetime,
+- [x] Freeze the names, signatures, flags, ABI version, registration lifetime,
   callback failure semantics, and post-deserialize context for `FDStructOps` and
   `TDStructOpsTraits<T>`.
-- [ ] Classify every current struct as complete reflected-field state,
+- [x] Classify every current struct as complete reflected-field state,
   reflected fields plus derived repairable state, or requiring an authored
   custom codec.
-- [ ] Decide whether any current hidden reference requires the reference-
+- [x] Decide whether any current hidden reference requires the reference-
   collector operation before changing GC execution.
-- [ ] Record any custom-codec requirement as a separate bounded plan and a
+- [x] Record any custom-codec requirement as a separate bounded plan and a
   blocking dependency of the compact-serialization roadmap.
 
 #### Acceptance Gate
@@ -261,6 +433,27 @@ future package formats.
   references without ambiguous memory preconditions.
 - No unresolved authored-representation or GC requirement is hidden behind
   ordinary reflected-field fallback.
+
+#### Stage 0 Handoff
+
+- Baseline commit: `560907a0` (`docs(reflection): include intrinsic math
+  bridge`). Stage 0 working set: this plan only.
+- Key implementation symbols: `DStruct`, `FStructParams`,
+  `InitializePropertyValue<T>`, `DestroyPropertyValue<T>`, `ConstructDStruct`,
+  `_struct_definitions`, `_property_definition`, `MakeStruct`,
+  `SerializePropertyValue`, `FGCReferenceSchemaRegistry`,
+  `FPropertyValueSnapshot`, and `FPropertyValueDraft`.
+- Decisions: one static immutable version-1 table; mechanical lifecycle facts;
+  explicit semantic opt-ins; bit-exact floating equality; transactional
+  post-deserialize; reflected traversal followed by hidden-reference collection;
+  tagged authored fields remain the default.
+- Open questions: none for Stage 1. The two import-record path caches are
+  assigned to Stage 3 post-deserialize migration, and no current type activates
+  the authored-codec dependency.
+- Validation: targeted source inventory found 20 generated plus six intrinsic
+  descriptors and no production invocation of the legacy `DStruct` lifecycle
+  callbacks; `DevTool doc plan validate --scope all` passed for three active,
+  zero completed, and 59 archived plans.
 
 ### Stage 1: Add Declarative Operations and Generated Registration
 
