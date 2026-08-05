@@ -29,14 +29,17 @@ Completed:
   descriptors register through the common trait builder, and `FVector3`
   explicitly provides deterministic zero construction.
 - DHT still instantiates property-level default construction and destruction
-  helpers for generated `DPROPERTY` declarations. Stage 2 must migrate
-  struct-valued property ownership and detached storage to capability-aware
-  operations before unavailable lifecycle capabilities can flow through every
-  consumer.
-- Stage 2 is next. Its initial working set is the new struct operation API,
-  generated property registration, property storage/container helpers,
-  recursive equality and GC schema consumers, and their focused CoreDObject
-  tests.
+  helpers for non-struct generated `DPROPERTY` declarations. Struct-valued
+  properties now dispatch through their `DStruct` operation table, including
+  nested array/map metadata and detached editor storage.
+- Stage 2 completed on 2026-08-05 from baseline commit `f7be54d8`. Managed
+  reflected-value storage, explicit copy modes, recursive logical equality,
+  capability-aware containers, hidden-reference GC traversal, and snapshot
+  rooting are implemented and validated.
+- Stage 3 is next. Runtime Archive still has no sticky error channel, and
+  Archive/AssetCore decoding still updates live aggregate destinations after
+  capability preflight. Stage 3 must make decode and post-deserialize failure
+  transactional while preserving current bytes and mismatch categories.
 
 ## Goal
 
@@ -516,19 +519,19 @@ follow-up codec plan and adds no blocker to the compact-serialization roadmap.
 
 ### Stage 2: Make Lifecycle, Equality, and GC Consumers Capability-Aware
 
-- [ ] Add the single RAII struct-value storage helper and use it wherever
+- [x] Add the single RAII struct-value storage helper and use it wherever
   reflection owns detached or temporary struct storage.
-- [ ] Replace ambiguous `CopyValue` usage with explicit copy construction or
+- [x] Replace ambiguous `CopyValue` usage with explicit copy construction or
   assignment and precondition checks.
-- [ ] Add recursive logical reflected-value equality with optional struct
+- [x] Add recursive logical reflected-value equality with optional struct
   `Identical` dispatch and exact wire-significant scalar behavior.
-- [ ] Integrate optional hidden-reference collection with nested struct GC and
+- [x] Integrate optional hidden-reference collection with nested struct GC and
   detached-value rooting without duplicating reflected references.
-- [ ] Make unsupported operations return stable errors before changing live
+- [x] Make unsupported operations return stable errors before changing live
   destinations or ownership state.
-- [ ] Add lifecycle-count, rollback, nested-container, custom-equality, and
+- [x] Add lifecycle-count, rollback, nested-container, custom-equality, and
   hidden-reference GC tests.
-- [ ] Prove `FVector3` equality is the recursive equality of its three `double`
+- [x] Prove `FVector3` equality is the recursive equality of its three `double`
   components, including the selected NaN and signed-zero rules, and never reads
   GLM padding or alignment bytes.
 
@@ -540,6 +543,32 @@ follow-up codec plan and adds no blocker to the compact-serialization roadmap.
   padding.
 - Reflected and declared hidden strong references remain reachable through
   collection and detached snapshot lifetimes.
+
+#### Stage 2 Handoff
+
+- Baseline commit: `f7be54d8` (`feat(reflection): add declarative struct
+  operations`). Stage 2 working set: CoreDObject property/storage, Archive, and
+  GC-schema code; DHT property/container generation; AssetCore map/array load;
+  DurinEd property drafts; and focused DHT, CoreDObject, AssetCore, and editor
+  tests.
+- Key implementation symbols: `FReflectedValueStorage`,
+  `FProperty::Can*Value`, `FProperty::CopyConstructValue`,
+  `FProperty::CopyAssignValue`, `ArePropertyValuesIdentical`,
+  `FArrayProperty::Resize`, `FMapProperty::Insert`,
+  `FGCReferenceSchemaRegistry::Visit(const DStruct*)`, and
+  `FGCReferenceSchemaRegistry::VisitProperty`.
+- Decisions: one aligned RAII owner tracks liveness for detached values;
+  struct-valued properties never carry generated direct lifecycle thunks;
+  array/map mutation helpers report capability failure; map equality compares
+  logical associations independently of iteration order; scalar floating
+  equality compares complete bits; reflected GC traversal precedes one optional
+  hidden-reference callback; snapshots deduplicate the combined reference set.
+- Open questions: none for Stage 3. Runtime Archive early returns cannot yet
+  propagate failure, and aggregate decode remains incremental; sticky Archive
+  failure plus temporary managed decode are explicitly assigned to Stage 3.
+- Validation: focused DHT generation, CoreDObject, AssetPackage, and editor
+  property tests passed. A full `all` build passed under the documented
+  `windows-msvc-x64` Agent Build Profile.
 
 ### Stage 3: Add Safe Struct Serialization Dispatch
 

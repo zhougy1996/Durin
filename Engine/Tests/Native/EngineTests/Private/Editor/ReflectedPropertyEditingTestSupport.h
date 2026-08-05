@@ -137,7 +137,7 @@ namespace
 	template<typename T>
 	auto MutableVectorElement(void* Container, Durin::uint64 Index) -> void* { return &(*static_cast<std::vector<T>*>(Container))[static_cast<size_t>(Index)]; }
 	template<typename T>
-	auto ResizeVector(void* Container, Durin::uint64 Num) -> void { static_cast<std::vector<T>*>(Container)->resize(static_cast<size_t>(Num)); }
+	auto ResizeVector(void* Container, Durin::uint64 Num) -> bool { static_cast<std::vector<T>*>(Container)->resize(static_cast<size_t>(Num)); return true; }
 
 	const Durin::DurinCodeGen::FArrayPropertyHelper GIntArrayHelper = {
 		&VectorNum<Durin::int32>, &VectorElement<Durin::int32>, &MutableVectorElement<Durin::int32>, &ResizeVector<Durin::int32>
@@ -154,7 +154,7 @@ namespace
 	auto DestroyMapKey(void* Key) -> void { delete static_cast<std::string*>(Key); }
 	auto CreateMapValue() -> void* { return new Durin::int32(); }
 	auto DestroyMapValue(void* Value) -> void { delete static_cast<Durin::int32*>(Value); }
-	auto InsertMap(void* Container, const void* Key, const void* Value) -> void { static_cast<FStringIntMap*>(Container)->insert_or_assign(*static_cast<const std::string*>(Key), *static_cast<const Durin::int32*>(Value)); }
+	auto InsertMap(void* Container, const void* Key, const void* Value) -> bool { static_cast<FStringIntMap*>(Container)->insert_or_assign(*static_cast<const std::string*>(Key), *static_cast<const Durin::int32*>(Value)); return true; }
 	auto ContainsMap(const void* Container, const void* Key) -> bool { return static_cast<const FStringIntMap*>(Container)->contains(*static_cast<const std::string*>(Key)); }
 	auto RenameMapKey(void* Container, const void* OldKey, const void* NewKey) -> bool
 	{

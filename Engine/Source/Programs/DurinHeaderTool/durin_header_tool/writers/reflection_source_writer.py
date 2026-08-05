@@ -486,7 +486,7 @@ def _property_decls(prop: ReflectedPropertyInfo) -> list[str]:
                 _line(f"static Durin::uint64 NewProp_{prop.name}_ArrayNum(const void* Container);", 1),
                 _line(f"static const void* NewProp_{prop.name}_ArrayGetElement(const void* Container, Durin::uint64 Index);", 1),
                 _line(f"static void* NewProp_{prop.name}_ArrayGetMutableElement(void* Container, Durin::uint64 Index);", 1),
-                _line(f"static void NewProp_{prop.name}_ArrayResize(void* Container, Durin::uint64 Num);", 1),
+                _line(f"static bool NewProp_{prop.name}_ArrayResize(void* Container, Durin::uint64 Num);", 1),
                 _line(f"static const Durin::DurinCodeGen::FArrayPropertyHelper NewProp_{prop.name}_ArrayHelper;", 1),
             ]
         )
@@ -503,7 +503,7 @@ def _property_decls(prop: ReflectedPropertyInfo) -> list[str]:
                 _line(f"static void NewProp_{prop.name}_MapDestroyKey(void* Key);", 1),
                 _line(f"static void* NewProp_{prop.name}_MapCreateValue();", 1),
                 _line(f"static void NewProp_{prop.name}_MapDestroyValue(void* Value);", 1),
-                _line(f"static void NewProp_{prop.name}_MapInsert(void* Container, const void* Key, const void* Value);", 1),
+                _line(f"static bool NewProp_{prop.name}_MapInsert(void* Container, const void* Key, const void* Value);", 1),
                 _line(f"static bool NewProp_{prop.name}_MapContains(const void* Container, const void* Key);", 1),
                 _line(f"static bool NewProp_{prop.name}_MapRenameKey(void* Container, const void* OldKey, const void* NewKey);", 1),
                 _line(f"static bool NewProp_{prop.name}_MapRemove(void* Container, const void* Key);", 1),
@@ -572,6 +572,8 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
     value_type = _cpp_type_spelling(prop.type_name, symbols) if nested else f"std::remove_extent_t<decltype((({class_info.qualified_name}*)0)->{prop.name})>"
     array_helper = f"&{class_info.generated_statics_name}::NewProp_{prop.name}_ArrayHelper" if prop.kind == "Array" else "nullptr"
     map_helper = f"&{class_info.generated_statics_name}::NewProp_{prop.name}_MapHelper" if prop.kind == "Map" else "nullptr"
+    initialize_value = "nullptr" if prop.kind == "Struct" else f"&Durin::DurinCodeGen::InitializePropertyValue<{value_type}>"
+    destroy_value = "nullptr" if prop.kind == "Struct" else f"&Durin::DurinCodeGen::DestroyPropertyValue<{value_type}>"
     content += (
         f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
         f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, "
@@ -580,8 +582,7 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         f"Durin::DurinCodeGen::EPropertyGenFlags::{prop.kind}, {referenced_class_helper}, {referenced_enum_helper}, {inner}, {key}, {value}, "
         f"{_bool_literal(prop.is_object_ptr_wrapper)}, {array_helper}, {map_helper}, {referenced_struct_helper}, nullptr, nullptr, "
         f"{metadata_ref}, {metadata_count}, sizeof({value_type}), alignof({value_type}), "
-        f"&Durin::DurinCodeGen::InitializePropertyValue<{value_type}>, "
-        f"&Durin::DurinCodeGen::DestroyPropertyValue<{value_type}> }};\n"
+        f"{initialize_value}, {destroy_value} }};\n"
     )
     return content
 
@@ -606,10 +607,21 @@ def _array_helper_definition(class_info: ReflectedClassInfo, prop: ReflectedProp
         f"\tauto* Value = static_cast<{vector_type}*>(Container);\n"
         "\treturn &(*Value)[static_cast<size_t>(Index)];\n"
         "}\n\n"
-        f"void {statics}::{name}_ArrayResize(void* Container, Durin::uint64 Num)\n"
+        f"bool {statics}::{name}_ArrayResize(void* Container, Durin::uint64 Num)\n"
         "{\n"
         f"\tauto* Value = static_cast<{vector_type}*>(Container);\n"
-        "\tValue->resize(static_cast<size_t>(Num));\n"
+        f"\tusing FElement = {vector_type}::value_type;\n"
+        "\tif constexpr (std::is_destructible_v<FElement>)\n"
+        "\t{\n"
+        "\t\twhile (Value->size() > Num) Value->pop_back();\n"
+        "\t}\n"
+        "\telse if (Value->size() > Num) return false;\n"
+        "\tif constexpr (std::is_default_constructible_v<FElement>)\n"
+        "\t{\n"
+        "\t\tValue->resize(static_cast<size_t>(Num));\n"
+        "\t\treturn true;\n"
+        "\t}\n"
+        "\treturn Value->size() == Num;\n"
         "}\n\n"
         f"const Durin::DurinCodeGen::FArrayPropertyHelper {statics}::{name}_ArrayHelper = {{\n"
         f"\t&{statics}::{name}_ArrayNum,\n"
@@ -654,17 +666,22 @@ def _map_helper_definition(class_info: ReflectedClassInfo, prop: ReflectedProper
         "{\n"
         f"\tstatic_cast<{map_type}*>(Container)->clear();\n"
         "}\n\n"
-        f"void* {statics}::{name}_MapCreateKey() {{ using FType = {map_type}::key_type; return new FType(); }}\n"
-        f"void* {statics}::{name}_MapCreateKeyCopy(const void* Key) {{ using FType = {map_type}::key_type; return new FType(*static_cast<const FType*>(Key)); }}\n"
-        f"void {statics}::{name}_MapDestroyKey(void* Key) {{ using FType = {map_type}::key_type; delete static_cast<FType*>(Key); }}\n"
-        f"void* {statics}::{name}_MapCreateValue() {{ using FType = {map_type}::mapped_type; return new FType(); }}\n"
-        f"void {statics}::{name}_MapDestroyValue(void* Value) {{ using FType = {map_type}::mapped_type; delete static_cast<FType*>(Value); }}\n"
-        f"void {statics}::{name}_MapInsert(void* Container, const void* Key, const void* Value)\n"
+        f"void* {statics}::{name}_MapCreateKey() {{ using FType = {map_type}::key_type; if constexpr (std::is_default_constructible_v<FType>) return new FType(); return nullptr; }}\n"
+        f"void* {statics}::{name}_MapCreateKeyCopy(const void* Key) {{ using FType = {map_type}::key_type; if constexpr (std::is_copy_constructible_v<FType>) return new FType(*static_cast<const FType*>(Key)); return nullptr; }}\n"
+        f"void {statics}::{name}_MapDestroyKey(void* Key) {{ using FType = {map_type}::key_type; if constexpr (std::is_destructible_v<FType>) delete static_cast<FType*>(Key); }}\n"
+        f"void* {statics}::{name}_MapCreateValue() {{ using FType = {map_type}::mapped_type; if constexpr (std::is_default_constructible_v<FType>) return new FType(); return nullptr; }}\n"
+        f"void {statics}::{name}_MapDestroyValue(void* Value) {{ using FType = {map_type}::mapped_type; if constexpr (std::is_destructible_v<FType>) delete static_cast<FType*>(Value); }}\n"
+        f"bool {statics}::{name}_MapInsert(void* Container, const void* Key, const void* Value)\n"
         "{\n"
         f"\tusing FMapType = {map_type};\n"
         "\tusing FKeyType = FMapType::key_type;\n"
         "\tusing FValueType = FMapType::mapped_type;\n"
-        "\tstatic_cast<FMapType*>(Container)->insert_or_assign(*static_cast<const FKeyType*>(Key), *static_cast<const FValueType*>(Value));\n"
+        "\tif constexpr (requires(FMapType& Map, const FKeyType& TypedKey, const FValueType& TypedValue) { Map.insert_or_assign(TypedKey, TypedValue); })\n"
+        "\t{\n"
+        "\t\tstatic_cast<FMapType*>(Container)->insert_or_assign(*static_cast<const FKeyType*>(Key), *static_cast<const FValueType*>(Value));\n"
+        "\t\treturn true;\n"
+        "\t}\n"
+        "\treturn false;\n"
         "}\n\n"
         f"bool {statics}::{name}_MapContains(const void* Container, const void* Key)\n"
         "{\n"
@@ -676,16 +693,20 @@ def _map_helper_definition(class_info: ReflectedClassInfo, prop: ReflectedProper
         "{\n"
         f"\tusing FMapType = {map_type};\n"
         "\tusing FKeyType = FMapType::key_type;\n"
-        "\tauto* Value = static_cast<FMapType*>(Container);\n"
-        "\tconst FKeyType OldKeyCopy = *static_cast<const FKeyType*>(OldKey);\n"
-        "\tconst FKeyType NewKeyCopy = *static_cast<const FKeyType*>(NewKey);\n"
-        "\tif (OldKeyCopy == NewKeyCopy) return false;\n"
-        "\tif (Value->contains(NewKeyCopy)) return false;\n"
-        "\tauto Node = Value->extract(OldKeyCopy);\n"
-        "\tif (Node.empty()) return false;\n"
-        "\tNode.key() = NewKeyCopy;\n"
-        "\tValue->insert(std::move(Node));\n"
-        "\treturn true;\n"
+        "\tif constexpr (std::is_copy_constructible_v<FKeyType> && std::is_copy_assignable_v<FKeyType>)\n"
+        "\t{\n"
+        "\t\tauto* Value = static_cast<FMapType*>(Container);\n"
+        "\t\tconst FKeyType OldKeyCopy = *static_cast<const FKeyType*>(OldKey);\n"
+        "\t\tconst FKeyType NewKeyCopy = *static_cast<const FKeyType*>(NewKey);\n"
+        "\t\tif (OldKeyCopy == NewKeyCopy) return false;\n"
+        "\t\tif (Value->contains(NewKeyCopy)) return false;\n"
+        "\t\tauto Node = Value->extract(OldKeyCopy);\n"
+        "\t\tif (Node.empty()) return false;\n"
+        "\t\tNode.key() = NewKeyCopy;\n"
+        "\t\tValue->insert(std::move(Node));\n"
+        "\t\treturn true;\n"
+        "\t}\n"
+        "\treturn false;\n"
         "}\n\n"
         f"bool {statics}::{name}_MapRemove(void* Container, const void* Key)\n"
         "{\n"

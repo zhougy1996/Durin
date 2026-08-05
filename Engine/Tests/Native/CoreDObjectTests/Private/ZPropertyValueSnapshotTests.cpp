@@ -3,6 +3,7 @@
 #include "DObject/DObjectArray.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/MathStructs.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/ObjectPtr.h"
@@ -10,6 +11,98 @@
 #include "Threading/RunnableThread.h"
 
 #include <gtest/gtest.h>
+
+#include <bit>
+
+namespace StructConsumerTest
+{
+	struct FLifetimeTracked
+	{
+		static inline int DefaultConstructCount = 0;
+		static inline int CopyConstructCount = 0;
+		static inline int CopyAssignCount = 0;
+		static inline int DestroyCount = 0;
+
+		FLifetimeTracked() { ++DefaultConstructCount; }
+		FLifetimeTracked(const FLifetimeTracked& Other) : Value(Other.Value) { ++CopyConstructCount; }
+		auto operator=(const FLifetimeTracked& Other) -> FLifetimeTracked&
+		{
+			Value = Other.Value;
+			++CopyAssignCount;
+			return *this;
+		}
+		~FLifetimeTracked() { ++DestroyCount; }
+
+		static auto ResetCounts() -> void
+		{
+			DefaultConstructCount = 0;
+			CopyConstructCount = 0;
+			CopyAssignCount = 0;
+			DestroyCount = 0;
+		}
+
+		Durin::int32 Value = 11;
+	};
+
+	struct FNoDefault
+	{
+		FNoDefault() = delete;
+		explicit FNoDefault(Durin::int32 InValue) : Value(InValue) {}
+		Durin::int32 Value = 0;
+	};
+
+	struct FMoveOnly
+	{
+		FMoveOnly() = default;
+		FMoveOnly(const FMoveOnly&) = delete;
+		auto operator=(const FMoveOnly&) -> FMoveOnly& = delete;
+		FMoveOnly(FMoveOnly&&) = default;
+		auto operator=(FMoveOnly&&) -> FMoveOnly& = default;
+	};
+
+	struct FCustomEquality
+	{
+		Durin::int32 Reflected = 0;
+		Durin::int32 Semantic = 0;
+	};
+
+	struct FHiddenReference
+	{
+		Durin::TObjectPtr<Durin::DObject> Hidden;
+	};
+}
+
+namespace Durin
+{
+	template<>
+	struct TDStructOpsTraits<StructConsumerTest::FCustomEquality>
+		: TDStructOpsTraitsBase<StructConsumerTest::FCustomEquality>
+	{
+		static constexpr bool bWithIdentical = true;
+		static auto Identical(
+			const StructConsumerTest::FCustomEquality& Left,
+			const StructConsumerTest::FCustomEquality& Right) -> bool
+		{
+			return Left.Semantic == Right.Semantic;
+		}
+	};
+
+	template<>
+	struct TDStructOpsTraits<StructConsumerTest::FHiddenReference>
+		: TDStructOpsTraitsBase<StructConsumerTest::FHiddenReference>
+	{
+		static inline int CollectCount = 0;
+		static constexpr bool bWithReferenceCollector = true;
+		static auto CollectReferences(
+			StructConsumerTest::FHiddenReference& Value,
+			FReferenceCollector& Collector) -> void
+		{
+			++CollectCount;
+			DObject* Object = Value.Hidden.Get();
+			Collector.AddReferencedObject(Object);
+		}
+	};
+}
 
 namespace
 {
@@ -44,9 +137,16 @@ namespace
 	}
 
 	template<typename T>
-	auto ResizeVector(void* Container, Durin::uint64 Num) -> void
+	auto ResizeVector(void* Container, Durin::uint64 Num) -> bool
 	{
-		static_cast<std::vector<T>*>(Container)->resize(static_cast<size_t>(Num));
+		auto* Value = static_cast<std::vector<T>*>(Container);
+		while (Value->size() > Num) Value->pop_back();
+		if constexpr (std::is_default_constructible_v<T>)
+		{
+			Value->resize(static_cast<size_t>(Num));
+			return true;
+		}
+		return Value->size() == Num;
 	}
 
 	template<typename T>
@@ -55,6 +155,65 @@ namespace
 		&VectorElement<T>,
 		&MutableVectorElement<T>,
 		&ResizeVector<T>
+	};
+
+	using FEqualityMap = std::unordered_map<Durin::int32, std::string>;
+	auto EqualityMapNum(const void* Container) -> Durin::uint64 { return static_cast<const FEqualityMap*>(Container)->size(); }
+	auto EqualityMapKey(const void* Container, Durin::uint64 Index) -> const void*
+	{
+		auto It = static_cast<const FEqualityMap*>(Container)->begin();
+		std::advance(It, static_cast<size_t>(Index));
+		return &It->first;
+	}
+	auto EqualityMapValue(const void* Container, Durin::uint64 Index) -> const void*
+	{
+		auto It = static_cast<const FEqualityMap*>(Container)->begin();
+		std::advance(It, static_cast<size_t>(Index));
+		return &It->second;
+	}
+	auto EqualityMapMutableValue(void* Container, Durin::uint64 Index) -> void*
+	{
+		auto It = static_cast<FEqualityMap*>(Container)->begin();
+		std::advance(It, static_cast<size_t>(Index));
+		return &It->second;
+	}
+	auto EqualityMapClear(void* Container) -> void { static_cast<FEqualityMap*>(Container)->clear(); }
+	auto EqualityMapCreateKey() -> void* { return new Durin::int32(); }
+	auto EqualityMapCopyKey(const void* Key) -> void* { return new Durin::int32(*static_cast<const Durin::int32*>(Key)); }
+	auto EqualityMapDestroyKey(void* Key) -> void { delete static_cast<Durin::int32*>(Key); }
+	auto EqualityMapCreateValue() -> void* { return new std::string(); }
+	auto EqualityMapDestroyValue(void* Value) -> void { delete static_cast<std::string*>(Value); }
+	auto EqualityMapInsert(void* Container, const void* Key, const void* Value) -> bool
+	{
+		static_cast<FEqualityMap*>(Container)->insert_or_assign(
+			*static_cast<const Durin::int32*>(Key), *static_cast<const std::string*>(Value));
+		return true;
+	}
+	auto EqualityMapContains(const void* Container, const void* Key) -> bool
+	{
+		return static_cast<const FEqualityMap*>(Container)->contains(*static_cast<const Durin::int32*>(Key));
+	}
+	auto EqualityMapRename(void* Container, const void* OldKey, const void* NewKey) -> bool
+	{
+		auto* Map = static_cast<FEqualityMap*>(Container);
+		const Durin::int32 Old = *static_cast<const Durin::int32*>(OldKey);
+		const Durin::int32 New = *static_cast<const Durin::int32*>(NewKey);
+		if (Old == New || Map->contains(New)) return false;
+		auto Node = Map->extract(Old);
+		if (Node.empty()) return false;
+		Node.key() = New;
+		Map->insert(std::move(Node));
+		return true;
+	}
+	auto EqualityMapRemove(void* Container, const void* Key) -> bool
+	{
+		return static_cast<FEqualityMap*>(Container)->erase(*static_cast<const Durin::int32*>(Key)) != 0;
+	}
+	const Durin::DurinCodeGen::FMapPropertyHelper GEqualityMapHelper = {
+		&EqualityMapNum, &EqualityMapKey, &EqualityMapValue, &EqualityMapMutableValue,
+		&EqualityMapClear, &EqualityMapCreateKey, &EqualityMapCopyKey, &EqualityMapDestroyKey,
+		&EqualityMapCreateValue, &EqualityMapDestroyValue, &EqualityMapInsert,
+		&EqualityMapContains, &EqualityMapRename, &EqualityMapRemove
 	};
 
 	struct FSnapshotOwner
@@ -236,5 +395,217 @@ namespace
 		Durin::CollectGarbage();
 		EXPECT_FALSE(ContainsObject(First));
 		EXPECT_FALSE(ContainsObject(Second));
+	}
+
+	TEST(FReflectedStructConsumerTests, ManagedStoragePairsLifetimesAndSeparatesCopyModes)
+	{
+		using StructConsumerTest::FLifetimeTracked;
+		FLifetimeTracked::ResetCounts();
+		FLifetimeTracked Source;
+		Source.Value = 37;
+
+		Durin::DStruct Struct(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FLifetimeTracked"), Durin::FName("FLifetimeTracked"),
+			sizeof(FLifetimeTracked), alignof(FLifetimeTracked), Durin::EObjectFlags::Transient);
+		Struct.InitializeOps(&Durin::GetDStructOps<FLifetimeTracked>());
+		Durin::FStructProperty Property(
+			Durin::FFieldVariant(), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(FLifetimeTracked),
+			Durin::DurinCodeGen::EPropertyGenFlags::Struct, &Struct);
+
+		std::string Error;
+		Durin::FReflectedValueStorage DefaultStorage;
+		ASSERT_TRUE(DefaultStorage.DefaultConstruct(&Property, 0, &Error)) << Error;
+		EXPECT_TRUE(DefaultStorage.IsLive());
+		EXPECT_EQ(reinterpret_cast<uintptr_t>(DefaultStorage.GetValue()) % alignof(FLifetimeTracked), 0u);
+		EXPECT_EQ(FLifetimeTracked::DefaultConstructCount, 2);
+		EXPECT_FALSE(DefaultStorage.DefaultConstruct(&Property, 0, &Error));
+		EXPECT_NE(Error.find("DStructOperationUnavailable"), std::string::npos);
+		EXPECT_EQ(FLifetimeTracked::DefaultConstructCount, 2);
+
+		Durin::FReflectedValueStorage CopyStorage;
+		ASSERT_TRUE(CopyStorage.CopyConstruct(&Property, &Source, 0, &Error)) << Error;
+		EXPECT_EQ(FLifetimeTracked::CopyConstructCount, 1);
+		EXPECT_EQ(static_cast<FLifetimeTracked*>(CopyStorage.GetValue())->Value, 37);
+		Source.Value = 91;
+		ASSERT_TRUE(DefaultStorage.CopyAssign(&Source, &Error)) << Error;
+		EXPECT_EQ(FLifetimeTracked::CopyAssignCount, 1);
+		EXPECT_EQ(static_cast<FLifetimeTracked*>(DefaultStorage.GetValue())->Value, 91);
+
+		DefaultStorage.Reset();
+		CopyStorage.Reset();
+		EXPECT_EQ(FLifetimeTracked::DestroyCount, 2);
+	}
+
+	TEST(FReflectedStructConsumerTests, UnavailableConstructionLeavesNestedArrayUnchanged)
+	{
+		using StructConsumerTest::FNoDefault;
+		Durin::DStruct Struct(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FNoDefault"), Durin::FName("FNoDefault"),
+			sizeof(FNoDefault), alignof(FNoDefault), Durin::EObjectFlags::Transient);
+		Struct.InitializeOps(&Durin::GetDStructOps<FNoDefault>());
+		Durin::FStructProperty Inner(
+			Durin::FFieldVariant(), Durin::FName("Values_Inner"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(FNoDefault),
+			Durin::DurinCodeGen::EPropertyGenFlags::Struct, &Struct);
+		Durin::FArrayProperty Array(
+			Durin::FFieldVariant(), Durin::FName("Values"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(std::vector<FNoDefault>),
+			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, &GSnapshotVectorHelper<FNoDefault>);
+		Array.SetInner(&Inner);
+		std::vector<FNoDefault> Values;
+		Values.emplace_back(7);
+		std::string Error;
+
+		EXPECT_FALSE(Array.Resize(&Values, 2, 0, &Error));
+		EXPECT_EQ(Values.size(), 1u);
+		EXPECT_EQ(Values[0].Value, 7);
+		EXPECT_NE(Error.find("DStructOperationUnavailable"), std::string::npos);
+		EXPECT_TRUE(Array.Resize(&Values, 0, 0, &Error)) << Error;
+		EXPECT_TRUE(Values.empty());
+
+		Durin::FReflectedValueStorage Storage;
+		EXPECT_FALSE(Storage.DefaultConstruct(&Inner, 0, &Error));
+		EXPECT_EQ(Storage.GetContainer(), nullptr);
+		EXPECT_NE(Error.find("DefaultConstruct"), std::string::npos);
+
+		Durin::DStruct MoveOnlyStruct(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FMoveOnly"), Durin::FName("FMoveOnly"),
+			sizeof(StructConsumerTest::FMoveOnly), alignof(StructConsumerTest::FMoveOnly),
+			Durin::EObjectFlags::Transient);
+		MoveOnlyStruct.InitializeOps(&Durin::GetDStructOps<StructConsumerTest::FMoveOnly>());
+		Durin::FMapProperty Map(
+			Durin::FFieldVariant(), Durin::FName("Map"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(FEqualityMap),
+			Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, &GEqualityMapHelper);
+		Durin::FNumericProperty Key(
+			Durin::FFieldVariant(&Map), Durin::FName("Map_Key"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+		Durin::FStructProperty MoveOnlyValue(
+			Durin::FFieldVariant(&Map), Durin::FName("Map_Value"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(StructConsumerTest::FMoveOnly),
+			Durin::DurinCodeGen::EPropertyGenFlags::Struct, &MoveOnlyStruct);
+		Map.SetKeyProp(&Key);
+		Map.SetValueProp(&MoveOnlyValue);
+		FEqualityMap MapValue;
+		const Durin::int32 MapKey = 3;
+		const StructConsumerTest::FMoveOnly ProposedValue;
+		EXPECT_FALSE(Map.Insert(&MapValue, &MapKey, &ProposedValue, 0, &Error));
+		EXPECT_TRUE(MapValue.empty());
+		EXPECT_NE(Error.find("CopyConstruct/CopyAssign"), std::string::npos);
+	}
+
+	TEST(FReflectedStructConsumerTests, LogicalEqualityUsesFieldsAssociationsAndExactFloatingBits)
+	{
+		Durin::FNumericProperty DoubleProperty(
+			Durin::FFieldVariant(), Durin::FName("Double"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(double),
+			Durin::DurinCodeGen::EPropertyGenFlags::Double, nullptr);
+		double PositiveZero = 0.0;
+		double NegativeZero = -0.0;
+		EXPECT_FALSE(Durin::ArePropertyValuesIdentical(
+			&DoubleProperty, &PositiveZero, 0, &NegativeZero, 0));
+		const double NaN = std::bit_cast<double>(Durin::uint64{0x7ff8000000000042ull});
+		const double SameNaN = std::bit_cast<double>(Durin::uint64{0x7ff8000000000042ull});
+		const double OtherNaN = std::bit_cast<double>(Durin::uint64{0x7ff8000000000043ull});
+		EXPECT_TRUE(Durin::ArePropertyValuesIdentical(&DoubleProperty, &NaN, 0, &SameNaN, 0));
+		EXPECT_FALSE(Durin::ArePropertyValuesIdentical(&DoubleProperty, &NaN, 0, &OtherNaN, 0));
+
+		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
+		Durin::FStructProperty VectorProperty(
+			Durin::FFieldVariant(), Durin::FName("Vector"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::FVector3),
+			Durin::DurinCodeGen::EPropertyGenFlags::Struct, VectorStruct);
+		Durin::FVector3 LeftVector(0.0);
+		Durin::FVector3 RightVector(0.0);
+		RightVector.x = -0.0;
+		EXPECT_FALSE(Durin::ArePropertyValuesIdentical(&VectorProperty, &LeftVector, 0, &RightVector, 0));
+		LeftVector.x = NaN;
+		RightVector.x = SameNaN;
+		EXPECT_TRUE(Durin::ArePropertyValuesIdentical(&VectorProperty, &LeftVector, 0, &RightVector, 0));
+		RightVector.x = OtherNaN;
+		EXPECT_FALSE(Durin::ArePropertyValuesIdentical(&VectorProperty, &LeftVector, 0, &RightVector, 0));
+
+		Durin::DStruct CustomStruct(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FCustomEquality"), Durin::FName("FCustomEquality"),
+			sizeof(StructConsumerTest::FCustomEquality), alignof(StructConsumerTest::FCustomEquality),
+			Durin::EObjectFlags::Transient);
+		CustomStruct.InitializeOps(&Durin::GetDStructOps<StructConsumerTest::FCustomEquality>());
+		Durin::FStructProperty CustomProperty(
+			Durin::FFieldVariant(), Durin::FName("Custom"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(StructConsumerTest::FCustomEquality),
+			Durin::DurinCodeGen::EPropertyGenFlags::Struct, &CustomStruct);
+		StructConsumerTest::FCustomEquality LeftCustom{1, 7};
+		StructConsumerTest::FCustomEquality RightCustom{99, 7};
+		EXPECT_TRUE(Durin::ArePropertyValuesIdentical(&CustomProperty, &LeftCustom, 0, &RightCustom, 0));
+		RightCustom.Semantic = 8;
+		EXPECT_FALSE(Durin::ArePropertyValuesIdentical(&CustomProperty, &LeftCustom, 0, &RightCustom, 0));
+
+		Durin::FMapProperty MapProperty(
+			Durin::FFieldVariant(), Durin::FName("Map"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(FEqualityMap),
+			Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, &GEqualityMapHelper);
+		Durin::FNumericProperty KeyProperty(
+			Durin::FFieldVariant(&MapProperty), Durin::FName("Map_Key"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+		Durin::FStringProperty ValueProperty(
+			Durin::FFieldVariant(&MapProperty), Durin::FName("Map_Value"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(std::string),
+			Durin::DurinCodeGen::EPropertyGenFlags::String, nullptr);
+		MapProperty.SetKeyProp(&KeyProperty);
+		MapProperty.SetValueProp(&ValueProperty);
+		MapProperty.SetValueLifecycle(
+			sizeof(FEqualityMap), alignof(FEqualityMap),
+			&Durin::DurinCodeGen::InitializePropertyValue<FEqualityMap>,
+			&Durin::DurinCodeGen::DestroyPropertyValue<FEqualityMap>);
+		FEqualityMap LeftMap;
+		LeftMap.emplace(1, "one");
+		LeftMap.emplace(2, "two");
+		FEqualityMap RightMap;
+		RightMap.emplace(2, "two");
+		RightMap.emplace(1, "one");
+		EXPECT_TRUE(Durin::ArePropertyValuesIdentical(&MapProperty, &LeftMap, 0, &RightMap, 0));
+		RightMap[2] = "changed";
+		EXPECT_FALSE(Durin::ArePropertyValuesIdentical(&MapProperty, &LeftMap, 0, &RightMap, 0));
+		RightMap[2] = "two";
+		Durin::FPropertyValueSnapshot LeftSnapshot;
+		Durin::FPropertyValueSnapshot RightSnapshot;
+		std::string Error;
+		ASSERT_TRUE(Durin::CapturePropertyValue(&MapProperty, &LeftMap, 0, LeftSnapshot, &Error)) << Error;
+		ASSERT_TRUE(Durin::CapturePropertyValue(&MapProperty, &RightMap, 0, RightSnapshot, &Error)) << Error;
+		EXPECT_EQ(LeftSnapshot, RightSnapshot);
+	}
+
+	TEST(FReflectedStructConsumerTests, HiddenReferencesAreCollectedAndRootedBySnapshots)
+	{
+		EnsureSnapshotTestsInitialized();
+		using FHiddenReference = StructConsumerTest::FHiddenReference;
+		Durin::DStruct Struct(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FHiddenReference"), Durin::FName("FHiddenReference"),
+			sizeof(FHiddenReference), alignof(FHiddenReference), Durin::EObjectFlags::Transient);
+		Struct.InitializeOps(&Durin::GetDStructOps<FHiddenReference>());
+		Durin::FStructProperty Property(
+			Durin::FFieldVariant(), Durin::FName("Hidden"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, 0, sizeof(FHiddenReference),
+			Durin::DurinCodeGen::EPropertyGenFlags::Struct, &Struct);
+		Durin::DObject* Referenced = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("HiddenSnapshotReference"));
+		FHiddenReference Value{Referenced};
+		Durin::TDStructOpsTraits<FHiddenReference>::CollectCount = 0;
+		Durin::FPropertyValueSnapshot Snapshot;
+		std::string Error;
+
+		ASSERT_TRUE(Durin::CapturePropertyValue(&Property, &Value, 0, Snapshot, &Error)) << Error;
+		ASSERT_EQ(Snapshot.GetReferencedObjects().size(), 1u);
+		EXPECT_EQ(Snapshot.GetReferencedObjects()[0], Referenced);
+		EXPECT_EQ(Durin::TDStructOpsTraits<FHiddenReference>::CollectCount, 1);
+		Value.Hidden.Reset();
+		Durin::CollectGarbage();
+		EXPECT_TRUE(ContainsObject(Referenced));
+
+		Snapshot = {};
+		Durin::CollectGarbage();
+		EXPECT_FALSE(ContainsObject(Referenced));
 	}
 }

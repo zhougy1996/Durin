@@ -632,14 +632,15 @@ namespace Durin
 		};
 		if (ImGui::SmallButton("+ Add"))
 		{
-			void* Key = Property->CreateKey();
-			void* Value = Property->CreateValue();
+			FReflectedValueStorage KeyStorage;
+			FReflectedValueStorage ValueStorage;
 			FPropertyValueSnapshot KeySnapshot;
 			FPropertyValueSnapshot ValueSnapshot;
 			std::string Error;
-			if (!Key || !Value
-				|| !CapturePropertyValue(Property->GetKeyProp(), Key, 0, KeySnapshot, &Error)
-				|| !CapturePropertyValue(Property->GetValueProp(), Value, 0, ValueSnapshot, &Error))
+			if (!KeyStorage.DefaultConstruct(Property->GetKeyProp(), 0, &Error)
+				|| !ValueStorage.DefaultConstruct(Property->GetValueProp(), 0, &Error)
+				|| !CapturePropertyValue(Property->GetKeyProp(), KeyStorage.GetContainer(), 0, KeySnapshot, &Error)
+				|| !CapturePropertyValue(Property->GetValueProp(), ValueStorage.GetContainer(), 0, ValueSnapshot, &Error))
 			{
 				ReportError(Context, Error.empty() ? "Unable to create a map-entry draft." : std::move(Error));
 			}
@@ -650,8 +651,6 @@ namespace Durin
 				MapInsertDraft.Value = std::move(ValueSnapshot);
 				MapInsertDraft.bActive = true;
 			}
-			if (Key) Property->DestroyKey(Key);
-			if (Value) Property->DestroyValue(Value);
 		}
 		if (bReadOnly) ImGui::EndDisabled();
 		// A nested map address may have moved when the outer member snapshot was
@@ -667,20 +666,23 @@ namespace Durin
 			if (MapInsertDraft.bActive && MatchesStableTarget(MapInsertDraft.Target, EditTarget))
 			{
 				ImGui::PushID("MapInsertDraft");
-				void* DraftKey = Property->CreateKey();
-				void* DraftValue = Property->CreateValue();
+				FReflectedValueStorage DraftKeyStorage;
+				FReflectedValueStorage DraftValueStorage;
 				std::string Error;
-				if (!DraftKey || !DraftValue
-					|| !RestorePropertyValue(Property->GetKeyProp(), DraftKey, 0, MapInsertDraft.Key, &Error)
-					|| !RestorePropertyValue(Property->GetValueProp(), DraftValue, 0, MapInsertDraft.Value, &Error))
+				if (!DraftKeyStorage.DefaultConstruct(Property->GetKeyProp(), 0, &Error)
+					|| !DraftValueStorage.DefaultConstruct(Property->GetValueProp(), 0, &Error)
+					|| !RestorePropertyValue(Property->GetKeyProp(), DraftKeyStorage.GetContainer(), 0, MapInsertDraft.Key, &Error)
+					|| !RestorePropertyValue(Property->GetValueProp(), DraftValueStorage.GetContainer(), 0, MapInsertDraft.Value, &Error))
 				{
 					ReportError(Context, Error.empty() ? "Unable to restore the map-entry draft." : std::move(Error));
 					MapInsertDraft = {};
 				}
 				else
 				{
+					void* DraftKey = DraftKeyStorage.GetValue();
+					void* DraftValue = DraftValueStorage.GetValue();
 					const FPropertyWidgetEditResult KeyEdit = EditPropertyWidget(
-						Context, Property->GetKeyProp(), DraftKey, 0, "New Key", bReadOnly);
+						Context, Property->GetKeyProp(), DraftKeyStorage.GetContainer(), 0, "New Key", bReadOnly);
 					if (KeyEdit.bChanged && KeyEdit.AssignValue)
 					{
 						KeyEdit.AssignValue(Property->GetKeyProp(), DraftKey, 0);
@@ -688,7 +690,7 @@ namespace Durin
 							ReportError(Context, std::move(Error));
 					}
 					const FPropertyWidgetEditResult ValueEdit = EditPropertyWidget(
-						Context, Property->GetValueProp(), DraftValue, 0, "New Value", bReadOnly);
+						Context, Property->GetValueProp(), DraftValueStorage.GetContainer(), 0, "New Value", bReadOnly);
 					if (ValueEdit.bChanged && ValueEdit.AssignValue)
 					{
 						ValueEdit.AssignValue(Property->GetValueProp(), DraftValue, 0);
@@ -727,8 +729,6 @@ namespace Durin
 						}
 					}
 				}
-				if (DraftKey) Property->DestroyKey(DraftKey);
-				if (DraftValue) Property->DestroyValue(DraftValue);
 				ImGui::PopID();
 				if (bChanged)
 				{
@@ -783,14 +783,19 @@ namespace Durin
 				}
 				else if (bKeyChanged)
 				{
-					void* ProposedKey = Property->CreateKey();
-					if (!ProposedKey || !KeyEdit.AssignValue)
+					FReflectedValueStorage ProposedKeyStorage;
+					std::string ProposedKeyError;
+					if (!ProposedKeyStorage.DefaultConstruct(Property->GetKeyProp(), 0, &ProposedKeyError)
+						|| !KeyEdit.AssignValue)
 					{
-						ReportError(Context, "Unable to materialize the proposed map key.");
+						ReportError(Context, ProposedKeyError.empty()
+							? "Unable to materialize the proposed map key."
+							: std::move(ProposedKeyError));
 					}
 					else
 					{
-						KeyEdit.AssignValue(Property->GetKeyProp(), ProposedKey, 0);
+						void* ProposedKey = ProposedKeyStorage.GetValue();
+						KeyEdit.AssignValue(Property->GetKeyProp(), ProposedKeyStorage.GetContainer(), 0);
 						FPropertyValueSnapshot ProposedKeySnapshot;
 						std::string CaptureError;
 						if (!CapturePropertyValue(Property->GetKeyProp(), ProposedKey, 0, ProposedKeySnapshot, &CaptureError))
@@ -815,7 +820,6 @@ namespace Durin
 								}, true);
 						}
 					}
-					if (ProposedKey) Property->DestroyKey(ProposedKey);
 				}
 				if (KeyEdit.bDeactivatedAfterEdit && IsEditingTarget(KeyTarget)) FinishActiveEdit(&Context, false);
 				else if (KeyEdit.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && IsEditingTarget(KeyTarget)) FinishActiveEdit(&Context, true);

@@ -576,7 +576,9 @@ namespace Durin::Asset
 				auto* Array = static_cast<FArrayProperty*>(Property);
 				uint64 Num = 0;
 				if (!Array->HasArrayHelper() || !Reader.Read(Num) || Num > 10000000) return Error(EAssetError::CorruptFile, "Invalid array payload.");
-				Array->Resize(Container, Num, ArrayIndex);
+				std::string ResizeError;
+				if (!Array->Resize(Container, Num, ArrayIndex, &ResizeError))
+					return Error(EAssetError::UnsupportedProperty, std::move(ResizeError));
 				for (uint64 Index = 0; Index < Num; ++Index)
 				{
 					FAssetResult Result = DeserializeValue(
@@ -591,19 +593,31 @@ namespace Durin::Asset
 				auto* Map = static_cast<FMapProperty*>(Property);
 				uint64 Num = 0;
 				if (!Map->HasMapHelper() || !Reader.Read(Num) || Num > 10000000) return Error(EAssetError::CorruptFile, "Invalid map payload.");
+				FReflectedValueStorage KeyStorage;
+				FReflectedValueStorage ValueStorage;
+				std::string StorageError;
+				if (Num > 0
+					&& (!KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0, &StorageError)
+						|| !ValueStorage.DefaultConstruct(Map->GetValueProp(), 0, &StorageError)))
+					return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
 				Map->Clear(Container, ArrayIndex);
 				for (uint64 Index = 0; Index < Num; ++Index)
 				{
-					void* Key = Map->CreateKey();
-					void* Value = Map->CreateValue();
-					if (!Key || !Value) return Error(EAssetError::UnsupportedProperty, "Failed to create map entry storage.");
+					if (Index > 0)
+					{
+						KeyStorage.Reset();
+						ValueStorage.Reset();
+						if (!KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0, &StorageError)
+							|| !ValueStorage.DefaultConstruct(Map->GetValueProp(), 0, &StorageError))
+							return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
+					}
 					FAssetResult Result = DeserializeValue(
-						Map->GetKeyProp(), Key, 0, Reader, Objects, OutLegacyFields, PackagePath);
+						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Reader, Objects, OutLegacyFields, PackagePath);
 					if (Result) Result = DeserializeValue(
-						Map->GetValueProp(), Value, 0, Reader, Objects, OutLegacyFields, PackagePath);
-					if (Result) Map->Insert(Container, Key, Value, ArrayIndex);
-					Map->DestroyKey(Key);
-					Map->DestroyValue(Value);
+						Map->GetValueProp(), ValueStorage.GetContainer(), 0, Reader, Objects, OutLegacyFields, PackagePath);
+					if (Result && !Map->Insert(
+						Container, KeyStorage.GetValue(), ValueStorage.GetValue(), ArrayIndex, &StorageError))
+						Result = Error(EAssetError::UnsupportedProperty, std::move(StorageError));
 					if (!Result) return Result;
 				}
 				return {};

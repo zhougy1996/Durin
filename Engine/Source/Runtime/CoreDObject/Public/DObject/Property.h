@@ -33,9 +33,13 @@ namespace Durin
 		auto GetKind() const -> DurinCodeGen::EPropertyGenFlags { return Kind; }
 		auto GetReferencedClass() const -> DClass* { return ReferencedClass; }
 		auto IsObjectPtrWrapper() const -> bool { return bIsObjectPtrWrapper; }
-		auto GetValueSize() const -> uint32 { return ValueSize; }
-		auto GetValueAlignment() const -> uint32 { return ValueAlignment; }
-		auto HasValueLifecycle() const -> bool { return InitializeValueFunction != nullptr && DestroyValueFunction != nullptr; }
+		COREDOBJECT_API auto GetValueSize() const -> uint32;
+		COREDOBJECT_API auto GetValueAlignment() const -> uint32;
+		COREDOBJECT_API auto CanDefaultConstructValue() const -> bool;
+		COREDOBJECT_API auto CanDestroyValue() const -> bool;
+		COREDOBJECT_API auto CanCopyConstructValue() const -> bool;
+		COREDOBJECT_API auto CanCopyAssignValue() const -> bool;
+		auto HasValueLifecycle() const -> bool { return CanDefaultConstructValue() && CanDestroyValue(); }
 		auto HasValueAccessors() const -> bool { return MutableValueAccessor != nullptr || ConstValueAccessor != nullptr; }
 		auto GetOwnerProperty() const -> FProperty* { return static_cast<FProperty*>(Owner.ToField()); }
 		auto HasAnyPropertyFlags(EPropertyFlags InFlags) const -> bool { return EnumHasAnyFlags(PropertyFlags, InFlags); }
@@ -74,17 +78,12 @@ namespace Durin
 			DestroyValueFunction = InDestroyValue;
 		}
 
-		auto InitializeValue(void* Memory) const -> bool
-		{
-			if (!InitializeValueFunction) return false;
-			InitializeValueFunction(Memory);
-			return true;
-		}
-
-		auto DestroyValue(void* Memory) const -> void
-		{
-			if (DestroyValueFunction) DestroyValueFunction(Memory);
-		}
+		COREDOBJECT_API auto InitializeValue(void* Memory, std::string* OutError = nullptr) const -> bool;
+		COREDOBJECT_API auto DestroyValue(void* Memory) const -> void;
+		COREDOBJECT_API auto CopyConstructValue(
+			void* Destination, const void* Source, std::string* OutError = nullptr) const -> bool;
+		COREDOBJECT_API auto CopyAssignValue(
+			void* Destination, const void* Source, std::string* OutError = nullptr) const -> bool;
 
 		template<typename T>
 		auto ContainerPtrToValuePtr(void* Container, uint32 ArrayIndex = 0) const -> T*
@@ -113,4 +112,49 @@ namespace Durin
 		void* (*MutableValueAccessor)(void*, uint32) = nullptr;
 		const void* (*ConstValueAccessor)(const void*, uint32) = nullptr;
 	};
+
+	// Owns one fully constructed reflected value in aligned detached storage.
+	// Struct lifetimes and copy modes are always dispatched through FDStructOps.
+	class FReflectedValueStorage
+	{
+	public:
+		FReflectedValueStorage() = default;
+		COREDOBJECT_API ~FReflectedValueStorage();
+		FReflectedValueStorage(const FReflectedValueStorage&) = delete;
+		auto operator=(const FReflectedValueStorage&) -> FReflectedValueStorage& = delete;
+		COREDOBJECT_API FReflectedValueStorage(FReflectedValueStorage&& Other) noexcept;
+		COREDOBJECT_API auto operator=(FReflectedValueStorage&& Other) noexcept -> FReflectedValueStorage&;
+
+		COREDOBJECT_API auto DefaultConstruct(
+			const FProperty* InProperty, uint32 InArrayIndex = 0, std::string* OutError = nullptr) -> bool;
+		COREDOBJECT_API auto CopyConstruct(
+			const FProperty* InProperty, const void* SourceValue,
+			uint32 InArrayIndex = 0, std::string* OutError = nullptr) -> bool;
+		COREDOBJECT_API auto CopyAssign(const void* SourceValue, std::string* OutError = nullptr) -> bool;
+		COREDOBJECT_API auto Reset() -> void;
+
+		auto IsLive() const -> bool { return bLive; }
+		auto GetProperty() const -> const FProperty* { return Property; }
+		auto GetContainer() const -> void* { return Memory; }
+		auto GetValue() const -> void* { return Value; }
+		auto GetArrayIndex() const -> uint32 { return ArrayIndex; }
+
+	private:
+		auto Allocate(const FProperty* InProperty, uint32 InArrayIndex, std::string* OutError) -> bool;
+		auto Fail(std::string* OutError, std::string_view Operation) const -> bool;
+
+		const FProperty* Property = nullptr;
+		uint32 ArrayIndex = 0;
+		void* Memory = nullptr;
+		void* Value = nullptr;
+		size_t Alignment = __STDCPP_DEFAULT_NEW_ALIGNMENT__;
+		bool bLive = false;
+	};
+
+	COREDOBJECT_API auto ArePropertyValuesIdentical(
+		const FProperty* Property,
+		const void* LeftContainer,
+		uint32 LeftArrayIndex,
+		const void* RightContainer,
+		uint32 RightArrayIndex) -> bool;
 }

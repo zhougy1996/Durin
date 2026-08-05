@@ -133,6 +133,8 @@ namespace std
 {
     template<typename T>
     class vector {};
+    template<typename K, typename V>
+    class unordered_map {};
 }
 
 namespace Fixture
@@ -239,6 +241,16 @@ namespace Fixture
     struct FMalformedEquality
     {
         GENERATED_BODY()
+    };
+
+    DSTRUCT()
+    struct FUnavailableContainers
+    {
+        GENERATED_BODY()
+        DPROPERTY()
+        std::vector<FDeletedDefault> Values;
+        DPROPERTY()
+        std::unordered_map<float, FMoveOnly> MoveValues;
     };
 }
 
@@ -879,7 +891,7 @@ namespace Beta
 
         assert _scan_generated_body_line(source, class_cursor) == 5
 
-    def test_property_flags_metadata_and_value_lifecycle_are_generated(self):
+    def test_property_flags_metadata_and_struct_lifecycle_are_generated(self):
         assert (
             'NewProp_Value = { "Value", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::ReadOnly,'
             in self.generated_cpp
@@ -890,8 +902,15 @@ namespace Beta
         value_type = "std::remove_extent_t<decltype(((Fixture::ASampleActor*)0)->Color)>"
         assert f"sizeof({value_type})" in self.generated_cpp
         assert f"alignof({value_type})" in self.generated_cpp
-        assert f"InitializePropertyValue<{value_type}>" in self.generated_cpp
-        assert f"DestroyPropertyValue<{value_type}>" in self.generated_cpp
+        color_definition = next(
+            line for line in self.generated_cpp.splitlines()
+            if "::NewProp_Color =" in line
+        )
+        assert f"sizeof({value_type})" in color_definition
+        assert f"alignof({value_type})" in color_definition
+        assert "InitializePropertyValue" not in color_definition
+        assert "DestroyPropertyValue" not in color_definition
+        assert color_definition.endswith("nullptr, nullptr };")
 
     def test_fname_property_is_generated(self):
         assert "Durin::DurinCodeGen::FNamePropertyParams NewProp_Identifier" in self.generated_cpp
@@ -917,6 +936,7 @@ namespace Beta
             "FNonTrivialOps",
             "FCustomEquality",
             "FMalformedEquality",
+            "FUnavailableContainers",
         ):
             assert f"&Durin::GetDStructOps<Fixture::{type_name}>()" in self.generated_cpp
 
@@ -924,6 +944,20 @@ namespace Beta
         assert "static void Destroy(void* Memory);" not in self.generated_cpp
         assert "static void Copy(void* Destination, const void* Source);" not in self.generated_cpp
         assert "new (Memory) Fixture::" not in self.generated_cpp
+
+    def test_unavailable_nested_struct_operations_are_guarded(self):
+        assert "static bool NewProp_Values_ArrayResize" in self.generated_cpp
+        assert "using FElement = std::vector<Fixture::FDeletedDefault>::value_type;" in self.generated_cpp
+        assert "if constexpr (std::is_default_constructible_v<FElement>)" in self.generated_cpp
+        assert "static bool NewProp_MoveValues_MapInsert" in self.generated_cpp
+        assert "requires(FMapType& Map, const FKeyType& TypedKey, const FValueType& TypedValue)" in self.generated_cpp
+        inner_definition = next(
+            line for line in self.generated_cpp.splitlines()
+            if "FUnavailableContainers_Statics::NewProp_Values_Inner =" in line
+        )
+        assert "InitializePropertyValue" not in inner_definition
+        assert "DestroyPropertyValue" not in inner_definition
+        assert inner_definition.endswith("nullptr, nullptr };")
 
     def test_default_double_vector_intrinsics_are_available(self):
         missing_export = self.temp_root / "missing.export"

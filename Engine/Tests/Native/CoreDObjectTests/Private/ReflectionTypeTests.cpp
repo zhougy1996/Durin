@@ -163,10 +163,11 @@ namespace
 	}
 
 	template<typename T>
-	auto VectorPropertyResize(void* Container, Durin::uint64 Num) -> void
+	auto VectorPropertyResize(void* Container, Durin::uint64 Num) -> bool
 	{
 		auto* Value = static_cast<std::vector<T>*>(Container);
 		Value->resize(static_cast<size_t>(Num));
+		return true;
 	}
 
 	template<typename T>
@@ -223,9 +224,10 @@ namespace
 	auto MapPropertyDestroyValue(void* Value) -> void { delete static_cast<T*>(Value); }
 
 	template<typename K, typename V>
-	auto MapPropertyInsert(void* Container, const void* Key, const void* Value) -> void
+	auto MapPropertyInsert(void* Container, const void* Key, const void* Value) -> bool
 	{
 		static_cast<TTestMap<K, V>*>(Container)->insert_or_assign(*static_cast<const K*>(Key), *static_cast<const V*>(Value));
+		return true;
 	}
 
 	template<typename K, typename V>
@@ -586,7 +588,17 @@ namespace
 					nullptr,
 					nullptr,
 					false,
-					&GVectorPropertyHelper<Durin::int32>
+					&GVectorPropertyHelper<Durin::int32>,
+					nullptr,
+					nullptr,
+					nullptr,
+					nullptr,
+					nullptr,
+					0,
+					sizeof(std::vector<Durin::int32>),
+					alignof(std::vector<Durin::int32>),
+					&Durin::DurinCodeGen::InitializePropertyValue<std::vector<Durin::int32>>,
+					&Durin::DurinCodeGen::DestroyPropertyValue<std::vector<Durin::int32>>
 				};
 				static const Durin::DurinCodeGen::FStringPropertyParams TagsInnerPropertyParams = {
 					"Tags_Inner",
@@ -670,7 +682,17 @@ namespace
 					nullptr,
 					nullptr,
 					false,
-					&GVectorPropertyHelper<Durin::int32>
+					&GVectorPropertyHelper<Durin::int32>,
+					nullptr,
+					nullptr,
+					nullptr,
+					nullptr,
+					nullptr,
+					0,
+					sizeof(std::vector<Durin::int32>),
+					alignof(std::vector<Durin::int32>),
+					&Durin::DurinCodeGen::InitializePropertyValue<std::vector<Durin::int32>>,
+					&Durin::DurinCodeGen::DestroyPropertyValue<std::vector<Durin::int32>>
 				};
 				static const Durin::DurinCodeGen::FArrayPropertyParams ScoreGroupsPropertyParams = {
 					"ScoreGroups",

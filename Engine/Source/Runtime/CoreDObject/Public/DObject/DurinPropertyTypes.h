@@ -252,7 +252,8 @@ namespace Durin
 		COREDOBJECT_API auto Num(const void* Container, uint32 ArrayIndex = 0) const -> uint64;
 		COREDOBJECT_API auto GetElementPtr(const void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> const void*;
 		COREDOBJECT_API auto GetMutableElementPtr(void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> void*;
-		COREDOBJECT_API auto Resize(void* Container, uint64 Num, uint32 ArrayIndex = 0) const -> void;
+		COREDOBJECT_API auto Resize(
+			void* Container, uint64 Num, uint32 ArrayIndex = 0, std::string* OutError = nullptr) const -> bool;
 		auto HasArrayHelper() const -> bool { return ArrayHelper != nullptr; }
 
 	private:
@@ -296,9 +297,13 @@ namespace Durin
 		COREDOBJECT_API auto DestroyKey(void* Key) const -> void;
 		COREDOBJECT_API auto CreateValue() const -> void*;
 		COREDOBJECT_API auto DestroyValue(void* Value) const -> void;
-		COREDOBJECT_API auto Insert(void* Container, const void* Key, const void* Value, uint32 ArrayIndex = 0) const -> void;
+		COREDOBJECT_API auto Insert(
+			void* Container, const void* Key, const void* Value,
+			uint32 ArrayIndex = 0, std::string* OutError = nullptr) const -> bool;
 		COREDOBJECT_API auto Contains(const void* Container, const void* Key, uint32 ArrayIndex = 0) const -> bool;
-		COREDOBJECT_API auto RenameKey(void* Container, const void* OldKey, const void* NewKey, uint32 ArrayIndex = 0) const -> bool;
+		COREDOBJECT_API auto RenameKey(
+			void* Container, const void* OldKey, const void* NewKey,
+			uint32 ArrayIndex = 0, std::string* OutError = nullptr) const -> bool;
 		COREDOBJECT_API auto Remove(void* Container, const void* Key, uint32 ArrayIndex = 0) const -> bool;
 		auto HasMapHelper() const -> bool { return MapHelper != nullptr; }
 

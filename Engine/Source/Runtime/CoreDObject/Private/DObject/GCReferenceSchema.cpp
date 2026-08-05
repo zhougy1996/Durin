@@ -246,8 +246,38 @@ namespace Durin::Private
 		}
 	}
 
+	auto FGCReferenceSchemaRegistry::Visit(
+		const DStruct* Type,
+		void* Instance,
+		FReferenceCollector& Collector) -> void
+	{
+		Visit(static_cast<const DStructBase*>(Type), Instance, Collector);
+		if (Type && Instance && Type->HasReferenceCollector())
+		{
+			Type->GetOps().CollectReferences(Instance, Collector);
+		}
+	}
+
+	auto FGCReferenceSchemaRegistry::VisitProperty(
+		FProperty* Property,
+		void* Container,
+		uint32 ArrayIndex,
+		FReferenceCollector& Collector) -> void
+	{
+		if (!Property || !Container || ArrayIndex >= Property->GetArrayDim()) return;
+		if (auto Operation = CompileProperty(Property))
+		{
+			VisitOperationValue(*Operation, Container, ArrayIndex, Collector);
+		}
+	}
+
 	auto FGCReferenceSchemaRegistry::HasReferences(const DStructBase* Type) -> bool
 	{
 		return Type && Type->ReferenceSchema && !Type->ReferenceSchema->Operations.empty();
+	}
+
+	auto FGCReferenceSchemaRegistry::HasReferences(const DStruct* Type) -> bool
+	{
+		return Type && (HasReferences(static_cast<const DStructBase*>(Type)) || Type->HasReferenceCollector());
 	}
 }

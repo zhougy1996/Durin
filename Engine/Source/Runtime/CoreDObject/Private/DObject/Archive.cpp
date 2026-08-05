@@ -6,6 +6,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectLifecycle.h"
+#include "GCReferenceSchema.h"
 
 namespace Durin
 {
@@ -133,7 +134,7 @@ namespace Durin
 				Ar << Num;
 				if (Ar.IsLoading())
 				{
-					ArrayProperty->Resize(Container, Num, ArrayIndex);
+					if (!ArrayProperty->Resize(Container, Num, ArrayIndex)) return;
 				}
 				for (uint64 Index = 0; Index < Num; ++Index)
 				{
@@ -158,16 +159,25 @@ namespace Durin
 				}
 				else
 				{
+					FReflectedValueStorage KeyStorage;
+					FReflectedValueStorage ValueStorage;
+					if (Num > 0
+						&& (!KeyStorage.DefaultConstruct(MapProperty->GetKeyProp())
+							|| !ValueStorage.DefaultConstruct(MapProperty->GetValueProp()))) return;
 					MapProperty->Clear(Container, ArrayIndex);
 					for (uint64 Index = 0; Index < Num; ++Index)
 					{
-						void* Key = MapProperty->CreateKey();
-						void* Value = MapProperty->CreateValue();
-						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), Key, 0, bIncludeRawObjectReferences);
-						SerializePropertyValue(Ar, MapProperty->GetValueProp(), Value, 0, bIncludeRawObjectReferences);
-						MapProperty->Insert(Container, Key, Value, ArrayIndex);
-						MapProperty->DestroyKey(Key);
-						MapProperty->DestroyValue(Value);
+						if (Index > 0)
+						{
+							KeyStorage.Reset();
+							ValueStorage.Reset();
+							if (!KeyStorage.DefaultConstruct(MapProperty->GetKeyProp())
+								|| !ValueStorage.DefaultConstruct(MapProperty->GetValueProp())) return;
+						}
+						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), KeyStorage.GetContainer(), 0, bIncludeRawObjectReferences);
+						SerializePropertyValue(Ar, MapProperty->GetValueProp(), ValueStorage.GetContainer(), 0, bIncludeRawObjectReferences);
+						if (!MapProperty->Insert(
+							Container, KeyStorage.GetValue(), ValueStorage.GetValue(), ArrayIndex)) return;
 					}
 				}
 				break;
@@ -477,7 +487,22 @@ namespace Durin
 
 	auto FPropertyValueSnapshot::operator==(const FPropertyValueSnapshot& Other) const -> bool
 	{
-		return Property == Other.Property && Bytes == Other.Bytes && ReferencedObjects == Other.ReferencedObjects;
+		if (this == &Other) return true;
+		if (Property != Other.Property) return false;
+		if (!Property) return true;
+
+		FReflectedValueStorage Left;
+		FReflectedValueStorage Right;
+		std::string Error;
+		if (Left.DefaultConstruct(Property, 0, &Error)
+			&& Right.DefaultConstruct(Property, 0, &Error)
+			&& RestorePropertyValue(Property, Left.GetContainer(), 0, *this, &Error)
+			&& RestorePropertyValue(Property, Right.GetContainer(), 0, Other, &Error))
+		{
+			return ArePropertyValuesIdentical(
+				Property, Left.GetContainer(), 0, Right.GetContainer(), 0);
+		}
+		return Bytes == Other.Bytes && ReferencedObjects == Other.ReferencedObjects;
 	}
 
 	auto FPropertyValueSnapshot::AddReferenceRoots() -> void
@@ -548,6 +573,21 @@ namespace Durin
 		Snapshot.Property = Property;
 		FSnapshotWriter Writer(Snapshot.Bytes, Snapshot.ReferencedObjects);
 		SerializePropertyValue(Writer, const_cast<FProperty*>(Property), const_cast<void*>(Container), ArrayIndex, true);
+		class FSnapshotReferenceCollector final : public FReferenceCollector
+		{
+		public:
+			explicit FSnapshotReferenceCollector(std::vector<DObject*>& InReferences)
+				: References(InReferences) {}
+			auto AddReferencedObject(DObject*& Object) -> void override
+			{
+				if (Object && std::ranges::find(References, Object) == References.end()) References.push_back(Object);
+			}
+		private:
+			std::vector<DObject*>& References;
+		};
+		FSnapshotReferenceCollector ReferenceCollector(Snapshot.ReferencedObjects);
+		Private::FGCReferenceSchemaRegistry::VisitProperty(
+			const_cast<FProperty*>(Property), const_cast<void*>(Container), ArrayIndex, ReferenceCollector);
 		Snapshot.AddReferenceRoots();
 		OutSnapshot = std::move(Snapshot);
 		return true;

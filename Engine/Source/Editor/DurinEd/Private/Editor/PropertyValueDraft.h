@@ -43,27 +43,10 @@ namespace Durin
 
 			FPropertyValueSnapshot Current;
 			if (!CapturePropertyValue(Property, Target.SnapshotContainer, ArrayIndex, Current, OutError)) return;
-			Alignment = std::max<size_t>(Property->GetValueAlignment(), __STDCPP_DEFAULT_NEW_ALIGNMENT__);
-			Size = std::max<size_t>(1, static_cast<size_t>(Property->GetOffset())
-				+ static_cast<size_t>(Property->GetElementSize()) * static_cast<size_t>(ArrayIndex)
-				+ static_cast<size_t>(Property->GetValueSize()));
-			Memory = ::operator new(Size, std::align_val_t(Alignment));
-			std::memset(Memory, 0, Size);
-			Value = Property->GetValuePtr(Memory, ArrayIndex);
-			if (!Property->InitializeValue(Value))
-			{
-				Fail(OutError, "Unable to initialize reflected property draft storage.");
-				return;
-			}
-			bInitialized = true;
+			if (!Storage.DefaultConstruct(Property, ArrayIndex, OutError)) return;
+			Memory = Storage.GetContainer();
 			if (!RestorePropertyValue(Property, Memory, ArrayIndex, Current, OutError)) return;
 			bValid = true;
-		}
-
-		~FPropertyValueDraft()
-		{
-			if (bInitialized) Property->DestroyValue(Value);
-			if (Memory) ::operator delete(Memory, std::align_val_t(Alignment));
 		}
 
 		FPropertyValueDraft(const FPropertyValueDraft&) = delete;
@@ -108,11 +91,8 @@ namespace Durin
 
 		const FProperty* Property = nullptr;
 		uint32 ArrayIndex = 0;
+		FReflectedValueStorage Storage;
 		void* Memory = nullptr;
-		void* Value = nullptr;
-		size_t Size = 0;
-		size_t Alignment = __STDCPP_DEFAULT_NEW_ALIGNMENT__;
-		bool bInitialized = false;
 		bool bValid = false;
 	};
 }

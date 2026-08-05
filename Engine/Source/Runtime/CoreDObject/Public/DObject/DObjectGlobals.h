@@ -132,7 +132,7 @@ namespace Durin
 			uint64 (*Num)(const void* Container);
 			const void* (*GetElement)(const void* Container, uint64 Index);
 			void* (*GetMutableElement)(void* Container, uint64 Index);
-			void (*Resize)(void* Container, uint64 Num);
+			bool (*Resize)(void* Container, uint64 Num);
 		};
 
 		struct FMapPropertyHelper
@@ -147,7 +147,7 @@ namespace Durin
 			void (*DestroyKey)(void* Key);
 			void* (*CreateValue)();
 			void (*DestroyValue)(void* Value);
-			void (*Insert)(void* Container, const void* Key, const void* Value);
+			bool (*Insert)(void* Container, const void* Key, const void* Value);
 			bool (*Contains)(const void* Container, const void* Key);
 			bool (*RenameKey)(void* Container, const void* OldKey, const void* NewKey);
 			bool (*Remove)(void* Container, const void* Key);

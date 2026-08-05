@@ -25,7 +25,7 @@ namespace
 	template<typename T>
 	auto VectorGetMutable(void* Container, Durin::uint64 Index) -> void* { return &(*static_cast<std::vector<T>*>(Container))[Index]; }
 	template<typename T>
-	auto VectorResize(void* Container, Durin::uint64 Num) -> void { static_cast<std::vector<T>*>(Container)->resize(Num); }
+	auto VectorResize(void* Container, Durin::uint64 Num) -> bool { static_cast<std::vector<T>*>(Container)->resize(Num); return true; }
 
 	const Durin::DurinCodeGen::FArrayPropertyHelper GIntVectorHelper = {
 		&VectorNum<Durin::int32>, &VectorGet<Durin::int32>, &VectorGetMutable<Durin::int32>, &VectorResize<Durin::int32>
@@ -54,9 +54,10 @@ namespace
 	auto DestroyString(void* Value) -> void { delete static_cast<std::string*>(Value); }
 	auto CreateInt() -> void* { return new Durin::int32(); }
 	auto DestroyInt(void* Value) -> void { delete static_cast<Durin::int32*>(Value); }
-	auto MapInsert(void* Container, const void* Key, const void* Value) -> void
+	auto MapInsert(void* Container, const void* Key, const void* Value) -> bool
 	{
 		static_cast<FScoreMap*>(Container)->insert_or_assign(*static_cast<const std::string*>(Key), *static_cast<const Durin::int32*>(Value));
+		return true;
 	}
 	auto MapContains(const void* Container, const void* Key) -> bool
 	{
