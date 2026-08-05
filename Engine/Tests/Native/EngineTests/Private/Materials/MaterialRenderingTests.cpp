@@ -776,27 +776,56 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			TextureResult.Asset,
 			DataTextureResult.Asset,
 			DataTextureResult.Asset};
+		Durin::FMaterialRenderProxyRef TextureRoleProxy =
+			CaptureMaterial->GetMaterialRenderProxy();
 		for (size_t Role = 0; Role < TextureNames.size(); ++Role)
 		{
 			ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
 				*TextureNames[Role], RoleTextures[Role]));
-		}
-		const Durin::FMaterialRenderV2Binding MultiTextureBinding =
-			GetMaterialBinding(CaptureMaterial->GetRenderData());
-		for (size_t Role = 0; Role < MultiTextureBinding.Textures.size(); ++Role)
-		{
+			Durin::FMaterialRenderData ProxyRenderData;
+			struct FCaptureTextureRoleProxyCommand
+			{
+				static constexpr auto GetName() -> const char*
+				{
+					return "CaptureTextureRoleProxy";
+				}
+			};
+			Durin::EnqueueRenderCommand<FCaptureTextureRoleProxyCommand>(
+				[TextureRoleProxy, &ProxyRenderData](
+					Durin::FRHICommandListImmediate&) {
+					ProxyRenderData =
+						TextureRoleProxy->Resolve_RenderThread();
+				});
+			WaitForRenderingThread();
+			const Durin::FMaterialRenderData DirectRenderData =
+				CaptureMaterial->GetRenderData();
 			EXPECT_EQ(
-				MultiTextureBinding.Textures[Role].GetReference(),
+				ProxyRenderData.PipelineIdentity,
+				DirectRenderData.PipelineIdentity);
+			EXPECT_TRUE(std::ranges::equal(
+				ProxyRenderData.Representation.GetUniformPayload(),
+				DirectRenderData.Representation.GetUniformPayload()));
+			EXPECT_TRUE(std::ranges::equal(
+				ProxyRenderData.Representation.GetResources(),
+				DirectRenderData.Representation.GetResources()));
+			const Durin::FMaterialRenderV2Binding RoleBinding =
+				GetMaterialBinding(ProxyRenderData);
+			EXPECT_EQ(
+				RoleBinding.Textures[Role].GetReference(),
 				RoleTextures[Role]->GetTextureReferenceRHI().GetReference());
-		}
-		const std::vector<Durin::uint8> MultiTexturePixels =
-			Capture(CaptureMaterial);
-		EXPECT_NE(MultiTexturePixels, UntexturedPixels);
-		for (const Durin::FName* TextureName : TextureNames)
-		{
+			for (size_t OtherRole = 0;
+				OtherRole < RoleBinding.Textures.size(); ++OtherRole)
+			{
+				if (OtherRole != Role)
+				{
+					EXPECT_EQ(RoleBinding.Textures[OtherRole], nullptr);
+				}
+			}
 			ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
-				*TextureName, nullptr));
+				*TextureNames[Role], nullptr));
 		}
+		Durin::ReleaseMaterialRenderProxy_GameThread(
+			std::move(TextureRoleProxy));
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(0.55, 0.45, 0.35)));

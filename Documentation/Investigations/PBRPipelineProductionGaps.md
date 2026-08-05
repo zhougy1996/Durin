@@ -8,15 +8,14 @@
 This investigation records the production-path gaps found while reviewing the
 current StaticMesh metallic/roughness PBR pipeline. The shader closure itself
 contains the intended Cook-Torrance GGX direct-light model, tangent-space normal
-mapping, and split-sum studio environment lighting. The highest-priority defect
-is earlier in the data path: stable material-proxy resolution silently drops
-most v2 surface values before the Renderer decodes the binding.
+mapping, and split-sum studio environment lighting. The remaining production
+gaps begin at scene import, render-target precision, and low-roughness BRDF
+stabilization rather than material-proxy publication.
 
 The findings are ordered by user-visible severity and dependency:
 
 | Priority | Issue | Status | Implementation boundary |
 | --- | --- | --- | --- |
-| P0 | Material proxies drop most v2 PBR values | Correction implemented; validation expanding | Bounded corrective task |
 | P1 | Scene import drops parsed glTF PBR data | Verified end-to-end gap | Import follow-up plan or staged task after channel decision |
 | P1 | LDR Scene Color clips PBR radiance before post-processing | Verified, intentionally deferred limitation | HDR/post-process plan |
 | P1 | GGX denominator floor distorts low-roughness direct highlights | Verified numerical-quality defect | Bounded corrective task after reference selection |
@@ -24,94 +23,7 @@ The findings are ordered by user-visible severity and dependency:
 | P2 | Lighting and IBL remain preview-scale and visually disconnected | Verified scope limitation | Future lighting/environment plan |
 | P3 | Removed ambient and rim-light controls remain exposed | Verified stale API/editor state | Bounded cleanup task |
 
-The P0 correction should land before using rendered output to validate any
-other PBR change. Fixing import, BRDF, or texture behavior first would leave its
-production result hidden by proxy defaults.
-
 ## Verified Findings
-
-### P0 — Material proxies drop most v2 PBR values
-
-**Status:** Correction implemented; focused native and Vulkan validation pass,
-with the complete parity matrix still being expanded.
-
-The implementation now normalizes every canonical local value once during
-render-safe publication and applies every exact v2 identity and type through a
-shared direct/proxy compilation policy. Focused coverage compares complete base
-and instance representations, invalid-value and texture fallback behavior, all
-UV roles, inherited/coalesced publication behavior, and isolated Vulkan images
-for Metallic, Roughness, Normal, and Emissive. The remaining validation work is
-to make every texture role and every instance override independently explicit
-in the parity matrix before resolving this finding.
-
-`DMaterial::BuildMaterialLocalRenderLayer` publishes every material definition,
-and `DMaterialInstance::BuildMaterialLocalRenderLayer` publishes every valid
-override. `FMaterialRenderProxy::Resolve_RenderThread`, however, applies those
-values through `ApplyLocalParameter`, whose accepted cases are limited to:
-
-- BaseColor;
-- every Vector2 value, currently the UV scale and offset fields;
-- BaseColorTexture;
-- Opacity;
-- the obsolete v1 SpecularStrength and Shininess identities.
-
-All other recognized local parameters return success without changing the
-representation. Metallic, Roughness, Normal, AmbientOcclusion, Emissive,
-OpacityMask, every UV-channel scalar, and seven of the eight texture roles are
-therefore silently ignored. A base proxy begins from the v2 ErrorMaterial
-payload, after which BaseColor and static properties make the result look like
-an ordinary material while the ignored fields retain fallback values:
-
-```text
-Metallic = 0
-Roughness = 0.5
-Normal = (0, 0, 1)
-AmbientOcclusion = 1
-Emissive = (0, 0, 0)
-OpacityMask = 1
-UV channels = 0
-Normal/Metallic/Roughness/AO/Emissive/Opacity/Mask textures = null
-```
-
-StaticMesh production draws resolve exactly this proxy representation through
-`FStaticMeshSceneProxy::ResolveMaterialRenderData_RenderThread` before
-`FStaticMeshRenderer` decodes the v2 binding. Direct calls to
-`DMaterialInterface::GetRenderData` compile the complete v2 representation and
-therefore do not reproduce the production result.
-
-**Impact:** level, preview, and thumbnail rendering cannot reliably display
-non-default metallic, roughness, normal, AO, emissive, mask, UV-channel, or
-non-base-color texture values. Instance overrides for the same fields also
-appear to succeed while producing no scene change. BaseColorTexture publication
-additionally captures a texture reference without the usage/sRGB validation
-performed by `GetRenderData`, so the two compilation paths disagree in both
-field coverage and resource validation.
-
-**Deterministic reproduction:** create a base material with non-default
-Metallic, Roughness, AO, Emissive, UV channel, and one non-base-color texture.
-Compare `TryGetMaterialRenderV2Binding(Material->GetRenderData())` with the
-binding obtained from `Material->GetMaterialRenderProxy()->Resolve_RenderThread`.
-The direct binding contains the authored values; the proxy binding retains the
-fallbacks above.
-
-**Validation gap:** current proxy tests compare complete payloads only while the
-PBR fields retain defaults, then exercise BaseColor and Opacity changes. The
-rendered thumbnail test changes BaseColor together with Roughness, so image
-inequality does not isolate roughness. Its eight-texture assertion only requires
-the combined image to differ; BaseColorTexture alone satisfies that condition.
-
-**Required direction:** use one canonical local-value compilation policy for
-direct render data and proxy publication. Every exact-v2 uniform and resource
-field must be applied by identity and type, with the same finite-value, range,
-normalization, integer UV-channel, texture-usage, and sRGB validation rules.
-Render-thread resolution must continue to consume render-safe values without
-reading reflected objects.
-
-Acceptance evidence must compare direct and proxy bindings after changing each
-v2 constant, each texture role, each UV channel/scale/offset, base and instance
-values, inherited updates, invalid textures, and rapid coalesced publications.
-At least one Vulkan image test must vary only Metallic, only Roughness, only
-Normal, and only Emissive.
 
 ### P1 — Scene import drops parsed glTF PBR data
 
@@ -126,9 +38,8 @@ BaseColorTexture onto the generated material instance.
 
 **Impact:** a supported glTF file can contain valid metallic/roughness PBR data
 that survives adapter normalization but is absent from the immediately
-renderable imported assets. Imported metal renders as the proxy/default
-dielectric surface even after the P0 proxy defect is corrected unless this
-mapping is completed.
+renderable imported assets. Imported metal therefore renders as the default
+dielectric surface unless this mapping is completed.
 
 The current v2 surface contract samples the R channel for every scalar texture,
 while glTF packs roughness in G and metallic in B. Completing import therefore
@@ -149,8 +60,7 @@ property.
 **Candidate direction:** prepare a follow-up to the archived
 Ready-to-Use Static Model Import plan after selecting the packed-channel
 contract. Its rendered acceptance images must isolate dielectric/metal,
-low/high roughness, normal, AO, emissive, and masked input, and must run only
-after proxy parity is proven.
+low/high roughness, normal, AO, emissive, and masked input.
 
 ### P1 — LDR Scene Color clips PBR radiance before post-processing
 
@@ -277,15 +187,11 @@ the selected correction.
 
 ## Validation Ordering
 
-1. Add a failing direct-versus-proxy v2 parity test and correct the P0 proxy
-   path.
-2. Re-run isolated rendered material-role coverage so later baselines observe
-   authored PBR values.
-3. Select and execute the glTF packed-channel contract.
-4. Correct low-roughness GGX stabilization against explicit numeric and image
+1. Select and execute the glTF packed-channel contract.
+2. Correct low-roughness GGX stabilization against explicit numeric and image
    references.
-5. Plan HDR output and material render passes as separate architectural units.
-6. Expand scene lighting only after environment ownership and scalability
+3. Plan HDR output and material render passes as separate architectural units.
+4. Expand scene lighting only after environment ownership and scalability
    requirements are selected.
 
 ## Related Documentation
@@ -299,15 +205,6 @@ the selected correction.
 
 ## Relevant Implementation
 
-- `Engine/Source/Runtime/Engine/Private/Materials/Material.cpp` and
-  `MaterialInstance.cpp`: complete local-layer publication;
-- `Engine/Source/Runtime/Engine/Private/Materials/MaterialInterface.cpp`:
-  direct v2 compilation and texture validation;
-- `Engine/Source/Runtime/Engine/Private/Materials/MaterialRenderProxy.cpp`:
-  incomplete local-value application and render-thread resolution;
-- `Engine/Source/Runtime/Engine/Private/Engine/PrimitiveSceneProxy.cpp` and
-  `Engine/Source/Runtime/Renderer/Private/Renderers/StaticMeshRenderer.cpp`:
-  production proxy consumption;
 - `Engine/Shaders/Slang/StaticMesh.slang` and
   `Engine/Source/Runtime/Renderer/Private/PBRLighting.cpp`: GPU and CPU PBR
   references;

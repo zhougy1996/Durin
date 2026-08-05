@@ -186,9 +186,15 @@ TEST(FMaterialRenderProxyTests, CanonicalV2ValuesMatchDirectCompilationForBasesA
 		nullptr, "CanonicalProxyBase");
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
 		nullptr, "CanonicalProxyInstance");
-	auto* Texture = Durin::NewObject<Durin::DTexture2D>(
-		nullptr, "CanonicalProxyTexture");
+	auto* BaseTexture = Durin::NewObject<Durin::DTexture2D>(
+		nullptr, "CanonicalProxyBaseTexture");
+	auto* OverrideTexture = Durin::NewObject<Durin::DTexture2D>(
+		nullptr, "CanonicalProxyOverrideTexture");
 	ASSERT_TRUE(Instance->SetParent(Base));
+	const auto TextureForUsage = [=](
+		Durin::ETextureUsage, bool bOverride) {
+		return bOverride ? OverrideTexture : BaseTexture;
+	};
 
 	ASSERT_TRUE(Base->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(),
@@ -216,7 +222,8 @@ TEST(FMaterialRenderProxyTests, CanonicalV2ValuesMatchDirectCompilationForBasesA
 		if (Definition.Type == Durin::EMaterialParameterType::Texture)
 		{
 			ASSERT_TRUE(Base->SetTextureParameterValue(
-				Definition.Name, Texture));
+				Definition.Name,
+				TextureForUsage(Definition.TextureUsage, false)));
 		}
 		else if (std::ranges::find(
 			Durin::MaterialParameters::UVChannelIds, Definition.Id)
@@ -292,7 +299,101 @@ TEST(FMaterialRenderProxyTests, CanonicalV2ValuesMatchDirectCompilationForBasesA
 		InstanceBinding.UVScales[1],
 		Durin::FVector2f(1024.0f, -1024.0f));
 
-	Durin::MarkAsGarbage(Texture);
+	ASSERT_TRUE(Instance->ClearScalarParameterValue(
+		Durin::MaterialParameters::MetallicName()));
+	ASSERT_TRUE(Instance->ClearScalarParameterValue(
+		Durin::MaterialParameters::RoughnessName()));
+	ASSERT_TRUE(Instance->ClearVectorParameterValue(
+		Durin::MaterialParameters::NormalName()));
+	ASSERT_TRUE(Instance->ClearVectorParameterValue(
+		Durin::MaterialParameters::EmissiveName()));
+	ASSERT_TRUE(Instance->ClearScalarParameterValue(
+		Durin::FName("RoughnessUVChannel")));
+	ASSERT_TRUE(Instance->ClearVector2ParameterValue(
+		Durin::FName("NormalUVScale")));
+
+	size_t DefinitionIndex = 0;
+	size_t TextureRole = 0;
+	for (const Durin::FMaterialParameterDefinition& Definition
+		: Durin::GetCanonicalMaterialParameterDefinitions())
+	{
+		switch (Definition.Type)
+		{
+		case Durin::EMaterialParameterType::Scalar:
+			ASSERT_TRUE(Instance->SetScalarParameterValue(
+				Definition.Name,
+				0.125f + static_cast<float>(DefinitionIndex) * 0.03125f));
+			break;
+		case Durin::EMaterialParameterType::Vector:
+			ASSERT_TRUE(Instance->SetVectorParameterValue(
+				Definition.Name,
+				Durin::FVector3(
+					0.25 + static_cast<double>(DefinitionIndex) * 0.01,
+					0.5,
+					0.75)));
+			break;
+		case Durin::EMaterialParameterType::Vector2:
+			ASSERT_TRUE(Instance->SetVector2ParameterValue(
+				Definition.Name,
+				Durin::FVector2(
+					4.0 + static_cast<double>(DefinitionIndex),
+					-4.0 - static_cast<double>(DefinitionIndex))));
+			break;
+		case Durin::EMaterialParameterType::Texture:
+			ASSERT_TRUE(Instance->SetTextureParameterValue(
+				Definition.Name,
+				TextureForUsage(Definition.TextureUsage, true)));
+			break;
+		}
+
+		EXPECT_TRUE(Instance->HasLocalParameterOverride(Definition.Id));
+		const FMaterialProxySnapshot Overridden =
+			CaptureMaterialProxy(InstanceProxy);
+		ExpectRenderDataMatches(
+			Overridden.RenderData, Instance->GetRenderData());
+		if (Definition.Type == Durin::EMaterialParameterType::Texture)
+		{
+			ASSERT_LT(TextureRole, size_t{8});
+			const Durin::FRHITextureReferenceRef ExpectedTexture =
+				Definition.TextureUsage == Durin::ETextureUsage::Color
+					? TextureForUsage(
+						Definition.TextureUsage, true)->GetTextureReferenceRHI()
+					: nullptr;
+			EXPECT_EQ(
+				GetMaterialBinding(Overridden.RenderData).Textures[TextureRole],
+				ExpectedTexture);
+			++TextureRole;
+		}
+
+		bool bCleared = false;
+		switch (Definition.Type)
+		{
+		case Durin::EMaterialParameterType::Scalar:
+			bCleared = Instance->ClearScalarParameterValue(Definition.Name);
+			break;
+		case Durin::EMaterialParameterType::Vector:
+			bCleared = Instance->ClearVectorParameterValue(Definition.Name);
+			break;
+		case Durin::EMaterialParameterType::Vector2:
+			bCleared = Instance->ClearVector2ParameterValue(Definition.Name);
+			break;
+		case Durin::EMaterialParameterType::Texture:
+			bCleared = Instance->ClearTextureParameterValue(Definition.Name);
+			break;
+		}
+		ASSERT_TRUE(bCleared) << Definition.Name.ToString();
+		EXPECT_FALSE(Instance->HasLocalParameterOverride(Definition.Id));
+		const FMaterialProxySnapshot Inherited =
+			CaptureMaterialProxy(InstanceProxy);
+		ExpectRenderDataMatches(
+			Inherited.RenderData, Instance->GetRenderData());
+		ExpectRenderDataMatches(Inherited.RenderData, Base->GetRenderData());
+		++DefinitionIndex;
+	}
+	EXPECT_EQ(TextureRole, size_t{8});
+
+	Durin::MarkAsGarbage(OverrideTexture);
+	Durin::MarkAsGarbage(BaseTexture);
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
@@ -360,15 +461,13 @@ TEST(FMaterialRenderProxyTests, CoalescesQueuedPublicationsPerProxy)
 		});
 	CommandStartedFuture.wait();
 
+	ASSERT_TRUE(Material->SetScalarParameterValue(
+		Durin::MaterialParameters::MetallicName(), 0.27f));
+	ASSERT_TRUE(Material->SetScalarParameterValue(
+		Durin::MaterialParameters::RoughnessName(), 0.63f));
 	ASSERT_TRUE(Material->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
-		Durin::FVector3(0.2, 0.3, 0.4)));
-	ASSERT_TRUE(Material->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
-		Durin::FVector3(0.4, 0.5, 0.6)));
-	ASSERT_TRUE(Material->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(),
-		Durin::FVector3(0.7, 0.8, 0.9)));
+		Durin::MaterialParameters::EmissiveName(),
+		Durin::FVector3(2.0, 3.0, 5.0)));
 	const Durin::FMaterialRenderProxyCounters Queued =
 		Durin::GetMaterialRenderProxyCounters();
 	EXPECT_EQ(Queued.PublicationCount, 0);
@@ -376,9 +475,12 @@ TEST(FMaterialRenderProxyTests, CoalescesQueuedPublicationsPerProxy)
 
 	AllowCommandCompletion->set_value();
 	const FMaterialProxySnapshot Updated = CaptureMaterialProxy(Proxy);
-	ExpectColorNear(
-		GetMaterialBinding(Updated.RenderData).BaseColor,
-		Durin::FVector4f(0.7f, 0.8f, 0.9f, 1.0f));
+	const Durin::FMaterialRenderV2Binding UpdatedBinding =
+		GetMaterialBinding(Updated.RenderData);
+	EXPECT_FLOAT_EQ(UpdatedBinding.Metallic, 0.27f);
+	EXPECT_FLOAT_EQ(UpdatedBinding.Roughness, 0.63f);
+	EXPECT_EQ(UpdatedBinding.Emissive, Durin::FVector3f(2.0f, 3.0f, 5.0f));
+	ExpectRenderDataMatches(Updated.RenderData, Material->GetRenderData());
 	const Durin::FMaterialRenderProxyCounters Applied =
 		Durin::GetMaterialRenderProxyCounters();
 	EXPECT_EQ(Applied.PublicationCount, 1);
