@@ -799,6 +799,46 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		}
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
+			Durin::FVector3(0.55, 0.45, 0.35)));
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::MetallicName(), 0.0f));
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::RoughnessName(), 0.5f));
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::MaterialParameters::NormalName(),
+			Durin::FVector3(0.0, 0.0, 1.0)));
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::MaterialParameters::EmissiveName(),
+			Durin::FVector3(0.0)));
+		const std::vector<Durin::uint8> PbrBaselinePixels =
+			Capture(CaptureMaterial);
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::MetallicName(), 1.0f));
+		const std::vector<Durin::uint8> MetallicOnlyPixels =
+			Capture(CaptureMaterial);
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::MetallicName(), 0.0f));
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::RoughnessName(), 0.1f));
+		const std::vector<Durin::uint8> RoughnessOnlyPixels =
+			Capture(CaptureMaterial);
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::MaterialParameters::RoughnessName(), 0.5f));
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::MaterialParameters::NormalName(),
+			Durin::FVector3(0.6, 0.0, 0.8)));
+		const std::vector<Durin::uint8> NormalOnlyPixels =
+			Capture(CaptureMaterial);
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::MaterialParameters::NormalName(),
+			Durin::FVector3(0.0, 0.0, 1.0)));
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::MaterialParameters::EmissiveName(),
+			Durin::FVector3(0.15, 0.05, 0.0)));
+		const std::vector<Durin::uint8> EmissiveOnlyPixels =
+			Capture(CaptureMaterial);
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(0.15, 0.7, 0.2)));
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::EmissiveName(),
@@ -860,6 +900,10 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		EXPECT_NE(MaterialCenterRgb, InstanceCenterRgb);
 		EXPECT_NE(InheritedBeforePixels, InheritedAfterPixels);
 		EXPECT_NE(MaterialPixels, UntexturedPixels);
+		EXPECT_NE(PbrBaselinePixels, MetallicOnlyPixels);
+		EXPECT_NE(PbrBaselinePixels, RoughnessOnlyPixels);
+		EXPECT_NE(PbrBaselinePixels, NormalOnlyPixels);
+		EXPECT_NE(PbrBaselinePixels, EmissiveOnlyPixels);
 		EXPECT_NE(LitEmissivePixels, StaticIdentityPixels);
 		EXPECT_EQ(StaticIdentityPixels, ReloadedPixels);
 		EXPECT_NEAR(static_cast<int>(StaticIdentityPixels[Center + 2]), 124, 2);

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <future>
+#include <limits>
 
 namespace
 {
@@ -173,6 +174,130 @@ TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleSt
 	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(Proxy));
 	Durin::ReleaseMaterialRenderProxy_GameThread(
 		std::move(SameProxy));
+	WaitForRenderingThread();
+	Harness.Shutdown();
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialRenderProxyTests, CanonicalV2ValuesMatchDirectCompilationForBasesAndInstances)
+{
+	FRenderSceneHarness Harness;
+	auto* Base = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "CanonicalProxyBase");
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
+		nullptr, "CanonicalProxyInstance");
+	auto* Texture = Durin::NewObject<Durin::DTexture2D>(
+		nullptr, "CanonicalProxyTexture");
+	ASSERT_TRUE(Instance->SetParent(Base));
+
+	ASSERT_TRUE(Base->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(),
+		Durin::FVector3(0.15, 0.35, 0.55)));
+	ASSERT_TRUE(Base->SetVectorParameterValue(
+		Durin::MaterialParameters::NormalName(),
+		Durin::FVector3(0.0, 2.0, 0.0)));
+	ASSERT_TRUE(Base->SetScalarParameterValue(
+		Durin::MaterialParameters::MetallicName(), 0.81f));
+	ASSERT_TRUE(Base->SetScalarParameterValue(
+		Durin::MaterialParameters::RoughnessName(), 0.23f));
+	ASSERT_TRUE(Base->SetScalarParameterValue(
+		Durin::MaterialParameters::AmbientOcclusionName(), 0.47f));
+	ASSERT_TRUE(Base->SetVectorParameterValue(
+		Durin::MaterialParameters::EmissiveName(),
+		Durin::FVector3(3.0, 5.0, 7.0)));
+	ASSERT_TRUE(Base->SetScalarParameterValue(
+		Durin::MaterialParameters::OpacityName(), 0.68f));
+	ASSERT_TRUE(Base->SetScalarParameterValue(
+		Durin::MaterialParameters::OpacityMaskName(), 0.39f));
+
+	for (const Durin::FMaterialParameterDefinition& Definition
+		: Durin::GetCanonicalMaterialParameterDefinitions())
+	{
+		if (Definition.Type == Durin::EMaterialParameterType::Texture)
+		{
+			ASSERT_TRUE(Base->SetTextureParameterValue(
+				Definition.Name, Texture));
+		}
+		else if (std::ranges::find(
+			Durin::MaterialParameters::UVChannelIds, Definition.Id)
+			!= Durin::MaterialParameters::UVChannelIds.end())
+		{
+			ASSERT_TRUE(Base->SetScalarParameterValue(
+				Definition.Name, 2.6f));
+		}
+		else if (std::ranges::find(
+			Durin::MaterialParameters::UVScaleIds, Definition.Id)
+			!= Durin::MaterialParameters::UVScaleIds.end())
+		{
+			ASSERT_TRUE(Base->SetVector2ParameterValue(
+				Definition.Name, Durin::FVector2(2.0, -3.0)));
+		}
+		else if (std::ranges::find(
+			Durin::MaterialParameters::UVOffsetIds, Definition.Id)
+			!= Durin::MaterialParameters::UVOffsetIds.end())
+		{
+			ASSERT_TRUE(Base->SetVector2ParameterValue(
+				Definition.Name, Durin::FVector2(7.0, -11.0)));
+		}
+	}
+
+	Durin::FMaterialRenderProxyRef BaseProxy =
+		Base->GetMaterialRenderProxy();
+	const FMaterialProxySnapshot BaseSnapshot =
+		CaptureMaterialProxy(BaseProxy);
+	ExpectRenderDataMatches(BaseSnapshot.RenderData, Base->GetRenderData());
+	const Durin::FMaterialRenderV2Binding BaseBinding =
+		GetMaterialBinding(BaseSnapshot.RenderData);
+	EXPECT_FLOAT_EQ(BaseBinding.Metallic, 0.81f);
+	EXPECT_FLOAT_EQ(BaseBinding.Roughness, 0.23f);
+	EXPECT_EQ(BaseBinding.Normal, Durin::FVector3f(0.0f, 1.0f, 0.0f));
+	EXPECT_EQ(BaseBinding.Emissive, Durin::FVector3f(3.0f, 5.0f, 7.0f));
+	for (size_t Role = 0; Role < BaseBinding.UVChannels.size(); ++Role)
+	{
+		EXPECT_FLOAT_EQ(BaseBinding.UVChannels[Role], 3.0f);
+		EXPECT_EQ(BaseBinding.UVScales[Role], Durin::FVector2f(2.0f, -3.0f));
+		EXPECT_EQ(BaseBinding.UVOffsets[Role], Durin::FVector2f(7.0f, -11.0f));
+	}
+
+	ASSERT_TRUE(Instance->SetScalarParameterValue(
+		Durin::MaterialParameters::MetallicName(), 0.17f));
+	ASSERT_TRUE(Instance->SetScalarParameterValue(
+		Durin::MaterialParameters::RoughnessName(),
+		std::numeric_limits<float>::quiet_NaN()));
+	ASSERT_TRUE(Instance->SetVectorParameterValue(
+		Durin::MaterialParameters::NormalName(), Durin::FVector3(0.0)));
+	ASSERT_TRUE(Instance->SetVectorParameterValue(
+		Durin::MaterialParameters::EmissiveName(),
+		Durin::FVector3(100.0, -2.0, 4.0)));
+	ASSERT_TRUE(Instance->SetScalarParameterValue(
+		Durin::FName("RoughnessUVChannel"), 1.4f));
+	ASSERT_TRUE(Instance->SetVector2ParameterValue(
+		Durin::FName("NormalUVScale"),
+		Durin::FVector2(2048.0, -2048.0)));
+
+	Durin::FMaterialRenderProxyRef InstanceProxy =
+		Instance->GetMaterialRenderProxy();
+	const FMaterialProxySnapshot InstanceSnapshot =
+		CaptureMaterialProxy(InstanceProxy);
+	ExpectRenderDataMatches(
+		InstanceSnapshot.RenderData, Instance->GetRenderData());
+	const Durin::FMaterialRenderV2Binding InstanceBinding =
+		GetMaterialBinding(InstanceSnapshot.RenderData);
+	EXPECT_FLOAT_EQ(InstanceBinding.Metallic, 0.17f);
+	EXPECT_FLOAT_EQ(InstanceBinding.Roughness, 0.5f);
+	EXPECT_EQ(InstanceBinding.Normal, Durin::FVector3f(0.0f, 0.0f, 1.0f));
+	EXPECT_EQ(InstanceBinding.Emissive, Durin::FVector3f(64.0f, 0.0f, 4.0f));
+	EXPECT_FLOAT_EQ(InstanceBinding.UVChannels[3], 1.0f);
+	EXPECT_EQ(
+		InstanceBinding.UVScales[1],
+		Durin::FVector2f(1024.0f, -1024.0f));
+
+	Durin::MarkAsGarbage(Texture);
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
+	Durin::CollectGarbage();
+	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(InstanceProxy));
+	Durin::ReleaseMaterialRenderProxy_GameThread(std::move(BaseProxy));
 	WaitForRenderingThread();
 	Harness.Shutdown();
 	Durin::CollectGarbage();

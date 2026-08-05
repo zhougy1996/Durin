@@ -134,6 +134,13 @@ namespace Durin
 		const FMaterialParameterValue& Value
 		) -> FMaterialLocalRenderParameter;
 
+	// Applies one already normalized render-safe value by its exact canonical
+	// identity and type.
+	ENGINE_API auto ApplyMaterialLocalRenderParameter(
+		FMaterialRenderRepresentationBuilder& RepresentationBuilder,
+		const FMaterialLocalRenderParameter& Parameter
+		) -> bool;
+
 	// Transfers a game-thread owner reference into the accepted render stream.
 	// If admission is already closed, ordinary counted release happens locally.
 	ENGINE_API auto ReleaseMaterialRenderProxy_GameThread(

@@ -1,9 +1,11 @@
 #include "Materials/MaterialRenderProxy.h"
 
+#include "Math/Operations.h"
 #include "RenderingThread.h"
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
 
+#include <cmath>
 #include <limits>
 
 namespace Durin
@@ -22,59 +24,6 @@ namespace Durin
 		};
 
 		FMaterialRenderProxyAtomicCounters GMaterialRenderProxyCounters;
-
-		auto ApplyLocalParameter(
-			FMaterialRenderRepresentationBuilder& RepresentationBuilder,
-			const FMaterialLocalRenderParameter& Parameter
-		) -> bool
-		{
-			if (Parameter.Id == MaterialParameters::BaseColorId
-				&& Parameter.Type == EMaterialParameterType::Vector)
-			{
-				const FVector3 Value{
-					std::clamp(Parameter.VectorValue.x, 0.0, 1.0),
-					std::clamp(Parameter.VectorValue.y, 0.0, 1.0),
-					std::clamp(Parameter.VectorValue.z, 0.0, 1.0)};
-				return RepresentationBuilder.SetVector(Parameter.Id, Value);
-			}
-			else if (Parameter.Type == EMaterialParameterType::Vector2)
-			{
-				const bool bUVScale = std::ranges::find(
-					MaterialParameters::UVScaleIds, Parameter.Id)
-					!= MaterialParameters::UVScaleIds.end();
-				FVector2 Value = Parameter.Vector2Value;
-				if (!std::isfinite(Value.x) || !std::isfinite(Value.y))
-					Value = bUVScale ? FVector2(1.0) : FVector2(0.0);
-				Value.x = std::clamp(Value.x, -1024.0, 1024.0);
-				Value.y = std::clamp(Value.y, -1024.0, 1024.0);
-				return RepresentationBuilder.SetVector2(Parameter.Id, Value);
-			}
-			else if (Parameter.Id == MaterialParameters::BaseColorTextureId
-				&& Parameter.Type == EMaterialParameterType::Texture)
-			{
-				return RepresentationBuilder.SetTexture(
-					Parameter.Id, Parameter.TextureValue);
-			}
-			else if (Parameter.Id == MaterialParameters::OpacityId
-				&& Parameter.Type == EMaterialParameterType::Scalar)
-			{
-				const float Value = std::clamp(Parameter.ScalarValue, 0.0f, 1.0f);
-				return RepresentationBuilder.SetScalar(Parameter.Id, Value);
-			}
-			else if (Parameter.Id == MaterialParameters::SpecularStrengthId
-				&& Parameter.Type == EMaterialParameterType::Scalar)
-			{
-				const float Value = std::clamp(Parameter.ScalarValue, 0.0f, 1.0f);
-				return RepresentationBuilder.SetScalar(Parameter.Id, Value);
-			}
-			else if (Parameter.Id == MaterialParameters::ShininessId
-				&& Parameter.Type == EMaterialParameterType::Scalar)
-			{
-				const float Value = std::clamp(Parameter.ScalarValue, 1.0f, 256.0f);
-				return RepresentationBuilder.SetScalar(Parameter.Id, Value);
-			}
-			return true;
-		}
 
 		auto ApplyStaticProperties(
 			FMaterialRenderData& RenderData,
@@ -296,7 +245,7 @@ namespace Durin
 		for (const FMaterialLocalRenderParameter& Parameter
 			: LocalLayer.Parameters)
 		{
-			if (!ApplyLocalParameter(
+			if (!ApplyMaterialLocalRenderParameter(
 					RepresentationBuilder, Parameter))
 			{
 				bRepresentationValid = false;
@@ -379,26 +328,121 @@ namespace Durin
 			.Id = Id,
 			.Type = Type,
 		};
+		const std::span Definitions =
+			GetCanonicalMaterialParameterDefinitions();
+		const auto Definition = std::ranges::find(
+			Definitions, Id, &FMaterialParameterDefinition::Id);
+		if (Definition == Definitions.end() || Definition->Type != Type)
+		{
+			return Result;
+		}
 		switch (Type)
 		{
 		case EMaterialParameterType::Scalar:
-			Result.ScalarValue = Value.ScalarValue;
+			Result.ScalarValue = std::isfinite(Value.ScalarValue)
+				? Value.ScalarValue
+				: Definition->Value.ScalarValue;
+			Result.ScalarValue = std::clamp(
+				Result.ScalarValue,
+				Definition->MinimumValue,
+				Definition->MaximumValue);
+			if (Definition->Presentation
+				== EMaterialParameterPresentation::Integer)
+			{
+				Result.ScalarValue = std::floor(Result.ScalarValue + 0.5f);
+			}
 			break;
 		case EMaterialParameterType::Vector2:
 			Result.Vector2Value = Value.Vector2Value;
+			if (!std::isfinite(Result.Vector2Value.x)
+				|| !std::isfinite(Result.Vector2Value.y))
+			{
+				Result.Vector2Value = Definition->Value.Vector2Value;
+			}
+			Result.Vector2Value.x = std::clamp(
+				Result.Vector2Value.x,
+				static_cast<double>(Definition->MinimumValue),
+				static_cast<double>(Definition->MaximumValue));
+			Result.Vector2Value.y = std::clamp(
+				Result.Vector2Value.y,
+				static_cast<double>(Definition->MinimumValue),
+				static_cast<double>(Definition->MaximumValue));
 			break;
 		case EMaterialParameterType::Vector:
 			Result.VectorValue = Value.VectorValue;
+			if (!std::isfinite(Result.VectorValue.x)
+				|| !std::isfinite(Result.VectorValue.y)
+				|| !std::isfinite(Result.VectorValue.z))
+			{
+				Result.VectorValue = Definition->Value.VectorValue;
+			}
+			Result.VectorValue.x = std::clamp(
+				Result.VectorValue.x,
+				static_cast<double>(Definition->MinimumValue),
+				static_cast<double>(Definition->MaximumValue));
+			Result.VectorValue.y = std::clamp(
+				Result.VectorValue.y,
+				static_cast<double>(Definition->MinimumValue),
+				static_cast<double>(Definition->MaximumValue));
+			Result.VectorValue.z = std::clamp(
+				Result.VectorValue.z,
+				static_cast<double>(Definition->MinimumValue),
+				static_cast<double>(Definition->MaximumValue));
+			if (Id == MaterialParameters::NormalId)
+			{
+				const double LengthSquared =
+					Math::LengthSquared(Result.VectorValue);
+				Result.VectorValue = LengthSquared < 1.0e-8
+					? Definition->Value.VectorValue
+					: Result.VectorValue / std::sqrt(LengthSquared);
+			}
 			break;
 		case EMaterialParameterType::Texture:
-			if (Value.TextureValue != nullptr)
+			if (DTexture2D* Texture = Value.TextureValue.Get();
+				Texture != nullptr
+				&& Texture->GetUsage() == Definition->TextureUsage
+				&& Texture->IsSRGB()
+					== (Definition->TextureUsage == ETextureUsage::Color))
 			{
 				Result.TextureValue =
-					Value.TextureValue->GetTextureReferenceRHI();
+					Texture->GetTextureReferenceRHI();
 			}
 			break;
 		}
 		return Result;
+	}
+
+	auto ApplyMaterialLocalRenderParameter(
+		FMaterialRenderRepresentationBuilder& RepresentationBuilder,
+		const FMaterialLocalRenderParameter& Parameter
+	) -> bool
+	{
+		const std::span Definitions =
+			GetCanonicalMaterialParameterDefinitions();
+		const auto Definition = std::ranges::find(
+			Definitions, Parameter.Id, &FMaterialParameterDefinition::Id);
+		if (Definition == Definitions.end()
+			|| Definition->Type != Parameter.Type)
+		{
+			return false;
+		}
+
+		switch (Parameter.Type)
+		{
+		case EMaterialParameterType::Scalar:
+			return RepresentationBuilder.SetScalar(
+				Parameter.Id, Parameter.ScalarValue);
+		case EMaterialParameterType::Vector2:
+			return RepresentationBuilder.SetVector2(
+				Parameter.Id, Parameter.Vector2Value);
+		case EMaterialParameterType::Vector:
+			return RepresentationBuilder.SetVector(
+				Parameter.Id, Parameter.VectorValue);
+		case EMaterialParameterType::Texture:
+			return RepresentationBuilder.SetTexture(
+				Parameter.Id, Parameter.TextureValue);
+		}
+		return false;
 	}
 
 	auto ReleaseMaterialRenderProxy_GameThread(

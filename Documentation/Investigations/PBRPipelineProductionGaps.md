@@ -16,7 +16,7 @@ The findings are ordered by user-visible severity and dependency:
 
 | Priority | Issue | Status | Implementation boundary |
 | --- | --- | --- | --- |
-| P0 | Material proxies drop most v2 PBR values | Verified regression | Bounded corrective task |
+| P0 | Material proxies drop most v2 PBR values | Correction implemented; validation expanding | Bounded corrective task |
 | P1 | Scene import drops parsed glTF PBR data | Verified end-to-end gap | Import follow-up plan or staged task after channel decision |
 | P1 | LDR Scene Color clips PBR radiance before post-processing | Verified, intentionally deferred limitation | HDR/post-process plan |
 | P1 | GGX denominator floor distorts low-roughness direct highlights | Verified numerical-quality defect | Bounded corrective task after reference selection |
@@ -32,7 +32,17 @@ production result hidden by proxy defaults.
 
 ### P0 — Material proxies drop most v2 PBR values
 
-**Status:** Verified regression; direction is sufficiently bounded for a task.
+**Status:** Correction implemented; focused native and Vulkan validation pass,
+with the complete parity matrix still being expanded.
+
+The implementation now normalizes every canonical local value once during
+render-safe publication and applies every exact v2 identity and type through a
+shared direct/proxy compilation policy. Focused coverage compares complete base
+and instance representations, invalid-value and texture fallback behavior, all
+UV roles, inherited/coalesced publication behavior, and isolated Vulkan images
+for Metallic, Roughness, Normal, and Emissive. The remaining validation work is
+to make every texture role and every instance override independently explicit
+in the parity matrix before resolving this finding.
 
 `DMaterial::BuildMaterialLocalRenderLayer` publishes every material definition,
 and `DMaterialInstance::BuildMaterialLocalRenderLayer` publishes every valid

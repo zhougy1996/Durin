@@ -6,11 +6,8 @@
 #include "DObject/Property.h"
 #include "Materials/MaterialInstance.h"
 #include "Logging/LogMacros.h"
-#include "Math/Operations.h"
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
-
-#include <cmath>
 
 namespace Durin
 {
@@ -153,62 +150,24 @@ namespace Durin
 		{
 			FResolvedMaterialParameter Parameter;
 			if (!ResolveParameterValue(Definition.Id, Parameter)) continue;
-			switch (Definition.Type)
+			if (Definition.Type == EMaterialParameterType::Texture)
 			{
-			case EMaterialParameterType::Scalar:
-			{
-				float Value = Parameter.Value.ScalarValue;
-				if (!std::isfinite(Value)) Value = Definition.Value.ScalarValue;
-				Value = std::clamp(Value, Definition.MinimumValue, Definition.MaximumValue);
-				if (Definition.Presentation == EMaterialParameterPresentation::Integer)
-				{
-					Value = std::floor(Value + 0.5f);
-				}
-				bRepresentationValid = RepresentationBuilder.SetScalar(Definition.Id, Value) && bRepresentationValid;
-				break;
-			}
-			case EMaterialParameterType::Vector2:
-			{
-				FVector2 Value = Parameter.Value.Vector2Value;
-				if (!std::isfinite(Value.x) || !std::isfinite(Value.y)) Value = Definition.Value.Vector2Value;
-				Value.x = std::clamp(Value.x, static_cast<double>(Definition.MinimumValue), static_cast<double>(Definition.MaximumValue));
-				Value.y = std::clamp(Value.y, static_cast<double>(Definition.MinimumValue), static_cast<double>(Definition.MaximumValue));
-				bRepresentationValid = RepresentationBuilder.SetVector2(Definition.Id, Value) && bRepresentationValid;
-				break;
-			}
-			case EMaterialParameterType::Vector:
-			{
-				FVector3 Value = Parameter.Value.VectorValue;
-				if (!std::isfinite(Value.x) || !std::isfinite(Value.y) || !std::isfinite(Value.z)) Value = Definition.Value.VectorValue;
-				Value.x = std::clamp(Value.x, static_cast<double>(Definition.MinimumValue), static_cast<double>(Definition.MaximumValue));
-				Value.y = std::clamp(Value.y, static_cast<double>(Definition.MinimumValue), static_cast<double>(Definition.MaximumValue));
-				Value.z = std::clamp(Value.z, static_cast<double>(Definition.MinimumValue), static_cast<double>(Definition.MaximumValue));
-				if (Definition.Id == MaterialParameters::NormalId)
-				{
-					const double LengthSquared = Math::LengthSquared(Value);
-					Value = LengthSquared < 1.0e-8 ? Definition.Value.VectorValue : Value / std::sqrt(LengthSquared);
-				}
-				bRepresentationValid = RepresentationBuilder.SetVector(Definition.Id, Value) && bRepresentationValid;
-				break;
-			}
-			case EMaterialParameterType::Texture:
-			{
-				FRHITextureReferenceRef TextureReference;
 				DTexture2D* Texture = Parameter.Value.TextureValue.Get();
 				const bool bExpectedSRGB = Definition.TextureUsage == ETextureUsage::Color;
-				if (Texture != nullptr && Texture->GetUsage() == Definition.TextureUsage && Texture->IsSRGB() == bExpectedSRGB)
-				{
-					TextureReference = Texture->GetTextureReferenceRHI();
-				}
-				else if (Texture != nullptr)
+				if (Texture != nullptr
+					&& (Texture->GetUsage() != Definition.TextureUsage
+						|| Texture->IsSRGB() != bExpectedSRGB))
 				{
 					DURIN_WARN_CATEGORY("Material", "Material '{}' parameter '{}' ignored texture '{}' because its usage or sRGB setting is incompatible.",
 						GetName(), Definition.Name.ToString(), Texture->GetName());
 				}
-				bRepresentationValid = RepresentationBuilder.SetTexture(Definition.Id, TextureReference) && bRepresentationValid;
-				break;
 			}
-			}
+			const FMaterialLocalRenderParameter LocalParameter =
+				BuildMaterialLocalRenderParameter(
+					Definition.Id, Definition.Type, Parameter.Value);
+			bRepresentationValid = ApplyMaterialLocalRenderParameter(
+				RepresentationBuilder, LocalParameter)
+				&& bRepresentationValid;
 		}
 		const FMaterialStaticProperties& StaticProperties = GetStaticProperties();
 		Result.PipelineIdentity.ShaderMap.BlendMode = StaticProperties.BlendMode;
