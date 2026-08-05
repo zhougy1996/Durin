@@ -16,63 +16,6 @@ namespace Durin::MonaImGui::PropertyEdit
 			State->bDeactivatedAfterEdit |= ImGui::IsItemDeactivatedAfterEdit();
 		}
 
-		auto MakeComponentFormat(
-			char* Buffer,
-			size_t BufferSize,
-			const char* ComponentName,
-			const char* ValueFormat
-		) -> const char*
-		{
-			const char* ResolvedValueFormat = ValueFormat
-				? ValueFormat : ImGui::DataTypeGetInfo(ImGuiDataType_Double)->PrintFmt;
-			char PrefixBuffer[4];
-			ImFormatString(PrefixBuffer, IM_COUNTOF(PrefixBuffer), "%s:", ComponentName);
-			const float SpaceWidth = std::max(ImGui::CalcTextSize(" ").x, 1.0f);
-			const size_t SpaceCount = std::clamp<size_t>(
-				static_cast<size_t>(std::ceil(
-					(ImGui::CalcTextSize(PrefixBuffer).x + SpaceWidth) / SpaceWidth)),
-				1,
-				BufferSize - 1);
-			std::fill_n(Buffer, SpaceCount, ' ');
-			ImFormatString(
-				Buffer + SpaceCount,
-				static_cast<int>(BufferSize - SpaceCount),
-				"%s",
-				ResolvedValueFormat);
-			return Buffer;
-		}
-
-		auto ColorComponentFormatPrefix(
-			const char* ComponentName,
-			const ImVec4& AxisColor,
-			const char* Format,
-			const double& Value
-		) -> void
-		{
-			const ImGuiID ItemId = ImGui::GetItemID();
-			if (ItemId == 0 || ImGui::TempInputIsActive(ItemId)) return;
-
-			char ValueBuffer[64];
-			const int ValueLength = ImGui::DataTypeFormatString(
-				ValueBuffer,
-				IM_COUNTOF(ValueBuffer),
-				ImGuiDataType_Double,
-				&Value,
-				Format);
-			char PrefixBuffer[4];
-			ImFormatString(PrefixBuffer, IM_COUNTOF(PrefixBuffer), "%s:", ComponentName);
-			const ImVec2 FrameMin = ImGui::GetItemRectMin();
-			const ImVec2 FrameMax = ImGui::GetItemRectMax();
-			const ImVec2 ValueSize = ImGui::CalcTextSize(ValueBuffer, ValueBuffer + ValueLength);
-			const ImVec2 TextPosition(
-				std::max(FrameMin.x, FrameMin.x + (FrameMax.x - FrameMin.x - ValueSize.x) * 0.5f),
-				std::max(FrameMin.y, FrameMin.y + (FrameMax.y - FrameMin.y - ValueSize.y) * 0.5f));
-			ImDrawList* DrawList = ImGui::GetWindowDrawList();
-			DrawList->PushClipRect(FrameMin, FrameMax, true);
-			DrawList->AddText(TextPosition, ImGui::GetColorU32(AxisColor), PrefixBuffer);
-			DrawList->PopClipRect();
-		}
-
 		template<size_t NumComponents, typename TVector>
 		auto EditComponentValues(
 			const char* Id,
@@ -83,13 +26,15 @@ namespace Durin::MonaImGui::PropertyEdit
 		) -> bool
 		{
 			static_assert(NumComponents >= 2 && NumComponents <= 4);
-			static constexpr std::array<const char*, 4> ComponentNames = {"X", "Y", "Z", "W"};
 			const std::array<ImVec4, 4> ComponentColors = {
 				GetThemeColor(EUIThemeColor::AxisX),
 				GetThemeColor(EUIThemeColor::AxisY),
 				GetThemeColor(EUIThemeColor::AxisZ),
 				ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled)
 			};
+			const char* Format = Config.Format ? Config.Format : "%.3f";
+			const float IndicatorWidth = ScaleUI(2.0f);
+			const float IndicatorInset = std::max(ImGui::GetStyle().FrameRounding * 0.5f, IndicatorWidth);
 
 			ImGui::PushID(Id);
 			bool bChanged = false;
@@ -107,12 +52,6 @@ namespace Durin::MonaImGui::PropertyEdit
 					ImGui::TableNextColumn();
 					ImGui::SetNextItemWidth(-FLT_MIN);
 					ImGui::PushID(static_cast<int>(Component));
-					char ComponentFormat[64];
-					const char* Format = MakeComponentFormat(
-						ComponentFormat,
-						std::size(ComponentFormat),
-						ComponentNames[Component],
-						Config.Format);
 					bChanged |= ImGui::DragScalar(
 						"##Value",
 						ImGuiDataType_Double,
@@ -123,8 +62,13 @@ namespace Durin::MonaImGui::PropertyEdit
 						Format,
 						Config.bHasRange ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None);
 					AccumulateLastItemState(State);
-					ColorComponentFormatPrefix(
-						ComponentNames[Component], ComponentColors[Component], Format, Value[Component]);
+					const ImVec2 FrameMin = ImGui::GetItemRectMin();
+					const ImVec2 FrameMax = ImGui::GetItemRectMax();
+					ImGui::GetWindowDrawList()->AddLine(
+						{FrameMin.x + IndicatorWidth * 0.5f, FrameMin.y + IndicatorInset},
+						{FrameMin.x + IndicatorWidth * 0.5f, FrameMax.y - IndicatorInset},
+						ImGui::GetColorU32(ComponentColors[Component]),
+						IndicatorWidth);
 					ImGui::PopID();
 				}
 				ImGui::EndTable();
