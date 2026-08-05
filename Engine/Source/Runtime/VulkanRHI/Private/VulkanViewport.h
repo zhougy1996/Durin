@@ -38,6 +38,7 @@ namespace Durin::VulkanRHI
 		FVulkanBackBuffer(FVulkanDevice& InDevice, FVulkanViewport* InViewport);
 
 		auto AcquireBackBufferImage(FVulkanCommandListContext& Context) -> void;
+		auto UpdateSwapchain() -> void;
 
 	private:
 		FVulkanViewport* Viewport;
@@ -55,11 +56,15 @@ namespace Durin::VulkanRHI
 
 		auto GetSizeXY() const -> FIntPoint { return FIntPoint(SizeX, SizeY); }
 
-		auto Resize(FRHICommandListImmediate& RHICmdList, uint32 InSizeX, uint32 InSizeY) -> void;
+		auto Resize(
+			FRHICommandListImmediate& RHICmdList,
+			uint32 InSizeX,
+			uint32 InSizeY,
+			bool bInIsFullScreen) -> void;
 
-		auto BeginDrawing(FRHICommandListImmediate& RHICmdList) -> void;
+		auto BeginDrawing() -> void;
 
-		auto RecreateSwapchainFromRT(FRHICommandListImmediate& RHICmdList) -> void;
+		auto RecreateSwapchain() -> void;
 
 		auto GetSwapchain() const -> FVulkanSwapchain* { return Swapchain; }
 
@@ -80,7 +85,7 @@ namespace Durin::VulkanRHI
 	protected:
 		auto RequestResize(uint32 InSizeX, uint32 InSizeY) -> void;
 
-		auto PrepareSwapchain(FRHICommandListImmediate& RHICmdList) -> void;
+		auto PrepareSwapchain() -> void;
 
 		auto MarkSwapchainNeedsRecreate() -> void;
 

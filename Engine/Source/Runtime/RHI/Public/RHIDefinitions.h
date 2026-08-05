@@ -4,6 +4,12 @@
 namespace Durin
 {
 	constexpr uint32 kFrameInFlight = 2;
+
+	// Carries executor-owned RHI frame identity during ordered BeginFrame replay.
+	struct FRHIBeginFrameArgs
+	{
+		uint64 FrameNumber = 0;
+	};
 	constexpr uint32 MaxSimultaneousRenderTargets = 8U;
 	constexpr uint32 MaxSimultaneousRenderTargets_NumBits = 3U;
 	static_assert(MaxSimultaneousRenderTargets <= (1U << MaxSimultaneousRenderTargets), "MaxSimultaneousRenderTargets exceeds the number of bits allocated for it.");

@@ -147,6 +147,8 @@ namespace Durin::VulkanRHI
 		auto GetDynamicUniformBufferAllocator() -> FVulkanDynamicUniformBufferAllocator& { return *DynamicUniformBufferAllocator; }
 
 		auto GetCurrentFrame() -> FVulkanFrame&;
+		auto SetCurrentFrameIndex(uint32 FrameIndex) -> void;
+		auto GetCurrentFrameIndex() const -> uint32;
 
 		auto NotifyDeleted_Image(vk::Image Image) -> void;
 
@@ -178,6 +180,7 @@ namespace Durin::VulkanRHI
 		FVulkanDynamicUniformBufferAllocator* DynamicUniformBufferAllocator = nullptr;
 
 		std::array<FVulkanFrame*, kFrameInFlight> Frames = {};
+		uint32 CurrentFrameIndex = 0;
 
 		FVulkanQueue* GraphicsQueue = nullptr;
 

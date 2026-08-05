@@ -51,7 +51,11 @@ namespace Durin
 		class FRecordingCommandContext final : public IRHICommandContext
 		{
 		public:
-			auto RHIBeginFrame() -> void override { Operations.emplace_back("BeginFrame"); }
+			auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void override
+			{
+				Operations.emplace_back("BeginFrame");
+				ObservedBeginFrameNumber = Args.FrameNumber;
+			}
 			auto RHISubmitCommands() -> void override
 			{
 				Operations.emplace_back("SubmitToGPU");
@@ -63,6 +67,10 @@ namespace Durin
 			auto RHIEndFrame() -> void override
 			{
 				Operations.emplace_back("EndFrame");
+				if (bFailEndFrame)
+				{
+					throw std::runtime_error("intentional EndFrame failure");
+				}
 				if (ResourceDestroyed)
 				{
 					ObservedResourceAliveAtEndFrame = !*ResourceDestroyed;
@@ -82,9 +90,12 @@ namespace Durin
 			{
 				Operations.emplace_back("BeginDrawingViewport");
 			}
-			auto RHIEndDrawingViewport(FRHIViewport*, bool, bool) -> void override
+			auto RHIEndDrawingViewport(
+				FRHIViewport*, bool bPresent, bool bLockToVsync) -> void override
 			{
 				Operations.emplace_back("EndDrawingViewport");
+				ObservedPresent = bPresent;
+				ObservedLockToVsync = bLockToVsync;
 			}
 			auto RHISetViewport(float MinX, float, float, float, float, float) -> void override
 			{
@@ -174,6 +185,7 @@ namespace Durin
 			}
 
 			std::vector<std::string> Operations;
+			std::optional<uint64> ObservedBeginFrameNumber;
 			std::vector<bool> OperationThreadRoles;
 			FRHITexture* ObservedColorTarget = nullptr;
 			std::array<float, 4> ObservedClearValue{};
@@ -187,6 +199,9 @@ namespace Durin
 			bool* ResourceDestroyed = nullptr;
 			bool ObservedResourceAliveAtSubmit = false;
 			bool ObservedResourceAliveAtEndFrame = false;
+			bool ObservedPresent = false;
+			bool ObservedLockToVsync = false;
+			bool bFailEndFrame = false;
 		};
 	}
 
@@ -433,6 +448,12 @@ namespace Durin
 		FRHICommandListExecutor InlineExecutor(InlineContext);
 		InlineExecutor.GetImmediateCommandList().EnqueueLambda(
 			[&InlineContext]() { InlineContext.Operations.emplace_back("Replay"); });
+		InlineExecutor.GetImmediateCommandList().SwitchPipeline(
+			ERHIPipeline::Graphics);
+		InlineExecutor.GetImmediateCommandList().BeginDrawingViewport(
+			nullptr, nullptr);
+		InlineExecutor.GetImmediateCommandList().EndDrawingViewport(
+			nullptr, true, true);
 		FRHICommandList InlineAdditional;
 		InlineAdditional.EnqueueLambda(
 			[&InlineContext]() { InlineContext.Operations.emplace_back("Additional"); });
@@ -447,6 +468,12 @@ namespace Durin
 		FRHICommandListExecutor ThreadedExecutor(ThreadedContext, RHIThread);
 		ThreadedExecutor.GetImmediateCommandList().EnqueueLambda(
 			[&ThreadedContext]() { ThreadedContext.Operations.emplace_back("Replay"); });
+		ThreadedExecutor.GetImmediateCommandList().SwitchPipeline(
+			ERHIPipeline::Graphics);
+		ThreadedExecutor.GetImmediateCommandList().BeginDrawingViewport(
+			nullptr, nullptr);
+		ThreadedExecutor.GetImmediateCommandList().EndDrawingViewport(
+			nullptr, true, true);
 		FRHICommandList ThreadedAdditional;
 		ThreadedAdditional.EnqueueLambda(
 			[&ThreadedContext]() { ThreadedContext.Operations.emplace_back("Additional"); });
@@ -458,8 +485,17 @@ namespace Durin
 
 		EXPECT_EQ(ThreadedExecutor.GetCompletedSerial(), Serial);
 		EXPECT_EQ(ThreadedContext.Operations, InlineContext.Operations);
+		EXPECT_EQ(InlineContext.ObservedBeginFrameNumber, 0);
+		EXPECT_EQ(ThreadedContext.ObservedBeginFrameNumber, 0);
+		EXPECT_EQ(InlineExecutor.GetFrameNumber(), 1u);
+		EXPECT_EQ(ThreadedExecutor.GetFrameNumber(), 1u);
+		EXPECT_TRUE(InlineContext.ObservedPresent);
+		EXPECT_TRUE(InlineContext.ObservedLockToVsync);
+		EXPECT_TRUE(ThreadedContext.ObservedPresent);
+		EXPECT_TRUE(ThreadedContext.ObservedLockToVsync);
 		EXPECT_EQ(ThreadedContext.Operations, (std::vector<std::string>{
-			"BeginFrame", "Replay", "Additional", "SubmitToGPU", "EndFrame"}));
+			"BeginFrame", "Replay", "BeginDrawingViewport", "EndDrawingViewport",
+			"Additional", "SubmitToGPU", "EndFrame"}));
 	}
 
 	TEST(FRHICommandListTests, ThreadedImmediateOperationsStayOnRHIThread)
@@ -691,6 +727,75 @@ namespace Durin
 
 		EXPECT_EQ(Executor.Submit({}, ERHISubmitFlags::None), 0u);
 		EXPECT_EQ(Executor.GetCompletedSerial(), 0u);
+		EXPECT_EQ(Executor.GetFrameNumber(), 0u);
+	}
+
+	TEST(FRHICommandListTests, ExecutorOwnsFrameNumberAcrossEmptyFrames)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+
+		EXPECT_EQ(Executor.GetFrameNumber(), 0u);
+		Executor.Submit({}, ERHISubmitFlags::BeginFrame);
+		EXPECT_EQ(Context.ObservedBeginFrameNumber, 0);
+		EXPECT_EQ(Executor.GetFrameNumber(), 0u);
+
+		Executor.Submit({}, ERHISubmitFlags::EndFrame);
+		EXPECT_EQ(Executor.GetFrameNumber(), 1u);
+		Executor.Submit({}, ERHISubmitFlags::BeginFrame | ERHISubmitFlags::EndFrame);
+		EXPECT_EQ(Context.ObservedBeginFrameNumber, 1);
+		EXPECT_EQ(Executor.GetFrameNumber(), 2u);
+	}
+
+	TEST(FRHICommandListTests, FailedEndFrameDoesNotAdvanceFrameNumber)
+	{
+		FRecordingCommandContext Context;
+		Context.bFailEndFrame = true;
+		FRHICommandListExecutor Executor(Context);
+
+		EXPECT_THROW(
+			Executor.Submit({}, ERHISubmitFlags::EndFrame),
+			std::runtime_error);
+		EXPECT_EQ(Executor.GetFrameNumber(), 0u);
+		EXPECT_EQ(Executor.GetCompletedSerial(), 0u);
+	}
+
+	TEST(FRHICommandListTests, RejectedThreadedEndFrameDoesNotAdvanceFrameNumber)
+	{
+		FRecordingCommandContext Context;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor Executor(Context, RHIThread);
+		RHIThread.BeginDrain();
+
+		const FRHICommandListSubmission Submission =
+			Executor.TrySubmit({}, ERHISubmitFlags::EndFrame);
+		EXPECT_FALSE(Submission.IsAccepted());
+		EXPECT_EQ(Executor.GetFrameNumber(), 0u);
+
+		Executor.SetInlineMode();
+		RHIThread.Stop();
+	}
+
+	TEST(FRHICommandListTests, FrameNumberSurvivesExecutorModeTransitions)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		Executor.Submit({}, ERHISubmitFlags::EndFrame);
+		EXPECT_EQ(Executor.GetFrameNumber(), 1u);
+
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		Executor.SetThreadedMode(RHIThread);
+		Executor.Submit(
+			{}, ERHISubmitFlags::BeginFrame | ERHISubmitFlags::EndFrame);
+		Executor.CreateFence().Wait();
+		EXPECT_EQ(Context.ObservedBeginFrameNumber, 1);
+		EXPECT_EQ(Executor.GetFrameNumber(), 2u);
+
+		Executor.SetInlineMode();
+		EXPECT_EQ(Executor.GetFrameNumber(), 2u);
+		RHIThread.Stop();
 	}
 
 	TEST(FRHICommandListTests, EmptyRegularListDoesNotCreateASerial)

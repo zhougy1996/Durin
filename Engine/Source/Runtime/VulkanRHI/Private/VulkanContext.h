@@ -29,7 +29,7 @@ namespace Durin::VulkanRHI
 
 		auto RHISetScissor(float MinX, float MinY, float Width, float Height) -> void override;
 
-		auto RHIBeginFrame() -> void override;
+		auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void override;
 
 		auto RHISubmitCommands() -> void override;
 

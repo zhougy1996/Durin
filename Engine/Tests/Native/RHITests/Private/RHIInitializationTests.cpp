@@ -43,7 +43,7 @@ namespace Durin
 				Observation.bShutdownOnRHIThread = IsInRHIThread();
 			}
 
-			auto RHIBeginFrame() -> void override {}
+			auto RHIBeginFrame(const FRHIBeginFrameArgs&) -> void override {}
 			auto RHIEndFrame() -> void override {}
 			auto RHICreateViewport(
 				void*, uint32, uint32, bool, EPixelFormat,

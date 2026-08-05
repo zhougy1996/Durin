@@ -45,9 +45,19 @@ namespace Durin::VulkanRHI
 
 		~FVulkanDynamicUniformBufferAllocator();
 
-		auto BeginFrame(uint32 FrameIndex) -> void;
+		// The rendering thread resets the producer-owned cursor only after the
+		// previous RHI serial for this frame slot has completed.
+		auto BeginFrameProducer(uint32 FrameIndex) -> void;
 
-		auto Allocate(const void* Data, uint32 Size) -> FRHIUniformBufferRange;
+		auto TryAllocate(
+			uint32 FrameIndex,
+			const void* Data,
+			uint32 Size,
+			FRHIUniformBufferRange& OutRange) -> bool;
+
+		// Device allocation remains RHI-owned. The producer calls this only via
+		// an ordered synchronous operation when its prepared pages overflow.
+		auto ReservePage(uint32 FrameIndex, uint32 MinSize) -> void;
 
 	private:
 		// Owns one persistently mapped backing buffer used for uniform suballocation.
@@ -74,7 +84,6 @@ namespace Durin::VulkanRHI
 
 		std::array<FFrameState, kFrameInFlight> Frames;
 
-		uint32 CurrentFrameIndex = 0;
 	};
 
 	// Owns a host-visible temporary buffer used to transfer data to device-local resources.

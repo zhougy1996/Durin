@@ -2,12 +2,23 @@
 
 #include "PixelFormat.h"
 #include "RHIDefinitions.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin::VulkanRHI
 {
 	class FVulkanDevice;
 	class FVulkanFence;
 	class FVulkanPayload;
+
+	// Inline mode intentionally preserves the pre-threaded diagnostic path.
+	// Once a dedicated owner exists, every backend mutation must observe it.
+	inline auto CheckVulkanRHIThread() -> void
+	{
+		if (GRHIThread)
+		{
+			CheckRHIThread();
+		}
+	}
 
 	auto ToVulkan_Extent3D(const FIntVector& Size) -> vk::Extent3D;
 	auto ToVulkan_TextureDimension(ETextureDimension Dimension) -> vk::ImageViewType;

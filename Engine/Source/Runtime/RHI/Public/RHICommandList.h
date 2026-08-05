@@ -235,6 +235,7 @@ namespace Durin
 		uint64 SubmissionGroupCount = 0;
 		uint64 ReplayDurationNanoseconds = 0;
 		uint64 WaitCount = 0;
+		uint64 SynchronousOperationCount = 0;
 		uint64 RejectedSubmissionCount = 0;
 		uint64 PendingBatchCount = 0;
 		uint64 PendingPayloadBytes = 0;
@@ -259,7 +260,9 @@ namespace Durin
 		RHI_API ~FRHICommandListImmediate() override;
 		RHI_API auto QueueCommandList(FRHICommandList&& CommandList) -> void;
 		RHI_API auto TryQueueCommandList(FRHICommandList&& CommandList) -> bool;
-		RHI_API auto ImmediateFlush(EImmediateFlushType FlushType, ERHISubmitFlags SubmitFlags = ERHISubmitFlags::None) -> void;
+		RHI_API auto ImmediateFlush(
+			EImmediateFlushType FlushType,
+			ERHISubmitFlags SubmitFlags = ERHISubmitFlags::None) -> void;
 		RHI_API auto LockBuffer(FRHIBuffer* Buffer, uint32 Offset, uint32 Size, EResourceLockMode LockMode) -> void*;
 		RHI_API auto UnlockBuffer(FRHIBuffer* Buffer) -> void;
 		RHI_API auto AllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange;
@@ -274,11 +277,15 @@ namespace Durin
 
 		explicit FRHICommandListImmediate(FRHICommandListExecutor& InExecutor);
 		auto HasOpenBufferLocks() const -> bool;
+		auto AllocateDynamicUniformBufferSynchronous(
+			const void* Data,
+			uint32 Size) -> FRHIUniformBufferRange;
 
 		FRHICommandListExecutor* Executor = nullptr;
 		std::unique_ptr<FLockState> LockState;
 
 		friend class FRHICommandListExecutor;
+		friend class FDynamicRHI;
 	};
 
 	class FRHICommandListFence
@@ -319,14 +326,26 @@ namespace Durin
 		// Rejection preserves command ownership in the executor for a later retry.
 		RHI_API auto TrySubmit(
 			const std::vector<FRHICommandList*>& AdditionalCmdLists,
-			ERHISubmitFlags SubmitFlags) -> FRHICommandListSubmission;
-		RHI_API auto Submit(const std::vector<FRHICommandList*>& AdditionalCmdLists, ERHISubmitFlags SubmitFlags) -> uint64;
+			ERHISubmitFlags SubmitFlags)
+			-> FRHICommandListSubmission;
+		RHI_API auto Submit(
+			const std::vector<FRHICommandList*>& AdditionalCmdLists,
+			ERHISubmitFlags SubmitFlags) -> uint64;
 		RHI_API auto CreateFence() -> FRHICommandListFence;
 		RHI_API auto GetLastSubmittedSerial() const -> uint64;
 		RHI_API auto GetCompletedSerial() const -> uint64;
+		RHI_API auto GetFrameNumber() const -> uint64;
 		RHI_API auto GetStats() const -> FRHICommandListExecutorStats;
 		RHI_API auto SetThreadedMode(FRHIThread& InRHIThread) -> void;
 		RHI_API auto SetInlineMode() -> void;
+		// Runs one ordered operation on the active replay owner. Threaded callers
+		// block for the exact queue serial; inline diagnostics execute locally.
+		// Callers report heap storage exclusively owned by the queued callback so
+		// the bounded RHI queue accounts it together with command payloads.
+		RHI_API auto ExecuteSynchronousOperation(
+			bool bFlushRecordedCommands,
+			std::function<void()> Operation,
+			size_t OwnedPayloadBytes = 0) -> void;
 
 	private:
 		class FState;
@@ -335,10 +354,10 @@ namespace Durin
 		auto SealImmediateSegment() -> void;
 		auto IsSerialComplete(uint64 Serial) const -> bool;
 		auto WaitForSerial(uint64 Serial) const -> void;
-		auto ExecuteSynchronousOperation(
+		auto ExecuteSynchronousContextOperation(
 			bool bFlushRecordedCommands,
-			std::function<void(IRHICommandContext&)> Operation) -> void;
-
+			std::function<void(IRHICommandContext&)> Operation,
+			size_t OwnedPayloadBytes = 0) -> void;
 		std::unique_ptr<FState> State;
 		FRHICommandListImmediate CommandListImmediate;
 

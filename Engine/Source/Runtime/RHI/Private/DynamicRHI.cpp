@@ -18,7 +18,7 @@ namespace Durin
 		FRHICommandListImmediate& RHICmdList) -> void
 	{
 		RHICmdList.ImmediateFlush(
-			EImmediateFlushType::DispatchToRHIThread,
+			EImmediateFlushType::FlushRHIThread,
 			ERHISubmitFlags::BeginFrame);
 	}
 
@@ -32,7 +32,7 @@ namespace Durin
 		const void* Data,
 		uint32 Size) -> FRHIUniformBufferRange
 	{
-		return RHICmdList.AllocateDynamicUniformBuffer(Data, Size);
+		return RHICmdList.AllocateDynamicUniformBufferSynchronous(Data, Size);
 	}
 
 	auto FDynamicRHI::RHILockBuffer(

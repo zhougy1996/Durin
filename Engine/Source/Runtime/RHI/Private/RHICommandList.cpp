@@ -892,12 +892,14 @@ namespace Durin
 		FRHIThread* RHIThread = nullptr;
 		std::atomic<uint64> LastSubmittedSerial = 0;
 		std::atomic<uint64> CompletedSerial = 0;
+		std::atomic<uint64> FrameNumber = 0;
 		std::atomic<uint64> RecordedCommandCount = 0;
 		std::atomic<uint64> RecordedPayloadBytes = 0;
 		std::atomic<uint64> SubmittedBatchCount = 0;
 		std::atomic<uint64> SubmissionGroupCount = 0;
 		std::atomic<uint64> ReplayDurationNanoseconds = 0;
 		mutable std::atomic<uint64> WaitCount = 0;
+		std::atomic<uint64> SynchronousOperationCount = 0;
 		mutable std::atomic<uint64> WaitDurationNanoseconds = 0;
 		std::atomic<uint64> RejectedSubmissionCount = 0;
 		mutable std::mutex CompletionMutex;
@@ -1258,8 +1260,21 @@ namespace Durin
 	auto FRHICommandListImmediate::AllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange
 	{
 		check(Data && Size != 0);
+		if (GDynamicRHI)
+		{
+			return GDynamicRHI->RHIAllocateDynamicUniformBuffer(
+				*this, Data, Size);
+		}
+		return AllocateDynamicUniformBufferSynchronous(Data, Size);
+	}
+
+	auto FRHICommandListImmediate::AllocateDynamicUniformBufferSynchronous(
+		const void* Data,
+		uint32 Size) -> FRHIUniformBufferRange
+	{
+		check(Data && Size != 0);
 		FRHIUniformBufferRange Result;
-		Executor->ExecuteSynchronousOperation(false,
+		Executor->ExecuteSynchronousContextOperation(false,
 			[Data, Size, &Result](IRHICommandContext& Context) {
 				Result = Context.RHIAllocateDynamicUniformBuffer(Data, Size);
 			});
@@ -1273,7 +1288,7 @@ namespace Durin
 		std::vector<uint8>& OutData) -> bool
 	{
 		bool bSucceeded = false;
-		Executor->ExecuteSynchronousOperation(true,
+		Executor->ExecuteSynchronousContextOperation(true,
 			[Texture, MipIndex, ArraySlice, &OutData, &bSucceeded](
 				IRHICommandContext& Context) {
 				bSucceeded = Context.RHIReadTexture2D(
@@ -1290,7 +1305,7 @@ namespace Durin
 
 	auto FRHICommandListImmediate::BlockUntilGPUIdle() -> void
 	{
-		Executor->ExecuteSynchronousOperation(true,
+		Executor->ExecuteSynchronousContextOperation(true,
 			[](IRHICommandContext& Context) {
 				Context.RHIBlockUntilGPUIdle();
 			});
@@ -1396,7 +1411,8 @@ namespace Durin
 
 	auto FRHICommandListExecutor::TrySubmit(
 		const std::vector<FRHICommandList*>& AdditionalCmdLists,
-		ERHISubmitFlags SubmitFlags) -> FRHICommandListSubmission
+		ERHISubmitFlags SubmitFlags)
+		-> FRHICommandListSubmission
 	{
 		if (CommandListImmediate.HasOpenBufferLocks()
 			|| CommandListImmediate.bInsideRenderPass)
@@ -1485,15 +1501,19 @@ namespace Durin
 			const auto ReplayStart = std::chrono::steady_clock::now();
 			if (EnumHasAnyFlags(Group.GetFlags(), ERHISubmitFlags::BeginFrame))
 			{
+				const FRHIBeginFrameArgs BeginFrameArgs{
+					.FrameNumber = State->FrameNumber.load(std::memory_order_acquire)
+				};
 				if (State->ReplayContext.HasGraphicsContextOverride())
 				{
-					State->ReplayContext.GetOperationContext("BeginFrame")
-						.RHIBeginFrame();
+					IRHICommandContext& Context =
+						State->ReplayContext.GetOperationContext("BeginFrame");
+					Context.RHIBeginFrame(BeginFrameArgs);
 				}
 				else
 				{
 					check(GDynamicRHI);
-					GDynamicRHI->RHIBeginFrame();
+					GDynamicRHI->RHIBeginFrame(BeginFrameArgs);
 				}
 			}
 			Group.Replay(State->ReplayContext);
@@ -1519,6 +1539,12 @@ namespace Durin
 					check(GDynamicRHI);
 					GDynamicRHI->RHIEndFrame();
 				}
+				const uint64 FrameNumber =
+					State->FrameNumber.load(std::memory_order_relaxed);
+				checkf(FrameNumber != std::numeric_limits<uint64>::max(),
+					"RHI executor frame number exhausted.");
+				State->FrameNumber.store(
+					FrameNumber + 1, std::memory_order_release);
 			}
 			Group.ReleaseBatches();
 			if (EnumHasAnyFlags(Group.GetFlags(), ERHISubmitFlags::DeleteResources))
@@ -1641,11 +1667,27 @@ namespace Durin
 
 	auto FRHICommandListExecutor::ExecuteSynchronousOperation(
 		bool bFlushRecordedCommands,
-		std::function<void(IRHICommandContext&)> Operation) -> void
+		std::function<void()> Operation,
+		size_t OwnedPayloadBytes) -> void
+	{
+		check(Operation);
+		ExecuteSynchronousContextOperation(
+			bFlushRecordedCommands,
+			[Operation = std::move(Operation)](IRHICommandContext&) mutable {
+				Operation();
+			},
+			OwnedPayloadBytes);
+	}
+
+	auto FRHICommandListExecutor::ExecuteSynchronousContextOperation(
+		bool bFlushRecordedCommands,
+		std::function<void(IRHICommandContext&)> Operation,
+		size_t OwnedPayloadBytes) -> void
 	{
 		checkf(!CommandListImmediate.HasOpenBufferLocks(),
 			"A synchronous RHI operation requires every buffer lock to be unlocked.");
 		check(Operation);
+		State->SynchronousOperationCount.fetch_add(1, std::memory_order_relaxed);
 		if (bFlushRecordedCommands)
 		{
 			Submit({}, ERHISubmitFlags::None);
@@ -1658,6 +1700,7 @@ namespace Durin
 		}
 
 		FRHIThreadWork Work;
+		Work.PayloadBytes = static_cast<uint64>(OwnedPayloadBytes);
 		Work.Execute = [this, Operation = std::move(Operation)]() mutable {
 			CheckRHIThread();
 			Operation(State->ReplayContext.GetOperationContext(
@@ -1695,6 +1738,11 @@ namespace Durin
 		return State->CompletedSerial.load(std::memory_order_acquire);
 	}
 
+	auto FRHICommandListExecutor::GetFrameNumber() const -> uint64
+	{
+		return State->FrameNumber.load(std::memory_order_acquire);
+	}
+
 	auto FRHICommandListExecutor::GetStats() const
 		-> FRHICommandListExecutorStats
 	{
@@ -1717,6 +1765,8 @@ namespace Durin
 			.SubmissionGroupCount = State->SubmissionGroupCount.load(std::memory_order_relaxed),
 			.ReplayDurationNanoseconds = State->ReplayDurationNanoseconds.load(std::memory_order_relaxed),
 			.WaitCount = State->WaitCount.load(std::memory_order_relaxed),
+			.SynchronousOperationCount = State->SynchronousOperationCount.load(
+				std::memory_order_relaxed),
 			.RejectedSubmissionCount = State->RejectedSubmissionCount.load(std::memory_order_relaxed),
 			.PendingBatchCount = static_cast<uint64>(State->PendingBatches.size())
 				+ ThreadStats.OutstandingBatchCount,

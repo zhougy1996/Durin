@@ -280,8 +280,6 @@ namespace Durin
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("RenderFrame.Begin");
 		check(IsInRenderingThread());
-		// Retire the previous frame before publishing the counter used by backend frame selection.
-		CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 		GFrameCounterRenderThread = LogicFrameCounter;
 		GRenderFrameCounterRenderThread = RenderFrameCounter;
 		CommandList.SwitchPipeline(ERHIPipeline::Graphics);

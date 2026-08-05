@@ -177,7 +177,8 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanGlobalDescriptorPool::GetCurrentPools() -> std::vector<std::unique_ptr<FVulkanDescriptorPool>>&
 	{
-		return Pools[GRenderFrameCounterRenderThread % Pools.size()];
+		CheckVulkanRHIThread();
+		return Pools[Device.GetCurrentFrameIndex()];
 	}
 
 	auto FVulkanGlobalDescriptorPool::CreatePool(uint32 FrameIndex, const FVulkanDescriptorRequirements& Requirements, uint32 GrowthMaxSets) -> FVulkanDescriptorPool&
@@ -243,7 +244,7 @@ namespace Durin::VulkanRHI
 			}
 		}
 
-		const uint32 FrameIndex = static_cast<uint32>(GRenderFrameCounterRenderThread % Pools.size());
+		const uint32 FrameIndex = Device.GetCurrentFrameIndex();
 		uint32 GrowthMaxSets = 256;
 		if (!FramePools.empty())
 		{

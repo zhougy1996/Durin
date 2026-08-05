@@ -300,7 +300,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::EnqueueRenderCommand<FBeginCookedTextureUploadFrame>(
 		[](Durin::FRHICommandListImmediate& CommandList) {
 			CommandList.SwitchPipeline(Durin::ERHIPipeline::Graphics);
-			Durin::GDynamicRHI->RHIBeginFrame();
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 		});
 	Durin::FAssetPath CookedPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedTexture", CookedPath));
@@ -372,7 +372,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::EnqueueRenderCommand<FValidateCookedTextureUpload>(
 		[&Renderer, &Scene, TextureReference, ExpectedPlatformData, UploadResult, SampleProxy](
 			Durin::FRHICommandListImmediate& CommandList) {
-			Durin::GDynamicRHI->RHIBeginFrame();
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 			struct FEndFrameGuard
 			{
 				Durin::FRHICommandListImmediate& CommandList;

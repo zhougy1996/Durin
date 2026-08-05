@@ -27,6 +27,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanQueue::SubmitPayloads(std::vector<FVulkanPayload*>& Payloads) -> void
 	{
+		CheckVulkanRHIThread();
 		std::vector<FVulkanSubmitInfoStorage> SubmitInfoStorages;
 		SubmitInfoStorages.reserve(Payloads.size());
 		vk::Fence Fence = VK_NULL_HANDLE;

@@ -1,10 +1,13 @@
 #include <gtest/gtest.h>
 
 #include "PCH.VulkanRHI.h"
+#include "CoreGlobals.h"
 #include "DynamicRHI.h"
+#include "HAL/PlatformLTS.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "RHIResources.h"
+#include "RenderingThread.h"
 #include "Shader/SlangShaderCompiler.h"
 #include "Texture/TextureBuild.h"
 #include "VulkanDynamicRHI.h"
@@ -253,8 +256,8 @@ namespace Durin
 		ASSERT_NE(Device, VK_NULL_HANDLE);
 		ASSERT_NE(PhysicalDevice, VK_NULL_HANDLE);
 
-		GDynamicRHI->RHIBeginFrame();
 		FRHICommandListImmediate& RHICmdList = FRHICommandListImmediate::Get();
+		GDynamicRHI->RHIBeginFrame_RenderThread(RHICmdList);
 		RHICmdList.SwitchPipeline(ERHIPipeline::Graphics);
 
 		const std::array<std::array<uint8, 4>, TestMipCount> Colors{{
@@ -410,31 +413,31 @@ namespace Durin
 		// Compute is not yet part of the portable command surface. This explicit
 		// Vulkan integration path is independent of the RHI recorder. Replay the
 		// portable uploads first so native compute follows them in the same context.
-		RHICmdList.ImmediateFlush(EImmediateFlushType::DispatchToRHIThread);
-		const VkCommandBuffer CommandBuffer =
-			VulkanRHI->RHIGetVkCommandBufferForBackendIntegration();
-		vkCmdBindPipeline(CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, Pipeline);
-		vkCmdBindDescriptorSets(CommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, PipelineLayout, 0, 1, &DescriptorSet, 0, nullptr);
-		vkCmdDispatch(CommandBuffer, 1, 1, 1);
-		const VkMemoryBarrier HostBarrier{
-			.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
-			.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
-			.dstAccessMask = VK_ACCESS_HOST_READ_BIT
-		};
-		vkCmdPipelineBarrier(
-			CommandBuffer,
-			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-			VK_PIPELINE_STAGE_HOST_BIT,
-			0,
-			1,
-			&HostBarrier,
-			0,
-			nullptr,
-			0,
-			nullptr
-		);
+		VulkanRHI->RHIExecuteCommandBufferForBackendIntegration(
+			[Pipeline, PipelineLayout, DescriptorSet](vk::CommandBuffer CommandBuffer) {
+				const VkCommandBuffer RawCommandBuffer = CommandBuffer;
+				vkCmdBindPipeline(RawCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, Pipeline);
+				vkCmdBindDescriptorSets(RawCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, PipelineLayout, 0, 1, &DescriptorSet, 0, nullptr);
+				vkCmdDispatch(RawCommandBuffer, 1, 1, 1);
+				const VkMemoryBarrier HostBarrier{
+					.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+					.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+					.dstAccessMask = VK_ACCESS_HOST_READ_BIT
+				};
+				vkCmdPipelineBarrier(
+					RawCommandBuffer,
+					VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+					VK_PIPELINE_STAGE_HOST_BIT,
+					0,
+					1,
+					&HostBarrier,
+					0,
+					nullptr,
+					0,
+					nullptr);
+			});
 
-		GDynamicRHI->RHIEndFrame();
+		GDynamicRHI->RHIEndFrame_RenderThread(RHICmdList);
 		GDynamicRHI->RHIBlockUntilGPUIdle();
 
 		const auto Results = std::span(static_cast<const FFloat4*>(Readback.MappedData), ResultCount);
@@ -467,5 +470,151 @@ namespace Durin
 		RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 		RHICmdList.SwitchPipeline(ERHIPipeline::None);
 		RHIExit();
+	}
+
+	TEST(FVulkanTextureSamplingTests, ThreadedResourceCreationAndUniformOverflowStayRHIThreadOwned)
+	{
+		struct FThreadedRHIScope
+		{
+			FThreadedRHIScope()
+			{
+				_putenv_s("DURIN_RHI_EXECUTION", "threaded");
+			}
+
+			~FThreadedRHIScope()
+			{
+				if (GDynamicRHI)
+				{
+					RHIExit();
+				}
+				_putenv_s("DURIN_RHI_EXECUTION", "");
+			}
+		} Scope;
+
+		ASSERT_TRUE(RHIInit());
+		ASSERT_NE(GRHIThread, nullptr);
+		if (!GIsGameThreadIdInitialized)
+		{
+			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+			GIsGameThreadIdInitialized = true;
+		}
+		struct FRenderingThreadScope
+		{
+			FRenderingThreadScope() { InitRenderingThread(); }
+			~FRenderingThreadScope() { ShutdownRenderingThread(); }
+		} RenderingThreadScope;
+		const uint64 InitialFrameNumber =
+			GCommandListExecutor.GetFrameNumber();
+		auto BeginFrame = []() {
+			ENQUEUE_RENDER_COMMAND(BeginThreadedVulkanTestFrame)(
+				[](FRHICommandListImmediate& CommandList) {
+					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
+					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+				});
+			FlushRenderingCommands();
+		};
+		auto EndFrame = []() {
+			ENQUEUE_RENDER_COMMAND(EndThreadedVulkanTestFrame)(
+				[](FRHICommandListImmediate& CommandList) {
+					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+					CommandList.ImmediateFlush(
+						EImmediateFlushType::FlushRHIThread);
+				});
+			FlushRenderingCommands();
+		};
+		FRHICommandListImmediate& RHICmdList = FRHICommandListImmediate::Get();
+		BeginFrame();
+
+		const FRHIBufferCreateDesc BufferDesc = FRHIBufferCreateDesc::Create(
+			"ThreadedCreationBuffer", 256, 16,
+			EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Static);
+		FBufferRHIRef Buffer = GDynamicRHI->RHICreateBuffer(RHICmdList, BufferDesc);
+		EXPECT_TRUE(Buffer);
+		auto* LockedBuffer = static_cast<uint8*>(GDynamicRHI->RHILockBuffer(
+			RHICmdList, Buffer.GetReference(), 32, 16,
+			EResourceLockMode::WriteOnly));
+		ASSERT_NE(LockedBuffer, nullptr);
+		std::fill_n(LockedBuffer, 16, 0x3c);
+		GDynamicRHI->RHIUnlockBuffer(RHICmdList, Buffer.GetReference());
+
+		FRHITextureCreateDesc TextureDesc = FRHITextureCreateDesc::Create2D(
+			"ThreadedCreationTexture", 4, 4, EPixelFormat::RGBA8_UNORM);
+		TextureDesc.Flags = ETextureCreateFlags::ShaderResource
+			| ETextureCreateFlags::CPUReadback;
+		FTextureRHIRef Texture = GDynamicRHI->RHICreateTexture(RHICmdList, TextureDesc);
+		EXPECT_TRUE(Texture);
+		std::array<uint8, 4 * 4 * 4> TextureBytes{};
+		for (uint32 Index = 0; Index < TextureBytes.size(); ++Index)
+		{
+			TextureBytes[Index] = static_cast<uint8>(Index);
+		}
+		const FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, 4, 4);
+		GDynamicRHI->RHIUpdateTexture2D(
+			RHICmdList, Texture.GetReference(), 0, 0, UpdateRegion,
+			4 * 4, TextureBytes.data());
+		std::vector<uint8> ReadbackBytes;
+		EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(
+			RHICmdList, Texture.GetReference(), 0, 0, ReadbackBytes));
+		EXPECT_EQ(ReadbackBytes, std::vector<uint8>(
+			TextureBytes.begin(), TextureBytes.end()));
+
+		FRHISamplerDesc SamplerDesc;
+		TRefCountPtr<FRHISampler> Sampler = GDynamicRHI->RHICreateSampler(SamplerDesc);
+		EXPECT_TRUE(Sampler);
+
+		const uint64 SynchronousOperationsBeforeUniforms =
+			GCommandListExecutor.GetStats().SynchronousOperationCount;
+		const std::array<uint8, 256> SmallUniformData{};
+		const FRHIUniformBufferRange SmallUniformRange =
+			RHICmdList.AllocateDynamicUniformBuffer(
+				SmallUniformData.data(),
+				static_cast<uint32>(SmallUniformData.size()));
+		EXPECT_NE(SmallUniformRange.Buffer, nullptr);
+		EXPECT_EQ(SmallUniformRange.Offset, 0u);
+		EXPECT_EQ(GCommandListExecutor.GetStats().SynchronousOperationCount,
+			SynchronousOperationsBeforeUniforms);
+
+		std::vector<uint8> OversizedUniformData(4 * 1024 * 1024 + 256, 0x5a);
+		const FRHIUniformBufferRange UniformRange =
+			RHICmdList.AllocateDynamicUniformBuffer(
+				OversizedUniformData.data(),
+				static_cast<uint32>(OversizedUniformData.size()));
+		EXPECT_NE(UniformRange.Buffer, nullptr);
+		EXPECT_EQ(UniformRange.Offset, 0u);
+		EXPECT_EQ(UniformRange.Size, OversizedUniformData.size());
+		EXPECT_EQ(GCommandListExecutor.GetStats().SynchronousOperationCount,
+			SynchronousOperationsBeforeUniforms + 1);
+
+		GDynamicRHI->RHIBlockUntilGPUIdle();
+		EndFrame();
+		EXPECT_EQ(
+			GCommandListExecutor.GetFrameNumber(), InitialFrameNumber + 1);
+
+		BeginFrame();
+		const FRHIUniformBufferRange SecondSlotUniformRange =
+			RHICmdList.AllocateDynamicUniformBuffer(
+				SmallUniformData.data(),
+				static_cast<uint32>(SmallUniformData.size()));
+		EXPECT_NE(SecondSlotUniformRange.Buffer, SmallUniformRange.Buffer);
+		EXPECT_EQ(SecondSlotUniformRange.Offset, 0u);
+		EndFrame();
+		EXPECT_EQ(
+			GCommandListExecutor.GetFrameNumber(), InitialFrameNumber + 2);
+
+		BeginFrame();
+		const FRHIUniformBufferRange ReusedFirstSlotUniformRange =
+			RHICmdList.AllocateDynamicUniformBuffer(
+				SmallUniformData.data(),
+				static_cast<uint32>(SmallUniformData.size()));
+		EXPECT_EQ(ReusedFirstSlotUniformRange.Buffer, SmallUniformRange.Buffer);
+		EXPECT_EQ(ReusedFirstSlotUniformRange.Offset, 0u);
+		EndFrame();
+		EXPECT_EQ(
+			GCommandListExecutor.GetFrameNumber(), InitialFrameNumber + 3);
+		Buffer = nullptr;
+		Texture = nullptr;
+		Sampler = nullptr;
+		RHICmdList.ImmediateFlush(
+			EImmediateFlushType::FlushRHIThreadFlushResources);
 	}
 }

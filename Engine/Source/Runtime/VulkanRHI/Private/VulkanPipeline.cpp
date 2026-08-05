@@ -1,5 +1,6 @@
 #include "VulkanPipeline.h"
 
+#include "RHICommandList.h"
 #include "VulkanBuffer.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanContext.h"
@@ -36,6 +37,22 @@ namespace Durin::VulkanRHI
 		AppendShaderStageCreateInfo(ShaderStages, vk::ShaderStageFlagBits::eFragment, BoundShaders.FragmentShader);
 
 		return ShaderStages;
+	}
+
+	static auto GetPipelineInitializerPayloadBytes(
+		const FGraphicsPipelineStateInitializer& Initializer) -> size_t
+	{
+		size_t Bytes = Initializer.PipelineLayout.BindingLayouts.size()
+			* sizeof(FBindingLayout);
+		Bytes += Initializer.PipelineLayout.PushConstantRanges.size()
+			* sizeof(FPushConstantRange);
+		for (const FBindingLayout& Layout :
+			Initializer.PipelineLayout.BindingLayouts)
+		{
+			Bytes += Layout.BindingLayouts.size()
+				* sizeof(FBindingLayoutItem);
+		}
+		return Bytes;
 	}
 
 	static auto ToVulkan_PrimitiveTopology(FGraphicsPipelineStateInitializer::EPrimitiveTopology Topology) -> vk::PrimitiveTopology
@@ -111,6 +128,7 @@ namespace Durin::VulkanRHI
 		: Device(InDevice)
 		, RenderTargetLayout(Initializer.RenderTargetLayout)
 	{
+		CheckVulkanRHIThread();
 		checkf(Initializer.RenderTargetLayout.IsValid(), "Graphics pipeline render target layout is invalid.");
 		FVulkanRenderPassManager& RenderPassManager = Device.GetRenderPassManager();
 		RenderPass = RenderPassManager.GetOrCreateRenderPass(Initializer.RenderTargetLayout);
@@ -276,6 +294,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanGraphicsPipelineState::~FVulkanGraphicsPipelineState()
 	{
+		CheckVulkanRHIThread();
 		ReleaseShaders();
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::PipelineLayout, PipelineLayout);
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Pipeline, Pipeline);
@@ -339,6 +358,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPipelineStateCacheManager::GetGraphicsPipelineState(FName Name) -> TRefCountPtr<FVulkanGraphicsPipelineState>
 	{
+		CheckVulkanRHIThread();
 		const auto It = PSOCache.find(Name);
 		if (It != PSOCache.end())
 		{
@@ -349,6 +369,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPipelineStateCacheManager::CreateGraphicsPipelineState(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FVulkanGraphicsPipelineState>
 	{
+		CheckVulkanRHIThread();
 		const auto It = PSOCache.find(Name);
 		if (It != PSOCache.end())
 		{
@@ -378,11 +399,34 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>
 	{
+		TRefCountPtr<FRHIGraphicsPipelineState> Result;
+		if (GRHIThread && !IsInRHIThread())
+		{
+			GCommandListExecutor.ExecuteSynchronousOperation(false,
+				[this, Name, Initializer, &Result]() {
+					Result = Device->GetPipelineManager()
+						.CreateGraphicsPipelineState(Name, Initializer);
+				},
+				GetPipelineInitializerPayloadBytes(Initializer));
+			return Result;
+		}
+		CheckVulkanRHIThread();
 		return Device->GetPipelineManager().CreateGraphicsPipelineState(Name, Initializer);
 	}
 
 	auto FVulkanDynamicRHI::RHIGetGraphicsPipelineState(FName Name) -> TRefCountPtr<FRHIGraphicsPipelineState>
 	{
+		TRefCountPtr<FRHIGraphicsPipelineState> Result;
+		if (GRHIThread && !IsInRHIThread())
+		{
+			GCommandListExecutor.ExecuteSynchronousOperation(false,
+				[this, Name, &Result]() {
+					Result = Device->GetPipelineManager()
+						.GetGraphicsPipelineState(Name);
+				});
+			return Result;
+		}
+		CheckVulkanRHIThread();
 		return Device->GetPipelineManager().GetGraphicsPipelineState(Name);
 	}
 } // namespace Durin::VulkanRHI

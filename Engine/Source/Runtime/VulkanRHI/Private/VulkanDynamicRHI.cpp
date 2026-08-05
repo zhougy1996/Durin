@@ -6,6 +6,7 @@
 #include "VulkanSubmission.h"
 #include "VulkanCommandBuffer.h"
 #include "VulkanBuffer.h"
+#include "VulkanRHIPrivate.h"
 
 #include "VulkanDescriptorSets.h"
 #include "Misc/Version.h"
@@ -26,6 +27,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::Init() -> void
 	{
+		CheckVulkanRHIThread();
 		CreateInstance();
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(Instance);
 		SelectDevice();
@@ -42,22 +44,38 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::Shutdown() -> void
 	{
+		CheckVulkanRHIThread();
 		// Render thread should already be stopped at this point.
 		delete Device;
 		Instance.destroy();
 	}
 
-	auto FVulkanDynamicRHI::RHIBeginFrame() -> void
+	auto FVulkanDynamicRHI::RHIBeginFrame(
+		const FRHIBeginFrameArgs& Args) -> void
 	{
+		CheckVulkanRHIThread();
+		const uint32 FrameIndex = static_cast<uint32>(
+			Args.FrameNumber % kFrameInFlight);
+		Device->SetCurrentFrameIndex(FrameIndex);
 		FVulkanFrame& Frame = Device->GetCurrentFrame();
 		Frame.Prepare();
-		Device->GetDynamicUniformBufferAllocator().BeginFrame(static_cast<uint32>(GRenderFrameCounterRenderThread % kFrameInFlight));
 		Device->GetGlobalDescriptorPool().ResetPoolsForCurrentFrame();
-		Device->GetImmediateContext()->RHIBeginFrame();
+		Device->GetImmediateContext()->RHIBeginFrame(Args);
+	}
+
+	auto FVulkanDynamicRHI::RHIBeginFrame_RenderThread(
+		FRHICommandListImmediate& RHICmdList) -> void
+	{
+		check(!GRHIThread || IsInRenderingThread());
+		FDynamicRHI::RHIBeginFrame_RenderThread(RHICmdList);
+		Device->GetDynamicUniformBufferAllocator().BeginFrameProducer(
+			static_cast<uint32>(
+				GCommandListExecutor.GetFrameNumber() % kFrameInFlight));
 	}
 
 	auto FVulkanDynamicRHI::RHIEndFrame() -> void
 	{
+		CheckVulkanRHIThread();
 		Device->GetImmediateContext()->RHIEndFrame();
 		GVulkanRHIDeletionFrameNumber++;
 		Device->GetDeferredDeletionQueue().ReleaseResources();
@@ -70,27 +88,67 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHIGetVkDevice() const -> vk::Device
 	{
+		CheckVulkanRHIThread();
 		return Device->GetHandle();
+	}
+
+	auto FVulkanDynamicRHI::RHIGetDynamicLoader() -> vk::DynamicLoader&
+	{
+		CheckVulkanRHIThread();
+		return DynamicLoader;
 	}
 
 	auto FVulkanDynamicRHI::RHIGetVkInstance() const -> vk::Instance
 	{
+		CheckVulkanRHIThread();
 		return Instance;
 	}
 
 	auto FVulkanDynamicRHI::RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice
 	{
+		CheckVulkanRHIThread();
 		return Device->GetGpu();
 	}
 
-	auto FVulkanDynamicRHI::RHIGetVkCommandBufferForBackendIntegration() const
-		-> vk::CommandBuffer
+	auto FVulkanDynamicRHI::RHIExecuteCommandBufferForBackendIntegration(
+		std::function<void(vk::CommandBuffer)> Operation) -> void
 	{
-		return Device->GetImmediateContext()->GetCommandBuffer()->GetHandle();
+		check(Operation);
+		GCommandListExecutor.ExecuteSynchronousOperation(true,
+			[this, Operation = std::move(Operation)]() mutable {
+				CheckVulkanRHIThread();
+				Operation(Device->GetImmediateContext()
+					->GetCommandBuffer()->GetHandle());
+			});
+	}
+
+	auto FVulkanDynamicRHI::RHIAllocateDynamicUniformBuffer(
+		FRHICommandListImmediate& RHICmdList,
+		const void* Data,
+		uint32 Size) -> FRHIUniformBufferRange
+	{
+		check(Data && Size != 0);
+		const uint32 FrameIndex = static_cast<uint32>(
+			GCommandListExecutor.GetFrameNumber() % kFrameInFlight);
+		auto& Allocator = Device->GetDynamicUniformBufferAllocator();
+		FRHIUniformBufferRange Result;
+		if (Allocator.TryAllocate(FrameIndex, Data, Size, Result))
+		{
+			return Result;
+		}
+
+		GCommandListExecutor.ExecuteSynchronousOperation(true,
+			[&Allocator, FrameIndex, Size]() {
+				Allocator.ReservePage(FrameIndex, Size);
+			});
+		checkf(Allocator.TryAllocate(FrameIndex, Data, Size, Result),
+			"A prepared dynamic-uniform overflow page must satisfy the pending allocation.");
+		return Result;
 	}
 
 	auto FVulkanDynamicRHI::CreateInstance() -> void
 	{
+		CheckVulkanRHIThread();
 		std::string EngineName = "Durin";
 		const FEngineVersion& EngineVersion = GetEngineVersion();
 		const uint32 PackedEngineVersion = VK_MAKE_API_VERSION(0, EngineVersion.Major, EngineVersion.Minor, EngineVersion.Patch);
@@ -157,6 +215,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::SelectDevice() -> void
 	{
+		CheckVulkanRHIThread();
 		std::vector<vk::PhysicalDevice> Gpus = Instance.enumeratePhysicalDevices();
 
 		if (Gpus.empty())

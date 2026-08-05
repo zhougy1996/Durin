@@ -426,7 +426,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::EnqueueRenderCommand<FBeginSceneImportFrame>(
 		[](Durin::FRHICommandListImmediate& CommandList) {
 			CommandList.SwitchPipeline(Durin::ERHIPipeline::Graphics);
-			Durin::GDynamicRHI->RHIBeginFrame();
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 		});
 
 	FSceneImportRenderEngine Engine;

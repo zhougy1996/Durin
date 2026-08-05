@@ -13,6 +13,7 @@ namespace Durin::VulkanRHI
 		: FRHIBuffer(InCreateDesc)
 		, Device(InDevice)
 	{
+		CheckVulkanRHIThread();
 		vk::BufferCreateInfo BufferInfo;
 		BufferInfo.setSize(InCreateDesc.Size);
 		BufferInfo.setUsage(ToVulkan_BufferUsageFlags(InCreateDesc.Usage));
@@ -30,6 +31,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanBuffer::~FVulkanBuffer()
 	{
+		CheckVulkanRHIThread();
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Buffer, Buffer, Allocation);
 	}
 
@@ -38,6 +40,7 @@ namespace Durin::VulkanRHI
 		uint32 Offset,
 		std::span<const uint8> Data) -> void
 	{
+		CheckVulkanRHIThread();
 		check(!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset);
 		if (void* MappedData = Allocation.GetMappedData(); MappedData != nullptr)
 		{
@@ -91,14 +94,21 @@ namespace Durin::VulkanRHI
 	FVulkanDynamicUniformBufferAllocator::FVulkanDynamicUniformBufferAllocator(FVulkanDevice& InDevice)
 		: Device(InDevice)
 	{
+		CheckVulkanRHIThread();
+		for (uint32 FrameIndex = 0; FrameIndex < Frames.size(); ++FrameIndex)
+		{
+			ReservePage(FrameIndex, 4 * 1024 * 1024);
+		}
 	}
 
 	FVulkanDynamicUniformBufferAllocator::~FVulkanDynamicUniformBufferAllocator() = default;
 
-	auto FVulkanDynamicUniformBufferAllocator::BeginFrame(uint32 FrameIndex) -> void
+	auto FVulkanDynamicUniformBufferAllocator::BeginFrameProducer(
+		uint32 FrameIndex) -> void
 	{
-		CurrentFrameIndex = FrameIndex % kFrameInFlight;
-		FFrameState& FrameState = Frames[CurrentFrameIndex];
+		FrameIndex %= kFrameInFlight;
+		FFrameState& FrameState = Frames[FrameIndex];
+		check(!FrameState.Chunks.empty());
 		FrameState.CurrentChunkIndex = 0;
 		for (FChunk& Chunk : FrameState.Chunks)
 		{
@@ -106,19 +116,20 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	auto FVulkanDynamicUniformBufferAllocator::Allocate(const void* Data, uint32 Size) -> FRHIUniformBufferRange
+	auto FVulkanDynamicUniformBufferAllocator::TryAllocate(
+		uint32 FrameIndex,
+		const void* Data,
+		uint32 Size,
+		FRHIUniformBufferRange& OutRange) -> bool
 	{
 		check(Data);
 		check(Size > 0);
 
 		const uint32 Alignment = GetAlignment();
 		const uint32 AllocationSize = AlignUp(Size, Alignment);
-		FFrameState& FrameState = Frames[CurrentFrameIndex];
-
-		if (FrameState.Chunks.empty())
-		{
-			FrameState.Chunks.push_back(CreateChunk(AllocationSize));
-		}
+		FrameIndex %= kFrameInFlight;
+		FFrameState& FrameState = Frames[FrameIndex];
+		check(!FrameState.Chunks.empty());
 
 		FChunk* Chunk = &FrameState.Chunks[FrameState.CurrentChunkIndex];
 		if (Chunk->Offset + AllocationSize > Chunk->Buffer->GetSize())
@@ -137,9 +148,7 @@ namespace Durin::VulkanRHI
 
 			if (!bFoundReusableChunk)
 			{
-				FrameState.Chunks.push_back(CreateChunk(AllocationSize));
-				FrameState.CurrentChunkIndex = static_cast<uint32>(FrameState.Chunks.size() - 1);
-				Chunk = &FrameState.Chunks.back();
+				return false;
 			}
 		}
 
@@ -151,15 +160,26 @@ namespace Durin::VulkanRHI
 		Chunk->Buffer->FlushMappedMemory(AllocationOffset, Size);
 		Chunk->Offset = AllocationOffset + AllocationSize;
 
-		return FRHIUniformBufferRange{
+		OutRange = FRHIUniformBufferRange{
 			.Buffer = Chunk->Buffer.GetReference(),
 			.Offset = AllocationOffset,
 			.Size = Size
 		};
+		return true;
+	}
+
+	auto FVulkanDynamicUniformBufferAllocator::ReservePage(
+		uint32 FrameIndex,
+		uint32 MinSize) -> void
+	{
+		CheckVulkanRHIThread();
+		FrameIndex %= kFrameInFlight;
+		Frames[FrameIndex].Chunks.push_back(CreateChunk(MinSize));
 	}
 
 	auto FVulkanDynamicUniformBufferAllocator::CreateChunk(uint32 MinSize) -> FChunk
 	{
+		CheckVulkanRHIThread();
 		constexpr uint32 DefaultChunkSize = 4 * 1024 * 1024;
 		const uint32 ChunkSize = std::max(DefaultChunkSize, AlignUp(MinSize, GetAlignment()));
 		FRHIBufferCreateDesc CreateDesc = FRHIBufferCreateDesc::Create(
@@ -217,13 +237,26 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer>
 	{
-		FVulkanBuffer* CreatedBuffer = new FVulkanBuffer(*Device, CreateDesc);
+		TRefCountPtr<FRHIBuffer> Result;
+		if (GRHIThread && !IsInRHIThread())
+		{
+			GCommandListExecutor.ExecuteSynchronousOperation(false,
+				[this, CreateDesc, &Result]() {
+					Result = new FVulkanBuffer(*Device, CreateDesc);
+				});
+		}
+		else
+		{
+			CheckVulkanRHIThread();
+			Result = new FVulkanBuffer(*Device, CreateDesc);
+		}
+		auto* CreatedBuffer = static_cast<FVulkanBuffer*>(Result.GetReference());
 		auto& InitialData = CreateDesc.InitialData;
 		if (InitialData.Data)
 		{
 			RHICmdList.WriteBuffer(CreatedBuffer, InitialData.Data, InitialData.Size, 0);
 		}
-		return CreatedBuffer;
+		return Result;
 	}
 
 } // namespace Durin::VulkanRHI

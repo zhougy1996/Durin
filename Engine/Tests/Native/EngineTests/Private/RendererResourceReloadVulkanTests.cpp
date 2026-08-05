@@ -227,7 +227,7 @@ float4 FragmentMain() : SV_Target
 		EnqueueRenderCommand<FBeginReloadValidationFrame>(
 			[](FRHICommandListImmediate& CommandList) {
 				CommandList.SwitchPipeline(ERHIPipeline::Graphics);
-				GDynamicRHI->RHIBeginFrame();
+				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 			});
 
 		FRendererModule Renderer;

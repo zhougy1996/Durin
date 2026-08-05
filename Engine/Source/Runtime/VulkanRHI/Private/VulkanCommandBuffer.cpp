@@ -4,6 +4,7 @@
 #include "VulkanMemory.h"
 #include "VulkanRenderPass.h"
 #include "VulkanFramebuffer.h"
+#include "VulkanRHIPrivate.h"
 
 namespace Durin::VulkanRHI
 {
@@ -11,11 +12,13 @@ namespace Durin::VulkanRHI
 		: Device(InDevice)
 		, Pool(InPool)
 	{
+		CheckVulkanRHIThread();
 		AllocMemory();
 	}
 
 	FVulkanCommandBuffer::~FVulkanCommandBuffer()
 	{
+		CheckVulkanRHIThread();
 		if (State != EState::NotAllocated)
 		{
 			FreeMemory();
@@ -24,6 +27,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::Begin() -> void
 	{
+		CheckVulkanRHIThread();
 		check(State == EState::ReadyForBegin);
 		vk::CommandBufferBeginInfo BeginInfo;
 		Handle.begin(BeginInfo);
@@ -32,6 +36,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::End() -> void
 	{
+		CheckVulkanRHIThread();
 		if (State == EState::HasEnded)
 		{
 			return;
@@ -43,6 +48,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::AllocMemory() -> void
 	{
+		CheckVulkanRHIThread();
 		check(State == EState::NotAllocated);
 
 		vk::CommandBufferAllocateInfo AllocInfo;
@@ -58,6 +64,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::FreeMemory() -> void
 	{
+		CheckVulkanRHIThread();
 		check(State != EState::NotAllocated);
 		check(Handle != VK_NULL_HANDLE);
 		Device.GetHandle().freeCommandBuffers(Pool->GetHandle(), Handle);
@@ -66,6 +73,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::Reset() -> void
 	{
+		CheckVulkanRHIThread();
 		check(State != EState::NotAllocated);
 		if (State == EState::ReadyForBegin)
 		{
@@ -79,12 +87,14 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::SetSubmitted() -> void
 	{
+		CheckVulkanRHIThread();
 		check(State == EState::HasEnded);
 		State = EState::Submitted;
 	}
 
 	auto FVulkanCommandBuffer::BeginRenderPass(FVulkanRenderPass* InRenderPass, FVulkanFramebuffer* InFramebuffer, std::span<const vk::ClearValue> InClearValues, FName DebugName) -> void
 	{
+		CheckVulkanRHIThread();
 		check(State == EState::IsInsideBegin);
 		if (!DebugName.IsNone() && VULKAN_HPP_DEFAULT_DISPATCHER.vkCmdBeginDebugUtilsLabelEXT != nullptr)
 		{
@@ -109,6 +119,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBuffer::EndRenderPass() -> void
 	{
+		CheckVulkanRHIThread();
 		check(State == EState::IsInsideRenderPass);
 		Handle.endRenderPass();
 		if (bRenderPassDebugLabelOpen)
@@ -131,6 +142,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanCommandBufferPool::~FVulkanCommandBufferPool()
 	{
+		CheckVulkanRHIThread();
 		for (FVulkanCommandBuffer* CmdBuffer : CmdBuffers)
 		{
 			delete CmdBuffer;
@@ -146,6 +158,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBufferPool::CreatePool(uint32 QueueFamilyIndex) -> void
 	{
+		CheckVulkanRHIThread();
 		vk::CommandPoolCreateInfo CmdPoolInfo;
 		CmdPoolInfo
 			.setQueueFamilyIndex(QueueFamilyIndex)
@@ -156,6 +169,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBufferPool::Create() -> FVulkanCommandBuffer*
 	{
+		CheckVulkanRHIThread();
 		FVulkanCommandBuffer* CmdBuffer = nullptr;
 
 		if (!FreeCmdBuffers.empty())
@@ -174,6 +188,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanCommandBufferPool::FreeUnusedCommandBuffers(FVulkanQueue* Queue) -> void
 	{
+		CheckVulkanRHIThread();
 		auto RangeToFree = std::ranges::partition(CmdBuffers, [](FVulkanCommandBuffer* CmdBuffer) {
 			if (CmdBuffer->State == FVulkanCommandBuffer::EState::ReadyForBegin || CmdBuffer->State == FVulkanCommandBuffer::EState::NeedReset)
 			{

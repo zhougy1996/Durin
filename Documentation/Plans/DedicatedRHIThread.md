@@ -69,6 +69,52 @@ select inline, with an explicit diagnostic for invalid values. Executor submit
 is the single serial-wait owner for flush flags, and the duplicate
 deferred-resource flush declaration is removed. The Stage 3 entry gate is clear.
 
+Stage 3 completed on 2026-08-05. Threaded Vulkan now enforces RHI affinity for
+context replay, command-pool/buffer mutation, queue submission, present, frame
+state, deferred deletion, and resource construction. Buffer, texture, sampler,
+shader, vertex-declaration, PSO, and viewport creation marshal through a
+context-free synchronous executor operation; native command-buffer integration
+uses a scoped RHI-thread callback instead of returning a retainable handle.
+Viewport resize is ordered and synchronous after earlier rendering work,
+back-buffer acquisition is recorded, and the back-buffer wrapper remains stable
+across swapchain recreation.
+
+The dynamic-uniform path preallocates one persistently mapped 4 MiB page for
+each frame slot on the RHI thread. `FRHIBeginFrameArgs` carries immutable frame
+identity inside the ordered submission group; Vulkan selects its RHI-owned slot,
+waits that slot's GPU fence, and only then returns the page lease for rendering-
+thread reset and suballocation. This is the frame's one acquire round trip; only
+page overflow synchronously reserves another RHI-owned page.
+The focused test proves a prepared allocation adds zero synchronous operations
+and a deliberate oversized allocation adds exactly one. A 60-tick threaded
+Editor sample reported 146 waits, including 76 separately counted low-frequency
+synchronous operations, leaving 70 frame/lifecycle serial waits across startup,
+60 frames, and shutdown; it reported zero backpressure events and zero
+rejections. The equivalent inline sample reported 71 waits, including one
+synchronous operation, likewise leaving 70 frame/lifecycle waits, zero
+backpressure events, and zero rejections.
+
+Stage 3.5 completed on 2026-08-05. `FRHICommandListExecutor` now owns an
+acquire-published `FrameNumber` that starts at zero for the executor lifetime,
+survives backend initialization and inline/threaded mode transitions, and
+advances only after a replayed backend `RHIEndFrame` returns successfully.
+Ordered BeginFrame replay constructs the backend-only `FRHIBeginFrameArgs`
+from that number; command-list callers can no longer supply frame identity or
+fall through an overload that discards it.
+
+Vulkan derives both `FVulkanDevice::CurrentFrameIndex` and rendering-thread
+dynamic-uniform page selection from the executor number after the existing
+exact BeginFrame serial completes. No Vulkan frame-slot path reads
+`GRenderFrameCounterRenderThread`, and the focused slot test observes the same
+uniform backing page across the executor-derived 0 -> 1 -> 0 cycle without a
+new synchronous operation. Present retains its ordered viewport/present/vsync
+payload without `FRHIPresentArgs`; `GVulkanRHIDeletionFrameNumber` remains the
+independent Vulkan deletion-aging counter. Focused command-list,
+initialization, and Vulkan integration tests, the complete native-test
+aggregate, and the full Debug Editor `all` build pass. Default-inline and
+explicit-threaded 60-tick Editor runs exit normally with zero backpressure and
+zero rejection. The Stage 4 entry gate is clear.
+
 ## Goal
 
 The rendering thread records backend-neutral command batches and transfers
@@ -173,6 +219,30 @@ separation with GPU asynchronous compute.
 - The consumer preserves FIFO order. Frame-end, present, deletion, and
   synchronous operations cannot overtake earlier recorded commands.
 
+### RHI frame identity and backend frame slots
+
+- `FRHICommandListExecutor` owns a `uint64 FrameNumber` initialized to zero for
+  the executor lifetime. Inline/threaded mode changes do not derive or reset it
+  from game- or rendering-thread counters.
+- Ordered BeginFrame replay reads the current executor `FrameNumber` on the RHI
+  execution owner. A successful ordered `RHIEndFrame` increments it exactly
+  once after the backend call returns and before that submission serial is
+  published complete. A failed or rejected EndFrame does not advance it.
+- `FRHIBeginFrameArgs` is retained only as the executor-to-backend replay
+  payload and carries the executor-owned `FrameNumber`; render/game callers do
+  not construct or supply it. Silent overloads that discard frame identity are
+  not part of the production contract.
+- Vulkan derives `FVulkanDevice::CurrentFrameIndex` from the executor frame
+  number. After the synchronous BeginFrame serial completes, the rendering
+  thread may read the published frame number/slot and lease the matching
+  dynamic-uniform page without another RHI round trip.
+- Present remains ordered by command-list FIFO and consumes the current
+  acquired back buffer and active backend frame state. Durin does not add
+  `FRHIPresentArgs` or a separate present frame counter in this plan.
+- `GVulkanRHIDeletionFrameNumber` remains Vulkan-owned and advances in Vulkan
+  `RHIEndFrame` for deferred-deletion aging. It is deliberately separate from
+  the executor frame number and does not select frame slots.
+
 ### Immediate-result and resource operations
 
 - Stage 0 assigns every `FDynamicRHI` API one of four policies: recorded
@@ -235,8 +305,8 @@ following table is rejected rather than implicitly executed on its caller.
 | API surface | Caller and policy | Execution and lifetime rule |
 | --- | --- | --- |
 | `Init`, `Shutdown` | Game-thread lifecycle, synchronous RHI operation | Backend construction remains on the game thread. `Init` and `Shutdown` execute on the RHI thread and return only after success/failure is published. |
-| `RHIBeginFrame` | Rendering thread, synchronous frame-acquire operation | Runs frame-fence wait, command-pool/frame reset, descriptor-pool reset, context begin, and upload-page lease publication on the RHI thread after earlier work. It is the default frame's single allowed synchronous RHI round trip. |
-| `RHIEndFrame_RenderThread`; compatibility `RHIEndFrame` | Rendering-thread ordered coordination | Seal and enqueue `EndFrame`; context finalization, submit/present ordering, page retirement, and deletion execute on the RHI thread. Direct compatibility calls use the same executor event and never call the context inline. |
+| `RHIBeginFrame` | Rendering thread, synchronous frame-acquire operation | The executor supplies its current `FrameNumber`; the RHI thread derives the backend frame slot, waits that slot's fence, resets frame/descriptor state, begins the context, and publishes the matching upload-page lease after earlier work. It is the default frame's single allowed synchronous RHI round trip. |
+| `RHIEndFrame_RenderThread`; compatibility `RHIEndFrame` | Rendering-thread ordered coordination | Seal and enqueue `EndFrame`; context finalization, submit/present ordering, page retirement, and deletion execute on the RHI thread. The executor increments `FrameNumber` once only after successful backend EndFrame and before publishing serial completion. Direct compatibility calls use the same executor event and never call the context inline. |
 | `RHICreateViewport`, `RHIResizeViewport` | Main-thread platform entry point; synchronous or render-marshaled synchronous RHI mutation | Native window identity is captured on the main thread. Surface/swapchain/device mutation executes on the RHI thread. Resize may retain its main-to-render notification, but that render command must synchronously marshal the backend phase. No main-thread exception may overlap RHI mutation. |
 | `RHICreateGraphicsPipelineState`, `RHIGetGraphicsPipelineState`, `RHICreateVertexDeclaration`, `RHICreateTexture`, `RHICreateSampler`, `RHICreateShader`, `RHICreateBuffer` | Rendering thread, synchronous RHI operation | Device allocation and mutable cache lookup execute on the RHI thread; the completed ref-counted object is published to the waiter. Texture/buffer initial bytes are copied and admitted later as recorded initialization/upload commands. |
 | `RHIIsTextureFormatSupported` | Game or rendering thread, producer-safe query | Reads immutable capabilities published after `Init`; it allocates nothing and cannot expose mutable backend state. |
@@ -263,6 +333,7 @@ owner. Context methods do not call renderer/user code.
 | --- | --- | --- |
 | `FRHICommandListImmediate` recording state and pending producer batches | Rendering thread | Finished immutable batches transfer exactly once at queue admission. |
 | Executor queue, serial allocator, admission state, and waiter registry | Queue mutex for short metadata operations | Replay, destruction, diagnostics callbacks, and user/backend operations never run while the mutex is held. |
+| Executor `FrameNumber` | RHI replay owner; acquire-only snapshot after exact BeginFrame completion | BeginFrame reads the current value; successful EndFrame increments it before serial completion. Engine/render counters never mutate or replace it. |
 | `IRHICommandContext`, Vulkan command pools/buffers/payloads, graphics/present queues | RHI thread | Native handles are borrowed only within an RHI-thread operation. |
 | `FVulkanDevice` frame state, global descriptor pools, pipeline cache, dynamic-uniform page creation, and deferred deletion queue | RHI thread | Immutable capability snapshots may be read producer-side after successful init. |
 | Vulkan resource allocation and backend object destruction | RHI thread | Recorded batches and synchronous-operation captures retain refs; final destruction occurs only in an ordered RHI deletion drain. |
@@ -527,22 +598,22 @@ Dependencies: Stage 1.
 
 Dependencies: Stage 2.
 
-- [ ] Move Vulkan command-pool/buffer recording, payload finalization, queue
+- [x] Move Vulkan command-pool/buffer recording, payload finalization, queue
   submission, present, end-frame mutation, and ordered deferred deletion under
   RHI-thread affinity assertions.
-- [ ] Marshal buffer/texture/sampler/shader/PSO creation that mutates backend
+- [x] Marshal buffer/texture/sampler/shader/PSO creation that mutates backend
   state and publish returned objects only after the synchronous operation
   completes.
-- [ ] Implement the selected producer-safe dynamic uniform/upload allocation
+- [x] Implement the selected producer-safe dynamic uniform/upload allocation
   scheme with frame/page lifetime retained through RHI/GPU consumption.
-- [ ] Implement buffer lock/unlock ownership transfer and blocking readback/GPU-
+- [x] Implement buffer lock/unlock ownership transfer and blocking readback/GPU-
   idle operations without exposing mutable context state to the rendering
   thread.
-- [ ] Preserve main-thread caller affinity for viewport create/resize while
+- [x] Preserve main-thread caller affinity for viewport create/resize while
   marshaling backend mutation or enforcing the documented exclusive phase;
   ensure acquire, command recording, present, and frame-owned state execute on
   the RHI thread.
-- [ ] Remove or reject every undeclared direct backend call from game/render
+- [x] Remove or reject every undeclared direct backend call from game/render
   paths when threaded mode is active.
 
 #### Acceptance Gate
@@ -553,29 +624,157 @@ Dependencies: Stage 2.
   deterministic, and representative frames stay within the Stage 0 synchronous-
   round-trip budget.
 
-### Stage 4: Frame pacing, flush integration, and shutdown drain
+#### Stage 3.5 handoff
+
+- Baseline: dev commit `49e202f31fed09e1bfbd5c7111e1c188118ceb3d`;
+  the Stage 3 implementation and Stage 3.5 entry plan are part of the single
+  squashed RHI commit containing this handoff.
+- Working set: `RHICommandList.h/.cpp`, `DynamicRHI.h/.cpp`,
+  `RHIDefinitions.h`, `RHIContext.h`, `RenderingThread.cpp`, Vulkan
+  dynamic-RHI/device/descriptor/dynamic-uniform files, and focused RHI/Vulkan
+  frame tests. Do not expand into present arguments or Stage 4 fence/shutdown
+  work while establishing the frame-number contract.
+- Key symbols: `FRHICommandListExecutor::ExecuteSynchronousOperation`,
+  `ExecuteSynchronousContextOperation`, `SynchronousOperationCount`,
+  `FRHIBeginFrameArgs`, `FVulkanDevice::CurrentFrameIndex`,
+  `FVulkanDynamicUniformBufferAllocator::BeginFrameProducer`, `TryAllocate`,
+  `ReservePage`, `FVulkanBackBuffer::UpdateSwapchain`,
+  `RHIExecuteCommandBufferForBackendIntegration`, `FFrameSync::Sync`, and
+  `RHIExit`.
+- Decisions: producers can enqueue only context-free synchronous callbacks;
+  callback-owned heap bytes participate in queue bounds; one preallocated
+  mapped page per frame slot is rendering-thread suballocated only after an
+  ordered BeginFrame group reads the executor-owned frame number, selects the
+  backend-owned slot, and waits that slot's GPU fence; overflow allocation is
+  the only additional dynamic-uniform round trip;
+  viewport creation/resize mutation and all swapchain work are RHI-owned; the
+  stable back-buffer wrapper records acquisition at its timeline position;
+  inline mode keeps the same API while threaded affinity checks activate only
+  when the RHI owner exists.
+- Stage 3.5 entry: replace render-counter-driven frame identity before changing
+  pacing or shutdown. Present remains implicitly associated through FIFO with
+  the active executor frame; no `FRHIPresentArgs` is planned.
+- Open questions for Stage 3.5: none. `GVulkanRHIDeletionFrameNumber` remains
+  unchanged as the backend deletion-aging counter.
+- Validation: 31/31 `RHICommandListTests`, 4/4
+  `RHIInitializationTests`, 9/9 `RHIThreadTests`, and 2/2
+  `VulkanRHIIntegrationTests` pass. A full Debug Editor `all` build succeeds.
+  Default-inline and explicit-threaded 60-tick hidden-window Editor runs render
+  and shut down normally with zero executor backpressure or rejection; the
+  threaded test also covers resource publication, buffer lock/unlock, texture
+  upload/readback, explicit GPU idle, uniform-page overflow, end-frame, and
+  deferred deletion under Debug affinity checks.
+
+### Stage 3.5: Executor-owned RHI frame numbering
 
 Dependencies: Stage 3.
 
-- [ ] Integrate RHI completion serials into `FFrameSync::Threads`, render-command
-  fences, end-of-frame dispatch, and any frames-in-flight throttle.
+- [x] Add executor-owned `uint64 FrameNumber`, expose only an acquire-safe
+  diagnostic/producer snapshot, and preserve it across inline/threaded mode
+  transitions without deriving it from engine or rendering counters.
+- [x] Make ordered BeginFrame replay construct `FRHIBeginFrameArgs` from the
+  current executor frame number, and rename its payload field from
+  `FrameCounter` to `FrameNumber`. Remove caller-supplied optional BeginFrame
+  arguments and production fallbacks that silently discard frame identity.
+- [x] Advance `FrameNumber` exactly once after each successful backend
+  `RHIEndFrame` and before its submission serial completes; rejected or failed
+  EndFrame work must not advance it.
+- [x] Select `FVulkanDevice::CurrentFrameIndex` from the executor frame number
+  on the RHI thread. After the exact BeginFrame serial completes, make the
+  rendering-thread dynamic-uniform producer use the same published number/slot
+  without an additional synchronous operation.
+- [x] Remove Vulkan frame-slot and uniform-page selection reads of
+  `GRenderFrameCounterRenderThread`; retain engine/render counters only for
+  their higher-level tick and diagnostic roles.
+- [x] Keep Present's existing ordered viewport/present/vsync payload and active
+  backend state; do not introduce `FRHIPresentArgs`. Keep
+  `GVulkanRHIDeletionFrameNumber` and its Vulkan-EndFrame increment unchanged.
+- [x] Add inline/threaded tests for initial value, multiple and empty frames,
+  successful EndFrame advancement, failed EndFrame non-advancement, identical
+  backend/producer slots, mode transitions, and unchanged Present ordering.
+
+#### Acceptance Gate
+
+- Executor `FrameNumber` equals the number of successfully replayed
+  `RHIEndFrame` calls in both modes, and its publication precedes the matching
+  completion serial.
+- Vulkan backend frame state and rendering-thread uniform allocation use the
+  same executor-derived slot after BeginFrame completion; no Vulkan frame-slot
+  path reads a render-thread frame counter.
+- Present remains correctly ordered without a present frame argument, Vulkan
+  deletion aging remains independent, and the steady-state frame acquires no
+  additional RHI wait.
+
+#### Stage 4 handoff
+
+- Baseline: dev commit `49e202f31fed09e1bfbd5c7111e1c188118ceb3d`;
+  the Stage 3 and Stage 3.5 implementations plus validated plan state are the
+  single squashed RHI commit containing this handoff.
+- Working set: executor frame state and replay in `RHICommandList.h/.cpp`,
+  backend BeginFrame contracts in `DynamicRHI.h/.cpp`, `RHIContext.h`, and
+  `RHIDefinitions.h`, Vulkan dynamic-RHI/context frame handling, migrated
+  direct test callers, and focused RHI/Vulkan frame tests.
+- Key symbols: `FRHICommandListExecutor::GetFrameNumber`,
+  `FState::FrameNumber`, `FRHIBeginFrameArgs::FrameNumber`,
+  `FDynamicRHI::RHIBeginFrame_RenderThread`,
+  `FVulkanDynamicRHI::RHIBeginFrame`, and
+  `FVulkanDynamicUniformBufferAllocator::BeginFrameProducer`.
+- Decisions: BeginFrame identity is executor-to-backend data only; successful
+  EndFrame return publishes the next number before serial completion; global
+  executor lifetime, not backend lifetime, owns continuity; Present remains
+  implicit and Vulkan deletion aging remains independent.
+- Stage 4 scope remains the reviewed queue-authoritative serial, lifetime-safe
+  render fence, scoped viewport deletion, pacing integration, and terminal
+  drain work. Do not reopen frame identity or introduce present arguments.
+- Validation: focused `RHICommandListTests`, `RHIInitializationTests`, and
+  `VulkanRHIIntegrationTests`, the complete native-test aggregate, and the
+  full Debug Editor `all` build pass. Inline and threaded 60-tick hidden-window
+  Editor runs exit with zero executor backpressure or rejection.
+
+### Stage 4: Frame pacing, flush integration, and shutdown drain
+
+Dependencies: Stage 3.5.
+
+- [ ] Make empty flush and fence targets capture the queue-authoritative last
+  accepted serial so lifecycle and synchronous producers cannot be missed and
+  executor-side serial snapshots cannot regress under concurrency.
+- [ ] Replace render-fence callbacks that capture the fence object's raw
+  `this` with shared lifetime-safe state carrying render completion and, for an
+  RHI-inclusive fence, the exact RHI serial. Rejection/failure must wake its
+  waiter instead of leaving an incomplete fence.
+- [ ] Integrate the exact serial payload into `FFrameSync::Threads`, final
+  render drain, and explicit RHI-inclusive render-command fences. Preserve the
+  existing two-slot render-thread end-frame pacing and Vulkan frame-slot GPU
+  throttle; ordinary EndFrame pacing must not wait for full RHI or GPU idle.
 - [ ] Ensure `EndFrame`, present, GPU submission, completion publication, and
   resource deletion preserve their declared order without whole-device idle.
+  Viewport teardown may retire only its own swapchain resources and must not
+  immediately clear unrelated device deferred-deletion entries.
 - [ ] Close render admission first, submit the final accepted render batch,
-  transition RHI admission to draining, and wait for zero queued/active work.
+  then atomically install the internal backend-shutdown marker while
+  transitioning RHI admission to draining. No public work may be accepted
+  after that marker.
 - [ ] Run the final render-resource and RHI deletion audits before backend
   shutdown; then execute backend `Shutdown` on the RHI thread, stop/join it, and
   complete `RHIExit`.
 - [ ] Reject late render/RHI work synchronously and wake every blocked producer
   or fence waiter on shutdown and failure paths.
+- [ ] Keep the Stage 3.5 executor frame-number and implicit Present contract
+  unchanged; do not introduce `FRHIPresentArgs` or return to render-counter-
+  driven backend slots while integrating pacing.
 
 #### Acceptance Gate
 
 - Thread-only flush drains both CPU stages but not the GPU; explicit GPU-idle
   remains distinct and testable.
+- Concurrent synchronous/lifecycle enqueue versus empty flush cannot miss an
+  accepted serial; destroying or force-releasing a pending render fence cannot
+  access freed state or strand a waiter.
 - Repeated startup/shutdown, empty frames, queued resource release, present
-  failure, and close-with-backpressure tests terminate with zero render
-  commands, RHI batches, waiters, retained resources, and deferred deletions.
+  failure, multi-viewport teardown, and close-with-backpressure tests terminate
+  with zero render commands, RHI batches, waiters, retained resources, and
+  deferred deletions. Scoped viewport retirement never releases unrelated
+  in-flight device resources.
 
 ### Stage 5: Threaded validation and default enablement
 
@@ -612,9 +811,10 @@ Dependencies: Stage 4.
 | Rendering thread -> RHI queue | Ownership transfers once, FIFO order is stable, and producer can continue after dispatch. |
 | RHI queue -> context replay | Every context call and Vulkan command-buffer mutation observes RHI-thread affinity. |
 | Submission serial -> flush | Flush waits for the target CPU completion serial and does not imply GPU completion. |
+| Successful RHI EndFrame -> executor frame number | `FrameNumber` advances once before serial completion; failure/rejection does not advance it. |
 | Immediate API -> returned result | Create, allocate, lock, and readback paths publish valid data with explicit wait/lifetime behavior. |
-| Upload page -> frame lifetime | CPU upload storage survives replay and required GPU use before recycling. |
-| End frame -> present/submit/delete | Ordered events cannot overtake earlier resource use and do not require ordinary device idle. |
+| Upload page -> frame lifetime | Executor-derived backend and producer slots match; CPU upload storage survives replay and required GPU use before recycling. |
+| End frame -> present/submit/delete | Present uses ordered active-frame state without a frame argument; events cannot overtake earlier resource use or require ordinary device idle. |
 | Render drain -> RHI drain -> exit | Shutdown rejects late work, wakes waiters, drains both queues, audits deletion, shuts down backend, then joins. |
 | Inline -> threaded parity | Focused and runtime workloads produce equivalent output and validation-layer results. |
 

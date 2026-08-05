@@ -17,7 +17,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	};
 	Durin::EnqueueRenderCommand<FBeginSkyBoxValidationFrame>([](Durin::FRHICommandListImmediate& CommandList) {
 		CommandList.SwitchPipeline(Durin::ERHIPipeline::Graphics);
-		Durin::GDynamicRHI->RHIBeginFrame();
+		Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 	});
 	Renderer.StartupModule();
 
@@ -140,7 +140,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 			HdrCubeReference, HdrPlatformData, Result, OcclusionProxy]
 		(Durin::FRHICommandListImmediate& CommandList) {
 			Durin::GRenderFrameCounterRenderThread++;
-			Durin::GDynamicRHI->RHIBeginFrame();
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 			struct FEndFrameGuard
 			{
 				Durin::FRHICommandListImmediate& CommandList;

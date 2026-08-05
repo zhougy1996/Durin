@@ -34,6 +34,7 @@ namespace Durin
 			DURIN_DEBUG(
 				"RHI executor drained (mode: {}): {} command(s), {} payload byte(s), "
 				"{} batch(es), {} submission group(s), {} ns replay, {} wait(s), "
+				"{} synchronous operation(s), "
 				"{} ns wait duration, {} backpressure event(s), {} rejection(s).",
 				ExecutorMode,
 				ExecutorStats.RecordedCommandCount,
@@ -42,6 +43,7 @@ namespace Durin
 				ExecutorStats.SubmissionGroupCount,
 				ExecutorStats.ReplayDurationNanoseconds,
 				ExecutorStats.WaitCount,
+				ExecutorStats.SynchronousOperationCount,
 				ExecutorStats.WaitDurationNanoseconds,
 				ExecutorStats.BackpressureWaitCount,
 				ExecutorStats.RejectedSubmissionCount);

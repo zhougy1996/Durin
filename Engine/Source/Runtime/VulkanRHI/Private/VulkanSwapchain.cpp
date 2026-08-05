@@ -2,6 +2,7 @@
 
 #include "VulkanDevice.h"
 #include "VulkanQueue.h"
+#include "VulkanRHIPrivate.h"
 
 namespace Durin::VulkanRHI
 {
@@ -106,6 +107,7 @@ namespace Durin::VulkanRHI
 		, Surface(InSurface)
 		, PresentModePolicy(InPresentModePolicy)
 	{
+		CheckVulkanRHIThread();
 		// Get Swap chain support details
 		vk::PhysicalDevice Gpu = Device.GetGpu();
 		vk::SurfaceCapabilitiesKHR Capabilities = Gpu.getSurfaceCapabilitiesKHR(Surface);
@@ -176,6 +178,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanSwapchain::~FVulkanSwapchain()
 	{
+		CheckVulkanRHIThread();
 		Destroy();
 	}
 
@@ -186,6 +189,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSwapchain::AcquireImageIndex(FVulkanSemaphore** OutImageAcquiredSemaphore) -> uint32
 	{
+		CheckVulkanRHIThread();
 		FVulkanSemaphore* CurrentSemaphore = ImageAcquiredSemaphores[NextSemaphoreIndex];
 		NextSemaphoreIndex = (NextSemaphoreIndex + 1) % ImageAcquiredSemaphores.size();
 
@@ -218,6 +222,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSwapchain::Present(FVulkanQueue* PresentQueue, FVulkanSemaphore* BackBufferRenderingDoneSemaphore, vk::Fence PresentFence) -> FVulkanPresentOutcome
 	{
+		CheckVulkanRHIThread();
 		if (CurrentImageIndex < 0)
 		{
 			return {};
@@ -303,6 +308,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanSwapchain::Destroy() -> void
 	{
+		CheckVulkanRHIThread();
 		for (FVulkanSemaphore* Semaphore : ImageAcquiredSemaphores)
 		{
 			delete Semaphore;

@@ -11,6 +11,7 @@
 #include "VulkanSubmission.h"
 #include "VulkanDescriptorSets.h"
 #include "VulkanBuffer.h"
+#include "VulkanRHIPrivate.h"
 
 namespace Durin::VulkanRHI
 {
@@ -25,6 +26,7 @@ namespace Durin::VulkanRHI
 
 	auto FDeferredDeletionQueue::ReleaseResources(bool bDeleteImmediately) -> void
 	{
+		CheckVulkanRHIThread();
 		if (bDeleteImmediately)
 		{
 			std::lock_guard<std::mutex> Lock(Mutex);
@@ -63,11 +65,13 @@ namespace Durin::VulkanRHI
 
 	auto FDeferredDeletionQueue::EnqueueGenericResource(EType Type, uint64 Handle) -> void
 	{
+		std::lock_guard<std::mutex> Lock(Mutex);
 		Entries.emplace_back(Type, GVulkanRHIDeletionFrameNumber, Handle);
 	}
 
 	auto FDeferredDeletionQueue::EnqueueAllocatedResource(EType Type, uint64 Handle, const FVulkanAllocation& Allocation) -> void
 	{
+		std::lock_guard<std::mutex> Lock(Mutex);
 		Entries.emplace_back(Type, GVulkanRHIDeletionFrameNumber, Handle, Allocation); // Copy allocation here
 	}
 
@@ -143,6 +147,7 @@ namespace Durin::VulkanRHI
 
 	void FVulkanDevice::InitGpu(const uint32 EnabledInstanceExtensionCount)
 	{
+		CheckVulkanRHIThread();
 		GpuProps = Gpu.getProperties();
 		DURIN_TRACE("Vulkan physical device: name=\"{}\", type={}, vendor=0x{:04x}, device=0x{:04x}, API={}.{}.{}, driver=0x{:x}.",
 			GpuProps.deviceName.data(), vk::to_string(GpuProps.deviceType), GpuProps.vendorID, GpuProps.deviceID,
@@ -333,6 +338,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDevice::WaitUtilIdle() const -> void
 	{
+		CheckVulkanRHIThread();
 		Device.waitIdle();
 	}
 
@@ -371,7 +377,21 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDevice::GetCurrentFrame() -> FVulkanFrame&
 	{
-		return *Frames[GRenderFrameCounterRenderThread % Frames.size()];
+		CheckVulkanRHIThread();
+		return *Frames[CurrentFrameIndex];
+	}
+
+	auto FVulkanDevice::SetCurrentFrameIndex(uint32 FrameIndex) -> void
+	{
+		CheckVulkanRHIThread();
+		check(FrameIndex < Frames.size());
+		CurrentFrameIndex = FrameIndex;
+	}
+
+	auto FVulkanDevice::GetCurrentFrameIndex() const -> uint32
+	{
+		CheckVulkanRHIThread();
+		return CurrentFrameIndex;
 	}
 
 	auto FVulkanDevice::NotifyDeleted_Image(vk::Image Image) -> void
@@ -381,6 +401,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDevice::Destroy() -> void
 	{
+		CheckVulkanRHIThread();
 		if (Device)
 		{
 			WaitUtilIdle();

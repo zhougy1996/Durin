@@ -598,7 +598,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Durin::EnqueueRenderCommand<FBeginRenderedThumbnailFrame>(
 		[](Durin::FRHICommandListImmediate& CommandList) {
 			CommandList.SwitchPipeline(Durin::ERHIPipeline::Graphics);
-			Durin::GDynamicRHI->RHIBeginFrame();
+			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 		});
 
 	FMaterialTestEngine Engine;

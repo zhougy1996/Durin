@@ -17,10 +17,10 @@ namespace Durin::VulkanRHI
 		virtual auto RHIGetVkDevice() const -> vk::Device = 0;
 		virtual auto RHIGetVkInstance() const -> vk::Instance = 0;
 		virtual auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice = 0;
-		// Native escape used by Vulkan-only integrations that are outside the
-		// portable command surface (currently compute integration tests).
-		virtual auto RHIGetVkCommandBufferForBackendIntegration() const
-			-> vk::CommandBuffer = 0;
+		// Runs a bounded native integration callback on the current command
+		// buffer's owning thread. The handle is borrowed for this call only.
+		virtual auto RHIExecuteCommandBufferForBackendIntegration(
+			std::function<void(vk::CommandBuffer)> Operation) -> void = 0;
 
 	};
 
@@ -36,16 +36,18 @@ namespace Durin::VulkanRHI
 		auto Init() -> void override;
 		auto Shutdown() -> void override;
 
-		auto RHIBeginFrame() -> void override;
+		auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void override;
+		auto RHIBeginFrame_RenderThread(
+			FRHICommandListImmediate& RHICmdList) -> void override;
 		auto RHIEndFrame() -> void override;
 		auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void override;
 
 		auto RHIGetVkDevice() const -> vk::Device override;
-		auto RHIGetDynamicLoader() -> vk::DynamicLoader& { return DynamicLoader; }
+		auto RHIGetDynamicLoader() -> vk::DynamicLoader&;
 		auto RHIGetVkInstance() const -> vk::Instance override;
 		auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice override;
-		auto RHIGetVkCommandBufferForBackendIntegration() const
-			-> vk::CommandBuffer override;
+		auto RHIExecuteCommandBufferForBackendIntegration(
+			std::function<void(vk::CommandBuffer)> Operation) -> void override;
 		auto IsInstanceExtensionEnabled(const char* ExtensionName) const -> bool;
 
 		auto RHICreateViewport(void* WindowHandle, uint32 SizeX, uint32 SizeY, bool bIsFullscreen, EPixelFormat PreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy) const -> FViewportRHIRef override;
@@ -62,6 +64,10 @@ namespace Durin::VulkanRHI
 		auto RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler> override;
 		auto RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> FBufferRHIRef override;
 		auto RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef override;
+		auto RHIAllocateDynamicUniformBuffer(
+			FRHICommandListImmediate& RHICmdList,
+			const void* Data,
+			uint32 Size) -> FRHIUniformBufferRange override;
 
 		auto InitializeTexture(FVulkanCommandListContext& Context, FRHITexture* Texture) -> void;
 		auto UpdateTexture2D(

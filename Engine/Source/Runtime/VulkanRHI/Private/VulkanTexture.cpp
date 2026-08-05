@@ -39,6 +39,7 @@ namespace Durin::VulkanRHI
 		, CreateFlags(InCreateDesc.Flags)
 		, SubresourceLayouts(static_cast<size_t>(InCreateDesc.NumMips) * InCreateDesc.ArraySize, vk::ImageLayout::eUndefined)
 	{
+		CheckVulkanRHIThread();
 		vk::Extent3D ImageExtent = ToVulkan_Extent3D(InCreateDesc.GetSize());
 
 		const bool bDepthStencil = EnumHasAnyFlags(InCreateDesc.Flags, ETextureCreateFlags::DepthStencilTargetable);
@@ -103,6 +104,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanTexture::~FVulkanTexture()
 	{
+		CheckVulkanRHIThread();
 		if (OwnerType == EImageOwnerType::LocalOwner)
 		{
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Image, Image, Allocation);
@@ -118,6 +120,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanTexture::SetSubresourceLayout(uint32 MipIndex, uint32 ArrayLayer, vk::ImageLayout Layout) -> void
 	{
+		CheckVulkanRHIThread();
 		check(MipIndex < NumMips && ArrayLayer < ArraySize);
 		SubresourceLayouts[static_cast<size_t>(ArrayLayer) * NumMips + MipIndex] = Layout;
 	}
@@ -125,6 +128,7 @@ namespace Durin::VulkanRHI
 	FVulkanSampler::FVulkanSampler(FVulkanDevice& InDevice, const FRHISamplerDesc& InDesc)
 		: Device(InDevice)
 	{
+		CheckVulkanRHIThread();
 		const float MaxAnisotropy = InDesc.MaxAnisotropy >= 1.0f ? InDesc.MaxAnisotropy : 1.0f;
 
 		vk::SamplerCreateInfo SamplerInfo;
@@ -149,6 +153,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanSampler::~FVulkanSampler()
 	{
+		CheckVulkanRHIThread();
 		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Sampler, Sampler);
 	}
 
@@ -156,7 +161,19 @@ namespace Durin::VulkanRHI
 	{
 		std::string ValidationError;
 		checkf(ValidateTextureCreateDesc(CreateDesc, ValidationError), "Invalid RHI texture create description: {}", ValidationError);
-		TRefCountPtr<FVulkanTexture> Texture = new FVulkanTexture(*Device, CreateDesc);
+		TRefCountPtr<FVulkanTexture> Texture;
+		if (GRHIThread && !IsInRHIThread())
+		{
+			GCommandListExecutor.ExecuteSynchronousOperation(false,
+				[this, CreateDesc, &Texture]() {
+					Texture = new FVulkanTexture(*Device, CreateDesc);
+				});
+		}
+		else
+		{
+			CheckVulkanRHIThread();
+			Texture = new FVulkanTexture(*Device, CreateDesc);
+		}
 		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::Storage))
 		{
 			RHICmdList.InitializeTexture(Texture.GetReference());
@@ -168,6 +185,7 @@ namespace Durin::VulkanRHI
 		FVulkanCommandListContext& Context,
 		FRHITexture* Texture) -> void
 	{
+		CheckVulkanRHIThread();
 		auto* VulkanTexture = static_cast<FVulkanTexture*>(Texture);
 		check(VulkanTexture);
 		if (!EnumHasAnyFlags(VulkanTexture->CreateFlags, ETextureCreateFlags::Storage))
@@ -221,6 +239,16 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanDynamicRHI::RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler>
 	{
+		TRefCountPtr<FRHISampler> Result;
+		if (GRHIThread && !IsInRHIThread())
+		{
+			GCommandListExecutor.ExecuteSynchronousOperation(false,
+				[this, CreateDesc, &Result]() {
+					Result = new FVulkanSampler(*Device, CreateDesc);
+				});
+			return Result;
+		}
+		CheckVulkanRHIThread();
 		return new FVulkanSampler(*Device, CreateDesc);
 	}
 
@@ -233,6 +261,7 @@ namespace Durin::VulkanRHI
 		uint32 SourcePitch,
 		std::span<const uint8> SourceData) -> void
 	{
+		CheckVulkanRHIThread();
 		checkf(Texture != nullptr, "RHIUpdateTexture2D requires a texture.");
 		checkf(!SourceData.empty(), "RHIUpdateTexture2D requires source data.");
 		FRHITextureDesc TextureDesc;
@@ -330,6 +359,7 @@ namespace Durin::VulkanRHI
 		std::vector<uint8>& OutData
 	) -> bool
 	{
+		CheckVulkanRHIThread();
 		OutData.clear();
 		if (Texture == nullptr || MipIndex >= Texture->GetNumMips() || ArraySlice >= Texture->GetArraySize()
 			|| Texture->GetNumSamples() != 1)

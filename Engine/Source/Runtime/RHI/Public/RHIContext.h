@@ -15,7 +15,7 @@ namespace Durin
 	{
 	public:
 		virtual ~IRHICommandContext() = default;
-		virtual auto RHIBeginFrame() -> void = 0;
+		virtual auto RHIBeginFrame(const FRHIBeginFrameArgs& Args) -> void = 0;
 		virtual auto RHISubmitCommands() -> void = 0;
 		virtual auto RHIEndFrame() -> void = 0;
 		virtual auto RHIBeginRenderPass(const FRHIRenderPassInfo& InInfo, FName InName) -> void = 0;
