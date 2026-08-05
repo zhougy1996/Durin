@@ -24,14 +24,19 @@ Completed:
 - The version-1 `FDStructOps`, `TDStructOpsTraits<T>`, post-deserialize context,
   callback signatures, capability/failure rules, and registration lifetime are
   frozen in the Stage 0 contract below.
-- DHT also unconditionally instantiates property-level default construction and
-  destruction helpers for every generated `DPROPERTY`. Struct-valued property
-  lifecycle must therefore migrate to `FDStructOps`; replacing only the legacy
-  three callbacks on `DStruct` would not satisfy the unavailable-operation
-  contract.
-- Stage 1 is next. Its initial working set is `Class.h`, `DObjectGlobals.h/.cpp`,
-  `reflection_source_writer.py`, `MathStructs.cpp`, and the focused DHT and
-  CoreDObject reflection tests. Stage 0 changed only this plan.
+- Stage 1 completed on 2026-08-05 from baseline commit `ec85a7b2`. CoreDObject
+  now owns the immutable versioned operation table, generated and intrinsic
+  descriptors register through the common trait builder, and `FVector3`
+  explicitly provides deterministic zero construction.
+- DHT still instantiates property-level default construction and destruction
+  helpers for generated `DPROPERTY` declarations. Stage 2 must migrate
+  struct-valued property ownership and detached storage to capability-aware
+  operations before unavailable lifecycle capabilities can flow through every
+  consumer.
+- Stage 2 is next. Its initial working set is the new struct operation API,
+  generated property registration, property storage/container helpers,
+  recursive equality and GC schema consumers, and their focused CoreDObject
+  tests.
 
 ## Goal
 
@@ -457,21 +462,21 @@ follow-up codec plan and adds no blocker to the compact-serialization roadmap.
 
 ### Stage 1: Add Declarative Operations and Generated Registration
 
-- [ ] Add the trait base, specialization point, immutable operation table,
+- [x] Add the trait base, specialization point, immutable operation table,
   capability queries, and compiler-checked thunk builder to CoreDObject.
-- [ ] Replace generated direct lifecycle definitions with one operation-table
+- [x] Replace generated direct lifecycle definitions with one operation-table
   registration reference.
-- [ ] Emit focused compile diagnostics when an explicit semantic trait lacks
+- [x] Emit focused compile diagnostics when an explicit semantic trait lacks
   its required method or has the wrong signature.
-- [ ] Convert intrinsic math struct registration to the same contract.
-- [ ] Register `FVector3` through the common operation builder with an explicit
+- [x] Convert intrinsic math struct registration to the same contract.
+- [x] Register `FVector3` through the common operation builder with an explicit
   deterministic `(0, 0, 0)` initializer and no custom serialization hooks.
-- [ ] Preserve qualified-name registration, reflected property generation, and
+- [x] Preserve qualified-name registration, reflected property generation, and
   GC schema finalization ordering.
-- [ ] Add DHT generation tests for ordinary, move-only, deleted-default,
+- [x] Add DHT generation tests for ordinary, move-only, deleted-default,
   trivial, nontrivial, custom-equality, and malformed-trait fixtures.
-- [ ] Add CoreDObject tests proving accurate runtime flags and null callbacks.
-- [ ] Add `FVector3` bridge tests for field identities and accessors, storage
+- [x] Add CoreDObject tests proving accurate runtime flags and null callbacks.
+- [x] Add `FVector3` bridge tests for field identities and accessors, storage
   size/alignment metadata, deterministic initialization, copy construction,
   copy assignment, trivial destruction, and absent optional callbacks.
 
@@ -485,6 +490,29 @@ follow-up codec plan and adds no blocker to the compact-serialization roadmap.
   traits.
 - `FVector3` exposes the same operation-table contract as a generated struct
   without adding a CoreDObject dependency to Core.
+
+#### Stage 1 Handoff
+
+- Baseline commit: `ec85a7b2` (`docs(reflection): freeze struct operations
+  contract`). Stage 1 working set: `StructOps.h`, `Class.h`,
+  `DObjectGlobals.h/.cpp`, `reflection_source_writer.py`, `MathStructs.cpp`, and
+  focused DHT and CoreDObject reflection tests.
+- Key implementation symbols: `FDStructOps`, `TDStructOpsTraitsBase<T>`,
+  `TDStructOpsTraits<T>`, `GetDStructOps<T>()`, `DStruct::InitializeOps`,
+  `DStruct::Can*`, `DStruct::Has*`, `FStructParams::Ops`, and
+  `_struct_definitions`.
+- Decisions: mechanically valid lifecycle methods are emitted through
+  constrained trait defaults; semantic operations require explicit flags and
+  exact signatures; operation tables are function-local immutable statics;
+  repeated descriptor initialization accepts only the same table; generated
+  properties and GC-schema finalization retain their established ordering.
+- Open questions: none for Stage 2. Property-level struct lifecycle helpers and
+  all live/detached consumer preconditions are intentionally assigned to that
+  stage.
+- Validation: focused DHT generation tests, CoreDObject native tests, and the
+  `Engine` target build passed; generated move-only/deleted-default fixtures,
+  malformed semantic traits, capability/callback consistency, and the
+  intrinsic `FVector3` bridge are covered.
 
 ### Stage 2: Make Lifecycle, Equality, and GC Consumers Capability-Aware
 

@@ -348,7 +348,7 @@ namespace Durin
 		DStruct* Struct = Params.StructNoRegisterFunc();
 		DObjectForceRegistration(Struct);
 		Private::RegisterQualifiedStruct(Struct);
-		Struct->SetCppOps(Params.Initialize, Params.Destroy, Params.Copy);
+		Struct->InitializeOps(Params.Ops);
 		if (!Struct->ChildProperties && Params.PropertyParams && Params.NumProperties > 0)
 		{
 			FField* LastProperty = nullptr;

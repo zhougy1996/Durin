@@ -438,9 +438,6 @@ def _struct_definitions(struct_info: ReflectedStructInfo, symbols: ExportedSymbo
     properties = struct_info.properties
     builder.append(f"struct {statics}\n{{\n")
     builder.append("\tstatic const Durin::DurinCodeGen::FStructParams StructParams;\n")
-    builder.append("\tstatic void Initialize(void* Memory);\n")
-    builder.append("\tstatic void Destroy(void* Memory);\n")
-    builder.append("\tstatic void Copy(void* Destination, const void* Source);\n")
     for prop in properties:
         builder.extend(_property_decls(prop))
     if properties:
@@ -454,13 +451,11 @@ def _struct_definitions(struct_info: ReflectedStructInfo, symbols: ExportedSymbo
             builder.append(f"\t&{statics}::NewProp_{prop.name},\n")
         builder.append("};\n\n")
     prop_ref = f"{statics}::PropertyParams" if properties else "nullptr"
-    builder.append(f"void {statics}::Initialize(void* Memory) {{ new (Memory) {struct_info.qualified_name}(); }}\n")
-    builder.append(f"void {statics}::Destroy(void* Memory) {{ static_cast<{struct_info.qualified_name}*>(Memory)->~{struct_info.short_name}(); }}\n")
-    builder.append(f"void {statics}::Copy(void* Destination, const void* Source) {{ new (Destination) {struct_info.qualified_name}(*static_cast<const {struct_info.qualified_name}*>(Source)); }}\n\n")
     builder.append(
         f"const Durin::DurinCodeGen::FStructParams {statics}::StructParams = {{ "
         f"{struct_info.generated_helper_no_register_name}, \"{struct_info.qualified_name}\", \"{struct_info.short_name}\", "
-        f"sizeof({struct_info.qualified_name}), alignof({struct_info.qualified_name}), {prop_ref}, {len(properties)}, &{statics}::Initialize, &{statics}::Destroy, &{statics}::Copy }};\n\n"
+        f"sizeof({struct_info.qualified_name}), alignof({struct_info.qualified_name}), {prop_ref}, {len(properties)}, "
+        f"&Durin::GetDStructOps<{struct_info.qualified_name}>() }};\n\n"
     )
     builder.append(
         f"Durin::DStruct* {struct_info.generated_helper_no_register_name}()\n{{\n"

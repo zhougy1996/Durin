@@ -125,6 +125,8 @@ namespace Durin
     class FName {};
     struct FGuid {};
     class DObject {};
+    template<typename T> struct TDStructOpsTraitsBase {};
+    template<typename T> struct TDStructOpsTraits {};
 }
 
 namespace std
@@ -188,7 +190,73 @@ namespace Fixture
         DPROPERTY()
         Durin::FVector3 Tangent{};
     };
+
+    DSTRUCT()
+    struct FMoveOnly
+    {
+        GENERATED_BODY()
+        FMoveOnly() = default;
+        FMoveOnly(const FMoveOnly&) = delete;
+        auto operator=(const FMoveOnly&) -> FMoveOnly& = delete;
+        FMoveOnly(FMoveOnly&&) = default;
+        auto operator=(FMoveOnly&&) -> FMoveOnly& = default;
+    };
+
+    DSTRUCT()
+    struct FDeletedDefault
+    {
+        GENERATED_BODY()
+        FDeletedDefault() = delete;
+        explicit FDeletedDefault(int InValue);
+        int Value = 0;
+    };
+
+    DSTRUCT()
+    struct FTrivialOps
+    {
+        GENERATED_BODY()
+        DPROPERTY()
+        float Value = 0.0f;
+    };
+
+    DSTRUCT()
+    struct FNonTrivialOps
+    {
+        GENERATED_BODY()
+        DPROPERTY()
+        std::vector<float> Values;
+    };
+
+    DSTRUCT()
+    struct FCustomEquality
+    {
+        GENERATED_BODY()
+        DPROPERTY()
+        float Value = 0.0f;
+    };
+
+    DSTRUCT()
+    struct FMalformedEquality
+    {
+        GENERATED_BODY()
+    };
 }
+
+template<>
+struct Durin::TDStructOpsTraits<Fixture::FCustomEquality>
+    : Durin::TDStructOpsTraitsBase<Fixture::FCustomEquality>
+{
+    static constexpr bool bWithIdentical = true;
+    static bool Identical(const Fixture::FCustomEquality&, const Fixture::FCustomEquality&);
+};
+
+template<>
+struct Durin::TDStructOpsTraits<Fixture::FMalformedEquality>
+    : Durin::TDStructOpsTraitsBase<Fixture::FMalformedEquality>
+{
+    static constexpr bool bWithIdentical = true;
+    static void Identical(const Fixture::FMalformedEquality&, const Fixture::FMalformedEquality&);
+};
 ''',
             encoding="utf-8",
         )
@@ -839,6 +907,23 @@ namespace Beta
         for property_name in ("Position", "Tangent"):
             assert f'NewProp_{property_name} = {{ "{property_name}",' in self.generated_cpp
         assert "Z_Construct_DStruct_Durin_FVector3" in self.generated_cpp
+
+    def test_struct_lifecycle_registration_uses_compiler_checked_operation_tables(self):
+        for type_name in (
+            "FCurvePoint",
+            "FMoveOnly",
+            "FDeletedDefault",
+            "FTrivialOps",
+            "FNonTrivialOps",
+            "FCustomEquality",
+            "FMalformedEquality",
+        ):
+            assert f"&Durin::GetDStructOps<Fixture::{type_name}>()" in self.generated_cpp
+
+        assert "static void Initialize(void* Memory);" not in self.generated_cpp
+        assert "static void Destroy(void* Memory);" not in self.generated_cpp
+        assert "static void Copy(void* Destination, const void* Source);" not in self.generated_cpp
+        assert "new (Memory) Fixture::" not in self.generated_cpp
 
     def test_default_double_vector_intrinsics_are_available(self):
         missing_export = self.temp_root / "missing.export"

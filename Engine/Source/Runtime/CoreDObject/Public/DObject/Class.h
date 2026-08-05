@@ -114,10 +114,6 @@ namespace Durin
 	{
 		DECLARE_CLASS_INTRINSIC_API(DStruct, DStructBase, COREDOBJECT_API)
 	public:
-		using InitializeFunction = void (*)(void* Memory);
-		using DestroyFunction = void (*)(void* Memory);
-		using CopyFunction = void (*)(void* Destination, const void* Source);
-
 		DStruct(EStaticConstructor, FName InQualifiedName, FName InShortName, uint32 InSize, uint32 InAlignment, EObjectFlags InFlags)
 			: DStructBase(EC_StaticConstructor, InSize, InAlignment, InFlags)
 			, QualifiedName(InQualifiedName)
@@ -127,22 +123,46 @@ namespace Durin
 
 		auto GetQualifiedName() const -> FName { return QualifiedName; }
 		auto GetShortName() const -> FName { return ShortName; }
-		auto SetCppOps(InitializeFunction InInitialize, DestroyFunction InDestroy, CopyFunction InCopy) -> void
+		auto GetOps() const -> const FDStructOps& { return *Ops; }
+		auto CanDefaultConstruct() const -> bool { return HasOpsFlag(EDStructOpsFlags::DefaultConstruct); }
+		auto CanDestroy() const -> bool
 		{
-			Initialize = InInitialize;
-			Destroy = InDestroy;
-			Copy = InCopy;
+			return HasOpsFlag(EDStructOpsFlags::TriviallyDestructible)
+				|| HasOpsFlag(EDStructOpsFlags::Destroy);
 		}
-		auto InitializeValue(void* Memory) const -> void { if (Initialize) Initialize(Memory); }
-		auto DestroyValue(void* Memory) const -> void { if (Destroy) Destroy(Memory); }
-		auto CopyValue(void* Destination, const void* Source) const -> void { if (Copy) Copy(Destination, Source); }
+		auto NeedsDestroy() const -> bool { return HasOpsFlag(EDStructOpsFlags::Destroy); }
+		auto CanCopyConstruct() const -> bool { return HasOpsFlag(EDStructOpsFlags::CopyConstruct); }
+		auto CanCopyAssign() const -> bool { return HasOpsFlag(EDStructOpsFlags::CopyAssign); }
+		auto CanZeroConstruct() const -> bool { return HasOpsFlag(EDStructOpsFlags::ZeroConstruct); }
+		auto HasIdentical() const -> bool { return HasOpsFlag(EDStructOpsFlags::Identical); }
+		auto HasSerializer() const -> bool { return HasOpsFlag(EDStructOpsFlags::Serialize); }
+		auto HasPostDeserialize() const -> bool { return HasOpsFlag(EDStructOpsFlags::PostDeserialize); }
+		auto HasReferenceCollector() const -> bool { return HasOpsFlag(EDStructOpsFlags::CollectReferences); }
+		auto HasCompleteAuthoredFields() const -> bool { return HasOpsFlag(EDStructOpsFlags::AuthoredFieldsComplete); }
+
+		auto InitializeOps(const FDStructOps* InOps) -> void
+		{
+			const FDStructOps* ResolvedOps = InOps ? InOps : &GetEmptyDStructOps();
+			check(IsValidDStructOps(*ResolvedOps));
+			if (bOpsInitialized)
+			{
+				check(Ops == ResolvedOps && "A DStruct operation table is immutable after registration.");
+				return;
+			}
+			Ops = ResolvedOps;
+			bOpsInitialized = true;
+		}
 
 	private:
+		auto HasOpsFlag(EDStructOpsFlags Flag) const -> bool
+		{
+			return EnumHasAnyFlags(Ops->Flags, Flag);
+		}
+
 		FName QualifiedName;
 		FName ShortName;
-		InitializeFunction Initialize = nullptr;
-		DestroyFunction Destroy = nullptr;
-		CopyFunction Copy = nullptr;
+		const FDStructOps* Ops = &GetEmptyDStructOps();
+		bool bOpsInitialized = false;
 	};
 
 	// Stores one reflected enum value with its stable code name and editor label.

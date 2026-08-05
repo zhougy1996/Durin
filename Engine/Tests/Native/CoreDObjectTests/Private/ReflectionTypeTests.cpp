@@ -20,6 +20,93 @@
 #include <gtest/gtest.h>
 #include <cstddef>
 
+namespace StructOpsTest
+{
+	struct FOrdinary
+	{
+		Durin::int32 Value = 7;
+	};
+
+	struct FMoveOnly
+	{
+		FMoveOnly() = default;
+		FMoveOnly(const FMoveOnly&) = delete;
+		auto operator=(const FMoveOnly&) -> FMoveOnly& = delete;
+		FMoveOnly(FMoveOnly&&) = default;
+		auto operator=(FMoveOnly&&) -> FMoveOnly& = default;
+	};
+
+	struct FDeletedDefault
+	{
+		FDeletedDefault() = delete;
+		explicit FDeletedDefault(Durin::int32 InValue) : Value(InValue) {}
+		Durin::int32 Value = 0;
+	};
+
+	struct FNonTrivial
+	{
+		std::string Value;
+	};
+
+	struct FCustomOps
+	{
+		Durin::int32 Value = 0;
+	};
+
+	struct FMalformedIdentical
+	{
+	};
+}
+
+namespace Durin
+{
+	template<>
+	struct TDStructOpsTraits<StructOpsTest::FCustomOps>
+		: TDStructOpsTraitsBase<StructOpsTest::FCustomOps>
+	{
+		static constexpr bool bWithZeroConstruct = true;
+		static constexpr bool bWithIdentical = true;
+		static constexpr bool bWithSerializer = true;
+		static constexpr bool bWithPostDeserialize = true;
+		static constexpr bool bWithReferenceCollector = true;
+		static constexpr bool bHasCompleteAuthoredFields = false;
+
+		static auto ZeroConstruct(void* Destination) -> void
+		{
+			std::construct_at(static_cast<StructOpsTest::FCustomOps*>(Destination));
+		}
+
+		static auto Identical(
+			const StructOpsTest::FCustomOps& Left,
+			const StructOpsTest::FCustomOps& Right) -> bool
+		{
+			return Left.Value == Right.Value;
+		}
+
+		static auto Serialize(FArchive&, StructOpsTest::FCustomOps&) -> void {}
+		static auto PostDeserialize(
+			StructOpsTest::FCustomOps&,
+			FDStructPostDeserializeContext&) -> bool { return true; }
+		static auto CollectReferences(
+			StructOpsTest::FCustomOps&,
+			FReferenceCollector&) -> void {}
+	};
+
+	template<>
+	struct TDStructOpsTraits<StructOpsTest::FMalformedIdentical>
+		: TDStructOpsTraitsBase<StructOpsTest::FMalformedIdentical>
+	{
+		static constexpr bool bWithIdentical = true;
+		static auto Identical(
+			const StructOpsTest::FMalformedIdentical&,
+			const StructOpsTest::FMalformedIdentical&) -> void {}
+	};
+}
+
+static_assert(!Durin::Private::CValidDStructIdenticalTrait<
+	StructOpsTest::FMalformedIdentical,
+	Durin::TDStructOpsTraits<StructOpsTest::FMalformedIdentical>>);
+
 namespace
 {
 	struct FReflectedPropertyOwnerForTest
@@ -2652,7 +2739,57 @@ namespace
 		Durin::MarkAsGarbage(ReferencedObject);
 	}
 
-	TEST(FCoreDObjectReflectionTests, BuiltInMathStructsExposeNestedFieldMetadata)
+	TEST(FCoreDObjectReflectionTests, DeclarativeStructOpsMatchCompilerAndTraitCapabilities)
+	{
+		const Durin::FDStructOps& Ordinary = Durin::GetDStructOps<StructOpsTest::FOrdinary>();
+		EXPECT_TRUE(Durin::EnumHasAnyFlags(Ordinary.Flags, Durin::EDStructOpsFlags::DefaultConstruct));
+		EXPECT_TRUE(Durin::EnumHasAnyFlags(Ordinary.Flags, Durin::EDStructOpsFlags::TriviallyDestructible));
+		EXPECT_TRUE(Durin::EnumHasAnyFlags(Ordinary.Flags, Durin::EDStructOpsFlags::CopyConstruct));
+		EXPECT_TRUE(Durin::EnumHasAnyFlags(Ordinary.Flags, Durin::EDStructOpsFlags::CopyAssign));
+		EXPECT_TRUE(Durin::EnumHasAnyFlags(Ordinary.Flags, Durin::EDStructOpsFlags::AuthoredFieldsComplete));
+		EXPECT_EQ(Ordinary.Destroy, nullptr);
+		EXPECT_EQ(Ordinary.ZeroConstruct, nullptr);
+		EXPECT_EQ(Ordinary.Identical, nullptr);
+		EXPECT_EQ(Ordinary.Serialize, nullptr);
+		EXPECT_EQ(Ordinary.PostDeserialize, nullptr);
+		EXPECT_EQ(Ordinary.CollectReferences, nullptr);
+
+		alignas(StructOpsTest::FOrdinary) std::byte OrdinaryStorage[sizeof(StructOpsTest::FOrdinary)];
+		Ordinary.DefaultConstruct(OrdinaryStorage);
+		auto* OrdinaryValue = std::launder(reinterpret_cast<StructOpsTest::FOrdinary*>(OrdinaryStorage));
+		EXPECT_EQ(OrdinaryValue->Value, 7);
+
+		const Durin::FDStructOps& MoveOnly = Durin::GetDStructOps<StructOpsTest::FMoveOnly>();
+		EXPECT_NE(MoveOnly.DefaultConstruct, nullptr);
+		EXPECT_EQ(MoveOnly.CopyConstruct, nullptr);
+		EXPECT_EQ(MoveOnly.CopyAssign, nullptr);
+
+		const Durin::FDStructOps& DeletedDefault = Durin::GetDStructOps<StructOpsTest::FDeletedDefault>();
+		EXPECT_EQ(DeletedDefault.DefaultConstruct, nullptr);
+		EXPECT_NE(DeletedDefault.CopyConstruct, nullptr);
+		EXPECT_NE(DeletedDefault.CopyAssign, nullptr);
+
+		const Durin::FDStructOps& NonTrivial = Durin::GetDStructOps<StructOpsTest::FNonTrivial>();
+		EXPECT_FALSE(Durin::EnumHasAnyFlags(NonTrivial.Flags, Durin::EDStructOpsFlags::TriviallyDestructible));
+		ASSERT_NE(NonTrivial.DefaultConstruct, nullptr);
+		ASSERT_NE(NonTrivial.Destroy, nullptr);
+		alignas(StructOpsTest::FNonTrivial) std::byte NonTrivialStorage[sizeof(StructOpsTest::FNonTrivial)];
+		NonTrivial.DefaultConstruct(NonTrivialStorage);
+		NonTrivial.Destroy(NonTrivialStorage);
+
+		const Durin::FDStructOps& Custom = Durin::GetDStructOps<StructOpsTest::FCustomOps>();
+		EXPECT_NE(Custom.ZeroConstruct, nullptr);
+		EXPECT_NE(Custom.Identical, nullptr);
+		EXPECT_NE(Custom.Serialize, nullptr);
+		EXPECT_NE(Custom.PostDeserialize, nullptr);
+		EXPECT_NE(Custom.CollectReferences, nullptr);
+		EXPECT_FALSE(Durin::EnumHasAnyFlags(Custom.Flags, Durin::EDStructOpsFlags::AuthoredFieldsComplete));
+		const StructOpsTest::FCustomOps EqualLeft{42};
+		const StructOpsTest::FCustomOps EqualRight{42};
+		EXPECT_TRUE(Custom.Identical(&EqualLeft, &EqualRight));
+	}
+
+	TEST(FCoreDObjectReflectionTests, BuiltInMathStructsExposeNestedFieldMetadataAndOperations)
 	{
 		EnsureDObjectInitialized();
 		Durin::DStruct* Vector2Struct = Durin::Z_Construct_DStruct_Durin_FVector2();
@@ -2677,6 +2814,22 @@ namespace
 		EXPECT_EQ(Durin::FindStructByQualifiedName(Durin::FName("Durin::FTransform")), TransformStruct);
 		EXPECT_EQ(ColorStruct->GetQualifiedName().ToString(), "Durin::FLinearColor");
 		EXPECT_EQ(Durin::FindStructByQualifiedName("Durin::FLinearColor"), ColorStruct);
+		for (Durin::DStruct* Struct : {Vector2Struct, VectorStruct, Vector4Struct, QuatStruct, TransformStruct, ColorStruct})
+		{
+			EXPECT_TRUE(Struct->CanDefaultConstruct());
+			EXPECT_TRUE(Struct->CanDestroy());
+			EXPECT_FALSE(Struct->NeedsDestroy());
+			EXPECT_TRUE(Struct->CanCopyConstruct());
+			EXPECT_TRUE(Struct->CanCopyAssign());
+			EXPECT_FALSE(Struct->CanZeroConstruct());
+			EXPECT_FALSE(Struct->HasIdentical());
+			EXPECT_FALSE(Struct->HasSerializer());
+			EXPECT_FALSE(Struct->HasPostDeserialize());
+			EXPECT_FALSE(Struct->HasReferenceCollector());
+			EXPECT_TRUE(Struct->HasCompleteAuthoredFields());
+		}
+		EXPECT_EQ(VectorStruct->PropertiesSize, sizeof(Durin::FVector3));
+		EXPECT_EQ(VectorStruct->MinAlignment, alignof(Durin::FVector3));
 		for (const auto& [Struct, Components] : std::array{
 			std::pair{Vector2Struct, std::array<const char*, 4>{"x", "y", nullptr, nullptr}},
 			std::pair{VectorStruct, std::array<const char*, 4>{"x", "y", "z", nullptr}},
@@ -2709,5 +2862,28 @@ namespace
 		EXPECT_EQ(static_cast<Durin::FStructProperty*>(Rotation)->GetStruct(), QuatStruct);
 		EXPECT_EQ(static_cast<Durin::FStructProperty*>(Translation)->GetStruct(), VectorStruct);
 		EXPECT_EQ(static_cast<Durin::FStructProperty*>(Scale)->GetStruct(), VectorStruct);
+
+		alignas(Durin::FVector3) std::byte ZeroStorage[sizeof(Durin::FVector3)];
+		alignas(Durin::FVector3) std::byte CopyStorage[sizeof(Durin::FVector3)];
+		const Durin::FDStructOps& VectorOps = VectorStruct->GetOps();
+		VectorOps.DefaultConstruct(ZeroStorage);
+		auto* Zero = std::launder(reinterpret_cast<Durin::FVector3*>(ZeroStorage));
+		EXPECT_EQ(*Zero, Durin::FVector3(0.0));
+		const Durin::FVector3 Source(1.0, 2.0, 3.0);
+		VectorOps.CopyConstruct(CopyStorage, &Source);
+		auto* Copy = std::launder(reinterpret_cast<Durin::FVector3*>(CopyStorage));
+		EXPECT_EQ(*Copy, Source);
+		VectorOps.CopyAssign(Zero, Copy);
+		EXPECT_EQ(*Zero, Source);
+
+		Durin::FProperty* X = VectorStruct->FindPropertyByName("x", false);
+		Durin::FProperty* Y = VectorStruct->FindPropertyByName("y", false);
+		Durin::FProperty* Z = VectorStruct->FindPropertyByName("z", false);
+		ASSERT_NE(X, nullptr);
+		ASSERT_NE(Y, nullptr);
+		ASSERT_NE(Z, nullptr);
+		EXPECT_EQ(X->GetValuePtr(&Source), &Source.x);
+		EXPECT_EQ(Y->GetValuePtr(&Source), &Source.y);
+		EXPECT_EQ(Z->GetValuePtr(&Source), &Source.z);
 	}
 }

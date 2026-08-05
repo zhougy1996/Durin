@@ -2,6 +2,7 @@
 
 #include "CoreDObjectAPI.h"
 #include "ObjectMacros.h"
+#include "StructOps.h"
 
 namespace Durin
 {
@@ -250,9 +251,7 @@ namespace Durin
 			uint32 Alignment;
 			const FPropertyParamsBase* const* PropertyParams;
 			size_t NumProperties;
-			void (*Initialize)(void* Memory) = nullptr;
-			void (*Destroy)(void* Memory) = nullptr;
-			void (*Copy)(void* Destination, const void* Source) = nullptr;
+			const FDStructOps* Ops = nullptr;
 		};
 
 		COREDOBJECT_API auto ConstructDClass(const FClassParams& Params) -> DClass*;
