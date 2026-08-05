@@ -16,10 +16,8 @@ detached candidate behind a targeted fence, removes component render state,
 publishes once, then releases and fences the locally owned old data before
 components recreate their proxies.
 
-The verified evidence and UE comparison are recorded in
-[StaticMesh Render-Data Lifetime](../../../Investigations/StaticMeshRenderDataLifetime.md).
-The selected correction preserves unique ownership instead of introducing a
-counted render-data handle:
+The completed implementation and validation below preserve unique ownership
+instead of introducing a counted render-data handle:
 
 - `DStaticMesh` uniquely owns its current render data;
 - detached builders uniquely own unpublished candidates;
@@ -859,7 +857,6 @@ profile-specific commands.
 ## Related Documentation
 
 - [Engine Termination Lifecycle](../2026-07/EngineTerminationLifecycle.md)
-- [StaticMesh Render-Data Lifetime Investigation](../../../Investigations/StaticMeshRenderDataLifetime.md)
 - [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
 - [Texture System](../../../Runtime/Rendering/TextureSystem.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)

@@ -8,10 +8,6 @@
   Ninja cannot account for parser processes hidden inside module-level DHT
   commands, so fixed worker and pool limits cannot both avoid oversubscription
   and lend idle compiler capacity to critical-path reflection generation.
-- [StaticMesh render-data lifetime](StaticMeshRenderDataLifetime.md) —
-  StaticMesh replacement and destruction can retire uniquely owned render data
-  before asynchronous proxy and resource teardown completes; the linked
-  implementation plan adopts UE-style unique ownership with fenced retirement.
 - [PBR pipeline production gaps](PBRPipelineProductionGaps.md) —
   HDR output, render passes, scene-lighting ownership, and stale editor controls
   retain ranked end-to-end gaps.

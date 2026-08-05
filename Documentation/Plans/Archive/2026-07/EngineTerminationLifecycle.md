@@ -904,7 +904,6 @@ Dependencies: Stage 4, Stage 4 of `MultithreadingV1.md`, and Stage 3 of
 
 - [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
 - [Static Mesh Render-Data Lifecycle](../2026-08/StaticMeshRenderDataLifecycle.md)
-- [Static Mesh Render-Data Lifetime Investigation](../../../Investigations/StaticMeshRenderDataLifetime.md)
 - [Multithreading V1](../2026-08/MultithreadingV1.md)
 - [Render Resource Lifetime](RenderResourceLifetime.md)
 
