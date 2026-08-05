@@ -105,6 +105,12 @@ declarations and compiled layouts remain deferred work.
   independent slots and rejects stale render commands.
 - The static mesh shader implements Cook-Torrance GGX direct lighting and
   split-sum image-based environment lighting, plus an unlit viewport mode.
+  Direct evaluation clamps perceptual roughness to `[0.045, 1]`; that positive
+  lower bound makes the GGX distribution denominator finite without an
+  independent epsilon floor. The distribution term uses the stable equivalent
+  form `(1 - NoH^2) + NoH^2 * alpha^2`, preserving the supported smooth-surface
+  peak. Direct-specular antialiasing is a separate future filtering policy and
+  must not be approximated by clamping the BRDF denominator.
   Missing role textures retain the selected material and use Renderer-owned
   white, black, or flat-normal resources. Missing environment resources retain
   the selected material and use the black environment set.

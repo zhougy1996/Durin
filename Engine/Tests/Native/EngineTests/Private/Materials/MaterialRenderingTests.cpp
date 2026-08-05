@@ -13,6 +13,7 @@
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Texture/TextureCubeRenderResource.h"
 
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -85,6 +86,46 @@ TEST(FMaterialTests, DirectPBRReferenceStabilizesValidatedExtremes)
 	EXPECT_TRUE(std::isfinite(Result.g));
 	EXPECT_TRUE(std::isfinite(Result.b));
 	EXPECT_EQ(Result, Durin::FVector3f(0.0f));
+}
+
+TEST(FMaterialTests, DirectPBRReferenceMatchesFrozenLowRoughnessSweep)
+{
+	struct FReference
+	{
+		float Roughness;
+		float Aligned;
+		float OffAxis;
+	};
+	constexpr std::array References{
+		FReference{0.045f, 776.39996338f, 0.12223225f},
+		FReference{0.1f, 31.98376846f, 0.12226272f},
+		FReference{0.2f, 2.14222503f, 0.12272578f},
+		FReference{0.5f, 0.20371832f, 0.13030937f},
+		FReference{1.0f, 0.15597184f, 0.12506039f},
+	};
+
+	Durin::FPBRDirectLightingInput Input;
+	Input.BaseColor = Durin::FVector3f(0.5f);
+	Input.Metallic = 0.0f;
+	for (const FReference& Reference : References)
+	{
+		Input.Roughness = Reference.Roughness;
+		Input.ToLight = Durin::FVector3f(0.0f, 0.0f, 1.0f);
+		const Durin::FVector3f Aligned =
+			Durin::EvaluatePBRDirectLighting(Input);
+		const float AlignedTolerance =
+			std::max(1.0e-6f, Reference.Aligned * 1.0e-5f);
+		EXPECT_NEAR(Aligned.r, Reference.Aligned, AlignedTolerance);
+		EXPECT_NEAR(Aligned.g, Reference.Aligned, AlignedTolerance);
+		EXPECT_NEAR(Aligned.b, Reference.Aligned, AlignedTolerance);
+
+		Input.ToLight = Durin::FVector3f(0.6f, 0.0f, 0.8f);
+		const Durin::FVector3f OffAxis =
+			Durin::EvaluatePBRDirectLighting(Input);
+		EXPECT_NEAR(OffAxis.r, Reference.OffAxis, 1.0e-6f);
+		EXPECT_NEAR(OffAxis.g, Reference.OffAxis, 1.0e-6f);
+		EXPECT_NEAR(OffAxis.b, Reference.OffAxis, 1.0e-6f);
+	}
 }
 
 TEST(FMaterialTests, MappedNormalReferencePreservesRNMAndMirroredHandedness)
@@ -631,6 +672,72 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Durin::FAssetPath DataTexturePath;
 	Durin::FAssetPath NormalTexturePath;
 	Durin::FAssetPath CaptureCubePath;
+	Durin::DStaticMesh* LowRoughnessMesh =
+		Durin::DStaticMesh::CreateDebugTriangle();
+	Durin::DMaterial* LowRoughnessMaterial =
+		Durin::NewObject<Durin::DMaterial>(
+			nullptr, "LowRoughnessRenderedReferenceMaterial");
+	ASSERT_NE(LowRoughnessMesh, nullptr);
+	ASSERT_NE(LowRoughnessMaterial, nullptr);
+	ASSERT_TRUE(LowRoughnessMaterial->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.5)));
+	ASSERT_TRUE(LowRoughnessMaterial->SetScalarParameterValue(
+		Durin::MaterialParameters::MetallicName(), 0.0f));
+	Durin::FRenderedAssetThumbnailVisualContract AlignedContract = Contract;
+	AlignedContract.CameraDirectionX = 0.001f;
+	AlignedContract.CameraDirectionY = 0.0f;
+	AlignedContract.CameraDirectionZ = 1.0f;
+	AlignedContract.KeyLightDirectionX = 0.0f;
+	AlignedContract.KeyLightDirectionY = 0.0f;
+	AlignedContract.KeyLightDirectionZ = -1.0f;
+	{
+		Durin::FRenderedAssetThumbnailPreviewScenePool AlignedPool(
+			AlignedContract);
+		ASSERT_TRUE(AlignedPool.IsAvailable()) << AlignedPool.GetDiagnostic();
+		auto CaptureAligned = [&](float Roughness) {
+			std::vector<Durin::uint8> Pixels;
+			EXPECT_TRUE(LowRoughnessMaterial->SetScalarParameterValue(
+				Durin::MaterialParameters::RoughnessName(), Roughness));
+			EXPECT_TRUE(AlignedPool.SetMaterial(
+				LowRoughnessMesh,
+				LowRoughnessMaterial,
+				Durin::FTransform(),
+				Error)) << Error;
+			EXPECT_TRUE(AlignedPool.BeginCapture(Error, false)) << Error;
+			Durin::FlushRenderingCommands();
+			EXPECT_EQ(
+				AlignedPool.PollCapture(Pixels, Error),
+				Durin::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+			AlignedPool.Reset();
+			return Pixels;
+		};
+		constexpr std::array RoughnessSweep{0.045f, 0.1f, 0.2f, 0.5f, 1.0f};
+		std::array<Durin::uint32, 5> Peaks{};
+		std::array<Durin::uint32, 5> SaturatedPixelCounts{};
+		for (size_t Index = 0; Index < RoughnessSweep.size(); ++Index)
+		{
+			const std::vector<Durin::uint8> Pixels =
+				CaptureAligned(RoughnessSweep[Index]);
+			for (size_t Pixel = 0; Pixel < Pixels.size(); Pixel += 4)
+			{
+				const Durin::uint32 Brightness =
+					static_cast<Durin::uint32>(Pixels[Pixel])
+					+ Pixels[Pixel + 1] + Pixels[Pixel + 2];
+				Peaks[Index] = std::max(Peaks[Index], Brightness);
+				SaturatedPixelCounts[Index] += Brightness >= 750 ? 1u : 0u;
+			}
+		}
+		EXPECT_GE(Peaks[0], 750u);
+		EXPECT_GE(Peaks[1], 750u);
+		EXPECT_GE(Peaks[2], 750u);
+		EXPECT_LT(Peaks[3], 600u);
+		EXPECT_LT(Peaks[4], 600u);
+		EXPECT_GT(SaturatedPixelCounts[0], 0u);
+		EXPECT_LT(SaturatedPixelCounts[0], SaturatedPixelCounts[1]);
+		EXPECT_LT(SaturatedPixelCounts[1], SaturatedPixelCounts[2]);
+		EXPECT_EQ(SaturatedPixelCounts[3], 0u);
+		EXPECT_EQ(SaturatedPixelCounts[4], 0u);
+	}
 	{
 		Durin::FRenderedAssetThumbnailPreviewScenePool Pool(Contract);
 		ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
@@ -1034,6 +1141,8 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Durin::MarkAsGarbage(CaptureInstance);
 	Durin::MarkAsGarbage(CaptureMaterial);
 	Durin::MarkAsGarbage(CaptureMesh);
+	Durin::MarkAsGarbage(LowRoughnessMaterial);
+	Durin::MarkAsGarbage(LowRoughnessMesh);
 	PreloadedSphere = {};
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SpherePath));
 	Durin::CollectGarbage();

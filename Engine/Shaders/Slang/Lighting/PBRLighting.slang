@@ -3,6 +3,7 @@ module PBRLighting;
 internal static const float Pi = 3.14159265358979323846;
 internal static const float MinVectorLengthSquared = 1.0e-8;
 internal static const float MinBRDFDivisor = 1.0e-5;
+internal static const float MinPerceptualRoughness = 0.045;
 
 internal float3 SafeNormalize(float3 value)
 {
@@ -31,11 +32,14 @@ public float3 EvaluatePBRDirectLighting(
     float NoV = saturate(dot(normal, toView));
     float NoH = saturate(dot(normal, halfVector));
     float VoH = saturate(dot(toView, halfVector));
-    float alpha = roughness * roughness;
+    float evaluatedRoughness = clamp(
+        roughness, MinPerceptualRoughness, 1.0);
+    float alpha = evaluatedRoughness * evaluatedRoughness;
     float alpha2 = alpha * alpha;
-    float distributionTerm = NoH * NoH * (alpha2 - 1.0) + 1.0;
+    float NoH2 = NoH * NoH;
+    float distributionTerm = (1.0 - NoH2) + NoH2 * alpha2;
     float distribution = alpha2
-        / max(Pi * distributionTerm * distributionTerm, MinBRDFDivisor);
+        / (Pi * distributionTerm * distributionTerm);
     float visibility = 0.5 / max(
         NoL * sqrt(NoV * NoV * (1.0 - alpha2) + alpha2)
             + NoV * sqrt(NoL * NoL * (1.0 - alpha2) + alpha2),

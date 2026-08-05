@@ -131,6 +131,11 @@ Decode helpers are module-internal. Transform, material sampling, tangent-space
 normal construction, environment sampling, and pass entry points remain in
 `StaticMeshBasePass.slang`. `Lighting.PBRLighting` owns the pass-independent
 Cook-Torrance GGX direct-light and split-sum environment-light evaluations.
+The direct GGX distribution relies on the canonical minimum perceptual
+roughness of `0.045` for finite evaluation and uses
+`(1 - NoH^2) + NoH^2 * alpha^2` for its denominator term. It does not apply a
+separate denominator floor that would reshape low-roughness highlights;
+specular antialiasing remains a distinct future filtering concern.
 Vulkan vertex fetch expands the normalized integer tangent and color streams to
 floats before the vertex-factory module receives them.
 

@@ -9,15 +9,14 @@ This investigation records the production-path gaps found while reviewing the
 current StaticMesh metallic/roughness PBR pipeline. The shader closure itself
 contains the intended Cook-Torrance GGX direct-light model, tangent-space normal
 mapping, and split-sum studio environment lighting. The remaining production
-gaps begin at render-target precision and low-roughness BRDF stabilization
-rather than material publication or scene import.
+gaps begin at render-target precision, render-pass execution, and scene/editor
+ownership rather than material publication, scene import, or BRDF stabilization.
 
 The findings are ordered by user-visible severity and dependency:
 
 | Priority | Issue | Status | Implementation boundary |
 | --- | --- | --- | --- |
 | P1 | LDR Scene Color clips PBR radiance before post-processing | Verified, intentionally deferred limitation | HDR/post-process plan |
-| P1 | GGX denominator floor distorts low-roughness direct highlights | Verified numerical-quality defect | Bounded corrective task after reference selection |
 | P2 | Material static properties do not control render passes | Verified, intentionally deferred limitation | Material roadmap milestone 4 |
 | P2 | Lighting and IBL remain preview-scale and visually disconnected | Verified scope limitation | Future lighting/environment plan |
 | P3 | Removed ambient and rim-light controls remain exposed | Verified stale API/editor state | Bounded cleanup task |
@@ -50,39 +49,6 @@ output. This work should not be represented as a one-line switch to RGBA16F.
 Acceptance evidence must include values above one surviving the scene pass,
 exposure/tone-map reference values, stable SDR output, emissive response, and
 consistent present/offscreen rendering.
-
-### P1 — GGX denominator floor distorts low-roughness direct highlights
-
-**Status:** Verified numerical-quality defect; the replacement stabilization
-and antialiasing reference need selection.
-
-Both the shader and CPU reference compute the GGX distribution as
-`alpha2 / max(PI * distributionTerm^2, 1e-5)`. At the aligned-light peak,
-`distributionTerm = roughness^4`, so the floor changes the distribution for
-roughness below approximately 0.205 rather than merely preventing a divide by
-zero.
-
-| Perceptual roughness | Ideal aligned `D` | Current aligned `D` | Retained peak |
-| ---: | ---: | ---: | ---: |
-| 0.045 | about 77,625 | about 0.41 | less than 0.001% |
-| 0.10 | about 3,183 | 10 | about 0.3% |
-| 0.20 | about 199 | 160 | about 80% |
-| 0.50 | about 5.09 | about 5.09 | 100% |
-
-**Impact:** smooth materials receive an artificially weak and broad-looking
-directional highlight. Environment prefiltering does not apply the same clamp,
-so direct and image-based responses disagree as roughness approaches zero.
-
-**Validation gap:** frozen CPU references cover roughness 0.5 and 1.0. The
-extreme-input test combines zero roughness with degenerate light/view vectors
-and therefore returns zero before it can validate the aligned low-roughness
-peak. Rendered tests do not isolate a low-roughness sweep.
-
-**Candidate direction:** retain finite handling while moving stabilization to a
-term and magnitude that do not redefine the supported roughness range. Select
-the intended direct-specular antialiasing policy separately from the BRDF
-epsilon. Update CPU/GPU parity values and add aligned/off-axis sweeps at the
-minimum, 0.1, 0.2, 0.5, and 1.0 roughness values.
 
 ### P2 — Material static properties do not control render passes
 
@@ -149,10 +115,8 @@ the selected correction.
 
 ## Validation Ordering
 
-1. Correct low-roughness GGX stabilization against explicit numeric and image
-   references.
-2. Plan HDR output and material render passes as separate architectural units.
-3. Expand scene lighting only after environment ownership and scalability
+1. Plan HDR output and material render passes as separate architectural units.
+2. Expand scene lighting only after environment ownership and scalability
    requirements are selected.
 
 ## Related Documentation
@@ -166,7 +130,7 @@ the selected correction.
 
 ## Relevant Implementation
 
-- `Engine/Shaders/Slang/StaticMesh.slang` and
+- `Engine/Shaders/Slang/StaticMeshBasePass.slang` and
   `Engine/Source/Runtime/Renderer/Private/PBRLighting.cpp`: GPU and CPU PBR
   references;
 - `Engine/Source/Runtime/Renderer/Private/Renderers/PostProcessRenderer.cpp`,

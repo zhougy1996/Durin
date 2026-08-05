@@ -12,6 +12,7 @@ namespace Durin
 		constexpr float Pi = 3.14159265358979323846f;
 		constexpr float MinVectorLengthSquared = 1.0e-8f;
 		constexpr float MinBRDFDivisor = 1.0e-5f;
+		constexpr float MinPerceptualRoughness = 0.045f;
 
 		auto SafeNormalize(
 			const FVector3f& Value,
@@ -39,7 +40,7 @@ namespace Durin
 			? std::clamp(Input.Metallic, 0.0f, 1.0f)
 			: 0.0f;
 		const float Roughness = std::isfinite(Input.Roughness)
-			? std::clamp(Input.Roughness, 0.045f, 1.0f)
+			? std::clamp(Input.Roughness, MinPerceptualRoughness, 1.0f)
 			: 0.5f;
 		const FVector3f Normal = SafeNormalize(
 			Input.Normal, FVector3f(0.0f, 0.0f, 1.0f));
@@ -56,9 +57,11 @@ namespace Durin
 		const float VoH = std::clamp(Math::Dot(ToView, HalfVector), 0.0f, 1.0f);
 		const float Alpha = Roughness * Roughness;
 		const float Alpha2 = Alpha * Alpha;
-		const float DDenominator = std::max(
-			Pi * std::pow(NoH * NoH * (Alpha2 - 1.0f) + 1.0f, 2.0f),
-			MinBRDFDivisor);
+		const float NoH2 = NoH * NoH;
+		const float DistributionTerm =
+			(1.0f - NoH2) + NoH2 * Alpha2;
+		const float DDenominator =
+			Pi * DistributionTerm * DistributionTerm;
 		const float Distribution = Alpha2 / DDenominator;
 		const float VisibilityDenominator = std::max(
 			NoL * std::sqrt(NoV * NoV * (1.0f - Alpha2) + Alpha2)
@@ -139,7 +142,7 @@ namespace Durin
 		const float Metallic = std::isfinite(Input.Metallic)
 			? std::clamp(Input.Metallic, 0.0f, 1.0f) : 0.0f;
 		const float Roughness = std::isfinite(Input.Roughness)
-			? std::clamp(Input.Roughness, 0.045f, 1.0f) : 0.5f;
+			? std::clamp(Input.Roughness, MinPerceptualRoughness, 1.0f) : 0.5f;
 		const float AmbientOcclusion = std::isfinite(Input.AmbientOcclusion)
 			? std::clamp(Input.AmbientOcclusion, 0.0f, 1.0f) : 1.0f;
 		const float NoV = std::isfinite(Input.NoV)
