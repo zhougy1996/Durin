@@ -6,6 +6,9 @@ plan link when implementation work begins.
 
 ## Active
 
+- [Compact Asset Serialization](CompactAssetSerialization.md) — coordinate the
+  reflection prerequisites, deterministic DAST v3 format, dual-version
+  migration, and evidence-gated authored-content rollout.
 - [Compute Shader Pipeline](ComputeShaderPipeline.md) — establish synchronous
   compute, explicit resource synchronization, production renderer integration,
   and evidence-gated advanced execution.
