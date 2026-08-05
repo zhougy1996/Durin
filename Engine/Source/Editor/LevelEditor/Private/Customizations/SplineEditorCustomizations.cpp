@@ -225,8 +225,6 @@ namespace Durin
 					}
 				}
 				if (!Context.bSelected) return;
-				const FVector3 Axes[] = {glm::normalize(Spline->GetWorldRotation() * FVectorConstants::Forward),
-					glm::normalize(Spline->GetWorldRotation() * FVectorConstants::Right), glm::normalize(Spline->GetWorldRotation() * FVectorConstants::Up)};
 				for (uint32 PointIndex = 0; PointIndex < Spline->GetNumSplinePoints(); ++PointIndex)
 				{
 					const FSplinePoint* Point = Spline->GetSplinePoint(PointIndex);
@@ -235,12 +233,9 @@ namespace Durin
 					const FVector4f PointColor = ToColor(IsSelected(Context.SelectedSubElements, PointElement)
 						? MonaImGui::EUIThemeColor::SelectionPrimary : MonaImGui::EUIThemeColor::Success);
 					const FVector3 WorldPoint = LocalToWorld(*Spline, Point->Position);
-					for (const FVector3& Axis : Axes)
-					{
-						FEditorVisualizationLine Line{WorldPoint - Axis * 2.5, WorldPoint + Axis * 2.5, PointColor, 3.0f, 9.0f, 80, Actor, Spline};
-						Line.Element = PointElement;
-						Collector.AddLine(Line);
-					}
+					FEditorVisualizationBox PointBox{WorldPoint, PointColor, 12.0f, 5.0f, 80, Actor, Spline, true, HoverColor};
+					PointBox.Element = PointElement;
+					Collector.AddBox(PointBox);
 					if (Point->TangentMode != ESplineTangentMode::ManualAligned && Point->TangentMode != ESplineTangentMode::ManualBroken) continue;
 					const FVector3 Arrive = LocalToWorld(*Spline, Point->Position - Point->ArriveTangent * kHandleScale);
 					const FVector3 Leave = LocalToWorld(*Spline, Point->Position + Point->LeaveTangent * kHandleScale);
@@ -249,12 +244,10 @@ namespace Durin
 						FEditorVisualizationLine Stem{WorldPoint, Handle, ToColor(MonaImGui::EUIThemeColor::Info), 1.5f, 6.0f, 40, Actor, Spline};
 						Stem.Element = {Kind, Point->Id};
 						Collector.AddLine(Stem);
-						for (const FVector3& Axis : Axes)
-						{
-							FEditorVisualizationLine Mark{Handle - Axis * 1.5, Handle + Axis * 1.5, Stem.Color, 2.5f, 9.0f, 90, Actor, Spline};
-							Mark.Element = Stem.Element;
-							Collector.AddLine(Mark);
-						}
+						FEditorVisualizationBox HandleBox{Handle, Stem.Color, 9.0f, 4.0f, 90, Actor, Spline, true,
+							ToColor(MonaImGui::EUIThemeColor::SelectionPrimary)};
+						HandleBox.Element = Stem.Element;
+						Collector.AddBox(HandleBox);
 					}
 				}
 			}

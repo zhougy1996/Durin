@@ -18,6 +18,17 @@ namespace Durin
 			return glm::length(Point - (A + Segment * OutT));
 		}
 
+		auto GetScreenSizedBoxTransform(const FSceneView& View, const FEditorVisualizationBox& Box) -> std::optional<FMatrix>
+		{
+			const FVector4 Clip = View.ViewProjectionMatrix * FVector4(Box.WorldPosition, 1.0);
+			const double ProjectionScale = glm::length(FVector3(
+				View.ProjectionMatrix[0][1], View.ProjectionMatrix[1][1], View.ProjectionMatrix[2][1]));
+			if (!std::isfinite(Clip.w) || Clip.w <= 1.e-8 || !std::isfinite(ProjectionScale) || ProjectionScale <= 1.e-8) return std::nullopt;
+			const double WorldSize = Box.SizePixels * 2.0 * Clip.w / (ProjectionScale * std::max(1u, View.ViewportHeight));
+			if (!std::isfinite(WorldSize) || WorldSize <= 0.0) return std::nullopt;
+			return glm::translate(FMatrix(1.0), Box.WorldPosition) * glm::scale(FMatrix(1.0), FVector3(WorldSize));
+		}
+
 		template<typename T, typename TMap>
 		auto FindMostSpecific(const DClass* Class, const TMap& Entries) -> std::shared_ptr<T>
 		{
@@ -110,6 +121,13 @@ namespace Durin
 		Icons.push_back(Icon);
 	}
 
+	auto FEditorVisualizationCollector::AddBox(const FEditorVisualizationBox& Box) -> void
+	{
+		if (!Box.Actor.IsValid() || !Box.Component.IsValid() || !std::isfinite(Box.SizePixels) || !std::isfinite(Box.HitPaddingPixels)
+			|| Box.SizePixels <= 0.0f || Box.HitPaddingPixels < 0.0f) return;
+		Boxes.push_back(Box);
+	}
+
 	auto FEditorVisualizationCollector::AppendToView(FSceneView& View, const FEditorVisualizationHit* Hovered) const -> void
 	{
 		View.OverlayLines.reserve(View.OverlayLines.size() + Lines.size());
@@ -129,6 +147,17 @@ namespace Durin
 			const bool bHovered = Hovered && Actor == Hovered->Actor && Icon.Component.Get() == Hovered->Component && Icon.Element == Hovered->Element;
 			const FVector4f& Color = bHovered && Icon.HoverColor ? *Icon.HoverColor : Icon.Color;
 			View.OverlayIcons.push_back({Icon.Icon, Icon.WorldPosition, Color, Icon.SizePixels});
+		}
+		View.OverlayPrimitives.reserve(View.OverlayPrimitives.size() + Boxes.size());
+		for (const FEditorVisualizationBox& Box : Boxes)
+		{
+			const AActor* Actor = Box.Actor.Get();
+			if (!Actor || !Box.Component.IsValid()) continue;
+			const std::optional<FMatrix> LocalToWorld = GetScreenSizedBoxTransform(View, Box);
+			if (!LocalToWorld) continue;
+			const bool bHovered = Hovered && Actor == Hovered->Actor && Box.Component.Get() == Hovered->Component && Box.Element == Hovered->Element;
+			const FVector4f& Color = bHovered && Box.HoverColor ? *Box.HoverColor : Box.Color;
+			View.OverlayPrimitives.push_back({EViewOverlayShape::Box, *LocalToWorld, Color});
 		}
 	}
 
@@ -152,6 +181,16 @@ namespace Durin
 			const FVector4f& Color = Actor == Hit.Actor && Icon.HoverColor ? *Icon.HoverColor : Icon.Color;
 			View.OverlayIcons.push_back({Icon.Icon, Icon.WorldPosition, Color, Icon.SizePixels});
 		}
+		View.OverlayPrimitives.reserve(View.OverlayPrimitives.size() + Boxes.size());
+		for (const FEditorVisualizationBox& Box : Boxes)
+		{
+			const AActor* Actor = Box.Actor.Get();
+			if (!Actor || !Box.Component.IsValid()) continue;
+			const std::optional<FMatrix> LocalToWorld = GetScreenSizedBoxTransform(View, Box);
+			if (!LocalToWorld) continue;
+			const FVector4f& Color = Actor == Hit.Actor && Box.HoverColor ? *Box.HoverColor : Box.Color;
+			View.OverlayPrimitives.push_back({EViewOverlayShape::Box, *LocalToWorld, Color});
+		}
 	}
 
 	auto FEditorVisualizationCollector::HitTest(const FSceneView& View, const FVector2f& ViewportPosition) const -> FEditorVisualizationHit
@@ -160,6 +199,21 @@ namespace Durin
 		FVector3 RayOrigin, RayDirection;
 		if (!SceneViewProjection::BuildViewportRay(View, ViewportPosition, RayOrigin, RayDirection)) return Best;
 		(void)RayDirection;
+		for (const FEditorVisualizationBox& Box : Boxes)
+		{
+			AActor* Actor = Box.Actor.Get();
+			DActorComponent* Component = Box.Component.Get();
+			if (!Actor || !Component) continue;
+			FVector2f ScreenPosition;
+			if (!SceneViewProjection::ProjectWorldToViewport(View, Box.WorldPosition, ScreenPosition)) continue;
+			const float HitHalfExtent = Box.SizePixels * 0.5f + Box.HitPaddingPixels;
+			const FVector2f Delta = glm::abs(ViewportPosition - ScreenPosition);
+			if (Delta.x > HitHalfExtent || Delta.y > HitHalfExtent) continue;
+			const double Distance = glm::length(Box.WorldPosition - RayOrigin);
+			if (!std::isfinite(Distance)) continue;
+			if (Distance < Best.Distance - 1.e-6 || (std::abs(Distance - Best.Distance) <= 1.e-6 && Box.HitPriority > Best.Priority))
+				Best = {Actor, Component, Box.Element, Distance, Box.HitPriority, Box.bDepthIndependentHit};
+		}
 		for (const FEditorVisualizationIcon& Icon : Icons)
 		{
 			AActor* Actor = Icon.Actor.Get();

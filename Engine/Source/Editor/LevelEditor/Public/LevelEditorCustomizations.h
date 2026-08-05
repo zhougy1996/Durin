@@ -61,6 +61,22 @@ namespace Durin
 		FEditorSubElementSelection Element;
 	};
 
+	// Describes a screen-sized solid box anchored in world space.
+	struct FEditorVisualizationBox
+	{
+		FVector3 WorldPosition{0.0};
+		FVector4f Color{1.0f};
+		float SizePixels = 10.0f;
+		float HitPaddingPixels = 4.0f;
+		int32 HitPriority = 100;
+		TWeakObjectPtr<AActor> Actor;
+		TWeakObjectPtr<DActorComponent> Component;
+		bool bDepthIndependentHit = true;
+		// Applied only when this primitive's actor is hovered; absence preserves its base color.
+		std::optional<FVector4f> HoverColor;
+		FEditorSubElementSelection Element;
+	};
+
 	// Reports the highest-priority visualization hit at one viewport position.
 	struct FEditorVisualizationHit
 	{
@@ -78,15 +94,18 @@ namespace Durin
 	public:
 		LEVELEDITOR_API auto AddLine(const FEditorVisualizationLine& Line) -> void;
 		LEVELEDITOR_API auto AddIcon(const FEditorVisualizationIcon& Icon) -> void;
+		LEVELEDITOR_API auto AddBox(const FEditorVisualizationBox& Box) -> void;
 		LEVELEDITOR_API auto AppendToView(FSceneView& View, const FEditorVisualizationHit* Hovered = nullptr) const -> void;
 		LEVELEDITOR_API auto AppendToView(FSceneView& View, const AActor* HoveredActor) const -> void;
 		LEVELEDITOR_API auto HitTest(const FSceneView& View, const FVector2f& ViewportPosition) const -> FEditorVisualizationHit;
 		auto GetLines() const -> const std::vector<FEditorVisualizationLine>& { return Lines; }
 		auto GetIcons() const -> const std::vector<FEditorVisualizationIcon>& { return Icons; }
+		auto GetBoxes() const -> const std::vector<FEditorVisualizationBox>& { return Boxes; }
 
 	private:
 		std::vector<FEditorVisualizationLine> Lines;
 		std::vector<FEditorVisualizationIcon> Icons;
+		std::vector<FEditorVisualizationBox> Boxes;
 	};
 
 	// Defines a component-specific producer of editor viewport overlays.

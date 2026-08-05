@@ -1,6 +1,6 @@
 #include "ViewportTestSupport.h"
 
-TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveAndControlPointLines)
+TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveLinesAndControlPointBoxes)
 {
 	InitializeDObjectSystem();
 	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "SplineActor");
@@ -17,7 +17,12 @@ TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveAndControlPointLines)
 	EXPECT_TRUE(std::ranges::all_of(Collector.GetLines(), [Actor, Spline](const Durin::FEditorVisualizationLine& Line) {
 		return Line.Actor.Get() == Actor && Line.Component.Get() == Spline;
 	}));
-	EXPECT_GT(Collector.GetLines().size(), 16u);
+	EXPECT_GE(Collector.GetLines().size(), 16u);
+	ASSERT_EQ(Collector.GetBoxes().size(), Spline->GetNumSplinePoints());
+	EXPECT_TRUE(std::ranges::all_of(Collector.GetBoxes(), [Actor, Spline](const Durin::FEditorVisualizationBox& Box) {
+		return Box.Actor.Get() == Actor && Box.Component.Get() == Spline
+			&& Box.Element.Kind == Durin::EEditorSubElementKind::Point;
+	}));
 
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::CollectGarbage();
@@ -35,11 +40,11 @@ TEST(FSplineComponentVisualizerTests, PublishesStableTypedSplineElements)
 	Durin::FSceneView View;
 	Durin::FEditorVisualizationCollector Collector;
 	Durin::CreateSplineComponentVisualizer()->DrawVisualization(Spline, {View, nullptr, true, true, true, {}}, Collector);
-	EXPECT_TRUE(std::ranges::any_of(Collector.GetLines(), [First](const Durin::FEditorVisualizationLine& Line) {
-		return Line.Element.Kind == Durin::EEditorSubElementKind::Point && Line.Element.StableId == First.Id;
+	EXPECT_TRUE(std::ranges::any_of(Collector.GetBoxes(), [First](const Durin::FEditorVisualizationBox& Box) {
+		return Box.Element.Kind == Durin::EEditorSubElementKind::Point && Box.Element.StableId == First.Id;
 	}));
-	EXPECT_TRUE(std::ranges::any_of(Collector.GetLines(), [First](const Durin::FEditorVisualizationLine& Line) {
-		return Line.Element.Kind == Durin::EEditorSubElementKind::LeaveTangent && Line.Element.StableId == First.Id;
+	EXPECT_TRUE(std::ranges::any_of(Collector.GetBoxes(), [First](const Durin::FEditorVisualizationBox& Box) {
+		return Box.Element.Kind == Durin::EEditorSubElementKind::LeaveTangent && Box.Element.StableId == First.Id;
 	}));
 	EXPECT_TRUE(std::ranges::any_of(Collector.GetLines(), [](const Durin::FEditorVisualizationLine& Line) {
 		return Line.Element.Kind == Durin::EEditorSubElementKind::Segment && Line.Element.SecondaryIndex == 0;
@@ -281,6 +286,40 @@ TEST(FEditorVisualizationCollectorTests, UsesTheSameIconsForRenderingAndDepthInd
 	EXPECT_EQ(Hit.Actor, Actor);
 	EXPECT_TRUE(Hit.bDepthIndependent);
 	EXPECT_EQ(Collector.HitTest(View, ScreenCenter + Durin::FVector2f(24.0f, 0.0f)).Actor, nullptr);
+}
+
+TEST(FEditorVisualizationCollectorTests, UsesScreenSizedBoxesForRenderingAndPicking)
+{
+	InitializeDObjectSystem();
+	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(nullptr, "BoxVisualizationWorld");
+	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "BoxVisualizationLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
+	ASSERT_NE(Actor, nullptr);
+	Durin::FLevelEditorViewportClient Client;
+	Durin::FSceneView View;
+	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
+	const Durin::FVector3 Center = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
+	const Durin::FEditorSubElementSelection Element{Durin::EEditorSubElementKind::Point, Durin::FGuid::NewGuid()};
+	Durin::FEditorVisualizationBox Box{Center, Durin::FVector4f(1.0f), 12.0f, 5.0f, 80,
+		Actor, Actor->GetCameraComponent(), true};
+	Box.Element = Element;
+	Durin::FEditorVisualizationCollector Collector;
+	Collector.AddBox(Box);
+	const size_t InitialPrimitiveCount = View.OverlayPrimitives.size();
+	Collector.AppendToView(View);
+	ASSERT_EQ(View.OverlayPrimitives.size(), InitialPrimitiveCount + 1);
+	EXPECT_EQ(View.OverlayPrimitives.back().Shape, Durin::EViewOverlayShape::Box);
+	Durin::FVector2f ScreenCenter;
+	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, Center, ScreenCenter));
+	const Durin::FEditorVisualizationHit Hit = Collector.HitTest(View, ScreenCenter + Durin::FVector2f(10.0f, 0.0f));
+	EXPECT_EQ(Hit.Actor, Actor);
+	EXPECT_EQ(Hit.Component, Actor->GetCameraComponent());
+	EXPECT_EQ(Hit.Element, Element);
+	EXPECT_TRUE(Hit.bDepthIndependent);
+	EXPECT_EQ(Collector.HitTest(View, ScreenCenter + Durin::FVector2f(12.0f, 0.0f)).Actor, nullptr);
+	Durin::MarkObjectHierarchyAsGarbage(World);
+	Durin::CollectGarbage();
 }
 
 TEST(FEditorVisualizationCollectorTests, AppliesOptionalHoverColorWithoutRegeneratingPrimitives)

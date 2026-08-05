@@ -78,9 +78,11 @@ For multiple selected Actors, translation affects the group uniformly while rota
 
 ## Editing Splines
 
-Spline mode displays the selected component's curve, control points, and manual
-tangent handles. Selection is tied to stable point identity, so reordering,
-Undo, and Redo do not switch the selection to a different logical point.
+Spline mode displays the selected component's curve, control points as solid
+box markers, and smaller box markers for manual tangent handles. Marker size and
+click targets remain stable on screen as the camera moves. Selection is tied to
+stable point identity, so reordering, Undo, and Redo do not switch the selection
+to a different logical point.
 
 | Input | Action |
 | --- | --- |
