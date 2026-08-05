@@ -4,7 +4,7 @@ Summary: Replace StaticMesh slot GUIDs and orphan overrides with UE-style import
 
 Last reviewed: 2026-08-05
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-05
 
 ## Current Status
@@ -28,7 +28,7 @@ indexed contract. Repository-wide symbol/package audits, the complete native
 aggregate, full `all` build, and hidden-window editor smoke all pass.
 
 The current implementation is the completed outcome of the archived
-[Static Mesh Material Slots Plan](Archive/2026-07/StaticMeshMaterialSlots.md):
+[Static Mesh Material Slots Plan](../2026-07/StaticMeshMaterialSlots.md):
 `DStaticMesh` persists one GUID per material slot, `DStaticMeshComponent`
 persists sparse `{SlotId, Material}` overrides, a mesh switch turns unmatched
 overrides into explicit orphans, and Details exposes those orphans by GUID.
@@ -736,13 +736,13 @@ commands that may become stale.
 
 ## Related Documentation
 
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
-- [Material System Roadmap](../Roadmaps/MaterialSystem.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
-- [Static Mesh Material Slots Plan](Archive/2026-07/StaticMeshMaterialSlots.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
+- [Static Mesh Material Slots Plan](../2026-07/StaticMeshMaterialSlots.md)
 - [Default Material and Error Fallback Plan](DefaultMaterialAndErrorFallback.md)
 - [Project Asset Compatibility Audit Plan](ProjectAssetCompatibilityAudit.md)
 

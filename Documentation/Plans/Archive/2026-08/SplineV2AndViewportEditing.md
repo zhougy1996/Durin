@@ -4,7 +4,7 @@ Summary: Replace the early spline data model with a geometry-first runtime and a
 
 Last reviewed: 2026-08-05
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-05
 
 ## Current Status
@@ -678,11 +678,11 @@ Dependencies: Stages 1-4.
 
 ## Related Documentation
 
-- [Spline System](../Runtime/World/SplineSystem.md)
-- [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
-- [Viewport Editing Architecture](../Editor/Architecture/ViewportEditing.md)
-- [Scene Viewport Navigation](../Editor/Guides/SceneViewportNavigation.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Spline System](../../../Runtime/World/SplineSystem.md)
+- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Viewport Editing Architecture](../../../Editor/Architecture/ViewportEditing.md)
+- [Scene Viewport Navigation](../../../Editor/Guides/SceneViewportNavigation.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

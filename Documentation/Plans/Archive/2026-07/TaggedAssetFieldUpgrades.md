@@ -263,7 +263,7 @@ Build and test execution follow
 ## Related Documentation
 
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
-- [Project Asset Compatibility Audit](../../ProjectAssetCompatibilityAudit.md)
+- [Project Asset Compatibility Audit](../2026-08/ProjectAssetCompatibilityAudit.md)
 - [Asset Structure Upgrade](AssetStructureUpgrade.md)
 - [Build And Run](../../../Development/Build/BuildAndRun.md)
 - [Native C++ Tests](../../../Development/Build/NativeTests.md)

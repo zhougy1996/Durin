@@ -4,7 +4,7 @@ Summary: Remove the obsolete asset-upgrade workflow and add an explicit read-onl
 
 Last reviewed: 2026-08-05
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-05
 
 ## Current Status
@@ -569,13 +569,13 @@ Dependencies: Stages 0 through 3.
 
 ## Related Documentation
 
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Workspace Framework](../Editor/Architecture/WorkspaceFramework.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Native C++ Tests](../Development/Build/NativeTests.md)
-- [Tagged Asset Field Upgrades Plan](Archive/2026-07/TaggedAssetFieldUpgrades.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
+- [Tagged Asset Field Upgrades Plan](../2026-07/TaggedAssetFieldUpgrades.md)
 - [Unreal Engine Asset And Package Versioning](https://dev.epicgames.com/documentation/en-us/unreal-engine/versioning-of-assets-and-packages-in-unreal-engine)
 - [Unreal Engine Asset Registry](https://dev.epicgames.com/documentation/en-us/unreal-engine/asset-registry-in-unreal-engine)
 - [Unreal Engine Data Validation](https://dev.epicgames.com/documentation/en-us/unreal-engine/data-validation-in-unreal-engine)

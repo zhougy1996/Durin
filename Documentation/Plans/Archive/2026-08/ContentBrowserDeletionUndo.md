@@ -4,7 +4,7 @@ Summary: Add reference-aware recursive Content Browser deletion with same-volume
 
 Last reviewed: 2026-08-05
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-05
 
 ## Current Status
@@ -578,10 +578,10 @@ Dependencies: Stage 4 evidence.
 
 ## Related Documentation
 
-- [Content Browser architecture](../Editor/Architecture/ContentBrowser.md)
-- [Editor workspace framework](../Editor/Architecture/WorkspaceFramework.md)
-- [File I/O contract](../Runtime/Core/FileIO.md)
-- [Build and run](../Development/Build/BuildAndRun.md)
+- [Content Browser architecture](../../../Editor/Architecture/ContentBrowser.md)
+- [Editor workspace framework](../../../Editor/Architecture/WorkspaceFramework.md)
+- [File I/O contract](../../../Runtime/Core/FileIO.md)
+- [Build and run](../../../Development/Build/BuildAndRun.md)
 - [Unreal Engine Sources Panel Reference](https://dev.epicgames.com/documentation/en-us/unreal-engine/sources-panel-reference-in-unreal-engine?lang=en-US)
 - [Unreal Engine Working with Assets](https://dev.epicgames.com/documentation/en-us/unreal-engine/working-with-assets-in-unreal-engine)
 - [Unreal Engine FAssetDeleteModel API](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Editor/UnrealEd/FAssetDeleteModel)

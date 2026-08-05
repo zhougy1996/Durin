@@ -4,7 +4,7 @@ Summary: Replace the immediate RHI forwarding facade with UE-style immediate and
 
 Last reviewed: 2026-08-05
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-05
 
 ## Current Status
@@ -49,7 +49,7 @@ Those sessions recorded 14,257-14,259 commands, 555,145-555,305 payload bytes,
 replay. For this workload that is approximately 238 commands, 9.25 KB of owned
 payload, 2.2 submission groups, and 1.18 ms of inline replay per tick. The
 lasting behavior is now owned by
-[RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md). This
+[RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md). This
 completed plan is the required predecessor of
 [Dedicated RHI Thread](DedicatedRHIThread.md) and an upstream dependency of the
 compute-pipeline roadmap. The dedicated-thread plan has now consumed the same
@@ -548,7 +548,7 @@ Dependencies: Stage 4.
 | Submit -> frame/deletion | End-frame, GPU submit, completion serial, and deletion occur in their specified order. |
 | Render thread -> runtime shutdown | Accepted render commands drain to zero batches and zero deferred RHI deletes before `RHIExit`. |
 
-Build, test, and runtime commands follow the root [build and run](../Development/Build/BuildAndRun.md)
+Build, test, and runtime commands follow the root [build and run](../../../Development/Build/BuildAndRun.md)
 contract. A user-visible regression discovered during runtime validation requires
 the full validation level specified there before this plan can complete.
 
@@ -574,18 +574,18 @@ the full validation level specified there before this plan can complete.
 ## Deferred Follow-ups
 
 - Compute commands and transitions are owned by the
-  [Compute Shader Pipeline roadmap](../Roadmaps/ComputeShaderPipeline.md).
+  [Compute Shader Pipeline roadmap](../../../Roadmaps/ComputeShaderPipeline.md).
 - Parallel recording, worker-produced lists, command sorting/merging, binary
   command compression, asynchronous queue-before-finish prerequisites, and
   asynchronous resource creation require separate evidence and plans.
 
 ## Related Documentation
 
-- [Compute Shader Pipeline roadmap](../Roadmaps/ComputeShaderPipeline.md)
-- [RHI command execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Runtime lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Viewport rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Build and run](../Development/Build/BuildAndRun.md)
+- [Compute Shader Pipeline roadmap](../../../Roadmaps/ComputeShaderPipeline.md)
+- [RHI command execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Runtime lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Viewport rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Build and run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

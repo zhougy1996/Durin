@@ -631,7 +631,7 @@ Dependencies: Stage 3.
 ## Deferred Follow-ups
 
 - Metallic/roughness PBR inputs and visual output, owned by
-  [PBR Material Surface](../../PBRMaterialSurface.md).
+  [PBR Material Surface](PBRMaterialSurface.md).
 - Opaque, masked, translucent, culling, depth, shadow, and sorting policies.
 - Material graph compilation, generated shader source/IR, derived shader maps,
   and asynchronous compilation.

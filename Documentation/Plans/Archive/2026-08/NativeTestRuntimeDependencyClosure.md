@@ -4,7 +4,7 @@ Summary: Derive each native test's deployable runtime closure from its final CMa
 
 Last reviewed: 2026-08-05
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-05
 
 ## Current Status
@@ -401,14 +401,14 @@ that reaches the module transitively.
 
 ## Related Documentation
 
-- [Native C++ Tests](../Development/Build/NativeTests.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Test Process Isolation](Archive/2026-07/NativeTestProcessIsolation.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Test Process Isolation](../2026-07/NativeTestProcessIsolation.md)
 
 ## Related Code
 
-- [`CMake/Project/ProjectOutputs.cmake`](../../CMake/Project/ProjectOutputs.cmake)
-- [`CMake/Project/ProjectTargets.cmake`](../../CMake/Project/ProjectTargets.cmake)
-- [`Engine/Tests/Native/EngineTests/CMakeLists.txt`](../../Engine/Tests/Native/EngineTests/CMakeLists.txt)
-- [`Engine/Tests/Native/RenderCoreTests/CMakeLists.txt`](../../Engine/Tests/Native/RenderCoreTests/CMakeLists.txt)
-- [`Engine/Tests/Native/VulkanRHITests/CMakeLists.txt`](../../Engine/Tests/Native/VulkanRHITests/CMakeLists.txt)
+- [`CMake/Project/ProjectOutputs.cmake`](../../../../CMake/Project/ProjectOutputs.cmake)
+- [`CMake/Project/ProjectTargets.cmake`](../../../../CMake/Project/ProjectTargets.cmake)
+- [`Engine/Tests/Native/EngineTests/CMakeLists.txt`](../../../../Engine/Tests/Native/EngineTests/CMakeLists.txt)
+- [`Engine/Tests/Native/RenderCoreTests/CMakeLists.txt`](../../../../Engine/Tests/Native/RenderCoreTests/CMakeLists.txt)
+- [`Engine/Tests/Native/VulkanRHITests/CMakeLists.txt`](../../../../Engine/Tests/Native/VulkanRHITests/CMakeLists.txt)

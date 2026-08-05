@@ -33,7 +33,7 @@ baseline.
 | Roadmap milestone | Execution plan | State |
 | --- | --- | --- |
 | 2. Versioned renderer-facing material representation | [Material Render Representation](../Plans/Archive/2026-08/MaterialRenderRepresentation.md) | Complete; final handoff recorded |
-| 3. Metallic/roughness PBR surface contract | [PBR Material Surface](../Plans/PBRMaterialSurface.md) | Complete; final handoff recorded |
+| 3. Metallic/roughness PBR surface contract | [PBR Material Surface](../Plans/Archive/2026-08/PBRMaterialSurface.md) | Complete; final handoff recorded |
 
 Milestones 2 and 3 are complete. No render-pass execution plan is active; the
 landed surface outputs and limitations below are the review baseline for any

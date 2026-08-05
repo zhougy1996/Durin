@@ -4,7 +4,7 @@ Summary: Replace the fixed Blinn-Phong material slice with a validated metallic/
 
 Last reviewed: 2026-08-05
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-05
 
 ## Current Status
@@ -896,15 +896,15 @@ Dependencies: Stage 4.
 
 ## Related Documentation
 
-- [Material System Roadmap](../Roadmaps/MaterialSystem.md)
-- [Material Render Representation Plan](Archive/2026-08/MaterialRenderRepresentation.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Texture Support Plan](TextureSupport.md)
-- [Texture System](../Runtime/Rendering/TextureSystem.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
+- [Material Render Representation Plan](MaterialRenderRepresentation.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Texture Support Plan](../../TextureSupport.md)
+- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

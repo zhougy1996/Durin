@@ -151,7 +151,7 @@ queue sizing; they are not GPU timing measurements.
 
 - [Runtime lifecycle](../Core/RuntimeLifecycle.md)
 - [Viewport rendering](ViewportRendering.md)
-- [Dedicated RHI Thread plan](../../Plans/DedicatedRHIThread.md)
+- [Dedicated RHI Thread plan](../../Plans/Archive/2026-08/DedicatedRHIThread.md)
 - [Build and run](../../Development/Build/BuildAndRun.md)
 
 ## Related Code

@@ -17,9 +17,9 @@ and synchronization is limited to render-pass and resource upload/readback
 paths.
 
 Two upstream RHI submission plans are now active:
-[Recorded RHI Command List](../Plans/RecordedRHICommandList.md) establishes the
+[Recorded RHI Command List](../Plans/Archive/2026-08/RecordedRHICommandList.md) establishes the
 record/replay and payload-lifetime boundary required by new compute commands,
-and [Dedicated RHI Thread](../Plans/DedicatedRHIThread.md) moves replay onto its
+and [Dedicated RHI Thread](../Plans/Archive/2026-08/DedicatedRHIThread.md) moves replay onto its
 own CPU thread. The recorded-command-list contract is required before the
 resource-transition and synchronous-compute implementations. The dedicated RHI
 thread is not a prerequisite for synchronous compute, but is required before
@@ -165,13 +165,13 @@ marked deferred with the evidence reviewed.
 
 ### Upstream RHI submission plans
 
-[Recorded RHI Command List](../Plans/RecordedRHICommandList.md) owns immutable
+[Recorded RHI Command List](../Plans/Archive/2026-08/RecordedRHICommandList.md) owns immutable
 command batches, payload/resource lifetime, inline replay, submission serials,
 and precise flush semantics. Compute child plans add transition and dispatch
 command types to that established recording surface; they do not restore direct
 context calls.
 
-[Dedicated RHI Thread](../Plans/DedicatedRHIThread.md) owns CPU-thread transfer,
+[Dedicated RHI Thread](../Plans/Archive/2026-08/DedicatedRHIThread.md) owns CPU-thread transfer,
 backend affinity, replay, queue submission, frame/present lifecycle, and
 shutdown drain. It can proceed independently of synchronous compute after its
 recorded-command-list prerequisite. Only M5 requires it; M1 through M3 remain
@@ -276,8 +276,8 @@ The required roadmap is complete when:
 ## Related Documentation
 
 - [Implementation plan rules](../Plans/AGENTS.md)
-- [Recorded RHI Command List](../Plans/RecordedRHICommandList.md)
-- [Dedicated RHI Thread](../Plans/DedicatedRHIThread.md)
+- [Recorded RHI Command List](../Plans/Archive/2026-08/RecordedRHICommandList.md)
+- [Dedicated RHI Thread](../Plans/Archive/2026-08/DedicatedRHIThread.md)
 - [Build and run](../Development/Build/BuildAndRun.md)
 - [Shader parameters](../Runtime/Rendering/ShaderParameters.md)
 - [Texture system](../Runtime/Rendering/TextureSystem.md)

@@ -4,7 +4,7 @@ Summary: Move RHI command replay and backend submission onto one independently o
 
 Last reviewed: 2026-08-05
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-05
 
 ## Current Status
@@ -18,7 +18,7 @@ immutable batches, serials, fences, owned payloads, retained resources, and
 declared synchronous operations consumed by both modes.
 
 The implemented producer/consumer contract is now owned by
-[RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md). This plan
+[RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md). This plan
 must move that consumer without changing batch representation or payload
 ownership. The inline baseline exposes cumulative commands, payload bytes,
 batches, submission groups, replay nanoseconds, waits, rejections, and pending
@@ -921,7 +921,7 @@ Dependencies: Stage 4.
 | Render drain -> RHI drain -> exit | Shutdown rejects late work, wakes waiters, drains both queues, audits deletion, shuts down backend, then joins. |
 | Inline -> threaded parity | Focused and runtime workloads produce equivalent output and validation-layer results. |
 
-Build, test, and runtime commands follow the root [build and run](../Development/Build/BuildAndRun.md)
+Build, test, and runtime commands follow the root [build and run](../../../Development/Build/BuildAndRun.md)
 contract. Because this changes user-visible editor rendering and process
 lifecycle, completion requires the full `all` build and runtime validation
 defined there.
@@ -946,7 +946,7 @@ defined there.
 ## Deferred Follow-ups
 
 - GPU asynchronous compute remains the evidence-gated M5 milestone in the
-  [Compute Shader Pipeline roadmap](../Roadmaps/ComputeShaderPipeline.md).
+  [Compute Shader Pipeline roadmap](../../../Roadmaps/ComputeShaderPipeline.md).
 - Multiple RHI consumers, parallel command-list replay, worker-produced lists,
   and asynchronous resource-creation futures require separate plans.
 - More aggressive frame pipelining or adaptive batching starts only after
@@ -955,11 +955,11 @@ defined there.
 ## Related Documentation
 
 - [Recorded RHI Command List](RecordedRHICommandList.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Compute Shader Pipeline roadmap](../Roadmaps/ComputeShaderPipeline.md)
-- [Runtime lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Viewport rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Build and run](../Development/Build/BuildAndRun.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Compute Shader Pipeline roadmap](../../../Roadmaps/ComputeShaderPipeline.md)
+- [Runtime lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Viewport rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Build and run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 
