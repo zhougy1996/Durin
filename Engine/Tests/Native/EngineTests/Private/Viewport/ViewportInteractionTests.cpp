@@ -1,7 +1,42 @@
 #include "ViewportTestSupport.h"
+#include "LevelEditorViewportEditing.h"
 
 namespace
 {
+	struct FEditModeProbe
+	{
+		int EnterCount = 0;
+		int ExitCount = 0;
+		int ForcedExitCount = 0;
+		int TickCount = 0;
+	};
+
+	class FProbeEditMode final : public Durin::ILevelViewportEditMode
+	{
+	public:
+		explicit FProbeEditMode(std::shared_ptr<FEditModeProbe> InProbe) : Probe(std::move(InProbe)) {}
+		auto Enter(Durin::FLevelEditorContext&) -> void override { ++Probe->EnterCount; }
+		auto Exit(Durin::FLevelEditorContext&, bool bForced) -> void override { ++Probe->ExitCount; Probe->ForcedExitCount += bForced; }
+		auto Tick(Durin::FLevelEditorContext&, Durin::FLevelEditorViewportClient&, const Durin::FSceneView&,
+			Durin::FLevelEditorViewportInput&, Durin::FEditorTransactionManager*) -> bool override { ++Probe->TickCount; return true; }
+	private:
+		std::shared_ptr<FEditModeProbe> Probe;
+	};
+
+	class FProbeTransformTarget final : public Durin::ITransformGizmoTarget
+	{
+	public:
+		auto IsValid() const -> bool override { return bValid; }
+		auto GetIdentity() const -> const void* override { return this; }
+		auto GetTransform() const -> Durin::FTransform override { return Transform; }
+		auto SetTransform(const Durin::FTransform& Value) -> bool override { Transform = Value; return bValid; }
+		auto GetLabel() const -> std::string override { return "Probe"; }
+		auto GetCapabilities() const -> Durin::ETransformGizmoCapability override { return Capabilities; }
+		Durin::FTransform Transform;
+		Durin::ETransformGizmoCapability Capabilities = Durin::ETransformGizmoCapability::All;
+		bool bValid = true;
+	};
+
 	auto SimulateFlyNavigation(
 		Durin::FLevelEditorViewportClient& Client,
 		Durin::DLevel* Level,
@@ -22,6 +57,95 @@ namespace
 			Client.Update(Level, nullptr, Input);
 		}
 	}
+}
+
+TEST(FLevelViewportEditModeTests, KeepsInstancesPerManagerAndRepairsUnavailableModes)
+{
+	InitializeDObjectSystem();
+	bool bAvailable = true;
+	auto ProbeA = std::make_shared<FEditModeProbe>();
+	auto ProbeB = std::make_shared<FEditModeProbe>();
+	int FactoryCount = 0;
+	auto& Registry = Durin::FLevelViewportEditModeRegistry::Get();
+	const Durin::FLevelViewportEditModeHandle Handle = Registry.Register({
+		.Id = "Probe",
+		.DisplayName = "Probe",
+		.Priority = 10,
+		.CanActivate = [&bAvailable](const Durin::FLevelEditorContext&) { return bAvailable; },
+		.Factory = [&] { return std::make_unique<FProbeEditMode>(FactoryCount++ == 0 ? ProbeA : ProbeB); },
+	});
+	ASSERT_TRUE(Handle);
+	Durin::FLevelEditorContext ContextA;
+	Durin::FLevelEditorContext ContextB;
+	Durin::FLevelViewportEditModeManager ManagerA;
+	Durin::FLevelViewportEditModeManager ManagerB;
+	ASSERT_TRUE(ManagerA.Activate("Probe", ContextA));
+	ASSERT_TRUE(ManagerB.Activate("Probe", ContextB));
+	EXPECT_EQ(FactoryCount, 2);
+	EXPECT_NE(ManagerA.GetActiveMode(), ManagerB.GetActiveMode());
+	Durin::FLevelEditorViewportClient Client;
+	Durin::FSceneView View;
+	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, View));
+	Durin::FLevelEditorViewportInput Input;
+	EXPECT_TRUE(ManagerA.Tick(ContextA, Client, View, Input, nullptr));
+	EXPECT_EQ(ProbeA->TickCount, 1);
+	bAvailable = false;
+	ManagerA.Synchronize(ContextA);
+	EXPECT_EQ(ManagerA.GetActiveModeId(), "Select");
+	EXPECT_EQ(ProbeA->ExitCount, 1);
+	EXPECT_EQ(ProbeA->ForcedExitCount, 1);
+	EXPECT_TRUE(Registry.Unregister(Handle));
+	ManagerB.Synchronize(ContextB);
+	EXPECT_EQ(ManagerB.GetActiveModeId(), "Select");
+	EXPECT_EQ(ProbeB->ForcedExitCount, 1);
+}
+
+TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowledge)
+{
+	InitializeDObjectSystem();
+	Durin::FLevelEditorViewportClient Client;
+	Durin::FSceneView View;
+	ASSERT_TRUE(Client.BuildViewMatrices(800, 600, View));
+	auto Target = std::make_shared<FProbeTransformTarget>();
+	Target->Transform.Translation = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
+	Durin::FTransformGizmoTargetSet Targets{{Target}, "Probes"};
+	Durin::FTransformGizmo Gizmo;
+	Durin::FLevelEditorViewportInput Input;
+	Input.ViewportSize = {800.0f, 600.0f};
+	Gizmo.Update(Targets, View, Input, nullptr);
+	Durin::FSceneView OverlayView = View;
+	Gizmo.AppendOverlayPrimitives(OverlayView);
+	ASSERT_FALSE(OverlayView.OverlayPrimitives.empty());
+	const Durin::FVector3 InitialLocation = Target->Transform.Translation;
+	const Durin::FVector3 HandlePoint = Durin::FVector3(OverlayView.OverlayPrimitives.front().LocalToWorld * Durin::FVector4(0.65, 0.0, 0.0, 1.0));
+	Durin::FVector2f CenterScreen;
+	Durin::FVector2f HandleScreen;
+	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, InitialLocation, CenterScreen));
+	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, HandlePoint, HandleScreen));
+	Durin::FEditorTransactionManager Transactions;
+	Input.bFocused = true;
+	Input.bHovered = true;
+	Input.bLeftMousePressed = true;
+	Input.bLeftMouseDown = true;
+	Input.MousePosition = HandleScreen;
+	Gizmo.Update(Targets, View, Input, &Transactions);
+	ASSERT_TRUE(Gizmo.IsDragging());
+	Input.bLeftMousePressed = false;
+	Input.MousePosition += glm::normalize(HandleScreen - CenterScreen) * 30.0f;
+	Gizmo.Update(Targets, View, Input, &Transactions);
+	EXPECT_GT(glm::length(Target->Transform.Translation - InitialLocation), 0.001);
+	Input.bLeftMouseDown = false;
+	Gizmo.Update(Targets, View, Input, &Transactions);
+	ASSERT_TRUE(Transactions.CanUndo());
+	EXPECT_EQ(Transactions.GetUndoDescription(), "Translate 'Probe'");
+	ASSERT_TRUE(Transactions.Undo());
+	ExpectVectorNear(Target->Transform.Translation, InitialLocation);
+	Target->Capabilities = Durin::ETransformGizmoCapability::Translate;
+	Gizmo.SetMode(Durin::ETransformGizmoMode::Rotate);
+	Gizmo.Update(Targets, View, {}, nullptr);
+	Durin::FSceneView UnsupportedView = View;
+	Gizmo.AppendOverlayPrimitives(UnsupportedView);
+	EXPECT_TRUE(UnsupportedView.OverlayPrimitives.empty());
 }
 
 TEST(FLevelEditorViewportClientTests, SmoothsCombinedFlyNavigationConsistentlyAcrossFrameRates)

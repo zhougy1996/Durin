@@ -2,6 +2,7 @@
 
 #include "DObject/ObjectPtr.h"
 #include "SceneView.h"
+#include "LevelEditorTransformTargets.h"
 
 namespace Durin
 {
@@ -10,6 +11,7 @@ namespace Durin
 	class AActor;
 	class DPackage;
 	struct FLevelEditorViewportInput;
+	class IEditorTransaction;
 
 	// Selects translation, rotation, or scale manipulation.
 	enum class ETransformGizmoMode : uint8 { Translate, Rotate, Scale };
@@ -38,6 +40,7 @@ namespace Durin
 	{
 	public:
 		auto Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, FEditorTransactionManager* Transactions) -> void;
+		auto Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, FEditorTransactionManager* Transactions) -> void;
 		auto AppendOverlayPrimitives(FSceneView& View) const -> void;
 		auto CancelDrag() -> void;
 		auto IsDragging() const -> bool { return ActiveHandle != ETransformGizmoHandle::None; }
@@ -53,9 +56,10 @@ namespace Durin
 
 	private:
 		// Retains an actor's starting transform for drag cancellation and history.
-		struct FActorSnapshot
+		struct FTargetSnapshot
 		{
-			TObjectPtr<AActor> Actor;
+			std::shared_ptr<ITransformGizmoTarget> Target;
+			const void* Identity = nullptr;
 			FTransform Initial;
 		};
 
@@ -65,9 +69,9 @@ namespace Durin
 			TObjectPtr<DPackage> Package;
 			bool bWasDirty = false;
 		};
-		auto RebuildState(const FLevelEditorContext& Context, const FSceneView& View) -> bool;
+		auto RebuildState(const FTransformGizmoTargetSet& Targets, const FSceneView& View) -> bool;
 		auto HitTest(const FSceneView& View, const FVector2f& MousePosition) const -> ETransformGizmoHandle;
-		auto BeginDrag(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool;
+		auto BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool;
 		auto UpdateDrag(const FSceneView& View, const FLevelEditorViewportInput& Input) -> void;
 		auto FinishDrag(FEditorTransactionManager* Transactions) -> void;
 		auto RestoreSnapshots() -> void;
@@ -86,9 +90,10 @@ namespace Durin
 		FQuat Basis{1.0, 0.0, 0.0, 0.0};
 		FQuat DisplayBasis{1.0, 0.0, 0.0, 0.0};
 		float WorldScale = 1.0f;
-		std::vector<FActorSnapshot> Snapshots;
+		std::vector<FTargetSnapshot> Snapshots;
 		std::vector<FPackageDirtySnapshot> PackageDirtySnapshots;
-		size_t DragSelectionCount = 0;
+		std::string DragCollectionLabel = "Targets";
+		ETransformGizmoCapability ActiveCapabilities = ETransformGizmoCapability::None;
 		FVector3 DragAxis{0.0};
 		FVector3 DragPlaneNormal{0.0};
 		FVector3 DragStartPoint{0.0};

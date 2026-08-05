@@ -6,6 +6,7 @@
 #include "Math/Vector.h"
 #include "MonaImGui.h"
 #include "Viewport/LevelEditorViewportClient.h"
+#include "LevelEditorViewportEditing.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorUILayout.h"
 
@@ -452,6 +453,7 @@ namespace Durin
 
 	auto FViewportToolbar::CalculateLayout(
 		const FLevelEditorViewportClient* ViewportClient,
+		const FLevelViewportEditModeManager* EditModeManager,
 		const ImVec2& ViewportMin,
 		const ImVec2& ViewportMax
 	) const -> FViewportToolbarLayout
@@ -468,6 +470,7 @@ namespace Durin
 		}
 
 		Layout.ViewModeLabel = std::format("{} / {}", GetModeLabel(Layout.RenderMode, RenderModeOptions), GetModeLabel(Layout.RasterMode, RasterModeOptions));
+		Layout.EditModeLabel = EditModeManager && !EditModeManager->GetActiveModeId().empty() ? std::string(EditModeManager->GetActiveModeId()) : "Select";
 		const float AvailableWidth = ViewportMax.x - ViewportMin.x;
 		const EEditorUILayoutMode LayoutMode = ResolveEditorUILayout(AvailableWidth, MonaImGui::ScaleUI(560.0f), MonaImGui::ScaleUI(980.0f));
 		Layout.bCompact = LayoutMode != EEditorUILayoutMode::Full;
@@ -481,13 +484,14 @@ namespace Durin
 		Layout.Gap = MonaImGui::ScaleUI(6.0f);
 		Layout.ToolButtonGap = MonaImGui::ScaleUI(3.0f);
 		Layout.ModeButtonWidth = Layout.Height;
+		Layout.EditModeButtonWidth = FMath::Max(MonaImGui::ScaleUI(78.0f), ImGui::CalcTextSize(Layout.EditModeLabel.c_str()).x + ContentGap + ChevronWidth + ContentPadding * 2.0f);
 		Layout.SpaceButtonWidth = FMath::Max(MonaImGui::ScaleUI(82.0f), ImGui::CalcTextSize("Parent").x + ContentGap + ChevronWidth + ContentPadding * 2.0f);
 		Layout.SnapButtonWidth = Layout.Height;
 		Layout.DropDownWidth = FMath::Max(MonaImGui::ScaleUI(24.0f), Layout.Height * 0.8f);
 		Layout.ViewModeButtonPosition = ImVec2(ViewportMin.x + MonaImGui::ScaleUI(10.0f), ViewportMin.y + MonaImGui::ScaleUI(8.0f));
 		Layout.ViewModeButtonSize = ImVec2(ImGui::CalcTextSize(Layout.ViewModeLabel.c_str()).x + ContentGap + ChevronWidth + ContentPadding * 2.0f, Layout.Height);
 		const float SecondaryWidth = Layout.bOverflow ? Layout.DropDownWidth : Layout.SpaceButtonWidth + Layout.SnapButtonWidth + Layout.DropDownWidth;
-		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.ToolButtonGap * 2.0f + Layout.Gap + SecondaryWidth + MonaImGui::ScaleUI(10.0f);
+		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.EditModeButtonWidth + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.ToolButtonGap * 2.0f + Layout.Gap + SecondaryWidth + MonaImGui::ScaleUI(10.0f);
 		Layout.BackgroundMin = ImVec2(Layout.ViewModeButtonPosition.x - MonaImGui::ScaleUI(4.0f), Layout.ViewModeButtonPosition.y - MonaImGui::ScaleUI(4.0f));
 		Layout.BackgroundMax = ImVec2(FMath::Min(ViewportMax.x - MonaImGui::ScaleUI(6.0f), Layout.ViewModeButtonPosition.x + ToolbarWidth), Layout.ViewModeButtonPosition.y + Layout.Height + MonaImGui::ScaleUI(4.0f));
 		const float PlayLabelWidth = ImGui::CalcTextSize("Play").x;
@@ -510,6 +514,7 @@ namespace Durin
 	auto FViewportToolbar::Draw(
 		FLevelEditorContext& Context,
 		FLevelEditorViewportClient* ViewportClient,
+		FLevelViewportEditModeManager* EditModeManager,
 		EEditorPlayStartLocation& PreferredPlayStartLocation,
 		EEditorPlayDestination& PreferredPlayDestination,
 		const FViewportToolbarLayout& Layout
@@ -582,6 +587,18 @@ namespace Durin
 			if (DrawToolbarButton(Id, ImVec2(X, Y), ImVec2(Width, Layout.Height), Text, Icon, bSelected, Tooltip)) Action();
 			X += Width;
 		};
+		if (DrawToolbarButton("##EditModeButton", ImVec2(X, Y), ImVec2(Layout.EditModeButtonWidth, Layout.Height), Layout.EditModeLabel.c_str(), EViewportToolbarIcon::ChevronDown, true, "Viewport editing mode"))
+			ImGui::OpenPopup("ViewportEditModePopup");
+		if (ImGui::BeginPopup("ViewportEditModePopup"))
+		{
+			if (EditModeManager)
+			{
+				for (const FLevelViewportEditModeDescriptor* Descriptor : FLevelViewportEditModeRegistry::Get().GetAvailable(Context))
+					if (ImGui::MenuItem(Descriptor->DisplayName.c_str(), nullptr, EditModeManager->GetActiveModeId() == Descriptor->Id)) EditModeManager->Activate(Descriptor->Id, Context);
+			}
+			ImGui::EndPopup();
+		}
+		X += Layout.EditModeButtonWidth + Layout.Gap;
 		auto SpaceLabel = [](ETransformGizmoSpace Space) {
 			switch (Space)
 			{

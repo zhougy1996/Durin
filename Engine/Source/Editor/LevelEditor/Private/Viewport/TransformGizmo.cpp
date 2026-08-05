@@ -103,34 +103,34 @@ namespace Durin
 			return glm::normalize(FQuat(1.0 + Dot, Cross.x, Cross.y, Cross.z));
 		}
 
-		// Restores before/after transforms for every actor changed by one gizmo drag.
-		class FActorTransformTransaction final : public IEditorTransaction
+		// Restores before/after transforms for every target changed by one gizmo drag.
+		class FTransformTargetTransaction final : public IEditorTransaction
 		{
 		public:
-			// Stores one actor's before/after transform for transaction replay.
 			struct FEntry
 			{
-				TObjectPtr<AActor> Actor;
+				std::shared_ptr<ITransformGizmoTarget> Target;
 				FTransform Before;
 				FTransform After;
 			};
-			FActorTransformTransaction(std::string_view Action, std::vector<FEntry> InEntries)
+			FTransformTargetTransaction(std::string_view Action, std::string_view CollectionLabel, std::vector<FEntry> InEntries)
 				: Entries(std::move(InEntries))
 			{
 				for (const FEntry& Entry : Entries)
 				{
-					DPackage* Package = Entry.Actor ? Entry.Actor->GetPackage() : nullptr;
+					DPackage* Package = Entry.Target ? Entry.Target->GetPackage() : nullptr;
 					if (Package && std::ranges::find(AffectedPackages, Package) == AffectedPackages.end())
 						AffectedPackages.push_back(Package);
 				}
-				if (Entries.size() == 1 && Entries.front().Actor)
-					Description = std::format("{} '{}'", Action, Entries.front().Actor->GetName());
+				if (Entries.size() == 1 && Entries.front().Target)
+					Description = std::format("{} '{}'", Action, Entries.front().Target->GetLabel());
 				else
-					Description = std::format("{} {} Actors", Action, Entries.size());
+					Description = std::format("{} {} {}", Action, Entries.size(), CollectionLabel);
 			}
 			auto GetDescription() const -> std::string_view override { return Description; }
 			auto GetDetails(EEditorTransactionOperation Operation) const -> std::string override { return BuildDetails(Operation != EEditorTransactionOperation::Undo); }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
+			auto MutatesContent() const -> bool override { return true; }
 			auto Undo() -> bool override { return Apply(false); }
 			auto Redo() -> bool override { return Apply(true); }
 
@@ -156,7 +156,7 @@ namespace Durin
 				for (const FEntry& Entry : Entries)
 				{
 					if (!Result.empty()) Result += '\n';
-					Result += std::format("'{}'", Entry.Actor ? Entry.Actor->GetName() : "Missing Actor");
+					Result += std::format("'{}'", Entry.Target ? Entry.Target->GetLabel() : "Missing Target");
 					const FTransform& Before = bForward ? Entry.Before : Entry.After;
 					const FTransform& After = bForward ? Entry.After : Entry.Before;
 					bool bHasChange = false;
@@ -188,7 +188,7 @@ namespace Durin
 				bool bSuccess = true;
 				for (FEntry& Entry : Entries)
 				{
-					if (!Entry.Actor || !Entry.Actor->SetActorTransform(bAfter ? Entry.After : Entry.Before)) bSuccess = false;
+					if (!Entry.Target || !Entry.Target->IsValid() || !Entry.Target->SetTransform(bAfter ? Entry.After : Entry.Before)) bSuccess = false;
 				}
 				return bSuccess;
 			}
@@ -196,17 +196,56 @@ namespace Durin
 			std::vector<FEntry> Entries;
 			std::vector<DPackage*> AffectedPackages;
 		};
+
+		class FActorTransformGizmoTarget final : public ITransformGizmoTarget
+		{
+		public:
+			explicit FActorTransformGizmoTarget(AActor* InActor) : Actor(InActor) {}
+			auto IsValid() const -> bool override { return Actor && !Actor->IsHidden() && Actor->GetRootComponent(); }
+			auto GetIdentity() const -> const void* override { return Actor.Get(); }
+			auto GetTransform() const -> FTransform override { return Actor ? Actor->GetActorTransform() : FTransform{}; }
+			auto SetTransform(const FTransform& Transform) -> bool override { return Actor && Actor->SetActorTransform(Transform); }
+			auto GetParentRotation() const -> FQuat override
+			{
+				if (Actor && Actor->GetRootComponent())
+					if (const DSceneComponent* Parent = Actor->GetRootComponent()->GetAttachParent()) return Parent->GetWorldRotation();
+				return glm::identity<FQuat>();
+			}
+			auto GetPackage() const -> DPackage* override { return Actor ? Actor->GetPackage() : nullptr; }
+			auto GetLabel() const -> std::string override { return Actor ? Actor->GetName() : "Missing Actor"; }
+
+		private:
+			TObjectPtr<AActor> Actor;
+		};
 	} // namespace
 
-	auto FTransformGizmo::RebuildState(const FLevelEditorContext& Context, const FSceneView& View) -> bool
+	auto MakeActorTransformGizmoTargets(const FLevelEditorContext& Context) -> FTransformGizmoTargetSet
+	{
+		FTransformGizmoTargetSet Result;
+		Result.CollectionLabel = "Actors";
+		for (const TObjectPtr<AActor>& ActorPtr : Context.GetSelectedActors())
+		{
+			AActor* Actor = ActorPtr.Get();
+			if (!Actor || Actor->IsHidden() || !Actor->GetRootComponent()) continue;
+			bool bSelectedAncestor = false;
+			for (AActor* Parent = Actor->GetAttachParentActor(); Parent; Parent = Parent->GetAttachParentActor())
+				if (Context.IsActorSelected(Parent)) { bSelectedAncestor = true; break; }
+			if (!bSelectedAncestor) Result.Targets.push_back(std::make_shared<FActorTransformGizmoTarget>(Actor));
+		}
+		return Result;
+	}
+
+	auto FTransformGizmo::RebuildState(const FTransformGizmoTargetSet& Targets, const FSceneView& View) -> bool
 	{
 		FVector3 Sum(0.0);
 		size_t Count = 0;
-		for (const TObjectPtr<AActor>& ActorPtr : Context.GetSelectedActors())
+		ActiveCapabilities = ETransformGizmoCapability::All;
+		for (const std::shared_ptr<ITransformGizmoTarget>& Target : Targets.Targets)
 		{
-			if (const AActor* Actor = ActorPtr.Get(); Actor && !Actor->IsHidden() && Actor->GetRootComponent())
+			if (Target && Target->IsValid())
 			{
-				Sum += Actor->GetRootComponent()->GetWorldLocation();
+				Sum += Target->GetTransform().Translation;
+				ActiveCapabilities = static_cast<ETransformGizmoCapability>(static_cast<uint8>(ActiveCapabilities) & static_cast<uint8>(Target->GetCapabilities()));
 				++Count;
 			}
 		}
@@ -218,14 +257,20 @@ namespace Durin
 		Pivot = Sum / static_cast<double>(Count);
 		Basis = glm::identity<FQuat>();
 		const ETransformGizmoSpace EffectiveSpace = GetEffectiveSpace();
-		if (const AActor* Primary = Context.GetPrimarySelectedActor(); Primary && !Primary->IsHidden() && Primary->GetRootComponent())
+		if (!Targets.Targets.empty() && Targets.Targets.front() && Targets.Targets.front()->IsValid())
 		{
+			const std::shared_ptr<ITransformGizmoTarget>& Primary = Targets.Targets.front();
 			if (EffectiveSpace == ETransformGizmoSpace::Local)
-				Basis = Primary->GetRootComponent()->GetWorldRotation();
+				Basis = Primary->GetTransform().Rotation;
 			else if (EffectiveSpace == ETransformGizmoSpace::Parent)
-			{
-				if (const DSceneComponent* Parent = Primary->GetRootComponent()->GetAttachParent()) Basis = Parent->GetWorldRotation();
-			}
+				Basis = Primary->GetParentRotation();
+		}
+		const ETransformGizmoCapability Required = Mode == ETransformGizmoMode::Translate ? ETransformGizmoCapability::Translate
+			: Mode == ETransformGizmoMode::Rotate ? ETransformGizmoCapability::Rotate : ETransformGizmoCapability::Scale;
+		if (!HasCapability(ActiveCapabilities, Required))
+		{
+			WorldScale = 0.0f;
+			return false;
 		}
 		DisplayPivot = Pivot;
 		DisplayBasis = Basis;
@@ -307,30 +352,19 @@ namespace Durin
 		return Best;
 	}
 
-	auto FTransformGizmo::BeginDrag(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool
+	auto FTransformGizmo::BeginDrag(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input) -> bool
 	{
 		ActiveHandle = HitTest(View, Input.MousePosition);
 		if (ActiveHandle == ETransformGizmoHandle::None) return false;
 		Snapshots.clear();
 		PackageDirtySnapshots.clear();
-		DragSelectionCount = Context.GetSelectedActors().size();
-		for (const TObjectPtr<AActor>& ActorPtr : Context.GetSelectedActors())
+		DragCollectionLabel = Targets.CollectionLabel;
+		for (const std::shared_ptr<ITransformGizmoTarget>& Target : Targets.Targets)
 		{
-			AActor* Actor = ActorPtr.Get();
-			if (!Actor || Actor->IsHidden() || !Actor->GetRootComponent()) continue;
-			bool bSelectedAncestor = false;
-			for (AActor* Parent = Actor->GetAttachParentActor(); Parent; Parent = Parent->GetAttachParentActor())
+			if (Target && Target->IsValid())
 			{
-				if (Context.IsActorSelected(Parent))
-				{
-					bSelectedAncestor = true;
-					break;
-				}
-			}
-			if (!bSelectedAncestor)
-			{
-				Snapshots.push_back({Actor, Actor->GetActorTransform()});
-				if (DPackage* Package = Actor->GetPackage(); Package && std::ranges::none_of(PackageDirtySnapshots, [Package](const FPackageDirtySnapshot& Entry) { return Entry.Package.Get() == Package; }))
+				Snapshots.push_back({Target, Target->GetIdentity(), Target->GetTransform()});
+				if (DPackage* Package = Target->GetPackage(); Package && std::ranges::none_of(PackageDirtySnapshots, [Package](const FPackageDirtySnapshot& Entry) { return Entry.Package.Get() == Package; }))
 					PackageDirtySnapshots.push_back({Package, Package->IsDirty()});
 			}
 		}
@@ -430,12 +464,12 @@ namespace Durin
 		bDragChanged = glm::dot(Delta, Delta) > Epsilon;
 		DisplayPivot = Pivot + Delta;
 		DisplayBasis = Basis;
-		for (FActorSnapshot& Snapshot : Snapshots)
+		for (FTargetSnapshot& Snapshot : Snapshots)
 		{
-			if (!Snapshot.Actor) continue;
+			if (!Snapshot.Target || !Snapshot.Target->IsValid()) continue;
 			FTransform Transform = Snapshot.Initial;
 			Transform.Translation += Delta;
-			Snapshot.Actor->SetActorTransform(Transform);
+			Snapshot.Target->SetTransform(Transform);
 		}
 	}
 
@@ -445,13 +479,13 @@ namespace Durin
 		const FQuat Delta = glm::angleAxis(Radians, DragAxis);
 		DisplayPivot = Pivot;
 		DisplayBasis = GetEffectiveSpace() == ETransformGizmoSpace::Local ? glm::normalize(Delta * Basis) : Basis;
-		for (FActorSnapshot& Snapshot : Snapshots)
+		for (FTargetSnapshot& Snapshot : Snapshots)
 		{
-			if (!Snapshot.Actor) continue;
+			if (!Snapshot.Target || !Snapshot.Target->IsValid()) continue;
 			FTransform Transform = Snapshot.Initial;
 			Transform.Translation = Pivot + Delta * (Transform.Translation - Pivot);
 			Transform.Rotation = glm::normalize(Delta * Transform.Rotation);
-			Snapshot.Actor->SetActorTransform(Transform);
+			Snapshot.Target->SetTransform(Transform);
 		}
 	}
 
@@ -461,18 +495,18 @@ namespace Durin
 		DisplayPivot = Pivot;
 		DisplayBasis = Basis;
 		const FMatrix Delta = glm::translate(FMatrix(1.0), Pivot) * glm::mat4_cast(Basis) * glm::scale(FMatrix(1.0), Factors) * glm::mat4_cast(glm::inverse(Basis)) * glm::translate(FMatrix(1.0), -Pivot);
-		for (FActorSnapshot& Snapshot : Snapshots)
+		for (FTargetSnapshot& Snapshot : Snapshots)
 		{
-			if (!Snapshot.Actor) continue;
+			if (!Snapshot.Target || !Snapshot.Target->IsValid()) continue;
 			FTransform Transform;
-			if (TryMakeTransformFromMatrix(Delta * Snapshot.Initial.ToMatrix(), Transform)) Snapshot.Actor->SetActorTransform(Transform);
+			if (TryMakeTransformFromMatrix(Delta * Snapshot.Initial.ToMatrix(), Transform)) Snapshot.Target->SetTransform(Transform);
 		}
 	}
 
 	auto FTransformGizmo::RestoreSnapshots() -> void
 	{
-		for (FActorSnapshot& Snapshot : Snapshots)
-			if (Snapshot.Actor) Snapshot.Actor->SetActorTransform(Snapshot.Initial);
+		for (FTargetSnapshot& Snapshot : Snapshots)
+			if (Snapshot.Target && Snapshot.Target->IsValid()) Snapshot.Target->SetTransform(Snapshot.Initial);
 		DisplayPivot = Pivot;
 		DisplayBasis = Basis;
 	}
@@ -489,14 +523,14 @@ namespace Durin
 	{
 		if (bDragChanged && Transactions)
 		{
-			std::vector<FActorTransformTransaction::FEntry> Entries;
-			for (const FActorSnapshot& Snapshot : Snapshots)
+			std::vector<FTransformTargetTransaction::FEntry> Entries;
+			for (const FTargetSnapshot& Snapshot : Snapshots)
 			{
-				if (Snapshot.Actor) Entries.push_back({Snapshot.Actor, Snapshot.Initial, Snapshot.Actor->GetActorTransform()});
+				if (Snapshot.Target && Snapshot.Target->IsValid()) Entries.push_back({Snapshot.Target, Snapshot.Initial, Snapshot.Target->GetTransform()});
 			}
 			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" :
 																															  "Scale";
-			Transactions->CommitApplied(std::make_unique<FActorTransformTransaction>(Action, std::move(Entries)));
+			Transactions->CommitApplied(std::make_unique<FTransformTargetTransaction>(Action, DragCollectionLabel, std::move(Entries)));
 		}
 		else if (!bDragChanged)
 			RestoreInitialDirtyState();
@@ -518,11 +552,17 @@ namespace Durin
 
 	auto FTransformGizmo::Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, FEditorTransactionManager* Transactions) -> void
 	{
+		Update(MakeActorTransformGizmoTargets(Context), View, Input, Transactions);
+	}
+
+	auto FTransformGizmo::Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, FEditorTransactionManager* Transactions) -> void
+	{
 		if (IsDragging())
 		{
-			bool bSelectionValid = Context.GetSelectedActors().size() == DragSelectionCount;
-			for (const FActorSnapshot& Snapshot : Snapshots)
-				bSelectionValid = bSelectionValid && Snapshot.Actor && Context.IsActorSelected(Snapshot.Actor.Get());
+			bool bSelectionValid = Targets.Targets.size() == Snapshots.size();
+			for (const FTargetSnapshot& Snapshot : Snapshots)
+				bSelectionValid = bSelectionValid && Snapshot.Target && Snapshot.Target->IsValid()
+					&& std::ranges::any_of(Targets.Targets, [&Snapshot](const auto& Target) { return Target && Target->GetIdentity() == Snapshot.Identity; });
 			if (!bSelectionValid || Input.bCancel)
 			{
 				CancelDrag();
@@ -536,7 +576,7 @@ namespace Durin
 			UpdateDrag(View, Input);
 			return;
 		}
-		if (!RebuildState(Context, View))
+		if (!RebuildState(Targets, View))
 		{
 			HoveredHandle = ETransformGizmoHandle::None;
 			return;
@@ -548,7 +588,7 @@ namespace Durin
 			if (Input.bModeScale) Mode = ETransformGizmoMode::Scale;
 		}
 		HoveredHandle = Input.bHovered ? HitTest(View, Input.MousePosition) : ETransformGizmoHandle::None;
-		if (Input.bLeftMousePressed && HoveredHandle != ETransformGizmoHandle::None) BeginDrag(Context, View, Input);
+		if (Input.bLeftMousePressed && HoveredHandle != ETransformGizmoHandle::None) BeginDrag(Targets, View, Input);
 	}
 
 	auto FTransformGizmo::AppendOverlayPrimitives(FSceneView& View) const -> void

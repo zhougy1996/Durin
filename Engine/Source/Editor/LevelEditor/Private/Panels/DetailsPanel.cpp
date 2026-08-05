@@ -49,7 +49,8 @@ namespace Durin
 				return;
 			}
 			PropertyActor = nullptr;
-			ComponentTree.ResetSelection();
+			Context.SelectComponent(nullptr);
+			ComponentTree.ResetRenameState();
 			ImGui::TextDisabled("Select an actor to inspect it.");
 			ImGui::End();
 			return;
@@ -64,7 +65,7 @@ namespace Durin
 			else
 			{
 				PropertyActor = Actor;
-				ComponentTree.SetSelectedComponent(DetailsPanelTargeting::ResolveDefaultComponent(Actor));
+				Context.SelectComponent(DetailsPanelTargeting::ResolveDefaultComponent(Actor));
 				ComponentTree.ResetRenameState();
 			}
 		}
@@ -73,7 +74,7 @@ namespace Durin
 			ImGui::End();
 			return;
 		}
-		ComponentTree.SetSelectedComponent(DetailsPanelTargeting::ResolveSelectedComponent(Actor, ComponentTree.GetSelectedComponent()));
+		Context.SelectComponent(DetailsPanelTargeting::ResolveSelectedComponent(Actor, Context.GetSelectedComponent()));
 
 		ImGui::TextUnformatted(Actor->GetName().c_str());
 		ImGui::TextDisabled("%s", Actor->GetClass()->GetName().c_str());
@@ -102,7 +103,7 @@ namespace Durin
 
 		if (ImGui::BeginChild("DetailsProperties", ImVec2(0.0f, 0.0f), ImGuiChildFlags_Borders))
 		{
-			DObject* InspectedObject = ComponentTree.GetSelectedComponent() ? static_cast<DObject*>(ComponentTree.GetSelectedComponent()) : static_cast<DObject*>(Actor);
+			DObject* InspectedObject = Context.GetSelectedComponent() ? static_cast<DObject*>(Context.GetSelectedComponent()) : static_cast<DObject*>(Actor);
 			if (Context.bReadOnly) ImGui::BeginDisabled();
 			DrawReflectedProperties(Context, InspectedObject);
 			if (Context.bReadOnly) ImGui::EndDisabled();

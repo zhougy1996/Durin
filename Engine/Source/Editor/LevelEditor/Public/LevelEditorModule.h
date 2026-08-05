@@ -3,6 +3,7 @@
 #include "LevelEditorAPI.h"
 #include "Modules/ModuleManager.h"
 #include "LevelEditorCustomizations.h"
+#include "LevelEditorViewportEditing.h"
 
 namespace Durin
 {
@@ -25,6 +26,7 @@ namespace Durin
 		std::unique_ptr<FEditorWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<FLevelEditorSessionSettings> SessionSettings;
 		std::vector<FLevelEditorCustomizationHandle> CustomizationHandles;
+		FLevelViewportEditModeHandle SplineEditModeHandle;
 		std::weak_ptr<class MLevelEditor> LevelEditorWorkspace;
 	};
 }

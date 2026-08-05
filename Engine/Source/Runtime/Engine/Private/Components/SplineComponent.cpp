@@ -11,27 +11,51 @@ namespace Durin
 			const double LengthSquared = glm::dot(Value, Value);
 			return LengthSquared > kSmallNumber ? Value / std::sqrt(LengthSquared) : FVectorConstants::Zero;
 		}
+	} // namespace
+
+	DSplineComponent::DSplineComponent(const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
+	{
+		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 	}
 
 	auto DSplineComponent::SetSplinePoints(std::vector<FSplinePoint> InPoints) -> void
 	{
+		if (SplineCurve.GetPoints() == InPoints) return;
 		SplineCurve.SetPoints(std::move(InPoints));
-		UpdateSpline();
+		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		MarkPackageDirty();
 	}
 
-	auto DSplineComponent::AddSplinePoint(const FSplinePoint& Point) -> uint32
+	auto DSplineComponent::AddSplinePoint(FSplinePoint Point) -> uint32
 	{
-		const uint32 PointIndex = SplineCurve.AddPoint(Point);
-		UpdateSpline();
+		const uint32 PointIndex = SplineCurve.AddPoint(std::move(Point));
+		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		MarkPackageDirty();
 		return PointIndex;
 	}
 
-	auto DSplineComponent::UpdateSplinePoint(uint32 PointIndex, const FSplinePoint& Point) -> bool
+	auto DSplineComponent::InsertSplinePoint(uint32 PointIndex, FSplinePoint Point) -> bool
 	{
-		if (!SplineCurve.UpdatePoint(PointIndex, Point)) return false;
-		UpdateSpline();
+		if (!SplineCurve.InsertPoint(PointIndex, std::move(Point))) return false;
+		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
+		MarkPackageDirty();
+		return true;
+	}
+
+	auto DSplineComponent::DuplicateSplinePoint(uint32 PointIndex) -> std::optional<uint32>
+	{
+		const std::optional<uint32> DuplicateIndex = SplineCurve.DuplicatePoint(PointIndex);
+		if (!DuplicateIndex) return std::nullopt;
+		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
+		MarkPackageDirty();
+		return DuplicateIndex;
+	}
+
+	auto DSplineComponent::UpdateSplinePoint(uint32 PointIndex, FSplinePoint Point) -> bool
+	{
+		if (!SplineCurve.UpdatePoint(PointIndex, std::move(Point))) return false;
+		UpdateSpline(ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		MarkPackageDirty();
 		return true;
 	}
@@ -39,15 +63,24 @@ namespace Durin
 	auto DSplineComponent::RemoveSplinePoint(uint32 PointIndex) -> bool
 	{
 		if (!SplineCurve.RemovePoint(PointIndex)) return false;
-		UpdateSpline();
+		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
+		MarkPackageDirty();
+		return true;
+	}
+
+	auto DSplineComponent::MoveSplinePoint(uint32 FromIndex, uint32 ToIndex) -> bool
+	{
+		if (!SplineCurve.MovePoint(FromIndex, ToIndex)) return false;
+		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		MarkPackageDirty();
 		return true;
 	}
 
 	auto DSplineComponent::ClearSplinePoints() -> void
 	{
+		if (SplineCurve.GetNumPoints() == 0) return;
 		SplineCurve.ClearPoints();
-		UpdateSpline();
+		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		MarkPackageDirty();
 	}
 
@@ -55,109 +88,87 @@ namespace Durin
 	{
 		if (SplineCurve.IsClosedLoop() == bClosedLoop) return;
 		SplineCurve.SetClosedLoop(bClosedLoop);
-		UpdateSpline();
+		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		MarkPackageDirty();
 	}
 
-	auto DSplineComponent::SetReparamStepsPerSegment(int32 Steps) -> void
+	auto DSplineComponent::GetEvaluationData() const -> std::shared_ptr<const FSplineEvaluationData>
 	{
-		const int32 ClampedSteps = std::clamp(Steps, 1, 1024);
-		if (SplineCurve.GetReparamStepsPerSegment() == ClampedSteps) return;
-		SplineCurve.SetReparamStepsPerSegment(ClampedSteps);
-		UpdateSpline();
-		MarkPackageDirty();
+		return std::atomic_load(&EvaluationData);
 	}
 
-	auto DSplineComponent::GetLocationAtParam(double Param, ESplineCoordinateSpace Space) const -> FVector3
+	auto DSplineComponent::GetSampleAtParameter(FSplineParameter Parameter, ESplineCoordinateSpace Space) const -> FSplineSample
 	{
-		const FVector3 LocalLocation = SplineCurve.GetLocationAtParam(Param);
-		if (Space == ESplineCoordinateSpace::Local) return LocalLocation;
-		return FVector3(GetComponentToWorldMatrix() * FVector4(LocalLocation, 1.0));
+		const FSplineSample LocalSample = GetEvaluationData()->Evaluate(Parameter);
+		return Space == ESplineCoordinateSpace::Local ? LocalSample : TransformSampleToWorld(LocalSample);
 	}
 
-	auto DSplineComponent::GetTangentAtParam(double Param, ESplineCoordinateSpace Space) const -> FVector3
+	auto DSplineComponent::GetSampleAtLocalDistance(double LocalDistance, ESplineCoordinateSpace Space) const -> FSplineSample
 	{
-		const FVector3 LocalTangent = SplineCurve.GetTangentAtParam(Param);
-		return Space == ESplineCoordinateSpace::Local ? LocalTangent : TransformTangentToWorld(LocalTangent);
+		const FSplineSample LocalSample = GetEvaluationData()->EvaluateAtLocalDistance(LocalDistance);
+		return Space == ESplineCoordinateSpace::Local ? LocalSample : TransformSampleToWorld(LocalSample);
 	}
 
-	auto DSplineComponent::GetDirectionAtParam(double Param, ESplineCoordinateSpace Space) const -> FVector3
+	auto DSplineComponent::GetLocalDistanceAtParameter(FSplineParameter Parameter) const -> double
 	{
-		return SafeNormalize(GetTangentAtParam(Param, Space));
+		return GetEvaluationData()->GetLocalDistanceAtParameter(Parameter);
 	}
 
-	auto DSplineComponent::GetRotationAtParam(double Param, ESplineCoordinateSpace Space) const -> FQuat
+	auto DSplineComponent::GetParameterAtLocalDistance(double LocalDistance) const -> FSplineParameter
 	{
-		const FQuat LocalRotation = SplineCurve.GetRotationAtParam(Param);
-		return Space == ESplineCoordinateSpace::Local ? LocalRotation : glm::normalize(GetWorldRotation() * LocalRotation);
+		return GetEvaluationData()->GetParameterAtLocalDistance(LocalDistance);
 	}
 
-	auto DSplineComponent::GetScaleAtParam(double Param, ESplineCoordinateSpace Space) const -> FVector3
+	auto DSplineComponent::FindNearestParameter(const FVector3& Position, ESplineCoordinateSpace Space) const -> FSplineParameter
 	{
-		const FVector3 LocalScale = SplineCurve.GetScaleAtParam(Param);
-		return Space == ESplineCoordinateSpace::Local ? LocalScale : GetWorldScale3D() * LocalScale;
+		FVector3 LocalPosition = Position;
+		if (Space == ESplineCoordinateSpace::World)
+		{
+			LocalPosition = FVector3(glm::inverse(GetComponentToWorldMatrix()) * FVector4(Position, 1.0));
+		}
+		return GetEvaluationData()->FindNearestParameter(LocalPosition);
 	}
 
-	auto DSplineComponent::GetTransformAtParam(double Param, ESplineCoordinateSpace Space) const -> FTransform
+	auto DSplineComponent::UpdateSpline(ESplineChangeFlags ChangeFlags) -> void
 	{
-		const FTransform LocalTransform = SplineCurve.GetTransformAtParam(Param);
-		return Space == ESplineCoordinateSpace::Local ? LocalTransform : FTransform::Combine(GetWorldTransform(), LocalTransform);
-	}
-
-	auto DSplineComponent::GetLocationAtDistance(double Distance, ESplineCoordinateSpace Space) const -> FVector3
-	{
-		return GetLocationAtParam(GetParamAtDistance(Distance), Space);
-	}
-
-	auto DSplineComponent::GetTangentAtDistance(double Distance, ESplineCoordinateSpace Space) const -> FVector3
-	{
-		return GetTangentAtParam(GetParamAtDistance(Distance), Space);
-	}
-
-	auto DSplineComponent::GetDirectionAtDistance(double Distance, ESplineCoordinateSpace Space) const -> FVector3
-	{
-		return GetDirectionAtParam(GetParamAtDistance(Distance), Space);
-	}
-
-	auto DSplineComponent::GetTransformAtDistance(double Distance, ESplineCoordinateSpace Space) const -> FTransform
-	{
-		return GetTransformAtParam(GetParamAtDistance(Distance), Space);
-	}
-
-	auto DSplineComponent::UpdateSpline() -> void
-	{
-		SplineCurve.UpdateSpline();
+		const bool bRepairedIds = SplineCurve.RepairPointIds();
+		if (bRepairedIds) ChangeFlags |= ESplineChangeFlags::Topology;
+		std::atomic_store(&EvaluationData, SplineCurve.BuildEvaluationData());
+		++SplineRevision;
+		LastSplineChangeFlags = ChangeFlags;
 	}
 
 	auto DSplineComponent::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
-		UpdateSpline();
+		UpdateSpline(ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build);
 		return true;
 	}
 
 	auto DSplineComponent::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
 	{
-		if (!Super::PreEditChangeProperty(Proposal, OutError)) return false;
-		if (Proposal.MemberProperty && Proposal.MemberProperty->NamePrivate == FName("SplineCurve")
-			&& Proposal.DraftRootProperty == Proposal.MemberProperty && Proposal.DraftRootContainer)
-		{
-			auto* Curve = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FSplineCurve>(
-				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
-			Curve->SetReparamStepsPerSegment(std::clamp(Curve->GetReparamStepsPerSegment(), 1, 1024));
-		}
-		return true;
+		return Super::PreEditChangeProperty(Proposal, OutError);
 	}
 
 	auto DSplineComponent::PostEditChangeProperty(const FPropertyChangedEvent& Event) -> void
 	{
 		Super::PostEditChangeProperty(Event);
-		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("SplineCurve")
-			&& (Event.Phase != EPropertyChangePhase::Committed || Event.Origin != EPropertyChangeOrigin::Edit)) UpdateSpline();
+		if (Event.MemberProperty && Event.MemberProperty->NamePrivate == FName("SplineCurve"))
+		{
+			const ESplineChangeFlags Flags = Event.Kind == EPropertyChangeKind::ValueSet
+				? ESplineChangeFlags::Geometry | ESplineChangeFlags::Build
+				: ESplineChangeFlags::Topology | ESplineChangeFlags::Geometry | ESplineChangeFlags::Build;
+			UpdateSpline(Flags);
+		}
 	}
 
-	auto DSplineComponent::TransformTangentToWorld(const FVector3& LocalTangent) const -> FVector3
+	auto DSplineComponent::TransformSampleToWorld(const FSplineSample& LocalSample) const -> FSplineSample
 	{
-		return GetWorldRotation() * (GetWorldScale3D() * LocalTangent);
+		FSplineSample Result;
+		Result.Position = FVector3(GetComponentToWorldMatrix() * FVector4(LocalSample.Position, 1.0));
+		Result.FirstDerivative = GetWorldRotation() * (GetWorldScale3D() * LocalSample.FirstDerivative);
+		Result.SecondDerivative = GetWorldRotation() * (GetWorldScale3D() * LocalSample.SecondDerivative);
+		Result.Direction = SafeNormalize(Result.FirstDerivative);
+		return Result;
 	}
 } // namespace Durin

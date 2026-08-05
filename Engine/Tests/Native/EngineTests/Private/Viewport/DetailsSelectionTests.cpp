@@ -4,6 +4,9 @@
 #include "Components/SceneComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
+#include "Engine/Level.h"
+#include "Engine/World.h"
+#include "Workspace/LevelEditorContext.h"
 #include "EngineTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -58,4 +61,27 @@ TEST(FDetailsPanelTargetingTests, PreservesExplicitActorSelectionAndRecoversInva
 	Durin::MarkObjectHierarchyAsGarbage(RootedActor);
 	Durin::MarkObjectHierarchyAsGarbage(OtherActor);
 	Durin::CollectGarbage();
+}
+
+TEST(FLevelEditorContextSelectionTests, SharesComponentAndRepairsTypedSubElementSelection)
+{
+	InitializeDObjectSystem();
+	auto* World = Durin::NewObject<Durin::DWorld>(nullptr, "SharedSelectionWorld");
+	auto* Level = Durin::NewObject<Durin::DLevel>(World, "SharedSelectionLevel");
+	ASSERT_TRUE(World->SetCurrentLevel(Level));
+	auto* Actor = Level->SpawnActor<Durin::AActor>("SelectedActor");
+	ASSERT_NE(Actor, nullptr);
+	auto* Component = Actor->AddInstanceComponent(Durin::DActorComponent::StaticClass(), "SelectedComponent");
+	ASSERT_NE(Component, nullptr);
+	Durin::FLevelEditorContext Context;
+	Context.Synchronize(World);
+	Context.SelectActor(Actor);
+	const Durin::FEditorSubElementSelection Element{Durin::EEditorSubElementKind::Point, Durin::FGuid::NewGuid()};
+	Context.SelectSubElement(Component, Element);
+	EXPECT_EQ(Context.GetSelectedComponent(), Component);
+	EXPECT_EQ(Context.GetSelectedSubElement(), Element);
+	ASSERT_TRUE(Actor->DestroyInstanceComponent(Component));
+	Context.Synchronize(World);
+	EXPECT_EQ(Context.GetSelectedComponent(), nullptr);
+	EXPECT_FALSE(Context.GetSelectedSubElement().IsValid());
 }

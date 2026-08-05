@@ -4,6 +4,7 @@
 #include "DObject/WeakObjectPtr.h"
 #include "Editor/ReflectedPropertyView.h"
 #include "SceneView.h"
+#include "LevelEditorSelection.h"
 
 namespace Durin
 {
@@ -21,6 +22,8 @@ namespace Durin
 		DLevel* Level = nullptr;
 		bool bSelected = false;
 		bool bPrimarySelection = false;
+		bool bComponentSelected = false;
+		std::span<const FEditorSubElementSelection> SelectedSubElements;
 	};
 
 	// Describes a world-space line and its screen-space hit-test policy.
@@ -38,6 +41,7 @@ namespace Durin
 		float PatternPeriodPixels = 12.0f;
 		// Applied only when this primitive's actor is hovered; absence preserves its base color.
 		std::optional<FVector4f> HoverColor;
+		FEditorSubElementSelection Element;
 	};
 
 	// Describes a world-space icon and its screen-space hit-test policy.
@@ -54,6 +58,7 @@ namespace Durin
 		bool bDepthIndependentHit = true;
 		// Applied only when this primitive's actor is hovered; absence preserves its base color.
 		std::optional<FVector4f> HoverColor;
+		FEditorSubElementSelection Element;
 	};
 
 	// Reports the highest-priority visualization hit at one viewport position.
@@ -61,6 +66,7 @@ namespace Durin
 	{
 		AActor* Actor = nullptr;
 		DActorComponent* Component = nullptr;
+		FEditorSubElementSelection Element;
 		double Distance = std::numeric_limits<double>::max();
 		int32 Priority = std::numeric_limits<int32>::min();
 		bool bDepthIndependent = false;
@@ -72,7 +78,8 @@ namespace Durin
 	public:
 		LEVELEDITOR_API auto AddLine(const FEditorVisualizationLine& Line) -> void;
 		LEVELEDITOR_API auto AddIcon(const FEditorVisualizationIcon& Icon) -> void;
-		LEVELEDITOR_API auto AppendToView(FSceneView& View, const AActor* HoveredActor = nullptr) const -> void;
+		LEVELEDITOR_API auto AppendToView(FSceneView& View, const FEditorVisualizationHit* Hovered = nullptr) const -> void;
+		LEVELEDITOR_API auto AppendToView(FSceneView& View, const AActor* HoveredActor) const -> void;
 		LEVELEDITOR_API auto HitTest(const FSceneView& View, const FVector2f& ViewportPosition) const -> FEditorVisualizationHit;
 		auto GetLines() const -> const std::vector<FEditorVisualizationLine>& { return Lines; }
 		auto GetIcons() const -> const std::vector<FEditorVisualizationIcon>& { return Icons; }

@@ -22,12 +22,6 @@ namespace Durin
 		constexpr const char* ComponentDragPayload = "DURIN_DETAILS_SCENE_COMPONENT";
 	} // namespace
 
-	auto FDetailsComponentTree::ResetSelection() -> void
-	{
-		SelectedComponent = nullptr;
-		ResetRenameState();
-	}
-
 	auto FDetailsComponentTree::ResetRenameState() -> void
 	{
 		RenamingComponent = nullptr;
@@ -76,7 +70,7 @@ namespace Durin
 		};
 		auto BeginRenameComponent = [&](DActorComponent* Component) {
 			if (!Component) return;
-			SelectedComponent = Component;
+			Context.SelectComponent(Component);
 			RenamingComponent = Component;
 			RenameDialog.Open(Component->GetName());
 		};
@@ -110,7 +104,7 @@ namespace Durin
 				PendingExpandComponent = Parent;
 			}
 			Duplicate->RegisterComponent();
-			SelectedComponent = Duplicate;
+			Context.SelectComponent(Duplicate);
 			Context.InvalidatePackageSavedState(Actor->GetPackage());
 		};
 		auto ReparentComponent = [&](DSceneComponent* Moving, DSceneComponent* Parent) {
@@ -135,7 +129,7 @@ namespace Durin
 			const bool bIsInstance = Actor->IsInstanceComponent(Component);
 			ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
 			if (!bHasChildren) Flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-			if (SelectedComponent.Get() == Component) Flags |= ImGuiTreeNodeFlags_Selected;
+			if (Context.GetSelectedComponent() == Component) Flags |= ImGuiTreeNodeFlags_Selected;
 
 			ImGui::PushID(Component);
 			if (PendingExpandComponent.Get() == Component)
@@ -146,10 +140,10 @@ namespace Durin
 			const std::string Status = bIsRoot ? std::format("Root, {}", bIsInstance ? "Instance" : "Default") : bIsInstance ? "Instance" : "Default";
 			const std::string Label = std::format("{}  ({})  [{}]", Component->GetName(), ClassDisplayName(Component->GetClass()), Status);
 			const bool bOpen = MonaImGui::CompactTreeNode("##Component", Flags, "%s", Label.c_str());
-			if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) SelectedComponent = Component;
+			if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) Context.SelectComponent(Component);
 			if (ImGui::BeginPopupContextItem("ComponentContext"))
 			{
-				SelectedComponent = Component;
+				Context.SelectComponent(Component);
 				if (Context.bReadOnly) ImGui::BeginDisabled();
 				if (ImGui::MenuItem("Add Component")) QueueAddComponent(nullptr, false);
 				if (SceneComponent && ImGui::MenuItem("Add Child Component")) QueueAddComponent(SceneComponent, true);
@@ -216,11 +210,11 @@ namespace Durin
 		};
 
 		ImGuiTreeNodeFlags ActorFlags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_OpenOnArrow;
-		if (!SelectedComponent) ActorFlags |= ImGuiTreeNodeFlags_Selected;
+		if (!Context.GetSelectedComponent()) ActorFlags |= ImGuiTreeNodeFlags_Selected;
 		if (OwnedComponents.empty()) ActorFlags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 		ImGui::PushID(Actor);
 		const bool bActorOpen = MonaImGui::CompactTreeNode("##Actor", ActorFlags, "%s  (%s)", Actor->GetName().c_str(), ClassDisplayName(Actor->GetClass()).c_str());
-		if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) SelectedComponent = nullptr;
+		if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) Context.SelectComponent(nullptr);
 		if (ImGui::BeginPopupContextItem("ActorContext"))
 		{
 			if (Context.bReadOnly) ImGui::BeginDisabled();
@@ -278,13 +272,13 @@ namespace Durin
 
 		const ImGuiIO& IO = ImGui::GetIO();
 		const bool bComponentsFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-		if (!Context.bReadOnly && bComponentsFocused && !IO.WantTextInput && SelectedComponent)
+		if (!Context.bReadOnly && bComponentsFocused && !IO.WantTextInput && Context.GetSelectedComponent())
 		{
-			if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) BeginRenameComponent(SelectedComponent.Get());
-			if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false) && Actor->IsInstanceComponent(SelectedComponent.Get()) && SelectedComponent.Get() != Actor->GetRootComponent()) DuplicateComponent(SelectedComponent.Get());
-			if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && Actor->IsInstanceComponent(SelectedComponent.Get()))
+			if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) BeginRenameComponent(Context.GetSelectedComponent());
+			if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false) && Actor->IsInstanceComponent(Context.GetSelectedComponent()) && Context.GetSelectedComponent() != Actor->GetRootComponent()) DuplicateComponent(Context.GetSelectedComponent());
+			if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && Actor->IsInstanceComponent(Context.GetSelectedComponent()))
 			{
-				PendingDeleteComponent = SelectedComponent;
+				PendingDeleteComponent = Context.GetSelectedComponent();
 				bOpenDeletePopup = true;
 			}
 		}
@@ -330,7 +324,7 @@ namespace Durin
 					}
 					else
 					{
-						SelectedComponent = NewComponent;
+						Context.SelectComponent(NewComponent);
 						Context.InvalidatePackageSavedState(Actor->GetPackage());
 						if (auto* NewSceneComponent = Cast<DSceneComponent>(NewComponent); !bAddComponentAsChild && NewSceneComponent)
 							PendingExpandComponent = NewSceneComponent->GetAttachParent();
@@ -356,7 +350,7 @@ namespace Durin
 					Context.SetError("Failed to delete component.");
 				else if (Component)
 					Context.InvalidatePackageSavedState(Actor->GetPackage());
-				if (SelectedComponent.Get() == Component) SelectedComponent = nullptr;
+				if (Context.GetSelectedComponent() == Component) Context.SelectComponent(nullptr);
 				PendingDeleteComponent = nullptr;
 				ImGui::CloseCurrentPopup();
 			}

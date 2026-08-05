@@ -8,6 +8,7 @@ namespace Durin
 	enum class EEditorPlayStartLocation : uint8;
 	enum class EEditorPlayDestination : uint8;
 	class FLevelEditorViewportClient;
+	class FLevelViewportEditModeManager;
 	struct FLevelEditorContext;
 
 	// Retains responsive toolbar group placement for the current viewport size.
@@ -17,6 +18,7 @@ namespace Durin
 		ERenderMode RenderMode = ERenderMode::Lit;
 		ERasterMode RasterMode = ERasterMode::Solid;
 		std::string ViewModeLabel;
+		std::string EditModeLabel;
 		ImVec2 ViewportMin;
 		ImVec2 ViewportMax;
 		ImVec2 BackgroundMin;
@@ -30,6 +32,7 @@ namespace Durin
 		float Gap = 0.0f;
 		float ToolButtonGap = 0.0f;
 		float ModeButtonWidth = 0.0f;
+		float EditModeButtonWidth = 0.0f;
 		float SpaceButtonWidth = 0.0f;
 		float SnapButtonWidth = 0.0f;
 		float DropDownWidth = 0.0f;
@@ -43,10 +46,11 @@ namespace Durin
 	class FViewportToolbar final
 	{
 	public:
-		auto CalculateLayout(const FLevelEditorViewportClient* ViewportClient, const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> FViewportToolbarLayout;
+		auto CalculateLayout(const FLevelEditorViewportClient* ViewportClient, const FLevelViewportEditModeManager* EditModeManager, const ImVec2& ViewportMin, const ImVec2& ViewportMax) const -> FViewportToolbarLayout;
 		auto Draw(
 			FLevelEditorContext& Context,
 			FLevelEditorViewportClient* ViewportClient,
+			FLevelViewportEditModeManager* EditModeManager,
 			EEditorPlayStartLocation& PreferredPlayStartLocation,
 			EEditorPlayDestination& PreferredPlayDestination,
 			const FViewportToolbarLayout& Layout

@@ -116,6 +116,7 @@ namespace Durin
 
 	auto FSceneViewportPanel::Draw(FLevelEditorContext& Context) -> void
 	{
+		Context.ActivateViewportEditMode = [this, &Context](std::string_view Id) { return EditModeManager.Activate(Id, Context); };
 		const bool bPlayingInNewWindow = GEditor && GEditor->IsPlayingInNewWindow();
 		if (!EditorWorkspaceUI::BeginDockablePanel(
 			LevelEditorWorkspace::Type,
@@ -184,7 +185,8 @@ namespace Durin
 					}
 					ImGui::EndDragDropTarget();
 				}
-				const FViewportToolbarLayout ToolbarLayout = ViewportToolbar->CalculateLayout(ViewportClient.get(), VpMin, VpMax);
+				EditModeManager.Synchronize(Context);
+				const FViewportToolbarLayout ToolbarLayout = ViewportToolbar->CalculateLayout(ViewportClient.get(), &EditModeManager, VpMin, VpMax);
 				bViewportHovered = ImGui::IsItemHovered();
 				const bool bRightMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Right);
 				const bool bNavigationMousePressed = bRightMousePressed || ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || (ImGui::GetIO().KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left));
@@ -208,7 +210,7 @@ namespace Durin
 				{
 					DrawViewportPlayStateBorder(VpMin, VpMax, GEditor->IsPlaySessionPaused());
 				}
-				ViewportToolbar->Draw(Context, ViewportClient.get(), PreferredPlayStartLocation, PreferredPlayDestination, ToolbarLayout);
+				ViewportToolbar->Draw(Context, ViewportClient.get(), &EditModeManager, PreferredPlayStartLocation, PreferredPlayDestination, ToolbarLayout);
 				DrawCameraPreview(VpMin, VpMax);
 				DrawViewportOrientationOverlay(ViewportClient.get(), VpMin, VpMax);
 				DrawViewportFPSOverlay(VpMin, VpMax);
@@ -309,6 +311,7 @@ namespace Durin
 		Input.bMiddleMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Middle);
 		Input.bRightMouseDown = ImGui::IsMouseDown(ImGuiMouseButton_Right);
 		Input.bLeftMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Left);
+		Input.bLeftMouseDoubleClicked = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
 		Input.bMiddleMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Middle);
 		Input.bRightMousePressed = ImGui::IsMouseClicked(ImGuiMouseButton_Right);
 		Input.bMoveForward = ImGui::IsKeyDown(ImGuiKey_W);
@@ -323,6 +326,9 @@ namespace Durin
 		Input.bModeTranslate = bGizmoShortcutAllowed && ImGui::IsKeyPressed(ImGuiKey_W, false);
 		Input.bModeRotate = bGizmoShortcutAllowed && ImGui::IsKeyPressed(ImGuiKey_E, false);
 		Input.bModeScale = bGizmoShortcutAllowed && ImGui::IsKeyPressed(ImGuiKey_R, false);
+		Input.bDelete = bGizmoShortcutAllowed && ImGui::IsKeyPressed(ImGuiKey_Delete, false);
+		Input.bDuplicate = bGizmoShortcutAllowed && Input.bCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false);
+		Input.bAppend = bGizmoShortcutAllowed && ImGui::IsKeyPressed(ImGuiKey_Insert, false);
 		const ImVec2 ViewportMin = ImGui::GetItemRectMin();
 		const ImVec2 ViewportMax = ImGui::GetItemRectMax();
 		const ImVec2 MousePosition = ImGui::GetMousePos();
@@ -343,10 +349,10 @@ namespace Durin
 			ViewportClient->UpdateHoveredVisualizationWithView(Context.Level, SceneView, Input.MousePosition);
 		else if (!Input.bHovered)
 			ViewportClient->UpdateHoveredVisualization(nullptr, {}, {});
-		ViewportClient->GetTransformGizmo().Update(Context, SceneView, Input, Transactions);
 		const bool bGizmoConsumesMouse = ViewportClient->GetTransformGizmo().IsHovered() || ViewportClient->GetTransformGizmo().IsDragging();
 		Input.bRequestSelection = Input.bHovered && Input.bLeftMousePressed && !Input.bAlt && !Input.bWantTextInput && !bToolbarHovered && !bGizmoConsumesMouse && !bPopupOpen;
 		if (Input.bRequestSelection) ImGui::SetWindowFocus();
+		EditModeManager.Tick(Context, *ViewportClient, SceneView, Input, Transactions);
 		if (ViewportClient->GetTransformGizmo().IsDragging())
 		{
 			Input.bLeftMousePressed = false;
@@ -356,19 +362,8 @@ namespace Durin
 			Input.bRightMouseDown = false;
 			Input.MouseWheel = 0.0f;
 		}
-		if (Input.bRequestSelection)
-		{
-			if (AActor* HitActor = ViewportClient->PickActorWithView(Context.Level, SceneView, Input.MousePosition))
-			{
-				if (IO.KeyCtrl)
-					Context.ToggleActorSelection(HitActor);
-				else
-					Context.SelectActor(HitActor);
-			}
-			else
-				Context.ClearSelection();
-		}
 		ViewportClient->SetSelectedActors(Context.GetSelectedActors(), Context.GetPrimarySelectedActor());
+		ViewportClient->SetSelectedComponent(Context.GetSelectedComponent(), Context.GetSelectedSubElements());
 	}
 
 	auto FSceneViewportPanel::UpdateViewportSize() -> void

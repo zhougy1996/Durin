@@ -5,6 +5,8 @@
 #include "Editor/EditorTransaction.h"
 #include "Engine/World.h"
 #include "Engine/Level.h"
+#include "Components/ActorComponent.h"
+#include "Engine/Actor.h"
 
 namespace Durin
 {
@@ -26,6 +28,13 @@ namespace Durin
 		}
 		else if (SelectedActors.empty()) PrimarySelectedActor = nullptr;
 		if (SelectionAnchor && (World == nullptr || !World->ContainsActor(SelectionAnchor.Get()))) SelectionAnchor = nullptr;
+		AActor* Primary = PrimarySelectedActor.Get();
+		if (!Primary || !SelectedComponent || !Primary->OwnsComponent(SelectedComponent.Get()))
+		{
+			SelectedComponent = nullptr;
+			SelectedSubElement = {};
+			SelectedSubElements.clear();
+		}
 	}
 
 	auto FLevelEditorContext::SelectActor(AActor* Actor) -> void
@@ -54,6 +63,12 @@ namespace Durin
 			if (PrimarySelectedActor.Get() == Actor) PrimarySelectedActor = SelectedActors.empty() ? nullptr : SelectedActors.back();
 		}
 		SelectionAnchor = Actor;
+		if (!PrimarySelectedActor || !SelectedComponent || !PrimarySelectedActor->OwnsComponent(SelectedComponent.Get()))
+		{
+			SelectedComponent = nullptr;
+			SelectedSubElement = {};
+			SelectedSubElements.clear();
+		}
 	}
 
 	auto FLevelEditorContext::SelectActorRange(AActor* Actor, const std::vector<AActor*>& VisibleActors) -> void
@@ -81,6 +96,12 @@ namespace Durin
 		}
 		PrimarySelectedActor = IsActorSelected(PrimaryActor) ? PrimaryActor : (SelectedActors.empty() ? nullptr : SelectedActors.back().Get());
 		SelectionAnchor = PrimarySelectedActor;
+		if (!PrimarySelectedActor || !SelectedComponent || !PrimarySelectedActor->OwnsComponent(SelectedComponent.Get()))
+		{
+			SelectedComponent = nullptr;
+			SelectedSubElement = {};
+			SelectedSubElements.clear();
+		}
 	}
 
 	auto FLevelEditorContext::ClearSelection() -> void
@@ -88,6 +109,49 @@ namespace Durin
 		SelectedActors.clear();
 		PrimarySelectedActor = nullptr;
 		SelectionAnchor = nullptr;
+		SelectedComponent = nullptr;
+		SelectedSubElement = {};
+		SelectedSubElements.clear();
+	}
+
+	auto FLevelEditorContext::SelectComponent(DActorComponent* Component) -> void
+	{
+		AActor* Primary = PrimarySelectedActor.Get();
+		DActorComponent* Resolved = Primary && Component && Primary->OwnsComponent(Component) ? Component : nullptr;
+		if (SelectedComponent.Get() != Resolved) { SelectedSubElement = {}; SelectedSubElements.clear(); }
+		SelectedComponent = Resolved;
+	}
+
+	auto FLevelEditorContext::SelectSubElement(DActorComponent* Component, const FEditorSubElementSelection& Element) -> void
+	{
+		SelectComponent(Component);
+		if (SelectedComponent && Element.IsValid())
+		{
+			SelectedSubElement = Element;
+			SelectedSubElements = {Element};
+		}
+	}
+
+	auto FLevelEditorContext::ToggleSubElement(DActorComponent* Component, const FEditorSubElementSelection& Element) -> void
+	{
+		SelectComponent(Component);
+		if (!SelectedComponent || !Element.IsValid()) return;
+		const auto It = std::ranges::find(SelectedSubElements, Element);
+		if (It == SelectedSubElements.end())
+		{
+			SelectedSubElements.push_back(Element);
+			SelectedSubElement = Element;
+		}
+		else
+		{
+			SelectedSubElements.erase(It);
+			SelectedSubElement = SelectedSubElements.empty() ? FEditorSubElementSelection{} : SelectedSubElements.back();
+		}
+	}
+
+	auto FLevelEditorContext::IsSubElementSelected(const FEditorSubElementSelection& Element) const -> bool
+	{
+		return std::ranges::find(SelectedSubElements, Element) != SelectedSubElements.end();
 	}
 
 	auto FLevelEditorContext::IsActorSelected(const AActor* Actor) const -> bool

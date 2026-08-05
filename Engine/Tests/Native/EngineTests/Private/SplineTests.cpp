@@ -16,6 +16,8 @@
 
 #include <gtest/gtest.h>
 
+#include <future>
+
 namespace
 {
 	auto ExpectVectorNear(const Durin::FVector3& Actual, const Durin::FVector3& Expected, double Tolerance = 1.e-8) -> void
@@ -25,10 +27,13 @@ namespace
 		EXPECT_NEAR(Actual.z, Expected.z, Tolerance);
 	}
 
-	auto MakePoint(const Durin::FVector3& Position, Durin::ESplinePointType Type = Durin::ESplinePointType::CurveAuto) -> Durin::FSplinePoint
+	auto MakePoint(const Durin::FVector3& Position,
+		Durin::ESplineSegmentInterpolation Interpolation = Durin::ESplineSegmentInterpolation::Cubic,
+		Durin::ESplineTangentMode TangentMode = Durin::ESplineTangentMode::Automatic) -> Durin::FSplinePoint
 	{
 		Durin::FSplinePoint Point(Position);
-		Point.Type = Type;
+		Point.OutgoingInterpolation = Interpolation;
+		Point.TangentMode = TangentMode;
 		return Point;
 	}
 
@@ -39,7 +44,6 @@ namespace
 		Durin::FProperty* Point = nullptr;
 		Durin::FProperty* Position = nullptr;
 		Durin::FProperty* ClosedLoop = nullptr;
-		Durin::FProperty* ReparamSteps = nullptr;
 
 		static auto Resolve(Durin::DSplineComponent* Spline) -> FSplineReflection
 		{
@@ -57,7 +61,6 @@ namespace
 			Result.Position = PointProperty && PointProperty->GetStruct()
 				? PointProperty->GetStruct()->FindPropertyByName(Durin::FName("Position")) : nullptr;
 			Result.ClosedLoop = CurveStruct->FindPropertyByName(Durin::FName("bClosedLoop"));
-			Result.ReparamSteps = CurveStruct->FindPropertyByName(Durin::FName("ReparamStepsPerSegment"));
 			return Result;
 		}
 
@@ -65,185 +68,287 @@ namespace
 		{
 			return Curve->ContainerPtrToValuePtr<Durin::FSplineCurve>(Spline);
 		}
+
 		auto CurveTarget(Durin::DSplineComponent* Spline) const -> Durin::FReflectedPropertyEditTarget
 		{
 			return Durin::FReflectedPropertyEditTarget::ForMember(Spline, Curve);
 		}
+
 		auto PointsTarget(Durin::DSplineComponent* Spline) const -> Durin::FReflectedPropertyEditTarget
 		{
 			return CurveTarget(Spline).ForStructMember(Points);
 		}
+
 		auto PointFieldTarget(Durin::DSplineComponent* Spline, Durin::uint32 Index, Durin::FProperty* Field) const
 			-> Durin::FReflectedPropertyEditTarget
 		{
-			void* PointContainer = Points->GetMutableElementPtr(GetCurve(Spline), Index);
 			return PointsTarget(Spline).ForArrayElement(Point, Index).ForStructMember(Field);
 		}
 	};
 } // namespace
 
-TEST(FSplineCurveTests, HandlesEmptySinglePointAndDefaultCurve)
+TEST(FSplineCurveTests, AuthoringOperationsMaintainStableUniquePointIds)
 {
 	Durin::FSplineCurve Curve;
-	EXPECT_EQ(Curve.GetNumPoints(), 2u);
-	EXPECT_EQ(Curve.GetNumSegments(), 1u);
-	ExpectVectorNear(Curve.GetLocationAtParam(0.5), {50.0, 0.0, 0.0});
-	EXPECT_NEAR(Curve.GetSplineLength(), 100.0, 1.e-8);
+	ASSERT_EQ(Curve.GetNumPoints(), 2u);
+	const Durin::FGuid FirstId = Curve.GetPoint(0)->Id;
+	const Durin::FGuid SecondId = Curve.GetPoint(1)->Id;
+	EXPECT_TRUE(FirstId.IsValid());
+	EXPECT_TRUE(SecondId.IsValid());
+	EXPECT_NE(FirstId, SecondId);
+
+	Durin::FSplinePoint Duplicate = *Curve.GetPoint(0);
+	Durin::FSplinePoint Invalid = Duplicate;
+	Invalid.Id.Invalidate();
+	Curve.SetPoints({Invalid});
+	ASSERT_TRUE(Curve.GetPoint(0)->Id.IsValid());
+
+	Curve.SetPoints({Duplicate, Duplicate});
+	ASSERT_EQ(Curve.GetNumPoints(), 2u);
+	EXPECT_EQ(Curve.GetPoint(0)->Id, FirstId);
+	EXPECT_NE(Curve.GetPoint(1)->Id, FirstId);
+	const Durin::FGuid RepairedId = Curve.GetPoint(1)->Id;
+	EXPECT_EQ(Curve.FindPointIndex(RepairedId), 1u);
+
+	ASSERT_TRUE(Curve.MovePoint(1, 0));
+	EXPECT_EQ(Curve.GetPoint(0)->Id, RepairedId);
+	const Durin::uint32 AddedIndex = Curve.AddPoint(*Curve.GetPoint(0));
+	EXPECT_NE(Curve.GetPoint(AddedIndex)->Id, RepairedId);
+	ASSERT_TRUE(Curve.UpdatePoint(0, MakePoint({7.0, 8.0, 9.0})));
+	EXPECT_EQ(Curve.GetPoint(0)->Id, RepairedId);
+	const Durin::FGuid UpdatedId = Curve.GetPoint(0)->Id;
+	ASSERT_TRUE(Curve.InsertPoint(1, *Curve.GetPoint(0)));
+	EXPECT_NE(Curve.GetPoint(1)->Id, UpdatedId);
+	const std::optional<Durin::uint32> DuplicatedIndex = Curve.DuplicatePoint(0);
+	ASSERT_TRUE(DuplicatedIndex.has_value());
+	EXPECT_NE(Curve.GetPoint(*DuplicatedIndex)->Id, UpdatedId);
+	EXPECT_EQ(Curve.GetPoint(*DuplicatedIndex)->Position, Curve.GetPoint(0)->Position);
+}
+
+TEST(FSplineCurveTests, EvaluationHandlesEmptySinglePointAndDefaultCurve)
+{
+	Durin::FSplineCurve Curve;
+	auto Evaluation = Curve.BuildEvaluationData();
+	EXPECT_EQ(Evaluation->GetNumSegments(), 1u);
+	ExpectVectorNear(Evaluation->Evaluate({0, 0.5}).Position, {50.0, 0.0, 0.0});
+	EXPECT_NEAR(Evaluation->GetLocalLength(), 100.0, 1.e-8);
 
 	Curve.ClearPoints();
-	EXPECT_EQ(Curve.GetNumSegments(), 0u);
-	EXPECT_DOUBLE_EQ(Curve.GetSplineLength(), 0.0);
-	ExpectVectorNear(Curve.GetLocationAtParam(12.0), Durin::FVectorConstants::Zero);
-	ExpectVectorNear(Curve.GetDirectionAtParam(12.0), Durin::FVectorConstants::Zero);
+	Evaluation = Curve.BuildEvaluationData();
+	EXPECT_EQ(Evaluation->GetNumSegments(), 0u);
+	EXPECT_DOUBLE_EQ(Evaluation->GetLocalLength(), 0.0);
+	ExpectVectorNear(Evaluation->Evaluate({12, 0.7}).Position, Durin::FVectorConstants::Zero);
+	ExpectVectorNear(Evaluation->Evaluate({12, 0.7}).Direction, Durin::FVectorConstants::Zero);
 
 	Curve.AddPoint(MakePoint({4.0, 5.0, 6.0}));
-	EXPECT_EQ(Curve.GetNumSegments(), 0u);
-	ExpectVectorNear(Curve.GetLocationAtParam(-100.0), {4.0, 5.0, 6.0});
+	Evaluation = Curve.BuildEvaluationData();
+	ExpectVectorNear(Evaluation->Evaluate({0, 0.5}).Position, {4.0, 5.0, 6.0});
 }
 
-TEST(FSplineCurveTests, HermiteSegmentsHonorEndpointPositionsAndTangents)
+TEST(FSplineCurveTests, ManualHermiteAndChordLengthAutomaticTangentsMatchContracts)
 {
-	Durin::FSplinePoint Start = MakePoint({0.0, 0.0, 0.0}, Durin::ESplinePointType::Curve);
+	Durin::FSplinePoint Start = MakePoint({0.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Cubic,
+		Durin::ESplineTangentMode::ManualBroken);
 	Start.LeaveTangent = {12.0, 3.0, 0.0};
-	Durin::FSplinePoint End = MakePoint({10.0, 10.0, 0.0}, Durin::ESplinePointType::Curve);
+	Durin::FSplinePoint End = MakePoint({10.0, 10.0, 0.0}, Durin::ESplineSegmentInterpolation::Cubic,
+		Durin::ESplineTangentMode::ManualBroken);
 	End.ArriveTangent = {-2.0, 9.0, 0.0};
-
 	Durin::FSplineCurve Curve;
 	Curve.SetPoints({Start, End});
-	ExpectVectorNear(Curve.GetLocationAtParam(0.0), Start.Position);
-	ExpectVectorNear(Curve.GetLocationAtParam(1.0), End.Position);
-	ExpectVectorNear(Curve.GetTangentAtParam(0.0), Start.LeaveTangent);
-	ExpectVectorNear(Curve.GetTangentAtParam(1.0), End.ArriveTangent);
+	auto Evaluation = Curve.BuildEvaluationData();
+	ExpectVectorNear(Evaluation->Evaluate({0, 0.25}).Position, {3.34375, 1.5625, 0.0});
+	ExpectVectorNear(Evaluation->Evaluate({0, 0.5}).FirstDerivative, {12.5, 12.0, 0.0});
+	ExpectVectorNear(Evaluation->Evaluate({0, 0.75}).SecondDerivative, {-29.0, -6.0, 0.0});
+
+	Curve.SetPoints({MakePoint({0.0, 0.0, 0.0}), MakePoint({3.0, 4.0, 0.0}), MakePoint({9.0, 4.0, 0.0})});
+	Evaluation = Curve.BuildEvaluationData();
+	ExpectVectorNear(Evaluation->Evaluate({0, 1.0}).FirstDerivative, {3.909090909090909, 2.181818181818182, 0.0});
+	ExpectVectorNear(Evaluation->Evaluate({1, 0.0}).FirstDerivative, {4.690909090909091, 2.618181818181818, 0.0});
 }
 
-TEST(FSplineCurveTests, AutoTangentsAreContinuousAtInteriorPoints)
+TEST(FSplineCurveTests, ClampedAndAlignedTangentModesApplyTheirV2Rules)
 {
 	Durin::FSplineCurve Curve;
 	Curve.SetPoints({
 		MakePoint({0.0, 0.0, 0.0}),
-		MakePoint({1.0, 1.0, 0.0}),
-		MakePoint({2.0, 0.0, 0.0}),
+		MakePoint({10.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Cubic,
+			Durin::ESplineTangentMode::AutomaticClamped),
+		MakePoint({9.0, 0.1, 0.0}),
 	});
-	const Durin::FVector3 Incoming = Curve.GetTangentAtParam(1.0 - 1.e-7);
-	const Durin::FVector3 Outgoing = Curve.GetTangentAtParam(1.0);
-	ExpectVectorNear(Incoming, Outgoing, 1.e-5);
-	ExpectVectorNear(Outgoing, {1.0, 0.0, 0.0}, 1.e-8);
+	auto Evaluation = Curve.BuildEvaluationData();
+	ExpectVectorNear(Evaluation->Evaluate({0, 1.0}).FirstDerivative, {});
+	ExpectVectorNear(Evaluation->Evaluate({1, 0.0}).FirstDerivative, {});
+
+	Durin::FSplinePoint Start = MakePoint({0.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Cubic,
+		Durin::ESplineTangentMode::ManualAligned);
+	Start.ArriveTangent = {6.0, 0.0, 0.0};
+	Start.LeaveTangent = {0.0, 2.0, 0.0};
+	Durin::FSplinePoint End = MakePoint({10.0, 10.0, 0.0}, Durin::ESplineSegmentInterpolation::Cubic,
+		Durin::ESplineTangentMode::ManualBroken);
+	End.ArriveTangent = {3.0, 4.0, 0.0};
+	Curve.SetPoints({Start, End});
+	Evaluation = Curve.BuildEvaluationData();
+	ExpectVectorNear(Evaluation->Evaluate({0, 0.0}).FirstDerivative, {0.0, 2.0, 0.0});
+	ExpectVectorNear(Evaluation->Evaluate({0, 1.0}).FirstDerivative, {3.0, 4.0, 0.0});
 }
 
-TEST(FSplineCurveTests, ClosedLinearCurveWrapsAndIncludesClosingSegment)
+TEST(FSplineCurveTests, ClosedLinearCurveWrapsAndPreservesFullLoopDistance)
 {
 	Durin::FSplineCurve Curve;
 	Curve.SetPoints({
-		MakePoint({0.0, 0.0, 0.0}, Durin::ESplinePointType::Linear),
-		MakePoint({1.0, 0.0, 0.0}, Durin::ESplinePointType::Linear),
-		MakePoint({1.0, 1.0, 0.0}, Durin::ESplinePointType::Linear),
-		MakePoint({0.0, 1.0, 0.0}, Durin::ESplinePointType::Linear),
+		MakePoint({0.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Linear),
+		MakePoint({1.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Linear),
+		MakePoint({1.0, 1.0, 0.0}, Durin::ESplineSegmentInterpolation::Linear),
+		MakePoint({0.0, 1.0, 0.0}, Durin::ESplineSegmentInterpolation::Linear),
 	});
 	Curve.SetClosedLoop(true);
-	EXPECT_EQ(Curve.GetNumSegments(), 4u);
-	EXPECT_NEAR(Curve.GetSplineLength(), 4.0, 1.e-8);
-	ExpectVectorNear(Curve.GetLocationAtParam(4.0), {0.0, 0.0, 0.0});
-	ExpectVectorNear(Curve.GetLocationAtParam(-0.5), {0.0, 0.5, 0.0});
-	ExpectVectorNear(Curve.GetLocationAtDistance(4.5), {0.5, 0.0, 0.0});
+	const auto Evaluation = Curve.BuildEvaluationData();
+	EXPECT_EQ(Evaluation->GetNumSegments(), 4u);
+	EXPECT_NEAR(Evaluation->GetLocalLength(), 4.0, 1.e-8);
+	ExpectVectorNear(Evaluation->Evaluate({3, 1.0}).Position, {0.0, 0.0, 0.0});
+	EXPECT_NEAR(Evaluation->GetLocalDistanceAtParameter({3, 1.0}), 4.0, 1.e-8);
+	ExpectVectorNear(Evaluation->EvaluateAtLocalDistance(4.5).Position, {0.5, 0.0, 0.0});
 }
 
-TEST(FSplineCurveTests, DistanceQueriesAreMonotonicAndAccurateForStraightSegments)
+TEST(FSplineCurveTests, AdaptiveDistanceBoundsAndNearestQueriesAreStable)
+{
+	Durin::FSplinePoint Start = MakePoint({0.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Cubic,
+		Durin::ESplineTangentMode::ManualBroken);
+	Start.LeaveTangent = {0.0, 1000.0, 0.0};
+	Durin::FSplinePoint End = MakePoint({1.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Cubic,
+		Durin::ESplineTangentMode::ManualBroken);
+	End.ArriveTangent = {0.0, -1000.0, 0.0};
+	Durin::FSplineCurve Curve;
+	Curve.SetPoints({Start, End});
+	const auto Evaluation = Curve.BuildEvaluationData();
+	EXPECT_NEAR(Evaluation->GetLocalLength(), 500.0078, 0.007);
+	EXPECT_TRUE(Evaluation->GetLocalBounds().bIsValid);
+	EXPECT_LE(Evaluation->GetLocalBounds().Min.x, 0.0);
+	EXPECT_GE(Evaluation->GetLocalBounds().Max.y, 333.0);
+
+	double PreviousDistance = -1.0;
+	for (int Step = 0; Step <= 100; ++Step)
+	{
+		const Durin::FSplineParameter Parameter{0, Step / 100.0};
+		const double Distance = Evaluation->GetLocalDistanceAtParameter(Parameter);
+		EXPECT_GE(Distance, PreviousDistance);
+		PreviousDistance = Distance;
+	}
+
+	Durin::FSplineCurve Line;
+	Line.SetPoints({MakePoint({0.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Linear),
+		MakePoint({10.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Linear)});
+	const auto LineEvaluation = Line.BuildEvaluationData();
+	EXPECT_NEAR(LineEvaluation->GetLocalDistanceAtParameter({0, 0.75}), 7.5, 1.e-8);
+	EXPECT_NEAR(LineEvaluation->GetParameterAtLocalDistance(3.0).T, 0.3, 1.e-8);
+	ExpectVectorNear(LineEvaluation->EvaluateAtLocalDistance(7.5).Position, {7.5, 0.0, 0.0});
+	const Durin::FSplineParameter Nearest = LineEvaluation->FindNearestParameter({3.0, 5.0, 0.0});
+	EXPECT_EQ(Nearest.SegmentIndex, 0u);
+	EXPECT_NEAR(Nearest.T, 0.3, 1.e-6);
+}
+
+TEST(FSplineCurveTests, ImmutableSnapshotSupportsConcurrentReads)
 {
 	Durin::FSplineCurve Curve;
-	Curve.SetPoints({
-		MakePoint({0.0, 0.0, 0.0}, Durin::ESplinePointType::Linear),
-		MakePoint({10.0, 0.0, 0.0}, Durin::ESplinePointType::Linear),
-	});
-	Curve.SetReparamStepsPerSegment(4);
-	EXPECT_NEAR(Curve.GetParamAtDistance(2.5), 0.25, 1.e-8);
-	EXPECT_NEAR(Curve.GetDistanceAtParam(0.75), 7.5, 1.e-8);
-	ExpectVectorNear(Curve.GetLocationAtDistance(7.5), {7.5, 0.0, 0.0});
-
-	double PreviousParam = -1.0;
-	for (int Step = 0; Step <= 20; ++Step)
+	Curve.SetPoints({MakePoint({0.0, 0.0, 0.0}), MakePoint({3.0, 4.0, 0.0}), MakePoint({9.0, 4.0, 0.0})});
+	const auto Evaluation = Curve.BuildEvaluationData();
+	std::vector<std::future<double>> Readers;
+	for (int ReaderIndex = 0; ReaderIndex < 8; ++ReaderIndex)
 	{
-		const double Param = Curve.GetParamAtDistance(Curve.GetSplineLength() * Step / 20.0);
-		EXPECT_GE(Param, PreviousParam);
-		PreviousParam = Param;
+		Readers.push_back(std::async(std::launch::async, [Evaluation] {
+			double Checksum = 0.0;
+			for (int Iteration = 0; Iteration < 1000; ++Iteration)
+			{
+				const auto Sample = Evaluation->EvaluateAtLocalDistance(Evaluation->GetLocalLength() * Iteration / 999.0);
+				Checksum += Sample.Position.x + Sample.Position.y + Sample.Direction.x;
+			}
+			return Checksum;
+		}));
 	}
+	const double Expected = Readers.front().get();
+	for (size_t Index = 1; Index < Readers.size(); ++Index) EXPECT_DOUBLE_EQ(Readers[Index].get(), Expected);
 }
 
-TEST(FSplineComponentTests, ConvertsSamplesToWorldSpaceWithoutChangingLocalDistance)
+TEST(FSplineComponentTests, PublishesWorldSpaceSamplesAndRevisionFlags)
 {
 	InitializeDObjectSystem();
 	auto* Spline = Durin::NewObject<Durin::DSplineComponent>(nullptr, "Spline");
+	const Durin::uint64 InitialRevision = Spline->GetSplineRevision();
 	Spline->SetSplinePoints({
-		MakePoint({0.0, 0.0, 0.0}, Durin::ESplinePointType::Linear),
-		MakePoint({10.0, 0.0, 0.0}, Durin::ESplinePointType::Linear),
+		MakePoint({0.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Linear),
+		MakePoint({10.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Linear),
 	});
+	EXPECT_EQ(Spline->GetSplineRevision(), InitialRevision + 1);
+	Spline->SetSplinePoints(Spline->GetSplinePoints());
+	EXPECT_EQ(Spline->GetSplineRevision(), InitialRevision + 1);
+	EXPECT_TRUE(Durin::EnumHasAllFlags(Spline->GetLastSplineChangeFlags(),
+		Durin::ESplineChangeFlags::Topology | Durin::ESplineChangeFlags::Geometry | Durin::ESplineChangeFlags::Build));
+
 	Durin::FTransform ComponentTransform;
 	ComponentTransform.Translation = {1.0, 2.0, 3.0};
 	ComponentTransform.Rotation = glm::angleAxis(glm::radians(90.0), Durin::FVectorConstants::Up);
 	ComponentTransform.Scale3D = {2.0, 3.0, 4.0};
 	Spline->SetWorldTransform(ComponentTransform);
-
-	EXPECT_NEAR(Spline->GetSplineLength(), 10.0, 1.e-8);
-	ExpectVectorNear(Spline->GetLocationAtParam(0.5, Durin::ESplineCoordinateSpace::World), {1.0, 12.0, 3.0}, 1.e-8);
-	ExpectVectorNear(Spline->GetTangentAtParam(0.5, Durin::ESplineCoordinateSpace::World), {0.0, 20.0, 0.0}, 1.e-8);
-	ExpectVectorNear(Spline->GetDirectionAtDistance(5.0, Durin::ESplineCoordinateSpace::World), {0.0, 1.0, 0.0}, 1.e-8);
+	EXPECT_NEAR(Spline->GetLocalSplineLength(), 10.0, 1.e-8);
+	const Durin::FSplineSample Sample = Spline->GetSampleAtParameter({0, 0.5}, Durin::ESplineCoordinateSpace::World);
+	ExpectVectorNear(Sample.Position, {1.0, 12.0, 3.0});
+	ExpectVectorNear(Sample.FirstDerivative, {0.0, 20.0, 0.0});
+	ExpectVectorNear(Sample.Direction, {0.0, 1.0, 0.0});
 
 	Durin::MarkAsGarbage(Spline);
 	Durin::CollectGarbage();
 }
 
-TEST(FSplineComponentTests, DuplicateObjectGraphRestoresReflectedCurveDataAndCache)
+TEST(FSplineComponentTests, DuplicateObjectGraphPreservesIdsAndPublishesSnapshot)
 {
 	InitializeDObjectSystem();
 	auto* Source = Durin::NewObject<Durin::DSplineComponent>(nullptr, "SourceSpline");
-	Durin::FSplinePoint First = MakePoint({2.0, 3.0, 4.0}, Durin::ESplinePointType::Curve);
+	Durin::FSplinePoint First = MakePoint({2.0, 3.0, 4.0}, Durin::ESplineSegmentInterpolation::Cubic,
+		Durin::ESplineTangentMode::ManualBroken);
 	First.LeaveTangent = {20.0, 5.0, 0.0};
-	First.Scale = {2.0, 3.0, 4.0};
-	Durin::FSplinePoint Second = MakePoint({15.0, 8.0, 4.0}, Durin::ESplinePointType::Curve);
+	Durin::FSplinePoint Second = MakePoint({15.0, 8.0, 4.0}, Durin::ESplineSegmentInterpolation::Cubic,
+		Durin::ESplineTangentMode::ManualBroken);
 	Second.ArriveTangent = {4.0, 12.0, 0.0};
 	Source->SetSplinePoints({First, Second});
 	Source->SetClosedLoop(true);
-	Source->SetReparamStepsPerSegment(17);
 
 	std::string Error;
 	auto* Duplicate = Durin::Cast<Durin::DSplineComponent>(Durin::DuplicateObjectGraph(Source, nullptr, "DuplicateSpline", &Error));
 	ASSERT_NE(Duplicate, nullptr) << Error;
 	EXPECT_EQ(Duplicate->GetSplinePoints(), Source->GetSplinePoints());
 	EXPECT_TRUE(Duplicate->IsClosedLoop());
-	EXPECT_EQ(Duplicate->GetReparamStepsPerSegment(), 17);
-	EXPECT_NEAR(Duplicate->GetSplineLength(), Source->GetSplineLength(), 1.e-8);
-	ExpectVectorNear(Duplicate->GetLocationAtParam(0.35), Source->GetLocationAtParam(0.35));
+	EXPECT_NEAR(Duplicate->GetLocalSplineLength(), Source->GetLocalSplineLength(), 1.e-8);
+	ExpectVectorNear(Duplicate->GetSampleAtParameter({0, 0.35}).Position,
+		Source->GetSampleAtParameter({0, 0.35}).Position);
 
 	Durin::MarkAsGarbage(Source);
 	Durin::MarkAsGarbage(Duplicate);
 	Durin::CollectGarbage();
 }
 
-TEST(FSplineReflectionTests, RegistersAllControlPointValueFields)
+TEST(FSplineReflectionTests, RegistersV2ControlPointFieldsOnly)
 {
 	InitializeDObjectSystem();
 	Durin::DStruct* PointStruct = Durin::FSplinePoint::StaticStruct();
 	ASSERT_NE(PointStruct, nullptr);
-	for (const char* PropertyName : {"Position", "ArriveTangent", "LeaveTangent", "Rotation", "Scale", "Type"})
-	{
+	for (const char* PropertyName : {"Id", "Position", "ArriveTangent", "LeaveTangent", "OutgoingInterpolation", "TangentMode"})
 		EXPECT_NE(PointStruct->FindPropertyByName(Durin::FName(PropertyName)), nullptr) << PropertyName;
-	}
+	for (const char* RemovedName : {"Rotation", "Scale", "Type"})
+		EXPECT_EQ(PointStruct->FindPropertyByName(Durin::FName(RemovedName)), nullptr) << RemovedName;
 }
 
-TEST(FSplineEditingTests, SharedTransactionsPreserveSplineSetterSemanticsAndStablePaths)
+TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePaths)
 {
 	InitializeDObjectSystem();
 	auto* Spline = Durin::NewObject<Durin::DSplineComponent>(nullptr, "TransactionalSpline");
-	Spline->SetSplinePoints({
-		MakePoint({0.0, 0.0, 0.0}, Durin::ESplinePointType::Linear),
-		MakePoint({10.0, 0.0, 0.0}, Durin::ESplinePointType::Linear),
-	});
+	Spline->SetSplinePoints({MakePoint({0.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Linear),
+		MakePoint({10.0, 0.0, 0.0}, Durin::ESplineSegmentInterpolation::Linear)});
 	const FSplineReflection Reflection = FSplineReflection::Resolve(Spline);
 	ASSERT_NE(Reflection.Curve, nullptr);
 	ASSERT_NE(Reflection.Points, nullptr);
 	ASSERT_NE(Reflection.Point, nullptr);
 	ASSERT_NE(Reflection.Position, nullptr);
 	ASSERT_NE(Reflection.ClosedLoop, nullptr);
-	ASSERT_NE(Reflection.ReparamSteps, nullptr);
 
 	Durin::FEditorTransactionManager Transactions;
 	Durin::FReflectedPropertyView View;
@@ -254,109 +359,59 @@ TEST(FSplineEditingTests, SharedTransactionsPreserveSplineSetterSemanticsAndStab
 	};
 	auto SubmitPosition = [&](const Durin::FVector3& Position, bool bContinuous) {
 		const Durin::FReflectedPropertyEditTarget Target = Reflection.PointFieldTarget(Spline, 1, Reflection.Position);
-		const Durin::FVector3 LiveValueBeforeProposal = Spline->GetSplinePoint(1)->Position;
-		bool bLiveValueUntouched = false;
-		const bool bSubmitted = View.SubmitPropertyValueEdit(Context, Target,
-			[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
-				bLiveValueUntouched = Spline->GetSplinePoint(1)->Position == LiveValueBeforeProposal;
-				*ScratchProperty->ContainerPtrToValuePtr<Durin::FVector3>(ScratchContainer, ScratchArrayIndex) = Position;
-		}, bContinuous);
-		EXPECT_TRUE(bLiveValueUntouched);
-		return bSubmitted;
-	};
-
-	const Durin::FReflectedPropertyEditTarget PositionTarget = Reflection.PointFieldTarget(Spline, 1, Reflection.Position);
-	ASSERT_EQ(PositionTarget.Path.size(), 4u);
-	EXPECT_EQ(PositionTarget.Path[0].Property, Reflection.Curve);
-	EXPECT_EQ(PositionTarget.Path[1].Property, Reflection.Points);
-	EXPECT_EQ(PositionTarget.Path[1].Selector, Durin::EPropertyPathSelector::ArrayIndex);
-	EXPECT_EQ(PositionTarget.Path[1].Index, 1u);
-	EXPECT_EQ(PositionTarget.Path[2].Property, Reflection.Point);
-	EXPECT_EQ(PositionTarget.Path[3].Property, Reflection.Position);
-
-	ASSERT_TRUE(SubmitPosition({20.0, 0.0, 0.0}, true));
-	ASSERT_TRUE(SubmitPosition({30.0, 0.0, 0.0}, true));
-	EXPECT_NEAR(Spline->GetSplineLength(), 30.0, 1.e-8);
-	View.FinishActiveEdit(&Context, false);
-	EXPECT_TRUE(Error.empty());
-	ASSERT_TRUE(Transactions.Undo());
-	ExpectVectorNear(Spline->GetSplinePoint(1)->Position, {10.0, 0.0, 0.0});
-	EXPECT_NEAR(Spline->GetSplineLength(), 10.0, 1.e-8);
-	ASSERT_TRUE(Transactions.Redo());
-	ExpectVectorNear(Spline->GetSplinePoint(1)->Position, {30.0, 0.0, 0.0});
-
-	Transactions.Clear();
-	ASSERT_TRUE(SubmitPosition({40.0, 0.0, 0.0}, true));
-	View.FinishActiveEdit(&Context, true);
-	ExpectVectorNear(Spline->GetSplinePoint(1)->Position, {30.0, 0.0, 0.0});
-	EXPECT_FALSE(Transactions.CanUndo());
-
-	auto SubmitCurveField = [&](Durin::FProperty* Field, auto Value) {
-		const Durin::FReflectedPropertyEditTarget Target = Reflection.CurveTarget(Spline)
-			.ForStructMember(Field);
 		return View.SubmitPropertyValueEdit(Context, Target,
 			[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
-				*ScratchProperty->ContainerPtrToValuePtr<std::decay_t<decltype(Value)>>(ScratchContainer, ScratchArrayIndex) = Value;
-		}, false);
+				*ScratchProperty->ContainerPtrToValuePtr<Durin::FVector3>(ScratchContainer, ScratchArrayIndex) = Position;
+			}, bContinuous);
 	};
-	ASSERT_TRUE(SubmitCurveField(Reflection.ClosedLoop, true));
-	EXPECT_TRUE(Spline->IsClosedLoop());
-	ASSERT_TRUE(SubmitCurveField(Reflection.ReparamSteps, Durin::int32{4096}));
-	EXPECT_EQ(Spline->GetReparamStepsPerSegment(), 1024);
-	ASSERT_TRUE(Transactions.Undo());
-	EXPECT_EQ(Spline->GetReparamStepsPerSegment(), 10);
-	ASSERT_TRUE(Transactions.Undo());
-	EXPECT_FALSE(Spline->IsClosedLoop());
 
-	Transactions.Clear();
-	std::vector<Durin::FSplinePoint> AddedPoints = Spline->GetSplinePoints();
-	AddedPoints.push_back(MakePoint({50.0, 0.0, 0.0}, Durin::ESplinePointType::Linear));
-	Durin::FReflectedPropertyEditTarget PointsTarget = Reflection.PointsTarget(Spline);
-	PointsTarget.Kind = Durin::EPropertyChangeKind::ArrayAdd;
-	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, PointsTarget,
-		[&](Durin::FProperty* ScratchProperty, void* ScratchContainer, Durin::uint32 ScratchArrayIndex) {
-			auto* ScratchArray = static_cast<Durin::FArrayProperty*>(ScratchProperty);
-			ScratchArray->Resize(ScratchContainer, AddedPoints.size(), ScratchArrayIndex);
-			for (size_t Index = 0; Index < AddedPoints.size(); ++Index)
-				*static_cast<Durin::FSplinePoint*>(ScratchArray->GetMutableElementPtr(ScratchContainer, Index, ScratchArrayIndex)) = AddedPoints[Index];
-	}, false));
-	EXPECT_EQ(Spline->GetNumSplinePoints(), 3u);
+	const Durin::FGuid EditedPointId = Spline->GetSplinePoint(1)->Id;
+	ASSERT_TRUE(SubmitPosition({20.0, 0.0, 0.0}, true));
+	ASSERT_TRUE(SubmitPosition({30.0, 0.0, 0.0}, true));
+	View.FinishActiveEdit(&Context, false);
+	EXPECT_TRUE(Error.empty());
+	EXPECT_NEAR(Spline->GetLocalSplineLength(), 30.0, 1.e-8);
+	EXPECT_EQ(Spline->GetSplinePoint(1)->Id, EditedPointId);
 	ASSERT_TRUE(Transactions.Undo());
-	EXPECT_EQ(Spline->GetNumSplinePoints(), 2u);
+	ExpectVectorNear(Spline->GetSplinePoint(1)->Position, {10.0, 0.0, 0.0});
+	EXPECT_NEAR(Spline->GetLocalSplineLength(), 10.0, 1.e-8);
 	ASSERT_TRUE(Transactions.Redo());
-	EXPECT_EQ(Spline->GetNumSplinePoints(), 3u);
+	ExpectVectorNear(Spline->GetSplinePoint(1)->Position, {30.0, 0.0, 0.0});
 
 	Transactions.Clear();
 	Durin::MarkAsGarbage(Spline);
 	Durin::CollectGarbage();
 }
 
-TEST(FSplineComponentTests, LevelPackageRoundTripsSplineControlPoints)
+TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
 {
 	InitializeDObjectSystem();
-	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SplineLevels";
+	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "SplineV2Levels";
 	static std::unordered_set<std::filesystem::path> InitializedRoots;
 	if (InitializedRoots.insert(Root).second)
 	{
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::PathUtilities::RegisterMountPointForTests("/SplineTests/", Root.generic_string() + "/");
+		Durin::PathUtilities::RegisterMountPointForTests("/SplineV2Tests/", Root.generic_string() + "/");
 	}
 
 	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SplineTests/RoundTrip", Path));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SplineV2Tests/RoundTrip", Path));
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
 	Durin::AActor* Actor = Level->SpawnActor<Durin::AActor>("SplineActor");
-	ASSERT_NE(Actor, nullptr);
 	auto* Spline = Durin::Cast<Durin::DSplineComponent>(Actor->AddInstanceComponent(Durin::DSplineComponent::StaticClass(), "Path"));
 	ASSERT_NE(Spline, nullptr);
+	Level->GetPackage()->ClearDirty();
+	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 	Spline->SetSplinePoints({
-		MakePoint({1.0, 2.0, 3.0}, Durin::ESplinePointType::Linear),
-		MakePoint({10.0, 12.0, 13.0}, Durin::ESplinePointType::CurveAuto),
-		MakePoint({20.0, 5.0, 6.0}, Durin::ESplinePointType::Curve),
+		MakePoint({1.0, 2.0, 3.0}, Durin::ESplineSegmentInterpolation::Linear),
+		MakePoint({10.0, 12.0, 13.0}, Durin::ESplineSegmentInterpolation::Cubic, Durin::ESplineTangentMode::AutomaticClamped),
+		MakePoint({20.0, 5.0, 6.0}, Durin::ESplineSegmentInterpolation::Cubic, Durin::ESplineTangentMode::ManualBroken),
 	});
+	EXPECT_TRUE(Level->GetPackage()->IsDirty());
 	Spline->SetClosedLoop(true);
-	const double SavedLength = Spline->GetSplineLength();
+	const double SavedLength = Spline->GetLocalSplineLength();
+	const Durin::FGuid SavedId = Spline->GetSplinePoint(1)->Id;
 	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 
@@ -364,14 +419,12 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsSplineControlPoints)
 	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, LoadedObject));
 	auto* LoadedLevel = Durin::Cast<Durin::DLevel>(LoadedObject);
 	ASSERT_NE(LoadedLevel, nullptr);
-	Durin::AActor* LoadedActor = LoadedLevel->FindActorByName("SplineActor");
-	ASSERT_NE(LoadedActor, nullptr);
-	auto* LoadedSpline = LoadedActor->FindComponentByClass<Durin::DSplineComponent>();
+	auto* LoadedSpline = LoadedLevel->FindActorByName("SplineActor")->FindComponentByClass<Durin::DSplineComponent>();
 	ASSERT_NE(LoadedSpline, nullptr);
 	EXPECT_EQ(LoadedSpline->GetNumSplinePoints(), 3u);
 	EXPECT_TRUE(LoadedSpline->IsClosedLoop());
-	EXPECT_NEAR(LoadedSpline->GetSplineLength(), SavedLength, 1.e-8);
-	ExpectVectorNear(LoadedSpline->GetSplinePoint(1)->Position, {10.0, 12.0, 13.0});
-	EXPECT_EQ(LoadedSpline->GetSplinePoint(2)->Type, Durin::ESplinePointType::Curve);
+	EXPECT_NEAR(LoadedSpline->GetLocalSplineLength(), SavedLength, 1.e-8);
+	EXPECT_EQ(LoadedSpline->GetSplinePoint(1)->Id, SavedId);
+	EXPECT_EQ(LoadedSpline->GetSplinePoint(1)->TangentMode, Durin::ESplineTangentMode::AutomaticClamped);
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }

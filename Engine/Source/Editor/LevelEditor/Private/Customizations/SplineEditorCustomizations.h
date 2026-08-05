@@ -1,9 +1,13 @@
 #pragma once
 
 #include "LevelEditorCustomizations.h"
+#include "LevelEditorViewportEditing.h"
 
 namespace Durin
 {
+	class DSplineComponent;
 	auto CreateSplineComponentVisualizer() -> std::shared_ptr<IComponentEditorVisualizer>;
 	auto CreateSplineDetailsCustomization() -> std::shared_ptr<IObjectDetailsCustomization>;
+	auto RegisterSplineViewportEditMode() -> FLevelViewportEditModeHandle;
+	auto SplitSplineSegment(DSplineComponent& Spline, uint32 SegmentIndex, double T, FGuid* OutPointId = nullptr) -> bool;
 } // namespace Durin

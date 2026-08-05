@@ -279,6 +279,7 @@ durin_add_engine_functional_test(ViewportTests
 		${_durin_level_editor_private}/Viewport/ViewportCameraTransform.cpp
 		${_durin_level_editor_private}/Viewport/CameraPreviewViewportClient.cpp
 		${_durin_level_editor_private}/Viewport/LevelEditorViewportClient.cpp
+		${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
 		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
 		${_durin_level_editor_private}/Customizations/CameraEditorCustomizations.cpp
 		${_durin_level_editor_private}/Customizations/DirectionalLightEditorCustomizations.cpp
@@ -291,11 +292,18 @@ durin_add_engine_functional_test(ViewportTests
 
 durin_add_engine_functional_test(SplineTests
 	RUNTIME_STACK_RATIONALE "Exercises DurinEd spline customization behavior."
-	SOURCES Private/SplineTests.cpp
+	SOURCES
+		Private/SplineTests.cpp
+		Private/SplineV2ContractTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/SplineEditorCustomizations.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES DurinEd
+		${_durin_level_editor_private}/Viewport/ViewportCameraTransform.cpp
+		${_durin_level_editor_private}/Viewport/LevelEditorViewportClient.cpp
+		${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
+		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
+		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
 )
 
 durin_add_engine_functional_test(SkyBoxTests

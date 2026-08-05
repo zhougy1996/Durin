@@ -2,6 +2,7 @@
 
 #include "Panels/LevelEditorPanel.h"
 #include "Viewport/TransformGizmo.h"
+#include "LevelEditorViewportEditing.h"
 #include "Widgets/MWidget.h"
 
 struct ImVec2;
@@ -38,6 +39,7 @@ namespace Durin
 		auto SetPreferredPlayMode(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void;
 		auto GetTransformGizmo() -> FTransformGizmo*;
 		auto GetTransformGizmo() const -> const FTransformGizmo*;
+		auto GetEditModeManager() -> FLevelViewportEditModeManager& { return EditModeManager; }
 		auto IsGridVisible() const -> bool;
 		auto SetGridVisible(bool bVisible) -> void;
 		auto FocusActor(const AActor* Actor) -> void;
@@ -54,6 +56,7 @@ namespace Durin
 		std::shared_ptr<MViewport> CameraPreviewViewportWidget;
 		std::shared_ptr<FSceneViewport> CameraPreviewSceneViewport;
 		std::unique_ptr<FViewportToolbar> ViewportToolbar;
+		FLevelViewportEditModeManager EditModeManager;
 		bool bViewportHovered = false;
 		bool bViewportFocused = false;
 		EEditorPlayStartLocation PreferredPlayStartLocation;

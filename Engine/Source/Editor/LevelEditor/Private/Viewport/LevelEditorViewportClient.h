@@ -8,6 +8,7 @@
 namespace Durin
 {
 	class AActor;
+	class DActorComponent;
 	class DLevel;
 
 	// Captures one frame of normalized viewport navigation and gizmo input.
@@ -26,6 +27,7 @@ namespace Durin
 		bool bMiddleMouseDown = false;
 		bool bRightMouseDown = false;
 		bool bLeftMousePressed = false;
+		bool bLeftMouseDoubleClicked = false;
 		bool bMiddleMousePressed = false;
 		bool bRightMousePressed = false;
 		bool bMoveForward = false;
@@ -40,6 +42,9 @@ namespace Durin
 		bool bModeTranslate = false;
 		bool bModeRotate = false;
 		bool bModeScale = false;
+		bool bDelete = false;
+		bool bDuplicate = false;
+		bool bAppend = false;
 		FVector2f MousePosition{0.0f};
 		FVector2f ViewportSize{0.0f};
 	};
@@ -64,11 +69,14 @@ namespace Durin
 		auto BuildPickingRay(const FVector2f& ViewportPosition, const FVector2f& ViewportSize, FVector3& OutOrigin, FVector3& OutDirection) const -> bool;
 		auto PickActor(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) const -> AActor*;
 		auto PickActorWithView(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition) const -> AActor*;
+		auto PickVisualizationWithView(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition) const -> FEditorVisualizationHit;
 		auto UpdateHoveredVisualization(DLevel* Level, const FVector2f& ViewportPosition, const FVector2f& ViewportSize) -> void;
 		auto UpdateHoveredVisualizationWithView(DLevel* Level, const FSceneView& View, const FVector2f& ViewportPosition) -> void;
 		auto ProjectWorldToViewport(const FVector3& WorldPosition, const FVector2f& ViewportSize, FVector2f& OutPosition) const -> bool;
 		auto SetSelectedActors(const std::vector<TObjectPtr<AActor>>& Actors, AActor* PrimaryActor) -> void;
+		auto SetSelectedComponent(DActorComponent* Component, const std::vector<FEditorSubElementSelection>& Elements) -> void;
 		auto FocusActor(const AActor* Actor) -> void;
+		auto FocusLocation(const FVector3& WorldLocation) -> void;
 		auto GetTransformGizmo() -> FTransformGizmo& { return TransformGizmo; }
 		auto GetTransformGizmo() const -> const FTransformGizmo& { return TransformGizmo; }
 		auto IsGridVisible() const -> bool { return bShowGrid; }
@@ -97,7 +105,9 @@ namespace Durin
 		DLevel* CurrentLevel = nullptr;
 		std::vector<TObjectPtr<AActor>> SelectedActors;
 		TObjectPtr<AActor> PrimarySelectedActor;
-		TObjectPtr<AActor> HoveredVisualizationActor;
+		TWeakObjectPtr<DActorComponent> SelectedComponent;
+		std::vector<FEditorSubElementSelection> SelectedSubElements;
+		FEditorVisualizationHit HoveredVisualization;
 		// Perspective values are stored in degrees and world-space distance units.
 		float FieldOfViewDegrees = 60.0f;
 		float NearClip = 0.1f;

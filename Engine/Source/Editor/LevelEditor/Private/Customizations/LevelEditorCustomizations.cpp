@@ -110,14 +110,15 @@ namespace Durin
 		Icons.push_back(Icon);
 	}
 
-	auto FEditorVisualizationCollector::AppendToView(FSceneView& View, const AActor* HoveredActor) const -> void
+	auto FEditorVisualizationCollector::AppendToView(FSceneView& View, const FEditorVisualizationHit* Hovered) const -> void
 	{
 		View.OverlayLines.reserve(View.OverlayLines.size() + Lines.size());
 		for (const FEditorVisualizationLine& Line : Lines)
 		{
 			const AActor* Actor = Line.Actor.Get();
 			if (!Actor || !Line.Component.IsValid()) continue;
-			const FVector4f& Color = Actor == HoveredActor && Line.HoverColor ? *Line.HoverColor : Line.Color;
+			const bool bHovered = Hovered && Actor == Hovered->Actor && Line.Component.Get() == Hovered->Component && Line.Element == Hovered->Element;
+			const FVector4f& Color = bHovered && Line.HoverColor ? *Line.HoverColor : Line.Color;
 			View.OverlayLines.push_back({Line.Start, Line.End, Color, Line.WidthPixels, Line.Pattern, Line.PatternPeriodPixels});
 		}
 		View.OverlayIcons.reserve(View.OverlayIcons.size() + Icons.size());
@@ -125,7 +126,30 @@ namespace Durin
 		{
 			const AActor* Actor = Icon.Actor.Get();
 			if (!Actor || !Icon.Component.IsValid()) continue;
-			const FVector4f& Color = Actor == HoveredActor && Icon.HoverColor ? *Icon.HoverColor : Icon.Color;
+			const bool bHovered = Hovered && Actor == Hovered->Actor && Icon.Component.Get() == Hovered->Component && Icon.Element == Hovered->Element;
+			const FVector4f& Color = bHovered && Icon.HoverColor ? *Icon.HoverColor : Icon.Color;
+			View.OverlayIcons.push_back({Icon.Icon, Icon.WorldPosition, Color, Icon.SizePixels});
+		}
+	}
+
+	auto FEditorVisualizationCollector::AppendToView(FSceneView& View, const AActor* HoveredActor) const -> void
+	{
+		FEditorVisualizationHit Hit;
+		Hit.Actor = const_cast<AActor*>(HoveredActor);
+		View.OverlayLines.reserve(View.OverlayLines.size() + Lines.size());
+		for (const FEditorVisualizationLine& Line : Lines)
+		{
+			const AActor* Actor = Line.Actor.Get();
+			if (!Actor || !Line.Component.IsValid()) continue;
+			const FVector4f& Color = Actor == Hit.Actor && Line.HoverColor ? *Line.HoverColor : Line.Color;
+			View.OverlayLines.push_back({Line.Start, Line.End, Color, Line.WidthPixels, Line.Pattern, Line.PatternPeriodPixels});
+		}
+		View.OverlayIcons.reserve(View.OverlayIcons.size() + Icons.size());
+		for (const FEditorVisualizationIcon& Icon : Icons)
+		{
+			const AActor* Actor = Icon.Actor.Get();
+			if (!Actor || !Icon.Component.IsValid()) continue;
+			const FVector4f& Color = Actor == Hit.Actor && Icon.HoverColor ? *Icon.HoverColor : Icon.Color;
 			View.OverlayIcons.push_back({Icon.Icon, Icon.WorldPosition, Color, Icon.SizePixels});
 		}
 	}
@@ -149,7 +173,7 @@ namespace Durin
 			const double Distance = glm::length(Icon.WorldPosition - RayOrigin);
 			if (!std::isfinite(Distance)) continue;
 			if (Distance < Best.Distance - 1.e-6 || (std::abs(Distance - Best.Distance) <= 1.e-6 && Icon.HitPriority > Best.Priority))
-				Best = {Actor, Component, Distance, Icon.HitPriority, Icon.bDepthIndependentHit};
+				Best = {Actor, Component, Icon.Element, Distance, Icon.HitPriority, Icon.bDepthIndependentHit};
 		}
 		for (const FEditorVisualizationLine& Line : Lines)
 		{
@@ -165,7 +189,7 @@ namespace Durin
 			const double Distance = glm::length(HitLocation - RayOrigin);
 			if (!std::isfinite(Distance)) continue;
 			if (Distance < Best.Distance - 1.e-6 || (std::abs(Distance - Best.Distance) <= 1.e-6 && Line.HitPriority > Best.Priority))
-				Best = {Actor, Component, Distance, Line.HitPriority, false};
+				Best = {Actor, Component, Line.Element, Distance, Line.HitPriority, false};
 		}
 		return Best;
 	}
