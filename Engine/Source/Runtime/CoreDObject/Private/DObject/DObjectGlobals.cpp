@@ -12,19 +12,46 @@
 #include "DObject/Package.h"
 #include "GCReferenceSchema.h"
 
+#include <limits>
+
 namespace Durin
 {
 	namespace
 	{
+		auto GetGeneratedPropertyOwnerName(const FFieldVariant& Owner) -> std::string
+		{
+			if (DObject* Object = Owner.ToDObject()) return Object->GetName();
+			if (FField* Field = Owner.ToField()) return Field->NamePrivate.ToString();
+			return "<null>";
+		}
+
 		auto ConstructGeneratedProperty(
 			const FFieldVariant& Owner,
 			const DurinCodeGen::FPropertyParamsBase* PropertyParams
 		) -> FProperty*
 		{
-			DClass* ReferencedClass = PropertyParams->ReferencedClassFunc ? PropertyParams->ReferencedClassFunc() : nullptr;
-			DEnum* ReferencedEnum = PropertyParams->ReferencedEnumFunc ? PropertyParams->ReferencedEnumFunc() : nullptr;
-			DStruct* ReferencedStruct = PropertyParams->ReferencedStructFunc ? PropertyParams->ReferencedStructFunc() : nullptr;
 			FProperty* Property = nullptr;
+			const bool bStructKind = PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Struct;
+			const bool bStructLayout = PropertyParams->Layout == DurinCodeGen::EPropertyParamLayout::Struct;
+			if (bStructKind != bStructLayout)
+			{
+				checkf(
+					false,
+					"StructPropertyRegistration.KindMismatch owner '{}' property '{}'.",
+					GetGeneratedPropertyOwnerName(Owner),
+					PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>"
+				);
+				return nullptr;
+			}
+
+			auto ResolveReferencedClass = [PropertyParams]() -> DClass*
+			{
+				return PropertyParams->ReferencedClassFunc ? PropertyParams->ReferencedClassFunc() : nullptr;
+			};
+			auto ResolveReferencedEnum = [PropertyParams]() -> DEnum*
+			{
+				return PropertyParams->ReferencedEnumFunc ? PropertyParams->ReferencedEnumFunc() : nullptr;
+			};
 
 			switch (PropertyParams->Kind)
 			{
@@ -38,7 +65,7 @@ namespace Durin
 					PropertyParams->Offset,
 					PropertyParams->ElementSize,
 					PropertyParams->Kind,
-					ReferencedClass
+					ResolveReferencedClass()
 				);
 				break;
 			case DurinCodeGen::EPropertyGenFlags::String:
@@ -51,7 +78,7 @@ namespace Durin
 					PropertyParams->Offset,
 					PropertyParams->ElementSize,
 					PropertyParams->Kind,
-					ReferencedClass
+					ResolveReferencedClass()
 				);
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Name:
@@ -64,7 +91,7 @@ namespace Durin
 					PropertyParams->Offset,
 					PropertyParams->ElementSize,
 					PropertyParams->Kind,
-					ReferencedClass
+					ResolveReferencedClass()
 				);
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Guid:
@@ -77,7 +104,7 @@ namespace Durin
 					PropertyParams->Offset,
 					PropertyParams->ElementSize,
 					PropertyParams->Kind,
-					ReferencedClass
+					ResolveReferencedClass()
 				);
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Enum:
@@ -90,8 +117,8 @@ namespace Durin
 					PropertyParams->Offset,
 					PropertyParams->ElementSize,
 					PropertyParams->Kind,
-					ReferencedClass,
-					ReferencedEnum
+					ResolveReferencedClass(),
+					ResolveReferencedEnum()
 				);
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Object:
@@ -104,11 +131,49 @@ namespace Durin
 					PropertyParams->Offset,
 					PropertyParams->ElementSize,
 					PropertyParams->Kind,
-					ReferencedClass,
+					ResolveReferencedClass(),
 					PropertyParams->bIsObjectPtrWrapper
 				);
 				break;
 			case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				const auto* StructParams = static_cast<const DurinCodeGen::FStructPropertyParams*>(PropertyParams);
+				const std::string OwnerName = GetGeneratedPropertyOwnerName(Owner);
+				const char* PropertyName = PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>";
+				if (!StructParams->StructResolver)
+				{
+					checkf(false, "StructPropertyRegistration.MissingResolver owner '{}' property '{}'.", OwnerName, PropertyName);
+					return nullptr;
+				}
+				DStruct* ReferencedStruct = StructParams->StructResolver();
+				if (!ReferencedStruct)
+				{
+					checkf(false, "StructPropertyRegistration.NullDescriptor owner '{}' property '{}'.", OwnerName, PropertyName);
+					return nullptr;
+				}
+				if (ReferencedStruct->PropertiesSize == 0 || ReferencedStruct->PropertiesSize > std::numeric_limits<uint16>::max())
+				{
+					checkf(false, "StructPropertyRegistration.InvalidSize owner '{}' property '{}'.", OwnerName, PropertyName);
+					return nullptr;
+				}
+				const uint32 Alignment = ReferencedStruct->MinAlignment;
+				if (Alignment == 0 || (Alignment & (Alignment - 1)) != 0)
+				{
+					checkf(false, "StructPropertyRegistration.InvalidAlignment owner '{}' property '{}'.", OwnerName, PropertyName);
+					return nullptr;
+				}
+				const bool bHasMutableAccessor = PropertyParams->MutableValueAccessor != nullptr;
+				const bool bHasConstAccessor = PropertyParams->ConstValueAccessor != nullptr;
+				if (bHasMutableAccessor != bHasConstAccessor || (bHasMutableAccessor && PropertyParams->Offset != 0))
+				{
+					checkf(false, "StructPropertyRegistration.AccessorPairMismatch owner '{}' property '{}'.", OwnerName, PropertyName);
+					return nullptr;
+				}
+				if ((PropertyParams->MetaData == nullptr) != (PropertyParams->NumMetaData == 0))
+				{
+					checkf(false, "StructPropertyRegistration.MetadataMismatch owner '{}' property '{}'.", OwnerName, PropertyName);
+					return nullptr;
+				}
 				Property = new FStructProperty(
 					Owner,
 					FName(PropertyParams->NameUTF8),
@@ -116,11 +181,10 @@ namespace Durin
 					PropertyParams->Flags,
 					PropertyParams->ArrayDim,
 					PropertyParams->Offset,
-					PropertyParams->ElementSize,
-					PropertyParams->Kind,
 					ReferencedStruct
 				);
 				break;
+			}
 			case DurinCodeGen::EPropertyGenFlags::Array:
 				Property = new FArrayProperty(
 					Owner,
@@ -131,7 +195,7 @@ namespace Durin
 					PropertyParams->Offset,
 					PropertyParams->ElementSize,
 					PropertyParams->Kind,
-					ReferencedClass,
+					ResolveReferencedClass(),
 					PropertyParams->ArrayHelper
 				);
 				if (PropertyParams->Inner)
@@ -149,7 +213,7 @@ namespace Durin
 					PropertyParams->Offset,
 					PropertyParams->ElementSize,
 					PropertyParams->Kind,
-					ReferencedClass,
+					ResolveReferencedClass(),
 					PropertyParams->MapHelper
 				);
 				if (PropertyParams->Key)
@@ -180,7 +244,7 @@ namespace Durin
 					PropertyParams->Offset,
 					PropertyParams->ElementSize,
 					PropertyParams->Kind,
-					ReferencedClass
+					ResolveReferencedClass()
 				);
 				break;
 			case DurinCodeGen::EPropertyGenFlags::None:
@@ -194,18 +258,21 @@ namespace Durin
 					PropertyParams->Offset,
 					PropertyParams->ElementSize,
 					PropertyParams->Kind,
-					ReferencedClass
+					ResolveReferencedClass()
 				);
 				break;
 			}
 
 			Property->SetValueAccessors(PropertyParams->MutableValueAccessor, PropertyParams->ConstValueAccessor);
-			Property->SetValueLifecycle(
-				PropertyParams->ValueSize,
-				PropertyParams->ValueAlignment,
-				PropertyParams->InitializeValue,
-				PropertyParams->DestroyValue
-			);
+			if (!bStructKind)
+			{
+				Property->SetValueLifecycle(
+					PropertyParams->ValueSize,
+					PropertyParams->ValueAlignment,
+					PropertyParams->InitializeValue,
+					PropertyParams->DestroyValue
+				);
+			}
 			for (size_t Index = 0; PropertyParams->MetaData && Index < PropertyParams->NumMetaData; ++Index)
 			{
 				const DurinCodeGen::FMetaDataPair& Pair = PropertyParams->MetaData[Index];

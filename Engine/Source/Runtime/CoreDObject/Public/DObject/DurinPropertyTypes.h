@@ -214,8 +214,6 @@ namespace Durin
 			EPropertyFlags InPropertyFlags,
 			uint16 InArrayDim,
 			uint16 InOffset,
-			uint16 InElementSize,
-			DurinCodeGen::EPropertyGenFlags InKind,
 			DStruct* InStruct
 		);
 

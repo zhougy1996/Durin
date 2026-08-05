@@ -96,9 +96,9 @@ namespace Durin
 		static DStruct* Singleton = nullptr;
 		if (Singleton) return Singleton;
 		Singleton = MakeStruct("Durin::FTransform", "FTransform", sizeof(FTransform), alignof(FTransform));
-		static const DurinCodeGen::FPropertyParamsBase Rotation = {"Rotation", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Rotation)), sizeof(FQuat), DurinCodeGen::EPropertyGenFlags::Struct, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, &Z_Construct_DStruct_Durin_FQuat};
-		static const DurinCodeGen::FPropertyParamsBase Translation = {"Translation", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Translation)), sizeof(FVector3), DurinCodeGen::EPropertyGenFlags::Struct, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, &Z_Construct_DStruct_Durin_FVector3};
-		static const DurinCodeGen::FPropertyParamsBase Scale = {"Scale3D", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Scale3D)), sizeof(FVector3), DurinCodeGen::EPropertyGenFlags::Struct, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, &Z_Construct_DStruct_Durin_FVector3};
+		static const DurinCodeGen::FStructPropertyParams Rotation = {"Rotation", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Rotation)), &Z_Construct_DStruct_Durin_FQuat};
+		static const DurinCodeGen::FStructPropertyParams Translation = {"Translation", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Translation)), &Z_Construct_DStruct_Durin_FVector3};
+		static const DurinCodeGen::FStructPropertyParams Scale = {"Scale3D", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Scale3D)), &Z_Construct_DStruct_Durin_FVector3};
 		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&Rotation, &Translation, &Scale};
 		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FTransform", "FTransform", sizeof(FTransform), alignof(FTransform), Properties, std::size(Properties), &GetDStructOps<FTransform>()};
 		return DurinCodeGen::ConstructDStruct(Params);

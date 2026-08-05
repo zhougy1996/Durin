@@ -323,6 +323,15 @@ The generated source includes:
 
 Generated code uses fully qualified C++ type names for reflected C++ types.
 
+Struct-valued fields use the concrete
+`DurinCodeGen::FStructPropertyParams` record. DurinHeaderTool emits the field
+name, flags, array dimension, top-level offset (or `0` for a nested container
+descriptor), optional metadata, and a qualified resolver for the referenced
+`DStruct`. Direct fields, fixed C++ arrays, vector inner descriptors, and map
+key/value descriptors all use this typed record. It deliberately contains no
+property-local `sizeof`/`alignof`, initialization, destruction, or copy thunk;
+those facts belong to the referenced struct descriptor.
+
 `DENUM()` declarations are explicit reflected enum opt-ins. `DENUM(DisplayName = "...")`
 optionally supplies the editor-facing type label. An enumerator can similarly use
 `DMETA(DisplayName = "...")` immediately after its identifier and before any
@@ -348,6 +357,28 @@ metadata that points at the corresponding `DEnum`.
 `DClass` keeps runtime identity, C++ spelling, editor presentation, and instance naming separate. `QualifiedName` remains the stable serialized/type-lookup identity and `ShortName` remains the C++ class spelling. `DisplayName` is used by editor UI, while `DefaultObjectName` is used when an instance is created without an explicit name. When metadata is omitted, Durin removes the conventional `A`/`D` prefix when followed by an uppercase letter; display names additionally split CamelCase words. For example, `AStaticMeshActor` defaults to display name `Static Mesh Actor` and object name `StaticMeshActor`.
 
 `ConstructDClass(...)` forces class registration, then creates `FProperty` nodes from generated property parameters and attaches top-level fields to `DStructBase::ChildProperties`. Container inner/key/value properties are constructed recursively and owned by their containing `FArrayProperty` or `FMapProperty`; they are not inserted into the class property chain.
+
+### Struct Property Registration
+
+Struct-property registration describes schema and field access, while the
+referenced `DStruct` describes the value stored there. The typed parameter
+record fixes the generated kind/layout pair to `Struct`; runtime construction
+validates that pair, the resolver and descriptor, descriptor size/alignment,
+the optional accessor pair, and the optional metadata pair before publishing
+the property. `FStructProperty` retains the resolved descriptor and derives its
+element stride from that descriptor rather than from generated C++ layout or
+lifecycle callbacks.
+
+DurinHeaderTool authors direct and nested records automatically. External
+intrinsic registration uses the same contract: construct
+`FStructPropertyParams` with name, flags, array dimension, byte offset, and a
+resolver returning the referenced `DStruct`. Use
+`FStructPropertyParams::WithAccessors(...)` only when the containing type must
+expose paired mutable/const accessors instead of a byte offset; accessor-backed
+records keep offset `0`. Optional metadata is the final pointer/count pair.
+Neither form supplies value construction, destruction, copying, size, or
+alignment. The intrinsic struct's own `FStructParams` and `FDStructOps` remain
+the authority for those facts.
 
 `DurinCodeGen::ConstructDEnum(...)` forces enum registration for generated
 `DEnum` singletons. `DEnum` stores qualified name, short name, display name,
@@ -380,6 +411,12 @@ Current non-mechanical specializations are the deterministic zero default for
 parsed asset paths are derived from reflected path text. The former mutable
 three-callback registration path and ambiguous struct copy operation no longer
 exist.
+
+Consequently, seeing a reflected struct as a direct property, fixed array
+element, vector element, or map key/value never requests a C++ operation from
+the property declaration itself. Construction, destruction, copying,
+alignment, identity, serialization, repair, and hidden-reference traversal are
+all capability-checked through the referenced `DStruct` and its `FDStructOps`.
 
 Construction callbacks require aligned uninitialized storage; copy assignment
 requires a live destination. `FReflectedValueStorage` is the common aligned RAII
@@ -473,7 +510,7 @@ Enum properties use `FEnumProperty`. The property still stores the ordinary prop
 
 ## Property Metadata
 
-The current generated property metadata supports these scalar kinds:
+The current generated property metadata supports these scalar and value kinds:
 
 - `int8`, `int16`, `int32`, `int64`
 - `uint8`, `uint16`, `uint32`, `uint64`
@@ -483,6 +520,7 @@ The current generated property metadata supports these scalar kinds:
 - `std::string`
 - reflected enum values
 - reflected `DObject*` pointers
+- reflected struct values
 
 The runtime property node stores:
 
@@ -511,11 +549,12 @@ Supported property node types are:
 
 `FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct object-reference access for GC and serialization. `FStringProperty` exposes a `std::string*` pointer helper. Generated array and map helpers provide type-erased traversal and mutation used by GC, both memory/package serialization, and editor container controls. Map helpers expose mutable mapped values while keeping keys immutable in place; key edits use copy, uniqueness validation, and node-based rename operations so `std::unordered_map` invariants remain intact.
 
-Generated element-size expressions for strings, names, GUIDs, and reflected
-struct values use C++ `sizeof(SourceType)` rather than libclang's parser-side
-layout. This keeps ABI ownership with the compiler that builds the generated
-source and prevents synthetic parser declarations or host STL contents from
-changing runtime property sizes.
+Generated element-size expressions for non-struct values such as strings,
+names, and GUIDs use C++ `sizeof(SourceType)` rather than libclang's parser-side
+layout. Reflected struct properties do not emit an element-size expression;
+their resolved `DStruct` owns size and alignment. This keeps ABI ownership with
+the compiler-built descriptor and prevents synthetic parser declarations or
+host STL contents from changing runtime property sizes.
 
 `DStructBase::ChildProperties` stores only properties declared directly on that reflected type. Superclass properties are reached through the superclass chain. Use `FindPropertyByName(...)` or the property iteration helpers when inherited properties should be visible.
 
@@ -549,9 +588,9 @@ Nested generated parameter records use path-style names and postorder generation
 - `Groups_Value`
 - `Groups`
 
-Only the top-level field uses `STRUCT_OFFSET`. Nested inner/key/value properties use offset `0` because they describe an element type, not a field within the reflected class.
+Only the top-level field uses `STRUCT_OFFSET`. Nested inner/key/value properties use offset `0` because they describe an element type, not a field within the reflected class. Struct descriptors at either level still resolve the same referenced `DStruct` and do not carry local value-operation thunks.
 
-Container key restrictions are intentionally stricter than value restrictions. Map keys may be primitive, `bool`, `std::string`, or reflected enum types. Map keys may not be `DObject*` or another container. Vector inner types and map values may be primitive, `bool`, `std::string`, reflected enum, reflected `DObject*`, or another supported container within the depth limit.
+Container key restrictions are intentionally stricter than value restrictions. Map keys may be primitive, `bool`, `std::string`, reflected enum, or reflected struct types. Map keys may not be `DObject*` or another container. Vector inner types and map values may be primitive, `bool`, `std::string`, reflected enum, reflected struct, reflected `DObject*`, or another supported container within the depth limit.
 
 Unsupported `DPROPERTY()` types fail DHT with stable diagnostics. This includes
 unknown templates, smart pointers, non-reflected object pointers, references,
@@ -587,7 +626,7 @@ For C++ verification, build the registered Agent profile through the repository 
 Run the focused CoreDObject tests after lifecycle, GC, or serialization changes:
 
 ```powershell
-.\DevTool.bat test --target CoreDObjectTests --plain
+.\DevTool.bat test --target CoreObjectTests --plain
 ```
 
 When adding new reflection behavior, validate both the DHT tests and a real C++ build. The generated files are part of the compile surface, and macro/friend/access errors often appear only during C++ compilation.

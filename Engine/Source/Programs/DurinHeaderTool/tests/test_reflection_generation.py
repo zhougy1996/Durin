@@ -252,6 +252,46 @@ namespace Fixture
         DPROPERTY()
         std::unordered_map<float, FMoveOnly> MoveValues;
     };
+
+    DSTRUCT()
+    struct FNonTrivialDestructor
+    {
+        GENERATED_BODY()
+        ~FNonTrivialDestructor();
+    };
+
+    DSTRUCT()
+    struct FStructPropertyShapes
+    {
+        GENERATED_BODY()
+
+        DPROPERTY()
+        FTrivialOps Direct;
+
+        DPROPERTY()
+        FDeletedDefault DeletedDefault;
+
+        DPROPERTY()
+        FMoveOnly DeletedCopy;
+
+        DPROPERTY()
+        FNonTrivialDestructor NonTrivialDestructor;
+
+        DPROPERTY(Edit, MetaData = "Role=Primary")
+        FTrivialOps Metadata;
+
+        DPROPERTY()
+        FTrivialOps Fixed[3];
+
+        DPROPERTY()
+        std::vector<FDeletedDefault> ArrayValues;
+
+        DPROPERTY()
+        std::unordered_map<FMoveOnly, float> MapByStruct;
+
+        DPROPERTY()
+        std::unordered_map<float, FDeletedDefault> MapToStruct;
+    };
 }
 
 template<>
@@ -891,26 +931,28 @@ namespace Beta
 
         assert _scan_generated_body_line(source, class_cursor) == 5
 
-    def test_property_flags_metadata_and_struct_lifecycle_are_generated(self):
+    def test_property_flags_metadata_and_typed_struct_registration_are_generated(self):
         assert (
             'NewProp_Value = { "Value", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::ReadOnly,'
             in self.generated_cpp
         )
         assert 'NewProp_Color_MetaData[] = { { "HideAlpha", "true" } };' in self.generated_cpp
-        assert "Z_Construct_DStruct_Durin_FLinearColor" in self.generated_cpp
-        assert 'NewProp_Color = { "Color", Durin::EPropertyFlags::Edit,' in self.generated_cpp
-        value_type = "std::remove_extent_t<decltype(((Fixture::ASampleActor*)0)->Color)>"
-        assert f"sizeof({value_type})" in self.generated_cpp
-        assert f"alignof({value_type})" in self.generated_cpp
         color_definition = next(
             line for line in self.generated_cpp.splitlines()
             if "::NewProp_Color =" in line
         )
-        assert f"sizeof({value_type})" in color_definition
-        assert f"alignof({value_type})" in color_definition
+        assert (
+            'NewProp_Color = { "Color", Durin::EPropertyFlags::Edit, 1, '
+            'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Color)), '
+            'Z_Construct_DStruct_Durin_FLinearColor, '
+            'Z_Construct_DClass_Fixture_ASampleActor_Statics::NewProp_Color_MetaData, 1 };'
+        ) in color_definition
+        assert "sizeof(" not in color_definition
+        assert "alignof(" not in color_definition
+        assert "EPropertyGenFlags::Struct" not in color_definition
         assert "InitializePropertyValue" not in color_definition
         assert "DestroyPropertyValue" not in color_definition
-        assert color_definition.endswith("nullptr, nullptr };")
+        assert "nullptr" not in color_definition
 
     def test_fname_property_is_generated(self):
         assert "Durin::DurinCodeGen::FNamePropertyParams NewProp_Identifier" in self.generated_cpp
@@ -924,8 +966,111 @@ namespace Beta
 
     def test_brace_initialized_intrinsic_struct_properties_are_generated(self):
         for property_name in ("Position", "Tangent"):
-            assert f'NewProp_{property_name} = {{ "{property_name}",' in self.generated_cpp
-        assert "Z_Construct_DStruct_Durin_FVector3" in self.generated_cpp
+            definition = next(
+                line for line in self.generated_cpp.splitlines()
+                if f"::NewProp_{property_name} =" in line
+            )
+            assert f'NewProp_{property_name} = {{ "{property_name}",' in definition
+            assert definition.endswith("Z_Construct_DStruct_Durin_FVector3 };")
+            assert "nullptr" not in definition
+            assert "sizeof(" not in definition
+            assert "alignof(" not in definition
+            assert "EPropertyGenFlags::Struct" not in definition
+
+    def test_all_struct_property_forms_use_concise_typed_registration(self):
+        statics = "Z_Construct_DStruct_Fixture_FStructPropertyShapes_Statics"
+        expected_definitions = {
+            "Direct": (
+                'NewProp_Direct = { "Direct", Durin::EPropertyFlags::None, 1, '
+                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, Direct)), '
+                'Z_Construct_DStruct_Fixture_FTrivialOps };'
+            ),
+            "DeletedDefault": (
+                'NewProp_DeletedDefault = { "DeletedDefault", Durin::EPropertyFlags::None, 1, '
+                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, DeletedDefault)), '
+                'Z_Construct_DStruct_Fixture_FDeletedDefault };'
+            ),
+            "DeletedCopy": (
+                'NewProp_DeletedCopy = { "DeletedCopy", Durin::EPropertyFlags::None, 1, '
+                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, DeletedCopy)), '
+                'Z_Construct_DStruct_Fixture_FMoveOnly };'
+            ),
+            "NonTrivialDestructor": (
+                'NewProp_NonTrivialDestructor = { "NonTrivialDestructor", Durin::EPropertyFlags::None, 1, '
+                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, NonTrivialDestructor)), '
+                'Z_Construct_DStruct_Fixture_FNonTrivialDestructor };'
+            ),
+            "Metadata": (
+                'NewProp_Metadata = { "Metadata", Durin::EPropertyFlags::Edit, 1, '
+                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, Metadata)), '
+                f'Z_Construct_DStruct_Fixture_FTrivialOps, {statics}::NewProp_Metadata_MetaData, 1 }};'
+            ),
+            "Fixed": (
+                'NewProp_Fixed = { "Fixed", Durin::EPropertyFlags::None, 3, '
+                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, Fixed)), '
+                'Z_Construct_DStruct_Fixture_FTrivialOps };'
+            ),
+            "ArrayValues_Inner": (
+                'NewProp_ArrayValues_Inner = { "ArrayValues_Inner", Durin::EPropertyFlags::None, 1, 0, '
+                'Z_Construct_DStruct_Fixture_FDeletedDefault };'
+            ),
+            "MapByStruct_Key": (
+                'NewProp_MapByStruct_Key = { "MapByStruct_Key", Durin::EPropertyFlags::None, 1, 0, '
+                'Z_Construct_DStruct_Fixture_FMoveOnly };'
+            ),
+            "MapToStruct_Value": (
+                'NewProp_MapToStruct_Value = { "MapToStruct_Value", Durin::EPropertyFlags::None, 1, 0, '
+                'Z_Construct_DStruct_Fixture_FDeletedDefault };'
+            ),
+        }
+
+        assert f'{statics}::NewProp_Metadata_MetaData[] = {{ {{ "Role", "Primary" }} }};' in self.generated_cpp
+        forbidden_tokens = (
+            "EPropertyGenFlags::Struct",
+            "sizeof(",
+            "alignof(",
+            "nullptr",
+            "InitializePropertyValue",
+            "DestroyPropertyValue",
+        )
+        for property_name, expected in expected_definitions.items():
+            definition = next(
+                line for line in self.generated_cpp.splitlines()
+                if f"{statics}::NewProp_{property_name} =" in line
+            )
+            assert definition == (
+                f"const Durin::DurinCodeGen::FStructPropertyParams {statics}::{expected}"
+            )
+            assert not any(token in definition for token in forbidden_tokens)
+
+    def test_struct_property_shape_order_and_resolver_identities_are_stable(self):
+        shape_info = next(
+            struct_info
+            for struct_info in self.header_info.structs
+            if struct_info.qualified_name == "Fixture::FStructPropertyShapes"
+        )
+        expected_properties = [
+            "Direct",
+            "DeletedDefault",
+            "DeletedCopy",
+            "NonTrivialDestructor",
+            "Metadata",
+            "Fixed",
+            "ArrayValues",
+            "MapByStruct",
+            "MapToStruct",
+        ]
+        assert [prop.name for prop in shape_info.properties] == expected_properties
+
+        statics = shape_info.generated_statics_name
+        pointer_block = self.generated_cpp.split(
+            f"const Durin::DurinCodeGen::FPropertyParamsBase* const {statics}::PropertyParams[] = {{", 1
+        )[1].split("};", 1)[0]
+        assert [
+            line.strip().removeprefix(f"&{statics}::NewProp_").removesuffix(",")
+            for line in pointer_block.splitlines()
+            if line.strip()
+        ] == expected_properties
 
     def test_struct_lifecycle_registration_uses_compiler_checked_operation_tables(self):
         for type_name in (
@@ -937,6 +1082,8 @@ namespace Beta
             "FCustomEquality",
             "FMalformedEquality",
             "FUnavailableContainers",
+            "FNonTrivialDestructor",
+            "FStructPropertyShapes",
         ):
             assert f"&Durin::GetDStructOps<Fixture::{type_name}>()" in self.generated_cpp
 
@@ -955,9 +1102,13 @@ namespace Beta
             line for line in self.generated_cpp.splitlines()
             if "FUnavailableContainers_Statics::NewProp_Values_Inner =" in line
         )
+        assert inner_definition.endswith("Z_Construct_DStruct_Fixture_FDeletedDefault };")
+        assert "nullptr" not in inner_definition
+        assert "sizeof(" not in inner_definition
+        assert "alignof(" not in inner_definition
+        assert "EPropertyGenFlags::Struct" not in inner_definition
         assert "InitializePropertyValue" not in inner_definition
         assert "DestroyPropertyValue" not in inner_definition
-        assert inner_definition.endswith("nullptr, nullptr };")
 
     def test_default_double_vector_intrinsics_are_available(self):
         missing_export = self.temp_root / "missing.export"

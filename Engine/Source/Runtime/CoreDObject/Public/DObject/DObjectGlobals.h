@@ -113,6 +113,12 @@ namespace Durin
 			Guid
 		};
 
+		enum class EPropertyParamLayout : uint8
+		{
+			Legacy = 0,
+			Struct
+		};
+
 		struct FPropertyParamsBase;
 
 		template<typename T>
@@ -215,6 +221,7 @@ namespace Durin
 			uint32 ValueAlignment = 0;
 			void (*InitializeValue)(void* Memory) = nullptr;
 			void (*DestroyValue)(void* Memory) = nullptr;
+			EPropertyParamLayout Layout = EPropertyParamLayout::Legacy;
 		};
 
 		struct FGenericPropertyParams : public FPropertyParamsBase
@@ -240,7 +247,62 @@ namespace Durin
 		using FObjectPropertyParams = FPropertyParamsBase;
 		using FArrayPropertyParams = FPropertyParamsBase;
 		using FMapPropertyParams = FPropertyParamsBase;
-		using FStructPropertyParams = FPropertyParamsBase;
+
+		struct FStructPropertyParams final : public FPropertyParamsBase
+		{
+			using FStructResolver = DStruct* (*)();
+			using FMutableValueAccessor = void* (*)(void* Container, uint32 ArrayIndex);
+			using FConstValueAccessor = const void* (*)(const void* Container, uint32 ArrayIndex);
+
+			constexpr FStructPropertyParams(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				FStructResolver InStructResolver,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			)
+				: FPropertyParamsBase{}
+				, StructResolver(InStructResolver)
+			{
+				NameUTF8 = InNameUTF8;
+				Flags = InFlags;
+				ArrayDim = InArrayDim;
+				Offset = InOffset;
+				Kind = EPropertyGenFlags::Struct;
+				MetaData = InMetaData;
+				NumMetaData = InNumMetaData;
+				Layout = EPropertyParamLayout::Struct;
+			}
+
+			static constexpr auto WithAccessors(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				FStructResolver InStructResolver,
+				FMutableValueAccessor InMutableValueAccessor,
+				FConstValueAccessor InConstValueAccessor,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			) -> FStructPropertyParams
+			{
+				FStructPropertyParams Params(
+					InNameUTF8,
+					InFlags,
+					InArrayDim,
+					0,
+					InStructResolver,
+					InMetaData,
+					InNumMetaData
+				);
+				Params.MutableValueAccessor = InMutableValueAccessor;
+				Params.ConstValueAccessor = InConstValueAccessor;
+				return Params;
+			}
+
+			FStructResolver StructResolver = nullptr;
+		};
 
 		struct FStructParams
 		{

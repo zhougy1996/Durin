@@ -788,11 +788,19 @@ namespace Durin
 		EPropertyFlags InPropertyFlags,
 		uint16 InArrayDim,
 		uint16 InOffset,
-		uint16 InElementSize,
-		DurinCodeGen::EPropertyGenFlags InKind,
 		DStruct* InStruct
 	)
-		: FProperty(InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset, InElementSize, InKind, nullptr)
+		: FProperty(
+			InOwner,
+			InName,
+			InObjectFlags,
+			InPropertyFlags,
+			InArrayDim,
+			InOffset,
+			static_cast<uint16>(InStruct->PropertiesSize),
+			DurinCodeGen::EPropertyGenFlags::Struct,
+			nullptr
+		)
 		, Struct(InStruct)
 	{
 		ClassPrivate = StaticClass();

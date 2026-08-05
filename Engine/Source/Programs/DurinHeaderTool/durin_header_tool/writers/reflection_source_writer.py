@@ -546,6 +546,23 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         metadata_ref = metadata_name
         metadata_count = str(len(prop.metadata))
     param_type = PROPERTY_PARAM_BY_KIND[prop.kind]
+    property_flags = prop.flags
+    if property_flags == "None":
+        property_flags = "Durin::EPropertyFlags::None"
+    offset = "0" if nested else f"static_cast<Durin::uint16>(STRUCT_OFFSET({class_info.qualified_name}, {prop.name}))"
+    if prop.kind == "Struct":
+        referenced_struct_helper = "nullptr"
+        if prop.referenced_struct_type:
+            referenced_symbol = symbols.get(prop.referenced_struct_type)
+            if referenced_symbol:
+                referenced_struct_helper = referenced_symbol.GeneratedHelperName
+        metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
+        content += (
+            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
+            f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, {referenced_struct_helper}"
+            f"{metadata_arguments} }};\n"
+        )
+        return content
     referenced_class_helper = "nullptr"
     if prop.referenced_type:
         referenced_symbol = symbols.get(prop.referenced_type)
@@ -561,19 +578,15 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         referenced_symbol = symbols.get(prop.referenced_struct_type)
         if referenced_symbol:
             referenced_struct_helper = referenced_symbol.GeneratedHelperName
-    property_flags = prop.flags
-    if property_flags == "None":
-        property_flags = "Durin::EPropertyFlags::None"
     inner = f"&{class_info.generated_statics_name}::NewProp_{prop.inner.name}" if prop.inner else "nullptr"
     key = f"&{class_info.generated_statics_name}::NewProp_{prop.key.name}" if prop.key else "nullptr"
     value = f"&{class_info.generated_statics_name}::NewProp_{prop.value.name}" if prop.value else "nullptr"
-    offset = "0" if nested else f"static_cast<Durin::uint16>(STRUCT_OFFSET({class_info.qualified_name}, {prop.name}))"
     element_size = f"sizeof(decltype((({class_info.qualified_name}*)0)->{prop.name}))" if prop.element_size == "sizeof_self" else prop.element_size
     value_type = _cpp_type_spelling(prop.type_name, symbols) if nested else f"std::remove_extent_t<decltype((({class_info.qualified_name}*)0)->{prop.name})>"
     array_helper = f"&{class_info.generated_statics_name}::NewProp_{prop.name}_ArrayHelper" if prop.kind == "Array" else "nullptr"
     map_helper = f"&{class_info.generated_statics_name}::NewProp_{prop.name}_MapHelper" if prop.kind == "Map" else "nullptr"
-    initialize_value = "nullptr" if prop.kind == "Struct" else f"&Durin::DurinCodeGen::InitializePropertyValue<{value_type}>"
-    destroy_value = "nullptr" if prop.kind == "Struct" else f"&Durin::DurinCodeGen::DestroyPropertyValue<{value_type}>"
+    initialize_value = f"&Durin::DurinCodeGen::InitializePropertyValue<{value_type}>"
+    destroy_value = f"&Durin::DurinCodeGen::DestroyPropertyValue<{value_type}>"
     content += (
         f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
         f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, "

@@ -215,9 +215,6 @@ namespace
 			static const Durin::DurinCodeGen::FStructPropertyParams SourcePathProp = {
 				"SourcePath", Durin::EPropertyFlags::None, 1,
 				static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, SourcePath)),
-				static_cast<Durin::uint16>(sizeof(SourcePath)),
-				Durin::DurinCodeGen::EPropertyGenFlags::Struct,
-				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr,
 				&Durin::FSourcePath::StaticStruct};
 			static const Durin::DurinCodeGen::FPropertyParamsBase ChildProp = {"DefaultChild", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, DefaultChild)), sizeof(DefaultChild), Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass, nullptr, nullptr, nullptr, nullptr, true};
 			static const Durin::DurinCodeGen::FPropertyParamsBase ExternalProp = {"ExternalReference", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(DPackageAssetForTest, ExternalReference)), sizeof(ExternalReference), Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass, nullptr, nullptr, nullptr, nullptr, true};
@@ -330,8 +327,6 @@ namespace
 			static const Durin::DurinCodeGen::FStructPropertyParams ValueProp = {
 				"Value", Durin::EPropertyFlags::None, 1,
 				static_cast<Durin::uint16>(offsetof(TCodecAssetForTest, Value)),
-				sizeof(Value), Durin::DurinCodeGen::EPropertyGenFlags::Struct,
-				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr,
 				bSource ? &GetCodecSourceStruct : &GetCodecTargetStruct};
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
 				&ValueProp};
@@ -386,19 +381,13 @@ namespace
 			static const Durin::DurinCodeGen::FStructPropertyParams VectorProp = {
 				"Vector", Durin::EPropertyFlags::None, 1,
 				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, Vector)),
-				sizeof(Vector), Durin::DurinCodeGen::EPropertyGenFlags::Struct,
-				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr,
 				&Durin::Z_Construct_DStruct_Durin_FVector3};
 			static const Durin::DurinCodeGen::FStructPropertyParams TransformProp = {
 				"Transform", Durin::EPropertyFlags::None, 1,
 				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, Transform)),
-				sizeof(Transform), Durin::DurinCodeGen::EPropertyGenFlags::Struct,
-				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr,
 				&Durin::Z_Construct_DStruct_Durin_FTransform};
 			static const Durin::DurinCodeGen::FStructPropertyParams VectorInner = {
 				"Vectors_Inner", Durin::EPropertyFlags::None, 1, 0,
-				sizeof(Durin::FVector3), Durin::DurinCodeGen::EPropertyGenFlags::Struct,
-				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr,
 				&Durin::Z_Construct_DStruct_Durin_FVector3};
 			static const Durin::DurinCodeGen::FArrayPropertyParams VectorsProp = {
 				"Vectors", Durin::EPropertyFlags::None, 1,
@@ -411,8 +400,6 @@ namespace
 				Durin::DurinCodeGen::EPropertyGenFlags::String};
 			static const Durin::DurinCodeGen::FStructPropertyParams VectorMapValue = {
 				"VectorMap_Value", Durin::EPropertyFlags::None, 1, 0,
-				sizeof(Durin::FVector3), Durin::DurinCodeGen::EPropertyGenFlags::Struct,
-				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr,
 				&Durin::Z_Construct_DStruct_Durin_FVector3};
 			static const Durin::DurinCodeGen::FMapPropertyParams VectorMapProp = {
 				"VectorMap", Durin::EPropertyFlags::None, 1,
@@ -683,6 +670,63 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	EXPECT_EQ(Durin::Asset::FAssetManager::Get().FindLoadedPackage(Path), Loaded->GetPackage());
 
 	EXPECT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(Path));
+}
+
+TEST(FPackageAssetTests, MathStructRegistrationPreservesDirectAndNestedSchemaIdentity)
+{
+	InitializeAssetTests();
+	Durin::DClass* Class = DMathStructAssetForTest::StaticClass();
+	Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
+	Durin::DStruct* TransformStruct = Durin::Z_Construct_DStruct_Durin_FTransform();
+	ASSERT_NE(Class, nullptr);
+	ASSERT_NE(VectorStruct, nullptr);
+	ASSERT_NE(TransformStruct, nullptr);
+	auto* Vector = static_cast<Durin::FStructProperty*>(Class->FindPropertyByName("Vector", false));
+	auto* Transform = static_cast<Durin::FStructProperty*>(Class->FindPropertyByName("Transform", false));
+	auto* Vectors = static_cast<Durin::FArrayProperty*>(Class->FindPropertyByName("Vectors", false));
+	auto* VectorMap = static_cast<Durin::FMapProperty*>(Class->FindPropertyByName("VectorMap", false));
+	ASSERT_NE(Vector, nullptr);
+	ASSERT_NE(Transform, nullptr);
+	ASSERT_NE(Vectors, nullptr);
+	ASSERT_NE(VectorMap, nullptr);
+	ASSERT_EQ(Class->ChildProperties, Vector);
+	EXPECT_EQ(Vector->Next, Transform);
+	EXPECT_EQ(Transform->Next, Vectors);
+	EXPECT_EQ(Vectors->Next, VectorMap);
+	EXPECT_EQ(VectorMap->Next, nullptr);
+
+	EXPECT_EQ(Vector->GetStruct(), VectorStruct);
+	EXPECT_EQ(Transform->GetStruct(), TransformStruct);
+	EXPECT_EQ(Vector->GetPropertyFlags(), Durin::EPropertyFlags::None);
+	EXPECT_EQ(Transform->GetPropertyFlags(), Durin::EPropertyFlags::None);
+	EXPECT_EQ(Vector->GetArrayDim(), 1);
+	EXPECT_EQ(Transform->GetArrayDim(), 1);
+	EXPECT_EQ(Vector->GetOffset(), static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, Vector)));
+	EXPECT_EQ(Transform->GetOffset(), static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, Transform)));
+	EXPECT_EQ(Vector->GetElementSize(), VectorStruct->PropertiesSize);
+	EXPECT_EQ(Transform->GetElementSize(), TransformStruct->PropertiesSize);
+	EXPECT_EQ(Vector->GetValueAlignment(), VectorStruct->MinAlignment);
+	EXPECT_EQ(Transform->GetValueAlignment(), TransformStruct->MinAlignment);
+
+	ASSERT_NE(Vectors->GetInner(), nullptr);
+	auto* VectorsInner = static_cast<Durin::FStructProperty*>(Vectors->GetInner());
+	EXPECT_EQ(VectorsInner->NamePrivate.ToString(), "Vectors_Inner");
+	EXPECT_EQ(VectorsInner->GetStruct(), VectorStruct);
+	EXPECT_EQ(VectorsInner->GetOwnerProperty(), Vectors);
+	EXPECT_EQ(VectorsInner->GetOffset(), 0);
+	EXPECT_EQ(VectorsInner->GetArrayDim(), 1);
+	ASSERT_NE(VectorMap->GetKeyProp(), nullptr);
+	ASSERT_NE(VectorMap->GetValueProp(), nullptr);
+	EXPECT_EQ(VectorMap->GetKeyProp()->NamePrivate.ToString(), "VectorMap_Key");
+	EXPECT_EQ(VectorMap->GetKeyProp()->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::String);
+	auto* VectorMapValue = static_cast<Durin::FStructProperty*>(VectorMap->GetValueProp());
+	EXPECT_EQ(VectorMapValue->NamePrivate.ToString(), "VectorMap_Value");
+	EXPECT_EQ(VectorMapValue->GetStruct(), VectorStruct);
+	EXPECT_EQ(VectorMapValue->GetOwnerProperty(), VectorMap);
+	EXPECT_EQ(VectorMapValue->GetOffset(), 0);
+	EXPECT_EQ(VectorMapValue->GetArrayDim(), 1);
+	EXPECT_TRUE(VectorStruct->HasCompleteAuthoredFields());
+	EXPECT_TRUE(TransformStruct->HasCompleteAuthoredFields());
 }
 
 TEST(FPackageAssetTests, PreservesMathStructBitsAcrossDastV2AndObjectGraphs)

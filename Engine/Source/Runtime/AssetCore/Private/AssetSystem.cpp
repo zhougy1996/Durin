@@ -1381,14 +1381,16 @@ namespace Durin::Asset
 	auto FAssetPackageField::TryReadStruct(DStruct* Struct, void* OutValue) const -> bool
 	{
 		if (!Struct || !OutValue
+			|| Struct->PropertiesSize == 0
 			|| Struct->PropertiesSize > std::numeric_limits<uint16>::max()
+			|| Struct->MinAlignment == 0
+			|| (Struct->MinAlignment & (Struct->MinAlignment - 1)) != 0
 			|| TypeSignature != std::format("Struct<{}>", Struct->GetQualifiedName().ToString()))
 			return false;
 
 		FStructProperty RootProperty(
 			FFieldVariant(), FName("InspectedStructValue"), EObjectFlags::NoFlags,
-			EPropertyFlags::None, 1, 0, static_cast<uint16>(Struct->PropertiesSize),
-			DurinCodeGen::EPropertyGenFlags::Struct, Struct);
+			EPropertyFlags::None, 1, 0, Struct);
 		FByteReader Reader{Payload};
 		return DeserializeValue(
 			&RootProperty, OutValue, 0, Reader, {}, nullptr, {}, AssetVersion)

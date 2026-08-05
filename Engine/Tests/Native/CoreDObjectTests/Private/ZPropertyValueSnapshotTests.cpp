@@ -263,6 +263,13 @@ namespace
 		std::vector<Durin::TObjectPtr<Durin::DObject>> References;
 	};
 
+	struct FMathSnapshotOwner
+	{
+		Durin::FVector3 Vector{0.0};
+		Durin::FTransform Transform;
+		std::vector<Durin::FVector3> Vectors;
+	};
+
 	struct FNestedGuid
 	{
 		Durin::FGuid Value;
@@ -359,7 +366,7 @@ namespace
 		Durin::FStructProperty NestedProperty(
 			Durin::FFieldVariant(), Durin::FName("Nested"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FNestedGuidOwner, Nested)),
-			static_cast<Durin::uint16>(sizeof(FNestedGuid)), Durin::DurinCodeGen::EPropertyGenFlags::Struct, &NestedStruct
+			&NestedStruct
 		);
 
 		const Durin::FGuid Direct(0x00112233, 0x44556677, 0x8899aabb, 0xccddeeff);
@@ -388,6 +395,69 @@ namespace
 		EXPECT_EQ(Owner.Guid, Direct);
 		EXPECT_EQ(Owner.Guids, Array);
 		EXPECT_EQ(NestedOwner.Nested.Value, Nested);
+	}
+
+	TEST(FPropertyValueSnapshotTests, RestoresIntrinsicStructsDirectlyAndThroughTransformAndArray)
+	{
+		EnsureSnapshotTestsInitialized();
+		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
+		Durin::DStruct* TransformStruct = Durin::Z_Construct_DStruct_Durin_FTransform();
+		ASSERT_NE(VectorStruct, nullptr);
+		ASSERT_NE(TransformStruct, nullptr);
+		Durin::FStructProperty VectorProperty(
+			Durin::FFieldVariant(), Durin::FName("Vector"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1,
+			static_cast<Durin::uint16>(offsetof(FMathSnapshotOwner, Vector)), VectorStruct);
+		Durin::FStructProperty TransformProperty(
+			Durin::FFieldVariant(), Durin::FName("Transform"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1,
+			static_cast<Durin::uint16>(offsetof(FMathSnapshotOwner, Transform)), TransformStruct);
+		Durin::FArrayProperty VectorsProperty(
+			Durin::FFieldVariant(), Durin::FName("Vectors"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1,
+			static_cast<Durin::uint16>(offsetof(FMathSnapshotOwner, Vectors)),
+			static_cast<Durin::uint16>(sizeof(std::vector<Durin::FVector3>)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr,
+			&GSnapshotVectorHelper<Durin::FVector3>);
+		Durin::FStructProperty VectorsInner(
+			Durin::FFieldVariant(&VectorsProperty), Durin::FName("Vectors_Inner"),
+			Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1, 0, VectorStruct);
+		VectorsProperty.SetInner(&VectorsInner);
+
+		const double PayloadNaN = std::bit_cast<double>(Durin::uint64{0x7ff8000000000042ull});
+		FMathSnapshotOwner Expected;
+		Expected.Vector = {PayloadNaN, -0.0, 3.0};
+		Expected.Transform.Translation = {-0.0, PayloadNaN, 9.0};
+		Expected.Transform.Scale3D = {1.0, -0.0, PayloadNaN};
+		Expected.Vectors = {{0.0, -0.0, PayloadNaN}, {4.0, 5.0, 6.0}};
+		FMathSnapshotOwner Owner = Expected;
+		Durin::FPropertyValueSnapshot VectorSnapshot;
+		Durin::FPropertyValueSnapshot TransformSnapshot;
+		Durin::FPropertyValueSnapshot VectorsSnapshot;
+		std::string Error;
+		ASSERT_TRUE(Durin::CapturePropertyValue(&VectorProperty, &Owner, 0, VectorSnapshot, &Error)) << Error;
+		ASSERT_TRUE(Durin::CapturePropertyValue(&TransformProperty, &Owner, 0, TransformSnapshot, &Error)) << Error;
+		ASSERT_TRUE(Durin::CapturePropertyValue(&VectorsProperty, &Owner, 0, VectorsSnapshot, &Error)) << Error;
+
+		Owner.Vector = Durin::FVector3(0.0);
+		Owner.Transform = Durin::FTransform();
+		Owner.Vectors = {Durin::FVector3(99.0)};
+		ASSERT_TRUE(Durin::RestorePropertyValue(&VectorProperty, &Owner, 0, VectorSnapshot, &Error)) << Error;
+		ASSERT_TRUE(Durin::RestorePropertyValue(&TransformProperty, &Owner, 0, TransformSnapshot, &Error)) << Error;
+		ASSERT_TRUE(Durin::RestorePropertyValue(&VectorsProperty, &Owner, 0, VectorsSnapshot, &Error)) << Error;
+
+		auto ExpectVectorBits = [](const Durin::FVector3& Actual, const Durin::FVector3& ExpectedValue) {
+			EXPECT_EQ(std::bit_cast<Durin::uint64>(Actual.x), std::bit_cast<Durin::uint64>(ExpectedValue.x));
+			EXPECT_EQ(std::bit_cast<Durin::uint64>(Actual.y), std::bit_cast<Durin::uint64>(ExpectedValue.y));
+			EXPECT_EQ(std::bit_cast<Durin::uint64>(Actual.z), std::bit_cast<Durin::uint64>(ExpectedValue.z));
+		};
+		ExpectVectorBits(Owner.Vector, Expected.Vector);
+		EXPECT_EQ(Owner.Transform.Rotation, Expected.Transform.Rotation);
+		ExpectVectorBits(Owner.Transform.Translation, Expected.Transform.Translation);
+		ExpectVectorBits(Owner.Transform.Scale3D, Expected.Transform.Scale3D);
+		ASSERT_EQ(Owner.Vectors.size(), Expected.Vectors.size());
+		for (size_t Index = 0; Index < Owner.Vectors.size(); ++Index)
+			ExpectVectorBits(Owner.Vectors[Index], Expected.Vectors[Index]);
 	}
 
 	TEST(FPropertyValueSnapshotTests, KeepsNestedObjectReferencesAliveUntilReleased)
@@ -448,8 +518,7 @@ namespace
 		Struct.InitializeOps(&Durin::GetDStructOps<FLifetimeTracked>());
 		Durin::FStructProperty Property(
 			Durin::FFieldVariant(), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, sizeof(FLifetimeTracked),
-			Durin::DurinCodeGen::EPropertyGenFlags::Struct, &Struct);
+			Durin::EPropertyFlags::None, 1, 0, &Struct);
 
 		std::string Error;
 		Durin::FReflectedValueStorage DefaultStorage;
@@ -484,8 +553,7 @@ namespace
 		Struct.InitializeOps(&Durin::GetDStructOps<FNoDefault>());
 		Durin::FStructProperty Inner(
 			Durin::FFieldVariant(), Durin::FName("Values_Inner"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, sizeof(FNoDefault),
-			Durin::DurinCodeGen::EPropertyGenFlags::Struct, &Struct);
+			Durin::EPropertyFlags::None, 1, 0, &Struct);
 		Durin::FArrayProperty Array(
 			Durin::FFieldVariant(), Durin::FName("Values"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(std::vector<FNoDefault>),
@@ -522,8 +590,7 @@ namespace
 			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
 		Durin::FStructProperty MoveOnlyValue(
 			Durin::FFieldVariant(&Map), Durin::FName("Map_Value"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, sizeof(StructConsumerTest::FMoveOnly),
-			Durin::DurinCodeGen::EPropertyGenFlags::Struct, &MoveOnlyStruct);
+			Durin::EPropertyFlags::None, 1, 0, &MoveOnlyStruct);
 		Map.SetKeyProp(&Key);
 		Map.SetValueProp(&MoveOnlyValue);
 		FEqualityMap MapValue;
@@ -553,8 +620,7 @@ namespace
 		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
 		Durin::FStructProperty VectorProperty(
 			Durin::FFieldVariant(), Durin::FName("Vector"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::FVector3),
-			Durin::DurinCodeGen::EPropertyGenFlags::Struct, VectorStruct);
+			Durin::EPropertyFlags::None, 1, 0, VectorStruct);
 		Durin::FVector3 LeftVector(0.0);
 		Durin::FVector3 RightVector(0.0);
 		RightVector.x = -0.0;
@@ -572,8 +638,7 @@ namespace
 		CustomStruct.InitializeOps(&Durin::GetDStructOps<StructConsumerTest::FCustomEquality>());
 		Durin::FStructProperty CustomProperty(
 			Durin::FFieldVariant(), Durin::FName("Custom"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, sizeof(StructConsumerTest::FCustomEquality),
-			Durin::DurinCodeGen::EPropertyGenFlags::Struct, &CustomStruct);
+			Durin::EPropertyFlags::None, 1, 0, &CustomStruct);
 		StructConsumerTest::FCustomEquality LeftCustom{1, 7};
 		StructConsumerTest::FCustomEquality RightCustom{99, 7};
 		EXPECT_TRUE(Durin::ArePropertyValuesIdentical(&CustomProperty, &LeftCustom, 0, &RightCustom, 0));
@@ -626,8 +691,7 @@ namespace
 		Struct.InitializeOps(&Durin::GetDStructOps<FHiddenReference>());
 		Durin::FStructProperty Property(
 			Durin::FFieldVariant(), Durin::FName("Hidden"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, sizeof(FHiddenReference),
-			Durin::DurinCodeGen::EPropertyGenFlags::Struct, &Struct);
+			Durin::EPropertyFlags::None, 1, 0, &Struct);
 		Durin::DObject* Referenced = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("HiddenSnapshotReference"));
 		FHiddenReference Value{Referenced};
 		Durin::TDStructOpsTraits<FHiddenReference>::CollectCount = 0;
@@ -666,7 +730,7 @@ namespace
 		Durin::FStructProperty Property(
 			Durin::FFieldVariant(), Durin::FName("Custom"),
 			Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1, 0,
-			sizeof(FValue), Durin::DurinCodeGen::EPropertyGenFlags::Struct, &Struct);
+			&Struct);
 
 		FTraits::SerializeCount = 0;
 		FTraits::PostDeserializeCount = 0;

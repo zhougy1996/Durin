@@ -29,6 +29,8 @@ namespace StructOpsTest
 
 	struct FMoveOnly
 	{
+		Durin::int32 Value = 0;
+
 		FMoveOnly() = default;
 		FMoveOnly(const FMoveOnly&) = delete;
 		auto operator=(const FMoveOnly&) -> FMoveOnly& = delete;
@@ -838,9 +840,7 @@ namespace
 			static const Durin::DurinCodeGen::FStructPropertyParams Leaf = {
 				"Leaf", Durin::EPropertyFlags::None, 1,
 				static_cast<Durin::uint16>(offsetof(FGCReferenceNestedForTest, Leaf)),
-				static_cast<Durin::uint16>(sizeof(FGCReferenceLeafForTest)),
-				Durin::DurinCodeGen::EPropertyGenFlags::Struct,
-				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, &GetGCReferenceLeafStructForTest
+				&GetGCReferenceLeafStructForTest
 			};
 			static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {&Leaf};
 			static Durin::DStruct* RawStruct = nullptr;
@@ -967,16 +967,12 @@ namespace
 			static const Durin::DurinCodeGen::FStructPropertyParams Nested = {
 				"Nested", Durin::EPropertyFlags::None, 1,
 				static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, Nested)),
-				static_cast<Durin::uint16>(sizeof(FGCReferenceNestedForTest)),
-				Durin::DurinCodeGen::EPropertyGenFlags::Struct,
-				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, &GetGCReferenceNestedStructForTest
+				&GetGCReferenceNestedStructForTest
 			};
 
 			static const Durin::DurinCodeGen::FStructPropertyParams StructArrayInner = {
 				"StructArray_Inner", Durin::EPropertyFlags::None, 1, 0,
-				static_cast<Durin::uint16>(sizeof(FGCReferenceLeafForTest)),
-				Durin::DurinCodeGen::EPropertyGenFlags::Struct,
-				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr, &GetGCReferenceLeafStructForTest
+				&GetGCReferenceLeafStructForTest
 			};
 			static const Durin::DurinCodeGen::FArrayPropertyParams StructArray = {
 				"StructArray", Durin::EPropertyFlags::None, 1,
@@ -1144,6 +1140,249 @@ namespace
 			return true;
 		}();
 		(void)bInitialized;
+	}
+
+	struct FTypedStructPropertyOwnerForTest
+	{
+		Durin::FVector3 Direct;
+		Durin::FVector3 Accessed;
+	};
+
+	struct FUnavailableStructPropertyOwnerForTest
+	{
+		StructOpsTest::FDeletedDefault DeletedDefault;
+		StructOpsTest::FMoveOnly MoveOnly;
+	};
+
+	auto GetAccessedVector(void* Container, Durin::uint32 ArrayIndex) -> void*
+	{
+		return &static_cast<FTypedStructPropertyOwnerForTest*>(Container)->Accessed + ArrayIndex;
+	}
+
+	auto GetAccessedVector(const void* Container, Durin::uint32 ArrayIndex) -> const void*
+	{
+		return &static_cast<const FTypedStructPropertyOwnerForTest*>(Container)->Accessed + ArrayIndex;
+	}
+
+	auto GetTypedStructPropertyOwnerNoRegister() -> Durin::DStruct*
+	{
+		static Durin::DStruct* Struct = nullptr;
+		if (!Struct)
+		{
+			Struct = new Durin::DStruct(
+				Durin::EC_StaticConstructor,
+				Durin::FName("FTypedStructPropertyOwnerForTest"),
+				Durin::FName("FTypedStructPropertyOwnerForTest"),
+				sizeof(FTypedStructPropertyOwnerForTest),
+				alignof(FTypedStructPropertyOwnerForTest),
+				Durin::EObjectFlags::Transient
+			);
+			Struct->Register(Durin::DStruct::StaticClass, "", "FTypedStructPropertyOwnerForTest");
+		}
+		return Struct;
+	}
+
+	auto GetTypedStructPropertyOwner() -> Durin::DStruct*
+	{
+		static const Durin::DurinCodeGen::FMetaDataPair DirectMetaData[] = {{"Category", "TypedStruct"}};
+		static const Durin::DurinCodeGen::FStructPropertyParams Direct = {
+			"Direct",
+			Durin::EPropertyFlags::Edit,
+			1,
+			static_cast<Durin::uint16>(offsetof(FTypedStructPropertyOwnerForTest, Direct)),
+			&Durin::Z_Construct_DStruct_Durin_FVector3,
+			DirectMetaData,
+			std::size(DirectMetaData)
+		};
+		static constexpr Durin::DurinCodeGen::FStructPropertyParams Accessed =
+			Durin::DurinCodeGen::FStructPropertyParams::WithAccessors(
+				"Accessed",
+				Durin::EPropertyFlags::ReadOnly,
+				1,
+				&Durin::Z_Construct_DStruct_Durin_FVector3,
+				static_cast<Durin::DurinCodeGen::FStructPropertyParams::FMutableValueAccessor>(&GetAccessedVector),
+				static_cast<Durin::DurinCodeGen::FStructPropertyParams::FConstValueAccessor>(&GetAccessedVector)
+			);
+		static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&Direct, &Accessed};
+		static const Durin::DurinCodeGen::FStructParams Params = {
+			&GetTypedStructPropertyOwnerNoRegister,
+			"Tests::FTypedStructPropertyOwnerForTest",
+			"FTypedStructPropertyOwnerForTest",
+			sizeof(FTypedStructPropertyOwnerForTest),
+			alignof(FTypedStructPropertyOwnerForTest),
+			Properties,
+			std::size(Properties)
+		};
+		return Durin::DurinCodeGen::ConstructDStruct(Params);
+	}
+
+	auto GetDeletedDefaultStructNoRegister() -> Durin::DStruct*
+	{
+		static Durin::DStruct* Struct = new Durin::DStruct(
+			Durin::EC_StaticConstructor,
+			Durin::FName("FDeletedDefaultForTypedPropertyTest"),
+			Durin::FName("FDeletedDefaultForTypedPropertyTest"),
+			sizeof(StructOpsTest::FDeletedDefault),
+			alignof(StructOpsTest::FDeletedDefault),
+			Durin::EObjectFlags::Transient
+		);
+		return Struct;
+	}
+
+	auto GetDeletedDefaultStruct() -> Durin::DStruct*
+	{
+		static const Durin::DurinCodeGen::FStructParams Params = {
+			&GetDeletedDefaultStructNoRegister,
+			"Tests::FDeletedDefaultForTypedPropertyTest",
+			"FDeletedDefaultForTypedPropertyTest",
+			sizeof(StructOpsTest::FDeletedDefault),
+			alignof(StructOpsTest::FDeletedDefault),
+			nullptr,
+			0,
+			&Durin::GetDStructOps<StructOpsTest::FDeletedDefault>()
+		};
+		return Durin::DurinCodeGen::ConstructDStruct(Params);
+	}
+
+	auto GetMoveOnlyStructNoRegister() -> Durin::DStruct*
+	{
+		static Durin::DStruct* Struct = new Durin::DStruct(
+			Durin::EC_StaticConstructor,
+			Durin::FName("FMoveOnlyForTypedPropertyTest"),
+			Durin::FName("FMoveOnlyForTypedPropertyTest"),
+			sizeof(StructOpsTest::FMoveOnly),
+			alignof(StructOpsTest::FMoveOnly),
+			Durin::EObjectFlags::Transient
+		);
+		return Struct;
+	}
+
+	auto GetMoveOnlyStruct() -> Durin::DStruct*
+	{
+		static const Durin::DurinCodeGen::FStructParams Params = {
+			&GetMoveOnlyStructNoRegister,
+			"Tests::FMoveOnlyForTypedPropertyTest",
+			"FMoveOnlyForTypedPropertyTest",
+			sizeof(StructOpsTest::FMoveOnly),
+			alignof(StructOpsTest::FMoveOnly),
+			nullptr,
+			0,
+			&Durin::GetDStructOps<StructOpsTest::FMoveOnly>()
+		};
+		return Durin::DurinCodeGen::ConstructDStruct(Params);
+	}
+
+	auto GetUnavailableStructPropertyOwnerNoRegister() -> Durin::DStruct*
+	{
+		static Durin::DStruct* Struct = nullptr;
+		if (!Struct)
+		{
+			Struct = new Durin::DStruct(
+				Durin::EC_StaticConstructor,
+				Durin::FName("FUnavailableStructPropertyOwnerForTest"),
+				Durin::FName("FUnavailableStructPropertyOwnerForTest"),
+				sizeof(FUnavailableStructPropertyOwnerForTest),
+				alignof(FUnavailableStructPropertyOwnerForTest),
+				Durin::EObjectFlags::Transient
+			);
+			Struct->Register(Durin::DStruct::StaticClass, "", "FUnavailableStructPropertyOwnerForTest");
+		}
+		return Struct;
+	}
+
+	auto GetUnavailableStructPropertyOwner() -> Durin::DStruct*
+	{
+		static const Durin::DurinCodeGen::FStructPropertyParams DeletedDefault = {
+			"DeletedDefault",
+			Durin::EPropertyFlags::None,
+			1,
+			static_cast<Durin::uint16>(offsetof(FUnavailableStructPropertyOwnerForTest, DeletedDefault)),
+			&GetDeletedDefaultStruct
+		};
+		static const Durin::DurinCodeGen::FStructPropertyParams MoveOnly = {
+			"MoveOnly",
+			Durin::EPropertyFlags::None,
+			1,
+			static_cast<Durin::uint16>(offsetof(FUnavailableStructPropertyOwnerForTest, MoveOnly)),
+			&GetMoveOnlyStruct
+		};
+		static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&DeletedDefault, &MoveOnly};
+		static const Durin::DurinCodeGen::FStructParams Params = {
+			&GetUnavailableStructPropertyOwnerNoRegister,
+			"Tests::FUnavailableStructPropertyOwnerForTest",
+			"FUnavailableStructPropertyOwnerForTest",
+			sizeof(FUnavailableStructPropertyOwnerForTest),
+			alignof(FUnavailableStructPropertyOwnerForTest),
+			Properties,
+			std::size(Properties)
+		};
+		return Durin::DurinCodeGen::ConstructDStruct(Params);
+	}
+
+	auto GetNullStructDescriptor() -> Durin::DStruct*
+	{
+		return nullptr;
+	}
+
+	auto GetZeroSizeStructDescriptor() -> Durin::DStruct*
+	{
+		static Durin::DStruct* Struct = new Durin::DStruct(
+			Durin::EC_StaticConstructor,
+			Durin::FName("FZeroSizeStructDescriptorForTest"),
+			Durin::FName("FZeroSizeStructDescriptorForTest"),
+			0,
+			1,
+			Durin::EObjectFlags::Transient
+		);
+		return Struct;
+	}
+
+	auto GetInvalidAlignmentStructDescriptor() -> Durin::DStruct*
+	{
+		static Durin::DStruct* Struct = new Durin::DStruct(
+			Durin::EC_StaticConstructor,
+			Durin::FName("FInvalidAlignmentStructDescriptorForTest"),
+			Durin::FName("FInvalidAlignmentStructDescriptorForTest"),
+			4,
+			3,
+			Durin::EObjectFlags::Transient
+		);
+		return Struct;
+	}
+
+	Durin::DStruct* GInvalidStructPropertyOwner = nullptr;
+
+	auto GetInvalidStructPropertyOwnerNoRegister() -> Durin::DStruct*
+	{
+		return GInvalidStructPropertyOwner;
+	}
+
+	auto ConstructInvalidStructProperty(const Durin::DurinCodeGen::FPropertyParamsBase& Property) -> void
+	{
+		GInvalidStructPropertyOwner = new Durin::DStruct(
+			Durin::EC_StaticConstructor,
+			Durin::FName("FInvalidStructPropertyOwnerForTest"),
+			Durin::FName("FInvalidStructPropertyOwnerForTest"),
+			16,
+			8,
+			Durin::EObjectFlags::Transient
+		);
+		GInvalidStructPropertyOwner->Register(
+			Durin::DStruct::StaticClass,
+			"",
+			"FInvalidStructPropertyOwnerForTest"
+		);
+		const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&Property};
+		const Durin::DurinCodeGen::FStructParams Params = {
+			&GetInvalidStructPropertyOwnerNoRegister,
+			"Tests::FInvalidStructPropertyOwnerForTest",
+			"FInvalidStructPropertyOwnerForTest",
+			16,
+			8,
+			Properties,
+			std::size(Properties)
+		};
+		(void)Durin::DurinCodeGen::ConstructDStruct(Params);
 	}
 
 	void EnsurePackageTestMount()
@@ -2880,10 +3119,37 @@ namespace
 		ASSERT_NE(Rotation, nullptr);
 		ASSERT_NE(Translation, nullptr);
 		ASSERT_NE(Scale, nullptr);
+		EXPECT_EQ(TransformStruct->ChildProperties, Rotation);
+		EXPECT_EQ(Rotation->Next, Translation);
+		EXPECT_EQ(Translation->Next, Scale);
+		EXPECT_EQ(Scale->Next, nullptr);
 		EXPECT_EQ(Rotation->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Struct);
-		EXPECT_EQ(static_cast<Durin::FStructProperty*>(Rotation)->GetStruct(), QuatStruct);
-		EXPECT_EQ(static_cast<Durin::FStructProperty*>(Translation)->GetStruct(), VectorStruct);
-		EXPECT_EQ(static_cast<Durin::FStructProperty*>(Scale)->GetStruct(), VectorStruct);
+		auto* RotationStructProperty = static_cast<Durin::FStructProperty*>(Rotation);
+		auto* TranslationStructProperty = static_cast<Durin::FStructProperty*>(Translation);
+		auto* ScaleStructProperty = static_cast<Durin::FStructProperty*>(Scale);
+		EXPECT_EQ(RotationStructProperty->GetStruct(), QuatStruct);
+		EXPECT_EQ(TranslationStructProperty->GetStruct(), VectorStruct);
+		EXPECT_EQ(ScaleStructProperty->GetStruct(), VectorStruct);
+		for (const auto& [Property, Offset] : std::array{
+			std::pair{RotationStructProperty, static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::FTransform, Rotation))},
+			std::pair{TranslationStructProperty, static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::FTransform, Translation))},
+			std::pair{ScaleStructProperty, static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::FTransform, Scale3D))}
+		})
+		{
+			EXPECT_EQ(Property->GetPropertyFlags(), Durin::EPropertyFlags::None);
+			EXPECT_EQ(Property->GetArrayDim(), 1);
+			EXPECT_EQ(Property->GetOffset(), Offset);
+			EXPECT_FALSE(Property->HasValueAccessors());
+			EXPECT_TRUE(Property->HasValueLifecycle());
+		}
+		EXPECT_EQ(RotationStructProperty->GetElementSize(), QuatStruct->PropertiesSize);
+		EXPECT_EQ(TranslationStructProperty->GetElementSize(), VectorStruct->PropertiesSize);
+		EXPECT_EQ(ScaleStructProperty->GetElementSize(), VectorStruct->PropertiesSize);
+		EXPECT_EQ(TranslationStructProperty->GetValueAlignment(), VectorStruct->MinAlignment);
+		Durin::FTransform TransformValue;
+		EXPECT_EQ(RotationStructProperty->GetValuePtr(&TransformValue), &TransformValue.Rotation);
+		EXPECT_EQ(TranslationStructProperty->GetValuePtr(&TransformValue), &TransformValue.Translation);
+		EXPECT_EQ(ScaleStructProperty->GetValuePtr(&TransformValue), &TransformValue.Scale3D);
 
 		alignas(Durin::FVector3) std::byte ZeroStorage[sizeof(Durin::FVector3)];
 		alignas(Durin::FVector3) std::byte CopyStorage[sizeof(Durin::FVector3)];
@@ -2904,8 +3170,170 @@ namespace
 		ASSERT_NE(X, nullptr);
 		ASSERT_NE(Y, nullptr);
 		ASSERT_NE(Z, nullptr);
+		EXPECT_EQ(VectorStruct->ChildProperties, X);
+		EXPECT_EQ(X->Next, Y);
+		EXPECT_EQ(Y->Next, Z);
+		EXPECT_EQ(Z->Next, nullptr);
 		EXPECT_EQ(X->GetValuePtr(&Source), &Source.x);
 		EXPECT_EQ(Y->GetValuePtr(&Source), &Source.y);
 		EXPECT_EQ(Z->GetValuePtr(&Source), &Source.z);
 	}
+
+	TEST(FCoreDObjectReflectionTests, TypedStructPropertyCompiledMetadataFootprintIsRecorded)
+	{
+		RecordProperty(
+			"FPropertyParamsBaseBytes",
+			static_cast<int>(sizeof(Durin::DurinCodeGen::FPropertyParamsBase)));
+		RecordProperty(
+			"FStructPropertyParamsBytes",
+			static_cast<int>(sizeof(Durin::DurinCodeGen::FStructPropertyParams)));
+		EXPECT_TRUE((std::is_base_of_v<
+			Durin::DurinCodeGen::FPropertyParamsBase,
+			Durin::DurinCodeGen::FStructPropertyParams>));
+	}
+
+	TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationSupportsOffsetsAccessorsAndMetadata)
+	{
+		EnsureDObjectInitialized();
+		Durin::DStruct* OwnerStruct = GetTypedStructPropertyOwner();
+		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
+		auto* Direct = static_cast<Durin::FStructProperty*>(OwnerStruct->FindPropertyByName("Direct", false));
+		auto* Accessed = static_cast<Durin::FStructProperty*>(OwnerStruct->FindPropertyByName("Accessed", false));
+		ASSERT_NE(Direct, nullptr);
+		ASSERT_NE(Accessed, nullptr);
+		EXPECT_EQ(Direct->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Struct);
+		EXPECT_EQ(Direct->GetStruct(), VectorStruct);
+		EXPECT_EQ(Accessed->GetStruct(), VectorStruct);
+		EXPECT_EQ(Direct->GetElementSize(), VectorStruct->PropertiesSize);
+		EXPECT_EQ(Direct->GetValueSize(), VectorStruct->PropertiesSize);
+		EXPECT_EQ(Direct->GetValueAlignment(), VectorStruct->MinAlignment);
+		EXPECT_EQ(Direct->GetMetaData(Durin::FName("Category")), "TypedStruct");
+		EXPECT_FALSE(Direct->HasValueAccessors());
+		EXPECT_TRUE(Accessed->HasValueAccessors());
+
+		FTypedStructPropertyOwnerForTest Owner;
+		EXPECT_EQ(Direct->GetValuePtr(&Owner), &Owner.Direct);
+		EXPECT_EQ(Accessed->GetValuePtr(&Owner), &Owner.Accessed);
+		EXPECT_EQ(Accessed->GetOffset(), 0);
+	}
+
+	TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationDefersUnavailableCapabilitiesToUse)
+	{
+		EnsureDObjectInitialized();
+		Durin::DStruct* OwnerStruct = GetUnavailableStructPropertyOwner();
+		auto* DeletedDefault = static_cast<Durin::FStructProperty*>(OwnerStruct->FindPropertyByName("DeletedDefault", false));
+		auto* MoveOnly = static_cast<Durin::FStructProperty*>(OwnerStruct->FindPropertyByName("MoveOnly", false));
+		ASSERT_NE(DeletedDefault, nullptr);
+		ASSERT_NE(MoveOnly, nullptr);
+		EXPECT_FALSE(DeletedDefault->CanDefaultConstructValue());
+		EXPECT_TRUE(DeletedDefault->CanCopyAssignValue());
+		EXPECT_TRUE(MoveOnly->CanDefaultConstructValue());
+		EXPECT_FALSE(MoveOnly->CanCopyAssignValue());
+
+		alignas(StructOpsTest::FDeletedDefault)
+		std::array<std::byte, sizeof(StructOpsTest::FDeletedDefault)> UnchangedStorage;
+		UnchangedStorage.fill(std::byte{0x5a});
+		const auto OriginalStorage = UnchangedStorage;
+		std::string Error;
+		EXPECT_FALSE(DeletedDefault->InitializeValue(UnchangedStorage.data(), &Error));
+		EXPECT_EQ(UnchangedStorage, OriginalStorage);
+		EXPECT_NE(Error.find("DefaultConstruct"), std::string::npos);
+
+		StructOpsTest::FMoveOnly Destination;
+		Destination.Value = 7;
+		StructOpsTest::FMoveOnly Source;
+		Source.Value = 11;
+		Error.clear();
+		EXPECT_FALSE(MoveOnly->CopyAssignValue(&Destination, &Source, &Error));
+		EXPECT_EQ(Destination.Value, 7);
+		EXPECT_NE(Error.find("CopyAssign"), std::string::npos);
+	}
+
+#ifdef DO_CHECK
+	TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidMetadata)
+	{
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				Durin::DurinCodeGen::FPropertyParamsBase Params = {
+					"KindMismatch", Durin::EPropertyFlags::None, 1, 0, 0,
+					Durin::DurinCodeGen::EPropertyGenFlags::Struct
+				};
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"StructPropertyRegistration.KindMismatch"
+		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				const Durin::DurinCodeGen::FStructPropertyParams Params = {
+					"MissingResolver", Durin::EPropertyFlags::None, 1, 0, nullptr
+				};
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"StructPropertyRegistration.MissingResolver"
+		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				const Durin::DurinCodeGen::FStructPropertyParams Params = {
+					"NullDescriptor", Durin::EPropertyFlags::None, 1, 0, &GetNullStructDescriptor
+				};
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"StructPropertyRegistration.NullDescriptor"
+		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				const Durin::DurinCodeGen::FStructPropertyParams Params = {
+					"InvalidSize", Durin::EPropertyFlags::None, 1, 0, &GetZeroSizeStructDescriptor
+				};
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"StructPropertyRegistration.InvalidSize"
+		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				const Durin::DurinCodeGen::FStructPropertyParams Params = {
+					"InvalidAlignment", Durin::EPropertyFlags::None, 1, 0, &GetInvalidAlignmentStructDescriptor
+				};
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"StructPropertyRegistration.InvalidAlignment"
+		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				const Durin::DurinCodeGen::FStructPropertyParams Params =
+					Durin::DurinCodeGen::FStructPropertyParams::WithAccessors(
+						"AccessorPairMismatch",
+						Durin::EPropertyFlags::None,
+						1,
+						&Durin::Z_Construct_DStruct_Durin_FVector3,
+						static_cast<Durin::DurinCodeGen::FStructPropertyParams::FMutableValueAccessor>(&GetAccessedVector),
+						nullptr
+					);
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"StructPropertyRegistration.AccessorPairMismatch"
+		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				Durin::DurinCodeGen::FStructPropertyParams Params = {
+					"MetadataMismatch",
+					Durin::EPropertyFlags::None,
+					1,
+					0,
+					&Durin::Z_Construct_DStruct_Durin_FVector3
+				};
+				Params.NumMetaData = 1;
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"StructPropertyRegistration.MetadataMismatch"
+		);
+	}
+#endif
 }
