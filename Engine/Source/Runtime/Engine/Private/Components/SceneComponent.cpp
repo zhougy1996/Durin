@@ -4,6 +4,7 @@
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "Math/Operations.h"
 
 namespace Durin
 {
@@ -38,7 +39,7 @@ namespace Durin
 		{
 			auto* Transform = Proposal.DraftRootProperty->ContainerPtrToValuePtr<FTransform>(
 				Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex);
-			Transform->Rotation = glm::normalize(Transform->Rotation);
+			Transform->Rotation = Math::Normalize(Transform->Rotation);
 		}
 		return true;
 	}
@@ -78,7 +79,7 @@ namespace Durin
 	auto DSceneComponent::SetRelativeTransform(const FTransform& InTransform) -> void
 	{
 		RelativeTransform = InTransform;
-		RelativeTransform.Rotation = glm::normalize(RelativeTransform.Rotation);
+		RelativeTransform.Rotation = Math::Normalize(RelativeTransform.Rotation);
 		UpdateComponentToWorld();
 		MarkPackageDirty();
 	}
@@ -98,7 +99,7 @@ namespace Durin
 		{
 			RelativeTransform = InTransform;
 		}
-		RelativeTransform.Rotation = glm::normalize(RelativeTransform.Rotation);
+		RelativeTransform.Rotation = Math::Normalize(RelativeTransform.Rotation);
 		UpdateComponentToWorld();
 		MarkPackageDirty();
 	}

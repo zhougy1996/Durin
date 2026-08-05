@@ -22,6 +22,7 @@ durin_add_core_functional_test(CoreUtilityTests
 	Private/GuidTests.cpp
 	Private/JsonTests.cpp
 	Private/LoggerTests.cpp
+	Private/MathFacadeTests.cpp
 	Private/NameTests.cpp
 	Private/ProfilingTests.cpp
 	Private/StringHelperTests.cpp

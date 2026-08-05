@@ -7,6 +7,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
+#include "Math/Operations.h"
 #include "SceneView.h"
 #include "SceneViewProjection.h"
 #include "StaticMesh/StaticMesh.h"
@@ -70,17 +71,17 @@ namespace Durin
 		{
 			const FVector3 Edge1 = B - A;
 			const FVector3 Edge2 = C - A;
-			const FVector3 P = glm::cross(Direction, Edge2);
-			const double Determinant = glm::dot(Edge1, P);
+			const FVector3 P = Math::Cross(Direction, Edge2);
+			const double Determinant = Math::Dot(Edge1, P);
 			if (std::abs(Determinant) <= kIntersectionEpsilon) return false;
 			const double InvDeterminant = 1.0 / Determinant;
 			const FVector3 T = Origin - A;
-			const double U = glm::dot(T, P) * InvDeterminant;
+			const double U = Math::Dot(T, P) * InvDeterminant;
 			if (U < -kIntersectionEpsilon || U > 1.0 + kIntersectionEpsilon) return false;
-			const FVector3 Q = glm::cross(T, Edge1);
-			const double V = glm::dot(Direction, Q) * InvDeterminant;
+			const FVector3 Q = Math::Cross(T, Edge1);
+			const double V = Math::Dot(Direction, Q) * InvDeterminant;
 			if (V < -kIntersectionEpsilon || U + V > 1.0 + kIntersectionEpsilon) return false;
-			OutDistance = glm::dot(Edge2, Q) * InvDeterminant;
+			OutDistance = Math::Dot(Edge2, Q) * InvDeterminant;
 			return OutDistance >= 0.0;
 		}
 	} // namespace
@@ -105,7 +106,7 @@ namespace Durin
 		if ((GEditor && GEditor->IsPlaying()) || Width == 0 || Height == 0) return false;
 		OutView = {};
 		const float AspectRatio = Height > 0 ? static_cast<float>(Width) / static_cast<float>(Height) : 1.0f;
-		const float HalfFovRadians = glm::radians(FieldOfViewDegrees) * 0.5f;
+		const float HalfFovRadians = Math::DegreesToRadians(FieldOfViewDegrees) * 0.5f;
 		const float YScale = 1.0f / std::tan(HalfFovRadians);
 		const float XScale = YScale / std::max(AspectRatio, 0.001f);
 		const float DepthScale = FarClip / (FarClip - NearClip);
@@ -255,7 +256,7 @@ namespace Durin
 				if (Data == nullptr || !Data->LocalBounds.bIsValid) continue;
 				const FVector3 Center = Data->LocalBounds.GetCenter();
 				const FVector3 Size = Data->LocalBounds.Max - Data->LocalBounds.Min;
-				const FMatrix BoundsToLocal = glm::translate(FMatrix(1.0), Center) * glm::scale(FMatrix(1.0), Size);
+				const FMatrix BoundsToLocal = Math::TranslationMatrix(Center) * Math::ScaleMatrix(Size);
 				View.OverlayPrimitives.push_back({EViewOverlayShape::WireBox, Component->GetRenderMatrix() * BoundsToLocal, Color});
 			}
 		}
@@ -300,9 +301,9 @@ namespace Durin
 				Direction.x = static_cast<float>(Input.bMoveForward) - static_cast<float>(Input.bMoveBackward);
 				Direction.y = static_cast<float>(Input.bMoveRight) - static_cast<float>(Input.bMoveLeft);
 				Direction.z = static_cast<float>(Input.bMoveUp) - static_cast<float>(Input.bMoveDown);
-				if (glm::dot(Direction, Direction) > 0.0f)
+				if (Math::LengthSquared(Direction) > 0.0f)
 				{
-					Direction = glm::normalize(Direction);
+					Direction = Math::Normalize(Direction);
 					const float Speed = MovementSpeed * (Input.bShift ? kShiftSpeedMultiplier : 1.0f);
 					TargetMovementVelocity = Direction * static_cast<FReal>(Speed);
 				}
@@ -378,9 +379,9 @@ namespace Durin
 				const auto& Indices = LOD.IndexBuffer.GetIndices();
 				if (Indices.size() < 3) continue;
 				const FMatrix LocalToWorld = Component->GetRenderMatrix();
-				const double Determinant = glm::determinant(LocalToWorld);
+				const double Determinant = Math::Determinant(LocalToWorld);
 				if (!std::isfinite(Determinant) || std::abs(Determinant) <= kIntersectionEpsilon) continue;
-				const FMatrix WorldToLocal = glm::inverse(LocalToWorld);
+				const FMatrix WorldToLocal = Math::Inverse(LocalToWorld);
 				const FVector3 LocalOrigin = FVector3(WorldToLocal * FVector4(RayOrigin, 1.0));
 				const FVector3 LocalDirection = FVector3(WorldToLocal * FVector4(RayDirection, 0.0));
 				if (!IntersectRayBox(LocalOrigin, LocalDirection, Data->LocalBounds)) continue;
@@ -394,7 +395,7 @@ namespace Durin
 					if (!IntersectRayTriangle(LocalOrigin, LocalDirection, FVector3(Positions[I0]), FVector3(Positions[I1]), FVector3(Positions[I2]), LocalDistance)) continue;
 					const FVector3 LocalHit = LocalOrigin + LocalDirection * LocalDistance;
 					const FVector3 WorldHit = FVector3(LocalToWorld * FVector4(LocalHit, 1.0));
-					const double WorldDistance = glm::length(WorldHit - RayOrigin);
+					const double WorldDistance = Math::Length(WorldHit - RayOrigin);
 					if (std::isfinite(WorldDistance) && WorldDistance < ClosestDistance)
 					{
 						ClosestDistance = WorldDistance;

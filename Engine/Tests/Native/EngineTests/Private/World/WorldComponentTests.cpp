@@ -1,4 +1,5 @@
 #include "WorldTestSupport.h"
+#include "Math/Operations.h"
 
 TEST(FDirectionalLightTests, SceneDataRemainsDarkUntilPopulatedByAComponent)
 {
@@ -105,21 +106,23 @@ TEST(FSceneComponentTests, ConvertsWorldAndRelativeTransformsAcrossHierarchy)
 
 	Durin::FTransform ParentTransform;
 	ParentTransform.Translation = Durin::FVector3(3.0, 4.0, 5.0);
-	ParentTransform.Rotation = glm::angleAxis(glm::radians(90.0), Durin::FVector3(0.0, 0.0, 1.0));
+	ParentTransform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
+		90.0, Durin::FVector3(0.0, 0.0, 1.0));
 	ParentTransform.Scale3D = Durin::FVector3(2.0);
 	Parent->SetWorldTransform(ParentTransform);
 	ASSERT_TRUE(Child->AttachToComponent(Parent, Durin::EAttachmentTransformRule::KeepRelative));
 
 	Durin::FTransform DesiredWorld;
 	DesiredWorld.Translation = Durin::FVector3(7.0, 8.0, 9.0);
-	DesiredWorld.Rotation = glm::angleAxis(glm::radians(45.0), Durin::FVector3(1.0, 0.0, 0.0));
+	DesiredWorld.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
+		45.0, Durin::FVector3(1.0, 0.0, 0.0));
 	DesiredWorld.Scale3D = Durin::FVector3(4.0);
 	Child->SetWorldTransform(DesiredWorld);
 
 	const Durin::FTransform Reconstructed = Durin::FTransform::Combine(Parent->GetWorldTransform(), Child->GetRelativeTransform());
 	ExpectVectorNear(Reconstructed.Translation, DesiredWorld.Translation);
 	ExpectVectorNear(Reconstructed.Scale3D, DesiredWorld.Scale3D);
-	EXPECT_NEAR(std::abs(glm::dot(Reconstructed.Rotation, DesiredWorld.Rotation)), 1.0, 1.e-8);
+	EXPECT_TRUE(Durin::Math::AreRotationsEquivalent(Reconstructed.Rotation, DesiredWorld.Rotation, 1.e-8));
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
 }
@@ -144,7 +147,8 @@ TEST(FSceneComponentTests, SupportsInstanceComponentTreesWithinOneActor)
 	ASSERT_TRUE(Child->AttachToComponent(Parent, Durin::EAttachmentTransformRule::SnapToTarget));
 	ExpectVectorNear(Child->GetRelativeLocation(), Durin::FVector3(0.0));
 	ExpectVectorNear(Child->GetRelativeScale3D(), Durin::FVector3(1.0));
-	EXPECT_NEAR(std::abs(glm::dot(Child->GetRelativeRotation(), Durin::FQuat(1.0, 0.0, 0.0, 0.0))), 1.0, 1.e-8);
+	EXPECT_TRUE(Durin::Math::AreRotationsEquivalent(
+		Child->GetRelativeRotation(), Durin::FQuatConstants::Identity, 1.e-8));
 	EXPECT_EQ(Child->GetAttachParent(), Parent);
 	ASSERT_EQ(Parent->GetAttachChildren().size(), 1u);
 	EXPECT_EQ(Parent->GetAttachChildren().front().Get(), Child);
@@ -158,7 +162,7 @@ TEST(FSceneComponentTests, SupportsInstanceComponentTreesWithinOneActor)
 	NewParent->SetRelativeLocation(Durin::FVector3(5.0, 0.0, 0.0));
 	ASSERT_TRUE(Child->AttachToComponent(NewParent, Durin::EAttachmentTransformRule::KeepWorld));
 	ExpectVectorNear(Child->GetWorldLocation(), PreviousWorld.Translation);
-	EXPECT_NEAR(std::abs(glm::dot(Child->GetWorldRotation(), PreviousWorld.Rotation)), 1.0, 1.e-8);
+	EXPECT_TRUE(Durin::Math::AreRotationsEquivalent(Child->GetWorldRotation(), PreviousWorld.Rotation, 1.e-8));
 	ExpectVectorNear(Child->GetWorldScale3D(), PreviousWorld.Scale3D);
 
 	ASSERT_TRUE(Child->AttachToComponent(Parent, Durin::EAttachmentTransformRule::KeepWorld));

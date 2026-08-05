@@ -3,6 +3,7 @@
 #include "Renderers/SkyBoxRenderer.h"
 #include "Engine/PrimitiveSceneProxy.h"
 #include "IScene.h"
+#include "Math/Operations.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Scene.h"
@@ -65,7 +66,7 @@ namespace Durin
 			/ static_cast<float>(std::max(1u, View.ViewportHeight));
 		const float YScale = 1.0f
 			/ std::tan(
-				glm::radians(EnvironmentVerticalFieldOfViewDegrees) * 0.5f);
+				Math::DegreesToRadians(EnvironmentVerticalFieldOfViewDegrees) * 0.5f);
 		EnvironmentView.ProjectionMatrix[1][0] =
 			YScale / std::max(AspectRatio, 0.001f);
 		EnvironmentView.ProjectionMatrix[2][1] = -YScale;

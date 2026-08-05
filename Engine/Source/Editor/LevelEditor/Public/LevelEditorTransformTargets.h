@@ -34,7 +34,7 @@ namespace Durin
 		virtual auto GetIdentity() const -> const void* = 0;
 		virtual auto GetTransform() const -> FTransform = 0;
 		virtual auto SetTransform(const FTransform& Transform) -> bool = 0;
-		virtual auto GetParentRotation() const -> FQuat { return glm::identity<FQuat>(); }
+		virtual auto GetParentRotation() const -> FQuat { return FQuatConstants::Identity; }
 		virtual auto GetPackage() const -> DPackage* { return nullptr; }
 		virtual auto GetLabel() const -> std::string = 0;
 		virtual auto GetCapabilities() const -> ETransformGizmoCapability { return ETransformGizmoCapability::All; }

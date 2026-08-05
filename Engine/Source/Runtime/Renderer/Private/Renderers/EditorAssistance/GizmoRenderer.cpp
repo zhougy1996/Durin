@@ -3,14 +3,13 @@
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "CoreGlobals.h"
+#include "Math/Operations.h"
 #include "Misc/AssertionMacros.h"
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
-
-#include <glm/gtc/constants.hpp>
 
 namespace Durin
 {
@@ -46,7 +45,7 @@ namespace Durin
 
 		struct FGizmoTransformUniform
 		{
-			glm::mat4 LocalToClip{1.0f};
+			FMatrix4f LocalToClip{1.0f};
 			FVector4f Color{1.0f};
 		};
 
@@ -57,9 +56,17 @@ namespace Durin
 			int32 VertexOffset = 0;
 		};
 
-		auto ToShaderMatrix(const FMatrix& Matrix) -> glm::mat4
+		auto ToShaderMatrix(const FMatrix& Matrix) -> FMatrix4f
 		{
-			return glm::transpose(glm::mat4(Matrix));
+			FMatrix4f Result(0.0f);
+			for (uint32 Column = 0; Column < 4; ++Column)
+			{
+				for (uint32 Row = 0; Row < 4; ++Row)
+				{
+					Result[Column][Row] = static_cast<float>(Matrix[Row][Column]);
+				}
+			}
+			return Result;
 		}
 
 		auto BeginMesh(const std::vector<uint32>& Indices) -> FGizmoMeshRange
@@ -89,7 +96,7 @@ namespace Durin
 				const float X = Ring == 0 ? StartX : EndX;
 				for (uint32 Segment = 0; Segment < Segments; ++Segment)
 				{
-					const float Angle = glm::two_pi<float>()
+					const float Angle = Math::TwoPi<float>()
 						* static_cast<float>(Segment)
 						/ static_cast<float>(Segments);
 					Vertices.emplace_back(
@@ -121,7 +128,7 @@ namespace Durin
 			const uint32 Base = static_cast<uint32>(Vertices.size());
 			for (uint32 Segment = 0; Segment < Segments; ++Segment)
 			{
-				const float Angle = glm::two_pi<float>()
+				const float Angle = Math::TwoPi<float>()
 					* static_cast<float>(Segment)
 					/ static_cast<float>(Segments);
 				Vertices.emplace_back(
@@ -206,12 +213,12 @@ namespace Durin
 			constexpr float MinorRadius = 0.032f;
 			for (uint32 Segment = 0; Segment < Segments; ++Segment)
 			{
-				const float Major = glm::two_pi<float>()
+				const float Major = Math::TwoPi<float>()
 					* static_cast<float>(Segment)
 					/ static_cast<float>(Segments);
 				for (uint32 Tube = 0; Tube < TubeSegments; ++Tube)
 				{
-					const float Minor = glm::two_pi<float>()
+					const float Minor = Math::TwoPi<float>()
 						* static_cast<float>(Tube)
 						/ static_cast<float>(TubeSegments);
 					const float Radius =

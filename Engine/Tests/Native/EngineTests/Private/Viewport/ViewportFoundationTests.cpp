@@ -1,5 +1,6 @@
 #include "ViewportTestSupport.h"
 #include "Documents/LevelDocumentRevisionState.h"
+#include "Math/Operations.h"
 
 TEST(FEditorTransactionManagerTests, ExecutesUndoesRedoesAndClearsRedoBranch)
 {
@@ -308,9 +309,9 @@ TEST(FViewportCameraTransformTests, ClampsPitchAndBuildsOrthonormalDirections)
 	Durin::FViewportCameraTransform Camera;
 	Camera.Rotate(0.0f, 200.0f);
 	EXPECT_DOUBLE_EQ(Camera.GetPitch(), 89.0);
-	EXPECT_NEAR(glm::length(Camera.GetForwardVector()), 1.0, 1.e-8);
-	EXPECT_NEAR(glm::dot(Camera.GetForwardVector(), Camera.GetRightVector()), 0.0, 1.e-8);
-	EXPECT_NEAR(glm::dot(Camera.GetForwardVector(), Camera.GetUpVector()), 0.0, 1.e-8);
+	EXPECT_NEAR(Durin::Math::Length(Camera.GetForwardVector()), 1.0, 1.e-8);
+	EXPECT_NEAR(Durin::Math::Dot(Camera.GetForwardVector(), Camera.GetRightVector()), 0.0, 1.e-8);
+	EXPECT_NEAR(Durin::Math::Dot(Camera.GetForwardVector(), Camera.GetUpVector()), 0.0, 1.e-8);
 }
 
 TEST(FViewportCameraTransformTests, MovesPansAndPreservesOrbitDistance)
@@ -324,7 +325,7 @@ TEST(FViewportCameraTransformTests, MovesPansAndPreservesOrbitDistance)
 	Camera.Pan(1.0f, -0.5f);
 	const double Distance = Camera.GetOrbitDistance();
 	Camera.Orbit(35.0f, 15.0f);
-	EXPECT_NEAR(glm::length(Camera.GetOrbitPivot() - Camera.GetLocation()), Distance, 1.e-8);
+	EXPECT_NEAR(Durin::Math::Length(Camera.GetOrbitPivot() - Camera.GetLocation()), Distance, 1.e-8);
 }
 
 TEST(FViewportCameraTransformTests, FocusAndDollyRemainFiniteAtDegenerateDistance)

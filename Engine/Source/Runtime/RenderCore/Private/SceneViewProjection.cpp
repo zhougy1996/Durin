@@ -1,15 +1,12 @@
 #include "SceneViewProjection.h"
 
+#include "Math/Operations.h"
+
 namespace Durin::SceneViewProjection
 {
 	namespace
 	{
 		constexpr double ProjectionEpsilon = 1.e-8;
-
-		auto IsFinite(const FVector3& Value) -> bool
-		{
-			return std::isfinite(Value.x) && std::isfinite(Value.y) && std::isfinite(Value.z);
-		}
 	}
 
 	auto ProjectWorldToViewport(const FSceneView& View, const FVector3& WorldPosition, FVector2f& OutPosition) -> bool
@@ -31,9 +28,8 @@ namespace Durin::SceneViewProjection
 		if (View.ViewportWidth == 0 || View.ViewportHeight == 0) return false;
 		if (ViewportPosition.x < View.ViewportX || ViewportPosition.y < View.ViewportY
 			|| ViewportPosition.x >= View.ViewportX + View.ViewportWidth || ViewportPosition.y >= View.ViewportY + View.ViewportHeight) return false;
-		const double Determinant = glm::determinant(View.ViewProjectionMatrix);
-		if (!std::isfinite(Determinant) || std::abs(Determinant) <= ProjectionEpsilon) return false;
-		const FMatrix ClipToWorld = glm::inverse(View.ViewProjectionMatrix);
+		FMatrix ClipToWorld;
+		if (!Math::TryInverse(View.ViewProjectionMatrix, ClipToWorld, ProjectionEpsilon)) return false;
 		const double NdcX = (static_cast<double>(ViewportPosition.x) - View.ViewportX) / View.ViewportWidth * 2.0 - 1.0;
 		const double NdcY = (static_cast<double>(ViewportPosition.y) - View.ViewportY) / View.ViewportHeight * 2.0 - 1.0;
 		FVector4 Near = ClipToWorld * FVector4(NdcX, NdcY, 0.0, 1.0);
@@ -43,8 +39,8 @@ namespace Durin::SceneViewProjection
 		Far /= Far.w;
 		OutOrigin = FVector3(Near);
 		const FVector3 Delta = FVector3(Far) - OutOrigin;
-		const double Length = glm::length(Delta);
-		if (!IsFinite(OutOrigin) || !IsFinite(Delta) || !std::isfinite(Length) || Length <= ProjectionEpsilon) return false;
+		const double Length = Math::Length(Delta);
+		if (!Math::IsFinite(OutOrigin) || !Math::IsFinite(Delta) || !std::isfinite(Length) || Length <= ProjectionEpsilon) return false;
 		OutDirection = Delta / Length;
 		return true;
 	}

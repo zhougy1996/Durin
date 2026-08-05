@@ -1,6 +1,7 @@
 #include "MonaImGuiPropertyTable.h"
 
 #include "Math/Color.h"
+#include "Math/Operations.h"
 #include "Math/Transform.h"
 #include "MonaImGui.h"
 
@@ -93,13 +94,14 @@ namespace Durin::MonaImGui::PropertyEdit
 		auto QuatToEulerDegrees(const FQuat& Value) -> FVector3
 		{
 			// Invalid quaternion storage should remain recoverable from the editor instead of producing NaN controls.
-			const FQuat Normalized = glm::dot(Value, Value) > 1.e-12 ? glm::normalize(Value) : glm::identity<FQuat>();
-			return glm::degrees(glm::eulerAngles(Normalized));
+			const FQuat Normalized = Math::LengthSquared(Value) > 1.e-12
+				? Math::Normalize(Value) : FQuatConstants::Identity;
+			return Math::QuaternionToEulerDegrees(Normalized);
 		}
 
 		auto EulerDegreesToQuat(const FVector3& Value) -> FQuat
 		{
-			return glm::normalize(glm::quat(glm::radians(Value)));
+			return Math::Normalize(Math::MakeQuaternionFromEulerDegrees(Value));
 		}
 	} // namespace
 

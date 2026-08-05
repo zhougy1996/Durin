@@ -1,6 +1,7 @@
 #include "Components/SplineComponent.h"
 
 #include "DObject/Property.h"
+#include "Math/Operations.h"
 
 namespace Durin
 {
@@ -8,7 +9,7 @@ namespace Durin
 	{
 		auto SafeNormalize(const FVector3& Value) -> FVector3
 		{
-			const double LengthSquared = glm::dot(Value, Value);
+			const double LengthSquared = Math::LengthSquared(Value);
 			return LengthSquared > kSmallNumber ? Value / std::sqrt(LengthSquared) : FVectorConstants::Zero;
 		}
 	} // namespace
@@ -124,7 +125,7 @@ namespace Durin
 		FVector3 LocalPosition = Position;
 		if (Space == ESplineCoordinateSpace::World)
 		{
-			LocalPosition = FVector3(glm::inverse(GetComponentToWorldMatrix()) * FVector4(Position, 1.0));
+			LocalPosition = FVector3(Math::Inverse(GetComponentToWorldMatrix()) * FVector4(Position, 1.0));
 		}
 		return GetEvaluationData()->FindNearestParameter(LocalPosition);
 	}

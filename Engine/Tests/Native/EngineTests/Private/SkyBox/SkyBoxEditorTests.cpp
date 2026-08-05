@@ -1,4 +1,5 @@
 #include "SkyBoxTestSupport.h"
+#include "Math/Operations.h"
 
 TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConflicts)
 {
@@ -34,7 +35,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	Component->SetTint({0.25f, 0.5f, 0.75f, 1.0f});
 	Component->SetIntensity(2.5f);
 	Durin::FTransform Transform = Actor->GetActorTransform();
-	Transform.Rotation = glm::angleAxis(glm::radians(35.0), Durin::FVectorConstants::Up);
+	Transform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(35.0, Durin::FVectorConstants::Up);
 	ASSERT_TRUE(Actor->SetActorTransform(Transform));
 	const Durin::FGuid SavedSceneId = Component->GetSkyBoxSceneId();
 	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));

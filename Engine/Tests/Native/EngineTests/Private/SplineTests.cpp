@@ -11,6 +11,7 @@
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Misc/Paths.h"
+#include "Math/Operations.h"
 #include "NativeTestSupport.h"
 #include "Spline/SplineCurve.h"
 
@@ -286,7 +287,8 @@ TEST(FSplineComponentTests, PublishesWorldSpaceSamplesAndRevisionFlags)
 
 	Durin::FTransform ComponentTransform;
 	ComponentTransform.Translation = {1.0, 2.0, 3.0};
-	ComponentTransform.Rotation = glm::angleAxis(glm::radians(90.0), Durin::FVectorConstants::Up);
+	ComponentTransform.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
+		90.0, Durin::FVectorConstants::Up);
 	ComponentTransform.Scale3D = {2.0, 3.0, 4.0};
 	Spline->SetWorldTransform(ComponentTransform);
 	EXPECT_NEAR(Spline->GetLocalSplineLength(), 10.0, 1.e-8);

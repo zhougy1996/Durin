@@ -2,26 +2,27 @@
 
 #include "ImportedScene.h"
 #include "Json/Json.h"
+#include "Math/Operations.h"
 #include "NativeTestSupport.h"
 
 namespace Durin::Asset
 {
 	namespace
 	{
-		auto ExpectVec3Eq(const glm::vec3& Expected, const glm::vec3& Actual) -> void
+		auto ExpectVec3Eq(const FVector3f& Expected, const FVector3f& Actual) -> void
 		{
 			EXPECT_FLOAT_EQ(Expected.x, Actual.x);
 			EXPECT_FLOAT_EQ(Expected.y, Actual.y);
 			EXPECT_FLOAT_EQ(Expected.z, Actual.z);
 		}
 
-		auto ExpectVec2Eq(const glm::vec2& Expected, const glm::vec2& Actual) -> void
+		auto ExpectVec2Eq(const FVector2f& Expected, const FVector2f& Actual) -> void
 		{
 			EXPECT_FLOAT_EQ(Expected.x, Actual.x);
 			EXPECT_FLOAT_EQ(Expected.y, Actual.y);
 		}
 
-		auto ExpectVec4Eq(const glm::vec4& Expected, const glm::vec4& Actual) -> void
+		auto ExpectVec4Eq(const FVector4f& Expected, const FVector4f& Actual) -> void
 		{
 			EXPECT_FLOAT_EQ(Expected.x, Actual.x);
 			EXPECT_FLOAT_EQ(Expected.y, Actual.y);
@@ -37,20 +38,20 @@ namespace Durin::Asset
 			ASSERT_EQ(3u, Mesh.UVChannels[0].size());
 			ASSERT_EQ(3u, Mesh.Indices.size());
 
-			ExpectVec3Eq(glm::vec3(0.0f, 0.0f, 0.0f), Mesh.Positions[0]);
-			ExpectVec3Eq(glm::vec3(1.0f, 0.0f, 0.0f), Mesh.Positions[1]);
-			ExpectVec3Eq(glm::vec3(0.0f, 1.0f, 0.0f), Mesh.Positions[2]);
+			ExpectVec3Eq(FVector3f(0.0f, 0.0f, 0.0f), Mesh.Positions[0]);
+			ExpectVec3Eq(FVector3f(1.0f, 0.0f, 0.0f), Mesh.Positions[1]);
+			ExpectVec3Eq(FVector3f(0.0f, 1.0f, 0.0f), Mesh.Positions[2]);
 
-			ExpectVec3Eq(glm::vec3(0.0f, 0.0f, 1.0f), Mesh.Normals[0]);
-			ExpectVec3Eq(glm::vec3(0.0f, 0.0f, 1.0f), Mesh.Normals[1]);
-			ExpectVec3Eq(glm::vec3(0.0f, 0.0f, 1.0f), Mesh.Normals[2]);
+			ExpectVec3Eq(FVector3f(0.0f, 0.0f, 1.0f), Mesh.Normals[0]);
+			ExpectVec3Eq(FVector3f(0.0f, 0.0f, 1.0f), Mesh.Normals[1]);
+			ExpectVec3Eq(FVector3f(0.0f, 0.0f, 1.0f), Mesh.Normals[2]);
 
-			ExpectVec2Eq(glm::vec2(0.0f, 1.0f), Mesh.UVChannels[0][0]);
-			ExpectVec2Eq(glm::vec2(1.0f, 1.0f), Mesh.UVChannels[0][1]);
-			ExpectVec2Eq(glm::vec2(0.0f, 0.0f), Mesh.UVChannels[0][2]);
-			for (const glm::vec4& Tangent : Mesh.Tangents)
+			ExpectVec2Eq(FVector2f(0.0f, 1.0f), Mesh.UVChannels[0][0]);
+			ExpectVec2Eq(FVector2f(1.0f, 1.0f), Mesh.UVChannels[0][1]);
+			ExpectVec2Eq(FVector2f(0.0f, 0.0f), Mesh.UVChannels[0][2]);
+			for (const FVector4f& Tangent : Mesh.Tangents)
 			{
-				EXPECT_NEAR(glm::length(glm::vec3(Tangent)), 1.0f, 1.0e-5f);
+				EXPECT_NEAR(Math::Length(FVector3f(Tangent)), 1.0f, 1.0e-5f);
 				EXPECT_NEAR(std::abs(Tangent.w), 1.0f, 1.0e-5f);
 			}
 
@@ -194,7 +195,7 @@ namespace Durin::Asset
 		auto MakeYUpNegativeZForwardOptions() -> FMeshImportOptions
 		{
 			FMeshImportOptions Options;
-			Options.SourceToEngine = glm::mat4(0.0f);
+			Options.SourceToEngine = FMatrix4f(0.0f);
 			Options.SourceToEngine[2][0] = -1.0f;
 			Options.SourceToEngine[0][1] = 1.0f;
 			Options.SourceToEngine[1][2] = 1.0f;
@@ -296,18 +297,19 @@ namespace Durin::Asset
 			EXPECT_TRUE(Mesh.UVChannels[2].empty());
 			EXPECT_TRUE(Mesh.UVChannels[3].empty());
 			ASSERT_EQ(Mesh.Colors.size(), 3u);
-			ExpectVec4Eq(glm::vec4(0.0f, 1.0f, 0.0f, 0.5f), Mesh.Colors[1]);
+			ExpectVec4Eq(FVector4f(0.0f, 1.0f, 0.0f, 0.5f), Mesh.Colors[1]);
 			for (size_t VertexIndex = 0; VertexIndex < Mesh.Tangents.size(); ++VertexIndex)
 			{
-				EXPECT_NEAR(glm::length(glm::vec3(Mesh.Tangents[VertexIndex])), 1.0f, 1.0e-5f);
-				EXPECT_NEAR(glm::dot(Mesh.Normals[VertexIndex], glm::vec3(Mesh.Tangents[VertexIndex])), 0.0f, 1.0e-5f);
+				EXPECT_NEAR(Math::Length(FVector3f(Mesh.Tangents[VertexIndex])), 1.0f, 1.0e-5f);
+				EXPECT_NEAR(
+					Math::Dot(Mesh.Normals[VertexIndex], FVector3f(Mesh.Tangents[VertexIndex])), 0.0f, 1.0e-5f);
 			}
 		}
 
 		EXPECT_EQ(Scene.Meshes[0].SourceMaterialIndex, Scene.MaterialSlots[0].SourceMaterialIndex);
 		EXPECT_EQ(Scene.Meshes[1].SourceMaterialIndex, Scene.MaterialSlots[1].SourceMaterialIndex);
-		ExpectVec3Eq(glm::vec3(1.0f, 2.0f, 3.0f), Scene.Meshes[0].Positions[0]);
-		ExpectVec3Eq(glm::vec3(3.0f, 2.0f, 3.0f), Scene.Meshes[0].Positions[1]);
+		ExpectVec3Eq(FVector3f(1.0f, 2.0f, 3.0f), Scene.Meshes[0].Positions[0]);
+		ExpectVec3Eq(FVector3f(3.0f, 2.0f, 3.0f), Scene.Meshes[0].Positions[1]);
 		EXPECT_EQ(Scene.Meshes[2].Indices, (std::vector<uint32>{0, 2, 1}));
 		EXPECT_FLOAT_EQ(Scene.Meshes[2].Tangents[0].w, 1.0f);
 	}
@@ -643,13 +645,13 @@ namespace Durin::Asset
 		ASSERT_EQ(Mesh.Normals.size(), 3u);
 		ASSERT_EQ(Mesh.Tangents.size(), 3u);
 
-		ExpectVec3Eq(glm::vec3(0.0f, 0.0f, 0.0f), Mesh.Positions[0]);
-		ExpectVec3Eq(glm::vec3(0.0f, 1.0f, 0.0f), Mesh.Positions[1]);
-		ExpectVec3Eq(glm::vec3(0.0f, 0.0f, 1.0f), Mesh.Positions[2]);
+		ExpectVec3Eq(FVector3f(0.0f, 0.0f, 0.0f), Mesh.Positions[0]);
+		ExpectVec3Eq(FVector3f(0.0f, 1.0f, 0.0f), Mesh.Positions[1]);
+		ExpectVec3Eq(FVector3f(0.0f, 0.0f, 1.0f), Mesh.Positions[2]);
 		for (size_t VertexIndex = 0; VertexIndex < Mesh.Positions.size(); ++VertexIndex)
 		{
-			ExpectVec3Eq(glm::vec3(-1.0f, 0.0f, 0.0f), Mesh.Normals[VertexIndex]);
-			ExpectVec3Eq(glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(Mesh.Tangents[VertexIndex]));
+			ExpectVec3Eq(FVector3f(-1.0f, 0.0f, 0.0f), Mesh.Normals[VertexIndex]);
+			ExpectVec3Eq(FVector3f(0.0f, 1.0f, 0.0f), FVector3f(Mesh.Tangents[VertexIndex]));
 			EXPECT_FLOAT_EQ(Mesh.Tangents[VertexIndex].w, -1.0f);
 		}
 		EXPECT_EQ(Mesh.Indices, (std::vector<uint32>{0, 2, 1}));

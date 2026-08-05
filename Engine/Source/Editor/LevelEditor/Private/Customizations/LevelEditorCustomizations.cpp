@@ -3,6 +3,7 @@
 #include "DObject/Class.h"
 #include "DObject/Property.h"
 #include "Editor/ReflectedPropertyView.h"
+#include "Math/Operations.h"
 #include "Misc/StringHelper.h"
 #include "SceneViewProjection.h"
 
@@ -13,20 +14,20 @@ namespace Durin
 		auto DistanceToSegment(const FVector2f& Point, const FVector2f& A, const FVector2f& B, float& OutT) -> float
 		{
 			const FVector2f Segment = B - A;
-			const float LengthSquared = glm::dot(Segment, Segment);
-			OutT = LengthSquared > 1.e-6f ? std::clamp(glm::dot(Point - A, Segment) / LengthSquared, 0.0f, 1.0f) : 0.0f;
-			return glm::length(Point - (A + Segment * OutT));
+			const float LengthSquared = Math::LengthSquared(Segment);
+			OutT = LengthSquared > 1.e-6f ? std::clamp(Math::Dot(Point - A, Segment) / LengthSquared, 0.0f, 1.0f) : 0.0f;
+			return Math::Length(Point - (A + Segment * OutT));
 		}
 
 		auto GetScreenSizedBoxTransform(const FSceneView& View, const FEditorVisualizationBox& Box) -> std::optional<FMatrix>
 		{
 			const FVector4 Clip = View.ViewProjectionMatrix * FVector4(Box.WorldPosition, 1.0);
-			const double ProjectionScale = glm::length(FVector3(
+			const double ProjectionScale = Math::Length(FVector3(
 				View.ProjectionMatrix[0][1], View.ProjectionMatrix[1][1], View.ProjectionMatrix[2][1]));
 			if (!std::isfinite(Clip.w) || Clip.w <= 1.e-8 || !std::isfinite(ProjectionScale) || ProjectionScale <= 1.e-8) return std::nullopt;
 			const double WorldSize = Box.SizePixels * 2.0 * Clip.w / (ProjectionScale * std::max(1u, View.ViewportHeight));
 			if (!std::isfinite(WorldSize) || WorldSize <= 0.0) return std::nullopt;
-			return glm::translate(FMatrix(1.0), Box.WorldPosition) * glm::scale(FMatrix(1.0), FVector3(WorldSize));
+			return Math::TranslationMatrix(Box.WorldPosition) * Math::ScaleMatrix(FVector3(WorldSize));
 		}
 
 		template<typename T, typename TMap>
@@ -110,7 +111,7 @@ namespace Durin
 	{
 		if (!Line.Actor.IsValid() || !Line.Component.IsValid() || !std::isfinite(Line.WidthPixels) || !std::isfinite(Line.HitTolerancePixels)
 			|| !std::isfinite(Line.PatternPeriodPixels)) return;
-		if (glm::length(Line.End - Line.Start) <= kSmallNumber) return;
+		if (Math::Length(Line.End - Line.Start) <= kSmallNumber) return;
 		Lines.push_back(Line);
 	}
 
@@ -207,9 +208,9 @@ namespace Durin
 			FVector2f ScreenPosition;
 			if (!SceneViewProjection::ProjectWorldToViewport(View, Box.WorldPosition, ScreenPosition)) continue;
 			const float HitHalfExtent = Box.SizePixels * 0.5f + Box.HitPaddingPixels;
-			const FVector2f Delta = glm::abs(ViewportPosition - ScreenPosition);
+			const FVector2f Delta = Math::Abs(ViewportPosition - ScreenPosition);
 			if (Delta.x > HitHalfExtent || Delta.y > HitHalfExtent) continue;
-			const double Distance = glm::length(Box.WorldPosition - RayOrigin);
+			const double Distance = Math::Length(Box.WorldPosition - RayOrigin);
 			if (!std::isfinite(Distance)) continue;
 			if (Distance < Best.Distance - 1.e-6 || (std::abs(Distance - Best.Distance) <= 1.e-6 && Box.HitPriority > Best.Priority))
 				Best = {Actor, Component, Box.Element, Distance, Box.HitPriority, Box.bDepthIndependentHit};
@@ -222,9 +223,9 @@ namespace Durin
 			FVector2f ScreenPosition;
 			if (!SceneViewProjection::ProjectWorldToViewport(View, Icon.WorldPosition, ScreenPosition)) continue;
 			const float HitHalfExtent = Icon.SizePixels * 0.5f + Icon.HitPaddingPixels;
-			const FVector2f Delta = glm::abs(ViewportPosition - ScreenPosition);
+			const FVector2f Delta = Math::Abs(ViewportPosition - ScreenPosition);
 			if (Delta.x > HitHalfExtent || Delta.y > HitHalfExtent) continue;
-			const double Distance = glm::length(Icon.WorldPosition - RayOrigin);
+			const double Distance = Math::Length(Icon.WorldPosition - RayOrigin);
 			if (!std::isfinite(Distance)) continue;
 			if (Distance < Best.Distance - 1.e-6 || (std::abs(Distance - Best.Distance) <= 1.e-6 && Icon.HitPriority > Best.Priority))
 				Best = {Actor, Component, Icon.Element, Distance, Icon.HitPriority, Icon.bDepthIndependentHit};
@@ -239,8 +240,8 @@ namespace Durin
 			if (!SceneViewProjection::ProjectWorldToViewport(View, Line.Start, StartScreen) || !SceneViewProjection::ProjectWorldToViewport(View, Line.End, EndScreen)) continue;
 			float T = 0.0f;
 			if (DistanceToSegment(ViewportPosition, StartScreen, EndScreen, T) > std::max(Line.HitTolerancePixels, Line.WidthPixels * 0.5f)) continue;
-			const FVector3 HitLocation = glm::mix(Line.Start, Line.End, static_cast<double>(T));
-			const double Distance = glm::length(HitLocation - RayOrigin);
+			const FVector3 HitLocation = Math::Lerp(Line.Start, Line.End, static_cast<double>(T));
+			const double Distance = Math::Length(HitLocation - RayOrigin);
 			if (!std::isfinite(Distance)) continue;
 			if (Distance < Best.Distance - 1.e-6 || (std::abs(Distance - Best.Distance) <= 1.e-6 && Line.HitPriority > Best.Priority))
 				Best = {Actor, Component, Line.Element, Distance, Line.HitPriority, false};

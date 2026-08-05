@@ -9,6 +9,7 @@
 #include "Engine/World.h"
 #include "IScene.h"
 #include "Materials/MaterialInterface.h"
+#include "Math/Operations.h"
 #include "Mona/SceneViewport.h"
 #include "MonaImGui.h"
 #include "Preview/PreviewScene.h"
@@ -30,12 +31,13 @@ namespace Durin
 
 		auto RotationFromForward(const FVector3& Direction) -> FQuat
 		{
-			const FVector3 To = glm::normalize(Direction);
-			const double Dot = glm::dot(FVectorConstants::Forward, To);
-			if (Dot > 1.0 - RotationTolerance) return glm::identity<FQuat>();
-			if (Dot < -1.0 + RotationTolerance) return glm::angleAxis(glm::pi<double>(), FVectorConstants::Up);
-			const FVector3 Cross = glm::cross(FVectorConstants::Forward, To);
-			return glm::normalize(FQuat(1.0 + Dot, Cross.x, Cross.y, Cross.z));
+			const FVector3 To = Math::Normalize(Direction);
+			const double Dot = Math::Dot(FVectorConstants::Forward, To);
+			if (Dot > 1.0 - RotationTolerance) return FQuatConstants::Identity;
+			if (Dot < -1.0 + RotationTolerance)
+				return Math::MakeQuaternionFromAxisAngleRadians(Math::Pi<double>(), FVectorConstants::Up);
+			const FVector3 Cross = Math::Cross(FVectorConstants::Forward, To);
+			return Math::Normalize(FQuat(1.0 + Dot, Cross.x, Cross.y, Cross.z));
 		}
 
 		// Selects the mesh used to visualize a material in the preview scene.
@@ -65,10 +67,10 @@ namespace Durin
 				constexpr float FieldOfViewDegrees = 42.0f;
 				constexpr float NearClip = 0.1f;
 				constexpr float FarClip = 100.0f;
-				const FVector3 Eye = glm::normalize(FVector3(2.6, -2.6, 1.8)) * Distance;
-				const FVector3 Forward = glm::normalize(-Eye);
-				const FVector3 Right = glm::normalize(glm::cross(FVectorConstants::Up, Forward));
-				const FVector3 Up = glm::normalize(glm::cross(Forward, Right));
+				const FVector3 Eye = Math::Normalize(FVector3(2.6, -2.6, 1.8)) * Distance;
+				const FVector3 Forward = Math::Normalize(-Eye);
+				const FVector3 Right = Math::Normalize(Math::Cross(FVectorConstants::Up, Forward));
+				const FVector3 Up = Math::Normalize(Math::Cross(Forward, Right));
 
 				OutView = {};
 				OutView.ViewportWidth = Width;
@@ -77,18 +79,18 @@ namespace Durin
 				OutView.ViewMatrix[0][0] = Forward.x;
 				OutView.ViewMatrix[1][0] = Forward.y;
 				OutView.ViewMatrix[2][0] = Forward.z;
-				OutView.ViewMatrix[3][0] = -glm::dot(Forward, Eye);
+				OutView.ViewMatrix[3][0] = -Math::Dot(Forward, Eye);
 				OutView.ViewMatrix[0][1] = Right.x;
 				OutView.ViewMatrix[1][1] = Right.y;
 				OutView.ViewMatrix[2][1] = Right.z;
-				OutView.ViewMatrix[3][1] = -glm::dot(Right, Eye);
+				OutView.ViewMatrix[3][1] = -Math::Dot(Right, Eye);
 				OutView.ViewMatrix[0][2] = Up.x;
 				OutView.ViewMatrix[1][2] = Up.y;
 				OutView.ViewMatrix[2][2] = Up.z;
-				OutView.ViewMatrix[3][2] = -glm::dot(Up, Eye);
+				OutView.ViewMatrix[3][2] = -Math::Dot(Up, Eye);
 
 				const float AspectRatio = static_cast<float>(Width) / static_cast<float>(Height);
-				const float YScale = 1.0f / std::tan(glm::radians(FieldOfViewDegrees) * 0.5f);
+				const float YScale = 1.0f / std::tan(Math::DegreesToRadians(FieldOfViewDegrees) * 0.5f);
 				const float XScale = YScale / std::max(AspectRatio, 0.001f);
 				const float DepthScale = FarClip / (FarClip - NearClip);
 				const float DepthBias = -NearClip * FarClip / (FarClip - NearClip);
@@ -234,15 +236,15 @@ namespace Durin
 			const ImGuiIO& IO = ImGui::GetIO();
 			if (bRotating && (IO.MouseDelta.x != 0.0f || IO.MouseDelta.y != 0.0f))
 			{
-				const FVector3 CameraForward = glm::normalize(FVector3(-2.6, 2.6, -1.8));
-				const FVector3 CameraRight = glm::normalize(glm::cross(FVectorConstants::Up, CameraForward));
-				const FQuat Yaw = glm::angleAxis(
-					glm::radians(-static_cast<double>(IO.MouseDelta.x * PreviewRotationSensitivity)),
+				const FVector3 CameraForward = Math::Normalize(FVector3(-2.6, 2.6, -1.8));
+				const FVector3 CameraRight = Math::Normalize(Math::Cross(FVectorConstants::Up, CameraForward));
+				const FQuat Yaw = Math::MakeQuaternionFromAxisAngleDegrees(
+					-static_cast<double>(IO.MouseDelta.x * PreviewRotationSensitivity),
 					FVectorConstants::Up);
-				const FQuat Pitch = glm::angleAxis(
-					glm::radians(-static_cast<double>(IO.MouseDelta.y * PreviewRotationSensitivity)),
+				const FQuat Pitch = Math::MakeQuaternionFromAxisAngleDegrees(
+					-static_cast<double>(IO.MouseDelta.y * PreviewRotationSensitivity),
 					CameraRight);
-				PreviewRotation = glm::normalize(Yaw * Pitch * PreviewRotation);
+				PreviewRotation = Math::Normalize(Yaw * Pitch * PreviewRotation);
 				if (PreviewMesh != nullptr) PreviewMesh->SetWorldRotation(PreviewRotation);
 			}
 			if (bHovered && IO.MouseWheel != 0.0f) ViewportClient->Zoom(IO.MouseWheel);
@@ -282,7 +284,7 @@ namespace Durin
 		TObjectPtr<DStaticMeshComponent> PreviewMesh;
 		TObjectPtr<DDirectionalLightComponent> PreviewLight;
 		DMaterialInterface* CurrentMaterial = nullptr;
-		FQuat PreviewRotation = glm::identity<FQuat>();
+		FQuat PreviewRotation = FQuatConstants::Identity;
 		EMaterialPreviewShape Shape = EMaterialPreviewShape::Sphere;
 		bool bProxyDirty = true;
 		bool bRotating = false;

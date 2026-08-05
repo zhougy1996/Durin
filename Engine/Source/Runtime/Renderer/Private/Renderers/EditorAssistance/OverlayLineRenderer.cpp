@@ -3,6 +3,7 @@
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "CoreGlobals.h"
+#include "Math/Operations.h"
 #include "Misc/AssertionMacros.h"
 #include "RHI.h"
 #include "RHICommandList.h"
@@ -72,7 +73,7 @@ namespace Durin
 						const double T =
 							(Minimum - StartDistance)
 							/ (EndDistance - StartDistance);
-						const FVector4 Intersection = glm::mix(Start, End, T);
+						const FVector4 Intersection = Math::Lerp(Start, End, T);
 						if (StartDistance < Minimum)
 							Start = Intersection;
 						else
@@ -109,7 +110,7 @@ namespace Durin
 					static_cast<float>(
 						(NdcEnd.y - NdcStart.y) * 0.5 * View.ViewportHeight),
 				};
-				const float PixelLength = glm::length(PixelDelta);
+				const float PixelLength = Math::Length(PixelDelta);
 				if (!std::isfinite(PixelLength) || PixelLength <= 0.001f)
 					continue;
 				const FVector2f PixelNormal{

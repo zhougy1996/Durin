@@ -1,6 +1,7 @@
 #include "Customizations/DirectionalLightEditorCustomizations.h"
 
 #include "Components/DirectionalLightComponent.h"
+#include "Math/Operations.h"
 #include "MonaImGui.h"
 
 namespace Durin
@@ -40,12 +41,12 @@ namespace Durin
 				if (!Context.bSelected) return;
 
 				const FQuat Rotation = Light->GetWorldRotation();
-				const FVector3 Forward = glm::normalize(Rotation * FVectorConstants::Forward);
-				const FVector3 Right = glm::normalize(Rotation * FVectorConstants::Right);
-				const FVector3 Up = glm::normalize(Rotation * FVectorConstants::Up);
+				const FVector3 Forward = Math::Normalize(Rotation * FVectorConstants::Forward);
+				const FVector3 Right = Math::Normalize(Rotation * FVectorConstants::Right);
+				const FVector3 Up = Math::Normalize(Rotation * FVectorConstants::Up);
 				// Directional lights have no physical extent, so scale the cue with viewing distance
 				// while preserving the component's origin as the transform and picking anchor.
-				const double ViewDistance = glm::length(Origin - Context.View.ViewLocation);
+				const double ViewDistance = Math::Length(Origin - Context.View.ViewLocation);
 				const double DirectionLength = std::max(1.0, ViewDistance * 0.2);
 				const double HeadLength = DirectionLength * 0.28;
 				const double HeadRadius = DirectionLength * 0.13;

@@ -17,6 +17,6 @@ namespace Durin
 
 	namespace FQuatConstants
 	{
-		inline constexpr FQuat Identity{};
+		inline constexpr FQuat Identity(1.0, 0.0, 0.0, 0.0);
 	}
 }

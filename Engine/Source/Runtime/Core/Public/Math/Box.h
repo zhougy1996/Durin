@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Math/Vector.h"
+#include "Math/Operations.h"
 
 namespace Durin
 {
@@ -13,7 +13,7 @@ namespace Durin
 
 		FBox() = default;
 		FBox(const FVector3& InMin, const FVector3& InMax)
-			: Min(InMin), Max(InMax), bIsValid(glm::all(glm::lessThanEqual(InMin, InMax)))
+			: Min(InMin), Max(InMax), bIsValid(InMin.x <= InMax.x && InMin.y <= InMax.y && InMin.z <= InMax.z)
 		{
 		}
 
@@ -34,8 +34,8 @@ namespace Durin
 				bIsValid = true;
 				return;
 			}
-			Min = glm::min(Min, Point);
-			Max = glm::max(Max, Point);
+			Min = Math::Min(Min, Point);
+			Max = Math::Max(Max, Point);
 		}
 
 		auto GetCenter() const -> FVector3 { return (Min + Max) * 0.5; }

@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "roots": [
+    "Engine/Source",
+    "Engine/Tests"
+  ],
+  "entries": [
+    {
+      "path": "Engine/Source/Editor/StandardAssetImport/Private/GltfSceneAdapter.cpp",
+      "category": "third-party-interop",
+      "owner": "StandardAssetImport",
+      "rationale": "Direct GLM spelling is part of a bounded external-format adapter boundary.",
+      "includes": {},
+      "symbols": {
+        "length_t": 2,
+        "vec": 1
+      }
+    },
+    {
+      "path": "Engine/Source/Runtime/Core/Private/Math/Transform.cpp",
+      "category": "backend-implementation",
+      "owner": "Core Math",
+      "rationale": "Direct GLM access is contained inside the Core math backend.",
+      "includes": {
+        "glm/gtx/matrix_decompose.hpp": 1
+      },
+      "symbols": {
+        "decompose": 1
+      }
+    },
+    {
+      "path": "Engine/Source/Runtime/Core/Public/Math/MathFwd.h",
+      "category": "alias-declaration",
+      "owner": "Core Math",
+      "rationale": "GLM remains the storage and ABI backend for Durin math aliases.",
+      "includes": {
+        "glm/fwd.hpp": 1
+      },
+      "symbols": {
+        "dmat4x4": 1,
+        "dquat": 1,
+        "dvec2": 1,
+        "dvec3": 1,
+        "dvec4": 1,
+        "i32vec2": 1,
+        "i32vec3": 1,
+        "i32vec4": 1,
+        "mat4x4": 1,
+        "vec2": 1,
+        "vec3": 1,
+        "vec4": 1
+      }
+    },
+    {
+      "path": "Engine/Source/Runtime/Core/Public/Math/Operations.h",
+      "category": "backend-implementation",
+      "owner": "Core Math",
+      "rationale": "Direct GLM access is contained inside the Core math backend.",
+      "includes": {},
+      "symbols": {
+        "abs": 1,
+        "angleAxis": 1,
+        "clamp": 1,
+        "cross": 1,
+        "degrees": 3,
+        "determinant": 1,
+        "dot": 1,
+        "eulerAngles": 1,
+        "inverse": 2,
+        "length": 1,
+        "mat4_cast": 1,
+        "max": 1,
+        "min": 1,
+        "mix": 1,
+        "normalize": 1,
+        "quat": 1,
+        "quat_cast": 1,
+        "radians": 3,
+        "scale": 1,
+        "translate": 1,
+        "transpose": 1
+      }
+    },
+    {
+      "path": "Engine/Source/Runtime/Core/Public/Math/Vector.h",
+      "category": "backend-implementation",
+      "owner": "Core Math",
+      "rationale": "Direct GLM access is contained inside the Core math backend.",
+      "includes": {
+        "glm/ext.hpp": 1
+      },
+      "symbols": {}
+    },
+    {
+      "path": "Engine/Source/Runtime/Renderer/Private/Renderers/StaticMeshRenderer.cpp",
+      "category": "shader-layout-interop",
+      "owner": "Renderer",
+      "rationale": "The float 3x3 determinant remains a bounded shader-layout calculation.",
+      "includes": {
+        "glm/mat3x3.hpp": 1,
+        "glm/matrix.hpp": 1
+      },
+      "symbols": {
+        "determinant": 1,
+        "mat3": 1
+      }
+    },
+    {
+      "path": "Engine/Tests/Native/EngineTests/Private/EditorGridRenderingTests.cpp",
+      "category": "reference-test",
+      "owner": "Native test reference",
+      "rationale": "Direct GLM use provides an independent shader-layout reference.",
+      "includes": {},
+      "symbols": {
+        "length_t": 2,
+        "transpose": 2
+      }
+    },
+    {
+      "path": "Engine/Tests/Native/EngineTests/Private/SkyBox/SkyBoxTestSupport.h",
+      "category": "reference-test",
+      "owner": "Native test reference",
+      "rationale": "Direct GLM use provides an independent shader-layout reference.",
+      "includes": {
+        "glm/gtc/matrix_transform.hpp": 1,
+        "glm/gtc/quaternion.hpp": 1
+      },
+      "symbols": {
+        "cross": 2,
+        "dot": 1,
+        "inverse": 1,
+        "normalize": 4,
+        "transpose": 2
+      }
+    },
+    {
+      "path": "Engine/Tests/Native/EngineTests/Private/SkyBox/SkyBoxVulkanTests.cpp",
+      "category": "reference-test",
+      "owner": "Native test reference",
+      "rationale": "Direct GLM use provides an independent shader-layout reference.",
+      "includes": {},
+      "symbols": {
+        "angleAxis": 1,
+        "half_pi": 1,
+        "identity": 2,
+        "pi": 1,
+        "rotate": 1,
+        "translate": 1
+      }
+    }
+  ]
+}

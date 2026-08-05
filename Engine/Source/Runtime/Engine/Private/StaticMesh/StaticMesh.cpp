@@ -8,6 +8,7 @@
 #include "DObject/Property.h"
 #include "Hash/XxHash.h"
 #include "Logging/LogMacros.h"
+#include "Math/Operations.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Source/SourcePath.h"
@@ -269,33 +270,15 @@ namespace Durin
 		}
 
 #if DURIN_WITH_EDITOR
-		auto IsFinite(const FVector2f& Value) -> bool
-		{
-			return std::isfinite(Value.x) && std::isfinite(Value.y);
-		}
-
-		auto IsFinite(const FVector3f& Value) -> bool
-		{
-			return std::isfinite(Value.x) && std::isfinite(Value.y) && std::isfinite(Value.z);
-		}
-
-		auto IsFinite(const FVector4f& Value) -> bool
-		{
-			return std::isfinite(Value.x) && std::isfinite(Value.y) && std::isfinite(Value.z) && std::isfinite(Value.w);
-		}
-
 		auto SafeNormalize(const FVector3f& Value, const FVector3f& Fallback) -> FVector3f
 		{
-			const float LengthSquared = glm::dot(Value, Value);
-			return IsFinite(Value) && std::isfinite(LengthSquared) && LengthSquared > VectorTolerance
-				? Value / std::sqrt(LengthSquared)
-				: Fallback;
+			return Math::NormalizeOr(Value, Fallback, VectorTolerance);
 		}
 
 		auto MakeStableTangent(const FVector3f& Normal) -> FVector3f
 		{
 			const FVector3f Axis = std::abs(Normal.z) < 0.999f ? FVector3f(0.0f, 0.0f, 1.0f) : FVector3f(0.0f, 1.0f, 0.0f);
-			return SafeNormalize(glm::cross(Axis, Normal), FVector3f(1.0f, 0.0f, 0.0f));
+			return SafeNormalize(Math::Cross(Axis, Normal), FVector3f(1.0f, 0.0f, 0.0f));
 		}
 
 		auto BuildNormals(const std::vector<FVector3f>& Positions, const std::vector<uint32>& Indices) -> std::vector<FVector3f>
@@ -306,8 +289,8 @@ namespace Durin
 				const uint32 I0 = Indices[Index];
 				const uint32 I1 = Indices[Index + 1];
 				const uint32 I2 = Indices[Index + 2];
-				const FVector3f FaceNormal = glm::cross(Positions[I1] - Positions[I0], Positions[I2] - Positions[I0]);
-				if (!IsFinite(FaceNormal) || glm::dot(FaceNormal, FaceNormal) <= VectorTolerance) continue;
+				const FVector3f FaceNormal = Math::Cross(Positions[I1] - Positions[I0], Positions[I2] - Positions[I0]);
+				if (!Math::IsFinite(FaceNormal) || Math::LengthSquared(FaceNormal) <= VectorTolerance) continue;
 				Normals[I0] += FaceNormal;
 				Normals[I1] += FaceNormal;
 				Normals[I2] += FaceNormal;
@@ -341,7 +324,7 @@ namespace Durin
 					const float InverseDeterminant = 1.0f / Determinant;
 					const FVector3f Tangent = (Edge1 * DeltaUV2.y - Edge2 * DeltaUV1.y) * InverseDeterminant;
 					const FVector3f Bitangent = (Edge2 * DeltaUV1.x - Edge1 * DeltaUV2.x) * InverseDeterminant;
-					if (!IsFinite(Tangent) || !IsFinite(Bitangent)) continue;
+					if (!Math::IsFinite(Tangent) || !Math::IsFinite(Bitangent)) continue;
 					for (uint32 VertexIndex : {I0, I1, I2})
 					{
 						TangentAccum[VertexIndex] += Tangent;
@@ -354,9 +337,9 @@ namespace Durin
 			for (size_t VertexIndex = 0; VertexIndex < Positions.size(); ++VertexIndex)
 			{
 				const FVector3f& Normal = Normals[VertexIndex];
-				const FVector3f Orthogonalized = TangentAccum[VertexIndex] - Normal * glm::dot(Normal, TangentAccum[VertexIndex]);
+				const FVector3f Orthogonalized = TangentAccum[VertexIndex] - Normal * Math::Dot(Normal, TangentAccum[VertexIndex]);
 				const FVector3f Tangent = SafeNormalize(Orthogonalized, MakeStableTangent(Normal));
-				const float Sign = glm::dot(glm::cross(Normal, Tangent), BitangentAccum[VertexIndex]) < 0.0f ? -1.0f : 1.0f;
+				const float Sign = Math::Dot(Math::Cross(Normal, Tangent), BitangentAccum[VertexIndex]) < 0.0f ? -1.0f : 1.0f;
 				Tangents[VertexIndex] = FVector4f(Tangent, Sign);
 			}
 			return Tangents;
@@ -365,7 +348,7 @@ namespace Durin
 		auto HasValidNormals(const std::vector<FVector3f>& Normals, size_t NumVertices) -> bool
 		{
 			return Normals.size() == NumVertices && std::ranges::all_of(Normals, [](const FVector3f& Normal) {
-				return IsFinite(Normal) && glm::dot(Normal, Normal) > VectorTolerance;
+				return Math::IsFinite(Normal) && Math::LengthSquared(Normal) > VectorTolerance;
 			});
 		}
 
@@ -373,7 +356,7 @@ namespace Durin
 		{
 			return Tangents.size() == NumVertices && std::ranges::all_of(Tangents, [](const FVector4f& Tangent) {
 				const FVector3f Direction(Tangent);
-				return IsFinite(Tangent) && glm::dot(Direction, Direction) > VectorTolerance && std::abs(Tangent.w) > 0.5f;
+				return Math::IsFinite(Tangent) && Math::LengthSquared(Direction) > VectorTolerance && std::abs(Tangent.w) > 0.5f;
 			});
 		}
 
@@ -390,7 +373,7 @@ namespace Durin
 				OutError = std::format("Mesh '{}' index count is not a triangle list.", Mesh.Name);
 				return false;
 			}
-			if (!std::ranges::all_of(Mesh.Positions, [](const FVector3f& Position) { return IsFinite(Position); }))
+			if (!std::ranges::all_of(Mesh.Positions, [](const FVector3f& Position) { return Math::IsFinite(Position); }))
 			{
 				OutError = std::format("Mesh '{}' contains a non-finite position.", Mesh.Name);
 				return false;
@@ -1103,7 +1086,7 @@ namespace Durin
 			{
 				const auto& ImportedTexCoords = ImportedMesh.UVChannels[Channel];
 				const bool bValidChannel = ImportedTexCoords.size() == ImportedMesh.Positions.size()
-					&& std::ranges::all_of(ImportedTexCoords, [](const FVector2f& UV) { return IsFinite(UV); });
+					&& std::ranges::all_of(ImportedTexCoords, [](const FVector2f& UV) { return Math::IsFinite(UV); });
 				if (bValidChannel)
 				{
 					MeshTexCoords[Channel] = ImportedTexCoords;
@@ -1127,7 +1110,7 @@ namespace Durin
 				{
 					const FVector3f& Normal = MeshNormals[VertexIndex];
 					const FVector3f SourceTangent(ImportedMesh.Tangents[VertexIndex]);
-					const FVector3f Tangent = SafeNormalize(SourceTangent - Normal * glm::dot(Normal, SourceTangent), MakeStableTangent(Normal));
+					const FVector3f Tangent = SafeNormalize(SourceTangent - Normal * Math::Dot(Normal, SourceTangent), MakeStableTangent(Normal));
 					MeshTangents.emplace_back(Tangent, ImportedMesh.Tangents[VertexIndex].w < 0.0f ? -1.0f : 1.0f);
 				}
 			}
@@ -1141,7 +1124,7 @@ namespace Durin
 				MeshTangents.end());
 
 			const bool bValidColors = ImportedMesh.Colors.size() == ImportedMesh.Positions.size()
-				&& std::ranges::all_of(ImportedMesh.Colors, [](const FVector4f& Color) { return IsFinite(Color); });
+				&& std::ranges::all_of(ImportedMesh.Colors, [](const FVector4f& Color) { return Math::IsFinite(Color); });
 			if (bValidColors)
 			{
 				Colors.insert(

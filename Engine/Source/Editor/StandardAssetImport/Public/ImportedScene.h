@@ -4,12 +4,7 @@
 #include "StandardAssetImportAPI.h"
 #include "CoreFwd.h"
 #include "Hash/XxHash.h"
-#include "Math/MathFwd.h"
-
-#include <glm/mat4x4.hpp>
-#include <glm/vec2.hpp>
-#include <glm/vec3.hpp>
-#include <glm/vec4.hpp>
+#include "Math/Vector.h"
 
 namespace Durin::Asset
 {
@@ -120,7 +115,7 @@ namespace Durin::Asset
 
 	struct FMeshImportOptions
 	{
-		glm::mat4 SourceToEngine{1.0f};
+		FMatrix4f SourceToEngine{1.0f};
 		FSourcePath RootSource;
 	};
 
@@ -134,11 +129,11 @@ namespace Durin::Asset
 	struct FImportedMeshData
 	{
 		std::string Name;
-		std::vector<glm::vec3> Positions;
-		std::vector<glm::vec3> Normals;
-		std::vector<glm::vec4> Tangents;
-		std::array<std::vector<glm::vec2>, MaxImportedUVChannels> UVChannels;
-		std::vector<glm::vec4> Colors;
+		std::vector<FVector3f> Positions;
+		std::vector<FVector3f> Normals;
+		std::vector<FVector4f> Tangents;
+		std::array<std::vector<FVector2f>, MaxImportedUVChannels> UVChannels;
+		std::vector<FVector4f> Colors;
 		std::vector<uint32> Indices;
 		uint32 SourceMaterialIndex = 0;
 	};

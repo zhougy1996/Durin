@@ -1,5 +1,7 @@
 #include "Viewport/ViewportCameraTransform.h"
 
+#include "Math/Operations.h"
+
 namespace Durin
 {
 	namespace
@@ -11,9 +13,9 @@ namespace Durin
 	auto FViewportCameraTransform::SetFromTransform(const FVector3& InLocation, const FQuat& InRotation) -> void
 	{
 		Location = InLocation;
-		const FVector3 Forward = glm::normalize(InRotation * FVectorConstants::Forward);
-		Yaw = glm::degrees(std::atan2(Forward.y, Forward.x));
-		Pitch = glm::degrees(std::asin(std::clamp(Forward.z, -1.0, 1.0)));
+		const FVector3 Forward = Math::Normalize(InRotation * FVectorConstants::Forward);
+		Yaw = Math::RadiansToDegrees(std::atan2(Forward.y, Forward.x));
+		Pitch = Math::RadiansToDegrees(std::asin(std::clamp(Forward.z, -1.0, 1.0)));
 		OrbitPivot = Location + Forward * OrbitDistance;
 	}
 
@@ -75,19 +77,19 @@ namespace Durin
 
 	auto FViewportCameraTransform::GetForwardVector() const -> FVector3
 	{
-		const FReal PitchRadians = glm::radians(Pitch);
-		const FReal YawRadians = glm::radians(Yaw);
-		return glm::normalize(FVector3(std::cos(PitchRadians) * std::cos(YawRadians), std::cos(PitchRadians) * std::sin(YawRadians), std::sin(PitchRadians)));
+		const FReal PitchRadians = Math::DegreesToRadians(Pitch);
+		const FReal YawRadians = Math::DegreesToRadians(Yaw);
+		return Math::Normalize(FVector3(std::cos(PitchRadians) * std::cos(YawRadians), std::cos(PitchRadians) * std::sin(YawRadians), std::sin(PitchRadians)));
 	}
 
 	auto FViewportCameraTransform::GetRightVector() const -> FVector3
 	{
-		return glm::normalize(glm::cross(FVectorConstants::Up, GetForwardVector()));
+		return Math::Normalize(Math::Cross(FVectorConstants::Up, GetForwardVector()));
 	}
 
 	auto FViewportCameraTransform::GetUpVector() const -> FVector3
 	{
-		return glm::normalize(glm::cross(GetForwardVector(), GetRightVector()));
+		return Math::Normalize(Math::Cross(GetForwardVector(), GetRightVector()));
 	}
 
 	auto FViewportCameraTransform::GetViewMatrix() const -> FMatrix
@@ -96,9 +98,9 @@ namespace Durin
 		const FVector3 Right = GetRightVector();
 		const FVector3 Up = GetUpVector();
 		FMatrix View(1.0f);
-		View[0][0] = Forward.x; View[1][0] = Forward.y; View[2][0] = Forward.z; View[3][0] = -glm::dot(Forward, Location);
-		View[0][1] = Right.x; View[1][1] = Right.y; View[2][1] = Right.z; View[3][1] = -glm::dot(Right, Location);
-		View[0][2] = Up.x; View[1][2] = Up.y; View[2][2] = Up.z; View[3][2] = -glm::dot(Up, Location);
+		View[0][0] = Forward.x; View[1][0] = Forward.y; View[2][0] = Forward.z; View[3][0] = -Math::Dot(Forward, Location);
+		View[0][1] = Right.x; View[1][1] = Right.y; View[2][1] = Right.z; View[3][1] = -Math::Dot(Right, Location);
+		View[0][2] = Up.x; View[1][2] = Up.y; View[2][2] = Up.z; View[3][2] = -Math::Dot(Up, Location);
 		return View;
 	}
 

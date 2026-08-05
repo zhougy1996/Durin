@@ -1,4 +1,5 @@
 #include "ViewportTestSupport.h"
+#include "Math/Operations.h"
 
 TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveLinesAndControlPointBoxes)
 {
@@ -142,7 +143,7 @@ TEST(FSplineViewportAuthoringTests, CubicSplitPreservesShapeAndCreatesStableId)
 		const double U = Step / 100.0;
 		const Durin::FSplineParameter Parameter = U <= SplitT
 			? Durin::FSplineParameter{0, U / SplitT} : Durin::FSplineParameter{1, (U - SplitT) / (1.0 - SplitT)};
-		EXPECT_LT(glm::length(Spline->GetSampleAtParameter(Parameter).Position - Before[Step]), 1e-4);
+		EXPECT_LT(Durin::Math::Length(Spline->GetSampleAtParameter(Parameter).Position - Before[Step]), 1e-4);
 	}
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::CollectGarbage();
@@ -514,8 +515,8 @@ TEST(FCameraComponentVisualizerTests, DrawsOnlyAnIconUntilSelected)
 	ASSERT_EQ(Selected.GetLines().size(), 13u);
 	const Durin::FVector3 Forward = Actor->GetCameraComponent()->GetWorldRotation() * Durin::FVectorConstants::Forward;
 	const Durin::FVector3 Origin = Actor->GetCameraComponent()->GetWorldLocation();
-	EXPECT_NEAR(glm::dot(Selected.GetLines()[0].Start - Origin, Forward), 0.25, 1.e-5);
-	EXPECT_NEAR(glm::dot(Selected.GetLines()[0].End - Origin, Forward), 0.25, 1.e-5);
+	EXPECT_NEAR(Durin::Math::Dot(Selected.GetLines()[0].Start - Origin, Forward), 0.25, 1.e-5);
+	EXPECT_NEAR(Durin::Math::Dot(Selected.GetLines()[0].End - Origin, Forward), 0.25, 1.e-5);
 	EXPECT_EQ(Selected.GetLines()[2].Pattern, Durin::EViewOverlayLinePattern::Solid);
 	const ImVec4& ExpectedForwardColor = Durin::MonaImGui::GetThemeColor(Durin::MonaImGui::EUIThemeColor::AxisX);
 	EXPECT_FLOAT_EQ(Selected.GetLines().back().Color.r, ExpectedForwardColor.x);
@@ -546,10 +547,11 @@ TEST(FCameraComponentVisualizerTests, UsesTheActualFarPlaneAtExtremeFieldOfView)
 	}), 0);
 	const Durin::FVector3 Forward = Actor->GetCameraComponent()->GetWorldRotation() * Durin::FVectorConstants::Forward;
 	const Durin::FVector3 Origin = Actor->GetCameraComponent()->GetWorldLocation();
-	EXPECT_NEAR(glm::dot(Collector.GetLines()[2].Start - Origin, Forward), 1000.0, 1.e-4);
-	EXPECT_NEAR(glm::dot(Collector.GetLines()[2].End - Origin, Forward), 1000.0, 1.e-4);
+	EXPECT_NEAR(Durin::Math::Dot(Collector.GetLines()[2].Start - Origin, Forward), 1000.0, 1.e-4);
+	EXPECT_NEAR(Durin::Math::Dot(Collector.GetLines()[2].End - Origin, Forward), 1000.0, 1.e-4);
 	EXPECT_TRUE(std::ranges::all_of(Collector.GetLines(), [](const Durin::FEditorVisualizationLine& Line) {
-		return std::isfinite(glm::length(Line.End - Line.Start)) && glm::length(Line.End - Line.Start) > Durin::kSmallNumber;
+		return Durin::Math::IsFinite(Line.End - Line.Start)
+			&& Durin::Math::Length(Line.End - Line.Start) > Durin::kSmallNumber;
 	}));
 }
 
@@ -580,7 +582,7 @@ TEST(FDirectionalLightComponentVisualizerTests, DrawsSelectableIconAndSelectedDi
 	ASSERT_EQ(Selected.GetLines().size(), 5u);
 	const Durin::FVector3 Origin = Actor->GetLightComponent()->GetWorldLocation();
 	const Durin::FVector3 Forward = Actor->GetLightComponent()->GetWorldRotation() * Durin::FVectorConstants::Forward;
-	EXPECT_NEAR(glm::length(Selected.GetLines().front().Start - Origin), 0.0, 1.e-6);
-	EXPECT_GT(glm::dot(Selected.GetLines().front().End - Origin, Forward), 0.0);
+	EXPECT_NEAR(Durin::Math::Length(Selected.GetLines().front().Start - Origin), 0.0, 1.e-6);
+	EXPECT_GT(Durin::Math::Dot(Selected.GetLines().front().End - Origin, Forward), 0.0);
 	EXPECT_TRUE(Selected.GetIcons().front().bDepthIndependentHit);
 }

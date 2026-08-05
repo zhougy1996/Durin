@@ -1,4 +1,5 @@
 #include "ReflectedPropertyEditingTestSupport.h"
+#include "Math/Operations.h"
 
 TEST(FReflectedPropertyEditSessionTests, GenericHookPipelineAppliesNestedStructField)
 {
@@ -51,7 +52,7 @@ TEST(FReflectedPropertyEditSessionTests, RelativeTransformHookNormalizesAndRefre
 	Durin::FReflectedPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Durin::FReflectedPropertyEditTarget::ForMember(Child, Property), "Edit Transform"));
 	ASSERT_EQ(Session.Apply(Proposed), Durin::EReflectedPropertyEditResult::Changed);
-	EXPECT_NEAR(glm::length(Child->GetRelativeRotation()), 1.0, 1.e-8);
+	EXPECT_NEAR(Durin::Math::Length(Child->GetRelativeRotation()), 1.0, 1.e-8);
 	EXPECT_DOUBLE_EQ(Child->GetWorldLocation().x, 13.0);
 	ASSERT_EQ(Session.Cancel(), Durin::EReflectedPropertyEditResult::Changed);
 	EXPECT_DOUBLE_EQ(Child->GetWorldLocation().x, 10.0);

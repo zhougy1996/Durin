@@ -10,7 +10,7 @@ namespace Durin::Asset::Private
 {
 	constexpr float TransformDeterminantTolerance = 1.0e-8f;
 
-	auto ToAssimpMatrix(const glm::mat4& Matrix) -> aiMatrix4x4
+	auto ToAssimpMatrix(const FMatrix4f& Matrix) -> aiMatrix4x4
 	{
 		// GLM stores columns while Assimp's constructor is expressed as rows.
 		return {

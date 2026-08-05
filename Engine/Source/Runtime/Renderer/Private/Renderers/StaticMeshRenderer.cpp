@@ -8,6 +8,7 @@
 #include "Resources/RenderTargetLayouts.h"
 #include "Engine/PrimitiveSceneProxy.h"
 #include "IScene.h"
+#include "Math/Operations.h"
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -17,7 +18,8 @@
 #include "Shader/ShaderCompilerCore.h"
 #include "StaticMesh/StaticMeshResources.h"
 
-#include <glm/mat4x4.hpp>
+#include <glm/mat3x3.hpp>
+#include <glm/matrix.hpp>
 
 #include <array>
 #include <bit>
@@ -75,9 +77,9 @@ namespace Durin
 
 		struct FStaticMeshTransformUniform
 		{
-			glm::mat4 LocalToClip{1.0f};
-			glm::mat4 LocalToWorld{1.0f};
-			glm::mat4 NormalToWorld{1.0f};
+			FMatrix4f LocalToClip{1.0f};
+			FMatrix4f LocalToWorld{1.0f};
+			FMatrix4f NormalToWorld{1.0f};
 			FVector4f TransformParams{1.0f, 0.0f, 0.0f, 0.0f};
 		};
 
@@ -121,9 +123,17 @@ namespace Durin
 				static_cast<uint8>(Identity.DepthWritePolicy));
 		}
 
-		auto ToShaderMatrix(const FMatrix& Matrix) -> glm::mat4
+		auto ToShaderMatrix(const FMatrix& Matrix) -> FMatrix4f
 		{
-			return glm::transpose(glm::mat4(Matrix));
+			FMatrix4f Result(0.0f);
+			for (uint32 Column = 0; Column < 4; ++Column)
+			{
+				for (uint32 Row = 0; Row < 4; ++Row)
+				{
+					Result[Column][Row] = static_cast<float>(Matrix[Row][Column]);
+				}
+			}
+			return Result;
 		}
 	} // namespace
 
@@ -266,9 +276,9 @@ namespace Durin
 		TransformUniform.LocalToWorld =
 			ToShaderMatrix(Proxy.GetLocalToWorld());
 		TransformUniform.NormalToWorld = ToShaderMatrix(
-			glm::transpose(glm::inverse(Proxy.GetLocalToWorld())));
+			Math::Transpose(Math::Inverse(Proxy.GetLocalToWorld())));
 		const float TransformDeterminant = glm::determinant(
-			glm::mat3(glm::mat4(Proxy.GetLocalToWorld())));
+			glm::mat3(FMatrix4f(Proxy.GetLocalToWorld())));
 		TransformUniform.TransformParams.x =
 			TransformDeterminant < 0.0f ? -1.0f : 1.0f;
 		const FRHIUniformBufferRange TransformUniformBuffer =

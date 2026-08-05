@@ -3,15 +3,13 @@
 #include "SceneView.h"
 #include "RendererAPI.h"
 
-#include <glm/mat4x4.hpp>
-
 namespace Durin::EditorGridRendering
 {
 	// Mirrors the editor-grid shader uniform layout uploaded for each view.
 	struct FEditorGridUniform
 	{
-		glm::mat4 WorldToClip{1.0f};
-		glm::mat4 ClipToWorld{1.0f};
+		FMatrix4f WorldToClip{1.0f};
+		FMatrix4f ClipToWorld{1.0f};
 		FVector4f GridPlane{0.0f};
 		FVector4f ViewPositionFadeDistance{0.0f};
 		FVector4f MinorColor{1.0f};

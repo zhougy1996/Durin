@@ -1,5 +1,6 @@
 #include "ViewportTestSupport.h"
 #include "LevelEditorViewportEditing.h"
+#include "Math/Operations.h"
 
 namespace
 {
@@ -131,9 +132,9 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	Gizmo.Update(Targets, View, Input, &Transactions);
 	ASSERT_TRUE(Gizmo.IsDragging());
 	Input.bLeftMousePressed = false;
-	Input.MousePosition += glm::normalize(HandleScreen - CenterScreen) * 30.0f;
+	Input.MousePosition += Durin::Math::Normalize(HandleScreen - CenterScreen) * 30.0f;
 	Gizmo.Update(Targets, View, Input, &Transactions);
-	EXPECT_GT(glm::length(Target->Transform.Translation - InitialLocation), 0.001);
+	EXPECT_GT(Durin::Math::Length(Target->Transform.Translation - InitialLocation), 0.001);
 	Input.bLeftMouseDown = false;
 	Gizmo.Update(Targets, View, Input, &Transactions);
 	ASSERT_TRUE(Transactions.CanUndo());
@@ -195,7 +196,7 @@ TEST(FLevelEditorViewportClientTests, CapsFlyMovementAcrossAnAbnormallyLongFrame
 
 	Client.Update(Level, nullptr, Input);
 
-	const double Distance = glm::length(Client.GetCameraTransform().GetLocation() - InitialLocation);
+	const double Distance = Durin::Math::Length(Client.GetCameraTransform().GetLocation() - InitialLocation);
 	EXPECT_GT(Distance, 0.0);
 	EXPECT_LE(Distance, 5.0 / 30.0);
 }
@@ -278,9 +279,9 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
 	ASSERT_TRUE(Client.GetTransformGizmo().IsDragging());
 	DragInput.bLeftMousePressed = false;
-	DragInput.MousePosition += glm::normalize(HandleScreen - CenterScreen) * 30.0f;
+	DragInput.MousePosition += Durin::Math::Normalize(HandleScreen - CenterScreen) * 30.0f;
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
-	EXPECT_GT(glm::length(Actor->GetActorTransform().Translation - InitialLocation), 0.001);
+	EXPECT_GT(Durin::Math::Length(Actor->GetActorTransform().Translation - InitialLocation), 0.001);
 	Durin::FSceneView DraggedView;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, DraggedView));
 	ExpectVectorNear(Durin::FVector3(DraggedView.OverlayPrimitives.front().LocalToWorld[3]), Actor->GetActorTransform().Translation);
@@ -311,7 +312,7 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
 	ASSERT_TRUE(Client.GetTransformGizmo().IsDragging());
 	DragInput.bLeftMousePressed = false;
-	DragInput.MousePosition += glm::normalize(HandleScreen - CenterScreen) * 30.0f;
+	DragInput.MousePosition += Durin::Math::Normalize(HandleScreen - CenterScreen) * 30.0f;
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
 	DragInput.bLeftMouseDown = false;
 	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
@@ -337,26 +338,32 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Client.GetTransformGizmo().SetSpace(Durin::ETransformGizmoSpace::Parent);
 	EXPECT_EQ(Client.GetTransformGizmo().GetSpace(), Durin::ETransformGizmoSpace::Parent);
 	EXPECT_EQ(Client.GetTransformGizmo().GetEffectiveSpace(), Durin::ETransformGizmoSpace::Local);
-	Actor->GetRootComponent()->SetWorldRotation(glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up));
+	Actor->GetRootComponent()->SetWorldRotation(Durin::Math::MakeQuaternionFromAxisAngleRadians(
+		Durin::Math::HalfPi<Durin::FReal>(), Durin::FVectorConstants::Up));
 	Client.GetTransformGizmo().Update(Context, RotateView, Input, nullptr);
 	Durin::FSceneView ScaleView;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, ScaleView));
 	EXPECT_EQ(ScaleView.OverlayPrimitives.size(), 7u);
 	ASSERT_FALSE(ScaleView.OverlayPrimitives.empty());
-	ExpectVectorNear(glm::normalize(Durin::FVector3(ScaleView.OverlayPrimitives.front().LocalToWorld[0])), Durin::FVectorConstants::Right);
+	ExpectVectorNear(
+		Durin::Math::Normalize(Durin::FVector3(ScaleView.OverlayPrimitives.front().LocalToWorld[0])),
+		Durin::FVectorConstants::Right);
 	Client.GetTransformGizmo().SetMode(Durin::ETransformGizmoMode::Translate);
 	EXPECT_EQ(Client.GetTransformGizmo().GetEffectiveSpace(), Durin::ETransformGizmoSpace::Parent);
 
 	Durin::ACameraActor* Parent = Level->SpawnActor<Durin::ACameraActor>("Parent");
 	ASSERT_NE(Parent, nullptr);
-	Actor->GetRootComponent()->SetWorldRotation(glm::identity<Durin::FQuat>());
-	Parent->GetRootComponent()->SetWorldRotation(glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up));
+	Actor->GetRootComponent()->SetWorldRotation(Durin::FQuatConstants::Identity);
+	Parent->GetRootComponent()->SetWorldRotation(Durin::Math::MakeQuaternionFromAxisAngleRadians(
+		Durin::Math::HalfPi<Durin::FReal>(), Durin::FVectorConstants::Up));
 	ASSERT_TRUE(Actor->AttachToActor(Parent, Durin::EAttachmentTransformRule::KeepWorld));
 	Client.GetTransformGizmo().Update(Context, ScaleView, Input, nullptr);
 	Durin::FSceneView ParentView;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, ParentView));
 	ASSERT_FALSE(ParentView.OverlayPrimitives.empty());
-	ExpectVectorNear(glm::normalize(Durin::FVector3(ParentView.OverlayPrimitives.front().LocalToWorld[0])), Durin::FVectorConstants::Right);
+	ExpectVectorNear(
+		Durin::Math::Normalize(Durin::FVector3(ParentView.OverlayPrimitives.front().LocalToWorld[0])),
+		Durin::FVectorConstants::Right);
 }
 
 TEST(FLevelEditorViewportClientTests, BuildsComponentOrientedSelectionBounds)
@@ -371,7 +378,8 @@ TEST(FLevelEditorViewportClientTests, BuildsComponentOrientedSelectionBounds)
 	Durin::DStaticMeshComponent* Component = Actor->GetStaticMeshComponent();
 	Component->SetStaticMesh(Mesh);
 	Component->SetWorldLocation({3.0, 4.0, 5.0});
-	Component->SetWorldRotation(glm::angleAxis(glm::radians(35.0), Durin::FVector3(0.0, 0.0, 1.0)));
+	Component->SetWorldRotation(Durin::Math::MakeQuaternionFromAxisAngleDegrees(
+		35.0, Durin::FVector3(0.0, 0.0, 1.0)));
 	Component->SetWorldScale3D({2.0, 0.5, 1.5});
 
 	std::vector<Durin::TObjectPtr<Durin::AActor>> Selection;
@@ -415,7 +423,8 @@ TEST(FLevelEditorViewportClientTests, PicksClosestTriangleAndRejectsBoundsOnlyHi
 	FarActor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
 	NearActor->GetStaticMeshComponent()->SetWorldLocation(CameraLocation + Forward * 3.0);
 	FarActor->GetStaticMeshComponent()->SetWorldLocation(CameraLocation + Forward * 6.0);
-	NearActor->GetStaticMeshComponent()->SetWorldRotation(glm::angleAxis(glm::radians(20.0), Forward));
+	NearActor->GetStaticMeshComponent()->SetWorldRotation(
+		Durin::Math::MakeQuaternionFromAxisAngleDegrees(20.0, Forward));
 	NearActor->GetStaticMeshComponent()->SetWorldScale3D({2.0, 0.5, 1.5});
 	EXPECT_EQ(Client.PickActor(Level, {400.0f, 300.0f}, {800.0f, 600.0f}), NearActor);
 	EXPECT_EQ(Client.PickActor(Level, {799.0f, 300.0f}, {800.0f, 600.0f}), nullptr);

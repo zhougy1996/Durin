@@ -1,5 +1,7 @@
 #include "RHIResources.h"
 
+#include "Math/Operations.h"
+
 #include "Math/Vector.h"
 
 namespace Durin
@@ -161,7 +163,7 @@ namespace Durin
 		case ETextureCubeFace::NegativeZ: OutDirection = FVector3(-A, -B, -1.0); break;
 		default: return false;
 		}
-		const double Length = glm::length(OutDirection);
+		const double Length = Math::Length(OutDirection);
 		if (!std::isfinite(Length) || Length <= 0.0) return false;
 		OutDirection /= Length;
 		return true;

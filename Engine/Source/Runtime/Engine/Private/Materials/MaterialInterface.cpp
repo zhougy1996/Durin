@@ -6,6 +6,7 @@
 #include "DObject/Property.h"
 #include "Materials/MaterialInstance.h"
 #include "Logging/LogMacros.h"
+#include "Math/Operations.h"
 #include "Texture/Texture2D.h"
 #include "Threading/RunnableThread.h"
 
@@ -184,7 +185,7 @@ namespace Durin
 				Value.z = std::clamp(Value.z, static_cast<double>(Definition.MinimumValue), static_cast<double>(Definition.MaximumValue));
 				if (Definition.Id == MaterialParameters::NormalId)
 				{
-					const double LengthSquared = glm::dot(Value, Value);
+					const double LengthSquared = Math::LengthSquared(Value);
 					Value = LengthSquared < 1.0e-8 ? Definition.Value.VectorValue : Value / std::sqrt(LengthSquared);
 				}
 				bRepresentationValid = RepresentationBuilder.SetVector(Definition.Id, Value) && bRepresentationValid;

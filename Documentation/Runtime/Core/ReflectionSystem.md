@@ -36,7 +36,7 @@ The current system supports:
 
 The system does not currently implement CDO behavior, hot reload, function reflection, general template reflection, schema migrations, weak references, incremental/concurrent GC, or complete metadata specifier parsing.
 
-`DSTRUCT()` value types generate `StaticStruct()` and `DStruct` metadata without changing normal C++ copy/move behavior. Core-owned math types cannot depend on `CoreDObject`, so `FVector3`, `FQuat`, and `FTransform` are registered externally as intrinsic structs and still appear as ordinary `FStructProperty` values.
+`DSTRUCT()` value types generate `StaticStruct()` and `DStruct` metadata without changing normal C++ copy/move behavior. [Core math aliases](Math.md) cannot depend on `CoreDObject`, so `FVector3`, `FQuat`, and `FTransform` are registered externally as intrinsic structs and still appear as ordinary `FStructProperty` values.
 
 ## Parsing Scope And Generated-File Naming
 

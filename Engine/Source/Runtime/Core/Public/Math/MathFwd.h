@@ -7,6 +7,7 @@ namespace Durin
 	template<typename T> struct TRotator;
 
 	using FReal = double;
+	using FMatrix4f = glm::mat4x4;
 	using FMatrix = glm::dmat4x4;
 	using FQuat = glm::dquat;
 

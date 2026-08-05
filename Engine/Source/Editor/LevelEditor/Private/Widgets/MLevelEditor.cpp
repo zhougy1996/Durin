@@ -17,6 +17,7 @@
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Misc/Project.h"
+#include "Math/Operations.h"
 #include "MonaImGui.h"
 #include "Panels/ConsolePanel.h"
 #include "Panels/DetailsPanel.h"
@@ -701,8 +702,8 @@ namespace Durin
 				return;
 			}
 			Request.CameraLocation = CameraState.Location;
-			const FReal Pitch = glm::radians(CameraState.Pitch);
-			const FReal Yaw = glm::radians(CameraState.Yaw);
+			const FReal Pitch = Math::DegreesToRadians(CameraState.Pitch);
+			const FReal Yaw = Math::DegreesToRadians(CameraState.Yaw);
 			const FVector3 Forward(std::cos(Pitch) * std::cos(Yaw), std::cos(Pitch) * std::sin(Yaw), std::sin(Pitch));
 			Request.CameraTarget = Request.CameraLocation + Forward;
 		}

@@ -1,4 +1,5 @@
 #include "SkyBoxTestSupport.h"
+#include "Math/Operations.h"
 
 TEST(FSkyBoxTests, SceneSelectsSmallestStableIdAndRejectsStaleUpdates)
 {
@@ -118,7 +119,8 @@ TEST(FSkyBoxTests, ComponentSynchronizesRegistrationVisibilityTransformAndProper
 	EXPECT_EQ(Observation.Count, 1u);
 	EXPECT_EQ(Observation.Active.SceneId, Component->GetSkyBoxSceneId());
 
-	const Durin::FQuat Rotation = glm::angleAxis(glm::radians(45.0), Durin::FVectorConstants::Up);
+	const Durin::FQuat Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
+		45.0, Durin::FVectorConstants::Up);
 	Component->SetTextureCube(Cube);
 	Component->SetTint(Durin::FLinearColor(0.2f, 0.4f, 0.6f, 1.0f));
 	Component->SetIntensity(3.0f);

@@ -1,6 +1,6 @@
 #include "EditorGridRendering.h"
 
-#include <glm/gtc/matrix_inverse.hpp>
+#include "Math/Operations.h"
 
 namespace Durin::EditorGridRendering
 {
@@ -8,30 +8,38 @@ namespace Durin::EditorGridRendering
 	{
 		constexpr double MatrixInverseEpsilon = 1.e-8;
 
-		auto IsFinite(const glm::mat4& Matrix) -> bool
+		auto IsFinite(const FMatrix4f& Matrix) -> bool
 		{
-			for (glm::length_t ColumnIndex = 0; ColumnIndex < 4; ++ColumnIndex)
+			for (uint32 ColumnIndex = 0; ColumnIndex < 4; ++ColumnIndex)
 			{
-				const glm::vec4& Column = Matrix[ColumnIndex];
+				const auto& Column = Matrix[ColumnIndex];
 				if (!std::isfinite(Column.x) || !std::isfinite(Column.y)
 					|| !std::isfinite(Column.z) || !std::isfinite(Column.w)) return false;
 			}
 			return true;
 		}
 
-		auto ToShaderMatrix(const FMatrix& Matrix) -> glm::mat4
+		auto ToShaderMatrix(const FMatrix& Matrix) -> FMatrix4f
 		{
-			return glm::transpose(glm::mat4(Matrix));
+			FMatrix4f Result(0.0f);
+			for (uint32 Column = 0; Column < 4; ++Column)
+			{
+				for (uint32 Row = 0; Row < 4; ++Row)
+				{
+					Result[Column][Row] = static_cast<float>(Matrix[Row][Column]);
+				}
+			}
+			return Result;
 		}
 	}
 
 	auto BuildUniform(const FSceneView& View, FEditorGridUniform& OutUniform) -> bool
 	{
-		const double Determinant = glm::determinant(View.ViewProjectionMatrix);
-		if (!std::isfinite(Determinant) || std::abs(Determinant) <= MatrixInverseEpsilon) return false;
+		FMatrix ClipToWorldMatrix;
+		if (!Math::TryInverse(View.ViewProjectionMatrix, ClipToWorldMatrix, MatrixInverseEpsilon)) return false;
 
-		const glm::mat4 WorldToClip = ToShaderMatrix(View.ViewProjectionMatrix);
-		const glm::mat4 ClipToWorld = ToShaderMatrix(glm::inverse(View.ViewProjectionMatrix));
+		const FMatrix4f WorldToClip = ToShaderMatrix(View.ViewProjectionMatrix);
+		const FMatrix4f ClipToWorld = ToShaderMatrix(ClipToWorldMatrix);
 		if (!IsFinite(WorldToClip) || !IsFinite(ClipToWorld)) return false;
 
 		const float FadeDistance = std::max(1.0f, View.EditorGrid.FadeDistance);

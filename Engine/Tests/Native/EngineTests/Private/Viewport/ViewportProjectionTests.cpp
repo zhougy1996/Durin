@@ -1,4 +1,5 @@
 #include "ViewportTestSupport.h"
+#include "Math/Operations.h"
 
 TEST(FLevelEditorViewportClientTests, NavigationDoesNotDirtyTheLevelPackage)
 {
@@ -50,7 +51,7 @@ TEST(FLevelEditorViewportClientTests, BuildsCenterPickingRayAndRejectsInvalidVie
 	Durin::FVector3 Direction;
 	EXPECT_FALSE(Client.BuildPickingRay({0.0f, 0.0f}, {0.0f, 100.0f}, Origin, Direction));
 	ASSERT_TRUE(Client.BuildPickingRay({400.0f, 300.0f}, {800.0f, 600.0f}, Origin, Direction));
-	EXPECT_NEAR(glm::length(Direction), 1.0, 1.e-8);
+	EXPECT_NEAR(Durin::Math::Length(Direction), 1.0, 1.e-8);
 	ExpectVectorNear(Direction, Client.GetCameraTransform().GetForwardVector(), 1.e-6);
 }
 

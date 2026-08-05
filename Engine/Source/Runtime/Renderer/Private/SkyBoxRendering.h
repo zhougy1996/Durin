@@ -8,8 +8,8 @@ namespace Durin::SkyBoxRendering
 {
 	struct FSkyBoxUniform
 	{
-		glm::mat4 ClipToWorld{1.0f};
-		glm::mat4 WorldToSky{1.0f};
+		FMatrix4f ClipToWorld{1.0f};
+		FMatrix4f WorldToSky{1.0f};
 		FVector4f ViewPosition{0.0f};
 		FVector4f TintIntensity{1.0f};
 	};

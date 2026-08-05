@@ -1,9 +1,11 @@
 #include "SkyBoxTestSupport.h"
+#include "Math/Operations.h"
 
 TEST(FSkyBoxRenderingTests, ReconstructsTranslationInvariantDirectionAndInverseComponentRotation)
 {
 	Durin::FSkyBoxSceneData SkyBox;
-	SkyBox.Rotation = glm::angleAxis(glm::half_pi<double>(), Durin::FVectorConstants::Up);
+	SkyBox.Rotation = Durin::Math::MakeQuaternionFromAxisAngleRadians(
+		Durin::Math::HalfPi<Durin::FReal>(), Durin::FVectorConstants::Up);
 	SkyBox.Tint = {0.25f, 0.5f, 0.75f};
 	SkyBox.Intensity = 2.0f;
 
@@ -14,7 +16,7 @@ TEST(FSkyBoxRenderingTests, ReconstructsTranslationInvariantDirectionAndInverseC
 
 	Durin::FSceneView TranslatedView = OriginView;
 	TranslatedView.ViewLocation = {7.0, -3.0, 11.0};
-	TranslatedView.ViewProjectionMatrix = glm::translate(Durin::FMatrix(1.0), -TranslatedView.ViewLocation);
+	TranslatedView.ViewProjectionMatrix = Durin::Math::TranslationMatrix(-TranslatedView.ViewLocation);
 	Durin::SkyBoxRendering::FSkyBoxUniform TranslatedUniform;
 	ASSERT_TRUE(Durin::SkyBoxRendering::BuildUniform(TranslatedView, SkyBox, TranslatedUniform));
 
@@ -24,7 +26,8 @@ TEST(FSkyBoxRenderingTests, ReconstructsTranslationInvariantDirectionAndInverseC
 	{
 		EXPECT_NEAR(OriginDirection[Axis], TranslatedDirection[Axis], 1.e-6);
 	}
-	const Durin::FVector3 ExpectedDirection = glm::inverse(glm::normalize(SkyBox.Rotation)) * Durin::FVectorConstants::Up;
+	const Durin::FVector3 ExpectedDirection = Durin::Math::RotateVector(
+		Durin::Math::Inverse(Durin::Math::Normalize(SkyBox.Rotation)), Durin::FVectorConstants::Up);
 	for (Durin::uint32 Axis = 0; Axis < 3; ++Axis)
 	{
 		EXPECT_NEAR(OriginDirection[Axis], ExpectedDirection[Axis], 1.e-6);
@@ -45,7 +48,7 @@ TEST(FSkyBoxRenderingTests, RejectsInvalidTransformsAndClampsIntensity)
 	SkyBox.Rotation = Durin::FQuat(0.0, 0.0, 0.0, 0.0);
 	EXPECT_FALSE(Durin::SkyBoxRendering::BuildUniform(View, SkyBox, Uniform));
 
-	SkyBox.Rotation = glm::identity<Durin::FQuat>();
+	SkyBox.Rotation = Durin::FQuatConstants::Identity;
 	SkyBox.Intensity = -3.0f;
 	ASSERT_TRUE(Durin::SkyBoxRendering::BuildUniform(View, SkyBox, Uniform));
 	EXPECT_FLOAT_EQ(Uniform.TintIntensity.w, 0.0f);

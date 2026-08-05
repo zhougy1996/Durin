@@ -6,7 +6,7 @@ namespace Durin
 {
 	namespace
 	{
-		auto ExpectIdentity(const glm::mat4& Matrix, float Tolerance = 1.e-5f) -> void
+		auto ExpectIdentity(const FMatrix4f& Matrix, float Tolerance = 1.e-5f) -> void
 		{
 			for (glm::length_t Column = 0; Column < 4; ++Column)
 			{

@@ -1,5 +1,6 @@
 #include "Math/Transform.h"
 #include "Math/TransformDecomposition.h"
+#include "Math/Operations.h"
 
 #include <gtest/gtest.h>
 
@@ -14,7 +15,7 @@ namespace
 
 	auto ExpectRotationNear(const Durin::FQuat& Actual, const Durin::FQuat& Expected, double Tolerance = 1.e-8) -> void
 	{
-		EXPECT_NEAR(std::abs(glm::dot(Actual, Expected)), 1.0, Tolerance);
+		EXPECT_NEAR(std::abs(Durin::Math::Dot(Actual, Expected)), 1.0, Tolerance);
 	}
 }
 
@@ -22,26 +23,27 @@ TEST(FTransformTests, CombinesParentAndRelativeTransforms)
 {
 	Durin::FTransform Parent;
 	Parent.Translation = Durin::FVector3(10.0, -2.0, 3.0);
-	Parent.Rotation = glm::angleAxis(glm::radians(90.0), Durin::FVector3(0.0, 0.0, 1.0));
+	Parent.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(90.0, Durin::FVector3(0.0, 0.0, 1.0));
 	Parent.Scale3D = Durin::FVector3(2.0, 3.0, 4.0);
 
 	Durin::FTransform Relative;
 	Relative.Translation = Durin::FVector3(1.0, 2.0, -1.0);
-	Relative.Rotation = glm::angleAxis(glm::radians(30.0), Durin::FVector3(0.0, 1.0, 0.0));
+	Relative.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(30.0, Durin::FVector3(0.0, 1.0, 0.0));
 	Relative.Scale3D = Durin::FVector3(0.5, 2.0, 0.25);
 
 	const Durin::FTransform World = Durin::FTransform::Combine(Parent, Relative);
 
 	ExpectVectorNear(World.Translation, Durin::FVector3(4.0, 0.0, -1.0));
 	ExpectVectorNear(World.Scale3D, Durin::FVector3(1.0, 6.0, 1.0));
-	ExpectRotationNear(World.Rotation, glm::normalize(Parent.Rotation * Relative.Rotation));
+	ExpectRotationNear(World.Rotation, Durin::Math::Normalize(Parent.Rotation * Relative.Rotation));
 }
 
 TEST(FTransformTests, SafelyDecomposesFiniteTransformMatrix)
 {
 	Durin::FTransform Expected;
 	Expected.Translation = {3.0, -4.0, 5.0};
-	Expected.Rotation = glm::angleAxis(glm::radians(37.0), glm::normalize(Durin::FVector3(1.0, 2.0, 3.0)));
+	Expected.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
+		37.0, Durin::Math::Normalize(Durin::FVector3(1.0, 2.0, 3.0)));
 	Expected.Scale3D = {2.0, 3.0, 4.0};
 	Durin::FTransform Actual;
 	ASSERT_TRUE(Durin::TryMakeTransformFromMatrix(Expected.ToMatrix(), Actual));
@@ -58,12 +60,14 @@ TEST(FTransformTests, RelativeTransformRoundTripsThroughParent)
 {
 	Durin::FTransform Parent;
 	Parent.Translation = Durin::FVector3(-4.0, 8.0, 2.0);
-	Parent.Rotation = glm::angleAxis(glm::radians(-35.0), glm::normalize(Durin::FVector3(1.0, 2.0, 3.0)));
+	Parent.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
+		-35.0, Durin::Math::Normalize(Durin::FVector3(1.0, 2.0, 3.0)));
 	Parent.Scale3D = Durin::FVector3(2.0, 2.0, 2.0);
 
 	Durin::FTransform World;
 	World.Translation = Durin::FVector3(3.0, -7.0, 11.0);
-	World.Rotation = glm::angleAxis(glm::radians(70.0), glm::normalize(Durin::FVector3(-2.0, 1.0, 0.5)));
+	World.Rotation = Durin::Math::MakeQuaternionFromAxisAngleDegrees(
+		70.0, Durin::Math::Normalize(Durin::FVector3(-2.0, 1.0, 0.5)));
 	World.Scale3D = Durin::FVector3(4.0, 6.0, 8.0);
 
 	const Durin::FTransform Relative = Durin::FTransform::MakeRelative(World, Parent);

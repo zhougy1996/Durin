@@ -77,8 +77,8 @@ namespace Durin
 				if (X < 42.0f || X > 57.0f)
 					return false;
 				const float T = (X - 42.0f) / 15.0f;
-				const float Top = glm::mix(29.0f, 20.0f, T);
-				const float Bottom = glm::mix(43.0f, 52.0f, T);
+				const float Top = 29.0f * (1.0f - T) + 20.0f * T;
+				const float Bottom = 43.0f * (1.0f - T) + 52.0f * T;
 				return Y >= Top && Y <= Bottom;
 			};
 			for (uint32 Y = 0; Y < Size; ++Y)

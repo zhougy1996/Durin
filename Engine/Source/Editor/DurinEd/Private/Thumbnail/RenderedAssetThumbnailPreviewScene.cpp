@@ -10,6 +10,7 @@
 #include "IRendererModule.h"
 #include "IScene.h"
 #include "Materials/MaterialInterface.h"
+#include "Math/Operations.h"
 #include "Preview/PreviewScene.h"
 #include "Preview/TextureCubePreviewComponent.h"
 #include "RHICommandList.h"
@@ -26,13 +27,13 @@ namespace Durin
 
 		auto RotationFromForward(const FVector3& Direction) -> FQuat
 		{
-			const FVector3 To = glm::normalize(Direction);
-			const double Dot = glm::dot(FVectorConstants::Forward, To);
-			if (Dot > 1.0 - RotationTolerance) return glm::identity<FQuat>();
+			const FVector3 To = Math::Normalize(Direction);
+			const double Dot = Math::Dot(FVectorConstants::Forward, To);
+			if (Dot > 1.0 - RotationTolerance) return FQuatConstants::Identity;
 			if (Dot < -1.0 + RotationTolerance)
-				return glm::angleAxis(glm::pi<double>(), FVectorConstants::Up);
-			const FVector3 Cross = glm::cross(FVectorConstants::Forward, To);
-			return glm::normalize(FQuat(1.0 + Dot, Cross.x, Cross.y, Cross.z));
+				return Math::MakeQuaternionFromAxisAngleRadians(Math::Pi<double>(), FVectorConstants::Up);
+			const FVector3 Cross = Math::Cross(FVectorConstants::Forward, To);
+			return Math::Normalize(FQuat(1.0 + Dot, Cross.x, Cross.y, Cross.z));
 		}
 
 		auto BuildThumbnailView(const FRenderedAssetThumbnailVisualContract& Contract) -> FSceneView
@@ -41,28 +42,28 @@ namespace Durin
 			const FVector3 CameraDirection(
 				Contract.CameraDirectionX, Contract.CameraDirectionY, Contract.CameraDirectionZ);
 			const FVector3 Eye =
-				glm::normalize(CameraDirection) * static_cast<double>(Contract.CameraDistance);
-			const FVector3 Forward = glm::normalize(-Eye);
-			const FVector3 Right = glm::normalize(glm::cross(FVectorConstants::Up, Forward));
-			const FVector3 Up = glm::normalize(glm::cross(Forward, Right));
+				Math::Normalize(CameraDirection) * static_cast<double>(Contract.CameraDistance);
+			const FVector3 Forward = Math::Normalize(-Eye);
+			const FVector3 Right = Math::Normalize(Math::Cross(FVectorConstants::Up, Forward));
+			const FVector3 Up = Math::Normalize(Math::Cross(Forward, Right));
 			View.ViewLocation = Eye;
 			View.ViewMatrix[0][0] = Forward.x;
 			View.ViewMatrix[1][0] = Forward.y;
 			View.ViewMatrix[2][0] = Forward.z;
-			View.ViewMatrix[3][0] = -glm::dot(Forward, Eye);
+			View.ViewMatrix[3][0] = -Math::Dot(Forward, Eye);
 			View.ViewMatrix[0][1] = Right.x;
 			View.ViewMatrix[1][1] = Right.y;
 			View.ViewMatrix[2][1] = Right.z;
-			View.ViewMatrix[3][1] = -glm::dot(Right, Eye);
+			View.ViewMatrix[3][1] = -Math::Dot(Right, Eye);
 			View.ViewMatrix[0][2] = Up.x;
 			View.ViewMatrix[1][2] = Up.y;
 			View.ViewMatrix[2][2] = Up.z;
-			View.ViewMatrix[3][2] = -glm::dot(Up, Eye);
+			View.ViewMatrix[3][2] = -Math::Dot(Up, Eye);
 
 			const float AspectRatio = static_cast<float>(Contract.Output.Width)
 				/ static_cast<float>(Contract.Output.Height);
 			const float YScale =
-				1.0f / std::tan(glm::radians(Contract.VerticalFieldOfViewDegrees) * 0.5f);
+				1.0f / std::tan(Math::DegreesToRadians(Contract.VerticalFieldOfViewDegrees) * 0.5f);
 			const float XScale = YScale / std::max(AspectRatio, 0.001f);
 			const float DepthScale =
 				Contract.FarClipDistance / (Contract.FarClipDistance - Contract.NearClipDistance);

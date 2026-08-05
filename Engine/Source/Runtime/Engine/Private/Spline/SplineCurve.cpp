@@ -1,5 +1,7 @@
 #include "Spline/SplineCurve.h"
 
+#include "Math/Operations.h"
+
 #include <unordered_set>
 
 namespace Durin
@@ -13,7 +15,7 @@ namespace Durin
 
 		auto SafeNormalize(const FVector3& Value) -> FVector3
 		{
-			const double LengthSquared = glm::dot(Value, Value);
+			const double LengthSquared = Math::LengthSquared(Value);
 			return LengthSquared > DegenerateChordEpsilon * DegenerateChordEpsilon
 				? Value / std::sqrt(LengthSquared) : FVectorConstants::Zero;
 		}
@@ -38,8 +40,8 @@ namespace Durin
 			const uint32 NextIndex = (PointIndex + 1) % PointCount;
 			const FVector3 IncomingChord = Points[PointIndex].Position - Points[PreviousIndex].Position;
 			const FVector3 OutgoingChord = Points[NextIndex].Position - Points[PointIndex].Position;
-			const double IncomingLength = glm::length(IncomingChord);
-			const double OutgoingLength = glm::length(OutgoingChord);
+			const double IncomingLength = Math::Length(IncomingChord);
+			const double OutgoingLength = Math::Length(OutgoingChord);
 			if (IncomingLength <= DegenerateChordEpsilon && OutgoingLength <= DegenerateChordEpsilon) return {};
 			if (IncomingLength <= DegenerateChordEpsilon) return {.Leave = OutgoingChord};
 			if (OutgoingLength <= DegenerateChordEpsilon) return {.Arrive = IncomingChord};
@@ -48,9 +50,9 @@ namespace Durin
 			const FVector3 OutgoingDirection = OutgoingChord / OutgoingLength;
 			FVector3 KnotDerivative = (IncomingDirection * OutgoingLength + OutgoingDirection * IncomingLength)
 				/ (IncomingLength + OutgoingLength);
-			if (bClamped && (glm::dot(KnotDerivative, IncomingDirection) <= 0.0
-				|| glm::dot(KnotDerivative, OutgoingDirection) <= 0.0)) KnotDerivative = FVectorConstants::Zero;
-			const double DerivativeMagnitude = glm::length(KnotDerivative);
+			if (bClamped && (Math::Dot(KnotDerivative, IncomingDirection) <= 0.0
+				|| Math::Dot(KnotDerivative, OutgoingDirection) <= 0.0)) KnotDerivative = FVectorConstants::Zero;
+			const double DerivativeMagnitude = Math::Length(KnotDerivative);
 			const FVector3 Direction = SafeNormalize(KnotDerivative);
 			return {
 				.Arrive = Direction * std::min(DerivativeMagnitude * IncomingLength, IncomingLength),
@@ -62,8 +64,8 @@ namespace Durin
 		{
 			if (Point.TangentMode != ESplineTangentMode::ManualAligned)
 				return {.Arrive = Point.ArriveTangent, .Leave = Point.LeaveTangent};
-			const double ArriveLength = glm::length(Point.ArriveTangent);
-			const double LeaveLength = glm::length(Point.LeaveTangent);
+			const double ArriveLength = Math::Length(Point.ArriveTangent);
+			const double LeaveLength = Math::Length(Point.LeaveTangent);
 			const FVector3 Direction = LeaveLength > DegenerateChordEpsilon
 				? Point.LeaveTangent / LeaveLength : SafeNormalize(Point.ArriveTangent);
 			return {.Arrive = Direction * ArriveLength, .Leave = Direction * LeaveLength};
@@ -86,15 +88,15 @@ namespace Durin
 		{
 			const double MiddleT = (StartT + EndT) * 0.5;
 			const FVector3 Middle = EvaluateSegment(Segment, MiddleT).Position;
-			const double ChordLength = glm::length(End - Start);
-			const double SplitLength = glm::length(Middle - Start) + glm::length(End - Middle);
+			const double ChordLength = Math::Length(End - Start);
+			const double SplitLength = Math::Length(Middle - Start) + Math::Length(End - Middle);
 			if (SplitLength - ChordLength <= ErrorBudget || Depth >= MaximumSubdivisionDepth)
 			{
 				auto AddSample = [&](double T, const FVector3& Position) {
 					const FSplineDistanceSample& Previous = Segment.DistanceSamples.back();
 					if (T <= Previous.T) return;
 					const FVector3 PreviousPosition = EvaluateSegment(Segment, Previous.T).Position;
-					Segment.LocalLength += glm::length(Position - PreviousPosition);
+					Segment.LocalLength += Math::Length(Position - PreviousPosition);
 					Segment.DistanceSamples.push_back({T, Segment.LocalLength});
 				};
 				AddSample(MiddleT, Middle);
@@ -108,13 +110,13 @@ namespace Durin
 		auto DistanceSquared(const FVector3& Left, const FVector3& Right) -> double
 		{
 			const FVector3 Delta = Left - Right;
-			return glm::dot(Delta, Delta);
+			return Math::LengthSquared(Delta);
 		}
 
 		auto DistanceSquaredToBox(const FVector3& Point, const FBox& Box) -> double
 		{
 			if (!Box.bIsValid) return 0.0;
-			return DistanceSquared(Point, glm::clamp(Point, Box.Min, Box.Max));
+			return DistanceSquared(Point, Math::Clamp(Point, Box.Min, Box.Max));
 		}
 	} // namespace
 
@@ -298,12 +300,12 @@ namespace Durin
 				+ Segment.Coefficient2 / 3.0;
 			const FVector3 Control3 = Segment.Coefficient0 + Segment.Coefficient1
 				+ Segment.Coefficient2 + Segment.Coefficient3;
-			const double ControlPolygonLength = glm::length(Control1 - Control0)
-				+ glm::length(Control2 - Control1) + glm::length(Control3 - Control2);
+			const double ControlPolygonLength = Math::Length(Control1 - Control0)
+				+ Math::Length(Control2 - Control1) + Math::Length(Control3 - Control2);
 			const double ErrorBudget = std::max(AbsoluteLengthError, RelativeLengthError * ControlPolygonLength);
 			if (Segment.Interpolation == ESplineSegmentInterpolation::Linear)
 			{
-				Segment.LocalLength = glm::length(End.Position - Start.Position);
+				Segment.LocalLength = Math::Length(End.Position - Start.Position);
 				Segment.DistanceSamples.push_back({1.0, Segment.LocalLength});
 			}
 			else

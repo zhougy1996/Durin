@@ -2,6 +2,7 @@
 
 #include "Engine/Actor.h"
 #include "IScene.h"
+#include "Math/Operations.h"
 
 namespace Durin
 {
@@ -31,7 +32,7 @@ namespace Durin
 	auto DDirectionalLightComponent::GetSceneData() const -> FDirectionalLightSceneData
 	{
 		FDirectionalLightSceneData Result;
-		Result.Direction = glm::normalize(GetWorldRotation() * FVectorConstants::Forward);
+		Result.Direction = Math::Normalize(Math::RotateVector(GetWorldRotation(), FVectorConstants::Forward));
 		Result.Color = FVector3f(
 			std::clamp(Color.R, 0.0f, 1.0f),
 			std::clamp(Color.G, 0.0f, 1.0f),

@@ -6,6 +6,7 @@
 #include "DObject/Property.h"
 #include "Editor/ReflectedPropertyView.h"
 #include "Engine/Level.h"
+#include "Math/Operations.h"
 #include "Workspace/LevelEditorContext.h"
 #include "MonaImGui.h"
 
@@ -50,12 +51,13 @@ namespace Durin
 				if (!Context.bSelected) return;
 
 				const FQuat Rotation = Camera->GetWorldRotation();
-				const FVector3 Forward = glm::normalize(Rotation * FVectorConstants::Forward);
-				const FVector3 Right = glm::normalize(Rotation * FVectorConstants::Right);
-				const FVector3 Up = glm::normalize(Rotation * FVectorConstants::Up);
+				const FVector3 Forward = Math::Normalize(Rotation * FVectorConstants::Forward);
+				const FVector3 Right = Math::Normalize(Rotation * FVectorConstants::Right);
+				const FVector3 Up = Math::Normalize(Rotation * FVectorConstants::Up);
 				const double NearDistance = Camera->GetNearClip();
 				const double FarDistance = Camera->GetFarClip();
-				const double HalfFovTangent = std::tan(glm::radians(static_cast<double>(Camera->GetFieldOfViewDegrees())) * 0.5);
+				const double HalfFovTangent = std::tan(
+					Math::DegreesToRadians(static_cast<double>(Camera->GetFieldOfViewDegrees())) * 0.5);
 				const double ViewportAspectRatio = static_cast<double>(Context.View.ViewportWidth) / Context.View.ViewportHeight;
 				const double AspectRatio = Camera->ResolveAspectRatio(static_cast<float>(ViewportAspectRatio));
 				const double SafeAspectRatio = std::max(AspectRatio, 0.001);

@@ -4,6 +4,7 @@
 #include "Editor/EditorTransaction.h"
 #include "Engine/Actor.h"
 #include "Workspace/LevelEditorContext.h"
+#include "Math/Operations.h"
 #include "Math/TransformDecomposition.h"
 #include "DObject/Package.h"
 #include "SceneViewProjection.h"
@@ -57,16 +58,16 @@ namespace Durin
 			case ETransformGizmoHandle::YZ: Color = MixedThemeColor(MonaImGui::EUIThemeColor::AxisY, MonaImGui::EUIThemeColor::AxisZ, Alpha); break;
 			default: Color = ThemeColor(MonaImGui::EUIThemeColor::ViewportText, Alpha); break;
 			}
-			if (bHovered) Color = glm::min(Color * FVector4f(1.35f, 1.35f, 1.35f, 1.0f), FVector4f(1.0f));
+			if (bHovered) Color = Math::Min(Color * FVector4f(1.35f, 1.35f, 1.35f, 1.0f), FVector4f(1.0f));
 			Color.a = Alpha;
 			return Color;
 		}
 
 		auto RayPlane(const FVector3& Origin, const FVector3& Direction, const FVector3& PlanePoint, const FVector3& PlaneNormal, FVector3& Out) -> bool
 		{
-			const double Denominator = glm::dot(Direction, PlaneNormal);
+			const double Denominator = Math::Dot(Direction, PlaneNormal);
 			if (std::abs(Denominator) <= Epsilon) return false;
-			const double T = glm::dot(PlanePoint - Origin, PlaneNormal) / Denominator;
+			const double T = Math::Dot(PlanePoint - Origin, PlaneNormal) / Denominator;
 			if (!std::isfinite(T)) return false;
 			Out = Origin + Direction * T;
 			return true;
@@ -75,9 +76,9 @@ namespace Durin
 		auto DistanceToSegment(const FVector2f& Point, const FVector2f& A, const FVector2f& B) -> float
 		{
 			const FVector2f AB = B - A;
-			const float LengthSq = glm::dot(AB, AB);
-			const float T = LengthSq > 0.001f ? std::clamp(glm::dot(Point - A, AB) / LengthSq, 0.0f, 1.0f) : 0.0f;
-			return glm::length(Point - (A + AB * T));
+			const float LengthSq = Math::LengthSquared(AB);
+			const float T = LengthSq > 0.001f ? std::clamp(Math::Dot(Point - A, AB) / LengthSq, 0.0f, 1.0f) : 0.0f;
+			return Math::Length(Point - (A + AB * T));
 		}
 
 		auto PointInTriangle(const FVector2f& P, const FVector2f& A, const FVector2f& B, const FVector2f& C) -> bool
@@ -95,12 +96,13 @@ namespace Durin
 		auto RotationFromX(const FVector3& Direction) -> FQuat
 		{
 			const FVector3 From = FVectorConstants::Forward;
-			const FVector3 To = glm::normalize(Direction);
-			const double Dot = glm::dot(From, To);
-			if (Dot > 1.0 - Epsilon) return glm::identity<FQuat>();
-			if (Dot < -1.0 + Epsilon) return glm::angleAxis(glm::pi<double>(), FVectorConstants::Up);
-			const FVector3 Cross = glm::cross(From, To);
-			return glm::normalize(FQuat(1.0 + Dot, Cross.x, Cross.y, Cross.z));
+			const FVector3 To = Math::Normalize(Direction);
+			const double Dot = Math::Dot(From, To);
+			if (Dot > 1.0 - Epsilon) return FQuatConstants::Identity;
+			if (Dot < -1.0 + Epsilon)
+				return Math::MakeQuaternionFromAxisAngleRadians(Math::Pi<double>(), FVectorConstants::Up);
+			const FVector3 Cross = Math::Cross(From, To);
+			return Math::Normalize(FQuat(1.0 + Dot, Cross.x, Cross.y, Cross.z));
 		}
 
 		// Restores before/after transforms for every target changed by one gizmo drag.
@@ -142,12 +144,12 @@ namespace Durin
 
 			static auto VectorChanged(const FVector3& Before, const FVector3& After) -> bool
 			{
-				return glm::length(After - Before) > Epsilon;
+				return Math::Length(After - Before) > Epsilon;
 			}
 
 			static auto RotationChanged(const FQuat& Before, const FQuat& After) -> bool
 			{
-				return 1.0 - std::abs(glm::dot(glm::normalize(Before), glm::normalize(After))) > Epsilon;
+				return 1.0 - std::abs(Math::Dot(Math::Normalize(Before), Math::Normalize(After))) > Epsilon;
 			}
 
 			auto BuildDetails(bool bForward) const -> std::string
@@ -168,8 +170,8 @@ namespace Durin
 					}
 					if (RotationChanged(Before.Rotation, After.Rotation))
 					{
-						const FVector3 BeforeDegrees = glm::degrees(glm::eulerAngles(Before.Rotation));
-						const FVector3 AfterDegrees = glm::degrees(glm::eulerAngles(After.Rotation));
+						const FVector3 BeforeDegrees = Math::QuaternionToEulerDegrees(Before.Rotation);
+						const FVector3 AfterDegrees = Math::QuaternionToEulerDegrees(After.Rotation);
 						Result += std::format("\n  Rotation  {} -> {} degrees", FormatVector(BeforeDegrees), FormatVector(AfterDegrees));
 						bHasChange = true;
 					}
@@ -209,7 +211,7 @@ namespace Durin
 			{
 				if (Actor && Actor->GetRootComponent())
 					if (const DSceneComponent* Parent = Actor->GetRootComponent()->GetAttachParent()) return Parent->GetWorldRotation();
-				return glm::identity<FQuat>();
+				return FQuatConstants::Identity;
 			}
 			auto GetPackage() const -> DPackage* override { return Actor ? Actor->GetPackage() : nullptr; }
 			auto GetLabel() const -> std::string override { return Actor ? Actor->GetName() : "Missing Actor"; }
@@ -255,7 +257,7 @@ namespace Durin
 			return false;
 		}
 		Pivot = Sum / static_cast<double>(Count);
-		Basis = glm::identity<FQuat>();
+		Basis = FQuatConstants::Identity;
 		const ETransformGizmoSpace EffectiveSpace = GetEffectiveSpace();
 		if (!Targets.Targets.empty() && Targets.Targets.front() && Targets.Targets.front()->IsValid())
 		{
@@ -274,8 +276,8 @@ namespace Durin
 		}
 		DisplayPivot = Pivot;
 		DisplayBasis = Basis;
-		const double Distance = std::max(0.05, glm::length(Pivot - View.ViewLocation));
-		WorldScale = static_cast<float>(Distance * 2.0 * std::tan(glm::radians(60.0) * 0.5) * GizmoPixels / std::max(1u, View.ViewportHeight));
+		const double Distance = std::max(0.05, Math::Length(Pivot - View.ViewLocation));
+		WorldScale = static_cast<float>(Distance * 2.0 * std::tan(Math::DegreesToRadians(60.0) * 0.5) * GizmoPixels / std::max(1u, View.ViewportHeight));
 		return std::isfinite(WorldScale) && WorldScale > 0.0f;
 	}
 
@@ -297,7 +299,7 @@ namespace Durin
 				bool bPrevious = false;
 				for (uint32 Segment = 0; Segment <= 64; ++Segment)
 				{
-					const double Angle = glm::two_pi<double>() * Segment / 64.0;
+					const double Angle = Math::TwoPi<double>() * Segment / 64.0;
 					FVector2f Current;
 					const bool bCurrent = SceneViewProjection::ProjectWorldToViewport(View, Pivot + (U * std::cos(Angle) + V * std::sin(Angle)) * static_cast<double>(WorldScale), Current);
 					if (bPrevious && bCurrent)
@@ -337,7 +339,7 @@ namespace Durin
 			}
 		}
 
-		if (Mode == ETransformGizmoMode::Scale && glm::length(MousePosition - Center) <= HitRadiusPixels) return ETransformGizmoHandle::Uniform;
+		if (Mode == ETransformGizmoMode::Scale && Math::Length(MousePosition - Center) <= HitRadiusPixels) return ETransformGizmoHandle::Uniform;
 		for (size_t AxisIndex = 0; AxisIndex < 3; ++AxisIndex)
 		{
 			FVector2f End;
@@ -380,7 +382,7 @@ namespace Durin
 			ActiveHandle = ETransformGizmoHandle::None;
 			return false;
 		}
-		DragAxis = ActiveHandle == ETransformGizmoHandle::Uniform ? FVectorConstants::Zero : glm::normalize(Basis * AxisForHandle(ActiveHandle));
+		DragAxis = ActiveHandle == ETransformGizmoHandle::Uniform ? FVectorConstants::Zero : Math::Normalize(Basis * AxisForHandle(ActiveHandle));
 		if (ActiveHandle == ETransformGizmoHandle::XY)
 			DragPlaneNormal = Basis * FVectorConstants::Up;
 		else if (ActiveHandle == ETransformGizmoHandle::XZ)
@@ -390,16 +392,16 @@ namespace Durin
 		else if (Mode == ETransformGizmoMode::Rotate)
 			DragPlaneNormal = DragAxis;
 		else if (ActiveHandle == ETransformGizmoHandle::Uniform)
-			DragPlaneNormal = glm::normalize(View.ViewLocation - Pivot);
+			DragPlaneNormal = Math::Normalize(View.ViewLocation - Pivot);
 		else
 		{
-			const FVector3 Side = glm::cross(RayDirection, DragAxis);
-			if (glm::dot(Side, Side) <= Epsilon)
+			const FVector3 Side = Math::Cross(RayDirection, DragAxis);
+			if (Math::LengthSquared(Side) <= Epsilon)
 			{
 				ActiveHandle = ETransformGizmoHandle::None;
 				return false;
 			}
-			DragPlaneNormal = glm::normalize(glm::cross(DragAxis, Side));
+			DragPlaneNormal = Math::Normalize(Math::Cross(DragAxis, Side));
 		}
 		if (!RayPlane(RayOrigin, RayDirection, Pivot, DragPlaneNormal, DragStartPoint))
 		{
@@ -407,7 +409,7 @@ namespace Durin
 			return false;
 		}
 		DragStartVector = DragStartPoint - Pivot;
-		if (glm::dot(DragStartVector, DragStartVector) > Epsilon) DragStartVector = glm::normalize(DragStartVector);
+		if (Math::LengthSquared(DragStartVector) > Epsilon) DragStartVector = Math::Normalize(DragStartVector);
 		DragStartMouseY = Input.MousePosition.y;
 		bDragChanged = false;
 		return true;
@@ -421,13 +423,13 @@ namespace Durin
 		if (Mode == ETransformGizmoMode::Translate)
 		{
 			FVector3 Delta = Current - DragStartPoint;
-			if (ActiveHandle == ETransformGizmoHandle::X || ActiveHandle == ETransformGizmoHandle::Y || ActiveHandle == ETransformGizmoHandle::Z) Delta = DragAxis * glm::dot(Delta, DragAxis);
+			if (ActiveHandle == ETransformGizmoHandle::X || ActiveHandle == ETransformGizmoHandle::Y || ActiveHandle == ETransformGizmoHandle::Z) Delta = DragAxis * Math::Dot(Delta, DragAxis);
 			if (bSnap)
 			{
 				const std::array<FVector3, 3> Axes = {Basis * FVectorConstants::Forward, Basis * FVectorConstants::Right, Basis * FVectorConstants::Up};
 				FVector3 Snapped(0.0);
 				for (const FVector3& Axis : Axes)
-					Snapped += Axis * Snap(glm::dot(Delta, Axis), SnapSettings.Translation);
+					Snapped += Axis * Snap(Math::Dot(Delta, Axis), SnapSettings.Translation);
 				Delta = Snapped;
 			}
 			ApplyTranslation(Delta);
@@ -435,15 +437,15 @@ namespace Durin
 		else if (Mode == ETransformGizmoMode::Rotate)
 		{
 			FVector3 Vector = Current - Pivot;
-			if (glm::dot(Vector, Vector) <= Epsilon) return;
-			Vector = glm::normalize(Vector);
-			double Angle = std::atan2(glm::dot(DragAxis, glm::cross(DragStartVector, Vector)), glm::dot(DragStartVector, Vector));
-			if (bSnap) Angle = glm::radians(Snap(glm::degrees(Angle), SnapSettings.RotationDegrees));
+			if (Math::LengthSquared(Vector) <= Epsilon) return;
+			Vector = Math::Normalize(Vector);
+			double Angle = std::atan2(Math::Dot(DragAxis, Math::Cross(DragStartVector, Vector)), Math::Dot(DragStartVector, Vector));
+			if (bSnap) Angle = Math::DegreesToRadians(Snap(Math::RadiansToDegrees(Angle), SnapSettings.RotationDegrees));
 			ApplyRotation(Angle);
 		}
 		else
 		{
-			double Factor = ActiveHandle == ETransformGizmoHandle::Uniform ? 1.0 + static_cast<double>(DragStartMouseY - Input.MousePosition.y) / GizmoPixels : 1.0 + glm::dot(Current - DragStartPoint, DragAxis) / std::max(0.001f, WorldScale);
+			double Factor = ActiveHandle == ETransformGizmoHandle::Uniform ? 1.0 + static_cast<double>(DragStartMouseY - Input.MousePosition.y) / GizmoPixels : 1.0 + Math::Dot(Current - DragStartPoint, DragAxis) / std::max(0.001f, WorldScale);
 			if (bSnap) Factor = 1.0 + Snap(Factor - 1.0, SnapSettings.Scale);
 			Factor = std::max(0.001, Factor);
 			FVector3 Factors(1.0);
@@ -461,7 +463,7 @@ namespace Durin
 
 	auto FTransformGizmo::ApplyTranslation(const FVector3& Delta) -> void
 	{
-		bDragChanged = glm::dot(Delta, Delta) > Epsilon;
+		bDragChanged = Math::LengthSquared(Delta) > Epsilon;
 		DisplayPivot = Pivot + Delta;
 		DisplayBasis = Basis;
 		for (FTargetSnapshot& Snapshot : Snapshots)
@@ -476,25 +478,27 @@ namespace Durin
 	auto FTransformGizmo::ApplyRotation(double Radians) -> void
 	{
 		bDragChanged = std::abs(Radians) > Epsilon;
-		const FQuat Delta = glm::angleAxis(Radians, DragAxis);
+		const FQuat Delta = Math::MakeQuaternionFromAxisAngleRadians(Radians, DragAxis);
 		DisplayPivot = Pivot;
-		DisplayBasis = GetEffectiveSpace() == ETransformGizmoSpace::Local ? glm::normalize(Delta * Basis) : Basis;
+		DisplayBasis = GetEffectiveSpace() == ETransformGizmoSpace::Local ? Math::Normalize(Delta * Basis) : Basis;
 		for (FTargetSnapshot& Snapshot : Snapshots)
 		{
 			if (!Snapshot.Target || !Snapshot.Target->IsValid()) continue;
 			FTransform Transform = Snapshot.Initial;
 			Transform.Translation = Pivot + Delta * (Transform.Translation - Pivot);
-			Transform.Rotation = glm::normalize(Delta * Transform.Rotation);
+			Transform.Rotation = Math::Normalize(Delta * Transform.Rotation);
 			Snapshot.Target->SetTransform(Transform);
 		}
 	}
 
 	auto FTransformGizmo::ApplyScale(const FVector3& Factors) -> void
 	{
-		bDragChanged = glm::length(Factors - FVector3(1.0)) > Epsilon;
+		bDragChanged = Math::Length(Factors - FVector3(1.0)) > Epsilon;
 		DisplayPivot = Pivot;
 		DisplayBasis = Basis;
-		const FMatrix Delta = glm::translate(FMatrix(1.0), Pivot) * glm::mat4_cast(Basis) * glm::scale(FMatrix(1.0), Factors) * glm::mat4_cast(glm::inverse(Basis)) * glm::translate(FMatrix(1.0), -Pivot);
+		const FMatrix Delta = Math::TranslationMatrix(Pivot) * Math::RotationMatrix(Basis)
+			* Math::ScaleMatrix(Factors) * Math::RotationMatrix(Math::Inverse(Basis))
+			* Math::TranslationMatrix(-Pivot);
 		for (FTargetSnapshot& Snapshot : Snapshots)
 		{
 			if (!Snapshot.Target || !Snapshot.Target->IsValid()) continue;
@@ -604,7 +608,8 @@ namespace Durin
 			for (size_t Index = 0; Index < 3; ++Index)
 			{
 				const FQuat Rotation = RotationFromX(Axes[Index]);
-				FMatrix Matrix = glm::translate(FMatrix(1.0), DisplayPivot) * glm::mat4_cast(Rotation) * glm::scale(FMatrix(1.0), FVector3(WorldScale));
+				FMatrix Matrix = Math::TranslationMatrix(DisplayPivot) * Math::RotationMatrix(Rotation)
+					* Math::ScaleMatrix(FVector3(WorldScale));
 				Add(EViewOverlayShape::Ring, Matrix, Handles[Index]);
 			}
 			return;
@@ -612,11 +617,13 @@ namespace Durin
 		for (size_t Index = 0; Index < 3; ++Index)
 		{
 			const FQuat Rotation = RotationFromX(Axes[Index]);
-			FMatrix Matrix = glm::translate(FMatrix(1.0), DisplayPivot) * glm::mat4_cast(Rotation) * glm::scale(FMatrix(1.0), FVector3(WorldScale));
+			FMatrix Matrix = Math::TranslationMatrix(DisplayPivot) * Math::RotationMatrix(Rotation)
+				* Math::ScaleMatrix(FVector3(WorldScale));
 			Add(Mode == ETransformGizmoMode::Translate ? EViewOverlayShape::Arrow : EViewOverlayShape::Axis, Matrix, Handles[Index]);
 			if (Mode == ETransformGizmoMode::Scale)
 			{
-				FMatrix Box = glm::translate(FMatrix(1.0), DisplayPivot + Axes[Index] * static_cast<double>(WorldScale)) * glm::scale(FMatrix(1.0), FVector3(WorldScale * 0.11f));
+				FMatrix Box = Math::TranslationMatrix(DisplayPivot + Axes[Index] * static_cast<double>(WorldScale))
+					* Math::ScaleMatrix(FVector3(WorldScale * 0.11f));
 				Add(EViewOverlayShape::Box, Box, Handles[Index]);
 			}
 		}
@@ -631,7 +638,7 @@ namespace Durin
 			};
 			for (const FPlane Plane : {FPlane{0, 1, ETransformGizmoHandle::XY}, FPlane{0, 2, ETransformGizmoHandle::XZ}, FPlane{1, 2, ETransformGizmoHandle::YZ}})
 			{
-				const FVector3 A = Axes[Plane.A], B = Axes[Plane.B], N = glm::normalize(glm::cross(A, B));
+				const FVector3 A = Axes[Plane.A], B = Axes[Plane.B], N = Math::Normalize(Math::Cross(A, B));
 				FMatrix Matrix(1.0);
 				Matrix[0] = FVector4(A * static_cast<double>(WorldScale * 0.2f), 0.0);
 				Matrix[1] = FVector4(B * static_cast<double>(WorldScale * 0.2f), 0.0);
@@ -642,7 +649,7 @@ namespace Durin
 		}
 		else
 		{
-			FMatrix Box = glm::translate(FMatrix(1.0), DisplayPivot) * glm::scale(FMatrix(1.0), FVector3(WorldScale * 0.13f));
+			FMatrix Box = Math::TranslationMatrix(DisplayPivot) * Math::ScaleMatrix(FVector3(WorldScale * 0.13f));
 			Add(EViewOverlayShape::Box, Box, ETransformGizmoHandle::Uniform);
 		}
 	}

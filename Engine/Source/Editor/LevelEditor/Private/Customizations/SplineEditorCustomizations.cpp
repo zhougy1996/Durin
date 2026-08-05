@@ -4,6 +4,7 @@
 #include "DObject/Package.h"
 #include "Editor/EditorTransaction.h"
 #include "Engine/Actor.h"
+#include "Math/Operations.h"
 #include "MonaImGui.h"
 #include "SceneViewProjection.h"
 #include "Viewport/LevelEditorViewportClient.h"
@@ -29,7 +30,7 @@ namespace Durin
 
 		auto WorldToLocal(const DSplineComponent& Spline, const FVector3& Position) -> FVector3
 		{
-			return FVector3(glm::inverse(Spline.GetComponentToWorldMatrix()) * FVector4(Position, 1.0));
+			return FVector3(Math::Inverse(Spline.GetComponentToWorldMatrix()) * FVector4(Position, 1.0));
 		}
 
 		auto IsSelected(std::span<const FEditorSubElementSelection> Selection, const FEditorSubElementSelection& Element) -> bool
@@ -126,7 +127,7 @@ namespace Durin
 				}
 				if (Mode == ESplineTangentMode::ManualAligned)
 				{
-					const FVector3 Seed = glm::length(Point.LeaveTangent) > kSmallNumber ? Point.LeaveTangent : Point.ArriveTangent;
+					const FVector3 Seed = Math::Length(Point.LeaveTangent) > kSmallNumber ? Point.LeaveTangent : Point.ArriveTangent;
 					Point.ArriveTangent = Point.LeaveTangent = Seed;
 				}
 			}
@@ -262,7 +263,7 @@ namespace Durin
 				const double T = static_cast<double>(Step) / 64.0;
 				FVector2f Screen;
 				if (!SceneViewProjection::ProjectWorldToViewport(View, Spline.GetSampleAtParameter({SegmentIndex, T}, ESplineCoordinateSpace::World).Position, Screen)) continue;
-				const float Distance = glm::length(Screen - Mouse);
+				const float Distance = Math::Length(Screen - Mouse);
 				if (Distance < BestDistance) { BestDistance = Distance; BestT = T; }
 			}
 			return std::clamp(BestT, 1.0 / 64.0, 63.0 / 64.0);
@@ -436,7 +437,7 @@ namespace Durin
 
 						const FVector3 Position = Spline->GetSplinePoint(Selected.front())->Position;
 						const bool bMixedPosition = std::ranges::any_of(Selected, [Spline, Position](uint32 Index) {
-							return glm::length(Spline->GetSplinePoint(Index)->Position - Position) > 1e-9;
+							return Math::Length(Spline->GetSplinePoint(Index)->Position - Position) > 1e-9;
 						});
 						double PositionValue[3] = {Position.x, Position.y, Position.z};
 						MonaImGui::PropertyEdit::BeginRow(bMixedPosition ? "Position (Multiple Values)" : "Position", ViewContext.bReadOnly);
@@ -450,7 +451,7 @@ namespace Durin
 						{
 							const FVector3 Delta = FVector3(PositionValue[0], PositionValue[1], PositionValue[2]) - Position;
 							Changed |= EditSelectedPoints(Context, *Spline, ViewContext.Transactions, "Edit Spline Point Position",
-								[Delta](uint32, FSplinePoint& Point) { Point.Position += Delta; return glm::length(Delta) > 1e-12; });
+								[Delta](uint32, FSplinePoint& Point) { Point.Position += Delta; return Math::Length(Delta) > 1e-12; });
 						}
 						if (Selected.size() == 1)
 						{
@@ -568,8 +569,8 @@ namespace Durin
 			const FSplineSample EndSample = Spline.GetSampleAtParameter({SegmentIndex, 1.0});
 			const FVector3 P0 = StartSample.Position, P1 = P0 + StartSample.FirstDerivative / 3.0;
 			const FVector3 P3 = EndSample.Position, P2 = P3 - EndSample.FirstDerivative / 3.0;
-			const FVector3 A = glm::mix(P0, P1, T), B = glm::mix(P1, P2, T), C = glm::mix(P2, P3, T);
-			const FVector3 D = glm::mix(A, B, T), E = glm::mix(B, C, T), Q = glm::mix(D, E, T);
+			const FVector3 A = Math::Lerp(P0, P1, T), B = Math::Lerp(P1, P2, T), C = Math::Lerp(P2, P3, T);
+			const FVector3 D = Math::Lerp(A, B, T), E = Math::Lerp(B, C, T), Q = Math::Lerp(D, E, T);
 			Start.LeaveTangent = (A - P0) * 3.0;
 			Inserted.Position = Q;
 			Inserted.ArriveTangent = (Q - D) * 3.0;

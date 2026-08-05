@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "Math/Vector.h"
+#include "Math/Operations.h"
 #include "RHIResources.h"
 
 namespace Durin
@@ -133,7 +133,7 @@ namespace Durin
 				{
 					FVector3 Direction{};
 					ASSERT_TRUE(ResolveTextureCubeFacePixelDirection(Face, X, Y, 3, Direction));
-					EXPECT_NEAR(glm::length(Direction), 1.0, 1.e-12);
+					EXPECT_NEAR(Math::Length(Direction), 1.0, 1.e-12);
 
 					ETextureCubeFace ResolvedFace = ETextureCubeFace::PositiveX;
 					FVector2f Uv{};
@@ -183,7 +183,7 @@ namespace Durin
 				FVector3 Direction{};
 				ASSERT_TRUE(ResolveTextureCubeFacePixelDirection(
 					Case.Face, EdgePixels[EdgeIndex].first, EdgePixels[EdgeIndex].second, 3, Direction));
-				const FVector3 Expected = glm::normalize(Case.TopRightBottomLeft[EdgeIndex]);
+				const FVector3 Expected = Math::Normalize(Case.TopRightBottomLeft[EdgeIndex]);
 				EXPECT_NEAR(Direction.x, Expected.x, 1.e-12);
 				EXPECT_NEAR(Direction.y, Expected.y, 1.e-12);
 				EXPECT_NEAR(Direction.z, Expected.z, 1.e-12);
