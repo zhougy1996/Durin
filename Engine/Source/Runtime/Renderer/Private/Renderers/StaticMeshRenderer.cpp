@@ -25,6 +25,7 @@
 #include <bit>
 #include <format>
 #include <string>
+#include <unordered_map>
 #include <utility>
 
 namespace Durin
@@ -110,9 +111,7 @@ namespace Durin
 			FVector4f UVRotations1{0.0f};
 		};
 
-		inline constexpr size_t MaterialSamplerCount = 6 * 2 * 3 * 3;
-
-		auto GetMaterialSamplerIndex(const FMaterialSamplerState& State) -> size_t
+		auto GetMaterialSamplerKey(const FMaterialSamplerState& State) -> size_t
 		{
 			return static_cast<size_t>(State.MinFilter) + 6 * (
 				static_cast<size_t>(State.MagFilter) + 2 * (
@@ -193,7 +192,10 @@ namespace Durin
 	{
 		struct FBaseResources
 		{
-			std::array<FSamplerRHIRef, MaterialSamplerCount> MaterialSamplers{};
+			std::unordered_map<
+				size_t,
+				TRenderResourceCreationSlot<FSamplerRHIRef>>
+				MaterialSamplerCache;
 		};
 
 		struct FShaderMapPayload
@@ -247,34 +249,7 @@ namespace Durin
 		return State->BaseResources.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
 			[]() -> FResult {
-				FState::FBaseResources Candidate;
-				for (uint8 AddressV = 0; AddressV < 3; ++AddressV)
-				for (uint8 AddressU = 0; AddressU < 3; ++AddressU)
-				for (uint8 Mag = 0; Mag < 2; ++Mag)
-				for (uint8 Min = 0; Min < 6; ++Min)
-				{
-					const FMaterialSamplerState State{
-						.MinFilter = static_cast<EMaterialSamplerMinFilter>(Min),
-						.MagFilter = static_cast<EMaterialSamplerMagFilter>(Mag),
-						.AddressU = static_cast<EMaterialSamplerAddressMode>(AddressU),
-						.AddressV = static_cast<EMaterialSamplerAddressMode>(AddressV),
-					};
-					FSamplerRHIRef& Sampler =
-						Candidate.MaterialSamplers[GetMaterialSamplerIndex(State)];
-					Sampler = RHICreateSampler(MakeMaterialSamplerDesc(State));
-					if (Sampler == nullptr)
-					{
-						return FResult::Failure(
-							MakeRendererResourceCreateError(
-								ERenderResourceCreateErrorCategory::RHIResource,
-								"StaticMeshBaseResources",
-								"material-sampler",
-								"RHI sampler creation returned null.",
-								ERenderResourceGenerationDependency::Device
-									| ERenderResourceGenerationDependency::Manual));
-					}
-				}
-				return FResult::Success(std::move(Candidate));
+				return FResult::Success(FState::FBaseResources{});
 			},
 			ReportRendererResourceCreateDiagnostic)
 			!= nullptr;
@@ -699,18 +674,63 @@ namespace Durin
 			FragmentShaderParameters.EmissiveTexture = ResolveTexture(5, EDefaultTexture::Black);
 			FragmentShaderParameters.OpacityTexture = ResolveTexture(6, EDefaultTexture::White);
 			FragmentShaderParameters.OpacityMaskTexture = ResolveTexture(7, EDefaultTexture::White);
-			auto ResolveSampler = [&](size_t Role) {
-				return BaseResources->MaterialSamplers[
-					GetMaterialSamplerIndex(MaterialBinding.Samplers[Role])].GetReference();
+			auto ResolveSampler = [&](size_t Role) -> FRHISampler* {
+				const FMaterialSamplerState SamplerState =
+					MaterialBinding.Samplers[Role];
+				auto Entry = BaseResources->MaterialSamplerCache.try_emplace(
+					GetMaterialSamplerKey(SamplerState),
+					ERenderResourceGenerationDependency::Device).first;
+				using FSamplerResult =
+					TRenderResourceCreateResult<FSamplerRHIRef>;
+				FSamplerRHIRef* Sampler = Entry->second.Resolve(
+					Coordinator.GetGeneration_RenderThread(),
+					[SamplerState]() -> FSamplerResult {
+						FSamplerRHIRef Candidate =
+							RHICreateSampler(MakeMaterialSamplerDesc(SamplerState));
+						if (Candidate == nullptr)
+						{
+							return FSamplerResult::Failure(
+								MakeRendererResourceCreateError(
+									ERenderResourceCreateErrorCategory::RHIResource,
+									"StaticMeshMaterialSampler",
+									std::format(
+										"min={},mag={},u={},v={}",
+										static_cast<uint8>(SamplerState.MinFilter),
+										static_cast<uint8>(SamplerState.MagFilter),
+										static_cast<uint8>(SamplerState.AddressU),
+										static_cast<uint8>(SamplerState.AddressV)),
+									"RHI sampler creation returned null.",
+									ERenderResourceGenerationDependency::Device
+										| ERenderResourceGenerationDependency::Manual));
+						}
+						return FSamplerResult::Success(std::move(Candidate));
+					},
+					ReportRendererResourceCreateDiagnostic);
+				return Sampler != nullptr ? Sampler->GetReference() : nullptr;
 			};
-			FragmentShaderParameters.BaseColorSampler = ResolveSampler(0);
-			FragmentShaderParameters.NormalSampler = ResolveSampler(1);
-			FragmentShaderParameters.MetallicSampler = ResolveSampler(2);
-			FragmentShaderParameters.RoughnessSampler = ResolveSampler(3);
-			FragmentShaderParameters.AmbientOcclusionSampler = ResolveSampler(4);
-			FragmentShaderParameters.EmissiveSampler = ResolveSampler(5);
-			FragmentShaderParameters.OpacitySampler = ResolveSampler(6);
-			FragmentShaderParameters.OpacityMaskSampler = ResolveSampler(7);
+			std::array<FRHISampler*, 8> MaterialSamplers{};
+			bool bMaterialSamplersValid = true;
+			for (size_t Role = 0; Role < MaterialSamplers.size(); ++Role)
+			{
+				MaterialSamplers[Role] = ResolveSampler(Role);
+				if (MaterialSamplers[Role] == nullptr)
+				{
+					bMaterialSamplersValid = false;
+					break;
+				}
+			}
+			if (!bMaterialSamplersValid)
+			{
+				continue;
+			}
+			FragmentShaderParameters.BaseColorSampler = MaterialSamplers[0];
+			FragmentShaderParameters.NormalSampler = MaterialSamplers[1];
+			FragmentShaderParameters.MetallicSampler = MaterialSamplers[2];
+			FragmentShaderParameters.RoughnessSampler = MaterialSamplers[3];
+			FragmentShaderParameters.AmbientOcclusionSampler = MaterialSamplers[4];
+			FragmentShaderParameters.EmissiveSampler = MaterialSamplers[5];
+			FragmentShaderParameters.OpacitySampler = MaterialSamplers[6];
+			FragmentShaderParameters.OpacityMaskSampler = MaterialSamplers[7];
 			FRHITexture* EnvironmentIrradiance =
 				EnvironmentLighting.GetIrradiance_RenderThread();
 			FRHITexture* EnvironmentPrefiltered =
@@ -729,7 +749,7 @@ namespace Durin
 			FragmentShaderParameters.EnvironmentBrdfLut = bHasCompleteEnvironment
 				? EnvironmentBrdfLut : DefaultTextures.Get_RenderThread(EDefaultTexture::Black);
 			FragmentShaderParameters.EnvironmentSampler = bHasCompleteEnvironment
-				? EnvironmentSampler : ResolveSampler(0);
+				? EnvironmentSampler : MaterialSamplers[0];
 			SetShaderParameters(
 				CommandList,
 				Pipeline->FragmentShader,
