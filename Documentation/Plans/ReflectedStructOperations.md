@@ -21,6 +21,10 @@ Completed:
 - CoreDObject and AssetCore serializers recursively walk reflected struct
   fields. They do not consult `DStruct` lifecycle callbacks or dispatch to a
   struct-owned serializer.
+- Core math types such as `FVector3` cannot include CoreDObject reflection
+  declarations. They are registered as intrinsic structs through an external
+  CoreDObject bridge; that bridge currently publishes fields but no lifecycle
+  operations.
 - The selected path is a C++ trait and compiler-generated operation table,
   analogous in purpose to UE StructOps but limited to Durin's demonstrated
   runtime needs.
@@ -48,6 +52,8 @@ partially valid values.
 - Optional logical equality, runtime Archive serialization, post-deserialize
   repair/validation, and hidden object-reference collection operations.
 - Capability-aware generic struct storage and existing reflection consumers.
+- One external intrinsic-registration path for Core-owned value types, with
+  `FVector3` as the required reference implementation.
 - Fail-closed integration with current field-walk object-graph and authored-
   asset serialization.
 - Focused DHT, CoreDObject, AssetCore, GC, and compatibility tests plus lasting
@@ -66,6 +72,9 @@ partially valid values.
   trait.
 - Treating raw byte copy, zeroing, padding comparison, or host ABI layout as a
   valid default for reflected values.
+- Replacing GLM-backed math types or introducing a Durin math API facade. The
+  operation contract must keep that future implementation change possible, but
+  this plan does not perform it.
 - Silently changing the DAST v2 wire representation of existing structs.
 
 ## Design Decisions and Invariants
@@ -89,6 +98,37 @@ partially valid values.
   they do not retain a second callback convention.
 - `DStruct` publishes immutable operations after registration. Runtime code may
   query capabilities but may not mutate them after reflection finalization.
+
+### Intrinsic and Externally Registered Structs
+
+- Core-owned types remain free of CoreDObject headers and reflection macros.
+  CoreDObject owns their external `DStruct` descriptors, reflected field
+  accessors, and operation-table registration.
+- DHT's built-in symbol entry only makes the stable reflected identity available
+  to property resolution. It does not create a separate lifecycle or
+  serialization policy.
+- Generated and intrinsic structs use the same `FDStructOps` type, capability
+  queries, managed storage, equality traversal, Archive dispatch, GC traversal,
+  and diagnostics. Only descriptor authorship differs.
+- `Durin::FVector3` is the required reference intrinsic with the stable logical
+  descriptor `x: Double`, `y: Double`, and `z: Double`. Member accessors, not
+  offsets or contiguous-byte assumptions, expose those fields.
+- `FVector3` registers explicit deterministic default construction as
+  `(0, 0, 0)`, trivial destruction, and compiler-checked copy construction and
+  copy assignment. Mechanical C++ default constructibility alone does not
+  establish a deterministic serialization baseline.
+- The three reflected fields completely define current logical and authored
+  state. `FVector3` therefore uses recursive field equality and field-walk
+  Archive/DAST v2 serialization; it declares no custom serializer,
+  post-deserialize callback, hidden-reference collector, or custom-asset-codec
+  requirement.
+- `sizeof(FVector3)` and `alignof(FVector3)` remain runtime storage facts only.
+  Replacing GLM later may change the C++ ABI and require a full rebuild, but it
+  must not change the qualified reflection identity or the three-component
+  authored representation.
+- A future DAST v3 `Vector3F64` codec is an AssetCore wire optimization guarded
+  by descriptor validation. It is not a StructOps serializer and remains owned
+  by the Compact Asset Serialization roadmap.
 
 ### Lifecycle Contract
 
@@ -196,6 +236,9 @@ future package formats.
 - [ ] Inventory every DHT-generated and intrinsic `DStruct`, its constructors,
   destructor, copy behavior, reflected and unreflected state, object references,
   and current serialization use.
+- [ ] Record the intrinsic `FVector3` contract: stable qualified name and
+  component fields, explicit zero default, trivial destruction, copy support,
+  complete reflected authored state, and no raw-layout dependency.
 - [ ] Inventory every current call site that constructs, destroys, copies,
   snapshots, compares, serializes, or GC-traces struct storage.
 - [ ] Freeze the names, signatures, flags, ABI version, registration lifetime,
@@ -228,11 +271,16 @@ future package formats.
 - [ ] Emit focused compile diagnostics when an explicit semantic trait lacks
   its required method or has the wrong signature.
 - [ ] Convert intrinsic math struct registration to the same contract.
+- [ ] Register `FVector3` through the common operation builder with an explicit
+  deterministic `(0, 0, 0)` initializer and no custom serialization hooks.
 - [ ] Preserve qualified-name registration, reflected property generation, and
   GC schema finalization ordering.
 - [ ] Add DHT generation tests for ordinary, move-only, deleted-default,
   trivial, nontrivial, custom-equality, and malformed-trait fixtures.
 - [ ] Add CoreDObject tests proving accurate runtime flags and null callbacks.
+- [ ] Add `FVector3` bridge tests for field identities and accessors, storage
+  size/alignment metadata, deterministic initialization, copy construction,
+  copy assignment, trivial destruction, and absent optional callbacks.
 
 #### Acceptance Gate
 
@@ -242,6 +290,8 @@ future package formats.
   preconditions, and every absent capability is safely queryable.
 - Existing simple reflected structs retain equivalent behavior without manual
   traits.
+- `FVector3` exposes the same operation-table contract as a generated struct
+  without adding a CoreDObject dependency to Core.
 
 ### Stage 2: Make Lifecycle, Equality, and GC Consumers Capability-Aware
 
@@ -257,6 +307,9 @@ future package formats.
   destinations or ownership state.
 - [ ] Add lifecycle-count, rollback, nested-container, custom-equality, and
   hidden-reference GC tests.
+- [ ] Prove `FVector3` equality is the recursive equality of its three `double`
+  components, including the selected NaN and signed-zero rules, and never reads
+  GLM padding or alignment bytes.
 
 #### Acceptance Gate
 
@@ -286,6 +339,9 @@ future package formats.
 - [ ] Add round-trip tests for default field walk, custom Archive serialization,
   derived-cache repair, invariant rejection, nested structs, arrays, maps, and
   authored-codec-required failures.
+- [ ] Add unchanged DAST v2 and object-graph round trips for `FVector3` as a
+  direct property and inside `FTransform`, arrays, and maps; cover zero,
+  infinities, signed zero, and preserved NaN payload policy.
 
 #### Acceptance Gate
 
@@ -315,8 +371,9 @@ future package formats.
 
 #### Acceptance Gate
 
-- Every repository `DSTRUCT` compiles with its audited semantics and no
-  unconditional generated lifecycle expression remains.
+- Every repository `DSTRUCT` and externally registered intrinsic struct
+  compiles with its audited semantics and no unconditional generated lifecycle
+  expression or legacy intrinsic callback path remains.
 - Focused suites and the full build pass from one coherent generated-code
   baseline.
 - Lasting documentation owns the implemented contract, and the compact-
@@ -329,6 +386,7 @@ future package formats.
 | --- | --- |
 | DHT generation | Ordinary and unavailable operations generate valid code; invalid explicit traits produce focused diagnostics |
 | Registration | Immutable flags and callbacks match compiler and specialization facts for generated and intrinsic structs |
+| Intrinsic bridge | `FVector3` keeps its stable name and `x/y/z` Double fields, initializes deterministically, copies safely, and never serializes layout bytes |
 | Lifecycle | Exactly-once construction/destruction, distinct copy modes, alignment, rollback, and nested storage |
 | Equality | Scalar, enum, string, object reference, array, map, nested struct, custom identical, NaN, and signed-zero behavior |
 | GC and snapshots | Reflected plus hidden strong references remain traced and detached values root exactly their live references |
@@ -353,6 +411,9 @@ and [Native Tests](../Development/Build/NativeTests.md).
   struct whose declared durable state needs an unavailable custom codec.
 - Existing structs are audited and migrated, focused tests and the full build
   pass, and lasting runtime documentation is updated.
+- `FVector3` proves that Core-owned types can use the complete reflected-struct
+  contract without reflection macros, CoreDObject dependencies, or a second
+  serialization model.
 - The Compact Asset Serialization roadmap records this plan as a satisfied
   prerequisite or names the remaining custom-codec blocker.
 
@@ -383,7 +444,9 @@ and [Native Tests](../Development/Build/NativeTests.md).
 - `Engine/Source/Runtime/CoreDObject/Public/DObject/DObjectGlobals.h`
 - `Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h`
 - `Engine/Source/Runtime/CoreDObject/Private/DObject/Archive.cpp`
+- `Engine/Source/Runtime/CoreDObject/Private/DObject/MathStructs.cpp`
 - `Engine/Source/Runtime/CoreDObject/Private/DObject/GCReferenceSchema.cpp`
+- `Engine/Source/Runtime/Core/Public/Math/MathFwd.h`
 - `Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp`
 - `Engine/Source/Programs/DurinHeaderTool/tests/test_reflection_generation.py`
 - `Engine/Tests/Native/CoreDObjectTests/`
