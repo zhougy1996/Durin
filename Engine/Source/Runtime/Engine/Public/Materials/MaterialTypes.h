@@ -24,6 +24,8 @@ namespace Durin
 		Scalar,
 		Vector,
 		Texture,
+		// Appended to preserve the serialized values of the original alternatives.
+		Vector2,
 	};
 
 	// Selects editor presentation without changing the parameter's runtime type.
@@ -64,7 +66,7 @@ namespace Durin
 	};
 
 	using FMaterialParameterSchemaVersion = uint32;
-	inline constexpr FMaterialParameterSchemaVersion CurrentMaterialParameterSchemaVersion = 2;
+	inline constexpr FMaterialParameterSchemaVersion CurrentMaterialParameterSchemaVersion = 3;
 
 	// Describes the transient Engine-to-Renderer material payload protocol.
 	enum class EMaterialRenderFieldStorage : uint8
@@ -208,13 +210,13 @@ namespace Durin
 		float AmbientOcclusion = 1.0f;
 		float OpacityMask = 1.0f;
 		std::array<float, 8> UVChannels{};
-		std::array<FVector3f, 8> UVScales{};
-		std::array<FVector3f, 8> UVOffsets{};
+		std::array<FVector2f, 8> UVScales{};
+		std::array<FVector2f, 8> UVOffsets{};
 		std::array<FRHITextureReferenceRef, 8> Textures{};
 
 		FMaterialRenderV2Binding()
 		{
-			UVScales.fill(FVector3f(1.0f, 1.0f, 0.0f));
+			UVScales.fill(FVector2f(1.0f, 1.0f));
 		}
 	};
 
@@ -240,6 +242,9 @@ namespace Durin
 
 		ENGINE_API auto SetScalar(const FGuid& ParameterId, float Value) -> bool;
 		ENGINE_API auto SetVector(const FGuid& ParameterId, const FVector3& Value) -> bool;
+		// Vector2 values are packed into the legacy v2 render slot as XY plus a
+		// zero compatibility component; the authored value remains two-dimensional.
+		ENGINE_API auto SetVector2(const FGuid& ParameterId, const FVector2& Value) -> bool;
 		ENGINE_API auto SetTexture(
 			const FGuid& ParameterId,
 			const FRHITextureReferenceRef& Value
@@ -296,7 +301,8 @@ namespace Durin
 		auto operator==(const FMaterialStaticProperties&) const -> bool = default;
 	};
 
-	// Stores the scalar, vector, and texture alternatives used by reflected material parameters.
+	// Stores the reflected alternatives used by material parameters. Type selects
+	// the only semantically active field.
 	DSTRUCT()
 	struct FMaterialParameterValue
 	{
@@ -309,10 +315,14 @@ namespace Durin
 		FVector3 VectorValue{0.0};
 
 		DPROPERTY()
+		FVector2 Vector2Value{0.0};
+
+		DPROPERTY()
 		TObjectPtr<DTexture2D> TextureValue;
 
 		ENGINE_API static auto MakeScalar(float Value) -> FMaterialParameterValue;
 		ENGINE_API static auto MakeVector(const FVector3& Value) -> FMaterialParameterValue;
+		ENGINE_API static auto MakeVector2(const FVector2& Value) -> FMaterialParameterValue;
 		ENGINE_API static auto MakeTexture(DTexture2D* Value) -> FMaterialParameterValue;
 
 		auto operator==(const FMaterialParameterValue&) const -> bool = default;

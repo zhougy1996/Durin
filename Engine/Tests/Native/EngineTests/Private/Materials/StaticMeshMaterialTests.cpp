@@ -541,8 +541,8 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	Instance->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.35f);
 	Instance->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.8f);
 	Instance->SetScalarParameterValue(Durin::FName("BaseColorUVChannel"), 2.0f);
-	Instance->SetVectorParameterValue(Durin::FName("BaseColorUVScale"), Durin::FVector3(2.0, -1.0, 0.0));
-	Instance->SetVectorParameterValue(Durin::FName("BaseColorUVOffset"), Durin::FVector3(0.25, 0.5, 0.0));
+	Instance->SetVector2ParameterValue(Durin::FName("BaseColorUVScale"), Durin::FVector2(2.0, -1.0));
+	Instance->SetVector2ParameterValue(Durin::FName("BaseColorUVOffset"), Durin::FVector2(0.25, 0.5));
 	Instance->SetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Instance->GetPackage()));
 	const Durin::Asset::FAssetData* InstanceData =
@@ -569,8 +569,8 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	EXPECT_FLOAT_EQ(LoadedBinding.Metallic, 0.8f);
 	EXPECT_FLOAT_EQ(LoadedBinding.Roughness, 0.7f);
 	EXPECT_FLOAT_EQ(LoadedBinding.UVChannels[0], 2.0f);
-	EXPECT_EQ(LoadedBinding.UVScales[0], Durin::FVector3f(2.0f, -1.0f, 0.0f));
-	EXPECT_EQ(LoadedBinding.UVOffsets[0], Durin::FVector3f(0.25f, 0.5f, 0.0f));
+	EXPECT_EQ(LoadedBinding.UVScales[0], Durin::FVector2f(2.0f, -1.0f));
+	EXPECT_EQ(LoadedBinding.UVOffsets[0], Durin::FVector2f(0.25f, 0.5f));
 	Durin::DTexture2D* LoadedTexture = nullptr;
 	ASSERT_TRUE(Loaded->GetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), LoadedTexture));
 	ASSERT_NE(LoadedTexture, nullptr);

@@ -721,19 +721,19 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
 			Durin::MaterialParameters::BaseColorTextureName(), TextureResult.Asset));
-		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
-			Durin::FName("BaseColorUVScale"), Durin::FVector3(1.0, 1.0, 0.0)));
-		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
-			Durin::FName("BaseColorUVOffset"), Durin::FVector3(0.0, 0.0, 0.0)));
+		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
+			Durin::FName("BaseColorUVScale"), Durin::FVector2(1.0, 1.0)));
+		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
+			Durin::FName("BaseColorUVOffset"), Durin::FVector2(0.0, 0.0)));
 		const std::vector<Durin::uint8> UV0Pixels = Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::FName("BaseColorUVChannel"), 3.0f));
 		const std::vector<Durin::uint8> MissingUVFallbackPixels =
 			Capture(CaptureMaterial);
-		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
-			Durin::FName("BaseColorUVScale"), Durin::FVector3(-1.0, 1.0, 0.0)));
-		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
-			Durin::FName("BaseColorUVOffset"), Durin::FVector3(1.0, 0.0, 0.0)));
+		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
+			Durin::FName("BaseColorUVScale"), Durin::FVector2(-1.0, 1.0)));
+		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
+			Durin::FName("BaseColorUVOffset"), Durin::FVector2(1.0, 0.0)));
 		const std::vector<Durin::uint8> TransformedUVPixels =
 			Capture(CaptureMaterial);
 		EXPECT_EQ(UV0Pixels, MissingUVFallbackPixels);
@@ -743,10 +743,10 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		EXPECT_FLOAT_EQ(TransformedUVBinding.UVChannels[0], 3.0f);
 		EXPECT_EQ(
 			TransformedUVBinding.UVScales[0],
-			Durin::FVector3f(-1.0f, 1.0f, 0.0f));
+			Durin::FVector2f(-1.0f, 1.0f));
 		EXPECT_EQ(
 			TransformedUVBinding.UVOffsets[0],
-			Durin::FVector3f(1.0f, 0.0f, 0.0f));
+			Durin::FVector2f(1.0f, 0.0f));
 
 		const std::array<const Durin::FName*, 8> TextureNames{
 			&Durin::MaterialParameters::BaseColorTextureName(),

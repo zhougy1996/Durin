@@ -16,8 +16,71 @@ namespace Durin::MonaImGui::PropertyEdit
 			State->bDeactivatedAfterEdit |= ImGui::IsItemDeactivatedAfterEdit();
 		}
 
+		auto MakeComponentFormat(
+			char* Buffer,
+			size_t BufferSize,
+			const char* ComponentName,
+			const char* ValueFormat
+		) -> const char*
+		{
+			const char* ResolvedValueFormat = ValueFormat
+				? ValueFormat : ImGui::DataTypeGetInfo(ImGuiDataType_Double)->PrintFmt;
+			char PrefixBuffer[4];
+			ImFormatString(PrefixBuffer, IM_COUNTOF(PrefixBuffer), "%s:", ComponentName);
+			const float SpaceWidth = std::max(ImGui::CalcTextSize(" ").x, 1.0f);
+			const size_t SpaceCount = std::clamp<size_t>(
+				static_cast<size_t>(std::ceil(
+					(ImGui::CalcTextSize(PrefixBuffer).x + SpaceWidth) / SpaceWidth)),
+				1,
+				BufferSize - 1);
+			std::fill_n(Buffer, SpaceCount, ' ');
+			ImFormatString(
+				Buffer + SpaceCount,
+				static_cast<int>(BufferSize - SpaceCount),
+				"%s",
+				ResolvedValueFormat);
+			return Buffer;
+		}
+
+		auto ColorComponentFormatPrefix(
+			const char* ComponentName,
+			const ImVec4& AxisColor,
+			const char* Format,
+			const double& Value
+		) -> void
+		{
+			const ImGuiID ItemId = ImGui::GetItemID();
+			if (ItemId == 0 || ImGui::TempInputIsActive(ItemId)) return;
+
+			char ValueBuffer[64];
+			const int ValueLength = ImGui::DataTypeFormatString(
+				ValueBuffer,
+				IM_COUNTOF(ValueBuffer),
+				ImGuiDataType_Double,
+				&Value,
+				Format);
+			char PrefixBuffer[4];
+			ImFormatString(PrefixBuffer, IM_COUNTOF(PrefixBuffer), "%s:", ComponentName);
+			const ImVec2 FrameMin = ImGui::GetItemRectMin();
+			const ImVec2 FrameMax = ImGui::GetItemRectMax();
+			const ImVec2 ValueSize = ImGui::CalcTextSize(ValueBuffer, ValueBuffer + ValueLength);
+			const ImVec2 TextPosition(
+				std::max(FrameMin.x, FrameMin.x + (FrameMax.x - FrameMin.x - ValueSize.x) * 0.5f),
+				std::max(FrameMin.y, FrameMin.y + (FrameMax.y - FrameMin.y - ValueSize.y) * 0.5f));
+			ImDrawList* DrawList = ImGui::GetWindowDrawList();
+			DrawList->PushClipRect(FrameMin, FrameMax, true);
+			DrawList->AddText(TextPosition, ImGui::GetColorU32(AxisColor), PrefixBuffer);
+			DrawList->PopClipRect();
+		}
+
 		template<size_t NumComponents, typename TVector>
-		auto EditComponentValues(const char* Id, TVector& Value, double Speed, FWidgetState* State) -> bool
+		auto EditComponentValues(
+			const char* Id,
+			TVector& Value,
+			double Speed,
+			FWidgetState* State,
+			const FValueWidgetConfig& Config
+		) -> bool
 		{
 			static_assert(NumComponents >= 2 && NumComponents <= 4);
 			static constexpr std::array<const char*, 4> ComponentNames = {"X", "Y", "Z", "W"};
@@ -31,18 +94,37 @@ namespace Durin::MonaImGui::PropertyEdit
 			ImGui::PushID(Id);
 			bool bChanged = false;
 			ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ScaleUI(3.0f), 0.0f));
-			if (ImGui::BeginTable("##Components", static_cast<int>(NumComponents), ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_NoPadOuterX))
+			const float MaximumWidth = Config.MaximumWidthInEm > 0.0f
+				? ImGui::GetFontSize() * Config.MaximumWidthInEm : 0.0f;
+			const ImVec2 OuterSize = MaximumWidth > 0.0f
+				? ImVec2(std::min(ImGui::GetContentRegionAvail().x, MaximumWidth), 0.0f) : ImVec2{};
+			if (ImGui::BeginTable("##Components", static_cast<int>(NumComponents),
+				ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_NoPadOuterX,
+				OuterSize))
 			{
 				for (size_t Component = 0; Component < NumComponents; ++Component)
 				{
 					ImGui::TableNextColumn();
-					ImGui::AlignTextToFramePadding();
-					ImGui::TextColored(ComponentColors[Component], "%s", ComponentNames[Component]);
-					ImGui::SameLine(0.0f, ScaleUI(3.0f));
 					ImGui::SetNextItemWidth(-FLT_MIN);
 					ImGui::PushID(static_cast<int>(Component));
-					bChanged |= ImGui::DragScalar("##Value", ImGuiDataType_Double, &Value[Component], static_cast<float>(Speed));
+					char ComponentFormat[64];
+					const char* Format = MakeComponentFormat(
+						ComponentFormat,
+						std::size(ComponentFormat),
+						ComponentNames[Component],
+						Config.Format);
+					bChanged |= ImGui::DragScalar(
+						"##Value",
+						ImGuiDataType_Double,
+						&Value[Component],
+						static_cast<float>(Speed),
+						Config.bHasRange ? &Config.MinimumValue : nullptr,
+						Config.bHasRange ? &Config.MaximumValue : nullptr,
+						Format,
+						Config.bHasRange ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None);
 					AccumulateLastItemState(State);
+					ColorComponentFormatPrefix(
+						ComponentNames[Component], ComponentColors[Component], Format, Value[Component]);
 					ImGui::PopID();
 				}
 				ImGui::EndTable();
@@ -86,38 +168,70 @@ namespace Durin::MonaImGui::PropertyEdit
 			return false;
 		}
 		const float FontSize = ImGui::GetFontSize();
-		const float DesiredPropertyWidth = ImGui::GetContentRegionAvail().x * Config.PropertyColumnWeight;
+		const float AvailableWidth = ImGui::GetContentRegionAvail().x;
+		const float DesiredPropertyWidth = AvailableWidth * Config.PropertyColumnWeight;
 		const float PropertyWidth = std::clamp(
 			DesiredPropertyWidth,
 			FontSize * Config.MinimumPropertyColumnWidthInEm,
 			FontSize * Config.MaximumPropertyColumnWidthInEm
 		);
 		ImGui::TableSetupColumn(Config.PropertyColumnLabel, ImGuiTableColumnFlags_WidthFixed, PropertyWidth);
-		ImGui::TableSetupColumn(Config.ValueColumnLabel, ImGuiTableColumnFlags_WidthStretch, Config.ValueColumnWeight);
+		if (Config.MaximumValueColumnWidthInEm > 0.0f)
+		{
+			const float ValueWidth = std::min(
+				FontSize * Config.MaximumValueColumnWidthInEm,
+				std::max(AvailableWidth - PropertyWidth, 0.0f));
+			ImGui::TableSetupColumn(Config.ValueColumnLabel, ImGuiTableColumnFlags_WidthFixed, ValueWidth);
+		}
+		else
+		{
+			ImGui::TableSetupColumn(Config.ValueColumnLabel, ImGuiTableColumnFlags_WidthStretch, Config.ValueColumnWeight);
+		}
 		if (Config.bShowHeaders) ImGui::TableHeadersRow();
 		return true;
 	}
 
-	auto EditVector(const char* Label, FVector2& Value, bool bReadOnly, double Speed, FWidgetState* OutState) -> bool
+	auto EditVectorValue(const char* Id, FVector2& Value, double Speed,
+		FWidgetState* OutState, const FValueWidgetConfig& Config) -> bool
+	{
+		return EditComponentValues<2>(Id, Value, Speed, OutState, Config);
+	}
+
+	auto EditVectorValue(const char* Id, FVector3& Value, double Speed,
+		FWidgetState* OutState, const FValueWidgetConfig& Config) -> bool
+	{
+		return EditComponentValues<3>(Id, Value, Speed, OutState, Config);
+	}
+
+	auto EditVectorValue(const char* Id, FVector4& Value, double Speed,
+		FWidgetState* OutState, const FValueWidgetConfig& Config) -> bool
+	{
+		return EditComponentValues<4>(Id, Value, Speed, OutState, Config);
+	}
+
+	auto EditVector(const char* Label, FVector2& Value, bool bReadOnly, double Speed,
+		FWidgetState* OutState, const FValueWidgetConfig& Config) -> bool
 	{
 		BeginRow(Label, bReadOnly);
-		const bool bChanged = EditComponentValues<2>(Label, Value, Speed, OutState);
+		const bool bChanged = EditVectorValue(Label, Value, Speed, OutState, Config);
 		EndRow(bReadOnly);
 		return bChanged;
 	}
 
-	auto EditVector(const char* Label, FVector3& Value, bool bReadOnly, double Speed, FWidgetState* OutState) -> bool
+	auto EditVector(const char* Label, FVector3& Value, bool bReadOnly, double Speed,
+		FWidgetState* OutState, const FValueWidgetConfig& Config) -> bool
 	{
 		BeginRow(Label, bReadOnly);
-		const bool bChanged = EditComponentValues<3>(Label, Value, Speed, OutState);
+		const bool bChanged = EditVectorValue(Label, Value, Speed, OutState, Config);
 		EndRow(bReadOnly);
 		return bChanged;
 	}
 
-	auto EditVector(const char* Label, FVector4& Value, bool bReadOnly, double Speed, FWidgetState* OutState) -> bool
+	auto EditVector(const char* Label, FVector4& Value, bool bReadOnly, double Speed,
+		FWidgetState* OutState, const FValueWidgetConfig& Config) -> bool
 	{
 		BeginRow(Label, bReadOnly);
-		const bool bChanged = EditComponentValues<4>(Label, Value, Speed, OutState);
+		const bool bChanged = EditVectorValue(Label, Value, Speed, OutState, Config);
 		EndRow(bReadOnly);
 		return bChanged;
 	}
@@ -134,6 +248,21 @@ namespace Durin::MonaImGui::PropertyEdit
 	{
 		ImGui::EndTable();
 		ImGui::PopStyleVar();
+	}
+
+	auto BeginGroup(const char* Id, const char* Label, ImGuiTreeNodeFlags Flags) -> bool
+	{
+		ImGui::TableNextRow();
+		ImGui::TableSetColumnIndex(0);
+		return CompactTreeNode(Id,
+			Flags | ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_LabelSpanAllColumns |
+			ImGuiTreeNodeFlags_FramePadding,
+			"%s", Label);
+	}
+
+	auto EndGroup() -> void
+	{
+		ImGui::TreePop();
 	}
 
 	auto BeginFixedArray(const char* Id, const char* Label, uint64 Count, ImGuiTreeNodeFlags Flags) -> bool
@@ -193,7 +322,7 @@ namespace Durin::MonaImGui::PropertyEdit
 
 		auto EditTransformRow = [&](const char* RowLabel, FVector3& Value, double Speed) -> bool {
 			BeginRow(RowLabel, bReadOnly, GetCompactTreeNodeToLabelSpacing());
-			const bool bChanged = EditComponentValues<3>(RowLabel, Value, Speed, OutState);
+			const bool bChanged = EditVectorValue(RowLabel, Value, Speed, OutState);
 			EndRow(bReadOnly);
 			return bChanged;
 		};

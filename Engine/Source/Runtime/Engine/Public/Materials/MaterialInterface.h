@@ -47,6 +47,7 @@ namespace Durin
 		ENGINE_API virtual auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool;
 
 		ENGINE_API virtual auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool;
+		ENGINE_API virtual auto GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool;
 		ENGINE_API virtual auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool;
 		ENGINE_API virtual auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool;
 		ENGINE_API virtual auto GetParent() const -> DMaterialInterface*;

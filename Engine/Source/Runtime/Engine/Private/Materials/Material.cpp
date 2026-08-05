@@ -51,6 +51,18 @@ namespace Durin
 		return true;
 	}
 
+	auto DMaterial::SetVector2ParameterValue(FName Name, const FVector2& Value) -> bool
+	{
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Vector2) return false;
+		auto& Mutable = ParameterDefinitions[static_cast<size_t>(Definition - ParameterDefinitions.data())].Value.Vector2Value;
+		if (Mutable == Value) return true;
+		Mutable = Value;
+		MarkPackageDirty();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::DynamicParameters);
+		return true;
+	}
+
 	auto DMaterial::SetVectorParameterValue(FName Name, const FVector3& Value) -> bool
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
@@ -80,6 +92,14 @@ namespace Durin
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
 		if (!Definition || Definition->Type != EMaterialParameterType::Scalar) return false;
 		OutValue = Definition->Value.ScalarValue;
+		return true;
+	}
+
+	auto DMaterial::GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool
+	{
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Vector2) return false;
+		OutValue = Definition->Value.Vector2Value;
 		return true;
 	}
 
@@ -120,6 +140,7 @@ namespace Durin
 	auto DMaterial::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
+		const FMaterialParameterSchemaVersion LoadedSchemaVersion = ParameterSchemaVersion;
 		const bool bUpgradeDefinitions = ParameterSchemaVersion < CurrentMaterialParameterSchemaVersion;
 		std::string SchemaWarning;
 		if (!UpgradeMaterialParameterSchemaVersion(
@@ -130,13 +151,32 @@ namespace Durin
 		if (bUpgradeDefinitions)
 		{
 			std::vector<FMaterialParameterDefinition> Upgraded = MakeCanonicalMaterialParameterDefinitions();
-			for (const FGuid& PreservedId : {MaterialParameters::BaseColorId, MaterialParameters::BaseColorTextureId, MaterialParameters::OpacityId})
+			if (LoadedSchemaVersion >= 2)
 			{
-				const auto Old = std::ranges::find(ParameterDefinitions, PreservedId, &FMaterialParameterDefinition::Id);
-				const auto New = std::ranges::find(Upgraded, PreservedId, &FMaterialParameterDefinition::Id);
-				if (Old != ParameterDefinitions.end() && New != Upgraded.end() && Old->Type == New->Type)
+				for (FMaterialParameterDefinition& New : Upgraded)
 				{
-					New->Value = Old->Value;
+					const auto Old = std::ranges::find(ParameterDefinitions, New.Id, &FMaterialParameterDefinition::Id);
+					if (Old == ParameterDefinitions.end()) continue;
+					if (Old->Type == New.Type)
+					{
+						New.Value = Old->Value;
+					}
+					else if (Old->Type == EMaterialParameterType::Vector
+						&& New.Type == EMaterialParameterType::Vector2)
+					{
+						New.Value = FMaterialParameterValue::MakeVector2(
+							FVector2(Old->Value.VectorValue));
+					}
+				}
+			}
+			else
+			{
+				for (const FGuid& PreservedId : {MaterialParameters::BaseColorId, MaterialParameters::BaseColorTextureId, MaterialParameters::OpacityId})
+				{
+					const auto Old = std::ranges::find(ParameterDefinitions, PreservedId, &FMaterialParameterDefinition::Id);
+					const auto New = std::ranges::find(Upgraded, PreservedId, &FMaterialParameterDefinition::Id);
+					if (Old != ParameterDefinitions.end() && New != Upgraded.end() && Old->Type == New->Type)
+						New->Value = Old->Value;
 				}
 			}
 			ParameterDefinitions = std::move(Upgraded);

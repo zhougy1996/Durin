@@ -84,6 +84,10 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 		EXPECT_FALSE(Definition.Name.IsNone());
 		EXPECT_FALSE(Definition.DisplayName.empty());
 		EXPECT_EQ(Definition.SortOrder, static_cast<Durin::int32>(Index));
+		if (Index % 5 == 3 || Index % 5 == 4)
+		{
+			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Vector2);
+		}
 		switch (Definition.Presentation)
 		{
 		case Durin::EMaterialParameterPresentation::Drag:
@@ -107,6 +111,10 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 	EXPECT_EQ(Material->FindParameterDefinition(Durin::MaterialParameters::OpacityId), &Definitions[30]);
 	EXPECT_EQ(Material->FindParameterDefinition(Durin::FName("oPaCiTy")), &Definitions[30]);
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::MaterialParameters::BaseColorName(), 0.5f));
+	EXPECT_FALSE(Material->SetVectorParameterValue(
+		Durin::FName("BaseColorUVScale"), Durin::FVector3(1.0)));
+	EXPECT_TRUE(Material->SetVector2ParameterValue(
+		Durin::FName("BaseColorUVScale"), Durin::FVector2(2.0, 3.0)));
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::FName("UnknownParameter"), 0.5f));
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
@@ -193,6 +201,74 @@ TEST(FMaterialTests, SchemaV1UpgradePreservesStableValuesAndLegacyInstanceOrphan
 
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Material);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, SchemaV2UpgradeMigratesUVVectorsAndPreservesAllValues)
+{
+	InitializeDObjectSystem();
+	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "SchemaV2Material");
+	auto* VersionProperty = Material->GetClass()->FindPropertyByName("ParameterSchemaVersion");
+	auto* DefinitionsProperty = static_cast<Durin::FArrayProperty*>(
+		Material->GetClass()->FindPropertyByName("ParameterDefinitions"));
+	ASSERT_NE(VersionProperty, nullptr);
+	ASSERT_NE(DefinitionsProperty, nullptr);
+	*VersionProperty->ContainerPtrToValuePtr<Durin::uint32>(Material) = 2;
+	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::MaterialParameters::RoughnessName(), 0.27f));
+	auto* UVScale = static_cast<Durin::FMaterialParameterDefinition*>(
+		DefinitionsProperty->GetMutableElementPtr(Material, 3));
+	UVScale->Type = Durin::EMaterialParameterType::Vector;
+	UVScale->Value = Durin::FMaterialParameterValue::MakeVector(
+		Durin::FVector3(2.0, 3.0, 99.0));
+
+	std::string Error;
+	ASSERT_TRUE(Material->PostLoad(Error)) << Error;
+	float Roughness = 0.0f;
+	Durin::FVector2 Scale;
+	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameters::RoughnessName(), Roughness));
+	ASSERT_TRUE(Material->GetVector2ParameterValue(Durin::FName("BaseColorUVScale"), Scale));
+	EXPECT_FLOAT_EQ(Roughness, 0.27f);
+	EXPECT_EQ(Scale, Durin::FVector2(2.0, 3.0));
+	EXPECT_EQ(Material->GetParameterSchemaVersion(), Durin::CurrentMaterialParameterSchemaVersion);
+	EXPECT_EQ(Material->FindParameterDefinition(Durin::MaterialParameters::UVScaleIds[0])->Type,
+		Durin::EMaterialParameterType::Vector2);
+
+	Durin::MarkAsGarbage(Material);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialTests, SchemaV2InstanceUpgradeMigratesUVVectorOverrides)
+{
+	InitializeDObjectSystem();
+	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "SchemaV2InstanceBase");
+	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "SchemaV2Instance");
+	ASSERT_TRUE(Instance->SetParent(Base));
+	auto* VersionProperty = Instance->GetClass()->FindPropertyByName("ParameterSchemaVersion");
+	auto* OverridesProperty = static_cast<Durin::FArrayProperty*>(
+		Instance->GetClass()->FindPropertyByName("ParameterOverrides"));
+	ASSERT_NE(VersionProperty, nullptr);
+	ASSERT_NE(OverridesProperty, nullptr);
+	*VersionProperty->ContainerPtrToValuePtr<Durin::uint32>(Instance) = 2;
+	OverridesProperty->Resize(Instance, 1, 0);
+	auto* Override = static_cast<Durin::FMaterialParameterOverride*>(
+		OverridesProperty->GetMutableElementPtr(Instance, 0));
+	*Override = {
+		.ParameterId = Durin::MaterialParameters::UVScaleIds[0],
+		.Type = Durin::EMaterialParameterType::Vector,
+		.Value = Durin::FMaterialParameterValue::MakeVector(Durin::FVector3(4.0, 5.0, 77.0)),
+	};
+
+	std::string Error;
+	ASSERT_TRUE(Instance->PostLoad(Error)) << Error;
+	Durin::FVector2 Scale;
+	ASSERT_TRUE(Instance->GetVector2ParameterValue(Durin::FName("BaseColorUVScale"), Scale));
+	EXPECT_EQ(Scale, Durin::FVector2(4.0, 5.0));
+	ASSERT_EQ(Instance->GetParameterOverrides().size(), 1u);
+	EXPECT_EQ(Instance->GetParameterOverrides()[0].Type, Durin::EMaterialParameterType::Vector2);
+	EXPECT_EQ(Instance->GetParameterOverrides()[0].Value.Vector2Value, Durin::FVector2(4.0, 5.0));
+
+	Durin::MarkAsGarbage(Instance);
+	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
 }
 

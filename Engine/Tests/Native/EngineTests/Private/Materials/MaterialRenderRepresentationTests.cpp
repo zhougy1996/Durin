@@ -254,8 +254,8 @@ TEST(FMaterialRenderRepresentationTests, V2CompilationCanonicalizesEveryInputCla
 	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::MaterialParameters::AmbientOcclusionName(), -1.0f));
 	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::MaterialParameters::EmissiveName(), Durin::FVector3(100.0, -2.0, 4.0)));
 	ASSERT_TRUE(Material->SetScalarParameterValue(Durin::FName("BaseColorUVChannel"), 2.6f));
-	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::FName("BaseColorUVScale"), Durin::FVector3(2.0, -3.0, 99.0)));
-	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::FName("BaseColorUVOffset"), Durin::FVector3(2048.0, -2048.0, 8.0)));
+	ASSERT_TRUE(Material->SetVector2ParameterValue(Durin::FName("BaseColorUVScale"), Durin::FVector2(2.0, -3.0)));
+	ASSERT_TRUE(Material->SetVector2ParameterValue(Durin::FName("BaseColorUVOffset"), Durin::FVector2(2048.0, -2048.0)));
 	Durin::DTexture2D* WrongUsageTexture = Durin::NewObject<Durin::DTexture2D>(nullptr, "WrongNormalUsage");
 	ASSERT_TRUE(Material->SetTextureParameterValue(Durin::MaterialParameters::NormalTextureName(), WrongUsageTexture));
 
@@ -267,8 +267,8 @@ TEST(FMaterialRenderRepresentationTests, V2CompilationCanonicalizesEveryInputCla
 	EXPECT_FLOAT_EQ(Binding.AmbientOcclusion, 0.0f);
 	EXPECT_EQ(Binding.Emissive, Durin::FVector3f(64.0f, 0.0f, 4.0f));
 	EXPECT_FLOAT_EQ(Binding.UVChannels[0], 3.0f);
-	EXPECT_EQ(Binding.UVScales[0], Durin::FVector3f(2.0f, -3.0f, 0.0f));
-	EXPECT_EQ(Binding.UVOffsets[0], Durin::FVector3f(1024.0f, -1024.0f, 0.0f));
+	EXPECT_EQ(Binding.UVScales[0], Durin::FVector2f(2.0f, -3.0f));
+	EXPECT_EQ(Binding.UVOffsets[0], Durin::FVector2f(1024.0f, -1024.0f));
 	EXPECT_EQ(Binding.Textures[1], nullptr);
 
 	Durin::MarkAsGarbage(WrongUsageTexture);
@@ -291,6 +291,14 @@ TEST(FMaterialRenderRepresentationTests, AssetSchemaVersionIsSeparateAndBounded)
 	Error.clear();
 	EXPECT_TRUE(Durin::UpgradeMaterialParameterSchemaVersion(Version, Warning, Error));
 	EXPECT_TRUE(Warning.empty());
+	EXPECT_TRUE(Error.empty());
+
+	Version = Durin::CurrentMaterialParameterSchemaVersion - 1;
+	Warning.clear();
+	Error.clear();
+	EXPECT_TRUE(Durin::UpgradeMaterialParameterSchemaVersion(Version, Warning, Error));
+	EXPECT_EQ(Version, Durin::CurrentMaterialParameterSchemaVersion);
+	EXPECT_FALSE(Warning.empty());
 	EXPECT_TRUE(Error.empty());
 
 	Version = Durin::CurrentMaterialParameterSchemaVersion + 1;

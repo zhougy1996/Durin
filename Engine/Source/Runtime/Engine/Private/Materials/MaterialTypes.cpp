@@ -566,6 +566,7 @@ namespace Durin
 		if (Resources.size() != 8) return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::InvalidResource, 0, "Material render v2 resource count is invalid.");
 		auto ReadFloat = [&Payload](uint32 Offset) { float Value = 0.0f; std::memcpy(&Value, Payload.data() + Offset, sizeof(Value)); return Value; };
 		auto ReadVector = [&ReadFloat](uint32 Offset) { return FVector3f(ReadFloat(Offset), ReadFloat(Offset + 4), ReadFloat(Offset + 8)); };
+		auto ReadVector2 = [&ReadFloat](uint32 Offset) { return FVector2f(ReadFloat(Offset), ReadFloat(Offset + 4)); };
 		OutBinding.BaseColor = FVector4f(ReadFloat(0), ReadFloat(4), ReadFloat(8), ReadFloat(12));
 		OutBinding.Emissive = ReadVector(16);
 		OutBinding.Metallic = ReadFloat(28);
@@ -576,8 +577,8 @@ namespace Durin
 		for (uint32 Role = 0; Role < 8; ++Role)
 		{
 			OutBinding.UVChannels[Role] = ReadFloat(64 + Role * 4);
-			OutBinding.UVScales[Role] = ReadVector(96 + Role * 16);
-			OutBinding.UVOffsets[Role] = ReadVector(224 + Role * 16);
+			OutBinding.UVScales[Role] = ReadVector2(96 + Role * 16);
+			OutBinding.UVOffsets[Role] = ReadVector2(224 + Role * 16);
 			OutBinding.Textures[Role] = Resources[Role];
 		}
 		return true;
@@ -647,6 +648,26 @@ namespace Durin
 		return true;
 	}
 
+	auto FMaterialRenderRepresentationBuilder::SetVector2(
+		const FGuid& ParameterId,
+		const FVector2& Value
+	) -> bool
+	{
+		const FMaterialRenderField* Field = FindField(ParameterId);
+		if (Field == nullptr) return false;
+		// The current render protocol reserves a Vector3 slot for UV transforms.
+		// Preserve that protocol while keeping the authored parameter dimension exact.
+		if (Field->Storage != EMaterialRenderFieldStorage::Uniform
+			|| Field->Type != EMaterialRenderValueType::Vector3)
+		{
+			return RejectField(ParameterId);
+		}
+		WriteFloat(Input.UniformPayload, Field->Offset, static_cast<float>(Value.x));
+		WriteFloat(Input.UniformPayload, Field->Offset + 4, static_cast<float>(Value.y));
+		WriteFloat(Input.UniformPayload, Field->Offset + 8, 0.0f);
+		return true;
+	}
+
 	auto FMaterialRenderRepresentationBuilder::SetTexture(
 		const FGuid& ParameterId,
 		const FRHITextureReferenceRef& Value
@@ -698,12 +719,17 @@ namespace Durin
 		if (InOutVersion == 0)
 		{
 			InOutVersion = 1;
-			OutWarning = "Material parameter schema version was missing; assumed version 1 and upgraded to version 2.";
+			OutWarning = "Material parameter schema version was missing; assumed version 1 and upgraded to the current version.";
 		}
 		if (InOutVersion == 1)
 		{
-			InOutVersion = CurrentMaterialParameterSchemaVersion;
+			InOutVersion = 2;
 			if (OutWarning.empty()) OutWarning = "Material parameter schema version 1 was upgraded to version 2; base SpecularStrength and Shininess values were discarded while instance overrides remain orphans.";
+		}
+		if (InOutVersion == 2)
+		{
+			InOutVersion = 3;
+			if (OutWarning.empty()) OutWarning = "Material parameter schema version 2 was upgraded to version 3; UV transform values were migrated to Vector2.";
 			return true;
 		}
 		if (InOutVersion == CurrentMaterialParameterSchemaVersion) return true;
@@ -725,6 +751,13 @@ namespace Durin
 	{
 		FMaterialParameterValue Result;
 		Result.VectorValue = Value;
+		return Result;
+	}
+
+	auto FMaterialParameterValue::MakeVector2(const FVector2& Value) -> FMaterialParameterValue
+	{
+		FMaterialParameterValue Result;
+		Result.Vector2Value = Value;
 		return Result;
 	}
 
@@ -872,11 +905,11 @@ namespace Durin
 			Result.push_back(MakeDefinition(UVChannelIds[Role], FName(std::string(RoleNames[Role]) + "UVChannel"), EMaterialParameterType::Scalar,
 				FMaterialParameterValue::MakeScalar(0.0f), "UV Channel", Sort + 2, EMaterialParameterPresentation::Integer,
 				true, 0.0f, 3.0f, ETextureUsage::Color, Group));
-			Result.push_back(MakeDefinition(UVScaleIds[Role], FName(std::string(RoleNames[Role]) + "UVScale"), EMaterialParameterType::Vector,
-				FMaterialParameterValue::MakeVector({1.0, 1.0, 0.0}), "UV Scale", Sort + 3, EMaterialParameterPresentation::Drag,
+			Result.push_back(MakeDefinition(UVScaleIds[Role], FName(std::string(RoleNames[Role]) + "UVScale"), EMaterialParameterType::Vector2,
+				FMaterialParameterValue::MakeVector2({1.0, 1.0}), "UV Scale", Sort + 3, EMaterialParameterPresentation::Drag,
 				true, -1024.0f, 1024.0f, ETextureUsage::Color, Group));
-			Result.push_back(MakeDefinition(UVOffsetIds[Role], FName(std::string(RoleNames[Role]) + "UVOffset"), EMaterialParameterType::Vector,
-				FMaterialParameterValue::MakeVector(FVector3(0.0)), "UV Offset", Sort + 4, EMaterialParameterPresentation::Drag,
+			Result.push_back(MakeDefinition(UVOffsetIds[Role], FName(std::string(RoleNames[Role]) + "UVOffset"), EMaterialParameterType::Vector2,
+				FMaterialParameterValue::MakeVector2(FVector2(0.0)), "UV Offset", Sort + 4, EMaterialParameterPresentation::Drag,
 				true, -1024.0f, 1024.0f, ETextureUsage::Color, Group));
 		}
 		return Result;

@@ -57,6 +57,7 @@ namespace Durin
 		auto DrawMaterialParameters(DMaterialInterface* Material) -> void;
 		auto DrawMaterialParameter(const FMaterialParameterPanelModel& Model, const FMaterialParameterPanelEntry& Entry) -> void;
 		auto DrawScalarParameter(const FMaterialParameterPanelModel& Model, const FMaterialParameterPanelEntry& Entry) -> void;
+		auto DrawIntegerParameter(const FMaterialParameterPanelModel& Model, const FMaterialParameterPanelEntry& Entry) -> void;
 		auto DrawVectorParameter(const FMaterialParameterPanelModel& Model, const FMaterialParameterPanelEntry& Entry) -> void;
 		auto DrawColorParameter(const FMaterialParameterPanelModel& Model, const FMaterialParameterPanelEntry& Entry) -> void;
 		auto DrawTextureParameter(const FMaterialParameterPanelModel& Model, const FMaterialParameterPanelEntry& Entry) -> void;
@@ -74,7 +75,8 @@ namespace Durin
 		std::array<char, 128> TextureSearchText{};
 		std::string ErrorMessage;
 		FReflectedPropertyView PropertyView;
-		float SidebarRatio = 0.34f;
+		float SidebarRatio = 0.40f;
 		float PreviewPaneRatio = 0.68f;
+		bool bUsePreferredPreviewWidth = true;
 	};
 }

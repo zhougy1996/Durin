@@ -15,13 +15,28 @@ namespace Durin
 				? static_cast<FArrayProperty*>(Property) : nullptr;
 		}
 
-		auto CanonicalizeValue(EMaterialParameterType Type, const FMaterialParameterValue& Value)
+		auto CanonicalizeValue(
+			const FMaterialParameterDefinition& Definition,
+			const FMaterialParameterValue& Value
+		)
 			-> FMaterialParameterValue
 		{
-			switch (Type)
+			switch (Definition.Type)
 			{
 			case EMaterialParameterType::Scalar:
-				return FMaterialParameterValue::MakeScalar(Value.ScalarValue);
+			{
+				float Scalar = Value.ScalarValue;
+				if (Definition.Presentation == EMaterialParameterPresentation::Integer)
+				{
+					if (!std::isfinite(Scalar)) Scalar = Definition.Value.ScalarValue;
+					if (Definition.bHasRange)
+						Scalar = std::clamp(Scalar, Definition.MinimumValue, Definition.MaximumValue);
+					Scalar = std::floor(Scalar + 0.5f);
+				}
+				return FMaterialParameterValue::MakeScalar(Scalar);
+			}
+			case EMaterialParameterType::Vector2:
+				return FMaterialParameterValue::MakeVector2(Value.Vector2Value);
 			case EMaterialParameterType::Vector:
 				return FMaterialParameterValue::MakeVector(Value.VectorValue);
 			case EMaterialParameterType::Texture:
@@ -135,11 +150,14 @@ namespace Durin
 		switch (Definition.Presentation)
 		{
 		case EMaterialParameterPresentation::Drag:
-		case EMaterialParameterPresentation::Integer:
 			if (Definition.Type == EMaterialParameterType::Scalar)
 				return Definition.bHasRange ? EMaterialParameterControlKind::RangedScalar : EMaterialParameterControlKind::Scalar;
-			return Definition.Type == EMaterialParameterType::Vector
+			return (Definition.Type == EMaterialParameterType::Vector
+				|| Definition.Type == EMaterialParameterType::Vector2)
 				? EMaterialParameterControlKind::Vector : EMaterialParameterControlKind::Unsupported;
+		case EMaterialParameterPresentation::Integer:
+			return Definition.Type == EMaterialParameterType::Scalar
+				? EMaterialParameterControlKind::IntegerScalar : EMaterialParameterControlKind::Unsupported;
 		case EMaterialParameterPresentation::Color:
 			return Definition.Type == EMaterialParameterType::Vector
 				? EMaterialParameterControlKind::Color : EMaterialParameterControlKind::Unsupported;
@@ -152,6 +170,7 @@ namespace Durin
 			case EMaterialParameterType::Scalar:
 				return Definition.bHasRange ? EMaterialParameterControlKind::RangedScalar
 					: EMaterialParameterControlKind::Scalar;
+			case EMaterialParameterType::Vector2: return EMaterialParameterControlKind::Vector;
 			case EMaterialParameterType::Vector: return EMaterialParameterControlKind::Color;
 			case EMaterialParameterType::Texture: return EMaterialParameterControlKind::AssetPicker;
 			}
@@ -168,7 +187,7 @@ namespace Durin
 	) const -> bool
 	{
 		if (!Entry.Definition || Entry.bOrphan || !Material) return false;
-		const FMaterialParameterValue CanonicalValue = CanonicalizeValue(Entry.Definition->Type, Value);
+		const FMaterialParameterValue CanonicalValue = CanonicalizeValue(*Entry.Definition, Value);
 		if (Instance)
 		{
 			if (!Entry.bHasLocalOverride) return false;
@@ -211,7 +230,7 @@ namespace Durin
 		FArrayProperty* Property = FindArrayProperty(Instance, FName("ParameterOverrides"));
 		return SubmitRootArrayEdit(PropertyView, Context, Instance, Property, Entry.ParameterId,
 			bEnabled ? EPropertyChangeKind::ArrayAdd : EPropertyChangeKind::ArrayRemove, false,
-			[Id = Entry.ParameterId, Value = CanonicalizeValue(Entry.Definition->Type, Entry.Value), bEnabled](
+			[Id = Entry.ParameterId, Value = CanonicalizeValue(*Entry.Definition, Entry.Value), bEnabled](
 				const FArrayProperty& ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 				if (bEnabled)
 				{

@@ -33,6 +33,8 @@ namespace Durin
 			{
 			case EMaterialParameterType::Scalar:
 				return FMaterialParameterValue::MakeScalar(Value.ScalarValue);
+			case EMaterialParameterType::Vector2:
+				return FMaterialParameterValue::MakeVector2(Value.Vector2Value);
 			case EMaterialParameterType::Vector:
 				return FMaterialParameterValue::MakeVector(Value.VectorValue);
 			case EMaterialParameterType::Texture:
@@ -46,6 +48,7 @@ namespace Durin
 			switch (Type)
 			{
 			case EMaterialParameterType::Scalar:
+			case EMaterialParameterType::Vector2:
 			case EMaterialParameterType::Vector:
 			case EMaterialParameterType::Texture:
 				return true;
@@ -231,6 +234,14 @@ namespace Durin
 			Definition->Id, EMaterialParameterType::Scalar, FMaterialParameterValue::MakeScalar(Value));
 	}
 
+	auto DMaterialInstance::SetVector2ParameterValue(FName Name, const FVector2& Value) -> bool
+	{
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Vector2) return false;
+		return SetParameterOverride(
+			Definition->Id, EMaterialParameterType::Vector2, FMaterialParameterValue::MakeVector2(Value));
+	}
+
 	auto DMaterialInstance::SetVectorParameterValue(FName Name, const FVector3& Value) -> bool
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
@@ -251,6 +262,13 @@ namespace Durin
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
 		return Definition && Definition->Type == EMaterialParameterType::Scalar
+			&& ClearParameterOverride(Definition->Id);
+	}
+
+	auto DMaterialInstance::ClearVector2ParameterValue(FName Name) -> bool
+	{
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		return Definition && Definition->Type == EMaterialParameterType::Vector2
 			&& ClearParameterOverride(Definition->Id);
 	}
 
@@ -275,6 +293,13 @@ namespace Durin
 			&& HasLocalParameterOverride(Definition->Id);
 	}
 
+	auto DMaterialInstance::HasVector2ParameterOverride(FName Name) const -> bool
+	{
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		return Definition && Definition->Type == EMaterialParameterType::Vector2
+			&& HasLocalParameterOverride(Definition->Id);
+	}
+
 	auto DMaterialInstance::HasVectorParameterOverride(FName Name) const -> bool
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
@@ -296,6 +321,16 @@ namespace Durin
 		FResolvedMaterialParameter Resolved;
 		if (!ResolveParameterValue(Definition->Id, Resolved)) return false;
 		OutValue = Resolved.Value.ScalarValue;
+		return true;
+	}
+
+	auto DMaterialInstance::GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool
+	{
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
+		if (!Definition || Definition->Type != EMaterialParameterType::Vector2) return false;
+		FResolvedMaterialParameter Resolved;
+		if (!ResolveParameterValue(Definition->Id, Resolved)) return false;
+		OutValue = Resolved.Value.Vector2Value;
 		return true;
 	}
 
@@ -342,6 +377,7 @@ namespace Durin
 	auto DMaterialInstance::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
+		const FMaterialParameterSchemaVersion LoadedSchemaVersion = ParameterSchemaVersion;
 		const bool bLegacySchema = ParameterSchemaVersion < CurrentMaterialParameterSchemaVersion;
 		std::string SchemaWarning;
 		if (!UpgradeMaterialParameterSchemaVersion(
@@ -377,6 +413,13 @@ namespace Durin
 				&& Override.ParameterId != MaterialParameters::SpecularStrengthId
 				&& Override.ParameterId != MaterialParameters::ShininessId)
 			{
+				if (LoadedSchemaVersion >= 2
+					&& Override.Type == EMaterialParameterType::Vector
+					&& Definition->Type == EMaterialParameterType::Vector2)
+				{
+					Override.Value = FMaterialParameterValue::MakeVector2(
+						FVector2(Override.Value.VectorValue));
+				}
 				Override.Type = Definition->Type;
 			}
 			if (Definition != nullptr && Override.Type != Definition->Type)

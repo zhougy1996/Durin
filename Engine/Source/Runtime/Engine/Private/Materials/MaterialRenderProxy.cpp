@@ -37,6 +37,18 @@ namespace Durin
 					std::clamp(Parameter.VectorValue.z, 0.0, 1.0)};
 				return RepresentationBuilder.SetVector(Parameter.Id, Value);
 			}
+			else if (Parameter.Type == EMaterialParameterType::Vector2)
+			{
+				const bool bUVScale = std::ranges::find(
+					MaterialParameters::UVScaleIds, Parameter.Id)
+					!= MaterialParameters::UVScaleIds.end();
+				FVector2 Value = Parameter.Vector2Value;
+				if (!std::isfinite(Value.x) || !std::isfinite(Value.y))
+					Value = bUVScale ? FVector2(1.0) : FVector2(0.0);
+				Value.x = std::clamp(Value.x, -1024.0, 1024.0);
+				Value.y = std::clamp(Value.y, -1024.0, 1024.0);
+				return RepresentationBuilder.SetVector2(Parameter.Id, Value);
+			}
 			else if (Parameter.Id == MaterialParameters::BaseColorTextureId
 				&& Parameter.Type == EMaterialParameterType::Texture)
 			{
@@ -372,6 +384,9 @@ namespace Durin
 		{
 		case EMaterialParameterType::Scalar:
 			Result.ScalarValue = Value.ScalarValue;
+			break;
+		case EMaterialParameterType::Vector2:
+			Result.Vector2Value = Value.Vector2Value;
 			break;
 		case EMaterialParameterType::Vector:
 			Result.VectorValue = Value.VectorValue;

@@ -13,6 +13,7 @@ namespace Durin
 	{
 		Scalar,
 		RangedScalar,
+		IntegerScalar,
 		Vector,
 		Color,
 		AssetPicker,

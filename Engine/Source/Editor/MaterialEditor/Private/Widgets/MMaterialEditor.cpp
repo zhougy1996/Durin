@@ -21,20 +21,81 @@ namespace Durin
 {
 	namespace
 	{
-		constexpr float DefaultSidebarRatio = 0.34f;
+		constexpr float DefaultSidebarRatio = 0.40f;
 		constexpr float DefaultPreviewPaneRatio = 0.68f;
 		constexpr float WideLayoutMinimumWidth = 760.0f;
 		constexpr float MinimumSidebarWidth = 280.0f;
 		constexpr float MinimumDetailsWidth = 360.0f;
+		constexpr float MinimumPreferredPreviewWidth = 420.0f;
+		constexpr float MaximumPreferredPreviewWidth = 640.0f;
 		constexpr float MinimumPreviewHeight = 260.0f;
 		constexpr float MinimumOverviewHeight = 110.0f;
 		constexpr float NarrowPreviewHeight = 340.0f;
+		constexpr float MaximumMaterialValueColumnWidthInEm = 34.0f;
+		constexpr float MaximumMaterialVectorWidthInEm = 30.0f;
+
+		struct FMaterialParameterGroup
+		{
+			std::string Label;
+			std::string Path;
+			std::vector<const FMaterialParameterPanelEntry*> Entries;
+			std::vector<FMaterialParameterGroup> Children;
+		};
+
+		auto FindOrAddGroup(
+			FMaterialParameterGroup& Parent,
+			std::string_view Label,
+			std::string Path
+		) -> FMaterialParameterGroup&
+		{
+			const auto Existing = std::ranges::find(Parent.Children, Path, &FMaterialParameterGroup::Path);
+			if (Existing != Parent.Children.end()) return *Existing;
+			return Parent.Children.emplace_back(std::string(Label), std::move(Path));
+		}
+
+		auto AddParameterToGroupTree(
+			FMaterialParameterGroup& Root,
+			const FMaterialParameterPanelEntry& Entry
+		) -> void
+		{
+			if (!Entry.Definition || Entry.Definition->GroupName.IsNone())
+			{
+				Root.Entries.push_back(&Entry);
+				return;
+			}
+
+			const std::string GroupName = Entry.Definition->GroupName.ToString();
+			FMaterialParameterGroup* Group = &Root;
+			std::string Path;
+			for (size_t Begin = 0; Begin < GroupName.size();)
+			{
+				const size_t End = GroupName.find('/', Begin);
+				const std::string_view Label(GroupName.data() + Begin,
+					(End == std::string::npos ? GroupName.size() : End) - Begin);
+				if (!Label.empty())
+				{
+					if (!Path.empty()) Path += '/';
+					Path += Label;
+					Group = &FindOrAddGroup(*Group, Label, Path);
+				}
+				if (End == std::string::npos) break;
+				Begin = End + 1;
+			}
+			Group->Entries.push_back(&Entry);
+		}
 
 		auto FormatParameterSource(const FMaterialParameterPanelEntry& Entry) -> std::string
 		{
 			if (Entry.bHasLocalOverride) return "Local override";
 			if (!Entry.Source) return "Unresolved";
 			return std::format("Inherited from {}", Entry.Source->GetName());
+		}
+
+		auto MakeMaterialPropertyTableConfig() -> MonaImGui::PropertyEdit::FTableConfig
+		{
+			MonaImGui::PropertyEdit::FTableConfig Config;
+			Config.MaximumValueColumnWidthInEm = MaximumMaterialValueColumnWidthInEm;
+			return Config;
 		}
 	}
 
@@ -162,6 +223,7 @@ namespace Durin
 	{
 		SidebarRatio = DefaultSidebarRatio;
 		PreviewPaneRatio = DefaultPreviewPaneRatio;
+		bUsePreferredPreviewWidth = true;
 	}
 
 	auto MMaterialEditor::FindOpenMaterial(std::string_view ResourceId) const -> DMaterialInterface*
@@ -254,16 +316,29 @@ namespace Durin
 	{
 		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
 		const ImVec2 Available = ImGui::GetContentRegionAvail();
+		const float UsableHeight = std::max(Available.y - Metrics.SplitterThickness, 0.0f);
 		const float ScaledMinimumSidebarWidth = MonaImGui::ScaleUI(MinimumSidebarWidth);
 		const float ScaledMinimumDetailsWidth = MonaImGui::ScaleUI(MinimumDetailsWidth);
-		const float SidebarWidth = std::clamp(
-			Available.x * SidebarRatio,
+		const float MaximumSidebarWidth = std::max(
 			ScaledMinimumSidebarWidth,
-			std::max(ScaledMinimumSidebarWidth, Available.x - Metrics.SplitterThickness - ScaledMinimumDetailsWidth));
+			Available.x - Metrics.SplitterThickness - ScaledMinimumDetailsWidth);
+		const float PreferredPreviewWidth = std::clamp(
+			UsableHeight * PreviewPaneRatio,
+			MonaImGui::ScaleUI(MinimumPreferredPreviewWidth),
+			MonaImGui::ScaleUI(MaximumPreferredPreviewWidth));
+		const float DesiredSidebarWidth = bUsePreferredPreviewWidth
+			? PreferredPreviewWidth
+			: Available.x * SidebarRatio;
+		const float SidebarWidth = std::clamp(
+			DesiredSidebarWidth, ScaledMinimumSidebarWidth, MaximumSidebarWidth);
+		if (bUsePreferredPreviewWidth)
+		{
+			SidebarRatio = SidebarWidth / Available.x;
+			bUsePreferredPreviewWidth = false;
+		}
 
 		if (ImGui::BeginChild("MaterialEditorSidebar", ImVec2(SidebarWidth, Available.y)))
 		{
-			const float UsableHeight = std::max(Available.y - Metrics.SplitterThickness, 0.0f);
 			const float ScaledMinimumPreviewHeight = MonaImGui::ScaleUI(MinimumPreviewHeight);
 			const float ScaledMinimumOverviewHeight = MonaImGui::ScaleUI(MinimumOverviewHeight);
 			if (UsableHeight >= ScaledMinimumPreviewHeight + ScaledMinimumOverviewHeight)
@@ -361,7 +436,7 @@ namespace Durin
 	auto MMaterialEditor::DrawMaterial(DMaterial* Material) -> void
 	{
 		ImGui::SeparatorText("Surface Parameters");
-		if (!MonaImGui::PropertyEdit::BeginTable("MaterialParameters")) return;
+		if (!MonaImGui::PropertyEdit::BeginTable("MaterialParameters", MakeMaterialPropertyTableConfig())) return;
 		DrawMaterialParameters(Material);
 		MonaImGui::PropertyEdit::EndTable();
 	}
@@ -369,13 +444,13 @@ namespace Durin
 	auto MMaterialEditor::DrawMaterialInstance(DMaterialInstance* Instance) -> void
 	{
 		ImGui::SeparatorText("Inheritance");
-		if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParent"))
+		if (MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParent", MakeMaterialPropertyTableConfig()))
 		{
 			DrawParentPicker(Instance);
 			MonaImGui::PropertyEdit::EndTable();
 		}
 		ImGui::SeparatorText("Parameter Overrides");
-		if (!MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParameters")) return;
+		if (!MonaImGui::PropertyEdit::BeginTable("MaterialInstanceParameters", MakeMaterialPropertyTableConfig())) return;
 		DrawMaterialParameters(Instance);
 		MonaImGui::PropertyEdit::EndTable();
 	}
@@ -423,10 +498,31 @@ namespace Durin
 	auto MMaterialEditor::DrawMaterialParameters(DMaterialInterface* Material) -> void
 	{
 		const FMaterialParameterPanelModel Model(Material);
+		FMaterialParameterGroup Root;
 		for (const FMaterialParameterPanelEntry& Entry : Model.GetEntries())
 		{
-			DrawMaterialParameter(Model, Entry);
+			AddParameterToGroupTree(Root, Entry);
 		}
+
+		std::function<void(const FMaterialParameterGroup&, uint32)> DrawGroup;
+		DrawGroup = [this, &Model, &DrawGroup](const FMaterialParameterGroup& Group, uint32 Depth) {
+			for (const FMaterialParameterGroup& Child : Group.Children)
+			{
+				const std::string Id = "MaterialParameterGroup/" + Child.Path;
+				const ImGuiTreeNodeFlags Flags = Depth == 0
+					? ImGuiTreeNodeFlags_DefaultOpen : ImGuiTreeNodeFlags_None;
+				if (MonaImGui::PropertyEdit::BeginGroup(Id.c_str(), Child.Label.c_str(), Flags))
+				{
+					DrawGroup(Child, Depth + 1);
+					MonaImGui::PropertyEdit::EndGroup();
+				}
+			}
+			for (const FMaterialParameterPanelEntry* Entry : Group.Entries)
+			{
+				DrawMaterialParameter(Model, *Entry);
+			}
+		};
+		DrawGroup(Root, 0);
 	}
 
 	auto MMaterialEditor::DrawMaterialParameter(
@@ -444,6 +540,9 @@ namespace Durin
 		case EMaterialParameterControlKind::Scalar:
 		case EMaterialParameterControlKind::RangedScalar:
 			DrawScalarParameter(Model, Entry);
+			break;
+		case EMaterialParameterControlKind::IntegerScalar:
+			DrawIntegerParameter(Model, Entry);
 			break;
 		case EMaterialParameterControlKind::Vector:
 			DrawVectorParameter(Model, Entry);
@@ -481,19 +580,35 @@ namespace Durin
 				&& Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, false)) bOverride = false;
 			if (!bOverride) ImGui::BeginDisabled();
 		}
-		float Value[3] = {static_cast<float>(Entry.Value.VectorValue.x), static_cast<float>(Entry.Value.VectorValue.y), static_cast<float>(Entry.Value.VectorValue.z)};
-		ImGui::SetNextItemWidth(-FLT_MIN);
-		const float Minimum = Definition.bHasRange ? Definition.MinimumValue : 0.0f;
-		const float Maximum = Definition.bHasRange ? Definition.MaximumValue : 0.0f;
-		if (ImGui::DragFloat3("##Value", Value, 0.01f, Minimum, Maximum, "%.3f", Definition.bHasRange ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None) && bOverride)
+		MonaImGui::PropertyEdit::FWidgetState WidgetState;
+		const MonaImGui::PropertyEdit::FValueWidgetConfig WidgetConfig{
+			.MaximumWidthInEm = MaximumMaterialVectorWidthInEm,
+			.bHasRange = Definition.bHasRange,
+			.MinimumValue = Definition.MinimumValue,
+			.MaximumValue = Definition.MaximumValue,
+			.Format = "%.3f",
+		};
+		FMaterialParameterValue Edited = Entry.Value;
+		bool bChanged = false;
+		if (Definition.Type == EMaterialParameterType::Vector2)
 		{
-			FMaterialParameterValue Edited = Entry.Value;
-			Edited.VectorValue = FVector3(Value[0], Value[1], Value[2]);
-			if (!Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
-				SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
+			FVector2 Value = Entry.Value.Vector2Value;
+			bChanged = MonaImGui::PropertyEdit::EditVectorValue(
+				"##Value", Value, 0.01, &WidgetState, WidgetConfig);
+			Edited.Vector2Value = Value;
 		}
-		if (ImGui::IsItemDeactivatedAfterEdit() && PropertyView.IsEditing()) FinishActivePropertyEdit(false);
-		else if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
+		else
+		{
+			FVector3 Value = Entry.Value.VectorValue;
+			bChanged = MonaImGui::PropertyEdit::EditVectorValue(
+				"##Value", Value, 0.01, &WidgetState, WidgetConfig);
+			Edited.VectorValue = Value;
+		}
+		if (bChanged && bOverride
+			&& !Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
+			SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
+		if (WidgetState.bDeactivatedAfterEdit && PropertyView.IsEditing()) FinishActivePropertyEdit(false);
+		else if (WidgetState.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
 		if (Instance && !bOverride) ImGui::EndDisabled();
 		if (Instance) ImGui::TextDisabled("%s", FormatParameterSource(Entry).c_str());
 		MonaImGui::PropertyEdit::EndRow();
@@ -582,6 +697,60 @@ namespace Durin
 		{
 			FMaterialParameterValue Edited = Entry.Value;
 			Edited.ScalarValue = Value;
+			if (!Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
+				SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
+		}
+		if (ImGui::IsItemDeactivatedAfterEdit() && PropertyView.IsEditing()) FinishActivePropertyEdit(false);
+		else if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
+		if (Instance && !bOverride) ImGui::EndDisabled();
+		if (Instance) ImGui::TextDisabled("%s", FormatParameterSource(Entry).c_str());
+		MonaImGui::PropertyEdit::EndRow();
+		ImGui::PopID();
+	}
+
+	auto MMaterialEditor::DrawIntegerParameter(
+		const FMaterialParameterPanelModel& Model,
+		const FMaterialParameterPanelEntry& Entry
+	) -> void
+	{
+		const FMaterialParameterDefinition& Definition = *Entry.Definition;
+		DMaterialInstance* Instance = Model.GetInstance();
+		const std::string ParameterName = Definition.Name.ToString();
+		bool bOverride = !Instance || Entry.bHasLocalOverride;
+		ImGui::PushID(ParameterName.c_str());
+		MonaImGui::PropertyEdit::BeginRow(Definition.DisplayName.c_str());
+		if (Instance)
+		{
+			if (ImGui::Checkbox("##Override", &bOverride))
+			{
+				if (!Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, bOverride))
+					bOverride = !bOverride;
+			}
+			ImGui::SameLine();
+			if (bOverride && ImGui::SmallButton("Reset"))
+			{
+				if (Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, false))
+					bOverride = false;
+			}
+			if (!bOverride) ImGui::BeginDisabled();
+		}
+
+		float Scalar = std::isfinite(Entry.Value.ScalarValue)
+			? Entry.Value.ScalarValue : Definition.Value.ScalarValue;
+		if (Definition.bHasRange)
+			Scalar = std::clamp(Scalar, Definition.MinimumValue, Definition.MaximumValue);
+		int Value = static_cast<int>(std::floor(Scalar + 0.5f));
+		const int Minimum = Definition.bHasRange
+			? static_cast<int>(std::ceil(Definition.MinimumValue)) : 0;
+		const int Maximum = Definition.bHasRange
+			? static_cast<int>(std::floor(Definition.MaximumValue)) : 0;
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		const ImGuiSliderFlags Flags = Definition.bHasRange
+			? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
+		if (ImGui::DragInt("##Value", &Value, 1.0f, Minimum, Maximum, "%d", Flags) && bOverride)
+		{
+			FMaterialParameterValue Edited = Entry.Value;
+			Edited.ScalarValue = static_cast<float>(Value);
 			if (!Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
 				SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
 		}

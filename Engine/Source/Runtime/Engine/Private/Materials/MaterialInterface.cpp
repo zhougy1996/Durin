@@ -102,6 +102,11 @@ namespace Durin
 		return false;
 	}
 
+	auto DMaterialInterface::GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool
+	{
+		return false;
+	}
+
 	auto DMaterialInterface::GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool
 	{
 		return false;
@@ -160,6 +165,15 @@ namespace Durin
 				bRepresentationValid = RepresentationBuilder.SetScalar(Definition.Id, Value) && bRepresentationValid;
 				break;
 			}
+			case EMaterialParameterType::Vector2:
+			{
+				FVector2 Value = Parameter.Value.Vector2Value;
+				if (!std::isfinite(Value.x) || !std::isfinite(Value.y)) Value = Definition.Value.Vector2Value;
+				Value.x = std::clamp(Value.x, static_cast<double>(Definition.MinimumValue), static_cast<double>(Definition.MaximumValue));
+				Value.y = std::clamp(Value.y, static_cast<double>(Definition.MinimumValue), static_cast<double>(Definition.MaximumValue));
+				bRepresentationValid = RepresentationBuilder.SetVector2(Definition.Id, Value) && bRepresentationValid;
+				break;
+			}
 			case EMaterialParameterType::Vector:
 			{
 				FVector3 Value = Parameter.Value.VectorValue;
@@ -167,8 +181,6 @@ namespace Durin
 				Value.x = std::clamp(Value.x, static_cast<double>(Definition.MinimumValue), static_cast<double>(Definition.MaximumValue));
 				Value.y = std::clamp(Value.y, static_cast<double>(Definition.MinimumValue), static_cast<double>(Definition.MaximumValue));
 				Value.z = std::clamp(Value.z, static_cast<double>(Definition.MinimumValue), static_cast<double>(Definition.MaximumValue));
-				if (std::ranges::find(MaterialParameters::UVScaleIds, Definition.Id) != MaterialParameters::UVScaleIds.end()
-					|| std::ranges::find(MaterialParameters::UVOffsetIds, Definition.Id) != MaterialParameters::UVOffsetIds.end()) Value.z = 0.0;
 				if (Definition.Id == MaterialParameters::NormalId)
 				{
 					const double LengthSquared = glm::dot(Value, Value);

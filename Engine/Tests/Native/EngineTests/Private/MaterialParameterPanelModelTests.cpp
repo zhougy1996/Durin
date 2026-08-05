@@ -59,8 +59,10 @@ TEST(FMaterialParameterPanelModelTests, BuildsControlsAndResolvedSourceFromRunti
 	EXPECT_EQ(Texture->Control, Durin::EMaterialParameterControlKind::AssetPicker);
 	EXPECT_EQ(Opacity->Control, Durin::EMaterialParameterControlKind::RangedScalar);
 	EXPECT_EQ(Roughness->Control, Durin::EMaterialParameterControlKind::RangedScalar);
-	EXPECT_EQ(UVChannel->Control, Durin::EMaterialParameterControlKind::RangedScalar);
+	EXPECT_EQ(UVChannel->Control, Durin::EMaterialParameterControlKind::IntegerScalar);
+	EXPECT_EQ(UVChannel->Definition->GroupName.ToString(), "Surface/Base");
 	EXPECT_EQ(UVScale->Control, Durin::EMaterialParameterControlKind::Vector);
+	EXPECT_EQ(UVScale->Definition->Type, Durin::EMaterialParameterType::Vector2);
 	EXPECT_EQ(Opacity->Source, Parent);
 	EXPECT_FLOAT_EQ(Opacity->Value.ScalarValue, 0.6f);
 	EXPECT_FALSE(Opacity->bHasLocalOverride);
@@ -69,6 +71,36 @@ TEST(FMaterialParameterPanelModelTests, BuildsControlsAndResolvedSourceFromRunti
 	Durin::MarkAsGarbage(Child);
 	Durin::MarkAsGarbage(Parent);
 	Durin::MarkAsGarbage(Base);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialParameterPanelModelTests, IntegerPresentationCanonicalizesSubmittedValues)
+{
+	InitializeDObjectSystem();
+	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "PanelIntegerMaterial");
+	Durin::FEditorTransactionManager Transactions;
+	Durin::FReflectedPropertyView PropertyView;
+	std::string Error;
+	const auto Context = MakeContext(Transactions, Error);
+	const Durin::FMaterialParameterPanelModel Model(Material);
+	const auto* UVChannel = FindEntry(Model, Durin::MaterialParameters::UVChannelIds[0]);
+	ASSERT_NE(UVChannel, nullptr);
+
+	auto Value = UVChannel->Value;
+	Value.ScalarValue = 2.6f;
+	ASSERT_TRUE(Model.SubmitValueEdit(PropertyView, Context, *UVChannel, Value, false));
+	float StoredValue = 0.0f;
+	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::FName("BaseColorUVChannel"), StoredValue));
+	EXPECT_FLOAT_EQ(StoredValue, 3.0f);
+
+	Value.ScalarValue = -10.0f;
+	ASSERT_TRUE(Model.SubmitValueEdit(PropertyView, Context, *UVChannel, Value, false));
+	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::FName("BaseColorUVChannel"), StoredValue));
+	EXPECT_FLOAT_EQ(StoredValue, 0.0f);
+	EXPECT_TRUE(Error.empty());
+
+	Transactions.Clear();
+	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
 }
 

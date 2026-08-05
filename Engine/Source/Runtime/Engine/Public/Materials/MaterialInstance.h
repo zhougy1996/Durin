@@ -30,15 +30,19 @@ namespace Durin
 		ENGINE_API auto HasLocalParameterOverride(const FGuid& Id) const -> bool;
 		ENGINE_API auto IsParameterOverrideOrphan(const FGuid& Id) const -> bool;
 		ENGINE_API auto SetScalarParameterValue(FName Name, float Value) -> bool;
+		ENGINE_API auto SetVector2ParameterValue(FName Name, const FVector2& Value) -> bool;
 		ENGINE_API auto SetVectorParameterValue(FName Name, const FVector3& Value) -> bool;
 		ENGINE_API auto SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool;
 		ENGINE_API auto ClearScalarParameterValue(FName Name) -> bool;
+		ENGINE_API auto ClearVector2ParameterValue(FName Name) -> bool;
 		ENGINE_API auto ClearVectorParameterValue(FName Name) -> bool;
 		ENGINE_API auto ClearTextureParameterValue(FName Name) -> bool;
 		ENGINE_API auto HasScalarParameterOverride(FName Name) const -> bool;
+		ENGINE_API auto HasVector2ParameterOverride(FName Name) const -> bool;
 		ENGINE_API auto HasVectorParameterOverride(FName Name) const -> bool;
 		ENGINE_API auto HasTextureParameterOverride(FName Name) const -> bool;
 		ENGINE_API auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool override;
+		ENGINE_API auto GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool override;
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
 		auto GetParameterSchemaVersion() const -> FMaterialParameterSchemaVersion
