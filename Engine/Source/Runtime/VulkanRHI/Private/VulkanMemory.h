@@ -167,6 +167,9 @@ namespace Durin::VulkanRHI
 		virtual ~FVulkanSemaphore();
 
 		auto GetHandle() const -> vk::Semaphore { return Semaphore; }
+		// Destroys a semaphore whose owning queue/present scope has already been
+		// retired, without sweeping unrelated device deferred deletions.
+		auto DestroyImmediately() -> void;
 
 	private:
 		FVulkanDevice& Device;

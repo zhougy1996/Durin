@@ -290,6 +290,19 @@ For editor render-target viewports, `FSceneViewport::UpdateRHIViewport()` reads 
 
 For game window viewports, `FSceneViewport::UpdateRHIViewport()` asks `FMonaRenderer` for the RHI viewport associated with the `MWindow`. Native window resize events are handled by `FMonaApplication` and the renderer.
 
+Native window identity and resize notification remain owned by the main/UI
+side, but Vulkan surface and swapchain mutation are RHI-thread operations.
+Viewport creation uses a synchronous executor operation. Resize retains its
+main-to-render notification, then the render command synchronously marshals the
+backend phase after all earlier recorded work; no game or rendering thread may
+mutate the swapchain directly.
+
+Viewport teardown waits only the affected swapchain to become idle, then
+destroys that viewport's image views, rendering-done and acquire semaphores,
+fences, swapchain, and surface on the RHI thread. It never forces a device-wide
+deferred-deletion sweep. Device shutdown remains the only owner of a complete
+immediate deletion-queue drain.
+
 ## Design Rules
 
 - Keep `MWindow` focused on native window state and widget content.

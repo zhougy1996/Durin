@@ -311,6 +311,7 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		for (FVulkanSemaphore* Semaphore : ImageAcquiredSemaphores)
 		{
+			Semaphore->DestroyImmediately();
 			delete Semaphore;
 		}
 		ImageAcquiredSemaphores.clear();

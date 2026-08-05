@@ -246,9 +246,27 @@ namespace Durin
 		}
 	}
 
-	TEST(FVulkanTextureSamplingTests, UploadsAndSamplesEveryMipWithKnownColorSpaceValues)
+	TEST(FVulkanTextureSamplingTests,
+		InlineNativeComputeUploadsAndSamplesEveryMipWithKnownColorSpaceValues)
 	{
-		RHIInit();
+		struct FInlineRHIScope
+		{
+			FInlineRHIScope()
+			{
+				_putenv_s("DURIN_RHI_EXECUTION", "inline");
+			}
+
+			~FInlineRHIScope()
+			{
+				if (GDynamicRHI)
+				{
+					RHIExit();
+				}
+				_putenv_s("DURIN_RHI_EXECUTION", "");
+			}
+		} Scope;
+
+		ASSERT_TRUE(RHIInit());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		auto* VulkanRHI = static_cast<VulkanRHI::IVulkanDynamicRHI*>(GDynamicRHI);
 		const VkDevice Device = VulkanRHI->RHIGetVkDevice();
@@ -611,6 +629,67 @@ namespace Durin
 		EndFrame();
 		EXPECT_EQ(
 			GCommandListExecutor.GetFrameNumber(), InitialFrameNumber + 3);
+
+		constexpr uint32 ChurnFrameCount = 16;
+		bool bChurnSucceeded = true;
+		for (uint32 FrameIndex = 0; FrameIndex < ChurnFrameCount; ++FrameIndex)
+		{
+			ENQUEUE_RENDER_COMMAND(ThreadedVulkanResourceChurn)(
+				[FrameIndex, &bChurnSucceeded](FRHICommandListImmediate& CommandList) {
+					GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
+
+					const FRHIBufferCreateDesc ChurnBufferDesc =
+						FRHIBufferCreateDesc::Create(
+							"ThreadedChurnBuffer", 256, 16,
+							EBufferUsageFlags::VertexBuffer
+								| EBufferUsageFlags::Static);
+					FBufferRHIRef ChurnBuffer = GDynamicRHI->RHICreateBuffer(
+						CommandList, ChurnBufferDesc);
+
+					FRHITextureCreateDesc ChurnTextureDesc =
+						FRHITextureCreateDesc::Create2D(
+							"ThreadedChurnTexture", 4, 4,
+							EPixelFormat::RGBA8_UNORM);
+					ChurnTextureDesc.Flags = ETextureCreateFlags::ShaderResource
+						| ETextureCreateFlags::CPUReadback;
+					FTextureRHIRef ChurnTexture = GDynamicRHI->RHICreateTexture(
+						CommandList, ChurnTextureDesc);
+					std::array<uint8, 4 * 4 * 4> ChurnBytes{};
+					for (uint32 ByteIndex = 0; ByteIndex < ChurnBytes.size(); ++ByteIndex)
+					{
+						ChurnBytes[ByteIndex] = static_cast<uint8>(
+							FrameIndex + ByteIndex);
+					}
+					const FUpdateTextureRegion2D ChurnRegion(0, 0, 0, 0, 4, 4);
+					if (ChurnBuffer && ChurnTexture)
+					{
+						GDynamicRHI->RHIUpdateTexture2D(
+							CommandList, ChurnTexture.GetReference(), 0, 0,
+							ChurnRegion, 4 * 4, ChurnBytes.data());
+						std::vector<uint8> ChurnReadback;
+						bChurnSucceeded = bChurnSucceeded
+							&& GDynamicRHI->RHIReadTexture2D(
+								CommandList, ChurnTexture.GetReference(), 0, 0,
+								ChurnReadback)
+							&& ChurnReadback == std::vector<uint8>(
+								ChurnBytes.begin(), ChurnBytes.end());
+					}
+					else
+					{
+						bChurnSucceeded = false;
+					}
+
+					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
+					ChurnBuffer = nullptr;
+					ChurnTexture = nullptr;
+					CommandList.ImmediateFlush(
+						EImmediateFlushType::FlushRHIThreadFlushResources);
+				});
+		}
+		FlushRenderingCommands();
+		EXPECT_TRUE(bChurnSucceeded);
+		EXPECT_EQ(GCommandListExecutor.GetFrameNumber(),
+			InitialFrameNumber + 3 + ChurnFrameCount);
 		Buffer = nullptr;
 		Texture = nullptr;
 		Sampler = nullptr;

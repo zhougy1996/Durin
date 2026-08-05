@@ -243,6 +243,9 @@ namespace Durin
 		uint64 CompletedSerial = 0;
 		uint64 WaitDurationNanoseconds = 0;
 		uint64 BackpressureWaitCount = 0;
+		uint64 PeakQueueEntryCount = 0;
+		uint64 PeakQueueBatchCount = 0;
+		uint64 PeakQueuePayloadBytes = 0;
 	};
 
 	// Owns the primary timeline and immediate-only coordination operations.
@@ -352,8 +355,11 @@ namespace Durin
 
 		auto TryQueueCommandList(FRHICommandList& CommandList) -> bool;
 		auto SealImmediateSegment() -> void;
-		auto IsSerialComplete(uint64 Serial) const -> bool;
+		RHI_API auto IsSerialComplete(uint64 Serial) const -> bool;
+		RHI_API auto IsSerialFailed(uint64 Serial) const -> bool;
+		RHI_API auto TryWaitForSerial(uint64 Serial) const -> bool;
 		auto WaitForSerial(uint64 Serial) const -> void;
+		auto CreateFence(uint64 TargetSerial) -> FRHICommandListFence;
 		auto ExecuteSynchronousContextOperation(
 			bool bFlushRecordedCommands,
 			std::function<void(IRHICommandContext&)> Operation,
@@ -363,6 +369,7 @@ namespace Durin
 
 		friend class FRHICommandListFence;
 		friend class FRHICommandListImmediate;
+		friend class FRenderCommandFence;
 	};
 
 	extern RHI_API FRHICommandListExecutor GCommandListExecutor;

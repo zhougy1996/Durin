@@ -95,6 +95,9 @@ namespace Durin
 		uint32 OutstandingEntryCount = 0;
 		uint32 OutstandingBatchCount = 0;
 		uint64 OutstandingPayloadBytes = 0;
+		uint32 PeakOutstandingEntryCount = 0;
+		uint32 PeakOutstandingBatchCount = 0;
+		uint64 PeakOutstandingPayloadBytes = 0;
 		uint64 BackpressureWaitCount = 0;
 		uint64 BackpressureWaitNanoseconds = 0;
 		uint64 RejectedWorkCount = 0;
@@ -117,10 +120,16 @@ namespace Durin
 
 		// On success this moves Work into the queue. Rejection leaves Work intact.
 		RHI_API auto Enqueue(FRHIThreadWork& Work) -> FRHIThreadSubmission;
+		// Installs the final internal work item and closes public admission in the
+		// same queue critical section. The marker is ordered after every accepted
+		// item and is not subject to public producer backpressure.
+		RHI_API auto EnqueueTerminal(FRHIThreadWork& Work)
+			-> FRHIThreadSubmission;
 		RHI_API auto EnqueueSynchronous(FRHIThreadWork& Work)
 			-> FRHIThreadSynchronousResult;
 		RHI_API auto WaitForSerial(uint64 Serial) const -> ERHIThreadWaitResult;
 		RHI_API auto Flush() const -> ERHIThreadWaitResult;
+		RHI_API auto CaptureLastSubmittedSerial() const -> uint64;
 
 		RHI_API auto GetStats() const -> FRHIThreadStats;
 

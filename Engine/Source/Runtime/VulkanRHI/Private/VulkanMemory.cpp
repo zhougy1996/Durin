@@ -5,6 +5,7 @@
 
 #include "VulkanDevice.h"
 #include "VulkanDynamicRHI.h"
+#include "VulkanRHIPrivate.h"
 
 
 namespace Durin::VulkanRHI
@@ -349,6 +350,20 @@ namespace Durin::VulkanRHI
 
 	FVulkanSemaphore::~FVulkanSemaphore()
 	{
-		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Semaphore, Semaphore);
+		if (Semaphore != VK_NULL_HANDLE)
+		{
+			Device.GetDeferredDeletionQueue().EnqueueResource(
+				FDeferredDeletionQueue::EType::Semaphore, Semaphore);
+		}
+	}
+
+	auto FVulkanSemaphore::DestroyImmediately() -> void
+	{
+		CheckVulkanRHIThread();
+		if (Semaphore != VK_NULL_HANDLE)
+		{
+			Device.GetHandle().destroySemaphore(Semaphore);
+			Semaphore = VK_NULL_HANDLE;
+		}
 	}
 } // namespace Durin::VulkanRHI

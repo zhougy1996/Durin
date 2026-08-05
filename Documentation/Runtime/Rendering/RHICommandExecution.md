@@ -1,9 +1,11 @@
 # RHI Command Execution
 
 Durin's renderer records backend-neutral RHI commands into owned command-list
-storage and replays them through one executor. The current production executor
-runs inline on the rendering thread; `Immediate` identifies the primary
-timeline and coordination surface, not a direct backend-call path.
+storage and replays them through one executor. The normal runtime uses one
+dedicated RHI thread; setting `DURIN_RHI_EXECUTION=inline` keeps the same
+executor contract but replays on the rendering thread for focused diagnostics.
+`Immediate` identifies the primary timeline and coordination surface, not a
+direct backend-call path.
 
 ## Command-List Roles
 
@@ -45,23 +47,42 @@ transfers its exact state and storage and leaves the source inert.
 
 ## Submission And Completion
 
-The executor groups the pending immediate segments and admitted regular lists,
-assigns each nonempty group a monotonically increasing nonzero serial, and
-replays its batches in timeline order. Empty work without an ordered event does
-not manufacture a serial or backend submission.
+The executor groups pending immediate segments and admitted regular lists. In
+threaded mode the bounded FIFO queue assigns each accepted group a monotonically
+increasing nonzero serial while holding the queue lock; empty flushes and fences
+capture that same queue-owned last-accepted serial. Inline mode preserves the
+same serial and completion behavior locally. Empty work without an ordered
+event does not manufacture a serial or backend submission.
+
+The queue admits at most 8 queued-or-active entries, 16 batches, and 32 MiB of
+owned payload. A producer that would cross a bound waits for capacity and wakes
+on completion, failure, or admission close. Admission is explicit
+`Stopped -> Running -> Draining -> Stopped`; rejection never consumes the
+producer's work. The RHI thread is the sole runtime owner of command-context
+replay, Vulkan command-pool/buffer mutation, graphics and present queue
+submission, frame state, and ordered backend deletion.
 
 Ordered events execute in this sequence:
 
 1. replay every batch;
 2. optionally submit backend commands;
-3. optionally end the frame;
+3. optionally end the frame and, only after successful backend `RHIEndFrame`,
+   advance the executor-owned `FrameNumber` once;
 4. release all batch-owned payloads and RHI references;
 5. optionally drain deferred RHI deletion;
 6. publish the completed serial.
 
-An executor fence targets the last accepted serial. CPU completion means replay
+An executor fence targets one exact accepted serial. CPU completion means replay
 and the ordered executor events above have finished; it does not imply GPU idle.
 Vulkan queue and frame fences continue to represent GPU completion.
+
+The executor `FrameNumber` starts at zero and advances only after a successful
+replayed `RHIEndFrame`; callers do not supply it. Ordered `BeginFrame` passes the
+current number to the backend, and Vulkan derives both its GPU frame slot and
+the rendering thread's matching dynamic-uniform page lease from it. Present
+uses the ordered active-frame state and has no independent frame-counter
+argument. Vulkan's deferred-deletion aging counter remains a separate backend
+counter.
 
 ## Flush And Synchronous Operations
 
@@ -76,16 +97,30 @@ Immediate flush behavior is explicit:
 
 Buffer and texture uploads are recorded and own their source bytes. Operations
 that must return a completed result—buffer lock scopes, texture readback,
-back-buffer acquisition, GPU-idle waits, and backend-dependent allocation—use
-declared synchronous executor operations. They first complete required earlier
-recorded work. CPU-only dynamic uniform suballocation does not split an active
-render pass merely to preserve this coordination rule.
+back-buffer acquisition, GPU-idle waits, resource creation, viewport resize,
+and backend-dependent allocation—use declared synchronous executor operations.
+They first complete required earlier recorded work and execute backend mutation
+on the RHI thread. A waiter always targets the exact accepted serial and a
+failure or admission rejection is terminal rather than silently falling back
+to producer-thread backend work.
+
+At `BeginFrame`, Vulkan waits the selected GPU frame-slot fence and publishes
+one preallocated 4 MiB mapped dynamic-uniform page lease to the rendering
+thread. Ordinary aligned suballocation then needs no RHI round trip; only page
+overflow synchronously reserves an additional RHI-owned page.
 
 Ordinary end-of-frame dispatch is not a GPU-idle boundary. `SubmitToGPU`,
 `EndFrame`, present-related context work, and `DeleteResources` remain ordered
 relative to recorded commands without adding a device-wide wait.
 
 ## Runtime Drain And Diagnostics
+
+`FFrameSync::EndFrame` preserves the two-slot render-command pacing fence and
+does not wait for RHI completion. A `Threads` sync, including
+`FlushRenderingCommands`, retains shared fence state, submits pending immediate
+work, and waits the exact RHI serial. Destroying the fence object cannot leave
+its queued callback with a dangling address; render rejection or RHI failure
+makes the shared state terminal and wakes waiters.
 
 Render shutdown closes render-command admission, drains every accepted command,
 flushes the immediate timeline and deferred deletion, then verifies all of the
@@ -97,22 +132,20 @@ following before `RHIExit()`:
 - the render-resource registry, deferred C++ cleanup, and pending RHI deletion
   are empty.
 
+`RHIExit()` performs the final resource/deletion flush, then installs a
+zero-payload backend-shutdown marker and changes RHI admission to `Draining` in
+one queue critical section. No public work can land after that marker. Blocked
+producers wake and reject; the game thread waits the marker's exact serial,
+switches the executor to inline diagnostics only after it completes, stops and
+joins the RHI thread, audits zero outstanding entries/batches/bytes, and finally
+releases the backend owner.
+
 The final rendering-thread audit logs cumulative command count, payload bytes,
-submitted batches, submission groups, inline replay nanoseconds, waits, and
-rejected submissions. `FRHICommandListExecutor::GetStats()` exposes the same
-snapshot for focused tests and for sizing the future bounded RHI-thread queue.
-These counters describe CPU-side recorder/executor work; they are not GPU timing
-measurements.
-
-## Threaded Executor Boundary
-
-A dedicated RHI thread may replace the inline consumer, but it must consume the
-same immutable submission groups and preserve the same serial, fence, ordering,
-failure, payload ownership, and resource-retention behavior. The producer may
-continue recording only after successful ownership transfer. Queue depth and
-byte backpressure belong to the threaded executor and must be derived from
-measured command, batch, and payload volume rather than changing command
-representation.
+submitted batches, submission groups, replay time, wait count and duration,
+synchronous-operation count, peak queued-or-active entries/batches/bytes,
+backpressure, and rejected submissions. `FRHICommandListExecutor::GetStats()`
+exposes the same CPU-side snapshot. These values diagnose executor stalls and
+queue sizing; they are not GPU timing measurements.
 
 ## Related Documentation
 

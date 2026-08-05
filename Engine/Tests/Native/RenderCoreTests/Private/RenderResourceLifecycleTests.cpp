@@ -3,6 +3,7 @@
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "RHICommandList.h"
+#include "RHIThread.h"
 #include "RenderResource.h"
 #include "RenderingThread.h"
 #include "Threading/Task.h"
@@ -415,6 +416,72 @@ namespace Durin
 			ERenderCommandAdmissionState::Stopped);
 
 		InitRenderingThread();
+	}
+
+	TEST_F(FRenderResourceLifecycleTests,
+		DestroyingPendingFenceLeavesCallbackStateAlive)
+	{
+		FThreadEvent CommandStarted;
+		FThreadEvent ReleaseCommand;
+		ENQUEUE_RENDER_COMMAND(BlockFenceCallback)(
+			[&](FRHICommandListImmediate&) {
+				CommandStarted.Trigger();
+				ReleaseCommand.Wait();
+			});
+		if (!CommandStarted.WaitFor(1.0))
+		{
+			ReleaseCommand.Trigger();
+			FAIL() << "blocking render command did not start";
+		}
+
+		{
+			FRenderCommandFence Fence;
+			Fence.BeginFence();
+		}
+
+		ReleaseCommand.Trigger();
+		FlushRenderingCommands();
+	}
+
+	TEST_F(FRenderResourceLifecycleTests,
+		RejectedFenceCompletesWithoutStrandingWaiter)
+	{
+		ShutdownRenderingThread();
+		FRenderCommandFence Fence;
+		Fence.BeginFence(ERenderCommandFenceMode::RHIThread);
+
+		EXPECT_TRUE(Fence.IsFenceComplete());
+		Fence.Wait();
+		InitRenderingThread();
+	}
+
+	TEST_F(FRenderResourceLifecycleTests,
+		EndFramePacingStaysRenderOnlyWhileThreadsFlushWaitsExactRHIWork)
+	{
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		GCommandListExecutor.SetThreadedMode(RHIThread);
+		FThreadEvent RHIWorkStarted;
+		FThreadEvent ReleaseRHIWork;
+
+		ENQUEUE_RENDER_COMMAND(DispatchBlockingRHIWork)(
+			[&](FRHICommandListImmediate& RHICmdList) {
+				RHICmdList.EnqueueLambda([&]() {
+					RHIWorkStarted.Trigger();
+					ReleaseRHIWork.Wait();
+				});
+				RHICmdList.ImmediateFlush(
+					EImmediateFlushType::DispatchToRHIThread);
+			});
+
+		FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
+		FFrameSync::Sync(FFrameSync::EFlushMode::EndFrame);
+		EXPECT_TRUE(RHIWorkStarted.WaitFor(1.0));
+
+		ReleaseRHIWork.Trigger();
+		FFrameSync::Sync(FFrameSync::EFlushMode::Threads);
+		GCommandListExecutor.SetInlineMode();
+		RHIThread.Stop();
 	}
 
 #if DO_CHECK

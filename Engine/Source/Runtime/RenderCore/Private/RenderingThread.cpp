@@ -35,7 +35,8 @@ namespace Durin
 				"RHI executor drained (mode: {}): {} command(s), {} payload byte(s), "
 				"{} batch(es), {} submission group(s), {} ns replay, {} wait(s), "
 				"{} synchronous operation(s), "
-				"{} ns wait duration, {} backpressure event(s), {} rejection(s).",
+				"{} ns wait duration, peak queue {} entry(s)/{} batch(es)/{} byte(s), "
+				"{} backpressure event(s), {} rejection(s).",
 				ExecutorMode,
 				ExecutorStats.RecordedCommandCount,
 				ExecutorStats.RecordedPayloadBytes,
@@ -45,6 +46,9 @@ namespace Durin
 				ExecutorStats.WaitCount,
 				ExecutorStats.SynchronousOperationCount,
 				ExecutorStats.WaitDurationNanoseconds,
+				ExecutorStats.PeakQueueEntryCount,
+				ExecutorStats.PeakQueueBatchCount,
+				ExecutorStats.PeakQueuePayloadBytes,
 				ExecutorStats.BackpressureWaitCount,
 				ExecutorStats.RejectedSubmissionCount);
 			const size_t PendingRHIDeletes =
@@ -114,36 +118,128 @@ namespace Durin
 		GRenderingThreadRunnable = nullptr;
 	}
 
-	auto FRenderCommandFence::BeginFence() -> void
+	class FRenderCommandFence::FState
 	{
-		bIsComplete = false;
+	public:
+		explicit FState(ERenderCommandFenceMode InMode)
+			: Mode(InMode)
+		{
+		}
+
+		auto CompleteRenderCommand(bool bInSucceeded, uint64 InRHISerial) -> void
+		{
+			{
+				std::lock_guard Lock(Mutex);
+				bSucceeded = bInSucceeded;
+				RHISerial = InRHISerial;
+			}
+			bRenderCommandComplete.store(true, std::memory_order_release);
+			CV.notify_all();
+		}
+
+		ERenderCommandFenceMode Mode;
+		std::atomic<bool> bRenderCommandComplete = false;
+		bool bSucceeded = true;
+		uint64 RHISerial = 0;
+		std::condition_variable CV;
+		std::mutex Mutex;
+	};
+
+	FRenderCommandFence::FRenderCommandFence()
+		: State(std::make_shared<FState>(
+			ERenderCommandFenceMode::RenderThread))
+	{
+		State->CompleteRenderCommand(true, 0);
+	}
+
+	FRenderCommandFence::~FRenderCommandFence() = default;
+
+	auto FRenderCommandFence::BeginFence(ERenderCommandFenceMode Mode) -> void
+	{
+		auto FenceState = std::make_shared<FState>(Mode);
+		State = FenceState;
 		const bool bAccepted =
 			FRenderThreadCommandPipe::TryEnqueue<FFenceRenderCommand>(
-				[this](FRHICommandListImmediate&) {
-					this->bIsComplete.store(
-						true, std::memory_order::release);
-					std::unique_lock<std::mutex> Lock(Mutex);
-					this->CV.notify_all();
+				[FenceState = std::move(FenceState), Mode](
+					FRHICommandListImmediate&) {
+					if (Mode == ERenderCommandFenceMode::RenderThread)
+					{
+						FenceState->CompleteRenderCommand(true, 0);
+						return;
+					}
+
+					try
+					{
+						const FRHICommandListSubmission Submission =
+							GCommandListExecutor.TrySubmit(
+								{}, ERHISubmitFlags::None);
+						if (!Submission.IsAccepted())
+						{
+							DURIN_ERROR(
+								"RHI-inclusive render fence submission was rejected ({}).",
+								static_cast<uint32>(Submission.Result));
+						}
+						FenceState->CompleteRenderCommand(
+							Submission.IsAccepted(), Submission.Serial);
+					}
+					catch (...)
+					{
+						FenceState->CompleteRenderCommand(false, 0);
+					}
 				});
-		checkf(bAccepted,
-			"Render command fence was rejected because command admission is closed.");
+		if (!bAccepted)
+		{
+			State->CompleteRenderCommand(false, 0);
+		}
 	}
 
 	auto FRenderCommandFence::Wait() -> void
 	{
-		std::unique_lock<std::mutex> Lock(Mutex);
-		CV.wait(Lock, [this]() {
-			return bIsComplete.load(std::memory_order::acquire);
+		const std::shared_ptr<FState> FenceState = State;
+		std::unique_lock Lock(FenceState->Mutex);
+		FenceState->CV.wait(Lock, [&FenceState]() {
+			return FenceState->bRenderCommandComplete.load(
+				std::memory_order_acquire);
 		});
+		const bool bSucceeded = FenceState->bSucceeded;
+		const ERenderCommandFenceMode Mode = FenceState->Mode;
+		const uint64 RHISerial = FenceState->RHISerial;
+		Lock.unlock();
+		if (bSucceeded && Mode == ERenderCommandFenceMode::RHIThread)
+		{
+			if (!GCommandListExecutor.TryWaitForSerial(RHISerial))
+			{
+				DURIN_ERROR(
+					"RHI-inclusive render fence failed while waiting for serial {}.",
+					RHISerial);
+			}
+		}
+	}
+
+	auto FRenderCommandFence::IsFenceComplete() const -> bool
+	{
+		const std::shared_ptr<FState> FenceState = State;
+		if (!FenceState->bRenderCommandComplete.load(std::memory_order_acquire))
+		{
+			return false;
+		}
+		std::lock_guard Lock(FenceState->Mutex);
+		if (!FenceState->bSucceeded
+			|| FenceState->Mode == ERenderCommandFenceMode::RenderThread)
+		{
+			return true;
+		}
+		return GCommandListExecutor.IsSerialComplete(FenceState->RHISerial)
+			|| GCommandListExecutor.IsSerialFailed(FenceState->RHISerial);
 	}
 
 	namespace FFrameSync
 	{
 		struct FRenderThreadFence
 		{
-			FRenderThreadFence()
+			explicit FRenderThreadFence(ERenderCommandFenceMode Mode)
 			{
-				Fence.BeginFence();
+				Fence.BeginFence(Mode);
 			}
 
 			~FRenderThreadFence()
@@ -163,7 +259,9 @@ namespace Durin
 			check(IsInGameThread());
 			bool bFullSync = (FlushMode == EFlushMode::Threads);
 
-			RenderThreadFences[NextFenceIndex].emplace();
+			RenderThreadFences[NextFenceIndex].emplace(
+				bFullSync ? ERenderCommandFenceMode::RHIThread
+					: ERenderCommandFenceMode::RenderThread);
 			NextFenceIndex ^= 1;
 
 			if (bFullSync)
@@ -202,7 +300,9 @@ namespace Durin
 	auto FlushRenderingCommands() -> void
 	{
 		ENQUEUE_RENDER_COMMAND(FlushPendingDeleteRHIResourcesCmd)([](FRHICommandListImmediate& RHICmdList) {
-			RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources, ERHISubmitFlags::FlushRHIThread);
+			RHICmdList.ImmediateFlush(
+				EImmediateFlushType::DispatchToRHIThread,
+				ERHISubmitFlags::DeleteResources);
 		});
 		FFrameSync::Sync(FFrameSync::EFlushMode::Threads);
 	}

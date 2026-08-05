@@ -4,18 +4,18 @@ Summary: Move RHI command replay and backend submission onto one independently o
 
 Last reviewed: 2026-08-05
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-05
 
 ## Current Status
 
-Durin has a game thread and a rendering thread, but no RHI thread. The completed
-[Recorded RHI Command List](RecordedRHICommandList.md) predecessor replaced
-direct command-list forwarding with always-recorded immediate and regular
-lists, private immutable batches, ordered inline replay, monotonic serials,
-executor fences, owned upload payloads, retained resources, and declared
-synchronous operations. Vulkan context mutation, command-buffer finalization,
-queue submission, and present still execute inline on the rendering thread.
+Durin now has a game thread, rendering thread, and dedicated RHI thread. The
+normal runtime records backend-neutral work on the rendering thread and replays
+it on the RHI thread; `DURIN_RHI_EXECUTION=inline` retains the same executor
+contract as an explicit diagnostic override. The completed
+[Recorded RHI Command List](RecordedRHICommandList.md) predecessor supplied the
+immutable batches, serials, fences, owned payloads, retained resources, and
+declared synchronous operations consumed by both modes.
 
 The implemented producer/consumer contract is now owned by
 [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md). This plan
@@ -114,6 +114,52 @@ initialization, and Vulkan integration tests, the complete native-test
 aggregate, and the full Debug Editor `all` build pass. Default-inline and
 explicit-threaded 60-tick Editor runs exit normally with zero backpressure and
 zero rejection. The Stage 4 entry gate is clear.
+
+Stage 4 completed on 2026-08-05. Threaded empty submits, executor fences, and
+statistics now read the RHI queue's mutex-protected last accepted serial instead
+of a producer-written executor cache. A lifecycle enqueue that wins the queue
+lock is therefore visible to the next flush/fence capture, and concurrent
+producers cannot regress the published target. `FRenderCommandFence` callbacks
+retain shared state rather than the fence object's address; render-only fences
+remain the two-slot EndFrame pacing primitive, while RHI-inclusive fences submit
+pending immediate work and retain the exact returned RHI serial for a Threads
+flush. Rejection and RHI failure make the shared state terminal and wake waiters.
+
+Shutdown now performs the final render-resource/RHI deletion audit, then
+`FRHIThread::EnqueueTerminal` installs backend shutdown and changes admission to
+Draining in one queue critical section. Blocked producers wake and reject, no
+public work can land behind backend shutdown, and `RHIExit` waits that exact
+terminal serial before switching the executor inline, joining the thread, and
+releasing the backend. Vulkan viewport teardown waits only its swapchain scope
+and destroys its own image views, semaphores, fences, swapchain, and surface;
+it no longer forces the device-wide deferred-deletion queue. Focused queue,
+command-list, render-resource, initialization, and Vulkan integration tests,
+the complete native-test aggregate, and the full Debug Editor `all` build pass.
+Default-inline and explicit-threaded 60-tick Editor runs exit normally with zero
+executor backpressure or rejection. The Stage 5 entry gate is clear.
+
+Stage 5 completed on 2026-08-05. Threaded execution is now the default; explicit
+`DURIN_RHI_EXECUTION=inline` remains available for diagnostics, and invalid
+values are diagnosed before selecting the normal threaded path. Queue telemetry
+now retains peak queued-or-active entries, batches, and bytes alongside wait
+duration, backpressure, and rejection counts. Focused stress adds 256 rapid
+threaded dispatch/flush submissions and 16 repeated Vulkan resource
+creation/upload/readback/deletion frames.
+
+Three 600-tick samples per mode produced equivalent command, payload, batch,
+and submission volume. Median process CPU cost was 9.22 ms/tick threaded versus
+9.24 ms/tick inline; median process wall duration was 11.40 s threaded versus
+11.34 s inline. Median cumulative replay was 15.43 ms/tick threaded versus
+15.58 ms/tick inline. Threaded peak queue use was 2 entries, 1 batch, and
+1,056,145 bytes against the 8-entry/16-batch/32-MiB bounds, with zero
+backpressure and zero rejection. Its 76 synchronous operations remained
+constant at 60, 600, and 1,200 ticks, so no per-frame or per-draw synchronous
+fallback is present. A 1,200-tick default-threaded run survived real native
+window resize, minimize, restore, and hide transitions before a clean automated
+exit. The native aggregate completes 945 scheduled tests with zero failures
+(two platform skips, plus one disabled benchmark), and the full Debug Editor
+build passes. Lasting ownership, frame, flush, viewport, and shutdown rules now
+live in the runtime documentation, so the plan is complete.
 
 ## Goal
 
@@ -735,31 +781,31 @@ Dependencies: Stage 3.
 
 Dependencies: Stage 3.5.
 
-- [ ] Make empty flush and fence targets capture the queue-authoritative last
+- [x] Make empty flush and fence targets capture the queue-authoritative last
   accepted serial so lifecycle and synchronous producers cannot be missed and
   executor-side serial snapshots cannot regress under concurrency.
-- [ ] Replace render-fence callbacks that capture the fence object's raw
+- [x] Replace render-fence callbacks that capture the fence object's raw
   `this` with shared lifetime-safe state carrying render completion and, for an
   RHI-inclusive fence, the exact RHI serial. Rejection/failure must wake its
   waiter instead of leaving an incomplete fence.
-- [ ] Integrate the exact serial payload into `FFrameSync::Threads`, final
+- [x] Integrate the exact serial payload into `FFrameSync::Threads`, final
   render drain, and explicit RHI-inclusive render-command fences. Preserve the
   existing two-slot render-thread end-frame pacing and Vulkan frame-slot GPU
   throttle; ordinary EndFrame pacing must not wait for full RHI or GPU idle.
-- [ ] Ensure `EndFrame`, present, GPU submission, completion publication, and
+- [x] Ensure `EndFrame`, present, GPU submission, completion publication, and
   resource deletion preserve their declared order without whole-device idle.
   Viewport teardown may retire only its own swapchain resources and must not
   immediately clear unrelated device deferred-deletion entries.
-- [ ] Close render admission first, submit the final accepted render batch,
+- [x] Close render admission first, submit the final accepted render batch,
   then atomically install the internal backend-shutdown marker while
   transitioning RHI admission to draining. No public work may be accepted
   after that marker.
-- [ ] Run the final render-resource and RHI deletion audits before backend
+- [x] Run the final render-resource and RHI deletion audits before backend
   shutdown; then execute backend `Shutdown` on the RHI thread, stop/join it, and
   complete `RHIExit`.
-- [ ] Reject late render/RHI work synchronously and wake every blocked producer
+- [x] Reject late render/RHI work synchronously and wake every blocked producer
   or fence waiter on shutdown and failure paths.
-- [ ] Keep the Stage 3.5 executor frame-number and implicit Present contract
+- [x] Keep the Stage 3.5 executor frame-number and implicit Present contract
   unchanged; do not introduce `FRHIPresentArgs` or return to render-counter-
   driven backend slots while integrating pacing.
 
@@ -776,24 +822,81 @@ Dependencies: Stage 3.5.
   deferred deletions. Scoped viewport retirement never releases unrelated
   in-flight device resources.
 
+#### Stage 5 handoff
+
+- Baseline: `132837db8c6671183897564d16ff2233a497b069`; the Stage 4
+  implementation and this validated handoff are the single plan commit after
+  that baseline.
+- Working set: `RHIThread.h/.cpp`, executor serial/fence handling in
+  `RHICommandList.h/.cpp`, `RenderingThread.h/.cpp`, `RHIGlobals.cpp`, Vulkan
+  viewport/swapchain/semaphore lifetime files, and focused RHI/RenderCore
+  tests.
+- Key symbols: `FRHIThread::CaptureLastSubmittedSerial`,
+  `FRHIThread::EnqueueTerminal`, `FRenderCommandFence::FState`,
+  `ERenderCommandFenceMode`, `FFrameSync::Sync`,
+  `FRHICommandListExecutor::TryWaitForSerial`, `RHIExit`, and
+  `FVulkanSemaphore::DestroyImmediately`.
+- Decisions: the queue lock owns last-accepted serial linearization; render
+  fences retain shared terminal state and only RHI-inclusive fences wait the
+  exact submit serial; EndFrame remains render-only two-slot pacing; terminal
+  work is an internal zero-payload marker admitted atomically with Draining;
+  viewport-idle resources are destroyed directly and never trigger a global
+  deferred-deletion sweep. Executor frame numbering and implicit Present remain
+  unchanged.
+- Stage 5 entry: no correctness gate remains. Threaded mode is still opt-in;
+  Stage 5 owns broader Vulkan/stress measurements, baseline comparison, lasting
+  contract documentation, and the decision to make threaded execution the
+  default.
+- Validation: focused RHI thread, command-list, initialization, RenderCore, and
+  Vulkan integration targets pass, as do the complete native-test aggregate
+  and full Debug Editor `all` build. Inline and threaded 60-tick hidden-window
+  Editor runs complete normal shutdown with no executor backpressure or
+  rejection. Active-plan validation is required with the landing commit.
+
 ### Stage 5: Threaded validation and default enablement
 
 Dependencies: Stage 4.
 
-- [ ] Run focused Core/RHI/RenderCore tests for affinity, queue concurrency,
+- [x] Run focused Core/RHI/RenderCore tests for affinity, queue concurrency,
   serial fences, synchronous calls, resource lifetime, and shutdown.
-- [ ] Run Vulkan validation for graphics, texture upload/readback, material,
+- [x] Run Vulkan validation for graphics, texture upload/readback, material,
   dynamic uniform, viewport present/resize, and repeated-frame workloads in
   both inline and threaded modes.
-- [ ] Stress producer/consumer skew, maximum queue capacity, rapid flushes,
+- [x] Stress producer/consumer skew, maximum queue capacity, rapid flushes,
   resource churn, minimized/closed windows, and repeated clean process exit.
-- [ ] Compare CPU frame time, RHI replay time, wait duration, queue depth,
+- [x] Compare CPU frame time, RHI replay time, wait duration, queue depth,
   payload bytes, and synchronous round trips against the inline baseline.
-- [ ] Make threaded mode the normal runtime path only after correctness,
+- [x] Make threaded mode the normal runtime path only after correctness,
   shutdown, and latency gates pass; retain inline mode for focused tests and
   diagnostics.
-- [ ] Move lasting thread ownership, flush, frame, and shutdown rules into the
+- [x] Move lasting thread ownership, flush, frame, and shutdown rules into the
   runtime lifecycle/rendering documentation and update dependent plans.
+
+#### Completion handoff
+
+- Baseline: `c71537df5f2e12bf70a139f5d82dfc990987af22`, the validated Stage 4
+  landing commit.
+- Working set: execution-mode selection in `RHIGlobals.h/.cpp`; peak queue
+  telemetry in `RHIThread.h/.cpp`, `RHICommandList.h/.cpp`, and
+  `RenderingThread.cpp`; focused RHI/Vulkan tests; and the RHI execution,
+  runtime lifecycle, viewport rendering, and predecessor-plan documentation.
+- Key symbols and decisions: `ResolveRHIExecutionMode(nullptr)` selects
+  `Threaded`; only the exact value `inline` selects diagnostics;
+  `FRHIThreadStats::PeakOutstanding*` measures queue high-water marks; the raw
+  native-compute Vulkan test is explicitly inline while portable RHI Vulkan
+  coverage is explicitly threaded. Executor-owned `FrameNumber`, implicit
+  Present, `GVulkanRHIDeletionFrameNumber`, exact fences, and terminal shutdown
+  semantics remain unchanged.
+- Open questions: none for the single-consumer design. Parallel replay,
+  additional RHI consumers, and asynchronous creation remain separate
+  evidence-gated plans.
+- Validation: 64 `CoreConcurrencyTests`, 10 `RHIThreadTests`, 37
+  `RHICommandListTests`, 4 `RHIInitializationTests`, 37 `RenderContractTests`,
+  and 2 `VulkanRHIIntegrationTests` pass. The complete native aggregate reports
+  zero failures across 945 scheduled tests (two platform skips, plus one
+  disabled benchmark), the full Debug Editor `all` build passes, six 600-tick
+  parity runs exit cleanly, and the 1,200-tick native window lifecycle stress
+  exits with all audits clean.
 
 #### Acceptance Gate
 

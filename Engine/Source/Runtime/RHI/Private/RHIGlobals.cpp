@@ -164,21 +164,21 @@ namespace Durin
 	{
 		if (!ConfiguredMode)
 		{
-			return ERHIExecutionMode::Inline;
+			return ERHIExecutionMode::Threaded;
 		}
 
 		const std::string_view Mode(ConfiguredMode);
-		if (Mode == "threaded")
+		if (Mode == "inline")
 		{
-			return ERHIExecutionMode::Threaded;
+			return ERHIExecutionMode::Inline;
 		}
-		if (Mode != "inline")
+		if (Mode != "threaded")
 		{
 			DURIN_ERROR(
-				"Invalid DURIN_RHI_EXECUTION value '{}'; expected 'inline' or 'threaded'. Using inline mode.",
+				"Invalid DURIN_RHI_EXECUTION value '{}'; expected 'inline' or 'threaded'. Using threaded mode.",
 				Mode);
 		}
-		return ERHIExecutionMode::Inline;
+		return ERHIExecutionMode::Threaded;
 	}
 
 	auto RHIInit() -> bool
@@ -206,16 +206,38 @@ namespace Durin
 		{
 			FRHIThreadWork ShutdownWork;
 			ShutdownWork.Execute = []() {
+				RHIFlushDeferredResources();
+				checkf(FRHIResource::GetNumPendingDeletes() == 0,
+					"RHI shutdown marker found pending RHI resource deletions.");
 				GDynamicRHI->Shutdown();
 				return FRHIThreadWorkResult::Success();
 			};
-			const FRHIThreadSynchronousResult ShutdownResult =
-				RHIThreadOwner->EnqueueSynchronous(ShutdownWork);
-			checkf(ShutdownResult.IsCompleted(),
-				"Dynamic RHI shutdown failed on RHI thread.");
+			const FRHIThreadSubmission ShutdownSubmission =
+				RHIThreadOwner->EnqueueTerminal(ShutdownWork);
+			if (!ShutdownSubmission.IsAccepted())
+			{
+				DURIN_FATAL(
+					"Failed to atomically install the dynamic RHI shutdown marker ({}).",
+					static_cast<uint32>(ShutdownSubmission.Result));
+				std::terminate();
+			}
+			const ERHIThreadWaitResult ShutdownWaitResult =
+				RHIThreadOwner->WaitForSerial(ShutdownSubmission.Serial);
+			if (ShutdownWaitResult != ERHIThreadWaitResult::Completed)
+			{
+				DURIN_FATAL(
+					"Dynamic RHI shutdown marker failed on RHI thread ({}).",
+					static_cast<uint32>(ShutdownWaitResult));
+				std::terminate();
+			}
 			GCommandListExecutor.SetInlineMode();
-			RHIThreadOwner->BeginDrain();
 			RHIThreadOwner->Stop();
+			const FRHIThreadStats ShutdownStats = RHIThreadOwner->GetStats();
+			check(ShutdownStats.AdmissionState
+				== ERHIThreadAdmissionState::Stopped);
+			check(ShutdownStats.OutstandingEntryCount == 0);
+			check(ShutdownStats.OutstandingBatchCount == 0);
+			check(ShutdownStats.OutstandingPayloadBytes == 0);
 			RHIThreadOwner.reset();
 		}
 		else

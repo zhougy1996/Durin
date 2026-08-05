@@ -11,8 +11,9 @@ namespace Durin
 		Threaded
 	};
 
-	// Resolves DURIN_RHI_EXECUTION semantics. An unset or invalid value keeps
-	// the pre-Stage-5 inline default; invalid configured values are diagnosed.
+	// Resolves DURIN_RHI_EXECUTION semantics. Threaded execution is the normal
+	// path; "inline" remains an explicit diagnostic override. Invalid configured
+	// values are diagnosed and use the normal threaded path.
 	RHI_API auto ResolveRHIExecutionMode(const char* ConfiguredMode)
 		-> ERHIExecutionMode;
 

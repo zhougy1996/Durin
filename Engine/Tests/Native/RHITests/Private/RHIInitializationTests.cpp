@@ -110,20 +110,20 @@ namespace Durin
 		EXPECT_TRUE(Observation.bShutdownOnRHIThread);
 	}
 
-	TEST(FRHIInitializationTests, ExecutionModeDefaultsInlineAndRequiresOptIn)
+	TEST(FRHIInitializationTests, ExecutionModeDefaultsThreadedAndRetainsInlineOverride)
 	{
-		EXPECT_EQ(ResolveRHIExecutionMode(nullptr), ERHIExecutionMode::Inline);
+		EXPECT_EQ(ResolveRHIExecutionMode(nullptr), ERHIExecutionMode::Threaded);
 		EXPECT_EQ(ResolveRHIExecutionMode("inline"), ERHIExecutionMode::Inline);
 		EXPECT_EQ(ResolveRHIExecutionMode("threaded"),
 			ERHIExecutionMode::Threaded);
 	}
 
-	TEST(FRHIInitializationTests, InvalidExecutionModeFallsBackInline)
+	TEST(FRHIInitializationTests, InvalidExecutionModeFallsBackThreaded)
 	{
-		EXPECT_EQ(ResolveRHIExecutionMode(""), ERHIExecutionMode::Inline);
+		EXPECT_EQ(ResolveRHIExecutionMode(""), ERHIExecutionMode::Threaded);
 		EXPECT_EQ(ResolveRHIExecutionMode("THREADed"),
-			ERHIExecutionMode::Inline);
+			ERHIExecutionMode::Threaded);
 		EXPECT_EQ(ResolveRHIExecutionMode("unexpected"),
-			ERHIExecutionMode::Inline);
+			ERHIExecutionMode::Threaded);
 	}
 } // namespace Durin

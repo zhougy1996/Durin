@@ -52,7 +52,10 @@ lasting behavior is now owned by
 [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md). This
 completed plan is the required predecessor of
 [Dedicated RHI Thread](DedicatedRHIThread.md) and an upstream dependency of the
-compute-pipeline roadmap.
+compute-pipeline roadmap. The dedicated-thread plan has now consumed the same
+immutable groups without changing their representation: threaded replay is the
+normal runtime path, while explicit inline mode remains available for focused
+diagnostics.
 
 ## Goal
 
@@ -570,8 +573,6 @@ the full validation level specified there before this plan can complete.
 
 ## Deferred Follow-ups
 
-- Dedicated replay on an RHI thread is owned by
-  [Dedicated RHI Thread](DedicatedRHIThread.md).
 - Compute commands and transitions are owned by the
   [Compute Shader Pipeline roadmap](../Roadmaps/ComputeShaderPipeline.md).
 - Parallel recording, worker-produced lists, command sorting/merging, binary

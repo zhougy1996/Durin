@@ -1465,8 +1465,7 @@ namespace Durin
 				| ERHISubmitFlags::BeginFrame);
 		if (State->PendingBatches.empty() && !bHasOrderedEvent)
 		{
-			const uint64 Serial =
-				State->LastSubmittedSerial.load(std::memory_order_acquire);
+			const uint64 Serial = GetLastSubmittedSerial();
 			if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread))
 			{
 				WaitForSerial(Serial);
@@ -1608,7 +1607,6 @@ namespace Durin
 				return {.Result = Result};
 			}
 			RecordAcceptedSubmission();
-			State->LastSubmittedSerial.store(Submission.Serial, std::memory_order_release);
 			if (EnumHasAnyFlags(SubmitFlags, ERHISubmitFlags::FlushRHIThread))
 			{
 				WaitForSerial(Submission.Serial);
@@ -1715,17 +1713,27 @@ namespace Durin
 				static_cast<uint32>(Submission.Result));
 			std::terminate();
 		}
-		State->LastSubmittedSerial.store(Submission.Serial, std::memory_order_release);
 		WaitForSerial(Submission.Serial);
 	}
 
 	auto FRHICommandListExecutor::CreateFence() -> FRHICommandListFence
 	{
-		return FRHICommandListFence(*this, GetLastSubmittedSerial());
+		return CreateFence(GetLastSubmittedSerial());
+	}
+
+	auto FRHICommandListExecutor::CreateFence(uint64 TargetSerial)
+		-> FRHICommandListFence
+	{
+		check(TargetSerial <= GetLastSubmittedSerial());
+		return FRHICommandListFence(*this, TargetSerial);
 	}
 
 	auto FRHICommandListExecutor::GetLastSubmittedSerial() const -> uint64
 	{
+		if (State->RHIThread)
+		{
+			return State->RHIThread->CaptureLastSubmittedSerial();
+		}
 		return State->LastSubmittedSerial.load(std::memory_order_acquire);
 	}
 
@@ -1778,6 +1786,9 @@ namespace Durin
 			.WaitDurationNanoseconds = State->WaitDurationNanoseconds.load(
 				std::memory_order_relaxed),
 			.BackpressureWaitCount = ThreadStats.BackpressureWaitCount,
+			.PeakQueueEntryCount = ThreadStats.PeakOutstandingEntryCount,
+			.PeakQueueBatchCount = ThreadStats.PeakOutstandingBatchCount,
+			.PeakQueuePayloadBytes = ThreadStats.PeakOutstandingPayloadBytes,
 		};
 	}
 
@@ -1791,7 +1802,7 @@ namespace Durin
 		checkf(ThreadStats.AdmissionState == ERHIThreadAdmissionState::Running,
 			"Threaded mode requires a running RHI thread.");
 		State->LastSubmittedSerial.store(
-			ThreadStats.LastSubmittedSerial, std::memory_order_release);
+			InRHIThread.CaptureLastSubmittedSerial(), std::memory_order_release);
 		State->RHIThread = &InRHIThread;
 	}
 
@@ -1799,9 +1810,16 @@ namespace Durin
 	{
 		if (State->RHIThread)
 		{
-			WaitForSerial(GetLastSubmittedSerial());
+			const FRHIThreadStats ThreadStats = State->RHIThread->GetStats();
+			const uint64 LastSubmittedSerial = ThreadStats.LastSubmittedSerial;
+			if (ThreadStats.FailedSerial == 0)
+			{
+				WaitForSerial(LastSubmittedSerial);
+			}
+			State->LastSubmittedSerial.store(
+				LastSubmittedSerial, std::memory_order_release);
 			State->CompletedSerial.store(
-				GetLastSubmittedSerial(), std::memory_order_release);
+				LastSubmittedSerial, std::memory_order_release);
 			State->RHIThread = nullptr;
 		}
 	}
@@ -1811,25 +1829,31 @@ namespace Durin
 		return GetCompletedSerial() >= Serial;
 	}
 
-	auto FRHICommandListExecutor::WaitForSerial(uint64 Serial) const -> void
+	auto FRHICommandListExecutor::IsSerialFailed(uint64 Serial) const -> bool
+	{
+		if (!State->RHIThread || IsSerialComplete(Serial))
+		{
+			return false;
+		}
+		const FRHIThreadStats ThreadStats = State->RHIThread->GetStats();
+		return ThreadStats.FailedSerial != 0
+			|| ThreadStats.AdmissionState == ERHIThreadAdmissionState::Stopped;
+	}
+
+	auto FRHICommandListExecutor::TryWaitForSerial(uint64 Serial) const -> bool
 	{
 		State->WaitCount.fetch_add(1, std::memory_order_relaxed);
 		const auto WaitStart = std::chrono::steady_clock::now();
 		if (IsSerialComplete(Serial))
 		{
-			return;
+			return true;
 		}
+
+		bool bCompleted = true;
 		if (State->RHIThread)
 		{
-			const ERHIThreadWaitResult WaitResult =
-				State->RHIThread->WaitForSerial(Serial);
-			if (WaitResult != ERHIThreadWaitResult::Completed)
-			{
-				DURIN_FATAL(
-					"RHI thread failed while waiting for serial {} (result {}).",
-					Serial, static_cast<uint32>(WaitResult));
-				std::terminate();
-			}
+			bCompleted = State->RHIThread->WaitForSerial(Serial)
+				== ERHIThreadWaitResult::Completed;
 		}
 		else
 		{
@@ -1842,5 +1866,16 @@ namespace Durin
 		State->WaitDurationNanoseconds.fetch_add(
 			static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
 				WaitEnd - WaitStart).count()), std::memory_order_relaxed);
+		return bCompleted;
+	}
+
+	auto FRHICommandListExecutor::WaitForSerial(uint64 Serial) const -> void
+	{
+		if (!TryWaitForSerial(Serial))
+		{
+			DURIN_FATAL(
+				"RHI thread failed while waiting for serial {}.", Serial);
+			std::terminate();
+		}
 	}
 } // namespace Durin

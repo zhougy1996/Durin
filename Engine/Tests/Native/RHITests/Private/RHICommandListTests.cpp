@@ -3,6 +3,7 @@
 #include "RHICommandList.h"
 #include "RHIContext.h"
 #include "RHIThread.h"
+#include "Threading/ThreadEvent.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -442,6 +443,47 @@ namespace Durin
 		EXPECT_TRUE(bExecutedOnRHIThread.load(std::memory_order_acquire));
 	}
 
+	TEST(FRHICommandListTests,
+		ThreadedRapidDispatchAndFlushStressCompletesEverySubmission)
+	{
+		FRecordingCommandContext Context;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor Executor(Context, RHIThread);
+		FRHICommandListImmediate& Immediate = Executor.GetImmediateCommandList();
+		constexpr uint32 SubmissionCount = 256;
+		std::atomic<uint32> NextExpectedIndex = 0;
+		std::atomic<bool> bObservedFIFO = true;
+
+		for (uint32 Index = 0; Index < SubmissionCount; ++Index)
+		{
+			Immediate.EnqueueLambda([Index, &NextExpectedIndex, &bObservedFIFO]() {
+				const uint32 ObservedIndex = NextExpectedIndex.fetch_add(
+					1, std::memory_order_relaxed);
+				if (ObservedIndex != Index)
+				{
+					bObservedFIFO.store(false, std::memory_order_relaxed);
+				}
+			});
+			Immediate.ImmediateFlush(
+				Index % 8 == 7
+					? EImmediateFlushType::FlushRHIThread
+					: EImmediateFlushType::DispatchToRHIThread);
+		}
+		Immediate.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
+
+		const FRHICommandListExecutorStats Stats = Executor.GetStats();
+		EXPECT_TRUE(bObservedFIFO.load(std::memory_order_relaxed));
+		EXPECT_EQ(NextExpectedIndex.load(std::memory_order_relaxed), SubmissionCount);
+		EXPECT_EQ(Stats.RecordedCommandCount, SubmissionCount);
+		EXPECT_EQ(Stats.SubmissionGroupCount, SubmissionCount);
+		EXPECT_EQ(Stats.RejectedSubmissionCount, 0u);
+		EXPECT_EQ(Stats.PendingBatchCount, 0u);
+		EXPECT_EQ(Stats.LastSubmittedSerial, Stats.CompletedSerial);
+		EXPECT_GT(Stats.PeakQueueEntryCount, 0u);
+		EXPECT_LE(Stats.PeakQueueEntryCount, 8u);
+	}
+
 	TEST(FRHICommandListTests, ThreadedReplayMatchesInlineOrderedEvents)
 	{
 		FRecordingCommandContext InlineContext;
@@ -728,6 +770,52 @@ namespace Durin
 		EXPECT_EQ(Executor.Submit({}, ERHISubmitFlags::None), 0u);
 		EXPECT_EQ(Executor.GetCompletedSerial(), 0u);
 		EXPECT_EQ(Executor.GetFrameNumber(), 0u);
+	}
+
+	TEST(FRHICommandListTests,
+		EmptySubmitAndFenceCaptureQueueAuthoritativeSerial)
+	{
+		FRecordingCommandContext Context;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor Executor(Context, RHIThread);
+		FThreadEvent WorkStarted;
+		FThreadEvent ReleaseWork;
+
+		FRHIThreadWork LifecycleWork;
+		LifecycleWork.Execute = [&]() {
+			WorkStarted.Trigger();
+			ReleaseWork.Wait();
+			return FRHIThreadWorkResult::Success();
+		};
+		const FRHIThreadSubmission LifecycleSubmission =
+			RHIThread.Enqueue(LifecycleWork);
+		ASSERT_TRUE(LifecycleSubmission.IsAccepted());
+		if (!WorkStarted.WaitFor(1.0))
+		{
+			ReleaseWork.Trigger();
+			Executor.SetInlineMode();
+			RHIThread.Stop();
+			FAIL() << "lifecycle work did not start";
+		}
+
+		const FRHICommandListSubmission EmptySubmission =
+			Executor.TrySubmit({}, ERHISubmitFlags::None);
+		if (!EmptySubmission.IsAccepted())
+		{
+			ReleaseWork.Trigger();
+			Executor.SetInlineMode();
+			RHIThread.Stop();
+			FAIL() << "empty submission was rejected";
+		}
+		EXPECT_EQ(LifecycleSubmission.Serial, EmptySubmission.Serial);
+		const FRHICommandListFence Fence = Executor.CreateFence();
+		EXPECT_EQ(LifecycleSubmission.Serial, Fence.GetTargetSerial());
+
+		ReleaseWork.Trigger();
+		Fence.Wait();
+		Executor.SetInlineMode();
+		RHIThread.Stop();
 	}
 
 	TEST(FRHICommandListTests, ExecutorOwnsFrameNumberAcrossEmptyFrames)

@@ -187,7 +187,7 @@ editor host and workspace ownership belongs to the editor systems.
 
 Detailed viewport and composition contracts are documented in
 `Documentation/Runtime/Rendering/ViewportRendering.md`.
-RHI recording, inline replay, flush, completion, and batch ownership are
+RHI recording, dedicated-thread replay, flush, completion, and batch ownership are
 documented in
 `Documentation/Runtime/Rendering/RHICommandExecution.md`.
 
@@ -207,8 +207,9 @@ directly:
 | Drain objects | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
 | Unload modules | Run reverse-order module shutdown only after no deferred object's virtual cleanup can target an unloading module. |
 | Close render admission | Enqueue the final RenderCore audit while admission is still open, then atomically close it. |
-| Stop rendering | Stop the rendering thread after accepted commands, deferred C++ cleanup, and RHI deletion drain. |
-| Close the application | Run `RHIExit()`, shut down the platform application, and publish successful process termination. |
+| Stop rendering | Stop the rendering thread after accepted commands, deferred C++ cleanup, and its final RHI deletion submission drain. The RHI thread remains alive. |
+| Stop RHI | Atomically install backend shutdown with RHI admission `Draining`, wait its exact serial, then stop and join the RHI thread. |
+| Close the application | Shut down the platform application and publish successful process termination. |
 
 There is no global exit phase or pre-exit callback registry. Each owner closes
 its own admission as part of its ordinary shutdown and releases its own
@@ -286,8 +287,18 @@ only.
    submissions.
 4. Let the rendering thread finish every accepted queued and active command.
 5. On the rendering thread, verify the render-resource registry and deferred
-   C++ cleanup queue, drain deferred RHI deletion, transition admission to
-   `Stopped`, and exit. The game thread waits for completion before `RHIExit()`.
+   C++ cleanup queue, submit and wait the final RHI deletion drain, transition
+   render admission to `Stopped`, and exit.
+6. On the game thread, install backend `Shutdown` as the terminal RHI queue
+   marker in the same critical section that changes RHI admission to
+   `Draining`. Wait that exact serial, switch the executor out of threaded mode,
+   stop and join the RHI thread, then release the backend.
+
+The terminal marker is ordered after all accepted RHI work and cannot be
+overtaken by a late public producer. Producers blocked on queue capacity wake
+when draining begins, retain rejected work, and cannot execute backend mutation
+as a fallback. Backend `Init`, normal runtime mutation, and backend `Shutdown`
+therefore all observe one explicit RHI ownership phase.
 
 The final audit reports a live render resource's type and, in Debug builds, its
 asset owner. Pending cleanup entries also report whether rendering-thread
@@ -307,7 +318,9 @@ be placed inside `check` or `checkf`.
 - Rendering lifecycle validation must cover command-admission close, accepted
   work drain, resource registry and C++ cleanup drain, RHI deferred deletion,
   rendering-thread stop, and repeated clean process exit.
-- Runtime path assumptions and output layout are documented in
+- Runtime validation covers both the normal threaded mode and the explicit
+  `DURIN_RHI_EXECUTION=inline` diagnostic mode. Runtime path assumptions and
+  output layout are documented in
   `Documentation/Development/Build/BuildAndRun.md`.
 
 ## Related Documentation

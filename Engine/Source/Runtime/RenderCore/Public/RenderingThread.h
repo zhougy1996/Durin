@@ -7,21 +7,35 @@ namespace Durin
 {
 	class FRHICommandListImmediate;
 
+	enum class ERenderCommandFenceMode : uint8
+	{
+		RenderThread,
+		RHIThread,
+	};
+
 	// Lets the game thread wait until all render commands queued before the fence have completed.
 	class FRenderCommandFence
 	{
 	public:
-		FRenderCommandFence() = default;
-		~FRenderCommandFence() = default;
+		RENDERCORE_API FRenderCommandFence();
+		RENDERCORE_API ~FRenderCommandFence();
 
-		RENDERCORE_API auto BeginFence() -> void;
+		FRenderCommandFence(const FRenderCommandFence&) = delete;
+		auto operator=(const FRenderCommandFence&)
+			-> FRenderCommandFence& = delete;
+		FRenderCommandFence(FRenderCommandFence&&) = delete;
+		auto operator=(FRenderCommandFence&&)
+			-> FRenderCommandFence& = delete;
+
+		RENDERCORE_API auto BeginFence(
+			ERenderCommandFenceMode Mode =
+				ERenderCommandFenceMode::RenderThread) -> void;
 
 		RENDERCORE_API auto Wait() -> void;
-		auto IsFenceComplete() const -> bool { return bIsComplete.load(std::memory_order_acquire); }
+		RENDERCORE_API auto IsFenceComplete() const -> bool;
 	private:
-		std::atomic<bool> bIsComplete = true;
-		std::condition_variable CV;
-		std::mutex Mutex;
+		class FState;
+		std::shared_ptr<FState> State;
 	};
 
 	namespace FFrameSync

@@ -118,7 +118,11 @@ namespace Durin
 			return FRHIThreadWorkResult::Success();
 		};
 		ASSERT_TRUE(Thread.Enqueue(First).IsAccepted());
-		ASSERT_TRUE(FirstStarted.WaitFor(1.0));
+		if (!FirstStarted.WaitFor(1.0))
+		{
+			ReleaseFirst.Trigger();
+			FAIL() << "first work item did not start";
+		}
 
 		std::atomic<bool> bSecondAccepted = false;
 		FRHIThreadWork Second;
@@ -142,7 +146,11 @@ namespace Durin
 		Producer.join();
 		EXPECT_TRUE(bSecondAccepted.load(std::memory_order::acquire));
 		EXPECT_EQ(ERHIThreadWaitResult::Completed, Thread.Flush());
-		EXPECT_GT(Thread.GetStats().BackpressureWaitNanoseconds, 0u);
+		const FRHIThreadStats Stats = Thread.GetStats();
+		EXPECT_GT(Stats.BackpressureWaitNanoseconds, 0u);
+		EXPECT_EQ(Stats.PeakOutstandingEntryCount, 1u);
+		EXPECT_EQ(Stats.PeakOutstandingBatchCount, 1u);
+		EXPECT_EQ(Stats.PeakOutstandingPayloadBytes, 64u);
 	}
 
 	TEST(FRHIThreadTests, DrainRejectsLateAndOversizedWorkWithoutMovingPayload)
@@ -165,6 +173,73 @@ namespace Durin
 		Late.Execute = []() { return FRHIThreadWorkResult::Success(); };
 		EXPECT_FALSE(Thread.Enqueue(Late).IsAccepted());
 		EXPECT_TRUE(static_cast<bool>(Late.Execute));
+	}
+
+	TEST(FRHIThreadTests,
+		TerminalMarkerClosesAdmissionAndWakesBackpressuredProducer)
+	{
+		FRHIThread Thread;
+		FRHIThreadTestGuard Guard(Thread);
+		FRHIThreadQueueLimits Limits;
+		Limits.MaxEntries = 1;
+		Limits.MaxBatches = 1;
+		Limits.MaxPayloadBytes = 64;
+		ASSERT_TRUE(Thread.Start(Limits));
+		FThreadEvent FirstStarted;
+		FThreadEvent ReleaseFirst;
+
+		FRHIThreadWork First;
+		First.BatchCount = 1;
+		First.PayloadBytes = 64;
+		First.Execute = [&]() {
+			FirstStarted.Trigger();
+			ReleaseFirst.Wait();
+			return FRHIThreadWorkResult::Success();
+		};
+		ASSERT_TRUE(Thread.Enqueue(First).IsAccepted());
+		ASSERT_TRUE(FirstStarted.WaitFor(1.0));
+
+		ERHIThreadEnqueueResult BlockedResult =
+			ERHIThreadEnqueueResult::Accepted;
+		FRHIThreadWork Blocked;
+		Blocked.BatchCount = 1;
+		Blocked.PayloadBytes = 64;
+		Blocked.Execute = []() { return FRHIThreadWorkResult::Success(); };
+		std::thread Producer([&]() {
+			BlockedResult = Thread.Enqueue(Blocked).Result;
+		});
+		const auto Deadline =
+			std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		while (Thread.GetStats().BackpressureWaitCount == 0
+			&& std::chrono::steady_clock::now() < Deadline)
+		{
+			std::this_thread::yield();
+		}
+		EXPECT_EQ(1u, Thread.GetStats().BackpressureWaitCount);
+
+		bool bTerminalExecuted = false;
+		FRHIThreadWork Terminal;
+		Terminal.Execute = [&]() {
+			bTerminalExecuted = true;
+			return FRHIThreadWorkResult::Success();
+		};
+		const FRHIThreadSubmission TerminalSubmission =
+			Thread.EnqueueTerminal(Terminal);
+		if (!TerminalSubmission.IsAccepted())
+		{
+			ReleaseFirst.Trigger();
+			Producer.join();
+			FAIL() << "terminal marker was rejected";
+		}
+		Producer.join();
+		EXPECT_EQ(ERHIThreadEnqueueResult::Draining, BlockedResult);
+		EXPECT_TRUE(static_cast<bool>(Blocked.Execute));
+
+		ReleaseFirst.Trigger();
+		EXPECT_EQ(ERHIThreadWaitResult::Completed,
+			Thread.WaitForSerial(TerminalSubmission.Serial));
+		EXPECT_TRUE(bTerminalExecuted);
+		EXPECT_EQ(0u, Thread.GetStats().OutstandingEntryCount);
 	}
 
 	TEST(FRHIThreadTests, AcceptedAndRejectedPayloadsDestroyExactlyOnce)

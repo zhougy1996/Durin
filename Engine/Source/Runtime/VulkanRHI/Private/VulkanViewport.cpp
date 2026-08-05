@@ -69,15 +69,13 @@ namespace Durin::VulkanRHI
 
 		for (uint32 i = 0; i < TextureViews.size(); ++i)
 		{
-			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, TextureViews[i].ImageView);
+			Device.GetHandle().destroyImageView(TextureViews[i].ImageView);
 		}
 		TextureViews.clear();
 
 		DestroyFrameResources();
 
-		Device.GetDeferredDeletionQueue().ReleaseResources(true);
 		DestroySwapchain();
-		Device.GetDeferredDeletionQueue().ReleaseResources(true);
 
 		if (Surface != VK_NULL_HANDLE)
 		{
@@ -273,7 +271,7 @@ namespace Durin::VulkanRHI
 
 		for (const auto& TextureView : TextureViews)
 		{
-			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, TextureView.ImageView);
+			Device.GetHandle().destroyImageView(TextureView.ImageView);
 		}
 		TextureViews.clear();
 
@@ -356,6 +354,7 @@ namespace Durin::VulkanRHI
 		for (FVulkanViewportFrameResources& FrameResource : FrameResources)
 		{
 			check(FrameResource.State != EVulkanPresentResourceState::PresentPending);
+			FrameResource.RenderingDoneSemaphore->DestroyImmediately();
 			delete FrameResource.RenderingDoneSemaphore;
 			FrameResource.RenderingDoneSemaphore = nullptr;
 			if (FrameResource.PresentFence != VK_NULL_HANDLE)

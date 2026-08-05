@@ -24,6 +24,9 @@ namespace Durin
 		uint32 OutstandingEntryCount = 0;
 		uint32 OutstandingBatchCount = 0;
 		uint64 OutstandingPayloadBytes = 0;
+		uint32 PeakOutstandingEntryCount = 0;
+		uint32 PeakOutstandingBatchCount = 0;
+		uint64 PeakOutstandingPayloadBytes = 0;
 		uint64 BackpressureWaitCount = 0;
 		uint64 BackpressureWaitNanoseconds = 0;
 		uint64 RejectedWorkCount = 0;
@@ -198,6 +201,9 @@ namespace Durin
 			State->OutstandingEntryCount = 0;
 			State->OutstandingBatchCount = 0;
 			State->OutstandingPayloadBytes = 0;
+			State->PeakOutstandingEntryCount = 0;
+			State->PeakOutstandingBatchCount = 0;
+			State->PeakOutstandingPayloadBytes = 0;
 			State->BackpressureWaitCount = 0;
 			State->BackpressureWaitNanoseconds = 0;
 			State->RejectedWorkCount = 0;
@@ -325,8 +331,71 @@ namespace Durin
 		++State->OutstandingEntryCount;
 		State->OutstandingBatchCount += Work.BatchCount;
 		State->OutstandingPayloadBytes += Work.PayloadBytes;
+		State->PeakOutstandingEntryCount = std::max(
+			State->PeakOutstandingEntryCount, State->OutstandingEntryCount);
+		State->PeakOutstandingBatchCount = std::max(
+			State->PeakOutstandingBatchCount, State->OutstandingBatchCount);
+		State->PeakOutstandingPayloadBytes = std::max(
+			State->PeakOutstandingPayloadBytes, State->OutstandingPayloadBytes);
 		State->Queue.push_back({Serial, std::move(Work)});
 		State->WorkCV.notify_one();
+		return {
+			.Result = ERHIThreadEnqueueResult::Accepted,
+			.Serial = Serial
+		};
+	}
+
+	auto FRHIThread::EnqueueTerminal(FRHIThreadWork& Work)
+		-> FRHIThreadSubmission
+	{
+		if (IsInRHIThread())
+		{
+			std::lock_guard Lock(State->Mutex);
+			++State->RejectedWorkCount;
+			return {.Result = ERHIThreadEnqueueResult::SelfEnqueue};
+		}
+		if (!Work.Execute || Work.BatchCount != 0 || Work.PayloadBytes != 0)
+		{
+			std::lock_guard Lock(State->Mutex);
+			++State->RejectedWorkCount;
+			return {.Result = ERHIThreadEnqueueResult::InvalidWork};
+		}
+
+		std::lock_guard Lock(State->Mutex);
+		if (State->FailedSerial != 0)
+		{
+			++State->RejectedWorkCount;
+			return {.Result = ERHIThreadEnqueueResult::Failed};
+		}
+		if (State->AdmissionState != ERHIThreadAdmissionState::Running)
+		{
+			++State->RejectedWorkCount;
+			return {
+				.Result = State->AdmissionState == ERHIThreadAdmissionState::Draining
+					? ERHIThreadEnqueueResult::Draining
+					: ERHIThreadEnqueueResult::Stopped
+			};
+		}
+		if (State->LastSubmittedSerial == std::numeric_limits<uint64>::max())
+		{
+			++State->RejectedWorkCount;
+			return {.Result = ERHIThreadEnqueueResult::SerialExhausted};
+		}
+
+		State->AdmissionState = ERHIThreadAdmissionState::Draining;
+		const uint64 Serial = ++State->LastSubmittedSerial;
+		++State->OutstandingEntryCount;
+		State->OutstandingBatchCount += Work.BatchCount;
+		State->OutstandingPayloadBytes += Work.PayloadBytes;
+		State->PeakOutstandingEntryCount = std::max(
+			State->PeakOutstandingEntryCount, State->OutstandingEntryCount);
+		State->PeakOutstandingBatchCount = std::max(
+			State->PeakOutstandingBatchCount, State->OutstandingBatchCount);
+		State->PeakOutstandingPayloadBytes = std::max(
+			State->PeakOutstandingPayloadBytes, State->OutstandingPayloadBytes);
+		State->Queue.push_back({Serial, std::move(Work)});
+		State->WorkCV.notify_all();
+		State->CompletionCV.notify_all();
 		return {
 			.Result = ERHIThreadEnqueueResult::Accepted,
 			.Serial = Serial
@@ -374,12 +443,13 @@ namespace Durin
 
 	auto FRHIThread::Flush() const -> ERHIThreadWaitResult
 	{
-		uint64 Serial = 0;
-		{
-			std::lock_guard Lock(State->Mutex);
-			Serial = State->LastSubmittedSerial;
-		}
-		return WaitForSerial(Serial);
+		return WaitForSerial(CaptureLastSubmittedSerial());
+	}
+
+	auto FRHIThread::CaptureLastSubmittedSerial() const -> uint64
+	{
+		std::lock_guard Lock(State->Mutex);
+		return State->LastSubmittedSerial;
 	}
 
 	auto FRHIThread::GetStats() const -> FRHIThreadStats
@@ -393,6 +463,9 @@ namespace Durin
 			.OutstandingEntryCount = State->OutstandingEntryCount,
 			.OutstandingBatchCount = State->OutstandingBatchCount,
 			.OutstandingPayloadBytes = State->OutstandingPayloadBytes,
+			.PeakOutstandingEntryCount = State->PeakOutstandingEntryCount,
+			.PeakOutstandingBatchCount = State->PeakOutstandingBatchCount,
+			.PeakOutstandingPayloadBytes = State->PeakOutstandingPayloadBytes,
 			.BackpressureWaitCount = State->BackpressureWaitCount,
 			.BackpressureWaitNanoseconds = State->BackpressureWaitNanoseconds,
 			.RejectedWorkCount = State->RejectedWorkCount,
