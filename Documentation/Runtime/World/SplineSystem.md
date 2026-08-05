@@ -1,128 +1,190 @@
 # Spline System
 
-Durin's spline support currently provides an editable, persistent spatial-curve
-component and its query API. It does not yet provide an end-to-end spline
-content system such as spline meshes, viewport point manipulation, or a
-gameplay path follower.
+Durin's spline foundation provides an editable, persistent spatial curve, an
+immutable query snapshot, and direct Level Editor point/tangent authoring. It
+does not provide a spline mesh, path follower, placement system, or another
+production consumer.
 
 ## Support Summary
 
 | Area | Current support |
 | --- | --- |
-| Curve data | Reflected position, arrive/leave tangents, rotation, scale, point type, loop state, and distance-table quality |
-| Interpolation | `Linear`, `Constant`, authored cubic Hermite (`Curve`), and automatically tangented cubic Hermite (`CurveAuto`) |
-| Runtime queries | Location, tangent, direction, rotation, scale, and transform by parameter; location, tangent, direction, and transform by distance |
-| Coordinate spaces | Component-local and transformed world-space results |
-| Editing | Details-panel point editing, add/remove/reorder, loop and quality settings, continuous-edit transactions, Undo/Redo, and Cancel |
-| Viewport | Sampled curve, point markers, and tangent display; the visualization selects only the owning component |
-| Persistence | Reflection, object-graph duplication, level-package save/load, and post-load cache repair |
-| Higher-level consumers | None in production code beyond the Level Editor visualization and details customization |
+| Curve data | Stable point GUID, position, arrive/leave tangents, outgoing interpolation, tangent mode, and loop state |
+| Interpolation | Linear or cubic outgoing segments; automatic, automatic-clamped, manual-aligned, or manual-broken tangents |
+| Runtime queries | Structured samples by parameter or local distance, parameter/distance conversion, local length and bounds, and nearest parameter |
+| Coordinate spaces | Component-local and transformed world-space samples; distance remains component-local |
+| Evaluation | Immutable snapshots with adaptive distance tables, conservative bounds, and concurrent read access |
+| Editing | Selected-point Details editing and transactional viewport point/tangent manipulation, insertion, structural actions, Undo/Redo, and Cancel |
+| Persistence | Reflection, object-graph duplication, level-package save/load, point-ID repair, and post-load snapshot publication |
+| Higher-level consumers | None in production code beyond Level Editor integration |
 
-## Runtime Model
+## Authoring Model
 
-`FSplineCurve` owns the reflected control points and transient arc-length cache.
-`DSplineComponent` embeds the curve, converts query results through its scene
-transform, marks its package dirty after component-level mutations, and exposes
-the runtime/editor-facing API. A new curve starts with two `CurveAuto` points at
-local positions `(0, 0, 0)` and `(100, 0, 0)`.
+`FSplineCurve` owns reflected authoring data only. Each `FSplinePoint` contains:
 
-Each segment uses the type of its starting control point:
+- a component-local stable `FGuid` identity;
+- local `Position`, `ArriveTangent`, and `LeaveTangent` vectors;
+- `OutgoingInterpolation`, which is `Linear` or `Cubic`; and
+- `TangentMode`, which is `Automatic`, `AutomaticClamped`, `ManualAligned`, or
+  `ManualBroken`.
 
-- `Linear` linearly interpolates position.
-- `Constant` holds the starting position, rotation, and scale until the segment
-  endpoint and returns a zero tangent.
-- `Curve` evaluates a cubic Hermite segment from the starting leave tangent and
-  ending arrive tangent.
-- `CurveAuto` evaluates the same Hermite form but derives one shared tangent at
-  each point from neighboring positions. Open-curve endpoints use the adjacent
-  chord; interior and closed-loop points use half the previous-to-next chord.
+The interpolation value belongs to the segment leaving the point. Open curves
+have one fewer segment than point; closed curves add a last-to-first segment
+identified by the last point's GUID. No synthetic seam point is serialized.
+Empty and one-point curves have no segment.
 
-Tangents are derivatives with respect to the segment-local parameter in
-`[0, 1]`, not normalized directions. Rotation uses normalized shortest-path
-spherical interpolation and scale uses linear interpolation for every
-non-constant segment. These values are authored independently: returned
-rotations do not automatically align to the spline tangent. A caller that needs
-a tangent-aligned frame must construct its own orientation from the returned
-direction and its chosen up-vector policy.
+Point GUIDs are unique within one curve. Existing IDs survive reorder,
+component duplication, and package round trips. Append, insertion, and point
+duplication create fresh IDs. Mutations and reflected load/edit boundaries
+repair invalid or duplicate IDs before publishing evaluation data.
 
-The global parameter is the zero-based segment index plus the segment-local
-parameter. Open curves clamp queries to `[0, NumSegments]`. Closed curves add
-the last-to-first segment and wrap values outside that range. At the closed-loop
-seam, parameter `NumSegments` evaluates at the first point, while
-`GetDistanceAtParam(NumSegments)` reports the full loop length.
+`FSplineCurve` supplies explicit point mutation helpers for set, add, insert,
+duplicate, update, remove, move, clear, and ID repair. `DSplineComponent`
+wraps those mutations, publishes a new evaluation snapshot, updates its spline
+revision and change flags, and marks persistent component edits through the
+normal package/transaction path.
 
-Empty curves return neutral values, and a one-point curve returns that point's
-position, rotation, and scale with zero tangent and zero length.
+## Segment Geometry And Tangents
 
-## Distance Queries
+Linear segments interpolate positions and have constant first derivative and a
+zero second derivative. Cubic segments use Hermite geometry from the starting
+point's leave tangent and ending point's arrive tangent. Tangents are
+derivatives with respect to the segment-local parameter, not normalized
+directions. `FSplineSample::Direction` is the normalized first derivative, or
+zero when that derivative is degenerate.
 
-The curve builds a fixed-step polyline table in local space and uses linear
-interpolation within that table to convert between distance and global
-parameter. `ReparamStepsPerSegment` controls its sampling density, defaults to
-`10`, and is clamped to `[1, 1024]`. Length and distance-based results are
-therefore approximations for curved segments rather than analytic arc length.
+Automatic tangents are chord-length aware. For non-degenerate incident chords
+with lengths `h0` and `h1`, the knot derivative is:
 
-Open-curve distance queries clamp to the two endpoints. Closed-curve distances
-wrap by the computed loop length. Moving or rotating the component does not
-change the reported length. Component scale, including non-uniform scale,
-changes world-space locations and tangents but deliberately does not redefine
-the local-space length used by distance queries. Consequently, world-space
-motion sampled by local distance is not constant-speed after non-uniform scale.
+```text
+(h1 * normalize(P - Pprev) + h0 * normalize(Pnext - P)) / (h0 + h1)
+```
 
-`FSplineCurve` setters invalidate the cache and rebuild it lazily on the next
-length or distance query. `DSplineComponent` setters rebuild immediately and
-mark the containing package dirty. Archive loading writes reflected fields
-directly, so `DSplineComponent::PostLoad` explicitly repairs the cache;
-`FSplineCurve::UpdateSpline` is the corresponding explicit repair point for
-other archive owners.
+The arrive and leave handles scale that derivative by `h0` and `h1`.
+Open endpoints use their sole incident chord; closed curves wrap neighbors
+across the seam. A degenerate chord produces a zero handle on that side, and
+two degenerate chords produce two zero handles.
 
-## Editor Support
+`AutomaticClamped` additionally zeros both handles when the derivative would
+reverse against either incident chord and caps each handle at its incident
+chord length. `ManualBroken` preserves independently authored handles.
+`ManualAligned` keeps the two stored derivative vectors collinear in the same
+path direction while preserving independent magnitudes; editing either handle
+updates the direction of both. The arrive visualization handle is located at
+`Position - ArriveTangent / 3`, and the leave handle at
+`Position + LeaveTangent / 3`.
 
-The Level Editor registers both a details customization and a component
-visualizer for `DSplineComponent`.
+Spline geometry deliberately contains no constant spatial segment, point
+rotation, point scale, transform sampling, roll, width, or orientation-frame
+policy. A consumer that needs orientation must define it from differential
+geometry and its own up/frame rules.
 
-The details view supports:
+## Parameters And Samples
 
-- component transform, loop state, and reparameterization quality;
-- per-point position, rotation, scale, and interpolation type;
-- manual arrive and leave tangents for `Curve` points; and
-- appending, removing, and reordering points.
+`FSplineParameter` contains `SegmentIndex` plus a segment-local `T` in
+`[0, 1]`. `FSplineSample` contains position, first derivative, second
+derivative, and normalized direction.
 
-Property edits use the shared reflected-property transaction path. Continuous
-transform, tangent, and quality edits coalesce into transactions, Escape
-cancels an active edit, and structural changes participate in Undo/Redo. Adding
-a point copies the last point, moves it `100` local units forward, and changes
-its type to `CurveAuto`; an empty curve receives a default point.
+Open-curve parameters clamp to the curve endpoints. Closed-curve parameters
+wrap; the explicit end parameter evaluates at the first point. Empty curves
+return neutral finite samples. A one-point curve returns that point's position
+with zero derivatives, direction, and length.
 
-The viewport visualizer draws the sampled curve. When the component is selected,
-it also draws every control point and displays authored or automatic tangent
-lines for curved points. Its hit data identifies the actor and component only.
-There is no point-level selection, transform gizmo, tangent-handle hit target,
-or direct viewport dragging; point manipulation currently happens in the
-details panel.
+`FSplineEvaluationData` supports:
 
-## Current Boundaries
+- `Evaluate()` and `EvaluateAtLocalDistance()`;
+- parameter/local-distance conversion;
+- local length and conservative local bounds; and
+- nearest-parameter lookup for a local position.
 
-The repository currently has no production runtime consumer of
-`DSplineComponent` outside the Level Editor integration. In particular, the
-spline system does not currently include:
+`DSplineComponent` exposes the same sampling operations and can transform a
+sample between local and world coordinate space. World conversion transforms
+positions as points, derivatives as vectors, and recomputes direction from the
+transformed first derivative. Nearest lookup accepts either local or world
+input.
 
-- spline-mesh deformation or spline rendering in game/runtime output;
-- automatic actor placement, path following, animation, navigation, or physics
-  integration;
-- nearest-point, curvature, bounds, per-point metadata, or event queries; or
-- point-level viewport selection and manipulation.
+## Local Distance, Bounds, And Nearest Queries
 
-The implemented layer is therefore suitable for storing, editing, serializing,
-and sampling paths from C++. A feature that needs visible geometry or behavior
-along the path must provide that consumer separately.
+Distance is always measured in authored component-local space. API names use
+`LocalDistance` and `LocalLength` to make this domain explicit. Translation and
+rotation do not change local length. Uniform and non-uniform component scale
+change returned world positions and derivatives but do not redefine the
+distance domain; sampling equal local-distance steps therefore does not
+guarantee equal world-space travel under non-uniform scale.
+
+Each cubic segment receives an adaptive monotonic distance table. The default
+builder uses an absolute local-length tolerance of `1e-4`, a relative tolerance
+of `1e-5` times the segment Bezier control-polygon length, and maximum depth
+`16`. Recursive children split the parent error budget equally. Linear and
+degenerate segments remain deterministic.
+
+Open-curve local distances clamp to the endpoints. Closed-curve distances wrap,
+while the explicit end-distance query can still represent the full loop
+length. Parameter/distance inversion searches the immutable monotonic tables.
+
+Segment bounds conservatively include the complete curve, using the equivalent
+Bezier control hull for cubic geometry. Nearest lookup uses those immutable
+segment records for coarse rejection, then performs safeguarded local
+refinement. It returns a parameter; callers evaluate that parameter when they
+need the corresponding sample.
+
+## Immutable Evaluation And Invalidation
+
+`FSplineCurve::BuildEvaluationData()` builds a
+`shared_ptr<const FSplineEvaluationData>`. `DSplineComponent` atomically
+publishes that immutable snapshot after construction on the owning
+game/editor thread. Queries capture one shared pointer and may read it
+concurrently without lazy cache mutation or `const_cast`.
+
+Every component starts with a valid published snapshot. Successful component
+mutations, reflected edits, `PostLoad`, duplication, Undo, and Redo repair
+authoring data as needed and republish. `GetSplineRevision()` identifies the
+latest publication, and `GetLastSplineChangeFlags()` reports the reason:
+
+- `Topology` for point/segment identity or ordering changes;
+- `Geometry` for shape changes; and
+- `Build` for an explicit rebuild of unchanged authoring data.
+
+Consumers that retain derived data should compare the revision and react to
+the relevant flags. They must not mutate or assume object identity for a
+snapshot after a later revision is published.
+
+## Level Editor Authoring
+
+Selecting a spline component exposes component settings and the current stable
+point selection in Details. The contextual Spline viewport mode visualizes the
+adaptive curve, point markers, and manual tangent handles. It supports stable
+GUID selection, point multi-selection, translation-only gizmo targets,
+shape-preserving linear or cubic segment insertion, append, duplicate, delete,
+reorder, loop, interpolation, and tangent-mode edits.
+
+Continuous point and tangent drags commit one transaction. Cancellation and
+net-zero drags restore the original values and package dirty state without a
+history entry. Structural operations snapshot the complete authoring point set
+and loop state so Undo/Redo restores geometry and republishes evaluation data.
+Selection remains GUID-addressed, so reorder and transaction replay do not
+silently select a different logical point.
+
+See [Scene Viewport Navigation](../../Editor/Guides/SceneViewportNavigation.md)
+for the user workflow and
+[Viewport Editing Architecture](../../Editor/Architecture/ViewportEditing.md)
+for mode, selection, input, and gizmo ownership.
 
 ## Verification Coverage
 
-Native tests cover default, empty, and one-point curves; manual Hermite and
-automatic tangents; closed-loop wrapping; straight-line distance conversion;
-local/world transform behavior; reflection; duplication; transactional editing
-and cache rebuilds; level-package round trips; and emission of selectable
-viewport visualization lines. Curved-segment arc-length error, degenerate
-curves, and interactive viewport point editing do not currently have dedicated
-behavior coverage.
+Native tests cover golden linear and cubic evaluation; every tangent mode;
+open, closed, empty, one-point, duplicate-position, and zero-tangent cases;
+adaptive local-length error and monotonic inversion; bounds and nearest lookup;
+concurrent snapshot reads; point-ID mutation and repair; reflection,
+duplication, package round trips, revision/change flags, local/world conversion,
+and Undo/Redo. Viewport tests cover typed hits, selection, shape-preserving
+insertion, point/tangent targets, transactions, cancellation, read-only and
+invalid-target exits, and multi-component isolation.
+
+## Current Boundaries
+
+The spline foundation has no production spline mesh, runtime renderer, follower,
+placement, animation, navigation, physics, event, orientation-frame, width, or
+metadata consumer. True world-distance traversal under non-uniform scale and
+simultaneous editing across multiple spline components are also outside the
+implemented contract.

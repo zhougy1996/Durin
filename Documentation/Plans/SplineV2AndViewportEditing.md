@@ -4,8 +4,8 @@ Summary: Replace the early spline data model with a geometry-first runtime and a
 
 Last reviewed: 2026-08-05
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-05
 
 ## Current Status
 
@@ -74,7 +74,28 @@ Completed:
   invalidation cancellation. There are no open Stage 4 questions. Validation
   passed with 54/54 `ViewportTests`, 18/18 `SplineTests`, a full `all` build,
   and a two-tick hidden launch of Debug DurinEditor against
-  `Sandbox/Sandbox.dproject`. Stage 5 is next.
+  `Sandbox/Sandbox.dproject`.
+- Stage 5 is complete. The lasting runtime contract now lives in
+  `Runtime/World/SplineSystem.md`, viewport mode/selection/gizmo ownership lives
+  in `Editor/Architecture/ViewportEditing.md`, shared proposal/transaction reuse
+  is recorded in `ReflectedPropertyEditing.md`, and the user workflow lives in
+  `SceneViewportNavigation.md`. Qualification found and closed one Stage 4 gap:
+  Escape now cancels a drag, clears spline sub-selection, then requests a safe
+  deferred return to Select on a later press; mode exit also cancels the live
+  gizmo before releasing spline selection.
+- Stage 5 handoff: the pre-stage baseline is `3452ca1b`; the completion baseline
+  is this stage commit. The working set is the four lasting documents above,
+  the viewport edit-mode public contract/manager, the Spline mode and its
+  Viewport regression, and this plan. `ShouldExit()` deliberately defers a
+  mode's self-requested switch until its `Tick()` returns, avoiding destruction
+  of a live mode stack frame. There are no open Spline V2 foundation questions.
+  Validation passed with 18/18 `SplineTests`, including closed-loop/seam cases;
+  54/54 `ViewportTests`, including Spline point authoring and progressive
+  Escape; the changed-document validator; a full `all` build from
+  `Win64-Debug-DurinEditor-Tests`; and a two-tick hidden launch of Debug
+  DurinEditor against `Sandbox/Sandbox.dproject`. Open/closed geometry and
+  authoring behavior were exercised by the named direct suites, while the
+  editor launch verified the same Profile's complete runtime load/exit path.
 - Stage 0 is complete. Project owners confirmed there are no external spline
   assets and selected a direct schema break with no V1 conversion layer. A
   read-only asset audit of `Sandbox/Sandbox.dproject` found seven compatible
@@ -570,23 +591,23 @@ Dependencies: Stages 2 and 3.
 Outcome: Runtime and editor contracts are documented, end-to-end behavior is
 verified, and the repository is ready for a separately planned first consumer.
 
-- [ ] Update the runtime Spline contract to replace V1 behavior and describe
+- [x] Update the runtime Spline contract to replace V1 behavior and describe
   schema, evaluation, distance, snapshot, mutation, and supported-query rules.
-- [ ] Add an Editor Architecture contract for viewport edit-mode ownership,
+- [x] Add an Editor Architecture contract for viewport edit-mode ownership,
   registration, selection, input priority, gizmo targets, and lifecycle.
-- [ ] Update the scene viewport guide with mode switching, Spline selection,
+- [x] Update the scene viewport guide with mode switching, Spline selection,
   point/tangent manipulation, shortcuts, cancellation, and read-only behavior.
-- [ ] Update reflected-property editing documentation where viewport targets
+- [x] Update reflected-property editing documentation where viewport targets
   reuse shared proposals/transactions.
-- [ ] Run the focused runtime, persistence, editor transaction, viewport,
+- [x] Run the focused runtime, persistence, editor transaction, viewport,
   toolbar, document/PIE, and Spline authoring suites from cold direct targets.
-- [ ] Follow the repository build/run contract and complete a successful full
+- [x] Follow the repository build/run contract and complete a successful full
   `all` build because the plan changes user-visible editor behavior.
-- [ ] Launch the editor from the same Agent Build Profile, exercise one open and
+- [x] Launch the editor from the same Agent Build Profile, exercise one open and
   one closed spline end to end, and record the verified editor executable.
-- [ ] Confirm no V1 spline symbols, fields, Details controls, documentation, or
+- [x] Confirm no V1 spline symbols, fields, Details controls, documentation, or
   test assumptions remain outside intentionally retained history.
-- [ ] Record the Stage 5 handoff and validation evidence, move lasting rules to
+- [x] Record the Stage 5 handoff and validation evidence, move lasting rules to
   their owning documents, and mark this plan completed only after every gate
   passes.
 
@@ -659,6 +680,7 @@ Dependencies: Stages 1-4.
 
 - [Spline System](../Runtime/World/SplineSystem.md)
 - [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Viewport Editing Architecture](../Editor/Architecture/ViewportEditing.md)
 - [Scene Viewport Navigation](../Editor/Guides/SceneViewportNavigation.md)
 - [Build and Run](../Development/Build/BuildAndRun.md)
 

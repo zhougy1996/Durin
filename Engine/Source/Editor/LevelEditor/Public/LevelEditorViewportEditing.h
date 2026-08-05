@@ -19,6 +19,8 @@ namespace Durin
 		virtual auto Exit(FLevelEditorContext&, bool) -> void {}
 		virtual auto Tick(FLevelEditorContext&, FLevelEditorViewportClient&, const FSceneView&, FLevelEditorViewportInput&, FEditorTransactionManager*) -> bool = 0;
 		virtual auto GetGizmoTargets(const FLevelEditorContext&) const -> FTransformGizmoTargetSet { return {}; }
+		// Defers self-requested mode switches until Tick has returned to the manager.
+		virtual auto ShouldExit() const -> bool { return false; }
 	};
 
 	struct FLevelViewportEditModeDescriptor

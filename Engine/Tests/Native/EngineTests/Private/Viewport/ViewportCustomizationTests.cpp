@@ -121,6 +121,16 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	EXPECT_EQ(Spline->GetNumSplinePoints(), 3u);
 	EXPECT_TRUE(Spline->GetSplineCurve().FindPointIndex(FirstId).has_value());
 	EXPECT_TRUE(Spline->GetSplineCurve().FindPointIndex(SecondId).has_value());
+
+	Context.SelectSubElement(Spline, {Durin::EEditorSubElementKind::Point, FirstId});
+	Input = {};
+	Input.bCancel = true;
+	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, &Transactions));
+	EXPECT_TRUE(Context.GetSelectedSubElements().empty());
+	EXPECT_EQ(Manager.GetActiveModeId(), "Spline");
+	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, &Transactions));
+	EXPECT_EQ(Manager.GetActiveModeId(), "Select");
+	EXPECT_EQ(Context.GetSelectedComponent(), Spline);
 	Manager.Shutdown(&Context);
 	EXPECT_TRUE(Durin::FLevelViewportEditModeRegistry::Get().Unregister(Handle));
 	Durin::MarkObjectHierarchyAsGarbage(World);

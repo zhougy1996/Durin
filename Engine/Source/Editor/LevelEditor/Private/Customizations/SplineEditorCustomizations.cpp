@@ -280,18 +280,38 @@ namespace Durin
 		public:
 			auto Enter(FLevelEditorContext& Context) -> void override
 			{
+				bExitRequested = false;
 				auto* Spline = Cast<DSplineComponent>(Context.GetSelectedComponent());
+				LastSpline = Spline;
 				if (Spline && Context.GetSelectedSubElements().empty() && Spline->GetNumSplinePoints() > 0)
 					Context.SelectSubElement(Spline, {EEditorSubElementKind::Point, Spline->GetSplinePoint(0)->Id});
+			}
+			auto Exit(FLevelEditorContext& Context, bool) -> void override
+			{
+				if (LastClient) LastClient->GetTransformGizmo().CancelDrag();
+				if (Context.GetSelectedComponent() == LastSpline.Get()) Context.ClearSubElementSelection();
+				LastClient = nullptr;
+				LastSpline = nullptr;
+				bExitRequested = false;
 			}
 			auto Tick(FLevelEditorContext& Context, FLevelEditorViewportClient& Client, const FSceneView& View,
 				FLevelEditorViewportInput& Input, FEditorTransactionManager* Transactions) -> bool override
 			{
+				LastClient = &Client;
 				auto* Spline = Cast<DSplineComponent>(Context.GetSelectedComponent());
 				if (!Spline) return false;
+				LastSpline = Spline;
 				RepairSelection(Context, *Spline);
 				const FTransformGizmoTargetSet Targets = GetGizmoTargets(Context);
+				const bool bWasDragging = Client.GetTransformGizmo().IsDragging();
 				Client.GetTransformGizmo().Update(Targets, View, Input, Transactions);
+				if (Input.bCancel)
+				{
+					if (bWasDragging) return true;
+					if (!Context.GetSelectedSubElements().empty()) Context.ClearSubElementSelection();
+					else bExitRequested = true;
+					return true;
+				}
 				if (Client.GetTransformGizmo().IsHovered() || Client.GetTransformGizmo().IsDragging()) return true;
 				if (Input.bFocusSelection)
 				{
@@ -319,6 +339,8 @@ namespace Durin
 				return true;
 			}
 
+			auto ShouldExit() const -> bool override { return bExitRequested; }
+
 			auto GetGizmoTargets(const FLevelEditorContext& Context) const -> FTransformGizmoTargetSet override
 			{
 				FTransformGizmoTargetSet Result;
@@ -334,6 +356,11 @@ namespace Durin
 				return Result;
 			}
 		private:
+			// Non-owning; the viewport panel keeps its client alive longer than its mode manager.
+			FLevelEditorViewportClient* LastClient = nullptr;
+			TWeakObjectPtr<DSplineComponent> LastSpline;
+			bool bExitRequested = false;
+
 			static auto RepairSelection(FLevelEditorContext& Context, DSplineComponent& Spline) -> void
 			{
 				std::vector<FEditorSubElementSelection> Valid;

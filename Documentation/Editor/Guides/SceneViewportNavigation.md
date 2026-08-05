@@ -43,6 +43,21 @@ The current version focuses on the position of the Actor's root component at a f
 
 Pressing `F` does nothing when no Actor is selected or the selected Actor has no root component.
 
+## Viewport Editing Modes
+
+The editing-mode selector in the viewport toolbar is separate from the render
+mode and the `W`/`E`/`R` transform controls. Every document starts in Select
+mode. Contextual modes appear only when their target is selected and editable.
+
+Select mode owns normal Actor and component picking. Clicking a spline drawing
+in Select mode selects its Actor/component but does not silently enter Spline
+mode. Select the spline component in Details, then choose **Spline** from the
+viewport editing-mode selector or click **Edit Spline** in Spline Details.
+
+Entering Play In Editor or another read-only state exits a contextual mode and
+cancels an active edit. Returning to editing uses Select mode until another mode
+is explicitly activated.
+
 ## Transform Gizmo
 
 Selecting one or more Actors displays a native 3D transform gizmo at the selection pivot. The pivot is the average world position of the selected Actor root components.
@@ -60,6 +75,48 @@ Selecting one or more Actors displays a native 3D transform gizmo at the selecti
 Use the viewport toolbar to switch between World and Local axes. The Snap menu configures translation, rotation, and scale increments. Gizmo mode, coordinate space, and snapping settings are stored in the editor session settings.
 
 For multiple selected Actors, translation affects the group uniformly while rotation and scale operate around the shared pivot. When both a parent and its attached child are selected, the parent is transformed directly and the child follows through the attachment hierarchy, avoiding a double transform.
+
+## Editing Splines
+
+Spline mode displays the selected component's curve, control points, and manual
+tangent handles. Selection is tied to stable point identity, so reordering,
+Undo, and Redo do not switch the selection to a different logical point.
+
+| Input | Action |
+| --- | --- |
+| Click a point | Select only that point |
+| `Ctrl` + click a point | Add or remove that point from the selection |
+| Click a manual tangent handle | Select that handle |
+| Click blank viewport space | Clear point/tangent selection |
+| Double-click a curve segment | Insert and select a point without changing the segment shape |
+| Left-drag the translation handle | Move selected points or the selected manual tangent |
+| `F` | Focus the selected points/tangent; fall back to the spline Actor |
+| `Delete` | Delete the selected points |
+| `Ctrl+D` | Duplicate the primary selected point |
+| `Insert` | Append a point |
+| `Esc` during a drag | Cancel and restore the starting values |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / redo the completed edit |
+
+Point multi-selection exposes one translation target per selected point.
+Tangent editing targets one handle at a time. Spline targets support translation
+only: `E` and `R` do not rotate or scale points. World/Local axes and temporary
+Ctrl snapping use the same toolbar settings and gizmo behavior as Actor
+transforms.
+
+Manual-aligned tangents keep both tangent directions collinear while retaining
+their authored magnitudes. Manual-broken tangents move independently. Automatic
+tangent modes have no draggable handles; switch the selected point's tangent
+mode in Details before authoring a handle.
+
+Details shows component settings plus the selected point or points. Multi-point
+position edits apply a shared delta and show a mixed-value state when values
+differ. Details also provides append, duplicate, delete, reorder, open/close
+loop, outgoing interpolation, and tangent-mode actions.
+
+Escape is progressive in Spline mode. The first press cancels an active drag.
+With no drag, it clears the point/tangent selection. A later press exits Spline
+mode and returns to Select. Deleting the target component, changing documents,
+or entering read-only mode performs the same safe cancellation and exit.
 
 ## Editor View Versus Game Camera
 
@@ -89,3 +146,19 @@ This is expected. When another level becomes active, the editor initializes its 
 ### Moving the editor view does not change the game view
 
 The editor view and game camera use separate state. Modify a Camera Actor in the level to change the game view.
+
+### Spline mode is not listed
+
+Select the exact Spline component in Details and make sure the document is
+editable. Spline mode is contextual and is hidden for an Actor-only selection,
+another component type, and read-only/PIE state.
+
+### A spline tangent handle is not visible
+
+Only manual-aligned and manual-broken points expose tangent handles. Select the
+point and change its tangent mode in Details.
+
+### Rotation or scale does not affect spline points
+
+Spline point and tangent targets intentionally support translation only. Use
+`W` and drag the translation gizmo.

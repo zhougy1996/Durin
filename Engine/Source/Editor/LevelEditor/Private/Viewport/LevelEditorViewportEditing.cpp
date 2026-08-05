@@ -135,7 +135,10 @@ namespace Durin
 		FLevelEditorViewportInput& Input, FEditorTransactionManager* Transactions) -> bool
 	{
 		Synchronize(Context);
-		return ActiveMode && ActiveMode->Tick(Context, Client, View, Input, Transactions);
+		if (!ActiveMode) return false;
+		const bool bHandled = ActiveMode->Tick(Context, Client, View, Input, Transactions);
+		if (ActiveMode && ActiveMode->ShouldExit()) Activate("Select", Context);
+		return bHandled;
 	}
 
 	auto FLevelViewportEditModeManager::Shutdown(FLevelEditorContext* Context) -> void

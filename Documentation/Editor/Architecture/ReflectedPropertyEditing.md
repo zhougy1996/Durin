@@ -70,7 +70,7 @@ Current built-in composition includes:
 
 - Actor `Transform`, bound to the root component's `RelativeTransform`;
 - Camera projection rows;
-- Spline transform, curve settings, and point rows; and
+- Spline transform, curve settings, selected-point rows, and structural actions; and
 - static-mesh material-slot rows derived from the assigned mesh.
 
 The static-mesh customization hides the raw positional `OverrideMaterials`
@@ -123,7 +123,7 @@ data instead of iteration indices because rehashing can reorder entries.
 Path spans and key bytes are valid only for the synchronous callback.
 
 Objects use the post hook to refresh derived runtime state. Scene transforms
-refresh their hierarchy, splines rebuild curve caches, static-mesh components
+refresh their hierarchy, splines publish immutable evaluation snapshots, static-mesh components
 rebuild render state from current assignments, and materials run a batched
 loaded-object scan to invalidate dependent render data. Camera projection and
 material-parent validation happen on the detached proposal before the generic
@@ -169,7 +169,7 @@ and recaptures the actual value. A failed write or recapture attempts rollback
 and emits no post event. Same-target nested edits from a hook are rejected.
 
 All current built-in semantic properties use this generic path. Transform
-quaternion normalization, camera cross-field clamping, spline step clamping,
+quaternion normalization, camera cross-field clamping, spline authoring repair,
 material type checks, and material-parent cycle rejection live in pre hooks.
 Hierarchy, cache, and render reactions live in post hooks. Material-instance
 Parent and static-mesh component assignments are read directly from the newly
@@ -356,8 +356,16 @@ cannot coalesce into the same continuous edit. The specialized scalar, color,
 and asset-picker controls remain host-owned; proposal submission, sessions, and
 transactions remain delegated to the shared reflected-property infrastructure.
 
-Spline Details now routes transform, curve settings, point values, and point
-structural actions through the shared view while retaining its custom layout.
+Spline Details now routes transform, loop state, selected-point values, and
+point structural actions through the shared view while retaining its custom
+layout. Point identity is a stable GUID shared with viewport selection. Numeric
+point and tangent edits resolve that GUID against detached spline authoring
+storage. Structural append, insert, duplicate, reorder, delete, and loop
+operations snapshot the complete authored point collection and loop state so
+one action produces one transaction and one coherent evaluation publication.
+Viewport point/tangent drags use the generic transform-target transaction
+lifecycle, including one history entry for completion and none for Cancel or a
+net-zero drag; they do not create an independent transaction system.
 Camera Details similarly routes FOV, clip planes, aspect-ratio mode, and custom
 ratio through a stable `ProjectionSettings -> Leaf` path. The draft snapshots
 the whole settings structure so its pre hook can clamp one field and safely
@@ -389,8 +397,8 @@ Automated coverage currently verifies:
   and
 - GUID-resolved material definition and override edits, override
   insertion/removal, orphan removal, and shared transaction history; and
-- spline continuous edits, Cancel, structural edits, stable nested paths, cache
-  rebuilds, setter clamping, and Undo/Redo; and
+- spline continuous edits, point/tangent target Cancel, structural edits,
+  stable GUID resolution, immutable snapshot publication, and Undo/Redo; and
 - camera continuous edits, atomic cross-field clamping, Cancel, stable nested
   paths, aspect-ratio edits, and Undo/Redo; and
 - object-level `Edit` enumeration, filtering, fixed-array expansion, search,
@@ -410,6 +418,8 @@ Engine/Source/Editor/DurinEd/Public/Editor/ReflectedPropertyEditing.h
 Engine/Source/Editor/DurinEd/Public/Editor/ReflectedPropertyView.h
 Engine/Source/Editor/DurinEd/Public/Editor/EditorTransaction.h
 Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPanel.cpp
+Engine/Source/Editor/LevelEditor/Public/LevelEditorTransformTargets.h
+Engine/Source/Editor/LevelEditor/Private/Customizations/SplineEditorCustomizations.cpp
 Engine/Source/Editor/MaterialEditor/Private/Widgets/MaterialParameterPanelModel.h
 Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.cpp
 ```
