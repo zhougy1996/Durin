@@ -107,6 +107,14 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		if (OwnerType == EImageOwnerType::LocalOwner)
 		{
+			constexpr ETextureCreateFlags FramebufferAttachmentFlags =
+				ETextureCreateFlags::RenderTargetable |
+				ETextureCreateFlags::DepthStencilTargetable |
+				ETextureCreateFlags::ResolveTargetable;
+			if (EnumHasAnyFlags(CreateFlags, FramebufferAttachmentFlags))
+			{
+				Device.NotifyDeleted_Image(Image);
+			}
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Image, Image, Allocation);
 			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, ImageView);
 		}
