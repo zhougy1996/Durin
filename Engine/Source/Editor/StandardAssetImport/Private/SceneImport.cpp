@@ -2,6 +2,7 @@
 
 #include "ImportedScene.h"
 #include "AssetSystem.h"
+#include "ImageDecoder.h"
 #include "HAL/PlatformProcess.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -26,12 +27,34 @@ namespace Durin
 			Texture2D
 		};
 
+		enum class ESceneTextureDerivation : uint8
+		{
+			None,
+			Red,
+			Green,
+			Blue,
+			Alpha,
+			ScaledNormal,
+			ScaledColor
+		};
+
+		struct FSceneMaterialTextureBinding
+		{
+			uint32 MaterialRole = 0;
+			std::string TextureIdentity;
+			Asset::FImportedTextureBinding Binding;
+		};
+
 		struct FSceneOutputData
 		{
 			std::string StableIdentity;
 			ESceneOutputKind Kind = ESceneOutputKind::StaticMesh;
 			uint32 SourceIndex = 0;
-			std::string TextureIdentity;
+			ETextureUsage TextureUsage = ETextureUsage::Color;
+			ESceneTextureDerivation TextureDerivation = ESceneTextureDerivation::None;
+			float TextureDerivationScale = 1.0f;
+			FVector3f TextureDerivationColorScale{1.0f};
+			std::vector<FSceneMaterialTextureBinding> TextureBindings;
 		};
 
 		struct FSceneProviderPlanData
@@ -530,14 +553,19 @@ namespace Durin
 						.StableIdentity = MaterialIdentity,
 						.Kind = ESceneOutputKind::MaterialInstance,
 						.SourceIndex = MaterialIndex};
-					const auto BaseColor = std::ranges::find(
-						Material->TextureBindings, Asset::EImportedTextureSemantic::BaseColor,
-						&Asset::FImportedTextureBinding::Semantic);
-					if (BaseColor != Material->TextureBindings.end())
-					{
-						if (BaseColor->ImageIndex >= Data->Scene.Images.size()) return false;
-						const Asset::FImportedImage& Image = Data->Scene.Images[BaseColor->ImageIndex];
-						const std::string TextureKey = Image.StableIdentity + ":BaseColor:sRGB";
+					auto AddTexture = [&](const Asset::FImportedTextureBinding& Binding,
+						uint32 MaterialRole, std::string_view Role, ETextureUsage Usage,
+						ESceneTextureDerivation Derivation = ESceneTextureDerivation::None,
+						float DerivationScale = 1.0f,
+						const FVector3f& DerivationColorScale = FVector3f(1.0f)) -> bool {
+						if (Binding.ImageIndex >= Data->Scene.Images.size()) return false;
+						const Asset::FImportedImage& Image = Data->Scene.Images[Binding.ImageIndex];
+						const std::string TextureKey = std::format("{}:{}:{}:{}:{}:{}:{}",
+							Image.StableIdentity, Role, static_cast<uint32>(Derivation),
+							std::bit_cast<uint32>(DerivationScale),
+							std::bit_cast<uint32>(DerivationColorScale.x),
+							std::bit_cast<uint32>(DerivationColorScale.y),
+							std::bit_cast<uint32>(DerivationColorScale.z));
 						auto Texture = TextureByKey.find(TextureKey);
 						if (Texture == TextureByKey.end())
 						{
@@ -545,11 +573,11 @@ namespace Durin
 								std::string("scene:texture:") + StableSuffix(TextureKey);
 							FAssetPath TexturePath;
 							if (!MakeSceneOutputPath(Decoded.DestinationDirectory, "Textures",
-								MakeUniqueName(Image.SuggestedName + "_BaseColor",
-									"Image_BaseColor", TextureNames), TexturePath, Error)) return false;
+								MakeUniqueName(Image.SuggestedName + "_" + std::string(Role),
+									"Image_" + std::string(Role), TextureNames), TexturePath, Error)) return false;
 							Builder.AddOutput({
 								.StableIdentity = TextureIdentity,
-								.Role = "Texture2D.BaseColor",
+								.Role = "Texture2D." + std::string(Role),
 								.AssetPath = TexturePath,
 								.AssetClassName = "Durin::DTexture2D",
 								.Policy = EImportOutputPolicy::Create,
@@ -560,10 +588,66 @@ namespace Durin
 							Data->Outputs.push_back({
 								.StableIdentity = TextureIdentity,
 								.Kind = ESceneOutputKind::Texture2D,
-								.SourceIndex = BaseColor->ImageIndex});
+								.SourceIndex = Binding.ImageIndex,
+								.TextureUsage = Usage,
+								.TextureDerivation = Derivation,
+								.TextureDerivationScale = DerivationScale,
+								.TextureDerivationColorScale = DerivationColorScale});
 							Texture = TextureByKey.emplace(TextureKey, TextureIdentity).first;
 						}
-						MaterialOutput.TextureIdentity = Texture->second;
+						MaterialOutput.TextureBindings.push_back({
+							.MaterialRole = MaterialRole,
+							.TextureIdentity = Texture->second,
+							.Binding = Binding});
+						return true;
+					};
+					for (const Asset::FImportedTextureBinding& Binding : Material->TextureBindings)
+					{
+						if (Binding.RotationRadians != 0.0f)
+							Data->Warnings.push_back(std::format(
+								"Material '{}' texture rotation is retained by parsing but is not supported by the current material UV transform.",
+								Material->SourceName));
+						if (Binding.Sampler.MinFilter != Asset::EImportedSamplerFilter::LinearMipmapLinear
+							|| Binding.Sampler.MagFilter != Asset::EImportedSamplerFilter::Linear
+							|| Binding.Sampler.WrapU != Asset::EImportedSamplerWrap::Repeat
+							|| Binding.Sampler.WrapV != Asset::EImportedSamplerWrap::Repeat)
+							Data->Warnings.push_back(std::format(
+								"Material '{}' uses texture sampler state that cannot be represented by the shared material sampler.",
+								Material->SourceName));
+						switch (Binding.Semantic)
+						{
+						case Asset::EImportedTextureSemantic::BaseColor:
+							if (!AddTexture(Binding, 0, "BaseColor", ETextureUsage::Color)) return false;
+							if (Material->AlphaMode == Asset::EImportedAlphaMode::Mask
+								|| Material->AlphaMode == Asset::EImportedAlphaMode::Blend)
+								if (!AddTexture(Binding,
+									Material->AlphaMode == Asset::EImportedAlphaMode::Mask ? 7u : 6u,
+									Material->AlphaMode == Asset::EImportedAlphaMode::Mask
+										? "OpacityMask" : "Opacity",
+									ETextureUsage::DataMask, ESceneTextureDerivation::Alpha)) return false;
+							break;
+						case Asset::EImportedTextureSemantic::MetallicRoughness:
+							if (!AddTexture(Binding, 2, "Metallic", ETextureUsage::DataMask,
+								ESceneTextureDerivation::Blue)
+								|| !AddTexture(Binding, 3, "Roughness", ETextureUsage::DataMask,
+									ESceneTextureDerivation::Green)) return false;
+							break;
+						case Asset::EImportedTextureSemantic::Normal:
+							if (!AddTexture(Binding, 1, "Normal", ETextureUsage::Normal,
+								Binding.Strength == 1.0f ? ESceneTextureDerivation::None
+									: ESceneTextureDerivation::ScaledNormal,
+								Binding.Strength)) return false;
+							break;
+						case Asset::EImportedTextureSemantic::Occlusion:
+							if (!AddTexture(Binding, 4, "AmbientOcclusion", ETextureUsage::DataMask,
+								ESceneTextureDerivation::Red)) return false;
+							break;
+						case Asset::EImportedTextureSemantic::Emissive:
+							if (!AddTexture(Binding, 5, "Emissive", ETextureUsage::Color,
+								ESceneTextureDerivation::ScaledColor, 1.0f,
+								Material->EmissiveFactor)) return false;
+							break;
+						}
 					}
 					Builder.AddOutput({
 						.StableIdentity = MaterialIdentity,
@@ -746,17 +830,110 @@ namespace Durin
 		auto MakeEmbeddedImageSourcePath(
 			const FSourcePath& RootSource,
 			const Asset::FImportedImage& Image,
+			std::string_view TextureIdentity,
 			std::span<const uint8> Bytes) -> std::string
 		{
 			const std::filesystem::path RootPath(RootSource.Path);
 			const std::string FileName = std::format(
 				"{}_{}{}",
-				StableSuffix(Image.StableIdentity),
+				StableSuffix(TextureIdentity),
 				FXxHash128::HashBuffer(Bytes).ToString(),
 				EmbeddedImageExtension(Image.Encoding));
 			return (RootPath.parent_path()
 				/ (RootPath.stem().generic_string() + "_Embedded")
 				/ FileName).generic_string();
+		}
+
+		auto BuildDerivedTextureBytes(
+			std::span<const uint8> EncodedBytes,
+			ESceneTextureDerivation Derivation,
+			float Scale,
+			const FVector3f& ColorScale,
+			std::vector<uint8>& OutBytes,
+			std::string& OutError) -> bool
+		{
+			Asset::FDecodedImage Image;
+			if (!Asset::DecodeImageFromMemory(EncodedBytes, Image, OutError)) return false;
+			if (Image.Width > std::numeric_limits<uint16>::max()
+				|| Image.Height > std::numeric_limits<uint16>::max())
+			{
+				OutError = "Derived Scene texture exceeds the TGA dimension limit.";
+				return false;
+			}
+			std::vector<uint8> Pixels(Image.Pixels.size());
+			for (size_t Offset = 0; Offset < Image.Pixels.size(); Offset += 4)
+			{
+				uint8 Red = Image.Pixels[Offset + 0];
+				uint8 Green = Image.Pixels[Offset + 1];
+				uint8 Blue = Image.Pixels[Offset + 2];
+				if (Derivation == ESceneTextureDerivation::Red
+					|| Derivation == ESceneTextureDerivation::Green
+					|| Derivation == ESceneTextureDerivation::Blue
+					|| Derivation == ESceneTextureDerivation::Alpha)
+				{
+					const size_t Channel = Derivation == ESceneTextureDerivation::Red ? 0
+						: Derivation == ESceneTextureDerivation::Green ? 1
+						: Derivation == ESceneTextureDerivation::Blue ? 2 : 3;
+					Red = Green = Blue = Image.Pixels[Offset + Channel];
+				}
+				else if (Derivation == ESceneTextureDerivation::ScaledNormal)
+				{
+					float X = (static_cast<float>(Red) / 255.0f * 2.0f - 1.0f) * Scale;
+					float Y = (static_cast<float>(Green) / 255.0f * 2.0f - 1.0f) * Scale;
+					const float LengthSquared = X * X + Y * Y;
+					if (LengthSquared > 1.0f)
+					{
+						const float InverseLength = 1.0f / std::sqrt(LengthSquared);
+						X *= InverseLength;
+						Y *= InverseLength;
+					}
+					Red = static_cast<uint8>(std::lround((X * 0.5f + 0.5f) * 255.0f));
+					Green = static_cast<uint8>(std::lround((Y * 0.5f + 0.5f) * 255.0f));
+					Blue = 255;
+				}
+				else if (Derivation == ESceneTextureDerivation::ScaledColor)
+				{
+					auto ScaleSrgb = [](uint8 Value, float Factor) -> uint8 {
+						const float Srgb = static_cast<float>(Value) / 255.0f;
+						const float Linear = Srgb <= 0.04045f ? Srgb / 12.92f
+							: std::pow((Srgb + 0.055f) / 1.055f, 2.4f);
+						const float Scaled = std::clamp(Linear * Factor, 0.0f, 1.0f);
+						const float Encoded = Scaled <= 0.0031308f ? Scaled * 12.92f
+							: 1.055f * std::pow(Scaled, 1.0f / 2.4f) - 0.055f;
+						return static_cast<uint8>(std::lround(Encoded * 255.0f));
+					};
+					Red = ScaleSrgb(Red, ColorScale.x);
+					Green = ScaleSrgb(Green, ColorScale.y);
+					Blue = ScaleSrgb(Blue, ColorScale.z);
+				}
+				Pixels[Offset + 0] = Blue;
+				Pixels[Offset + 1] = Green;
+				Pixels[Offset + 2] = Red;
+				Pixels[Offset + 3] = 255;
+			}
+			OutBytes.assign(18, 0);
+			OutBytes[2] = 2;
+			OutBytes[12] = static_cast<uint8>(Image.Width & 0xff);
+			OutBytes[13] = static_cast<uint8>((Image.Width >> 8) & 0xff);
+			OutBytes[14] = static_cast<uint8>(Image.Height & 0xff);
+			OutBytes[15] = static_cast<uint8>((Image.Height >> 8) & 0xff);
+			OutBytes[16] = 32;
+			OutBytes[17] = 0x28;
+			OutBytes.insert(OutBytes.end(), Pixels.begin(), Pixels.end());
+			OutError.clear();
+			return true;
+		}
+
+		auto MakeDerivedImageSourcePath(
+			const FSourcePath& RootSource,
+			std::string_view TextureIdentity,
+			std::span<const uint8> Bytes) -> std::string
+		{
+			const std::filesystem::path RootPath(RootSource.Path);
+			return (RootPath.parent_path()
+				/ (RootPath.stem().generic_string() + "_Derived")
+				/ std::format("{}_{}.tga", StableSuffix(TextureIdentity),
+					FXxHash128::HashBuffer(Bytes).ToString())).generic_string();
 		}
 
 		auto CreateOrLoadTarget(
@@ -1245,7 +1422,34 @@ namespace Durin
 			{
 				return FailPrepared("Scene image snapshot mapping is invalid.");
 			}
-			if (!Image.EmbeddedEncodedBytes.empty())
+			std::vector<uint8> DerivedBytes;
+			if (Descriptor->TextureDerivation != ESceneTextureDerivation::None)
+			{
+				if (!BuildDerivedTextureBytes(Bytes, Descriptor->TextureDerivation,
+					Descriptor->TextureDerivationScale,
+					Descriptor->TextureDerivationColorScale, DerivedBytes, Error))
+				{
+					return FailPrepared(Error.empty()
+						? "Scene derived texture generation failed." : std::move(Error));
+				}
+				FMountedSourceFile DerivedSource;
+				const FSourceSnapshotEntry* Root =
+					Plan.MultiOutputPlan.GetGenericPlan().GetSnapshot().FindSource("root");
+				if (!Root || !PrepareMountedSourceBytes(
+					DerivedBytes,
+					Plan.MultiOutputPlan.GetRecordPath().ToString(),
+					MakeDerivedImageSourcePath(Root->SourcePath, Identity, DerivedBytes),
+					DerivedSource,
+					Error))
+				{
+					return FailPrepared(Error.empty()
+						? "Derived Scene image source publication failed." : std::move(Error));
+				}
+				Bytes = DerivedBytes;
+				Source = DerivedSource.SourcePath;
+				EmbeddedSources.push_back(std::move(DerivedSource));
+			}
+			else if (!Image.EmbeddedEncodedBytes.empty())
 			{
 				FMountedSourceFile EmbeddedSource;
 				const FSourceSnapshotEntry* Root =
@@ -1253,7 +1457,7 @@ namespace Durin
 				if (!Root || !PrepareMountedSourceBytes(
 					Bytes,
 					Plan.MultiOutputPlan.GetRecordPath().ToString(),
-					MakeEmbeddedImageSourcePath(Root->SourcePath, Image, Bytes),
+					MakeEmbeddedImageSourcePath(Root->SourcePath, Image, Identity, Bytes),
 					EmbeddedSource,
 					Error))
 				{
@@ -1265,7 +1469,8 @@ namespace Durin
 				EmbeddedSources.push_back(std::move(EmbeddedSource));
 			}
 			if (!Texture->BuildFromEncodedBytes(Bytes, Source,
-					{.Usage = ETextureUsage::Color, .bSRGB = true}, Error))
+					{.Usage = Descriptor->TextureUsage,
+						.bSRGB = Descriptor->TextureUsage == ETextureUsage::Color}, Error))
 			{
 				return FailPrepared(
 					Error.empty() ? "Scene image candidate failed." : std::move(Error));
@@ -1285,21 +1490,76 @@ namespace Durin
 			const auto Imported = std::ranges::find(
 				Data->Scene.Materials, Descriptor->SourceIndex,
 				&Asset::FImportedMaterial::SourceMaterialIndex);
+			FMaterialStaticProperties StaticProperties = StandardMaterial->GetStaticProperties();
+			if (Imported != Data->Scene.Materials.end())
+			{
+				StaticProperties.BlendMode = Imported->AlphaMode == Asset::EImportedAlphaMode::Mask
+					? EMaterialBlendMode::Masked
+					: Imported->AlphaMode == Asset::EImportedAlphaMode::Blend
+						? EMaterialBlendMode::Translucent : EMaterialBlendMode::Opaque;
+				StaticProperties.bTwoSided = Imported->bDoubleSided;
+				StaticProperties.OpacityMaskThreshold = Imported->AlphaCutoff;
+			}
 			if (!Material || Imported == Data->Scene.Materials.end()
 				|| !Material->SetParent(StandardMaterial)
+				|| !Material->SetStaticPropertiesOverride(StaticProperties)
 				|| !Material->SetVectorParameterValue(
 					MaterialParameters::BaseColorName(), FVector3(Imported->BaseColorFactor))
 				|| !Material->SetScalarParameterValue(
-					MaterialParameters::OpacityName(), Imported->BaseColorFactor.a))
+					MaterialParameters::OpacityName(), Imported->BaseColorFactor.a)
+				|| !Material->SetScalarParameterValue(
+					MaterialParameters::MetallicName(), Imported->MetallicFactor)
+				|| !Material->SetScalarParameterValue(
+					MaterialParameters::RoughnessName(), Imported->RoughnessFactor)
+				|| !Material->SetScalarParameterValue(
+					MaterialParameters::OpacityMaskName(), Imported->BaseColorFactor.a))
 			{
 				return FailPrepared("Scene material candidate mapping failed.");
 			}
-			if (!Descriptor->TextureIdentity.empty())
+			const auto Occlusion = std::ranges::find(
+				Imported->TextureBindings, Asset::EImportedTextureSemantic::Occlusion,
+				&Asset::FImportedTextureBinding::Semantic);
+			const bool bHasEmissiveTexture = std::ranges::any_of(
+				Descriptor->TextureBindings, [](const FSceneMaterialTextureBinding& Binding) {
+					return Binding.MaterialRole == 5;
+				});
+			if (!Material->SetScalarParameterValue(
+					MaterialParameters::AmbientOcclusionName(),
+					Occlusion == Imported->TextureBindings.end() ? 1.0f : Occlusion->Strength)
+				|| !Material->SetVectorParameterValue(
+					MaterialParameters::EmissiveName(), bHasEmissiveTexture
+						? FVector3(0.0f) : FVector3(Imported->EmissiveFactor)))
 			{
-				auto Texture = PublishedObjects.find(Descriptor->TextureIdentity);
+				return FailPrepared("Scene material factor mapping failed.");
+			}
+			const std::array<const FName*, 8> TextureNames{
+				&MaterialParameters::BaseColorTextureName(),
+				&MaterialParameters::NormalTextureName(),
+				&MaterialParameters::MetallicTextureName(),
+				&MaterialParameters::RoughnessTextureName(),
+				&MaterialParameters::AmbientOcclusionTextureName(),
+				&MaterialParameters::EmissiveTextureName(),
+				&MaterialParameters::OpacityTextureName(),
+				&MaterialParameters::OpacityMaskTextureName()};
+			for (const FSceneMaterialTextureBinding& Binding : Descriptor->TextureBindings)
+			{
+				auto Texture = PublishedObjects.find(Binding.TextureIdentity);
 				if (Texture == PublishedObjects.end()
 					|| !Material->SetTextureParameterValue(
-						MaterialParameters::BaseColorTextureName(), Cast<DTexture2D>(Texture->second)))
+						*TextureNames[Binding.MaterialRole], Cast<DTexture2D>(Texture->second))
+					|| !Material->SetParameterOverride(
+						MaterialParameters::UVChannelIds[Binding.MaterialRole],
+						EMaterialParameterType::Scalar,
+						FMaterialParameterValue::MakeScalar(
+							static_cast<float>(Binding.Binding.UVChannel)))
+					|| !Material->SetParameterOverride(
+						MaterialParameters::UVScaleIds[Binding.MaterialRole],
+						EMaterialParameterType::Vector2,
+						FMaterialParameterValue::MakeVector2(FVector2(Binding.Binding.Scale)))
+					|| !Material->SetParameterOverride(
+						MaterialParameters::UVOffsetIds[Binding.MaterialRole],
+						EMaterialParameterType::Vector2,
+						FMaterialParameterValue::MakeVector2(FVector2(Binding.Binding.Offset))))
 				{
 					return FailPrepared("Scene material texture mapping failed.");
 				}

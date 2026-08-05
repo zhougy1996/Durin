@@ -20,6 +20,10 @@ namespace Durin
 		ENGINE_API auto GetStaticProperties() const -> const FMaterialStaticProperties& override;
 		ENGINE_API auto GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition> override;
 		ENGINE_API auto GetParameterOverrides() const -> std::span<const FMaterialParameterOverride>;
+		ENGINE_API auto SetStaticPropertiesOverride(
+			const FMaterialStaticProperties& InProperties) -> bool;
+		ENGINE_API auto ClearStaticPropertiesOverride() -> bool;
+		auto HasStaticPropertiesOverride() const -> bool { return bOverrideStaticProperties; }
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		ENGINE_API auto SetParameterOverride(
 			const FGuid& Id,
@@ -70,5 +74,11 @@ namespace Durin
 
 		DPROPERTY(Edit)
 		std::vector<FMaterialParameterOverride> ParameterOverrides;
+
+		DPROPERTY(Edit)
+		bool bOverrideStaticProperties = false;
+
+		DPROPERTY(Edit)
+		FMaterialStaticProperties StaticPropertiesOverride;
 	};
 }

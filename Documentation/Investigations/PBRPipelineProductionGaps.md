@@ -16,7 +16,7 @@ The findings are ordered by user-visible severity and dependency:
 
 | Priority | Issue | Status | Implementation boundary |
 | --- | --- | --- | --- |
-| P1 | Scene import drops parsed glTF PBR data | Verified end-to-end gap | Import follow-up plan or staged task after channel decision |
+| P1 | Scene import cannot represent glTF texture rotation or per-binding samplers | Partially remediated import gap | Material UV/sampler layout follow-up |
 | P1 | LDR Scene Color clips PBR radiance before post-processing | Verified, intentionally deferred limitation | HDR/post-process plan |
 | P1 | GGX denominator floor distorts low-roughness direct highlights | Verified numerical-quality defect | Bounded corrective task after reference selection |
 | P2 | Material static properties do not control render passes | Verified, intentionally deferred limitation | Material roadmap milestone 4 |
@@ -25,42 +25,42 @@ The findings are ordered by user-visible severity and dependency:
 
 ## Verified Findings
 
-### P1 — Scene import drops parsed glTF PBR data
+### P1 — Scene import cannot represent glTF texture rotation or per-binding samplers
 
-**Status:** Verified end-to-end gap; packed-channel strategy remains unresolved.
+**Status:** Partially remediated; the remaining loss is explicit and warned.
 
-`GltfSceneAdapter` parses metallic and roughness factors, emissive factor,
-normal scale, occlusion strength, alpha mode, double-sided state, and BaseColor,
-MetallicRoughness, Normal, Occlusion, and Emissive texture bindings into
-`FImportedMaterial`. Scene-output planning creates only a BaseColor/sRGB texture
-output. Material preparation then maps only BaseColor, Opacity, and
-BaseColorTexture onto the generated material instance.
+Scene import now maps metallic, roughness, emissive, opacity, and AO factors;
+all five glTF texture semantics; UV channel, scale, and offset; alpha mode and
+cutoff; and double-sided state onto generated material instances. It creates
+semantic-specific Color/sRGB, Normal/linear, and DataMask/linear outputs. The
+selected packed-channel policy derives deterministic linear assets with
+metallic B, roughness G, AO R, and base-color alpha copied into the material
+contract's sampled R channel. Normal scale and glTF's multiplicative emissive
+factor are baked into semantic derivatives where the material surface does not
+expose the same operation.
 
-**Impact:** a supported glTF file can contain valid metallic/roughness PBR data
-that survives adapter normalization but is absent from the immediately
-renderable imported assets. Imported metal therefore renders as the default
-dielectric surface unless this mapping is completed.
+Derived outputs participate in stable planning identity, semantic/color-space
+deduplication, mounted-source publication, rollback, and in-place reimport.
+Material instances may persist a validated static-property override so imported
+alpha and two-sided state survive without importer-specific base materials.
 
-The current v2 surface contract samples the R channel for every scalar texture,
-while glTF packs roughness in G and metallic in B. Completing import therefore
-requires an explicit choice between:
+The remaining gap is narrower: `KHR_texture_transform` rotation and per-binding
+sampler filter/wrap state cannot be represented by the current material
+render layout, which contains only UV channel/scale/offset and one shared
+material sampler. Import emits an explicit warning for either case rather than
+silently claiming parity.
 
-- deriving separate linear DataMask assets/channels during import; or
-- defining a new material-layout version with per-role channel selection.
+**Validation gap:** the end-to-end import fixture proves generated material
+values, all semantic texture usages and color spaces, packed-channel pixels,
+UV channel/scale/offset, static properties, and stable in-place reimport. It
+does not yet provide rendered-image acceptance for those inputs, failure
+injection across the expanded seven-texture graph, UV rotation, or independent
+samplers.
 
-The chosen path must also address one source image used by both sRGB and linear
-semantics, normal-scale representation, occlusion strength, alpha mode,
-double-sided state, reimport identity, rollback, and texture deduplication.
-
-**Validation gap:** adapter fixtures prove normalized PBR data, but no
-end-to-end import fixture proves that generated material assets retain and
-render every supported factor, semantic, channel, UV transform, and static
-property.
-
-**Candidate direction:** prepare a follow-up to the archived
-Ready-to-Use Static Model Import plan after selecting the packed-channel
-contract. Its rendered acceptance images must isolate dielectric/metal,
-low/high roughness, normal, AO, emissive, and masked input.
+**Candidate direction:** introduce a versioned material render layout with
+per-role rotation and sampler state, then add rendered acceptance images that
+isolate dielectric/metal, low/high roughness, normal, AO, emissive, masked,
+rotated-UV, and sampler-wrap inputs.
 
 ### P1 — LDR Scene Color clips PBR radiance before post-processing
 
@@ -187,7 +187,7 @@ the selected correction.
 
 ## Validation Ordering
 
-1. Select and execute the glTF packed-channel contract.
+1. Complete glTF UV rotation and per-binding sampler representation.
 2. Correct low-roughness GGX stabilization against explicit numeric and image
    references.
 3. Plan HDR output and material render passes as separate architectural units.

@@ -113,6 +113,125 @@ TEST(FSceneImportTests, PublishesHeterogeneousPeersUnderGenericRecord)
 		"/SceneImportTests/SceneImport/Initial/Textures");
 }
 
+TEST(FSceneImportTests, ImportsGltfPbrFactorsSemanticTexturesAndPackedChannels)
+{
+	const FSceneFixture Fixture = InitializeSceneFixture("PbrContract");
+	Durin::FPreparedSceneSourceBundle Bundle;
+	std::string Error;
+	ASSERT_TRUE(Durin::PrepareSceneSourceBundle(
+		std::filesystem::path(DURIN_TEST_DATA_DIR)
+			/ "StaticModelMaterials/ImportedPbrContract.gltf",
+		Fixture.DestinationDirectory.ToString(),
+		"/SceneImportTests/Ingested/ImportedPbrContract.gltf",
+		Bundle, Error)) << Error;
+	Durin::CommitSceneSourceBundle(Bundle);
+	const Durin::FSceneImportPlanResult Planned = Durin::PlanSceneImport({
+		.RootSource = Bundle.RootSource,
+		.DestinationDirectory = Fixture.DestinationDirectory,
+		.MeshSettings = Durin::FStaticMeshImportSettings::MakeDurin()});
+	ASSERT_TRUE(Planned) << Planned.Message;
+	EXPECT_EQ(Planned.Plan.GetMultiOutputPlan().GetGenericPlan().GetOutputs().size(), 9u);
+	EXPECT_TRUE(Planned.Plan.GetWarnings().empty());
+
+	const Durin::FSceneImportExecutionResult Executed =
+		Durin::ExecuteSceneImport(Planned.Plan);
+	ASSERT_TRUE(Executed) << Executed.Message;
+	ASSERT_EQ(Executed.Materials.size(), 1u);
+	ASSERT_EQ(Executed.Textures.size(), 7u);
+	Durin::DMaterialInstance* Material = Executed.Materials[0];
+	ASSERT_NE(Material, nullptr);
+	EXPECT_TRUE(Material->HasStaticPropertiesOverride());
+	EXPECT_EQ(Material->GetStaticProperties().BlendMode, Durin::EMaterialBlendMode::Masked);
+	EXPECT_TRUE(Material->GetStaticProperties().bTwoSided);
+	EXPECT_FLOAT_EQ(Material->GetStaticProperties().OpacityMaskThreshold, 0.4f);
+	auto ExpectScalar = [&](const Durin::FName& Name, float Expected) {
+		float Actual = 0.0f;
+		ASSERT_TRUE(Material->GetScalarParameterValue(Name, Actual));
+		EXPECT_FLOAT_EQ(Actual, Expected);
+	};
+	ExpectScalar(Durin::MaterialParameters::MetallicName(), 0.25f);
+	ExpectScalar(Durin::MaterialParameters::RoughnessName(), 0.75f);
+	ExpectScalar(Durin::MaterialParameters::AmbientOcclusionName(), 0.3f);
+	ExpectScalar(Durin::MaterialParameters::OpacityName(), 0.5f);
+	ExpectScalar(Durin::MaterialParameters::OpacityMaskName(), 0.5f);
+	Durin::FVector3 Emissive;
+	ASSERT_TRUE(Material->GetVectorParameterValue(
+		Durin::MaterialParameters::EmissiveName(), Emissive));
+	EXPECT_EQ(Emissive, Durin::FVector3(0.0f));
+
+	const std::array<const Durin::FName*, 8> TextureNames{
+		&Durin::MaterialParameters::BaseColorTextureName(),
+		&Durin::MaterialParameters::NormalTextureName(),
+		&Durin::MaterialParameters::MetallicTextureName(),
+		&Durin::MaterialParameters::RoughnessTextureName(),
+		&Durin::MaterialParameters::AmbientOcclusionTextureName(),
+		&Durin::MaterialParameters::EmissiveTextureName(),
+		&Durin::MaterialParameters::OpacityTextureName(),
+		&Durin::MaterialParameters::OpacityMaskTextureName()};
+	std::array<Durin::DTexture2D*, 8> Textures{};
+	for (size_t Role : {0u, 1u, 2u, 3u, 4u, 5u, 7u})
+	{
+		ASSERT_TRUE(Material->GetTextureParameterValue(*TextureNames[Role], Textures[Role]));
+		ASSERT_NE(Textures[Role], nullptr);
+	}
+	EXPECT_EQ(Textures[0]->GetUsage(), Durin::ETextureUsage::Color);
+	EXPECT_TRUE(Textures[0]->IsSRGB());
+	EXPECT_EQ(Textures[1]->GetUsage(), Durin::ETextureUsage::Normal);
+	EXPECT_FALSE(Textures[1]->IsSRGB());
+	for (size_t Role : {2u, 3u, 4u, 7u})
+	{
+		EXPECT_EQ(Textures[Role]->GetUsage(), Durin::ETextureUsage::DataMask);
+		EXPECT_FALSE(Textures[Role]->IsSRGB());
+	}
+	EXPECT_EQ(Textures[5]->GetUsage(), Durin::ETextureUsage::Color);
+	EXPECT_TRUE(Textures[5]->IsSRGB());
+
+	const Durin::FTextureSourceData* BasePixels = Textures[0]->GetSourceData();
+	const Durin::FTextureSourceData* MetallicPixels = Textures[2]->GetSourceData();
+	const Durin::FTextureSourceData* RoughnessPixels = Textures[3]->GetSourceData();
+	const Durin::FTextureSourceData* OcclusionPixels = Textures[4]->GetSourceData();
+	const Durin::FTextureSourceData* MaskPixels = Textures[7]->GetSourceData();
+	ASSERT_NE(BasePixels, nullptr);
+	ASSERT_NE(MetallicPixels, nullptr);
+	ASSERT_NE(RoughnessPixels, nullptr);
+	ASSERT_NE(OcclusionPixels, nullptr);
+	ASSERT_NE(MaskPixels, nullptr);
+	ASSERT_GE(BasePixels->Pixels.size(), 4u);
+	EXPECT_EQ(MetallicPixels->Pixels[0], BasePixels->Pixels[2]);
+	EXPECT_EQ(RoughnessPixels->Pixels[0], BasePixels->Pixels[1]);
+	EXPECT_EQ(OcclusionPixels->Pixels[0], BasePixels->Pixels[0]);
+	EXPECT_EQ(MaskPixels->Pixels[0], BasePixels->Pixels[3]);
+
+	float UVChannel = 0.0f;
+	Durin::FVector2 UVScale;
+	Durin::FVector2 UVOffset;
+	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::FName("BaseColorUVChannel"), UVChannel));
+	ASSERT_TRUE(Material->GetVector2ParameterValue(Durin::FName("BaseColorUVScale"), UVScale));
+	ASSERT_TRUE(Material->GetVector2ParameterValue(Durin::FName("BaseColorUVOffset"), UVOffset));
+	EXPECT_FLOAT_EQ(UVChannel, 1.0f);
+	EXPECT_EQ(UVScale, Durin::FVector2(2.0f, 3.0f));
+	EXPECT_EQ(UVOffset, Durin::FVector2(0.1f, 0.2f));
+
+	std::vector<Durin::DTexture2D*> TextureIdentities = Executed.Textures;
+	std::vector<std::string> TextureKeys;
+	for (Durin::DTexture2D* Texture : TextureIdentities)
+		TextureKeys.push_back(Texture->GetDerivedDataKey());
+	const Durin::FSceneImportPlanResult ReimportPlan =
+		Durin::PlanSceneReimport(*Executed.Record);
+	ASSERT_TRUE(ReimportPlan) << ReimportPlan.Message;
+	const Durin::FSceneImportExecutionResult Reimported =
+		Durin::ExecuteSceneImport(ReimportPlan.Plan);
+	ASSERT_TRUE(Reimported) << Reimported.Message;
+	ASSERT_EQ(Reimported.Materials.size(), 1u);
+	EXPECT_EQ(Reimported.Materials[0], Material);
+	ASSERT_EQ(Reimported.Textures.size(), TextureIdentities.size());
+	for (size_t Index = 0; Index < TextureIdentities.size(); ++Index)
+	{
+		EXPECT_EQ(Reimported.Textures[Index], TextureIdentities[Index]);
+		EXPECT_EQ(Reimported.Textures[Index]->GetDerivedDataKey(), TextureKeys[Index]);
+	}
+}
+
 TEST(FSceneImportTests, PlansPeerOutputsInsideTypedSceneDirectories)
 {
 	FSceneFixture Fixture = InitializeSceneFixture("Robot");

@@ -133,7 +133,30 @@ namespace Durin
 
 	auto DMaterialInstance::GetStaticProperties() const -> const FMaterialStaticProperties&
 	{
+		if (bOverrideStaticProperties) return StaticPropertiesOverride;
 		return Parent != nullptr ? Parent->GetStaticProperties() : Super::GetStaticProperties();
+	}
+
+	auto DMaterialInstance::SetStaticPropertiesOverride(
+		const FMaterialStaticProperties& InProperties) -> bool
+	{
+		std::string Error;
+		if (!ValidateMaterialStaticProperties(InProperties, Error)) return false;
+		if (bOverrideStaticProperties && StaticPropertiesOverride == InProperties) return true;
+		StaticPropertiesOverride = InProperties;
+		bOverrideStaticProperties = true;
+		MarkPackageDirty();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::AllRenderState);
+		return true;
+	}
+
+	auto DMaterialInstance::ClearStaticPropertiesOverride() -> bool
+	{
+		if (!bOverrideStaticProperties) return false;
+		bOverrideStaticProperties = false;
+		MarkPackageDirty();
+		MarkRenderDataDirty(EMaterialRenderDirtyFlags::AllRenderState);
+		return true;
 	}
 
 	auto DMaterialInstance::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>
@@ -152,6 +175,8 @@ namespace Durin
 		std::swap(Parent, Other.Parent);
 		std::swap(ParameterSchemaVersion, Other.ParameterSchemaVersion);
 		std::swap(ParameterOverrides, Other.ParameterOverrides);
+		std::swap(bOverrideStaticProperties, Other.bOverrideStaticProperties);
+		std::swap(StaticPropertiesOverride, Other.StaticPropertiesOverride);
 		MarkPackageDirty();
 		Other.MarkPackageDirty();
 		MarkRenderDataDirty(
@@ -435,6 +460,11 @@ namespace Durin
 		if (WouldCreateParentCycle(this, Parent.Get()))
 		{
 			OutError = "A material instance asset contains a parent cycle.";
+			return false;
+		}
+		if (bOverrideStaticProperties
+			&& !ValidateMaterialStaticProperties(StaticPropertiesOverride, OutError))
+		{
 			return false;
 		}
 		PublishMaterialRenderProxyState();

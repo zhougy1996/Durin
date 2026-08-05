@@ -290,8 +290,9 @@ and UI behavior belongs to the editor
 - Instances override parameters without duplicating declarations or the
   parent's shader program.
 - Static properties are authored on base materials and inherited atomically by
-  instances; per-instance static overrides require an explicit future
-  permutation design.
+  default. An instance may persist one validated all-or-nothing static-property
+  override; imported materials use this to retain blend mode, mask threshold,
+  and two-sided state without creating importer-specific base materials.
 - Static properties belong in shader-map/permutation keys; dynamic parameters
   belong in uniform/resource bindings. A dynamic-only update reuses the cached
   identity, while a static update causes the next draw to resolve or create the
