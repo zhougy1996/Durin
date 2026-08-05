@@ -6,7 +6,6 @@ function(durin_add_core_functional_test target_name)
 		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 	)
 	target_link_libraries(${target_name} PRIVATE Core)
-	durin_test_deploy_target_binary(${target_name} Core)
 	durin_test_deploy_directory_to_data(
 		${target_name}
 		"${CMAKE_CURRENT_SOURCE_DIR}/Data"

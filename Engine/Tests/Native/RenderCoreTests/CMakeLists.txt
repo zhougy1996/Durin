@@ -27,13 +27,9 @@ function(durin_add_render_functional_test target_name)
 		RHI
 		RenderCore
 	)
-	durin_test_deploy_target_binary(${target_name} Core)
-	durin_test_deploy_target_binary(${target_name} RHI)
-	durin_test_deploy_target_binary(${target_name} RenderCore)
 
 	if(DURIN_RENDER_TEST_USE_SLANG)
 		target_link_libraries(${target_name} PRIVATE Slang_Imported)
-		durin_test_deploy_runtime_files(${target_name} Slang_Imported)
 		durin_test_deploy_directory_to_data(
 			${target_name}
 			"${CMAKE_CURRENT_SOURCE_DIR}/Data"

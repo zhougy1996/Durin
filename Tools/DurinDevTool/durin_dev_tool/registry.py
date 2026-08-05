@@ -598,7 +598,7 @@ COMMAND_SPECS = (
             _argument(
                 "--include-direct",
                 action="store_true",
-                help="also run whole-target direct lifecycle tests for --target all",
+                help="after case tests, run whole-target lifecycle tests for --target all",
             ),
         ),
     ),

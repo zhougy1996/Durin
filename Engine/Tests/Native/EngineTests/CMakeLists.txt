@@ -9,13 +9,17 @@ set(_durin_main_frame_private
 
 function(durin_add_engine_functional_test target_name)
 	set(options GPU)
-	set(one_value_args TIMEOUT RUNTIME_STACK_RATIONALE)
+	set(one_value_args
+		TIMEOUT
+		RUNTIME_STACK_RATIONALE
+		RUNTIME_ONLY_RATIONALE
+	)
 	set(multi_value_args
 		SOURCES
 		PRIVATE_SOURCES
 		LIBRARIES
-		DEPLOY_TARGETS
-		RUNTIME_FILES
+		RUNTIME_ONLY_TARGETS
+		RUNTIME_ONLY_FILES
 		DATA_DIRECTORIES
 	)
 	cmake_parse_arguments(
@@ -59,24 +63,14 @@ function(durin_add_engine_functional_test target_name)
 		${DURIN_ENGINE_TEST_LIBRARIES}
 	)
 
-	foreach(_durin_deploy_target IN ITEMS
-		Core
-		CoreDObject
-		AssetCore
-		Engine
-		${DURIN_ENGINE_TEST_DEPLOY_TARGETS}
-	)
-		durin_test_deploy_target_binary(
-			${target_name}
-			${_durin_deploy_target}
+	if(DURIN_ENGINE_TEST_RUNTIME_ONLY_TARGETS
+		OR DURIN_ENGINE_TEST_RUNTIME_ONLY_FILES)
+		durin_test_register_runtime_only_dependencies(${target_name}
+			RATIONALE "${DURIN_ENGINE_TEST_RUNTIME_ONLY_RATIONALE}"
+			TARGETS ${DURIN_ENGINE_TEST_RUNTIME_ONLY_TARGETS}
+			FILES ${DURIN_ENGINE_TEST_RUNTIME_ONLY_FILES}
 		)
-	endforeach()
-	foreach(_durin_runtime_file IN LISTS DURIN_ENGINE_TEST_RUNTIME_FILES)
-		durin_test_deploy_runtime_files(
-			${target_name}
-			${_durin_runtime_file}
-		)
-	endforeach()
+	endif()
 	foreach(_durin_data_directory IN LISTS DURIN_ENGINE_TEST_DATA_DIRECTORIES)
 		durin_test_deploy_directory_to_data(
 			${target_name}
@@ -95,7 +89,6 @@ function(durin_add_engine_functional_test target_name)
 			DURIN_TEST_TIMEOUT "${DURIN_ENGINE_TEST_TIMEOUT}"
 		)
 	endif()
-
 	durin_discover_tests(${target_name})
 endfunction()
 
@@ -109,7 +102,6 @@ durin_add_engine_functional_test(EditorPropertyTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES DurinEd
-	DEPLOY_TARGETS DurinEd
 )
 
 durin_add_engine_functional_test(EditorAssetWorkflowTests
@@ -132,7 +124,6 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		${_durin_level_editor_private}/Panels/ContentBrowserOperations.cpp
 		${_durin_level_editor_private}/Panels/ContentDeletionTransaction.cpp
 	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
-	DEPLOY_TARGETS ApplicationCore RHI RenderCore Renderer MonaCore Mona MonaImGui DurinEd
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -150,6 +141,8 @@ durin_add_engine_functional_test(MaterialTests
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Exercises rendered material editing and preview lifecycle."
+	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
+	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES
 		Private/Materials/MaterialSchemaAndEditingTests.cpp
 		Private/Materials/MaterialDependencyTests.cpp
@@ -172,19 +165,6 @@ durin_add_engine_functional_test(MaterialTests
 		MonaImGui
 		DurinEd
 		bc7enc_rdo::bc7enc_rdo
-	DEPLOY_TARGETS
-		ApplicationCore
-		AssetImportCore
-		RHI
-		RenderCore
-		Renderer
-		StandardAssetImport
-		MonaCore
-		Mona
-		MonaImGui
-		VulkanRHI
-		DurinEd
-	RUNTIME_FILES assimp::assimp Slang_Imported
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -206,8 +186,6 @@ durin_add_engine_functional_test(StaticMeshTests
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES AssetImportCore StandardAssetImport RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
-	DEPLOY_TARGETS AssetImportCore StandardAssetImport RHI RenderCore Renderer DurinEd
-	RUNTIME_FILES assimp::assimp
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
@@ -224,8 +202,6 @@ durin_add_engine_functional_test(TextureTests
 		Private/Texture/EquirectangularTextureCubeTests.cpp
 		Private/TextureCubeTests.cpp
 	LIBRARIES AssetImportCore StandardAssetImport RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
-	DEPLOY_TARGETS AssetImportCore StandardAssetImport RHI RenderCore Renderer DurinEd
-	RUNTIME_FILES assimp::assimp Slang_Imported
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -242,10 +218,10 @@ durin_add_engine_functional_test(SceneImportVulkanTests
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Owns the Vulkan-backed static-model import acceptance lifecycle."
+	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
+	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/Texture/SceneImportVulkanTests.cpp
 	LIBRARIES ApplicationCore AssetImportCore StandardAssetImport RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
-	DEPLOY_TARGETS ApplicationCore AssetImportCore StandardAssetImport RHI RenderCore Renderer VulkanRHI DurinEd
-	RUNTIME_FILES assimp::assimp Slang_Imported
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -268,8 +244,6 @@ durin_add_engine_functional_test(ThumbnailTests
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDiskCache.cpp
 	LIBRARIES ApplicationCore RenderCore Renderer DurinEd
-	DEPLOY_TARGETS ApplicationCore RHI RenderCore Renderer DurinEd
-	RUNTIME_FILES Slang_Imported
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -285,8 +259,7 @@ durin_add_engine_functional_test(WorldTests
 		Private/World/WorldActorTests.cpp
 		Private/World/WorldComponentTests.cpp
 		Private/World/WorldLifetimeTests.cpp
-	LIBRARIES DurinEd
-	DEPLOY_TARGETS RHI RenderCore DurinEd
+	LIBRARIES DurinEd StandardAssetImport
 )
 target_compile_definitions(WorldTests PRIVATE
 	DURIN_STATIC_MESH_BASELINE_GAME_CONTENT_DIR="${CMAKE_SOURCE_DIR}/Sandbox/Content"
@@ -314,7 +287,6 @@ durin_add_engine_functional_test(ViewportTests
 		${_durin_level_editor_private}/Settings/LevelViewportSessionSettings.cpp
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
 	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
-	DEPLOY_TARGETS ApplicationCore MonaCore Mona MonaImGui DurinEd
 )
 
 durin_add_engine_functional_test(SplineTests
@@ -324,7 +296,6 @@ durin_add_engine_functional_test(SplineTests
 		${_durin_level_editor_private}/Customizations/SplineEditorCustomizations.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES DurinEd
-	DEPLOY_TARGETS DurinEd
 )
 
 durin_add_engine_functional_test(SkyBoxTests
@@ -337,8 +308,6 @@ durin_add_engine_functional_test(SkyBoxTests
 		${_durin_level_editor_private}/Customizations/SkyBoxDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES RenderCore Renderer DurinEd
-	DEPLOY_TARGETS RHI RenderCore Renderer DurinEd
-	RUNTIME_FILES Slang_Imported
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
@@ -346,10 +315,10 @@ durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Owns the Vulkan-backed sky-box integration lifecycle."
+	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
+	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/SkyBox/SkyBoxVulkanTests.cpp
 	LIBRARIES ApplicationCore RenderCore Renderer DurinEd
-	DEPLOY_TARGETS ApplicationCore RHI RenderCore Renderer VulkanRHI DurinEd
-	RUNTIME_FILES Slang_Imported
 	DATA_DIRECTORIES ${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
@@ -357,10 +326,10 @@ durin_add_engine_functional_test(RendererResourceReloadVulkanTests
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Exercises in-process renderer shader failure, reload, and recovery on Vulkan."
+	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
+	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/RendererResourceReloadVulkanTests.cpp
 	LIBRARIES ApplicationCore RenderCore Renderer
-	DEPLOY_TARGETS ApplicationCore RHI RenderCore Renderer VulkanRHI
-	RUNTIME_FILES Slang_Imported
 )
 
 durin_add_engine_functional_test(EditorRenderingTests
@@ -374,8 +343,6 @@ durin_add_engine_functional_test(EditorRenderingTests
 		Private/RendererSceneViewTests.cpp
 		Private/EditorTextureSmokeTests.cpp
 	LIBRARIES ApplicationCore AssetImportCore StandardAssetImport RenderCore Renderer DurinEd
-	DEPLOY_TARGETS ApplicationCore AssetImportCore StandardAssetImport RHI RenderCore Renderer DurinEd
-	RUNTIME_FILES Slang_Imported
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -392,7 +359,6 @@ durin_add_engine_functional_test(EditorShellTests
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
 		${_durin_level_editor_private}/Panels/ConsoleRecordModel.cpp
 	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
-	DEPLOY_TARGETS ApplicationCore MonaCore Mona MonaImGui DurinEd
 )
 
 durin_add_engine_functional_test(ExternalToolTests
@@ -402,7 +368,6 @@ durin_add_engine_functional_test(ExternalToolTests
 	PRIVATE_SOURCES
 		${_durin_main_frame_private}/ProfilingToolService.cpp
 	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
-	DEPLOY_TARGETS ApplicationCore MonaCore Mona MonaImGui DurinEd
 )
 
 # Cooked-runtime mode and Renderer/Vulkan teardown are process-global.
@@ -410,8 +375,8 @@ durin_add_engine_functional_test(TextureCookIntegrationTests
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Owns the renderer and Vulkan cooked-texture lifecycle."
+	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
+	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/Texture/TextureCookTests.cpp
 	LIBRARIES RenderCore Renderer bc7enc_rdo::bc7enc_rdo
-	DEPLOY_TARGETS ApplicationCore RHI RenderCore Renderer VulkanRHI
-	RUNTIME_FILES Slang_Imported
 )

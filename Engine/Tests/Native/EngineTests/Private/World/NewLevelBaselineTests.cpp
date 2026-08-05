@@ -4,9 +4,28 @@
 #include "Components/SkyBoxComponent.h"
 #include "DObject/Package.h"
 #include "Materials/MaterialInterface.h"
+#include "StandardAssetImportProviders.h"
 
 namespace
 {
+	class FScopedStandardAssetImportProviders
+	{
+	public:
+		~FScopedStandardAssetImportProviders()
+		{
+			if (bRegistered) Durin::UnregisterStandardAssetImportProviders();
+		}
+
+		auto Register(std::string& OutError) -> bool
+		{
+			bRegistered = Durin::RegisterStandardAssetImportProviders(OutError);
+			return bRegistered;
+		}
+
+	private:
+		bool bRegistered = false;
+	};
+
 	auto ExpectTransformNear(
 		const Durin::FTransform& Actual,
 		const Durin::FQuat& ExpectedRotation,
@@ -111,6 +130,9 @@ namespace
 TEST(FNewLevelBaselineTests, RecreatedLevelMatchesCapturedLogicalManifest)
 {
 	InitializeDObjectSystem();
+	FScopedStandardAssetImportProviders Providers;
+	std::string ProviderError;
+	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
 	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
 	std::vector<Durin::PathUtilities::FMountPoint> MountDefinitions(
@@ -129,7 +151,8 @@ TEST(FNewLevelBaselineTests, RecreatedLevelMatchesCapturedLogicalManifest)
 	Durin::FAssetPath LevelPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/Levels/NewLevel", LevelPath));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(LevelPath, Level));
+	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(LevelPath, Level);
+	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ExpectReconstructionManifest(Level);
 
 	auto* MeshActor = Durin::Cast<Durin::AStaticMeshActor>(Level->FindActorByName("Box"));

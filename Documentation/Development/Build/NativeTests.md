@@ -39,8 +39,9 @@ Use `--schedule-random` to randomize the CTest launch order and
 `--output-junit <path>` to retain machine-readable aggregate results. Use
 `--ctest-regex <regex>` for an isolated rerun of matching CTest-registered
 names. Add `--include-direct` to also run each target as one whole-executable
-lifecycle test after its cases have run in isolation. These options require
-`--target all`.
+lifecycle test in a second phase after all case registrations pass. The two
+phases never overlap. These options require `--target all`. When combined with
+`--output-junit`, direct-lifecycle results use a sibling `.direct.xml` file.
 
 The default aggregate excludes `native-test-direct` because those registrations
 repeat the same functional cases in one process. Run them for qualification,
@@ -85,6 +86,15 @@ Test executables and their runtime DLLs share `Bin/`. Deployment helpers create
 one build target per engine DLL or external runtime file, so every destination
 has one writer even when many native-test targets require it. Do not add
 target-owned `POST_BUILD` copies into the shared directory.
+
+`durin_discover_tests(...)` derives each test's deployable runtime closure from
+the final `LINK_LIBRARIES` and `INTERFACE_LINK_LIBRARIES` target graph before it
+registers GoogleTest discovery. Shared and module libraries contribute their
+binaries; static, object, and interface targets are traversed without a copy.
+Imported targets contribute files published through
+`DURIN_RUNTIME_DEPLOY_FILES`, so the target which introduces Assimp, Slang, or
+another external runtime owns its deployment metadata. Test declarations do
+not repeat ordinary transitive DLL or external-file lists.
 
 `Data` is input-only. Never create, update, rename, or delete files there.
 `Work` is only a parent managed by the test harness; tests must not write
@@ -139,14 +149,37 @@ target_link_libraries(PackageRoundTripTests PRIVATE
     AssetCore
 )
 
-durin_test_deploy_target_binary(PackageRoundTripTests AssetCore)
-
 set_target_properties(PackageRoundTripTests PROPERTIES
     DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
 
 durin_discover_tests(PackageRoundTripTests)
 ```
+
+Complete every target link declaration before calling
+`durin_discover_tests(...)`. The discovery call is the runtime-closure
+finalization point as well as the test-policy registration point. Configuration
+fails when a target-bearing link expression cannot be resolved for the active
+preset, a referenced runtime target is missing, two external files claim the
+same destination name from different sources, or a manual deployment repeats
+an ordinary derived dependency.
+
+Use a runtime-only exception only for a plugin, delay-loaded module, or file
+which is selected without a CMake link edge. Declare the owner and rationale
+before discovery:
+
+```cmake
+durin_test_register_runtime_only_dependencies(RendererIntegrationTests
+    RATIONALE "RHIInit selects the Vulkan backend dynamically at runtime."
+    TARGETS VulkanRHI
+)
+```
+
+The helper also accepts `FILES` for a genuinely unlinked runtime file. It
+rejects a target already present in the ordinary link closure; add or correct
+the link edge instead. Repository policy rejects target-owned `POST_BUILD`
+runtime copies. The lower-level explicit deployment helpers remain build-system
+primitives, not native-test authoring requirements.
 
 `add_durin_test(...)` links `NativeTestSupport`, generates the harness entry
 point, and provides `DURIN_TEST_DATA_DIR` for input lookup. Use
@@ -199,12 +232,11 @@ process-seconds in that historical run; the slowest direct entries were
 `CoreUtilityTests` (5.42 seconds), `AssetPackageTests` (4.54 seconds), and
 `TextureTests` (4.14 seconds).
 
-`durin_test_deploy_target_binary(...)` and
-`durin_test_deploy_runtime_files(...)` register dependencies on shared
-deployment targets. Repeating either declaration across test targets reuses the
-same deployment target instead of scheduling another copy. Two external files
-with the same destination filename are rejected during configuration unless
-they resolve to the same source file.
+Derived closures register dependencies on shared deployment targets. Multiple
+tests consuming the same module or external file therefore reuse one writer;
+unchanged deployments remain incremental. Two external files with the same
+destination filename are rejected during configuration unless they resolve to
+the same source file.
 
 ## Related Docs
 

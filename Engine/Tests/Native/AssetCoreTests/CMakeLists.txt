@@ -2,8 +2,8 @@ include(GoogleTest)
 
 function(durin_add_asset_functional_test target_name)
 	set(options IMPORT_RUNTIME)
-	set(one_value_args)
-	set(multi_value_args SOURCES)
+	set(one_value_args TIMEOUT)
+	set(multi_value_args SOURCES LIBRARIES)
 	cmake_parse_arguments(
 		DURIN_ASSET_TEST
 		"${options}"
@@ -17,16 +17,11 @@ function(durin_add_asset_functional_test target_name)
 		Core
 		CoreDObject
 		AssetCore
+		${DURIN_ASSET_TEST_LIBRARIES}
 	)
-	durin_test_deploy_target_binary(${target_name} Core)
-	durin_test_deploy_target_binary(${target_name} CoreDObject)
-	durin_test_deploy_target_binary(${target_name} AssetCore)
 
 	if(DURIN_ASSET_TEST_IMPORT_RUNTIME)
 		target_link_libraries(${target_name} PRIVATE AssetImportCore StandardAssetImport)
-		durin_test_deploy_target_binary(${target_name} AssetImportCore)
-		durin_test_deploy_target_binary(${target_name} StandardAssetImport)
-		durin_test_deploy_runtime_files(${target_name} assimp::assimp)
 		durin_test_deploy_directory_to_data(
 			${target_name}
 			"${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport"
@@ -36,6 +31,11 @@ function(durin_add_asset_functional_test target_name)
 	set_target_properties(${target_name} PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 	)
+	if(DURIN_ASSET_TEST_TIMEOUT)
+		set_target_properties(${target_name} PROPERTIES
+			DURIN_TEST_TIMEOUT "${DURIN_ASSET_TEST_TIMEOUT}"
+		)
+	endif()
 	durin_discover_tests(${target_name})
 endfunction()
 
@@ -48,9 +48,9 @@ durin_test_deploy_directory_to_data(
 )
 
 durin_add_asset_functional_test(AssetCookTests
+	TIMEOUT 600
 	SOURCES Private/CookedAssetTests.cpp
 )
-set_target_properties(AssetCookTests PROPERTIES DURIN_TEST_TIMEOUT 600)
 
 durin_add_asset_functional_test(AssetDerivedDataTests
 	SOURCES Private/DerivedDataObjectStoreTests.cpp
@@ -62,12 +62,11 @@ durin_add_asset_functional_test(AssetDecodeTests
 
 durin_add_asset_functional_test(AssetImportTests
 	IMPORT_RUNTIME
+	TIMEOUT 600
 	SOURCES Private/AssetImportTests.cpp
 )
-set_target_properties(AssetImportTests PROPERTIES DURIN_TEST_TIMEOUT 600)
 
 durin_add_asset_functional_test(AssetImportCoreTests
+	LIBRARIES AssetImportCore
 	SOURCES Private/AssetImportCoreTests.cpp Private/ImportRecordTests.cpp
 )
-target_link_libraries(AssetImportCoreTests PRIVATE AssetImportCore)
-durin_test_deploy_target_binary(AssetImportCoreTests AssetImportCore)

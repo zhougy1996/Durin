@@ -106,3 +106,7 @@ assert_policy_rejected("repository-retired-work" "retired DURIN_TEST_WORK_DIR")
 assert_policy_rejected("repository-direct-remove-all" "RemoveTestWorkDirectory")
 assert_policy_rejected("repository-data-write" "mutate checked-in test Data")
 assert_policy_rejected("repository-direct-discovery" "registers GoogleTest cases directly")
+assert_policy_rejected(
+	"repository-post-build-runtime-copy"
+	"target-owned POST_BUILD runtime copy"
+)

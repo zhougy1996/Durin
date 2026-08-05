@@ -291,7 +291,61 @@ class TestCore:
         output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
         with mock.patch.object(build_runtime, 'run_command') as run:
             build_core.run_all_native_tests(context, output)
-        assert run.call_args.args[0][-4:] == ['-LE', 'native-test-characterization', '--timeout', '300']
+        assert run.call_count == 2
+        assert run.call_args_list[0].args[0][-4:] == [
+            '-LE',
+            'native-test-characterization|native-test-direct',
+            '--timeout',
+            '300',
+        ]
+        assert run.call_args_list[1].args[0][-6:] == [
+            '-L',
+            'native-test-direct',
+            '-LE',
+            'native-test-characterization',
+            '--timeout',
+            '300',
+        ]
+
+    def test_direct_lifecycle_phase_uses_companion_junit_output(self) -> None:
+        preset = self.make_preset()
+        request = build_config.CommandRequest(
+            build_config.Action.TEST,
+            options=build_config.TestActionOptions(
+                target='all',
+                include_direct=True,
+                output_junit=Path('Build/results.xml'),
+            ),
+        )
+        context = build_config.BuildContext(request, build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={})
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(build_runtime, 'run_command') as run:
+            build_core.run_all_native_tests(context, output)
+        assert run.call_args_list[0].args[0][-2:] == [
+            '--output-junit',
+            str(build_core.REPO_ROOT / 'Build/results.xml'),
+        ]
+        assert run.call_args_list[1].args[0][-2:] == [
+            '--output-junit',
+            str(build_core.REPO_ROOT / 'Build/results.direct.xml'),
+        ]
+
+    def test_direct_lifecycle_phase_allows_regex_without_a_direct_match(self) -> None:
+        preset = self.make_preset()
+        request = build_config.CommandRequest(
+            build_config.Action.TEST,
+            options=build_config.TestActionOptions(
+                target='all',
+                include_direct=True,
+                ctest_regex='^FCoreTests\\.',
+            ),
+        )
+        context = build_config.BuildContext(request, build_config.LocalConfig(), self.make_profile(), {'debug': preset}, preset, 'windows', cmake='cmake', jobs=4, environment={})
+        output = BuildOutput(plain=True, stdout=io.StringIO(), stderr=io.StringIO())
+        with mock.patch.object(build_runtime, 'run_command') as run:
+            build_core.run_all_native_tests(context, output)
+        assert '--no-tests=error' in run.call_args_list[0].args[0]
+        assert '--no-tests=ignore' in run.call_args_list[1].args[0]
 
     def test_all_native_tests_reject_gtest_filter(self) -> None:
         request = build_config.CommandRequest(build_config.Action.TEST, options=build_config.TestActionOptions(target='all', filter='Core.*'))

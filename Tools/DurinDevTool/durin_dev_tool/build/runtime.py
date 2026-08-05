@@ -82,34 +82,74 @@ def ctest_command(cmake: str) -> str:
     return str(cmake_path.with_name(executable_name))
 
 
-def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
+def _resolved_junit_path(path: Path | None) -> Path | None:
+    if path is None:
+        return None
+    resolved = path if path.is_absolute() else REPO_ROOT / path
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    return resolved
+
+
+def _direct_junit_path(path: Path) -> Path:
+    suffix = path.suffix or ".xml"
+    stem = path.stem if path.suffix else path.name
+    return path.with_name(f"{stem}.direct{suffix}")
+
+
+def _all_native_tests_command(
+    context: BuildContext,
+    *,
+    direct_phase: bool,
+    junit_path: Path | None,
+) -> list[str]:
     request = context.request
     command = [
         ctest_command(context.cmake),
         "--test-dir",
         str(preset_build_directory(context.preset)),
         "--output-on-failure",
-        "--no-tests=error",
+        (
+            "--no-tests=ignore"
+            if direct_phase and request.test_ctest_regex
+            else "--no-tests=error"
+        ),
         "-j",
         str(context.jobs),
     ]
-    excluded_labels = ["native-test-characterization"]
-    if not request.test_include_direct:
-        excluded_labels.append("native-test-direct")
-    command.extend(["-LE", "|".join(excluded_labels)])
+    if direct_phase:
+        command.extend(
+            ["-L", "native-test-direct", "-LE", "native-test-characterization"]
+        )
+    else:
+        command.extend(
+            ["-LE", "native-test-characterization|native-test-direct"]
+        )
     if request.test_timeout_seconds:
         command.extend(["--timeout", str(request.test_timeout_seconds)])
     if request.test_schedule_random:
         command.append("--schedule-random")
     if request.test_ctest_regex:
         command.extend(["-R", request.test_ctest_regex])
-    if request.test_output_junit is not None:
-        junit_path = request.test_output_junit
-        if not junit_path.is_absolute():
-            junit_path = REPO_ROOT / junit_path
-        junit_path.parent.mkdir(parents=True, exist_ok=True)
+    if junit_path is not None:
         command.extend(["--output-junit", str(junit_path)])
-    with output.stage("Test all"):
+    return command
+
+
+def _run_all_native_test_phase(
+    context: BuildContext,
+    output: BuildOutput,
+    *,
+    stage_name: str,
+    direct_phase: bool,
+    junit_path: Path | None,
+) -> None:
+    request = context.request
+    command = _all_native_tests_command(
+        context,
+        direct_phase=direct_phase,
+        junit_path=junit_path,
+    )
+    with output.stage(stage_name):
         run_command(
             command,
             environment=context.environment or os.environ,
@@ -119,6 +159,27 @@ def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
             colorize_test_output=True,
             show_heartbeat=request.agent,
         )
+
+
+def run_all_native_tests(context: BuildContext, output: BuildOutput) -> None:
+    request = context.request
+    junit_path = _resolved_junit_path(request.test_output_junit)
+    _run_all_native_test_phase(
+        context,
+        output,
+        stage_name="Test all cases",
+        direct_phase=False,
+        junit_path=junit_path,
+    )
+    if not request.test_include_direct:
+        return
+    _run_all_native_test_phase(
+        context,
+        output,
+        stage_name="Test all direct lifecycles",
+        direct_phase=True,
+        junit_path=_direct_junit_path(junit_path) if junit_path is not None else None,
+    )
 
 
 def run_application(context: BuildContext, output: BuildOutput) -> None:

@@ -2,6 +2,8 @@
 
 include_guard(GLOBAL)
 
+include("${CMAKE_CURRENT_LIST_DIR}/TargetDependencyClosure.cmake")
+
 function(durin_module_log project_name module_name)
 	message(STATUS "[${project_name}] Module: ${module_name}")
 endfunction()
@@ -38,43 +40,25 @@ endfunction()
 
 # Rejects forbidden libraries anywhere in a target's concrete link dependency closure.
 function(durin_assert_target_dependency_closure_excludes target_name)
-	if(NOT TARGET ${target_name})
-		message(FATAL_ERROR "Cannot inspect missing target ${target_name}.")
-	endif()
-
 	set(_durin_forbidden_dependencies ${ARGN})
-	set(_durin_dependency_queue ${target_name})
-	set(_durin_visited_dependencies)
-	while(_durin_dependency_queue)
-		list(POP_FRONT _durin_dependency_queue _durin_dependency)
-		if(_durin_dependency IN_LIST _durin_visited_dependencies)
-			continue()
-		endif()
-		list(APPEND _durin_visited_dependencies ${_durin_dependency})
+	durin_collect_target_dependency_closure(
+		_durin_dependency_closure
+		"${target_name}"
+	)
 
-		get_target_property(_durin_aliased_dependency ${_durin_dependency} ALIASED_TARGET)
-		if(_durin_aliased_dependency)
-			set(_durin_dependency ${_durin_aliased_dependency})
+	foreach(_durin_forbidden_dependency IN LISTS _durin_forbidden_dependencies)
+		if(TARGET "${_durin_forbidden_dependency}")
+			durin_normalize_target_alias(
+				_durin_forbidden_dependency
+				"${_durin_forbidden_dependency}"
+			)
 		endif()
-		get_target_property(_durin_private_links ${_durin_dependency} LINK_LIBRARIES)
-		get_target_property(_durin_public_links ${_durin_dependency} INTERFACE_LINK_LIBRARIES)
-		foreach(_durin_link IN LISTS _durin_private_links _durin_public_links)
-			if(_durin_link MATCHES "^\\$<LINK_ONLY:([^>]+)>$")
-				set(_durin_link "${CMAKE_MATCH_1}")
-			elseif(_durin_link MATCHES "^\\$<TARGET_NAME_IF_EXISTS:([^>]+)>$")
-				set(_durin_link "${CMAKE_MATCH_1}")
-			elseif(_durin_link MATCHES "^\\$<")
-				continue()
-			endif()
-			if(_durin_link IN_LIST _durin_forbidden_dependencies)
-				message(FATAL_ERROR
-					"Runtime target ${target_name} dependency closure includes forbidden dependency ${_durin_link}.")
-			endif()
-			if(TARGET ${_durin_link})
-				list(APPEND _durin_dependency_queue ${_durin_link})
-			endif()
-		endforeach()
-	endwhile()
+		if(_durin_forbidden_dependency IN_LIST _durin_dependency_closure)
+			message(FATAL_ERROR
+				"Runtime target ${target_name} dependency closure includes "
+				"forbidden dependency ${_durin_forbidden_dependency}.")
+		endif()
+	endforeach()
 endfunction()
 
 function(add_durin_module module_name)
@@ -331,6 +315,9 @@ function(durin_add_native_test_aggregate_target target_name)
 		add_dependencies(${target_name} ${_durin_native_test_targets})
 	endif()
 	set_target_properties(${target_name} PROPERTIES FOLDER "Tests")
+	if(DEFINED ENV{DURIN_NATIVE_TEST_RUNTIME_CLOSURE_AUDIT})
+		durin_report_target_dependency_expression_audit()
+	endif()
 endfunction()
 
 function(durin_validate_native_test_source_ownership native_test_root)
@@ -471,6 +458,12 @@ function(durin_validate_native_test_repository_policy native_test_root)
 				"${_durin_cmake_file} registers GoogleTest cases directly. "
 				"Use durin_discover_tests so isolation and resource policy apply.")
 		endif()
+		if(_durin_cmake_content MATCHES
+			"add_custom_command[ \\t\\r\\n]*\\([^)]*TARGET[^)]*POST_BUILD[^)]*(copy|copy_if_different)")
+			message(FATAL_ERROR
+				"${_durin_cmake_file} adds a target-owned POST_BUILD runtime copy. "
+				"Use the shared native-test runtime deployment helpers.")
+		endif()
 	endforeach()
 endfunction()
 
@@ -570,6 +563,11 @@ function(durin_discover_tests target_name)
 		message(FATAL_ERROR
 			"${target_name} must be created with add_durin_test before discovery.")
 	endif()
+
+	# Discovery is the first point at which the test's link declarations are
+	# complete. Register its complete deployable runtime closure before
+	# GoogleTest adds the post-link discovery command.
+	durin_test_register_runtime_dependency_closure("${target_name}")
 
 	get_target_property(_durin_case_parallel_safe
 		${target_name} DURIN_TEST_CASE_PARALLEL_SAFE)

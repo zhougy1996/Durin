@@ -7,8 +7,6 @@ target_link_libraries(RHICommandListTests PRIVATE
 	Core
 	RHI
 )
-durin_test_deploy_target_binary(RHICommandListTests Core)
-durin_test_deploy_target_binary(RHICommandListTests RHI)
 set_target_properties(RHICommandListTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
@@ -21,8 +19,6 @@ target_link_libraries(RHIThreadTests PRIVATE
 	Core
 	RHI
 )
-durin_test_deploy_target_binary(RHIThreadTests Core)
-durin_test_deploy_target_binary(RHIThreadTests RHI)
 set_target_properties(RHIThreadTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )
@@ -35,8 +31,6 @@ target_link_libraries(RHIInitializationTests PRIVATE
 	Core
 	RHI
 )
-durin_test_deploy_target_binary(RHIInitializationTests Core)
-durin_test_deploy_target_binary(RHIInitializationTests RHI)
 set_target_properties(RHIInitializationTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 )

@@ -22,7 +22,6 @@ foreach(_durin_isolation_target IN ITEMS
 	NativeTestIsolationCharacterizationTests
 )
 	target_link_libraries(${_durin_isolation_target} PRIVATE Core)
-	durin_test_deploy_target_binary(${_durin_isolation_target} Core)
 	set_target_properties(${_durin_isolation_target} PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 	)

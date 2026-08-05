@@ -2,6 +2,7 @@
 
 include_guard(GLOBAL)
 
+include("${CMAKE_CURRENT_LIST_DIR}/Project/TargetDependencyClosure.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/Project/ProjectOutputs.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/Project/SharedPCH.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/Project/ProjectTargets.cmake")

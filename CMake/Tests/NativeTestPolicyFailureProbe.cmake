@@ -41,6 +41,10 @@ elseif(DURIN_POLICY_PROBE MATCHES "^repository-")
 	elseif(DURIN_POLICY_PROBE STREQUAL "repository-direct-discovery")
 		file(WRITE "${DURIN_PROBE_ROOT}/Probe/CMakeLists.txt"
 			"gtest_discover_tests(ProbeTests)\n")
+	elseif(DURIN_POLICY_PROBE STREQUAL "repository-post-build-runtime-copy")
+		file(WRITE "${DURIN_PROBE_ROOT}/Probe/CMakeLists.txt"
+			"add_custom_command(TARGET ProbeTests POST_BUILD\n"
+			"  COMMAND \\${CMAKE_COMMAND} -E copy_if_different source.dll destination.dll)\n")
 	else()
 		message(FATAL_ERROR "Unknown repository policy probe.")
 	endif()
