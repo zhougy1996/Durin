@@ -399,6 +399,13 @@ namespace Durin::Asset
 				auto* StructProperty = static_cast<FStructProperty*>(Property);
 				DStruct* Struct = StructProperty->GetStruct();
 				if (!Struct) return Error(EAssetError::UnsupportedProperty, "Struct property has no reflected type.");
+				if (!Struct->HasCompleteAuthoredFields())
+					return Error(
+						EAssetError::UnsupportedProperty,
+						std::format(
+							"CustomStructCodecRequired: '{}' does not declare a complete authored "
+							"field representation.",
+							Struct->GetQualifiedName().ToString()));
 				Writer.WriteString(Struct->GetQualifiedName().ToString());
 				std::vector<FProperty*> Fields;
 				Struct->ForEachProperty([&](FProperty* Field) {
@@ -463,7 +470,8 @@ namespace Durin::Asset
 			FByteReader& Reader,
 			const std::vector<DObject*>& Objects,
 			std::vector<FAssetLegacyField>* OutLegacyFields = nullptr,
-			std::string_view PackagePath = {}) -> FAssetResult
+			std::string_view PackagePath = {},
+			uint32 SourceVersion = AssetVersion) -> FAssetResult
 		{
 			switch (Property->GetKind())
 			{
@@ -531,11 +539,32 @@ namespace Durin::Asset
 			{
 				auto* StructProperty = static_cast<FStructProperty*>(Property);
 				DStruct* Struct = StructProperty->GetStruct();
+				if (!Struct)
+					return Error(EAssetError::UnsupportedProperty, "Struct property has no reflected type.");
+				if (!Struct->HasCompleteAuthoredFields())
+					return Error(
+						EAssetError::UnsupportedProperty,
+						std::format(
+							"CustomStructCodecRequired: '{}' does not declare a complete authored "
+							"field representation.",
+							Struct->GetQualifiedName().ToString()));
+				if (!Struct->CanDefaultConstruct() || !Struct->CanDestroy()
+					|| !Struct->CanCopyAssign())
+					return Error(
+						EAssetError::UnsupportedProperty,
+						std::format(
+							"DStructOperationUnavailable: authored loading requires "
+							"DefaultConstruct, Destroy, and CopyAssign for '{}'.",
+							Struct->GetQualifiedName().ToString()));
+				std::string StorageError;
+				FReflectedValueStorage Storage;
+				if (!Storage.DefaultConstruct(Property, 0, &StorageError))
+					return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
 				std::string StructName;
 				uint64 FieldCount = 0;
-				if (!Struct || !Reader.ReadString(StructName) || StructName != Struct->GetQualifiedName().ToString() || !Reader.Read(FieldCount) || FieldCount > 100000)
+				if (!Reader.ReadString(StructName) || StructName != Struct->GetQualifiedName().ToString() || !Reader.Read(FieldCount) || FieldCount > 100000)
 					return Error(EAssetError::CorruptFile, "Invalid struct payload header.");
-				void* StructValue = Property->GetValuePtr(Container, ArrayIndex);
+				void* StructValue = Storage.GetValue();
 				for (uint64 Index = 0; Index < FieldCount; ++Index)
 				{
 					std::string DeclaringStruct, FieldName, Signature;
@@ -564,11 +593,31 @@ namespace Durin::Asset
 					{
 						FAssetResult Result = DeserializeValue(
 							Field, StructValue, FieldIndex, PayloadReader, Objects,
-							OutLegacyFields, PackagePath);
+							OutLegacyFields, PackagePath, SourceVersion);
 						if (!Result) return Result;
 					}
 					if (PayloadReader.Offset != Payload.size()) return Error(EAssetError::CorruptFile, "Struct field payload has trailing bytes.");
 				}
+				if (Struct->HasPostDeserialize())
+				{
+					std::string PostDeserializeError;
+					FDStructPostDeserializeContext Context{
+						.Source = EDStructDeserializeSource::AuthoredAsset,
+						.SourceVersion = SourceVersion,
+						.Error = &PostDeserializeError};
+					if (!Struct->GetOps().PostDeserialize(StructValue, Context))
+						return Error(
+							EAssetError::CorruptFile,
+							PostDeserializeError.empty()
+								? std::format(
+									"PostDeserializeRejected: '{}' rejected the authored value.",
+									Struct->GetQualifiedName().ToString())
+								: std::format(
+									"PostDeserializeRejected: {}", PostDeserializeError));
+				}
+				if (!Property->CopyAssignValue(
+					Property->GetValuePtr(Container, ArrayIndex), StructValue, &StorageError))
+					return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
 				return {};
 			}
 			case DurinCodeGen::EPropertyGenFlags::Array:
@@ -583,7 +632,7 @@ namespace Durin::Asset
 				{
 					FAssetResult Result = DeserializeValue(
 						Array->GetInner(), Array->GetMutableElementPtr(Container, Index, ArrayIndex),
-						0, Reader, Objects, OutLegacyFields, PackagePath);
+						0, Reader, Objects, OutLegacyFields, PackagePath, SourceVersion);
 					if (!Result) return Result;
 				}
 				return {};
@@ -612,9 +661,9 @@ namespace Durin::Asset
 							return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
 					}
 					FAssetResult Result = DeserializeValue(
-						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Reader, Objects, OutLegacyFields, PackagePath);
+						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Reader, Objects, OutLegacyFields, PackagePath, SourceVersion);
 					if (Result) Result = DeserializeValue(
-						Map->GetValueProp(), ValueStorage.GetContainer(), 0, Reader, Objects, OutLegacyFields, PackagePath);
+						Map->GetValueProp(), ValueStorage.GetContainer(), 0, Reader, Objects, OutLegacyFields, PackagePath, SourceVersion);
 					if (Result && !Map->Insert(
 						Container, KeyStorage.GetValue(), ValueStorage.GetValue(), ArrayIndex, &StorageError))
 						Result = Error(EAssetError::UnsupportedProperty, std::move(StorageError));
@@ -1332,43 +1381,18 @@ namespace Durin::Asset
 	auto FAssetPackageField::TryReadStruct(DStruct* Struct, void* OutValue) const -> bool
 	{
 		if (!Struct || !OutValue
+			|| Struct->PropertiesSize > std::numeric_limits<uint16>::max()
 			|| TypeSignature != std::format("Struct<{}>", Struct->GetQualifiedName().ToString()))
 			return false;
 
+		FStructProperty RootProperty(
+			FFieldVariant(), FName("InspectedStructValue"), EObjectFlags::NoFlags,
+			EPropertyFlags::None, 1, 0, static_cast<uint16>(Struct->PropertiesSize),
+			DurinCodeGen::EPropertyGenFlags::Struct, Struct);
 		FByteReader Reader{Payload};
-		std::string StructName;
-		uint64 FieldCount = 0;
-		if (!Reader.ReadString(StructName) || StructName != Struct->GetQualifiedName().ToString()
-			|| !Reader.Read(FieldCount) || FieldCount > 100000)
-			return false;
-
-		for (uint64 Index = 0; Index < FieldCount; ++Index)
-		{
-			std::string DeclaringStruct;
-			std::string FieldName;
-			std::string Signature;
-			uint8 Kind = 0;
-			uint64 PayloadSize = 0;
-			std::span<const uint8> FieldPayload;
-			if (!Reader.ReadString(DeclaringStruct) || !Reader.ReadString(FieldName)
-				|| !Reader.Read(Kind) || !Reader.ReadString(Signature)
-				|| !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size()
-				|| !Reader.ReadSpan(static_cast<size_t>(PayloadSize), FieldPayload))
-				return false;
-			if (DeclaringStruct != StructName) continue;
-
-			FProperty* Property = Struct->FindPropertyByName(FName(FieldName), false);
-			if (!Property || static_cast<uint8>(Property->GetKind()) != Kind
-				|| !IsSerializedTypeSignatureCompatible(Property, Signature))
-				continue;
-
-			FByteReader FieldReader{FieldPayload};
-			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
-				if (!DeserializeValue(Property, OutValue, ArrayIndex, FieldReader, {}))
-					return false;
-			if (FieldReader.Offset != FieldPayload.size()) return false;
-		}
-		return Reader.Offset == Payload.size();
+		return DeserializeValue(
+			&RootProperty, OutValue, 0, Reader, {}, nullptr, {}, AssetVersion)
+			&& Reader.Offset == Payload.size();
 	}
 
 	auto InspectAssetPackage(std::string_view PhysicalPath, FAssetPackageInspection& OutInspection) -> FAssetResult
@@ -2496,7 +2520,7 @@ namespace Durin::Asset
 				{
 					Result = DeserializeValue(
 						Property, Object, ArrayIndex, FieldReader, Objects,
-						&LegacyFields, Path.GetView());
+						&LegacyFields, Path.GetView(), File.FormatVersion);
 					if (!Result) { Rollback(); return Result; }
 				}
 				if (FieldReader.Offset != Field.Payload.size()) { Rollback(); return Error(EAssetError::CorruptFile, "Property payload has trailing bytes."); }

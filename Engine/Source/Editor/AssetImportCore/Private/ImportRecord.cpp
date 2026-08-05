@@ -334,13 +334,6 @@ namespace Durin::AssetImport
 	auto DImportRecord::PostLoad(std::string& OutError) -> bool
 	{
 		if (!DObject::PostLoad(OutError)) return false;
-		for (FImportRecordOutput& Output : Outputs)
-			if (!FAssetPath::TryCreate(Output.AssetPathText, Output.AssetPath, &OutError))
-				return false;
-		for (FImportRecordDetachedTombstone& Tombstone : DetachedTombstones)
-			if (!FAssetPath::TryCreate(
-				Tombstone.LastAssetPathText, Tombstone.LastAssetPath, &OutError))
-				return false;
 		if (!PrimaryOutputPathText.empty()
 			&& !FAssetPath::TryCreate(PrimaryOutputPathText, PrimaryOutput, &OutError))
 			return false;

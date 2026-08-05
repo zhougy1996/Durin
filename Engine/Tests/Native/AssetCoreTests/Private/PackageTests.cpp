@@ -4,6 +4,7 @@
 #include "AssetCompatibility.h"
 #include "AssetSystem.h"
 #include "CoreGlobals.h"
+#include "DObject/Archive.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/MathStructs.h"
@@ -14,7 +15,32 @@
 #include "Threading/RunnableThread.h"
 
 #include <chrono>
+#include <bit>
 #include <iostream>
+#include <limits>
+
+namespace AssetStructTest
+{
+	struct FCodecSource
+	{
+		Durin::int32 Value = 0;
+	};
+
+	struct FCodecTarget
+	{
+		Durin::int32 Value = 0;
+	};
+}
+
+namespace Durin
+{
+	template<>
+	struct TDStructOpsTraits<AssetStructTest::FCodecTarget>
+		: TDStructOpsTraitsBase<AssetStructTest::FCodecTarget>
+	{
+		static constexpr bool bHasCompleteAuthoredFields = false;
+	};
+}
 
 namespace
 {
@@ -32,6 +58,10 @@ namespace
 	};
 	const Durin::DurinCodeGen::FArrayPropertyHelper GGuidVectorHelper = {
 		&VectorNum<Durin::FGuid>, &VectorGet<Durin::FGuid>, &VectorGetMutable<Durin::FGuid>, &VectorResize<Durin::FGuid>
+	};
+	const Durin::DurinCodeGen::FArrayPropertyHelper GVector3VectorHelper = {
+		&VectorNum<Durin::FVector3>, &VectorGet<Durin::FVector3>,
+		&VectorGetMutable<Durin::FVector3>, &VectorResize<Durin::FVector3>
 	};
 
 	using FScoreMap = std::unordered_map<std::string, Durin::int32>;
@@ -82,6 +112,56 @@ namespace
 	const Durin::DurinCodeGen::FMapPropertyHelper GScoreMapHelper = {
 		&MapNum, &MapKey, &MapValue, &MapMutableValue, &MapClear, &CreateString, &CopyString, &DestroyString,
 		&CreateInt, &DestroyInt, &MapInsert, &MapContains, &MapRenameKey, &MapRemove
+	};
+
+	using FVectorMap = std::unordered_map<std::string, Durin::FVector3>;
+	auto VectorMapNum(const void* Container) -> Durin::uint64 { return static_cast<const FVectorMap*>(Container)->size(); }
+	auto VectorMapKey(const void* Container, Durin::uint64 Index) -> const void*
+	{
+		auto It = static_cast<const FVectorMap*>(Container)->begin(); std::advance(It, Index); return &It->first;
+	}
+	auto VectorMapValue(const void* Container, Durin::uint64 Index) -> const void*
+	{
+		auto It = static_cast<const FVectorMap*>(Container)->begin(); std::advance(It, Index); return &It->second;
+	}
+	auto VectorMapMutableValue(void* Container, Durin::uint64 Index) -> void*
+	{
+		auto It = static_cast<FVectorMap*>(Container)->begin(); std::advance(It, Index); return &It->second;
+	}
+	auto VectorMapClear(void* Container) -> void { static_cast<FVectorMap*>(Container)->clear(); }
+	auto CreateVector3() -> void* { return new Durin::FVector3(0.0); }
+	auto DestroyVector3(void* Value) -> void { delete static_cast<Durin::FVector3*>(Value); }
+	auto VectorMapInsert(void* Container, const void* Key, const void* Value) -> bool
+	{
+		static_cast<FVectorMap*>(Container)->insert_or_assign(
+			*static_cast<const std::string*>(Key), *static_cast<const Durin::FVector3*>(Value));
+		return true;
+	}
+	auto VectorMapContains(const void* Container, const void* Key) -> bool
+	{
+		return static_cast<const FVectorMap*>(Container)->contains(*static_cast<const std::string*>(Key));
+	}
+	auto VectorMapRenameKey(void* Container, const void* OldKey, const void* NewKey) -> bool
+	{
+		auto* Map = static_cast<FVectorMap*>(Container);
+		const std::string OldKeyCopy = *static_cast<const std::string*>(OldKey);
+		const std::string NewKeyCopy = *static_cast<const std::string*>(NewKey);
+		if (OldKeyCopy == NewKeyCopy || Map->contains(NewKeyCopy)) return false;
+		auto Node = Map->extract(OldKeyCopy);
+		if (Node.empty()) return false;
+		Node.key() = NewKeyCopy;
+		Map->insert(std::move(Node));
+		return true;
+	}
+	auto VectorMapRemove(void* Container, const void* Key) -> bool
+	{
+		return static_cast<FVectorMap*>(Container)->erase(*static_cast<const std::string*>(Key)) != 0;
+	}
+	const Durin::DurinCodeGen::FMapPropertyHelper GVectorMapHelper = {
+		&VectorMapNum, &VectorMapKey, &VectorMapValue, &VectorMapMutableValue,
+		&VectorMapClear, &CreateString, &CopyString, &DestroyString,
+		&CreateVector3, &DestroyVector3, &VectorMapInsert, &VectorMapContains,
+		&VectorMapRenameKey, &VectorMapRemove
 	};
 	bool GReportNonUpgradeMutationOnPostLoad = false;
 
@@ -161,6 +241,200 @@ namespace
 		Durin::TObjectPtr<Durin::DObject> ExternalReference;
 	};
 
+	auto GetCodecSourceStructNoRegister() -> Durin::DStruct*
+	{
+		static Durin::DStruct* Struct = new Durin::DStruct(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FCodecSource"),
+			Durin::FName("FCodecSource"), sizeof(AssetStructTest::FCodecSource),
+			alignof(AssetStructTest::FCodecSource), Durin::EObjectFlags::Transient);
+		return Struct;
+	}
+
+	auto GetCodecSourceStruct() -> Durin::DStruct*
+	{
+		static const Durin::DurinCodeGen::FInt32PropertyParams Value = {
+			"Value", Durin::EPropertyFlags::None, 1,
+			static_cast<Durin::uint16>(offsetof(AssetStructTest::FCodecSource, Value)),
+			sizeof(Durin::int32), Durin::DurinCodeGen::EPropertyGenFlags::Int32};
+		static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&Value};
+		static const Durin::DurinCodeGen::FStructParams Params = {
+			&GetCodecSourceStructNoRegister, "Tests::FCodecSource", "FCodecSource",
+			sizeof(AssetStructTest::FCodecSource), alignof(AssetStructTest::FCodecSource),
+			Properties, std::size(Properties),
+			&Durin::GetDStructOps<AssetStructTest::FCodecSource>()};
+		return Durin::DurinCodeGen::ConstructDStruct(Params);
+	}
+
+	auto GetCodecTargetStructNoRegister() -> Durin::DStruct*
+	{
+		static Durin::DStruct* Struct = new Durin::DStruct(
+			Durin::EC_StaticConstructor, Durin::FName("Tests::FCodecTarget"),
+			Durin::FName("FCodecTarget"), sizeof(AssetStructTest::FCodecTarget),
+			alignof(AssetStructTest::FCodecTarget), Durin::EObjectFlags::Transient);
+		return Struct;
+	}
+
+	auto GetCodecTargetStruct() -> Durin::DStruct*
+	{
+		static const Durin::DurinCodeGen::FInt32PropertyParams Value = {
+			"Value", Durin::EPropertyFlags::None, 1,
+			static_cast<Durin::uint16>(offsetof(AssetStructTest::FCodecTarget, Value)),
+			sizeof(Durin::int32), Durin::DurinCodeGen::EPropertyGenFlags::Int32};
+		static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {&Value};
+		static const Durin::DurinCodeGen::FStructParams Params = {
+			&GetCodecTargetStructNoRegister, "Tests::FCodecTarget", "FCodecTarget",
+			sizeof(AssetStructTest::FCodecTarget), alignof(AssetStructTest::FCodecTarget),
+			Properties, std::size(Properties),
+			&Durin::GetDStructOps<AssetStructTest::FCodecTarget>()};
+		return Durin::DurinCodeGen::ConstructDStruct(Params);
+	}
+
+	template<typename TValue>
+	class TCodecAssetForTest : public Durin::DObject
+	{
+	public:
+		explicit TCodecAssetForTest(
+			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DObject(Initializer) {}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) TCodecAssetForTest(X);
+		}
+
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			constexpr bool bSource = std::is_same_v<TValue, AssetStructTest::FCodecSource>;
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor,
+					bSource ? "DCodecSourceAsset" : "DCodecTargetAsset",
+					sizeof(TCodecAssetForTest), alignof(TCodecAssetForTest),
+					Durin::EObjectFlags::NoFlags, Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)
+						Durin::InternalConstructor<TCodecAssetForTest>);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(
+					Durin::DClass::StaticClass, "",
+					bSource ? "DCodecSourceAsset" : "DCodecTargetAsset");
+			}
+			return Class;
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			constexpr bool bSource = std::is_same_v<TValue, AssetStructTest::FCodecSource>;
+			static const Durin::DurinCodeGen::FStructPropertyParams ValueProp = {
+				"Value", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(TCodecAssetForTest, Value)),
+				sizeof(Value), Durin::DurinCodeGen::EPropertyGenFlags::Struct,
+				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr,
+				bSource ? &GetCodecSourceStruct : &GetCodecTargetStruct};
+			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
+				&ValueProp};
+			static const Durin::DurinCodeGen::FClassParams Params = {
+				&StaticClassNoRegister,
+				bSource ? "Tests::DCodecSourceAsset" : "Tests::DCodecTargetAsset",
+				bSource ? "DCodecSourceAsset" : "DCodecTargetAsset",
+				Properties, std::size(Properties)};
+			static Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(Params);
+			return Class;
+		}
+
+		TValue Value;
+	};
+
+	using DCodecSourceAsset = TCodecAssetForTest<AssetStructTest::FCodecSource>;
+	using DCodecTargetAsset = TCodecAssetForTest<AssetStructTest::FCodecTarget>;
+
+	class DMathStructAssetForTest : public Durin::DObject
+	{
+	public:
+		explicit DMathStructAssetForTest(
+			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DObject(Initializer) {}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DMathStructAssetForTest(X);
+		}
+
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor, "DMathStructAssetForTest",
+					sizeof(DMathStructAssetForTest), alignof(DMathStructAssetForTest),
+					Durin::EObjectFlags::NoFlags, Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)
+						Durin::InternalConstructor<DMathStructAssetForTest>);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(
+					Durin::DClass::StaticClass, "", "DMathStructAssetForTest");
+			}
+			return Class;
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			static const Durin::DurinCodeGen::FStructPropertyParams VectorProp = {
+				"Vector", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, Vector)),
+				sizeof(Vector), Durin::DurinCodeGen::EPropertyGenFlags::Struct,
+				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr,
+				&Durin::Z_Construct_DStruct_Durin_FVector3};
+			static const Durin::DurinCodeGen::FStructPropertyParams TransformProp = {
+				"Transform", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, Transform)),
+				sizeof(Transform), Durin::DurinCodeGen::EPropertyGenFlags::Struct,
+				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr,
+				&Durin::Z_Construct_DStruct_Durin_FTransform};
+			static const Durin::DurinCodeGen::FStructPropertyParams VectorInner = {
+				"Vectors_Inner", Durin::EPropertyFlags::None, 1, 0,
+				sizeof(Durin::FVector3), Durin::DurinCodeGen::EPropertyGenFlags::Struct,
+				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr,
+				&Durin::Z_Construct_DStruct_Durin_FVector3};
+			static const Durin::DurinCodeGen::FArrayPropertyParams VectorsProp = {
+				"Vectors", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, Vectors)),
+				sizeof(Vectors), Durin::DurinCodeGen::EPropertyGenFlags::Array,
+				nullptr, nullptr, &VectorInner, nullptr, nullptr, false,
+				&GVector3VectorHelper};
+			static const Durin::DurinCodeGen::FStringPropertyParams VectorMapKey = {
+				"VectorMap_Key", Durin::EPropertyFlags::None, 1, 0, sizeof(std::string),
+				Durin::DurinCodeGen::EPropertyGenFlags::String};
+			static const Durin::DurinCodeGen::FStructPropertyParams VectorMapValue = {
+				"VectorMap_Value", Durin::EPropertyFlags::None, 1, 0,
+				sizeof(Durin::FVector3), Durin::DurinCodeGen::EPropertyGenFlags::Struct,
+				nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, nullptr,
+				&Durin::Z_Construct_DStruct_Durin_FVector3};
+			static const Durin::DurinCodeGen::FMapPropertyParams VectorMapProp = {
+				"VectorMap", Durin::EPropertyFlags::None, 1,
+				static_cast<Durin::uint16>(offsetof(DMathStructAssetForTest, VectorMap)),
+				sizeof(VectorMap), Durin::DurinCodeGen::EPropertyGenFlags::Map,
+				nullptr, nullptr, nullptr, &VectorMapKey, &VectorMapValue, false,
+				nullptr, &GVectorMapHelper};
+			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
+				&VectorProp, &TransformProp, &VectorsProp, &VectorMapProp};
+			static const Durin::DurinCodeGen::FClassParams Params = {
+				&StaticClassNoRegister, "Tests::DMathStructAssetForTest",
+				"DMathStructAssetForTest", Properties, std::size(Properties)};
+			static Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(Params);
+			return Class;
+		}
+
+		Durin::FVector3 Vector{0.0};
+		Durin::FTransform Transform;
+		std::vector<Durin::FVector3> Vectors;
+		FVectorMap VectorMap;
+	};
+
 	auto RegisterTestDeleteContributor() -> void
 	{
 		static const bool Registered = [] {
@@ -186,6 +460,9 @@ namespace
 			Durin::FNameInit();
 			Durin::DObjectInit();
 			(void)DPackageAssetForTest::StaticClass();
+			(void)DCodecSourceAsset::StaticClass();
+			(void)DCodecTargetAsset::StaticClass();
+			(void)DMathStructAssetForTest::StaticClass();
 			const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "Assets";
 			Durin::Testing::RemoveTestWorkDirectory(Root);
 			Durin::FPaths::SetDerivedDataCacheDirForTests(
@@ -406,6 +683,127 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	EXPECT_EQ(Durin::Asset::FAssetManager::Get().FindLoadedPackage(Path), Loaded->GetPackage());
 
 	EXPECT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(Path));
+}
+
+TEST(FPackageAssetTests, PreservesMathStructBitsAcrossDastV2AndObjectGraphs)
+{
+	InitializeAssetTests();
+	const double PayloadNaN = std::bit_cast<double>(Durin::uint64{0x7ff8000000000042ull});
+	const double PositiveInfinity = std::numeric_limits<double>::infinity();
+	const double NegativeInfinity = -std::numeric_limits<double>::infinity();
+	auto ExpectVectorBits = [](const Durin::FVector3& Actual, const Durin::FVector3& Expected) {
+		EXPECT_EQ(std::bit_cast<Durin::uint64>(Actual.x), std::bit_cast<Durin::uint64>(Expected.x));
+		EXPECT_EQ(std::bit_cast<Durin::uint64>(Actual.y), std::bit_cast<Durin::uint64>(Expected.y));
+		EXPECT_EQ(std::bit_cast<Durin::uint64>(Actual.z), std::bit_cast<Durin::uint64>(Expected.z));
+	};
+	auto Populate = [&](DMathStructAssetForTest& Asset) {
+		Asset.Vector = Durin::FVector3(0.0, -0.0, PositiveInfinity);
+		Asset.Transform.Translation = Durin::FVector3(PayloadNaN, NegativeInfinity, -0.0);
+		Asset.Transform.Scale3D = Durin::FVector3(1.0, 0.0, PositiveInfinity);
+		Asset.Vectors = {
+			Durin::FVector3(0.0),
+			Durin::FVector3(PayloadNaN, -0.0, NegativeInfinity)};
+		Asset.VectorMap = {
+			{"zero", Durin::FVector3(0.0, -0.0, 0.0)},
+			{"special", Durin::FVector3(PositiveInfinity, PayloadNaN, NegativeInfinity)}};
+	};
+	auto ExpectValues = [&](const DMathStructAssetForTest& Asset) {
+		ExpectVectorBits(Asset.Vector, Durin::FVector3(0.0, -0.0, PositiveInfinity));
+		ExpectVectorBits(
+			Asset.Transform.Translation,
+			Durin::FVector3(PayloadNaN, NegativeInfinity, -0.0));
+		ExpectVectorBits(
+			Asset.Transform.Scale3D,
+			Durin::FVector3(1.0, 0.0, PositiveInfinity));
+		ASSERT_EQ(Asset.Vectors.size(), 2u);
+		ExpectVectorBits(Asset.Vectors[0], Durin::FVector3(0.0));
+		ExpectVectorBits(
+			Asset.Vectors[1], Durin::FVector3(PayloadNaN, -0.0, NegativeInfinity));
+		ASSERT_EQ(Asset.VectorMap.size(), 2u);
+		ExpectVectorBits(Asset.VectorMap.at("zero"), Durin::FVector3(0.0, -0.0, 0.0));
+		ExpectVectorBits(
+			Asset.VectorMap.at("special"),
+			Durin::FVector3(PositiveInfinity, PayloadNaN, NegativeInfinity));
+	};
+
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/MathStructBits", Path));
+	DMathStructAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	Populate(*Asset);
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	const auto MathFile = Durin::Testing::GetTestWorkDirectory()
+		/ "Assets" / "MathStructBits.dasset";
+	Durin::Asset::FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(MathFile.generic_string(), Inspection));
+	ASSERT_FALSE(Inspection.Objects.empty());
+	const Durin::Asset::FAssetPackageField* VectorField =
+		Inspection.Objects.front().FindField("Vector");
+	ASSERT_NE(VectorField, nullptr);
+	Durin::FVector3 InspectedVector(9.0);
+	ASSERT_TRUE(VectorField->TryReadStruct(
+		Durin::Z_Construct_DStruct_Durin_FVector3(), &InspectedVector));
+	ExpectVectorBits(InspectedVector, Durin::FVector3(0.0, -0.0, PositiveInfinity));
+	DMathStructAssetForTest* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	ExpectValues(*Loaded);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+
+	DMathStructAssetForTest* GraphSource =
+		Durin::NewObject<DMathStructAssetForTest>(nullptr, "MathStructGraphSource");
+	Populate(*GraphSource);
+	std::vector<Durin::uint8> GraphBytes;
+	ASSERT_TRUE(Durin::SaveObjectGraphToMemory(GraphSource, GraphBytes));
+	auto* GraphLoaded = Durin::Cast<DMathStructAssetForTest>(
+		Durin::LoadObjectGraphFromMemory(GraphBytes));
+	ASSERT_NE(GraphLoaded, nullptr);
+	ExpectValues(*GraphLoaded);
+	GraphBytes.pop_back();
+	EXPECT_EQ(Durin::LoadObjectGraphFromMemory(GraphBytes), nullptr);
+}
+
+TEST(FPackageAssetTests, RequiresExplicitCodecForIncompleteAuthoredStructs)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath SavePath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/CodecSaveDenied", SavePath));
+	DCodecTargetAsset* SaveTarget = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(SavePath, SaveTarget));
+	SaveTarget->Value.Value = 17;
+	const Durin::Asset::FAssetResult SaveResult =
+		Durin::Asset::SavePackage(SaveTarget->GetPackage());
+	EXPECT_EQ(SaveResult.Error, Durin::Asset::EAssetError::UnsupportedProperty);
+	EXPECT_NE(SaveResult.Message.find("CustomStructCodecRequired"), std::string::npos);
+	ASSERT_TRUE(Durin::Asset::DiscardUnpublishedPackage(SaveTarget->GetPackage()));
+
+	Durin::FAssetPath LoadPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/CodecLoadDenied", LoadPath));
+	DCodecSourceAsset* Source = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(LoadPath, Source));
+	Source->Value.Value = 31;
+	ASSERT_TRUE(Durin::Asset::SavePackage(Source->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(LoadPath));
+
+	const auto File = Durin::Testing::GetTestWorkDirectory()
+		/ "Assets" / "CodecLoadDenied.dasset";
+	std::vector<Durin::uint8> Bytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File.generic_string()));
+	ASSERT_EQ(RenameAllSerializedStrings(
+		Bytes, "Tests::DCodecSourceAsset", "Tests::DCodecTargetAsset"), 3u);
+	ASSERT_TRUE(RenameSerializedString(
+		Bytes, "Struct<Tests::FCodecSource>", "Struct<Tests::FCodecTarget>"));
+	ASSERT_EQ(RenameAllSerializedStrings(
+		Bytes, "Tests::FCodecSource", "Tests::FCodecTarget"), 2u);
+	WriteTestBytes(File, Bytes);
+
+	DCodecTargetAsset* LoadTarget = nullptr;
+	const Durin::Asset::FAssetResult LoadResult =
+		Durin::Asset::LoadAsset(LoadPath, LoadTarget);
+	EXPECT_EQ(LoadResult.Error, Durin::Asset::EAssetError::UnsupportedProperty);
+	EXPECT_NE(LoadResult.Message.find("CustomStructCodecRequired"), std::string::npos);
+	EXPECT_EQ(LoadTarget, nullptr);
 }
 
 TEST(FPackageAssetTests, WriterUsesVersionedWireSignaturesForLogicalEncodings)

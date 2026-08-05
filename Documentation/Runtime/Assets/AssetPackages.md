@@ -135,6 +135,26 @@ Struct payloads contain a qualified-name field table. Missing fields retain
 constructor defaults and unknown names are skipped, but a serialized field
 whose name matches the current struct with a different kind or recursive type
 signature fails loading with `TypeMismatch`; it is never reinterpreted.
+Authored struct persistence is allowed only when its immutable `FDStructOps`
+table advertises `AuthoredFieldsComplete`. Otherwise save, package load, and
+typed inspection fail closed: save/load report `CustomStructCodecRequired`, and
+the boolean inspection API returns false. AssetCore never silently omits
+durable unreflected state. Runtime Archive `Serialize` callbacks
+do not affect DAST: authored packages always retain the tagged reflected-field
+representation so compatibility inspection remains possible. No current
+production struct requires an authored custom codec.
+
+AssetCore decodes each struct into default-constructed managed temporary
+storage and requires copy assignment before reading the payload. After every
+known nested field has loaded successfully, an optional `PostDeserialize`
+callback receives `AuthoredAsset` plus the DAST format version. Only successful
+repair commits the temporary value to the live destination. A callback
+rejection reports `PostDeserializeRejected`; malformed fields, unavailable
+operations, or rejected invariants leave the previous struct valid and
+unchanged. This same transaction applies to `FAssetPackageField::TryReadStruct`.
+Import-record output and detached-tombstone structs use this hook to rebuild
+their parsed `FAssetPath` caches from authored path text.
+
 String, Name, and Guid payloads use explicit logical encodings, so their current
 signatures carry an encoding version rather than `ElementSize`. The reader also
 accepts their v2-era `<kind>:<ABI-size>` signatures, including recursively in

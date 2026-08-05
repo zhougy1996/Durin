@@ -70,6 +70,12 @@ namespace StructConsumerTest
 	{
 		Durin::TObjectPtr<Durin::DObject> Hidden;
 	};
+
+	struct FCustomArchiveValue
+	{
+		Durin::int32 Value = 0;
+		Durin::int32 Derived = 0;
+	};
 }
 
 namespace Durin
@@ -100,6 +106,37 @@ namespace Durin
 			++CollectCount;
 			DObject* Object = Value.Hidden.Get();
 			Collector.AddReferencedObject(Object);
+		}
+	};
+
+	template<>
+	struct TDStructOpsTraits<StructConsumerTest::FCustomArchiveValue>
+		: TDStructOpsTraitsBase<StructConsumerTest::FCustomArchiveValue>
+	{
+		static inline int SerializeCount = 0;
+		static inline int PostDeserializeCount = 0;
+		static inline EDStructDeserializeSource LastSource =
+			EDStructDeserializeSource::AuthoredAsset;
+		static constexpr bool bWithSerializer = true;
+		static constexpr bool bWithPostDeserialize = true;
+
+		static auto Serialize(
+			FArchive& Archive,
+			StructConsumerTest::FCustomArchiveValue& Value) -> void
+		{
+			++SerializeCount;
+			Archive << Value.Value;
+		}
+
+		static auto PostDeserialize(
+			StructConsumerTest::FCustomArchiveValue& Value,
+			FDStructPostDeserializeContext& Context) -> bool
+		{
+			++PostDeserializeCount;
+			LastSource = Context.Source;
+			if (Value.Value < 0) return Context.Fail("Custom archive value must be non-negative.");
+			Value.Derived = Value.Value * 2;
+			return true;
 		}
 	};
 }
@@ -312,6 +349,7 @@ namespace
 			Durin::EC_StaticConstructor, Durin::FName("Tests::FNestedGuid"), Durin::FName("FNestedGuid"),
 			sizeof(FNestedGuid), alignof(FNestedGuid), Durin::EObjectFlags::Transient
 		);
+		NestedStruct.InitializeOps(&Durin::GetDStructOps<FNestedGuid>());
 		Durin::FGuidProperty NestedValueProperty(
 			Durin::FFieldVariant(&NestedStruct), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FNestedGuid, Value)),
@@ -607,5 +645,71 @@ namespace
 		Snapshot = {};
 		Durin::CollectGarbage();
 		EXPECT_FALSE(ContainsObject(Referenced));
+	}
+
+	TEST(FReflectedStructConsumerTests, ArchiveStructDispatchIsTransactionalAndSticky)
+	{
+		using FValue = StructConsumerTest::FCustomArchiveValue;
+		using FTraits = Durin::TDStructOpsTraits<FValue>;
+		Durin::DStruct Struct(
+			Durin::EC_StaticConstructor,
+			Durin::FName("Tests::FCustomArchiveValue"),
+			Durin::FName("FCustomArchiveValue"),
+			sizeof(FValue), alignof(FValue), Durin::EObjectFlags::Transient);
+		Struct.InitializeOps(&Durin::GetDStructOps<FValue>());
+		Durin::FNumericProperty ReflectedValue(
+			Durin::FFieldVariant(&Struct), Durin::FName("Value"),
+			Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1,
+			static_cast<Durin::uint16>(offsetof(FValue, Value)), sizeof(Durin::int32),
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+		Struct.ChildProperties = &ReflectedValue;
+		Durin::FStructProperty Property(
+			Durin::FFieldVariant(), Durin::FName("Custom"),
+			Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1, 0,
+			sizeof(FValue), Durin::DurinCodeGen::EPropertyGenFlags::Struct, &Struct);
+
+		FTraits::SerializeCount = 0;
+		FTraits::PostDeserializeCount = 0;
+		FValue Source{21, 999};
+		std::vector<Durin::uint8> Bytes;
+		Durin::FMemoryWriter Writer(Bytes);
+		Durin::SerializeReflectedPropertyValue(Writer, &Property, &Source);
+		ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
+		EXPECT_EQ(FTraits::SerializeCount, 1);
+		ASSERT_EQ(Bytes.size(), sizeof(Durin::int32));
+
+		FValue Destination{7, 14};
+		Durin::FMemoryReader Reader(Bytes);
+		Durin::SerializeReflectedPropertyValue(Reader, &Property, &Destination);
+		ASSERT_FALSE(Reader.HasError()) << Reader.GetError();
+		EXPECT_EQ(FTraits::SerializeCount, 2);
+		EXPECT_EQ(FTraits::PostDeserializeCount, 1);
+		EXPECT_EQ(FTraits::LastSource, Durin::EDStructDeserializeSource::RuntimeArchive);
+		EXPECT_EQ(Destination.Value, 21);
+		EXPECT_EQ(Destination.Derived, 42);
+
+		std::vector<Durin::uint8> Truncated(Bytes.begin(), Bytes.end() - 1);
+		Destination = {7, 14};
+		Durin::FMemoryReader TruncatedReader(Truncated);
+		Durin::SerializeReflectedPropertyValue(TruncatedReader, &Property, &Destination);
+		EXPECT_TRUE(TruncatedReader.HasError());
+		EXPECT_NE(TruncatedReader.GetError().find("ArchiveFailure"), std::string_view::npos);
+		EXPECT_EQ(Destination.Value, 7);
+		EXPECT_EQ(Destination.Derived, 14);
+
+		Source = {-1, 0};
+		Bytes.clear();
+		Durin::FMemoryWriter RejectionWriter(Bytes);
+		Durin::SerializeReflectedPropertyValue(RejectionWriter, &Property, &Source);
+		ASSERT_FALSE(RejectionWriter.HasError());
+		Destination = {7, 14};
+		Durin::FMemoryReader RejectionReader(Bytes);
+		Durin::SerializeReflectedPropertyValue(RejectionReader, &Property, &Destination);
+		EXPECT_TRUE(RejectionReader.HasError());
+		EXPECT_NE(
+			RejectionReader.GetError().find("PostDeserializeRejected"),
+			std::string_view::npos);
+		EXPECT_EQ(Destination.Value, 7);
+		EXPECT_EQ(Destination.Derived, 14);
 	}
 }

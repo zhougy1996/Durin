@@ -358,6 +358,53 @@ pointers are copied into process-lifetime runtime strings during construction.
 
 `DObject::IsA(const DClass*)` walks the `DClass` superclass chain. `Cast<T>` uses `T::StaticClass()` and `IsA`.
 
+## Reflected Struct Operations
+
+`DSTRUCT()` opts a value type into metadata; it does not promise that generic
+code can construct, copy, compare, serialize, repair, or trace that type. Each
+`DStruct` instead owns one immutable, process-lifetime `FDStructOps` table. The
+version-1 table advertises default construction, destruction (including the
+separate trivially-destructible fact), copy construction, copy assignment, zero
+construction, logical identity, runtime Archive serialization,
+post-deserialize repair, hidden-reference collection, and completeness of the
+authored reflected-field representation. `DStruct` exposes matching capability
+queries and never changes the table after registration.
+
+Generated structs register `GetDStructOps<T>()`; externally described intrinsic
+structs use the same path. `TDStructOpsTraits<T>` derives safe mechanical
+defaults from the C++ type and lets an audited specialization disable or replace
+an operation or enable an optional callback. The specialization is
+compile-checked against the callback signature before its operation is emitted.
+Current non-mechanical specializations are the deterministic zero default for
+`FVector3` and post-deserialize repair for the two import-record structs whose
+parsed asset paths are derived from reflected path text. The former mutable
+three-callback registration path and ambiguous struct copy operation no longer
+exist.
+
+Construction callbacks require aligned uninitialized storage; copy assignment
+requires a live destination. `FReflectedValueStorage` is the common aligned RAII
+owner used for detached reflected values and tracks whether exactly one value is
+live. It destroys only a successfully constructed value. Generic storage,
+container mutation, editor drafts, Archive loading, and authored struct loading
+preflight the operations they require before allocation or mutation. An
+unsupported request returns `DStructOperationUnavailable` with the operation
+and qualified struct name.
+
+Default struct identity recursively compares every non-`Transient` reflected
+field. Arrays are ordered, maps compare key/value associations rather than
+iteration order, object values use pointer identity, and `float`/`double`
+compare complete bit patterns. Thus signed zero remains distinct and NaNs are
+identical only when sign, exponent, and payload bits match. A declared
+`Identical` callback is authoritative for the complete struct value and is not
+combined with a field walk.
+
+Reflected GC traversal visits the compiled schema first and then invokes one
+optional `CollectReferences` callback for strong references outside reflected
+fields. Callback authors must not repeat reflected references. Detached
+property snapshots root the deduplicated union of schema and callback
+references and compare materialized values through the same logical-identity
+rules.
+
 ## Garbage Collection Integration
 
 `NewObject<T>(Outer, Name)` constructs reflected runtime objects and registers them in `GDObjectArray`. After generated properties are attached, every `DClass` and `DStruct` compiles an immutable internal GC reference schema containing only reflected `TObjectPtr` paths through supported containers and nested structs. Class schemas include inherited operations, while struct schemas are reused wherever that value type appears. Collection executes this schema without reinterpreting the complete property chain. Raw reflected `DObject*` properties are not GC strong references.
@@ -372,7 +419,8 @@ Outer hierarchy queries, one-way `Child -> Outer` reachability, root management,
 
 The current archive layer includes:
 
-- `FArchive` with load/save mode, byte serialization, string serialization, and object-reference serialization
+- `FArchive` with load/save mode, sticky `ArchiveFailure` state, bounded byte
+  and string serialization, and object-reference serialization
 - `FMemoryWriter` and `FMemoryReader`
 - `SaveObjectGraphToMemory(DObject* RootObject, std::vector<uint8>& OutBytes)`
 - `LoadObjectGraphFromMemory(const std::vector<uint8>& Bytes)`
@@ -380,6 +428,16 @@ The current archive layer includes:
 The supported reflected property payloads are numeric primitives, `bool`, `std::string`, reflected enum storage, direct object references, vectors, maps, and recursively nested supported containers. Object references are serialized as object ids inside the saved object graph, not as process pointer addresses.
 
 Object graph saving first gathers the root's structural descendants through the Outer index plus its serialized object references, assigns ids, writes object records, and serializes each object's reflected properties. This graph-gathering rule defines archive scope and is independent of GC reachability. Loading creates all object records first, then deserializes properties so object-reference ids can resolve to loaded objects.
+
+Structs use the reflected non-`Transient` field walk by default. A declared
+runtime `Serialize` callback replaces that complete walk and is invoked exactly
+once per value; it cannot clear an earlier sticky Archive failure. Loading a
+struct always decodes into default-constructed managed storage. After the
+complete field walk or custom serializer succeeds, an optional
+`PostDeserialize` callback receives `RuntimeArchive` with source version zero.
+Only successful repair is copy-assigned into the live destination, so
+truncation, missing capabilities, or `PostDeserializeRejected` leaves the prior
+value unchanged.
 
 The object graph format is an internal v1 binary memory format for tests and engine plumbing. Long-lived content uses the separate field-tagged `.dasset` package format documented in `Documentation/Runtime/Assets/AssetPackages.md`; the memory format remains useful for transient cloning and focused tests.
 

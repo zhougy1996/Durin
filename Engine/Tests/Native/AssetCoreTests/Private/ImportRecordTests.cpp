@@ -438,6 +438,39 @@ namespace
 	}
 }
 
+TEST(FImportRecordFrameworkTests, StructRepairRestoresOutputAndTombstonePaths)
+{
+	InitializeImportRecordTests();
+	const std::array Mounts = {MakeMount(
+		Durin::Testing::GetTestWorkDirectory() / "ImportRecordStructRepair")};
+	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
+	std::string Error;
+	Durin::FDStructPostDeserializeContext Context{
+		.Source = Durin::EDStructDeserializeSource::AuthoredAsset,
+		.SourceVersion = 2,
+		.Error = &Error};
+
+	Durin::AssetImport::FImportRecordOutput Output;
+	Output.AssetPathText = "/ImportRecordTests/Repair/Output";
+	auto& OutputOps = Durin::AssetImport::FImportRecordOutput::StaticStruct()->GetOps();
+	ASSERT_NE(OutputOps.PostDeserialize, nullptr);
+	ASSERT_TRUE(OutputOps.PostDeserialize(&Output, Context)) << Error;
+	EXPECT_EQ(Output.AssetPath.ToString(), Output.AssetPathText);
+
+	Durin::AssetImport::FImportRecordDetachedTombstone Tombstone;
+	Tombstone.LastAssetPathText = "/ImportRecordTests/Repair/Detached";
+	auto& TombstoneOps =
+		Durin::AssetImport::FImportRecordDetachedTombstone::StaticStruct()->GetOps();
+	ASSERT_NE(TombstoneOps.PostDeserialize, nullptr);
+	ASSERT_TRUE(TombstoneOps.PostDeserialize(&Tombstone, Context)) << Error;
+	EXPECT_EQ(Tombstone.LastAssetPath.ToString(), Tombstone.LastAssetPathText);
+
+	Output.AssetPathText = "not-an-asset-path";
+	Error.clear();
+	EXPECT_FALSE(OutputOps.PostDeserialize(&Output, Context));
+	EXPECT_FALSE(Error.empty());
+}
+
 TEST(FImportRecordFrameworkTests, PersistsHeterogeneousPeersAcrossReloadMoveAndProviderUnload)
 {
 	InitializeImportRecordTests();
@@ -483,6 +516,11 @@ TEST(FImportRecordFrameworkTests, PersistsHeterogeneousPeersAcrossReloadMoveAndP
 	EXPECT_EQ(Reloaded->GetProviderId(), Scenario.ProviderId);
 	EXPECT_EQ(Reloaded->GetProviderState(), Scenario.ProviderState);
 	EXPECT_EQ(Reloaded->GetOutputs().size(), 2u);
+	for (const auto& Output : Reloaded->GetOutputs())
+	{
+		EXPECT_TRUE(Output.AssetPath.IsValid());
+		EXPECT_EQ(Output.AssetPath.ToString(), Output.AssetPathText);
+	}
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Scenario.PeerPath));
 	Index.NotifyPackageUnloaded(Scenario.PeerPath);
 	EXPECT_EQ(Index.FindRecordOutputs(Scenario.RecordPath).size(), 2u);

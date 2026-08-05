@@ -4,6 +4,10 @@
 #include "DObjectFwd.h"
 #include "Misc/Name.h"
 
+#include <limits>
+#include <string>
+#include <string_view>
+
 namespace Durin
 {
 	class FProperty;
@@ -42,9 +46,15 @@ namespace Durin
 
 		auto IsLoading() const -> bool { return Mode == EMode::Load; }
 		auto IsSaving() const -> bool { return Mode == EMode::Save; }
+		auto HasError() const -> bool { return !Error.empty(); }
+		auto GetError() const -> std::string_view { return Error; }
 
 		virtual auto SerializeBytes(void* Data, uint64 Size) -> void = 0;
 		virtual auto SerializeObjectReference(DObject*& Object) -> void = 0;
+		virtual auto GetRemainingBytes() const -> uint64
+		{
+			return std::numeric_limits<uint64>::max();
+		}
 
 		template<typename T>
 		auto operator<<(T& Value) -> FArchive&
@@ -54,9 +64,11 @@ namespace Durin
 		}
 
 		COREDOBJECT_API auto SerializeString(std::string& Value) -> void;
+		COREDOBJECT_API auto SetError(std::string_view Message) -> void;
 
 	private:
 		EMode Mode;
+		std::string Error;
 	};
 
 	// Appends serialized graph data to a caller-owned byte buffer.
@@ -78,6 +90,10 @@ namespace Durin
 		COREDOBJECT_API explicit FMemoryReader(const std::vector<uint8>& InBytes);
 		COREDOBJECT_API auto SerializeBytes(void* Data, uint64 Size) -> void override;
 		COREDOBJECT_API auto SerializeObjectReference(DObject*& Object) -> void override;
+		auto GetRemainingBytes() const -> uint64 override
+		{
+			return static_cast<uint64>(Bytes.size()) - Offset;
+		}
 
 	private:
 		const std::vector<uint8>& Bytes;
@@ -119,6 +135,13 @@ namespace Durin
 		) -> bool;
 	};
 
+	COREDOBJECT_API auto SerializeReflectedPropertyValue(
+		FArchive& Ar,
+		FProperty* Property,
+		void* Container,
+		uint32 ArrayIndex = 0,
+		bool bIncludeRawObjectReferences = false
+	) -> void;
 	COREDOBJECT_API auto SerializeDObjectProperties(FArchive& Ar, DObject* Object) -> void;
 	COREDOBJECT_API auto SaveObjectGraphToMemory(DObject* RootObject, std::vector<uint8>& OutBytes) -> bool;
 	COREDOBJECT_API auto LoadObjectGraphFromMemory(const std::vector<uint8>& Bytes) -> DObject*;

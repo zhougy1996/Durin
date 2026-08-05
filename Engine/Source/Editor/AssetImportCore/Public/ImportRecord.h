@@ -256,3 +256,41 @@ namespace Durin::AssetImport
 		FAssetPath& OutPath,
 		std::string& OutError) -> bool;
 }
+
+namespace Durin
+{
+	template<>
+	struct TDStructOpsTraits<AssetImport::FImportRecordOutput>
+		: TDStructOpsTraitsBase<AssetImport::FImportRecordOutput>
+	{
+		static constexpr bool bWithPostDeserialize = true;
+
+		static auto PostDeserialize(
+			AssetImport::FImportRecordOutput& Value,
+			FDStructPostDeserializeContext& Context) -> bool
+		{
+			std::string Error;
+			if (FAssetPath::TryCreate(Value.AssetPathText, Value.AssetPath, &Error))
+				return true;
+			return Context.Fail(Error);
+		}
+	};
+
+	template<>
+	struct TDStructOpsTraits<AssetImport::FImportRecordDetachedTombstone>
+		: TDStructOpsTraitsBase<AssetImport::FImportRecordDetachedTombstone>
+	{
+		static constexpr bool bWithPostDeserialize = true;
+
+		static auto PostDeserialize(
+			AssetImport::FImportRecordDetachedTombstone& Value,
+			FDStructPostDeserializeContext& Context) -> bool
+		{
+			std::string Error;
+			if (FAssetPath::TryCreate(
+				Value.LastAssetPathText, Value.LastAssetPath, &Error))
+				return true;
+			return Context.Fail(Error);
+		}
+	};
+}

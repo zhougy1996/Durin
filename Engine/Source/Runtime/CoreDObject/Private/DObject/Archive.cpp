@@ -55,6 +55,12 @@ namespace Durin
 
 		auto SerializePropertyValue(FArchive& Ar, FProperty* Property, void* Container, uint32 ArrayIndex, bool bIncludeRawObjectReferences = false) -> void
 		{
+			if (Ar.HasError()) return;
+			if (!Property || !Container)
+			{
+				Ar.SetError("Invalid reflected property serialization request.");
+				return;
+			}
 			switch (Property->GetKind())
 			{
 			case DurinCodeGen::EPropertyGenFlags::Bool:
@@ -84,14 +90,16 @@ namespace Durin
 				FName* Value = NameProperty->GetNameValuePtr(Container, ArrayIndex);
 				std::string SerializedValue = Ar.IsSaving() ? Value->ToString() : std::string();
 				Ar.SerializeString(SerializedValue);
-				if (Ar.IsLoading()) *Value = FName(SerializedValue);
+				if (Ar.IsLoading() && !Ar.HasError()) *Value = FName(SerializedValue);
 				break;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Guid:
 			{
 				auto* GuidProperty = static_cast<FGuidProperty*>(Property);
 				FGuid* Value = GuidProperty->GetGuidValuePtr(Container, ArrayIndex);
-				Ar << Value->A << Value->B << Value->C << Value->D;
+				FGuid SerializedValue = Ar.IsSaving() ? *Value : FGuid();
+				Ar << SerializedValue.A << SerializedValue.B << SerializedValue.C << SerializedValue.D;
+				if (Ar.IsLoading() && !Ar.HasError()) *Value = SerializedValue;
 				break;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Object:
@@ -103,7 +111,7 @@ namespace Durin
 				}
 				DObject* ReferencedObject = ObjectProperty->GetObjectPropertyValue(Container, ArrayIndex);
 				Ar.SerializeObjectReference(ReferencedObject);
-				if (Ar.IsLoading())
+				if (Ar.IsLoading() && !Ar.HasError())
 				{
 					ObjectProperty->SetObjectPropertyValue(Container, ReferencedObject, ArrayIndex);
 				}
@@ -113,12 +121,68 @@ namespace Durin
 			{
 				auto* StructProperty = static_cast<FStructProperty*>(Property);
 				DStruct* Struct = StructProperty->GetStruct();
-				if (!Struct) break;
-				void* StructValue = Property->GetValuePtr(Container, ArrayIndex);
-				Struct->ForEachProperty([&](FProperty* Field) {
-					if (!Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
-					for (uint32 Index = 0; Index < Field->GetArrayDim(); ++Index) SerializePropertyValue(Ar, Field, StructValue, Index, bIncludeRawObjectReferences);
-				}, false);
+				if (!Struct)
+				{
+					Ar.SetError("Struct property has no reflected type.");
+					break;
+				}
+				auto SerializeStructValue = [&](void* StructValue) {
+					if (Struct->HasSerializer())
+					{
+						Struct->GetOps().Serialize(Ar, StructValue);
+						return;
+					}
+					Struct->ForEachProperty([&](FProperty* Field) {
+						if (Ar.HasError() || !Field
+							|| Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+						for (uint32 Index = 0; Index < Field->GetArrayDim() && !Ar.HasError(); ++Index)
+							SerializePropertyValue(
+								Ar, Field, StructValue, Index, bIncludeRawObjectReferences);
+					}, false);
+				};
+				if (Ar.IsSaving())
+				{
+					SerializeStructValue(Property->GetValuePtr(Container, ArrayIndex));
+					break;
+				}
+
+				std::string OperationError;
+				if (!Struct->CanDefaultConstruct() || !Struct->CanDestroy()
+					|| !Struct->CanCopyAssign())
+				{
+					Ar.SetError(std::format(
+						"DStructOperationUnavailable: transactional loading requires "
+						"DefaultConstruct, Destroy, and CopyAssign for '{}'.",
+						Struct->GetQualifiedName().ToString()));
+					break;
+				}
+				FReflectedValueStorage Storage;
+				if (!Storage.DefaultConstruct(Property, 0, &OperationError))
+				{
+					Ar.SetError(OperationError);
+					break;
+				}
+				SerializeStructValue(Storage.GetValue());
+				if (Ar.HasError()) break;
+				if (Struct->HasPostDeserialize())
+				{
+					std::string PostDeserializeError;
+					FDStructPostDeserializeContext Context{
+						.Source = EDStructDeserializeSource::RuntimeArchive,
+						.SourceVersion = 0,
+						.Error = &PostDeserializeError};
+					if (!Struct->GetOps().PostDeserialize(Storage.GetValue(), Context))
+					{
+						Ar.SetError(PostDeserializeError.empty()
+							? std::format("PostDeserializeRejected: '{}' rejected the loaded value.",
+								Struct->GetQualifiedName().ToString())
+							: std::format("PostDeserializeRejected: {}", PostDeserializeError));
+						break;
+					}
+				}
+				if (!Property->CopyAssignValue(
+					Property->GetValuePtr(Container, ArrayIndex), Storage.GetValue(), &OperationError))
+					Ar.SetError(OperationError);
 				break;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Array:
@@ -127,16 +191,28 @@ namespace Durin
 				FProperty* Inner = ArrayProperty->GetInner();
 				if (!Inner || !ArrayProperty->HasArrayHelper())
 				{
+					Ar.SetError("Array property lacks runtime helpers.");
 					break;
 				}
 
 				uint64 Num = Ar.IsSaving() ? ArrayProperty->Num(Container, ArrayIndex) : 0;
 				Ar << Num;
+				if (Ar.HasError()) break;
+				if (Ar.IsLoading() && Num > 10000000)
+				{
+					Ar.SetError("Array element count exceeds the supported limit.");
+					break;
+				}
 				if (Ar.IsLoading())
 				{
-					if (!ArrayProperty->Resize(Container, Num, ArrayIndex)) return;
+					std::string Error;
+					if (!ArrayProperty->Resize(Container, Num, ArrayIndex, &Error))
+					{
+						Ar.SetError(Error);
+						return;
+					}
 				}
-				for (uint64 Index = 0; Index < Num; ++Index)
+				for (uint64 Index = 0; Index < Num && !Ar.HasError(); ++Index)
 				{
 					void* Element = ArrayProperty->GetMutableElementPtr(Container, Index, ArrayIndex);
 					SerializePropertyValue(Ar, Inner, Element, 0, bIncludeRawObjectReferences);
@@ -146,12 +222,23 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Map:
 			{
 				auto* MapProperty = static_cast<FMapProperty*>(Property);
-				if (!MapProperty->HasMapHelper()) break;
+				if (!MapProperty->HasMapHelper() || !MapProperty->GetKeyProp()
+					|| !MapProperty->GetValueProp())
+				{
+					Ar.SetError("Map property lacks runtime helpers.");
+					break;
+				}
 				uint64 Num = Ar.IsSaving() ? MapProperty->Num(Container, ArrayIndex) : 0;
 				Ar << Num;
+				if (Ar.HasError()) break;
+				if (Ar.IsLoading() && Num > 10000000)
+				{
+					Ar.SetError("Map element count exceeds the supported limit.");
+					break;
+				}
 				if (Ar.IsSaving())
 				{
-					for (uint64 Index = 0; Index < Num; ++Index)
+					for (uint64 Index = 0; Index < Num && !Ar.HasError(); ++Index)
 					{
 						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), const_cast<void*>(MapProperty->GetKeyPtr(Container, Index, ArrayIndex)), 0, bIncludeRawObjectReferences);
 						SerializePropertyValue(Ar, MapProperty->GetValueProp(), const_cast<void*>(MapProperty->GetMappedValuePtr(Container, Index, ArrayIndex)), 0, bIncludeRawObjectReferences);
@@ -161,28 +248,43 @@ namespace Durin
 				{
 					FReflectedValueStorage KeyStorage;
 					FReflectedValueStorage ValueStorage;
+					std::string Error;
 					if (Num > 0
-						&& (!KeyStorage.DefaultConstruct(MapProperty->GetKeyProp())
-							|| !ValueStorage.DefaultConstruct(MapProperty->GetValueProp()))) return;
+						&& (!KeyStorage.DefaultConstruct(MapProperty->GetKeyProp(), 0, &Error)
+							|| !ValueStorage.DefaultConstruct(MapProperty->GetValueProp(), 0, &Error)))
+					{
+						Ar.SetError(Error);
+						return;
+					}
 					MapProperty->Clear(Container, ArrayIndex);
-					for (uint64 Index = 0; Index < Num; ++Index)
+					for (uint64 Index = 0; Index < Num && !Ar.HasError(); ++Index)
 					{
 						if (Index > 0)
 						{
 							KeyStorage.Reset();
 							ValueStorage.Reset();
-							if (!KeyStorage.DefaultConstruct(MapProperty->GetKeyProp())
-								|| !ValueStorage.DefaultConstruct(MapProperty->GetValueProp())) return;
+							if (!KeyStorage.DefaultConstruct(MapProperty->GetKeyProp(), 0, &Error)
+								|| !ValueStorage.DefaultConstruct(MapProperty->GetValueProp(), 0, &Error))
+							{
+								Ar.SetError(Error);
+								return;
+							}
 						}
 						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), KeyStorage.GetContainer(), 0, bIncludeRawObjectReferences);
 						SerializePropertyValue(Ar, MapProperty->GetValueProp(), ValueStorage.GetContainer(), 0, bIncludeRawObjectReferences);
+						if (Ar.HasError()) return;
 						if (!MapProperty->Insert(
-							Container, KeyStorage.GetValue(), ValueStorage.GetValue(), ArrayIndex)) return;
+							Container, KeyStorage.GetValue(), ValueStorage.GetValue(), ArrayIndex, &Error))
+						{
+							Ar.SetError(Error);
+							return;
+						}
 					}
 				}
 				break;
 			}
 			default:
+				Ar.SetError("Unsupported reflected property kind.");
 				break;
 			}
 		}
@@ -383,6 +485,12 @@ namespace Durin
 			{
 				uint64 Id = 0;
 				*this << Id;
+				if (HasError()) return;
+				if (Id > Context.IdToObject.size())
+				{
+					SetError("Invalid object graph reference identifier.");
+					return;
+				}
 				Object = Context.ResolveId(Id);
 			}
 
@@ -393,16 +501,35 @@ namespace Durin
 
 	auto FArchive::SerializeString(std::string& Value) -> void
 	{
+		if (HasError()) return;
 		uint64 Size = static_cast<uint64>(Value.size());
 		*this << Size;
+		if (HasError()) return;
 		if (IsLoading())
 		{
-			Value.resize(static_cast<size_t>(Size));
+			if (Size > GetRemainingBytes() || Size > std::string().max_size())
+			{
+				SetError("Truncated or oversized string payload.");
+				return;
+			}
+			std::string LoadedValue;
+			LoadedValue.resize(static_cast<size_t>(Size));
+			if (Size > 0) SerializeBytes(LoadedValue.data(), Size);
+			if (!HasError()) Value = std::move(LoadedValue);
+			return;
 		}
 		if (Size > 0)
 		{
 			SerializeBytes(Value.data(), Size);
 		}
+	}
+
+	auto FArchive::SetError(std::string_view Message) -> void
+	{
+		if (!Error.empty()) return;
+		Error = Message.starts_with("ArchiveFailure")
+			? std::string(Message)
+			: std::format("ArchiveFailure: {}", Message);
 	}
 
 	FMemoryWriter::FMemoryWriter(std::vector<uint8>& InBytes)
@@ -413,6 +540,13 @@ namespace Durin
 
 	auto FMemoryWriter::SerializeBytes(void* Data, uint64 Size) -> void
 	{
+		if (HasError()) return;
+		if (!Data && Size > 0)
+		{
+			SetError("Cannot serialize bytes from a null source.");
+			return;
+		}
+		if (Size == 0) return;
 		const uint8* Source = static_cast<const uint8*>(Data);
 		Bytes.insert(Bytes.end(), Source, Source + Size);
 	}
@@ -431,8 +565,14 @@ namespace Durin
 
 	auto FMemoryReader::SerializeBytes(void* Data, uint64 Size) -> void
 	{
-		check(Offset + Size <= Bytes.size());
-		std::memcpy(Data, Bytes.data() + Offset, static_cast<size_t>(Size));
+		if (HasError()) return;
+		if ((!Data && Size > 0) || Size > GetRemainingBytes())
+		{
+			SetError("Truncated byte payload.");
+			return;
+		}
+		if (Size > 0)
+			std::memcpy(Data, Bytes.data() + Offset, static_cast<size_t>(Size));
 		Offset += Size;
 	}
 
@@ -440,7 +580,7 @@ namespace Durin
 	{
 		uint64 AddressValue = 0;
 		*this << AddressValue;
-		Object = reinterpret_cast<DObject*>(AddressValue);
+		if (!HasError()) Object = reinterpret_cast<DObject*>(AddressValue);
 	}
 
 	FPropertyValueSnapshot::~FPropertyValueSnapshot()
@@ -573,6 +713,11 @@ namespace Durin
 		Snapshot.Property = Property;
 		FSnapshotWriter Writer(Snapshot.Bytes, Snapshot.ReferencedObjects);
 		SerializePropertyValue(Writer, const_cast<FProperty*>(Property), const_cast<void*>(Container), ArrayIndex, true);
+		if (Writer.HasError())
+		{
+			if (OutError) *OutError = Writer.GetError();
+			return false;
+		}
 		class FSnapshotReferenceCollector final : public FReferenceCollector
 		{
 		public:
@@ -628,7 +773,12 @@ namespace Durin
 			{
 				uint64 Id = 0;
 				*this << Id;
-				check(Id <= References.size());
+				if (HasError()) return;
+				if (Id > References.size())
+				{
+					SetError("Invalid property snapshot reference identifier.");
+					return;
+				}
 				Object = Id == 0 ? nullptr : References[static_cast<size_t>(Id - 1)];
 			}
 		private:
@@ -636,8 +786,22 @@ namespace Durin
 		};
 
 		FSnapshotReader Reader(Snapshot.Bytes, Snapshot.ReferencedObjects);
-		SerializePropertyValue(Reader, const_cast<FProperty*>(Property), Container, ArrayIndex, true);
-		return true;
+		SerializeReflectedPropertyValue(
+			Reader, const_cast<FProperty*>(Property), Container, ArrayIndex, true);
+		if (!Reader.HasError()) return true;
+		if (OutError) *OutError = Reader.GetError();
+		return false;
+	}
+
+	auto SerializeReflectedPropertyValue(
+		FArchive& Ar,
+		FProperty* Property,
+		void* Container,
+		uint32 ArrayIndex,
+		bool bIncludeRawObjectReferences) -> void
+	{
+		SerializePropertyValue(
+			Ar, Property, Container, ArrayIndex, bIncludeRawObjectReferences);
 	}
 
 	auto SerializeDObjectProperties(FArchive& Ar, DObject* Object) -> void
@@ -657,7 +821,7 @@ namespace Durin
 
 				for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 				{
-					SerializePropertyValue(Ar, Property, Object, Index);
+					SerializeReflectedPropertyValue(Ar, Property, Object, Index);
 				}
 			},
 			true
@@ -698,6 +862,7 @@ namespace Durin
 			std::vector<uint8> PropertyBytes;
 			FObjectGraphWriter PropertyWriter(PropertyBytes, Context);
 			Object->Serialize(PropertyWriter);
+			if (PropertyWriter.HasError()) return false;
 			uint64 PropertySize = static_cast<uint64>(PropertyBytes.size());
 
 			HeaderWriter << Id << OuterId;
@@ -710,7 +875,7 @@ namespace Durin
 			}
 		}
 
-		return true;
+		return !HeaderWriter.HasError();
 	}
 
 	auto LoadObjectGraphFromMemory(const std::vector<uint8>& Bytes) -> DObject*
@@ -721,7 +886,7 @@ namespace Durin
 		uint64 RootId = 0;
 		uint64 ObjectCount = 0;
 		Reader << Magic << Version << RootId << ObjectCount;
-		if (Magic != ObjectGraphMagic || Version != ObjectGraphVersion || ObjectCount == 0
+		if (Reader.HasError() || Magic != ObjectGraphMagic || Version != ObjectGraphVersion || ObjectCount == 0
 			|| ObjectCount > 1000000 || RootId == 0 || RootId > ObjectCount)
 		{
 			return nullptr;
@@ -752,12 +917,18 @@ namespace Durin
 			Reader.SerializeString(Record.ClassName);
 			Reader.SerializeString(Record.ObjectName);
 			Reader << PropertySize;
+			if (Reader.HasError() || PropertySize > Reader.GetRemainingBytes()
+				|| PropertySize > std::vector<uint8>().max_size())
+			{
+				DiscardLoadedObjects();
+				return nullptr;
+			}
 			Record.PropertyBytes.resize(static_cast<size_t>(PropertySize));
 			if (PropertySize > 0)
 			{
 				Reader.SerializeBytes(Record.PropertyBytes.data(), PropertySize);
 			}
-			if (Record.Id == 0 || Record.Id > ObjectCount || Context.ResolveId(Record.Id)
+			if (Reader.HasError() || Record.Id == 0 || Record.Id > ObjectCount || Context.ResolveId(Record.Id)
 				|| Record.OuterId > ObjectCount)
 			{
 				DiscardLoadedObjects();
@@ -806,6 +977,11 @@ namespace Durin
 			Object->SetOuterPrivate(Outer);
 			FObjectGraphReader PropertyReader(Record.PropertyBytes, Context);
 			Object->Serialize(PropertyReader);
+			if (PropertyReader.HasError())
+			{
+				DiscardLoadedObjects();
+				return nullptr;
+			}
 		}
 
 		DObject* LoadedRoot = Context.ResolveId(RootId);
@@ -892,6 +1068,7 @@ namespace Durin
 			{
 				uint64 Address = 0;
 				*this << Address;
+				if (HasError()) return;
 				DObject* SourceReference = reinterpret_cast<DObject*>(Address);
 				const auto It = DuplicateMap.find(SourceReference);
 				Object = It == DuplicateMap.end() ? SourceReference : It->second;
@@ -905,8 +1082,20 @@ namespace Durin
 			std::vector<uint8> Bytes;
 			FMemoryWriter Writer(Bytes);
 			Source->Serialize(Writer);
+			if (Writer.HasError())
+			{
+				if (OutError) *OutError = Writer.GetError();
+				DiscardDuplicates();
+				return nullptr;
+			}
 			FDuplicateReader Reader(Bytes, Duplicates);
 			Duplicates[Source]->Serialize(Reader);
+			if (Reader.HasError())
+			{
+				if (OutError) *OutError = Reader.GetError();
+				DiscardDuplicates();
+				return nullptr;
+			}
 		}
 
 		std::string PostLoadError;
@@ -938,6 +1127,7 @@ namespace Durin
 			{
 				uint64 Address = 0;
 				*this << Address;
+				if (HasError()) return;
 				DObject* SourceReference = reinterpret_cast<DObject*>(Address);
 				const auto It = Map.find(SourceReference);
 				Object = It == Map.end() ? SourceReference : It->second;
@@ -946,17 +1136,31 @@ namespace Durin
 			const std::unordered_map<DObject*, DObject*>& Map;
 		};
 
+		bool bSucceeded = true;
 		Source->GetClass()->ForEachProperty([&](FProperty* Property) {
-			if (!Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit) || Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+			if (!bSucceeded || !Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit) || Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
 			for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 			{
 				std::vector<uint8> Bytes;
 				FMemoryWriter Writer(Bytes);
 				SerializePropertyValue(Writer, Property, Source, Index);
+				if (Writer.HasError())
+				{
+					if (OutError) *OutError = Writer.GetError();
+					bSucceeded = false;
+					return;
+				}
 				FRemappingReader Reader(Bytes, ReferenceMap);
-				SerializePropertyValue(Reader, Property, Destination, Index);
+				SerializeReflectedPropertyValue(Reader, Property, Destination, Index);
+				if (Reader.HasError())
+				{
+					if (OutError && OutError->empty()) *OutError = Reader.GetError();
+					bSucceeded = false;
+					return;
+				}
 			}
 		}, true);
+		if (!bSucceeded) return false;
 		Destination->MarkPackageDirty();
 		return true;
 	}

@@ -20,9 +20,11 @@ Completed:
   most of the package.
 - General-purpose compression proves that the bytes are redundant, but it does
   not remove repeated parsing, allocation, or schema reconstruction.
-- Reflected structs currently lack declarative lifecycle and serialization
-  semantics. The active [Reflected Struct Operations](../Plans/ReflectedStructOperations.md)
-  plan is an external prerequisite, not the start of DAST v3 implementation.
+- The [Reflected Struct Operations](../Plans/ReflectedStructOperations.md)
+  prerequisite is complete. Struct lifecycle, logical equality, reference
+  collection, runtime Archive customization, post-deserialize repair, and
+  authored fail-closed semantics are now declarative. This satisfies a
+  foundation gate but does not start DAST v3 implementation.
 
 ## Outcome
 
@@ -116,16 +118,14 @@ compression.
   identities plus recursive property kinds.
 - Compatibility inspection, data-loss consent, registry fingerprints, frozen
   fixtures, and package tests provide a baseline that v3 must preserve.
-- `FPropertyValueSnapshot` provides detached property capture and object-
-  reference rooting that can inform logical comparison work.
+- `DStruct` exposes immutable operation capabilities, managed aligned value
+  storage, recursive logical equality, and transactional Archive/authored
+  loading. `FPropertyValueSnapshot` uses the same equality and roots reflected
+  plus declared hidden references.
 
 ### Gaps
 
-- Reflected structs do not declare their supported lifecycle, equality,
-  reference, or serialization operations.
 - Reflected classes do not own deterministic class default objects.
-- There is no public recursive logical-equivalence operation for reflected
-  values.
 - Struct schemas and textual type signatures repeat at each occurrence.
 - Package-version handling conflates the latest writer with the supported reader
   set.
@@ -136,7 +136,7 @@ compression.
 
 | Milestone | Kind | Dependencies | Deliverable | State |
 | --- | --- | --- | --- | --- |
-| Reflected struct operations | External prerequisite | None | Declarative and fail-closed lifecycle, equality, reference, and serialization semantics | Active plan |
+| Reflected struct operations | External prerequisite | None | Declarative and fail-closed lifecycle, equality, reference, and serialization semantics | Completed 2026-08-05 |
 | V3 measurement and wire contract | Required child plan | Struct-operations audit complete; program explicitly scheduled | Reproducible v2 accounting and a frozen bounded v3 byte contract | Proposed, deferred |
 | Default-relative reflection | Required child plan | Frozen default contract and successful struct-operations plan | Class default objects, struct defaults, logical equivalence, and no-delta policy | Proposed, deferred |
 | Deterministic v3 writer | Required child plan | Default-relative reflection complete | Canonical tables and compact value emission meeting size gates | Proposed, deferred |

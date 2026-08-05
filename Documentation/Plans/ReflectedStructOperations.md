@@ -4,8 +4,8 @@ Summary: Replace unconditional generated DStruct lifecycle callbacks with declar
 
 Last reviewed: 2026-08-05
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-05
 
 ## Current Status
 
@@ -36,10 +36,20 @@ Completed:
   reflected-value storage, explicit copy modes, recursive logical equality,
   capability-aware containers, hidden-reference GC traversal, and snapshot
   rooting are implemented and validated.
-- Stage 3 is next. Runtime Archive still has no sticky error channel, and
-  Archive/AssetCore decoding still updates live aggregate destinations after
-  capability preflight. Stage 3 must make decode and post-deserialize failure
-  transactional while preserving current bytes and mismatch categories.
+- Stage 3 completed on 2026-08-05 from baseline commit `bd1639fd`. Runtime
+  Archive now has sticky bounded failure propagation and explicit struct
+  serializer dispatch; Archive and AssetCore struct loading decode into managed
+  temporary values, run declared repair, and commit only on success. DAST v2
+  field bytes and compatibility behavior remain unchanged.
+- Stage 4 completed on 2026-08-05 from baseline commit `c2fa7634`. The legacy
+  three-callback and ambiguous copy APIs are absent, the three audited semantic
+  specializations are the only production traits beyond mechanical defaults,
+  and the lasting contract now lives in the Reflection System and Asset
+  Packages documentation.
+- The complete plan is qualified under the `windows-msvc-x64` Agent Build
+  Profile. Full DHT and focused runtime/editor suites pass, and a full `all`
+  build succeeds from the same generated-code baseline. No authored custom
+  codec follow-up was activated.
 
 ## Goal
 
@@ -572,24 +582,24 @@ follow-up codec plan and adds no blocker to the compact-serialization roadmap.
 
 ### Stage 3: Add Safe Struct Serialization Dispatch
 
-- [ ] Add sticky Archive error state, bounded reader failure propagation, and
+- [x] Add sticky Archive error state, bounded reader failure propagation, and
   tests for truncated custom payloads.
-- [ ] Dispatch explicit runtime-Archive serializers while retaining reflected-
+- [x] Dispatch explicit runtime-Archive serializers while retaining reflected-
   field traversal as the default.
-- [ ] Invoke post-deserialize repair only after successful complete field or
+- [x] Invoke post-deserialize repair only after successful complete field or
   custom Archive loading, and propagate rejection without committing a partial
   destination value.
-- [ ] Apply post-deserialize repair to AssetCore's current tagged struct load
+- [x] Apply post-deserialize repair to AssetCore's current tagged struct load
   without changing DAST v2 field bytes.
-- [ ] Reject authored save/load paths that encounter a struct declaring an
+- [x] Reject authored save/load paths that encounter a struct declaring an
   incomplete reflected representation, using the stable custom-codec-required
   diagnostic.
-- [ ] Preserve unknown-field skipping, type-mismatch classification, object-
+- [x] Preserve unknown-field skipping, type-mismatch classification, object-
   reference handling, dependency discovery, and explicit data-loss policy.
-- [ ] Add round-trip tests for default field walk, custom Archive serialization,
+- [x] Add round-trip tests for default field walk, custom Archive serialization,
   derived-cache repair, invariant rejection, nested structs, arrays, maps, and
   authored-codec-required failures.
-- [ ] Add unchanged DAST v2 and object-graph round trips for `FVector3` as a
+- [x] Add unchanged DAST v2 and object-graph round trips for `FVector3` as a
   direct property and inside `FTransform`, arrays, and maps; cover zero,
   infinities, signed zero, and preserved NaN payload policy.
 
@@ -604,19 +614,48 @@ follow-up codec plan and adds no blocker to the compact-serialization roadmap.
 - Existing supported DAST v2 fixtures retain identical successful behavior and
   stable incompatibility categories.
 
+#### Stage 3 Handoff
+
+- Baseline commit: `bd1639fd` (`feat(reflection): make struct consumers
+  capability-aware`). Stage 3 working set: CoreDObject Archive and snapshot
+  error handling; AssetCore authored struct load/save; AssetImportCore derived
+  path repair traits; and focused CoreDObject, package, import-record, and
+  editor tests.
+- Key implementation symbols: `FArchive::SetError`, `FArchive::HasError`,
+  `FMemoryReader::GetRemainingBytes`, `SerializeReflectedPropertyValue`,
+  `DeserializeValue`, `FAssetPackageField::TryReadStruct`, and the
+  `TDStructOpsTraits` specializations for `FImportRecordOutput` and
+  `FImportRecordDetachedTombstone`.
+- Decisions: the first Archive failure is immutable and carries
+  `ArchiveFailure`; runtime custom serializers replace one complete field walk;
+  every struct load uses default-constructed managed storage and requires
+  copy-assignment before touching the live destination; post-deserialize runs
+  only after complete decoding; authored field walking remains the DAST v2
+  representation and rejects incomplete schemas with
+  `CustomStructCodecRequired`; import-record path caches are repaired by struct
+  traits instead of object-level `PostLoad` loops.
+- Open questions: none for Stage 4. The source/build writer remains this
+  checkout; the legacy API audit and lasting documentation are bounded to the
+  symbols and owning documents already identified by the plan.
+- Validation: DHT generation (40), CoreObject (57), AssetPackage (37),
+  AssetImportCore (21), and EditorProperty (25) tests passed under the
+  documented `windows-msvc-x64` Agent Build Profile. DAST v2 and object-graph
+  math round trips preserve exact floating-point bits, and corrupted graph plus
+  synthetic authored-codec rejection paths fail closed.
+
 ### Stage 4: Migrate Existing Structs, Document, and Qualify
 
-- [ ] Add explicit traits only for audited structs whose semantics differ from
+- [x] Add explicit traits only for audited structs whose semantics differ from
   the safe defaults.
-- [ ] Remove the legacy three-callback `FStructParams` path and ambiguous
+- [x] Remove the legacy three-callback `FStructParams` path and ambiguous
   `DStruct::CopyValue` API after all consumers use the operation table.
-- [ ] Update Reflection System and Asset Packages documentation with the lasting
+- [x] Update Reflection System and Asset Packages documentation with the lasting
   capability, memory, GC, Archive, and authored-format boundaries.
-- [ ] Run focused DHT, CoreDObject, AssetCore, GC, package, duplication, and
+- [x] Run focused DHT, CoreDObject, AssetCore, GC, package, duplication, and
   snapshot suites under the documented Agent Build Profile.
-- [ ] Complete a successful full `all` build because the generated reflection
+- [x] Complete a successful full `all` build because the generated reflection
   ABI and cross-module runtime contract change together.
-- [ ] Record the final baseline, working set, symbols, decisions, validation,
+- [x] Record the final baseline, working set, symbols, decisions, validation,
   and any activated custom-codec follow-up in the stage handoff.
 
 #### Acceptance Gate
@@ -629,6 +668,34 @@ follow-up codec plan and adds no blocker to the compact-serialization roadmap.
 - Lasting documentation owns the implemented contract, and the compact-
   serialization roadmap can consume it without inventing alternate struct
   lifecycle or equality rules.
+
+#### Stage 4 Handoff
+
+- Baseline commit: `c2fa7634` (`feat(reflection): make struct deserialization
+  transactional`). Stage 4 working set: the authoritative Reflection System
+  and Asset Packages runtime documents, the Compact Asset Serialization
+  roadmap's satisfied prerequisite, and this plan's completion evidence.
+- Key implementation symbols retained as the final contract:
+  `FDStructOps`, `TDStructOpsTraits<T>`, `DStruct::GetOps`,
+  `FReflectedValueStorage`, `ArePropertyValuesIdentical`,
+  `SerializeReflectedPropertyValue`, and
+  `FDStructPostDeserializeContext`. The legacy `SetCppOps` and
+  `DStruct::CopyValue` symbols have no remaining declaration or call site.
+- Decisions: generated and intrinsic structs share one immutable operation
+  table; safe mechanical traits remain the default; only `FVector3`,
+  `FImportRecordOutput`, and `FImportRecordDetachedTombstone` have production
+  specializations; Archive customization remains separate from inspectable
+  authored DAST fields; unsupported capabilities fail before ownership or live
+  destination mutation.
+- Open questions: none. All current structs advertise complete authored fields,
+  so no custom-codec follow-up plan is required. The compact-serialization
+  roadmap may rely on `AuthoredFieldsComplete` and
+  `CustomStructCodecRequired` as its fail-closed boundary.
+- Validation: all 163 DHT tests, 57 CoreObject tests (including GC,
+  duplication, snapshots, equality, and Archive failures), 37 AssetPackage
+  tests, 21 AssetImportCore tests, and 25 EditorProperty tests passed. The
+  complete `all` target built successfully under the documented
+  `windows-msvc-x64` Agent Build Profile.
 
 ## Validation Matrix
 
