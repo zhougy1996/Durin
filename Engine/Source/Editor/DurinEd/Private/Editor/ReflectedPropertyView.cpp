@@ -20,6 +20,18 @@ namespace Durin
 	{
 		using StringUtils::ContainsInsensitive;
 
+		struct FEditableMapEntry
+		{
+			const void* Key = nullptr;
+			void* Value = nullptr;
+		};
+
+		auto CollectEditableMapEntry(void* Context, const void* Key, void* Value) -> bool
+		{
+			static_cast<std::vector<FEditableMapEntry>*>(Context)->push_back({Key, Value});
+			return true;
+		}
+
 		auto PropertyKindName(DurinCodeGen::EPropertyGenFlags Kind) -> const char*
 		{
 			switch (Kind)
@@ -508,7 +520,7 @@ namespace Durin
 		const FReflectedPropertyEditTarget& EditTarget
 	) -> bool
 	{
-		if (!Property->HasArrayHelper() || !Property->GetInner())
+		if (!Property->HasArrayOps() || !Property->GetInner())
 		{
 			MonaImGui::PropertyEdit::BeginRow(Label.c_str(), true);
 			ImGui::TextDisabled("<array metadata unavailable>");
@@ -516,7 +528,15 @@ namespace Durin
 			return false;
 		}
 
-		uint64 Num = Property->Num(Container, ArrayIndex);
+		uint64 Num = 0;
+		if (!Property->HasCapability(EArrayOpsFlags::Count | EArrayOpsFlags::RandomAccess)
+			|| Property->GetNum(Container, Num, ArrayIndex) != EContainerOpResult::Success)
+		{
+			MonaImGui::PropertyEdit::BeginRow(Label.c_str(), true);
+			ImGui::TextDisabled("<array Count/RandomAccess unavailable>");
+			MonaImGui::PropertyEdit::EndRow(true);
+			return false;
+		}
 		ImGui::TableNextRow();
 		ImGui::TableSetColumnIndex(0);
 		const bool bOpen = MonaImGui::CompactTreeNode("##Array", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "%s (%llu)", Label.c_str(), Num);
@@ -595,7 +615,7 @@ namespace Durin
 		const FReflectedPropertyEditTarget& EditTarget
 	) -> bool
 	{
-		if (!Property->HasMapHelper() || !Property->GetKeyProp() || !Property->GetValueProp())
+		if (!Property->HasMapOps() || !Property->GetKeyProp() || !Property->GetValueProp())
 		{
 			MonaImGui::PropertyEdit::BeginRow(Label.c_str(), true);
 			ImGui::TextDisabled("<map metadata unavailable>");
@@ -603,7 +623,15 @@ namespace Durin
 			return false;
 		}
 
-		uint64 Num = Property->Num(Container, ArrayIndex);
+		uint64 Num = 0;
+		if (!Property->HasCapability(EMapOpsFlags::Count | EMapOpsFlags::MutableMappedTraversal)
+			|| Property->GetNum(Container, Num, ArrayIndex) != EContainerOpResult::Success)
+		{
+			MonaImGui::PropertyEdit::BeginRow(Label.c_str(), true);
+			ImGui::TextDisabled("<map Count/MutableMappedTraversal unavailable>");
+			MonaImGui::PropertyEdit::EndRow(true);
+			return false;
+		}
 		ImGui::TableNextRow();
 		ImGui::TableSetColumnIndex(0);
 		const bool bOpen = MonaImGui::CompactTreeNode("##Map", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "%s (%llu)", Label.c_str(), Num);
@@ -710,7 +738,9 @@ namespace Durin
 					}
 					else if (bConfirmInsert)
 					{
-						if (Property->Contains(Container, DraftKey, ArrayIndex))
+						const void* ExistingValue = nullptr;
+						if (Property->FindValue(Container, DraftKey, &ExistingValue, ArrayIndex)
+							== EContainerOpResult::Success)
 						{
 							ReportError(Context, "Map keys must be unique.");
 						}
@@ -721,9 +751,12 @@ namespace Durin
 							InsertTarget.Path.back().MapKeyData = CaptureMapPathKey(Property->GetKeyProp(), DraftKey);
 							InsertTarget.Path.back().MapKey = MapInsertDraft.Key;
 							bChanged = SubmitStructure(std::move(InsertTarget), EPropertyChangeKind::MapInsert,
-								[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&, std::string&) {
+								[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&, std::string& MutationError) {
 									auto* DraftProperty = static_cast<const FMapProperty*>(DraftMap.Property);
-									DraftProperty->Insert(DraftMap.Container, DraftKey, DraftValue, DraftMap.ArrayIndex);
+									const EContainerOpResult Result = DraftProperty->InsertChecked(
+										DraftMap.Container, DraftKey, DraftValue, DraftMap.ArrayIndex);
+									if (Result != EContainerOpResult::Success)
+										MutationError = std::format("Unable to insert reflected map entry (result {}).", static_cast<uint32>(Result));
 								});
 							if (bChanged) MapInsertDraft = {};
 						}
@@ -737,10 +770,19 @@ namespace Durin
 				}
 			}
 
-			for (uint64 Index = 0; Index < Num; ++Index)
+			std::vector<FEditableMapEntry> Entries;
+			Entries.reserve(static_cast<size_t>(Num));
+			if (Property->VisitMutableEntries(Container, &CollectEditableMapEntry, &Entries, ArrayIndex)
+				!= EContainerOpResult::Success)
 			{
-				const void* Key = Property->GetKeyPtr(Container, Index, ArrayIndex);
-				void* Value = Property->GetMutableMappedValuePtr(Container, Index, ArrayIndex);
+				ReportError(Context, "Unable to traverse reflected map entries.");
+				ImGui::TreePop();
+				return false;
+			}
+			for (uint64 Index = 0; Index < Entries.size(); ++Index)
+			{
+				const void* Key = Entries[static_cast<size_t>(Index)].Key;
+				void* Value = Entries[static_cast<size_t>(Index)].Value;
 				if (!Key || !Value) continue;
 				ImGui::PushID(Key);
 				FPropertyValueSnapshot KeySnapshot;
@@ -776,9 +818,12 @@ namespace Durin
 					RemoveTarget.Path.back().MapKeyData = SerializedKey;
 					RemoveTarget.Path.back().MapKey = KeySnapshot;
 					bChanged |= SubmitStructure(std::move(RemoveTarget), EPropertyChangeKind::MapRemove,
-						[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&, std::string&) {
+						[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&, std::string& MutationError) {
 							auto* DraftProperty = static_cast<const FMapProperty*>(DraftMap.Property);
-							DraftProperty->Remove(DraftMap.Container, Key, DraftMap.ArrayIndex);
+							const EContainerOpResult Result = DraftProperty->RemoveChecked(
+								DraftMap.Container, Key, DraftMap.ArrayIndex);
+							if (Result != EContainerOpResult::Success)
+								MutationError = std::format("Unable to remove reflected map entry (result {}).", static_cast<uint32>(Result));
 						});
 				}
 				else if (bKeyChanged)
@@ -798,11 +843,14 @@ namespace Durin
 						KeyEdit.AssignValue(Property->GetKeyProp(), ProposedKeyStorage.GetContainer(), 0);
 						FPropertyValueSnapshot ProposedKeySnapshot;
 						std::string CaptureError;
+						const void* ExistingValue = nullptr;
 						if (!CapturePropertyValue(Property->GetKeyProp(), ProposedKey, 0, ProposedKeySnapshot, &CaptureError))
 						{
 							ReportError(Context, std::move(CaptureError));
 						}
-						else if (!(ProposedKeySnapshot == KeySnapshot) && Property->Contains(Container, ProposedKey, ArrayIndex))
+						else if (!(ProposedKeySnapshot == KeySnapshot)
+							&& Property->FindValue(Container, ProposedKey, &ExistingValue, ArrayIndex)
+								== EContainerOpResult::Success)
 						{
 							ReportError(Context, "Map keys must be unique.");
 						}
@@ -815,8 +863,10 @@ namespace Durin
 									uint32 DraftArrayIndex = 0;
 									if (!Draft.Resolve(EditTarget, DraftProperty, DraftContainer, DraftArrayIndex, &MutationError)) return;
 									auto* DraftMap = static_cast<const FMapProperty*>(DraftProperty);
-									if (!DraftMap->RenameKey(DraftContainer, Key, ProposedKey,
-										DraftArrayIndex)) MutationError = "Unable to rename the reflected map key.";
+									const EContainerOpResult Result = DraftMap->RenameKeyChecked(
+										DraftContainer, Key, ProposedKey, DraftArrayIndex);
+									if (Result != EContainerOpResult::Success)
+										MutationError = std::format("Unable to rename the reflected map key (result {}).", static_cast<uint32>(Result));
 								}, true);
 						}
 					}

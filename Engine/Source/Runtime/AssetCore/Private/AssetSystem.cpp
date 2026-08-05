@@ -333,6 +333,53 @@ namespace Durin::Asset
 		}
 
 		auto SerializeValue(
+			FProperty* Property, const void* Container, uint32 ArrayIndex, FByteWriter& Writer,
+			const std::unordered_map<DObject*, uint64>& ObjectIds,
+			std::unordered_set<FAssetPath>& Dependencies) -> FAssetResult;
+
+		struct FAssetArrayVisitContext
+		{
+			FProperty* Inner;
+			FByteWriter& Writer;
+			const std::unordered_map<DObject*, uint64>& ObjectIds;
+			std::unordered_set<FAssetPath>& Dependencies;
+			FAssetResult Result;
+		};
+
+		auto SerializeAssetArrayElement(void* RawContext, uint64, const void* Element) -> bool
+		{
+			auto& Context = *static_cast<FAssetArrayVisitContext*>(RawContext);
+			Context.Result = SerializeValue(
+				Context.Inner, Element, 0, Context.Writer, Context.ObjectIds, Context.Dependencies);
+			return Context.Result.Succeeded();
+		}
+
+		struct FCanonicalAssetMapEntry
+		{
+			std::vector<uint8> Token;
+			const void* Key = nullptr;
+			const void* Value = nullptr;
+		};
+
+		struct FCanonicalAssetMapContext
+		{
+			FProperty* KeyProperty;
+			std::vector<FCanonicalAssetMapEntry> Entries;
+			std::string Error;
+		};
+
+		auto CollectCanonicalAssetMapEntry(void* RawContext, const void* Key, const void* Value) -> bool
+		{
+			auto& Context = *static_cast<FCanonicalAssetMapContext*>(RawContext);
+			FCanonicalAssetMapEntry Entry;
+			if (!BuildCanonicalMapKeyToken(Context.KeyProperty, Key, 0, Entry.Token, &Context.Error)) return false;
+			Entry.Key = Key;
+			Entry.Value = Value;
+			Context.Entries.push_back(std::move(Entry));
+			return true;
+		}
+
+		auto SerializeValue(
 			FProperty* Property,
 			const void* Container,
 			uint32 ArrayIndex,
@@ -433,27 +480,48 @@ namespace Durin::Asset
 			case DurinCodeGen::EPropertyGenFlags::Array:
 			{
 				auto* Array = static_cast<FArrayProperty*>(Property);
-				if (!Array->HasArrayHelper() || !Array->GetInner()) return Error(EAssetError::UnsupportedProperty, "Array property lacks runtime helpers.");
-				const uint64 Num = Array->Num(Container, ArrayIndex);
+				if (!Array->HasArrayOps() || !Array->GetInner()
+					|| !Array->HasCapability(EArrayOpsFlags::Count | EArrayOpsFlags::ConstTraversal))
+					return Error(EAssetError::UnsupportedProperty, "ArrayOperationUnavailable: DAST save requires Count and ConstTraversal.");
+				uint64 Num = 0;
+				if (Array->GetNum(Container, Num, ArrayIndex) != EContainerOpResult::Success)
+					return Error(EAssetError::UnsupportedProperty, "ArrayOperationFailed: Count failed during DAST save.");
 				Writer.Write(Num);
-				for (uint64 Index = 0; Index < Num; ++Index)
-				{
-					FAssetResult Result = SerializeValue(Array->GetInner(), Array->GetElementPtr(Container, Index, ArrayIndex), 0, Writer, ObjectIds, Dependencies);
-					if (!Result) return Result;
-				}
+				FAssetArrayVisitContext Context{Array->GetInner(), Writer, ObjectIds, Dependencies};
+				if (Array->VisitElements(Container, &SerializeAssetArrayElement, &Context, ArrayIndex)
+					!= EContainerOpResult::Success && Context.Result)
+					return Error(EAssetError::UnsupportedProperty, "ArrayOperationFailed: ConstTraversal failed during DAST save.");
+				if (!Context.Result) return Context.Result;
 				return {};
 			}
 			case DurinCodeGen::EPropertyGenFlags::Map:
 			{
 				auto* Map = static_cast<FMapProperty*>(Property);
-				if (!Map->HasMapHelper() || !Map->GetKeyProp() || !Map->GetValueProp()) return Error(EAssetError::UnsupportedProperty, "Map property lacks runtime helpers.");
-				const uint64 Num = Map->Num(Container, ArrayIndex);
+				if (!Map->HasMapOps() || !Map->GetKeyProp() || !Map->GetValueProp()
+					|| !Map->HasCapability(EMapOpsFlags::Count | EMapOpsFlags::ConstTraversal))
+					return Error(EAssetError::UnsupportedProperty, "MapOperationUnavailable: DAST save requires Count and ConstTraversal.");
+				std::string CanonicalError;
+				if (!ValidateCanonicalMapKeyProperty(Map->GetKeyProp(), &CanonicalError))
+					return Error(EAssetError::UnsupportedProperty, std::move(CanonicalError));
+				uint64 Num = 0;
+				if (Map->GetNum(Container, Num, ArrayIndex) != EContainerOpResult::Success)
+					return Error(EAssetError::UnsupportedProperty, "MapOperationFailed: Count failed during DAST save.");
 				Writer.Write(Num);
-				for (uint64 Index = 0; Index < Num; ++Index)
+				FCanonicalAssetMapContext Context{Map->GetKeyProp()};
+				const EContainerOpResult VisitResult = Map->VisitEntries(
+					Container, &CollectCanonicalAssetMapEntry, &Context, ArrayIndex);
+				if (VisitResult != EContainerOpResult::Success || !Context.Error.empty())
+					return Error(EAssetError::UnsupportedProperty, Context.Error.empty()
+						? "MapOperationFailed: ConstTraversal failed during DAST save." : std::move(Context.Error));
+				std::ranges::sort(Context.Entries, {}, &FCanonicalAssetMapEntry::Token);
+				for (size_t Index = 0; Index < Context.Entries.size(); ++Index)
 				{
-					FAssetResult Result = SerializeValue(Map->GetKeyProp(), Map->GetKeyPtr(Container, Index, ArrayIndex), 0, Writer, ObjectIds, Dependencies);
+					if (Index > 0 && Context.Entries[Index - 1].Token == Context.Entries[Index].Token)
+						return Error(EAssetError::UnsupportedProperty,
+							"CanonicalMapKeyCollision: distinct entries produced the same canonical token.");
+					FAssetResult Result = SerializeValue(Map->GetKeyProp(), Context.Entries[Index].Key, 0, Writer, ObjectIds, Dependencies);
 					if (!Result) return Result;
-					Result = SerializeValue(Map->GetValueProp(), Map->GetMappedValuePtr(Container, Index, ArrayIndex), 0, Writer, ObjectIds, Dependencies);
+					Result = SerializeValue(Map->GetValueProp(), Context.Entries[Index].Value, 0, Writer, ObjectIds, Dependencies);
 					if (!Result) return Result;
 				}
 				return {};
@@ -624,24 +692,60 @@ namespace Durin::Asset
 			{
 				auto* Array = static_cast<FArrayProperty*>(Property);
 				uint64 Num = 0;
-				if (!Array->HasArrayHelper() || !Reader.Read(Num) || Num > 10000000) return Error(EAssetError::CorruptFile, "Invalid array payload.");
-				std::string ResizeError;
-				if (!Array->Resize(Container, Num, ArrayIndex, &ResizeError))
-					return Error(EAssetError::UnsupportedProperty, std::move(ResizeError));
+				if (!Array->HasArrayOps() || !Array->GetInner() || !Reader.Read(Num) || Num > 10000000)
+					return Error(EAssetError::CorruptFile, "Invalid array payload.");
+				if (!Array->HasCapability(EArrayOpsFlags::DetachedStorage | EArrayOpsFlags::TransactionalCommit
+					| EArrayOpsFlags::RandomAccess) || (Num > 0 && !Array->HasCapability(EArrayOpsFlags::DefaultGrow)))
+					return Error(EAssetError::UnsupportedProperty,
+						"ArrayOperationUnavailable: DAST load requires DetachedStorage, RandomAccess, DefaultGrow, and TransactionalCommit.");
+				const FArrayOps& Ops = Array->GetOps();
+				FDetachedContainerStorage Detached;
+				EContainerOpResult OpResult = Detached.Create(Ops);
+				if (OpResult == EContainerOpResult::Success) OpResult = Ops.Resize(Detached.Get(), Num);
+				if (OpResult != EContainerOpResult::Success)
+					return Error(EAssetError::UnsupportedProperty,
+						std::format("ArrayOperationFailed: detached allocation/resize returned {}.", static_cast<uint32>(OpResult)));
 				for (uint64 Index = 0; Index < Num; ++Index)
 				{
+					void* Element = nullptr;
+					OpResult = Ops.GetMutableAt(Detached.Get(), Index, &Element);
+					if (OpResult != EContainerOpResult::Success)
+						return Error(EAssetError::UnsupportedProperty,
+							std::format("ArrayElement[{}]: mutable access returned {}.", Index, static_cast<uint32>(OpResult)));
 					FAssetResult Result = DeserializeValue(
-						Array->GetInner(), Array->GetMutableElementPtr(Container, Index, ArrayIndex),
+						Array->GetInner(), Element,
 						0, Reader, Objects, OutLegacyFields, PackagePath, SourceVersion);
-					if (!Result) return Result;
+					if (!Result)
+					{
+						Result.Message = std::format("ArrayElement[{}]: {}", Index, Result.Message);
+						return Result;
+					}
 				}
+				OpResult = Ops.Commit(Array->GetValuePtr(Container, ArrayIndex), Detached.Get());
+				if (OpResult != EContainerOpResult::Success)
+					return Error(EAssetError::UnsupportedProperty,
+						std::format("ArrayOperationFailed: Commit returned {}.", static_cast<uint32>(OpResult)));
 				return {};
 			}
 			case DurinCodeGen::EPropertyGenFlags::Map:
 			{
 				auto* Map = static_cast<FMapProperty*>(Property);
 				uint64 Num = 0;
-				if (!Map->HasMapHelper() || !Reader.Read(Num) || Num > 10000000) return Error(EAssetError::CorruptFile, "Invalid map payload.");
+				if (!Map->HasMapOps() || !Map->GetKeyProp() || !Map->GetValueProp()
+					|| !Reader.Read(Num) || Num > 10000000)
+					return Error(EAssetError::CorruptFile, "Invalid map payload.");
+				if (!Map->HasCapability(EMapOpsFlags::DetachedStorage | EMapOpsFlags::TransactionalCommit | EMapOpsFlags::Insert))
+					return Error(EAssetError::UnsupportedProperty,
+						"MapOperationUnavailable: DAST load requires DetachedStorage, Insert, and TransactionalCommit.");
+				const FMapOps& Ops = Map->GetOps();
+				FDetachedContainerStorage Detached;
+				EContainerOpResult OpResult = Detached.Create(Ops);
+				if (OpResult != EContainerOpResult::Success)
+					return Error(EAssetError::UnsupportedProperty,
+						std::format("MapOperationFailed: detached allocation returned {}.", static_cast<uint32>(OpResult)));
+				if (Ops.Reserve && (OpResult = Ops.Reserve(Detached.Get(), Num)) != EContainerOpResult::Success)
+					return Error(EAssetError::UnsupportedProperty,
+						std::format("MapOperationFailed: Reserve returned {}.", static_cast<uint32>(OpResult)));
 				FReflectedValueStorage KeyStorage;
 				FReflectedValueStorage ValueStorage;
 				std::string StorageError;
@@ -649,7 +753,6 @@ namespace Durin::Asset
 					&& (!KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0, &StorageError)
 						|| !ValueStorage.DefaultConstruct(Map->GetValueProp(), 0, &StorageError)))
 					return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
-				Map->Clear(Container, ArrayIndex);
 				for (uint64 Index = 0; Index < Num; ++Index)
 				{
 					if (Index > 0)
@@ -662,13 +765,30 @@ namespace Durin::Asset
 					}
 					FAssetResult Result = DeserializeValue(
 						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Reader, Objects, OutLegacyFields, PackagePath, SourceVersion);
-					if (Result) Result = DeserializeValue(
+					if (!Result)
+					{
+						Result.Message = std::format("MapEntry[{}].Key: {}", Index, Result.Message);
+						return Result;
+					}
+					Result = DeserializeValue(
 						Map->GetValueProp(), ValueStorage.GetContainer(), 0, Reader, Objects, OutLegacyFields, PackagePath, SourceVersion);
-					if (Result && !Map->Insert(
-						Container, KeyStorage.GetValue(), ValueStorage.GetValue(), ArrayIndex, &StorageError))
-						Result = Error(EAssetError::UnsupportedProperty, std::move(StorageError));
-					if (!Result) return Result;
+					if (!Result)
+					{
+						Result.Message = std::format("MapEntry[{}].Value: {}", Index, Result.Message);
+						return Result;
+					}
+					OpResult = Ops.InsertCopy(Detached.Get(), KeyStorage.GetValue(), ValueStorage.GetValue());
+					if (OpResult == EContainerOpResult::DuplicateKey)
+						return Error(EAssetError::CorruptFile,
+							std::format("MapEntry[{}].Key: duplicate decoded key.", Index));
+					if (OpResult != EContainerOpResult::Success)
+						return Error(EAssetError::UnsupportedProperty,
+							std::format("MapEntry[{}]: Insert returned {}.", Index, static_cast<uint32>(OpResult)));
 				}
+				OpResult = Ops.Commit(Map->GetValuePtr(Container, ArrayIndex), Detached.Get());
+				if (OpResult != EContainerOpResult::Success)
+					return Error(EAssetError::UnsupportedProperty,
+						std::format("MapOperationFailed: Commit returned {}.", static_cast<uint32>(OpResult)));
 				return {};
 			}
 			default:

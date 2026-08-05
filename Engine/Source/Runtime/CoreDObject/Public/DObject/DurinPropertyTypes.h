@@ -240,23 +240,31 @@ namespace Durin
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
 			DClass* InReferencedClass,
-			const DurinCodeGen::FArrayPropertyHelper* InArrayHelper = nullptr
+			const FArrayOps* InOps
 		);
 
 		auto SetInner(FProperty* InInner) -> void { Inner = InInner; }
 		auto GetInner() const -> FProperty* { return Inner; }
 		auto GetContainerPtr(void* Container) const -> void* { return GetValuePtr(Container); }
 		auto GetContainerPtr(const void* Container) const -> const void* { return GetValuePtr(Container); }
+		auto GetOps() const -> const FArrayOps& { return *Ops; }
+		auto HasArrayOps() const -> bool { return Ops != nullptr; }
+		auto HasCapability(EArrayOpsFlags Flag) const -> bool { return EnumHasAllFlags(Ops->Flags, Flag); }
+		COREDOBJECT_API auto GetNum(const void* Container, uint64& OutNum, uint32 ArrayIndex = 0) const -> EContainerOpResult;
+		COREDOBJECT_API auto VisitElements(const void* Container, FArrayConstVisitor Visitor, void* Context, uint32 ArrayIndex = 0) const -> EContainerOpResult;
+		COREDOBJECT_API auto VisitMutableElements(void* Container, FArrayMutableVisitor Visitor, void* Context, uint32 ArrayIndex = 0) const -> EContainerOpResult;
+		COREDOBJECT_API auto GetElement(const void* Container, uint64 Index, const void** OutElement, uint32 ArrayIndex = 0) const -> EContainerOpResult;
+		COREDOBJECT_API auto GetMutableElement(void* Container, uint64 Index, void** OutElement, uint32 ArrayIndex = 0) const -> EContainerOpResult;
+		COREDOBJECT_API auto ResizeChecked(void* Container, uint64 Num, uint32 ArrayIndex = 0) const -> EContainerOpResult;
 		COREDOBJECT_API auto Num(const void* Container, uint32 ArrayIndex = 0) const -> uint64;
 		COREDOBJECT_API auto GetElementPtr(const void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> const void*;
 		COREDOBJECT_API auto GetMutableElementPtr(void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> void*;
 		COREDOBJECT_API auto Resize(
 			void* Container, uint64 Num, uint32 ArrayIndex = 0, std::string* OutError = nullptr) const -> bool;
-		auto HasArrayHelper() const -> bool { return ArrayHelper != nullptr; }
 
 	private:
 		FProperty* Inner = nullptr;
-		const DurinCodeGen::FArrayPropertyHelper* ArrayHelper = nullptr;
+		const FArrayOps* Ops = nullptr;
 	};
 
 	// Describes reflected unordered-map storage and its key/value property metadata.
@@ -276,7 +284,7 @@ namespace Durin
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
 			DClass* InReferencedClass,
-			const DurinCodeGen::FMapPropertyHelper* InMapHelper = nullptr
+			const FMapOps* InOps
 		);
 
 		auto SetKeyProp(FProperty* InKeyProp) -> void { KeyProp = InKeyProp; }
@@ -285,16 +293,20 @@ namespace Durin
 		auto GetValueProp() const -> FProperty* { return ValueProp; }
 		auto GetContainerPtr(void* Container) const -> void* { return GetValuePtr(Container); }
 		auto GetContainerPtr(const void* Container) const -> const void* { return GetValuePtr(Container); }
+		auto GetOps() const -> const FMapOps& { return *Ops; }
+		auto HasMapOps() const -> bool { return Ops != nullptr; }
+		auto HasCapability(EMapOpsFlags Flag) const -> bool { return EnumHasAllFlags(Ops->Flags, Flag); }
+		COREDOBJECT_API auto GetNum(const void* Container, uint64& OutNum, uint32 ArrayIndex = 0) const -> EContainerOpResult;
+		COREDOBJECT_API auto VisitEntries(const void* Container, FMapConstVisitor Visitor, void* Context, uint32 ArrayIndex = 0) const -> EContainerOpResult;
+		COREDOBJECT_API auto VisitMutableEntries(void* Container, FMapMutableVisitor Visitor, void* Context, uint32 ArrayIndex = 0) const -> EContainerOpResult;
+		COREDOBJECT_API auto FindValue(const void* Container, const void* Key, const void** OutValue, uint32 ArrayIndex = 0) const -> EContainerOpResult;
+		COREDOBJECT_API auto FindMutableValue(void* Container, const void* Key, void** OutValue, uint32 ArrayIndex = 0) const -> EContainerOpResult;
+		COREDOBJECT_API auto ClearChecked(void* Container, uint32 ArrayIndex = 0) const -> EContainerOpResult;
+		COREDOBJECT_API auto InsertChecked(void* Container, const void* Key, const void* Value, uint32 ArrayIndex = 0) const -> EContainerOpResult;
+		COREDOBJECT_API auto RenameKeyChecked(void* Container, const void* OldKey, const void* NewKey, uint32 ArrayIndex = 0) const -> EContainerOpResult;
+		COREDOBJECT_API auto RemoveChecked(void* Container, const void* Key, uint32 ArrayIndex = 0) const -> EContainerOpResult;
 		COREDOBJECT_API auto Num(const void* Container, uint32 ArrayIndex = 0) const -> uint64;
-		COREDOBJECT_API auto GetKeyPtr(const void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> const void*;
-		COREDOBJECT_API auto GetMappedValuePtr(const void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> const void*;
-		COREDOBJECT_API auto GetMutableMappedValuePtr(void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> void*;
 		COREDOBJECT_API auto Clear(void* Container, uint32 ArrayIndex = 0) const -> void;
-		COREDOBJECT_API auto CreateKey() const -> void*;
-		COREDOBJECT_API auto CreateKeyCopy(const void* Key) const -> void*;
-		COREDOBJECT_API auto DestroyKey(void* Key) const -> void;
-		COREDOBJECT_API auto CreateValue() const -> void*;
-		COREDOBJECT_API auto DestroyValue(void* Value) const -> void;
 		COREDOBJECT_API auto Insert(
 			void* Container, const void* Key, const void* Value,
 			uint32 ArrayIndex = 0, std::string* OutError = nullptr) const -> bool;
@@ -303,13 +315,25 @@ namespace Durin
 			void* Container, const void* OldKey, const void* NewKey,
 			uint32 ArrayIndex = 0, std::string* OutError = nullptr) const -> bool;
 		COREDOBJECT_API auto Remove(void* Container, const void* Key, uint32 ArrayIndex = 0) const -> bool;
-		auto HasMapHelper() const -> bool { return MapHelper != nullptr; }
 
 	private:
 		FProperty* KeyProp = nullptr;
 		FProperty* ValueProp = nullptr;
-		const DurinCodeGen::FMapPropertyHelper* MapHelper = nullptr;
+		const FMapOps* Ops = nullptr;
 	};
 
 	COREDOBJECT_API auto ForEachNestedProperty(FProperty* Property, const std::function<void(FProperty*)>& Visitor) -> void;
+
+	// Builds the version-1 logical token used to order supported reflected Map keys.
+	COREDOBJECT_API auto BuildCanonicalMapKeyToken(
+		const FProperty* Property,
+		const void* Container,
+		uint32 ArrayIndex,
+		std::vector<uint8>& OutToken,
+		std::string* OutError = nullptr
+	) -> bool;
+	COREDOBJECT_API auto ValidateCanonicalMapKeyProperty(
+		const FProperty* Property,
+		std::string* OutError = nullptr
+	) -> bool;
 } // namespace Durin

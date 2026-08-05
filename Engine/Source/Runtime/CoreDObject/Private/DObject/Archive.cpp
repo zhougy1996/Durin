@@ -53,7 +53,64 @@ namespace Durin
 			return Class;
 		}
 
-		auto SerializePropertyValue(FArchive& Ar, FProperty* Property, void* Container, uint32 ArrayIndex, bool bIncludeRawObjectReferences = false) -> void
+		auto SerializePropertyValue(FArchive& Ar, FProperty* Property, void* Container, uint32 ArrayIndex, bool bIncludeRawObjectReferences = false) -> void;
+
+		struct FArchiveArrayVisitContext
+		{
+			FArchive& Archive;
+			FProperty* Inner;
+			bool bIncludeRawObjectReferences;
+		};
+
+		auto SerializeArrayElement(void* RawContext, uint64, const void* Element) -> bool
+		{
+			auto& Context = *static_cast<FArchiveArrayVisitContext*>(RawContext);
+			SerializePropertyValue(Context.Archive, Context.Inner, const_cast<void*>(Element), 0,
+				Context.bIncludeRawObjectReferences);
+			return !Context.Archive.HasError();
+		}
+
+		struct FArchiveMapEntry
+		{
+			std::vector<uint8> Token;
+			const void* Key = nullptr;
+			const void* Value = nullptr;
+		};
+
+		struct FArchiveMapVisitContext
+		{
+			FArchive& Archive;
+			FMapProperty* Property;
+			bool bIncludeRawObjectReferences;
+			bool bCanonical;
+			std::vector<FArchiveMapEntry> Entries;
+		};
+
+		auto CollectOrSerializeMapEntry(void* RawContext, const void* Key, const void* Value) -> bool
+		{
+			auto& Context = *static_cast<FArchiveMapVisitContext*>(RawContext);
+			if (Context.bCanonical)
+			{
+				FArchiveMapEntry Entry;
+				std::string Error;
+				if (!BuildCanonicalMapKeyToken(Context.Property->GetKeyProp(), Key, 0, Entry.Token, &Error))
+				{
+					Context.Archive.SetError(Error);
+					return false;
+				}
+				Entry.Key = Key;
+				Entry.Value = Value;
+				Context.Entries.push_back(std::move(Entry));
+				return true;
+			}
+			SerializePropertyValue(Context.Archive, Context.Property->GetKeyProp(), const_cast<void*>(Key), 0,
+				Context.bIncludeRawObjectReferences);
+			SerializePropertyValue(Context.Archive, Context.Property->GetValueProp(), const_cast<void*>(Value), 0,
+				Context.bIncludeRawObjectReferences);
+			return !Context.Archive.HasError();
+		}
+
+		auto SerializePropertyValue(FArchive& Ar, FProperty* Property, void* Container, uint32 ArrayIndex, bool bIncludeRawObjectReferences) -> void
 		{
 			if (Ar.HasError()) return;
 			if (!Property || !Container)
@@ -189,13 +246,19 @@ namespace Durin
 			{
 				auto* ArrayProperty = static_cast<FArrayProperty*>(Property);
 				FProperty* Inner = ArrayProperty->GetInner();
-				if (!Inner || !ArrayProperty->HasArrayHelper())
+				if (!Inner || !ArrayProperty->HasArrayOps()
+					|| !ArrayProperty->HasCapability(EArrayOpsFlags::Count))
 				{
-					Ar.SetError("Array property lacks runtime helpers.");
+					Ar.SetError("ArrayOperationUnavailable: Count is required.");
 					break;
 				}
 
-				uint64 Num = Ar.IsSaving() ? ArrayProperty->Num(Container, ArrayIndex) : 0;
+				uint64 Num = 0;
+				if (Ar.IsSaving() && ArrayProperty->GetNum(Container, Num, ArrayIndex) != EContainerOpResult::Success)
+				{
+					Ar.SetError("ArrayOperationFailed: Count failed.");
+					break;
+				}
 				Ar << Num;
 				if (Ar.HasError()) break;
 				if (Ar.IsLoading() && Num > 10000000)
@@ -203,32 +266,69 @@ namespace Durin
 					Ar.SetError("Array element count exceeds the supported limit.");
 					break;
 				}
-				if (Ar.IsLoading())
+				if (Ar.IsSaving())
 				{
-					std::string Error;
-					if (!ArrayProperty->Resize(Container, Num, ArrayIndex, &Error))
+					if (!ArrayProperty->HasCapability(EArrayOpsFlags::ConstTraversal))
 					{
-						Ar.SetError(Error);
-						return;
+						Ar.SetError("ArrayOperationUnavailable: ConstTraversal is required for save.");
+						break;
 					}
+					FArchiveArrayVisitContext Context{Ar, Inner, bIncludeRawObjectReferences};
+					if (ArrayProperty->VisitElements(Container, &SerializeArrayElement, &Context, ArrayIndex)
+						!= EContainerOpResult::Success && !Ar.HasError())
+						Ar.SetError("ArrayOperationFailed: ConstTraversal failed.");
+					break;
+				}
+
+				const FArrayOps& Ops = ArrayProperty->GetOps();
+				if (!ArrayProperty->HasCapability(EArrayOpsFlags::DetachedStorage | EArrayOpsFlags::TransactionalCommit
+					| EArrayOpsFlags::RandomAccess) || (Num > 0 && !ArrayProperty->HasCapability(EArrayOpsFlags::DefaultGrow)))
+				{
+					Ar.SetError("ArrayOperationUnavailable: transactional load requires DetachedStorage, RandomAccess, DefaultGrow, and TransactionalCommit.");
+					break;
+				}
+				FDetachedContainerStorage Detached;
+				EContainerOpResult Result = Detached.Create(Ops);
+				if (Result == EContainerOpResult::Success) Result = Ops.Resize(Detached.Get(), Num);
+				if (Result != EContainerOpResult::Success)
+				{
+					Ar.SetError(std::format("ArrayOperationFailed: detached allocation/resize returned {}.", static_cast<uint32>(Result)));
+					break;
 				}
 				for (uint64 Index = 0; Index < Num && !Ar.HasError(); ++Index)
 				{
-					void* Element = ArrayProperty->GetMutableElementPtr(Container, Index, ArrayIndex);
+					void* Element = nullptr;
+					Result = Ops.GetMutableAt(Detached.Get(), Index, &Element);
+					if (Result != EContainerOpResult::Success)
+					{
+						Ar.SetError(std::format("ArrayOperationFailed: element {} access returned {}.", Index, static_cast<uint32>(Result)));
+						break;
+					}
 					SerializePropertyValue(Ar, Inner, Element, 0, bIncludeRawObjectReferences);
+				}
+				if (!Ar.HasError())
+				{
+					Result = Ops.Commit(ArrayProperty->GetValuePtr(Container, ArrayIndex), Detached.Get());
+					if (Result != EContainerOpResult::Success)
+						Ar.SetError(std::format("ArrayOperationFailed: Commit returned {}.", static_cast<uint32>(Result)));
 				}
 				break;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Map:
 			{
 				auto* MapProperty = static_cast<FMapProperty*>(Property);
-				if (!MapProperty->HasMapHelper() || !MapProperty->GetKeyProp()
-					|| !MapProperty->GetValueProp())
+				if (!MapProperty->HasMapOps() || !MapProperty->GetKeyProp() || !MapProperty->GetValueProp()
+					|| !MapProperty->HasCapability(EMapOpsFlags::Count))
 				{
-					Ar.SetError("Map property lacks runtime helpers.");
+					Ar.SetError("MapOperationUnavailable: Count is required.");
 					break;
 				}
-				uint64 Num = Ar.IsSaving() ? MapProperty->Num(Container, ArrayIndex) : 0;
+				uint64 Num = 0;
+				if (Ar.IsSaving() && MapProperty->GetNum(Container, Num, ArrayIndex) != EContainerOpResult::Success)
+				{
+					Ar.SetError("MapOperationFailed: Count failed.");
+					break;
+				}
 				Ar << Num;
 				if (Ar.HasError()) break;
 				if (Ar.IsLoading() && Num > 10000000)
@@ -238,14 +338,48 @@ namespace Durin
 				}
 				if (Ar.IsSaving())
 				{
-					for (uint64 Index = 0; Index < Num && !Ar.HasError(); ++Index)
+					if (!MapProperty->HasCapability(EMapOpsFlags::ConstTraversal))
 					{
-						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), const_cast<void*>(MapProperty->GetKeyPtr(Container, Index, ArrayIndex)), 0, bIncludeRawObjectReferences);
-						SerializePropertyValue(Ar, MapProperty->GetValueProp(), const_cast<void*>(MapProperty->GetMappedValuePtr(Container, Index, ArrayIndex)), 0, bIncludeRawObjectReferences);
+						Ar.SetError("MapOperationUnavailable: ConstTraversal is required for save.");
+						break;
+					}
+					FArchiveMapVisitContext Context{Ar, MapProperty, bIncludeRawObjectReferences, Ar.RequiresCanonicalMapOrder()};
+					if (MapProperty->VisitEntries(Container, &CollectOrSerializeMapEntry, &Context, ArrayIndex)
+						!= EContainerOpResult::Success && !Ar.HasError())
+						Ar.SetError("MapOperationFailed: ConstTraversal failed.");
+					if (Ar.HasError() || !Context.bCanonical) break;
+					std::ranges::sort(Context.Entries, {}, &FArchiveMapEntry::Token);
+					for (size_t Index = 0; Index < Context.Entries.size() && !Ar.HasError(); ++Index)
+					{
+						if (Index > 0 && Context.Entries[Index - 1].Token == Context.Entries[Index].Token)
+						{
+							Ar.SetError("CanonicalMapKeyCollision: distinct entries produced the same canonical token.");
+							break;
+						}
+						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), const_cast<void*>(Context.Entries[Index].Key), 0, bIncludeRawObjectReferences);
+						SerializePropertyValue(Ar, MapProperty->GetValueProp(), const_cast<void*>(Context.Entries[Index].Value), 0, bIncludeRawObjectReferences);
 					}
 				}
 				else
 				{
+					if (!MapProperty->HasCapability(EMapOpsFlags::DetachedStorage | EMapOpsFlags::TransactionalCommit | EMapOpsFlags::Insert))
+					{
+						Ar.SetError("MapOperationUnavailable: transactional load requires DetachedStorage, Insert, and TransactionalCommit.");
+						break;
+					}
+					const FMapOps& Ops = MapProperty->GetOps();
+					FDetachedContainerStorage Detached;
+					EContainerOpResult OpResult = Detached.Create(Ops);
+					if (OpResult != EContainerOpResult::Success)
+					{
+						Ar.SetError(std::format("MapOperationFailed: detached allocation returned {}.", static_cast<uint32>(OpResult)));
+						break;
+					}
+					if (Ops.Reserve && (OpResult = Ops.Reserve(Detached.Get(), Num)) != EContainerOpResult::Success)
+					{
+						Ar.SetError(std::format("MapOperationFailed: Reserve returned {}.", static_cast<uint32>(OpResult)));
+						break;
+					}
 					FReflectedValueStorage KeyStorage;
 					FReflectedValueStorage ValueStorage;
 					std::string Error;
@@ -256,7 +390,6 @@ namespace Durin
 						Ar.SetError(Error);
 						return;
 					}
-					MapProperty->Clear(Container, ArrayIndex);
 					for (uint64 Index = 0; Index < Num && !Ar.HasError(); ++Index)
 					{
 						if (Index > 0)
@@ -273,12 +406,20 @@ namespace Durin
 						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), KeyStorage.GetContainer(), 0, bIncludeRawObjectReferences);
 						SerializePropertyValue(Ar, MapProperty->GetValueProp(), ValueStorage.GetContainer(), 0, bIncludeRawObjectReferences);
 						if (Ar.HasError()) return;
-						if (!MapProperty->Insert(
-							Container, KeyStorage.GetValue(), ValueStorage.GetValue(), ArrayIndex, &Error))
+						OpResult = Ops.InsertCopy(Detached.Get(), KeyStorage.GetValue(), ValueStorage.GetValue());
+						if (OpResult != EContainerOpResult::Success)
 						{
-							Ar.SetError(Error);
+							Ar.SetError(OpResult == EContainerOpResult::DuplicateKey
+								? std::format("MapDuplicateKey: decoded entry {} duplicates an earlier key.", Index)
+								: std::format("MapOperationFailed: Insert entry {} returned {}.", Index, static_cast<uint32>(OpResult)));
 							return;
 						}
+					}
+					if (!Ar.HasError())
+					{
+						OpResult = Ops.Commit(MapProperty->GetValuePtr(Container, ArrayIndex), Detached.Get());
+						if (OpResult != EContainerOpResult::Success)
+							Ar.SetError(std::format("MapOperationFailed: Commit returned {}.", static_cast<uint32>(OpResult)));
 					}
 				}
 				break;
@@ -336,9 +477,12 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Array:
 			{
 				const auto* ArrayProperty = static_cast<const FArrayProperty*>(Property);
-				if (!ArrayProperty->HasArrayHelper() || !ArrayProperty->GetInner())
+				if (!ArrayProperty->HasArrayOps() || !ArrayProperty->GetInner()
+					|| !ArrayProperty->HasCapability(EArrayOpsFlags::Count | EArrayOpsFlags::ConstTraversal
+						| EArrayOpsFlags::RandomAccess | EArrayOpsFlags::DefaultGrow
+						| EArrayOpsFlags::DetachedStorage | EArrayOpsFlags::TransactionalCommit))
 				{
-					if (OutError) *OutError = "Cannot snapshot an array property without its helper and inner property.";
+					if (OutError) *OutError = "Cannot snapshot an array without Count, ConstTraversal, RandomAccess, DefaultGrow, DetachedStorage, and TransactionalCommit.";
 					return false;
 				}
 				return ValidateSnapshotProperty(ArrayProperty->GetInner(), OutError);
@@ -346,12 +490,15 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Map:
 			{
 				const auto* MapProperty = static_cast<const FMapProperty*>(Property);
-				if (!MapProperty->HasMapHelper() || !MapProperty->GetKeyProp() || !MapProperty->GetValueProp())
+				if (!MapProperty->HasMapOps() || !MapProperty->GetKeyProp() || !MapProperty->GetValueProp()
+					|| !MapProperty->HasCapability(EMapOpsFlags::Count | EMapOpsFlags::ConstTraversal
+						| EMapOpsFlags::Insert | EMapOpsFlags::DetachedStorage | EMapOpsFlags::TransactionalCommit))
 				{
-					if (OutError) *OutError = "Cannot snapshot a map property without its helper, key, and value properties.";
+					if (OutError) *OutError = "Cannot snapshot a map without Count, ConstTraversal, Insert, DetachedStorage, and TransactionalCommit.";
 					return false;
 				}
-				return ValidateSnapshotProperty(MapProperty->GetKeyProp(), OutError)
+				return ValidateCanonicalMapKeyProperty(MapProperty->GetKeyProp(), OutError)
+					&& ValidateSnapshotProperty(MapProperty->GetKeyProp(), OutError)
 					&& ValidateSnapshotProperty(MapProperty->GetValueProp(), OutError);
 			}
 			default:
@@ -705,6 +852,7 @@ namespace Durin
 				}
 				*this << Id;
 			}
+			auto RequiresCanonicalMapOrder() const -> bool override { return true; }
 		private:
 			std::vector<DObject*>& References;
 		};
@@ -788,6 +936,8 @@ namespace Durin
 		FSnapshotReader Reader(Snapshot.Bytes, Snapshot.ReferencedObjects);
 		SerializeReflectedPropertyValue(
 			Reader, const_cast<FProperty*>(Property), Container, ArrayIndex, true);
+		if (!Reader.HasError() && Reader.GetRemainingBytes() != 0)
+			Reader.SetError("Property snapshot has trailing bytes.");
 		if (!Reader.HasError()) return true;
 		if (OutError) *OutError = Reader.GetError();
 		return false;

@@ -557,10 +557,12 @@ def _scan_source_properties_for_class(
                 else:
                     declaration = re.match(r"(.+?)\s+(\w+)(?:\s*\[\d+\])?(?:\s*(?:=.*|\{.*\}))?;", stripped)
                     property_name = declaration.group(2) if declaration else ""
+                    type_spelling = declaration.group(1).strip() if declaration else stripped
+                    if _is_std_vector(type_spelling) or _is_std_unordered_map(type_spelling):
+                        _validate_explicit_container_spelling(type_spelling, property_name or "<unknown>", line_number)
                     if reject_unsupported and (
                         not property_name or property_name not in (known_property_names or set())
                     ):
-                        type_spelling = declaration.group(1).strip() if declaration else stripped
                         raise ValueError(
                             f"DPROPERTY at line {line_number}: unsupported non-hermetic type "
                             f"spelling '{type_spelling}'"
@@ -571,13 +573,67 @@ def _scan_source_properties_for_class(
 
 
 def _is_std_vector(type_spelling: str) -> bool:
-    normalized = type_spelling.replace(" ", "")
+    normalized = type_spelling.replace(" ", "").removeprefix("::")
     return normalized.startswith("std::vector<")
 
 
 def _is_std_unordered_map(type_spelling: str) -> bool:
-    normalized = type_spelling.replace(" ", "")
+    normalized = type_spelling.replace(" ", "").removeprefix("::")
     return normalized.startswith("std::unordered_map<")
+
+
+def _validate_explicit_container_spelling(
+    type_spelling: str,
+    property_name: str,
+    line_number: int,
+    *,
+    depth: int = 0,
+) -> None:
+    location = f"DPROPERTY '{property_name}' at line {line_number}"
+    if _is_std_vector(type_spelling):
+        if depth >= MAX_CONTAINER_PROPERTY_DEPTH:
+            raise ValueError(
+                f"[DHT-CONT005] {location}: container nesting exceeds the supported "
+                f"depth of {MAX_CONTAINER_PROPERTY_DEPTH}"
+            )
+        args = _source_template_args(type_spelling.removeprefix("::"), "std::vector")
+        if len(args) != 1:
+            raise ValueError(
+                f"[DHT-CONT001] {location}: std::vector requires the default "
+                "allocator form std::vector<T>"
+            )
+        if _normalize_type_spelling(args[0]) == "bool":
+            raise ValueError(
+                f"[DHT-CONT002] {location}: std::vector<bool> proxy references "
+                "are unsupported"
+            )
+        if _is_std_vector(args[0]) or _is_std_unordered_map(args[0]):
+            _validate_explicit_container_spelling(args[0], property_name, line_number, depth=depth + 1)
+        return
+    if _is_std_unordered_map(type_spelling):
+        if depth >= MAX_CONTAINER_PROPERTY_DEPTH:
+            raise ValueError(
+                f"[DHT-CONT005] {location}: container nesting exceeds the supported "
+                f"depth of {MAX_CONTAINER_PROPERTY_DEPTH}"
+            )
+        args = _source_template_args(type_spelling.removeprefix("::"), "std::unordered_map")
+        if len(args) != 2:
+            raise ValueError(
+                f"[DHT-CONT003] {location}: std::unordered_map requires the default "
+                "hash, equality, and allocator form std::unordered_map<K, V>"
+            )
+        if (
+            _is_std_vector(args[0])
+            or _is_std_unordered_map(args[0])
+            or args[0].rstrip().endswith("*")
+            or _is_tobject_ptr(args[0])
+        ):
+            key_type = _normalize_type_spelling(args[0])
+            raise ValueError(
+                f"[DHT-CONT004] {location}: Map key type '{key_type}' is unsupported"
+            )
+        if _is_std_vector(args[1]) or _is_std_unordered_map(args[1]):
+            _validate_explicit_container_spelling(args[1], property_name, line_number, depth=depth + 1)
 
 
 def _is_tobject_ptr(type_spelling: str) -> bool:
@@ -761,11 +817,14 @@ def _make_property_from_spelling(
                 flags=flags,
             )
 
-    if allow_container and _is_std_vector(type_spelling):
+    vector_spelling = type_spelling if _is_std_vector(type_spelling) else canonical_spelling
+    if allow_container and _is_std_vector(vector_spelling):
         if depth >= max_depth:
             return None
-        args = _source_template_args(type_spelling, "std::vector")
-        if len(args) != 1:
+        args = _source_template_args(vector_spelling.removeprefix("::"), "std::vector")
+        if len(args) < 1 or (_is_std_vector(type_spelling) and len(args) != 1):
+            return None
+        if _normalize_type_spelling(args[0]) == "bool":
             return None
         inner = _make_property_from_spelling(
             f"{name}_Inner",
@@ -789,11 +848,12 @@ def _make_property_from_spelling(
             inner=inner,
         )
 
-    if allow_container and _is_std_unordered_map(type_spelling):
+    map_spelling = type_spelling if _is_std_unordered_map(type_spelling) else canonical_spelling
+    if allow_container and _is_std_unordered_map(map_spelling):
         if depth >= max_depth:
             return None
-        args = _source_template_args(type_spelling, "std::unordered_map")
-        if len(args) < 2:
+        args = _source_template_args(map_spelling.removeprefix("::"), "std::unordered_map")
+        if len(args) < 2 or (_is_std_unordered_map(type_spelling) and len(args) != 2):
             return None
         key = _make_property_from_spelling(
             f"{name}_Key",
@@ -1003,6 +1063,7 @@ def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: Exported
 
     source_type = _source_declared_type(source, field_cursor)
     if source_type and (_is_std_vector(source_type) or _is_std_unordered_map(source_type)):
+        _validate_explicit_container_spelling(source_type, field_cursor.spelling, field_cursor.location.line)
         return _apply_property_annotation(_make_property_from_spelling(
             field_cursor.spelling,
             source_type,

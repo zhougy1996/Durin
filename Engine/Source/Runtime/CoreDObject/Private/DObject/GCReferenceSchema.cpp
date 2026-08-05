@@ -50,6 +50,35 @@ namespace Durin::Private
 
 		auto CompileProperty(FProperty* Property) -> std::shared_ptr<const FGCReferenceOperation>;
 		auto VisitOperation(const FGCReferenceOperation& Operation, void* Container, FReferenceCollector& Collector) -> void;
+
+		struct FArrayReferenceVisitContext
+		{
+			const FGCReferenceOperation& Inner;
+			FReferenceCollector& Collector;
+		};
+
+		auto VisitArrayReference(void* RawContext, uint64, const void* Element) -> bool
+		{
+			auto& Context = *static_cast<FArrayReferenceVisitContext*>(RawContext);
+			VisitOperation(Context.Inner, const_cast<void*>(Element), Context.Collector);
+			return true;
+		}
+
+		struct FMapReferenceVisitContext
+		{
+			const FGCReferenceOperation& Operation;
+			FReferenceCollector& Collector;
+		};
+
+		auto VisitMapReference(void* RawContext, const void* Key, const void* Value) -> bool
+		{
+			auto& Context = *static_cast<FMapReferenceVisitContext*>(RawContext);
+			if (Context.Operation.Key)
+				VisitOperation(*Context.Operation.Key, const_cast<void*>(Key), Context.Collector);
+			if (Context.Operation.Value)
+				VisitOperation(*Context.Operation.Value, const_cast<void*>(Value), Context.Collector);
+			return true;
+		}
 	}
 
 	class FGCReferenceSchema
@@ -94,7 +123,9 @@ namespace Durin::Private
 				auto* ArrayProperty = static_cast<FArrayProperty*>(Property);
 				auto Inner = CompileProperty(ArrayProperty->GetInner());
 				if (!Inner) return nullptr;
-				check(ArrayProperty->HasArrayHelper() && "Reference-bearing reflected arrays require an array helper.");
+				check(ArrayProperty->HasArrayOps()
+					&& ArrayProperty->HasCapability(EArrayOpsFlags::ConstTraversal)
+					&& "Reference-bearing reflected arrays require const traversal.");
 				auto Operation = MakeOperation(EGCReferenceOperation::Array, Property);
 				Operation->Inner = std::move(Inner);
 				return Operation;
@@ -105,7 +136,9 @@ namespace Durin::Private
 				auto Key = CompileProperty(MapProperty->GetKeyProp());
 				auto Value = CompileProperty(MapProperty->GetValueProp());
 				if (!Key && !Value) return nullptr;
-				check(MapProperty->HasMapHelper() && "Reference-bearing reflected maps require a map helper.");
+				check(MapProperty->HasMapOps()
+					&& MapProperty->HasCapability(EMapOpsFlags::ConstTraversal)
+					&& "Reference-bearing reflected maps require const traversal.");
 				auto Operation = MakeOperation(EGCReferenceOperation::Map, Property);
 				Operation->Key = std::move(Key);
 				Operation->Value = std::move(Value);
@@ -137,31 +170,19 @@ namespace Durin::Private
 			case EGCReferenceOperation::Array:
 			{
 				auto* ArrayProperty = static_cast<FArrayProperty*>(Operation.Property);
-				const uint64 Num = ArrayProperty->Num(Container, ArrayIndex);
-				for (uint64 Index = 0; Index < Num; ++Index)
-				{
-					void* Element = ArrayProperty->GetMutableElementPtr(Container, Index, ArrayIndex);
-					VisitOperation(*Operation.Inner, Element, Collector);
-				}
+				FArrayReferenceVisitContext Context{*Operation.Inner, Collector};
+				checkf(ArrayProperty->VisitElements(
+					Container, &VisitArrayReference, &Context, ArrayIndex) == EContainerOpResult::Success,
+					"Reference-bearing reflected array traversal failed.");
 				break;
 			}
 			case EGCReferenceOperation::Map:
 			{
 				auto* MapProperty = static_cast<FMapProperty*>(Operation.Property);
-				const uint64 Num = MapProperty->Num(Container, ArrayIndex);
-				for (uint64 Index = 0; Index < Num; ++Index)
-				{
-					if (Operation.Key)
-					{
-						void* Key = const_cast<void*>(MapProperty->GetKeyPtr(Container, Index, ArrayIndex));
-						VisitOperation(*Operation.Key, Key, Collector);
-					}
-					if (Operation.Value)
-					{
-						void* Value = const_cast<void*>(MapProperty->GetMappedValuePtr(Container, Index, ArrayIndex));
-						VisitOperation(*Operation.Value, Value, Collector);
-					}
-				}
+				FMapReferenceVisitContext Context{Operation, Collector};
+				checkf(MapProperty->VisitEntries(
+					Container, &VisitMapReference, &Context, ArrayIndex) == EContainerOpResult::Success,
+					"Reference-bearing reflected map traversal failed.");
 				break;
 			}
 			}

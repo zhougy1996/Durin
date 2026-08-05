@@ -55,6 +55,7 @@ namespace Durin
 		{
 			return std::numeric_limits<uint64>::max();
 		}
+		virtual auto RequiresCanonicalMapOrder() const -> bool { return false; }
 
 		template<typename T>
 		auto operator<<(T& Value) -> FArchive&

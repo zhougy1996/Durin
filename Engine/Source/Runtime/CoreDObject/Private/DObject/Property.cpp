@@ -89,6 +89,35 @@ namespace Durin
 			const void* LeftContainer,
 			uint32 LeftArrayIndex,
 			const void* RightContainer,
+			uint32 RightArrayIndex) -> bool;
+
+		struct FMapIdenticalContext
+		{
+			const FMapProperty* Map = nullptr;
+			const FProperty* ValueProperty = nullptr;
+			const void* RightContainer = nullptr;
+			uint32 RightArrayIndex = 0;
+			bool bIdentical = true;
+		};
+
+		auto VisitMapIdenticalEntry(void* RawContext, const void* Key, const void* LeftValue) -> bool
+		{
+			auto& Context = *static_cast<FMapIdenticalContext*>(RawContext);
+			const void* RightValue = nullptr;
+			if (Context.Map->FindValue(Context.RightContainer, Key, &RightValue, Context.RightArrayIndex) != EContainerOpResult::Success
+				|| !ArePropertyValuesIdenticalImpl(Context.ValueProperty, LeftValue, 0, RightValue, 0))
+			{
+				Context.bIdentical = false;
+				return false;
+			}
+			return true;
+		}
+
+		auto ArePropertyValuesIdenticalImpl(
+			const FProperty* Property,
+			const void* LeftContainer,
+			uint32 LeftArrayIndex,
+			const void* RightContainer,
 			uint32 RightArrayIndex) -> bool
 		{
 			if (!Property || !LeftContainer || !RightContainer) return false;
@@ -162,7 +191,7 @@ namespace Durin
 			{
 				const auto* ArrayProperty = static_cast<const FArrayProperty*>(Property);
 				FProperty* Inner = ArrayProperty->GetInner();
-				if (!Inner || !ArrayProperty->HasArrayHelper()) return false;
+				if (!Inner || !ArrayProperty->HasArrayOps()) return false;
 				const uint64 LeftNum = ArrayProperty->Num(LeftContainer, LeftArrayIndex);
 				if (LeftNum != ArrayProperty->Num(RightContainer, RightArrayIndex)) return false;
 				for (uint64 Index = 0; Index < LeftNum; ++Index)
@@ -178,29 +207,13 @@ namespace Durin
 				const auto* MapProperty = static_cast<const FMapProperty*>(Property);
 				FProperty* KeyProperty = MapProperty->GetKeyProp();
 				FProperty* ValueProperty = MapProperty->GetValueProp();
-				if (!KeyProperty || !ValueProperty || !MapProperty->HasMapHelper()) return false;
+				if (!KeyProperty || !ValueProperty || !MapProperty->HasMapOps()) return false;
 				const uint64 LeftNum = MapProperty->Num(LeftContainer, LeftArrayIndex);
 				if (LeftNum != MapProperty->Num(RightContainer, RightArrayIndex)) return false;
-				std::vector<bool> Matched(static_cast<size_t>(LeftNum), false);
-				for (uint64 LeftIndex = 0; LeftIndex < LeftNum; ++LeftIndex)
-				{
-					bool bFound = false;
-					for (uint64 RightIndex = 0; RightIndex < LeftNum; ++RightIndex)
-					{
-						if (Matched[static_cast<size_t>(RightIndex)]) continue;
-						if (!ArePropertyValuesIdenticalImpl(
-							KeyProperty, MapProperty->GetKeyPtr(LeftContainer, LeftIndex, LeftArrayIndex), 0,
-							MapProperty->GetKeyPtr(RightContainer, RightIndex, RightArrayIndex), 0)) continue;
-						if (!ArePropertyValuesIdenticalImpl(
-							ValueProperty, MapProperty->GetMappedValuePtr(LeftContainer, LeftIndex, LeftArrayIndex), 0,
-							MapProperty->GetMappedValuePtr(RightContainer, RightIndex, RightArrayIndex), 0)) continue;
-						Matched[static_cast<size_t>(RightIndex)] = true;
-						bFound = true;
-						break;
-					}
-					if (!bFound) return false;
-				}
-				return true;
+				if (!MapProperty->HasCapability(EMapOpsFlags::Lookup)) return false;
+				FMapIdenticalContext Context{MapProperty, ValueProperty, RightContainer, RightArrayIndex};
+				return MapProperty->VisitEntries(LeftContainer, &VisitMapIdenticalEntry, &Context, LeftArrayIndex)
+					== EContainerOpResult::Success && Context.bIdentical;
 			}
 			default:
 				return false;
@@ -822,33 +835,91 @@ namespace Durin
 		uint16 InElementSize,
 		DurinCodeGen::EPropertyGenFlags InKind,
 		DClass* InReferencedClass,
-		const DurinCodeGen::FArrayPropertyHelper* InArrayHelper
+		const FArrayOps* InOps
 	)
 		: FProperty(InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset, InElementSize, InKind, InReferencedClass)
-		, ArrayHelper(InArrayHelper)
+		, Ops(InOps)
 	{
+		check(IsValidArrayOps(Ops));
 		ClassPrivate = StaticClass();
+	}
+
+	auto FArrayProperty::GetNum(const void* Container, uint64& OutNum, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		OutNum = 0;
+		if (!Container) return EContainerOpResult::InvalidInput;
+		if (!HasCapability(EArrayOpsFlags::Count)) return EContainerOpResult::Unsupported;
+		OutNum = Ops->Num(GetValuePtr(Container, ArrayIndex));
+		return EContainerOpResult::Success;
+	}
+
+	auto FArrayProperty::VisitElements(const void* Container, FArrayConstVisitor Visitor, void* Context, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		if (!Container || !Visitor) return EContainerOpResult::InvalidInput;
+		if (!HasCapability(EArrayOpsFlags::ConstTraversal)) return EContainerOpResult::Unsupported;
+		return Ops->VisitConst(GetValuePtr(Container, ArrayIndex), Visitor, Context);
+	}
+
+	auto FArrayProperty::VisitMutableElements(void* Container, FArrayMutableVisitor Visitor, void* Context, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		if (!Container || !Visitor) return EContainerOpResult::InvalidInput;
+		if (!HasCapability(EArrayOpsFlags::MutableTraversal)) return EContainerOpResult::Unsupported;
+		return Ops->VisitMutable(GetValuePtr(Container, ArrayIndex), Visitor, Context);
+	}
+
+	auto FArrayProperty::GetElement(const void* Container, uint64 Index, const void** OutElement, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		if (OutElement) *OutElement = nullptr;
+		if (!Container || !OutElement) return EContainerOpResult::InvalidInput;
+		if (!HasCapability(EArrayOpsFlags::RandomAccess)) return EContainerOpResult::Unsupported;
+		return Ops->GetConstAt(GetValuePtr(Container, ArrayIndex), Index, OutElement);
+	}
+
+	auto FArrayProperty::GetMutableElement(void* Container, uint64 Index, void** OutElement, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		if (OutElement) *OutElement = nullptr;
+		if (!Container || !OutElement) return EContainerOpResult::InvalidInput;
+		if (!HasCapability(EArrayOpsFlags::RandomAccess)) return EContainerOpResult::Unsupported;
+		return Ops->GetMutableAt(GetValuePtr(Container, ArrayIndex), Index, OutElement);
+	}
+
+	auto FArrayProperty::ResizeChecked(void* Container, uint64 Num, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		if (!Container) return EContainerOpResult::InvalidInput;
+		uint64 CurrentNum = 0;
+		const EContainerOpResult CountResult = GetNum(Container, CurrentNum, ArrayIndex);
+		if (CountResult != EContainerOpResult::Success) return CountResult;
+		if (Num < CurrentNum && !HasCapability(EArrayOpsFlags::Shrink)) return EContainerOpResult::Unsupported;
+		if (Num > CurrentNum && !HasCapability(EArrayOpsFlags::DefaultGrow)) return EContainerOpResult::Unsupported;
+		if (Num == CurrentNum) return EContainerOpResult::Success;
+		return Ops->Resize(GetValuePtr(Container, ArrayIndex), Num);
 	}
 
 	auto FArrayProperty::Num(const void* Container, uint32 ArrayIndex) const -> uint64
 	{
-		return ArrayHelper ? ArrayHelper->Num(GetValuePtr(Container, ArrayIndex)) : 0;
+		uint64 Result = 0;
+		checkf(GetNum(Container, Result, ArrayIndex) == EContainerOpResult::Success, "Array Count capability is unavailable.");
+		return Result;
 	}
 
 	auto FArrayProperty::GetElementPtr(const void* Container, uint64 Index, uint32 ArrayIndex) const -> const void*
 	{
-		return ArrayHelper ? ArrayHelper->GetElement(GetValuePtr(Container, ArrayIndex), Index) : nullptr;
+		const void* Result = nullptr;
+		checkf(GetElement(Container, Index, &Result, ArrayIndex) == EContainerOpResult::Success, "Array random access failed.");
+		return Result;
 	}
 
 	auto FArrayProperty::GetMutableElementPtr(void* Container, uint64 Index, uint32 ArrayIndex) const -> void*
 	{
-		return ArrayHelper ? ArrayHelper->GetMutableElement(GetValuePtr(Container, ArrayIndex), Index) : nullptr;
+		void* Result = nullptr;
+		checkf(GetMutableElement(Container, Index, &Result, ArrayIndex) == EContainerOpResult::Success, "Array mutable random access failed.");
+		return Result;
 	}
 
 	auto FArrayProperty::Resize(void* Container, uint64 Num, uint32 ArrayIndex, std::string* OutError) const -> bool
 	{
 		if (OutError) OutError->clear();
-		if (!ArrayHelper || !Container || !Inner)
+		if (!Container || !Inner)
 		{
 			return ReportUnavailablePropertyOperation(Inner, "DefaultConstruct", OutError);
 		}
@@ -857,7 +928,7 @@ namespace Durin
 			return ReportUnavailablePropertyOperation(Inner, "Destroy", OutError);
 		if (Num > CurrentNum && (!Inner->CanDefaultConstructValue() || !Inner->CanDestroyValue()))
 			return ReportUnavailablePropertyOperation(Inner, "DefaultConstruct", OutError);
-		if (!ArrayHelper->Resize(GetValuePtr(Container, ArrayIndex), Num))
+		if (ResizeChecked(Container, Num, ArrayIndex) != EContainerOpResult::Success)
 			return ReportUnavailablePropertyOperation(Inner, "DefaultConstruct", OutError);
 		return true;
 	}
@@ -878,24 +949,83 @@ namespace Durin
 		uint16 InElementSize,
 		DurinCodeGen::EPropertyGenFlags InKind,
 		DClass* InReferencedClass,
-		const DurinCodeGen::FMapPropertyHelper* InMapHelper
+		const FMapOps* InOps
 	)
 		: FProperty(InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset, InElementSize, InKind, InReferencedClass)
-		, MapHelper(InMapHelper)
+		, Ops(InOps)
 	{
+		check(IsValidMapOps(Ops));
 		ClassPrivate = StaticClass();
 	}
 
-	auto FMapProperty::Num(const void* Container, uint32 ArrayIndex) const -> uint64 { return MapHelper ? MapHelper->Num(GetValuePtr(Container, ArrayIndex)) : 0; }
-	auto FMapProperty::GetKeyPtr(const void* Container, uint64 Index, uint32 ArrayIndex) const -> const void* { return MapHelper ? MapHelper->GetKey(GetValuePtr(Container, ArrayIndex), Index) : nullptr; }
-	auto FMapProperty::GetMappedValuePtr(const void* Container, uint64 Index, uint32 ArrayIndex) const -> const void* { return MapHelper ? MapHelper->GetValue(GetValuePtr(Container, ArrayIndex), Index) : nullptr; }
-	auto FMapProperty::GetMutableMappedValuePtr(void* Container, uint64 Index, uint32 ArrayIndex) const -> void* { return MapHelper ? MapHelper->GetMutableValue(GetValuePtr(Container, ArrayIndex), Index) : nullptr; }
-	auto FMapProperty::Clear(void* Container, uint32 ArrayIndex) const -> void { if (MapHelper) MapHelper->Clear(GetValuePtr(Container, ArrayIndex)); }
-	auto FMapProperty::CreateKey() const -> void* { return MapHelper ? MapHelper->CreateKey() : nullptr; }
-	auto FMapProperty::CreateKeyCopy(const void* Key) const -> void* { return MapHelper ? MapHelper->CreateKeyCopy(Key) : nullptr; }
-	auto FMapProperty::DestroyKey(void* Key) const -> void { if (MapHelper) MapHelper->DestroyKey(Key); }
-	auto FMapProperty::CreateValue() const -> void* { return MapHelper ? MapHelper->CreateValue() : nullptr; }
-	auto FMapProperty::DestroyValue(void* Value) const -> void { if (MapHelper) MapHelper->DestroyValue(Value); }
+	auto FMapProperty::GetNum(const void* Container, uint64& OutNum, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		OutNum = 0;
+		if (!Container) return EContainerOpResult::InvalidInput;
+		if (!HasCapability(EMapOpsFlags::Count)) return EContainerOpResult::Unsupported;
+		OutNum = Ops->Num(GetValuePtr(Container, ArrayIndex));
+		return EContainerOpResult::Success;
+	}
+	auto FMapProperty::VisitEntries(const void* Container, FMapConstVisitor Visitor, void* Context, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		if (!Container || !Visitor) return EContainerOpResult::InvalidInput;
+		if (!HasCapability(EMapOpsFlags::ConstTraversal)) return EContainerOpResult::Unsupported;
+		return Ops->VisitConst(GetValuePtr(Container, ArrayIndex), Visitor, Context);
+	}
+	auto FMapProperty::VisitMutableEntries(void* Container, FMapMutableVisitor Visitor, void* Context, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		if (!Container || !Visitor) return EContainerOpResult::InvalidInput;
+		if (!HasCapability(EMapOpsFlags::MutableMappedTraversal)) return EContainerOpResult::Unsupported;
+		return Ops->VisitMutable(GetValuePtr(Container, ArrayIndex), Visitor, Context);
+	}
+	auto FMapProperty::FindValue(const void* Container, const void* Key, const void** OutValue, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		if (OutValue) *OutValue = nullptr;
+		if (!Container || !Key || !OutValue) return EContainerOpResult::InvalidInput;
+		if (!HasCapability(EMapOpsFlags::Lookup)) return EContainerOpResult::Unsupported;
+		return Ops->Lookup(GetValuePtr(Container, ArrayIndex), Key, OutValue);
+	}
+	auto FMapProperty::FindMutableValue(void* Container, const void* Key, void** OutValue, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		if (OutValue) *OutValue = nullptr;
+		if (!Container || !Key || !OutValue) return EContainerOpResult::InvalidInput;
+		if (!HasCapability(EMapOpsFlags::MutableLookup)) return EContainerOpResult::Unsupported;
+		return Ops->LookupMutable(GetValuePtr(Container, ArrayIndex), Key, OutValue);
+	}
+	auto FMapProperty::ClearChecked(void* Container, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		if (!Container) return EContainerOpResult::InvalidInput;
+		if (!HasCapability(EMapOpsFlags::Clear)) return EContainerOpResult::Unsupported;
+		return Ops->Clear(GetValuePtr(Container, ArrayIndex));
+	}
+	auto FMapProperty::InsertChecked(void* Container, const void* Key, const void* Value, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		if (!Container || !Key || !Value) return EContainerOpResult::InvalidInput;
+		if (!HasCapability(EMapOpsFlags::Insert)) return EContainerOpResult::Unsupported;
+		return Ops->InsertCopy(GetValuePtr(Container, ArrayIndex), Key, Value);
+	}
+	auto FMapProperty::RenameKeyChecked(void* Container, const void* OldKey, const void* NewKey, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		if (!Container || !OldKey || !NewKey) return EContainerOpResult::InvalidInput;
+		if (!HasCapability(EMapOpsFlags::RenameKey)) return EContainerOpResult::Unsupported;
+		return Ops->RenameKey(GetValuePtr(Container, ArrayIndex), OldKey, NewKey);
+	}
+	auto FMapProperty::RemoveChecked(void* Container, const void* Key, uint32 ArrayIndex) const -> EContainerOpResult
+	{
+		if (!Container || !Key) return EContainerOpResult::InvalidInput;
+		if (!HasCapability(EMapOpsFlags::Remove)) return EContainerOpResult::Unsupported;
+		return Ops->Remove(GetValuePtr(Container, ArrayIndex), Key);
+	}
+	auto FMapProperty::Num(const void* Container, uint32 ArrayIndex) const -> uint64
+	{
+		uint64 Result = 0;
+		checkf(GetNum(Container, Result, ArrayIndex) == EContainerOpResult::Success, "Map Count capability is unavailable.");
+		return Result;
+	}
+	auto FMapProperty::Clear(void* Container, uint32 ArrayIndex) const -> void
+	{
+		checkf(ClearChecked(Container, ArrayIndex) == EContainerOpResult::Success, "Map Clear capability is unavailable.");
+	}
 	auto FMapProperty::Insert(
 		void* Container,
 		const void* Key,
@@ -904,17 +1034,17 @@ namespace Durin
 		std::string* OutError) const -> bool
 	{
 		if (OutError) OutError->clear();
-		if (!MapHelper || !Container || !Key || !Value || !KeyProp || !ValueProp) return false;
+		if (!Container || !Key || !Value || !KeyProp || !ValueProp) return false;
 		if (GetPropertyStruct(KeyProp) && !KeyProp->CanCopyConstructValue())
 			return ReportUnavailablePropertyOperation(KeyProp, "CopyConstruct", OutError);
 		if (GetPropertyStruct(ValueProp)
 			&& (!ValueProp->CanCopyConstructValue() || !ValueProp->CanCopyAssignValue()))
 			return ReportUnavailablePropertyOperation(ValueProp, "CopyConstruct/CopyAssign", OutError);
-		if (!MapHelper->Insert(GetValuePtr(Container, ArrayIndex), Key, Value))
+		if (InsertChecked(Container, Key, Value, ArrayIndex) != EContainerOpResult::Success)
 			return ReportUnavailablePropertyOperation(ValueProp, "CopyConstruct/CopyAssign", OutError);
 		return true;
 	}
-	auto FMapProperty::Contains(const void* Container, const void* Key, uint32 ArrayIndex) const -> bool { return MapHelper && MapHelper->Contains(GetValuePtr(Container, ArrayIndex), Key); }
+	auto FMapProperty::Contains(const void* Container, const void* Key, uint32 ArrayIndex) const -> bool { const void* Value = nullptr; return FindValue(Container, Key, &Value, ArrayIndex) == EContainerOpResult::Success; }
 	auto FMapProperty::RenameKey(
 		void* Container,
 		const void* OldKey,
@@ -923,14 +1053,184 @@ namespace Durin
 		std::string* OutError) const -> bool
 	{
 		if (OutError) OutError->clear();
-		if (!MapHelper || !Container || !OldKey || !NewKey || !KeyProp) return false;
+		if (!Container || !OldKey || !NewKey || !KeyProp) return false;
 		if (GetPropertyStruct(KeyProp)
 			&& (!KeyProp->CanCopyConstructValue() || !KeyProp->CanCopyAssignValue()))
 			return ReportUnavailablePropertyOperation(KeyProp, "CopyConstruct/CopyAssign", OutError);
-		if (!MapHelper->RenameKey(GetValuePtr(Container, ArrayIndex), OldKey, NewKey)) return false;
-		return true;
+		return RenameKeyChecked(Container, OldKey, NewKey, ArrayIndex) == EContainerOpResult::Success;
 	}
-	auto FMapProperty::Remove(void* Container, const void* Key, uint32 ArrayIndex) const -> bool { return MapHelper && MapHelper->Remove(GetValuePtr(Container, ArrayIndex), Key); }
+	auto FMapProperty::Remove(void* Container, const void* Key, uint32 ArrayIndex) const -> bool { return RemoveChecked(Container, Key, ArrayIndex) == EContainerOpResult::Success; }
+
+	namespace
+	{
+		template<std::unsigned_integral T>
+		auto AppendBigEndian(std::vector<uint8>& Token, T Value) -> void
+		{
+			for (size_t Index = sizeof(T); Index > 0; --Index)
+				Token.push_back(static_cast<uint8>(Value >> ((Index - 1) * 8)));
+		}
+
+		template<std::integral T>
+		auto AppendSortableInteger(std::vector<uint8>& Token, const void* Value) -> void
+		{
+			using U = std::make_unsigned_t<T>;
+			U Bits = 0;
+			std::memcpy(&Bits, Value, sizeof(Bits));
+			if constexpr (std::is_signed_v<T>) Bits ^= U(1) << (sizeof(U) * 8 - 1);
+			AppendBigEndian(Token, Bits);
+		}
+
+		template<std::floating_point T>
+		auto AppendSortableFloat(std::vector<uint8>& Token, const void* Value) -> void
+		{
+			using U = std::conditional_t<sizeof(T) == 4, uint32, uint64>;
+			U Bits = 0;
+			std::memcpy(&Bits, Value, sizeof(Bits));
+			constexpr U Sign = U(1) << (sizeof(U) * 8 - 1);
+			if ((Bits & ~Sign) == 0) Bits = 0;
+			Bits = (Bits & Sign) ? ~Bits : (Bits ^ Sign);
+			AppendBigEndian(Token, Bits);
+		}
+
+		auto FailCanonicalToken(std::string_view Message, std::string* OutError) -> bool
+		{
+			if (OutError) *OutError = Message;
+			return false;
+		}
+	}
+
+	auto BuildCanonicalMapKeyToken(
+		const FProperty* Property,
+		const void* Container,
+		uint32 ArrayIndex,
+		std::vector<uint8>& OutToken,
+		std::string* OutError) -> bool
+	{
+		if (OutError) OutError->clear();
+		if (!Property || !Container || ArrayIndex >= Property->GetArrayDim())
+			return FailCanonicalToken("CanonicalMapKeyInvalidInput: property, value, or array index is invalid.", OutError);
+
+		OutToken.push_back(static_cast<uint8>(Property->GetKind()));
+		const void* Value = Property->GetValuePtr(Container, ArrayIndex);
+		switch (Property->GetKind())
+		{
+		case DurinCodeGen::EPropertyGenFlags::Bool: OutToken.push_back(*static_cast<const bool*>(Value) ? 1 : 0); return true;
+		case DurinCodeGen::EPropertyGenFlags::Int8: AppendSortableInteger<int8>(OutToken, Value); return true;
+		case DurinCodeGen::EPropertyGenFlags::Int16: AppendSortableInteger<int16>(OutToken, Value); return true;
+		case DurinCodeGen::EPropertyGenFlags::Int32: AppendSortableInteger<int32>(OutToken, Value); return true;
+		case DurinCodeGen::EPropertyGenFlags::Int64: AppendSortableInteger<int64>(OutToken, Value); return true;
+		case DurinCodeGen::EPropertyGenFlags::UInt8: AppendSortableInteger<uint8>(OutToken, Value); return true;
+		case DurinCodeGen::EPropertyGenFlags::UInt16: AppendSortableInteger<uint16>(OutToken, Value); return true;
+		case DurinCodeGen::EPropertyGenFlags::UInt32: AppendSortableInteger<uint32>(OutToken, Value); return true;
+		case DurinCodeGen::EPropertyGenFlags::UInt64: AppendSortableInteger<uint64>(OutToken, Value); return true;
+		case DurinCodeGen::EPropertyGenFlags::Float: AppendSortableFloat<float>(OutToken, Value); return true;
+		case DurinCodeGen::EPropertyGenFlags::Double: AppendSortableFloat<double>(OutToken, Value); return true;
+		case DurinCodeGen::EPropertyGenFlags::Enum:
+		{
+			const auto* Enum = static_cast<const FEnumProperty*>(Property);
+			const uint64 Raw = Enum->GetValueAsUInt64(Container, ArrayIndex);
+			switch (Enum->GetUnderlyingType())
+			{
+			case DurinCodeGen::EEnumUnderlyingType::Int8: { const int8 V = static_cast<int8>(Raw); AppendSortableInteger<int8>(OutToken, &V); return true; }
+			case DurinCodeGen::EEnumUnderlyingType::Int16: { const int16 V = static_cast<int16>(Raw); AppendSortableInteger<int16>(OutToken, &V); return true; }
+			case DurinCodeGen::EEnumUnderlyingType::Int32: { const int32 V = static_cast<int32>(Raw); AppendSortableInteger<int32>(OutToken, &V); return true; }
+			case DurinCodeGen::EEnumUnderlyingType::Int64: { const int64 V = static_cast<int64>(Raw); AppendSortableInteger<int64>(OutToken, &V); return true; }
+			case DurinCodeGen::EEnumUnderlyingType::UInt8: { const uint8 V = static_cast<uint8>(Raw); AppendSortableInteger<uint8>(OutToken, &V); return true; }
+			case DurinCodeGen::EEnumUnderlyingType::UInt16: { const uint16 V = static_cast<uint16>(Raw); AppendSortableInteger<uint16>(OutToken, &V); return true; }
+			case DurinCodeGen::EEnumUnderlyingType::UInt32: { const uint32 V = static_cast<uint32>(Raw); AppendSortableInteger<uint32>(OutToken, &V); return true; }
+			case DurinCodeGen::EEnumUnderlyingType::UInt64: AppendSortableInteger<uint64>(OutToken, &Raw); return true;
+			default: return FailCanonicalToken("CanonicalMapKeyUnsupported: enum underlying type is unknown.", OutError);
+			}
+		}
+		case DurinCodeGen::EPropertyGenFlags::String:
+		{
+			const auto& Text = *static_cast<const FStringProperty*>(Property)->GetStringValuePtr(Container, ArrayIndex);
+			AppendBigEndian(OutToken, static_cast<uint64>(Text.size()));
+			OutToken.insert(OutToken.end(), Text.begin(), Text.end());
+			return true;
+		}
+		case DurinCodeGen::EPropertyGenFlags::Name:
+		{
+			const FName& Name = *static_cast<const FNameProperty*>(Property)->GetNameValuePtr(Container, ArrayIndex);
+			const std::string Text = Name.GetComparisonNameEntry()->GetPlainNameString();
+			AppendBigEndian(OutToken, static_cast<uint64>(Text.size()));
+			OutToken.insert(OutToken.end(), Text.begin(), Text.end());
+			AppendBigEndian(OutToken, Name.GetNumber());
+			return true;
+		}
+		case DurinCodeGen::EPropertyGenFlags::Guid:
+		{
+			const FGuid& Guid = *static_cast<const FGuidProperty*>(Property)->GetGuidValuePtr(Container, ArrayIndex);
+			AppendBigEndian(OutToken, Guid.A); AppendBigEndian(OutToken, Guid.B);
+			AppendBigEndian(OutToken, Guid.C); AppendBigEndian(OutToken, Guid.D);
+			return true;
+		}
+		case DurinCodeGen::EPropertyGenFlags::Struct:
+		{
+			const auto* StructProperty = static_cast<const FStructProperty*>(Property);
+			DStruct* Struct = StructProperty->GetStruct();
+			if (!Struct || !Struct->HasCompleteAuthoredFields() || Struct->HasIdentical() || Struct->HasSerializer())
+				return FailCanonicalToken("CanonicalMapKeyUnsupported: struct key lacks complete reflected equality semantics.", OutError);
+			uint32 Ordinal = 0;
+			bool bSuccess = true;
+			Struct->ForEachProperty([&](FProperty* Field) {
+				const uint32 FieldOrdinal = Ordinal++;
+				if (!bSuccess || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+				for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim() && bSuccess; ++FieldIndex)
+				{
+					AppendBigEndian(OutToken, FieldOrdinal);
+					AppendBigEndian(OutToken, FieldIndex);
+					bSuccess = BuildCanonicalMapKeyToken(Field, Value, FieldIndex, OutToken, OutError);
+				}
+			}, false);
+			return bSuccess;
+		}
+		default:
+			return FailCanonicalToken("CanonicalMapKeyUnsupported: object and container keys are not canonicalizable.", OutError);
+		}
+	}
+
+	auto ValidateCanonicalMapKeyProperty(const FProperty* Property, std::string* OutError) -> bool
+	{
+		if (OutError) OutError->clear();
+		if (!Property) return FailCanonicalToken("CanonicalMapKeyInvalidInput: key property is null.", OutError);
+		switch (Property->GetKind())
+		{
+		case DurinCodeGen::EPropertyGenFlags::Bool:
+		case DurinCodeGen::EPropertyGenFlags::Int8:
+		case DurinCodeGen::EPropertyGenFlags::Int16:
+		case DurinCodeGen::EPropertyGenFlags::Int32:
+		case DurinCodeGen::EPropertyGenFlags::Int64:
+		case DurinCodeGen::EPropertyGenFlags::UInt8:
+		case DurinCodeGen::EPropertyGenFlags::UInt16:
+		case DurinCodeGen::EPropertyGenFlags::UInt32:
+		case DurinCodeGen::EPropertyGenFlags::UInt64:
+		case DurinCodeGen::EPropertyGenFlags::Float:
+		case DurinCodeGen::EPropertyGenFlags::Double:
+		case DurinCodeGen::EPropertyGenFlags::String:
+		case DurinCodeGen::EPropertyGenFlags::Name:
+		case DurinCodeGen::EPropertyGenFlags::Guid:
+			return true;
+		case DurinCodeGen::EPropertyGenFlags::Enum:
+			return static_cast<const FEnumProperty*>(Property)->GetUnderlyingType()
+				!= DurinCodeGen::EEnumUnderlyingType::Unknown
+				|| FailCanonicalToken("CanonicalMapKeyUnsupported: enum underlying type is unknown.", OutError);
+		case DurinCodeGen::EPropertyGenFlags::Struct:
+		{
+			DStruct* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
+			if (!Struct || !Struct->HasCompleteAuthoredFields() || Struct->HasIdentical() || Struct->HasSerializer())
+				return FailCanonicalToken("CanonicalMapKeyUnsupported: struct key lacks complete reflected equality semantics.", OutError);
+			bool bSupported = true;
+			Struct->ForEachProperty([&](FProperty* Field) {
+				if (bSupported && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
+					bSupported = ValidateCanonicalMapKeyProperty(Field, OutError);
+			}, false);
+			return bSupported;
+		}
+		default:
+			return FailCanonicalToken("CanonicalMapKeyUnsupported: object and container keys are not canonicalizable.", OutError);
+		}
+	}
 
 	auto ForEachNestedProperty(FProperty* Property, const std::function<void(FProperty*)>& Visitor) -> void
 	{

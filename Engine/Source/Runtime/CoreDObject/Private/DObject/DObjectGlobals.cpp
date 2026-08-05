@@ -31,17 +31,34 @@ namespace Durin
 		) -> FProperty*
 		{
 			FProperty* Property = nullptr;
-			const bool bStructKind = PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Struct;
-			const bool bStructLayout = PropertyParams->Layout == DurinCodeGen::EPropertyParamLayout::Struct;
-			if (bStructKind != bStructLayout)
+			DurinCodeGen::EPropertyParamLayout ExpectedLayout = DurinCodeGen::EPropertyParamLayout::Legacy;
+			if (PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Struct) ExpectedLayout = DurinCodeGen::EPropertyParamLayout::Struct;
+			else if (PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Array) ExpectedLayout = DurinCodeGen::EPropertyParamLayout::Array;
+			else if (PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Map) ExpectedLayout = DurinCodeGen::EPropertyParamLayout::Map;
+			if (PropertyParams->Layout != ExpectedLayout)
 			{
 				checkf(
 					false,
-					"StructPropertyRegistration.KindMismatch owner '{}' property '{}'.",
+					"PropertyRegistration.KindLayoutMismatch owner '{}' property '{}'.",
 					GetGeneratedPropertyOwnerName(Owner),
 					PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>"
 				);
 				return nullptr;
+			}
+			if (ExpectedLayout != DurinCodeGen::EPropertyParamLayout::Legacy)
+			{
+				const bool bHasMutableAccessor = PropertyParams->MutableValueAccessor != nullptr;
+				const bool bHasConstAccessor = PropertyParams->ConstValueAccessor != nullptr;
+				if (bHasMutableAccessor != bHasConstAccessor || (bHasMutableAccessor && PropertyParams->Offset != 0))
+				{
+					checkf(false, "PropertyRegistration.AccessorPairMismatch owner '{}' property '{}'.", GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
+					return nullptr;
+				}
+				if ((PropertyParams->MetaData == nullptr) != (PropertyParams->NumMetaData == 0))
+				{
+					checkf(false, "PropertyRegistration.MetadataMismatch owner '{}' property '{}'.", GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
+					return nullptr;
+				}
 			}
 
 			auto ResolveReferencedClass = [PropertyParams]() -> DClass*
@@ -186,6 +203,14 @@ namespace Durin
 				break;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Array:
+			{
+				const auto* ArrayParams = static_cast<const DurinCodeGen::FArrayPropertyParams*>(PropertyParams);
+				const FArrayOps* Ops = ArrayParams->OpsResolver ? ArrayParams->OpsResolver() : nullptr;
+				if (!IsValidArrayOps(Ops) || !ArrayParams->InnerParams || Ops->ContainerSize > std::numeric_limits<uint16>::max())
+				{
+					checkf(false, "ArrayPropertyRegistration.InvalidDescriptor owner '{}' property '{}'.", GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
+					return nullptr;
+				}
 				Property = new FArrayProperty(
 					Owner,
 					FName(PropertyParams->NameUTF8),
@@ -193,17 +218,23 @@ namespace Durin
 					PropertyParams->Flags,
 					PropertyParams->ArrayDim,
 					PropertyParams->Offset,
-					PropertyParams->ElementSize,
+					static_cast<uint16>(Ops->ContainerSize),
 					PropertyParams->Kind,
-					ResolveReferencedClass(),
-					PropertyParams->ArrayHelper
+					nullptr,
+					Ops
 				);
-				if (PropertyParams->Inner)
-				{
-					static_cast<FArrayProperty*>(Property)->SetInner(ConstructGeneratedProperty(FFieldVariant(Property), PropertyParams->Inner));
-				}
+				static_cast<FArrayProperty*>(Property)->SetInner(ConstructGeneratedProperty(FFieldVariant(Property), ArrayParams->InnerParams));
 				break;
+			}
 			case DurinCodeGen::EPropertyGenFlags::Map:
+			{
+				const auto* MapParams = static_cast<const DurinCodeGen::FMapPropertyParams*>(PropertyParams);
+				const FMapOps* Ops = MapParams->OpsResolver ? MapParams->OpsResolver() : nullptr;
+				if (!IsValidMapOps(Ops) || !MapParams->KeyParams || !MapParams->ValueParams || Ops->ContainerSize > std::numeric_limits<uint16>::max())
+				{
+					checkf(false, "MapPropertyRegistration.InvalidDescriptor owner '{}' property '{}'.", GetGeneratedPropertyOwnerName(Owner), PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>");
+					return nullptr;
+				}
 				Property = new FMapProperty(
 					Owner,
 					FName(PropertyParams->NameUTF8),
@@ -211,20 +242,15 @@ namespace Durin
 					PropertyParams->Flags,
 					PropertyParams->ArrayDim,
 					PropertyParams->Offset,
-					PropertyParams->ElementSize,
+					static_cast<uint16>(Ops->ContainerSize),
 					PropertyParams->Kind,
-					ResolveReferencedClass(),
-					PropertyParams->MapHelper
+					nullptr,
+					Ops
 				);
-				if (PropertyParams->Key)
-				{
-					static_cast<FMapProperty*>(Property)->SetKeyProp(ConstructGeneratedProperty(FFieldVariant(Property), PropertyParams->Key));
-				}
-				if (PropertyParams->Value)
-				{
-					static_cast<FMapProperty*>(Property)->SetValueProp(ConstructGeneratedProperty(FFieldVariant(Property), PropertyParams->Value));
-				}
+				static_cast<FMapProperty*>(Property)->SetKeyProp(ConstructGeneratedProperty(FFieldVariant(Property), MapParams->KeyParams));
+				static_cast<FMapProperty*>(Property)->SetValueProp(ConstructGeneratedProperty(FFieldVariant(Property), MapParams->ValueParams));
 				break;
+			}
 			case DurinCodeGen::EPropertyGenFlags::Int8:
 			case DurinCodeGen::EPropertyGenFlags::Int16:
 			case DurinCodeGen::EPropertyGenFlags::Int32:
@@ -264,7 +290,17 @@ namespace Durin
 			}
 
 			Property->SetValueAccessors(PropertyParams->MutableValueAccessor, PropertyParams->ConstValueAccessor);
-			if (!bStructKind)
+			if (PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Array)
+			{
+				const FArrayOps& Ops = static_cast<FArrayProperty*>(Property)->GetOps();
+				Property->SetValueLifecycle(Ops.ContainerSize, Ops.ContainerAlignment, Ops.Initialize, Ops.Destroy);
+			}
+			else if (PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Map)
+			{
+				const FMapOps& Ops = static_cast<FMapProperty*>(Property)->GetOps();
+				Property->SetValueLifecycle(Ops.ContainerSize, Ops.ContainerAlignment, Ops.Initialize, Ops.Destroy);
+			}
+			else if (PropertyParams->Kind != DurinCodeGen::EPropertyGenFlags::Struct)
 			{
 				Property->SetValueLifecycle(
 					PropertyParams->ValueSize,

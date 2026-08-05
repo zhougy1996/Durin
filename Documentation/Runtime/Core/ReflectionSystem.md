@@ -547,7 +547,7 @@ Supported property node types are:
 - `FMapProperty`
 - `FStructProperty`
 
-`FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct object-reference access for GC and serialization. `FStringProperty` exposes a `std::string*` pointer helper. Generated array and map helpers provide type-erased traversal and mutation used by GC, both memory/package serialization, and editor container controls. Map helpers expose mutable mapped values while keeping keys immutable in place; key edits use copy, uniqueness validation, and node-based rename operations so `std::unordered_map` invariants remain intact.
+`FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct object-reference access for GC and serialization. `FStringProperty` exposes a `std::string*` pointer helper. Array and Map properties expose the capability-checked container operations described below. Map operations expose mutable mapped values while keeping keys immutable in place; key edits use copy, uniqueness validation, and node-based rename operations so hashing and equality invariants remain intact.
 
 Generated element-size expressions for non-struct values such as strings,
 names, and GUIDs use C++ `sizeof(SourceType)` rather than libclang's parser-side
@@ -568,6 +568,32 @@ DurinHeaderTool currently recognizes these standard library container spellings 
 `std::vector<T>` creates an `FArrayProperty` whose `Inner` points at the generated property metadata for `T`.
 
 `std::unordered_map<K, V>` creates an `FMapProperty` whose `KeyProp` and `ValueProp` describe the key and value types.
+
+Generated Array and Map records are typed `FArrayPropertyParams` and
+`FMapPropertyParams`. Each record owns the nested logical property descriptors
+and resolves one immutable, process-lifetime `FArrayOps` or `FMapOps` table for
+its concrete storage specialization. Generated source does not contain
+property-local count, element, traversal, construction, insertion, or removal
+functions. The current reusable adapters accept only default-form
+`std::vector<T>` and `std::unordered_map<K, V>`; storage is a replaceable C++
+backend and is not part of reflected type identity or serialized schema.
+
+The version-1 operation tables advertise individual capabilities instead of
+assuming every container can perform every operation. Consumers request and
+check only what they need: count and const/mutable traversal, indexed Array
+element access, resizing, Map lookup/insertion/removal/key rename, and detached
+construction plus transactional commit. Missing capability slots return a
+typed `EContainerOpResult`; a property is never treated as empty and a mutation
+is never silently skipped. Map traversal is single-pass and callback-scoped.
+There is no indexed Map API, no persistent iterator identity, and no permission
+to retain entry pointers across structural mutation.
+
+Array/Map loading uses `FDetachedContainerStorage`: input is decoded into a
+managed temporary container, counts are bounded before allocation, duplicate
+logical Map keys are rejected, and the destination is committed only after all
+nested values and post-deserialize work succeed. Failure leaves the destination
+logically unchanged. GC, runtime Archive, snapshots, AssetCore, and editor
+property access all use the same checked operations.
 
 Containers may be nested up to `MAX_CONTAINER_PROPERTY_DEPTH` in DurinHeaderTool, currently 4. For example:
 
@@ -592,10 +618,22 @@ Only the top-level field uses `STRUCT_OFFSET`. Nested inner/key/value properties
 
 Container key restrictions are intentionally stricter than value restrictions. Map keys may be primitive, `bool`, `std::string`, reflected enum, or reflected struct types. Map keys may not be `DObject*` or another container. Vector inner types and map values may be primitive, `bool`, `std::string`, reflected enum, reflected struct, reflected `DObject*`, or another supported container within the depth limit.
 
+Canonical writers do not persist `std::unordered_map` iteration or bucket
+order. They build a logical token for each supported key and sort entries by
+that token. The canonical key domain includes bool, integers, floating-point
+values, reflected enums, strings, `FName`, `FGuid`, and complete ordinary
+reflected structs composed recursively from supported fields. Object/container
+keys and structs with hidden state or custom identity/serialization operations
+cannot be canonicalized and fail before output. Ordinary streaming Archives
+retain traversal order unless they explicitly advertise canonical Map output.
+
 Unsupported `DPROPERTY()` types fail DHT with stable diagnostics. This includes
 unknown templates, smart pointers, non-reflected object pointers, references,
 containers nested deeper than the configured limit, and aliases whose meaning
-is available only from a neutralized include.
+is available only from a neutralized include. `std::vector<bool>`, custom vector
+allocators, custom unordered-map hash/equality/allocator arguments, and
+unsupported Map key kinds are rejected during generation rather than failing
+later in generated C++.
 
 Runtime nested metadata can be walked with `ForEachNestedProperty(...)`. The helper visits array inner properties and map key/value properties recursively. Nested properties also expose their containing property through `FProperty::GetOwnerProperty()`.
 

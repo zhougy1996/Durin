@@ -139,9 +139,6 @@ namespace
 	template<typename T>
 	auto ResizeVector(void* Container, Durin::uint64 Num) -> bool { static_cast<std::vector<T>*>(Container)->resize(static_cast<size_t>(Num)); return true; }
 
-	const Durin::DurinCodeGen::FArrayPropertyHelper GIntArrayHelper = {
-		&VectorNum<Durin::int32>, &VectorElement<Durin::int32>, &MutableVectorElement<Durin::int32>, &ResizeVector<Durin::int32>
-	};
 
 	using FStringIntMap = std::unordered_map<std::string, Durin::int32>;
 	auto MapNum(const void* Container) -> Durin::uint64 { return static_cast<Durin::uint64>(static_cast<const FStringIntMap*>(Container)->size()); }
@@ -170,18 +167,13 @@ namespace
 	}
 	auto RemoveMap(void* Container, const void* Key) -> bool { return static_cast<FStringIntMap*>(Container)->erase(*static_cast<const std::string*>(Key)) != 0; }
 
-	const Durin::DurinCodeGen::FMapPropertyHelper GStringIntMapHelper = {
-		&MapNum, &MapKey, &MapValue, &MutableMapValue, &ClearMap,
-		&CreateMapKey, &CopyMapKey, &DestroyMapKey, &CreateMapValue, &DestroyMapValue,
-		&InsertMap, &ContainsMap, &RenameMapKey, &RemoveMap
-	};
 
 	auto MakeArrayProperty(Durin::FNumericProperty& Inner) -> std::unique_ptr<Durin::FArrayProperty>
 	{
 		auto Property = std::make_unique<Durin::FArrayProperty>(
 			Durin::FFieldVariant(), Durin::FName("Values"), Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::Edit,
 			1, static_cast<Durin::uint16>(offsetof(FArrayValueContainer, Values)), static_cast<Durin::uint16>(sizeof(std::vector<Durin::int32>)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, &GIntArrayHelper
+			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, Durin::ResolveArrayOps<std::vector<Durin::int32>>()
 		);
 		Property->SetInner(&Inner);
 		SetTestValueLifecycle<std::vector<Durin::int32>>(*Property);
@@ -193,7 +185,7 @@ namespace
 		auto Property = std::make_unique<Durin::FMapProperty>(
 			Durin::FFieldVariant(), Durin::FName("Values"), Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::Edit,
 			1, static_cast<Durin::uint16>(offsetof(FMapValueContainer, Values)), static_cast<Durin::uint16>(sizeof(FStringIntMap)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, &GStringIntMapHelper
+			Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, Durin::ResolveMapOps<FStringIntMap>()
 		);
 		Property->SetKeyProp(&Key);
 		Property->SetValueProp(&Value);

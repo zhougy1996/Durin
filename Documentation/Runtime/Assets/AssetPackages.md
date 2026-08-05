@@ -144,6 +144,22 @@ do not affect DAST: authored packages always retain the tagged reflected-field
 representation so compatibility inspection remains possible. No current
 production struct requires an authored custom codec.
 
+DAST v2 retains the logical `Array<...>` and `Map<...,...>` signatures, count
+fields, and entry payload grammar. New Map saves order entries by the canonical
+logical key token from the reflection contract, so equivalent supported maps
+produce identical package bytes regardless of insertion, reserve, rehash, or
+bucket history. Readers do not require that order and continue accepting valid
+historical v2 packages written in unordered iteration order; no format-version
+increment or asset migration is required.
+
+Container package loading is bounded and transactional. Array elements and Map
+keys/values decode into detached managed storage, duplicate decoded Map keys
+are corrupt input, and the live destination is committed only after every
+nested payload and post-deserialize callback succeeds. Construction,
+allocation, truncation, duplicate, type, or repair failures unwind temporary
+values and leave the original destination unchanged. Diagnostics identify the
+array element or Map entry key/value path that failed.
+
 AssetCore decodes each struct into default-constructed managed temporary
 storage and requires copy assignment before reading the payload. After every
 known nested field has loaded successfully, an optional `PostDeserialize`

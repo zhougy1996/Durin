@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreDObjectAPI.h"
+#include "ContainerOps.h"
 #include "ObjectMacros.h"
 #include "StructOps.h"
 
@@ -116,7 +117,9 @@ namespace Durin
 		enum class EPropertyParamLayout : uint8
 		{
 			Legacy = 0,
-			Struct
+			Struct,
+			Array,
+			Map
 		};
 
 		struct FPropertyParamsBase;
@@ -132,32 +135,6 @@ namespace Durin
 		{
 			std::destroy_at(static_cast<T*>(Memory));
 		}
-
-		struct FArrayPropertyHelper
-		{
-			uint64 (*Num)(const void* Container);
-			const void* (*GetElement)(const void* Container, uint64 Index);
-			void* (*GetMutableElement)(void* Container, uint64 Index);
-			bool (*Resize)(void* Container, uint64 Num);
-		};
-
-		struct FMapPropertyHelper
-		{
-			uint64 (*Num)(const void* Container);
-			const void* (*GetKey)(const void* Container, uint64 Index);
-			const void* (*GetValue)(const void* Container, uint64 Index);
-			void* (*GetMutableValue)(void* Container, uint64 Index);
-			void (*Clear)(void* Container);
-			void* (*CreateKey)();
-			void* (*CreateKeyCopy)(const void* Key);
-			void (*DestroyKey)(void* Key);
-			void* (*CreateValue)();
-			void (*DestroyValue)(void* Value);
-			bool (*Insert)(void* Container, const void* Key, const void* Value);
-			bool (*Contains)(const void* Container, const void* Key);
-			bool (*RenameKey)(void* Container, const void* OldKey, const void* NewKey);
-			bool (*Remove)(void* Container, const void* Key);
-		};
 
 		struct FEnumValueParams
 		{
@@ -210,8 +187,6 @@ namespace Durin
 			const FPropertyParamsBase* Key;
 			const FPropertyParamsBase* Value;
 			bool bIsObjectPtrWrapper = false;
-			const FArrayPropertyHelper* ArrayHelper = nullptr;
-			const FMapPropertyHelper* MapHelper = nullptr;
 			DStruct* (*ReferencedStructFunc)() = nullptr;
 			void* (*MutableValueAccessor)(void* Container, uint32 ArrayIndex) = nullptr;
 			const void* (*ConstValueAccessor)(const void* Container, uint32 ArrayIndex) = nullptr;
@@ -245,8 +220,114 @@ namespace Durin
 		using FGuidPropertyParams = FPropertyParamsBase;
 		using FEnumPropertyParams = FPropertyParamsBase;
 		using FObjectPropertyParams = FPropertyParamsBase;
-		using FArrayPropertyParams = FPropertyParamsBase;
-		using FMapPropertyParams = FPropertyParamsBase;
+
+		struct FArrayPropertyParams final : public FPropertyParamsBase
+		{
+			using FOpsResolver = const FArrayOps* (*)();
+			using FMutableValueAccessor = void* (*)(void* Container, uint32 ArrayIndex);
+			using FConstValueAccessor = const void* (*)(const void* Container, uint32 ArrayIndex);
+
+			constexpr FArrayPropertyParams(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				const FPropertyParamsBase* InInnerParams,
+				FOpsResolver InOpsResolver,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			)
+				: FPropertyParamsBase{}
+				, InnerParams(InInnerParams)
+				, OpsResolver(InOpsResolver)
+			{
+				NameUTF8 = InNameUTF8;
+				Flags = InFlags;
+				ArrayDim = InArrayDim;
+				Offset = InOffset;
+				Kind = EPropertyGenFlags::Array;
+				MetaData = InMetaData;
+				NumMetaData = InNumMetaData;
+				Layout = EPropertyParamLayout::Array;
+			}
+
+			static constexpr auto WithAccessors(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				const FPropertyParamsBase* InInnerParams,
+				FOpsResolver InOpsResolver,
+				FMutableValueAccessor InMutableValueAccessor,
+				FConstValueAccessor InConstValueAccessor,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			) -> FArrayPropertyParams
+			{
+				FArrayPropertyParams Params(InNameUTF8, InFlags, InArrayDim, 0, InInnerParams, InOpsResolver, InMetaData, InNumMetaData);
+				Params.MutableValueAccessor = InMutableValueAccessor;
+				Params.ConstValueAccessor = InConstValueAccessor;
+				return Params;
+			}
+
+			const FPropertyParamsBase* InnerParams = nullptr;
+			FOpsResolver OpsResolver = nullptr;
+		};
+
+		struct FMapPropertyParams final : public FPropertyParamsBase
+		{
+			using FOpsResolver = const FMapOps* (*)();
+			using FMutableValueAccessor = void* (*)(void* Container, uint32 ArrayIndex);
+			using FConstValueAccessor = const void* (*)(const void* Container, uint32 ArrayIndex);
+
+			constexpr FMapPropertyParams(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				const FPropertyParamsBase* InKeyParams,
+				const FPropertyParamsBase* InValueParams,
+				FOpsResolver InOpsResolver,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			)
+				: FPropertyParamsBase{}
+				, KeyParams(InKeyParams)
+				, ValueParams(InValueParams)
+				, OpsResolver(InOpsResolver)
+			{
+				NameUTF8 = InNameUTF8;
+				Flags = InFlags;
+				ArrayDim = InArrayDim;
+				Offset = InOffset;
+				Kind = EPropertyGenFlags::Map;
+				MetaData = InMetaData;
+				NumMetaData = InNumMetaData;
+				Layout = EPropertyParamLayout::Map;
+			}
+
+			static constexpr auto WithAccessors(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				const FPropertyParamsBase* InKeyParams,
+				const FPropertyParamsBase* InValueParams,
+				FOpsResolver InOpsResolver,
+				FMutableValueAccessor InMutableValueAccessor,
+				FConstValueAccessor InConstValueAccessor,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			) -> FMapPropertyParams
+			{
+				FMapPropertyParams Params(InNameUTF8, InFlags, InArrayDim, 0, InKeyParams, InValueParams, InOpsResolver, InMetaData, InNumMetaData);
+				Params.MutableValueAccessor = InMutableValueAccessor;
+				Params.ConstValueAccessor = InConstValueAccessor;
+				return Params;
+			}
+
+			const FPropertyParamsBase* KeyParams = nullptr;
+			const FPropertyParamsBase* ValueParams = nullptr;
+			FOpsResolver OpsResolver = nullptr;
+		};
 
 		struct FStructPropertyParams final : public FPropertyParamsBase
 		{

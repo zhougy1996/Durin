@@ -42,6 +42,7 @@ from durin_header_tool.parser.reflection_parser import (
     _make_property_from_type,
     _parse_translation_unit,
     _scan_generated_body_line,
+    _validate_explicit_container_spelling,
     make_dht_parse_source,
     parse_reflection_header,
 )
@@ -125,6 +126,8 @@ namespace Durin
     class FName {};
     struct FGuid {};
     class DObject {};
+    template<typename T> class TObjectPtr {};
+    using int32 = int;
     template<typename T> struct TDStructOpsTraitsBase {};
     template<typename T> struct TDStructOpsTraits {};
 }
@@ -139,6 +142,9 @@ namespace std
 
 namespace Fixture
 {
+    using Durin::int32;
+    using FFloatVector = std::vector<float>;
+
     DENUM(DisplayName = "Fixture Mode")
     enum class EFixtureMode : int
     {
@@ -251,6 +257,30 @@ namespace Fixture
         std::vector<FDeletedDefault> Values;
         DPROPERTY()
         std::unordered_map<float, FMoveOnly> MoveValues;
+    };
+
+    DCLASS()
+    class AContainerShapes : public Durin::DObject
+    {
+        GENERATED_BODY()
+
+        DPROPERTY()
+        std::vector<int32> DirectScores;
+
+        DPROPERTY()
+        FFloatVector AliasedScores;
+
+        DPROPERTY()
+        std::vector<std::vector<int32>> NestedScores;
+
+        DPROPERTY()
+        std::vector<Durin::TObjectPtr<Durin::DObject>> ObjectReferences;
+
+        DPROPERTY()
+        std::unordered_map<std::string, int32> NamedScores;
+
+        DPROPERTY()
+        std::unordered_map<std::string, std::vector<Durin::TObjectPtr<Durin::DObject>>> ObjectLists;
     };
 
     DSTRUCT()
@@ -1093,11 +1123,10 @@ namespace Beta
         assert "new (Memory) Fixture::" not in self.generated_cpp
 
     def test_unavailable_nested_struct_operations_are_guarded(self):
-        assert "static bool NewProp_Values_ArrayResize" in self.generated_cpp
-        assert "using FElement = std::vector<Fixture::FDeletedDefault>::value_type;" in self.generated_cpp
-        assert "if constexpr (std::is_default_constructible_v<FElement>)" in self.generated_cpp
-        assert "static bool NewProp_MoveValues_MapInsert" in self.generated_cpp
-        assert "requires(FMapType& Map, const FKeyType& TypedKey, const FValueType& TypedValue)" in self.generated_cpp
+        assert "&Durin::ResolveArrayOps<std::remove_extent_t<decltype(((Fixture::FUnavailableContainers*)0)->Values)>>" in self.generated_cpp
+        assert "&Durin::ResolveMapOps<std::remove_extent_t<decltype(((Fixture::FUnavailableContainers*)0)->MoveValues)>>" in self.generated_cpp
+        assert "NewProp_Values_ArrayResize" not in self.generated_cpp
+        assert "NewProp_MoveValues_MapInsert" not in self.generated_cpp
         inner_definition = next(
             line for line in self.generated_cpp.splitlines()
             if "FUnavailableContainers_Statics::NewProp_Values_Inner =" in line
@@ -1109,6 +1138,105 @@ namespace Beta
         assert "EPropertyGenFlags::Struct" not in inner_definition
         assert "InitializePropertyValue" not in inner_definition
         assert "DestroyPropertyValue" not in inner_definition
+
+    def test_container_spelling_contract_and_alias_resolution(self):
+        symbols = self.symbols
+
+        assert _make_property_from_spelling("Bits", "std::vector<bool>", symbols) is None
+        assert _make_property_from_spelling(
+            "Allocated", "std::vector<int32, FAllocator>", symbols
+        ) is None
+        custom_map = _make_property_from_spelling(
+            "CustomMap",
+            "std::unordered_map<std::string, int32, FHash, FEqual, FAllocator>",
+            symbols,
+        )
+        assert custom_map is None
+        assert _make_property_from_spelling("Alias", "FIntVector", symbols) is None
+        assert _make_property_from_spelling(
+            "ObjectKey", "std::unordered_map<Durin::DObject*, int32>", symbols
+        ) is None
+        assert _make_property_from_spelling(
+            "DepthFour", "std::vector<std::vector<std::vector<std::vector<int32>>>>", symbols
+        ) is not None
+        assert _make_property_from_spelling(
+            "DepthFive",
+            "std::vector<std::vector<std::vector<std::vector<std::vector<int32>>>>>",
+            symbols,
+        ) is None
+
+        for property_name in (
+            "DirectScores",
+            "NestedScores",
+            "ObjectReferences",
+            "NamedScores",
+            "ObjectLists",
+            "AliasedScores",
+        ):
+            assert f"NewProp_{property_name}" in self.generated_cpp
+
+        alias_definition = next(
+            line for line in self.generated_cpp.splitlines()
+            if "AContainerShapes_Statics::NewProp_AliasedScores =" in line
+        )
+        assert "ResolveArrayOps<std::remove_extent_t<decltype(" in alias_definition
+        assert "std::vector" not in alias_definition
+
+    @pytest.mark.parametrize(
+        ("spelling", "diagnostic"),
+        [
+            ("std::vector<bool>", "[DHT-CONT002] DPROPERTY 'Value' at line 17: std::vector<bool> proxy references are unsupported"),
+            ("std::vector<int32, FAllocator>", "[DHT-CONT001] DPROPERTY 'Value' at line 17: std::vector requires the default allocator form std::vector<T>"),
+            ("std::unordered_map<int32, float, FHash>", "[DHT-CONT003] DPROPERTY 'Value' at line 17: std::unordered_map requires the default hash, equality, and allocator form std::unordered_map<K, V>"),
+            ("std::unordered_map<Durin::DObject*, float>", "[DHT-CONT004] DPROPERTY 'Value' at line 17: Map key type 'Durin::DObject*' is unsupported"),
+            ("std::vector<std::vector<std::vector<std::vector<std::vector<float>>>>>", "[DHT-CONT005] DPROPERTY 'Value' at line 17: container nesting exceeds the supported depth of 4"),
+        ],
+    )
+    def test_unsupported_container_forms_have_stable_diagnostics(self, spelling, diagnostic):
+        with pytest.raises(ValueError, match=re.escape(diagnostic)):
+            _validate_explicit_container_spelling(spelling, "Value", 17)
+
+    def test_unsupported_container_diagnostic_precedes_cpp_generation(self):
+        header = "Public/UnsupportedContainer.h"
+        header_path = self.module_dir / header
+        header_path.write_text(
+            '''#pragma once
+namespace std { template<typename T> class vector {}; }
+namespace Fixture
+{
+    DSTRUCT()
+    struct FUnsupportedContainer
+    {
+        GENERATED_BODY()
+        DPROPERTY()
+        std::vector<bool> Bits;
+    };
+}
+''',
+            encoding="utf-8",
+        )
+
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=self.module_config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    "[DHT-CONT002] DPROPERTY 'Bits' at line 10: std::vector<bool> proxy references are unsupported"
+                ),
+            ),
+        ):
+            parse_reflection_header("Fixture", header, exported_symbols=self.symbols)
+
+    def test_generated_containers_use_typed_params_and_reusable_resolvers(self):
+        assert "FArrayPropertyHelper" not in self.generated_cpp
+        assert "FMapPropertyHelper" not in self.generated_cpp
+        assert "_ArrayNum(" not in self.generated_cpp
+        assert "_MapGetKey(" not in self.generated_cpp
+        assert "InitializePropertyValue<std::vector" not in self.generated_cpp
+        assert "DestroyPropertyValue<std::vector" not in self.generated_cpp
+        assert "&Durin::ResolveArrayOps<" in self.generated_cpp
+        assert "&Durin::ResolveMapOps<" in self.generated_cpp
 
     def test_default_double_vector_intrinsics_are_available(self):
         missing_export = self.temp_root / "missing.export"

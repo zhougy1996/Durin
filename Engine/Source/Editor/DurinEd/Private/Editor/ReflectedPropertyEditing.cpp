@@ -20,6 +20,29 @@ namespace Durin
 			return false;
 		}
 
+		struct FResolveMapEntryContext
+		{
+			FProperty* KeyProperty = nullptr;
+			const FPropertyValueSnapshot* TargetKey = nullptr;
+			const void* Key = nullptr;
+			void* Value = nullptr;
+			std::string Error;
+		};
+
+		auto ResolveMapEntry(void* RawContext, const void* Key, void* Value) -> bool
+		{
+			auto& Context = *static_cast<FResolveMapEntryContext*>(RawContext);
+			FPropertyValueSnapshot StoredKey;
+			if (!CapturePropertyValue(Context.KeyProperty, Key, 0, StoredKey, &Context.Error)) return false;
+			if (StoredKey == *Context.TargetKey)
+			{
+				Context.Key = Key;
+				Context.Value = Value;
+				return false;
+			}
+			return true;
+		}
+
 		auto CaptureTargetValue(const FReflectedPropertyEditTarget& Target,
 			FPropertyValueSnapshot& OutSnapshot, std::string* OutError) -> bool
 		{
@@ -275,9 +298,15 @@ namespace Durin
 			{
 				auto* ArrayProperty = CurrentProperty->GetKind() == DurinCodeGen::EPropertyGenFlags::Array
 					? static_cast<FArrayProperty*>(CurrentProperty) : nullptr;
-				if (!ArrayProperty || Segment.Index >= ArrayProperty->Num(Container, CurrentArrayIndex))
+				uint64 Num = 0;
+				if (!ArrayProperty || ArrayProperty->GetNum(Container, Num, CurrentArrayIndex) != EContainerOpResult::Success
+					|| Segment.Index >= Num)
 					return Fail(OutError, "The reflected array path index is unavailable.");
-				Container = ArrayProperty->GetMutableElementPtr(Container, Segment.Index, CurrentArrayIndex);
+				void* Element = nullptr;
+				if (ArrayProperty->GetMutableElement(Container, Segment.Index, &Element, CurrentArrayIndex)
+					!= EContainerOpResult::Success)
+					return Fail(OutError, "The reflected array path requires mutable random access.");
+				Container = Element;
 				CurrentArrayIndex = 0;
 				break;
 			}
@@ -287,23 +316,17 @@ namespace Durin
 					? static_cast<FMapProperty*>(CurrentProperty) : nullptr;
 				if (!MapProperty || !Segment.MapKey.IsValid())
 					return Fail(OutError, "The reflected map path lacks a stable key snapshot.");
-				uint64 MapIndex = UINT64_MAX;
-				for (uint64 Index = 0; Index < MapProperty->Num(Container, CurrentArrayIndex); ++Index)
-				{
-					FPropertyValueSnapshot StoredKey;
-					const void* Key = MapProperty->GetKeyPtr(Container, Index, CurrentArrayIndex);
-					if (Key && CapturePropertyValue(MapProperty->GetKeyProp(), Key, 0, StoredKey)
-						&& StoredKey == Segment.MapKey)
-					{
-						MapIndex = Index;
-						break;
-					}
-				}
-				if (MapIndex == UINT64_MAX) return Fail(OutError, "The reflected map key is unavailable.");
+				FResolveMapEntryContext ResolveContext{MapProperty->GetKeyProp(), &Segment.MapKey};
+				const EContainerOpResult VisitResult = MapProperty->VisitMutableEntries(
+					Container, &ResolveMapEntry, &ResolveContext, CurrentArrayIndex);
+				if (VisitResult != EContainerOpResult::Success)
+					return Fail(OutError, "The reflected map path requires mutable mapped traversal.");
+				if (!ResolveContext.Error.empty()) return Fail(OutError, ResolveContext.Error);
+				if (!ResolveContext.Key) return Fail(OutError, "The reflected map key is unavailable.");
 				if (NextProperty == MapProperty->GetKeyProp())
-					Container = const_cast<void*>(MapProperty->GetKeyPtr(Container, MapIndex, CurrentArrayIndex));
+					Container = const_cast<void*>(ResolveContext.Key);
 				else if (NextProperty == MapProperty->GetValueProp())
-					Container = MapProperty->GetMutableMappedValuePtr(Container, MapIndex, CurrentArrayIndex);
+					Container = ResolveContext.Value;
 				else
 					return Fail(OutError, "The reflected map path does not select its key or value property.");
 				CurrentArrayIndex = 0;
