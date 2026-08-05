@@ -41,7 +41,7 @@ namespace Durin
 			DURIN_DECLARE_SHADER(
 				FStaticMeshVertexShader,
 				FShader,
-				"/Engine/StaticMesh",
+				"/Engine/StaticMeshBasePass",
 				EShaderFrequency::Vertex,
 				"VertexMain");
 		};
@@ -70,7 +70,7 @@ namespace Durin
 			DURIN_DECLARE_SHADER(
 				FStaticMeshFragmentShader,
 				FShader,
-				"/Engine/StaticMesh",
+				"/Engine/StaticMeshBasePass",
 				EShaderFrequency::Fragment,
 				"FragmentMain");
 		};

@@ -239,4 +239,4 @@ directory from Content.
 - `Engine/Source/Runtime/Engine/Private/Texture/Texture2DRenderResource.cpp`
 - `Engine/Source/Editor/TextureEditor/`
 - `Engine/Source/Runtime/Engine/Private/Materials/MaterialTypes.cpp`
-- `Engine/Shaders/Slang/StaticMesh.slang`
+- `Engine/Shaders/Slang/StaticMeshBasePass.slang`

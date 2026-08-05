@@ -428,12 +428,15 @@ TEST(FStaticMeshPayloadCodecTests,
 	std::string EntryPointSource;
 	const std::filesystem::path EntryPointPath =
 		std::filesystem::path(FPaths::EngineDir())
-		/ "Shaders/Slang/StaticMesh.slang";
+		/ "Shaders/Slang/StaticMeshBasePass.slang";
 	ASSERT_TRUE(FFileHelper::LoadFileToString(
 		EntryPointSource, EntryPointPath.generic_string()));
 	EXPECT_NE(
 		EntryPointSource.find(
 			"import VertexFactory.LocalVertexFactory;"),
+		std::string::npos);
+	EXPECT_NE(
+		EntryPointSource.find("import Lighting.PBRLighting;"),
 		std::string::npos);
 	EXPECT_EQ(
 		EntryPointSource.find("struct FLocalVertexFactoryInput"),
@@ -449,6 +452,9 @@ TEST(FStaticMeshPayloadCodecTests,
 		std::string::npos);
 	EXPECT_EQ(
 		EntryPointSource.find("float4 packedColor : COLOR;"),
+		std::string::npos);
+	EXPECT_EQ(
+		EntryPointSource.find("float3 EvaluatePBRDirectLighting("),
 		std::string::npos);
 
 	std::string VertexFactorySource;

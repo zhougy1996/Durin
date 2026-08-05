@@ -145,13 +145,13 @@ namespace Durin
 	}
 
 	TEST(FShaderReflectionTests,
-		StaticMeshModuleExtractionPreservesShaderAbi)
+		StaticMeshBasePassModuleExtractionPreservesShaderAbi)
 	{
 		const std::filesystem::path ShaderPath =
 			std::filesystem::path(DURIN_ENGINE_SHADER_SOURCE_DIR)
-			/ "StaticMesh.slang";
+			/ "StaticMeshBasePass.slang";
 		FShaderCompileOptions Options;
-		Options.VirtualShaderPath = "/Engine/StaticMesh";
+		Options.VirtualShaderPath = "/Engine/StaticMeshBasePass";
 		Options.EntryPoints = {"VertexMain", "FragmentMain"};
 		Options.Frequencies = {
 			EShaderFrequency::Vertex,

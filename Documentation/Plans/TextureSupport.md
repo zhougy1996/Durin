@@ -309,4 +309,5 @@ These features are intentionally outside the first Texture2D/material slice:
 - `Engine/Source/Editor/LevelEditor/Private/Assets/TextureImportDialog.cpp`
 - `Engine/Source/Editor/TextureEditor/`
 - `Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.cpp`
-- `Engine/Shaders/Slang/StaticMesh.slang`
+- `Engine/Shaders/Slang/StaticMeshBasePass.slang`
+- `Engine/Shaders/Slang/Lighting/PBRLighting.slang`

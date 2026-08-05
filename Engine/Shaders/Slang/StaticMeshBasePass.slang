@@ -1,6 +1,7 @@
-module StaticMesh;
+module StaticMeshBasePass;
 
 import VertexFactory.LocalVertexFactory;
+import Lighting.PBRLighting;
 
 // Static mesh material foundation shader.
 
@@ -132,8 +133,6 @@ float3 BlendRNM(float3 baseNormal, float3 detailNormal)
 float4 FragmentMain(VSOutput input) : SV_Target
 {
     const float minVectorLengthSquared = 1.0e-8;
-    const float minBRDFDivisor = 1.0e-5;
-    const float pi = 3.14159265358979323846;
     float4 baseColorSample = BaseColorTexture.Sample(MaterialSampler, GetMaterialUV(input, 0u));
     float3 normalSample = DecodeTextureNormal(
         NormalTexture.Sample(MaterialSampler, GetMaterialUV(input, 1u)).rg);
@@ -190,44 +189,34 @@ float4 FragmentMain(VSOutput input) : SV_Target
     float3 toView = viewLengthSquared > minVectorLengthSquared
         ? viewVector * rsqrt(viewLengthSquared)
         : float3(0.0);
-    float3 halfVectorInput = toLight + toView;
-    float halfLengthSquared = dot(halfVectorInput, halfVectorInput);
-    float3 halfVector = halfLengthSquared > minVectorLengthSquared
-        ? halfVectorInput * rsqrt(halfLengthSquared)
-        : float3(0.0);
-    float NoL = saturate(dot(normal, toLight));
     float NoV = saturate(dot(normal, toView));
-    float NoH = saturate(dot(normal, halfVector));
-    float VoH = saturate(dot(toView, halfVector));
     float metallic = saturate(Material.EmissiveMetallic.w) * saturate(metallicSample);
     float roughness = clamp(saturate(Material.NormalRoughness.w) * saturate(roughnessSample), 0.045, 1.0);
-    float alpha = roughness * roughness;
-    float alpha2 = alpha * alpha;
-    float distributionTerm = NoH * NoH * (alpha2 - 1.0) + 1.0;
-    float distribution = alpha2 / max(pi * distributionTerm * distributionTerm, minBRDFDivisor);
-    float visibility = 0.5 / max(
-        NoL * sqrt(NoV * NoV * (1.0 - alpha2) + alpha2)
-            + NoV * sqrt(NoL * NoL * (1.0 - alpha2) + alpha2),
-        minBRDFDivisor);
-    float3 f0 = lerp(float3(0.04), baseColor, metallic);
-    float3 fresnel = f0 + (1.0 - f0) * pow(1.0 - VoH, 5.0);
-    float3 diffuse = (1.0 - fresnel) * (1.0 - metallic) * baseColor / pi;
     float3 lightColor = Lighting.LightColorIntensity.rgb * Lighting.LightColorIntensity.a;
-    float3 direct = (diffuse + distribution * visibility * fresnel) * lightColor * NoL;
+    float3 direct = EvaluatePBRDirectLighting(
+        baseColor,
+        metallic,
+        roughness,
+        normal,
+        toLight,
+        toView,
+        lightColor);
     float3 reflectionDirection = reflect(-toView, normal);
-    float3 environmentFresnel = f0
-        + (max(float3(1.0 - roughness), f0) - f0) * pow(1.0 - NoV, 5.0);
-    float3 environmentDiffuse = EnvironmentIrradiance.Sample(
-        EnvironmentSampler, normal).rgb * baseColor / pi
-        * (1.0 - environmentFresnel) * (1.0 - metallic);
+    float3 irradiance = EnvironmentIrradiance.Sample(
+        EnvironmentSampler, normal).rgb;
     float3 prefiltered = EnvironmentPrefiltered.SampleLevel(
         EnvironmentSampler, reflectionDirection,
         roughness * 6.0).rgb;
     float2 environmentBrdf = EnvironmentBrdfLut.Sample(
         EnvironmentSampler, float2(NoV, roughness)).rg;
-    float3 environmentSpecular = prefiltered
-        * (f0 * environmentBrdf.x + environmentBrdf.y);
-    float3 environment = (environmentDiffuse + environmentSpecular)
-        * ambientOcclusion;
+    float3 environment = EvaluatePBREnvironmentLighting(
+        baseColor,
+        metallic,
+        roughness,
+        ambientOcclusion,
+        NoV,
+        irradiance,
+        prefiltered,
+        environmentBrdf);
     return float4(direct + environment + emissive, opacity);
 }

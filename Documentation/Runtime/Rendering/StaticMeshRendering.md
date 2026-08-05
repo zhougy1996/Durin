@@ -120,17 +120,19 @@ and no hard-coded static-mesh stream selection.
 
 ## Shader Module Boundary
 
-`StaticMesh.slang` imports `VertexFactory.LocalVertexFactory`. The vertex
-factory module owns:
+`StaticMeshBasePass.slang` imports `VertexFactory.LocalVertexFactory` and
+`Lighting.PBRLighting`. The vertex factory module owns:
 
 - `FLocalVertexFactoryInput`, the pass-facing vertex input structure;
 - `FLocalVertexFactoryIntermediates`, pass-neutral decoded vertex data;
 - `GetLocalVertexFactoryIntermediates()`, the decode entry function.
 
-Decode helpers are module-internal. Transform, material, lighting, and pass
-entry points remain in `StaticMesh.slang`. Vulkan vertex fetch expands the
-normalized integer tangent and color streams to floats before the module
-receives them.
+Decode helpers are module-internal. Transform, material sampling, tangent-space
+normal construction, environment sampling, and pass entry points remain in
+`StaticMeshBasePass.slang`. `Lighting.PBRLighting` owns the pass-independent
+Cook-Torrance GGX direct-light and split-sum environment-light evaluations.
+Vulkan vertex fetch expands the normalized integer tangent and color streams to
+floats before the vertex-factory module receives them.
 
 `FLocalVertexFactory::GetShaderModuleName()` returns the stable import name
 `VertexFactory.LocalVertexFactory`. The shader compiler links imported module
@@ -200,5 +202,6 @@ refactor does not silently drop arrays after upload.
 - `Engine/Source/Runtime/RenderCore/Public/VertexFactory.h`
 - `Engine/Source/Runtime/RenderCore/Public/RenderResource.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/StaticMeshRenderer.cpp`
-- `Engine/Shaders/Slang/StaticMesh.slang`
+- `Engine/Shaders/Slang/StaticMeshBasePass.slang`
+- `Engine/Shaders/Slang/Lighting/PBRLighting.slang`
 - `Engine/Shaders/Slang/VertexFactory/LocalVertexFactory.slang`
