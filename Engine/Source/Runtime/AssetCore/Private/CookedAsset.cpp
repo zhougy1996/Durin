@@ -615,12 +615,15 @@ namespace Durin::Asset
 	{
 		std::filesystem::path PackagePath;
 		if (!ResolveCookedPackagePath(CookRoot, VirtualPackagePath, PackagePath, OutError)) return false;
-		if (PackageBytes.empty() || Payloads.empty()) return Fail("Cook package bytes and payloads must be nonempty.", OutError);
+		if (PackageBytes.empty()) return Fail("Cook package bytes must be nonempty.", OutError);
 		if (std::ranges::any_of(Packages, [&](const FPendingPackage& Existing) {
 			return Existing.VirtualPath == VirtualPackagePath;
 		})) return Fail("Cook package path is duplicated.", OutError);
 		std::vector<uint8> BulkBytes;
-		if (!EncodeCookedBulk(Payloads, TargetPlatform, TargetProfile, BulkBytes, nullptr, OutError)) return false;
+		if (!Payloads.empty()
+			&& !EncodeCookedBulk(
+				Payloads, TargetPlatform, TargetProfile,
+				BulkBytes, nullptr, OutError)) return false;
 		Packages.push_back({std::move(VirtualPackagePath), std::move(PackageBytes), std::move(BulkBytes)});
 		return true;
 	}
@@ -633,16 +636,18 @@ namespace Durin::Asset
 	{
 		std::filesystem::path PackagePath;
 		if (!ResolveCookedPackagePath(CookRoot, VirtualPackagePath, PackagePath, OutError)) return false;
-		if (Payloads.empty() || !BuildPackageBytes)
-			return Fail("Cook payloads and package-byte builder must be nonempty.", OutError);
+		if (!BuildPackageBytes)
+			return Fail("Cook package-byte builder must be nonempty.", OutError);
 		if (std::ranges::any_of(Packages, [&](const FPendingPackage& Existing) {
 			return Existing.VirtualPath == VirtualPackagePath;
 		})) return Fail("Cook package path is duplicated.", OutError);
 
 		std::vector<uint8> BulkBytes;
 		std::vector<FCookedPayloadDescriptor> Descriptors;
-		if (!EncodeCookedBulk(
-			Payloads, TargetPlatform, TargetProfile, BulkBytes, &Descriptors, OutError)) return false;
+		if (!Payloads.empty()
+			&& !EncodeCookedBulk(
+				Payloads, TargetPlatform, TargetProfile,
+				BulkBytes, &Descriptors, OutError)) return false;
 		std::vector<uint8> PackageBytes;
 		if (!BuildPackageBytes(Descriptors, PackageBytes, OutError)) return false;
 		if (PackageBytes.empty()) return Fail("Cook package-byte builder returned an empty package.", OutError);
@@ -679,7 +684,14 @@ namespace Durin::Asset
 			if (!ResolveCookedPackagePath(CookRoot, Package.VirtualPath, PackagePath, OutError)
 				|| !ResolveCookedCompanionPath(CookRoot, PackagePath, BulkPath, OutError))
 				return false;
-			BulkOutputs.push_back({ECookManifestEntryKind::CookedBulk, BulkPath, {}, Package.BulkBytes});
+			if (!Package.BulkBytes.empty())
+			{
+				BulkOutputs.push_back({
+					ECookManifestEntryKind::CookedBulk,
+					BulkPath,
+					{},
+					Package.BulkBytes});
+			}
 			PackageOutputs.push_back({ECookManifestEntryKind::CookedPackage, PackagePath, {}, Package.PackageBytes});
 		}
 

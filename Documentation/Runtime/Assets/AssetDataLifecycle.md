@@ -121,12 +121,19 @@ metadata and moves large, already-built payloads into `.dbulk`. Source files,
 source-only editor metadata, DDC keys, and DDC paths are not runtime
 dependencies.
 
+Packages without external runtime payloads publish only their cooked
+`.dasset`; `FCookContext` does not create an empty `.dbulk` or manifest entry.
+`/Engine/Materials/DefaultMaterial` is such a package. Engine exposes it as a
+fixed built-in Cook root so a minimal project includes it even though empty
+material slots deliberately serialize no reference.
+
 StaticMesh and texture cooked packages also omit import source provenance and
 editor diagnostics. Import-record packages are not cook inputs, and runtime
 targets do not deploy `AssetImportCore`, `StandardAssetImport`, Assimp, or
 editor image decoders.
 
-The initial loose-file convention is one companion bulk container per package:
+The initial loose-file convention is at most one companion bulk container per
+package:
 
 ```text
 Content/Textures/T.dasset
@@ -134,7 +141,8 @@ Cooked/Win64/Game/Textures/T.dasset
 Cooked/Win64/Game/Textures/T.dbulk
 ```
 
-The companion name is derived from the cooked package's mount-relative path by
+When a package owns external payloads, the companion name is derived from the
+cooked package's mount-relative path by
 replacing `.dasset` with `.dbulk`. Case and path normalization follow the
 package path rules. A cooked package must not persist that physical path.
 
@@ -209,14 +217,16 @@ schema versions, and target platform. It may reuse a validated DDC payload, but
 the result is copied into cooked ownership; the runtime never follows a DDC
 reference.
 
-The cooker writes bulk data to a temporary file, flushes and closes it, validates
+For payload-bearing packages, the cooker writes bulk data to a temporary file,
+flushes and closes it, validates
 the completed container, and publishes it before publishing the cooked package
 that references it. Failed cooks remove their temporary output. A stale
 unreferenced bulk file is harmless and can be removed by manifest-driven output
 cleanup; a package must never reference a partially written container.
 
 Cook output and its deployment manifest are a consistency unit. The manifest
-must include both the cooked `.dasset` and every required `.dbulk`. Packaging,
+must include every cooked `.dasset` and only the required `.dbulk` companions.
+Packaging,
 patch generation, installation, and cleanup operate from that manifest rather
 than by assuming that every `.dbulk` in a directory is live.
 

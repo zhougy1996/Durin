@@ -3,6 +3,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/PrimitiveSceneProxy.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/DefaultMaterialService.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -229,10 +230,15 @@ namespace Durin
 		for (uint32 SlotIndex = 0; SlotIndex < RenderData->MaterialSlots.size(); ++SlotIndex)
 		{
 			DMaterialInterface* SlotMaterial = GetMaterial(SlotIndex);
+			if (SlotMaterial == nullptr)
+			{
+				RecordMaterialFallbackReason(
+					EMaterialFallbackReason::UnassignedDefault);
+			}
 			MaterialProxies.push_back(
 				SlotMaterial != nullptr
 					? SlotMaterial->GetMaterialRenderProxy()
-					: FMaterialRenderProxyRef{});
+					: GetDefaultMaterialRenderProxy());
 		}
 		return std::make_unique<FStaticMeshSceneProxy>(
 			RenderData,
@@ -251,10 +257,15 @@ namespace Durin
 		FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool
 	{
 		DMaterialInterface* CurrentMaterial = GetMaterial(PendingMaterialSlotIndex);
+		if (CurrentMaterial == nullptr)
+		{
+			RecordMaterialFallbackReason(
+				EMaterialFallbackReason::UnassignedDefault);
+		}
 		OutUpdate.SlotIndex = PendingMaterialSlotIndex;
 		OutUpdate.MaterialProxy = CurrentMaterial != nullptr
 			? CurrentMaterial->GetMaterialRenderProxy()
-			: FMaterialRenderProxyRef{};
+			: GetDefaultMaterialRenderProxy();
 		OutUpdate.ComponentRevision = MaterialComponentRevision;
 		return true;
 	}

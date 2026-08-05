@@ -22,6 +22,7 @@
 #include "StaticMeshMaterialSlotDetails.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Materials/Material.h"
+#include "Materials/DefaultMaterialService.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -302,8 +303,13 @@ namespace
 			InitializeDObjectSystem();
 			bOwnsRenderingThread =
 				Durin::GetRenderCommandAdmissionState()
-				== Durin::ERenderCommandAdmissionState::Stopped;
+					== Durin::ERenderCommandAdmissionState::Stopped;
 			if (bOwnsRenderingThread) Durin::InitRenderingThread();
+			if (Durin::PathUtilities::FindMountForVirtualPath(
+					Durin::DefaultMaterialAssetPath))
+			{
+				Durin::InitializeDefaultMaterialService();
+			}
 			Scene = Engine.CreateTestScene();
 			Durin::GEngine = &Engine;
 			World = Durin::NewObject<Durin::DWorld>(&Engine, "MaterialTestWorld");
@@ -332,6 +338,7 @@ namespace
 				World = nullptr;
 			}
 			Durin::GEngine = nullptr;
+			Durin::ShutdownDefaultMaterialService();
 			if (bOwnsRenderingThread) Durin::ShutdownRenderingThread();
 			bActive = false;
 		}
@@ -362,8 +369,13 @@ namespace
 			InitializeDObjectSystem();
 			bOwnsRenderingThread =
 				Durin::GetRenderCommandAdmissionState()
-				== Durin::ERenderCommandAdmissionState::Stopped;
+					== Durin::ERenderCommandAdmissionState::Stopped;
 			if (bOwnsRenderingThread) Durin::InitRenderingThread();
+			if (Durin::PathUtilities::FindMountForVirtualPath(
+					Durin::DefaultMaterialAssetPath))
+			{
+				Durin::InitializeDefaultMaterialService();
+			}
 			RendererModule.StartupModule();
 			Engine.SetTestRendererModule(&RendererModule);
 			Durin::GEngine = &Engine;
@@ -374,6 +386,7 @@ namespace
 			Durin::GEngine = nullptr;
 			RendererModule.ShutdownModule();
 			WaitForRenderingThread();
+			Durin::ShutdownDefaultMaterialService();
 			if (bOwnsRenderingThread) Durin::ShutdownRenderingThread();
 		}
 

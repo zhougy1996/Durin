@@ -143,8 +143,10 @@ Each StaticMesh section carries one stable positional material-slot index and
 resolves that slot's material proxy snapshot. Asset import preserves matched
 indices, retains removed positions, appends new slots, and maps imported
 sections explicitly. Component resolution at the same index is override, mesh
-default, then renderer fallback; no slot GUID or source metadata crosses the
-render boundary. The
+default, then the shared Engine `DefaultMaterial` proxy; no slot GUID or source
+metadata crosses the render boundary. An empty slot is normal and emits no
+warning. A missing proxy after binding resolution is structural failure and
+selects ErrorMaterial. The
 snapshot carries an Engine-owned `FMaterialRenderRepresentation` and a
 separate static shader/pipeline identity. `FStaticMeshRenderer` accepts only
 the exact v2 layout identified by `MaterialRenderLayoutV2Id`; it decodes the
@@ -163,9 +165,9 @@ scene renderer and fall back together to black.
 
 If the representation identity or field table is unsupported, the Renderer
 reports a `ShaderBinding` resource diagnostic and switches to a complete
-default material snapshot before shader-map or pipeline lookup. The fallback
-contains the same validated v2 contract, so no partial payload can reach a
-draw.
+asset-independent ErrorMaterial snapshot before shader-map or pipeline lookup.
+The terminal contains the same validated v2 contract and is not recursively
+validated as another fallback, so no partial payload can reach a draw.
 
 ## Payload Compatibility
 

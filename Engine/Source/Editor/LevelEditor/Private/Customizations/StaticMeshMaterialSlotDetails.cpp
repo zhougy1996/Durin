@@ -23,7 +23,7 @@ namespace Durin
 				return "Component override. Reset to the static mesh default material.";
 			case EStaticMeshMaterialSource::MeshDefault:
 				return "Inherited from the static mesh default material.";
-			case EStaticMeshMaterialSource::RendererFallback:
+			case EStaticMeshMaterialSource::EngineDefault:
 				return "No component override or mesh default is assigned; the renderer fallback is used.";
 			}
 			return "The material source is unknown.";
@@ -166,7 +166,7 @@ namespace Durin
 				DMaterialInterface* Override = Component->GetMaterialOverride(Index);
 				DMaterialInterface* Resolved = Component->GetMaterial(Index);
 				const EStaticMeshMaterialSource Source = Override ? EStaticMeshMaterialSource::ComponentOverride
-					: Slot.DefaultMaterial ? EStaticMeshMaterialSource::MeshDefault : EStaticMeshMaterialSource::RendererFallback;
+					: Slot.DefaultMaterial ? EStaticMeshMaterialSource::MeshDefault : EStaticMeshMaterialSource::EngineDefault;
 				const std::string Label = std::format("[{}] {}", Index, Slot.Name.ToString());
 				CurrentEntries.push_back({Index, Label,
 					std::format("Materials Material Slot {} {} {}", Index, Slot.Name.ToString(), GetSourceLabel(Source)),
@@ -187,7 +187,7 @@ namespace Durin
 		{
 		case EStaticMeshMaterialSource::ComponentOverride: return "Component Override";
 		case EStaticMeshMaterialSource::MeshDefault: return "Mesh Default";
-		case EStaticMeshMaterialSource::RendererFallback: return "Renderer Fallback";
+		case EStaticMeshMaterialSource::EngineDefault: return "Engine Default (/Engine/Materials/DefaultMaterial)";
 		}
 		return "Unknown";
 	}

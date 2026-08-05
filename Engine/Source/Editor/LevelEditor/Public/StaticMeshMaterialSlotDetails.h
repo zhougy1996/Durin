@@ -15,7 +15,7 @@ namespace Durin
 	{
 		ComponentOverride,
 		MeshDefault,
-		RendererFallback,
+		EngineDefault,
 	};
 
 	// Presents one resolved material slot and its override state to details UI.
@@ -25,7 +25,7 @@ namespace Durin
 		std::string Label;
 		std::string SearchKeywords;
 		DMaterialInterface* Material = nullptr;
-		EStaticMeshMaterialSource Source = EStaticMeshMaterialSource::RendererFallback;
+		EStaticMeshMaterialSource Source = EStaticMeshMaterialSource::EngineDefault;
 		bool bHasOverride = false;
 	};
 

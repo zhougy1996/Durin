@@ -76,6 +76,9 @@ TEST(FStaticMeshMaterialSlotDetailsTests, BuildsFixedRowsSourcesAndKeepsDormantO
 	Durin::FStaticMeshMaterialSlotDetailsModel SmallerMeshModel(Component);
 	ASSERT_EQ(SmallerMeshModel.GetCurrentEntries().size(), 1u);
 	EXPECT_FALSE(SmallerMeshModel.GetCurrentEntries()[0].bHasOverride);
+	EXPECT_EQ(
+		SmallerMeshModel.GetCurrentEntries()[0].Source,
+		Durin::EStaticMeshMaterialSource::EngineDefault);
 	EXPECT_TRUE(SmallerMeshModel.HasStoredOverrides());
 
 	Component->SetStaticMesh(nullptr);

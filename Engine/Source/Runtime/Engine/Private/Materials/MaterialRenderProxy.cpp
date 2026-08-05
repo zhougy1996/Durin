@@ -289,7 +289,7 @@ namespace Durin
 		GMaterialRenderProxyCounters.ResolutionCacheMissCount.fetch_add(1);
 
 		CachedResolvedData =
-			ParentData ? *ParentData : FMaterialRenderData{};
+			ParentData ? *ParentData : GetErrorMaterialRenderData();
 		FMaterialRenderRepresentationBuilder RepresentationBuilder(
 			CachedResolvedData.Representation);
 		bool bRepresentationValid = true;
@@ -314,10 +314,9 @@ namespace Durin
 			|| !RepresentationBuilder.Build(
 				CompiledRepresentation, ValidationDiagnostic))
 		{
-			const FMaterialPipelineIdentity PipelineIdentity =
-				CachedResolvedData.PipelineIdentity;
-			CachedResolvedData = FMaterialRenderData{};
-			CachedResolvedData.PipelineIdentity = PipelineIdentity;
+			RecordMaterialFallbackReason(
+				EMaterialFallbackReason::MaterialDataInvalid);
+			CachedResolvedData = GetErrorMaterialRenderData();
 			GMaterialRenderProxyCounters.RepresentationValidationFailureCount
 				.fetch_add(1);
 		}

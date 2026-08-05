@@ -188,6 +188,12 @@ depth-writing pass: Opacity does not blend and OpacityMask does not change
 coverage or depth. Those visible policies remain deferred to the future
 render-pass milestone.
 
+All of those consumers resolve an unassigned StaticMesh slot through the same
+Engine-retained `/Engine/Materials/DefaultMaterial` proxy. Broken material
+state uses the asset-independent unlit magenta ErrorMaterial, so preview or
+thumbnail rendering cannot disguise an invalid surface as an ordinary neutral
+default and remains diagnosable when Engine Content is unavailable.
+
 Scene post-processing produces the image that is then composed with editor assistance for both window-backed and render-target-backed viewports. Editor assistance is a Renderer phase, not Mona or ImGui content: it loads preserved scene depth for occlusion, but remains outside scene anti-aliasing and any future temporal history. The final assistance pass restores the view's constrained content viewport and scissor after the fullscreen post-process pass, so fixed-aspect black bars remain untouched. Window-backed output then transitions to Present; render-target-backed output becomes ShaderReadOnly and continues through `MonaUI::DrawTexture(...)` without exposing intermediate scene targets to the widget layer.
 
 The editor-assistance draw order is grid first, then X-Ray gizmos, lines, and icons, followed by their depth-tested visible variants. Main and auxiliary viewports reuse size-keyed scene intermediates sequentially, while each output target receives its own post-process and final assistance passes.

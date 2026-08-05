@@ -59,8 +59,9 @@ declarations and compiled layouts remain deferred work.
   to-stable map rather than searching historical source indices.
 - `DStaticMeshComponent` persists a positional `OverrideMaterials` array.
   Resolution for each current index is non-null component override, mesh
-  default, then an empty `FMaterialRenderData` whose representation is the
-  deterministic renderer fallback. Mesh assignment preserves the complete
+  default, then the Engine-owned `/Engine/Materials/DefaultMaterial` proxy.
+  Empty assignments remain null in serialized component and mesh state; the
+  service binding is transient. Mesh assignment preserves the complete
   array: shared indices apply immediately, entries beyond a smaller mesh are
   dormant, and a later larger mesh reactivates them. Dormant entries bind no
   dependency and never reach the scene proxy; Clear All removes them too.
@@ -73,8 +74,10 @@ declarations and compiled layouts remain deferred work.
 - `FStaticMeshRenderer` accepts only the exact supported v2 field table. It
   decodes the compact uniform bytes and resource slot through
   `TryGetMaterialRenderV2Binding`; an unsupported layout emits a
-  `ShaderBinding` resource diagnostic and uses a complete default snapshot
-  before shader-map or pipeline selection.
+  `ShaderBinding` resource diagnostic and selects the code-constructed
+  ErrorMaterial before shader-map or pipeline selection. The terminal is not
+  validated recursively; an incompatible terminal is a checked invariant and
+  skips the affected production draw.
 - Scene-proxy construction walks the current mesh slots in order and retains
   one stable `FMaterialRenderProxyRef` binding per slot. A mesh assignment or
   rebuilt mesh render layout replaces the proxy; dynamic parameter, static
@@ -95,8 +98,37 @@ declarations and compiled layouts remain deferred work.
   independent slots and rejects stale render commands.
 - The static mesh shader implements Cook-Torrance GGX direct lighting and
   split-sum image-based environment lighting, plus an unlit viewport mode.
-  Missing values preserve the orange PBR fallback material and
-  role-appropriate Renderer-owned white, black, or flat-normal textures.
+  Missing role textures retain the selected material and use Renderer-owned
+  white, black, or flat-normal resources. Missing environment resources retain
+  the selected material and use the black environment set.
+
+### Default and Error Surfaces
+
+`FDefaultMaterialService` is initialized on the game thread from
+`DEngine::Init()` after Engine Content mounts and render-command admission are
+ready, before world or scene-proxy creation. It synchronously loads the exact
+base `DMaterial` at `/Engine/Materials/DefaultMaterial`, roots that asset, and
+retains one counted proxy for level, preview, and thumbnail consumers. Engine
+destruction detaches world, scene, viewport, preview, and thumbnail consumers,
+then shuts the service down before AssetCore and rendering shutdown. Loading is
+never lazy and never occurs on the render thread.
+
+The authored default is opaque, lit, one-sided, automatic-depth-write neutral
+gray with BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`,
+Roughness `0.5`, AmbientOcclusion `1`, zero Emissive, unit Opacity and
+OpacityMask, and no textures. It is valid authored data and is not classified
+as an error.
+
+Invalid representation construction, material compilation, structural missing
+proxies, Renderer layout rejection, and unavailable default content converge
+on `GetErrorMaterialRenderData()`. This asset-independent exact-v2 terminal is
+opaque, unlit, two-sided, depth-writing magenta with no texture, package, DDC,
+Cook, AssetCore, or RHI dependency. Whole-material diagnostics use the distinct
+reasons `UnassignedDefault`, `DefaultAssetUnavailable`, `MaterialDataInvalid`,
+`UnsupportedLayout`, and `MissingProxy`; normal default selection increments a
+counter without per-component logging, while default-asset failure logs once
+per service lifecycle. Texture and environment recovery do not increment these
+whole-material counters.
 
 ## Versioned Render Representation
 
@@ -112,7 +144,7 @@ draws consume only v2.
 Construction validates the version and identity, field counts, compact-index
 contiguity, types, sizes, alignment, non-overlapping ranges, finite values,
 zero padding, and resource counts before publication. Invalid construction
-returns the complete deterministic fallback representation and a diagnostic;
+returns the complete deterministic ErrorMaterial representation and a diagnostic;
 it never publishes a partially filled payload. The representation retains no
 reflected object or raw texture pointer.
 

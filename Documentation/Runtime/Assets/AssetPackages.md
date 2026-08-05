@@ -154,7 +154,10 @@ of being silently omitted.
 - `DLevel` objects are main assets inside packages; a `DWorld` remains a runtime/editor session container and activates one level at a time.
 
 Asset-level cooking and deterministic cooked publication are implemented for
-StaticMesh, Texture2D, and TextureCube. Complete project discovery, editor or
+StaticMesh, Texture2D, TextureCube, and ordinary package-only assets. Engine
+owns a fixed built-in Cook-root list; it currently contains
+`/Engine/Materials/DefaultMaterial`, whose package is published without an
+empty bulk companion. Complete project discovery, editor or
 DurinDevTool packaging commands, and installable-build orchestration are not yet
 connected. Other deferred package-system work includes soft references, async
 loading, hot reload, redirects, and broader editor asset browsing.

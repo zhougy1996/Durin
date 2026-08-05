@@ -241,8 +241,11 @@ TEST(FMaterialTests, StaticMeshProxyCapturesPerSlotMaterials)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, StaticMeshProxyUsesEmptyFallbackForUnassignedSlots)
+TEST(FMaterialTests, StaticMeshProxyUsesSharedEngineDefaultForUnassignedSlots)
 {
+	InitializeDObjectSystem();
+	Durin::ResetMaterialFallbackDiagnosticsForTests();
+	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
 	FRenderSceneHarness Harness;
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	Durin::FStaticMeshTestAccess::GetMutableRenderData(Mesh)
@@ -255,13 +258,18 @@ TEST(FMaterialTests, StaticMeshProxyUsesEmptyFallbackForUnassignedSlots)
 	ASSERT_EQ(Snapshot.Materials.size(), 2u);
 	for (Durin::uint32 SlotIndex = 0; SlotIndex < 2; ++SlotIndex)
 	{
-		const Durin::FMaterialRenderData& Fallback = Snapshot.Materials[SlotIndex];
-		const Durin::FMaterialRenderV2Binding Binding = GetMaterialBinding(Fallback);
+		const Durin::FMaterialRenderData& Default = Snapshot.Materials[SlotIndex];
+		const Durin::FMaterialRenderV2Binding Binding = GetMaterialBinding(Default);
 		EXPECT_EQ(Binding.Textures[0], nullptr);
-		ExpectColorNear(
-			Binding.BaseColor, Durin::FMaterialRenderV2Binding{}.BaseColor);
-		EXPECT_EQ(Snapshot.MaterialProxies[SlotIndex], nullptr);
+		ExpectColorNear(Binding.BaseColor, Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
+		EXPECT_FALSE(Default.Representation.IsError());
+		EXPECT_NE(Snapshot.MaterialProxies[SlotIndex], nullptr);
 	}
+	EXPECT_EQ(Snapshot.MaterialProxies[0], Snapshot.MaterialProxies[1]);
+	EXPECT_EQ(
+		Durin::GetMaterialFallbackDiagnosticsSnapshot().Get(
+			Durin::EMaterialFallbackReason::UnassignedDefault),
+		2u);
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
@@ -273,6 +281,8 @@ TEST(FMaterialTests, StaticMeshProxyUsesEmptyFallbackForUnassignedSlots)
 
 TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMaterialSlot)
 {
+	InitializeDObjectSystem();
+	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
 	FRenderSceneHarness Harness;
 	auto* Shared = Durin::NewObject<Durin::DMaterial>(nullptr, "SharedSlotMaterial");
 	auto* Override = Durin::NewObject<Durin::DMaterial>(nullptr, "OverrideSlotMaterial");
@@ -298,7 +308,7 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	ExpectColorNear(GetMaterialBinding(Initial.Materials[2]).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
 	ExpectColorNear(
 		GetMaterialBinding(Initial.Materials[3]).BaseColor,
-		Durin::FMaterialRenderV2Binding{}.BaseColor);
+		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 	EXPECT_EQ(Component->GetMaterial(2), Shared);
 
 	Shared->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.4, 0.5, 0.6));
@@ -311,7 +321,7 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	ExpectColorNear(GetMaterialBinding(Updated.Materials[2]).BaseColor, Durin::FVector4f(0.4f, 0.5f, 0.6f, 1.0f));
 	ExpectColorNear(
 		GetMaterialBinding(Updated.Materials[3]).BaseColor,
-		Durin::FMaterialRenderV2Binding{}.BaseColor);
+		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 	EXPECT_EQ(
 		Updated.Materials[0].PipelineIdentity,
 		Initial.Materials[0].PipelineIdentity);
@@ -323,7 +333,7 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	ASSERT_EQ(Dormant.Materials.size(), 1u);
 	ExpectColorNear(
 		GetMaterialBinding(Dormant.Materials[0]).BaseColor,
-		Durin::FMaterialRenderV2Binding{}.BaseColor);
+		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 	EXPECT_EQ(Component->GetMaterialOverride(1), Override);
 	Component->SetStaticMesh(Mesh);
 	const FMaterialSlotsSnapshot Reactivated = CaptureMaterialSlots(Harness.Scene);

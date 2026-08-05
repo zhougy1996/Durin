@@ -1,5 +1,7 @@
 #include "MaterialTestSupport.h"
+#include "CookedAsset.h"
 #include "Materials/MaterialTypes.h"
+#include "NativeTestSupport.h"
 
 #include <cstring>
 #include <limits>
@@ -39,25 +41,220 @@ TEST(FMaterialRenderRepresentationTests, DefaultLayoutHasStableIdentityAndPackin
 	EXPECT_EQ(Layout.ResourceFieldCount, 8u);
 	ASSERT_EQ(Layout.Fields.size(), 40u);
 
-	const Durin::FMaterialRenderRepresentation Fallback;
-	EXPECT_TRUE(Fallback.IsFallback());
-	EXPECT_EQ(Fallback.GetLayout().Identity, Layout.Identity);
-	ASSERT_EQ(Fallback.GetUniformPayload().size(), 352u);
-	EXPECT_FLOAT_EQ(ReadFloat(Fallback.GetUniformPayload(), 0), 0.95f);
-	EXPECT_FLOAT_EQ(ReadFloat(Fallback.GetUniformPayload(), 4), 0.62f);
-	EXPECT_FLOAT_EQ(ReadFloat(Fallback.GetUniformPayload(), 8), 0.22f);
-	EXPECT_FLOAT_EQ(ReadFloat(Fallback.GetUniformPayload(), 12), 1.0f);
-	EXPECT_FLOAT_EQ(ReadFloat(Fallback.GetUniformPayload(), 28), 0.0f);
-	EXPECT_FLOAT_EQ(ReadFloat(Fallback.GetUniformPayload(), 40), 1.0f);
-	EXPECT_FLOAT_EQ(ReadFloat(Fallback.GetUniformPayload(), 44), 0.5f);
-	EXPECT_FLOAT_EQ(ReadFloat(Fallback.GetUniformPayload(), 48), 1.0f);
-	EXPECT_FLOAT_EQ(ReadFloat(Fallback.GetUniformPayload(), 52), 1.0f);
-	EXPECT_EQ(Fallback.GetResources().size(), 8u);
+	const Durin::FMaterialRenderRepresentation Error;
+	EXPECT_TRUE(Error.IsError());
+	EXPECT_EQ(Error.GetLayout().Identity, Layout.Identity);
+	ASSERT_EQ(Error.GetUniformPayload().size(), 352u);
+	EXPECT_FLOAT_EQ(ReadFloat(Error.GetUniformPayload(), 0), 1.0f);
+	EXPECT_FLOAT_EQ(ReadFloat(Error.GetUniformPayload(), 4), 0.0f);
+	EXPECT_FLOAT_EQ(ReadFloat(Error.GetUniformPayload(), 8), 1.0f);
+	EXPECT_FLOAT_EQ(ReadFloat(Error.GetUniformPayload(), 12), 1.0f);
+	EXPECT_FLOAT_EQ(ReadFloat(Error.GetUniformPayload(), 28), 0.0f);
+	EXPECT_FLOAT_EQ(ReadFloat(Error.GetUniformPayload(), 40), 1.0f);
+	EXPECT_FLOAT_EQ(ReadFloat(Error.GetUniformPayload(), 44), 0.5f);
+	EXPECT_FLOAT_EQ(ReadFloat(Error.GetUniformPayload(), 48), 1.0f);
+	EXPECT_FLOAT_EQ(ReadFloat(Error.GetUniformPayload(), 52), 1.0f);
+	EXPECT_EQ(Error.GetResources().size(), 8u);
+
+	const Durin::FMaterialRenderData& ErrorData =
+		Durin::GetErrorMaterialRenderData();
+	EXPECT_TRUE(ErrorData.Representation.IsError());
+	EXPECT_EQ(
+		ErrorData.PipelineIdentity.ShaderMap.ShadingModel,
+		Durin::EMaterialShadingModel::Unlit);
+	EXPECT_TRUE(ErrorData.PipelineIdentity.bTwoSided);
+	EXPECT_EQ(
+		ErrorData.PipelineIdentity.DepthWritePolicy,
+		Durin::EMaterialDepthWritePolicy::Enabled);
+}
+
+TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
+{
+	InitializeDObjectSystem();
+	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
+	const bool bOwnsRenderingThread =
+		Durin::GetRenderCommandAdmissionState()
+			== Durin::ERenderCommandAdmissionState::Stopped;
+	if (bOwnsRenderingThread) Durin::InitRenderingThread();
+	ASSERT_TRUE(Durin::InitializeDefaultMaterialService());
+	EXPECT_TRUE(Durin::IsDefaultMaterialServiceAvailable());
+	Durin::FMaterialRenderProxyRef First =
+		Durin::GetDefaultMaterialRenderProxy();
+	Durin::FMaterialRenderProxyRef Second =
+		Durin::GetDefaultMaterialRenderProxy();
+	ASSERT_TRUE(First);
+	EXPECT_EQ(First.GetReference(), Second.GetReference());
+
+	Durin::FMaterialRenderData Resolved;
+	struct FCaptureDefaultMaterialCommand
+	{
+		static constexpr const char* GetName()
+		{
+			return "CaptureDefaultMaterial";
+		}
+	};
+	Durin::EnqueueRenderCommand<FCaptureDefaultMaterialCommand>(
+		[First, &Resolved](Durin::FRHICommandListImmediate&) {
+			Resolved = First->Resolve_RenderThread();
+		});
+	WaitForRenderingThread();
+	const Durin::FMaterialRenderV2Binding Binding =
+		GetMaterialBinding(Resolved);
+	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
+	EXPECT_EQ(Binding.Normal, Durin::FVector3f(0.0f, 0.0f, 1.0f));
+	EXPECT_FLOAT_EQ(Binding.Metallic, 0.0f);
+	EXPECT_FLOAT_EQ(Binding.Roughness, 0.5f);
+	EXPECT_FLOAT_EQ(Binding.AmbientOcclusion, 1.0f);
+	EXPECT_EQ(Binding.Emissive, Durin::FVector3f(0.0f));
+	EXPECT_FALSE(Resolved.Representation.IsError());
+	EXPECT_EQ(
+		Resolved.PipelineIdentity.ShaderMap.ShadingModel,
+		Durin::EMaterialShadingModel::Lit);
+	EXPECT_FALSE(Resolved.PipelineIdentity.bTwoSided);
+
+	const auto CookRoots = Durin::GetEngineBuiltInCookRoots();
+	ASSERT_EQ(CookRoots.size(), 1u);
+	EXPECT_EQ(CookRoots[0], Durin::DefaultMaterialAssetPath);
+
+	Durin::ShutdownDefaultMaterialService();
+	EXPECT_FALSE(Durin::IsDefaultMaterialServiceAvailable());
+	EXPECT_FALSE(Durin::GetDefaultMaterialRenderProxy());
+	First = {};
+	Second = {};
+	Durin::FAssetPath DefaultPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		Durin::DefaultMaterialAssetPath, DefaultPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(DefaultPath));
+	Durin::CollectGarbage();
+	WaitForRenderingThread();
+	if (bOwnsRenderingThread) Durin::ShutdownRenderingThread();
+}
+
+TEST(FDefaultMaterialServiceTests, MissingEngineContentSelectsErrorTerminal)
+{
+	InitializeDObjectSystem();
+	Durin::ResetMaterialFallbackDiagnosticsForTests();
+	const std::filesystem::path Root =
+		Durin::Testing::CreateTestFixtureDirectory("MissingDefaultMaterial");
+	const std::array Definitions{
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/Engine/",
+			.Owner = Durin::PathUtilities::EMountOwner::Engine,
+			.Root = Root,
+			.bAutoScan = true,
+			.bAuthoringWritable = false}};
+	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
+	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
+	EXPECT_FALSE(Durin::InitializeDefaultMaterialService());
+	EXPECT_FALSE(Durin::GetDefaultMaterialRenderProxy());
+	EXPECT_EQ(
+		Durin::GetMaterialFallbackDiagnosticsSnapshot().Get(
+			Durin::EMaterialFallbackReason::DefaultAssetUnavailable),
+		1u);
+	const Durin::FMaterialRenderData& Error =
+		Durin::GetErrorMaterialRenderData();
+	EXPECT_TRUE(Error.Representation.IsError());
+	const Durin::FMaterialRenderV2Binding Binding = GetMaterialBinding(Error);
+	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(1.0f, 0.0f, 1.0f, 1.0f));
+	Durin::ShutdownDefaultMaterialService();
+}
+
+TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
+{
+	InitializeDObjectSystem();
+	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		Durin::DefaultMaterialAssetPath, Path));
+	Durin::DMaterial* Source = nullptr;
+	Durin::Asset::FAssetResult Result = Durin::Asset::LoadAsset(Path, Source);
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Source, nullptr);
+	std::vector<Durin::uint8> PackageBytes;
+	Result = Durin::Asset::SerializeAssetPackageBytes(
+		Source->GetPackage(), PackageBytes);
+	ASSERT_TRUE(Result) << Result.Message;
+
+	const std::filesystem::path CookRoot = std::filesystem::absolute(
+		Durin::Testing::CreateTestFixtureDirectory("DefaultMaterialCook"));
+	Durin::Asset::FCookContext Cook(
+		CookRoot,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game);
+	std::string Error;
+	ASSERT_TRUE(Cook.AddPackage(
+		std::string(Durin::DefaultMaterialAssetPath),
+		std::move(PackageBytes),
+		{},
+		&Error)) << Error;
+	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
+	EXPECT_TRUE(std::filesystem::is_regular_file(
+		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
+	EXPECT_FALSE(std::filesystem::exists(
+		CookRoot / "Engine/Materials/DefaultMaterial.dbulk"));
+
+	Durin::Asset::ShutdownAssetManager();
+	Durin::CollectGarbage();
+	Durin::Asset::FAssetManager::Get().Initialize();
+	Result = Durin::Asset::ConfigurePackageLoadContext({
+		Durin::Asset::EPackageLoadMode::CookedRuntime,
+		CookRoot});
+	ASSERT_TRUE(Result) << Result.Message;
+	Durin::DMaterial* Cooked = nullptr;
+	Result = Durin::Asset::LoadAsset(Path, Cooked);
+	ASSERT_TRUE(Result) << Result.Message;
+	ASSERT_NE(Cooked, nullptr);
+	EXPECT_EQ(
+		GetMaterialBinding(Cooked->GetRenderData()).BaseColor,
+		Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
+
+	Durin::Asset::ShutdownAssetManager();
+	Durin::CollectGarbage();
+	Durin::Asset::FAssetManager::Get().Initialize();
+}
+
+TEST(FErrorMaterialTests, MissingStructuralProxyUsesErrorWithoutAssetLookup)
+{
+	InitializeDObjectSystem();
+	Durin::ResetMaterialFallbackDiagnosticsForTests();
+	const bool bOwnsRenderingThread =
+		Durin::GetRenderCommandAdmissionState()
+			== Durin::ERenderCommandAdmissionState::Stopped;
+	if (bOwnsRenderingThread) Durin::InitRenderingThread();
+	Durin::FStaticMeshSceneProxy Proxy(
+		nullptr,
+		std::vector<Durin::FMaterialRenderProxyRef>{
+			Durin::FMaterialRenderProxyRef{}},
+		1);
+	Durin::FMaterialRenderData Resolved;
+	struct FCaptureMissingProxyErrorCommand
+	{
+		static constexpr const char* GetName()
+		{
+			return "CaptureMissingProxyError";
+		}
+	};
+	Durin::EnqueueRenderCommand<FCaptureMissingProxyErrorCommand>(
+		[&Proxy, &Resolved](Durin::FRHICommandListImmediate&) {
+			Resolved = Proxy.ResolveMaterialRenderData_RenderThread(0);
+		});
+	WaitForRenderingThread();
+	EXPECT_TRUE(Resolved.Representation.IsError());
+	EXPECT_EQ(
+		GetMaterialBinding(Resolved).BaseColor,
+		Durin::FVector4f(1.0f, 0.0f, 1.0f, 1.0f));
+	EXPECT_EQ(
+		Durin::GetMaterialFallbackDiagnosticsSnapshot().Get(
+			Durin::EMaterialFallbackReason::MissingProxy),
+		1u);
+	if (bOwnsRenderingThread) Durin::ShutdownRenderingThread();
 }
 
 TEST(FMaterialRenderRepresentationTests, ValidPayloadIsAcceptedAsOneCompleteRepresentation)
 {
-	const Durin::FMaterialRenderRepresentation Fallback;
+	const Durin::FMaterialRenderRepresentation Fallback =
+		Durin::MakeCanonicalMaterialRenderRepresentation();
+	EXPECT_FALSE(Fallback.IsError());
 	Durin::FMaterialRenderRepresentationInput Input;
 	Input.Layout = Fallback.GetLayout();
 	Input.UniformPayload.assign(
@@ -69,7 +266,7 @@ TEST(FMaterialRenderRepresentationTests, ValidPayloadIsAcceptedAsOneCompleteRepr
 	ASSERT_TRUE(Durin::FMaterialRenderRepresentation::TryCreate(
 		std::move(Input), Representation, Diagnostic));
 	EXPECT_EQ(Diagnostic.Failure, Durin::EMaterialRenderValidationFailure::None);
-	EXPECT_FALSE(Representation.IsFallback());
+	EXPECT_FALSE(Representation.IsError());
 	EXPECT_EQ(Representation.GetUniformPayload().size(), 352u);
 }
 
@@ -163,7 +360,7 @@ TEST(FMaterialRenderRepresentationTests, BuilderCompilesValuesIntoCompactSlots)
 	Durin::FMaterialRenderRepresentation Representation;
 	Durin::FMaterialRenderValidationDiagnostic Diagnostic;
 	ASSERT_TRUE(Builder.Build(Representation, Diagnostic));
-	EXPECT_FALSE(Representation.IsFallback());
+	EXPECT_FALSE(Representation.IsError());
 	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 0), 0.2f);
 	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 4), 0.4f);
 	EXPECT_FLOAT_EQ(ReadFloat(Representation.GetUniformPayload(), 8), 0.6f);
@@ -234,7 +431,7 @@ TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelec
 	EXPECT_FLOAT_EQ(Binding.BaseColor.b, 0.35f);
 	EXPECT_FLOAT_EQ(Binding.BaseColor.a, 0.45f);
 	EXPECT_FLOAT_EQ(Binding.Roughness, 0.25f);
-	EXPECT_FALSE(RenderData.Representation.IsFallback());
+	EXPECT_FALSE(RenderData.Representation.IsError());
 	EXPECT_FLOAT_EQ(ReadFloat(RenderData.Representation.GetUniformPayload(), 0), 0.15f);
 	EXPECT_FLOAT_EQ(ReadFloat(RenderData.Representation.GetUniformPayload(), 4), 0.25f);
 	EXPECT_FLOAT_EQ(ReadFloat(RenderData.Representation.GetUniformPayload(), 8), 0.35f);

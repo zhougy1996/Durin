@@ -144,6 +144,7 @@ namespace Durin
 	auto DMaterialInterface::GetRenderData() const -> FMaterialRenderData
 	{
 		FMaterialRenderData Result;
+		Result.Representation = MakeCanonicalMaterialRenderRepresentation();
 		FMaterialRenderRepresentationBuilder RepresentationBuilder(
 			Result.Representation);
 		bool bRepresentationValid = true;
@@ -225,10 +226,9 @@ namespace Durin
 		}
 		else
 		{
-			const FMaterialPipelineIdentity PipelineIdentity =
-				Result.PipelineIdentity;
-			Result = FMaterialRenderData{};
-			Result.PipelineIdentity = PipelineIdentity;
+			RecordMaterialFallbackReason(
+				EMaterialFallbackReason::MaterialDataInvalid);
+			Result = GetErrorMaterialRenderData();
 		}
 		return Result;
 	}

@@ -33,12 +33,12 @@ namespace Durin
 	auto FStaticMeshSceneProxy::ResolveMaterialRenderData_RenderThread(
 		uint32 SlotIndex) const -> const FMaterialRenderData&
 	{
-		static const FMaterialRenderData DefaultMaterial;
 		const FMaterialRenderProxyRef& MaterialProxy =
 			GetMaterialRenderProxy(SlotIndex);
-		return MaterialProxy
-			? MaterialProxy->Resolve_RenderThread()
-			: DefaultMaterial;
+		if (MaterialProxy) return MaterialProxy->Resolve_RenderThread();
+		RecordMaterialFallbackReason(
+			EMaterialFallbackReason::MissingProxy);
+		return GetErrorMaterialRenderData();
 	}
 
 	auto FStaticMeshSceneProxy::GetMaterialRenderProxy(uint32 SlotIndex) const

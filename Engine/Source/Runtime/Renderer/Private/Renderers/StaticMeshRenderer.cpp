@@ -314,24 +314,33 @@ namespace Durin
 				MaterialBinding,
 				BindingDiagnostic))
 			{
+				RecordMaterialFallbackReason(
+					EMaterialFallbackReason::UnsupportedLayout);
 				FRenderResourceCreateDiagnostic Diagnostic;
 				Diagnostic.Error = MakeRendererResourceCreateError(
 					ERenderResourceCreateErrorCategory::ShaderBinding,
 					"StaticMeshMaterialBinding",
 					GetIdentityText(
 						ResolvedMaterial.PipelineIdentity.ShaderMap),
-					BindingDiagnostic.Message,
+					std::format(
+						"{} ErrorMaterial was selected.",
+						BindingDiagnostic.Message),
 					ERenderResourceGenerationDependency::Manual);
 				ReportRendererResourceCreateDiagnostic(Diagnostic);
 
-				static const FMaterialRenderData FallbackMaterial;
-				MaterialData = &FallbackMaterial;
-				FMaterialRenderValidationDiagnostic FallbackDiagnostic;
+				const FMaterialRenderData& ErrorMaterial =
+					GetErrorMaterialRenderData();
+				MaterialData = &ErrorMaterial;
+				FMaterialRenderValidationDiagnostic ErrorDiagnostic;
 				if (!TryGetMaterialRenderV2Binding(
-					FallbackMaterial.Representation,
+					ErrorMaterial.Representation,
 					MaterialBinding,
-					FallbackDiagnostic))
+					ErrorDiagnostic))
 				{
+					checkf(
+						false,
+						"ErrorMaterial must satisfy the exact v2 binding contract: %s",
+						ErrorDiagnostic.Message.c_str());
 					continue;
 				}
 			}

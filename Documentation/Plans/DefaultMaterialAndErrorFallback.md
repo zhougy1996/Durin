@@ -4,10 +4,48 @@ Summary: Replace the ambiguous yellow material fallback with an asset-backed Eng
 
 Last reviewed: 2026-08-05
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-05
 
 ## Current Status
+
+Completed on 2026-08-05 from implementation baseline
+`493f5da91c6ca73aa9e1138ef6799e3224ae8fc4` (the plan's architectural baseline
+remains `098fe5fbc23edb0909c6637c5cd44a9b67973114`).
+
+Implementation handoff:
+
+- Working set: material render representation/proxy compilation, the Engine
+  default-material service and lifecycle, StaticMesh component/proxy binding,
+  Renderer v2 rejection, Level Editor slot presentation, generic package-only
+  Cook publication, the checked-in default asset, focused native tests, and the
+  owning Runtime documentation.
+- Key symbols: `GetErrorMaterialRenderData`, `FDefaultMaterialService` public
+  functions, `GetEngineBuiltInCookRoots`, `EMaterialFallbackReason`,
+  `DStaticMeshComponent::CreateSceneProxy`, and
+  `FStaticMeshRenderer::DrawProxy_RenderThread`.
+- Frozen extension points: `DEngine::Init` initializes the service after
+  mounts/RHI/render admission and before scene/world creation;
+  `DEngine::BeginDestroy` releases it after consumer detachment;
+  Engine exposes fixed Cook roots and `FCookContext` publishes ordinary
+  package-only assets without empty `.dbulk` companions. `DevTool` owns no
+  material path or policy.
+- References: DefaultMaterial is exact-v2 lit neutral gray `(0.5, 0.5, 0.5)`;
+  ErrorMaterial is exact-v2 unlit magenta `(1, 0, 1)`, two-sided and
+  depth-writing. The existing PBR CPU reference tolerance remains `1e-6`; the
+  error terminal's no-light visibility is fixed by unlit identity and tested
+  without AssetCore or RHI resources.
+- Decisions: empty serialized assignments remain null; one retained authored
+  proxy serves every normal empty slot; invalid compilation, structural proxy,
+  default-asset, or Renderer layout state selects the non-recursive code
+  terminal; texture/environment recovery remains resource-local.
+- Open questions: none. Project/world overrides, domain-specific defaults, a
+  checkerboard error shader, neutral new-user-material defaults, and future
+  asynchronous last-known-good policy remain the deferred follow-ups below.
+- Validation: focused ErrorMaterial/default-service/Cook/StaticMesh/editor-model
+  tests passed; the complete native aggregate passed; the complete `all` build
+  passed; and `DurinEditor` completed a hidden-window three-tick startup and
+  orderly shutdown through `DurinDevTool`.
 
 The plan starts from baseline
 `098fe5fbc23edb0909c6637c5cd44a9b67973114`, after completion and integration of the PBR
@@ -294,15 +332,15 @@ function-local asset loading are not permitted.
 
 Dependencies: completed PBR Material Surface plan.
 
-- [ ] Revalidate every production/test construction of empty
+- [x] Revalidate every production/test construction of empty
   `FMaterialRenderData`, `IsFallback`, null material proxies, and
   `RendererFallback` UI state against the selection table above.
-- [ ] Freeze the DefaultMaterial path, authored values, static properties,
+- [x] Freeze the DefaultMaterial path, authored values, static properties,
   ErrorMaterial values, classification names, and initialization/shutdown
   ordering.
-- [ ] Freeze CPU binding references for neutral lit DefaultMaterial and unlit
+- [x] Freeze CPU binding references for neutral lit DefaultMaterial and unlit
   magenta ErrorMaterial, plus rendered-output framing and tolerances.
-- [ ] Record exact Engine startup and Cook extension points without adding a
+- [x] Record exact Engine startup and Cook extension points without adding a
   material rule to `DevTool`.
 
 #### Acceptance Gate
@@ -316,15 +354,15 @@ Dependencies: completed PBR Material Surface plan.
 
 Dependencies: Stage 0.
 
-- [ ] Add the immutable code-constructed ErrorMaterial render data with exact
+- [x] Add the immutable code-constructed ErrorMaterial render data with exact
   v2, opaque, unlit, two-sided magenta behavior and no asset/RHI dependency.
-- [ ] Separate canonical representation seeding from error construction and
+- [x] Separate canonical representation seeding from error construction and
   replace ambiguous fallback classification with explicit error semantics.
-- [ ] Route representation creation failure, material compilation failure,
+- [x] Route representation creation failure, material compilation failure,
   null structural proxies, and Renderer layout rejection to ErrorMaterial.
-- [ ] Add non-recursive invariant handling if the error singleton cannot decode
+- [x] Add non-recursive invariant handling if the error singleton cannot decode
   under the current exact v2 binding.
-- [ ] Add focused representation, proxy, validation, diagnostic, and CPU
+- [x] Add focused representation, proxy, validation, diagnostic, and CPU
   surface tests.
 
 #### Acceptance Gate
@@ -337,17 +375,17 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Create and verify the neutral `DMaterial` package at the fixed Engine
+- [x] Create and verify the neutral `DMaterial` package at the fixed Engine
   path.
-- [ ] Add the explicit game-thread Engine material service and integrate it
+- [x] Add the explicit game-thread Engine material service and integrate it
   after Engine Content mount/AssetCore startup and before scene proxy creation.
-- [ ] Retain one stable default proxy across level, preview, and thumbnail
+- [x] Retain one stable default proxy across level, preview, and thumbnail
   consumers; release it through ordered Engine shutdown.
-- [ ] On missing, wrong-type, corrupt, or invalid default content, emit one
+- [x] On missing, wrong-type, corrupt, or invalid default content, emit one
   diagnostic and expose ErrorMaterial without making startup fatal.
-- [ ] Register the fixed path through Engine-owned built-in Cook roots and
+- [x] Register the fixed path through Engine-owned built-in Cook roots and
   prove source and cooked loading without `DevTool` knowledge.
-- [ ] Add asset, lifecycle, Cook, missing-content, and shutdown tests.
+- [x] Add asset, lifecycle, Cook, missing-content, and shutdown tests.
 
 #### Acceptance Gate
 
@@ -360,16 +398,16 @@ Dependencies: Stage 1.
 
 Dependencies: Stage 2.
 
-- [ ] Bind the Engine default proxy for every valid unassigned StaticMesh slot
+- [x] Bind the Engine default proxy for every valid unassigned StaticMesh slot
   while preserving component override and mesh-default precedence.
-- [ ] Preserve null serialized assignments during import, save/reload,
+- [x] Preserve null serialized assignments during import, save/reload,
   reimport, duplication, Undo/Redo, and cooked loading.
-- [ ] Rebind default/explicit material transitions through the existing stable
+- [x] Rebind default/explicit material transitions through the existing stable
   proxy and component revision contract without recreating unrelated state.
-- [ ] Replace the `Renderer Fallback` Details label with explicit Engine
+- [x] Replace the `Renderer Fallback` Details label with explicit Engine
   Default presentation and keep ErrorMaterial diagnostic-only.
-- [ ] Align level, preview, thumbnail, and auxiliary viewport consumers.
-- [ ] Add assignment precedence, live update, import, editor-model,
+- [x] Align level, preview, thumbnail, and auxiliary viewport consumers.
+- [x] Add assignment precedence, live update, import, editor-model,
   preview/thumbnail, and serialization tests.
 
 #### Acceptance Gate
@@ -383,15 +421,15 @@ Dependencies: Stage 2.
 
 Dependencies: Stage 3.
 
-- [ ] Search production and tests for remaining implicit default construction,
+- [x] Search production and tests for remaining implicit default construction,
   ambiguous fallback labels, per-consumer default loads, or recursive fallback.
-- [ ] Run focused material, StaticMesh, import, asset package/Cook, preview,
+- [x] Run focused material, StaticMesh, import, asset package/Cook, preview,
   thumbnail, shader binding, renderer reload, and real Vulkan output coverage.
-- [ ] Run the complete native suite, full `all` build, and hidden-window editor
+- [x] Run the complete native suite, full `all` build, and hidden-window editor
   smoke through the repository entrypoint.
-- [ ] Update Runtime material, asset lifecycle/Cook, StaticMesh, viewport, and
+- [x] Update Runtime material, asset lifecycle/Cook, StaticMesh, viewport, and
   diagnostics contracts with the selected ownership and failure table.
-- [ ] Record the final baseline, working set, decisions, open questions, and
+- [x] Record the final baseline, working set, decisions, open questions, and
   validation evidence, then complete the plan.
 
 #### Acceptance Gate

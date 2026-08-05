@@ -1,6 +1,7 @@
 #include "Materials/MaterialTypes.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -11,6 +12,10 @@ namespace Durin
 {
 	namespace
 	{
+		std::array<std::atomic<uint64>,
+			static_cast<size_t>(EMaterialFallbackReason::Count)>
+			GMaterialFallbackCounts{};
+
 		auto SetValidationFailure(
 			FMaterialRenderValidationDiagnostic& OutDiagnostic,
 			EMaterialRenderValidationFailure Failure,
@@ -69,12 +74,12 @@ namespace Durin
 			std::memcpy(Bytes.data() + Offset, &Value, sizeof(Value));
 		}
 
-		auto MakeDefaultUniformPayload() -> std::vector<std::byte>
+		auto MakeErrorUniformPayload() -> std::vector<std::byte>
 		{
 			std::vector<std::byte> Result(352, std::byte{0});
-			WriteFloat(Result, 0, 0.95f);
-			WriteFloat(Result, 4, 0.62f);
-			WriteFloat(Result, 8, 0.22f);
+			WriteFloat(Result, 0, 1.0f);
+			WriteFloat(Result, 4, 0.0f);
+			WriteFloat(Result, 8, 1.0f);
 			WriteFloat(Result, 12, 1.0f);
 			WriteFloat(Result, 28, 0.0f);
 			WriteFloat(Result, 40, 1.0f);
@@ -86,6 +91,15 @@ namespace Durin
 				WriteFloat(Result, 96 + Role * 16, 1.0f);
 				WriteFloat(Result, 100 + Role * 16, 1.0f);
 			}
+			return Result;
+		}
+
+		auto MakeCanonicalUniformPayload() -> std::vector<std::byte>
+		{
+			std::vector<std::byte> Result = MakeErrorUniformPayload();
+			WriteFloat(Result, 0, 0.95f);
+			WriteFloat(Result, 4, 0.62f);
+			WriteFloat(Result, 8, 0.22f);
 			return Result;
 		}
 
@@ -191,6 +205,24 @@ namespace Durin
 			Result.Fields.push_back({.ParameterId = TextureIds[Role], .Storage = EMaterialRenderFieldStorage::Resource,
 				.Type = EMaterialRenderValueType::Texture2D, .CompactIndex = Role});
 		}
+		return Result;
+	}
+
+	auto MakeCanonicalMaterialRenderRepresentation()
+		-> FMaterialRenderRepresentation
+	{
+		FMaterialRenderRepresentationInput Input;
+		Input.Layout = MakeDefaultMaterialRenderLayout();
+		Input.UniformPayload = MakeCanonicalUniformPayload();
+		Input.Resources.resize(Input.Layout.ResourceFieldCount);
+		FMaterialRenderRepresentation Result;
+		FMaterialRenderValidationDiagnostic Diagnostic;
+		const bool bValid = FMaterialRenderRepresentation::TryCreate(
+			std::move(Input), Result, Diagnostic);
+		checkf(
+			bValid,
+			"Canonical material render seed must satisfy v2: %s",
+			Diagnostic.Message.c_str());
 		return Result;
 	}
 
@@ -351,9 +383,9 @@ namespace Durin
 
 	FMaterialRenderRepresentation::FMaterialRenderRepresentation()
 		: Layout(MakeDefaultMaterialRenderLayout())
-		, UniformPayload(MakeDefaultUniformPayload())
+		, UniformPayload(MakeErrorUniformPayload())
 		, Resources(8)
-		, bFallback(true)
+		, bError(true)
 	{
 	}
 
@@ -361,11 +393,11 @@ namespace Durin
 		FMaterialRenderLayout InLayout,
 		std::vector<std::byte> InUniformPayload,
 		std::vector<FRHITextureReferenceRef> InResources,
-		bool bInFallback)
+		bool bInError)
 		: Layout(std::move(InLayout))
 		, UniformPayload(std::move(InUniformPayload))
 		, Resources(std::move(InResources))
-		, bFallback(bInFallback)
+		, bError(bInError)
 	{
 	}
 
@@ -468,9 +500,9 @@ namespace Durin
 		return Resources;
 	}
 
-	auto FMaterialRenderRepresentation::IsFallback() const -> bool
+	auto FMaterialRenderRepresentation::IsError() const -> bool
 	{
-		return bFallback;
+		return bError;
 	}
 
 	auto TryGetMaterialRenderV1Binding(
@@ -738,6 +770,42 @@ namespace Durin
 			InOutVersion,
 			CurrentMaterialParameterSchemaVersion);
 		return false;
+	}
+
+	auto GetErrorMaterialRenderData() -> const FMaterialRenderData&
+	{
+		static const FMaterialRenderData ErrorMaterial;
+		return ErrorMaterial;
+	}
+
+	auto RecordMaterialFallbackReason(EMaterialFallbackReason Reason) -> void
+	{
+		const size_t Index = static_cast<size_t>(Reason);
+		if (Index < GMaterialFallbackCounts.size())
+		{
+			GMaterialFallbackCounts[Index].fetch_add(
+				1, std::memory_order_relaxed);
+		}
+	}
+
+	auto GetMaterialFallbackDiagnosticsSnapshot()
+		-> FMaterialFallbackDiagnosticsSnapshot
+	{
+		FMaterialFallbackDiagnosticsSnapshot Result;
+		for (size_t Index = 0; Index < GMaterialFallbackCounts.size(); ++Index)
+		{
+			Result.Counts[Index] = GMaterialFallbackCounts[Index].load(
+				std::memory_order_relaxed);
+		}
+		return Result;
+	}
+
+	auto ResetMaterialFallbackDiagnosticsForTests() -> void
+	{
+		for (std::atomic<uint64>& Count : GMaterialFallbackCounts)
+		{
+			Count.store(0, std::memory_order_relaxed);
+		}
 	}
 
 	auto FMaterialParameterValue::MakeScalar(float Value) -> FMaterialParameterValue

@@ -10,6 +10,7 @@
 #include "IRendererModule.h"
 #include "Mona/SceneViewport.h"
 #include "Modules/ModuleManager.h"
+#include "Materials/DefaultMaterialService.h"
 #include "Application/MonaApplication.h"
 #include "Application/MonaEventHandler.h"
 
@@ -101,6 +102,7 @@ namespace Durin
 
 	auto DEngine::Init() -> void
 	{
+		InitializeDefaultMaterialService();
 		RendererModule = &FModuleManager::LoadModuleChecked<IRendererModule>("Renderer");
 		MainScene = RendererModule->CreateScene();
 		SetWorld(NewObject<DWorld>(this, "MainWorld"));
@@ -116,6 +118,7 @@ namespace Durin
 		{
 			MainScene->Release();
 		}
+		ShutdownDefaultMaterialService();
 		if (GRenderingThread)
 		{
 			DestroyFence = std::make_unique<FRenderCommandFence>();

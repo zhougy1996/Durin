@@ -175,19 +175,19 @@ namespace Durin
 		ENGINE_API auto GetUniformPayload() const -> std::span<const std::byte>;
 		ENGINE_API auto GetResources() const
 			-> std::span<const FRHITextureReferenceRef>;
-		ENGINE_API auto IsFallback() const -> bool;
+		ENGINE_API auto IsError() const -> bool;
 
 	private:
 		FMaterialRenderRepresentation(
 			FMaterialRenderLayout InLayout,
 			std::vector<std::byte> InUniformPayload,
 			std::vector<FRHITextureReferenceRef> InResources,
-			bool bInFallback);
+			bool bInError);
 
 		FMaterialRenderLayout Layout;
 		std::vector<std::byte> UniformPayload;
 		std::vector<FRHITextureReferenceRef> Resources;
-		bool bFallback = false;
+		bool bError = false;
 	};
 
 	// Decodes the supported v1 compact binding without exposing parameter GUIDs
@@ -266,6 +266,8 @@ namespace Durin
 
 	ENGINE_API auto MakeDefaultMaterialRenderLayout() -> FMaterialRenderLayout;
 	ENGINE_API auto MakeMaterialRenderLayoutV1() -> FMaterialRenderLayout;
+	ENGINE_API auto MakeCanonicalMaterialRenderRepresentation()
+		-> FMaterialRenderRepresentation;
 	ENGINE_API auto ValidateMaterialRenderLayout(
 		const FMaterialRenderLayout& Layout,
 		FMaterialRenderValidationDiagnostic& OutDiagnostic
@@ -488,8 +490,48 @@ namespace Durin
 	struct FMaterialRenderData
 	{
 		FMaterialRenderRepresentation Representation;
-		FMaterialPipelineIdentity PipelineIdentity;
+		FMaterialPipelineIdentity PipelineIdentity{
+			.ShaderMap = {
+				.RenderLayout = {},
+				.BlendMode = EMaterialBlendMode::Opaque,
+				.ShadingModel = EMaterialShadingModel::Unlit,
+				.OpacityMaskThreshold = 0.333f,
+			},
+			.bTwoSided = true,
+			.DepthWritePolicy = EMaterialDepthWritePolicy::Enabled,
+		};
 	};
+
+	// Asset- and RHI-independent terminal for invalid whole-material state.
+	// The returned immutable data is safe to inspect from the render thread.
+	ENGINE_API auto GetErrorMaterialRenderData() -> const FMaterialRenderData&;
+
+	enum class EMaterialFallbackReason : uint8
+	{
+		UnassignedDefault,
+		DefaultAssetUnavailable,
+		MaterialDataInvalid,
+		UnsupportedLayout,
+		MissingProxy,
+		Count,
+	};
+
+	struct FMaterialFallbackDiagnosticsSnapshot
+	{
+		std::array<uint64, static_cast<size_t>(EMaterialFallbackReason::Count)>
+			Counts{};
+
+		auto Get(EMaterialFallbackReason Reason) const -> uint64
+		{
+			return Counts[static_cast<size_t>(Reason)];
+		}
+	};
+
+	ENGINE_API auto RecordMaterialFallbackReason(
+		EMaterialFallbackReason Reason) -> void;
+	ENGINE_API auto GetMaterialFallbackDiagnosticsSnapshot()
+		-> FMaterialFallbackDiagnosticsSnapshot;
+	ENGINE_API auto ResetMaterialFallbackDiagnosticsForTests() -> void;
 
 	// Selects which part of material render state changed.
 	enum class EMaterialRenderDirtyFlags : uint8

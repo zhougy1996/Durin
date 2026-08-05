@@ -219,6 +219,30 @@ TEST(FCookContextTests, PublishesRelocatesAndCleansOnlyManifestOwnedStaleOutputs
 	EXPECT_TRUE(DecodeCookedBulk(BulkBytes, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
 }
 
+TEST(FCookContextTests, PublishesPackageWithoutBulkCompanion)
+{
+	const std::filesystem::path Root = std::filesystem::absolute(
+		Durin::Testing::GetTestWorkDirectory() / "PackageOnlyCook");
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+	FCookContext Context(
+		Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(Context.AddPackage("/Engine/Plain", MakePackageBytes(), {}));
+	ASSERT_TRUE(Context.Publish());
+	EXPECT_TRUE(std::filesystem::is_regular_file(
+		Root / "Engine/Plain.dasset"));
+	EXPECT_FALSE(std::filesystem::exists(Root / "Engine/Plain.dbulk"));
+
+	std::vector<uint8> ManifestBytes;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(
+		ManifestBytes, (Root / "CookManifest.bin").generic_string()));
+	FCookManifest Manifest;
+	ASSERT_TRUE(DecodeCookManifest(ManifestBytes, Manifest));
+	ASSERT_EQ(Manifest.Entries.size(), 1u);
+	EXPECT_EQ(
+		Manifest.Entries[0].Kind,
+		ECookManifestEntryKind::CookedPackage);
+}
+
 TEST(FCookContextTests, DescriptorAwarePackageBuilderReceivesExactPublishedEntries)
 {
 	const std::filesystem::path Root = std::filesystem::absolute(

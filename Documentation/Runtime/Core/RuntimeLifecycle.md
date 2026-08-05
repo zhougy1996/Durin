@@ -36,6 +36,13 @@ Current engine selection is semantic:
 
 Host-specific startup then lives in the concrete engine overrides.
 
+`DEngine::Init()` initializes the default-material service after Engine Content
+mounts, AssetCore availability, RHI, and render-command admission, but before
+the renderer scene and world can create scene proxies. The service performs one
+synchronous game-thread load of `/Engine/Materials/DefaultMaterial`; failure is
+non-fatal and leaves the code-constructed ErrorMaterial available without a
+second asset lookup.
+
 `DGameEngine` loads the project's configured default level and begins play after
 creating its window and scene viewport.
 
@@ -195,6 +202,7 @@ directly:
 | Step | Boundary |
 | --- | --- |
 | Detach render consumers | Shut down Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
+| Release Engine defaults | After Engine consumer detachment, stop default-material bindings and release the retained asset/proxy before AssetCore shutdown. |
 | Stop CPU work | Close process task-scheduler admission and drain every accepted task and dependency to a terminal state. |
 | Drain objects | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
 | Unload modules | Run reverse-order module shutdown only after no deferred object's virtual cleanup can target an unloading module. |
