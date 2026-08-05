@@ -53,6 +53,70 @@ TEST(FSplineComponentVisualizerTests, PublishesStableTypedSplineElements)
 	Durin::CollectGarbage();
 }
 
+TEST(FSplineDetailsCustomizationTests, PreservesComponentPropertiesAndHidesRawCurve)
+{
+	InitializeDObjectSystem();
+	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "SplineDetailsActor");
+	auto* Spline = Durin::Cast<Durin::DSplineComponent>(Actor->AddInstanceComponent(Durin::DSplineComponent::StaticClass(), "Spline"));
+	ASSERT_NE(Spline, nullptr);
+	Durin::FProperty* SplineCurve = Spline->GetClass()->FindPropertyByName("SplineCurve");
+	ASSERT_NE(SplineCurve, nullptr);
+
+	Durin::FLevelEditorContext Context;
+	Context.SelectActor(Actor);
+	Context.SelectComponent(Spline);
+	Durin::FObjectPropertyViewBuilder Builder;
+	Durin::CreateSplineDetailsCustomization()->CustomizeDetails(Context, Spline, Builder);
+
+	EXPECT_FALSE(Builder.IsReplacingDefaultProperties());
+	EXPECT_TRUE(Builder.IsPropertyHidden(*SplineCurve));
+	EXPECT_EQ(Builder.GetVisibleRowCount(), 1u);
+
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::CollectGarbage();
+}
+
+TEST(FSplineDetailsCustomizationTests, EmitsVisiblePropertyTableRows)
+{
+	InitializeDObjectSystem();
+	auto* Actor = Durin::NewObject<Durin::AActor>(nullptr, "SplineDetailsRowsActor");
+	auto* Spline = Durin::Cast<Durin::DSplineComponent>(Actor->AddInstanceComponent(Durin::DSplineComponent::StaticClass(), "Spline"));
+	ASSERT_NE(Spline, nullptr);
+	Durin::FLevelEditorContext Context;
+	Context.SelectActor(Actor);
+	Context.SelectComponent(Spline);
+	Durin::FObjectPropertyViewBuilder Builder;
+	Durin::CreateSplineDetailsCustomization()->CustomizeDetails(Context, Spline, Builder);
+
+	ImGuiContext* ImContext = ImGui::CreateContext();
+	ASSERT_NE(ImContext, nullptr);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {800.0f, 600.0f};
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault();
+	IO.Fonts->Build();
+	ImGui::NewFrame();
+	ImGui::SetNextWindowSize({600.0f, 400.0f}, ImGuiCond_Always);
+	ImGui::Begin("Spline Details Test");
+	const bool bTableOpen = Durin::MonaImGui::PropertyEdit::BeginTable("SplineDetailsRows");
+	if (bTableOpen)
+	{
+		Durin::FReflectedPropertyView PropertyView;
+		const Durin::FObjectPropertyViewBuilderResult Result = Builder.DrawRows(PropertyView, {});
+		EXPECT_EQ(Result.VisibleRowCount, 1u);
+		EXPECT_GE(ImGui::TableGetRowIndex(), 2);
+		Durin::MonaImGui::PropertyEdit::EndTable();
+	}
+	ImGui::End();
+	ImGui::Render();
+	ImGui::DestroyContext(ImContext);
+	EXPECT_TRUE(bTableOpen);
+
+	Durin::MarkObjectHierarchyAsGarbage(Actor);
+	Durin::CollectGarbage();
+}
+
 TEST(FSplineViewportAuthoringTests, CubicSplitPreservesShapeAndCreatesStableId)
 {
 	InitializeDObjectSystem();
