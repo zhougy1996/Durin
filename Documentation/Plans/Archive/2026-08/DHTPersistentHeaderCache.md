@@ -113,8 +113,8 @@ purge semantics.
 ## Non-Goals
 
 - Eliminating the separate Export and Reflection libclang parses on a true cold
-  cache miss; that work belongs to the
-  [DHT Single-Parse Semantic Pipeline](../../DHTSingleParseSemanticPipeline.md).
+  cache miss; any future attempt should begin with a newly measured DHT redesign
+  rather than extending this cache plan.
 - Changing reflected C++ syntax, symbol naming, or runtime reflection behavior.
   Stage 1's one-time `sizeof(SourceType)` normalization is the required removal
   of parser-host layout from generated metadata; later cache stages preserve
@@ -634,8 +634,8 @@ DurinDevTool; DHT values are Engine Export plus Reflection elapsed time.
   ordinary reruns recover interrupted publication or materialization.
 - Cold-build limitation: cold generation still invokes libclang once per
   phase/header (72 parses total). It is correct and substantially faster than
-  the Stage 0 include-expanded path, but cross-phase single parsing remains the
-  separate `DHTSingleParseSemanticPipeline` plan.
+  the Stage 0 include-expanded path. Cross-phase parse reuse remains deliberately
+  unresolved and requires a fresh DHT redesign if it becomes material.
 - Performance evidence logs: cold
   `20260804-050739-997123-57620-cmake.log`,
   `20260804-050842-901535-47232-cmake.log`, and
@@ -693,8 +693,8 @@ DurinDevTool; DHT values are Engine Export plus Reflection elapsed time.
 
 ## Deferred Follow-ups
 
-- Reusing one semantic parse across Export and Reflection is tracked by
-  [DHT Single-Parse Semantic Pipeline](../../DHTSingleParseSemanticPipeline.md).
+- If cross-phase parse reuse becomes material, design a new DHT restructuring
+  plan from the then-current measurements and parser/cache contracts.
 - Coordinating hidden parser workers with Ninja remains tracked by
   [DHT And Ninja Parallelism Coordination](../../../Investigations/DHTNinjaParallelismCoordination.md).
 - Per-symbol reflection cache invalidation may replace the safe whole-export-set
