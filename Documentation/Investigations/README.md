@@ -12,6 +12,10 @@
   StaticMesh replacement and destruction can retire uniquely owned render data
   before asynchronous proxy and resource teardown completes; the linked
   implementation plan adopts UE-style unique ownership with fenced retirement.
+- [PBR pipeline production gaps](PBRPipelineProductionGaps.md) —
+  Stable material proxies drop most v2 surface values, while import, HDR output,
+  low-roughness BRDF behavior, render passes, and scene-lighting ownership retain
+  ranked end-to-end gaps.
 
 This index lists verified unresolved investigations only. Authoring and
 lifecycle rules are in `AGENTS.md`; resolved history belongs in Git, an archived
