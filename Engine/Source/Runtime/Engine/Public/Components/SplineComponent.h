@@ -74,7 +74,7 @@ namespace Durin
 		DPROPERTY(Edit)
 		FSplineCurve SplineCurve;
 
-		std::shared_ptr<const FSplineEvaluationData> EvaluationData;
+		std::atomic<std::shared_ptr<const FSplineEvaluationData>> EvaluationData;
 		uint64 SplineRevision = 0;
 		ESplineChangeFlags LastSplineChangeFlags = ESplineChangeFlags::None;
 	};

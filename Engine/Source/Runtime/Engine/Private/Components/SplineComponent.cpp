@@ -94,7 +94,7 @@ namespace Durin
 
 	auto DSplineComponent::GetEvaluationData() const -> std::shared_ptr<const FSplineEvaluationData>
 	{
-		return std::atomic_load(&EvaluationData);
+		return EvaluationData.load();
 	}
 
 	auto DSplineComponent::GetSampleAtParameter(FSplineParameter Parameter, ESplineCoordinateSpace Space) const -> FSplineSample
@@ -133,7 +133,7 @@ namespace Durin
 	{
 		const bool bRepairedIds = SplineCurve.RepairPointIds();
 		if (bRepairedIds) ChangeFlags |= ESplineChangeFlags::Topology;
-		std::atomic_store(&EvaluationData, SplineCurve.BuildEvaluationData());
+		EvaluationData.store(SplineCurve.BuildEvaluationData());
 		++SplineRevision;
 		LastSplineChangeFlags = ChangeFlags;
 	}
