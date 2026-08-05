@@ -203,14 +203,25 @@ TEST(FSceneImportTests, ImportsGltfPbrFactorsSemanticTexturesAndPackedChannels)
 	EXPECT_EQ(MaskPixels->Pixels[0], BasePixels->Pixels[3]);
 
 	float UVChannel = 0.0f;
+	float UVRotation = 0.0f;
+	float SamplerState = 0.0f;
 	Durin::FVector2 UVScale;
 	Durin::FVector2 UVOffset;
 	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::FName("BaseColorUVChannel"), UVChannel));
 	ASSERT_TRUE(Material->GetVector2ParameterValue(Durin::FName("BaseColorUVScale"), UVScale));
 	ASSERT_TRUE(Material->GetVector2ParameterValue(Durin::FName("BaseColorUVOffset"), UVOffset));
+	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::FName("BaseColorUVRotation"), UVRotation));
+	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::FName("BaseColorSamplerState"), SamplerState));
 	EXPECT_FLOAT_EQ(UVChannel, 1.0f);
 	EXPECT_EQ(UVScale, Durin::FVector2(2.0f, 3.0f));
 	EXPECT_EQ(UVOffset, Durin::FVector2(0.1f, 0.2f));
+	EXPECT_FLOAT_EQ(UVRotation, 0.5f);
+	Durin::FMaterialSamplerState DecodedSampler;
+	ASSERT_TRUE(Durin::TryDecodeMaterialSamplerState(SamplerState, DecodedSampler));
+	EXPECT_EQ(DecodedSampler.MinFilter, Durin::EMaterialSamplerMinFilter::NearestMipmapNearest);
+	EXPECT_EQ(DecodedSampler.MagFilter, Durin::EMaterialSamplerMagFilter::Nearest);
+	EXPECT_EQ(DecodedSampler.AddressU, Durin::EMaterialSamplerAddressMode::MirroredRepeat);
+	EXPECT_EQ(DecodedSampler.AddressV, Durin::EMaterialSamplerAddressMode::ClampToEdge);
 
 	std::vector<Durin::DTexture2D*> TextureIdentities = Executed.Textures;
 	std::vector<std::string> TextureKeys;

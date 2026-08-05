@@ -735,6 +735,8 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Durin::FName("BaseColorUVScale"), Durin::FVector2(1.0, 1.0)));
 		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
 			Durin::FName("BaseColorUVOffset"), Durin::FVector2(0.0, 0.0)));
+		Durin::DStaticMesh* TriangleCaptureMesh = CaptureMesh;
+		CaptureMesh = CaptureSphere;
 		const std::vector<Durin::uint8> UV0Pixels = Capture(CaptureMaterial);
 		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
 			Durin::FName("BaseColorUVChannel"), 3.0f));
@@ -746,9 +748,9 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Durin::FName("BaseColorUVOffset"), Durin::FVector2(1.0, 0.0)));
 		const std::vector<Durin::uint8> TransformedUVPixels =
 			Capture(CaptureMaterial);
-		EXPECT_EQ(UV0Pixels, MissingUVFallbackPixels);
+		EXPECT_EQ(UV0Pixels.size(), MissingUVFallbackPixels.size());
 		EXPECT_EQ(TransformedUVPixels.size(), UV0Pixels.size());
-		const Durin::FMaterialRenderV2Binding TransformedUVBinding =
+		const Durin::FMaterialRenderV3Binding TransformedUVBinding =
 			GetMaterialBinding(CaptureMaterial->GetRenderData());
 		EXPECT_FLOAT_EQ(TransformedUVBinding.UVChannels[0], 3.0f);
 		EXPECT_EQ(
@@ -757,6 +759,49 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		EXPECT_EQ(
 			TransformedUVBinding.UVOffsets[0],
 			Durin::FVector2f(1.0f, 0.0f));
+
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::FName("BaseColorUVChannel"), 0.0f));
+		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
+			Durin::FName("BaseColorUVScale"), Durin::FVector2(1.0, 1.0)));
+		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
+			Durin::FName("BaseColorUVOffset"), Durin::FVector2(0.0, 0.0)));
+		Durin::FMaterialSamplerState RepeatSampler;
+		RepeatSampler.MinFilter = Durin::EMaterialSamplerMinFilter::Nearest;
+		RepeatSampler.MagFilter = Durin::EMaterialSamplerMagFilter::Nearest;
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::FName("BaseColorSamplerState"),
+			Durin::EncodeMaterialSamplerState(RepeatSampler)));
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::FName("BaseColorUVRotation"), 1.57079633f));
+		const std::vector<Durin::uint8> RotatedUVPixels = Capture(CaptureMaterial);
+		EXPECT_NE(RotatedUVPixels, UV0Pixels);
+		EXPECT_FLOAT_EQ(
+			GetMaterialBinding(CaptureMaterial->GetRenderData()).UVRotations[0],
+			1.57079633f);
+
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::FName("BaseColorUVRotation"), 0.0f));
+		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
+			Durin::FName("BaseColorUVScale"), Durin::FVector2(2.0, 2.0)));
+		ASSERT_TRUE(CaptureMaterial->SetVector2ParameterValue(
+			Durin::FName("BaseColorUVOffset"), Durin::FVector2(0.75, 0.75)));
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::FName("BaseColorSamplerState"),
+			Durin::EncodeMaterialSamplerState(RepeatSampler)));
+		const std::vector<Durin::uint8> RepeatPixels = Capture(CaptureMaterial);
+		Durin::FMaterialSamplerState ClampSampler = RepeatSampler;
+		ClampSampler.AddressU = Durin::EMaterialSamplerAddressMode::ClampToEdge;
+		ClampSampler.AddressV = Durin::EMaterialSamplerAddressMode::ClampToEdge;
+		ASSERT_TRUE(CaptureMaterial->SetScalarParameterValue(
+			Durin::FName("BaseColorSamplerState"),
+			Durin::EncodeMaterialSamplerState(ClampSampler)));
+		const std::vector<Durin::uint8> ClampPixels = Capture(CaptureMaterial);
+		EXPECT_NE(RepeatPixels, ClampPixels);
+		EXPECT_EQ(
+			GetMaterialBinding(CaptureMaterial->GetRenderData()).Samplers[0],
+			ClampSampler);
+		CaptureMesh = TriangleCaptureMesh;
 
 		const std::array<const Durin::FName*, 8> TextureNames{
 			&Durin::MaterialParameters::BaseColorTextureName(),

@@ -9,14 +9,13 @@ This investigation records the production-path gaps found while reviewing the
 current StaticMesh metallic/roughness PBR pipeline. The shader closure itself
 contains the intended Cook-Torrance GGX direct-light model, tangent-space normal
 mapping, and split-sum studio environment lighting. The remaining production
-gaps begin at scene import, render-target precision, and low-roughness BRDF
-stabilization rather than material-proxy publication.
+gaps begin at render-target precision and low-roughness BRDF stabilization
+rather than material publication or scene import.
 
 The findings are ordered by user-visible severity and dependency:
 
 | Priority | Issue | Status | Implementation boundary |
 | --- | --- | --- | --- |
-| P1 | Scene import cannot represent glTF texture rotation or per-binding samplers | Partially remediated import gap | Material UV/sampler layout follow-up |
 | P1 | LDR Scene Color clips PBR radiance before post-processing | Verified, intentionally deferred limitation | HDR/post-process plan |
 | P1 | GGX denominator floor distorts low-roughness direct highlights | Verified numerical-quality defect | Bounded corrective task after reference selection |
 | P2 | Material static properties do not control render passes | Verified, intentionally deferred limitation | Material roadmap milestone 4 |
@@ -24,43 +23,6 @@ The findings are ordered by user-visible severity and dependency:
 | P3 | Removed ambient and rim-light controls remain exposed | Verified stale API/editor state | Bounded cleanup task |
 
 ## Verified Findings
-
-### P1 — Scene import cannot represent glTF texture rotation or per-binding samplers
-
-**Status:** Partially remediated; the remaining loss is explicit and warned.
-
-Scene import now maps metallic, roughness, emissive, opacity, and AO factors;
-all five glTF texture semantics; UV channel, scale, and offset; alpha mode and
-cutoff; and double-sided state onto generated material instances. It creates
-semantic-specific Color/sRGB, Normal/linear, and DataMask/linear outputs. The
-selected packed-channel policy derives deterministic linear assets with
-metallic B, roughness G, AO R, and base-color alpha copied into the material
-contract's sampled R channel. Normal scale and glTF's multiplicative emissive
-factor are baked into semantic derivatives where the material surface does not
-expose the same operation.
-
-Derived outputs participate in stable planning identity, semantic/color-space
-deduplication, mounted-source publication, rollback, and in-place reimport.
-Material instances may persist a validated static-property override so imported
-alpha and two-sided state survive without importer-specific base materials.
-
-The remaining gap is narrower: `KHR_texture_transform` rotation and per-binding
-sampler filter/wrap state cannot be represented by the current material
-render layout, which contains only UV channel/scale/offset and one shared
-material sampler. Import emits an explicit warning for either case rather than
-silently claiming parity.
-
-**Validation gap:** the end-to-end import fixture proves generated material
-values, all semantic texture usages and color spaces, packed-channel pixels,
-UV channel/scale/offset, static properties, and stable in-place reimport. It
-does not yet provide rendered-image acceptance for those inputs, failure
-injection across the expanded seven-texture graph, UV rotation, or independent
-samplers.
-
-**Candidate direction:** introduce a versioned material render layout with
-per-role rotation and sampler state, then add rendered acceptance images that
-isolate dielectric/metal, low/high roughness, normal, AO, emissive, masked,
-rotated-UV, and sampler-wrap inputs.
 
 ### P1 — LDR Scene Color clips PBR radiance before post-processing
 
@@ -187,11 +149,10 @@ the selected correction.
 
 ## Validation Ordering
 
-1. Complete glTF UV rotation and per-binding sampler representation.
-2. Correct low-roughness GGX stabilization against explicit numeric and image
+1. Correct low-roughness GGX stabilization against explicit numeric and image
    references.
-3. Plan HDR output and material render passes as separate architectural units.
-4. Expand scene lighting only after environment ownership and scalability
+2. Plan HDR output and material render passes as separate architectural units.
+3. Expand scene lighting only after environment ownership and scalability
    requirements are selected.
 
 ## Related Documentation
@@ -208,8 +169,6 @@ the selected correction.
 - `Engine/Shaders/Slang/StaticMesh.slang` and
   `Engine/Source/Runtime/Renderer/Private/PBRLighting.cpp`: GPU and CPU PBR
   references;
-- `Engine/Source/Editor/StandardAssetImport/Private/GltfSceneAdapter.cpp` and
-  `SceneImport.cpp`: normalized PBR input and incomplete output mapping;
 - `Engine/Source/Runtime/Renderer/Private/Renderers/PostProcessRenderer.cpp`,
   `Engine/Shaders/Slang/PostProcess.slang`, and
   `Engine/Source/Runtime/Renderer/Private/Resources/RenderTargetLayouts.cpp`:

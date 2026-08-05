@@ -16,15 +16,17 @@ editor presentation, and renderer consumption at explicit boundaries.
   identity, type, order, and metadata are canonical; only the nested values are
   editable.
 - `DMaterialInstance` references a parent material interface and stores one
-  ordered collection of GUID/value overrides. Resolution walks the current
+  ordered collection of GUID/value overrides plus an optional all-or-nothing
+  static-property override. Dynamic resolution walks the current
   instance, its parent instances, and the root material, and reports the object
   that supplied the value. Parent cycles are rejected.
 - Parent changes preserve unmatched overrides as orphans for explicit editor
   removal. Orphans are never resolved into render data.
 - `DMaterial` owns one reflected static-property set: blend mode, shading model,
   two-sided state, depth-write policy, and masked-opacity threshold. Instances
-  inherit that complete set through the canonical parent chain; they do not
-  store static overrides.
+  inherit that complete set through the canonical parent chain unless their
+  validated complete static override is active; scene import uses this boundary
+  for glTF alpha and two-sided state.
 - Resolved static properties form a versioned shader-map identity (blend mode,
   shading model, and mask threshold) nested in a pipeline identity (shader map,
   two-sided state, and depth-write policy). The renderer lazily caches shader
@@ -38,10 +40,12 @@ editor presentation, and renderer consumption at explicit boundaries.
 The current shader contract is the canonical metallic/roughness PBR schema.
 It declares BaseColor, tangent-space Normal, Metallic, Roughness, Ambient
 Occlusion, Emissive, Opacity, and OpacityMask constants and Texture2D roles.
-Every texture role also owns a UV-channel, UV-scale, and UV-offset parameter.
+Every texture role also owns UV-channel, UV-scale, UV-offset, UV-rotation, and
+packed sampler-state parameters. The sampler state preserves glTF minification,
+magnification, mip filtering, and independent U/V addressing.
 Their GUIDs are permanent because serialized overrides must survive renames.
-Engine resolution compiles the declarations into the versioned v2 render
-layout identified by `MaterialRenderLayoutV2Id`; the layout owns compact
+Engine resolution compiles the declarations into the versioned v3 render
+layout identified by `MaterialRenderLayoutV3Id`; the layout owns compact
 uniform offsets and eight resource indices, while the asset schema version
 remains a separate persistent compatibility boundary. User-authored
 declarations and compiled layouts remain deferred work.
@@ -69,11 +73,14 @@ declarations and compiled layouts remain deferred work.
   `FMaterialRenderRepresentation` carried by `FMaterialRenderData` alongside
   the static shader/pipeline identity. `FMaterialRenderRepresentationBuilder`
   is the only GUID-to-layout compilation seam. The renderer consumes the
-  validated v2 binding contract and never performs GUID or `FName` lookup or
+  validated v3 binding contract and never performs GUID or `FName` lookup or
   reads reflected material objects.
-- `FStaticMeshRenderer` accepts only the exact supported v2 field table. It
+- `FStaticMeshRenderer` accepts the exact v3 field table and the frozen v2
+  compatibility table. It
   decodes the compact uniform bytes and resource slot through
-  `TryGetMaterialRenderV2Binding`; an unsupported layout emits a
+  `TryGetMaterialRenderV3Binding`, falling back to
+  `TryGetMaterialRenderV2Binding` only for an identified v2 representation; an
+  unsupported layout emits a
   `ShaderBinding` resource diagnostic and selects the code-constructed
   ErrorMaterial before shader-map or pipeline selection. The terminal is not
   validated recursively; an incompatible terminal is a checked invariant and
@@ -121,7 +128,7 @@ as an error.
 
 Invalid representation construction, material compilation, structural missing
 proxies, Renderer layout rejection, and unavailable default content converge
-on `GetErrorMaterialRenderData()`. This asset-independent exact-v2 terminal is
+on `GetErrorMaterialRenderData()`. This asset-independent exact-v3 terminal is
 opaque, unlit, two-sided, depth-writing magenta with no texture, package, DDC,
 Cook, AssetCore, or RHI dependency. Whole-material diagnostics use the distinct
 reasons `UnassignedDefault`, `DefaultAssetUnavailable`, `MaterialDataInvalid`,
@@ -134,12 +141,15 @@ whole-material counters.
 
 `FMaterialRenderRepresentation` is an Engine-owned immutable snapshot with
 three parts: a `FMaterialRenderLayoutIdentity`, a validated uniform byte
-payload, and counted RHI texture-reference resources. The current v2 layout is
-352-byte, 16-byte-aligned data with 32 uniform fields and eight resource
-fields; its exact field table is identified by `MaterialRenderLayoutV2Id`.
-The immutable v1 factory, validator, and decoder remain available only as a
-compatibility boundary; current materials publish v2 and current StaticMesh
-draws consume only v2.
+payload, and counted RHI texture-reference resources. The current v3 layout is
+416-byte, 16-byte-aligned data with 48 uniform fields and eight resource
+fields; its exact field table is identified by `MaterialRenderLayoutV3Id`.
+The first 352 bytes preserve v2's constant, UV channel/scale/offset, and texture
+contract; eight rotations and eight packed per-role sampler states occupy the
+v3 suffix. The immutable v1/v2 factories, validators, and decoders remain as
+compatibility boundaries. Current materials publish v3, and StaticMesh draws
+consume v3 or identified exact-v2 data with default zero rotation and linear-
+mipmap-linear repeat sampling.
 
 Construction validates the version and identity, field counts, compact-index
 contiguity, types, sizes, alignment, non-overlapping ranges, finite values,
@@ -198,7 +208,7 @@ identity.
 Legacy scalar/vector/texture maps have no compatibility properties or implicit
 migration. The asset loader skips their incompatible field records with a
 warning. Material schema v1 upgrades copy BaseColor, BaseColorTexture, and
-Opacity by their permanent GUIDs into the canonical v2 schema. Removed base
+Opacity by their permanent GUIDs into the current canonical schema. Removed base
 SpecularStrength and Shininess values are discarded with a warning; instance
 overrides for those GUIDs remain explicit unresolved orphans. They are never
 reinterpreted as Metallic or Roughness.

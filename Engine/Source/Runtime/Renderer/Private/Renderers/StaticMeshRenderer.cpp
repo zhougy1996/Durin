@@ -60,7 +60,14 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_TEXTURE(EmissiveTexture);
 				DURIN_SHADER_PARAMETER_TEXTURE(OpacityTexture);
 				DURIN_SHADER_PARAMETER_TEXTURE(OpacityMaskTexture);
-				DURIN_SHADER_PARAMETER_SAMPLER(MaterialSampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(BaseColorSampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(NormalSampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(MetallicSampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(RoughnessSampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(AmbientOcclusionSampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(EmissiveSampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(OpacitySampler);
+				DURIN_SHADER_PARAMETER_SAMPLER(OpacityMaskSampler);
 				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentIrradiance);
 				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentPrefiltered);
 				DURIN_SHADER_PARAMETER_TEXTURE(EnvironmentBrdfLut);
@@ -99,7 +106,52 @@ namespace Durin
 			std::array<FVector4f, 8> UVTransforms{};
 			FVector4f UVChannels0{0.0f};
 			FVector4f UVChannels1{0.0f};
+			FVector4f UVRotations0{0.0f};
+			FVector4f UVRotations1{0.0f};
 		};
+
+		inline constexpr size_t MaterialSamplerCount = 6 * 2 * 3 * 3;
+
+		auto GetMaterialSamplerIndex(const FMaterialSamplerState& State) -> size_t
+		{
+			return static_cast<size_t>(State.MinFilter) + 6 * (
+				static_cast<size_t>(State.MagFilter) + 2 * (
+					static_cast<size_t>(State.AddressU) + 3
+						* static_cast<size_t>(State.AddressV)));
+		}
+
+		auto ToRHIAddress(EMaterialSamplerAddressMode Address)
+			-> ESamplerAddressMode
+		{
+			switch (Address)
+			{
+			case EMaterialSamplerAddressMode::MirroredRepeat:
+				return ESamplerAddressMode::MirroredRepeat;
+			case EMaterialSamplerAddressMode::ClampToEdge:
+				return ESamplerAddressMode::ClampToEdge;
+			case EMaterialSamplerAddressMode::Repeat:
+			default:
+				return ESamplerAddressMode::Repeat;
+			}
+		}
+
+		auto MakeMaterialSamplerDesc(const FMaterialSamplerState& State)
+			-> FRHISamplerDesc
+		{
+			FRHISamplerDesc Result;
+			const uint8 Min = static_cast<uint8>(State.MinFilter);
+			Result.MinFilter = (Min & 1u) != 0
+				? ESamplerFilter::Linear : ESamplerFilter::Nearest;
+			Result.MagFilter = State.MagFilter == EMaterialSamplerMagFilter::Linear
+				? ESamplerFilter::Linear : ESamplerFilter::Nearest;
+			Result.MipmapMode = Min >= 4
+				? ESamplerMipmapMode::Linear : ESamplerMipmapMode::Nearest;
+			Result.MaxLod = Min < 2 ? 0.0f : 1000.0f;
+			Result.AddressU = ToRHIAddress(State.AddressU);
+			Result.AddressV = ToRHIAddress(State.AddressV);
+			Result.AddressW = ESamplerAddressMode::Repeat;
+			return Result;
+		}
 
 		auto GetIdentityText(
 			const FMaterialShaderMapIdentity& Identity) -> std::string
@@ -141,7 +193,7 @@ namespace Durin
 	{
 		struct FBaseResources
 		{
-			FSamplerRHIRef MaterialSampler;
+			std::array<FSamplerRHIRef, MaterialSamplerCount> MaterialSamplers{};
 		};
 
 		struct FShaderMapPayload
@@ -196,18 +248,31 @@ namespace Durin
 			Coordinator.GetGeneration_RenderThread(),
 			[]() -> FResult {
 				FState::FBaseResources Candidate;
-				Candidate.MaterialSampler =
-					RHICreateSampler(FRHISamplerDesc::LinearRepeat());
-				if (Candidate.MaterialSampler == nullptr)
+				for (uint8 AddressV = 0; AddressV < 3; ++AddressV)
+				for (uint8 AddressU = 0; AddressU < 3; ++AddressU)
+				for (uint8 Mag = 0; Mag < 2; ++Mag)
+				for (uint8 Min = 0; Min < 6; ++Min)
 				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"StaticMeshBaseResources",
-							"material-sampler",
-							"RHI sampler creation returned null.",
-							ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
+					const FMaterialSamplerState State{
+						.MinFilter = static_cast<EMaterialSamplerMinFilter>(Min),
+						.MagFilter = static_cast<EMaterialSamplerMagFilter>(Mag),
+						.AddressU = static_cast<EMaterialSamplerAddressMode>(AddressU),
+						.AddressV = static_cast<EMaterialSamplerAddressMode>(AddressV),
+					};
+					FSamplerRHIRef& Sampler =
+						Candidate.MaterialSamplers[GetMaterialSamplerIndex(State)];
+					Sampler = RHICreateSampler(MakeMaterialSamplerDesc(State));
+					if (Sampler == nullptr)
+					{
+						return FResult::Failure(
+							MakeRendererResourceCreateError(
+								ERenderResourceCreateErrorCategory::RHIResource,
+								"StaticMeshBaseResources",
+								"material-sampler",
+								"RHI sampler creation returned null.",
+								ERenderResourceGenerationDependency::Device
+									| ERenderResourceGenerationDependency::Manual));
+					}
 				}
 				return FResult::Success(std::move(Candidate));
 			},
@@ -316,13 +381,24 @@ namespace Durin
 			const FMaterialRenderData& ResolvedMaterial =
 				Proxy.ResolveMaterialRenderData_RenderThread(
 					Section.MaterialSlotIndex);
-			FMaterialRenderV2Binding MaterialBinding;
+			FMaterialRenderV3Binding MaterialBinding;
 			FMaterialRenderValidationDiagnostic BindingDiagnostic;
 			const FMaterialRenderData* MaterialData = &ResolvedMaterial;
-			if (!TryGetMaterialRenderV2Binding(
-				ResolvedMaterial.Representation,
-				MaterialBinding,
-				BindingDiagnostic))
+			bool bBindingValid = TryGetMaterialRenderV3Binding(
+				ResolvedMaterial.Representation, MaterialBinding, BindingDiagnostic);
+			if (!bBindingValid
+				&& ResolvedMaterial.Representation.GetLayout().Identity.Version == 2)
+			{
+				FMaterialRenderV2Binding LegacyBinding;
+				bBindingValid = TryGetMaterialRenderV2Binding(
+					ResolvedMaterial.Representation, LegacyBinding, BindingDiagnostic);
+				if (bBindingValid)
+				{
+					static_cast<FMaterialRenderV2Binding&>(MaterialBinding) =
+						std::move(LegacyBinding);
+				}
+			}
+			if (!bBindingValid)
 			{
 				RecordMaterialFallbackReason(
 					EMaterialFallbackReason::UnsupportedLayout);
@@ -342,14 +418,14 @@ namespace Durin
 					GetErrorMaterialRenderData();
 				MaterialData = &ErrorMaterial;
 				FMaterialRenderValidationDiagnostic ErrorDiagnostic;
-				if (!TryGetMaterialRenderV2Binding(
+				if (!TryGetMaterialRenderV3Binding(
 					ErrorMaterial.Representation,
 					MaterialBinding,
 					ErrorDiagnostic))
 				{
 					checkf(
 						false,
-						"ErrorMaterial must satisfy the exact v2 binding contract: %s",
+						"ErrorMaterial must satisfy the exact v3 binding contract: %s",
 						ErrorDiagnostic.Message.c_str());
 					continue;
 				}
@@ -594,6 +670,12 @@ namespace Durin
 			MaterialUniform.UVChannels1 = FVector4f(
 				MaterialBinding.UVChannels[4], MaterialBinding.UVChannels[5],
 				MaterialBinding.UVChannels[6], MaterialBinding.UVChannels[7]);
+			MaterialUniform.UVRotations0 = FVector4f(
+				MaterialBinding.UVRotations[0], MaterialBinding.UVRotations[1],
+				MaterialBinding.UVRotations[2], MaterialBinding.UVRotations[3]);
+			MaterialUniform.UVRotations1 = FVector4f(
+				MaterialBinding.UVRotations[4], MaterialBinding.UVRotations[5],
+				MaterialBinding.UVRotations[6], MaterialBinding.UVRotations[7]);
 			const FRHIUniformBufferRange MaterialUniformBuffer =
 				CommandList.AllocateDynamicUniformBuffer(
 					&MaterialUniform,
@@ -617,7 +699,18 @@ namespace Durin
 			FragmentShaderParameters.EmissiveTexture = ResolveTexture(5, EDefaultTexture::Black);
 			FragmentShaderParameters.OpacityTexture = ResolveTexture(6, EDefaultTexture::White);
 			FragmentShaderParameters.OpacityMaskTexture = ResolveTexture(7, EDefaultTexture::White);
-			FragmentShaderParameters.MaterialSampler = BaseResources->MaterialSampler;
+			auto ResolveSampler = [&](size_t Role) {
+				return BaseResources->MaterialSamplers[
+					GetMaterialSamplerIndex(MaterialBinding.Samplers[Role])].GetReference();
+			};
+			FragmentShaderParameters.BaseColorSampler = ResolveSampler(0);
+			FragmentShaderParameters.NormalSampler = ResolveSampler(1);
+			FragmentShaderParameters.MetallicSampler = ResolveSampler(2);
+			FragmentShaderParameters.RoughnessSampler = ResolveSampler(3);
+			FragmentShaderParameters.AmbientOcclusionSampler = ResolveSampler(4);
+			FragmentShaderParameters.EmissiveSampler = ResolveSampler(5);
+			FragmentShaderParameters.OpacitySampler = ResolveSampler(6);
+			FragmentShaderParameters.OpacityMaskSampler = ResolveSampler(7);
 			FRHITexture* EnvironmentIrradiance =
 				EnvironmentLighting.GetIrradiance_RenderThread();
 			FRHITexture* EnvironmentPrefiltered =
@@ -636,7 +729,7 @@ namespace Durin
 			FragmentShaderParameters.EnvironmentBrdfLut = bHasCompleteEnvironment
 				? EnvironmentBrdfLut : DefaultTextures.Get_RenderThread(EDefaultTexture::Black);
 			FragmentShaderParameters.EnvironmentSampler = bHasCompleteEnvironment
-				? EnvironmentSampler : BaseResources->MaterialSampler.GetReference();
+				? EnvironmentSampler : ResolveSampler(0);
 			SetShaderParameters(
 				CommandList,
 				Pipeline->FragmentShader,

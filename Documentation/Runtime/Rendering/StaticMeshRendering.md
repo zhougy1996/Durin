@@ -150,10 +150,11 @@ metadata crosses the render boundary. An empty slot is normal and emits no
 warning. A missing proxy after binding resolution is structural failure and
 selects ErrorMaterial. The
 snapshot carries an Engine-owned `FMaterialRenderRepresentation` and a
-separate static shader/pipeline identity. `FStaticMeshRenderer` accepts only
-the exact v2 layout identified by `MaterialRenderLayoutV2Id`; it decodes the
-compact PBR constants, eight UV transforms, and eight texture roles through
-`TryGetMaterialRenderV2Binding`.
+separate static shader/pipeline identity. `FStaticMeshRenderer` accepts the
+exact v3 layout identified by `MaterialRenderLayoutV3Id` and frozen exact-v2
+data for compatibility; it decodes the compact PBR constants, eight UV
+transforms, per-role sampler states, and eight texture roles through the
+version-matched binding decoder.
 
 The draw path does not perform parameter GUID or `FName` lookup and does not
 read reflected material objects or legacy fixed material fields. Dynamic
@@ -168,7 +169,7 @@ scene renderer and fall back together to black.
 If the representation identity or field table is unsupported, the Renderer
 reports a `ShaderBinding` resource diagnostic and switches to a complete
 asset-independent ErrorMaterial snapshot before shader-map or pipeline lookup.
-The terminal contains the same validated v2 contract and is not recursively
+The terminal contains the same validated v3 contract and is not recursively
 validated as another fallback, so no partial payload can reach a draw.
 
 ## Payload Compatibility

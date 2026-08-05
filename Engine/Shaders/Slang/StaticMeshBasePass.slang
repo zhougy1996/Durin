@@ -48,6 +48,9 @@ struct MaterialUniform
     // Texture-role UV channels, packed four per vector.
     float4 UVChannels0;
     float4 UVChannels1;
+    // Texture-role rotation in radians, packed four per vector.
+    float4 UVRotations0;
+    float4 UVRotations1;
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<TransformUniform> Transform;
@@ -61,11 +64,18 @@ struct MaterialUniform
 [[vk::binding(8, 0)]] Texture2D<float4> EmissiveTexture;
 [[vk::binding(9, 0)]] Texture2D<float4> OpacityTexture;
 [[vk::binding(10, 0)]] Texture2D<float4> OpacityMaskTexture;
-[[vk::binding(11, 0)]] SamplerState MaterialSampler;
-[[vk::binding(12, 0)]] TextureCube<float4> EnvironmentIrradiance;
-[[vk::binding(13, 0)]] TextureCube<float4> EnvironmentPrefiltered;
-[[vk::binding(14, 0)]] Texture2D<float4> EnvironmentBrdfLut;
-[[vk::binding(15, 0)]] SamplerState EnvironmentSampler;
+[[vk::binding(11, 0)]] SamplerState BaseColorSampler;
+[[vk::binding(12, 0)]] SamplerState NormalSampler;
+[[vk::binding(13, 0)]] SamplerState MetallicSampler;
+[[vk::binding(14, 0)]] SamplerState RoughnessSampler;
+[[vk::binding(15, 0)]] SamplerState AmbientOcclusionSampler;
+[[vk::binding(16, 0)]] SamplerState EmissiveSampler;
+[[vk::binding(17, 0)]] SamplerState OpacitySampler;
+[[vk::binding(18, 0)]] SamplerState OpacityMaskSampler;
+[[vk::binding(19, 0)]] TextureCube<float4> EnvironmentIrradiance;
+[[vk::binding(20, 0)]] TextureCube<float4> EnvironmentPrefiltered;
+[[vk::binding(21, 0)]] Texture2D<float4> EnvironmentBrdfLut;
+[[vk::binding(22, 0)]] SamplerState EnvironmentSampler;
 
 [shader("vertex")]
 VSOutput VertexMain(FLocalVertexFactoryInput input)
@@ -101,7 +111,18 @@ float2 GetMaterialUV(VSOutput input, uint role)
         ? Material.UVChannels0[role]
         : Material.UVChannels1[role - 4u];
     float4 transform = Material.UVTransforms[role];
-    return SelectUV(input, channel) * transform.xy + transform.zw;
+    float rotation = role < 4u
+        ? Material.UVRotations0[role]
+        : Material.UVRotations1[role - 4u];
+    float2 scaled = SelectUV(input, channel) * transform.xy;
+    if (rotation == 0.0)
+        return scaled + transform.zw;
+    float sine;
+    float cosine;
+    sincos(rotation, sine, cosine);
+    return float2(
+        cosine * scaled.x - sine * scaled.y,
+        sine * scaled.x + cosine * scaled.y) + transform.zw;
 }
 
 float3 SafeNormal(float3 value)
@@ -133,15 +154,15 @@ float3 BlendRNM(float3 baseNormal, float3 detailNormal)
 float4 FragmentMain(VSOutput input) : SV_Target
 {
     const float minVectorLengthSquared = 1.0e-8;
-    float4 baseColorSample = BaseColorTexture.Sample(MaterialSampler, GetMaterialUV(input, 0u));
+    float4 baseColorSample = BaseColorTexture.Sample(BaseColorSampler, GetMaterialUV(input, 0u));
     float3 normalSample = DecodeTextureNormal(
-        NormalTexture.Sample(MaterialSampler, GetMaterialUV(input, 1u)).rg);
-    float metallicSample = MetallicTexture.Sample(MaterialSampler, GetMaterialUV(input, 2u)).r;
-    float roughnessSample = RoughnessTexture.Sample(MaterialSampler, GetMaterialUV(input, 3u)).r;
-    float ambientOcclusionSample = AmbientOcclusionTexture.Sample(MaterialSampler, GetMaterialUV(input, 4u)).r;
-    float3 emissiveSample = EmissiveTexture.Sample(MaterialSampler, GetMaterialUV(input, 5u)).rgb;
-    float opacitySample = OpacityTexture.Sample(MaterialSampler, GetMaterialUV(input, 6u)).r;
-    float opacityMaskSample = OpacityMaskTexture.Sample(MaterialSampler, GetMaterialUV(input, 7u)).r;
+        NormalTexture.Sample(NormalSampler, GetMaterialUV(input, 1u)).rg);
+    float metallicSample = MetallicTexture.Sample(MetallicSampler, GetMaterialUV(input, 2u)).r;
+    float roughnessSample = RoughnessTexture.Sample(RoughnessSampler, GetMaterialUV(input, 3u)).r;
+    float ambientOcclusionSample = AmbientOcclusionTexture.Sample(AmbientOcclusionSampler, GetMaterialUV(input, 4u)).r;
+    float3 emissiveSample = EmissiveTexture.Sample(EmissiveSampler, GetMaterialUV(input, 5u)).rgb;
+    float opacitySample = OpacityTexture.Sample(OpacitySampler, GetMaterialUV(input, 6u)).r;
+    float opacityMaskSample = OpacityMaskTexture.Sample(OpacityMaskSampler, GetMaterialUV(input, 7u)).r;
     float3 baseColor = saturate(Material.BaseColor.rgb) * baseColorSample.rgb * input.color.rgb;
     float opacity = saturate(Material.BaseColor.a) * saturate(opacitySample) * saturate(input.color.a);
     float ambientOcclusion = saturate(Material.SurfaceParams.x) * saturate(ambientOcclusionSample);

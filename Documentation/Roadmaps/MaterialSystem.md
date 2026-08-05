@@ -2,7 +2,7 @@
 
 Summary: Long-term sequencing for material authoring, surface models, render passes, compilation, and runtime scalability.
 
-Last reviewed: 2026-08-05
+Last reviewed: 2026-08-06
 
 ## Current State
 
@@ -14,9 +14,10 @@ and shader-map and pipeline identities. The Material Editor supports creation,
 save, parent selection, built-in parameter editing, instance overrides, and
 rendered thumbnails.
 
-The visible StaticMesh surface now uses the validated v2 metallic/roughness PBR
+The visible StaticMesh surface now uses the validated v3 metallic/roughness PBR
 contract across level, preview, and thumbnail rendering. It includes eight
-texture roles with explicit color-space and UV behavior, tangent-space normal
+texture roles with explicit color-space, UV transform, and independent sampler
+behavior, tangent-space normal
 mapping, Cook-Torrance GGX direct lighting, and a shared pre-baked studio IBL
 asset. Cached material identities still do not make blend, culling, depth, or
 masking policies visibly different. Material graph compilation, transient
@@ -62,7 +63,7 @@ future milestone 4 plan.
   reserved removed indices, mesh defaults, positional component overrides,
   dormant cross-mesh entries, and compact slot-ordered scene-proxy bindings.
 - Base-color texture sampling, counted RHI texture references, renderer-owned
-  white/black/flat-normal fallbacks, and shared sampler ownership.
+  white/black/flat-normal fallbacks, and per-role sampler ownership.
 - StaticMesh shader-map and pipeline caches keyed by versioned material static
   identity while retaining the existing scene proxy across material changes.
 - A dedicated Material Editor and persistent rendered material thumbnails.
@@ -70,8 +71,9 @@ future milestone 4 plan.
   streams, up to four UV channels, and packed tangent handedness.
 - Concrete Renderer-private feature owners, including `FStaticMeshRenderer`,
   under one `FSceneRenderer` orchestration boundary.
-- Canonical PBR v2 constants and eight texture roles, per-role UV0-UV3
-  transforms, usage/color-space validation, and deterministic role fallbacks.
+- Canonical PBR v3 constants and eight texture roles, per-role UV0-UV3
+  transforms and sampler state, usage/color-space validation, and deterministic
+  role fallbacks.
 - Tangent-space RNM normal composition with mirrored-transform handedness,
   Cook-Torrance GGX direct lighting, and split-sum environment lighting from a
   pre-baked internal Engine asset shared across scene and preview output.

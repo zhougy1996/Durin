@@ -179,7 +179,7 @@ TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleSt
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialRenderProxyTests, CanonicalV2ValuesMatchDirectCompilationForBasesAndInstances)
+TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesAndInstances)
 {
 	FRenderSceneHarness Harness;
 	auto* Base = Durin::NewObject<Durin::DMaterial>(
@@ -246,6 +246,21 @@ TEST(FMaterialRenderProxyTests, CanonicalV2ValuesMatchDirectCompilationForBasesA
 			ASSERT_TRUE(Base->SetVector2ParameterValue(
 				Definition.Name, Durin::FVector2(7.0, -11.0)));
 		}
+		else if (std::ranges::find(
+			Durin::MaterialParameters::UVRotationIds, Definition.Id)
+			!= Durin::MaterialParameters::UVRotationIds.end())
+		{
+			ASSERT_TRUE(Base->SetScalarParameterValue(Definition.Name, 0.75f));
+		}
+		else if (std::ranges::find(
+			Durin::MaterialParameters::SamplerStateIds, Definition.Id)
+			!= Durin::MaterialParameters::SamplerStateIds.end())
+		{
+			Durin::FMaterialSamplerState Sampler;
+			Sampler.AddressU = Durin::EMaterialSamplerAddressMode::ClampToEdge;
+			ASSERT_TRUE(Base->SetScalarParameterValue(
+				Definition.Name, Durin::EncodeMaterialSamplerState(Sampler)));
+		}
 	}
 
 	Durin::FMaterialRenderProxyRef BaseProxy =
@@ -253,7 +268,7 @@ TEST(FMaterialRenderProxyTests, CanonicalV2ValuesMatchDirectCompilationForBasesA
 	const FMaterialProxySnapshot BaseSnapshot =
 		CaptureMaterialProxy(BaseProxy);
 	ExpectRenderDataMatches(BaseSnapshot.RenderData, Base->GetRenderData());
-	const Durin::FMaterialRenderV2Binding BaseBinding =
+	const Durin::FMaterialRenderV3Binding BaseBinding =
 		GetMaterialBinding(BaseSnapshot.RenderData);
 	EXPECT_FLOAT_EQ(BaseBinding.Metallic, 0.81f);
 	EXPECT_FLOAT_EQ(BaseBinding.Roughness, 0.23f);
@@ -264,6 +279,10 @@ TEST(FMaterialRenderProxyTests, CanonicalV2ValuesMatchDirectCompilationForBasesA
 		EXPECT_FLOAT_EQ(BaseBinding.UVChannels[Role], 3.0f);
 		EXPECT_EQ(BaseBinding.UVScales[Role], Durin::FVector2f(2.0f, -3.0f));
 		EXPECT_EQ(BaseBinding.UVOffsets[Role], Durin::FVector2f(7.0f, -11.0f));
+		EXPECT_FLOAT_EQ(BaseBinding.UVRotations[Role], 0.75f);
+		EXPECT_EQ(
+			BaseBinding.Samplers[Role].AddressU,
+			Durin::EMaterialSamplerAddressMode::ClampToEdge);
 	}
 
 	ASSERT_TRUE(Instance->SetScalarParameterValue(

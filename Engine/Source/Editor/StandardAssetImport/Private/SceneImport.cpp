@@ -71,6 +71,31 @@ namespace Durin
 			FStaticMeshImportSettings MeshSettings;
 		};
 
+		auto MakeMaterialSamplerState(
+			const Asset::FImportedSampler& Sampler) -> FMaterialSamplerState
+		{
+			FMaterialSamplerState Result;
+			Result.MinFilter = static_cast<EMaterialSamplerMinFilter>(Sampler.MinFilter);
+			Result.MagFilter = Sampler.MagFilter == Asset::EImportedSamplerFilter::Nearest
+				? EMaterialSamplerMagFilter::Nearest
+				: EMaterialSamplerMagFilter::Linear;
+			auto ConvertAddress = [](Asset::EImportedSamplerWrap Wrap) {
+				switch (Wrap)
+				{
+				case Asset::EImportedSamplerWrap::MirroredRepeat:
+					return EMaterialSamplerAddressMode::MirroredRepeat;
+				case Asset::EImportedSamplerWrap::ClampToEdge:
+					return EMaterialSamplerAddressMode::ClampToEdge;
+				case Asset::EImportedSamplerWrap::Repeat:
+				default:
+					return EMaterialSamplerAddressMode::Repeat;
+				}
+			};
+			Result.AddressU = ConvertAddress(Sampler.WrapU);
+			Result.AddressV = ConvertAddress(Sampler.WrapV);
+			return Result;
+		}
+
 		template<typename T>
 		auto AppendValue(std::vector<uint8>& Bytes, const T& Value) -> void
 		{
@@ -603,17 +628,6 @@ namespace Durin
 					};
 					for (const Asset::FImportedTextureBinding& Binding : Material->TextureBindings)
 					{
-						if (Binding.RotationRadians != 0.0f)
-							Data->Warnings.push_back(std::format(
-								"Material '{}' texture rotation is retained by parsing but is not supported by the current material UV transform.",
-								Material->SourceName));
-						if (Binding.Sampler.MinFilter != Asset::EImportedSamplerFilter::LinearMipmapLinear
-							|| Binding.Sampler.MagFilter != Asset::EImportedSamplerFilter::Linear
-							|| Binding.Sampler.WrapU != Asset::EImportedSamplerWrap::Repeat
-							|| Binding.Sampler.WrapV != Asset::EImportedSamplerWrap::Repeat)
-							Data->Warnings.push_back(std::format(
-								"Material '{}' uses texture sampler state that cannot be represented by the shared material sampler.",
-								Material->SourceName));
 						switch (Binding.Semantic)
 						{
 						case Asset::EImportedTextureSemantic::BaseColor:
@@ -1559,7 +1573,16 @@ namespace Durin
 					|| !Material->SetParameterOverride(
 						MaterialParameters::UVOffsetIds[Binding.MaterialRole],
 						EMaterialParameterType::Vector2,
-						FMaterialParameterValue::MakeVector2(FVector2(Binding.Binding.Offset))))
+						FMaterialParameterValue::MakeVector2(FVector2(Binding.Binding.Offset)))
+					|| !Material->SetParameterOverride(
+						MaterialParameters::UVRotationIds[Binding.MaterialRole],
+						EMaterialParameterType::Scalar,
+						FMaterialParameterValue::MakeScalar(Binding.Binding.RotationRadians))
+					|| !Material->SetParameterOverride(
+						MaterialParameters::SamplerStateIds[Binding.MaterialRole],
+						EMaterialParameterType::Scalar,
+						FMaterialParameterValue::MakeScalar(EncodeMaterialSamplerState(
+							MakeMaterialSamplerState(Binding.Binding.Sampler)))))
 				{
 					return FailPrepared("Scene material texture mapping failed.");
 				}

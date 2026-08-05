@@ -66,7 +66,7 @@ namespace Durin
 	};
 
 	using FMaterialParameterSchemaVersion = uint32;
-	inline constexpr FMaterialParameterSchemaVersion CurrentMaterialParameterSchemaVersion = 3;
+	inline constexpr FMaterialParameterSchemaVersion CurrentMaterialParameterSchemaVersion = 4;
 
 	// Describes the transient Engine-to-Renderer material payload protocol.
 	enum class EMaterialRenderFieldStorage : uint8
@@ -84,7 +84,7 @@ namespace Durin
 	};
 
 	using FMaterialRenderLayoutVersion = uint32;
-	inline constexpr FMaterialRenderLayoutVersion CurrentMaterialRenderLayoutVersion = 2;
+	inline constexpr FMaterialRenderLayoutVersion CurrentMaterialRenderLayoutVersion = 3;
 	inline constexpr uint32 MaterialRenderMaxFieldCount = 256;
 	inline constexpr uint32 MaterialRenderMaxResourceCount = 64;
 	inline constexpr uint32 MaterialRenderMaxUniformPayloadBytes = 16 * 1024;
@@ -94,11 +94,13 @@ namespace Durin
 		0x4a6f4c01, 0x27d140b2, 0x8a52cc39, 0x6d4f9a77};
 	inline constexpr FGuid MaterialRenderLayoutV2Id{
 		0x308cda9d, 0x46b94861, 0xb65088db, 0xc84e7feb};
+	inline constexpr FGuid MaterialRenderLayoutV3Id{
+		0xd71bc1d4, 0xa5894f47, 0x9b5c08b5, 0xf42d75b2};
 
 	struct FMaterialRenderLayoutIdentity
 	{
 		FMaterialRenderLayoutVersion Version = CurrentMaterialRenderLayoutVersion;
-		FGuid Id = MaterialRenderLayoutV2Id;
+		FGuid Id = MaterialRenderLayoutV3Id;
 
 		auto operator==(const FMaterialRenderLayoutIdentity&) const -> bool = default;
 	};
@@ -220,6 +222,41 @@ namespace Durin
 		}
 	};
 
+	// glTF-compatible sampling state retained independently for every texture role.
+	enum class EMaterialSamplerMinFilter : uint8
+	{
+		Nearest,
+		Linear,
+		NearestMipmapNearest,
+		LinearMipmapNearest,
+		NearestMipmapLinear,
+		LinearMipmapLinear,
+	};
+	enum class EMaterialSamplerMagFilter : uint8 { Nearest, Linear };
+	enum class EMaterialSamplerAddressMode : uint8
+	{
+		Repeat,
+		MirroredRepeat,
+		ClampToEdge,
+	};
+
+	struct FMaterialSamplerState
+	{
+		EMaterialSamplerMinFilter MinFilter =
+			EMaterialSamplerMinFilter::LinearMipmapLinear;
+		EMaterialSamplerMagFilter MagFilter = EMaterialSamplerMagFilter::Linear;
+		EMaterialSamplerAddressMode AddressU = EMaterialSamplerAddressMode::Repeat;
+		EMaterialSamplerAddressMode AddressV = EMaterialSamplerAddressMode::Repeat;
+
+		auto operator==(const FMaterialSamplerState&) const -> bool = default;
+	};
+
+	struct FMaterialRenderV3Binding : FMaterialRenderV2Binding
+	{
+		std::array<float, 8> UVRotations{};
+		std::array<FMaterialSamplerState, 8> Samplers{};
+	};
+
 	ENGINE_API auto TryGetMaterialRenderV1Binding(
 		const FMaterialRenderRepresentation& Representation,
 		FMaterialRenderV1Binding& OutBinding,
@@ -230,6 +267,16 @@ namespace Durin
 		FMaterialRenderV2Binding& OutBinding,
 		FMaterialRenderValidationDiagnostic& OutDiagnostic
 	) -> bool;
+	ENGINE_API auto TryGetMaterialRenderV3Binding(
+		const FMaterialRenderRepresentation& Representation,
+		FMaterialRenderV3Binding& OutBinding,
+		FMaterialRenderValidationDiagnostic& OutDiagnostic
+	) -> bool;
+	ENGINE_API auto EncodeMaterialSamplerState(
+		const FMaterialSamplerState& State) -> float;
+	ENGINE_API auto TryDecodeMaterialSamplerState(
+		float Encoded,
+		FMaterialSamplerState& OutState) -> bool;
 
 	// Compiles GUID-addressed Engine values into one layout's compact payload.
 	// GUID lookup is confined to this Engine-side builder; Renderer consumes the
@@ -266,6 +313,7 @@ namespace Durin
 
 	ENGINE_API auto MakeDefaultMaterialRenderLayout() -> FMaterialRenderLayout;
 	ENGINE_API auto MakeMaterialRenderLayoutV1() -> FMaterialRenderLayout;
+	ENGINE_API auto MakeMaterialRenderLayoutV2() -> FMaterialRenderLayout;
 	ENGINE_API auto MakeCanonicalMaterialRenderRepresentation()
 		-> FMaterialRenderRepresentation;
 	ENGINE_API auto ValidateMaterialRenderLayout(
@@ -433,6 +481,12 @@ namespace Durin
 		inline constexpr std::array<FGuid, 8> UVOffsetIds{
 			FGuid{0x7f06899b,0x33f5416d,0x9d07e4b0,0x86d9f512}, FGuid{0xd8f1ff6d,0x0da845d3,0xb263bf33,0x6b268992}, FGuid{0x823917fc,0x577e4492,0xaee15bf5,0x1f7f99c9}, FGuid{0xe8c9892e,0xfe2c471b,0xb76eeef3,0xd38a0eab},
 			FGuid{0xfcc40232,0xb6604de4,0x95123d02,0xe05dde5e}, FGuid{0x165e8be8,0x46a44106,0xb22d3a0f,0x25bd23cb}, FGuid{0xad888dbb,0x10934047,0x82901991,0x3f0ea763}, FGuid{0xefb2320e,0x8b514460,0xb3e92d3a,0x973d358a}};
+		inline constexpr std::array<FGuid, 8> UVRotationIds{
+			FGuid{0x35f1f695,0xc8bb4c59,0x89f55c74,0x8e297b22}, FGuid{0xef2664e3,0xf45b4f20,0xaad6baa4,0x6486f63f}, FGuid{0x3c598714,0x16174535,0x936eb4db,0xe5a210cd}, FGuid{0x682ca789,0x18bd4ec4,0xa00f271a,0xd7527e59},
+			FGuid{0x82b3fdc3,0x0f8840ad,0xbe12abdb,0xbc5732b1}, FGuid{0x76c5afe3,0xd08148cb,0x86c9125d,0x8accbce1}, FGuid{0x5751ef57,0xf71d45e4,0x906ce613,0x9d22b2c4}, FGuid{0x4a40ca6b,0xa7fe48ae,0xb2af647a,0x7027f949}};
+		inline constexpr std::array<FGuid, 8> SamplerStateIds{
+			FGuid{0xc907df56,0x6d4c440b,0xa6dd53c9,0x6333f11d}, FGuid{0xd378b044,0x9d8b439d,0xaf82bac2,0x3476970b}, FGuid{0x44ef5b74,0xbdcb4fae,0xb233f499,0xcc99814e}, FGuid{0x71086444,0x963c4638,0x98d929c1,0xaaab3dc2},
+			FGuid{0x6075e231,0x6c8647db,0x815a4575,0xa72a06ca}, FGuid{0xa89564f2,0xd936422a,0xa48871f7,0x21873f76}, FGuid{0xc98a80bb,0x03cb4ed9,0x80fe2dfc,0xb6a89821}, FGuid{0x666771a5,0x71034a00,0xaf2a479d,0x097947b8}};
 
 		// FName cannot be safely initialized before the name pool, so canonical names
 		// are exposed as function-local constants rather than namespace globals.

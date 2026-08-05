@@ -61,7 +61,7 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 	InitializeDObjectSystem();
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "SchemaMaterial");
 	const std::span Definitions = Material->GetParameterDefinitions();
-	ASSERT_EQ(Definitions.size(), 40u);
+	ASSERT_EQ(Definitions.size(), 56u);
 	const std::array ConstantIds{Durin::MaterialParameters::BaseColorId, Durin::MaterialParameters::NormalId,
 		Durin::MaterialParameters::MetallicId, Durin::MaterialParameters::RoughnessId,
 		Durin::MaterialParameters::AmbientOcclusionId, Durin::MaterialParameters::EmissiveId,
@@ -71,7 +71,8 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 	{
 		ExpectedIds.insert(ExpectedIds.end(), {ConstantIds[Role], Durin::MaterialParameters::TextureIds[Role],
 			Durin::MaterialParameters::UVChannelIds[Role], Durin::MaterialParameters::UVScaleIds[Role],
-			Durin::MaterialParameters::UVOffsetIds[Role]});
+			Durin::MaterialParameters::UVOffsetIds[Role], Durin::MaterialParameters::UVRotationIds[Role],
+			Durin::MaterialParameters::SamplerStateIds[Role]});
 	}
 	std::unordered_set<Durin::FGuid> Ids;
 	std::unordered_set<Durin::FName> Names;
@@ -84,7 +85,7 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 		EXPECT_FALSE(Definition.Name.IsNone());
 		EXPECT_FALSE(Definition.DisplayName.empty());
 		EXPECT_EQ(Definition.SortOrder, static_cast<Durin::int32>(Index));
-		if (Index % 5 == 3 || Index % 5 == 4)
+		if (Index % 7 == 3 || Index % 7 == 4)
 		{
 			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Vector2);
 		}
@@ -97,7 +98,11 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 		case Durin::EMaterialParameterPresentation::Integer:
 			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Scalar);
 			EXPECT_FLOAT_EQ(Definition.MinimumValue, 0.0f);
-			EXPECT_FLOAT_EQ(Definition.MaximumValue, 3.0f);
+			EXPECT_FLOAT_EQ(
+				Definition.MaximumValue,
+				std::ranges::find(Durin::MaterialParameters::UVChannelIds, Definition.Id)
+					!= Durin::MaterialParameters::UVChannelIds.end()
+					? 3.0f : 255.0f);
 			break;
 		case Durin::EMaterialParameterPresentation::Color:
 			EXPECT_EQ(Definition.Type, Durin::EMaterialParameterType::Vector);
@@ -108,8 +113,8 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 		case Durin::EMaterialParameterPresentation::Default: FAIL() << "Built-in parameters require an explicit presentation."; break;
 		}
 	}
-	EXPECT_EQ(Material->FindParameterDefinition(Durin::MaterialParameters::OpacityId), &Definitions[30]);
-	EXPECT_EQ(Material->FindParameterDefinition(Durin::FName("oPaCiTy")), &Definitions[30]);
+	EXPECT_EQ(Material->FindParameterDefinition(Durin::MaterialParameters::OpacityId), &Definitions[42]);
+	EXPECT_EQ(Material->FindParameterDefinition(Durin::FName("oPaCiTy")), &Definitions[42]);
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::MaterialParameters::BaseColorName(), 0.5f));
 	EXPECT_FALSE(Material->SetVectorParameterValue(
 		Durin::FName("BaseColorUVScale"), Durin::FVector3(1.0)));
@@ -168,12 +173,12 @@ TEST(FMaterialTests, SchemaV1UpgradePreservesStableValuesAndLegacyInstanceOrphan
 	auto* Opacity = static_cast<Durin::FMaterialParameterDefinition*>(DefinitionsProperty->GetMutableElementPtr(Material, 2));
 	*BaseColor = Durin::MakeCanonicalMaterialParameterDefinitions()[0];
 	*BaseTexture = Durin::MakeCanonicalMaterialParameterDefinitions()[1];
-	*Opacity = Durin::MakeCanonicalMaterialParameterDefinitions()[30];
+	*Opacity = Durin::MakeCanonicalMaterialParameterDefinitions()[42];
 	BaseColor->Value.VectorValue = Durin::FVector3(0.1, 0.2, 0.3);
 	Opacity->Value.ScalarValue = 0.4f;
 	std::string Error;
 	ASSERT_TRUE(Material->PostLoad(Error)) << Error;
-	ASSERT_EQ(Material->GetParameterDefinitions().size(), 40u);
+	ASSERT_EQ(Material->GetParameterDefinitions().size(), 56u);
 	Durin::FVector3 LoadedColor;
 	float LoadedOpacity = 0.0f;
 	EXPECT_TRUE(Material->GetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), LoadedColor));

@@ -492,7 +492,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		EXPECT_EQ(
 			Durin::FXxHash128::HashBuffer(
 				LODContractPixels).ToString(),
-			"a1ed3347de03e60732a644c9ed8dce40");
+			"bdd34099da4b080de210ad2d9af122a9");
 
 		struct FEndSceneImportFrame
 		{
