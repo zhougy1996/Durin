@@ -91,7 +91,7 @@ namespace
 		Durin::DStaticMesh& Mesh,
 		const std::filesystem::path& PackagePath,
 		const Durin::Asset::FCookedPayloadDescriptor& Descriptor,
-		std::optional<Durin::FGuid> FirstMaterialSlotId = std::nullopt) -> void
+		bool bAppendMaterialSlot = false) -> void
 	{
 		auto* DescriptorProperty = Mesh.GetClass()->FindPropertyByName("CookedPayload");
 		auto* MaterialSlotsProperty = Mesh.GetClass()->FindPropertyByName("MaterialSlots");
@@ -104,10 +104,11 @@ namespace
 		const Durin::Asset::FCookedPayloadDescriptor SavedDescriptor = *StoredDescriptor;
 		const std::vector<Durin::FStaticMeshMaterialSlotDefinition> SavedSlots = *MaterialSlots;
 		*StoredDescriptor = Descriptor;
-		if (FirstMaterialSlotId.has_value())
+		if (bAppendMaterialSlot)
 		{
-			ASSERT_FALSE(MaterialSlots->empty());
-			MaterialSlots->front().SlotId = *FirstMaterialSlotId;
+			MaterialSlots->push_back({
+				.Name = Durin::FName("PayloadMismatch"),
+				.SourceMaterialIndex = static_cast<Durin::uint32>(MaterialSlots->size())});
 		}
 		std::vector<Durin::uint8> PackageBytes;
 		const Durin::Asset::FAssetResult Result =
@@ -349,7 +350,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		*Fixture.Mesh,
 		MaterialMismatchRoot / "Game/CookedMesh.dasset",
 		DecodedBulk.Entries.front(),
-		Durin::FGuid::NewGuid());
+		true);
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(FirstBulk)), MaterialMismatchRoot / "Game/CookedMesh.dbulk"));
 

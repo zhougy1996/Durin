@@ -58,9 +58,9 @@ future milestone 4 plan.
   unsupported layouts report ShaderBinding diagnostics before shader-map or
   pipeline selection, while texture fallback and Vulkan resource reload remain
   covered by integration tests.
-- Persistent StaticMesh material-slot identities, mesh defaults, sparse
-  component overrides, explicit orphans, and compact slot-ordered scene-proxy
-  bindings.
+- Stable positional StaticMesh material slots with separate user/import names,
+  reserved removed indices, mesh defaults, positional component overrides,
+  dormant cross-mesh entries, and compact slot-ordered scene-proxy bindings.
 - Base-color texture sampling, counted RHI texture references, renderer-owned
   white/black/flat-normal fallbacks, and shared sampler ownership.
 - StaticMesh shader-map and pipeline caches keyed by versioned material static

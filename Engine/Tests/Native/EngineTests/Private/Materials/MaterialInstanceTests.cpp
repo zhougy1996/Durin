@@ -42,7 +42,7 @@ TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, MeshDefaultsBindWhileOrphanOverridesStayDetached)
+TEST(FMaterialTests, PositionalOverrideTransfersAcrossMeshSwitch)
 {
 	FRenderSceneHarness Harness;
 	Durin::DMaterial* Default = Durin::NewObject<Durin::DMaterial>(nullptr, "BoundMeshDefault");
@@ -60,16 +60,18 @@ TEST(FMaterialTests, MeshDefaultsBindWhileOrphanOverridesStayDetached)
 	EXPECT_EQ(DefaultChanged.ComponentRevision, Initial.ComponentRevision);
 	ExpectColorNear(GetMaterialBinding(DefaultChanged.Material).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 1.0f));
 
-	const Durin::FGuid OldSlotId = Mesh->GetMaterialSlot(0)->SlotId;
-	ASSERT_TRUE(Component->SetMaterialBySlotId(OldSlotId, Orphan));
+	ASSERT_TRUE(Component->SetMaterial(0, Orphan));
 	Durin::DStaticMesh* OtherMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	Component->SetStaticMesh(OtherMesh);
-	const FSceneSnapshot BeforeOrphanChange = CaptureScene(Harness.Scene);
-	ASSERT_TRUE(Component->IsMaterialOverrideOrphan(OldSlotId));
+	const FSceneSnapshot BeforeOverrideChange = CaptureScene(Harness.Scene);
+	EXPECT_EQ(Component->GetMaterial(0), Orphan);
 	Orphan->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.8, 0.1, 0.3));
-	const FSceneSnapshot AfterOrphanChange = CaptureScene(Harness.Scene);
-	EXPECT_EQ(AfterOrphanChange.Proxy, BeforeOrphanChange.Proxy);
-	EXPECT_EQ(AfterOrphanChange.ComponentRevision, BeforeOrphanChange.ComponentRevision);
+	const FSceneSnapshot AfterOverrideChange = CaptureScene(Harness.Scene);
+	EXPECT_EQ(AfterOverrideChange.Proxy, BeforeOverrideChange.Proxy);
+	EXPECT_EQ(AfterOverrideChange.ComponentRevision, BeforeOverrideChange.ComponentRevision);
+	ExpectColorNear(
+		GetMaterialBinding(AfterOverrideChange.Material).BaseColor,
+		Durin::FVector4f(0.8f, 0.1f, 0.3f, 1.0f));
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();

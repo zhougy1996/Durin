@@ -73,19 +73,20 @@ Current built-in composition includes:
 - Spline transform, curve settings, and point rows; and
 - static-mesh material-slot rows derived from the assigned mesh.
 
-The static-mesh customization hides the raw sparse override collection. It emits
-exactly one fixed row per current mesh-owned slot, with imported order and label,
-resolved source, a material-interface picker, and Reset when an override exists.
-Structural array controls are never exposed. Detached overrides appear in a separate,
-GUID-sorted warning group with an explicit Remove action.
+The static-mesh customization hides the raw positional `OverrideMaterials`
+collection. It emits exactly one fixed row per current mesh-owned slot, labeled
+by stable index and user-facing slot name, with resolved source, a material-
+interface picker, Reset when an override exists, and Clear All when any visible
+or dormant entry is stored. Structural array controls and dormant rows are not
+exposed; StaticMesh slot orphans do not exist.
 
-Slot assignment, replacement, reset, and orphan removal snapshot the reflected
-`MaterialOverrides` collection root, locate the target entry by GUID in draft
-storage, and use that GUID as the logical transaction identity. The component
-pre hook validates GUID uniqueness, non-null compatible values, and collection
-shape before live storage changes. Its post hook rebuilds render state from
-current canonical mesh and override storage for edit, Cancel, Undo, and Redo
-through the same shared path.
+Slot assignment, replacement, and reset snapshot the reflected collection root,
+locate the positional entry in draft storage, and use the fixed-width slot index
+as the logical transaction identity. Clear All edits the same root as a whole.
+The component pre hook validates the bounded array, null holes, and compatible
+non-null objects before live storage changes. Its post hook trims trailing nulls
+and rebuilds render state from canonical mesh and override storage for edit,
+Cancel, Undo, and Redo through the same shared path.
 
 Details owns only the inspected object, search input, table, and customization
 dispatch. It contains no Actor or static-mesh type branches. Real property rows
@@ -383,8 +384,9 @@ Automated coverage currently verifies:
 - array and map stable paths and structural restoration;
 - generic semantic-hook rejection, normalization, reactions, and Undo/Redo;
 - material parameter render invalidation;
-- fixed static-mesh slot rows, GUID-scoped root transactions, orphan removal,
-  search, read-only behavior, and material type filtering; and
+- fixed static-mesh slot rows, index-scoped root transactions, Reset/Clear All,
+  dormant-entry hiding, search, read-only behavior, and material type filtering;
+  and
 - GUID-resolved material definition and override edits, override
   insertion/removal, orphan removal, and shared transaction history; and
 - spline continuous edits, Cancel, structural edits, stable nested paths, cache

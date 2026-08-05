@@ -166,15 +166,11 @@ namespace Durin
 		bool bSourceImporterInvoked = false;
 	};
 
-	// Preserves one material slot's stable identity and source-import provenance.
+	// Preserves one stable positional material slot and its source-import provenance.
 	DSTRUCT()
 	struct FStaticMeshMaterialSlotDefinition
 	{
 		GENERATED_BODY()
-
-		// Stable identity used to retain component overrides across reimport and reordering.
-		DPROPERTY()
-		FGuid SlotId;
 
 		DPROPERTY()
 		FName Name;
@@ -206,8 +202,9 @@ namespace Durin
 		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }
 		auto GetMaterialSlots() const -> std::span<const FStaticMeshMaterialSlotDefinition> { return MaterialSlots; }
 		ENGINE_API auto GetMaterialSlot(uint32 SlotIndex) const -> const FStaticMeshMaterialSlotDefinition*;
-		ENGINE_API auto FindMaterialSlot(const FGuid& SlotId) const -> const FStaticMeshMaterialSlotDefinition*;
 		ENGINE_API auto FindMaterialSlot(FName Name) const -> const FStaticMeshMaterialSlotDefinition*;
+		ENGINE_API auto GetMaterialIndex(FName Name) const -> std::optional<uint32>;
+		ENGINE_API auto RenameMaterialSlot(uint32 SlotIndex, FName Name, std::string& OutError) -> bool;
 
 		ENGINE_API auto InspectSource() const -> FStaticMeshSourceDiagnostic;
 		auto GetDerivedDataDiagnostic() const -> const FStaticMeshDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
@@ -314,9 +311,6 @@ namespace Durin
 
 		DPROPERTY()
 		float NormalizedSize = 1.5f;
-
-		DPROPERTY()
-		uint32 MaterialSlotsVersion = 1;
 
 		DPROPERTY()
 		std::vector<FStaticMeshMaterialSlotDefinition> MaterialSlots;

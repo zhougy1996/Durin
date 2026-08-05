@@ -9,19 +9,6 @@ namespace Durin
 	class DStaticMesh;
 	class DMaterialInterface;
 
-	// Associates a component material override with a stable static-mesh slot identifier.
-	DSTRUCT()
-	struct FStaticMeshMaterialOverride
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		FGuid SlotId;
-
-		DPROPERTY()
-		TObjectPtr<DMaterialInterface> Material;
-	};
-
 	// Binds a static mesh and per-slot materials to a render-scene primitive.
 	DCLASS()
 	class DStaticMeshComponent : public DMeshComponent
@@ -31,18 +18,17 @@ namespace Durin
 		ENGINE_API explicit DStaticMeshComponent(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API auto SetStaticMesh(DStaticMesh* InStaticMesh) -> void;
 		ENGINE_API auto GetStaticMesh() const -> DStaticMesh*;
-		ENGINE_API auto SetMaterial(DMaterialInterface* InMaterial) -> void;
+		ENGINE_API auto SetMaterial(DMaterialInterface* InMaterial) -> bool;
 		ENGINE_API auto GetMaterial() const -> DMaterialInterface*;
-		ENGINE_API auto SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> void;
+		ENGINE_API auto SetMaterial(uint32 SlotIndex, DMaterialInterface* InMaterial) -> bool;
 		ENGINE_API auto GetMaterial(uint32 SlotIndex) const -> DMaterialInterface*;
-		ENGINE_API auto SetMaterialBySlotId(const FGuid& SlotId, DMaterialInterface* InMaterial) -> bool;
-		ENGINE_API auto ResetMaterialBySlotId(const FGuid& SlotId) -> bool;
-		ENGINE_API auto RemoveMaterialOverride(const FGuid& SlotId) -> bool;
-		ENGINE_API auto GetMaterialBySlotId(const FGuid& SlotId) const -> DMaterialInterface*;
-		ENGINE_API auto GetMaterialOverride(const FGuid& SlotId) const -> DMaterialInterface*;
-		ENGINE_API auto HasMaterialOverride(const FGuid& SlotId) const -> bool;
-		ENGINE_API auto IsMaterialOverrideOrphan(const FGuid& SlotId) const -> bool;
-		ENGINE_API auto GetMaterialOverrides() const -> std::span<const FStaticMeshMaterialOverride> { return MaterialOverrides; }
+		ENGINE_API auto SetMaterialByName(FName SlotName, DMaterialInterface* InMaterial) -> bool;
+		ENGINE_API auto GetMaterialByName(FName SlotName) const -> DMaterialInterface*;
+		ENGINE_API auto ResetMaterial(uint32 SlotIndex) -> bool;
+		ENGINE_API auto ClearMaterialOverrides() -> bool;
+		ENGINE_API auto GetMaterialOverride(uint32 SlotIndex) const -> DMaterialInterface*;
+		ENGINE_API auto HasMaterialOverride(uint32 SlotIndex) const -> bool;
+		auto GetOverrideMaterials() const -> std::span<const TObjectPtr<DMaterialInterface>> { return OverrideMaterials; }
 		ENGINE_API auto GetNumMaterials() const -> uint32;
 		ENGINE_API auto CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy> override;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
@@ -55,13 +41,14 @@ namespace Durin
 		ENGINE_API auto BuildMaterialRenderProxyBindingUpdate(
 			FMaterialRenderProxyBindingUpdate& OutUpdate) -> bool override;
 		auto HandleStaticMeshRenderDataChanged(DStaticMesh* ChangedMesh) -> void;
-		auto ValidateMaterialOverrides(std::span<const FStaticMeshMaterialOverride> Overrides, std::string& OutError) const -> bool;
+		auto ValidateOverrideMaterials(std::span<const TObjectPtr<DMaterialInterface>> Overrides, std::string& OutError) const -> bool;
+		auto TrimTrailingNullOverrides() -> void;
 
 		DPROPERTY(Edit)
 		TObjectPtr<DStaticMesh> StaticMesh;
 
 		DPROPERTY()
-		std::vector<FStaticMeshMaterialOverride> MaterialOverrides;
+		std::vector<TObjectPtr<DMaterialInterface>> OverrideMaterials;
 
 		uint64 MaterialComponentRevision = 1;
 		uint32 PendingMaterialSlotIndex = 0;

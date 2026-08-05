@@ -28,18 +28,11 @@ namespace
 		return FBox(Minimum, Maximum);
 	}
 
-	auto ParseGuid(std::string_view Text) -> FGuid
-	{
-		FGuid Result;
-		EXPECT_TRUE(FGuid::Parse(Text, Result));
-		return Result;
-	}
-
 	auto MakeSingleSectionFixture() -> FStaticMeshPayloadData
 	{
 		FStaticMeshPayloadData Payload;
 		Payload.LocalBounds = MakeBounds(FVector3(0.0, 0.0, 0.0), FVector3(1.0, 1.0, 0.0));
-		Payload.MaterialSlotIds = {ParseGuid("11111111-1111-1111-1111-111111111111")};
+		Payload.MaterialSlotCount = 1;
 
 		FStaticMeshPayloadLOD& LOD = Payload.LODs.emplace_back();
 		LOD.LocalBounds = Payload.LocalBounds;
@@ -69,9 +62,7 @@ namespace
 	{
 		FStaticMeshPayloadData Payload;
 		Payload.LocalBounds = MakeBounds(FVector3(-1.0, -1.0, 0.0), FVector3(1.0, 1.0, 0.0));
-		Payload.MaterialSlotIds = {
-			ParseGuid("22222222-2222-2222-2222-222222222222"),
-			ParseGuid("33333333-3333-3333-3333-333333333333")};
+		Payload.MaterialSlotCount = 2;
 
 		FStaticMeshPayloadLOD& LOD = Payload.LODs.emplace_back();
 		LOD.LocalBounds = Payload.LocalBounds;
@@ -178,15 +169,14 @@ namespace
 		EPayloadDecodeError ExpectedCode = EPayloadDecodeError::None) -> void
 	{
 		FStaticMeshPayloadData Sentinel = MakeMultiMaterialFixture();
-		const FGuid SentinelSlot = Sentinel.MaterialSlotIds.front();
+		const uint32 SentinelSlotCount = Sentinel.MaterialSlotCount;
 		const FPayloadDecodeResult Result =
 			DecodeStaticMeshPayload(Bytes, EStaticMeshTargetPlatform::Win64, Sentinel);
 		EXPECT_FALSE(Result);
 		if (ExpectedCode != EPayloadDecodeError::None)
 			EXPECT_EQ(Result.Code, ExpectedCode);
 		EXPECT_FALSE(Result.Message.empty());
-		EXPECT_EQ(Sentinel.MaterialSlotIds.front(), SentinelSlot);
-		EXPECT_EQ(Sentinel.MaterialSlotIds.size(), 2u);
+		EXPECT_EQ(Sentinel.MaterialSlotCount, SentinelSlotCount);
 	}
 
 	auto ExpectVector(const FVector2f& Actual, const FVector2f& Expected) -> void
@@ -212,7 +202,7 @@ namespace
 
 	auto ExpectEquivalent(const FStaticMeshPayloadData& Actual, const FStaticMeshPayloadData& Expected) -> void
 	{
-		ASSERT_EQ(Actual.MaterialSlotIds, Expected.MaterialSlotIds);
+		ASSERT_EQ(Actual.MaterialSlotCount, Expected.MaterialSlotCount);
 		ASSERT_EQ(Actual.LODs.size(), Expected.LODs.size());
 		EXPECT_EQ(Actual.LocalBounds.Min, Expected.LocalBounds.Min);
 		EXPECT_EQ(Actual.LocalBounds.Max, Expected.LocalBounds.Max);
@@ -279,9 +269,9 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 {
 	const std::array Fixtures{MakeSingleSectionFixture(), MakeMultiMaterialFixture()};
 	const std::array<std::string_view, 2> ExpectedPayloadHashes{
-		"31c37f86ed5caa8a579bb2f7c2a1a7cb",
-		"da830a88b13fea4311711b14cbf4c573"};
-	const std::array<size_t, 2> ExpectedPayloadSizes{572, 856};
+		"231781c69f7a022f13c45b6a8ba321e7",
+		"73f8ed0892431939da35d0fc71a9ea5d"};
+	const std::array<size_t, 2> ExpectedPayloadSizes{556, 824};
 	for (size_t FixtureIndex = 0; FixtureIndex < Fixtures.size(); ++FixtureIndex)
 	{
 		const FStaticMeshPayloadData& Fixture = Fixtures[FixtureIndex];
@@ -614,7 +604,7 @@ TEST(FStaticMeshPayloadCodecTests, RejectsInvalidEnvelopeAndChunkRanges)
 	};
 
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 0, 0); });
-	Mutate([](auto& Bytes) { WriteU32(Bytes, 8, 2); });
+	Mutate([](auto& Bytes) { WriteU32(Bytes, 8, StaticMeshBuilderVersion + 1); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 12, 0); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 16, 2); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 28, 1); });
@@ -622,10 +612,14 @@ TEST(FStaticMeshPayloadCodecTests, RejectsInvalidEnvelopeAndChunkRanges)
 	Mutate([](auto& Bytes) { WriteU64(Bytes, 64 + 32 + 8, ReadU64(Bytes, 64 + 8)); });
 	Mutate([](auto& Bytes) { WriteU64(Bytes, 64 + 8, ReadU64(Bytes, 64 + 8) + 1); });
 
-	std::vector<uint8> UnsupportedSchema = Valid;
-	WriteU32(UnsupportedSchema, 4, StaticMeshPayloadSchemaVersion + 1);
-	Rehash(UnsupportedSchema);
-	ExpectDecodeFailure(UnsupportedSchema, EPayloadDecodeError::Incompatible);
+	std::vector<uint8> PreviousSchema = Valid;
+	WriteU32(PreviousSchema, 4, 2);
+	Rehash(PreviousSchema);
+	ExpectDecodeFailure(PreviousSchema, EPayloadDecodeError::Incompatible);
+	std::vector<uint8> FutureSchema = Valid;
+	WriteU32(FutureSchema, 4, StaticMeshPayloadSchemaVersion + 1);
+	Rehash(FutureSchema);
+	ExpectDecodeFailure(FutureSchema, EPayloadDecodeError::Incompatible);
 }
 
 TEST(FStaticMeshPayloadCodecTests, RejectsLimitsCompressionBombAndInvalidEnumValues)

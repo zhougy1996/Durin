@@ -399,23 +399,20 @@ namespace
 		return It == Objects.end() ? nullptr : *It;
 	}
 
-	auto AddDebugMaterialSlot(Durin::DStaticMesh* Mesh, std::string_view Name) -> Durin::FGuid
+	auto AddDebugMaterialSlot(Durin::DStaticMesh* Mesh, std::string_view Name) -> void
 	{
 		auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
 		EXPECT_NE(Slots, nullptr);
 		const Durin::uint64 Index = Slots->Num(Mesh);
 		Slots->Resize(Mesh, Index + 1);
 		auto* Slot = static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, Index));
-		Slot->SlotId = Durin::FGuid::NewGuid();
 		Slot->Name = Durin::FName(Name);
 		Slot->SourceName = std::string(Name);
 		Slot->SourceMaterialIndex = static_cast<Durin::uint32>(Index);
 		Durin::FStaticMeshTestAccess::GetMutableRenderData(Mesh)
 			->MaterialSlots.push_back(
 				{std::string(Name),
-					static_cast<Durin::uint32>(Index),
-					Slot->SlotId});
-		return Slot->SlotId;
+					static_cast<Durin::uint32>(Index)});
 	}
 
 	auto MakeMaterialValueTarget(Durin::DMaterial* Material, const Durin::FGuid& Id, Durin::FName FieldName)

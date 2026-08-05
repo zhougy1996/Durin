@@ -139,7 +139,12 @@ change invalidates every dependent shader artifact.
 
 ## Material Binding Contract
 
-Each StaticMesh section resolves one stable material proxy snapshot. The
+Each StaticMesh section carries one stable positional material-slot index and
+resolves that slot's material proxy snapshot. Asset import preserves matched
+indices, retains removed positions, appends new slots, and maps imported
+sections explicitly. Component resolution at the same index is override, mesh
+default, then renderer fallback; no slot GUID or source metadata crosses the
+render boundary. The
 snapshot carries an Engine-owned `FMaterialRenderRepresentation` and a
 separate static shader/pipeline identity. `FStaticMeshRenderer` accepts only
 the exact v2 layout identified by `MaterialRenderLayoutV2Id`; it decodes the
@@ -164,10 +169,13 @@ draw.
 
 ## Payload Compatibility
 
-The DMSH payload schema and builder/cache identity are unchanged by the
-in-memory resource ownership. Encode reads semantic data back from the named
-buffer resources; decode constructs them from the payload's position, normal,
-tangent, UV, color, and index arrays.
+DMSH schema 3 stores a bounded material-slot count rather than slot GUIDs.
+Every decoded section index is validated against that count; package metadata
+then restores editor/runtime slot names and imported source indices by stable
+position. Schema 2 is incompatible, and builder version 2 invalidates prior
+derived data. Encode reads semantic data back from the named buffer resources;
+decode constructs them from the payload's position, normal, tangent, UV,
+color, and index arrays.
 
 CPU storage is retained while editor and test consumers inspect LOD data.
 `NeedsCPUAccess` is the explicit policy for a future discard path; this

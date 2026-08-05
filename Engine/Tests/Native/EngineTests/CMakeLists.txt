@@ -278,6 +278,7 @@ durin_add_engine_functional_test(ThumbnailTests
 durin_add_engine_functional_test(WorldTests
 	RUNTIME_STACK_RATIONALE "Exercises DurinEd world editing integration."
 	SOURCES
+		Private/World/NewLevelBaselineTests.cpp
 		Private/World/WorldPlayTests.cpp
 		Private/World/WorldLifecycleMutationTests.cpp
 		Private/World/WorldActorIteratorTests.cpp
@@ -285,7 +286,10 @@ durin_add_engine_functional_test(WorldTests
 		Private/World/WorldComponentTests.cpp
 		Private/World/WorldLifetimeTests.cpp
 	LIBRARIES DurinEd
-	DEPLOY_TARGETS RenderCore DurinEd
+	DEPLOY_TARGETS RHI RenderCore DurinEd
+)
+target_compile_definitions(WorldTests PRIVATE
+	DURIN_STATIC_MESH_BASELINE_GAME_CONTENT_DIR="${CMAKE_SOURCE_DIR}/Sandbox/Content"
 )
 
 durin_add_engine_functional_test(ViewportTests

@@ -1,5 +1,7 @@
 #include "MaterialTestSupport.h"
 
+#include "StaticMesh/StaticMeshDerivedData.h"
+
 TEST(FMaterialTests, StaticPropertiesHaveStableDefaultsAndInstanceInheritance)
 {
 	InitializeDObjectSystem();
@@ -194,7 +196,7 @@ TEST(FMaterialTests, SchemaV1UpgradePreservesStableValuesAndLegacyInstanceOrphan
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, ReflectedSparseMaterialOverrideUsesSharedTransactions)
+TEST(FMaterialTests, ReflectedPositionalMaterialOverrideUsesSharedTransactions)
 {
 	FRenderSceneHarness Harness;
 	Durin::DMaterial* First = Durin::NewObject<Durin::DMaterial>(nullptr, "FirstDetailsMaterial");
@@ -208,12 +210,12 @@ TEST(FMaterialTests, ReflectedSparseMaterialOverrideUsesSharedTransactions)
 	Component->RegisterComponent();
 	const FSceneSnapshot Before = CaptureScene(Harness.Scene);
 
-	Durin::FProperty* OverridesProperty = Component->GetClass()->FindPropertyByName("MaterialOverrides");
+	Durin::FProperty* OverridesProperty = Component->GetClass()->FindPropertyByName("OverrideMaterials");
 	ASSERT_NE(OverridesProperty, nullptr);
 	Durin::FPropertyValueSnapshot Original;
 	Durin::FPropertyValueSnapshot Proposed;
 	ASSERT_TRUE(Durin::CapturePropertyValue(OverridesProperty, Component, 0, Original));
-	ASSERT_TRUE(Component->SetMaterialBySlotId(Mesh->GetMaterialSlot(0)->SlotId, Second));
+	ASSERT_TRUE(Component->SetMaterial(0, Second));
 	ASSERT_TRUE(Durin::CapturePropertyValue(OverridesProperty, Component, 0, Proposed));
 	ASSERT_TRUE(Durin::RestorePropertyValue(OverridesProperty, Component, 0, Original));
 	Durin::FEditorTransactionManager Transactions;
@@ -250,14 +252,13 @@ TEST(FMaterialTests, ReflectedSparseMaterialOverrideUsesSharedTransactions)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, SparseMaterialOverridesResolveDefaultsAndPreserveOrphans)
+TEST(FMaterialTests, PositionalMaterialOverridesResolveDefaultsAndSurviveMeshSwitches)
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* First = Durin::NewObject<Durin::DMaterial>(nullptr, "FirstReflectedSlotMaterial");
 	Durin::DMaterial* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "SecondReflectedSlotMaterial");
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle(nullptr);
-	const Durin::FGuid FirstId = Mesh->GetMaterialSlot(0)->SlotId;
-	const Durin::FGuid SecondId = AddDebugMaterialSlot(Mesh, "Second");
+	AddDebugMaterialSlot(Mesh, "Second");
 	auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
 	static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 0))->DefaultMaterial = First;
 	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "ReflectedSlotMeshComponent");
@@ -266,34 +267,50 @@ TEST(FMaterialTests, SparseMaterialOverridesResolveDefaultsAndPreserveOrphans)
 	EXPECT_EQ(Component->GetNumMaterials(), 2u);
 	EXPECT_EQ(Component->GetMaterial(0), First);
 	EXPECT_EQ(Component->GetMaterial(1), nullptr);
-	EXPECT_FALSE(Component->SetMaterialBySlotId({}, Second));
-	EXPECT_FALSE(Component->SetMaterialBySlotId(Durin::FGuid::NewGuid(), Second));
-	Component->SetMaterial(9, Second);
-	EXPECT_TRUE(Component->GetMaterialOverrides().empty());
-	ASSERT_TRUE(Component->SetMaterialBySlotId(SecondId, Second));
-	EXPECT_EQ(Component->GetMaterialOverride(SecondId), Second);
+	EXPECT_FALSE(Component->SetMaterial(9, Second));
+	EXPECT_TRUE(Component->GetOverrideMaterials().empty());
+	EXPECT_FALSE(Component->SetMaterialByName(Durin::FName("Missing"), Second));
+	ASSERT_TRUE(Component->SetMaterialByName(Durin::FName("Second"), Second));
+	ASSERT_EQ(Component->GetOverrideMaterials().size(), 2u);
+	EXPECT_EQ(Component->GetMaterialOverride(0), nullptr);
+	EXPECT_EQ(Component->GetMaterialOverride(1), Second);
 	EXPECT_EQ(Component->GetMaterial(1), Second);
-	EXPECT_TRUE(Component->SetMaterialBySlotId(SecondId, nullptr));
-	EXPECT_FALSE(Component->HasMaterialOverride(SecondId));
+	EXPECT_EQ(Component->GetMaterialByName(Durin::FName("Second")), Second);
+	EXPECT_EQ(Component->GetMaterialByName(Durin::FName("Missing")), nullptr);
+	EXPECT_TRUE(Component->SetMaterial(1, nullptr));
+	EXPECT_FALSE(Component->HasMaterialOverride(1));
+	EXPECT_TRUE(Component->GetOverrideMaterials().empty());
 
-	ASSERT_TRUE(Component->SetMaterialBySlotId(FirstId, Second));
+	ASSERT_TRUE(Component->SetMaterial(0, Second));
 	Durin::DStaticMesh* OtherMesh = Durin::DStaticMesh::CreateDebugTriangle(nullptr);
 	Component->SetStaticMesh(OtherMesh);
-	EXPECT_TRUE(Component->IsMaterialOverrideOrphan(FirstId));
+	EXPECT_EQ(Component->GetMaterial(0), Second);
+	Component->SetStaticMesh(nullptr);
+	EXPECT_EQ(Component->GetNumMaterials(), 0u);
 	EXPECT_EQ(Component->GetMaterial(0), nullptr);
 	Component->SetStaticMesh(Mesh);
-	EXPECT_FALSE(Component->IsMaterialOverrideOrphan(FirstId));
 	EXPECT_EQ(Component->GetMaterial(0), Second);
-	EXPECT_TRUE(Component->RemoveMaterialOverride(FirstId));
+	EXPECT_TRUE(Component->ResetMaterial(0));
 	EXPECT_EQ(Component->GetMaterial(0), First);
-	ASSERT_TRUE(Component->SetMaterialBySlotId(SecondId, Second));
+	ASSERT_TRUE(Component->SetMaterial(1, Second));
+	Component->SetStaticMesh(OtherMesh);
+	EXPECT_EQ(Component->GetNumMaterials(), 1u);
+	EXPECT_EQ(Component->GetMaterialOverride(1), Second);
+	EXPECT_EQ(Component->GetMaterial(0), nullptr);
+	Component->SetStaticMesh(nullptr);
+	EXPECT_EQ(Component->GetMaterialOverride(1), Second);
+	Component->SetStaticMesh(Mesh);
+	EXPECT_EQ(Component->GetMaterial(1), Second);
 	std::string DuplicateError;
 	auto* Duplicate = Durin::Cast<Durin::DStaticMeshComponent>(
 		Durin::DuplicateObjectGraph(Component, nullptr, "SparseOverrideDuplicate", &DuplicateError));
 	ASSERT_NE(Duplicate, nullptr) << DuplicateError;
 	EXPECT_EQ(Duplicate->GetStaticMesh(), Mesh);
-	EXPECT_EQ(Duplicate->GetMaterialBySlotId(SecondId), Second);
-	EXPECT_EQ(Duplicate->GetMaterialOverrides().size(), 1u);
+	EXPECT_EQ(Duplicate->GetMaterial(1), Second);
+	EXPECT_EQ(Duplicate->GetOverrideMaterials().size(), 2u);
+	EXPECT_TRUE(Component->ClearMaterialOverrides());
+	EXPECT_TRUE(Component->GetOverrideMaterials().empty());
+	EXPECT_FALSE(Component->ClearMaterialOverrides());
 
 	Durin::MarkAsGarbage(Duplicate);
 	Durin::MarkAsGarbage(Component);
@@ -304,56 +321,45 @@ TEST(FMaterialTests, SparseMaterialOverridesResolveDefaultsAndPreserveOrphans)
 	Durin::CollectGarbage();
 }
 
-TEST(FMaterialTests, StaticMeshComponentRejectsCorruptSparseOverrides)
+TEST(FMaterialTests, StaticMeshComponentValidatesPositionalOverrides)
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "CorruptOverrideMaterial");
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	Durin::DStaticMeshComponent* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "CorruptOverrideComponent");
 	Component->SetStaticMesh(Mesh);
-	ASSERT_TRUE(Component->SetMaterialBySlotId(Mesh->GetMaterialSlot(0)->SlotId, Material));
-	auto* Overrides = static_cast<Durin::FArrayProperty*>(Component->GetClass()->FindPropertyByName("MaterialOverrides"));
+	ASSERT_TRUE(Component->SetMaterial(0, Material));
+	auto* Overrides = static_cast<Durin::FArrayProperty*>(Component->GetClass()->FindPropertyByName("OverrideMaterials"));
 	ASSERT_NE(Overrides, nullptr);
 	std::string Error;
 
-	auto* First = static_cast<Durin::FStaticMeshMaterialOverride*>(Overrides->GetMutableElementPtr(Component, 0));
-	const Durin::FGuid SlotId = First->SlotId;
+	auto* Inner = static_cast<Durin::FObjectProperty*>(Overrides->GetInner());
+	ASSERT_NE(Inner, nullptr);
 	Durin::FPropertyValueSnapshot Original;
 	Durin::FPropertyValueSnapshot InvalidProposal;
 	ASSERT_TRUE(Durin::CapturePropertyValue(Overrides, Component, 0, Original));
-	First->SlotId = {};
+	Inner->SetObjectPropertyValue(Overrides->GetMutableElementPtr(Component, 0), Mesh);
 	ASSERT_TRUE(Durin::CapturePropertyValue(Overrides, Component, 0, InvalidProposal));
 	ASSERT_TRUE(Durin::RestorePropertyValue(Overrides, Component, 0, Original));
 	Durin::FReflectedPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(Durin::FReflectedPropertyEditTarget::ForMember(Component, Overrides), "Corrupt Override"));
 	EXPECT_EQ(Session.Apply(InvalidProposal, &Error), Durin::EReflectedPropertyEditResult::Failed);
-	EXPECT_NE(Error.find("invalid slot GUID"), std::string::npos);
-	EXPECT_EQ(Component->GetMaterialOverrides()[0].SlotId, SlotId);
+	EXPECT_NE(Error.find("incompatible object at material index 0"), std::string::npos);
+	EXPECT_EQ(Component->GetMaterialOverride(0), Material);
 	EXPECT_EQ(Session.Cancel(), Durin::EReflectedPropertyEditResult::NoChange);
 
-	First = static_cast<Durin::FStaticMeshMaterialOverride*>(Overrides->GetMutableElementPtr(Component, 0));
-	First->SlotId = {};
+	Inner->SetObjectPropertyValue(Overrides->GetMutableElementPtr(Component, 0), Mesh);
 	EXPECT_FALSE(Component->PostLoad(Error));
-	EXPECT_NE(Error.find("invalid slot GUID"), std::string::npos);
-	First->SlotId = SlotId;
-	const Durin::FStaticMeshMaterialOverride Duplicate = *First;
+	EXPECT_NE(Error.find("incompatible object at material index 0"), std::string::npos);
+	Inner->SetObjectPropertyValue(Overrides->GetMutableElementPtr(Component, 0), Material);
+	Overrides->Resize(Component, Durin::MaximumStaticMeshMaterialSlots + 1ull);
+	EXPECT_FALSE(Component->PostLoad(Error));
+	EXPECT_NE(Error.find("exceeding the limit"), std::string::npos);
 	Overrides->Resize(Component, 2);
-	*static_cast<Durin::FStaticMeshMaterialOverride*>(Overrides->GetMutableElementPtr(Component, 1)) = Duplicate;
-	EXPECT_FALSE(Component->PostLoad(Error));
-	EXPECT_NE(Error.find("duplicate overrides"), std::string::npos);
-	Overrides->Resize(Component, 1);
-	First = static_cast<Durin::FStaticMeshMaterialOverride*>(Overrides->GetMutableElementPtr(Component, 0));
-	First->Material = nullptr;
-	EXPECT_FALSE(Component->PostLoad(Error));
-	EXPECT_NE(Error.find("null override"), std::string::npos);
-	First->Material = Material;
-	auto* OverrideStruct = static_cast<Durin::FStructProperty*>(Overrides->GetInner());
-	auto* OverrideMaterial = static_cast<Durin::FObjectProperty*>(
-		OverrideStruct->GetStruct()->FindPropertyByName("Material"));
-	ASSERT_NE(OverrideMaterial, nullptr);
-	OverrideMaterial->SetObjectPropertyValue(First, Mesh);
-	EXPECT_FALSE(Component->PostLoad(Error));
-	EXPECT_NE(Error.find("incompatible object"), std::string::npos);
+	Inner->SetObjectPropertyValue(Overrides->GetMutableElementPtr(Component, 0), Material);
+	Inner->SetObjectPropertyValue(Overrides->GetMutableElementPtr(Component, 1), nullptr);
+	EXPECT_TRUE(Component->PostLoad(Error));
+	EXPECT_EQ(Component->GetOverrideMaterials().size(), 1u);
 
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(Mesh);

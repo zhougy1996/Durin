@@ -22,13 +22,12 @@
 namespace
 {
 	auto AddSlot(Durin::DStaticMesh* Mesh, std::string_view Name, Durin::DMaterialInterface* Default = nullptr)
-		-> Durin::FGuid
+		-> Durin::uint32
 	{
 		auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
 		const Durin::uint64 Index = Slots->Num(Mesh);
 		Slots->Resize(Mesh, Index + 1);
 		auto* Slot = static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, Index));
-		Slot->SlotId = Durin::FGuid::NewGuid();
 		Slot->Name = Durin::FName(Name);
 		Slot->SourceName = std::string(Name);
 		Slot->SourceMaterialIndex = static_cast<Durin::uint32>(Index);
@@ -36,9 +35,8 @@ namespace
 		Durin::FStaticMeshTestAccess::GetMutableRenderData(Mesh)
 			->MaterialSlots.push_back(
 				{std::string(Name),
-					static_cast<Durin::uint32>(Index),
-					Slot->SlotId});
-		return Slot->SlotId;
+					static_cast<Durin::uint32>(Index)});
+		return static_cast<Durin::uint32>(Index);
 	}
 
 	auto MakeContext(Durin::FEditorTransactionManager& Transactions, std::string& Error)
@@ -48,7 +46,7 @@ namespace
 	}
 }
 
-TEST(FStaticMeshMaterialSlotDetailsTests, BuildsFixedRowsSourcesSearchAndOrphans)
+TEST(FStaticMeshMaterialSlotDetailsTests, BuildsFixedRowsSourcesAndKeepsDormantOverridesHidden)
 {
 	InitializeDObjectSystem();
 	auto* Default = Durin::NewObject<Durin::DMaterial>(nullptr, "SlotDefault");
@@ -57,10 +55,10 @@ TEST(FStaticMeshMaterialSlotDetailsTests, BuildsFixedRowsSourcesSearchAndOrphans
 	auto* FirstSlot = const_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Mesh->GetMaterialSlot(0));
 	FirstSlot->Name = Durin::FName("Body");
 	FirstSlot->DefaultMaterial = Default;
-	const Durin::FGuid SecondId = AddSlot(Mesh, "Glass");
+	const Durin::uint32 SecondIndex = AddSlot(Mesh, "Glass");
 	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "SlotDetailsComponent");
 	Component->SetStaticMesh(Mesh);
-	ASSERT_TRUE(Component->SetMaterialBySlotId(SecondId, Override));
+	ASSERT_TRUE(Component->SetMaterial(SecondIndex, Override));
 
 	Durin::FStaticMeshMaterialSlotDetailsModel Model(Component);
 	ASSERT_TRUE(Model.HasMesh());
@@ -71,20 +69,20 @@ TEST(FStaticMeshMaterialSlotDetailsTests, BuildsFixedRowsSourcesSearchAndOrphans
 	EXPECT_NE(Model.GetCurrentEntries()[0].SearchKeywords.find("Body"), std::string::npos);
 	EXPECT_EQ(Model.GetCurrentEntries()[1].Source, Durin::EStaticMeshMaterialSource::ComponentOverride);
 	EXPECT_TRUE(Model.GetCurrentEntries()[1].bHasOverride);
+	EXPECT_TRUE(Model.HasStoredOverrides());
 
 	auto* OtherMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	Component->SetStaticMesh(OtherMesh);
-	Durin::FStaticMeshMaterialSlotDetailsModel OrphanModel(Component);
-	ASSERT_EQ(OrphanModel.GetCurrentEntries().size(), 1u);
-	ASSERT_EQ(OrphanModel.GetOrphanEntries().size(), 1u);
-	EXPECT_EQ(OrphanModel.GetOrphanEntries()[0].SlotId, SecondId);
-	EXPECT_NE(OrphanModel.GetOrphanEntries()[0].SearchKeywords.find(SecondId.ToString()), std::string::npos);
+	Durin::FStaticMeshMaterialSlotDetailsModel SmallerMeshModel(Component);
+	ASSERT_EQ(SmallerMeshModel.GetCurrentEntries().size(), 1u);
+	EXPECT_FALSE(SmallerMeshModel.GetCurrentEntries()[0].bHasOverride);
+	EXPECT_TRUE(SmallerMeshModel.HasStoredOverrides());
 
 	Component->SetStaticMesh(nullptr);
 	Durin::FStaticMeshMaterialSlotDetailsModel EmptyModel(Component);
 	EXPECT_FALSE(EmptyModel.HasMesh());
 	EXPECT_TRUE(EmptyModel.GetCurrentEntries().empty());
-	EXPECT_EQ(EmptyModel.GetOrphanEntries().size(), 1u);
+	EXPECT_TRUE(EmptyModel.HasStoredOverrides());
 
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(OtherMesh);
@@ -94,15 +92,14 @@ TEST(FStaticMeshMaterialSlotDetailsTests, BuildsFixedRowsSourcesSearchAndOrphans
 	Durin::CollectGarbage();
 }
 
-TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesGuidScopedRootTransactions)
+TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesIndexScopedRootTransactions)
 {
 	InitializeDObjectSystem();
 	auto* First = Durin::NewObject<Durin::DMaterial>(nullptr, "SlotFirstMaterial");
 	auto* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "SlotSecondMaterial");
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "NotAMaterial");
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
-	const Durin::FGuid FirstId = Mesh->GetMaterialSlot(0)->SlotId;
-	const Durin::FGuid SecondId = AddSlot(Mesh, "Second");
+	const Durin::uint32 SecondIndex = AddSlot(Mesh, "Second");
 	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "SlotTransactionComponent");
 	Component->SetStaticMesh(Mesh);
 
@@ -117,36 +114,36 @@ TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesGuidScopedR
 	ASSERT_TRUE(Initial.AssignMaterial(PropertyView, Context, Initial.GetCurrentEntries()[0], First));
 	Durin::FStaticMeshMaterialSlotDetailsModel WithFirst(Component);
 	ASSERT_TRUE(WithFirst.AssignMaterial(PropertyView, Context, WithFirst.GetCurrentEntries()[1], Second));
-	EXPECT_EQ(Component->GetMaterialOverride(FirstId), First);
-	EXPECT_EQ(Component->GetMaterialOverride(SecondId), Second);
+	EXPECT_EQ(Component->GetMaterialOverride(0), First);
+	EXPECT_EQ(Component->GetMaterialOverride(SecondIndex), Second);
 	ASSERT_TRUE(Transactions.Undo());
-	EXPECT_EQ(Component->GetMaterialOverride(FirstId), First);
-	EXPECT_EQ(Component->GetMaterialOverride(SecondId), nullptr);
+	EXPECT_EQ(Component->GetMaterialOverride(0), First);
+	EXPECT_EQ(Component->GetMaterialOverride(SecondIndex), nullptr);
 	ASSERT_TRUE(Transactions.Redo());
-	EXPECT_EQ(Component->GetMaterialOverride(SecondId), Second);
+	EXPECT_EQ(Component->GetMaterialOverride(SecondIndex), Second);
 
 	Durin::FStaticMeshMaterialSlotDetailsModel Replace(Component);
 	ASSERT_TRUE(Replace.AssignMaterial(PropertyView, Context, Replace.GetCurrentEntries()[0], Second, true));
-	EXPECT_EQ(Component->GetMaterialOverride(FirstId), Second);
+	EXPECT_EQ(Component->GetMaterialOverride(0), Second);
 	ASSERT_TRUE(PropertyView.FinishActiveEdit(&Context, true));
-	EXPECT_EQ(Component->GetMaterialOverride(FirstId), First);
+	EXPECT_EQ(Component->GetMaterialOverride(0), First);
 
 	Durin::FStaticMeshMaterialSlotDetailsModel Reset(Component);
 	ASSERT_TRUE(Reset.ResetOverride(PropertyView, Context, Reset.GetCurrentEntries()[0]));
-	EXPECT_EQ(Component->GetMaterialOverride(FirstId), nullptr);
+	EXPECT_EQ(Component->GetMaterialOverride(0), nullptr);
 	ASSERT_TRUE(Transactions.Undo());
-	EXPECT_EQ(Component->GetMaterialOverride(FirstId), First);
+	EXPECT_EQ(Component->GetMaterialOverride(0), First);
 
 	Component->SetStaticMesh(Durin::DStaticMesh::CreateDebugTriangle());
-	Durin::FStaticMeshMaterialSlotDetailsModel Orphans(Component);
-	ASSERT_EQ(Orphans.GetOrphanEntries().size(), 2u);
-	const Durin::FGuid RemovedId = Orphans.GetOrphanEntries()[0].SlotId;
-	ASSERT_TRUE(Orphans.RemoveOrphan(PropertyView, Context, Orphans.GetOrphanEntries()[0]));
-	EXPECT_FALSE(Component->HasMaterialOverride(RemovedId));
+	Durin::FStaticMeshMaterialSlotDetailsModel SmallerMesh(Component);
+	ASSERT_TRUE(SmallerMesh.HasStoredOverrides());
+	ASSERT_TRUE(SmallerMesh.ClearOverrides(PropertyView, Context));
+	EXPECT_TRUE(Component->GetOverrideMaterials().empty());
 	ASSERT_TRUE(Transactions.Undo());
-	EXPECT_TRUE(Component->HasMaterialOverride(RemovedId));
+	EXPECT_EQ(Component->GetMaterialOverride(0), First);
+	EXPECT_EQ(Component->GetMaterialOverride(1), Second);
 	ASSERT_TRUE(Transactions.Redo());
-	EXPECT_FALSE(Component->HasMaterialOverride(RemovedId));
+	EXPECT_TRUE(Component->GetOverrideMaterials().empty());
 	EXPECT_TRUE(Error.empty());
 
 	Transactions.Clear();
@@ -179,11 +176,12 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	Durin::FObjectPropertyViewBuilder Builder("material");
 	Durin::CreateStaticMeshComponentDetailsCustomization()->CustomizeDetails(LevelContext, Component, Builder);
 	EXPECT_EQ(Builder.GetVisibleRowCount(), 1u);
-	Durin::FProperty* OverridesProperty = Component->GetClass()->FindPropertyByName("MaterialOverrides");
+	Durin::FProperty* OverridesProperty = Component->GetClass()->FindPropertyByName("OverrideMaterials");
 	ASSERT_NE(OverridesProperty, nullptr);
 	EXPECT_TRUE(Builder.IsPropertyHidden(*OverridesProperty));
 	EXPECT_EQ(Component->GetClass()->FindPropertyByName("Material"), nullptr);
 	EXPECT_EQ(Component->GetClass()->FindPropertyByName("Materials"), nullptr);
+	EXPECT_EQ(Component->GetClass()->FindPropertyByName("MaterialOverrides"), nullptr);
 	EXPECT_EQ(Component->GetClass()->FindPropertyByName("MaterialOverridesVersion"), nullptr);
 
 	Durin::FEditorTransactionManager Transactions;

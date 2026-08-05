@@ -25,36 +25,28 @@ namespace Durin
 				return "Inherited from the static mesh default material.";
 			case EStaticMeshMaterialSource::RendererFallback:
 				return "No component override or mesh default is assigned; the renderer fallback is used.";
-			case EStaticMeshMaterialSource::Orphan:
-				return "This override no longer matches a material slot on the assigned static mesh.";
 			}
 			return "The material source is unknown.";
 		}
 
 		auto FindOverridesProperty(DStaticMeshComponent* Component) -> FArrayProperty*
 		{
-			FProperty* Property = Component ? Component->GetClass()->FindPropertyByName("MaterialOverrides") : nullptr;
+			FProperty* Property = Component ? Component->GetClass()->FindPropertyByName("OverrideMaterials") : nullptr;
 			return Property && Property->GetKind() == DurinCodeGen::EPropertyGenFlags::Array
 				? static_cast<FArrayProperty*>(Property) : nullptr;
 		}
 
-		auto RemoveScratchOverride(const FArrayProperty& Property, void* Container, uint32 ArrayIndex,
-			const FGuid& SlotId) -> void
+		auto TrimScratchOverrides(const FArrayProperty& Property, void* Container, uint32 ArrayIndex) -> void
 		{
-			const uint64 Count = Property.Num(Container, ArrayIndex);
-			for (uint64 Index = 0; Index < Count; ++Index)
+			const auto* ObjectProperty = static_cast<const FObjectProperty*>(Property.GetInner());
+			uint64 Count = Property.Num(Container, ArrayIndex);
+			while (Count > 0)
 			{
-				auto* Entry = static_cast<FStaticMeshMaterialOverride*>(Property.GetMutableElementPtr(Container, Index, ArrayIndex));
-				if (!Entry || Entry->SlotId != SlotId) continue;
-				for (uint64 MoveIndex = Index + 1; MoveIndex < Count; ++MoveIndex)
-				{
-					auto* Destination = static_cast<FStaticMeshMaterialOverride*>(Property.GetMutableElementPtr(Container, MoveIndex - 1, ArrayIndex));
-					auto* Source = static_cast<FStaticMeshMaterialOverride*>(Property.GetMutableElementPtr(Container, MoveIndex, ArrayIndex));
-					*Destination = std::move(*Source);
-				}
-				Property.Resize(Container, Count - 1, ArrayIndex);
-				return;
+				const void* Element = Property.GetElementPtr(Container, Count - 1, ArrayIndex);
+				if (ObjectProperty->GetObjectPropertyValue(Element) != nullptr) break;
+				--Count;
 			}
+			Property.Resize(Container, Count, ArrayIndex);
 		}
 
 		// Adds resolved material-slot editing to static-mesh component details.
@@ -65,16 +57,11 @@ namespace Durin
 			{
 				auto* Component = Cast<DStaticMeshComponent>(Object);
 				if (!Component) return;
-				if (FProperty* Property = Component->GetClass()->FindPropertyByName("MaterialOverrides")) Builder.HideProperty(Property);
+				if (FProperty* Property = Component->GetClass()->FindPropertyByName("OverrideMaterials")) Builder.HideProperty(Property);
 
 				const FStaticMeshMaterialSlotDetailsModel Model(Component);
 				std::string SearchKeywords = "Materials Material Slots";
 				for (const FStaticMeshMaterialSlotDetailsEntry& Entry : Model.GetCurrentEntries())
-				{
-					SearchKeywords += ' ';
-					SearchKeywords += Entry.SearchKeywords;
-				}
-				for (const FStaticMeshMaterialSlotDetailsEntry& Entry : Model.GetOrphanEntries())
 				{
 					SearchKeywords += ' ';
 					SearchKeywords += Entry.SearchKeywords;
@@ -109,8 +96,15 @@ namespace Durin
 				}
 				for (const FStaticMeshMaterialSlotDetailsEntry& Entry : Model.GetCurrentEntries())
 					bChanged |= DrawCurrentRow(Component, Entry, PropertyView, Context);
-				for (const FStaticMeshMaterialSlotDetailsEntry& Entry : Model.GetOrphanEntries())
-					bChanged |= DrawOrphanRow(Component, Entry, PropertyView, Context);
+				if (Model.HasStoredOverrides())
+				{
+					MonaImGui::PropertyEdit::BeginRow("Actions", Context.bReadOnly);
+					if (!Context.bReadOnly && ImGui::SmallButton("Clear All Overrides"))
+					{
+						bChanged |= Model.ClearOverrides(PropertyView, Context);
+					}
+					MonaImGui::PropertyEdit::EndRow(Context.bReadOnly);
+				}
 
 				MonaImGui::PropertyEdit::EndFixedArray();
 				ImGui::PopID();
@@ -122,7 +116,7 @@ namespace Durin
 			{
 				FStaticMeshMaterialSlotDetailsModel Model(Component);
 				bool bChanged = false;
-				ImGui::PushID(Entry.SlotId.ToString().c_str());
+				ImGui::PushID(static_cast<int>(Entry.SlotIndex));
 				MonaImGui::PropertyEdit::BeginRow(Entry.Label.c_str(), Context.bReadOnly);
 				const FEditorAssetPickerResult Result = EditorAssetPicker::Draw({
 					.ComboId = "##Material", .SearchId = "##MaterialSearch", .SearchHint = "Search materials...",
@@ -154,26 +148,6 @@ namespace Durin
 				return bChanged;
 			}
 
-			static auto DrawOrphanRow(DStaticMeshComponent* Component, const FStaticMeshMaterialSlotDetailsEntry& Entry,
-				FReflectedPropertyView& PropertyView, const FReflectedPropertyViewContext& Context) -> bool
-			{
-				FStaticMeshMaterialSlotDetailsModel Model(Component);
-				ImGui::PushID(Entry.SlotId.ToString().c_str());
-				bool bRemove = false;
-				if (MonaImGui::PropertyEdit::BeginFixedArrayElement(Entry.Label.c_str()))
-				{
-					MonaImGui::PropertyEdit::BeginRow("Material", true);
-					ImGui::TextDisabled("%s", EditorAssetPicker::GetAssetPathOrNone(Entry.Material).c_str());
-					MonaImGui::PropertyEdit::EndRow(true);
-					MonaImGui::PropertyEdit::BeginRow("Actions", Context.bReadOnly);
-					bRemove = ImGui::SmallButton("Remove");
-					MonaImGui::PropertyEdit::EndRow(Context.bReadOnly);
-					MonaImGui::PropertyEdit::EndFixedArrayElement();
-				}
-				ImGui::PopID();
-				return bRemove && Model.RemoveOrphan(PropertyView, Context, Entry);
-			}
-
 			inline static std::array<char, 256> AssetSearchText{};
 		};
 	}
@@ -183,32 +157,23 @@ namespace Durin
 	{
 		DStaticMesh* Mesh = Component ? Component->GetStaticMesh() : nullptr;
 		bHasMesh = Mesh != nullptr;
+		bHasStoredOverrides = Component && !Component->GetOverrideMaterials().empty();
 		if (Mesh)
 		{
 			uint32 Index = 0;
 			for (const FStaticMeshMaterialSlotDefinition& Slot : Mesh->GetMaterialSlots())
 			{
-				DMaterialInterface* Override = Component->GetMaterialOverride(Slot.SlotId);
-				DMaterialInterface* Resolved = Component->GetMaterialBySlotId(Slot.SlotId);
+				DMaterialInterface* Override = Component->GetMaterialOverride(Index);
+				DMaterialInterface* Resolved = Component->GetMaterial(Index);
 				const EStaticMeshMaterialSource Source = Override ? EStaticMeshMaterialSource::ComponentOverride
 					: Slot.DefaultMaterial ? EStaticMeshMaterialSource::MeshDefault : EStaticMeshMaterialSource::RendererFallback;
 				const std::string Label = std::format("[{}] {}", Index, Slot.Name.ToString());
-				CurrentEntries.push_back({Slot.SlotId, Index, Label,
+				CurrentEntries.push_back({Index, Label,
 					std::format("Materials Material Slot {} {} {}", Index, Slot.Name.ToString(), GetSourceLabel(Source)),
-					Resolved, Source, Override != nullptr, false});
+					Resolved, Source, Override != nullptr});
 				++Index;
 			}
 		}
-		if (!Component) return;
-		for (const FStaticMeshMaterialOverride& Override : Component->GetMaterialOverrides())
-		{
-			if (!Component->IsMaterialOverrideOrphan(Override.SlotId)) continue;
-			const std::string Guid = Override.SlotId.ToString();
-			OrphanEntries.push_back({Override.SlotId, std::numeric_limits<uint32>::max(),
-				std::format("Orphan {}", Guid), std::format("Materials Orphan Warning {} Remove", Guid),
-				Override.Material.Get(), EStaticMeshMaterialSource::Orphan, true, true});
-		}
-		std::ranges::sort(OrphanEntries, {}, &FStaticMeshMaterialSlotDetailsEntry::SlotId);
 	}
 
 	auto FStaticMeshMaterialSlotDetailsModel::IsSupportedMaterialClass(const DClass* CandidateClass) -> bool
@@ -223,37 +188,32 @@ namespace Durin
 		case EStaticMeshMaterialSource::ComponentOverride: return "Component Override";
 		case EStaticMeshMaterialSource::MeshDefault: return "Mesh Default";
 		case EStaticMeshMaterialSource::RendererFallback: return "Renderer Fallback";
-		case EStaticMeshMaterialSource::Orphan: return "Orphan Override";
 		}
 		return "Unknown";
 	}
 
 	auto FStaticMeshMaterialSlotDetailsModel::SubmitOverrideEdit(FReflectedPropertyView& PropertyView,
-		const FReflectedPropertyViewContext& Context, const FGuid& SlotId, DMaterialInterface* Material,
+		const FReflectedPropertyViewContext& Context, uint32 SlotIndex, DMaterialInterface* Material,
 		EPropertyChangeKind Kind, bool bContinuous) const -> bool
 	{
 		FArrayProperty* Property = FindOverridesProperty(Component);
-		if (!Component || !Property || !SlotId.IsValid()) return false;
+		if (!Component || !Property) return false;
 		FReflectedPropertyEditTarget Target = FReflectedPropertyEditTarget::ForMember(Component, Property);
-		Target.LogicalIdentity.resize(sizeof(SlotId));
-		std::memcpy(Target.LogicalIdentity.data(), &SlotId, sizeof(SlotId));
+		Target.LogicalIdentity.resize(sizeof(SlotIndex));
+		std::memcpy(Target.LogicalIdentity.data(), &SlotIndex, sizeof(SlotIndex));
 		Target.Kind = Kind;
 		return PropertyView.SubmitPropertyValueEdit(Context, Target,
-			[SlotId, Material](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+			[SlotIndex, Material](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
 				auto& Array = *static_cast<FArrayProperty*>(ScratchProperty);
-				for (uint64 Index = 0; Index < Array.Num(ScratchContainer, ScratchArrayIndex); ++Index)
+				auto& Object = *static_cast<FObjectProperty*>(Array.GetInner());
+				if (Material && Array.Num(ScratchContainer, ScratchArrayIndex) <= SlotIndex)
 				{
-					auto* Override = static_cast<FStaticMeshMaterialOverride*>(Array.GetMutableElementPtr(ScratchContainer, Index, ScratchArrayIndex));
-					if (!Override || Override->SlotId != SlotId) continue;
-					if (Material) Override->Material = Material;
-					else RemoveScratchOverride(Array, ScratchContainer, ScratchArrayIndex, SlotId);
-					return;
+					Array.Resize(ScratchContainer, static_cast<uint64>(SlotIndex) + 1, ScratchArrayIndex);
 				}
-				if (!Material) return;
-				const uint64 Count = Array.Num(ScratchContainer, ScratchArrayIndex);
-				Array.Resize(ScratchContainer, Count + 1, ScratchArrayIndex);
-				*static_cast<FStaticMeshMaterialOverride*>(Array.GetMutableElementPtr(ScratchContainer, Count, ScratchArrayIndex))
-					= {.SlotId = SlotId, .Material = Material};
+				if (SlotIndex >= Array.Num(ScratchContainer, ScratchArrayIndex)) return;
+				Object.SetObjectPropertyValue(
+					Array.GetMutableElementPtr(ScratchContainer, SlotIndex, ScratchArrayIndex), Material);
+				if (!Material) TrimScratchOverrides(Array, ScratchContainer, ScratchArrayIndex);
 			}, bContinuous);
 	}
 
@@ -261,23 +221,29 @@ namespace Durin
 		const FReflectedPropertyViewContext& Context, const FStaticMeshMaterialSlotDetailsEntry& Entry,
 		DMaterialInterface* Material, bool bContinuous) const -> bool
 	{
-		if (!Material || Entry.bOrphan || !Component || Component->IsMaterialOverrideOrphan(Entry.SlotId)) return false;
-		return SubmitOverrideEdit(PropertyView, Context, Entry.SlotId, Material,
+		if (!Material || !Component || Entry.SlotIndex >= Component->GetNumMaterials()) return false;
+		return SubmitOverrideEdit(PropertyView, Context, Entry.SlotIndex, Material,
 			Entry.bHasOverride ? EPropertyChangeKind::ValueSet : EPropertyChangeKind::ArrayAdd, bContinuous);
 	}
 
 	auto FStaticMeshMaterialSlotDetailsModel::ResetOverride(FReflectedPropertyView& PropertyView,
 		const FReflectedPropertyViewContext& Context, const FStaticMeshMaterialSlotDetailsEntry& Entry) const -> bool
 	{
-		if (!Entry.bHasOverride || Entry.bOrphan) return false;
-		return SubmitOverrideEdit(PropertyView, Context, Entry.SlotId, nullptr, EPropertyChangeKind::ArrayRemove);
+		if (!Entry.bHasOverride) return false;
+		return SubmitOverrideEdit(PropertyView, Context, Entry.SlotIndex, nullptr, EPropertyChangeKind::ArrayRemove);
 	}
 
-	auto FStaticMeshMaterialSlotDetailsModel::RemoveOrphan(FReflectedPropertyView& PropertyView,
-		const FReflectedPropertyViewContext& Context, const FStaticMeshMaterialSlotDetailsEntry& Entry) const -> bool
+	auto FStaticMeshMaterialSlotDetailsModel::ClearOverrides(FReflectedPropertyView& PropertyView,
+		const FReflectedPropertyViewContext& Context) const -> bool
 	{
-		if (!Entry.bOrphan) return false;
-		return SubmitOverrideEdit(PropertyView, Context, Entry.SlotId, nullptr, EPropertyChangeKind::ArrayRemove);
+		FArrayProperty* Property = FindOverridesProperty(Component);
+		if (!Component || !Property || !bHasStoredOverrides) return false;
+		FReflectedPropertyEditTarget Target = FReflectedPropertyEditTarget::ForMember(Component, Property);
+		Target.Kind = EPropertyChangeKind::ArrayRemove;
+		return PropertyView.SubmitPropertyValueEdit(Context, Target,
+			[](FProperty* ScratchProperty, void* ScratchContainer, uint32 ScratchArrayIndex) {
+				static_cast<FArrayProperty*>(ScratchProperty)->Resize(ScratchContainer, 0, ScratchArrayIndex);
+			}, false);
 	}
 
 	auto CreateStaticMeshComponentDetailsCustomization() -> std::shared_ptr<IObjectDetailsCustomization>

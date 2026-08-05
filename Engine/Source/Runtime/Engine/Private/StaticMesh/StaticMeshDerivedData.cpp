@@ -147,10 +147,8 @@ namespace Durin
 		auto ValidatePayload(const FStaticMeshPayloadData& Payload, std::string& OutError) -> bool
 		{
 			if (!IsValidBounds(Payload.LocalBounds)) return Fail(OutError, "Static-mesh payload bounds are invalid or not exactly representable as float32.");
-			if (Payload.MaterialSlotIds.empty() || Payload.MaterialSlotIds.size() > MaximumStaticMeshMaterialSlots)
+			if (Payload.MaterialSlotCount == 0 || Payload.MaterialSlotCount > MaximumStaticMeshMaterialSlots)
 				return Fail(OutError, "Static-mesh payload material-slot count is outside the supported range.");
-			if (std::ranges::any_of(Payload.MaterialSlotIds, [](const FGuid& SlotId) { return !SlotId.IsValid(); }))
-				return Fail(OutError, "Static-mesh payload contains an invalid material-slot identifier.");
 			if (Payload.LODs.empty() || Payload.LODs.size() > MaximumStaticMeshLODs)
 				return Fail(OutError, "Static-mesh payload LOD count is outside the supported range.");
 
@@ -158,7 +156,7 @@ namespace Durin
 				+ StaticMeshPayloadRequiredChunkCount * StaticMeshPayloadChunkEntrySize
 				+ StaticMeshPayloadRequiredChunkCount * (StaticMeshPayloadAlignment - 1)
 				+ 24ull
-				+ 4ull + static_cast<uint64>(Payload.MaterialSlotIds.size()) * 16ull
+				+ 4ull
 				+ 4ull + static_cast<uint64>(Payload.LODs.size()) * 40ull;
 			for (size_t LODIndex = 0; LODIndex < Payload.LODs.size(); ++LODIndex)
 			{
@@ -215,7 +213,7 @@ namespace Durin
 						return Fail(OutError, std::format("Static-mesh payload LOD {} sections do not exactly cover its index buffer.", LODIndex));
 					if (Section.MinVertexIndex > Section.MaxVertexIndex || Section.MaxVertexIndex >= VertexCount)
 						return Fail(OutError, std::format("Static-mesh payload LOD {} section has an invalid vertex range.", LODIndex));
-					if (Section.MaterialSlotIndex >= Payload.MaterialSlotIds.size())
+					if (Section.MaterialSlotIndex >= Payload.MaterialSlotCount)
 						return Fail(OutError, std::format("Static-mesh payload LOD {} section has an invalid material slot.", LODIndex));
 					if (!IsValidBounds(Section.LocalBounds))
 						return Fail(OutError, std::format("Static-mesh payload LOD {} section bounds are invalid.", LODIndex));
@@ -267,14 +265,7 @@ namespace Durin
 			Chunks[0] = Bounds.TakeBytes();
 
 			FPayloadWriter MaterialSlots;
-			MaterialSlots.WriteU32(static_cast<uint32>(Payload.MaterialSlotIds.size()));
-			for (const FGuid& SlotId : Payload.MaterialSlotIds)
-			{
-				MaterialSlots.WriteU32(SlotId.A);
-				MaterialSlots.WriteU32(SlotId.B);
-				MaterialSlots.WriteU32(SlotId.C);
-				MaterialSlots.WriteU32(SlotId.D);
-			}
+			MaterialSlots.WriteU32(Payload.MaterialSlotCount);
 			Chunks[1] = MaterialSlots.TakeBytes();
 
 			FPayloadWriter LODs;
@@ -347,15 +338,9 @@ namespace Durin
 			uint32 MaterialSlotCount = 0;
 			if (!MaterialSlots.ReadU32(MaterialSlotCount) || MaterialSlotCount == 0 || MaterialSlotCount > MaximumStaticMeshMaterialSlots)
 				return Fail(OutError, "Static-mesh material-slot chunk has an invalid count.");
-			if (Chunks[1].size() != 4ull + static_cast<uint64>(MaterialSlotCount) * 16ull)
+			if (Chunks[1].size() != 4ull)
 				return Fail(OutError, "Static-mesh material-slot chunk has an invalid size.");
-			Payload.MaterialSlotIds.resize(MaterialSlotCount);
-			for (FGuid& SlotId : Payload.MaterialSlotIds)
-			{
-				if (!MaterialSlots.ReadU32(SlotId.A) || !MaterialSlots.ReadU32(SlotId.B)
-					|| !MaterialSlots.ReadU32(SlotId.C) || !MaterialSlots.ReadU32(SlotId.D) || !SlotId.IsValid())
-					return Fail(OutError, "Static-mesh material-slot chunk contains an invalid identifier.");
-			}
+			Payload.MaterialSlotCount = MaterialSlotCount;
 
 			FPayloadReader LODs(Chunks[2]);
 			uint32 LODCount = 0;
@@ -750,8 +735,7 @@ namespace Durin
 	{
 		FStaticMeshPayloadData Payload;
 		Payload.LocalBounds = RenderData.LocalBounds;
-		Payload.MaterialSlotIds.reserve(RenderData.MaterialSlots.size());
-		for (const FStaticMeshMaterialSlot& Slot : RenderData.MaterialSlots) Payload.MaterialSlotIds.push_back(Slot.SlotId);
+		Payload.MaterialSlotCount = static_cast<uint32>(RenderData.MaterialSlots.size());
 		Payload.LODs.reserve(RenderData.LODResources.size());
 		for (const FStaticMeshLODResources& SourceLOD : RenderData.LODResources)
 		{
@@ -808,8 +792,7 @@ namespace Durin
 		if (!ValidatePayload(Payload, OutError)) return false;
 		auto RenderData = std::make_unique<FStaticMeshRenderData>();
 		RenderData->LocalBounds = Payload.LocalBounds;
-		RenderData->MaterialSlots.reserve(Payload.MaterialSlotIds.size());
-		for (const FGuid& SlotId : Payload.MaterialSlotIds) RenderData->MaterialSlots.push_back({.SlotId = SlotId});
+		RenderData->MaterialSlots.resize(Payload.MaterialSlotCount);
 		RenderData->LODResources.reserve(Payload.LODs.size());
 		for (const FStaticMeshPayloadLOD& SourceLOD : Payload.LODs)
 		{

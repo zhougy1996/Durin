@@ -281,14 +281,14 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
 	static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 0))->DefaultMaterial = Shared;
-	const Durin::FGuid OverrideId = AddDebugMaterialSlot(Mesh, "Override");
-	const Durin::FGuid SharedId = AddDebugMaterialSlot(Mesh, "SharedAgain");
+	AddDebugMaterialSlot(Mesh, "Override");
+	AddDebugMaterialSlot(Mesh, "SharedAgain");
 	AddDebugMaterialSlot(Mesh, "Fallback");
 	static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 1))->DefaultMaterial = Shared;
 	static_cast<Durin::FStaticMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 2))->DefaultMaterial = Shared;
 	auto* Component = Harness.CreateStaticMeshComponent("SharedSlotComponent");
 	Component->SetStaticMesh(Mesh);
-	ASSERT_TRUE(Component->SetMaterialBySlotId(OverrideId, Override));
+	ASSERT_TRUE(Component->SetMaterial(1, Override));
 	Component->RegisterComponent();
 
 	const FMaterialSlotsSnapshot Initial = CaptureMaterialSlots(Harness.Scene);
@@ -299,7 +299,7 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	ExpectColorNear(
 		GetMaterialBinding(Initial.Materials[3]).BaseColor,
 		Durin::FMaterialRenderV2Binding{}.BaseColor);
-	EXPECT_EQ(Component->GetMaterialBySlotId(SharedId), Shared);
+	EXPECT_EQ(Component->GetMaterial(2), Shared);
 
 	Shared->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.4, 0.5, 0.6));
 	const FMaterialSlotsSnapshot Updated = CaptureMaterialSlots(Harness.Scene);
@@ -317,9 +317,25 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 		Initial.Materials[0].PipelineIdentity);
 	EXPECT_EQ(Updated.MaterialProxies[0], Updated.MaterialProxies[2]);
 
+	auto* SmallerMesh = Durin::DStaticMesh::CreateDebugTriangle();
+	Component->SetStaticMesh(SmallerMesh);
+	const FMaterialSlotsSnapshot Dormant = CaptureMaterialSlots(Harness.Scene);
+	ASSERT_EQ(Dormant.Materials.size(), 1u);
+	ExpectColorNear(
+		GetMaterialBinding(Dormant.Materials[0]).BaseColor,
+		Durin::FMaterialRenderV2Binding{}.BaseColor);
+	EXPECT_EQ(Component->GetMaterialOverride(1), Override);
+	Component->SetStaticMesh(Mesh);
+	const FMaterialSlotsSnapshot Reactivated = CaptureMaterialSlots(Harness.Scene);
+	ASSERT_EQ(Reactivated.Materials.size(), 4u);
+	ExpectColorNear(
+		GetMaterialBinding(Reactivated.Materials[1]).BaseColor,
+		Durin::FVector4f(0.8f, 0.7f, 0.6f, 1.0f));
+
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
 	Durin::MarkAsGarbage(Component);
+	Durin::MarkAsGarbage(SmallerMesh);
 	Durin::MarkAsGarbage(Mesh);
 	Durin::MarkAsGarbage(Override);
 	Durin::MarkAsGarbage(Shared);

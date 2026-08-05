@@ -49,19 +49,21 @@ declarations and compiled layouts remain deferred work.
 ## Renderer Boundary
 
 - `DStaticMesh` owns the ordered material-slot definitions. Each slot has a
-  persistent GUID, a mesh-local display name, exact import matching metadata,
-  a source material index, and an optional default material. Imported order is
-  the current runtime order; sections store only compact slot indices.
-- Reimport reconciles identities by unique exact source name first and by a
-  conservative unambiguous source-index fallback second. Reorder preserves
-  identities, while removed or ambiguous slots do not silently transfer an
-  assignment to another surface.
-- `DStaticMeshComponent` persists a sparse collection of GUID-keyed material
-  overrides. Resolution for each current slot is component override, mesh
+  mesh-local user-facing `Name`, exact imported `SourceName`, original
+  `SourceMaterialIndex`, and an optional default material. The vector index is
+  the stable slot identity; sections store only that compact index.
+- Reimport matches unique non-empty exact source names first and unique source
+  indices second. Matched entries keep their existing index, user name, and
+  default while source evidence is refreshed. Removed entries remain reserved,
+  new entries append, and section construction consumes the explicit imported-
+  to-stable map rather than searching historical source indices.
+- `DStaticMeshComponent` persists a positional `OverrideMaterials` array.
+  Resolution for each current index is non-null component override, mesh
   default, then an empty `FMaterialRenderData` whose representation is the
-  deterministic renderer fallback. Overrides whose GUID is absent from the
-  current mesh remain serialized as explicit orphans but do not resolve, bind
-  dependencies, or reach the scene proxy.
+  deterministic renderer fallback. Mesh assignment preserves the complete
+  array: shared indices apply immediately, entries beyond a smaller mesh are
+  dormant, and a later larger mesh reactivates them. Dormant entries bind no
+  dependency and never reach the scene proxy; Clear All removes them too.
 - Material-side code resolves the canonical built-in GUIDs into one immutable
   `FMaterialRenderRepresentation` carried by `FMaterialRenderData` alongside
   the static shader/pipeline identity. `FMaterialRenderRepresentationBuilder`
@@ -153,7 +155,7 @@ identity.
 - Static-mesh render-data changes use a separate on-demand loaded-component
   scan and select components whose current mesh assignment equals the changed
   mesh. Rebuilding render state then resolves current slot definitions,
-  defaults, overrides, and orphans directly from canonical storage.
+  defaults, and positional overrides directly from canonical storage.
 - Proxy diagnostics expose publication, coalescing, resolution-cache hit/miss,
   stale-publication, and binding-update counts. Loaded relationship queries
   expose their own operation, snapshot, scan, and result diagnostics. Both are
@@ -169,11 +171,12 @@ SpecularStrength and Shininess values are discarded with a warning; instance
 overrides for those GUIDs remain explicit unresolved orphans. They are never
 reinterpreted as Metallic or Roughness.
 
-Static-mesh components persist only the GUID-keyed override collection. The
-former index-shaped `Materials` collection, slot-zero `Material` mirror, and
-unused override version field have been removed. If an older package still
-contains those field records, the field-table loader skips them as unknown data;
-they are not migrated.
+Static-mesh components persist only the positional `OverrideMaterials`
+collection, and StaticMesh slots persist no GUID or slot-schema version. The
+former GUID-keyed override records and slot fields have no loader alias,
+upgrade branch, or migration path. Authored packages using those schemas are
+incompatible; repository content was recreated directly under the current
+schema.
 
 ## Environment Lighting
 
@@ -213,15 +216,15 @@ copy; external files require an explicit writable destination. Reimport reads
 only the persisted source, while changing one reference, replacing shared
 bytes, repair, and relocation are separate editor operations. Legacy
 package-relative source fields are rejected. The
-canonical DDC key also includes builder version 1, DMSH schema 2, and target
+canonical DDC key also includes builder version 2, DMSH schema 3, and target
 platform. A valid warm DDC object can load from persisted identity while source
 and Assimp are unavailable.
 
-DMSH schema 2 is a little-endian, checksummed chunk envelope for bounds,
-material-slot GUIDs, LOD metadata, sections, vertex streams, and index buffers.
+DMSH schema 3 is a little-endian, checksummed chunk envelope for bounds, a
+bounded material-slot count, LOD metadata, sections, vertex streams, and index buffers.
 Readers bound all counts and ranges, reject invalid numeric data and indices,
 skip only optional unknown chunks, and publish render data only after complete
-validation. Cook uses stable payload ID
+validation. Schema 2 is rejected rather than converted. Cook uses stable payload ID
 `6d9f79b5-7b68-4d91-a42c-2a6063fcab16`, strips source/import metadata, and
 loads the DMSH payload only through the cooked package descriptor and DBLK
 companion.
@@ -245,9 +248,9 @@ and UI behavior belongs to the editor
 ## Design Rules
 
 - Components and assets use `DMaterialInterface`; renderer code consumes only render data and shader maps.
-- Mesh slot GUID is the only persistent component-assignment identity. Display
-  names, source indices, current vector positions, and section indices are not
-  persisted override identities.
+- Mesh slot vector index is the persistent component-assignment identity.
+  Display names are renameable conveniences; imported names and source indices
+  are reconciliation evidence; section indices consume the stable table.
 - Parameter GUID is authoritative persistent identity; `FName` is lookup and
   display-facing identity, never serialized override identity.
 - A valid definition set contains no invalid or duplicate GUIDs, `None` names,

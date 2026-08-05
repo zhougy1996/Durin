@@ -11,12 +11,11 @@ namespace Durin
 {
 	inline constexpr uint32 MaxStaticMeshUVChannels = 4;
 
-	// Preserves imported material-slot identity in runtime mesh data.
+	// Preserves index-ordered imported material metadata in runtime mesh data.
 	struct FStaticMeshMaterialSlot
 	{
 		std::string Name;
 		uint32 SourceMaterialIndex = 0;
-		FGuid SlotId;
 	};
 
 	// Describes one indexed draw range and its local-space bounds.

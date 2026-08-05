@@ -28,6 +28,13 @@ semantic. A valid but unassigned surface should use a real Engine material
 asset; invalid render state must remain diagnosable even when asset loading is
 unavailable.
 
+StaticMesh integration must build on the landed positional contract:
+`DStaticMeshComponent::OverrideMaterials` is indexed by the mesh's stable slot
+table, mesh changes preserve dormant entries, and slot matching/reimport owns no
+GUID or orphan path. This plan changes only the final unassigned fallback after
+component override and mesh default resolution; it must not reintroduce slot
+identity or compatibility storage.
+
 ## Goal
 
 Establish three distinct outcomes for every StaticMesh material binding:
