@@ -51,22 +51,37 @@ boundary. Both APIs enforce `T::StaticClass()`; null handling is selected with
 `ESoftObjectNullPolicy`, and missing, incompatible, or corrupt targets return
 ordinary `FAssetResult` diagnostics without changing the stored path.
 
-The registry exposes `FindSoftReferencers(...)`, `FindSoftTargets(...)`, and
-`BuildCookReachability(...)` for derived-data queries. Those operations do not
-change runtime residency. Persistent settings outside packages that must follow
-target moves register an `FAssetMoveExternalStore`; ordinary service paths do
-not gain move behavior merely because they use `FAssetPath`.
+The registry exposes exact physical-entry lookup, non-loading redirect
+resolution, deterministic direct reverse lookup, `FindSoftReferencers(...)`,
+`FindSoftTargets(...)`, and `BuildCookReachability(...)` for derived-data
+queries. Redirect resolution follows at most 32 aliases and reports missing
+requests, missing targets, cycles, depth overflow, unknown final classes, type
+mismatch, and corrupt redirect metadata without changing runtime residency.
+Persistent settings outside packages that must follow target moves register an
+`FAssetMoveExternalStore`; ordinary service paths do not gain move behavior
+merely because they use `FAssetPath`.
 
 ## File Format
 
 Every authored or cooked `.dasset`, regardless of its main asset class, uses the
-same DAST object-package envelope. The v2 binary header records the `DAST`
-magic, format version, main asset class, dependencies, and object count. The
-asset path is derived from the mounted package filename, so moving a package
-within a content mount does not rewrite its payload. The registry reads only
-this header. The current reader and writer require v2. Package format versions
-describe this wire contract only; reflected property evolution does not require
-a package-format increment.
+same DAST object-package envelope. AssetCore reads v2 and v3 and writes v3.
+Both headers record the `DAST` magic, format version, main asset class,
+dependencies, and object count. V3 additionally stores a bounded registry-entry
+kind and redirect destination immediately after the class name. An ordinary
+asset must have an empty destination. A redirector must name
+`Durin::Asset::DAssetRedirector`, contain exactly one object and one dependency,
+and make that dependency equal its canonical destination. The asset path is
+derived from the mounted package filename, so moving a package within a content
+mount does not rewrite its payload. Package format versions describe this wire
+contract only; reflected property evolution does not require a package-format
+increment.
+
+The bounded header reader classifies redirectors without constructing their
+object graph or destination. Complete validation also requires exactly one
+external `DestinationObject` field matching the header and dependency table.
+V2 packages project as ordinary assets and are not dirtied or migrated by scan
+or load; an authorized save emits v3. A v2 package claiming the redirector class
+is corrupt because it has no authoritative redirect summary.
 
 Asset-specific magic values belong to external derived or cooked payloads, not
 to alternative `.dasset` envelopes. StaticMesh payloads use DMSH and texture
@@ -158,7 +173,7 @@ workspace, renderer, GPU, source/import service, or DDC service.
 Internal references use object ids. Cross-package strong references target the other package's main asset by `FAssetPath` and synchronously load that dependency. Circular dependencies work because object skeletons are constructed before dependency fields are applied.
 
 Reflected `TSoftObjectPtr<T>` fields persist only their logical identity. Their
-recursive DAST v2 signature is
+recursive DAST v2/v3 signature is
 `SoftObject:<ExpectedQualifiedClass>:v1`; Array and Map signatures wrap it in
 the ordinary container grammar. One value is `uint8 0` for null, or `uint8 1`,
 a `uint64` UTF-8 byte count, and exactly one canonical `FAssetPath`. Paths are
@@ -190,13 +205,13 @@ do not affect DAST: authored packages always retain the tagged reflected-field
 representation so compatibility inspection remains possible. No current
 production struct requires an authored custom codec.
 
-DAST v2 retains the logical `Array<...>` and `Map<...,...>` signatures, count
+DAST v2/v3 retain the logical `Array<...>` and `Map<...,...>` signatures, count
 fields, and entry payload grammar. New Map saves order entries by the canonical
 logical key token from the reflection contract, so equivalent supported maps
 produce identical package bytes regardless of insertion, reserve, rehash, or
 bucket history. Readers do not require that order and continue accepting valid
-historical v2 packages written in unordered iteration order; no format-version
-increment or asset migration is required.
+historical v2 packages written in unordered iteration order. V3 changes only
+the public header summary; field payload grammar is unchanged.
 
 Container package loading is bounded and transactional. Array elements and Map
 keys/values decode into detached managed storage, duplicate decoded Map keys
@@ -263,7 +278,7 @@ StaticMesh import writes this object for immediate editor reuse. A safe miss can
 be rebuilt from source, and a cook can reuse the resulting render data without
 making runtime depend on the DDC path.
 
-`AssetRegistry/Registry.bin` is a versioned, deterministic snapshot keyed by virtual mount root and normalized mount-relative package path. Startup still enumerates mounted `.dasset` files once. Exact file-size and stable last-write-time matches reuse cached class, format-version, and dependency metadata without reading package headers; new or changed files use the bounded header reader, and missing files disappear from the freshly published live map. Full validation bypasses fingerprint reuse. Schema, package-format, serialization, or mount-manifest incompatibility and corrupt or missing snapshots cause a non-fatal rebuild. Successful mutations update the live registry and dirty the snapshot, which is atomically replaced after explicit reconciliation and during orderly asset-manager shutdown. The live registry exposes a monotonic process-local revision that advances only when its published asset metadata changes, allowing editor queries to cache derived views safely. Scan diagnostics expose elapsed milliseconds, enumeration/reuse/reparse/removal/failure counts, and package-header read attempts and bytes.
+`AssetRegistry/Registry.bin` is a versioned, deterministic snapshot keyed by virtual mount root and normalized mount-relative package path. Startup still enumerates mounted `.dasset` files once. Exact file-size and stable last-write-time matches reuse cached class, entry kind, redirect destination, format-version, and dependency metadata without reading package headers; new or changed files use the bounded header reader, and missing files disappear from the freshly published live map. Full validation bypasses fingerprint reuse and verifies redirector bodies. Schema, package-format, serialization, or mount-manifest incompatibility and corrupt or missing snapshots cause a non-fatal rebuild. Successful mutations update the live registry and dirty the snapshot, which is atomically replaced after explicit reconciliation and during orderly asset-manager shutdown. The live registry exposes a monotonic process-local revision that advances only when its published asset metadata changes, allowing editor queries to cache derived views safely. Scan diagnostics expose elapsed milliseconds, enumeration/reuse/reparse/removal/failure/redirector counts, and package-header read attempts and bytes.
 
 `AssetRegistry/SoftReferences.bin` is a separate rebuildable projection of
 tagged soft-object fields. Every source entry is keyed by its full package size,

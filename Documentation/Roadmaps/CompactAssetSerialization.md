@@ -10,11 +10,11 @@ Completed:
 ## Current Status
 
 - The program is deliberately deferred. No DAST v4 implementation plan is
-  active, and DAST v2 remains the only accepted and emitted package version.
+  active. AssetCore accepts DAST v2 and v3, and authorized saves emit v3.
 - The active [Asset Redirectors Refactor Plan](../Plans/AssetRedirectors.md)
-  reserves DAST v3 for its bounded registry-entry kind and redirect-destination
-  header summary. Compact serialization therefore starts at v4 and must retain
-  the eventual bounded v3 reader; it does not absorb redirector implementation.
+  owns DAST v3's bounded registry-entry kind and redirect-destination header
+  summary. Compact serialization therefore starts at v4 and retains the
+  bounded v2/v3 readers; it does not absorb redirector implementation.
 - The previous monolithic implementation plan has been converted into this
   roadmap so future work can be activated as bounded child plans only when its
   entry gates are satisfied.

@@ -7,7 +7,7 @@ namespace Durin::DerivedDataCache
 	inline constexpr uint32 SerializationMarker = 0x01020304;
 	inline constexpr uint64 MaximumCacheStringBytes = 1024ull * 1024ull;
 	inline constexpr uint32 AssetRegistryMagic = 0x47455241; // AREG
-	inline constexpr uint32 AssetRegistrySchemaVersion = 1;
+	inline constexpr uint32 AssetRegistrySchemaVersion = 2;
 	inline constexpr uint32 ThumbnailIndexMagic = 0x58444954; // TIDX
 	inline constexpr uint32 ThumbnailIndexSchemaVersion = 2;
 

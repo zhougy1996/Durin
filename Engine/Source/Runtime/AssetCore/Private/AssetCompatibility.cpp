@@ -9,7 +9,8 @@ namespace Durin::Asset
 	namespace
 	{
 		constexpr uint32 AssetMagic = 0x54534144; // DAST
-		constexpr uint32 AssetVersion = 2;
+		constexpr uint32 MinimumAssetVersion = 2;
+		constexpr uint32 AssetVersion = 3;
 		constexpr uint64 MaximumPackageStringBytes = 1024 * 1024;
 		constexpr uint64 MaximumPackageDependencies = 100000;
 		constexpr uint64 MaximumPackageObjects = 1000000;
@@ -302,14 +303,20 @@ namespace Durin::Asset
 		uint32 Magic = 0, Version = 0;
 		if (!Reader.Read(Magic) || !Reader.Read(Version) || Magic != AssetMagic)
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::CorruptPackage, "Invalid or truncated asset package header.");
-		else if (Version != AssetVersion)
+		else if (Version < MinimumAssetVersion || Version > AssetVersion)
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::UnsupportedPackageFormat,
 				std::format("Unsupported asset package format version {}.", Version));
 		else
 		{
 			std::string AssetClass;
+			uint8 EntryKind = 0;
+			std::string RedirectDestination;
 			uint64 DependencyCount = 0, ObjectCount = 0;
-			bool bValidHeader = Reader.ReadString(AssetClass) && Reader.Read(DependencyCount)
+			bool bValidHeader = Reader.ReadString(AssetClass);
+			if (bValidHeader && Version >= 3)
+				bValidHeader = Reader.Read(EntryKind) && EntryKind <= 1
+					&& Reader.ReadString(RedirectDestination);
+			bValidHeader = bValidHeader && Reader.Read(DependencyCount)
 				&& DependencyCount <= MaximumPackageDependencies;
 			for (uint64 Index = 0; bValidHeader && Index < DependencyCount; ++Index)
 			{

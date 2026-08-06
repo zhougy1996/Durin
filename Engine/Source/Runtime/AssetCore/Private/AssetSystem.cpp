@@ -1,4 +1,5 @@
 #include "AssetSystem.h"
+#include "AssetRedirector.h"
 #include "Profiling/Profiling.h"
 
 #include "CoreGlobals.h"
@@ -46,8 +47,11 @@ namespace Durin::Asset
 		}
 
 		constexpr uint32 AssetMagic = 0x54534144; // DAST
-		constexpr uint32 AssetVersion = 2;
+		constexpr uint32 MinimumAssetVersion = 2;
+		constexpr uint32 AssetVersion = 3;
 		constexpr uint64 MaximumPackageStringBytes = 1024 * 1024;
+		constexpr uint32 MaximumRedirectDepth = 32;
+		constexpr std::string_view RedirectorClassName = "Durin::Asset::DAssetRedirector";
 
 		struct FByteWriter
 		{
@@ -177,11 +181,86 @@ namespace Durin::Asset
 		{
 			uint32 FormatVersion = 0;
 			std::string AssetClassName;
+			EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
+			FAssetPath RedirectDestination;
 			std::vector<FAssetPath> Dependencies;
 			std::vector<FObjectRecord> Objects;
 		};
 
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult { return {Code, std::move(Message)}; }
+
+		auto CorruptRedirector(std::string Message) -> FAssetResult
+		{
+			return Error(EAssetError::CorruptFile, std::format("CorruptRedirector: {}", Message));
+		}
+
+		auto ValidateRedirectorHeader(
+			const FPackageFile& File,
+			uint64 ObjectCount,
+			const FAssetPath* SourcePath = nullptr) -> FAssetResult
+		{
+			if (File.FormatVersion == 2)
+			{
+				if (File.AssetClassName == RedirectorClassName)
+					return CorruptRedirector("DAST v2 cannot identify a redirector.");
+				return {};
+			}
+			if (File.EntryKind == EAssetRegistryEntryKind::Asset)
+			{
+				if (File.RedirectDestination.IsValid())
+					return CorruptRedirector("an ordinary asset declares a redirect destination.");
+				if (File.AssetClassName == RedirectorClassName)
+					return CorruptRedirector("the redirector class is marked as an ordinary asset.");
+				return {};
+			}
+			if (File.EntryKind != EAssetRegistryEntryKind::Redirector)
+				return CorruptRedirector("the package declares an unknown registry entry kind.");
+			if (File.AssetClassName != RedirectorClassName)
+				return CorruptRedirector("the redirect entry does not use DAssetRedirector.");
+			if (!File.RedirectDestination.IsValid())
+				return CorruptRedirector("the redirect destination is missing or invalid.");
+			if (SourcePath && *SourcePath == File.RedirectDestination)
+				return CorruptRedirector("a redirector cannot target its own package.");
+			if (ObjectCount != 1)
+				return CorruptRedirector("a redirector package must contain exactly one object.");
+			if (File.Dependencies.size() != 1
+				|| File.Dependencies.front() != File.RedirectDestination)
+				return CorruptRedirector(
+					"the dependency table must contain only the redirect destination.");
+			return {};
+		}
+
+		auto ValidateRedirectorBody(const FPackageFile& File) -> FAssetResult
+		{
+			if (File.EntryKind != EAssetRegistryEntryKind::Redirector) return {};
+			if (File.Objects.size() != 1) return CorruptRedirector(
+				"the serialized body must contain exactly one object.");
+			const FObjectRecord& Object = File.Objects.front();
+			if (Object.Id != 1 || Object.OuterId != 0
+				|| Object.ClassName != RedirectorClassName)
+				return CorruptRedirector("the main object does not match the redirect summary.");
+			if (Object.Fields.size() != 1)
+				return CorruptRedirector(
+					"the redirector must serialize exactly one DestinationObject field.");
+			const FFieldRecord& Field = Object.Fields.front();
+			if (Field.DeclaringClass != RedirectorClassName
+				|| Field.Name != "DestinationObject"
+				|| Field.Kind != DurinCodeGen::EPropertyGenFlags::Object
+				|| Field.TypeSignature != "Object:Durin::DObject:true")
+				return CorruptRedirector("DestinationObject metadata is invalid.");
+			FByteReader Reader{Field.Payload};
+			uint8 ReferenceKind = 0;
+			std::string DestinationString;
+			FAssetPath Destination;
+			if (!Reader.Read(ReferenceKind) || ReferenceKind != 2
+				|| !Reader.ReadString(DestinationString, MaximumPackageStringBytes)
+				|| !FAssetPath::TryCreate(DestinationString, Destination)
+				|| Reader.Offset != Field.Payload.size()
+				|| Destination != File.RedirectDestination)
+				return CorruptRedirector(
+					"DestinationObject is not the declared non-null external destination.");
+			return {};
+		}
 
 		auto IsMissingPathError(const std::error_code& ErrorCode) -> bool
 		{
@@ -922,6 +1001,8 @@ namespace Durin::Asset
 			Writer.Write(AssetMagic);
 			Writer.Write(AssetVersion);
 			Writer.WriteString(File.AssetClassName);
+			Writer.Write(uint8(File.EntryKind));
+			Writer.WriteString(File.RedirectDestination.GetView());
 			Writer.Write(uint64(File.Dependencies.size()));
 			for (const FAssetPath& Dependency : File.Dependencies) Writer.WriteString(Dependency.GetView());
 			Writer.Write(uint64(File.Objects.size()));
@@ -950,10 +1031,23 @@ namespace Durin::Asset
 			uint32 Magic = 0, Version = 0;
 			if (!Reader.Read(Magic) || !Reader.Read(Version)) return Error(EAssetError::CorruptFile, "Truncated asset header.");
 			if (Magic != AssetMagic) return Error(EAssetError::CorruptFile, "Invalid asset magic.");
-			if (Version != AssetVersion)
+			if (Version < MinimumAssetVersion || Version > AssetVersion)
 				return Error(EAssetError::UnsupportedVersion, std::format("Unsupported asset version {}.", Version));
 			OutFile.FormatVersion = Version;
 			if (!Reader.ReadString(OutFile.AssetClassName, MaximumPackageStringBytes)) return Error(EAssetError::CorruptFile, "Invalid asset header strings.");
+			if (Version >= 3)
+			{
+				uint8 EntryKind = 0;
+				std::string RedirectDestination;
+				if (!Reader.Read(EntryKind)
+					|| EntryKind > uint8(EAssetRegistryEntryKind::Redirector)
+					|| !Reader.ReadString(RedirectDestination, MaximumPackageStringBytes))
+					return CorruptRedirector("the redirect summary is invalid or truncated.");
+				OutFile.EntryKind = static_cast<EAssetRegistryEntryKind>(EntryKind);
+				if (!RedirectDestination.empty()
+					&& !FAssetPath::TryCreate(RedirectDestination, OutFile.RedirectDestination))
+					return CorruptRedirector("the redirect destination path is invalid.");
+			}
 			uint64 DependencyCount = 0;
 			if (!Reader.Read(DependencyCount) || DependencyCount > 100000) return Error(EAssetError::CorruptFile, "Invalid dependency count.");
 			for (uint64 Index = 0; Index < DependencyCount; ++Index)
@@ -964,7 +1058,7 @@ namespace Durin::Asset
 				OutFile.Dependencies.push_back(std::move(Dependency));
 			}
 			if (!Reader.Read(OutObjectCount) || OutObjectCount == 0 || OutObjectCount > 1000000) return Error(EAssetError::CorruptFile, "Invalid object count.");
-			return {};
+			return ValidateRedirectorHeader(OutFile, OutObjectCount);
 		}
 
 		auto ReadPackageFile(std::span<const uint8> Bytes, FPackageFile& OutFile, bool bHeaderOnly) -> FAssetResult
@@ -991,7 +1085,7 @@ namespace Durin::Asset
 				}
 			}
 			if (Reader.Offset != Bytes.size()) return Error(EAssetError::CorruptFile, "Trailing bytes after package data.");
-			return {};
+			return ValidateRedirectorBody(OutFile);
 		}
 
 		constexpr uint32 MaximumSoftReferenceContainerDepth = 4;
@@ -1715,6 +1809,8 @@ namespace Durin::Asset
 			std::string MountRoot;
 			std::string RelativePath;
 			std::string AssetClassName;
+			EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
+			FAssetPath RedirectDestination;
 			uint32 FormatVersion = 0;
 			std::vector<FAssetPath> Dependencies;
 			uint64 FileSize = 0;
@@ -1790,12 +1886,27 @@ namespace Durin::Asset
 			for (uint64 Index = 0; Index < EntryCount; ++Index)
 			{
 				FRegistryCacheEntry Entry;
+				uint8 EntryKind = 0;
+				std::string RedirectDestination;
 				uint32 DependencyCount = 0;
 				if (!Reader.ReadString(Entry.MountRoot) || !Reader.ReadString(Entry.RelativePath)
-					|| !Reader.ReadString(Entry.AssetClassName) || !Reader.ReadU32(Entry.FormatVersion)
+					|| !Reader.ReadString(Entry.AssetClassName)
+					|| !Reader.ReadU8(EntryKind)
+					|| EntryKind > uint8(EAssetRegistryEntryKind::Redirector)
+					|| !Reader.ReadString(RedirectDestination)
+					|| !Reader.ReadU32(Entry.FormatVersion)
 					|| !Reader.ReadU32(DependencyCount) || DependencyCount > MaximumRegistryDependencies)
 				{
 					OutWarning = "Ignoring corrupt asset registry cache entry.";
+					OutEntries.clear();
+					return false;
+				}
+				Entry.EntryKind = static_cast<EAssetRegistryEntryKind>(EntryKind);
+				if (!RedirectDestination.empty()
+					&& !FAssetPath::TryCreate(
+						RedirectDestination, Entry.RedirectDestination))
+				{
+					OutWarning = "Ignoring invalid redirect destination in asset registry cache.";
 					OutEntries.clear();
 					return false;
 				}
@@ -1813,13 +1924,28 @@ namespace Durin::Asset
 					Entry.Dependencies.push_back(std::move(Dependency));
 				}
 				if (!Reader.ReadU64(Entry.FileSize) || !Reader.ReadI64(Entry.LastWriteTimeTicks)
-					|| Entry.FormatVersion != AssetVersion
+					|| Entry.FormatVersion < MinimumAssetVersion
+					|| Entry.FormatVersion > AssetVersion
 					|| !std::ranges::binary_search(ExpectedMounts, Entry.MountRoot)
 					|| std::filesystem::path(Entry.RelativePath).is_absolute()
 					|| std::filesystem::path(Entry.RelativePath).extension() != ".dasset"
 					|| Entry.RelativePath.starts_with("../") || Entry.RelativePath.find("/../") != std::string::npos)
 				{
 					OutWarning = "Ignoring invalid asset registry cache identity.";
+					OutEntries.clear();
+					return false;
+				}
+				FPackageFile HeaderFile{
+					.FormatVersion = Entry.FormatVersion,
+					.AssetClassName = Entry.AssetClassName,
+					.EntryKind = Entry.EntryKind,
+					.RedirectDestination = Entry.RedirectDestination,
+					.Dependencies = Entry.Dependencies};
+				const uint64 ObjectCount = 1;
+				if (FAssetResult Result = ValidateRedirectorHeader(
+					HeaderFile, ObjectCount); !Result)
+				{
+					OutWarning = "Ignoring corrupt redirect metadata in asset registry cache.";
 					OutEntries.clear();
 					return false;
 				}
@@ -1856,6 +1982,8 @@ namespace Durin::Asset
 				Writer.WriteString(Entry.MountRoot);
 				Writer.WriteString(Entry.RelativePath);
 				Writer.WriteString(Entry.AssetClassName);
+				Writer.WriteU8(static_cast<uint8>(Entry.EntryKind));
+				Writer.WriteString(Entry.RedirectDestination.GetView());
 				Writer.WriteU32(Entry.FormatVersion);
 				Writer.WriteU32(static_cast<uint32>(Entry.Dependencies.size()));
 				for (const FAssetPath& Dependency : Entry.Dependencies) Writer.WriteString(Dependency.GetView());
@@ -1899,6 +2027,8 @@ namespace Durin::Asset
 					.MountRoot = Lookup.Mount->VirtualRoot,
 					.RelativePath = RelativeString,
 					.AssetClassName = Data.AssetClassName,
+					.EntryKind = Data.EntryKind,
+					.RedirectDestination = Data.RedirectDestination,
 					.FormatVersion = Data.FormatVersion,
 					.Dependencies = Data.Dependencies,
 					.FileSize = Data.FileSize,
@@ -2158,7 +2288,20 @@ namespace Durin::Asset
 			for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
 
 			FPackageFile File;
+			File.FormatVersion = AssetVersion;
 			File.AssetClassName = Package->GetAsset()->GetClass()->GetQualifiedName().ToString();
+			if (auto* Redirector = Cast<DAssetRedirector>(Package->GetAsset()))
+			{
+				File.EntryKind = EAssetRegistryEntryKind::Redirector;
+				DObject* DestinationObject = Redirector->GetDestinationObject();
+				DPackage* DestinationPackage = DestinationObject
+					? DestinationObject->GetPackage() : nullptr;
+				if (!DestinationPackage || DestinationPackage->GetAsset() != DestinationObject
+					|| !FAssetPath::TryCreate(
+						DestinationPackage->GetPackagePath(), File.RedirectDestination))
+					return CorruptRedirector(
+						"DestinationObject must be a non-null package main asset.");
+			}
 			std::unordered_set<FAssetPath> Dependencies;
 			for (size_t Index = 0; Index < Objects.size(); ++Index)
 			{
@@ -2204,6 +2347,14 @@ namespace Durin::Asset
 			std::ranges::sort(File.Dependencies, [](const FAssetPath& A, const FAssetPath& B) {
 				return A.GetView() < B.GetView();
 			});
+			FAssetPath PackagePath;
+			if (!FAssetPath::TryCreate(Package->GetPackagePath(), PackagePath))
+				return Error(EAssetError::InvalidPath, "Package has an invalid asset path.");
+			FAssetResult ValidationResult = ValidateRedirectorHeader(
+				File, File.Objects.size(), &PackagePath);
+			if (!ValidationResult) return ValidationResult;
+			ValidationResult = ValidateRedirectorBody(File);
+			if (!ValidationResult) return ValidationResult;
 
 			FByteWriter Writer;
 			WritePackageFile(File, Writer);
@@ -2223,6 +2374,8 @@ namespace Durin::Asset
 		OutHeader.BytesRead = Reader.Offset;
 		if (!Result) return Result;
 		OutHeader.AssetClassName = std::move(File.AssetClassName);
+		OutHeader.EntryKind = File.EntryKind;
+		OutHeader.RedirectDestination = std::move(File.RedirectDestination);
 		OutHeader.FormatVersion = File.FormatVersion;
 		OutHeader.Dependencies = std::move(File.Dependencies);
 		return {};
@@ -2447,6 +2600,8 @@ namespace Durin::Asset
 				.PackagePath = Staged.Path,
 				.PhysicalPath = Staged.Destination.generic_string(),
 				.AssetClassName = Staged.File.AssetClassName,
+				.EntryKind = Staged.File.EntryKind,
+				.RedirectDestination = Staged.File.RedirectDestination,
 				.FormatVersion = AssetVersion,
 				.Dependencies = Staged.File.Dependencies,
 				.FileSize = Staged.PublishedFileSize,
@@ -2540,7 +2695,8 @@ namespace Durin::Asset
 			EPropertyFlags::None, 1, 0, Struct);
 		FByteReader Reader{Payload};
 		return DeserializeValue(
-			&RootProperty, OutValue, 0, Reader, {}, nullptr, {}, AssetVersion)
+			&RootProperty, OutValue, 0, Reader, {}, nullptr, {},
+			SourceFormatVersion == 0 ? AssetVersion : SourceFormatVersion)
 			&& Reader.Offset == Payload.size();
 	}
 
@@ -2562,6 +2718,9 @@ namespace Durin::Asset
 		Result = ReadPackageHeader(HeaderReader, HeaderFile, HeaderObjectCount);
 		if (!Result) return Result;
 		OutInspection.Header.AssetClassName = std::move(HeaderFile.AssetClassName);
+		OutInspection.Header.EntryKind = HeaderFile.EntryKind;
+		OutInspection.Header.RedirectDestination =
+			std::move(HeaderFile.RedirectDestination);
 		OutInspection.Header.FormatVersion = HeaderFile.FormatVersion;
 		OutInspection.Header.Dependencies = std::move(HeaderFile.Dependencies);
 		OutInspection.Header.ObjectCount = HeaderObjectCount;
@@ -2582,7 +2741,8 @@ namespace Durin::Asset
 					.Name = std::move(Field.Name),
 					.Kind = Field.Kind,
 					.TypeSignature = std::move(Field.TypeSignature),
-					.Payload = std::move(Field.Payload)});
+					.Payload = std::move(Field.Payload),
+					.SourceFormatVersion = File.FormatVersion});
 			}
 			OutInspection.Objects.push_back(std::move(Object));
 		}
@@ -2845,6 +3005,8 @@ namespace Durin::Asset
 				}
 				const int64 LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime);
 				std::string AssetClassName;
+				EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
+				FAssetPath RedirectDestination;
 				uint32 FormatVersion = 0;
 				std::vector<FAssetPath> Dependencies;
 				const auto CachedIt = CachedEntries.find(Identity);
@@ -2852,6 +3014,8 @@ namespace Durin::Asset
 					&& CachedIt->second.FileSize == FileSize && CachedIt->second.LastWriteTimeTicks == LastWriteTimeTicks)
 				{
 					AssetClassName = CachedIt->second.AssetClassName;
+					EntryKind = CachedIt->second.EntryKind;
+					RedirectDestination = CachedIt->second.RedirectDestination;
 					FormatVersion = CachedIt->second.FormatVersion;
 					Dependencies = CachedIt->second.Dependencies;
 					++LastScanStats.Reused;
@@ -2869,9 +3033,46 @@ namespace Durin::Asset
 						continue;
 					}
 					AssetClassName = std::move(PackageHeader.AssetClassName);
+					EntryKind = PackageHeader.EntryKind;
+					RedirectDestination = std::move(PackageHeader.RedirectDestination);
 					FormatVersion = PackageHeader.FormatVersion;
 					Dependencies = std::move(PackageHeader.Dependencies);
 					++LastScanStats.Reparsed;
+				}
+				if (EntryKind == EAssetRegistryEntryKind::Redirector)
+				{
+					FPackageFile RedirectHeader{
+						.FormatVersion = FormatVersion,
+						.AssetClassName = AssetClassName,
+						.EntryKind = EntryKind,
+						.RedirectDestination = RedirectDestination,
+						.Dependencies = Dependencies};
+					FAssetResult RedirectResult = ValidateRedirectorHeader(
+						RedirectHeader, 1, &DiskPath);
+					if (!RedirectResult)
+					{
+						RedirectResult.Message = std::format(
+							"{} ({})", RedirectResult.Message, It->path().generic_string());
+						ScanErrors.push_back(std::move(RedirectResult));
+						++LastScanStats.Failed;
+						continue;
+					}
+					if (Mode == EAssetRegistryScanMode::FullValidation)
+					{
+						FAssetPackageInspection Inspection;
+						RedirectResult = InspectAssetPackage(
+							It->path().generic_string(), Inspection);
+						if (!RedirectResult)
+						{
+							RedirectResult.Message = std::format(
+								"{} ({})", RedirectResult.Message,
+								It->path().generic_string());
+							ScanErrors.push_back(std::move(RedirectResult));
+							++LastScanStats.Failed;
+							continue;
+						}
+					}
+					++LastScanStats.Redirectors;
 				}
 				if (NewAssets.contains(DiskPath))
 				{
@@ -2883,6 +3084,8 @@ namespace Durin::Asset
 					.MountRoot = Mount.VirtualRoot,
 					.RelativePath = RelativeString,
 					.AssetClassName = AssetClassName,
+					.EntryKind = EntryKind,
+					.RedirectDestination = RedirectDestination,
 					.FormatVersion = FormatVersion,
 					.Dependencies = Dependencies,
 					.FileSize = FileSize,
@@ -2891,6 +3094,8 @@ namespace Durin::Asset
 					.PackagePath = DiskPath,
 					.PhysicalPath = It->path().generic_string(),
 					.AssetClassName = std::move(AssetClassName),
+					.EntryKind = EntryKind,
+					.RedirectDestination = std::move(RedirectDestination),
 					.FormatVersion = FormatVersion,
 					.Dependencies = std::move(Dependencies),
 					.FileSize = FileSize,
@@ -2990,6 +3195,7 @@ namespace Durin::Asset
 		if (bAssetsChanged)
 		{
 			Assets = std::move(NewAssets);
+			RebuildRedirectorIndex();
 		}
 		if (bSoftReferencesChanged)
 		{
@@ -3009,8 +3215,9 @@ namespace Durin::Asset
 		LastScanStats.DurationMilliseconds = std::chrono::duration<double, std::milli>(
 			std::chrono::steady_clock::now() - ScanStartTime).count();
 		DURIN_INFO_CATEGORY("AssetRegistry",
-			"Scanned {} asset package(s) in {:.3f} ms: {} reused, {} reparsed, {} header read(s), {} header byte(s), {} removed, {} failed.",
-			LastScanStats.Enumerated, LastScanStats.DurationMilliseconds, LastScanStats.Reused, LastScanStats.Reparsed,
+			"Scanned {} asset package(s) in {:.3f} ms: {} redirector(s), {} reused, {} reparsed, {} header read(s), {} header byte(s), {} removed, {} failed.",
+			LastScanStats.Enumerated, LastScanStats.DurationMilliseconds, LastScanStats.Redirectors,
+			LastScanStats.Reused, LastScanStats.Reparsed,
 			LastScanStats.HeaderReadAttempts, LastScanStats.HeaderBytesRead, LastScanStats.Removed, LastScanStats.Failed);
 		if (!CacheWarning.empty()) DURIN_WARN_CATEGORY("AssetRegistry", "{}", CacheWarning);
 		if (!SoftReferenceCacheWarning.empty())
@@ -3056,10 +3263,114 @@ namespace Durin::Asset
 		}
 	}
 
-	auto FAssetRegistry::FindAsset(const FAssetPath& Path) const -> const FAssetData*
+	auto FAssetRegistry::FindAssetExact(const FAssetPath& Path) const -> const FAssetData*
 	{
 		auto It = Assets.find(Path);
 		return It == Assets.end() ? nullptr : &It->second;
+	}
+
+	auto FAssetRegistry::FindAsset(const FAssetPath& Path) const -> const FAssetData*
+	{
+		return FindAssetExact(Path);
+	}
+
+	auto FAssetRegistry::ResolveAssetPath(
+		const FAssetPath& Path,
+		const FAssetPathResolveOptions& Options) const -> FAssetPathResolveResult
+	{
+		FAssetPathResolveResult Result;
+		Result.RequestedPath = Path;
+		FAssetPath Current = Path;
+		std::unordered_set<FAssetPath> Visited;
+		while (true)
+		{
+			const FAssetData* Data = FindAssetExact(Current);
+			if (!Data)
+			{
+				Result.FinalPath = Current;
+				Result.State = Result.RedirectChain.empty()
+					? EAssetPathResolveState::NotFound
+					: EAssetPathResolveState::MissingRedirectTarget;
+				return Result;
+			}
+			if (Data->EntryKind == EAssetRegistryEntryKind::Asset)
+			{
+				if (Data->RedirectDestination.IsValid()
+					|| Data->AssetClassName == RedirectorClassName)
+				{
+					Result.FinalPath = Current;
+					Result.State = EAssetPathResolveState::CorruptRedirector;
+					return Result;
+				}
+				DClass* TargetClass = FindClassByQualifiedName(FName(Data->AssetClassName));
+				if (!TargetClass)
+				{
+					Result.FinalPath = Current;
+					Result.State = EAssetPathResolveState::UnknownTargetClass;
+					return Result;
+				}
+				if (Options.ExpectedClass && !TargetClass->IsChildOf(Options.ExpectedClass))
+				{
+					Result.FinalPath = Current;
+					Result.State = EAssetPathResolveState::RedirectTypeMismatch;
+					return Result;
+				}
+				Result.FinalPath = Current;
+				Result.FinalAssetData = *Data;
+				Result.State = EAssetPathResolveState::Resolved;
+				return Result;
+			}
+			if (Data->EntryKind != EAssetRegistryEntryKind::Redirector
+				|| Data->AssetClassName != RedirectorClassName
+				|| !Data->RedirectDestination.IsValid()
+				|| Data->RedirectDestination == Current
+				|| Data->Dependencies.size() != 1
+				|| Data->Dependencies.front() != Data->RedirectDestination)
+			{
+				Result.FinalPath = Current;
+				Result.State = EAssetPathResolveState::CorruptRedirector;
+				return Result;
+			}
+			if (!Visited.insert(Current).second)
+			{
+				Result.FinalPath = Current;
+				Result.State = EAssetPathResolveState::RedirectCycle;
+				return Result;
+			}
+			if (Result.RedirectChain.size() == MaximumRedirectDepth)
+			{
+				Result.FinalPath = Current;
+				Result.State = EAssetPathResolveState::RedirectDepthExceeded;
+				return Result;
+			}
+			Result.RedirectChain.push_back(Current);
+			Current = Data->RedirectDestination;
+		}
+	}
+
+	auto FAssetRegistry::FindRedirectorsTo(
+		const FAssetPath& Destination) const -> std::vector<FAssetPath>
+	{
+		const auto It = RedirectorsByDestination.find(Destination);
+		return It == RedirectorsByDestination.end()
+			? std::vector<FAssetPath>{} : It->second;
+	}
+
+	auto FAssetRegistry::RebuildRedirectorIndex() -> void
+	{
+		RedirectorsByDestination.clear();
+		for (const auto& [Path, Data] : Assets)
+		{
+			if (Data.EntryKind == EAssetRegistryEntryKind::Redirector
+				&& Data.RedirectDestination.IsValid())
+				RedirectorsByDestination[Data.RedirectDestination].push_back(Path);
+		}
+		for (auto& [Destination, Redirectors] : RedirectorsByDestination)
+		{
+			std::ranges::sort(Redirectors, [](const FAssetPath& Left, const FAssetPath& Right) {
+				return Left.GetView() < Right.GetView();
+			});
+		}
 	}
 
 	auto FAssetRegistry::FindSoftReferencers(
@@ -3201,6 +3512,7 @@ namespace Durin::Asset
 		const auto Existing = Assets.find(Path);
 		const bool bAssetChanged = Existing == Assets.end() || Existing->second != Data;
 		Assets.insert_or_assign(Path, std::move(Data));
+		if (bAssetChanged) RebuildRedirectorIndex();
 		bPersistentSnapshotDirty = true;
 		const FAssetData* Stored = FindAsset(Path);
 		const bool bSoftChanged = Stored && RefreshSoftReferencesForAsset(*Stored);
@@ -3210,6 +3522,7 @@ namespace Durin::Asset
 	auto FAssetRegistry::Remove(const FAssetPath& Path) -> void
 	{
 		const bool bAssetChanged = Assets.erase(Path) != 0;
+		if (bAssetChanged) RebuildRedirectorIndex();
 		const bool bSoftChanged = RemoveSoftReferencesFromSource(Path);
 		if (!bAssetChanged && !bSoftChanged) return;
 		bPersistentSnapshotDirty = true;
@@ -3253,6 +3566,60 @@ namespace Durin::Asset
 		return {};
 	}
 
+	auto FAssetManager::CreateRedirector(
+		const FAssetPath& RedirectorPath,
+		const FAssetPath& DestinationPath,
+		DAssetRedirector*& OutRedirector) -> FAssetResult
+	{
+		OutRedirector = nullptr;
+		if (!RedirectorPath.IsValid() || !DestinationPath.IsValid()
+			|| RedirectorPath == DestinationPath)
+			return Error(EAssetError::InvalidPath,
+				"Redirector source and destination paths must be valid and distinct.");
+		const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(DestinationPath);
+		if (!Resolution)
+		{
+			switch (Resolution.State)
+			{
+			case EAssetPathResolveState::NotFound:
+			case EAssetPathResolveState::MissingRedirectTarget:
+				return Error(EAssetError::NotFound,
+					"Redirector destination does not resolve to a registered asset.");
+			case EAssetPathResolveState::RedirectCycle:
+			case EAssetPathResolveState::RedirectDepthExceeded:
+				return Error(EAssetError::CircularDependency,
+					"Redirector destination does not have a finite canonical target.");
+			case EAssetPathResolveState::UnknownTargetClass:
+				return Error(EAssetError::UnknownClass,
+					"Redirector destination has an unavailable reflected class.");
+			case EAssetPathResolveState::RedirectTypeMismatch:
+				return Error(EAssetError::TypeMismatch,
+					"Redirector destination has an incompatible asset class.");
+			case EAssetPathResolveState::CorruptRedirector:
+				return CorruptRedirector(
+					"the requested destination traverses corrupt redirect metadata.");
+			case EAssetPathResolveState::Resolved:
+				break;
+			}
+		}
+		DObject* DestinationObject = nullptr;
+		FAssetResult Result = LoadAsset(Resolution.FinalPath, DestinationObject);
+		if (!Result) return Result;
+		DObject* CreatedObject = nullptr;
+		Result = CreateAsset(
+			RedirectorPath,
+			DAssetRedirector::StaticClass(),
+			sizeof(DAssetRedirector),
+			CreatedObject);
+		if (!Result) return Result;
+		OutRedirector = Cast<DAssetRedirector>(CreatedObject);
+		if (!OutRedirector)
+			return Error(EAssetError::InvalidObjectGraph,
+				"Failed to construct the redirector main asset.");
+		OutRedirector->SetDestinationObject(DestinationObject);
+		return {};
+	}
+
 	auto FAssetManager::SavePackage(
 		DPackage* Package,
 		const FAssetPackageSaveOptions& Options) -> FAssetResult
@@ -3288,6 +3655,8 @@ namespace Durin::Asset
 			.PackagePath = Path,
 			.PhysicalPath = Destination.generic_string(),
 			.AssetClassName = File.AssetClassName,
+			.EntryKind = File.EntryKind,
+			.RedirectDestination = File.RedirectDestination,
 			.FormatVersion = AssetVersion,
 			.Dependencies = File.Dependencies,
 			.FileSize = std::filesystem::file_size(Destination),
@@ -4195,6 +4564,8 @@ namespace Durin::Asset
 		FPackageFile File;
 		FAssetResult Result = ReadPackageFile(Bytes, File, false);
 		if (!Result) return Result;
+		Result = ValidateRedirectorHeader(File, File.Objects.size(), &Path);
+		if (!Result) return Result;
 
 		DPackage* Package = NewObject<DPackage>(nullptr, FName(Path.GetAssetName()));
 		Package->InitializeAssetPackage(Path);
@@ -4364,6 +4735,8 @@ namespace Durin::Asset
 			.PackagePath = Path,
 			.PhysicalPath = PhysicalPath,
 			.AssetClassName = File.AssetClassName,
+			.EntryKind = File.EntryKind,
+			.RedirectDestination = File.RedirectDestination,
 			.FormatVersion = File.FormatVersion,
 			.Dependencies = File.Dependencies,
 			.FileSize = std::filesystem::file_size(PhysicalPath),
@@ -4516,6 +4889,15 @@ namespace Durin::Asset
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
 		return FAssetManager::Get().LoadAsset(Path, OutAsset, OutReport);
+	}
+
+	auto CreateAssetRedirector(
+		const FAssetPath& RedirectorPath,
+		const FAssetPath& DestinationPath,
+		DAssetRedirector*& OutRedirector) -> FAssetResult
+	{
+		return FAssetManager::Get().CreateRedirector(
+			RedirectorPath, DestinationPath, OutRedirector);
 	}
 
 	auto ResolveSoftObject(

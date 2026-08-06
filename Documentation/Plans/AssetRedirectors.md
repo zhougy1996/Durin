@@ -717,20 +717,20 @@ Dependencies: none.
 
 Dependencies: Stage 0 contracts.
 
-- [ ] Add `DAssetRedirector` with generated reflection and enforce its single
+- [x] Add `DAssetRedirector` with generated reflection and enforce its single
   hard package-main-asset destination invariant.
-- [ ] Write/read bounded redirector registry metadata and validate it against
+- [x] Write/read bounded redirector registry metadata and validate it against
   body value and dependency table during package inspection/load.
-- [ ] Extend `FAssetData`, persistent registry snapshots, scan statistics, and
+- [x] Extend `FAssetData`, persistent registry snapshots, scan statistics, and
   cache schemas with entry kind and redirect destination.
-- [ ] Add exact lookup, reverse redirector index, non-loading resolution,
+- [x] Add exact lookup, reverse redirector index, non-loading resolution,
   complete chain results, stable errors, depth bound, and cycle detection.
-- [ ] Add direct-target normalization utilities and reject self, missing,
+- [x] Add direct-target normalization utilities and reject self, missing,
   corrupt, type-invalid, and forbidden destination mutations.
-- [ ] Keep ordinary assets and current moves behaviorally unchanged during this
+- [x] Keep ordinary assets and current moves behaviorally unchanged during this
   stage while proving redirect packages survive save, unload, rescan, restart,
   snapshot reuse, full validation, and cache corruption rebuild.
-- [ ] Add focused package/registry tests and end with the required stage
+- [x] Add focused package/registry tests and end with the required stage
   handoff.
 
 #### Acceptance Gate
@@ -741,6 +741,34 @@ Dependencies: Stage 0 contracts.
   metadata without loading packages.
 - Valid chains resolve deterministically; every malformed terminal state fails
   with its selected code and no partial registry projection.
+
+#### Stage 1 Handoff
+
+- Baseline commit: `0b5c86baf4bf4782391bd580669f3ab6f5037ed4`.
+- Working set: `AssetSystem.h/.cpp`, new `AssetRedirector.h/.cpp`,
+  `AssetCompatibility.cpp`, `AssetCore.h`, `AssetCore.dmodule`,
+  `DerivedDataCache.h`, `PackageTests.cpp`, the retired
+  `newer_format.dasset.hex` fixture, `AssetPackages.md`,
+  `CompactAssetSerialization.md`, and this plan.
+- Key symbols and decisions: DAST v3 is the only writer and the bounded reader
+  accepts v2/v3; `DAssetRedirector` has one private hard destination;
+  `FAssetRegistry::FindAssetExact`, `ResolveAssetPath`, and
+  `FindRedirectorsTo` expose exact, resolved, and direct-reverse views without
+  loading; 32 aliases succeed and a 33rd fails; registry cache schema 2 carries
+  redirect metadata and the soft cache invalidates through the DAST version;
+  `CreateAssetRedirector` is the controlled direct-to-final construction seam.
+- Compatibility and cleanup: the streaming compatibility probe now understands
+  both v2 and v3 headers and retains the source DAST version for typed field
+  inspection. The obsolete fixture that treated v3 as an unsupported future
+  version was deleted; the test now derives an actual v4 input from current
+  bytes. Ordinary move behavior remains unchanged for Stage 2.
+- Open questions: none block Stage 2. The compatibility `FindAsset` spelling
+  remains as an exact-lookup forwarding seam until Stage 2 migrates normal
+  loading/reference callers, after which it can be deleted.
+- Validation on 2026-08-06: `DevTool test --target AssetPackageTests --agent`
+  passes 59 tests; `DevTool test --target AssetCookTests --agent` passes 12
+  tests; `DevTool test --target all --agent` passes the complete native suite.
+  Documentation plan validation is recorded after this handoff update.
 
 ### Stage 2: Route Hard and Soft Loading Through Redirect Resolution
 

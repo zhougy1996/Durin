@@ -8,6 +8,8 @@
 
 namespace Durin::Asset
 {
+	class DAssetRedirector;
+
 	// Classifies failures returned by asset storage and registry operations.
 	enum class EAssetError : uint8
 	{
@@ -204,12 +206,20 @@ namespace Durin::Asset
 		std::vector<FAssetPath> LoadedPackages;
 	};
 
+	enum class EAssetRegistryEntryKind : uint8
+	{
+		Asset = 0,
+		Redirector = 1
+	};
+
 	// Describes one discoverable package without loading its object graph.
 	struct FAssetData
 	{
 		FAssetPath PackagePath;
 		std::string PhysicalPath;
 		std::string AssetClassName;
+		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
+		FAssetPath RedirectDestination;
 		uint32 FormatVersion = 0;
 		std::vector<FAssetPath> Dependencies;
 		uintmax_t FileSize = 0;
@@ -221,10 +231,41 @@ namespace Durin::Asset
 		auto operator==(const FAssetData&) const -> bool = default;
 	};
 
+	enum class EAssetPathResolveState : uint8
+	{
+		Resolved,
+		NotFound,
+		MissingRedirectTarget,
+		RedirectCycle,
+		RedirectDepthExceeded,
+		UnknownTargetClass,
+		RedirectTypeMismatch,
+		CorruptRedirector
+	};
+
+	struct FAssetPathResolveOptions
+	{
+		const DClass* ExpectedClass = nullptr;
+	};
+
+	struct FAssetPathResolveResult
+	{
+		EAssetPathResolveState State = EAssetPathResolveState::NotFound;
+		FAssetPath RequestedPath;
+		FAssetPath FinalPath;
+		std::vector<FAssetPath> RedirectChain;
+		std::optional<FAssetData> FinalAssetData;
+
+		auto Succeeded() const -> bool { return State == EAssetPathResolveState::Resolved; }
+		explicit operator bool() const { return Succeeded(); }
+	};
+
 	// Carries package metadata parsed without materializing package objects.
 	struct FAssetPackageHeader
 	{
 		std::string AssetClassName;
+		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
+		FAssetPath RedirectDestination;
 		uint32 FormatVersion = 0;
 		std::vector<FAssetPath> Dependencies;
 		uint64 ObjectCount = 0;
@@ -305,6 +346,7 @@ namespace Durin::Asset
 		DurinCodeGen::EPropertyGenFlags Kind = DurinCodeGen::EPropertyGenFlags::None;
 		std::string TypeSignature;
 		std::vector<uint8> Payload;
+		uint32 SourceFormatVersion = 0;
 
 		ASSETCORE_API auto TryReadString(std::string& OutValue) const -> bool;
 		ASSETCORE_API auto TryReadStruct(DStruct* Struct, void* OutValue) const -> bool;
@@ -420,6 +462,7 @@ namespace Durin::Asset
 		uint64 Reparsed = 0;
 		uint64 Removed = 0;
 		uint64 Failed = 0;
+		uint64 Redirectors = 0;
 		uint64 HeaderReadAttempts = 0;
 		uint64 HeaderBytesRead = 0;
 
@@ -549,7 +592,14 @@ namespace Durin::Asset
 	public:
 		ASSETCORE_API auto ScanMountedContent(EAssetRegistryScanMode Mode = EAssetRegistryScanMode::Incremental) -> FAssetResult;
 		ASSETCORE_API auto FlushPersistentSnapshot() -> void;
+		ASSETCORE_API auto FindAssetExact(const FAssetPath& Path) const -> const FAssetData*;
+		// Compatibility spelling retained until loading callers migrate in Stage 2.
 		ASSETCORE_API auto FindAsset(const FAssetPath& Path) const -> const FAssetData*;
+		ASSETCORE_API auto ResolveAssetPath(
+			const FAssetPath& Path,
+			const FAssetPathResolveOptions& Options = {}) const -> FAssetPathResolveResult;
+		ASSETCORE_API auto FindRedirectorsTo(const FAssetPath& Destination) const
+			-> std::vector<FAssetPath>;
 		auto GetAssets() const -> const std::unordered_map<FAssetPath, FAssetData>& { return Assets; }
 		auto GetScanErrors() const -> const std::vector<FAssetResult>& { return ScanErrors; }
 		auto GetLastScanStats() const -> const FAssetRegistryScanStats& { return LastScanStats; }
@@ -573,7 +623,9 @@ namespace Durin::Asset
 		auto Remove(const FAssetPath& Path) -> void;
 		auto RefreshSoftReferencesForAsset(const FAssetData& Data) -> bool;
 		auto RemoveSoftReferencesFromSource(const FAssetPath& Path) -> bool;
+		auto RebuildRedirectorIndex() -> void;
 		std::unordered_map<FAssetPath, FAssetData> Assets;
+		std::unordered_map<FAssetPath, std::vector<FAssetPath>> RedirectorsByDestination;
 		std::vector<FAssetResult> ScanErrors;
 		FAssetRegistryScanStats LastScanStats;
 		std::string CacheWarning;
@@ -601,6 +653,10 @@ namespace Durin::Asset
 		ASSETCORE_API static auto Get() -> FAssetManager&;
 
 		ASSETCORE_API auto CreateAsset(const FAssetPath& Path, DClass* Class, size_t Size, DObject*& OutAsset) -> FAssetResult;
+		ASSETCORE_API auto CreateRedirector(
+			const FAssetPath& RedirectorPath,
+			const FAssetPath& DestinationPath,
+			DAssetRedirector*& OutRedirector) -> FAssetResult;
 		ASSETCORE_API auto LoadAsset(
 			const FAssetPath& Path,
 			DObject*& OutAsset,
@@ -747,6 +803,10 @@ namespace Durin::Asset
 		const FAssetPath& Path,
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+	ASSETCORE_API auto CreateAssetRedirector(
+		const FAssetPath& RedirectorPath,
+		const FAssetPath& DestinationPath,
+		DAssetRedirector*& OutRedirector) -> FAssetResult;
 	ASSETCORE_API auto SavePackage(
 		DPackage* Package,
 		const FAssetPackageSaveOptions& Options = {}) -> FAssetResult;
