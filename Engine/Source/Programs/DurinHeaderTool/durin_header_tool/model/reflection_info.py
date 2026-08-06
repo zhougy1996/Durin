@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 SYMBOL_NAME_SCHEME = "qualified-underscore-v1"
-TOOL_VERSION = "19"
+TOOL_VERSION = "20"
 
 
 def qualified_name_to_helper_suffix(qualified_name: str) -> str:

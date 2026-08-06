@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Documents/DocumentDialogPresenters.h"
+#include "DObject/SoftObjectPtr.h"
 
 namespace Durin
 {
@@ -35,7 +36,7 @@ namespace Durin
 			FLevelEditorSessionSettings& InSessionSettings,
 			FSceneViewportPanel& InSceneViewportPanel,
 			FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
-			std::string& InDefaultLevel,
+			TSoftObjectPtr<DLevel>& InDefaultLevel,
 			std::function<void()> InClearError,
 			std::function<void(std::string)> InReportError,
 			std::function<void(bool)> InCompleteDeferredOpen
@@ -67,7 +68,7 @@ namespace Durin
 		FLevelEditorSessionSettings& SessionSettings;
 		FSceneViewportPanel& SceneViewportPanel;
 		FEditorAssetMoveCoordinator& AssetMoveCoordinator;
-		std::string& DefaultLevel;
+		TSoftObjectPtr<DLevel>& DefaultLevel;
 		std::function<void()> ClearError;
 		std::function<void(std::string)> ReportError;
 		std::function<void(bool)> CompleteDeferredOpen;

@@ -67,6 +67,7 @@ namespace Durin
 		FMapProperty = 1 << 22,
 		FNameProperty = 1 << 23,
 		FGuidProperty = 1 << 24,
+		FSoftObjectProperty = 1 << 25,
 	};
 
 	enum class EPropertyFlags

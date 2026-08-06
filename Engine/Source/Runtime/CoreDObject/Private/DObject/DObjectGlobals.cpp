@@ -35,6 +35,7 @@ namespace Durin
 			if (PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Struct) ExpectedLayout = DurinCodeGen::EPropertyParamLayout::Struct;
 			else if (PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Array) ExpectedLayout = DurinCodeGen::EPropertyParamLayout::Array;
 			else if (PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::Map) ExpectedLayout = DurinCodeGen::EPropertyParamLayout::Map;
+			else if (PropertyParams->Kind == DurinCodeGen::EPropertyGenFlags::SoftObject) ExpectedLayout = DurinCodeGen::EPropertyParamLayout::SoftObject;
 			if (PropertyParams->Layout != ExpectedLayout)
 			{
 				checkf(
@@ -152,6 +153,36 @@ namespace Durin
 					PropertyParams->bIsObjectPtrWrapper
 				);
 				break;
+			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+			{
+				const auto* SoftParams = static_cast<const DurinCodeGen::FSoftObjectPropertyParams*>(PropertyParams);
+				const std::string OwnerName = GetGeneratedPropertyOwnerName(Owner);
+				const char* PropertyName = PropertyParams->NameUTF8 ? PropertyParams->NameUTF8 : "<null>";
+				DClass* ExpectedClass = ResolveReferencedClass();
+				if (!ExpectedClass || !SoftParams->MutableSoftValueAccessor || !SoftParams->ConstSoftValueAccessor
+					|| PropertyParams->bIsObjectPtrWrapper || PropertyParams->ReferencedEnumFunc
+					|| PropertyParams->ReferencedStructFunc || PropertyParams->Inner || PropertyParams->Key || PropertyParams->Value
+					|| PropertyParams->ElementSize == 0 || PropertyParams->ValueSize != PropertyParams->ElementSize
+					|| PropertyParams->ValueAlignment == 0 || !PropertyParams->InitializeValue || !PropertyParams->DestroyValue
+					|| !PropertyParams->CopyConstructValue || !PropertyParams->CopyAssignValue)
+				{
+					checkf(false, "SoftObjectPropertyRegistration.InvalidDescriptor owner '{}' property '{}'.", OwnerName, PropertyName);
+					return nullptr;
+				}
+				Property = new FSoftObjectProperty(
+					Owner,
+					FName(PropertyParams->NameUTF8),
+					EObjectFlags::NoFlags,
+					PropertyParams->Flags,
+					PropertyParams->ArrayDim,
+					PropertyParams->Offset,
+					PropertyParams->ElementSize,
+					ExpectedClass,
+					SoftParams->MutableSoftValueAccessor,
+					SoftParams->ConstSoftValueAccessor
+				);
+				break;
+			}
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
 				const auto* StructParams = static_cast<const DurinCodeGen::FStructPropertyParams*>(PropertyParams);
@@ -306,7 +337,9 @@ namespace Durin
 					PropertyParams->ValueSize,
 					PropertyParams->ValueAlignment,
 					PropertyParams->InitializeValue,
-					PropertyParams->DestroyValue
+					PropertyParams->DestroyValue,
+					PropertyParams->CopyConstructValue,
+					PropertyParams->CopyAssignValue
 				);
 			}
 			for (size_t Index = 0; PropertyParams->MetaData && Index < PropertyParams->NumMetaData; ++Index)

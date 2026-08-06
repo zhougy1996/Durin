@@ -14,6 +14,7 @@ namespace Durin
 	{
 		constexpr uint32 ObjectGraphMagic = 0x4E524F44; // DORN
 		constexpr uint32 ObjectGraphVersion = 1;
+		constexpr uint64 MaximumSoftObjectPathBytes = 1024 * 1024;
 
 		auto WriteString(FArchive& Ar, std::string& Value) -> void
 		{
@@ -171,6 +172,53 @@ namespace Durin
 				if (Ar.IsLoading() && !Ar.HasError())
 				{
 					ObjectProperty->SetObjectPropertyValue(Container, ReferencedObject, ArrayIndex);
+				}
+				break;
+			}
+			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+			{
+				auto* SoftProperty = static_cast<FSoftObjectProperty*>(Property);
+				FSoftObjectPtr* Value = SoftProperty->GetSoftObjectPtr(Container, ArrayIndex);
+				if (!Value)
+				{
+					Ar.SetError("Soft object property has no typed value accessor.");
+					break;
+				}
+				uint8 ReferenceKind = Ar.IsSaving() && !Value->IsNull() ? 1 : 0;
+				Ar << ReferenceKind;
+				if (Ar.HasError()) break;
+				if (ReferenceKind == 0)
+				{
+					if (Ar.IsLoading()) Value->Reset();
+					break;
+				}
+				if (ReferenceKind != 1)
+				{
+					Ar.SetError("Unknown soft object reference tag.");
+					break;
+				}
+
+				std::string SerializedPath = Ar.IsSaving()
+					? Value->GetSoftObjectPath().ToString()
+					: std::string();
+				uint64 PathBytes = static_cast<uint64>(SerializedPath.size());
+				Ar << PathBytes;
+				if (Ar.HasError()) break;
+				if (PathBytes == 0 || PathBytes > MaximumSoftObjectPathBytes
+					|| (Ar.IsLoading() && PathBytes > Ar.GetRemainingBytes()))
+				{
+					Ar.SetError("Soft object path payload is empty, truncated, or exceeds 1 MiB.");
+					break;
+				}
+				if (Ar.IsLoading()) SerializedPath.resize(static_cast<size_t>(PathBytes));
+				Ar.SerializeBytes(SerializedPath.data(), PathBytes);
+				if (Ar.IsLoading() && !Ar.HasError())
+				{
+					FSoftObjectPath Path;
+					std::string Error;
+					if (!FSoftObjectPath::TryCreate(SerializedPath, Path, &Error))
+						Ar.SetError(Error.empty() ? "Archive contains an invalid soft object path." : std::move(Error));
+					else Value->SetPath(std::move(Path));
 				}
 				break;
 			}
@@ -456,6 +504,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Name:
 			case DurinCodeGen::EPropertyGenFlags::Guid:
 			case DurinCodeGen::EPropertyGenFlags::Object:
+			case DurinCodeGen::EPropertyGenFlags::SoftObject:
 				return true;
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{

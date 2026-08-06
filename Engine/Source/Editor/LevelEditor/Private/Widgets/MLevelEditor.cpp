@@ -17,6 +17,7 @@
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Misc/Project.h"
+#include "Misc/FileHelper.h"
 #include "Math/Operations.h"
 #include "MonaImGui.h"
 #include "Panels/ConsolePanel.h"
@@ -59,6 +60,8 @@ namespace Durin
 			SessionSettings.CaptureViewportState(*Context, *SceneViewportPanel);
 			SessionSettings.Save(SceneViewportPanel);
 		}
+		DocumentController.reset();
+		AssetMoveCoordinator.reset();
 	}
 
 	auto MLevelEditor::Construct() -> void
@@ -84,6 +87,17 @@ namespace Durin
 			StartPlay(StartLocation, Destination);
 		};
 		Context->ApplyPlayChanges = [this](bool bSelectedOnly) { ApplyPlayChanges(bSelectedOnly); };
+		Context->RevealAsset = [this](const FAssetPath& Path, std::string& Error) {
+			if (RevealAssetInContentBrowser(Path)) return true;
+			Error = "The asset could not be revealed in the Content Browser.";
+			return false;
+		};
+		Context->OpenAsset = [this](const FAssetPath& Path, std::string& Error) {
+			const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(Path);
+			if (Data && WorkspaceManager.OpenAsset(Path.ToString(), Data->AssetClassName)) return true;
+			Error = "The loaded asset could not be opened.";
+			return false;
+		};
 	}
 
 	auto MLevelEditor::InitializeSession() -> void
@@ -225,14 +239,15 @@ namespace Durin
 		DocumentController->OpenDefaultLevel();
 		if (!EditorError.empty())
 		{
-			DURIN_WARN("Could not open project default level {}: {}", DefaultLevel, EditorError);
+			DURIN_WARN("Could not open project default level {}: {}",
+				DefaultLevel.GetSoftObjectPath().ToString(), EditorError);
 			EditorError.clear();
 		}
 	}
 
 	auto MLevelEditor::LoadProjectSettings() -> bool
 	{
-		DefaultLevel.clear();
+		DefaultLevel.Reset();
 		const FProjectInfo* Project = GetCurrentProject();
 		if (!Project) return false;
 		const std::string File = Project->ProjectDir + "Configs/Project.yaml";
@@ -244,7 +259,19 @@ namespace Durin
 			DURIN_WARN("Failed to load project settings: {}", Error.Message);
 			return false;
 		}
-		DefaultLevel = Document.GetRootView().GetView("Editor").GetView("DefaultLevel").GetString();
+		const std::string StoredPath =
+			Document.GetRootView().GetView("Editor").GetView("DefaultLevel").GetString();
+		if (!StoredPath.empty())
+		{
+			FSoftObjectPath Path;
+			std::string PathError;
+			if (!FSoftObjectPath::TryCreate(StoredPath, Path, &PathError))
+			{
+				DURIN_WARN("Project default level '{}' is invalid: {}", StoredPath, PathError);
+				return false;
+			}
+			DefaultLevel.SetPath(std::move(Path));
+		}
 		return true;
 	}
 
@@ -256,15 +283,22 @@ namespace Durin
 			SetError("No project is open.");
 			return false;
 		}
-		if (!DefaultLevel.empty() && !DefaultLevel.starts_with(Project->MountRoot))
+		const FAssetPath& DefaultLevelPath =
+			DefaultLevel.GetSoftObjectPath().GetAssetPath();
+		if (!DefaultLevel.IsNull()
+			&& !DefaultLevelPath.GetView().starts_with(Project->MountRoot))
 		{
 			SetError("The default level must belong to the current project.");
 			return false;
 		}
-		const auto Found = std::ranges::find_if(Asset::GetAssetRegistry().GetAssets(), [this](const auto& Entry) {
-			return Entry.first.ToString() == DefaultLevel && Entry.second.AssetClassName == DLevel::StaticClass()->GetQualifiedName().ToString();
+		const auto Found = std::ranges::find_if(Asset::GetAssetRegistry().GetAssets(),
+			[&DefaultLevelPath](const auto& Entry) {
+			return Entry.first == DefaultLevelPath
+				&& Entry.second.AssetClassName
+					== DLevel::StaticClass()->GetQualifiedName().ToString();
 		});
-		if (!DefaultLevel.empty() && Found == Asset::GetAssetRegistry().GetAssets().end())
+		if (!DefaultLevel.IsNull()
+			&& Found == Asset::GetAssetRegistry().GetAssets().end())
 		{
 			SetError("The default level is not a registered Level asset.");
 			return false;
@@ -301,10 +335,21 @@ namespace Durin
 			SetError("The Editor project setting must be a YAML map.");
 			return false;
 		}
-		Editor.SetChildValue("DefaultLevel", DefaultLevel);
-		if (!Document.SaveToFile(SettingsFile))
+		Editor.SetChildValue(
+			"DefaultLevel", DefaultLevel.GetSoftObjectPath().ToString());
+		const std::string SettingsBytes = Document.ToString();
+		FFileHelper::FAtomicFileError PublicationError;
+		if (SettingsBytes.empty()
+			|| !FFileHelper::SaveArrayToFileAtomically(
+				std::span{reinterpret_cast<const std::byte*>(SettingsBytes.data()),
+					SettingsBytes.size()},
+				SettingsFile,
+				&PublicationError))
 		{
-			SetError("Could not save project settings.");
+			SetError(SettingsBytes.empty()
+				? "Could not serialize project settings."
+				: std::format("Could not save project settings: {}",
+					PublicationError.ToString()));
 			return false;
 		}
 		return true;
@@ -633,21 +678,23 @@ namespace Durin
 					.SearchHint = "Search levels...",
 					.RequiredClass = DLevel::StaticClass(),
 					.ClassPolicy = EEditorAssetClassPolicy::Exact,
-					.CurrentSelectionPath = PendingDefaultLevel,
+					.AssignmentMode = EEditorAssetAssignmentMode::AssetPath,
+					.CurrentSelectionPath =
+						PendingDefaultLevel.GetSoftObjectPath().GetView(),
 					.SearchText = LevelSearchText,
 					.bAllowNone = true,
 					.NoneLabel = "None",
-					.AssignSelection = [this](DObject* Selection, std::string& OutError) {
-						if (Selection)
+					.AssignPathSelection = [this](
+						std::string_view SelectionPath, std::string& OutError) {
+						if (SelectionPath.empty())
 						{
-							if (!Selection->GetPackage())
-							{
-								OutError = "The selected level is not in a package.";
-								return false;
-							}
-							PendingDefaultLevel = Selection->GetPackage()->GetPackagePath();
+							PendingDefaultLevel.Reset();
+							return true;
 						}
-						else PendingDefaultLevel.clear();
+						FSoftObjectPath Path;
+						if (!FSoftObjectPath::TryCreate(SelectionPath, Path, &OutError))
+							return false;
+						PendingDefaultLevel.SetPath(std::move(Path));
 						return true;
 					},
 					.PathPrefixFilter = Project->MountRoot,
@@ -668,7 +715,7 @@ namespace Durin
 			if (!bCanApply) ImGui::BeginDisabled();
 			if (ImGui::Button("Apply", ImVec2(ButtonWidth, 0.0f)))
 			{
-				const std::string PreviousDefaultLevel = DefaultLevel;
+				const TSoftObjectPtr<DLevel> PreviousDefaultLevel = DefaultLevel;
 				DefaultLevel = PendingDefaultLevel;
 				if (!SaveProjectSettings()) DefaultLevel = PreviousDefaultLevel;
 			}

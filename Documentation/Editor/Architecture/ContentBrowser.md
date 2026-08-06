@@ -67,6 +67,12 @@ companions. References between assets inside the same deletion set are allowed.
 AssetCore assigns each companion to one owner and includes an owned companion
 outside a selected folder once as a standalone root.
 
+Soft references are not part of deletion planning or transaction safety. They
+do not appear as blockers, are not captured by the deletion token, and are not
+revalidated during Execute or Redo. Deleting a soft target leaves the authored
+source path unchanged and potentially dangling; restoring the target through
+Undo makes that same path resolvable again.
+
 ### Transaction and Recovery
 
 The first deletion executes through the global editor transaction manager, so

@@ -29,6 +29,12 @@ namespace Durin::Asset
 			if (Kind == DurinCodeGen::EPropertyGenFlags::Object)
 				return std::format("Object:{}:{}", Property->GetReferencedClass()
 					? Property->GetReferencedClass()->GetQualifiedName().ToString() : "DObject", Property->IsObjectPtrWrapper());
+			if (Kind == DurinCodeGen::EPropertyGenFlags::SoftObject)
+			{
+				auto* SoftObject = static_cast<FSoftObjectProperty*>(Property);
+				return std::format("SoftObject:{}:v1", SoftObject->GetExpectedClass()
+					? SoftObject->GetExpectedClass()->GetQualifiedName().ToString() : "DObject");
+			}
 			if (Kind == DurinCodeGen::EPropertyGenFlags::Enum)
 			{
 				auto* Enum = static_cast<FEnumProperty*>(Property);

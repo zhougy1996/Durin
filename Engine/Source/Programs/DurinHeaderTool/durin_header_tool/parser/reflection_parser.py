@@ -648,6 +648,124 @@ def _tobject_ptr_arg(type_spelling: str) -> str:
     return _source_template_args(normalized, "TObjectPtr")[0] if _source_template_args(normalized, "TObjectPtr") else ""
 
 
+def _is_tsoft_object_ptr(type_spelling: str) -> bool:
+    normalized = type_spelling.replace(" ", "").removeprefix("::")
+    return normalized.startswith("TSoftObjectPtr<") or normalized.startswith("Durin::TSoftObjectPtr<")
+
+
+def _tsoft_object_ptr_arg(type_spelling: str) -> str:
+    normalized = type_spelling.strip().removeprefix("::")
+    template_name = (
+        "Durin::TSoftObjectPtr"
+        if normalized.replace(" ", "").startswith("Durin::TSoftObjectPtr<")
+        else "TSoftObjectPtr"
+    )
+    args = _source_template_args(normalized, template_name)
+    return args[0].strip() if len(args) == 1 else ""
+
+
+def _contains_soft_object_spelling(type_spelling: str) -> bool:
+    compact = type_spelling.replace(" ", "")
+    return "TSoftObjectPtr" in compact or "FSoftObjectPtr" in compact
+
+
+def _validate_soft_object_spelling(
+    type_spelling: str,
+    property_name: str,
+    line_number: int,
+    exported_symbols: ExportedSymbols | None,
+) -> None:
+    location = f"DPROPERTY '{property_name}' at line {line_number}"
+    source_compact = type_spelling.strip().replace(" ", "").removeprefix("::")
+    normalized = _normalize_type_spelling(type_spelling)
+    compact = normalized.replace(" ", "").removeprefix("::")
+
+    if "FSoftObjectPtr" in compact:
+        raise ValueError(
+            f"[DHT-SOFT001] {location}: raw FSoftObjectPtr is unsupported; "
+            "use TSoftObjectPtr<ReflectedObjectClass>"
+        )
+    if compact in ("TSoftObjectPtr", "Durin::TSoftObjectPtr"):
+        raise ValueError(
+            f"[DHT-SOFT001] {location}: TSoftObjectPtr requires exactly one reflected object class"
+        )
+    if "TSoftObjectPtr" in compact and (
+        source_compact.startswith("const")
+        or source_compact.startswith("volatile")
+        or source_compact.endswith("*")
+        or source_compact.endswith("&")
+        or source_compact.endswith("&&")
+        or source_compact.endswith("const")
+        or source_compact.endswith("volatile")
+    ):
+        raise ValueError(
+            f"[DHT-SOFT003] {location}: soft object properties do not support "
+            "cv-qualifiers, pointers, or references"
+        )
+    if _is_tsoft_object_ptr(type_spelling):
+        target = _tsoft_object_ptr_arg(type_spelling)
+        if not target:
+            raise ValueError(
+                f"[DHT-SOFT001] {location}: TSoftObjectPtr requires exactly one reflected object class"
+            )
+        if re.search(r"\b(?:const|volatile)\b", target) \
+            or target.endswith("*") or target.endswith("&"):
+            raise ValueError(
+                f"[DHT-SOFT003] {location}: soft object target '{target}' must be an unqualified object class"
+            )
+        if exported_symbols:
+            resolved_class = _resolved_symbol_name((target,), exported_symbols, kinds=("class",))
+            if not resolved_class:
+                resolved_non_object = _resolved_symbol_name(
+                    (target,), exported_symbols, kinds=("struct", "enum")
+                )
+                code = "DHT-SOFT004" if resolved_non_object else "DHT-SOFT005"
+                reason = "is not an object class" if resolved_non_object else "could not be resolved"
+                raise ValueError(
+                    f"[{code}] {location}: soft object target '{target}' {reason}"
+                )
+        return
+    if _is_std_vector(normalized):
+        args = _source_template_args(normalized.removeprefix("::"), "std::vector")
+        if args:
+            _validate_soft_object_spelling(args[0], property_name, line_number, exported_symbols)
+        return
+    if _is_std_unordered_map(normalized):
+        args = _source_template_args(normalized.removeprefix("::"), "std::unordered_map")
+        if len(args) >= 2:
+            if _contains_soft_object_spelling(args[0]):
+                raise ValueError(
+                    f"[DHT-SOFT006] {location}: soft object references are unsupported as Map keys"
+                )
+            _validate_soft_object_spelling(args[1], property_name, line_number, exported_symbols)
+        return
+    if "TSoftObjectPtr" in compact:
+        raise ValueError(
+            f"[DHT-SOFT002] {location}: unsupported soft object declaration '{normalized}'; "
+            "spell TSoftObjectPtr<T> directly"
+        )
+
+
+def _soft_object_alias_names(source: str) -> set[str]:
+    aliases = {
+        match.group(1)
+        for match in re.finditer(
+            r"\busing\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+            r"(?:::)?(?:Durin::)?TSoftObjectPtr\s*<[^;]+>;",
+            source,
+        )
+    }
+    aliases.update(
+        match.group(1)
+        for match in re.finditer(
+            r"\btypedef\s+(?:::)?(?:Durin::)?TSoftObjectPtr\s*<[^;]+>\s+"
+            r"([A-Za-z_][A-Za-z0-9_]*)\s*;",
+            source,
+        )
+    )
+    return aliases
+
+
 def _resolved_symbol_name(
     spellings: tuple[str, ...],
     exported_symbols: ExportedSymbols | None,
@@ -698,6 +816,10 @@ def _cpp_type_spelling(type_spelling: str, exported_symbols: ExportedSymbols | N
         arg = _tobject_ptr_arg(type_spelling)
         if arg:
             return f"Durin::TObjectPtr<{_cpp_type_spelling(arg, exported_symbols)}>"
+    if _is_tsoft_object_ptr(type_spelling):
+        arg = _tsoft_object_ptr_arg(type_spelling)
+        if arg:
+            return f"Durin::TSoftObjectPtr<{_cpp_type_spelling(arg, exported_symbols)}>"
     if resolved := _resolved_symbol_name(
         (type_spelling,),
         exported_symbols,
@@ -925,6 +1047,25 @@ def _make_property_from_spelling(
                 flags=flags,
                 is_object_ptr_wrapper=True,
             )
+    if allow_object and _is_tsoft_object_ptr(type_spelling):
+        pointee = _tsoft_object_ptr_arg(type_spelling)
+        if not pointee:
+            return None
+        referenced_type = (
+            pointee
+            if not exported_symbols
+            else _resolved_symbol_name((pointee,), exported_symbols, kinds=("class",))
+        )
+        if referenced_type:
+            return ReflectedPropertyInfo(
+                name=name,
+                type_name=type_spelling,
+                kind="SoftObject",
+                referenced_type=referenced_type,
+                array_dim=array_dim,
+                element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols)})",
+                flags=flags,
+            )
     return None
 
 
@@ -1062,6 +1203,19 @@ def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: Exported
         return None
 
     source_type = _source_declared_type(source, field_cursor)
+    if source_type:
+        if any(
+            re.search(rf"\b{re.escape(alias)}\b", source_type)
+            for alias in _soft_object_alias_names(source)
+        ):
+            raise ValueError(
+                f"[DHT-SOFT002] DPROPERTY '{field_cursor.spelling}' at line "
+                f"{field_cursor.location.line}: aliases of TSoftObjectPtr<T> are unsupported; "
+                "spell the template directly"
+            )
+        _validate_soft_object_spelling(
+            source_type, field_cursor.spelling, field_cursor.location.line, exported_symbols
+        )
     if source_type and (_is_std_vector(source_type) or _is_std_unordered_map(source_type)):
         _validate_explicit_container_spelling(source_type, field_cursor.spelling, field_cursor.location.line)
         return _apply_property_annotation(_make_property_from_spelling(
@@ -1093,6 +1247,12 @@ def _make_property(field_cursor: clang.cindex.Cursor, exported_symbols: Exported
         array_dim=_array_dim(field_cursor),
     )
     if prop:
+        if prop.kind == "SoftObject" and source_type and not _is_tsoft_object_ptr(source_type):
+            raise ValueError(
+                f"[DHT-SOFT002] DPROPERTY '{field_cursor.spelling}' at line "
+                f"{field_cursor.location.line}: aliases of TSoftObjectPtr<T> are unsupported; "
+                "spell the template directly"
+            )
         return _apply_property_annotation(prop, annotation)
 
     if source_type:
@@ -1208,7 +1368,7 @@ def _synthetic_parser_prelude(
         "using uint8 = unsigned char; using uint16 = unsigned short; using uint32 = unsigned int; "
         "using uint64 = unsigned long long;",
         "class FName {}; struct FGuid {}; class FObjectInitializer {};",
-        "template<class T> class TObjectPtr {};",
+        "template<class T> class TObjectPtr {}; template<class T> class TSoftObjectPtr {};",
         "}",
     ]
     for symbol in sorted((exported_symbols or {}).values(), key=lambda item: item.QualifiedName):

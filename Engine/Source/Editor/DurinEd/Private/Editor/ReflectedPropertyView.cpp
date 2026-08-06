@@ -9,6 +9,7 @@
 #include "DObject/MathStructs.h"
 #include "DObject/Package.h"
 #include "Editor/EditorAssetPicker.h"
+#include "Icons/FontAwesomeIcons.h"
 #include "Math/Color.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
@@ -52,6 +53,7 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Guid: return "guid";
 			case DurinCodeGen::EPropertyGenFlags::Enum: return "enum";
 			case DurinCodeGen::EPropertyGenFlags::Object: return "object";
+			case DurinCodeGen::EPropertyGenFlags::SoftObject: return "soft object";
 			case DurinCodeGen::EPropertyGenFlags::Struct: return "struct";
 			case DurinCodeGen::EPropertyGenFlags::Array: return "array";
 			case DurinCodeGen::EPropertyGenFlags::Map: return "map";
@@ -153,6 +155,97 @@ namespace Durin
 			}
 			return std::format("{} {}", SourceName, DisplayName);
 		}
+	}
+
+	auto GetSoftObjectPropertyStateLabel(ESoftObjectPropertyViewState State) -> std::string_view
+	{
+		switch (State)
+		{
+		case ESoftObjectPropertyViewState::Null: return "Null";
+		case ESoftObjectPropertyViewState::Unloaded: return "Unloaded";
+		case ESoftObjectPropertyViewState::Loaded: return "Loaded";
+		case ESoftObjectPropertyViewState::Missing: return "Missing";
+		case ESoftObjectPropertyViewState::TypeMismatch: return "Type mismatch";
+		default: return "Unknown";
+		}
+	}
+
+	auto InspectSoftObjectProperty(
+		FSoftObjectProperty* Property,
+		void* Container,
+		uint32 ArrayIndex
+	) -> FSoftObjectPropertyViewState
+	{
+		FSoftObjectPropertyViewState ViewState;
+		if (!Property || !Container || ArrayIndex >= Property->GetArrayDim())
+		{
+			ViewState.State = ESoftObjectPropertyViewState::TypeMismatch;
+			ViewState.Message = "Soft object property metadata or storage is unavailable.";
+			return ViewState;
+		}
+		FSoftObjectPtr* Reference = Property->GetSoftObjectPtr(Container, ArrayIndex);
+		if (!Reference)
+		{
+			ViewState.State = ESoftObjectPropertyViewState::TypeMismatch;
+			ViewState.Message = "Soft object property has no typed value accessor.";
+			return ViewState;
+		}
+		if (Reference->IsNull()) return ViewState;
+		ViewState.Path = Reference->GetSoftObjectPath().GetAssetPath();
+
+		const Asset::FSoftObjectResolveResult Resolve = Asset::ResolveSoftObject(
+			*Reference, Property->GetExpectedClass(), Asset::ESoftObjectNullPolicy::Reject);
+		if (!Resolve)
+		{
+			ViewState.State = ESoftObjectPropertyViewState::TypeMismatch;
+			ViewState.Message = Resolve.Result.Message;
+			return ViewState;
+		}
+		if (Resolve.State == Asset::ESoftObjectResolveState::Loaded)
+		{
+			ViewState.State = ESoftObjectPropertyViewState::Loaded;
+			ViewState.LoadedObject = Resolve.Object;
+			return ViewState;
+		}
+		if (!Asset::GetAssetRegistry().FindAsset(ViewState.Path))
+		{
+			ViewState.State = ESoftObjectPropertyViewState::Missing;
+			ViewState.Message = std::format("Asset {} is not present in the registry.", ViewState.Path.ToString());
+			return ViewState;
+		}
+		ViewState.State = ESoftObjectPropertyViewState::Unloaded;
+		return ViewState;
+	}
+
+	auto LoadSoftObjectProperty(
+		FSoftObjectProperty* Property,
+		void* Container,
+		uint32 ArrayIndex,
+		DObject*& OutObject,
+		std::string* OutError
+	) -> bool
+	{
+		if (OutError) OutError->clear();
+		OutObject = nullptr;
+		if (!Property || !Container || ArrayIndex >= Property->GetArrayDim())
+		{
+			if (OutError) *OutError = "Soft object property metadata or storage is unavailable.";
+			return false;
+		}
+		FSoftObjectPtr* Reference = Property->GetSoftObjectPtr(Container, ArrayIndex);
+		if (!Reference)
+		{
+			if (OutError) *OutError = "Soft object property has no typed value accessor.";
+			return false;
+		}
+		const Asset::FAssetResult Result = Asset::LoadSoftObject(
+			*Reference, Property->GetExpectedClass(), OutObject, Asset::ESoftObjectNullPolicy::Reject);
+		if (!Result)
+		{
+			if (OutError) *OutError = Result.Message;
+			return false;
+		}
+		return OutObject != nullptr;
 	}
 
 	auto FReflectedPropertyView::EditObject(
@@ -470,6 +563,85 @@ namespace Durin
 			if (bChanged) Result.AssignValue = [SelectedObject](FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {
 				static_cast<FObjectProperty*>(DestinationProperty)->SetObjectPropertyValue(DestinationContainer, SelectedObject, DestinationArrayIndex);
 			};
+		}
+		else if (Kind == DurinCodeGen::EPropertyGenFlags::SoftObject)
+		{
+			auto* SoftProperty = static_cast<FSoftObjectProperty*>(Property);
+			FSoftObjectPtr* CurrentReference = SoftProperty->GetSoftObjectPtr(Container, ArrayIndex);
+			const FSoftObjectPropertyViewState ViewState = InspectSoftObjectProperty(SoftProperty, Container, ArrayIndex);
+			FSoftObjectPath SelectedPath = CurrentReference ? CurrentReference->GetSoftObjectPath() : FSoftObjectPath();
+			const std::string_view StateLabel = GetSoftObjectPropertyStateLabel(ViewState.State);
+			const bool bCanLoad = ViewState.State == ESoftObjectPropertyViewState::Unloaded
+				|| ViewState.State == ESoftObjectPropertyViewState::Missing;
+			const bool bCanReveal = ViewState.Path.IsValid()
+				&& Asset::GetAssetRegistry().FindAsset(ViewState.Path) && Context.RevealAsset;
+			const bool bCanOpen = ViewState.State == ESoftObjectPropertyViewState::Loaded && Context.OpenAsset;
+
+			const FEditorAssetPickerAction LoadAction{
+				.Icon = Icons::Play,
+				.ButtonId = "LoadSoftObject",
+				.Tooltip = bCanLoad ? "Load the referenced asset." : "The referenced asset is not loadable in its current state.",
+				.bEnabled = bCanLoad,
+				.Execute = [SoftProperty, Container, ArrayIndex](std::string& Error) {
+					DObject* LoadedObject = nullptr;
+					if (!LoadSoftObjectProperty(SoftProperty, Container, ArrayIndex, LoadedObject, &Error)) return false;
+					return LoadedObject != nullptr;
+				},
+			};
+			const std::array<FEditorAssetPickerAction, 2> AdditionalActions{{
+				{
+					.Icon = Icons::Eye,
+					.ButtonId = "RevealSoftObject",
+					.Tooltip = "Reveal the referenced asset in the Content Browser.",
+					.bEnabled = bCanReveal,
+					.Execute = [&Context, &ViewState](std::string& Error) {
+						return Context.RevealAsset && Context.RevealAsset(ViewState.Path, Error);
+					},
+				},
+				{
+					.Icon = Icons::FolderOpen,
+					.ButtonId = "OpenSoftObject",
+					.Tooltip = "Open the loaded referenced asset.",
+					.bEnabled = bCanOpen,
+					.Execute = [&Context, &ViewState](std::string& Error) {
+						return Context.OpenAsset && Context.OpenAsset(ViewState.Path, Error);
+					},
+				},
+			}};
+			const FEditorAssetPickerResult PickerResult = EditorAssetPicker::Draw({
+				.ComboId = "##Value",
+				.SearchId = "##SoftObjectSearch",
+				.SearchHint = "Search assets...",
+				.RequiredClass = SoftProperty->GetExpectedClass(),
+				.ClassPolicy = EEditorAssetClassPolicy::Derived,
+				.AssignmentMode = EEditorAssetAssignmentMode::AssetPath,
+				.CurrentSelection = ViewState.LoadedObject,
+				.CurrentSelectionPath = ViewState.Path.GetView(),
+				.CurrentSelectionStatus = StateLabel,
+				.SearchText = AssetSearchText,
+				.bAllowNone = true,
+				.AssignPathSelection = [&SelectedPath](std::string_view Path, std::string& Error) {
+					if (Path.empty())
+					{
+						SelectedPath.Reset();
+						return true;
+					}
+					return FSoftObjectPath::TryCreate(Path, SelectedPath, &Error);
+				},
+				.TrailingAction = LoadAction,
+				.AdditionalTrailingActions = AdditionalActions,
+			});
+			if (!PickerResult.Error.empty()) ReportError(Context, PickerResult.Error);
+			CaptureResult(PickerResult.bSelectionChanged, false);
+			if (PickerResult.bSelectionChanged)
+			{
+				Result.AssignValue = [SelectedPath](
+					FProperty* DestinationProperty, void* DestinationContainer, uint32 DestinationArrayIndex) {
+					auto* Destination = static_cast<FSoftObjectProperty*>(DestinationProperty)
+						->GetSoftObjectPtr(DestinationContainer, DestinationArrayIndex);
+					if (Destination) Destination->SetPath(SelectedPath);
+				};
+			}
 		}
 		else
 		{

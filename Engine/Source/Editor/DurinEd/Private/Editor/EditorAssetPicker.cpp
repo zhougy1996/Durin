@@ -161,11 +161,17 @@ namespace Durin::EditorAssetPicker
 	auto Draw(const FEditorAssetPickerConfig& Config) -> FEditorAssetPickerResult
 	{
 		FEditorAssetPickerResult PickerResult;
+		const bool bPathAssignment = Config.AssignmentMode == EEditorAssetAssignmentMode::AssetPath;
 		const bool bInvalidAction = Config.TrailingAction &&
 			(!Config.TrailingAction->Icon || !Config.TrailingAction->ButtonId || !Config.TrailingAction->Execute);
+		const bool bInvalidAdditionalAction = std::ranges::any_of(
+			Config.AdditionalTrailingActions,
+			[](const FEditorAssetPickerAction& Action) {
+				return !Action.Icon || !Action.ButtonId || !Action.Execute;
+			});
 		if (!Config.RequiredClass || !Config.ComboId || !Config.SearchId || Config.SearchText.empty() ||
-			!Config.AssignSelection || Config.MaxSearchResults == 0 ||
-			Config.MaxSearchResults > static_cast<uint32>(std::numeric_limits<int>::max()) || bInvalidAction)
+			(bPathAssignment ? !Config.AssignPathSelection : !Config.AssignSelection) || Config.MaxSearchResults == 0 ||
+			Config.MaxSearchResults > static_cast<uint32>(std::numeric_limits<int>::max()) || bInvalidAction || bInvalidAdditionalAction)
 		{
 			PickerResult.Error = "The asset picker configuration is incomplete.";
 			return PickerResult;
@@ -173,10 +179,13 @@ namespace Durin::EditorAssetPicker
 
 		const std::string_view NoneLabel = Config.NoneLabel ? Config.NoneLabel : "None";
 		const std::string CurrentPath = GetAssetPathOrNone(Config.CurrentSelection, Config.CurrentSelectionPath, {});
-		const std::string Preview = CurrentPath.empty() ? std::string(NoneLabel) : CurrentPath;
-		if (Config.TrailingAction)
+		std::string Preview = CurrentPath.empty() ? std::string(NoneLabel) : CurrentPath;
+		if (!Config.CurrentSelectionStatus.empty()) Preview += std::format(" [{}]", Config.CurrentSelectionStatus);
+		const size_t ActionCount = (Config.TrailingAction ? 1u : 0u) + Config.AdditionalTrailingActions.size();
+		if (ActionCount > 0)
 		{
-			const float ReservedWidth = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x;
+			const float ReservedWidth = static_cast<float>(ActionCount) *
+				(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x);
 			ImGui::SetNextItemWidth(std::max(1.0f, ImGui::GetContentRegionAvail().x - ReservedWidth));
 		}
 		else ImGui::SetNextItemWidth(-FLT_MIN);
@@ -192,7 +201,7 @@ namespace Durin::EditorAssetPicker
 				Config.SearchText.size()
 			);
 
-			const auto Assign = [&](DObject* Selection) {
+			const auto AssignObject = [&](DObject* Selection) {
 				std::string Error;
 				if (!Config.AssignSelection(Selection, Error))
 				{
@@ -202,8 +211,20 @@ namespace Durin::EditorAssetPicker
 				const std::string SelectedPath = GetAssetPathOrNone(Selection, {});
 				PickerResult.bSelectionChanged = SelectedPath != CurrentPath;
 			};
+			const auto AssignPath = [&](std::string_view SelectionPath) {
+				std::string Error;
+				if (!Config.AssignPathSelection(SelectionPath, Error))
+				{
+					PickerResult.Error = Error.empty() ? "The selected asset path was rejected." : std::move(Error);
+					return;
+				}
+				PickerResult.bSelectionChanged = SelectionPath != CurrentPath;
+			};
 			if (Config.bAllowNone && ImGui::Selectable(NoneLabel.data(), CurrentPath.empty()))
-				Assign(nullptr);
+			{
+				if (bPathAssignment) AssignPath({});
+				else AssignObject(nullptr);
+			}
 
 			const FCandidateCacheKey CandidateKey{
 				.RequiredClass = Config.RequiredClass,
@@ -226,6 +247,11 @@ namespace Durin::EditorAssetPicker
 					const FAssetPath& Path = *Search.MatchingPaths[Index];
 					const bool bSelected = CurrentPath == Path.GetView();
 					if (!ImGui::Selectable(Path.ToString().c_str(), bSelected)) continue;
+					if (bPathAssignment)
+					{
+						AssignPath(Path.GetView());
+						continue;
+					}
 					DObject* LoadedAsset = nullptr;
 					const Asset::FAssetResult LoadResult = Asset::LoadAsset(Path, LoadedAsset);
 					if (!LoadResult || !LoadedAsset)
@@ -233,7 +259,7 @@ namespace Durin::EditorAssetPicker
 						PickerResult.Error = LoadResult ? "The selected asset could not be loaded." : LoadResult.Message;
 						continue;
 					}
-					Assign(LoadedAsset);
+					AssignObject(LoadedAsset);
 				}
 			}
 			if (Search.MatchingPaths.empty()) ImGui::TextDisabled("No matching assets.");
@@ -242,9 +268,8 @@ namespace Durin::EditorAssetPicker
 			ImGui::EndCombo();
 		}
 
-		if (Config.TrailingAction)
+		const auto DrawAction = [&](const FEditorAssetPickerAction& Action)
 		{
-			const FEditorAssetPickerAction& Action = *Config.TrailingAction;
 			ImGui::SameLine();
 			ImGui::BeginDisabled(!Action.bEnabled);
 			const bool bTriggered = MonaImGui::ToolbarIconButton(Action.Icon, Action.ButtonId);
@@ -258,7 +283,9 @@ namespace Durin::EditorAssetPicker
 					PickerResult.Error = Error.empty() ? "The asset picker action failed." : std::move(Error);
 				else PickerResult.bTrailingActionTriggered = true;
 			}
-		}
+		};
+		if (Config.TrailingAction) DrawAction(*Config.TrailingAction);
+		for (const FEditorAssetPickerAction& Action : Config.AdditionalTrailingActions) DrawAction(Action);
 		return PickerResult;
 	}
 }

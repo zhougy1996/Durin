@@ -40,15 +40,21 @@ namespace Durin
 			const std::string SettingsPath = CurrentProject->ProjectDir + "Configs/Project.yaml";
 			if (ProjectSettings.LoadFromFile(SettingsPath))
 			{
-				const std::string DefaultLevel = ProjectSettings.GetRootView().GetView("Editor").GetView("DefaultLevel").GetString();
-				FAssetPath LevelPath;
+				const std::string DefaultLevelPath = ProjectSettings.GetRootView()
+					.GetView("Editor").GetView("DefaultLevel").GetString();
+				FSoftObjectPath SoftPath;
+				TSoftObjectPtr<DLevel> DefaultLevel;
 				DLevel* Level = nullptr;
 				Asset::GetAssetRegistry().ScanMountedContent(Asset::EAssetRegistryScanMode::Incremental);
-				if (!DefaultLevel.empty() && FAssetPath::TryCreate(DefaultLevel, LevelPath))
+				if (!DefaultLevelPath.empty()
+					&& FSoftObjectPath::TryCreate(DefaultLevelPath, SoftPath))
 				{
-					const Asset::FAssetResult Result = Asset::LoadAsset(LevelPath, Level);
+					DefaultLevel.SetPath(std::move(SoftPath));
+					const Asset::FAssetResult Result =
+						Asset::LoadSoftObject(DefaultLevel, Level);
 					if (Result && GetWorld()->SetCurrentLevel(Level)) GetWorld()->BeginPlay();
-					else DURIN_WARN("Could not start default level '{}': {}", DefaultLevel, Result.Message);
+					else DURIN_WARN("Could not start default level '{}': {}",
+						DefaultLevelPath, Result.Message);
 				}
 			}
 		}

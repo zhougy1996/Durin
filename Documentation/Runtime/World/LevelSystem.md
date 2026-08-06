@@ -17,7 +17,15 @@ rebuilt from its mounted source file and is never serialized in the authored
 package. Version one intentionally supports a single active level and does not
 include sub-level streaming, PIE cloning, or Save As.
 
-At startup the editor opens the project's optional `Editor.DefaultLevel`. Projects without a default level start with an empty editor; levels are otherwise opened directly from the Content Browser. Missing or invalid defaults and failed level loads are non-fatal.
+At startup the editor opens the project's optional `Editor.DefaultLevel`.
+Editor and runtime code hold this setting as `TSoftObjectPtr<DLevel>` while the
+project YAML preserves its canonical path string. Picker assignment stores the
+path without loading; startup/open is the explicit typed load boundary. The
+project-settings file publishes atomically and contributes a reversible
+external-store action when the target level moves, so the level package,
+referencers, registry projection, in-memory setting, and YAML path commit or
+roll back together. Projects without a default level start with an empty
+editor; missing or invalid defaults and failed level loads are non-fatal.
 
 ## Lifecycle Mutation
 

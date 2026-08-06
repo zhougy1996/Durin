@@ -5,6 +5,7 @@
 namespace Durin
 {
 	class FLevelEditorSessionSettings;
+	class DLevel;
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
 
@@ -24,9 +25,10 @@ namespace Durin
 			FLevelEditorContext& InContext,
 			FLevelEditorSessionSettings& InSessionSettings,
 			FSceneViewportPanel& InSceneViewportPanel,
-			std::string& InDefaultLevel,
+			TSoftObjectPtr<DLevel>& InDefaultLevel,
 			std::function<bool()> InSaveProjectSettings
 		);
+		~FEditorAssetMoveCoordinator();
 
 		auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> Asset::FAssetResult;
 		auto MoveAssets(std::span<const FEditorAssetMove> Moves) -> Asset::FAssetResult;
@@ -37,7 +39,8 @@ namespace Durin
 		FLevelEditorContext& Context;
 		FLevelEditorSessionSettings& SessionSettings;
 		FSceneViewportPanel& SceneViewportPanel;
-		std::string& DefaultLevel;
+		TSoftObjectPtr<DLevel>& DefaultLevel;
 		std::function<bool()> SaveProjectSettings;
+		Asset::FAssetMoveExternalStoreHandle DefaultLevelStoreHandle = 0;
 	};
 } // namespace Durin

@@ -11,6 +11,7 @@ namespace Durin
 	class DClass;
 	class DEnum;
 	class DStruct;
+	class FSoftObjectPtr;
 
 	// Collects the class, Outer, name, and flags needed to allocate one DObject.
 	struct FStaticConstructObjectParameters
@@ -111,7 +112,8 @@ namespace Durin
 			Map,
 			Struct,
 			Name,
-			Guid
+			Guid,
+			SoftObject
 		};
 
 		enum class EPropertyParamLayout : uint8
@@ -119,7 +121,8 @@ namespace Durin
 			Legacy = 0,
 			Struct,
 			Array,
-			Map
+			Map,
+			SoftObject
 		};
 
 		struct FPropertyParamsBase;
@@ -134,6 +137,18 @@ namespace Durin
 		auto DestroyPropertyValue(void* Memory) -> void
 		{
 			std::destroy_at(static_cast<T*>(Memory));
+		}
+
+		template<typename T>
+		auto CopyConstructPropertyValue(void* Destination, const void* Source) -> void
+		{
+			std::construct_at(static_cast<T*>(Destination), *static_cast<const T*>(Source));
+		}
+
+		template<typename T>
+		auto CopyAssignPropertyValue(void* Destination, const void* Source) -> void
+		{
+			*static_cast<T*>(Destination) = *static_cast<const T*>(Source);
 		}
 
 		struct FEnumValueParams
@@ -196,6 +211,8 @@ namespace Durin
 			uint32 ValueAlignment = 0;
 			void (*InitializeValue)(void* Memory) = nullptr;
 			void (*DestroyValue)(void* Memory) = nullptr;
+			void (*CopyConstructValue)(void* Destination, const void* Source) = nullptr;
+			void (*CopyAssignValue)(void* Destination, const void* Source) = nullptr;
 			EPropertyParamLayout Layout = EPropertyParamLayout::Legacy;
 		};
 
@@ -220,6 +237,101 @@ namespace Durin
 		using FGuidPropertyParams = FPropertyParamsBase;
 		using FEnumPropertyParams = FPropertyParamsBase;
 		using FObjectPropertyParams = FPropertyParamsBase;
+
+		struct FSoftObjectPropertyParams final : public FPropertyParamsBase
+		{
+			using FExpectedClassResolver = DClass* (*)();
+			using FMutableSoftValueAccessor = FSoftObjectPtr* (*)(void* Value);
+			using FConstSoftValueAccessor = const FSoftObjectPtr* (*)(const void* Value);
+			using FMutableValueAccessor = void* (*)(void* Container, uint32 ArrayIndex);
+			using FConstValueAccessor = const void* (*)(const void* Container, uint32 ArrayIndex);
+
+			template<typename TValue>
+			static constexpr auto Create(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				FExpectedClassResolver InExpectedClassResolver,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			) -> FSoftObjectPropertyParams
+			{
+				FSoftObjectPropertyParams Params;
+				Params.Initialize<TValue>(
+					InNameUTF8, InFlags, InArrayDim, InOffset, InExpectedClassResolver,
+					InMetaData, InNumMetaData);
+				return Params;
+			}
+
+			template<typename TValue>
+			static constexpr auto WithAccessors(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				FExpectedClassResolver InExpectedClassResolver,
+				FMutableValueAccessor InMutableValueAccessor,
+				FConstValueAccessor InConstValueAccessor,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			) -> FSoftObjectPropertyParams
+			{
+				FSoftObjectPropertyParams Params = Create<TValue>(
+					InNameUTF8, InFlags, InArrayDim, 0, InExpectedClassResolver,
+					InMetaData, InNumMetaData);
+				Params.MutableValueAccessor = InMutableValueAccessor;
+				Params.ConstValueAccessor = InConstValueAccessor;
+				return Params;
+			}
+
+			FMutableSoftValueAccessor MutableSoftValueAccessor = nullptr;
+			FConstSoftValueAccessor ConstSoftValueAccessor = nullptr;
+
+		private:
+			template<typename TValue>
+			static auto AccessMutableSoftValue(void* Value) -> FSoftObjectPtr*
+			{
+				return Value ? &static_cast<TValue*>(Value)->GetBase() : nullptr;
+			}
+
+			template<typename TValue>
+			static auto AccessConstSoftValue(const void* Value) -> const FSoftObjectPtr*
+			{
+				return Value ? &static_cast<const TValue*>(Value)->GetBase() : nullptr;
+			}
+
+			template<typename TValue>
+			constexpr auto Initialize(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				FExpectedClassResolver InExpectedClassResolver,
+				const FMetaDataPair* InMetaData,
+				size_t InNumMetaData
+			) -> void
+			{
+				static_assert(sizeof(TValue) <= std::numeric_limits<uint16>::max());
+				NameUTF8 = InNameUTF8;
+				Flags = InFlags;
+				ArrayDim = InArrayDim;
+				Offset = InOffset;
+				ElementSize = static_cast<uint16>(sizeof(TValue));
+				Kind = EPropertyGenFlags::SoftObject;
+				ReferencedClassFunc = InExpectedClassResolver;
+				MetaData = InMetaData;
+				NumMetaData = InNumMetaData;
+				ValueSize = sizeof(TValue);
+				ValueAlignment = alignof(TValue);
+				InitializeValue = &InitializePropertyValue<TValue>;
+				DestroyValue = &DestroyPropertyValue<TValue>;
+				CopyConstructValue = &CopyConstructPropertyValue<TValue>;
+				CopyAssignValue = &CopyAssignPropertyValue<TValue>;
+				Layout = EPropertyParamLayout::SoftObject;
+				MutableSoftValueAccessor = &AccessMutableSoftValue<TValue>;
+				ConstSoftValueAccessor = &AccessConstSoftValue<TValue>;
+			}
+		};
 
 		struct FArrayPropertyParams final : public FPropertyParamsBase
 		{

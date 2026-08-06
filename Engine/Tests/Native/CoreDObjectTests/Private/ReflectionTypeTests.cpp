@@ -3,6 +3,7 @@
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
+#include "DObject/SoftObjectPtr.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/MathStructs.h"
 #include "DObject/ObjectLifecycle.h"
@@ -876,6 +877,7 @@ namespace
 		TTestMap<std::string, Durin::TObjectPtr<Durin::DObject>> DirectMap;
 		TTestMap<std::string, std::vector<Durin::TObjectPtr<Durin::DObject>>> ArrayMap;
 		Durin::TObjectPtr<Durin::DObject> DuplicateReference;
+		Durin::TSoftObjectPtr<Durin::DObject> SoftReference;
 	};
 
 	auto DGCReferenceSchemaDerivedForTest::StaticClass() -> Durin::DClass*
@@ -963,9 +965,15 @@ namespace
 				Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
 				nullptr, nullptr, nullptr, nullptr, true
 			};
+			static const auto SoftReference =
+				Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<Durin::TSoftObjectPtr<Durin::DObject>>(
+					"SoftReference", Durin::EPropertyFlags::None, 1,
+					static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, SoftReference)),
+					&Durin::DObject::StaticClass);
 
 			static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {
-				&Nested, &StructArray, &NestedArrays, &DirectMap, &ArrayMap, &DuplicateReference
+				&Nested, &StructArray, &NestedArrays, &DirectMap, &ArrayMap, &DuplicateReference,
+				&SoftReference
 			};
 			static const Durin::DurinCodeGen::FClassParams Params = {
 				&DGCReferenceSchemaDerivedForTest::StaticClassNoRegister,
@@ -1053,6 +1061,15 @@ namespace
 		Durin::FVector3 Accessed;
 	};
 
+	struct FSoftObjectPropertyOwnerForTest
+	{
+		Durin::TSoftObjectPtr<Durin::DObject> Direct;
+		Durin::TSoftObjectPtr<Durin::DObject> Fixed[2];
+		Durin::TSoftObjectPtr<Durin::DObject> Accessed;
+		std::vector<Durin::TSoftObjectPtr<Durin::DObject>> Array;
+		std::unordered_map<std::string, Durin::TSoftObjectPtr<Durin::DObject>> Map;
+	};
+
 	struct FUnavailableStructPropertyOwnerForTest
 	{
 		StructOpsTest::FDeletedDefault DeletedDefault;
@@ -1067,6 +1084,16 @@ namespace
 	auto GetAccessedVector(const void* Container, Durin::uint32 ArrayIndex) -> const void*
 	{
 		return &static_cast<const FTypedStructPropertyOwnerForTest*>(Container)->Accessed + ArrayIndex;
+	}
+
+	auto GetAccessedSoftObject(void* Container, Durin::uint32 ArrayIndex) -> void*
+	{
+		return &static_cast<FSoftObjectPropertyOwnerForTest*>(Container)->Accessed + ArrayIndex;
+	}
+
+	auto GetAccessedSoftObject(const void* Container, Durin::uint32 ArrayIndex) -> const void*
+	{
+		return &static_cast<const FSoftObjectPropertyOwnerForTest*>(Container)->Accessed + ArrayIndex;
 	}
 
 	auto GetTypedStructPropertyOwnerNoRegister() -> Durin::DStruct*
@@ -1115,6 +1142,74 @@ namespace
 			"FTypedStructPropertyOwnerForTest",
 			sizeof(FTypedStructPropertyOwnerForTest),
 			alignof(FTypedStructPropertyOwnerForTest),
+			Properties,
+			std::size(Properties)
+		};
+		return Durin::DurinCodeGen::ConstructDStruct(Params);
+	}
+
+	auto GetSoftObjectPropertyOwnerNoRegister() -> Durin::DStruct*
+	{
+		static Durin::DStruct* Struct = nullptr;
+		if (!Struct)
+		{
+			Struct = new Durin::DStruct(
+				Durin::EC_StaticConstructor,
+				Durin::FName("FSoftObjectPropertyOwnerForTest"),
+				Durin::FName("FSoftObjectPropertyOwnerForTest"),
+				sizeof(FSoftObjectPropertyOwnerForTest),
+				alignof(FSoftObjectPropertyOwnerForTest),
+				Durin::EObjectFlags::Transient
+			);
+			Struct->Register(Durin::DStruct::StaticClass, "", "FSoftObjectPropertyOwnerForTest");
+		}
+		return Struct;
+	}
+
+	auto GetSoftObjectPropertyOwner() -> Durin::DStruct*
+	{
+		using FSoftPtr = Durin::TSoftObjectPtr<Durin::DObject>;
+		static const Durin::DurinCodeGen::FMetaDataPair DirectMetaData[] = {{"Category", "SoftObject"}};
+		static const auto Direct = Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<FSoftPtr>(
+			"Direct", Durin::EPropertyFlags::Edit, 1,
+			static_cast<Durin::uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Direct)),
+			&Durin::DObject::StaticClass, DirectMetaData, std::size(DirectMetaData));
+		static const auto Fixed = Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<FSoftPtr>(
+			"Fixed", Durin::EPropertyFlags::Edit, 2,
+			static_cast<Durin::uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Fixed)),
+			&Durin::DObject::StaticClass);
+		static const auto Accessed = Durin::DurinCodeGen::FSoftObjectPropertyParams::WithAccessors<FSoftPtr>(
+			"Accessed", Durin::EPropertyFlags::ReadOnly, 1, &Durin::DObject::StaticClass,
+			static_cast<Durin::DurinCodeGen::FSoftObjectPropertyParams::FMutableValueAccessor>(&GetAccessedSoftObject),
+			static_cast<Durin::DurinCodeGen::FSoftObjectPropertyParams::FConstValueAccessor>(&GetAccessedSoftObject));
+		static const auto ArrayInner = Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<FSoftPtr>(
+			"Array_Inner", Durin::EPropertyFlags::None, 1, 0, &Durin::DObject::StaticClass);
+		static const Durin::DurinCodeGen::FArrayPropertyParams Array = {
+			"Array", Durin::EPropertyFlags::Edit, 1,
+			static_cast<Durin::uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Array)),
+			&ArrayInner, &GVectorPropertyHelper<FSoftPtr>
+		};
+		static const Durin::DurinCodeGen::FStringPropertyParams MapKey = {
+			"Map_Key", Durin::EPropertyFlags::None, 1, 0,
+			static_cast<Durin::uint16>(sizeof(std::string)),
+			Durin::DurinCodeGen::EPropertyGenFlags::String
+		};
+		static const auto MapValue = Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<FSoftPtr>(
+			"Map_Value", Durin::EPropertyFlags::None, 1, 0, &Durin::DObject::StaticClass);
+		static const Durin::DurinCodeGen::FMapPropertyParams Map = {
+			"Map", Durin::EPropertyFlags::Edit, 1,
+			static_cast<Durin::uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Map)),
+			&MapKey, &MapValue, &GMapPropertyHelper<std::string, FSoftPtr>
+		};
+		static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
+			&Direct, &Fixed, &Accessed, &Array, &Map
+		};
+		static const Durin::DurinCodeGen::FStructParams Params = {
+			&GetSoftObjectPropertyOwnerNoRegister,
+			"Tests::FSoftObjectPropertyOwnerForTest",
+			"FSoftObjectPropertyOwnerForTest",
+			sizeof(FSoftObjectPropertyOwnerForTest),
+			alignof(FSoftObjectPropertyOwnerForTest),
 			Properties,
 			std::size(Properties)
 		};
@@ -1997,6 +2092,14 @@ namespace
 		Durin::DObject* NestedArrayReference = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCSchemaNestedArray"));
 		Durin::DObject* DirectMapReference = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCSchemaDirectMap"));
 		Durin::DObject* ArrayMapReference = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCSchemaArrayMap"));
+		EnsurePackageTestMount();
+		Durin::FAssetPath SoftAssetPath;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/GCSchemaSoft", SoftAssetPath));
+		Durin::DPackage* SoftPackage = Durin::NewObject<Durin::DPackage>(nullptr, Durin::FName("GCSchemaSoft"));
+		SoftPackage->InitializeAssetPackage(SoftAssetPath);
+		Durin::DObject* SoftReference =
+			Durin::NewObject<Durin::DObject>(SoftPackage, Durin::FName("GCSchemaSoft"));
+		ASSERT_TRUE(SoftPackage->SetAsset(SoftReference));
 
 		Owner->BaseReference = SharedReference;
 		Owner->DuplicateReference = SharedReference;
@@ -2011,6 +2114,7 @@ namespace
 		Owner->DirectMap.emplace("Reference", DirectMapReference);
 		Owner->ArrayMap.emplace("Empty", std::vector<Durin::TObjectPtr<Durin::DObject>>{});
 		Owner->ArrayMap.emplace("Reference", std::vector<Durin::TObjectPtr<Durin::DObject>>{ArrayMapReference});
+		ASSERT_TRUE(Owner->SoftReference.TrySetObject(SoftReference));
 		Durin::AddToRoot(Owner);
 
 		Durin::CollectGarbage();
@@ -2025,6 +2129,8 @@ namespace
 		EXPECT_TRUE(ObjectArrayContains(NestedArrayReference));
 		EXPECT_TRUE(ObjectArrayContains(DirectMapReference));
 		EXPECT_TRUE(ObjectArrayContains(ArrayMapReference));
+		EXPECT_FALSE(ObjectArrayContains(SoftReference));
+		EXPECT_FALSE(ObjectArrayContains(SoftPackage));
 
 		Durin::RemoveFromRoot(Owner);
 		Durin::CollectGarbage();
@@ -2313,6 +2419,231 @@ namespace
 
 		EXPECT_EQ(ReturnedWeak.Get(), nullptr);
 	}
+
+	TEST(FCoreDObjectReflectionTests, SoftObjectPtrUsesPathIdentityAndWeakLoadedState)
+	{
+		EnsureDObjectInitialized();
+		EnsurePackageTestMount();
+		Durin::FAssetPath Path;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/SoftObjectValue", Path));
+		Durin::FSoftObjectPath SoftPath;
+		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(Path.GetView(), SoftPath));
+		const Durin::FSoftObjectPath ValidSoftPath = SoftPath;
+		EXPECT_FALSE(Durin::FSoftObjectPath::TryCreate("/Unknown/InvalidSoftObject", SoftPath));
+		EXPECT_EQ(SoftPath, ValidSoftPath);
+
+		auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, "SoftObjectValue");
+		Package->InitializeAssetPackage(Path);
+		Durin::AddToRoot(Package);
+		Durin::DObject* Asset = Durin::NewObject<Durin::DObject>(Package, "SoftObjectValue");
+		ASSERT_TRUE(Package->SetAsset(Asset));
+
+		Durin::FSoftObjectPtr Reference(SoftPath);
+		EXPECT_FALSE(Reference.IsNull());
+		EXPECT_FALSE(Reference.IsLoaded());
+		ASSERT_TRUE(Reference.TrySetObject(Asset));
+		EXPECT_EQ(Reference.Get(), Asset);
+		EXPECT_EQ(Reference.GetSoftObjectPath(), SoftPath);
+
+		Durin::FSoftObjectPtr PathOnly(SoftPath);
+		EXPECT_EQ(Reference, PathOnly);
+		EXPECT_EQ(std::hash<Durin::FSoftObjectPtr>{}(Reference), std::hash<Durin::FSoftObjectPtr>{}(PathOnly));
+
+		Durin::FSoftObjectPtr Copy = Reference;
+		EXPECT_EQ(Copy.Get(), Asset);
+		Durin::FSoftObjectPtr Moved = std::move(Copy);
+		EXPECT_TRUE(Copy.IsNull());
+		EXPECT_EQ(Moved.Get(), Asset);
+
+		Durin::FSoftObjectPtr WorkerCopy;
+		std::thread Worker([PathOnly, &WorkerCopy]() {
+			WorkerCopy = PathOnly;
+		});
+		Worker.join();
+		EXPECT_EQ(WorkerCopy, PathOnly);
+		EXPECT_FALSE(WorkerCopy.IsLoaded());
+
+		Reference.SetPath(SoftPath);
+		EXPECT_FALSE(Reference.IsLoaded());
+		EXPECT_TRUE(Reference.TrySetLoadedObject(Asset));
+		EXPECT_EQ(Reference.Get(), Asset);
+
+		Durin::RemoveFromRoot(Package);
+		Durin::MarkObjectHierarchyAsGarbage(Package);
+		Durin::CollectGarbage();
+		EXPECT_EQ(Reference.Get(), nullptr);
+		EXPECT_EQ(Moved.Get(), nullptr);
+		EXPECT_EQ(Reference.GetSoftObjectPath(), SoftPath);
+	}
+
+	TEST(FCoreDObjectReflectionTests, SoftObjectPtrRejectsInvalidObjectsWithoutMutation)
+	{
+		EnsureDObjectInitialized();
+		EnsurePackageTestMount();
+		Durin::FAssetPath Path;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/SoftObjectValidation", Path));
+
+		auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, "SoftObjectValidation");
+		Package->InitializeAssetPackage(Path);
+		Durin::AddToRoot(Package);
+		Durin::DObject* Asset = Durin::NewObject<Durin::DObject>(Package, "SoftObjectValidation");
+		Durin::DObject* Inner = Durin::NewObject<Durin::DObject>(Asset, "Inner");
+		ASSERT_TRUE(Package->SetAsset(Asset));
+
+		Durin::FSoftObjectPtr Reference;
+		ASSERT_TRUE(Reference.TrySetObject(Asset));
+		const Durin::FSoftObjectPath OriginalPath = Reference.GetSoftObjectPath();
+		std::string Error;
+		EXPECT_FALSE(Reference.TrySetObject(Package, nullptr, &Error));
+		EXPECT_FALSE(Error.empty());
+		EXPECT_FALSE(Reference.TrySetObject(Inner, nullptr, &Error));
+		EXPECT_FALSE(Reference.TrySetObject(Asset, Durin::DPackage::StaticClass(), &Error));
+		Durin::DObject* Unpackaged = Durin::NewObject<Durin::DObject>(nullptr, "UnpackagedSoftObject");
+		EXPECT_FALSE(Reference.TrySetObject(Unpackaged, nullptr, &Error));
+
+		auto* TransientType = new Durin::DStruct(
+			Durin::EC_StaticConstructor,
+			Durin::FName("FTransientSoftObjectForTest"),
+			Durin::FName("FTransientSoftObjectForTest"),
+			1,
+			1,
+			Durin::EObjectFlags::Transient);
+		EXPECT_FALSE(Reference.TrySetObject(TransientType, nullptr, &Error));
+		delete TransientType;
+
+		EXPECT_EQ(Reference.GetSoftObjectPath(), OriginalPath);
+		EXPECT_EQ(Reference.Get(), Asset);
+
+		Durin::TSoftObjectPtr<Durin::DPackage> WrongType(Path);
+		EXPECT_FALSE(WrongType.TrySetObject(Asset, &Error));
+		EXPECT_EQ(WrongType.GetSoftObjectPath(), OriginalPath);
+		EXPECT_FALSE(WrongType.IsLoaded());
+
+		EXPECT_TRUE(Reference.TrySetObject(nullptr));
+		EXPECT_TRUE(Reference.IsNull());
+		EXPECT_EQ(Reference.Get(), nullptr);
+
+		Durin::MarkAsGarbage(Unpackaged);
+		Durin::RemoveFromRoot(Package);
+		Durin::MarkObjectHierarchyAsGarbage(Package);
+		Durin::CollectGarbage();
+	}
+
+	TEST(FCoreDObjectReflectionTests, SoftObjectPropertySupportsTypedDirectNestedAndDetachedValues)
+	{
+		EnsureDObjectInitialized();
+		EnsurePackageTestMount();
+		Durin::DStruct* OwnerStruct = GetSoftObjectPropertyOwner();
+		auto* Direct = static_cast<Durin::FSoftObjectProperty*>(OwnerStruct->FindPropertyByName("Direct", false));
+		auto* Fixed = static_cast<Durin::FSoftObjectProperty*>(OwnerStruct->FindPropertyByName("Fixed", false));
+		auto* Accessed = static_cast<Durin::FSoftObjectProperty*>(OwnerStruct->FindPropertyByName("Accessed", false));
+		auto* Array = static_cast<Durin::FArrayProperty*>(OwnerStruct->FindPropertyByName("Array", false));
+		auto* Map = static_cast<Durin::FMapProperty*>(OwnerStruct->FindPropertyByName("Map", false));
+		ASSERT_NE(Direct, nullptr);
+		ASSERT_NE(Fixed, nullptr);
+		ASSERT_NE(Accessed, nullptr);
+		ASSERT_NE(Array, nullptr);
+		ASSERT_NE(Map, nullptr);
+		EXPECT_EQ(Direct->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::SoftObject);
+		EXPECT_EQ(Direct->GetExpectedClass(), Durin::DObject::StaticClass());
+		EXPECT_TRUE(Direct->ClassPrivate->IsChildOf(Durin::FSoftObjectProperty::StaticClass()));
+		EXPECT_EQ(Direct->GetMetaData(Durin::FName("Category")), "SoftObject");
+		EXPECT_FALSE(Direct->HasValueAccessors());
+		EXPECT_TRUE(Accessed->HasValueAccessors());
+		EXPECT_EQ(Accessed->GetOffset(), 0);
+
+		Durin::FAssetPath AssetPath;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/SoftObjectProperty", AssetPath));
+		Durin::FSoftObjectPath SoftPath(AssetPath);
+		FSoftObjectPropertyOwnerForTest Owner;
+		Owner.Direct.SetPath(SoftPath);
+		Owner.Fixed[1].SetPath(SoftPath);
+		Owner.Accessed.SetPath(SoftPath);
+		ASSERT_EQ(Direct->GetSoftObjectPtr(&Owner), &Owner.Direct.GetBase());
+		ASSERT_EQ(Fixed->GetSoftObjectPtr(&Owner, 1), &Owner.Fixed[1].GetBase());
+		ASSERT_EQ(Accessed->GetSoftObjectPtr(&Owner), &Owner.Accessed.GetBase());
+		EXPECT_EQ(Direct->GetSoftObjectPtr(&Owner)->GetSoftObjectPath(), SoftPath);
+
+		Owner.Array.emplace_back(SoftPath);
+		auto* ArrayInner = static_cast<Durin::FSoftObjectProperty*>(Array->GetInner());
+		ASSERT_NE(ArrayInner, nullptr);
+		ASSERT_NE(ArrayInner->GetSoftObjectPtr(Array->GetElementPtr(&Owner, 0)), nullptr);
+		EXPECT_EQ(
+			ArrayInner->GetSoftObjectPtr(Array->GetElementPtr(&Owner, 0))->GetSoftObjectPath(),
+			SoftPath);
+
+		Owner.Map.emplace("Target", Durin::TSoftObjectPtr<Durin::DObject>(SoftPath));
+		auto* MapValue = static_cast<Durin::FSoftObjectProperty*>(Map->GetValueProp());
+		const void* RawMapValue = nullptr;
+		const std::string Key = "Target";
+		ASSERT_EQ(Map->FindValue(&Owner, &Key, &RawMapValue), Durin::EContainerOpResult::Success);
+		ASSERT_NE(MapValue, nullptr);
+		ASSERT_NE(MapValue->GetSoftObjectPtr(RawMapValue), nullptr);
+		EXPECT_EQ(MapValue->GetSoftObjectPtr(RawMapValue)->GetSoftObjectPath(), SoftPath);
+
+		Durin::FReflectedValueStorage Detached;
+		ASSERT_TRUE(Detached.CopyConstruct(Direct, Direct->GetValuePtr(&Owner)));
+		auto* DetachedValue = static_cast<Durin::TSoftObjectPtr<Durin::DObject>*>(Detached.GetValue());
+		ASSERT_NE(DetachedValue, nullptr);
+		EXPECT_EQ(DetachedValue->GetSoftObjectPath(), SoftPath);
+		Durin::FAssetPath ReplacementPath;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/SoftObjectPropertyReplacement", ReplacementPath));
+		Durin::TSoftObjectPtr<Durin::DObject> Replacement(ReplacementPath);
+		ASSERT_TRUE(Detached.CopyAssign(&Replacement));
+		EXPECT_EQ(DetachedValue->GetSoftObjectPath(), Replacement.GetSoftObjectPath());
+
+		auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, "SoftObjectProperty");
+		Package->InitializeAssetPackage(AssetPath);
+		Durin::AddToRoot(Package);
+		Durin::DObject* Asset = Durin::NewObject<Durin::DObject>(Package, "SoftObjectProperty");
+		ASSERT_TRUE(Package->SetAsset(Asset));
+		FSoftObjectPropertyOwnerForTest CachedOwner;
+		ASSERT_TRUE(CachedOwner.Direct.TrySetObject(Asset));
+		EXPECT_TRUE(Durin::ArePropertyValuesIdentical(Direct, &Owner, 0, &CachedOwner, 0));
+		Durin::FPropertyValueSnapshot PathOnlySnapshot;
+		Durin::FPropertyValueSnapshot CachedSnapshot;
+		ASSERT_TRUE(Durin::CapturePropertyValue(Direct, &Owner, 0, PathOnlySnapshot));
+		ASSERT_TRUE(Durin::CapturePropertyValue(Direct, &CachedOwner, 0, CachedSnapshot));
+		EXPECT_EQ(PathOnlySnapshot, CachedSnapshot);
+		EXPECT_TRUE(PathOnlySnapshot.GetReferencedObjects().empty());
+		Owner.Direct = Replacement;
+		ASSERT_TRUE(Durin::RestorePropertyValue(Direct, &Owner, 0, PathOnlySnapshot));
+		EXPECT_EQ(Owner.Direct.GetSoftObjectPath(), SoftPath);
+
+		Durin::FPropertyValueSnapshot ArraySnapshot;
+		ASSERT_TRUE(Durin::CapturePropertyValue(Array, &Owner, 0, ArraySnapshot));
+		Owner.Array.clear();
+		ASSERT_TRUE(Durin::RestorePropertyValue(Array, &Owner, 0, ArraySnapshot));
+		ASSERT_EQ(Owner.Array.size(), 1u);
+		EXPECT_EQ(Owner.Array[0].GetSoftObjectPath(), SoftPath);
+
+		Durin::FPropertyValueSnapshot MapSnapshot;
+		ASSERT_TRUE(Durin::CapturePropertyValue(Map, &Owner, 0, MapSnapshot));
+		Owner.Map.clear();
+		ASSERT_TRUE(Durin::RestorePropertyValue(Map, &Owner, 0, MapSnapshot));
+		ASSERT_EQ(Owner.Map.size(), 1u);
+		EXPECT_EQ(Owner.Map.at("Target").GetSoftObjectPath(), SoftPath);
+
+		Durin::RemoveFromRoot(Package);
+		Durin::MarkObjectHierarchyAsGarbage(Package);
+		Durin::CollectGarbage();
+	}
+
+#ifdef DO_CHECK
+	TEST(FCoreDObjectReflectionTests, SoftObjectPtrLoadedInspectionRequiresGameThread)
+	{
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				Durin::FSoftObjectPtr Reference;
+				std::thread Worker([&Reference]() {
+					(void)Reference.Get();
+				});
+				Worker.join();
+			}()),
+			"");
+	}
+#endif
 
 	TEST(FCoreDObjectReflectionTests, ReusedObjectSlotInvalidatesOldHandleGeneration)
 	{

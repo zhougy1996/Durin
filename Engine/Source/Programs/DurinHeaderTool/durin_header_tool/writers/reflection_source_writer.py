@@ -29,6 +29,7 @@ PROPERTY_PARAM_BY_KIND = {
     "Guid": "FGuidPropertyParams",
     "Enum": "FEnumPropertyParams",
     "Object": "FObjectPropertyParams",
+    "SoftObject": "FSoftObjectPropertyParams",
     "Array": "FArrayPropertyParams",
     "Map": "FMapPropertyParams",
     "Struct": "FStructPropertyParams",
@@ -547,6 +548,20 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
             f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
             f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, {key}, {value}, "
             f"&Durin::ResolveMapOps<{value_type}>{metadata_arguments} }};\n"
+        )
+        return content
+    if prop.kind == "SoftObject":
+        referenced_class_helper = "nullptr"
+        if prop.referenced_type:
+            referenced_symbol = symbols.get(prop.referenced_type)
+            if referenced_symbol:
+                referenced_class_helper = referenced_symbol.GeneratedHelperName
+        metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
+        content += (
+            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
+            f"Durin::DurinCodeGen::{param_type}::Create<{value_type}>("
+            f"\"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, "
+            f"{referenced_class_helper}{metadata_arguments});\n"
         )
         return content
     referenced_class_helper = "nullptr"

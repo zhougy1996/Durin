@@ -1,13 +1,67 @@
 #include "Editor/ReflectedPropertyView.h"
 
+#include "AssetSystem.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Object.h"
+#include "DObject/Package.h"
+#include "DObject/SoftObjectPtr.h"
+#include "Editor/EditorTransaction.h"
+#include "EngineTestSupport.h"
+#include "Misc/Paths.h"
+#include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
 
 namespace
 {
+	using FSoftObjectViewValue = Durin::TSoftObjectPtr<Durin::DObject>;
+	using FSoftObjectViewArray = std::vector<FSoftObjectViewValue>;
+	using FSoftObjectViewMap = std::unordered_map<std::string, FSoftObjectViewValue>;
+
+	template<typename T>
+	auto InitializePropertyViewValue(void* Memory) -> void
+	{
+		std::construct_at(static_cast<T*>(Memory));
+	}
+
+	template<typename T>
+	auto DestroyPropertyViewValue(void* Memory) -> void
+	{
+		std::destroy_at(static_cast<T*>(Memory));
+	}
+
+	template<typename T>
+	auto CopyConstructPropertyViewValue(void* Destination, const void* Source) -> void
+	{
+		std::construct_at(static_cast<T*>(Destination), *static_cast<const T*>(Source));
+	}
+
+	template<typename T>
+	auto CopyAssignPropertyViewValue(void* Destination, const void* Source) -> void
+	{
+		*static_cast<T*>(Destination) = *static_cast<const T*>(Source);
+	}
+
+	template<typename T>
+	auto SetPropertyViewValueLifecycle(Durin::FProperty& Property) -> void
+	{
+		Property.SetValueLifecycle(
+			sizeof(T), alignof(T),
+			&InitializePropertyViewValue<T>, &DestroyPropertyViewValue<T>,
+			&CopyConstructPropertyViewValue<T>, &CopyAssignPropertyViewValue<T>);
+	}
+
+	auto GetMutableSoftObjectViewValue(void* Value) -> Durin::FSoftObjectPtr*
+	{
+		return Value ? &static_cast<FSoftObjectViewValue*>(Value)->GetBase() : nullptr;
+	}
+
+	auto GetConstSoftObjectViewValue(const void* Value) -> const Durin::FSoftObjectPtr*
+	{
+		return Value ? &static_cast<const FSoftObjectViewValue*>(Value)->GetBase() : nullptr;
+	}
+
 	class DPropertyViewHostTestObject final : public Durin::DObject
 	{
 	public:
@@ -27,6 +81,9 @@ namespace
 		}
 
 		Durin::int32 Value = 5;
+		FSoftObjectViewValue SoftValues[2];
+		FSoftObjectViewArray SoftArray;
+		FSoftObjectViewMap SoftMap;
 		bool bAllowRestore = true;
 	};
 
@@ -57,11 +114,68 @@ namespace
 			Property->SetValueLifecycle(sizeof(Durin::int32), alignof(Durin::int32),
 				[](void* Memory) { std::construct_at(static_cast<Durin::int32*>(Memory)); },
 				[](void* Memory) { std::destroy_at(static_cast<Durin::int32*>(Memory)); });
+
+			const auto SoftValuesOffset = static_cast<Durin::uint16>(
+				reinterpret_cast<const Durin::uint8*>(&OffsetProbe.SoftValues)
+				- reinterpret_cast<const Durin::uint8*>(&OffsetProbe));
+			SoftProperty = new Durin::FSoftObjectProperty(
+				Durin::FFieldVariant(Class), Durin::FName("SoftValues"), Durin::EObjectFlags::Transient,
+				Durin::EPropertyFlags::Edit, 2, SoftValuesOffset, sizeof(FSoftObjectViewValue),
+				Durin::DObject::StaticClass(), &GetMutableSoftObjectViewValue, &GetConstSoftObjectViewValue);
+			SetPropertyViewValueLifecycle<FSoftObjectViewValue>(*SoftProperty);
+
+			ArrayInner = new Durin::FSoftObjectProperty(
+				Durin::FFieldVariant(), Durin::FName("SoftArray_Inner"), Durin::EObjectFlags::Transient,
+				Durin::EPropertyFlags::None, 1, 0, sizeof(FSoftObjectViewValue),
+				Durin::DObject::StaticClass(), &GetMutableSoftObjectViewValue, &GetConstSoftObjectViewValue);
+			SetPropertyViewValueLifecycle<FSoftObjectViewValue>(*ArrayInner);
+			const auto SoftArrayOffset = static_cast<Durin::uint16>(
+				reinterpret_cast<const Durin::uint8*>(&OffsetProbe.SoftArray)
+				- reinterpret_cast<const Durin::uint8*>(&OffsetProbe));
+			ArrayProperty = new Durin::FArrayProperty(
+				Durin::FFieldVariant(Class), Durin::FName("SoftArray"), Durin::EObjectFlags::Transient,
+				Durin::EPropertyFlags::Edit, 1, SoftArrayOffset, sizeof(FSoftObjectViewArray),
+				Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr,
+				Durin::ResolveArrayOps<FSoftObjectViewArray>());
+			ArrayProperty->SetInner(ArrayInner);
+			SetPropertyViewValueLifecycle<FSoftObjectViewArray>(*ArrayProperty);
+
+			MapKey = new Durin::FStringProperty(
+				Durin::FFieldVariant(), Durin::FName("SoftMap_Key"), Durin::EObjectFlags::Transient,
+				Durin::EPropertyFlags::None, 1, 0, sizeof(std::string),
+				Durin::DurinCodeGen::EPropertyGenFlags::String, nullptr);
+			SetPropertyViewValueLifecycle<std::string>(*MapKey);
+			MapValue = new Durin::FSoftObjectProperty(
+				Durin::FFieldVariant(), Durin::FName("SoftMap_Value"), Durin::EObjectFlags::Transient,
+				Durin::EPropertyFlags::None, 1, 0, sizeof(FSoftObjectViewValue),
+				Durin::DObject::StaticClass(), &GetMutableSoftObjectViewValue, &GetConstSoftObjectViewValue);
+			SetPropertyViewValueLifecycle<FSoftObjectViewValue>(*MapValue);
+			const auto SoftMapOffset = static_cast<Durin::uint16>(
+				reinterpret_cast<const Durin::uint8*>(&OffsetProbe.SoftMap)
+				- reinterpret_cast<const Durin::uint8*>(&OffsetProbe));
+			MapProperty = new Durin::FMapProperty(
+				Durin::FFieldVariant(Class), Durin::FName("SoftMap"), Durin::EObjectFlags::Transient,
+				Durin::EPropertyFlags::Edit, 1, SoftMapOffset, sizeof(FSoftObjectViewMap),
+				Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr,
+				Durin::ResolveMapOps<FSoftObjectViewMap>());
+			MapProperty->SetKeyProp(MapKey);
+			MapProperty->SetValueProp(MapValue);
+			SetPropertyViewValueLifecycle<FSoftObjectViewMap>(*MapProperty);
+
+			Property->Next = SoftProperty;
+			SoftProperty->Next = ArrayProperty;
+			ArrayProperty->Next = MapProperty;
 			Class->ChildProperties = Property;
 		}
 
 		Durin::DClass* Class = nullptr;
 		Durin::FNumericProperty* Property = nullptr;
+		Durin::FSoftObjectProperty* SoftProperty = nullptr;
+		Durin::FArrayProperty* ArrayProperty = nullptr;
+		Durin::FSoftObjectProperty* ArrayInner = nullptr;
+		Durin::FMapProperty* MapProperty = nullptr;
+		Durin::FStringProperty* MapKey = nullptr;
+		Durin::FSoftObjectProperty* MapValue = nullptr;
 	};
 
 	auto GetPropertyViewHostTestReflection() -> FPropertyViewHostTestReflection&
@@ -70,7 +184,7 @@ namespace
 		return Reflection;
 	}
 
-	auto BeginPropertyViewHostPreview(
+		auto BeginPropertyViewHostPreview(
 		Durin::FReflectedPropertyView& View,
 		const Durin::FReflectedPropertyViewContext& Context,
 		DPropertyViewHostTestObject& Object
@@ -86,6 +200,28 @@ namespace
 			},
 			true
 		);
+	}
+
+	auto EnsureSoftObjectPropertyViewMount() -> void
+	{
+		static const bool bInitialized = []() {
+			InitializeDObjectSystem();
+			const std::filesystem::path Root =
+				Durin::Testing::CreateTestFixtureDirectory("SoftObjectPropertyView");
+			Durin::PathUtilities::RegisterMountPointForTests(
+				"/SoftObjectPropertyView/", Root.generic_string() + "/");
+			return true;
+		}();
+		(void)bInitialized;
+	}
+
+	auto MakeSoftObjectPropertyViewPath(std::string_view Name) -> Durin::FSoftObjectPath
+	{
+		EnsureSoftObjectPropertyViewMount();
+		Durin::FSoftObjectPath Path;
+		EXPECT_TRUE(Durin::FSoftObjectPath::TryCreate(
+			std::format("/SoftObjectPropertyView/{}", Name), Path));
+		return Path;
 	}
 }
 
@@ -201,4 +337,128 @@ TEST(FReflectedPropertyViewTests, ReadOnlyTransitionWaitsForFailedPreviewRestora
 	EXPECT_TRUE(View.HandleOwnerContext(ReadOnlyContext, &Object));
 	EXPECT_FALSE(View.IsEditing());
 	EXPECT_EQ(Object.Value, 5);
+}
+
+TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilRequested)
+{
+	EnsureSoftObjectPropertyViewMount();
+	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
+	DPropertyViewHostTestObject Object(Reflection.Class, Durin::FName("SoftState"));
+
+	auto State = Durin::InspectSoftObjectProperty(Reflection.SoftProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectPropertyViewState::Null);
+	EXPECT_EQ(Durin::GetSoftObjectPropertyStateLabel(State.State), "Null");
+
+	const Durin::FSoftObjectPath MissingPath = MakeSoftObjectPropertyViewPath("Missing");
+	Object.SoftValues[0].SetPath(MissingPath);
+	State = Durin::InspectSoftObjectProperty(Reflection.SoftProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectPropertyViewState::Missing);
+	EXPECT_FALSE(State.Message.empty());
+	EXPECT_FALSE(Object.SoftValues[0].IsLoaded());
+	Durin::DObject* LoadedObject = nullptr;
+	std::string Error;
+	EXPECT_FALSE(Durin::LoadSoftObjectProperty(
+		Reflection.SoftProperty, &Object, 0, LoadedObject, &Error));
+	EXPECT_EQ(LoadedObject, nullptr);
+	EXPECT_FALSE(Error.empty());
+	EXPECT_EQ(Object.SoftValues[0].GetSoftObjectPath(), MissingPath);
+
+	const Durin::FSoftObjectPath AssetSoftPath = MakeSoftObjectPropertyViewPath("Loadable");
+	const Durin::FAssetPath AssetPath = AssetSoftPath.GetAssetPath();
+	Durin::DObject* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(AssetPath, Asset));
+	ASSERT_NE(Asset, nullptr);
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	Object.SoftValues[0].SetPath(AssetSoftPath);
+	State = Durin::InspectSoftObjectProperty(Reflection.SoftProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectPropertyViewState::Loaded);
+	EXPECT_EQ(State.LoadedObject, Asset);
+
+	Durin::FSoftObjectProperty MismatchedProperty(
+		Durin::FFieldVariant(), Durin::FName("Mismatched"), Durin::EObjectFlags::Transient,
+		Durin::EPropertyFlags::Edit, 2, Reflection.SoftProperty->GetOffset(),
+		sizeof(FSoftObjectViewValue), Durin::DPackage::StaticClass(),
+		&GetMutableSoftObjectViewValue, &GetConstSoftObjectViewValue);
+	State = Durin::InspectSoftObjectProperty(&MismatchedProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectPropertyViewState::TypeMismatch);
+	EXPECT_FALSE(State.Message.empty());
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	EXPECT_FALSE(Object.SoftValues[0].IsLoaded());
+	State = Durin::InspectSoftObjectProperty(Reflection.SoftProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectPropertyViewState::Unloaded);
+	EXPECT_EQ(State.LoadedObject, nullptr);
+	EXPECT_FALSE(Object.SoftValues[0].IsLoaded());
+
+	Error.clear();
+	ASSERT_TRUE(Durin::LoadSoftObjectProperty(
+		Reflection.SoftProperty, &Object, 0, LoadedObject, &Error)) << Error;
+	ASSERT_NE(LoadedObject, nullptr);
+	EXPECT_TRUE(Object.SoftValues[0].IsLoaded());
+	State = Durin::InspectSoftObjectProperty(Reflection.SoftProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectPropertyViewState::Loaded);
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+}
+
+TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndMapValues)
+{
+	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
+	DPropertyViewHostTestObject Object(Reflection.Class, Durin::FName("SoftTransactions"));
+	const Durin::FSoftObjectPath First = MakeSoftObjectPropertyViewPath("First");
+	const Durin::FSoftObjectPath Second = MakeSoftObjectPropertyViewPath("Second");
+	const Durin::FSoftObjectPath Third = MakeSoftObjectPropertyViewPath("Third");
+	const Durin::FSoftObjectPath Fourth = MakeSoftObjectPropertyViewPath("Fourth");
+	Object.SoftValues[1].SetPath(First);
+	Object.SoftArray.emplace_back(First);
+	Object.SoftMap.emplace("Alpha", FSoftObjectViewValue(First));
+
+	Durin::FEditorTransactionManager Transactions;
+	Durin::FReflectedPropertyView View;
+	const Durin::FReflectedPropertyViewContext Context{.Transactions = &Transactions};
+	auto AssignPath = [](Durin::FSoftObjectPath Path) {
+		return [Path = std::move(Path)](
+			Durin::FProperty* Property, void* Container, Durin::uint32 ArrayIndex) {
+			auto* Reference = static_cast<Durin::FSoftObjectProperty*>(Property)
+				->GetSoftObjectPtr(Container, ArrayIndex);
+			ASSERT_NE(Reference, nullptr);
+			Reference->SetPath(Path);
+		};
+	};
+
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(
+		Context,
+		Durin::FReflectedPropertyEditTarget::ForMember(&Object, Reflection.SoftProperty, 1),
+		AssignPath(Second), false));
+	EXPECT_EQ(Object.SoftValues[1].GetSoftObjectPath(), Second);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Object.SoftValues[1].GetSoftObjectPath(), First);
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Object.SoftValues[1].GetSoftObjectPath(), Second);
+	Transactions.Clear();
+
+	const Durin::FReflectedPropertyEditTarget ArrayTarget =
+		Durin::FReflectedPropertyEditTarget::ForMember(&Object, Reflection.ArrayProperty)
+			.ForArrayElement(Reflection.ArrayInner, 0);
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, ArrayTarget, AssignPath(Third), false));
+	EXPECT_EQ(Object.SoftArray[0].GetSoftObjectPath(), Third);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Object.SoftArray[0].GetSoftObjectPath(), First);
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Object.SoftArray[0].GetSoftObjectPath(), Third);
+	Transactions.Clear();
+
+	const std::string Alpha = "Alpha";
+	Durin::FPropertyValueSnapshot KeySnapshot;
+	ASSERT_TRUE(Durin::CapturePropertyValue(Reflection.MapKey, &Alpha, 0, KeySnapshot));
+	const Durin::FReflectedPropertyEditTarget MapTarget =
+		Durin::FReflectedPropertyEditTarget::ForMember(&Object, Reflection.MapProperty)
+			.ForMapEntry(Reflection.MapValue, KeySnapshot, KeySnapshot.GetBytes());
+	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, MapTarget, AssignPath(Fourth), false));
+	EXPECT_EQ(Object.SoftMap.at("Alpha").GetSoftObjectPath(), Fourth);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Object.SoftMap.at("Alpha").GetSoftObjectPath(), First);
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Object.SoftMap.at("Alpha").GetSoftObjectPath(), Fourth);
 }

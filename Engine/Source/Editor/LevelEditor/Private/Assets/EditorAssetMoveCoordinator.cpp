@@ -12,7 +12,7 @@ namespace Durin
 		FLevelEditorContext& InContext,
 		FLevelEditorSessionSettings& InSessionSettings,
 		FSceneViewportPanel& InSceneViewportPanel,
-		std::string& InDefaultLevel,
+		TSoftObjectPtr<DLevel>& InDefaultLevel,
 		std::function<bool()> InSaveProjectSettings
 	)
 		: Context(InContext)
@@ -21,6 +21,33 @@ namespace Durin
 		, DefaultLevel(InDefaultLevel)
 		, SaveProjectSettings(std::move(InSaveProjectSettings))
 	{
+		DefaultLevelStoreHandle = Asset::RegisterAssetMoveExternalStore(
+			[this](const FAssetPath& OldPath, const FAssetPath& NewPath,
+				Asset::FAssetMoveExternalStoreAction& OutAction) -> Asset::FAssetResult {
+				if (DefaultLevel.IsNull()
+					|| DefaultLevel.GetSoftObjectPath().GetAssetPath() != OldPath)
+					return {};
+				const FSoftObjectPath PreviousPath = DefaultLevel.GetSoftObjectPath();
+				OutAction.Name = "Project default level";
+				OutAction.Apply = [this, NewPath]() -> Asset::FAssetResult {
+					DefaultLevel.SetPath(NewPath);
+					if (SaveProjectSettings()) return {};
+					return {Asset::EAssetError::IoError,
+						"Could not save project settings after moving the default level."};
+				};
+				OutAction.Rollback = [this, PreviousPath]() -> Asset::FAssetResult {
+					DefaultLevel.SetPath(PreviousPath);
+					if (SaveProjectSettings()) return {};
+					return {Asset::EAssetError::IoError,
+						"Could not restore project settings after rolling back the default-level move."};
+				};
+				return {};
+			});
+	}
+
+	FEditorAssetMoveCoordinator::~FEditorAssetMoveCoordinator()
+	{
+		Asset::UnregisterAssetMoveExternalStore(DefaultLevelStoreHandle);
 	}
 
 	auto FEditorAssetMoveCoordinator::MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> Asset::FAssetResult
@@ -49,7 +76,6 @@ namespace Durin
 				SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
 		}
 		const FLevelViewportStateMap ViewportStatesBackup = SessionSettings.ViewportStates;
-		const std::string DefaultLevelBackup = DefaultLevel;
 		bool bViewportStateMoved = false;
 		if (const FProjectInfo* Project = GetCurrentProject())
 		{
@@ -72,36 +98,25 @@ namespace Durin
 			CompletedMoves.push_back(Move);
 		}
 
-		bool bDefaultLevelMoved = false;
 		for (const FEditorAssetMove& Move : Moves)
 		{
 			const std::string OldPath = Move.OldPath.ToString();
 			const std::string NewPath = Move.NewPath.ToString();
 			SessionSettings.MoveViewportState(OldPath, NewPath);
-			if (DefaultLevel == OldPath)
-			{
-				DefaultLevel = NewPath;
-				bDefaultLevelMoved = true;
-			}
 		}
 
-		const bool bProjectSettingsSaved = !bDefaultLevelMoved || SaveProjectSettings();
-		const bool bSessionSettingsSaved = bProjectSettingsSaved && (!bViewportStateMoved || SessionSettings.Save(&SceneViewportPanel));
-		if (bProjectSettingsSaved && bSessionSettingsSaved) return {};
+		const bool bSessionSettingsSaved =
+			!bViewportStateMoved || SessionSettings.Save(&SceneViewportPanel);
+		if (bSessionSettingsSaved) return {};
 
 		// The editor metadata and asset paths form one logical operation. Restore both sides
 		// before returning so callers cannot continue with a partially updated project.
-		DefaultLevel = DefaultLevelBackup;
 		SessionSettings.ViewportStates = ViewportStatesBackup;
 		const std::string RollbackError = RollbackAssets(CompletedMoves);
-		const bool bProjectSettingsRestored = !bDefaultLevelMoved || SaveProjectSettings();
 		const bool bSessionSettingsRestored = !bViewportStateMoved || SessionSettings.Save(&SceneViewportPanel);
 
-		std::string Message = bProjectSettingsSaved
-			? "Could not save editor session settings after moving assets."
-			: "Could not save project settings after moving the default level.";
+		std::string Message = "Could not save editor session settings after moving assets.";
 		if (!RollbackError.empty()) Message += std::format(" Asset rollback also failed: {}", RollbackError);
-		if (!bProjectSettingsRestored) Message += " The original project settings could not be restored.";
 		if (!bSessionSettingsRestored) Message += " The original editor session settings could not be restored.";
 		return {Asset::EAssetError::IoError, std::move(Message)};
 	}

@@ -4,6 +4,8 @@ namespace Durin
 {
 	class FObjectInitializer;
 	class FWeakObjectPtr;
+	class FSoftObjectPath;
+	class FSoftObjectPtr;
 
 	class DObject;
 	class DPackage;
@@ -15,4 +17,6 @@ namespace Durin
 
 	template<typename T>
 	class TWeakObjectPtr;
+	template<typename T>
+	class TSoftObjectPtr;
 }

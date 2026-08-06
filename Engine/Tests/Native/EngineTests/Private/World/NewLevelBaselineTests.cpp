@@ -1,31 +1,9 @@
 #include "WorldTestSupport.h"
 
-#include "Actors/SkyBoxActor.h"
-#include "Components/SkyBoxComponent.h"
 #include "DObject/Package.h"
-#include "Materials/MaterialInterface.h"
-#include "StandardAssetImportProviders.h"
 
 namespace
 {
-	class FScopedStandardAssetImportProviders
-	{
-	public:
-		~FScopedStandardAssetImportProviders()
-		{
-			if (bRegistered) Durin::UnregisterStandardAssetImportProviders();
-		}
-
-		auto Register(std::string& OutError) -> bool
-		{
-			bRegistered = Durin::RegisterStandardAssetImportProviders(OutError);
-			return bRegistered;
-		}
-
-	private:
-		bool bRegistered = false;
-	};
-
 	auto ExpectTransformNear(
 		const Durin::FTransform& Actual,
 		const Durin::FQuat& ExpectedRotation,
@@ -66,115 +44,141 @@ namespace
 	auto ExpectReconstructionManifest(Durin::DLevel* Level) -> void
 	{
 		ASSERT_NE(Level, nullptr);
-		EXPECT_EQ(Level->GetName(), "NewLevel");
-		ASSERT_EQ(Level->GetActors().size(), 4u);
-		EXPECT_EQ(Level->GetActors()[0]->GetName(), "DirectionalLightActor");
-		EXPECT_EQ(Level->GetActors()[1]->GetName(), "CameraActor");
-		EXPECT_EQ(Level->GetActors()[2]->GetName(), "SkyBoxActor");
-		EXPECT_EQ(Level->GetActors()[3]->GetName(), "Box");
+		EXPECT_EQ(Level->GetName(), "Reconstruction");
+		ASSERT_EQ(Level->GetActors().size(), 3u);
+		EXPECT_EQ(Level->GetActors()[0]->GetName(), "DirectionalLight");
+		EXPECT_EQ(Level->GetActors()[1]->GetName(), "Camera");
+		EXPECT_EQ(Level->GetActors()[2]->GetName(), "StaticMesh");
 
 		auto* LightActor = Durin::Cast<Durin::ADirectionalLightActor>(
-			Level->FindActorByName("DirectionalLightActor"));
-		ExpectSingleRootComponent(
-			LightActor, "Durin::DDirectionalLightComponent", "DirectionalLightComponent");
+			Level->FindActorByName("DirectionalLight"));
+		ASSERT_NO_FATAL_FAILURE(ExpectSingleRootComponent(
+			LightActor, "Durin::DDirectionalLightComponent", "DirectionalLightComponent"));
 		ExpectTransformNear(
 			LightActor->GetActorTransform(),
-			Durin::FQuat(0.91030458659254632, 0.0, 0.0, -0.41393907719442657),
-			{0.0, 2.1259323682006928, 0.86950246609238957},
-			{1.0, 1.0, 1.0});
+			Durin::FQuat(0.7071067811865476, 0.0, 0.0, -0.7071067811865475),
+			{10.0, 20.0, 30.0}, {1.0, 1.0, 1.0});
 		const Durin::FDirectionalLightSceneData Light =
 			LightActor->GetLightComponent()->GetSceneData();
 		EXPECT_EQ(Light.Color, Durin::FVector3f(1.0f));
-		EXPECT_FLOAT_EQ(Light.Intensity, 1.0f);
-		EXPECT_FLOAT_EQ(Light.AmbientIntensity, 0.08f);
+		EXPECT_FLOAT_EQ(Light.Intensity, 2.0f);
+		EXPECT_FLOAT_EQ(Light.AmbientIntensity, 0.25f);
 
 		auto* CameraActor = Durin::Cast<Durin::ACameraActor>(
-			Level->FindActorByName("CameraActor"));
-		ExpectSingleRootComponent(CameraActor, "Durin::DCameraComponent", "DCameraComponent");
+			Level->FindActorByName("Camera"));
+		ASSERT_NO_FATAL_FAILURE(ExpectSingleRootComponent(
+			CameraActor, "Durin::DCameraComponent", "DCameraComponent"));
 		ExpectTransformNear(
 			CameraActor->GetActorTransform(), Durin::FQuat(1.0, 0.0, 0.0, 0.0),
-			{-1.6669377762075972, 0.0, 0.0}, {1.0, 1.0, 1.0});
+			{-5.0, 4.0, 3.0}, {1.0, 1.0, 1.0});
 		EXPECT_EQ(Level->GetPrimaryCameraActor(), CameraActor);
 		const Durin::FCameraProjectionSettings& Projection =
 			CameraActor->GetCameraComponent()->GetProjectionSettings();
-		EXPECT_FLOAT_EQ(Projection.FieldOfViewDegrees, 60.0f);
-		EXPECT_FLOAT_EQ(Projection.NearClip, 0.1f);
-		EXPECT_FLOAT_EQ(Projection.FarClip, 1000.0f);
-		EXPECT_EQ(Projection.AspectRatioMode, Durin::ECameraAspectRatioMode::Viewport);
-		EXPECT_FLOAT_EQ(Projection.CustomAspectRatio, 16.0f / 9.0f);
-
-		auto* SkyBoxActor = Durin::Cast<Durin::ASkyBoxActor>(
-			Level->FindActorByName("SkyBoxActor"));
-		ExpectSingleRootComponent(SkyBoxActor, "Durin::DSkyBoxComponent", "SkyBoxComponent");
-		ExpectTransformNear(
-			SkyBoxActor->GetActorTransform(), Durin::FQuat(1.0, 0.0, 0.0, 0.0),
-			{0.0, 0.0, 0.0}, {1.0, 1.0, 1.0});
-		Durin::DSkyBoxComponent* SkyBox = SkyBoxActor->GetSkyBoxComponent();
-		ASSERT_NE(SkyBox->GetTextureCube(), nullptr);
-		EXPECT_EQ(SkyBox->GetTint(), Durin::FLinearColor(1.0f, 1.0f, 1.0f, 1.0f));
-		EXPECT_FLOAT_EQ(SkyBox->GetIntensity(), 1.0f);
-		EXPECT_EQ(SkyBox->GetSkyBoxSceneId().ToString(), "8dcc0ca9-e5c5-42c7-91e2-03716ab9ec56");
+		EXPECT_FLOAT_EQ(Projection.FieldOfViewDegrees, 75.0f);
+		EXPECT_FLOAT_EQ(Projection.NearClip, 0.25f);
+		EXPECT_FLOAT_EQ(Projection.FarClip, 2500.0f);
+		EXPECT_EQ(Projection.AspectRatioMode, Durin::ECameraAspectRatioMode::Custom);
+		EXPECT_FLOAT_EQ(Projection.CustomAspectRatio, 2.39f);
 
 		auto* MeshActor = Durin::Cast<Durin::AStaticMeshActor>(
-			Level->FindActorByName("Box"));
-		ExpectSingleRootComponent(
-			MeshActor, "Durin::DStaticMeshComponent", "DStaticMeshComponent");
+			Level->FindActorByName("StaticMesh"));
+		ASSERT_NO_FATAL_FAILURE(ExpectSingleRootComponent(
+			MeshActor, "Durin::DStaticMeshComponent", "DStaticMeshComponent"));
 		ExpectTransformNear(
 			MeshActor->GetActorTransform(), Durin::FQuat(1.0, 0.0, 0.0, 0.0),
-			{0.0, 0.0, 0.0}, {1.0, 1.0, 1.0});
-		EXPECT_EQ(PackagePath(MeshActor->GetStaticMeshComponent()->GetStaticMesh()), "/Engine/Models/Box");
-		// Component material state is intentionally outside the reconstruction manifest.
+			{1.0, 2.0, 3.0}, {2.0, 2.0, 2.0});
+		EXPECT_EQ(
+			PackagePath(MeshActor->GetStaticMeshComponent()->GetStaticMesh()),
+			"/Engine/Models/Box");
+		EXPECT_TRUE(MeshActor->GetStaticMeshComponent()->GetOverrideMaterials().empty());
 	}
 }
 
-TEST(FNewLevelBaselineTests, RecreatedLevelMatchesCapturedLogicalManifest)
+TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 {
 	InitializeDObjectSystem();
-	FScopedStandardAssetImportProviders Providers;
-	std::string ProviderError;
-	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "LevelReconstruction";
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+	ASSERT_TRUE(std::filesystem::create_directories(Root));
+
 	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
 	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
 	std::vector<Durin::PathUtilities::FMountPoint> MountDefinitions(
 		Durin::PathUtilities::GetRegisteredMountPoints().begin(),
 		Durin::PathUtilities::GetRegisteredMountPoints().end());
 	MountDefinitions.push_back({
-		.VirtualRoot = "/Game/",
+		.VirtualRoot = "/LevelReconstruction/",
 		.Owner = Durin::PathUtilities::EMountOwner::Test,
-		.Root = DURIN_STATIC_MESH_BASELINE_GAME_CONTENT_DIR,
+		.Root = Root.generic_string() + "/",
 		.bAutoScan = true,
 		.bAuthoringWritable = true,
 		.Dependencies = {"/Engine/"}});
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry(MountDefinitions);
 	ASSERT_TRUE(MountRegistry.IsValid()) << MountRegistry.GetError();
 
+	Durin::FAssetPath MeshPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Models/Box", MeshPath));
+	Durin::DStaticMesh* Mesh = nullptr;
+	const Durin::Asset::FAssetResult MeshLoad = Durin::Asset::LoadAsset(MeshPath, Mesh);
+	ASSERT_TRUE(MeshLoad) << MeshLoad.Message;
+
 	Durin::FAssetPath LevelPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/Levels/NewLevel", LevelPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/LevelReconstruction/Reconstruction", LevelPath));
 	Durin::DLevel* Level = nullptr;
-	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(LevelPath, Level);
-	ASSERT_TRUE(LoadResult) << LoadResult.Message;
-	ExpectReconstructionManifest(Level);
+	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));
 
-	auto* MeshActor = Durin::Cast<Durin::AStaticMeshActor>(Level->FindActorByName("Box"));
+	Durin::ADirectionalLightActor* Light =
+		Level->SpawnActor<Durin::ADirectionalLightActor>("DirectionalLight");
+	Durin::ACameraActor* Camera = Level->SpawnActor<Durin::ACameraActor>("Camera");
+	Durin::AStaticMeshActor* MeshActor =
+		Level->SpawnActor<Durin::AStaticMeshActor>("StaticMesh");
+	ASSERT_NE(Light, nullptr);
+	ASSERT_NE(Camera, nullptr);
 	ASSERT_NE(MeshActor, nullptr);
-	EXPECT_TRUE(MeshActor->GetStaticMeshComponent()->GetOverrideMaterials().empty());
 
+	Durin::FTransform LightTransform;
+	LightTransform.Rotation =
+		Durin::FQuat(0.7071067811865476, 0.0, 0.0, -0.7071067811865475);
+	LightTransform.Translation = {10.0, 20.0, 30.0};
+	ASSERT_TRUE(Light->SetActorTransform(LightTransform));
+	Light->GetLightComponent()->SetIntensity(2.0f);
+	Light->GetLightComponent()->SetAmbientIntensity(0.25f);
+
+	Durin::FTransform CameraTransform;
+	CameraTransform.Translation = {-5.0, 4.0, 3.0};
+	ASSERT_TRUE(Camera->SetActorTransform(CameraTransform));
+	Camera->GetCameraComponent()->SetFieldOfViewDegrees(75.0f);
+	Camera->GetCameraComponent()->SetNearClip(0.25f);
+	Camera->GetCameraComponent()->SetFarClip(2500.0f);
+	Camera->GetCameraComponent()->SetAspectRatio(
+		Durin::ECameraAspectRatioMode::Custom, 2.39f);
+	ASSERT_TRUE(Level->SetPrimaryCameraActor(Camera));
+
+	Durin::FTransform MeshTransform;
+	MeshTransform.Translation = {1.0, 2.0, 3.0};
+	MeshTransform.Scale3D = {2.0, 2.0, 2.0};
+	ASSERT_TRUE(MeshActor->SetActorTransform(MeshTransform));
+	MeshActor->GetStaticMeshComponent()->SetStaticMesh(Mesh);
+
+	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
 	Durin::Asset::FAssetPackageInspection Inspection;
-	const std::string LevelPhysicalPath =
-		(std::filesystem::path(DURIN_STATIC_MESH_BASELINE_GAME_CONTENT_DIR)
-			/ "Levels/NewLevel.dasset").generic_string();
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
-		LevelPhysicalPath, Inspection));
-	std::vector<std::string> DependencyPaths;
-	for (const Durin::FAssetPath& Dependency : Inspection.Header.Dependencies)
-	{
-		DependencyPaths.push_back(Dependency.ToString());
-	}
-	EXPECT_EQ(
-		DependencyPaths,
-		(std::vector<std::string>{
-			"/Engine/Models/Box",
-			"/Game/Textures/TEXCUBE_PureSky_512x512"}));
+		(Root / "Reconstruction.dasset").generic_string(), Inspection));
+	ASSERT_EQ(Inspection.Header.Dependencies.size(), 1u);
+	EXPECT_EQ(Inspection.Header.Dependencies.front(), MeshPath);
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(MeshPath), nullptr);
+
+	Durin::DLevel* Loaded = nullptr;
+	const Durin::Asset::FAssetResult LevelLoad = Durin::Asset::LoadAsset(LevelPath, Loaded);
+	ASSERT_TRUE(LevelLoad) << LevelLoad.Message;
+	EXPECT_NE(Durin::Asset::FindLoadedPackage(MeshPath), nullptr);
+	ASSERT_NO_FATAL_FAILURE(ExpectReconstructionManifest(Loaded));
 
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
 }

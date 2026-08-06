@@ -14,6 +14,13 @@ namespace Durin
 		Derived,
 	};
 
+	// Selects whether a picker commits a loaded object or only its canonical asset path.
+	enum class EEditorAssetAssignmentMode : uint8
+	{
+		LoadedObject,
+		AssetPath,
+	};
+
 	// Defines an optional trailing action rendered beside the asset picker.
 	struct FEditorAssetPickerAction
 	{
@@ -32,17 +39,22 @@ namespace Durin
 		const char* SearchHint = "Search assets...";
 		const DClass* RequiredClass = nullptr;
 		EEditorAssetClassPolicy ClassPolicy = EEditorAssetClassPolicy::Derived;
+		EEditorAssetAssignmentMode AssignmentMode = EEditorAssetAssignmentMode::LoadedObject;
 		DObject* CurrentSelection = nullptr;
 		// Supplies the current asset identity when the owner stores a soft path
 		// instead of keeping the asset loaded.
 		std::string_view CurrentSelectionPath;
+		// Optional state suffix such as "Unloaded" or "Missing" for path-backed previews.
+		std::string_view CurrentSelectionStatus;
 		std::span<char> SearchText;
 		bool bAllowNone = true;
 		const char* NoneLabel = "None";
 		std::function<bool(DObject*, std::string&)> AssignSelection;
+		std::function<bool(std::string_view, std::string&)> AssignPathSelection;
 		// When present, the picker reserves stable trailing width and always draws
 		// the action, including its disabled state.
 		std::optional<FEditorAssetPickerAction> TrailingAction;
+		std::span<const FEditorAssetPickerAction> AdditionalTrailingActions;
 		// When non-empty, only paths that start with this prefix are shown.
 		std::string_view PathPrefixFilter;
 		// Bounds the cached matches for one search. ImGui virtualizes row submission,

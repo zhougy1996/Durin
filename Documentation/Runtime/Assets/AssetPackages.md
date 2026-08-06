@@ -29,6 +29,34 @@ The physical filename is the resolved virtual path plus `.dasset`. Main assets u
 
 Compiled-in reflection metadata uses a separate `Cpp` package kind. Each reflected module has one rooted `/Cpp/<ModuleName>` package whose structural children are its `DClass`, `DStruct`, and `DEnum` metadata. Those metadata objects are permanent independently of the package's Outer relationship. Cpp packages have no main asset, are not saved as `.dasset`, and remain alive for the process lifetime. CoreDObject intrinsic types are attached to `/Cpp/CoreDObject` after reflection bootstrap completes.
 
+## Reference Model
+
+Choose an object-reference type from the ownership and loading behavior, not
+from whether a path happens to be available:
+
+| Type | Use when | Persistence and lifetime |
+| --- | --- | --- |
+| Reflected `TObjectPtr<T>` | The owner requires the target object/package to be loaded and retained. | Serializes as a hard package dependency, loads eagerly, participates in GC, blocks target-package unload, and blocks target deletion from outside the deletion set. |
+| `TWeakObjectPtr<T>` | Code needs a non-owning handle to an object that is already loaded, such as editor selection or a transient cache. | Stores no durable asset identity, is not a reflected property kind, does not retain the target, and becomes invalid when the object is retired. |
+| Reflected `TSoftObjectPtr<T>` | Authored data needs a typed package-main-asset identity without eager loading or retention. | Serializes only the canonical path, has a non-owning loaded-object cache, contributes no hard dependency or unload blocker, follows target moves, and may remain dangling after deletion. |
+| `FAssetPath` or a path string | A service, document, import/source record, thumbnail key, or external setting needs identity but is not itself a reflected object reference. | The owning subsystem defines validation, persistence, move, and load behavior explicitly. Do not load an object merely to recover its path. |
+
+`FSoftObjectPath::TryCreate(...)` validates nullable persistent identity.
+`TSoftObjectPtr<T>::SetPath(...)` assigns identity without loading;
+`TrySetObject(...)` assigns a package main asset and its path; `Get()` and
+`IsLoaded()` inspect only the weak cache. Use typed
+`Asset::ResolveSoftObject(...)` to distinguish `Null`, `NotLoaded`, and
+`Loaded` without loading, and `Asset::LoadSoftObject(...)` for the explicit load
+boundary. Both APIs enforce `T::StaticClass()`; null handling is selected with
+`ESoftObjectNullPolicy`, and missing, incompatible, or corrupt targets return
+ordinary `FAssetResult` diagnostics without changing the stored path.
+
+The registry exposes `FindSoftReferencers(...)`, `FindSoftTargets(...)`, and
+`BuildCookReachability(...)` for derived-data queries. Those operations do not
+change runtime residency. Persistent settings outside packages that must follow
+target moves register an `FAssetMoveExternalStore`; ordinary service paths do
+not gain move behavior merely because they use `FAssetPath`.
+
 ## File Format
 
 Every authored or cooked `.dasset`, regardless of its main asset class, uses the
@@ -129,8 +157,26 @@ workspace, renderer, GPU, source/import service, or DDC service.
 
 Internal references use object ids. Cross-package strong references target the other package's main asset by `FAssetPath` and synchronously load that dependency. Circular dependencies work because object skeletons are constructed before dependency fields are applied.
 
+Reflected `TSoftObjectPtr<T>` fields persist only their logical identity. Their
+recursive DAST v2 signature is
+`SoftObject:<ExpectedQualifiedClass>:v1`; Array and Map signatures wrap it in
+the ordinary container grammar. One value is `uint8 0` for null, or `uint8 1`,
+a `uint64` UTF-8 byte count, and exactly one canonical `FAssetPath`. Paths are
+bounded to 1 MiB. Invalid tags, truncation, overlong strings, trailing bytes,
+non-canonical paths, and kind/signature mismatches fail deterministically.
+Missing fields keep the constructor's null/default value.
+
+Soft-object serialization never writes the weak loaded-object cache and never
+adds its target to the package header dependency table. Loading stores the path
+with an empty cache and succeeds when the target is unloaded or missing;
+resolution and loading remain explicit typed AssetCore operations. Therefore a
+soft path neither eagerly loads its target nor prevents target-package unload.
+Archive property serialization and snapshots use the same bounded null/path
+identity rule and likewise ignore loaded state.
+
 Supported reflected payloads are numeric values, bool, strings, enums,
-`DStruct` values, `TObjectPtr`, vectors, maps, and nesting of those containers.
+`DStruct` values, `TObjectPtr`, `TSoftObjectPtr`, vectors, maps, and nesting of
+those containers.
 Struct payloads contain a qualified-name field table. Missing fields retain
 constructor defaults and unknown names are skipped, but a serialized field
 whose name matches the current struct with a different kind or recursive type
@@ -195,8 +241,8 @@ owns a fixed built-in Cook-root list; it currently contains
 `/Engine/Materials/DefaultMaterial`, whose package is published without an
 empty bulk companion. Complete project discovery, editor or
 DurinDevTool packaging commands, and installable-build orchestration are not yet
-connected. Other deferred package-system work includes soft references, async
-loading, hot reload, redirects, and broader editor asset browsing.
+connected. Other deferred package-system work includes async loading, hot
+reload, redirects, and broader editor asset browsing.
 
 Package format versions are independent of the Durin engine release version.
 Adding, removing, or reordering tagged reflected fields does not change the
@@ -218,6 +264,48 @@ be rebuilt from source, and a cook can reuse the resulting render data without
 making runtime depend on the DDC path.
 
 `AssetRegistry/Registry.bin` is a versioned, deterministic snapshot keyed by virtual mount root and normalized mount-relative package path. Startup still enumerates mounted `.dasset` files once. Exact file-size and stable last-write-time matches reuse cached class, format-version, and dependency metadata without reading package headers; new or changed files use the bounded header reader, and missing files disappear from the freshly published live map. Full validation bypasses fingerprint reuse. Schema, package-format, serialization, or mount-manifest incompatibility and corrupt or missing snapshots cause a non-fatal rebuild. Successful mutations update the live registry and dirty the snapshot, which is atomically replaced after explicit reconciliation and during orderly asset-manager shutdown. The live registry exposes a monotonic process-local revision that advances only when its published asset metadata changes, allowing editor queries to cache derived views safely. Scan diagnostics expose elapsed milliseconds, enumeration/reuse/reparse/removal/failure counts, and package-header read attempts and bytes.
+
+`AssetRegistry/SoftReferences.bin` is a separate rebuildable projection of
+tagged soft-object fields. Every source entry is keyed by its full package size,
+stable last-write time, 128-bit content hash, DAST version, and extractor schema.
+Each non-null occurrence records source package and object identity, declaring
+type, top-level field, expected class, target path, a typed fixed-array/Array/Map
+route, and a deterministic display path. Results sort by target, source, object,
+declaring type, field, and route. Public queries return target-to-referencer
+records or deduplicated source-to-target paths without changing hard dependency
+queries.
+
+Extraction reads package fields and reflection metadata without constructing
+owner objects, invoking `PostLoad`, resolving targets, or changing residency.
+It accepts at most four container levels, 100,000 occurrences per package,
+1,000,000 occurrences per snapshot, 1 MiB paths and Map-key tokens, and 4 KiB
+display paths. Cache miss, fingerprint change, full validation, schema change,
+or corrupt cache re-extracts the authoritative package; save, source move,
+source deletion, and registry reconciliation update or invalidate the affected
+source projection. A failed source extraction publishes no partial source
+entry.
+
+The registry's cook-reachability query traverses both hard dependencies and
+default-tracked soft targets, validates that every target exists and its
+registered class satisfies the recorded expected class, and terminates cycles
+through its visited set. This Cook graph does not alter runtime loading or
+unload guards, which continue to use only package-header hard dependencies.
+
+Target moves require a complete soft-reference index. Loaded packages are
+repaired through their live reflected values and saved from memory; their weak
+caches are invalidated when the path changes. Unloaded referencers are checked
+against the index's complete content fingerprint and rewritten by parsing their
+tagged DAST fields, without constructing objects or calling `PostLoad`. Target
+bytes, hard and soft referencers, registry/index publication, companion files,
+and registered external stores commit together or restore from backups. A
+collision, stale fingerprint, read-only source, malformed payload, or external
+publication failure performs no partial identity change.
+
+Deletion deliberately remains a hard-reference-only transaction. It does not
+query or snapshot the soft index, rewrite source packages, or add soft paths to
+Undo/Redo state. Deleting a soft target therefore leaves a valid dangling path;
+explicit soft load reports the missing target, deletion Undo makes the path
+valid again, and Cook fails only if a selected root reaches that missing path.
 
 Registry dependencies are package-level strong-reference edges collected from
 the package header. They support loading, unload guards, move/delete checks, and

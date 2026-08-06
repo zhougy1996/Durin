@@ -520,6 +520,8 @@ The current generated property metadata supports these scalar and value kinds:
 - `std::string`
 - reflected enum values
 - reflected `DObject*` pointers
+- reflected hard `TObjectPtr<T>` values
+- reflected soft `TSoftObjectPtr<T>` values
 - reflected struct values
 
 The runtime property node stores:
@@ -530,7 +532,7 @@ The runtime property node stores:
 - byte offset
 - element size
 - generated property kind
-- referenced class for object-pointer properties
+- referenced class for hard- and soft-object properties
 - referenced enum for enum properties
 - owner field/property for nested property trees
 
@@ -543,11 +545,21 @@ Supported property node types are:
 - `FStringProperty` for `std::string`
 - `FEnumProperty`
 - `FObjectProperty`
+- `FSoftObjectProperty`
 - `FArrayProperty`
 - `FMapProperty`
 - `FStructProperty`
 
-`FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct object-reference access for GC and serialization. `FStringProperty` exposes a `std::string*` pointer helper. Array and Map properties expose the capability-checked container operations described below. Map operations expose mutable mapped values while keeping keys immutable in place; key edits use copy, uniqueness validation, and node-based rename operations so hashing and equality invariants remain intact.
+`FProperty::ContainerPtrToValuePtr<T>(...)` and `GetValuePtr(...)` provide field address access from an owning object/container address. `FObjectProperty::GetObjectPropertyValue(...)` and `SetObjectPropertyValue(...)` provide direct hard-object-reference access for GC and serialization. `FSoftObjectProperty::GetSoftObjectPtr(...)` exposes the wrapper value and expected class without treating its weak cache as reflected state. `FStringProperty` exposes a `std::string*` pointer helper. Array and Map properties expose the capability-checked container operations described below. Map operations expose mutable mapped values while keeping keys immutable in place; key edits use copy, uniqueness validation, and node-based rename operations so hashing and equality invariants remain intact.
+
+DurinHeaderTool recognizes direct and fixed-array `TSoftObjectPtr<T>` fields and
+soft values nested through supported Array, Map-value, and reflected-struct
+paths. `T` must resolve to a reflected `DObject` subclass. Raw wrapper aliases,
+unresolved or non-object targets, soft Map keys, and unsupported qualifiers are
+rejected rather than emitted with incomplete metadata. `FSoftObjectProperty`
+is a distinct property kind: serialization and editor access use its canonical
+path identity, while GC deliberately excludes it from the strong-reference
+schema. `TWeakObjectPtr<T>` remains unsupported by DHT property generation.
 
 Generated element-size expressions for non-struct values such as strings,
 names, and GUIDs use C++ `sizeof(SourceType)` rather than libclang's parser-side

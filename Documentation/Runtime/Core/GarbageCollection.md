@@ -57,6 +57,7 @@ The collector does not follow:
 - the Outer index from `Outer -> Child`
 - reflected raw `DObject*` properties
 - `TWeakObjectPtr`
+- `TSoftObjectPtr`
 - arbitrary pointers on the native stack
 
 A local or otherwise unreflected `TObjectPtr` is a handle, not an automatically discovered root. It keeps an object alive only when it is stored in a reflected reachable field or explicitly reported to the reference collector.
@@ -110,9 +111,10 @@ The Outer index is used only to order independently selected candidates so child
 - Reflected `TObjectPtr` fields are GC strong references.
 - Raw `DObject*` fields are not automatically traversed and must not be retained across collection unless another strong reference guarantees lifetime.
 - `TWeakObjectPtr` is non-owning and becomes invalid as soon as its target is pending kill.
+- `TSoftObjectPtr` retains a canonical package-main-asset path plus a weak loaded-object cache. It never keeps the target alive; after collection or package unload, the path remains while the cache stops resolving.
 - Worker threads may carry independent weak-handle copies but may only resolve or assign `DObject` references on the game thread.
 
-`TWeakObjectPtr` is not currently supported by DHT property generation, property serialization, or reflected containers.
+`TWeakObjectPtr` is not currently supported by DHT property generation, property serialization, or reflected containers. `TSoftObjectPtr` is a supported reflected property kind, but only its path identity is serialized or snapshotted; the weak cache is runtime-only.
 
 ## Automatic Collection
 

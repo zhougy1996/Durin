@@ -69,13 +69,17 @@ namespace Durin
 			uint32 InValueSize,
 			uint32 InValueAlignment,
 			void (*InInitializeValue)(void*),
-			void (*InDestroyValue)(void*)
+			void (*InDestroyValue)(void*),
+			void (*InCopyConstructValue)(void*, const void*) = nullptr,
+			void (*InCopyAssignValue)(void*, const void*) = nullptr
 		) -> void
 		{
 			ValueSize = InValueSize;
 			ValueAlignment = InValueAlignment;
 			InitializeValueFunction = InInitializeValue;
 			DestroyValueFunction = InDestroyValue;
+			CopyConstructValueFunction = InCopyConstructValue;
+			CopyAssignValueFunction = InCopyAssignValue;
 		}
 
 		COREDOBJECT_API auto InitializeValue(void* Memory, std::string* OutError = nullptr) const -> bool;
@@ -109,6 +113,8 @@ namespace Durin
 		uint32 ValueAlignment = 0;
 		void (*InitializeValueFunction)(void*) = nullptr;
 		void (*DestroyValueFunction)(void*) = nullptr;
+		void (*CopyConstructValueFunction)(void*, const void*) = nullptr;
+		void (*CopyAssignValueFunction)(void*, const void*) = nullptr;
 		void* (*MutableValueAccessor)(void*, uint32) = nullptr;
 		const void* (*ConstValueAccessor)(const void*, uint32) = nullptr;
 	};

@@ -30,7 +30,7 @@ namespace Durin
 		FLevelEditorSessionSettings& InSessionSettings,
 		FSceneViewportPanel& InSceneViewportPanel,
 		FEditorAssetMoveCoordinator& InAssetMoveCoordinator,
-		std::string& InDefaultLevel,
+		TSoftObjectPtr<DLevel>& InDefaultLevel,
 		std::function<void()> InClearError,
 		std::function<void(std::string)> InReportError,
 		std::function<void(bool)> InCompleteDeferredOpen
@@ -150,8 +150,37 @@ namespace Durin
 	auto FLevelDocumentController::OpenDefaultLevel() -> void
 	{
 		const FProjectInfo* Project = GetCurrentProject();
-		if (!Project || DefaultLevel.empty() || !DefaultLevel.starts_with(Project->MountRoot)) return;
-		OpenLevel(DefaultLevel);
+		if (!Project || DefaultLevel.IsNull()
+			|| !DefaultLevel.GetSoftObjectPath().GetView().starts_with(Project->MountRoot))
+			return;
+		if (ClearError) ClearError();
+		const FAssetPath& Path = DefaultLevel.GetSoftObjectPath().GetAssetPath();
+		FWorkspaceAssetOpenCompatibility CompatibilityPolicy(Path);
+		DLevel* Level = nullptr;
+		Asset::FAssetLoadReport LoadReport;
+		Asset::FAssetResult Result = Asset::LoadSoftObject(
+			DefaultLevel, Level, Asset::ESoftObjectNullPolicy::Reject, &LoadReport);
+		if (!Result)
+		{
+			SetError(Result.Message);
+			return;
+		}
+		std::string CompatibilityDiagnostic;
+		if (CompatibilityPolicy.RejectIfIncompatible(
+				LoadReport, CompatibilityDiagnostic))
+		{
+			SetError(std::move(CompatibilityDiagnostic));
+			return;
+		}
+		if (!ActivateLevel(Level))
+		{
+			const Asset::FAssetResult ReleaseResult =
+				CompatibilityPolicy.ReleaseIntroducedPackages();
+			if (!ReleaseResult)
+				DURIN_WARN(
+					"Failed to release packages after default-level activation failed: {}",
+					ReleaseResult.Message);
+		}
 	}
 
 	auto FLevelDocumentController::OpenLevel(std::string_view PathString) -> ELevelDocumentOpenResult

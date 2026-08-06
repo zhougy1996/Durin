@@ -166,6 +166,8 @@ namespace Durin
 		return {
 			.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
 			.ReportError = [&Context](std::string Error) { Context.SetError(std::move(Error)); },
+			.RevealAsset = Context.RevealAsset,
+			.OpenAsset = Context.OpenAsset,
 			.bReadOnly = Context.bReadOnly,
 		};
 	}

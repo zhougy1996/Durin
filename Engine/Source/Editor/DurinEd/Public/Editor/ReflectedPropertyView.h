@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DObject/AssetPath.h"
 #include "Editor/ReflectedPropertyEditing.h"
 
 namespace Durin
@@ -8,12 +9,33 @@ namespace Durin
 	class FArrayProperty;
 	class FMapProperty;
 	class FProperty;
+	class FSoftObjectProperty;
+
+	enum class ESoftObjectPropertyViewState : uint8
+	{
+		Null,
+		Unloaded,
+		Loaded,
+		Missing,
+		TypeMismatch,
+	};
+
+	// Describes a soft reference without loading its target.
+	struct FSoftObjectPropertyViewState
+	{
+		ESoftObjectPropertyViewState State = ESoftObjectPropertyViewState::Null;
+		FAssetPath Path;
+		DObject* LoadedObject = nullptr;
+		std::string Message;
+	};
 
 	// Supplies transaction, error, and read-only policy to a property view.
 	struct FReflectedPropertyViewContext
 	{
 		FEditorTransactionManager* Transactions = nullptr;
 		std::function<void(std::string)> ReportError;
+		std::function<bool(const FAssetPath&, std::string&)> RevealAsset;
+		std::function<bool(const FAssetPath&, std::string&)> OpenAsset;
 		bool bReadOnly = false;
 	};
 
@@ -146,4 +168,15 @@ namespace Durin
 		std::string_view ExplicitDisplayName = {}
 	) -> std::string;
 	DURINED_API auto MakeReflectedPropertyLabel(const FProperty& Property, uint32 ArrayIndex = 0) -> std::string;
+	DURINED_API auto InspectSoftObjectProperty(
+		FSoftObjectProperty* Property, void* Container, uint32 ArrayIndex = 0
+	) -> FSoftObjectPropertyViewState;
+	DURINED_API auto LoadSoftObjectProperty(
+		FSoftObjectProperty* Property,
+		void* Container,
+		uint32 ArrayIndex,
+		DObject*& OutObject,
+		std::string* OutError = nullptr
+	) -> bool;
+	DURINED_API auto GetSoftObjectPropertyStateLabel(ESoftObjectPropertyViewState State) -> std::string_view;
 }

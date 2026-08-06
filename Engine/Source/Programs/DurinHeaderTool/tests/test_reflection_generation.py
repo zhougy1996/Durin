@@ -43,6 +43,7 @@ from durin_header_tool.parser.reflection_parser import (
     _parse_translation_unit,
     _scan_generated_body_line,
     _validate_explicit_container_spelling,
+    _validate_soft_object_spelling,
     make_dht_parse_source,
     parse_reflection_header,
 )
@@ -127,6 +128,7 @@ namespace Durin
     struct FGuid {};
     class DObject {};
     template<typename T> class TObjectPtr {};
+    template<typename T> class TSoftObjectPtr {};
     using int32 = int;
     template<typename T> struct TDStructOpsTraitsBase {};
     template<typename T> struct TDStructOpsTraits {};
@@ -281,6 +283,18 @@ namespace Fixture
 
         DPROPERTY()
         std::unordered_map<std::string, std::vector<Durin::TObjectPtr<Durin::DObject>>> ObjectLists;
+
+        DPROPERTY(Edit)
+        Durin::TSoftObjectPtr<Durin::DObject> SoftReference;
+
+        DPROPERTY()
+        Durin::TSoftObjectPtr<Durin::DObject> SoftFixed[2];
+
+        DPROPERTY()
+        std::vector<Durin::TSoftObjectPtr<Durin::DObject>> SoftReferences;
+
+        DPROPERTY()
+        std::unordered_map<std::string, std::vector<Durin::TSoftObjectPtr<Durin::DObject>>> SoftLists;
     };
 
     DSTRUCT()
@@ -1171,6 +1185,10 @@ namespace Beta
             "ObjectReferences",
             "NamedScores",
             "ObjectLists",
+            "SoftReference",
+            "SoftFixed",
+            "SoftReferences",
+            "SoftLists",
             "AliasedScores",
         ):
             assert f"NewProp_{property_name}" in self.generated_cpp
@@ -1182,6 +1200,121 @@ namespace Beta
         assert "ResolveArrayOps<std::remove_extent_t<decltype(" in alias_definition
         assert "std::vector" not in alias_definition
 
+    def test_soft_objects_emit_typed_expected_class_metadata_without_generic_placeholders(self):
+        shape_info = next(info for info in self.header_info.classes if info.short_name == "AContainerShapes")
+        properties = {prop.name: prop for prop in shape_info.properties}
+        assert properties["SoftReference"].kind == "SoftObject"
+        assert properties["SoftReference"].referenced_type == "Durin::DObject"
+        assert properties["SoftFixed"].array_dim == 2
+        assert properties["SoftReferences"].inner.kind == "SoftObject"
+        assert properties["SoftLists"].value.inner.kind == "SoftObject"
+
+        direct_definition = next(
+            line for line in self.generated_cpp.splitlines()
+            if "AContainerShapes_Statics::NewProp_SoftReference =" in line
+        )
+        assert direct_definition == (
+            "const Durin::DurinCodeGen::FSoftObjectPropertyParams "
+            "Z_Construct_DClass_Fixture_AContainerShapes_Statics::NewProp_SoftReference = "
+            "Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<"
+            "std::remove_extent_t<decltype(((Fixture::AContainerShapes*)0)->SoftReference)>>("
+            '\"SoftReference\", Durin::EPropertyFlags::Edit, 1, '
+            "static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::AContainerShapes, SoftReference)), "
+            "Z_Construct_DClass_Durin_DObject);"
+        )
+        nested_definition = next(
+            line for line in self.generated_cpp.splitlines()
+            if "AContainerShapes_Statics::NewProp_SoftReferences_Inner =" in line
+        )
+        assert "Create<Durin::TSoftObjectPtr<Durin::DObject>>" in nested_definition
+        for line in (direct_definition, nested_definition):
+            assert "InitializePropertyValue" not in line
+            assert "DestroyPropertyValue" not in line
+            assert "nullptr" not in line
+            assert "EPropertyGenFlags::Object" not in line
+
+    @pytest.mark.parametrize(
+        ("spelling", "diagnostic"),
+        [
+            (
+                "Durin::FSoftObjectPtr",
+                "[DHT-SOFT001] DPROPERTY 'Value' at line 23: raw FSoftObjectPtr is unsupported; use TSoftObjectPtr<ReflectedObjectClass>",
+            ),
+            (
+                "Durin::TSoftObjectPtr",
+                "[DHT-SOFT001] DPROPERTY 'Value' at line 23: TSoftObjectPtr requires exactly one reflected object class",
+            ),
+            (
+                "const Durin::TSoftObjectPtr<Durin::DObject>",
+                "[DHT-SOFT003] DPROPERTY 'Value' at line 23: soft object properties do not support cv-qualifiers, pointers, or references",
+            ),
+            (
+                "Durin::TSoftObjectPtr<Durin::DObject>&",
+                "[DHT-SOFT003] DPROPERTY 'Value' at line 23: soft object properties do not support cv-qualifiers, pointers, or references",
+            ),
+            (
+                "Durin::TSoftObjectPtr<const Durin::DObject>",
+                "[DHT-SOFT003] DPROPERTY 'Value' at line 23: soft object target 'const Durin::DObject' must be an unqualified object class",
+            ),
+            (
+                "Durin::TSoftObjectPtr<Durin::DObject*>",
+                "[DHT-SOFT003] DPROPERTY 'Value' at line 23: soft object target 'Durin::DObject*' must be an unqualified object class",
+            ),
+            (
+                "Durin::TSoftObjectPtr<Fixture::FTrivialOps>",
+                "[DHT-SOFT004] DPROPERTY 'Value' at line 23: soft object target 'Fixture::FTrivialOps' is not an object class",
+            ),
+            (
+                "Durin::TSoftObjectPtr<Fixture::DMissing>",
+                "[DHT-SOFT005] DPROPERTY 'Value' at line 23: soft object target 'Fixture::DMissing' could not be resolved",
+            ),
+            (
+                "std::unordered_map<Durin::TSoftObjectPtr<Durin::DObject>, float>",
+                "[DHT-SOFT006] DPROPERTY 'Value' at line 23: soft object references are unsupported as Map keys",
+            ),
+        ],
+    )
+    def test_unsupported_soft_object_forms_have_stable_diagnostics(self, spelling, diagnostic):
+        with pytest.raises(ValueError, match=re.escape(diagnostic)):
+            _validate_soft_object_spelling(spelling, "Value", 23, self.symbols)
+
+    @pytest.mark.parametrize(
+        "declaration",
+        ["FSoftAlias Value;", "std::vector<FSoftAlias> Value;"],
+    )
+    def test_soft_object_alias_is_rejected_before_cpp_generation(self, declaration):
+        header = "Public/UnsupportedSoftAlias.h"
+        header_path = self.module_dir / header
+        header_path.write_text(
+            '''#pragma once
+namespace Fixture
+{
+    using FSoftAlias = Durin::TSoftObjectPtr<Durin::DObject>;
+    DSTRUCT()
+    struct FUnsupportedSoftAlias
+    {
+        GENERATED_BODY()
+        DPROPERTY()
+        PLACEHOLDER
+    };
+}
+'''.replace("PLACEHOLDER", declaration),
+            encoding="utf-8",
+        )
+
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=self.module_config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+            pytest.raises(
+                ValueError,
+                match=re.escape(
+                    "[DHT-SOFT002] DPROPERTY 'Value' at line 10: aliases of "
+                    "TSoftObjectPtr<T> are unsupported; spell the template directly"
+                ),
+            ),
+        ):
+            parse_reflection_header("Fixture", header, exported_symbols=self.symbols)
+
     @pytest.mark.parametrize(
         ("spelling", "diagnostic"),
         [
@@ -1190,6 +1323,7 @@ namespace Beta
             ("std::unordered_map<int32, float, FHash>", "[DHT-CONT003] DPROPERTY 'Value' at line 17: std::unordered_map requires the default hash, equality, and allocator form std::unordered_map<K, V>"),
             ("std::unordered_map<Durin::DObject*, float>", "[DHT-CONT004] DPROPERTY 'Value' at line 17: Map key type 'Durin::DObject*' is unsupported"),
             ("std::vector<std::vector<std::vector<std::vector<std::vector<float>>>>>", "[DHT-CONT005] DPROPERTY 'Value' at line 17: container nesting exceeds the supported depth of 4"),
+            ("std::vector<std::vector<std::vector<std::vector<std::vector<Durin::TSoftObjectPtr<Durin::DObject>>>>>>", "[DHT-CONT005] DPROPERTY 'Value' at line 17: container nesting exceeds the supported depth of 4"),
         ],
     )
     def test_unsupported_container_forms_have_stable_diagnostics(self, spelling, diagnostic):

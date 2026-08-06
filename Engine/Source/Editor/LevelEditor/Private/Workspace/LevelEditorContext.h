@@ -12,6 +12,7 @@ namespace Durin
 	class DWorld;
 	class DLevel;
 	class DPackage;
+	class FAssetPath;
 	// Shares active world, selection, play, and viewport state across editor panels.
 	struct FLevelEditorContext
 	{
@@ -25,6 +26,8 @@ namespace Durin
 		std::function<void(EEditorPlayStartLocation, EEditorPlayDestination)> StartPlay;
 		std::function<void(bool)> ApplyPlayChanges;
 		std::function<bool(std::string_view)> ActivateViewportEditMode;
+		std::function<bool(const FAssetPath&, std::string&)> RevealAsset;
+		std::function<bool(const FAssetPath&, std::string&)> OpenAsset;
 
 		auto Synchronize(DWorld* CurrentWorld) -> void;
 		auto SelectActor(AActor* Actor) -> void;

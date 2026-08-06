@@ -164,6 +164,13 @@ namespace Durin
 				return ObjectProperty->GetObjectPropertyValue(LeftContainer, LeftArrayIndex)
 					== ObjectProperty->GetObjectPropertyValue(RightContainer, RightArrayIndex);
 			}
+			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+			{
+				const auto* SoftProperty = static_cast<const FSoftObjectProperty*>(Property);
+				const FSoftObjectPtr* Left = SoftProperty->GetSoftObjectPtr(LeftContainer, LeftArrayIndex);
+				const FSoftObjectPtr* Right = SoftProperty->GetSoftObjectPtr(RightContainer, RightArrayIndex);
+				return Left && Right && *Left == *Right;
+			}
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
 				const auto* StructProperty = static_cast<const FStructProperty*>(Property);
@@ -229,6 +236,7 @@ namespace Durin
 	IMPLEMENT_FIELD(FGuidProperty, FProperty, EClassCastFlags::FGuidProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FEnumProperty, FProperty, EClassCastFlags::FEnumProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FObjectProperty, FProperty, EClassCastFlags::FObjectProperty, COREDOBJECT_API)
+	IMPLEMENT_FIELD(FSoftObjectProperty, FProperty, EClassCastFlags::FSoftObjectProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FStructProperty, FProperty, EClassCastFlags::FStructProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FArrayProperty, FProperty, EClassCastFlags::FArrayProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FMapProperty, FProperty, EClassCastFlags::FMapProperty, COREDOBJECT_API)
@@ -321,13 +329,13 @@ namespace Durin
 	auto FProperty::CanCopyConstructValue() const -> bool
 	{
 		if (DStruct* Struct = GetPropertyStruct(this)) return Struct->CanCopyConstruct();
-		return false;
+		return CopyConstructValueFunction != nullptr;
 	}
 
 	auto FProperty::CanCopyAssignValue() const -> bool
 	{
 		if (DStruct* Struct = GetPropertyStruct(this)) return Struct->CanCopyAssign();
-		return false;
+		return CopyAssignValueFunction != nullptr;
 	}
 
 	auto FProperty::InitializeValue(void* Memory, std::string* OutError) const -> bool
@@ -394,7 +402,8 @@ namespace Durin
 		if (OutError) OutError->clear();
 		if (!Destination || !Source || !CanCopyConstructValue() || !CanDestroyValue())
 			return ReportUnavailablePropertyOperation(this, "CopyConstruct", OutError);
-		GetPropertyStruct(this)->GetOps().CopyConstruct(Destination, Source);
+		if (DStruct* Struct = GetPropertyStruct(this)) Struct->GetOps().CopyConstruct(Destination, Source);
+		else CopyConstructValueFunction(Destination, Source);
 		return true;
 	}
 
@@ -403,7 +412,8 @@ namespace Durin
 		if (OutError) OutError->clear();
 		if (!Destination || !Source || !CanCopyAssignValue())
 			return ReportUnavailablePropertyOperation(this, "CopyAssign", OutError);
-		GetPropertyStruct(this)->GetOps().CopyAssign(Destination, Source);
+		if (DStruct* Struct = GetPropertyStruct(this)) Struct->GetOps().CopyAssign(Destination, Source);
+		else CopyAssignValueFunction(Destination, Source);
 		return true;
 	}
 
@@ -786,6 +796,47 @@ namespace Durin
 		{
 			*ValuePtr = Value;
 		}
+	}
+
+	FSoftObjectProperty::FSoftObjectProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
+		: FProperty(InOwner, InName, InObjectFlags)
+	{
+		ClassPrivate = StaticClass();
+	}
+
+	FSoftObjectProperty::FSoftObjectProperty(
+		FFieldVariant InOwner,
+		FName InName,
+		EObjectFlags InObjectFlags,
+		EPropertyFlags InPropertyFlags,
+		uint16 InArrayDim,
+		uint16 InOffset,
+		uint16 InElementSize,
+		DClass* InExpectedClass,
+		FMutableSoftValueAccessor InMutableSoftValueAccessor,
+		FConstSoftValueAccessor InConstSoftValueAccessor
+	)
+		: FProperty(
+			InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset,
+			InElementSize, DurinCodeGen::EPropertyGenFlags::SoftObject, InExpectedClass)
+		, MutableSoftValueAccessor(InMutableSoftValueAccessor)
+		, ConstSoftValueAccessor(InConstSoftValueAccessor)
+	{
+		ClassPrivate = StaticClass();
+	}
+
+	auto FSoftObjectProperty::GetSoftObjectPtr(void* Container, uint32 ArrayIndex) const -> FSoftObjectPtr*
+	{
+		return Container && MutableSoftValueAccessor
+			? MutableSoftValueAccessor(GetValuePtr(Container, ArrayIndex))
+			: nullptr;
+	}
+
+	auto FSoftObjectProperty::GetSoftObjectPtr(const void* Container, uint32 ArrayIndex) const -> const FSoftObjectPtr*
+	{
+		return Container && ConstSoftValueAccessor
+			? ConstSoftValueAccessor(GetValuePtr(Container, ArrayIndex))
+			: nullptr;
 	}
 
 	FStructProperty::FStructProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)

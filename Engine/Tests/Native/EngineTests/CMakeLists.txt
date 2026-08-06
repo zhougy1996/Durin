@@ -259,10 +259,7 @@ durin_add_engine_functional_test(WorldTests
 		Private/World/WorldActorTests.cpp
 		Private/World/WorldComponentTests.cpp
 		Private/World/WorldLifetimeTests.cpp
-	LIBRARIES DurinEd StandardAssetImport
-)
-target_compile_definitions(WorldTests PRIVATE
-	DURIN_STATIC_MESH_BASELINE_GAME_CONTENT_DIR="${CMAKE_SOURCE_DIR}/Sandbox/Content"
+	LIBRARIES DurinEd
 )
 
 durin_add_engine_functional_test(ViewportTests

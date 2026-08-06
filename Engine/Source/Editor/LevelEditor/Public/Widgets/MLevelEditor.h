@@ -1,6 +1,7 @@
 #pragma once
 
 #include "LevelEditorAPI.h"
+#include "DObject/SoftObjectPtr.h"
 #include "Editor/EditorWorkspace.h"
 #include "Editor/EditorWorkspaceRootWindow.h"
 
@@ -10,6 +11,7 @@ namespace Durin
 	enum class EEditorPlayDestination : uint8;
 	class ILevelEditorPanel;
 	class FLevelEditorSessionSettings;
+	class DLevel;
 	class FAssetPath;
 	class FEditorAssetMoveCoordinator;
 	class FEditorWorkspaceManager;
@@ -92,8 +94,8 @@ namespace Durin
 		bool bSelectDefaultBottomPanelRequested = true;
 		bool bWasActive = false;
 		bool bProjectSettingsOpen = false;
-		std::string DefaultLevel;
-		std::string PendingDefaultLevel;
+		TSoftObjectPtr<DLevel> DefaultLevel;
+		TSoftObjectPtr<DLevel> PendingDefaultLevel;
 		std::string EditorError;
 		FEditorDocumentId DeferredOpenDocumentId;
 	};

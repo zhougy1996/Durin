@@ -41,6 +41,40 @@ namespace Durin::Asset
 		explicit operator bool() const { return Succeeded(); }
 	};
 
+	enum class ESoftObjectNullPolicy : uint8
+	{
+		Reject,
+		Allow
+	};
+
+	enum class ESoftObjectResolveState : uint8
+	{
+		Null,
+		NotLoaded,
+		Loaded
+	};
+
+	struct FSoftObjectResolveResult
+	{
+		FAssetResult Result;
+		ESoftObjectResolveState State = ESoftObjectResolveState::Null;
+		DObject* Object = nullptr;
+
+		auto Succeeded() const -> bool { return Result.Succeeded(); }
+		explicit operator bool() const { return Succeeded(); }
+	};
+
+	template<typename T>
+	struct TSoftObjectResolveResult
+	{
+		FAssetResult Result;
+		ESoftObjectResolveState State = ESoftObjectResolveState::Null;
+		T* Object = nullptr;
+
+		auto Succeeded() const -> bool { return Result.Succeeded(); }
+		explicit operator bool() const { return Succeeded(); }
+	};
+
 	// Classifies how a serialized field mismatch was handled during package loading.
 	enum class EAssetCompatibilityClassification : uint8
 	{
@@ -329,6 +363,48 @@ namespace Durin::Asset
 	// constructing objects, or invoking PostLoad.
 	ASSETCORE_API auto InspectAssetPackage(std::string_view PhysicalPath, FAssetPackageInspection& OutInspection) -> FAssetResult;
 
+	// Identifies one container hop from an authored field to a soft-object value.
+	enum class ESoftAssetReferenceRouteKind : uint8
+	{
+		FixedArray,
+		ArrayElement,
+		MapValue
+	};
+
+	struct FSoftAssetReferenceRouteSegment
+	{
+		ESoftAssetReferenceRouteKind Kind = ESoftAssetReferenceRouteKind::FixedArray;
+		uint64 Index = 0;
+		// Map values use the same canonical key token that orders authored Map entries.
+		std::vector<uint8> MapKeyToken;
+
+		auto operator==(const FSoftAssetReferenceRouteSegment&) const -> bool = default;
+	};
+
+	// Describes one non-null soft-object occurrence extracted from authoritative DAST bytes.
+	struct FSoftAssetReference
+	{
+		FAssetPath SourcePackage;
+		FAssetPackageFingerprint SourceFingerprint;
+		uint64 SourceObjectId = 0;
+		std::string SourceClass;
+		std::string DeclaringType;
+		std::string FieldName;
+		std::string ExpectedClass;
+		FAssetPath TargetPath;
+		std::vector<FSoftAssetReferenceRouteSegment> ContainerRoute;
+		std::string PropertyPath;
+
+		auto operator==(const FSoftAssetReference&) const -> bool = default;
+	};
+
+	// Extracts direct and recursively nested soft paths without constructing package objects,
+	// invoking PostLoad, resolving targets, or changing package residency.
+	ASSETCORE_API auto ExtractSoftAssetReferences(
+		const FAssetPath& SourcePackage,
+		const FAssetPackageInspection& Inspection,
+		std::vector<FSoftAssetReference>& OutReferences) -> FAssetResult;
+
 	// Selects whether registry discovery may reuse its persistent snapshot.
 	enum class EAssetRegistryScanMode : uint8
 	{
@@ -351,6 +427,13 @@ namespace Durin::Asset
 		double DurationMilliseconds = 0.0;
 	};
 
+	struct FSoftReferenceIndexStats
+	{
+		uint64 ReusedSources = 0;
+		uint64 ExtractedSources = 0;
+		uint64 FailedSources = 0;
+	};
+
 	// Describes files and reversible state changes contributed to an asset move.
 	struct FAssetMoveContribution
 	{
@@ -361,6 +444,25 @@ namespace Durin::Asset
 		std::function<void()> Apply;
 		std::function<void()> Rollback;
 	};
+
+	// One editor or project-owned store participating in an AssetCore move transaction.
+	// Apply and Rollback must publish their complete external state atomically.
+	struct FAssetMoveExternalStoreAction
+	{
+		std::string Name;
+		std::function<FAssetResult()> Apply;
+		std::function<FAssetResult()> Rollback;
+	};
+
+	using FAssetMoveExternalStore = std::function<FAssetResult(
+		const FAssetPath&,
+		const FAssetPath&,
+		FAssetMoveExternalStoreAction&)>;
+	using FAssetMoveExternalStoreHandle = uint64;
+	ASSETCORE_API auto RegisterAssetMoveExternalStore(FAssetMoveExternalStore Store)
+		-> FAssetMoveExternalStoreHandle;
+	ASSETCORE_API auto UnregisterAssetMoveExternalStore(
+		FAssetMoveExternalStoreHandle Handle) -> void;
 
 	// Describes companion files contributed to an asset deletion.
 	struct FAssetDeleteContribution
@@ -454,15 +556,34 @@ namespace Durin::Asset
 		auto GetCacheWarning() const -> const std::string& { return CacheWarning; }
 		auto IsPersistentSnapshotDirty() const -> bool { return bPersistentSnapshotDirty; }
 		auto GetRevision() const -> uint64 { return Revision; }
+		auto GetSoftReferences() const -> std::span<const FSoftAssetReference> { return SoftReferences; }
+		ASSETCORE_API auto FindSoftReferencers(const FAssetPath& Target) const -> std::vector<FSoftAssetReference>;
+		ASSETCORE_API auto FindSoftTargets(const FAssetPath& Source) const -> std::vector<FAssetPath>;
+		// Builds the cook closure from hard dependencies plus default-tracked soft paths.
+		// It never loads a package and does not change runtime unload decisions.
+		ASSETCORE_API auto BuildCookReachability(
+			std::span<const FAssetPath> Roots,
+			std::vector<FAssetPath>& OutPackages) const -> FAssetResult;
+		auto GetSoftReferenceErrors() const -> const std::vector<FAssetResult>& { return SoftReferenceErrors; }
+		auto GetSoftReferenceCacheWarning() const -> const std::string& { return SoftReferenceCacheWarning; }
+		auto GetSoftReferenceIndexStats() const -> const FSoftReferenceIndexStats& { return SoftReferenceIndexStats; }
 
 	private:
 		auto AddOrUpdate(FAssetData Data) -> void;
 		auto Remove(const FAssetPath& Path) -> void;
+		auto RefreshSoftReferencesForAsset(const FAssetData& Data) -> bool;
+		auto RemoveSoftReferencesFromSource(const FAssetPath& Path) -> bool;
 		std::unordered_map<FAssetPath, FAssetData> Assets;
 		std::vector<FAssetResult> ScanErrors;
 		FAssetRegistryScanStats LastScanStats;
 		std::string CacheWarning;
 		bool bPersistentSnapshotDirty = false;
+		std::vector<FSoftAssetReference> SoftReferences;
+		std::unordered_map<FAssetPath, FAssetPackageFingerprint> SoftReferenceSourceFingerprints;
+		std::vector<FAssetResult> SoftReferenceErrors;
+		FSoftReferenceIndexStats SoftReferenceIndexStats;
+		std::string SoftReferenceCacheWarning;
+		bool bSoftReferenceSnapshotDirty = false;
 
 		// Monotonically changes when the visible registry contents change.
 		uint64 Revision = 1;
@@ -578,6 +699,47 @@ namespace Durin::Asset
 			return {EAssetError::TypeMismatch, std::format("Asset {} is not a {}.", Path.ToString(), T::StaticClass()->GetQualifiedName().ToString())};
 		}
 		OutAsset = static_cast<T*>(Object);
+		return Result;
+	}
+
+	ASSETCORE_API auto ResolveSoftObject(
+		FSoftObjectPtr& Reference,
+		const DClass* ExpectedClass,
+		ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject) -> FSoftObjectResolveResult;
+
+	ASSETCORE_API auto LoadSoftObject(
+		FSoftObjectPtr& Reference,
+		const DClass* ExpectedClass,
+		DObject*& OutObject,
+		ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
+		FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+
+	template<typename T>
+	auto ResolveSoftObject(
+		TSoftObjectPtr<T>& Reference,
+		ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject) -> TSoftObjectResolveResult<T>
+	{
+		static_assert(std::is_base_of_v<DObject, T>);
+		FSoftObjectResolveResult Result = ResolveSoftObject(
+			Reference.GetBase(), T::StaticClass(), NullPolicy);
+		return {
+			.Result = std::move(Result.Result),
+			.State = Result.State,
+			.Object = static_cast<T*>(Result.Object)};
+	}
+
+	template<typename T>
+	auto LoadSoftObject(
+		TSoftObjectPtr<T>& Reference,
+		T*& OutObject,
+		ESoftObjectNullPolicy NullPolicy = ESoftObjectNullPolicy::Reject,
+		FAssetLoadReport* OutReport = nullptr) -> FAssetResult
+	{
+		static_assert(std::is_base_of_v<DObject, T>);
+		DObject* Object = nullptr;
+		FAssetResult Result = LoadSoftObject(
+			Reference.GetBase(), T::StaticClass(), Object, NullPolicy, OutReport);
+		OutObject = Result ? static_cast<T*>(Object) : nullptr;
 		return Result;
 	}
 

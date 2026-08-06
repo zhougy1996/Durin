@@ -11,5 +11,6 @@
 #include "Class.h"
 #include "DObjectArray.h"
 #include "AssetPath.h"
+#include "SoftObjectPtr.h"
 #include "Package.h"
 #include "MathStructs.h"

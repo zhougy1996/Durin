@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DObject/Property.h"
+#include "DObject/SoftObjectPtr.h"
 #include "Misc/Guid.h"
 
 namespace Durin
@@ -198,6 +199,38 @@ namespace Durin
 
 		COREDOBJECT_API auto GetObjectPropertyValue(const void* Container, uint32 ArrayIndex = 0) const -> DObject*;
 		COREDOBJECT_API auto SetObjectPropertyValue(void* Container, DObject* Value, uint32 ArrayIndex = 0) const -> void;
+	};
+
+	// Describes a typed soft object reference. Its weak cache is never a GC edge.
+	class FSoftObjectProperty : public FProperty
+	{
+		DECLARE_FIELD(FSoftObjectProperty, FProperty, EClassCastFlags::FSoftObjectProperty, COREDOBJECT_API)
+	public:
+		using FMutableSoftValueAccessor = DurinCodeGen::FSoftObjectPropertyParams::FMutableSoftValueAccessor;
+		using FConstSoftValueAccessor = DurinCodeGen::FSoftObjectPropertyParams::FConstSoftValueAccessor;
+
+		COREDOBJECT_API FSoftObjectProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags);
+
+		COREDOBJECT_API FSoftObjectProperty(
+			FFieldVariant InOwner,
+			FName InName,
+			EObjectFlags InObjectFlags,
+			EPropertyFlags InPropertyFlags,
+			uint16 InArrayDim,
+			uint16 InOffset,
+			uint16 InElementSize,
+			DClass* InExpectedClass,
+			FMutableSoftValueAccessor InMutableSoftValueAccessor,
+			FConstSoftValueAccessor InConstSoftValueAccessor
+		);
+
+		auto GetExpectedClass() const -> DClass* { return GetReferencedClass(); }
+		COREDOBJECT_API auto GetSoftObjectPtr(void* Container, uint32 ArrayIndex = 0) const -> FSoftObjectPtr*;
+		COREDOBJECT_API auto GetSoftObjectPtr(const void* Container, uint32 ArrayIndex = 0) const -> const FSoftObjectPtr*;
+
+	private:
+		FMutableSoftValueAccessor MutableSoftValueAccessor = nullptr;
+		FConstSoftValueAccessor ConstSoftValueAccessor = nullptr;
 	};
 
 	// Describes inline reflected value-struct storage managed through DStruct operations.

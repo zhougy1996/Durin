@@ -11,12 +11,39 @@
 #include "Misc/DerivedDataCache.h"
 #include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
+#include "Threading/RunnableThread.h"
 
 namespace Durin::Asset
 {
 	namespace
 	{
 		thread_local FAssetLoadReport* GActiveAssetLoadReport = nullptr;
+
+		auto CheckSoftObjectThread() -> void
+		{
+			if (GIsGameThreadIdInitialized) CheckGameThread();
+		}
+
+		auto Error(EAssetError Code, std::string Message) -> FAssetResult;
+
+		auto ValidateSoftObjectRegistryClass(
+			const FAssetPath& Path,
+			const DClass* ExpectedClass) -> FAssetResult
+		{
+			const FAssetData* Data = FAssetManager::Get().GetRegistry().FindAsset(Path);
+			if (!Data) return {};
+			DClass* RegisteredClass = FindClassByQualifiedName(FName(Data->AssetClassName));
+			if (!RegisteredClass)
+				return Error(EAssetError::UnknownClass, std::format(
+					"Asset {} has unknown registered class {}.", Path.ToString(), Data->AssetClassName));
+			if (!RegisteredClass->IsChildOf(ExpectedClass))
+				return Error(EAssetError::TypeMismatch, std::format(
+					"Asset {} is registered as {}, not a {}.",
+					Path.ToString(),
+					Data->AssetClassName,
+					ExpectedClass->GetQualifiedName().ToString()));
+			return {};
+		}
 
 		constexpr uint32 AssetMagic = 0x54534144; // DAST
 		constexpr uint32 AssetVersion = 2;
@@ -169,6 +196,19 @@ namespace Durin::Asset
 			return Contributors;
 		}
 
+		auto GetMoveExternalStores()
+			-> std::map<FAssetMoveExternalStoreHandle, FAssetMoveExternalStore>&
+		{
+			static std::map<FAssetMoveExternalStoreHandle, FAssetMoveExternalStore> Stores;
+			return Stores;
+		}
+
+		auto NextMoveExternalStoreHandle() -> FAssetMoveExternalStoreHandle&
+		{
+			static FAssetMoveExternalStoreHandle Handle = 1;
+			return Handle;
+		}
+
 		auto GetDeleteContributors() -> std::unordered_map<DClass*, FAssetDeleteContributor>&
 		{
 			static std::unordered_map<DClass*, FAssetDeleteContributor> Contributors;
@@ -240,6 +280,12 @@ namespace Durin::Asset
 			}
 			if (Kind == DurinCodeGen::EPropertyGenFlags::Object)
 				return std::format("Object:{}:{}", Property->GetReferencedClass() ? Property->GetReferencedClass()->GetQualifiedName().ToString() : "DObject", Property->IsObjectPtrWrapper());
+			if (Kind == DurinCodeGen::EPropertyGenFlags::SoftObject)
+			{
+				auto* SoftObject = static_cast<FSoftObjectProperty*>(Property);
+				return std::format("SoftObject:{}:v1", SoftObject->GetExpectedClass()
+					? SoftObject->GetExpectedClass()->GetQualifiedName().ToString() : "DObject");
+			}
 			if (Kind == DurinCodeGen::EPropertyGenFlags::Enum)
 			{
 				auto* EnumProperty = static_cast<FEnumProperty*>(Property);
@@ -441,6 +487,25 @@ namespace Durin::Asset
 				Writer.WriteString(ExternalPath.GetView());
 				return {};
 			}
+			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+			{
+				auto* SoftProperty = static_cast<FSoftObjectProperty*>(Property);
+				const FSoftObjectPtr* Reference = SoftProperty->GetSoftObjectPtr(Container, ArrayIndex);
+				if (!Reference)
+					return Error(EAssetError::UnsupportedProperty,
+						"Soft object property has no typed value accessor.");
+				if (Reference->IsNull())
+				{
+					Writer.Write(uint8(0));
+					return {};
+				}
+				const std::string_view Path = Reference->GetSoftObjectPath().GetAssetPath().GetView();
+				if (Path.empty() || Path.size() > MaximumPackageStringBytes)
+					return Error(EAssetError::InvalidPath, "Soft object path exceeds the authored package bound.");
+				Writer.Write(uint8(1));
+				Writer.WriteString(Path);
+				return {};
+			}
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
 				auto* StructProperty = static_cast<FStructProperty*>(Property);
@@ -601,6 +666,34 @@ namespace Durin::Asset
 				else if (ReferenceKind != 0) return Error(EAssetError::CorruptFile, "Unknown object reference kind.");
 				if (Value && ObjectProperty->GetReferencedClass() && !Value->IsA(ObjectProperty->GetReferencedClass())) return Error(EAssetError::TypeMismatch, "Object reference class mismatch.");
 				ObjectProperty->SetObjectPropertyValue(Container, Value, ArrayIndex);
+				return {};
+			}
+			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+			{
+				auto* SoftProperty = static_cast<FSoftObjectProperty*>(Property);
+				FSoftObjectPtr* Reference = SoftProperty->GetSoftObjectPtr(Container, ArrayIndex);
+				if (!Reference)
+					return Error(EAssetError::UnsupportedProperty,
+						"Soft object property has no typed value accessor.");
+				uint8 ReferenceKind = 0;
+				if (!Reader.Read(ReferenceKind))
+					return Error(EAssetError::CorruptFile, "Truncated soft object reference.");
+				if (ReferenceKind == 0)
+				{
+					Reference->Reset();
+					return {};
+				}
+				if (ReferenceKind != 1)
+					return Error(EAssetError::CorruptFile, "Unknown soft object reference tag.");
+				std::string PathString;
+				if (!Reader.ReadString(PathString, MaximumPackageStringBytes) || PathString.empty())
+					return Error(EAssetError::CorruptFile, "Truncated or overlong soft object path.");
+				FSoftObjectPath Path;
+				std::string PathError;
+				if (!FSoftObjectPath::TryCreate(PathString, Path, &PathError))
+					return Error(EAssetError::InvalidPath, PathError.empty()
+						? "Invalid soft object path." : std::move(PathError));
+				Reference->SetPath(std::move(Path));
 				return {};
 			}
 			case DurinCodeGen::EPropertyGenFlags::Struct:
@@ -901,6 +994,719 @@ namespace Durin::Asset
 			return {};
 		}
 
+		constexpr uint32 MaximumSoftReferenceContainerDepth = 4;
+		constexpr uint64 MaximumSoftReferencesPerPackage = 100000;
+		constexpr uint64 MaximumSoftReferencesPerSnapshot = 1000000;
+		constexpr uint64 MaximumSoftReferenceDisplayPathBytes = 4 * 1024;
+		constexpr uint64 MaximumSoftReferenceRouteTokenBytes = 1024 * 1024;
+
+		auto ContainsSoftObjectPropertyImpl(
+			const FProperty* Property,
+			std::unordered_set<const DStruct*>& VisitingStructs) -> bool
+		{
+			if (!Property) return false;
+			switch (Property->GetKind())
+			{
+			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+				return true;
+			case DurinCodeGen::EPropertyGenFlags::Array:
+				return ContainsSoftObjectPropertyImpl(
+					static_cast<const FArrayProperty*>(Property)->GetInner(), VisitingStructs);
+			case DurinCodeGen::EPropertyGenFlags::Map:
+				return ContainsSoftObjectPropertyImpl(
+					static_cast<const FMapProperty*>(Property)->GetKeyProp(), VisitingStructs)
+					|| ContainsSoftObjectPropertyImpl(
+						static_cast<const FMapProperty*>(Property)->GetValueProp(), VisitingStructs);
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				DStruct* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
+				if (!Struct || !VisitingStructs.insert(Struct).second) return false;
+				bool bContainsSoftObject = false;
+				Struct->ForEachProperty([&](FProperty* Field) {
+					if (!bContainsSoftObject && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
+						bContainsSoftObject = ContainsSoftObjectPropertyImpl(Field, VisitingStructs);
+				}, false);
+				VisitingStructs.erase(Struct);
+				return bContainsSoftObject;
+			}
+			default:
+				return false;
+			}
+		}
+
+		auto ContainsSoftObjectProperty(const FProperty* Property) -> bool
+		{
+			std::unordered_set<const DStruct*> VisitingStructs;
+			return ContainsSoftObjectPropertyImpl(Property, VisitingStructs);
+		}
+
+		auto CompareSoftReferenceRoute(
+			std::span<const FSoftAssetReferenceRouteSegment> Left,
+			std::span<const FSoftAssetReferenceRouteSegment> Right) -> int
+		{
+			const size_t Count = std::min(Left.size(), Right.size());
+			for (size_t Index = 0; Index < Count; ++Index)
+			{
+				if (Left[Index].Kind != Right[Index].Kind)
+					return static_cast<uint8>(Left[Index].Kind) < static_cast<uint8>(Right[Index].Kind) ? -1 : 1;
+				if (Left[Index].Kind == ESoftAssetReferenceRouteKind::MapValue)
+				{
+					if (Left[Index].MapKeyToken != Right[Index].MapKeyToken)
+						return std::ranges::lexicographical_compare(
+							Left[Index].MapKeyToken, Right[Index].MapKeyToken) ? -1 : 1;
+				}
+				else if (Left[Index].Index != Right[Index].Index)
+					return Left[Index].Index < Right[Index].Index ? -1 : 1;
+			}
+			if (Left.size() == Right.size()) return 0;
+			return Left.size() < Right.size() ? -1 : 1;
+		}
+
+		auto SoftReferenceLess(const FSoftAssetReference& Left, const FSoftAssetReference& Right) -> bool
+		{
+			const auto LeftKey = std::tuple(
+				Left.TargetPath.GetView(), Left.SourcePackage.GetView(), Left.SourceObjectId,
+				std::string_view(Left.DeclaringType), std::string_view(Left.FieldName));
+			const auto RightKey = std::tuple(
+				Right.TargetPath.GetView(), Right.SourcePackage.GetView(), Right.SourceObjectId,
+				std::string_view(Right.DeclaringType), std::string_view(Right.FieldName));
+			if (LeftKey != RightKey) return LeftKey < RightKey;
+			return CompareSoftReferenceRoute(Left.ContainerRoute, Right.ContainerRoute) < 0;
+		}
+
+		auto AppendMapTokenDisplay(std::string& Path, std::span<const uint8> Token) -> void
+		{
+			Path.append("[key:");
+			for (const uint8 Byte : Token) Path.append(std::format("{:02x}", static_cast<uint32>(Byte)));
+			Path.push_back(']');
+		}
+
+		struct FSoftReferenceExtractionContext
+		{
+			const FAssetPath& SourcePackage;
+			const FAssetPackageFingerprint& Fingerprint;
+			const FAssetPackageObjectInspection& Object;
+			std::string_view DeclaringType;
+			std::string_view FieldName;
+			std::vector<FSoftAssetReference>& References;
+		};
+
+		auto ExtractSoftValue(
+			FProperty* Property,
+			FByteReader& Reader,
+			const FSoftReferenceExtractionContext& Context,
+			std::vector<FSoftAssetReferenceRouteSegment>& Route,
+			const std::string& PropertyPath,
+			uint32 ContainerDepth) -> FAssetResult;
+
+		auto ExtractSoftPropertyValues(
+			FProperty* Property,
+			std::span<const uint8> Payload,
+			const FSoftReferenceExtractionContext& Context,
+			std::vector<FSoftAssetReferenceRouteSegment>& Route,
+			const std::string& PropertyPath,
+			uint32 ContainerDepth) -> FAssetResult
+		{
+			FByteReader Reader{Payload};
+			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
+			{
+				const bool bFixedArray = Property->GetArrayDim() > 1;
+				std::string ElementPath = PropertyPath;
+				if (bFixedArray)
+				{
+					if (ContainerDepth >= MaximumSoftReferenceContainerDepth)
+						return Error(EAssetError::CorruptFile,
+							"SoftReferenceIndexDepthExceeded: fixed-array route exceeds four levels.");
+					Route.push_back({
+						.Kind = ESoftAssetReferenceRouteKind::FixedArray,
+						.Index = ArrayIndex});
+					ElementPath.append(std::format("[fixed:{}]", ArrayIndex));
+				}
+				FAssetResult Result = ExtractSoftValue(
+					Property, Reader, Context, Route, ElementPath,
+					ContainerDepth + (bFixedArray ? 1 : 0));
+				if (bFixedArray) Route.pop_back();
+				if (!Result) return Result;
+			}
+			if (Reader.Offset != Payload.size())
+				return Error(EAssetError::CorruptFile,
+					std::format("SoftReferencePayloadTrailingBytes: {} has trailing bytes.", PropertyPath));
+			return {};
+		}
+
+		auto ExtractSoftValue(
+			FProperty* Property,
+			FByteReader& Reader,
+			const FSoftReferenceExtractionContext& Context,
+			std::vector<FSoftAssetReferenceRouteSegment>& Route,
+			const std::string& PropertyPath,
+			uint32 ContainerDepth) -> FAssetResult
+		{
+			if (!Property)
+				return Error(EAssetError::TypeMismatch,
+					"SoftReferenceSchemaMismatch: reflected property metadata is missing.");
+			switch (Property->GetKind())
+			{
+			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+			{
+				uint8 ReferenceKind = 0;
+				if (!Reader.Read(ReferenceKind))
+					return Error(EAssetError::CorruptFile,
+						std::format("SoftReferencePayloadTruncated: {} has no reference tag.", PropertyPath));
+				if (ReferenceKind == 0) return {};
+				if (ReferenceKind != 1)
+					return Error(EAssetError::CorruptFile,
+						std::format("SoftReferencePayloadTag: {} has unknown tag {}.", PropertyPath, ReferenceKind));
+				std::string PathString;
+				if (!Reader.ReadString(PathString, MaximumPackageStringBytes) || PathString.empty())
+					return Error(EAssetError::CorruptFile,
+						std::format("SoftReferencePayloadPath: {} is truncated or overlong.", PropertyPath));
+				FSoftObjectPath SoftPath;
+				std::string PathError;
+				if (!FSoftObjectPath::TryCreate(PathString, SoftPath, &PathError))
+					return Error(EAssetError::InvalidPath, std::format(
+						"SoftReferenceInvalidPath: {} contains '{}': {}",
+						PropertyPath, PathString, PathError));
+				auto* SoftProperty = static_cast<FSoftObjectProperty*>(Property);
+				DClass* ExpectedClass = SoftProperty->GetExpectedClass();
+				if (!ExpectedClass)
+					return Error(EAssetError::TypeMismatch,
+						std::format("SoftReferenceSchemaMismatch: {} has no expected class.", PropertyPath));
+				if (PropertyPath.size() > MaximumSoftReferenceDisplayPathBytes)
+					return Error(EAssetError::CorruptFile,
+						"SoftReferenceIndexDisplayPathExceeded: display path exceeds 4 KiB.");
+				if (Context.References.size() >= MaximumSoftReferencesPerPackage)
+					return Error(EAssetError::CorruptFile,
+						"SoftReferenceIndexOccurrenceExceeded: package exceeds 100,000 occurrences.");
+				Context.References.push_back({
+					.SourcePackage = Context.SourcePackage,
+					.SourceFingerprint = Context.Fingerprint,
+					.SourceObjectId = Context.Object.Id,
+					.SourceClass = Context.Object.ClassName,
+					.DeclaringType = std::string(Context.DeclaringType),
+					.FieldName = std::string(Context.FieldName),
+					.ExpectedClass = ExpectedClass->GetQualifiedName().ToString(),
+					.TargetPath = SoftPath.GetAssetPath(),
+					.ContainerRoute = Route,
+					.PropertyPath = PropertyPath});
+				return {};
+			}
+			case DurinCodeGen::EPropertyGenFlags::Array:
+			{
+				if (ContainerDepth >= MaximumSoftReferenceContainerDepth)
+					return Error(EAssetError::CorruptFile,
+						"SoftReferenceIndexDepthExceeded: Array route exceeds four levels.");
+				auto* Array = static_cast<FArrayProperty*>(Property);
+				uint64 Count = 0;
+				if (!Array->GetInner() || !Reader.Read(Count) || Count > 10000000)
+					return Error(EAssetError::CorruptFile,
+						std::format("SoftReferenceArrayPayload: {} has an invalid count.", PropertyPath));
+				for (uint64 Index = 0; Index < Count; ++Index)
+				{
+					Route.push_back({
+						.Kind = ESoftAssetReferenceRouteKind::ArrayElement,
+						.Index = Index});
+					FAssetResult Result = ExtractSoftValue(
+						Array->GetInner(), Reader, Context, Route,
+						std::format("{}[{}]", PropertyPath, Index), ContainerDepth + 1);
+					Route.pop_back();
+					if (!Result) return Result;
+				}
+				return {};
+			}
+			case DurinCodeGen::EPropertyGenFlags::Map:
+			{
+				if (ContainerDepth >= MaximumSoftReferenceContainerDepth)
+					return Error(EAssetError::CorruptFile,
+						"SoftReferenceIndexDepthExceeded: Map route exceeds four levels.");
+				auto* Map = static_cast<FMapProperty*>(Property);
+				uint64 Count = 0;
+				if (!Map->GetKeyProp() || !Map->GetValueProp() || !Reader.Read(Count) || Count > 10000000)
+					return Error(EAssetError::CorruptFile,
+						std::format("SoftReferenceMapPayload: {} has an invalid count.", PropertyPath));
+				if (ContainsSoftObjectProperty(Map->GetKeyProp()))
+					return Error(EAssetError::TypeMismatch,
+						"SoftReferenceSchemaMismatch: soft Map keys are unsupported.");
+				for (uint64 Index = 0; Index < Count; ++Index)
+				{
+					FReflectedValueStorage KeyStorage;
+					std::string StorageError;
+					if (!KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0, &StorageError))
+						return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
+					FAssetResult KeyResult = DeserializeValue(
+						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Reader, {});
+					if (!KeyResult)
+					{
+						KeyResult.Message = std::format("SoftReferenceMapKey[{}]: {}", Index, KeyResult.Message);
+						return KeyResult;
+					}
+					std::vector<uint8> KeyToken;
+					if (!BuildCanonicalMapKeyToken(
+						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, KeyToken, &StorageError))
+						return Error(EAssetError::TypeMismatch, std::move(StorageError));
+					if (KeyToken.size() > MaximumSoftReferenceRouteTokenBytes)
+						return Error(EAssetError::CorruptFile,
+							"SoftReferenceIndexRouteTokenExceeded: Map key token exceeds 1 MiB.");
+					std::string ValuePath = PropertyPath;
+					AppendMapTokenDisplay(ValuePath, KeyToken);
+					if (ValuePath.size() > MaximumSoftReferenceDisplayPathBytes)
+						return Error(EAssetError::CorruptFile,
+							"SoftReferenceIndexDisplayPathExceeded: display path exceeds 4 KiB.");
+					Route.push_back({
+						.Kind = ESoftAssetReferenceRouteKind::MapValue,
+						.MapKeyToken = std::move(KeyToken)});
+					FAssetResult Result = ExtractSoftValue(
+						Map->GetValueProp(), Reader, Context, Route, ValuePath, ContainerDepth + 1);
+					Route.pop_back();
+					if (!Result) return Result;
+				}
+				return {};
+			}
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				auto* StructProperty = static_cast<FStructProperty*>(Property);
+				DStruct* Struct = StructProperty->GetStruct();
+				std::string StructName;
+				uint64 FieldCount = 0;
+				if (!Struct || !Reader.ReadString(StructName, MaximumPackageStringBytes)
+					|| StructName != Struct->GetQualifiedName().ToString()
+					|| !Reader.Read(FieldCount) || FieldCount > 100000)
+					return Error(EAssetError::TypeMismatch,
+						std::format("SoftReferenceStructPayload: {} has an incompatible header.", PropertyPath));
+				for (uint64 Index = 0; Index < FieldCount; ++Index)
+				{
+					std::string DeclaringStruct;
+					std::string FieldName;
+					std::string Signature;
+					uint8 Kind = 0;
+					uint64 PayloadSize = 0;
+					std::span<const uint8> FieldPayload;
+					if (!Reader.ReadString(DeclaringStruct, MaximumPackageStringBytes)
+						|| !Reader.ReadString(FieldName, MaximumPackageStringBytes)
+						|| !Reader.Read(Kind)
+						|| !Reader.ReadString(Signature, MaximumPackageStringBytes)
+						|| !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size()
+						|| !Reader.ReadSpan(static_cast<size_t>(PayloadSize), FieldPayload))
+						return Error(EAssetError::CorruptFile,
+							std::format("SoftReferenceStructPayload: {} has a malformed field.", PropertyPath));
+					if (DeclaringStruct != StructName) continue;
+					FProperty* Field = Struct->FindPropertyByName(FName(FieldName), false);
+					if (!Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)
+						|| !ContainsSoftObjectProperty(Field)) continue;
+					if (static_cast<uint8>(Field->GetKind()) != Kind
+						|| !IsSerializedTypeSignatureCompatible(Field, Signature))
+						return Error(EAssetError::TypeMismatch, std::format(
+							"SoftReferenceSchemaMismatch: {}.{} has an incompatible signature.",
+							PropertyPath, FieldName));
+					FAssetResult Result = ExtractSoftPropertyValues(
+						Field, FieldPayload, Context, Route,
+						std::format("{}.{}", PropertyPath, FieldName), ContainerDepth);
+					if (!Result) return Result;
+				}
+				return {};
+			}
+			default:
+				return Error(EAssetError::TypeMismatch, std::format(
+					"SoftReferenceSchemaMismatch: {} does not contain a supported soft value.", PropertyPath));
+			}
+		}
+
+		struct FLoadedSoftReferenceCollector
+		{
+			const FAssetPath& TargetPath;
+			std::vector<FSoftObjectPtr*>& Values;
+		};
+
+		struct FLoadedSoftContainerVisitContext
+		{
+			FLoadedSoftReferenceCollector& Collector;
+			FProperty* Inner = nullptr;
+			uint32 ContainerDepth = 0;
+			FAssetResult Result;
+		};
+
+		auto CollectLoadedSoftValue(
+			FProperty* Property,
+			void* Container,
+			uint32 ArrayIndex,
+			FLoadedSoftReferenceCollector& Collector,
+			uint32 ContainerDepth) -> FAssetResult;
+
+		auto CollectLoadedSoftArrayElement(
+			void* RawContext,
+			uint64,
+			void* Element) -> bool
+		{
+			auto& Context = *static_cast<FLoadedSoftContainerVisitContext*>(RawContext);
+			Context.Result = CollectLoadedSoftValue(
+				Context.Inner, Element, 0, Context.Collector,
+				Context.ContainerDepth + 1);
+			return Context.Result.Succeeded();
+		}
+
+		auto CollectLoadedSoftMapValue(
+			void* RawContext,
+			const void*,
+			void* Value) -> bool
+		{
+			auto& Context = *static_cast<FLoadedSoftContainerVisitContext*>(RawContext);
+			Context.Result = CollectLoadedSoftValue(
+				Context.Inner, Value, 0, Context.Collector,
+				Context.ContainerDepth + 1);
+			return Context.Result.Succeeded();
+		}
+
+		auto CollectLoadedSoftValue(
+			FProperty* Property,
+			void* Container,
+			uint32 ArrayIndex,
+			FLoadedSoftReferenceCollector& Collector,
+			uint32 ContainerDepth) -> FAssetResult
+		{
+			if (!Property || !Container)
+				return Error(EAssetError::TypeMismatch,
+					"SoftReferenceMoveSchemaMismatch: live property metadata is unavailable.");
+			if (ContainerDepth > MaximumSoftReferenceContainerDepth)
+				return Error(EAssetError::CorruptFile,
+					"SoftReferenceMoveDepthExceeded: live value exceeds four container levels.");
+			switch (Property->GetKind())
+			{
+			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+			{
+				auto* Value = static_cast<FSoftObjectProperty*>(Property)
+					->GetSoftObjectPtr(Container, ArrayIndex);
+				if (!Value)
+					return Error(EAssetError::TypeMismatch,
+						"SoftReferenceMoveSchemaMismatch: live soft value accessor is unavailable.");
+				if (!Value->IsNull()
+					&& Value->GetSoftObjectPath().GetAssetPath() == Collector.TargetPath)
+					Collector.Values.push_back(Value);
+				return {};
+			}
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				auto* StructProperty = static_cast<FStructProperty*>(Property);
+				DStruct* Struct = StructProperty->GetStruct();
+				if (!Struct || !Struct->HasCompleteAuthoredFields())
+					return Error(EAssetError::TypeMismatch,
+						"SoftReferenceMoveSchemaMismatch: live struct metadata is incomplete.");
+				void* StructValue = Property->GetValuePtr(Container, ArrayIndex);
+				FAssetResult Result;
+				Struct->ForEachProperty([&](FProperty* Field) {
+					if (!Result || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)
+						|| !ContainsSoftObjectProperty(Field)) return;
+					for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim(); ++FieldIndex)
+					{
+						Result = CollectLoadedSoftValue(
+							Field, StructValue, FieldIndex, Collector,
+							ContainerDepth + (Field->GetArrayDim() > 1 ? 1 : 0));
+						if (!Result) return;
+					}
+				}, false);
+				return Result;
+			}
+			case DurinCodeGen::EPropertyGenFlags::Array:
+			{
+				auto* Array = static_cast<FArrayProperty*>(Property);
+				if (!Array->GetInner()
+					|| !Array->HasCapability(EArrayOpsFlags::MutableTraversal))
+					return Error(EAssetError::UnsupportedProperty,
+						"SoftReferenceMoveArrayUnavailable: mutable traversal is required.");
+				FLoadedSoftContainerVisitContext Context{
+					Collector, Array->GetInner(), ContainerDepth};
+				const EContainerOpResult VisitResult = Array->VisitMutableElements(
+					Container, &CollectLoadedSoftArrayElement, &Context, ArrayIndex);
+				if (!Context.Result) return Context.Result;
+				if (VisitResult != EContainerOpResult::Success)
+					return Error(EAssetError::UnsupportedProperty,
+						"SoftReferenceMoveArrayFailed: mutable traversal failed.");
+				return {};
+			}
+			case DurinCodeGen::EPropertyGenFlags::Map:
+			{
+				auto* Map = static_cast<FMapProperty*>(Property);
+				if (!Map->GetValueProp()
+					|| !Map->HasCapability(EMapOpsFlags::MutableMappedTraversal))
+					return Error(EAssetError::UnsupportedProperty,
+						"SoftReferenceMoveMapUnavailable: mutable value traversal is required.");
+				FLoadedSoftContainerVisitContext Context{
+					Collector, Map->GetValueProp(), ContainerDepth};
+				const EContainerOpResult VisitResult = Map->VisitMutableEntries(
+					Container, &CollectLoadedSoftMapValue, &Context, ArrayIndex);
+				if (!Context.Result) return Context.Result;
+				if (VisitResult != EContainerOpResult::Success)
+					return Error(EAssetError::UnsupportedProperty,
+						"SoftReferenceMoveMapFailed: mutable value traversal failed.");
+				return {};
+			}
+			default:
+				return Error(EAssetError::TypeMismatch,
+					"SoftReferenceMoveSchemaMismatch: unsupported live soft container.");
+			}
+		}
+
+		auto CollectLoadedPackageSoftReferences(
+			DPackage* Package,
+			const FAssetPath& TargetPath,
+			std::vector<FSoftObjectPtr*>& OutValues) -> FAssetResult
+		{
+			if (!Package || !Package->GetAsset())
+				return Error(EAssetError::InvalidObjectGraph,
+					"SoftReferenceMoveInvalidPackage: loaded package has no asset.");
+			std::vector<DObject*> Objects;
+			GatherObjects(Package->GetAsset(), Objects);
+			FLoadedSoftReferenceCollector Collector{TargetPath, OutValues};
+			FAssetResult Result;
+			for (DObject* Object : Objects)
+			{
+				Object->GetClass()->ForEachProperty([&](FProperty* Property) {
+					if (!Result || !Property
+						|| Property->HasAnyPropertyFlags(EPropertyFlags::Transient)
+						|| !ContainsSoftObjectProperty(Property)) return;
+					for (uint32 ArrayIndex = 0;
+						ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
+					{
+						Result = CollectLoadedSoftValue(
+							Property, Object, ArrayIndex, Collector,
+							Property->GetArrayDim() > 1 ? 1 : 0);
+						if (!Result) return;
+					}
+				}, true);
+				if (!Result) return Result;
+			}
+			return {};
+		}
+
+		auto RewriteSerializedSoftValue(
+			FProperty* Property,
+			FByteReader& Reader,
+			FByteWriter& Writer,
+			const FAssetPath& OldPath,
+			const FAssetPath& NewPath,
+			uint64& RewriteCount,
+			uint32 ContainerDepth) -> FAssetResult;
+
+		auto RewriteSerializedSoftProperty(
+			FProperty* Property,
+			std::span<const uint8> Payload,
+			const FAssetPath& OldPath,
+			const FAssetPath& NewPath,
+			std::vector<uint8>& OutPayload,
+			uint64& RewriteCount,
+			uint32 ContainerDepth = 0) -> FAssetResult
+		{
+			FByteReader Reader{Payload};
+			FByteWriter Writer;
+			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
+			{
+				FAssetResult Result = RewriteSerializedSoftValue(
+					Property, Reader, Writer, OldPath, NewPath, RewriteCount,
+					ContainerDepth + (Property->GetArrayDim() > 1 ? 1 : 0));
+				if (!Result) return Result;
+			}
+			if (Reader.Offset != Payload.size())
+				return Error(EAssetError::CorruptFile,
+					"SoftReferenceMoveTrailingBytes: field payload has trailing bytes.");
+			OutPayload = std::move(Writer.Bytes);
+			return {};
+		}
+
+		auto RewriteSerializedSoftValue(
+			FProperty* Property,
+			FByteReader& Reader,
+			FByteWriter& Writer,
+			const FAssetPath& OldPath,
+			const FAssetPath& NewPath,
+			uint64& RewriteCount,
+			uint32 ContainerDepth) -> FAssetResult
+		{
+			if (!Property || ContainerDepth > MaximumSoftReferenceContainerDepth)
+				return Error(EAssetError::TypeMismatch,
+					"SoftReferenceMoveSchemaMismatch: serialized container metadata is invalid.");
+			switch (Property->GetKind())
+			{
+			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+			{
+				uint8 Kind = 0;
+				if (!Reader.Read(Kind))
+					return Error(EAssetError::CorruptFile,
+						"SoftReferenceMoveTruncated: missing reference tag.");
+				Writer.Write(Kind);
+				if (Kind == 0) return {};
+				if (Kind != 1)
+					return Error(EAssetError::CorruptFile,
+						"SoftReferenceMoveTag: unknown reference tag.");
+				std::string PathString;
+				FSoftObjectPath Path;
+				std::string PathError;
+				if (!Reader.ReadString(PathString, MaximumPackageStringBytes)
+					|| PathString.empty())
+					return Error(EAssetError::CorruptFile,
+						"SoftReferenceMovePath: path is truncated or overlong.");
+				if (!FSoftObjectPath::TryCreate(PathString, Path, &PathError))
+					return Error(EAssetError::InvalidPath, std::move(PathError));
+				if (Path.GetAssetPath() == OldPath)
+				{
+					Writer.WriteString(NewPath.GetView());
+					++RewriteCount;
+				}
+				else Writer.WriteString(PathString);
+				return {};
+			}
+			case DurinCodeGen::EPropertyGenFlags::Array:
+			{
+				auto* Array = static_cast<FArrayProperty*>(Property);
+				uint64 Count = 0;
+				if (!Array->GetInner() || !Reader.Read(Count) || Count > 10000000)
+					return Error(EAssetError::CorruptFile,
+						"SoftReferenceMoveArrayPayload: invalid count.");
+				Writer.Write(Count);
+				for (uint64 Index = 0; Index < Count; ++Index)
+				{
+					FAssetResult Result = RewriteSerializedSoftValue(
+						Array->GetInner(), Reader, Writer, OldPath, NewPath,
+						RewriteCount, ContainerDepth + 1);
+					if (!Result) return Result;
+				}
+				return {};
+			}
+			case DurinCodeGen::EPropertyGenFlags::Map:
+			{
+				auto* Map = static_cast<FMapProperty*>(Property);
+				uint64 Count = 0;
+				if (!Map->GetKeyProp() || !Map->GetValueProp()
+					|| !Reader.Read(Count) || Count > 10000000
+					|| ContainsSoftObjectProperty(Map->GetKeyProp()))
+					return Error(EAssetError::CorruptFile,
+						"SoftReferenceMoveMapPayload: invalid map schema or count.");
+				Writer.Write(Count);
+				for (uint64 Index = 0; Index < Count; ++Index)
+				{
+					FReflectedValueStorage KeyStorage;
+					std::string StorageError;
+					if (!KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0, &StorageError))
+						return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
+					FAssetResult Result = DeserializeValue(
+						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Reader, {});
+					if (!Result) return Result;
+					std::unordered_set<FAssetPath> Dependencies;
+					Result = SerializeValue(
+						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Writer, {}, Dependencies);
+					if (!Result) return Result;
+					Result = RewriteSerializedSoftValue(
+						Map->GetValueProp(), Reader, Writer, OldPath, NewPath,
+						RewriteCount, ContainerDepth + 1);
+					if (!Result) return Result;
+				}
+				return {};
+			}
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				auto* StructProperty = static_cast<FStructProperty*>(Property);
+				DStruct* Struct = StructProperty->GetStruct();
+				std::string StructName;
+				uint64 FieldCount = 0;
+				if (!Struct || !Reader.ReadString(StructName, MaximumPackageStringBytes)
+					|| StructName != Struct->GetQualifiedName().ToString()
+					|| !Reader.Read(FieldCount) || FieldCount > 100000)
+					return Error(EAssetError::TypeMismatch,
+						"SoftReferenceMoveStructPayload: incompatible header.");
+				Writer.WriteString(StructName);
+				Writer.Write(FieldCount);
+				for (uint64 Index = 0; Index < FieldCount; ++Index)
+				{
+					std::string DeclaringStruct;
+					std::string FieldName;
+					std::string Signature;
+					uint8 Kind = 0;
+					uint64 PayloadSize = 0;
+					std::span<const uint8> FieldPayload;
+					if (!Reader.ReadString(DeclaringStruct, MaximumPackageStringBytes)
+						|| !Reader.ReadString(FieldName, MaximumPackageStringBytes)
+						|| !Reader.Read(Kind)
+						|| !Reader.ReadString(Signature, MaximumPackageStringBytes)
+						|| !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size()
+						|| !Reader.ReadSpan(static_cast<size_t>(PayloadSize), FieldPayload))
+						return Error(EAssetError::CorruptFile,
+							"SoftReferenceMoveStructPayload: malformed field.");
+					Writer.WriteString(DeclaringStruct);
+					Writer.WriteString(FieldName);
+					Writer.Write(Kind);
+					Writer.WriteString(Signature);
+					FProperty* Field = DeclaringStruct == StructName
+						? Struct->FindPropertyByName(FName(FieldName), false) : nullptr;
+					if (!Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)
+						|| !ContainsSoftObjectProperty(Field))
+					{
+						Writer.Write(PayloadSize);
+						Writer.WriteBytes(FieldPayload.data(), FieldPayload.size());
+						continue;
+					}
+					if (static_cast<uint8>(Field->GetKind()) != Kind
+						|| !IsSerializedTypeSignatureCompatible(Field, Signature))
+						return Error(EAssetError::TypeMismatch,
+							"SoftReferenceMoveSchemaMismatch: struct field signature changed.");
+					std::vector<uint8> RewrittenPayload;
+					FAssetResult Result = RewriteSerializedSoftProperty(
+						Field, FieldPayload, OldPath, NewPath, RewrittenPayload,
+						RewriteCount, ContainerDepth);
+					if (!Result) return Result;
+					Writer.Write(uint64(RewrittenPayload.size()));
+					Writer.WriteBytes(RewrittenPayload.data(), RewrittenPayload.size());
+				}
+				return {};
+			}
+			default:
+				return Error(EAssetError::TypeMismatch,
+					"SoftReferenceMoveSchemaMismatch: unsupported serialized soft container.");
+			}
+		}
+
+		auto RewriteUnloadedSoftPackage(
+			std::span<const uint8> Bytes,
+			const FAssetPath& OldPath,
+			const FAssetPath& NewPath,
+			uint64 ExpectedRewriteCount,
+			std::vector<uint8>& OutBytes) -> FAssetResult
+		{
+			FPackageFile File;
+			FAssetResult Result = ReadPackageFile(Bytes, File, false);
+			if (!Result) return Result;
+			uint64 RewriteCount = 0;
+			for (FObjectRecord& Object : File.Objects)
+			{
+				DClass* ObjectClass = FindClassByQualifiedName(FName(Object.ClassName));
+				if (!ObjectClass)
+					return Error(EAssetError::UnknownClass,
+						"SoftReferenceMoveUnknownClass: source object class is unavailable.");
+				for (FFieldRecord& Field : Object.Fields)
+				{
+					DClass* DeclaringClass = FindClassByQualifiedName(FName(Field.DeclaringClass));
+					FProperty* Property = DeclaringClass && ObjectClass->IsChildOf(DeclaringClass)
+						? DeclaringClass->FindPropertyByName(FName(Field.Name), false) : nullptr;
+					if (!Property || !ContainsSoftObjectProperty(Property)) continue;
+					if (Property->GetKind() != Field.Kind
+						|| !IsSerializedTypeSignatureCompatible(Property, Field.TypeSignature))
+						return Error(EAssetError::TypeMismatch,
+							"SoftReferenceMoveSchemaMismatch: source field signature changed.");
+					std::vector<uint8> RewrittenPayload;
+					Result = RewriteSerializedSoftProperty(
+						Property, Field.Payload, OldPath, NewPath,
+						RewrittenPayload, RewriteCount);
+					if (!Result) return Result;
+					Field.Payload = std::move(RewrittenPayload);
+				}
+			}
+			if (RewriteCount != ExpectedRewriteCount)
+				return Error(EAssetError::InUse, std::format(
+					"SoftReferenceMoveStaleIndex: expected {} occurrence(s), parsed {}.",
+					ExpectedRewriteCount, RewriteCount));
+			FByteWriter Writer;
+			WritePackageFile(File, Writer);
+			OutBytes = std::move(Writer.Bytes);
+			return {};
+		}
+
 		constexpr uint64 MaximumRegistryEntries = 1000000;
 		constexpr uint32 MaximumRegistryDependencies = 100000;
 
@@ -1097,6 +1903,227 @@ namespace Durin::Asset
 					.Dependencies = Data.Dependencies,
 					.FileSize = Data.FileSize,
 					.LastWriteTimeTicks = Data.LastWriteTimeTicks});
+			}
+			return true;
+		}
+
+		constexpr uint32 SoftReferenceIndexMagic = 0x58495253; // SRIX
+		constexpr uint32 SoftReferenceIndexSchemaVersion = 1;
+		constexpr uint32 SoftReferenceExtractorSchemaVersion = 1;
+		constexpr uintmax_t MaximumSoftReferenceCacheBytes = 1024ull * 1024ull * 1024ull;
+
+		struct FSoftReferenceCacheSource
+		{
+			FAssetPackageFingerprint Fingerprint;
+			std::vector<FSoftAssetReference> References;
+		};
+
+		auto SoftReferenceCachePath() -> std::filesystem::path
+		{
+			return std::filesystem::path(FPaths::DerivedDataCacheDir())
+				/ "AssetRegistry" / "SoftReferences.bin";
+		}
+
+		auto LoadSoftReferenceCache(
+			std::unordered_map<FAssetPath, FSoftReferenceCacheSource>& OutSources,
+			std::string& OutWarning) -> bool
+		{
+			OutSources.clear();
+			const std::filesystem::path Path = SoftReferenceCachePath();
+			std::error_code Ec;
+			if (!std::filesystem::exists(Path, Ec)) return false;
+			const uintmax_t Size = std::filesystem::file_size(Path, Ec);
+			if (Ec || Size > MaximumSoftReferenceCacheBytes)
+			{
+				OutWarning = std::format("Ignoring invalid soft-reference cache {}.", Path.generic_string());
+				return false;
+			}
+			std::vector<uint8> Bytes;
+			if (!FFileHelper::LoadFileToArray(Bytes, Path.generic_string()))
+			{
+				OutWarning = std::format("Failed to read soft-reference cache {}.", Path.generic_string());
+				return false;
+			}
+			DerivedDataCache::FReader Reader(Bytes);
+			uint32 ExtractorSchema = 0;
+			uint64 SourceCount = 0;
+			if (!Reader.ReadAndValidateHeader(
+					SoftReferenceIndexMagic, SoftReferenceIndexSchemaVersion, AssetVersion)
+				|| !Reader.ReadU32(ExtractorSchema)
+				|| ExtractorSchema != SoftReferenceExtractorSchemaVersion
+				|| !Reader.ReadU64(SourceCount) || SourceCount > MaximumRegistryEntries)
+			{
+				OutWarning = "Ignoring incompatible or corrupt soft-reference cache header.";
+				return false;
+			}
+			uint64 TotalOccurrences = 0;
+			for (uint64 SourceIndex = 0; SourceIndex < SourceCount; ++SourceIndex)
+			{
+				std::string SourceString;
+				FAssetPath SourcePath;
+				FSoftReferenceCacheSource Source;
+				uint64 FileSize = 0;
+				uint64 OccurrenceCount = 0;
+				if (!Reader.ReadString(SourceString, MaximumPackageStringBytes)
+					|| !FAssetPath::TryCreate(SourceString, SourcePath)
+					|| !Reader.ReadU64(FileSize)
+					|| !Reader.ReadI64(Source.Fingerprint.LastWriteTimeTicks)
+					|| !Reader.ReadU64(Source.Fingerprint.ContentHash.HashLow)
+					|| !Reader.ReadU64(Source.Fingerprint.ContentHash.HashHigh)
+					|| !Reader.ReadU64(OccurrenceCount)
+					|| OccurrenceCount > MaximumSoftReferencesPerPackage
+					|| TotalOccurrences > MaximumSoftReferencesPerSnapshot - OccurrenceCount)
+				{
+					OutWarning = "Ignoring corrupt soft-reference cache source record.";
+					OutSources.clear();
+					return false;
+				}
+				Source.Fingerprint.FileSize = static_cast<uintmax_t>(FileSize);
+				TotalOccurrences += OccurrenceCount;
+				Source.References.reserve(static_cast<size_t>(OccurrenceCount));
+				for (uint64 OccurrenceIndex = 0; OccurrenceIndex < OccurrenceCount; ++OccurrenceIndex)
+				{
+					FSoftAssetReference Reference{
+						.SourcePackage = SourcePath,
+						.SourceFingerprint = Source.Fingerprint};
+					std::string TargetString;
+					uint32 RouteCount = 0;
+					if (!Reader.ReadU64(Reference.SourceObjectId)
+						|| !Reader.ReadString(Reference.SourceClass, MaximumPackageStringBytes)
+						|| !Reader.ReadString(Reference.DeclaringType, MaximumPackageStringBytes)
+						|| !Reader.ReadString(Reference.FieldName, MaximumPackageStringBytes)
+						|| !Reader.ReadString(Reference.ExpectedClass, MaximumPackageStringBytes)
+						|| !Reader.ReadString(TargetString, MaximumPackageStringBytes)
+						|| !FAssetPath::TryCreate(TargetString, Reference.TargetPath)
+						|| !Reader.ReadU32(RouteCount)
+						|| RouteCount > MaximumSoftReferenceContainerDepth)
+					{
+						OutWarning = "Ignoring corrupt soft-reference cache occurrence.";
+						OutSources.clear();
+						return false;
+					}
+					Reference.ContainerRoute.reserve(RouteCount);
+					for (uint32 RouteIndex = 0; RouteIndex < RouteCount; ++RouteIndex)
+					{
+						uint8 Kind = 0;
+						uint64 TokenBytes = 0;
+						FSoftAssetReferenceRouteSegment Segment;
+						if (!Reader.ReadU8(Kind)
+							|| Kind > static_cast<uint8>(ESoftAssetReferenceRouteKind::MapValue)
+							|| !Reader.ReadU64(Segment.Index)
+							|| !Reader.ReadU64(TokenBytes)
+							|| !Reader.ReadBytes(
+								Segment.MapKeyToken, TokenBytes, MaximumSoftReferenceRouteTokenBytes))
+						{
+							OutWarning = "Ignoring corrupt soft-reference cache route.";
+							OutSources.clear();
+							return false;
+						}
+						Segment.Kind = static_cast<ESoftAssetReferenceRouteKind>(Kind);
+						if ((Segment.Kind == ESoftAssetReferenceRouteKind::MapValue)
+							!= !Segment.MapKeyToken.empty())
+						{
+							OutWarning = "Ignoring inconsistent soft-reference cache route.";
+							OutSources.clear();
+							return false;
+						}
+						Reference.ContainerRoute.push_back(std::move(Segment));
+					}
+					if (!Reader.ReadString(
+						Reference.PropertyPath, MaximumSoftReferenceDisplayPathBytes)
+						|| Reference.PropertyPath.empty())
+					{
+						OutWarning = "Ignoring invalid soft-reference cache display path.";
+						OutSources.clear();
+						return false;
+					}
+					Source.References.push_back(std::move(Reference));
+				}
+				if (!OutSources.emplace(SourcePath, std::move(Source)).second)
+				{
+					OutWarning = "Ignoring duplicate soft-reference cache source.";
+					OutSources.clear();
+					return false;
+				}
+			}
+			if (!Reader.IsAtEnd())
+			{
+				OutWarning = "Ignoring soft-reference cache with trailing data.";
+				OutSources.clear();
+				return false;
+			}
+			return true;
+		}
+
+		auto WriteSoftReferenceCache(
+			const std::unordered_map<FAssetPath, FAssetPackageFingerprint>& Fingerprints,
+			std::span<const FSoftAssetReference> References,
+			std::string& OutWarning) -> bool
+		{
+			if (Fingerprints.size() > MaximumRegistryEntries
+				|| References.size() > MaximumSoftReferencesPerSnapshot)
+			{
+				OutWarning = "Soft-reference index exceeds its persisted snapshot bounds.";
+				return false;
+			}
+			std::unordered_map<FAssetPath, std::vector<const FSoftAssetReference*>> BySource;
+			for (const FSoftAssetReference& Reference : References)
+				BySource[Reference.SourcePackage].push_back(&Reference);
+			std::vector<FAssetPath> Sources;
+			Sources.reserve(Fingerprints.size());
+			for (const auto& [Source, Fingerprint] : Fingerprints) Sources.push_back(Source);
+			std::ranges::sort(Sources, [](const FAssetPath& Left, const FAssetPath& Right) {
+				return Left.GetView() < Right.GetView();
+			});
+
+			DerivedDataCache::FWriter Writer;
+			Writer.WriteHeader({SoftReferenceIndexMagic, SoftReferenceIndexSchemaVersion, AssetVersion});
+			Writer.WriteU32(SoftReferenceExtractorSchemaVersion);
+			Writer.WriteU64(Sources.size());
+			for (const FAssetPath& Source : Sources)
+			{
+				const FAssetPackageFingerprint& Fingerprint = Fingerprints.at(Source);
+				const auto ReferencesIt = BySource.find(Source);
+				const size_t ReferenceCount = ReferencesIt == BySource.end()
+					? 0 : ReferencesIt->second.size();
+				if (ReferenceCount > MaximumSoftReferencesPerPackage)
+				{
+					OutWarning = std::format(
+						"Soft-reference source {} exceeds its occurrence bound.", Source.ToString());
+					return false;
+				}
+				Writer.WriteString(Source.GetView());
+				Writer.WriteU64(static_cast<uint64>(Fingerprint.FileSize));
+				Writer.WriteI64(Fingerprint.LastWriteTimeTicks);
+				Writer.WriteU64(Fingerprint.ContentHash.HashLow);
+				Writer.WriteU64(Fingerprint.ContentHash.HashHigh);
+				Writer.WriteU64(ReferenceCount);
+				if (ReferencesIt == BySource.end()) continue;
+				for (const FSoftAssetReference* Reference : ReferencesIt->second)
+				{
+					Writer.WriteU64(Reference->SourceObjectId);
+					Writer.WriteString(Reference->SourceClass);
+					Writer.WriteString(Reference->DeclaringType);
+					Writer.WriteString(Reference->FieldName);
+					Writer.WriteString(Reference->ExpectedClass);
+					Writer.WriteString(Reference->TargetPath.GetView());
+					Writer.WriteU32(static_cast<uint32>(Reference->ContainerRoute.size()));
+					for (const FSoftAssetReferenceRouteSegment& Segment : Reference->ContainerRoute)
+					{
+						Writer.WriteU8(static_cast<uint8>(Segment.Kind));
+						Writer.WriteU64(Segment.Index);
+						Writer.WriteU64(Segment.MapKeyToken.size());
+						Writer.WriteBytes(Segment.MapKeyToken);
+					}
+					Writer.WriteString(Reference->PropertyPath);
+				}
+			}
+			std::string ErrorMessage;
+			if (!DerivedDataCache::WriteFileAtomically(
+				SoftReferenceCachePath(), Writer.GetBytes(), &ErrorMessage))
+			{
+				OutWarning = std::move(ErrorMessage);
+				return false;
 			}
 			return true;
 		}
@@ -1562,6 +2589,71 @@ namespace Durin::Asset
 		return {};
 	}
 
+	auto ExtractSoftAssetReferences(
+		const FAssetPath& SourcePackage,
+		const FAssetPackageInspection& Inspection,
+		std::vector<FSoftAssetReference>& OutReferences) -> FAssetResult
+	{
+		OutReferences.clear();
+		if (!SourcePackage.IsValid())
+			return Error(EAssetError::InvalidPath,
+				"SoftReferenceIndexInvalidSource: source package path is invalid.");
+		if (Inspection.Objects.empty())
+			return Error(EAssetError::InvalidObjectGraph,
+				"SoftReferenceIndexInvalidPackage: package has no main object.");
+		if (Inspection.Header.AssetClassName != Inspection.Objects.front().ClassName)
+			return Error(EAssetError::TypeMismatch,
+				"SoftReferenceIndexRuntimeTypeMismatch: header and main-object classes differ.");
+
+		std::vector<FSoftAssetReference> References;
+		for (const FAssetPackageObjectInspection& Object : Inspection.Objects)
+		{
+			DClass* ObjectClass = FindClassByQualifiedName(FName(Object.ClassName));
+			if (!ObjectClass)
+				return Error(EAssetError::UnknownClass, std::format(
+					"SoftReferenceIndexUnknownClass: {} is unavailable.", Object.ClassName));
+			for (const FAssetPackageField& Field : Object.Fields)
+			{
+				DClass* DeclaringClass = FindClassByQualifiedName(FName(Field.DeclaringClass));
+				FProperty* Property = DeclaringClass && ObjectClass->IsChildOf(DeclaringClass)
+					? DeclaringClass->FindPropertyByName(FName(Field.Name), false)
+					: nullptr;
+				if (!Property)
+				{
+					// Unknown fields remain compatibility payloads. Without current reflection
+					// metadata they cannot safely contribute a typed derived record.
+					continue;
+				}
+				const bool bCurrentContainsSoftObject = ContainsSoftObjectProperty(Property);
+				const bool bStoredContainsSoftObject = Field.TypeSignature.find("SoftObject:") != std::string::npos;
+				if (Property->GetKind() != Field.Kind
+					|| !IsSerializedTypeSignatureCompatible(Property, Field.TypeSignature))
+				{
+					if (bCurrentContainsSoftObject || bStoredContainsSoftObject)
+						return Error(EAssetError::TypeMismatch, std::format(
+							"SoftReferenceSchemaMismatch: {}::{} has incompatible kind or signature.",
+							Field.DeclaringClass, Field.Name));
+					continue;
+				}
+				if (!bCurrentContainsSoftObject) continue;
+				FSoftReferenceExtractionContext Context{
+					.SourcePackage = SourcePackage,
+					.Fingerprint = Inspection.Fingerprint,
+					.Object = Object,
+					.DeclaringType = Field.DeclaringClass,
+					.FieldName = Field.Name,
+					.References = References};
+				std::vector<FSoftAssetReferenceRouteSegment> Route;
+				FAssetResult Result = ExtractSoftPropertyValues(
+					Property, Field.Payload, Context, Route, Field.Name, 0);
+				if (!Result) return Result;
+			}
+		}
+		std::ranges::sort(References, &SoftReferenceLess);
+		OutReferences = std::move(References);
+		return {};
+	}
+
 	auto FAssetLoadReport::HasNonUpgradeMutations() const -> bool
 	{
 		return std::ranges::any_of(Mutations, [](const FAssetLoadMutation& Mutation) {
@@ -1678,6 +2770,22 @@ namespace Durin::Asset
 		if (Class && Contributor) GetMoveContributors().insert_or_assign(Class, std::move(Contributor));
 	}
 
+	auto RegisterAssetMoveExternalStore(FAssetMoveExternalStore Store)
+		-> FAssetMoveExternalStoreHandle
+	{
+		if (!Store) return 0;
+		auto& NextHandle = NextMoveExternalStoreHandle();
+		const FAssetMoveExternalStoreHandle Handle = NextHandle++;
+		GetMoveExternalStores().emplace(Handle, std::move(Store));
+		return Handle;
+	}
+
+	auto UnregisterAssetMoveExternalStore(
+		FAssetMoveExternalStoreHandle Handle) -> void
+	{
+		if (Handle != 0) GetMoveExternalStores().erase(Handle);
+	}
+
 	auto RegisterAssetDeleteContributor(DClass* Class, FAssetDeleteContributor Contributor) -> void
 	{
 		if (Class && Contributor) GetDeleteContributors().insert_or_assign(Class, std::move(Contributor));
@@ -1689,12 +2797,18 @@ namespace Durin::Asset
 		std::unordered_map<FAssetPath, FAssetData> NewAssets;
 		std::vector<FRegistryCacheEntry> NewCacheEntries;
 		std::unordered_map<std::string, FRegistryCacheEntry> CachedEntries;
+		std::unordered_map<FAssetPath, FSoftReferenceCacheSource> CachedSoftSources;
 		std::unordered_set<std::string> SeenCachedIdentities;
 		ScanErrors.clear();
 		LastScanStats = {};
 		CacheWarning.clear();
+		SoftReferenceErrors.clear();
+		SoftReferenceIndexStats = {};
+		SoftReferenceCacheWarning.clear();
 		const std::vector<std::string> MountManifest = GetMountManifest();
 		const bool bCacheLoaded = LoadRegistryCache(MountManifest, CachedEntries, CacheWarning);
+		const bool bSoftCacheLoaded = LoadSoftReferenceCache(
+			CachedSoftSources, SoftReferenceCacheWarning);
 		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
 		{
 			if (!Mount.bAutoScan) continue;
@@ -1790,12 +2904,108 @@ namespace Durin::Asset
 			}
 		}
 		if (bCacheLoaded) LastScanStats.Removed = CachedEntries.size() - SeenCachedIdentities.size();
-		if (Assets != NewAssets)
+
+		std::vector<const FAssetData*> SortedAssets;
+		SortedAssets.reserve(NewAssets.size());
+		for (const auto& [Path, Data] : NewAssets) SortedAssets.push_back(&Data);
+		std::ranges::sort(SortedAssets, [](const FAssetData* Left, const FAssetData* Right) {
+			return Left->PackagePath.GetView() < Right->PackagePath.GetView();
+		});
+		std::vector<FSoftAssetReference> NewSoftReferences;
+		std::unordered_map<FAssetPath, FAssetPackageFingerprint> NewSoftFingerprints;
+		for (const FAssetData* Data : SortedAssets)
+		{
+			std::vector<uint8> Bytes;
+			FAssetPackageFingerprint Fingerprint;
+			if (!FFileHelper::LoadFileToArray(Bytes, Data->PhysicalPath))
+			{
+				SoftReferenceErrors.push_back(Error(EAssetError::IoError, std::format(
+					"SoftReferenceIndexReadFailed: could not read {}.", Data->PhysicalPath)));
+				++SoftReferenceIndexStats.FailedSources;
+				continue;
+			}
+			FAssetResult FingerprintResult = MakePackageFingerprint(
+				Data->PhysicalPath, Bytes, Fingerprint);
+			if (!FingerprintResult)
+			{
+				SoftReferenceErrors.push_back(std::move(FingerprintResult));
+				++SoftReferenceIndexStats.FailedSources;
+				continue;
+			}
+			const auto CachedIt = CachedSoftSources.find(Data->PackagePath);
+			if (Mode == EAssetRegistryScanMode::Incremental && bSoftCacheLoaded
+				&& CachedIt != CachedSoftSources.end()
+				&& CachedIt->second.Fingerprint == Fingerprint)
+			{
+				if (NewSoftReferences.size() > MaximumSoftReferencesPerSnapshot
+					- CachedIt->second.References.size())
+				{
+					SoftReferenceErrors.push_back(Error(EAssetError::CorruptFile,
+						"SoftReferenceIndexSnapshotExceeded: scan exceeds 1,000,000 occurrences."));
+					++SoftReferenceIndexStats.FailedSources;
+					continue;
+				}
+				NewSoftReferences.insert(
+					NewSoftReferences.end(),
+					CachedIt->second.References.begin(), CachedIt->second.References.end());
+				NewSoftFingerprints.emplace(Data->PackagePath, Fingerprint);
+				++SoftReferenceIndexStats.ReusedSources;
+				continue;
+			}
+
+			FAssetPackageInspection Inspection;
+			FAssetResult InspectionResult = InspectAssetPackage(Data->PhysicalPath, Inspection);
+			std::vector<FSoftAssetReference> SourceReferences;
+			if (InspectionResult)
+				InspectionResult = ExtractSoftAssetReferences(
+					Data->PackagePath, Inspection, SourceReferences);
+			++SoftReferenceIndexStats.ExtractedSources;
+			if (!InspectionResult)
+			{
+				InspectionResult.Message = std::format(
+					"{} ({})", InspectionResult.Message, Data->PhysicalPath);
+				SoftReferenceErrors.push_back(std::move(InspectionResult));
+				++SoftReferenceIndexStats.FailedSources;
+				continue;
+			}
+			if (NewSoftReferences.size() > MaximumSoftReferencesPerSnapshot
+				- SourceReferences.size())
+			{
+				SoftReferenceErrors.push_back(Error(EAssetError::CorruptFile,
+					"SoftReferenceIndexSnapshotExceeded: scan exceeds 1,000,000 occurrences."));
+				++SoftReferenceIndexStats.FailedSources;
+				continue;
+			}
+			NewSoftReferences.insert(
+				NewSoftReferences.end(),
+				std::make_move_iterator(SourceReferences.begin()),
+				std::make_move_iterator(SourceReferences.end()));
+			NewSoftFingerprints.emplace(Data->PackagePath, Inspection.Fingerprint);
+		}
+		std::ranges::sort(NewSoftReferences, &SoftReferenceLess);
+
+		const bool bAssetsChanged = Assets != NewAssets;
+		const bool bSoftReferencesChanged = SoftReferences != NewSoftReferences
+			|| SoftReferenceSourceFingerprints != NewSoftFingerprints;
+		if (bAssetsChanged)
 		{
 			Assets = std::move(NewAssets);
-			++Revision;
 		}
+		if (bSoftReferencesChanged)
+		{
+			SoftReferences = std::move(NewSoftReferences);
+			SoftReferenceSourceFingerprints = std::move(NewSoftFingerprints);
+		}
+		if (bAssetsChanged || bSoftReferencesChanged) ++Revision;
 		bPersistentSnapshotDirty = !WriteRegistryCache(MountManifest, std::move(NewCacheEntries), CacheWarning);
+		std::string SoftWriteWarning;
+		bSoftReferenceSnapshotDirty = !WriteSoftReferenceCache(
+			SoftReferenceSourceFingerprints, SoftReferences, SoftWriteWarning);
+		if (!SoftWriteWarning.empty())
+		{
+			if (!SoftReferenceCacheWarning.empty()) SoftReferenceCacheWarning.append(" ");
+			SoftReferenceCacheWarning.append(SoftWriteWarning);
+		}
 		LastScanStats.DurationMilliseconds = std::chrono::duration<double, std::milli>(
 			std::chrono::steady_clock::now() - ScanStartTime).count();
 		DURIN_INFO_CATEGORY("AssetRegistry",
@@ -1803,23 +3013,47 @@ namespace Durin::Asset
 			LastScanStats.Enumerated, LastScanStats.DurationMilliseconds, LastScanStats.Reused, LastScanStats.Reparsed,
 			LastScanStats.HeaderReadAttempts, LastScanStats.HeaderBytesRead, LastScanStats.Removed, LastScanStats.Failed);
 		if (!CacheWarning.empty()) DURIN_WARN_CATEGORY("AssetRegistry", "{}", CacheWarning);
+		if (!SoftReferenceCacheWarning.empty())
+			DURIN_WARN_CATEGORY("AssetRegistry", "{}", SoftReferenceCacheWarning);
+		for (const FAssetResult& SoftError : SoftReferenceErrors)
+			DURIN_WARN_CATEGORY("AssetRegistry", "{}", SoftError.Message);
 		return {};
 	}
 
 	auto FAssetRegistry::FlushPersistentSnapshot() -> void
 	{
-		if (!bPersistentSnapshotDirty) return;
-		std::vector<FRegistryCacheEntry> Entries;
-		std::string Warning;
-		if (BuildRegistryCacheEntries(Assets, Entries, Warning)
-			&& WriteRegistryCache(GetMountManifest(), std::move(Entries), Warning))
+		if (bPersistentSnapshotDirty)
 		{
-			bPersistentSnapshotDirty = false;
-			CacheWarning.clear();
-			return;
+			std::vector<FRegistryCacheEntry> Entries;
+			std::string Warning;
+			if (BuildRegistryCacheEntries(Assets, Entries, Warning)
+				&& WriteRegistryCache(GetMountManifest(), std::move(Entries), Warning))
+			{
+				bPersistentSnapshotDirty = false;
+				CacheWarning.clear();
+			}
+			else
+			{
+				CacheWarning = std::move(Warning);
+				if (!CacheWarning.empty()) DURIN_WARN_CATEGORY("AssetRegistry", "{}", CacheWarning);
+			}
 		}
-		CacheWarning = std::move(Warning);
-		if (!CacheWarning.empty()) DURIN_WARN_CATEGORY("AssetRegistry", "{}", CacheWarning);
+		if (bSoftReferenceSnapshotDirty)
+		{
+			std::string Warning;
+			if (WriteSoftReferenceCache(
+				SoftReferenceSourceFingerprints, SoftReferences, Warning))
+			{
+				bSoftReferenceSnapshotDirty = false;
+				SoftReferenceCacheWarning.clear();
+			}
+			else
+			{
+				SoftReferenceCacheWarning = std::move(Warning);
+				if (!SoftReferenceCacheWarning.empty())
+					DURIN_WARN_CATEGORY("AssetRegistry", "{}", SoftReferenceCacheWarning);
+			}
+		}
 	}
 
 	auto FAssetRegistry::FindAsset(const FAssetPath& Path) const -> const FAssetData*
@@ -1828,22 +3062,156 @@ namespace Durin::Asset
 		return It == Assets.end() ? nullptr : &It->second;
 	}
 
+	auto FAssetRegistry::FindSoftReferencers(
+		const FAssetPath& Target) const -> std::vector<FSoftAssetReference>
+	{
+		std::vector<FSoftAssetReference> Result;
+		for (const FSoftAssetReference& Reference : SoftReferences)
+			if (Reference.TargetPath == Target) Result.push_back(Reference);
+		return Result;
+	}
+
+	auto FAssetRegistry::FindSoftTargets(const FAssetPath& Source) const -> std::vector<FAssetPath>
+	{
+		std::vector<FAssetPath> Result;
+		for (const FSoftAssetReference& Reference : SoftReferences)
+			if (Reference.SourcePackage == Source) Result.push_back(Reference.TargetPath);
+		std::ranges::sort(Result, [](const FAssetPath& Left, const FAssetPath& Right) {
+			return Left.GetView() < Right.GetView();
+		});
+		Result.erase(std::unique(Result.begin(), Result.end()), Result.end());
+		return Result;
+	}
+
+	auto FAssetRegistry::BuildCookReachability(
+		std::span<const FAssetPath> Roots,
+		std::vector<FAssetPath>& OutPackages) const -> FAssetResult
+	{
+		OutPackages.clear();
+		std::vector<FAssetPath> Pending(Roots.begin(), Roots.end());
+		std::unordered_set<FAssetPath> Visited;
+		while (!Pending.empty())
+		{
+			std::ranges::sort(Pending, [](const FAssetPath& Left, const FAssetPath& Right) {
+				return Left.GetView() > Right.GetView();
+			});
+			FAssetPath Source = std::move(Pending.back());
+			Pending.pop_back();
+			if (!Visited.insert(Source).second) continue;
+			const FAssetData* SourceData = FindAsset(Source);
+			if (!SourceData)
+				return Error(EAssetError::MissingDependency, std::format(
+					"CookReachabilityMissingPackage: {} is not registered.", Source.ToString()));
+			if (!SoftReferenceSourceFingerprints.contains(Source))
+				return Error(EAssetError::StaleData, std::format(
+					"CookReachabilityIncompleteSoftIndex: {} has no current source entry.", Source.ToString()));
+			for (const FAssetPath& Dependency : SourceData->Dependencies)
+			{
+				if (!FindAsset(Dependency))
+					return Error(EAssetError::MissingDependency, std::format(
+						"CookReachabilityMissingHardDependency: {} references missing {}.",
+						Source.ToString(), Dependency.ToString()));
+				Pending.push_back(Dependency);
+			}
+			for (const FSoftAssetReference& Reference : SoftReferences)
+			{
+				if (Reference.SourcePackage != Source) continue;
+				const FAssetData* TargetData = FindAsset(Reference.TargetPath);
+				if (!TargetData)
+					return Error(EAssetError::MissingDependency, std::format(
+						"CookReachabilityMissingSoftTarget: {} references missing {} at {}.",
+						Source.ToString(), Reference.TargetPath.ToString(), Reference.PropertyPath));
+				DClass* ExpectedClass = FindClassByQualifiedName(FName(Reference.ExpectedClass));
+				DClass* RegisteredClass = FindClassByQualifiedName(FName(TargetData->AssetClassName));
+				if (!ExpectedClass || !RegisteredClass)
+					return Error(EAssetError::UnknownClass, std::format(
+						"CookReachabilityUnknownSoftClass: {} expects {} and target {} is registered as {}.",
+						Reference.PropertyPath, Reference.ExpectedClass,
+						Reference.TargetPath.ToString(), TargetData->AssetClassName));
+				if (!RegisteredClass->IsChildOf(ExpectedClass))
+					return Error(EAssetError::TypeMismatch, std::format(
+						"CookReachabilitySoftTypeMismatch: {} expects {}, but {} is {}.",
+						Reference.PropertyPath, Reference.ExpectedClass,
+						Reference.TargetPath.ToString(), TargetData->AssetClassName));
+				Pending.push_back(Reference.TargetPath);
+			}
+		}
+		OutPackages.assign(Visited.begin(), Visited.end());
+		std::ranges::sort(OutPackages, [](const FAssetPath& Left, const FAssetPath& Right) {
+			return Left.GetView() < Right.GetView();
+		});
+		return {};
+	}
+
+	auto FAssetRegistry::RemoveSoftReferencesFromSource(const FAssetPath& Path) -> bool
+	{
+		const size_t PreviousCount = SoftReferences.size();
+		std::erase_if(SoftReferences, [&](const FSoftAssetReference& Reference) {
+			return Reference.SourcePackage == Path;
+		});
+		const bool bChanged = PreviousCount != SoftReferences.size()
+			|| SoftReferenceSourceFingerprints.erase(Path) != 0;
+		if (bChanged) bSoftReferenceSnapshotDirty = true;
+		return bChanged;
+	}
+
+	auto FAssetRegistry::RefreshSoftReferencesForAsset(const FAssetData& Data) -> bool
+	{
+		const std::vector<FSoftAssetReference> PreviousReferences = SoftReferences;
+		const auto PreviousFingerprints = SoftReferenceSourceFingerprints;
+		RemoveSoftReferencesFromSource(Data.PackagePath);
+		SoftReferenceErrors.clear();
+		FAssetPackageInspection Inspection;
+		FAssetResult Result = InspectAssetPackage(Data.PhysicalPath, Inspection);
+		std::vector<FSoftAssetReference> SourceReferences;
+		if (Result)
+			Result = ExtractSoftAssetReferences(Data.PackagePath, Inspection, SourceReferences);
+		if (!Result)
+		{
+			Result.Message = std::format("{} ({})", Result.Message, Data.PhysicalPath);
+			SoftReferenceErrors.push_back(std::move(Result));
+			bSoftReferenceSnapshotDirty = true;
+			return PreviousReferences != SoftReferences
+				|| PreviousFingerprints != SoftReferenceSourceFingerprints;
+		}
+		if (SoftReferences.size() > MaximumSoftReferencesPerSnapshot - SourceReferences.size())
+		{
+			SoftReferenceErrors.push_back(Error(EAssetError::CorruptFile,
+				"SoftReferenceIndexSnapshotExceeded: mutation exceeds 1,000,000 occurrences."));
+			bSoftReferenceSnapshotDirty = true;
+			return PreviousReferences != SoftReferences
+				|| PreviousFingerprints != SoftReferenceSourceFingerprints;
+		}
+		SoftReferences.insert(
+			SoftReferences.end(),
+			std::make_move_iterator(SourceReferences.begin()),
+			std::make_move_iterator(SourceReferences.end()));
+		std::ranges::sort(SoftReferences, &SoftReferenceLess);
+		SoftReferenceSourceFingerprints.insert_or_assign(
+			Data.PackagePath, Inspection.Fingerprint);
+		const bool bChanged = PreviousReferences != SoftReferences
+			|| PreviousFingerprints != SoftReferenceSourceFingerprints;
+		if (bChanged) bSoftReferenceSnapshotDirty = true;
+		return bChanged;
+	}
+
 	auto FAssetRegistry::AddOrUpdate(FAssetData Data) -> void
 	{
-		const auto Existing = Assets.find(Data.PackagePath);
-		if (Existing != Assets.end() && Existing->second == Data)
-		{
-			bPersistentSnapshotDirty = true;
-			return;
-		}
-		Assets.insert_or_assign(Data.PackagePath, std::move(Data));
+		const FAssetPath Path = Data.PackagePath;
+		const auto Existing = Assets.find(Path);
+		const bool bAssetChanged = Existing == Assets.end() || Existing->second != Data;
+		Assets.insert_or_assign(Path, std::move(Data));
 		bPersistentSnapshotDirty = true;
-		++Revision;
+		const FAssetData* Stored = FindAsset(Path);
+		const bool bSoftChanged = Stored && RefreshSoftReferencesForAsset(*Stored);
+		if (bAssetChanged || bSoftChanged) ++Revision;
 	}
 
 	auto FAssetRegistry::Remove(const FAssetPath& Path) -> void
 	{
-		if (Assets.erase(Path) == 0) return;
+		const bool bAssetChanged = Assets.erase(Path) != 0;
+		const bool bSoftChanged = RemoveSoftReferencesFromSource(Path);
+		if (!bAssetChanged && !bSoftChanged) return;
 		bPersistentSnapshotDirty = true;
 		++Revision;
 	}
@@ -1932,16 +3300,27 @@ namespace Durin::Asset
 	{
 		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit asset moves.");
-		if (!OldPath.IsValid() || !NewPath.IsValid() || OldPath == NewPath) return Error(EAssetError::InvalidPath, "Asset move paths are invalid or identical.");
+		if (!OldPath.IsValid() || !NewPath.IsValid() || OldPath == NewPath)
+			return Error(EAssetError::InvalidPath, "Asset move paths are invalid or identical.");
 		const FAssetData* SourceData = Registry.FindAsset(OldPath);
-		if (!SourceData) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", OldPath.ToString()));
+		if (!SourceData)
+			return Error(EAssetError::NotFound,
+				std::format("Asset {} was not found.", OldPath.ToString()));
 		const std::filesystem::path OldFile(GetPhysicalPath(OldPath));
 		const std::filesystem::path NewFile(GetPhysicalPath(NewPath));
-		if (Registry.FindAsset(NewPath) || LoadedPackages.contains(NewPath) || std::filesystem::exists(NewFile)) return Error(EAssetError::AlreadyExists, std::format("Asset {} already exists.", NewPath.ToString()));
+		if (Registry.FindAsset(NewPath) || LoadedPackages.contains(NewPath)
+			|| std::filesystem::exists(NewFile))
+			return Error(EAssetError::AlreadyExists,
+				std::format("Asset {} already exists.", NewPath.ToString()));
+		if (!Registry.GetSoftReferenceErrors().empty())
+			return Error(EAssetError::InUse,
+				"SoftReferenceMoveIndexIncomplete: repair requires a complete soft-reference index.");
 
 		std::vector<FAssetPath> ReferrerPaths;
 		for (const auto& [Path, Data] : Registry.GetAssets())
-			if (Path != OldPath && std::ranges::find(Data.Dependencies, OldPath) != Data.Dependencies.end()) ReferrerPaths.push_back(Path);
+			if (Path != OldPath
+				&& std::ranges::find(Data.Dependencies, OldPath) != Data.Dependencies.end())
+				ReferrerPaths.push_back(Path);
 
 		DPackage* MovingPackage = nullptr;
 		FAssetResult Result = LoadPackageInternal(OldPath, MovingPackage);
@@ -1966,8 +3345,12 @@ namespace Durin::Asset
 		}
 		for (const auto& [From, To] : Contribution.Files)
 		{
-			if (!std::filesystem::is_regular_file(From)) return Error(EAssetError::NotFound, std::format("Companion file {} was not found.", From.generic_string()));
-			if (std::filesystem::exists(To)) return Error(EAssetError::AlreadyExists, std::format("Companion destination {} already exists.", To.generic_string()));
+			if (!std::filesystem::is_regular_file(From))
+				return Error(EAssetError::NotFound,
+					std::format("Companion file {} was not found.", From.generic_string()));
+			if (std::filesystem::exists(To))
+				return Error(EAssetError::AlreadyExists,
+					std::format("Companion destination {} already exists.", To.generic_string()));
 		}
 		std::vector<DPackage*> AdditionalPackages;
 		std::unordered_set<DPackage*> SeenAdditional;
@@ -1978,62 +3361,305 @@ namespace Durin::Asset
 			AdditionalPackages.push_back(Package);
 		}
 
-		const auto RegistryBackup = Registry.Assets;
+		std::vector<FAssetMoveExternalStoreAction> ExternalActions;
+		for (const auto& [Handle, Store] : GetMoveExternalStores())
+		{
+			(void)Handle;
+			FAssetMoveExternalStoreAction Action;
+			Result = Store(OldPath, NewPath, Action);
+			if (!Result) return Result;
+			if (!Action.Apply && !Action.Rollback) continue;
+			if (!Action.Apply || !Action.Rollback)
+				return Error(EAssetError::UnsupportedProperty,
+					"Asset move external stores must provide both Apply and Rollback actions.");
+			ExternalActions.push_back(std::move(Action));
+		}
+
+		struct FUnloadedSoftRewrite
+		{
+			FAssetData Data;
+			std::filesystem::path File;
+			std::vector<uint8> Bytes;
+		};
+		std::unordered_map<FAssetPath, std::vector<FSoftAssetReference>> IndexedBySource;
+		for (FSoftAssetReference Reference : Registry.FindSoftReferencers(OldPath))
+			IndexedBySource[Reference.SourcePackage].push_back(std::move(Reference));
+		std::vector<FUnloadedSoftRewrite> UnloadedSoftRewrites;
+		for (const auto& [SourcePath, References] : IndexedBySource)
+		{
+			if (LoadedPackages.contains(SourcePath)) continue;
+			const FAssetData* Data = Registry.FindAsset(SourcePath);
+			if (!Data)
+				return Error(EAssetError::InUse,
+					"SoftReferenceMoveStaleIndex: an indexed source is no longer registered.");
+			for (const FSoftAssetReference& Reference : References)
+				if (Reference.SourceFingerprint != References.front().SourceFingerprint)
+					return Error(EAssetError::InUse,
+						"SoftReferenceMoveStaleIndex: source occurrences disagree on their fingerprint.");
+
+			const std::filesystem::path SourceFile(Data->PhysicalPath);
+			std::error_code PermissionError;
+			const std::filesystem::perms Permissions =
+				std::filesystem::status(SourceFile, PermissionError).permissions();
+			constexpr auto WritePermissions = std::filesystem::perms::owner_write
+				| std::filesystem::perms::group_write
+				| std::filesystem::perms::others_write;
+			if (PermissionError)
+				return Error(EAssetError::IoError, std::format(
+					"Could not inspect soft referencer {}: {}",
+					SourcePath.ToString(), PermissionError.message()));
+			if ((Permissions & WritePermissions) == std::filesystem::perms::none)
+				return Error(EAssetError::ReadOnlyMode, std::format(
+					"Soft referencer {} is read-only.", SourcePath.ToString()));
+
+			std::vector<uint8> SourceBytes;
+			if (!FFileHelper::LoadFileToArray(SourceBytes, SourceFile.generic_string()))
+				return Error(EAssetError::IoError, std::format(
+					"Could not read soft referencer {}.", SourcePath.ToString()));
+			FAssetPackageFingerprint CurrentFingerprint;
+			Result = MakePackageFingerprint(
+				SourceFile.generic_string(), SourceBytes, CurrentFingerprint);
+			if (!Result) return Result;
+			if (CurrentFingerprint != References.front().SourceFingerprint)
+				return Error(EAssetError::InUse, std::format(
+					"SoftReferenceMoveStaleFingerprint: {} changed after indexing.",
+					SourcePath.ToString()));
+			FUnloadedSoftRewrite Rewrite{.Data = *Data, .File = SourceFile};
+			Result = RewriteUnloadedSoftPackage(
+				SourceBytes, OldPath, NewPath, References.size(), Rewrite.Bytes);
+			if (!Result) return Result;
+			UnloadedSoftRewrites.push_back(std::move(Rewrite));
+		}
+
+		std::vector<std::pair<FSoftObjectPtr*, FSoftObjectPath>> LoadedSoftValues;
+		std::vector<DPackage*> LoadedSoftPackages;
+		for (const auto& [Path, Package] : LoadedPackages)
+		{
+			(void)Path;
+			const size_t PreviousCount = LoadedSoftValues.size();
+			std::vector<FSoftObjectPtr*> Values;
+			Result = CollectLoadedPackageSoftReferences(Package, OldPath, Values);
+			if (!Result) return Result;
+			for (FSoftObjectPtr* Value : Values)
+				LoadedSoftValues.emplace_back(Value, Value->GetSoftObjectPath());
+			if (LoadedSoftValues.size() != PreviousCount)
+				LoadedSoftPackages.push_back(Package);
+		}
+
+		const auto RegistryAssetsBackup = Registry.Assets;
+		const auto RegistrySoftReferencesBackup = Registry.SoftReferences;
+		const auto RegistrySoftFingerprintsBackup = Registry.SoftReferenceSourceFingerprints;
+		const auto RegistrySoftErrorsBackup = Registry.SoftReferenceErrors;
+		const bool RegistrySnapshotDirtyBackup = Registry.bPersistentSnapshotDirty;
+		const bool RegistrySoftSnapshotDirtyBackup = Registry.bSoftReferenceSnapshotDirty;
+		const uint64 RegistryRevisionBackup = Registry.Revision;
+		const auto LoadedPackagesBackup = LoadedPackages;
 		const std::string OldName = MovingPackage->GetAsset()->GetName();
 		std::vector<std::pair<std::filesystem::path, std::filesystem::path>> Backups;
+		std::unordered_set<std::string> BackedUpFiles;
 		auto Backup = [&](const std::filesystem::path& File) -> bool {
 			if (!std::filesystem::exists(File)) return false;
+			const std::string Key = std::filesystem::absolute(File).lexically_normal().generic_string();
+			if (!BackedUpFiles.insert(Key).second) return true;
 			const std::filesystem::path Copy = File.string() + ".movebak";
-			std::error_code Ec; std::filesystem::remove(Copy, Ec); Ec.clear();
+			std::error_code Ec;
+			std::filesystem::remove(Copy, Ec);
+			Ec.clear();
 			std::filesystem::copy_file(File, Copy, std::filesystem::copy_options::overwrite_existing, Ec);
 			if (Ec) return false;
-			Backups.emplace_back(File, Copy); return true;
+			Backups.emplace_back(File, Copy);
+			return true;
 		};
-		if (!Backup(OldFile)) return Error(EAssetError::IoError, "Failed to back up source asset.");
-		for (const FAssetPath& Path : ReferrerPaths) if (!Backup(GetPhysicalPath(Path))) return Error(EAssetError::IoError, "Failed to back up an asset referrer.");
+		auto CleanupBackups = [&]() {
+			std::error_code Ec;
+			for (const auto& [Original, Copy] : Backups)
+			{
+				(void)Original;
+				std::filesystem::remove(Copy, Ec);
+				Ec.clear();
+			}
+		};
+		auto BackupFailure = [&](std::string Message) -> FAssetResult {
+			CleanupBackups();
+			return Error(EAssetError::IoError, std::move(Message));
+		};
+		if (!Backup(OldFile)) return BackupFailure("Failed to back up source asset.");
+		for (const FAssetPath& Path : ReferrerPaths)
+			if (!Backup(GetPhysicalPath(Path)))
+				return BackupFailure("Failed to back up an asset referrer.");
 		for (DPackage* Package : AdditionalPackages)
 		{
 			FAssetPath AdditionalPath;
 			if (!FAssetPath::TryCreate(Package->GetPackagePath(), AdditionalPath)
 				|| !Backup(GetPhysicalPath(AdditionalPath)))
-				return Error(EAssetError::IoError, "Failed to back up an additional move contributor package.");
+				return BackupFailure(
+					"Failed to back up an additional move contributor package.");
 		}
-		for (const auto& [From, To] : Contribution.Files) if (!Backup(From)) return Error(EAssetError::IoError, "Failed to back up a companion file.");
+		for (const FUnloadedSoftRewrite& Rewrite : UnloadedSoftRewrites)
+			if (!Backup(Rewrite.File))
+				return BackupFailure("Failed to back up an unloaded soft referencer.");
+		for (const auto& [From, To] : Contribution.Files)
+			if (!Backup(From)) return BackupFailure("Failed to back up a companion file.");
 
-		auto Rollback = [&]() {
-			if (Contribution.Rollback) Contribution.Rollback();
-			MovingPackage->RelocateAssetPackage(OldPath);
-			MovingPackage->Rename(FName(OldPath.GetAssetName()));
-			MovingPackage->GetAsset()->Rename(FName(OldName));
+		std::vector<std::pair<DPackage*, bool>> DirtyStates;
+		std::unordered_set<DPackage*> SeenDirtyPackages;
+		auto CaptureDirty = [&](DPackage* Package) {
+			if (Package && SeenDirtyPackages.insert(Package).second)
+				DirtyStates.emplace_back(Package, Package->IsDirty());
+		};
+		CaptureDirty(MovingPackage);
+		for (DPackage* Package : Referrers) CaptureDirty(Package);
+		for (DPackage* Package : AdditionalPackages) CaptureDirty(Package);
+		for (DPackage* Package : LoadedSoftPackages) CaptureDirty(Package);
+
+		size_t AppliedExternalActionCount = 0;
+		bool bContributionApplied = false;
+		bool bMovingPackageRelocated = false;
+		auto Rollback = [&]() -> std::string {
+			std::string Errors;
+			if (bContributionApplied && Contribution.Rollback) Contribution.Rollback();
+			if (bMovingPackageRelocated)
+			{
+				if (!MovingPackage->RelocateAssetPackage(OldPath))
+					Errors += "Could not restore the moving package path. ";
+				MovingPackage->Rename(FName(OldPath.GetAssetName()));
+				MovingPackage->GetAsset()->Rename(FName(OldName));
+			}
+			for (auto& [Value, PreviousPath] : LoadedSoftValues)
+				Value->SetPath(PreviousPath);
+			LoadedPackages = LoadedPackagesBackup;
 			std::error_code Ec;
 			std::filesystem::remove(NewFile, Ec);
-			for (const auto& [From, To] : Contribution.Files) std::filesystem::remove(To, Ec);
-			for (const auto& [Original, Copy] : Backups) { Ec.clear(); std::filesystem::copy_file(Copy, Original, std::filesystem::copy_options::overwrite_existing, Ec); std::filesystem::remove(Copy, Ec); }
-			Registry.Assets = RegistryBackup;
+			for (const auto& [From, To] : Contribution.Files)
+			{
+				(void)From;
+				Ec.clear();
+				std::filesystem::remove(To, Ec);
+			}
+			for (const auto& [Original, Copy] : Backups)
+			{
+				Ec.clear();
+				std::filesystem::copy_file(
+					Copy, Original, std::filesystem::copy_options::overwrite_existing, Ec);
+				if (Ec) Errors += std::format(
+					"Could not restore {}: {}. ", Original.generic_string(), Ec.message());
+			}
+			Registry.Assets = RegistryAssetsBackup;
+			Registry.SoftReferences = RegistrySoftReferencesBackup;
+			Registry.SoftReferenceSourceFingerprints = RegistrySoftFingerprintsBackup;
+			Registry.SoftReferenceErrors = RegistrySoftErrorsBackup;
+			Registry.bPersistentSnapshotDirty = RegistrySnapshotDirtyBackup;
+			Registry.bSoftReferenceSnapshotDirty = RegistrySoftSnapshotDirtyBackup;
+			Registry.Revision = RegistryRevisionBackup;
+			for (const auto& [Package, bWasDirty] : DirtyStates)
+			{
+				if (bWasDirty) Package->MarkDirty();
+				else Package->ClearDirty();
+			}
+			for (size_t Count = AppliedExternalActionCount; Count > 0; --Count)
+			{
+				const FAssetMoveExternalStoreAction& Action = ExternalActions[Count - 1];
+				const FAssetResult RollbackResult = Action.Rollback();
+				if (!RollbackResult)
+					Errors += std::format("Could not restore external store '{}': {}. ",
+						Action.Name, RollbackResult.Message);
+			}
+			CleanupBackups();
+			return Errors;
+		};
+		auto FailAfterMutation = [&](FAssetResult Failure) -> FAssetResult {
+			const std::string RollbackErrors = Rollback();
+			if (!RollbackErrors.empty())
+				Failure.Message += std::format(" Rollback also failed: {}", RollbackErrors);
+			return Failure;
 		};
 
-		if (!MovingPackage->RelocateAssetPackage(NewPath)) { Rollback(); return Error(EAssetError::AlreadyExists, "The destination package path is registered."); }
+		if (!MovingPackage->RelocateAssetPackage(NewPath))
+		{
+			CleanupBackups();
+			return Error(EAssetError::AlreadyExists,
+				"The destination package path is registered.");
+		}
+		bMovingPackageRelocated = true;
 		MovingPackage->Rename(FName(NewPath.GetAssetName()));
-		if (OldPath.GetAssetName() != NewPath.GetAssetName()) MovingPackage->GetAsset()->Rename(FName(NewPath.GetAssetName()));
-		if (Contribution.Apply) Contribution.Apply();
+		if (OldPath.GetAssetName() != NewPath.GetAssetName())
+			MovingPackage->GetAsset()->Rename(FName(NewPath.GetAssetName()));
+		if (Contribution.Apply)
+		{
+			Contribution.Apply();
+			bContributionApplied = true;
+		}
 		for (const auto& [From, To] : Contribution.Files)
 		{
-			std::error_code Ec; std::filesystem::create_directories(To.parent_path(), Ec); Ec.clear(); std::filesystem::rename(From, To, Ec);
-			if (Ec) { Rollback(); return Error(EAssetError::IoError, "Failed to move a companion file."); }
+			std::error_code Ec;
+			std::filesystem::create_directories(To.parent_path(), Ec);
+			Ec.clear();
+			std::filesystem::rename(From, To, Ec);
+			if (Ec)
+				return FailAfterMutation(Error(EAssetError::IoError,
+					"Failed to move a companion file."));
 		}
 		LoadedPackages.erase(OldPath);
 		LoadedPackages.emplace(NewPath, MovingPackage);
 		Registry.Remove(OldPath);
 		std::error_code DirectoryEc;
 		std::filesystem::create_directories(NewFile.parent_path(), DirectoryEc);
-		if (DirectoryEc) { LoadedPackages.erase(NewPath); LoadedPackages.emplace(OldPath, MovingPackage); Rollback(); return Error(EAssetError::IoError, "Failed to create the destination directory."); }
-		Result = SavePackage(MovingPackage);
-		if (Result) for (DPackage* Referrer : Referrers) { Result = SavePackage(Referrer); if (!Result) break; }
-		if (Result) for (DPackage* Additional : AdditionalPackages) { Result = SavePackage(Additional); if (!Result) break; }
-		if (!Result) { LoadedPackages.erase(NewPath); LoadedPackages.emplace(OldPath, MovingPackage); Rollback(); return Result; }
-		std::error_code Ec; std::filesystem::remove(OldFile, Ec);
-		if (Ec) { LoadedPackages.erase(NewPath); LoadedPackages.emplace(OldPath, MovingPackage); Rollback(); return Error(EAssetError::IoError, "Failed to remove the old asset file."); }
-		for (const auto& [Original, Copy] : Backups) std::filesystem::remove(Copy, Ec);
+		if (DirectoryEc)
+			return FailAfterMutation(Error(EAssetError::IoError,
+				"Failed to create the destination directory."));
+
+		for (auto& [Value, PreviousPath] : LoadedSoftValues)
+		{
+			(void)PreviousPath;
+			Value->SetPath(NewPath);
+		}
+		std::vector<DPackage*> PackagesToSave;
+		std::unordered_set<DPackage*> SeenPackagesToSave;
+		auto AddPackageToSave = [&](DPackage* Package) {
+			if (Package && SeenPackagesToSave.insert(Package).second)
+				PackagesToSave.push_back(Package);
+		};
+		AddPackageToSave(MovingPackage);
+		for (DPackage* Package : Referrers) AddPackageToSave(Package);
+		for (DPackage* Package : AdditionalPackages) AddPackageToSave(Package);
+		for (DPackage* Package : LoadedSoftPackages) AddPackageToSave(Package);
+		for (DPackage* Package : PackagesToSave)
+		{
+			Result = SavePackage(Package);
+			if (!Result) return FailAfterMutation(std::move(Result));
+		}
+
+		for (FUnloadedSoftRewrite& Rewrite : UnloadedSoftRewrites)
+		{
+			FFileHelper::FAtomicFileError PublicationError;
+			if (!FFileHelper::SaveArrayToFileAtomically(
+				std::span{reinterpret_cast<const std::byte*>(Rewrite.Bytes.data()),
+					Rewrite.Bytes.size()},
+				Rewrite.File,
+				&PublicationError))
+				return FailAfterMutation(Error(EAssetError::IoError,
+					PublicationError.ToString()));
+			const auto LastWriteTime = std::filesystem::last_write_time(Rewrite.File);
+			Rewrite.Data.FileSize = std::filesystem::file_size(Rewrite.File);
+			Rewrite.Data.LastWriteTime = LastWriteTime;
+			Rewrite.Data.LastWriteTimeTicks =
+				DerivedDataCache::FileTimeToStableTicks(LastWriteTime);
+			Registry.AddOrUpdate(std::move(Rewrite.Data));
+		}
+
+		for (size_t Index = 0; Index < ExternalActions.size(); ++Index)
+		{
+			AppliedExternalActionCount = Index + 1;
+			Result = ExternalActions[Index].Apply();
+			if (!Result) return FailAfterMutation(std::move(Result));
+		}
+
+		std::error_code Ec;
+		std::filesystem::remove(OldFile, Ec);
+		if (Ec)
+			return FailAfterMutation(Error(EAssetError::IoError,
+				"Failed to remove the old asset file."));
+		CleanupBackups();
 		return {};
 	}
 
@@ -2890,6 +4516,115 @@ namespace Durin::Asset
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
 		return FAssetManager::Get().LoadAsset(Path, OutAsset, OutReport);
+	}
+
+	auto ResolveSoftObject(
+		FSoftObjectPtr& Reference,
+		const DClass* ExpectedClass,
+		ESoftObjectNullPolicy NullPolicy) -> FSoftObjectResolveResult
+	{
+		CheckSoftObjectThread();
+		if (!ExpectedClass || !ExpectedClass->IsChildOf(DObject::StaticClass()))
+		{
+			return {
+				.Result = Error(EAssetError::TypeMismatch, "A soft-object resolve requires a DObject class."),
+				.State = Reference.IsNull() ? ESoftObjectResolveState::Null : ESoftObjectResolveState::NotLoaded};
+		}
+		if (Reference.IsNull())
+		{
+			return NullPolicy == ESoftObjectNullPolicy::Allow
+				? FSoftObjectResolveResult{.State = ESoftObjectResolveState::Null}
+				: FSoftObjectResolveResult{
+					.Result = Error(EAssetError::InvalidPath, "A null soft-object reference is not allowed."),
+					.State = ESoftObjectResolveState::Null};
+		}
+
+		const FAssetPath& Path = Reference.GetSoftObjectPath().GetAssetPath();
+		FAssetResult RegistryResult = ValidateSoftObjectRegistryClass(Path, ExpectedClass);
+		if (!RegistryResult)
+		{
+			return {
+				.Result = std::move(RegistryResult),
+				.State = ESoftObjectResolveState::NotLoaded};
+		}
+
+		if (DObject* Cached = Reference.Get(ExpectedClass))
+		{
+			return {
+				.State = ESoftObjectResolveState::Loaded,
+				.Object = Cached};
+		}
+
+		DPackage* Package = FAssetManager::Get().FindLoadedPackage(Path);
+		if (!Package) return {.State = ESoftObjectResolveState::NotLoaded};
+
+		DObject* Object = Package->GetAsset();
+		if (!Object)
+		{
+			return {
+				.Result = Error(EAssetError::InvalidObjectGraph, std::format(
+					"Loaded package {} has no main asset.", Path.ToString())),
+				.State = ESoftObjectResolveState::NotLoaded};
+		}
+		if (!Object->IsA(ExpectedClass))
+		{
+			return {
+				.Result = Error(EAssetError::TypeMismatch, std::format(
+					"Asset {} is not a {}.",
+					Path.ToString(), ExpectedClass->GetQualifiedName().ToString())),
+				.State = ESoftObjectResolveState::NotLoaded};
+		}
+
+		std::string ValidationError;
+		if (!Reference.TrySetLoadedObject(Object, ExpectedClass, &ValidationError))
+		{
+			return {
+				.Result = Error(EAssetError::InvalidObjectGraph, std::move(ValidationError)),
+				.State = ESoftObjectResolveState::NotLoaded};
+		}
+		return {
+			.State = ESoftObjectResolveState::Loaded,
+			.Object = Object};
+	}
+
+	auto LoadSoftObject(
+		FSoftObjectPtr& Reference,
+		const DClass* ExpectedClass,
+		DObject*& OutObject,
+		ESoftObjectNullPolicy NullPolicy,
+		FAssetLoadReport* OutReport) -> FAssetResult
+	{
+		CheckSoftObjectThread();
+		OutObject = nullptr;
+		FSoftObjectResolveResult Resolved = ResolveSoftObject(
+			Reference, ExpectedClass, NullPolicy);
+		if (!Resolved) return Resolved.Result;
+		if (Resolved.State == ESoftObjectResolveState::Null) return {};
+		if (Resolved.State == ESoftObjectResolveState::Loaded)
+		{
+			OutObject = Resolved.Object;
+			return {};
+		}
+
+		DObject* LoadedObject = nullptr;
+		const FAssetPath& Path = Reference.GetSoftObjectPath().GetAssetPath();
+		FAssetResult Result = FAssetManager::Get().LoadAsset(Path, LoadedObject, OutReport);
+		if (!Result) return Result;
+		if (!LoadedObject)
+			return Error(EAssetError::InvalidObjectGraph, std::format(
+				"Loaded package {} has no main asset.", Path.ToString()));
+		if (!LoadedObject->IsA(ExpectedClass))
+		{
+			return Error(EAssetError::TypeMismatch, std::format(
+				"Asset {} is not a {}.",
+				Path.ToString(), ExpectedClass->GetQualifiedName().ToString()));
+		}
+
+		std::string ValidationError;
+		if (!Reference.TrySetLoadedObject(LoadedObject, ExpectedClass, &ValidationError))
+			return Error(EAssetError::InvalidObjectGraph, std::move(ValidationError));
+		OutObject = LoadedObject;
+		return {};
 	}
 	auto SavePackage(
 		DPackage* Package,
