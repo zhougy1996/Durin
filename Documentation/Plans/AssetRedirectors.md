@@ -9,13 +9,14 @@ Completed:
 
 ## Current Status
 
-- Stages 0-3 are complete: the redirect wire format and public vocabulary are
+- Stages 0-4 are complete: the redirect wire format and public vocabulary are
   frozen, loading and references resolve to the final real package, and all
   production move callers use journaled atomic batch relocation with generated
-  direct aliases and shared editor Undo/Redo. Stage 4 is in progress: the
-  unified package reference index, lossless package rewriting, and strict core
-  Fix Up transaction are implemented; production external-store migrations,
-  unattended entrypoints, and the remaining failure matrix are still open.
+  direct aliases and shared editor Undo/Redo. The unified package reference
+  index, lossless package rewriting, strict Fix Up transaction, production
+  default-level/import-record reference stores, unattended project command,
+  and failure matrix are complete. Stage 5 editor, deletion, and asset-owner
+  integration is next.
 - The completed [Soft Asset References Plan](SoftAssetReferences.md) is historical
   evidence for the current implementation only. Its move-time rewrite contract,
   compatibility promises, stage structure, and validation baseline do not
@@ -915,43 +916,58 @@ Dependencies: Stage 3 redirect-producing relocation.
 - [x] Implement Fix Up analysis, upstream closure, final-path mapping,
   fingerprint/write/dirty/compatibility preflight, immutable plan, revalidation,
   rewrite modes, publication, verification, and deletion.
-- [ ] Add `IAssetReferenceStore` with deterministic enumeration and
+- [x] Add `IAssetReferenceStore` with deterministic enumeration and
   transaction-ready rewrite contributions; migrate project default level and
   import-record management paths.
-- [ ] Ensure provider absence, index incompleteness, dirty loaded packages,
+- [x] Ensure provider absence, index incompleteness, dirty loaded packages,
   compatibility risk, read-only inputs, malformed fields, changed
   fingerprints, publication failure, and verification failure leave selected
   redirectors valid.
-- [ ] Add CLI/service-level seams for project-wide unattended Fix Up without
+- [x] Add CLI/service-level seams for project-wide unattended Fix Up without
   implementing source-control automation.
 - [x] Remove soft-reference index APIs and cache files superseded by the unified
   graph after registry, Cook, editor queries, and tests use the new contract.
-- [ ] Add focused package-codec, index, external-store, and failure-injection
+- [x] Add focused package-codec, index, external-store, and failure-injection
   tests and end with the required stage handoff.
 
-#### Stage 4 Progress Checkpoint
+#### Stage 4 Handoff
 
-- Baseline commit: `2e3ce8b011ea98191aaee48b091901dd709df8bc`.
-- Working set: `AssetSystem.h/.cpp`, `PackageTests.cpp`, and this plan.
+- Baseline commit: `e3362825f428b38ce4b4de206c3dcafb994fdccf`.
+- Working set: `AssetSystem.h/.cpp`, `ImportRecordIndex.h/.cpp`,
+  `AssetImportCoreModule.cpp`, `ProjectDefaultLevelReferenceStore.h/.cpp`,
+  `LevelEditorModule.h/.cpp`, `MLevelEditor.h/.cpp`, `EditorEngine.cpp`,
+  AssetCore/import/editor external-store tests, native-test registration, and
+  this plan.
 - Key symbols and decisions: `FAssetReferenceIndex` owns deterministic hard,
   soft, and redirect edges and persists them in `References.bin`;
   `ExtractAssetReferences` and the tagged package rewriter share stable field
   routes and reject reference-bearing map keys. `FAssetRedirectorFixupPlan`
-  retains package bytes, fingerprints, external-store contributions, and the
+  retains package bytes, fingerprints, external-store contributions, and one
   mutation journal across analysis, revalidation, apply, verification, and
-  compensation. Strict deletion requires a complete index and zero remaining
-  incoming occurrences; unloaded packages are rewritten without object
-  construction, and the registry/reference projection is published once.
+  compensation. `FAssetReferenceStorePackageRewrite` lets a semantic provider
+  preconstruct `.dasset` bytes while AssetCore retains file publication,
+  compensation, and the single registry revision. Strict deletion requires a
+  complete index and zero remaining incoming occurrences; unloaded generic
+  packages are rewritten without object construction, and the
+  registry/reference projection is published once.
 - Compatibility and cleanup: public soft-only index vocabulary and
   `SoftReferences.bin` are removed rather than retained as shims. Registry
   scanning, Cook reachability, relocation projection maintenance, and tests use
-  the unified graph.
-- Open work: register production reference stores for project default-level and
-  import-record paths, add the project-wide unattended command seam, preserve
-  errors per source, and complete the dirty/read-only/compatibility/stale-data
-  and publication-boundary failure matrix before closing Stage 4.
-- Validation on 2026-08-06: `AssetCore` builds; the two focused redirector Fix
-  Up tests pass; the complete `AssetPackageTests` target passes all 68 tests.
+  the unified graph. `FImportRecordIndex` is the registered import-record store
+  and rewrites output, tombstone, and primary-output domain paths. The
+  LevelEditor module registers the project YAML default-level store and keeps
+  the live editor value synchronized only after commit. The unattended
+  `asset.fixup_redirectors [rewrite-only|rewrite-and-delete]` command calls the
+  same project-wide service without source-control automation.
+- Open questions: none block Stage 5. Source-control checkout remains explicitly
+  outside this plan, and Stage 5 owns Content Browser Fix Up UI and richer
+  redirector/deletion presentation.
+- Validation on 2026-08-06: complete `AssetPackageTests` passes all 72 tests;
+  `AssetImportCoreTests` passes all 22; `AssetReferenceStoreTests` passes both
+  project-settings transaction tests; `EditorAssetWorkflowTests` passes 52 of
+  53 executed tests with the existing directory-symlink environment skip; the
+  full `all` build and all-plan document validation succeed under the same
+  `Win64-Debug-DurinEditor-Tests` profile.
 
 #### Acceptance Gate
 

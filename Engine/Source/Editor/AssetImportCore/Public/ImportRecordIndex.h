@@ -64,7 +64,8 @@ namespace Durin::AssetImport
 		explicit operator bool() const { return bSucceeded; }
 	};
 
-	class ASSETIMPORTCORE_API FImportRecordIndex
+	class ASSETIMPORTCORE_API FImportRecordIndex final
+		: public Asset::IAssetReferenceStore
 	{
 	public:
 		FImportRecordIndex();
@@ -86,6 +87,14 @@ namespace Durin::AssetImport
 		auto NotifyAssetDeleted(const FAssetPath& Path) -> void;
 		auto NotifyAssetDuplicated() -> void;
 		auto NotifyPackageUnloaded(const FAssetPath& Path) -> void;
+		auto CaptureSnapshot(
+			Asset::FAssetReferenceStoreSnapshot& OutSnapshot)
+			-> Asset::FAssetResult override;
+		auto PrepareRewrite(
+			std::span<const Asset::FAssetReferenceRewrite> Rewrites,
+			std::string_view ExpectedFingerprint,
+			Asset::FAssetReferenceStoreRewriteContribution& OutContribution)
+			-> Asset::FAssetResult override;
 
 	private:
 		struct FImpl;

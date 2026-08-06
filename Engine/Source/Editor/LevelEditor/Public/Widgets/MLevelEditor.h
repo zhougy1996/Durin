@@ -57,6 +57,8 @@ namespace Durin
 		LEVELEDITOR_API auto RevealAssetInContentBrowser(const FAssetPath& AssetPath) -> bool;
 
 	private:
+		friend class FLevelEditorModule;
+
 		auto InitializeContext() -> void;
 		auto InitializeSession() -> void;
 		auto CreatePanels() -> void;
@@ -68,6 +70,7 @@ namespace Durin
 		auto DrawProjectSettings() -> void;
 		auto LoadProjectSettings() -> bool;
 		auto SaveProjectSettings() -> bool;
+		auto ApplyFixedUpDefaultLevelPath(const FAssetPath& Path) -> void;
 		auto SetError(std::string Message) -> void;
 		auto StartPlay(EEditorPlayStartLocation StartLocation, EEditorPlayDestination Destination) -> void;
 		auto ApplyPlayChanges(bool bSelectedOnly) -> void;

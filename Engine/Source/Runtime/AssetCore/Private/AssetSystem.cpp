@@ -5644,6 +5644,56 @@ namespace Durin::Asset
 					|| !StoreState.Contribution.Verify)
 					return Error(EAssetError::StaleData,
 						"An asset reference store returned an incomplete rewrite contribution.");
+				for (FAssetReferenceStorePackageRewrite& PackageRewrite :
+					StoreState.Contribution.PackageRewrites)
+				{
+					const FAssetData* Data = Registry.FindAssetExact(
+						PackageRewrite.PackagePath);
+					if (!PackageRewrite.PackagePath.IsValid() || !Data
+						|| Data->EntryKind == EAssetRegistryEntryKind::Redirector)
+						return Error(EAssetError::StaleData,
+							"An asset reference store returned an invalid package participant.");
+					if (LoadingPackages.contains(PackageRewrite.PackagePath))
+						return Error(EAssetError::InUse,
+							"An asset reference-store package is currently loading.");
+					DPackage* Loaded = FindLoadedPackage(PackageRewrite.PackagePath);
+					if (Loaded && Loaded->IsDirty())
+						return Error(EAssetError::InUse,
+							"A dirty external-reference package blocks redirector Fix Up.");
+					if (Loaded && CompatibilityRiskPackages.contains(Loaded))
+						return Error(EAssetError::UnsupportedProperty,
+							"A compatibility-risk external-reference package blocks redirector Fix Up.");
+					std::vector<uint8> CurrentBytes;
+					Result = LoadRelocationBytes(Data->PhysicalPath, CurrentBytes);
+					if (!Result) return Result;
+					if (CurrentBytes != PackageRewrite.PreBytes)
+						return Error(EAssetError::StaleData,
+							"An asset reference-store package changed during rewrite preparation.");
+					Result = ValidateAssetPackageBytes(PackageRewrite.PostBytes);
+					if (!Result) return Result;
+					size_t JournalEntry = 0;
+					Result = AddJournalEntry(
+						Data->PhysicalPath, PackageRewrite.PackagePath,
+						ERelocationPublicationRole::RealAsset,
+						std::move(PackageRewrite.PreBytes),
+						PackageRewrite.PostBytes, JournalEntry);
+					if (!Result) return Result;
+					State->Packages.push_back({
+						PackageRewrite.PackagePath, JournalEntry, Loaded});
+
+					FPackageFile PostFile;
+					Result = ReadPackageFile(
+						PackageRewrite.PostBytes, PostFile, false);
+					if (!Result) return Result;
+					FAssetData& PostData = State->PostAssets.at(
+						PackageRewrite.PackagePath);
+					PostData.AssetClassName = PostFile.AssetClassName;
+					PostData.EntryKind = PostFile.EntryKind;
+					PostData.RedirectDestination =
+						PostFile.RedirectDestination;
+					PostData.FormatVersion = PostFile.FormatVersion;
+					PostData.Dependencies = PostFile.Dependencies;
+				}
 			}
 			State->Stores.push_back(std::move(StoreState));
 		}

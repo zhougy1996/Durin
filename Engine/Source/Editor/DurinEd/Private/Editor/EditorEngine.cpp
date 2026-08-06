@@ -2,6 +2,7 @@
 #include "Editor/EditorNotification.h"
 #include "Editor/EditorTransaction.h"
 
+#include "AssetSystem.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Actors/CameraActor.h"
@@ -96,6 +97,34 @@ namespace Durin
 			if (!GEditor || !GEditor->IsPlaying()) return FConsoleCommandResult::Success("Stopped");
 			return FConsoleCommandResult::Success(GEditor->IsPlaySessionPaused() ? "Paused" : "Playing");
 		}});
+		RegisterCommand({
+			"asset.fixup_redirectors",
+			"Fixes every project redirector without source-control automation.",
+			"asset.fixup_redirectors [rewrite-only|rewrite-and-delete]",
+			[](std::span<const std::string> Args) {
+				if (Args.size() > 1
+					|| (!Args.empty() && Args[0] != "rewrite-only"
+						&& Args[0] != "rewrite-and-delete"))
+					return FConsoleCommandResult::Failure(
+						"Usage: asset.fixup_redirectors [rewrite-only|rewrite-and-delete]");
+				const Asset::EAssetRedirectorFixupMode Mode =
+					!Args.empty() && Args[0] == "rewrite-only"
+					? Asset::EAssetRedirectorFixupMode::RewriteOnly
+					: Asset::EAssetRedirectorFixupMode::RewriteAndDelete;
+				size_t RedirectorCount = 0;
+				for (const auto& [_, Data] : Asset::GetAssetRegistry().GetAssets())
+					RedirectorCount += Data.EntryKind
+						== Asset::EAssetRegistryEntryKind::Redirector;
+				const Asset::FAssetResult Result =
+					Asset::FixUpAllRedirectors(Mode);
+				return Result
+					? FConsoleCommandResult::Success(std::format(
+						"Fixed up {} redirector(s) in {} mode.",
+						RedirectorCount,
+						Mode == Asset::EAssetRedirectorFixupMode::RewriteOnly
+							? "rewrite-only" : "rewrite-and-delete"))
+					: FConsoleCommandResult::Failure(Result.Message);
+			}});
 		DURIN_DEBUG("Editor initialized successfully");
 	}
 

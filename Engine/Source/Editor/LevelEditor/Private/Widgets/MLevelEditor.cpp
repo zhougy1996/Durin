@@ -354,6 +354,17 @@ namespace Durin
 		return true;
 	}
 
+	auto MLevelEditor::ApplyFixedUpDefaultLevelPath(
+		const FAssetPath& Path) -> void
+	{
+		FSoftObjectPath SoftPath;
+		if (!FSoftObjectPath::TryCreate(Path.GetView(), SoftPath)) return;
+		const bool bPendingMatchesSaved = PendingDefaultLevel == DefaultLevel;
+		DefaultLevel.SetPath(SoftPath);
+		if (bPendingMatchesSaved)
+			PendingDefaultLevel.SetPath(std::move(SoftPath));
+	}
+
 	auto MLevelEditor::GetWorkspaceType() const -> const FEditorWorkspaceTypeId&
 	{
 		return LevelEditorWorkspace::Type;

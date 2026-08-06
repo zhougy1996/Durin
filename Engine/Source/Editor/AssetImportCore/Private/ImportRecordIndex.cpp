@@ -7,6 +7,171 @@
 
 namespace Durin::AssetImport
 {
+	namespace
+	{
+		constexpr std::string_view ImportRecordReferenceStoreId =
+			"Durin.AssetImport.ImportRecords";
+		constexpr uint64 ImportRecordReferenceStoreVersion = 1;
+
+		enum class EImportRecordReferenceKind : uint8
+		{
+			Output,
+			DetachedTombstone,
+			PrimaryOutput,
+		};
+
+		struct FImportRecordReferenceDescriptor
+		{
+			DImportRecord* Record = nullptr;
+			FAssetPath RecordPath;
+			EImportRecordReferenceKind Kind = EImportRecordReferenceKind::Output;
+			std::string Identity;
+			FAssetPath TargetPath;
+			std::string StableId;
+		};
+
+		struct FPreparedImportRecordRewrite
+		{
+			DImportRecord* Record = nullptr;
+			FAssetPath RecordPath;
+			FImportRecordState PreState;
+			FImportRecordState PostState;
+		};
+
+		auto ImportStoreError(Asset::EAssetError Error, std::string Message)
+			-> Asset::FAssetResult
+		{
+			return {Error, std::move(Message)};
+		}
+
+		auto MakeImportRecordReferenceStableId(
+			const FAssetPath& RecordPath,
+			std::string_view Category,
+			std::string_view Identity) -> std::string
+		{
+			return std::format("{}::{}::{}", RecordPath.ToString(), Category, Identity);
+		}
+
+		auto CaptureImportRecordReferenceState(
+			Asset::FAssetReferenceStoreSnapshot& OutSnapshot,
+			std::vector<FImportRecordReferenceDescriptor>* OutDescriptors = nullptr)
+			-> Asset::FAssetResult
+		{
+			OutSnapshot = {
+				.ProviderId = std::string(ImportRecordReferenceStoreId),
+				.ProviderVersion = ImportRecordReferenceStoreVersion};
+			if (OutDescriptors) OutDescriptors->clear();
+
+			std::vector<FAssetPath> RecordPaths;
+			constexpr std::string_view RecordClass =
+				"Durin::AssetImport::DImportRecord";
+			for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+				if (Data.EntryKind == Asset::EAssetRegistryEntryKind::Asset
+					&& Data.AssetClassName == RecordClass)
+					RecordPaths.push_back(Path);
+			std::ranges::sort(RecordPaths,
+				[](const FAssetPath& Left, const FAssetPath& Right) {
+					return Left.GetView() < Right.GetView();
+				});
+
+			std::string FingerprintSource = std::format(
+				"{}\n{}\n", ImportRecordReferenceStoreId,
+				ImportRecordReferenceStoreVersion);
+			for (const FAssetPath& RecordPath : RecordPaths)
+			{
+				DImportRecord* Record = nullptr;
+				Asset::FAssetLoadReport LoadReport;
+				Asset::FAssetResult Result = Asset::LoadAsset(
+					RecordPath, Record, &LoadReport);
+				if (!Result || !Record)
+					return Result ? ImportStoreError(
+						Asset::EAssetError::InvalidObjectGraph,
+						"An import record has no loaded main object.") : Result;
+				if (LoadReport.HasRiskItems())
+					return ImportStoreError(
+						Asset::EAssetError::UnsupportedProperty,
+						std::format("Import record {} has compatibility-risk fields.",
+							RecordPath.ToString()));
+				if (!Record->GetPackage() || Record->GetPackage()->IsDirty())
+					return ImportStoreError(
+						Asset::EAssetError::InUse,
+						std::format("Dirty import record {} blocks redirector Fix Up.",
+							RecordPath.ToString()));
+				std::string ValidationError;
+				if (!Record->Validate(ValidationError))
+					return ImportStoreError(
+						Asset::EAssetError::InvalidObjectGraph,
+						std::format("Import record {} is invalid: {}",
+							RecordPath.ToString(), ValidationError));
+				std::string PersistedFingerprint;
+				if (!ComputePersistedImportPackageFingerprint(
+						RecordPath, PersistedFingerprint, ValidationError))
+					return ImportStoreError(
+						Asset::EAssetError::IoError, std::move(ValidationError));
+				FingerprintSource += std::format(
+					"{}\n{}\n", RecordPath.ToString(), PersistedFingerprint);
+
+				auto AddOccurrence = [&](EImportRecordReferenceKind Kind,
+					std::string_view Category, std::string_view Identity,
+					const FAssetPath& TargetPath, std::string DisplayRoute) {
+					FImportRecordReferenceDescriptor Descriptor{
+						.Record = Record,
+						.RecordPath = RecordPath,
+						.Kind = Kind,
+						.Identity = std::string(Identity),
+						.TargetPath = TargetPath,
+						.StableId = MakeImportRecordReferenceStableId(
+							RecordPath, Category, Identity)};
+					OutSnapshot.Occurrences.push_back({
+						.ProviderId = std::string(ImportRecordReferenceStoreId),
+						.StableId = Descriptor.StableId,
+						.TargetPath = TargetPath,
+						.DisplayRoute = std::move(DisplayRoute)});
+					if (OutDescriptors)
+						OutDescriptors->push_back(std::move(Descriptor));
+				};
+
+				for (const FImportRecordOutput& Output : Record->GetOutputs())
+					AddOccurrence(
+						EImportRecordReferenceKind::Output, "output",
+						Output.StableIdentity, Output.AssetPath,
+						std::format("{}.Outputs[{}].AssetPath",
+							RecordPath.ToString(), Output.StableIdentity));
+				for (const FImportRecordDetachedTombstone& Tombstone :
+					Record->GetDetachedTombstones())
+					AddOccurrence(
+						EImportRecordReferenceKind::DetachedTombstone,
+						"tombstone", Tombstone.StableIdentity,
+						Tombstone.LastAssetPath,
+						std::format("{}.DetachedTombstones[{}].LastAssetPath",
+							RecordPath.ToString(), Tombstone.StableIdentity));
+				if (Record->GetPrimaryOutput().IsValid())
+					AddOccurrence(
+						EImportRecordReferenceKind::PrimaryOutput,
+						"primary", "root", Record->GetPrimaryOutput(),
+						std::format("{}.PrimaryOutput", RecordPath.ToString()));
+			}
+
+			std::ranges::sort(OutSnapshot.Occurrences,
+				[](const Asset::FAssetReferenceStoreOccurrence& Left,
+					const Asset::FAssetReferenceStoreOccurrence& Right) {
+					if (Left.StableId != Right.StableId)
+						return Left.StableId < Right.StableId;
+					return Left.TargetPath.GetView() < Right.TargetPath.GetView();
+				});
+			if (OutDescriptors)
+				std::ranges::sort(*OutDescriptors,
+					[](const FImportRecordReferenceDescriptor& Left,
+						const FImportRecordReferenceDescriptor& Right) {
+						return Left.StableId < Right.StableId;
+					});
+			OutSnapshot.Fingerprint = FXxHash128::HashBuffer(std::span{
+				reinterpret_cast<const uint8*>(FingerprintSource.data()),
+				FingerprintSource.size()}).ToString();
+			return {};
+		}
+	}
+
 	struct FImportRecordIndex::FImpl
 	{
 		mutable std::mutex Mutex;
@@ -258,6 +423,216 @@ namespace Durin::AssetImport
 	auto FImportRecordIndex::NotifyPackageUnloaded(const FAssetPath&) -> void
 	{
 		// Summaries own only value types; package residency is intentionally irrelevant.
+	}
+
+	auto FImportRecordIndex::CaptureSnapshot(
+		Asset::FAssetReferenceStoreSnapshot& OutSnapshot)
+		-> Asset::FAssetResult
+	{
+		return CaptureImportRecordReferenceState(OutSnapshot);
+	}
+
+	auto FImportRecordIndex::PrepareRewrite(
+		std::span<const Asset::FAssetReferenceRewrite> Rewrites,
+		std::string_view ExpectedFingerprint,
+		Asset::FAssetReferenceStoreRewriteContribution& OutContribution)
+		-> Asset::FAssetResult
+	{
+		OutContribution = {};
+		Asset::FAssetReferenceStoreSnapshot Snapshot;
+		std::vector<FImportRecordReferenceDescriptor> Descriptors;
+		Asset::FAssetResult Result = CaptureImportRecordReferenceState(
+			Snapshot, &Descriptors);
+		if (!Result) return Result;
+		if (ExpectedFingerprint != Snapshot.Fingerprint)
+			return ImportStoreError(
+				Asset::EAssetError::StaleData,
+				"Import records changed before Fix Up rewrite preparation.");
+
+		std::unordered_map<std::string, const FImportRecordReferenceDescriptor*>
+			ByStableId;
+		for (const FImportRecordReferenceDescriptor& Descriptor : Descriptors)
+			ByStableId.emplace(Descriptor.StableId, &Descriptor);
+		std::map<FAssetPath, FPreparedImportRecordRewrite,
+			decltype([](const FAssetPath& Left, const FAssetPath& Right) {
+				return Left.GetView() < Right.GetView();
+			})> PreparedByPath;
+		std::unordered_set<std::string> SeenRewrites;
+		for (const Asset::FAssetReferenceRewrite& Rewrite : Rewrites)
+		{
+			const auto Found = ByStableId.find(Rewrite.StableId);
+			if (Found == ByStableId.end()
+				|| !SeenRewrites.insert(Rewrite.StableId).second
+				|| Found->second->TargetPath != Rewrite.SourcePath
+				|| !Rewrite.DestinationPath.IsValid())
+				return ImportStoreError(
+					Asset::EAssetError::StaleData,
+					"An import-record Fix Up rewrite no longer matches its occurrence.");
+			const FImportRecordReferenceDescriptor& Descriptor = *Found->second;
+			auto [Prepared, Inserted] = PreparedByPath.try_emplace(
+				Descriptor.RecordPath);
+			if (Inserted)
+			{
+				Prepared->second.Record = Descriptor.Record;
+				Prepared->second.RecordPath = Descriptor.RecordPath;
+				Prepared->second.PreState = Descriptor.Record->GetState();
+				Prepared->second.PostState = Prepared->second.PreState;
+			}
+			FImportRecordState& State = Prepared->second.PostState;
+			switch (Descriptor.Kind)
+			{
+			case EImportRecordReferenceKind::Output:
+			{
+				const auto Output = std::ranges::find(
+					State.Outputs, Descriptor.Identity,
+					&FImportRecordOutput::StableIdentity);
+				if (Output == State.Outputs.end()
+					|| Output->AssetPath != Rewrite.SourcePath)
+					return ImportStoreError(
+						Asset::EAssetError::StaleData,
+						"An import-record output changed during Fix Up analysis.");
+				Output->AssetPath = Rewrite.DestinationPath;
+				break;
+			}
+			case EImportRecordReferenceKind::DetachedTombstone:
+			{
+				const auto Tombstone = std::ranges::find(
+					State.DetachedTombstones, Descriptor.Identity,
+					&FImportRecordDetachedTombstone::StableIdentity);
+				if (Tombstone == State.DetachedTombstones.end()
+					|| Tombstone->LastAssetPath != Rewrite.SourcePath)
+					return ImportStoreError(
+						Asset::EAssetError::StaleData,
+						"An import-record tombstone changed during Fix Up analysis.");
+				Tombstone->LastAssetPath = Rewrite.DestinationPath;
+				break;
+			}
+			case EImportRecordReferenceKind::PrimaryOutput:
+				if (State.PrimaryOutput != Rewrite.SourcePath)
+					return ImportStoreError(
+						Asset::EAssetError::StaleData,
+						"An import-record primary output changed during Fix Up analysis.");
+				State.PrimaryOutput = Rewrite.DestinationPath;
+				break;
+			}
+		}
+
+		auto Prepared = std::make_shared<std::vector<FPreparedImportRecordRewrite>>();
+		Prepared->reserve(PreparedByPath.size());
+		std::vector<Asset::FAssetReferenceStorePackageRewrite> PackageRewrites;
+		PackageRewrites.reserve(PreparedByPath.size());
+		for (auto& [RecordPath, RecordRewrite] : PreparedByPath)
+		{
+			DImportRecord* Record = RecordRewrite.Record;
+			if (!Record || !Record->GetPackage() || Record->GetPackage()->IsDirty())
+				return ImportStoreError(
+					Asset::EAssetError::InUse,
+					"A dirty import record blocks redirector Fix Up.");
+			const Asset::FAssetData* Data =
+				Asset::GetAssetRegistry().FindAssetExact(RecordPath);
+			if (!Data)
+				return ImportStoreError(
+					Asset::EAssetError::StaleData,
+					"An import record was removed during Fix Up analysis.");
+			std::vector<uint8> PreBytes;
+			if (!FFileHelper::LoadFileToArray(PreBytes, Data->PhysicalPath))
+				return ImportStoreError(
+					Asset::EAssetError::IoError,
+					"Could not read an import record for Fix Up.");
+
+			std::string StateError;
+			if (!Record->SetState(RecordRewrite.PostState, StateError))
+				return ImportStoreError(
+					Asset::EAssetError::InvalidObjectGraph, std::move(StateError));
+			RecordRewrite.PostState = Record->GetState();
+			std::vector<uint8> PostBytes;
+			Result = Asset::SerializeAssetPackageBytes(
+				Record->GetPackage(), PostBytes);
+			std::string RestoreError;
+			const bool bRestored = Record->SetState(
+				RecordRewrite.PreState, RestoreError);
+			Record->GetPackage()->ClearDirty();
+			if (!bRestored)
+				return ImportStoreError(
+					Asset::EAssetError::InvalidObjectGraph,
+					std::format("Could not restore import record after Fix Up preparation: {}",
+						RestoreError));
+			if (!Result) return Result;
+			PackageRewrites.push_back({
+				.PackagePath = RecordPath,
+				.PreBytes = std::move(PreBytes),
+				.PostBytes = std::move(PostBytes)});
+			Prepared->push_back(std::move(RecordRewrite));
+		}
+
+		OutContribution = {
+			.Fingerprint = Snapshot.Fingerprint,
+			.Rewrites = std::vector<Asset::FAssetReferenceRewrite>(
+				Rewrites.begin(), Rewrites.end()),
+			.PackageRewrites = std::move(PackageRewrites),
+			.Revalidate = [Prepared] {
+				for (const FPreparedImportRecordRewrite& Rewrite : *Prepared)
+				{
+					DImportRecord* Current = nullptr;
+					const Asset::FAssetResult Load = Asset::LoadAsset(
+						Rewrite.RecordPath, Current);
+					if (!Load || Current != Rewrite.Record || !Current->GetPackage()
+						|| Current->GetPackage()->IsDirty()
+						|| Current->GetState() != Rewrite.PreState)
+						return ImportStoreError(
+							Asset::EAssetError::StaleData,
+							"An import record changed after Fix Up analysis.");
+				}
+				return Asset::FAssetResult{};
+			},
+			.Apply = [this, Prepared] {
+				size_t AppliedCount = 0;
+				for (FPreparedImportRecordRewrite& Rewrite : *Prepared)
+				{
+					std::string Error;
+					if (!Rewrite.Record->SetState(Rewrite.PostState, Error))
+					{
+						for (size_t Index = AppliedCount; Index > 0; --Index)
+						{
+							std::string Ignored;
+							(*Prepared)[Index - 1].Record->SetState(
+								(*Prepared)[Index - 1].PreState, Ignored);
+							(*Prepared)[Index - 1].Record->GetPackage()->ClearDirty();
+						}
+						return ImportStoreError(
+							Asset::EAssetError::InvalidObjectGraph,
+							std::move(Error));
+					}
+					Rewrite.Record->GetPackage()->ClearDirty();
+					++AppliedCount;
+				}
+				NotifyAssetDuplicated();
+				return Asset::FAssetResult{};
+			},
+			.Restore = [this, Prepared] {
+				for (auto It = Prepared->rbegin(); It != Prepared->rend(); ++It)
+				{
+					std::string Error;
+					if (!It->Record->SetState(It->PreState, Error))
+						return ImportStoreError(
+							Asset::EAssetError::InvalidObjectGraph,
+							std::move(Error));
+					It->Record->GetPackage()->ClearDirty();
+				}
+				NotifyAssetDuplicated();
+				return Asset::FAssetResult{};
+			},
+			.Verify = [Prepared] {
+				for (const FPreparedImportRecordRewrite& Rewrite : *Prepared)
+					if (!Rewrite.Record || !Rewrite.Record->GetPackage()
+						|| Rewrite.Record->GetPackage()->IsDirty()
+						|| Rewrite.Record->GetState() != Rewrite.PostState)
+						return ImportStoreError(
+							Asset::EAssetError::StaleData,
+							"An import record did not retain its Fix Up rewrite.");
+				return Asset::FAssetResult{};
+			}};
+		return {};
 	}
 
 	auto InspectImportRecord(

@@ -29,6 +29,24 @@ namespace
 		return Result;
 	}
 
+	class FScopedAssetReferenceStore
+	{
+	public:
+		explicit FScopedAssetReferenceStore(
+			Durin::Asset::IAssetReferenceStore& Store)
+			: Handle(Durin::Asset::RegisterAssetReferenceStore(&Store))
+		{
+		}
+
+		~FScopedAssetReferenceStore()
+		{
+			Durin::Asset::UnregisterAssetReferenceStore(Handle);
+		}
+
+	private:
+		Durin::Asset::FAssetReferenceStoreHandle Handle = 0;
+	};
+
 	class FImportProgressRecorder final
 		: public Durin::AssetImport::IImportProgressReporter
 	{
@@ -550,6 +568,61 @@ TEST(FImportRecordFrameworkTests, PersistsHeterogeneousPeersAcrossReloadMoveAndP
 	ASSERT_TRUE(Index.Rebuild(Error)) << Error;
 	EXPECT_FALSE(HasDiagnostic(Index.GetDiagnostics(),
 		Durin::AssetImport::EImportRecordIndexDiagnostic::OutputFingerprintMismatch));
+}
+
+TEST(FImportRecordFrameworkTests, FixUpRewritesImportRecordDomainPathsInSharedTransaction)
+{
+	InitializeImportRecordTests();
+	FScenario Scenario = BuildScenario("RedirectorFixup");
+	const std::array Mounts = {MakeMount(Scenario.Root)};
+	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
+	ConfigureScenario(Scenario);
+	Durin::AssetImport::FImportRecordIndex Index;
+	const auto Published = PublishInitial(Scenario, Index, 19);
+	ASSERT_TRUE(Published) << Published.Message;
+	const Durin::FAssetPath MovedPath =
+		MakePath(Scenario.OutputRoot + "/PrimaryMoved");
+	ASSERT_TRUE(RelocateAssetForTest(Scenario.PrimaryPath, MovedPath));
+	ASSERT_EQ(Published.Record->GetPrimaryOutput(), Scenario.PrimaryPath);
+	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+
+	{
+		FScopedAssetReferenceStore StoreRegistration(Index);
+		Durin::Asset::FAssetRedirectorFixupPlan Plan;
+		const Durin::Asset::FAssetResult Analysis =
+			Durin::Asset::AnalyzeRedirectorFixup(
+			std::span{&Scenario.PrimaryPath, 1},
+			Durin::Asset::EAssetRedirectorFixupMode::RewriteAndDelete,
+			Plan);
+		ASSERT_TRUE(Analysis) << Analysis.Message;
+		EXPECT_EQ(Plan.GetStoreOccurrences().size(), 2u);
+		const Durin::Asset::FAssetResult Applied =
+			Durin::Asset::ApplyRedirectorFixup(Plan);
+		ASSERT_TRUE(Applied) << Applied.Message;
+	}
+
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(
+		Scenario.PrimaryPath), nullptr);
+	EXPECT_EQ(Published.Record->GetPrimaryOutput(), MovedPath);
+	EXPECT_TRUE(std::ranges::any_of(
+		Published.Record->GetOutputs(), [&](const auto& Output) {
+			return Output.StableIdentity == "primary"
+				&& Output.AssetPath == MovedPath;
+		}));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Scenario.RecordPath));
+	Durin::AssetImport::DImportRecord* Reloaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Scenario.RecordPath, Reloaded));
+	ASSERT_NE(Reloaded, nullptr);
+	EXPECT_EQ(Reloaded->GetPrimaryOutput(), MovedPath);
+	EXPECT_TRUE(std::ranges::any_of(
+		Reloaded->GetOutputs(), [&](const auto& Output) {
+			return Output.StableIdentity == "primary"
+				&& Output.AssetPath == MovedPath
+				&& Output.AssetPathText == MovedPath.ToString();
+		}));
+	ASSERT_TRUE(Durin::AssetImport::GetProviderRegistry().Unregister(
+		Scenario.ProviderId));
 }
 
 TEST(FImportRecordFrameworkTests, RebuildDetectsDuplicateRecordsManagersAndRestartDrift)

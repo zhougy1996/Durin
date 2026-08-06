@@ -557,11 +557,21 @@ namespace Durin::Asset
 		std::vector<FAssetReferenceStoreOccurrence> Occurrences;
 	};
 
+	// Supplies preconstructed package bytes owned semantically by an external
+	// reference store so AssetCore can publish them through the shared journal.
+	struct FAssetReferenceStorePackageRewrite
+	{
+		FAssetPath PackagePath;
+		std::vector<uint8> PreBytes;
+		std::vector<uint8> PostBytes;
+	};
+
 	// Owns a provider-prepared reversible write for one Fix Up transaction.
 	struct FAssetReferenceStoreRewriteContribution
 	{
 		std::string Fingerprint;
 		std::vector<FAssetReferenceRewrite> Rewrites;
+		std::vector<FAssetReferenceStorePackageRewrite> PackageRewrites;
 		std::function<FAssetResult()> Revalidate;
 		std::function<FAssetResult()> Apply;
 		std::function<FAssetResult()> Restore;

@@ -130,6 +130,14 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
 
+durin_add_engine_functional_test(AssetReferenceStoreTests
+	RUNTIME_STACK_RATIONALE "Exercises production external asset-reference stores."
+	SOURCES
+		Private/Editor/ProjectDefaultLevelReferenceStoreTests.cpp
+	PRIVATE_SOURCES
+		${_durin_level_editor_private}/Settings/ProjectDefaultLevelReferenceStore.cpp
+)
+
 durin_add_engine_functional_test(EditorHierarchyTests
 	RUNTIME_STACK_RATIONALE "Exercises the deterministic Level Editor hierarchy model without editor startup."
 	SOURCES

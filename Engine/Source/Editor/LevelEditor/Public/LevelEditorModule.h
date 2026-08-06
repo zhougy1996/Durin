@@ -7,6 +7,11 @@
 
 namespace Durin
 {
+	namespace Asset
+	{
+		class IAssetReferenceStore;
+	}
+
 	class FLevelEditorSessionSettings;
 	class FAssetPath;
 	class FEditorWorkspaceRegistrationHandle;
@@ -28,5 +33,8 @@ namespace Durin
 		std::vector<FLevelEditorCustomizationHandle> CustomizationHandles;
 		FLevelViewportEditModeHandle SplineEditModeHandle;
 		std::weak_ptr<class MLevelEditor> LevelEditorWorkspace;
+		std::unique_ptr<Asset::IAssetReferenceStore>
+			ProjectDefaultLevelReferenceStore;
+		uint64 ProjectDefaultLevelReferenceStoreHandle = 0;
 	};
 }

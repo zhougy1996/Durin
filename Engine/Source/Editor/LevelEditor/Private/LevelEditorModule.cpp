@@ -1,7 +1,9 @@
 #include "LevelEditorModule.h"
 
+#include "AssetSystem.h"
 #include "Editor/EditorWorkspace.h"
 #include "Settings/LevelEditorSessionSettings.h"
+#include "Settings/ProjectDefaultLevelReferenceStore.h"
 #include "Engine/Level.h"
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Widgets/MLevelEditor.h"
@@ -24,6 +26,16 @@ namespace Durin
 
 	LEVELEDITOR_API auto FLevelEditorModule::StartupModule() -> void
 	{
+		ProjectDefaultLevelReferenceStore =
+			std::make_unique<FProjectDefaultLevelReferenceStore>(
+				[this](const FAssetPath& Path) {
+					if (const std::shared_ptr<MLevelEditor> Workspace =
+							LevelEditorWorkspace.lock())
+						Workspace->ApplyFixedUpDefaultLevelPath(Path);
+				});
+		ProjectDefaultLevelReferenceStoreHandle =
+			Asset::RegisterAssetReferenceStore(
+				ProjectDefaultLevelReferenceStore.get());
 		SessionSettings = std::make_unique<FLevelEditorSessionSettings>();
 		SessionSettings->Load();
 		auto& Registry = FLevelEditorCustomizationRegistry::Get();
@@ -41,6 +53,10 @@ namespace Durin
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
 	{
 		UnregisterLevelEditorWorkspace();
+		Asset::UnregisterAssetReferenceStore(
+			ProjectDefaultLevelReferenceStoreHandle);
+		ProjectDefaultLevelReferenceStoreHandle = 0;
+		ProjectDefaultLevelReferenceStore.reset();
 		auto& Registry = FLevelEditorCustomizationRegistry::Get();
 		if (SplineEditModeHandle) FLevelViewportEditModeRegistry::Get().Unregister(SplineEditModeHandle);
 		SplineEditModeHandle = {};
