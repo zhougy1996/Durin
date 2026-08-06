@@ -1,5 +1,6 @@
 #include "VulkanRHIPrivate.h"
 
+#include "RHICommandList.h"
 #include "Vulkan/utility/vk_format_utils.h"
 
 #include "VulkanDevice.h"
@@ -8,6 +9,72 @@
 
 namespace Durin::VulkanRHI
 {
+	auto ExecuteFallibleVulkanCreationOperation(
+		std::function<void()> Operation,
+		size_t OwnedPayloadBytes) -> FRHIFallibleOperationResult
+	{
+		if (!GRHIThread || !IsInRHIThread())
+		{
+			return GCommandListExecutor.ExecuteFallibleSynchronousOperation(
+				false, std::move(Operation), OwnedPayloadBytes);
+		}
+
+		FRHIFallibleOperationResult Result;
+		try
+		{
+			Operation();
+		}
+		catch (const std::exception& Exception)
+		{
+			Result.bSucceeded = false;
+			Result.Diagnostic = Exception.what();
+		}
+		catch (...)
+		{
+			Result.bSucceeded = false;
+			Result.Diagnostic =
+				"Fallible Vulkan creation failed with an unknown exception.";
+		}
+		return Result;
+	}
+
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+	namespace
+	{
+		std::array<std::atomic<bool>, static_cast<size_t>(EVulkanCreateFailurePoint::Count)>
+			GArmedVulkanCreateFailures{};
+	}
+
+	auto ArmVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> void
+	{
+		GArmedVulkanCreateFailures[static_cast<size_t>(FailurePoint)].store(true, std::memory_order_release);
+	}
+
+	auto ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> bool
+	{
+		return GArmedVulkanCreateFailures[static_cast<size_t>(FailurePoint)].exchange(
+			false, std::memory_order_acq_rel);
+	}
+
+	auto ResetVulkanCreateFailures() -> void
+	{
+		for (std::atomic<bool>& Failure : GArmedVulkanCreateFailures)
+		{
+			Failure.store(false, std::memory_order_release);
+		}
+	}
+
+	auto ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint FailurePoint) -> void
+	{
+		if (ConsumeVulkanCreateFailure(FailurePoint))
+		{
+			throw vk::SystemError(
+				vk::make_error_code(vk::Result::eErrorOutOfDeviceMemory),
+				"Injected Vulkan native creation failure");
+		}
+	}
+#endif
+
 	struct FVulkanFormatMapping
 	{
 		EPixelFormat RhiFormat;

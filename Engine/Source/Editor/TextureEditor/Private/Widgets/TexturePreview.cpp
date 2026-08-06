@@ -152,6 +152,14 @@ namespace Durin
 					Candidate.FragmentShader =
 						TShaderRef<FTexturePreviewFragmentShader>(
 							FragmentShader, Candidate.ShaderMap.get());
+					FRHIShader* VertexRHI =
+						Candidate.VertexShader.GetRHIShader(false);
+					FRHIShader* FragmentRHI =
+						Candidate.FragmentShader.GetRHIShader(false);
+					if (VertexRHI == nullptr || FragmentRHI == nullptr)
+						return FResult::Failure(MakeError(
+							ERenderResourceCreateErrorCategory::RHIResource,
+							"RHI shader creation returned null."));
 					constexpr uint32 VertexStride =
 						sizeof(FTexturePreviewVertex);
 					FVertexDeclarationElementList VertexElements;
@@ -206,9 +214,9 @@ namespace Durin
 					PipelineInitializer.RenderTargetLayout =
 						MakeTexturePreviewRenderTargetLayout();
 					PipelineInitializer.BoundShaders.VertexShader =
-						Candidate.VertexShader.GetRHIShader();
+						VertexRHI;
 					PipelineInitializer.BoundShaders.FragmentShader =
-						Candidate.FragmentShader.GetRHIShader();
+						FragmentRHI;
 					PipelineInitializer.VertexDeclaration =
 						Candidate.VertexDeclaration;
 					PipelineInitializer.bEnableAlphaBlend = false;
@@ -220,13 +228,16 @@ namespace Durin
 							"TexturePreviewChannelPipeline",
 							PipelineInitializer);
 					if (Candidate.VertexDeclaration == nullptr
-						|| Candidate.PipelineState == nullptr
 						|| Candidate.VertexBuffer == nullptr
 						|| Candidate.IndexBuffer == nullptr
 						|| Candidate.Sampler == nullptr)
 						return FResult::Failure(MakeError(
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"RHI resource creation returned null."));
+					if (Candidate.PipelineState == nullptr)
+						return FResult::Failure(MakeError(
+							ERenderResourceCreateErrorCategory::GraphicsPipeline,
+							"RHI graphics pipeline creation returned null."));
 					return FResult::Success(std::move(Candidate));
 				},
 				[](const FRenderResourceCreateDiagnostic& Diagnostic) {

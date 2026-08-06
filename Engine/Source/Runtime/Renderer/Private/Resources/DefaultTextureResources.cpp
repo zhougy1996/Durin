@@ -1,5 +1,7 @@
 #include "Resources/DefaultTextureResources.h"
 
+#include "Renderers/RendererResourceDiagnostics.h"
+#include "Resources/RendererResourceCoordinator.h"
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -95,49 +97,71 @@ namespace Durin
 		}
 	}
 
+	FDefaultTextureResources::FDefaultTextureResources(
+		FRendererResourceCoordinator& InCoordinator)
+		: Coordinator(InCoordinator)
+	{
+	}
+
 	auto FDefaultTextureResources::Initialize_RenderThread(
-		FRHICommandListImmediate& CommandList) -> void
+		FRHICommandListImmediate& CommandList) -> bool
 	{
 		check(IsInRenderingThread());
-		if (White != nullptr)
-		{
-			return;
-		}
-		White = CreateSolidTexture(
-			CommandList, "DefaultWhite", {255, 255, 255, 255});
-		Black = CreateSolidTexture(
-			CommandList, "DefaultBlack", {0, 0, 0, 255});
-		FlatNormal = CreateFlatNormalTexture(CommandList);
-		BlackCube = CreateSolidCubeTexture(
-			CommandList, "DefaultBlackCube", {0, 0, 0, 255});
+		using FResult = TRenderResourceCreateResult<FPayload>;
+		return Slot.Resolve(
+			Coordinator.GetGeneration_RenderThread(),
+			[&CommandList]() -> FResult {
+				FPayload Candidate;
+				Candidate.White = CreateSolidTexture(
+					CommandList, "DefaultWhite", {255, 255, 255, 255});
+				Candidate.Black = CreateSolidTexture(
+					CommandList, "DefaultBlack", {0, 0, 0, 255});
+				Candidate.FlatNormal = CreateFlatNormalTexture(CommandList);
+				Candidate.BlackCube = CreateSolidCubeTexture(
+					CommandList, "DefaultBlackCube", {0, 0, 0, 255});
+				if (Candidate.White == nullptr || Candidate.Black == nullptr
+					|| Candidate.FlatNormal == nullptr
+					|| Candidate.BlackCube == nullptr)
+				{
+					return FResult::Failure(MakeRendererResourceCreateError(
+						ERenderResourceCreateErrorCategory::RHIResource,
+						"DefaultTextureResources",
+						"fallback-set",
+						"One or more default texture creations returned null.",
+						ERenderResourceGenerationDependency::Device
+							| ERenderResourceGenerationDependency::Manual));
+				}
+				return FResult::Success(std::move(Candidate));
+			},
+			ReportRendererResourceCreateDiagnostic) != nullptr;
 	}
 
 	auto FDefaultTextureResources::Get_RenderThread(
 		EDefaultTexture Texture) const -> FRHITexture*
 	{
 		check(IsInRenderingThread());
+		const FPayload* Payload = Slot.GetPayload();
+		if (Payload == nullptr) return nullptr;
 		switch (Texture)
 		{
-		case EDefaultTexture::White: return White;
-		case EDefaultTexture::Black: return Black;
-		case EDefaultTexture::FlatNormal: return FlatNormal;
+		case EDefaultTexture::White: return Payload->White;
+		case EDefaultTexture::Black: return Payload->Black;
+		case EDefaultTexture::FlatNormal: return Payload->FlatNormal;
 		}
-		return White;
+		return Payload->White;
 	}
 
 	auto FDefaultTextureResources::GetCube_RenderThread() const -> FRHITexture*
 	{
 		check(IsInRenderingThread());
-		return BlackCube;
+		const FPayload* Payload = Slot.GetPayload();
+		return Payload != nullptr ? Payload->BlackCube.GetReference() : nullptr;
 	}
 
 	auto FDefaultTextureResources::ReleaseResources_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
-		White = nullptr;
-		Black = nullptr;
-		FlatNormal = nullptr;
-		BlackCube = nullptr;
+		Slot.Reset();
 	}
 
 	auto SetActiveDefaultTextureResources(

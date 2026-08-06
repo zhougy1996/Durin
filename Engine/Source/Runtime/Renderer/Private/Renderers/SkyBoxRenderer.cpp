@@ -132,6 +132,22 @@ namespace Durin
 				Candidate.FragmentShader = TShaderRef<FSkyBoxFragmentShader>(
 					FragmentShader,
 					Candidate.ShaderMap.get());
+				FRHIShader* VertexRHI =
+					Candidate.VertexShader.GetRHIShader(false);
+				FRHIShader* FragmentRHI =
+					Candidate.FragmentShader.GetRHIShader(false);
+				if (VertexRHI == nullptr || FragmentRHI == nullptr)
+				{
+					return FResult::Failure(
+						MakeRendererResourceCreateError(
+							ERenderResourceCreateErrorCategory::RHIResource,
+							"SkyBox",
+							"default",
+							"RHI shader creation returned null.",
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Device
+								| ERenderResourceGenerationDependency::Manual));
+				}
 
 				const FVertexDeclarationElementList EmptyVertexElements{};
 				Candidate.VertexDeclaration =
@@ -142,9 +158,9 @@ namespace Durin
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeSceneTargets();
 				Initializer.BoundShaders.VertexShader =
-					Candidate.VertexShader.GetRHIShader();
+					VertexRHI;
 				Initializer.BoundShaders.FragmentShader =
-					Candidate.FragmentShader.GetRHIShader();
+					FragmentRHI;
 				Initializer.VertexDeclaration =
 					Candidate.VertexDeclaration;
 				Initializer.bEnableAlphaBlend = false;
@@ -172,7 +188,6 @@ namespace Durin
 				Candidate.Sampler =
 					RHICreateSampler(FRHISamplerDesc::LinearClamp());
 				if (Candidate.VertexDeclaration == nullptr
-					|| Candidate.PipelineState == nullptr
 					|| Candidate.IndexBuffer == nullptr
 					|| Candidate.Sampler == nullptr)
 				{
@@ -182,6 +197,18 @@ namespace Durin
 							"SkyBox",
 							"default",
 							"RHI resource creation returned null.",
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Device
+								| ERenderResourceGenerationDependency::Manual));
+				}
+				if (Candidate.PipelineState == nullptr)
+				{
+					return FResult::Failure(
+						MakeRendererResourceCreateError(
+							ERenderResourceCreateErrorCategory::GraphicsPipeline,
+							"SkyBox",
+							"default",
+							"RHI graphics pipeline creation returned null.",
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));

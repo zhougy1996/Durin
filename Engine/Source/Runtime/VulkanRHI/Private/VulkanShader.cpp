@@ -21,27 +21,38 @@ namespace Durin::VulkanRHI
 			InCreateDesc.Code.size() / sizeof(uint32)
 		};
 		createInfo.setCode(Code);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		ThrowIfVulkanNativeCreateFailureIsArmed(
+			EVulkanCreateFailurePoint::ShaderModule);
+#endif
 		ShaderModule = Device.GetHandle().createShaderModule(createInfo);
 	}
 
 	FVulkanShader::~FVulkanShader()
 	{
 		CheckVulkanRHIThread();
-		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ShaderModule, ShaderModule);
+		if (ShaderModule)
+		{
+			Device.GetDeferredDeletionQueue().EnqueueResource(
+				FDeferredDeletionQueue::EType::ShaderModule, ShaderModule);
+		}
 	}
 
 	auto FVulkanDynamicRHI::RHICreateShader(const FRHIShaderCreateDesc& InCreateDesc) -> FShaderRHIRef
 	{
 		FShaderRHIRef Result;
-		if (GRHIThread && !IsInRHIThread())
-		{
-			GCommandListExecutor.ExecuteSynchronousOperation(false,
+		const FRHIFallibleOperationResult CreationResult =
+			ExecuteFallibleVulkanCreationOperation(
 				[this, InCreateDesc, &Result]() {
 					Result = new FVulkanShader(*Device, InCreateDesc);
 				});
-			return Result;
+		if (!CreationResult.IsSuccess())
+		{
+			DURIN_ERROR("Failed to create Vulkan RHI shader '{}': {}",
+				InCreateDesc.DebugName ? InCreateDesc.DebugName : "<unnamed>",
+				CreationResult.Diagnostic);
+			return nullptr;
 		}
-		CheckVulkanRHIThread();
-		return new FVulkanShader(*Device, InCreateDesc);
+		return Result;
 	}
 }

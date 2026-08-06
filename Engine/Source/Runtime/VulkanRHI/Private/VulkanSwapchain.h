@@ -18,7 +18,7 @@ namespace Durin::VulkanRHI
 	class FVulkanSwapchain
 	{
 	public:
-		FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, EViewportPresentModePolicy InPresentModePolicy, vk::SwapchainKHR InOldSwapchain = VK_NULL_HANDLE);
+		FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, EViewportPresentModePolicy InPresentModePolicy, vk::SwapchainKHR InOldSwapchain, bool& bOutNativeSwapchainCreated);
 
 		~FVulkanSwapchain();
 
@@ -41,12 +41,9 @@ namespace Durin::VulkanRHI
 
 		auto GetHandle() const -> vk::SwapchainKHR { return Swapchain; }
 
-		auto DetachSwapchain() -> vk::SwapchainKHR
-		{
-			vk::SwapchainKHR Handle = Swapchain;
-			Swapchain = VK_NULL_HANDLE;
-			return Handle;
-		}
+		// Completes the acquire-side synchronization owned by a local viewport
+		// candidate. The swapchain must not be published before this succeeds.
+		auto InitializeSynchronizationResources() -> void;
 
 	private:
 		auto MarkNeedsRecreate(std::string_view Operation, vk::Result Result) -> void;

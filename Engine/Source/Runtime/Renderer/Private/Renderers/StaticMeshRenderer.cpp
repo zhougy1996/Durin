@@ -498,6 +498,19 @@ namespace Durin
 							TShaderRef<FStaticMeshFragmentShader>(
 								FragmentShader,
 								Candidate.ShaderMap.get());
+						if (Candidate.VertexShader.GetRHIShader(false) == nullptr
+							|| Candidate.FragmentShader.GetRHIShader(false) == nullptr)
+						{
+							return FShaderMapResult::Failure(
+								MakeRendererResourceCreateError(
+									ERenderResourceCreateErrorCategory::RHIResource,
+									"StaticMeshShaderMap",
+									GetIdentityText(Identity),
+									"RHI shader creation returned null.",
+									ERenderResourceGenerationDependency::Shader
+										| ERenderResourceGenerationDependency::Device
+										| ERenderResourceGenerationDependency::Manual));
+						}
 						return FShaderMapResult::Success(
 							std::move(Candidate));
 					},

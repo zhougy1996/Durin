@@ -424,7 +424,9 @@ namespace Durin
 				}
 				Candidate.AtlasSampler =
 					RHICreateSampler(FRHISamplerDesc::LinearClamp());
-				if (Candidate.VertexDeclaration == nullptr
+				if (Candidate.VertexShader.GetRHIShader(false) == nullptr
+					|| Candidate.FragmentShader.GetRHIShader(false) == nullptr
+					|| Candidate.VertexDeclaration == nullptr
 					|| Candidate.Atlas == nullptr
 					|| Candidate.AtlasSampler == nullptr)
 				{

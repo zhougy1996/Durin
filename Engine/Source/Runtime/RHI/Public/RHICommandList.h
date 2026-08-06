@@ -226,6 +226,14 @@ namespace Durin
 		}
 	};
 
+	struct FRHIFallibleOperationResult
+	{
+		bool bSucceeded = true;
+		std::string Diagnostic;
+
+		auto IsSuccess() const -> bool { return bSucceeded; }
+	};
+
 	struct FRHICommandListExecutorStats
 	{
 		ERHICommandListExecutorMode Mode = ERHICommandListExecutorMode::Inline;
@@ -271,6 +279,7 @@ namespace Durin
 		RHI_API auto AllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange;
 		RHI_API auto ReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, std::vector<uint8>& OutData) -> bool;
 		RHI_API auto AcquireBackBuffer(FRHITexture* BackBuffer) -> void;
+		RHI_API auto AcquireBackBufferSynchronously(FRHITexture* BackBuffer) -> void;
 		RHI_API auto BlockUntilGPUIdle() -> void;
 
 		auto FinishRecording() -> void = delete;
@@ -349,6 +358,12 @@ namespace Durin
 			bool bFlushRecordedCommands,
 			std::function<void()> Operation,
 			size_t OwnedPayloadBytes = 0) -> void;
+		// Only expected runtime resource creation may use this boundary. Device
+		// loss and executor, admission, wait, or replay-context failure stay terminal.
+		RHI_API auto ExecuteFallibleSynchronousOperation(
+			bool bFlushRecordedCommands,
+			std::function<void()> Operation,
+			size_t OwnedPayloadBytes = 0) -> FRHIFallibleOperationResult;
 
 	private:
 		class FState;

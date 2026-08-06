@@ -81,7 +81,15 @@ namespace Durin::VulkanRHI
 		if (bCube) imageInfo.setFlags(vk::ImageCreateFlagBits::eCubeCompatible);
 
 		FVulkanMemoryManager& MemoryManager = InDevice.GetMemoryManager();
-		MemoryManager.CreateImage(Allocation, Image, imageInfo);
+		const vk::Result ImageResult =
+			MemoryManager.CreateImage(Allocation, Image, imageInfo);
+		if (ImageResult != vk::Result::eSuccess)
+		{
+			throw std::runtime_error(std::format(
+				"Vulkan texture image allocation failed: result={}, extent={}x{}x{}, format={}",
+				vk::to_string(ImageResult), ImageExtent.width, ImageExtent.height,
+				ImageExtent.depth, vk::to_string(Format)));
+		}
 
 		// Create default image view
 		vk::ImageViewCreateInfo ViewInfo;
@@ -90,7 +98,27 @@ namespace Durin::VulkanRHI
 			.setFormat(Format)
 			.setSubresourceRange(vk::ImageSubresourceRange(bDepthStencil ? vk::ImageAspectFlagBits::eDepth : vk::ImageAspectFlagBits::eColor, 0, InCreateDesc.NumMips, 0, InCreateDesc.ArraySize));
 
-		ImageView = InDevice.GetHandle().createImageView(ViewInfo);
+		try
+		{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ThrowIfVulkanNativeCreateFailureIsArmed(
+				EVulkanCreateFailurePoint::ImageView);
+#endif
+			ImageView = InDevice.GetHandle().createImageView(ViewInfo);
+		}
+		catch (const std::exception& Exception)
+		{
+			MemoryManager.DestroyImage(Allocation, Image);
+			Image = nullptr;
+			throw std::runtime_error(std::format(
+				"Vulkan texture image-view creation failed: {}", Exception.what()));
+		}
+		catch (...)
+		{
+			MemoryManager.DestroyImage(Allocation, Image);
+			Image = nullptr;
+			throw;
+		}
 	}
 
 	FVulkanTexture::FVulkanTexture(FVulkanDevice& InDevice, vk::Image InImage)
@@ -111,12 +139,20 @@ namespace Durin::VulkanRHI
 				ETextureCreateFlags::RenderTargetable |
 				ETextureCreateFlags::DepthStencilTargetable |
 				ETextureCreateFlags::ResolveTargetable;
-			if (EnumHasAnyFlags(CreateFlags, FramebufferAttachmentFlags))
+			if (Image && EnumHasAnyFlags(CreateFlags, FramebufferAttachmentFlags))
 			{
 				Device.NotifyDeleted_Image(Image);
 			}
-			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Image, Image, Allocation);
-			Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::ImageView, ImageView);
+			if (ImageView)
+			{
+				Device.GetDeferredDeletionQueue().EnqueueResource(
+					FDeferredDeletionQueue::EType::ImageView, ImageView);
+			}
+			if (Image && Allocation.IsValid())
+			{
+				Device.GetDeferredDeletionQueue().EnqueueResource(
+					FDeferredDeletionQueue::EType::Image, Image, Allocation);
+			}
 		}
 	}
 
@@ -156,13 +192,21 @@ namespace Durin::VulkanRHI
 			.setBorderColor(ToVulkan_SamplerBorderColor(InDesc.BorderColor))
 			.setUnnormalizedCoordinates(InDesc.bUnnormalizedCoordinates);
 
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		ThrowIfVulkanNativeCreateFailureIsArmed(
+			EVulkanCreateFailurePoint::Sampler);
+#endif
 		Sampler = Device.GetHandle().createSampler(SamplerInfo);
 	}
 
 	FVulkanSampler::~FVulkanSampler()
 	{
 		CheckVulkanRHIThread();
-		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Sampler, Sampler);
+		if (Sampler)
+		{
+			Device.GetDeferredDeletionQueue().EnqueueResource(
+				FDeferredDeletionQueue::EType::Sampler, Sampler);
+		}
 	}
 
 	auto FVulkanDynamicRHI::RHICreateTexture(FRHICommandListBase& RHICmdList, const FRHITextureCreateDesc& CreateDesc) -> TRefCountPtr<FRHITexture>
@@ -170,17 +214,17 @@ namespace Durin::VulkanRHI
 		std::string ValidationError;
 		checkf(ValidateTextureCreateDesc(CreateDesc, ValidationError), "Invalid RHI texture create description: {}", ValidationError);
 		TRefCountPtr<FVulkanTexture> Texture;
-		if (GRHIThread && !IsInRHIThread())
-		{
-			GCommandListExecutor.ExecuteSynchronousOperation(false,
+		const FRHIFallibleOperationResult CreationResult =
+			ExecuteFallibleVulkanCreationOperation(
 				[this, CreateDesc, &Texture]() {
 					Texture = new FVulkanTexture(*Device, CreateDesc);
 				});
-		}
-		else
+		if (!CreationResult.IsSuccess())
 		{
-			CheckVulkanRHIThread();
-			Texture = new FVulkanTexture(*Device, CreateDesc);
+			DURIN_ERROR("Failed to create Vulkan RHI texture '{}': {}",
+				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>",
+				CreationResult.Diagnostic);
+			return nullptr;
 		}
 		if (EnumHasAnyFlags(CreateDesc.Flags, ETextureCreateFlags::Storage))
 		{
@@ -248,16 +292,18 @@ namespace Durin::VulkanRHI
 	auto FVulkanDynamicRHI::RHICreateSampler(const FRHISamplerDesc& CreateDesc) -> TRefCountPtr<FRHISampler>
 	{
 		TRefCountPtr<FRHISampler> Result;
-		if (GRHIThread && !IsInRHIThread())
-		{
-			GCommandListExecutor.ExecuteSynchronousOperation(false,
+		const FRHIFallibleOperationResult CreationResult =
+			ExecuteFallibleVulkanCreationOperation(
 				[this, CreateDesc, &Result]() {
 					Result = new FVulkanSampler(*Device, CreateDesc);
 				});
-			return Result;
+		if (!CreationResult.IsSuccess())
+		{
+			DURIN_ERROR("Failed to create Vulkan RHI sampler: {}",
+				CreationResult.Diagnostic);
+			return nullptr;
 		}
-		CheckVulkanRHIThread();
-		return new FVulkanSampler(*Device, CreateDesc);
+		return Result;
 	}
 
 	auto FVulkanDynamicRHI::UpdateTexture2D(
@@ -407,13 +453,16 @@ namespace Durin::VulkanRHI
 		BufferInfo.setSize(Layout.DataSize)
 			.setUsage(vk::BufferUsageFlagBits::eTransferDst)
 			.setSharingMode(vk::SharingMode::eExclusive);
-		if (!MemoryManager.CreateBuffer(
+		const vk::Result ReadbackResult = MemoryManager.CreateBuffer(
 			ReadbackAllocation,
 			ReadbackBuffer,
 			EVulkanAllocationFlags::HostVisible | EVulkanAllocationFlags::PersistentMapped,
 			BufferInfo,
-			"TextureReadback"))
+			"TextureReadback");
+		if (ReadbackResult != vk::Result::eSuccess)
 		{
+			DURIN_ERROR("Failed to allocate Vulkan texture readback buffer: result={}",
+				vk::to_string(ReadbackResult));
 			return false;
 		}
 

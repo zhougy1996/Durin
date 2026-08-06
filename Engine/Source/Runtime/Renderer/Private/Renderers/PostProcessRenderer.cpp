@@ -1,5 +1,6 @@
 #include "Renderers/PostProcessRenderer.h"
 
+#include "RendererResourceSlotCache.h"
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -110,7 +111,8 @@ namespace Durin
 		TRenderResourceCreationSlot<FPayload> Slot{
 			ERenderResourceGenerationDependency::Shader
 				| ERenderResourceGenerationDependency::Device};
-		std::unordered_map<uint64, FSceneTargets> SceneTargetsBySize;
+		TRendererResourceSlotCache<uint64, FSceneTargets> SceneTargetsBySize{
+			ERenderResourceGenerationDependency::Device};
 	};
 
 	FPostProcessRenderer::FPostProcessRenderer(
@@ -267,6 +269,29 @@ namespace Durin
 
 				Candidate.SceneColorSampler =
 					RHICreateSampler(FRHISamplerDesc::LinearClamp());
+				FRHIShader* CopyVertexRHI =
+					Candidate.CopyVertexShader.GetRHIShader(false);
+				FRHIShader* CopyFragmentRHI =
+					Candidate.CopyFragmentShader.GetRHIShader(false);
+				FRHIShader* FXAAVertexRHI =
+					Candidate.FXAAVertexShader.GetRHIShader(false);
+				FRHIShader* FXAAFragmentRHI =
+					Candidate.FXAAFragmentShader.GetRHIShader(false);
+				if (Candidate.VertexDeclaration == nullptr
+					|| Candidate.SceneColorSampler == nullptr
+					|| CopyVertexRHI == nullptr || CopyFragmentRHI == nullptr
+					|| FXAAVertexRHI == nullptr || FXAAFragmentRHI == nullptr)
+				{
+					return FResult::Failure(
+						MakeRendererResourceCreateError(
+							ERenderResourceCreateErrorCategory::RHIResource,
+							"PostProcess",
+							"copy+fxaa",
+							"RHI shader, declaration, or sampler creation returned null.",
+							ERenderResourceGenerationDependency::Shader
+								| ERenderResourceGenerationDependency::Device
+								| ERenderResourceGenerationDependency::Manual));
+				}
 				auto MakePipeline =
 					[&Candidate](
 						FName Name,
@@ -284,47 +309,45 @@ namespace Durin
 					};
 				Candidate.CopyIntermediatePipelineState = MakePipeline(
 					"PostProcessCopyIntermediatePipeline",
-					Candidate.CopyVertexShader.GetRHIShader(),
-					Candidate.CopyFragmentShader.GetRHIShader(),
+					CopyVertexRHI,
+					CopyFragmentRHI,
 					Candidate.CopyShaderMap->GetMergedPipelineLayout(),
 					RenderTargetLayouts::MakeScenePostProcessOutput());
 				Candidate.FXAAIntermediatePipelineState = MakePipeline(
 					"PostProcessFXAAIntermediatePipeline",
-					Candidate.FXAAVertexShader.GetRHIShader(),
-					Candidate.FXAAFragmentShader.GetRHIShader(),
+					FXAAVertexRHI,
+					FXAAFragmentRHI,
 					Candidate.FXAAShaderMap->GetMergedPipelineLayout(),
 					RenderTargetLayouts::MakeScenePostProcessOutput());
 				Candidate.CopyOffscreenPipelineState = MakePipeline(
 					"PostProcessCopyOffscreenPipeline",
-					Candidate.CopyVertexShader.GetRHIShader(),
-					Candidate.CopyFragmentShader.GetRHIShader(),
+					CopyVertexRHI,
+					CopyFragmentRHI,
 					Candidate.CopyShaderMap->GetMergedPipelineLayout(),
 					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
 						RenderTargetLayouts::EViewportOutput::Offscreen));
 				Candidate.CopyPresentPipelineState = MakePipeline(
 					"PostProcessCopyPresentPipeline",
-					Candidate.CopyVertexShader.GetRHIShader(),
-					Candidate.CopyFragmentShader.GetRHIShader(),
+					CopyVertexRHI,
+					CopyFragmentRHI,
 					Candidate.CopyShaderMap->GetMergedPipelineLayout(),
 					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
 						RenderTargetLayouts::EViewportOutput::Present));
 				Candidate.FXAAOffscreenPipelineState = MakePipeline(
 					"PostProcessFXAAOffscreenPipeline",
-					Candidate.FXAAVertexShader.GetRHIShader(),
-					Candidate.FXAAFragmentShader.GetRHIShader(),
+					FXAAVertexRHI,
+					FXAAFragmentRHI,
 					Candidate.FXAAShaderMap->GetMergedPipelineLayout(),
 					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
 						RenderTargetLayouts::EViewportOutput::Offscreen));
 				Candidate.FXAAPresentPipelineState = MakePipeline(
 					"PostProcessFXAAPresentPipeline",
-					Candidate.FXAAVertexShader.GetRHIShader(),
-					Candidate.FXAAFragmentShader.GetRHIShader(),
+					FXAAVertexRHI,
+					FXAAFragmentRHI,
 					Candidate.FXAAShaderMap->GetMergedPipelineLayout(),
 					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
 						RenderTargetLayouts::EViewportOutput::Present));
-				if (Candidate.VertexDeclaration == nullptr
-					|| Candidate.SceneColorSampler == nullptr
-					|| Candidate.CopyIntermediatePipelineState == nullptr
+				if (Candidate.CopyIntermediatePipelineState == nullptr
 					|| Candidate.FXAAIntermediatePipelineState == nullptr
 					|| Candidate.CopyOffscreenPipelineState == nullptr
 					|| Candidate.CopyPresentPipelineState == nullptr
@@ -353,12 +376,6 @@ namespace Durin
 		uint32 Height) -> FSceneTargets*
 	{
 		const uint64 Key = (static_cast<uint64>(Width) << 32) | Height;
-		if (auto It = State->SceneTargetsBySize.find(Key);
-			It != State->SceneTargetsBySize.end())
-		{
-			return &It->second;
-		}
-
 		FRHITextureCreateDesc SceneColorDesc =
 			FRHITextureCreateDesc::Create2D(
 				"SceneColor",
@@ -379,25 +396,42 @@ namespace Durin
 		SceneDepthDesc.SetFlags(ETextureCreateFlags::DepthStencilTargetable);
 		SceneDepthDesc.SetClearValue(FClearValueBinding(1.0f, 0u));
 
-		auto [It, bInserted] = State->SceneTargetsBySize.emplace(
-			Key,
-			FSceneTargets{
-				.Color = RHICreateTexture(SceneColorDesc),
-				.Depth = RHICreateTexture(SceneDepthDesc),
-			});
+		using FResult = TRenderResourceCreateResult<FSceneTargets>;
+		auto& Entry = State->SceneTargetsBySize.FindOrAdd(Key);
+		FSceneTargets* Targets = Entry.Slot.Resolve(
+			Coordinator.GetGeneration_RenderThread(),
+			[Key, &SceneColorDesc, &SceneDepthDesc]() -> FResult {
+				FSceneTargets Candidate;
+				Candidate.Color = RHICreateTexture(SceneColorDesc);
+				if (Candidate.Color != nullptr)
+				{
+					Candidate.Depth = RHICreateTexture(SceneDepthDesc);
+				}
+				if (Candidate.Color == nullptr || Candidate.Depth == nullptr)
+				{
+					return FResult::Failure(
+						MakeRendererResourceCreateError(
+							ERenderResourceCreateErrorCategory::RHIResource,
+							"PostProcessSceneTargets",
+							std::to_string(Key),
+							"Scene color or depth texture creation returned null.",
+							ERenderResourceGenerationDependency::Device
+								| ERenderResourceGenerationDependency::Manual));
+				}
+				return FResult::Success(std::move(Candidate));
+			},
+			ReportRendererResourceCreateDiagnostic);
+		const bool bResolved = Targets != nullptr;
 		// Interactive viewport resizing can produce many transient dimensions.
 		// Retain stable main and preview sizes without keeping every drag size.
-		if (State->SceneTargetsBySize.size() > 8)
+		if (State->SceneTargetsBySize.Num() > 8)
 		{
-			const auto EvictionIt = std::ranges::find_if(
-				State->SceneTargetsBySize,
-				[Key](const auto& Entry) { return Entry.first != Key; });
-			if (EvictionIt != State->SceneTargetsBySize.end())
-			{
-				State->SceneTargetsBySize.erase(EvictionIt);
-			}
+			State->SceneTargetsBySize.EvictOldestExcept(Key);
 		}
-		return bInserted ? &It->second : nullptr;
+		auto* StableEntry = State->SceneTargetsBySize.Find(Key);
+		return bResolved && StableEntry != nullptr
+			? StableEntry->Slot.GetPayload()
+			: nullptr;
 	}
 
 	auto FPostProcessRenderer::Draw_RenderThread(
@@ -499,6 +533,6 @@ namespace Durin
 	auto FPostProcessRenderer::ReleaseResources_RenderThread() -> void
 	{
 		State->Slot.Reset();
-		State->SceneTargetsBySize.clear();
+		State->SceneTargetsBySize.Reset();
 	}
 } // namespace Durin

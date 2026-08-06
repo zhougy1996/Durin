@@ -122,6 +122,11 @@ namespace Durin
 				return Packed.load(MemoryOrder) & NumRefsMask;
 			}
 
+			auto IsUnpublished(std::memory_order MemoryOrder) const -> bool
+			{
+				return Packed.load(MemoryOrder) == 0;
+			}
+
 			auto UnmarkForDelete(std::memory_order MemoryOrder) -> bool
 			{
 				const uint32 OldPacked = Packed.fetch_xor(MarkedForDeleteBit, MemoryOrder);

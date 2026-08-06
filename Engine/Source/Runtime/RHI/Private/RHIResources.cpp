@@ -187,8 +187,14 @@ namespace Durin
 	FRHIResource::~FRHIResource()
 	{
 #if DO_CHECK
-		check(IsEngineExitRequested() || CurrentDeleting == this);
-		CurrentDeleting = nullptr;
+		// A derived constructor may fail before the resource is ever referenced.
+		// Published resources must still arrive through DeleteResources.
+		check(IsEngineExitRequested() || CurrentDeleting == this
+			|| AtomicFlags.IsUnpublished(std::memory_order_relaxed));
+		if (CurrentDeleting == this)
+		{
+			CurrentDeleting = nullptr;
+		}
 #endif
 	}
 

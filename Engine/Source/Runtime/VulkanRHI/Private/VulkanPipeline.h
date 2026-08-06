@@ -43,11 +43,11 @@ namespace Durin::VulkanRHI
 
 		FVulkanShader* Shaders[EShaderStage::Count] = { nullptr };
 
-		FVulkanLayout* Layout;
+		FVulkanLayout* Layout = nullptr;
 
-		vk::PipelineLayout PipelineLayout;
+		vk::PipelineLayout PipelineLayout{};
 
-		vk::Pipeline Pipeline;
+		vk::Pipeline Pipeline{};
 
 		friend class FVulkanGraphicsPipelineState;
 		friend class FVulkanPipelineStateCacheManager;

@@ -20,7 +20,10 @@ namespace Durin::VulkanRHI
 		, Viewport(InViewport)
 	{
 		CheckVulkanRHIThread();
-		UpdateSwapchain();
+		if (Viewport->GetSwapchain() != nullptr)
+		{
+			UpdateSwapchain();
+		}
 	}
 
 	auto FVulkanBackBuffer::UpdateSwapchain() -> void
@@ -34,18 +37,28 @@ namespace Durin::VulkanRHI
 		NumSamples = 1;
 	}
 
-	auto FVulkanBackBuffer::AcquireBackBufferImage(
-		FVulkanCommandListContext& Context) -> void
+	auto FVulkanBackBuffer::InvalidateSwapchain() -> void
 	{
 		CheckVulkanRHIThread();
-		Viewport->AcquireBackBufferImage();
-		check(Viewport->AcquiredBackBufferIndex >= 0 && Viewport->AcquiredBackBufferIndex < static_cast<int32>(Viewport->TextureViews.size()));
-		const FVulkanView& View = Viewport->TextureViews[Viewport->AcquiredBackBufferIndex];
-		Image = View.Image;
+		Image = VK_NULL_HANDLE;
+	}
+
+	auto FVulkanBackBuffer::AcquireBackBufferImage(
+		FVulkanCommandListContext& Context) -> bool
+	{
+		CheckVulkanRHIThread();
+		const FVulkanView* View = Viewport->AcquireBackBufferImage();
+		if (View == nullptr)
+		{
+			Image = VK_NULL_HANDLE;
+			return false;
+		}
+		Image = View->Image;
 		if (Viewport->AcquiredSemaphore != nullptr)
 		{
 			Context.AddWaitSemaphore(vk::PipelineStageFlagBits::eColorAttachmentOutput, Viewport->AcquiredSemaphore);
 		}
+		return true;
 	}
 
 	FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice, void* InWindowHandle, uint32 InSizeX, uint32 InSizeY, bool bInIsFullScreen, EPixelFormat InPreferredPixelFormat, EViewportPresentModePolicy InPresentModePolicy)
@@ -59,22 +72,19 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		Surface = FVulkanGenericPlatform::CreateSurface(InWindowHandle, FVulkanDynamicRHI::Get().RHIGetVkInstance());
-		CreateSwapchain();
+		bSwapchainNeedsRecreate = true;
+		bSwapchainRetryEligible = true;
+		PrepareSwapchain();
+		if (!RHIBackBuffer)
+		{
+			RHIBackBuffer = MakeRefCount<FVulkanBackBuffer>(Device, this);
+		}
 	}
 
 	FVulkanViewport::~FVulkanViewport()
 	{
 		CheckVulkanRHIThread();
 		WaitForSwapchainIdle();
-
-		for (uint32 i = 0; i < TextureViews.size(); ++i)
-		{
-			Device.GetHandle().destroyImageView(TextureViews[i].ImageView);
-		}
-		TextureViews.clear();
-
-		DestroyFrameResources();
-
 		DestroySwapchain();
 
 		if (Surface != VK_NULL_HANDLE)
@@ -130,94 +140,95 @@ namespace Durin::VulkanRHI
 		PendingSizeY = InSizeY;
 		bHasPendingResize = true;
 		bSwapchainNeedsRecreate = true;
+		bSwapchainRetryEligible = true;
 	}
 
 	auto FVulkanViewport::PrepareSwapchain() -> void
 	{
 		CheckVulkanRHIThread();
-		if (Swapchain != nullptr && Swapchain->NeedsRecreate())
+		if (Swapchain != nullptr && Swapchain->NeedsRecreate() && !bSwapchainNeedsRecreate)
 		{
 			bSwapchainNeedsRecreate = true;
+			bSwapchainRetryEligible = true;
 		}
 
-		if (!bSwapchainNeedsRecreate && !bHasPendingResize)
+		if (!bSwapchainNeedsRecreate || !bSwapchainRetryEligible)
 		{
 			return;
 		}
 
-		if (bHasPendingResize)
+		const uint32 TargetSizeX = bHasPendingResize ? PendingSizeX : SizeX;
+		const uint32 TargetSizeY = bHasPendingResize ? PendingSizeY : SizeY;
+		if (TargetSizeX == 0 || TargetSizeY == 0)
 		{
-			SizeX = PendingSizeX;
-			SizeY = PendingSizeY;
+			return;
+		}
+
+		bSwapchainRetryEligible = false;
+		if (TryCreateSwapchain(TargetSizeX, TargetSizeY))
+		{
 			PendingSizeX = 0;
 			PendingSizeY = 0;
 			bHasPendingResize = false;
+			bSwapchainNeedsRecreate = false;
 		}
-
-		if (SizeX == 0 || SizeY == 0)
-		{
-			return;
-		}
-
-		RecreateSwapchain();
-		bSwapchainNeedsRecreate = false;
 	}
 
 	auto FVulkanViewport::MarkSwapchainNeedsRecreate() -> void
 	{
 		CheckVulkanRHIThread();
 		bSwapchainNeedsRecreate = true;
+		bSwapchainRetryEligible = true;
 	}
 
 	auto FVulkanViewport::RecreateSwapchain() -> void
 	{
 		CheckVulkanRHIThread();
-		AcquiredBackBufferIndex = -1;
-		AcquiredSemaphore = nullptr;
-		WaitForSwapchainIdle();
-
-		// Detach old swapchain handle — it must stay alive until the new swapchain
-		// is created with it as VkSwapchainCreateInfoKHR::oldSwapchain for a smooth transition.
-		vk::SwapchainKHR OldSwapchainHandle = VK_NULL_HANDLE;
-		if (Swapchain != nullptr)
-		{
-			OldSwapchainHandle = Swapchain->DetachSwapchain();
-		}
-
-		// Destroy old per-frame resources (images, views, etc.) but NOT the VkSwapchainKHR
-		DestroySwapchain();
-
-		// Create new swapchain referencing the old one
-		CreateSwapchain(OldSwapchainHandle);
-
-		// Now the old swapchain can be safely destroyed — the new one has taken over
-		if (OldSwapchainHandle != VK_NULL_HANDLE)
-		{
-			Device.GetHandle().destroySwapchainKHR(OldSwapchainHandle);
-		}
+		bSwapchainNeedsRecreate = true;
+		bSwapchainRetryEligible = true;
+		PrepareSwapchain();
 	}
 
-	auto FVulkanViewport::AcquireBackBufferImage() -> FVulkanView&
+	auto FVulkanViewport::AcquireBackBufferImage() -> FVulkanView*
 	{
 		CheckVulkanRHIThread();
+		if (Swapchain == nullptr)
+		{
+			return nullptr;
+		}
 		AcquiredBackBufferIndex = static_cast<int32>(
 			Swapchain->AcquireImageIndex(&AcquiredSemaphore));
 		if (AcquiredBackBufferIndex < 0)
 		{
 			MarkSwapchainNeedsRecreate();
 			PrepareSwapchain();
+			if (Swapchain == nullptr)
+			{
+				return nullptr;
+			}
 			AcquiredBackBufferIndex = static_cast<int32>(
 				Swapchain->AcquireImageIndex(&AcquiredSemaphore));
 		}
-		check(AcquiredBackBufferIndex >= 0 && AcquiredBackBufferIndex < static_cast<int32>(TextureViews.size()));
-		return TextureViews[AcquiredBackBufferIndex];
+		if (AcquiredBackBufferIndex < 0
+			|| AcquiredBackBufferIndex >= static_cast<int32>(TextureViews.size()))
+		{
+			AcquiredBackBufferIndex = -1;
+			AcquiredSemaphore = nullptr;
+			return nullptr;
+		}
+		return &TextureViews[AcquiredBackBufferIndex];
 	}
 
 	auto FVulkanViewport::GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TRefCountPtr<FRHITexture>
 	{
 		check(IsInRenderingThread());
-		InRHICmdList.AcquireBackBuffer(RHIBackBuffer.GetReference());
-		return RHIBackBuffer;
+		if (!RHIBackBuffer)
+		{
+			return nullptr;
+		}
+		TRefCountPtr<FVulkanBackBuffer> BackBuffer = RHIBackBuffer;
+		InRHICmdList.AcquireBackBufferSynchronously(BackBuffer.GetReference());
+		return AcquiredBackBufferIndex >= 0 ? BackBuffer : nullptr;
 	}
 
 	auto FVulkanViewport::Present(FVulkanCommandListContext& InContext, FVulkanCommandBuffer& InCmdBuffer, FVulkanQueue& InPresentQueue, bool bInLockToVsync) -> bool
@@ -260,49 +271,131 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanViewport::GetSwapchainImageFormat() const -> vk::Format
 	{
-		return Swapchain->GetFormat();
+		return Swapchain != nullptr ? Swapchain->GetFormat() : vk::Format::eUndefined;
 	}
 
-	auto FVulkanViewport::InitImages(const std::vector<vk::Image>& InImages) -> void
+	auto FVulkanViewport::TryCreateSwapchain(uint32 TargetSizeX, uint32 TargetSizeY) -> bool
 	{
 		CheckVulkanRHIThread();
-		BackBufferImages.clear();
-		BackBufferImages.resize(InImages.size());
+		AcquiredBackBufferIndex = -1;
+		AcquiredSemaphore = nullptr;
+		WaitForSwapchainIdle();
 
-		for (const auto& TextureView : TextureViews)
+		std::unique_ptr<FVulkanSwapchain> CandidateSwapchain;
+		std::vector<vk::Image> CandidateImages;
+		std::vector<FVulkanView> CandidateViews;
+		std::vector<FVulkanViewportFrameResources> CandidateFrameResources;
+		bool bNativeSwapchainCreated = false;
+
+		auto DestroyCandidateResources = [&]() {
+			for (FVulkanViewportFrameResources& FrameResource : CandidateFrameResources)
+			{
+				if (FrameResource.RenderingDoneSemaphore != nullptr)
+				{
+					FrameResource.RenderingDoneSemaphore->DestroyImmediately();
+					delete FrameResource.RenderingDoneSemaphore;
+					FrameResource.RenderingDoneSemaphore = nullptr;
+				}
+				if (FrameResource.PresentFence != VK_NULL_HANDLE)
+				{
+					Device.GetHandle().destroyFence(FrameResource.PresentFence);
+					FrameResource.PresentFence = VK_NULL_HANDLE;
+				}
+			}
+			CandidateFrameResources.clear();
+			for (const FVulkanView& View : CandidateViews)
+			{
+				Device.GetHandle().destroyImageView(View.ImageView);
+			}
+			CandidateViews.clear();
+			CandidateSwapchain.reset();
+		};
+
+		try
 		{
-			Device.GetHandle().destroyImageView(TextureView.ImageView);
+			const vk::SwapchainKHR OldSwapchain = Swapchain != nullptr
+				? Swapchain->GetHandle()
+				: VK_NULL_HANDLE;
+			CandidateSwapchain = std::make_unique<FVulkanSwapchain>(
+				Device, Surface, TargetSizeX, TargetSizeY, bIsFullScreen,
+				PresentModePolicy, OldSwapchain, bNativeSwapchainCreated);
+			CandidateSwapchain->InitializeSynchronizationResources();
+			CandidateImages = CandidateSwapchain->GetImages();
+
+			vk::ImageViewCreateInfo ImageViewCreateInfo;
+			ImageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
+			ImageViewCreateInfo.setFormat(CandidateSwapchain->GetFormat());
+			ImageViewCreateInfo.setComponents({vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
+			ImageViewCreateInfo.setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
+			for (const vk::Image Image : CandidateImages)
+			{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::SwapchainImageView);
+#endif
+				ImageViewCreateInfo.setImage(Image);
+				CandidateViews.emplace_back(Image, Device.GetHandle().createImageView(ImageViewCreateInfo));
+			}
+
+			CandidateFrameResources.resize(CandidateImages.size());
+			for (FVulkanViewportFrameResources& FrameResource : CandidateFrameResources)
+			{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::SwapchainSemaphore);
+#endif
+				FrameResource.RenderingDoneSemaphore = new FVulkanSemaphore(Device);
+				if (Device.SupportsSwapchainMaintenance1())
+				{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+					ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::SwapchainFence);
+#endif
+					FrameResource.PresentFence = Device.GetHandle().createFence(vk::FenceCreateInfo());
+				}
+			}
 		}
-		TextureViews.clear();
-
-		vk::ImageViewCreateInfo ImageViewCreateInfo;
-		ImageViewCreateInfo.setViewType(vk::ImageViewType::e2D);
-		ImageViewCreateInfo.setFormat(GetSwapchainImageFormat());
-		ImageViewCreateInfo.setComponents({vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA});
-		ImageViewCreateInfo.setSubresourceRange({vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1});
-
-		for (uint32 i = 0; i < InImages.size(); ++i)
+		catch (const vk::SystemError& Error)
 		{
-			BackBufferImages[i] = InImages[i];
-			ImageViewCreateInfo.setImage(InImages[i]);
-			vk::ImageView View = Device.GetHandle().createImageView(ImageViewCreateInfo);
-			TextureViews.emplace_back(InImages[i], View);
+			DestroyCandidateResources();
+			const vk::Result Result = static_cast<vk::Result>(Error.code().value());
+			if (Result == vk::Result::eErrorDeviceLost
+				|| Result == vk::Result::eErrorSurfaceLostKHR
+				|| (Result != vk::Result::eErrorOutOfHostMemory
+					&& Result != vk::Result::eErrorOutOfDeviceMemory
+					&& Result != vk::Result::eErrorOutOfDateKHR))
+			{
+				throw;
+			}
+			if (!bSwapchainFailureReported)
+			{
+				DURIN_ERROR("Failed to build Vulkan viewport output candidate: result={}, extent={}x{}, policy={}, nativeSwapchainCreated={}, error={}",
+					vk::to_string(Result), TargetSizeX, TargetSizeY,
+					PresentModePolicy == EViewportPresentModePolicy::ImGuiDetachedViewport ? "ImGuiDetachedViewport" : "MainWindow",
+					bNativeSwapchainCreated, Error.what());
+				bSwapchainFailureReported = true;
+			}
+			if (bNativeSwapchainCreated)
+			{
+				SetOutputUnavailable();
+			}
+			return false;
 		}
-	}
+		catch (...)
+		{
+			DestroyCandidateResources();
+			if (bNativeSwapchainCreated)
+			{
+				SetOutputUnavailable();
+			}
+			throw;
+		}
 
-	auto FVulkanViewport::CreateSwapchain(vk::SwapchainKHR InOldSwapchain) -> void
-	{
-		CheckVulkanRHIThread();
-		Swapchain = new FVulkanSwapchain(Device, Surface, SizeX, SizeY, bIsFullScreen, PresentModePolicy, InOldSwapchain);
+		DestroySwapchain();
+		Swapchain = CandidateSwapchain.release();
+		BackBufferImages = std::move(CandidateImages);
+		TextureViews = std::move(CandidateViews);
+		FrameResources = std::move(CandidateFrameResources);
 		const vk::Extent2D SwapchainExtent = Swapchain->GetExtent();
 		SizeX = SwapchainExtent.width;
 		SizeY = SwapchainExtent.height;
-
-		const std::vector<vk::Image>& SwapchainImages = Swapchain->GetImages();
-		InitImages(SwapchainImages);
-
-		RecreateFrameResources(static_cast<uint32>(SwapchainImages.size()));
-
 		if (RHIBackBuffer)
 		{
 			RHIBackBuffer->UpdateSwapchain();
@@ -311,12 +404,24 @@ namespace Durin::VulkanRHI
 		{
 			RHIBackBuffer = MakeRefCount<FVulkanBackBuffer>(Device, this);
 		}
+		if (bSwapchainFailureReported)
+		{
+			DURIN_DEBUG("Vulkan viewport output recovered: extent={}x{}.", SizeX, SizeY);
+			bSwapchainFailureReported = false;
+		}
 		AcquiredBackBufferIndex = -1;
+		return true;
 	}
 
 	auto FVulkanViewport::DestroySwapchain() -> void
 	{
 		CheckVulkanRHIThread();
+		for (const FVulkanView& View : TextureViews)
+		{
+			Device.GetHandle().destroyImageView(View.ImageView);
+		}
+		TextureViews.clear();
+		DestroyFrameResources();
 		if (Swapchain != nullptr)
 		{
 			const std::vector<vk::Image>& OldImages = Swapchain->GetImages();
@@ -330,22 +435,18 @@ namespace Durin::VulkanRHI
 		}
 
 		AcquiredBackBufferIndex = -1;
+		AcquiredSemaphore = nullptr;
+		BackBufferImages.clear();
 	}
 
-	auto FVulkanViewport::RecreateFrameResources(uint32 NumSwapchainImages) -> void
+	auto FVulkanViewport::SetOutputUnavailable() -> void
 	{
 		CheckVulkanRHIThread();
-		DestroyFrameResources();
-
-		FrameResources.resize(NumSwapchainImages);
-		for (uint32 i = 0; i < NumSwapchainImages; ++i)
+		if (RHIBackBuffer)
 		{
-			FrameResources[i].RenderingDoneSemaphore = new FVulkanSemaphore(Device);
-			if (Device.SupportsSwapchainMaintenance1())
-			{
-				FrameResources[i].PresentFence = Device.GetHandle().createFence(vk::FenceCreateInfo());
-			}
+			RHIBackBuffer->InvalidateSwapchain();
 		}
+		DestroySwapchain();
 	}
 
 	auto FVulkanViewport::DestroyFrameResources() -> void

@@ -210,5 +210,78 @@ namespace Durin
 				nullptr);
 			EXPECT_EQ(Entry.Slot.GetPayload(), nullptr);
 		}
+
+		TEST(
+			FRendererResourceSlotCacheTests,
+			FailedSceneTargetCandidateIsNotAReadyTombstoneAndManualRetryRecovers)
+		{
+			struct FSceneTargets
+			{
+				int Color = 0;
+				int Depth = 0;
+			};
+			using FSceneTargetResult =
+				TRenderResourceCreateResult<FSceneTargets>;
+			TRendererResourceSlotCache<int, FSceneTargets> Cache(
+				EDependency::Device);
+			FRenderResourceGeneration Generation;
+			int Attempts = 0;
+			auto& Entry = Cache.FindOrAdd(1920);
+
+			EXPECT_EQ(
+				Entry.Slot.Resolve(
+					Generation,
+					[&]() {
+						++Attempts;
+						return FSceneTargetResult::Failure(
+							MakeCacheFailure());
+					},
+					[](const FRenderResourceCreateDiagnostic&) {}),
+				nullptr);
+			EXPECT_EQ(Entry.Slot.GetPayload(), nullptr);
+			EXPECT_EQ(
+				Entry.Slot.GetAvailability(),
+				ERenderResourceAvailability::Failed);
+
+			EXPECT_EQ(
+				Entry.Slot.Resolve(
+					Generation,
+					[&]() {
+						++Attempts;
+						return FSceneTargetResult::Success({1, 2});
+					},
+					[](const FRenderResourceCreateDiagnostic&) {}),
+				nullptr);
+			EXPECT_EQ(Attempts, 1);
+
+			Generation.Advance(EDependency::Manual);
+			FSceneTargets* Recovered = Entry.Slot.Resolve(
+				Generation,
+				[&]() {
+					++Attempts;
+					return FSceneTargetResult::Success({1, 2});
+				},
+				[](const FRenderResourceCreateDiagnostic&) {});
+			ASSERT_NE(Recovered, nullptr);
+			EXPECT_EQ(Recovered->Color, 1);
+			EXPECT_EQ(Recovered->Depth, 2);
+			EXPECT_EQ(Attempts, 2);
+		}
+
+		TEST(
+			FRendererResourceSlotCacheTests,
+			BoundedCacheEvictsOldestIdentityWithoutEvictingCurrent)
+		{
+			FCache Cache;
+			Cache.FindOrAdd(1);
+			Cache.FindOrAdd(2);
+			Cache.FindOrAdd(3);
+
+			EXPECT_TRUE(Cache.EvictOldestExcept(3));
+			EXPECT_EQ(Cache.Find(1), nullptr);
+			EXPECT_NE(Cache.Find(2), nullptr);
+			EXPECT_NE(Cache.Find(3), nullptr);
+			EXPECT_EQ(Cache.Num(), 2);
+		}
 	}
 }

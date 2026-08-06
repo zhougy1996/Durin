@@ -19,6 +19,9 @@ namespace Durin
 
 	RHI_API auto RHIInit() -> bool;
 	RHI_API auto RHIExit() -> void;
+	// Retains the owned cause from the most recent failed initialization attempt.
+	// A later successful attempt clears it.
+	RHI_API auto GetLastRHIInitializationDiagnostic() -> std::string_view;
 
 	// Takes ownership of Backend. Intended only for isolated initialization
 	// failure tests that must not load a platform RHI module.

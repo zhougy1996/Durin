@@ -728,6 +728,62 @@ namespace Durin
 	}
 
 	TEST(FRHICommandListTests,
+		FallibleSynchronousOperationFailureIsRecoverableInline)
+	{
+		FRecordingCommandContext Context;
+		FRHICommandListExecutor Executor(Context);
+		const FRHIFallibleOperationResult Failure =
+			Executor.ExecuteFallibleSynchronousOperation(false, []() {
+				throw std::runtime_error("intentional creation failure");
+			});
+
+		bool bLaterWorkExecuted = false;
+		const FRHIFallibleOperationResult Success =
+			Executor.ExecuteFallibleSynchronousOperation(false,
+				[&bLaterWorkExecuted]() { bLaterWorkExecuted = true; });
+
+		EXPECT_FALSE(Failure.IsSuccess());
+		EXPECT_EQ(Failure.Diagnostic, "intentional creation failure");
+		EXPECT_TRUE(Success.IsSuccess());
+		EXPECT_TRUE(Success.Diagnostic.empty());
+		EXPECT_TRUE(bLaterWorkExecuted);
+		EXPECT_EQ(Executor.GetStats().SynchronousOperationCount, 2u);
+	}
+
+	TEST(FRHICommandListTests,
+		FallibleSynchronousOperationFailureIsRecoverableThreaded)
+	{
+		FRecordingCommandContext Context;
+		FRHIThread RHIThread;
+		ASSERT_TRUE(RHIThread.Start());
+		FRHICommandListExecutor Executor(Context, RHIThread);
+
+		const FRHIFallibleOperationResult Failure =
+			Executor.ExecuteFallibleSynchronousOperation(false, []() {
+				throw 7;
+			});
+		bool bLaterWorkExecutedOnRHIThread = false;
+		const FRHIFallibleOperationResult Success =
+			Executor.ExecuteFallibleSynchronousOperation(false,
+				[&bLaterWorkExecutedOnRHIThread]() {
+					bLaterWorkExecutedOnRHIThread = IsInRHIThread();
+				});
+
+		EXPECT_FALSE(Failure.IsSuccess());
+		EXPECT_EQ(Failure.Diagnostic,
+			"Fallible RHI operation failed with an unknown exception.");
+		EXPECT_TRUE(Success.IsSuccess());
+		EXPECT_TRUE(bLaterWorkExecutedOnRHIThread);
+		const FRHICommandListExecutorStats Stats = Executor.GetStats();
+		EXPECT_EQ(Stats.SynchronousOperationCount, 2u);
+		EXPECT_EQ(Stats.LastSubmittedSerial, Stats.CompletedSerial);
+		EXPECT_TRUE(RHIThread.GetStats().FailureDiagnostic.empty());
+
+		Executor.SetInlineMode();
+		RHIThread.Stop();
+	}
+
+	TEST(FRHICommandListTests,
 		FailedThreadRejectionPreservesCommandsForRetry)
 	{
 		FRecordingCommandContext Context;

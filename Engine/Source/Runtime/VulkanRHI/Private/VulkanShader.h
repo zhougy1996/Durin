@@ -21,7 +21,7 @@ namespace Durin::VulkanRHI
 
 		const char* EntryPoint = nullptr;
 
-		vk::ShaderModule ShaderModule;
+		vk::ShaderModule ShaderModule{};
 	};
 
 }

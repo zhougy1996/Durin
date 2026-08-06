@@ -1,9 +1,14 @@
 include(GoogleTest)
 
 add_durin_test(VulkanRHIIntegrationTests
+	Private/VulkanFailureInjectionTests.cpp
 	Private/VulkanTextureSamplingTests.cpp
 	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/SlangShaderCompiler.cpp
 	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/ShaderCompileUtilities.cpp
+)
+
+target_compile_definitions(VulkanRHIIntegrationTests PRIVATE
+	DURIN_VULKAN_TEST_FAILURE_INJECTION=1
 )
 
 target_include_directories(VulkanRHIIntegrationTests PRIVATE
@@ -19,13 +24,9 @@ target_link_libraries(VulkanRHIIntegrationTests PRIVATE
 	Engine
 	RHI
 	RenderCore
+	VulkanRHI
 	Vulkan::Vulkan
 	Slang_Imported
-)
-
-durin_test_register_runtime_only_dependencies(VulkanRHIIntegrationTests
-	RATIONALE "RHIInit selects the Vulkan backend dynamically at runtime."
-	TARGETS VulkanRHI
 )
 durin_test_deploy_directory_to_data(VulkanRHIIntegrationTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 
@@ -33,6 +34,8 @@ set_target_properties(VulkanRHIIntegrationTests PROPERTIES
 	DURIN_TEST_CASE_PARALLEL_SAFE TRUE
 	DURIN_TEST_RESOURCE_LOCKS durin-gpu
 	DURIN_TEST_TIMEOUT 900
+	DURIN_TEST_HEAVY_RUNTIME_RATIONALE
+		"Failure-injection tests must share the test-only state compiled into VulkanRHI."
 )
 
 durin_discover_tests(VulkanRHIIntegrationTests)

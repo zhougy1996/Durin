@@ -273,17 +273,23 @@ namespace Durin::VulkanRHI
 
 		try
 		{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Device);
+#endif
 			Device = Gpu.createDevice(DeviceInfo);
 		}
 		catch (const vk::SystemError& err)
 		{
-			DURIN_ERROR("Failed to create Vulkan device: result={}, queueFamilies={}, extensions={}, error={}",
-				vk::to_string(static_cast<vk::Result>(err.code().value())), QueueCreateInfos.size(), DeviceExtensions.size(), err.what());
+			throw std::runtime_error(std::format(
+				"Vulkan logical-device creation failed: result={}, queueFamilies={}, extensions={}, error={}",
+				vk::to_string(static_cast<vk::Result>(err.code().value())),
+				QueueCreateInfos.size(), DeviceExtensions.size(), err.what()));
 		}
 		catch (const std::runtime_error& err)
 		{
-			DURIN_ERROR("Failed to create Vulkan device: result=unavailable, queueFamilies={}, extensions={}, error={}",
-				QueueCreateInfos.size(), DeviceExtensions.size(), err.what());
+			throw std::runtime_error(std::format(
+				"Vulkan logical-device creation failed: result=unavailable, queueFamilies={}, extensions={}, error={}",
+				QueueCreateInfos.size(), DeviceExtensions.size(), err.what()));
 		}
 
 		GraphicsQueue = new FVulkanQueue(this, GraphicsQueueFamilyIndex);
@@ -402,10 +408,11 @@ namespace Durin::VulkanRHI
 	auto FVulkanDevice::Destroy() -> void
 	{
 		CheckVulkanRHIThread();
-		if (Device)
+		if (!Device)
 		{
-			WaitUtilIdle();
+			return;
 		}
+		WaitUtilIdle();
 
 		for (auto*& Frame : Frames)
 		{
@@ -454,6 +461,8 @@ namespace Durin::VulkanRHI
 
 		delete GraphicsQueue;
 		GraphicsQueue = nullptr;
+		delete ComputeQueue;
+		ComputeQueue = nullptr;
 		delete TransferQueue;
 		TransferQueue = nullptr;
 		delete PresentQueue;

@@ -279,25 +279,59 @@ namespace Durin::VulkanRHI
 			.setBasePipelineHandle(nullptr)
 			.setBasePipelineIndex(-1);
 
-		vk::ResultValue<vk::Pipeline> PipelineCreationResult = Device.GetHandle().createGraphicsPipeline(nullptr, pipelineInfo);
-		if (PipelineCreationResult.result != vk::Result::eSuccess)
+		try
 		{
-			DURIN_ERROR("Failed to create a Vulkan graphics pipeline: result={}, shaderStages={}, descriptorSetLayouts={}, pushConstantRanges={}.",
-				vk::to_string(PipelineCreationResult.result), ShaderStages.size(), Layout->GetDescriptorSetsLayout().GetLayoutHandles().size(), PushConstantRanges.size());
-			KeepShadersAlive();
-		}
-		else
-		{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ThrowIfVulkanNativeCreateFailureIsArmed(
+				EVulkanCreateFailurePoint::GraphicsPipeline);
+#endif
+			const vk::ResultValue<vk::Pipeline> PipelineCreationResult =
+				Device.GetHandle().createGraphicsPipeline(nullptr, pipelineInfo);
+			if (PipelineCreationResult.result != vk::Result::eSuccess)
+			{
+				throw std::runtime_error(std::format(
+					"result={}, shaderStages={}, descriptorSetLayouts={}, pushConstantRanges={}",
+					vk::to_string(PipelineCreationResult.result), ShaderStages.size(),
+					Layout->GetDescriptorSetsLayout().GetLayoutHandles().size(),
+					PushConstantRanges.size()));
+			}
 			Pipeline = PipelineCreationResult.value;
 		}
+		catch (const std::exception& Exception)
+		{
+			Device.GetHandle().destroyPipelineLayout(PipelineLayout);
+			PipelineLayout = nullptr;
+			throw std::runtime_error(std::format(
+				"Vulkan graphics-pipeline creation failed: {}", Exception.what()));
+		}
+		catch (...)
+		{
+			Device.GetHandle().destroyPipelineLayout(PipelineLayout);
+			PipelineLayout = nullptr;
+			throw;
+		}
+
+		Shaders[EShaderStage::Vertex] = static_cast<FVulkanShader*>(
+			Initializer.BoundShaders.VertexShader);
+		Shaders[EShaderStage::Fragment] = static_cast<FVulkanShader*>(
+			Initializer.BoundShaders.FragmentShader);
+		KeepShadersAlive();
 	}
 
 	FVulkanGraphicsPipelineState::~FVulkanGraphicsPipelineState()
 	{
 		CheckVulkanRHIThread();
 		ReleaseShaders();
-		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::PipelineLayout, PipelineLayout);
-		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Pipeline, Pipeline);
+		if (Pipeline)
+		{
+			Device.GetDeferredDeletionQueue().EnqueueResource(
+				FDeferredDeletionQueue::EType::Pipeline, Pipeline);
+		}
+		if (PipelineLayout)
+		{
+			Device.GetDeferredDeletionQueue().EnqueueResource(
+				FDeferredDeletionQueue::EType::PipelineLayout, PipelineLayout);
+		}
 	}
 
 	auto FVulkanGraphicsPipelineState::Bind(vk::CommandBuffer CmdBuffer) -> void
@@ -379,7 +413,7 @@ namespace Durin::VulkanRHI
 		}
 
 		auto NewPSO = MakeRefCount<FVulkanGraphicsPipelineState>(Device, Initializer);
-		PSOCache[Name] = NewPSO;
+		PSOCache.emplace(Name, NewPSO);
 		return NewPSO;
 	}
 
@@ -391,27 +425,32 @@ namespace Durin::VulkanRHI
 			return It->second;
 		}
 
-		FVulkanLayout* NewLayout = new FVulkanLayout(Device);
+		auto NewLayout = std::make_unique<FVulkanLayout>(Device);
 		NewLayout->DSetsLayout = FVulkanDescriptorSetsLayout(Device, LayoutInfo);
-		LayoutMap[LayoutInfo] = NewLayout;
-		return NewLayout;
+		const auto [InsertedIt, bInserted] =
+			LayoutMap.emplace(LayoutInfo, nullptr);
+		check(bInserted);
+		InsertedIt->second = NewLayout.release();
+		return InsertedIt->second;
 	}
 
 	auto FVulkanDynamicRHI::RHICreateGraphicsPipelineState(FName Name, const FGraphicsPipelineStateInitializer& Initializer) -> TRefCountPtr<FRHIGraphicsPipelineState>
 	{
 		TRefCountPtr<FRHIGraphicsPipelineState> Result;
-		if (GRHIThread && !IsInRHIThread())
-		{
-			GCommandListExecutor.ExecuteSynchronousOperation(false,
+		const FRHIFallibleOperationResult CreationResult =
+			ExecuteFallibleVulkanCreationOperation(
 				[this, Name, Initializer, &Result]() {
 					Result = Device->GetPipelineManager()
 						.CreateGraphicsPipelineState(Name, Initializer);
 				},
 				GetPipelineInitializerPayloadBytes(Initializer));
-			return Result;
+		if (!CreationResult.IsSuccess())
+		{
+			DURIN_ERROR("Failed to create Vulkan RHI graphics pipeline '{}': {}",
+				Name.ToString(), CreationResult.Diagnostic);
+			return nullptr;
 		}
-		CheckVulkanRHIThread();
-		return Device->GetPipelineManager().CreateGraphicsPipelineState(Name, Initializer);
+		return Result;
 	}
 
 	auto FVulkanDynamicRHI::RHIGetGraphicsPipelineState(FName Name) -> TRefCountPtr<FRHIGraphicsPipelineState>

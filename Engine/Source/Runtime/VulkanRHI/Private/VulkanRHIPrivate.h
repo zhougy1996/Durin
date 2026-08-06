@@ -3,9 +3,42 @@
 #include "PixelFormat.h"
 #include "RHIDefinitions.h"
 #include "Threading/RunnableThread.h"
+#include "VulkanRHIAPI.h"
+
+namespace Durin
+{
+	struct FRHIFallibleOperationResult;
+}
 
 namespace Durin::VulkanRHI
 {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+	// Test-only Vulkan factory/native/VMA boundaries. Each armed point fails exactly once.
+	enum class EVulkanCreateFailurePoint : uint8
+	{
+		Instance,
+		Device,
+		Swapchain,
+		SwapchainImageView,
+		SwapchainSemaphore,
+		SwapchainFence,
+		Allocator,
+		Image,
+		ImageView,
+		Buffer,
+		ShaderModule,
+		GraphicsPipeline,
+		Sampler,
+		VertexDeclaration,
+		Count
+	};
+
+	VULKANRHI_API auto ArmVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> void;
+	VULKANRHI_API auto ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> bool;
+	VULKANRHI_API auto ResetVulkanCreateFailures() -> void;
+	VULKANRHI_API auto ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint FailurePoint) -> void;
+#endif
+
 	class FVulkanDevice;
 	class FVulkanFence;
 	class FVulkanPayload;
@@ -19,6 +52,12 @@ namespace Durin::VulkanRHI
 			CheckRHIThread();
 		}
 	}
+
+	// Uses the executor only when creation crosses to the RHI thread. Factories
+	// already running on that owner catch locally to avoid self-enqueue/wait.
+	auto ExecuteFallibleVulkanCreationOperation(
+		std::function<void()> Operation,
+		size_t OwnedPayloadBytes = 0) -> FRHIFallibleOperationResult;
 
 	auto ToVulkan_Extent3D(const FIntVector& Size) -> vk::Extent3D;
 	auto ToVulkan_TextureDimension(ETextureDimension Dimension) -> vk::ImageViewType;

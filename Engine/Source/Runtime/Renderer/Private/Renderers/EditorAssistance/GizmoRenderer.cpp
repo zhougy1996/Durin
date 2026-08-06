@@ -440,7 +440,9 @@ namespace Durin
 					static_cast<uint32>(Indices.size() * sizeof(uint32))};
 				Candidate.IndexBuffer =
 					GDynamicRHI->RHICreateBuffer(CommandList, IndexDesc);
-				if (Candidate.VertexDeclaration == nullptr
+				if (Candidate.VertexShader.GetRHIShader(false) == nullptr
+					|| Candidate.FragmentShader.GetRHIShader(false) == nullptr
+					|| Candidate.VertexDeclaration == nullptr
 					|| Candidate.VertexBuffer == nullptr
 					|| Candidate.IndexBuffer == nullptr)
 				{

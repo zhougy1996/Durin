@@ -50,9 +50,9 @@ namespace Durin::VulkanRHI
 
 		auto Deinit() -> void;
 
-		auto CreateImage(FVulkanAllocation& OutAllocation, vk::Image& OutImage, const vk::ImageCreateInfo& ImageCreateInfo, const char* DebugName = nullptr) const -> bool;
+		auto CreateImage(FVulkanAllocation& OutAllocation, vk::Image& OutImage, const vk::ImageCreateInfo& ImageCreateInfo, const char* DebugName = nullptr) const -> vk::Result;
 
-		auto CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer, EVulkanAllocationFlags AllocFlags, const vk::BufferCreateInfo& BufferCreateInfo, const char* DebugName = nullptr) const -> bool;
+		auto CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer, EVulkanAllocationFlags AllocFlags, const vk::BufferCreateInfo& BufferCreateInfo, const char* DebugName = nullptr) const -> vk::Result;
 
 		auto DestroyImage(FVulkanAllocation& InAllocation, vk::Image InImage) const -> void;
 

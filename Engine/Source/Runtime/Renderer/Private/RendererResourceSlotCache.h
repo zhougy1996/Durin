@@ -52,7 +52,7 @@ namespace Durin
 			}
 			return Entries.emplace_back(
 				Key,
-				Entries.size(),
+				NextIndex++,
 				PayloadDependencies);
 		}
 
@@ -76,10 +76,31 @@ namespace Durin
 
 		auto Num() const -> size_t { return Entries.size(); }
 
-		auto Reset() -> void { Entries.clear(); }
+		auto EvictOldestExcept(const KeyType& RetainedKey) -> bool
+		{
+			auto Oldest = Entries.end();
+			for (auto It = Entries.begin(); It != Entries.end(); ++It)
+			{
+				if (It->Key != RetainedKey
+					&& (Oldest == Entries.end() || It->Index < Oldest->Index))
+				{
+					Oldest = It;
+				}
+			}
+			if (Oldest == Entries.end()) return false;
+			Entries.erase(Oldest);
+			return true;
+		}
+
+		auto Reset() -> void
+		{
+			Entries.clear();
+			NextIndex = 0;
+		}
 
 	private:
 		ERenderResourceGenerationDependency PayloadDependencies;
 		std::vector<FEntry> Entries;
+		size_t NextIndex = 0;
 	};
 }

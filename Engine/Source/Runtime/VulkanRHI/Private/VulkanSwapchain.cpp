@@ -102,12 +102,13 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	FVulkanSwapchain::FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, EViewportPresentModePolicy InPresentModePolicy, vk::SwapchainKHR InOldSwapchain)
+	FVulkanSwapchain::FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, EViewportPresentModePolicy InPresentModePolicy, vk::SwapchainKHR InOldSwapchain, bool& bOutNativeSwapchainCreated)
 		: Device(InDevice)
 		, Surface(InSurface)
 		, PresentModePolicy(InPresentModePolicy)
 	{
 		CheckVulkanRHIThread();
+		bOutNativeSwapchainCreated = false;
 		// Get Swap chain support details
 		vk::PhysicalDevice Gpu = Device.GetGpu();
 		vk::SurfaceCapabilitiesKHR Capabilities = Gpu.getSurfaceCapabilitiesKHR(Surface);
@@ -144,36 +145,52 @@ namespace Durin::VulkanRHI
 			.setClipped(vk::True)
 			.setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque)
 			.setOldSwapchain(InOldSwapchain);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+		ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Swapchain);
+#endif
+		Swapchain = Device.GetHandle().createSwapchainKHR(SwapchainInfo);
+		bOutNativeSwapchainCreated = true;
+
 		try
 		{
-			Swapchain = Device.GetHandle().createSwapchainKHR(SwapchainInfo);
+			Device.SetupPresentQueue(Surface);
+			SwapchainImages = Device.GetHandle().getSwapchainImagesKHR(Swapchain);
 		}
-		catch (const vk::SystemError& err)
+		catch (...)
 		{
-			DURIN_ERROR("Failed to create Vulkan swapchain: result={}, extent={}x{}, format={}, colorSpace={}, presentMode={}, policy={}, error={}",
-				vk::to_string(GetSystemErrorResult(err)), Extent.width, Extent.height, vk::to_string(CurrFormat.format), vk::to_string(CurrFormat.colorSpace),
-				vk::to_string(PresentMode), PresentModePolicyName(PresentModePolicy), err.what());
+			Destroy();
+			throw;
 		}
-		catch (const std::runtime_error& err)
-		{
-			DURIN_ERROR("Failed to create Vulkan swapchain: result=unavailable, extent={}x{}, format={}, colorSpace={}, presentMode={}, policy={}, error={}",
-				Extent.width, Extent.height, vk::to_string(CurrFormat.format), vk::to_string(CurrFormat.colorSpace), vk::to_string(PresentMode),
-				PresentModePolicyName(PresentModePolicy), err.what());
-		}
-
-		Device.SetupPresentQueue(Surface);
-		SwapchainImages = Device.GetHandle().getSwapchainImagesKHR(Swapchain);
 		DURIN_DEBUG("Vulkan swapchain {}: extent={}x{}, format={}, colorSpace={}, presentMode={}, images={}, policy={}, windowMode={}.",
 			InOldSwapchain ? "recreated" : "created", Extent.width, Extent.height, vk::to_string(CurrFormat.format), vk::to_string(CurrFormat.colorSpace),
 			vk::to_string(PresentMode), SwapchainImages.size(), PresentModePolicyName(PresentModePolicy), bIsFullScreen ? "fullscreen" : "windowed");
 
-		// Each acquire semaphore must not be reused while a previous acquire/submit using it is still pending.
-		ImageAcquiredSemaphores.resize(SwapchainImages.size());
-		for (uint32 i = 0; i < ImageAcquiredSemaphores.size(); i++)
-		{
-			ImageAcquiredSemaphores[i] = new FVulkanSemaphore(Device);
-		}
+	}
 
+	auto FVulkanSwapchain::InitializeSynchronizationResources() -> void
+	{
+		CheckVulkanRHIThread();
+		check(ImageAcquiredSemaphores.empty());
+		try
+		{
+			for (uint32 i = 0; i < SwapchainImages.size(); ++i)
+			{
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+				ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::SwapchainSemaphore);
+#endif
+				ImageAcquiredSemaphores.push_back(new FVulkanSemaphore(Device));
+			}
+		}
+		catch (...)
+		{
+			for (FVulkanSemaphore* Semaphore : ImageAcquiredSemaphores)
+			{
+				Semaphore->DestroyImmediately();
+				delete Semaphore;
+			}
+			ImageAcquiredSemaphores.clear();
+			throw;
+		}
 	}
 
 	FVulkanSwapchain::~FVulkanSwapchain()
@@ -206,6 +223,9 @@ namespace Durin::VulkanRHI
 			{
 				DURIN_ERROR("Failed to acquire a Vulkan swapchain image: result={}, extent={}x{}.",
 					vk::to_string(Result.result), Extent.width, Extent.height);
+				throw vk::SystemError(
+					vk::make_error_code(Result.result),
+					"Vulkan swapchain image acquisition failed");
 			}
 			*OutImageAcquiredSemaphore = nullptr;
 			return INDEX_NONE_U32;
@@ -260,6 +280,7 @@ namespace Durin::VulkanRHI
 			{
 				DURIN_ERROR("Failed to present a Vulkan swapchain image: result={}, image={}, extent={}x{}, error={}",
 					vk::to_string(ErrorResult), ImageIndex, Extent.width, Extent.height, Error.what());
+				throw;
 			}
 			return {
 				.bPresented = false,
@@ -277,6 +298,9 @@ namespace Durin::VulkanRHI
 			{
 				DURIN_ERROR("Failed to present a Vulkan swapchain image: result={}, image={}, extent={}x{}.",
 					vk::to_string(Result), ImageIndex, Extent.width, Extent.height);
+				throw vk::SystemError(
+					vk::make_error_code(Result),
+					"Vulkan swapchain presentation failed");
 			}
 			CurrentImageIndex = -1;
 			return {

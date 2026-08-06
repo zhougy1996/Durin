@@ -26,13 +26,25 @@ namespace Durin::VulkanRHI
 		}
 
 		const FVulkanMemoryManager& MemoryManager = Device.GetMemoryManager();
-		MemoryManager.CreateBuffer(Allocation, Buffer, AllocFlags, BufferInfo);
+		const vk::Result Result = MemoryManager.CreateBuffer(
+			Allocation, Buffer, AllocFlags, BufferInfo);
+		if (Result != vk::Result::eSuccess)
+		{
+			throw std::runtime_error(std::format(
+				"Vulkan buffer allocation failed: result={}, size={}, usage={}, allocationFlags={}",
+				vk::to_string(Result), BufferInfo.size,
+				vk::to_string(BufferInfo.usage), static_cast<uint32>(AllocFlags)));
+		}
 	}
 
 	FVulkanBuffer::~FVulkanBuffer()
 	{
 		CheckVulkanRHIThread();
-		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Buffer, Buffer, Allocation);
+		if (Buffer && Allocation.IsValid())
+		{
+			Device.GetDeferredDeletionQueue().EnqueueResource(
+				FDeferredDeletionQueue::EType::Buffer, Buffer, Allocation);
+		}
 	}
 
 	auto FVulkanBuffer::Write(
@@ -217,12 +229,23 @@ namespace Durin::VulkanRHI
 		EVulkanAllocationFlags AllocFlags = EVulkanAllocationFlags::HostVisible | EVulkanAllocationFlags::PersistentMapped;
 
 		const FVulkanMemoryManager& MemoryManager = Device.GetMemoryManager();
-		MemoryManager.CreateBuffer(Allocation, Buffer, AllocFlags, BufferInfo);
+		const vk::Result Result = MemoryManager.CreateBuffer(
+			Allocation, Buffer, AllocFlags, BufferInfo);
+		if (Result != vk::Result::eSuccess)
+		{
+			throw std::runtime_error(std::format(
+				"Vulkan staging-buffer allocation failed: result={}, size={}",
+				vk::to_string(Result), BufferInfo.size));
+		}
 	}
 
 	FStagingBuffer::~FStagingBuffer()
 	{
-		Device.GetDeferredDeletionQueue().EnqueueResource(FDeferredDeletionQueue::EType::Buffer, Buffer, Allocation);
+		if (Buffer && Allocation.IsValid())
+		{
+			Device.GetDeferredDeletionQueue().EnqueueResource(
+				FDeferredDeletionQueue::EType::Buffer, Buffer, Allocation);
+		}
 	}
 
 	auto FStagingBuffer::GetMappedPointer() const -> void*
@@ -238,17 +261,17 @@ namespace Durin::VulkanRHI
 	auto FVulkanDynamicRHI::RHICreateBuffer(FRHICommandListImmediate& RHICmdList, const FRHIBufferCreateDesc& CreateDesc) -> TRefCountPtr<FRHIBuffer>
 	{
 		TRefCountPtr<FRHIBuffer> Result;
-		if (GRHIThread && !IsInRHIThread())
-		{
-			GCommandListExecutor.ExecuteSynchronousOperation(false,
+		const FRHIFallibleOperationResult CreationResult =
+			ExecuteFallibleVulkanCreationOperation(
 				[this, CreateDesc, &Result]() {
 					Result = new FVulkanBuffer(*Device, CreateDesc);
 				});
-		}
-		else
+		if (!CreationResult.IsSuccess())
 		{
-			CheckVulkanRHIThread();
-			Result = new FVulkanBuffer(*Device, CreateDesc);
+			DURIN_ERROR("Failed to create Vulkan RHI buffer '{}': {}",
+				CreateDesc.DebugName ? CreateDesc.DebugName : "<unnamed>",
+				CreationResult.Diagnostic);
+			return nullptr;
 		}
 		auto* CreatedBuffer = static_cast<FVulkanBuffer*>(Result.GetReference());
 		auto& InitialData = CreateDesc.InitialData;

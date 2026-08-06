@@ -1,6 +1,7 @@
 #pragma once
 
 #include "RHIResources.h"
+#include "VulkanRHIAPI.h"
 #include "VulkanTexture.h"
 
 namespace Durin::VulkanRHI
@@ -37,8 +38,9 @@ namespace Durin::VulkanRHI
 	public:
 		FVulkanBackBuffer(FVulkanDevice& InDevice, FVulkanViewport* InViewport);
 
-		auto AcquireBackBufferImage(FVulkanCommandListContext& Context) -> void;
+		auto AcquireBackBufferImage(FVulkanCommandListContext& Context) -> bool;
 		auto UpdateSwapchain() -> void;
+		auto InvalidateSwapchain() -> void;
 
 	private:
 		FVulkanViewport* Viewport;
@@ -62,15 +64,17 @@ namespace Durin::VulkanRHI
 			uint32 InSizeY,
 			bool bInIsFullScreen) -> void;
 
-		auto BeginDrawing() -> void;
+		VULKANRHI_API auto BeginDrawing() -> void;
 
-		auto RecreateSwapchain() -> void;
+		VULKANRHI_API auto RecreateSwapchain() -> void;
 
 		auto GetSwapchain() const -> FVulkanSwapchain* { return Swapchain; }
 
+		auto HasAvailableOutput() const -> bool { return Swapchain != nullptr && RHIBackBuffer; }
+
 		auto GetBackBufferImages() -> const std::vector<vk::Image>& { return BackBufferImages; }
 
-		auto AcquireBackBufferImage() -> FVulkanView&;
+		auto AcquireBackBufferImage() -> FVulkanView*;
 
 		auto GetBackBuffer(FRHICommandListImmediate& InRHICmdList) -> TRefCountPtr<FRHITexture> override;
 
@@ -89,13 +93,11 @@ namespace Durin::VulkanRHI
 
 		auto MarkSwapchainNeedsRecreate() -> void;
 
-		auto InitImages(const std::vector<vk::Image>& InImages) -> void;
-
-		auto CreateSwapchain(vk::SwapchainKHR InOldSwapchain = VK_NULL_HANDLE) -> void;
+		auto TryCreateSwapchain(uint32 TargetSizeX, uint32 TargetSizeY) -> bool;
 
 		auto DestroySwapchain() -> void;
 
-		auto RecreateFrameResources(uint32 NumSwapchainImages) -> void;
+		auto SetOutputUnavailable() -> void;
 
 		auto DestroyFrameResources() -> void;
 
@@ -105,7 +107,7 @@ namespace Durin::VulkanRHI
 
 		FVulkanDevice& Device;
 
-		FVulkanSwapchain* Swapchain;
+		FVulkanSwapchain* Swapchain = nullptr;
 
 		vk::SurfaceKHR Surface = VK_NULL_HANDLE;
 
@@ -137,6 +139,10 @@ namespace Durin::VulkanRHI
 		bool bHasPendingResize = false;
 
 		bool bSwapchainNeedsRecreate = false;
+
+		bool bSwapchainRetryEligible = false;
+
+		bool bSwapchainFailureReported = false;
 
 		bool bIsFullScreen;
 

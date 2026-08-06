@@ -1303,6 +1303,16 @@ namespace Durin
 		RecordAcquireBackBuffer(BackBuffer);
 	}
 
+	auto FRHICommandListImmediate::AcquireBackBufferSynchronously(
+		FRHITexture* BackBuffer) -> void
+	{
+		check(BackBuffer);
+		Executor->ExecuteSynchronousContextOperation(true,
+			[BackBuffer](IRHICommandContext& Context) {
+				Context.RHIAcquireBackBuffer(BackBuffer);
+			});
+	}
+
 	auto FRHICommandListImmediate::BlockUntilGPUIdle() -> void
 	{
 		Executor->ExecuteSynchronousContextOperation(true,
@@ -1675,6 +1685,69 @@ namespace Durin
 				Operation();
 			},
 			OwnedPayloadBytes);
+	}
+
+	auto FRHICommandListExecutor::ExecuteFallibleSynchronousOperation(
+		bool bFlushRecordedCommands,
+		std::function<void()> Operation,
+		size_t OwnedPayloadBytes) -> FRHIFallibleOperationResult
+	{
+		checkf(!CommandListImmediate.HasOpenBufferLocks(),
+			"A synchronous RHI operation requires every buffer lock to be unlocked.");
+		check(Operation);
+		State->SynchronousOperationCount.fetch_add(1, std::memory_order_relaxed);
+		if (bFlushRecordedCommands)
+		{
+			Submit({}, ERHISubmitFlags::None);
+		}
+
+		auto Result = std::make_shared<FRHIFallibleOperationResult>();
+		auto ExecuteOperation =
+			[Operation = std::move(Operation), Result]() mutable {
+				try
+				{
+					Operation();
+				}
+				catch (const std::exception& Exception)
+				{
+					Result->bSucceeded = false;
+					Result->Diagnostic = Exception.what();
+				}
+				catch (...)
+				{
+					Result->bSucceeded = false;
+					Result->Diagnostic =
+						"Fallible RHI operation failed with an unknown exception.";
+				}
+			};
+
+		if (!State->RHIThread)
+		{
+			State->ReplayContext.GetOperationContext(
+				"Fallible synchronous RHI operation");
+			ExecuteOperation();
+			return std::move(*Result);
+		}
+
+		FRHIThreadWork Work;
+		Work.PayloadBytes = static_cast<uint64>(OwnedPayloadBytes);
+		Work.Execute = [this, ExecuteOperation = std::move(ExecuteOperation)]() mutable {
+			CheckRHIThread();
+			State->ReplayContext.GetOperationContext(
+				"Fallible synchronous RHI operation");
+			ExecuteOperation();
+			return FRHIThreadWorkResult::Success();
+		};
+		const FRHIThreadSubmission Submission = State->RHIThread->Enqueue(Work);
+		if (!Submission.IsAccepted())
+		{
+			DURIN_FATAL(
+				"RHI thread rejected fallible synchronous operation ({}).",
+				static_cast<uint32>(Submission.Result));
+			std::terminate();
+		}
+		WaitForSerial(Submission.Serial);
+		return std::move(*Result);
 	}
 
 	auto FRHICommandListExecutor::ExecuteSynchronousContextOperation(

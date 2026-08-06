@@ -26,7 +26,8 @@ namespace Durin
 	} // namespace
 
 	FSceneRenderer::FSceneRenderer()
-		: EnvironmentLighting(Coordinator)
+		: DefaultTextures(Coordinator)
+		, EnvironmentLighting(Coordinator)
 		, StaticMeshRenderer(Coordinator, DefaultTextures, EnvironmentLighting)
 		, SkyBoxRenderer(Coordinator, DefaultTextures)
 		, PostProcessRenderer(Coordinator, FullscreenGeometry)
@@ -158,7 +159,8 @@ namespace Durin
 						DefaultTextures.Initialize_RenderThread(CommandList);
 					},
 				.RetryFailedResources =
-					[this] {
+					[this, &CommandList] {
+						DefaultTextures.Initialize_RenderThread(CommandList);
 						FullscreenGeometry.
 							RetryFailedResources_RenderThread();
 					},

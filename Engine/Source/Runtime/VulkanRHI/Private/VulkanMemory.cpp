@@ -40,22 +40,48 @@ namespace Durin::VulkanRHI
 		allocatorInfo.pVulkanFunctions = &vmaFuncs;
 		allocatorInfo.instance = DynamicRHI.RHIGetVkInstance();
 
-		vmaCreateAllocator(&allocatorInfo, &Allocator);
+		const VkResult Result =
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::Allocator)
+				? VK_ERROR_OUT_OF_DEVICE_MEMORY
+				:
+#endif
+			vmaCreateAllocator(&allocatorInfo, &Allocator);
+		if (Result != VK_SUCCESS)
+		{
+			Allocator = nullptr;
+			Device = nullptr;
+			throw std::runtime_error(std::format(
+				"Vulkan allocator creation failed: result={}",
+				vk::to_string(static_cast<vk::Result>(Result))));
+		}
 	}
 
 	auto FVulkanMemoryManager::Deinit() -> void
 	{
-		vmaDestroyAllocator(Allocator);
+		if (Allocator)
+		{
+			vmaDestroyAllocator(Allocator);
+		}
 		Allocator = nullptr;
+		Device = nullptr;
 	}
 
-	auto FVulkanMemoryManager::CreateImage(FVulkanAllocation& OutAllocation, vk::Image& OutImage, const vk::ImageCreateInfo& ImageCreateInfo, const char* DebugName /* = nullptr */) const -> bool
+	auto FVulkanMemoryManager::CreateImage(FVulkanAllocation& OutAllocation, vk::Image& OutImage, const vk::ImageCreateInfo& ImageCreateInfo, const char* DebugName /* = nullptr */) const -> vk::Result
 	{
+		OutAllocation = {};
+		OutImage = nullptr;
 		VmaAllocationCreateInfo AllocCreateInfo{};
 		AllocCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
 
-		VkImage RawImage;
-		VkResult Result = vmaCreateImage(
+		VkImage RawImage = VK_NULL_HANDLE;
+		VkResult Result =
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::Image)
+				? VK_ERROR_OUT_OF_DEVICE_MEMORY
+				:
+#endif
+			vmaCreateImage(
 			Allocator,
 			reinterpret_cast<const VkImageCreateInfo*>(&ImageCreateInfo),
 			&AllocCreateInfo,
@@ -64,7 +90,10 @@ namespace Durin::VulkanRHI
 			&OutAllocation.Info
 		);
 
-		if (Result != VK_SUCCESS) return false;
+		if (Result != VK_SUCCESS)
+		{
+			return static_cast<vk::Result>(Result);
+		}
 
 		OutImage = RawImage;
 
@@ -72,11 +101,13 @@ namespace Durin::VulkanRHI
 		{
 			vmaSetAllocationName(Allocator, OutAllocation.Handle, DebugName);
 		}
-		return true;
+		return vk::Result::eSuccess;
 	}
 
-	auto FVulkanMemoryManager::CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer, EVulkanAllocationFlags AllocFlags, const vk::BufferCreateInfo& BufferCreateInfo, const char* DebugName) const -> bool
+	auto FVulkanMemoryManager::CreateBuffer(FVulkanAllocation& OutAllocation, vk::Buffer& OutBuffer, EVulkanAllocationFlags AllocFlags, const vk::BufferCreateInfo& BufferCreateInfo, const char* DebugName) const -> vk::Result
 	{
+		OutAllocation = {};
+		OutBuffer = nullptr;
 		VmaAllocationCreateFlags VmaFlags = 0;
 		VmaFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 
@@ -94,8 +125,14 @@ namespace Durin::VulkanRHI
 			AllocCreateInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
 		}
 
-		VkBuffer RawBuffer;
-		VkResult Result = vmaCreateBuffer(
+		VkBuffer RawBuffer = VK_NULL_HANDLE;
+		VkResult Result =
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer)
+				? VK_ERROR_OUT_OF_DEVICE_MEMORY
+				:
+#endif
+			vmaCreateBuffer(
 			Allocator,
 			reinterpret_cast<const VkBufferCreateInfo*>(&BufferCreateInfo),
 			&AllocCreateInfo,
@@ -106,9 +143,7 @@ namespace Durin::VulkanRHI
 
 		if (Result != VK_SUCCESS)
 		{
-			DURIN_ERROR("Failed to create a Vulkan buffer: result={}, size={}, usage={}, allocationFlags={}.",
-				vk::to_string(static_cast<vk::Result>(Result)), BufferCreateInfo.size, vk::to_string(BufferCreateInfo.usage), static_cast<uint32>(AllocFlags));
-			return false;
+			return static_cast<vk::Result>(Result);
 		}
 
 		OutBuffer = RawBuffer;
@@ -117,7 +152,7 @@ namespace Durin::VulkanRHI
 		{
 			vmaSetAllocationName(Allocator, OutAllocation.Handle, DebugName);
 		}
-		return true;
+		return vk::Result::eSuccess;
 	}
 
 	auto FVulkanMemoryManager::DestroyImage(FVulkanAllocation& InAllocation, vk::Image InImage) const -> void

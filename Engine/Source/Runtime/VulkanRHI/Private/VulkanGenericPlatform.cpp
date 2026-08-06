@@ -9,6 +9,7 @@ namespace Durin::VulkanRHI
 	auto FVulkanGenericPlatform::CreateSurface(void* InWindowHandle, vk::Instance Instance) -> vk::SurfaceKHR
 	{
 		auto Window = GApp->FindWindowByNativeWindowHandle(InWindowHandle);
+		check(Window != nullptr);
 
 		void* Surface = Window->CreateVulkanSurface(Instance);
 		auto RawSurface = static_cast<VkSurfaceKHR>(Surface);

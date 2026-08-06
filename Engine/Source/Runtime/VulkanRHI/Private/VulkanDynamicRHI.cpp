@@ -25,13 +25,20 @@ namespace Durin::VulkanRHI
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(::vkGetInstanceProcAddr);
 	}
 
+	FVulkanDynamicRHI::~FVulkanDynamicRHI()
+	{
+		if (GVulkanRHI == this)
+		{
+			GVulkanRHI = nullptr;
+		}
+	}
+
 	auto FVulkanDynamicRHI::Init() -> void
 	{
 		CheckVulkanRHIThread();
 		CreateInstance();
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(Instance);
 		SelectDevice();
-		Device->InitGpu(static_cast<uint32>(InstanceExtensions.size()));
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(Device->GetHandle());
 	}
 
@@ -47,7 +54,12 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		// Render thread should already be stopped at this point.
 		delete Device;
-		Instance.destroy();
+		Device = nullptr;
+		if (Instance)
+		{
+			Instance.destroy();
+			Instance = nullptr;
+		}
 	}
 
 	auto FVulkanDynamicRHI::RHIBeginFrame(
@@ -176,12 +188,18 @@ namespace Durin::VulkanRHI
 #endif
 		try
 		{
-			Instance = vk::createInstance(InstanceInfo);
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint::Instance);
+#endif
+			vk::Instance InstanceCandidate = vk::createInstance(InstanceInfo);
+			Instance = InstanceCandidate;
 		}
 		catch (const vk::SystemError& err)
 		{
-			DURIN_ERROR("Failed to create Vulkan instance: result={}, extensions={}, layers={}, error={}",
-				vk::to_string(static_cast<vk::Result>(err.code().value())), InstanceExtensions.size(), InstanceLayers.size(), err.what());
+			throw std::runtime_error(std::format(
+				"Vulkan instance creation failed: result={}, extensions={}, layers={}, error={}",
+				vk::to_string(static_cast<vk::Result>(err.code().value())),
+				InstanceExtensions.size(), InstanceLayers.size(), err.what()));
 		}
 	}
 
@@ -214,8 +232,8 @@ namespace Durin::VulkanRHI
 
 		if (Gpus.empty())
 		{
-			DURIN_ERROR("Failed to select a Vulkan physical device: the driver reported no devices.");
-			return;
+			throw std::runtime_error(
+				"Vulkan physical-device selection failed: the driver reported no devices.");
 		}
 
 		std::multimap<int, vk::PhysicalDevice> GpuScores;
@@ -227,7 +245,10 @@ namespace Durin::VulkanRHI
 			GpuScores.insert(std::make_pair(Score, Gpu));
 		}
 
-		Device = new FVulkanDevice(this, GpuScores.rbegin()->second);
+		auto DeviceCandidate =
+			std::make_unique<FVulkanDevice>(this, GpuScores.rbegin()->second);
+		DeviceCandidate->InitGpu(static_cast<uint32>(InstanceExtensions.size()));
+		Device = DeviceCandidate.release();
 	}
 
 	auto FVulkanDynamicRHI::SetupInstanceLayers(const FVulkanInstanceExtensionArray& DurinExtensions) -> void

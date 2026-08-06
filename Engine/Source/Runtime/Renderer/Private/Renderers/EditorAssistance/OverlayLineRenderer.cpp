@@ -327,14 +327,16 @@ namespace Durin
 					sizeof(FOverlayLineVertex));
 				Candidate.VertexDeclaration =
 					GDynamicRHI->RHICreateVertexDeclaration(Elements);
-				if (Candidate.VertexDeclaration == nullptr)
+				if (Candidate.VertexShader.GetRHIShader(false) == nullptr
+					|| Candidate.FragmentShader.GetRHIShader(false) == nullptr
+					|| Candidate.VertexDeclaration == nullptr)
 				{
 					return FBaseResult::Failure(
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::RHIResource,
 							"OverlayLine",
 							"base",
-							"RHI vertex declaration creation returned null.",
+							"RHI shader or vertex declaration creation returned null.",
 							ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));
 				}

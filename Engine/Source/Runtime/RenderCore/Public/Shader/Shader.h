@@ -521,9 +521,11 @@ namespace Durin
 		auto GetShader() const -> ShaderType* { return ShaderContent; }
 		auto GetShaderMap() const -> FShaderMapBase* { return ShaderMap; }
 
-		auto GetRHIShader() const -> FRHIShader*
+		auto GetRHIShader(bool bRequired = true) const -> FRHIShader*
 		{
-			return ShaderContent ? ShaderContent->GetOrCreateRHIShader() : nullptr;
+			return ShaderContent
+				? ShaderContent->GetOrCreateRHIShader(bRequired)
+				: nullptr;
 		}
 
 		explicit operator bool() const

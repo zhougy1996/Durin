@@ -29,7 +29,7 @@ namespace Durin::VulkanRHI
 	{
 	public:
 		FVulkanDynamicRHI();
-		~FVulkanDynamicRHI() override = default;
+		~FVulkanDynamicRHI() override;
 
 		static auto Get() -> FVulkanDynamicRHI& { return *GetDynamicRHI<FVulkanDynamicRHI>(); }
 
