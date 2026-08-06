@@ -1,8 +1,6 @@
 #include "MainFrameModule.h"
 #include "AssetCompatibilityWindow.h"
 
-#include "AsyncImport.h"
-
 #include "ProjectBrowser.h"
 #include "ProfilingToolService.h"
 
@@ -14,11 +12,9 @@
 #include "MaterialEditorModule.h"
 #include "TextureEditorModule.h"
 #include "MonaImGui.h"
-#include "HAL/PlatformProcess.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Misc/Version.h"
-#include "Profiling/Profiling.h"
 #include "Settings/EditorHostSettings.h"
 
 #include "Widgets/MFunctionWidget.h"
@@ -425,8 +421,6 @@ namespace Durin
 		FTextureEditorModule& TextureEditorModule = FModuleManager::LoadModuleChecked<FTextureEditorModule>("TextureEditor");
 		const FIntPoint WindowSize{HostSettings->GetWindowWidth(), HostSettings->GetWindowHeight()};
 		FLevelEditorModule* LevelEditorModulePtr = &LevelEditorModule;
-		FMaterialEditorModule* MaterialEditorModulePtr = &MaterialEditorModule;
-		FTextureEditorModule* TextureEditorModulePtr = &TextureEditorModule;
 		auto RootWindow = std::make_shared<MWindow>();
 		MonaImGui::BindMainViewportToWindow(RootWindow);
 
@@ -450,27 +444,8 @@ namespace Durin
 		RootWindow->SetTitle(GetCurrentProject() ? std::format("Durin Editor - {}", GetCurrentProject()->Name) : "Durin Editor - Project Browser");
 		RootWindow->ReshapeWindow({100.0f, 100.0f}, {static_cast<float>(WindowSize.x), static_cast<float>(WindowSize.y)});
 
-		ProjectBrowser->SetOpenProject([WorkspaceManager, bWorkspaceReady, WeakRootWindow, LevelEditorModulePtr, MaterialEditorModulePtr, TextureEditorModulePtr, AssetCompatibilityWindow](std::string_view ProjectFile, std::string& OutError) {
-			AssetImport::CancelAndDrainAllAsyncImports();
-			AssetCompatibilityWindow->ProjectChanged();
-			FProjectInitializationParams Params;
-			Params.RequestedProjectFile = ProjectFile;
-			if (!InitializeCurrentProject(Params, &OutError)) return false;
-			DURIN_PROFILE_PROGRAM_IDENTITY(
-				DURIN_RUNTIME_VARIANT,
-				GetCurrentProject() ? std::string_view{GetCurrentProject()->Name} : std::string_view{},
-				FPlatformProcess::CurrentProcessId()
-			);
-			PathUtilities::InitDefaultMountPoints();
-			*bWorkspaceReady = RegisterEditorWorkspaces(*WorkspaceManager, *LevelEditorModulePtr, *MaterialEditorModulePtr, *TextureEditorModulePtr);
-			if (!*bWorkspaceReady)
-			{
-				OutError = "Could not initialize the editor workspaces.";
-				return false;
-			}
-			if (const std::shared_ptr<MWindow> RootWindow = WeakRootWindow.lock())
-				RootWindow->SetTitle(std::format("Durin Editor - {}", GetCurrentProject()->Name));
-			return true;
+		ProjectBrowser->SetOpenProject([](std::string_view ProjectFile, std::string& OutError) {
+			return RelaunchEditorForProject(ProjectFile, &OutError);
 		});
 
 		EditorRootWidget->Construct([WorkspaceManager, bWorkspaceReady, ProjectBrowser, ProfilingTools, AssetCompatibilityWindow, HostSettings, WeakRootWindow, LevelEditorModulePtr,
