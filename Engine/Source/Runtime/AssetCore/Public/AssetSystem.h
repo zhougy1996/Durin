@@ -495,6 +495,8 @@ namespace Durin::Asset
 		uint64 ReusedSources = 0;
 		uint64 ExtractedSources = 0;
 		uint64 FailedSources = 0;
+		uint64 PayloadReadAttempts = 0;
+		uint64 PayloadBytesRead = 0;
 	};
 
 	// Owns the deterministic, fingerprint-bound derived graph for authored packages.

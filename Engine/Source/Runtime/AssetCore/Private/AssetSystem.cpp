@@ -2958,53 +2958,65 @@ namespace Durin::Asset
 			&& Reader.Offset == Payload.size();
 	}
 
+	namespace
+	{
+		auto InspectAssetPackageBytes(
+			std::string_view PhysicalPath,
+			std::span<const uint8> Bytes,
+			FAssetPackageInspection& OutInspection) -> FAssetResult
+		{
+			OutInspection = {};
+			FAssetResult Result = MakePackageFingerprint(PhysicalPath, Bytes, OutInspection.Fingerprint);
+			if (!Result) return Result;
+			FPackageFile File;
+			Result = ReadPackageFile(Bytes, File, false);
+			if (!Result) return Result;
+			if (File.Objects.empty()) return Error(EAssetError::InvalidObjectGraph, "Asset package has no main object.");
+			FByteReader HeaderReader{Bytes};
+			FPackageFile HeaderFile;
+			uint64 HeaderObjectCount = 0;
+			Result = ReadPackageHeader(HeaderReader, HeaderFile, HeaderObjectCount);
+			if (!Result) return Result;
+			OutInspection.Header.AssetClassName = std::move(HeaderFile.AssetClassName);
+			OutInspection.Header.EntryKind = HeaderFile.EntryKind;
+			OutInspection.Header.RedirectDestination =
+				std::move(HeaderFile.RedirectDestination);
+			OutInspection.Header.FormatVersion = HeaderFile.FormatVersion;
+			OutInspection.Header.Dependencies = std::move(HeaderFile.Dependencies);
+			OutInspection.Header.ObjectCount = HeaderObjectCount;
+			OutInspection.Header.BytesRead = HeaderReader.Offset;
+			OutInspection.Objects.reserve(File.Objects.size());
+			for (FObjectRecord& Record : File.Objects)
+			{
+				FAssetPackageObjectInspection Object{
+					.Id = Record.Id,
+					.OuterId = Record.OuterId,
+					.ClassName = std::move(Record.ClassName),
+					.ObjectName = std::move(Record.ObjectName)};
+				Object.Fields.reserve(Record.Fields.size());
+				for (FFieldRecord& Field : Record.Fields)
+				{
+					Object.Fields.push_back({
+						.DeclaringClass = std::move(Field.DeclaringClass),
+						.Name = std::move(Field.Name),
+						.Kind = Field.Kind,
+						.TypeSignature = std::move(Field.TypeSignature),
+						.Payload = std::move(Field.Payload),
+						.SourceFormatVersion = File.FormatVersion});
+				}
+				OutInspection.Objects.push_back(std::move(Object));
+			}
+			return {};
+		}
+	}
+
 	auto InspectAssetPackage(std::string_view PhysicalPath, FAssetPackageInspection& OutInspection) -> FAssetResult
 	{
 		OutInspection = {};
 		std::vector<uint8> Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
 			return Error(EAssetError::IoError, std::format("Failed to open asset package {}.", PhysicalPath));
-		FAssetResult Result = MakePackageFingerprint(PhysicalPath, Bytes, OutInspection.Fingerprint);
-		if (!Result) return Result;
-		FPackageFile File;
-		Result = ReadPackageFile(Bytes, File, false);
-		if (!Result) return Result;
-		if (File.Objects.empty()) return Error(EAssetError::InvalidObjectGraph, "Asset package has no main object.");
-		FByteReader HeaderReader{Bytes};
-		FPackageFile HeaderFile;
-		uint64 HeaderObjectCount = 0;
-		Result = ReadPackageHeader(HeaderReader, HeaderFile, HeaderObjectCount);
-		if (!Result) return Result;
-		OutInspection.Header.AssetClassName = std::move(HeaderFile.AssetClassName);
-		OutInspection.Header.EntryKind = HeaderFile.EntryKind;
-		OutInspection.Header.RedirectDestination =
-			std::move(HeaderFile.RedirectDestination);
-		OutInspection.Header.FormatVersion = HeaderFile.FormatVersion;
-		OutInspection.Header.Dependencies = std::move(HeaderFile.Dependencies);
-		OutInspection.Header.ObjectCount = HeaderObjectCount;
-		OutInspection.Header.BytesRead = HeaderReader.Offset;
-		OutInspection.Objects.reserve(File.Objects.size());
-		for (FObjectRecord& Record : File.Objects)
-		{
-			FAssetPackageObjectInspection Object{
-				.Id = Record.Id,
-				.OuterId = Record.OuterId,
-				.ClassName = std::move(Record.ClassName),
-				.ObjectName = std::move(Record.ObjectName)};
-			Object.Fields.reserve(Record.Fields.size());
-			for (FFieldRecord& Field : Record.Fields)
-			{
-				Object.Fields.push_back({
-					.DeclaringClass = std::move(Field.DeclaringClass),
-					.Name = std::move(Field.Name),
-					.Kind = Field.Kind,
-					.TypeSignature = std::move(Field.TypeSignature),
-					.Payload = std::move(Field.Payload),
-					.SourceFormatVersion = File.FormatVersion});
-			}
-			OutInspection.Objects.push_back(std::move(Object));
-		}
-		return {};
+		return InspectAssetPackageBytes(PhysicalPath, Bytes, OutInspection);
 	}
 
 	namespace
@@ -3447,6 +3459,7 @@ namespace Durin::Asset
 		std::vector<FRegistryCacheEntry> NewCacheEntries;
 		std::unordered_map<std::string, FRegistryCacheEntry> CachedEntries;
 		std::unordered_map<FAssetPath, FReferenceCacheSource> CachedReferenceSources;
+		std::unordered_map<FAssetPath, FAssetPackageInspection> FullValidationInspections;
 		std::unordered_set<std::string> SeenCachedIdentities;
 		ScanErrors.clear();
 		LastScanStats = {};
@@ -3549,8 +3562,17 @@ namespace Durin::Asset
 					if (Mode == EAssetRegistryScanMode::FullValidation)
 					{
 						FAssetPackageInspection Inspection;
-						RedirectResult = InspectAssetPackage(
-							It->path().generic_string(), Inspection);
+						std::vector<uint8> Bytes;
+						++ReferenceIndex.Stats.PayloadReadAttempts;
+						if (!FFileHelper::LoadFileToArray(Bytes, It->path().generic_string()))
+							RedirectResult = Error(EAssetError::IoError, std::format(
+								"Failed to open asset package {}.", It->path().generic_string()));
+						else
+						{
+							ReferenceIndex.Stats.PayloadBytesRead += Bytes.size();
+							RedirectResult = InspectAssetPackageBytes(
+								It->path().generic_string(), Bytes, Inspection);
+						}
 						if (!RedirectResult)
 						{
 							RedirectResult.Message = std::format(
@@ -3560,6 +3582,7 @@ namespace Durin::Asset
 							++LastScanStats.Failed;
 							continue;
 						}
+						FullValidationInspections.emplace(DiskPath, std::move(Inspection));
 					}
 					++LastScanStats.Redirectors;
 				}
@@ -3609,27 +3632,11 @@ namespace Durin::Asset
 		std::unordered_map<FAssetPath, FAssetPackageFingerprint> NewReferenceFingerprints;
 		for (const FAssetData* Data : SortedAssets)
 		{
-			std::vector<uint8> Bytes;
-			FAssetPackageFingerprint Fingerprint;
-			if (!FFileHelper::LoadFileToArray(Bytes, Data->PhysicalPath))
-			{
-				ReferenceIndex.Errors.push_back(Error(EAssetError::IoError, std::format(
-					"AssetReferenceIndexReadFailed: could not read {}.", Data->PhysicalPath)));
-				++ReferenceIndex.Stats.FailedSources;
-				continue;
-			}
-			FAssetResult FingerprintResult = MakePackageFingerprint(
-				Data->PhysicalPath, Bytes, Fingerprint);
-			if (!FingerprintResult)
-			{
-				ReferenceIndex.Errors.push_back(std::move(FingerprintResult));
-				++ReferenceIndex.Stats.FailedSources;
-				continue;
-			}
 			const auto CachedIt = CachedReferenceSources.find(Data->PackagePath);
 			if (Mode == EAssetRegistryScanMode::Incremental && bReferenceCacheLoaded
 				&& CachedIt != CachedReferenceSources.end()
-				&& CachedIt->second.Fingerprint == Fingerprint)
+				&& CachedIt->second.Fingerprint.FileSize == Data->FileSize
+				&& CachedIt->second.Fingerprint.LastWriteTimeTicks == Data->LastWriteTimeTicks)
 			{
 				if (NewReferenceEdges.size() > MaximumReferencesPerSnapshot
 					- CachedIt->second.References.size())
@@ -3642,13 +3649,30 @@ namespace Durin::Asset
 				NewReferenceEdges.insert(
 					NewReferenceEdges.end(),
 					CachedIt->second.References.begin(), CachedIt->second.References.end());
-				NewReferenceFingerprints.emplace(Data->PackagePath, Fingerprint);
+				NewReferenceFingerprints.emplace(Data->PackagePath, CachedIt->second.Fingerprint);
 				++ReferenceIndex.Stats.ReusedSources;
 				continue;
 			}
 
 			FAssetPackageInspection Inspection;
-			FAssetResult InspectionResult = InspectAssetPackage(Data->PhysicalPath, Inspection);
+			FAssetResult InspectionResult;
+			const auto PreparedIt = FullValidationInspections.find(Data->PackagePath);
+			if (PreparedIt != FullValidationInspections.end())
+				Inspection = std::move(PreparedIt->second);
+			else
+			{
+				std::vector<uint8> Bytes;
+				++ReferenceIndex.Stats.PayloadReadAttempts;
+				if (!FFileHelper::LoadFileToArray(Bytes, Data->PhysicalPath))
+					InspectionResult = Error(EAssetError::IoError, std::format(
+						"AssetReferenceIndexReadFailed: could not read {}.", Data->PhysicalPath));
+				else
+				{
+					ReferenceIndex.Stats.PayloadBytesRead += Bytes.size();
+					InspectionResult = InspectAssetPackageBytes(
+						Data->PhysicalPath, Bytes, Inspection);
+				}
+			}
 			std::vector<FAssetReferenceEdge> SourceReferences;
 			if (InspectionResult)
 				InspectionResult = ExtractAssetReferences(
@@ -3706,10 +3730,12 @@ namespace Durin::Asset
 		LastScanStats.DurationMilliseconds = std::chrono::duration<double, std::milli>(
 			std::chrono::steady_clock::now() - ScanStartTime).count();
 		DURIN_INFO_CATEGORY("AssetRegistry",
-			"Scanned {} asset package(s) in {:.3f} ms: {} redirector(s), {} reused, {} reparsed, {} header read(s), {} header byte(s), {} removed, {} failed.",
+			"Scanned {} asset package(s) in {:.3f} ms: {} redirector(s), {} reused, {} reparsed, {} header read(s), {} header byte(s), {} reference payload read(s), {} reference payload byte(s), {} removed, {} failed.",
 			LastScanStats.Enumerated, LastScanStats.DurationMilliseconds, LastScanStats.Redirectors,
 			LastScanStats.Reused, LastScanStats.Reparsed,
-			LastScanStats.HeaderReadAttempts, LastScanStats.HeaderBytesRead, LastScanStats.Removed, LastScanStats.Failed);
+			LastScanStats.HeaderReadAttempts, LastScanStats.HeaderBytesRead,
+			ReferenceIndex.Stats.PayloadReadAttempts, ReferenceIndex.Stats.PayloadBytesRead,
+			LastScanStats.Removed, LastScanStats.Failed);
 		if (!CacheWarning.empty()) DURIN_WARN_CATEGORY("AssetRegistry", "{}", CacheWarning);
 		if (!ReferenceIndex.CacheWarning.empty())
 			DURIN_WARN_CATEGORY("AssetRegistry", "{}", ReferenceIndex.CacheWarning);

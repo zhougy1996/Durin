@@ -302,6 +302,24 @@ fixed-array/Array/Map/struct route, and a deterministic display path. Results
 sort deterministically and support target-to-referencer and deduplicated
 source-to-target queries without changing package-header dependency semantics.
 
+Incremental reconciliation treats an exact package path, file-size, and stable
+last-write-time match as a trusted cheap cache hit before reading any package
+payload. It carries forward the cached content hash and occurrences without
+recomputing them. A writer that changes bytes while restoring both size and
+timestamp can therefore remain invisible until `FullValidation`; that explicit
+mode bypasses both registry and reference reuse, reads and hashes every package,
+and performs complete package and reference validation. Reference-index scan
+diagnostics report payload-read attempts and bytes separately from logical
+reuse and extraction counts, and reset for every scan.
+
+With a missing or invalid reference cache, reconciliation attempts one payload
+read for each discovered source; an unchanged warm incremental scan attempts
+none, a single metadata-visible source change attempts one, and
+`FullValidation` attempts one per source. Failed opens count as attempts but add
+no bytes. Content Browser refresh still reconciles every registered auto-scan
+mount through this incremental path; its current-folder scope applies only to
+the visible item snapshot, not to registry discovery.
+
 Extraction reads package fields and reflection metadata without constructing
 owner objects, invoking `PostLoad`, resolving targets, or changing residency.
 It accepts at most four container levels, 100,000 occurrences per package,

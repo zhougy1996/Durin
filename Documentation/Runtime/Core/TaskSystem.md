@@ -176,6 +176,14 @@ game thread drains that mailbox into its path-keyed editor model. Cancellation,
 project changes, and shutdown wait for the worker before releasing its captured
 inputs; no package object or mutable editor state crosses into the task.
 
+Asset-registry reconciliation remains synchronous and publishes its registry,
+reference index, diagnostics, revision, and cache snapshots on the owning
+thread. A future asynchronous full-validation path must snapshot mount and
+cache inputs plus an immutable reflection catalog, return value-owned results
+through a generation-checked mailbox, and reject publication after any newer
+scan, save, move, delete, mount change, or cancellation. Worker execution does
+not authorize direct mutation of the live registry or reference index.
+
 ## Shutdown And Diagnostics
 
 `ShutdownTaskScheduler(true)` first closes admission and then drains every

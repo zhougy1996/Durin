@@ -4332,6 +4332,8 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
 	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 2u);
 	EXPECT_GT(Registry.GetLastScanStats().HeaderBytesRead, 0u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 2u);
+	EXPECT_GT(Registry.GetReferenceIndex().GetStats().PayloadBytesRead, 0u);
 	EXPECT_GE(Registry.GetLastScanStats().DurationMilliseconds, 0.0);
 	EXPECT_EQ(Registry.GetAssets().size(), 2u);
 	const auto CacheFile = CacheRoot / "AssetRegistry" / "Registry.bin";
@@ -4345,6 +4347,8 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
 	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 0u);
 	EXPECT_EQ(Registry.GetLastScanStats().HeaderBytesRead, 0u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadBytesRead, 0u);
 	EXPECT_GE(Registry.GetLastScanStats().DurationMilliseconds, 0.0);
 	std::vector<Durin::uint8> SecondCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondCache, CacheFile.generic_string()));
@@ -4358,6 +4362,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 1u);
 	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 1u);
 	EXPECT_GT(Registry.GetLastScanStats().HeaderBytesRead, 0u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 1u);
 	EXPECT_GE(Registry.GetLastScanStats().DurationMilliseconds, 0.0);
 
 	std::filesystem::copy_file(ValidSource, ContentA / "Gamma.dasset");
@@ -4367,18 +4372,21 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 1u);
 	EXPECT_EQ(Registry.GetLastScanStats().Removed, 1u);
 	EXPECT_EQ(Registry.GetAssets().size(), 2u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 1u);
 
 	std::filesystem::rename(ContentA / "Gamma.dasset", ContentA / "Delta.dasset");
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 1u);
 	EXPECT_EQ(Registry.GetLastScanStats().Removed, 1u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 1u);
 
 	ASSERT_TRUE(Registry.ScanMountedContent(Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 0u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
 	EXPECT_EQ(Registry.GetLastScanStats().HeaderReadAttempts, 2u);
 	EXPECT_GT(Registry.GetLastScanStats().HeaderBytesRead, 0u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 2u);
 	EXPECT_GE(Registry.GetLastScanStats().DurationMilliseconds, 0.0);
 	EXPECT_EQ(Registry.GetAssets().size(), 2u);
 
@@ -4387,6 +4395,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
 	EXPECT_FALSE(Registry.GetCacheWarning().empty());
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
 
 	std::vector<Durin::uint8> IncompatibleCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(IncompatibleCache, CacheFile.generic_string()));
@@ -4396,6 +4405,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
 	EXPECT_FALSE(Registry.GetCacheWarning().empty());
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
 
 	std::filesystem::create_directories(ContentB);
 	for (const auto& Source : {Alpha, ContentA / "Delta.dasset"})
@@ -4408,6 +4418,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 2u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
 
 	const auto AdditionalContent = WorkRoot / "AdditionalContent";
 	std::filesystem::create_directories(AdditionalContent);
@@ -4415,6 +4426,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 2u);
 	EXPECT_NE(Registry.GetCacheWarning().find("mount manifest changed"), std::string::npos);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
 
 	const auto BlockedCacheRoot = WorkRoot / "BlockedCacheRoot";
 	WriteTestBytes(BlockedCacheRoot, CorruptCache);
@@ -4422,6 +4434,63 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	ASSERT_TRUE(Registry.ScanMountedContent(Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	EXPECT_EQ(Registry.GetAssets().size(), 2u);
 	EXPECT_FALSE(Registry.GetCacheWarning().empty());
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 2u);
+}
+
+TEST(FPackageAssetTests, RegistryDuplicatePathsReadOnlyTheAcceptedReferenceSource)
+{
+	InitializeAssetTests();
+	const auto WorkRoot =
+		Durin::Testing::GetTestWorkDirectory() / "RegistryDuplicatePaths";
+	const auto RootA = WorkRoot / "RootA";
+	const auto RootB = WorkRoot / "RootB";
+	const auto CacheRoot = WorkRoot / "DerivedDataCache";
+	Durin::Testing::RemoveTestWorkDirectory(WorkRoot);
+	std::filesystem::create_directories(RootA / "Nested");
+	std::filesystem::create_directories(RootB);
+
+	Durin::FAssetPath SeedPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/DuplicateSeed", SeedPath));
+	DPackageAssetForTest* SeedAsset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(SeedPath, SeedAsset));
+	ASSERT_TRUE(Durin::Asset::SavePackage(SeedAsset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SeedPath));
+	const auto* SeedData = Durin::Asset::GetAssetRegistry().FindAssetExact(SeedPath);
+	ASSERT_NE(SeedData, nullptr);
+	const std::filesystem::path SeedFile = SeedData->PhysicalPath;
+	std::filesystem::copy_file(SeedFile, RootA / "Nested" / "Duplicate.dasset");
+	std::filesystem::copy_file(SeedFile, RootB / "Duplicate.dasset");
+
+	const std::array Definitions{
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/TestAssets/",
+			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Root = RootA,
+			.ContentPath = ".",
+			.bAutoScan = true,
+			.bAuthoringWritable = true},
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/TestAssets/Nested/",
+			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Root = RootB,
+			.ContentPath = ".",
+			.bAutoScan = true,
+			.bAuthoringWritable = true}};
+	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
+	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
+	auto& Registry = Durin::Asset::GetAssetRegistry();
+	ASSERT_TRUE(Registry.ScanMountedContent(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	EXPECT_EQ(Registry.GetLastScanStats().Enumerated, 2u);
+	EXPECT_EQ(Registry.GetLastScanStats().Failed, 1u);
+	EXPECT_EQ(Registry.GetAssets().size(), 1u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 1u);
+	EXPECT_TRUE(std::ranges::any_of(
+		Registry.GetScanErrors(),
+		[](const Durin::Asset::FAssetResult& Error) {
+			return Error.Error == Durin::Asset::EAssetError::AlreadyExists;
+		}));
 }
 
 TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresWriteFailures)
@@ -4518,7 +4587,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	EXPECT_FALSE(Registry.IsPersistentSnapshotDirty());
 }
 
-TEST(FPackageAssetTests, SoftReferenceCacheUsesContentFingerprintsAndRecoversFromCorruptionWithoutLoadingTargets)
+TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWithoutLoadingTargets)
 {
 	InitializeAssetTests();
 	const auto CacheRoot =
@@ -4541,6 +4610,7 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesContentFingerprintsAndRecoversFro
 	DSoftPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
 	Owner->Direct.SetPath(TargetAPath);
+	Owner->Label.assign(4u * 1024u * 1024u, 'x');
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TargetAPath));
@@ -4549,6 +4619,8 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesContentFingerprintsAndRecoversFro
 	auto& Registry = Durin::Asset::GetAssetRegistry();
 	ASSERT_TRUE(Registry.ScanMountedContent(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	EXPECT_GT(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
+	EXPECT_GT(Registry.GetReferenceIndex().GetStats().PayloadBytesRead, 4u * 1024u * 1024u);
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(TargetAPath), nullptr);
 	EXPECT_EQ(Registry.GetReferenceIndex().FindTargets(OwnerPath),
 		(std::vector<Durin::FAssetPath>{TargetAPath}));
@@ -4561,6 +4633,8 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesContentFingerprintsAndRecoversFro
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_GT(Registry.GetReferenceIndex().GetStats().ReusedSources, 0u);
 	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().ExtractedSources, 0u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadBytesRead, 0u);
 	std::vector<Durin::uint8> SecondCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		SecondCache, CacheFile.generic_string()));
@@ -4576,16 +4650,30 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesContentFingerprintsAndRecoversFro
 	std::filesystem::last_write_time(OwnerFile, PreservedTime);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
 	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_GT(Registry.GetReferenceIndex().GetStats().ExtractedSources, 0u);
+	EXPECT_GT(Registry.GetReferenceIndex().GetStats().ReusedSources, 0u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
+	EXPECT_EQ(Registry.GetReferenceIndex().FindTargets(OwnerPath),
+		(std::vector<Durin::FAssetPath>{TargetAPath}));
+	ASSERT_TRUE(Registry.ScanMountedContent(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	EXPECT_GT(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
 	EXPECT_EQ(Registry.GetReferenceIndex().FindTargets(OwnerPath),
 		(std::vector<Durin::FAssetPath>{TargetBPath}));
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(TargetBPath), nullptr);
+	std::filesystem::last_write_time(
+		OwnerFile, std::filesystem::last_write_time(OwnerFile) + std::chrono::seconds(2));
+	ASSERT_TRUE(Registry.ScanMountedContent());
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 1u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().ExtractedSources, 1u);
+	EXPECT_GT(Registry.GetReferenceIndex().GetStats().ReusedSources, 0u);
+	EXPECT_GT(Registry.GetReferenceIndex().GetStats().PayloadBytesRead, 4u * 1024u * 1024u);
 
 	const std::array<Durin::uint8, 3> CorruptCache = {1, 2, 3};
 	WriteTestBytes(CacheFile, CorruptCache);
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_FALSE(Registry.GetReferenceIndex().GetCacheWarning().empty());
 	EXPECT_GT(Registry.GetReferenceIndex().GetStats().ExtractedSources, 0u);
+	EXPECT_GT(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
 	EXPECT_EQ(Registry.GetReferenceIndex().FindTargets(OwnerPath),
 		(std::vector<Durin::FAssetPath>{TargetBPath}));
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(TargetBPath), nullptr);

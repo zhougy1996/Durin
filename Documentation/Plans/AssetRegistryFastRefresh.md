@@ -4,10 +4,24 @@ Summary: Eliminate unchanged-package payload reads from incremental registry and
 
 Last reviewed: 2026-08-07
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-07
 
 ## Current Status
+
+Completed on 2026-08-07. Incremental reference reconciliation now decides
+unchanged-source reuse from package path, file size, and stable last-write-time
+ticks before payload I/O. Processed sources share one loaded byte buffer across
+fingerprinting, inspection, and extraction; full-validation redirector
+inspection is reused by the reference pass. Payload-read attempts and bytes are
+published per scan.
+
+Regression coverage verifies cold, unchanged warm, single-change, add/remove,
+rename, invalid registry and reference caches, mount-manifest changes, a payload
+larger than 4 MiB, and the same-size/restored-timestamp trust boundary. The
+focused AssetPackageTests suite passed 74 tests, the complete native-test
+aggregate passed, and `build --target all` passed with the
+`Win64-Debug-DurinEditor-Tests` Agent Build Profile.
 
 `FAssetRegistry::ScanMountedContent` already persists and reuses registry
 metadata using exact file size and stable last-write-time ticks. The registry
@@ -159,13 +173,13 @@ content hashing and full package/reference validation.
 
 ### Stage 0: Freeze the fast-scan contract and add observability
 
-- [ ] Update the owning asset-package documentation with the distinction
+- [x] Update the owning asset-package documentation with the distinction
   between cheap fingerprint trust and complete validation.
-- [ ] Define reference-index payload-read diagnostics, including attempts and
+- [x] Define reference-index payload-read diagnostics, including attempts and
   bytes, and reset them for every scan.
-- [ ] Define the expected stats for cold, warm, changed, corrupt-cache, and
+- [x] Define the expected stats for cold, warm, changed, corrupt-cache, and
   full-validation scans.
-- [ ] Add a scan-generation or equivalent guard to the design notes before any
+- [x] Add a scan-generation or equivalent guard to the design notes before any
   future asynchronous extension.
 
 #### Acceptance Gate
@@ -177,15 +191,15 @@ content hashing and full package/reference validation.
 
 ### Stage 1: Reuse unchanged reference sources before payload I/O
 
-- [ ] Compare the current `FAssetData::FileSize` and
+- [x] Compare the current `FAssetData::FileSize` and
   `FAssetData::LastWriteTimeTicks` with the cached source fingerprint before
   calling `LoadFileToArray`.
-- [ ] On an incremental cheap match, copy the cached occurrences and cached
+- [x] On an incremental cheap match, copy the cached occurrences and cached
   full fingerprint into the new reference snapshot without reading the
   package.
-- [ ] Keep cache validation, occurrence bounds, error handling, deterministic
+- [x] Keep cache validation, occurrence bounds, error handling, deterministic
   sorting, and `FullValidation` cache bypass unchanged.
-- [ ] Ensure missing or changed sources take the existing extraction path.
+- [x] Ensure missing or changed sources take the existing extraction path.
 
 #### Acceptance Gate
 
@@ -199,14 +213,14 @@ content hashing and full package/reference validation.
 
 ### Stage 2: Eliminate redundant reads for processed packages
 
-- [ ] Add an internal inspection-from-bytes path, or equivalent shared package
+- [x] Add an internal inspection-from-bytes path, or equivalent shared package
   preparation helper, so fingerprinting and complete inspection consume the
   same byte buffer.
-- [ ] Route changed/new incremental sources through that one-buffer path.
-- [ ] Route `FullValidation` through the same preparation path where the
+- [x] Route changed/new incremental sources through that one-buffer path.
+- [x] Route `FullValidation` through the same preparation path where the
   redirector-body and reference-index checks can share the result without
   retaining every package payload at once.
-- [ ] Preserve the current complete package parser and reference extractor as
+- [x] Preserve the current complete package parser and reference extractor as
   the validation implementation; this stage changes I/O ownership, not the
   validation rules.
 
@@ -221,16 +235,16 @@ content hashing and full package/reference validation.
 
 ### Stage 3: Regression, performance, and workflow validation
 
-- [ ] Add a large-payload fixture whose header is small and whose unchanged
+- [x] Add a large-payload fixture whose header is small and whose unchanged
   reference cache must produce zero payload reads on the warm scan.
-- [ ] Add a same-size, timestamp-restored mutation case: incremental mode may
+- [x] Add a same-size, timestamp-restored mutation case: incremental mode may
   reuse the source by contract, while `FullValidation` must detect the changed
   content and rebuild its references.
-- [ ] Cover added, removed, renamed, changed, duplicate, corrupt, and mount
+- [x] Cover added, removed, renamed, changed, duplicate, corrupt, and mount
   manifest cases with reference-read diagnostics.
-- [ ] Verify Content Browser F5 still refreshes the current visible folder
+- [x] Verify Content Browser F5 still refreshes the current visible folder
   snapshot while the registry scan covers all auto-scan mounts.
-- [ ] Run the focused AssetCore tests, the required editor/native validation,
+- [x] Run the focused AssetCore tests, the required editor/native validation,
   and the full build using the repository build and test instructions.
 
 #### Acceptance Gate
