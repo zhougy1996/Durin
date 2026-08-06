@@ -4,7 +4,7 @@ Summary: Turn the current STL-specific array and map helpers into capability-awa
 
 Last reviewed: 2026-08-06
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-06
 
 ## Current Status
@@ -109,7 +109,7 @@ boundary.
   struct operation contracts do not already support it.
 - Designing DAST v3 tables, opcodes, compression, default-relative encoding, or
   compact container payloads. Those remain owned by the
-  [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md).
+  [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md).
 - Serializing container object layout, capacity, bucket state, hash seed,
   allocator state, or native iterator order.
 - Changing reflected property names, property kinds, field order, type
@@ -1112,11 +1112,11 @@ Dependencies: Stage 4 consumer migration.
 
 ## Related Documentation
 
-- [Documentation entry point](../README.md)
+- [Documentation entry point](../../../README.md)
 - [Reflected Struct Operations Plan](ReflectedStructOperations.md)
 - [Typed Struct Property Registration Plan](TypedStructPropertyRegistration.md)
-- [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

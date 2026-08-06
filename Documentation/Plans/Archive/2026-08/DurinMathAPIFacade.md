@@ -4,7 +4,7 @@ Summary: Introduce a Durin-owned math operation surface over the current GLM bac
 
 Last reviewed: 2026-08-05
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-05
 
 ## Current Status
@@ -15,7 +15,7 @@ Completed: 2026-08-05
 - GLM remains the storage/backend implementation. Existing aliases and ABI are
   unchanged, and `FMatrix4f` adds a Durin spelling for the existing GLM float
   4x4 type used by import and shader-layout code.
-- Lasting contracts now live in [Core Math](../Runtime/Core/Math.md), including
+- Lasting contracts now live in [Core Math](../../../Runtime/Core/Math.md), including
   header ownership, exceptional-value rules, coordinate/matrix conventions,
   the direct-backend boundary, and future value-type replacement scope.
 - The checked boundary is 9 files, 65 direct symbols, and 7 direct includes:
@@ -530,7 +530,7 @@ facade.
   math reflection identity, field schema, Archive traversal, or serialized
   representation. The independently integrated reflection baseline retains its
   own plan provenance and validation.
-- Open replacement work is explicit in [Core Math](../Runtime/Core/Math.md):
+- Open replacement work is explicit in [Core Math](../../../Runtime/Core/Math.md):
   GLM storage, constructors/operators, component/indexing access, generic-vector
   third-party interop, the float 3x3 shader calculation, reflection, and
   serialization all belong to a separate future value-type plan.
@@ -696,8 +696,8 @@ facade.
 | Serialization compatibility | Unchanged object-graph and DAST v2 behavior for vectors, quaternions, matrices where supported, and transforms |
 | Integration | Focused suites, checked allowlist, direct-use rescan, and full `all` build from one baseline |
 
-Build and test execution follows [Build and Run](../Development/Build/BuildAndRun.md)
-and [Native Tests](../Development/Build/NativeTests.md).
+Build and test execution follows [Build and Run](../../../Development/Build/BuildAndRun.md)
+and [Native Tests](../../../Development/Build/NativeTests.md).
 
 ## Definition of Done
 
@@ -731,12 +731,12 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 ## Related Documentation
 
-- [Core Math](../Runtime/Core/Math.md)
+- [Core Math](../../../Runtime/Core/Math.md)
 - [Reflected Struct Operations](ReflectedStructOperations.md)
 - [Typed Struct Property Registration](TypedStructPropertyRegistration.md)
-- [Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

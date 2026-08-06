@@ -4,7 +4,7 @@ Summary: Replace eager move-time reference rewriting with first-class asset redi
 
 Last reviewed: 2026-08-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-07
 
 ## Current Status
@@ -1201,17 +1201,17 @@ Dependencies: Stage 5 complete authoring workflow.
 
 ## Related Documentation
 
-- [Documentation entry point](../README.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Workspace Projects](../Workspace/WorkspaceProjects.md)
-- [Level System](../Runtime/World/LevelSystem.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Mounted Source Workflows](../Editor/Guides/MountedSourceWorkflows.md)
+- [Documentation entry point](../../../README.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Workspace Projects](../../../Workspace/WorkspaceProjects.md)
+- [Level System](../../../Runtime/World/LevelSystem.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
 - [Soft Asset References Plan](SoftAssetReferences.md) — completed historical
   implementation evidence only; its move contract is replaced by this plan.
-- [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

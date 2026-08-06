@@ -11,7 +11,7 @@ Completed:
 
 - The program is deliberately deferred. No DAST v4 implementation plan is
   active. AssetCore accepts DAST v2 and v3, and authorized saves emit v3.
-- The active [Asset Redirectors Refactor Plan](../Plans/AssetRedirectors.md)
+- The active [Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
   owns DAST v3's bounded registry-entry kind and redirect-destination header
   summary. Compact serialization therefore starts at v4 and retains the
   bounded v2/v3 readers; it does not absorb redirector implementation.
@@ -24,7 +24,7 @@ Completed:
   most of the package.
 - General-purpose compression proves that the bytes are redundant, but it does
   not remove repeated parsing, allocation, or schema reconstruction.
-- The [Reflected Struct Operations](../Plans/ReflectedStructOperations.md)
+- The [Reflected Struct Operations](../Plans/Archive/2026-08/ReflectedStructOperations.md)
   prerequisite is complete. Struct lifecycle, logical equality, reference
   collection, runtime Archive customization, post-deserialize repair, and
   authored fail-closed semantics are now declarative. This satisfies a
@@ -228,7 +228,7 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 ## Related Documentation
 
-- [Reflected Struct Operations Plan](../Plans/ReflectedStructOperations.md)
+- [Reflected Struct Operations Plan](../Plans/Archive/2026-08/ReflectedStructOperations.md)
 - [Reflection System](../Runtime/Core/ReflectionSystem.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)

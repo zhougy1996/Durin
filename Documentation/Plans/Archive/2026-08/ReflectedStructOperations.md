@@ -4,7 +4,7 @@ Summary: Replace unconditional generated DStruct lifecycle callbacks with declar
 
 Last reviewed: 2026-08-05
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-05
 
 ## Current Status
@@ -84,7 +84,7 @@ partially valid values.
 
 - DAST v3 table layout, default-relative value encoding, class default objects,
   or package compression; those belong to the
-  [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md).
+  [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md).
 - A general opaque authored-asset codec framework. It becomes a separate plan
   only if the struct audit identifies durable state that reflected fields plus
   post-deserialize repair cannot represent.
@@ -711,8 +711,8 @@ follow-up codec plan and adds no blocker to the compact-serialization roadmap.
 | Authored assets | Unchanged v2 field representation, unknown retention, stable mismatch categories, and fail-closed custom-codec requirement |
 | Integration | Duplication, editing snapshots, object graphs, packages, DHT regeneration, focused suites, and full build |
 
-Build and test execution follows [Build and Run](../Development/Build/BuildAndRun.md)
-and [Native Tests](../Development/Build/NativeTests.md).
+Build and test execution follows [Build and Run](../../../Development/Build/BuildAndRun.md)
+and [Native Tests](../../../Development/Build/NativeTests.md).
 
 ## Definition of Done
 
@@ -747,12 +747,12 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 ## Related Documentation
 
-- [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md)
-- [Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Garbage Collection](../Runtime/Core/GarbageCollection.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md)
+- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Garbage Collection](../../../Runtime/Core/GarbageCollection.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Make fallible Vulkan runtime creation return complete-or-null results w
 
 Last reviewed: 2026-08-06
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-06
 
 ## Current Status

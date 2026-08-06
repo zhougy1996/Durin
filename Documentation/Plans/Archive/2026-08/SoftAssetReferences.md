@@ -4,7 +4,7 @@ Summary: Add typed persistent asset paths with non-owning loaded-object caches, 
 
 Last reviewed: 2026-08-06
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-06
 
 ## Current Status
@@ -15,7 +15,7 @@ Completed: 2026-08-06
   and default-level contracts.
 - The lasting soft-pointer value and serialization semantics remain implemented;
   current registry, relocation, Fix Up, owner, deletion, editor, and Cook
-  behavior is documented in [Asset Packages](../Runtime/Assets/AssetPackages.md)
+  behavior is documented in [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
   and must not be inferred from the superseded stages below.
 
 ## Goal
@@ -1205,12 +1205,12 @@ Dependencies: Stage 4 integration and migration evidence.
 
 ## Related Documentation
 
-- [Documentation entry point](../README.md)
+- [Documentation entry point](../../../README.md)
 - [Reflected Struct Operations Plan](ReflectedStructOperations.md)
 - [Typed Struct Property Registration Plan](TypedStructPropertyRegistration.md)
 - [Reflected Container Operations Plan](ReflectedContainerOperations.md)
-- [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

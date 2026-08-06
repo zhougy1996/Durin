@@ -77,7 +77,7 @@ No implementation work has started.
   ownership into the RHI.
 - Defining the generic recoverable RHI executor boundary or auditing every
   non-pipeline factory. Those remain owned by
-  [Recoverable RHI Creation Failures](RecoverableRHICreationFailures.md).
+  [Recoverable RHI Creation Failures](Archive/2026-08/RecoverableRHICreationFailures.md).
 - Making programming errors such as invalid render-target layouts, missing
   required shaders, invalid vertex declarations, or incompatible reflected
   layouts recoverable cache misses.
@@ -175,7 +175,7 @@ No implementation work has started.
 - This plan owns graphics-PSO identity, removal of named ownership, transactional
   native pipeline publication, Renderer ownership audit, and reload/lifetime
   evidence.
-- [Recoverable RHI Creation Failures](RecoverableRHICreationFailures.md) owns
+- [Recoverable RHI Creation Failures](Archive/2026-08/RecoverableRHICreationFailures.md) owns
   the generic fallible synchronous-operation API, executor failure taxonomy,
   and complete-or-null policy shared by all RHI factories. The graphics-pipeline
   implementation in this plan consumes that boundary rather than adding a
@@ -397,7 +397,7 @@ No implementation work has started.
 
 ## Related Documentation
 
-- [Recoverable RHI Creation Failures](RecoverableRHICreationFailures.md)
+- [Recoverable RHI Creation Failures](Archive/2026-08/RecoverableRHICreationFailures.md)
 - [Shader Cache](../Runtime/Rendering/ShaderCache.md)
 - [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
 - [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)

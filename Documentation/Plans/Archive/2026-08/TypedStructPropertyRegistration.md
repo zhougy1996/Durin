@@ -4,7 +4,7 @@ Summary: Replace the positional FStructPropertyParams alias with concise, type-s
 
 Last reviewed: 2026-08-06
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-06
 
 ## Current Status
@@ -627,8 +627,8 @@ placeholders, `InitializePropertyValue<T>`, or `DestroyPropertyValue<T>`.
 | Serialization and GC | Object graph, DAST v2, snapshots, duplication, hidden references, arrays, and maps retain logical behavior |
 | Integration | DHT regeneration, focused suites, generated-source comparison, and full `all` build |
 
-Build and test execution follows [Build and Run](../Development/Build/BuildAndRun.md)
-and [Native Tests](../Development/Build/NativeTests.md).
+Build and test execution follows [Build and Run](../../../Development/Build/BuildAndRun.md)
+and [Native Tests](../../../Development/Build/NativeTests.md).
 
 ## Definition of Done
 
@@ -661,11 +661,11 @@ and [Native Tests](../Development/Build/NativeTests.md).
 ## Related Documentation
 
 - [Reflected Struct Operations](ReflectedStructOperations.md)
-- [Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Garbage Collection](../Runtime/Core/GarbageCollection.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Garbage Collection](../../../Runtime/Core/GarbageCollection.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 
