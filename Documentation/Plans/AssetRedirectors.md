@@ -9,7 +9,9 @@ Completed:
 
 ## Current Status
 
-- Design is selected and implementation has not started.
+- Stage 0 is complete: the redirect wire format, public vocabulary, resolution
+  behavior, mutation protocol, compatibility policy, and fixture catalog are
+  frozen below. Production implementation has not started; Stage 1 is next.
 - The completed [Soft Asset References Plan](SoftAssetReferences.md) is historical
   evidence for the current implementation only. Its move-time rewrite contract,
   compatibility promises, stage structure, and validation baseline do not
@@ -392,6 +394,257 @@ The final system must provide:
   workflow, redirect-aware collision diagnostics, or move Undo/Redo token.
 - Deletion and cooking do not recognize redirect edges or redirector closure.
 
+## Stage 0 Contract Baseline
+
+This section is the implementation contract for Stages 1-6. Later stages may
+add private helpers, but changing a name, byte layout, failure state, ordering
+rule, or ownership boundary below requires recording the changed decision and
+rationale here before implementation continues.
+
+### Current Seam Inventory
+
+| Seam | Current symbol and behavior | Replacement boundary |
+| --- | --- | --- |
+| Package header and registry snapshot | `AssetVersion = 2`, `WritePackageFile`, `ReadPackageHeader`, `FAssetPackageHeader`, and `FAssetData` expose class, hard dependencies, and object count only. `Registry.bin` reuses that projection by physical fingerprint. | DAST v3 adds bounded entry kind and redirect destination. The registry snapshot persists the same fields and remains rebuildable. |
+| Registry identity | `FAssetRegistry::FindAsset` is one exact map lookup because aliases do not exist. | Mutation and inspection use `FindAssetExact`; loading and reference consumers use `ResolveAssetPath`. |
+| Soft reference graph | `FSoftAssetReference`, `ExtractSoftAssetReferences`, and `SoftReferences.bin` index only tagged soft occurrences. Header dependencies have no field routes. | `FAssetReferenceIndex` owns hard, soft, and redirect edges. The old projection is removed after all consumers migrate. |
+| Single-asset move | `FAssetManager::MoveAsset` loads hard referencers, rewrites loaded and unloaded soft referencers, saves contributor packages and external stores, moves companions, and uses `.movebak` copies for rollback. | One immutable relocation batch creates aliases and never visits arbitrary referencers or external stores. |
+| Editor batch and folders | `FEditorAssetMoveCoordinator::MoveAssets` calls the single move repeatedly; it and `FContentBrowserOperations` reverse completed moves when later work fails. | One AssetCore batch and one editor transaction own single, multi-asset, and folder relocation plus Undo/Redo. |
+| Deletion transaction | `FAssetDeletionBatchToken`, `FContentDeletionPlan`, and `FContentDeletionTransaction` already bind registry revision, fingerprints, same-volume staging, reverse compensation, Undo/Redo, and `RecoveryRequired`. | The shared mutation journal reuses these principles, while deletion, relocation, and Fix Up retain separate domain plans. |
+| Default level | `FEditorAssetMoveCoordinator` registers project `Editor.DefaultLevel` as an `FAssetMoveExternalStore`, so a move rewrites YAML or rolls the move back. | The setting resolves through aliases and becomes an `IAssetReferenceStore` participant only during Fix Up. |
+| Import records | `RegisterImportRecordMoveContributor` loads the managing `DImportRecord`, edits output paths, and contributes its package to the move transaction. | Output identities resolve before lookup/reimport and import records participate in Fix Up, never relocation. |
+| Asset companions | `FAssetMoveContribution` and `FAssetDeleteContribution` are class-keyed callbacks. StaticMesh and Texture sources are explicitly independent, while future truly owned payloads may contribute files. | `FAssetOwnedPayloadRelocator` covers only exclusive asset-owned files and reversible in-memory state. Shared mounted sources remain outside asset relocation. |
+| Cook | `BuildCookReachability` walks exact hard dependencies plus the soft-only index; `FCookContext` publishes caller-supplied package bytes and companions. | Reachability and package emission canonicalize every redirect to the final real path and exclude redirector packages. |
+| Transient editor state | Viewport/session state is updated inside move coordination and can currently force asset rollback; Content Browser panels refresh from mutation revisions. | `IAssetMoveObserver` receives a committed batch, cannot veto it, and repairs only rebuildable/transient state. |
+
+### DAST v3 Redirect Summary
+
+- DAST v3 is assigned to this plan. The deferred compact serialization format
+  is DAST v4; its roadmap must consume v3 as an input format and must not fold
+  compact tables, sparse values, LEB128, or other v4 work into this refactor.
+- The v3 header retains every v2 scalar, string, dependency, object, and field
+  encoding. Immediately after `AssetClassName`, it inserts exactly these two
+  values before `DependencyCount`:
+
+  ```text
+  uint8  EntryKind
+  string RedirectDestination
+  ```
+
+  `string` is the existing `uint64` byte count followed by that many bytes and
+  remains capped by `MaximumPackageStringBytes` (1 MiB). `EntryKind` is the
+  wire value of `EAssetRegistryEntryKind`: `Asset = 0`, `Redirector = 1`.
+  Unknown values are corrupt input. An `Asset` encodes a zero-length
+  destination; a `Redirector` encodes one non-empty canonical `FAssetPath`.
+- V2 has no inserted fields and is projected as `Asset` with no destination.
+  After Stage 1, readers accept v2 and v3, while every authorized save emits
+  v3. Scan and load never migrate or dirty v2 packages merely because of their
+  version. A package claiming `DAssetRedirector` in v2 is corrupt because v2
+  cannot carry the authoritative summary.
+- A v3 redirector has main class `Durin::Asset::DAssetRedirector`, one object
+  record, one non-null external `DestinationObject` hard reference, and one
+  unique dependency equal to `RedirectDestination`. The destination cannot be
+  the package itself. A redirect kind with another class, a redirector class
+  with ordinary kind, a null/internal/second destination, a dependency mismatch,
+  or header/body disagreement is `CorruptRedirector`.
+- Header-only discovery validates magic, supported version, kind, class/kind
+  pairing, destination syntax, dependency cardinality/membership, counts, and
+  bounds without reading object records. Full inspection, validation, save,
+  and load additionally prove the body invariant. No registry scan constructs
+  a redirector or its destination.
+- `FAssetPackageHeader`, `FAssetData`, registry cache entries, and scan
+  statistics carry `EntryKind` and `RedirectDestination`. The registry cache
+  schema is bumped once; old snapshots rebuild non-fatally. The current soft
+  cache is likewise invalidated by the package-version/schema change and is
+  later deleted when `FAssetReferenceIndex` becomes authoritative.
+
+### Frozen Public Vocabulary and Ownership
+
+| Name | Owner and contract |
+| --- | --- |
+| `DAssetRedirector` | AssetCore reflected main-asset type with private `TObjectPtr<DObject> DestinationObject`; ordinary callers receive no destination mutator. |
+| `EAssetRegistryEntryKind` | `Asset` or `Redirector`, stored in package and registry metadata. |
+| `FAssetRegistry::FindAssetExact` | Returns only the entry physically registered at the requested path, including a redirector. The old ambiguous `FindAsset` name is removed after callers migrate. |
+| `EAssetPathResolveState` | `Resolved`, `NotFound`, `MissingRedirectTarget`, `RedirectCycle`, `RedirectDepthExceeded`, `UnknownTargetClass`, `RedirectTypeMismatch`, or `CorruptRedirector`. |
+| `FAssetPathResolveOptions` | Optional expected final `DClass`; redirect depth is the fixed system limit, not a caller-controlled value. |
+| `FAssetPathResolveResult` | Value result containing state, requested path, final path, ordered redirect chain, and a copy of final `FAssetData` when available. It owns no registry pointer and remains diagnostic after a revision change. |
+| `FAssetRegistry::ResolveAssetPath` | Non-loading resolver used by all normal hard/soft load and reference seams. |
+| `FAssetRegistry::FindRedirectorsTo` | Deterministic direct reverse lookup over exact redirect metadata. |
+| `EAssetReferenceKind` | `HardObject`, `SoftObject`, or `Redirect`. |
+| `FAssetReferenceRouteSegment`, `FAssetReferenceEdge`, `FAssetReferenceIndex` | Generalized tagged package occurrence route, edge record, and authoritative derived graph. |
+| `FAssetRelocationMapping`, `FAssetRelocationBatchToken` | Requested source/destination pair and the getter-only AssetCore batch token returned by `AnalyzeAssetRelocationBatch`. The token is the AssetCore plan; there is no second mutable AssetCore plan object. |
+| `AnalyzeAssetRelocationBatch`, `RevalidateAssetRelocationBatch`, `ApplyAssetRelocationBatch`, `RestoreAssetRelocationBatch` | Only supported relocation lifecycle. LevelEditor may wrap the token in an immutable `FContentRelocationPlan` for confirmation and history. |
+| `EAssetRedirectorFixupMode` | `RewriteOnly` or `RewriteAndDelete`. |
+| `FAssetRedirectorFixupPlan` | Getter-only plan containing selected/upstream aliases, final mapping, package/store occurrences, proposed bytes/actions, fingerprints, compatibility/dirty state, and deletable aliases. |
+| `AnalyzeRedirectorFixup`, `RevalidateRedirectorFixup`, `ApplyRedirectorFixup` | Only supported persistent path-rewrite lifecycle. |
+| `FAssetOwnedPayloadRelocator` | Class-keyed relocation contract for files and in-memory state exclusively owned by the moving asset. |
+| `IAssetReferenceStore` | Registered persistent non-package reference provider. It enumerates exact occurrences and prepares fingerprint-bound reversible writes for Fix Up only. |
+| `IAssetMoveObserver` | Post-commit, game-thread notification for transient/rebuildable state. It returns no failure and owns no authored rollback. |
+| `FAssetMutationJournal` | AssetCore-internal journal shared by relocation and Fix Up; deletion may adopt it later without sharing domain plan types. |
+
+### Resolution, Cache, and Redirect Mutation Rules
+
+- `FAssetPath` and `FSoftObjectPath` remain syntax and authored identity only.
+  Resolution follows at most 32 redirectors. `RedirectChain` contains the exact
+  alias paths in traversal order and excludes the final real path. A chain of
+  32 aliases followed by a real asset succeeds; encountering a 33rd alias is
+  `RedirectDepthExceeded`.
+- The resolver records visited exact paths before following each edge. Revisiting
+  any path is `RedirectCycle`; a syntactically valid destination with no exact
+  registry entry is `MissingRedirectTarget`. `NotFound` is reserved for a
+  missing requested path. Expected-class lookup and validation apply only to
+  the final real entry; an unavailable reflected class is `UnknownTargetClass`
+  and an incompatible final class is `RedirectTypeMismatch`.
+- Normal loading resolves first, constructs only the final real package, and
+  returns only its main asset. AssetCore exposes a private exact-load seam for
+  redirector validation/tooling. Neither a redirector object nor an intermediate
+  package is loaded by registry resolution.
+- `FSoftObjectPtr` adds `ResolvedPackagePath` beside its authored path and weak
+  object. Its private `TrySetResolvedObject` seam accepts only an AssetCore-proven
+  successful resolution for the same authored path. `Get()` performs no I/O;
+  it returns the weak object only when it remains a package main asset of the
+  expected class and its current package path equals `ResolvedPackagePath`.
+  `SetPath`, direct object assignment, reset, and move-from clear or replace
+  both cache fields. A dead weak object or failed `Get()` validation returns
+  null without mutating authored identity; a failed assignment preserves the
+  prior value. Equality, ordering, hashing, Archive, snapshots, DAST bytes, and
+  property editing continue to use only the authored path.
+- A redirect destination is immutable to general authoring. Creation rejects
+  null, self, package, inner, transient, same-package, missing, corrupt, or
+  type-invalid destinations and never accepts an arbitrary redirector target.
+  Only relocation may replace an alias destination, and only while proving it
+  still denotes the same final real asset.
+- A successful `A -> B` emits `A -> B`. Moving that real asset `B -> C`
+  publishes `A -> C` and `B -> C` in the same batch. For move-back `C -> A`,
+  the occupied `A -> C` may be reclaimed only after exact resolution proves it
+  targets the moving `C`; upstream aliases to the same object are rewritten
+  directly to `A`. Any unrelated or unprovable redirector collision is a hard
+  blocker with no mutation.
+
+### Reference Graph and Fix Up Completeness
+
+- `FAssetReferenceEdge` records source package, complete source fingerprint,
+  source object id/class, declaring type and field, `EAssetReferenceKind`,
+  target path, optional expected class, stable route, and display route.
+  `FAssetReferenceRouteSegment` has `FixedArray`, `ArrayElement`, `MapValue`,
+  and `StructField` kinds with the required index, canonical Map-key token, or
+  declaring-type/field identity.
+- Extraction retains the current limits: four container levels, 100,000
+  occurrences per package, 1,000,000 per snapshot, 1 MiB package paths and
+  Map-key tokens, and 4 KiB display routes. Direct, fixed-array, Array,
+  Map-value, and nested-struct hard/soft values are supported. Soft Map keys,
+  object Map keys that cannot produce stable lossless tokens, schema mismatch,
+  malformed payloads, overflows, and unconsumed bytes fail the complete source
+  projection closed.
+- The index publishes one explicit completeness state plus per-source errors.
+  Relocation never consults it. `RewriteAndDelete` requires a complete index and
+  every registered store; `RewriteOnly` may publish only a complete known plan
+  while retaining aliases and must report that deletion was not proven.
+- Fix Up always expands the selected aliases to their upstream closure and maps
+  all matching hard, soft, redirect, and store occurrences directly to final
+  real paths. It does not load unloaded packages. Dirty loaded packages,
+  compatibility-risk saves, provider absence, read-only inputs, stale
+  fingerprints, malformed routes, or any output that cannot be fully prepared
+  are preflight blockers, not partial work.
+
+### Shared Mutation Protocol
+
+- `EAssetMutationState` is internal and has exactly `Planned`, `Prepared`,
+  `Publishing`, `Committed`, `Compensating`, `Restored`, and
+  `RecoveryRequired`. Preflight failures remain `Planned`; no authoritative
+  input changes before `Prepared`. A failed publish reaches `Restored` only
+  after complete reverse compensation. Any compensation failure enters
+  `RecoveryRequired` and retains all staging and recovery metadata.
+- Each affected writable content mount owns
+  `<Content>/.durin-asset-mutation/operation-<128-bit-id>/`. Entries use
+  extensionless deterministic names so registry discovery cannot mistake them
+  for packages. The root contains an exact ownership marker and a versioned
+  journal recording operation id/type/state, original/staged/published paths,
+  pre/post fingerprints, step order, and completed/compensated bits. Provider
+  staging roots must declare the same containment, non-reparse, ownership, and
+  same-volume atomic-replace guarantees. A locator beneath
+  `Saved/AssetMutationRecovery` names all roots; it is not authoritative data.
+- Planning snapshots may be inspected on workers, but registry/package
+  snapshot capture, token construction, revalidation, loaded-object changes,
+  provider prepare/apply, journal state changes, publication, compensation,
+  registry revision publication, and observer dispatch occur on the game
+  thread. No observer or provider callback runs while a worker owns mutable
+  package state.
+- Revalidation compares the exact registry revision; source and participant
+  size/time/content fingerprints; exact path occupancy and redirect resolution;
+  mount identity, containment, write policy, and reparse status; loaded package
+  pointer/path/dirty/edit revision; payload ownership and companion
+  fingerprints; provider identity/version/fingerprints; and every staged output
+  hash. A mismatch returns stale data and performs no mutation.
+- Relocation prepares all real package, redirector, companion, and registry
+  projections first. Publication then journals originals into staging,
+  publishes real destinations and owned payloads, publishes source/upstream
+  redirectors, updates loaded package paths/object names and payload state,
+  and swaps the complete registry/reverse-index projection under one revision.
+  Only after that commit do move observers run. Ordinary failure compensates
+  those completed steps in exact reverse order.
+- Fix Up prepares every package byte image and store action first. Publication
+  applies package and store rewrites, builds a private candidate reference
+  projection from the published bytes/state, verifies zero incoming occurrence
+  for every alias proposed for deletion, stages those redirector files, and
+  swaps registry/reference projections once. `RewriteOnly` commits before the
+  deletion steps and retains every alias. Failure compensates store and package
+  writes before restoring any staged alias.
+- Undo retains the exact journal-owned pre-operation bytes and metadata. Redo
+  revalidates the post-operation fingerprints and destination availability;
+  neither operation recomputes a new mapping. Recovery cleanup validates the
+  marker, operation id, roots, and non-reparse containment and never removes a
+  `RecoveryRequired` root automatically.
+
+### Compatibility and Cook Policy
+
+- The supported authored inputs become DAST v2 and v3; v3 is the only writer
+  after Stage 1. Saving is the explicit authorization to migrate an ordinary
+  v2 package. Registry scans, loads, resolution, relocation of unchanged bytes,
+  and Fix Up analysis never migrate merely by observation.
+- Registry and reference caches are disposable schemas, not compatibility
+  surfaces. Schema mismatches rebuild. `MoveAsset`,
+  `FAssetMoveContribution`, `FAssetMoveExternalStore`, `.movebak`, the
+  soft-only index/cache, and sequential editor rollback remain only until their
+  staged replacements have all callers, then are removed without shims. This
+  cleanup happens in the earliest stage that makes an item unreachable; Stage 6
+  is the final audit, not a requirement to retain dead code until then. Tests
+  that exist only to preserve removed behavior are deleted with it, while tests
+  for independent persistence, failure, compatibility, or recovery guarantees
+  are migrated to the replacement contract.
+- From redirect-producing relocation onward, Cook fails closed with a stable
+  redirect-canonicalization diagnostic until the Stage 6 canonical Cook path is
+  active. The final Cook resolves every root and hard/soft/store edge to a real
+  path, validates the final class, rewrites produced package bytes to those
+  paths, and never emits `DAssetRedirector` packages or redirect metadata.
+  Authored files are not modified by cooking.
+- Project default level and import-record output paths deliberately retain old
+  authored values after relocation. Loads/lookups resolve them; strict Fix Up
+  rewrites them through `IAssetReferenceStore`. Mounted source paths, DDC keys,
+  document identifiers, and other classified non-reference identities are not
+  mechanically rewritten.
+
+### Frozen Fixture Catalog
+
+| Fixture | Required proof |
+| --- | --- |
+| `Redirect.Direct` | `A -> B` survives save, unload, header scan, exact lookup, resolved lookup, and restart without constructing `A`. |
+| `Redirect.RepeatedMove` | `A -> B`, then `B -> C`, stores only `A -> C` and `B -> C`. |
+| `Redirect.MoveBack` | `C -> A` reclaims only the same-object `A -> C`; an unrelated alias collision remains unchanged. |
+| `Redirect.Depth` | 32 aliases resolve; 33 fail with `RedirectDepthExceeded`; the reported chain is deterministic. |
+| `Redirect.CycleAndMissing` | Self/cycle/missing targets produce their exact terminal states with no partial final metadata. |
+| `Redirect.CorruptWire` | Unknown kind, class/kind mismatch, null/invalid destination, dependency mismatch, extra object/reference, and header/body disagreement fail closed. |
+| `Registry.RestartAndCache` | Incremental snapshot reuse retains kind/destination; full validation and corrupt-cache rebuild reproduce the same map and reverse index. |
+| `Reference.HardSoft` | Old authored hard and soft paths load the final typed object; soft equality/hash/serialized bytes remain unchanged. |
+| `Relocation.BatchFolder` | Single, multi-asset, cross-directory, and folder mappings publish one revision with no referencer load/save. |
+| `Relocation.Collision` | Duplicate sources/destinations, occupied real targets, unrelated aliases, reparse points, ownership conflicts, and stale tokens make no change. |
+| `Relocation.FailureJournal` | Every prepare/publish/compensate boundary restores exactly or retains a diagnosable `RecoveryRequired` root. |
+| `FixUp.PackageRoutes` | Direct/fixed/Array/Map-value/nested-struct hard and soft occurrences rewrite losslessly to final paths without owner construction. |
+| `FixUp.ExternalStores` | Default level and import records rewrite atomically; missing/read-only/stale providers retain all aliases. |
+| `Deletion.RedirectClosure` | Redirect hard blockers, alias-only rejection, target-plus-alias deletion, and Undo/Redo restore exact files and registry entries. |
+| `Editor.UndoRedo` | Single/multi/folder relocation and Fix Up occupy one history entry; stale Redo and compensation failure preserve the current head. |
+| `Cook.Canonical` | Redirected roots and hard/soft dependencies emit only final real paths, exclude aliases, and fail deterministically for missing/cycle/type errors. |
+
 ## Implementation Stages
 
 Every stage ends with a compact handoff recording its baseline commit, working
@@ -403,27 +656,27 @@ working set only when targeted validation shows a direct dependency gap.
 
 Dependencies: none.
 
-- [ ] Inventory current move, batch move, reference-index, package-header,
+- [x] Inventory current move, batch move, reference-index, package-header,
   deletion-token, cook, default-level, import-record, and companion-file seams
   using the bounded working set named in this plan.
-- [ ] Assign the package envelope version and exact bounded encoding for
+- [x] Assign the package envelope version and exact bounded encoding for
   redirector kind/destination metadata; record interaction with the compact
   serialization roadmap without adopting its unrelated encoding scope.
-- [ ] Freeze public names and ownership for exact lookup, resolution result,
+- [x] Freeze public names and ownership for exact lookup, resolution result,
   redirect type, reference graph, relocation plan/token, Fix Up plan/modes,
   payload relocator, reference store, and move observer.
-- [ ] Freeze the 32-hop limit, structured error taxonomy, direct-to-final chain
+- [x] Freeze the 32-hop limit, structured error taxonomy, direct-to-final chain
   invariant, same-object destination reclamation rules, and forbidden
   retargeting behavior.
-- [ ] Define transaction states, staging ownership, revalidation inputs,
+- [x] Define transaction states, staging ownership, revalidation inputs,
   compensation ordering, recovery metadata, and game-thread boundaries shared
   by relocation and Fix Up.
-- [ ] Define authored and cooked compatibility policy explicitly. No current
+- [x] Define authored and cooked compatibility policy explicitly. No current
   move API or cache schema is preserved accidentally.
-- [ ] Define fixtures for direct redirects, repeated moves, move-back, folder
+- [x] Define fixtures for direct redirects, repeated moves, move-back, folder
   batches, collision, cycle/corruption, hard/soft paths, external stores,
   deletion, Undo/Redo, registry restart, and cook canonicalization.
-- [ ] End with the required stage handoff.
+- [x] End with the required stage handoff.
 
 #### Acceptance Gate
 
@@ -433,6 +686,32 @@ Dependencies: none.
   selected before production implementation starts.
 - The historical soft-reference plan is referenced only as replaced current
   behavior, not as future acceptance criteria.
+
+#### Stage 0 Handoff
+
+- Baseline commit: `a6f7276b14630d0f60e3ab5809dbc98c076a54b6`.
+- Working set: `AssetSystem.h/.cpp`, `Package.h/.cpp`, `AssetPath.h`,
+  `SoftObjectPtr.h/.cpp`, `EditorAssetMoveCoordinator.h/.cpp`,
+  `ContentBrowserOperations.h/.cpp`, `ContentDeletionTransaction.cpp`,
+  `ImportRecordIndex.cpp`, `ReflectedPropertyView.cpp`, the StaticMesh/Texture
+  contributor registrations, `AssetPackages.md`, `ContentBrowser.md`,
+  `LevelSystem.md`, `AssetImportFramework.md`, `MountedSourceWorkflows.md`, and
+  `CompactAssetSerialization.md`.
+- Key symbols and decisions: DAST v3 owns the explicit redirect summary and
+  v4 remains the compact format; exact and resolved registry APIs are distinct;
+  32 aliases are accepted; soft cache identity is authored path plus resolved
+  package path; relocation never visits referencers; Fix Up is complete,
+  provider-aware, and deletion-last; one journal/recovery protocol is shared by
+  relocation and Fix Up.
+- Open questions: none block Stage 1. UI wording, CLI spelling, and provider-
+  specific implementation details remain local to their owning later stages
+  and cannot weaken this contract.
+- Stage 1 initial working set: `AssetSystem.h`, `AssetSystem.cpp`, new
+  `AssetRedirector.h/.cpp`, and `PackageTests.cpp`. Expand only for a generated-
+  reflection or build-metadata dependency identified by those files.
+- Validation: `DevTool doc plan validate --scope all` passes on 2026-08-06.
+  Stage 0 changes contracts only, so no configure, build, runtime launch, or
+  native test is required.
 
 ### Stage 1: Add Redirector Persistence and Registry Resolution
 
@@ -603,7 +882,7 @@ Dependencies: Stage 5 complete authoring workflow.
   runtime root/reference remains redirected or unresolved after canonicalization.
 - [ ] Verify default-level and every registered external runtime root contribute
   canonical final identity without modifying authored files.
-- [ ] Remove `FAssetMoveExternalStore`, additional-package move contributions,
+- [ ] Remove any remaining `FAssetMoveExternalStore`, additional-package move contributions,
   move-time soft/hard referencer rewrites, `.movebak` ownership, stale-index
   move blockers, superseded cache schemas, compatibility shims, and obsolete
   tests.
