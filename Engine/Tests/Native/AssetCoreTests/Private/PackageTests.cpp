@@ -563,6 +563,91 @@ namespace
 		(void)Initialized;
 	}
 
+	class FMemoryAssetReferenceStore final
+		: public Durin::Asset::IAssetReferenceStore
+	{
+	public:
+		explicit FMemoryAssetReferenceStore(Durin::FAssetPath InPath)
+			: Path(std::move(InPath))
+		{}
+
+		auto CaptureSnapshot(
+			Durin::Asset::FAssetReferenceStoreSnapshot& OutSnapshot)
+			-> Durin::Asset::FAssetResult override
+		{
+			OutSnapshot = {
+				.ProviderId = "Tests.MemoryReferenceStore",
+				.ProviderVersion = 1,
+				.Fingerprint = Path.ToString(),
+				.Occurrences = {{
+					.ProviderId = "Tests.MemoryReferenceStore",
+					.StableId = "root",
+					.TargetPath = Path,
+					.DisplayRoute = "Root"}}};
+			return {};
+		}
+
+		auto PrepareRewrite(
+			std::span<const Durin::Asset::FAssetReferenceRewrite> Rewrites,
+			std::string_view ExpectedFingerprint,
+			Durin::Asset::FAssetReferenceStoreRewriteContribution& OutContribution)
+			-> Durin::Asset::FAssetResult override
+		{
+			if (ExpectedFingerprint != Path.ToString() || Rewrites.size() != 1
+				|| Rewrites.front().StableId != "root"
+				|| Rewrites.front().SourcePath != Path)
+				return {Durin::Asset::EAssetError::StaleData,
+					"Memory reference store preparation is stale."};
+			const Durin::FAssetPath PrePath = Path;
+			const Durin::FAssetPath PostPath = Rewrites.front().DestinationPath;
+			OutContribution = {
+				.Fingerprint = std::string(ExpectedFingerprint),
+				.Rewrites = {Rewrites.front()},
+				.Revalidate = [this, PrePath] {
+					return Path == PrePath
+						? Durin::Asset::FAssetResult{}
+						: Durin::Asset::FAssetResult{
+							Durin::Asset::EAssetError::StaleData,
+							"Memory reference store changed."};
+				},
+				.Apply = [this, PostPath] {
+					Path = PostPath;
+					return Durin::Asset::FAssetResult{};
+				},
+				.Restore = [this, PrePath] {
+					Path = PrePath;
+					return Durin::Asset::FAssetResult{};
+				},
+				.Verify = [this, PostPath] {
+					return Path == PostPath
+						? Durin::Asset::FAssetResult{}
+						: Durin::Asset::FAssetResult{
+							Durin::Asset::EAssetError::StaleData,
+							"Memory reference store verification failed."};
+				}};
+			return {};
+		}
+
+		Durin::FAssetPath Path;
+	};
+
+	class FScopedReferenceStoreRegistration
+	{
+	public:
+		explicit FScopedReferenceStoreRegistration(
+			Durin::Asset::IAssetReferenceStore* Store)
+			: Handle(Durin::Asset::RegisterAssetReferenceStore(Store))
+		{}
+
+		~FScopedReferenceStoreRegistration()
+		{
+			Durin::Asset::UnregisterAssetReferenceStore(Handle);
+		}
+
+	private:
+		Durin::Asset::FAssetReferenceStoreHandle Handle = 0;
+	};
+
 	auto ShutdownAssetManagerForRestart() -> void
 	{
 		Durin::Asset::ShutdownAssetManager();
@@ -718,6 +803,21 @@ namespace
 			Bytes[Index] = static_cast<Durin::uint8>((HexDigit(Hex[Index * 2]) << 4) | HexDigit(Hex[Index * 2 + 1]));
 		WriteTestBytes(Destination, Bytes);
 	}
+
+	auto RunRedirectorFixupRewritesHardSoftAndExternalOccurrencesBeforeDeletionTest()
+		-> void;
+	auto RunRedirectorFixupVerificationFailureRestoresPackagesStoresAndAliasTest()
+		-> void;
+}
+
+TEST(FPackageAssetTests, RedirectorFixupRewritesHardSoftAndExternalOccurrencesBeforeDeletion)
+{
+	RunRedirectorFixupRewritesHardSoftAndExternalOccurrencesBeforeDeletionTest();
+}
+
+TEST(FPackageAssetTests, RedirectorFixupVerificationFailureRestoresPackagesStoresAndAlias)
+{
+	RunRedirectorFixupVerificationFailureRestoresPackagesStoresAndAliasTest();
 }
 
 TEST(FPackageAssetTests, HeaderReaderStopsBeforeLargeObjectPayload)
@@ -1546,30 +1646,32 @@ TEST(FPackageAssetTests, DastSoftFieldsRoundTripWithoutHardDependenciesOrTargetL
 	ASSERT_EQ(FixedField->Payload.size(), FirstFixedValueBytes + 1);
 	EXPECT_EQ(FixedField->Payload[FirstFixedValueBytes], 0u);
 
-	std::vector<Durin::Asset::FSoftAssetReference> Extracted;
-	ASSERT_TRUE(Durin::Asset::ExtractSoftAssetReferences(
+	std::vector<Durin::Asset::FAssetReferenceEdge> Extracted;
+	ASSERT_TRUE(Durin::Asset::ExtractAssetReferences(
 		OwnerPath, Inspection, Extracted));
 	ASSERT_EQ(Extracted.size(), 5u);
 	EXPECT_EQ(std::ranges::count(Extracted, TargetPath,
-		&Durin::Asset::FSoftAssetReference::TargetPath), 3);
+		&Durin::Asset::FAssetReferenceEdge::TargetPath), 3);
 	EXPECT_EQ(std::ranges::count(Extracted, MissingPath,
-		&Durin::Asset::FSoftAssetReference::TargetPath), 2);
+		&Durin::Asset::FAssetReferenceEdge::TargetPath), 2);
 	EXPECT_TRUE(std::ranges::any_of(Extracted, [](const auto& Reference) {
-		return Reference.PropertyPath == "Fixed[fixed:0]"
-			&& Reference.ContainerRoute.size() == 1
-			&& Reference.ContainerRoute.front().Kind
-				== Durin::Asset::ESoftAssetReferenceRouteKind::FixedArray;
+		return Reference.DisplayRoute == "Fixed[fixed:0]"
+			&& Reference.Route.size() == 1
+			&& Reference.Route.front().Kind
+				== Durin::Asset::EAssetReferenceRouteKind::FixedArray;
 	}));
 	EXPECT_TRUE(std::ranges::any_of(Extracted, [](const auto& Reference) {
-		return Reference.PropertyPath.starts_with("Map[key:")
-			&& Reference.ContainerRoute.size() == 1
-			&& Reference.ContainerRoute.front().Kind
-				== Durin::Asset::ESoftAssetReferenceRouteKind::MapValue;
+		return Reference.DisplayRoute.starts_with("Map[key:")
+			&& Reference.Route.size() == 1
+			&& Reference.Route.front().Kind
+				== Durin::Asset::EAssetReferenceRouteKind::MapValue;
 	}));
 
-	auto Referencers = Durin::Asset::GetAssetRegistry().FindSoftReferencers(TargetPath);
+	auto Referencers = Durin::Asset::GetAssetRegistry().GetReferenceIndex()
+		.FindReferencers(TargetPath);
 	EXPECT_EQ(Referencers.size(), 3u);
-	auto Targets = Durin::Asset::GetAssetRegistry().FindSoftTargets(OwnerPath);
+	auto Targets = Durin::Asset::GetAssetRegistry().GetReferenceIndex()
+		.FindTargets(OwnerPath);
 	ASSERT_EQ(Targets.size(), 2u);
 	EXPECT_EQ(Targets[0], MissingPath);
 	EXPECT_EQ(Targets[1], TargetPath);
@@ -1632,31 +1734,31 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 		Payload.insert(Payload.end(), Path.begin(), Path.end());
 		return Payload;
 	};
-	std::vector<Durin::Asset::FSoftAssetReference> References;
+	std::vector<Durin::Asset::FAssetReferenceEdge> References;
 
 	auto Unknown = Valid;
 	ASSERT_NE(FindMutableField(Unknown, "Direct"), nullptr);
 	FindMutableField(Unknown, "Direct")->Name = "RetiredSoftField";
-	EXPECT_TRUE(Durin::Asset::ExtractSoftAssetReferences(
-		OwnerPath, Unknown, References));
-	EXPECT_TRUE(References.empty());
+	EXPECT_EQ(Durin::Asset::ExtractAssetReferences(
+		OwnerPath, Unknown, References).Error,
+		Durin::Asset::EAssetError::TypeMismatch);
 
 	auto WrongSignature = Valid;
 	FindMutableField(WrongSignature, "Direct")->TypeSignature =
 		"SoftObject:Tests::DCodecSourceAsset:v1";
-	EXPECT_EQ(Durin::Asset::ExtractSoftAssetReferences(
+	EXPECT_EQ(Durin::Asset::ExtractAssetReferences(
 		OwnerPath, WrongSignature, References).Error,
 		Durin::Asset::EAssetError::TypeMismatch);
 
 	auto UnknownTag = Valid;
 	FindMutableField(UnknownTag, "Direct")->Payload = {2};
-	EXPECT_EQ(Durin::Asset::ExtractSoftAssetReferences(
+	EXPECT_EQ(Durin::Asset::ExtractAssetReferences(
 		OwnerPath, UnknownTag, References).Error,
 		Durin::Asset::EAssetError::CorruptFile);
 
 	auto Truncated = Valid;
 	FindMutableField(Truncated, "Direct")->Payload = {1};
-	EXPECT_EQ(Durin::Asset::ExtractSoftAssetReferences(
+	EXPECT_EQ(Durin::Asset::ExtractAssetReferences(
 		OwnerPath, Truncated, References).Error,
 		Durin::Asset::EAssetError::CorruptFile);
 
@@ -1667,26 +1769,26 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 	FindMutableField(Overlong, "Direct")->Payload.insert(
 		FindMutableField(Overlong, "Direct")->Payload.end(),
 		OverlongBytes, OverlongBytes + sizeof(OverlongSize));
-	EXPECT_EQ(Durin::Asset::ExtractSoftAssetReferences(
+	EXPECT_EQ(Durin::Asset::ExtractAssetReferences(
 		OwnerPath, Overlong, References).Error,
 		Durin::Asset::EAssetError::CorruptFile);
 
 	auto InvalidPath = Valid;
 	FindMutableField(InvalidPath, "Direct")->Payload =
 		MakePathPayload(1, "/TestAssets//Invalid");
-	EXPECT_EQ(Durin::Asset::ExtractSoftAssetReferences(
+	EXPECT_EQ(Durin::Asset::ExtractAssetReferences(
 		OwnerPath, InvalidPath, References).Error,
 		Durin::Asset::EAssetError::InvalidPath);
 
 	auto TrailingNull = Valid;
 	FindMutableField(TrailingNull, "Direct")->Payload = {0, 0};
-	EXPECT_EQ(Durin::Asset::ExtractSoftAssetReferences(
+	EXPECT_EQ(Durin::Asset::ExtractAssetReferences(
 		OwnerPath, TrailingNull, References).Error,
 		Durin::Asset::EAssetError::CorruptFile);
 
 	auto RuntimeMismatch = Valid;
 	RuntimeMismatch.Header.AssetClassName = "Tests::DCodecSourceAsset";
-	EXPECT_EQ(Durin::Asset::ExtractSoftAssetReferences(
+	EXPECT_EQ(Durin::Asset::ExtractAssetReferences(
 		OwnerPath, RuntimeMismatch, References).Error,
 		Durin::Asset::EAssetError::TypeMismatch);
 
@@ -1700,7 +1802,7 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 	Durin::Asset::FAssetPackageInspection OldInspection;
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
 		OldData->PhysicalPath, OldInspection));
-	ASSERT_TRUE(Durin::Asset::ExtractSoftAssetReferences(
+	ASSERT_TRUE(Durin::Asset::ExtractAssetReferences(
 		OldPath, OldInspection, References));
 	EXPECT_TRUE(References.empty());
 
@@ -1847,7 +1949,7 @@ TEST(FPackageAssetTests, SoftCookReachabilityAddsSoftTargetsButRejectsMissingAnd
 	EXPECT_EQ(Reachable, (std::vector<Durin::FAssetPath>{CyclePath, OwnerPath}));
 }
 
-TEST(FPackageAssetTests, SoftReferenceIndexInvalidatesSourceSaveMoveAndDeleteMutations)
+TEST(FPackageAssetTests, ReferenceIndexInvalidatesSourceSaveMoveAndDeleteMutations)
 {
 	InitializeAssetTests();
 	Durin::FAssetPath TargetPath;
@@ -1863,22 +1965,23 @@ TEST(FPackageAssetTests, SoftReferenceIndexInvalidatesSourceSaveMoveAndDeleteMut
 	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Source));
 	Source->Direct.SetPath(TargetPath);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Source->GetPackage()));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindSoftTargets(SourcePath),
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(SourcePath),
 		(std::vector<Durin::FAssetPath>{TargetPath}));
 
 	Source->Direct.Reset();
 	ASSERT_TRUE(Durin::Asset::SavePackage(Source->GetPackage()));
-	EXPECT_TRUE(Durin::Asset::GetAssetRegistry().FindSoftTargets(SourcePath).empty());
+	EXPECT_TRUE(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(SourcePath).empty());
 	Source->Direct.SetPath(TargetPath);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Source->GetPackage()));
 	ASSERT_TRUE(RelocateAssetForTest(SourcePath, MovedSourcePath));
-	EXPECT_TRUE(Durin::Asset::GetAssetRegistry().FindSoftTargets(SourcePath).empty());
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindSoftTargets(MovedSourcePath),
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(SourcePath),
+		(std::vector<Durin::FAssetPath>{MovedSourcePath}));
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(MovedSourcePath),
 		(std::vector<Durin::FAssetPath>{TargetPath}));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(SourcePath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(MovedSourcePath));
-	EXPECT_TRUE(Durin::Asset::GetAssetRegistry().FindSoftTargets(MovedSourcePath).empty());
-	EXPECT_TRUE(Durin::Asset::GetAssetRegistry().FindSoftReferencers(TargetPath).empty());
+	EXPECT_TRUE(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(MovedSourcePath).empty());
+	EXPECT_TRUE(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindReferencers(TargetPath).empty());
 }
 
 TEST(FPackageAssetTests, RelocationPreservesLoadedAndUnloadedSoftAuthoredPaths)
@@ -1925,13 +2028,13 @@ TEST(FPackageAssetTests, RelocationPreservesLoadedAndUnloadedSoftAuthoredPaths)
 	EXPECT_EQ(LoadedOwner->Map.at("loaded").GetSoftObjectPath().GetAssetPath(), OldPath);
 	EXPECT_FALSE(LoadedOwner->Direct.IsLoaded());
 
-	auto LoadedTargets = Durin::Asset::GetAssetRegistry().FindSoftTargets(LoadedOwnerPath);
-	auto UnloadedTargets = Durin::Asset::GetAssetRegistry().FindSoftTargets(UnloadedOwnerPath);
+	auto LoadedTargets = Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(LoadedOwnerPath);
+	auto UnloadedTargets = Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(UnloadedOwnerPath);
 	EXPECT_EQ(LoadedTargets, (std::vector<Durin::FAssetPath>{OldPath}));
 	EXPECT_EQ(UnloadedTargets, (std::vector<Durin::FAssetPath>{OldPath}));
 	ShutdownAssetManagerForRestart();
 	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent());
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindSoftTargets(UnloadedOwnerPath),
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(UnloadedOwnerPath),
 		(std::vector<Durin::FAssetPath>{OldPath}));
 	DSoftPackageAssetForTest* ReloadedOwner = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(UnloadedOwnerPath, ReloadedOwner));
@@ -1999,7 +2102,7 @@ TEST(FPackageAssetTests, RelocationIgnoresStaleAndReadOnlyUnloadedSoftReferencer
 		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath)->EntryKind,
 			Durin::Asset::EAssetRegistryEntryKind::Redirector);
 		EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAssetExact(NewPath), nullptr);
-		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindSoftTargets(OwnerPath),
+		EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(OwnerPath),
 			(std::vector<Durin::FAssetPath>{OldPath}));
 	};
 	RunCase("Stale", false);
@@ -2039,7 +2142,7 @@ TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath)->EntryKind,
 		Durin::Asset::EAssetRegistryEntryKind::Asset);
 	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(NewPath), nullptr);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindSoftTargets(OwnerPath),
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindTargets(OwnerPath),
 		(std::vector<Durin::FAssetPath>{OldPath}));
 }
 
@@ -2239,6 +2342,136 @@ TEST(FPackageAssetTests, CompensationFailureRetainsDiagnosableRecoveryRoot)
 		Durin::Asset::EAssetRelocationFailurePoint::None);
 }
 
+namespace
+{
+	auto RunRedirectorFixupRewritesHardSoftAndExternalOccurrencesBeforeDeletionTest()
+		-> void
+{
+	InitializeAssetTests();
+	Durin::FAssetPath OldPath;
+	Durin::FAssetPath NewPath;
+	Durin::FAssetPath OwnerPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupOld", OldPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupNew", NewPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupOwner", OwnerPath));
+	DPackageAssetForTest* Target = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Target));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
+	DSoftPackageAssetForTest* Owner = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
+	Owner->Label = "unrelated-fixup-bytes";
+	Owner->ExternalReference = Target;
+	Owner->Direct.SetPath(OldPath);
+	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
+	const auto* OwnerData = Durin::Asset::GetAssetRegistry().FindAssetExact(OwnerPath);
+	ASSERT_NE(OwnerData, nullptr);
+	Durin::Asset::FAssetPackageInspection BeforeInspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		OwnerData->PhysicalPath, BeforeInspection));
+	const auto* BeforeLabel = BeforeInspection.FindField("Label");
+	ASSERT_NE(BeforeLabel, nullptr);
+	const std::vector<Durin::uint8> UnrelatedBytes = BeforeLabel->Payload;
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
+	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
+
+	const auto Incoming = Durin::Asset::GetAssetRegistry().GetReferenceIndex()
+		.FindReferencers(OldPath);
+	ASSERT_EQ(Incoming.size(), 2u);
+	EXPECT_TRUE(std::ranges::any_of(Incoming, [](const auto& Edge) {
+		return Edge.Kind == Durin::Asset::EAssetReferenceKind::HardObject;
+	}));
+	EXPECT_TRUE(std::ranges::any_of(Incoming, [](const auto& Edge) {
+		return Edge.Kind == Durin::Asset::EAssetReferenceKind::SoftObject;
+	}));
+
+	FMemoryAssetReferenceStore Store(OldPath);
+	FScopedReferenceStoreRegistration StoreRegistration(&Store);
+	Durin::Asset::FAssetRedirectorFixupPlan Plan;
+	ASSERT_TRUE(Durin::Asset::AnalyzeRedirectorFixup(
+		std::span{&OldPath, 1},
+		Durin::Asset::EAssetRedirectorFixupMode::RewriteAndDelete,
+		Plan));
+	ASSERT_EQ(Plan.GetRedirectors().size(), 1u);
+	EXPECT_EQ(Plan.GetRedirectors().front(), OldPath);
+	EXPECT_EQ(Plan.GetPackageOccurrences().size(), 2u);
+	EXPECT_EQ(Plan.GetStoreOccurrences().size(), 1u);
+	EXPECT_EQ(Plan.GetDeletableRedirectors().size(), 1u);
+	const Durin::uint64 ConstructionCount = GSoftPackageConstructionCount;
+	ASSERT_TRUE(Durin::Asset::ApplyRedirectorFixup(Plan));
+	EXPECT_EQ(GSoftPackageConstructionCount, ConstructionCount);
+	EXPECT_EQ(Store.Path, NewPath);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath), nullptr);
+	EXPECT_TRUE(Durin::Asset::GetAssetRegistry().GetReferenceIndex()
+		.FindReferencers(OldPath).empty());
+	EXPECT_TRUE(Durin::Asset::GetAssetRegistry().GetReferenceIndex().IsComplete());
+
+	OwnerData = Durin::Asset::GetAssetRegistry().FindAssetExact(OwnerPath);
+	ASSERT_NE(OwnerData, nullptr);
+	Durin::Asset::FAssetPackageInspection AfterInspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		OwnerData->PhysicalPath, AfterInspection));
+	const auto* AfterLabel = AfterInspection.FindField("Label");
+	ASSERT_NE(AfterLabel, nullptr);
+	EXPECT_EQ(AfterLabel->Payload, UnrelatedBytes);
+	const auto NewIncoming = Durin::Asset::GetAssetRegistry().GetReferenceIndex()
+		.FindReferencers(NewPath);
+	EXPECT_GE(NewIncoming.size(), 2u);
+	DSoftPackageAssetForTest* ReloadedOwner = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(OwnerPath, ReloadedOwner));
+	EXPECT_EQ(ReloadedOwner->Direct.GetSoftObjectPath().GetAssetPath(), NewPath);
+	EXPECT_EQ(ReloadedOwner->ExternalReference.Get(), Target);
+}
+
+auto RunRedirectorFixupVerificationFailureRestoresPackagesStoresAndAliasTest()
+	-> void
+{
+	InitializeAssetTests();
+	Durin::FAssetPath OldPath;
+	Durin::FAssetPath NewPath;
+	Durin::FAssetPath OwnerPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupFailureOld", OldPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupFailureNew", NewPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupFailureOwner", OwnerPath));
+	DPackageAssetForTest* Target = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Target));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
+	DSoftPackageAssetForTest* Owner = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
+	Owner->ExternalReference = Target;
+	Owner->Direct.SetPath(OldPath);
+	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
+	const std::string OwnerFile = Durin::Asset::GetAssetRegistry()
+		.FindAssetExact(OwnerPath)->PhysicalPath;
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
+	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
+	std::vector<Durin::uint8> BeforeBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeBytes, OwnerFile));
+
+	FMemoryAssetReferenceStore Store(OldPath);
+	FScopedReferenceStoreRegistration StoreRegistration(&Store);
+	Durin::Asset::SetAssetRedirectorFixupFailurePointForTesting(
+		Durin::Asset::EAssetRedirectorFixupFailurePoint::Verify);
+	const Durin::Asset::FAssetResult FixupResult =
+		Durin::Asset::FixUpRedirectors(std::span{&OldPath, 1});
+	EXPECT_EQ(FixupResult.Error, Durin::Asset::EAssetError::IoError)
+		<< FixupResult.Message;
+	Durin::Asset::SetAssetRedirectorFixupFailurePointForTesting(
+		Durin::Asset::EAssetRedirectorFixupFailurePoint::None);
+	std::vector<Durin::uint8> AfterBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterBytes, OwnerFile));
+	EXPECT_EQ(AfterBytes, BeforeBytes);
+	EXPECT_EQ(Store.Path, OldPath);
+	const auto* Alias = Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath);
+	ASSERT_NE(Alias, nullptr);
+	EXPECT_EQ(Alias->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().GetReferenceIndex()
+		.FindReferencers(OldPath).size(), 2u);
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(OwnerPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(OldPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(NewPath));
+}
+}
+
 TEST(FPackageAssetTests, SoftReferencedTargetDeletionLeavesDanglingPathWithoutBlockingTransaction)
 {
 	InitializeAssetTests();
@@ -2261,7 +2494,7 @@ TEST(FPackageAssetTests, SoftReferencedTargetDeletionLeavesDanglingPathWithoutBl
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(TargetPath));
 	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(TargetPath), nullptr);
 	auto Referencers =
-		Durin::Asset::GetAssetRegistry().FindSoftReferencers(TargetPath);
+		Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindReferencers(TargetPath);
 	ASSERT_EQ(Referencers.size(), 1u);
 	EXPECT_EQ(Referencers.front().SourcePackage, OwnerPath);
 
@@ -3882,17 +4115,17 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesContentFingerprintsAndRecoversFro
 	ASSERT_TRUE(Registry.ScanMountedContent(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(TargetAPath), nullptr);
-	EXPECT_EQ(Registry.FindSoftTargets(OwnerPath),
+	EXPECT_EQ(Registry.GetReferenceIndex().FindTargets(OwnerPath),
 		(std::vector<Durin::FAssetPath>{TargetAPath}));
-	const auto CacheFile = CacheRoot / "AssetRegistry" / "SoftReferences.bin";
+	const auto CacheFile = CacheRoot / "AssetRegistry" / "References.bin";
 	ASSERT_TRUE(std::filesystem::is_regular_file(CacheFile));
 	std::vector<Durin::uint8> FirstCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		FirstCache, CacheFile.generic_string()));
 
 	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_GT(Registry.GetSoftReferenceIndexStats().ReusedSources, 0u);
-	EXPECT_EQ(Registry.GetSoftReferenceIndexStats().ExtractedSources, 0u);
+	EXPECT_GT(Registry.GetReferenceIndex().GetStats().ReusedSources, 0u);
+	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().ExtractedSources, 0u);
 	std::vector<Durin::uint8> SecondCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		SecondCache, CacheFile.generic_string()));
@@ -3908,17 +4141,17 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesContentFingerprintsAndRecoversFro
 	std::filesystem::last_write_time(OwnerFile, PreservedTime);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
 	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_GT(Registry.GetSoftReferenceIndexStats().ExtractedSources, 0u);
-	EXPECT_EQ(Registry.FindSoftTargets(OwnerPath),
+	EXPECT_GT(Registry.GetReferenceIndex().GetStats().ExtractedSources, 0u);
+	EXPECT_EQ(Registry.GetReferenceIndex().FindTargets(OwnerPath),
 		(std::vector<Durin::FAssetPath>{TargetBPath}));
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(TargetBPath), nullptr);
 
 	const std::array<Durin::uint8, 3> CorruptCache = {1, 2, 3};
 	WriteTestBytes(CacheFile, CorruptCache);
 	ASSERT_TRUE(Registry.ScanMountedContent());
-	EXPECT_FALSE(Registry.GetSoftReferenceCacheWarning().empty());
-	EXPECT_GT(Registry.GetSoftReferenceIndexStats().ExtractedSources, 0u);
-	EXPECT_EQ(Registry.FindSoftTargets(OwnerPath),
+	EXPECT_FALSE(Registry.GetReferenceIndex().GetCacheWarning().empty());
+	EXPECT_GT(Registry.GetReferenceIndex().GetStats().ExtractedSources, 0u);
+	EXPECT_EQ(Registry.GetReferenceIndex().FindTargets(OwnerPath),
 		(std::vector<Durin::FAssetPath>{TargetBPath}));
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(TargetBPath), nullptr);
 	std::vector<Durin::uint8> RecoveredCache;

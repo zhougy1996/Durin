@@ -309,6 +309,19 @@ namespace Durin::Asset
 			return Handle;
 		}
 
+		struct FAssetReferenceStoreRegistry
+		{
+			std::map<FAssetReferenceStoreHandle, IAssetReferenceStore*> Stores;
+			FAssetReferenceStoreHandle NextHandle = 1;
+			uint64 Revision = 1;
+		};
+
+		auto GetAssetReferenceStoreRegistry() -> FAssetReferenceStoreRegistry&
+		{
+			static FAssetReferenceStoreRegistry Registry;
+			return Registry;
+		}
+
 		struct FRelocationFailureInjection
 		{
 			std::map<EAssetRelocationFailurePoint, uint32> RemainingOccurrences;
@@ -331,6 +344,27 @@ namespace Durin::Asset
 				return false;
 			if (--Injected->second != 0) return false;
 			Injection.RemainingOccurrences.erase(Injected);
+			return true;
+		}
+
+		struct FFixupFailureInjection
+		{
+			std::map<EAssetRedirectorFixupFailurePoint, uint32> RemainingOccurrences;
+		};
+
+		auto GetFixupFailureInjection() -> FFixupFailureInjection&
+		{
+			static FFixupFailureInjection Injection;
+			return Injection;
+		}
+
+		auto ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint Point) -> bool
+		{
+			auto& Remaining = GetFixupFailureInjection().RemainingOccurrences;
+			auto Injected = Remaining.find(Point);
+			if (Injected == Remaining.end() || Injected->second == 0) return false;
+			if (--Injected->second != 0) return false;
+			Remaining.erase(Injected);
 			return true;
 		}
 
@@ -1137,11 +1171,52 @@ namespace Durin::Asset
 			return ValidateRedirectorBody(OutFile);
 		}
 
-		constexpr uint32 MaximumSoftReferenceContainerDepth = 4;
-		constexpr uint64 MaximumSoftReferencesPerPackage = 100000;
-		constexpr uint64 MaximumSoftReferencesPerSnapshot = 1000000;
-		constexpr uint64 MaximumSoftReferenceDisplayPathBytes = 4 * 1024;
-		constexpr uint64 MaximumSoftReferenceRouteTokenBytes = 1024 * 1024;
+		constexpr uint32 MaximumReferenceContainerDepth = 4;
+		constexpr uint64 MaximumReferencesPerPackage = 100000;
+		constexpr uint64 MaximumReferencesPerSnapshot = 1000000;
+		constexpr uint64 MaximumReferenceDisplayRouteBytes = 4 * 1024;
+		constexpr uint64 MaximumReferenceRouteTokenBytes = 1024 * 1024;
+
+		auto ContainsAssetReferencePropertyImpl(
+			const FProperty* Property,
+			std::unordered_set<const DStruct*>& VisitingStructs) -> bool
+		{
+			if (!Property) return false;
+			switch (Property->GetKind())
+			{
+			case DurinCodeGen::EPropertyGenFlags::Object:
+			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+				return true;
+			case DurinCodeGen::EPropertyGenFlags::Array:
+				return ContainsAssetReferencePropertyImpl(
+					static_cast<const FArrayProperty*>(Property)->GetInner(), VisitingStructs);
+			case DurinCodeGen::EPropertyGenFlags::Map:
+				return ContainsAssetReferencePropertyImpl(
+					static_cast<const FMapProperty*>(Property)->GetKeyProp(), VisitingStructs)
+					|| ContainsAssetReferencePropertyImpl(
+						static_cast<const FMapProperty*>(Property)->GetValueProp(), VisitingStructs);
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				DStruct* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
+				if (!Struct || !VisitingStructs.insert(Struct).second) return false;
+				bool bContainsReference = false;
+				Struct->ForEachProperty([&](FProperty* Field) {
+					if (!bContainsReference && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
+						bContainsReference = ContainsAssetReferencePropertyImpl(Field, VisitingStructs);
+				}, false);
+				VisitingStructs.erase(Struct);
+				return bContainsReference;
+			}
+			default:
+				return false;
+			}
+		}
+
+		auto ContainsAssetReferenceProperty(const FProperty* Property) -> bool
+		{
+			std::unordered_set<const DStruct*> VisitingStructs;
+			return ContainsAssetReferencePropertyImpl(Property, VisitingStructs);
+		}
 
 		auto ContainsSoftObjectPropertyImpl(
 			const FProperty* Property,
@@ -1166,8 +1241,10 @@ namespace Durin::Asset
 				if (!Struct || !VisitingStructs.insert(Struct).second) return false;
 				bool bContainsSoftObject = false;
 				Struct->ForEachProperty([&](FProperty* Field) {
-					if (!bContainsSoftObject && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
-						bContainsSoftObject = ContainsSoftObjectPropertyImpl(Field, VisitingStructs);
+					if (!bContainsSoftObject && Field
+						&& !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
+						bContainsSoftObject = ContainsSoftObjectPropertyImpl(
+							Field, VisitingStructs);
 				}, false);
 				VisitingStructs.erase(Struct);
 				return bContainsSoftObject;
@@ -1183,20 +1260,28 @@ namespace Durin::Asset
 			return ContainsSoftObjectPropertyImpl(Property, VisitingStructs);
 		}
 
-		auto CompareSoftReferenceRoute(
-			std::span<const FSoftAssetReferenceRouteSegment> Left,
-			std::span<const FSoftAssetReferenceRouteSegment> Right) -> int
+		auto CompareReferenceRoute(
+			std::span<const FAssetReferenceRouteSegment> Left,
+			std::span<const FAssetReferenceRouteSegment> Right) -> int
 		{
 			const size_t Count = std::min(Left.size(), Right.size());
 			for (size_t Index = 0; Index < Count; ++Index)
 			{
 				if (Left[Index].Kind != Right[Index].Kind)
 					return static_cast<uint8>(Left[Index].Kind) < static_cast<uint8>(Right[Index].Kind) ? -1 : 1;
-				if (Left[Index].Kind == ESoftAssetReferenceRouteKind::MapValue)
+				if (Left[Index].Kind == EAssetReferenceRouteKind::MapValue)
 				{
 					if (Left[Index].MapKeyToken != Right[Index].MapKeyToken)
 						return std::ranges::lexicographical_compare(
 							Left[Index].MapKeyToken, Right[Index].MapKeyToken) ? -1 : 1;
+				}
+				else if (Left[Index].Kind == EAssetReferenceRouteKind::StructField)
+				{
+					const auto LeftField = std::tie(
+						Left[Index].DeclaringType, Left[Index].FieldName);
+					const auto RightField = std::tie(
+						Right[Index].DeclaringType, Right[Index].FieldName);
+					if (LeftField != RightField) return LeftField < RightField ? -1 : 1;
 				}
 				else if (Left[Index].Index != Right[Index].Index)
 					return Left[Index].Index < Right[Index].Index ? -1 : 1;
@@ -1205,16 +1290,16 @@ namespace Durin::Asset
 			return Left.size() < Right.size() ? -1 : 1;
 		}
 
-		auto SoftReferenceLess(const FSoftAssetReference& Left, const FSoftAssetReference& Right) -> bool
+		auto AssetReferenceLess(const FAssetReferenceEdge& Left, const FAssetReferenceEdge& Right) -> bool
 		{
 			const auto LeftKey = std::tuple(
 				Left.TargetPath.GetView(), Left.SourcePackage.GetView(), Left.SourceObjectId,
-				std::string_view(Left.DeclaringType), std::string_view(Left.FieldName));
+				std::string_view(Left.DeclaringType), std::string_view(Left.FieldName), Left.Kind);
 			const auto RightKey = std::tuple(
 				Right.TargetPath.GetView(), Right.SourcePackage.GetView(), Right.SourceObjectId,
-				std::string_view(Right.DeclaringType), std::string_view(Right.FieldName));
+				std::string_view(Right.DeclaringType), std::string_view(Right.FieldName), Right.Kind);
 			if (LeftKey != RightKey) return LeftKey < RightKey;
-			return CompareSoftReferenceRoute(Left.ContainerRoute, Right.ContainerRoute) < 0;
+			return CompareReferenceRoute(Left.Route, Right.Route) < 0;
 		}
 
 		auto AppendMapTokenDisplay(std::string& Path, std::span<const uint8> Token) -> void
@@ -1224,29 +1309,30 @@ namespace Durin::Asset
 			Path.push_back(']');
 		}
 
-		struct FSoftReferenceExtractionContext
+		struct FReferenceExtractionContext
 		{
 			const FAssetPath& SourcePackage;
 			const FAssetPackageFingerprint& Fingerprint;
 			const FAssetPackageObjectInspection& Object;
 			std::string_view DeclaringType;
 			std::string_view FieldName;
-			std::vector<FSoftAssetReference>& References;
+			EAssetReferenceKind ObjectKind = EAssetReferenceKind::HardObject;
+			std::vector<FAssetReferenceEdge>& References;
 		};
 
-		auto ExtractSoftValue(
+		auto ExtractReferenceValue(
 			FProperty* Property,
 			FByteReader& Reader,
-			const FSoftReferenceExtractionContext& Context,
-			std::vector<FSoftAssetReferenceRouteSegment>& Route,
+			const FReferenceExtractionContext& Context,
+			std::vector<FAssetReferenceRouteSegment>& Route,
 			const std::string& PropertyPath,
 			uint32 ContainerDepth) -> FAssetResult;
 
-		auto ExtractSoftPropertyValues(
+		auto ExtractReferencePropertyValues(
 			FProperty* Property,
 			std::span<const uint8> Payload,
-			const FSoftReferenceExtractionContext& Context,
-			std::vector<FSoftAssetReferenceRouteSegment>& Route,
+			const FReferenceExtractionContext& Context,
+			std::vector<FAssetReferenceRouteSegment>& Route,
 			const std::string& PropertyPath,
 			uint32 ContainerDepth) -> FAssetResult
 		{
@@ -1257,15 +1343,15 @@ namespace Durin::Asset
 				std::string ElementPath = PropertyPath;
 				if (bFixedArray)
 				{
-					if (ContainerDepth >= MaximumSoftReferenceContainerDepth)
+					if (ContainerDepth >= MaximumReferenceContainerDepth)
 						return Error(EAssetError::CorruptFile,
 							"SoftReferenceIndexDepthExceeded: fixed-array route exceeds four levels.");
 					Route.push_back({
-						.Kind = ESoftAssetReferenceRouteKind::FixedArray,
+						.Kind = EAssetReferenceRouteKind::FixedArray,
 						.Index = ArrayIndex});
 					ElementPath.append(std::format("[fixed:{}]", ArrayIndex));
 				}
-				FAssetResult Result = ExtractSoftValue(
+				FAssetResult Result = ExtractReferenceValue(
 					Property, Reader, Context, Route, ElementPath,
 					ContainerDepth + (bFixedArray ? 1 : 0));
 				if (bFixedArray) Route.pop_back();
@@ -1277,11 +1363,11 @@ namespace Durin::Asset
 			return {};
 		}
 
-		auto ExtractSoftValue(
+		auto ExtractReferenceValue(
 			FProperty* Property,
 			FByteReader& Reader,
-			const FSoftReferenceExtractionContext& Context,
-			std::vector<FSoftAssetReferenceRouteSegment>& Route,
+			const FReferenceExtractionContext& Context,
+			std::vector<FAssetReferenceRouteSegment>& Route,
 			const std::string& PropertyPath,
 			uint32 ContainerDepth) -> FAssetResult
 		{
@@ -1290,6 +1376,58 @@ namespace Durin::Asset
 					"SoftReferenceSchemaMismatch: reflected property metadata is missing.");
 			switch (Property->GetKind())
 			{
+			case DurinCodeGen::EPropertyGenFlags::Object:
+			{
+				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
+				if (!ObjectProperty->IsObjectPtrWrapper())
+					return Error(EAssetError::UnsupportedProperty,
+						"AssetReferenceSchemaMismatch: raw object pointers are unsupported.");
+				uint8 ReferenceKind = 0;
+				if (!Reader.Read(ReferenceKind))
+					return Error(EAssetError::CorruptFile,
+						std::format("AssetReferencePayloadTruncated: {} has no reference tag.", PropertyPath));
+				if (ReferenceKind == 0) return {};
+				if (ReferenceKind == 1)
+				{
+					uint64 ObjectId = 0;
+					if (!Reader.Read(ObjectId) || ObjectId == 0)
+						return Error(EAssetError::InvalidObjectGraph,
+							std::format("AssetReferenceInternalObject: {} has an invalid object id.", PropertyPath));
+					return {};
+				}
+				if (ReferenceKind != 2)
+					return Error(EAssetError::CorruptFile,
+						std::format("AssetReferencePayloadTag: {} has unknown tag {}.", PropertyPath, ReferenceKind));
+				std::string PathString;
+				FAssetPath TargetPath;
+				if (!Reader.ReadString(PathString, MaximumPackageStringBytes)
+					|| !FAssetPath::TryCreate(PathString, TargetPath))
+					return Error(EAssetError::InvalidPath,
+						std::format("AssetReferenceInvalidPath: {} has an invalid external path.", PropertyPath));
+				DClass* ExpectedClass = ObjectProperty->GetReferencedClass();
+				if (!ExpectedClass)
+					return Error(EAssetError::TypeMismatch,
+						std::format("AssetReferenceSchemaMismatch: {} has no referenced class.", PropertyPath));
+				if (PropertyPath.size() > MaximumReferenceDisplayRouteBytes)
+					return Error(EAssetError::CorruptFile,
+						"AssetReferenceIndexDisplayRouteExceeded: display route exceeds 4 KiB.");
+				if (Context.References.size() >= MaximumReferencesPerPackage)
+					return Error(EAssetError::CorruptFile,
+						"AssetReferenceIndexOccurrenceExceeded: package exceeds 100,000 occurrences.");
+				Context.References.push_back({
+					.SourcePackage = Context.SourcePackage,
+					.SourceFingerprint = Context.Fingerprint,
+					.SourceObjectId = Context.Object.Id,
+					.SourceClass = Context.Object.ClassName,
+					.DeclaringType = std::string(Context.DeclaringType),
+					.FieldName = std::string(Context.FieldName),
+					.Kind = Context.ObjectKind,
+					.ExpectedClass = ExpectedClass->GetQualifiedName().ToString(),
+					.TargetPath = std::move(TargetPath),
+					.Route = Route,
+					.DisplayRoute = PropertyPath});
+				return {};
+			}
 			case DurinCodeGen::EPropertyGenFlags::SoftObject:
 			{
 				uint8 ReferenceKind = 0;
@@ -1315,12 +1453,12 @@ namespace Durin::Asset
 				if (!ExpectedClass)
 					return Error(EAssetError::TypeMismatch,
 						std::format("SoftReferenceSchemaMismatch: {} has no expected class.", PropertyPath));
-				if (PropertyPath.size() > MaximumSoftReferenceDisplayPathBytes)
+				if (PropertyPath.size() > MaximumReferenceDisplayRouteBytes)
 					return Error(EAssetError::CorruptFile,
-						"SoftReferenceIndexDisplayPathExceeded: display path exceeds 4 KiB.");
-				if (Context.References.size() >= MaximumSoftReferencesPerPackage)
+						"AssetReferenceIndexDisplayRouteExceeded: display route exceeds 4 KiB.");
+				if (Context.References.size() >= MaximumReferencesPerPackage)
 					return Error(EAssetError::CorruptFile,
-						"SoftReferenceIndexOccurrenceExceeded: package exceeds 100,000 occurrences.");
+						"AssetReferenceIndexOccurrenceExceeded: package exceeds 100,000 occurrences.");
 				Context.References.push_back({
 					.SourcePackage = Context.SourcePackage,
 					.SourceFingerprint = Context.Fingerprint,
@@ -1328,15 +1466,16 @@ namespace Durin::Asset
 					.SourceClass = Context.Object.ClassName,
 					.DeclaringType = std::string(Context.DeclaringType),
 					.FieldName = std::string(Context.FieldName),
+					.Kind = EAssetReferenceKind::SoftObject,
 					.ExpectedClass = ExpectedClass->GetQualifiedName().ToString(),
 					.TargetPath = SoftPath.GetAssetPath(),
-					.ContainerRoute = Route,
-					.PropertyPath = PropertyPath});
+					.Route = Route,
+					.DisplayRoute = PropertyPath});
 				return {};
 			}
 			case DurinCodeGen::EPropertyGenFlags::Array:
 			{
-				if (ContainerDepth >= MaximumSoftReferenceContainerDepth)
+				if (ContainerDepth >= MaximumReferenceContainerDepth)
 					return Error(EAssetError::CorruptFile,
 						"SoftReferenceIndexDepthExceeded: Array route exceeds four levels.");
 				auto* Array = static_cast<FArrayProperty*>(Property);
@@ -1347,9 +1486,9 @@ namespace Durin::Asset
 				for (uint64 Index = 0; Index < Count; ++Index)
 				{
 					Route.push_back({
-						.Kind = ESoftAssetReferenceRouteKind::ArrayElement,
+						.Kind = EAssetReferenceRouteKind::ArrayElement,
 						.Index = Index});
-					FAssetResult Result = ExtractSoftValue(
+					FAssetResult Result = ExtractReferenceValue(
 						Array->GetInner(), Reader, Context, Route,
 						std::format("{}[{}]", PropertyPath, Index), ContainerDepth + 1);
 					Route.pop_back();
@@ -1359,7 +1498,7 @@ namespace Durin::Asset
 			}
 			case DurinCodeGen::EPropertyGenFlags::Map:
 			{
-				if (ContainerDepth >= MaximumSoftReferenceContainerDepth)
+				if (ContainerDepth >= MaximumReferenceContainerDepth)
 					return Error(EAssetError::CorruptFile,
 						"SoftReferenceIndexDepthExceeded: Map route exceeds four levels.");
 				auto* Map = static_cast<FMapProperty*>(Property);
@@ -1367,9 +1506,9 @@ namespace Durin::Asset
 				if (!Map->GetKeyProp() || !Map->GetValueProp() || !Reader.Read(Count) || Count > 10000000)
 					return Error(EAssetError::CorruptFile,
 						std::format("SoftReferenceMapPayload: {} has an invalid count.", PropertyPath));
-				if (ContainsSoftObjectProperty(Map->GetKeyProp()))
+				if (ContainsAssetReferenceProperty(Map->GetKeyProp()))
 					return Error(EAssetError::TypeMismatch,
-						"SoftReferenceSchemaMismatch: soft Map keys are unsupported.");
+						"AssetReferenceSchemaMismatch: reference Map keys are unsupported.");
 				for (uint64 Index = 0; Index < Count; ++Index)
 				{
 					FReflectedValueStorage KeyStorage;
@@ -1387,18 +1526,18 @@ namespace Durin::Asset
 					if (!BuildCanonicalMapKeyToken(
 						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, KeyToken, &StorageError))
 						return Error(EAssetError::TypeMismatch, std::move(StorageError));
-					if (KeyToken.size() > MaximumSoftReferenceRouteTokenBytes)
+					if (KeyToken.size() > MaximumReferenceRouteTokenBytes)
 						return Error(EAssetError::CorruptFile,
 							"SoftReferenceIndexRouteTokenExceeded: Map key token exceeds 1 MiB.");
 					std::string ValuePath = PropertyPath;
 					AppendMapTokenDisplay(ValuePath, KeyToken);
-					if (ValuePath.size() > MaximumSoftReferenceDisplayPathBytes)
+					if (ValuePath.size() > MaximumReferenceDisplayRouteBytes)
 						return Error(EAssetError::CorruptFile,
 							"SoftReferenceIndexDisplayPathExceeded: display path exceeds 4 KiB.");
 					Route.push_back({
-						.Kind = ESoftAssetReferenceRouteKind::MapValue,
+						.Kind = EAssetReferenceRouteKind::MapValue,
 						.MapKeyToken = std::move(KeyToken)});
-					FAssetResult Result = ExtractSoftValue(
+					FAssetResult Result = ExtractReferenceValue(
 						Map->GetValueProp(), Reader, Context, Route, ValuePath, ContainerDepth + 1);
 					Route.pop_back();
 					if (!Result) return Result;
@@ -1435,15 +1574,20 @@ namespace Durin::Asset
 					if (DeclaringStruct != StructName) continue;
 					FProperty* Field = Struct->FindPropertyByName(FName(FieldName), false);
 					if (!Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)
-						|| !ContainsSoftObjectProperty(Field)) continue;
+						|| !ContainsAssetReferenceProperty(Field)) continue;
 					if (static_cast<uint8>(Field->GetKind()) != Kind
 						|| !IsSerializedTypeSignatureCompatible(Field, Signature))
 						return Error(EAssetError::TypeMismatch, std::format(
 							"SoftReferenceSchemaMismatch: {}.{} has an incompatible signature.",
 							PropertyPath, FieldName));
-					FAssetResult Result = ExtractSoftPropertyValues(
+					Route.push_back({
+						.Kind = EAssetReferenceRouteKind::StructField,
+						.DeclaringType = DeclaringStruct,
+						.FieldName = FieldName});
+					FAssetResult Result = ExtractReferencePropertyValues(
 						Field, FieldPayload, Context, Route,
 						std::format("{}.{}", PropertyPath, FieldName), ContainerDepth);
+					Route.pop_back();
 					if (!Result) return Result;
 				}
 				return {};
@@ -1509,7 +1653,7 @@ namespace Durin::Asset
 			if (!Property || !Container)
 				return Error(EAssetError::TypeMismatch,
 					"SoftReferenceMoveSchemaMismatch: live property metadata is unavailable.");
-			if (ContainerDepth > MaximumSoftReferenceContainerDepth)
+			if (ContainerDepth > MaximumReferenceContainerDepth)
 				return Error(EAssetError::CorruptFile,
 					"SoftReferenceMoveDepthExceeded: live value exceeds four container levels.");
 			switch (Property->GetKind())
@@ -1620,20 +1764,27 @@ namespace Durin::Asset
 			return {};
 		}
 
-		auto RewriteSerializedSoftValue(
+		auto FindFixupDestination(
+			const FAssetPath& Source,
+			std::span<const FAssetRedirectorFixupMapping> Mappings) -> const FAssetPath*
+		{
+			const auto It = std::ranges::find(Mappings, Source,
+				&FAssetRedirectorFixupMapping::RedirectorPath);
+			return It == Mappings.end() ? nullptr : &It->FinalPath;
+		}
+
+		auto RewriteSerializedReferenceValue(
 			FProperty* Property,
 			FByteReader& Reader,
 			FByteWriter& Writer,
-			const FAssetPath& OldPath,
-			const FAssetPath& NewPath,
+			std::span<const FAssetRedirectorFixupMapping> Mappings,
 			uint64& RewriteCount,
 			uint32 ContainerDepth) -> FAssetResult;
 
-		auto RewriteSerializedSoftProperty(
+		auto RewriteSerializedReferenceProperty(
 			FProperty* Property,
 			std::span<const uint8> Payload,
-			const FAssetPath& OldPath,
-			const FAssetPath& NewPath,
+			std::span<const FAssetRedirectorFixupMapping> Mappings,
 			std::vector<uint8>& OutPayload,
 			uint64& RewriteCount,
 			uint32 ContainerDepth = 0) -> FAssetResult
@@ -1642,55 +1793,89 @@ namespace Durin::Asset
 			FByteWriter Writer;
 			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
 			{
-				FAssetResult Result = RewriteSerializedSoftValue(
-					Property, Reader, Writer, OldPath, NewPath, RewriteCount,
+				FAssetResult Result = RewriteSerializedReferenceValue(
+					Property, Reader, Writer, Mappings, RewriteCount,
 					ContainerDepth + (Property->GetArrayDim() > 1 ? 1 : 0));
 				if (!Result) return Result;
 			}
 			if (Reader.Offset != Payload.size())
 				return Error(EAssetError::CorruptFile,
-					"SoftReferenceMoveTrailingBytes: field payload has trailing bytes.");
+					"AssetReferenceFixupTrailingBytes: field payload has trailing bytes.");
 			OutPayload = std::move(Writer.Bytes);
 			return {};
 		}
 
-		auto RewriteSerializedSoftValue(
+		auto RewriteSerializedReferenceValue(
 			FProperty* Property,
 			FByteReader& Reader,
 			FByteWriter& Writer,
-			const FAssetPath& OldPath,
-			const FAssetPath& NewPath,
+			std::span<const FAssetRedirectorFixupMapping> Mappings,
 			uint64& RewriteCount,
 			uint32 ContainerDepth) -> FAssetResult
 		{
-			if (!Property || ContainerDepth > MaximumSoftReferenceContainerDepth)
+			if (!Property || ContainerDepth > MaximumReferenceContainerDepth)
 				return Error(EAssetError::TypeMismatch,
-					"SoftReferenceMoveSchemaMismatch: serialized container metadata is invalid.");
+					"AssetReferenceFixupSchemaMismatch: serialized container metadata is invalid.");
 			switch (Property->GetKind())
 			{
+			case DurinCodeGen::EPropertyGenFlags::Object:
+			{
+				uint8 Kind = 0;
+				if (!Reader.Read(Kind))
+					return Error(EAssetError::CorruptFile,
+						"AssetReferenceFixupTruncated: missing object reference tag.");
+				Writer.Write(Kind);
+				if (Kind == 0) return {};
+				if (Kind == 1)
+				{
+					uint64 ObjectId = 0;
+					if (!Reader.Read(ObjectId) || ObjectId == 0)
+						return Error(EAssetError::InvalidObjectGraph,
+							"AssetReferenceFixupInternalObject: invalid object id.");
+					Writer.Write(ObjectId);
+					return {};
+				}
+				if (Kind != 2)
+					return Error(EAssetError::CorruptFile,
+						"AssetReferenceFixupTag: unknown object reference tag.");
+				std::string PathString;
+				FAssetPath Path;
+				if (!Reader.ReadString(PathString, MaximumPackageStringBytes)
+					|| !FAssetPath::TryCreate(PathString, Path))
+					return Error(EAssetError::InvalidPath,
+						"AssetReferenceFixupPath: invalid external object path.");
+				if (const FAssetPath* Destination = FindFixupDestination(Path, Mappings))
+				{
+					Writer.WriteString(Destination->GetView());
+					++RewriteCount;
+				}
+				else Writer.WriteString(PathString);
+				return {};
+			}
 			case DurinCodeGen::EPropertyGenFlags::SoftObject:
 			{
 				uint8 Kind = 0;
 				if (!Reader.Read(Kind))
 					return Error(EAssetError::CorruptFile,
-						"SoftReferenceMoveTruncated: missing reference tag.");
+						"AssetReferenceFixupTruncated: missing soft reference tag.");
 				Writer.Write(Kind);
 				if (Kind == 0) return {};
 				if (Kind != 1)
 					return Error(EAssetError::CorruptFile,
-						"SoftReferenceMoveTag: unknown reference tag.");
+						"AssetReferenceFixupTag: unknown soft reference tag.");
 				std::string PathString;
 				FSoftObjectPath Path;
 				std::string PathError;
 				if (!Reader.ReadString(PathString, MaximumPackageStringBytes)
 					|| PathString.empty())
 					return Error(EAssetError::CorruptFile,
-						"SoftReferenceMovePath: path is truncated or overlong.");
+						"AssetReferenceFixupPath: soft path is truncated or overlong.");
 				if (!FSoftObjectPath::TryCreate(PathString, Path, &PathError))
 					return Error(EAssetError::InvalidPath, std::move(PathError));
-				if (Path.GetAssetPath() == OldPath)
+				if (const FAssetPath* Destination = FindFixupDestination(
+					Path.GetAssetPath(), Mappings))
 				{
-					Writer.WriteString(NewPath.GetView());
+					Writer.WriteString(Destination->GetView());
 					++RewriteCount;
 				}
 				else Writer.WriteString(PathString);
@@ -1702,12 +1887,12 @@ namespace Durin::Asset
 				uint64 Count = 0;
 				if (!Array->GetInner() || !Reader.Read(Count) || Count > 10000000)
 					return Error(EAssetError::CorruptFile,
-						"SoftReferenceMoveArrayPayload: invalid count.");
+						"AssetReferenceFixupArrayPayload: invalid count.");
 				Writer.Write(Count);
 				for (uint64 Index = 0; Index < Count; ++Index)
 				{
-					FAssetResult Result = RewriteSerializedSoftValue(
-						Array->GetInner(), Reader, Writer, OldPath, NewPath,
+					FAssetResult Result = RewriteSerializedReferenceValue(
+						Array->GetInner(), Reader, Writer, Mappings,
 						RewriteCount, ContainerDepth + 1);
 					if (!Result) return Result;
 				}
@@ -1719,9 +1904,9 @@ namespace Durin::Asset
 				uint64 Count = 0;
 				if (!Map->GetKeyProp() || !Map->GetValueProp()
 					|| !Reader.Read(Count) || Count > 10000000
-					|| ContainsSoftObjectProperty(Map->GetKeyProp()))
+					|| ContainsAssetReferenceProperty(Map->GetKeyProp()))
 					return Error(EAssetError::CorruptFile,
-						"SoftReferenceMoveMapPayload: invalid map schema or count.");
+						"AssetReferenceFixupMapPayload: invalid map schema or count.");
 				Writer.Write(Count);
 				for (uint64 Index = 0; Index < Count; ++Index)
 				{
@@ -1736,8 +1921,8 @@ namespace Durin::Asset
 					Result = SerializeValue(
 						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Writer, {}, Dependencies);
 					if (!Result) return Result;
-					Result = RewriteSerializedSoftValue(
-						Map->GetValueProp(), Reader, Writer, OldPath, NewPath,
+					Result = RewriteSerializedReferenceValue(
+						Map->GetValueProp(), Reader, Writer, Mappings,
 						RewriteCount, ContainerDepth + 1);
 					if (!Result) return Result;
 				}
@@ -1753,7 +1938,7 @@ namespace Durin::Asset
 					|| StructName != Struct->GetQualifiedName().ToString()
 					|| !Reader.Read(FieldCount) || FieldCount > 100000)
 					return Error(EAssetError::TypeMismatch,
-						"SoftReferenceMoveStructPayload: incompatible header.");
+						"AssetReferenceFixupStructPayload: incompatible header.");
 				Writer.WriteString(StructName);
 				Writer.Write(FieldCount);
 				for (uint64 Index = 0; Index < FieldCount; ++Index)
@@ -1771,7 +1956,7 @@ namespace Durin::Asset
 						|| !Reader.Read(PayloadSize) || PayloadSize > Reader.Bytes.size()
 						|| !Reader.ReadSpan(static_cast<size_t>(PayloadSize), FieldPayload))
 						return Error(EAssetError::CorruptFile,
-							"SoftReferenceMoveStructPayload: malformed field.");
+							"AssetReferenceFixupStructPayload: malformed field.");
 					Writer.WriteString(DeclaringStruct);
 					Writer.WriteString(FieldName);
 					Writer.Write(Kind);
@@ -1779,7 +1964,7 @@ namespace Durin::Asset
 					FProperty* Field = DeclaringStruct == StructName
 						? Struct->FindPropertyByName(FName(FieldName), false) : nullptr;
 					if (!Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)
-						|| !ContainsSoftObjectProperty(Field))
+						|| !ContainsAssetReferenceProperty(Field))
 					{
 						Writer.Write(PayloadSize);
 						Writer.WriteBytes(FieldPayload.data(), FieldPayload.size());
@@ -1788,10 +1973,10 @@ namespace Durin::Asset
 					if (static_cast<uint8>(Field->GetKind()) != Kind
 						|| !IsSerializedTypeSignatureCompatible(Field, Signature))
 						return Error(EAssetError::TypeMismatch,
-							"SoftReferenceMoveSchemaMismatch: struct field signature changed.");
+							"AssetReferenceFixupSchemaMismatch: struct field signature changed.");
 					std::vector<uint8> RewrittenPayload;
-					FAssetResult Result = RewriteSerializedSoftProperty(
-						Field, FieldPayload, OldPath, NewPath, RewrittenPayload,
+					FAssetResult Result = RewriteSerializedReferenceProperty(
+						Field, FieldPayload, Mappings, RewrittenPayload,
 						RewriteCount, ContainerDepth);
 					if (!Result) return Result;
 					Writer.Write(uint64(RewrittenPayload.size()));
@@ -1801,49 +1986,62 @@ namespace Durin::Asset
 			}
 			default:
 				return Error(EAssetError::TypeMismatch,
-					"SoftReferenceMoveSchemaMismatch: unsupported serialized soft container.");
+					"AssetReferenceFixupSchemaMismatch: unsupported serialized reference container.");
 			}
 		}
 
-		auto RewriteUnloadedSoftPackage(
+		auto RewritePackageReferences(
 			std::span<const uint8> Bytes,
-			const FAssetPath& OldPath,
-			const FAssetPath& NewPath,
+			std::span<const FAssetRedirectorFixupMapping> Mappings,
 			uint64 ExpectedRewriteCount,
 			std::vector<uint8>& OutBytes) -> FAssetResult
 		{
 			FPackageFile File;
 			FAssetResult Result = ReadPackageFile(Bytes, File, false);
 			if (!Result) return Result;
+			File.FormatVersion = AssetVersion;
 			uint64 RewriteCount = 0;
 			for (FObjectRecord& Object : File.Objects)
 			{
 				DClass* ObjectClass = FindClassByQualifiedName(FName(Object.ClassName));
 				if (!ObjectClass)
 					return Error(EAssetError::UnknownClass,
-						"SoftReferenceMoveUnknownClass: source object class is unavailable.");
+						"AssetReferenceFixupUnknownClass: source object class is unavailable.");
 				for (FFieldRecord& Field : Object.Fields)
 				{
 					DClass* DeclaringClass = FindClassByQualifiedName(FName(Field.DeclaringClass));
 					FProperty* Property = DeclaringClass && ObjectClass->IsChildOf(DeclaringClass)
 						? DeclaringClass->FindPropertyByName(FName(Field.Name), false) : nullptr;
-					if (!Property || !ContainsSoftObjectProperty(Property)) continue;
+					if (!Property || !ContainsAssetReferenceProperty(Property)) continue;
 					if (Property->GetKind() != Field.Kind
 						|| !IsSerializedTypeSignatureCompatible(Property, Field.TypeSignature))
 						return Error(EAssetError::TypeMismatch,
-							"SoftReferenceMoveSchemaMismatch: source field signature changed.");
+							"AssetReferenceFixupSchemaMismatch: source field signature changed.");
 					std::vector<uint8> RewrittenPayload;
-					Result = RewriteSerializedSoftProperty(
-						Property, Field.Payload, OldPath, NewPath,
+					Result = RewriteSerializedReferenceProperty(
+						Property, Field.Payload, Mappings,
 						RewrittenPayload, RewriteCount);
 					if (!Result) return Result;
 					Field.Payload = std::move(RewrittenPayload);
 				}
 			}
+			for (FAssetPath& Dependency : File.Dependencies)
+				if (const FAssetPath* Destination = FindFixupDestination(
+					Dependency, Mappings)) Dependency = *Destination;
+			std::ranges::sort(File.Dependencies, [](const FAssetPath& Left, const FAssetPath& Right) {
+				return Left.GetView() < Right.GetView();
+			});
+			File.Dependencies.erase(
+				std::unique(File.Dependencies.begin(), File.Dependencies.end()),
+				File.Dependencies.end());
+			if (File.EntryKind == EAssetRegistryEntryKind::Redirector)
+				if (const FAssetPath* Destination = FindFixupDestination(
+					File.RedirectDestination, Mappings)) File.RedirectDestination = *Destination;
 			if (RewriteCount != ExpectedRewriteCount)
 				return Error(EAssetError::InUse, std::format(
-					"SoftReferenceMoveStaleIndex: expected {} occurrence(s), parsed {}.",
+					"AssetReferenceFixupStaleIndex: expected {} occurrence(s), parsed {}.",
 					ExpectedRewriteCount, RewriteCount));
+			if (Result = ValidateRedirectorBody(File); !Result) return Result;
 			FByteWriter Writer;
 			WritePackageFile(File, Writer);
 			OutBytes = std::move(Writer.Bytes);
@@ -2086,53 +2284,53 @@ namespace Durin::Asset
 			return true;
 		}
 
-		constexpr uint32 SoftReferenceIndexMagic = 0x58495253; // SRIX
-		constexpr uint32 SoftReferenceIndexSchemaVersion = 1;
-		constexpr uint32 SoftReferenceExtractorSchemaVersion = 1;
-		constexpr uintmax_t MaximumSoftReferenceCacheBytes = 1024ull * 1024ull * 1024ull;
+		constexpr uint32 AssetReferenceIndexMagic = 0x58495241; // ARIX
+		constexpr uint32 AssetReferenceIndexSchemaVersion = 1;
+		constexpr uint32 AssetReferenceExtractorSchemaVersion = 1;
+		constexpr uintmax_t MaximumReferenceCacheBytes = 1024ull * 1024ull * 1024ull;
 
-		struct FSoftReferenceCacheSource
+		struct FReferenceCacheSource
 		{
 			FAssetPackageFingerprint Fingerprint;
-			std::vector<FSoftAssetReference> References;
+			std::vector<FAssetReferenceEdge> References;
 		};
 
-		auto SoftReferenceCachePath() -> std::filesystem::path
+		auto ReferenceCachePath() -> std::filesystem::path
 		{
 			return std::filesystem::path(FPaths::DerivedDataCacheDir())
-				/ "AssetRegistry" / "SoftReferences.bin";
+				/ "AssetRegistry" / "References.bin";
 		}
 
-		auto LoadSoftReferenceCache(
-			std::unordered_map<FAssetPath, FSoftReferenceCacheSource>& OutSources,
+		auto LoadReferenceCache(
+			std::unordered_map<FAssetPath, FReferenceCacheSource>& OutSources,
 			std::string& OutWarning) -> bool
 		{
 			OutSources.clear();
-			const std::filesystem::path Path = SoftReferenceCachePath();
+			const std::filesystem::path Path = ReferenceCachePath();
 			std::error_code Ec;
 			if (!std::filesystem::exists(Path, Ec)) return false;
 			const uintmax_t Size = std::filesystem::file_size(Path, Ec);
-			if (Ec || Size > MaximumSoftReferenceCacheBytes)
+			if (Ec || Size > MaximumReferenceCacheBytes)
 			{
-				OutWarning = std::format("Ignoring invalid soft-reference cache {}.", Path.generic_string());
+				OutWarning = std::format("Ignoring invalid asset-reference cache {}.", Path.generic_string());
 				return false;
 			}
 			std::vector<uint8> Bytes;
 			if (!FFileHelper::LoadFileToArray(Bytes, Path.generic_string()))
 			{
-				OutWarning = std::format("Failed to read soft-reference cache {}.", Path.generic_string());
+				OutWarning = std::format("Failed to read asset-reference cache {}.", Path.generic_string());
 				return false;
 			}
 			DerivedDataCache::FReader Reader(Bytes);
 			uint32 ExtractorSchema = 0;
 			uint64 SourceCount = 0;
 			if (!Reader.ReadAndValidateHeader(
-					SoftReferenceIndexMagic, SoftReferenceIndexSchemaVersion, AssetVersion)
+					AssetReferenceIndexMagic, AssetReferenceIndexSchemaVersion, AssetVersion)
 				|| !Reader.ReadU32(ExtractorSchema)
-				|| ExtractorSchema != SoftReferenceExtractorSchemaVersion
+				|| ExtractorSchema != AssetReferenceExtractorSchemaVersion
 				|| !Reader.ReadU64(SourceCount) || SourceCount > MaximumRegistryEntries)
 			{
-				OutWarning = "Ignoring incompatible or corrupt soft-reference cache header.";
+				OutWarning = "Ignoring incompatible or corrupt asset-reference cache header.";
 				return false;
 			}
 			uint64 TotalOccurrences = 0;
@@ -2140,7 +2338,7 @@ namespace Durin::Asset
 			{
 				std::string SourceString;
 				FAssetPath SourcePath;
-				FSoftReferenceCacheSource Source;
+				FReferenceCacheSource Source;
 				uint64 FileSize = 0;
 				uint64 OccurrenceCount = 0;
 				if (!Reader.ReadString(SourceString, MaximumPackageStringBytes)
@@ -2150,10 +2348,10 @@ namespace Durin::Asset
 					|| !Reader.ReadU64(Source.Fingerprint.ContentHash.HashLow)
 					|| !Reader.ReadU64(Source.Fingerprint.ContentHash.HashHigh)
 					|| !Reader.ReadU64(OccurrenceCount)
-					|| OccurrenceCount > MaximumSoftReferencesPerPackage
-					|| TotalOccurrences > MaximumSoftReferencesPerSnapshot - OccurrenceCount)
+					|| OccurrenceCount > MaximumReferencesPerPackage
+					|| TotalOccurrences > MaximumReferencesPerSnapshot - OccurrenceCount)
 				{
-					OutWarning = "Ignoring corrupt soft-reference cache source record.";
+					OutWarning = "Ignoring corrupt asset-reference cache source record.";
 					OutSources.clear();
 					return false;
 				}
@@ -2162,57 +2360,65 @@ namespace Durin::Asset
 				Source.References.reserve(static_cast<size_t>(OccurrenceCount));
 				for (uint64 OccurrenceIndex = 0; OccurrenceIndex < OccurrenceCount; ++OccurrenceIndex)
 				{
-					FSoftAssetReference Reference{
+					FAssetReferenceEdge Reference{
 						.SourcePackage = SourcePath,
 						.SourceFingerprint = Source.Fingerprint};
 					std::string TargetString;
 					uint32 RouteCount = 0;
+					uint8 ReferenceKind = 0;
 					if (!Reader.ReadU64(Reference.SourceObjectId)
 						|| !Reader.ReadString(Reference.SourceClass, MaximumPackageStringBytes)
 						|| !Reader.ReadString(Reference.DeclaringType, MaximumPackageStringBytes)
 						|| !Reader.ReadString(Reference.FieldName, MaximumPackageStringBytes)
+						|| !Reader.ReadU8(ReferenceKind)
+						|| ReferenceKind > static_cast<uint8>(EAssetReferenceKind::Redirect)
 						|| !Reader.ReadString(Reference.ExpectedClass, MaximumPackageStringBytes)
 						|| !Reader.ReadString(TargetString, MaximumPackageStringBytes)
 						|| !FAssetPath::TryCreate(TargetString, Reference.TargetPath)
 						|| !Reader.ReadU32(RouteCount)
-						|| RouteCount > MaximumSoftReferenceContainerDepth)
+						|| RouteCount > MaximumReferenceContainerDepth)
 					{
-						OutWarning = "Ignoring corrupt soft-reference cache occurrence.";
+						OutWarning = "Ignoring corrupt asset-reference cache occurrence.";
 						OutSources.clear();
 						return false;
 					}
-					Reference.ContainerRoute.reserve(RouteCount);
+					Reference.Kind = static_cast<EAssetReferenceKind>(ReferenceKind);
+					Reference.Route.reserve(RouteCount);
 					for (uint32 RouteIndex = 0; RouteIndex < RouteCount; ++RouteIndex)
 					{
 						uint8 Kind = 0;
 						uint64 TokenBytes = 0;
-						FSoftAssetReferenceRouteSegment Segment;
+						FAssetReferenceRouteSegment Segment;
 						if (!Reader.ReadU8(Kind)
-							|| Kind > static_cast<uint8>(ESoftAssetReferenceRouteKind::MapValue)
+							|| Kind > static_cast<uint8>(EAssetReferenceRouteKind::StructField)
 							|| !Reader.ReadU64(Segment.Index)
 							|| !Reader.ReadU64(TokenBytes)
 							|| !Reader.ReadBytes(
-								Segment.MapKeyToken, TokenBytes, MaximumSoftReferenceRouteTokenBytes))
+								Segment.MapKeyToken, TokenBytes, MaximumReferenceRouteTokenBytes)
+							|| !Reader.ReadString(Segment.DeclaringType, MaximumPackageStringBytes)
+							|| !Reader.ReadString(Segment.FieldName, MaximumPackageStringBytes))
 						{
-							OutWarning = "Ignoring corrupt soft-reference cache route.";
+							OutWarning = "Ignoring corrupt asset-reference cache route.";
 							OutSources.clear();
 							return false;
 						}
-						Segment.Kind = static_cast<ESoftAssetReferenceRouteKind>(Kind);
-						if ((Segment.Kind == ESoftAssetReferenceRouteKind::MapValue)
-							!= !Segment.MapKeyToken.empty())
+						Segment.Kind = static_cast<EAssetReferenceRouteKind>(Kind);
+						if ((Segment.Kind == EAssetReferenceRouteKind::MapValue)
+							!= !Segment.MapKeyToken.empty()
+							|| (Segment.Kind == EAssetReferenceRouteKind::StructField)
+							!= (!Segment.DeclaringType.empty() && !Segment.FieldName.empty()))
 						{
-							OutWarning = "Ignoring inconsistent soft-reference cache route.";
+							OutWarning = "Ignoring inconsistent asset-reference cache route.";
 							OutSources.clear();
 							return false;
 						}
-						Reference.ContainerRoute.push_back(std::move(Segment));
+						Reference.Route.push_back(std::move(Segment));
 					}
 					if (!Reader.ReadString(
-						Reference.PropertyPath, MaximumSoftReferenceDisplayPathBytes)
-						|| Reference.PropertyPath.empty())
+						Reference.DisplayRoute, MaximumReferenceDisplayRouteBytes)
+						|| Reference.DisplayRoute.empty())
 					{
-						OutWarning = "Ignoring invalid soft-reference cache display path.";
+						OutWarning = "Ignoring invalid asset-reference cache display route.";
 						OutSources.clear();
 						return false;
 					}
@@ -2220,33 +2426,33 @@ namespace Durin::Asset
 				}
 				if (!OutSources.emplace(SourcePath, std::move(Source)).second)
 				{
-					OutWarning = "Ignoring duplicate soft-reference cache source.";
+					OutWarning = "Ignoring duplicate asset-reference cache source.";
 					OutSources.clear();
 					return false;
 				}
 			}
 			if (!Reader.IsAtEnd())
 			{
-				OutWarning = "Ignoring soft-reference cache with trailing data.";
+				OutWarning = "Ignoring asset-reference cache with trailing data.";
 				OutSources.clear();
 				return false;
 			}
 			return true;
 		}
 
-		auto WriteSoftReferenceCache(
+		auto WriteReferenceCache(
 			const std::unordered_map<FAssetPath, FAssetPackageFingerprint>& Fingerprints,
-			std::span<const FSoftAssetReference> References,
+			std::span<const FAssetReferenceEdge> References,
 			std::string& OutWarning) -> bool
 		{
 			if (Fingerprints.size() > MaximumRegistryEntries
-				|| References.size() > MaximumSoftReferencesPerSnapshot)
+				|| References.size() > MaximumReferencesPerSnapshot)
 			{
-				OutWarning = "Soft-reference index exceeds its persisted snapshot bounds.";
+				OutWarning = "Asset-reference index exceeds its persisted snapshot bounds.";
 				return false;
 			}
-			std::unordered_map<FAssetPath, std::vector<const FSoftAssetReference*>> BySource;
-			for (const FSoftAssetReference& Reference : References)
+			std::unordered_map<FAssetPath, std::vector<const FAssetReferenceEdge*>> BySource;
+			for (const FAssetReferenceEdge& Reference : References)
 				BySource[Reference.SourcePackage].push_back(&Reference);
 			std::vector<FAssetPath> Sources;
 			Sources.reserve(Fingerprints.size());
@@ -2256,8 +2462,8 @@ namespace Durin::Asset
 			});
 
 			DerivedDataCache::FWriter Writer;
-			Writer.WriteHeader({SoftReferenceIndexMagic, SoftReferenceIndexSchemaVersion, AssetVersion});
-			Writer.WriteU32(SoftReferenceExtractorSchemaVersion);
+			Writer.WriteHeader({AssetReferenceIndexMagic, AssetReferenceIndexSchemaVersion, AssetVersion});
+			Writer.WriteU32(AssetReferenceExtractorSchemaVersion);
 			Writer.WriteU64(Sources.size());
 			for (const FAssetPath& Source : Sources)
 			{
@@ -2265,10 +2471,10 @@ namespace Durin::Asset
 				const auto ReferencesIt = BySource.find(Source);
 				const size_t ReferenceCount = ReferencesIt == BySource.end()
 					? 0 : ReferencesIt->second.size();
-				if (ReferenceCount > MaximumSoftReferencesPerPackage)
+				if (ReferenceCount > MaximumReferencesPerPackage)
 				{
 					OutWarning = std::format(
-						"Soft-reference source {} exceeds its occurrence bound.", Source.ToString());
+						"Asset-reference source {} exceeds its occurrence bound.", Source.ToString());
 					return false;
 				}
 				Writer.WriteString(Source.GetView());
@@ -2278,32 +2484,40 @@ namespace Durin::Asset
 				Writer.WriteU64(Fingerprint.ContentHash.HashHigh);
 				Writer.WriteU64(ReferenceCount);
 				if (ReferencesIt == BySource.end()) continue;
-				for (const FSoftAssetReference* Reference : ReferencesIt->second)
+				for (const FAssetReferenceEdge* Reference : ReferencesIt->second)
 				{
 					Writer.WriteU64(Reference->SourceObjectId);
 					Writer.WriteString(Reference->SourceClass);
 					Writer.WriteString(Reference->DeclaringType);
 					Writer.WriteString(Reference->FieldName);
+					Writer.WriteU8(static_cast<uint8>(Reference->Kind));
 					Writer.WriteString(Reference->ExpectedClass);
 					Writer.WriteString(Reference->TargetPath.GetView());
-					Writer.WriteU32(static_cast<uint32>(Reference->ContainerRoute.size()));
-					for (const FSoftAssetReferenceRouteSegment& Segment : Reference->ContainerRoute)
+					Writer.WriteU32(static_cast<uint32>(Reference->Route.size()));
+					for (const FAssetReferenceRouteSegment& Segment : Reference->Route)
 					{
 						Writer.WriteU8(static_cast<uint8>(Segment.Kind));
 						Writer.WriteU64(Segment.Index);
 						Writer.WriteU64(Segment.MapKeyToken.size());
 						Writer.WriteBytes(Segment.MapKeyToken);
+						Writer.WriteString(Segment.DeclaringType);
+						Writer.WriteString(Segment.FieldName);
 					}
-					Writer.WriteString(Reference->PropertyPath);
+					Writer.WriteString(Reference->DisplayRoute);
 				}
 			}
 			std::string ErrorMessage;
 			if (!DerivedDataCache::WriteFileAtomically(
-				SoftReferenceCachePath(), Writer.GetBytes(), &ErrorMessage))
+				ReferenceCachePath(), Writer.GetBytes(), &ErrorMessage))
 			{
 				OutWarning = std::move(ErrorMessage);
 				return false;
 			}
+			std::error_code LegacyError;
+			std::filesystem::remove(
+				std::filesystem::path(FPaths::DerivedDataCacheDir())
+					/ "AssetRegistry" / "SoftReferences.bin",
+				LegacyError);
 			return true;
 		}
 
@@ -2798,10 +3012,10 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto ExtractSoftAssetReferences(
+	auto ExtractAssetReferences(
 		const FAssetPath& SourcePackage,
 		const FAssetPackageInspection& Inspection,
-		std::vector<FSoftAssetReference>& OutReferences) -> FAssetResult
+		std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult
 	{
 		OutReferences.clear();
 		if (!SourcePackage.IsValid())
@@ -2814,7 +3028,7 @@ namespace Durin::Asset
 			return Error(EAssetError::TypeMismatch,
 				"SoftReferenceIndexRuntimeTypeMismatch: header and main-object classes differ.");
 
-		std::vector<FSoftAssetReference> References;
+		std::vector<FAssetReferenceEdge> References;
 		for (const FAssetPackageObjectInspection& Object : Inspection.Objects)
 		{
 			DClass* ObjectClass = FindClassByQualifiedName(FName(Object.ClassName));
@@ -2829,36 +3043,45 @@ namespace Durin::Asset
 					: nullptr;
 				if (!Property)
 				{
-					// Unknown fields remain compatibility payloads. Without current reflection
-					// metadata they cannot safely contribute a typed derived record.
-					continue;
-				}
-				const bool bCurrentContainsSoftObject = ContainsSoftObjectProperty(Property);
-				const bool bStoredContainsSoftObject = Field.TypeSignature.find("SoftObject:") != std::string::npos;
-				if (Property->GetKind() != Field.Kind
-					|| !IsSerializedTypeSignatureCompatible(Property, Field.TypeSignature))
-				{
-					if (bCurrentContainsSoftObject || bStoredContainsSoftObject)
+					if (Field.TypeSignature.find("SoftObject:") != std::string::npos
+						|| Field.TypeSignature.find("Object:") != std::string::npos)
 						return Error(EAssetError::TypeMismatch, std::format(
-							"SoftReferenceSchemaMismatch: {}::{} has incompatible kind or signature.",
+							"AssetReferenceSchemaMismatch: {}::{} has no current property metadata.",
 							Field.DeclaringClass, Field.Name));
 					continue;
 				}
-				if (!bCurrentContainsSoftObject) continue;
-				FSoftReferenceExtractionContext Context{
+				const bool bCurrentContainsReference = ContainsAssetReferenceProperty(Property);
+				const bool bStoredContainsReference =
+					Field.TypeSignature.find("SoftObject:") != std::string::npos
+					|| Field.TypeSignature.find("Object:") != std::string::npos;
+				if (Property->GetKind() != Field.Kind
+					|| !IsSerializedTypeSignatureCompatible(Property, Field.TypeSignature))
+				{
+					if (bCurrentContainsReference || bStoredContainsReference)
+						return Error(EAssetError::TypeMismatch, std::format(
+							"AssetReferenceSchemaMismatch: {}::{} has incompatible kind or signature.",
+							Field.DeclaringClass, Field.Name));
+					continue;
+				}
+				if (!bCurrentContainsReference) continue;
+				FReferenceExtractionContext Context{
 					.SourcePackage = SourcePackage,
 					.Fingerprint = Inspection.Fingerprint,
 					.Object = Object,
 					.DeclaringType = Field.DeclaringClass,
 					.FieldName = Field.Name,
+					.ObjectKind = Inspection.Header.EntryKind
+						== EAssetRegistryEntryKind::Redirector
+						? EAssetReferenceKind::Redirect
+						: EAssetReferenceKind::HardObject,
 					.References = References};
-				std::vector<FSoftAssetReferenceRouteSegment> Route;
-				FAssetResult Result = ExtractSoftPropertyValues(
+				std::vector<FAssetReferenceRouteSegment> Route;
+				FAssetResult Result = ExtractReferencePropertyValues(
 					Property, Field.Payload, Context, Route, Field.Name, 0);
 				if (!Result) return Result;
 			}
 		}
-		std::ranges::sort(References, &SoftReferenceLess);
+		std::ranges::sort(References, &AssetReferenceLess);
 		OutReferences = std::move(References);
 		return {};
 	}
@@ -2998,12 +3221,44 @@ namespace Durin::Asset
 		if (Handle != 0) GetMoveObservers().erase(Handle);
 	}
 
+	auto RegisterAssetReferenceStore(IAssetReferenceStore* Store)
+		-> FAssetReferenceStoreHandle
+	{
+		if (!Store) return 0;
+		auto& Registry = GetAssetReferenceStoreRegistry();
+		const FAssetReferenceStoreHandle Handle = Registry.NextHandle++;
+		Registry.Stores.emplace(Handle, Store);
+		++Registry.Revision;
+		return Handle;
+	}
+
+	auto UnregisterAssetReferenceStore(FAssetReferenceStoreHandle Handle) -> void
+	{
+		if (Handle == 0) return;
+		auto& Registry = GetAssetReferenceStoreRegistry();
+		if (Registry.Stores.erase(Handle) != 0) ++Registry.Revision;
+	}
+
 	auto SetAssetRelocationFailurePointForTesting(
 		EAssetRelocationFailurePoint Point,
 		uint32 Occurrence) -> void
 	{
 		auto& Injection = GetRelocationFailureInjection();
 		if (Point == EAssetRelocationFailurePoint::None)
+		{
+			Injection.RemainingOccurrences.clear();
+			return;
+		}
+		Injection.RemainingOccurrences.insert_or_assign(
+			Point, std::max(Occurrence, 1u));
+	}
+
+	auto SetAssetRedirectorFixupFailurePointForTesting(
+		EAssetRedirectorFixupFailurePoint Point,
+		uint32 Occurrence) -> void
+	{
+		auto& Injection = GetFixupFailureInjection();
+		if (Point == EAssetRedirectorFixupFailurePoint::None)
 		{
 			Injection.RemainingOccurrences.clear();
 			return;
@@ -3023,18 +3278,18 @@ namespace Durin::Asset
 		std::unordered_map<FAssetPath, FAssetData> NewAssets;
 		std::vector<FRegistryCacheEntry> NewCacheEntries;
 		std::unordered_map<std::string, FRegistryCacheEntry> CachedEntries;
-		std::unordered_map<FAssetPath, FSoftReferenceCacheSource> CachedSoftSources;
+		std::unordered_map<FAssetPath, FReferenceCacheSource> CachedReferenceSources;
 		std::unordered_set<std::string> SeenCachedIdentities;
 		ScanErrors.clear();
 		LastScanStats = {};
 		CacheWarning.clear();
-		SoftReferenceErrors.clear();
-		SoftReferenceIndexStats = {};
-		SoftReferenceCacheWarning.clear();
+		ReferenceIndex.Errors.clear();
+		ReferenceIndex.Stats = {};
+		ReferenceIndex.CacheWarning.clear();
 		const std::vector<std::string> MountManifest = GetMountManifest();
 		const bool bCacheLoaded = LoadRegistryCache(MountManifest, CachedEntries, CacheWarning);
-		const bool bSoftCacheLoaded = LoadSoftReferenceCache(
-			CachedSoftSources, SoftReferenceCacheWarning);
+		const bool bReferenceCacheLoaded = LoadReferenceCache(
+			CachedReferenceSources, ReferenceIndex.CacheWarning);
 		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
 		{
 			if (!Mount.bAutoScan) continue;
@@ -3182,101 +3437,103 @@ namespace Durin::Asset
 		std::ranges::sort(SortedAssets, [](const FAssetData* Left, const FAssetData* Right) {
 			return Left->PackagePath.GetView() < Right->PackagePath.GetView();
 		});
-		std::vector<FSoftAssetReference> NewSoftReferences;
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint> NewSoftFingerprints;
+		std::vector<FAssetReferenceEdge> NewReferenceEdges;
+		std::unordered_map<FAssetPath, FAssetPackageFingerprint> NewReferenceFingerprints;
 		for (const FAssetData* Data : SortedAssets)
 		{
 			std::vector<uint8> Bytes;
 			FAssetPackageFingerprint Fingerprint;
 			if (!FFileHelper::LoadFileToArray(Bytes, Data->PhysicalPath))
 			{
-				SoftReferenceErrors.push_back(Error(EAssetError::IoError, std::format(
-					"SoftReferenceIndexReadFailed: could not read {}.", Data->PhysicalPath)));
-				++SoftReferenceIndexStats.FailedSources;
+				ReferenceIndex.Errors.push_back(Error(EAssetError::IoError, std::format(
+					"AssetReferenceIndexReadFailed: could not read {}.", Data->PhysicalPath)));
+				++ReferenceIndex.Stats.FailedSources;
 				continue;
 			}
 			FAssetResult FingerprintResult = MakePackageFingerprint(
 				Data->PhysicalPath, Bytes, Fingerprint);
 			if (!FingerprintResult)
 			{
-				SoftReferenceErrors.push_back(std::move(FingerprintResult));
-				++SoftReferenceIndexStats.FailedSources;
+				ReferenceIndex.Errors.push_back(std::move(FingerprintResult));
+				++ReferenceIndex.Stats.FailedSources;
 				continue;
 			}
-			const auto CachedIt = CachedSoftSources.find(Data->PackagePath);
-			if (Mode == EAssetRegistryScanMode::Incremental && bSoftCacheLoaded
-				&& CachedIt != CachedSoftSources.end()
+			const auto CachedIt = CachedReferenceSources.find(Data->PackagePath);
+			if (Mode == EAssetRegistryScanMode::Incremental && bReferenceCacheLoaded
+				&& CachedIt != CachedReferenceSources.end()
 				&& CachedIt->second.Fingerprint == Fingerprint)
 			{
-				if (NewSoftReferences.size() > MaximumSoftReferencesPerSnapshot
+				if (NewReferenceEdges.size() > MaximumReferencesPerSnapshot
 					- CachedIt->second.References.size())
 				{
-					SoftReferenceErrors.push_back(Error(EAssetError::CorruptFile,
-						"SoftReferenceIndexSnapshotExceeded: scan exceeds 1,000,000 occurrences."));
-					++SoftReferenceIndexStats.FailedSources;
+					ReferenceIndex.Errors.push_back(Error(EAssetError::CorruptFile,
+						"AssetReferenceIndexSnapshotExceeded: scan exceeds 1,000,000 occurrences."));
+					++ReferenceIndex.Stats.FailedSources;
 					continue;
 				}
-				NewSoftReferences.insert(
-					NewSoftReferences.end(),
+				NewReferenceEdges.insert(
+					NewReferenceEdges.end(),
 					CachedIt->second.References.begin(), CachedIt->second.References.end());
-				NewSoftFingerprints.emplace(Data->PackagePath, Fingerprint);
-				++SoftReferenceIndexStats.ReusedSources;
+				NewReferenceFingerprints.emplace(Data->PackagePath, Fingerprint);
+				++ReferenceIndex.Stats.ReusedSources;
 				continue;
 			}
 
 			FAssetPackageInspection Inspection;
 			FAssetResult InspectionResult = InspectAssetPackage(Data->PhysicalPath, Inspection);
-			std::vector<FSoftAssetReference> SourceReferences;
+			std::vector<FAssetReferenceEdge> SourceReferences;
 			if (InspectionResult)
-				InspectionResult = ExtractSoftAssetReferences(
+				InspectionResult = ExtractAssetReferences(
 					Data->PackagePath, Inspection, SourceReferences);
-			++SoftReferenceIndexStats.ExtractedSources;
+			++ReferenceIndex.Stats.ExtractedSources;
 			if (!InspectionResult)
 			{
 				InspectionResult.Message = std::format(
 					"{} ({})", InspectionResult.Message, Data->PhysicalPath);
-				SoftReferenceErrors.push_back(std::move(InspectionResult));
-				++SoftReferenceIndexStats.FailedSources;
+				ReferenceIndex.Errors.push_back(std::move(InspectionResult));
+				++ReferenceIndex.Stats.FailedSources;
 				continue;
 			}
-			if (NewSoftReferences.size() > MaximumSoftReferencesPerSnapshot
+			if (NewReferenceEdges.size() > MaximumReferencesPerSnapshot
 				- SourceReferences.size())
 			{
-				SoftReferenceErrors.push_back(Error(EAssetError::CorruptFile,
-					"SoftReferenceIndexSnapshotExceeded: scan exceeds 1,000,000 occurrences."));
-				++SoftReferenceIndexStats.FailedSources;
+				ReferenceIndex.Errors.push_back(Error(EAssetError::CorruptFile,
+					"AssetReferenceIndexSnapshotExceeded: scan exceeds 1,000,000 occurrences."));
+				++ReferenceIndex.Stats.FailedSources;
 				continue;
 			}
-			NewSoftReferences.insert(
-				NewSoftReferences.end(),
+			NewReferenceEdges.insert(
+				NewReferenceEdges.end(),
 				std::make_move_iterator(SourceReferences.begin()),
 				std::make_move_iterator(SourceReferences.end()));
-			NewSoftFingerprints.emplace(Data->PackagePath, Inspection.Fingerprint);
+			NewReferenceFingerprints.emplace(Data->PackagePath, Inspection.Fingerprint);
 		}
-		std::ranges::sort(NewSoftReferences, &SoftReferenceLess);
+		std::ranges::sort(NewReferenceEdges, &AssetReferenceLess);
+		ReferenceIndex.bComplete = ReferenceIndex.Errors.empty()
+			&& NewReferenceFingerprints.size() == NewAssets.size();
 
 		const bool bAssetsChanged = Assets != NewAssets;
-		const bool bSoftReferencesChanged = SoftReferences != NewSoftReferences
-			|| SoftReferenceSourceFingerprints != NewSoftFingerprints;
+		const bool bReferencesChanged = ReferenceIndex.Edges != NewReferenceEdges
+			|| ReferenceIndex.SourceFingerprints != NewReferenceFingerprints;
 		if (bAssetsChanged)
 		{
 			Assets = std::move(NewAssets);
 			RebuildRedirectorIndex();
 		}
-		if (bSoftReferencesChanged)
+		if (bReferencesChanged)
 		{
-			SoftReferences = std::move(NewSoftReferences);
-			SoftReferenceSourceFingerprints = std::move(NewSoftFingerprints);
+			ReferenceIndex.Edges = std::move(NewReferenceEdges);
+			ReferenceIndex.SourceFingerprints = std::move(NewReferenceFingerprints);
 		}
-		if (bAssetsChanged || bSoftReferencesChanged) ++Revision;
+		if (bAssetsChanged || bReferencesChanged) ++Revision;
 		bPersistentSnapshotDirty = !WriteRegistryCache(MountManifest, std::move(NewCacheEntries), CacheWarning);
 		std::string SoftWriteWarning;
-		bSoftReferenceSnapshotDirty = !WriteSoftReferenceCache(
-			SoftReferenceSourceFingerprints, SoftReferences, SoftWriteWarning);
+		ReferenceIndex.bSnapshotDirty = !WriteReferenceCache(
+			ReferenceIndex.SourceFingerprints, ReferenceIndex.Edges, SoftWriteWarning);
 		if (!SoftWriteWarning.empty())
 		{
-			if (!SoftReferenceCacheWarning.empty()) SoftReferenceCacheWarning.append(" ");
-			SoftReferenceCacheWarning.append(SoftWriteWarning);
+			if (!ReferenceIndex.CacheWarning.empty()) ReferenceIndex.CacheWarning.append(" ");
+			ReferenceIndex.CacheWarning.append(SoftWriteWarning);
 		}
 		LastScanStats.DurationMilliseconds = std::chrono::duration<double, std::milli>(
 			std::chrono::steady_clock::now() - ScanStartTime).count();
@@ -3286,10 +3543,10 @@ namespace Durin::Asset
 			LastScanStats.Reused, LastScanStats.Reparsed,
 			LastScanStats.HeaderReadAttempts, LastScanStats.HeaderBytesRead, LastScanStats.Removed, LastScanStats.Failed);
 		if (!CacheWarning.empty()) DURIN_WARN_CATEGORY("AssetRegistry", "{}", CacheWarning);
-		if (!SoftReferenceCacheWarning.empty())
-			DURIN_WARN_CATEGORY("AssetRegistry", "{}", SoftReferenceCacheWarning);
-		for (const FAssetResult& SoftError : SoftReferenceErrors)
-			DURIN_WARN_CATEGORY("AssetRegistry", "{}", SoftError.Message);
+		if (!ReferenceIndex.CacheWarning.empty())
+			DURIN_WARN_CATEGORY("AssetRegistry", "{}", ReferenceIndex.CacheWarning);
+		for (const FAssetResult& ReferenceError : ReferenceIndex.Errors)
+			DURIN_WARN_CATEGORY("AssetRegistry", "{}", ReferenceError.Message);
 		return {};
 	}
 
@@ -3311,20 +3568,20 @@ namespace Durin::Asset
 				if (!CacheWarning.empty()) DURIN_WARN_CATEGORY("AssetRegistry", "{}", CacheWarning);
 			}
 		}
-		if (bSoftReferenceSnapshotDirty)
+		if (ReferenceIndex.bSnapshotDirty)
 		{
 			std::string Warning;
-			if (WriteSoftReferenceCache(
-				SoftReferenceSourceFingerprints, SoftReferences, Warning))
+			if (WriteReferenceCache(
+				ReferenceIndex.SourceFingerprints, ReferenceIndex.Edges, Warning))
 			{
-				bSoftReferenceSnapshotDirty = false;
-				SoftReferenceCacheWarning.clear();
+				ReferenceIndex.bSnapshotDirty = false;
+				ReferenceIndex.CacheWarning.clear();
 			}
 			else
 			{
-				SoftReferenceCacheWarning = std::move(Warning);
-				if (!SoftReferenceCacheWarning.empty())
-					DURIN_WARN_CATEGORY("AssetRegistry", "{}", SoftReferenceCacheWarning);
+				ReferenceIndex.CacheWarning = std::move(Warning);
+				if (!ReferenceIndex.CacheWarning.empty())
+					DURIN_WARN_CATEGORY("AssetRegistry", "{}", ReferenceIndex.CacheWarning);
 			}
 		}
 	}
@@ -3439,19 +3696,20 @@ namespace Durin::Asset
 		}
 	}
 
-	auto FAssetRegistry::FindSoftReferencers(
-		const FAssetPath& Target) const -> std::vector<FSoftAssetReference>
+	auto FAssetReferenceIndex::FindReferencers(
+		const FAssetPath& Target) const -> std::vector<FAssetReferenceEdge>
 	{
-		std::vector<FSoftAssetReference> Result;
-		for (const FSoftAssetReference& Reference : SoftReferences)
+		std::vector<FAssetReferenceEdge> Result;
+		for (const FAssetReferenceEdge& Reference : Edges)
 			if (Reference.TargetPath == Target) Result.push_back(Reference);
 		return Result;
 	}
 
-	auto FAssetRegistry::FindSoftTargets(const FAssetPath& Source) const -> std::vector<FAssetPath>
+	auto FAssetReferenceIndex::FindTargets(
+		const FAssetPath& Source) const -> std::vector<FAssetPath>
 	{
 		std::vector<FAssetPath> Result;
-		for (const FSoftAssetReference& Reference : SoftReferences)
+		for (const FAssetReferenceEdge& Reference : Edges)
 			if (Reference.SourcePackage == Source) Result.push_back(Reference.TargetPath);
 		std::ranges::sort(Result, [](const FAssetPath& Left, const FAssetPath& Right) {
 			return Left.GetView() < Right.GetView();
@@ -3479,9 +3737,9 @@ namespace Durin::Asset
 			if (!SourceData)
 				return Error(EAssetError::MissingDependency, std::format(
 					"CookReachabilityMissingPackage: {} is not registered.", Source.ToString()));
-			if (!SoftReferenceSourceFingerprints.contains(Source))
+			if (!ReferenceIndex.SourceFingerprints.contains(Source))
 				return Error(EAssetError::StaleData, std::format(
-					"CookReachabilityIncompleteSoftIndex: {} has no current source entry.", Source.ToString()));
+					"CookReachabilityIncompleteReferenceIndex: {} has no current source entry.", Source.ToString()));
 			for (const FAssetPath& Dependency : SourceData->Dependencies)
 			{
 				if (!FindAsset(Dependency))
@@ -3490,25 +3748,26 @@ namespace Durin::Asset
 						Source.ToString(), Dependency.ToString()));
 				Pending.push_back(Dependency);
 			}
-			for (const FSoftAssetReference& Reference : SoftReferences)
+			for (const FAssetReferenceEdge& Reference : ReferenceIndex.Edges)
 			{
-				if (Reference.SourcePackage != Source) continue;
+				if (Reference.SourcePackage != Source
+					|| Reference.Kind != EAssetReferenceKind::SoftObject) continue;
 				const FAssetData* TargetData = FindAsset(Reference.TargetPath);
 				if (!TargetData)
 					return Error(EAssetError::MissingDependency, std::format(
 						"CookReachabilityMissingSoftTarget: {} references missing {} at {}.",
-						Source.ToString(), Reference.TargetPath.ToString(), Reference.PropertyPath));
+						Source.ToString(), Reference.TargetPath.ToString(), Reference.DisplayRoute));
 				DClass* ExpectedClass = FindClassByQualifiedName(FName(Reference.ExpectedClass));
 				DClass* RegisteredClass = FindClassByQualifiedName(FName(TargetData->AssetClassName));
 				if (!ExpectedClass || !RegisteredClass)
 					return Error(EAssetError::UnknownClass, std::format(
 						"CookReachabilityUnknownSoftClass: {} expects {} and target {} is registered as {}.",
-						Reference.PropertyPath, Reference.ExpectedClass,
+						Reference.DisplayRoute, Reference.ExpectedClass,
 						Reference.TargetPath.ToString(), TargetData->AssetClassName));
 				if (!RegisteredClass->IsChildOf(ExpectedClass))
 					return Error(EAssetError::TypeMismatch, std::format(
 						"CookReachabilitySoftTypeMismatch: {} expects {}, but {} is {}.",
-						Reference.PropertyPath, Reference.ExpectedClass,
+						Reference.DisplayRoute, Reference.ExpectedClass,
 						Reference.TargetPath.ToString(), TargetData->AssetClassName));
 				Pending.push_back(Reference.TargetPath);
 			}
@@ -3520,55 +3779,59 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetRegistry::RemoveSoftReferencesFromSource(const FAssetPath& Path) -> bool
+	auto FAssetRegistry::RemoveReferencesFromSource(const FAssetPath& Path) -> bool
 	{
-		const size_t PreviousCount = SoftReferences.size();
-		std::erase_if(SoftReferences, [&](const FSoftAssetReference& Reference) {
+		const size_t PreviousCount = ReferenceIndex.Edges.size();
+		std::erase_if(ReferenceIndex.Edges, [&](const FAssetReferenceEdge& Reference) {
 			return Reference.SourcePackage == Path;
 		});
-		const bool bChanged = PreviousCount != SoftReferences.size()
-			|| SoftReferenceSourceFingerprints.erase(Path) != 0;
-		if (bChanged) bSoftReferenceSnapshotDirty = true;
+		const bool bChanged = PreviousCount != ReferenceIndex.Edges.size()
+			|| ReferenceIndex.SourceFingerprints.erase(Path) != 0;
+		if (bChanged) ReferenceIndex.bSnapshotDirty = true;
 		return bChanged;
 	}
 
-	auto FAssetRegistry::RefreshSoftReferencesForAsset(const FAssetData& Data) -> bool
+	auto FAssetRegistry::RefreshReferencesForAsset(const FAssetData& Data) -> bool
 	{
-		const std::vector<FSoftAssetReference> PreviousReferences = SoftReferences;
-		const auto PreviousFingerprints = SoftReferenceSourceFingerprints;
-		RemoveSoftReferencesFromSource(Data.PackagePath);
-		SoftReferenceErrors.clear();
+		const std::vector<FAssetReferenceEdge> PreviousReferences = ReferenceIndex.Edges;
+		const auto PreviousFingerprints = ReferenceIndex.SourceFingerprints;
+		RemoveReferencesFromSource(Data.PackagePath);
+		ReferenceIndex.Errors.clear();
 		FAssetPackageInspection Inspection;
 		FAssetResult Result = InspectAssetPackage(Data.PhysicalPath, Inspection);
-		std::vector<FSoftAssetReference> SourceReferences;
+		std::vector<FAssetReferenceEdge> SourceReferences;
 		if (Result)
-			Result = ExtractSoftAssetReferences(Data.PackagePath, Inspection, SourceReferences);
+			Result = ExtractAssetReferences(Data.PackagePath, Inspection, SourceReferences);
 		if (!Result)
 		{
 			Result.Message = std::format("{} ({})", Result.Message, Data.PhysicalPath);
-			SoftReferenceErrors.push_back(std::move(Result));
-			bSoftReferenceSnapshotDirty = true;
-			return PreviousReferences != SoftReferences
-				|| PreviousFingerprints != SoftReferenceSourceFingerprints;
+			ReferenceIndex.Errors.push_back(std::move(Result));
+			ReferenceIndex.bSnapshotDirty = true;
+			ReferenceIndex.bComplete = false;
+			return PreviousReferences != ReferenceIndex.Edges
+				|| PreviousFingerprints != ReferenceIndex.SourceFingerprints;
 		}
-		if (SoftReferences.size() > MaximumSoftReferencesPerSnapshot - SourceReferences.size())
+		if (ReferenceIndex.Edges.size() > MaximumReferencesPerSnapshot - SourceReferences.size())
 		{
-			SoftReferenceErrors.push_back(Error(EAssetError::CorruptFile,
-				"SoftReferenceIndexSnapshotExceeded: mutation exceeds 1,000,000 occurrences."));
-			bSoftReferenceSnapshotDirty = true;
-			return PreviousReferences != SoftReferences
-				|| PreviousFingerprints != SoftReferenceSourceFingerprints;
+			ReferenceIndex.Errors.push_back(Error(EAssetError::CorruptFile,
+				"AssetReferenceIndexSnapshotExceeded: mutation exceeds 1,000,000 occurrences."));
+			ReferenceIndex.bSnapshotDirty = true;
+			ReferenceIndex.bComplete = false;
+			return PreviousReferences != ReferenceIndex.Edges
+				|| PreviousFingerprints != ReferenceIndex.SourceFingerprints;
 		}
-		SoftReferences.insert(
-			SoftReferences.end(),
+		ReferenceIndex.Edges.insert(
+			ReferenceIndex.Edges.end(),
 			std::make_move_iterator(SourceReferences.begin()),
 			std::make_move_iterator(SourceReferences.end()));
-		std::ranges::sort(SoftReferences, &SoftReferenceLess);
-		SoftReferenceSourceFingerprints.insert_or_assign(
+		std::ranges::sort(ReferenceIndex.Edges, &AssetReferenceLess);
+		ReferenceIndex.SourceFingerprints.insert_or_assign(
 			Data.PackagePath, Inspection.Fingerprint);
-		const bool bChanged = PreviousReferences != SoftReferences
-			|| PreviousFingerprints != SoftReferenceSourceFingerprints;
-		if (bChanged) bSoftReferenceSnapshotDirty = true;
+		const bool bChanged = PreviousReferences != ReferenceIndex.Edges
+			|| PreviousFingerprints != ReferenceIndex.SourceFingerprints;
+		ReferenceIndex.bComplete = ReferenceIndex.Errors.empty()
+			&& ReferenceIndex.SourceFingerprints.size() == Assets.size();
+		if (bChanged) ReferenceIndex.bSnapshotDirty = true;
 		return bChanged;
 	}
 
@@ -3581,16 +3844,18 @@ namespace Durin::Asset
 		if (bAssetChanged) RebuildRedirectorIndex();
 		bPersistentSnapshotDirty = true;
 		const FAssetData* Stored = FindAsset(Path);
-		const bool bSoftChanged = Stored && RefreshSoftReferencesForAsset(*Stored);
-		if (bAssetChanged || bSoftChanged) ++Revision;
+		const bool bReferencesChanged = Stored && RefreshReferencesForAsset(*Stored);
+		if (bAssetChanged || bReferencesChanged) ++Revision;
 	}
 
 	auto FAssetRegistry::Remove(const FAssetPath& Path) -> void
 	{
 		const bool bAssetChanged = Assets.erase(Path) != 0;
 		if (bAssetChanged) RebuildRedirectorIndex();
-		const bool bSoftChanged = RemoveSoftReferencesFromSource(Path);
-		if (!bAssetChanged && !bSoftChanged) return;
+		const bool bReferencesChanged = RemoveReferencesFromSource(Path);
+		ReferenceIndex.bComplete = ReferenceIndex.Errors.empty()
+			&& ReferenceIndex.SourceFingerprints.size() == Assets.size();
+		if (!bAssetChanged && !bReferencesChanged) return;
 		bPersistentSnapshotDirty = true;
 		++Revision;
 	}
@@ -3774,6 +4039,7 @@ namespace Durin::Asset
 		struct FAssetMutationJournal
 		{
 			std::string OperationId;
+			std::string OperationType = "relocation";
 			std::vector<std::filesystem::path> Roots;
 			std::filesystem::path LocatorPath;
 			std::vector<FAssetMutationJournalEntry> Entries;
@@ -3977,8 +4243,9 @@ namespace Durin::Asset
 		auto WriteMutationJournalState(FAssetMutationJournal& Journal) -> void
 		{
 			std::string Text = std::format(
-				"version=1\noperation={}\ntype=relocation\nstate={}\nentries={}\n",
+				"version=1\noperation={}\ntype={}\nstate={}\nentries={}\n",
 				Journal.OperationId,
+				Journal.OperationType,
 				static_cast<uint32>(Journal.State),
 				Journal.Entries.size());
 			for (size_t Index = 0; Index < Journal.Entries.size(); ++Index)
@@ -4046,6 +4313,40 @@ namespace Durin::Asset
 					Journal.LocatorPath, LocatorBytes, &Ignored);
 			}
 		}
+
+		auto RebuildReferenceProjectionForPublishedEntries(
+			std::span<const FAssetMutationJournalEntry> Entries,
+			const std::unordered_map<FAssetPath, FAssetData>& Assets,
+			std::vector<FAssetReferenceEdge>& Edges,
+			std::unordered_map<FAssetPath, FAssetPackageFingerprint>& Fingerprints)
+			-> FAssetResult
+		{
+			for (const FAssetMutationJournalEntry& Entry : Entries)
+			{
+				if (!Entry.RegistryPath.IsValid()) continue;
+				std::erase_if(Edges, [&](const FAssetReferenceEdge& Edge) {
+					return Edge.SourcePackage == Entry.RegistryPath;
+				});
+				Fingerprints.erase(Entry.RegistryPath);
+				const auto Data = Assets.find(Entry.RegistryPath);
+				if (Data == Assets.end()) continue;
+				FAssetPackageInspection Inspection;
+				FAssetResult Result = InspectAssetPackage(
+					Data->second.PhysicalPath, Inspection);
+				if (!Result) return Result;
+				std::vector<FAssetReferenceEdge> SourceEdges;
+				Result = ExtractAssetReferences(
+					Entry.RegistryPath, Inspection, SourceEdges);
+				if (!Result) return Result;
+				Edges.insert(Edges.end(),
+					std::make_move_iterator(SourceEdges.begin()),
+					std::make_move_iterator(SourceEdges.end()));
+				Fingerprints.insert_or_assign(
+					Entry.RegistryPath, Inspection.Fingerprint);
+			}
+			std::ranges::sort(Edges, &AssetReferenceLess);
+			return {};
+		}
 	}
 
 	struct FAssetRelocationBatchToken::FState
@@ -4058,10 +4359,10 @@ namespace Durin::Asset
 		std::unordered_map<FAssetPath, FAssetData> PreAssets;
 		std::unordered_map<FAssetPath, FAssetData> PostAssets;
 		std::unordered_map<FAssetPath, FAssetData> ExpectedAssets;
-		std::vector<FSoftAssetReference> PreSoftReferences;
-		std::vector<FSoftAssetReference> PostSoftReferences;
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PreSoftFingerprints;
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PostSoftFingerprints;
+		std::vector<FAssetReferenceEdge> PreReferenceEdges;
+		std::vector<FAssetReferenceEdge> PostReferenceEdges;
+		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PreReferenceFingerprints;
+		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PostReferenceFingerprints;
 	};
 
 	auto FAssetRelocationBatchToken::GetRegistryRevision() const -> uint64
@@ -4103,10 +4404,10 @@ namespace Durin::Asset
 		State->PreAssets = Registry.Assets;
 		State->PostAssets = State->PreAssets;
 		State->ExpectedAssets = State->PreAssets;
-		State->PreSoftReferences = Registry.SoftReferences;
-		State->PostSoftReferences = State->PreSoftReferences;
-		State->PreSoftFingerprints = Registry.SoftReferenceSourceFingerprints;
-		State->PostSoftFingerprints = State->PreSoftFingerprints;
+		State->PreReferenceEdges = Registry.ReferenceIndex.Edges;
+		State->PostReferenceEdges = State->PreReferenceEdges;
+		State->PreReferenceFingerprints = Registry.ReferenceIndex.SourceFingerprints;
+		State->PostReferenceFingerprints = State->PreReferenceFingerprints;
 		State->Journal.OperationId = MakeRelocationOperationId();
 		const std::string RecoveryBase = FPaths::ProjectDir().empty()
 			? FPaths::LaunchDir() : FPaths::ProjectDir();
@@ -4373,16 +4674,16 @@ namespace Durin::Asset
 				PostAlias.Dependencies = {Mapping.DestinationPath};
 			}
 
-			for (FSoftAssetReference& Reference : State->PostSoftReferences)
+			for (FAssetReferenceEdge& Reference : State->PostReferenceEdges)
 				if (Reference.SourcePackage == Mapping.SourcePath)
 					Reference.SourcePackage = Mapping.DestinationPath;
-			if (auto SoftSource = State->PostSoftFingerprints.find(
+			if (auto ReferenceSource = State->PostReferenceFingerprints.find(
 					Mapping.SourcePath);
-				SoftSource != State->PostSoftFingerprints.end())
+				ReferenceSource != State->PostReferenceFingerprints.end())
 			{
-				State->PostSoftFingerprints.insert_or_assign(
-					Mapping.DestinationPath, SoftSource->second);
-				State->PostSoftFingerprints.erase(SoftSource);
+				State->PostReferenceFingerprints.insert_or_assign(
+					Mapping.DestinationPath, ReferenceSource->second);
+				State->PostReferenceFingerprints.erase(ReferenceSource);
 			}
 
 			DClass* AssetClass = FindClassByQualifiedName(
@@ -4745,22 +5046,29 @@ namespace Durin::Asset
 					break;
 				}
 			if (!DestinationEntry) continue;
-			for (FSoftAssetReference& Reference : State.PostSoftReferences)
+			for (FAssetReferenceEdge& Reference : State.PostReferenceEdges)
 				if (Reference.SourcePackage == Mapping.DestinationPath)
 					Reference.SourceFingerprint =
 						DestinationEntry->ExpectedPostFingerprint;
-			if (State.PostSoftFingerprints.contains(Mapping.DestinationPath))
-				State.PostSoftFingerprints.insert_or_assign(
+			if (State.PostReferenceFingerprints.contains(Mapping.DestinationPath))
+				State.PostReferenceFingerprints.insert_or_assign(
 					Mapping.DestinationPath,
 					DestinationEntry->ExpectedPostFingerprint);
 		}
+		Result = RebuildReferenceProjectionForPublishedEntries(
+			State.Journal.Entries, State.PostAssets,
+			State.PostReferenceEdges, State.PostReferenceFingerprints);
+		if (!Result) return Compensate(std::move(Result));
 
 		Registry.Assets = State.PostAssets;
-		Registry.SoftReferences = State.PostSoftReferences;
-		Registry.SoftReferenceSourceFingerprints = State.PostSoftFingerprints;
+		Registry.ReferenceIndex.Edges = State.PostReferenceEdges;
+		Registry.ReferenceIndex.SourceFingerprints = State.PostReferenceFingerprints;
+		Registry.ReferenceIndex.bComplete = Registry.ReferenceIndex.Errors.empty()
+			&& Registry.ReferenceIndex.SourceFingerprints.size()
+				== Registry.Assets.size();
 		Registry.RebuildRedirectorIndex();
 		Registry.bPersistentSnapshotDirty = true;
-		Registry.bSoftReferenceSnapshotDirty = true;
+		Registry.ReferenceIndex.bSnapshotDirty = true;
 		++Registry.Revision;
 		State.ExpectedRegistryRevision = Registry.Revision;
 		State.ExpectedAssets = Registry.Assets;
@@ -4871,22 +5179,36 @@ namespace Durin::Asset
 					break;
 				}
 			if (!SourceEntry) continue;
-			for (FSoftAssetReference& Reference : State.PreSoftReferences)
+			for (FAssetReferenceEdge& Reference : State.PreReferenceEdges)
 				if (Reference.SourcePackage == Mapping.SourcePath)
 					Reference.SourceFingerprint =
 						SourceEntry->ExpectedPreFingerprint;
-			if (State.PreSoftFingerprints.contains(Mapping.SourcePath))
-				State.PreSoftFingerprints.insert_or_assign(
+			if (State.PreReferenceFingerprints.contains(Mapping.SourcePath))
+				State.PreReferenceFingerprints.insert_or_assign(
 					Mapping.SourcePath,
 					SourceEntry->ExpectedPreFingerprint);
 		}
+		FAssetResult ProjectionResult = RebuildReferenceProjectionForPublishedEntries(
+			State.Journal.Entries, State.PreAssets,
+			State.PreReferenceEdges, State.PreReferenceFingerprints);
+		if (!ProjectionResult)
+		{
+			State.Journal.State = EAssetMutationState::RecoveryRequired;
+			WriteMutationJournalState(State.Journal);
+			return Error(EAssetError::CorruptFile, std::format(
+				"AssetMutationRecoveryRequired: restored reference projection failed: {}",
+				ProjectionResult.Message));
+		}
 
 		Registry.Assets = State.PreAssets;
-		Registry.SoftReferences = State.PreSoftReferences;
-		Registry.SoftReferenceSourceFingerprints = State.PreSoftFingerprints;
+		Registry.ReferenceIndex.Edges = State.PreReferenceEdges;
+		Registry.ReferenceIndex.SourceFingerprints = State.PreReferenceFingerprints;
+		Registry.ReferenceIndex.bComplete = Registry.ReferenceIndex.Errors.empty()
+			&& Registry.ReferenceIndex.SourceFingerprints.size()
+				== Registry.Assets.size();
 		Registry.RebuildRedirectorIndex();
 		Registry.bPersistentSnapshotDirty = true;
-		Registry.bSoftReferenceSnapshotDirty = true;
+		Registry.ReferenceIndex.bSnapshotDirty = true;
 		++Registry.Revision;
 		State.ExpectedRegistryRevision = Registry.Revision;
 		State.ExpectedAssets = Registry.Assets;
@@ -4903,6 +5225,760 @@ namespace Durin::Asset
 			(void)Handle;
 			if (Observer) Observer->OnAssetsRelocated(Inverse);
 		}
+		return {};
+	}
+
+	namespace
+	{
+		struct FFixupPackageState
+		{
+			FAssetPath SourcePath;
+			size_t JournalEntry = 0;
+			DPackage* LoadedPackage = nullptr;
+		};
+
+		struct FFixupLiveSoftReference
+		{
+			FSoftObjectPtr* Value = nullptr;
+			FAssetPath PrePath;
+			FAssetPath PostPath;
+		};
+
+		struct FFixupStoreState
+		{
+			FAssetReferenceStoreHandle Handle = 0;
+			IAssetReferenceStore* Store = nullptr;
+			FAssetReferenceStoreSnapshot Snapshot;
+			FAssetReferenceStoreRewriteContribution Contribution;
+			bool bApplied = false;
+		};
+
+		auto IsReadOnlyMutationInput(const std::filesystem::path& Path) -> bool
+		{
+			std::error_code ErrorCode;
+			const std::filesystem::perms Permissions =
+				std::filesystem::status(Path, ErrorCode).permissions();
+			constexpr auto WritePermissions = std::filesystem::perms::owner_write
+				| std::filesystem::perms::group_write
+				| std::filesystem::perms::others_write;
+			return ErrorCode || (Permissions & WritePermissions)
+				== std::filesystem::perms::none;
+		}
+	}
+
+	struct FAssetRedirectorFixupPlan::FState
+	{
+		EAssetRedirectorFixupMode Mode = EAssetRedirectorFixupMode::RewriteAndDelete;
+		uint64 ExpectedRegistryRevision = 0;
+		uint64 ExpectedStoreRevision = 0;
+		std::vector<FAssetPath> Redirectors;
+		std::vector<FAssetRedirectorFixupMapping> Mappings;
+		std::vector<FAssetReferenceEdge> PackageOccurrences;
+		std::vector<FAssetReferenceStoreOccurrence> StoreOccurrences;
+		std::vector<FAssetPath> DeletableRedirectors;
+		std::vector<FFixupPackageState> Packages;
+		std::vector<FFixupLiveSoftReference> LiveSoftReferences;
+		std::vector<FFixupStoreState> Stores;
+		FAssetMutationJournal Journal;
+		std::unordered_map<FAssetPath, FAssetData> ExpectedAssets;
+		std::unordered_map<FAssetPath, FAssetData> PostAssets;
+		std::vector<FAssetReferenceEdge> PostEdges;
+		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PostFingerprints;
+		std::vector<FAssetResult> PostErrors;
+		bool bPostIndexComplete = false;
+	};
+
+	auto FAssetRedirectorFixupPlan::GetMode() const
+		-> EAssetRedirectorFixupMode
+	{
+		return State ? State->Mode : EAssetRedirectorFixupMode::RewriteOnly;
+	}
+
+	auto FAssetRedirectorFixupPlan::GetRegistryRevision() const -> uint64
+	{
+		return State ? State->ExpectedRegistryRevision : 0;
+	}
+
+	auto FAssetRedirectorFixupPlan::GetRedirectors() const
+		-> std::span<const FAssetPath>
+	{
+		return State ? std::span<const FAssetPath>(State->Redirectors)
+			: std::span<const FAssetPath>{};
+	}
+
+	auto FAssetRedirectorFixupPlan::GetFinalPathMappings() const
+		-> std::span<const FAssetRedirectorFixupMapping>
+	{
+		return State
+			? std::span<const FAssetRedirectorFixupMapping>(State->Mappings)
+			: std::span<const FAssetRedirectorFixupMapping>{};
+	}
+
+	auto FAssetRedirectorFixupPlan::GetPackageOccurrences() const
+		-> std::span<const FAssetReferenceEdge>
+	{
+		return State
+			? std::span<const FAssetReferenceEdge>(State->PackageOccurrences)
+			: std::span<const FAssetReferenceEdge>{};
+	}
+
+	auto FAssetRedirectorFixupPlan::GetStoreOccurrences() const
+		-> std::span<const FAssetReferenceStoreOccurrence>
+	{
+		return State
+			? std::span<const FAssetReferenceStoreOccurrence>(State->StoreOccurrences)
+			: std::span<const FAssetReferenceStoreOccurrence>{};
+	}
+
+	auto FAssetRedirectorFixupPlan::GetDeletableRedirectors() const
+		-> std::span<const FAssetPath>
+	{
+		return State
+			? std::span<const FAssetPath>(State->DeletableRedirectors)
+			: std::span<const FAssetPath>{};
+	}
+
+	auto FAssetManager::AnalyzeRedirectorFixup(
+		std::span<const FAssetPath> Redirectors,
+		EAssetRedirectorFixupMode Mode,
+		FAssetRedirectorFixupPlan& OutPlan) -> FAssetResult
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		OutPlan = {};
+		if (!bAcceptingRequests)
+			return Error(EAssetError::ShuttingDown,
+				"Redirector Fix Up is closed while the asset manager is shutting down.");
+		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+			return Error(EAssetError::ReadOnlyMode,
+				"Cooked runtime package mode does not permit redirector Fix Up.");
+		if (Redirectors.empty())
+			return Error(EAssetError::InvalidPath,
+				"Redirector Fix Up requires at least one redirector.");
+		if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete
+			&& !Registry.ReferenceIndex.IsComplete())
+			return Error(EAssetError::StaleData,
+				"Redirector Fix Up cannot delete aliases because the reference index is incomplete.");
+
+		auto State = std::make_shared<FAssetRedirectorFixupPlan::FState>();
+		State->Mode = Mode;
+		State->ExpectedRegistryRevision = Registry.GetRevision();
+		State->ExpectedAssets = Registry.Assets;
+		State->PostAssets = Registry.Assets;
+		State->PostEdges = Registry.ReferenceIndex.Edges;
+		State->PostFingerprints = Registry.ReferenceIndex.SourceFingerprints;
+		State->PostErrors = Registry.ReferenceIndex.Errors;
+		State->bPostIndexComplete = Registry.ReferenceIndex.bComplete;
+		State->Journal.OperationId = MakeRelocationOperationId();
+		State->Journal.OperationType = "fixup";
+		const std::string RecoveryBase = FPaths::ProjectDir().empty()
+			? FPaths::LaunchDir() : FPaths::ProjectDir();
+		State->Journal.LocatorPath = NormalizePhysicalPath(RecoveryBase)
+			/ "Saved" / "AssetMutationRecovery"
+			/ std::format("operation-{}", State->Journal.OperationId);
+
+		std::unordered_set<FAssetPath> Closure;
+		std::vector<FAssetPath> Pending(Redirectors.begin(), Redirectors.end());
+		while (!Pending.empty())
+		{
+			FAssetPath Alias = std::move(Pending.back());
+			Pending.pop_back();
+			if (!Alias.IsValid())
+				return Error(EAssetError::InvalidPath,
+					"Redirector Fix Up contains an invalid path.");
+			if (!Closure.insert(Alias).second) continue;
+			const FAssetData* Data = Registry.FindAssetExact(Alias);
+			if (!Data)
+				return Error(EAssetError::NotFound, std::format(
+					"Fix Up redirector {} is not registered.", Alias.ToString()));
+			if (Data->EntryKind != EAssetRegistryEntryKind::Redirector)
+				return Error(EAssetError::InvalidPackageType, std::format(
+					"Fix Up selection {} is not a redirector.", Alias.ToString()));
+			if (LoadingPackages.contains(Alias))
+				return Error(EAssetError::InUse,
+					"A selected redirector is currently loading.");
+			if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete
+				&& LoadedPackages.contains(Alias))
+				return Error(EAssetError::InUse,
+					"A loaded redirector must be unloaded before Fix Up deletion.");
+			for (FAssetPath Upstream : Registry.FindRedirectorsTo(Alias))
+				Pending.push_back(std::move(Upstream));
+		}
+		State->Redirectors.assign(Closure.begin(), Closure.end());
+		std::ranges::sort(State->Redirectors,
+			[](const FAssetPath& Left, const FAssetPath& Right) {
+				return Left.GetView() < Right.GetView();
+			});
+		for (const FAssetPath& Alias : State->Redirectors)
+		{
+			const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(Alias);
+			if (!Resolution)
+				return Error(EAssetError::CorruptFile, std::format(
+					"Fix Up could not resolve {} (state {}).", Alias.ToString(),
+					static_cast<uint32>(Resolution.State)));
+			State->Mappings.push_back({Alias, Resolution.FinalPath});
+		}
+		if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete)
+			State->DeletableRedirectors = State->Redirectors;
+
+		std::map<FAssetPath, uint64, decltype([](const FAssetPath& Left,
+			const FAssetPath& Right) { return Left.GetView() < Right.GetView(); })>
+			PackageRewriteCounts;
+		for (const FAssetReferenceEdge& Edge : Registry.ReferenceIndex.Edges)
+		{
+			if (!Closure.contains(Edge.TargetPath)) continue;
+			State->PackageOccurrences.push_back(Edge);
+			if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete
+				&& Closure.contains(Edge.SourcePackage))
+				continue;
+			++PackageRewriteCounts[Edge.SourcePackage];
+		}
+
+		std::unordered_set<std::string> FilePaths;
+		auto AddJournalEntry = [&](const std::filesystem::path& PhysicalPath,
+			const FAssetPath& RegistryPath,
+			ERelocationPublicationRole Role,
+			std::optional<std::vector<uint8>> PreBytes,
+			std::optional<std::vector<uint8>> PostBytes,
+			size_t& OutIndex) -> FAssetResult {
+			const std::filesystem::path Normalized = NormalizePhysicalPath(PhysicalPath);
+			if (!FilePaths.insert(Normalized.generic_string()).second)
+				return Error(EAssetError::AlreadyExists,
+					"Redirector Fix Up has duplicate physical participants.");
+			const PathUtilities::FMountPoint* Mount = nullptr;
+			std::string PathError;
+			if (!IsWritableRelocationPath(Normalized, Mount, PathError))
+				return Error(EAssetError::ReadOnlyMode, std::move(PathError));
+			if (PreBytes && IsReadOnlyMutationInput(Normalized))
+				return Error(EAssetError::ReadOnlyMode, std::format(
+					"Redirector Fix Up input is read-only: {}.",
+					Normalized.generic_string()));
+			FAssetMutationJournalEntry Entry{
+				.PhysicalPath = Normalized,
+				.RegistryPath = RegistryPath,
+				.Role = Role,
+				.bPreExists = PreBytes.has_value(),
+				.bPostExists = PostBytes.has_value()};
+			if (PreBytes)
+			{
+				Entry.StagedPreHash = FXxHash128::HashBuffer(*PreBytes);
+				FAssetResult Result = MakePackageFingerprint(
+					Normalized.generic_string(), *PreBytes,
+					Entry.ExpectedPreFingerprint);
+				if (!Result) return Result;
+			}
+			if (PostBytes)
+			{
+				Entry.StagedPostHash = FXxHash128::HashBuffer(*PostBytes);
+				Entry.ExpectedPostFingerprint.FileSize = PostBytes->size();
+				Entry.ExpectedPostFingerprint.ContentHash = Entry.StagedPostHash;
+			}
+			const std::filesystem::path Root =
+				NormalizePhysicalPath(Mount->GetContentDir())
+				/ ".durin-asset-mutation"
+				/ std::format("operation-{}", State->Journal.OperationId);
+			if (std::ranges::find(State->Journal.Roots, Root)
+				== State->Journal.Roots.end())
+			{
+				std::error_code DirectoryError;
+				std::filesystem::create_directories(Root, DirectoryError);
+				if (DirectoryError)
+					return Error(EAssetError::IoError, std::format(
+						"Could not create Fix Up staging root: {}",
+						DirectoryError.message()));
+				const std::string Marker = std::format(
+					"durin-asset-mutation\n{}\n", State->Journal.OperationId);
+				FAssetResult MarkerResult = SaveRelocationBytes(
+					Root / "owner",
+					std::span{reinterpret_cast<const uint8*>(Marker.data()),
+						Marker.size()});
+				if (!MarkerResult) return MarkerResult;
+				State->Journal.Roots.push_back(Root);
+			}
+			OutIndex = State->Journal.Entries.size();
+			Entry.StagedPrePath = Root / std::format("pre-{:08}", OutIndex);
+			Entry.StagedPostPath = Root / std::format("post-{:08}", OutIndex);
+			if (PreBytes)
+			{
+				FAssetResult Result = SaveRelocationBytes(Entry.StagedPrePath, *PreBytes);
+				if (!Result) return Result;
+			}
+			if (PostBytes)
+			{
+				FAssetResult Result = SaveRelocationBytes(Entry.StagedPostPath, *PostBytes);
+				if (!Result) return Result;
+			}
+			State->Journal.Entries.push_back(std::move(Entry));
+			return {};
+		};
+
+		for (const auto& [SourcePath, ExpectedCount] : PackageRewriteCounts)
+		{
+			if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::PreparePackage))
+				return Error(EAssetError::IoError,
+					"Injected Fix Up package-preparation failure.");
+			const FAssetData* Data = Registry.FindAssetExact(SourcePath);
+			if (!Data)
+				return Error(EAssetError::StaleData,
+					"A package referencer is no longer registered.");
+			if (LoadingPackages.contains(SourcePath))
+				return Error(EAssetError::InUse,
+					"A package referencer is currently loading.");
+			DPackage* Loaded = FindLoadedPackage(SourcePath);
+			if (Loaded && Loaded->IsDirty())
+				return Error(EAssetError::InUse,
+					"A dirty loaded package blocks redirector Fix Up.");
+			if (Loaded && CompatibilityRiskPackages.contains(Loaded))
+				return Error(EAssetError::UnsupportedProperty,
+					"A compatibility-risk loaded package blocks redirector Fix Up.");
+			std::vector<uint8> PreBytes;
+			FAssetResult Result = LoadRelocationBytes(Data->PhysicalPath, PreBytes);
+			if (!Result) return Result;
+			const auto Fingerprint = Registry.ReferenceIndex.SourceFingerprints.find(SourcePath);
+			if (Fingerprint == Registry.ReferenceIndex.SourceFingerprints.end())
+				return Error(EAssetError::StaleData,
+					"A package referencer has no complete index fingerprint.");
+			FAssetPackageFingerprint CurrentFingerprint;
+			Result = MakePackageFingerprint(Data->PhysicalPath, PreBytes, CurrentFingerprint);
+			if (!Result) return Result;
+			if (CurrentFingerprint != Fingerprint->second)
+				return Error(EAssetError::StaleData,
+					"A package referencer changed after reference indexing.");
+			std::vector<uint8> PostBytes;
+			Result = RewritePackageReferences(
+				PreBytes, State->Mappings, ExpectedCount, PostBytes);
+			if (!Result) return Result;
+			size_t JournalEntry = 0;
+			Result = AddJournalEntry(
+				Data->PhysicalPath, SourcePath,
+				ERelocationPublicationRole::RealAsset,
+				std::move(PreBytes), PostBytes, JournalEntry);
+			if (!Result) return Result;
+			State->Packages.push_back({SourcePath, JournalEntry, Loaded});
+
+			FPackageFile PostFile;
+			Result = ReadPackageFile(PostBytes, PostFile, false);
+			if (!Result) return Result;
+			FAssetData& PostData = State->PostAssets.at(SourcePath);
+			PostData.AssetClassName = PostFile.AssetClassName;
+			PostData.EntryKind = PostFile.EntryKind;
+			PostData.RedirectDestination = PostFile.RedirectDestination;
+			PostData.FormatVersion = PostFile.FormatVersion;
+			PostData.Dependencies = PostFile.Dependencies;
+
+			if (Loaded)
+			{
+				std::unordered_set<FSoftObjectPtr*> Seen;
+				for (const FAssetRedirectorFixupMapping& Mapping : State->Mappings)
+				{
+					std::vector<FSoftObjectPtr*> Values;
+					Result = CollectLoadedPackageSoftReferences(
+						Loaded, Mapping.RedirectorPath, Values);
+					if (!Result) return Result;
+					for (FSoftObjectPtr* Value : Values)
+					{
+						if (!Value || !Seen.insert(Value).second) continue;
+						State->LiveSoftReferences.push_back({
+							.Value = Value,
+							.PrePath = Mapping.RedirectorPath,
+							.PostPath = Mapping.FinalPath});
+					}
+				}
+			}
+		}
+
+		auto& StoreRegistry = GetAssetReferenceStoreRegistry();
+		State->ExpectedStoreRevision = StoreRegistry.Revision;
+		for (const auto& [Handle, Store] : StoreRegistry.Stores)
+		{
+			if (!Store)
+				return Error(EAssetError::StaleData,
+					"A registered asset reference store is unavailable.");
+			FFixupStoreState StoreState{.Handle = Handle, .Store = Store};
+			FAssetResult Result = Store->CaptureSnapshot(StoreState.Snapshot);
+			if (!Result) return Result;
+			if (StoreState.Snapshot.ProviderId.empty()
+				|| StoreState.Snapshot.ProviderVersion == 0
+				|| StoreState.Snapshot.Fingerprint.empty())
+				return Error(EAssetError::StaleData,
+					"An asset reference store returned an invalid identity or fingerprint.");
+			std::ranges::sort(StoreState.Snapshot.Occurrences,
+				[](const FAssetReferenceStoreOccurrence& Left,
+					const FAssetReferenceStoreOccurrence& Right) {
+					if (Left.StableId != Right.StableId)
+						return Left.StableId < Right.StableId;
+					return Left.TargetPath.GetView() < Right.TargetPath.GetView();
+				});
+			std::vector<FAssetReferenceRewrite> Rewrites;
+			for (const FAssetReferenceStoreOccurrence& Occurrence :
+				StoreState.Snapshot.Occurrences)
+			{
+				if (Occurrence.ProviderId != StoreState.Snapshot.ProviderId
+					|| Occurrence.StableId.empty())
+					return Error(EAssetError::StaleData,
+						"An asset reference store returned an invalid occurrence.");
+				if (const FAssetPath* Destination = FindFixupDestination(
+						Occurrence.TargetPath, State->Mappings))
+				{
+					State->StoreOccurrences.push_back(Occurrence);
+					Rewrites.push_back({
+						.StableId = Occurrence.StableId,
+						.SourcePath = Occurrence.TargetPath,
+						.DestinationPath = *Destination});
+				}
+			}
+			if (!Rewrites.empty())
+			{
+				if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::PrepareStore))
+					return Error(EAssetError::IoError,
+						"Injected Fix Up store-preparation failure.");
+				Result = Store->PrepareRewrite(
+					Rewrites, StoreState.Snapshot.Fingerprint,
+					StoreState.Contribution);
+				if (!Result) return Result;
+				if (StoreState.Contribution.Fingerprint
+						!= StoreState.Snapshot.Fingerprint
+					|| StoreState.Contribution.Rewrites != Rewrites
+					|| !StoreState.Contribution.Revalidate
+					|| !StoreState.Contribution.Apply
+					|| !StoreState.Contribution.Restore
+					|| !StoreState.Contribution.Verify)
+					return Error(EAssetError::StaleData,
+						"An asset reference store returned an incomplete rewrite contribution.");
+			}
+			State->Stores.push_back(std::move(StoreState));
+		}
+		std::ranges::sort(State->Stores,
+			[](const FFixupStoreState& Left, const FFixupStoreState& Right) {
+				return Left.Snapshot.ProviderId < Right.Snapshot.ProviderId;
+			});
+		for (size_t Index = 1; Index < State->Stores.size(); ++Index)
+			if (State->Stores[Index - 1].Snapshot.ProviderId
+				== State->Stores[Index].Snapshot.ProviderId)
+				return Error(EAssetError::AlreadyExists,
+					"Asset reference store provider ids must be unique.");
+		std::ranges::sort(State->StoreOccurrences,
+			[](const FAssetReferenceStoreOccurrence& Left,
+				const FAssetReferenceStoreOccurrence& Right) {
+				if (Left.ProviderId != Right.ProviderId)
+					return Left.ProviderId < Right.ProviderId;
+				if (Left.StableId != Right.StableId)
+					return Left.StableId < Right.StableId;
+				return Left.TargetPath.GetView() < Right.TargetPath.GetView();
+			});
+
+		if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete)
+		{
+			for (const FAssetPath& Alias : State->Redirectors)
+			{
+				const FAssetData& Data = State->ExpectedAssets.at(Alias);
+				std::vector<uint8> PreBytes;
+				FAssetResult Result = LoadRelocationBytes(Data.PhysicalPath, PreBytes);
+				if (!Result) return Result;
+				size_t Ignored = 0;
+				Result = AddJournalEntry(
+					Data.PhysicalPath, Alias,
+					ERelocationPublicationRole::Redirector,
+					std::move(PreBytes), std::nullopt, Ignored);
+				if (!Result) return Result;
+				State->PostAssets.erase(Alias);
+			}
+		}
+
+		State->Journal.State = EAssetMutationState::Prepared;
+		WriteMutationJournalState(State->Journal);
+		OutPlan.State = std::move(State);
+		return {};
+	}
+
+	auto FAssetManager::RevalidateRedirectorFixup(
+		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (!Plan.State)
+			return Error(EAssetError::StaleData, "The redirector Fix Up plan is empty.");
+		const auto& State = *Plan.State;
+		if (State.Journal.State == EAssetMutationState::RecoveryRequired)
+			return Error(EAssetError::IoError,
+				"AssetMutationRecoveryRequired: the Fix Up journal requires recovery.");
+		if (State.Journal.State != EAssetMutationState::Prepared)
+			return Error(EAssetError::StaleData,
+				"The redirector Fix Up plan is no longer prepared.");
+		if (Registry.GetRevision() != State.ExpectedRegistryRevision
+			|| Registry.Assets != State.ExpectedAssets)
+			return Error(EAssetError::StaleData,
+				"The asset registry changed after redirector Fix Up analysis.");
+		const auto& Stores = GetAssetReferenceStoreRegistry();
+		if (Stores.Revision != State.ExpectedStoreRevision
+			|| Stores.Stores.size() != State.Stores.size())
+			return Error(EAssetError::StaleData,
+				"Asset reference store registration changed after Fix Up analysis.");
+		for (const FFixupStoreState& StoreState : State.Stores)
+		{
+			const auto Current = Stores.Stores.find(StoreState.Handle);
+			if (Current == Stores.Stores.end() || Current->second != StoreState.Store)
+				return Error(EAssetError::StaleData,
+					"An asset reference store became unavailable.");
+			FAssetReferenceStoreSnapshot Snapshot;
+			FAssetResult Result = StoreState.Store->CaptureSnapshot(Snapshot);
+			if (!Result) return Result;
+			std::ranges::sort(Snapshot.Occurrences,
+				[](const FAssetReferenceStoreOccurrence& Left,
+					const FAssetReferenceStoreOccurrence& Right) {
+					if (Left.StableId != Right.StableId)
+						return Left.StableId < Right.StableId;
+					return Left.TargetPath.GetView() < Right.TargetPath.GetView();
+				});
+			if (Snapshot.ProviderId != StoreState.Snapshot.ProviderId
+				|| Snapshot.ProviderVersion != StoreState.Snapshot.ProviderVersion
+				|| Snapshot.Fingerprint != StoreState.Snapshot.Fingerprint
+				|| Snapshot.Occurrences != StoreState.Snapshot.Occurrences)
+				return Error(EAssetError::StaleData,
+					"An asset reference store changed after Fix Up analysis.");
+			if (StoreState.Contribution.Revalidate)
+			{
+				Result = StoreState.Contribution.Revalidate();
+				if (!Result) return Result;
+			}
+		}
+		for (const FFixupPackageState& PackageState : State.Packages)
+		{
+			if (PackageState.LoadedPackage)
+			{
+				if (FindLoadedPackage(PackageState.SourcePath)
+						!= PackageState.LoadedPackage
+					|| PackageState.LoadedPackage->IsDirty()
+					|| CompatibilityRiskPackages.contains(
+						PackageState.LoadedPackage))
+					return Error(EAssetError::StaleData,
+						"A loaded Fix Up package changed after analysis.");
+			}
+		}
+		for (const FAssetMutationJournalEntry& Entry : State.Journal.Entries)
+		{
+			std::error_code ExistsError;
+			if (!Entry.bPreExists
+				|| !std::filesystem::exists(Entry.PhysicalPath, ExistsError)
+				|| ExistsError)
+				return Error(EAssetError::StaleData,
+					"A Fix Up file participant changed occupancy.");
+			FAssetPackageFingerprint Fingerprint;
+			FAssetResult Result = FingerprintRelocationFile(
+				Entry.PhysicalPath, Fingerprint);
+			if (!Result) return Result;
+			if (Fingerprint != Entry.ExpectedPreFingerprint)
+				return Error(EAssetError::StaleData,
+					"A Fix Up file participant changed after analysis.");
+			if (Entry.bPostExists)
+			{
+				std::vector<uint8> StagedBytes;
+				Result = LoadRelocationBytes(Entry.StagedPostPath, StagedBytes);
+				if (!Result || FXxHash128::HashBuffer(StagedBytes)
+						!= Entry.StagedPostHash)
+					return Error(EAssetError::StaleData,
+						"A staged Fix Up output changed after analysis.");
+			}
+		}
+		return {};
+	}
+
+	auto FAssetManager::ApplyRedirectorFixup(
+		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (!Plan.State)
+			return Error(EAssetError::StaleData, "The redirector Fix Up plan is empty.");
+		auto& State = *Plan.State;
+		FAssetResult Result = RevalidateRedirectorFixup(Plan);
+		if (!Result) return Result;
+		if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::StageOriginal))
+			return Error(EAssetError::IoError,
+				"Injected Fix Up original-staging failure.");
+
+		State.Journal.State = EAssetMutationState::Publishing;
+		WriteMutationJournalState(State.Journal);
+		std::vector<size_t> PublishedPackages;
+		std::vector<size_t> PublishedRedirectors;
+		size_t ChangedLiveCount = 0;
+		auto EnterRecovery = [&](std::string Message) -> FAssetResult {
+			State.Journal.State = EAssetMutationState::RecoveryRequired;
+			WriteMutationJournalState(State.Journal);
+			return Error(EAssetError::IoError,
+				std::format("AssetMutationRecoveryRequired: {}", Message));
+		};
+		auto Compensate = [&](FAssetResult Failure) -> FAssetResult {
+			State.Journal.State = EAssetMutationState::Compensating;
+			WriteMutationJournalState(State.Journal);
+			for (auto It = PublishedRedirectors.rbegin();
+				It != PublishedRedirectors.rend(); ++It)
+			{
+				if (ConsumeFixupFailure(
+						EAssetRedirectorFixupFailurePoint::CompensatePackage))
+					return EnterRecovery("redirector compensation was interrupted.");
+				Result = PublishRelocationFile(State.Journal.Entries[*It], false);
+				if (!Result) return EnterRecovery(Result.Message);
+				State.Journal.Entries[*It].bCompensated = true;
+				WriteMutationJournalState(State.Journal);
+			}
+			for (size_t Count = ChangedLiveCount; Count > 0; --Count)
+			{
+				FFixupLiveSoftReference& Live = State.LiveSoftReferences[Count - 1];
+				FSoftObjectPath Path;
+				FSoftObjectPath::TryCreate(Live.PrePath.GetView(), Path);
+				Live.Value->SetPath(std::move(Path));
+			}
+			for (auto It = State.Stores.rbegin(); It != State.Stores.rend(); ++It)
+			{
+				if (!It->bApplied) continue;
+				if (ConsumeFixupFailure(
+						EAssetRedirectorFixupFailurePoint::CompensateStore))
+					return EnterRecovery("reference-store compensation was interrupted.");
+				FAssetResult RestoreResult = It->Contribution.Restore();
+				if (!RestoreResult) return EnterRecovery(RestoreResult.Message);
+				It->bApplied = false;
+			}
+			for (auto It = PublishedPackages.rbegin();
+				It != PublishedPackages.rend(); ++It)
+			{
+				if (ConsumeFixupFailure(
+						EAssetRedirectorFixupFailurePoint::CompensatePackage))
+					return EnterRecovery("package compensation was interrupted.");
+				Result = PublishRelocationFile(State.Journal.Entries[*It], false);
+				if (!Result) return EnterRecovery(Result.Message);
+				State.Journal.Entries[*It].bCompensated = true;
+				WriteMutationJournalState(State.Journal);
+			}
+			State.Journal.State = EAssetMutationState::Restored;
+			WriteMutationJournalState(State.Journal);
+			return Failure;
+		};
+
+		uint64 PublicationOrder = 0;
+		for (size_t Index = 0; Index < State.Journal.Entries.size(); ++Index)
+		{
+			FAssetMutationJournalEntry& Entry = State.Journal.Entries[Index];
+			if (Entry.Role == ERelocationPublicationRole::Redirector) continue;
+			if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::PublishPackage))
+				return Compensate(Error(EAssetError::IoError,
+					"Injected Fix Up package-publication failure."));
+			Entry.PublicationOrder = PublicationOrder++;
+			Result = PublishRelocationFile(Entry, true);
+			if (!Result) return Compensate(std::move(Result));
+			Entry.bCompleted = true;
+			PublishedPackages.push_back(Index);
+			WriteMutationJournalState(State.Journal);
+		}
+		for (FFixupStoreState& Store : State.Stores)
+		{
+			if (Store.Contribution.Rewrites.empty()) continue;
+			if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::ApplyStore))
+				return Compensate(Error(EAssetError::IoError,
+					"Injected Fix Up store-publication failure."));
+			Result = Store.Contribution.Apply();
+			if (!Result) return Compensate(std::move(Result));
+			Store.bApplied = true;
+		}
+		for (FFixupLiveSoftReference& Live : State.LiveSoftReferences)
+		{
+			FSoftObjectPath Path;
+			if (!FSoftObjectPath::TryCreate(Live.PostPath.GetView(), Path))
+				return Compensate(Error(EAssetError::InvalidPath,
+					"A prepared live soft-reference destination became invalid."));
+			Live.Value->SetPath(std::move(Path));
+			++ChangedLiveCount;
+		}
+
+		Result = RebuildReferenceProjectionForPublishedEntries(
+			State.Journal.Entries, State.PostAssets,
+			State.PostEdges, State.PostFingerprints);
+		if (!Result) return Compensate(std::move(Result));
+		if (State.Mode == EAssetRedirectorFixupMode::RewriteAndDelete)
+		{
+			std::erase_if(State.PostEdges, [&](const FAssetReferenceEdge& Edge) {
+				return std::ranges::binary_search(
+					State.Redirectors, Edge.SourcePackage,
+					[](const FAssetPath& Left, const FAssetPath& Right) {
+						return Left.GetView() < Right.GetView();
+					});
+			});
+			for (const FAssetPath& Alias : State.Redirectors)
+				State.PostFingerprints.erase(Alias);
+		}
+		if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::Verify))
+			return Compensate(Error(EAssetError::IoError,
+				"Injected Fix Up verification failure."));
+		for (const FAssetReferenceEdge& Edge : State.PostEdges)
+			if (FindFixupDestination(Edge.TargetPath, State.Mappings))
+				return Compensate(Error(EAssetError::InUse, std::format(
+					"Fix Up verification found a remaining package occurrence at {}:{}.",
+					Edge.SourcePackage.ToString(), Edge.DisplayRoute)));
+		for (FFixupStoreState& Store : State.Stores)
+		{
+			if (Store.Contribution.Verify)
+			{
+				Result = Store.Contribution.Verify();
+				if (!Result) return Compensate(std::move(Result));
+			}
+			FAssetReferenceStoreSnapshot Snapshot;
+			Result = Store.Store->CaptureSnapshot(Snapshot);
+			if (!Result) return Compensate(std::move(Result));
+			for (const FAssetReferenceStoreOccurrence& Occurrence : Snapshot.Occurrences)
+				if (FindFixupDestination(Occurrence.TargetPath, State.Mappings))
+					return Compensate(Error(EAssetError::InUse,
+						"Fix Up verification found a remaining external occurrence."));
+		}
+
+		if (State.Mode == EAssetRedirectorFixupMode::RewriteAndDelete)
+		{
+			for (size_t Index = 0; Index < State.Journal.Entries.size(); ++Index)
+			{
+				FAssetMutationJournalEntry& Entry = State.Journal.Entries[Index];
+				if (Entry.Role != ERelocationPublicationRole::Redirector) continue;
+				if (ConsumeFixupFailure(
+						EAssetRedirectorFixupFailurePoint::DeleteRedirector))
+					return Compensate(Error(EAssetError::IoError,
+						"Injected Fix Up redirector-deletion failure."));
+				Entry.PublicationOrder = PublicationOrder++;
+				Result = PublishRelocationFile(Entry, true);
+				if (!Result) return Compensate(std::move(Result));
+				Entry.bCompleted = true;
+				PublishedRedirectors.push_back(Index);
+				WriteMutationJournalState(State.Journal);
+			}
+		}
+		if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::PublishRegistry))
+			return Compensate(Error(EAssetError::IoError,
+				"Injected Fix Up registry-publication failure."));
+
+		for (const FFixupPackageState& PackageState : State.Packages)
+		{
+			const FAssetMutationJournalEntry& Entry =
+				State.Journal.Entries[PackageState.JournalEntry];
+			FAssetData& Data = State.PostAssets.at(PackageState.SourcePath);
+			std::error_code MetadataError;
+			Data.FileSize = std::filesystem::file_size(Entry.PhysicalPath, MetadataError);
+			Data.LastWriteTime = std::filesystem::last_write_time(
+				Entry.PhysicalPath, MetadataError);
+			if (MetadataError)
+				return Compensate(Error(EAssetError::IoError,
+					"Could not inspect a published Fix Up package."));
+			Data.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(
+				Data.LastWriteTime);
+		}
+		Registry.Assets = State.PostAssets;
+		Registry.ReferenceIndex.Edges = State.PostEdges;
+		Registry.ReferenceIndex.SourceFingerprints = State.PostFingerprints;
+		Registry.ReferenceIndex.Errors = State.PostErrors;
+		Registry.ReferenceIndex.bComplete = State.Mode
+			== EAssetRedirectorFixupMode::RewriteAndDelete
+			? true : State.bPostIndexComplete;
+		Registry.ReferenceIndex.bSnapshotDirty = true;
+		Registry.RebuildRedirectorIndex();
+		Registry.bPersistentSnapshotDirty = true;
+		++Registry.Revision;
+		State.ExpectedRegistryRevision = Registry.Revision;
+		State.ExpectedAssets = Registry.Assets;
+		State.Journal.State = EAssetMutationState::Committed;
+		WriteMutationJournalState(State.Journal);
 		return {};
 	}
 
@@ -6052,6 +7128,45 @@ namespace Durin::Asset
 		const FAssetRelocationBatchToken& Token) -> FAssetResult
 	{
 		return FAssetManager::Get().RestoreAssetRelocationBatch(Token);
+	}
+	auto AnalyzeRedirectorFixup(
+		std::span<const FAssetPath> Redirectors,
+		EAssetRedirectorFixupMode Mode,
+		FAssetRedirectorFixupPlan& OutPlan) -> FAssetResult
+	{
+		return FAssetManager::Get().AnalyzeRedirectorFixup(
+			Redirectors, Mode, OutPlan);
+	}
+	auto RevalidateRedirectorFixup(
+		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult
+	{
+		return FAssetManager::Get().RevalidateRedirectorFixup(Plan);
+	}
+	auto ApplyRedirectorFixup(
+		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult
+	{
+		return FAssetManager::Get().ApplyRedirectorFixup(Plan);
+	}
+	auto FixUpRedirectors(
+		std::span<const FAssetPath> Redirectors,
+		EAssetRedirectorFixupMode Mode) -> FAssetResult
+	{
+		FAssetRedirectorFixupPlan Plan;
+		FAssetResult Result = AnalyzeRedirectorFixup(Redirectors, Mode, Plan);
+		return Result ? ApplyRedirectorFixup(Plan) : Result;
+	}
+	auto FixUpAllRedirectors(EAssetRedirectorFixupMode Mode) -> FAssetResult
+	{
+		std::vector<FAssetPath> Redirectors;
+		for (const auto& [Path, Data] : GetAssetRegistry().GetAssets())
+			if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
+				Redirectors.push_back(Path);
+		std::ranges::sort(Redirectors,
+			[](const FAssetPath& Left, const FAssetPath& Right) {
+				return Left.GetView() < Right.GetView();
+			});
+		if (Redirectors.empty()) return {};
+		return FixUpRedirectors(Redirectors, Mode);
 	}
 	auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult { return FAssetManager::Get().AnalyzeAssetDeletion(Path, OutAnalysis); }
 	auto AnalyzeAssetDeletionBatch(

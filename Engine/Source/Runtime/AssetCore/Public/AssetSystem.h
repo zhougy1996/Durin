@@ -409,26 +409,37 @@ namespace Durin::Asset
 	// constructing objects, or invoking PostLoad.
 	ASSETCORE_API auto InspectAssetPackage(std::string_view PhysicalPath, FAssetPackageInspection& OutInspection) -> FAssetResult;
 
-	// Identifies one container hop from an authored field to a soft-object value.
-	enum class ESoftAssetReferenceRouteKind : uint8
+	// Classifies one authored package edge in the unified reference graph.
+	enum class EAssetReferenceKind : uint8
+	{
+		HardObject,
+		SoftObject,
+		Redirect
+	};
+
+	// Identifies one stable route hop from an authored field to a reference value.
+	enum class EAssetReferenceRouteKind : uint8
 	{
 		FixedArray,
 		ArrayElement,
-		MapValue
+		MapValue,
+		StructField
 	};
 
-	struct FSoftAssetReferenceRouteSegment
+	struct FAssetReferenceRouteSegment
 	{
-		ESoftAssetReferenceRouteKind Kind = ESoftAssetReferenceRouteKind::FixedArray;
+		EAssetReferenceRouteKind Kind = EAssetReferenceRouteKind::FixedArray;
 		uint64 Index = 0;
-		// Map values use the same canonical key token that orders authored Map entries.
+		// Map values use the canonical key token that orders authored Map entries.
 		std::vector<uint8> MapKeyToken;
+		std::string DeclaringType;
+		std::string FieldName;
 
-		auto operator==(const FSoftAssetReferenceRouteSegment&) const -> bool = default;
+		auto operator==(const FAssetReferenceRouteSegment&) const -> bool = default;
 	};
 
-	// Describes one non-null soft-object occurrence extracted from authoritative DAST bytes.
-	struct FSoftAssetReference
+	// Describes one non-null authored occurrence extracted from authoritative DAST bytes.
+	struct FAssetReferenceEdge
 	{
 		FAssetPath SourcePackage;
 		FAssetPackageFingerprint SourceFingerprint;
@@ -436,20 +447,21 @@ namespace Durin::Asset
 		std::string SourceClass;
 		std::string DeclaringType;
 		std::string FieldName;
+		EAssetReferenceKind Kind = EAssetReferenceKind::HardObject;
 		std::string ExpectedClass;
 		FAssetPath TargetPath;
-		std::vector<FSoftAssetReferenceRouteSegment> ContainerRoute;
-		std::string PropertyPath;
+		std::vector<FAssetReferenceRouteSegment> Route;
+		std::string DisplayRoute;
 
-		auto operator==(const FSoftAssetReference&) const -> bool = default;
+		auto operator==(const FAssetReferenceEdge&) const -> bool = default;
 	};
 
-	// Extracts direct and recursively nested soft paths without constructing package objects,
+	// Extracts direct and recursively nested hard/soft paths without constructing package objects,
 	// invoking PostLoad, resolving targets, or changing package residency.
-	ASSETCORE_API auto ExtractSoftAssetReferences(
+	ASSETCORE_API auto ExtractAssetReferences(
 		const FAssetPath& SourcePackage,
 		const FAssetPackageInspection& Inspection,
-		std::vector<FSoftAssetReference>& OutReferences) -> FAssetResult;
+		std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult;
 
 	// Selects whether registry discovery may reuse its persistent snapshot.
 	enum class EAssetRegistryScanMode : uint8
@@ -474,12 +486,155 @@ namespace Durin::Asset
 		double DurationMilliseconds = 0.0;
 	};
 
-	struct FSoftReferenceIndexStats
+	struct FAssetReferenceIndexStats
 	{
 		uint64 ReusedSources = 0;
 		uint64 ExtractedSources = 0;
 		uint64 FailedSources = 0;
 	};
+
+	// Owns the deterministic, fingerprint-bound derived graph for authored packages.
+	class FAssetReferenceIndex
+	{
+	public:
+		auto GetEdges() const -> std::span<const FAssetReferenceEdge> { return Edges; }
+		ASSETCORE_API auto FindReferencers(const FAssetPath& Target) const
+			-> std::vector<FAssetReferenceEdge>;
+		ASSETCORE_API auto FindTargets(const FAssetPath& Source) const
+			-> std::vector<FAssetPath>;
+		auto IsComplete() const -> bool { return bComplete; }
+		auto GetErrors() const -> std::span<const FAssetResult> { return Errors; }
+		auto GetStats() const -> const FAssetReferenceIndexStats& { return Stats; }
+		auto GetCacheWarning() const -> const std::string& { return CacheWarning; }
+
+	private:
+		std::vector<FAssetReferenceEdge> Edges;
+		std::unordered_map<FAssetPath, FAssetPackageFingerprint> SourceFingerprints;
+		std::vector<FAssetResult> Errors;
+		FAssetReferenceIndexStats Stats;
+		std::string CacheWarning;
+		bool bComplete = false;
+		bool bSnapshotDirty = false;
+
+		friend class FAssetRegistry;
+		friend class FAssetManager;
+	};
+
+	// Identifies one persistent path occurrence outside a .dasset package.
+	struct FAssetReferenceStoreOccurrence
+	{
+		std::string ProviderId;
+		std::string StableId;
+		FAssetPath TargetPath;
+		std::string DisplayRoute;
+
+		auto operator==(const FAssetReferenceStoreOccurrence&) const -> bool = default;
+	};
+
+	struct FAssetReferenceRewrite
+	{
+		std::string StableId;
+		FAssetPath SourcePath;
+		FAssetPath DestinationPath;
+
+		auto operator==(const FAssetReferenceRewrite&) const -> bool = default;
+	};
+
+	struct FAssetRedirectorFixupMapping
+	{
+		FAssetPath RedirectorPath;
+		FAssetPath FinalPath;
+
+		auto operator==(const FAssetRedirectorFixupMapping&) const -> bool = default;
+	};
+
+	// Captures one provider's deterministic occurrence set and durable-state fingerprint.
+	struct FAssetReferenceStoreSnapshot
+	{
+		std::string ProviderId;
+		uint64 ProviderVersion = 0;
+		std::string Fingerprint;
+		std::vector<FAssetReferenceStoreOccurrence> Occurrences;
+	};
+
+	// Owns a provider-prepared reversible write for one Fix Up transaction.
+	struct FAssetReferenceStoreRewriteContribution
+	{
+		std::string Fingerprint;
+		std::vector<FAssetReferenceRewrite> Rewrites;
+		std::function<FAssetResult()> Revalidate;
+		std::function<FAssetResult()> Apply;
+		std::function<FAssetResult()> Restore;
+		std::function<FAssetResult()> Verify;
+	};
+
+	// Enumerates and transactionally rewrites persistent asset paths outside packages.
+	class IAssetReferenceStore
+	{
+	public:
+		virtual ~IAssetReferenceStore() = default;
+		virtual auto CaptureSnapshot(FAssetReferenceStoreSnapshot& OutSnapshot)
+			-> FAssetResult = 0;
+		virtual auto PrepareRewrite(
+			std::span<const FAssetReferenceRewrite> Rewrites,
+			std::string_view ExpectedFingerprint,
+			FAssetReferenceStoreRewriteContribution& OutContribution)
+			-> FAssetResult = 0;
+	};
+
+	using FAssetReferenceStoreHandle = uint64;
+	ASSETCORE_API auto RegisterAssetReferenceStore(IAssetReferenceStore* Store)
+		-> FAssetReferenceStoreHandle;
+	ASSETCORE_API auto UnregisterAssetReferenceStore(
+		FAssetReferenceStoreHandle Handle) -> void;
+
+	enum class EAssetRedirectorFixupMode : uint8
+	{
+		RewriteOnly,
+		RewriteAndDelete
+	};
+
+	// Owns an immutable, fingerprint-bound Fix Up plan and its retained journal.
+	class FAssetRedirectorFixupPlan
+	{
+	public:
+		ASSETCORE_API auto GetMode() const -> EAssetRedirectorFixupMode;
+		ASSETCORE_API auto GetRegistryRevision() const -> uint64;
+		ASSETCORE_API auto GetRedirectors() const -> std::span<const FAssetPath>;
+		ASSETCORE_API auto GetFinalPathMappings() const
+			-> std::span<const FAssetRedirectorFixupMapping>;
+		ASSETCORE_API auto GetPackageOccurrences() const
+			-> std::span<const FAssetReferenceEdge>;
+		ASSETCORE_API auto GetStoreOccurrences() const
+			-> std::span<const FAssetReferenceStoreOccurrence>;
+		ASSETCORE_API auto GetDeletableRedirectors() const
+			-> std::span<const FAssetPath>;
+
+	private:
+		struct FState;
+		std::shared_ptr<FState> State;
+
+		friend class FAssetManager;
+	};
+
+	enum class EAssetRedirectorFixupFailurePoint : uint8
+	{
+		None,
+		PreparePackage,
+		PrepareStore,
+		StageOriginal,
+		PublishPackage,
+		ApplyStore,
+		Verify,
+		DeleteRedirector,
+		PublishRegistry,
+		CompensatePackage,
+		CompensateStore
+	};
+
+	ASSETCORE_API auto SetAssetRedirectorFixupFailurePointForTesting(
+		EAssetRedirectorFixupFailurePoint Point,
+		uint32 Occurrence = 1) -> void;
 
 	// Describes one requested real-asset relocation in an atomic batch.
 	struct FAssetRelocationMapping
@@ -657,23 +812,18 @@ namespace Durin::Asset
 		auto GetCacheWarning() const -> const std::string& { return CacheWarning; }
 		auto IsPersistentSnapshotDirty() const -> bool { return bPersistentSnapshotDirty; }
 		auto GetRevision() const -> uint64 { return Revision; }
-		auto GetSoftReferences() const -> std::span<const FSoftAssetReference> { return SoftReferences; }
-		ASSETCORE_API auto FindSoftReferencers(const FAssetPath& Target) const -> std::vector<FSoftAssetReference>;
-		ASSETCORE_API auto FindSoftTargets(const FAssetPath& Source) const -> std::vector<FAssetPath>;
+		auto GetReferenceIndex() const -> const FAssetReferenceIndex& { return ReferenceIndex; }
 		// Builds the cook closure from hard dependencies plus default-tracked soft paths.
 		// It never loads a package and does not change runtime unload decisions.
 		ASSETCORE_API auto BuildCookReachability(
 			std::span<const FAssetPath> Roots,
 			std::vector<FAssetPath>& OutPackages) const -> FAssetResult;
-		auto GetSoftReferenceErrors() const -> const std::vector<FAssetResult>& { return SoftReferenceErrors; }
-		auto GetSoftReferenceCacheWarning() const -> const std::string& { return SoftReferenceCacheWarning; }
-		auto GetSoftReferenceIndexStats() const -> const FSoftReferenceIndexStats& { return SoftReferenceIndexStats; }
 
 	private:
 		auto AddOrUpdate(FAssetData Data) -> void;
 		auto Remove(const FAssetPath& Path) -> void;
-		auto RefreshSoftReferencesForAsset(const FAssetData& Data) -> bool;
-		auto RemoveSoftReferencesFromSource(const FAssetPath& Path) -> bool;
+		auto RefreshReferencesForAsset(const FAssetData& Data) -> bool;
+		auto RemoveReferencesFromSource(const FAssetPath& Path) -> bool;
 		auto RebuildRedirectorIndex() -> void;
 		std::unordered_map<FAssetPath, FAssetData> Assets;
 		std::unordered_map<FAssetPath, std::vector<FAssetPath>> RedirectorsByDestination;
@@ -681,12 +831,7 @@ namespace Durin::Asset
 		FAssetRegistryScanStats LastScanStats;
 		std::string CacheWarning;
 		bool bPersistentSnapshotDirty = false;
-		std::vector<FSoftAssetReference> SoftReferences;
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint> SoftReferenceSourceFingerprints;
-		std::vector<FAssetResult> SoftReferenceErrors;
-		FSoftReferenceIndexStats SoftReferenceIndexStats;
-		std::string SoftReferenceCacheWarning;
-		bool bSoftReferenceSnapshotDirty = false;
+		FAssetReferenceIndex ReferenceIndex;
 
 		// Monotonically changes when the visible registry contents change.
 		uint64 Revision = 1;
@@ -729,6 +874,14 @@ namespace Durin::Asset
 			const FAssetRelocationBatchToken& Token) -> FAssetResult;
 		ASSETCORE_API auto RestoreAssetRelocationBatch(
 			const FAssetRelocationBatchToken& Token) -> FAssetResult;
+		ASSETCORE_API auto AnalyzeRedirectorFixup(
+			std::span<const FAssetPath> Redirectors,
+			EAssetRedirectorFixupMode Mode,
+			FAssetRedirectorFixupPlan& OutPlan) -> FAssetResult;
+		ASSETCORE_API auto RevalidateRedirectorFixup(
+			const FAssetRedirectorFixupPlan& Plan) -> FAssetResult;
+		ASSETCORE_API auto ApplyRedirectorFixup(
+			const FAssetRedirectorFixupPlan& Plan) -> FAssetResult;
 		ASSETCORE_API auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
 		ASSETCORE_API auto AnalyzeAssetDeletionBatch(
 			std::span<const FAssetPath> Paths,
@@ -906,6 +1059,21 @@ namespace Durin::Asset
 		const FAssetRelocationBatchToken& Token) -> FAssetResult;
 	ASSETCORE_API auto RestoreAssetRelocationBatch(
 		const FAssetRelocationBatchToken& Token) -> FAssetResult;
+	ASSETCORE_API auto AnalyzeRedirectorFixup(
+		std::span<const FAssetPath> Redirectors,
+		EAssetRedirectorFixupMode Mode,
+		FAssetRedirectorFixupPlan& OutPlan) -> FAssetResult;
+	ASSETCORE_API auto RevalidateRedirectorFixup(
+		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult;
+	ASSETCORE_API auto ApplyRedirectorFixup(
+		const FAssetRedirectorFixupPlan& Plan) -> FAssetResult;
+	ASSETCORE_API auto FixUpRedirectors(
+		std::span<const FAssetPath> Redirectors,
+		EAssetRedirectorFixupMode Mode = EAssetRedirectorFixupMode::RewriteAndDelete)
+		-> FAssetResult;
+	ASSETCORE_API auto FixUpAllRedirectors(
+		EAssetRedirectorFixupMode Mode = EAssetRedirectorFixupMode::RewriteAndDelete)
+		-> FAssetResult;
 	ASSETCORE_API auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
 	ASSETCORE_API auto AnalyzeAssetDeletionBatch(
 		std::span<const FAssetPath> Paths,
