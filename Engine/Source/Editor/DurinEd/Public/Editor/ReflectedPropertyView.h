@@ -16,6 +16,7 @@ namespace Durin
 		Null,
 		Unloaded,
 		Loaded,
+		Redirected,
 		Missing,
 		TypeMismatch,
 	};
@@ -25,6 +26,7 @@ namespace Durin
 	{
 		ESoftObjectPropertyViewState State = ESoftObjectPropertyViewState::Null;
 		FAssetPath Path;
+		FAssetPath ResolvedPath;
 		DObject* LoadedObject = nullptr;
 		std::string Message;
 	};

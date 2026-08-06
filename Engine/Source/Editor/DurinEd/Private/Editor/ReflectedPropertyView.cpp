@@ -164,6 +164,7 @@ namespace Durin
 		case ESoftObjectPropertyViewState::Null: return "Null";
 		case ESoftObjectPropertyViewState::Unloaded: return "Unloaded";
 		case ESoftObjectPropertyViewState::Loaded: return "Loaded";
+		case ESoftObjectPropertyViewState::Redirected: return "Redirected";
 		case ESoftObjectPropertyViewState::Missing: return "Missing";
 		case ESoftObjectPropertyViewState::TypeMismatch: return "Type mismatch";
 		default: return "Unknown";
@@ -197,20 +198,27 @@ namespace Durin
 			*Reference, Property->GetExpectedClass(), Asset::ESoftObjectNullPolicy::Reject);
 		if (!Resolve)
 		{
-			ViewState.State = ESoftObjectPropertyViewState::TypeMismatch;
+			ViewState.State = Resolve.Result.Error == Asset::EAssetError::TypeMismatch
+				|| Resolve.Result.Error == Asset::EAssetError::UnknownClass
+				? ESoftObjectPropertyViewState::TypeMismatch
+				: ESoftObjectPropertyViewState::Missing;
 			ViewState.Message = Resolve.Result.Message;
+			return ViewState;
+		}
+		ViewState.ResolvedPath = Resolve.ResolvedPath;
+		ViewState.LoadedObject = Resolve.Object;
+		if (Resolve.bRedirected)
+		{
+			ViewState.State = ESoftObjectPropertyViewState::Redirected;
+			ViewState.Message = std::format(
+				"Asset {} resolves to {}.",
+				ViewState.Path.ToString(), ViewState.ResolvedPath.ToString());
 			return ViewState;
 		}
 		if (Resolve.State == Asset::ESoftObjectResolveState::Loaded)
 		{
 			ViewState.State = ESoftObjectPropertyViewState::Loaded;
 			ViewState.LoadedObject = Resolve.Object;
-			return ViewState;
-		}
-		if (!Asset::GetAssetRegistry().FindAsset(ViewState.Path))
-		{
-			ViewState.State = ESoftObjectPropertyViewState::Missing;
-			ViewState.Message = std::format("Asset {} is not present in the registry.", ViewState.Path.ToString());
 			return ViewState;
 		}
 		ViewState.State = ESoftObjectPropertyViewState::Unloaded;
@@ -572,10 +580,11 @@ namespace Durin
 			FSoftObjectPath SelectedPath = CurrentReference ? CurrentReference->GetSoftObjectPath() : FSoftObjectPath();
 			const std::string_view StateLabel = GetSoftObjectPropertyStateLabel(ViewState.State);
 			const bool bCanLoad = ViewState.State == ESoftObjectPropertyViewState::Unloaded
-				|| ViewState.State == ESoftObjectPropertyViewState::Missing;
+				|| (ViewState.State == ESoftObjectPropertyViewState::Redirected
+					&& !ViewState.LoadedObject);
 			const bool bCanReveal = ViewState.Path.IsValid()
-				&& Asset::GetAssetRegistry().FindAsset(ViewState.Path) && Context.RevealAsset;
-			const bool bCanOpen = ViewState.State == ESoftObjectPropertyViewState::Loaded && Context.OpenAsset;
+				&& Asset::GetAssetRegistry().FindAssetExact(ViewState.Path) && Context.RevealAsset;
+			const bool bCanOpen = ViewState.LoadedObject && Context.OpenAsset;
 
 			const FEditorAssetPickerAction LoadAction{
 				.Icon = Icons::Play,
@@ -604,7 +613,9 @@ namespace Durin
 					.Tooltip = "Open the loaded referenced asset.",
 					.bEnabled = bCanOpen,
 					.Execute = [&Context, &ViewState](std::string& Error) {
-						return Context.OpenAsset && Context.OpenAsset(ViewState.Path, Error);
+						const FAssetPath& OpenPath = ViewState.ResolvedPath.IsValid()
+							? ViewState.ResolvedPath : ViewState.Path;
+						return Context.OpenAsset && Context.OpenAsset(OpenPath, Error);
 					},
 				},
 			}};

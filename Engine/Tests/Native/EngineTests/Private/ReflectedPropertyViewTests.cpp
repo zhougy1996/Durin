@@ -1,5 +1,6 @@
 #include "Editor/ReflectedPropertyView.h"
 
+#include "AssetRedirector.h"
 #include "AssetSystem.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -398,7 +399,34 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	State = Durin::InspectSoftObjectProperty(Reflection.SoftProperty, &Object, 0);
 	EXPECT_EQ(State.State, Durin::ESoftObjectPropertyViewState::Loaded);
 
+	const Durin::FSoftObjectPath AliasSoftPath = MakeSoftObjectPropertyViewPath("AliasXXX");
+	const Durin::FAssetPath AliasPath = AliasSoftPath.GetAssetPath();
+	Durin::Asset::DAssetRedirector* Redirector = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAssetRedirector(AliasPath, AssetPath, Redirector));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Redirector->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AliasPath));
+	Object.SoftValues[0].SetPath(AliasSoftPath);
+	State = Durin::InspectSoftObjectProperty(Reflection.SoftProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectPropertyViewState::Redirected);
+	EXPECT_EQ(State.Path, AliasPath);
+	EXPECT_EQ(State.ResolvedPath, AssetPath);
+	EXPECT_EQ(State.LoadedObject, LoadedObject);
+	EXPECT_FALSE(State.Message.empty());
+	EXPECT_EQ(Durin::GetSoftObjectPropertyStateLabel(State.State), "Redirected");
+
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	State = Durin::InspectSoftObjectProperty(Reflection.SoftProperty, &Object, 0);
+	EXPECT_EQ(State.State, Durin::ESoftObjectPropertyViewState::Redirected);
+	EXPECT_EQ(State.LoadedObject, nullptr);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(AliasPath), nullptr);
+	Error.clear();
+	ASSERT_TRUE(Durin::LoadSoftObjectProperty(
+		Reflection.SoftProperty, &Object, 0, LoadedObject, &Error)) << Error;
+	EXPECT_EQ(LoadedObject->GetPackage()->GetPackagePath(), AssetPath.ToString());
+	EXPECT_EQ(Object.SoftValues[0].GetSoftObjectPath(), AliasSoftPath);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(AliasPath), nullptr);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(AliasPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 }
 

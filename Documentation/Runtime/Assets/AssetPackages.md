@@ -25,7 +25,7 @@ The physical filename is the resolved virtual path plus `.dasset`. Main assets u
 
 ## Runtime Lifetime
 
-`DPackage` is an Outer-less object graph root. The asset manager roots loaded packages for garbage collection and caches one package instance per `FAssetPath`. Unload removes the package from the active cache, calls `MarkObjectHierarchyAsGarbage()` for the package tree, and runs GC so the path can be loaded again only after GC-controlled physical removal. Objects that must survive unload must be reparented out of that package first. `DPackage::Asset` is a `TObjectPtr` that strongly retains the main asset; arbitrary descendants remain alive only through actual GC strong references, not merely because their Outer is the package or asset. A package cannot unload while another loaded package declares it as a strong dependency.
+`DPackage` is an Outer-less object graph root. The asset manager roots loaded packages for garbage collection and caches one package instance per exact `FAssetPath`. Public asset loads resolve redirectors first and cache only the final real package; redirector packages are constructed only through AssetCore's internal exact tooling seam. Unload removes the package from the active cache, calls `MarkObjectHierarchyAsGarbage()` for the package tree, and runs GC so the path can be loaded again only after GC-controlled physical removal. Objects that must survive unload must be reparented out of that package first. `DPackage::Asset` is a `TObjectPtr` that strongly retains the main asset; arbitrary descendants remain alive only through actual GC strong references, not merely because their Outer is the package or asset. A package cannot unload while another loaded package declares a hard dependency that resolves to it.
 
 Compiled-in reflection metadata uses a separate `Cpp` package kind. Each reflected module has one rooted `/Cpp/<ModuleName>` package whose structural children are its `DClass`, `DStruct`, and `DEnum` metadata. Those metadata objects are permanent independently of the package's Outer relationship. Cpp packages have no main asset, are not saved as `.dasset`, and remain alive for the process lifetime. CoreDObject intrinsic types are attached to `/Cpp/CoreDObject` after reflection bootstrap completes.
 
@@ -36,7 +36,7 @@ from whether a path happens to be available:
 
 | Type | Use when | Persistence and lifetime |
 | --- | --- | --- |
-| Reflected `TObjectPtr<T>` | The owner requires the target object/package to be loaded and retained. | Serializes as a hard package dependency, loads eagerly, participates in GC, blocks target-package unload, and blocks target deletion from outside the deletion set. |
+| Reflected `TObjectPtr<T>` | The owner requires the target object/package to be loaded and retained. | Serializes as a hard package dependency, resolves redirectors before eager loading, participates in GC, blocks final target-package unload, and blocks target deletion from outside the deletion set. |
 | `TWeakObjectPtr<T>` | Code needs a non-owning handle to an object that is already loaded, such as editor selection or a transient cache. | Stores no durable asset identity, is not a reflected property kind, does not retain the target, and becomes invalid when the object is retired. |
 | Reflected `TSoftObjectPtr<T>` | Authored data needs a typed package-main-asset identity without eager loading or retention. | Serializes only the canonical path, has a non-owning loaded-object cache, contributes no hard dependency or unload blocker, follows target moves, and may remain dangling after deletion. |
 | `FAssetPath` or a path string | A service, document, import/source record, thumbnail key, or external setting needs identity but is not itself a reflected object reference. | The owning subsystem defines validation, persistence, move, and load behavior explicitly. Do not load an object merely to recover its path. |
@@ -44,12 +44,22 @@ from whether a path happens to be available:
 `FSoftObjectPath::TryCreate(...)` validates nullable persistent identity.
 `TSoftObjectPtr<T>::SetPath(...)` assigns identity without loading;
 `TrySetObject(...)` assigns a package main asset and its path; `Get()` and
-`IsLoaded()` inspect only the weak cache. Use typed
+`IsLoaded()` inspect only the weak cache. The soft value keeps its authored path
+and separately caches the resolved package identity, so an old path can safely
+refer to a loaded object in the final real package without changing equality,
+hashing, snapshots, or serialized bytes. Use typed
 `Asset::ResolveSoftObject(...)` to distinguish `Null`, `NotLoaded`, and
 `Loaded` without loading, and `Asset::LoadSoftObject(...)` for the explicit load
 boundary. Both APIs enforce `T::StaticClass()`; null handling is selected with
 `ESoftObjectNullPolicy`, and missing, incompatible, or corrupt targets return
 ordinary `FAssetResult` diagnostics without changing the stored path.
+
+Public typed `LoadAsset(...)`, cross-package hard-reference loading, and typed
+soft resolve/load all use `ResolveAssetPath(...)` before constructing a package.
+Expected-class validation applies to the final real metadata, and normal callers
+never receive `DAssetRedirector` in place of the requested type. Registry-missing
+direct loads remain available for ordinary packages after bounded header
+validation; an unregistered redirector is not constructed by that fallback.
 
 The registry exposes exact physical-entry lookup, non-loading redirect
 resolution, deterministic direct reverse lookup, `FindSoftReferencers(...)`,
@@ -257,7 +267,7 @@ owns a fixed built-in Cook-root list; it currently contains
 empty bulk companion. Complete project discovery, editor or
 DurinDevTool packaging commands, and installable-build orchestration are not yet
 connected. Other deferred package-system work includes async loading, hot
-reload, redirects, and broader editor asset browsing.
+reload, redirect-aware cooking/fix-up, and broader editor asset browsing.
 
 Package format versions are independent of the Durin engine release version.
 Adding, removing, or reordering tagged reflected fields does not change the

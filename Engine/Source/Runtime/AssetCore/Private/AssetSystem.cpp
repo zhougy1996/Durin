@@ -27,23 +27,43 @@ namespace Durin::Asset
 
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult;
 
-		auto ValidateSoftObjectRegistryClass(
-			const FAssetPath& Path,
-			const DClass* ExpectedClass) -> FAssetResult
+		auto AssetPathResolutionError(
+			const FAssetPathResolveResult& Resolution) -> FAssetResult
 		{
-			const FAssetData* Data = FAssetManager::Get().GetRegistry().FindAsset(Path);
-			if (!Data) return {};
-			DClass* RegisteredClass = FindClassByQualifiedName(FName(Data->AssetClassName));
-			if (!RegisteredClass)
+			switch (Resolution.State)
+			{
+			case EAssetPathResolveState::Resolved:
+				return {};
+			case EAssetPathResolveState::NotFound:
+				return Error(EAssetError::NotFound, std::format(
+					"Asset {} is not present in the registry.",
+					Resolution.RequestedPath.ToString()));
+			case EAssetPathResolveState::MissingRedirectTarget:
+				return Error(EAssetError::NotFound, std::format(
+					"Asset redirect {} has a missing target {}.",
+					Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
+			case EAssetPathResolveState::RedirectCycle:
+				return Error(EAssetError::CircularDependency, std::format(
+					"Asset redirect {} contains a cycle at {}.",
+					Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
+			case EAssetPathResolveState::RedirectDepthExceeded:
+				return Error(EAssetError::CircularDependency, std::format(
+					"Asset redirect {} exceeds the maximum redirect depth at {}.",
+					Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
+			case EAssetPathResolveState::UnknownTargetClass:
 				return Error(EAssetError::UnknownClass, std::format(
-					"Asset {} has unknown registered class {}.", Path.ToString(), Data->AssetClassName));
-			if (!RegisteredClass->IsChildOf(ExpectedClass))
+					"Asset {} resolves to a target with an unavailable reflected class.",
+					Resolution.RequestedPath.ToString()));
+			case EAssetPathResolveState::RedirectTypeMismatch:
 				return Error(EAssetError::TypeMismatch, std::format(
-					"Asset {} is registered as {}, not a {}.",
-					Path.ToString(),
-					Data->AssetClassName,
-					ExpectedClass->GetQualifiedName().ToString()));
-			return {};
+					"Asset {} resolves to a target with an incompatible class.",
+					Resolution.RequestedPath.ToString()));
+			case EAssetPathResolveState::CorruptRedirector:
+				return Error(EAssetError::CorruptFile, std::format(
+					"CorruptRedirector: asset {} traverses invalid redirect metadata at {}.",
+					Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
+			}
+			return Error(EAssetError::CorruptFile, "Asset resolution returned an unknown state.");
 		}
 
 		constexpr uint32 AssetMagic = 0x54534144; // DAST
@@ -4504,6 +4524,76 @@ namespace Durin::Asset
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
+		return LoadAsset(Path, nullptr, OutAsset, OutReport);
+	}
+
+	auto FAssetManager::LoadAsset(
+		const FAssetPath& Path,
+		const DClass* ExpectedClass,
+		DObject*& OutAsset,
+		FAssetLoadReport* OutReport) -> FAssetResult
+	{
+		OutAsset = nullptr;
+		if (!bAcceptingRequests)
+			return Error(
+				EAssetError::ShuttingDown,
+				"Asset loading is closed while the asset manager is shutting down.");
+		if (ExpectedClass && !ExpectedClass->IsChildOf(DObject::StaticClass()))
+			return Error(EAssetError::TypeMismatch, "An asset load requires a DObject class.");
+
+		const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(
+			Path, {.ExpectedClass = ExpectedClass});
+		if (!Resolution)
+		{
+			if (Resolution.State == EAssetPathResolveState::NotFound)
+			{
+				const auto Loaded = LoadedPackages.find(Path);
+				DObject* LoadedObject = Loaded != LoadedPackages.end()
+					? Loaded->second->GetAsset() : nullptr;
+				if (LoadedObject && !LoadedObject->IsA<DAssetRedirector>())
+				{
+					if (ExpectedClass && !LoadedObject->IsA(ExpectedClass))
+						return Error(EAssetError::TypeMismatch, std::format(
+							"Asset {} is not a {}.", Path.ToString(),
+							ExpectedClass->GetQualifiedName().ToString()));
+					OutAsset = LoadedObject;
+					return {};
+				}
+
+				const std::string PhysicalPath = GetPhysicalPath(Path);
+				FAssetPackageHeader Header;
+				FAssetResult HeaderResult = PhysicalPath.empty()
+					? AssetPathResolutionError(Resolution)
+					: ReadAssetPackageHeader(PhysicalPath, Header);
+				if (!HeaderResult) return HeaderResult;
+				if (Header.EntryKind == EAssetRegistryEntryKind::Redirector)
+					return Error(EAssetError::NotFound, std::format(
+						"Redirector {} must be present in the registry before public loading.",
+						Path.ToString()));
+				DClass* HeaderClass = FindClassByQualifiedName(FName(Header.AssetClassName));
+				if (!HeaderClass)
+					return Error(EAssetError::UnknownClass, std::format(
+						"Asset {} has unknown class {}.",
+						Path.ToString(), Header.AssetClassName));
+				if (ExpectedClass && !HeaderClass->IsChildOf(ExpectedClass))
+					return Error(EAssetError::TypeMismatch, std::format(
+						"Asset {} is registered as {}, not a {}.",
+						Path.ToString(), Header.AssetClassName,
+						ExpectedClass->GetQualifiedName().ToString()));
+				return LoadAssetExact(Path, ExpectedClass, OutAsset, OutReport);
+			}
+			return AssetPathResolutionError(Resolution);
+		}
+		return LoadAssetExact(
+			Resolution.FinalPath, ExpectedClass, OutAsset, OutReport);
+	}
+
+	auto FAssetManager::LoadAssetExact(
+		const FAssetPath& Path,
+		const DClass* ExpectedClass,
+		DObject*& OutAsset,
+		FAssetLoadReport* OutReport) -> FAssetResult
+	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.Load");
 		if (!bAcceptingRequests)
 		{
@@ -4519,6 +4609,14 @@ namespace Durin::Asset
 		if (bRootLoad) GActiveAssetLoadReport = OutReport;
 		DPackage* Package = nullptr;
 		FAssetResult Result = LoadPackageInternal(Path, Package, OutReport);
+		if (Result && Package && ExpectedClass)
+		{
+			DObject* Asset = Package->GetAsset();
+			if (!Asset || !Asset->IsA(ExpectedClass))
+				Result = Error(EAssetError::TypeMismatch, std::format(
+					"Asset {} is not a {}.", Path.ToString(),
+					ExpectedClass->GetQualifiedName().ToString()));
+		}
 		if (bRootLoad) GActiveAssetLoadReport = PreviousLoadReport;
 		--LoadDepth;
 		if (bRootLoad)
@@ -4606,8 +4704,8 @@ namespace Durin::Asset
 
 		for (const FAssetPath& Dependency : File.Dependencies)
 		{
-			DPackage* DependencyPackage = nullptr;
-			Result = LoadPackageInternal(Dependency, DependencyPackage);
+			DObject* DependencyObject = nullptr;
+			Result = LoadAsset(Dependency, DependencyObject);
 			if (!Result) { Rollback(); return Error(EAssetError::MissingDependency, Result.Message); }
 		}
 
@@ -4759,8 +4857,13 @@ namespace Durin::Asset
 		for (const auto& [OtherPath, OtherPackage] : LoadedPackages)
 		{
 			if (OtherPackage == Package) continue;
-			const FAssetData* Data = Registry.FindAsset(OtherPath);
-			if (Data && std::ranges::find(Data->Dependencies, Path) != Data->Dependencies.end()) return true;
+			const FAssetData* Data = Registry.FindAssetExact(OtherPath);
+			if (!Data) continue;
+			for (const FAssetPath& Dependency : Data->Dependencies)
+			{
+				const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(Dependency);
+				if (Resolution && Resolution.FinalPath == Path) return true;
+			}
 		}
 		return false;
 	}
@@ -4805,10 +4908,13 @@ namespace Durin::Asset
 			for (const auto& [Path, Package] : LoadedPackages)
 			{
 				if (!Protected.contains(Path)) continue;
-				const FAssetData* Data = Registry.FindAsset(Path);
+				const FAssetData* Data = Registry.FindAssetExact(Path);
 				if (!Data) continue;
 				for (const FAssetPath& Dependency : Data->Dependencies)
-					bChanged |= Protected.insert(Dependency).second;
+				{
+					const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(Dependency);
+					if (Resolution) bChanged |= Protected.insert(Resolution.FinalPath).second;
+				}
 			}
 		}
 
@@ -4900,7 +5006,7 @@ namespace Durin::Asset
 			RedirectorPath, DestinationPath, OutRedirector);
 	}
 
-	auto ResolveSoftObject(
+	auto FAssetManager::ResolveSoftObjectInternal(
 		FSoftObjectPtr& Reference,
 		const DClass* ExpectedClass,
 		ESoftObjectNullPolicy NullPolicy) -> FSoftObjectResolveResult
@@ -4922,54 +5028,89 @@ namespace Durin::Asset
 		}
 
 		const FAssetPath& Path = Reference.GetSoftObjectPath().GetAssetPath();
-		FAssetResult RegistryResult = ValidateSoftObjectRegistryClass(Path, ExpectedClass);
-		if (!RegistryResult)
+		const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(
+			Path, {.ExpectedClass = ExpectedClass});
+		if (!Resolution)
 		{
+			if (Resolution.State == EAssetPathResolveState::NotFound)
+			{
+				DPackage* LoadedPackage = FindLoadedPackage(Path);
+				DObject* LoadedObject = LoadedPackage ? LoadedPackage->GetAsset() : nullptr;
+				if (LoadedObject && !LoadedObject->IsA<DAssetRedirector>())
+				{
+					if (!LoadedObject->IsA(ExpectedClass))
+						return {
+							.Result = Error(EAssetError::TypeMismatch, std::format(
+								"Asset {} is not a {}.", Path.ToString(),
+								ExpectedClass->GetQualifiedName().ToString())),
+							.State = ESoftObjectResolveState::NotLoaded};
+					std::string ValidationError;
+					if (!Reference.TrySetResolvedObject(
+						LoadedObject, Path, Path, ExpectedClass, &ValidationError))
+						return {
+							.Result = Error(EAssetError::InvalidObjectGraph, std::move(ValidationError)),
+							.State = ESoftObjectResolveState::NotLoaded};
+					return {
+						.State = ESoftObjectResolveState::Loaded,
+						.Object = LoadedObject,
+						.ResolvedPath = Path};
+				}
+			}
+			Reference.ResetResolvedObject();
 			return {
-				.Result = std::move(RegistryResult),
+				.Result = AssetPathResolutionError(Resolution),
 				.State = ESoftObjectResolveState::NotLoaded};
 		}
 
-		if (DObject* Cached = Reference.Get(ExpectedClass))
+		DPackage* Package = FindLoadedPackage(Resolution.FinalPath);
+		if (!Package)
 		{
+			Reference.ResetResolvedObject();
 			return {
-				.State = ESoftObjectResolveState::Loaded,
-				.Object = Cached};
+				.State = ESoftObjectResolveState::NotLoaded,
+				.ResolvedPath = Resolution.FinalPath,
+				.bRedirected = !Resolution.RedirectChain.empty()};
 		}
-
-		DPackage* Package = FAssetManager::Get().FindLoadedPackage(Path);
-		if (!Package) return {.State = ESoftObjectResolveState::NotLoaded};
 
 		DObject* Object = Package->GetAsset();
 		if (!Object)
 		{
 			return {
 				.Result = Error(EAssetError::InvalidObjectGraph, std::format(
-					"Loaded package {} has no main asset.", Path.ToString())),
-				.State = ESoftObjectResolveState::NotLoaded};
+					"Loaded package {} has no main asset.", Resolution.FinalPath.ToString())),
+				.State = ESoftObjectResolveState::NotLoaded,
+				.ResolvedPath = Resolution.FinalPath,
+				.bRedirected = !Resolution.RedirectChain.empty()};
 		}
 		if (!Object->IsA(ExpectedClass))
 		{
 			return {
 				.Result = Error(EAssetError::TypeMismatch, std::format(
 					"Asset {} is not a {}.",
-					Path.ToString(), ExpectedClass->GetQualifiedName().ToString())),
-				.State = ESoftObjectResolveState::NotLoaded};
+					Resolution.FinalPath.ToString(), ExpectedClass->GetQualifiedName().ToString())),
+				.State = ESoftObjectResolveState::NotLoaded,
+				.ResolvedPath = Resolution.FinalPath,
+				.bRedirected = !Resolution.RedirectChain.empty()};
 		}
 
 		std::string ValidationError;
-		if (!Reference.TrySetLoadedObject(Object, ExpectedClass, &ValidationError))
+		if (!Reference.TrySetResolvedObject(
+			Object, Path, Resolution.FinalPath, ExpectedClass, &ValidationError))
 		{
 			return {
 				.Result = Error(EAssetError::InvalidObjectGraph, std::move(ValidationError)),
-				.State = ESoftObjectResolveState::NotLoaded};
+				.State = ESoftObjectResolveState::NotLoaded,
+				.ResolvedPath = Resolution.FinalPath,
+				.bRedirected = !Resolution.RedirectChain.empty()};
 		}
 		return {
 			.State = ESoftObjectResolveState::Loaded,
-			.Object = Object};
+			.Object = Object,
+			.ResolvedPath = Resolution.FinalPath,
+			.bRedirected = !Resolution.RedirectChain.empty()};
 	}
 
-	auto LoadSoftObject(
+	auto FAssetManager::LoadSoftObjectInternal(
 		FSoftObjectPtr& Reference,
 		const DClass* ExpectedClass,
 		DObject*& OutObject,
@@ -4978,7 +5119,7 @@ namespace Durin::Asset
 	{
 		CheckSoftObjectThread();
 		OutObject = nullptr;
-		FSoftObjectResolveResult Resolved = ResolveSoftObject(
+		FSoftObjectResolveResult Resolved = ResolveSoftObjectInternal(
 			Reference, ExpectedClass, NullPolicy);
 		if (!Resolved) return Resolved.Result;
 		if (Resolved.State == ESoftObjectResolveState::Null) return {};
@@ -4990,7 +5131,8 @@ namespace Durin::Asset
 
 		DObject* LoadedObject = nullptr;
 		const FAssetPath& Path = Reference.GetSoftObjectPath().GetAssetPath();
-		FAssetResult Result = FAssetManager::Get().LoadAsset(Path, LoadedObject, OutReport);
+		FAssetResult Result = LoadAsset(
+			Path, ExpectedClass, LoadedObject, OutReport);
 		if (!Result) return Result;
 		if (!LoadedObject)
 			return Error(EAssetError::InvalidObjectGraph, std::format(
@@ -5003,10 +5145,31 @@ namespace Durin::Asset
 		}
 
 		std::string ValidationError;
-		if (!Reference.TrySetLoadedObject(LoadedObject, ExpectedClass, &ValidationError))
+		if (!Reference.TrySetResolvedObject(
+			LoadedObject, Path, Resolved.ResolvedPath, ExpectedClass, &ValidationError))
 			return Error(EAssetError::InvalidObjectGraph, std::move(ValidationError));
 		OutObject = LoadedObject;
 		return {};
+	}
+
+	auto ResolveSoftObject(
+		FSoftObjectPtr& Reference,
+		const DClass* ExpectedClass,
+		ESoftObjectNullPolicy NullPolicy) -> FSoftObjectResolveResult
+	{
+		return FAssetManager::Get().ResolveSoftObjectInternal(
+			Reference, ExpectedClass, NullPolicy);
+	}
+
+	auto LoadSoftObject(
+		FSoftObjectPtr& Reference,
+		const DClass* ExpectedClass,
+		DObject*& OutObject,
+		ESoftObjectNullPolicy NullPolicy,
+		FAssetLoadReport* OutReport) -> FAssetResult
+	{
+		return FAssetManager::Get().LoadSoftObjectInternal(
+			Reference, ExpectedClass, OutObject, NullPolicy, OutReport);
 	}
 	auto SavePackage(
 		DPackage* Package,

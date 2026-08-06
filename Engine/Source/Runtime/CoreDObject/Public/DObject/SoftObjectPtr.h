@@ -6,6 +6,10 @@
 namespace Durin
 {
 	class DClass;
+	namespace Asset
+	{
+		class FAssetManager;
+	}
 
 	// Stores the persistent identity of one package main asset without loading it.
 	class FSoftObjectPath
@@ -93,6 +97,7 @@ namespace Durin
 		auto Reset() -> void
 		{
 			SoftObjectPath.Reset();
+			ResolvedPackagePath = {};
 			WeakObject.Reset();
 		}
 
@@ -106,8 +111,23 @@ namespace Durin
 		}
 
 	private:
+		COREDOBJECT_API auto TrySetResolvedObject(
+			DObject* InObject,
+			const FAssetPath& AuthoredPath,
+			const FAssetPath& ResolvedPath,
+			const DClass* ExpectedClass,
+			std::string* OutError) -> bool;
+		auto ResetResolvedObject() -> void
+		{
+			ResolvedPackagePath = {};
+			WeakObject.Reset();
+		}
+
 		FSoftObjectPath SoftObjectPath;
+		FAssetPath ResolvedPackagePath;
 		FWeakObjectPtr WeakObject;
+
+		friend class Asset::FAssetManager;
 	};
 
 	// Provides typed access without exposing the wrapper's physical layout as reflection ABI.

@@ -61,6 +61,8 @@ namespace Durin::Asset
 		FAssetResult Result;
 		ESoftObjectResolveState State = ESoftObjectResolveState::Null;
 		DObject* Object = nullptr;
+		FAssetPath ResolvedPath;
+		bool bRedirected = false;
 
 		auto Succeeded() const -> bool { return Result.Succeeded(); }
 		explicit operator bool() const { return Succeeded(); }
@@ -72,6 +74,8 @@ namespace Durin::Asset
 		FAssetResult Result;
 		ESoftObjectResolveState State = ESoftObjectResolveState::Null;
 		T* Object = nullptr;
+		FAssetPath ResolvedPath;
+		bool bRedirected = false;
 
 		auto Succeeded() const -> bool { return Result.Succeeded(); }
 		explicit operator bool() const { return Succeeded(); }
@@ -593,7 +597,7 @@ namespace Durin::Asset
 		ASSETCORE_API auto ScanMountedContent(EAssetRegistryScanMode Mode = EAssetRegistryScanMode::Incremental) -> FAssetResult;
 		ASSETCORE_API auto FlushPersistentSnapshot() -> void;
 		ASSETCORE_API auto FindAssetExact(const FAssetPath& Path) const -> const FAssetData*;
-		// Compatibility spelling retained until loading callers migrate in Stage 2.
+		// Compatibility spelling for exact-only callers that migrate in later stages.
 		ASSETCORE_API auto FindAsset(const FAssetPath& Path) const -> const FAssetData*;
 		ASSETCORE_API auto ResolveAssetPath(
 			const FAssetPath& Path,
@@ -661,6 +665,11 @@ namespace Durin::Asset
 			const FAssetPath& Path,
 			DObject*& OutAsset,
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+		ASSETCORE_API auto LoadAsset(
+			const FAssetPath& Path,
+			const DClass* ExpectedClass,
+			DObject*& OutAsset,
+			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
 		ASSETCORE_API auto SavePackage(
 			DPackage* Package,
 			const FAssetPackageSaveOptions& Options = {}) -> FAssetResult;
@@ -704,10 +713,25 @@ namespace Durin::Asset
 
 	private:
 		FAssetManager();
+		auto LoadAssetExact(
+			const FAssetPath& Path,
+			const DClass* ExpectedClass,
+			DObject*& OutAsset,
+			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
 		auto LoadPackageInternal(
 			const FAssetPath& Path,
 			DPackage*& OutPackage,
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+		auto ResolveSoftObjectInternal(
+			FSoftObjectPtr& Reference,
+			const DClass* ExpectedClass,
+			ESoftObjectNullPolicy NullPolicy) -> FSoftObjectResolveResult;
+		auto LoadSoftObjectInternal(
+			FSoftObjectPtr& Reference,
+			const DClass* ExpectedClass,
+			DObject*& OutObject,
+			ESoftObjectNullPolicy NullPolicy,
+			FAssetLoadReport* OutReport) -> FAssetResult;
 		auto IsPackageReferenced(const DPackage* Package) const -> bool;
 
 		FAssetRegistry Registry;
@@ -731,6 +755,16 @@ namespace Durin::Asset
 		friend ASSETCORE_API auto SavePackagesAtomically(
 			std::span<DPackage* const>,
 			const FAssetBundleSaveOptions&) -> FAssetResult;
+		friend ASSETCORE_API auto ResolveSoftObject(
+			FSoftObjectPtr&,
+			const DClass*,
+			ESoftObjectNullPolicy) -> FSoftObjectResolveResult;
+		friend ASSETCORE_API auto LoadSoftObject(
+			FSoftObjectPtr&,
+			const DClass*,
+			DObject*&,
+			ESoftObjectNullPolicy,
+			FAssetLoadReport*) -> FAssetResult;
 	};
 
 	template<typename T>
@@ -748,12 +782,8 @@ namespace Durin::Asset
 	{
 		static_assert(std::is_base_of_v<DObject, T>);
 		DObject* Object = nullptr;
-		FAssetResult Result = FAssetManager::Get().LoadAsset(Path, Object, OutReport);
-		if (Result && Object && !Object->IsA<T>())
-		{
-			OutAsset = nullptr;
-			return {EAssetError::TypeMismatch, std::format("Asset {} is not a {}.", Path.ToString(), T::StaticClass()->GetQualifiedName().ToString())};
-		}
+		FAssetResult Result = FAssetManager::Get().LoadAsset(
+			Path, T::StaticClass(), Object, OutReport);
 		OutAsset = static_cast<T*>(Object);
 		return Result;
 	}
@@ -781,7 +811,9 @@ namespace Durin::Asset
 		return {
 			.Result = std::move(Result.Result),
 			.State = Result.State,
-			.Object = static_cast<T*>(Result.Object)};
+			.Object = static_cast<T*>(Result.Object),
+			.ResolvedPath = std::move(Result.ResolvedPath),
+			.bRedirected = Result.bRedirected};
 	}
 
 	template<typename T>

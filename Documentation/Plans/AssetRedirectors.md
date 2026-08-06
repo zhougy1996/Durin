@@ -9,9 +9,10 @@ Completed:
 
 ## Current Status
 
-- Stage 0 is complete: the redirect wire format, public vocabulary, resolution
-  behavior, mutation protocol, compatibility policy, and fixture catalog are
-  frozen below. Production implementation has not started; Stage 1 is next.
+- Stages 0-2 are complete: the redirect wire format and public vocabulary are
+  frozen, redirectors persist as DAST v3 registry entries, and public typed
+  loading plus hard/soft references transparently resolve to the final real
+  package. Stage 3 atomic batch relocation is next.
 - The completed [Soft Asset References Plan](SoftAssetReferences.md) is historical
   evidence for the current implementation only. Its move-time rewrite contract,
   compatibility promises, stage structure, and validation baseline do not
@@ -774,20 +775,20 @@ Dependencies: Stage 0 contracts.
 
 Dependencies: Stage 1 registry resolver.
 
-- [ ] Make public asset loading resolve the requested path before package
+- [x] Make public asset loading resolve the requested path before package
   construction and validate the final real asset against the expected class.
-- [ ] Route cross-package hard reference loading and typed soft resolve/load
+- [x] Route cross-package hard reference loading and typed soft resolve/load
   through the same resolver and diagnostics.
-- [ ] Add the internal exact redirector load/inspection seam without exposing a
+- [x] Add the internal exact redirector load/inspection seam without exposing a
   redirector as an ordinary typed load result.
-- [ ] Extend `FSoftObjectPtr` with resolved-cache identity and a checked
+- [x] Extend `FSoftObjectPtr` with resolved-cache identity and a checked
   AssetCore-only cache assignment path while preserving authored equality,
   hashing, snapshots, and serialization.
-- [ ] Verify cache refresh, asset unload, repeated target moves, object
+- [x] Verify cache refresh, asset unload, repeated target moves, object
   collection, missing target, type mismatch, cycle, and depth overflow.
-- [ ] Update editor soft-property inspection so redirected, loaded, unloaded,
+- [x] Update editor soft-property inspection so redirected, loaded, unloaded,
   missing, and type-mismatched states remain distinguishable without loading.
-- [ ] Add focused CoreDObject, AssetCore, reflection, Archive, and editor-model
+- [x] Add focused CoreDObject, AssetCore, reflection, Archive, and editor-model
   tests and end with the required stage handoff.
 
 #### Acceptance Gate
@@ -798,6 +799,35 @@ Dependencies: Stage 1 registry resolver.
   whose package is at the resolved path.
 - Exact tools can inspect the redirector itself, but gameplay/editor asset
   callers never receive it in place of the requested asset type.
+
+#### Stage 2 Handoff
+
+- Baseline commit: `9f4f49466611ea91b7343bca171ebf7d3f362dcc`.
+- Working set: `AssetSystem.h/.cpp`, `SoftObjectPtr.h/.cpp`,
+  `ReflectedPropertyView.h/.cpp`, `PackageTests.cpp`,
+  `ReflectedPropertyViewTests.cpp`, `AssetPackages.md`, and this plan.
+- Key symbols and decisions: typed `FAssetManager::LoadAsset` resolves and
+  validates final registry metadata before `LoadAssetExact` constructs only the
+  real package; cross-package dependencies use the same public resolver;
+  `FSoftObjectPtr` stores private `ResolvedPackagePath` beside the authored path
+  and exposes its redirect-aware cache assignment only to `FAssetManager`;
+  soft resolve results carry `ResolvedPath` and `bRedirected`; editor inspection
+  presents redirect state without loading and opens an already loaded final path.
+- Compatibility and cleanup: registry-missing direct loads remain available for
+  ordinary packages after bounded header validation, while an unregistered
+  redirector is rejected. The exact-forwarding `FindAsset` compatibility spelling
+  remains for exact-only mutation/editor callers scheduled to migrate in later
+  stages; normal loading and reference callers no longer use it.
+- Open questions: none block Stage 3. The current single-asset move still rewrites
+  referencers by design; Stage 3 replaces it with atomic relocation and generated
+  direct-to-final aliases.
+- Validation on 2026-08-06: `DevTool test --target AssetPackageTests --agent`
+  passes 61 tests; `EditorPropertyTests` passes 27; `CoreObjectTests` passes 70;
+  isolated retries of unrelated parallel-only RHI and material-test transients
+  pass, and the final `DevTool test --target all --agent` run passes all 1026
+  executed tests. A full `DevTool build --target all --agent` succeeds under the
+  same `Win64-Debug-DurinEditor-Tests` profile. Documentation plan validation
+  is recorded after this handoff update.
 
 ### Stage 3: Replace Move with Atomic Batch Relocation
 

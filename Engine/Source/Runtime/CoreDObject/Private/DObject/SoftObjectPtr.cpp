@@ -52,6 +52,7 @@ namespace Durin
 
 	FSoftObjectPtr::FSoftObjectPtr(FSoftObjectPtr&& Other) noexcept
 		: SoftObjectPath(std::move(Other.SoftObjectPath))
+		, ResolvedPackagePath(std::move(Other.ResolvedPackagePath))
 		, WeakObject(Other.WeakObject)
 	{
 		Other.Reset();
@@ -61,6 +62,7 @@ namespace Durin
 	{
 		if (this == &Other) return *this;
 		SoftObjectPath = std::move(Other.SoftObjectPath);
+		ResolvedPackagePath = std::move(Other.ResolvedPackagePath);
 		WeakObject = Other.WeakObject;
 		Other.Reset();
 		return *this;
@@ -69,6 +71,7 @@ namespace Durin
 	auto FSoftObjectPtr::SetPath(FSoftObjectPath InPath) -> void
 	{
 		SoftObjectPath = std::move(InPath);
+		ResolvedPackagePath = {};
 		WeakObject.Reset();
 	}
 
@@ -86,6 +89,7 @@ namespace Durin
 		FAssetPath ObjectPath;
 		if (!ValidateSoftObject(InObject, ExpectedClass, ObjectPath, OutError)) return false;
 		SoftObjectPath = FSoftObjectPath(std::move(ObjectPath));
+		ResolvedPackagePath = SoftObjectPath.GetAssetPath();
 		WeakObject.SetObject(InObject);
 		return true;
 	}
@@ -99,6 +103,25 @@ namespace Durin
 		if (!ValidateSoftObject(InObject, ExpectedClass, ObjectPath, OutError)) return false;
 		if (SoftObjectPath.IsNull() || SoftObjectPath.GetAssetPath() != ObjectPath)
 			return FailSoftObject("The loaded object does not match the stored soft-object path.", OutError);
+		ResolvedPackagePath = ObjectPath;
+		WeakObject.SetObject(InObject);
+		return true;
+	}
+
+	auto FSoftObjectPtr::TrySetResolvedObject(
+		DObject* InObject,
+		const FAssetPath& AuthoredPath,
+		const FAssetPath& ResolvedPath,
+		const DClass* ExpectedClass,
+		std::string* OutError) -> bool
+	{
+		FAssetPath ObjectPath;
+		if (!ValidateSoftObject(InObject, ExpectedClass, ObjectPath, OutError)) return false;
+		if (SoftObjectPath.IsNull() || SoftObjectPath.GetAssetPath() != AuthoredPath)
+			return FailSoftObject("The resolved object does not match the authored soft-object path.", OutError);
+		if (!ResolvedPath.IsValid() || ObjectPath != ResolvedPath)
+			return FailSoftObject("The resolved object does not match the resolved package path.", OutError);
+		ResolvedPackagePath = ResolvedPath;
 		WeakObject.SetObject(InObject);
 		return true;
 	}
@@ -106,10 +129,10 @@ namespace Durin
 	auto FSoftObjectPtr::Get(const DClass* ExpectedClass) const -> DObject*
 	{
 		DObject* Object = WeakObject.Get();
-		if (!Object || SoftObjectPath.IsNull()) return nullptr;
+		if (!Object || SoftObjectPath.IsNull() || !ResolvedPackagePath.IsValid()) return nullptr;
 
 		FAssetPath ObjectPath;
 		if (!ValidateSoftObject(Object, ExpectedClass, ObjectPath, nullptr)) return nullptr;
-		return ObjectPath == SoftObjectPath.GetAssetPath() ? Object : nullptr;
+		return ObjectPath == ResolvedPackagePath ? Object : nullptr;
 	}
 }
