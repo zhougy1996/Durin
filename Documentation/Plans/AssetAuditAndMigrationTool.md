@@ -4,25 +4,32 @@ Summary: Unify read-only asset auditing and explicitly authorized repository-wid
 
 Last reviewed: 2026-08-07
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-07
 
 ## Current Status
 
-Durin currently ships a read-only `DurinAssetAudit` native host behind
-`DevTool asset audit`. The host streams package metadata, compares it with the
-current reflection catalog, emits report schema v1, and never loads or saves
-package objects. AssetCore writes DAST v3 and accepts DAST v2 through v3.
+All five stages are complete. `DurinAssetTool` is the sole maintenance host;
+audit, deterministic migration planning, explicit transactional apply, and the
+repository baseline gate share one discovery and compatibility model. The
+tracked 18-package Engine and Sandbox corpus is DAST v3, `asset baseline`
+reports all 18 current with no schema finding, and a fresh migration plan skips
+the complete corpus with no step, diagnostic, or changed path.
 
-The tracked authored corpus contains 18 `.dasset` packages and all 18 currently
-use DAST v2. Production has no registered asset-specific structure upgrader.
-Unknown fields and incompatible signatures fail closed, and the editor rejects
-assets that do not match the current authored baseline.
+AssetCore now reads and writes only DAST v3. The v2 header branches, legacy
+ABI-sized logical type-signature acceptance, production 2-to-3 migration edge,
+v2 fixtures, and v2 package-acceptance/apply tests are removed. Compatibility
+fixtures remain current-format inputs that exercise schema, class, graph,
+corruption, and I/O classifications. Lasting operation and early-development
+retirement rules live in the Build and Run, Asset Packages, and Versioning
+domains; the compact-serialization roadmap now follows the same temporary-edge
+then current-only policy for a future v4 effort.
 
-No migration command or project-wide write transaction exists. Until this plan
-is implemented, converting v2 packages requires loading and explicitly saving
-them through existing asset workflows, and removal of the v2 reader cannot be
-proved safe by a repository-wide gate.
+The six stage commits were intentionally squashed when this completed plan was
+integrated onto `dev`. Every stage handoff below therefore records the shared
+integration baseline `9d65d0057e9d669b2223c16069278348820dc9cc`; the staged
+decisions and validation evidence remain distinct even though Git history lands
+as one implementation commit.
 
 ## Goal
 
@@ -90,6 +97,12 @@ removes v2 package support.
 - The old `DurinAssetAudit` target and executable are removed when all tracked
   invocations, tests, and documentation move. No compatibility alias is kept
   while Durin has no external tool contract.
+- The frozen command grammar is `asset audit --project <descriptor>
+  [--format human|json] [--fail-on <policy>...]` and `asset migrate --project
+  <descriptor> [--apply] [--mount <virtual-root>...] [--package
+  <virtual-path>...] [--format human|json] [--report <path>]`. Repeated mount
+  and package arguments form an intersection with the discovered project
+  corpus and never authorize paths outside it.
 
 ### Mutation requires explicit authorization
 
@@ -173,6 +186,10 @@ removes v2 package support.
 - Existing audit report schema v1 and its deterministic ordering remain stable.
   Migration uses a separately versioned schema so write-specific fields do not
   weaken audit consumers.
+- Long-lived migration schema and transaction fixtures use synthetic packages,
+  versions, and handler identities. Exact historical corpus and handler
+  fixtures exist only while their bounded migration stage is active and are
+  replaced by current-baseline or old-version rejection tests when retired.
 - Human output groups planned, migrated, skipped, blocked, failed, and rolled
   back packages and ends with counts plus the report path when one is requested.
 - Exit `0` means the requested read-only operation completed or the full apply
@@ -200,15 +217,15 @@ removes v2 package support.
 
 Dependencies: existing read-only audit and v3 writer.
 
-- [ ] Record a checked inventory of every tracked `.dasset`, its mount, package
+- [x] Record a checked inventory of every tracked `.dasset`, its mount, package
   format, schema findings, and content hash.
-- [ ] Add command-parser and report fixtures for the selected `audit`,
+- [x] Add command-parser and report fixtures for the selected `audit`,
   `migrate`, and `migrate --apply` grammar.
-- [ ] Define migration report schema v1 and add its JSON Schema beside the
+- [x] Define migration report schema v1 and add its JSON Schema beside the
   existing audit schema.
-- [ ] Characterize existing audit output, cancellation, policy exits, missing
+- [x] Characterize existing audit output, cancellation, policy exits, missing
   project handling, and read-only behavior before renaming the host.
-- [ ] Record any asset-specific findings that make a v2 package unsafe to
+- [x] Record any asset-specific findings that make a v2 package unsafe to
   round-trip; resolve them in the owning later stage rather than weakening the
   gate.
 
@@ -219,18 +236,39 @@ Dependencies: existing read-only audit and v3 writer.
 - Command, report, exit-code, authorization, and early-development retirement
   policies have executable tests with no open design choice blocking Stage 1.
 
+#### Stage 0 Handoff
+
+- Baseline commit: `9d65d0057e9d669b2223c16069278348820dc9cc`
+  (shared squashed integration baseline).
+- Working set: `Tools/DurinDevTool/durin_dev_tool/asset.py`,
+  `Tools/DurinDevTool/durin_dev_tool/registry.py`,
+  `Tools/DurinDevTool/schemas/asset-migration-v1.schema.json`,
+  `Tools/DurinDevTool/tests/test_asset_audit.py`, and
+  `Tools/DurinDevTool/tests/fixtures/`.
+- Key decisions: migration planning is the default; only the exact `--apply`
+  flag authorizes writes; mount and package filters only narrow discovery; the
+  migration report has its own schema; unimplemented migration fails before
+  native launch; repeated audit policies combine by logical OR.
+- Open question: none blocking Stage 1. Stage 2 must make the AssetImport class
+  catalog available or otherwise provide an owning lossless handler for
+  `/Game/Models/VintageLighter/vintage_lighter_1k_Import`.
+- Validation: all 286 DurinDevTool Python tests passed; live audit returned 17
+  compatible and one recorded unsupported package with policy exit 3; authored
+  and cache snapshots were unchanged by audit; migration apply remained
+  fail-closed before native launch.
+
 ### Stage 1: Unify the native host and preserve read-only audit
 
 Dependencies: Stage 0.
 
-- [ ] Extract mount snapshotting and fingerprint capture from
+- [x] Extract mount snapshotting and fingerprint capture from
   `AssetAuditMain.cpp` into an AssetCore-owned service usable by both modes.
-- [ ] Introduce the `DurinAssetTool` target and mode dispatch, then route
+- [x] Introduce the `DurinAssetTool` target and mode dispatch, then route
   `DevTool asset audit` to it.
-- [ ] Update DurinDevTool executable resolution, help, schemas, focused tests,
+- [x] Update DurinDevTool executable resolution, help, schemas, focused tests,
   build metadata, and operational documentation.
-- [ ] Remove `DurinAssetAudit` after repository references reach zero.
-- [ ] Prove the audit mode still performs no package construction, dependency
+- [x] Remove `DurinAssetAudit` after repository references reach zero.
+- [x] Prove the audit mode still performs no package construction, dependency
   loading, registry-cache writes, source mutation, or package publication.
 
 #### Acceptance Gate
@@ -240,22 +278,45 @@ Dependencies: Stage 0.
 - A filesystem snapshot proves audit makes no authored or cache changes.
 - The old executable, target, and tracked references are absent.
 
+#### Stage 1 Handoff
+
+- Baseline commit: `9d65d0057e9d669b2223c16069278348820dc9cc`
+  (shared squashed integration baseline).
+- Working set: `Engine/Source/Programs/DurinAssetTool/`,
+  `Engine/Source/Runtime/AssetCore/{Public,Private}/AssetCompatibility.*`,
+  `Engine/Tests/Native/AssetCoreTests/Private/PackageTests.cpp`,
+  `Tools/DurinDevTool/durin_dev_tool/asset.py`, its focused tests and report
+  fixtures, `Engine/CMakeLists.txt`, and the asset audit section of
+  `Documentation/Development/Build/BuildAndRun.md`.
+- Key symbols and decisions: `CaptureMountedAssetPackageSnapshot` owns
+  auto-scan discovery, stable ordering, cancellation, and XXH3-128 content
+  fingerprinting; `ProbeAssetPackageCompatibility` remains streaming and uses
+  the captured hash without constructing objects; `DurinAssetTool` is the sole
+  executable and migration modes remain fail-closed until Stage 2.
+- Open question: none blocking Stage 2. The recorded AssetImport class catalog
+  gap remains owned by Stage 2 planning applicability.
+- Validation: `DurinAssetTool` built successfully; all 286 DurinDevTool tests,
+  all 74 `AssetPackageTests`, and eight focused editor compatibility tests
+  passed. Two live 18-package audits were byte-identical and their authored,
+  DDC, registry, and Saved snapshots were unchanged. The stale local old-host
+  executable, ILK, and PDB were removed after the new executable was verified.
+
 ### Stage 2: Build deterministic migration planning
 
 Dependencies: Stage 1.
 
-- [ ] Add exact-edge package-format and asset-schema migration registration,
+- [x] Add exact-edge package-format and asset-schema migration registration,
   validation, stable identities, and ordered chain resolution.
-- [ ] Add a migration planner that consumes the shared discovery snapshot and
+- [x] Add a migration planner that consumes the shared discovery snapshot and
   compatibility records without writing.
-- [ ] Register the bounded DAST v2-to-v3 envelope migration and classify any
+- [x] Register the bounded DAST v2-to-v3 envelope migration and classify any
   object/schema transformations separately.
-- [ ] Implement selection filters and deterministic human/JSON migration-plan
+- [x] Implement selection filters and deterministic human/JSON migration-plan
   output through `DevTool asset migrate`.
-- [ ] Fail closed for missing chains, ambiguous handlers, cycles, stale
+- [x] Fail closed for missing chains, ambiguous handlers, cycles, stale
   fingerprints, unknown fields, unavailable classes, corrupt packages, and
   non-lossless findings.
-- [ ] Add malformed-input, ordering, cancellation, determinism, mixed-version,
+- [x] Add malformed-input, ordering, cancellation, determinism, mixed-version,
   dependency, and no-write tests.
 
 #### Acceptance Gate
@@ -265,20 +326,45 @@ Dependencies: Stage 1.
 - Repeated dry-runs produce byte-identical reports and migration chains.
 - Every rejected risk has a stable diagnostic and no path to apply.
 
+#### Stage 2 Handoff
+
+- Baseline commit: `9d65d0057e9d669b2223c16069278348820dc9cc`
+  (shared squashed integration baseline).
+- Working set: `Engine/Source/Runtime/AssetCore/{Public,Private}/AssetMigration.*`,
+  the shared compatibility record/fingerprint additions,
+  `Engine/Source/Programs/DurinAssetTool/`, focused native package tests,
+  `Tools/DurinDevTool/durin_dev_tool/asset.py` and its focused tests, plus the
+  asset-tool section of `Documentation/Development/Build/BuildAndRun.md`.
+- Key symbols and decisions: `FAssetMigrationRegistry` owns exact-edge
+  registration, validation, stable IDs, cycle/ambiguity rejection, and ordered
+  chain resolution; `PlanAssetPackageMigrations` consumes only discovery and
+  streaming compatibility values; `durin.asset.package.dast.2-to-3` is a
+  lossless package-format step, while every object/schema finding remains a
+  separate blocker. Reports expose SHA-256 for portable corpus comparison while
+  XXH3-128 remains the internal stale-safety fingerprint. The host links
+  `AssetImportCore` and forces `DImportRecord` reflection registration.
+- Open question: none blocking Stage 3. Apply remains deliberately rejected by
+  DevTool before native launch and no migration executor is callable.
+- Validation: `DurinAssetTool` built successfully; all 288 DurinDevTool tests,
+  all 78 `AssetPackageTests`, and 12 focused migration/compatibility tests
+  passed. Two live dry-runs planned all 18 packages with byte-identical reports,
+  matching inventory SHA-256 values, and an unchanged authored/DDC/Saved
+  filesystem snapshot.
+
 ### Stage 3: Implement transactional apply and verification
 
 Dependencies: Stage 2 and the atomic file-publication contract.
 
-- [ ] Add isolated package construction, migration execution, mutation
+- [x] Add isolated package construction, migration execution, mutation
   accounting, current-writer serialization, and in-memory output validation.
-- [ ] Implement full-set preflight and staging before publication.
-- [ ] Implement the transaction manifest, same-volume rollback copies,
+- [x] Implement full-set preflight and staging before publication.
+- [x] Implement the transaction manifest, same-volume rollback copies,
   publish/rollback state machine, interruption recovery, and stale-input checks.
-- [ ] Expose writes only through `DevTool asset migrate --apply` and keep
+- [x] Expose writes only through `DevTool asset migrate --apply` and keep
   planning as the default.
-- [ ] Unload migrated objects and require a fresh streaming post-audit before
+- [x] Unload migrated objects and require a fresh streaming post-audit before
   deleting rollback state or returning success.
-- [ ] Add injected staging, publish, verification, cancellation, and rollback
+- [x] Add injected staging, publish, verification, cancellation, and rollback
   failures, including a failure after at least one destination was published.
 
 #### Acceptance Gate
@@ -289,18 +375,46 @@ Dependencies: Stage 2 and the atomic file-publication contract.
 - Audit and dry-run remain demonstrably read-only after writable code exists in
   the same executable.
 
+#### Stage 3 Handoff
+
+- Baseline commit: `9d65d0057e9d669b2223c16069278348820dc9cc`
+  (shared squashed integration baseline).
+- Working set: `Engine/Source/Runtime/AssetCore/{Public,Private}/AssetMigration.*`,
+  the exact-package migration load entrypoint in `AssetSystem.*`,
+  `Engine/Source/Programs/DurinAssetTool/Private/AssetToolMain.cpp`, focused
+  native package tests, `Tools/DurinDevTool/durin_dev_tool/asset.py` and its
+  focused tests, plus this plan and the asset-tool build/run documentation.
+- Key symbols and decisions: `ApplyAssetPackageMigrations` loads exact package
+  paths, rejects compatibility risk and non-upgrade load mutations, serializes
+  each package twice through the current writer, validates all bytes in memory,
+  and rechecks source fingerprints before publication. `FAssetMigrationWriterLock`
+  serializes writers; same-volume pre/post sidecars and atomically advanced
+  manifests retain enough state for `RecoverInterruptedAssetMigrations` to
+  restore an interrupted transaction. Cancellation stops discovery, planning,
+  or staging but is deferred once publication begins. Rollback state is removed
+  only after unloading and a fresh streaming compatibility probe succeeds.
+- Open question: none blocking Stage 4. Repository assets have deliberately not
+  been rewritten during this stage; Stage 4 owns the reviewed baseline change.
+- Validation: `DurinAssetTool` built successfully; all 82 `AssetPackageTests`
+  and all 289 DurinDevTool tests passed. Synthetic tests covered deterministic
+  success, staging failure, failure after one destination publish, verification
+  failure, cancellation, stale input, incomplete rollback, and next-run
+  recovery. The live 18-package audit remained 18 compatible with zero
+  findings; two dry-runs were byte-identical and the 300-file authored/DDC/Saved
+  snapshot was byte-identical before and after.
+
 ### Stage 4: Migrate the repository baseline to DAST v3
 
 Dependencies: Stage 3; every tracked package planned as lossless.
 
-- [ ] Run a final dry-run against Engine and Sandbox mounts and review the
+- [x] Run a final dry-run against Engine and Sandbox mounts and review the
   package-by-package plan.
-- [ ] Apply the complete migration as one tool transaction.
-- [ ] Review asset diffs, deterministic hashes, migration report, and fresh
+- [x] Apply the complete migration as one tool transaction.
+- [x] Review asset diffs, deterministic hashes, migration report, and fresh
   compatibility audit.
-- [ ] Update versioned fixtures and focused expectations to v3 without retaining
+- [x] Update versioned fixtures and focused expectations to v3 without retaining
   v2 copies as production compatibility fixtures.
-- [ ] Commit the tool-produced authored changes with the Stage 4 plan handoff.
+- [x] Commit the tool-produced authored changes with the Stage 4 plan handoff.
 
 #### Acceptance Gate
 
@@ -309,21 +423,49 @@ Dependencies: Stage 3; every tracked package planned as lossless.
 - A clean checkout reproduces the same audit result and all focused package,
   Engine asset, editor workflow, and cook tests pass.
 
+#### Stage 4 Handoff
+
+- Baseline commit: `9d65d0057e9d669b2223c16069278348820dc9cc`
+  (shared squashed integration baseline).
+- Working set: all 18 tracked `Engine/Content` and `Sandbox/Content` `.dasset`
+  packages, the renamed `asset-corpus-v3.json` inventory and focused
+  DurinDevTool expectation, migration-load scoping in `AssetSystem.*`, the
+  headless resource guards in material, static-mesh, texture, cube-texture, and
+  environment-lighting runtime code, the focused package regression, and this
+  plan.
+- Key symbols and decisions: `IsAssetMigrationLoad` is true only within
+  `LoadPackageForMigration`, including recursive dependency construction.
+  Reflected deserialization and registered structure upgrades still run, while
+  resource classes omit PostLoad DDC/source decoding and render publication that
+  require an editor/render lifecycle. A focused test proves ordinary `PostLoad`
+  and mutation reporting remain active: a non-upgrade mutation is still rejected
+  and leaves the input byte-identical. The production transaction migrated the
+  complete reviewed 18-package `2 -> 3` lossless plan; no v2 corpus copy remains.
+- Open question: none blocking Stage 5.
+- Validation: `DurinAssetTool` built successfully. Apply reported 18 migrated,
+  zero blocked/failed/rolled-back packages, followed by a fresh successful
+  audit. The independent audit reports 18 ready, compatible, current packages
+  with zero findings, and the next dry-run reports 18 skipped with no changed
+  paths and hashes matching `asset-corpus-v3.json`. All 82 package, 12 AssetCook,
+  77 material, 44 static-mesh, 62 texture, three environment-lighting, 62 world,
+  and one Vulkan texture-cook tests passed; editor asset workflow ran 55 tests
+  with 54 passed and one expected skip; all 19 focused DurinDevTool tests passed.
+
 ### Stage 5: Enforce the baseline and delete v2 compatibility
 
 Dependencies: Stage 4.
 
-- [ ] Add a repository/CI asset-baseline command that fails when any tracked
+- [x] Add a repository/CI asset-baseline command that fails when any tracked
   authored package is not the single current format or current schema baseline.
-- [ ] Remove `MinimumAssetVersion`, v2 header branches, v2 type-signature
+- [x] Remove `MinimumAssetVersion`, v2 header branches, v2 type-signature
   acceptance, v2-only tests, and the completed v2-to-v3 migration edge.
-- [ ] Replace historical acceptance tests with explicit rejection tests for
+- [x] Replace historical acceptance tests with explicit rejection tests for
   every non-current package version.
-- [ ] Search runtime, editor, tooling, tests, and documentation for retired v2
+- [x] Search runtime, editor, tooling, tests, and documentation for retired v2
   branches and remove stale compatibility claims.
-- [ ] Move lasting tool operation and early-development compatibility rules to
+- [x] Move lasting tool operation and early-development compatibility rules to
   their owning documentation domains.
-- [ ] Complete the required focused validation, full `all` build, editor smoke
+- [x] Complete the required focused validation, full `all` build, editor smoke
   test where applicable, plan handoff, and plan lifecycle updates.
 
 #### Acceptance Gate
@@ -334,6 +476,33 @@ Dependencies: Stage 4.
   exact-edge migration without carrying the completed edge.
 - All validation passes from a clean checkout and the lasting documentation no
   longer depends on this active plan for operational truth.
+
+#### Stage 5 Handoff
+
+- Baseline commit: `9d65d0057e9d669b2223c16069278348820dc9cc`
+  (shared squashed integration baseline).
+- Working set: current-only package parsing and compatibility probing in
+  `AssetSystem.cpp` and `AssetCompatibility.cpp`; the empty production
+  registration seam in `AssetMigration.cpp`; v3 compatibility fixtures and
+  focused package/cook tests; DurinDevTool's `asset baseline` command and tests;
+  the Build and Run, Asset Packages, Versioning, and compact-serialization
+  roadmap contracts; and this completed plan.
+- Key symbols and decisions: package readers and registry caches require exact
+  format 3; serialized fields require the exact current recursive signature;
+  `RegisterBuiltInAssetMigrations` retains the extensibility seam with no
+  completed handler registered. `asset baseline` invokes the read-only plan
+  path and succeeds only when every record is a diagnostic-free v3 `Skipped`
+  package. A future format change temporarily adds its exact lossless edge,
+  migrates the reviewed corpus, then removes the prior reader and edge.
+- Open question: none. External compatibility windows remain an explicit
+  deferred release-policy decision.
+- Validation: all 294 DurinDevTool tests and all 1062 enabled native test cases
+  passed (two environment skips and one benchmark remained non-running). The
+  full `all` runtime build passed, hidden-window DurinEditor startup and normal
+  10-tick shutdown passed, and the live baseline reports 18 current DAST v3
+  packages. Current runtime/tool/test/document searches contain no retired
+  DAST v2 reader, fixture, type-signature compatibility branch, or production
+  2-to-3 handler.
 
 Each completed stage ends with a compact handoff recording its baseline commit,
 working set, key symbols and decisions, open questions, and validation outcome.
@@ -398,8 +567,8 @@ rules.
 
 ## Related Code
 
-- `Engine/Source/Programs/DurinAssetAudit/Private/AssetAuditMain.cpp`
-- `Engine/Source/Programs/DurinAssetAudit/CMakeLists.txt`
+- `Engine/Source/Programs/DurinAssetTool/Private/AssetToolMain.cpp`
+- `Engine/Source/Programs/DurinAssetTool/CMakeLists.txt`
 - `Engine/Source/Runtime/AssetCore/Public/AssetCompatibility.h`
 - `Engine/Source/Runtime/AssetCore/Public/AssetSystem.h`
 - `Engine/Source/Runtime/AssetCore/Private/AssetCompatibility.cpp`

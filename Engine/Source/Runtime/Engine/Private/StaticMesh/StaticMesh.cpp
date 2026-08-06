@@ -1510,6 +1510,11 @@ namespace Durin
 				return false;
 			}
 		}
+		if (Asset::IsAssetMigrationLoad())
+		{
+			OutError.clear();
+			return true;
+		}
 
 		const FStaticMeshSourceDiagnostic Diagnostic = InspectSource();
 		if (Diagnostic.Status == EStaticMeshSourceStatus::NoSource)

@@ -38,8 +38,10 @@ namespace
 			Bytes.insert(Bytes.end(), Value.begin(), Value.end());
 		};
 		Write(uint32{0x54534144});
-		Write(uint32{2});
+		Write(uint32{3});
 		WriteString("TestClass");
+		Write(uint8{0});
+		WriteString("");
 		Write(uint64{0});
 		Write(uint64{1});
 		Write(uint64{1});

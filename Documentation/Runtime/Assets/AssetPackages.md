@@ -76,12 +76,11 @@ or saves an arbitrary external store.
 ## File Format
 
 Every authored or cooked `.dasset`, regardless of its main asset class, uses the
-same DAST object-package envelope. AssetCore reads v2 and v3, and authorized
-package saves write v3. Relocation preserves the source package version while
-changing only the main-object name when a rename requires it.
-Both headers record the `DAST` magic, format version, main asset class,
-dependencies, and object count. V3 additionally stores a bounded registry-entry
-kind and redirect destination immediately after the class name. An ordinary
+same DAST object-package envelope. AssetCore reads and writes only v3.
+Relocation preserves the package format while changing only the main-object
+name when a rename requires it. The header records the `DAST` magic, format
+version, main asset class, bounded registry-entry kind, redirect destination,
+dependencies, and object count. An ordinary
 asset must have an empty destination. A redirector must name
 `Durin::Asset::DAssetRedirector`, contain exactly one object and one dependency,
 and make that dependency equal its canonical destination. The asset path is
@@ -93,9 +92,9 @@ increment.
 The bounded header reader classifies redirectors without constructing their
 object graph or destination. Complete validation also requires exactly one
 external `DestinationObject` field matching the header and dependency table.
-V2 packages project as ordinary assets and are not dirtied or migrated by scan
-or load; an authorized save emits v3. A v2 package claiming the redirector class
-is corrupt because it has no authoritative redirect summary.
+Every format other than v3 is rejected before header-specific metadata or the
+object graph is interpreted. Registry caches likewise discard entries that do
+not identify the current package format.
 
 Asset-specific magic values belong to external derived or cooked payloads, not
 to alternative `.dasset` envelopes. StaticMesh payloads use DMSH and texture
@@ -187,7 +186,7 @@ workspace, renderer, GPU, source/import service, or DDC service.
 Internal references use object ids. Cross-package strong references target the other package's main asset by `FAssetPath` and synchronously load that dependency. Circular dependencies work because object skeletons are constructed before dependency fields are applied.
 
 Reflected `TSoftObjectPtr<T>` fields persist only their logical identity. Their
-recursive DAST v2/v3 signature is
+recursive DAST signature is
 `SoftObject:<ExpectedQualifiedClass>:v1`; Array and Map signatures wrap it in
 the ordinary container grammar. One value is `uint8 0` for null, or `uint8 1`,
 a `uint64` UTF-8 byte count, and exactly one canonical `FAssetPath`. Paths are
@@ -219,13 +218,12 @@ do not affect DAST: authored packages always retain the tagged reflected-field
 representation so compatibility inspection remains possible. No current
 production struct requires an authored custom codec.
 
-DAST v2/v3 retain the logical `Array<...>` and `Map<...,...>` signatures, count
+DAST retains the logical `Array<...>` and `Map<...,...>` signatures, count
 fields, and entry payload grammar. New Map saves order entries by the canonical
 logical key token from the reflection contract, so equivalent supported maps
 produce identical package bytes regardless of insertion, reserve, rehash, or
-bucket history. Readers do not require that order and continue accepting valid
-historical v2 packages written in unordered iteration order. V3 changes only
-the public header summary; field payload grammar is unchanged.
+bucket history. Readers do not require map entries to arrive in canonical order,
+but reject duplicate decoded keys.
 
 Container package loading is bounded and transactional. Array elements and Map
 keys/values decode into detached managed storage, duplicate decoded Map keys
@@ -247,10 +245,9 @@ Import-record output and detached-tombstone structs use this hook to rebuild
 their parsed `FAssetPath` caches from authored path text.
 
 String, Name, and Guid payloads use explicit logical encodings, so their current
-signatures carry an encoding version rather than `ElementSize`. The reader also
-accepts their v2-era `<kind>:<ABI-size>` signatures, including recursively in
-arrays, maps, and struct fields, because those sizes never controlled their
-payload bytes. Raw scalar and enum payloads are copied using `ElementSize`, so
+signatures carry an encoding version rather than `ElementSize`. Readers require
+the exact current recursive signature, including inside arrays, maps, and struct
+fields. Raw scalar and enum payloads are copied using `ElementSize`, so
 their serialized signatures continue to require an exact width. Raw object
 pointers and property kinds without runtime helpers fail package saving instead
 of being silently omitted.

@@ -1,5 +1,6 @@
 #include "Materials/MaterialInterface.h"
 
+#include "AssetSystem.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"
@@ -254,7 +255,8 @@ namespace Durin
 
 	auto DMaterialInterface::SubmitMaterialRenderProxyState() const -> void
 	{
-		if (!bAcceptingMaterialProxyPublications
+		if (Asset::IsAssetMigrationLoad()
+			|| !bAcceptingMaterialProxyPublications
 			|| !MaterialRenderProxy
 			|| MaterialProxyLocalVersion == 0)
 		{

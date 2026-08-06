@@ -1003,6 +1003,10 @@ namespace Durin::Asset
 		friend ASSETCORE_API auto SavePackagesAtomically(
 			std::span<DPackage* const>,
 			const FAssetBundleSaveOptions&) -> FAssetResult;
+		friend ASSETCORE_API auto LoadPackageForMigration(
+			const FAssetPath&,
+			DPackage*&,
+			FAssetLoadReport*) -> FAssetResult;
 		friend ASSETCORE_API auto ResolveSoftObject(
 			FSoftObjectPtr&,
 			const DClass*,
@@ -1083,6 +1087,15 @@ namespace Durin::Asset
 		const FAssetPath& Path,
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+	// Loads an exact package without redirect resolution for explicit migration.
+	ASSETCORE_API auto LoadPackageForMigration(
+		const FAssetPath& Path,
+		DPackage*& OutPackage,
+		FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+	// True only while the migration loader constructs authored objects. Reflected
+	// deserialization and registered structure upgrades still run, but resource
+	// classes must not build or publish runtime-only state in this headless context.
+	ASSETCORE_API auto IsAssetMigrationLoad() -> bool;
 	ASSETCORE_API auto CreateAssetRedirector(
 		const FAssetPath& RedirectorPath,
 		const FAssetPath& DestinationPath,

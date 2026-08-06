@@ -614,8 +614,19 @@ COMMAND_SPECS = (
     ),
     CommandSpec(
         "asset",
-        "inspect authored asset packages without modifying them",
+        "inspect, enforce, or explicitly migrate authored asset packages",
         subcommands=(
+            CommandSpec(
+                "baseline",
+                "require every authored package to match the current baseline",
+                ASSET_HANDLER,
+                capability=Capability.PREPARED_ENVIRONMENT,
+                arguments=CONTEXT_ARGUMENTS
+                + (
+                    _argument("--project", dest="project_path", type=Path, required=True),
+                    _argument("--format", dest="format_name", choices=("human", "json"), default="human"),
+                ),
+            ),
             CommandSpec(
                 "audit",
                 "run a deterministic read-only compatibility audit",
@@ -630,8 +641,23 @@ COMMAND_SPECS = (
                         dest="fail_on",
                         choices=("incompatible", "unsupported", "error"),
                         action="append",
-                        default=(),
+                        default=[],
                     ),
+                ),
+            ),
+            CommandSpec(
+                "migrate",
+                "plan an asset migration or apply it with explicit authorization",
+                ASSET_HANDLER,
+                capability=Capability.PREPARED_ENVIRONMENT,
+                arguments=CONTEXT_ARGUMENTS
+                + (
+                    _argument("--project", dest="project_path", type=Path, required=True),
+                    _argument("--apply", action="store_true", default=False),
+                    _argument("--mount", dest="mounts", action="append", default=[]),
+                    _argument("--package", dest="packages", action="append", default=[]),
+                    _argument("--format", dest="format_name", choices=("human", "json"), default="human"),
+                    _argument("--report", dest="report_path", type=Path, default=None),
                 ),
             ),
         ),

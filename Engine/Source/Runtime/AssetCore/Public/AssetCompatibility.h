@@ -84,6 +84,9 @@ namespace Durin::Asset
 		FAssetPath PackagePath;
 		std::string PhysicalPath;
 		FAssetPackageFingerprint Fingerprint;
+		std::string ReportContentHash;
+		uint32 FormatVersion = 0;
+		std::vector<FAssetPath> Dependencies;
 		EAssetCompatibilityInspection Inspection = EAssetCompatibilityInspection::NotChecked;
 		EAssetPackageCompatibility Compatibility = EAssetPackageCompatibility::Unsupported;
 		EAssetCompatibilityFreshness Freshness = EAssetCompatibilityFreshness::Current;
@@ -105,6 +108,17 @@ namespace Durin::Asset
 		std::string PhysicalPath;
 		uintmax_t ExpectedFileSize = 0;
 		int64 ExpectedLastWriteTimeTicks = 0;
+		FXxHash128 ExpectedContentHash;
+		std::string ExpectedReportContentHash;
+	};
+
+	enum class EAssetPackageSnapshotStatus : uint8 { Completed, Cancelled, Failed };
+
+	struct FAssetPackageDiscoverySnapshot
+	{
+		EAssetPackageSnapshotStatus Status = EAssetPackageSnapshotStatus::Completed;
+		std::vector<FAssetPackageCompatibilityProbeInput> Packages;
+		std::string Error;
 	};
 
 	struct FAssetPackageCompatibilityProbeResult
@@ -115,6 +129,11 @@ namespace Durin::Asset
 	};
 
 	using FAssetCompatibilityCancellationCheck = std::function<bool()>;
+
+	// Captures auto-scan mounts without constructing assets or publishing registry state.
+	ASSETCORE_API auto CaptureMountedAssetPackageSnapshot(
+		const FAssetCompatibilityCancellationCheck& IsCancellationRequested = {})
+		-> FAssetPackageDiscoverySnapshot;
 
 	ASSETCORE_API auto ProbeAssetPackageCompatibility(
 		const FAssetPackageCompatibilityProbeInput& Input,

@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "operation": "Plan",
+  "result": "Ready",
+  "packages": [
+    {
+      "packagePath": "/TestAssets/SyntheticMigration",
+      "physicalPath": "C:/fixtures/SyntheticMigration.dasset",
+      "status": "Planned",
+      "fingerprint": {
+        "fileSize": 128,
+        "lastWriteTimeTicks": 20,
+        "contentHash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "sourceFormatVersion": 7,
+      "targetFormatVersion": 8,
+      "steps": [
+        {
+          "handlerId": "test.asset.package.synthetic.7-to-8",
+          "kind": "PackageFormat",
+          "sourceVersion": 7,
+          "targetVersion": 8,
+          "risk": "Lossless"
+        }
+      ],
+      "diagnostics": []
+    }
+  ],
+  "summary": {
+    "planned": 1,
+    "migrated": 0,
+    "skipped": 0,
+    "blocked": 0,
+    "failed": 0,
+    "rolledBack": 0
+  },
+  "changedPaths": []
+}

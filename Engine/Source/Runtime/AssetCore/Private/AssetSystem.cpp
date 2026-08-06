@@ -19,6 +19,7 @@ namespace Durin::Asset
 	namespace
 	{
 		thread_local FAssetLoadReport* GActiveAssetLoadReport = nullptr;
+		thread_local uint32 GAssetMigrationLoadDepth = 0;
 
 		auto CheckSoftObjectThread() -> void
 		{
@@ -67,7 +68,6 @@ namespace Durin::Asset
 		}
 
 		constexpr uint32 AssetMagic = 0x54534144; // DAST
-		constexpr uint32 MinimumAssetVersion = 2;
 		constexpr uint32 AssetVersion = 3;
 		constexpr uint64 MaximumPackageStringBytes = 1024 * 1024;
 		constexpr uint32 MaximumRedirectDepth = 32;
@@ -219,12 +219,6 @@ namespace Durin::Asset
 			uint64 ObjectCount,
 			const FAssetPath* SourcePath = nullptr) -> FAssetResult
 		{
-			if (File.FormatVersion == 2)
-			{
-				if (File.AssetClassName == RedirectorClassName)
-					return CorruptRedirector("DAST v2 cannot identify a redirector.");
-				return {};
-			}
 			if (File.EntryKind == EAssetRegistryEntryKind::Asset)
 			{
 				if (File.RedirectDestination.IsValid())
@@ -462,72 +456,11 @@ namespace Durin::Asset
 			return std::format("{}:{}", static_cast<uint32>(Kind), Property->GetElementSize());
 		}
 
-		auto IsLegacyAbiSizedLogicalSignature(
-			DurinCodeGen::EPropertyGenFlags Kind,
-			std::string_view Signature) -> bool
-		{
-			if (Kind != DurinCodeGen::EPropertyGenFlags::String
-				&& Kind != DurinCodeGen::EPropertyGenFlags::Name
-				&& Kind != DurinCodeGen::EPropertyGenFlags::Guid)
-				return false;
-
-			const std::string Prefix = std::format("{}:", static_cast<uint32>(Kind));
-			const std::string_view Size = Signature.starts_with(Prefix)
-				? Signature.substr(Prefix.size())
-				: std::string_view{};
-			return !Size.empty() && std::ranges::all_of(Size, [](char Character) {
-				return Character >= '0' && Character <= '9';
-			});
-		}
-
-		auto FindMapSignatureSeparator(std::string_view Signature) -> size_t
-		{
-			uint32 Depth = 0;
-			for (size_t Index = 0; Index < Signature.size(); ++Index)
-			{
-				if (Signature[Index] == '<') ++Depth;
-				else if (Signature[Index] == '>')
-				{
-					if (Depth == 0) return std::string_view::npos;
-					--Depth;
-				}
-				else if (Signature[Index] == ',' && Depth == 0) return Index;
-			}
-			return std::string_view::npos;
-		}
-
 		auto IsSerializedTypeSignatureCompatible(
 			FProperty* Property,
 			std::string_view Signature) -> bool
 		{
-			if (!Property) return false;
-			if (GetSerializedTypeSignature(Property) == Signature) return true;
-
-			const auto Kind = Property->GetKind();
-			if (IsLegacyAbiSizedLogicalSignature(Kind, Signature)) return true;
-			if (Kind == DurinCodeGen::EPropertyGenFlags::Array)
-			{
-				constexpr std::string_view Prefix = "Array<";
-				if (!Signature.starts_with(Prefix) || !Signature.ends_with('>')) return false;
-				return IsSerializedTypeSignatureCompatible(
-					static_cast<FArrayProperty*>(Property)->GetInner(),
-					Signature.substr(Prefix.size(), Signature.size() - Prefix.size() - 1));
-			}
-			if (Kind == DurinCodeGen::EPropertyGenFlags::Map)
-			{
-				constexpr std::string_view Prefix = "Map<";
-				if (!Signature.starts_with(Prefix) || !Signature.ends_with('>')) return false;
-				const std::string_view Entries =
-					Signature.substr(Prefix.size(), Signature.size() - Prefix.size() - 1);
-				const size_t Separator = FindMapSignatureSeparator(Entries);
-				if (Separator == std::string_view::npos) return false;
-				auto* Map = static_cast<FMapProperty*>(Property);
-				return IsSerializedTypeSignatureCompatible(
-						Map->GetKeyProp(), Entries.substr(0, Separator))
-					&& IsSerializedTypeSignatureCompatible(
-						Map->GetValueProp(), Entries.substr(Separator + 1));
-			}
-			return false;
+			return Property && GetSerializedTypeSignature(Property) == Signature;
 		}
 
 		auto GatherObjects(DObject* Object, std::vector<DObject*>& OutObjects) -> void
@@ -1081,11 +1014,8 @@ namespace Durin::Asset
 			Writer.Write(AssetMagic);
 			Writer.Write(File.FormatVersion);
 			Writer.WriteString(File.AssetClassName);
-			if (File.FormatVersion >= 3)
-			{
-				Writer.Write(uint8(File.EntryKind));
-				Writer.WriteString(File.RedirectDestination.GetView());
-			}
+			Writer.Write(uint8(File.EntryKind));
+			Writer.WriteString(File.RedirectDestination.GetView());
 			Writer.Write(uint64(File.Dependencies.size()));
 			for (const FAssetPath& Dependency : File.Dependencies) Writer.WriteString(Dependency.GetView());
 			Writer.Write(uint64(File.Objects.size()));
@@ -1114,23 +1044,20 @@ namespace Durin::Asset
 			uint32 Magic = 0, Version = 0;
 			if (!Reader.Read(Magic) || !Reader.Read(Version)) return Error(EAssetError::CorruptFile, "Truncated asset header.");
 			if (Magic != AssetMagic) return Error(EAssetError::CorruptFile, "Invalid asset magic.");
-			if (Version < MinimumAssetVersion || Version > AssetVersion)
+			if (Version != AssetVersion)
 				return Error(EAssetError::UnsupportedVersion, std::format("Unsupported asset version {}.", Version));
 			OutFile.FormatVersion = Version;
 			if (!Reader.ReadString(OutFile.AssetClassName, MaximumPackageStringBytes)) return Error(EAssetError::CorruptFile, "Invalid asset header strings.");
-			if (Version >= 3)
-			{
-				uint8 EntryKind = 0;
-				std::string RedirectDestination;
-				if (!Reader.Read(EntryKind)
-					|| EntryKind > uint8(EAssetRegistryEntryKind::Redirector)
-					|| !Reader.ReadString(RedirectDestination, MaximumPackageStringBytes))
-					return CorruptRedirector("the redirect summary is invalid or truncated.");
-				OutFile.EntryKind = static_cast<EAssetRegistryEntryKind>(EntryKind);
-				if (!RedirectDestination.empty()
-					&& !FAssetPath::TryCreate(RedirectDestination, OutFile.RedirectDestination))
-					return CorruptRedirector("the redirect destination path is invalid.");
-			}
+			uint8 EntryKind = 0;
+			std::string RedirectDestination;
+			if (!Reader.Read(EntryKind)
+				|| EntryKind > uint8(EAssetRegistryEntryKind::Redirector)
+				|| !Reader.ReadString(RedirectDestination, MaximumPackageStringBytes))
+				return CorruptRedirector("the redirect summary is invalid or truncated.");
+			OutFile.EntryKind = static_cast<EAssetRegistryEntryKind>(EntryKind);
+			if (!RedirectDestination.empty()
+				&& !FAssetPath::TryCreate(RedirectDestination, OutFile.RedirectDestination))
+				return CorruptRedirector("the redirect destination path is invalid.");
 			uint64 DependencyCount = 0;
 			if (!Reader.Read(DependencyCount) || DependencyCount > 100000) return Error(EAssetError::CorruptFile, "Invalid dependency count.");
 			for (uint64 Index = 0; Index < DependencyCount; ++Index)
@@ -2171,8 +2098,7 @@ namespace Durin::Asset
 					Entry.Dependencies.push_back(std::move(Dependency));
 				}
 				if (!Reader.ReadU64(Entry.FileSize) || !Reader.ReadI64(Entry.LastWriteTimeTicks)
-					|| Entry.FormatVersion < MinimumAssetVersion
-					|| Entry.FormatVersion > AssetVersion
+					|| Entry.FormatVersion != AssetVersion
 					|| !std::ranges::binary_search(ExpectedMounts, Entry.MountRoot)
 					|| std::filesystem::path(Entry.RelativePath).is_absolute()
 					|| std::filesystem::path(Entry.RelativePath).extension() != ".dasset"
@@ -2886,6 +2812,28 @@ namespace Durin::Asset
 		if (Manager.FindLoadedPackage(Path) != Package)
 			return Error(EAssetError::NotFound, "The unpublished package is not loaded.");
 		return Manager.UnloadPackage(Path);
+	}
+
+	auto LoadPackageForMigration(
+		const FAssetPath& Path,
+		DPackage*& OutPackage,
+		FAssetLoadReport* OutReport) -> FAssetResult
+	{
+		struct FScopedMigrationLoad
+		{
+			FScopedMigrationLoad() { ++GAssetMigrationLoadDepth; }
+			~FScopedMigrationLoad() { --GAssetMigrationLoadDepth; }
+		} Scope;
+		DObject* Asset = nullptr;
+		FAssetResult Result = FAssetManager::Get().LoadAssetExact(
+			Path, nullptr, Asset, OutReport);
+		OutPackage = Result && Asset ? Asset->GetPackage() : nullptr;
+		return Result;
+	}
+
+	auto IsAssetMigrationLoad() -> bool
+	{
+		return GAssetMigrationLoadDepth != 0;
 	}
 
 	auto FAssetPackageField::TryReadString(std::string& OutValue) const -> bool

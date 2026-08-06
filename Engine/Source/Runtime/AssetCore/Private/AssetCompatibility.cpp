@@ -2,19 +2,170 @@
 
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "Hash/XxHash.h"
 #include "Misc/DerivedDataCache.h"
+#include "Misc/Paths.h"
 
 namespace Durin::Asset
 {
 	namespace
 	{
 		constexpr uint32 AssetMagic = 0x54534144; // DAST
-		constexpr uint32 MinimumAssetVersion = 2;
 		constexpr uint32 AssetVersion = 3;
 		constexpr uint64 MaximumPackageStringBytes = 1024 * 1024;
 		constexpr uint64 MaximumPackageDependencies = 100000;
 		constexpr uint64 MaximumPackageObjects = 1000000;
 		constexpr uint64 MaximumObjectFields = 100000;
+		constexpr size_t FingerprintBufferSize = 64 * 1024;
+
+		class FSha256
+		{
+		public:
+			auto Update(const void* Data, size_t Size) -> void
+			{
+				const auto* Bytes = static_cast<const uint8*>(Data);
+				TotalBytes += Size;
+				while (Size != 0)
+				{
+					const size_t Count = std::min(Size, Block.size() - BlockSize);
+					std::memcpy(Block.data() + BlockSize, Bytes, Count);
+					BlockSize += Count;
+					Bytes += Count;
+					Size -= Count;
+					if (BlockSize == Block.size()) { Transform(Block.data()); BlockSize = 0; }
+				}
+			}
+
+			auto Finalize() -> std::string
+			{
+				const uint64 BitCount = TotalBytes * 8;
+				Block[BlockSize++] = 0x80;
+				if (BlockSize > 56)
+				{
+					std::fill(Block.begin() + static_cast<ptrdiff_t>(BlockSize), Block.end(), 0);
+					Transform(Block.data());
+					BlockSize = 0;
+				}
+				std::fill(Block.begin() + static_cast<ptrdiff_t>(BlockSize), Block.begin() + 56, 0);
+				for (size_t Index = 0; Index < 8; ++Index) Block[63 - Index] = static_cast<uint8>(BitCount >> (Index * 8));
+				Transform(Block.data());
+				std::string Hex = "sha256:";
+				for (const uint32 Value : State) Hex += std::format("{:08x}", Value);
+				return Hex;
+			}
+
+		private:
+			auto Transform(const uint8* Data) -> void
+			{
+				static constexpr std::array<uint32, 64> K = {
+					0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+					0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+					0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+					0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+					0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+					0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+					0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+					0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2};
+				std::array<uint32, 64> Words{};
+				for (size_t Index = 0; Index < 16; ++Index)
+					Words[Index] = uint32(Data[Index * 4]) << 24 | uint32(Data[Index * 4 + 1]) << 16 | uint32(Data[Index * 4 + 2]) << 8 | Data[Index * 4 + 3];
+				for (size_t Index = 16; Index < Words.size(); ++Index)
+				{
+					const uint32 S0 = std::rotr(Words[Index - 15], 7) ^ std::rotr(Words[Index - 15], 18) ^ (Words[Index - 15] >> 3);
+					const uint32 S1 = std::rotr(Words[Index - 2], 17) ^ std::rotr(Words[Index - 2], 19) ^ (Words[Index - 2] >> 10);
+					Words[Index] = Words[Index - 16] + S0 + Words[Index - 7] + S1;
+				}
+				auto [A, B, C, D, E, F, G, H] = State;
+				for (size_t Index = 0; Index < Words.size(); ++Index)
+				{
+					const uint32 S1 = std::rotr(E, 6) ^ std::rotr(E, 11) ^ std::rotr(E, 25);
+					const uint32 Choice = (E & F) ^ (~E & G);
+					const uint32 Temp1 = H + S1 + Choice + K[Index] + Words[Index];
+					const uint32 S0 = std::rotr(A, 2) ^ std::rotr(A, 13) ^ std::rotr(A, 22);
+					const uint32 Majority = (A & B) ^ (A & C) ^ (B & C);
+					const uint32 Temp2 = S0 + Majority;
+					H=G; G=F; F=E; E=D+Temp1; D=C; C=B; B=A; A=Temp1+Temp2;
+				}
+				State[0]+=A; State[1]+=B; State[2]+=C; State[3]+=D; State[4]+=E; State[5]+=F; State[6]+=G; State[7]+=H;
+			}
+
+			std::array<uint32, 8> State = {0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19};
+			std::array<uint8, 64> Block{};
+			size_t BlockSize = 0;
+			uint64 TotalBytes = 0;
+		};
+
+		auto CaptureFingerprint(
+			const std::filesystem::path& Path,
+			const FAssetCompatibilityCancellationCheck& IsCancelled,
+			FAssetPackageFingerprint& OutFingerprint,
+			std::string& OutReportContentHash,
+			std::string& OutError) -> EAssetPackageSnapshotStatus
+		{
+			std::error_code Error;
+			const uintmax_t InitialSize = std::filesystem::file_size(Path, Error);
+			if (Error)
+			{
+				OutError = std::format("Failed to fingerprint package '{}': {}", Path.generic_string(), Error.message());
+				return EAssetPackageSnapshotStatus::Failed;
+			}
+			const auto InitialTime = std::filesystem::last_write_time(Path, Error);
+			if (Error)
+			{
+				OutError = std::format("Failed to fingerprint package '{}': {}", Path.generic_string(), Error.message());
+				return EAssetPackageSnapshotStatus::Failed;
+			}
+			std::ifstream Stream(Path, std::ios::binary);
+			if (!Stream.is_open())
+			{
+				OutError = std::format("Failed to open package '{}' for fingerprinting.", Path.generic_string());
+				return EAssetPackageSnapshotStatus::Failed;
+			}
+			FXxHash128Builder Builder;
+			FSha256 Sha256;
+			std::array<char, FingerprintBufferSize> Buffer{};
+			while (Stream)
+			{
+				if (IsCancelled && IsCancelled()) return EAssetPackageSnapshotStatus::Cancelled;
+				Stream.read(Buffer.data(), static_cast<std::streamsize>(Buffer.size()));
+				const std::streamsize Read = Stream.gcount();
+				if (Read > 0)
+				{
+					Builder.Update(Buffer.data(), static_cast<uint64>(Read));
+					Sha256.Update(Buffer.data(), static_cast<size_t>(Read));
+				}
+			}
+			if (Stream.bad())
+			{
+				OutError = std::format("Failed while hashing package '{}'.", Path.generic_string());
+				return EAssetPackageSnapshotStatus::Failed;
+			}
+			const uintmax_t FinalSize = std::filesystem::file_size(Path, Error);
+			if (Error)
+			{
+				OutError = std::format("Failed to recheck package '{}': {}", Path.generic_string(), Error.message());
+				return EAssetPackageSnapshotStatus::Failed;
+			}
+			const auto FinalTime = std::filesystem::last_write_time(Path, Error);
+			if (Error)
+			{
+				OutError = std::format("Failed to recheck package '{}': {}", Path.generic_string(), Error.message());
+				return EAssetPackageSnapshotStatus::Failed;
+			}
+			const int64 InitialTicks = DerivedDataCache::FileTimeToStableTicks(InitialTime);
+			const int64 FinalTicks = DerivedDataCache::FileTimeToStableTicks(FinalTime);
+			if (InitialSize != FinalSize || InitialTicks != FinalTicks)
+			{
+				OutError = std::format("Package '{}' changed while its fingerprint was captured.", Path.generic_string());
+				return EAssetPackageSnapshotStatus::Failed;
+			}
+			OutFingerprint = {
+				.FileSize = FinalSize,
+				.LastWriteTimeTicks = FinalTicks,
+				.ContentHash = Builder.Finalize()};
+			OutReportContentHash = Sha256.Finalize();
+			return EAssetPackageSnapshotStatus::Completed;
+		}
 
 		auto SerializedTypeSignature(FProperty* Property) -> std::string
 		{
@@ -266,6 +417,109 @@ namespace Durin::Asset
 		return It != ObjectClass.Fields.end() && It->DeclaringType == DeclaringType && It->Name == Name ? &*It : nullptr;
 	}
 
+	auto CaptureMountedAssetPackageSnapshot(
+		const FAssetCompatibilityCancellationCheck& IsCancellationRequested)
+		-> FAssetPackageDiscoverySnapshot
+	{
+		FAssetPackageDiscoverySnapshot Result;
+		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+		{
+			if (IsCancellationRequested && IsCancellationRequested())
+			{
+				Result.Status = EAssetPackageSnapshotStatus::Cancelled;
+				return Result;
+			}
+			if (!Mount.bAutoScan) continue;
+			const std::filesystem::path ContentRoot = Mount.GetContentDir();
+			std::error_code Error;
+			if (!std::filesystem::exists(ContentRoot, Error))
+			{
+				if (Error)
+				{
+					Result.Status = EAssetPackageSnapshotStatus::Failed;
+					Result.Error = std::format("Failed to inspect mount {}: {}", Mount.VirtualRoot, Error.message());
+					return Result;
+				}
+				continue;
+			}
+			std::filesystem::recursive_directory_iterator It(
+				ContentRoot, std::filesystem::directory_options::skip_permission_denied, Error);
+			const std::filesystem::recursive_directory_iterator End;
+			if (Error)
+			{
+				Result.Status = EAssetPackageSnapshotStatus::Failed;
+				Result.Error = std::format("Failed to enumerate mount {}: {}", Mount.VirtualRoot, Error.message());
+				return Result;
+			}
+			while (It != End)
+			{
+				if (IsCancellationRequested && IsCancellationRequested())
+				{
+					Result.Status = EAssetPackageSnapshotStatus::Cancelled;
+					return Result;
+				}
+				std::error_code FileError;
+				if (It->is_regular_file(FileError) && It->path().extension() == ".dasset")
+				{
+					std::filesystem::path Relative = std::filesystem::relative(It->path(), ContentRoot, FileError);
+					if (FileError)
+					{
+						Result.Status = EAssetPackageSnapshotStatus::Failed;
+						Result.Error = std::format("Failed to classify package '{}': {}", It->path().generic_string(), FileError.message());
+						return Result;
+					}
+					Relative.replace_extension();
+					FAssetPath PackagePath;
+					std::string PathError;
+					if (!FAssetPath::TryCreate(Mount.VirtualRoot + Relative.generic_string(), PackagePath, &PathError))
+					{
+						Result.Status = EAssetPackageSnapshotStatus::Failed;
+						Result.Error = std::format("Invalid mounted package path '{}': {}", It->path().generic_string(), PathError);
+						return Result;
+					}
+					FAssetPackageFingerprint Fingerprint;
+					std::string ReportContentHash;
+					Result.Status = CaptureFingerprint(
+						It->path(), IsCancellationRequested, Fingerprint, ReportContentHash, Result.Error);
+					if (Result.Status != EAssetPackageSnapshotStatus::Completed) return Result;
+					Result.Packages.push_back({
+						.PackagePath = std::move(PackagePath),
+						.PhysicalPath = It->path().generic_string(),
+						.ExpectedFileSize = Fingerprint.FileSize,
+						.ExpectedLastWriteTimeTicks = Fingerprint.LastWriteTimeTicks,
+						.ExpectedContentHash = Fingerprint.ContentHash,
+						.ExpectedReportContentHash = std::move(ReportContentHash)});
+				}
+				else if (FileError)
+				{
+					Result.Status = EAssetPackageSnapshotStatus::Failed;
+					Result.Error = std::format("Failed to inspect package candidate '{}': {}", It->path().generic_string(), FileError.message());
+					return Result;
+				}
+				It.increment(Error);
+				if (Error)
+				{
+					Result.Status = EAssetPackageSnapshotStatus::Failed;
+					Result.Error = std::format("Failed to enumerate mount {}: {}", Mount.VirtualRoot, Error.message());
+					return Result;
+				}
+			}
+		}
+		std::ranges::sort(Result.Packages, [](const auto& Left, const auto& Right) {
+			return Left.PackagePath.GetView() < Right.PackagePath.GetView();
+		});
+		const auto Duplicate = std::ranges::adjacent_find(Result.Packages, [](const auto& Left, const auto& Right) {
+			return Left.PackagePath == Right.PackagePath;
+		});
+		if (Duplicate != Result.Packages.end())
+		{
+			Result.Status = EAssetPackageSnapshotStatus::Failed;
+			Result.Error = std::format("Duplicate mounted package path {}.", Duplicate->PackagePath.ToString());
+			Result.Packages.clear();
+		}
+		return Result;
+	}
+
 	auto ProbeAssetPackageCompatibility(
 		const FAssetPackageCompatibilityProbeInput& Input,
 		const FReflectionCompatibilityCatalog& Catalog,
@@ -299,21 +553,24 @@ namespace Durin::Asset
 			return Result;
 		}
 		Record.Fingerprint.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(InitialTime);
+		Record.Fingerprint.ContentHash = Input.ExpectedContentHash;
+		Record.ReportContentHash = Input.ExpectedReportContentHash;
 
 		uint32 Magic = 0, Version = 0;
 		if (!Reader.Read(Magic) || !Reader.Read(Version) || Magic != AssetMagic)
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::CorruptPackage, "Invalid or truncated asset package header.");
-		else if (Version < MinimumAssetVersion || Version > AssetVersion)
+		else if (Version != AssetVersion)
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::UnsupportedPackageFormat,
 				std::format("Unsupported asset package format version {}.", Version));
 		else
 		{
+			Record.FormatVersion = Version;
 			std::string AssetClass;
 			uint8 EntryKind = 0;
 			std::string RedirectDestination;
 			uint64 DependencyCount = 0, ObjectCount = 0;
 			bool bValidHeader = Reader.ReadString(AssetClass);
-			if (bValidHeader && Version >= 3)
+			if (bValidHeader)
 				bValidHeader = Reader.Read(EntryKind) && EntryKind <= 1
 					&& Reader.ReadString(RedirectDestination);
 			bValidHeader = bValidHeader && Reader.Read(DependencyCount)
@@ -322,6 +579,9 @@ namespace Durin::Asset
 			{
 				std::string Dependency;
 				bValidHeader = Reader.ReadString(Dependency);
+				FAssetPath DependencyPath;
+				if (bValidHeader && !FAssetPath::TryCreate(Dependency, DependencyPath)) bValidHeader = false;
+				if (bValidHeader) Record.Dependencies.push_back(std::move(DependencyPath));
 			}
 			bValidHeader = bValidHeader && Reader.Read(ObjectCount) && ObjectCount > 0 && ObjectCount <= MaximumPackageObjects;
 			if (!bValidHeader)

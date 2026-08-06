@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
+import struct
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+from jsonschema import validate
 
 DEV_TOOL_ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = DEV_TOOL_ROOT.parents[1]
@@ -16,6 +19,10 @@ if str(DEV_TOOL_ROOT) not in sys.path:
 from durin_dev_tool import cli
 from durin_dev_tool import asset
 from durin_dev_tool.errors import DevToolError
+from durin_dev_tool.registry import CommandRegistry
+
+
+FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures"
 
 
 def package(
@@ -43,8 +50,48 @@ def report(*packages: dict[str, object]) -> str:
     return json.dumps({"schemaVersion": 1, "packages": list(packages)})
 
 
+def baseline_report(*, version: int = 3, status: str = "Skipped", diagnostics: list[str] | None = None) -> str:
+    counts = {name: 0 for name in ("planned", "migrated", "skipped", "blocked", "failed", "rolledBack")}
+    counts[status.lower()] = 1
+    return json.dumps({
+        "schemaVersion": 1,
+        "operation": "Plan",
+        "result": "Blocked" if status == "Blocked" else "Ready",
+        "packages": [{
+            "packagePath": "/Game/Baseline",
+            "physicalPath": "C:/Game/Baseline.dasset",
+            "status": status,
+            "fingerprint": {
+                "fileSize": 128,
+                "lastWriteTimeTicks": 20,
+                "contentHash": "sha256:" + "0" * 64,
+            },
+            "sourceFormatVersion": version,
+            "targetFormatVersion": 3,
+            "steps": [],
+            "diagnostics": diagnostics or [],
+        }],
+        "summary": counts,
+        "changedPaths": [],
+    })
+
+
+def empty_baseline_report() -> str:
+    return json.dumps({
+        "schemaVersion": 1,
+        "operation": "Plan",
+        "result": "Ready",
+        "packages": [],
+        "summary": {
+            name: 0
+            for name in ("planned", "migrated", "skipped", "blocked", "failed", "rolledBack")
+        },
+        "changedPaths": [],
+    })
+
+
 def run_handler(tmp_path: Path, report_text: str, *fail_on: str, format_name: str = "json") -> tuple[int, str, str]:
-    executable = tmp_path / "DurinAssetAudit.exe"
+    executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()
     project = tmp_path / "Test.dproject"
     project.write_text("{}", encoding="utf-8")
@@ -76,6 +123,179 @@ def test_registry_requires_project_and_validates_format() -> None:
         )
 
 
+def test_selected_asset_command_grammar_is_frozen() -> None:
+    registry = CommandRegistry()
+    _, baseline_namespace = registry.parse(
+        ["asset", "baseline", "--project", "Sandbox/Sandbox.dproject", "--format", "json"]
+    )
+    assert baseline_namespace.asset_command == "baseline"
+
+    _, audit_namespace = registry.parse(
+        [
+            "asset", "audit", "--project", "Sandbox/Sandbox.dproject",
+            "--fail-on", "incompatible", "--fail-on", "unsupported",
+            "--fail-on", "error", "--format", "json",
+        ]
+    )
+    assert audit_namespace.asset_command == "audit"
+    assert audit_namespace.fail_on == ["incompatible", "unsupported", "error"]
+
+    _, plan_namespace = registry.parse(
+        [
+            "asset", "migrate", "--project", "Sandbox/Sandbox.dproject",
+            "--mount", "/Engine", "--mount", "/Game",
+            "--package", "/Game/Levels/NewLevel",
+            "--format", "json", "--report", "migration.json",
+        ]
+    )
+    assert plan_namespace.asset_command == "migrate"
+    assert plan_namespace.apply is False
+    assert plan_namespace.mounts == ["/Engine", "/Game"]
+    assert plan_namespace.packages == ["/Game/Levels/NewLevel"]
+    assert plan_namespace.report_path == Path("migration.json")
+
+    _, apply_namespace = registry.parse(
+        ["asset", "migrate", "--project", "Sandbox/Sandbox.dproject", "--apply"]
+    )
+    assert apply_namespace.apply is True
+
+
+@pytest.mark.parametrize(
+    ("native_report", "expected"),
+    [
+        (baseline_report(), 0),
+        (baseline_report(version=2, status="Blocked", diagnostics=["unsupported format"]), 3),
+        (baseline_report(version=4, status="Blocked", diagnostics=["unsupported format"]), 3),
+        (baseline_report(status="Blocked", diagnostics=["schema finding"]), 3),
+        (empty_baseline_report(), 3),
+    ],
+)
+def test_asset_baseline_requires_current_format_and_schema(
+    tmp_path: Path, native_report: str, expected: int
+) -> None:
+    executable = tmp_path / "DurinAssetTool.exe"
+    executable.touch()
+    project = tmp_path / "Test.dproject"
+    project.write_text("{}", encoding="utf-8")
+    namespace = type("Namespace", (), {
+        "asset_command": "baseline",
+        "project_path": project,
+        "format_name": "human",
+    })()
+    calls: list[list[str]] = []
+
+    def process_runner(arguments: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(arguments)
+        return subprocess.CompletedProcess(arguments, 0, native_report, "")
+
+    output = io.StringIO()
+    assert asset.run(
+        namespace,
+        repository_root=tmp_path,
+        stdout=output,
+        stderr=io.StringIO(),
+        executable_resolver=lambda *_args: executable,
+        process_runner=process_runner,
+    ) == expected
+    assert calls == [[str(executable), f"--project={project}", "--format=json", "--operation=migrate"]]
+    assert ("Asset baseline:" in output.getvalue()) == (expected == 0)
+
+
+def test_migrate_apply_is_forwarded_only_by_explicit_apply(tmp_path: Path) -> None:
+    executable = tmp_path / "DurinAssetTool.exe"
+    executable.touch()
+    project = tmp_path / "Test.dproject"
+    project.write_text("{}", encoding="utf-8")
+    apply_report = (FIXTURE_ROOT / "asset-migration-apply-v1.json").read_text(encoding="utf-8")
+    namespace = type("Namespace", (), {
+        "asset_command": "migrate", "apply": True, "project_path": project,
+        "format_name": "json", "mounts": [], "packages": [], "report_path": None,
+    })()
+    calls: list[list[str]] = []
+
+    def process_runner(arguments: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(arguments)
+        return subprocess.CompletedProcess(arguments, 0, apply_report, "")
+
+    assert asset.run(
+        namespace, repository_root=tmp_path, stdout=io.StringIO(), stderr=io.StringIO(),
+        executable_resolver=lambda *_args: executable, process_runner=process_runner,
+    ) == 0
+    assert calls == [[
+        str(executable), f"--project={project}", "--format=json",
+        "--operation=migrate", "--apply",
+    ]]
+
+
+def test_migrate_apply_maps_rollback_to_operational_failure() -> None:
+    fixture = json.loads(
+        (FIXTURE_ROOT / "asset-migration-apply-v1.json").read_text(encoding="utf-8")
+    )
+    fixture["result"] = "RolledBack"
+    fixture["packages"][0]["status"] = "RolledBack"
+    fixture["summary"]["migrated"] = 0
+    fixture["summary"]["rolledBack"] = 1
+    fixture["changedPaths"] = []
+    assert asset._validate_migration_report(fixture)["result"] == "RolledBack"
+
+
+def test_migration_plan_forwards_filters_validates_and_writes_explicit_report(tmp_path: Path) -> None:
+    executable = tmp_path / "DurinAssetTool.exe"
+    executable.touch()
+    project = tmp_path / "Test.dproject"
+    project.write_text("{}", encoding="utf-8")
+    migration_report = json.loads(
+        (FIXTURE_ROOT / "asset-migration-plan-v1.json").read_text(encoding="utf-8")
+    )
+    namespace = type("Namespace", (), {
+        "asset_command": "migrate",
+        "apply": False,
+        "project_path": project,
+        "format_name": "human",
+        "mounts": ["/Engine", "/Game"],
+        "packages": ["/Game/Only"],
+        "report_path": Path("Saved/migration.json"),
+    })()
+    calls: list[list[str]] = []
+
+    def process_runner(arguments: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(arguments)
+        return subprocess.CompletedProcess(arguments, 0, json.dumps(migration_report), "")
+
+    output = io.StringIO()
+    assert asset.run(
+        namespace,
+        repository_root=tmp_path,
+        stdout=output,
+        stderr=io.StringIO(),
+        executable_resolver=lambda *_args: executable,
+        process_runner=process_runner,
+    ) == 0
+    assert calls == [[
+        str(executable), f"--project={project}", "--format=json", "--operation=migrate",
+        "--mount=/Engine", "--mount=/Game", "--package=/Game/Only",
+    ]]
+    assert "1 planned" in output.getvalue()
+    written = json.loads((tmp_path / "Saved/migration.json").read_text(encoding="utf-8"))
+    assert written == migration_report
+
+
+def test_migration_plan_rejects_unstable_or_non_lossless_native_output(tmp_path: Path) -> None:
+    fixture = json.loads(
+        (FIXTURE_ROOT / "asset-migration-plan-v1.json").read_text(encoding="utf-8")
+    )
+    fixture["packages"][0]["steps"][0]["risk"] = "Unknown"
+    with pytest.raises(DevToolError, match="lossless chain"):
+        asset._validate_migration_report(fixture)
+
+    fixture = json.loads(
+        (FIXTURE_ROOT / "asset-migration-plan-v1.json").read_text(encoding="utf-8")
+    )
+    fixture["changedPaths"] = ["C:/authored.dasset"]
+    with pytest.raises(DevToolError, match="changed paths"):
+        asset._validate_migration_report(fixture)
+
+
 def test_json_schema_names_and_order_are_preserved(tmp_path: Path) -> None:
     result, output, _ = run_handler(
         tmp_path,
@@ -104,6 +324,60 @@ def test_checked_in_schema_freezes_public_enum_names() -> None:
     assert set(package_properties["compatibility"]["enum"]) == asset.COMPATIBILITY_NAMES
     assert set(package_properties["freshness"]["enum"]) == asset.FRESHNESS_NAMES
     assert set(finding_properties["code"]["enum"]) == asset.FINDING_CODES
+
+
+def test_checked_in_report_fixtures_match_their_schemas() -> None:
+    audit_schema = json.loads(
+        (REPOSITORY_ROOT / "Tools/DurinDevTool/schemas/asset-audit-v1.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    migration_schema = json.loads(
+        (REPOSITORY_ROOT / "Tools/DurinDevTool/schemas/asset-migration-v1.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    validate(json.loads((FIXTURE_ROOT / "asset-audit-v1.json").read_text(encoding="utf-8")), audit_schema)
+    for name in ("asset-migration-plan-v1.json", "asset-migration-apply-v1.json"):
+        fixture = json.loads((FIXTURE_ROOT / name).read_text(encoding="utf-8"))
+        validate(fixture, migration_schema)
+        assert fixture["schemaVersion"] == asset.MIGRATION_SCHEMA_VERSION
+
+
+def test_checked_corpus_inventory_matches_tracked_package_bytes() -> None:
+    inventory = json.loads(
+        (FIXTURE_ROOT / "asset-corpus-v3.json").read_text(encoding="utf-8")
+    )
+    tracked = subprocess.run(
+        ["git", "ls-files", "*.dasset"],
+        cwd=REPOSITORY_ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout.splitlines()
+    packages = inventory["packages"]
+    assert len(packages) == 18
+    assert [package["packagePath"] for package in packages] == sorted(
+        package["packagePath"] for package in packages
+    )
+    assert {package["repositoryPath"] for package in packages} == {
+        path.replace("\\", "/") for path in tracked
+    }
+    assert {package["mount"] for package in packages} == {"/Engine", "/Game"}
+    assert {package["formatVersion"] for package in packages} == {3}
+    for package in packages:
+        payload = (REPOSITORY_ROOT / package["repositoryPath"]).read_bytes()
+        magic, version = struct.unpack_from("<4sI", payload)
+        assert magic == b"DAST"
+        assert version == package["formatVersion"]
+        assert hashlib.sha256(payload).hexdigest() == package["sha256"]
+
+    findings = [
+        (package["packagePath"], finding)
+        for package in packages
+        for finding in package["schemaFindings"]
+    ]
+    assert findings == []
 
 
 @pytest.mark.parametrize(
@@ -147,7 +421,7 @@ def test_rejects_unstable_order_and_unknown_schema_names(tmp_path: Path) -> None
 
 
 def test_cancel_and_process_failure_are_distinct(tmp_path: Path) -> None:
-    executable = tmp_path / "DurinAssetAudit.exe"
+    executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()
     project = tmp_path / "Test.dproject"
     project.touch()
@@ -165,4 +439,49 @@ def test_cancel_and_process_failure_are_distinct(tmp_path: Path) -> None:
             namespace, repository_root=tmp_path, stdout=io.StringIO(), stderr=io.StringIO(),
             executable_resolver=lambda _namespace, _root: executable,
             process_runner=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1, "", "scan failed"),
+        )
+
+
+def test_audit_invocation_is_read_only_and_missing_project_fails_before_launch(tmp_path: Path) -> None:
+    executable = tmp_path / "DurinAssetTool.exe"
+    executable.touch()
+    project = tmp_path / "Test.dproject"
+    project.write_text("{}", encoding="utf-8")
+    authored = tmp_path / "Content" / "Test.dasset"
+    authored.parent.mkdir()
+    authored.write_bytes(b"DAST authored bytes")
+    namespace = type(
+        "Namespace", (),
+        {"asset_command": "audit", "project_path": project, "format_name": "json", "fail_on": []},
+    )()
+    before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    calls: list[tuple[list[str], Path]] = []
+
+    def process_runner(arguments: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append((arguments, kwargs["cwd"]))
+        return subprocess.CompletedProcess(arguments, 0, report(), "")
+
+    assert asset.run(
+        namespace,
+        repository_root=tmp_path,
+        stdout=io.StringIO(),
+        stderr=io.StringIO(),
+        executable_resolver=lambda *_args: executable,
+        process_runner=process_runner,
+    ) == 0
+    after = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    assert before == after
+    assert calls == [
+        ([str(executable), f"--project={project}", "--format=json"], tmp_path)
+    ]
+
+    project.unlink()
+    with pytest.raises(DevToolError, match="Project descriptor was not found"):
+        asset.run(
+            namespace,
+            repository_root=tmp_path,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+            executable_resolver=lambda *_args: executable,
+            process_runner=lambda *_args, **_kwargs: pytest.fail("missing project must not launch"),
         )

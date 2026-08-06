@@ -2,6 +2,7 @@
 
 #include "Asset/SourcePath.h"
 #include "AssetCompatibility.h"
+#include "AssetMigration.h"
 #include "AssetRedirector.h"
 #include "AssetSystem.h"
 #include "CookedAsset.h"
@@ -247,7 +248,6 @@ namespace
 		return static_cast<FVectorMap*>(Container)->erase(*static_cast<const std::string*>(Key)) != 0;
 	}
 	auto GVectorMapHelper() -> const Durin::FMapOps* { return Durin::ResolveMapOps<FVectorMap>(); }
-	bool GReportNonUpgradeMutationOnPostLoad = false;
 	Durin::uint64 GSoftPackageConstructionCount = 0;
 
 	class DPackageAssetForTest : public Durin::DObject
@@ -263,14 +263,7 @@ namespace
 
 		auto PostLoad(std::string& OutError) -> bool override
 		{
-			if (!DObject::PostLoad(OutError)) return false;
-			if (GReportNonUpgradeMutationOnPostLoad)
-				Durin::Asset::ReportAssetLoadMutation(
-					this,
-					"Tests.NonUpgradePostLoadMutation",
-					"Test-only non-upgrade mutation."
-				);
-			return true;
+			return DObject::PostLoad(OutError);
 		}
 
 		static auto StaticClassNoRegister() -> Durin::DClass*
@@ -845,40 +838,6 @@ namespace
 		return true;
 	}
 
-	auto ConvertVersionThreeAssetToVersionTwo(
-		std::vector<Durin::uint8>& Bytes
-	) -> bool
-	{
-		if (Bytes.size() < sizeof(Durin::uint32) * 2 + sizeof(Durin::uint64))
-			return false;
-		Durin::uint32 Version = 0;
-		std::memcpy(&Version, Bytes.data() + sizeof(Durin::uint32), sizeof(Version));
-		if (Version != 3) return false;
-		size_t Offset = sizeof(Durin::uint32) * 2;
-		Durin::uint64 ClassLength = 0;
-		std::memcpy(&ClassLength, Bytes.data() + Offset, sizeof(ClassLength));
-		Offset += sizeof(ClassLength);
-		if (ClassLength > Bytes.size() - Offset) return false;
-		Offset += static_cast<size_t>(ClassLength);
-		if (Offset + sizeof(Durin::uint8) + sizeof(Durin::uint64) > Bytes.size())
-			return false;
-		Durin::uint64 DestinationLength = 0;
-		std::memcpy(
-			&DestinationLength,
-			Bytes.data() + Offset + sizeof(Durin::uint8),
-			sizeof(DestinationLength)
-		);
-		const size_t SummarySize = sizeof(Durin::uint8)
-								   + sizeof(Durin::uint64) + static_cast<size_t>(DestinationLength);
-		if (DestinationLength > Bytes.size() - Offset - sizeof(Durin::uint8)
-									- sizeof(Durin::uint64))
-			return false;
-		Bytes.erase(Bytes.begin() + static_cast<std::ptrdiff_t>(Offset), Bytes.begin() + static_cast<std::ptrdiff_t>(Offset + SummarySize));
-		Version = 2;
-		std::memcpy(Bytes.data() + sizeof(Durin::uint32), &Version, sizeof(Version));
-		return true;
-	}
-
 	auto MakeCompatibilityProbeInput(
 		const Durin::FAssetPath& PackagePath,
 		const std::filesystem::path& PhysicalPath
@@ -888,12 +847,14 @@ namespace
 		std::error_code Error;
 		const auto LastWriteTime = std::filesystem::last_write_time(PhysicalPath, Error);
 		EXPECT_FALSE(Error);
+		std::vector<Durin::uint8> Bytes;
+		EXPECT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, PhysicalPath.generic_string()));
 		return {
 			.PackagePath = PackagePath,
 			.PhysicalPath = PhysicalPath.generic_string(),
 			.ExpectedFileSize = std::filesystem::file_size(PhysicalPath, Error),
-			.ExpectedLastWriteTimeTicks = Durin::DerivedDataCache::FileTimeToStableTicks(LastWriteTime)
-		};
+			.ExpectedLastWriteTimeTicks = Durin::DerivedDataCache::FileTimeToStableTicks(LastWriteTime),
+			.ExpectedContentHash = Durin::FXxHash128::HashBuffer(Bytes)};
 	}
 
 	auto HexDigit(char Character) -> Durin::uint8
@@ -1037,12 +998,19 @@ TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)
 	WriteTestBytes(CorruptFile, Corrupt);
 	EXPECT_EQ(Durin::Asset::ReadAssetPackageHeader(CorruptFile.generic_string(), Header).Error, Durin::Asset::EAssetError::CorruptFile);
 
-	auto Unsupported = Valid;
-	const Durin::uint32 OldVersion = 1;
-	std::memcpy(Unsupported.data() + sizeof(Durin::uint32), &OldVersion, sizeof(OldVersion));
-	const auto UnsupportedFile = Root / "HeaderUnsupported.dasset";
-	WriteTestBytes(UnsupportedFile, Unsupported);
-	EXPECT_EQ(Durin::Asset::ReadAssetPackageHeader(UnsupportedFile.generic_string(), Header).Error, Durin::Asset::EAssetError::UnsupportedVersion);
+	for (const Durin::uint32 Version : {2u, 4u})
+	{
+		auto Unsupported = Valid;
+		std::memcpy(Unsupported.data() + sizeof(Durin::uint32), &Version, sizeof(Version));
+		const auto UnsupportedFile = Root / std::format("HeaderUnsupported{}.dasset", Version);
+		WriteTestBytes(UnsupportedFile, Unsupported);
+		EXPECT_EQ(
+			Durin::Asset::ReadAssetPackageHeader(UnsupportedFile.generic_string(), Header).Error,
+			Durin::Asset::EAssetError::UnsupportedVersion);
+		EXPECT_EQ(
+			Durin::Asset::ValidateAssetPackageBytes(Unsupported).Error,
+			Durin::Asset::EAssetError::UnsupportedVersion);
+	}
 
 	auto Oversized = Valid;
 	const Durin::uint64 OversizedString = 1024 * 1024 + 1;
@@ -1051,45 +1019,6 @@ TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)
 	WriteTestBytes(OversizedFile, Oversized);
 	EXPECT_EQ(Durin::Asset::ReadAssetPackageHeader(OversizedFile.generic_string(), Header).Error, Durin::Asset::EAssetError::CorruptFile);
 	EXPECT_LE(Header.BytesRead, 16u);
-}
-
-TEST(FPackageAssetTests, VersionTwoOrdinaryPackagesRemainReadableWithoutMigration)
-{
-	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/VersionTwoCompatibility", Path));
-	DPackageAssetForTest* Asset = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
-	Asset->Value = 73;
-	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
-	const auto File = Durin::Testing::GetTestWorkDirectory()
-					  / "Assets" / "VersionTwoCompatibility.dasset";
-	std::vector<Durin::uint8> Bytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File.generic_string()));
-	ASSERT_TRUE(ConvertVersionThreeAssetToVersionTwo(Bytes));
-	WriteTestBytes(File, Bytes);
-
-	Durin::Asset::FAssetPackageHeader Header;
-	ASSERT_TRUE(Durin::Asset::ReadAssetPackageHeader(File.generic_string(), Header));
-	EXPECT_EQ(Header.FormatVersion, 2u);
-	EXPECT_EQ(Header.EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
-	EXPECT_FALSE(Header.RedirectDestination.IsValid());
-	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation
-	));
-	const Durin::Asset::FAssetData* Data =
-		Durin::Asset::GetAssetRegistry().FindAssetExact(Path);
-	ASSERT_NE(Data, nullptr);
-	EXPECT_EQ(Data->FormatVersion, 2u);
-	EXPECT_EQ(Data->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
-
-	Asset = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Asset));
-	ASSERT_NE(Asset, nullptr);
-	EXPECT_EQ(Asset->Value, 73);
-	EXPECT_FALSE(Asset->GetPackage()->IsDirty());
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(Path));
 }
 
 TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
@@ -1271,13 +1200,6 @@ TEST(FPackageAssetTests, RedirectorValidationRejectsMalformedSummaryAndBody)
 	));
 	EXPECT_EQ(Durin::Asset::ValidateAssetPackageBytes(BodyMismatch).Error, Durin::Asset::EAssetError::CorruptFile);
 
-	auto LegacyRedirector = Valid;
-	ASSERT_TRUE(ConvertVersionThreeAssetToVersionTwo(LegacyRedirector));
-	const auto LegacyFile = Durin::Testing::GetTestWorkDirectory()
-							/ "Assets" / "RedirectLegacy.invalid";
-	WriteTestBytes(LegacyFile, LegacyRedirector);
-	EXPECT_EQ(Durin::Asset::ReadAssetPackageHeader(LegacyFile.generic_string(), Header).Error, Durin::Asset::EAssetError::CorruptFile);
-
 	Durin::Asset::DAssetRedirector* InvalidRedirector = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(InvalidPath, InvalidRedirector));
 	EXPECT_EQ(Durin::Asset::SavePackage(InvalidRedirector->GetPackage()).Error, Durin::Asset::EAssetError::CorruptFile);
@@ -1304,7 +1226,6 @@ TEST(FPackageAssetTests, RedirectorValidationRejectsMalformedSummaryAndBody)
 	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAssetExact(AliasPath), nullptr);
 
 	std::filesystem::remove(UnknownKindFile);
-	std::filesystem::remove(LegacyFile);
 	ASSERT_TRUE(DeleteAssetClosureForTest({AliasPath, TargetPath}));
 }
 
@@ -3082,7 +3003,7 @@ TEST(FPackageAssetTests, SoftReferencedTargetDeletionLeavesDanglingPathWithoutBl
 	EXPECT_EQ(Durin::Asset::GetAssetRegistry().BuildCookReachability(std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable).Error, Durin::Asset::EAssetError::MissingDependency);
 }
 
-TEST(FPackageAssetTests, DastV2MapBytesAreCanonicalAcrossInsertionAndBucketHistory)
+TEST(FPackageAssetTests, DastMapBytesAreCanonicalAcrossInsertionAndBucketHistory)
 {
 	InitializeAssetTests();
 	Durin::FAssetPath Path;
@@ -3114,7 +3035,7 @@ TEST(FPackageAssetTests, DastV2MapBytesAreCanonicalAcrossInsertionAndBucketHisto
 	EXPECT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(Path));
 }
 
-TEST(FPackageAssetTests, DastV2ReadsHistoricalMapOrderAndRejectsDuplicateDecodedKeys)
+TEST(FPackageAssetTests, DastReadsNoncanonicalMapOrderAndRejectsDuplicateDecodedKeys)
 {
 	InitializeAssetTests();
 	Durin::FAssetPath Path;
@@ -3221,7 +3142,7 @@ TEST(FPackageAssetTests, MathStructRegistrationPreservesDirectAndNestedSchemaIde
 	EXPECT_TRUE(TransformStruct->HasCompleteAuthoredFields());
 }
 
-TEST(FPackageAssetTests, PreservesMathStructBitsAcrossDastV2AndObjectGraphs)
+TEST(FPackageAssetTests, PreservesMathStructBitsAcrossDastAndObjectGraphs)
 {
 	InitializeAssetTests();
 	const double PayloadNaN = std::bit_cast<double>(Durin::uint64{0x7ff8000000000042ull});
@@ -3378,47 +3299,6 @@ TEST(FPackageAssetTests, WriterUsesVersionedWireSignaturesForLogicalEncodings)
 	EXPECT_EQ(Object.FindField("NamedScores")->TypeSignature, "Map<12:v1,4:4>");
 }
 
-TEST(FPackageAssetTests, LoadsAbiSizedLogicalSignaturesWithoutSchemaMigration)
-{
-	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LegacyLogicalSignatures", Path));
-	DPackageAssetForTest* Asset = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
-	Asset->Label = "LegacyString";
-	Asset->DisplayName = Durin::FName("LegacyName");
-	Asset->PersistentId = Durin::FGuid(1, 2, 3, 4);
-	Asset->RelatedIds = {Durin::FGuid(5, 6, 7, 8)};
-	Asset->NamedScores = {{"Legacy", 42}};
-	Asset->SourcePath.Path = "/TestAssets/Sources/Legacy.txt";
-	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
-
-	const auto File = Durin::Testing::GetTestWorkDirectory()
-					  / "Assets" / "LegacyLogicalSignatures.dasset";
-	std::vector<Durin::uint8> Bytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File.generic_string()));
-	EXPECT_EQ(RenameAllSerializedStrings(Bytes, "12:v1", "12:32"), 2u);
-	EXPECT_EQ(RenameAllSerializedStrings(Bytes, "18:v1", "18:12"), 1u);
-	EXPECT_EQ(RenameAllSerializedStrings(Bytes, "19:v1", "19:16"), 1u);
-	EXPECT_EQ(RenameAllSerializedStrings(Bytes, "Array<19:v1>", "Array<19:16>"), 1u);
-	EXPECT_EQ(RenameAllSerializedStrings(Bytes, "Map<12:v1,4:4>", "Map<12:32,4:4>"), 1u);
-	WriteTestBytes(File, Bytes);
-
-	Durin::Asset::FAssetLoadReport Report;
-	DPackageAssetForTest* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded, &Report));
-	ASSERT_NE(Loaded, nullptr);
-	EXPECT_FALSE(Report.HasCompatibilityIssues());
-	EXPECT_EQ(Loaded->Label, "LegacyString");
-	EXPECT_EQ(Loaded->DisplayName, Durin::FName("LegacyName"));
-	EXPECT_EQ(Loaded->PersistentId, Durin::FGuid(1, 2, 3, 4));
-	EXPECT_EQ(Loaded->RelatedIds, (std::vector<Durin::FGuid>{Durin::FGuid(5, 6, 7, 8)}));
-	EXPECT_EQ(Loaded->NamedScores.at("Legacy"), 42);
-	EXPECT_EQ(Loaded->SourcePath.Path, "/TestAssets/Sources/Legacy.txt");
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
-}
-
 TEST(FPackageAssetTests, KeepsRawScalarWidthInSerializedSchema)
 {
 	InitializeAssetTests();
@@ -3444,6 +3324,33 @@ TEST(FPackageAssetTests, KeepsRawScalarWidthInSerializedSchema)
 	EXPECT_EQ(Loaded->Value, 0);
 	EXPECT_TRUE(Report.HasRiskItems());
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+}
+
+TEST(FPackageAssetTests, AbiSizedLogicalSignatureIsAnExplicitCompatibilityMismatch)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LegacyLogicalSignature", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	Asset->Label = "LegacyString";
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+
+	const auto File = Durin::Testing::GetTestWorkDirectory()
+		/ "Assets" / "LegacyLogicalSignature.dasset";
+	std::vector<Durin::uint8> Bytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File.generic_string()));
+	ASSERT_EQ(RenameAllSerializedStrings(Bytes, "12:v1", "12:32"), 2u);
+	WriteTestBytes(File, Bytes);
+
+	Durin::Asset::FAssetLoadReport Report;
+	DPackageAssetForTest* Loaded = nullptr;
+	const Durin::Asset::FAssetResult Result =
+		Durin::Asset::LoadAsset(Path, Loaded, &Report);
+	EXPECT_FALSE(Result);
+	EXPECT_EQ(Result.Error, Durin::Asset::EAssetError::TypeMismatch);
+	EXPECT_EQ(Loaded, nullptr);
 }
 
 TEST(FPackageAssetTests, CompleteInspectionContainsEveryObjectAndContentFingerprint)
@@ -3474,6 +3381,68 @@ TEST(FPackageAssetTests, CompleteInspectionContainsEveryObjectAndContentFingerpr
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
+TEST(FPackageAssetTests, MountedPackageSnapshotIsDeterministicHashedAndReadOnly)
+{
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "AssetPackageSnapshot";
+	const std::filesystem::path AutoRoot = Root / "Auto";
+	const std::filesystem::path ManualRoot = Root / "Manual";
+	std::filesystem::create_directories(AutoRoot / "Nested");
+	std::filesystem::create_directories(ManualRoot);
+	const std::filesystem::path First = AutoRoot / "B.dasset";
+	const std::filesystem::path Second = AutoRoot / "Nested" / "A.dasset";
+	const std::filesystem::path Ignored = ManualRoot / "Ignored.dasset";
+	{
+		std::ofstream(First, std::ios::binary) << "first";
+		std::ofstream(Second, std::ios::binary) << "second";
+		std::ofstream(Ignored, std::ios::binary) << "ignored";
+	}
+	const std::array Definitions{
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/Snapshot/",
+			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Root = AutoRoot,
+			.ContentPath = ".",
+			.bAutoScan = true},
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/Manual/",
+			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Root = ManualRoot,
+			.ContentPath = ".",
+			.bAutoScan = false}};
+	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
+	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+	std::vector<Durin::uint8> FirstBefore;
+	std::vector<Durin::uint8> SecondBefore;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstBefore, First.generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondBefore, Second.generic_string()));
+
+	const auto Snapshot = Durin::Asset::CaptureMountedAssetPackageSnapshot();
+	ASSERT_EQ(Snapshot.Status, Durin::Asset::EAssetPackageSnapshotStatus::Completed);
+	ASSERT_EQ(Snapshot.Packages.size(), 2u);
+	EXPECT_EQ(Snapshot.Packages[0].PackagePath.ToString(), "/Snapshot/B");
+	EXPECT_EQ(Snapshot.Packages[1].PackagePath.ToString(), "/Snapshot/Nested/A");
+	EXPECT_EQ(Snapshot.Packages[0].ExpectedFileSize, FirstBefore.size());
+	EXPECT_EQ(Snapshot.Packages[0].ExpectedContentHash,
+		Durin::FXxHash128::HashBuffer(FirstBefore));
+	EXPECT_EQ(Snapshot.Packages[1].ExpectedContentHash,
+		Durin::FXxHash128::HashBuffer(SecondBefore));
+	EXPECT_TRUE(Snapshot.Packages[0].ExpectedReportContentHash.starts_with("sha256:"));
+	EXPECT_EQ(Snapshot.Packages[0].ExpectedReportContentHash.size(), 71u);
+	EXPECT_NE(Snapshot.Packages[0].ExpectedReportContentHash,
+		Snapshot.Packages[1].ExpectedReportContentHash);
+	std::vector<Durin::uint8> FirstAfter;
+	std::vector<Durin::uint8> SecondAfter;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstAfter, First.generic_string()));
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondAfter, Second.generic_string()));
+	EXPECT_EQ(FirstAfter, FirstBefore);
+	EXPECT_EQ(SecondAfter, SecondBefore);
+
+	const auto Cancelled = Durin::Asset::CaptureMountedAssetPackageSnapshot([] { return true; });
+	EXPECT_EQ(Cancelled.Status, Durin::Asset::EAssetPackageSnapshotStatus::Cancelled);
+	EXPECT_TRUE(Cancelled.Packages.empty());
+}
+
 TEST(FPackageAssetTests, CompatibilityProbeClassifiesCurrentFieldsAndSkipsPayloadBytes)
 {
 	InitializeAssetTests();
@@ -3496,6 +3465,8 @@ TEST(FPackageAssetTests, CompatibilityProbeClassifiesCurrentFieldsAndSkipsPayloa
 	EXPECT_EQ(First.Record->Inspection, Durin::Asset::EAssetCompatibilityInspection::Ready);
 	EXPECT_EQ(First.Record->Compatibility, Durin::Asset::EAssetPackageCompatibility::Compatible);
 	EXPECT_EQ(First.Record->Freshness, Durin::Asset::EAssetCompatibilityFreshness::Current);
+	EXPECT_EQ(First.Record->Fingerprint.ContentHash,
+		MakeCompatibilityProbeInput(Path, File).ExpectedContentHash);
 	EXPECT_TRUE(First.Record->Findings.empty());
 	EXPECT_GT(First.Stats.PayloadBytesSkipped, 4u * 1024u * 1024u);
 	EXPECT_LT(First.Stats.MetadataBytesRead, 64u * 1024u);
@@ -3617,21 +3588,24 @@ TEST(FPackageAssetTests, CompatibilityProbeSeparatesFormatGraphCorruptionIoAndCa
 		return std::pair(Path, Durin::Testing::GetTestWorkDirectory() / "Assets" / std::format("{}.dasset", Name));
 	};
 	const auto Catalog = Durin::Asset::FReflectionCompatibilityCatalog::Capture();
-	auto [FormatPath, FormatFile] = MakeFixture("ProbeNewerFormat");
-	std::vector<Durin::uint8> NewerFormatBytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		NewerFormatBytes, FormatFile.generic_string()
-	));
-	const Durin::uint32 NewerVersion = 4;
-	std::memcpy(
-		NewerFormatBytes.data() + sizeof(Durin::uint32),
-		&NewerVersion,
-		sizeof(NewerVersion)
-	);
-	WriteTestBytes(FormatFile, NewerFormatBytes);
-	auto Format = Durin::Asset::ProbeAssetPackageCompatibility(MakeCompatibilityProbeInput(FormatPath, FormatFile), Catalog);
-	ASSERT_TRUE(Format.Record.has_value());
-	EXPECT_EQ(Format.Record->Findings.front().Code, Durin::Asset::EAssetCompatibilityFindingCode::UnsupportedPackageFormat);
+	for (const Durin::uint32 Version : {2u, 4u})
+	{
+		auto [FormatPath, FormatFile] = MakeFixture(std::format("ProbeFormat{}", Version));
+		std::vector<Durin::uint8> FormatBytes;
+		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+			FormatBytes, FormatFile.generic_string()));
+		std::memcpy(
+			FormatBytes.data() + sizeof(Durin::uint32),
+			&Version,
+			sizeof(Version));
+		WriteTestBytes(FormatFile, FormatBytes);
+		auto Format = Durin::Asset::ProbeAssetPackageCompatibility(
+			MakeCompatibilityProbeInput(FormatPath, FormatFile), Catalog);
+		ASSERT_TRUE(Format.Record.has_value());
+		EXPECT_EQ(
+			Format.Record->Findings.front().Code,
+			Durin::Asset::EAssetCompatibilityFindingCode::UnsupportedPackageFormat);
+	}
 
 	auto [GraphPath, GraphFile] = MakeFixture("ProbeInvalidGraph");
 	WriteCompatibilityFixture("invalid_object_graph", GraphFile);
@@ -3700,6 +3674,153 @@ TEST(FPackageAssetTests, CompatibilityProbeMarksSnapshotMismatchStaleAndSerializ
 	EXPECT_LT(Json.find("/TestAssets/ProbeSerializeA"), Json.find("/TestAssets/ProbeSerializeB"));
 	EXPECT_NE(Json.find("\"inspection\":\"Ready\""), std::string::npos);
 	EXPECT_NE(Json.find("\"freshness\":\"Stale\""), std::string::npos);
+}
+
+TEST(FPackageAssetTests, MigrationRegistryRejectsMalformedAmbiguousAndCyclicGraphs)
+{
+	InitializeAssetTests();
+	using namespace Durin::Asset;
+	FAssetMigrationRegistry Registry;
+	std::string Error;
+	EXPECT_FALSE(Registry.Register({.HandlerId = "", .SourceVersion = 2, .TargetVersion = 3}, Error));
+	EXPECT_TRUE(Error.starts_with("MigrationHandlerInvalid:"));
+	ASSERT_TRUE(Registry.Register({.HandlerId = "test.2-to-3", .SourceVersion = 2, .TargetVersion = 3}, Error));
+	EXPECT_FALSE(Registry.Register({.HandlerId = "test.2-to-3", .SourceVersion = 3, .TargetVersion = 4}, Error));
+	EXPECT_TRUE(Error.starts_with("MigrationHandlerDuplicateId:"));
+	ASSERT_TRUE(Registry.Register({.HandlerId = "test.2-to-4", .SourceVersion = 2, .TargetVersion = 4}, Error));
+	EXPECT_FALSE(Registry.Validate(Error));
+	EXPECT_TRUE(Error.starts_with("MigrationChainAmbiguous:"));
+	EXPECT_EQ(Registry.ResolveChain(EAssetMigrationKind::PackageFormat, 2, 3).Status,
+		EAssetMigrationResolutionStatus::AmbiguousChain);
+
+	FAssetMigrationRegistry Cycle;
+	ASSERT_TRUE(Cycle.Register({.HandlerId = "test.4-to-5", .SourceVersion = 4, .TargetVersion = 5}, Error));
+	ASSERT_TRUE(Cycle.Register({.HandlerId = "test.5-to-4", .SourceVersion = 5, .TargetVersion = 4}, Error));
+	EXPECT_FALSE(Cycle.Validate(Error));
+	EXPECT_TRUE(Error.starts_with("MigrationChainCycle:"));
+	EXPECT_EQ(Cycle.ResolveChain(EAssetMigrationKind::PackageFormat, 4, 6).Status,
+		EAssetMigrationResolutionStatus::CyclicChain);
+}
+
+TEST(FPackageAssetTests, MigrationRegistryResolvesStableOrderedExactEdgesAndCancellation)
+{
+	InitializeAssetTests();
+	using namespace Durin::Asset;
+	FAssetMigrationRegistry Registry;
+	std::string Error;
+	ASSERT_TRUE(Registry.Register({
+		.HandlerId = "test.package.3-to-4", .SourceVersion = 3, .TargetVersion = 4,
+		.Risk = EAssetMigrationRisk::Lossless}, Error));
+	ASSERT_TRUE(Registry.Register({
+		.HandlerId = "test.package.2-to-3", .SourceVersion = 2, .TargetVersion = 3,
+		.Risk = EAssetMigrationRisk::Lossless}, Error));
+	ASSERT_TRUE(Registry.Validate(Error)) << Error;
+	const auto Chain = Registry.ResolveChain(EAssetMigrationKind::PackageFormat, 2, 4);
+	ASSERT_EQ(Chain.Status, EAssetMigrationResolutionStatus::Resolved);
+	ASSERT_EQ(Chain.Steps.size(), 2u);
+	EXPECT_EQ(Chain.Steps[0].HandlerId, "test.package.2-to-3");
+	EXPECT_EQ(Chain.Steps[1].HandlerId, "test.package.3-to-4");
+	EXPECT_EQ(Registry.ResolveChain(EAssetMigrationKind::PackageFormat, 2, 4, [] { return true; }).Status,
+		EAssetMigrationResolutionStatus::Cancelled);
+	EXPECT_EQ(Registry.ResolveChain(EAssetMigrationKind::AssetSchema, 2, 4).Status,
+		EAssetMigrationResolutionStatus::MissingChain);
+}
+
+TEST(FPackageAssetTests, MigrationPlannerIsDeterministicLosslessDependencyAwareAndReadOnly)
+{
+	InitializeAssetTests();
+	using namespace Durin::Asset;
+	auto MakeRecord = [](std::string_view PathValue, Durin::uint32 Version) {
+		Durin::FAssetPath Path;
+		EXPECT_TRUE(Durin::FAssetPath::TryCreate(PathValue, Path));
+		return FAssetPackageCompatibilityRecord{
+			.PackagePath = Path,
+			.PhysicalPath = std::format("C:/fixtures{}.dasset", PathValue),
+			.Fingerprint = {.FileSize = 128, .LastWriteTimeTicks = 20},
+			.ReportContentHash = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			.FormatVersion = Version,
+			.Inspection = EAssetCompatibilityInspection::Ready,
+			.Compatibility = EAssetPackageCompatibility::Compatible,
+			.Freshness = EAssetCompatibilityFreshness::Current};
+	};
+	auto A = MakeRecord("/TestAssets/A", 2);
+	auto B = MakeRecord("/TestAssets/B", 2);
+	auto Current = MakeRecord("/TestAssets/Current", 3);
+	A.Dependencies.push_back(B.PackagePath);
+	std::array Records = {Current, B, A};
+	FAssetMigrationRegistry Registry;
+	std::string Error;
+	ASSERT_TRUE(Registry.Register({
+		.HandlerId = "test.package.2-to-3",
+		.SourceVersion = 2,
+		.TargetVersion = 3,
+		.Risk = EAssetMigrationRisk::Lossless}, Error));
+	const auto First = PlanAssetPackageMigrations(Records, Registry);
+	const auto Second = PlanAssetPackageMigrations(Records, Registry);
+	ASSERT_EQ(First.Packages.size(), 3u);
+	EXPECT_EQ(First.Packages[0].PackagePath.ToString(), "/TestAssets/A");
+	EXPECT_EQ(First.Packages[0].Status, EAssetMigrationPackageStatus::Planned);
+	EXPECT_EQ(First.Packages[1].Status, EAssetMigrationPackageStatus::Planned);
+	EXPECT_EQ(First.Packages[2].Status, EAssetMigrationPackageStatus::Skipped);
+	EXPECT_EQ(SerializeAssetMigrationPlanReportV1(First), SerializeAssetMigrationPlanReportV1(Second));
+	EXPECT_NE(SerializeAssetMigrationPlanReportV1(First).find("test.package.2-to-3"), std::string::npos);
+
+	FAssetMigrationSelection OnlyA{.Packages = {A.PackagePath}};
+	const auto DependencyBlocked = PlanAssetPackageMigrations(Records, Registry, OnlyA);
+	ASSERT_EQ(DependencyBlocked.Packages.size(), 1u);
+	EXPECT_EQ(DependencyBlocked.Packages[0].Status, EAssetMigrationPackageStatus::Blocked);
+	ASSERT_EQ(DependencyBlocked.Packages[0].Diagnostics.size(), 1u);
+	EXPECT_TRUE(DependencyBlocked.Packages[0].Diagnostics[0].starts_with("DependencyNotSelected:"));
+	Records[1].Compatibility = EAssetPackageCompatibility::Incompatible;
+	Records[1].Findings.push_back({
+		.Code = EAssetCompatibilityFindingCode::UnknownField,
+		.Diagnostic = "dependency schema is incompatible"});
+	const auto PropagatedBlock = PlanAssetPackageMigrations(Records, Registry);
+	EXPECT_EQ(PropagatedBlock.Packages[0].Status, EAssetMigrationPackageStatus::Blocked);
+	EXPECT_EQ(PropagatedBlock.Packages[1].Status, EAssetMigrationPackageStatus::Blocked);
+	ASSERT_FALSE(PropagatedBlock.Packages[0].Diagnostics.empty());
+	EXPECT_TRUE(PropagatedBlock.Packages[0].Diagnostics[0].starts_with("DependencyBlocked:"));
+	EXPECT_EQ(PlanAssetPackageMigrations(Records, Registry, {}, [] { return true; }).Status,
+		EAssetMigrationPlanStatus::Cancelled);
+}
+
+TEST(FPackageAssetTests, MigrationPlannerFailsClosedForCompatibilityStalenessAndRisk)
+{
+	InitializeAssetTests();
+	using namespace Durin::Asset;
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/Blocked", Path));
+	FAssetPackageCompatibilityRecord Record{
+		.PackagePath = Path,
+		.PhysicalPath = "C:/fixtures/Blocked.dasset",
+		.Fingerprint = {.FileSize = 1, .LastWriteTimeTicks = 2},
+		.ReportContentHash = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		.FormatVersion = 2,
+		.Inspection = EAssetCompatibilityInspection::Ready,
+		.Compatibility = EAssetPackageCompatibility::Incompatible,
+		.Freshness = EAssetCompatibilityFreshness::Current,
+		.Findings = {{.Code = EAssetCompatibilityFindingCode::UnknownField, .Diagnostic = "unknown field"}}};
+	FAssetMigrationRegistry Registry;
+	std::string Error;
+	ASSERT_TRUE(RegisterBuiltInAssetMigrations(Registry, Error));
+	EXPECT_TRUE(Registry.GetHandlers().empty());
+	auto Plan = PlanAssetPackageMigrations({&Record, 1}, Registry);
+	EXPECT_EQ(Plan.Packages[0].Status, EAssetMigrationPackageStatus::Blocked);
+	EXPECT_TRUE(Plan.Packages[0].Diagnostics[0].starts_with("CompatibilityFinding:UnknownField:"));
+
+	Record.Findings.clear();
+	Record.Compatibility = EAssetPackageCompatibility::Compatible;
+	Record.Freshness = EAssetCompatibilityFreshness::Stale;
+	Plan = PlanAssetPackageMigrations({&Record, 1}, Registry);
+	EXPECT_TRUE(Plan.Packages[0].Diagnostics[0].starts_with("StaleFingerprint:"));
+
+	Record.Freshness = EAssetCompatibilityFreshness::Current;
+	FAssetMigrationRegistry Risky;
+	ASSERT_TRUE(Risky.Register({
+		.HandlerId = "test.risky.2-to-3", .SourceVersion = 2, .TargetVersion = 3,
+		.Risk = EAssetMigrationRisk::Unknown}, Error));
+	Plan = PlanAssetPackageMigrations({&Record, 1}, Risky);
+	EXPECT_TRUE(Plan.Packages[0].Diagnostics[0].starts_with("MigrationNotLossless:"));
 }
 
 TEST(FPackageAssetTests, PackageLoadSnapshotReleasesOnlyPackagesIntroducedAfterCapture)

@@ -2,7 +2,7 @@
 
 Summary: Coordinate the reflection foundations, deterministic DAST v4 format, multi-version migration, and authored-content rollout needed to compact asset packages without weakening compatibility guarantees.
 
-Last reviewed: 2026-08-06
+Last reviewed: 2026-08-07
 
 Status: Active
 Completed:
@@ -10,11 +10,12 @@ Completed:
 ## Current Status
 
 - The program is deliberately deferred. No DAST v4 implementation plan is
-  active. AssetCore accepts DAST v2 and v3, and authorized saves emit v3.
+  active. AssetCore reads and writes only DAST v3, and the repository baseline
+  gate rejects every other package format or incompatible schema.
 - The active [Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
   owns DAST v3's bounded registry-entry kind and redirect-destination header
-  summary. Compact serialization therefore starts at v4 and retains the
-  bounded v2/v3 readers; it does not absorb redirector implementation.
+  summary. Compact serialization therefore starts at v4 and uses a temporary
+  exact v3-to-v4 migration edge; it does not absorb redirector implementation.
 - The previous monolithic implementation plan has been converted into this
   roadmap so future work can be activated as bounded child plans only when its
   entry gates are satisfied.
@@ -35,7 +36,7 @@ Completed:
 Deliver a deterministic authored-package format that stores reflection metadata
 once per package, encodes object and struct values relative to declared defaults,
 preserves bounded compatibility inspection and unknown-field retention, and
-migrates DAST v2/v3 content only on an authorized save.
+migrates DAST v3 content only through explicitly authorized tooling.
 
 The canonical Default Material package must become no larger than 25 percent of
 its same-content v2 baseline and no larger than 16 KiB without relying on block
@@ -49,8 +50,8 @@ compression.
   Object, and Value sections.
 - Compact canonical scalar, container, reference, enum, and intrinsic math
   encodings.
-- Bounded DAST v2/v3/v4 loading, inspection, compatibility reporting, registry
-  caching, and save-time migration.
+- Bounded DAST v3/v4 loading during the migration window, inspection,
+  compatibility reporting, registry caching, and explicit migration.
 - Determinism, malformed-input, size, parsing-cost, integration, and authored-
   content rollout validation.
 
@@ -101,8 +102,9 @@ compression.
 
 - Dependencies, names, types, schemas, fields, objects, overrides, and map keys
   have explicit canonical orderings independent of process state.
-- DAST v2 and redirect-summary v3 remain bounded and readable after v4 becomes
-  the only writer. Merely scanning or loading v2/v3 never rewrites or dirties it.
+- DAST v3 remains bounded and readable only during the reviewed v4 migration
+  window. Scanning and loading never rewrite or dirty a package; once the
+  tracked corpus is v4, the v3 reader and completed migration edge are removed.
 - Unknown explicit overrides retain exact payload bytes and file-side type
   descriptors. Explicit data-loss consent remains required before overwriting
   incompatible authored content.
@@ -116,9 +118,8 @@ compression.
 
 ### Foundations
 
-- DAST v2 already separates bounded public-header reads from complete package
-  loading and atomic publication; the redirector plan freezes the same boundary
-  for v3 without introducing compact body sections.
+- DAST v3 separates bounded public-header reads from complete package loading
+  and atomic publication without introducing compact body sections.
 - Existing reflection metadata exposes qualified class, struct, enum, and field
   identities plus recursive property kinds.
 - Compatibility inspection, data-loss consent, registry fingerprints, frozen
@@ -142,11 +143,11 @@ compression.
 | Milestone | Kind | Dependencies | Deliverable | State |
 | --- | --- | --- | --- | --- |
 | Reflected struct operations | External prerequisite | None | Declarative and fail-closed lifecycle, equality, reference, and serialization semantics | Completed 2026-08-05 |
-| V4 measurement and wire contract | Required child plan | Struct-operations audit complete; program explicitly scheduled | Reproducible v2/v3 accounting and a frozen bounded v4 byte contract | Proposed, deferred |
+| V4 measurement and wire contract | Required child plan | Struct-operations audit complete; program explicitly scheduled | Reproducible v3 accounting and a frozen bounded v4 byte contract | Proposed, deferred |
 | Default-relative reflection | Required child plan | Frozen default contract and successful struct-operations plan | Class default objects, struct defaults, logical equivalence, and no-delta policy | Proposed, deferred |
 | Deterministic v4 writer | Required child plan | Default-relative reflection complete | Canonical tables and compact value emission meeting size gates | Proposed, deferred |
 | V4 reader and compatibility | Required child plan | Writer fixtures and frozen schema model | Bounded loading, inspection, unknown retention, and malformed-input coverage | Proposed, deferred |
-| Mixed-version migration | Required child plan | V2/v3/v4 readers and v4 writer stable | Registry/version separation and authorized atomic v2/v3-to-v4 save migration | Proposed, deferred |
+| Mixed-version migration | Required child plan | Temporary v3/v4 readers and v4 writer stable | Registry/version separation and authorized atomic v3-to-v4 migration | Proposed, deferred |
 | Qualification and rollout | Required child plan | Migration suite complete | Full validation, lasting documentation, and authored repository content resaved | Proposed, deferred |
 | Custom struct asset codecs | Conditional child plan | Struct audit identifies durable state that reflected fields plus post-load repair cannot represent | Versioned codecs with dependency discovery, inspection, and migration contracts | Evidence-gated |
 
@@ -206,8 +207,8 @@ and [Native Tests](../Development/Build/NativeTests.md).
   authored-package codec. The conditional codec plan is mandatory if reflected
   fields plus post-load repair cannot preserve durable state.
 - **Compatibility regression:** v4 cannot become the writer default until
-  equivalent v2/v3/v4 compatibility categories and exact unknown payload retention
-  are proven.
+  equivalent v3/v4 compatibility categories and exact unknown payload retention
+  are proven during the migration window.
 - **Nominal compression only:** rollout is blocked unless measurements show
   reduced metadata parsing and allocation as well as reduced bytes.
 - **Migration blast radius:** scanning and loading remain read-only; only an
@@ -217,11 +218,12 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 - Every required milestone has completed its exit gate, and the conditional
   custom-codec milestone is either completed or dispositioned by audit evidence.
-- DAST v4 is the only authored writer while bounded DAST v2/v3/v4 readers remain
-  supported.
+- DAST v4 is the only authored reader and writer after the tracked corpus is
+  migrated and the temporary v3 compatibility path is retired.
 - Default Material satisfies both size gates without block compression.
 - Compatibility inspection, unknown-field retention, and data-loss protection
-  remain effective across both versions.
+  remain effective across both versions during migration and on the final v4
+  baseline.
 - Mixed content passes full build and editor load/render/save/restart validation.
 - Lasting reflection and package contracts reside in their owning Runtime
   documentation.
