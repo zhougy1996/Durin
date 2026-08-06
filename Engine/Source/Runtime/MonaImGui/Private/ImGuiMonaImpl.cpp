@@ -676,7 +676,7 @@ namespace Durin::MonaImGui
 		IO.Fonts->AddFontDefaultVector();
 
 		const ImWchar* ChineseGlyphRanges = IO.Fonts->GetGlyphRangesChineseSimplifiedCommon();
-		std::string FontDir = FPaths::EngineDir() + "Content/ImGuiFonts/";
+		std::string FontDir = FPaths::EngineDir() + "Content/Fonts/";
 		std::string FontPath_DroidSans = FontDir + "DroidSans.ttf";
 		std::string FontPath_NotoSansSC = FontDir + "NotoSansSC-Regular.ttf";
 		std::string FontPath_FontAwesome = FontDir + "FontAwesome/FontAwesome7Free-Solid-900.otf";

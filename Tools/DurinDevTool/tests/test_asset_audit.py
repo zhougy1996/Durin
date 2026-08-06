@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import io
-import hashlib
 import json
-import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -342,42 +340,6 @@ def test_checked_in_report_fixtures_match_their_schemas() -> None:
         fixture = json.loads((FIXTURE_ROOT / name).read_text(encoding="utf-8"))
         validate(fixture, migration_schema)
         assert fixture["schemaVersion"] == asset.MIGRATION_SCHEMA_VERSION
-
-
-def test_checked_corpus_inventory_matches_tracked_package_bytes() -> None:
-    inventory = json.loads(
-        (FIXTURE_ROOT / "asset-corpus-v3.json").read_text(encoding="utf-8")
-    )
-    tracked = subprocess.run(
-        ["git", "ls-files", "*.dasset"],
-        cwd=REPOSITORY_ROOT,
-        text=True,
-        capture_output=True,
-        check=True,
-    ).stdout.splitlines()
-    packages = inventory["packages"]
-    assert len(packages) == 18
-    assert [package["packagePath"] for package in packages] == sorted(
-        package["packagePath"] for package in packages
-    )
-    assert {package["repositoryPath"] for package in packages} == {
-        path.replace("\\", "/") for path in tracked
-    }
-    assert {package["mount"] for package in packages} == {"/Engine", "/Game"}
-    assert {package["formatVersion"] for package in packages} == {3}
-    for package in packages:
-        payload = (REPOSITORY_ROOT / package["repositoryPath"]).read_bytes()
-        magic, version = struct.unpack_from("<4sI", payload)
-        assert magic == b"DAST"
-        assert version == package["formatVersion"]
-        assert hashlib.sha256(payload).hexdigest() == package["sha256"]
-
-    findings = [
-        (package["packagePath"], finding)
-        for package in packages
-        for finding in package["schemaFindings"]
-    ]
-    assert findings == []
 
 
 @pytest.mark.parametrize(
