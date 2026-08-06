@@ -36,15 +36,15 @@ namespace Durin
 			Struct->Register(DStruct::StaticClass, "/Cpp/CoreDObject", std::string(QualifiedName).c_str());
 			return Struct;
 		}
-	}
+	} // namespace
 
 	auto Z_Construct_DStruct_Durin_FVector2() -> DStruct*
 	{
 		static DStruct* Singleton = nullptr;
 		if (Singleton) return Singleton;
 		Singleton = MakeStruct("Durin::FVector2", "FVector2", sizeof(FVector2), alignof(FVector2));
-		static const DurinCodeGen::FPropertyParamsBase X = {"x", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, &MutableMember<FVector2, &FVector2::x>, &ConstMember<FVector2, &FVector2::x>};
-		static const DurinCodeGen::FPropertyParamsBase Y = {"y", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, &MutableMember<FVector2, &FVector2::y>, &ConstMember<FVector2, &FVector2::y>};
+		static const DurinCodeGen::FDoublePropertyParams X = DurinCodeGen::FDoublePropertyParams::WithAccessors("x", EPropertyFlags::None, 1, &MutableMember<FVector2, &FVector2::x>, &ConstMember<FVector2, &FVector2::x>);
+		static const DurinCodeGen::FDoublePropertyParams Y = DurinCodeGen::FDoublePropertyParams::WithAccessors("y", EPropertyFlags::None, 1, &MutableMember<FVector2, &FVector2::y>, &ConstMember<FVector2, &FVector2::y>);
 		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&X, &Y};
 		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FVector2", "FVector2", sizeof(FVector2), alignof(FVector2), Properties, std::size(Properties), &GetDStructOps<FVector2>()};
 		return DurinCodeGen::ConstructDStruct(Params);
@@ -55,9 +55,9 @@ namespace Durin
 		static DStruct* Singleton = nullptr;
 		if (Singleton) return Singleton;
 		Singleton = MakeStruct("Durin::FVector3", "FVector3", sizeof(FVector3), alignof(FVector3));
-		static const DurinCodeGen::FPropertyParamsBase X = {"x", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, &MutableMember<FVector3, &FVector3::x>, &ConstMember<FVector3, &FVector3::x>};
-		static const DurinCodeGen::FPropertyParamsBase Y = {"y", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, &MutableMember<FVector3, &FVector3::y>, &ConstMember<FVector3, &FVector3::y>};
-		static const DurinCodeGen::FPropertyParamsBase Z = {"z", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, &MutableMember<FVector3, &FVector3::z>, &ConstMember<FVector3, &FVector3::z>};
+		static const DurinCodeGen::FDoublePropertyParams X = DurinCodeGen::FDoublePropertyParams::WithAccessors("x", EPropertyFlags::None, 1, &MutableMember<FVector3, &FVector3::x>, &ConstMember<FVector3, &FVector3::x>);
+		static const DurinCodeGen::FDoublePropertyParams Y = DurinCodeGen::FDoublePropertyParams::WithAccessors("y", EPropertyFlags::None, 1, &MutableMember<FVector3, &FVector3::y>, &ConstMember<FVector3, &FVector3::y>);
+		static const DurinCodeGen::FDoublePropertyParams Z = DurinCodeGen::FDoublePropertyParams::WithAccessors("z", EPropertyFlags::None, 1, &MutableMember<FVector3, &FVector3::z>, &ConstMember<FVector3, &FVector3::z>);
 		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&X, &Y, &Z};
 		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FVector3", "FVector3", sizeof(FVector3), alignof(FVector3), Properties, std::size(Properties), &GetDStructOps<FVector3>()};
 		return DurinCodeGen::ConstructDStruct(Params);
@@ -68,10 +68,10 @@ namespace Durin
 		static DStruct* Singleton = nullptr;
 		if (Singleton) return Singleton;
 		Singleton = MakeStruct("Durin::FVector4", "FVector4", sizeof(FVector4), alignof(FVector4));
-		static const DurinCodeGen::FPropertyParamsBase X = {"x", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, &MutableMember<FVector4, &FVector4::x>, &ConstMember<FVector4, &FVector4::x>};
-		static const DurinCodeGen::FPropertyParamsBase Y = {"y", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, &MutableMember<FVector4, &FVector4::y>, &ConstMember<FVector4, &FVector4::y>};
-		static const DurinCodeGen::FPropertyParamsBase Z = {"z", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, &MutableMember<FVector4, &FVector4::z>, &ConstMember<FVector4, &FVector4::z>};
-		static const DurinCodeGen::FPropertyParamsBase W = {"w", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, &MutableMember<FVector4, &FVector4::w>, &ConstMember<FVector4, &FVector4::w>};
+		static const DurinCodeGen::FDoublePropertyParams X = DurinCodeGen::FDoublePropertyParams::WithAccessors("x", EPropertyFlags::None, 1, &MutableMember<FVector4, &FVector4::x>, &ConstMember<FVector4, &FVector4::x>);
+		static const DurinCodeGen::FDoublePropertyParams Y = DurinCodeGen::FDoublePropertyParams::WithAccessors("y", EPropertyFlags::None, 1, &MutableMember<FVector4, &FVector4::y>, &ConstMember<FVector4, &FVector4::y>);
+		static const DurinCodeGen::FDoublePropertyParams Z = DurinCodeGen::FDoublePropertyParams::WithAccessors("z", EPropertyFlags::None, 1, &MutableMember<FVector4, &FVector4::z>, &ConstMember<FVector4, &FVector4::z>);
+		static const DurinCodeGen::FDoublePropertyParams W = DurinCodeGen::FDoublePropertyParams::WithAccessors("w", EPropertyFlags::None, 1, &MutableMember<FVector4, &FVector4::w>, &ConstMember<FVector4, &FVector4::w>);
 		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&X, &Y, &Z, &W};
 		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FVector4", "FVector4", sizeof(FVector4), alignof(FVector4), Properties, std::size(Properties), &GetDStructOps<FVector4>()};
 		return DurinCodeGen::ConstructDStruct(Params);
@@ -82,10 +82,10 @@ namespace Durin
 		static DStruct* Singleton = nullptr;
 		if (Singleton) return Singleton;
 		Singleton = MakeStruct("Durin::FQuat", "FQuat", sizeof(FQuat), alignof(FQuat));
-		static const DurinCodeGen::FPropertyParamsBase W = {"w", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, &MutableMember<FQuat, &FQuat::w>, &ConstMember<FQuat, &FQuat::w>};
-		static const DurinCodeGen::FPropertyParamsBase X = {"x", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, &MutableMember<FQuat, &FQuat::x>, &ConstMember<FQuat, &FQuat::x>};
-		static const DurinCodeGen::FPropertyParamsBase Y = {"y", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, &MutableMember<FQuat, &FQuat::y>, &ConstMember<FQuat, &FQuat::y>};
-		static const DurinCodeGen::FPropertyParamsBase Z = {"z", EPropertyFlags::None, 1, 0, sizeof(double), DurinCodeGen::EPropertyGenFlags::Double, nullptr, nullptr, nullptr, nullptr, nullptr, false, nullptr, &MutableMember<FQuat, &FQuat::z>, &ConstMember<FQuat, &FQuat::z>};
+		static const DurinCodeGen::FDoublePropertyParams W = DurinCodeGen::FDoublePropertyParams::WithAccessors("w", EPropertyFlags::None, 1, &MutableMember<FQuat, &FQuat::w>, &ConstMember<FQuat, &FQuat::w>);
+		static const DurinCodeGen::FDoublePropertyParams X = DurinCodeGen::FDoublePropertyParams::WithAccessors("x", EPropertyFlags::None, 1, &MutableMember<FQuat, &FQuat::x>, &ConstMember<FQuat, &FQuat::x>);
+		static const DurinCodeGen::FDoublePropertyParams Y = DurinCodeGen::FDoublePropertyParams::WithAccessors("y", EPropertyFlags::None, 1, &MutableMember<FQuat, &FQuat::y>, &ConstMember<FQuat, &FQuat::y>);
+		static const DurinCodeGen::FDoublePropertyParams Z = DurinCodeGen::FDoublePropertyParams::WithAccessors("z", EPropertyFlags::None, 1, &MutableMember<FQuat, &FQuat::z>, &ConstMember<FQuat, &FQuat::z>);
 		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&W, &X, &Y, &Z};
 		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FQuat", "FQuat", sizeof(FQuat), alignof(FQuat), Properties, std::size(Properties), &GetDStructOps<FQuat>()};
 		return DurinCodeGen::ConstructDStruct(Params);
@@ -109,15 +109,15 @@ namespace Durin
 		static DStruct* Singleton = nullptr;
 		if (Singleton) return Singleton;
 		Singleton = MakeStruct("Durin::FLinearColor", "FLinearColor", sizeof(FLinearColor), alignof(FLinearColor));
-		static const DurinCodeGen::FPropertyParamsBase R = {"R", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, R)), sizeof(float), DurinCodeGen::EPropertyGenFlags::Float};
-		static const DurinCodeGen::FPropertyParamsBase G = {"G", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, G)), sizeof(float), DurinCodeGen::EPropertyGenFlags::Float};
-		static const DurinCodeGen::FPropertyParamsBase B = {"B", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, B)), sizeof(float), DurinCodeGen::EPropertyGenFlags::Float};
-		static const DurinCodeGen::FPropertyParamsBase A = {"A", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, A)), sizeof(float), DurinCodeGen::EPropertyGenFlags::Float};
+		static const DurinCodeGen::FFloatPropertyParams R = {"R", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, R))};
+		static const DurinCodeGen::FFloatPropertyParams G = {"G", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, G))};
+		static const DurinCodeGen::FFloatPropertyParams B = {"B", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, B))};
+		static const DurinCodeGen::FFloatPropertyParams A = {"A", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FLinearColor, A))};
 		static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&R, &G, &B, &A};
 		static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FLinearColor", "FLinearColor", sizeof(FLinearColor), alignof(FLinearColor), Properties, std::size(Properties), &GetDStructOps<FLinearColor>()};
 		return DurinCodeGen::ConstructDStruct(Params);
 	}
-}
+} // namespace Durin
 
 COREDOBJECT_API auto Z_Construct_DStruct_Durin_FVector2() -> Durin::DStruct*
 {

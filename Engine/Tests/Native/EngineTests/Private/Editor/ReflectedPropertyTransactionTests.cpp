@@ -152,7 +152,13 @@ TEST(FReflectedPropertyEditSessionTests, TransactionSnapshotsKeepObjectValuesAli
 		Durin::FFieldVariant(), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
 		Durin::EPropertyFlags::Edit, 1, static_cast<Durin::uint16>(offsetof(FObjectValueContainer, Value)),
 		static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
-		Durin::DurinCodeGen::EPropertyGenFlags::Object, Durin::DObject::StaticClass(), true
+		Durin::DurinCodeGen::EPropertyGenFlags::Object, Durin::DObject::StaticClass(), true,
+		[](const void* Value) -> Durin::DObject* {
+			return static_cast<const Durin::TObjectPtr<Durin::DObject>*>(Value)->Get();
+		},
+		[](void* Value, Durin::DObject* Object) {
+			*static_cast<Durin::TObjectPtr<Durin::DObject>*>(Value) = Object;
+		}
 	);
 	SetTestValueLifecycle<Durin::TObjectPtr<Durin::DObject>>(Property);
 	Durin::DObject* Owner = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("ObjectValueOwner"));

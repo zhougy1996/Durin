@@ -4,49 +4,110 @@ Summary: Replace positional leaf-property aggregates with concise typed descript
 
 Last reviewed: 2026-08-07
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-07
 
 ## Current Status
 
-Stage 0 is ready to begin. The current generated leaf-property records are
-aliases of `FPropertyParamsBase`, so every String, Name, Guid, Enum, Object,
-Bool, and Numerical property is emitted as one positional aggregate containing
-unrelated relationship pointers, container slots, wrapper state, accessors,
-metadata, size/alignment, and lifecycle callbacks.
+The plan is complete in the squashed implementation commit that contains this
+completion record. Typed runtime
+descriptors, concise generated records, exact built-in value operations,
+logical hard-Object access, all handwritten migrations, and the lasting
+reflection contract are implemented. A purged-cache build regenerated
+CoreDObject, AssetCore, AssetImportCore, Engine, and DurinEd with zero cache
+hits and `not-found` misses, then completed the full `all` target. All selected
+DHT, CoreDObject, AssetCore, and editor tests passed, and final searches found
+no base leaf aggregates, generated lifecycle callbacks, or forbidden legacy
+leaf tokens.
 
-The representative generated `FTextureCubeSourceImportData::DecoderId` String
-record currently supplies 21 positional values. Its authored facts are only
+At the Stage 0 baseline, the representative generated
+`FTextureCubeSourceImportData::DecoderId` String record supplied 21 positional
+values. Its authored facts were only
 name, flags, array dimension, byte offset, and optional metadata; the String
 kind, C++ storage size/alignment, and value operations are all derivable. Enum
-and Numerical records use the same legacy layout. Array, Map, Struct, and
-SoftObject records already have typed descriptors and establish the migration
+and Numerical records used the same legacy layout. Array, Map, Struct, and
+SoftObject records already had typed descriptors and established the migration
 pattern.
 
-The source audit also found these contract gaps:
+The Stage 0 source audit found these contract gaps, all closed by the completed
+implementation:
 
 - `FStringPropertyParams`, `FEnumPropertyParams`, every Numerical parameter
   name, `FBoolPropertyParams`, `FNamePropertyParams`, `FGuidPropertyParams`, and
-  `FObjectPropertyParams` remain aliases of the common base rather than distinct
+  `FObjectPropertyParams` were aliases of the common base rather than distinct
   authoring types.
-- `Inner`, `Key`, `Value`, and `ReferencedStructFunc` remain in the base after
-  typed Array, Map, and Struct registration stopped using them. They are read
+- `Inner`, `Key`, `Value`, and `ReferencedStructFunc` remained in the base after
+  typed Array, Map, and Struct registration stopped using them. They were read
   only as forbidden-slot checks in SoftObject validation.
-- DurinHeaderTool emits `ValueSize`, `ValueAlignment`, and direct
+- DurinHeaderTool emitted `ValueSize`, `ValueAlignment`, and direct
   `InitializePropertyValue<T>` / `DestroyPropertyValue<T>` callbacks for every
   legacy leaf record even though `FProperty` already derives built-in size,
   alignment, default construction, and destruction from the property kind.
-- Generated leaf records do not emit copy construction or copy assignment
+- Generated leaf records did not emit copy construction or copy assignment
   callbacks. Consequently `CanCopyConstructValue()` and
-  `CanCopyAssignValue()` report false for String, Enum, Numerical, Bool, Name,
-  Guid, and hard Object properties even though those supported value types are
-  copyable.
-- `FObjectProperty` currently reaches a `TObjectPtr<T>` value through an
-  `FObjectPtr*` view. Typed Object registration needs storage-specific logical
-  accessors and exact value operations so runtime code does not depend on the
+  `CanCopyAssignValue()` reported false for String, Enum, Numerical, Bool,
+  Name, Guid, and hard Object properties even though those supported value
+  types are copyable.
+- `FObjectProperty` reached a `TObjectPtr<T>` value through an
+  `FObjectPtr*` view. Typed Object registration required storage-specific logical
+  accessors and exact value operations so runtime code would not depend on the
   wrapper's member layout.
 
-No active plan owns this work.
+This completed plan owned and closed that work.
+
+### Stage 0 Contract Freeze
+
+The generated inventory covers direct and fixed-array Bool, every fixed-width
+Numerical kind, String, Name, Guid, all eight Enum underlying kinds, raw Object,
+and `TObjectPtr<T>`. The same leaf records occur at offset zero as Array inner,
+Map key, and Map value descriptors; metadata adds only the final pointer/count
+pair. Repository-owned handwritten records are confined to intrinsic math
+fields and CoreDObject/AssetCore native fixtures. Intrinsic vector/quaternion
+components require typed paired accessors, offset-backed colors use typed Float
+records, supported fixture leaves use their typed family, and the deliberately
+malformed/untyped registration fixture uses `FGenericPropertyParams`.
+
+| Current base field | Frozen disposition |
+| --- | --- |
+| `NameUTF8`, `Flags`, `ArrayDim`, `Offset`, paired value accessors, metadata pointer/count | Retained in the common dispatch header |
+| `Kind`, `Layout` | Retained as constructor-fixed dispatch discriminants |
+| `ReferencedClassFunc`, wrapper policy | Moved to typed Object; the class resolver also moves to typed SoftObject |
+| `ReferencedEnumFunc` | Moved to typed Enum |
+| `Inner`, `Key`, `Value`, `ReferencedStructFunc` | Deleted from the base; existing typed Array/Map/Struct owners remain authoritative |
+| `ElementSize` | Derived from the plain mapping, resolved Enum, Object/SoftObject value type, container ops, or `DStruct`; explicit only in Generic |
+| `ValueSize`, `ValueAlignment`, default/destroy/copy callbacks | Derived from the plain mapping or resolved Enum; moved to typed Object/SoftObject and explicit Generic records |
+
+`TPlainPropertyParams<TValue, Kind>` admits exactly `bool`; signed and unsigned
+8/16/32/64-bit integers; `float`; `double`; `std::string`; `FName`; and `FGuid`
+paired with their matching kind. Plain constructors take name, flags, array
+dimension, offset, then optional metadata. `WithAccessors` replaces the offset
+with a required mutable/const pair. Enum adds only a non-null `DEnum` resolver.
+Object uses `Raw<TObject>` or `ObjectPtr<TObject>` with a non-null class resolver;
+the factory supplies exact value operations and logical get/set callbacks.
+Generic explicitly owns element/value size, alignment, and all four operations.
+
+Runtime validates layout before every family cast. The frozen diagnostics are
+`PropertyRegistration.KindLayoutMismatch`,
+`PropertyRegistration.AccessorPairMismatch`,
+`PropertyRegistration.MetadataMismatch`,
+`EnumPropertyRegistration.InvalidDescriptor`,
+`ObjectPropertyRegistration.InvalidDescriptor`, and
+`GenericPropertyRegistration.InvalidDescriptor`, plus the existing typed
+Array/Map/Struct/SoftObject diagnostics. Enum underlying type and size must be
+one matching supported pair. All built-in leaves default construct, destroy,
+copy construct, and copy assign: scalars and Enums use their exact fixed-width
+type, String/Name/Guid use their exact C++ type, raw Object initializes to null,
+and each `TObjectPtr<T>` path uses its declared wrapper type.
+
+Current direct leaf output has 21 positional slots through destroy callbacks;
+copy callbacks are absent. The required direct/fixed/nested/metadata sequences
+are the concise forms in Generated Source Contract: plain adds no family fact,
+Enum adds only its resolver, Object uses one typed factory plus target and class
+resolver, nested offset is zero, fixed arrays change only `ArrayDim`, and
+metadata remains the final pair. Asset schema and compatibility code reads only
+the constructed property's logical kind, element size, referenced type, and
+raw/wrapper policy; no serialized identity, hash, or archive path reads the
+parameter-record layout or generated callback addresses.
 
 ## Goal
 
@@ -265,23 +326,23 @@ Object distinction.
 
 ### Stage 0: Freeze the Leaf Descriptor and Value-Operation Contract
 
-- [ ] Inventory all generated leaf forms: every Bool/Numerical kind, String,
+- [x] Inventory all generated leaf forms: every Bool/Numerical kind, String,
   Name, Guid, each Enum underlying width/signedness, raw Object pointer,
   `TObjectPtr<T>`, fixed arrays, Array/Map nesting, and metadata.
-- [ ] Inventory repository-owned handwritten `FPropertyParamsBase` and leaf
+- [x] Inventory repository-owned handwritten `FPropertyParamsBase` and leaf
   alias aggregates, distinguishing intentional generic tests from supported
   typed registrations.
-- [ ] Confirm the common-base field set and assign every removed field to a
+- [x] Confirm the common-base field set and assign every removed field to a
   typed owner or runtime-derived authority.
-- [ ] Freeze the allowed `TPlainPropertyParams<TValue, Kind>` mappings, Enum
+- [x] Freeze the allowed `TPlainPropertyParams<TValue, Kind>` mappings, Enum
   constructor, Object Raw/ObjectPtr factories, accessor forms, metadata order,
   kind/layout values, and fail-fast diagnostic codes.
-- [ ] Freeze built-in default/destroy/copy behavior for every leaf kind,
+- [x] Freeze built-in default/destroy/copy behavior for every leaf kind,
   including enum zero/default behavior, String/Name/Guid exact operations,
   raw-null Object initialization, and exact `TObjectPtr<T>` access.
-- [ ] Record representative current and required generated token sequences for
+- [x] Record representative current and required generated token sequences for
   direct, fixed-array, nested, metadata, Enum, and both Object storage modes.
-- [ ] Confirm no current serialized identity or compatibility hash depends on
+- [x] Confirm no current serialized identity or compatibility hash depends on
   `FPropertyParamsBase` physical layout or generated callback addresses.
 
 #### Acceptance Gate
@@ -295,32 +356,40 @@ Object distinction.
 
 #### Stage 0 Handoff
 
-- Baseline commit:
-- Working set:
-- Key symbols and decisions:
-- Open questions:
-- Validation:
+- Baseline commit: `9bc4afad3bc372e57bd610132dac25837ea841ae`
+- Working set: `DObjectGlobals.h/.cpp`, `Property.h/.cpp`, `DurinPropertyTypes.h`,
+  `ObjectPtr.h`, the reflection source writer and exact-output tests,
+  `MathStructs.cpp`, and the CoreDObject/AssetCore descriptor fixtures.
+- Key symbols and decisions: `FPropertyParamsBase` becomes a non-authorable
+  dispatch header; `TPlainPropertyParams`, `FEnumPropertyParams`,
+  `FObjectPropertyParams`, and `FGenericPropertyParams` own leaf contracts;
+  typed layout validation precedes casts; Object factories own exact storage
+  operations and logical access.
+- Open questions: None.
+- Validation: Targeted source inventory found all repository-owned descriptor
+  aggregates and generated forms; AssetCore schema/compatibility and archive/GC
+  consumers depend only on constructed `FProperty` identity and policy.
 
 ### Stage 1: Implement Typed Runtime Descriptors and Built-In Operations
 
-- [ ] Make `FPropertyParamsBase` a non-authorable common dispatch header and
+- [x] Make `FPropertyParamsBase` a non-authorable common dispatch header and
   remove legacy family-specific/container/struct/value-operation slots.
-- [ ] Add the constrained plain-value descriptor specializations and preserve
+- [x] Add the constrained plain-value descriptor specializations and preserve
   the existing public Bool/Numerical/String/Name/Guid parameter names as typed
   aliases.
-- [ ] Implement `FEnumPropertyParams`, `FObjectPropertyParams`, and the explicit
+- [x] Implement `FEnumPropertyParams`, `FObjectPropertyParams`, and the explicit
   `FGenericPropertyParams` escape hatch with family-owned state.
-- [ ] Relocate any SoftObject-only size, lifecycle, resolver, or validation
+- [x] Relocate any SoftObject-only size, lifecycle, resolver, or validation
   state from the common base without changing SoftObject behavior.
-- [ ] Extend layout validation and runtime construction so each kind resolves
+- [x] Extend layout validation and runtime construction so each kind resolves
   element size, alignment, relationships, accessors, and value operations from
   its selected authority before property publication.
-- [ ] Give all supported built-in leaf properties correct
+- [x] Give all supported built-in leaf properties correct
   `CanDefaultConstructValue`, `CanDestroyValue`, `CanCopyConstructValue`, and
   `CanCopyAssignValue` answers and implementations.
-- [ ] Add typed hard-Object logical accessors and remove `TObjectPtr<T>` to
+- [x] Add typed hard-Object logical accessors and remove `TObjectPtr<T>` to
   `FObjectPtr` storage reinterpretation from `FObjectProperty`.
-- [ ] Add focused runtime tests for direct, fixed-array, and detached storage
+- [x] Add focused runtime tests for direct, fixed-array, and detached storage
   lifecycle/copy behavior plus malformed layout/resolver/accessor/metadata
   descriptors.
 
@@ -338,28 +407,35 @@ Object distinction.
 
 #### Stage 1 Handoff
 
-- Baseline commit:
-- Working set:
-- Key symbols and decisions:
-- Open questions:
-- Validation:
+- Baseline commit: plan baseline `9bc4afad`; delivered in the squashed
+  implementation commit.
+- Working set: `DObjectGlobals.h/.cpp`, `Property.cpp`,
+  `DurinPropertyTypes.h`, CoreDObject reflection and snapshot tests.
+- Key symbols and decisions: the base constructor is protected; plain aliases
+  compile-check exact type/kind mappings; Enum derives operations from its
+  resolved underlying type; Object/SoftObject/Generic own explicit value ops;
+  `FObjectProperty` stores logical read/write callbacks.
+- Open questions: None.
+- Validation: `CoreObjectTests` passed 71 tests, including a 25-property matrix
+  for every built-in leaf family, every Enum width, fixed-array stride,
+  detached default/destroy/copy, and malformed typed descriptors.
 
 ### Stage 2: Emit Concise Typed DurinHeaderTool Records
 
-- [ ] Split the generic leaf writer path into plain, Enum, and Object typed
+- [x] Split the generic leaf writer path into plain, Enum, and Object typed
   record emission while leaving Array/Map/Struct/SoftObject emission on their
   existing typed paths.
-- [ ] Stop emitting explicit kind/layout, element/value size, alignment,
+- [x] Stop emitting explicit kind/layout, element/value size, alignment,
   unrelated resolver/container/struct slots, wrapper booleans, member
   `decltype`, and direct lifecycle callbacks for leaf properties.
-- [ ] Emit Object `Raw<T>` and `ObjectPtr<T>` factories with the resolved target
+- [x] Emit Object `Raw<T>` and `ObjectPtr<T>` factories with the resolved target
   type and generated class resolver, including nested and forward-declared
   targets.
-- [ ] Preserve final optional metadata arguments, fixed-array dimensions,
+- [x] Preserve final optional metadata arguments, fixed-array dimensions,
   nested offset zero, and deterministic formatting.
-- [ ] Expand exact-output tests across all leaf families and forms. Each test
+- [x] Expand exact-output tests across all leaf families and forms. Each test
   checks both the required concise sequence and forbidden legacy tokens.
-- [ ] Verify generated declarations still upcast typed records into owner
+- [x] Verify generated declarations still upcast typed records into owner
   property arrays without changing registration order or referenced-helper
   collection.
 
@@ -377,26 +453,31 @@ Object distinction.
 
 #### Stage 2 Handoff
 
-- Baseline commit:
-- Working set:
-- Key symbols and decisions:
-- Open questions:
-- Validation:
+- Baseline commit: plan baseline `9bc4afad`; delivered in the squashed
+  implementation commit.
+- Working set: reflection source writer and reflection-generation tests.
+- Key symbols and decisions: plain output is the four common facts, Enum adds
+  one resolver, Object selects `Raw<T>`/`ObjectPtr<T>`, nested offsets remain
+  zero, and metadata remains the final optional pair.
+- Open questions: None.
+- Validation: all 187 DurinHeaderTool tests passed; exact-output fixtures cover
+  direct, fixed, nested, metadata, Enum, raw Object, and ObjectPtr forms and
+  reject every forbidden legacy token.
 
 ### Stage 3: Migrate Handwritten Registrations and Qualify Consumers
 
-- [ ] Convert intrinsic math fields to typed Numerical descriptors, using the
+- [x] Convert intrinsic math fields to typed Numerical descriptors, using the
   paired accessor factory where GLM-backed members cannot use byte offsets.
-- [ ] Convert CoreDObject, AssetCore, Engine, and editor native-test descriptors
+- [x] Convert CoreDObject, AssetCore, Engine, and editor native-test descriptors
   to typed leaf records; use `FGenericPropertyParams` only for tests that
   intentionally exercise generic behavior.
-- [ ] Remove repository-owned direct aggregate initialization of
+- [x] Remove repository-owned direct aggregate initialization of
   `FPropertyParamsBase` and obsolete helper fields/functions left with no owner.
-- [ ] Re-run Archive, AssetCore schema/compatibility, GC, snapshot, reflected
+- [x] Re-run Archive, AssetCore schema/compatibility, GC, snapshot, reflected
   property editing, Array, and Map coverage for each migrated leaf family.
-- [ ] Confirm raw Object properties retain their deliberate serialization/GC
+- [x] Confirm raw Object properties retain their deliberate serialization/GC
   exclusions and `TObjectPtr<T>` properties retain strong-reference behavior.
-- [ ] Update the lasting reflection contract with the typed leaf families,
+- [x] Update the lasting reflection contract with the typed leaf families,
   generated-source ownership, built-in copy semantics, and Object logical
   access contract.
 
@@ -415,24 +496,31 @@ Object distinction.
 
 #### Stage 3 Handoff
 
-- Baseline commit:
-- Working set:
-- Key symbols and decisions:
-- Open questions:
-- Validation:
+- Baseline commit: plan baseline `9bc4afad`; delivered in the squashed
+  implementation commit.
+- Working set: intrinsic math registration, CoreDObject/AssetCore/editor native
+  fixtures, and `Documentation/Runtime/Core/ReflectionSystem.md`.
+- Key symbols and decisions: GLM-backed components use typed paired accessors;
+  offset-backed colors and all supported fixtures use typed records; direct
+  Object test nodes supply logical callbacks; Generic is used only by its
+  malformed-contract test.
+- Open questions: None.
+- Validation: `CoreObjectTests` 71/71, `AssetPackageTests` 73/73,
+  `AssetImportCoreTests` 23/23, and `EditorPropertyTests` 27/27 passed. Targeted
+  source search found no repository-owned base aggregate describing a leaf.
 
 ### Stage 4: Complete Cross-Module Validation
 
-- [ ] Regenerate representative engine reflection output from a cold DHT cache
+- [x] Regenerate representative engine reflection output from a cold DHT cache
   and compare String, Numerical, Enum, raw Object, ObjectPtr, fixed-array, and
   nested records with the Stage 0 baseline.
-- [ ] Run the focused DurinHeaderTool, CoreDObject, AssetCore, Engine, and editor
+- [x] Run the focused DurinHeaderTool, CoreDObject, AssetCore, Engine, and editor
   native tests selected in the validation matrix.
-- [ ] Complete one successful full `all` build from the configured Agent Build
+- [x] Complete one successful full `all` build from the configured Agent Build
   Profile using the repository build entrypoint.
-- [ ] Search generated and repository-owned source for forbidden legacy leaf
+- [x] Search generated and repository-owned source for forbidden legacy leaf
   aggregate patterns and unexplained direct lifecycle callback emission.
-- [ ] Record final validation evidence and move lasting rules out of this plan
+- [x] Record final validation evidence and move lasting rules out of this plan
   before marking it complete.
 
 #### Acceptance Gate
@@ -446,11 +534,22 @@ Object distinction.
 
 #### Stage 4 Handoff
 
-- Baseline commit:
-- Working set:
-- Key symbols and decisions:
-- Open questions:
-- Validation:
+- Baseline commit: plan baseline `9bc4afad`; delivered in the squashed
+  implementation commit.
+- Working set: validation artifacts under the configured Agent Build Profile
+  and this completion record.
+- Key symbols and decisions: no contract changes after Stage 3; lasting rules
+  are owned by `Documentation/Runtime/Core/ReflectionSystem.md`.
+- Open questions: None.
+- Validation: purged-cache DHT generation reported `hits=0` and
+  `reasons=not-found` for CoreDObject (2 headers), AssetCore (3),
+  AssetImportCore (1), Engine (30), and DurinEd (2); full `all` build passed;
+  DurinHeaderTool 187/187, CoreObject 71/71, AssetPackage 73/73,
+  AssetImportCore 23/23, and EditorProperty 27/27 tests passed. Generated
+  `DecoderId`, `Intensity`, `Policy`, and `DestinationObject` records match the
+  concise Stage 0 forms. Searches found no repository-owned base leaf
+  aggregate, no generated lifecycle callback, and no forbidden legacy leaf
+  token.
 
 ## Validation Matrix
 

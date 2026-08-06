@@ -24,7 +24,11 @@ namespace StructConsumerTest
 		static inline int DestroyCount = 0;
 
 		FLifetimeTracked() { ++DefaultConstructCount; }
-		FLifetimeTracked(const FLifetimeTracked& Other) : Value(Other.Value) { ++CopyConstructCount; }
+		FLifetimeTracked(const FLifetimeTracked& Other)
+			: Value(Other.Value)
+		{
+			++CopyConstructCount;
+		}
 		auto operator=(const FLifetimeTracked& Other) -> FLifetimeTracked&
 		{
 			Value = Other.Value;
@@ -47,7 +51,10 @@ namespace StructConsumerTest
 	struct FNoDefault
 	{
 		FNoDefault() = delete;
-		explicit FNoDefault(Durin::int32 InValue) : Value(InValue) {}
+		explicit FNoDefault(Durin::int32 InValue)
+			: Value(InValue)
+		{
+		}
 		Durin::int32 Value = 0;
 	};
 
@@ -85,7 +92,7 @@ namespace StructConsumerTest
 		Durin::int32 Value = 0;
 		Durin::int32 Derived = 0;
 	};
-}
+} // namespace StructConsumerTest
 
 namespace Durin
 {
@@ -96,7 +103,8 @@ namespace Durin
 		static constexpr bool bWithIdentical = true;
 		static auto Identical(
 			const StructConsumerTest::FCustomEquality& Left,
-			const StructConsumerTest::FCustomEquality& Right) -> bool
+			const StructConsumerTest::FCustomEquality& Right
+		) -> bool
 		{
 			return Left.Semantic == Right.Semantic;
 		}
@@ -110,7 +118,8 @@ namespace Durin
 		static constexpr bool bWithReferenceCollector = true;
 		static auto CollectReferences(
 			StructConsumerTest::FHiddenReference& Value,
-			FReferenceCollector& Collector) -> void
+			FReferenceCollector& Collector
+		) -> void
 		{
 			++CollectCount;
 			DObject* Object = Value.Hidden.Get();
@@ -131,7 +140,8 @@ namespace Durin
 
 		static auto Serialize(
 			FArchive& Archive,
-			StructConsumerTest::FCustomArchiveValue& Value) -> void
+			StructConsumerTest::FCustomArchiveValue& Value
+		) -> void
 		{
 			++SerializeCount;
 			Archive << Value.Value;
@@ -139,7 +149,8 @@ namespace Durin
 
 		static auto PostDeserialize(
 			StructConsumerTest::FCustomArchiveValue& Value,
-			FDStructPostDeserializeContext& Context) -> bool
+			FDStructPostDeserializeContext& Context
+		) -> bool
 		{
 			++PostDeserializeCount;
 			LastSource = Context.Source;
@@ -148,7 +159,7 @@ namespace Durin
 			return true;
 		}
 	};
-}
+} // namespace Durin
 
 namespace
 {
@@ -186,7 +197,8 @@ namespace
 	auto ResizeVector(void* Container, Durin::uint64 Num) -> bool
 	{
 		auto* Value = static_cast<std::vector<T>*>(Container);
-		while (Value->size() > Num) Value->pop_back();
+		while (Value->size() > Num)
+			Value->pop_back();
 		if constexpr (std::is_default_constructible_v<T>)
 		{
 			Value->resize(static_cast<size_t>(Num));
@@ -361,21 +373,25 @@ namespace
 		Durin::FStructProperty VectorProperty(
 			Durin::FFieldVariant(), Durin::FName("Vector"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1,
-			static_cast<Durin::uint16>(offsetof(FMathSnapshotOwner, Vector)), VectorStruct);
+			static_cast<Durin::uint16>(offsetof(FMathSnapshotOwner, Vector)), VectorStruct
+		);
 		Durin::FStructProperty TransformProperty(
 			Durin::FFieldVariant(), Durin::FName("Transform"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1,
-			static_cast<Durin::uint16>(offsetof(FMathSnapshotOwner, Transform)), TransformStruct);
+			static_cast<Durin::uint16>(offsetof(FMathSnapshotOwner, Transform)), TransformStruct
+		);
 		Durin::FArrayProperty VectorsProperty(
 			Durin::FFieldVariant(), Durin::FName("Vectors"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1,
 			static_cast<Durin::uint16>(offsetof(FMathSnapshotOwner, Vectors)),
 			static_cast<Durin::uint16>(sizeof(std::vector<Durin::FVector3>)),
 			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr,
-			GSnapshotVectorHelper<Durin::FVector3>());
+			GSnapshotVectorHelper<Durin::FVector3>()
+		);
 		Durin::FStructProperty VectorsInner(
 			Durin::FFieldVariant(&VectorsProperty), Durin::FName("Vectors_Inner"),
-			Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1, 0, VectorStruct);
+			Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1, 0, VectorStruct
+		);
 		VectorsProperty.SetInner(&VectorsInner);
 
 		const double PayloadNaN = std::bit_cast<double>(Durin::uint64{0x7ff8000000000042ull});
@@ -427,7 +443,13 @@ namespace
 		Durin::FObjectProperty InnerProperty(
 			Durin::FFieldVariant(&ReferencesProperty), Durin::FName("References_Inner"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Object, Durin::DObject::StaticClass(), true
+			Durin::DurinCodeGen::EPropertyGenFlags::Object, Durin::DObject::StaticClass(), true,
+			[](const void* Value) -> Durin::DObject* {
+				return static_cast<const Durin::TObjectPtr<Durin::DObject>*>(Value)->Get();
+			},
+			[](void* Value, Durin::DObject* Object) {
+				*static_cast<Durin::TObjectPtr<Durin::DObject>*>(Value) = Object;
+			}
 		);
 		ReferencesProperty.SetInner(&InnerProperty);
 
@@ -468,11 +490,13 @@ namespace
 
 		Durin::DStruct Struct(
 			Durin::EC_StaticConstructor, Durin::FName("Tests::FLifetimeTracked"), Durin::FName("FLifetimeTracked"),
-			sizeof(FLifetimeTracked), alignof(FLifetimeTracked), Durin::EObjectFlags::Transient);
+			sizeof(FLifetimeTracked), alignof(FLifetimeTracked), Durin::EObjectFlags::Transient
+		);
 		Struct.InitializeOps(&Durin::GetDStructOps<FLifetimeTracked>());
 		Durin::FStructProperty Property(
 			Durin::FFieldVariant(), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, &Struct);
+			Durin::EPropertyFlags::None, 1, 0, &Struct
+		);
 
 		std::string Error;
 		Durin::FReflectedValueStorage DefaultStorage;
@@ -503,15 +527,18 @@ namespace
 		using StructConsumerTest::FNoDefault;
 		Durin::DStruct Struct(
 			Durin::EC_StaticConstructor, Durin::FName("Tests::FNoDefault"), Durin::FName("FNoDefault"),
-			sizeof(FNoDefault), alignof(FNoDefault), Durin::EObjectFlags::Transient);
+			sizeof(FNoDefault), alignof(FNoDefault), Durin::EObjectFlags::Transient
+		);
 		Struct.InitializeOps(&Durin::GetDStructOps<FNoDefault>());
 		Durin::FStructProperty Inner(
 			Durin::FFieldVariant(), Durin::FName("Values_Inner"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, &Struct);
+			Durin::EPropertyFlags::None, 1, 0, &Struct
+		);
 		Durin::FArrayProperty Array(
 			Durin::FFieldVariant(), Durin::FName("Values"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(std::vector<FNoDefault>),
-			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, GSnapshotVectorHelper<FNoDefault>());
+			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, GSnapshotVectorHelper<FNoDefault>()
+		);
 		Array.SetInner(&Inner);
 		std::vector<FNoDefault> Values;
 		Values.emplace_back(7);
@@ -532,19 +559,23 @@ namespace
 		Durin::DStruct MoveOnlyStruct(
 			Durin::EC_StaticConstructor, Durin::FName("Tests::FMoveOnly"), Durin::FName("FMoveOnly"),
 			sizeof(StructConsumerTest::FMoveOnly), alignof(StructConsumerTest::FMoveOnly),
-			Durin::EObjectFlags::Transient);
+			Durin::EObjectFlags::Transient
+		);
 		MoveOnlyStruct.InitializeOps(&Durin::GetDStructOps<StructConsumerTest::FMoveOnly>());
 		Durin::FMapProperty Map(
 			Durin::FFieldVariant(), Durin::FName("Map"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(FEqualityMap),
-			Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, GEqualityMapHelper());
+			Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, GEqualityMapHelper()
+		);
 		Durin::FNumericProperty Key(
 			Durin::FFieldVariant(&Map), Durin::FName("Map_Key"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
-			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
+		);
 		Durin::FStructProperty MoveOnlyValue(
 			Durin::FFieldVariant(&Map), Durin::FName("Map_Value"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, &MoveOnlyStruct);
+			Durin::EPropertyFlags::None, 1, 0, &MoveOnlyStruct
+		);
 		Map.SetKeyProp(&Key);
 		Map.SetValueProp(&MoveOnlyValue);
 		FEqualityMap MapValue;
@@ -560,12 +591,14 @@ namespace
 		Durin::FNumericProperty ArrayInner(
 			Durin::FFieldVariant(), Durin::FName("Values_Inner"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
-			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
+		);
 		Durin::FArrayProperty ArrayProperty(
 			Durin::FFieldVariant(), Durin::FName("Values"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(std::vector<Durin::int32>),
 			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr,
-			GSnapshotVectorHelper<Durin::int32>());
+			GSnapshotVectorHelper<Durin::int32>()
+		);
 		ArrayProperty.SetInner(&ArrayInner);
 
 		std::vector<Durin::int32> SourceArray{11, 22};
@@ -589,7 +622,8 @@ namespace
 		std::vector<Durin::int32> OversizedDestination{31, 32};
 		Durin::FMemoryReader OversizedReader(OversizedBytes);
 		Durin::SerializeReflectedPropertyValue(
-			OversizedReader, &ArrayProperty, &OversizedDestination);
+			OversizedReader, &ArrayProperty, &OversizedDestination
+		);
 		EXPECT_TRUE(OversizedReader.HasError());
 		EXPECT_EQ(OversizedDestination, (std::vector<Durin::int32>{31, 32}));
 
@@ -602,12 +636,14 @@ namespace
 		Durin::FArrayProperty CommitFailureProperty(
 			Durin::FFieldVariant(), Durin::FName("CommitFailureValues"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(std::vector<Durin::int32>),
-			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, &CommitFailureOps);
+			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, &CommitFailureOps
+		);
 		CommitFailureProperty.SetInner(&ArrayInner);
 		std::vector<Durin::int32> CommitFailureDestination{41, 42};
 		Durin::FMemoryReader CommitFailureReader(ValidArrayBytes);
 		Durin::SerializeReflectedPropertyValue(
-			CommitFailureReader, &CommitFailureProperty, &CommitFailureDestination);
+			CommitFailureReader, &CommitFailureProperty, &CommitFailureDestination
+		);
 		EXPECT_TRUE(CommitFailureReader.HasError());
 		EXPECT_NE(CommitFailureReader.GetError().find("Commit"), std::string_view::npos);
 		EXPECT_EQ(CommitFailureDestination, (std::vector<Durin::int32>{41, 42}));
@@ -617,27 +653,32 @@ namespace
 		Durin::FArrayProperty ConstructionFailureProperty(
 			Durin::FFieldVariant(), Durin::FName("ConstructionFailureValues"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(std::vector<Durin::int32>),
-			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, &ConstructionFailureOps);
+			Durin::DurinCodeGen::EPropertyGenFlags::Array, nullptr, &ConstructionFailureOps
+		);
 		ConstructionFailureProperty.SetInner(&ArrayInner);
 		std::vector<Durin::int32> ConstructionFailureDestination{51, 52};
 		Durin::FMemoryReader ConstructionFailureReader(ValidArrayBytes);
 		Durin::SerializeReflectedPropertyValue(
-			ConstructionFailureReader, &ConstructionFailureProperty, &ConstructionFailureDestination);
+			ConstructionFailureReader, &ConstructionFailureProperty, &ConstructionFailureDestination
+		);
 		EXPECT_TRUE(ConstructionFailureReader.HasError());
 		EXPECT_EQ(ConstructionFailureDestination, (std::vector<Durin::int32>{51, 52}));
 
 		Durin::FMapProperty MapProperty(
 			Durin::FFieldVariant(), Durin::FName("Map"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(FEqualityMap),
-			Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, GEqualityMapHelper());
+			Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, GEqualityMapHelper()
+		);
 		Durin::FNumericProperty MapKey(
 			Durin::FFieldVariant(&MapProperty), Durin::FName("Map_Key"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
-			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
+		);
 		Durin::FStringProperty MapValue(
 			Durin::FFieldVariant(&MapProperty), Durin::FName("Map_Value"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(std::string),
-			Durin::DurinCodeGen::EPropertyGenFlags::String, nullptr);
+			Durin::DurinCodeGen::EPropertyGenFlags::String, nullptr
+		);
 		MapProperty.SetKeyProp(&MapKey);
 		MapProperty.SetValueProp(&MapValue);
 
@@ -667,15 +708,18 @@ namespace
 		Durin::FMapProperty MapProperty(
 			Durin::FFieldVariant(), Durin::FName("Map"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(FEqualityMap),
-			Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, GEqualityMapHelper());
+			Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, GEqualityMapHelper()
+		);
 		Durin::FNumericProperty KeyProperty(
 			Durin::FFieldVariant(&MapProperty), Durin::FName("Map_Key"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
-			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
+		);
 		Durin::FStringProperty ValueProperty(
 			Durin::FFieldVariant(&MapProperty), Durin::FName("Map_Value"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(std::string),
-			Durin::DurinCodeGen::EPropertyGenFlags::String, nullptr);
+			Durin::DurinCodeGen::EPropertyGenFlags::String, nullptr
+		);
 		MapProperty.SetKeyProp(&KeyProperty);
 		MapProperty.SetValueProp(&ValueProperty);
 
@@ -686,37 +730,22 @@ namespace
 				Value.emplace(static_cast<Durin::int32>(Index), std::to_string(Index));
 
 			Durin::uint64 Visits = 0;
-			EXPECT_EQ(MapProperty.VisitEntries(
-				&Value,
-				[](void* Context, const void*, const void*) -> bool
-				{
+			EXPECT_EQ(MapProperty.VisitEntries(&Value, [](void* Context, const void*, const void*) -> bool {
 					++*static_cast<Durin::uint64*>(Context);
-					return true;
-				},
-				&Visits), Durin::EContainerOpResult::Success);
+					return true; }, &Visits), Durin::EContainerOpResult::Success);
 			EXPECT_EQ(Visits, Count);
 
 			Durin::uint64 MutableVisits = 0;
-			EXPECT_EQ(MapProperty.VisitMutableEntries(
-				&Value,
-				[](void* Context, const void*, void* Mapped) -> bool
-				{
+			EXPECT_EQ(MapProperty.VisitMutableEntries(&Value, [](void* Context, const void*, void* Mapped) -> bool {
 					++*static_cast<Durin::uint64*>(Context);
 					static_cast<std::string*>(Mapped)->append("!");
-					return true;
-				},
-				&MutableVisits), Durin::EContainerOpResult::Success);
+					return true; }, &MutableVisits), Durin::EContainerOpResult::Success);
 			EXPECT_EQ(MutableVisits, Count);
 
 			Durin::uint64 EarlyStopVisits = 0;
-			EXPECT_EQ(MapProperty.VisitEntries(
-				&Value,
-				[](void* Context, const void*, const void*) -> bool
-				{
+			EXPECT_EQ(MapProperty.VisitEntries(&Value, [](void* Context, const void*, const void*) -> bool {
 					++*static_cast<Durin::uint64*>(Context);
-					return false;
-				},
-				&EarlyStopVisits), Durin::EContainerOpResult::Success);
+					return false; }, &EarlyStopVisits), Durin::EContainerOpResult::Success);
 			EXPECT_EQ(EarlyStopVisits, Count == 0 ? 0u : 1u);
 		}
 	}
@@ -786,11 +815,13 @@ namespace
 		Durin::FNumericProperty DoubleProperty(
 			Durin::FFieldVariant(), Durin::FName("Double"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(double),
-			Durin::DurinCodeGen::EPropertyGenFlags::Double, nullptr);
+			Durin::DurinCodeGen::EPropertyGenFlags::Double, nullptr
+		);
 		double PositiveZero = 0.0;
 		double NegativeZero = -0.0;
 		EXPECT_FALSE(Durin::ArePropertyValuesIdentical(
-			&DoubleProperty, &PositiveZero, 0, &NegativeZero, 0));
+			&DoubleProperty, &PositiveZero, 0, &NegativeZero, 0
+		));
 		const double NaN = std::bit_cast<double>(Durin::uint64{0x7ff8000000000042ull});
 		const double SameNaN = std::bit_cast<double>(Durin::uint64{0x7ff8000000000042ull});
 		const double OtherNaN = std::bit_cast<double>(Durin::uint64{0x7ff8000000000043ull});
@@ -800,7 +831,8 @@ namespace
 		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
 		Durin::FStructProperty VectorProperty(
 			Durin::FFieldVariant(), Durin::FName("Vector"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, VectorStruct);
+			Durin::EPropertyFlags::None, 1, 0, VectorStruct
+		);
 		Durin::FVector3 LeftVector(0.0);
 		Durin::FVector3 RightVector(0.0);
 		RightVector.x = -0.0;
@@ -814,11 +846,13 @@ namespace
 		Durin::DStruct CustomStruct(
 			Durin::EC_StaticConstructor, Durin::FName("Tests::FCustomEquality"), Durin::FName("FCustomEquality"),
 			sizeof(StructConsumerTest::FCustomEquality), alignof(StructConsumerTest::FCustomEquality),
-			Durin::EObjectFlags::Transient);
+			Durin::EObjectFlags::Transient
+		);
 		CustomStruct.InitializeOps(&Durin::GetDStructOps<StructConsumerTest::FCustomEquality>());
 		Durin::FStructProperty CustomProperty(
 			Durin::FFieldVariant(), Durin::FName("Custom"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, &CustomStruct);
+			Durin::EPropertyFlags::None, 1, 0, &CustomStruct
+		);
 		StructConsumerTest::FCustomEquality LeftCustom{1, 7};
 		StructConsumerTest::FCustomEquality RightCustom{99, 7};
 		EXPECT_TRUE(Durin::ArePropertyValuesIdentical(&CustomProperty, &LeftCustom, 0, &RightCustom, 0));
@@ -828,21 +862,25 @@ namespace
 		Durin::FMapProperty MapProperty(
 			Durin::FFieldVariant(), Durin::FName("Map"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(FEqualityMap),
-			Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, GEqualityMapHelper());
+			Durin::DurinCodeGen::EPropertyGenFlags::Map, nullptr, GEqualityMapHelper()
+		);
 		Durin::FNumericProperty KeyProperty(
 			Durin::FFieldVariant(&MapProperty), Durin::FName("Map_Key"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(Durin::int32),
-			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
+		);
 		Durin::FStringProperty ValueProperty(
 			Durin::FFieldVariant(&MapProperty), Durin::FName("Map_Value"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, sizeof(std::string),
-			Durin::DurinCodeGen::EPropertyGenFlags::String, nullptr);
+			Durin::DurinCodeGen::EPropertyGenFlags::String, nullptr
+		);
 		MapProperty.SetKeyProp(&KeyProperty);
 		MapProperty.SetValueProp(&ValueProperty);
 		MapProperty.SetValueLifecycle(
 			sizeof(FEqualityMap), alignof(FEqualityMap),
 			&Durin::DurinCodeGen::InitializePropertyValue<FEqualityMap>,
-			&Durin::DurinCodeGen::DestroyPropertyValue<FEqualityMap>);
+			&Durin::DurinCodeGen::DestroyPropertyValue<FEqualityMap>
+		);
 		FEqualityMap LeftMap;
 		LeftMap.emplace(1, "one");
 		LeftMap.emplace(2, "two");
@@ -868,11 +906,13 @@ namespace
 		using FHiddenReference = StructConsumerTest::FHiddenReference;
 		Durin::DStruct Struct(
 			Durin::EC_StaticConstructor, Durin::FName("Tests::FHiddenReference"), Durin::FName("FHiddenReference"),
-			sizeof(FHiddenReference), alignof(FHiddenReference), Durin::EObjectFlags::Transient);
+			sizeof(FHiddenReference), alignof(FHiddenReference), Durin::EObjectFlags::Transient
+		);
 		Struct.InitializeOps(&Durin::GetDStructOps<FHiddenReference>());
 		Durin::FStructProperty Property(
 			Durin::FFieldVariant(), Durin::FName("Hidden"), Durin::EObjectFlags::NoFlags,
-			Durin::EPropertyFlags::None, 1, 0, &Struct);
+			Durin::EPropertyFlags::None, 1, 0, &Struct
+		);
 		Durin::DObject* Referenced = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("HiddenSnapshotReference"));
 		FHiddenReference Value{Referenced};
 		Durin::TDStructOpsTraits<FHiddenReference>::CollectCount = 0;
@@ -900,18 +940,21 @@ namespace
 			Durin::EC_StaticConstructor,
 			Durin::FName("Tests::FCustomArchiveValue"),
 			Durin::FName("FCustomArchiveValue"),
-			sizeof(FValue), alignof(FValue), Durin::EObjectFlags::Transient);
+			sizeof(FValue), alignof(FValue), Durin::EObjectFlags::Transient
+		);
 		Struct.InitializeOps(&Durin::GetDStructOps<FValue>());
 		Durin::FNumericProperty ReflectedValue(
 			Durin::FFieldVariant(&Struct), Durin::FName("Value"),
 			Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1,
 			static_cast<Durin::uint16>(offsetof(FValue, Value)), sizeof(Durin::int32),
-			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+			Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr
+		);
 		Struct.ChildProperties = &ReflectedValue;
 		Durin::FStructProperty Property(
 			Durin::FFieldVariant(), Durin::FName("Custom"),
 			Durin::EObjectFlags::NoFlags, Durin::EPropertyFlags::None, 1, 0,
-			&Struct);
+			&Struct
+		);
 
 		FTraits::SerializeCount = 0;
 		FTraits::PostDeserializeCount = 0;
@@ -953,8 +996,9 @@ namespace
 		EXPECT_TRUE(RejectionReader.HasError());
 		EXPECT_NE(
 			RejectionReader.GetError().find("PostDeserializeRejected"),
-			std::string_view::npos);
+			std::string_view::npos
+		);
 		EXPECT_EQ(Destination.Value, 7);
 		EXPECT_EQ(Destination.Derived, 14);
 	}
-}
+} // namespace

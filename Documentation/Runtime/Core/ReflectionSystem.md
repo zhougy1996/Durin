@@ -358,6 +358,41 @@ metadata that points at the corresponding `DEnum`.
 
 `ConstructDClass(...)` forces class registration, then creates `FProperty` nodes from generated property parameters and attaches top-level fields to `DStructBase::ChildProperties`. Container inner/key/value properties are constructed recursively and owned by their containing `FArrayProperty` or `FMapProperty`; they are not inserted into the class property chain.
 
+### Leaf Property Registration
+
+Built-in leaf records use typed authoring descriptors while owner property
+arrays remain `const FPropertyParamsBase* const*`. The common base is a
+non-authorable dispatch header containing only name, flags, array dimension,
+offset, fixed kind/layout discriminants, an optional paired mutable/const value
+accessor, and optional metadata. Runtime registration validates the layout and
+common pairs before reading a family descriptor.
+
+Bool, fixed-width signed/unsigned/floating-point Numerical, String, Name, and
+Guid records are constrained `TPlainPropertyParams<TValue, Kind>` aliases. A
+direct or nested generated record contains only name, flags, array dimension,
+offset, and optional final metadata pointer/count; kind, layout, size,
+alignment, and lifecycle callbacks are fixed by the alias. External intrinsic
+registration uses the same constructor or `WithAccessors(...)` for a paired
+accessor-backed field with offset zero.
+
+Enum records add one `DEnum` resolver. The resolved descriptor is the authority
+for the supported underlying kind and size. Object records use
+`FObjectPropertyParams::Raw<T>(...)` or `ObjectPtr<T>(...)` and add one class
+resolver. Those factories install exact `T*` or `TObjectPtr<T>` size,
+alignment, value operations, and logical get/set callbacks. Consequently
+`FObjectProperty` never interprets `TObjectPtr<T>` storage as `FObjectPtr`;
+Archive, AssetCore, and GC still use `IsObjectPtrWrapper()` to preserve the
+intentional raw-versus-strong-reference policy distinction.
+
+Every built-in leaf property supports default construction, destruction, copy
+construction, and copy assignment. Scalars and Enums use their exact fixed
+type, String/Name/Guid use their C++ value type, raw Object defaults to null,
+and ObjectPtr operations use the declared wrapper specialization. Fixed arrays
+apply those operations per element through the property stride. Intentional
+custom `None` registrations use `FGenericPropertyParams` and must explicitly
+supply element/value size, alignment, and all four operations; those facts are
+not part of the common base.
+
 ### Struct Property Registration
 
 Struct-property registration describes schema and field access, while the
@@ -561,12 +596,13 @@ is a distinct property kind: serialization and editor access use its canonical
 path identity, while GC deliberately excludes it from the strong-reference
 schema. `TWeakObjectPtr<T>` remains unsupported by DHT property generation.
 
-Generated element-size expressions for non-struct values such as strings,
-names, and GUIDs use C++ `sizeof(SourceType)` rather than libclang's parser-side
-layout. Reflected struct properties do not emit an element-size expression;
-their resolved `DStruct` owns size and alignment. This keeps ABI ownership with
-the compiler-built descriptor and prevents synthetic parser declarations or
-host STL contents from changing runtime property sizes.
+Generated leaf records do not emit element-size expressions. Plain aliases own
+their exact C++ value type, Enum records resolve their underlying type, and
+Object/SoftObject factories instantiate their declared storage type. Reflected
+struct properties likewise emit no element-size expression because their
+resolved `DStruct` owns size and alignment. This keeps ABI ownership with the
+compiler-built descriptor and prevents synthetic parser declarations or host
+STL contents from changing runtime property sizes.
 
 `DStructBase::ChildProperties` stores only properties declared directly on that reflected type. Superclass properties are reached through the superclass chain. Use `FindPropertyByName(...)` or the property iteration helpers when inherited properties should be visible.
 

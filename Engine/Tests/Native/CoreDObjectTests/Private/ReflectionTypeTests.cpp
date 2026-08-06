@@ -42,7 +42,10 @@ namespace StructOpsTest
 	struct FDeletedDefault
 	{
 		FDeletedDefault() = delete;
-		explicit FDeletedDefault(Durin::int32 InValue) : Value(InValue) {}
+		explicit FDeletedDefault(Durin::int32 InValue)
+			: Value(InValue)
+		{
+		}
 		Durin::int32 Value = 0;
 	};
 
@@ -59,7 +62,7 @@ namespace StructOpsTest
 	struct FMalformedIdentical
 	{
 	};
-}
+} // namespace StructOpsTest
 
 namespace Durin
 {
@@ -81,7 +84,8 @@ namespace Durin
 
 		static auto Identical(
 			const StructOpsTest::FCustomOps& Left,
-			const StructOpsTest::FCustomOps& Right) -> bool
+			const StructOpsTest::FCustomOps& Right
+		) -> bool
 		{
 			return Left.Value == Right.Value;
 		}
@@ -89,10 +93,12 @@ namespace Durin
 		static auto Serialize(FArchive&, StructOpsTest::FCustomOps&) -> void {}
 		static auto PostDeserialize(
 			StructOpsTest::FCustomOps&,
-			FDStructPostDeserializeContext&) -> bool { return true; }
+			FDStructPostDeserializeContext&
+		) -> bool { return true; }
 		static auto CollectReferences(
 			StructOpsTest::FCustomOps&,
-			FReferenceCollector&) -> void {}
+			FReferenceCollector&
+		) -> void {}
 	};
 
 	template<>
@@ -102,13 +108,35 @@ namespace Durin
 		static constexpr bool bWithIdentical = true;
 		static auto Identical(
 			const StructOpsTest::FMalformedIdentical&,
-			const StructOpsTest::FMalformedIdentical&) -> void {}
+			const StructOpsTest::FMalformedIdentical&
+		) -> void {}
 	};
-}
+} // namespace Durin
 
 static_assert(!Durin::Private::CValidDStructIdenticalTrait<
-	StructOpsTest::FMalformedIdentical,
-	Durin::TDStructOpsTraits<StructOpsTest::FMalformedIdentical>>);
+			  StructOpsTest::FMalformedIdentical,
+			  Durin::TDStructOpsTraits<StructOpsTest::FMalformedIdentical>>);
+static_assert(!std::is_aggregate_v<Durin::DurinCodeGen::FPropertyParamsBase>);
+static_assert(!std::is_constructible_v<
+			  Durin::DurinCodeGen::FPropertyParamsBase,
+			  const char*,
+			  Durin::EPropertyFlags,
+			  Durin::uint16,
+			  Durin::uint16,
+			  Durin::DurinCodeGen::EPropertyGenFlags,
+			  Durin::DurinCodeGen::EPropertyParamLayout>);
+static_assert(Durin::DurinCodeGen::TIsPlainPropertyMapping<
+			  Durin::int32,
+			  Durin::DurinCodeGen::EPropertyGenFlags::Int32>);
+static_assert(!Durin::DurinCodeGen::TIsPlainPropertyMapping<
+			  Durin::int32,
+			  Durin::DurinCodeGen::EPropertyGenFlags::Float>);
+static_assert(!std::is_same_v<
+			  Durin::DurinCodeGen::FInt32PropertyParams,
+			  Durin::DurinCodeGen::FPropertyParamsBase>);
+static_assert(!std::is_same_v<
+			  Durin::DurinCodeGen::FInt32PropertyParams,
+			  Durin::DurinCodeGen::FFloatPropertyParams>);
 
 namespace
 {
@@ -143,6 +171,70 @@ namespace
 		Low = 0,
 		High = std::numeric_limits<Durin::uint64>::max()
 	};
+
+	struct FBuiltInLeafOwnerForTest
+	{
+		bool BoolValue = false;
+		Durin::int8 Int8Value = 0;
+		Durin::int16 Int16Value = 0;
+		Durin::int32 Int32Value = 0;
+		Durin::int64 Int64Value = 0;
+		Durin::uint8 UInt8Value = 0;
+		Durin::uint16 UInt16Value = 0;
+		Durin::uint32 UInt32Value = 0;
+		Durin::uint64 UInt64Value = 0;
+		float FloatValue = 0.0f;
+		double DoubleValue = 0.0;
+		std::string StringValue;
+		Durin::FName NameValue;
+		Durin::FGuid GuidValue;
+		Durin::int32 FixedValues[2] = {};
+		Durin::int8 EnumInt8 = 0;
+		Durin::int16 EnumInt16 = 0;
+		Durin::int32 EnumInt32 = 0;
+		Durin::int64 EnumInt64 = 0;
+		Durin::uint8 EnumUInt8 = 0;
+		Durin::uint16 EnumUInt16 = 0;
+		Durin::uint32 EnumUInt32 = 0;
+		Durin::uint64 EnumUInt64 = 0;
+		Durin::DObject* RawObject = nullptr;
+		Durin::TObjectPtr<Durin::DObject> ObjectPtr;
+	};
+
+	template<Durin::DurinCodeGen::EEnumUnderlyingType UnderlyingType, typename TValue>
+	auto GetBuiltInLeafEnumForTest() -> Durin::DEnum*
+	{
+		static Durin::DEnum* Enum = new Durin::DEnum(
+			Durin::EC_StaticConstructor,
+			Durin::FName(std::format("BuiltInLeafEnum{}", static_cast<Durin::uint8>(UnderlyingType))),
+			Durin::FName(std::format("BuiltInLeafEnum{}", static_cast<Durin::uint8>(UnderlyingType))),
+			Durin::FName(std::format("BuiltInLeafEnum{}", static_cast<Durin::uint8>(UnderlyingType))),
+			"",
+			true,
+			UnderlyingType,
+			static_cast<Durin::uint16>(sizeof(TValue)),
+			std::vector<Durin::FEnumValue>{},
+			Durin::EObjectFlags::Transient
+		);
+		return Enum;
+	}
+
+	auto GetInvalidBuiltInLeafEnumForTest() -> Durin::DEnum*
+	{
+		static Durin::DEnum* Enum = new Durin::DEnum(
+			Durin::EC_StaticConstructor,
+			Durin::FName("InvalidBuiltInLeafEnum"),
+			Durin::FName("InvalidBuiltInLeafEnum"),
+			Durin::FName("InvalidBuiltInLeafEnum"),
+			"",
+			true,
+			Durin::DurinCodeGen::EEnumUnderlyingType::UInt64,
+			static_cast<Durin::uint16>(sizeof(Durin::uint8)),
+			std::vector<Durin::FEnumValue>{},
+			Durin::EObjectFlags::Transient
+		);
+		return Enum;
+	}
 
 	template<typename T>
 	auto VectorPropertyNum(const void* Container) -> Durin::uint64
@@ -432,81 +524,44 @@ namespace
 					"Value",
 					Durin::EPropertyFlags::None,
 					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Value)),
-					static_cast<Durin::uint16>(sizeof(Durin::int32)),
-					Durin::DurinCodeGen::EPropertyGenFlags::Int32,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr
+					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Value))
 				};
 				static const Durin::DurinCodeGen::FBoolPropertyParams BoolPropertyParams = {
 					"bEnabled",
 					Durin::EPropertyFlags::None,
 					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, bEnabled)),
-					static_cast<Durin::uint16>(sizeof(bool)),
-					Durin::DurinCodeGen::EPropertyGenFlags::Bool,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr
+					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, bEnabled))
 				};
 				static const Durin::DurinCodeGen::FStringPropertyParams NamePropertyParams = {
 					"Label",
 					Durin::EPropertyFlags::None,
 					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Label)),
-					static_cast<Durin::uint16>(sizeof(std::string)),
-					Durin::DurinCodeGen::EPropertyGenFlags::String,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr
+					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Label))
 				};
-				static const Durin::DurinCodeGen::FObjectPropertyParams ReferencePropertyParams = {
-					"Reference",
-					Durin::EPropertyFlags::None,
-					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Reference)),
-					static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
-					Durin::DurinCodeGen::EPropertyGenFlags::Object,
-					&Durin::DObject::StaticClass,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr
-				};
-				static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPtrReferencePropertyParams = {
-					"ObjectPtrReference",
-					Durin::EPropertyFlags::None,
-					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, ObjectPtrReference)),
-					static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
-					Durin::DurinCodeGen::EPropertyGenFlags::Object,
-					&Durin::DObject::StaticClass,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr,
-					true
-				};
-				static const Durin::DurinCodeGen::FObjectPropertyParams RawReferencesInnerPropertyParams = {
-					"RawReferences_Inner",
-					Durin::EPropertyFlags::None,
-					1,
-					0,
-					static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
-					Durin::DurinCodeGen::EPropertyGenFlags::Object,
-					&Durin::DObject::StaticClass,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr
-				};
+				static const Durin::DurinCodeGen::FObjectPropertyParams ReferencePropertyParams =
+					Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>(
+						"Reference",
+						Durin::EPropertyFlags::None,
+						1,
+						static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, Reference)),
+						&Durin::DObject::StaticClass
+					);
+				static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPtrReferencePropertyParams =
+					Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
+						"ObjectPtrReference",
+						Durin::EPropertyFlags::None,
+						1,
+						static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, ObjectPtrReference)),
+						&Durin::DObject::StaticClass
+					);
+				static const Durin::DurinCodeGen::FObjectPropertyParams RawReferencesInnerPropertyParams =
+					Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>(
+						"RawReferences_Inner",
+						Durin::EPropertyFlags::None,
+						1,
+						0,
+						&Durin::DObject::StaticClass
+					);
 				static const Durin::DurinCodeGen::FArrayPropertyParams RawReferencesPropertyParams = {
 					"RawReferences",
 					Durin::EPropertyFlags::None,
@@ -515,20 +570,14 @@ namespace
 					&RawReferencesInnerPropertyParams,
 					&GVectorPropertyHelper<Durin::DObject*>
 				};
-				static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPtrReferencesInnerPropertyParams = {
-					"ObjectPtrReferences_Inner",
-					Durin::EPropertyFlags::None,
-					1,
-					0,
-					static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
-					Durin::DurinCodeGen::EPropertyGenFlags::Object,
-					&Durin::DObject::StaticClass,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr,
-					true
-				};
+				static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPtrReferencesInnerPropertyParams =
+					Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
+						"ObjectPtrReferences_Inner",
+						Durin::EPropertyFlags::None,
+						1,
+						0,
+						&Durin::DObject::StaticClass
+					);
 				static const Durin::DurinCodeGen::FArrayPropertyParams ObjectPtrReferencesPropertyParams = {
 					"ObjectPtrReferences",
 					Durin::EPropertyFlags::None,
@@ -541,14 +590,7 @@ namespace
 					"Scores_Inner",
 					Durin::EPropertyFlags::None,
 					1,
-					0,
-					static_cast<Durin::uint16>(sizeof(Durin::int32)),
-					Durin::DurinCodeGen::EPropertyGenFlags::Int32,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr
+					0
 				};
 				static const Durin::DurinCodeGen::FArrayPropertyParams ScoresPropertyParams = {
 					"Scores",
@@ -562,14 +604,7 @@ namespace
 					"Tags_Inner",
 					Durin::EPropertyFlags::None,
 					1,
-					0,
-					static_cast<Durin::uint16>(sizeof(std::string)),
-					Durin::DurinCodeGen::EPropertyGenFlags::String,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr
+					0
 				};
 				static const Durin::DurinCodeGen::FArrayPropertyParams TagsPropertyParams = {
 					"Tags",
@@ -584,13 +619,7 @@ namespace
 					Durin::EPropertyFlags::None,
 					1,
 					0,
-					static_cast<Durin::uint16>(sizeof(EReflectedEnumForTest)),
-					Durin::DurinCodeGen::EPropertyGenFlags::Enum,
-					nullptr,
-					&Z_Construct_DEnum_EReflectedEnumForTest_NoRegister,
-					nullptr,
-					nullptr,
-					nullptr
+					&Z_Construct_DEnum_EReflectedEnumForTest_NoRegister
 				};
 				static const Durin::DurinCodeGen::FArrayPropertyParams ModesPropertyParams = {
 					"Modes",
@@ -604,14 +633,7 @@ namespace
 					"ScoreGroups_Inner_Inner",
 					Durin::EPropertyFlags::None,
 					1,
-					0,
-					static_cast<Durin::uint16>(sizeof(Durin::int32)),
-					Durin::DurinCodeGen::EPropertyGenFlags::Int32,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr
+					0
 				};
 				static const Durin::DurinCodeGen::FArrayPropertyParams ScoreGroupsInnerPropertyParams = {
 					"ScoreGroups_Inner",
@@ -633,14 +655,7 @@ namespace
 					"TransientValue",
 					Durin::EPropertyFlags::Transient,
 					1,
-					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, TransientValue)),
-					static_cast<Durin::uint16>(sizeof(Durin::int32)),
-					Durin::DurinCodeGen::EPropertyGenFlags::Int32,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr,
-					nullptr
+					static_cast<Durin::uint16>(offsetof(DLifecycleReferenceOwnerForTest, TransientValue))
 				};
 				static const Durin::DurinCodeGen::FPropertyParamsBase* const PropertyParams[] = {
 					&ValuePropertyParams,
@@ -705,26 +720,21 @@ namespace
 	auto GetGCReferenceLeafStructForTest() -> Durin::DStruct*
 	{
 		static Durin::DStruct* Struct = [] {
-			static const Durin::DurinCodeGen::FObjectPropertyParams Reference = {
-				"Reference", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(FGCReferenceLeafForTest, Reference)),
-				static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
-				Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
-				nullptr, nullptr, nullptr, nullptr, true
-			};
-			static const Durin::DurinCodeGen::FObjectPropertyParams StaticReferences = {
-				"StaticReferences", Durin::EPropertyFlags::None, 2,
-				static_cast<Durin::uint16>(offsetof(FGCReferenceLeafForTest, StaticReferences)),
-				static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
-				Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
-				nullptr, nullptr, nullptr, nullptr, true
-			};
+			static const Durin::DurinCodeGen::FObjectPropertyParams Reference =
+				Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
+					"Reference", Durin::EPropertyFlags::None, 1,
+					static_cast<Durin::uint16>(offsetof(FGCReferenceLeafForTest, Reference)),
+					&Durin::DObject::StaticClass
+				);
+			static const Durin::DurinCodeGen::FObjectPropertyParams StaticReferences =
+				Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
+					"StaticReferences", Durin::EPropertyFlags::None, 2,
+					static_cast<Durin::uint16>(offsetof(FGCReferenceLeafForTest, StaticReferences)),
+					&Durin::DObject::StaticClass
+				);
 			static const Durin::DurinCodeGen::FInt32PropertyParams NonReferenceValue = {
 				"NonReferenceValue", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(FGCReferenceLeafForTest, NonReferenceValue)),
-				static_cast<Durin::uint16>(sizeof(Durin::int32)),
-				Durin::DurinCodeGen::EPropertyGenFlags::Int32,
-				nullptr, nullptr, nullptr, nullptr, nullptr
+				static_cast<Durin::uint16>(offsetof(FGCReferenceLeafForTest, NonReferenceValue))
 			};
 			static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {
 				&Reference, &StaticReferences, &NonReferenceValue
@@ -814,20 +824,18 @@ namespace
 		static auto StaticClass() -> Durin::DClass*
 		{
 			static Durin::DClass* Class = [] {
-				static const Durin::DurinCodeGen::FObjectPropertyParams BaseReference = {
-					"BaseReference", Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaBaseForTest, BaseReference)),
-					static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
-					Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
-					nullptr, nullptr, nullptr, nullptr, true
-				};
-				static const Durin::DurinCodeGen::FObjectPropertyParams RawReference = {
-					"RawReference", Durin::EPropertyFlags::None, 1,
-					static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaBaseForTest, RawReference)),
-					static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
-					Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
-					nullptr, nullptr, nullptr, nullptr, false
-				};
+				static const Durin::DurinCodeGen::FObjectPropertyParams BaseReference =
+					Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
+						"BaseReference", Durin::EPropertyFlags::None, 1,
+						static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaBaseForTest, BaseReference)),
+						&Durin::DObject::StaticClass
+					);
+				static const Durin::DurinCodeGen::FObjectPropertyParams RawReference =
+					Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>(
+						"RawReference", Durin::EPropertyFlags::None, 1,
+						static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaBaseForTest, RawReference)),
+						&Durin::DObject::StaticClass
+					);
 				static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {&BaseReference, &RawReference};
 				static const Durin::DurinCodeGen::FClassParams Params = {
 					&DGCReferenceSchemaBaseForTest::StaticClassNoRegister,
@@ -899,12 +907,11 @@ namespace
 				&StructArrayInner, &GVectorPropertyHelper<FGCReferenceLeafForTest>
 			};
 
-			static const Durin::DurinCodeGen::FObjectPropertyParams NestedArraysInnerInner = {
-				"NestedArrays_Inner_Inner", Durin::EPropertyFlags::None, 1, 0,
-				static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
-				Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
-				nullptr, nullptr, nullptr, nullptr, true
-			};
+			static const Durin::DurinCodeGen::FObjectPropertyParams NestedArraysInnerInner =
+				Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
+					"NestedArrays_Inner_Inner", Durin::EPropertyFlags::None, 1, 0,
+					&Durin::DObject::StaticClass
+				);
 			static const Durin::DurinCodeGen::FArrayPropertyParams NestedArraysInner = {
 				"NestedArrays_Inner", Durin::EPropertyFlags::None, 1, 0,
 				&NestedArraysInnerInner,
@@ -918,16 +925,13 @@ namespace
 			};
 
 			static const Durin::DurinCodeGen::FStringPropertyParams DirectMapKey = {
-				"DirectMap_Key", Durin::EPropertyFlags::None, 1, 0, static_cast<Durin::uint16>(sizeof(std::string)),
-				Durin::DurinCodeGen::EPropertyGenFlags::String,
-				nullptr, nullptr, nullptr, nullptr, nullptr
+				"DirectMap_Key", Durin::EPropertyFlags::None, 1, 0
 			};
-			static const Durin::DurinCodeGen::FObjectPropertyParams DirectMapValue = {
-				"DirectMap_Value", Durin::EPropertyFlags::None, 1, 0,
-				static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
-				Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
-				nullptr, nullptr, nullptr, nullptr, true
-			};
+			static const Durin::DurinCodeGen::FObjectPropertyParams DirectMapValue =
+				Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
+					"DirectMap_Value", Durin::EPropertyFlags::None, 1, 0,
+					&Durin::DObject::StaticClass
+				);
 			static const Durin::DurinCodeGen::FMapPropertyParams DirectMap = {
 				"DirectMap", Durin::EPropertyFlags::None, 1,
 				static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, DirectMap)),
@@ -936,16 +940,13 @@ namespace
 			};
 
 			static const Durin::DurinCodeGen::FStringPropertyParams ArrayMapKey = {
-				"ArrayMap_Key", Durin::EPropertyFlags::None, 1, 0, static_cast<Durin::uint16>(sizeof(std::string)),
-				Durin::DurinCodeGen::EPropertyGenFlags::String,
-				nullptr, nullptr, nullptr, nullptr, nullptr
+				"ArrayMap_Key", Durin::EPropertyFlags::None, 1, 0
 			};
-			static const Durin::DurinCodeGen::FObjectPropertyParams ArrayMapValueInner = {
-				"ArrayMap_Value_Inner", Durin::EPropertyFlags::None, 1, 0,
-				static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
-				Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
-				nullptr, nullptr, nullptr, nullptr, true
-			};
+			static const Durin::DurinCodeGen::FObjectPropertyParams ArrayMapValueInner =
+				Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
+					"ArrayMap_Value_Inner", Durin::EPropertyFlags::None, 1, 0,
+					&Durin::DObject::StaticClass
+				);
 			static const Durin::DurinCodeGen::FArrayPropertyParams ArrayMapValue = {
 				"ArrayMap_Value", Durin::EPropertyFlags::None, 1, 0,
 				&ArrayMapValueInner,
@@ -958,18 +959,18 @@ namespace
 				&GMapPropertyHelper<std::string, std::vector<Durin::TObjectPtr<Durin::DObject>>>
 			};
 
-			static const Durin::DurinCodeGen::FObjectPropertyParams DuplicateReference = {
-				"DuplicateReference", Durin::EPropertyFlags::None, 1,
-				static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, DuplicateReference)),
-				static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
-				Durin::DurinCodeGen::EPropertyGenFlags::Object, &Durin::DObject::StaticClass,
-				nullptr, nullptr, nullptr, nullptr, true
-			};
+			static const Durin::DurinCodeGen::FObjectPropertyParams DuplicateReference =
+				Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
+					"DuplicateReference", Durin::EPropertyFlags::None, 1,
+					static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, DuplicateReference)),
+					&Durin::DObject::StaticClass
+				);
 			static const auto SoftReference =
 				Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<Durin::TSoftObjectPtr<Durin::DObject>>(
 					"SoftReference", Durin::EPropertyFlags::None, 1,
 					static_cast<Durin::uint16>(offsetof(DGCReferenceSchemaDerivedForTest, SoftReference)),
-					&Durin::DObject::StaticClass);
+					&Durin::DObject::StaticClass
+				);
 
 			static const Durin::DurinCodeGen::FPropertyParamsBase* const Properties[] = {
 				&Nested, &StructArray, &NestedArrays, &DirectMap, &ArrayMap, &DuplicateReference,
@@ -1021,9 +1022,9 @@ namespace
 		if (!Enum)
 		{
 			std::vector<Durin::FEnumValue> Values = {
-				{ Durin::FName("A"), 0, "Alpha" },
-				{ Durin::FName("B"), 4 },
-				{ Durin::FName("AliasB"), 4, "Second B" },
+				{Durin::FName("A"), 0, "Alpha"},
+				{Durin::FName("B"), 4},
+				{Durin::FName("AliasB"), 4, "Second B"},
 			};
 			Enum = new Durin::DEnum(
 				Durin::EC_StaticConstructor,
@@ -1042,10 +1043,77 @@ namespace
 		return Enum;
 	}
 
+	Durin::DStruct* GBuiltInLeafOwnerStructForTest = nullptr;
+
+	auto GetBuiltInLeafOwnerStructNoRegister() -> Durin::DStruct*
+	{
+		if (!GBuiltInLeafOwnerStructForTest)
+		{
+			GBuiltInLeafOwnerStructForTest = new Durin::DStruct(
+				Durin::EC_StaticConstructor,
+				Durin::FName("FBuiltInLeafOwnerForTest"),
+				Durin::FName("FBuiltInLeafOwnerForTest"),
+				sizeof(FBuiltInLeafOwnerForTest),
+				alignof(FBuiltInLeafOwnerForTest),
+				Durin::EObjectFlags::Transient
+			);
+			GBuiltInLeafOwnerStructForTest->Register(
+				Durin::DStruct::StaticClass, "", "FBuiltInLeafOwnerForTest"
+			);
+		}
+		return GBuiltInLeafOwnerStructForTest;
+	}
+
+	auto GetBuiltInLeafOwnerStructForTest() -> Durin::DStruct*
+	{
+		using namespace Durin::DurinCodeGen;
+		static const FBoolPropertyParams BoolValue = {"BoolValue", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, BoolValue))};
+		static const FInt8PropertyParams Int8Value = {"Int8Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, Int8Value))};
+		static const FInt16PropertyParams Int16Value = {"Int16Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, Int16Value))};
+		static const FInt32PropertyParams Int32Value = {"Int32Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, Int32Value))};
+		static const FInt64PropertyParams Int64Value = {"Int64Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, Int64Value))};
+		static const FUInt8PropertyParams UInt8Value = {"UInt8Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, UInt8Value))};
+		static const FUInt16PropertyParams UInt16Value = {"UInt16Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, UInt16Value))};
+		static const FUInt32PropertyParams UInt32Value = {"UInt32Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, UInt32Value))};
+		static const FUInt64PropertyParams UInt64Value = {"UInt64Value", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, UInt64Value))};
+		static const FFloatPropertyParams FloatValue = {"FloatValue", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, FloatValue))};
+		static const FDoublePropertyParams DoubleValue = {"DoubleValue", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, DoubleValue))};
+		static const FStringPropertyParams StringValue = {"StringValue", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, StringValue))};
+		static const FNamePropertyParams NameValue = {"NameValue", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, NameValue))};
+		static const FGuidPropertyParams GuidValue = {"GuidValue", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, GuidValue))};
+		static const FInt32PropertyParams FixedValues = {"FixedValues", Durin::EPropertyFlags::None, 2, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, FixedValues))};
+		static const FEnumPropertyParams EnumInt8 = {"EnumInt8", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumInt8)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::Int8, Durin::int8>};
+		static const FEnumPropertyParams EnumInt16 = {"EnumInt16", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumInt16)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::Int16, Durin::int16>};
+		static const FEnumPropertyParams EnumInt32 = {"EnumInt32", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumInt32)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::Int32, Durin::int32>};
+		static const FEnumPropertyParams EnumInt64 = {"EnumInt64", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumInt64)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::Int64, Durin::int64>};
+		static const FEnumPropertyParams EnumUInt8 = {"EnumUInt8", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumUInt8)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::UInt8, Durin::uint8>};
+		static const FEnumPropertyParams EnumUInt16 = {"EnumUInt16", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumUInt16)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::UInt16, Durin::uint16>};
+		static const FEnumPropertyParams EnumUInt32 = {"EnumUInt32", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumUInt32)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::UInt32, Durin::uint32>};
+		static const FEnumPropertyParams EnumUInt64 = {"EnumUInt64", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, EnumUInt64)), &GetBuiltInLeafEnumForTest<EEnumUnderlyingType::UInt64, Durin::uint64>};
+		static const FObjectPropertyParams RawObject = FObjectPropertyParams::Raw<Durin::DObject>("RawObject", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, RawObject)), &Durin::DObject::StaticClass);
+		static const FObjectPropertyParams ObjectPtr = FObjectPropertyParams::ObjectPtr<Durin::DObject>("ObjectPtr", Durin::EPropertyFlags::None, 1, static_cast<Durin::uint16>(offsetof(FBuiltInLeafOwnerForTest, ObjectPtr)), &Durin::DObject::StaticClass);
+		static const FPropertyParamsBase* Properties[] = {
+			&BoolValue, &Int8Value, &Int16Value, &Int32Value, &Int64Value,
+			&UInt8Value, &UInt16Value, &UInt32Value, &UInt64Value,
+			&FloatValue, &DoubleValue, &StringValue, &NameValue, &GuidValue,
+			&FixedValues, &EnumInt8, &EnumInt16, &EnumInt32, &EnumInt64,
+			&EnumUInt8, &EnumUInt16, &EnumUInt32, &EnumUInt64, &RawObject, &ObjectPtr
+		};
+		static const FStructParams Params = {
+			&GetBuiltInLeafOwnerStructNoRegister,
+			"Tests::FBuiltInLeafOwnerForTest",
+			"FBuiltInLeafOwnerForTest",
+			sizeof(FBuiltInLeafOwnerForTest),
+			alignof(FBuiltInLeafOwnerForTest),
+			Properties,
+			std::size(Properties)
+		};
+		return ConstructDStruct(Params);
+	}
+
 	void EnsureDObjectInitialized()
 	{
-		static const bool bInitialized = []()
-		{
+		static const bool bInitialized = []() {
 			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
 			Durin::GIsGameThreadIdInitialized = true;
 			Durin::FNameInit();
@@ -1173,29 +1241,32 @@ namespace
 		static const auto Direct = Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<FSoftPtr>(
 			"Direct", Durin::EPropertyFlags::Edit, 1,
 			static_cast<Durin::uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Direct)),
-			&Durin::DObject::StaticClass, DirectMetaData, std::size(DirectMetaData));
+			&Durin::DObject::StaticClass, DirectMetaData, std::size(DirectMetaData)
+		);
 		static const auto Fixed = Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<FSoftPtr>(
 			"Fixed", Durin::EPropertyFlags::Edit, 2,
 			static_cast<Durin::uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Fixed)),
-			&Durin::DObject::StaticClass);
+			&Durin::DObject::StaticClass
+		);
 		static const auto Accessed = Durin::DurinCodeGen::FSoftObjectPropertyParams::WithAccessors<FSoftPtr>(
 			"Accessed", Durin::EPropertyFlags::ReadOnly, 1, &Durin::DObject::StaticClass,
 			static_cast<Durin::DurinCodeGen::FSoftObjectPropertyParams::FMutableValueAccessor>(&GetAccessedSoftObject),
-			static_cast<Durin::DurinCodeGen::FSoftObjectPropertyParams::FConstValueAccessor>(&GetAccessedSoftObject));
+			static_cast<Durin::DurinCodeGen::FSoftObjectPropertyParams::FConstValueAccessor>(&GetAccessedSoftObject)
+		);
 		static const auto ArrayInner = Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<FSoftPtr>(
-			"Array_Inner", Durin::EPropertyFlags::None, 1, 0, &Durin::DObject::StaticClass);
+			"Array_Inner", Durin::EPropertyFlags::None, 1, 0, &Durin::DObject::StaticClass
+		);
 		static const Durin::DurinCodeGen::FArrayPropertyParams Array = {
 			"Array", Durin::EPropertyFlags::Edit, 1,
 			static_cast<Durin::uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Array)),
 			&ArrayInner, &GVectorPropertyHelper<FSoftPtr>
 		};
 		static const Durin::DurinCodeGen::FStringPropertyParams MapKey = {
-			"Map_Key", Durin::EPropertyFlags::None, 1, 0,
-			static_cast<Durin::uint16>(sizeof(std::string)),
-			Durin::DurinCodeGen::EPropertyGenFlags::String
+			"Map_Key", Durin::EPropertyFlags::None, 1, 0
 		};
 		static const auto MapValue = Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<FSoftPtr>(
-			"Map_Value", Durin::EPropertyFlags::None, 1, 0, &Durin::DObject::StaticClass);
+			"Map_Value", Durin::EPropertyFlags::None, 1, 0, &Durin::DObject::StaticClass
+		);
 		static const Durin::DurinCodeGen::FMapPropertyParams Map = {
 			"Map", Durin::EPropertyFlags::Edit, 1,
 			static_cast<Durin::uint16>(offsetof(FSoftObjectPropertyOwnerForTest, Map)),
@@ -1392,7 +1463,8 @@ namespace
 			Durin::GIsGameThreadIdInitialized = true;
 			Durin::PathUtilities::RegisterMountPointForTests(
 				"/CoreTests/",
-				(Durin::Testing::GetTestWorkDirectory() / "CoreTests").generic_string() + "/");
+				(Durin::Testing::GetTestWorkDirectory() / "CoreTests").generic_string() + "/"
+			);
 			return true;
 		}();
 		(void)bMounted;
@@ -1473,15 +1545,16 @@ namespace
 			Durin::EObjectFlags::NoFlags,
 			Durin::EClassFlags::Abstract,
 			Durin::EClassCastFlags::DClass,
-			(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<DLifecycleTestObject>);
+			(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<DLifecycleTestObject>
+		);
 		AbstractClass.SetSuperStructBase(Durin::DObject::StaticClass());
 
 		EXPECT_TRUE(AbstractClass.IsChildOf(Durin::DObject::StaticClass()));
 		EXPECT_TRUE(AbstractClass.HasAnyClassFlags(Durin::EClassFlags::Abstract));
 		EXPECT_FALSE(Durin::CanConstructObjectOfClass(
-			&AbstractClass, Durin::DObject::StaticClass()));
-		EXPECT_EQ(Durin::NewObject(
-			&AbstractClass, nullptr, Durin::FName("RejectedAbstractObject")), nullptr);
+			&AbstractClass, Durin::DObject::StaticClass()
+		));
+		EXPECT_EQ(Durin::NewObject(&AbstractClass, nullptr, Durin::FName("RejectedAbstractObject")), nullptr);
 	}
 
 	TEST(FCoreDObjectReflectionTests, OuterIndexTracksRegistrationRenameReparentGarbageAndRemoval)
@@ -1676,7 +1749,8 @@ namespace
 		DLifecycleTestObject::ResetLifecycleCounts();
 		FShutdownDestroyScheduler Scheduler;
 		auto* Object = Durin::NewObject<DLifecycleTestObject>(
-			nullptr, Durin::FName("ShutdownDeferredFinishTestObject"));
+			nullptr, Durin::FName("ShutdownDeferredFinishTestObject")
+		);
 		Object->ShutdownDestroyScheduler = &Scheduler;
 		Durin::MarkAsGarbage(Object);
 
@@ -1693,11 +1767,7 @@ namespace
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 1u);
-		EXPECT_EQ(Scheduler.Checkpoints, (std::vector{
-			EShutdownDestroyCheckpoint::BeforeRelease,
-			EShutdownDestroyCheckpoint::FencePending,
-			EShutdownDestroyCheckpoint::FinishDestroy,
-			EShutdownDestroyCheckpoint::Destructor}));
+		EXPECT_EQ(Scheduler.Checkpoints, (std::vector{EShutdownDestroyCheckpoint::BeforeRelease, EShutdownDestroyCheckpoint::FencePending, EShutdownDestroyCheckpoint::FinishDestroy, EShutdownDestroyCheckpoint::Destructor}));
 	}
 
 	TEST(FCoreDObjectReflectionTests, GarbageCollectionKeepsRootAndCollectsUnreachableObjects)
@@ -2187,10 +2257,10 @@ namespace
 		Owner->ObjectPtrReference = ReferencedObject;
 		Owner->RawReferences.push_back(RawVectorReferencedObject);
 		Owner->ObjectPtrReferences.push_back(ObjectPtrVectorReferencedObject);
-		Owner->Scores = { 7, 11, 42 };
-		Owner->Tags = { "Alpha", "Beta" };
-		Owner->Modes = { EReflectedEnumForTest::A, EReflectedEnumForTest::B };
-		Owner->ScoreGroups = { { 1, 2 }, { 3, 5, 8 } };
+		Owner->Scores = {7, 11, 42};
+		Owner->Tags = {"Alpha", "Beta"};
+		Owner->Modes = {EReflectedEnumForTest::A, EReflectedEnumForTest::B};
+		Owner->ScoreGroups = {{1, 2}, {3, 5, 8}};
 		Owner->TransientValue = 99;
 		ASSERT_EQ(Owner->GetClass(), DLifecycleReferenceOwnerForTest::StaticClass());
 		ASSERT_EQ(Owner->GetClass()->GetName(), "DLifecycleReferenceOwnerForTest");
@@ -2507,7 +2577,8 @@ namespace
 			Durin::FName("FTransientSoftObjectForTest"),
 			1,
 			1,
-			Durin::EObjectFlags::Transient);
+			Durin::EObjectFlags::Transient
+		);
 		EXPECT_FALSE(Reference.TrySetObject(TransientType, nullptr, &Error));
 		delete TransientType;
 
@@ -2570,7 +2641,8 @@ namespace
 		ASSERT_NE(ArrayInner->GetSoftObjectPtr(Array->GetElementPtr(&Owner, 0)), nullptr);
 		EXPECT_EQ(
 			ArrayInner->GetSoftObjectPtr(Array->GetElementPtr(&Owner, 0))->GetSoftObjectPath(),
-			SoftPath);
+			SoftPath
+		);
 
 		Owner.Map.emplace("Target", Durin::TSoftObjectPtr<Durin::DObject>(SoftPath));
 		auto* MapValue = static_cast<Durin::FSoftObjectProperty*>(Map->GetValueProp());
@@ -2641,7 +2713,8 @@ namespace
 				});
 				Worker.join();
 			}()),
-			"");
+			""
+		);
 	}
 #endif
 
@@ -2688,9 +2761,9 @@ namespace
 	TEST(FCoreDObjectReflectionTests, ConstructDEnumCreatesRuntimeEnumMetadata)
 	{
 		static const Durin::DurinCodeGen::FEnumValueParams Values[] = {
-			{ "A", 0, "Alpha" },
-			{ "B", 4, nullptr },
-			{ "AliasB", 4, "Second B" },
+			{"A", 0, "Alpha"},
+			{"B", 4, nullptr},
+			{"AliasB", 4, "Second B"},
 		};
 		static const Durin::DurinCodeGen::FEnumParams EnumParams = {
 			&Z_Construct_DEnum_EReflectedEnumForTest_NoRegister,
@@ -2737,13 +2810,7 @@ namespace
 			Durin::EPropertyFlags::None,
 			1,
 			static_cast<Durin::uint16>(offsetof(FReflectedEnumPropertyOwnerForTest, Mode)),
-			static_cast<Durin::uint16>(sizeof(EReflectedEnumForTest)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Enum,
-			nullptr,
-			&Z_Construct_DEnum_EReflectedEnumForTest_NoRegister,
-			nullptr,
-			nullptr,
-			nullptr
+			&Z_Construct_DEnum_EReflectedEnumForTest_NoRegister
 		};
 		static const Durin::DurinCodeGen::FPropertyParamsBase* const PropertyParams[] = {
 			&ModePropertyParams
@@ -2781,8 +2848,8 @@ namespace
 			Durin::DurinCodeGen::EEnumUnderlyingType::Int8,
 			static_cast<Durin::uint16>(sizeof(ESignedEnumValueForTest)),
 			std::vector<Durin::FEnumValue>{
-				{ Durin::FName("Negative"), std::numeric_limits<Durin::uint64>::max() },
-				{ Durin::FName("Positive"), 1 }
+				{Durin::FName("Negative"), std::numeric_limits<Durin::uint64>::max()},
+				{Durin::FName("Positive"), 1}
 			},
 			Durin::EObjectFlags::NoFlags
 		);
@@ -2796,8 +2863,8 @@ namespace
 			Durin::DurinCodeGen::EEnumUnderlyingType::UInt64,
 			static_cast<Durin::uint16>(sizeof(EUnsignedEnumValueForTest)),
 			std::vector<Durin::FEnumValue>{
-				{ Durin::FName("Low"), 0 },
-				{ Durin::FName("High"), std::numeric_limits<Durin::uint64>::max() }
+				{Durin::FName("Low"), 0},
+				{Durin::FName("High"), std::numeric_limits<Durin::uint64>::max()}
 			},
 			Durin::EObjectFlags::NoFlags
 		);
@@ -2836,81 +2903,44 @@ namespace
 			"Value",
 			Durin::EPropertyFlags::None,
 			1,
-			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, Value)),
-			static_cast<Durin::uint16>(sizeof(Durin::int32)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Int32,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr
+			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, Value))
 		};
-		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPropertyParams = {
-			"ObjectValue",
-			Durin::EPropertyFlags::Edit,
-			1,
-			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectValue)),
-			static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Object,
-			&Durin::DObject::StaticClass,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr
-		};
-		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPtrPropertyParams = {
-			"ObjectPtrValue",
-			Durin::EPropertyFlags::None,
-			1,
-			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectPtrValue)),
-			static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Object,
-			&Durin::DObject::StaticClass,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr,
-			true
-		};
+		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPropertyParams =
+			Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>(
+				"ObjectValue",
+				Durin::EPropertyFlags::Edit,
+				1,
+				static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectValue)),
+				&Durin::DObject::StaticClass
+			);
+		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPtrPropertyParams =
+			Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
+				"ObjectPtrValue",
+				Durin::EPropertyFlags::None,
+				1,
+				static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, ObjectPtrValue)),
+				&Durin::DObject::StaticClass
+			);
 		static const Durin::DurinCodeGen::FStringPropertyParams StringPropertyParams = {
 			"StringValue",
 			Durin::EPropertyFlags::None,
 			1,
-			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, StringValue)),
-			static_cast<Durin::uint16>(sizeof(std::string)),
-			Durin::DurinCodeGen::EPropertyGenFlags::String,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr
+			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, StringValue))
 		};
 		static const Durin::DurinCodeGen::FNamePropertyParams NamePropertyParams = {
 			"NameValue",
 			Durin::EPropertyFlags::None,
 			1,
-			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, NameValue)),
-			static_cast<Durin::uint16>(sizeof(Durin::FName)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Name,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr
+			static_cast<Durin::uint16>(offsetof(FReflectedPropertyOwnerForTest, NameValue))
 		};
-		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectArrayInnerPropertyParams = {
-			"ObjectArray_Inner",
-			Durin::EPropertyFlags::None,
-			1,
-			0,
-			static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Object,
-			&Durin::DObject::StaticClass,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr
-		};
+		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectArrayInnerPropertyParams =
+			Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>(
+				"ObjectArray_Inner",
+				Durin::EPropertyFlags::None,
+				1,
+				0,
+				&Durin::DObject::StaticClass
+			);
 		static const Durin::DurinCodeGen::FArrayPropertyParams ObjectArrayPropertyParams = {
 			"ObjectArray",
 			Durin::EPropertyFlags::None,
@@ -2919,20 +2949,14 @@ namespace
 			&ObjectArrayInnerPropertyParams,
 			&GVectorPropertyHelper<Durin::DObject*>
 		};
-		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPtrArrayInnerPropertyParams = {
-			"ObjectPtrArray_Inner",
-			Durin::EPropertyFlags::None,
-			1,
-			0,
-			static_cast<Durin::uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Object,
-			&Durin::DObject::StaticClass,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr,
-			true
-		};
+		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectPtrArrayInnerPropertyParams =
+			Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>(
+				"ObjectPtrArray_Inner",
+				Durin::EPropertyFlags::None,
+				1,
+				0,
+				&Durin::DObject::StaticClass
+			);
 		static const Durin::DurinCodeGen::FArrayPropertyParams ObjectPtrArrayPropertyParams = {
 			"ObjectPtrArray",
 			Durin::EPropertyFlags::None,
@@ -2945,27 +2969,13 @@ namespace
 			"StringToInt_Key",
 			Durin::EPropertyFlags::None,
 			1,
-			0,
-			static_cast<Durin::uint16>(sizeof(std::string)),
-			Durin::DurinCodeGen::EPropertyGenFlags::String,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr
+			0
 		};
 		static const Durin::DurinCodeGen::FInt32PropertyParams StringToIntValuePropertyParams = {
 			"StringToInt_Value",
 			Durin::EPropertyFlags::None,
 			1,
-			0,
-			static_cast<Durin::uint16>(sizeof(Durin::int32)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Int32,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr
+			0
 		};
 		static const Durin::DurinCodeGen::FMapPropertyParams StringToIntPropertyParams = {
 			"StringToInt",
@@ -2980,14 +2990,7 @@ namespace
 			"NestedScores_Inner_Inner",
 			Durin::EPropertyFlags::None,
 			1,
-			0,
-			static_cast<Durin::uint16>(sizeof(Durin::int32)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Int32,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr
+			0
 		};
 		static const Durin::DurinCodeGen::FArrayPropertyParams NestedScoresInnerPropertyParams = {
 			"NestedScores_Inner",
@@ -3009,28 +3012,16 @@ namespace
 			"ObjectLists_Key",
 			Durin::EPropertyFlags::None,
 			1,
-			0,
-			static_cast<Durin::uint16>(sizeof(std::string)),
-			Durin::DurinCodeGen::EPropertyGenFlags::String,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr
+			0
 		};
-		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectListsValueInnerPropertyParams = {
-			"ObjectLists_Value_Inner",
-			Durin::EPropertyFlags::None,
-			1,
-			0,
-			static_cast<Durin::uint16>(sizeof(Durin::DObject*)),
-			Durin::DurinCodeGen::EPropertyGenFlags::Object,
-			&Durin::DObject::StaticClass,
-			nullptr,
-			nullptr,
-			nullptr,
-			nullptr
-		};
+		static const Durin::DurinCodeGen::FObjectPropertyParams ObjectListsValueInnerPropertyParams =
+			Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>(
+				"ObjectLists_Value_Inner",
+				Durin::EPropertyFlags::None,
+				1,
+				0,
+				&Durin::DObject::StaticClass
+			);
 		static const Durin::DurinCodeGen::FArrayPropertyParams ObjectListsValuePropertyParams = {
 			"ObjectLists_Value",
 			Durin::EPropertyFlags::None,
@@ -3168,8 +3159,7 @@ namespace
 		std::vector<std::string> NestedNames;
 		Durin::ForEachNestedProperty(
 			NestedArrayProperty,
-			[&NestedNames](Durin::FProperty* Property)
-			{
+			[&NestedNames](Durin::FProperty* Property) {
 				NestedNames.push_back(Property->NamePrivate.ToString());
 			}
 		);
@@ -3188,6 +3178,84 @@ namespace
 		EXPECT_EQ(ObjectListsValue->GetInner()->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::Object);
 		EXPECT_EQ(ObjectListsValue->GetInner()->GetReferencedClass(), Durin::DObject::StaticClass());
 
+		Durin::MarkAsGarbage(ReferencedObject);
+	}
+
+	TEST(FCoreDObjectReflectionTests, TypedBuiltInLeavesSupportDetachedDefaultDestroyAndCopy)
+	{
+		EnsureDObjectInitialized();
+		Durin::DStruct* Struct = GetBuiltInLeafOwnerStructForTest();
+		ASSERT_NE(Struct, nullptr);
+
+		FBuiltInLeafOwnerForTest DefaultOwner;
+		FBuiltInLeafOwnerForTest Source;
+		Source.BoolValue = true;
+		Source.Int8Value = -8;
+		Source.Int16Value = -16;
+		Source.Int32Value = -32;
+		Source.Int64Value = -64;
+		Source.UInt8Value = 8;
+		Source.UInt16Value = 16;
+		Source.UInt32Value = 32;
+		Source.UInt64Value = 64;
+		Source.FloatValue = 1.25f;
+		Source.DoubleValue = 2.5;
+		Source.StringValue = "TypedLeaf";
+		Source.NameValue = Durin::FName("TypedLeafName");
+		Source.GuidValue = Durin::FGuid(1, 2, 3, 4);
+		Source.FixedValues[0] = 31;
+		Source.FixedValues[1] = 32;
+		Source.EnumInt8 = 1;
+		Source.EnumInt16 = 2;
+		Source.EnumInt32 = 3;
+		Source.EnumInt64 = 4;
+		Source.EnumUInt8 = 5;
+		Source.EnumUInt16 = 6;
+		Source.EnumUInt32 = 7;
+		Source.EnumUInt64 = 8;
+		Durin::DObject* ReferencedObject = Durin::NewObject<Durin::DObject>(
+			nullptr, Durin::FName("TypedLeafReferencedObject")
+		);
+		Source.RawObject = ReferencedObject;
+		Source.ObjectPtr = ReferencedObject;
+
+		size_t NumProperties = 0;
+		for (Durin::FProperty* Property = static_cast<Durin::FProperty*>(Struct->ChildProperties);
+			 Property;
+			 Property = static_cast<Durin::FProperty*>(Property->Next))
+		{
+			++NumProperties;
+			EXPECT_TRUE(Property->CanDefaultConstructValue()) << Property->NamePrivate.ToString();
+			EXPECT_TRUE(Property->CanDestroyValue()) << Property->NamePrivate.ToString();
+			EXPECT_TRUE(Property->CanCopyConstructValue()) << Property->NamePrivate.ToString();
+			EXPECT_TRUE(Property->CanCopyAssignValue()) << Property->NamePrivate.ToString();
+			EXPECT_GT(Property->GetValueSize(), 0u);
+			EXPECT_GT(Property->GetValueAlignment(), 0u);
+
+			const Durin::uint32 ArrayIndex = Property->NamePrivate.ToString() == "FixedValues" ? 1u : 0u;
+			Durin::FReflectedValueStorage DefaultStorage;
+			ASSERT_TRUE(DefaultStorage.DefaultConstruct(Property, ArrayIndex))
+				<< Property->NamePrivate.ToString();
+			EXPECT_TRUE(Durin::ArePropertyValuesIdentical(
+				Property, DefaultStorage.GetContainer(), ArrayIndex, &DefaultOwner, ArrayIndex
+			));
+
+			Durin::FReflectedValueStorage CopyStorage;
+			ASSERT_TRUE(CopyStorage.CopyConstruct(
+				Property, Property->GetValuePtr(&Source, ArrayIndex), ArrayIndex
+			))
+				<< Property->NamePrivate.ToString();
+			EXPECT_TRUE(Durin::ArePropertyValuesIdentical(
+				Property, CopyStorage.GetContainer(), ArrayIndex, &Source, ArrayIndex
+			));
+			ASSERT_TRUE(CopyStorage.CopyAssign(Property->GetValuePtr(&DefaultOwner, ArrayIndex)))
+				<< Property->NamePrivate.ToString();
+			EXPECT_TRUE(Durin::ArePropertyValuesIdentical(
+				Property, CopyStorage.GetContainer(), ArrayIndex, &DefaultOwner, ArrayIndex
+			));
+		}
+
+		EXPECT_EQ(NumProperties, 25u);
 		Durin::MarkAsGarbage(ReferencedObject);
 	}
 
@@ -3283,10 +3351,10 @@ namespace
 		EXPECT_EQ(VectorStruct->PropertiesSize, sizeof(Durin::FVector3));
 		EXPECT_EQ(VectorStruct->MinAlignment, alignof(Durin::FVector3));
 		for (const auto& [Struct, Components] : std::array{
-			std::pair{Vector2Struct, std::array<const char*, 4>{"x", "y", nullptr, nullptr}},
-			std::pair{VectorStruct, std::array<const char*, 4>{"x", "y", "z", nullptr}},
-			std::pair{Vector4Struct, std::array<const char*, 4>{"x", "y", "z", "w"}}
-		})
+				 std::pair{Vector2Struct, std::array<const char*, 4>{"x", "y", nullptr, nullptr}},
+				 std::pair{VectorStruct, std::array<const char*, 4>{"x", "y", "z", nullptr}},
+				 std::pair{Vector4Struct, std::array<const char*, 4>{"x", "y", "z", "w"}}
+			 })
 		{
 			for (const char* Component : Components)
 			{
@@ -3322,10 +3390,10 @@ namespace
 		EXPECT_EQ(TranslationStructProperty->GetStruct(), VectorStruct);
 		EXPECT_EQ(ScaleStructProperty->GetStruct(), VectorStruct);
 		for (const auto& [Property, Offset] : std::array{
-			std::pair{RotationStructProperty, static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::FTransform, Rotation))},
-			std::pair{TranslationStructProperty, static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::FTransform, Translation))},
-			std::pair{ScaleStructProperty, static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::FTransform, Scale3D))}
-		})
+				 std::pair{RotationStructProperty, static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::FTransform, Rotation))},
+				 std::pair{TranslationStructProperty, static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::FTransform, Translation))},
+				 std::pair{ScaleStructProperty, static_cast<Durin::uint16>(STRUCT_OFFSET(Durin::FTransform, Scale3D))}
+			 })
 		{
 			EXPECT_EQ(Property->GetPropertyFlags(), Durin::EPropertyFlags::None);
 			EXPECT_EQ(Property->GetArrayDim(), 1);
@@ -3374,13 +3442,15 @@ namespace
 	{
 		RecordProperty(
 			"FPropertyParamsBaseBytes",
-			static_cast<int>(sizeof(Durin::DurinCodeGen::FPropertyParamsBase)));
+			static_cast<int>(sizeof(Durin::DurinCodeGen::FPropertyParamsBase))
+		);
 		RecordProperty(
 			"FStructPropertyParamsBytes",
-			static_cast<int>(sizeof(Durin::DurinCodeGen::FStructPropertyParams)));
+			static_cast<int>(sizeof(Durin::DurinCodeGen::FStructPropertyParams))
+		);
 		EXPECT_TRUE((std::is_base_of_v<
-			Durin::DurinCodeGen::FPropertyParamsBase,
-			Durin::DurinCodeGen::FStructPropertyParams>));
+					 Durin::DurinCodeGen::FPropertyParamsBase,
+					 Durin::DurinCodeGen::FStructPropertyParams>));
 	}
 
 	TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationSupportsOffsetsAccessorsAndMetadata)
@@ -3422,7 +3492,8 @@ namespace
 		EXPECT_FALSE(MoveOnly->CanCopyAssignValue());
 
 		alignas(StructOpsTest::FDeletedDefault)
-		std::array<std::byte, sizeof(StructOpsTest::FDeletedDefault)> UnchangedStorage;
+			std::array<std::byte, sizeof(StructOpsTest::FDeletedDefault)>
+				UnchangedStorage;
 		UnchangedStorage.fill(std::byte{0x5a});
 		const auto OriginalStorage = UnchangedStorage;
 		std::string Error;
@@ -3446,10 +3517,10 @@ namespace
 		EXPECT_DEATH(
 			([] {
 				EnsureDObjectInitialized();
-				Durin::DurinCodeGen::FPropertyParamsBase Params = {
-					"KindMismatch", Durin::EPropertyFlags::None, 1, 0, 0,
-					Durin::DurinCodeGen::EPropertyGenFlags::Struct
+				Durin::DurinCodeGen::FInt32PropertyParams Params = {
+					"KindMismatch", Durin::EPropertyFlags::None, 1, 0
 				};
+				Params.Kind = Durin::DurinCodeGen::EPropertyGenFlags::Struct;
 				ConstructInvalidStructProperty(Params);
 			}()),
 			"PropertyRegistration.KindLayoutMismatch"
@@ -3525,6 +3596,50 @@ namespace
 			}()),
 			"PropertyRegistration.MetadataMismatch"
 		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				const Durin::DurinCodeGen::FEnumPropertyParams Params = {
+					"MissingEnumResolver", Durin::EPropertyFlags::None, 1, 0, nullptr
+				};
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"EnumPropertyRegistration.InvalidDescriptor"
+		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				const Durin::DurinCodeGen::FEnumPropertyParams Params = {
+					"InvalidEnumSize", Durin::EPropertyFlags::None, 1, 0,
+					&GetInvalidBuiltInLeafEnumForTest
+				};
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"EnumPropertyRegistration.InvalidDescriptor"
+		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				auto Params = Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>(
+					"MissingObjectAccess", Durin::EPropertyFlags::None, 1, 0,
+					&Durin::DObject::StaticClass
+				);
+				Params.ReadObjectValue = nullptr;
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"ObjectPropertyRegistration.InvalidDescriptor"
+		);
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				const Durin::DurinCodeGen::FGenericPropertyParams Params = {
+					"InvalidGeneric", Durin::EPropertyFlags::None, 1, 0, 0,
+					Durin::DurinCodeGen::MakePropertyValueOps<Durin::int32>()
+				};
+				ConstructInvalidStructProperty(Params);
+			}()),
+			"GenericPropertyRegistration.InvalidDescriptor"
+		);
 	}
 #endif
-}
+} // namespace

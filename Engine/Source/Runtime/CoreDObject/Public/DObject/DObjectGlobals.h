@@ -12,6 +12,9 @@ namespace Durin
 	class DEnum;
 	class DStruct;
 	class FSoftObjectPtr;
+	struct FGuid;
+	template<typename T>
+	class TObjectPtr;
 
 	// Collects the class, Outer, name, and flags needed to allocate one DObject.
 	struct FStaticConstructObjectParameters
@@ -118,7 +121,11 @@ namespace Durin
 
 		enum class EPropertyParamLayout : uint8
 		{
-			Legacy = 0,
+			Invalid = 0,
+			Plain,
+			Enum,
+			Object,
+			Generic,
 			Struct,
 			Array,
 			Map,
@@ -149,6 +156,29 @@ namespace Durin
 		auto CopyAssignPropertyValue(void* Destination, const void* Source) -> void
 		{
 			*static_cast<T*>(Destination) = *static_cast<const T*>(Source);
+		}
+
+		struct FPropertyValueOps
+		{
+			uint32 ValueSize = 0;
+			uint32 ValueAlignment = 0;
+			void (*InitializeValue)(void* Memory) = nullptr;
+			void (*DestroyValue)(void* Memory) = nullptr;
+			void (*CopyConstructValue)(void* Destination, const void* Source) = nullptr;
+			void (*CopyAssignValue)(void* Destination, const void* Source) = nullptr;
+		};
+
+		template<typename TValue>
+		constexpr auto MakePropertyValueOps() -> FPropertyValueOps
+		{
+			return {
+				sizeof(TValue),
+				alignof(TValue),
+				&InitializePropertyValue<TValue>,
+				&DestroyPropertyValue<TValue>,
+				&CopyConstructPropertyValue<TValue>,
+				&CopyAssignPropertyValue<TValue>
+			};
 		}
 
 		struct FEnumValueParams
@@ -190,53 +220,328 @@ namespace Durin
 
 		struct FPropertyParamsBase
 		{
+			using FMutableValueAccessor = void* (*)(void* Container, uint32 ArrayIndex);
+			using FConstValueAccessor = const void* (*)(const void* Container, uint32 ArrayIndex);
+
 			const char* NameUTF8;
 			EPropertyFlags Flags;
 			uint16 ArrayDim;
 			uint16 Offset;
-			uint16 ElementSize;
 			EPropertyGenFlags Kind;
-			DClass* (*ReferencedClassFunc)();
-			DEnum* (*ReferencedEnumFunc)();
-			const FPropertyParamsBase* Inner;
-			const FPropertyParamsBase* Key;
-			const FPropertyParamsBase* Value;
-			bool bIsObjectPtrWrapper = false;
-			DStruct* (*ReferencedStructFunc)() = nullptr;
-			void* (*MutableValueAccessor)(void* Container, uint32 ArrayIndex) = nullptr;
-			const void* (*ConstValueAccessor)(const void* Container, uint32 ArrayIndex) = nullptr;
-			const FMetaDataPair* MetaData = nullptr;
-			size_t NumMetaData = 0;
-			uint32 ValueSize = 0;
-			uint32 ValueAlignment = 0;
-			void (*InitializeValue)(void* Memory) = nullptr;
-			void (*DestroyValue)(void* Memory) = nullptr;
-			void (*CopyConstructValue)(void* Destination, const void* Source) = nullptr;
-			void (*CopyAssignValue)(void* Destination, const void* Source) = nullptr;
-			EPropertyParamLayout Layout = EPropertyParamLayout::Legacy;
+			EPropertyParamLayout Layout;
+			FMutableValueAccessor MutableValueAccessor;
+			FConstValueAccessor ConstValueAccessor;
+			const FMetaDataPair* MetaData;
+			size_t NumMetaData;
+
+		protected:
+			constexpr FPropertyParamsBase(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				EPropertyGenFlags InKind,
+				EPropertyParamLayout InLayout,
+				FMutableValueAccessor InMutableValueAccessor = nullptr,
+				FConstValueAccessor InConstValueAccessor = nullptr,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			)
+				: NameUTF8(InNameUTF8)
+				, Flags(InFlags)
+				, ArrayDim(InArrayDim)
+				, Offset(InOffset)
+				, Kind(InKind)
+				, Layout(InLayout)
+				, MutableValueAccessor(InMutableValueAccessor)
+				, ConstValueAccessor(InConstValueAccessor)
+				, MetaData(InMetaData)
+				, NumMetaData(InNumMetaData)
+			{
+			}
 		};
 
-		struct FGenericPropertyParams : public FPropertyParamsBase
+		template<typename TValue, EPropertyGenFlags Kind>
+		inline constexpr bool TIsPlainPropertyMapping = false;
+
+		template<> inline constexpr bool TIsPlainPropertyMapping<bool, EPropertyGenFlags::Bool> = true;
+		template<> inline constexpr bool TIsPlainPropertyMapping<int8, EPropertyGenFlags::Int8> = true;
+		template<> inline constexpr bool TIsPlainPropertyMapping<int16, EPropertyGenFlags::Int16> = true;
+		template<> inline constexpr bool TIsPlainPropertyMapping<int32, EPropertyGenFlags::Int32> = true;
+		template<> inline constexpr bool TIsPlainPropertyMapping<int64, EPropertyGenFlags::Int64> = true;
+		template<> inline constexpr bool TIsPlainPropertyMapping<uint8, EPropertyGenFlags::UInt8> = true;
+		template<> inline constexpr bool TIsPlainPropertyMapping<uint16, EPropertyGenFlags::UInt16> = true;
+		template<> inline constexpr bool TIsPlainPropertyMapping<uint32, EPropertyGenFlags::UInt32> = true;
+		template<> inline constexpr bool TIsPlainPropertyMapping<uint64, EPropertyGenFlags::UInt64> = true;
+		template<> inline constexpr bool TIsPlainPropertyMapping<float, EPropertyGenFlags::Float> = true;
+		template<> inline constexpr bool TIsPlainPropertyMapping<double, EPropertyGenFlags::Double> = true;
+		template<> inline constexpr bool TIsPlainPropertyMapping<std::string, EPropertyGenFlags::String> = true;
+		template<> inline constexpr bool TIsPlainPropertyMapping<FName, EPropertyGenFlags::Name> = true;
+		template<> inline constexpr bool TIsPlainPropertyMapping<FGuid, EPropertyGenFlags::Guid> = true;
+
+		template<typename TValue, EPropertyGenFlags PropertyKind>
+		struct TPlainPropertyParams final : public FPropertyParamsBase
 		{
-			// Meta data
+			static_assert(TIsPlainPropertyMapping<TValue, PropertyKind>, "Unsupported plain property type/kind mapping.");
+			using ValueType = TValue;
+
+			constexpr TPlainPropertyParams(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			)
+				: FPropertyParamsBase(
+					  InNameUTF8, InFlags, InArrayDim, InOffset, PropertyKind, EPropertyParamLayout::Plain, nullptr, nullptr, InMetaData, InNumMetaData
+				  )
+			{
+			}
+
+			static constexpr auto WithAccessors(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				FMutableValueAccessor InMutableValueAccessor,
+				FConstValueAccessor InConstValueAccessor,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			) -> TPlainPropertyParams
+			{
+				return TPlainPropertyParams(
+					InNameUTF8, InFlags, InArrayDim, InMutableValueAccessor,
+					InConstValueAccessor, InMetaData, InNumMetaData
+				);
+			}
+
+		private:
+			constexpr TPlainPropertyParams(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				FMutableValueAccessor InMutableValueAccessor,
+				FConstValueAccessor InConstValueAccessor,
+				const FMetaDataPair* InMetaData,
+				size_t InNumMetaData
+			)
+				: FPropertyParamsBase(
+					  InNameUTF8, InFlags, InArrayDim, 0, PropertyKind, EPropertyParamLayout::Plain, InMutableValueAccessor, InConstValueAccessor, InMetaData, InNumMetaData
+				  )
+			{
+			}
 		};
 
-		using FInt8PropertyParams = FPropertyParamsBase;
-		using FInt16PropertyParams = FPropertyParamsBase;
-		using FInt32PropertyParams = FPropertyParamsBase;
-		using FInt64PropertyParams = FPropertyParamsBase;
-		using FUInt8PropertyParams = FPropertyParamsBase;
-		using FUInt16PropertyParams = FPropertyParamsBase;
-		using FUInt32PropertyParams = FPropertyParamsBase;
-		using FUInt64PropertyParams = FPropertyParamsBase;
-		using FFloatPropertyParams = FPropertyParamsBase;
-		using FDoublePropertyParams = FPropertyParamsBase;
-		using FBoolPropertyParams = FPropertyParamsBase;
-		using FStringPropertyParams = FPropertyParamsBase;
-		using FNamePropertyParams = FPropertyParamsBase;
-		using FGuidPropertyParams = FPropertyParamsBase;
-		using FEnumPropertyParams = FPropertyParamsBase;
-		using FObjectPropertyParams = FPropertyParamsBase;
+		using FInt8PropertyParams = TPlainPropertyParams<int8, EPropertyGenFlags::Int8>;
+		using FInt16PropertyParams = TPlainPropertyParams<int16, EPropertyGenFlags::Int16>;
+		using FInt32PropertyParams = TPlainPropertyParams<int32, EPropertyGenFlags::Int32>;
+		using FInt64PropertyParams = TPlainPropertyParams<int64, EPropertyGenFlags::Int64>;
+		using FUInt8PropertyParams = TPlainPropertyParams<uint8, EPropertyGenFlags::UInt8>;
+		using FUInt16PropertyParams = TPlainPropertyParams<uint16, EPropertyGenFlags::UInt16>;
+		using FUInt32PropertyParams = TPlainPropertyParams<uint32, EPropertyGenFlags::UInt32>;
+		using FUInt64PropertyParams = TPlainPropertyParams<uint64, EPropertyGenFlags::UInt64>;
+		using FFloatPropertyParams = TPlainPropertyParams<float, EPropertyGenFlags::Float>;
+		using FDoublePropertyParams = TPlainPropertyParams<double, EPropertyGenFlags::Double>;
+		using FBoolPropertyParams = TPlainPropertyParams<bool, EPropertyGenFlags::Bool>;
+		using FStringPropertyParams = TPlainPropertyParams<std::string, EPropertyGenFlags::String>;
+		using FNamePropertyParams = TPlainPropertyParams<FName, EPropertyGenFlags::Name>;
+		using FGuidPropertyParams = TPlainPropertyParams<FGuid, EPropertyGenFlags::Guid>;
+
+		struct FEnumPropertyParams final : public FPropertyParamsBase
+		{
+			using FEnumResolver = DEnum* (*)();
+
+			constexpr FEnumPropertyParams(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				FEnumResolver InEnumResolver,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			)
+				: FPropertyParamsBase(
+					  InNameUTF8, InFlags, InArrayDim, InOffset, EPropertyGenFlags::Enum, EPropertyParamLayout::Enum, nullptr, nullptr, InMetaData, InNumMetaData
+				  )
+				, EnumResolver(InEnumResolver)
+			{
+			}
+
+			FEnumResolver EnumResolver = nullptr;
+		};
+
+		struct FObjectPropertyParams final : public FPropertyParamsBase
+		{
+			enum class EStorage : uint8
+			{
+				Invalid = 0,
+				Raw,
+				ObjectPtr
+			};
+
+			using FClassResolver = DClass* (*)();
+			using FReadObjectValue = DObject* (*)(const void* Value);
+			using FWriteObjectValue = void (*)(void* Value, DObject* Object);
+
+			template<typename TObject>
+			static constexpr auto Raw(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				FClassResolver InClassResolver,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			) -> FObjectPropertyParams
+			{
+				using TValue = TObject*;
+				static_assert(sizeof(TValue) <= std::numeric_limits<uint16>::max());
+				return FObjectPropertyParams(
+					InNameUTF8, InFlags, InArrayDim, InOffset, InClassResolver,
+					EStorage::Raw, MakePropertyValueOps<TValue>(),
+					&ReadRaw<TObject>, &WriteRaw<TObject>, InMetaData, InNumMetaData
+				);
+			}
+
+			template<typename TObject>
+			static constexpr auto ObjectPtr(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				FClassResolver InClassResolver,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			) -> FObjectPropertyParams
+			{
+				using TValue = TObjectPtr<TObject>;
+				static_assert(sizeof(TValue) <= std::numeric_limits<uint16>::max());
+				return FObjectPropertyParams(
+					InNameUTF8, InFlags, InArrayDim, InOffset, InClassResolver,
+					EStorage::ObjectPtr, MakePropertyValueOps<TValue>(),
+					&ReadObjectPtr<TObject>, &WriteObjectPtr<TObject>, InMetaData, InNumMetaData
+				);
+			}
+
+			FClassResolver ClassResolver = nullptr;
+			EStorage Storage = EStorage::Invalid;
+			FPropertyValueOps ValueOps;
+			FReadObjectValue ReadObjectValue = nullptr;
+			FWriteObjectValue WriteObjectValue = nullptr;
+
+		private:
+			template<typename TObject, typename = void>
+			struct TIsCompleteObjectTarget : std::false_type
+			{
+			};
+
+			template<typename TObject>
+			struct TIsCompleteObjectTarget<TObject, std::void_t<decltype(sizeof(TObject))>> : std::true_type
+			{
+			};
+
+			constexpr FObjectPropertyParams(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				FClassResolver InClassResolver,
+				EStorage InStorage,
+				FPropertyValueOps InValueOps,
+				FReadObjectValue InReadObjectValue,
+				FWriteObjectValue InWriteObjectValue,
+				const FMetaDataPair* InMetaData,
+				size_t InNumMetaData
+			)
+				: FPropertyParamsBase(
+					  InNameUTF8, InFlags, InArrayDim, InOffset, EPropertyGenFlags::Object, EPropertyParamLayout::Object, nullptr, nullptr, InMetaData, InNumMetaData
+				  )
+				, ClassResolver(InClassResolver)
+				, Storage(InStorage)
+				, ValueOps(InValueOps)
+				, ReadObjectValue(InReadObjectValue)
+				, WriteObjectValue(InWriteObjectValue)
+			{
+			}
+
+			template<typename TObject>
+			static auto ToDObject(TObject* Object) -> DObject*
+			{
+				if constexpr (TIsCompleteObjectTarget<TObject>::value)
+				{
+					static_assert(std::is_base_of_v<DObject, TObject>);
+					return static_cast<DObject*>(Object);
+				}
+				else
+				{
+					return reinterpret_cast<DObject*>(Object);
+				}
+			}
+
+			template<typename TObject>
+			static auto FromDObject(DObject* Object) -> TObject*
+			{
+				if constexpr (TIsCompleteObjectTarget<TObject>::value)
+				{
+					static_assert(std::is_base_of_v<DObject, TObject>);
+					return static_cast<TObject*>(Object);
+				}
+				else
+				{
+					return reinterpret_cast<TObject*>(Object);
+				}
+			}
+
+			template<typename TObject>
+			static auto ReadRaw(const void* Value) -> DObject*
+			{
+				TObject* const* Object = static_cast<TObject* const*>(Value);
+				return Object ? ToDObject(*Object) : nullptr;
+			}
+
+			template<typename TObject>
+			static auto WriteRaw(void* Value, DObject* Object) -> void
+			{
+				if (Value) *static_cast<TObject**>(Value) = FromDObject<TObject>(Object);
+			}
+
+			template<typename TObject>
+			static auto ReadObjectPtr(const void* Value) -> DObject*
+			{
+				const auto* Object = static_cast<const TObjectPtr<TObject>*>(Value);
+				return Object ? ToDObject(Object->Get()) : nullptr;
+			}
+
+			template<typename TObject>
+			static auto WriteObjectPtr(void* Value, DObject* Object) -> void
+			{
+				if (Value) *static_cast<TObjectPtr<TObject>*>(Value) = FromDObject<TObject>(Object);
+			}
+		};
+
+		struct FGenericPropertyParams final : public FPropertyParamsBase
+		{
+			constexpr FGenericPropertyParams(
+				const char* InNameUTF8,
+				EPropertyFlags InFlags,
+				uint16 InArrayDim,
+				uint16 InOffset,
+				uint16 InElementSize,
+				FPropertyValueOps InValueOps,
+				const FMetaDataPair* InMetaData = nullptr,
+				size_t InNumMetaData = 0
+			)
+				: FPropertyParamsBase(
+					  InNameUTF8, InFlags, InArrayDim, InOffset, EPropertyGenFlags::None, EPropertyParamLayout::Generic, nullptr, nullptr, InMetaData, InNumMetaData
+				  )
+				, ElementSize(InElementSize)
+				, ValueOps(InValueOps)
+			{
+			}
+
+			uint16 ElementSize = 0;
+			FPropertyValueOps ValueOps;
+		};
 
 		struct FSoftObjectPropertyParams final : public FPropertyParamsBase
 		{
@@ -257,11 +562,12 @@ namespace Durin
 				size_t InNumMetaData = 0
 			) -> FSoftObjectPropertyParams
 			{
-				FSoftObjectPropertyParams Params;
-				Params.Initialize<TValue>(
+				static_assert(sizeof(TValue) <= std::numeric_limits<uint16>::max());
+				return FSoftObjectPropertyParams(
 					InNameUTF8, InFlags, InArrayDim, InOffset, InExpectedClassResolver,
-					InMetaData, InNumMetaData);
-				return Params;
+					MakePropertyValueOps<TValue>(), &AccessMutableSoftValue<TValue>,
+					&AccessConstSoftValue<TValue>, nullptr, nullptr, InMetaData, InNumMetaData
+				);
 			}
 
 			template<typename TValue>
@@ -276,14 +582,17 @@ namespace Durin
 				size_t InNumMetaData = 0
 			) -> FSoftObjectPropertyParams
 			{
-				FSoftObjectPropertyParams Params = Create<TValue>(
+				static_assert(sizeof(TValue) <= std::numeric_limits<uint16>::max());
+				return FSoftObjectPropertyParams(
 					InNameUTF8, InFlags, InArrayDim, 0, InExpectedClassResolver,
-					InMetaData, InNumMetaData);
-				Params.MutableValueAccessor = InMutableValueAccessor;
-				Params.ConstValueAccessor = InConstValueAccessor;
-				return Params;
+					MakePropertyValueOps<TValue>(), &AccessMutableSoftValue<TValue>,
+					&AccessConstSoftValue<TValue>, InMutableValueAccessor,
+					InConstValueAccessor, InMetaData, InNumMetaData
+				);
 			}
 
+			FExpectedClassResolver ExpectedClassResolver = nullptr;
+			FPropertyValueOps ValueOps;
 			FMutableSoftValueAccessor MutableSoftValueAccessor = nullptr;
 			FConstSoftValueAccessor ConstSoftValueAccessor = nullptr;
 
@@ -300,36 +609,28 @@ namespace Durin
 				return Value ? &static_cast<const TValue*>(Value)->GetBase() : nullptr;
 			}
 
-			template<typename TValue>
-			constexpr auto Initialize(
+			constexpr FSoftObjectPropertyParams(
 				const char* InNameUTF8,
 				EPropertyFlags InFlags,
 				uint16 InArrayDim,
 				uint16 InOffset,
 				FExpectedClassResolver InExpectedClassResolver,
+				FPropertyValueOps InValueOps,
+				FMutableSoftValueAccessor InMutableSoftValueAccessor,
+				FConstSoftValueAccessor InConstSoftValueAccessor,
+				FMutableValueAccessor InMutableValueAccessor,
+				FConstValueAccessor InConstValueAccessor,
 				const FMetaDataPair* InMetaData,
 				size_t InNumMetaData
-			) -> void
+			)
+				: FPropertyParamsBase(
+					  InNameUTF8, InFlags, InArrayDim, InOffset, EPropertyGenFlags::SoftObject, EPropertyParamLayout::SoftObject, InMutableValueAccessor, InConstValueAccessor, InMetaData, InNumMetaData
+				  )
+				, ExpectedClassResolver(InExpectedClassResolver)
+				, ValueOps(InValueOps)
+				, MutableSoftValueAccessor(InMutableSoftValueAccessor)
+				, ConstSoftValueAccessor(InConstSoftValueAccessor)
 			{
-				static_assert(sizeof(TValue) <= std::numeric_limits<uint16>::max());
-				NameUTF8 = InNameUTF8;
-				Flags = InFlags;
-				ArrayDim = InArrayDim;
-				Offset = InOffset;
-				ElementSize = static_cast<uint16>(sizeof(TValue));
-				Kind = EPropertyGenFlags::SoftObject;
-				ReferencedClassFunc = InExpectedClassResolver;
-				MetaData = InMetaData;
-				NumMetaData = InNumMetaData;
-				ValueSize = sizeof(TValue);
-				ValueAlignment = alignof(TValue);
-				InitializeValue = &InitializePropertyValue<TValue>;
-				DestroyValue = &DestroyPropertyValue<TValue>;
-				CopyConstructValue = &CopyConstructPropertyValue<TValue>;
-				CopyAssignValue = &CopyAssignPropertyValue<TValue>;
-				Layout = EPropertyParamLayout::SoftObject;
-				MutableSoftValueAccessor = &AccessMutableSoftValue<TValue>;
-				ConstSoftValueAccessor = &AccessConstSoftValue<TValue>;
 			}
 		};
 
@@ -349,18 +650,12 @@ namespace Durin
 				const FMetaDataPair* InMetaData = nullptr,
 				size_t InNumMetaData = 0
 			)
-				: FPropertyParamsBase{}
+				: FPropertyParamsBase(
+					  InNameUTF8, InFlags, InArrayDim, InOffset, EPropertyGenFlags::Array, EPropertyParamLayout::Array, nullptr, nullptr, InMetaData, InNumMetaData
+				  )
 				, InnerParams(InInnerParams)
 				, OpsResolver(InOpsResolver)
 			{
-				NameUTF8 = InNameUTF8;
-				Flags = InFlags;
-				ArrayDim = InArrayDim;
-				Offset = InOffset;
-				Kind = EPropertyGenFlags::Array;
-				MetaData = InMetaData;
-				NumMetaData = InNumMetaData;
-				Layout = EPropertyParamLayout::Array;
 			}
 
 			static constexpr auto WithAccessors(
@@ -402,19 +697,13 @@ namespace Durin
 				const FMetaDataPair* InMetaData = nullptr,
 				size_t InNumMetaData = 0
 			)
-				: FPropertyParamsBase{}
+				: FPropertyParamsBase(
+					  InNameUTF8, InFlags, InArrayDim, InOffset, EPropertyGenFlags::Map, EPropertyParamLayout::Map, nullptr, nullptr, InMetaData, InNumMetaData
+				  )
 				, KeyParams(InKeyParams)
 				, ValueParams(InValueParams)
 				, OpsResolver(InOpsResolver)
 			{
-				NameUTF8 = InNameUTF8;
-				Flags = InFlags;
-				ArrayDim = InArrayDim;
-				Offset = InOffset;
-				Kind = EPropertyGenFlags::Map;
-				MetaData = InMetaData;
-				NumMetaData = InNumMetaData;
-				Layout = EPropertyParamLayout::Map;
 			}
 
 			static constexpr auto WithAccessors(
@@ -456,17 +745,11 @@ namespace Durin
 				const FMetaDataPair* InMetaData = nullptr,
 				size_t InNumMetaData = 0
 			)
-				: FPropertyParamsBase{}
+				: FPropertyParamsBase(
+					  InNameUTF8, InFlags, InArrayDim, InOffset, EPropertyGenFlags::Struct, EPropertyParamLayout::Struct, nullptr, nullptr, InMetaData, InNumMetaData
+				  )
 				, StructResolver(InStructResolver)
 			{
-				NameUTF8 = InNameUTF8;
-				Flags = InFlags;
-				ArrayDim = InArrayDim;
-				Offset = InOffset;
-				Kind = EPropertyGenFlags::Struct;
-				MetaData = InMetaData;
-				NumMetaData = InNumMetaData;
-				Layout = EPropertyParamLayout::Struct;
 			}
 
 			static constexpr auto WithAccessors(
@@ -514,4 +797,4 @@ namespace Durin
 		COREDOBJECT_API auto ConstructDStruct(const FStructParams& Params) -> DStruct*;
 
 	} // namespace DurinCodeGen
-}
+} // namespace Durin

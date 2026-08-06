@@ -64,7 +64,8 @@ namespace Durin
 		auto ReportUnavailablePropertyOperation(
 			const FProperty* Property,
 			std::string_view Operation,
-			std::string* OutError) -> bool
+			std::string* OutError
+		) -> bool
 		{
 			if (!OutError) return false;
 			if (DStruct* Struct = GetPropertyStruct(Property))
@@ -72,14 +73,16 @@ namespace Durin
 				*OutError = std::format(
 					"DStructOperationUnavailable: {} is unavailable for '{}'.",
 					Operation,
-					Struct->GetQualifiedName().ToString());
+					Struct->GetQualifiedName().ToString()
+				);
 			}
 			else
 			{
 				*OutError = std::format(
 					"ReflectedValueOperationUnavailable: {} is unavailable for property '{}'.",
 					Operation,
-					Property ? Property->NamePrivate.ToString() : std::string("<null>"));
+					Property ? Property->NamePrivate.ToString() : std::string("<null>")
+				);
 			}
 			return false;
 		}
@@ -89,7 +92,8 @@ namespace Durin
 			const void* LeftContainer,
 			uint32 LeftArrayIndex,
 			const void* RightContainer,
-			uint32 RightArrayIndex) -> bool;
+			uint32 RightArrayIndex
+		) -> bool;
 
 		struct FMapIdenticalContext
 		{
@@ -118,7 +122,8 @@ namespace Durin
 			const void* LeftContainer,
 			uint32 LeftArrayIndex,
 			const void* RightContainer,
-			uint32 RightArrayIndex) -> bool
+			uint32 RightArrayIndex
+		) -> bool
 		{
 			if (!Property || !LeftContainer || !RightContainer) return false;
 
@@ -137,96 +142,101 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Double:
 			case DurinCodeGen::EPropertyGenFlags::Enum:
 				return std::memcmp(
-					Property->GetValuePtr(LeftContainer, LeftArrayIndex),
-					Property->GetValuePtr(RightContainer, RightArrayIndex),
-					Property->GetElementSize()) == 0;
+						   Property->GetValuePtr(LeftContainer, LeftArrayIndex),
+						   Property->GetValuePtr(RightContainer, RightArrayIndex),
+						   Property->GetElementSize()
+					   )
+					   == 0;
 			case DurinCodeGen::EPropertyGenFlags::String:
-			{
-				const auto* StringProperty = static_cast<const FStringProperty*>(Property);
-				return *StringProperty->GetStringValuePtr(LeftContainer, LeftArrayIndex)
-					== *StringProperty->GetStringValuePtr(RightContainer, RightArrayIndex);
-			}
-			case DurinCodeGen::EPropertyGenFlags::Name:
-			{
-				const auto* NameProperty = static_cast<const FNameProperty*>(Property);
-				return *NameProperty->GetNameValuePtr(LeftContainer, LeftArrayIndex)
-					== *NameProperty->GetNameValuePtr(RightContainer, RightArrayIndex);
-			}
-			case DurinCodeGen::EPropertyGenFlags::Guid:
-			{
-				const auto* GuidProperty = static_cast<const FGuidProperty*>(Property);
-				return *GuidProperty->GetGuidValuePtr(LeftContainer, LeftArrayIndex)
-					== *GuidProperty->GetGuidValuePtr(RightContainer, RightArrayIndex);
-			}
-			case DurinCodeGen::EPropertyGenFlags::Object:
-			{
-				const auto* ObjectProperty = static_cast<const FObjectProperty*>(Property);
-				return ObjectProperty->GetObjectPropertyValue(LeftContainer, LeftArrayIndex)
-					== ObjectProperty->GetObjectPropertyValue(RightContainer, RightArrayIndex);
-			}
-			case DurinCodeGen::EPropertyGenFlags::SoftObject:
-			{
-				const auto* SoftProperty = static_cast<const FSoftObjectProperty*>(Property);
-				const FSoftObjectPtr* Left = SoftProperty->GetSoftObjectPtr(LeftContainer, LeftArrayIndex);
-				const FSoftObjectPtr* Right = SoftProperty->GetSoftObjectPtr(RightContainer, RightArrayIndex);
-				return Left && Right && *Left == *Right;
-			}
-			case DurinCodeGen::EPropertyGenFlags::Struct:
-			{
-				const auto* StructProperty = static_cast<const FStructProperty*>(Property);
-				DStruct* Struct = StructProperty->GetStruct();
-				if (!Struct) return false;
-				const void* LeftValue = Property->GetValuePtr(LeftContainer, LeftArrayIndex);
-				const void* RightValue = Property->GetValuePtr(RightContainer, RightArrayIndex);
-				if (Struct->HasIdentical()) return Struct->GetOps().Identical(LeftValue, RightValue);
-
-				bool bIdentical = true;
-				Struct->ForEachProperty([&](FProperty* Field) {
-					if (!bIdentical || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
-					for (uint32 Index = 0; Index < Field->GetArrayDim(); ++Index)
-					{
-						if (!ArePropertyValuesIdenticalImpl(Field, LeftValue, Index, RightValue, Index))
-						{
-							bIdentical = false;
-							break;
-						}
-					}
-				}, false);
-				return bIdentical;
-			}
-			case DurinCodeGen::EPropertyGenFlags::Array:
-			{
-				const auto* ArrayProperty = static_cast<const FArrayProperty*>(Property);
-				FProperty* Inner = ArrayProperty->GetInner();
-				if (!Inner || !ArrayProperty->HasArrayOps()) return false;
-				const uint64 LeftNum = ArrayProperty->Num(LeftContainer, LeftArrayIndex);
-				if (LeftNum != ArrayProperty->Num(RightContainer, RightArrayIndex)) return false;
-				for (uint64 Index = 0; Index < LeftNum; ++Index)
 				{
-					if (!ArePropertyValuesIdenticalImpl(
-						Inner, ArrayProperty->GetElementPtr(LeftContainer, Index, LeftArrayIndex), 0,
-						ArrayProperty->GetElementPtr(RightContainer, Index, RightArrayIndex), 0)) return false;
+					const auto* StringProperty = static_cast<const FStringProperty*>(Property);
+					return *StringProperty->GetStringValuePtr(LeftContainer, LeftArrayIndex)
+						   == *StringProperty->GetStringValuePtr(RightContainer, RightArrayIndex);
 				}
-				return true;
-			}
+			case DurinCodeGen::EPropertyGenFlags::Name:
+				{
+					const auto* NameProperty = static_cast<const FNameProperty*>(Property);
+					return *NameProperty->GetNameValuePtr(LeftContainer, LeftArrayIndex)
+						   == *NameProperty->GetNameValuePtr(RightContainer, RightArrayIndex);
+				}
+			case DurinCodeGen::EPropertyGenFlags::Guid:
+				{
+					const auto* GuidProperty = static_cast<const FGuidProperty*>(Property);
+					return *GuidProperty->GetGuidValuePtr(LeftContainer, LeftArrayIndex)
+						   == *GuidProperty->GetGuidValuePtr(RightContainer, RightArrayIndex);
+				}
+			case DurinCodeGen::EPropertyGenFlags::Object:
+				{
+					const auto* ObjectProperty = static_cast<const FObjectProperty*>(Property);
+					return ObjectProperty->GetObjectPropertyValue(LeftContainer, LeftArrayIndex)
+						   == ObjectProperty->GetObjectPropertyValue(RightContainer, RightArrayIndex);
+				}
+			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+				{
+					const auto* SoftProperty = static_cast<const FSoftObjectProperty*>(Property);
+					const FSoftObjectPtr* Left = SoftProperty->GetSoftObjectPtr(LeftContainer, LeftArrayIndex);
+					const FSoftObjectPtr* Right = SoftProperty->GetSoftObjectPtr(RightContainer, RightArrayIndex);
+					return Left && Right && *Left == *Right;
+				}
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+				{
+					const auto* StructProperty = static_cast<const FStructProperty*>(Property);
+					DStruct* Struct = StructProperty->GetStruct();
+					if (!Struct) return false;
+					const void* LeftValue = Property->GetValuePtr(LeftContainer, LeftArrayIndex);
+					const void* RightValue = Property->GetValuePtr(RightContainer, RightArrayIndex);
+					if (Struct->HasIdentical()) return Struct->GetOps().Identical(LeftValue, RightValue);
+
+					bool bIdentical = true;
+					Struct->ForEachProperty([&](FProperty* Field) {
+						if (!bIdentical || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+						for (uint32 Index = 0; Index < Field->GetArrayDim(); ++Index)
+						{
+							if (!ArePropertyValuesIdenticalImpl(Field, LeftValue, Index, RightValue, Index))
+							{
+								bIdentical = false;
+								break;
+							}
+						}
+					},
+											false);
+					return bIdentical;
+				}
+			case DurinCodeGen::EPropertyGenFlags::Array:
+				{
+					const auto* ArrayProperty = static_cast<const FArrayProperty*>(Property);
+					FProperty* Inner = ArrayProperty->GetInner();
+					if (!Inner || !ArrayProperty->HasArrayOps()) return false;
+					const uint64 LeftNum = ArrayProperty->Num(LeftContainer, LeftArrayIndex);
+					if (LeftNum != ArrayProperty->Num(RightContainer, RightArrayIndex)) return false;
+					for (uint64 Index = 0; Index < LeftNum; ++Index)
+					{
+						if (!ArePropertyValuesIdenticalImpl(
+								Inner, ArrayProperty->GetElementPtr(LeftContainer, Index, LeftArrayIndex), 0,
+								ArrayProperty->GetElementPtr(RightContainer, Index, RightArrayIndex), 0
+							)) return false;
+					}
+					return true;
+				}
 			case DurinCodeGen::EPropertyGenFlags::Map:
-			{
-				const auto* MapProperty = static_cast<const FMapProperty*>(Property);
-				FProperty* KeyProperty = MapProperty->GetKeyProp();
-				FProperty* ValueProperty = MapProperty->GetValueProp();
-				if (!KeyProperty || !ValueProperty || !MapProperty->HasMapOps()) return false;
-				const uint64 LeftNum = MapProperty->Num(LeftContainer, LeftArrayIndex);
-				if (LeftNum != MapProperty->Num(RightContainer, RightArrayIndex)) return false;
-				if (!MapProperty->HasCapability(EMapOpsFlags::Lookup)) return false;
-				FMapIdenticalContext Context{MapProperty, ValueProperty, RightContainer, RightArrayIndex};
-				return MapProperty->VisitEntries(LeftContainer, &VisitMapIdenticalEntry, &Context, LeftArrayIndex)
-					== EContainerOpResult::Success && Context.bIdentical;
-			}
+				{
+					const auto* MapProperty = static_cast<const FMapProperty*>(Property);
+					FProperty* KeyProperty = MapProperty->GetKeyProp();
+					FProperty* ValueProperty = MapProperty->GetValueProp();
+					if (!KeyProperty || !ValueProperty || !MapProperty->HasMapOps()) return false;
+					const uint64 LeftNum = MapProperty->Num(LeftContainer, LeftArrayIndex);
+					if (LeftNum != MapProperty->Num(RightContainer, RightArrayIndex)) return false;
+					if (!MapProperty->HasCapability(EMapOpsFlags::Lookup)) return false;
+					FMapIdenticalContext Context{MapProperty, ValueProperty, RightContainer, RightArrayIndex};
+					return MapProperty->VisitEntries(LeftContainer, &VisitMapIdenticalEntry, &Context, LeftArrayIndex)
+							   == EContainerOpResult::Success
+						   && Context.bIdentical;
+				}
 			default:
 				return false;
 			}
 		}
-	}
+	} // namespace
 
 	IMPLEMENT_FIELD(FProperty, FField, EClassCastFlags::FProperty, COREDOBJECT_API)
 	IMPLEMENT_FIELD(FNumericProperty, FProperty, EClassCastFlags::FNumericProperty, COREDOBJECT_API)
@@ -243,16 +253,16 @@ namespace Durin
 
 	FProperty::FProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
 		: FProperty(
-			InOwner,
-			InName,
-			InObjectFlags,
-			EPropertyFlags::None,
-			1,
-			0,
-			0,
-			DurinCodeGen::EPropertyGenFlags::None,
-			nullptr
-		)
+			  InOwner,
+			  InName,
+			  InObjectFlags,
+			  EPropertyFlags::None,
+			  1,
+			  0,
+			  0,
+			  DurinCodeGen::EPropertyGenFlags::None,
+			  nullptr
+		  )
 	{
 	}
 
@@ -359,8 +369,10 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Name: std::construct_at(static_cast<FName*>(Memory)); break;
 			case DurinCodeGen::EPropertyGenFlags::Guid: std::construct_at(static_cast<FGuid*>(Memory)); break;
 			case DurinCodeGen::EPropertyGenFlags::Object:
-				if (bIsObjectPtrWrapper) std::construct_at(static_cast<FObjectPtr*>(Memory));
-				else std::construct_at(static_cast<DObject**>(Memory), nullptr);
+				if (bIsObjectPtrWrapper)
+					std::construct_at(static_cast<FObjectPtr*>(Memory));
+				else
+					std::construct_at(static_cast<DObject**>(Memory), nullptr);
 				break;
 			default: std::memset(Memory, 0, GetValueSize()); break;
 			}
@@ -402,8 +414,10 @@ namespace Durin
 		if (OutError) OutError->clear();
 		if (!Destination || !Source || !CanCopyConstructValue() || !CanDestroyValue())
 			return ReportUnavailablePropertyOperation(this, "CopyConstruct", OutError);
-		if (DStruct* Struct = GetPropertyStruct(this)) Struct->GetOps().CopyConstruct(Destination, Source);
-		else CopyConstructValueFunction(Destination, Source);
+		if (DStruct* Struct = GetPropertyStruct(this))
+			Struct->GetOps().CopyConstruct(Destination, Source);
+		else
+			CopyConstructValueFunction(Destination, Source);
 		return true;
 	}
 
@@ -412,8 +426,10 @@ namespace Durin
 		if (OutError) OutError->clear();
 		if (!Destination || !Source || !CanCopyAssignValue())
 			return ReportUnavailablePropertyOperation(this, "CopyAssign", OutError);
-		if (DStruct* Struct = GetPropertyStruct(this)) Struct->GetOps().CopyAssign(Destination, Source);
-		else CopyAssignValueFunction(Destination, Source);
+		if (DStruct* Struct = GetPropertyStruct(this))
+			Struct->GetOps().CopyAssign(Destination, Source);
+		else
+			CopyAssignValueFunction(Destination, Source);
 		return true;
 	}
 
@@ -456,7 +472,8 @@ namespace Durin
 	auto FReflectedValueStorage::Allocate(
 		const FProperty* InProperty,
 		uint32 InArrayIndex,
-		std::string* OutError) -> bool
+		std::string* OutError
+	) -> bool
 	{
 		if (!InProperty || InProperty->HasValueAccessors()
 			|| InArrayIndex >= InProperty->GetArrayDim()
@@ -470,10 +487,7 @@ namespace Durin
 		Property = InProperty;
 		ArrayIndex = InArrayIndex;
 		Alignment = std::max<size_t>(InProperty->GetValueAlignment(), __STDCPP_DEFAULT_NEW_ALIGNMENT__);
-		const size_t Size = std::max<size_t>(1,
-			static_cast<size_t>(InProperty->GetOffset())
-			+ static_cast<size_t>(InProperty->GetElementSize()) * static_cast<size_t>(InArrayIndex)
-			+ static_cast<size_t>(InProperty->GetValueSize()));
+		const size_t Size = std::max<size_t>(1, static_cast<size_t>(InProperty->GetOffset()) + static_cast<size_t>(InProperty->GetElementSize()) * static_cast<size_t>(InArrayIndex) + static_cast<size_t>(InProperty->GetValueSize()));
 		Memory = ::operator new(Size, std::align_val_t(Alignment));
 		Value = InProperty->GetValuePtr(Memory, InArrayIndex);
 		return true;
@@ -482,7 +496,8 @@ namespace Durin
 	auto FReflectedValueStorage::DefaultConstruct(
 		const FProperty* InProperty,
 		uint32 InArrayIndex,
-		std::string* OutError) -> bool
+		std::string* OutError
+	) -> bool
 	{
 		if (OutError) OutError->clear();
 		if (Memory || bLive)
@@ -508,7 +523,8 @@ namespace Durin
 		const FProperty* InProperty,
 		const void* SourceValue,
 		uint32 InArrayIndex,
-		std::string* OutError) -> bool
+		std::string* OutError
+	) -> bool
 	{
 		if (OutError) OutError->clear();
 		if (Memory || bLive || !InProperty || !SourceValue
@@ -557,10 +573,12 @@ namespace Durin
 		const void* LeftContainer,
 		uint32 LeftArrayIndex,
 		const void* RightContainer,
-		uint32 RightArrayIndex) -> bool
+		uint32 RightArrayIndex
+	) -> bool
 	{
 		return ArePropertyValuesIdenticalImpl(
-			Property, LeftContainer, LeftArrayIndex, RightContainer, RightArrayIndex);
+			Property, LeftContainer, LeftArrayIndex, RightContainer, RightArrayIndex
+		);
 	}
 
 	FNumericProperty::FNumericProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
@@ -760,42 +778,25 @@ namespace Durin
 		uint16 InElementSize,
 		DurinCodeGen::EPropertyGenFlags InKind,
 		DClass* InReferencedClass,
-		bool bInIsObjectPtrWrapper
+		bool bInIsObjectPtrWrapper,
+		FReadObjectValue InReadObjectValue,
+		FWriteObjectValue InWriteObjectValue
 	)
 		: FProperty(InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset, InElementSize, InKind, InReferencedClass, bInIsObjectPtrWrapper)
+		, ReadObjectValue(InReadObjectValue)
+		, WriteObjectValue(InWriteObjectValue)
 	{
 		ClassPrivate = StaticClass();
 	}
 
 	auto FObjectProperty::GetObjectPropertyValue(const void* Container, uint32 ArrayIndex) const -> DObject*
 	{
-		if (IsObjectPtrWrapper())
-		{
-			const FObjectPtr* ValuePtr = ContainerPtrToValuePtr<FObjectPtr>(Container, ArrayIndex);
-			return ValuePtr ? ValuePtr->Get() : nullptr;
-		}
-
-		DObject* const* ValuePtr = ContainerPtrToValuePtr<DObject*>(Container, ArrayIndex);
-		return ValuePtr ? *ValuePtr : nullptr;
+		return ReadObjectValue ? ReadObjectValue(GetValuePtr(Container, ArrayIndex)) : nullptr;
 	}
 
 	auto FObjectProperty::SetObjectPropertyValue(void* Container, DObject* Value, uint32 ArrayIndex) const -> void
 	{
-		if (IsObjectPtrWrapper())
-		{
-			FObjectPtr* ValuePtr = ContainerPtrToValuePtr<FObjectPtr>(Container, ArrayIndex);
-			if (ValuePtr)
-			{
-				ValuePtr->SetObject(Value);
-			}
-			return;
-		}
-
-		DObject** ValuePtr = ContainerPtrToValuePtr<DObject*>(Container, ArrayIndex);
-		if (ValuePtr)
-		{
-			*ValuePtr = Value;
-		}
+		if (WriteObjectValue) WriteObjectValue(GetValuePtr(Container, ArrayIndex), Value);
 	}
 
 	FSoftObjectProperty::FSoftObjectProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
@@ -817,8 +818,8 @@ namespace Durin
 		FConstSoftValueAccessor InConstSoftValueAccessor
 	)
 		: FProperty(
-			InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset,
-			InElementSize, DurinCodeGen::EPropertyGenFlags::SoftObject, InExpectedClass)
+			  InOwner, InName, InObjectFlags, InPropertyFlags, InArrayDim, InOffset, InElementSize, DurinCodeGen::EPropertyGenFlags::SoftObject, InExpectedClass
+		  )
 		, MutableSoftValueAccessor(InMutableSoftValueAccessor)
 		, ConstSoftValueAccessor(InConstSoftValueAccessor)
 	{
@@ -827,16 +828,12 @@ namespace Durin
 
 	auto FSoftObjectProperty::GetSoftObjectPtr(void* Container, uint32 ArrayIndex) const -> FSoftObjectPtr*
 	{
-		return Container && MutableSoftValueAccessor
-			? MutableSoftValueAccessor(GetValuePtr(Container, ArrayIndex))
-			: nullptr;
+		return Container && MutableSoftValueAccessor ? MutableSoftValueAccessor(GetValuePtr(Container, ArrayIndex)) : nullptr;
 	}
 
 	auto FSoftObjectProperty::GetSoftObjectPtr(const void* Container, uint32 ArrayIndex) const -> const FSoftObjectPtr*
 	{
-		return Container && ConstSoftValueAccessor
-			? ConstSoftValueAccessor(GetValuePtr(Container, ArrayIndex))
-			: nullptr;
+		return Container && ConstSoftValueAccessor ? ConstSoftValueAccessor(GetValuePtr(Container, ArrayIndex)) : nullptr;
 	}
 
 	FStructProperty::FStructProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags)
@@ -855,16 +852,16 @@ namespace Durin
 		DStruct* InStruct
 	)
 		: FProperty(
-			InOwner,
-			InName,
-			InObjectFlags,
-			InPropertyFlags,
-			InArrayDim,
-			InOffset,
-			static_cast<uint16>(InStruct->PropertiesSize),
-			DurinCodeGen::EPropertyGenFlags::Struct,
-			nullptr
-		)
+			  InOwner,
+			  InName,
+			  InObjectFlags,
+			  InPropertyFlags,
+			  InArrayDim,
+			  InOffset,
+			  static_cast<uint16>(InStruct->PropertiesSize),
+			  DurinCodeGen::EPropertyGenFlags::Struct,
+			  nullptr
+		  )
 		, Struct(InStruct)
 	{
 		ClassPrivate = StaticClass();
@@ -1082,7 +1079,8 @@ namespace Durin
 		const void* Key,
 		const void* Value,
 		uint32 ArrayIndex,
-		std::string* OutError) const -> bool
+		std::string* OutError
+	) const -> bool
 	{
 		if (OutError) OutError->clear();
 		if (!Container || !Key || !Value || !KeyProp || !ValueProp) return false;
@@ -1095,13 +1093,18 @@ namespace Durin
 			return ReportUnavailablePropertyOperation(ValueProp, "CopyConstruct/CopyAssign", OutError);
 		return true;
 	}
-	auto FMapProperty::Contains(const void* Container, const void* Key, uint32 ArrayIndex) const -> bool { const void* Value = nullptr; return FindValue(Container, Key, &Value, ArrayIndex) == EContainerOpResult::Success; }
+	auto FMapProperty::Contains(const void* Container, const void* Key, uint32 ArrayIndex) const -> bool
+	{
+		const void* Value = nullptr;
+		return FindValue(Container, Key, &Value, ArrayIndex) == EContainerOpResult::Success;
+	}
 	auto FMapProperty::RenameKey(
 		void* Container,
 		const void* OldKey,
 		const void* NewKey,
 		uint32 ArrayIndex,
-		std::string* OutError) const -> bool
+		std::string* OutError
+	) const -> bool
 	{
 		if (OutError) OutError->clear();
 		if (!Container || !OldKey || !NewKey || !KeyProp) return false;
@@ -1148,14 +1151,15 @@ namespace Durin
 			if (OutError) *OutError = Message;
 			return false;
 		}
-	}
+	} // namespace
 
 	auto BuildCanonicalMapKeyToken(
 		const FProperty* Property,
 		const void* Container,
 		uint32 ArrayIndex,
 		std::vector<uint8>& OutToken,
-		std::string* OutError) -> bool
+		std::string* OutError
+	) -> bool
 	{
 		if (OutError) OutError->clear();
 		if (!Property || !Container || ArrayIndex >= Property->GetArrayDim())
@@ -1177,65 +1181,103 @@ namespace Durin
 		case DurinCodeGen::EPropertyGenFlags::Float: AppendSortableFloat<float>(OutToken, Value); return true;
 		case DurinCodeGen::EPropertyGenFlags::Double: AppendSortableFloat<double>(OutToken, Value); return true;
 		case DurinCodeGen::EPropertyGenFlags::Enum:
-		{
-			const auto* Enum = static_cast<const FEnumProperty*>(Property);
-			const uint64 Raw = Enum->GetValueAsUInt64(Container, ArrayIndex);
-			switch (Enum->GetUnderlyingType())
 			{
-			case DurinCodeGen::EEnumUnderlyingType::Int8: { const int8 V = static_cast<int8>(Raw); AppendSortableInteger<int8>(OutToken, &V); return true; }
-			case DurinCodeGen::EEnumUnderlyingType::Int16: { const int16 V = static_cast<int16>(Raw); AppendSortableInteger<int16>(OutToken, &V); return true; }
-			case DurinCodeGen::EEnumUnderlyingType::Int32: { const int32 V = static_cast<int32>(Raw); AppendSortableInteger<int32>(OutToken, &V); return true; }
-			case DurinCodeGen::EEnumUnderlyingType::Int64: { const int64 V = static_cast<int64>(Raw); AppendSortableInteger<int64>(OutToken, &V); return true; }
-			case DurinCodeGen::EEnumUnderlyingType::UInt8: { const uint8 V = static_cast<uint8>(Raw); AppendSortableInteger<uint8>(OutToken, &V); return true; }
-			case DurinCodeGen::EEnumUnderlyingType::UInt16: { const uint16 V = static_cast<uint16>(Raw); AppendSortableInteger<uint16>(OutToken, &V); return true; }
-			case DurinCodeGen::EEnumUnderlyingType::UInt32: { const uint32 V = static_cast<uint32>(Raw); AppendSortableInteger<uint32>(OutToken, &V); return true; }
-			case DurinCodeGen::EEnumUnderlyingType::UInt64: AppendSortableInteger<uint64>(OutToken, &Raw); return true;
-			default: return FailCanonicalToken("CanonicalMapKeyUnsupported: enum underlying type is unknown.", OutError);
-			}
-		}
-		case DurinCodeGen::EPropertyGenFlags::String:
-		{
-			const auto& Text = *static_cast<const FStringProperty*>(Property)->GetStringValuePtr(Container, ArrayIndex);
-			AppendBigEndian(OutToken, static_cast<uint64>(Text.size()));
-			OutToken.insert(OutToken.end(), Text.begin(), Text.end());
-			return true;
-		}
-		case DurinCodeGen::EPropertyGenFlags::Name:
-		{
-			const FName& Name = *static_cast<const FNameProperty*>(Property)->GetNameValuePtr(Container, ArrayIndex);
-			const std::string Text = Name.GetComparisonNameEntry()->GetPlainNameString();
-			AppendBigEndian(OutToken, static_cast<uint64>(Text.size()));
-			OutToken.insert(OutToken.end(), Text.begin(), Text.end());
-			AppendBigEndian(OutToken, Name.GetNumber());
-			return true;
-		}
-		case DurinCodeGen::EPropertyGenFlags::Guid:
-		{
-			const FGuid& Guid = *static_cast<const FGuidProperty*>(Property)->GetGuidValuePtr(Container, ArrayIndex);
-			AppendBigEndian(OutToken, Guid.A); AppendBigEndian(OutToken, Guid.B);
-			AppendBigEndian(OutToken, Guid.C); AppendBigEndian(OutToken, Guid.D);
-			return true;
-		}
-		case DurinCodeGen::EPropertyGenFlags::Struct:
-		{
-			const auto* StructProperty = static_cast<const FStructProperty*>(Property);
-			DStruct* Struct = StructProperty->GetStruct();
-			if (!Struct || !Struct->HasCompleteAuthoredFields() || Struct->HasIdentical() || Struct->HasSerializer())
-				return FailCanonicalToken("CanonicalMapKeyUnsupported: struct key lacks complete reflected equality semantics.", OutError);
-			uint32 Ordinal = 0;
-			bool bSuccess = true;
-			Struct->ForEachProperty([&](FProperty* Field) {
-				const uint32 FieldOrdinal = Ordinal++;
-				if (!bSuccess || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
-				for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim() && bSuccess; ++FieldIndex)
+				const auto* Enum = static_cast<const FEnumProperty*>(Property);
+				const uint64 Raw = Enum->GetValueAsUInt64(Container, ArrayIndex);
+				switch (Enum->GetUnderlyingType())
 				{
-					AppendBigEndian(OutToken, FieldOrdinal);
-					AppendBigEndian(OutToken, FieldIndex);
-					bSuccess = BuildCanonicalMapKeyToken(Field, Value, FieldIndex, OutToken, OutError);
+				case DurinCodeGen::EEnumUnderlyingType::Int8:
+					{
+						const int8 V = static_cast<int8>(Raw);
+						AppendSortableInteger<int8>(OutToken, &V);
+						return true;
+					}
+				case DurinCodeGen::EEnumUnderlyingType::Int16:
+					{
+						const int16 V = static_cast<int16>(Raw);
+						AppendSortableInteger<int16>(OutToken, &V);
+						return true;
+					}
+				case DurinCodeGen::EEnumUnderlyingType::Int32:
+					{
+						const int32 V = static_cast<int32>(Raw);
+						AppendSortableInteger<int32>(OutToken, &V);
+						return true;
+					}
+				case DurinCodeGen::EEnumUnderlyingType::Int64:
+					{
+						const int64 V = static_cast<int64>(Raw);
+						AppendSortableInteger<int64>(OutToken, &V);
+						return true;
+					}
+				case DurinCodeGen::EEnumUnderlyingType::UInt8:
+					{
+						const uint8 V = static_cast<uint8>(Raw);
+						AppendSortableInteger<uint8>(OutToken, &V);
+						return true;
+					}
+				case DurinCodeGen::EEnumUnderlyingType::UInt16:
+					{
+						const uint16 V = static_cast<uint16>(Raw);
+						AppendSortableInteger<uint16>(OutToken, &V);
+						return true;
+					}
+				case DurinCodeGen::EEnumUnderlyingType::UInt32:
+					{
+						const uint32 V = static_cast<uint32>(Raw);
+						AppendSortableInteger<uint32>(OutToken, &V);
+						return true;
+					}
+				case DurinCodeGen::EEnumUnderlyingType::UInt64: AppendSortableInteger<uint64>(OutToken, &Raw); return true;
+				default: return FailCanonicalToken("CanonicalMapKeyUnsupported: enum underlying type is unknown.", OutError);
 				}
-			}, false);
-			return bSuccess;
-		}
+			}
+		case DurinCodeGen::EPropertyGenFlags::String:
+			{
+				const auto& Text = *static_cast<const FStringProperty*>(Property)->GetStringValuePtr(Container, ArrayIndex);
+				AppendBigEndian(OutToken, static_cast<uint64>(Text.size()));
+				OutToken.insert(OutToken.end(), Text.begin(), Text.end());
+				return true;
+			}
+		case DurinCodeGen::EPropertyGenFlags::Name:
+			{
+				const FName& Name = *static_cast<const FNameProperty*>(Property)->GetNameValuePtr(Container, ArrayIndex);
+				const std::string Text = Name.GetComparisonNameEntry()->GetPlainNameString();
+				AppendBigEndian(OutToken, static_cast<uint64>(Text.size()));
+				OutToken.insert(OutToken.end(), Text.begin(), Text.end());
+				AppendBigEndian(OutToken, Name.GetNumber());
+				return true;
+			}
+		case DurinCodeGen::EPropertyGenFlags::Guid:
+			{
+				const FGuid& Guid = *static_cast<const FGuidProperty*>(Property)->GetGuidValuePtr(Container, ArrayIndex);
+				AppendBigEndian(OutToken, Guid.A);
+				AppendBigEndian(OutToken, Guid.B);
+				AppendBigEndian(OutToken, Guid.C);
+				AppendBigEndian(OutToken, Guid.D);
+				return true;
+			}
+		case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				const auto* StructProperty = static_cast<const FStructProperty*>(Property);
+				DStruct* Struct = StructProperty->GetStruct();
+				if (!Struct || !Struct->HasCompleteAuthoredFields() || Struct->HasIdentical() || Struct->HasSerializer())
+					return FailCanonicalToken("CanonicalMapKeyUnsupported: struct key lacks complete reflected equality semantics.", OutError);
+				uint32 Ordinal = 0;
+				bool bSuccess = true;
+				Struct->ForEachProperty([&](FProperty* Field) {
+					const uint32 FieldOrdinal = Ordinal++;
+					if (!bSuccess || !Field || Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+					for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim() && bSuccess; ++FieldIndex)
+					{
+						AppendBigEndian(OutToken, FieldOrdinal);
+						AppendBigEndian(OutToken, FieldIndex);
+						bSuccess = BuildCanonicalMapKeyToken(Field, Value, FieldIndex, OutToken, OutError);
+					}
+				},
+										false);
+				return bSuccess;
+			}
 		default:
 			return FailCanonicalToken("CanonicalMapKeyUnsupported: object and container keys are not canonicalizable.", OutError);
 		}
@@ -1264,20 +1306,21 @@ namespace Durin
 			return true;
 		case DurinCodeGen::EPropertyGenFlags::Enum:
 			return static_cast<const FEnumProperty*>(Property)->GetUnderlyingType()
-				!= DurinCodeGen::EEnumUnderlyingType::Unknown
-				|| FailCanonicalToken("CanonicalMapKeyUnsupported: enum underlying type is unknown.", OutError);
+					   != DurinCodeGen::EEnumUnderlyingType::Unknown
+				   || FailCanonicalToken("CanonicalMapKeyUnsupported: enum underlying type is unknown.", OutError);
 		case DurinCodeGen::EPropertyGenFlags::Struct:
-		{
-			DStruct* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
-			if (!Struct || !Struct->HasCompleteAuthoredFields() || Struct->HasIdentical() || Struct->HasSerializer())
-				return FailCanonicalToken("CanonicalMapKeyUnsupported: struct key lacks complete reflected equality semantics.", OutError);
-			bool bSupported = true;
-			Struct->ForEachProperty([&](FProperty* Field) {
-				if (bSupported && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
-					bSupported = ValidateCanonicalMapKeyProperty(Field, OutError);
-			}, false);
-			return bSupported;
-		}
+			{
+				DStruct* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
+				if (!Struct || !Struct->HasCompleteAuthoredFields() || Struct->HasIdentical() || Struct->HasSerializer())
+					return FailCanonicalToken("CanonicalMapKeyUnsupported: struct key lacks complete reflected equality semantics.", OutError);
+				bool bSupported = true;
+				Struct->ForEachProperty([&](FProperty* Field) {
+					if (bSupported && Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient))
+						bSupported = ValidateCanonicalMapKeyProperty(Field, OutError);
+				},
+										false);
+				return bSupported;
+			}
 		default:
 			return FailCanonicalToken("CanonicalMapKeyUnsupported: object and container keys are not canonicalizable.", OutError);
 		}
@@ -1323,8 +1366,9 @@ namespace Durin
 				Struct->ForEachProperty([&](FProperty* Field) {
 					Visitor(Field);
 					ForEachNestedProperty(Field, Visitor);
-				}, false);
+				},
+										false);
 			}
 		}
 	}
-}
+} // namespace Durin

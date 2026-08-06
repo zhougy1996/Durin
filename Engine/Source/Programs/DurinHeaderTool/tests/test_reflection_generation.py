@@ -181,6 +181,21 @@ namespace Fixture
 
         DPROPERTY()
         std::vector<Durin::FGuid> RelatedIds;
+
+        DPROPERTY(Edit, MetaData = "Role=Primary")
+        std::string Label;
+
+        DPROPERTY()
+        float Weights[2]{};
+
+        DPROPERTY()
+        EFixtureMode Mode = EFixtureMode::Disabled;
+
+        DPROPERTY()
+        Durin::DObject* RawReference = nullptr;
+
+        DPROPERTY()
+        Durin::TObjectPtr<Durin::DObject> StrongReference;
     };
 
     DCLASS(Abstract, DisplayName = "Abstract Actor")
@@ -600,7 +615,7 @@ struct Durin::TDStructOpsTraits<Fixture::FMalformedEquality>
     def test_class_display_and_default_object_name_metadata(self):
         assert '"Fixture::ASampleActor",' in self.generated_cpp
         assert '"ASampleActor",' in self.generated_cpp
-        assert '5,\n\t"Sample Actor",' in self.generated_cpp
+        assert '10,\n\t"Sample Actor",' in self.generated_cpp
         assert '"Sample Actor",' in self.generated_cpp
         assert '"SampleActor"' in self.generated_cpp
 
@@ -1000,13 +1015,100 @@ namespace Beta
 
     def test_fname_property_is_generated(self):
         assert "Durin::DurinCodeGen::FNamePropertyParams NewProp_Identifier" in self.generated_cpp
-        assert "Durin::DurinCodeGen::EPropertyGenFlags::Name" in self.generated_cpp
+        definition = next(
+            line for line in self.generated_cpp.splitlines()
+            if "ASampleActor_Statics::NewProp_Identifier =" in line
+        )
+        assert definition.endswith(
+            'NewProp_Identifier = { "Identifier", Durin::EPropertyFlags::Edit, 1, '
+            'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Identifier)) };'
+        )
+        assert "EPropertyGenFlags" not in definition
 
     def test_guid_properties_are_generated_directly_and_in_arrays(self):
         assert "Durin::DurinCodeGen::FGuidPropertyParams NewProp_PersistentId" in self.generated_cpp
-        assert "Durin::DurinCodeGen::EPropertyGenFlags::Guid" in self.generated_cpp
         assert "Durin::DurinCodeGen::FArrayPropertyParams NewProp_RelatedIds" in self.generated_cpp
         assert "Durin::DurinCodeGen::FGuidPropertyParams NewProp_RelatedIds_Inner" in self.generated_cpp
+        direct = next(
+            line for line in self.generated_cpp.splitlines()
+            if "ASampleActor_Statics::NewProp_PersistentId =" in line
+        )
+        nested = next(
+            line for line in self.generated_cpp.splitlines()
+            if "ASampleActor_Statics::NewProp_RelatedIds_Inner =" in line
+        )
+        assert direct.endswith(
+            'NewProp_PersistentId = { "PersistentId", Durin::EPropertyFlags::Edit, 1, '
+            'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, PersistentId)) };'
+        )
+        assert nested.endswith(
+            'NewProp_RelatedIds_Inner = { "RelatedIds_Inner", Durin::EPropertyFlags::None, 1, 0 };'
+        )
+        for definition in (direct, nested):
+            assert "sizeof(" not in definition
+            assert "alignof(" not in definition
+            assert "EPropertyGenFlags" not in definition
+            assert "InitializePropertyValue" not in definition
+            assert "DestroyPropertyValue" not in definition
+
+    def test_leaf_property_forms_use_concise_typed_registration(self):
+        statics = "Z_Construct_DClass_Fixture_ASampleActor_Statics"
+        expected_suffixes = {
+            "Value": (
+                'NewProp_Value = { "Value", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::ReadOnly, 1, '
+                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Value)) };'
+            ),
+            "Weights": (
+                'NewProp_Weights = { "Weights", Durin::EPropertyFlags::None, 2, '
+                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Weights)) };'
+            ),
+            "Mode": (
+                'NewProp_Mode = { "Mode", Durin::EPropertyFlags::None, 1, '
+                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Mode)), '
+                'Z_Construct_DEnum_Fixture_EFixtureMode };'
+            ),
+            "RawReference": (
+                'NewProp_RawReference = Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>('
+                '"RawReference", Durin::EPropertyFlags::None, 1, '
+                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, RawReference)), '
+                'Z_Construct_DClass_Durin_DObject);'
+            ),
+            "StrongReference": (
+                'NewProp_StrongReference = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>('
+                '"StrongReference", Durin::EPropertyFlags::None, 1, '
+                'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, StrongReference)), '
+                'Z_Construct_DClass_Durin_DObject);'
+            ),
+        }
+        definitions = {}
+        for name, suffix in expected_suffixes.items():
+            definition = next(
+                line for line in self.generated_cpp.splitlines()
+                if f"{statics}::NewProp_{name} =" in line
+            )
+            assert definition.endswith(suffix)
+            definitions[name] = definition
+        label = next(
+            line for line in self.generated_cpp.splitlines()
+            if f"{statics}::NewProp_Label =" in line
+        )
+        assert label.endswith(
+            f'NewProp_Label = {{ "Label", Durin::EPropertyFlags::Edit, 1, '
+            f'static_cast<Durin::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Label)), '
+            f'{statics}::NewProp_Label_MetaData, 1 }};'
+        )
+        object_inner = next(
+            line for line in self.generated_cpp.splitlines()
+            if "AContainerShapes_Statics::NewProp_ObjectReferences_Inner =" in line
+        )
+        assert "FObjectPropertyParams::ObjectPtr<Durin::DObject>" in object_inner
+        assert '"ObjectReferences_Inner", Durin::EPropertyFlags::None, 1, 0,' in object_inner
+        for definition in (*definitions.values(), label, object_inner):
+            assert "sizeof(" not in definition
+            assert "alignof(" not in definition
+            assert "decltype" not in definition
+            assert "InitializePropertyValue" not in definition
+            assert "DestroyPropertyValue" not in definition
 
     def test_brace_initialized_intrinsic_struct_properties_are_generated(self):
         for property_name in ("Position", "Tangent"):

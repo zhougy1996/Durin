@@ -182,6 +182,9 @@ namespace Durin
 	{
 		DECLARE_FIELD(FObjectProperty, FProperty, EClassCastFlags::FObjectProperty, COREDOBJECT_API)
 	public:
+		using FReadObjectValue = DurinCodeGen::FObjectPropertyParams::FReadObjectValue;
+		using FWriteObjectValue = DurinCodeGen::FObjectPropertyParams::FWriteObjectValue;
+
 		COREDOBJECT_API FObjectProperty(FFieldVariant InOwner, FName InName, EObjectFlags InObjectFlags);
 
 		COREDOBJECT_API FObjectProperty(
@@ -194,11 +197,17 @@ namespace Durin
 			uint16 InElementSize,
 			DurinCodeGen::EPropertyGenFlags InKind,
 			DClass* InReferencedClass,
-			bool bInIsObjectPtrWrapper = false
+			bool bInIsObjectPtrWrapper,
+			FReadObjectValue InReadObjectValue,
+			FWriteObjectValue InWriteObjectValue
 		);
 
 		COREDOBJECT_API auto GetObjectPropertyValue(const void* Container, uint32 ArrayIndex = 0) const -> DObject*;
 		COREDOBJECT_API auto SetObjectPropertyValue(void* Container, DObject* Value, uint32 ArrayIndex = 0) const -> void;
+
+	private:
+		FReadObjectValue ReadObjectValue = nullptr;
+		FWriteObjectValue WriteObjectValue = nullptr;
 	};
 
 	// Describes a typed soft object reference. Its weak cache is never a GC edge.
@@ -293,7 +302,8 @@ namespace Durin
 		COREDOBJECT_API auto GetElementPtr(const void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> const void*;
 		COREDOBJECT_API auto GetMutableElementPtr(void* Container, uint64 Index, uint32 ArrayIndex = 0) const -> void*;
 		COREDOBJECT_API auto Resize(
-			void* Container, uint64 Num, uint32 ArrayIndex = 0, std::string* OutError = nullptr) const -> bool;
+			void* Container, uint64 Num, uint32 ArrayIndex = 0, std::string* OutError = nullptr
+		) const -> bool;
 
 	private:
 		FProperty* Inner = nullptr;
@@ -341,12 +351,12 @@ namespace Durin
 		COREDOBJECT_API auto Num(const void* Container, uint32 ArrayIndex = 0) const -> uint64;
 		COREDOBJECT_API auto Clear(void* Container, uint32 ArrayIndex = 0) const -> void;
 		COREDOBJECT_API auto Insert(
-			void* Container, const void* Key, const void* Value,
-			uint32 ArrayIndex = 0, std::string* OutError = nullptr) const -> bool;
+			void* Container, const void* Key, const void* Value, uint32 ArrayIndex = 0, std::string* OutError = nullptr
+		) const -> bool;
 		COREDOBJECT_API auto Contains(const void* Container, const void* Key, uint32 ArrayIndex = 0) const -> bool;
 		COREDOBJECT_API auto RenameKey(
-			void* Container, const void* OldKey, const void* NewKey,
-			uint32 ArrayIndex = 0, std::string* OutError = nullptr) const -> bool;
+			void* Container, const void* OldKey, const void* NewKey, uint32 ArrayIndex = 0, std::string* OutError = nullptr
+		) const -> bool;
 		COREDOBJECT_API auto Remove(void* Container, const void* Key, uint32 ArrayIndex = 0) const -> bool;
 
 	private:

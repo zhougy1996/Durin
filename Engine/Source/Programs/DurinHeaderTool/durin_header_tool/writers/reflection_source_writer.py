@@ -564,34 +564,37 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
             f"{referenced_class_helper}{metadata_arguments});\n"
         )
         return content
-    referenced_class_helper = "nullptr"
-    if prop.referenced_type:
-        referenced_symbol = symbols.get(prop.referenced_type)
-        if referenced_symbol:
-            referenced_class_helper = referenced_symbol.GeneratedHelperName
-    referenced_enum_helper = "nullptr"
-    if prop.referenced_enum_type:
-        referenced_symbol = symbols.get(prop.referenced_enum_type)
-        if referenced_symbol:
-            referenced_enum_helper = referenced_symbol.GeneratedHelperName
-    referenced_struct_helper = "nullptr"
-    if prop.referenced_struct_type:
-        referenced_symbol = symbols.get(prop.referenced_struct_type)
-        if referenced_symbol:
-            referenced_struct_helper = referenced_symbol.GeneratedHelperName
-    element_size = f"sizeof(decltype((({class_info.qualified_name}*)0)->{prop.name}))" if prop.element_size == "sizeof_self" else prop.element_size
-    value_type = _cpp_type_spelling(prop.type_name, symbols) if nested else f"std::remove_extent_t<decltype((({class_info.qualified_name}*)0)->{prop.name})>"
-    initialize_value = f"&Durin::DurinCodeGen::InitializePropertyValue<{value_type}>"
-    destroy_value = f"&Durin::DurinCodeGen::DestroyPropertyValue<{value_type}>"
+    metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
+    if prop.kind == "Enum":
+        referenced_enum_helper = "nullptr"
+        if prop.referenced_enum_type:
+            referenced_symbol = symbols.get(prop.referenced_enum_type)
+            if referenced_symbol:
+                referenced_enum_helper = referenced_symbol.GeneratedHelperName
+        content += (
+            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
+            f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, "
+            f"{referenced_enum_helper}{metadata_arguments} }};\n"
+        )
+        return content
+    if prop.kind == "Object":
+        referenced_class_helper = "nullptr"
+        if prop.referenced_type:
+            referenced_symbol = symbols.get(prop.referenced_type)
+            if referenced_symbol:
+                referenced_class_helper = referenced_symbol.GeneratedHelperName
+        target_type = _cpp_type_spelling(prop.referenced_type, symbols)
+        factory = "ObjectPtr" if prop.is_object_ptr_wrapper else "Raw"
+        content += (
+            f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
+            f"Durin::DurinCodeGen::{param_type}::{factory}<{target_type}>("
+            f"\"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, "
+            f"{referenced_class_helper}{metadata_arguments});\n"
+        )
+        return content
     content += (
         f"const Durin::DurinCodeGen::{param_type} {class_info.generated_statics_name}::NewProp_{prop.name} = "
-        f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, "
-        f"{offset}, "
-        f"static_cast<Durin::uint16>({element_size}), "
-        f"Durin::DurinCodeGen::EPropertyGenFlags::{prop.kind}, {referenced_class_helper}, {referenced_enum_helper}, {inner}, {key}, {value}, "
-        f"{_bool_literal(prop.is_object_ptr_wrapper)}, {referenced_struct_helper}, nullptr, nullptr, "
-        f"{metadata_ref}, {metadata_count}, sizeof({value_type}), alignof({value_type}), "
-        f"{initialize_value}, {destroy_value} }};\n"
+        f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}{metadata_arguments} }};\n"
     )
     return content
 
