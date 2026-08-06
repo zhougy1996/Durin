@@ -130,8 +130,7 @@ namespace Durin
 			*Context,
 			SessionSettings,
 			*SceneViewportPanel,
-			DefaultLevel,
-			[this] { return SaveProjectSettings(); }
+			GEditor->GetTransactionManager()
 		);
 
 		DocumentController = std::make_unique<FLevelDocumentController>(

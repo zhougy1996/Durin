@@ -38,7 +38,7 @@ from whether a path happens to be available:
 | --- | --- | --- |
 | Reflected `TObjectPtr<T>` | The owner requires the target object/package to be loaded and retained. | Serializes as a hard package dependency, resolves redirectors before eager loading, participates in GC, blocks final target-package unload, and blocks target deletion from outside the deletion set. |
 | `TWeakObjectPtr<T>` | Code needs a non-owning handle to an object that is already loaded, such as editor selection or a transient cache. | Stores no durable asset identity, is not a reflected property kind, does not retain the target, and becomes invalid when the object is retired. |
-| Reflected `TSoftObjectPtr<T>` | Authored data needs a typed package-main-asset identity without eager loading or retention. | Serializes only the canonical path, has a non-owning loaded-object cache, contributes no hard dependency or unload blocker, follows target moves, and may remain dangling after deletion. |
+| Reflected `TSoftObjectPtr<T>` | Authored data needs a typed package-main-asset identity without eager loading or retention. | Serializes only the authored path, has a non-owning loaded-object cache, contributes no hard dependency or unload blocker, follows relocation aliases without rewriting its identity, and may remain dangling after deletion. |
 | `FAssetPath` or a path string | A service, document, import/source record, thumbnail key, or external setting needs identity but is not itself a reflected object reference. | The owning subsystem defines validation, persistence, move, and load behavior explicitly. Do not load an object merely to recover its path. |
 
 `FSoftObjectPath::TryCreate(...)` validates nullable persistent identity.
@@ -67,14 +67,18 @@ resolution, deterministic direct reverse lookup, `FindSoftReferencers(...)`,
 queries. Redirect resolution follows at most 32 aliases and reports missing
 requests, missing targets, cycles, depth overflow, unknown final classes, type
 mismatch, and corrupt redirect metadata without changing runtime residency.
-Persistent settings outside packages that must follow target moves register an
-`FAssetMoveExternalStore`; ordinary service paths do not gain move behavior
-merely because they use `FAssetPath`.
+Relocation uses only `AnalyzeAssetRelocationBatch`,
+`RevalidateAssetRelocationBatch`, `ApplyAssetRelocationBatch`, and
+`RestoreAssetRelocationBatch`. Persistent settings and import records keep
+their authored paths and resolve aliases at use sites; relocation never reads
+or saves an arbitrary external store.
 
 ## File Format
 
 Every authored or cooked `.dasset`, regardless of its main asset class, uses the
-same DAST object-package envelope. AssetCore reads v2 and v3 and writes v3.
+same DAST object-package envelope. AssetCore reads v2 and v3, and authorized
+package saves write v3. Relocation preserves the source package version while
+changing only the main-object name when a rename requires it.
 Both headers record the `DAST` magic, format version, main asset class,
 dependencies, and object count. V3 additionally stores a bounded registry-entry
 kind and redirect destination immediately after the class name. An ordinary
@@ -305,7 +309,7 @@ owner objects, invoking `PostLoad`, resolving targets, or changing residency.
 It accepts at most four container levels, 100,000 occurrences per package,
 1,000,000 occurrences per snapshot, 1 MiB paths and Map-key tokens, and 4 KiB
 display paths. Cache miss, fingerprint change, full validation, schema change,
-or corrupt cache re-extracts the authoritative package; save, source move,
+or corrupt cache re-extracts the authoritative package; save, source relocation,
 source deletion, and registry reconciliation update or invalidate the affected
 source projection. A failed source extraction publishes no partial source
 entry.
@@ -316,15 +320,28 @@ registered class satisfies the recorded expected class, and terminates cycles
 through its visited set. This Cook graph does not alter runtime loading or
 unload guards, which continue to use only package-header hard dependencies.
 
-Target moves require a complete soft-reference index. Loaded packages are
-repaired through their live reflected values and saved from memory; their weak
-caches are invalidated when the path changes. Unloaded referencers are checked
-against the index's complete content fingerprint and rewritten by parsing their
-tagged DAST fields, without constructing objects or calling `PostLoad`. Target
-bytes, hard and soft referencers, registry/index publication, companion files,
-and registered external stores commit together or restore from backups. A
-collision, stale fingerprint, read-only source, malformed payload, or external
-publication failure performs no partial identity change.
+Asset relocation is atomic and batched even for one mapping. Analysis captures
+the registry revision, exact participant fingerprints, loaded-package state,
+generated redirectors, and exclusively owned payload moves in a getter-only
+token. Apply prepares and journals every output, publishes real destinations,
+owned payloads, source and upstream redirectors, loaded package/object names,
+and the complete registry projection under one revision. Restore and Redo use
+the same retained token rather than computing reverse moves.
+
+A successful `A -> B` keeps a direct `A -> B` redirector. Moving `B -> C`
+retargets upstream aliases directly to `C`; moving back to an alias path may
+reclaim it only when exact resolution proves that it denotes the same real
+asset. Unrelated aliases and real assets remain hard collisions. Relocation
+does not consult reference-index completeness, load or save referencers,
+rewrite hard or soft authored paths, or modify project settings/import records.
+Stale tokens, read-only participants, collisions, staging failures, and
+publication failures either make no authoritative change or run reverse-order
+compensation; failed compensation retains an explicit recovery-required
+journal beneath every affected content mount. Its versioned entries record
+physical/staged paths, pre/post fingerprints, publication order, and
+completed/compensated state. An extensionless locator beneath
+`Saved/AssetMutationRecovery` names those roots for recovery tooling but is not
+authoritative data.
 
 Deletion deliberately remains a hard-reference-only transaction. It does not
 query or snapshot the soft index, rewrite source packages, or add soft paths to

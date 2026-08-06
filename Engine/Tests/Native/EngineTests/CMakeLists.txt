@@ -116,6 +116,7 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		Private/SourceLibraryReferenceContractTests.cpp
 		Private/SourceReferenceIndexTests.cpp
 	PRIVATE_SOURCES
+		${_durin_level_editor_private}/Assets/AssetRelocationTransaction.cpp
 		${_durin_level_editor_private}/Assets/AssetDestinationValidation.cpp
 		${_durin_level_editor_private}/Assets/ImportDialogState.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp

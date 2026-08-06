@@ -580,12 +580,7 @@ namespace Durin
 	DTextureCube::DTextureCube(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
-		static const bool RegisteredAssetContributors = [] {
-			Asset::RegisterAssetMoveContributor(DTextureCube::StaticClass(), [](DObject*, const FAssetPath&, const FAssetPath&,
-				Asset::FAssetMoveContribution&) -> Asset::FAssetResult {
-				// Portable mounted-source provenance is independent of package placement.
-				return {};
-			});
+		static const bool RegisteredDeleteContributor = [] {
 			Asset::RegisterAssetDeleteContributor(DTextureCube::StaticClass(), [](const Asset::FAssetData&,
 				const Asset::FAssetPackageInspection&, Asset::FAssetDeleteContribution&) -> Asset::FAssetResult {
 				// Mounted sources may be shared and require a separate, explicit source operation.
@@ -593,7 +588,7 @@ namespace Durin
 			});
 			return true;
 		}();
-		(void)RegisteredAssetContributors;
+		(void)RegisteredDeleteContributor;
 	}
 
 	DTextureCube::~DTextureCube() = default;

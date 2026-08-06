@@ -309,7 +309,9 @@ namespace Durin
 			return true;
 		}
 
-		const Asset::FAssetResult MoveResult = AssetMoveCoordinator.MoveAsset(OldPath, NewPath);
+		const FEditorAssetMove Move{OldPath, NewPath};
+		const Asset::FAssetResult MoveResult =
+			AssetMoveCoordinator.MoveAssets(std::span{&Move, 1});
 		FLevelDocumentRevisionState::CompleteSave(
 			GetLevelTransactions(), *Package, static_cast<bool>(MoveResult)
 		);

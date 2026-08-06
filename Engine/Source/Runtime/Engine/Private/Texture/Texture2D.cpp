@@ -300,12 +300,7 @@ namespace Durin
 	DTexture2D::DTexture2D(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
-		static const bool RegisteredAssetContributors = [] {
-			Asset::RegisterAssetMoveContributor(DTexture2D::StaticClass(), [](DObject*, const FAssetPath&, const FAssetPath&,
-				Asset::FAssetMoveContribution&) -> Asset::FAssetResult {
-				// Portable mounted-source provenance is independent of package placement.
-				return {};
-			});
+		static const bool RegisteredDeleteContributor = [] {
 			Asset::RegisterAssetDeleteContributor(DTexture2D::StaticClass(), [](const Asset::FAssetData&,
 				const Asset::FAssetPackageInspection&, Asset::FAssetDeleteContribution&) -> Asset::FAssetResult {
 				// Mounted sources may be shared and require a separate, explicit source operation.
@@ -313,7 +308,7 @@ namespace Durin
 			});
 			return true;
 		}();
-		(void)RegisteredAssetContributors;
+		(void)RegisteredDeleteContributor;
 	}
 
 	DTexture2D::~DTexture2D() = default;

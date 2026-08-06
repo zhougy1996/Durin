@@ -14,6 +14,21 @@
 
 namespace
 {
+	auto RelocateAssetForTest(
+		const Durin::FAssetPath& Source,
+		const Durin::FAssetPath& Destination) -> Durin::Asset::FAssetResult
+	{
+		const Durin::Asset::FAssetRelocationMapping Mapping{
+			Source, Destination};
+		Durin::Asset::FAssetRelocationBatchToken Token;
+		Durin::Asset::FAssetResult Result =
+			Durin::Asset::AnalyzeAssetRelocationBatch(
+				std::span{&Mapping, 1}, Token);
+		if (Result) Result = Durin::Asset::RevalidateAssetRelocationBatch(Token);
+		if (Result) Result = Durin::Asset::ApplyAssetRelocationBatch(Token);
+		return Result;
+	}
+
 	class FImportProgressRecorder final
 		: public Durin::AssetImport::IImportProgressReporter
 	{
@@ -526,10 +541,10 @@ TEST(FImportRecordFrameworkTests, PersistsHeterogeneousPeersAcrossReloadMoveAndP
 	EXPECT_EQ(Index.FindRecordOutputs(Scenario.RecordPath).size(), 2u);
 
 	const Durin::FAssetPath MovedPath = MakePath(Scenario.OutputRoot + "/PrimaryMoved");
-	ASSERT_TRUE(Durin::Asset::MoveAsset(Scenario.PrimaryPath, MovedPath));
-	EXPECT_EQ(Reloaded->GetPrimaryOutput(), MovedPath);
+	ASSERT_TRUE(RelocateAssetForTest(Scenario.PrimaryPath, MovedPath));
+	EXPECT_EQ(Reloaded->GetPrimaryOutput(), Scenario.PrimaryPath);
 	EXPECT_TRUE(std::ranges::any_of(Reloaded->GetOutputs(), [&](const auto& Output) {
-		return Output.AssetPath == MovedPath;
+		return Output.AssetPath == Scenario.PrimaryPath;
 	}));
 	std::string Error;
 	ASSERT_TRUE(Index.Rebuild(Error)) << Error;

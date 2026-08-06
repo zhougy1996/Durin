@@ -289,23 +289,49 @@ namespace Durin::Asset
 				|| ErrorCode.value() == 3;
 		}
 
-		auto GetMoveContributors() -> std::unordered_map<DClass*, FAssetMoveContributor>&
+		auto GetOwnedPayloadRelocators()
+			-> std::unordered_map<DClass*, FAssetOwnedPayloadRelocator>&
 		{
-			static std::unordered_map<DClass*, FAssetMoveContributor> Contributors;
-			return Contributors;
+			static std::unordered_map<DClass*, FAssetOwnedPayloadRelocator> Relocators;
+			return Relocators;
 		}
 
-		auto GetMoveExternalStores()
-			-> std::map<FAssetMoveExternalStoreHandle, FAssetMoveExternalStore>&
+		auto GetMoveObservers()
+			-> std::map<FAssetMoveObserverHandle, IAssetMoveObserver*>&
 		{
-			static std::map<FAssetMoveExternalStoreHandle, FAssetMoveExternalStore> Stores;
-			return Stores;
+			static std::map<FAssetMoveObserverHandle, IAssetMoveObserver*> Observers;
+			return Observers;
 		}
 
-		auto NextMoveExternalStoreHandle() -> FAssetMoveExternalStoreHandle&
+		auto NextMoveObserverHandle() -> FAssetMoveObserverHandle&
 		{
-			static FAssetMoveExternalStoreHandle Handle = 1;
+			static FAssetMoveObserverHandle Handle = 1;
 			return Handle;
+		}
+
+		struct FRelocationFailureInjection
+		{
+			std::map<EAssetRelocationFailurePoint, uint32> RemainingOccurrences;
+		};
+
+		auto GetRelocationFailureInjection() -> FRelocationFailureInjection&
+		{
+			static FRelocationFailureInjection Injection;
+			return Injection;
+		}
+
+		auto ConsumeRelocationFailure(
+			EAssetRelocationFailurePoint Point) -> bool
+		{
+			FRelocationFailureInjection& Injection =
+				GetRelocationFailureInjection();
+			auto Injected = Injection.RemainingOccurrences.find(Point);
+			if (Injected == Injection.RemainingOccurrences.end()
+				|| Injected->second == 0)
+				return false;
+			if (--Injected->second != 0) return false;
+			Injection.RemainingOccurrences.erase(Injected);
+			return true;
 		}
 
 		auto GetDeleteContributors() -> std::unordered_map<DClass*, FAssetDeleteContributor>&
@@ -1019,10 +1045,13 @@ namespace Durin::Asset
 		auto WritePackageFile(const FPackageFile& File, FByteWriter& Writer) -> void
 		{
 			Writer.Write(AssetMagic);
-			Writer.Write(AssetVersion);
+			Writer.Write(File.FormatVersion);
 			Writer.WriteString(File.AssetClassName);
-			Writer.Write(uint8(File.EntryKind));
-			Writer.WriteString(File.RedirectDestination.GetView());
+			if (File.FormatVersion >= 3)
+			{
+				Writer.Write(uint8(File.EntryKind));
+				Writer.WriteString(File.RedirectDestination.GetView());
+			}
 			Writer.Write(uint64(File.Dependencies.size()));
 			for (const FAssetPath& Dependency : File.Dependencies) Writer.WriteString(Dependency.GetView());
 			Writer.Write(uint64(File.Objects.size()));
@@ -2945,25 +2974,42 @@ namespace Durin::Asset
 				.Upgrader = std::move(Upgrader)});
 	}
 
-	auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void
+	auto RegisterAssetOwnedPayloadRelocator(
+		DClass* Class,
+		FAssetOwnedPayloadRelocator Relocator) -> void
 	{
-		if (Class && Contributor) GetMoveContributors().insert_or_assign(Class, std::move(Contributor));
+		if (Class && Relocator)
+			GetOwnedPayloadRelocators().insert_or_assign(
+				Class, std::move(Relocator));
 	}
 
-	auto RegisterAssetMoveExternalStore(FAssetMoveExternalStore Store)
-		-> FAssetMoveExternalStoreHandle
+	auto RegisterAssetMoveObserver(IAssetMoveObserver* Observer)
+		-> FAssetMoveObserverHandle
 	{
-		if (!Store) return 0;
-		auto& NextHandle = NextMoveExternalStoreHandle();
-		const FAssetMoveExternalStoreHandle Handle = NextHandle++;
-		GetMoveExternalStores().emplace(Handle, std::move(Store));
+		if (!Observer) return 0;
+		auto& NextHandle = NextMoveObserverHandle();
+		const FAssetMoveObserverHandle Handle = NextHandle++;
+		GetMoveObservers().emplace(Handle, Observer);
 		return Handle;
 	}
 
-	auto UnregisterAssetMoveExternalStore(
-		FAssetMoveExternalStoreHandle Handle) -> void
+	auto UnregisterAssetMoveObserver(FAssetMoveObserverHandle Handle) -> void
 	{
-		if (Handle != 0) GetMoveExternalStores().erase(Handle);
+		if (Handle != 0) GetMoveObservers().erase(Handle);
+	}
+
+	auto SetAssetRelocationFailurePointForTesting(
+		EAssetRelocationFailurePoint Point,
+		uint32 Occurrence) -> void
+	{
+		auto& Injection = GetRelocationFailureInjection();
+		if (Point == EAssetRelocationFailurePoint::None)
+		{
+			Injection.RemainingOccurrences.clear();
+			return;
+		}
+		Injection.RemainingOccurrences.insert_or_assign(
+			Point, std::max(Occurrence, 1u));
 	}
 
 	auto RegisterAssetDeleteContributor(DClass* Class, FAssetDeleteContributor Contributor) -> void
@@ -3685,370 +3731,1178 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto FAssetManager::MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult
+	namespace
 	{
-		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
-			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit asset moves.");
-		if (!OldPath.IsValid() || !NewPath.IsValid() || OldPath == NewPath)
-			return Error(EAssetError::InvalidPath, "Asset move paths are invalid or identical.");
-		const FAssetData* SourceData = Registry.FindAsset(OldPath);
-		if (!SourceData)
-			return Error(EAssetError::NotFound,
-				std::format("Asset {} was not found.", OldPath.ToString()));
-		const std::filesystem::path OldFile(GetPhysicalPath(OldPath));
-		const std::filesystem::path NewFile(GetPhysicalPath(NewPath));
-		if (Registry.FindAsset(NewPath) || LoadedPackages.contains(NewPath)
-			|| std::filesystem::exists(NewFile))
-			return Error(EAssetError::AlreadyExists,
-				std::format("Asset {} already exists.", NewPath.ToString()));
-		if (!Registry.GetSoftReferenceErrors().empty())
-			return Error(EAssetError::InUse,
-				"SoftReferenceMoveIndexIncomplete: repair requires a complete soft-reference index.");
-
-		std::vector<FAssetPath> ReferrerPaths;
-		for (const auto& [Path, Data] : Registry.GetAssets())
-			if (Path != OldPath
-				&& std::ranges::find(Data.Dependencies, OldPath) != Data.Dependencies.end())
-				ReferrerPaths.push_back(Path);
-
-		DPackage* MovingPackage = nullptr;
-		FAssetResult Result = LoadPackageInternal(OldPath, MovingPackage);
-		if (!Result) return Result;
-		std::vector<DPackage*> Referrers;
-		for (const FAssetPath& Path : ReferrerPaths)
+		enum class EAssetMutationState : uint8
 		{
+			Planned,
+			Prepared,
+			Publishing,
+			Committed,
+			Compensating,
+			Restored,
+			RecoveryRequired,
+		};
+
+		enum class ERelocationPublicationRole : uint8
+		{
+			RealAsset,
+			OwnedPayload,
+			Redirector,
+		};
+
+		struct FAssetMutationJournalEntry
+		{
+			std::filesystem::path PhysicalPath;
+			FAssetPath RegistryPath;
+			ERelocationPublicationRole Role = ERelocationPublicationRole::RealAsset;
+			uint64 PublicationOrder = std::numeric_limits<uint64>::max();
+			bool bPreExists = false;
+			bool bPostExists = false;
+			bool bCompleted = false;
+			bool bCompensated = false;
+			std::filesystem::path StagedPrePath;
+			std::filesystem::path StagedPostPath;
+			FXxHash128 StagedPreHash;
+			FXxHash128 StagedPostHash;
+			FAssetPackageFingerprint ExpectedPreFingerprint;
+			FAssetPackageFingerprint ExpectedPostFingerprint;
+		};
+
+		// Retains every byte image required to compensate, undo, or redo one
+		// authored mutation. Recovery-required roots deliberately outlive tokens.
+		struct FAssetMutationJournal
+		{
+			std::string OperationId;
+			std::vector<std::filesystem::path> Roots;
+			std::filesystem::path LocatorPath;
+			std::vector<FAssetMutationJournalEntry> Entries;
+			EAssetMutationState State = EAssetMutationState::Planned;
+
+			~FAssetMutationJournal()
+			{
+				if (State == EAssetMutationState::RecoveryRequired) return;
+				const std::string ExpectedOwner = std::format(
+					"durin-asset-mutation\n{}\n", OperationId);
+				for (const std::filesystem::path& Root : Roots)
+				{
+					if (Root.filename() != std::format("operation-{}", OperationId)
+						|| Root.parent_path().filename() != ".durin-asset-mutation")
+						continue;
+					std::error_code ErrorCode;
+					if (!std::filesystem::is_regular_file(Root / "owner", ErrorCode))
+						continue;
+					std::vector<uint8> OwnerBytes;
+					if (!FFileHelper::LoadFileToArray(
+							OwnerBytes, (Root / "owner").generic_string())
+						|| std::string_view(
+							reinterpret_cast<const char*>(OwnerBytes.data()),
+							OwnerBytes.size()) != ExpectedOwner)
+						continue;
+					std::filesystem::remove_all(Root, ErrorCode);
+				}
+				if (LocatorPath.filename() == std::format("operation-{}", OperationId)
+					&& LocatorPath.parent_path().filename() == "AssetMutationRecovery")
+				{
+					std::error_code ErrorCode;
+					std::filesystem::remove(LocatorPath, ErrorCode);
+					std::filesystem::remove(LocatorPath.parent_path(), ErrorCode);
+				}
+			}
+		};
+
+		struct FLoadedRelocationState
+		{
+			FAssetRelocationMapping Mapping;
 			DPackage* Package = nullptr;
-			Result = LoadPackageInternal(Path, Package);
-			if (!Result) return Result;
-			Referrers.push_back(Package);
-		}
-
-		FAssetMoveContribution Contribution;
-		for (DClass* Class = MovingPackage->GetAsset()->GetClass(); Class; Class = Class->GetSuperClass())
-		{
-			auto It = GetMoveContributors().find(Class);
-			if (It == GetMoveContributors().end()) continue;
-			Result = It->second(MovingPackage->GetAsset(), OldPath, NewPath, Contribution);
-			if (!Result) return Result;
-			break;
-		}
-		for (const auto& [From, To] : Contribution.Files)
-		{
-			if (!std::filesystem::is_regular_file(From))
-				return Error(EAssetError::NotFound,
-					std::format("Companion file {} was not found.", From.generic_string()));
-			if (std::filesystem::exists(To))
-				return Error(EAssetError::AlreadyExists,
-					std::format("Companion destination {} already exists.", To.generic_string()));
-		}
-		std::vector<DPackage*> AdditionalPackages;
-		std::unordered_set<DPackage*> SeenAdditional;
-		for (DPackage* Package : Contribution.AdditionalPackages)
-		{
-			if (!Package || Package == MovingPackage || !SeenAdditional.insert(Package).second
-				|| std::ranges::find(Referrers, Package) != Referrers.end()) continue;
-			AdditionalPackages.push_back(Package);
-		}
-
-		std::vector<FAssetMoveExternalStoreAction> ExternalActions;
-		for (const auto& [Handle, Store] : GetMoveExternalStores())
-		{
-			(void)Handle;
-			FAssetMoveExternalStoreAction Action;
-			Result = Store(OldPath, NewPath, Action);
-			if (!Result) return Result;
-			if (!Action.Apply && !Action.Rollback) continue;
-			if (!Action.Apply || !Action.Rollback)
-				return Error(EAssetError::UnsupportedProperty,
-					"Asset move external stores must provide both Apply and Rollback actions.");
-			ExternalActions.push_back(std::move(Action));
-		}
-
-		struct FUnloadedSoftRewrite
-		{
-			FAssetData Data;
-			std::filesystem::path File;
-			std::vector<uint8> Bytes;
+			std::string PrePackageName;
+			std::string PreAssetName;
 		};
-		std::unordered_map<FAssetPath, std::vector<FSoftAssetReference>> IndexedBySource;
-		for (FSoftAssetReference Reference : Registry.FindSoftReferencers(OldPath))
-			IndexedBySource[Reference.SourcePackage].push_back(std::move(Reference));
-		std::vector<FUnloadedSoftRewrite> UnloadedSoftRewrites;
-		for (const auto& [SourcePath, References] : IndexedBySource)
-		{
-			if (LoadedPackages.contains(SourcePath)) continue;
-			const FAssetData* Data = Registry.FindAsset(SourcePath);
-			if (!Data)
-				return Error(EAssetError::InUse,
-					"SoftReferenceMoveStaleIndex: an indexed source is no longer registered.");
-			for (const FSoftAssetReference& Reference : References)
-				if (Reference.SourceFingerprint != References.front().SourceFingerprint)
-					return Error(EAssetError::InUse,
-						"SoftReferenceMoveStaleIndex: source occurrences disagree on their fingerprint.");
 
-			const std::filesystem::path SourceFile(Data->PhysicalPath);
-			std::error_code PermissionError;
-			const std::filesystem::perms Permissions =
-				std::filesystem::status(SourceFile, PermissionError).permissions();
-			constexpr auto WritePermissions = std::filesystem::perms::owner_write
-				| std::filesystem::perms::group_write
-				| std::filesystem::perms::others_write;
-			if (PermissionError)
+		auto MakeRelocationOperationId() -> std::string
+		{
+			static std::atomic<uint64> Counter = 1;
+			const uint64 Time = static_cast<uint64>(
+				std::chrono::steady_clock::now().time_since_epoch().count());
+			return std::format("{:016x}{:016x}", Time, Counter++);
+		}
+
+		auto NormalizePhysicalPath(const std::filesystem::path& Path)
+			-> std::filesystem::path
+		{
+			return std::filesystem::absolute(Path).lexically_normal();
+		}
+
+		auto LoadRelocationBytes(
+			const std::filesystem::path& Path,
+			std::vector<uint8>& OutBytes) -> FAssetResult
+		{
+			OutBytes.clear();
+			if (!FFileHelper::LoadFileToArray(OutBytes, Path.generic_string()))
 				return Error(EAssetError::IoError, std::format(
-					"Could not inspect soft referencer {}: {}",
-					SourcePath.ToString(), PermissionError.message()));
-			if ((Permissions & WritePermissions) == std::filesystem::perms::none)
-				return Error(EAssetError::ReadOnlyMode, std::format(
-					"Soft referencer {} is read-only.", SourcePath.ToString()));
-
-			std::vector<uint8> SourceBytes;
-			if (!FFileHelper::LoadFileToArray(SourceBytes, SourceFile.generic_string()))
-				return Error(EAssetError::IoError, std::format(
-					"Could not read soft referencer {}.", SourcePath.ToString()));
-			FAssetPackageFingerprint CurrentFingerprint;
-			Result = MakePackageFingerprint(
-				SourceFile.generic_string(), SourceBytes, CurrentFingerprint);
-			if (!Result) return Result;
-			if (CurrentFingerprint != References.front().SourceFingerprint)
-				return Error(EAssetError::InUse, std::format(
-					"SoftReferenceMoveStaleFingerprint: {} changed after indexing.",
-					SourcePath.ToString()));
-			FUnloadedSoftRewrite Rewrite{.Data = *Data, .File = SourceFile};
-			Result = RewriteUnloadedSoftPackage(
-				SourceBytes, OldPath, NewPath, References.size(), Rewrite.Bytes);
-			if (!Result) return Result;
-			UnloadedSoftRewrites.push_back(std::move(Rewrite));
+					"Could not read relocation input {}.", Path.generic_string()));
+			return {};
 		}
 
-		std::vector<std::pair<FSoftObjectPtr*, FSoftObjectPath>> LoadedSoftValues;
-		std::vector<DPackage*> LoadedSoftPackages;
-		for (const auto& [Path, Package] : LoadedPackages)
-		{
-			(void)Path;
-			const size_t PreviousCount = LoadedSoftValues.size();
-			std::vector<FSoftObjectPtr*> Values;
-			Result = CollectLoadedPackageSoftReferences(Package, OldPath, Values);
-			if (!Result) return Result;
-			for (FSoftObjectPtr* Value : Values)
-				LoadedSoftValues.emplace_back(Value, Value->GetSoftObjectPath());
-			if (LoadedSoftValues.size() != PreviousCount)
-				LoadedSoftPackages.push_back(Package);
-		}
-
-		const auto RegistryAssetsBackup = Registry.Assets;
-		const auto RegistrySoftReferencesBackup = Registry.SoftReferences;
-		const auto RegistrySoftFingerprintsBackup = Registry.SoftReferenceSourceFingerprints;
-		const auto RegistrySoftErrorsBackup = Registry.SoftReferenceErrors;
-		const bool RegistrySnapshotDirtyBackup = Registry.bPersistentSnapshotDirty;
-		const bool RegistrySoftSnapshotDirtyBackup = Registry.bSoftReferenceSnapshotDirty;
-		const uint64 RegistryRevisionBackup = Registry.Revision;
-		const auto LoadedPackagesBackup = LoadedPackages;
-		const std::string OldName = MovingPackage->GetAsset()->GetName();
-		std::vector<std::pair<std::filesystem::path, std::filesystem::path>> Backups;
-		std::unordered_set<std::string> BackedUpFiles;
-		auto Backup = [&](const std::filesystem::path& File) -> bool {
-			if (!std::filesystem::exists(File)) return false;
-			const std::string Key = std::filesystem::absolute(File).lexically_normal().generic_string();
-			if (!BackedUpFiles.insert(Key).second) return true;
-			const std::filesystem::path Copy = File.string() + ".movebak";
-			std::error_code Ec;
-			std::filesystem::remove(Copy, Ec);
-			Ec.clear();
-			std::filesystem::copy_file(File, Copy, std::filesystem::copy_options::overwrite_existing, Ec);
-			if (Ec) return false;
-			Backups.emplace_back(File, Copy);
-			return true;
-		};
-		auto CleanupBackups = [&]() {
-			std::error_code Ec;
-			for (const auto& [Original, Copy] : Backups)
-			{
-				(void)Original;
-				std::filesystem::remove(Copy, Ec);
-				Ec.clear();
-			}
-		};
-		auto BackupFailure = [&](std::string Message) -> FAssetResult {
-			CleanupBackups();
-			return Error(EAssetError::IoError, std::move(Message));
-		};
-		if (!Backup(OldFile)) return BackupFailure("Failed to back up source asset.");
-		for (const FAssetPath& Path : ReferrerPaths)
-			if (!Backup(GetPhysicalPath(Path)))
-				return BackupFailure("Failed to back up an asset referrer.");
-		for (DPackage* Package : AdditionalPackages)
-		{
-			FAssetPath AdditionalPath;
-			if (!FAssetPath::TryCreate(Package->GetPackagePath(), AdditionalPath)
-				|| !Backup(GetPhysicalPath(AdditionalPath)))
-				return BackupFailure(
-					"Failed to back up an additional move contributor package.");
-		}
-		for (const FUnloadedSoftRewrite& Rewrite : UnloadedSoftRewrites)
-			if (!Backup(Rewrite.File))
-				return BackupFailure("Failed to back up an unloaded soft referencer.");
-		for (const auto& [From, To] : Contribution.Files)
-			if (!Backup(From)) return BackupFailure("Failed to back up a companion file.");
-
-		std::vector<std::pair<DPackage*, bool>> DirtyStates;
-		std::unordered_set<DPackage*> SeenDirtyPackages;
-		auto CaptureDirty = [&](DPackage* Package) {
-			if (Package && SeenDirtyPackages.insert(Package).second)
-				DirtyStates.emplace_back(Package, Package->IsDirty());
-		};
-		CaptureDirty(MovingPackage);
-		for (DPackage* Package : Referrers) CaptureDirty(Package);
-		for (DPackage* Package : AdditionalPackages) CaptureDirty(Package);
-		for (DPackage* Package : LoadedSoftPackages) CaptureDirty(Package);
-
-		size_t AppliedExternalActionCount = 0;
-		bool bContributionApplied = false;
-		bool bMovingPackageRelocated = false;
-		auto Rollback = [&]() -> std::string {
-			std::string Errors;
-			if (bContributionApplied && Contribution.Rollback) Contribution.Rollback();
-			if (bMovingPackageRelocated)
-			{
-				if (!MovingPackage->RelocateAssetPackage(OldPath))
-					Errors += "Could not restore the moving package path. ";
-				MovingPackage->Rename(FName(OldPath.GetAssetName()));
-				MovingPackage->GetAsset()->Rename(FName(OldName));
-			}
-			for (auto& [Value, PreviousPath] : LoadedSoftValues)
-				Value->SetPath(PreviousPath);
-			LoadedPackages = LoadedPackagesBackup;
-			std::error_code Ec;
-			std::filesystem::remove(NewFile, Ec);
-			for (const auto& [From, To] : Contribution.Files)
-			{
-				(void)From;
-				Ec.clear();
-				std::filesystem::remove(To, Ec);
-			}
-			for (const auto& [Original, Copy] : Backups)
-			{
-				Ec.clear();
-				std::filesystem::copy_file(
-					Copy, Original, std::filesystem::copy_options::overwrite_existing, Ec);
-				if (Ec) Errors += std::format(
-					"Could not restore {}: {}. ", Original.generic_string(), Ec.message());
-			}
-			Registry.Assets = RegistryAssetsBackup;
-			Registry.SoftReferences = RegistrySoftReferencesBackup;
-			Registry.SoftReferenceSourceFingerprints = RegistrySoftFingerprintsBackup;
-			Registry.SoftReferenceErrors = RegistrySoftErrorsBackup;
-			Registry.bPersistentSnapshotDirty = RegistrySnapshotDirtyBackup;
-			Registry.bSoftReferenceSnapshotDirty = RegistrySoftSnapshotDirtyBackup;
-			Registry.Revision = RegistryRevisionBackup;
-			for (const auto& [Package, bWasDirty] : DirtyStates)
-			{
-				if (bWasDirty) Package->MarkDirty();
-				else Package->ClearDirty();
-			}
-			for (size_t Count = AppliedExternalActionCount; Count > 0; --Count)
-			{
-				const FAssetMoveExternalStoreAction& Action = ExternalActions[Count - 1];
-				const FAssetResult RollbackResult = Action.Rollback();
-				if (!RollbackResult)
-					Errors += std::format("Could not restore external store '{}': {}. ",
-						Action.Name, RollbackResult.Message);
-			}
-			CleanupBackups();
-			return Errors;
-		};
-		auto FailAfterMutation = [&](FAssetResult Failure) -> FAssetResult {
-			const std::string RollbackErrors = Rollback();
-			if (!RollbackErrors.empty())
-				Failure.Message += std::format(" Rollback also failed: {}", RollbackErrors);
-			return Failure;
-		};
-
-		if (!MovingPackage->RelocateAssetPackage(NewPath))
-		{
-			CleanupBackups();
-			return Error(EAssetError::AlreadyExists,
-				"The destination package path is registered.");
-		}
-		bMovingPackageRelocated = true;
-		MovingPackage->Rename(FName(NewPath.GetAssetName()));
-		if (OldPath.GetAssetName() != NewPath.GetAssetName())
-			MovingPackage->GetAsset()->Rename(FName(NewPath.GetAssetName()));
-		if (Contribution.Apply)
-		{
-			Contribution.Apply();
-			bContributionApplied = true;
-		}
-		for (const auto& [From, To] : Contribution.Files)
-		{
-			std::error_code Ec;
-			std::filesystem::create_directories(To.parent_path(), Ec);
-			Ec.clear();
-			std::filesystem::rename(From, To, Ec);
-			if (Ec)
-				return FailAfterMutation(Error(EAssetError::IoError,
-					"Failed to move a companion file."));
-		}
-		LoadedPackages.erase(OldPath);
-		LoadedPackages.emplace(NewPath, MovingPackage);
-		Registry.Remove(OldPath);
-		std::error_code DirectoryEc;
-		std::filesystem::create_directories(NewFile.parent_path(), DirectoryEc);
-		if (DirectoryEc)
-			return FailAfterMutation(Error(EAssetError::IoError,
-				"Failed to create the destination directory."));
-
-		for (auto& [Value, PreviousPath] : LoadedSoftValues)
-		{
-			(void)PreviousPath;
-			Value->SetPath(NewPath);
-		}
-		std::vector<DPackage*> PackagesToSave;
-		std::unordered_set<DPackage*> SeenPackagesToSave;
-		auto AddPackageToSave = [&](DPackage* Package) {
-			if (Package && SeenPackagesToSave.insert(Package).second)
-				PackagesToSave.push_back(Package);
-		};
-		AddPackageToSave(MovingPackage);
-		for (DPackage* Package : Referrers) AddPackageToSave(Package);
-		for (DPackage* Package : AdditionalPackages) AddPackageToSave(Package);
-		for (DPackage* Package : LoadedSoftPackages) AddPackageToSave(Package);
-		for (DPackage* Package : PackagesToSave)
-		{
-			Result = SavePackage(Package);
-			if (!Result) return FailAfterMutation(std::move(Result));
-		}
-
-		for (FUnloadedSoftRewrite& Rewrite : UnloadedSoftRewrites)
+		auto SaveRelocationBytes(
+			const std::filesystem::path& Path,
+			std::span<const uint8> Bytes) -> FAssetResult
 		{
 			FFileHelper::FAtomicFileError PublicationError;
 			if (!FFileHelper::SaveArrayToFileAtomically(
-				std::span{reinterpret_cast<const std::byte*>(Rewrite.Bytes.data()),
-					Rewrite.Bytes.size()},
-				Rewrite.File,
-				&PublicationError))
-				return FailAfterMutation(Error(EAssetError::IoError,
-					PublicationError.ToString()));
-			const auto LastWriteTime = std::filesystem::last_write_time(Rewrite.File);
-			Rewrite.Data.FileSize = std::filesystem::file_size(Rewrite.File);
-			Rewrite.Data.LastWriteTime = LastWriteTime;
-			Rewrite.Data.LastWriteTimeTicks =
-				DerivedDataCache::FileTimeToStableTicks(LastWriteTime);
-			Registry.AddOrUpdate(std::move(Rewrite.Data));
+					std::span{reinterpret_cast<const std::byte*>(Bytes.data()),
+						Bytes.size()},
+					Path,
+					&PublicationError))
+				return Error(EAssetError::IoError, PublicationError.ToString());
+			return {};
 		}
 
-		for (size_t Index = 0; Index < ExternalActions.size(); ++Index)
+		auto FingerprintRelocationFile(
+			const std::filesystem::path& Path,
+			FAssetPackageFingerprint& OutFingerprint) -> FAssetResult
 		{
-			AppliedExternalActionCount = Index + 1;
-			Result = ExternalActions[Index].Apply();
-			if (!Result) return FailAfterMutation(std::move(Result));
+			std::vector<uint8> Bytes;
+			FAssetResult Result = LoadRelocationBytes(Path, Bytes);
+			if (!Result) return Result;
+			return MakePackageFingerprint(
+				Path.generic_string(), Bytes, OutFingerprint);
 		}
 
-		std::error_code Ec;
-		std::filesystem::remove(OldFile, Ec);
-		if (Ec)
-			return FailAfterMutation(Error(EAssetError::IoError,
-				"Failed to remove the old asset file."));
-		CleanupBackups();
+		auto IsWritableRelocationPath(
+			const std::filesystem::path& Path,
+			const PathUtilities::FMountPoint*& OutMount,
+			std::string& OutError) -> bool
+		{
+			OutMount = nullptr;
+			const std::filesystem::path Normalized = NormalizePhysicalPath(Path);
+			for (const PathUtilities::FMountPoint& Mount :
+				PathUtilities::GetRegisteredMountPoints())
+			{
+				const std::filesystem::path Content =
+					NormalizePhysicalPath(Mount.GetContentDir());
+				if (!PathUtilities::IsLexicalDescendantPath(
+						Normalized.generic_string(), Content.generic_string(), true))
+					continue;
+				if (!Mount.bAuthoringWritable)
+				{
+					OutError = std::format(
+						"Content mount {} is read-only.", Mount.VirtualRoot);
+					return false;
+				}
+				for (std::filesystem::path Current = Normalized.parent_path();
+					!Current.empty(); Current = Current.parent_path())
+				{
+					std::error_code StatusError;
+					const auto Status = std::filesystem::symlink_status(
+						Current, StatusError);
+					if (!StatusError && std::filesystem::is_symlink(Status))
+					{
+						OutError = std::format(
+							"Relocation path traverses a reparse point: {}.",
+							Current.generic_string());
+						return false;
+					}
+					if (Current == Content) break;
+					if (Current == Current.root_path()) break;
+				}
+				OutMount = &Mount;
+				return true;
+			}
+			OutError = std::format(
+				"Relocation path is outside writable mounted content: {}.",
+				Path.generic_string());
+			return false;
+		}
+
+		auto BuildMovedPackageBytes(
+			std::span<const uint8> SourceBytes,
+			const FAssetPath& DestinationPath,
+			std::vector<uint8>& OutBytes) -> FAssetResult
+		{
+			FPackageFile File;
+			FAssetResult Result = ReadPackageFile(SourceBytes, File, false);
+			if (!Result) return Result;
+			if (File.EntryKind != EAssetRegistryEntryKind::Asset)
+				return Error(EAssetError::InvalidPackageType,
+					"Only a real asset package can be relocated.");
+			if (File.Objects.empty() || File.Objects.front().OuterId != 0)
+				return Error(EAssetError::InvalidObjectGraph,
+					"The relocation source has no valid main object.");
+			File.Objects.front().ObjectName = DestinationPath.GetAssetName();
+			FByteWriter Writer;
+			WritePackageFile(File, Writer);
+			OutBytes = std::move(Writer.Bytes);
+			return ValidateAssetPackageBytes(OutBytes);
+		}
+
+		auto BuildRedirectorPackageBytes(
+			const FAssetPath& SourcePath,
+			const FAssetPath& DestinationPath,
+			std::vector<uint8>& OutBytes) -> FAssetResult
+		{
+			FByteWriter Payload;
+			Payload.Write(uint8{2});
+			Payload.WriteString(DestinationPath.GetView());
+			FFieldRecord DestinationField{
+				.DeclaringClass = std::string(RedirectorClassName),
+				.Name = "DestinationObject",
+				.Kind = DurinCodeGen::EPropertyGenFlags::Object,
+				.TypeSignature = "Object:Durin::DObject:true",
+				.Payload = std::move(Payload.Bytes)};
+			FObjectRecord RedirectorObject{
+				.Id = 1,
+				.OuterId = 0,
+				.ClassName = std::string(RedirectorClassName),
+				.ObjectName = std::string(SourcePath.GetAssetName()),
+				.Fields = {std::move(DestinationField)}};
+			FPackageFile File{
+				.FormatVersion = AssetVersion,
+				.AssetClassName = std::string(RedirectorClassName),
+				.EntryKind = EAssetRegistryEntryKind::Redirector,
+				.RedirectDestination = DestinationPath,
+				.Dependencies = {DestinationPath},
+				.Objects = {std::move(RedirectorObject)}};
+			FAssetResult Result = ValidateRedirectorHeader(
+				File, File.Objects.size(), &SourcePath);
+			if (!Result) return Result;
+			Result = ValidateRedirectorBody(File);
+			if (!Result) return Result;
+			FByteWriter Writer;
+			WritePackageFile(File, Writer);
+			OutBytes = std::move(Writer.Bytes);
+			return {};
+		}
+
+		auto WriteMutationJournalState(FAssetMutationJournal& Journal) -> void
+		{
+			std::string Text = std::format(
+				"version=1\noperation={}\ntype=relocation\nstate={}\nentries={}\n",
+				Journal.OperationId,
+				static_cast<uint32>(Journal.State),
+				Journal.Entries.size());
+			for (size_t Index = 0; Index < Journal.Entries.size(); ++Index)
+			{
+				const FAssetMutationJournalEntry& Entry = Journal.Entries[Index];
+				Text += std::format(
+					"entry.{}.role={}\n"
+					"entry.{}.order={}\n"
+					"entry.{}.registry={}\n"
+					"entry.{}.original={}\n"
+					"entry.{}.staged_pre={}\n"
+					"entry.{}.staged_post={}\n"
+					"entry.{}.published={}\n"
+					"entry.{}.pre_exists={}\n"
+					"entry.{}.post_exists={}\n"
+					"entry.{}.pre_fingerprint={}:{}:{}\n"
+					"entry.{}.post_fingerprint={}:{}:{}\n"
+					"entry.{}.staged_pre_hash={}\n"
+					"entry.{}.staged_post_hash={}\n"
+					"entry.{}.completed={}\n"
+					"entry.{}.compensated={}\n",
+					Index, static_cast<uint32>(Entry.Role),
+					Index, Entry.PublicationOrder,
+					Index, Entry.RegistryPath.ToString(),
+					Index, Entry.PhysicalPath.generic_string(),
+					Index, Entry.StagedPrePath.generic_string(),
+					Index, Entry.StagedPostPath.generic_string(),
+					Index, Entry.PhysicalPath.generic_string(),
+					Index, Entry.bPreExists,
+					Index, Entry.bPostExists,
+					Index, Entry.ExpectedPreFingerprint.FileSize,
+					Entry.ExpectedPreFingerprint.LastWriteTimeTicks,
+					Entry.ExpectedPreFingerprint.ContentHash.ToString(),
+					Index, Entry.ExpectedPostFingerprint.FileSize,
+					Entry.ExpectedPostFingerprint.LastWriteTimeTicks,
+					Entry.ExpectedPostFingerprint.ContentHash.ToString(),
+					Index, Entry.StagedPreHash.ToString(),
+					Index, Entry.StagedPostHash.ToString(),
+					Index, Entry.bCompleted,
+					Index, Entry.bCompensated);
+			}
+			const std::span Bytes{
+				reinterpret_cast<const uint8*>(Text.data()), Text.size()};
+			for (const std::filesystem::path& Root : Journal.Roots)
+			{
+				std::string Ignored;
+				DerivedDataCache::WriteFileAtomically(
+					Root / "journal", Bytes, &Ignored);
+			}
+
+			std::string Locator = std::format(
+				"version=1\noperation={}\nroots={}\n",
+				Journal.OperationId, Journal.Roots.size());
+			for (const std::filesystem::path& Root : Journal.Roots)
+				Locator += std::format("root={}\n", Root.generic_string());
+			std::error_code DirectoryError;
+			std::filesystem::create_directories(
+				Journal.LocatorPath.parent_path(), DirectoryError);
+			if (!DirectoryError)
+			{
+				const std::span LocatorBytes{
+					reinterpret_cast<const uint8*>(Locator.data()), Locator.size()};
+				std::string Ignored;
+				DerivedDataCache::WriteFileAtomically(
+					Journal.LocatorPath, LocatorBytes, &Ignored);
+			}
+		}
+	}
+
+	struct FAssetRelocationBatchToken::FState
+	{
+		uint64 ExpectedRegistryRevision = 0;
+		std::vector<FAssetRelocationMapping> Mappings;
+		FAssetMutationJournal Journal;
+		std::vector<FLoadedRelocationState> LoadedPackages;
+		std::vector<FAssetOwnedPayloadRelocation> OwnedPayloads;
+		std::unordered_map<FAssetPath, FAssetData> PreAssets;
+		std::unordered_map<FAssetPath, FAssetData> PostAssets;
+		std::unordered_map<FAssetPath, FAssetData> ExpectedAssets;
+		std::vector<FSoftAssetReference> PreSoftReferences;
+		std::vector<FSoftAssetReference> PostSoftReferences;
+		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PreSoftFingerprints;
+		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PostSoftFingerprints;
+	};
+
+	auto FAssetRelocationBatchToken::GetRegistryRevision() const -> uint64
+	{
+		return State ? State->ExpectedRegistryRevision : 0;
+	}
+
+	auto FAssetRelocationBatchToken::GetMappings() const
+		-> std::span<const FAssetRelocationMapping>
+	{
+		return State ? std::span<const FAssetRelocationMapping>(State->Mappings)
+			: std::span<const FAssetRelocationMapping>{};
+	}
+
+	auto FAssetManager::AnalyzeAssetRelocationBatch(
+		std::span<const FAssetRelocationMapping> Mappings,
+		FAssetRelocationBatchToken& OutToken) -> FAssetResult
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		OutToken = {};
+		if (!bAcceptingRequests)
+			return Error(EAssetError::ShuttingDown,
+				"Asset relocation is closed while the asset manager is shutting down.");
+		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
+			return Error(EAssetError::ReadOnlyMode,
+				"Cooked runtime package mode does not permit asset relocation.");
+		if (Mappings.empty())
+			return Error(EAssetError::InvalidPath,
+				"An asset relocation batch must not be empty.");
+
+		auto State = std::make_shared<FAssetRelocationBatchToken::FState>();
+		State->ExpectedRegistryRevision = Registry.GetRevision();
+		State->Mappings.assign(Mappings.begin(), Mappings.end());
+		std::ranges::sort(State->Mappings,
+			[](const FAssetRelocationMapping& A,
+				const FAssetRelocationMapping& B) {
+				return A.SourcePath.GetView() < B.SourcePath.GetView();
+			});
+		State->PreAssets = Registry.Assets;
+		State->PostAssets = State->PreAssets;
+		State->ExpectedAssets = State->PreAssets;
+		State->PreSoftReferences = Registry.SoftReferences;
+		State->PostSoftReferences = State->PreSoftReferences;
+		State->PreSoftFingerprints = Registry.SoftReferenceSourceFingerprints;
+		State->PostSoftFingerprints = State->PreSoftFingerprints;
+		State->Journal.OperationId = MakeRelocationOperationId();
+		const std::string RecoveryBase = FPaths::ProjectDir().empty()
+			? FPaths::LaunchDir() : FPaths::ProjectDir();
+		State->Journal.LocatorPath = NormalizePhysicalPath(RecoveryBase)
+			/ "Saved" / "AssetMutationRecovery"
+			/ std::format("operation-{}", State->Journal.OperationId);
+
+		std::unordered_set<FAssetPath> Sources;
+		std::unordered_set<FAssetPath> Destinations;
+		std::unordered_map<std::string, size_t> FileEntries;
+		std::unordered_map<std::string, const PathUtilities::FMountPoint*> EntryMounts;
+		auto AddFileEntry = [&](const std::filesystem::path& PhysicalPath,
+			const FAssetPath& RegistryPath,
+			ERelocationPublicationRole Role,
+			std::optional<std::vector<uint8>> PreBytes,
+			std::optional<std::vector<uint8>> PostBytes) -> FAssetResult {
+			const std::filesystem::path Normalized =
+				NormalizePhysicalPath(PhysicalPath);
+			const std::string Key = Normalized.generic_string();
+			if (FileEntries.contains(Key))
+				return Error(EAssetError::AlreadyExists, std::format(
+					"Relocation participants claim the same file {}.", Key));
+			std::string PathError;
+			const PathUtilities::FMountPoint* Mount = nullptr;
+			if (!IsWritableRelocationPath(Normalized, Mount, PathError))
+				return Error(EAssetError::ReadOnlyMode, std::move(PathError));
+			if (PreBytes)
+			{
+				std::error_code PermissionError;
+				const std::filesystem::perms Permissions =
+					std::filesystem::status(
+						Normalized, PermissionError).permissions();
+				constexpr auto WritePermissions =
+					std::filesystem::perms::owner_write
+					| std::filesystem::perms::group_write
+					| std::filesystem::perms::others_write;
+				if (PermissionError
+					|| (Permissions & WritePermissions)
+						== std::filesystem::perms::none)
+					return Error(EAssetError::ReadOnlyMode, std::format(
+						"Relocation input is read-only: {}.", Key));
+			}
+			FAssetMutationJournalEntry Entry{
+				.PhysicalPath = Normalized,
+				.RegistryPath = RegistryPath,
+				.Role = Role,
+				.bPreExists = PreBytes.has_value(),
+				.bPostExists = PostBytes.has_value()};
+			if (PreBytes)
+				Entry.StagedPreHash = FXxHash128::HashBuffer(*PreBytes);
+			if (PostBytes)
+			{
+				Entry.StagedPostHash = FXxHash128::HashBuffer(*PostBytes);
+				Entry.ExpectedPostFingerprint.FileSize = PostBytes->size();
+				Entry.ExpectedPostFingerprint.ContentHash = Entry.StagedPostHash;
+			}
+			FileEntries.emplace(Key, State->Journal.Entries.size());
+			EntryMounts.emplace(Key, Mount);
+			State->Journal.Entries.push_back(std::move(Entry));
+			FAssetMutationJournalEntry& Stored = State->Journal.Entries.back();
+			if (Stored.bPreExists)
+			{
+				FAssetResult Result = MakePackageFingerprint(
+					Normalized.generic_string(), *PreBytes,
+					Stored.ExpectedPreFingerprint);
+				if (!Result) return Result;
+			}
+			const size_t Index = State->Journal.Entries.size() - 1;
+			const std::filesystem::path Content =
+				NormalizePhysicalPath(Mount->GetContentDir());
+			const std::filesystem::path Root = Content
+				/ ".durin-asset-mutation"
+				/ std::format("operation-{}", State->Journal.OperationId);
+			if (std::ranges::find(State->Journal.Roots, Root)
+				== State->Journal.Roots.end())
+			{
+				std::error_code DirectoryError;
+				std::filesystem::create_directories(Root, DirectoryError);
+				if (DirectoryError)
+					return Error(EAssetError::IoError, std::format(
+						"Could not create relocation staging root: {}",
+						DirectoryError.message()));
+				const std::string Marker = std::format(
+					"durin-asset-mutation\n{}\n", State->Journal.OperationId);
+				FAssetResult MarkerResult = SaveRelocationBytes(
+					Root / "owner",
+					std::span{reinterpret_cast<const uint8*>(Marker.data()),
+						Marker.size()});
+				if (!MarkerResult) return MarkerResult;
+				State->Journal.Roots.push_back(Root);
+			}
+			Stored.StagedPrePath = Root / std::format("pre-{:08}", Index);
+			Stored.StagedPostPath = Root / std::format("post-{:08}", Index);
+			if (ConsumeRelocationFailure(
+					EAssetRelocationFailurePoint::PrepareOutput))
+				return Error(EAssetError::IoError,
+					"Injected relocation output-preparation failure.");
+			if (PreBytes)
+			{
+				FAssetResult Result = SaveRelocationBytes(
+					Stored.StagedPrePath, *PreBytes);
+				if (!Result) return Result;
+			}
+			if (PostBytes)
+			{
+				FAssetResult Result = SaveRelocationBytes(
+					Stored.StagedPostPath, *PostBytes);
+				if (!Result) return Result;
+			}
+			return {};
+		};
+
+		for (const FAssetRelocationMapping& Mapping : State->Mappings)
+		{
+			if (!Mapping.SourcePath.IsValid()
+				|| !Mapping.DestinationPath.IsValid()
+				|| Mapping.SourcePath == Mapping.DestinationPath)
+				return Error(EAssetError::InvalidPath,
+					"Asset relocation paths are invalid or identical.");
+			if (!Sources.insert(Mapping.SourcePath).second
+				|| !Destinations.insert(Mapping.DestinationPath).second)
+				return Error(EAssetError::InvalidPath,
+					"An asset relocation batch contains duplicate paths.");
+		}
+
+		for (const FAssetRelocationMapping& Mapping : State->Mappings)
+		{
+			const FAssetData* SourceData =
+				Registry.FindAssetExact(Mapping.SourcePath);
+			if (!SourceData)
+				return Error(EAssetError::NotFound, std::format(
+					"Asset {} was not found.", Mapping.SourcePath.ToString()));
+			if (SourceData->EntryKind != EAssetRegistryEntryKind::Asset)
+				return Error(EAssetError::InvalidPackageType,
+					"Redirectors cannot be used as relocation sources.");
+			if (LoadingPackages.contains(Mapping.SourcePath))
+				return Error(EAssetError::InUse,
+					"A relocation source is currently loading.");
+			if (DPackage* Loaded = FindLoadedPackage(Mapping.SourcePath))
+			{
+				if (Loaded->IsDirty())
+					return Error(EAssetError::InUse,
+						"A dirty loaded asset must be saved before relocation.");
+				State->LoadedPackages.push_back({
+					.Mapping = Mapping,
+					.Package = Loaded,
+					.PrePackageName = Loaded->GetName(),
+					.PreAssetName = Loaded->GetAsset()->GetName()});
+			}
+
+			bool bReclaimDestinationRedirector = false;
+			if (const FAssetData* DestinationData =
+				Registry.FindAssetExact(Mapping.DestinationPath))
+			{
+				if (DestinationData->EntryKind
+						!= EAssetRegistryEntryKind::Redirector)
+					return Error(EAssetError::AlreadyExists, std::format(
+						"Asset {} already exists.",
+						Mapping.DestinationPath.ToString()));
+				const FAssetPathResolveResult DestinationResolution =
+					Registry.ResolveAssetPath(Mapping.DestinationPath);
+				if (!DestinationResolution
+					|| DestinationResolution.FinalPath != Mapping.SourcePath)
+					return Error(EAssetError::AlreadyExists,
+						"The destination is occupied by an unrelated redirector.");
+				if (LoadedPackages.contains(Mapping.DestinationPath))
+					return Error(EAssetError::InUse,
+						"A loaded destination redirector cannot be reclaimed.");
+				bReclaimDestinationRedirector = true;
+			}
+
+			const std::filesystem::path SourceFile =
+				NormalizePhysicalPath(SourceData->PhysicalPath);
+			const std::filesystem::path DestinationFile =
+				NormalizePhysicalPath(GetPhysicalPath(Mapping.DestinationPath));
+			std::vector<uint8> SourceBytes;
+			FAssetResult Result = LoadRelocationBytes(SourceFile, SourceBytes);
+			if (!Result) return Result;
+			std::vector<uint8> DestinationPreBytes;
+			if (bReclaimDestinationRedirector)
+			{
+				Result = LoadRelocationBytes(
+					DestinationFile, DestinationPreBytes);
+				if (!Result) return Result;
+			}
+			else if (std::filesystem::exists(DestinationFile))
+				return Error(EAssetError::AlreadyExists, std::format(
+					"Relocation destination file {} already exists.",
+					DestinationFile.generic_string()));
+
+			std::vector<uint8> MovedBytes;
+			Result = BuildMovedPackageBytes(
+				SourceBytes, Mapping.DestinationPath, MovedBytes);
+			if (!Result) return Result;
+			std::vector<uint8> SourceRedirectorBytes;
+			Result = BuildRedirectorPackageBytes(
+				Mapping.SourcePath, Mapping.DestinationPath,
+				SourceRedirectorBytes);
+			if (!Result) return Result;
+
+			Result = AddFileEntry(
+				DestinationFile,
+				Mapping.DestinationPath,
+				ERelocationPublicationRole::RealAsset,
+				bReclaimDestinationRedirector
+					? std::optional<std::vector<uint8>>(DestinationPreBytes)
+					: std::nullopt,
+				std::move(MovedBytes));
+			if (!Result) return Result;
+			Result = AddFileEntry(
+				SourceFile,
+				Mapping.SourcePath,
+				ERelocationPublicationRole::Redirector,
+				SourceBytes,
+				std::move(SourceRedirectorBytes));
+			if (!Result) return Result;
+
+			FAssetData MovedData = *SourceData;
+			MovedData.PackagePath = Mapping.DestinationPath;
+			MovedData.PhysicalPath = DestinationFile.generic_string();
+			State->PostAssets.erase(Mapping.SourcePath);
+			State->PostAssets.erase(Mapping.DestinationPath);
+			State->PostAssets.emplace(Mapping.DestinationPath,
+				std::move(MovedData));
+			State->PostAssets.emplace(Mapping.SourcePath, FAssetData{
+				.PackagePath = Mapping.SourcePath,
+				.PhysicalPath = SourceFile.generic_string(),
+				.AssetClassName = std::string(RedirectorClassName),
+				.EntryKind = EAssetRegistryEntryKind::Redirector,
+				.RedirectDestination = Mapping.DestinationPath,
+				.FormatVersion = AssetVersion,
+				.Dependencies = {Mapping.DestinationPath}});
+
+			for (const auto& [AliasPath, AliasData] : State->PreAssets)
+			{
+				if (AliasData.EntryKind != EAssetRegistryEntryKind::Redirector
+					|| AliasPath == Mapping.DestinationPath)
+					continue;
+				const FAssetPathResolveResult AliasResolution =
+					Registry.ResolveAssetPath(AliasPath);
+				if (!AliasResolution
+					|| AliasResolution.FinalPath != Mapping.SourcePath)
+					continue;
+				if (LoadedPackages.contains(AliasPath))
+					return Error(EAssetError::InUse,
+						"A loaded upstream redirector cannot be retargeted.");
+				std::vector<uint8> AliasPreBytes;
+				Result = LoadRelocationBytes(
+					AliasData.PhysicalPath, AliasPreBytes);
+				if (!Result) return Result;
+				std::vector<uint8> AliasPostBytes;
+				Result = BuildRedirectorPackageBytes(
+					AliasPath, Mapping.DestinationPath, AliasPostBytes);
+				if (!Result) return Result;
+				Result = AddFileEntry(
+					AliasData.PhysicalPath,
+					AliasPath,
+					ERelocationPublicationRole::Redirector,
+					std::move(AliasPreBytes),
+					std::move(AliasPostBytes));
+				if (!Result) return Result;
+				FAssetData& PostAlias = State->PostAssets.at(AliasPath);
+				PostAlias.RedirectDestination = Mapping.DestinationPath;
+				PostAlias.Dependencies = {Mapping.DestinationPath};
+			}
+
+			for (FSoftAssetReference& Reference : State->PostSoftReferences)
+				if (Reference.SourcePackage == Mapping.SourcePath)
+					Reference.SourcePackage = Mapping.DestinationPath;
+			if (auto SoftSource = State->PostSoftFingerprints.find(
+					Mapping.SourcePath);
+				SoftSource != State->PostSoftFingerprints.end())
+			{
+				State->PostSoftFingerprints.insert_or_assign(
+					Mapping.DestinationPath, SoftSource->second);
+				State->PostSoftFingerprints.erase(SoftSource);
+			}
+
+			DClass* AssetClass = FindClassByQualifiedName(
+				FName(SourceData->AssetClassName));
+			for (DClass* Class = AssetClass; Class; Class = Class->GetSuperClass())
+			{
+				auto Relocator = GetOwnedPayloadRelocators().find(Class);
+				if (Relocator == GetOwnedPayloadRelocators().end()) continue;
+				DObject* AssetObject = nullptr;
+				Result = LoadAsset(Mapping.SourcePath, AssetObject);
+				if (!Result) return Result;
+				if (std::ranges::none_of(
+						State->LoadedPackages,
+						[&](const FLoadedRelocationState& Loaded) {
+							return Loaded.Mapping.SourcePath
+								== Mapping.SourcePath;
+						}))
+				{
+					DPackage* LoadedPackage = AssetObject->GetPackage();
+					State->LoadedPackages.push_back({
+						.Mapping = Mapping,
+						.Package = LoadedPackage,
+						.PrePackageName = LoadedPackage->GetName(),
+						.PreAssetName = AssetObject->GetName()});
+				}
+				FAssetOwnedPayloadRelocation Payload;
+				Result = Relocator->second(
+					AssetObject, Mapping.SourcePath,
+					Mapping.DestinationPath, Payload);
+				if (!Result) return Result;
+				for (const auto& [From, To] : Payload.Files)
+				{
+					const std::filesystem::path SourcePayload =
+						NormalizePhysicalPath(From);
+					const std::filesystem::path DestinationPayload =
+						NormalizePhysicalPath(To);
+					if (SourcePayload == DestinationPayload)
+						return Error(EAssetError::InvalidPath,
+							"An owned payload relocation has identical paths.");
+					std::vector<uint8> PayloadBytes;
+					Result = LoadRelocationBytes(SourcePayload, PayloadBytes);
+					if (!Result) return Result;
+					if (std::filesystem::exists(DestinationPayload))
+						return Error(EAssetError::AlreadyExists,
+							"An owned payload destination already exists.");
+					Result = AddFileEntry(
+						DestinationPayload, {},
+						ERelocationPublicationRole::OwnedPayload,
+						std::nullopt, PayloadBytes);
+					if (!Result) return Result;
+					Result = AddFileEntry(
+						SourcePayload, {},
+						ERelocationPublicationRole::OwnedPayload,
+						std::move(PayloadBytes), std::nullopt);
+					if (!Result) return Result;
+				}
+				State->OwnedPayloads.push_back(std::move(Payload));
+				break;
+			}
+		}
+
+		State->Journal.State = EAssetMutationState::Prepared;
+		WriteMutationJournalState(State->Journal);
+		OutToken.State = std::move(State);
+		return {};
+	}
+
+	auto FAssetManager::RevalidateAssetRelocationBatch(
+		const FAssetRelocationBatchToken& Token) -> FAssetResult
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (!Token.State)
+			return Error(EAssetError::StaleData,
+				"The relocation token is empty.");
+		const auto& State = *Token.State;
+		if (State.Journal.State == EAssetMutationState::RecoveryRequired)
+			return Error(EAssetError::IoError,
+				"AssetMutationRecoveryRequired: the relocation journal requires recovery.");
+		if (State.Journal.State != EAssetMutationState::Prepared
+			&& State.Journal.State != EAssetMutationState::Committed
+			&& State.Journal.State != EAssetMutationState::Restored)
+			return Error(EAssetError::StaleData,
+				"The relocation token is not in a revalidatable state.");
+		if (Registry.GetRevision() != State.ExpectedRegistryRevision
+			|| Registry.Assets != State.ExpectedAssets)
+			return Error(EAssetError::StaleData,
+				"The asset registry changed after relocation analysis.");
+		const bool bExpectPost =
+			State.Journal.State == EAssetMutationState::Committed;
+		for (const FAssetMutationJournalEntry& Entry : State.Journal.Entries)
+		{
+			const bool bExpectedExists = bExpectPost
+				? Entry.bPostExists : Entry.bPreExists;
+			std::error_code ExistsError;
+			const bool bExists = std::filesystem::exists(
+				Entry.PhysicalPath, ExistsError);
+			if (ExistsError || bExists != bExpectedExists)
+				return Error(EAssetError::StaleData, std::format(
+					"Relocation participant occupancy changed: {}.",
+					Entry.PhysicalPath.generic_string()));
+			if (bExists)
+			{
+				FAssetPackageFingerprint Fingerprint;
+				FAssetResult Result = FingerprintRelocationFile(
+					Entry.PhysicalPath, Fingerprint);
+				if (!Result) return Result;
+				const FAssetPackageFingerprint& Expected = bExpectPost
+					? Entry.ExpectedPostFingerprint
+					: Entry.ExpectedPreFingerprint;
+				if (Fingerprint != Expected)
+					return Error(EAssetError::StaleData, std::format(
+						"Relocation participant changed: {}.",
+						Entry.PhysicalPath.generic_string()));
+			}
+			const bool bOutputExists = bExpectPost
+				? Entry.bPreExists : Entry.bPostExists;
+			const std::filesystem::path& Staged = bExpectPost
+				? Entry.StagedPrePath : Entry.StagedPostPath;
+			const FXxHash128& ExpectedHash = bExpectPost
+				? Entry.StagedPreHash : Entry.StagedPostHash;
+			if (bOutputExists)
+			{
+				std::vector<uint8> StagedBytes;
+				FAssetResult Result = LoadRelocationBytes(Staged, StagedBytes);
+				if (!Result || FXxHash128::HashBuffer(StagedBytes) != ExpectedHash)
+					return Error(EAssetError::StaleData,
+						"A staged relocation output changed.");
+			}
+		}
+		for (const FLoadedRelocationState& Loaded : State.LoadedPackages)
+		{
+			const FAssetPath& ExpectedPath = bExpectPost
+				? Loaded.Mapping.DestinationPath
+				: Loaded.Mapping.SourcePath;
+			if (FindLoadedPackage(ExpectedPath) != Loaded.Package)
+				return Error(EAssetError::StaleData,
+					"A loaded relocation participant changed identity.");
+		}
+		return {};
+	}
+
+	namespace
+	{
+		auto PublishRelocationFile(
+			const FAssetMutationJournalEntry& Entry,
+			bool bForward) -> FAssetResult
+		{
+			const bool bExists = bForward
+				? Entry.bPostExists : Entry.bPreExists;
+			const std::filesystem::path& Staged = bForward
+				? Entry.StagedPostPath : Entry.StagedPrePath;
+			if (!bExists)
+			{
+				std::error_code RemoveError;
+				if (!std::filesystem::remove(Entry.PhysicalPath, RemoveError)
+					&& RemoveError)
+					return Error(EAssetError::IoError, std::format(
+						"Could not remove relocation input {}: {}",
+						Entry.PhysicalPath.generic_string(),
+						RemoveError.message()));
+				return {};
+			}
+			std::vector<uint8> Bytes;
+			FAssetResult Result = LoadRelocationBytes(Staged, Bytes);
+			if (!Result) return Result;
+			std::error_code DirectoryError;
+			std::filesystem::create_directories(
+				Entry.PhysicalPath.parent_path(), DirectoryError);
+			if (DirectoryError)
+				return Error(EAssetError::IoError, std::format(
+					"Could not create relocation destination directory: {}",
+					DirectoryError.message()));
+			return SaveRelocationBytes(Entry.PhysicalPath, Bytes);
+		}
+
+		auto FailurePointForRole(ERelocationPublicationRole Role)
+			-> EAssetRelocationFailurePoint
+		{
+			switch (Role)
+			{
+			case ERelocationPublicationRole::RealAsset:
+				return EAssetRelocationFailurePoint::PublishRealAsset;
+			case ERelocationPublicationRole::OwnedPayload:
+				return EAssetRelocationFailurePoint::PublishOwnedPayload;
+			case ERelocationPublicationRole::Redirector:
+				return EAssetRelocationFailurePoint::PublishRedirector;
+			}
+			return EAssetRelocationFailurePoint::PublishRealAsset;
+		}
+	}
+
+	auto FAssetManager::ApplyAssetRelocationBatch(
+		const FAssetRelocationBatchToken& Token) -> FAssetResult
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (!Token.State)
+			return Error(EAssetError::StaleData,
+				"The relocation token is empty.");
+		auto& State = *Token.State;
+		if (State.Journal.State != EAssetMutationState::Prepared
+			&& State.Journal.State != EAssetMutationState::Restored)
+			return Error(EAssetError::StaleData,
+				"Only a prepared or restored relocation can be applied.");
+		FAssetResult Result = RevalidateAssetRelocationBatch(Token);
+		if (!Result) return Result;
+		if (ConsumeRelocationFailure(
+				EAssetRelocationFailurePoint::StageOriginal))
+			return Error(EAssetError::IoError,
+				"Injected relocation original-staging failure.");
+
+		State.Journal.State = EAssetMutationState::Publishing;
+		WriteMutationJournalState(State.Journal);
+		std::vector<size_t> Order(State.Journal.Entries.size());
+		for (size_t Index = 0; Index < Order.size(); ++Index)
+			Order[Index] = Index;
+		std::ranges::stable_sort(Order, [&](size_t A, size_t B) {
+			return State.Journal.Entries[A].Role
+				< State.Journal.Entries[B].Role;
+		});
+		for (size_t OrderIndex = 0; OrderIndex < Order.size(); ++OrderIndex)
+		{
+			FAssetMutationJournalEntry& Entry =
+				State.Journal.Entries[Order[OrderIndex]];
+			Entry.PublicationOrder = static_cast<uint64>(OrderIndex);
+			Entry.bCompleted = false;
+			Entry.bCompensated = false;
+		}
+		WriteMutationJournalState(State.Journal);
+		std::vector<size_t> Published;
+		size_t RelocatedLoadedCount = 0;
+		size_t AppliedPayloadCount = 0;
+		auto EnterRecovery = [&](std::string Message) -> FAssetResult {
+			State.Journal.State = EAssetMutationState::RecoveryRequired;
+			WriteMutationJournalState(State.Journal);
+			return Error(EAssetError::IoError,
+				std::format("AssetMutationRecoveryRequired: {}", Message));
+		};
+		auto Compensate = [&](FAssetResult Failure) -> FAssetResult {
+			State.Journal.State = EAssetMutationState::Compensating;
+			WriteMutationJournalState(State.Journal);
+			for (size_t Count = AppliedPayloadCount; Count > 0; --Count)
+				if (State.OwnedPayloads[Count - 1].Restore)
+					State.OwnedPayloads[Count - 1].Restore();
+			for (size_t Count = RelocatedLoadedCount; Count > 0; --Count)
+			{
+				if (ConsumeRelocationFailure(
+						EAssetRelocationFailurePoint::CompensateLoadedPackage))
+					return EnterRecovery(
+						"loaded-package compensation was interrupted.");
+				FLoadedRelocationState& Loaded = State.LoadedPackages[Count - 1];
+				if (!Loaded.Package->RelocateAssetPackage(
+						Loaded.Mapping.SourcePath))
+					return EnterRecovery(
+						"a loaded package path could not be restored.");
+				Loaded.Package->Rename(FName(Loaded.PrePackageName));
+				Loaded.Package->GetAsset()->Rename(FName(Loaded.PreAssetName));
+				Loaded.Package->ClearDirty();
+				LoadedPackages.erase(Loaded.Mapping.DestinationPath);
+				LoadedPackages.emplace(Loaded.Mapping.SourcePath, Loaded.Package);
+			}
+			for (auto It = Published.rbegin(); It != Published.rend(); ++It)
+			{
+				if (ConsumeRelocationFailure(
+						EAssetRelocationFailurePoint::CompensateFile))
+					return EnterRecovery(
+						"file compensation was interrupted.");
+				FAssetResult RestoreResult = PublishRelocationFile(
+					State.Journal.Entries[*It], false);
+				if (!RestoreResult)
+					return EnterRecovery(RestoreResult.Message);
+				State.Journal.Entries[*It].bCompensated = true;
+				WriteMutationJournalState(State.Journal);
+			}
+			for (FAssetMutationJournalEntry& Entry : State.Journal.Entries)
+			{
+				if (!Entry.bPreExists) continue;
+				FAssetResult FingerprintResult = FingerprintRelocationFile(
+					Entry.PhysicalPath, Entry.ExpectedPreFingerprint);
+				if (!FingerprintResult)
+					return EnterRecovery(FingerprintResult.Message);
+			}
+			State.Journal.State = EAssetMutationState::Prepared;
+			WriteMutationJournalState(State.Journal);
+			return Failure;
+		};
+
+		for (size_t Index : Order)
+		{
+			FAssetMutationJournalEntry& Entry = State.Journal.Entries[Index];
+			if (ConsumeRelocationFailure(FailurePointForRole(Entry.Role)))
+				return Compensate(Error(EAssetError::IoError,
+					"Injected relocation publication failure."));
+			Result = PublishRelocationFile(Entry, true);
+			if (!Result) return Compensate(std::move(Result));
+			Published.push_back(Index);
+			Entry.bCompleted = true;
+			WriteMutationJournalState(State.Journal);
+		}
+
+		for (FLoadedRelocationState& Loaded : State.LoadedPackages)
+		{
+			if (ConsumeRelocationFailure(
+					EAssetRelocationFailurePoint::UpdateLoadedPackage))
+				return Compensate(Error(EAssetError::IoError,
+					"Injected loaded-package relocation failure."));
+			if (!Loaded.Package->RelocateAssetPackage(
+					Loaded.Mapping.DestinationPath))
+				return Compensate(Error(EAssetError::AlreadyExists,
+					"A loaded relocation destination became occupied."));
+			Loaded.Package->Rename(FName(
+				Loaded.Mapping.DestinationPath.GetAssetName()));
+			Loaded.Package->GetAsset()->Rename(FName(
+				Loaded.Mapping.DestinationPath.GetAssetName()));
+			Loaded.Package->ClearDirty();
+			LoadedPackages.erase(Loaded.Mapping.SourcePath);
+			LoadedPackages.emplace(
+				Loaded.Mapping.DestinationPath, Loaded.Package);
+			++RelocatedLoadedCount;
+		}
+		for (FAssetOwnedPayloadRelocation& Payload : State.OwnedPayloads)
+		{
+			if (Payload.Apply) Payload.Apply();
+			++AppliedPayloadCount;
+		}
+		if (ConsumeRelocationFailure(
+				EAssetRelocationFailurePoint::PublishRegistry))
+			return Compensate(Error(EAssetError::IoError,
+				"Injected relocation registry-publication failure."));
+
+		for (FAssetMutationJournalEntry& Entry : State.Journal.Entries)
+		{
+			if (Entry.bPostExists)
+			{
+				Result = FingerprintRelocationFile(
+					Entry.PhysicalPath, Entry.ExpectedPostFingerprint);
+				if (!Result) return Compensate(std::move(Result));
+			}
+			if (!Entry.RegistryPath.IsValid()) continue;
+			auto Data = State.PostAssets.find(Entry.RegistryPath);
+			if (Data == State.PostAssets.end()) continue;
+			std::error_code MetadataError;
+			Data->second.FileSize = std::filesystem::file_size(
+				Entry.PhysicalPath, MetadataError);
+			Data->second.LastWriteTime = std::filesystem::last_write_time(
+				Entry.PhysicalPath, MetadataError);
+			if (MetadataError)
+				return Compensate(Error(EAssetError::IoError,
+					"Could not read relocated package metadata."));
+			Data->second.LastWriteTimeTicks =
+				DerivedDataCache::FileTimeToStableTicks(
+					Data->second.LastWriteTime);
+		}
+		for (const FAssetRelocationMapping& Mapping : State.Mappings)
+		{
+			const FAssetMutationJournalEntry* DestinationEntry = nullptr;
+			for (const FAssetMutationJournalEntry& Entry : State.Journal.Entries)
+				if (Entry.RegistryPath == Mapping.DestinationPath)
+				{
+					DestinationEntry = &Entry;
+					break;
+				}
+			if (!DestinationEntry) continue;
+			for (FSoftAssetReference& Reference : State.PostSoftReferences)
+				if (Reference.SourcePackage == Mapping.DestinationPath)
+					Reference.SourceFingerprint =
+						DestinationEntry->ExpectedPostFingerprint;
+			if (State.PostSoftFingerprints.contains(Mapping.DestinationPath))
+				State.PostSoftFingerprints.insert_or_assign(
+					Mapping.DestinationPath,
+					DestinationEntry->ExpectedPostFingerprint);
+		}
+
+		Registry.Assets = State.PostAssets;
+		Registry.SoftReferences = State.PostSoftReferences;
+		Registry.SoftReferenceSourceFingerprints = State.PostSoftFingerprints;
+		Registry.RebuildRedirectorIndex();
+		Registry.bPersistentSnapshotDirty = true;
+		Registry.bSoftReferenceSnapshotDirty = true;
+		++Registry.Revision;
+		State.ExpectedRegistryRevision = Registry.Revision;
+		State.ExpectedAssets = Registry.Assets;
+		State.Journal.State = EAssetMutationState::Committed;
+		WriteMutationJournalState(State.Journal);
+		for (const auto& [Handle, Observer] : GetMoveObservers())
+		{
+			(void)Handle;
+			if (Observer) Observer->OnAssetsRelocated(State.Mappings);
+		}
+		return {};
+	}
+
+	auto FAssetManager::RestoreAssetRelocationBatch(
+		const FAssetRelocationBatchToken& Token) -> FAssetResult
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (!Token.State)
+			return Error(EAssetError::StaleData,
+				"The relocation token is empty.");
+		auto& State = *Token.State;
+		if (State.Journal.State != EAssetMutationState::Committed)
+			return Error(EAssetError::StaleData,
+				"Only a committed relocation can be restored.");
+		FAssetResult Result = RevalidateAssetRelocationBatch(Token);
+		if (!Result) return Result;
+
+		State.Journal.State = EAssetMutationState::Publishing;
+		WriteMutationJournalState(State.Journal);
+		std::vector<size_t> RestoredFiles;
+		for (size_t Count = State.Journal.Entries.size(); Count > 0; --Count)
+		{
+			const size_t Index = Count - 1;
+			Result = PublishRelocationFile(
+				State.Journal.Entries[Index], false);
+			if (!Result)
+			{
+				State.Journal.State = EAssetMutationState::RecoveryRequired;
+				WriteMutationJournalState(State.Journal);
+				return Error(EAssetError::IoError, std::format(
+					"AssetMutationRecoveryRequired: {}", Result.Message));
+			}
+			RestoredFiles.push_back(Index);
+			State.Journal.Entries[Index].bCompensated = true;
+			WriteMutationJournalState(State.Journal);
+		}
+		for (size_t Count = State.OwnedPayloads.size(); Count > 0; --Count)
+			if (State.OwnedPayloads[Count - 1].Restore)
+				State.OwnedPayloads[Count - 1].Restore();
+		for (size_t Count = State.LoadedPackages.size(); Count > 0; --Count)
+		{
+			FLoadedRelocationState& Loaded = State.LoadedPackages[Count - 1];
+			if (!Loaded.Package->RelocateAssetPackage(
+					Loaded.Mapping.SourcePath))
+			{
+				State.Journal.State = EAssetMutationState::RecoveryRequired;
+				WriteMutationJournalState(State.Journal);
+				return Error(EAssetError::IoError,
+					"AssetMutationRecoveryRequired: a loaded package could not be restored.");
+			}
+			Loaded.Package->Rename(FName(Loaded.PrePackageName));
+			Loaded.Package->GetAsset()->Rename(FName(Loaded.PreAssetName));
+			Loaded.Package->ClearDirty();
+			LoadedPackages.erase(Loaded.Mapping.DestinationPath);
+			LoadedPackages.emplace(Loaded.Mapping.SourcePath, Loaded.Package);
+		}
+
+		for (FAssetMutationJournalEntry& Entry : State.Journal.Entries)
+		{
+			if (Entry.bPreExists)
+			{
+				Result = FingerprintRelocationFile(
+					Entry.PhysicalPath, Entry.ExpectedPreFingerprint);
+				if (!Result)
+				{
+					State.Journal.State = EAssetMutationState::RecoveryRequired;
+					WriteMutationJournalState(State.Journal);
+					return Error(EAssetError::IoError,
+						"AssetMutationRecoveryRequired: restored package metadata is unavailable.");
+				}
+			}
+			if (!Entry.RegistryPath.IsValid()) continue;
+			auto Data = State.PreAssets.find(Entry.RegistryPath);
+			if (Data == State.PreAssets.end()) continue;
+			std::error_code MetadataError;
+			Data->second.FileSize = std::filesystem::file_size(
+				Entry.PhysicalPath, MetadataError);
+			Data->second.LastWriteTime = std::filesystem::last_write_time(
+				Entry.PhysicalPath, MetadataError);
+			if (MetadataError)
+			{
+				State.Journal.State = EAssetMutationState::RecoveryRequired;
+				WriteMutationJournalState(State.Journal);
+				return Error(EAssetError::IoError,
+					"AssetMutationRecoveryRequired: restored package metadata is unavailable.");
+			}
+			Data->second.LastWriteTimeTicks =
+				DerivedDataCache::FileTimeToStableTicks(
+					Data->second.LastWriteTime);
+		}
+		for (const FAssetRelocationMapping& Mapping : State.Mappings)
+		{
+			const FAssetMutationJournalEntry* SourceEntry = nullptr;
+			for (const FAssetMutationJournalEntry& Entry : State.Journal.Entries)
+				if (Entry.RegistryPath == Mapping.SourcePath)
+				{
+					SourceEntry = &Entry;
+					break;
+				}
+			if (!SourceEntry) continue;
+			for (FSoftAssetReference& Reference : State.PreSoftReferences)
+				if (Reference.SourcePackage == Mapping.SourcePath)
+					Reference.SourceFingerprint =
+						SourceEntry->ExpectedPreFingerprint;
+			if (State.PreSoftFingerprints.contains(Mapping.SourcePath))
+				State.PreSoftFingerprints.insert_or_assign(
+					Mapping.SourcePath,
+					SourceEntry->ExpectedPreFingerprint);
+		}
+
+		Registry.Assets = State.PreAssets;
+		Registry.SoftReferences = State.PreSoftReferences;
+		Registry.SoftReferenceSourceFingerprints = State.PreSoftFingerprints;
+		Registry.RebuildRedirectorIndex();
+		Registry.bPersistentSnapshotDirty = true;
+		Registry.bSoftReferenceSnapshotDirty = true;
+		++Registry.Revision;
+		State.ExpectedRegistryRevision = Registry.Revision;
+		State.ExpectedAssets = Registry.Assets;
+		State.Journal.State = EAssetMutationState::Restored;
+		WriteMutationJournalState(State.Journal);
+		std::vector<FAssetRelocationMapping> Inverse;
+		Inverse.reserve(State.Mappings.size());
+		for (const FAssetRelocationMapping& Mapping : State.Mappings)
+			Inverse.push_back({
+				.SourcePath = Mapping.DestinationPath,
+				.DestinationPath = Mapping.SourcePath});
+		for (const auto& [Handle, Observer] : GetMoveObservers())
+		{
+			(void)Handle;
+			if (Observer) Observer->OnAssetsRelocated(Inverse);
+		}
 		return {};
 	}
 
@@ -5177,7 +6031,28 @@ namespace Durin::Asset
 	{
 		return FAssetManager::Get().SavePackage(Package, Options);
 	}
-	auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult { return FAssetManager::Get().MoveAsset(OldPath, NewPath); }
+	auto AnalyzeAssetRelocationBatch(
+		std::span<const FAssetRelocationMapping> Mappings,
+		FAssetRelocationBatchToken& OutToken) -> FAssetResult
+	{
+		return FAssetManager::Get().AnalyzeAssetRelocationBatch(
+			Mappings, OutToken);
+	}
+	auto RevalidateAssetRelocationBatch(
+		const FAssetRelocationBatchToken& Token) -> FAssetResult
+	{
+		return FAssetManager::Get().RevalidateAssetRelocationBatch(Token);
+	}
+	auto ApplyAssetRelocationBatch(
+		const FAssetRelocationBatchToken& Token) -> FAssetResult
+	{
+		return FAssetManager::Get().ApplyAssetRelocationBatch(Token);
+	}
+	auto RestoreAssetRelocationBatch(
+		const FAssetRelocationBatchToken& Token) -> FAssetResult
+	{
+		return FAssetManager::Get().RestoreAssetRelocationBatch(Token);
+	}
 	auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult { return FAssetManager::Get().AnalyzeAssetDeletion(Path, OutAnalysis); }
 	auto AnalyzeAssetDeletionBatch(
 		std::span<const FAssetPath> Paths,

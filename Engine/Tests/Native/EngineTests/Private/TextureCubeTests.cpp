@@ -15,6 +15,18 @@
 
 namespace
 {
+	auto RelocateAssetForTest(
+		const Durin::FAssetPath& Source,
+		const Durin::FAssetPath& Destination) -> Durin::Asset::FAssetResult
+	{
+		const Durin::Asset::FAssetRelocationMapping Mapping{Source, Destination};
+		Durin::Asset::FAssetRelocationBatchToken Token;
+		Durin::Asset::FAssetResult Result =
+			Durin::Asset::AnalyzeAssetRelocationBatch(std::span{&Mapping, 1}, Token);
+		if (Result) Result = Durin::Asset::ApplyAssetRelocationBatch(Token);
+		return Result;
+	}
+
 	constexpr std::array<std::string_view, Durin::TextureCubeFaceCount> FaceNames = {
 		"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
 
@@ -143,7 +155,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 
 	Durin::FAssetPath RenamedPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/RenamedCube", RenamedPath));
-	ASSERT_TRUE(Durin::Asset::MoveAsset(AssetPath, RenamedPath));
+	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
 	for (std::string_view Suffix : {"px", "nx", "py", "ny", "pz", "nz"})
 	{
 		EXPECT_TRUE(std::filesystem::is_regular_file(
@@ -155,6 +167,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	EXPECT_EQ(Loaded->GetSourceFile(Durin::ETextureCubeFace::NegativeZ),
 		"/TextureCubeTests/Textures/Convention_nz.png");
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(RenamedPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(RenamedPath));
 	for (std::string_view Suffix : {"px", "nx", "py", "ny", "pz", "nz"})
 		EXPECT_TRUE(std::filesystem::is_regular_file(
@@ -363,7 +376,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 
 	Durin::FAssetPath RenamedPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/RenamedPanorama", RenamedPath));
-	ASSERT_TRUE(Durin::Asset::MoveAsset(AssetPath, RenamedPath));
+	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		Root / "Textures/Panorama_panorama.tga"));
 	EXPECT_FALSE(std::filesystem::exists(
@@ -372,6 +385,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	EXPECT_EQ(Loaded->GetPanoramaSourceFile(),
 		"/TextureCubeTests/Textures/Panorama_panorama.tga");
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(RenamedPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(RenamedPath));
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		Root / "Textures/Panorama_panorama.tga"));

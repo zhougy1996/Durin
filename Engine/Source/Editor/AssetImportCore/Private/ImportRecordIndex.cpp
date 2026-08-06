@@ -7,11 +7,6 @@
 
 namespace Durin::AssetImport
 {
-	namespace
-	{
-		auto RegisterImportRecordMoveContributor() -> void;
-	}
-
 	struct FImportRecordIndex::FImpl
 	{
 		mutable std::mutex Mutex;
@@ -23,10 +18,7 @@ namespace Durin::AssetImport
 		uint64 ObservedAssetRegistryRevision = 0;
 	};
 
-	FImportRecordIndex::FImportRecordIndex() : Impl(std::make_unique<FImpl>())
-	{
-		RegisterImportRecordMoveContributor();
-	}
+	FImportRecordIndex::FImportRecordIndex() : Impl(std::make_unique<FImpl>()) {}
 	FImportRecordIndex::~FImportRecordIndex() = default;
 
 	auto ComputeImportPackageFingerprint(
@@ -98,9 +90,9 @@ namespace Durin::AssetImport
 					.Policy = Output.Policy};
 				if (Output.Policy == EImportRecordOutputPolicy::Managed)
 				{
-					const Asset::FAssetData* OutputData =
-						Asset::GetAssetRegistry().FindAsset(Output.AssetPath);
-					Management.bOutputMissing = OutputData == nullptr;
+					const Asset::FAssetPathResolveResult Resolution =
+						Asset::GetAssetRegistry().ResolveAssetPath(Output.AssetPath);
+					Management.bOutputMissing = !Resolution;
 					if (Management.bOutputMissing)
 						Diagnostics.push_back({
 							.Category = EImportRecordIndexDiagnostic::MissingManagedOutput,
@@ -111,10 +103,14 @@ namespace Durin::AssetImport
 					{
 						std::string PersistedFingerprint;
 						std::string FingerprintError;
+						// Relocation changes the package main-object identity while the
+						// import record intentionally retains its authored alias.
 						Management.bFingerprintMismatch =
+							Resolution.RedirectChain.empty()
+							&& (
 							!ComputePersistedImportPackageFingerprint(
-								Output.AssetPath, PersistedFingerprint, FingerprintError)
-							|| PersistedFingerprint != Output.AuthoredFingerprint;
+								Resolution.FinalPath, PersistedFingerprint, FingerprintError)
+							|| PersistedFingerprint != Output.AuthoredFingerprint);
 						if (Management.bFingerprintMismatch)
 							Diagnostics.push_back({
 								.Category = EImportRecordIndexDiagnostic::OutputFingerprintMismatch,
@@ -433,102 +429,4 @@ namespace Durin::AssetImport
 		return Index;
 	}
 
-	namespace
-	{
-		struct FMoveRecordEdit
-		{
-			DImportRecord* Record = nullptr;
-			FImportRecordState Before;
-			FImportRecordState After;
-			bool bWasDirty = false;
-		};
-
-		auto RegisterImportRecordMoveContributor() -> void
-		{
-			static const bool Registered = [] {
-				Asset::RegisterAssetMoveContributor(DObject::StaticClass(), [](
-				DObject* MovingAsset,
-				const FAssetPath& OldPath,
-				const FAssetPath& NewPath,
-				Asset::FAssetMoveContribution& Out) -> Asset::FAssetResult
-			{
-				if (!MovingAsset) return {};
-				if (Cast<DImportRecord>(MovingAsset))
-				{
-					Out.Apply = [] { GetImportRecordIndex().NotifyAssetDuplicated(); };
-					Out.Rollback = [] { GetImportRecordIndex().NotifyAssetDuplicated(); };
-					return {};
-				}
-				std::string Error;
-				FImportRecordIndex& Index = GetImportRecordIndex();
-				if (!Index.EnsureCurrent(Error))
-					return {Asset::EAssetError::InvalidObjectGraph, std::move(Error)};
-				const std::vector<FImportRecordManagement> Managers = Index.FindManagers(OldPath);
-				if (Managers.empty()) return {};
-				if (Managers.size() != 1 || Index.IsRecordConflicted(Managers.front().RecordPath))
-					return {Asset::EAssetError::InvalidObjectGraph,
-						"A conflicted import-record manager prevents this output move."};
-
-				auto Edits = std::make_shared<std::vector<FMoveRecordEdit>>();
-				std::unordered_set<FAssetPath> SeenRecords;
-				for (const FImportRecordManagement& Manager : Managers)
-				{
-					if (!SeenRecords.insert(Manager.RecordPath).second) continue;
-					DImportRecord* Record = nullptr;
-					const Asset::FAssetResult Load = Asset::LoadAsset(Manager.RecordPath, Record);
-					if (!Load || !Record)
-						return Load ? Asset::FAssetResult{Asset::EAssetError::InvalidObjectGraph,
-							"Import-record manager could not be loaded."} : Load;
-					FMoveRecordEdit Edit{
-						.Record = Record,
-						.Before = Record->GetState(),
-						.After = Record->GetState(),
-						.bWasDirty = Record->GetPackage()->IsDirty()};
-					const auto Output = std::ranges::find(
-						Edit.After.Outputs, OldPath, &FImportRecordOutput::AssetPath);
-					if (Output == Edit.After.Outputs.end())
-						return {Asset::EAssetError::InvalidObjectGraph,
-							"Import-record manager does not contain the moved output."};
-					Output->AssetPath = NewPath;
-					if (Edit.After.PrimaryOutput == OldPath) Edit.After.PrimaryOutput = NewPath;
-					std::string ValidationError;
-					if (!Record->SetState(Edit.After, ValidationError))
-						return {Asset::EAssetError::InvalidObjectGraph, std::move(ValidationError)};
-					Record->SetState(Edit.Before, ValidationError);
-					if (!Edit.bWasDirty) Record->GetPackage()->ClearDirty();
-					Out.AdditionalPackages.push_back(Record->GetPackage());
-					Edits->push_back(std::move(Edit));
-				}
-				Out.Apply = [Edits, MovingAsset, NewPath] {
-					std::string AuthoredFingerprint;
-					std::string FingerprintError;
-					check(ComputeImportPackageFingerprint(
-						MovingAsset->GetPackage(), AuthoredFingerprint, FingerprintError));
-					for (FMoveRecordEdit& Edit : *Edits)
-					{
-						const auto Output = std::ranges::find(
-							Edit.After.Outputs, NewPath, &FImportRecordOutput::AssetPath);
-						check(Output != Edit.After.Outputs.end());
-						Output->AuthoredFingerprint = AuthoredFingerprint;
-						std::string Error;
-						check(Edit.Record->SetState(Edit.After, Error));
-					}
-					GetImportRecordIndex().NotifyAssetDuplicated();
-				};
-				Out.Rollback = [Edits] {
-					for (FMoveRecordEdit& Edit : *Edits)
-					{
-						std::string Error;
-						check(Edit.Record->SetState(Edit.Before, Error));
-						if (!Edit.bWasDirty) Edit.Record->GetPackage()->ClearDirty();
-					}
-					GetImportRecordIndex().NotifyAssetDuplicated();
-				};
-				return {};
-				});
-				return true;
-			}();
-			(void)Registered;
-		}
-	}
 }

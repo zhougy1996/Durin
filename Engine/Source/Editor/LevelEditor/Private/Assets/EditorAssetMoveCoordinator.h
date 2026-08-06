@@ -5,7 +5,7 @@
 namespace Durin
 {
 	class FLevelEditorSessionSettings;
-	class DLevel;
+	class FEditorTransactionManager;
 	struct FLevelEditorContext;
 	class FSceneViewportPanel;
 
@@ -18,29 +18,27 @@ namespace Durin
 
 	// Extends an AssetCore move with the editor-owned state keyed by asset path.
 	// Applies asset moves while keeping open documents and scene references coherent.
-	class FEditorAssetMoveCoordinator
+	class FEditorAssetMoveCoordinator final : public Asset::IAssetMoveObserver
 	{
 	public:
 		FEditorAssetMoveCoordinator(
 			FLevelEditorContext& InContext,
 			FLevelEditorSessionSettings& InSessionSettings,
 			FSceneViewportPanel& InSceneViewportPanel,
-			TSoftObjectPtr<DLevel>& InDefaultLevel,
-			std::function<bool()> InSaveProjectSettings
+			FEditorTransactionManager& InTransactions
 		);
 		~FEditorAssetMoveCoordinator();
 
-		auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> Asset::FAssetResult;
 		auto MoveAssets(std::span<const FEditorAssetMove> Moves) -> Asset::FAssetResult;
 
 	private:
-		auto RollbackAssets(std::span<const FEditorAssetMove> CompletedMoves) const -> std::string;
+		auto OnAssetsRelocated(
+			std::span<const Asset::FAssetRelocationMapping> Mappings) -> void override;
 
 		FLevelEditorContext& Context;
 		FLevelEditorSessionSettings& SessionSettings;
 		FSceneViewportPanel& SceneViewportPanel;
-		TSoftObjectPtr<DLevel>& DefaultLevel;
-		std::function<bool()> SaveProjectSettings;
-		Asset::FAssetMoveExternalStoreHandle DefaultLevelStoreHandle = 0;
+		FEditorTransactionManager& Transactions;
+		Asset::FAssetMoveObserverHandle ObserverHandle = 0;
 	};
 } // namespace Durin

@@ -9,19 +9,19 @@ Completed:
 
 ## Current Status
 
-- Stages 0-2 are complete: the redirect wire format and public vocabulary are
-  frozen, redirectors persist as DAST v3 registry entries, and public typed
-  loading plus hard/soft references transparently resolve to the final real
-  package. Stage 3 atomic batch relocation is next.
+- Stages 0-3 are complete: the redirect wire format and public vocabulary are
+  frozen, loading and references resolve to the final real package, and all
+  production move callers use journaled atomic batch relocation with generated
+  direct aliases and shared editor Undo/Redo. Stage 4 unified reference index
+  and explicit Fix Up is next.
 - The completed [Soft Asset References Plan](SoftAssetReferences.md) is historical
   evidence for the current implementation only. Its move-time rewrite contract,
   compatibility promises, stage structure, and validation baseline do not
   constrain this refactor.
-- Current target moves require a complete soft-reference index, load and save
-  hard referencers, rewrite loaded and unloaded soft referencers, update
-  registered external stores, relocate companion files, and restore every
-  participant from backups on failure. This plan deliberately removes those
-  reference repairs from the move critical path.
+- Relocation no longer consults soft-reference completeness, visits hard or
+  soft referencers, or publishes external settings/import-record edits. Those
+  authored paths remain valid through redirectors until Stage 4 Fix Up performs
+  an explicit verified rewrite.
 - The selected model follows the Unreal Engine asset-redirector principle: a
   successful move publishes the real asset at its new path and a redirector at
   its old path; reference rewriting and redirector deletion happen later through
@@ -833,24 +833,24 @@ Dependencies: Stage 1 registry resolver.
 
 Dependencies: Stage 2 transparent loading.
 
-- [ ] Introduce relocation analysis/token/revalidation/application/restoration
+- [x] Introduce relocation analysis/token/revalidation/application/restoration
   APIs and the shared journaled mutation primitive.
-- [ ] Implement collision-safe staging and one-step publication for real asset
+- [x] Implement collision-safe staging and one-step publication for real asset
   packages, generated redirectors, asset-owned companion files, loaded-package
   paths/object names, and registry projection.
-- [ ] Implement direct-to-final upstream alias compression and same-object
+- [x] Implement direct-to-final upstream alias compression and same-object
   redirector destination reclamation.
-- [ ] Split asset-owned payload relocation and transient observer contracts out
+- [x] Split asset-owned payload relocation and transient observer contracts out
   of the old move contribution API.
-- [ ] Convert Content Browser and level-document callers to a single batch API;
+- [x] Convert Content Browser and level-document callers to a single batch API;
   add one editor transaction for single asset, multi-asset, folder, Undo, and
   Redo relocation.
-- [ ] Ensure successful moves do not query reference-index completeness, read
+- [x] Ensure successful moves do not query reference-index completeness, read
   referencer packages, modify soft paths, save external stores, or depend on
   referencer writability.
-- [ ] Remove sequential editor reverse-move rollback and the old single-asset
+- [x] Remove sequential editor reverse-move rollback and the old single-asset
   publication path once all callers are converted.
-- [ ] Add failure injection for every staging/publication/compensation boundary,
+- [x] Add failure injection for every staging/publication/compensation boundary,
   focused move/Content Browser tests, and the required stage handoff.
 
 #### Acceptance Gate
@@ -861,6 +861,46 @@ Dependencies: Stage 2 transparent loading.
   and read-only or malformed referencers because none is part of the move.
 - Repeated moves produce direct aliases, move-back safely reclaims only a
   same-object redirector, and Undo/Redo restore exact persisted states.
+
+#### Stage 3 Handoff
+
+- Baseline commit: `d4878834b5c72dc45e2d9c9bb130135e18372672`.
+- Working set: `AssetSystem.h/.cpp`, `AssetRelocationTransaction.h/.cpp`,
+  `EditorAssetMoveCoordinator.h/.cpp`, `ContentBrowserOperations.cpp`,
+  `LevelDocumentController.cpp`, `MLevelEditor.cpp`, import-record indexing,
+  StaticMesh/Texture contributor registration, AssetCore/editor/import tests,
+  `AssetPackages.md`, and this plan.
+- Key symbols and decisions: `FAssetRelocationBatchToken` is the getter-only
+  plan and retained journal; `AnalyzeAssetRelocationBatch`, revalidation,
+  apply, and restore are the only AssetCore lifecycle. File publication stages
+  exact pre/post bytes beneath mount-owned extensionless mutation roots, swaps
+  loaded package/object identities, and publishes the registry once. The
+  versioned journal records path/fingerprint/order/completion state, and an
+  extensionless `Saved/AssetMutationRecovery` locator names all affected mount
+  roots. Repeated moves retarget upstream aliases directly; move-back reclaims
+  only a redirector resolving to the same source.
+  `FAssetOwnedPayloadRelocator` owns exclusive companion state, while
+  `IAssetMoveObserver` is post-commit and non-failing.
+- Compatibility and cleanup: `MoveAsset`, `FAssetMoveContribution`,
+  `FAssetMoveExternalStore`, additional-package move edits, `.movebak`, and
+  sequential reverse-move rollback are removed without shims. Default-level
+  and import-record paths remain authored to aliases; import lookup resolves
+  before validating the current real output. StaticMesh and Texture mounted
+  sources remain explicitly independent of package relocation.
+- Editor integration: Content Browser single, multi-asset, and folder mappings
+  call one batch; `FAssetRelocationTransaction` retains that token in the shared
+  history so Undo/Redo never recompute reverse mappings. Session viewport state
+  reacts through a committed move observer and cannot fail authored relocation.
+- Open questions: none block Stage 4. Recovery-required journal discovery and
+  unattended repair UI remain later integration work; Stage 3 retains the exact
+  roots and diagnostic instead of deleting them automatically.
+- Validation on 2026-08-06: focused `AssetPackageTests` passes 66 tests,
+  `AssetImportCoreTests` 21, `EditorAssetWorkflowTests` 53 executed/52 passed
+  with one environment skip, `StaticMeshTests` 44, and `TextureTests` 62. The
+  full native run passes all 1033 executed tests with two environment skips and
+  one disabled benchmark. The full `all` build succeeds in the same
+  `Win64-Debug-DurinEditor-Tests` profile, and full plan-document validation
+  succeeds.
 
 ### Stage 4: Build Unified Reference Index and Fix Up
 

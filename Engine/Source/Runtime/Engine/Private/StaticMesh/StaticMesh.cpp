@@ -544,12 +544,7 @@ namespace Durin
 	DStaticMesh::DStaticMesh(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 	{
-		static const bool RegisteredMoveContributor = [] {
-			Asset::RegisterAssetMoveContributor(DStaticMesh::StaticClass(), [](
-				DObject*, const FAssetPath&, const FAssetPath&, Asset::FAssetMoveContribution&) -> Asset::FAssetResult {
-				// Source provenance is independent of package placement.
-				return {};
-			});
+		static const bool RegisteredDeleteContributor = [] {
 			Asset::RegisterAssetDeleteContributor(DStaticMesh::StaticClass(), [](
 				const Asset::FAssetData&, const Asset::FAssetPackageInspection&,
 				Asset::FAssetDeleteContribution&) -> Asset::FAssetResult {
@@ -558,7 +553,7 @@ namespace Durin
 			});
 			return true;
 		}();
-		(void)RegisteredMoveContributor;
+		(void)RegisteredDeleteContributor;
 	}
 
 	DStaticMesh::~DStaticMesh() = default;

@@ -1,6 +1,21 @@
 #include "TextureTestSupport.h"
 #include "SourceFingerprintCache.h"
 
+namespace
+{
+	auto RelocateAssetForTest(
+		const Durin::FAssetPath& Source,
+		const Durin::FAssetPath& Destination) -> Durin::Asset::FAssetResult
+	{
+		const Durin::Asset::FAssetRelocationMapping Mapping{Source, Destination};
+		Durin::Asset::FAssetRelocationBatchToken Token;
+		Durin::Asset::FAssetResult Result =
+			Durin::Asset::AnalyzeAssetRelocationBatch(std::span{&Mapping, 1}, Token);
+		if (Result) Result = Durin::Asset::ApplyAssetRelocationBatch(Token);
+		return Result;
+	}
+}
+
 TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 {
 	InitializeDObjectSystem();
@@ -62,7 +77,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 
 	Durin::FAssetPath RenamedPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Renamed", RenamedPath));
-	ASSERT_TRUE(Durin::Asset::MoveAsset(AssetPath, RenamedPath));
+	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
 	const std::filesystem::path ImportRoot = Durin::Testing::GetTestWorkDirectory() / "TextureImports";
 	const std::filesystem::path StoredSource =
 		ImportRoot / "Content" / "Textures" / "Transparent.png";
@@ -76,6 +91,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	Durin::Asset::FAssetDeleteAnalysis DeleteAnalysis;
 	ASSERT_TRUE(Durin::Asset::AnalyzeAssetDeletion(RenamedPath, DeleteAnalysis));
 	EXPECT_TRUE(DeleteAnalysis.CompanionFiles.empty());
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(RenamedPath));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 }

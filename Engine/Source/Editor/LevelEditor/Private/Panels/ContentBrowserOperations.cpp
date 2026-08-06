@@ -300,31 +300,40 @@ namespace Durin
 				: Asset::FAssetResult{};
 		}
 
-		const Asset::FAssetResult MoveResult = MoveAssets(Moves);
-		if (!MoveResult) return MoveResult;
+		std::vector<std::filesystem::path> CreatedDirectories;
 		for (const std::filesystem::path& RelativeDirectory : RelativeDirectories)
 		{
+			const std::filesystem::path DestinationDirectory =
+				NewFolder / RelativeDirectory;
+			const bool bExisted = std::filesystem::exists(DestinationDirectory);
 			Ec.clear();
-			std::filesystem::create_directories(
-				NewFolder / RelativeDirectory, Ec);
-			if (!Ec) continue;
+			std::filesystem::create_directories(DestinationDirectory, Ec);
+			if (!Ec)
+			{
+				if (!bExisted) CreatedDirectories.push_back(DestinationDirectory);
+				continue;
+			}
+			for (auto It = CreatedDirectories.rbegin();
+				It != CreatedDirectories.rend(); ++It)
+			{
+				std::error_code RemoveError;
+				std::filesystem::remove(*It, RemoveError);
+			}
+			return {Asset::EAssetError::IoError, std::format(
+				"Could not prepare an empty destination directory: {}",
+				Ec.message())};
+		}
 
-			std::vector<FEditorAssetMove> RollbackMoves;
-			RollbackMoves.reserve(Moves.size());
-			for (auto It = Moves.rbegin(); It != Moves.rend(); ++It)
-				RollbackMoves.push_back({It->NewPath, It->OldPath});
-			const Asset::FAssetResult RollbackResult =
-				MoveAssets(RollbackMoves);
-			return {
-				Asset::EAssetError::IoError,
-				std::format(
-					"Could not recreate an empty directory: {}{}",
-					Ec.message(),
-					RollbackResult
-						? ""
-						: std::format(
-							  " Asset rollback also failed: {}",
-							  RollbackResult.Message))};
+		const Asset::FAssetResult MoveResult = MoveAssets(Moves);
+		if (!MoveResult)
+		{
+			for (auto It = CreatedDirectories.rbegin();
+				It != CreatedDirectories.rend(); ++It)
+			{
+				std::error_code RemoveError;
+				std::filesystem::remove(*It, RemoveError);
+			}
+			return MoveResult;
 		}
 
 		std::vector<std::filesystem::path> OldDirectories;

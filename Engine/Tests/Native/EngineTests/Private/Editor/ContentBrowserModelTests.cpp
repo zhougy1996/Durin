@@ -1,6 +1,8 @@
 #include "Panels/ContentBrowserModel.h"
 #include "Panels/ContentBrowserOperations.h"
 
+#include "Assets/AssetRelocationTransaction.h"
+#include "Editor/EditorTransaction.h"
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -84,6 +86,43 @@ TEST_F(FContentBrowserModelTests, MaintainsHistoryAndTruncatesForwardBranch)
 	EXPECT_EQ(Model.GetHistory().size(), 2);
 	EXPECT_EQ(Model.GetHistoryIndex(), 1);
 	EXPECT_FALSE(Model.NavigateHistory(1));
+}
+
+TEST_F(FContentBrowserModelTests, RelocationUsesOneSharedUndoRedoTransaction)
+{
+	InitializeDObjectSystem();
+	FAssetPath SourcePath;
+	FAssetPath DestinationPath;
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/TransactionalSource", SourcePath));
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/Folder/TransactionalDestination",
+		DestinationPath));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(Asset::CreateAsset(SourcePath, Material));
+	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+
+	const Asset::FAssetRelocationMapping Mapping{
+		SourcePath, DestinationPath};
+	Asset::FAssetRelocationBatchToken Token;
+	ASSERT_TRUE(Asset::AnalyzeAssetRelocationBatch(
+		std::span{&Mapping, 1}, Token));
+	ASSERT_TRUE(Asset::ApplyAssetRelocationBatch(Token));
+	FEditorTransactionManager Transactions;
+	ASSERT_TRUE(Transactions.CommitApplied(
+		std::make_unique<FAssetRelocationTransaction>(std::move(Token))));
+	EXPECT_EQ(Transactions.GetUndoDescription(), "Move Asset");
+	EXPECT_EQ(Asset::GetAssetRegistry().ResolveAssetPath(SourcePath).FinalPath,
+		DestinationPath);
+
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(SourcePath)->EntryKind,
+		Asset::EAssetRegistryEntryKind::Asset);
+	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(DestinationPath), nullptr);
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Asset::GetAssetRegistry().ResolveAssetPath(SourcePath).FinalPath,
+		DestinationPath);
+	Transactions.Clear();
 }
 
 TEST_F(FContentBrowserModelTests, SearchesRecursivelyButBrowsesImmediateChildren)

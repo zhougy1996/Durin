@@ -1,6 +1,21 @@
 #include "MaterialTestSupport.h"
 #include "NativeTestSupport.h"
 
+namespace
+{
+	auto RelocateAssetForTest(
+		const Durin::FAssetPath& Source,
+		const Durin::FAssetPath& Destination) -> Durin::Asset::FAssetResult
+	{
+		const Durin::Asset::FAssetRelocationMapping Mapping{Source, Destination};
+		Durin::Asset::FAssetRelocationBatchToken Token;
+		Durin::Asset::FAssetResult Result =
+			Durin::Asset::AnalyzeAssetRelocationBatch(std::span{&Mapping, 1}, Token);
+		if (Result) Result = Durin::Asset::ApplyAssetRelocationBatch(Token);
+		return Result;
+	}
+}
+
 TEST(FStaticMeshMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlots)
 {
 	InitializeDObjectSystem();
@@ -86,7 +101,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	Durin::FAssetPath NewPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSourceProvenance/Environment/Mesh", OldPath));
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSourceProvenance/Moved/Mesh", NewPath));
-	ASSERT_TRUE(Durin::Asset::MoveAsset(OldPath, NewPath));
+	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 	EXPECT_EQ(Import.Asset->GetSourceImportData().SourcePath.Path, OriginalSourcePath);
 	EXPECT_EQ(Import.Asset->InspectSource().Status, Durin::EStaticMeshSourceStatus::Available);
@@ -94,6 +109,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	Durin::Asset::FAssetDeleteAnalysis Analysis;
 	ASSERT_TRUE(Durin::Asset::AnalyzeAssetDeletion(NewPath, Analysis));
 	EXPECT_TRUE(Analysis.CompanionFiles.empty());
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(OldPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(NewPath));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 }

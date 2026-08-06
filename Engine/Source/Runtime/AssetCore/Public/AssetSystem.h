@@ -481,35 +481,84 @@ namespace Durin::Asset
 		uint64 FailedSources = 0;
 	};
 
-	// Describes files and reversible state changes contributed to an asset move.
-	struct FAssetMoveContribution
+	// Describes one requested real-asset relocation in an atomic batch.
+	struct FAssetRelocationMapping
+	{
+		FAssetPath SourcePath;
+		FAssetPath DestinationPath;
+
+		auto operator==(const FAssetRelocationMapping&) const -> bool = default;
+	};
+
+	// Restricts a class contribution to files and reversible live state owned
+	// exclusively by the moving asset.
+	struct FAssetOwnedPayloadRelocation
 	{
 		std::vector<std::pair<std::filesystem::path, std::filesystem::path>> Files;
-		// Additional authored packages whose path references are changed by the
-		// move. They are backed up, saved, and restored in the same move boundary.
-		std::vector<DPackage*> AdditionalPackages;
 		std::function<void()> Apply;
-		std::function<void()> Rollback;
+		std::function<void()> Restore;
 	};
 
-	// One editor or project-owned store participating in an AssetCore move transaction.
-	// Apply and Rollback must publish their complete external state atomically.
-	struct FAssetMoveExternalStoreAction
+	using FAssetOwnedPayloadRelocator = std::function<FAssetResult(
+		DObject*,
+		const FAssetPath&,
+		const FAssetPath&,
+		FAssetOwnedPayloadRelocation&)>;
+	ASSETCORE_API auto RegisterAssetOwnedPayloadRelocator(
+		DClass* Class,
+		FAssetOwnedPayloadRelocator Relocator) -> void;
+
+	// Receives committed relocation direction changes for transient editor and
+	// cache state. Observers cannot reject or roll back authored publication.
+	class IAssetMoveObserver
 	{
-		std::string Name;
-		std::function<FAssetResult()> Apply;
-		std::function<FAssetResult()> Rollback;
+	public:
+		virtual ~IAssetMoveObserver() = default;
+		virtual auto OnAssetsRelocated(
+			std::span<const FAssetRelocationMapping> Mappings) -> void = 0;
 	};
 
-	using FAssetMoveExternalStore = std::function<FAssetResult(
-		const FAssetPath&,
-		const FAssetPath&,
-		FAssetMoveExternalStoreAction&)>;
-	using FAssetMoveExternalStoreHandle = uint64;
-	ASSETCORE_API auto RegisterAssetMoveExternalStore(FAssetMoveExternalStore Store)
-		-> FAssetMoveExternalStoreHandle;
-	ASSETCORE_API auto UnregisterAssetMoveExternalStore(
-		FAssetMoveExternalStoreHandle Handle) -> void;
+	using FAssetMoveObserverHandle = uint64;
+	ASSETCORE_API auto RegisterAssetMoveObserver(IAssetMoveObserver* Observer)
+		-> FAssetMoveObserverHandle;
+	ASSETCORE_API auto UnregisterAssetMoveObserver(
+		FAssetMoveObserverHandle Handle) -> void;
+
+	// Owns the immutable relocation plan and its retained pre/post publication
+	// journal. AssetCore alone advances the internal transaction state.
+	class FAssetRelocationBatchToken
+	{
+	public:
+		ASSETCORE_API auto GetRegistryRevision() const -> uint64;
+		ASSETCORE_API auto GetMappings() const
+			-> std::span<const FAssetRelocationMapping>;
+
+	private:
+		struct FState;
+		std::shared_ptr<FState> State;
+
+		friend class FAssetManager;
+	};
+
+	// Failure seams are deterministic and one-shot so transaction-boundary tests
+	// can prove compensation without changing production publication behavior.
+	enum class EAssetRelocationFailurePoint : uint8
+	{
+		None,
+		PrepareOutput,
+		StageOriginal,
+		PublishRealAsset,
+		PublishOwnedPayload,
+		PublishRedirector,
+		UpdateLoadedPackage,
+		PublishRegistry,
+		CompensateFile,
+		CompensateLoadedPackage,
+	};
+
+	ASSETCORE_API auto SetAssetRelocationFailurePointForTesting(
+		EAssetRelocationFailurePoint Point,
+		uint32 Occurrence = 1) -> void;
 
 	// Describes companion files contributed to an asset deletion.
 	struct FAssetDeleteContribution
@@ -585,8 +634,6 @@ namespace Durin::Asset
 		friend class FAssetManager;
 	};
 
-	using FAssetMoveContributor = std::function<FAssetResult(DObject*, const FAssetPath&, const FAssetPath&, FAssetMoveContribution&)>;
-	ASSETCORE_API auto RegisterAssetMoveContributor(DClass* Class, FAssetMoveContributor Contributor) -> void;
 	using FAssetDeleteContributor = std::function<FAssetResult(const FAssetData&, const FAssetPackageInspection&, FAssetDeleteContribution&)>;
 	ASSETCORE_API auto RegisterAssetDeleteContributor(DClass* Class, FAssetDeleteContributor Contributor) -> void;
 
@@ -673,7 +720,15 @@ namespace Durin::Asset
 		ASSETCORE_API auto SavePackage(
 			DPackage* Package,
 			const FAssetPackageSaveOptions& Options = {}) -> FAssetResult;
-		ASSETCORE_API auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult;
+		ASSETCORE_API auto AnalyzeAssetRelocationBatch(
+			std::span<const FAssetRelocationMapping> Mappings,
+			FAssetRelocationBatchToken& OutToken) -> FAssetResult;
+		ASSETCORE_API auto RevalidateAssetRelocationBatch(
+			const FAssetRelocationBatchToken& Token) -> FAssetResult;
+		ASSETCORE_API auto ApplyAssetRelocationBatch(
+			const FAssetRelocationBatchToken& Token) -> FAssetResult;
+		ASSETCORE_API auto RestoreAssetRelocationBatch(
+			const FAssetRelocationBatchToken& Token) -> FAssetResult;
 		ASSETCORE_API auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
 		ASSETCORE_API auto AnalyzeAssetDeletionBatch(
 			std::span<const FAssetPath> Paths,
@@ -842,7 +897,15 @@ namespace Durin::Asset
 	ASSETCORE_API auto SavePackage(
 		DPackage* Package,
 		const FAssetPackageSaveOptions& Options = {}) -> FAssetResult;
-	ASSETCORE_API auto MoveAsset(const FAssetPath& OldPath, const FAssetPath& NewPath) -> FAssetResult;
+	ASSETCORE_API auto AnalyzeAssetRelocationBatch(
+		std::span<const FAssetRelocationMapping> Mappings,
+		FAssetRelocationBatchToken& OutToken) -> FAssetResult;
+	ASSETCORE_API auto RevalidateAssetRelocationBatch(
+		const FAssetRelocationBatchToken& Token) -> FAssetResult;
+	ASSETCORE_API auto ApplyAssetRelocationBatch(
+		const FAssetRelocationBatchToken& Token) -> FAssetResult;
+	ASSETCORE_API auto RestoreAssetRelocationBatch(
+		const FAssetRelocationBatchToken& Token) -> FAssetResult;
 	ASSETCORE_API auto AnalyzeAssetDeletion(const FAssetPath& Path, FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
 	ASSETCORE_API auto AnalyzeAssetDeletionBatch(
 		std::span<const FAssetPath> Paths,
