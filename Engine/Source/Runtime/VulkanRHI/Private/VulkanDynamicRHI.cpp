@@ -22,7 +22,7 @@ namespace Durin::VulkanRHI
 
 	FVulkanDynamicRHI::FVulkanDynamicRHI()
 	{
-		VULKAN_HPP_DEFAULT_DISPATCHER.init(DynamicLoader);
+		VULKAN_HPP_DEFAULT_DISPATCHER.init(::vkGetInstanceProcAddr);
 	}
 
 	auto FVulkanDynamicRHI::Init() -> void
@@ -90,12 +90,6 @@ namespace Durin::VulkanRHI
 	{
 		CheckVulkanRHIThread();
 		return Device->GetHandle();
-	}
-
-	auto FVulkanDynamicRHI::RHIGetDynamicLoader() -> vk::DynamicLoader&
-	{
-		CheckVulkanRHIThread();
-		return DynamicLoader;
 	}
 
 	auto FVulkanDynamicRHI::RHIGetVkInstance() const -> vk::Instance

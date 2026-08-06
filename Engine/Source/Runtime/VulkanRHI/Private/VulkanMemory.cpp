@@ -29,10 +29,9 @@ namespace Durin::VulkanRHI
 		MemoryProperties = Gpu.getMemoryProperties();
 
 		FVulkanDynamicRHI& DynamicRHI = FVulkanDynamicRHI::Get();
-		const vk::DynamicLoader& DynamicLoader = DynamicRHI.RHIGetDynamicLoader();
 		VmaVulkanFunctions vmaFuncs = {};
-		vmaFuncs.vkGetInstanceProcAddr = DynamicLoader.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr");
-		vmaFuncs.vkGetDeviceProcAddr = DynamicLoader.getProcAddress<PFN_vkGetDeviceProcAddr>("vkGetDeviceProcAddr");
+		vmaFuncs.vkGetInstanceProcAddr = ::vkGetInstanceProcAddr;
+		vmaFuncs.vkGetDeviceProcAddr = ::vkGetDeviceProcAddr;
 
 		VmaAllocatorCreateInfo allocatorInfo = {};
 		allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_3;

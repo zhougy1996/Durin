@@ -43,7 +43,6 @@ namespace Durin::VulkanRHI
 		auto RHIEndFrame_RenderThread(FRHICommandListImmediate& RHICmdList) -> void override;
 
 		auto RHIGetVkDevice() const -> vk::Device override;
-		auto RHIGetDynamicLoader() -> vk::DynamicLoader&;
 		auto RHIGetVkInstance() const -> vk::Instance override;
 		auto RHIGetVkPhysicalDevice() const -> vk::PhysicalDevice override;
 		auto RHIExecuteCommandBufferForBackendIntegration(
@@ -93,7 +92,6 @@ namespace Durin::VulkanRHI
 		auto SetupInstanceLayers(const FVulkanInstanceExtensionArray& DurinExtensions) -> void;
 
 	private:
-		vk::DynamicLoader DynamicLoader{};
 		vk::Instance Instance;
 		std::vector<const char*> InstanceExtensions;
 		std::vector<const char*> InstanceLayers;
