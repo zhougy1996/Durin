@@ -114,6 +114,30 @@ def _tests(
     )
 
 
+def _saved(
+    root: Path,
+    profile: BuildProfile | None,
+    preset: ConfigurePreset | None,
+) -> Path:
+    return _runtime(root, profile, preset) / "Saved"
+
+
+def _configs(
+    root: Path,
+    profile: BuildProfile | None,
+    preset: ConfigurePreset | None,
+) -> Path:
+    return _saved(root, profile, preset) / "Configs"
+
+
+def _runtime_logs(
+    root: Path,
+    profile: BuildProfile | None,
+    preset: ConfigurePreset | None,
+) -> Path:
+    return _saved(root, profile, preset) / "Logs"
+
+
 def _logs(
     root: Path,
     _profile: BuildProfile | None,
@@ -145,6 +169,27 @@ LOCATION_SPECS = (
         True,
         _runtime,
         "Build the complete runtime first with build --target all.",
+    ),
+    LocationSpec(
+        "saved",
+        (),
+        True,
+        _saved,
+        "Run the selected runtime once to create its Saved directory.",
+    ),
+    LocationSpec(
+        "configs",
+        (),
+        True,
+        _configs,
+        "Build the complete runtime first with build --target all.",
+    ),
+    LocationSpec(
+        "runtime-logs",
+        ("engine-logs",),
+        True,
+        _runtime_logs,
+        "Run the selected runtime once to create its log directory.",
     ),
     LocationSpec(
         "tests",

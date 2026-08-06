@@ -33,7 +33,7 @@ namespace Durin
 			UIScale = Monitors.front().WorkSize.y >= 1800 ? 1.5f : Monitors.front().WorkSize.y >= 1300 ? 1.25f : 1.0f;
 		}
 
-		const std::string HostPath = FPaths::LaunchDir() + HostSettingsFileName;
+		const std::string HostPath = FPaths::LaunchConfigsDir() + HostSettingsFileName;
 		if (!std::filesystem::exists(HostPath)) return true;
 
 		FYamlDocument Document;
@@ -56,7 +56,7 @@ namespace Durin
 		Display.SetChildValue("UIScale", static_cast<double>(UIScale));
 		Display.SetChildValue("ColorTheme", ColorTheme == MonaImGui::EColorTheme::Light ? "Light" : "Dark");
 		Display.SetChildValue("WindowMaximized", bWindowMaximized);
-		if (!Document.SaveToFile(FPaths::LaunchDir() + HostSettingsFileName))
+		if (!Document.SaveToFile(FPaths::LaunchConfigsDir() + HostSettingsFileName))
 		{
 			DURIN_WARN("Failed to save editor host settings.");
 			return false;

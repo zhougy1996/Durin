@@ -39,6 +39,75 @@ namespace Durin
 
 	namespace
 	{
+		std::vector<std::string> RuntimeStorageMigrationWarnings;
+
+		auto MigrateLegacyRuntimeFile(std::string_view FileName) -> void
+		{
+			const std::filesystem::path LegacyPath = std::filesystem::path(FPaths::LaunchDir()) / FileName;
+			const std::filesystem::path SavedPath = std::filesystem::path(FPaths::LaunchConfigsDir()) / FileName;
+			if (!std::filesystem::exists(LegacyPath) || std::filesystem::exists(SavedPath)) return;
+
+			std::error_code Error;
+			std::filesystem::rename(LegacyPath, SavedPath, Error);
+			if (!Error) return;
+
+			Error.clear();
+			std::filesystem::copy_file(LegacyPath, SavedPath, std::filesystem::copy_options::none, Error);
+			if (!Error)
+			{
+				std::error_code RemoveError;
+				std::filesystem::remove(LegacyPath, RemoveError);
+				return;
+			}
+			RuntimeStorageMigrationWarnings.push_back(
+				std::format("Could not migrate legacy runtime file '{}' to '{}': {}", LegacyPath.string(), SavedPath.string(), Error.message()));
+		}
+
+		auto PrepareRuntimeStorage() -> void
+		{
+			std::error_code Error;
+			std::filesystem::create_directories(FPaths::LaunchSavedDir(), Error);
+			if (Error)
+			{
+				RuntimeStorageMigrationWarnings.push_back(
+					std::format("Could not create runtime saved directory '{}': {}", FPaths::LaunchSavedDir(), Error.message()));
+				return;
+			}
+
+			const std::filesystem::path LegacyLogs = std::filesystem::path(FPaths::LaunchDir()) / "Logs";
+			const std::filesystem::path SavedLogs = FPaths::LaunchLogsDir();
+			if (std::filesystem::exists(LegacyLogs) && !std::filesystem::exists(SavedLogs))
+			{
+				std::filesystem::rename(LegacyLogs, SavedLogs, Error);
+				if (Error)
+				{
+					RuntimeStorageMigrationWarnings.push_back(
+						std::format("Could not migrate legacy log directory '{}' to '{}': {}", LegacyLogs.string(), SavedLogs.string(), Error.message()));
+					Error.clear();
+				}
+			}
+
+			std::filesystem::create_directories(FPaths::LaunchConfigsDir(), Error);
+			if (Error)
+			{
+				RuntimeStorageMigrationWarnings.push_back(
+					std::format("Could not create runtime config directory '{}': {}", FPaths::LaunchConfigsDir(), Error.message()));
+				return;
+			}
+			std::filesystem::create_directories(FPaths::LaunchLogsDir(), Error);
+			if (Error)
+			{
+				RuntimeStorageMigrationWarnings.push_back(
+					std::format("Could not create runtime log directory '{}': {}", FPaths::LaunchLogsDir(), Error.message()));
+			}
+
+			MigrateLegacyRuntimeFile(AppConfigFileName);
+			MigrateLegacyRuntimeFile("imgui.ini");
+			MigrateLegacyRuntimeFile("EditorHostSettings.yaml");
+			MigrateLegacyRuntimeFile("LevelEditorSession.yaml");
+			MigrateLegacyRuntimeFile("ProjectHistory.yaml");
+		}
+
 		struct FEngineTaskSchedulerLifecycleSmoke
 		{
 			auto Begin() -> void
@@ -206,10 +275,14 @@ namespace Durin
 		FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 		FPlatformMisc::AddRuntimeBinaryDirectory(FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
 
-		LoadAppConfig(FPaths::LaunchDir() + std::string(AppConfigFileName));
+		PrepareRuntimeStorage();
+		const std::filesystem::path SavedAppConfig = std::filesystem::path(FPaths::LaunchConfigsDir()) / AppConfigFileName;
+		const std::filesystem::path LegacyAppConfig = std::filesystem::path(FPaths::LaunchDir()) / AppConfigFileName;
+		LoadAppConfig((std::filesystem::exists(SavedAppConfig) ? SavedAppConfig : LegacyAppConfig).string());
 
 		FNameInit(); // Initialize FName system.
 		LoggerInit();
+		for (const std::string& Warning : RuntimeStorageMigrationWarnings) DURIN_WARN("{}", Warning);
 		DURIN_INFO(STR("Launching Durin Engine {}..."), GetEngineVersionString());
 #if DURIN_WITH_TRACY
 		if (const char* TracyPort = std::getenv("TRACY_PORT"))

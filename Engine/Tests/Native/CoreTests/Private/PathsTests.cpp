@@ -121,6 +121,22 @@ TEST(FPathsTests, ThirdPartyRuntimeBinariesAreSharedByBuildConfiguration)
 	EXPECT_EQ(ThirdPartyDir.parent_path().parent_path().parent_path(), (EngineDir / "Binaries").lexically_normal());
 }
 
+TEST(FPathsTests, LaunchSavedDirectoriesAreGroupedUnderRuntimeSavedDirectory)
+{
+	const auto NormalizeDirectory = [](std::filesystem::path Directory) {
+		if (Directory.filename().empty()) Directory = Directory.parent_path();
+		return Directory.lexically_normal();
+	};
+	const std::filesystem::path LaunchDir = NormalizeDirectory(Durin::FPaths::LaunchDir());
+	const std::filesystem::path SavedDir = NormalizeDirectory(Durin::FPaths::LaunchSavedDir());
+	const std::filesystem::path ConfigsDir = NormalizeDirectory(Durin::FPaths::LaunchConfigsDir());
+	const std::filesystem::path LogsDir = NormalizeDirectory(Durin::FPaths::LaunchLogsDir());
+
+	EXPECT_EQ(SavedDir, (LaunchDir / "Saved").lexically_normal());
+	EXPECT_EQ(ConfigsDir, (SavedDir / "Configs").lexically_normal());
+	EXPECT_EQ(LogsDir, (SavedDir / "Logs").lexically_normal());
+}
+
 TEST(FPathsTests, ExplicitProjectFileControlsProjectDirectoryAndMount)
 {
 	const std::filesystem::path ProjectDir = Durin::Testing::GetTestWorkDirectory() / "ExternalProject";

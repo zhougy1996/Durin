@@ -20,7 +20,7 @@ namespace Durin
 	{
 		FYamlDocument Document;
 		FYamlParseError Error;
-		const std::string FilePath = FPaths::LaunchDir() + SessionSettingsFileName;
+		const std::string FilePath = FPaths::LaunchConfigsDir() + SessionSettingsFileName;
 		if (!std::filesystem::exists(FilePath)) return true;
 		if (!Document.LoadFromFile(FilePath, &Error))
 		{
@@ -122,7 +122,7 @@ namespace Durin
 		DetailsNode.SetChildValue("ComponentPaneRatio", static_cast<double>(DetailsPaneRatio));
 
 		SaveLevelViewportStates(Root, ViewportStates);
-		if (!Document.SaveToFile(FPaths::LaunchDir() + SessionSettingsFileName))
+		if (!Document.SaveToFile(FPaths::LaunchConfigsDir() + SessionSettingsFileName))
 		{
 			DURIN_WARN("Failed to save level editor session settings.");
 			return false;

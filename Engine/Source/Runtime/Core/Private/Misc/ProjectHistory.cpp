@@ -158,6 +158,8 @@ namespace Durin
 
 	auto MakeDefaultProjectHistory() -> FProjectHistory
 	{
-		return FProjectHistory(FPaths::LaunchDir() + ProjectHistoryFileName, FPaths::LaunchDir() + LegacySessionFileName);
+		return FProjectHistory(
+			FPaths::LaunchConfigsDir() + ProjectHistoryFileName,
+			FPaths::LaunchConfigsDir() + LegacySessionFileName);
 	}
 }

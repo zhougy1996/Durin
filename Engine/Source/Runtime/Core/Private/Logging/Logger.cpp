@@ -521,7 +521,7 @@ namespace Durin
 		Settings.MaxFileSizeBytes = std::clamp<uint64>(Settings.MaxFileSizeBytes, 1024ull, 1024ull * 1024ull * 1024ull);
 		Settings.MaxFilesPerSession = std::clamp(Settings.MaxFilesPerSession, 1u, 100u);
 		Settings.MaxSessions = std::clamp(Settings.MaxSessions, 1u, 1000u);
-		if (Settings.LogDirectory.empty()) Settings.LogDirectory = (std::filesystem::path(FPaths::LaunchDir()) / "Logs").string();
+		if (Settings.LogDirectory.empty()) Settings.LogDirectory = FPaths::LaunchLogsDir();
 		Settings.RuntimeVariant = SanitizeFileComponent(Settings.RuntimeVariant);
 
 		std::shared_ptr<spdlog::logger> ConsoleLogger;
@@ -620,7 +620,7 @@ namespace Durin
 		Settings.ConsoleLevel = ELogLevel::Info;
 		Settings.FileLevel = ELogLevel::Info;
 #endif
-		Settings.LogDirectory = (std::filesystem::path(FPaths::LaunchDir()) / "Logs").string();
+		Settings.LogDirectory = FPaths::LaunchLogsDir();
 		Settings.RuntimeVariant = DURIN_RUNTIME_VARIANT;
 		(void)Initialize(Settings);
 	}
@@ -705,7 +705,7 @@ namespace Durin
 		Settings.ConsoleLevel = ELogLevel::Info;
 		Settings.FileLevel = ELogLevel::Info;
 #endif
-		Settings.LogDirectory = (std::filesystem::path(FPaths::LaunchDir()) / "Logs").string();
+		Settings.LogDirectory = FPaths::LaunchLogsDir();
 		Settings.RuntimeVariant = DURIN_RUNTIME_VARIANT;
 
 		std::vector<std::string> InvalidLevels;

@@ -19,7 +19,7 @@ namespace Durin::MonaImGui
 		check(GDynamicRHI);
 		GMonaImGuiContext = ImGui::CreateContext();
 		ImGui::SetCurrentContext(GMonaImGuiContext);
-		static std::string GImGuiIniPath = FPaths::LaunchDir() + "imgui.ini";
+		static std::string GImGuiIniPath = FPaths::LaunchConfigsDir() + "imgui.ini";
 		ImGui::GetIO().IniFilename = GImGuiIniPath.c_str();
 
 		ImGuiRHIImpl_Init();   // sets RendererHasTextures before InitFonts->Build()

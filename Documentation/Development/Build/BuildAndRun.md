@@ -134,7 +134,9 @@ Use the root wrapper for configuration, builds, and tests:
 .\DevTool.bat path build
 .\DevTool.bat path bin
 .\DevTool.bat open runtime
-.\DevTool.bat open logs
+.\DevTool.bat open configs
+.\DevTool.bat open runtime-logs
+.\DevTool.bat open logs # DurinDevTool command logs
 .\DevTool.bat stop
 ```
 
@@ -705,6 +707,8 @@ CMake, and Ninja have exited for the checkout.
 
 - Editor: `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`
 - Runtime launcher and modules: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/`
+- Runtime configuration and writable state: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/Saved/Configs/`
+- Runtime logs: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/Saved/Logs/`
 - Third-party runtime DLLs: `Engine/Binaries/<Platform>/ThirdParty/<Config>/`
 - Native tests: `Engine/Binaries/<Platform>/<Config>/Tests/<RuntimeVariant>/Bin/`
 

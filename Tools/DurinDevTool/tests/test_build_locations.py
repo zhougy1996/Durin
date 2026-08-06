@@ -70,6 +70,9 @@ class TestBuildLocations:
             "binaries",
             "output",
             "runtime",
+            "saved",
+            "configs",
+            "runtime-logs",
             "tests",
             "logs",
         )
@@ -79,6 +82,9 @@ class TestBuildLocations:
             root / "Engine/Binaries",
             root / "Engine/Binaries/Win64/Debug",
             root / "Engine/Binaries/Win64/Debug/Runtime/DurinEditor",
+            root / "Engine/Binaries/Win64/Debug/Runtime/DurinEditor/Saved",
+            root / "Engine/Binaries/Win64/Debug/Runtime/DurinEditor/Saved/Configs",
+            root / "Engine/Binaries/Win64/Debug/Runtime/DurinEditor/Saved/Logs",
             root / "Engine/Binaries/Win64/Debug/Tests/DurinEditor/Bin",
             root / "Build/.agent-state/logs",
         )
@@ -96,9 +102,18 @@ class TestBuildLocations:
             "binaries",
             "output",
             "runtime",
+            "saved",
+            "configs",
+            "runtime-logs",
             "tests",
             "logs",
         )
+        assert build_locations.resolve_location(
+            "engine-logs",
+            profile=make_profile(),
+            preset=make_preset(),
+            root=Path("repo"),
+        ).path == Path("repo/Engine/Binaries/Win64/Debug/Runtime/DurinEditor/Saved/Logs")
 
     def test_unknown_location_lists_bounded_choices(self) -> None:
         with pytest.raises(build_config.BuildToolError, match="Available locations: root, build"):

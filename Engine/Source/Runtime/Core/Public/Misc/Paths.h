@@ -152,6 +152,9 @@ namespace Durin
 		static CORE_API auto ProjectFile() -> std::string;
 
 		static CORE_API auto LaunchDir() ->  std::string;
+		static CORE_API auto LaunchSavedDir() -> std::string;
+		static CORE_API auto LaunchConfigsDir() -> std::string;
+		static CORE_API auto LaunchLogsDir() -> std::string;
 
 		static CORE_API auto RootDir() -> std::string;
 

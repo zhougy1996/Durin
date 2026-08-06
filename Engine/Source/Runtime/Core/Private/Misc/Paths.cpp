@@ -728,6 +728,27 @@ namespace Durin
 		return CachedLaunchDir;
 	}
 
+	auto FPaths::LaunchSavedDir() -> std::string
+	{
+		static const std::string CachedSavedDir =
+			(std::filesystem::path(LaunchDir()) / "Saved").generic_string() + "/";
+		return CachedSavedDir;
+	}
+
+	auto FPaths::LaunchConfigsDir() -> std::string
+	{
+		static const std::string CachedConfigsDir =
+			(std::filesystem::path(LaunchSavedDir()) / "Configs").generic_string() + "/";
+		return CachedConfigsDir;
+	}
+
+	auto FPaths::LaunchLogsDir() -> std::string
+	{
+		static const std::string CachedLogsDir =
+			(std::filesystem::path(LaunchSavedDir()) / "Logs").generic_string() + "/";
+		return CachedLogsDir;
+	}
+
 	auto FPaths::RootDir() -> std::string
 	{
 		static std::string CachedRootDir = []() -> std::string {
