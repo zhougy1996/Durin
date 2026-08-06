@@ -109,8 +109,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	Durin::Asset::FAssetDeleteAnalysis Analysis;
 	ASSERT_TRUE(Durin::Asset::AnalyzeAssetDeletion(NewPath, Analysis));
 	EXPECT_TRUE(Analysis.CompanionFiles.empty());
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(OldPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(NewPath));
+	ASSERT_TRUE(DeleteAssetClosureForTest({OldPath, NewPath}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 }
 
@@ -479,7 +478,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 	Component->SetMaterial(1, Second);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Component->GetPackage()));
 
-	const auto* ComponentData = Durin::Asset::GetAssetRegistry().FindAsset(ComponentPath);
+	const auto* ComponentData = Durin::Asset::GetAssetRegistry().FindAssetExact(ComponentPath);
 	ASSERT_NE(ComponentData, nullptr);
 	EXPECT_NE(std::ranges::find(ComponentData->Dependencies, MeshPath), ComponentData->Dependencies.end());
 	EXPECT_NE(std::ranges::find(ComponentData->Dependencies, FirstMaterialPath), ComponentData->Dependencies.end());
@@ -562,7 +561,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	Instance->SetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Instance->GetPackage()));
 	const Durin::Asset::FAssetData* InstanceData =
-		Durin::Asset::GetAssetRegistry().FindAsset(InstancePath);
+		Durin::Asset::GetAssetRegistry().FindAssetExact(InstancePath);
 	ASSERT_NE(InstanceData, nullptr);
 	EXPECT_NE(std::ranges::find(InstanceData->Dependencies, BasePath), InstanceData->Dependencies.end());
 	EXPECT_NE(std::ranges::find(InstanceData->Dependencies, TexturePath), InstanceData->Dependencies.end());

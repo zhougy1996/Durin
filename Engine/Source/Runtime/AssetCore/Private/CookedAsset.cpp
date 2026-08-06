@@ -27,6 +27,28 @@ namespace Durin::Asset
 			return false;
 		}
 
+		auto CanonicalizeCookVirtualPath(
+			std::string& VirtualPackagePath,
+			std::string* OutError) -> bool
+		{
+			FAssetPath RequestedPath;
+			if (!FAssetPath::TryCreate(
+				VirtualPackagePath, RequestedPath))
+				return true;
+			const FAssetRegistry& Registry = GetAssetRegistry();
+			if (!Registry.FindAssetExact(RequestedPath)) return true;
+			const FAssetPathResolveResult Resolution =
+				Registry.ResolveAssetPath(RequestedPath);
+			if (!Resolution || !Resolution.FinalAssetData
+				|| Resolution.FinalAssetData->EntryKind
+					!= EAssetRegistryEntryKind::Asset)
+				return Fail(std::format(
+					"Cook output path {} does not resolve to a final real asset.",
+					RequestedPath.ToString()), OutError);
+			VirtualPackagePath = Resolution.FinalPath.ToString();
+			return true;
+		}
+
 		auto IsValidTarget(ECookTargetPlatform Platform, ECookTargetProfile Profile) -> bool
 		{
 			return Platform == ECookTargetPlatform::Win64
@@ -662,7 +684,25 @@ namespace Durin::Asset
 	{
 		if (!IsValidTarget(TargetPlatform, TargetProfile) || CookRoot.empty() || !CookRoot.is_absolute())
 			return Fail("Cook context is invalid.", OutError);
+		for (FPendingPackage& Package : Packages)
+		{
+			if (!CanonicalizeCookVirtualPath(Package.VirtualPath, OutError))
+				return false;
+			std::vector<uint8> CanonicalBytes;
+			const FAssetResult CanonicalResult = CanonicalizeAssetPackageForCook(
+				Package.PackageBytes, CanonicalBytes);
+			if (!CanonicalResult)
+				return Fail(std::format(
+					"Cook package {} could not be canonicalized: {}",
+					Package.VirtualPath, CanonicalResult.Message), OutError);
+			Package.PackageBytes = std::move(CanonicalBytes);
+		}
 		std::ranges::sort(Packages, {}, &FPendingPackage::VirtualPath);
+		for (size_t Index = 1; Index < Packages.size(); ++Index)
+			if (Packages[Index - 1].VirtualPath == Packages[Index].VirtualPath)
+				return Fail(std::format(
+					"Cook package path {} is duplicated after redirect canonicalization.",
+					Packages[Index].VirtualPath), OutError);
 		struct FOutput
 		{
 			ECookManifestEntryKind Kind;

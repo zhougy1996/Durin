@@ -91,8 +91,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	Durin::Asset::FAssetDeleteAnalysis DeleteAnalysis;
 	ASSERT_TRUE(Durin::Asset::AnalyzeAssetDeletion(RenamedPath, DeleteAnalysis));
 	EXPECT_TRUE(DeleteAnalysis.CompanionFiles.empty());
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(RenamedPath));
+	ASSERT_TRUE(DeleteAssetClosureForTest({AssetPath, RenamedPath}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 }
 
@@ -123,7 +122,7 @@ TEST(FTexture2DTests, DefaultsToFlatSourceRootAndAllowsCustomSourceDestination)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/TextureImportTests/Textures/FlatDefault", DefaultAssetPath));
 	const Durin::Asset::FAssetData* DefaultAssetData =
-		Durin::Asset::GetAssetRegistry().FindAsset(DefaultAssetPath);
+		Durin::Asset::GetAssetRegistry().FindAssetExact(DefaultAssetPath);
 	ASSERT_NE(DefaultAssetData, nullptr);
 	Durin::Asset::FAssetPackageInspection Inspection;
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(

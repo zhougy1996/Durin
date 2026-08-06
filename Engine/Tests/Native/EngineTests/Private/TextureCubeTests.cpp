@@ -167,8 +167,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	EXPECT_EQ(Loaded->GetSourceFile(Durin::ETextureCubeFace::NegativeZ),
 		"/TextureCubeTests/Textures/Convention_nz.png");
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(RenamedPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(RenamedPath));
+	ASSERT_TRUE(DeleteAssetClosureForTest({AssetPath, RenamedPath}));
 	for (std::string_view Suffix : {"px", "nx", "py", "ny", "pz", "nz"})
 		EXPECT_TRUE(std::filesystem::is_regular_file(
 			Root / std::format("Textures/Convention_{}.png", Suffix)));
@@ -219,7 +218,7 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	{
 		Durin::FAssetPath AssetPath;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(std::format("/TextureCubeTests/{}", AssetName), AssetPath));
-		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(AssetPath), nullptr);
+		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
 		EXPECT_EQ(Durin::Asset::FindLoadedPackage(AssetPath), nullptr);
 	}
 	EXPECT_FALSE(std::filesystem::exists(Root / "MissingFace_px.png"));
@@ -385,8 +384,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	EXPECT_EQ(Loaded->GetPanoramaSourceFile(),
 		"/TextureCubeTests/Textures/Panorama_panorama.tga");
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(RenamedPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(RenamedPath));
+	ASSERT_TRUE(DeleteAssetClosureForTest({AssetPath, RenamedPath}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		Root / "Textures/Panorama_panorama.tga"));
 }
@@ -435,7 +433,7 @@ TEST(FTextureCubeTests, RejectsInvalidPanoramaImportsWithoutArtifacts)
 
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/InvalidPanorama", AssetPath));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(AssetPath), nullptr);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(AssetPath), nullptr);
 	EXPECT_FALSE(std::filesystem::exists(Root / "InvalidPanorama_panorama.tga"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "InvalidPanorama_panorama.hdr"));

@@ -121,6 +121,21 @@ metadata and moves large, already-built payloads into `.dbulk`. Source files,
 source-only editor metadata, DDC keys, and DDC paths are not runtime
 dependencies.
 
+Cook reachability resolves explicit roots, built-in roots, and registered
+external runtime roots before traversal. Hard and soft edges are validated
+against their final real asset classes. Produced package bytes rewrite every
+redirected reference to that final identity; authored packages and external
+stores remain byte-stable. Missing targets, redirect cycles/depth overflow,
+type mismatch, corrupt aliases, incomplete reference indexing, or a remaining
+redirected runtime identity fail before manifest publication.
+
+Redirector packages are authoring-only and never appear in normal cooked
+output. `FCookContext` canonicalizes registered output identities, rejects
+redirector package bytes and post-resolution duplicates, and verifies that each
+cooked dependency and reflected hard/soft field names an exact real asset. A
+cooked runtime therefore needs neither redirector packages nor a mutable alias
+table.
+
 Packages without external runtime payloads publish only their cooked
 `.dasset`; `FCookContext` does not create an empty `.dbulk` or manifest entry.
 `/Engine/Materials/DefaultMaterial` is such a package. Engine exposes it as a
@@ -208,7 +223,8 @@ cook-relative path and name every package and companion with kind, required
 flag, size, and XXH3-128 hash. `FCookContext` validates all packages and bulk
 containers in staging, publishes companions before their packages, publishes
 the manifest last, and removes stale outputs only from the previous valid
-manifest.
+manifest. Manifest paths consequently name only canonical real package
+identities.
 
 ## Cook and Publication Rules
 

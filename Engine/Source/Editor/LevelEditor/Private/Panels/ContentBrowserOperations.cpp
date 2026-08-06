@@ -441,7 +441,7 @@ namespace Durin
 				? "NewLevel"
 				: std::format("NewLevel{}", Suffix + 1);
 			if (!FAssetPath::TryCreate(Directory + Name, AssetPath)) continue;
-			if (!Asset::GetAssetRegistry().FindAsset(AssetPath)
+			if (!Asset::GetAssetRegistry().FindAssetExact(AssetPath)
 				&& !Asset::FindLoadedPackage(AssetPath))
 			{
 				bFoundPath = true;
@@ -488,7 +488,7 @@ namespace Durin
 				? BaseName
 				: std::format("{}{}", BaseName, Suffix + 1);
 			if (!FAssetPath::TryCreate(Directory + Name, AssetPath)) continue;
-			if (!Asset::GetAssetRegistry().FindAsset(AssetPath)
+			if (!Asset::GetAssetRegistry().FindAssetExact(AssetPath)
 				&& !Asset::FindLoadedPackage(AssetPath))
 			{
 				bFoundPath = true;

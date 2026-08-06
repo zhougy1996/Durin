@@ -140,7 +140,7 @@ namespace Durin
 				if (!FAssetPath::TryCreate(std::format("{}_ImportCandidate_{}",
 					TargetPath.ToString(), Suffix), OutPath)) return false;
 				if (!Asset::FindLoadedPackage(OutPath)
-					&& !Asset::GetAssetRegistry().FindAsset(OutPath)) return true;
+					&& !Asset::GetAssetRegistry().FindAssetExact(OutPath)) return true;
 			}
 			return false;
 		}

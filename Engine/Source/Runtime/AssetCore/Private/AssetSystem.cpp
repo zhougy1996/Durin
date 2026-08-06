@@ -1345,7 +1345,7 @@ namespace Durin::Asset
 				{
 					if (ContainerDepth >= MaximumReferenceContainerDepth)
 						return Error(EAssetError::CorruptFile,
-							"SoftReferenceIndexDepthExceeded: fixed-array route exceeds four levels.");
+							"AssetReferenceIndexDepthExceeded: fixed-array route exceeds four levels.");
 					Route.push_back({
 						.Kind = EAssetReferenceRouteKind::FixedArray,
 						.Index = ArrayIndex});
@@ -1477,7 +1477,7 @@ namespace Durin::Asset
 			{
 				if (ContainerDepth >= MaximumReferenceContainerDepth)
 					return Error(EAssetError::CorruptFile,
-						"SoftReferenceIndexDepthExceeded: Array route exceeds four levels.");
+						"AssetReferenceIndexDepthExceeded: Array route exceeds four levels.");
 				auto* Array = static_cast<FArrayProperty*>(Property);
 				uint64 Count = 0;
 				if (!Array->GetInner() || !Reader.Read(Count) || Count > 10000000)
@@ -1500,7 +1500,7 @@ namespace Durin::Asset
 			{
 				if (ContainerDepth >= MaximumReferenceContainerDepth)
 					return Error(EAssetError::CorruptFile,
-						"SoftReferenceIndexDepthExceeded: Map route exceeds four levels.");
+						"AssetReferenceIndexDepthExceeded: Map route exceeds four levels.");
 				auto* Map = static_cast<FMapProperty*>(Property);
 				uint64 Count = 0;
 				if (!Map->GetKeyProp() || !Map->GetValueProp() || !Reader.Read(Count) || Count > 10000000)
@@ -1528,12 +1528,12 @@ namespace Durin::Asset
 						return Error(EAssetError::TypeMismatch, std::move(StorageError));
 					if (KeyToken.size() > MaximumReferenceRouteTokenBytes)
 						return Error(EAssetError::CorruptFile,
-							"SoftReferenceIndexRouteTokenExceeded: Map key token exceeds 1 MiB.");
+							"AssetReferenceIndexRouteTokenExceeded: Map key token exceeds 1 MiB.");
 					std::string ValuePath = PropertyPath;
 					AppendMapTokenDisplay(ValuePath, KeyToken);
 					if (ValuePath.size() > MaximumReferenceDisplayRouteBytes)
 						return Error(EAssetError::CorruptFile,
-							"SoftReferenceIndexDisplayPathExceeded: display path exceeds 4 KiB.");
+							"AssetReferenceIndexDisplayPathExceeded: display path exceeds 4 KiB.");
 					Route.push_back({
 						.Kind = EAssetReferenceRouteKind::MapValue,
 						.MapKeyToken = std::move(KeyToken)});
@@ -2513,11 +2513,6 @@ namespace Durin::Asset
 				OutWarning = std::move(ErrorMessage);
 				return false;
 			}
-			std::error_code LegacyError;
-			std::filesystem::remove(
-				std::filesystem::path(FPaths::DerivedDataCacheDir())
-					/ "AssetRegistry" / "SoftReferences.bin",
-				LegacyError);
 			return true;
 		}
 
@@ -2885,7 +2880,7 @@ namespace Durin::Asset
 			|| !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
 			return Error(EAssetError::InvalidPackageType, "The unpublished package is invalid.");
 		FAssetManager& Manager = FAssetManager::Get();
-		if (Manager.GetRegistry().FindAsset(Path))
+		if (Manager.GetRegistry().FindAssetExact(Path))
 			return Error(EAssetError::InUse, std::format(
 				"Package {} is registry-visible and cannot be discarded.", Path.ToString()));
 		if (Manager.FindLoadedPackage(Path) != Package)
@@ -3012,77 +3007,250 @@ namespace Durin::Asset
 		return {};
 	}
 
+	namespace
+	{
+		auto ExtractAssetReferencesInternal(
+			const FAssetPath& SourcePackage,
+			const FAssetPackageInspection& Inspection,
+			std::vector<FAssetReferenceEdge>& OutReferences,
+			bool bRequireValidSource) -> FAssetResult
+		{
+			OutReferences.clear();
+			if (bRequireValidSource && !SourcePackage.IsValid())
+				return Error(EAssetError::InvalidPath,
+					"AssetReferenceIndexInvalidSource: source package path is invalid.");
+			if (Inspection.Objects.empty())
+				return Error(EAssetError::InvalidObjectGraph,
+					"AssetReferenceIndexInvalidPackage: package has no main object.");
+			if (Inspection.Header.AssetClassName != Inspection.Objects.front().ClassName)
+				return Error(EAssetError::TypeMismatch,
+					"AssetReferenceIndexRuntimeTypeMismatch: header and main-object classes differ.");
+
+			std::vector<FAssetReferenceEdge> References;
+			for (const FAssetPackageObjectInspection& Object : Inspection.Objects)
+			{
+				DClass* ObjectClass = FindClassByQualifiedName(FName(Object.ClassName));
+				if (!ObjectClass)
+					return Error(EAssetError::UnknownClass, std::format(
+						"AssetReferenceIndexUnknownClass: {} is unavailable.", Object.ClassName));
+				for (const FAssetPackageField& Field : Object.Fields)
+				{
+					DClass* DeclaringClass = FindClassByQualifiedName(FName(Field.DeclaringClass));
+					FProperty* Property = DeclaringClass && ObjectClass->IsChildOf(DeclaringClass)
+						? DeclaringClass->FindPropertyByName(FName(Field.Name), false)
+						: nullptr;
+					if (!Property)
+					{
+						if (Field.TypeSignature.find("SoftObject:") != std::string::npos
+							|| Field.TypeSignature.find("Object:") != std::string::npos)
+							return Error(EAssetError::TypeMismatch, std::format(
+								"AssetReferenceSchemaMismatch: {}::{} has no current property metadata.",
+								Field.DeclaringClass, Field.Name));
+						continue;
+					}
+					const bool bCurrentContainsReference = ContainsAssetReferenceProperty(Property);
+					const bool bStoredContainsReference =
+						Field.TypeSignature.find("SoftObject:") != std::string::npos
+						|| Field.TypeSignature.find("Object:") != std::string::npos;
+					if (Property->GetKind() != Field.Kind
+						|| !IsSerializedTypeSignatureCompatible(Property, Field.TypeSignature))
+					{
+						if (bCurrentContainsReference || bStoredContainsReference)
+							return Error(EAssetError::TypeMismatch, std::format(
+								"AssetReferenceSchemaMismatch: {}::{} has incompatible kind or signature.",
+								Field.DeclaringClass, Field.Name));
+						continue;
+					}
+					if (!bCurrentContainsReference) continue;
+					FReferenceExtractionContext Context{
+						.SourcePackage = SourcePackage,
+						.Fingerprint = Inspection.Fingerprint,
+						.Object = Object,
+						.DeclaringType = Field.DeclaringClass,
+						.FieldName = Field.Name,
+						.ObjectKind = Inspection.Header.EntryKind
+							== EAssetRegistryEntryKind::Redirector
+							? EAssetReferenceKind::Redirect
+							: EAssetReferenceKind::HardObject,
+						.References = References};
+					std::vector<FAssetReferenceRouteSegment> Route;
+					FAssetResult Result = ExtractReferencePropertyValues(
+						Property, Field.Payload, Context, Route, Field.Name, 0);
+					if (!Result) return Result;
+				}
+			}
+			std::ranges::sort(References, &AssetReferenceLess);
+			OutReferences = std::move(References);
+			return {};
+		}
+	}
+
 	auto ExtractAssetReferences(
 		const FAssetPath& SourcePackage,
 		const FAssetPackageInspection& Inspection,
 		std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult
 	{
-		OutReferences.clear();
-		if (!SourcePackage.IsValid())
-			return Error(EAssetError::InvalidPath,
-				"SoftReferenceIndexInvalidSource: source package path is invalid.");
-		if (Inspection.Objects.empty())
-			return Error(EAssetError::InvalidObjectGraph,
-				"SoftReferenceIndexInvalidPackage: package has no main object.");
-		if (Inspection.Header.AssetClassName != Inspection.Objects.front().ClassName)
-			return Error(EAssetError::TypeMismatch,
-				"SoftReferenceIndexRuntimeTypeMismatch: header and main-object classes differ.");
+		return ExtractAssetReferencesInternal(
+			SourcePackage, Inspection, OutReferences, true);
+	}
 
-		std::vector<FAssetReferenceEdge> References;
-		for (const FAssetPackageObjectInspection& Object : Inspection.Objects)
-		{
-			DClass* ObjectClass = FindClassByQualifiedName(FName(Object.ClassName));
-			if (!ObjectClass)
-				return Error(EAssetError::UnknownClass, std::format(
-					"SoftReferenceIndexUnknownClass: {} is unavailable.", Object.ClassName));
-			for (const FAssetPackageField& Field : Object.Fields)
+	auto CanonicalizeAssetPackageForCook(
+		std::span<const uint8> Bytes,
+		std::vector<uint8>& OutBytes) -> FAssetResult
+	{
+		OutBytes.clear();
+		FPackageFile File;
+		FAssetResult Result = ReadPackageFile(Bytes, File, false);
+		if (!Result) return Result;
+		if (File.EntryKind != EAssetRegistryEntryKind::Asset
+			|| File.AssetClassName == RedirectorClassName)
+			return Error(EAssetError::InvalidPackageType,
+				"CookCanonicalizationRedirectorPackage: redirector packages are authoring-only.");
+
+		auto BuildInspection = [](const FPackageFile& Source) {
+			FAssetPackageInspection Inspection;
+			Inspection.Header.AssetClassName = Source.AssetClassName;
+			Inspection.Header.EntryKind = Source.EntryKind;
+			Inspection.Header.RedirectDestination = Source.RedirectDestination;
+			Inspection.Header.FormatVersion = Source.FormatVersion;
+			Inspection.Header.Dependencies = Source.Dependencies;
+			Inspection.Header.ObjectCount = Source.Objects.size();
+			Inspection.Objects.reserve(Source.Objects.size());
+			for (const FObjectRecord& Record : Source.Objects)
 			{
-				DClass* DeclaringClass = FindClassByQualifiedName(FName(Field.DeclaringClass));
-				FProperty* Property = DeclaringClass && ObjectClass->IsChildOf(DeclaringClass)
-					? DeclaringClass->FindPropertyByName(FName(Field.Name), false)
-					: nullptr;
-				if (!Property)
-				{
-					if (Field.TypeSignature.find("SoftObject:") != std::string::npos
-						|| Field.TypeSignature.find("Object:") != std::string::npos)
-						return Error(EAssetError::TypeMismatch, std::format(
-							"AssetReferenceSchemaMismatch: {}::{} has no current property metadata.",
-							Field.DeclaringClass, Field.Name));
-					continue;
-				}
-				const bool bCurrentContainsReference = ContainsAssetReferenceProperty(Property);
-				const bool bStoredContainsReference =
-					Field.TypeSignature.find("SoftObject:") != std::string::npos
-					|| Field.TypeSignature.find("Object:") != std::string::npos;
-				if (Property->GetKind() != Field.Kind
-					|| !IsSerializedTypeSignatureCompatible(Property, Field.TypeSignature))
-				{
-					if (bCurrentContainsReference || bStoredContainsReference)
-						return Error(EAssetError::TypeMismatch, std::format(
-							"AssetReferenceSchemaMismatch: {}::{} has incompatible kind or signature.",
-							Field.DeclaringClass, Field.Name));
-					continue;
-				}
-				if (!bCurrentContainsReference) continue;
-				FReferenceExtractionContext Context{
-					.SourcePackage = SourcePackage,
-					.Fingerprint = Inspection.Fingerprint,
-					.Object = Object,
-					.DeclaringType = Field.DeclaringClass,
-					.FieldName = Field.Name,
-					.ObjectKind = Inspection.Header.EntryKind
-						== EAssetRegistryEntryKind::Redirector
-						? EAssetReferenceKind::Redirect
-						: EAssetReferenceKind::HardObject,
-					.References = References};
-				std::vector<FAssetReferenceRouteSegment> Route;
-				FAssetResult Result = ExtractReferencePropertyValues(
-					Property, Field.Payload, Context, Route, Field.Name, 0);
-				if (!Result) return Result;
+				FAssetPackageObjectInspection Object{
+					.Id = Record.Id,
+					.OuterId = Record.OuterId,
+					.ClassName = Record.ClassName,
+					.ObjectName = Record.ObjectName,
+					.ObjectPath = Record.ObjectName};
+				Object.Fields.reserve(Record.Fields.size());
+				for (const FFieldRecord& Field : Record.Fields)
+					Object.Fields.push_back({
+						.DeclaringClass = Field.DeclaringClass,
+						.Name = Field.Name,
+						.Kind = Field.Kind,
+						.TypeSignature = Field.TypeSignature,
+						.Payload = Field.Payload,
+						.SourceFormatVersion = Source.FormatVersion});
+				Inspection.Objects.push_back(std::move(Object));
 			}
+			return Inspection;
+		};
+
+		FAssetPath InspectionPath;
+		std::vector<FAssetReferenceEdge> References;
+		const bool bHasSerializedFields = std::ranges::any_of(
+			File.Objects, [](const FObjectRecord& Object) {
+				return !Object.Fields.empty();
+			});
+		if (bHasSerializedFields)
+		{
+			const FAssetPackageInspection Inspection = BuildInspection(File);
+			Result = ExtractAssetReferencesInternal(
+				InspectionPath, Inspection, References, false);
+			if (!Result) return Result;
 		}
-		std::ranges::sort(References, &AssetReferenceLess);
-		OutReferences = std::move(References);
+
+		const FAssetRegistry& Registry = GetAssetRegistry();
+		std::vector<FAssetRedirectorFixupMapping> Mappings;
+		uint64 ExpectedRewriteCount = 0;
+		auto ResolveReference = [&](const FAssetPath& Path,
+			std::string_view ExpectedClassName,
+			std::string_view Route,
+			bool bSerializedOccurrence) -> FAssetResult
+		{
+			DClass* ExpectedClass = nullptr;
+			if (!ExpectedClassName.empty())
+			{
+				ExpectedClass = FindClassByQualifiedName(FName(ExpectedClassName));
+				if (!ExpectedClass)
+					return Error(EAssetError::UnknownClass, std::format(
+						"CookCanonicalizationUnknownExpectedClass: {} expects unavailable class {}.",
+						Route, ExpectedClassName));
+			}
+			const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(
+				Path, {.ExpectedClass = ExpectedClass});
+			if (!Resolution)
+			{
+				FAssetResult ResolutionError = AssetPathResolutionError(Resolution);
+				ResolutionError.Message = std::format(
+					"CookCanonicalizationUnresolvedReference: {} at {}. {}",
+					Path.ToString(), Route, ResolutionError.Message);
+				return ResolutionError;
+			}
+			if (!Resolution.FinalAssetData
+				|| Resolution.FinalAssetData->EntryKind != EAssetRegistryEntryKind::Asset)
+				return Error(EAssetError::InvalidPackageType, std::format(
+					"CookCanonicalizationNonAssetTarget: {} at {} did not resolve to a real asset.",
+					Path.ToString(), Route));
+			if (Resolution.FinalPath == Path) return {};
+			auto Existing = std::ranges::find(
+				Mappings, Path, &FAssetRedirectorFixupMapping::RedirectorPath);
+			if (Existing == Mappings.end())
+				Mappings.push_back({
+					.RedirectorPath = Path,
+					.FinalPath = Resolution.FinalPath});
+			else if (Existing->FinalPath != Resolution.FinalPath)
+				return Error(EAssetError::StaleData,
+					"Cook canonicalization observed inconsistent redirect resolution.");
+			if (bSerializedOccurrence) ++ExpectedRewriteCount;
+			return {};
+		};
+
+		for (const FAssetPath& Dependency : File.Dependencies)
+		{
+			Result = ResolveReference(
+				Dependency, {}, "package dependency table", false);
+			if (!Result) return Result;
+		}
+		for (const FAssetReferenceEdge& Reference : References)
+		{
+			Result = ResolveReference(
+				Reference.TargetPath, Reference.ExpectedClass,
+				Reference.DisplayRoute, true);
+			if (!Result) return Result;
+		}
+
+		if (Mappings.empty())
+		{
+			OutBytes.assign(Bytes.begin(), Bytes.end());
+			return {};
+		}
+		Result = RewritePackageReferences(
+			Bytes, Mappings, ExpectedRewriteCount, OutBytes);
+		if (!Result) return Result;
+
+		FPackageFile CanonicalFile;
+		Result = ReadPackageFile(OutBytes, CanonicalFile, false);
+		if (!Result) return Result;
+		if (CanonicalFile.EntryKind != EAssetRegistryEntryKind::Asset
+			|| CanonicalFile.AssetClassName == RedirectorClassName
+			|| CanonicalFile.RedirectDestination.IsValid())
+			return Error(EAssetError::InvalidPackageType,
+				"Cook canonicalization produced redirector metadata.");
+		for (const FAssetPath& Dependency : CanonicalFile.Dependencies)
+		{
+			const FAssetData* Data = Registry.FindAssetExact(Dependency);
+			if (!Data || Data->EntryKind != EAssetRegistryEntryKind::Asset)
+				return Error(EAssetError::StaleData, std::format(
+					"Cook canonicalization left redirected dependency {}.",
+					Dependency.ToString()));
+		}
+		const FAssetPackageInspection CanonicalInspection =
+			BuildInspection(CanonicalFile);
+		References.clear();
+		Result = ExtractAssetReferencesInternal(
+			InspectionPath, CanonicalInspection, References, false);
+		if (!Result) return Result;
+		for (const FAssetReferenceEdge& Reference : References)
+		{
+			const FAssetData* Data = Registry.FindAssetExact(Reference.TargetPath);
+			if (!Data || Data->EntryKind != EAssetRegistryEntryKind::Asset)
+				return Error(EAssetError::StaleData, std::format(
+					"Cook canonicalization left redirected reference {} at {}.",
+					Reference.TargetPath.ToString(), Reference.DisplayRoute));
+		}
 		return {};
 	}
 
@@ -3592,11 +3760,6 @@ namespace Durin::Asset
 		return It == Assets.end() ? nullptr : &It->second;
 	}
 
-	auto FAssetRegistry::FindAsset(const FAssetPath& Path) const -> const FAssetData*
-	{
-		return FindAssetExact(Path);
-	}
-
 	auto FAssetRegistry::ResolveAssetPath(
 		const FAssetPath& Path,
 		const FAssetPathResolveOptions& Options) const -> FAssetPathResolveResult
@@ -3723,53 +3886,118 @@ namespace Durin::Asset
 		std::vector<FAssetPath>& OutPackages) const -> FAssetResult
 	{
 		OutPackages.clear();
-		std::vector<FAssetPath> Pending(Roots.begin(), Roots.end());
+		struct FPendingCookPath
+		{
+			FAssetPath Path;
+			std::string ExpectedClass;
+			std::string Source;
+		};
+		std::vector<FPendingCookPath> Pending;
+		Pending.reserve(Roots.size());
+		for (const FAssetPath& Root : Roots)
+			Pending.push_back({Root, {}, "explicit Cook root"});
+		for (const auto& [Handle, Store] : GetAssetReferenceStoreRegistry().Stores)
+		{
+			(void)Handle;
+			if (!Store) continue;
+			FAssetReferenceStoreSnapshot Snapshot;
+			FAssetResult StoreResult = Store->CaptureSnapshot(Snapshot);
+			if (!StoreResult)
+			{
+				StoreResult.Message = std::format(
+					"CookReachabilityExternalRootProviderFailed: {}",
+					StoreResult.Message);
+				return StoreResult;
+			}
+			for (const FAssetReferenceStoreOccurrence& Occurrence :
+				Snapshot.Occurrences)
+				if (Occurrence.bCookRoot)
+					Pending.push_back({
+						Occurrence.TargetPath,
+						Occurrence.ExpectedClass,
+						Occurrence.DisplayRoute});
+		}
 		std::unordered_set<FAssetPath> Visited;
 		while (!Pending.empty())
 		{
-			std::ranges::sort(Pending, [](const FAssetPath& Left, const FAssetPath& Right) {
-				return Left.GetView() > Right.GetView();
+			std::ranges::sort(Pending, [](const FPendingCookPath& Left,
+				const FPendingCookPath& Right) {
+				return Left.Path.GetView() > Right.Path.GetView();
 			});
-			FAssetPath Source = std::move(Pending.back());
+			FPendingCookPath Requested = std::move(Pending.back());
 			Pending.pop_back();
+			DClass* ExpectedClass = nullptr;
+			if (!Requested.ExpectedClass.empty())
+			{
+				ExpectedClass = FindClassByQualifiedName(FName(Requested.ExpectedClass));
+				if (!ExpectedClass)
+					return Error(EAssetError::UnknownClass, std::format(
+						"CookReachabilityUnknownRootClass: {} expects unavailable class {}.",
+						Requested.Source, Requested.ExpectedClass));
+			}
+			const FAssetPathResolveResult SourceResolution = ResolveAssetPath(
+				Requested.Path, {.ExpectedClass = ExpectedClass});
+			if (!SourceResolution)
+			{
+				FAssetResult ResolutionError = AssetPathResolutionError(SourceResolution);
+				if (ResolutionError.Error == EAssetError::NotFound)
+					ResolutionError.Error = EAssetError::MissingDependency;
+				ResolutionError.Message = std::format(
+					"CookReachabilityUnresolvedRoot: {} from {}. {}",
+					Requested.Path.ToString(), Requested.Source,
+					ResolutionError.Message);
+				return ResolutionError;
+			}
+			const FAssetPath Source = SourceResolution.FinalPath;
 			if (!Visited.insert(Source).second) continue;
-			const FAssetData* SourceData = FindAsset(Source);
-			if (!SourceData)
-				return Error(EAssetError::MissingDependency, std::format(
-					"CookReachabilityMissingPackage: {} is not registered.", Source.ToString()));
+			const FAssetData* SourceData = FindAssetExact(Source);
+			if (!SourceData || SourceData->EntryKind != EAssetRegistryEntryKind::Asset)
+				return Error(EAssetError::InvalidPackageType, std::format(
+					"CookReachabilityNonAssetPackage: {} is not a real asset.", Source.ToString()));
 			if (!ReferenceIndex.SourceFingerprints.contains(Source))
 				return Error(EAssetError::StaleData, std::format(
 					"CookReachabilityIncompleteReferenceIndex: {} has no current source entry.", Source.ToString()));
 			for (const FAssetPath& Dependency : SourceData->Dependencies)
 			{
-				if (!FindAsset(Dependency))
-					return Error(EAssetError::MissingDependency, std::format(
-						"CookReachabilityMissingHardDependency: {} references missing {}.",
-						Source.ToString(), Dependency.ToString()));
-				Pending.push_back(Dependency);
+				const FAssetPathResolveResult Resolution = ResolveAssetPath(Dependency);
+				if (!Resolution)
+				{
+					FAssetResult ResolutionError = AssetPathResolutionError(Resolution);
+					if (ResolutionError.Error == EAssetError::NotFound)
+						ResolutionError.Error = EAssetError::MissingDependency;
+					ResolutionError.Message = std::format(
+						"CookReachabilityUnresolvedHardDependency: {} references {}. {}",
+						Source.ToString(), Dependency.ToString(), ResolutionError.Message);
+					return ResolutionError;
+				}
+				Pending.push_back({
+					Resolution.FinalPath, {},
+					std::format("hard dependency of {}", Source.ToString())});
 			}
 			for (const FAssetReferenceEdge& Reference : ReferenceIndex.Edges)
 			{
 				if (Reference.SourcePackage != Source
-					|| Reference.Kind != EAssetReferenceKind::SoftObject) continue;
-				const FAssetData* TargetData = FindAsset(Reference.TargetPath);
-				if (!TargetData)
-					return Error(EAssetError::MissingDependency, std::format(
-						"CookReachabilityMissingSoftTarget: {} references missing {} at {}.",
-						Source.ToString(), Reference.TargetPath.ToString(), Reference.DisplayRoute));
+					|| Reference.Kind == EAssetReferenceKind::Redirect) continue;
 				DClass* ExpectedClass = FindClassByQualifiedName(FName(Reference.ExpectedClass));
-				DClass* RegisteredClass = FindClassByQualifiedName(FName(TargetData->AssetClassName));
-				if (!ExpectedClass || !RegisteredClass)
+				if (!ExpectedClass)
 					return Error(EAssetError::UnknownClass, std::format(
-						"CookReachabilityUnknownSoftClass: {} expects {} and target {} is registered as {}.",
-						Reference.DisplayRoute, Reference.ExpectedClass,
-						Reference.TargetPath.ToString(), TargetData->AssetClassName));
-				if (!RegisteredClass->IsChildOf(ExpectedClass))
-					return Error(EAssetError::TypeMismatch, std::format(
-						"CookReachabilitySoftTypeMismatch: {} expects {}, but {} is {}.",
-						Reference.DisplayRoute, Reference.ExpectedClass,
-						Reference.TargetPath.ToString(), TargetData->AssetClassName));
-				Pending.push_back(Reference.TargetPath);
+						"CookReachabilityUnknownReferenceClass: {} expects unavailable class {}.",
+						Reference.DisplayRoute, Reference.ExpectedClass));
+				const FAssetPathResolveResult Resolution = ResolveAssetPath(
+					Reference.TargetPath, {.ExpectedClass = ExpectedClass});
+				if (!Resolution)
+				{
+					FAssetResult ResolutionError = AssetPathResolutionError(Resolution);
+					if (ResolutionError.Error == EAssetError::NotFound)
+						ResolutionError.Error = EAssetError::MissingDependency;
+					ResolutionError.Message = std::format(
+						"CookReachabilityUnresolvedReference: {} references {} at {}. {}",
+						Source.ToString(), Reference.TargetPath.ToString(),
+						Reference.DisplayRoute, ResolutionError.Message);
+					return ResolutionError;
+				}
+				Pending.push_back({
+					Resolution.FinalPath, {}, Reference.DisplayRoute});
 			}
 		}
 		OutPackages.assign(Visited.begin(), Visited.end());
@@ -3843,7 +4071,7 @@ namespace Durin::Asset
 		Assets.insert_or_assign(Path, std::move(Data));
 		if (bAssetChanged) RebuildRedirectorIndex();
 		bPersistentSnapshotDirty = true;
-		const FAssetData* Stored = FindAsset(Path);
+		const FAssetData* Stored = FindAssetExact(Path);
 		const bool bReferencesChanged = Stored && RefreshReferencesForAsset(*Stored);
 		if (bAssetChanged || bReferencesChanged) ++Revision;
 	}
@@ -6049,7 +6277,7 @@ namespace Durin::Asset
 	{
 		OutAnalysis = {};
 		OutAnalysis.AssetPath = Path;
-		const FAssetData* Data = Registry.FindAsset(Path);
+		const FAssetData* Data = Registry.FindAssetExact(Path);
 		if (!Path.IsValid() || !Data) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
 		OutAnalysis.bRedirector =
 			Data->EntryKind == EAssetRegistryEntryKind::Redirector;
@@ -6162,7 +6390,7 @@ namespace Durin::Asset
 
 		for (const FAssetPath& Path : SortedPaths)
 		{
-			const FAssetData* Data = Registry.FindAsset(Path);
+			const FAssetData* Data = Registry.FindAssetExact(Path);
 			if (!Path.IsValid() || !Data)
 			{
 				AddBlocker(
@@ -6572,7 +6800,7 @@ namespace Durin::Asset
 			DeletionSet.insert(Entry.RegistryEntry.PackagePath);
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 		{
-			const FAssetData* Current = Registry.FindAsset(
+			const FAssetData* Current = Registry.FindAssetExact(
 				Entry.RegistryEntry.PackagePath);
 			if (!Current || !(*Current == Entry.RegistryEntry))
 				return Error(EAssetError::InUse, std::format(
@@ -6599,7 +6827,7 @@ namespace Durin::Asset
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 		{
 			const FAssetPath& Path = Entry.RegistryEntry.PackagePath;
-			if (Registry.FindAsset(Path) || LoadedPackages.contains(Path))
+			if (Registry.FindAssetExact(Path) || LoadedPackages.contains(Path))
 				return Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} already exists and cannot be restored.",
 					Path.ToString()));
@@ -6637,7 +6865,7 @@ namespace Durin::Asset
 			if (!Result) return Result;
 		}
 
-		const FAssetData* Data = Registry.FindAsset(Path);
+		const FAssetData* Data = Registry.FindAssetExact(Path);
 		if (!Data) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
 		std::vector<std::filesystem::path> Files;
 		Files.emplace_back(Data->PhysicalPath);

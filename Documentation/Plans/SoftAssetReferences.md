@@ -9,70 +9,14 @@ Completed: 2026-08-06
 
 ## Current Status
 
-- Stage 5 is complete. The final repository audit found no additional
-  production owner that should be converted mechanically: reflected
-  `TObjectPtr` fields remain hard dependencies, `TWeakObjectPtr` sites remain
-  transient observations, and remaining asset paths/manual loads belong to
-  explicit document, import/source, thumbnail, open, or runtime-resource
-  boundaries. The default level remains the selected persistent soft-path
-  migration.
-- `FSoftObjectPath`, `FSoftObjectPtr`, `TSoftObjectPtr<T>`, reflected
-  `FSoftObjectProperty`, explicit typed resolution/loading, bounded Archive and
-  DAST persistence, rebuildable indexing, Cook traversal, target-move repair,
-  and editor path assignment now form one documented contract.
-- Per the simplified deletion decision, delete analysis, tokens, revalidation,
-  Undo, and Redo remain hard-reference-only. Deleting a soft target preserves
-  source bytes as a dangling path; explicit load and Cook report the missing
-  target at their existing boundaries.
-- The project default level is stored in editor/runtime memory as
-  `TSoftObjectPtr<DLevel>`, remains a canonical path string in YAML, assigns
-  without loading, opens through explicit typed load, publishes settings
-  atomically, and follows target moves through a reversible external-store
-  action. Other hard, weak, import/source, document/navigation,
-  thumbnail, and built-in resource owners retain their recorded semantics.
-- Final validation passes DHT 186/186, `AssetPackageTests` 54/54,
-  `CoreObjectTests` 70/70, `AssetCookTests` 12/12,
-  `EditorPropertyTests` 27/27, `EditorAssetWorkflowTests` 51 plus one
-  privilege-dependent skip, and `WorldTests` 62/62. The full `all` build and
-  all-native run pass 1,020 tests with zero failures, two expected skips, and
-  one disabled benchmark. The previously recorded new-level baseline test no
-  longer reads the mutable Sandbox project: it now authors, saves, unloads, and
-  reconstructs an isolated test level with one stable Engine mesh dependency.
-- Completion history is intentionally squashed against pre-feature baseline
-  `5a569f31`; the stage handoffs below retain the implementation decisions and
-  validation evidence without requiring intermediate commits.
-- Archive and DAST v2 persist the frozen bounded null/path payload for direct,
-  fixed-array, Array, and Map-value soft fields; weak-cache state never enters
-  bytes or hard package dependencies.
-- Package inspection extracts typed soft occurrences without constructing owner
-  objects, invoking `PostLoad`, resolving targets, or changing residency. The
-  registry publishes separate sorted target-to-referencer and deduplicated
-  source-to-target queries.
-- `AssetRegistry/SoftReferences.bin` is an independent schema-1 derived cache
-  keyed by complete size/time/content-hash package fingerprints plus extractor
-  schema 1. Cache miss, incompatible/corrupt bytes, full validation, content
-  change, save, source move, and source deletion rebuild or invalidate affected
-  entries without publishing partial sources.
-- Default Cook reachability traverses hard dependencies plus indexed soft
-  targets and validates missing/type-mismatched targets. Runtime package load,
-  unload guards, and `FAssetData::Dependencies` remain hard-edge-only.
-- Reflected `TObjectPtr<T>` fields are hard references. Cross-package values are
-  serialized as asset paths, added to the package dependency table, loaded
-  eagerly, retained by the loaded-package graph, and required to resolve.
-- `TWeakObjectPtr<T>` is a non-owning handle to an already loaded object. It is
-  not a persistent asset identity and is not recognized by DHT as a property.
-- `FAssetPath` and plain strings provide unloaded identity in import records,
-  thumbnails, documents, operations, and service code whose owning subsystem
-  intentionally controls loading, move, and failure behavior.
-- `FEditorAssetPickerConfig` preserves loaded-object assignment for hard fields
-  and exposes a separate registry-path assignment mode for soft/path owners.
-- [Reflected Struct Operations](ReflectedStructOperations.md),
-  [Typed Struct Property Registration](TypedStructPropertyRegistration.md), and
-  [Reflected Container Operations](ReflectedContainerOperations.md) are
-  complete. Soft-object registration consumes their typed property,
-  capability-aware value, and recursive container descriptor contracts.
-- This plan is independent of DAST v3 compact encoding and does not reactivate
-  the [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md).
+- Historical provenance only. The completed
+  [Asset Redirectors Refactor Plan](AssetRedirectors.md) replaced this plan's
+  move-time rewrite, external move-store, soft-only index/cache, deletion, Cook,
+  and default-level contracts.
+- The lasting soft-pointer value and serialization semantics remain implemented;
+  current registry, relocation, Fix Up, owner, deletion, editor, and Cook
+  behavior is documented in [Asset Packages](../Runtime/Assets/AssetPackages.md)
+  and must not be inferred from the superseded stages below.
 
 ## Goal
 

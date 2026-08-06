@@ -38,7 +38,7 @@ TEST(FTextureCubeAssetThumbnailTests, ProviderCapturesPackageAndCubeVisualContra
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::DirectionalCubePath,
 		CubePath));
 	const Durin::Asset::FAssetData* Data =
-		Durin::Asset::GetAssetRegistry().FindAsset(CubePath);
+		Durin::Asset::GetAssetRegistry().FindAssetExact(CubePath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::FTextureCubeAssetThumbnailProvider Provider;

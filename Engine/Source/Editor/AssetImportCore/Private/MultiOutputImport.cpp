@@ -133,7 +133,7 @@ namespace Durin::AssetImport
 				if (!FAssetPath::TryCreate(std::format(
 					"{}_RecordCandidate_{}", Path.ToString(), Suffix), OutPath)) return false;
 				if (!Asset::FindLoadedPackage(OutPath)
-					&& !Asset::GetAssetRegistry().FindAsset(OutPath)) return true;
+					&& !Asset::GetAssetRegistry().FindAssetExact(OutPath)) return true;
 			}
 			return false;
 		}
@@ -393,7 +393,7 @@ namespace Durin::AssetImport
 				return Result;
 			}
 		}
-		else if (Asset::GetAssetRegistry().FindAsset(Request.RecordPath)
+		else if (Asset::GetAssetRegistry().FindAssetExact(Request.RecordPath)
 			|| Asset::FindLoadedPackage(Request.RecordPath))
 		{
 			const Asset::FAssetData* Exact =
@@ -677,7 +677,7 @@ namespace Durin::AssetImport
 		}
 		else
 		{
-			bStale = bStale || Asset::GetAssetRegistry().FindAsset(Plan.GetRecordPath())
+			bStale = bStale || Asset::GetAssetRegistry().FindAssetExact(Plan.GetRecordPath())
 				|| Asset::FindLoadedPackage(Plan.GetRecordPath()) != RecordCandidate->GetPackage();
 		}
 		for (const FMultiOutputReconciliation& Entry : Plan.GetReconciliation())
@@ -700,7 +700,7 @@ namespace Durin::AssetImport
 			else if (Entry.ProposedAction == EMultiOutputProposedAction::Create)
 			{
 				const FPreparedMultiOutput& Output = *PreparedByIdentity.at(Entry.StableIdentity);
-				bStale = bStale || Asset::GetAssetRegistry().FindAsset(Entry.AssetPath)
+				bStale = bStale || Asset::GetAssetRegistry().FindAssetExact(Entry.AssetPath)
 					|| Asset::FindLoadedPackage(Entry.AssetPath)
 						!= Output.Candidate->GetPackage();
 			}

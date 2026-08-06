@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AssetSystem.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "Misc/Name.h"
@@ -14,4 +15,49 @@ inline auto InitializeDObjectSystem() -> void
 		return true;
 	}();
 	(void)bInitialized;
+}
+
+// Test cleanup follows the production target-plus-alias closure contract while
+// avoiding an editor filesystem transaction in focused runtime suites.
+inline auto DeleteAssetClosureForTest(
+	std::initializer_list<Durin::FAssetPath> Paths)
+	-> Durin::Asset::FAssetResult
+{
+	const std::vector<Durin::FAssetPath> DeletionPaths(Paths);
+	Durin::Asset::FAssetDeletionBatchToken Token;
+	std::vector<Durin::Asset::FAssetDeletionBatchBlocker> Blockers;
+	Durin::Asset::FAssetResult Result =
+		Durin::Asset::AnalyzeAssetDeletionBatch(
+			DeletionPaths, {}, Token, Blockers);
+	if (!Result) return Result;
+	if (!Blockers.empty())
+		return {
+			Durin::Asset::EAssetError::InUse,
+			Blockers.front().Details};
+	Result = Durin::Asset::UnloadAssetDeletionBatch(Token);
+	if (!Result) return Result;
+	for (const Durin::Asset::FAssetDeletionBatchEntry& Entry :
+		 Token.GetEntries())
+	{
+		std::error_code Error;
+		if (!std::filesystem::remove(Entry.RegistryEntry.PhysicalPath, Error)
+			|| Error)
+			return {
+				Durin::Asset::EAssetError::IoError,
+				std::format(
+					"Could not remove test asset {}: {}",
+					Entry.RegistryEntry.PackagePath.ToString(),
+					Error.message())};
+		for (const std::filesystem::path& Companion : Entry.CompanionFiles)
+		{
+			Error.clear();
+			if (!std::filesystem::remove(Companion, Error) || Error)
+				return {
+					Durin::Asset::EAssetError::IoError,
+					std::format(
+						"Could not remove test companion {}: {}",
+						Companion.generic_string(), Error.message())};
+		}
+	}
+	return Durin::Asset::RemoveAssetDeletionBatchRegistryProjection(Token);
 }

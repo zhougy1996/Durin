@@ -208,7 +208,7 @@ namespace Durin::AssetImport
 		std::string& OutFingerprint,
 		std::string& OutError) -> bool
 	{
-		const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(Path);
+		const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAssetExact(Path);
 		std::vector<uint8> Bytes;
 		if (!Data || !FFileHelper::LoadFileToArray(Bytes, Data->PhysicalPath))
 		{

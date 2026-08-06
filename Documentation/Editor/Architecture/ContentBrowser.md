@@ -9,15 +9,16 @@ operations.
 
 - Folders are navigation items and remain visible under every content-type
   filter.
-- Registered `.dasset` packages appear only as assets, using registry metadata
-  and asset-class behavior. Package files are never duplicated as ordinary
-  files.
+- Registered `.dasset` packages appear as real assets or redirectors from exact
+  registry metadata. Package files are never duplicated as ordinary files.
 - Every other regular file appears as a file. A file may be an import source,
   an asset-managed companion, or an unrelated project document; importability
   is a capability rather than an item kind.
-- The default `All content` filter shows assets and files together. `Assets`
-  and `Files` provide category-only projections, and asset-class filters apply
-  only to registered assets.
+- The default `All content` filter shows real assets and files together while
+  redirectors stay hidden. `Show Redirectors` and the redirector-only filter
+  reveal aliases explicitly; asset-class filters apply only to real assets.
+  Folders remain visible even when all of their contained items are hidden
+  redirectors.
 
 Search is recursive beneath the current directory. Ordinary browsing shows
 only immediate children. Folders sort before other items, after which the
@@ -33,9 +34,23 @@ an item is an asset or an ordinary file.
 ## Operations
 
 Assets open through registered asset editors and use asset-aware rename, move,
-and deletion workflows. Ordinary files open through the operating system and
-use filesystem operations. Files detected as asset-managed companions cannot
-be renamed or deleted independently; the owning asset operation must be used.
+and deletion workflows. Opening a redirector resolves and opens its final real
+asset; redirectors are excluded from ordinary pickers, rename, and drag-move.
+Ordinary files open through the operating system and use filesystem operations.
+Files detected as asset-managed companions cannot be renamed or deleted
+independently; the owning asset operation must be used.
+
+Redirector details show the direct and final targets, complete chain and
+terminal state, hard/soft/redirect referencer counts, and reference-index
+completeness. Referencer navigation reveals the selected owner. Selection,
+folder, and project-wide Fix Up commands call the shared AssetCore transaction;
+an empty virtual directory never falls through to project-wide scope. Failed
+analysis/publication retains every alias and reports the blocking participant.
+
+Create, import/reimport, rename, move, folder relocation, and future duplication
+through the shared publication seam reject a redirector-occupied destination.
+The error names the final destination and directs the user to Fix Up or remove
+the alias closure rather than treating the path as vacant.
 
 The Content Browser enumerates only automatically scanned mounts. This affects
 navigation and presentation, not the validity of typed source paths or the
@@ -67,11 +82,12 @@ companions. References between assets inside the same deletion set are allowed.
 AssetCore assigns each companion to one owner and includes an owned companion
 outside a selected folder once as a standalone root.
 
-Soft references are not part of deletion planning or transaction safety. They
-do not appear as blockers, are not captured by the deletion token, and are not
-revalidated during Execute or Redo. Deleting a soft target leaves the authored
-source path unchanged and potentially dangling; restoring the target through
-Undo makes that same path resolvable again.
+Deletion never rewrites soft or external-store paths, but it reports them as
+explicit dangling-reference warnings and revalidates the warning snapshot.
+Alias-only deletion, broken aliases, and target selections missing any
+direct/upstream alias are blocked. A target may be deleted only with its complete
+alias closure and explicit confirmation; the transaction captures exact
+redirector entries and files so Undo/Redo restores their metadata byte-for-byte.
 
 ### Transaction and Recovery
 
@@ -97,12 +113,13 @@ history, and retains its marked operation directory. Otherwise, staged data is
 owned for exactly the lifetime of the reachable history entry and cleanup
 validates the exact marked, unmounted root without traversing reparse points.
 
-Successful Delete, Undo, and Redo advance the editor transaction manager's
-content-mutation revision. Content Browser panels observe that revision without
-being retained by history, cancel obsolete thumbnail work, rescan and refresh,
-repair selection, and preserve the current directory when it survives. If the
-current directory was deleted, the panel navigates to its nearest surviving
-parent; unrelated global history commands do not steal Content Browser focus.
+Successful relocation, Fix Up, Delete, Undo, and Redo advance editor mutation
+or registry revisions. Every Content Browser panel observes both revisions
+without being retained by history, cancels obsolete thumbnail work, rescans and
+refreshes, repairs selection, and preserves the current directory when it
+survives. If the current directory was deleted, the panel navigates to its
+nearest surviving parent; unrelated global history commands do not steal
+Content Browser focus.
 
 ## Related Documentation
 

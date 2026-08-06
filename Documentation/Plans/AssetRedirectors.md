@@ -2,22 +2,24 @@
 
 Summary: Replace eager move-time reference rewriting with first-class asset redirectors, transparent path resolution, atomic batch relocation, and explicit fix-up workflows.
 
-Last reviewed: 2026-08-06
+Last reviewed: 2026-08-07
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-07
 
 ## Current Status
 
-- Stages 0-5 are complete: the redirect wire format and public vocabulary are
+- Stages 0-6 are complete: the redirect wire format and public vocabulary are
   frozen, loading and references resolve to the final real package, and all
   production move callers use journaled atomic batch relocation with generated
   direct aliases and shared editor Undo/Redo. The unified package reference
   index, lossless package rewriting, strict Fix Up transaction, production
   default-level/import-record reference stores, unattended project command,
   failure matrix, Content Browser projection/Fix Up workflow, deletion closure,
-  and selected asset-owner integration are complete. Stage 6 Cook
-  canonicalization and legacy cleanup are next.
+  and selected asset-owner integration are complete. Cook roots, traversal,
+  produced package bytes, and external runtime roots canonicalize to final real
+  identities without changing authored state; redirector packages are excluded
+  from runtime output and the legacy move/cache/API architecture is removed.
 - The completed [Soft Asset References Plan](SoftAssetReferences.md) is historical
   evidence for the current implementation only. Its move-time rewrite contract,
   compatibility promises, stage structure, and validation baseline do not
@@ -1061,25 +1063,62 @@ Dependencies: Stage 4 Fix Up service.
 
 Dependencies: Stage 5 complete authoring workflow.
 
-- [ ] Make Cook roots, hard/soft traversal, type validation, and produced package
+- [x] Make Cook roots, hard/soft traversal, type validation, and produced package
   serialization resolve to final asset paths.
-- [ ] Exclude redirector packages from normal cooked publication and fail if a
+- [x] Exclude redirector packages from normal cooked publication and fail if a
   runtime root/reference remains redirected or unresolved after canonicalization.
-- [ ] Verify default-level and every registered external runtime root contribute
+- [x] Verify default-level and every registered external runtime root contribute
   canonical final identity without modifying authored files.
-- [ ] Remove any remaining `FAssetMoveExternalStore`, additional-package move contributions,
+- [x] Remove any remaining `FAssetMoveExternalStore`, additional-package move contributions,
   move-time soft/hard referencer rewrites, `.movebak` ownership, stale-index
   move blockers, superseded cache schemas, compatibility shims, and obsolete
   tests.
-- [ ] Update lasting Asset Packages, Content Browser, Cook, package-format,
+- [x] Update lasting Asset Packages, Content Browser, Cook, package-format,
   editor workflow, and import/source documentation; mark the old soft-reference
   plan only as historical provenance.
-- [ ] Run package/plan/document validation, focused native suites, the complete
+- [x] Run package/plan/document validation, focused native suites, the complete
   native test set, and a successful full `all` build through DurinDevTool.
-- [ ] Audit the final diff and public API for duplicate exact/resolved paths,
+- [x] Audit the final diff and public API for duplicate exact/resolved paths,
   accidental implicit path mutation, remaining single-move loops, and authored
   redirectors entering runtime output.
-- [ ] End with the required final stage handoff and completion evidence.
+- [x] End with the required final stage handoff and completion evidence.
+
+#### Stage 6 Handoff
+
+- Baseline commit: `0820dcfecb1e7cfaab3976b60f112e7befa10f6c`.
+- Working set: `AssetSystem.h/.cpp`, `CookedAsset.cpp`, the project
+  default-level reference store, focused AssetCore/Engine Cook and owner tests,
+  shared Engine test cleanup support, lasting Asset Packages, data lifecycle,
+  Content Browser, level, import/source documentation, the historical soft
+  reference plan, and this plan.
+- Key symbols and decisions: `BuildCookReachability` resolves explicit and
+  `FAssetReferenceStoreOccurrence::bCookRoot` roots before visiting canonical
+  hard/soft edges and validating final classes. The default-level provider marks
+  its authored YAML occurrence as a typed `DLevel` Cook root. The query returns
+  only final real package identities and never writes a package or provider.
+  `CanonicalizeAssetPackageForCook` performs a no-load, lossless DAST rewrite of
+  redirected hard/soft fields and dependencies; `FCookContext` invokes it before
+  staging, rejects redirector bytes, canonicalizes registered output identities,
+  and detects aliases that collapse onto one output.
+- Legacy cleanup and audit: the exact-only `FindAsset` compatibility spelling,
+  old soft-index diagnostic names, and `SoftReferences.bin` cleanup knowledge
+  are removed. Production code, tests, and lasting documentation contain no
+  move-time external store/contribution, additional-package rewrite, `.movebak`,
+  soft-only cache/API, sequential rollback, or single-move loop surface. Tests
+  that deleted one alias at a time now use the production target-plus-complete-
+  alias closure contract. The completed soft-reference plan is explicitly
+  historical provenance rather than a current behavior contract.
+- Open questions: none. Async/streamable loading, deliberate consolidation,
+  source-control automation, and optional cooked alias tables remain the
+  deferred follow-ups already named below.
+- Validation on 2026-08-07: `AssetPackageTests` passes all 73 tests,
+  `AssetCookTests` all 12, and `AssetReferenceStoreTests` all 3. The complete
+  native case run has zero failures with the existing two privilege-dependent
+  skips and one disabled benchmark; all 39 direct lifecycle targets pass. The
+  complete `all` build succeeds under `Win64-Debug-DurinEditor-Tests`.
+  A hidden-window Sandbox editor launch exits cleanly after two ticks.
+  Repository document validation covers 75 files, all-plan validation succeeds,
+  and `git diff --check` is clean.
 
 #### Acceptance Gate
 

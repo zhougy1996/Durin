@@ -73,9 +73,9 @@ TEST(FMaterialAssetThumbnailTests, ProviderCapturesSortedTransitiveMaterialDepen
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::MaterialInstancePath, InstancePath));
 	const Durin::Asset::FAssetData* MaterialData =
-		Durin::Asset::GetAssetRegistry().FindAsset(MaterialPath);
+		Durin::Asset::GetAssetRegistry().FindAssetExact(MaterialPath);
 	const Durin::Asset::FAssetData* InstanceData =
-		Durin::Asset::GetAssetRegistry().FindAsset(InstancePath);
+		Durin::Asset::GetAssetRegistry().FindAssetExact(InstancePath);
 	ASSERT_NE(MaterialData, nullptr);
 	ASSERT_NE(InstanceData, nullptr);
 
@@ -209,7 +209,7 @@ TEST(FMaterialAssetThumbnailTests, InvalidInstancePublishesOneStableDiagnostic)
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::InvalidMaterialInstancePath,
 		InvalidPath));
 	const Durin::Asset::FAssetData* Data =
-		Durin::Asset::GetAssetRegistry().FindAsset(InvalidPath);
+		Durin::Asset::GetAssetRegistry().FindAssetExact(InvalidPath);
 	ASSERT_NE(Data, nullptr);
 
 	Durin::FMaterialAssetThumbnailCache Cache;

@@ -197,7 +197,7 @@ namespace Durin
 		}
 
 		const Asset::FAssetRegistry& Registry = Asset::GetAssetRegistry();
-		const Asset::FAssetData* Root = Registry.FindAsset(Request.Asset.VirtualPath);
+		const Asset::FAssetData* Root = Registry.FindAssetExact(Request.Asset.VirtualPath);
 		if (Root == nullptr)
 		{
 			OutError = std::format(

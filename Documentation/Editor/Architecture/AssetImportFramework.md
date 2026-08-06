@@ -54,6 +54,14 @@ stable output identities and policies, output fingerprints, accepted diagnostic
 identities, and bounded provider reconciliation state. A rebuildable editor
 index maps managed output paths back to their record.
 
+Import records retain their authored output identities across asset relocation.
+Lookup, navigation, reconciliation, and reimport resolve each identity to its
+final real package before use, while record serialization remains unchanged.
+The record index participates in explicit redirector Fix Up as an external
+reference store; Fix Up, not relocation or reimport, is the operation that
+canonicalizes persisted record paths. A create/import/reimport destination
+occupied by a redirector is an actionable collision naming its final target.
+
 FBX and glTF enter through the Scene source workflow. The request selects one
 Content destination directory rather than a primary StaticMesh. The provider
 places generated assets in type directories such as `Meshes`, `Materials`, and
@@ -102,7 +110,8 @@ serialized and cache contents are never authoritative.
 record index are editor-only. Records carry an explicit cook-exclusion marker
 and are never runtime dependencies. StaticMesh and texture cook paths strip
 source provenance, derived-data keys, and editor diagnostics while publishing
-validated runtime payloads into cooked ownership. A runtime-only target loads
+validated, redirect-free runtime packages and payloads into cooked ownership.
+A runtime-only target loads
 cooked outputs without `AssetImportCore`, `StandardAssetImport`, Assimp, an
 editor image decoder, source files, or DDC fallback.
 

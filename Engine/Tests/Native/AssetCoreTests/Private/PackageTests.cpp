@@ -4,6 +4,7 @@
 #include "AssetCompatibility.h"
 #include "AssetRedirector.h"
 #include "AssetSystem.h"
+#include "CookedAsset.h"
 #include "CoreGlobals.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectArray.h"
@@ -612,8 +613,13 @@ namespace
 		: public Durin::Asset::IAssetReferenceStore
 	{
 	public:
-		explicit FMemoryAssetReferenceStore(Durin::FAssetPath InPath)
+		explicit FMemoryAssetReferenceStore(
+			Durin::FAssetPath InPath,
+			bool bInCookRoot = false,
+			std::string InExpectedClass = {})
 			: Path(std::move(InPath))
+			, ExpectedClass(std::move(InExpectedClass))
+			, bCookRoot(bInCookRoot)
 		{}
 
 		auto CaptureSnapshot(
@@ -628,7 +634,9 @@ namespace
 					.ProviderId = "Tests.MemoryReferenceStore",
 					.StableId = "root",
 					.TargetPath = Path,
-					.DisplayRoute = "Root"}}};
+					.DisplayRoute = "Root",
+					.ExpectedClass = ExpectedClass,
+					.bCookRoot = bCookRoot}}};
 			return {};
 		}
 
@@ -674,6 +682,8 @@ namespace
 		}
 
 		Durin::FAssetPath Path;
+		std::string ExpectedClass;
+		bool bCookRoot = false;
 	};
 
 	class FScopedReferenceStoreRegistration
@@ -1399,7 +1409,7 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	Durin::DPackage* Package = Asset->GetPackage();
 	ASSERT_NE(Package, nullptr);
 	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().SavePackage(Package));
-	ASSERT_NE(Durin::Asset::FAssetManager::Get().GetRegistry().FindAsset(Path), nullptr);
+	ASSERT_NE(Durin::Asset::FAssetManager::Get().GetRegistry().FindAssetExact(Path), nullptr);
 	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(Path));
 
 	DPackageAssetForTest* Loaded = nullptr;
@@ -1688,7 +1698,7 @@ TEST(FPackageAssetTests, DastSoftFieldsRoundTripWithoutHardDependenciesOrTargetL
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
 
 	const Durin::Asset::FAssetData* OwnerData =
-		Durin::Asset::GetAssetRegistry().FindAsset(OwnerPath);
+		Durin::Asset::GetAssetRegistry().FindAssetExact(OwnerPath);
 	ASSERT_NE(OwnerData, nullptr);
 	EXPECT_TRUE(OwnerData->Dependencies.empty());
 	Durin::Asset::FAssetPackageInspection Inspection;
@@ -1786,7 +1796,7 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
 	Owner->Direct.SetPath(TargetPath);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
-	const auto* Data = Durin::Asset::GetAssetRegistry().FindAsset(OwnerPath);
+	const auto* Data = Durin::Asset::GetAssetRegistry().FindAssetExact(OwnerPath);
 	ASSERT_NE(Data, nullptr);
 	Durin::Asset::FAssetPackageInspection Valid;
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(Data->PhysicalPath, Valid));
@@ -1869,7 +1879,7 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 	DPackageAssetForTest* OldAsset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, OldAsset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(OldAsset->GetPackage()));
-	const auto* OldData = Durin::Asset::GetAssetRegistry().FindAsset(OldPath);
+	const auto* OldData = Durin::Asset::GetAssetRegistry().FindAssetExact(OldPath);
 	ASSERT_NE(OldData, nullptr);
 	Durin::Asset::FAssetPackageInspection OldInspection;
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
@@ -2019,6 +2029,123 @@ TEST(FPackageAssetTests, SoftCookReachabilityAddsSoftTargetsButRejectsMissingAnd
 	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().BuildCookReachability(
 		std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable));
 	EXPECT_EQ(Reachable, (std::vector<Durin::FAssetPath>{CyclePath, OwnerPath}));
+}
+
+TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedBytes)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath OwnerPath;
+	Durin::FAssetPath OldTargetPath;
+	Durin::FAssetPath FinalTargetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/CookCanonicalOwner", OwnerPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/CookCanonicalTargetOld", OldTargetPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/CookCanonicalTargetFinal", FinalTargetPath));
+
+	DPackageAssetForTest* Target = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(OldTargetPath, Target));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
+	DSoftPackageAssetForTest* Owner = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
+	Owner->ExternalReference = Target;
+	Owner->Direct.SetPath(OldTargetPath);
+	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
+
+	const Durin::Asset::FAssetData* OwnerData =
+		Durin::Asset::GetAssetRegistry().FindAssetExact(OwnerPath);
+	ASSERT_NE(OwnerData, nullptr);
+	const std::string OwnerPhysicalPath = OwnerData->PhysicalPath;
+	std::vector<Durin::uint8> AuthoredBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		AuthoredBytes, OwnerPhysicalPath));
+	ASSERT_TRUE(RelocateAssetForTest(OldTargetPath, FinalTargetPath));
+
+	FMemoryAssetReferenceStore RuntimeRoot(
+		OldTargetPath,
+		true,
+		DPackageAssetForTest::StaticClass()->GetQualifiedName().ToString());
+	FScopedReferenceStoreRegistration RuntimeRootRegistration(&RuntimeRoot);
+	std::vector<Durin::FAssetPath> Reachable;
+	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().BuildCookReachability(
+		std::span{&OwnerPath, 1}, Reachable));
+	std::vector ExpectedReachable{OwnerPath, FinalTargetPath};
+	std::ranges::sort(ExpectedReachable, [](const Durin::FAssetPath& Left,
+		const Durin::FAssetPath& Right) {
+		return Left.GetView() < Right.GetView();
+	});
+	EXPECT_EQ(Reachable, ExpectedReachable);
+	EXPECT_EQ(RuntimeRoot.Path, OldTargetPath);
+
+	std::vector<Durin::uint8> CanonicalBytes;
+	const Durin::Asset::FAssetResult CanonicalResult =
+		Durin::Asset::CanonicalizeAssetPackageForCook(
+			AuthoredBytes, CanonicalBytes);
+	ASSERT_TRUE(CanonicalResult) << CanonicalResult.Message;
+	EXPECT_NE(CanonicalBytes, AuthoredBytes);
+	const std::filesystem::path CanonicalFile =
+		Durin::Testing::GetTestWorkDirectory() / "CookCanonicalized.dasset";
+	WriteTestBytes(CanonicalFile, CanonicalBytes);
+	Durin::Asset::FAssetPackageInspection CanonicalInspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		CanonicalFile.generic_string(), CanonicalInspection));
+	EXPECT_EQ(
+		CanonicalInspection.Header.Dependencies,
+		(std::vector<Durin::FAssetPath>{FinalTargetPath}));
+	std::vector<Durin::Asset::FAssetReferenceEdge> CanonicalReferences;
+	ASSERT_TRUE(Durin::Asset::ExtractAssetReferences(
+		OwnerPath, CanonicalInspection, CanonicalReferences));
+	ASSERT_EQ(CanonicalReferences.size(), 2u);
+	for (const Durin::Asset::FAssetReferenceEdge& Reference :
+		CanonicalReferences)
+		EXPECT_EQ(Reference.TargetPath, FinalTargetPath);
+
+	const std::filesystem::path CookRoot = std::filesystem::absolute(
+		Durin::Testing::GetTestWorkDirectory() / "CanonicalCookOutput");
+	Durin::Testing::RemoveTestWorkDirectory(CookRoot);
+	Durin::Asset::FCookContext Cook(
+		CookRoot,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game);
+	ASSERT_TRUE(Cook.AddPackage(
+		"/Game/CookCanonicalOwner", AuthoredBytes, {}));
+	std::string CookError;
+	ASSERT_TRUE(Cook.Publish(&CookError)) << CookError;
+	Durin::Asset::FAssetPackageInspection PublishedInspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		(CookRoot / "Game/CookCanonicalOwner.dasset").generic_string(),
+		PublishedInspection));
+	EXPECT_EQ(
+		PublishedInspection.Header.Dependencies,
+		(std::vector<Durin::FAssetPath>{FinalTargetPath}));
+
+	std::vector<Durin::uint8> AuthoredAfterCook;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		AuthoredAfterCook, OwnerPhysicalPath));
+	EXPECT_EQ(AuthoredAfterCook, AuthoredBytes);
+
+	const Durin::Asset::FAssetData* AliasData =
+		Durin::Asset::GetAssetRegistry().FindAssetExact(OldTargetPath);
+	ASSERT_NE(AliasData, nullptr);
+	std::vector<Durin::uint8> AliasBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		AliasBytes, AliasData->PhysicalPath));
+
+	const std::filesystem::path RedirectorRoot = std::filesystem::absolute(
+		Durin::Testing::GetTestWorkDirectory() / "RedirectorCookOutput");
+	Durin::Testing::RemoveTestWorkDirectory(RedirectorRoot);
+	Durin::Asset::FCookContext RedirectorCook(
+		RedirectorRoot,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game);
+	ASSERT_TRUE(RedirectorCook.AddPackage(
+		"/Game/RedirectorMustNotCook", AliasBytes, {}));
+	EXPECT_FALSE(RedirectorCook.Publish(&CookError));
+	EXPECT_NE(CookError.find("redirector packages are authoring-only"),
+		std::string::npos);
+	EXPECT_FALSE(std::filesystem::exists(
+		RedirectorRoot / "CookManifest.bin"));
 }
 
 TEST(FPackageAssetTests, ReferenceIndexInvalidatesSourceSaveMoveAndDeleteMutations)
@@ -2802,7 +2929,7 @@ TEST(FPackageAssetTests, SoftReferencedTargetDeletionLeavesDanglingPathWithoutBl
 	EXPECT_TRUE(Analysis.DirectReferencers.empty());
 	EXPECT_TRUE(Analysis.CanDelete());
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(TargetPath));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(TargetPath), nullptr);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(TargetPath), nullptr);
 	auto Referencers =
 		Durin::Asset::GetAssetRegistry().GetReferenceIndex().FindReferencers(TargetPath);
 	ASSERT_EQ(Referencers.size(), 1u);
@@ -3636,11 +3763,11 @@ TEST(FPackageAssetTests, SequentialPackageSavesPublishEarlierPackagesBeforeLater
 	EXPECT_EQ(SecondResult.Error, Durin::Asset::EAssetError::IoError);
 
 	EXPECT_TRUE(std::filesystem::is_regular_file(Root / "Stage0First.dasset"));
-	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAsset(FirstPath), nullptr);
+	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAssetExact(FirstPath), nullptr);
 	EXPECT_FALSE(First->GetPackage()->IsDirty());
 
 	EXPECT_FALSE(std::filesystem::exists(Root / "Stage0Blocked" / "Second.dasset"));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(BlockedPath), nullptr);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(BlockedPath), nullptr);
 	EXPECT_TRUE(Second->GetPackage()->IsDirty());
 }
 
@@ -3657,7 +3784,7 @@ TEST(FPackageAssetTests, AtomicBundleSaveRestoresFilesRegistryAndDirtyStateOnFai
 	Existing->Value = 11;
 	ASSERT_TRUE(Durin::Asset::SavePackage(Existing->GetPackage()));
 	const Durin::Asset::FAssetData ExistingRegistry =
-		*Durin::Asset::GetAssetRegistry().FindAsset(ExistingPath);
+		*Durin::Asset::GetAssetRegistry().FindAssetExact(ExistingPath);
 	std::vector<Durin::uint8> ExistingBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		ExistingBytes, ExistingRegistry.PhysicalPath));
@@ -3683,8 +3810,8 @@ TEST(FPackageAssetTests, AtomicBundleSaveRestoresFilesRegistryAndDirtyStateOnFai
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		RestoredBytes, ExistingRegistry.PhysicalPath));
 	EXPECT_EQ(RestoredBytes, ExistingBytes);
-	EXPECT_EQ(*Durin::Asset::GetAssetRegistry().FindAsset(ExistingPath), ExistingRegistry);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(NewPath), nullptr);
+	EXPECT_EQ(*Durin::Asset::GetAssetRegistry().FindAssetExact(ExistingPath), ExistingRegistry);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(NewPath), nullptr);
 	EXPECT_FALSE(std::filesystem::exists(
 		Durin::Testing::GetTestWorkDirectory() / "Assets" / "AtomicBundleNew.dasset"));
 	EXPECT_TRUE(Existing->GetPackage()->IsDirty());
@@ -3709,7 +3836,7 @@ TEST(FPackageAssetTests, LoadsExternalDependenciesAndPreventsPrematureUnload)
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
 	Owner->ExternalReference = Dependency;
 	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().SavePackage(Owner->GetPackage()));
-	ASSERT_EQ(Durin::Asset::FAssetManager::Get().GetRegistry().FindAsset(OwnerPath)->Dependencies.size(), 1u);
+	ASSERT_EQ(Durin::Asset::FAssetManager::Get().GetRegistry().FindAssetExact(OwnerPath)->Dependencies.size(), 1u);
 	EXPECT_EQ(Durin::Asset::FAssetManager::Get().UnloadPackage(DependencyPath).Error, Durin::Asset::EAssetError::InUse);
 	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(OwnerPath));
 	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(DependencyPath));
@@ -3723,8 +3850,8 @@ TEST(FPackageAssetTests, LoadsExternalDependenciesAndPreventsPrematureUnload)
 	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(OwnerPath));
 	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().UnloadPackage(DependencyPath));
 	ASSERT_TRUE(Durin::Asset::FAssetManager::Get().GetRegistry().ScanMountedContent());
-	EXPECT_NE(Durin::Asset::FAssetManager::Get().GetRegistry().FindAsset(OwnerPath), nullptr);
-	EXPECT_NE(Durin::Asset::FAssetManager::Get().GetRegistry().FindAsset(DependencyPath), nullptr);
+	EXPECT_NE(Durin::Asset::FAssetManager::Get().GetRegistry().FindAssetExact(OwnerPath), nullptr);
+	EXPECT_NE(Durin::Asset::FAssetManager::Get().GetRegistry().FindAssetExact(DependencyPath), nullptr);
 }
 
 TEST(FPackageAssetTests, RedirectedHardReferencesLoadOnlyTheFinalPackage)
@@ -3955,7 +4082,7 @@ TEST(FPackageAssetTests, RelocationLeavesMountedReferrersAuthoredToAlias)
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
 
 	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
-	const Durin::Asset::FAssetData* OwnerData = Durin::Asset::GetAssetRegistry().FindAsset(OwnerPath);
+	const Durin::Asset::FAssetData* OwnerData = Durin::Asset::GetAssetRegistry().FindAssetExact(OwnerPath);
 	ASSERT_NE(OwnerData, nullptr);
 	EXPECT_EQ(std::ranges::find(OwnerData->Dependencies, NewPath), OwnerData->Dependencies.end());
 	EXPECT_NE(std::ranges::find(OwnerData->Dependencies, OldPath), OwnerData->Dependencies.end());
@@ -3980,7 +4107,7 @@ TEST(FPackageAssetTests, DeletesUnreferencedAssetAndRegistryEntry)
 	EXPECT_TRUE(Analysis.CanDelete());
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(Path));
 	EXPECT_FALSE(std::filesystem::exists(File));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(Path), nullptr);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(Path), nullptr);
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), nullptr);
 }
 
@@ -3999,7 +4126,7 @@ TEST(FPackageAssetTests, UnloadsAndDeletesLoadedUnreferencedAsset)
 
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(Path));
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), nullptr);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(Path), nullptr);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(Path), nullptr);
 	EXPECT_FALSE(std::filesystem::exists(
 		Durin::Testing::GetTestWorkDirectory() / "Assets" / "LoadedDelete.dasset"));
 }
@@ -4025,7 +4152,7 @@ TEST(FPackageAssetTests, RejectsDeletingReferencedAssetWithoutChangingDisk)
 	EXPECT_FALSE(Analysis.CanDelete());
 	EXPECT_EQ(Durin::Asset::DeleteAsset(DependencyPath).Error, Durin::Asset::EAssetError::InUse);
 	EXPECT_NE(Durin::Asset::FindLoadedPackage(DependencyPath), nullptr);
-	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAsset(DependencyPath), nullptr);
+	EXPECT_NE(Durin::Asset::GetAssetRegistry().FindAssetExact(DependencyPath), nullptr);
 	EXPECT_TRUE(std::filesystem::exists(
 		Durin::Testing::GetTestWorkDirectory() / "Assets" / "DeleteDependency.dasset"));
 }
@@ -4125,7 +4252,7 @@ TEST(FPackageAssetTests, VersionOneIsExplicitlyUnsupported)
 	EXPECT_EQ(Durin::Asset::LoadAsset(Path, Loaded).Error, Durin::Asset::EAssetError::UnsupportedVersion);
 	EXPECT_EQ(Loaded, nullptr);
 	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent());
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(Path), nullptr);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(Path), nullptr);
 	EXPECT_TRUE(std::ranges::any_of(
 		Durin::Asset::GetAssetRegistry().GetScanErrors(),
 		[](const Durin::Asset::FAssetResult& Error) {
@@ -4161,7 +4288,7 @@ TEST(FPackageAssetTests, ManualScanMountsRetainPackageIdentityAndDirectLoading)
 		ASSERT_TRUE(Registry.ScanMountedContent(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		EXPECT_EQ(Registry.GetLastScanStats().Enumerated, 0u);
-		EXPECT_EQ(Registry.FindAsset(Path), nullptr);
+		EXPECT_EQ(Registry.FindAssetExact(Path), nullptr);
 
 		Durin::DObject* Loaded = nullptr;
 		ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
@@ -4366,7 +4493,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	ASSERT_TRUE(Registry.ScanMountedContent());
 	EXPECT_EQ(Registry.GetLastScanStats().Reused, 1u);
 	EXPECT_EQ(Registry.GetLastScanStats().Reparsed, 0u);
-	EXPECT_EQ(Registry.FindAsset(MovedPath), nullptr);
+	EXPECT_EQ(Registry.FindAssetExact(MovedPath), nullptr);
 
 	const auto BlockedCacheRoot = WorkRoot / "BlockedCacheRoot";
 	const std::array<Durin::uint8, 3> Blocker = {1, 2, 3};
@@ -4439,7 +4566,7 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesContentFingerprintsAndRecoversFro
 		SecondCache, CacheFile.generic_string()));
 	EXPECT_EQ(SecondCache, FirstCache);
 
-	const auto* OwnerData = Registry.FindAsset(OwnerPath);
+	const auto* OwnerData = Registry.FindAssetExact(OwnerPath);
 	ASSERT_NE(OwnerData, nullptr);
 	const std::filesystem::path OwnerFile = OwnerData->PhysicalPath;
 	const auto PreservedTime = std::filesystem::last_write_time(OwnerFile);

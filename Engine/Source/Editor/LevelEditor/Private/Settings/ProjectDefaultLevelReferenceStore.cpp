@@ -1,6 +1,7 @@
 #include "Settings/ProjectDefaultLevelReferenceStore.h"
 
 #include "Hash/XxHash.h"
+#include "Engine/Level.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Project.h"
 #include "Yaml/Yaml.h"
@@ -148,7 +149,9 @@ namespace Durin
 				.ProviderId = std::string(ProviderId),
 				.StableId = std::string(StableId),
 				.TargetPath = State.Path,
-				.DisplayRoute = "Configs/Project.yaml:Editor.DefaultLevel"});
+				.DisplayRoute = "Configs/Project.yaml:Editor.DefaultLevel",
+				.ExpectedClass = DLevel::StaticClass()->GetQualifiedName().ToString(),
+				.bCookRoot = true});
 		return {};
 	}
 

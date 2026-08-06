@@ -426,8 +426,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectStateInspectionDoesNotLoadUntilReque
 	EXPECT_EQ(Object.SoftValues[0].GetSoftObjectPath(), AliasSoftPath);
 	EXPECT_EQ(Durin::Asset::FindLoadedPackage(AliasPath), nullptr);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AliasPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAsset(AssetPath));
+	ASSERT_TRUE(DeleteAssetClosureForTest({AliasPath, AssetPath}));
 }
 
 TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndMapValues)

@@ -59,9 +59,9 @@ TEST(FRenderedAssetThumbnailFixtureTests, RecordsDirectAndTransitiveDependencyIn
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::MaterialInstancePath, InstancePath));
 
 	const Durin::Asset::FAssetData* MaterialData =
-		Durin::Asset::GetAssetRegistry().FindAsset(MaterialPath);
+		Durin::Asset::GetAssetRegistry().FindAssetExact(MaterialPath);
 	const Durin::Asset::FAssetData* InstanceData =
-		Durin::Asset::GetAssetRegistry().FindAsset(InstancePath);
+		Durin::Asset::GetAssetRegistry().FindAssetExact(InstancePath);
 	ASSERT_NE(MaterialData, nullptr);
 	ASSERT_NE(InstanceData, nullptr);
 	EXPECT_TRUE(HasDependency(

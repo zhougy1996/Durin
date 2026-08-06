@@ -19,13 +19,14 @@ include sub-level streaming, PIE cloning, or Save As.
 
 At startup the editor opens the project's optional `Editor.DefaultLevel`.
 Editor and runtime code hold this setting as `TSoftObjectPtr<DLevel>` while the
-project YAML preserves its canonical path string. Picker assignment stores the
-path without loading; startup/open is the explicit typed load boundary. The
-project-settings file publishes atomically and contributes a reversible
-external-store action when the target level moves, so the level package,
-referencers, registry projection, in-memory setting, and YAML path commit or
-roll back together. Projects without a default level start with an empty
-editor; missing or invalid defaults and failed level loads are non-fatal.
+project YAML preserves its authored path string. Picker assignment stores the
+path without loading; startup/open resolves redirectors and validates the final
+`DLevel`. Relocation leaves YAML unchanged. The project-settings reference
+store contributes the default as a typed external Cook root and canonicalizes
+it in memory for runtime output without editing YAML; explicit redirector Fix
+Up is the only transaction that rewrites the setting. Projects without a
+default level start with an empty editor; missing or invalid defaults and failed
+level loads are non-fatal.
 
 ## Lifecycle Mutation
 

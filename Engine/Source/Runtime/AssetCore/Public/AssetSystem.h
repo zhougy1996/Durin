@@ -282,6 +282,10 @@ namespace Durin::Asset
 	// so diagnostics and tests can verify that object payloads were not consumed.
 	ASSETCORE_API auto ReadAssetPackageHeader(std::string_view PhysicalPath, FAssetPackageHeader& OutHeader) -> FAssetResult;
 	ASSETCORE_API auto ValidateAssetPackageBytes(std::span<const uint8> Bytes) -> FAssetResult;
+	// Produces redirect-free package bytes for runtime publication without changing authored files.
+	ASSETCORE_API auto CanonicalizeAssetPackageForCook(
+		std::span<const uint8> Bytes,
+		std::vector<uint8>& OutBytes) -> FAssetResult;
 
 	struct FAssetPackageSerializationOptions
 	{
@@ -527,6 +531,9 @@ namespace Durin::Asset
 		std::string StableId;
 		FAssetPath TargetPath;
 		std::string DisplayRoute;
+		// Runtime roots join Cook reachability but retain their authored store value.
+		std::string ExpectedClass;
+		bool bCookRoot = false;
 
 		auto operator==(const FAssetReferenceStoreOccurrence&) const -> bool = default;
 	};
@@ -832,8 +839,6 @@ namespace Durin::Asset
 		ASSETCORE_API auto ScanMountedContent(EAssetRegistryScanMode Mode = EAssetRegistryScanMode::Incremental) -> FAssetResult;
 		ASSETCORE_API auto FlushPersistentSnapshot() -> void;
 		ASSETCORE_API auto FindAssetExact(const FAssetPath& Path) const -> const FAssetData*;
-		// Compatibility spelling for exact-only callers that migrate in later stages.
-		ASSETCORE_API auto FindAsset(const FAssetPath& Path) const -> const FAssetData*;
 		ASSETCORE_API auto ResolveAssetPath(
 			const FAssetPath& Path,
 			const FAssetPathResolveOptions& Options = {}) const -> FAssetPathResolveResult;
@@ -846,8 +851,8 @@ namespace Durin::Asset
 		auto IsPersistentSnapshotDirty() const -> bool { return bPersistentSnapshotDirty; }
 		auto GetRevision() const -> uint64 { return Revision; }
 		auto GetReferenceIndex() const -> const FAssetReferenceIndex& { return ReferenceIndex; }
-		// Builds the cook closure from hard dependencies plus default-tracked soft paths.
-		// It never loads a package and does not change runtime unload decisions.
+		// Builds a final-real-path Cook closure from explicit and registered runtime
+		// roots plus hard/soft dependencies. It never loads or mutates authored state.
 		ASSETCORE_API auto BuildCookReachability(
 			std::span<const FAssetPath> Roots,
 			std::vector<FAssetPath>& OutPackages) const -> FAssetResult;

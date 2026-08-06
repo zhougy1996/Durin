@@ -71,7 +71,10 @@ ingest its sources into the same writable Engine mount.
   Failure restores package bytes and removes the staged destination.
 
 Moving, duplicating, or deleting an asset package never implicitly moves or
-deletes its source. Duplication retains the same source path.
+deletes its source. Duplication retains the same source path. Asset redirectors
+apply only to `.dasset` identities: an `FSourcePath`, mounted source location,
+physical package/companion path, and destination directory remain path-only
+workflow identities and never resolve through the Asset Registry.
 
 ## Diagnostics And Recovery
 

@@ -180,3 +180,28 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRestoresYamlAnd
 	EXPECT_EQ(Settings.GetRootView().GetView("Editor")
 		.GetView("DefaultLevel").GetString(), Scenario.OldPath.ToString());
 }
+
+TEST(FProjectDefaultLevelReferenceStoreTests, CookContributesCanonicalRootWithoutEditingYaml)
+{
+	FDefaultLevelScenario Scenario = BuildScenario("CookRoot");
+	auto MountFixture = ConfigureAssets(Scenario);
+	Durin::FProjectDefaultLevelReferenceStore Store(
+		{}, [&] { return &Scenario.Project; });
+	FScopedStoreRegistration Registration(Store);
+
+	Durin::Asset::FAssetReferenceStoreSnapshot Snapshot;
+	ASSERT_TRUE(Store.CaptureSnapshot(Snapshot));
+	ASSERT_EQ(Snapshot.Occurrences.size(), 1u);
+	EXPECT_TRUE(Snapshot.Occurrences.front().bCookRoot);
+	EXPECT_EQ(
+		Snapshot.Occurrences.front().ExpectedClass,
+		Durin::DLevel::StaticClass()->GetQualifiedName().ToString());
+
+	std::vector<Durin::FAssetPath> Reachable;
+	ASSERT_TRUE(Durin::Asset::GetAssetRegistry().BuildCookReachability(
+		{}, Reachable));
+	EXPECT_EQ(Reachable, (std::vector{Scenario.NewPath}));
+	const Durin::FYamlDocument Settings = LoadSettings(Scenario);
+	EXPECT_EQ(Settings.GetRootView().GetView("Editor")
+		.GetView("DefaultLevel").GetString(), Scenario.OldPath.ToString());
+}

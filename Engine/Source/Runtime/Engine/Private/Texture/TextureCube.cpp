@@ -1091,7 +1091,7 @@ namespace Durin
 		FAssetPath ParsedAssetPath;
 		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
 			return {false, std::move(Error), nullptr};
-		if (Asset::GetAssetRegistry().FindAsset(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath))
+		if (Asset::GetAssetRegistry().FindAssetExact(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath))
 			return {false, std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
 
 		std::filesystem::path Destination;
@@ -1853,7 +1853,7 @@ namespace Durin
 		FAssetPath ParsedAssetPath;
 		std::string PathError;
 		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &PathError)) return {false, std::move(PathError), nullptr};
-		if (Asset::GetAssetRegistry().FindAsset(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath))
+		if (Asset::GetAssetRegistry().FindAssetExact(ParsedAssetPath) || Asset::FindLoadedPackage(ParsedAssetPath))
 			return {false, std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
 
 		std::array<FXxHash128, TextureCubeFaceCount> SourceHashes;

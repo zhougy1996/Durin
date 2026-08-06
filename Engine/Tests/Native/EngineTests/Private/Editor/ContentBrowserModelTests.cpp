@@ -840,11 +840,11 @@ TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionRoundTripAsOneT
 		std::make_unique<FContentDeletionTransaction>(Plan)));
 	EXPECT_FALSE(std::filesystem::exists(Folder));
 	EXPECT_FALSE(std::filesystem::exists(Companion));
-	EXPECT_EQ(Asset::GetAssetRegistry().FindAsset(AssetPath), nullptr);
+	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
 	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_TRUE(std::filesystem::is_regular_file(OrdinaryFile));
 	EXPECT_TRUE(std::filesystem::is_regular_file(Companion));
-	EXPECT_NE(Asset::GetAssetRegistry().FindAsset(AssetPath), nullptr);
+	EXPECT_NE(Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
 	EXPECT_EQ(Asset::FindLoadedPackage(AssetPath), nullptr);
 	ASSERT_TRUE(Transactions.Redo());
 	EXPECT_FALSE(std::filesystem::exists(Folder));
@@ -863,7 +863,7 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionPreservesRegistryWithoutRes
 	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
 	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
 	const std::filesystem::path PackagePath =
-		Asset::GetAssetRegistry().FindAsset(AssetPath)->PhysicalPath;
+		Asset::GetAssetRegistry().FindAssetExact(AssetPath)->PhysicalPath;
 
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
@@ -890,7 +890,7 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionPreservesRegistryWithoutRes
 	EXPECT_EQ(
 		Transactions.GetContentMutationRevision(), InitialContentRevision + 1);
 	EXPECT_FALSE(std::filesystem::exists(PackagePath));
-	EXPECT_EQ(Asset::GetAssetRegistry().FindAsset(AssetPath), nullptr);
+	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
 	EXPECT_EQ(Asset::FindLoadedPackage(AssetPath), nullptr);
 	EXPECT_EQ(TransactionView->GetState(), EContentDeletionTransactionState::Applied);
 
@@ -898,13 +898,13 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionPreservesRegistryWithoutRes
 	EXPECT_EQ(
 		Transactions.GetContentMutationRevision(), InitialContentRevision + 2);
 	EXPECT_TRUE(std::filesystem::is_regular_file(PackagePath));
-	EXPECT_NE(Asset::GetAssetRegistry().FindAsset(AssetPath), nullptr);
+	EXPECT_NE(Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
 	EXPECT_EQ(Asset::FindLoadedPackage(AssetPath), nullptr);
 	ASSERT_TRUE(Transactions.Redo());
 	EXPECT_EQ(
 		Transactions.GetContentMutationRevision(), InitialContentRevision + 3);
 	EXPECT_FALSE(std::filesystem::exists(PackagePath));
-	EXPECT_EQ(Asset::GetAssetRegistry().FindAsset(AssetPath), nullptr);
+	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
 	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_EQ(
 		Transactions.GetContentMutationRevision(), InitialContentRevision + 4);

@@ -61,10 +61,10 @@ never receive `DAssetRedirector` in place of the requested type. Registry-missin
 direct loads remain available for ordinary packages after bounded header
 validation; an unregistered redirector is not constructed by that fallback.
 
-The registry exposes exact physical-entry lookup, non-loading redirect
-resolution, deterministic direct reverse lookup, `FindSoftReferencers(...)`,
-`FindSoftTargets(...)`, and `BuildCookReachability(...)` for derived-data
-queries. Redirect resolution follows at most 32 aliases and reports missing
+The registry exposes `FindAssetExact(...)` for physical entry identity,
+`ResolveAssetPath(...)` for final real identity, deterministic direct reverse
+redirect lookup, unified hard/soft/redirect reference-index queries, and
+`BuildCookReachability(...)`. Redirect resolution follows at most 32 aliases and reports missing
 requests, missing targets, cycles, depth overflow, unknown final classes, type
 mismatch, and corrupt redirect metadata without changing runtime residency.
 Relocation uses only `AnalyzeAssetRelocationBatch`,
@@ -268,10 +268,9 @@ Asset-level cooking and deterministic cooked publication are implemented for
 StaticMesh, Texture2D, TextureCube, and ordinary package-only assets. Engine
 owns a fixed built-in Cook-root list; it currently contains
 `/Engine/Materials/DefaultMaterial`, whose package is published without an
-empty bulk companion. Complete project discovery, editor or
-DurinDevTool packaging commands, and installable-build orchestration are not yet
-connected. Other deferred package-system work includes async loading, hot
-reload, redirect-aware cooking/fix-up, and broader editor asset browsing.
+empty bulk companion. Complete project discovery, editor or DurinDevTool
+packaging commands, and installable-build orchestration are not yet connected.
+Other deferred package-system work includes async loading and hot reload.
 
 Package format versions are independent of the Durin engine release version.
 Adding, removing, or reordering tagged reflected fields does not change the
@@ -294,15 +293,14 @@ making runtime depend on the DDC path.
 
 `AssetRegistry/Registry.bin` is a versioned, deterministic snapshot keyed by virtual mount root and normalized mount-relative package path. Startup still enumerates mounted `.dasset` files once. Exact file-size and stable last-write-time matches reuse cached class, entry kind, redirect destination, format-version, and dependency metadata without reading package headers; new or changed files use the bounded header reader, and missing files disappear from the freshly published live map. Full validation bypasses fingerprint reuse and verifies redirector bodies. Schema, package-format, serialization, or mount-manifest incompatibility and corrupt or missing snapshots cause a non-fatal rebuild. Successful mutations update the live registry and dirty the snapshot, which is atomically replaced after explicit reconciliation and during orderly asset-manager shutdown. The live registry exposes a monotonic process-local revision that advances only when its published asset metadata changes, allowing editor queries to cache derived views safely. Scan diagnostics expose elapsed milliseconds, enumeration/reuse/reparse/removal/failure/redirector counts, and package-header read attempts and bytes.
 
-`AssetRegistry/SoftReferences.bin` is a separate rebuildable projection of
-tagged soft-object fields. Every source entry is keyed by its full package size,
-stable last-write time, 128-bit content hash, DAST version, and extractor schema.
-Each non-null occurrence records source package and object identity, declaring
-type, top-level field, expected class, target path, a typed fixed-array/Array/Map
-route, and a deterministic display path. Results sort by target, source, object,
-declaring type, field, and route. Public queries return target-to-referencer
-records or deduplicated source-to-target paths without changing hard dependency
-queries.
+`AssetRegistry/References.bin` is the single rebuildable hard, soft, and
+redirect occurrence projection. Every source entry is keyed by its full package
+size, stable last-write time, 128-bit content hash, DAST version, and extractor
+schema. Each occurrence records source package and object identity, declaring
+type, top-level field, kind, expected class, target path, a typed
+fixed-array/Array/Map/struct route, and a deterministic display path. Results
+sort deterministically and support target-to-referencer and deduplicated
+source-to-target queries without changing package-header dependency semantics.
 
 Extraction reads package fields and reflection metadata without constructing
 owner objects, invoking `PostLoad`, resolving targets, or changing residency.
@@ -314,11 +312,21 @@ source deletion, and registry reconciliation update or invalidate the affected
 source projection. A failed source extraction publishes no partial source
 entry.
 
-The registry's cook-reachability query traverses both hard dependencies and
-default-tracked soft targets, validates that every target exists and its
-registered class satisfies the recorded expected class, and terminates cycles
-through its visited set. This Cook graph does not alter runtime loading or
-unload guards, which continue to use only package-header hard dependencies.
+The registry's cook-reachability query resolves explicit roots and registered
+external runtime roots to final real assets, then traverses canonical hard and
+soft targets. It validates expected classes at the final metadata, rejects
+missing/cyclic/corrupt redirects and incomplete source indexing, excludes alias
+packages from the result, and terminates ordinary reference cycles through its
+visited set. External providers contribute values without modifying their
+authored stores. This Cook graph does not alter runtime loading or unload guards,
+which continue to use only package-header hard dependencies.
+
+`CanonicalizeAssetPackageForCook(...)` losslessly rewrites hard and soft paths
+in produced bytes to final real paths and verifies that no dependency or field
+still names a redirector. `FCookContext` runs that pass before staging, rejects
+redirector packages, canonicalizes registered output identities, detects aliases
+that collapse onto one output, and publishes only real packages and their bulk
+companions. Cook never edits the authored `.dasset` or external root store.
 
 Asset relocation is atomic and batched even for one mapping. Analysis captures
 the registry revision, exact participant fingerprints, loaded-package state,
@@ -343,11 +351,22 @@ completed/compensated state. An extensionless locator beneath
 `Saved/AssetMutationRecovery` names those roots for recovery tooling but is not
 authoritative data.
 
-Deletion deliberately remains a hard-reference-only transaction. It does not
-query or snapshot the soft index, rewrite source packages, or add soft paths to
-Undo/Redo state. Deleting a soft target therefore leaves a valid dangling path;
-explicit soft load reports the missing target, deletion Undo makes the path
-valid again, and Cook fails only if a selected root reaches that missing path.
+Deletion never rewrites persistent paths, but its immutable batch token uses the
+unified graph and registered stores for safety diagnostics. Alias-only deletion,
+broken aliases, and target selections missing any direct/upstream alias are
+blocked. Deleting a target together with its complete alias closure requires an
+explicit warning; soft and external-store occurrences warn that authored paths
+will dangle. Registry/store revisions, warning snapshots, exact entries, and
+files are revalidated and retained so Undo/Redo restores redirector metadata
+exactly.
+
+Fix Up is the only path-canonicalizing authoring transaction. It computes
+upstream alias closure, rewrites tagged hard/soft package fields plus registered
+external stores, verifies zero remaining incoming persistent occurrences, and
+then optionally deletes the aliases. Dirty/incompatible/read-only inputs,
+incomplete indexes, unavailable providers, changed fingerprints, publication
+failure, or verification failure retain valid redirectors and restore every
+participant.
 
 Registry dependencies are package-level strong-reference edges collected from
 the package header. They support loading, unload guards, move/delete checks, and

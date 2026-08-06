@@ -30,7 +30,7 @@ namespace Durin
 			return Loaded;
 		}
 
-		if (Asset::GetAssetRegistry().FindAsset(MaterialPath))
+		if (Asset::GetAssetRegistry().FindAssetExact(MaterialPath))
 		{
 			DMaterial* Loaded = nullptr;
 			const Asset::FAssetResult LoadResult = Asset::LoadAsset(MaterialPath, Loaded);

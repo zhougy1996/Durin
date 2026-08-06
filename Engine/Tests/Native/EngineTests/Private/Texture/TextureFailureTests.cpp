@@ -133,7 +133,7 @@ TEST(FTexture2DTests, RejectsUnsupportedSourceWithoutCreatingAsset)
 
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Unsupported", AssetPath));
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(AssetPath), nullptr);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(AssetPath), nullptr);
 }
 
 TEST(FTexture2DTests, FailureState_RecordsMissingSourceOnPostLoad)

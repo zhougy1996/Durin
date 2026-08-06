@@ -688,7 +688,7 @@ TEST(FImportRecordFrameworkTests, RebuildDetectsDuplicateRecordsManagersAndResta
 	ASSERT_TRUE(Published) << Published.Message;
 
 	const Durin::Asset::FAssetData* RecordData =
-		Durin::Asset::GetAssetRegistry().FindAsset(Scenario.RecordPath);
+		Durin::Asset::GetAssetRegistry().FindAssetExact(Scenario.RecordPath);
 	ASSERT_NE(RecordData, nullptr);
 	const std::filesystem::path DuplicatePath =
 		Scenario.Root / "Content" / "IndexConflict" / "DuplicateRecord.dasset";
@@ -775,7 +775,7 @@ TEST(FImportRecordFrameworkTests, RejectsStaleTargetWithoutPublishing)
 		Durin::AssetImport::EImportDiagnosticCategory::StalePlan);
 	EXPECT_EQ(Primary->GetValue(), 32);
 	EXPECT_EQ(Published.Record->GetState(), PriorRecordState);
-	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(
 		MakeTemporaryPath(Scenario.PrimaryPath, "Candidate")), nullptr);
 	ASSERT_TRUE(Durin::AssetImport::GetProviderRegistry().Unregister(Scenario.ProviderId));
 }
@@ -898,9 +898,9 @@ TEST(FImportRecordFrameworkTests, RootLastFailureRestoresPriorRecordAndOutputs)
 		const auto Failed = Durin::AssetImport::ExecuteMultiOutputImport(
 			Plan.Plan, MakeInitialPrepared(InitialFailure, 51), Index, Options);
 		EXPECT_FALSE(Failed);
-		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(InitialFailure.PrimaryPath), nullptr);
-		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(InitialFailure.PeerPath), nullptr);
-		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAsset(InitialFailure.RecordPath), nullptr);
+		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(InitialFailure.PrimaryPath), nullptr);
+		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(InitialFailure.PeerPath), nullptr);
+		EXPECT_EQ(Durin::Asset::GetAssetRegistry().FindAssetExact(InitialFailure.RecordPath), nullptr);
 		EXPECT_EQ(Durin::Asset::FindLoadedPackage(InitialFailure.PrimaryPath), nullptr);
 		EXPECT_EQ(Durin::Asset::FindLoadedPackage(InitialFailure.RecordPath), nullptr);
 	}

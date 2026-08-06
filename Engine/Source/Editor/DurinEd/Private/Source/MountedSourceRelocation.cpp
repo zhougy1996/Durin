@@ -150,7 +150,7 @@ namespace Durin
 				return false;
 			}
 			const Asset::FAssetData* Data =
-				Asset::GetAssetRegistry().FindAsset(Reference.AssetPath);
+				Asset::GetAssetRegistry().FindAssetExact(Reference.AssetPath);
 			if (!Data)
 			{
 				OutError = std::format(
