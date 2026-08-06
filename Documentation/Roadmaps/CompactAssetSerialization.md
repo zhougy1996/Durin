@@ -30,6 +30,12 @@ Completed:
   collection, runtime Archive customization, post-deserialize repair, and
   authored fail-closed semantics are now declarative. This satisfies a
   foundation gate but does not start DAST v4 implementation.
+- The [Unified Archive Serialization Plan](../Plans/UnifiedArchiveSerialization.md)
+  is active as an architecture prerequisite. It will route all live-object
+  state transfer through `DObject::Serialize(FArchive&)`, introduce
+  purpose-specific Archives, and preserve DAST v3 bytes while leaving
+  construct-free inspection and fixup at the serialized-record boundary. It
+  does not activate a v4 reader, writer, or migration.
 
 ## Outcome
 
@@ -73,6 +79,10 @@ compression.
 - DAST v4 remains a field-tagged authored format. Package-local tables replace
   repeated metadata, but stable declaring-type, field, and logical-type
   identities remain available for compatibility inspection.
+- Live-object v4 discovery, save, and load use the unified
+  `DObject::Serialize(FArchive&)` contract established by the active prerequisite.
+  Byte-only inspection, compatibility, reference, and rewrite tools consume the
+  same logical field codecs without constructing objects or invoking callbacks.
 - The package summary remains independently readable without allocating or
   parsing body tables.
 - All fixed-width multibyte values use explicit little-endian encoding. Counts,
@@ -143,6 +153,7 @@ compression.
 | Milestone | Kind | Dependencies | Deliverable | State |
 | --- | --- | --- | --- | --- |
 | Reflected struct operations | External prerequisite | None | Declarative and fail-closed lifecycle, equality, reference, and serialization semantics | Completed 2026-08-05 |
+| Unified Archive serialization | Required prerequisite plan | Reflected struct operations complete | One live-object `Serialize` entry, purpose-specific Archives, DAST v3 adapters, and shared construct-free field codecs | Active 2026-08-07 |
 | V4 measurement and wire contract | Required child plan | Struct-operations audit complete; program explicitly scheduled | Reproducible v3 accounting and a frozen bounded v4 byte contract | Proposed, deferred |
 | Default-relative reflection | Required child plan | Frozen default contract and successful struct-operations plan | Class default objects, struct defaults, logical equivalence, and no-delta policy | Proposed, deferred |
 | Deterministic v4 writer | Required child plan | Default-relative reflection complete | Canonical tables and compact value emission meeting size gates | Proposed, deferred |
@@ -159,6 +170,16 @@ Owns `DStruct` capability declaration, generated registration, lifecycle call
 contracts, logical equality hooks, custom runtime Archive dispatch, post-load
 repair, hidden reference collection, and authored-serialization fail-closed
 policy. It does not define DAST v4 bytes or class default objects.
+
+### Unified Archive Serialization
+
+Owns the single live-object `DObject::Serialize(FArchive&)` contract, Archive
+purpose and capability state, structured fields, semantic value operations,
+serialized-reference discovery, runtime object-graph v2, DAST v3 live-object
+adapters, and the shared field codec used by construct-free tooling. It must
+preserve exact DAST v3 bytes and does not define v4 tables, default-relative
+encoding, custom-version wire storage, mixed-version migration, or content
+rollout.
 
 ### V4 Measurement and Wire Contract
 
@@ -230,6 +251,7 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 ## Related Documentation
 
+- [Unified Archive Serialization Plan](../Plans/UnifiedArchiveSerialization.md)
 - [Reflected Struct Operations Plan](../Plans/Archive/2026-08/ReflectedStructOperations.md)
 - [Reflection System](../Runtime/Core/ReflectionSystem.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
