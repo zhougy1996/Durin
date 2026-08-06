@@ -737,11 +737,13 @@ namespace Durin::Asset
 		FAssetPath AssetPath;
 		std::vector<FAssetPath> DirectReferencers;
 		std::vector<std::filesystem::path> CompanionFiles;
+		FAssetPath RedirectDestination;
 
 		// Non-fatal inspection failure; deletion remains available for the main package file.
 		std::string Warning;
 		bool bLoaded = false;
 		bool bLoading = false;
+		bool bRedirector = false;
 
 		// A loaded package is cache state, not a usage claim. Deletion safely unloads it after
 		// persistent referencers have been ruled out.
@@ -754,8 +756,11 @@ namespace Durin::Asset
 		MissingAsset,
 		ExternalPersistentReference,
 		ExternalLoadedReference,
+		RedirectorTargetNotSelected,
+		TargetRedirectorsNotSelected,
 		LoadingPackage,
 		DirtyPackage,
+		ReferenceStoreInspectionFailed,
 		CompanionInspectionFailed,
 		CompanionOwnershipConflict,
 		ExternalCompanionOwner,
@@ -769,6 +774,18 @@ namespace Durin::Asset
 		FAssetPath RelatedAssetPath;
 		std::filesystem::path PhysicalPath;
 		std::string Details;
+	};
+
+	// Calls out a destructive-but-valid target-plus-alias deletion before confirmation.
+	struct FAssetDeletionBatchWarning
+	{
+		FAssetPath TargetPath;
+		std::vector<FAssetPath> RedirectorPaths;
+		std::vector<FAssetPath> SoftReferencerPaths;
+		std::vector<std::string> ExternalOccurrences;
+		std::string Details;
+
+		auto operator==(const FAssetDeletionBatchWarning&) const -> bool = default;
 	};
 
 	// Captures one asset's registry and companion state for reversible batch deletion.
@@ -790,10 +807,16 @@ namespace Durin::Asset
 		{
 			return Entries;
 		}
+		auto GetWarnings() const -> std::span<const FAssetDeletionBatchWarning>
+		{
+			return Warnings;
+		}
 
 	private:
 		uint64 RegistryRevision = 0;
+		uint64 ReferenceStoreRevision = 0;
 		std::vector<FAssetDeletionBatchEntry> Entries;
+		std::vector<FAssetDeletionBatchWarning> Warnings;
 		std::vector<std::filesystem::path> PhysicalRoots;
 
 		friend class FAssetManager;

@@ -63,8 +63,10 @@ namespace Durin
 	{
 		FAssetPath AssetPath;
 		if (!FAssetPath::TryCreate(Path, AssetPath)) return ELevelDocumentOpenResult::Rejected;
-		const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(AssetPath);
-		if (!Data || Data->AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString())
+		const Asset::FAssetPathResolveResult Resolution =
+			Asset::GetAssetRegistry().ResolveAssetPath(
+				AssetPath, {.ExpectedClass = DLevel::StaticClass()});
+		if (!Resolution)
 			return ELevelDocumentOpenResult::Rejected;
 		PendingLevelPath = std::move(Path);
 		PendingAction = ELevelDocumentAction::OpenLevel;

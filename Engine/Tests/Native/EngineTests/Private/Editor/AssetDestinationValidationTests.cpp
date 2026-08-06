@@ -25,6 +25,16 @@ namespace
 		return {.bLoadedPackageExists = true};
 	}
 
+	auto RedirectorOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
+	{
+		FAssetPath Destination;
+		(void)FAssetPath::TryCreate("/Project/Textures/Final", Destination);
+		return {
+			.bRegistryAssetExists = true,
+			.OccupantKind = EAssetDestinationOccupantKind::Redirector,
+			.RedirectDestination = Destination};
+	}
+
 	class FAssetDestinationValidationTests : public testing::Test
 	{
 	protected:
@@ -115,14 +125,30 @@ TEST_F(FAssetDestinationValidationTests, ReportsRegistryAndLoadedPackageCollisio
 	EXPECT_TRUE(RegistryResult.bRegistryAssetExists);
 	EXPECT_FALSE(RegistryResult.bLoadedPackageExists);
 	EXPECT_FALSE(RegistryResult);
-	EXPECT_EQ(RegistryResult.Message, "An asset already exists at this path.");
+	EXPECT_EQ(
+		RegistryResult.Message,
+		"An asset already exists at this path. Choose another destination or delete the existing asset first.");
 
 	const FAssetDestinationValidation LoadedResult =
 		InspectAssetDestination("/Project/Textures/Loaded", LoadedPackageOccupancy);
 	EXPECT_FALSE(LoadedResult.bRegistryAssetExists);
 	EXPECT_TRUE(LoadedResult.bLoadedPackageExists);
 	EXPECT_FALSE(LoadedResult);
-	EXPECT_EQ(LoadedResult.Message, "An asset already exists at this path.");
+	EXPECT_EQ(
+		LoadedResult.Message,
+		"A loaded package already uses this path. Close it or choose another destination.");
+
+	const FAssetDestinationValidation RedirectorResult =
+		InspectAssetDestination(
+			"/Project/Textures/Redirected", RedirectorOccupancy);
+	EXPECT_FALSE(RedirectorResult);
+	EXPECT_EQ(
+		RedirectorResult.OccupantKind,
+		EAssetDestinationOccupantKind::Redirector);
+	EXPECT_NE(RedirectorResult.Message.find("/Project/Textures/Final"),
+		std::string::npos);
+	EXPECT_NE(RedirectorResult.Message.find("Fix Up Redirectors"),
+		std::string::npos);
 }
 
 TEST_F(FAssetDestinationValidationTests, ClassifiesNormalizedAndNonNormalizedPhysicalPaths)

@@ -396,7 +396,14 @@ namespace Durin::AssetImport
 		else if (Asset::GetAssetRegistry().FindAsset(Request.RecordPath)
 			|| Asset::FindLoadedPackage(Request.RecordPath))
 		{
-			Result.Message = "Initial import-record destination is occupied.";
+			const Asset::FAssetData* Exact =
+				Asset::GetAssetRegistry().FindAssetExact(Request.RecordPath);
+			Result.Message = Exact
+				&& Exact->EntryKind == Asset::EAssetRegistryEntryKind::Redirector
+				? std::format(
+					"Initial import-record destination is a redirector to {}. Run Fix Up Redirectors or choose another destination.",
+					Exact->RedirectDestination.ToString())
+				: "Initial import-record destination is occupied. Choose another destination or remove the existing asset.";
 			AddDiagnostic(Result.Diagnostics, EImportDiagnosticCategory::Collision,
 				"multi-output-plan", {}, Result.Message);
 			return Result;
@@ -417,12 +424,19 @@ namespace Durin::AssetImport
 				.StableIdentity = Preview.StableIdentity,
 				.Role = Preview.Role,
 				.AssetPath = Previous ? Previous->AssetPath : Preview.AssetPath,
+				.ResolvedAssetPath = Previous ? Previous->AssetPath : Preview.AssetPath,
 				.AssetClassName = Preview.AssetClassName,
 				.PersistedPolicy = Previous ? Previous->Policy : ToRecordPolicy(Preview.Policy),
 				.PreviousAuthoredFingerprint = Previous ? Previous->AuthoredFingerprint : std::string{}};
-			const Asset::FAssetData* Occupant = Asset::GetAssetRegistry().FindAsset(Entry.AssetPath);
-			DPackage* Loaded = Asset::FindLoadedPackage(Entry.AssetPath);
-			const bool bOccupied = Occupant || Loaded;
+			const Asset::FAssetData* Exact =
+				Asset::GetAssetRegistry().FindAssetExact(Entry.AssetPath);
+			const Asset::FAssetPathResolveResult Resolution =
+				Asset::GetAssetRegistry().ResolveAssetPath(Entry.AssetPath);
+			if (Resolution) Entry.ResolvedAssetPath = Resolution.FinalPath;
+			const Asset::FAssetData* Occupant = Resolution && Resolution.FinalAssetData
+				? &*Resolution.FinalAssetData : Exact;
+			DPackage* Loaded = Asset::FindLoadedPackage(Entry.ResolvedAssetPath);
+			const bool bOccupied = Exact || Resolution || Loaded;
 			const std::vector<FImportRecordManagement> Managers = Index.FindManagers(Entry.AssetPath);
 			if (!Managers.empty()) Entry.ObservedManager = Managers.front().RecordPath;
 
@@ -464,8 +478,13 @@ namespace Durin::AssetImport
 					Entry.ProposedAction = EMultiOutputProposedAction::RejectCollision;
 					AddDiagnostic(Result.Diagnostics, EImportDiagnosticCategory::Collision,
 						"multi-output-plan", Entry.StableIdentity,
-						std::format("Output path {} is occupied by an unrelated asset or manager.",
-							Entry.AssetPath.ToString()));
+						Exact && Exact->EntryKind == Asset::EAssetRegistryEntryKind::Redirector
+							? std::format(
+								"Output path {} is a redirector to {}. Run Fix Up Redirectors or choose another destination.",
+								Entry.AssetPath.ToString(), Exact->RedirectDestination.ToString())
+							: std::format(
+								"Output path {} is occupied by an unrelated asset or manager. Choose another destination or remove the existing asset.",
+								Entry.AssetPath.ToString()));
 				}
 			}
 			Result.Plan.Reconciliation.push_back(std::move(Entry));
@@ -479,6 +498,7 @@ namespace Durin::AssetImport
 					.StableIdentity = Previous.StableIdentity,
 					.Role = Previous.Role,
 					.AssetPath = Previous.AssetPath,
+					.ResolvedAssetPath = Previous.AssetPath,
 					.AssetClassName = Previous.AssetClassName,
 					.PersistedPolicy = Previous.Policy,
 					.ObservedState = EMultiOutputObservedState::Orphan,
@@ -669,12 +689,12 @@ namespace Durin::AssetImport
 				bStale = bStale || !Output.ExistingTarget || !Output.ExistingTarget->GetPackage()
 					|| !FAssetPath::TryCreate(
 						Output.ExistingTarget->GetPackage()->GetPackagePath(), CurrentPath)
-					|| CurrentPath != Entry.AssetPath
+					|| CurrentPath != Entry.ResolvedAssetPath
 					|| Output.ExistingTarget->GetClass()->GetQualifiedName().ToString()
 						!= Entry.AssetClassName
 					|| Output.ExistingTarget->GetPackage()->GetEditRevision()
 						!= Entry.PackageEditRevision
-					|| Asset::FindLoadedPackage(Entry.AssetPath)
+					|| Asset::FindLoadedPackage(Entry.ResolvedAssetPath)
 						!= Output.ExistingTarget->GetPackage();
 			}
 			else if (Entry.ProposedAction == EMultiOutputProposedAction::Create)

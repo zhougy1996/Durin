@@ -32,7 +32,9 @@ namespace Durin::AssetImport
 	{
 		std::string StableIdentity;
 		std::string Role;
+		// The authored path remains stable until Fix Up; execution uses the resolved path.
 		FAssetPath AssetPath;
+		FAssetPath ResolvedAssetPath;
 		std::string AssetClassName;
 		EImportRecordOutputPolicy PersistedPolicy = EImportRecordOutputPolicy::Managed;
 		EMultiOutputObservedState ObservedState = EMultiOutputObservedState::Absent;

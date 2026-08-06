@@ -209,6 +209,49 @@ TEST_F(FContentBrowserModelTests, FiltersFilesSeparatelyAndKeepsHiddenContentOpt
 	EXPECT_EQ(Model.GetItems().front().Name, "notes.txt");
 }
 
+TEST_F(FContentBrowserModelTests, HidesRedirectorsButPreservesFoldersAndSupportsExplicitFilter)
+{
+	const std::string RootPath =
+		std::filesystem::absolute(Root / "Content").lexically_normal().generic_string();
+	FAssetPath Destination;
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/Final/Stone", Destination));
+	FContentBrowserModel Model;
+	Model.SetSnapshotForTesting(
+		RootPath,
+		{
+			{.Kind = EContentBrowserItemKind::Folder,
+				.Name = "Aliases",
+				.VirtualPath = "/ContentBrowserTests/Aliases",
+				.PhysicalPath = RootPath + "/Aliases"},
+			{.Kind = EContentBrowserItemKind::Redirector,
+				.Name = "OldStone",
+				.VirtualPath = "/ContentBrowserTests/OldStone",
+				.PhysicalPath = RootPath + "/OldStone.dasset",
+				.AssetClassName = "Durin::Asset::DAssetRedirector",
+				.RedirectDestination = Destination},
+		});
+
+	ASSERT_EQ(Model.GetItems().size(), 1u);
+	EXPECT_EQ(Model.GetItems().front().Kind, EContentBrowserItemKind::Folder);
+	Model.SetShowRedirectors(true);
+	ASSERT_EQ(Model.GetItems().size(), 2u);
+	EXPECT_TRUE(std::ranges::any_of(
+		Model.GetItems(), [](const FContentBrowserItem& Item) {
+			return Item.Kind == EContentBrowserItemKind::Redirector;
+		}));
+	Model.SetShowRedirectors(false);
+	Model.SetTypeFilter(EContentBrowserTypeFilter::Redirectors);
+	ASSERT_EQ(Model.GetItems().size(), 2u);
+	EXPECT_TRUE(std::ranges::any_of(
+		Model.GetItems(), [](const FContentBrowserItem& Item) {
+			return Item.Kind == EContentBrowserItemKind::Redirector
+				&& Item.Name == "OldStone";
+		}));
+	Model.SetSearch("Final/Stone");
+	ASSERT_EQ(Model.GetItems().size(), 1u);
+}
+
 TEST_F(FContentBrowserModelTests, KeepsFoldersFirstAndSortsEqualKeysStably)
 {
 	const std::string RootPath =
@@ -869,6 +912,97 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionPreservesRegistryWithoutRes
 	Transactions.Clear();
 	EXPECT_FALSE(std::filesystem::exists(StagingRoot));
 	ASSERT_TRUE(Asset::DeleteAsset(AssetPath));
+}
+
+TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndUndoRestoresExactAlias)
+{
+	InitializeDObjectSystem();
+	FAssetPath OldPath;
+	FAssetPath FinalPath;
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/DeleteRedirectOld", OldPath));
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/DeleteRedirectFinal", FinalPath));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(Asset::CreateAsset(OldPath, Material));
+	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+	const Asset::FAssetRelocationMapping Mapping{OldPath, FinalPath};
+	Asset::FAssetRelocationBatchToken Relocation;
+	ASSERT_TRUE(Asset::AnalyzeAssetRelocationBatch(
+		std::span{&Mapping, 1}, Relocation));
+	ASSERT_TRUE(Asset::ApplyAssetRelocationBatch(Relocation));
+
+	const Asset::FAssetData* AliasData =
+		Asset::GetAssetRegistry().FindAssetExact(OldPath);
+	const Asset::FAssetData* FinalData =
+		Asset::GetAssetRegistry().FindAssetExact(FinalPath);
+	ASSERT_NE(AliasData, nullptr);
+	ASSERT_NE(FinalData, nullptr);
+	const FContentBrowserItem AliasItem{
+		.Kind = EContentBrowserItemKind::Redirector,
+		.Name = "DeleteRedirectOld",
+		.VirtualPath = OldPath.ToString(),
+		.PhysicalPath = AliasData->PhysicalPath,
+		.AssetClassName = AliasData->AssetClassName,
+		.RedirectDestination = AliasData->RedirectDestination};
+	const FContentBrowserItem FinalItem{
+		.Kind = EContentBrowserItemKind::Asset,
+		.Name = "DeleteRedirectFinal",
+		.VirtualPath = FinalPath.ToString(),
+		.PhysicalPath = FinalData->PhysicalPath,
+		.AssetClassName = FinalData->AssetClassName};
+
+	FContentBrowserModel Model;
+	Model.RefreshMountSnapshot();
+	FContentBrowserOperations Operations(
+		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+			return {};
+		});
+	const FContentDeletionPlanPtr AliasOnly = Operations.BuildDeletionPlan(
+		std::span{&AliasItem, 1},
+		std::unordered_set<std::string>{AliasItem.StableId()});
+	EXPECT_TRUE(std::ranges::any_of(
+		AliasOnly->Blockers, [](const FContentDeletionBlocker& Blocker) {
+			return Blocker.Kind
+				== EContentDeletionBlocker::RedirectorTargetNotSelected;
+		}));
+	const FContentDeletionPlanPtr TargetOnly = Operations.BuildDeletionPlan(
+		std::span{&FinalItem, 1},
+		std::unordered_set<std::string>{FinalItem.StableId()});
+	EXPECT_TRUE(std::ranges::any_of(
+		TargetOnly->Blockers, [](const FContentDeletionBlocker& Blocker) {
+			return Blocker.Kind
+				== EContentDeletionBlocker::TargetRedirectorsNotSelected;
+		}));
+
+	const std::array Items{AliasItem, FinalItem};
+	const FContentDeletionPlanPtr Complete = BuildTransactionPlan(
+		Operations, Items, Root / "UndoRedirector");
+	ASSERT_TRUE(Complete->CanExecute());
+	EXPECT_TRUE(std::ranges::any_of(
+		Complete->Warnings, [](const FContentDeletionWarning& Warning) {
+			return Warning.Details.find("authored old path")
+				!= std::string::npos;
+		}));
+
+	FEditorTransactionManager Transactions;
+	ASSERT_TRUE(Transactions.Execute(
+		std::make_unique<FContentDeletionTransaction>(Complete)));
+	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(OldPath), nullptr);
+	EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(FinalPath), nullptr);
+	ASSERT_TRUE(Transactions.Undo());
+	AliasData = Asset::GetAssetRegistry().FindAssetExact(OldPath);
+	FinalData = Asset::GetAssetRegistry().FindAssetExact(FinalPath);
+	ASSERT_NE(AliasData, nullptr);
+	ASSERT_NE(FinalData, nullptr);
+	EXPECT_EQ(AliasData->EntryKind,
+		Asset::EAssetRegistryEntryKind::Redirector);
+	EXPECT_EQ(AliasData->RedirectDestination, FinalPath);
+	EXPECT_EQ(FinalData->EntryKind, Asset::EAssetRegistryEntryKind::Asset);
+	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions.Redo());
+	Transactions.Clear();
 }
 
 TEST_F(FContentBrowserModelTests, DeletionTransactionRejectsDestinationAndModificationConflicts)

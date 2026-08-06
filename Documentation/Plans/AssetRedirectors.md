@@ -9,14 +9,15 @@ Completed:
 
 ## Current Status
 
-- Stages 0-4 are complete: the redirect wire format and public vocabulary are
+- Stages 0-5 are complete: the redirect wire format and public vocabulary are
   frozen, loading and references resolve to the final real package, and all
   production move callers use journaled atomic batch relocation with generated
   direct aliases and shared editor Undo/Redo. The unified package reference
   index, lossless package rewriting, strict Fix Up transaction, production
   default-level/import-record reference stores, unattended project command,
-  and failure matrix are complete. Stage 5 editor, deletion, and asset-owner
-  integration is next.
+  failure matrix, Content Browser projection/Fix Up workflow, deletion closure,
+  and selected asset-owner integration are complete. Stage 6 Cook
+  canonicalization and legacy cleanup are next.
 - The completed [Soft Asset References Plan](SoftAssetReferences.md) is historical
   evidence for the current implementation only. Its move-time rewrite contract,
   compatibility promises, stage structure, and validation baseline do not
@@ -983,25 +984,69 @@ Dependencies: Stage 3 redirect-producing relocation.
 
 Dependencies: Stage 4 Fix Up service.
 
-- [ ] Add redirector item kind, hidden-by-default projection, visibility
+- [x] Add redirector item kind, hidden-by-default projection, visibility
   filters, details/diagnostics, referencer navigation, and folder/global Fix Up
   commands.
-- [ ] Add redirected-state presentation to reflected soft fields and asset-path
+- [x] Add redirected-state presentation to reflected soft fields and asset-path
   owners without silently canonicalizing authored values.
-- [ ] Add actionable destination-collision messaging for create, import,
+- [x] Add actionable destination-collision messaging for create, import,
   duplicate, rename, move, and reimport workflows.
-- [ ] Route default-level loading, import-record lookup/reimport, document open,
+- [x] Route default-level loading, import-record lookup/reimport, document open,
   and other selected persistent owners through resolution; classify retained
   path-only owners explicitly.
-- [ ] Update deletion analysis/token/Undo/Redo for redirect hard blockers,
+- [x] Update deletion analysis/token/Undo/Redo for redirect hard blockers,
   redirector closure, exact alias restoration, and explicit target-plus-alias
   deletion warnings.
-- [ ] Route thumbnail, selection, editor document, viewport/session, and other
+- [x] Route thumbnail, selection, editor document, viewport/session, and other
   rebuildable state through committed mutation revisions or move observers.
-- [ ] Verify editor restart, hidden folders containing only redirectors,
+- [x] Verify editor restart, hidden folders containing only redirectors,
   multi-panel refresh, selection repair, and failed Fix Up UX.
-- [ ] Add focused editor workflow/deletion/import tests and end with the
+- [x] Add focused editor workflow/deletion/import tests and end with the
   required stage handoff.
+
+#### Stage 5 Handoff
+
+- Baseline commit: `e5146e8cbc80defdccd3216e26ab6a130e9f5dbe`.
+- Working set: `AssetSystem.h/.cpp`, `MultiOutputImport.h/.cpp`,
+  `ImportRecordTests.cpp`, `EditorAssetPicker.cpp`,
+  `AssetDestinationValidation.h/.cpp`, `LevelDocumentController.cpp`,
+  `LevelEditorSessionSettings.cpp`, `MLevelEditor.cpp`, the Content Browser
+  model/item/operations/panel files, their editor workflow tests,
+  `SceneImport.cpp`, `PackageTests.cpp`, and this plan.
+- Key symbols and decisions: `EContentBrowserItemKind::Redirector` and the
+  redirector-only filter preserve exact registry identity while hiding alias
+  items by default; explicit reveal, details, referencer navigation, and
+  folder/project Fix Up call the shared AssetCore service. Every panel observes
+  both editor content-mutation and registry revisions, cancels stale thumbnail
+  work, refreshes its snapshot, and repairs selection after relocation, Fix Up,
+  deletion, Undo, or Redo. Asset pickers exclude redirectors, and create/import,
+  rename/folder move, relocation, and reimport collisions name the redirector
+  destination and the Fix Up remedy. There is no production asset-duplicate
+  command; its common `CreateAsset` publication seam now supplies the same
+  redirector-aware rejection if one is added.
+- Deletion and owners: `FAssetDeletionBatchToken` captures final-target alias
+  closure, dangling package-soft/external-store warnings, and exact registry
+  entries. Alias-only and incomplete target selections are blocked; a confirmed
+  target-plus-all-alias operation revalidates its warning snapshot, and the
+  existing content transaction restores exact redirector metadata/files during
+  Undo/Redo. Project default-level and document opens resolve against the final
+  Level without changing the saved soft path. Import records retain authored
+  output paths while `FMultiOutputReconciliation::ResolvedAssetPath` drives
+  lookup and replacement; Fix Up remains the only canonicalizing transaction.
+  Viewport session state is transient and canonicalizes to the committed final
+  level path through move observation or restart pruning. Source-file paths,
+  mounted-source locations, physical package/companion paths, destination
+  directories, and Content Browser physical selection ids remain intentionally
+  path-only workflow identities rather than asset references.
+- Open questions: none block Stage 6. Cook root/traversal/output
+  canonicalization and final legacy API/cache cleanup remain owned by Stage 6.
+- Validation on 2026-08-06: `AssetPackageTests` passes all 72 tests;
+  `AssetImportCoreTests` passes all 23; `AssetReferenceStoreTests` passes both;
+  `EditorAssetWorkflowTests` executes 55 tests with 54 passed and the existing
+  directory-symlink permission skip. The complete `all` build succeeds under
+  `Win64-Debug-DurinEditor-Tests`, followed by a successful hidden-window
+  `DurinEditor` startup and normal exit against the Sandbox project; all-plan
+  document validation also succeeds.
 
 #### Acceptance Gate
 

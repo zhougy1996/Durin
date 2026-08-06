@@ -144,6 +144,11 @@ namespace Durin
 				Asset::EAssetError::InvalidPath,
 				"The new name is empty or contains invalid path characters.");
 
+		if (Item.Kind == EContentBrowserItemKind::Redirector)
+			return Failure(
+				Asset::EAssetError::InvalidPath,
+				"Redirectors cannot be renamed or moved directly. Fix Up the redirector or move its final asset.");
+
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
 			const size_t Slash = Item.VirtualPath.find_last_of('/');
@@ -242,11 +247,23 @@ namespace Durin
 				return {
 					Asset::EAssetError::InvalidPath,
 					"The destination contains an invalid asset path."};
-			if (Asset::GetAssetRegistry().FindAsset(NewPath)
-				|| Asset::FindLoadedPackage(NewPath))
+			if (const Asset::FAssetData* Existing =
+					Asset::GetAssetRegistry().FindAssetExact(NewPath))
 				return {
 					Asset::EAssetError::AlreadyExists,
-					std::format("Asset {} already exists.", NewPath.ToString())};
+					Existing->EntryKind == Asset::EAssetRegistryEntryKind::Redirector
+						? std::format(
+							"Asset {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another folder name.",
+							NewPath.ToString(), Existing->RedirectDestination.ToString())
+						: std::format(
+							"Asset {} already exists. Choose another folder name or remove the existing asset.",
+							NewPath.ToString())};
+			if (Asset::FindLoadedPackage(NewPath))
+				return {
+					Asset::EAssetError::AlreadyExists,
+					std::format(
+						"A loaded package already uses {}. Close it or choose another folder name.",
+						NewPath.ToString())};
 
 			Moves.push_back({Path, NewPath});
 			const std::filesystem::path AssetFile(Data.PhysicalPath);
@@ -522,6 +539,52 @@ namespace Durin
 		return MoveAssets(Moves);
 	}
 
+	auto FContentBrowserOperations::CollectRedirectors(
+		std::string_view VirtualDirectory) const -> std::vector<FAssetPath>
+	{
+		std::string Prefix(VirtualDirectory);
+		if (!Prefix.empty() && !Prefix.ends_with('/')) Prefix += '/';
+		std::vector<FAssetPath> Redirectors;
+		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
+		{
+			if (Data.EntryKind != Asset::EAssetRegistryEntryKind::Redirector)
+				continue;
+			if (!Prefix.empty() && !Path.GetView().starts_with(Prefix)) continue;
+			Redirectors.push_back(Path);
+		}
+		std::ranges::sort(
+			Redirectors,
+			[](const FAssetPath& A, const FAssetPath& B) {
+				return A.GetView() < B.GetView();
+			});
+		return Redirectors;
+	}
+
+	auto FContentBrowserOperations::FixUpRedirectorsInFolder(
+		std::string_view VirtualDirectory) -> Asset::FAssetResult
+	{
+		if (VirtualDirectory.empty())
+			return {
+				Asset::EAssetError::InvalidPath,
+				"Fix Up in Folder requires a mounted virtual directory."};
+		const std::vector<FAssetPath> Redirectors =
+			CollectRedirectors(VirtualDirectory);
+		if (Redirectors.empty()) return {};
+		return Asset::FixUpRedirectors(Redirectors);
+	}
+
+	auto FContentBrowserOperations::FixUpRedirectors(
+		std::span<const FAssetPath> Redirectors) -> Asset::FAssetResult
+	{
+		return Asset::FixUpRedirectors(Redirectors);
+	}
+
+	auto FContentBrowserOperations::FixUpAllRedirectors()
+		-> Asset::FAssetResult
+	{
+		return Asset::FixUpAllRedirectors();
+	}
+
 	auto FContentBrowserOperations::AnalyzeDeletion(
 		std::span<const FContentBrowserItem> Items,
 		const std::unordered_set<std::string>& Selection,
@@ -534,7 +597,8 @@ namespace Durin
 		for (const FContentBrowserItem& Item : Items)
 		{
 			if (!Selection.contains(Item.StableId())
-				|| Item.Kind != EContentBrowserItemKind::Asset)
+				|| (Item.Kind != EContentBrowserItemKind::Asset
+					&& Item.Kind != EContentBrowserItemKind::Redirector))
 				continue;
 			FAssetPath Path;
 			if (!FAssetPath::TryCreate(Item.VirtualPath, Path))
@@ -883,11 +947,20 @@ namespace Durin
 			case Asset::EAssetDeletionBatchBlocker::ExternalLoadedReference:
 				Kind = EContentDeletionBlocker::ExternalReference;
 				break;
+			case Asset::EAssetDeletionBatchBlocker::RedirectorTargetNotSelected:
+				Kind = EContentDeletionBlocker::RedirectorTargetNotSelected;
+				break;
+			case Asset::EAssetDeletionBatchBlocker::TargetRedirectorsNotSelected:
+				Kind = EContentDeletionBlocker::TargetRedirectorsNotSelected;
+				break;
 			case Asset::EAssetDeletionBatchBlocker::LoadingPackage:
 				Kind = EContentDeletionBlocker::LoadingPackage;
 				break;
 			case Asset::EAssetDeletionBatchBlocker::DirtyPackage:
 				Kind = EContentDeletionBlocker::DirtyPackage;
+				break;
+			case Asset::EAssetDeletionBatchBlocker::ReferenceStoreInspectionFailed:
+				Kind = EContentDeletionBlocker::ReferenceStoreInspectionFailed;
 				break;
 			case Asset::EAssetDeletionBatchBlocker::CompanionInspectionFailed:
 				Kind = EContentDeletionBlocker::CompanionInspectionFailed;
@@ -908,6 +981,11 @@ namespace Durin
 				Blocker.RelatedAssetPath.ToString(),
 				Blocker.Details);
 		}
+		for (const Asset::FAssetDeletionBatchWarning& Warning :
+			 Plan->AssetBatch.GetWarnings())
+			Plan->Warnings.push_back({
+				.DisplayName = Warning.TargetPath.ToString(),
+				.Details = Warning.Details});
 
 		std::ranges::sort(
 			Plan->Entries,
@@ -1055,7 +1133,8 @@ namespace Durin
 			});
 		for (const FContentBrowserItem& Item : Targets)
 		{
-			if (Item.Kind == EContentBrowserItemKind::Asset)
+			if (Item.Kind == EContentBrowserItemKind::Asset
+				|| Item.Kind == EContentBrowserItemKind::Redirector)
 			{
 				FAssetPath Path;
 				if (!FAssetPath::TryCreate(Item.VirtualPath, Path))

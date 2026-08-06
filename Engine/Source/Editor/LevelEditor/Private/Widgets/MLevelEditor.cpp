@@ -93,8 +93,11 @@ namespace Durin
 			return false;
 		};
 		Context->OpenAsset = [this](const FAssetPath& Path, std::string& Error) {
-			const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(Path);
-			if (Data && WorkspaceManager.OpenAsset(Path.ToString(), Data->AssetClassName)) return true;
+			const Asset::FAssetPathResolveResult Resolution =
+				Asset::GetAssetRegistry().ResolveAssetPath(Path);
+			if (Resolution && Resolution.FinalAssetData
+				&& WorkspaceManager.OpenAsset(
+					Resolution.FinalPath.ToString(), Resolution.FinalAssetData->AssetClassName)) return true;
 			Error = "The loaded asset could not be opened.";
 			return false;
 		};
@@ -290,16 +293,13 @@ namespace Durin
 			SetError("The default level must belong to the current project.");
 			return false;
 		}
-		const auto Found = std::ranges::find_if(Asset::GetAssetRegistry().GetAssets(),
-			[&DefaultLevelPath](const auto& Entry) {
-			return Entry.first == DefaultLevelPath
-				&& Entry.second.AssetClassName
-					== DLevel::StaticClass()->GetQualifiedName().ToString();
-		});
-		if (!DefaultLevel.IsNull()
-			&& Found == Asset::GetAssetRegistry().GetAssets().end())
+		const Asset::FAssetPathResolveResult Resolution = DefaultLevel.IsNull()
+			? Asset::FAssetPathResolveResult{}
+			: Asset::GetAssetRegistry().ResolveAssetPath(
+				DefaultLevelPath, {.ExpectedClass = DLevel::StaticClass()});
+		if (!DefaultLevel.IsNull() && !Resolution)
 		{
-			SetError("The default level is not a registered Level asset.");
+			SetError("The default level does not resolve to a registered Level asset.");
 			return false;
 		}
 		std::error_code Error;

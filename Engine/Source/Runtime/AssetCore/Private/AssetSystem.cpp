@@ -3876,7 +3876,18 @@ namespace Durin::Asset
 		if (PackageLoadContext.Mode == EPackageLoadMode::CookedRuntime)
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit asset creation.");
 		if (!Path.IsValid() || !Class || !Class->ClassConstructor) return Error(EAssetError::InvalidPath, "Invalid asset path or class.");
-		if (LoadedPackages.contains(Path) || Registry.FindAsset(Path)) return Error(EAssetError::AlreadyExists, std::format("Asset {} already exists.", Path.ToString()));
+		if (const FAssetData* Existing = Registry.FindAssetExact(Path))
+			return Existing->EntryKind == EAssetRegistryEntryKind::Redirector
+				? Error(EAssetError::AlreadyExists, std::format(
+					"Asset {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another destination.",
+					Path.ToString(), Existing->RedirectDestination.ToString()))
+				: Error(EAssetError::AlreadyExists, std::format(
+					"Asset {} already exists. Choose another destination or delete the existing asset.",
+					Path.ToString()));
+		if (LoadedPackages.contains(Path))
+			return Error(EAssetError::AlreadyExists, std::format(
+				"A loaded package already uses {}. Close it or choose another destination.",
+				Path.ToString()));
 
 		DPackage* Package = NewObject<DPackage>(nullptr, FName(Path.GetAssetName()));
 		Package->InitializeAssetPackage(Path);
@@ -4571,8 +4582,10 @@ namespace Durin::Asset
 					Registry.ResolveAssetPath(Mapping.DestinationPath);
 				if (!DestinationResolution
 					|| DestinationResolution.FinalPath != Mapping.SourcePath)
-					return Error(EAssetError::AlreadyExists,
-						"The destination is occupied by an unrelated redirector.");
+					return Error(EAssetError::AlreadyExists, std::format(
+						"The destination {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another destination.",
+						Mapping.DestinationPath.ToString(),
+						DestinationData->RedirectDestination.ToString()));
 				if (LoadedPackages.contains(Mapping.DestinationPath))
 					return Error(EAssetError::InUse,
 						"A loaded destination redirector cannot be reclaimed.");
@@ -6038,6 +6051,9 @@ namespace Durin::Asset
 		OutAnalysis.AssetPath = Path;
 		const FAssetData* Data = Registry.FindAsset(Path);
 		if (!Path.IsValid() || !Data) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
+		OutAnalysis.bRedirector =
+			Data->EntryKind == EAssetRegistryEntryKind::Redirector;
+		OutAnalysis.RedirectDestination = Data->RedirectDestination;
 
 		for (const auto& [OtherPath, OtherData] : Registry.GetAssets())
 		{
@@ -6098,6 +6114,8 @@ namespace Durin::Asset
 		const std::unordered_set<FAssetPath> DeletionSet(
 			SortedPaths.begin(), SortedPaths.end());
 		OutToken.RegistryRevision = Registry.GetRevision();
+		OutToken.ReferenceStoreRevision =
+			GetAssetReferenceStoreRegistry().Revision;
 		OutToken.PhysicalRoots.reserve(PhysicalRoots.size());
 		for (const std::filesystem::path& Root : PhysicalRoots)
 			OutToken.PhysicalRoots.push_back(
@@ -6188,12 +6206,193 @@ namespace Durin::Asset
 			OutToken.Entries.push_back(std::move(Entry));
 		}
 
+		// Deletion is closed over final targets and every alias that resolves to them.
+		// This prevents an alias-only delete from silently invalidating authored old paths,
+		// and prevents a target delete from leaving redirectors with no destination.
+		std::unordered_map<FAssetPath, std::vector<FAssetPath>> RedirectorsByTarget;
+		for (const auto& [AliasPath, AliasData] : Registry.GetAssets())
+		{
+			if (AliasData.EntryKind != EAssetRegistryEntryKind::Redirector) continue;
+			const FAssetPathResolveResult Resolution =
+				Registry.ResolveAssetPath(AliasPath);
+			if (!Resolution) continue;
+			RedirectorsByTarget[Resolution.FinalPath].push_back(AliasPath);
+		}
+		for (auto& [TargetPath, Redirectors] : RedirectorsByTarget)
+			std::ranges::sort(
+				Redirectors,
+				[](const FAssetPath& A, const FAssetPath& B) {
+					return A.GetView() < B.GetView();
+				});
+
+		for (const FAssetPath& Path : SortedPaths)
+		{
+			const FAssetData* Data = Registry.FindAssetExact(Path);
+			if (!Data) continue;
+			if (Data->EntryKind == EAssetRegistryEntryKind::Redirector)
+			{
+				const FAssetPathResolveResult Resolution =
+					Registry.ResolveAssetPath(Path);
+				if (!Resolution || !DeletionSet.contains(Resolution.FinalPath))
+				{
+					const FAssetPath Related = Resolution.FinalPath.IsValid()
+						? Resolution.FinalPath
+						: Data->RedirectDestination;
+					AddBlocker(
+						EAssetDeletionBatchBlocker::RedirectorTargetNotSelected,
+						Path,
+						Related,
+						Data->PhysicalPath,
+						Resolution
+							? std::format(
+								"Redirector {} cannot be deleted alone. Select its final target {} and every alias to that target, or run Fix Up Redirectors.",
+								Path.ToString(), Resolution.FinalPath.ToString())
+							: std::format(
+								"Redirector {} cannot be deleted because its target does not resolve. Repair the redirector before deleting it.",
+								Path.ToString()));
+				}
+				continue;
+			}
+
+			const auto Found = RedirectorsByTarget.find(Path);
+			if (Found == RedirectorsByTarget.end()) continue;
+			std::vector<FAssetPath> SelectedRedirectors;
+			for (const FAssetPath& Redirector : Found->second)
+			{
+				if (DeletionSet.contains(Redirector))
+					SelectedRedirectors.push_back(Redirector);
+				else
+				{
+					const FAssetData* RedirectorData =
+						Registry.FindAssetExact(Redirector);
+					AddBlocker(
+						EAssetDeletionBatchBlocker::TargetRedirectorsNotSelected,
+						Path,
+						Redirector,
+						RedirectorData ? RedirectorData->PhysicalPath
+							: std::filesystem::path{},
+						std::format(
+							"Asset {} still has redirector {}. Reveal redirectors and include every alias, or run Fix Up Redirectors before deleting the target.",
+							Path.ToString(), Redirector.ToString()));
+				}
+			}
+			if (!SelectedRedirectors.empty())
+				OutToken.Warnings.push_back({
+					.TargetPath = Path,
+					.RedirectorPaths = std::move(SelectedRedirectors),
+					.Details = std::format(
+						"Deleting {} together with {} redirector(s) permanently invalidates every authored old path after the operation leaves Undo history.",
+						Path.ToString(), Found->second.size())});
+		}
+
+		const FAssetReferenceIndex& ReferenceIndex = Registry.GetReferenceIndex();
+		for (const FAssetPath& Path : SortedPaths)
+		{
+			std::vector<FAssetPath> SoftReferencers;
+			for (const FAssetReferenceEdge& Edge :
+				 ReferenceIndex.FindReferencers(Path))
+			{
+				if (Edge.Kind != EAssetReferenceKind::SoftObject
+					|| DeletionSet.contains(Edge.SourcePackage))
+					continue;
+				SoftReferencers.push_back(Edge.SourcePackage);
+			}
+			std::ranges::sort(
+				SoftReferencers,
+				[](const FAssetPath& A, const FAssetPath& B) {
+					return A.GetView() < B.GetView();
+				});
+			SoftReferencers.erase(
+				std::unique(SoftReferencers.begin(), SoftReferencers.end()),
+				SoftReferencers.end());
+			if (!SoftReferencers.empty())
+			{
+				const size_t SoftReferencerCount = SoftReferencers.size();
+				OutToken.Warnings.push_back({
+					.TargetPath = Path,
+					.SoftReferencerPaths = std::move(SoftReferencers),
+					.Details = std::format(
+						"Deleting {} leaves {} package(s) with dangling soft references. Review the referencers before confirming.",
+						Path.ToString(),
+						SoftReferencerCount)});
+			}
+		}
+		if (!SortedPaths.empty() && !ReferenceIndex.IsComplete())
+			OutToken.Warnings.push_back({
+				.TargetPath = SortedPaths.front(),
+				.Details = std::format(
+					"The package reference index is incomplete ({} error{}), so soft-reference warning counts may be incomplete.",
+					ReferenceIndex.GetErrors().size(),
+					ReferenceIndex.GetErrors().size() == 1 ? "" : "s")});
+
+		auto& StoreRegistry = GetAssetReferenceStoreRegistry();
+		if (!SortedPaths.empty())
+		{
+			for (const auto& [Handle, Store] : StoreRegistry.Stores)
+			{
+				(void)Handle;
+				FAssetReferenceStoreSnapshot Snapshot;
+				const FAssetResult SnapshotResult = Store
+					? Store->CaptureSnapshot(Snapshot)
+					: Error(EAssetError::StaleData,
+						"A registered asset reference store is unavailable.");
+				if (!SnapshotResult)
+				{
+					AddBlocker(
+						EAssetDeletionBatchBlocker::ReferenceStoreInspectionFailed,
+						SortedPaths.front(),
+						{},
+						{},
+						std::format(
+							"A persistent asset-reference owner could not be inspected: {}",
+							SnapshotResult.Message));
+					continue;
+				}
+				for (const FAssetPath& Path : SortedPaths)
+				{
+					std::vector<std::string> Occurrences;
+					for (const FAssetReferenceStoreOccurrence& Occurrence :
+						 Snapshot.Occurrences)
+					{
+						if (Occurrence.TargetPath != Path) continue;
+						Occurrences.push_back(std::format(
+							"{}:{} ({})",
+							Occurrence.ProviderId,
+							Occurrence.StableId,
+							Occurrence.DisplayRoute));
+					}
+					std::ranges::sort(Occurrences);
+					if (!Occurrences.empty())
+					{
+						const size_t OccurrenceCount = Occurrences.size();
+						OutToken.Warnings.push_back({
+							.TargetPath = Path,
+							.ExternalOccurrences = std::move(Occurrences),
+							.Details = std::format(
+								"Deleting {} leaves {} persistent external owner occurrence(s) dangling. Run Fix Up Redirectors or update those owners before confirming.",
+								Path.ToString(), OccurrenceCount)});
+					}
+				}
+			}
+		}
+		std::ranges::sort(
+			OutToken.Warnings,
+			[](const FAssetDeletionBatchWarning& A,
+				const FAssetDeletionBatchWarning& B) {
+				if (A.TargetPath.GetView() != B.TargetPath.GetView())
+					return A.TargetPath.GetView() < B.TargetPath.GetView();
+				return A.Details < B.Details;
+			});
+
 		for (const auto& [OtherPath, OtherData] : Registry.GetAssets())
 		{
 			if (DeletionSet.contains(OtherPath)) continue;
 			for (const FAssetPath& Dependency : OtherData.Dependencies)
 			{
 				if (!DeletionSet.contains(Dependency)) continue;
+				// Redirect hard blockers have dedicated actionable closure diagnostics.
+				if (OtherData.EntryKind == EAssetRegistryEntryKind::Redirector)
+					continue;
 				const bool bLoadedReference = LoadedPackages.contains(OtherPath);
 				AddBlocker(
 					bLoadedReference
@@ -6304,6 +6503,12 @@ namespace Durin::Asset
 		if (Current.Entries.size() != Token.Entries.size())
 			return Error(EAssetError::InUse,
 				"The asset deletion set changed after confirmation.");
+		if (Current.ReferenceStoreRevision != Token.ReferenceStoreRevision)
+			return Error(EAssetError::InUse,
+				"Persistent asset-reference owners changed after deletion confirmation.");
+		if (Current.Warnings != Token.Warnings)
+			return Error(EAssetError::InUse,
+				"Asset references changed after deletion confirmation.");
 		for (size_t Index = 0; Index < Token.Entries.size(); ++Index)
 		{
 			const FAssetDeletionBatchEntry& Expected = Token.Entries[Index];
@@ -6417,6 +6622,10 @@ namespace Durin::Asset
 		FAssetDeleteAnalysis Analysis;
 		FAssetResult Result = AnalyzeAssetDeletion(Path, Analysis);
 		if (!Result) return Result;
+		if (Analysis.bRedirector)
+			return Error(EAssetError::InUse, std::format(
+				"Redirector {} cannot be deleted alone. Select its final target and every alias in one batch, or run Fix Up Redirectors.",
+				Path.ToString()));
 		if (!Analysis.DirectReferencers.empty())
 			return Error(EAssetError::InUse, std::format("Asset {} is referenced by {} asset(s).", Path.ToString(), Analysis.DirectReferencers.size()));
 		if (Analysis.bLoading) return Error(EAssetError::InUse, "Asset is currently loading.");

@@ -958,15 +958,15 @@ namespace Durin
 			std::string& OutError) -> bool
 		{
 			bOutNew = Entry.ProposedAction == EMultiOutputProposedAction::Create;
-			FAssetPath CandidatePath = Entry.AssetPath;
-			if (!bOutNew && !MakeCandidatePath(Entry.AssetPath, CandidatePath))
+			FAssetPath CandidatePath = Entry.ResolvedAssetPath;
+			if (!bOutNew && !MakeCandidatePath(Entry.ResolvedAssetPath, CandidatePath))
 			{
 				OutError = "Could not allocate a Scene candidate path.";
 				return false;
 			}
 			if (!bOutNew)
 			{
-				const Asset::FAssetResult Load = Asset::LoadAsset(Entry.AssetPath, OutTarget);
+				const Asset::FAssetResult Load = Asset::LoadAsset(Entry.ResolvedAssetPath, OutTarget);
 				if (!Load) { OutError = Load.Message; return false; }
 			}
 			DClass* Class = nullptr;
@@ -1375,7 +1375,7 @@ namespace Durin
 			if (IsCanceled()) return FailCanceled();
 			if (Entry.ProposedAction != EMultiOutputProposedAction::Reference) continue;
 			DObject* Referenced = nullptr;
-			const Asset::FAssetResult Load = Asset::LoadAsset(Entry.AssetPath, Referenced);
+			const Asset::FAssetResult Load = Asset::LoadAsset(Entry.ResolvedAssetPath, Referenced);
 			if (!Load || !Referenced)
 			{
 				return FailPrepared(

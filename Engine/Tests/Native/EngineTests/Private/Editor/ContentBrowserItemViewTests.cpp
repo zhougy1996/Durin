@@ -1,6 +1,8 @@
 #include "Panels/ContentBrowserItemView.h"
 #include "Settings/LevelEditorSessionSettings.h"
 
+#include "Icons/FontAwesomeIcons.h"
+
 #include <gtest/gtest.h>
 
 namespace Durin
@@ -56,10 +58,15 @@ namespace Durin
 			.Kind = EContentBrowserItemKind::File,
 			.Name = "Sky.hdr",
 			.Extension = ".hdr"};
+		FContentBrowserItem Redirector{
+			.Kind = EContentBrowserItemKind::Redirector,
+			.Name = "OldSky"};
 
 		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Folder), "Folder");
 		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Asset), "Texture Cube");
 		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Source), "hdr file");
+		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Redirector), "Redirector");
+		EXPECT_STREQ(ContentBrowserItemView::Icon(Redirector), Icons::ArrowRight);
 		EXPECT_EQ(ContentBrowserItemView::FormatFileSize(512), "512 B");
 		EXPECT_EQ(ContentBrowserItemView::FormatFileSize(1536), "1.5 KB");
 	}

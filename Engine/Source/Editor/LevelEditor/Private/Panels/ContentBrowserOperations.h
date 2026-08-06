@@ -19,8 +19,11 @@ namespace Durin
 		ReparsePoint,
 		UnknownPackage,
 		ExternalReference,
+		RedirectorTargetNotSelected,
+		TargetRedirectorsNotSelected,
 		LoadingPackage,
 		DirtyPackage,
+		ReferenceStoreInspectionFailed,
 		CompanionInspectionFailed,
 		CompanionOwnershipConflict,
 		ExternalCompanionOwner,
@@ -73,6 +76,12 @@ namespace Durin
 		uint64 FolderCount = 0;
 	};
 
+	struct FContentDeletionWarning
+	{
+		std::string DisplayName;
+		std::string Details;
+	};
+
 	// The operation layer publishes this value only as shared_ptr<const ...>; the
 	// confirmation modal and transaction therefore observe the same immutable scope.
 	struct FContentDeletionPlan
@@ -84,6 +93,7 @@ namespace Durin
 		std::vector<FContentDeletionRoot> MaximalRoots;
 		std::vector<FContentDeletionFingerprint> Entries;
 		std::vector<FContentDeletionBlocker> Blockers;
+		std::vector<FContentDeletionWarning> Warnings;
 		Asset::FAssetDeletionBatchToken AssetBatch;
 
 		auto CanExecute() const -> bool { return Blockers.empty(); }
@@ -235,6 +245,11 @@ namespace Durin
 			std::string_view VirtualDirectory,
 			bool bInstance) -> FContentBrowserOperationResult;
 		auto Move(std::span<const FEditorAssetMove> Moves) -> Asset::FAssetResult;
+		auto FixUpRedirectorsInFolder(std::string_view VirtualDirectory)
+			-> Asset::FAssetResult;
+		auto FixUpRedirectors(std::span<const FAssetPath> Redirectors)
+			-> Asset::FAssetResult;
+		auto FixUpAllRedirectors() -> Asset::FAssetResult;
 
 		auto AnalyzeDeletion(
 			std::span<const FContentBrowserItem> Items,
@@ -261,6 +276,8 @@ namespace Durin
 			-> Asset::FAssetResult;
 		auto DeleteEmptyFolder(const FContentBrowserItem& Item) const
 			-> Asset::FAssetResult;
+		auto CollectRedirectors(std::string_view VirtualDirectory) const
+			-> std::vector<FAssetPath>;
 
 		FContentBrowserModel& Model;
 		FMoveAssets MoveAssets;

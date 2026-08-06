@@ -58,12 +58,22 @@ namespace Durin
 			const auto ProjectStates = ViewportStates.find(Project->ProjectFile);
 			if (ProjectStates != ViewportStates.end())
 			{
-				std::erase_if(ProjectStates->second, [](const auto& Entry) {
+				std::unordered_map<std::string, FLevelViewportCameraState>
+					NormalizedStates;
+				for (const auto& [StoredPath, State] : ProjectStates->second)
+				{
 					FAssetPath Path;
-					if (!FAssetPath::TryCreate(Entry.first, Path)) return true;
-					const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(Path);
-					return !Data || Data->AssetClassName != DLevel::StaticClass()->GetQualifiedName().ToString();
-				});
+					if (!FAssetPath::TryCreate(StoredPath, Path)) continue;
+					const Asset::FAssetPathResolveResult Resolution =
+						Asset::GetAssetRegistry().ResolveAssetPath(
+							Path, {.ExpectedClass = DLevel::StaticClass()});
+					if (!Resolution) continue;
+					const std::string FinalPath = Resolution.FinalPath.ToString();
+					const bool bExact = Resolution.RedirectChain.empty();
+					if (bExact || !NormalizedStates.contains(FinalPath))
+						NormalizedStates.insert_or_assign(FinalPath, State);
+				}
+				ProjectStates->second = std::move(NormalizedStates);
 				if (ProjectStates->second.empty()) ViewportStates.erase(ProjectStates);
 			}
 		}

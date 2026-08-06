@@ -625,6 +625,57 @@ TEST(FImportRecordFrameworkTests, FixUpRewritesImportRecordDomainPathsInSharedTr
 		Scenario.ProviderId));
 }
 
+TEST(FImportRecordFrameworkTests, ReimportResolvesMovedManagedOutputWithoutCanonicalizingRecord)
+{
+	InitializeImportRecordTests();
+	FScenario Scenario = BuildScenario("MovedReimport");
+	const std::array Mounts = {MakeMount(Scenario.Root)};
+	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
+	ConfigureScenario(Scenario);
+	Durin::AssetImport::FImportRecordIndex Index;
+	const auto Published = PublishInitial(Scenario, Index, 67);
+	ASSERT_TRUE(Published) << Published.Message;
+	const Durin::FAssetPath MovedPath =
+		MakePath(Scenario.OutputRoot + "/PrimaryMoved");
+	ASSERT_TRUE(RelocateAssetForTest(Scenario.PrimaryPath, MovedPath));
+	std::string Error;
+	ASSERT_TRUE(Index.Rebuild(Error)) << Error;
+
+	DImportRecordOutputForTest* Primary = nullptr;
+	Durin::DObject* Peer = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(MovedPath, Primary));
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Scenario.PeerPath, Peer));
+	const auto Plan = Durin::AssetImport::CreateMultiOutputImportPlan({
+		.GenericPlan = Scenario.GenericPlan,
+		.RecordPath = Scenario.RecordPath,
+		.ExistingRecord = Published.Record,
+		.ProviderState = Scenario.ProviderState,
+		.PrimaryOutput = Scenario.PrimaryPath}, Index);
+	ASSERT_TRUE(Plan) << Plan.Message;
+	const auto PrimaryEntry = std::ranges::find(
+		Plan.Plan.GetReconciliation(), std::string("primary"),
+		&Durin::AssetImport::FMultiOutputReconciliation::StableIdentity);
+	ASSERT_NE(PrimaryEntry, Plan.Plan.GetReconciliation().end());
+	EXPECT_EQ(PrimaryEntry->AssetPath, Scenario.PrimaryPath);
+	EXPECT_EQ(PrimaryEntry->ResolvedAssetPath, MovedPath);
+	EXPECT_EQ(PrimaryEntry->ProposedAction,
+		Durin::AssetImport::EMultiOutputProposedAction::ReplaceManaged);
+
+	const auto Executed = Durin::AssetImport::ExecuteMultiOutputImport(
+		Plan.Plan, PrepareReimport(Scenario, Primary, Peer, 68), Index);
+	ASSERT_TRUE(Executed) << Executed.Message;
+	EXPECT_EQ(Primary->GetValue(), 68);
+	const auto StoredPrimary = std::ranges::find(
+		Executed.Record->GetOutputs(), std::string("primary"),
+		&Durin::AssetImport::FImportRecordOutput::StableIdentity);
+	ASSERT_NE(StoredPrimary, Executed.Record->GetOutputs().end());
+	EXPECT_EQ(StoredPrimary->AssetPath, Scenario.PrimaryPath);
+	EXPECT_EQ(Durin::Asset::GetAssetRegistry()
+		.ResolveAssetPath(StoredPrimary->AssetPath).FinalPath, MovedPath);
+	ASSERT_TRUE(Durin::AssetImport::GetProviderRegistry().Unregister(
+		Scenario.ProviderId));
+}
+
 TEST(FImportRecordFrameworkTests, RebuildDetectsDuplicateRecordsManagersAndRestartDrift)
 {
 	InitializeImportRecordTests();

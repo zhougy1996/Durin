@@ -92,6 +92,9 @@ namespace Durin
 		auto ReimportAsset(
 			const FContentBrowserItem& Item,
 			AssetImport::EImportRecordAction Action) -> void;
+		auto FixUpRedirector(const FContentBrowserItem& Item) -> void;
+		auto FixUpFolder(std::string_view VirtualDirectory) -> void;
+		auto FixUpProject() -> void;
 		auto FocusFolderInParent(std::string_view PhysicalDirectory) -> const FContentBrowserItem*;
 		auto RequestDeleteSelection() -> void;
 		auto DeleteSelection() -> void;
@@ -131,6 +134,7 @@ namespace Durin
 		bool bDeletionPlanRefreshed = false;
 		FContentDeletionPlanPtr PendingDeletionPlan;
 		uint64 ObservedContentMutationRevision = 0;
+		uint64 ObservedAssetRegistryRevision = 0;
 		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;
 		std::vector<FAssetPath> LastReimportOrphans;

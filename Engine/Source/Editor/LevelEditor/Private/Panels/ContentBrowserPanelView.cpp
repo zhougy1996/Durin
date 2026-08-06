@@ -59,6 +59,28 @@ namespace Durin
 				.LastWriteTimeTicks = Item.ThumbnailLastWriteTimeTicks};
 		}
 
+		auto ResolveStateLabel(Asset::EAssetPathResolveState State)
+			-> std::string_view
+		{
+			switch (State)
+			{
+			case Asset::EAssetPathResolveState::Resolved: return "Resolved";
+			case Asset::EAssetPathResolveState::NotFound: return "Not found";
+			case Asset::EAssetPathResolveState::MissingRedirectTarget:
+				return "Missing target";
+			case Asset::EAssetPathResolveState::RedirectCycle: return "Cycle";
+			case Asset::EAssetPathResolveState::RedirectDepthExceeded:
+				return "Depth exceeded";
+			case Asset::EAssetPathResolveState::UnknownTargetClass:
+				return "Unknown target class";
+			case Asset::EAssetPathResolveState::RedirectTypeMismatch:
+				return "Type mismatch";
+			case Asset::EAssetPathResolveState::CorruptRedirector:
+				return "Corrupt redirector";
+			}
+			return "Unknown";
+		}
+
 		constexpr ImGuiTableFlags DetailsTableFlags = ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable | ImGuiTableFlags_SortMulti | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_PadOuterX | ImGuiTableFlags_NoSavedSettings;
 		constexpr float FullToolbarWidth = 900.0f;
 		constexpr float CompactToolbarWidth = 620.0f;
@@ -181,7 +203,7 @@ namespace Durin
 			ImGui::EndChild();
 		};
 
-		const char* Filters[] = {"All content", "Assets", "Files", "Levels", "Static meshes", "Materials", "Textures", "Other assets"};
+		const char* Filters[] = {"All content", "Assets", "Files", "Levels", "Static meshes", "Materials", "Textures", "Other assets", "Redirectors"};
 		const float Spacing = ImGui::GetStyle().ItemSpacing.x;
 
 		auto DrawViewControls = [&]() {
@@ -208,6 +230,9 @@ namespace Durin
 				bool bShowHiddenFiles = Model.IsShowingHiddenFiles();
 				if (ImGui::Checkbox("Show hidden files and folders", &bShowHiddenFiles))
 					Model.SetShowHiddenFiles(bShowHiddenFiles);
+				bool bShowRedirectors = Model.IsShowingRedirectors();
+				if (ImGui::Checkbox("Show redirectors", &bShowRedirectors))
+					Model.SetShowRedirectors(bShowRedirectors);
 				ImGui::Separator();
 				ImGui::TextDisabled("Thumbnail size");
 				ImGui::SetNextItemWidth(-FLT_MIN);
@@ -345,7 +370,13 @@ namespace Durin
 			if (ImGui::IsKeyPressed(ImGuiKey_Enter) && Selection.size() == 1)
 				if (auto It = std::ranges::find_if(Model.GetItems(), [&](const FContentBrowserItem& Item) { return Selection.contains(Item.StableId()); }); It != Model.GetItems().end()) OpenItem(*It);
 			if (ImGui::IsKeyPressed(ImGuiKey_F2) && Selection.size() == 1)
-				if (auto It = std::ranges::find_if(Model.GetItems(), [&](const FContentBrowserItem& Item) { return Selection.contains(Item.StableId()); }); It != Model.GetItems().end()) BeginRename(*It);
+				if (auto It = std::ranges::find_if(
+					Model.GetItems(),
+					[&](const FContentBrowserItem& Item) {
+						return Selection.contains(Item.StableId());
+					}); It != Model.GetItems().end()
+					&& It->Kind != EContentBrowserItemKind::Redirector)
+					BeginRename(*It);
 			if (ImGui::IsKeyPressed(ImGuiKey_Delete) && !Selection.empty()) RequestDeleteSelection();
 		}
 	}
@@ -372,21 +403,56 @@ namespace Durin
 			Row("Type", ItemTypeLabel(Item));
 			Row("Virtual", Item.VirtualPath.empty() ? "-" : Item.VirtualPath);
 			Row("Physical", Item.PhysicalPath);
-			if (Item.Kind == EContentBrowserItemKind::Asset)
+			if (Item.Kind == EContentBrowserItemKind::Asset
+				|| Item.Kind == EContentBrowserItemKind::Redirector)
 			{
 				FAssetPath Path;
 				if (FAssetPath::TryCreate(Item.VirtualPath, Path))
 				{
-					if (const Asset::FAssetData* Data = Asset::GetAssetRegistry().FindAsset(Path))
+					if (const Asset::FAssetData* Data =
+						Asset::GetAssetRegistry().FindAssetExact(Path))
 					{
 						Row("Dependencies", std::format("{}", Data->Dependencies.size()));
-						size_t ReferencerCount = 0;
-						for (const auto& [OtherPath, OtherData] : Asset::GetAssetRegistry().GetAssets())
-							if (OtherPath != Path && std::ranges::find(OtherData.Dependencies, Path) != OtherData.Dependencies.end()) ++ReferencerCount;
-						Row("Referencers", std::format("{}", ReferencerCount));
+						const Asset::FAssetReferenceIndex& ReferenceIndex =
+							Asset::GetAssetRegistry().GetReferenceIndex();
+						size_t HardReferencers = 0;
+						size_t SoftReferencers = 0;
+						size_t RedirectReferencers = 0;
+						for (const Asset::FAssetReferenceEdge& Edge :
+							 ReferenceIndex.FindReferencers(Path))
+							switch (Edge.Kind)
+							{
+							case Asset::EAssetReferenceKind::HardObject:
+								++HardReferencers; break;
+							case Asset::EAssetReferenceKind::SoftObject:
+								++SoftReferencers; break;
+							case Asset::EAssetReferenceKind::Redirect:
+								++RedirectReferencers; break;
+							}
+						Row("Hard refs", std::format("{}", HardReferencers));
+						Row("Soft refs", std::format("{}", SoftReferencers));
+						Row("Redirect refs", std::format("{}", RedirectReferencers));
+						Row("Reference index", ReferenceIndex.IsComplete()
+							? "Complete"
+							: std::format(
+								"Incomplete ({} error{})",
+								ReferenceIndex.GetErrors().size(),
+								ReferenceIndex.GetErrors().size() == 1 ? "" : "s"));
+						if (Item.Kind == EContentBrowserItemKind::Redirector)
+						{
+							Row("Destination", Data->RedirectDestination.ToString());
+							const Asset::FAssetPathResolveResult Resolution =
+								Asset::GetAssetRegistry().ResolveAssetPath(Path);
+							Row("State", ResolveStateLabel(Resolution.State));
+							Row("Final", Resolution.FinalPath.IsValid()
+								? Resolution.FinalPath.ToString()
+								: "-");
+							Row("Chain", std::format("{}", Resolution.RedirectChain.size()));
+						}
 					}
 				}
-				if (ClassLeaf(Item.AssetClassName) == "TextureCube")
+				if (Item.Kind == EContentBrowserItemKind::Asset
+					&& ClassLeaf(Item.AssetClassName) == "TextureCube")
 				{
 					FAssetPath CubePath;
 					DTextureCube* Cube = nullptr;
@@ -660,7 +726,12 @@ namespace Durin
 
 	auto FContentBrowserPanel::DrawItemContextMenu(const FContentBrowserItem& Item) -> void
 	{
-		if (ImGui::MenuItem(Item.Kind == EContentBrowserItemKind::Folder ? "Open Folder" : "Open")) OpenItem(Item);
+		if (ImGui::MenuItem(Item.Kind == EContentBrowserItemKind::Folder
+			? "Open Folder"
+			: Item.Kind == EContentBrowserItemKind::Redirector
+				? "Open Destination"
+				: "Open"))
+			OpenItem(Item);
 		bool bManagedByRecord = false;
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
@@ -813,7 +884,54 @@ namespace Durin
 			}
 			ImGui::Separator();
 		}
-		if (ImGui::MenuItem("Rename", "F2", false, Selection.size() == 1)) BeginRename(Item);
+		if (Item.Kind == EContentBrowserItemKind::Asset
+			|| Item.Kind == EContentBrowserItemKind::Redirector)
+		{
+			FAssetPath Path;
+			if (FAssetPath::TryCreate(Item.VirtualPath, Path))
+			{
+				std::vector<FAssetPath> Referencers;
+				for (const Asset::FAssetReferenceEdge& Edge :
+					 Asset::GetAssetRegistry().GetReferenceIndex()
+						 .FindReferencers(Path))
+					if (std::ranges::find(Referencers, Edge.SourcePackage)
+						== Referencers.end())
+						Referencers.push_back(Edge.SourcePackage);
+				std::ranges::sort(
+					Referencers,
+					[](const FAssetPath& A, const FAssetPath& B) {
+						return A.GetView() < B.GetView();
+					});
+				if (ImGui::BeginMenu("Reveal Referencer", !Referencers.empty()))
+				{
+					for (const FAssetPath& Referencer : Referencers)
+						if (ImGui::MenuItem(Referencer.ToString().c_str()))
+							DeferredContentAction =
+								[this, Referencer] {
+									RevealAsset(Referencer.ToString());
+								};
+					ImGui::EndMenu();
+				}
+			}
+		}
+		if (Item.Kind == EContentBrowserItemKind::Redirector)
+		{
+			if (ImGui::MenuItem("Reveal Destination"))
+				DeferredContentAction = [this, Destination = Item.RedirectDestination] {
+					RevealAsset(Destination.ToString());
+				};
+			if (ImGui::MenuItem(
+				Selection.size() > 1
+					? "Fix Up Selected Redirectors"
+					: "Fix Up Redirector"))
+				DeferredContentAction = [this, Item] { FixUpRedirector(Item); };
+			ImGui::Separator();
+		}
+		if (ImGui::MenuItem(
+			"Rename", "F2", false,
+			Selection.size() == 1
+				&& Item.Kind != EContentBrowserItemKind::Redirector))
+			BeginRename(Item);
 		if (ImGui::MenuItem("Delete", "Delete")) RequestDeleteSelection();
 		ImGui::Separator();
 		if (ImGui::BeginMenu("Copy"))
@@ -877,6 +995,10 @@ namespace Durin
 		ImGui::EndDisabled();
 		ImGui::Separator();
 		if (!VirtualDirectory.empty() && ImGui::MenuItem("Copy Virtual Path")) CopyToClipboard(VirtualDirectory);
+		if (!VirtualDirectory.empty() && ImGui::MenuItem("Fix Up Redirectors in Folder"))
+			DeferredContentAction = [this, VirtualDirectory] {
+				FixUpFolder(VirtualDirectory);
+			};
 		if (ImGui::MenuItem("Copy Physical Path")) CopyToClipboard(PhysicalDirectory);
 		if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(PhysicalDirectory);
 		if (ImGui::MenuItem("Refresh", "F5")) Refresh(true);
@@ -960,6 +1082,15 @@ namespace Durin
 				DrawImportMenu(Model.GetCurrentVirtualPath());
 				ImGui::EndMenu();
 			}
+			ImGui::Separator();
+			if (!Model.GetCurrentVirtualPath().empty()
+				&& ImGui::MenuItem("Fix Up Redirectors in Folder"))
+				DeferredContentAction = [this,
+					Directory = Model.GetCurrentVirtualPath()] {
+					FixUpFolder(Directory);
+				};
+			if (ImGui::MenuItem("Fix Up All Redirectors"))
+				DeferredContentAction = [this] { FixUpProject(); };
 			ImGui::Separator();
 			if (ImGui::MenuItem("Refresh", "F5")) Refresh(true);
 			if (ImGui::MenuItem("Show in Explorer")) ShowInExplorer(Model.GetCurrentPhysicalPath());
@@ -1055,6 +1186,16 @@ namespace Durin
 							"... and %zu more blocker%s",
 							Plan->Blockers.size() - VisibleBlockerCount,
 							Plan->Blockers.size() - VisibleBlockerCount == 1 ? "" : "s");
+				}
+				if (!Plan->Warnings.empty())
+				{
+					ImGui::Spacing();
+					ImGui::Text("Deletion warnings:");
+					for (const FContentDeletionWarning& Warning : Plan->Warnings)
+					{
+						ImGui::BulletText("%s", Warning.DisplayName.c_str());
+						ImGui::TextWrapped("%s", Warning.Details.c_str());
+					}
 				}
 			}
 			else

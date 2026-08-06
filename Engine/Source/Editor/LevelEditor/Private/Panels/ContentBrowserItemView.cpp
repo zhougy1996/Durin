@@ -109,6 +109,8 @@ namespace Durin::ContentBrowserItemView
 	{
 		if (Item.Kind == EContentBrowserItemKind::Folder) return Icons::Folder;
 		if (Item.Kind == EContentBrowserItemKind::File) return Icons::File;
+		if (Item.Kind == EContentBrowserItemKind::Redirector)
+			return Icons::ArrowRight;
 		const std::string Type = TypeLabel(Item);
 		if (Type == "StaticMesh" || Type == "Texture Cube") return Icons::Cube;
 		if (Type == "Level") return Icons::Home;
@@ -245,6 +247,8 @@ namespace Durin::ContentBrowserItemView
 			? MonaImGui::EUIThemeColor::Folder
 			: Item.Kind == EContentBrowserItemKind::Asset
 			? MonaImGui::EUIThemeColor::Asset
+			: Item.Kind == EContentBrowserItemKind::Redirector
+			? MonaImGui::EUIThemeColor::Warning
 			: MonaImGui::EUIThemeColor::SourceFile;
 		const ImVec2 IconExtent = ImGui::GetFont()->CalcTextSizeA(
 			Metrics.IconFontSize, FLT_MAX, 0.0f, Icon(Item));

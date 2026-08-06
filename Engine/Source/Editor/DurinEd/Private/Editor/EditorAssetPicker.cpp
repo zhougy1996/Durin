@@ -75,6 +75,8 @@ namespace Durin::EditorAssetPicker
 			Paths.reserve(Asset::GetAssetRegistry().GetAssets().size());
 			for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
 			{
+				if (Data.EntryKind == Asset::EAssetRegistryEntryKind::Redirector)
+					continue;
 				if (!MatchesPathPrefix(Path.GetView(), Key.PathPrefix)) continue;
 				if (!MatchesClass(FindClassByQualifiedName(Data.AssetClassName), Key.RequiredClass, Key.ClassPolicy)) continue;
 				Paths.push_back(Path);

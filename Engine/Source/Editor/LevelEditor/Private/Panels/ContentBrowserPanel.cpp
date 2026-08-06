@@ -39,6 +39,8 @@ namespace Durin
 		bIconSizeLocked = SessionSettings.IsContentBrowserIconSizeLocked();
 		Model.SetShowHiddenFiles(
 			SessionSettings.GetContentBrowserShowHiddenFiles());
+		ObservedAssetRegistryRevision =
+			Asset::GetAssetRegistry().GetRevision();
 		if (GetContentMutationRevision)
 			ObservedContentMutationRevision = GetContentMutationRevision();
 		if (!SessionSettings.GetContentBrowserLastDirectory().empty())
@@ -193,6 +195,24 @@ namespace Durin
 		if (Item.Kind == EContentBrowserItemKind::Folder)
 		{
 			NavigateToPhysical(Item.PhysicalPath);
+			return;
+		}
+		if (Item.Kind == EContentBrowserItemKind::Redirector)
+		{
+			FAssetPath Path;
+			if (!FAssetPath::TryCreate(Item.VirtualPath, Path))
+			{
+				SetError("The redirector path is invalid.");
+				return;
+			}
+			const Asset::FAssetPathResolveResult Resolution =
+				Asset::GetAssetRegistry().ResolveAssetPath(Path);
+			if (!Resolution || !Resolution.FinalAssetData
+				|| !OpenAsset
+				|| !OpenAsset(
+					Resolution.FinalPath.ToString(),
+					Resolution.FinalAssetData->AssetClassName))
+				SetError("The redirector destination could not be opened.");
 			return;
 		}
 		if (Item.Kind == EContentBrowserItemKind::Asset)
@@ -384,6 +404,67 @@ namespace Durin
 				: Inspection.Message);
 	}
 
+	auto FContentBrowserPanel::FixUpRedirector(
+		const FContentBrowserItem& Item) -> void
+	{
+		std::vector<FAssetPath> Redirectors;
+		for (const FContentBrowserItem& Candidate : Model.GetItems())
+		{
+			if (Candidate.Kind != EContentBrowserItemKind::Redirector
+				|| !Selection.contains(Candidate.StableId()))
+				continue;
+			FAssetPath Path;
+			if (!FAssetPath::TryCreate(Candidate.VirtualPath, Path))
+			{
+				SetError("A selected redirector path is invalid.");
+				return;
+			}
+			Redirectors.push_back(std::move(Path));
+		}
+		if (Redirectors.empty())
+		{
+			FAssetPath Path;
+			if (!FAssetPath::TryCreate(Item.VirtualPath, Path))
+			{
+				SetError("The redirector path is invalid.");
+				return;
+			}
+			Redirectors.push_back(std::move(Path));
+		}
+		const Asset::FAssetResult Result =
+			Operations.FixUpRedirectors(Redirectors);
+		if (!Result)
+		{
+			SetError(Result.Message);
+			return;
+		}
+		SynchronizeContentMutation();
+	}
+
+	auto FContentBrowserPanel::FixUpFolder(
+		std::string_view VirtualDirectory) -> void
+	{
+		const Asset::FAssetResult Result =
+			Operations.FixUpRedirectorsInFolder(VirtualDirectory);
+		if (!Result)
+		{
+			SetError(Result.Message);
+			return;
+		}
+		SynchronizeContentMutation();
+	}
+
+	auto FContentBrowserPanel::FixUpProject() -> void
+	{
+		const Asset::FAssetResult Result = Operations.FixUpAllRedirectors();
+		if (!Result)
+		{
+			SetError(Result.Message);
+			return;
+		}
+		SynchronizeContentMutation();
+	}
+
 	auto FContentBrowserPanel::FocusFolderInParent(
 		std::string_view PhysicalDirectory) -> const FContentBrowserItem*
 	{
@@ -454,10 +535,16 @@ namespace Durin
 
 	auto FContentBrowserPanel::SynchronizeContentMutation() -> void
 	{
-		if (!GetContentMutationRevision) return;
-		const uint64 Revision = GetContentMutationRevision();
-		if (Revision == ObservedContentMutationRevision) return;
-		ObservedContentMutationRevision = Revision;
+		const uint64 ContentRevision = GetContentMutationRevision
+			? GetContentMutationRevision()
+			: ObservedContentMutationRevision;
+		const uint64 RegistryRevision =
+			Asset::GetAssetRegistry().GetRevision();
+		if (ContentRevision == ObservedContentMutationRevision
+			&& RegistryRevision == ObservedAssetRegistryRevision)
+			return;
+		ObservedContentMutationRevision = ContentRevision;
+		ObservedAssetRegistryRevision = RegistryRevision;
 
 		ThumbnailCache->CancelPendingRequests();
 		std::filesystem::path Directory = Model.GetCurrentPhysicalPath();
@@ -475,9 +562,13 @@ namespace Durin
 			const Asset::FAssetResult Result = Model.RescanRegistry();
 			if (!Result) SetError(Result.Message);
 			RefreshItemsSnapshot();
+			ObservedAssetRegistryRevision =
+				Asset::GetAssetRegistry().GetRevision();
 			return;
 		}
 		Refresh(true);
+		ObservedAssetRegistryRevision =
+			Asset::GetAssetRegistry().GetRevision();
 	}
 
 	auto FContentBrowserPanel::RevealAsset(std::string_view AssetPath) -> void

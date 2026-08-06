@@ -104,6 +104,7 @@ namespace Durin
 		-> std::string
 	{
 		if (Item.Kind == EContentBrowserItemKind::Folder) return "Folder";
+		if (Item.Kind == EContentBrowserItemKind::Redirector) return "Redirector";
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
 			const std::string ClassName = ClassLeaf(Item.AssetClassName);
@@ -240,8 +241,10 @@ namespace Durin
 		FAssetPath Path;
 		if (!FAssetPath::TryCreate(AssetPath, Path)) return {};
 		const Asset::FAssetData* Data =
-			Asset::GetAssetRegistry().FindAsset(Path);
+			Asset::GetAssetRegistry().FindAssetExact(Path);
 		if (!Data) return {};
+		if (Data->EntryKind == Asset::EAssetRegistryEntryKind::Redirector)
+			bShowRedirectors = true;
 		if (!NavigateToPhysical(
 				std::filesystem::path(Data->PhysicalPath)
 					.parent_path()
@@ -300,12 +303,15 @@ namespace Durin
 		{
 			if (!IsInsideCurrentDirectory(Data.PhysicalPath, true)) continue;
 			FContentBrowserItem Item{
-				EContentBrowserItemKind::Asset,
+				Data.EntryKind == Asset::EAssetRegistryEntryKind::Redirector
+					? EContentBrowserItemKind::Redirector
+					: EContentBrowserItemKind::Asset,
 				std::string(Path.GetAssetName()),
 				Path.ToString(),
 				NormalizePath(Data.PhysicalPath),
 				Data.AssetClassName,
 				".dasset"};
+			Item.RedirectDestination = Data.RedirectDestination;
 			std::error_code FileEc;
 			Item.FileSize = std::filesystem::file_size(Data.PhysicalPath, FileEc);
 			Item.LastWriteTime = Data.LastWriteTime;
@@ -355,6 +361,8 @@ namespace Durin
 			return Item.Kind == EContentBrowserItemKind::Asset;
 		if (TypeFilter == EContentBrowserTypeFilter::Files)
 			return Item.Kind == EContentBrowserItemKind::File;
+		if (TypeFilter == EContentBrowserTypeFilter::Redirectors)
+			return Item.Kind == EContentBrowserItemKind::Redirector;
 		if (Item.Kind != EContentBrowserItemKind::Asset) return false;
 		const std::string Type = ContentBrowserModel::TypeLabel(Item);
 		if (TypeFilter == EContentBrowserTypeFilter::Levels)
@@ -376,6 +384,10 @@ namespace Durin
 		const bool bSearching = !Search.empty();
 		for (const FContentBrowserItem& Item : ItemsSnapshot)
 		{
+			if (Item.Kind == EContentBrowserItemKind::Redirector
+				&& !bShowRedirectors
+				&& TypeFilter != EContentBrowserTypeFilter::Redirectors)
+				continue;
 			const std::filesystem::path Relative =
 				std::filesystem::path(Item.PhysicalPath)
 					.lexically_relative(CurrentPhysicalPath);
@@ -397,7 +409,9 @@ namespace Durin
 				: std::string_view(Item.VirtualPath);
 			if (bSearching && !ContainsInsensitive(Item.Name, Search)
 				&& !ContainsInsensitive(SearchPath, Search)
-				&& !ContainsInsensitive(Type, Search))
+				&& !ContainsInsensitive(Type, Search)
+				&& !ContainsInsensitive(
+					Item.RedirectDestination.ToString(), Search))
 				continue;
 			if (MatchesTypeFilter(Item)) Items.push_back(Item);
 		}
@@ -459,6 +473,12 @@ namespace Durin
 	auto FContentBrowserModel::SetShowHiddenFiles(bool bShow) -> void
 	{
 		bShowHiddenFiles = bShow;
+		RebuildItems();
+	}
+
+	auto FContentBrowserModel::SetShowRedirectors(bool bShow) -> void
+	{
+		bShowRedirectors = bShow;
 		RebuildItems();
 	}
 

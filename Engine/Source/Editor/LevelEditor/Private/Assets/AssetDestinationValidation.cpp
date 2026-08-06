@@ -8,9 +8,17 @@ namespace Durin
 	{
 		auto QueryAssetDestinationOccupancy(const FAssetPath& AssetPath) -> FAssetDestinationOccupancy
 		{
+			const Asset::FAssetData* Data =
+				Asset::GetAssetRegistry().FindAssetExact(AssetPath);
 			return {
-				.bRegistryAssetExists = Asset::GetAssetRegistry().FindAsset(AssetPath) != nullptr,
-				.bLoadedPackageExists = Asset::FindLoadedPackage(AssetPath) != nullptr
+				.bRegistryAssetExists = Data != nullptr,
+				.bLoadedPackageExists = Asset::FindLoadedPackage(AssetPath) != nullptr,
+				.OccupantKind = !Data
+					? EAssetDestinationOccupantKind::None
+					: Data->EntryKind == Asset::EAssetRegistryEntryKind::Redirector
+						? EAssetDestinationOccupantKind::Redirector
+						: EAssetDestinationOccupantKind::Asset,
+				.RedirectDestination = Data ? Data->RedirectDestination : FAssetPath{}
 			};
 		}
 	} // namespace
@@ -39,7 +47,19 @@ namespace Durin
 			(OccupancyQuery != nullptr ? OccupancyQuery : QueryAssetDestinationOccupancy)(Result.AssetPath);
 		Result.bRegistryAssetExists = Occupancy.bRegistryAssetExists;
 		Result.bLoadedPackageExists = Occupancy.bLoadedPackageExists;
-		if (Result.AssetExists()) Result.Message = "An asset already exists at this path.";
+		Result.OccupantKind = Occupancy.OccupantKind;
+		Result.RedirectDestination = Occupancy.RedirectDestination;
+		if (Result.bRegistryAssetExists
+			&& Result.OccupantKind == EAssetDestinationOccupantKind::Redirector)
+			Result.Message = Result.RedirectDestination.IsValid()
+				? std::format(
+					"A redirector already occupies this path and points to {}. Run Fix Up Redirectors or choose another destination.",
+					Result.RedirectDestination.ToString())
+				: "A redirector already occupies this path. Repair or Fix Up the redirector before reusing the destination.";
+		else if (Result.bRegistryAssetExists)
+			Result.Message = "An asset already exists at this path. Choose another destination or delete the existing asset first.";
+		else if (Result.bLoadedPackageExists)
+			Result.Message = "A loaded package already uses this path. Close it or choose another destination.";
 		return Result;
 	}
 

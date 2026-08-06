@@ -5,11 +5,21 @@
 
 namespace Durin
 {
+	enum class EAssetDestinationOccupantKind : uint8
+	{
+		None,
+		Asset,
+		Redirector
+	};
+
 	// Separates asset occupancy lookup from path validation for deterministic callers and tests.
 	struct FAssetDestinationOccupancy
 	{
 		bool bRegistryAssetExists = false;
 		bool bLoadedPackageExists = false;
+		EAssetDestinationOccupantKind OccupantKind =
+			EAssetDestinationOccupantKind::None;
+		FAssetPath RedirectDestination;
 	};
 
 	using FAssetDestinationOccupancyQuery = FAssetDestinationOccupancy (*)(const FAssetPath&);
@@ -24,6 +34,9 @@ namespace Durin
 		bool bMountedDestination = false;
 		bool bRegistryAssetExists = false;
 		bool bLoadedPackageExists = false;
+		EAssetDestinationOccupantKind OccupantKind =
+			EAssetDestinationOccupantKind::None;
+		FAssetPath RedirectDestination;
 		std::string Message;
 
 		auto AssetExists() const -> bool { return bRegistryAssetExists || bLoadedPackageExists; }

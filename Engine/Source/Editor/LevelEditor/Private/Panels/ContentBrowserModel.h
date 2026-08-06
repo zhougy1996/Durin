@@ -12,6 +12,7 @@ namespace Durin
 	{
 		Folder,
 		Asset,
+		Redirector,
 		File
 	};
 
@@ -25,7 +26,8 @@ namespace Durin
 		StaticMeshes,
 		Materials,
 		Textures,
-		OtherAssets
+		OtherAssets,
+		Redirectors
 	};
 
 	// Identifies the active content-browser sort key.
@@ -46,6 +48,7 @@ namespace Durin
 		std::string PhysicalPath;
 		std::string AssetClassName;
 		std::string Extension;
+		FAssetPath RedirectDestination;
 		std::string ThumbnailIdentity;
 		std::string ThumbnailSourcePath;
 		uintmax_t ThumbnailFileSize = 0;
@@ -88,6 +91,7 @@ namespace Durin
 		auto SetTypeFilter(EContentBrowserTypeFilter Filter) -> void;
 		auto SetSort(EContentBrowserSortColumn Column, bool bAscending) -> void;
 		auto SetShowHiddenFiles(bool bShow) -> void;
+		auto SetShowRedirectors(bool bShow) -> void;
 
 		auto PhysicalToVirtualDirectory(std::string_view PhysicalPath) const -> std::string;
 		auto VirtualToPhysical(std::string_view VirtualPath) const -> std::string;
@@ -106,6 +110,7 @@ namespace Durin
 		auto GetSortColumn() const -> EContentBrowserSortColumn { return SortColumn; }
 		auto IsSortAscending() const -> bool { return bSortAscending; }
 		auto IsShowingHiddenFiles() const -> bool { return bShowHiddenFiles; }
+		auto IsShowingRedirectors() const -> bool { return bShowRedirectors; }
 
 		auto GetDirectoryChildren(std::string_view PhysicalDirectory)
 			-> std::span<const std::filesystem::path>;
@@ -132,5 +137,6 @@ namespace Durin
 		EContentBrowserSortColumn SortColumn = EContentBrowserSortColumn::Name;
 		bool bSortAscending = true;
 		bool bShowHiddenFiles = false;
+		bool bShowRedirectors = false;
 	};
 } // namespace Durin
