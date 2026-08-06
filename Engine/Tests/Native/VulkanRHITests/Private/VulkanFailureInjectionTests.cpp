@@ -257,15 +257,49 @@ namespace Durin::VulkanRHI
 		Initializer.bEnableDepthWrite = false;
 
 		const FName PipelineName("RecoverableGraphicsPipeline");
+		const FVulkanGraphicsPipelineTestStats PipelineStatsBefore =
+			GetVulkanGraphicsPipelineTestStats();
+		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::PipelineLayout);
+		EXPECT_FALSE(GDynamicRHI->RHICreateGraphicsPipelineState(
+			PipelineName, Initializer));
 		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::GraphicsPipeline);
 		EXPECT_FALSE(GDynamicRHI->RHICreateGraphicsPipelineState(
 			PipelineName, Initializer));
-		EXPECT_FALSE(GDynamicRHI->RHIGetGraphicsPipelineState(PipelineName));
 		FGraphicsPipelineStateRHIRef Pipeline =
 			GDynamicRHI->RHICreateGraphicsPipelineState(
 				PipelineName, Initializer);
 		ASSERT_TRUE(Pipeline);
+		FGraphicsPipelineStateRHIRef SameNamePipeline =
+			GDynamicRHI->RHICreateGraphicsPipelineState(
+				PipelineName, Initializer);
+		ASSERT_TRUE(SameNamePipeline);
+		EXPECT_NE(Pipeline.GetReference(), SameNamePipeline.GetReference());
+		EXPECT_EQ(Pipeline->GetRefCount(), 1u);
+		EXPECT_EQ(SameNamePipeline->GetRefCount(), 1u);
 
+		FGraphicsPipelineStateInitializer ChangedInitializer = Initializer;
+		ChangedInitializer.bEnableBackFaceCulling =
+			!Initializer.bEnableBackFaceCulling;
+		FGraphicsPipelineStateRHIRef ChangedSameNamePipeline =
+			GDynamicRHI->RHICreateGraphicsPipelineState(
+				PipelineName, ChangedInitializer);
+		ASSERT_TRUE(ChangedSameNamePipeline);
+		EXPECT_NE(Pipeline.GetReference(), ChangedSameNamePipeline.GetReference());
+		EXPECT_EQ(ChangedSameNamePipeline->GetRefCount(), 1u);
+		const FVulkanGraphicsPipelineTestStats PipelineStatsAfterCreation =
+			GetVulkanGraphicsPipelineTestStats();
+		EXPECT_EQ(
+			PipelineStatsAfterCreation.CommittedPipelineCount,
+			PipelineStatsBefore.CommittedPipelineCount + 3);
+		EXPECT_EQ(
+			PipelineStatsAfterCreation.CreatedPipelineLayoutCount,
+			PipelineStatsBefore.CreatedPipelineLayoutCount + 4);
+		EXPECT_EQ(
+			PipelineStatsAfterCreation.RolledBackPipelineLayoutCount,
+			PipelineStatsBefore.RolledBackPipelineLayoutCount + 1);
+
+		ChangedSameNamePipeline = nullptr;
+		SameNamePipeline = nullptr;
 		Pipeline = nullptr;
 		FragmentShader = nullptr;
 		VertexShader = nullptr;
@@ -275,6 +309,11 @@ namespace Durin::VulkanRHI
 		Texture = nullptr;
 		Buffer = nullptr;
 		RHICmdList.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);
+		const FVulkanGraphicsPipelineTestStats PipelineStatsAfterRelease =
+			GetVulkanGraphicsPipelineTestStats();
+		EXPECT_EQ(
+			PipelineStatsAfterRelease.DestroyedPipelineCount,
+			PipelineStatsBefore.DestroyedPipelineCount + 3);
 	}
 
 	TEST_F(FVulkanCreateFailureInjectionTests,

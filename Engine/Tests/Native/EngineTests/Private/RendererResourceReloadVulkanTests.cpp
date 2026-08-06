@@ -342,9 +342,7 @@ float4 FragmentMain() : SV_Target
 							Candidate.PipelineState =
 								GDynamicRHI
 									->RHICreateGraphicsPipelineState(
-										FName(std::format(
-											"RendererReloadTestPipeline_{}",
-											Snapshot.Generation.Shader)),
+										"RendererReloadTestPipeline",
 										Initializer);
 							if (Candidate.VertexDeclaration == nullptr
 								|| Candidate.PipelineState == nullptr)

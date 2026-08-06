@@ -15,6 +15,14 @@ Stage 6 resolved the inherited `DrawParameters` validation error by requiring an
 
 Completed stages: 0-6.
 
+Cross-plan follow-up (2026-08-07):
+[Graphics Pipeline Ownership and Reload](GraphicsPipelineOwnership.md)
+consumed the fallible synchronous-operation boundary and removed the remaining
+name-keyed Vulkan graphics-PSO tombstone/ownership path. Pipeline-layout and
+graphics-pipeline failure injection now proves local rollback and later retry,
+while the public factory continues to return complete-or-null without failing
+the executor. Diagnostic names no longer participate in graphics-PSO identity.
+
 The Renderer already constructs shader, pipeline, buffer, texture, and fixed-feature payloads as local candidates and commits them through generation-aware resource slots. Those slots can retain a last-known-good payload, suppress a failed generation, and retry after shader, device, or manual invalidation.
 
 That policy is not currently enforceable at the RHI boundary. Vulkan instance, device, and swapchain creation catch errors and continue with null native handles. VMA buffer and image allocation reports failure, but several constructors ignore the result and publish RHI objects with invalid allocations. Conversely, an exception escaping shader, pipeline, or another synchronous creation callback is treated as an RHI worker failure; the executor drains, rejects later work, and waiting code terminates the process. Some Renderer caches can also publish null resource pairs as if creation succeeded.

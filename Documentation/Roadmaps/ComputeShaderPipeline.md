@@ -2,7 +2,7 @@
 
 Summary: Establish production-ready compute shader execution through a sequence of bounded synchronization, pipeline, integration, and optional asynchronous-compute plans.
 
-Last reviewed: 2026-08-04
+Last reviewed: 2026-08-07
 
 Status: Active
 Completed:
@@ -92,6 +92,12 @@ prerequisites for the core outcome.
   initializer owns exactly one compute shader and one reflected pipeline
   layout; it does not carry render-target, vertex-input, raster, blend, or depth
   state.
+- Compute PSO creation inherits the graphics creation-only boundary: a stable
+  debug name is diagnostic-only, the RHI publishes a fresh complete-or-null
+  candidate, and a Renderer slot or explicit consumer owns its logical
+  lifetime. The first compute implementation must not add a name-keyed owning
+  cache or a public name lookup. Any later descriptor-keyed reuse requires full
+  immutable value equality plus bounded ownership and eviction.
 - Command-list pipeline selection resolves an active command context rather
   than storing a graphics-only context under a generic API.
 - Descriptor materialization, descriptor-set caching, push-constant handling,
@@ -131,7 +137,7 @@ prerequisites for the core outcome.
 | Resource model | Storage buffer/image binding types, creation flags, descriptors, and Vulkan usage bits exist. | Define explicit post-write visibility and state transitions across all consumers. |
 | Pipeline layout | Reflection already builds descriptor layouts and push-constant ranges. | Decouple layout ownership and descriptor binding from graphics-only PSO state. |
 | RHI commands | `ERHIPipeline::Compute` is declared. | Add active compute context selection, compute PSO binding, and direct dispatch. |
-| Vulkan pipeline | Raw tests prove `vkCreateComputePipelines` and `vkCmdDispatch` work. | Implement owned compute PSOs, public creation/cache paths, command recording, and diagnostics. |
+| Vulkan pipeline | Raw tests prove `vkCreateComputePipelines` and `vkCmdDispatch` work. | Implement complete-or-null compute PSO creation, explicit consumer ownership, command recording, and diagnostics. |
 | Queues | The device discovers and creates a compute queue. | Validate capability selection, context/submission ownership, and later cross-queue synchronization. |
 | Validation | Storage reflection tests and one Vulkan-direct compute dispatch exist. | Add public-RHI buffer/image dispatch, interop, readback, lifetime, and runtime coverage. |
 
@@ -152,7 +158,7 @@ flowchart LR
 | Milestone | Requirement | Proposed child plan | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
 | M1: Resource transitions | Required | `GPUResourceTransitions` | The recorded-command-list encoding and replay contract is stable; existing render-pass, upload, readback, and subresource state paths have a documented working set. | Public buffer/image transitions pass focused Vulkan tests without breaking current render-pass or transfer behavior. |
-| M2: Synchronous compute core | Required | `SynchronousComputePipeline` | M1 access-state and barrier contracts are stable enough for compute mappings. | Public RHI creates and caches a compute PSO, binds reflected resources/push constants, dispatches outside a render pass, and validates storage buffer and image results. |
+| M2: Synchronous compute core | Required | `SynchronousComputePipeline` | M1 access-state and barrier contracts are stable enough for compute mappings. | Public RHI creates a complete compute PSO, binds reflected resources/push constants, dispatches outside a render pass, and validates storage buffer and image results. |
 | M3: Renderer integration | Required | `ComputeRendererIntegration` | M2 vertical slice and interop validation pass; a consumer is selected with an explicit fallback and measurable benefit. | The selected renderer path consumes compute output without Vulkan escape hatches, survives resource refresh/lifetime scenarios, and passes its runtime validation. |
 | M4: Indirect dispatch | Conditional | `ComputeDispatchExtensions` | A concrete GPU-driven workload requires indirect dispatch and M2 is complete. | Indirect argument creation, transitions, bounds validation, and `DispatchIndirect` pass focused and runtime tests. |
 | M5: Async compute | Evidence-gated | `AsyncComputeExecution` | M1-M3 and the dedicated RHI thread plan are complete; profiling identifies overlap opportunity that exceeds scheduling and ownership costs on target hardware. | Separate compute submission, cross-queue synchronization, ownership transfer, resource lifetime, fallback, and frame shutdown are validated without global idle waits. |
@@ -191,7 +197,7 @@ choice stays local so the roadmap does not promise an unavailable API.
 ### `SynchronousComputePipeline`
 
 Owns compute RHI resource types and references, initializer validation,
-DynamicRHI creation and lookup, cache namespacing, active command-context
+creation-only DynamicRHI publication, active command-context
 selection, compute PSO construction, common descriptor/pipeline-layout state,
 push constants, direct dispatch, and public-RHI tests. It consumes the M1
 transition API and does not create an asynchronous scheduler.

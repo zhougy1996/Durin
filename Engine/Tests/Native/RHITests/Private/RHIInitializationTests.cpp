@@ -54,8 +54,6 @@ namespace Durin
 			auto RHICreateGraphicsPipelineState(
 				FName, const FGraphicsPipelineStateInitializer&)
 				-> TRefCountPtr<FRHIGraphicsPipelineState> override { return {}; }
-			auto RHIGetGraphicsPipelineState(FName)
-				-> TRefCountPtr<FRHIGraphicsPipelineState> override { return {}; }
 			auto RHIGetDefaultContext() -> IRHICommandContext* override
 			{
 				return nullptr;

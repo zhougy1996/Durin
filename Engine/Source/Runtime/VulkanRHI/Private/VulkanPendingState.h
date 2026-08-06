@@ -71,6 +71,11 @@ namespace Durin::VulkanRHI
 
 		auto ClearDescriptorSetCache() -> void;
 
+		// Removes non-owning state before a graphics PSO can be deleted or its
+		// address reused by a later pipeline.
+		auto NotifyDeletedPipeline(
+			FVulkanGraphicsPipelineState* PipelineState) -> void;
+
 		auto Reset() -> void;
 
 		auto GetPipelineState() const -> FVulkanGraphicsPipelineState* { return CurrentPipelineState; }

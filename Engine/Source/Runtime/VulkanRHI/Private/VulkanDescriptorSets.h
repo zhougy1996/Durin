@@ -196,7 +196,7 @@ namespace Durin::VulkanRHI
 		FVulkanDevice& Device;
 		FVulkanDescriptorSetsLayout DSetsLayout;
 
-		friend class FVulkanPipelineStateCacheManager;
+		friend class FVulkanPipelineManager;
 	};
 
 	// Allocates descriptor sets from one Vulkan pool with bounded capacity.

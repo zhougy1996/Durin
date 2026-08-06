@@ -85,6 +85,9 @@ namespace Durin::VulkanRHI
 
 		auto NotifyDeleted_Image(vk::Image Image) -> void;
 
+		auto NotifyDeleted_GraphicsPipeline(
+			FVulkanGraphicsPipelineState* PipelineState) -> void;
+
 		// Submit and reset context
 		auto Finalize() -> void;
 

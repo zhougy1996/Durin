@@ -27,6 +27,7 @@ namespace Durin::VulkanRHI
 		ImageView,
 		Buffer,
 		ShaderModule,
+		PipelineLayout,
 		GraphicsPipeline,
 		Sampler,
 		VertexDeclaration,
@@ -37,6 +38,17 @@ namespace Durin::VulkanRHI
 	VULKANRHI_API auto ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> bool;
 	VULKANRHI_API auto ResetVulkanCreateFailures() -> void;
 	VULKANRHI_API auto ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint FailurePoint) -> void;
+
+	struct FVulkanGraphicsPipelineTestStats
+	{
+		uint64 CommittedPipelineCount = 0;
+		uint64 DestroyedPipelineCount = 0;
+		uint64 CreatedPipelineLayoutCount = 0;
+		uint64 RolledBackPipelineLayoutCount = 0;
+	};
+
+	VULKANRHI_API auto GetVulkanGraphicsPipelineTestStats()
+		-> FVulkanGraphicsPipelineTestStats;
 #endif
 
 	class FVulkanDevice;

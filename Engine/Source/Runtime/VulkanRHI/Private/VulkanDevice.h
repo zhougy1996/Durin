@@ -11,7 +11,8 @@ namespace Durin::VulkanRHI
 	class FVulkanQueue;
 	class FVulkanCommandListContext;
 	class FVulkanRenderPassManager;
-	class FVulkanPipelineStateCacheManager;
+	class FVulkanPipelineManager;
+	class FVulkanGraphicsPipelineState;
 	class FVulkanFrame;
 	class FVulkanGlobalDescriptorPool;
 	class FVulkanDescriptorSetLayoutCache;
@@ -136,7 +137,7 @@ namespace Durin::VulkanRHI
 
 		auto GetFenceManager() -> FVulkanFenceManager& { return FenceManager; }
 
-		auto GetPipelineManager() const -> FVulkanPipelineStateCacheManager& { return *PipelineManager; }
+		auto GetPipelineManager() const -> FVulkanPipelineManager& { return *PipelineManager; }
 
 		auto GetGlobalDescriptorPool() const -> FVulkanGlobalDescriptorPool& { return *GlobalDescriptorPool; }
 
@@ -151,6 +152,8 @@ namespace Durin::VulkanRHI
 		auto GetCurrentFrameIndex() const -> uint32;
 
 		auto NotifyDeleted_Image(vk::Image Image) -> void;
+		auto NotifyDeleted_GraphicsPipeline(
+			FVulkanGraphicsPipelineState* PipelineState) -> void;
 
 	private:
 		auto Destroy() -> void;
@@ -171,7 +174,7 @@ namespace Durin::VulkanRHI
 
 		FVulkanRenderPassManager* RenderPassManager = nullptr;
 
-		FVulkanPipelineStateCacheManager* PipelineManager = nullptr;
+		FVulkanPipelineManager* PipelineManager = nullptr;
 
 		FVulkanGlobalDescriptorPool* GlobalDescriptorPool = nullptr;
 

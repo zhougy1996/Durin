@@ -101,6 +101,22 @@ namespace Durin::VulkanRHI
 		}
 	}
 
+	auto FVulkanPendingGraphicsState::NotifyDeletedPipeline(
+		FVulkanGraphicsPipelineState* PipelineState) -> void
+	{
+		if (CurrentPipelineState == PipelineState)
+		{
+			CurrentPipelineState = nullptr;
+			CurrentDescriptorState = nullptr;
+		}
+		if (const auto It = PipelineStates.find(PipelineState);
+			It != PipelineStates.end())
+		{
+			delete It->second;
+			PipelineStates.erase(It);
+		}
+	}
+
 	auto FVulkanPendingGraphicsState::Reset() -> void
 	{
 		CurrentPipelineState = nullptr;

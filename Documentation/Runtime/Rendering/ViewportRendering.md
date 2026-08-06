@@ -225,6 +225,16 @@ exist. Expected creation failure returns null without failing the RHI executor;
 device loss, command replay, submission, presentation, and invariant failures
 remain terminal.
 
+`RHICreateGraphicsPipelineState` is a creation-only factory. Its `DebugName`
+labels diagnostics and captures but does not select, reuse, or retain a PSO;
+every successful request returns a distinct complete pipeline. Renderer slots
+and explicit Renderer-owned payloads hold the logical strong reference. A
+recorded draw may hold a transient reference until replay finishes, after which
+replacement, reset, device invalidation, and shutdown flow through the ordinary
+RHI pending-delete and Vulkan frame-safe deferred-deletion paths. Vulkan may
+continue caching structural descriptor layouts and compatible render passes,
+but those caches do not own logical graphics PSOs.
+
 Fixed Renderer resources, static-mesh shader and pipeline identities, editor
 assistance, shared fullscreen geometry, and Texture Editor preview resources
 use `TRenderResourceCreationSlot`. A slot constructs a complete candidate in

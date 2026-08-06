@@ -379,6 +379,13 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 	}
 
+	auto FVulkanCommandListContext::NotifyDeleted_GraphicsPipeline(
+		FVulkanGraphicsPipelineState* PipelineState) -> void
+	{
+		CheckVulkanRHIThread();
+		PendingGfxState->NotifyDeletedPipeline(PipelineState);
+	}
+
 	auto FVulkanCommandListContext::Finalize() -> void
 	{
 		CheckVulkanRHIThread();

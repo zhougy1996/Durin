@@ -1009,6 +1009,8 @@ namespace Durin
 			FRHIBufferCreateDesc::CreateVertex("RecordedBuffer", 64));
 		TRefCountPtr<FRHIShader> Shader = MakeRefCount<FRHIShader>(
 			FRHIShaderDesc(EShaderFrequency::Vertex, FXxHash128{}));
+		FGraphicsPipelineStateRHIRef PipelineState =
+			MakeRefCount<FRHIGraphicsPipelineState>();
 
 		FRHIRenderPassInfo PassInfo;
 		PassInfo.ColorRenderTargets[0] = Texture.GetReference();
@@ -1018,6 +1020,7 @@ namespace Durin
 			Buffer.GetReference(), 1, 2, ERHIBindingType::UniformBuffer, 16, 32}};
 
 		Immediate.SwitchPipeline(ERHIPipeline::Graphics);
+		Immediate.SetGraphicsPipelineState(*PipelineState);
 		Immediate.BeginRenderPass(PassInfo, "OwnedPayloadPass");
 		Immediate.PushConstants(
 			EShaderStageFlags::Vertex, 4, static_cast<uint32>(PushBytes.size()), PushBytes.data());
@@ -1032,6 +1035,7 @@ namespace Durin
 		EXPECT_GT(Texture->GetRefCount(), 1u);
 		EXPECT_GT(Buffer->GetRefCount(), 1u);
 		EXPECT_GT(Shader->GetRefCount(), 1u);
+		EXPECT_GT(PipelineState->GetRefCount(), 1u);
 
 		Executor.Submit({}, ERHISubmitFlags::None);
 
@@ -1045,6 +1049,7 @@ namespace Durin
 		EXPECT_EQ(Texture->GetRefCount(), 1u);
 		EXPECT_EQ(Buffer->GetRefCount(), 1u);
 		EXPECT_EQ(Shader->GetRefCount(), 1u);
+		EXPECT_EQ(PipelineState->GetRefCount(), 1u);
 	}
 
 	TEST(FRHICommandListTests, ValidatesGraphicsPipelineAndRenderPassBalance)

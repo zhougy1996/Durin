@@ -182,7 +182,7 @@ namespace Durin::VulkanRHI
 		ImmediateContext = new FVulkanCommandListContext(RHI, *this, GraphicsQueue);
 
 		RenderPassManager = new FVulkanRenderPassManager(*this);
-		PipelineManager = new FVulkanPipelineStateCacheManager(*this);
+		PipelineManager = new FVulkanPipelineManager(*this);
 		DescriptorSetCache = new FVulkanDescriptorSetLayoutCache(*this);
 		GlobalDescriptorPool = new FVulkanGlobalDescriptorPool(*this);
 		DynamicUniformBufferAllocator = new FVulkanDynamicUniformBufferAllocator(*this);
@@ -416,6 +416,20 @@ namespace Durin::VulkanRHI
 	auto FVulkanDevice::NotifyDeleted_Image(vk::Image Image) -> void
 	{
 		GetRenderPassManager().NotifyDeleted_Image(Image);
+	}
+
+	auto FVulkanDevice::NotifyDeleted_GraphicsPipeline(
+		FVulkanGraphicsPipelineState* PipelineState) -> void
+	{
+		CheckVulkanRHIThread();
+		if (ImmediateContext)
+		{
+			ImmediateContext->NotifyDeleted_GraphicsPipeline(PipelineState);
+		}
+		for (FVulkanCommandListContext* Context : CommandContexts)
+		{
+			Context->NotifyDeleted_GraphicsPipeline(PipelineState);
+		}
 	}
 
 	auto FVulkanDevice::Destroy() -> void

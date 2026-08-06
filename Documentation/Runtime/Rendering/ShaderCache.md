@@ -71,6 +71,13 @@ last-known-good payload drawable when one exists, while a successful candidate
 replaces it atomically. See [Viewport Rendering](ViewportRendering.md) for the
 generation, diagnostic, device-invalidation, and shutdown contracts.
 
+Graphics-pipeline names are stable diagnostic labels, not cache identities.
+Every RHI graphics-PSO request creates a fresh complete candidate, even when a
+live pipeline has the same name. The demanding Renderer slot owns the logical
+PSO together with the typed shader payload used for binding and reload; a
+successful refresh therefore replaces both atomically without encoding a
+shader generation into the debug name.
+
 ## Validation and Publication
 
 A disk hit is published only when every requested artifact passes all checks:

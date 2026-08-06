@@ -4,8 +4,8 @@ Summary: Remove name-keyed RHI ownership of graphics PSOs so Renderer resource s
 
 Last reviewed: 2026-08-06
 
-Status: Active
-Completed:
+Status: Archived
+Completed: 2026-08-07
 
 ## Current Status
 
@@ -36,7 +36,27 @@ existing Vulkan reload test proves last-known-good and replacement behavior,
 but includes the shader generation in the PSO name, which avoids the production
 aliasing defect instead of detecting it.
 
-No implementation work has started.
+All implementation stages are complete. The backend-neutral name lookup and
+Vulkan name-keyed strong-ownership cache are removed; every graphics-PSO
+request now creates a fresh complete candidate and treats `DebugName` as
+diagnostic-only. Vulkan pipeline and pipeline-layout handles commit only after
+both native creation steps succeed, with deterministic rollback and nullable
+failure through the existing fallible RHI operation.
+
+All production creation sites retain PSOs in Renderer slots, keyed slot
+caches, Texture Editor or MonaImGui payloads, and validate nullable candidates
+before drawing or publication. Stable-name shader reload now proves failed
+refresh retention and successful replacement. Focused counters prove that the
+former backend reference is gone, while RHI command tests prove recorded draws
+retain a transient reference until replay completes. Non-owning Vulkan
+descriptor state is removed when a PSO dies so pointer reuse cannot revive stale
+state.
+
+Focused RHI, Vulkan, Renderer, and editor tests passed in the required executor
+modes. A full `all` build and 180-tick validation-clean hidden editor smoke
+completed from `Win64-Debug-DurinEditor-Tests`.
+
+Completed stages: 0-4.
 
 ## Goal
 
@@ -77,7 +97,7 @@ No implementation work has started.
   ownership into the RHI.
 - Defining the generic recoverable RHI executor boundary or auditing every
   non-pipeline factory. Those remain owned by
-  [Recoverable RHI Creation Failures](Archive/2026-08/RecoverableRHICreationFailures.md).
+  [Recoverable RHI Creation Failures](RecoverableRHICreationFailures.md).
 - Making programming errors such as invalid render-target layouts, missing
   required shaders, invalid vertex declarations, or incompatible reflected
   layouts recoverable cache misses.
@@ -175,7 +195,7 @@ No implementation work has started.
 - This plan owns graphics-PSO identity, removal of named ownership, transactional
   native pipeline publication, Renderer ownership audit, and reload/lifetime
   evidence.
-- [Recoverable RHI Creation Failures](Archive/2026-08/RecoverableRHICreationFailures.md) owns
+- [Recoverable RHI Creation Failures](RecoverableRHICreationFailures.md) owns
   the generic fallible synchronous-operation API, executor failure taxonomy,
   and complete-or-null policy shared by all RHI factories. The graphics-pipeline
   implementation in this plan consumes that boundary rather than adding a
@@ -201,26 +221,26 @@ No implementation work has started.
 
 ### Stage 0: Freeze the ownership boundary and make the defect reproducible
 
-- [ ] Inventory every `RHICreateGraphicsPipelineState` caller and record the
+- [x] Inventory every `RHICreateGraphicsPipelineState` caller and record the
   slot, keyed slot cache, explicit Renderer owner, or test fixture that retains
   the returned reference. Reject any call whose logical owner is the RHI name
   cache.
-- [ ] Confirm that `RHIGetGraphicsPipelineState` has no production consumer and
+- [x] Confirm that `RHIGetGraphicsPipelineState` has no production consumer and
   enumerate the interface implementations and test doubles that must be
   migrated when it is removed.
-- [ ] Change the Vulkan Renderer reload regression fixture to reuse one stable
+- [x] Change the Vulkan Renderer reload regression fixture to reuse one stable
   PSO diagnostic name across initial creation, broken refresh, corrected
   refresh, and forced refresh.
-- [ ] Add a same-name regression covering changed shader content and at least
+- [x] Add a same-name regression covering changed shader content and at least
   one non-shader initializer difference. On the current implementation the test
   must expose aliasing by pointer, rendered output, or the render-target-only
   assertion boundary.
-- [ ] Define focused lifetime evidence that can distinguish Renderer ownership
+- [x] Define focused lifetime evidence that can distinguish Renderer ownership
   from device-lifetime cache ownership without dereferencing a deleted object.
   Prefer test-only creation/destruction counters or an RHI deletion observation
   seam; also cover a recorded command that temporarily keeps the replaced PSO
   alive.
-- [ ] Record the implementation-stage dependency on the generic fallible RHI
+- [x] Record the implementation-stage dependency on the generic fallible RHI
   operation in the recoverable-RHI plan before changing exception behavior.
 
 #### Acceptance Gate
@@ -230,21 +250,36 @@ No implementation work has started.
   aliasing behavior while the lifetime test can detect a permanent backend
   reference.
 
+#### Stage 0 Handoff
+
+- Baseline commit: `56c8b955` (`docs(plans): archive completed August plans`).
+- Working set: the RHI/Vulkan factory surface, all eleven production creation
+  sites, the Vulkan factory fixture, Renderer reload fixture, and this plan.
+- Key symbols: `RHIGetGraphicsPipelineState`, `PSOCache`,
+  `TRenderResourceCreationSlot`, and `FSetGraphicsPipelineStateCommand`.
+- Decision: every production caller already has a Renderer, Texture Editor, or
+  MonaImGui owner; the only getter consumer was test boilerplate. Stable-name
+  rendered output, ref counts/counters, and recorded-command ownership form the
+  regression evidence.
+- Open questions: none; the recoverable-RHI boundary was already complete.
+- Validation: source inventory bounded the migration and the old same-name
+  manager path was confirmed to alias before its removal.
+
 ### Stage 1: Remove named PSO ownership and lookup
 
-- [ ] Remove `FDynamicRHI::RHIGetGraphicsPipelineState`, its Vulkan override,
+- [x] Remove `FDynamicRHI::RHIGetGraphicsPipelineState`, its Vulkan override,
   pipeline-manager lookup, and affected test-double boilerplate.
-- [ ] Remove `FVulkanPipelineStateCacheManager::PSOCache`, cache-hit layout
+- [x] Remove `FVulkanPipelineStateCacheManager::PSOCache`, cache-hit layout
   comparison, cache clearing, and all strong PSO ownership from the Vulkan
   device/manager.
-- [ ] Rename `Name` to `DebugName` in the graphics-pipeline factory boundary and
+- [x] Rename `Name` to `DebugName` in the graphics-pipeline factory boundary and
   carry it only into diagnostics and supported Vulkan debug labels.
-- [ ] Make the Vulkan manager create a fresh graphics PSO for every request. If
+- [x] Make the Vulkan manager create a fresh graphics PSO for every request. If
   the remaining class primarily owns structural layout caches, rename or split
   it so its API does not imply logical PSO caching.
-- [ ] Preserve descriptor-set-layout and render-pass sharing only where their
+- [x] Preserve descriptor-set-layout and render-pass sharing only where their
   existing full value keys and device-lifetime ownership remain valid.
-- [ ] Update compile-time mocks and focused RHI API tests to reflect a
+- [x] Update compile-time mocks and focused RHI API tests to reflect a
   creation-only graphics-PSO interface.
 
 #### Acceptance Gate
@@ -254,28 +289,42 @@ No implementation work has started.
   last Renderer/command reference makes each object eligible for normal RHI
   deletion.
 
+#### Stage 1 Handoff
+
+- Baseline commit: `56c8b955`.
+- Working set: `DynamicRHI.h`, Vulkan dynamic-RHI/device/pipeline manager files,
+  and compile-time test doubles.
+- Key symbols: `RHICreateGraphicsPipelineState`, `FVulkanPipelineManager`, and
+  `DebugName`.
+- Decision: creation is always fresh; only structural descriptor layouts and
+  render passes remain cached. The renamed manager no longer advertises PSO
+  caching.
+- Open questions: none.
+- Validation: same-name identical and fixed-state-varied requests return
+  distinct one-owner PSOs; the removed getter has no remaining live reference.
+
 ### Stage 2: Make Vulkan graphics-pipeline creation transactional
 
-- [ ] Refactor `FVulkanGraphicsPipelineState` construction into a factory or
+- [x] Refactor `FVulkanGraphicsPipelineState` construction into a factory or
   private committed-object constructor fed by local candidate native handles.
-- [ ] Validate required shaders, vertex declaration, render-target layout,
+- [x] Validate required shaders, vertex declaration, render-target layout,
   reflected binding layouts, push constants, and supported fixed-function state
   before publishing any object.
-- [ ] Initialize the native pipeline and pipeline-layout candidates to null;
+- [x] Initialize the native pipeline and pipeline-layout candidates to null;
   destroy the pipeline layout immediately if native pipeline creation returns
   non-success or a later pre-commit step fails.
-- [ ] Return null for explicit native pipeline-creation failure and never add a
+- [x] Return null for explicit native pipeline-creation failure and never add a
   failed object to an owning container, RHI pending-delete list, or Vulkan
   deferred-deletion queue.
-- [ ] Require destructors and bind/push-constant methods to operate only on
+- [x] Require destructors and bind/push-constant methods to operate only on
   committed valid handles. Remove unused shader-retention members/helpers, or
   replace them with real owned references only if a documented backend lifetime
   requirement is found.
-- [ ] Route thrown native creation failures through the single explicitly
+- [x] Route thrown native creation failures through the single explicitly
   fallible synchronous operation introduced by the recoverable-RHI plan. Do not
   catch device loss, executor failure, or invariant violations as ordinary PSO
   misses.
-- [ ] Add deterministic failure injection for pipeline-layout creation and
+- [x] Add deterministic failure injection for pipeline-layout creation and
   graphics-pipeline creation, including cleanup counts and a successful later
   attempt on the same RHI thread.
 
@@ -286,25 +335,40 @@ No implementation work has started.
   exactly once, and an expected injected failure neither poisons a later attempt
   nor creates a persistent failed identity.
 
+#### Stage 2 Handoff
+
+- Baseline commit: `56c8b955`.
+- Working set: Vulkan pipeline construction, failure injection, pending graphics
+  descriptor state, device/context deletion notifications, and Vulkan tests.
+- Key symbols: `CandidatePipelineLayout`, `CandidatePipeline`,
+  `EVulkanCreateFailurePoint::PipelineLayout`, and
+  `NotifyDeletedPipeline`.
+- Decision: native handles remain local until complete commit; Vulkan PSOs do
+  not retain shaders after synchronous creation. Destruction removes non-owning
+  per-context descriptor state before an address can be reused.
+- Open questions: none.
+- Validation: pipeline-layout and pipeline failure/retry, rollback counts,
+  wrapper destruction counts, and the full Vulkan suite passed validation.
+
 ### Stage 3: Enforce Renderer-owned reload and aggregate lifetime
 
-- [ ] Audit Static Mesh, Sky Box, Post Process, editor-assistance, Texture
+- [x] Audit Static Mesh, Sky Box, Post Process, editor-assistance, Texture
   Editor, tests, and any newly discovered callers so every successful PSO is
   retained by a Renderer slot payload or another explicit Renderer owner.
-- [ ] Require every factory to validate each returned PSO before candidate
+- [x] Require every factory to validate each returned PSO before candidate
   commit and return an owned `GraphicsPipeline` failure with shader, device, and
   manual retry dependencies as appropriate.
-- [ ] Keep stable descriptive `DebugName` values. Remove any generation suffix
+- [x] Keep stable descriptive `DebugName` values. Remove any generation suffix
   whose only purpose is to defeat backend caching; retain semantic identity
   text such as feature, output variant, topology, depth mode, or slot index when
   it improves diagnostics.
-- [ ] Verify multi-PSO candidates release already-created members when a later
+- [x] Verify multi-PSO candidates release already-created members when a later
   member fails and keep the previous complete aggregate as `StaleReady` where
   the slot contract permits it.
-- [ ] Verify successful shader refresh installs distinct PSO and shader
+- [x] Verify successful shader refresh installs distinct PSO and shader
   payloads atomically, while an already-recorded draw can safely finish using
   the old PSO before deferred deletion.
-- [ ] Verify slot reset, device invalidation, Renderer shutdown, and RHI shutdown
+- [x] Verify slot reset, device invalidation, Renderer shutdown, and RHI shutdown
   drain logical PSO references and native deferred deletions in the required
   order without pending-delete assertions.
 
@@ -315,29 +379,44 @@ No implementation work has started.
   independent, and replaced/reset PSOs are reclaimed after transient command
   references retire.
 
+#### Stage 3 Handoff
+
+- Baseline commit: `56c8b955`.
+- Working set: all Renderer/editor/ImGui graphics-PSO owners, the stable-name
+  reload fixture, and RHI recorded-command lifetime coverage.
+- Key symbols: `TRenderResourceCreationSlot`,
+  `TRendererResourceSlotCache`, `FReloadTestPayload`, and
+  `FSetGraphicsPipelineStateCommand`.
+- Decision: existing candidate aggregates already validate nullable PSOs and
+  release partial candidates by local ownership; only the regression fixture's
+  generation-suffixed name required removal.
+- Open questions: none.
+- Validation: Renderer reload passed dedicated and inline execution; Renderer
+  slot/cache and render-contract suites passed 33/33 and 37/37.
+
 ### Stage 4: Validate end to end and publish the lasting contract
 
-- [ ] Add focused RHI tests for the creation-only public interface and recorded
+- [x] Add focused RHI tests for the creation-only public interface and recorded
   command PSO reference lifetime.
-- [ ] Add focused Vulkan tests for same-name creation with identical and changed
+- [x] Add focused Vulkan tests for same-name creation with identical and changed
   immutable inputs, explicit native failure, cleanup, later retry, and shutdown
   with validation layers enabled.
-- [ ] Run Renderer slot/cache tests and the stable-name Vulkan reload test in
+- [x] Run Renderer slot/cache tests and the stable-name Vulkan reload test in
   both dedicated-thread and `DURIN_RHI_EXECUTION=inline` modes.
-- [ ] Run the affected native test targets and a successful full `all` build
-  through the root [build and run](../Development/Build/BuildAndRun.md)
+- [x] Run the affected native test targets and a successful full `all` build
+  through the root [build and run](../../../Development/Build/BuildAndRun.md)
   workflow.
-- [ ] Run the verified editor from the same Agent Build Profile; smoke Static
+- [x] Run the verified editor from the same Agent Build Profile; smoke Static
   Mesh, Sky Box, Post Process, editor-assistance variants, shader reload
   changed/all, failed refresh, corrected refresh, resize, and orderly shutdown.
-- [ ] Update [Shader Cache](../Runtime/Rendering/ShaderCache.md) and
-  [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md) to state that
+- [x] Update [Shader Cache](../../../Runtime/Rendering/ShaderCache.md) and
+  [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md) to state that
   Renderer slots own logical PSOs, names are diagnostic-only, and the RHI
   publishes complete-or-null candidates.
-- [ ] Update the [Compute Shader Pipeline](../Roadmaps/ComputeShaderPipeline.md)
+- [x] Update the [Compute Shader Pipeline](../../../Roadmaps/ComputeShaderPipeline.md)
   roadmap so future compute PSOs inherit the same ownership and diagnostic-name
   boundary rather than introducing a parallel named cache.
-- [ ] Update the recoverable-RHI plan's graphics-pipeline evidence and both
+- [x] Update the recoverable-RHI plan's graphics-pipeline evidence and both
   plans' stage handoffs when the shared fallible factory boundary is validated.
 
 #### Acceptance Gate
@@ -346,6 +425,23 @@ No implementation work has started.
   validation, stable-name shader reload, resource release, and editor smoke all
   pass; lasting documentation and the compute roadmap describe one consistent
   PSO ownership model.
+
+#### Stage 4 Handoff
+
+- Baseline commit: `56c8b955`.
+- Working set: focused RHI/Vulkan/Renderer tests, `ShaderCache.md`,
+  `ViewportRendering.md`, the compute roadmap, the recoverable-RHI cross-plan
+  note, and this plan.
+- Key symbols: creation-only `RHICreateGraphicsPipelineState`, stable
+  `DebugName`, and `FVulkanGraphicsPipelineTestStats`.
+- Decision: future compute PSOs inherit complete-or-null fresh creation and
+  explicit consumer ownership; any reuse cache requires a separate descriptor
+  identity and bounded-ownership design.
+- Open questions: none.
+- Validation: RHI command list 39/39, RHI initialization 4/4, Vulkan 9/9,
+  stable-name reload 1/1 in both executor modes, full `all` build, documentation
+  validation, and a validation-clean 180-tick editor smoke passed from
+  `Win64-Debug-DurinEditor-Tests`.
 
 ## Validation Matrix
 
@@ -397,12 +493,12 @@ No implementation work has started.
 
 ## Related Documentation
 
-- [Recoverable RHI Creation Failures](Archive/2026-08/RecoverableRHICreationFailures.md)
-- [Shader Cache](../Runtime/Rendering/ShaderCache.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Compute Shader Pipeline](../Roadmaps/ComputeShaderPipeline.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Recoverable RHI Creation Failures](RecoverableRHICreationFailures.md)
+- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Compute Shader Pipeline](../../../Roadmaps/ComputeShaderPipeline.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 
