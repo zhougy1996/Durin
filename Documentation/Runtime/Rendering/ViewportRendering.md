@@ -218,6 +218,13 @@ attempts, dynamic capacities, and diagnostics together.
 
 ## Recoverable Renderer Resources
 
+Nullable RHI creation is a complete-or-null boundary. Vulkan buffer, texture,
+shader, graphics-pipeline, sampler, and vertex-declaration factories publish a
+reference only after all native handles and allocations required by that object
+exist. Expected creation failure returns null without failing the RHI executor;
+device loss, command replay, submission, presentation, and invariant failures
+remain terminal.
+
 Fixed Renderer resources, static-mesh shader and pipeline identities, editor
 assistance, shared fullscreen geometry, and Texture Editor preview resources
 use `TRenderResourceCreationSlot`. A slot constructs a complete candidate in
@@ -234,6 +241,20 @@ the same failure again. A later relevant generation permits one new lazy
 attempt. Shader and manual refresh failures may retain a complete
 last-known-good payload as stale-ready; device-generation changes discard old
 RHI payloads before attempting replacement.
+
+Last-known-good retention is limited to a slot's declared dependency contract.
+A shader or manual refresh may retain a complete payload only while its device
+generation remains current. Device invalidation clears every device-dependent
+payload, so stale RHI objects are never used as fallback across a device
+generation. This invalidation seam coordinates resource reconstruction; it does
+not recover a lost Vulkan device or a failed RHI executor.
+
+Size-keyed scene color and depth targets use the same device-dependent slot
+semantics. A failed color/depth pair publishes no cache tombstone, and another
+lookup in the same device/manual generation is suppressed instead of allocating
+every frame. Device or manual invalidation, or normal bounded identity eviction,
+makes a later attempt eligible. The cache continues to retain at most eight size
+identities.
 
 Renderer owns these development commands:
 
@@ -296,6 +317,23 @@ Viewport creation uses a synchronous executor operation. Resize retains its
 main-to-render notification, then the render command synchronously marshals the
 backend phase after all earlier recorded work; no game or rendering thread may
 mutate the swapchain directly.
+
+Vulkan creates or replaces viewport output transactionally. A candidate owns
+the new swapchain, images, image views, acquire and rendering-done semaphores,
+present fences, and frame state until every required part succeeds. Only then
+does the viewport atomically commit the candidate. Failure before native
+swapchain creation may retain the old complete output when Vulkan still permits
+its use. Failure after native replacement has retired that old output exposes an
+explicitly unavailable viewport with no backbuffer.
+
+Backbuffer acquisition resolves synchronously before drawing is recorded. An
+unavailable result skips only that viewport for the frame; other window-backed,
+render-target-backed, and auxiliary viewports continue. Identical creation
+failures are suppressed until resize, an out-of-date/suboptimal surface event,
+an extent/fullscreen/present-mode change, or an explicit recreate/retry makes a
+new attempt eligible. Successful recovery commits one complete output and emits
+one recovery diagnostic. Device loss and unrecoverable surface/device failures
+remain terminal rather than entering the swapchain retry state.
 
 Viewport teardown waits only the affected swapchain to become idle, then
 destroys that viewport's image views, rendering-done and acquire semaphores,

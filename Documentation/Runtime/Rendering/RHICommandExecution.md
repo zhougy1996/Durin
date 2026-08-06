@@ -100,9 +100,34 @@ that must return a completed result—buffer lock scopes, texture readback,
 back-buffer acquisition, GPU-idle waits, resource creation, viewport resize,
 and backend-dependent allocation—use declared synchronous executor operations.
 They first complete required earlier recorded work and execute backend mutation
-on the RHI thread. A waiter always targets the exact accepted serial and a
-failure or admission rejection is terminal rather than silently falling back
-to producer-thread backend work.
+on the RHI thread. The normal `ExecuteSynchronousOperation` surface is terminal:
+a waiter always targets the exact accepted serial, and operation failure or
+admission rejection never falls back to producer-thread backend work.
+
+### Fallible Resource Creation
+
+`ExecuteFallibleSynchronousOperation` is the narrow exception for expected
+runtime resource-creation failure. Its `FRHIFallibleOperationResult` owns a
+success flag and diagnostic text. In threaded mode, the queued wrapper catches
+the creation exception, records operation failure, and completes the queue entry
+successfully so its serial and later admitted work remain valid. Inline mode
+returns the same result directly. A Vulkan factory already executing on the RHI
+thread catches at the same boundary without enqueueing and waiting on itself.
+
+Nullable runtime factories translate only that operation-failure result into a
+null RHI reference. Buffer, texture, shader, graphics-pipeline, sampler, and
+vertex-declaration factories must otherwise publish a complete resource; a
+non-null wrapper with an invalid native handle or allocation is forbidden.
+Partially built native candidates clean up immediately on the RHI thread, and a
+later caller-defined or Renderer-generation retry may create a fresh candidate.
+
+Executor admission, serial wait, replay-context, queue, device-loss, and
+already-recorded command failures do not become a fallible result. Startup
+instance, device, and allocator creation also stays outside this surface: it
+aborts `RHIInit()`, rolls back the unpublished backend, and publishes one owned
+initialization diagnostic. Frame-critical staging, upload, readback, submission,
+presentation, and dynamic-uniform overflow remain terminal unless their own
+public contract explicitly permits failure.
 
 At `BeginFrame`, Vulkan waits the selected GPU frame-slot fence and publishes
 one preallocated 4 MiB mapped dynamic-uniform page lease to the rendering

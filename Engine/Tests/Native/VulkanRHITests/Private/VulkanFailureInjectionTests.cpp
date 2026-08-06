@@ -115,6 +115,29 @@ namespace Durin::VulkanRHI
 	}
 
 	TEST_F(FVulkanCreateFailureInjectionTests,
+		InlineRuntimeFactoryFailureReturnsNullThenRecovers)
+	{
+		_putenv_s("DURIN_RHI_EXECUTION", "inline");
+		ASSERT_TRUE(RHIInit());
+		EXPECT_EQ(GRHIThread, nullptr);
+
+		FRHICommandListImmediate& RHICmdList =
+			FRHICommandListImmediate::Get();
+		const FRHIBufferCreateDesc BufferDesc = FRHIBufferCreateDesc::Create(
+			"RecoverableInlineBuffer", 256, 16,
+			EBufferUsageFlags::VertexBuffer | EBufferUsageFlags::Static);
+		ArmVulkanCreateFailure(EVulkanCreateFailurePoint::Buffer);
+		EXPECT_FALSE(GDynamicRHI->RHICreateBuffer(RHICmdList, BufferDesc));
+		FBufferRHIRef Buffer =
+			GDynamicRHI->RHICreateBuffer(RHICmdList, BufferDesc);
+		ASSERT_TRUE(Buffer);
+
+		Buffer = nullptr;
+		RHICmdList.ImmediateFlush(
+			EImmediateFlushType::FlushRHIThreadFlushResources);
+	}
+
+	TEST_F(FVulkanCreateFailureInjectionTests,
 		RuntimeFactoriesReturnNullThenRecoverOnTheSameRHIThread)
 	{
 		ASSERT_TRUE(RHIInit());

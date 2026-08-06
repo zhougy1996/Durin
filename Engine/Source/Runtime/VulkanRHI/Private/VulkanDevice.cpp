@@ -258,17 +258,30 @@ namespace Durin::VulkanRHI
 
 		vk::PhysicalDeviceFeatures DeviceFeatures;
 		DeviceFeatures.fillModeNonSolid = vk::True;
+		vk::PhysicalDeviceVulkan11Features SupportedVulkan11Features;
+		vk::PhysicalDeviceFeatures2 SupportedFeatures;
+		SupportedFeatures.setPNext(&SupportedVulkan11Features);
+		Gpu.getFeatures2(&SupportedFeatures);
+		if (SupportedVulkan11Features.shaderDrawParameters != vk::True)
+		{
+			throw std::runtime_error(
+				"Vulkan physical device does not support the required "
+				"shaderDrawParameters feature.");
+		}
 
 		vk::DeviceCreateInfo DeviceInfo;
+		vk::PhysicalDeviceVulkan11Features Vulkan11Features;
 		vk::PhysicalDeviceSwapchainMaintenance1FeaturesEXT SwapchainMaintenanceFeatures;
 		DeviceInfo.setQueueCreateInfos(QueueCreateInfos);
 		DeviceInfo.setPEnabledFeatures(&DeviceFeatures);
 		DeviceInfo.setEnabledExtensionCount(static_cast<uint32>(DeviceExtensions.size()));
 		DeviceInfo.setPpEnabledExtensionNames(DeviceExtensions.data());
+		Vulkan11Features.shaderDrawParameters = vk::True;
+		DeviceInfo.setPNext(&Vulkan11Features);
 		if (bSupportsSwapchainMaintenance1)
 		{
 			SwapchainMaintenanceFeatures.swapchainMaintenance1 = vk::True;
-			DeviceInfo.setPNext(&SwapchainMaintenanceFeatures);
+			Vulkan11Features.setPNext(&SwapchainMaintenanceFeatures);
 		}
 
 		try

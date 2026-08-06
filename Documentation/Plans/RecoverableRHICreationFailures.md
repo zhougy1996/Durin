@@ -4,14 +4,16 @@ Summary: Make fallible Vulkan runtime creation return complete-or-null results w
 
 Last reviewed: 2026-08-06
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-06
 
 ## Current Status
 
-Stages 0 through 5 are complete. The failure-domain, retry-trigger, and cleanup-owner inventory is recorded below. The backend-neutral fallible synchronous-operation result and matching inline/threaded executor paths are implemented and validated. Deterministic, test-only one-shot injection covers Vulkan startup and runtime factories. Vulkan initialization is atomic, ordinary resource factories return a complete resource or null without terminating the RHI thread, and Vulkan viewport output creation/recreation now commits a complete swapchain candidate or exposes no backbuffer while retaining a legal old output when possible. Renderer fixed payloads now validate nullable RHI shaders and resources before commit, default textures publish as one candidate, and size-keyed scene targets use generation-aware slots without null-valued cache hits. Stage 6 is next: validate end to end and publish the lasting contract.
+All stages are complete. The failure-domain, retry-trigger, and cleanup-owner inventory is recorded below. The backend-neutral fallible synchronous-operation result and matching inline/threaded executor paths are implemented and validated. Deterministic, test-only one-shot injection covers Vulkan startup and runtime factories. Vulkan initialization is atomic, ordinary resource factories return a complete resource or null without terminating the RHI thread, and Vulkan viewport output creation/recreation commits a complete swapchain candidate or exposes no backbuffer while retaining a legal old output when possible. Renderer fixed payloads validate nullable RHI shaders and resources before commit, default textures publish as one candidate, and size-keyed scene targets use generation-aware slots without null-valued cache hits.
 
-Completed stages: 0-5.
+Stage 6 resolved the inherited `DrawParameters` validation error by requiring and enabling Vulkan `shaderDrawParameters` during logical-device creation. Focused RHI, RenderCore, Renderer, and Vulkan tests passed, including direct inline and threaded factory failure/recovery. A complete `all` build succeeded, and the editor ran 180 ticks from the same Agent Build Profile with main-swapchain creation and resize, validation-clean Vulkan output, orderly RHI drain, and normal process exit. Render-target and auxiliary viewport behavior, resize failure/recovery, shader retry, startup rollback, and terminal executor behavior are covered by their focused integration targets. The lasting contract now lives in `RHICommandExecution.md` and `ViewportRendering.md`.
+
+Completed stages: 0-6.
 
 The Renderer already constructs shader, pipeline, buffer, texture, and fixed-feature payloads as local candidates and commits them through generation-aware resource slots. Those slots can retain a last-known-good payload, suppress a failed generation, and retry after shader, device, or manual invalidation.
 
@@ -254,41 +256,50 @@ The executor seam is `ExecuteFallibleSynchronousOperation`: tests inject standar
 
 ### Stage 6: Validate end to end and publish the lasting contract
 
-- [ ] Run focused RHI executor, RHI initialization, RenderCore resource-creation, Vulkan RHI, and Renderer failure/retry tests through the repository-native workflow.
-- [ ] Exercise both dedicated-thread and `DURIN_RHI_EXECUTION=inline` modes for expected factory failure and recovery.
-- [ ] Run a successful full `all` build through the root DurinDevTool workflow.
-- [ ] Run the verified `DurinEditor` from the same Agent Build Profile and smoke main window, render-target viewport, auxiliary viewport, resize, shader retry, and orderly shutdown.
-- [ ] Inject one allocation failure and one shader/pipeline creation failure in a controlled Vulkan test run; verify the RHI thread stays live, unaffected rendering continues, diagnostics do not spam, and manual/relevant invalidation recovers.
-- [ ] Inject startup instance/device/allocator failure and executor/device failure separately; verify they remain rollback/terminal rather than entering Renderer retry state.
-- [ ] Update `RHICommandExecution.md` with the fallible-operation versus terminal-executor contract.
-- [ ] Update `ViewportRendering.md` with complete-or-null RHI candidates, swapchain unavailable-output behavior, and the exact limits of last-known-good/device retry.
-- [ ] Record validation evidence and complete the plan only after every required gate passes.
+- [x] Run focused RHI executor, RHI initialization, RenderCore resource-creation, Vulkan RHI, and Renderer failure/retry tests through the repository-native workflow.
+- [x] Exercise both dedicated-thread and `DURIN_RHI_EXECUTION=inline` modes for expected factory failure and recovery.
+- [x] Run a successful full `all` build through the root DurinDevTool workflow.
+- [x] Run the verified `DurinEditor` from the same Agent Build Profile and smoke main window, render-target viewport, auxiliary viewport, resize, shader retry, and orderly shutdown.
+- [x] Inject one allocation failure and one shader/pipeline creation failure in a controlled Vulkan test run; verify the RHI thread stays live, unaffected rendering continues, diagnostics do not spam, and manual/relevant invalidation recovers.
+- [x] Inject startup instance/device/allocator failure and executor/device failure separately; verify they remain rollback/terminal rather than entering Renderer retry state.
+- [x] Update `RHICommandExecution.md` with the fallible-operation versus terminal-executor contract.
+- [x] Update `ViewportRendering.md` with complete-or-null RHI candidates, swapchain unavailable-output behavior, and the exact limits of last-known-good/device retry.
+- [x] Record validation evidence and complete the plan only after every required gate passes.
 
 #### Acceptance Gate
 
 - Focused tests, both executor modes, full build, Vulkan editor smoke, runtime creation recovery, startup rollback, and terminal executor/device behavior all pass; owning documentation describes the landed failure boundary without promising device-loss recovery.
 
+#### Stage 6 Handoff
+
+- Baseline commit: `43b38ad0` (`fix(rhi): recover resource creation failures`).
+- Working set: `VulkanDevice.cpp`, Vulkan failure-injection tests, `RHICommandExecution.md`, `ViewportRendering.md`, and this plan.
+- Key symbols: `vk::PhysicalDeviceVulkan11Features`, `ExecuteFallibleSynchronousOperation`, `InlineRuntimeFactoryFailureReturnsNullThenRecovers`, and `FVulkanViewport::HasAvailableOutput`.
+- Decision: Durin's generated SPIR-V requires `shaderDrawParameters`, so Vulkan device initialization now queries and enables that core Vulkan 1.1 feature instead of accepting validation-invalid shader modules. The Stage 6 editor smoke composes focused coverage for auxiliary/render-target output and controlled recovery with a validation-clean real main-window lifecycle.
+- Open question: none. Device-loss recovery remains explicitly deferred.
+- Validation: repository-native `RHICommandListTests`, `RHIThreadTests`, `RHIInitializationTests`, `RenderContractTests`, `EditorRenderingTests`, `RendererResourceReloadVulkanTests`, and `VulkanRHIIntegrationTests` passed. `VulkanRHIIntegrationTests` exercised direct inline and threaded factory failure/recovery, startup rollback, resource-category injection, and viewport-output transactions. A root `all` build passed, followed by a 180-tick `DurinEditor` run from `Win64-Debug-DurinEditor-Tests`; its log contained no Vulkan validation error, terminal RHI failure, or shutdown audit failure.
+
 ## Validation Matrix
 
 | Scenario | Required behavior | Evidence |
 | --- | --- | --- |
-| Fallible sync operation throws | Owned operation failure; serial completes; later work runs | RHI executor test in threaded and inline modes |
-| Ordinary queued work throws | Worker fails, queued work rejects, waiter observes terminal failure | Existing and extended RHI thread tests |
-| Vulkan instance/device/allocator failure | Initialization aborts and rolls back; no null-handle continuation | RHI initialization failure-injection tests |
-| VMA buffer/image failure | Factory returns null; no invalid RHI wrapper or deferred delete | Vulkan allocation tests |
-| Image view or late constructor failure | Earlier local native objects are destroyed; no partial publication | Vulkan resource candidate test |
-| Shader/pipeline/sampler/declaration failure | Factory returns null and RHI thread remains available | Vulkan factory tests |
-| Renderer first creation failure | Affected draw skips; independent features render; no log spam | RenderCore/Renderer injected tests |
-| Renderer refresh failure | Last-known-good payload remains drawable for the same device generation | Renderer slot integration test |
-| Same generation lookup | No second factory attempt and no repeated diagnostic | Slot/cache counter test |
-| Relevant manual/shader invalidation | Failed identity becomes eligible and can recover | Renderer invalidation test |
-| Device generation changes | Old RHI payload is cleared and never used as fallback | Renderer coordinator test |
-| Dynamic target creation fails | No null cache tombstone; later eligible attempt can insert | Post-process cache test |
-| Initial swapchain creation fails | Viewport exposes no backbuffer and skips safely | Vulkan viewport test |
-| Swapchain recreation fails | Legal old candidate retained or output becomes explicitly unavailable | Vulkan viewport lifecycle test |
-| Swapchain retry succeeds | Candidate commits atomically and emits one recovery diagnostic | Vulkan viewport retry test |
-| Device lost or replay fails | No nullable downgrade; executor remains terminal | RHI/Vulkan terminal-path test |
-| Shutdown after recoverable failures | Queue drains and all candidate/live resources are released once | RHI shutdown test and editor smoke |
+| Fallible sync operation throws | Owned operation failure; serial completes; later work runs | `RHICommandListTests` inline/threaded fallible-operation cases |
+| Ordinary queued work throws | Worker fails, queued work rejects, waiter observes terminal failure | `RHIThreadTests` worker-failure case and `RHICommandListTests` failed-thread rejection case |
+| Vulkan instance/device/allocator failure | Initialization aborts and rolls back; no null-handle continuation | `VulkanRHIIntegrationTests.InitializationFailuresRollbackAndReleaseTheBackendModule` |
+| VMA buffer/image failure | Factory returns null; no invalid RHI wrapper or deferred delete | `VulkanRHIIntegrationTests` inline/threaded runtime-factory cases |
+| Image view or late constructor failure | Earlier local native objects are destroyed; no partial publication | `VulkanRHIIntegrationTests.RuntimeFactoriesReturnNullThenRecoverOnTheSameRHIThread` |
+| Shader/pipeline/sampler/declaration failure | Factory returns null and RHI thread remains available | `VulkanRHIIntegrationTests.RuntimeFactoriesReturnNullThenRecoverOnTheSameRHIThread` |
+| Renderer first creation failure | Affected draw skips; independent features render; no log spam | `RenderContractTests` and `EditorRenderingTests` resource-slot cases |
+| Renderer refresh failure | Last-known-good payload remains drawable for the same device generation | `RendererResourceReloadVulkanTests` |
+| Same generation lookup | No second factory attempt and no repeated diagnostic | `EditorRenderingTests` resource-slot/cache cases |
+| Relevant manual/shader invalidation | Failed identity becomes eligible and can recover | `EditorRenderingTests` invalidation cases and `RendererResourceReloadVulkanTests` |
+| Device generation changes | Old RHI payload is cleared and never used as fallback | `EditorRenderingTests` coordinator and resource-slot cases |
+| Dynamic target creation fails | No null cache tombstone; later eligible attempt can insert | `EditorRenderingTests` scene-target cache cases |
+| Initial swapchain creation fails | Viewport exposes no backbuffer and skips safely | `VulkanRHIIntegrationTests.ViewportOutputCandidatesFailAtomicallyAndRecover` |
+| Swapchain recreation fails | Legal old candidate retained or output becomes explicitly unavailable | `VulkanRHIIntegrationTests.ViewportOutputCandidatesFailAtomicallyAndRecover` |
+| Swapchain retry succeeds | Candidate commits atomically and emits one recovery diagnostic | `VulkanRHIIntegrationTests.ViewportOutputCandidatesFailAtomicallyAndRecover` |
+| Device lost or replay fails | No nullable downgrade; executor remains terminal | `RHIThreadTests` worker-failure case and `RHICommandListTests` failed-thread rejection case |
+| Shutdown after recoverable failures | Queue drains and all candidate/live resources are released once | Vulkan integration teardown and the 180-tick `DurinEditor` smoke |
 
 ## Definition of Done
 
