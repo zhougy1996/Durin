@@ -1118,6 +1118,32 @@ namespace Durin
 			ImGui::PopStyleColor();
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Asset::GetAssetRegistry().GetScanErrors().front().Message.c_str());
 		}
+		if (!Model.GetEnumerationDiagnostics().empty())
+		{
+			const size_t ErrorCount = Model.GetEnumerationDiagnostics().size()
+				+ Model.GetSuppressedEnumerationDiagnosticCount();
+			ImGui::SameLine();
+			ImGui::PushStyleColor(
+				ImGuiCol_Text,
+				MonaImGui::GetThemeColor(MonaImGui::EUIThemeColor::Warning));
+			ImGui::Text("| %zu enumeration warning(s)", ErrorCount);
+			ImGui::PopStyleColor();
+			if (ImGui::IsItemHovered())
+			{
+				const FContentBrowserModel::FEnumerationDiagnostic& First =
+					Model.GetEnumerationDiagnostics().front();
+				const std::string Tooltip = std::format(
+					"{}\n{}{}",
+					First.PhysicalPath,
+					First.Message,
+					Model.GetSuppressedEnumerationDiagnosticCount() == 0
+						? ""
+						: std::format(
+							"\n{} additional warning(s) suppressed.",
+							Model.GetSuppressedEnumerationDiagnosticCount()));
+				ImGui::SetTooltip("%s", Tooltip.c_str());
+			}
+		}
 	}
 
 	auto FContentBrowserPanel::DrawRenameEditor(const FContentBrowserItem& Item) -> void

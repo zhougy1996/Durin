@@ -24,6 +24,11 @@ Search is recursive beneath the current directory. Ordinary browsing shows
 only immediate children. Folders sort before other items, after which the
 selected stable sort applies.
 
+Filesystem enumeration isolates per-entry inspection failures from iterator
+progress. An unreadable entry is skipped without truncating later siblings;
+traversal failures stop safely and appear as bounded warnings in the status bar.
+Reparse points are never followed while building the snapshot or directory tree.
+
 ## Hidden Content
 
 Any item beneath a path component whose name starts with `.` is hidden by

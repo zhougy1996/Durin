@@ -71,6 +71,23 @@ namespace Durin
 	class FContentBrowserModel
 	{
 	public:
+		enum class EEnumerationDiagnosticKind : uint8
+		{
+			Entry,
+			Traversal,
+		};
+
+		struct FEnumerationDiagnostic
+		{
+			EEnumerationDiagnosticKind Kind = EEnumerationDiagnosticKind::Entry;
+			std::string PhysicalPath;
+			std::string Message;
+		};
+
+		using FEntryStatusQuery = std::function<std::filesystem::file_status(
+			const std::filesystem::directory_entry&,
+			std::error_code&)>;
+
 		// Maps one virtual mount to its source and imported physical roots.
 		struct FMountSnapshot
 		{
@@ -121,6 +138,12 @@ namespace Durin
 		auto IsSortAscending() const -> bool { return bSortAscending; }
 		auto IsShowingHiddenFiles() const -> bool { return bShowHiddenFiles; }
 		auto IsShowingRedirectors() const -> bool { return bShowRedirectors; }
+		auto GetEnumerationDiagnostics() const
+			-> std::span<const FEnumerationDiagnostic> { return EnumerationDiagnostics; }
+		auto GetSuppressedEnumerationDiagnosticCount() const -> size_t
+		{
+			return SuppressedEnumerationDiagnosticCount;
+		}
 
 		auto GetDirectoryChildren(std::string_view PhysicalDirectory)
 			-> std::span<const std::filesystem::path>;
@@ -130,8 +153,19 @@ namespace Durin
 			std::string CurrentDirectory,
 			std::vector<FContentBrowserItem> Snapshot
 		) -> void;
+		auto SetEntryStatusQueryForTesting(FEntryStatusQuery Query) -> void
+		{
+			EntryStatusQuery = std::move(Query);
+		}
 
 	private:
+		auto QueryEntryStatus(
+			const std::filesystem::directory_entry& Entry,
+			std::error_code& Error) const -> std::filesystem::file_status;
+		auto AddEnumerationDiagnostic(
+			EEnumerationDiagnosticKind Kind,
+			const std::filesystem::path& Path,
+			std::string Message) -> void;
 		auto MatchesTypeFilter(const FContentBrowserItem& Item) const -> bool;
 
 		std::string CurrentPhysicalPath;
@@ -140,6 +174,9 @@ namespace Durin
 		std::unordered_map<std::string, std::vector<std::filesystem::path>> DirectoryChildrenCache;
 		std::vector<FContentBrowserItem> ItemsSnapshot;
 		std::vector<FContentBrowserItem> Items;
+		std::vector<FEnumerationDiagnostic> EnumerationDiagnostics;
+		size_t SuppressedEnumerationDiagnosticCount = 0;
+		FEntryStatusQuery EntryStatusQuery;
 		std::vector<std::string> NavigationHistory;
 		int32 HistoryIndex = -1;
 		std::string Search;

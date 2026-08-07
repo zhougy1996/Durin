@@ -288,46 +288,82 @@ namespace Durin
 	{
 		DirectoryChildrenCache.clear();
 		ItemsSnapshot.clear();
+		EnumerationDiagnostics.clear();
+		SuppressedEnumerationDiagnosticCount = 0;
 		if (CurrentPhysicalPath.empty())
 		{
 			Items.clear();
 			return;
 		}
 
-		std::error_code Ec;
-		for (std::filesystem::recursive_directory_iterator It(
+		std::error_code IteratorError;
+		std::filesystem::recursive_directory_iterator It(
 				 CurrentPhysicalPath,
-				 std::filesystem::directory_options::skip_permission_denied, Ec),
-			 End;
-			 !Ec && It != End;
-			 It.increment(Ec))
+				 std::filesystem::directory_options::skip_permission_denied,
+				 IteratorError);
+		const std::filesystem::recursive_directory_iterator End;
+		if (IteratorError)
+			AddEnumerationDiagnostic(
+				EEnumerationDiagnosticKind::Traversal,
+				CurrentPhysicalPath,
+				std::format("Could not enumerate directory: {}", IteratorError.message()));
+		while (!IteratorError && It != End)
 		{
 			const std::filesystem::directory_entry& Entry = *It;
-			const std::string Name = Entry.path().filename().generic_string();
-			if (Entry.is_directory(Ec))
+			const std::filesystem::path EntryPath = Entry.path();
+			const std::string Name = EntryPath.filename().generic_string();
+			std::error_code EntryError;
+			const std::filesystem::file_status Status =
+				QueryEntryStatus(Entry, EntryError);
+			if (EntryError)
+			{
+				It.disable_recursion_pending();
+				AddEnumerationDiagnostic(
+					EEnumerationDiagnosticKind::Entry,
+					EntryPath,
+					std::format("Skipped entry because its status could not be read: {}", EntryError.message()));
+			}
+			else if (std::filesystem::is_symlink(Status))
+			{
+				It.disable_recursion_pending();
+			}
+			else if (std::filesystem::is_directory(Status))
 			{
 				ItemsSnapshot.push_back(
 					{EContentBrowserItemKind::Folder,
 						Name,
-						PhysicalToVirtualDirectory(Entry.path().generic_string()),
-						NormalizePath(Entry.path().generic_string())});
+						PhysicalToVirtualDirectory(EntryPath.generic_string()),
+						NormalizePath(EntryPath.generic_string())});
 			}
-			else if (Entry.is_regular_file(Ec)
-				&& Entry.path().extension() != ".dasset")
+			else if (std::filesystem::is_regular_file(Status)
+				&& EntryPath.extension() != ".dasset")
 			{
 				FContentBrowserItem Item{
 					EContentBrowserItemKind::File,
 					Name,
 					{},
-					NormalizePath(Entry.path().generic_string()),
+					NormalizePath(EntryPath.generic_string()),
 					{},
-					Entry.path().extension().generic_string()};
-				Item.FileSize = Entry.file_size(Ec);
-				Ec.clear();
-				Item.LastWriteTime = Entry.last_write_time(Ec);
-				Ec.clear();
-				ItemsSnapshot.push_back(std::move(Item));
+					EntryPath.extension().generic_string()};
+				Item.FileSize = Entry.file_size(EntryError);
+				if (!EntryError)
+					Item.LastWriteTime = Entry.last_write_time(EntryError);
+				if (EntryError)
+					AddEnumerationDiagnostic(
+						EEnumerationDiagnosticKind::Entry,
+						EntryPath,
+						std::format("Skipped file because its metadata could not be read: {}", EntryError.message()));
+				else
+					ItemsSnapshot.push_back(std::move(Item));
 			}
+
+			IteratorError.clear();
+			It.increment(IteratorError);
+			if (IteratorError)
+				AddEnumerationDiagnostic(
+					EEnumerationDiagnosticKind::Traversal,
+					EntryPath,
+					std::format("Directory traversal stopped: {}", IteratorError.message()));
 		}
 
 		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
@@ -521,18 +557,68 @@ namespace Durin
 		auto [It, bInserted] = DirectoryChildrenCache.try_emplace(Physical);
 		if (bInserted)
 		{
-			std::error_code Ec;
-			for (std::filesystem::directory_iterator EntryIt(
+			std::error_code IteratorError;
+			std::filesystem::directory_iterator EntryIt(
 					 Physical,
-					 std::filesystem::directory_options::skip_permission_denied, Ec),
-				 End;
-				 !Ec && EntryIt != End;
-				 EntryIt.increment(Ec))
-				if (EntryIt->is_directory(Ec))
+					 std::filesystem::directory_options::skip_permission_denied,
+					 IteratorError);
+			const std::filesystem::directory_iterator End;
+			if (IteratorError)
+				AddEnumerationDiagnostic(
+					EEnumerationDiagnosticKind::Traversal,
+					Physical,
+					std::format("Could not enumerate directory tree node: {}", IteratorError.message()));
+			while (!IteratorError && EntryIt != End)
+			{
+				const std::filesystem::directory_entry& Entry = *EntryIt;
+				const std::filesystem::path EntryPath = Entry.path();
+				std::error_code EntryError;
+				const std::filesystem::file_status Status =
+					QueryEntryStatus(Entry, EntryError);
+				if (EntryError)
+					AddEnumerationDiagnostic(
+						EEnumerationDiagnosticKind::Entry,
+						EntryPath,
+						std::format("Skipped tree entry because its status could not be read: {}", EntryError.message()));
+				else if (std::filesystem::is_directory(Status))
 					It->second.push_back(EntryIt->path());
+				IteratorError.clear();
+				EntryIt.increment(IteratorError);
+				if (IteratorError)
+					AddEnumerationDiagnostic(
+						EEnumerationDiagnosticKind::Traversal,
+						EntryPath,
+						std::format("Directory tree traversal stopped: {}", IteratorError.message()));
+			}
 			std::ranges::sort(It->second);
 		}
 		return It->second;
+	}
+
+	auto FContentBrowserModel::QueryEntryStatus(
+		const std::filesystem::directory_entry& Entry,
+		std::error_code& Error) const -> std::filesystem::file_status
+	{
+		return EntryStatusQuery
+			? EntryStatusQuery(Entry, Error)
+			: Entry.symlink_status(Error);
+	}
+
+	auto FContentBrowserModel::AddEnumerationDiagnostic(
+		EEnumerationDiagnosticKind Kind,
+		const std::filesystem::path& Path,
+		std::string Message) -> void
+	{
+		constexpr size_t MaximumDiagnostics = 8;
+		if (EnumerationDiagnostics.size() >= MaximumDiagnostics)
+		{
+			++SuppressedEnumerationDiagnosticCount;
+			return;
+		}
+		EnumerationDiagnostics.push_back({
+			.Kind = Kind,
+			.PhysicalPath = NormalizePath(Path.generic_string()),
+			.Message = std::move(Message)});
 	}
 
 	auto FContentBrowserModel::SetSnapshotForTesting(
@@ -544,6 +630,8 @@ namespace Durin
 								  .generic_string();
 		ItemsSnapshot = std::move(Snapshot);
 		DirectoryChildrenCache.clear();
+		EnumerationDiagnostics.clear();
+		SuppressedEnumerationDiagnosticCount = 0;
 		RebuildItems();
 	}
 } // namespace Durin

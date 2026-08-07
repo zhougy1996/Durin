@@ -232,6 +232,69 @@ TEST_F(FContentBrowserModelTests, ShowsOrdinaryFilesByDefaultAndHidesAssetPackag
 		[](const FContentBrowserItem& Item) { return Item.Name == "Raw.dasset"; }));
 }
 
+TEST_F(FContentBrowserModelTests, SkipsFailedSnapshotEntryAndKeepsLaterEntries)
+{
+	const std::filesystem::path ScanRoot = Root / "Content/EnumerationSnapshot";
+	std::filesystem::create_directories(ScanRoot);
+	for (const std::string_view Name : {"First.txt", "Second.txt", "Third.txt"})
+	{
+		std::ofstream File(ScanRoot / Name);
+		File << Name;
+	}
+	FContentBrowserModel Model;
+	size_t QueryCount = 0;
+	Model.SetEntryStatusQueryForTesting(
+		[&](const std::filesystem::directory_entry& Entry,
+			std::error_code& Error) {
+			if (++QueryCount == 1)
+			{
+				Error = std::make_error_code(std::errc::permission_denied);
+				return std::filesystem::file_status{};
+			}
+			return Entry.symlink_status(Error);
+		});
+	ASSERT_TRUE(Model.NavigateToPhysical(ScanRoot.generic_string()));
+	EXPECT_EQ(Model.GetItems().size(), 2);
+	ASSERT_EQ(Model.GetEnumerationDiagnostics().size(), 1);
+	EXPECT_EQ(
+		Model.GetEnumerationDiagnostics().front().Kind,
+		FContentBrowserModel::EEnumerationDiagnosticKind::Entry);
+	EXPECT_TRUE(Model.GetEnumerationDiagnostics().front().Message.find("Skipped entry")
+		!= std::string::npos);
+}
+
+TEST_F(FContentBrowserModelTests, SkipsFailedTreeEntryAndReportsTraversalFailure)
+{
+	const std::filesystem::path TreeRoot = Root / "Content/EnumerationTree";
+	for (const std::string_view Name : {"First", "Second", "Third"})
+		std::filesystem::create_directories(TreeRoot / Name);
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical(TreeRoot.generic_string()));
+	size_t QueryCount = 0;
+	Model.SetEntryStatusQueryForTesting(
+		[&](const std::filesystem::directory_entry& Entry,
+			std::error_code& Error) {
+			if (++QueryCount == 1)
+			{
+				Error = std::make_error_code(std::errc::permission_denied);
+				return std::filesystem::file_status{};
+			}
+			return Entry.symlink_status(Error);
+		});
+	EXPECT_EQ(Model.GetDirectoryChildren(TreeRoot.generic_string()).size(), 2);
+	ASSERT_EQ(Model.GetEnumerationDiagnostics().size(), 1);
+	EXPECT_EQ(
+		Model.GetEnumerationDiagnostics().front().Kind,
+		FContentBrowserModel::EEnumerationDiagnosticKind::Entry);
+
+	EXPECT_TRUE(Model.GetDirectoryChildren(
+		(Root / "MissingDirectory").generic_string()).empty());
+	ASSERT_EQ(Model.GetEnumerationDiagnostics().size(), 2);
+	EXPECT_EQ(
+		Model.GetEnumerationDiagnostics().back().Kind,
+		FContentBrowserModel::EEnumerationDiagnosticKind::Traversal);
+}
+
 TEST_F(FContentBrowserModelTests, FiltersFilesSeparatelyAndKeepsHiddenContentOptIn)
 {
 	const std::string RootPath =
