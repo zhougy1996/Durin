@@ -5,6 +5,8 @@
 
 namespace Durin
 {
+	class FGameThreadDeferredWorkQueue;
+
 	namespace
 	{
 		enum class ETaskSchedulerLifetime : uint8
@@ -21,10 +23,15 @@ namespace Durin
 		ETaskSchedulerLifetime GTaskSchedulerLifetime = ETaskSchedulerLifetime::Stopped;
 		uint64 GCompletedTaskSchedulerShutdowns = 0;
 		FTaskSchedulerDiagnostics GLastTaskSchedulerDiagnostics;
+		std::mutex GGameThreadDeferredQueueMutex;
+		std::shared_ptr<FGameThreadDeferredWorkQueue> GGameThreadDeferredQueue;
+		FGameThreadDeferredWorkQueueDiagnostics GLastGameThreadDeferredQueueDiagnostics;
+		std::atomic<uint64> GNextGameThreadDeferredAdapterGeneration = 1;
 
 		thread_local FTaskStateData* GCurrentTaskState = nullptr;
 		thread_local FTaskScheduler* GCurrentTaskScheduler = nullptr;
 		thread_local uint32 GParallelForDepth = 0;
+		thread_local bool GIsPumpingGameThreadDeferred = false;
 
 		constexpr double WorkerWaitSliceSeconds = 0.001;
 		constexpr double LongWaitThresholdSeconds = 0.1;
@@ -61,6 +68,12 @@ namespace Durin
 		bool bCancellationRequested = false;
 	};
 
+	class FTaskGenerationState
+	{
+	public:
+		std::atomic<uint64> Generation = 1;
+	};
+
 	// Owns one scheduler task node independently of public handles and pool work items.
 	class FTaskStateData final : public std::enable_shared_from_this<FTaskStateData>
 	{
@@ -74,7 +87,12 @@ namespace Durin
 			const std::vector<std::shared_ptr<FTaskStateData>>& InPrerequisites,
 			uint64 InParentTaskId,
 			ETaskDependencyKind InDependencyKind,
-			bool bInAggregatePrerequisites
+			bool bInAggregatePrerequisites,
+			ETaskTarget InTarget,
+			ETaskPriority InPriority,
+			uint64 InEstimatedPayloadBytes,
+			FTaskGenerationToken InGenerationToken,
+			std::optional<FTaskCoalescingKey> InCoalescingKey
 		)
 			: TaskId(GNextTaskId.fetch_add(1, std::memory_order::acq_rel))
 			, ParentTaskId(InParentTaskId)
@@ -88,6 +106,11 @@ namespace Durin
 			, State(InPrerequisites.empty() ? ETaskState::Queued : ETaskState::Waiting)
 			, DependencyKind(InDependencyKind)
 			, bAggregatePrerequisites(bInAggregatePrerequisites)
+			, Target(InTarget)
+			, Priority(InPriority)
+			, EstimatedPayloadBytes(InEstimatedPayloadBytes)
+			, GenerationToken(std::move(InGenerationToken))
+			, CoalescingKey(std::move(InCoalescingKey))
 			, EnqueueTimeNanoseconds(MonotonicNanoseconds())
 		{
 			Prerequisites.reserve(InPrerequisites.size());
@@ -118,6 +141,7 @@ namespace Durin
 			{
 				return {};
 			}
+			DispatchTimeNanoseconds = MonotonicNanoseconds();
 			return std::move(PendingFunction);
 		}
 
@@ -235,6 +259,10 @@ namespace Durin
 			Snapshot.PrerequisiteDependencyKinds = PrerequisiteDependencyKinds;
 			Snapshot.DirectBlockingTaskId = DirectBlockingTaskId;
 			Snapshot.EnqueueTimeNanoseconds = EnqueueTimeNanoseconds;
+			Snapshot.DispatchTimeNanoseconds = DispatchTimeNanoseconds;
+			Snapshot.QueueResidencyNanoseconds = DispatchTimeNanoseconds == 0
+				? 0
+				: (StartTimeNanoseconds == 0 ? MonotonicNanoseconds() : StartTimeNanoseconds) - DispatchTimeNanoseconds;
 			Snapshot.StartTimeNanoseconds = StartTimeNanoseconds;
 			Snapshot.FinishTimeNanoseconds = FinishTimeNanoseconds;
 			Snapshot.ExecutingThreadId = ExecutingThreadId;
@@ -242,8 +270,16 @@ namespace Durin
 			Snapshot.ExecutingThreadName = ExecutingThreadName;
 			Snapshot.Diagnostic = Diagnostic;
 			Snapshot.State = State;
-			Snapshot.Target = ETaskTarget::AnyWorker;
+			Snapshot.Target = Target;
+			Snapshot.Priority = Priority;
 			Snapshot.TerminalReason = TerminalReason;
+			Snapshot.EstimatedPayloadBytes = EstimatedPayloadBytes;
+			if (CoalescingKey)
+			{
+				Snapshot.CoalescingOwnerDomain = CoalescingKey->OwnerDomain;
+				Snapshot.CoalescingWorkId = CoalescingKey->WorkId;
+				Snapshot.CoalescingGeneration = CoalescingKey->Generation;
+			}
 			Snapshot.bHasResultStorage = bHasResultStorage;
 			return Snapshot;
 		}
@@ -252,6 +288,11 @@ namespace Durin
 		auto GetTaskId() const -> uint64 { return TaskId; }
 		auto PinScheduler() const -> std::shared_ptr<FTaskScheduler> { return Scheduler.lock(); }
 		auto GetSharedCancellationState() const -> const std::shared_ptr<FTaskCancellationState>& { return SharedCancellationState; }
+		auto GetTarget() const -> ETaskTarget { return Target; }
+		auto GetPriority() const -> ETaskPriority { return Priority; }
+		auto GetEstimatedPayloadBytes() const -> uint64 { return EstimatedPayloadBytes; }
+		auto GetGenerationToken() const -> const FTaskGenerationToken& { return GenerationToken; }
+		auto GetCoalescingKey() const -> const std::optional<FTaskCoalescingKey>& { return CoalescingKey; }
 
 	private:
 		auto PublishTerminal(ETaskState TerminalState, std::string InDiagnostic, ETaskTerminalReason InReason = ETaskTerminalReason::None, uint64 InDirectBlockingTaskId = 0) -> bool;
@@ -280,17 +321,27 @@ namespace Durin
 		uint64 BlockingPrerequisiteTaskId = 0;
 		ETaskState BlockingPrerequisiteState = ETaskState::Succeeded;
 		bool bAggregatePrerequisites = false;
+		ETaskTarget Target = ETaskTarget::AnyWorker;
+		ETaskPriority Priority = ETaskPriority::Normal;
+		uint64 EstimatedPayloadBytes = 0;
+		FTaskGenerationToken GenerationToken;
+		std::optional<FTaskCoalescingKey> CoalescingKey;
 		bool bCancellationRequested = false;
 		std::string CancellationDiagnostic;
 		ETaskTerminalReason CancellationReason = ETaskTerminalReason::CancellationRequested;
 		uint64 CancellationDirectBlockingTaskId = 0;
 		std::string Diagnostic;
 		uint64 EnqueueTimeNanoseconds = 0;
+		uint64 DispatchTimeNanoseconds = 0;
 		uint64 StartTimeNanoseconds = 0;
 		uint64 FinishTimeNanoseconds = 0;
 		uint32 ExecutingThreadId = 0;
 		std::string ExecutingThreadName;
 	};
+
+	auto DispatchGameThreadDeferredTask(
+		const std::shared_ptr<FTaskStateData>& State,
+		FCancelableTaskFunction&& Function) -> bool;
 
 	// Owns the process scheduler's pool and every accepted nonterminal node.
 	class FTaskScheduler final : public std::enable_shared_from_this<FTaskScheduler>
@@ -316,7 +367,12 @@ namespace Durin
 			std::function<void(ETaskState)>&& CompletionFunction,
 			const FTaskLaunchOptions& Options,
 			ETaskDependencyKind DependencyKind = ETaskDependencyKind::Success,
-			bool bAggregatePrerequisites = false) -> std::shared_ptr<FTaskStateData>
+			bool bAggregatePrerequisites = false,
+			ETaskTarget Target = ETaskTarget::AnyWorker,
+			ETaskPriority Priority = ETaskPriority::Normal,
+			uint64 EstimatedPayloadBytes = 0,
+			FTaskGenerationToken GenerationToken = {},
+			std::optional<FTaskCoalescingKey> CoalescingKey = {}) -> std::shared_ptr<FTaskStateData>
 		{
 			std::shared_ptr<FTaskStateData> State;
 			std::vector<std::shared_ptr<FTaskStateData>> PrerequisiteStates;
@@ -347,7 +403,12 @@ namespace Durin
 					PrerequisiteStates,
 					GCurrentTaskState ? GCurrentTaskState->GetTaskId() : 0,
 					DependencyKind,
-					bAggregatePrerequisites
+					bAggregatePrerequisites,
+					Target,
+					Priority,
+					EstimatedPayloadBytes,
+					std::move(GenerationToken),
+					std::move(CoalescingKey)
 				);
 				ActiveTasks.emplace(State->GetTaskId(), State);
 				AllTasks.emplace(State->GetTaskId(), State);
@@ -383,38 +444,20 @@ namespace Durin
 			{
 				return;
 			}
+			if (State->GetTarget() == ETaskTarget::GameThreadDeferred)
+			{
+				if (!DispatchGameThreadDeferredTask(State, std::move(Function)))
+				{
+					RecordRejectedTask();
+					State->RequestCancellation("GameThread deferred executor rejected task dispatch.", ETaskTerminalReason::DispatchRejected);
+				}
+				return;
+			}
 
 			const bool bAccepted = Pool.Enqueue(
 				State->GetDebugName(),
 				[State, Scheduler = this, Function = std::move(Function)]() mutable {
-					if (!State->TryMarkRunning())
-					{
-						return;
-					}
-					Scheduler->OnWorkerStarted();
-
-					FTaskStateData* PreviousTaskState = GCurrentTaskState;
-					FTaskScheduler* PreviousTaskScheduler = GCurrentTaskScheduler;
-					GCurrentTaskState = State.get();
-					GCurrentTaskScheduler = Scheduler;
-
-					try
-					{
-						Function(State->MakeCancellationToken());
-						State->MarkSucceeded();
-					}
-					catch (const std::exception& Exception)
-					{
-						State->MarkFailed(Exception.what());
-					}
-					catch (...)
-					{
-						State->MarkFailed("Task callable threw an unknown exception.");
-					}
-
-					GCurrentTaskState = PreviousTaskState;
-					GCurrentTaskScheduler = PreviousTaskScheduler;
-					Scheduler->OnWorkerFinished();
+					Scheduler->ExecuteTask(State, std::move(Function), true);
 				},
 				[State]() {
 					State->RequestCancellation("Task was discarded during scheduler shutdown.", ETaskTerminalReason::ShutdownCanceled);
@@ -425,6 +468,41 @@ namespace Durin
 			{
 				State->RequestCancellation("Task could not be queued because scheduler shutdown had begun.", ETaskTerminalReason::DispatchRejected);
 			}
+		}
+
+		auto ExecuteTask(
+			const std::shared_ptr<FTaskStateData>& State,
+			FCancelableTaskFunction&& Function,
+			bool bWorkerExecution) -> void
+		{
+			if (!State->TryMarkRunning())
+			{
+				return;
+			}
+			if (bWorkerExecution) OnWorkerStarted();
+
+			FTaskStateData* PreviousTaskState = GCurrentTaskState;
+			FTaskScheduler* PreviousTaskScheduler = GCurrentTaskScheduler;
+			GCurrentTaskState = State.get();
+			GCurrentTaskScheduler = this;
+
+			try
+			{
+				Function(State->MakeCancellationToken());
+				State->MarkSucceeded();
+			}
+			catch (const std::exception& Exception)
+			{
+				State->MarkFailed(Exception.what());
+			}
+			catch (...)
+			{
+				State->MarkFailed("Task callable threw an unknown exception.");
+			}
+
+			GCurrentTaskState = PreviousTaskState;
+			GCurrentTaskScheduler = PreviousTaskScheduler;
+			if (bWorkerExecution) OnWorkerFinished();
 		}
 
 		auto CloseAdmission() -> void
@@ -506,15 +584,29 @@ namespace Durin
 			{
 				CanceledTaskCount.fetch_add(1, std::memory_order::acq_rel);
 			}
-			if (ActiveTasks.empty())
-			{
-				QuiescenceCV.notify_all();
-			}
+			QuiescenceCV.notify_all();
 		}
 
 		auto TryExecuteOneQueuedTask() -> bool
 		{
 			return Pool.TryExecuteOneQueuedTask();
+		}
+
+		auto GetActiveTaskCount() const -> uint64
+		{
+			std::lock_guard Lock(Mutex);
+			return ActiveTasks.size();
+		}
+
+		auto WaitForGraphProgress(double TimeoutSeconds) -> void
+		{
+			std::unique_lock Lock(Mutex);
+			QuiescenceCV.wait_for(Lock, std::chrono::duration<double>(TimeoutSeconds));
+		}
+
+		auto RecordShutdownLongWait() -> void
+		{
+			LongWaitCount.fetch_add(1, std::memory_order::acq_rel);
 		}
 
 		auto RecordRejectedTask() -> void
@@ -611,6 +703,332 @@ namespace Durin
 		uint32 WorkerCount = 0;
 		bool bAcceptingTasks = false;
 	};
+
+	class FGameThreadDeferredWorkQueue final : public std::enable_shared_from_this<FGameThreadDeferredWorkQueue>
+	{
+	public:
+		FGameThreadDeferredWorkQueue(FGameThreadDeferredWorkQueueConfig InConfig, uint64 InAdapterGeneration)
+			: Config(std::move(InConfig))
+			, AdapterGeneration(InAdapterGeneration)
+		{
+			Diagnostics.AdapterGeneration = InAdapterGeneration;
+			Diagnostics.bInstalled = true;
+			Diagnostics.bAccepting = true;
+		}
+
+		auto Enqueue(const std::shared_ptr<FTaskStateData>& State, FCancelableTaskFunction&& Function) -> bool
+		{
+			std::shared_ptr<FTaskStateData> SupersededState;
+			{
+				std::lock_guard Lock(Mutex);
+				PurgeTerminalEntriesLocked();
+				const uint64 PayloadBytes = State->GetEstimatedPayloadBytes();
+				if (!bAccepting || PayloadBytes == 0 || PayloadBytes > Config.MaxPayloadBytesPerEntry)
+				{
+					++Diagnostics.RejectedCount;
+					return false;
+				}
+
+				std::shared_ptr<FEntry> Replacement;
+				if (State->GetCoalescingKey())
+				{
+					for (auto& Queue : Queues)
+					{
+						for (const std::shared_ptr<FEntry>& Candidate : Queue)
+						{
+							if (Candidate->bReserved && Candidate->CoalescingKey == State->GetCoalescingKey())
+							{
+								Replacement = Candidate;
+								break;
+							}
+						}
+						if (Replacement) break;
+					}
+				}
+
+				const uint32 ReplacedEntries = Replacement ? 1u : 0u;
+				const uint64 ReplacedBytes = Replacement ? Replacement->PayloadBytes : 0;
+				if (ActiveEntryCount - ReplacedEntries + 1 > Config.MaxQueuedEntries
+					|| QueuedPayloadBytes - ReplacedBytes + PayloadBytes > Config.MaxQueuedPayloadBytes)
+				{
+					++Diagnostics.RejectedCount;
+					return false;
+				}
+
+				if (Replacement)
+				{
+					SupersededState = Replacement->State;
+					ReleaseReservationLocked(*Replacement);
+					for (auto& Queue : Queues) std::erase(Queue, Replacement);
+					++Diagnostics.SupersededCount;
+				}
+
+				auto Entry = std::make_shared<FEntry>();
+				Entry->State = State;
+				Entry->Function = std::move(Function);
+				Entry->PayloadBytes = PayloadBytes;
+				Entry->Priority = State->GetPriority();
+				Entry->GenerationToken = State->GetGenerationToken();
+				Entry->CoalescingKey = State->GetCoalescingKey();
+				Entry->EnqueueTimeNanoseconds = MonotonicNanoseconds();
+				Queues[static_cast<size_t>(Entry->Priority)].emplace_back(std::move(Entry));
+				++ActiveEntryCount;
+				QueuedPayloadBytes += PayloadBytes;
+				++Diagnostics.AcceptedCount;
+				RefreshDepthDiagnosticsLocked();
+				Diagnostics.PeakQueueDepth = std::max(Diagnostics.PeakQueueDepth, ActiveEntryCount);
+				Diagnostics.PeakQueuedPayloadBytes = std::max(Diagnostics.PeakQueuedPayloadBytes, QueuedPayloadBytes);
+			}
+
+			if (SupersededState)
+			{
+				SupersededState->RequestCancellation("GameThread deferred task was superseded.", ETaskTerminalReason::Superseded);
+			}
+			return true;
+		}
+
+		auto Pump(const FGameThreadDeferredPumpBudget& Budget) -> FGameThreadDeferredPumpResult
+		{
+			CheckGameThread();
+			const auto PumpStart = std::chrono::steady_clock::now();
+			FGameThreadDeferredPumpResult Result;
+			{
+				std::lock_guard Lock(Mutex);
+				if (bPumping)
+				{
+					++Diagnostics.ReentrantPumpCount;
+					return Result;
+				}
+				bPumping = true;
+				GIsPumpingGameThreadDeferred = true;
+			}
+
+			while (Budget.bUnlimited || Result.ExecutedCallbacks < Budget.MaxCallbacks)
+			{
+				std::shared_ptr<FEntry> Entry;
+				bool bExpiredGeneration = false;
+				{
+					std::lock_guard Lock(Mutex);
+					PurgeTerminalEntriesLocked(&Result.TerminalEntriesSkipped);
+					for (auto& Queue : Queues)
+					{
+						while (!Queue.empty() && !Queue.front()->bReserved) Queue.pop_front();
+						if (!Queue.empty())
+						{
+							Entry = std::move(Queue.front());
+							Queue.pop_front();
+							break;
+						}
+					}
+					if (!Entry) break;
+					bExpiredGeneration = !Entry->GenerationToken.IsCurrent();
+					ReleaseReservationLocked(*Entry);
+					if (bExpiredGeneration) ++Diagnostics.ExpiredGenerationCount;
+					RefreshDepthDiagnosticsLocked();
+				}
+
+				if (bExpiredGeneration)
+				{
+					Entry->State->RequestCancellation("GameThread deferred task generation expired.", ETaskTerminalReason::StaleGeneration);
+					++Result.TerminalEntriesSkipped;
+					continue;
+				}
+
+				const auto CallbackStart = std::chrono::steady_clock::now();
+				if (std::shared_ptr<FTaskScheduler> Scheduler = Entry->State->PinScheduler())
+				{
+					Scheduler->ExecuteTask(Entry->State, std::move(Entry->Function), false);
+				}
+				else
+				{
+					Entry->State->RequestCancellation("Task scheduler was unavailable during GameThread dispatch.", ETaskTerminalReason::DispatchRejected);
+				}
+				const uint64 CallbackNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+					std::chrono::steady_clock::now() - CallbackStart).count());
+				{
+					std::lock_guard Lock(Mutex);
+					if (Entry->State->GetState() == ETaskState::Failed) ++Diagnostics.CallbackFailureCount;
+					if (CallbackNanoseconds >= static_cast<uint64>(Config.LongCallbackSeconds * 1'000'000'000.0))
+					{
+						++Diagnostics.LongCallbackCount;
+						Diagnostics.LastLongCallbackTaskId = Entry->State->GetTaskId();
+						Diagnostics.LastLongCallbackNanoseconds = CallbackNanoseconds;
+					}
+				}
+				++Result.ExecutedCallbacks;
+
+				if (!Budget.bUnlimited && std::chrono::duration<double>(std::chrono::steady_clock::now() - PumpStart).count() >= Budget.MaxSeconds)
+				{
+					break;
+				}
+			}
+
+			Result.ElapsedNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - PumpStart).count());
+			{
+				std::lock_guard Lock(Mutex);
+				bPumping = false;
+				GIsPumpingGameThreadDeferred = false;
+				++Diagnostics.PumpCount;
+				Diagnostics.PumpedCallbackCount += Result.ExecutedCallbacks;
+				Diagnostics.PumpTimeNanoseconds += Result.ElapsedNanoseconds;
+			}
+			return Result;
+		}
+
+		auto PumpFrame() -> FGameThreadDeferredPumpResult
+		{
+			return Pump({
+				.MaxCallbacks = Config.FrameMaxCallbacks,
+				.MaxSeconds = Config.FrameMaxSeconds,
+			});
+		}
+
+		auto CloseAdmission() -> void
+		{
+			std::lock_guard Lock(Mutex);
+			bAccepting = false;
+			Diagnostics.bAccepting = false;
+		}
+
+		auto CancelAll() -> void
+		{
+			std::vector<std::shared_ptr<FTaskStateData>> States;
+			{
+				std::lock_guard Lock(Mutex);
+				bAccepting = false;
+				Diagnostics.bAccepting = false;
+				for (auto& Queue : Queues)
+				{
+					for (const std::shared_ptr<FEntry>& Entry : Queue)
+					{
+						if (!Entry->bReserved) continue;
+						States.emplace_back(Entry->State);
+						ReleaseReservationLocked(*Entry);
+					}
+					Queue.clear();
+				}
+				Diagnostics.CanceledCount += States.size();
+				RefreshDepthDiagnosticsLocked();
+			}
+			for (const std::shared_ptr<FTaskStateData>& State : States)
+			{
+				State->RequestCancellation("GameThread deferred task was canceled during shutdown.", ETaskTerminalReason::ShutdownCanceled);
+			}
+		}
+
+		auto GetDiagnostics() -> FGameThreadDeferredWorkQueueDiagnostics
+		{
+			std::lock_guard Lock(Mutex);
+			PurgeTerminalEntriesLocked();
+			RefreshDepthDiagnosticsLocked();
+			uint64 OldestEnqueue = 0;
+			for (const auto& Queue : Queues)
+			{
+				for (const std::shared_ptr<FEntry>& Entry : Queue)
+				{
+					if (Entry->bReserved && (OldestEnqueue == 0 || Entry->EnqueueTimeNanoseconds < OldestEnqueue))
+					{
+						OldestEnqueue = Entry->EnqueueTimeNanoseconds;
+					}
+				}
+			}
+			Diagnostics.OldestEntryAgeNanoseconds = OldestEnqueue == 0 ? 0 : MonotonicNanoseconds() - OldestEnqueue;
+			return Diagnostics;
+		}
+
+		auto MarkUninstalled() -> FGameThreadDeferredWorkQueueDiagnostics
+		{
+			std::lock_guard Lock(Mutex);
+			check(ActiveEntryCount == 0);
+			bAccepting = false;
+			Diagnostics.bAccepting = false;
+			Diagnostics.bInstalled = false;
+			return Diagnostics;
+		}
+
+	private:
+		struct FEntry
+		{
+			std::shared_ptr<FTaskStateData> State;
+			FCancelableTaskFunction Function;
+			FTaskGenerationToken GenerationToken;
+			std::optional<FTaskCoalescingKey> CoalescingKey;
+			uint64 PayloadBytes = 0;
+			uint64 EnqueueTimeNanoseconds = 0;
+			ETaskPriority Priority = ETaskPriority::Normal;
+			bool bReserved = true;
+		};
+
+		auto ReleaseReservationLocked(FEntry& Entry) -> void
+		{
+			if (!Entry.bReserved) return;
+			check(ActiveEntryCount > 0);
+			check(QueuedPayloadBytes >= Entry.PayloadBytes);
+			--ActiveEntryCount;
+			QueuedPayloadBytes -= Entry.PayloadBytes;
+			Entry.bReserved = false;
+		}
+
+		auto PurgeTerminalEntriesLocked(uint32* SkippedCount = nullptr) -> void
+		{
+			for (auto& Queue : Queues)
+			{
+				for (auto Iterator = Queue.begin(); Iterator != Queue.end();)
+				{
+					const std::shared_ptr<FEntry>& Entry = *Iterator;
+					if (Entry->bReserved && !IsTerminalState(Entry->State->GetState()))
+					{
+						++Iterator;
+						continue;
+					}
+					if (Entry->bReserved)
+					{
+						if (Entry->State->GetState() == ETaskState::Canceled) ++Diagnostics.CanceledCount;
+						ReleaseReservationLocked(*Entry);
+						if (SkippedCount) ++*SkippedCount;
+					}
+					Iterator = Queue.erase(Iterator);
+				}
+			}
+		}
+
+		auto RefreshDepthDiagnosticsLocked() -> void
+		{
+			Diagnostics.QueueDepth = ActiveEntryCount;
+			Diagnostics.QueuedPayloadBytes = QueuedPayloadBytes;
+			Diagnostics.PriorityDepths = {};
+			for (size_t PriorityIndex = 0; PriorityIndex < Queues.size(); ++PriorityIndex)
+			{
+				for (const std::shared_ptr<FEntry>& Entry : Queues[PriorityIndex])
+				{
+					Diagnostics.PriorityDepths[PriorityIndex] += Entry->bReserved ? 1u : 0u;
+				}
+			}
+		}
+
+		FGameThreadDeferredWorkQueueConfig Config;
+		uint64 AdapterGeneration = 0;
+		std::mutex Mutex;
+		std::array<std::deque<std::shared_ptr<FEntry>>, 3> Queues;
+		FGameThreadDeferredWorkQueueDiagnostics Diagnostics;
+		uint32 ActiveEntryCount = 0;
+		uint64 QueuedPayloadBytes = 0;
+		bool bAccepting = true;
+		bool bPumping = false;
+	};
+
+	auto DispatchGameThreadDeferredTask(
+		const std::shared_ptr<FTaskStateData>& State,
+		FCancelableTaskFunction&& Function) -> bool
+	{
+		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
+		{
+			std::lock_guard Lock(GGameThreadDeferredQueueMutex);
+			Queue = GGameThreadDeferredQueue;
+		}
+		return Queue && Queue->Enqueue(State, std::move(Function));
+	}
 
 	auto FTaskStateData::PublishTerminalLocked(
 		ETaskState TerminalState,
@@ -951,6 +1369,44 @@ namespace Durin
 		}
 	}
 
+	FTaskGenerationToken::FTaskGenerationToken(
+		std::shared_ptr<FTaskGenerationState> InState,
+		uint64 InGeneration)
+		: State(std::move(InState))
+		, Generation(InGeneration)
+	{
+	}
+
+	auto FTaskGenerationToken::IsCurrent() const -> bool
+	{
+		return !State || State->Generation.load(std::memory_order::acquire) == Generation;
+	}
+
+	auto FTaskGenerationToken::IsConstrained() const -> bool
+	{
+		return State != nullptr;
+	}
+
+	FTaskGenerationSource::FTaskGenerationSource()
+		: State(std::make_shared<FTaskGenerationState>())
+	{
+	}
+
+	auto FTaskGenerationSource::Capture() const -> FTaskGenerationToken
+	{
+		return FTaskGenerationToken(State, GetGeneration());
+	}
+
+	auto FTaskGenerationSource::Advance() -> uint64
+	{
+		return State ? State->Generation.fetch_add(1, std::memory_order::acq_rel) + 1 : 0;
+	}
+
+	auto FTaskGenerationSource::GetGeneration() const -> uint64
+	{
+		return State ? State->Generation.load(std::memory_order::acquire) : 0;
+	}
+
 	FParallelForCancellationToken::FParallelForCancellationToken(FTaskCancellationToken InGroupToken, FTaskCancellationToken InExternalToken)
 		: GroupToken(std::move(InGroupToken))
 		, ExternalToken(std::move(InExternalToken))
@@ -1031,8 +1487,152 @@ namespace Durin
 		return true;
 	}
 
+	auto InitializeGameThreadDeferredExecutor(const FGameThreadDeferredWorkQueueConfig& Config) -> bool
+	{
+		CheckGameThread();
+		if (Config.MaxQueuedEntries == 0 || Config.MaxQueuedPayloadBytes == 0
+			|| Config.MaxPayloadBytesPerEntry == 0 || Config.FrameMaxCallbacks == 0
+			|| Config.FrameMaxSeconds <= 0.0 || Config.LongCallbackSeconds <= 0.0)
+		{
+			return false;
+		}
+		{
+			std::lock_guard Lock(GTaskSchedulerMutex);
+			if (GTaskSchedulerLifetime != ETaskSchedulerLifetime::Running) return false;
+		}
+		std::lock_guard Lock(GGameThreadDeferredQueueMutex);
+		if (GGameThreadDeferredQueue) return true;
+		const uint64 AdapterGeneration = GNextGameThreadDeferredAdapterGeneration.fetch_add(1, std::memory_order::acq_rel);
+		GGameThreadDeferredQueue = std::make_shared<FGameThreadDeferredWorkQueue>(Config, AdapterGeneration);
+		GLastGameThreadDeferredQueueDiagnostics = {};
+		return true;
+	}
+
+	auto PumpGameThreadDeferredWork() -> FGameThreadDeferredPumpResult
+	{
+		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
+		{
+			std::lock_guard Lock(GGameThreadDeferredQueueMutex);
+			Queue = GGameThreadDeferredQueue;
+		}
+		return Queue ? Queue->PumpFrame() : FGameThreadDeferredPumpResult{};
+	}
+
+	auto PumpGameThreadDeferredWork(const FGameThreadDeferredPumpBudget& Budget) -> FGameThreadDeferredPumpResult
+	{
+		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
+		{
+			std::lock_guard Lock(GGameThreadDeferredQueueMutex);
+			Queue = GGameThreadDeferredQueue;
+		}
+		return Queue ? Queue->Pump(Budget) : FGameThreadDeferredPumpResult{};
+	}
+
+	auto GetGameThreadDeferredWorkQueueDiagnostics() -> FGameThreadDeferredWorkQueueDiagnostics
+	{
+		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
+		{
+			std::lock_guard Lock(GGameThreadDeferredQueueMutex);
+			Queue = GGameThreadDeferredQueue;
+			if (!Queue) return GLastGameThreadDeferredQueueDiagnostics;
+		}
+		return Queue->GetDiagnostics();
+	}
+
+	auto ShutdownTaskSystem(ETaskShutdownMode Mode) -> void
+	{
+		CheckGameThread();
+		if (GIsPumpingGameThreadDeferred)
+		{
+			DURIN_WARN("Task-system shutdown request from a deferred callback was rejected.");
+			return;
+		}
+		std::shared_ptr<FTaskScheduler> SchedulerToDestroy;
+		{
+			std::lock_guard Lock(GTaskSchedulerMutex);
+			if (GTaskSchedulerLifetime == ETaskSchedulerLifetime::Stopped) return;
+			if (GTaskSchedulerLifetime == ETaskSchedulerLifetime::ShuttingDown)
+			{
+				DURIN_WARN("Recursive task-system shutdown request was rejected.");
+				return;
+			}
+			GTaskSchedulerLifetime = ETaskSchedulerLifetime::ShuttingDown;
+			SchedulerToDestroy = GTaskScheduler;
+			SchedulerToDestroy->CloseAdmission();
+		}
+
+		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
+		{
+			std::lock_guard Lock(GGameThreadDeferredQueueMutex);
+			Queue = GGameThreadDeferredQueue;
+		}
+
+		if (Mode == ETaskShutdownMode::Cancel)
+		{
+			if (Queue) Queue->CancelAll();
+			SchedulerToDestroy->Shutdown(false);
+		}
+		else
+		{
+			const FGameThreadDeferredPumpBudget ShutdownBudget{.bUnlimited = true};
+			const auto ShutdownWaitStart = std::chrono::steady_clock::now();
+			bool bRecordedLongWait = false;
+			while (SchedulerToDestroy->GetActiveTaskCount() > 0)
+			{
+				const FGameThreadDeferredPumpResult PumpResult = Queue
+					? Queue->Pump(ShutdownBudget)
+					: FGameThreadDeferredPumpResult{};
+				if (PumpResult.ExecutedCallbacks == 0 && PumpResult.TerminalEntriesSkipped == 0)
+				{
+					SchedulerToDestroy->WaitForGraphProgress(0.001);
+				}
+				if (!bRecordedLongWait && std::chrono::duration<double>(std::chrono::steady_clock::now() - ShutdownWaitStart).count() >= LongWaitThresholdSeconds)
+				{
+					bRecordedLongWait = true;
+					SchedulerToDestroy->RecordShutdownLongWait();
+					DURIN_WARN("Task-system shutdown is waiting for accepted cross-executor work.");
+				}
+			}
+			SchedulerToDestroy->Shutdown(true);
+		}
+
+		if (Queue)
+		{
+			Queue->CloseAdmission();
+			std::lock_guard Lock(GGameThreadDeferredQueueMutex);
+			if (GGameThreadDeferredQueue == Queue)
+			{
+				GLastGameThreadDeferredQueueDiagnostics = Queue->MarkUninstalled();
+				GGameThreadDeferredQueue.reset();
+			}
+		}
+
+		FTaskSchedulerDiagnostics ShutdownDiagnostics;
+		{
+			std::lock_guard Lock(GTaskSchedulerMutex);
+			check(GTaskScheduler == SchedulerToDestroy);
+			ShutdownDiagnostics = SchedulerToDestroy->GetDiagnostics(false);
+			GLastTaskSchedulerDiagnostics = ShutdownDiagnostics;
+			GTaskScheduler.reset();
+			GTaskSchedulerLifetime = ETaskSchedulerLifetime::Stopped;
+			++GCompletedTaskSchedulerShutdowns;
+		}
+		GTaskSchedulerCV.notify_all();
+	}
+
 	auto ShutdownTaskScheduler(bool bWaitForQueuedWork) -> void
 	{
+		bool bUseCoordinator = false;
+		{
+			std::lock_guard Lock(GGameThreadDeferredQueueMutex);
+			bUseCoordinator = GGameThreadDeferredQueue && IsInGameThread();
+		}
+		if (bUseCoordinator)
+		{
+			ShutdownTaskSystem(bWaitForQueuedWork ? ETaskShutdownMode::Drain : ETaskShutdownMode::Cancel);
+			return;
+		}
+
 		std::shared_ptr<FTaskScheduler> SchedulerToDestroy;
 		{
 			std::unique_lock Lock(GTaskSchedulerMutex);
@@ -1177,14 +1777,6 @@ namespace Durin
 				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask();
 				return {};
 			}
-			if (Options.Target != ETaskTarget::AnyWorker)
-			{
-				std::lock_guard Lock(GTaskSchedulerMutex);
-				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask();
-				DURIN_WARN("Task continuation target is unavailable in the worker-only implementation. (task: {})", Name ? Name : "");
-				return {};
-			}
-
 			std::vector<FTaskHandle> Prerequisites;
 			Prerequisites.reserve(Options.Prerequisites.size() + 1);
 			auto AppendUnique = [&Prerequisites](const FTaskHandle& Candidate) {
@@ -1214,7 +1806,12 @@ namespace Durin
 				std::move(CompletionFunction),
 				LaunchOptions,
 				DependencyKind,
-				true
+				true,
+				Options.Target,
+				Options.Priority,
+				Options.EstimatedPayloadBytes,
+				Options.GenerationToken,
+				Options.CoalescingKey
 			);
 			return State ? FTaskHandle(std::move(State)) : FTaskHandle{};
 		}
@@ -1253,6 +1850,11 @@ namespace Durin
 		if (IsInRenderingThread())
 		{
 			DURIN_WARN("Task wait rejected on the rendering thread. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
+			return State;
+		}
+		if (Task.State->GetTarget() == ETaskTarget::GameThreadDeferred && IsInGameThread())
+		{
+			DURIN_WARN("Task wait rejected because GameThread cannot block on deferred GameThread work. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
 			return State;
 		}
 

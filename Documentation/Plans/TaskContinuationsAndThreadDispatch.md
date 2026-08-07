@@ -9,12 +9,13 @@ Completed:
 
 ## Current Status
 
-Stages 0 and 1 are complete. The frozen V1 contract is now backed by additive
-typed worker results, success/completion continuation nodes, deterministic
-fan-in propagation, immutable result sharing, terminal reasons, and focused
-Core coverage. Existing void callers retain their original behavior. Stage 2
-is next: add the bounded `GameThreadDeferred` executor and cross-executor
-shutdown coordinator.
+Stages 0 through 2 are complete. Typed worker continuations can now target the
+bounded `GameThreadDeferred` executor, the engine pumps it at the frozen safe
+point, and engine exit drains accepted cross-executor chains before task and
+module teardown. Manual-pump coverage exercises limits, priority, cancellation,
+coalescing, generations, reentrancy, and drain/cancel shutdown. Stage 3 is next:
+migrate the Asset Compatibility Audit pilot while preserving its streaming
+mailbox.
 
 Durin currently provides a process-wide bounded worker scheduler with task
 prerequisites, cooperative cancellation, dependency propagation, worker-side
@@ -626,21 +627,21 @@ Dependencies: Stage 0; existing worker scheduler and task-state tests.
 
 Dependencies: Stage 1; engine frame/lifecycle ownership identified in Stage 0.
 
-- [ ] Add the V1 `AnyWorker`/`GameThreadDeferred` target vocabulary and
+- [x] Add the V1 `AnyWorker`/`GameThreadDeferred` target vocabulary and
   executor/dispatcher boundary without exposing native thread IDs.
-- [ ] Implement `FGameThreadDeferredWorkQueue` with bounded admission, priority,
+- [x] Implement `FGameThreadDeferredWorkQueue` with bounded admission, priority,
   explicit payload estimates, optional coalescing key, supersession,
   cancellation/generation checks, pump budget, and diagnostics.
-- [ ] Add the engine-owned GameThread pump and lifecycle admission/shutdown
+- [x] Add the engine-owned GameThread pump and lifecycle admission/shutdown
   hooks at the documented safe point.
-- [ ] Add the cross-executor shutdown entry point and replace the engine exit
+- [x] Add the cross-executor shutdown entry point and replace the engine exit
   path that would otherwise block the GameThread before deferred work can run.
-- [ ] Implement `Then(..., GameThreadDeferred, ...)` and prove that it never
+- [x] Implement `Then(..., GameThreadDeferred, ...)` and prove that it never
   executes on a worker or completion thread.
-- [ ] Add manual-pump tests and engine integration tests for ordering, budget
+- [x] Add manual-pump tests and engine integration tests for ordering, budget
   exhaustion, queue saturation, supersession, stale generations, cancellation,
   dispatch rejection, drain/cancel shutdown, and callback reentrancy.
-- [ ] Verify that frame-critical synchronization remains outside the deferred
+- [x] Verify that frame-critical synchronization remains outside the deferred
   queue and that GameThread ordinary waits cannot pump or deadlock it.
 
 #### Acceptance Gate
@@ -751,6 +752,28 @@ repository handoff rules.
   coalescing fields remain to be added with the deferred executor.
 - Validation: all 73 `CoreConcurrencyTests` passed, including nine new focused
   continuation tests; a full `all` build passed under the Agent profile.
+
+### Stage 2 Handoff
+
+- Baseline commit: `382d316591c7f4de8f9b24fbba1e120b6fd01632`.
+- Working set: `Threading/Task.h`, `Threading/Task.cpp`,
+  `LaunchEngineLoop.cpp`, Core `ThreadingTests.cpp`, and this plan.
+- Key symbols: `FGameThreadDeferredWorkQueue`,
+  `FGameThreadDeferredWorkQueueConfig`, `FTaskGenerationSource`,
+  `PumpGameThreadDeferredWork`, `ShutdownTaskSystem`, executor-target metadata,
+  and the engine lifecycle smoke's worker-to-GameThread chain.
+- Key decisions: deferred work reserves entry count and declared bytes before
+  admission; priority is strict with FIFO inside each class; coalesced and
+  canceled entries release callable storage without tombstone growth; normal
+  frame pumping uses configured budgets; shutdown pumping is unbudgeted but
+  root admission remains closed; and recursive pump/shutdown calls cannot take
+  ownership from the outer callback.
+- Open questions: none blocking Stage 3. Default queue limits remain subject to
+  Stage 4 measurement, without changing the admission contract.
+- Validation: all 80 `CoreConcurrencyTests` passed; the complete `all` build
+  passed; and the hidden-window editor lifecycle smoke drained a worker-to-
+  `GameThreadDeferred` continuation after the frame loop stopped before clean
+  rendering/RHI shutdown.
 
 ## Validation Matrix
 

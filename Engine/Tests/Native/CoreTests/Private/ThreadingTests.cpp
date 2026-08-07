@@ -87,6 +87,15 @@ namespace Durin
 				ShutdownTaskScheduler(false);
 			}
 		};
+
+		auto EnsureGameThreadForTaskTest() -> void
+		{
+			if (!GIsGameThreadIdInitialized)
+			{
+				GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+				GIsGameThreadIdInitialized = true;
+			}
+		}
 	} // namespace
 
 	TEST(FThreadEventTests, StartsUnsignaledAndWakesAfterTrigger)
@@ -1734,7 +1743,7 @@ namespace Durin
 		}
 	}
 
-	TEST(FTaskContinuationTests, ForeignLifetimeAndUnavailableTargetsAreRejected)
+	TEST(FTaskContinuationTests, ForeignLifetimeIsRejectedAndMissingTargetTerminalizesDispatch)
 	{
 		ShutdownTaskScheduler(false);
 		FEngineThreadPoolTestGuard Guard;
@@ -1749,8 +1758,12 @@ namespace Durin
 		auto Current = LaunchTask<int>("CurrentTypedLifetime", []() { return 4; });
 		FTaskContinuationOptions DeferredOptions;
 		DeferredOptions.Target = ETaskTarget::GameThreadDeferred;
-		EXPECT_FALSE(Then(Current, "UnavailableDeferredTarget", [](const int&) {}, DeferredOptions).IsValid());
+		DeferredOptions.EstimatedPayloadBytes = 1;
+		FTaskHandle Unavailable = Then(Current, "UnavailableDeferredTarget", [](const int&) {}, DeferredOptions);
+		ASSERT_TRUE(Unavailable.IsValid());
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Current.GetTaskHandle()));
+		EXPECT_EQ(ETaskState::Canceled, Unavailable.GetState());
+		EXPECT_EQ(ETaskTerminalReason::DispatchRejected, Unavailable.GetDiagnostics().TerminalReason);
 	}
 
 	TEST(FTaskContinuationTests, DrainAndDiscardShutdownTerminalizeContinuationChains)
@@ -1795,6 +1808,264 @@ namespace Durin
 		EXPECT_EQ(ETaskState::Canceled, DiscardTail.GetState());
 		EXPECT_EQ(nullptr, DiscardRoot.GetResultShared());
 		EXPECT_EQ(nullptr, DiscardTail.GetResultShared());
+	}
+
+	TEST(FGameThreadDeferredTaskTests, WorkerContinuationRunsOnlyFromGameThreadPump)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+
+		auto Root = LaunchTask<int>("DeferredRoot", []() { return 12; });
+		FTaskContinuationOptions Options;
+		Options.Target = ETaskTarget::GameThreadDeferred;
+		Options.EstimatedPayloadBytes = 32;
+		std::atomic<bool> bRan = false;
+		FTaskHandle Deferred = Then(Root, "DeferredTail", [&](const int& Value) {
+			EXPECT_TRUE(IsInGameThread());
+			EXPECT_EQ(12, Value);
+			bRan.store(true, std::memory_order::release);
+		}, Options);
+
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root.GetTaskHandle()));
+		const auto DispatchDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		while (Deferred.GetState() == ETaskState::Waiting && std::chrono::steady_clock::now() < DispatchDeadline)
+		{
+			std::this_thread::yield();
+		}
+		EXPECT_EQ(ETaskState::Queued, Deferred.GetState());
+		EXPECT_EQ(ETaskState::Queued, WaitTask(Deferred));
+		EXPECT_FALSE(bRan.load(std::memory_order::acquire));
+		EXPECT_EQ(1u, GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth);
+
+		const FGameThreadDeferredPumpResult PumpResult = PumpGameThreadDeferredWork();
+		EXPECT_EQ(1u, PumpResult.ExecutedCallbacks);
+		EXPECT_EQ(ETaskState::Succeeded, Deferred.GetState());
+		EXPECT_TRUE(bRan.load(std::memory_order::acquire));
+	}
+
+	TEST(FGameThreadDeferredTaskTests, PriorityFifoAndItemBudgetAreDeterministic)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		FTaskHandle Root = LaunchTask("DeferredPriorityRoot", []() {});
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root));
+
+		std::vector<int> Order;
+		auto Enqueue = [&](int Value, ETaskPriority Priority) {
+			FTaskContinuationOptions Options;
+			Options.Target = ETaskTarget::GameThreadDeferred;
+			Options.Priority = Priority;
+			Options.EstimatedPayloadBytes = 1;
+			return Then(Root, "DeferredPriorityEntry", [&, Value]() { Order.push_back(Value); }, Options);
+		};
+		FTaskHandle Low = Enqueue(1, ETaskPriority::Low);
+		FTaskHandle HighFirst = Enqueue(2, ETaskPriority::High);
+		FTaskHandle Normal = Enqueue(3, ETaskPriority::Normal);
+		FTaskHandle HighSecond = Enqueue(4, ETaskPriority::High);
+
+		FGameThreadDeferredPumpBudget TwoItems;
+		TwoItems.MaxCallbacks = 2;
+		TwoItems.MaxSeconds = 1.0;
+		EXPECT_EQ(2u, PumpGameThreadDeferredWork(TwoItems).ExecutedCallbacks);
+		EXPECT_EQ((std::vector<int>{2, 4}), Order);
+		EXPECT_EQ(ETaskState::Queued, Normal.GetState());
+		EXPECT_EQ(ETaskState::Queued, Low.GetState());
+
+		FGameThreadDeferredPumpBudget Unlimited{.bUnlimited = true};
+		EXPECT_EQ(2u, PumpGameThreadDeferredWork(Unlimited).ExecutedCallbacks);
+		EXPECT_EQ((std::vector<int>{2, 4, 3, 1}), Order);
+		EXPECT_EQ(ETaskState::Succeeded, HighFirst.GetState());
+		EXPECT_EQ(ETaskState::Succeeded, HighSecond.GetState());
+	}
+
+	TEST(FGameThreadDeferredTaskTests, CountAndPayloadLimitsRejectWithoutUnboundedGrowth)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FGameThreadDeferredWorkQueueConfig Config;
+		Config.MaxQueuedEntries = 2;
+		Config.MaxQueuedPayloadBytes = 10;
+		Config.MaxPayloadBytesPerEntry = 8;
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor(Config));
+		FTaskHandle Root = LaunchTask("DeferredLimitRoot", []() {});
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root));
+
+		auto Enqueue = [&](uint64 Bytes) {
+			FTaskContinuationOptions Options;
+			Options.Target = ETaskTarget::GameThreadDeferred;
+			Options.EstimatedPayloadBytes = Bytes;
+			return Then(Root, "DeferredLimitEntry", []() {}, Options);
+		};
+		FTaskHandle First = Enqueue(5);
+		FTaskHandle Second = Enqueue(5);
+		FTaskHandle CountRejected = Enqueue(1);
+		FTaskHandle EntryRejected = Enqueue(9);
+		FTaskHandle ZeroRejected = Enqueue(0);
+
+		EXPECT_EQ(ETaskState::Queued, First.GetState());
+		EXPECT_EQ(ETaskState::Queued, Second.GetState());
+		EXPECT_EQ(ETaskState::Canceled, CountRejected.GetState());
+		EXPECT_EQ(ETaskState::Canceled, EntryRejected.GetState());
+		EXPECT_EQ(ETaskState::Canceled, ZeroRejected.GetState());
+		EXPECT_TRUE(CancelTask(First));
+		FTaskHandle Replacement = Enqueue(5);
+		EXPECT_EQ(ETaskState::Queued, Replacement.GetState());
+		const auto Diagnostics = GetGameThreadDeferredWorkQueueDiagnostics();
+		EXPECT_EQ(2u, Diagnostics.QueueDepth);
+		EXPECT_EQ(10u, Diagnostics.QueuedPayloadBytes);
+		EXPECT_EQ(3u, Diagnostics.RejectedCount);
+		EXPECT_GE(Diagnostics.CanceledCount, 1u);
+		PumpGameThreadDeferredWork({.bUnlimited = true});
+	}
+
+	TEST(FGameThreadDeferredTaskTests, TimeBudgetStopsAfterAnOverBudgetCallback)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		FTaskHandle Root = LaunchTask("DeferredTimeBudgetRoot", []() {});
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root));
+
+		FTaskContinuationOptions Options;
+		Options.Target = ETaskTarget::GameThreadDeferred;
+		Options.EstimatedPayloadBytes = 1;
+		FTaskHandle Slow = Then(Root, "DeferredSlowCallback", []() {
+			std::this_thread::sleep_for(std::chrono::milliseconds(2));
+		}, Options);
+		FTaskHandle Later = Then(Root, "DeferredLaterCallback", []() {}, Options);
+		FGameThreadDeferredPumpBudget Budget;
+		Budget.MaxCallbacks = 64;
+		Budget.MaxSeconds = 0.0001;
+		EXPECT_EQ(1u, PumpGameThreadDeferredWork(Budget).ExecutedCallbacks);
+		EXPECT_EQ(ETaskState::Succeeded, Slow.GetState());
+		EXPECT_EQ(ETaskState::Queued, Later.GetState());
+		EXPECT_GE(GetGameThreadDeferredWorkQueueDiagnostics().LongCallbackCount, 1u);
+		PumpGameThreadDeferredWork({.bUnlimited = true});
+	}
+
+	TEST(FGameThreadDeferredTaskTests, CoalescingAndGenerationChecksPublishStableReasons)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		FTaskHandle Root = LaunchTask("DeferredPolicyRoot", []() {});
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root));
+
+		FTaskContinuationOptions CoalescedOptions;
+		CoalescedOptions.Target = ETaskTarget::GameThreadDeferred;
+		CoalescedOptions.EstimatedPayloadBytes = 4;
+		CoalescedOptions.CoalescingKey = FTaskCoalescingKey{11, 22, 33};
+		FTaskHandle Superseded = Then(Root, "DeferredSuperseded", []() {}, CoalescedOptions);
+		std::atomic<bool> bReplacementRan = false;
+		FTaskHandle Replacement = Then(Root, "DeferredReplacement", [&]() { bReplacementRan = true; }, CoalescedOptions);
+		EXPECT_EQ(ETaskState::Canceled, Superseded.GetState());
+		EXPECT_EQ(ETaskTerminalReason::Superseded, Superseded.GetDiagnostics().TerminalReason);
+		const FTaskDiagnostics ReplacementDiagnostics = Replacement.GetDiagnostics();
+		EXPECT_EQ(ETaskTarget::GameThreadDeferred, ReplacementDiagnostics.Target);
+		EXPECT_EQ(4u, ReplacementDiagnostics.EstimatedPayloadBytes);
+		EXPECT_EQ(11u, ReplacementDiagnostics.CoalescingOwnerDomain);
+		EXPECT_EQ(22u, ReplacementDiagnostics.CoalescingWorkId);
+		EXPECT_EQ(33u, ReplacementDiagnostics.CoalescingGeneration);
+
+		FTaskGenerationSource Generation;
+		FTaskContinuationOptions StaleOptions;
+		StaleOptions.Target = ETaskTarget::GameThreadDeferred;
+		StaleOptions.EstimatedPayloadBytes = 1;
+		StaleOptions.GenerationToken = Generation.Capture();
+		FTaskHandle Stale = Then(Root, "DeferredStale", []() {}, StaleOptions);
+		Generation.Advance();
+
+		PumpGameThreadDeferredWork({.bUnlimited = true});
+		EXPECT_EQ(ETaskState::Succeeded, Replacement.GetState());
+		EXPECT_TRUE(bReplacementRan.load());
+		EXPECT_EQ(ETaskState::Canceled, Stale.GetState());
+		EXPECT_EQ(ETaskTerminalReason::StaleGeneration, Stale.GetDiagnostics().TerminalReason);
+		const auto Diagnostics = GetGameThreadDeferredWorkQueueDiagnostics();
+		EXPECT_EQ(1u, Diagnostics.SupersededCount);
+		EXPECT_EQ(1u, Diagnostics.ExpiredGenerationCount);
+	}
+
+	TEST(FGameThreadDeferredTaskTests, ReentrantPumpAndCallbackFailureRemainObservable)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		FTaskHandle Root = LaunchTask("DeferredFailureRoot", []() {});
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root));
+
+		FTaskContinuationOptions Options;
+		Options.Target = ETaskTarget::GameThreadDeferred;
+		Options.EstimatedPayloadBytes = 1;
+		FTaskHandle Failed = Then(Root, "DeferredFailure", []() {
+			EXPECT_EQ(0u, PumpGameThreadDeferredWork().ExecutedCallbacks);
+			ShutdownTaskSystem(ETaskShutdownMode::Drain);
+			EXPECT_TRUE(IsTaskSchedulerRunning());
+			throw std::runtime_error("deferred failure");
+		}, Options);
+		EXPECT_EQ(1u, PumpGameThreadDeferredWork().ExecutedCallbacks);
+		EXPECT_EQ(ETaskState::Failed, Failed.GetState());
+		EXPECT_EQ("deferred failure", Failed.GetDiagnostic());
+		const auto Diagnostics = GetGameThreadDeferredWorkQueueDiagnostics();
+		EXPECT_EQ(1u, Diagnostics.ReentrantPumpCount);
+		EXPECT_EQ(1u, Diagnostics.CallbackFailureCount);
+	}
+
+	TEST(FGameThreadDeferredTaskTests, CrossExecutorDrainAndCancelLeaveEveryHandleTerminal)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		const uint64 DrainAdapterGeneration = GetGameThreadDeferredWorkQueueDiagnostics().AdapterGeneration;
+
+		FThreadEvent DrainRootStarted;
+		FThreadEvent ReleaseDrainRoot;
+		FTaskHandle DrainRoot = LaunchTask("CrossDrainRoot", [&]() {
+			DrainRootStarted.Trigger();
+			ReleaseDrainRoot.Wait();
+		});
+		FTaskContinuationOptions Options;
+		Options.Target = ETaskTarget::GameThreadDeferred;
+		Options.EstimatedPayloadBytes = 1;
+		std::atomic<bool> bDrainRan = false;
+		FTaskHandle DrainTail = Then(DrainRoot, "CrossDrainTail", [&]() {
+			bDrainRan = true;
+			EXPECT_FALSE(LaunchTask("RejectedShutdownRoot", []() {}).IsValid());
+		}, Options);
+		ASSERT_TRUE(DrainRootStarted.WaitFor(1.0));
+		std::thread Releaser([&]() { ReleaseDrainRoot.Trigger(); });
+		ShutdownTaskSystem(ETaskShutdownMode::Drain);
+		Releaser.join();
+		EXPECT_EQ(ETaskState::Succeeded, DrainRoot.GetState());
+		EXPECT_EQ(ETaskState::Succeeded, DrainTail.GetState());
+		EXPECT_TRUE(bDrainRan.load());
+		EXPECT_FALSE(GetGameThreadDeferredWorkQueueDiagnostics().bInstalled);
+
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+		EXPECT_GT(GetGameThreadDeferredWorkQueueDiagnostics().AdapterGeneration, DrainAdapterGeneration);
+		FTaskHandle CancelRoot = LaunchTask("CrossCancelRoot", []() {});
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(CancelRoot));
+		FTaskHandle CancelTail = Then(CancelRoot, "CrossCancelTail", []() {}, Options);
+		ASSERT_EQ(ETaskState::Queued, CancelTail.GetState());
+		ShutdownTaskSystem(ETaskShutdownMode::Cancel);
+		EXPECT_EQ(ETaskState::Canceled, CancelTail.GetState());
+		EXPECT_EQ(ETaskTerminalReason::ShutdownCanceled, CancelTail.GetDiagnostics().TerminalReason);
 	}
 
 	TEST(FTaskTests, InvalidHandlesAreNoOp)

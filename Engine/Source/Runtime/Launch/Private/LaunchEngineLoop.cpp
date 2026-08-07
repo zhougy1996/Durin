@@ -175,6 +175,21 @@ namespace Durin
 					CancelableTask, ParallelTask, WaiterTask};
 				WaitAll(QualificationTasks);
 
+				GameThreadSource = LaunchTask("EngineSmoke.GameThreadSource", []() {});
+				FTaskContinuationOptions GameThreadOptions;
+				GameThreadOptions.Target = ETaskTarget::GameThreadDeferred;
+				GameThreadOptions.EstimatedPayloadBytes = 64;
+				GameThreadDeferred = Then(
+					GameThreadSource,
+					"EngineSmoke.GameThreadDeferred",
+					[this]() {
+						bGameThreadDeferredRan = IsInGameThread();
+					},
+					GameThreadOptions
+				);
+				checkf(GameThreadSource.IsValid() && GameThreadDeferred.IsValid(),
+					"Engine scheduler lifecycle smoke could not launch its deferred chain.");
+
 				AdmissionProbe = LaunchTask("EngineSmoke.AdmissionProbe", [this]() {
 					AdmissionProbeStarted.Trigger();
 					while (IsTaskSchedulerRunning())
@@ -210,7 +225,10 @@ namespace Durin
 					&& SlowTask.GetState() == ETaskState::Succeeded
 					&& ShortTask.GetState() == ETaskState::Succeeded
 					&& DependentTask.GetState() == ETaskState::Succeeded
-					&& WaiterTask.GetState() == ETaskState::Succeeded,
+					&& WaiterTask.GetState() == ETaskState::Succeeded
+					&& GameThreadSource.GetState() == ETaskState::Succeeded
+					&& GameThreadDeferred.GetState() == ETaskState::Succeeded
+					&& bGameThreadDeferredRan,
 					"Engine scheduler lifecycle smoke did not drain accepted work.");
 				checkf(FailedTask.GetState() == ETaskState::Failed
 					&& FailedDependentTask.GetState() == ETaskState::Canceled
@@ -225,6 +243,8 @@ namespace Durin
 
 				const FTaskSchedulerDiagnostics Diagnostics =
 					GetTaskSchedulerDiagnostics();
+				const FGameThreadDeferredWorkQueueDiagnostics DeferredDiagnostics =
+					GetGameThreadDeferredWorkQueueDiagnostics();
 				checkf(!Diagnostics.bRunning
 					&& Diagnostics.NonterminalTaskCount == 0
 					&& Diagnostics.ActiveWorkerCount == 0
@@ -234,6 +254,9 @@ namespace Durin
 					&& Diagnostics.LongWaitCount >= 1
 					&& Diagnostics.RetainedTerminalHandleCount >= 9,
 					"Engine scheduler lifecycle smoke diagnostics were incomplete.");
+				checkf(!DeferredDiagnostics.bInstalled
+					&& DeferredDiagnostics.PumpedCallbackCount >= 1,
+					"Engine scheduler lifecycle smoke did not drain the GameThread executor.");
 				DURIN_INFO(
 					"Task scheduler lifecycle smoke passed. (completed: {}, failed: {}, canceled: {}, rejected: {}, long waits: {}, retained handles: {})",
 					Diagnostics.CompletedTaskCount,
@@ -254,10 +277,13 @@ namespace Durin
 			FTaskHandle CancelableTask;
 			FTaskHandle ParallelTask;
 			FTaskHandle WaiterTask;
+			FTaskHandle GameThreadSource;
+			FTaskHandle GameThreadDeferred;
 			FParallelForResult ParallelResult;
 			ETaskState WaitedState = ETaskState::Invalid;
 			uint64 ParallelChecksum = 0;
 			bool bAdmissionRejected = false;
+			bool bGameThreadDeferredRan = false;
 		};
 	}
 
@@ -307,6 +333,12 @@ namespace Durin
 			DURIN_ERROR("Engine pre-initialization failed because the task scheduler could not start.");
 			return false;
 		}
+		if (!InitializeGameThreadDeferredExecutor())
+		{
+			DURIN_ERROR("Engine pre-initialization failed because the GameThread deferred executor could not start.");
+			ShutdownTaskScheduler(false);
+			return false;
+		}
 
 		FModuleManager::Get().LoadModule("RenderCore");
 		DObjectInit();
@@ -327,7 +359,7 @@ namespace Durin
 		{
 			DURIN_ERROR(
 				"Engine initialization stopped because the dynamic RHI could not start.");
-			ShutdownTaskScheduler(true);
+			ShutdownTaskSystem(ETaskShutdownMode::Drain);
 			RemoveFromRoot(GEngine);
 			MarkObjectHierarchyAsGarbage(GEngine);
 			GEngine = nullptr;
@@ -412,6 +444,7 @@ namespace Durin
 			DURIN_PROFILE_CPU_ZONE_NAMED("EngineLoop.GameLogic");
 			GEngine->Tick(DeltaSeconds, false);
 		}
+		PumpGameThreadDeferredWork();
 		GFrameCounter++;
 
 		// Process application events, and paint UI.
@@ -457,7 +490,7 @@ namespace Durin
 
 		FModuleManager::Get().ShutdownModule("Mona");
 
-		ShutdownTaskScheduler(true);
+		ShutdownTaskSystem(ETaskShutdownMode::Drain);
 		if (TaskSchedulerSmoke)
 		{
 			TaskSchedulerSmoke->ValidateAfterShutdown();

@@ -14,6 +14,7 @@ namespace Durin
 	using FCancelableParallelForFunction = std::function<void(uint64, const FParallelForCancellationToken&)>;
 
 	class FTaskCancellationState;
+	class FTaskGenerationState;
 	class FTaskHandle;
 	class FTaskScheduler;
 	class FTaskStateData;
@@ -40,6 +41,19 @@ namespace Durin
 	{
 		AnyWorker,
 		GameThreadDeferred,
+	};
+
+	enum class ETaskPriority : uint8
+	{
+		High,
+		Normal,
+		Low,
+	};
+
+	enum class ETaskShutdownMode : uint8
+	{
+		Drain,
+		Cancel,
 	};
 
 	enum class ETaskDependencyKind : uint8
@@ -77,6 +91,8 @@ namespace Durin
 		std::vector<ETaskDependencyKind> PrerequisiteDependencyKinds;
 		uint64 DirectBlockingTaskId = 0;
 		uint64 EnqueueTimeNanoseconds = 0;
+		uint64 DispatchTimeNanoseconds = 0;
+		uint64 QueueResidencyNanoseconds = 0;
 		uint64 StartTimeNanoseconds = 0;
 		uint64 FinishTimeNanoseconds = 0;
 		uint32 ExecutingThreadId = 0;
@@ -85,7 +101,12 @@ namespace Durin
 		std::string Diagnostic;
 		ETaskState State = ETaskState::Invalid;
 		ETaskTarget Target = ETaskTarget::AnyWorker;
+		ETaskPriority Priority = ETaskPriority::Normal;
 		ETaskTerminalReason TerminalReason = ETaskTerminalReason::None;
+		uint64 EstimatedPayloadBytes = 0;
+		uint64 CoalescingOwnerDomain = 0;
+		uint64 CoalescingWorkId = 0;
+		uint64 CoalescingGeneration = 0;
 		bool bHasResultStorage = false;
 	};
 
@@ -110,6 +131,95 @@ namespace Durin
 		ETaskState LastLongWaitTargetState = ETaskState::Invalid;
 		bool bRunning = false;
 		std::vector<FTaskDiagnostics> NonterminalTasks;
+	};
+
+	struct FTaskCoalescingKey
+	{
+		uint64 OwnerDomain = 0;
+		uint64 WorkId = 0;
+		uint64 Generation = 0;
+
+		auto operator==(const FTaskCoalescingKey&) const -> bool = default;
+	};
+
+	class FTaskGenerationToken
+	{
+	public:
+		FTaskGenerationToken() = default;
+
+		CORE_API auto IsCurrent() const -> bool;
+		CORE_API auto IsConstrained() const -> bool;
+
+	private:
+		FTaskGenerationToken(std::shared_ptr<FTaskGenerationState> InState, uint64 InGeneration);
+
+		friend class FTaskGenerationSource;
+
+		std::shared_ptr<FTaskGenerationState> State;
+		uint64 Generation = 0;
+	};
+
+	class FTaskGenerationSource
+	{
+	public:
+		CORE_API FTaskGenerationSource();
+
+		CORE_API auto Capture() const -> FTaskGenerationToken;
+		CORE_API auto Advance() -> uint64;
+		CORE_API auto GetGeneration() const -> uint64;
+
+	private:
+		std::shared_ptr<FTaskGenerationState> State;
+	};
+
+	struct FGameThreadDeferredWorkQueueConfig
+	{
+		uint32 MaxQueuedEntries = 1'024;
+		uint64 MaxQueuedPayloadBytes = 8ull * 1'024ull * 1'024ull;
+		uint64 MaxPayloadBytesPerEntry = 1ull * 1'024ull * 1'024ull;
+		uint32 FrameMaxCallbacks = 64;
+		double FrameMaxSeconds = 0.001;
+		double LongCallbackSeconds = 0.002;
+	};
+
+	struct FGameThreadDeferredPumpBudget
+	{
+		uint32 MaxCallbacks = 64;
+		double MaxSeconds = 0.001;
+		bool bUnlimited = false;
+	};
+
+	struct FGameThreadDeferredPumpResult
+	{
+		uint32 ExecutedCallbacks = 0;
+		uint32 TerminalEntriesSkipped = 0;
+		uint64 ElapsedNanoseconds = 0;
+	};
+
+	struct FGameThreadDeferredWorkQueueDiagnostics
+	{
+		uint32 QueueDepth = 0;
+		uint32 PeakQueueDepth = 0;
+		std::array<uint32, 3> PriorityDepths{};
+		uint64 QueuedPayloadBytes = 0;
+		uint64 PeakQueuedPayloadBytes = 0;
+		uint64 AcceptedCount = 0;
+		uint64 RejectedCount = 0;
+		uint64 SupersededCount = 0;
+		uint64 CanceledCount = 0;
+		uint64 ExpiredGenerationCount = 0;
+		uint64 CallbackFailureCount = 0;
+		uint64 PumpCount = 0;
+		uint64 PumpedCallbackCount = 0;
+		uint64 PumpTimeNanoseconds = 0;
+		uint64 LongCallbackCount = 0;
+		uint64 LastLongCallbackTaskId = 0;
+		uint64 LastLongCallbackNanoseconds = 0;
+		uint64 OldestEntryAgeNanoseconds = 0;
+		uint64 AdapterGeneration = 0;
+		uint64 ReentrantPumpCount = 0;
+		bool bInstalled = false;
+		bool bAccepting = false;
 	};
 
 	// Observes cancellation requested for one task or a caller-owned task group.
@@ -260,7 +370,11 @@ namespace Durin
 	{
 		std::span<const FTaskHandle> Prerequisites;
 		FTaskCancellationToken CancellationToken;
+		FTaskGenerationToken GenerationToken;
+		std::optional<FTaskCoalescingKey> CoalescingKey;
+		uint64 EstimatedPayloadBytes = 0;
 		ETaskTarget Target = ETaskTarget::AnyWorker;
+		ETaskPriority Priority = ETaskPriority::Normal;
 	};
 
 	struct FParallelForOptions
@@ -281,6 +395,11 @@ namespace Durin
 	CORE_API auto InitializeTaskScheduler(uint32 InNumThreads = 0) -> bool;
 	// Closes admission and either drains or discards all accepted work before returning.
 	CORE_API auto ShutdownTaskScheduler(bool bWaitForQueuedWork = true) -> void;
+	CORE_API auto InitializeGameThreadDeferredExecutor(const FGameThreadDeferredWorkQueueConfig& Config = {}) -> bool;
+	CORE_API auto PumpGameThreadDeferredWork() -> FGameThreadDeferredPumpResult;
+	CORE_API auto PumpGameThreadDeferredWork(const FGameThreadDeferredPumpBudget& Budget) -> FGameThreadDeferredPumpResult;
+	CORE_API auto GetGameThreadDeferredWorkQueueDiagnostics() -> FGameThreadDeferredWorkQueueDiagnostics;
+	CORE_API auto ShutdownTaskSystem(ETaskShutdownMode Mode = ETaskShutdownMode::Drain) -> void;
 	CORE_API auto IsTaskSchedulerRunning() -> bool;
 	// Returns the live lifetime snapshot, or the final snapshot after shutdown.
 	CORE_API auto GetTaskSchedulerDiagnostics() -> FTaskSchedulerDiagnostics;
