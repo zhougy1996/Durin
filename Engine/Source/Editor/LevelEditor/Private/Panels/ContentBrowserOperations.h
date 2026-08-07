@@ -58,6 +58,7 @@ namespace Durin
 		EContentDeletionEntryKind Kind = EContentDeletionEntryKind::OrdinaryFile;
 		uintmax_t FileSize = 0;
 		int64 LastWriteTimeTicks = 0;
+		FXxHash128 ByteIdentity;
 		uint64 Digest = 0;
 	};
 

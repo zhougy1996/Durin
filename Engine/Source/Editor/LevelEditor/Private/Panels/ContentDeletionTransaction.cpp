@@ -1,6 +1,7 @@
 #include "Panels/ContentBrowserOperations.h"
 
 #include "Misc/LexicalPath.h"
+#include "Misc/FileHelper.h"
 
 #include <atomic>
 #include <fstream>
@@ -164,6 +165,15 @@ namespace Durin
 				const uintmax_t Size = std::filesystem::file_size(Current, Ec);
 				if (Ec || Size != Entry.FileSize)
 					return Fail(std::format("Deletion source changed: {}.", Current.generic_string()));
+				FXxHash128 ByteIdentity;
+				if (!FFileHelper::HashFileXx128(Current, ByteIdentity, Ec))
+					return Fail(std::format(
+						"Could not fingerprint deletion source {}: {}",
+						Current.generic_string(), Ec.message()));
+				if (ByteIdentity != Entry.ByteIdentity)
+					return Fail(std::format(
+						"Deletion source bytes changed: {}.",
+						Current.generic_string()));
 			}
 			const auto WriteTime = std::filesystem::last_write_time(Current, Ec);
 			if (Ec || static_cast<int64>(WriteTime.time_since_epoch().count())

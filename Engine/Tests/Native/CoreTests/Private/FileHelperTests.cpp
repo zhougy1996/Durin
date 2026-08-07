@@ -72,6 +72,24 @@ TEST(FFileHelperTests, PublishesAndReplacesCompleteBytes)
 	EXPECT_EQ(ReadBytes(Destination), std::vector(Second.begin(), Second.end()));
 }
 
+TEST(FFileHelperTests, HashesFilesIncrementallyAcrossBufferBoundaries)
+{
+	const std::filesystem::path FilePath = TestRoot("StreamingHash") / "Value.bin";
+	std::vector<std::byte> Bytes(3 * 64 * 1024 + 17);
+	for (size_t Index = 0; Index < Bytes.size(); ++Index)
+		Bytes[Index] = static_cast<std::byte>((Index * 37) & 0xff);
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Bytes, FilePath));
+	Durin::FXxHash128 Actual;
+	std::error_code Error;
+	ASSERT_TRUE(Durin::FFileHelper::HashFileXx128(FilePath, Actual, Error));
+	EXPECT_FALSE(Error);
+	EXPECT_EQ(Actual, Durin::FXxHash128::HashBuffer(Bytes));
+
+	EXPECT_FALSE(Durin::FFileHelper::HashFileXx128(
+		FilePath.parent_path() / "Missing.bin", Actual, Error));
+	EXPECT_TRUE(Error);
+}
+
 TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 {
 	const std::filesystem::path Destination = TestRoot("Concurrent") / "Value.bin";

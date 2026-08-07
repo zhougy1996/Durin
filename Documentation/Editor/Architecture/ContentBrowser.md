@@ -81,9 +81,11 @@ ordinary file or silently omitted.
 Preflight produces one immutable deletion plan shared by the confirmation modal
 and transaction. The plan contains the registry revision, deterministic
 physical fingerprints, sorted entries, and the minimal set of maximal roots to
-move. Confirmation revalidates that exact plan. If filesystem or registry state
-changed, the modal replaces the stale plan, displays the updated scope, and
-requires a second confirmation.
+move. File fingerprints include a bounded-memory streamed 128-bit byte identity;
+directory identities deterministically aggregate their sorted descendants.
+Confirmation and transaction transitions revalidate those identities. If
+filesystem or registry state changed, the modal replaces the stale plan,
+displays the updated scope, and requires a second confirmation.
 
 The complete operation is blocked before mutation when any target is outside a
 single writable authoring mount, is the mount root, requires cross-volume

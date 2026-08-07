@@ -1242,11 +1242,13 @@ TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndUndoRestor
 TEST_F(FContentBrowserModelTests, DeletionTransactionRejectsDestinationAndModificationConflicts)
 {
 	const std::filesystem::path Folder = Root / "Content/ConflictFolder";
+	const std::filesystem::path SourceFile = Folder / "source.txt";
 	std::filesystem::create_directories(Folder);
 	{
-		std::ofstream File(Folder / "source.txt");
+		std::ofstream File(SourceFile);
 		File << "source";
 	}
+	const auto ConfirmedWriteTime = std::filesystem::last_write_time(SourceFile);
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();
 	FContentBrowserOperations Operations(
@@ -1279,13 +1281,90 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionRejectsDestinationAndModifi
 	EXPECT_EQ(
 		Transactions.GetContentMutationRevision(), InitialContentRevision + 2);
 	{
-		std::ofstream File(Folder / "source.txt", std::ios::app);
-		File << "changed";
+		std::ofstream File(SourceFile, std::ios::trunc);
+		File << "change";
 	}
+	std::filesystem::last_write_time(SourceFile, ConfirmedWriteTime);
 	EXPECT_FALSE(Transactions.Redo());
 	EXPECT_EQ(
 		Transactions.GetContentMutationRevision(), InitialContentRevision + 2);
 	EXPECT_EQ(View->GetState(), EContentDeletionTransactionState::Restored);
+}
+
+TEST_F(FContentBrowserModelTests, DeletionPlanRejectsSameSizeTimestampPreservingRewrite)
+{
+	const std::filesystem::path FilePath = Root / "Content/rewrite.txt";
+	{
+		std::ofstream File(FilePath);
+		File << "source";
+	}
+	const auto ConfirmedWriteTime = std::filesystem::last_write_time(FilePath);
+	FContentBrowserModel Model;
+	Model.RefreshMountSnapshot();
+	FContentBrowserOperations Operations(
+		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+			return {};
+		});
+	const FContentBrowserItem Item{
+		.Kind = EContentBrowserItemKind::File,
+		.Name = "rewrite.txt",
+		.PhysicalPath = FilePath.generic_string(),
+		.Extension = ".txt"};
+	const FContentDeletionPlanPtr Plan = BuildTransactionPlan(
+		Operations, std::span{&Item, 1}, Root / "Undo");
+	ASSERT_TRUE(Plan->CanExecute());
+	{
+		std::ofstream File(FilePath, std::ios::trunc);
+		File << "change";
+	}
+	std::filesystem::last_write_time(FilePath, ConfirmedWriteTime);
+	EXPECT_FALSE(Operations.IsDeletionPlanCurrent(*Plan));
+	FContentDeletionTransaction Transaction(Plan);
+	EXPECT_FALSE(Transaction.Redo());
+	EXPECT_TRUE(std::filesystem::exists(FilePath));
+}
+
+TEST_F(FContentBrowserModelTests, DeletionUndoRejectsChangedStagedBytes)
+{
+	const std::filesystem::path Folder = Root / "Content/StagedRewrite";
+	const std::filesystem::path SourceFile = Folder / "source.txt";
+	std::filesystem::create_directories(Folder);
+	{
+		std::ofstream File(SourceFile);
+		File << "source";
+	}
+	FContentBrowserModel Model;
+	Model.RefreshMountSnapshot();
+	FContentBrowserOperations Operations(
+		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+			return {};
+		});
+	const FContentBrowserItem Item{
+		.Kind = EContentBrowserItemKind::Folder,
+		.Name = "StagedRewrite",
+		.PhysicalPath = Folder.generic_string()};
+	const FContentDeletionPlanPtr Plan = BuildTransactionPlan(
+		Operations, std::span{&Item, 1}, Root / "Undo");
+	auto Transaction = std::make_unique<FContentDeletionTransaction>(Plan);
+	FContentDeletionTransaction* View = Transaction.get();
+	FEditorTransactionManager Transactions;
+	ASSERT_TRUE(Transactions.Execute(std::move(Transaction)));
+	const std::filesystem::path StagedFile =
+		View->GetStagingRoot() / "entry-0000/source.txt";
+	const auto ConfirmedWriteTime = std::filesystem::last_write_time(StagedFile);
+	{
+		std::ofstream File(StagedFile, std::ios::trunc);
+		File << "change";
+	}
+	std::filesystem::last_write_time(StagedFile, ConfirmedWriteTime);
+	EXPECT_FALSE(Transactions.Undo());
+	EXPECT_EQ(View->GetState(), EContentDeletionTransactionState::Applied);
+	{
+		std::ofstream File(StagedFile, std::ios::trunc);
+		File << "source";
+	}
+	std::filesystem::last_write_time(StagedFile, ConfirmedWriteTime);
+	EXPECT_TRUE(Transactions.Undo());
 }
 
 TEST_F(FContentBrowserModelTests, DeletionTransactionCompensatesAndRetainsFailedRecovery)

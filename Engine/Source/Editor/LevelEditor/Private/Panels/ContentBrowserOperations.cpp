@@ -5,6 +5,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/LexicalPath.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "MonaImGui.h"
 
@@ -50,8 +51,11 @@ namespace Durin
 			Hash = HashAppend(
 				Hash, std::to_string(static_cast<uint8>(Fingerprint.Kind)));
 			Hash = HashAppend(Hash, std::to_string(Fingerprint.FileSize));
-			return HashAppend(
+			Hash = HashAppend(
 				Hash, std::to_string(Fingerprint.LastWriteTimeTicks));
+			Hash = HashAppend(Hash, std::to_string(Fingerprint.ByteIdentity.HashLow));
+			return HashAppend(
+				Hash, std::to_string(Fingerprint.ByteIdentity.HashHigh));
 		}
 
 		auto IsReparsePoint(
@@ -96,6 +100,24 @@ namespace Durin
 			if (OutError) return false;
 			OutFingerprint.LastWriteTimeTicks =
 				static_cast<int64>(WriteTime.time_since_epoch().count());
+			if (Kind != EContentDeletionEntryKind::Directory)
+			{
+				if (!FFileHelper::HashFileXx128(
+						Path, OutFingerprint.ByteIdentity, OutError))
+					return false;
+				const uintmax_t FinalSize = std::filesystem::file_size(Path, OutError);
+				if (OutError) return false;
+				const auto FinalWriteTime =
+					std::filesystem::last_write_time(Path, OutError);
+				if (OutError) return false;
+				if (FinalSize != OutFingerprint.FileSize
+					|| static_cast<int64>(FinalWriteTime.time_since_epoch().count())
+						!= OutFingerprint.LastWriteTimeTicks)
+				{
+					OutError = std::make_error_code(std::errc::state_not_recoverable);
+					return false;
+				}
+			}
 			OutFingerprint.Digest = CalculateFingerprintDigest(OutFingerprint);
 			return true;
 		}
@@ -1028,6 +1050,7 @@ namespace Durin
 		{
 			if (Directory.Kind != EContentDeletionEntryKind::Directory) continue;
 			uint64 Digest = FnvOffset;
+			FXxHash128Builder ByteIdentity;
 			for (const FContentDeletionFingerprint& Descendant : Plan->Entries)
 			{
 				if (!PathUtilities::IsLexicalDescendantPath(
@@ -1042,8 +1065,17 @@ namespace Durin
 				Digest = HashAppend(Digest, std::to_string(Descendant.FileSize));
 				Digest = HashAppend(
 					Digest, std::to_string(Descendant.LastWriteTimeTicks));
+				ByteIdentity.Update(Relative);
+				ByteIdentity.UpdateValue(Descendant.Kind);
+				ByteIdentity.UpdateValue(Descendant.FileSize);
+				ByteIdentity.UpdateValue(Descendant.LastWriteTimeTicks);
+				ByteIdentity.UpdateValue(Descendant.ByteIdentity.HashLow);
+				ByteIdentity.UpdateValue(Descendant.ByteIdentity.HashHigh);
 			}
-			Directory.Digest = Digest;
+			Directory.ByteIdentity = ByteIdentity.Finalize();
+			Directory.Digest = HashAppend(
+				HashAppend(Digest, std::to_string(Directory.ByteIdentity.HashLow)),
+				std::to_string(Directory.ByteIdentity.HashHigh));
 		}
 		for (FContentDeletionRoot& Root : Plan->MaximalRoots)
 		{
@@ -1127,6 +1159,7 @@ namespace Durin
 				|| Before.Kind != After.Kind
 				|| Before.FileSize != After.FileSize
 				|| Before.LastWriteTimeTicks != After.LastWriteTimeTicks
+				|| Before.ByteIdentity != After.ByteIdentity
 				|| Before.Digest != After.Digest)
 				return false;
 		}

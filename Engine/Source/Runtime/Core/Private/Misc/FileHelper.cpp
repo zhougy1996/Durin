@@ -283,6 +283,38 @@ namespace Durin
 			return true;
 		}
 
+		auto HashFileXx128(
+			const std::filesystem::path& FilePath,
+			FXxHash128& OutHash,
+			std::error_code& OutError) -> bool
+		{
+			OutHash = {};
+			OutError.clear();
+			std::ifstream Stream(FilePath, std::ios::binary);
+			if (!Stream.is_open())
+			{
+				OutError = std::make_error_code(std::errc::io_error);
+				return false;
+			}
+			constexpr size_t BufferSize = 64 * 1024;
+			std::array<char, BufferSize> Buffer{};
+			FXxHash128Builder Builder;
+			while (Stream)
+			{
+				Stream.read(Buffer.data(), static_cast<std::streamsize>(Buffer.size()));
+				const std::streamsize Read = Stream.gcount();
+				if (Read > 0)
+					Builder.Update(Buffer.data(), static_cast<uint64>(Read));
+			}
+			if (Stream.bad())
+			{
+				OutError = std::make_error_code(std::errc::io_error);
+				return false;
+			}
+			OutHash = Builder.Finalize();
+			return true;
+		}
+
 		bool SaveArrayToFile(const std::span<const std::byte>& Array, const std::filesystem::path& FilePath)
 		{
 			// Ensure the parent directory exists
