@@ -4,26 +4,29 @@ Summary: Add move-only task callables and a type-distinct unique result consumed
 
 Last reviewed: 2026-08-07
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-07
 
 ## Current Status
 
-Stages 0 through 3 are complete. The callable contract was frozen from baseline
-`68660f0a2b966649f8ca0043f27c19f7f08792e7`, and Stage 1 moved callable
-ownership through task nodes, the Worker queue, and the GameThread deferred
-queue from baseline `d59eb1fe236ade4dc8b1d16c55b23e7d457ba930`.
-Move-only captures now work for void, cancelable, shared typed, Worker
-continuation, outcome, and GameThread continuation paths. Capture moves and
-destruction occur outside internal locks, and successful typed waits now
-synchronize completion-hook result publication. Stage 2 adds explicit unique
-producers, move-only `TUniqueTaskHandle<T>`, transactional one-consumer claims,
-Worker and GameThread consuming sinks, checked retained-byte admission, and
-bounded unique-result diagnostics. AsyncImportCore now uses a unique
-`FImportPlanResult` producer and one AnyWorker outcome publisher while retaining
-its request table, latest-owner/provider policy, serial mailbox, explicit
-drain, cancellation, and take-once API. Stage 4 is ready for qualification,
-lasting documentation, lifecycle smoke, and milestone closure.
+All stages are complete. Move-only captures work for void, cancelable, shared
+typed, Worker continuation, outcome, and GameThread continuation paths while
+legacy aliases remain valid. Explicit unique producers feed exactly one
+transactionally claimed Worker or GameThread sink; deferred admission includes
+declared retained result bytes, and all terminal paths release captures and
+values outside internal locks. AsyncImportCore is the production pilot and
+retains its request table, latest-owner/provider policy, serial mailbox,
+explicit drain, cancellation, and take-once API.
+
+Qualification passed 94 Core concurrency tests, 23 AssetImportCore tests, the
+58-test editor asset workflow aggregate with one expected skip, the complete
+Agent Debug `all` build, and the hidden-window three-tick task lifecycle smoke.
+Stable rules now live in `TaskSystem.md`; the roadmap records M1 complete and
+opens the M2 typed fan-in and M3 owner-diagnostics entry gates. Source-image
+thumbnail migration remains deferred: the successful import pilot validates a
+terminal ownership handoff, but does not resolve thumbnail visibility priority,
+bounded decode concurrency, per-frame upload throttling, or render/RHI command
+ownership.
 The completed continuation foundation publishes typed values through
 `shared_ptr<const T>` and ultimately stores task and completion callables in
 `std::function`. This supports immutable fan-out but requires copy-constructible
@@ -705,21 +708,21 @@ Dependencies: Stage 2 unique sink API; existing AsyncImportCore tests.
 
 Dependencies: Stage 3 production pilot.
 
-- [ ] Measure copyable versus move-only callable admission/execution/destruction
+- [x] Measure copyable versus move-only callable admission/execution/destruction
   overhead and shared versus unique result transfer for representative small
   and large payloads in the Agent Debug profile.
-- [ ] Saturate GameThread deferred admission with declared unique retained bytes
+- [x] Saturate GameThread deferred admission with declared unique retained bytes
   and verify count/byte limits, stale drops, cancellation, callback budget, and
   shutdown memory release.
-- [ ] Run complete Core and applicable AssetImportCore/editor workflow tests,
+- [x] Run complete Core and applicable AssetImportCore/editor workflow tests,
   full `all` build, and the hidden-window task lifecycle smoke according to the
   repository build guidance.
-- [ ] Move stable callable/result ownership and consuming-sink rules into
+- [x] Move stable callable/result ownership and consuming-sink rules into
   `Documentation/Runtime/Core/TaskSystem.md` and update the roadmap milestone
   status and evidence.
-- [ ] Record the source-thumbnail follow-up decision using pilot evidence; do
+- [x] Record the source-thumbnail follow-up decision using pilot evidence; do
   not migrate it in this plan.
-- [ ] Complete stage handoff, plan lifecycle metadata, and all-plan validation.
+- [x] Complete stage handoff, plan lifecycle metadata, and all-plan validation.
 
 #### Acceptance Gate
 
@@ -836,6 +839,33 @@ and validation outcome.
   scheduler rejection, a drained single notice, and take-once behavior. Core
   Stage 2 tests supply transactional consumer-admission rejection, cancellation,
   callback failure, and shutdown coverage for the unchanged sink primitive.
+
+### Stage 4 Handoff
+
+- Baseline commit: `90680f1c65460b950c4533d00c964cac6493a56e`.
+- Working set: Core `ThreadingTests.cpp`, this plan, `TaskSystem.md`, and the Task
+  System Evolution roadmap; final validation also covers the Stage 3
+  AsyncImportCore working set and the built editor runtime.
+- Key symbols and decisions:
+  `MeasuresCopyableMoveOnlyAndSharedUniqueTransfer` records the callable/result
+  qualification baseline;
+  `DeferredRetainedBytesSaturateWithoutHiddenStorage` proves combined-byte
+  saturation and release; stable documentation now owns move-only erasure,
+  shared-versus-unique selection, claim rollback, terminal destruction,
+  retained bytes, diagnostics, and the AsyncImportCore pilot boundary. M1 is
+  complete; M2 and M3 entry gates are open but no child plan is activated.
+  Source-image thumbnails remain deferred pending their separate decode/upload
+  and render/RHI ownership review.
+- Open questions: none. Qualification timings and AsyncImportCore's 64 KiB
+  retained declaration are environment/conservative metadata, not release
+  performance or allocator-size guarantees.
+- Validation: all 94 `CoreConcurrencyTests` and 23 `AssetImportCoreTests`
+  passed; `EditorAssetWorkflowTests` ran 58 tests with 57 passed and one
+  expected skip; the complete Agent Debug `all` build passed; the hidden-window
+  editor ran three ticks with the task-scheduler lifecycle smoke and exited
+  cleanly; and all-plan validation passed. The qualification run measured 128
+  copyable callables at 15.45 ms, 128 move-only callables at 16.01 ms, 32 shared
+  64 KiB transfers at 8.27 ms, and 32 unique transfers at 7.40 ms.
 
 ## Validation Matrix
 

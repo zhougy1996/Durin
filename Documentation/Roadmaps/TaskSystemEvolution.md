@@ -10,23 +10,19 @@ Completed:
 ## Current Status
 
 The foundational [Task Continuations and Thread Dispatch](../Plans/TaskContinuationsAndThreadDispatch.md)
-plan is complete. Durin now has bounded worker execution, immutable shared
-typed results, success and completion continuations, `AnyWorker` and
-`GameThreadDeferred` targets, deterministic terminal diagnostics, and
-cross-executor shutdown. The Asset Compatibility Audit is the first production
-pilot and preserves its streaming mailbox while publishing terminal state
-through a typed continuation.
+plan and M1 [Move-Only Tasks and Consuming Results](../Plans/MoveOnlyTasksAndConsumingResults.md)
+are complete. Durin now has bounded worker execution, immutable shared typed
+results, move-only callable admission, explicit unique result handles,
+one-consumer Worker/GameThread sinks, checked retained-result bytes,
+deterministic terminal diagnostics, and cross-executor shutdown. The Asset
+Compatibility Audit remains the shared-result production pilot; AsyncImportCore
+is the unique-result pilot and retains its owner/provider mailbox policy.
 
-The next blocker is ownership rather than another executor. Current task
-callables cross a `std::function` boundary and therefore must be copyable;
-`TTaskHandle<T>` publishes only `shared_ptr<const T>`, so large or unique results
-cannot move into a single downstream owner. The active first child plan,
-[Move-Only Tasks and Consuming Results](../Plans/MoveOnlyTasksAndConsumingResults.md),
-addresses that boundary without changing existing shared-result APIs.
-
-Later milestones remain unactivated. They receive detailed plans only after
-their entry gates are satisfied and the preceding contract is validated in a
-production caller.
+M2 typed fan-in and M3 owner diagnostics now satisfy their M1 entry gates.
+Neither child plan is activated by this milestone; each receives a detailed
+plan when selected as bounded repository work. Later milestones remain gated by
+their named composition, attribution, production-owner, and measurement
+evidence.
 
 ## Outcome
 
@@ -132,8 +128,8 @@ completion.
 
 | Area | Existing foundation | Roadmap gap |
 | --- | --- | --- |
-| Callable ownership | Public void/typed launches and continuations ultimately use `std::function`. | Accept and retain move-only callable captures without forcing artificial `shared_ptr` ownership. |
-| Shared results | `TTaskHandle<T>` publishes one immutable shared result and supports fan-out. | Add an explicit unique mode for large or move-only results consumed exactly once. |
+| Callable ownership | Legacy aliases remain while forwarding launches and continuations erase one move-only callable through both executors. | Attribute retained callable storage to owners in M3. |
+| Shared and unique results | `TTaskHandle<T>` supports immutable fan-out; `TUniqueTaskHandle<T>` admits exactly one consuming sink with declared retained bytes. | Add typed shared aggregate fan-in in M2; multi-stage unique production remains deferred. |
 | Composition | `Then`, `ThenOutcome`, and additional prerequisites compose graph nodes. | Add typed aggregate fan-in without manual handle capture and result lookup. |
 | Owner lifetime | Cancellation sources, generations, handles, and subsystem shutdown code exist. | Add a structured owner scope with explicit admission and quiescence. |
 | Diagnostics | Per-task relationships/timing plus Worker and GameThread queue counters exist. | Attribute work to owners and expose bounded aggregate latency, execution, and budget distributions. |
@@ -156,7 +152,7 @@ flowchart LR
 | Milestone | Requirement | Child plan | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
 | Foundation: Typed continuations | Complete prerequisite | [Task Continuations and Thread Dispatch](../Plans/TaskContinuationsAndThreadDispatch.md) | Existing bounded Worker scheduler and subsystem mailbox contracts. | Shared typed results, continuations, GameThread deferred routing, cross-executor shutdown, pilot, and lasting documentation are complete. |
-| M1: Move ownership | Required; active | [Move-Only Tasks and Consuming Results](../Plans/MoveOnlyTasksAndConsumingResults.md) | Foundation complete; concrete AsyncImportCore and thumbnail ownership gaps identified. | Move-only callables and one-consumer result sinks pass Core/lifecycle validation and one production pilot without removing domain policy. |
+| M1: Move ownership | Required; completed | [Move-Only Tasks and Consuming Results](../Plans/MoveOnlyTasksAndConsumingResults.md) | Foundation complete; concrete AsyncImportCore and thumbnail ownership gaps identified. | Move-only callables and one-consumer result sinks passed Core/lifecycle validation; AsyncImportCore adopted the sink without removing domain policy. |
 | M2: Typed fan-in | Required | `TypedTaskFanIn` | M1 ownership modes and terminal rules are stable. | Shared typed `WhenAll`/aggregate outcome composition is deterministic across success, failure, cancellation, fan-in, and destruction. |
 | M3: Owner diagnostics | Required | `TaskOwnerDiagnostics` | M1 can attribute retained callable/result storage and existing queue timing is stable. | Tasks carry bounded owner/category identity and aggregate latency, execution, rejection, stale, and budget metrics can be correlated in profiler flows. |
 | M4: Structured task scopes | Required | `StructuredTaskScopes` | M2 composition and M3 owner attribution are complete; two subsystem owners have explicit shutdown boundaries. | Scopes close admission, cancel or drain descendants, report nonterminal work, and quiesce explicitly without destructor blocking or scheduler-lifetime ownership. |

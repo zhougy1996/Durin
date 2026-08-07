@@ -2145,6 +2145,125 @@ namespace Durin
 		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes);
 	}
 
+	TEST(FUniqueTaskTests, DeferredRetainedBytesSaturateWithoutHiddenStorage)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		FGameThreadDeferredWorkQueueConfig Config;
+		Config.MaxQueuedEntries = 8;
+		Config.MaxQueuedPayloadBytes = 256;
+		Config.MaxPayloadBytesPerEntry = 128;
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor(Config));
+
+		std::vector<TUniqueTaskHandle<FCompileMoveOnlyValue>> Producers;
+		for (int Value = 0; Value < 5; ++Value)
+		{
+			Producers.emplace_back(LaunchUniqueTask<FCompileMoveOnlyValue>(
+				"UniqueSaturationProducer", [Value]() { return FCompileMoveOnlyValue(Value); }, {}, 64));
+		}
+		for (const auto& Producer : Producers)
+			ASSERT_EQ(ETaskState::Succeeded, WaitTask(Producer.GetTaskHandle()));
+
+		FTaskContinuationOptions Options;
+		Options.Target = ETaskTarget::GameThreadDeferred;
+		std::atomic<uint32> Runs = 0;
+		std::vector<FTaskHandle> Consumers;
+		for (auto& Producer : Producers)
+		{
+			Consumers.emplace_back(ConsumeThen(std::move(Producer), "UniqueSaturationConsumer",
+				[&Runs](FCompileMoveOnlyValue&&) { Runs.fetch_add(1, std::memory_order::acq_rel); }, Options));
+		}
+		for (size_t Index = 0; Index < 4; ++Index)
+			ASSERT_EQ(ETaskState::Queued, Consumers[Index].GetState());
+		EXPECT_EQ(ETaskState::Canceled, Consumers[4].GetState());
+		EXPECT_EQ(ETaskTerminalReason::DispatchRejected, Consumers[4].GetDiagnostics().TerminalReason);
+		EXPECT_EQ(256u, GetGameThreadDeferredWorkQueueDiagnostics().QueuedPayloadBytes);
+		EXPECT_EQ(256u, GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes);
+
+		EXPECT_EQ(4u, PumpGameThreadDeferredWork().ExecutedCallbacks);
+		EXPECT_EQ(4u, Runs.load(std::memory_order::acquire));
+		EXPECT_EQ(0u, GetGameThreadDeferredWorkQueueDiagnostics().QueuedPayloadBytes);
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes);
+	}
+
+	TEST(FTaskQualificationTests, MeasuresCopyableMoveOnlyAndSharedUniqueTransfer)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(4));
+		constexpr uint32 CallableCount = 128;
+		constexpr uint32 ResultCount = 32;
+		constexpr size_t ResultBytes = 64 * 1'024;
+
+		auto MeasureNanoseconds = [](auto&& Work) -> uint64 {
+			const auto Start = std::chrono::steady_clock::now();
+			Work();
+			return static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - Start).count());
+		};
+
+		std::atomic<uint32> CallableRuns = 0;
+		const uint64 CopyableCallableNanoseconds = MeasureNanoseconds([&]() {
+			std::vector<FTaskHandle> Handles;
+			for (uint32 Index = 0; Index < CallableCount; ++Index)
+				Handles.emplace_back(LaunchTask("CopyableQualification", [&CallableRuns]() {
+					CallableRuns.fetch_add(1, std::memory_order::acq_rel);
+				}));
+			EXPECT_TRUE(std::ranges::all_of(WaitAll(Handles), [](ETaskState State) { return State == ETaskState::Succeeded; }));
+		});
+		const uint64 MoveOnlyCallableNanoseconds = MeasureNanoseconds([&]() {
+			std::vector<FTaskHandle> Handles;
+			for (uint32 Index = 0; Index < CallableCount; ++Index)
+				Handles.emplace_back(LaunchTask("MoveOnlyQualification",
+					[Value = std::make_unique<uint32>(1), &CallableRuns]() {
+						CallableRuns.fetch_add(*Value, std::memory_order::acq_rel);
+					}));
+			EXPECT_TRUE(std::ranges::all_of(WaitAll(Handles), [](ETaskState State) { return State == ETaskState::Succeeded; }));
+		});
+
+		std::atomic<uint64> ResultBytesObserved = 0;
+		const uint64 SharedTransferNanoseconds = MeasureNanoseconds([&]() {
+			std::vector<FTaskHandle> Sinks;
+			for (uint32 Index = 0; Index < ResultCount; ++Index)
+			{
+				auto Producer = LaunchTask<std::vector<uint8>>("SharedTransferQualification", []() {
+					return std::vector<uint8>(ResultBytes, 1);
+				});
+				Sinks.emplace_back(Then(Producer, "SharedTransferSink", [&ResultBytesObserved](const std::vector<uint8>& Value) {
+					ResultBytesObserved.fetch_add(Value.size(), std::memory_order::acq_rel);
+				}));
+			}
+			EXPECT_TRUE(std::ranges::all_of(WaitAll(Sinks), [](ETaskState State) { return State == ETaskState::Succeeded; }));
+		});
+		const uint64 UniqueTransferNanoseconds = MeasureNanoseconds([&]() {
+			std::vector<FTaskHandle> Sinks;
+			for (uint32 Index = 0; Index < ResultCount; ++Index)
+			{
+				auto Producer = LaunchUniqueTask<std::vector<uint8>>("UniqueTransferQualification", []() {
+					return std::vector<uint8>(ResultBytes, 1);
+				}, {}, ResultBytes);
+				Sinks.emplace_back(ConsumeThen(std::move(Producer), "UniqueTransferSink",
+					[&ResultBytesObserved](std::vector<uint8>&& Value) {
+						ResultBytesObserved.fetch_add(Value.size(), std::memory_order::acq_rel);
+					}));
+			}
+			EXPECT_TRUE(std::ranges::all_of(WaitAll(Sinks), [](ETaskState State) { return State == ETaskState::Succeeded; }));
+		});
+
+		EXPECT_EQ(CallableCount * 2, CallableRuns.load(std::memory_order::acquire));
+		EXPECT_EQ(static_cast<uint64>(ResultCount) * ResultBytes * 2,
+			ResultBytesObserved.load(std::memory_order::acquire));
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes);
+		std::cout << "TaskOwnershipQualification,callables=" << CallableCount
+			<< ",results=" << ResultCount << ",result_bytes=" << ResultBytes
+			<< ",copyable_callable_ns=" << CopyableCallableNanoseconds
+			<< ",move_only_callable_ns=" << MoveOnlyCallableNanoseconds
+			<< ",shared_transfer_ns=" << SharedTransferNanoseconds
+			<< ",unique_transfer_ns=" << UniqueTransferNanoseconds << '\n';
+	}
+
 	TEST(FTaskContinuationTests, MoveOnlyTypedResultSupportsImmutableFanOutAndTypedChains)
 	{
 		ShutdownTaskScheduler(false);

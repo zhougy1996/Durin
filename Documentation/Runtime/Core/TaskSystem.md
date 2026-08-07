@@ -63,6 +63,35 @@ not copy or consume it. Exceptions never escape a task or executor entry point:
 a standard exception produces `Failed` with its message, and an unknown
 exception produces a stable diagnostic.
 
+Launch and continuation forwarding overloads accept move-constructible
+callables, including lambdas that uniquely capture `unique_ptr`. Existing
+`FTaskFunction`, `FCancelableTaskFunction`, typed `std::function` overloads,
+and their result-conversion behavior remain available. Core erases one user
+callable into a move-only owner, then moves that owner through the task node and
+selected executor. Capture move and destruction never occur while task,
+scheduler, Worker-queue, or GameThread-queue locks are held.
+
+Unique publication is explicit and type-distinct. `LaunchUniqueTask<T>` and
+`LaunchUniqueCancelableTask<T>` return a move-only `TUniqueTaskHandle<T>` with
+ordinary status, diagnostic, and erased `FTaskHandle` access, but no shared
+result observer or direct take operation. `ConsumeThen` claims one successful
+`T` and invokes a terminal `void(T&&)` sink. `ConsumeThenOutcome` runs after any
+producer terminal state and invokes a terminal
+`void(FUniqueTaskOutcome<T>&&)` sink whose optional value exists only for
+success. Consuming sinks may target `AnyWorker` or `GameThreadDeferred` and do
+not produce another unique result.
+
+Exactly one sink can claim a unique result. Registration reserves the claim
+before graph admission, commits it only after the consumer node is accepted,
+and rolls it back if callable, prerequisite, scheduler-lifetime, target, or byte
+validation rejects the node. A rejected call preserves the source unique
+handle; successful registration invalidates it. Duplicate claims increment a
+bounded scheduler diagnostic. Failure, cancellation, rejection, stale
+generation, supersession, callback failure, dropped handles, and either
+shutdown mode discard the value exactly once outside internal locks. Copyable
+or move-only `T` does not select ownership mode: callers choose shared or unique
+launch explicitly.
+
 Task IDs are process-unique and nonzero. A parent ID identifies the executing
 task that submitted the task, if any; prerequisite IDs describe dependency
 edges separately. `FTaskDiagnostics` returns an owned, thread-safe copy of
@@ -94,6 +123,12 @@ primary predecessor reaches any terminal state. Success fan-in waits for every
 predecessor, gives failure precedence over cancellation, and records the
 lowest-ID direct blocker. A continuation always returns its own handle and is
 never an inline completion callback.
+
+`ConsumeThen` uses the same success edge, while `ConsumeThenOutcome` uses the
+same completion edge. Terminal state becomes externally observable only after
+the task's completion hook has published or discarded result storage. A
+concurrent dependent registration therefore cannot run before a successful
+shared or unique result is ready.
 
 `FTaskContinuationOptions::Target` selects a logical executor. `AnyWorker` uses
 the process worker scheduler. `GameThreadDeferred` is always queued, even when
@@ -163,6 +198,17 @@ release their callable storage and publish distinct terminal reasons.
 Diagnostics expose depth, declared bytes, rejection and stale counts, queue
 age, residency, and pump cost.
 
+A unique producer declares retained result bytes, defaulting to `sizeof(T)`.
+The declaration includes dynamic storage exclusively reachable from `T`; a
+dynamically owning result must provide a conservative nonzero estimate.
+Explicit zero normalizes to `sizeof(T)` only for trivially copyable, trivially
+destructible values and otherwise rejects launch. A consuming
+`GameThreadDeferred` node charges the checked sum of its callback payload and
+the producer's retained result bytes against per-entry and total queue limits.
+Overflow rejects registration without consuming the source handle. AnyWorker
+remains count bounded, while retained bytes remain visible in task and scheduler
+diagnostics until consume or discard.
+
 The default bounds are 1,024 queued entries, 8 MiB total declared payload, and
 1 MiB declared payload per entry. A normal frame executes at most 64 callbacks
 and stops after the first callback that takes the pump past 1 ms; callbacks over
@@ -177,6 +223,15 @@ pump time, average/maximum residency, continuation throughput, and a deliberate
 environment baselines, not performance guarantees. Budget and capacity tests
 separately verify that normal frames stop at their limits and saturation rejects
 additional work without unbounded growth.
+
+The move-ownership Debug qualification uses 128 copyable and 128 move-only
+callables plus 32 shared and 32 unique 64 KiB transfers. On the 2026-08-07 Agent
+Debug run, admission/execution/destruction took 15.45 ms for copyable callables
+and 16.01 ms for move-only callables; shared transfers took 8.27 ms and unique
+transfers 7.40 ms. These single-environment totals are regression evidence, not
+performance promises. A separate unique-result saturation admits four 64-byte
+retained results into a 256-byte deferred queue, rejects the fifth, then returns
+both queued and retained bytes to zero after pumping.
 
 ## ParallelFor
 
@@ -235,14 +290,20 @@ Choose the execution primitive by ownership requirement:
 
 | Need | Primitive | Owner |
 | --- | --- | --- |
-| One owned result feeds worker or low-priority GameThread follow-up | Typed task plus `Then`/`ThenOutcome` | Core task graph and selected executor |
+| Immutable result feeds one or more readers | Shared typed task plus `Then`/`ThenOutcome` | Core task graph and selected executor |
+| One result moves into exactly one terminal owner | Unique typed task plus `ConsumeThen`/`ConsumeThenOutcome` | Core task graph until sink invocation, then the sink owner |
 | Streaming, batching, latest-wins, provider closure, or explicit result-taking | Subsystem mailbox, optionally triggered by a continuation | Subsystem |
 | Ordered access to a resource without native-thread affinity | Subsystem serialized pipe/lane | Resource-owning subsystem |
 | Render or RHI context, ordering, fences, or resource lifetime | Existing render/RHI command queue | RenderCore or RHI backend |
 
 Async import remains mailbox-owned because its coordinator defines owner and
 provider admission, latest-by-owner replacement, explicit drain, and result
-take semantics. Source-image thumbnails remain cache-owned because they combine
+take semantics. Its plan worker publishes one unique `FImportPlanResult` to an
+AnyWorker outcome sink, which moves success or a stable terminal failure into
+request state and queues the existing serial notice. The coordinator tracks the
+publisher node for drain while retaining a private producer cancellation
+target; no Worker publishes editor state. Source-image thumbnails remain
+cache-owned because they combine
 visibility prioritization, bounded decode concurrency, per-frame upload
 throttling, serial validation, and render/RHI command ownership. Neither path
 is migrated merely to replace its mailbox with a generic callback.
@@ -280,6 +341,10 @@ retained terminal-handle count. At successful shutdown, queue depth, active
 workers, and nonterminal count are zero. Retained terminal handles are external
 owners of completed state, not leaked scheduler storage.
 
+Unique-result diagnostics add per-task estimated and currently retained result
+bytes plus scheduler-wide retained unique bytes and duplicate-claim count.
+They retain no result payload, callable, claim token, or terminal history.
+
 Normal engine exit detaches CPU-work producers, drains the scheduler, performs
 the object and module drains, and only then closes render-command admission and
 stops the rendering thread. The complete process order is owned by
@@ -288,7 +353,7 @@ stops the rendering thread. The complete process order is owned by
 ## Deferred Features
 
 Dedicated IO scheduling, work stealing, fibers or coroutine-backed waits,
-single-consumer move-out results, move-only callable erasure, a general
+typed aggregate fan-in, multi-stage unique-result production, a general
 serialized-lane abstraction, and RenderGraph task integration require
 workload-specific evidence and a clear owner. RenderThread and RHIThread are not
 generic task targets; any adapter requires a named production caller, an
