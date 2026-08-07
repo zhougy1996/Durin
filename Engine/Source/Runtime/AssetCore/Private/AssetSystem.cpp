@@ -304,6 +304,38 @@ namespace Durin::Asset
 			return Contributors;
 		}
 
+		auto InspectAssetCompanionFiles(
+			const FAssetData& Data,
+			std::vector<std::filesystem::path>& OutFiles,
+			bool* OutHasContributor = nullptr) -> FAssetResult
+		{
+			OutFiles.clear();
+			if (OutHasContributor) *OutHasContributor = false;
+			DClass* AssetClass = FindClassByQualifiedName(FName(Data.AssetClassName));
+			for (DClass* Class = AssetClass; Class; Class = Class->GetSuperClass())
+			{
+				const auto It = GetDeleteContributors().find(Class);
+				if (It == GetDeleteContributors().end()) continue;
+				if (OutHasContributor) *OutHasContributor = true;
+				FAssetPackageInspection Inspection;
+				FAssetResult Result = InspectAssetPackage(Data.PhysicalPath, Inspection);
+				if (!Result) return Result;
+				FAssetDeleteContribution Contribution;
+				Result = It->second(Data, Inspection, Contribution);
+				if (!Result) return Result;
+				for (const std::filesystem::path& File : Contribution.Files)
+				{
+					const std::filesystem::path Normalized =
+						std::filesystem::absolute(File).lexically_normal();
+					if (std::ranges::find(OutFiles, Normalized) == OutFiles.end())
+						OutFiles.push_back(Normalized);
+				}
+				std::ranges::sort(OutFiles);
+				break;
+			}
+			return {};
+		}
+
 		struct FRegisteredStructureUpgrader
 		{
 			std::string HandlerId;
@@ -2992,6 +3024,57 @@ namespace Durin::Asset
 	auto RegisterAssetDeleteContributor(DClass* Class, FAssetDeleteContributor Contributor) -> void
 	{
 		if (Class && Contributor) GetDeleteContributors().insert_or_assign(Class, std::move(Contributor));
+	}
+
+	auto QueryAssetCompanionOwnership(
+		const std::filesystem::path& PhysicalPath,
+		FAssetCompanionOwnership& OutOwnership) -> FAssetResult
+	{
+		OutOwnership = {};
+		const std::filesystem::path Candidate =
+			std::filesystem::absolute(PhysicalPath).lexically_normal();
+		for (const auto& [Path, Data] : GetAssetRegistry().GetAssets())
+		{
+			std::error_code ExistenceError;
+			const bool bPackageExists =
+				std::filesystem::is_regular_file(Data.PhysicalPath, ExistenceError);
+			if (!bPackageExists
+				&& (!ExistenceError
+					|| ExistenceError == std::errc::no_such_file_or_directory
+					|| ExistenceError == std::errc::not_a_directory))
+				continue;
+			if (ExistenceError)
+				return {
+					EAssetError::IoError,
+					std::format(
+						"Could not inspect companion owner package {}: {}",
+						Path.ToString(), ExistenceError.message())};
+			std::vector<std::filesystem::path> CompanionFiles;
+			bool bHasContributor = false;
+			const FAssetResult Result = InspectAssetCompanionFiles(
+				Data, CompanionFiles, &bHasContributor);
+			if (!Result)
+				return {
+					Result.Error,
+					std::format(
+						"Could not inspect companion ownership for {}: {}",
+						Path.ToString(), Result.Message)};
+			if (bHasContributor
+				&& std::ranges::find(CompanionFiles, Candidate)
+					!= CompanionFiles.end())
+				OutOwnership.Owners.push_back(Path);
+		}
+		std::ranges::sort(
+			OutOwnership.Owners,
+			[](const FAssetPath& A, const FAssetPath& B) {
+				return A.GetView() < B.GetView();
+			});
+		OutOwnership.State = OutOwnership.Owners.empty()
+			? EAssetCompanionOwnershipState::Unclaimed
+			: OutOwnership.Owners.size() == 1
+			? EAssetCompanionOwnershipState::Owned
+			: EAssetCompanionOwnershipState::Ambiguous;
+		return {};
 	}
 
 	auto FAssetRegistry::ScanMountedContent(EAssetRegistryScanMode Mode) -> FAssetResult
@@ -5860,27 +5943,13 @@ namespace Durin::Asset
 		OutAnalysis.bLoaded = LoadedPackages.contains(Path);
 		OutAnalysis.bLoading = LoadingPackages.contains(Path);
 
-		DClass* AssetClass = FindClassByQualifiedName(FName(Data->AssetClassName));
-		for (DClass* Class = AssetClass; Class; Class = Class->GetSuperClass())
+		const FAssetResult CompanionResult =
+			InspectAssetCompanionFiles(*Data, OutAnalysis.CompanionFiles);
+		if (!CompanionResult)
 		{
-			auto It = GetDeleteContributors().find(Class);
-			if (It == GetDeleteContributors().end()) continue;
-			FAssetPackageInspection Inspection;
-			FAssetResult InspectionResult = InspectAssetPackage(Data->PhysicalPath, Inspection);
-			if (!InspectionResult)
-			{
-				OutAnalysis.Warning = std::format(
-					"Could not inspect companion files: {} Only the main asset file will be deleted.",
-					InspectionResult.Message);
-				break;
-			}
-			FAssetDeleteContribution Contribution;
-			FAssetResult ContributionResult = It->second(*Data, Inspection, Contribution);
-			if (ContributionResult) OutAnalysis.CompanionFiles = std::move(Contribution.Files);
-			else OutAnalysis.Warning = std::format(
+			OutAnalysis.Warning = std::format(
 				"Could not determine companion files: {} Only the main asset file will be deleted.",
-				ContributionResult.Message);
-			break;
+				CompanionResult.Message);
 		}
 		return {};
 	}
@@ -5930,32 +5999,6 @@ namespace Durin::Asset
 				.Details = std::move(Details)});
 		};
 
-		auto InspectCompanions = [&](const FAssetData& Data,
-			std::vector<std::filesystem::path>& OutFiles) -> FAssetResult {
-			DClass* AssetClass = FindClassByQualifiedName(FName(Data.AssetClassName));
-			for (DClass* Class = AssetClass; Class; Class = Class->GetSuperClass())
-			{
-				auto It = GetDeleteContributors().find(Class);
-				if (It == GetDeleteContributors().end()) continue;
-				FAssetPackageInspection Inspection;
-				FAssetResult Result = InspectAssetPackage(Data.PhysicalPath, Inspection);
-				if (!Result) return Result;
-				FAssetDeleteContribution Contribution;
-				Result = It->second(Data, Inspection, Contribution);
-				if (!Result) return Result;
-				for (const std::filesystem::path& File : Contribution.Files)
-				{
-					const std::filesystem::path Normalized =
-						std::filesystem::absolute(File).lexically_normal();
-					if (std::ranges::find(OutFiles, Normalized) == OutFiles.end())
-						OutFiles.push_back(Normalized);
-				}
-				std::ranges::sort(OutFiles);
-				break;
-			}
-			return {};
-		};
-
 		for (const FAssetPath& Path : SortedPaths)
 		{
 			const FAssetData* Data = Registry.FindAssetExact(Path);
@@ -5991,7 +6034,7 @@ namespace Durin::Asset
 					"Asset has unsaved changes.");
 
 			const FAssetResult CompanionResult =
-				InspectCompanions(*Data, Entry.CompanionFiles);
+				InspectAssetCompanionFiles(*Data, Entry.CompanionFiles);
 			if (!CompanionResult)
 				AddBlocker(
 					EAssetDeletionBatchBlocker::CompanionInspectionFailed,
@@ -6208,7 +6251,7 @@ namespace Durin::Asset
 		for (const auto& [OwnerPath, OwnerData] : Registry.GetAssets())
 		{
 			std::vector<std::filesystem::path> Files;
-			if (!InspectCompanions(OwnerData, Files)) continue;
+			if (!InspectAssetCompanionFiles(OwnerData, Files)) continue;
 			for (const std::filesystem::path& File : Files)
 				CompanionOwners[File.generic_string()].push_back(OwnerPath);
 		}

@@ -454,6 +454,122 @@ TEST_F(FContentBrowserModelTests, OperationsRejectCollisionsAndUnmanagedFolders)
 	EXPECT_TRUE(std::filesystem::exists(Folder / "notes.txt"));
 }
 
+TEST_F(FContentBrowserModelTests, UnclaimedSameStemFileRenamesIndependently)
+{
+	InitializeDObjectSystem();
+	FAssetPath AssetPath;
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/Independent", AssetPath));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
+	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+	const std::filesystem::path FilePath = Root / "Content/Independent.txt";
+	{
+		std::ofstream File(FilePath);
+		File << "ordinary";
+	}
+	Asset::FAssetCompanionOwnership Ownership;
+	ASSERT_TRUE(Asset::QueryAssetCompanionOwnership(FilePath, Ownership));
+	EXPECT_EQ(
+		Ownership.State,
+		Asset::EAssetCompanionOwnershipState::Unclaimed);
+
+	FContentBrowserModel Model;
+	Model.RefreshMountSnapshot();
+	FContentBrowserOperations Operations(
+		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+			return {};
+		});
+	const FContentBrowserItem FileItem{
+		.Kind = EContentBrowserItemKind::File,
+		.Name = "Independent.txt",
+		.PhysicalPath = FilePath.generic_string(),
+		.Extension = ".txt"};
+	const FContentBrowserOperationResult Result =
+		Operations.Rename(FileItem, "Renamed.txt");
+	ASSERT_TRUE(Result) << Result.Status.Message;
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/Renamed.txt"));
+	ASSERT_TRUE(Asset::DeleteAsset(AssetPath));
+}
+
+TEST_F(FContentBrowserModelTests, OwnedCompanionIsProtectedAndIncompleteFolderMoveFails)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path Folder = Root / "Content/OwnedFolder";
+	std::filesystem::create_directories(Folder);
+	FAssetPath AssetPath;
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/OwnedFolder/Owned", AssetPath));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
+	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+	const std::filesystem::path Companion = Folder / "Owned.meta";
+	{
+		std::ofstream File(Companion);
+		File << "owned";
+	}
+	struct FContributorReset
+	{
+		~FContributorReset()
+		{
+			Asset::RegisterAssetDeleteContributor(
+				DMaterial::StaticClass(),
+				[](const Asset::FAssetData&,
+					const Asset::FAssetPackageInspection&,
+					Asset::FAssetDeleteContribution&) -> Asset::FAssetResult {
+					return {};
+				});
+		}
+	} Reset;
+	Asset::RegisterAssetDeleteContributor(
+		DMaterial::StaticClass(),
+		[AssetPath, Companion](const Asset::FAssetData& Data,
+			const Asset::FAssetPackageInspection&,
+			Asset::FAssetDeleteContribution& Contribution) -> Asset::FAssetResult {
+			if (Data.PackagePath == AssetPath)
+				Contribution.Files.push_back(Companion);
+			return {};
+		});
+
+	Asset::FAssetCompanionOwnership Ownership;
+	ASSERT_TRUE(Asset::QueryAssetCompanionOwnership(Companion, Ownership));
+	ASSERT_EQ(Ownership.State, Asset::EAssetCompanionOwnershipState::Owned);
+	ASSERT_EQ(Ownership.Owners.size(), 1);
+	EXPECT_EQ(Ownership.Owners.front(), AssetPath);
+	bool bMoveCalled = false;
+	FContentBrowserModel Model;
+	Model.RefreshMountSnapshot();
+	FContentBrowserOperations Operations(
+		Model, [&](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+			bMoveCalled = true;
+			return {};
+		});
+	const FContentBrowserItem CompanionItem{
+		.Kind = EContentBrowserItemKind::File,
+		.Name = "Owned.meta",
+		.PhysicalPath = Companion.generic_string(),
+		.Extension = ".meta"};
+	const FContentBrowserOperationResult RenameResult =
+		Operations.Rename(CompanionItem, "Other.meta");
+	EXPECT_FALSE(RenameResult);
+	EXPECT_TRUE(RenameResult.Status.Message.find(AssetPath.ToString())
+		!= std::string::npos);
+	EXPECT_TRUE(std::filesystem::exists(Companion));
+
+	const FContentBrowserItem FolderItem{
+		.Kind = EContentBrowserItemKind::Folder,
+		.Name = "OwnedFolder",
+		.PhysicalPath = Folder.generic_string()};
+	const FContentBrowserOperationResult FolderResult =
+		Operations.Rename(FolderItem, "MovedFolder");
+	EXPECT_FALSE(FolderResult);
+	EXPECT_TRUE(bMoveCalled);
+	EXPECT_TRUE(FolderResult.Status.Message.find("source folder")
+		!= std::string::npos);
+	EXPECT_TRUE(std::filesystem::exists(Folder));
+	ASSERT_TRUE(Asset::DeleteAsset(AssetPath));
+}
+
 TEST_F(FContentBrowserModelTests, RejectsOrdinaryMutationsInReadOnlyMount)
 {
 	Registry.reset();
@@ -886,6 +1002,13 @@ TEST_F(FContentBrowserModelTests, BatchAnalysisBlocksAmbiguousCompanionOwnership
 	ASSERT_TRUE(Asset::CreateAsset(SecondPath, Second));
 	ASSERT_TRUE(Asset::SavePackage(First->GetPackage()));
 	ASSERT_TRUE(Asset::SavePackage(Second->GetPackage()));
+	Asset::FAssetCompanionOwnership Ownership;
+	ASSERT_TRUE(Asset::QueryAssetCompanionOwnership(
+		SharedCompanion, Ownership));
+	EXPECT_EQ(
+		Ownership.State,
+		Asset::EAssetCompanionOwnershipState::Ambiguous);
+	EXPECT_EQ(Ownership.Owners.size(), 2);
 
 	Asset::FAssetDeletionBatchToken Token;
 	std::vector<Asset::FAssetDeletionBatchBlocker> Blockers;

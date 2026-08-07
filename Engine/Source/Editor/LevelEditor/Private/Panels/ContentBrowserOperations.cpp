@@ -202,10 +202,25 @@ namespace Durin
 			return {};
 		}
 
-		if (IsManagedCompanion(Item))
+		Asset::FAssetCompanionOwnership Ownership;
+		const Asset::FAssetResult OwnershipResult =
+			Asset::QueryAssetCompanionOwnership(Item.PhysicalPath, Ownership);
+		if (!OwnershipResult)
 			return Failure(
-				Asset::EAssetError::InvalidPath,
-				"This file is managed by an asset. Rename or move the asset instead.");
+				OwnershipResult.Error,
+				std::format(
+					"Could not determine whether this file is asset-managed: {}",
+					OwnershipResult.Message));
+		if (Ownership.State == Asset::EAssetCompanionOwnershipState::Ambiguous)
+			return Failure(
+				Asset::EAssetError::InUse,
+				"This file is claimed by multiple assets. Resolve companion ownership before renaming it.");
+		if (Ownership.State == Asset::EAssetCompanionOwnershipState::Owned)
+			return Failure(
+				Asset::EAssetError::InUse,
+				std::format(
+					"This file is managed by {}. Rename or move the owning asset instead.",
+					Ownership.Owners.front().ToString()));
 
 		std::filesystem::path Destination =
 			std::filesystem::path(Item.PhysicalPath).parent_path()
@@ -313,18 +328,6 @@ namespace Durin
 			Moves.push_back({Path, NewPath});
 			const std::filesystem::path AssetFile(Data.PhysicalPath);
 			ManagedFiles.insert(NormalizePath(AssetFile.generic_string()));
-			std::error_code Ec;
-			for (std::filesystem::directory_iterator It(
-					 AssetFile.parent_path(),
-					 std::filesystem::directory_options::skip_permission_denied,
-					 Ec),
-				 End;
-				 !Ec && It != End;
-				 It.increment(Ec))
-				if (It->is_regular_file(Ec)
-					&& It->path().stem() == AssetFile.stem())
-					ManagedFiles.insert(
-						NormalizePath(It->path().generic_string()));
 		}
 
 		std::error_code Ec;
@@ -338,14 +341,39 @@ namespace Durin
 			if (It->is_directory(Ec))
 				RelativeDirectories.push_back(
 					std::filesystem::relative(It->path(), OldFolder, Ec));
-			if (It->is_regular_file(Ec)
-				&& !ManagedFiles.contains(
-					NormalizePath(It->path().generic_string())))
+			if (It->is_regular_file(Ec))
+			{
+				const std::string PhysicalPath =
+					NormalizePath(It->path().generic_string());
+				if (ManagedFiles.contains(PhysicalPath)) continue;
+				Asset::FAssetCompanionOwnership Ownership;
+				const Asset::FAssetResult OwnershipResult =
+					Asset::QueryAssetCompanionOwnership(PhysicalPath, Ownership);
+				if (!OwnershipResult)
+					return {
+						OwnershipResult.Error,
+						std::format(
+							"Could not inspect ownership for {}: {}",
+							It->path().filename().generic_string(),
+							OwnershipResult.Message)};
+				if (Ownership.State
+					== Asset::EAssetCompanionOwnershipState::Ambiguous)
+					return {
+						Asset::EAssetError::InUse,
+						std::format(
+							"Folder file {} is claimed by multiple assets.",
+							It->path().filename().generic_string())};
+				if (Ownership.State == Asset::EAssetCompanionOwnershipState::Owned)
+				{
+					ManagedFiles.insert(PhysicalPath);
+					continue;
+				}
 				return {
 					Asset::EAssetError::IoError,
 					std::format(
 						"Folder contains an unmanaged file: {}. Move it separately before renaming the folder.",
 						It->path().filename().generic_string())};
+			}
 		}
 		if (Ec)
 			return {
@@ -410,6 +438,12 @@ namespace Durin
 				 !Ec && It != End;
 				 It.increment(Ec))
 				if (It->is_directory(Ec)) OldDirectories.push_back(It->path());
+			if (Ec)
+				return {
+					Asset::EAssetError::IoError,
+					std::format(
+						"Assets moved, but the source folder could not be inspected for cleanup: {}",
+						Ec.message())};
 			std::ranges::sort(
 				OldDirectories,
 				[](const auto& A, const auto& B) {
@@ -418,28 +452,23 @@ namespace Durin
 			for (const auto& Directory : OldDirectories)
 			{
 				Ec.clear();
-				std::filesystem::remove(Directory, Ec);
+				if (!std::filesystem::remove(Directory, Ec) && !Ec) continue;
+				if (Ec)
+					return {
+						Asset::EAssetError::IoError,
+						std::format(
+							"Assets moved, but source-folder cleanup failed for {}: {}",
+							Directory.generic_string(), Ec.message())};
 			}
 			Ec.clear();
-			std::filesystem::remove(OldFolder, Ec);
+			if (!std::filesystem::remove(OldFolder, Ec) || Ec)
+				return {
+					Asset::EAssetError::IoError,
+					std::format(
+						"Assets moved, but the source folder is not empty or could not be removed: {}",
+						Ec ? Ec.message() : OldFolder.generic_string())};
 		}
 		return {};
-	}
-
-	auto FContentBrowserOperations::IsManagedCompanion(
-		const FContentBrowserItem& Item) const -> bool
-	{
-		if (Item.Kind != EContentBrowserItemKind::File) return false;
-		const std::filesystem::path Source(Item.PhysicalPath);
-		for (const auto& [Path, Data] : Asset::GetAssetRegistry().GetAssets())
-		{
-			const std::filesystem::path AssetFile(Data.PhysicalPath);
-			if (NormalizePath(AssetFile.parent_path().generic_string())
-					== NormalizePath(Source.parent_path().generic_string())
-				&& AssetFile.stem() == Source.stem())
-				return true;
-		}
-		return false;
 	}
 
 	auto FContentBrowserOperations::CreateFolder(

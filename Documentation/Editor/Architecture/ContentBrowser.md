@@ -42,8 +42,9 @@ Assets open through registered asset editors and use asset-aware rename, move,
 and deletion workflows. Opening a redirector resolves and opens its final real
 asset; redirectors are excluded from ordinary pickers, rename, and drag-move.
 Ordinary files open through the operating system and use filesystem operations.
-Files detected as asset-managed companions cannot be renamed or deleted
-independently; the owning asset operation must be used.
+Files reported as owned by AssetCore's registered companion contributors cannot
+be renamed or deleted independently; the owning asset operation must be used.
+A shared filename stem alone does not establish companion ownership.
 
 Selection details are presentation snapshots. TextureCube details inspect
 serialized package metadata through a bounded cache keyed by asset identity,

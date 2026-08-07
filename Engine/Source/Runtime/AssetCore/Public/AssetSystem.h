@@ -834,6 +834,26 @@ namespace Durin::Asset
 	using FAssetDeleteContributor = std::function<FAssetResult(const FAssetData&, const FAssetPackageInspection&, FAssetDeleteContribution&)>;
 	ASSETCORE_API auto RegisterAssetDeleteContributor(DClass* Class, FAssetDeleteContributor Contributor) -> void;
 
+	enum class EAssetCompanionOwnershipState : uint8
+	{
+		Unclaimed,
+		Owned,
+		Ambiguous,
+	};
+
+	struct FAssetCompanionOwnership
+	{
+		EAssetCompanionOwnershipState State =
+			EAssetCompanionOwnershipState::Unclaimed;
+		std::vector<FAssetPath> Owners;
+	};
+
+	// Queries the exact files reported by registered deletion contributors without
+	// loading packages or inferring ownership from filenames.
+	ASSETCORE_API auto QueryAssetCompanionOwnership(
+		const std::filesystem::path& PhysicalPath,
+		FAssetCompanionOwnership& OutOwnership) -> FAssetResult;
+
 	// Owns the discovered asset index and its persistent snapshot state.
 	class FAssetRegistry
 	{

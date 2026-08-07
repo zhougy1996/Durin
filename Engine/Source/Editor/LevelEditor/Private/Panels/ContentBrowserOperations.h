@@ -264,7 +264,6 @@ namespace Durin
 		) const -> FContentDeletionPlanPtr;
 		auto IsDeletionPlanCurrent(const FContentDeletionPlan& Plan) const -> bool;
 
-		auto IsManagedCompanion(const FContentBrowserItem& Item) const -> bool;
 		auto ShowInExplorer(std::string_view PhysicalPath) const -> void;
 		auto CopyToClipboard(std::string_view Text) const -> void;
 
