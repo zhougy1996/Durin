@@ -23,6 +23,10 @@ Process entry is `Engine/Source/Runtime/Launch/Private/Launch.cpp`.
 loading, path mount points, `RenderCore` loading, and reflected object
 initialization.
 
+After worker-scheduler startup, `PreInit()` installs the bounded
+`GameThreadDeferred` executor. Failure to install either executor aborts
+startup; the engine does not expose a partially initialized task system.
+
 `FEngineLoop::Init()` handles common runtime startup, including
 `ApplicationCore`, `RHI`, the rendering thread, the `Mona` module, and
 `GEngine`.
@@ -51,6 +55,12 @@ creating its window and scene viewport.
 `FEngineLoop::Tick()` measures and clamps real frame delta time before calling
 `DEngine::Tick()`. Active game worlds route that tick through actors and their
 tick-enabled components.
+
+Immediately after `DEngine::Tick()`, the engine pumps low-priority
+`GameThreadDeferred` continuations using the configured item and time budgets.
+This is the sole normal-frame safe point. Deferred callbacks are not
+frame-critical synchronization, do not run inline at submission, and may be
+carried into a later frame when the budget is exhausted.
 
 The same function owns the CPU-profiler frame mark and stable top-level zones.
 Core forwards engine-owned thread names and queued-task execution through the
@@ -203,7 +213,7 @@ directly:
 | --- | --- |
 | Detach render consumers | Shut down Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
 | Release Engine defaults | After Engine consumer detachment, stop default-material bindings and release the retained asset/proxy before AssetCore shutdown. |
-| Stop CPU work | Close process task-scheduler admission and drain every accepted task and dependency to a terminal state. |
+| Stop CPU work | Close root task admission, drain workers while explicitly pumping accepted GameThread deferred continuations to graph quiescence, then uninstall the deferred executor. |
 | Drain objects | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
 | Unload modules | Run reverse-order module shutdown only after no deferred object's virtual cleanup can target an unloading module. |
 | Close render admission | Enqueue the final RenderCore audit while admission is still open, then atomically close it. |
@@ -222,9 +232,14 @@ references:
 - consumers retain stable counted RHI references or non-owning snapshots only
   while their component, viewport, scene, or preview owner remains attached.
 
-The process scheduler starts once in `PreInit()` and stops once here; the normal
-engine never restarts it. Task admission, dependencies, cancellation, waiting,
-diagnostics, worker helping, and CPU-side ownership rules are defined in
+The process worker scheduler and GameThread deferred executor start once in
+`PreInit()` and stop once here; the normal engine never restarts them. Shutdown
+keeps internal continuation dispatch open after root admission closes, because
+an accepted worker may still release an accepted GameThread node. The owning
+game thread pumps without the frame budget until every accepted graph node is
+terminal, then closes and uninstalls the adapter. Task admission, dependencies,
+cancellation, waiting, diagnostics, worker helping, and CPU-side ownership
+rules are defined in
 `Documentation/Runtime/Core/TaskSystem.md`.
 
 The shutdown object drain has exactly one release collection, one render flush,

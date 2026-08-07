@@ -1,5 +1,6 @@
 #include "Asset/AssetCompatibilityAudit.h"
 #include "Misc/Paths.h"
+#include "Threading/ThreadEvent.h"
 
 #include "NativeTestSupport.h"
 
@@ -53,6 +54,7 @@ namespace
 		const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
 		while (std::chrono::steady_clock::now() < Deadline)
 		{
+			Durin::PumpGameThreadDeferredWork();
 			if (Predicate()) return true;
 			std::this_thread::yield();
 		}
@@ -64,6 +66,11 @@ namespace
 	protected:
 		void SetUp() override
 		{
+			if (!Durin::GIsGameThreadIdInitialized)
+			{
+				Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+				Durin::GIsGameThreadIdInitialized = true;
+			}
 			Root = Durin::Testing::GetTestWorkDirectory() / "AssetCompatibilityAudit";
 			std::filesystem::create_directories(Root);
 			const std::array Definitions{
@@ -75,6 +82,7 @@ namespace
 			Mounts = std::make_unique<Durin::PathUtilities::FScopedMountRegistryFixture>(Definitions);
 			ASSERT_TRUE(Mounts->IsValid()) << Mounts->GetError();
 			ASSERT_TRUE(Durin::InitializeTaskScheduler(1));
+			ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
 		}
 
 		void TearDown() override
@@ -297,4 +305,78 @@ TEST_F(FAssetCompatibilityAuditTests, PresentationCountsFiltersAndCopiedDiagnost
 	EXPECT_EQ(
 		Durin::Editor::FormatAssetCompatibilityAuditDiagnostics(Incompatible),
 		"/AuditTests/Incompatible: Ready / Incompatible / Stale\n[UnknownField] Retired field is present.");
+}
+
+TEST_F(FAssetCompatibilityAuditTests, StreamsProgressBeforeTypedTerminalPublication)
+{
+	Durin::FThreadEvent SecondPackageStarted;
+	Durin::FThreadEvent ReleaseSecondPackage;
+	std::atomic_uint32_t ProbeIndex = 0;
+	Durin::Editor::FAssetCompatibilityAuditModel Model(
+		[&](const auto& Input, const auto&, const auto&) {
+			if (ProbeIndex.fetch_add(1) == 1)
+			{
+				SecondPackageStarted.Trigger();
+				ReleaseSecondPackage.Wait();
+			}
+			return MakeCompletedRecord(Input);
+		});
+	const auto First = MakeData("/AuditTests/StreamA");
+	const auto Second = MakeData("/AuditTests/StreamB");
+	std::unordered_map<Durin::FAssetPath, Durin::Asset::FAssetData> Assets{
+		{First.PackagePath, First}, {Second.PackagePath, Second}};
+
+	ASSERT_TRUE(Model.RunAudit(Assets, {}));
+	ASSERT_TRUE(SecondPackageStarted.WaitFor(1.0));
+	Model.Tick(Assets);
+	EXPECT_EQ(Durin::Editor::EAssetCompatibilityAuditState::Running, Model.GetState());
+	EXPECT_EQ(1u, Model.GetProgress().Completed);
+	ReleaseSecondPackage.Trigger();
+	ASSERT_TRUE(WaitUntil([&] {
+		Model.Tick(Assets);
+		return Model.GetState() == Durin::Editor::EAssetCompatibilityAuditState::Completed;
+	}));
+	EXPECT_EQ(2u, Model.GetProgress().Completed);
+	EXPECT_EQ(Durin::ETaskTarget::AnyWorker, Model.GetWorkerTaskDiagnostics().Target);
+	EXPECT_EQ(Durin::ETaskTarget::GameThreadDeferred, Model.GetTerminalTaskDiagnostics().Target);
+}
+
+TEST_F(FAssetCompatibilityAuditTests, ProjectChangeDropsQueuedTerminalPublication)
+{
+	Durin::Editor::FAssetCompatibilityAuditModel Model(
+		[](const auto& Input, const auto&, const auto&) { return MakeCompletedRecord(Input); });
+	const auto Data = MakeData("/AuditTests/StaleTerminal");
+	std::unordered_map<Durin::FAssetPath, Durin::Asset::FAssetData> Assets{{Data.PackagePath, Data}};
+	ASSERT_TRUE(Model.RunAudit(Assets, {}));
+
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+	while (Durin::GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth == 0
+		&& std::chrono::steady_clock::now() < Deadline)
+	{
+		std::this_thread::yield();
+	}
+	ASSERT_EQ(1u, Durin::GetGameThreadDeferredWorkQueueDiagnostics().QueueDepth);
+	const Durin::uint64 Serial = Model.GetRequestSerial();
+	Model.ProjectChanged();
+	Durin::PumpGameThreadDeferredWork({.bUnlimited = true});
+
+	EXPECT_GT(Model.GetRequestSerial(), Serial);
+	EXPECT_EQ(Durin::Editor::EAssetCompatibilityAuditState::Idle, Model.GetState());
+	EXPECT_TRUE(Model.GetPresentationRecords().empty());
+	EXPECT_EQ(Durin::ETaskState::Canceled, Model.GetTerminalTaskDiagnostics().State);
+}
+
+TEST_F(FAssetCompatibilityAuditTests, CrossExecutorShutdownPublishesCurrentTerminalSummary)
+{
+	Durin::Editor::FAssetCompatibilityAuditModel Model(
+		[](const auto& Input, const auto&, const auto&) { return MakeCompletedRecord(Input); });
+	const auto Data = MakeData("/AuditTests/ShutdownDrain");
+	std::unordered_map<Durin::FAssetPath, Durin::Asset::FAssetData> Assets{{Data.PackagePath, Data}};
+	ASSERT_TRUE(Model.RunAudit(Assets, {}));
+
+	Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
+
+	EXPECT_EQ(Durin::Editor::EAssetCompatibilityAuditState::Completed, Model.GetState());
+	EXPECT_EQ(1u, Model.GetProgress().Completed);
+	EXPECT_EQ(Durin::ETaskState::Succeeded, Model.GetTerminalTaskDiagnostics().State);
 }

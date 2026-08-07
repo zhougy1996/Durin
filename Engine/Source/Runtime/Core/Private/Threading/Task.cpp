@@ -940,6 +940,8 @@ namespace Durin
 		auto MarkUninstalled() -> FGameThreadDeferredWorkQueueDiagnostics
 		{
 			std::lock_guard Lock(Mutex);
+			PurgeTerminalEntriesLocked();
+			RefreshDepthDiagnosticsLocked();
 			check(ActiveEntryCount == 0);
 			bAccepting = false;
 			Diagnostics.bAccepting = false;

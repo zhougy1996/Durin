@@ -10,7 +10,13 @@ namespace Durin::Editor
 		{
 			uint64 Serial = 0;
 			std::optional<Asset::FAssetPackageCompatibilityRecord> Record;
-			std::optional<EAssetCompatibilityAuditState> TerminalState;
+		};
+
+		struct FTerminalSummary
+		{
+			uint64 Serial = 0;
+			uint64 ProcessedPackageCount = 0;
+			EAssetCompatibilityAuditState State = EAssetCompatibilityAuditState::Completed;
 			std::string Failure;
 		};
 
@@ -108,9 +114,17 @@ namespace Durin::Editor
 		std::deque<FNotice> Notices;
 	};
 
-	FAssetCompatibilityAuditModel::FAssetCompatibilityAuditModel(FAssetCompatibilityProbe InProbe)
-		: Probe(std::move(InProbe)), Mailbox(std::make_shared<FMailbox>())
+	struct FAssetCompatibilityAuditModel::FPublicationLifetime
 	{
+		FAssetCompatibilityAuditModel* Model = nullptr;
+	};
+
+	FAssetCompatibilityAuditModel::FAssetCompatibilityAuditModel(FAssetCompatibilityProbe InProbe)
+		: Probe(std::move(InProbe))
+		, Mailbox(std::make_shared<FMailbox>())
+		, PublicationLifetime(std::make_shared<FPublicationLifetime>())
+	{
+		PublicationLifetime->Model = this;
 		if (!Probe)
 		{
 			Probe = [](const Asset::FAssetPackageCompatibilityProbeInput& Input,
@@ -124,6 +138,7 @@ namespace Durin::Editor
 	FAssetCompatibilityAuditModel::~FAssetCompatibilityAuditModel()
 	{
 		Shutdown();
+		PublicationLifetime.reset();
 	}
 
 	auto FAssetCompatibilityAuditModel::RunCurrentProjectAudit() -> bool
@@ -140,6 +155,7 @@ namespace Durin::Editor
 		CancelAndDrain();
 		Failure.clear();
 		++RequestSerial;
+		Generation.Advance();
 		Progress = {.Completed = 0, .Total = Assets.size()};
 		Records.clear();
 		std::vector<Asset::FAssetPackageCompatibilityProbeInput> Inputs;
@@ -165,49 +181,103 @@ namespace Durin::Editor
 		const uint64 Serial = RequestSerial;
 		const std::shared_ptr<FMailbox> WorkerMailbox = Mailbox;
 		const FAssetCompatibilityProbe WorkerProbe = Probe;
-		Task = LaunchCancelableTask("AssetCompatibility.Audit",
+		auto WorkerTask = LaunchCancelableTask<FTerminalSummary>("AssetCompatibility.Audit",
 			[Serial, WorkerMailbox, WorkerProbe, Inputs = std::move(Inputs),
-				Catalog = std::move(Catalog)](const FTaskCancellationToken& Token) mutable {
+				Catalog = std::move(Catalog)](const FTaskCancellationToken& Token) mutable -> FTerminalSummary {
 				auto Queue = [&](FNotice Notice) {
 					std::lock_guard Lock(WorkerMailbox->Mutex);
 					WorkerMailbox->Notices.push_back(std::move(Notice));
 				};
+				uint64 ProcessedPackageCount = 0;
 				try
 				{
 					for (const auto& Input : Inputs)
 					{
 						if (Token.IsCancellationRequested())
 						{
-							Queue({.Serial = Serial, .TerminalState = EAssetCompatibilityAuditState::Cancelled});
-							return;
+							return {.Serial = Serial, .ProcessedPackageCount = ProcessedPackageCount,
+								.State = EAssetCompatibilityAuditState::Cancelled};
 						}
 						auto Result = WorkerProbe(Input, Catalog,
 							[&Token] { return Token.IsCancellationRequested(); });
 						if (Result.Status == Asset::EAssetCompatibilityProbeStatus::Cancelled)
 						{
-							Queue({.Serial = Serial, .TerminalState = EAssetCompatibilityAuditState::Cancelled});
-							return;
+							return {.Serial = Serial, .ProcessedPackageCount = ProcessedPackageCount,
+								.State = EAssetCompatibilityAuditState::Cancelled};
 						}
 						if (Result.Record)
+						{
 							Queue({.Serial = Serial, .Record = std::move(Result.Record)});
+							++ProcessedPackageCount;
+						}
 					}
-					Queue({.Serial = Serial, .TerminalState = EAssetCompatibilityAuditState::Completed});
+					return {.Serial = Serial, .ProcessedPackageCount = ProcessedPackageCount,
+						.State = EAssetCompatibilityAuditState::Completed};
 				}
 				catch (const std::exception& Exception)
 				{
-					Queue({.Serial = Serial, .TerminalState = EAssetCompatibilityAuditState::Failed,
-						.Failure = Exception.what()});
+					return {.Serial = Serial, .ProcessedPackageCount = ProcessedPackageCount,
+						.State = EAssetCompatibilityAuditState::Failed, .Failure = Exception.what()};
 				}
 				catch (...)
 				{
-					Queue({.Serial = Serial, .TerminalState = EAssetCompatibilityAuditState::Failed,
-						.Failure = "Asset compatibility audit failed with an unknown exception."});
+					return {.Serial = Serial, .ProcessedPackageCount = ProcessedPackageCount,
+						.State = EAssetCompatibilityAuditState::Failed,
+						.Failure = "Asset compatibility audit failed with an unknown exception."};
 				}
 			}, Options);
-		if (!Task.IsValid())
+		Task = WorkerTask.GetTaskHandle();
+		if (!WorkerTask.IsValid())
 		{
 			State = EAssetCompatibilityAuditState::Failed;
 			Failure = "The task scheduler rejected the asset compatibility audit.";
+			return false;
+		}
+
+		FTaskContinuationOptions TerminalOptions;
+		TerminalOptions.Target = ETaskTarget::GameThreadDeferred;
+		TerminalOptions.Priority = ETaskPriority::Normal;
+		TerminalOptions.EstimatedPayloadBytes = sizeof(FTerminalSummary) + 512;
+		TerminalOptions.GenerationToken = Generation.Capture();
+		const std::weak_ptr<FPublicationLifetime> WeakLifetime = PublicationLifetime;
+		TerminalTask = ThenOutcome(
+			WorkerTask,
+			"AssetCompatibility.PublishTerminal",
+			[WeakLifetime, Serial](FTaskOutcome<FTerminalSummary> Outcome) {
+				const std::shared_ptr<FPublicationLifetime> Lifetime = WeakLifetime.lock();
+				if (!Lifetime || !Lifetime->Model) return;
+				FAssetCompatibilityAuditModel& Model = *Lifetime->Model;
+				if (Model.RequestSerial != Serial || !Model.bAdmissionOpen) return;
+				Model.DrainMailbox();
+				if (Outcome.State == ETaskState::Succeeded && Outcome.Result)
+				{
+					if (Outcome.Result->Serial != Serial) return;
+					Model.State = Outcome.Result->State;
+					Model.Failure = Outcome.Result->Failure;
+				}
+				else if (Outcome.State == ETaskState::Canceled)
+				{
+					Model.State = EAssetCompatibilityAuditState::Cancelled;
+					Model.Failure.clear();
+				}
+				else
+				{
+					Model.State = EAssetCompatibilityAuditState::Failed;
+					Model.Failure = Outcome.Diagnostic.empty()
+						? "The asset compatibility audit worker failed."
+						: Outcome.Diagnostic;
+				}
+			},
+			TerminalOptions
+		);
+		if (!TerminalTask.IsValid())
+		{
+			Cancellation.RequestCancellation();
+			(void)CancelTask(Task);
+			(void)WaitTask(Task);
+			DrainMailbox();
+			State = EAssetCompatibilityAuditState::Failed;
+			Failure = "The task scheduler rejected terminal audit publication.";
 			return false;
 		}
 		return true;
@@ -226,15 +296,21 @@ namespace Durin::Editor
 		if (State == EAssetCompatibilityAuditState::Running)
 		{
 			Cancel();
+			if (TerminalTask.IsValid()) (void)CancelTask(TerminalTask);
 			if (Task.IsValid()) (void)WaitTask(Task);
 		}
 		DrainMailbox();
+		if (State == EAssetCompatibilityAuditState::Running)
+		{
+			State = EAssetCompatibilityAuditState::Cancelled;
+		}
 	}
 
 	auto FAssetCompatibilityAuditModel::ProjectChanged() -> void
 	{
 		CancelAndDrain();
 		++RequestSerial;
+		Generation.Advance();
 		Records.clear();
 		Progress = {};
 		Failure.clear();
@@ -246,6 +322,8 @@ namespace Durin::Editor
 		if (!bAdmissionOpen) return;
 		bAdmissionOpen = false;
 		CancelAndDrain();
+		Generation.Advance();
+		if (PublicationLifetime) PublicationLifetime->Model = nullptr;
 	}
 
 	auto FAssetCompatibilityAuditModel::Tick(
@@ -270,20 +348,27 @@ namespace Durin::Editor
 				Records.insert_or_assign(Notice.Record->PackagePath, std::move(*Notice.Record));
 				Progress.Completed = std::min(Progress.Completed + 1, Progress.Total);
 			}
-			if (Notice.TerminalState)
-			{
-				State = *Notice.TerminalState;
-				Failure = std::move(Notice.Failure);
-			}
 		}
-		if (State == EAssetCompatibilityAuditState::Running && Task.IsValid() && Task.IsComplete())
+		if (State == EAssetCompatibilityAuditState::Running && TerminalTask.IsValid() && TerminalTask.IsComplete())
 		{
-			const ETaskState TaskState = Task.GetState();
-			if (TaskState == ETaskState::Canceled) State = EAssetCompatibilityAuditState::Cancelled;
-			else if (TaskState == ETaskState::Failed)
+			const FTaskDiagnostics Diagnostics = TerminalTask.GetDiagnostics();
+			if (Diagnostics.State == ETaskState::Failed)
 			{
 				State = EAssetCompatibilityAuditState::Failed;
-				Failure = Task.GetDiagnostic();
+				Failure = Diagnostics.Diagnostic;
+			}
+			else if (Diagnostics.State == ETaskState::Canceled)
+			{
+				if (Diagnostics.TerminalReason == ETaskTerminalReason::DispatchRejected)
+				{
+					State = EAssetCompatibilityAuditState::Failed;
+					Failure = Diagnostics.Diagnostic;
+				}
+				else
+				{
+					State = EAssetCompatibilityAuditState::Cancelled;
+					Failure.clear();
+				}
 			}
 		}
 	}

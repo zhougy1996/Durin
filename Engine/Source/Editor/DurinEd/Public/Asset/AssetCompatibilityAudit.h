@@ -88,9 +88,12 @@ namespace Durin::Editor
 		auto GetProgress() const -> FAssetCompatibilityAuditProgress { return Progress; }
 		auto GetRequestSerial() const -> uint64 { return RequestSerial; }
 		auto GetFailure() const -> const std::string& { return Failure; }
+		auto GetWorkerTaskDiagnostics() const -> FTaskDiagnostics { return Task.GetDiagnostics(); }
+		auto GetTerminalTaskDiagnostics() const -> FTaskDiagnostics { return TerminalTask.GetDiagnostics(); }
 
 	private:
 		struct FMailbox;
+		struct FPublicationLifetime;
 		auto DrainMailbox() -> void;
 		auto Reconcile(const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void;
 
@@ -98,6 +101,9 @@ namespace Durin::Editor
 		std::shared_ptr<FMailbox> Mailbox;
 		FTaskCancellationSource Cancellation;
 		FTaskHandle Task;
+		FTaskHandle TerminalTask;
+		FTaskGenerationSource Generation;
+		std::shared_ptr<FPublicationLifetime> PublicationLifetime;
 		std::unordered_map<FAssetPath, Asset::FAssetPackageCompatibilityRecord> Records;
 		FAssetCompatibilityAuditProgress Progress;
 		EAssetCompatibilityAuditState State = EAssetCompatibilityAuditState::Idle;

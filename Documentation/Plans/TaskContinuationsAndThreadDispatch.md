@@ -4,18 +4,18 @@ Summary: Extend Durin's bounded CPU task system with typed worker continuations 
 
 Last reviewed: 2026-08-07
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-07
 
 ## Current Status
 
-Stages 0 through 2 are complete. Typed worker continuations can now target the
-bounded `GameThreadDeferred` executor, the engine pumps it at the frozen safe
-point, and engine exit drains accepted cross-executor chains before task and
-module teardown. Manual-pump coverage exercises limits, priority, cancellation,
-coalescing, generations, reentrancy, and drain/cancel shutdown. Stage 3 is next:
-migrate the Asset Compatibility Audit pilot while preserving its streaming
-mailbox.
+All four stages are complete. Durin now has immutable typed task results,
+success and completion continuations, a bounded and budgeted
+`GameThreadDeferred` executor, cross-executor shutdown, and one production
+editor pilot. Representative costs and saturation behavior are qualified;
+stable behavior and primitive-selection guidance live in the owning runtime
+documentation. Async import, thumbnails, RenderThread, and RHIThread retain
+their domain queues for the recorded ownership reasons.
 
 Durin currently provides a process-wide bounded worker scheduler with task
 prerequisites, cooperative cancellation, dependency propagation, worker-side
@@ -659,16 +659,16 @@ Dependencies: Stage 1; engine frame/lifecycle ownership identified in Stage 0.
 
 Dependencies: Stage 2; existing Asset Compatibility Audit behavior and tests.
 
-- [ ] Change the Asset Compatibility Audit worker to return an owned typed
+- [x] Change the Asset Compatibility Audit worker to return an owned typed
   terminal summary while retaining per-package streaming notices in its
   request-serial mailbox.
-- [ ] Publish the terminal summary through an explicit
+- [x] Publish the terminal summary through an explicit
   `GameThreadDeferred` outcome continuation that rechecks request serial and
   model lifetime immediately before mutation.
-- [ ] Verify project-change, cancellation, replacement, editor close, and
+- [x] Verify project-change, cancellation, replacement, editor close, and
   scheduler shutdown races while preserving incremental progress and partial
   results.
-- [ ] Add tracing/diagnostics that show the full worker-to-target continuation
+- [x] Add tracing/diagnostics that show the full worker-to-target continuation
   chain and distinguish stale-drop, cancellation, rejection, and callback
   failure.
 
@@ -686,23 +686,23 @@ Dependencies: Stage 2; existing Asset Compatibility Audit behavior and tests.
 Dependencies: Stage 3; profiler evidence from the pilot and representative
 editor workloads.
 
-- [ ] Measure queue latency, pump cost, allocation/capture cost, continuation
+- [x] Measure queue latency, pump cost, allocation/capture cost, continuation
   throughput, stale-drop rate, and frame impact under normal and saturated
   workloads.
-- [ ] Review additional call sites such as async import and thumbnail work;
+- [x] Review additional call sites such as async import and thumbnail work;
   migrate only where the generic continuation contract improves ownership or
   observability without removing necessary domain mailbox semantics.
-- [ ] Evaluate RenderThread and RHIThread adapters only as follow-up candidates.
+- [x] Evaluate RenderThread and RHIThread adapters only as follow-up candidates.
   Require a named production caller, module-owned callable contract, adapter
   lifetime rules, and non-blocking worker-side admission before opening a new
   implementation plan.
-- [ ] Move stable rules from this plan into `Documentation/Runtime/Core/TaskSystem.md`
+- [x] Move stable rules from this plan into `Documentation/Runtime/Core/TaskSystem.md`
   and the relevant thread/lifecycle documentation.
-- [ ] Add developer guidance showing when to use a typed continuation, a
+- [x] Add developer guidance showing when to use a typed continuation, a
   subsystem mailbox, a serialized pipe/lane, or a render/RHI command queue.
-- [ ] Record deferred work that lacks workload evidence, including dedicated IO,
+- [x] Record deferred work that lacks workload evidence, including dedicated IO,
   fibers/coroutines, work stealing, and broad subsystem migration.
-- [ ] Complete the final validation, full build, applicable editor smoke test,
+- [x] Complete the final validation, full build, applicable editor smoke test,
   stage handoff, and plan status update.
 
 #### Acceptance Gate
@@ -713,6 +713,33 @@ editor workloads.
   requiring readers to interpret this plan as runtime behavior.
 - Broader adoption is either justified by evidence and migrated incrementally,
   or explicitly deferred with a named reason and follow-up owner.
+
+#### Qualification Evidence And Adoption Decision
+
+The Debug representative workload fills a 256-entry queue with 16 KiB of
+declared captures and invalidates 32 generations before an unlimited pump. On
+the 2026-08-07 Agent profile run it measured 22.1382 ms admission, 9.5563 ms
+pump time, 19.84325 ms average queue residency, 31.7329 ms maximum residency,
+224 executed callbacks, and 32 stale drops (125,000 ppm). This intentionally
+saturated batch is qualification evidence rather than a release performance
+promise. Existing bounded-pump tests cover normal-frame item/time effects;
+capacity tests cover count, total-byte, per-entry, and missing-estimate
+rejection without growth.
+
+No broader production migration is justified in this stage:
+
+- AssetImportCore retains its coordinator mailbox because that owner defines
+  provider closure, latest-by-owner replacement, explicit drain, and result
+  take semantics.
+- LevelEditor retains the source-thumbnail queues because that cache defines
+  visible-request priority, decode concurrency, per-frame upload throttling,
+  serial validation, and RenderThread/RHI upload ownership.
+- RenderCore owns any future RenderThread adapter proposal; it first requires a
+  named caller, render-command context and lifetime rules, and non-blocking
+  worker admission.
+- The active RHI backend owns any future RHIThread adapter proposal; it first
+  requires a named caller and non-blocking admission compatible with current
+  ordered backpressure.
 
 Each completed stage ends with a compact handoff recording the baseline commit,
 working set, key symbols and decisions, open questions, and validation outcome.
@@ -774,6 +801,45 @@ repository handoff rules.
   passed; and the hidden-window editor lifecycle smoke drained a worker-to-
   `GameThreadDeferred` continuation after the frame loop stopped before clean
   rendering/RHI shutdown.
+
+### Stage 3 Handoff
+
+- Baseline commit: `0b36a7ade192a9d13eaed51b5aa990eb3e40be0a`.
+- Working set: `AssetCompatibilityAudit.h/.cpp`, its native tests,
+  `Threading/Task.cpp` queue cleanup, and this plan.
+- Key symbols: `FTerminalSummary`, `FPublicationLifetime`, the audit's worker
+  and terminal handles, request `FTaskGenerationSource`, and
+  `AssetCompatibility.PublishTerminal`.
+- Key decisions: mailbox notices carry records only; the terminal callback
+  drains those notices before publishing state; cancellation that must not pump
+  explicitly terminalizes the queued publisher; shutdown invalidates the weak
+  lifetime state; and current dispatch/callback failures remain distinguishable
+  through terminal-task diagnostics.
+- Open questions: none blocking Stage 4.
+- Validation: all 11 focused Asset Compatibility Audit tests passed, including
+  streaming-before-terminal, stale project change, and cross-executor shutdown;
+  the complete `EditorAssetWorkflowTests` target passed.
+
+### Stage 4 Handoff
+
+- Baseline commit: `c82ed934e8db1fbdfdf9fea604e88a3b1188396b`.
+- Working set: Core `ThreadingTests.cpp`, this plan, `TaskSystem.md`, and
+  `RuntimeLifecycle.md`; adoption review covered AssetImportCore async import
+  and LevelEditor source-image thumbnails without changing either owner.
+- Key symbols and decisions:
+  `RepresentativeWorkloadMeasuresAdmissionPumpResidencyAndStaleDrops` records
+  the saturated qualification baseline; stable documentation now owns typed
+  result, continuation, GameThread queue, safe-point, shutdown, and primitive-
+  selection contracts. Broader mailbox migration and RenderThread/RHIThread
+  adapters are deferred to their named subsystem owners pending production
+  evidence and non-blocking admission contracts.
+- Open questions: none. Default executor limits remain configurable; the
+  qualification numbers are environment baselines rather than release
+  performance promises.
+- Validation: plan validation passed; all 81 `CoreConcurrencyTests` passed; the
+  complete `EditorAssetWorkflowTests` ran 58 tests with 57 passed and one
+  expected skip; the complete `all` build passed; and the hidden-window editor
+  lifecycle smoke completed three ticks and cross-executor shutdown cleanly.
 
 ## Validation Matrix
 
