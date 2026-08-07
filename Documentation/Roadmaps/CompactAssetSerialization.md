@@ -2,34 +2,42 @@
 
 Summary: Coordinate the reflection foundations, deterministic DAST v4 format, multi-version migration, and authored-content rollout needed to compact asset packages without weakening compatibility guarantees.
 
-Last reviewed: 2026-08-07
+Last reviewed: 2026-08-08
 
 Status: Active
 Completed:
 
 ## Current Status
 
-- The program is deliberately deferred. No DAST v4 implementation plan is
-  active. AssetCore reads and writes only DAST v3, and the repository baseline
-  gate rejects every other package format or incompatible schema.
-- The active [Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
+- The program is now scheduled. The bounded
+  [Class Default Object Lifecycle Plan](../Plans/ClassDefaultObjectLifecycle.md)
+  is the active prerequisite; it owns deterministic class-default construction,
+  template identity, runtime-side-effect separation, GC ownership, and shutdown.
+  No DAST v4 plan is active yet. AssetCore still reads and writes only DAST v3,
+  and the repository baseline gate rejects every other package format or
+  incompatible schema.
+- The completed [Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
   owns DAST v3's bounded registry-entry kind and redirect-destination header
   summary. Compact serialization therefore starts at v4 and uses a temporary
   exact v3-to-v4 migration edge; it does not absorb redirector implementation.
 - The previous monolithic implementation plan has been converted into this
-  roadmap so future work can be activated as bounded child plans only when its
-  entry gates are satisfied.
+  roadmap. Later production work remains deferred and can be activated only as
+  bounded child plans when the preceding exit and entry gates are satisfied.
 - `Engine/Content/Materials/DefaultMaterial.dasset` remains the motivating
-  corpus. Its 2026-08-05 v2 baseline is 82,636 bytes; repeated reflection names,
-  textual type signatures, field metadata, and default-valued bytes account for
-  most of the package.
+  corpus. Its 2026-08-05 same-content v2 baseline is 82,636 bytes and its current
+  v3 package is 115,479 bytes, 39.7 percent larger than that baseline. The
+  16-KiB gate therefore requires an 85.8-percent reduction from current v3.
+  A top-level v3 scan attributes 115,053 bytes to three field payloads, but those
+  payloads recursively contain repeated struct field metadata; the future v4
+  measurement plan must produce recursive structural and value accounting before
+  selecting encodings.
 - General-purpose compression proves that the bytes are redundant, but it does
   not remove repeated parsing, allocation, or schema reconstruction.
 - The [Reflected Struct Operations](../Plans/Archive/2026-08/ReflectedStructOperations.md)
   prerequisite is complete. Struct lifecycle, logical equality, reference
   collection, runtime Archive customization, post-deserialize repair, and
   authored fail-closed semantics are now declarative. This satisfies a
-  foundation gate but does not start DAST v4 implementation.
+  foundation gate but does not define DAST v4 bytes.
 - The [Unified Archive Serialization Plan](../Plans/Archive/2026-08/UnifiedArchiveSerialization.md)
   prerequisite is complete. All live complete-object state transfer now uses
   `DObject::Serialize(FArchive&)`; purpose-specific Archives share one semantic
@@ -81,7 +89,7 @@ compression.
   repeated metadata, but stable declaring-type, field, and logical-type
   identities remain available for compatibility inspection.
 - Live-object v4 discovery, save, and load use the unified
-  `DObject::Serialize(FArchive&)` contract established by the active prerequisite.
+  `DObject::Serialize(FArchive&)` contract established by the completed prerequisite.
   Byte-only inspection, compatibility, reference, and rewrite tools consume the
   same logical field codecs without constructing objects or invoking callbacks.
 - The package summary remains independently readable without allocating or
@@ -143,28 +151,42 @@ compression.
 ### Gaps
 
 - Reflected classes do not own deterministic class default objects.
+- `DMaterial` demonstrates why a default object cannot simply use the ordinary
+  runtime construction path: its authored defaults are explicit, including 56
+  canonical parameter definitions, but construction also allocates and may
+  publish a render proxy. Default-object creation needs a non-publishing
+  lifecycle contract rather than ad hoc constructor calls.
 - Struct schemas and textual type signatures repeat at each occurrence.
 - Package-version handling conflates the latest writer with the supported reader
-  set.
+  set. The v3 value is also duplicated across package saving, loading,
+  compatibility, and migration code.
 - DAST v3 has no package-local GUID-keyed custom-version table. The v4 wire
   contract must still choose its version-table representation, canonical order,
   bounds, unknown-version behavior, and exact-retention policy.
+- Exact unknown-payload retention is not yet reconciled with package-local table
+  identifiers. The v4 contract must define a retained descriptor closure or a
+  stable/remappable identity rule so canonical table rebuilding cannot invalidate
+  opaque retained bytes.
+- Default-relative resave does not yet have a provenance rule for an explicit
+  override whose value equals the current default. The v4 contract must define
+  how a forced override remains distinguishable from an omitted default.
 - Existing tests do not enforce package metadata cardinality, section byte
   accounting, or an authored-package size budget.
 
 ## Milestone Map
 
-| Milestone | Kind | Dependencies | Deliverable | State |
+| Milestone | Kind | Entry gate | Deliverable and exit gate | State |
 | --- | --- | --- | --- | --- |
-| Reflected struct operations | External prerequisite | None | Declarative and fail-closed lifecycle, equality, reference, and serialization semantics | Completed 2026-08-05 |
-| Unified Archive serialization | Required prerequisite plan | Reflected struct operations complete | One live-object `Serialize` entry, purpose-specific Archives, DAST v3 adapters, and shared construct-free field codecs | Completed 2026-08-07 |
-| V4 measurement and wire contract | Required child plan | Struct-operations audit complete; program explicitly scheduled | Reproducible v3 accounting and a frozen bounded v4 byte contract | Proposed, deferred |
-| Default-relative reflection | Required child plan | Frozen default contract and successful struct-operations plan | Class default objects, struct defaults, logical equivalence, and no-delta policy | Proposed, deferred |
-| Deterministic v4 writer | Required child plan | Default-relative reflection complete | Canonical tables and compact value emission meeting size gates | Proposed, deferred |
-| V4 reader and compatibility | Required child plan | Writer fixtures and frozen schema model | Bounded loading, inspection, unknown retention, and malformed-input coverage | Proposed, deferred |
-| Mixed-version migration | Required child plan | Temporary v3/v4 readers and v4 writer stable | Registry/version separation and authorized atomic v3-to-v4 migration | Proposed, deferred |
-| Qualification and rollout | Required child plan | Migration suite complete | Full validation, lasting documentation, and authored repository content resaved | Proposed, deferred |
-| Custom struct asset codecs | Conditional child plan | Struct audit identifies durable state that reflected fields plus post-load repair cannot represent | Versioned codecs with dependency discovery, inspection, and migration contracts | Evidence-gated |
+| Reflected struct operations | External prerequisite | None | Declarative lifecycle, equality, reference, and serialization semantics are fail-closed; every current authored struct is audited and the full build passes | Completed 2026-08-05 |
+| Unified Archive serialization | Required prerequisite plan | Reflected struct operations complete | One live `Serialize` entry, purpose-specific Archives, exact DAST v3 adapters, and shared construct-free field codecs pass focused, full-build, and editor qualification | Completed 2026-08-07 |
+| Class default object lifecycle | Required prerequisite plan | Struct-operations and unified-Archive prerequisites complete; program explicitly scheduled | Every eligible concrete reflected class has one immutable deterministic default object; template construction is free of runtime publication, GC/shutdown ownership is explicit, and constructor/default parity passes full qualification | Active |
+| V4 measurement and wire contract | Required child plan | Class-default-object lifecycle exit gate passed | Recursive v3 accounting, a frozen bounded v4 byte contract, golden primitives, and a test-only feasibility fixture demonstrate the size target without a production reader or writer | Proposed, deferred |
+| Default-relative reflection | Required child plan | V4 default/override semantics frozen and measurement/wire-contract exit gate passed | Class defaults and safe struct defaults drive recursive logical equivalence, forced-override provenance, and no-delta policy under focused lifecycle tests | Proposed, deferred |
+| Deterministic v4 writer | Required child plan | Default-relative reflection exit gate passed | Discovery freezes every referenced table entry and version; canonical emission is byte-deterministic and meets both Default Material size gates | Proposed, deferred |
+| V4 reader and compatibility | Required child plan | Writer fixtures and frozen schema model available | Bounded v4 loading and construct-free inspection preserve unknown descriptor closures and pass malformed-input, rollback, and compatibility parity suites | Proposed, deferred |
+| Mixed-version migration | Required child plan | V3/v4 readers and v4 writer stable | Latest-writer and supported-reader policy is separated; registry, cache, and explicit atomic v3-to-v4 migration pass mixed-corpus and rollback validation | Proposed, deferred |
+| Qualification and rollout | Required child plan | Mixed-version migration exit gate passed | Full validation and editor load/render/save/restart pass before tracked authored content is explicitly resaved and the temporary v3 edge is retired | Proposed, deferred |
+| Custom struct asset codecs | Conditional child plan | A current or future struct audit proves reflected fields plus repair cannot represent durable authored state | Versioned codecs provide dependency discovery, inspection, exact retention, and migration semantics, or the milestone is explicitly dispositioned by audit evidence | Evidence-gated; not currently required |
 
 ## Child Plan Boundaries
 
@@ -195,18 +217,31 @@ v4 encoding: reference extraction accepts at most four container levels,
 100,000 occurrences per package, 1,000,000 per snapshot, 1 MiB paths and Map-key
 tokens, and 4 KiB display paths.
 
+### Class Default Object Lifecycle
+
+The active
+[Class Default Object Lifecycle Plan](../Plans/ClassDefaultObjectLifecycle.md)
+owns one immutable default object per constructible reflected class, explicit
+template construction purpose and flags, base-before-derived creation after
+reflection finalization, constructor/default parity, runtime-side-effect
+separation, global object-query filtering, GC retention, and deterministic
+shutdown before owning modules unload. It does not define DAST v4 bytes, struct
+default-relative encoding, override provenance, or package migration.
+
 ### V4 Measurement and Wire Contract
 
 Will own byte-accounting fixtures, section kinds, opcodes, bounds, canonical
-ordering, intrinsic logical layouts, and the exact compatibility model. It must
-not implement the production reader or writer while wire decisions remain open.
+ordering, intrinsic logical layouts, default/forced-override wire semantics,
+custom-version storage, retained unknown descriptor closure, and the exact
+compatibility model. It may use a test-only reference codec after decisions are
+frozen, but it must not implement or expose the production reader or writer.
 
 ### Default-Relative Reflection
 
-Will own class default-object lifecycle, deterministic struct default storage,
-recursive logical equivalence, and no-delta policy. It will consume the
-completed struct-operations contract rather than adding alternate lifecycle
-callbacks inside AssetCore.
+Will consume immutable class defaults and own deterministic struct default
+storage, recursive logical equivalence, forced-override provenance, and
+no-delta policy. It will consume the completed struct-operations contract rather
+than adding alternate lifecycle callbacks inside AssetCore.
 
 ### Writer, Reader, Migration, and Rollout Plans
 
@@ -235,15 +270,23 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 ## Risks and Control Gates
 
-- **Constructor side effects:** no default-relative child plan starts until
-  asset classes and serializable structs have been audited for deterministic
-  construction and external references.
+- **Constructor side effects:** the active default-object plan cannot pass its
+  Stage 0 gate until constructible reflected classes are audited for deterministic
+  construction, owned inners, process state, I/O, registration, publication, and
+  external references. Core construction begins only after that contract closes.
 - **Opaque custom state:** a custom Archive serializer is not automatically an
   authored-package codec. The conditional codec plan is mandatory if reflected
   fields plus post-load repair cannot preserve durable state.
 - **Compatibility regression:** v4 cannot become the writer default until
   equivalent v3/v4 compatibility categories and exact unknown payload retention
   are proven during the migration window.
+- **Opaque identifiers:** unknown v4 payload bytes cannot be retained exactly if
+  they embed table ids whose meaning changes during canonical resave. The wire
+  contract must close this before any production writer work begins.
+- **Override intent loss:** automatically omitting a loaded explicit value that
+  equals today's default can change its behavior after a future default change.
+  Forced-override provenance must be part of the frozen contract rather than a
+  writer-only heuristic.
 - **Nominal compression only:** rollout is blocked unless measurements show
   reduced metadata parsing and allocation as well as reduced bytes.
 - **Migration blast radius:** scanning and loading remain read-only; only an
@@ -265,6 +308,7 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 ## Related Documentation
 
+- [Class Default Object Lifecycle Plan](../Plans/ClassDefaultObjectLifecycle.md)
 - [Unified Archive Serialization Plan](../Plans/Archive/2026-08/UnifiedArchiveSerialization.md)
 - [Reflected Struct Operations Plan](../Plans/Archive/2026-08/ReflectedStructOperations.md)
 - [Reflection System](../Runtime/Core/ReflectionSystem.md)
@@ -277,7 +321,11 @@ and [Native Tests](../Development/Build/NativeTests.md).
 ## Related Code
 
 - `Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp`
+- `Engine/Source/Runtime/AssetCore/Private/AssetPackageArchive.h`
+- `Engine/Source/Runtime/AssetCore/Private/AssetPackageArchive.cpp`
+- `Engine/Source/Runtime/AssetCore/Private/AssetPackageValueCodec.h`
 - `Engine/Source/Runtime/AssetCore/Private/AssetCompatibility.cpp`
+- `Engine/Source/Runtime/AssetCore/Public/AssetMigration.h`
 - `Engine/Source/Runtime/CoreDObject/Public/DObject/Class.h`
 - `Engine/Source/Runtime/CoreDObject/Private/DObject/Archive.cpp`
 - `Engine/Tests/Native/AssetCoreTests/Private/PackageTests.cpp`
