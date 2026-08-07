@@ -3,6 +3,7 @@
 #include "Panels/LevelEditorPanel.h"
 #include "Panels/ContentBrowserModel.h"
 #include "Panels/ContentBrowserOperations.h"
+#include "Panels/ContentBrowserItemView.h"
 
 #include <array>
 #include <unordered_set>
@@ -76,6 +77,7 @@ namespace Durin
 		auto DrawDirectoryContextMenu(std::string_view PhysicalDirectory, bool bMountRoot) -> void;
 		auto DrawBackgroundContextMenu() -> void;
 		auto DrawStatusBar() -> void;
+		auto PrepareSelectionDetails() -> void;
 		auto DrawSelectionDetails() -> void;
 		auto DrawDialogs() -> void;
 		auto BeginAssetDragDrop(const FContentBrowserItem& Item) -> void;
@@ -139,5 +141,8 @@ namespace Durin
 		std::string ErrorMessage;
 		std::vector<FAssetPath> LastReimportOrphans;
 		std::unique_ptr<FContentBrowserThumbnailCache> ThumbnailCache;
+		ContentBrowserItemView::FTextureCubeDetailsCache TextureCubeDetailsCache;
+		const ContentBrowserItemView::FTextureCubeDetailsSnapshot*
+			TextureCubeDetailsSnapshot = nullptr;
 	};
 } // namespace Durin

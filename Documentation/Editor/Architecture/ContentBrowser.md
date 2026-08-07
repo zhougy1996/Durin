@@ -45,6 +45,12 @@ Ordinary files open through the operating system and use filesystem operations.
 Files detected as asset-managed companions cannot be renamed or deleted
 independently; the owning asset operation must be used.
 
+Selection details are presentation snapshots. TextureCube details inspect
+serialized package metadata through a bounded cache keyed by asset identity,
+registry revision, and file metadata; drawing details never loads the package.
+Runtime-only platform or build fields are shown as unavailable when they are not
+serialized.
+
 Redirector details show the direct and final targets, complete chain and
 terminal state, hard/soft/redirect referencer counts, and reference-index
 completeness. Referencer navigation reveals the selected owner. Selection,

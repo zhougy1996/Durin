@@ -21,7 +21,6 @@
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
 #include "Math/Vector.h"
-#include "Texture/TextureCube.h"
 
 namespace Durin
 {
@@ -360,6 +359,7 @@ namespace Durin
 		if (bReserveDetails)
 		{
 			ImGui::EndChild();
+			PrepareSelectionDetails();
 			ImGui::SeparatorText("Selection Details");
 			DrawSelectionDetails();
 		}
@@ -379,6 +379,23 @@ namespace Durin
 					BeginRename(*It);
 			if (ImGui::IsKeyPressed(ImGuiKey_Delete) && !Selection.empty()) RequestDeleteSelection();
 		}
+	}
+
+	auto FContentBrowserPanel::PrepareSelectionDetails() -> void
+	{
+		TextureCubeDetailsSnapshot = nullptr;
+		const auto It = std::ranges::find_if(
+			Model.GetItems(),
+			[&](const FContentBrowserItem& Item) {
+				return Selection.contains(Item.StableId());
+			});
+		if (It == Model.GetItems().end()
+			|| It->Kind != EContentBrowserItemKind::Asset
+			|| ClassLeaf(It->AssetClassName) != "TextureCube")
+			return;
+		TextureCubeDetailsSnapshot = &TextureCubeDetailsCache.Get(
+			It->PhysicalPath,
+			Asset::GetAssetRegistry().GetRevision());
 	}
 
 	auto FContentBrowserPanel::DrawSelectionDetails() -> void
@@ -454,40 +471,28 @@ namespace Durin
 				if (Item.Kind == EContentBrowserItemKind::Asset
 					&& ClassLeaf(Item.AssetClassName) == "TextureCube")
 				{
-					FAssetPath CubePath;
-					DTextureCube* Cube = nullptr;
-					if (FAssetPath::TryCreate(Item.VirtualPath, CubePath) && Asset::LoadAsset(CubePath, Cube) && Cube)
+					const ContentBrowserItemView::FTextureCubeDetailsSnapshot Unavailable;
+					const ContentBrowserItemView::FTextureCubeDetailsSnapshot& Details =
+						TextureCubeDetailsSnapshot
+						? *TextureCubeDetailsSnapshot
+						: Unavailable;
+					if (Details.bAvailable)
 					{
-						const bool bPanorama =
-							Cube->GetSourceLayout() == ETextureCubeSourceLayout::EquirectangularPanorama;
-						Row("Source Layout", bPanorama ? "Equirectangular Panorama" : "Six Faces");
-						if (bPanorama)
+						Row("Source Layout", Details.SourceLayout);
+						Row("Source", Details.Source);
+						Row("Source Size", Details.SourceSize);
+						if (Details.bPanorama)
 						{
-							Row("Source", Cube->GetPanoramaSourceFile());
-							Row("Source Size", std::format("{}x{}", Cube->GetOriginalSourceWidth(),
-								Cube->GetOriginalSourceHeight()));
-							Row("Face Override", Cube->GetPanoramaFaceDimension() == 0
-								? "Auto" : std::format("{} px", Cube->GetPanoramaFaceDimension()));
-							const bool bHDR = std::filesystem::path(Cube->GetPanoramaSourceFile())
-								.extension().generic_string() == ".hdr";
-							Row("Input Range", bHDR ? "Radiance HDR" : "LDR");
-							if (bHDR) Row("Exposure", std::format("{:+.1f} EV", Cube->GetPanoramaExposureEV()));
+							Row("Face Override", Details.FaceOverride);
+							Row("Input Range", Details.InputRange);
+							Row("Exposure", Details.Exposure);
 						}
-						if (const FTextureCubePlatformData* Platform = Cube->GetPlatformData();
-							Platform && Platform->IsValid())
-						{
-							Row("Dimensions", std::format("{}x{}", Platform->Faces[0].Mips[0].Width,
-								Platform->Faces[0].Mips[0].Height));
-							Row("Faces", std::format("{}", TextureCubeFaceCount));
-							Row("Mips", std::format("{}", Platform->Faces[0].Mips.size()));
-							Row("Output", std::format("{} (LDR)", GetPixelFormatInfo(Platform->PixelFormat).Name));
-						}
-						else
-						{
-							Row("Build", Cube->GetLastBuildError().empty()
-								? "Source data is unavailable." : Cube->GetLastBuildError());
-						}
+						Row("Dimensions", Details.Dimensions);
+						Row("Faces", Details.Faces);
+						Row("Mips", Details.Mips);
+						Row("Output", Details.Output);
 					}
+					Row("Build", Details.BuildDiagnostic);
 				}
 			}
 			ImGui::EndTable();
