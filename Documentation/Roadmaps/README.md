@@ -6,6 +6,9 @@ plan link when implementation work begins.
 
 ## Active
 
+- [Task System Evolution](TaskSystemEvolution.md) — evolve shared typed
+  continuations through move ownership, typed fan-in, owner diagnostics,
+  structured scopes, and evidence-gated executor extensions.
 - [Compact Asset Serialization](CompactAssetSerialization.md) — coordinate the
   reflection prerequisites, deterministic DAST v3 format, dual-version
   migration, and evidence-gated authored-content rollout.
