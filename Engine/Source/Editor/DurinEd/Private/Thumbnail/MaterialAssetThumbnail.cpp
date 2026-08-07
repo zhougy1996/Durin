@@ -958,6 +958,11 @@ namespace Durin
 		}
 		Entry.bVisible |= Priority == EAssetThumbnailPriority::Visible;
 		Entry.LastUsedFrame = Impl->FrameNumber;
+		if (Entry.Texture)
+		{
+			Entry.Diagnostic.clear();
+			return;
+		}
 		std::string Error;
 		if (!Impl->Scheduler.Request({
 				.Asset = Asset,
@@ -986,7 +991,9 @@ namespace Durin
 			Entry.Fingerprint.AssetClassName
 				!= DTextureCube::StaticClass()->GetQualifiedName().ToString();
 		View.bShowTransparencyGrid = false;
-		if (View.State == EAssetThumbnailState::Ready && Entry.Texture == nullptr
+		if (Entry.Texture)
+			View.State = EAssetThumbnailState::Ready;
+		else if (View.State == EAssetThumbnailState::Ready
 			&& Entry.bUploading)
 			View.State = EAssetThumbnailState::Uploading;
 		else if (View.State == EAssetThumbnailState::Ready && Entry.bUploadFailed)

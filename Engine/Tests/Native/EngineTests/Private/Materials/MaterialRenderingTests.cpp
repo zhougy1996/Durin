@@ -1048,6 +1048,25 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			EXPECT_EQ(Stats.PreviewSceneCreations, 0u);
 			EXPECT_EQ(Stats.PreviewSceneAssignments, 0u);
 			EXPECT_EQ(Stats.UploadsCompleted, 1u);
+
+			WarmCache.CancelPendingRequests();
+			const Durin::FAssetThumbnailView Retained =
+				WarmCache.Find(StaticMeshFixturePath);
+			EXPECT_EQ(Retained.State, Durin::EAssetThumbnailState::Ready);
+			EXPECT_EQ(Retained.Texture, Ready.Texture);
+			WarmCache.BeginFrame();
+			WarmCache.Request(
+				StaticMeshFingerprint,
+				Durin::EAssetThumbnailPriority::Visible);
+			const Durin::FAssetThumbnailView Revisited =
+				WarmCache.Find(StaticMeshFixturePath);
+			WarmCache.EndFrame();
+			EXPECT_EQ(Revisited.State, Durin::EAssetThumbnailState::Ready);
+			EXPECT_EQ(Revisited.Texture, Ready.Texture);
+			const Durin::FRenderedAssetThumbnailCacheStats RevisitedStats =
+				WarmCache.GetStats();
+			EXPECT_EQ(RevisitedStats.Pipeline.DiskHits, Stats.Pipeline.DiskHits);
+			EXPECT_EQ(RevisitedStats.UploadsQueued, Stats.UploadsQueued);
 			WarmCache.Clear();
 		}
 
