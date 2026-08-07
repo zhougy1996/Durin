@@ -135,7 +135,6 @@ namespace Durin
 
 	auto FContentBrowserPanel::RebuildItems() -> void
 	{
-		ThumbnailCache->CancelPendingRequests();
 		Model.SetSearch(SearchBuffer.data());
 		RepairSelection();
 	}
