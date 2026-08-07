@@ -553,7 +553,8 @@ namespace Durin
 					const bool bHovered = ImGui::IsItemHovered();
 					bContentItemHovered |= bHovered;
 					if (ImGui::IsItemClicked()) SelectItem(Index);
-					if (bHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) OpenItem(Item);
+					if (bHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+						DeferredContentAction = [this, Item] { OpenItem(Item); };
 					BeginAssetDragDrop(Item);
 					if (Item.Kind == EContentBrowserItemKind::Folder) AcceptAssetDrop(Item.VirtualPath);
 					if (bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
@@ -697,7 +698,9 @@ namespace Durin
 				ImGui::Selectable(Label.c_str(), Selection.contains(Item.StableId()), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
 				bContentItemHovered |= ImGui::IsItemHovered();
 				if (ImGui::IsItemClicked()) SelectItem(Index);
-				if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) OpenItem(Item);
+				if (ImGui::IsItemHovered()
+					&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+					DeferredContentAction = [this, Item] { OpenItem(Item); };
 				BeginAssetDragDrop(Item);
 				if (Item.Kind == EContentBrowserItemKind::Folder) AcceptAssetDrop(Item.VirtualPath);
 				if (ImGui::BeginPopupContextItem("ItemContext"))
@@ -731,7 +734,7 @@ namespace Durin
 			: Item.Kind == EContentBrowserItemKind::Redirector
 				? "Open Destination"
 				: "Open"))
-			OpenItem(Item);
+			DeferredContentAction = [this, Item] { OpenItem(Item); };
 		bool bManagedByRecord = false;
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
