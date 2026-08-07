@@ -13,7 +13,7 @@ namespace Durin
 		struct FQueuedWork
 		{
 			std::string Name;
-			FQueuedWorkFunction Function;
+			std::unique_ptr<FQueuedWorkFunction> Function;
 			FQueuedWorkDiscardFunction Discard;
 		};
 
@@ -53,6 +53,7 @@ namespace Durin
 
 		auto Create(uint32 InNumThreads, const char* InPoolName, uint32 WorkerCreationFailureIndex) -> bool
 		{
+			std::deque<FQueuedWork> PreviousWork;
 			if (InNumThreads == 0)
 			{
 				DURIN_WARN("Queued thread pool creation failed because thread count is zero. (pool: {})", InPoolName ? InPoolName : "");
@@ -73,7 +74,7 @@ namespace Durin
 				bStopRequested = false;
 				bDrainQueuedWorkOnStop = true;
 				ActiveTaskCount = 0;
-				Queue.clear();
+				PreviousWork = std::move(Queue);
 
 				WorkerRunnables.reserve(InNumThreads);
 				WorkerThreads.reserve(InNumThreads);
@@ -97,6 +98,7 @@ namespace Durin
 					WorkerThreads.emplace_back(Thread);
 				}
 			}
+			DiscardWork(std::move(PreviousWork));
 
 			if (GetNumThreads() != InNumThreads)
 			{
@@ -173,6 +175,7 @@ namespace Durin
 			{
 				return false;
 			}
+			auto WorkOwner = std::make_unique<FQueuedWorkFunction>(std::move(Work));
 
 			{
 				std::lock_guard Lock(Mutex);
@@ -183,7 +186,7 @@ namespace Durin
 
 				Queue.emplace_back(FQueuedWork{
 					TaskName ? TaskName : "QueuedWork",
-					std::move(Work),
+					std::move(WorkOwner),
 					std::move(Discard),
 				});
 			}
@@ -315,7 +318,7 @@ namespace Durin
 			DURIN_TRACE("Queued task started. (task: {}, thread: {}, id: {})", Work.Name, GetCurrentThreadName(), FPlatformLTS::GetCurrentThreadId());
 			try
 			{
-				Work.Function();
+				(*Work.Function)();
 			}
 			catch (const std::exception& Exception)
 			{

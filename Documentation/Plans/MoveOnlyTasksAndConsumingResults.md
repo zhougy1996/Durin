@@ -9,13 +9,15 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete from baseline commit
-`68660f0a2b966649f8ca0043f27c19f7f08792e7`. The callable ownership
-inventory, move-only erasure boundary, forwarding API constraints, unique
-result and transactional claim state machines, retained-byte rules, exact
-diagnostics, and compile-time fixture matrix are frozen below. Stage 1 may
-implement the callable boundary without reopening those decisions. No runtime
-behavior has changed yet.
+Stages 0 and 1 are complete. The callable contract was frozen from baseline
+`68660f0a2b966649f8ca0043f27c19f7f08792e7`, and Stage 1 moved callable
+ownership through task nodes, the Worker queue, and the GameThread deferred
+queue from baseline `d59eb1fe236ade4dc8b1d16c55b23e7d457ba930`.
+Move-only captures now work for void, cancelable, shared typed, Worker
+continuation, outcome, and GameThread continuation paths. Capture moves and
+destruction occur outside internal locks, and successful typed waits now
+synchronize completion-hook result publication. Stage 2 is ready to add the
+type-distinct unique result state and consuming sinks.
 The completed continuation foundation publishes typed values through
 `shared_ptr<const T>` and ultimately stores task and completion callables in
 `std::function`. This supports immutable fan-out but requires copy-constructible
@@ -606,20 +608,20 @@ commit `68660f0a2b966649f8ca0043f27c19f7f08792e7`.
 
 Dependencies: Stage 0 frozen contract.
 
-- [ ] Implement the task-private move-only erased callable and focused tests for
+- [x] Implement the task-private move-only erased callable and focused tests for
   inline/heap storage as selected, move construction/assignment, null calls,
   exception propagation, and exactly-once destruction.
-- [ ] Change task nodes, Worker queue handoff, GameThread deferred queue entries,
+- [x] Change task nodes, Worker queue handoff, GameThread deferred queue entries,
   cancellation discard, supersession, dispatch rejection, and shutdown cleanup
   to move callable ownership without copying it.
-- [ ] Add constrained forwarding launch and existing shared continuation entry
+- [x] Add constrained forwarding launch and existing shared continuation entry
   points that accept move-only callables while retaining current aliases and
   overloads.
-- [ ] Remove V1 copy-constructible assertions only after the internal boundary
+- [x] Remove V1 copy-constructible assertions only after the internal boundary
   can retain the user callable exactly once.
-- [ ] Validate callable destruction thread and reentrant destructor behavior;
+- [x] Validate callable destruction thread and reentrant destructor behavior;
   never invoke user destruction under scheduler or queue locks.
-- [ ] Add race tests covering cancel-before-claim, executor rejection,
+- [x] Add race tests covering cancel-before-claim, executor rejection,
   supersession, stale generation, callback exception, drain/cancel shutdown,
   and dropped handles with move-only captures.
 
@@ -748,6 +750,30 @@ and validation outcome.
   conversions, prevents shared/unique mixing, and assigns one owner for every
   admission, execution, rejection, cancellation, and shutdown state. No build
   was required because Stage 0 changes documentation only.
+
+### Stage 1 Handoff
+
+- Baseline commit: `d59eb1fe236ade4dc8b1d16c55b23e7d457ba930`.
+- Working set: `Templates/MoveOnlyFunction.h`, `Threading/Task.h`, `Task.cpp`,
+  `QueuedThreadPool.h/.cpp`, Core `ThreadingTests.cpp`, and this plan.
+- Key symbols and decisions: `Private::TMoveOnlyFunction` supplies the frozen
+  conditional inline/heap erasure; `Private::FMoveOnlyTaskFunction` owns each
+  task callback; task nodes and the Worker queue box wrappers before taking
+  internal locks so SBO target moves/destructors remain outside locks; deferred
+  entries are fully constructed before queue locking; legacy `std::function`
+  aliases and typed conversion overloads remain; and constrained forwarding
+  overloads accept exact-result move-only callables. `TTaskResultState` now
+  synchronizes completion publication so a successful wait cannot race an
+  empty shared result.
+- Open questions: none blocking Stage 2. Completion hooks remain copyable and
+  capture only shared internal state as frozen.
+- Validation: all 84 `CoreConcurrencyTests` passed, including three new focused
+  move-only callable tests and compile-time API fixtures. The Agent Debug
+  profile's complete `all` build passed. Tests cover inline/heap storage,
+  exception propagation, exactly-once and reentrant destruction, move-only
+  void/cancelable/shared typed launches, Worker and GameThread continuations,
+  registration races, dispatch rejection, stale/superseded/canceled work, and
+  drain/cancel shutdown through the existing lifecycle suite.
 
 ## Validation Matrix
 

@@ -81,7 +81,7 @@ namespace Durin
 		FTaskStateData(
 			const char* InDebugName,
 			std::weak_ptr<FTaskScheduler> InScheduler,
-			FCancelableTaskFunction&& InFunction,
+			std::unique_ptr<Private::FMoveOnlyTaskFunction> InFunction,
 			std::function<void(ETaskState)>&& InCompletionFunction,
 			const FTaskCancellationToken& InCancellationToken,
 			const std::vector<std::shared_ptr<FTaskStateData>>& InPrerequisites,
@@ -134,7 +134,7 @@ namespace Durin
 		}
 
 		auto OnPrerequisiteTerminal(ETaskState PrerequisiteState, uint64 PrerequisiteTaskId) -> void;
-		auto TakeFunctionForQueue() -> FCancelableTaskFunction
+		auto TakeFunctionForQueue() -> std::unique_ptr<Private::FMoveOnlyTaskFunction>
 		{
 			std::lock_guard Lock(Mutex);
 			if (State != ETaskState::Queued)
@@ -296,7 +296,7 @@ namespace Durin
 
 	private:
 		auto PublishTerminal(ETaskState TerminalState, std::string InDiagnostic, ETaskTerminalReason InReason = ETaskTerminalReason::None, uint64 InDirectBlockingTaskId = 0) -> bool;
-		auto PublishTerminalLocked(ETaskState TerminalState, std::string InDiagnostic, std::vector<std::shared_ptr<FTaskStateData>>& OutDependents, std::function<void(ETaskState)>& OutCompletionFunction, ETaskTerminalReason InReason = ETaskTerminalReason::None, uint64 InDirectBlockingTaskId = 0) -> bool;
+		auto PublishTerminalLocked(ETaskState TerminalState, std::string InDiagnostic, std::vector<std::shared_ptr<FTaskStateData>>& OutDependents, std::function<void(ETaskState)>& OutCompletionFunction, std::unique_ptr<Private::FMoveOnlyTaskFunction>& OutPendingFunction, ETaskTerminalReason InReason = ETaskTerminalReason::None, uint64 InDirectBlockingTaskId = 0) -> bool;
 		auto FinishTerminalPublication(ETaskState TerminalState, std::vector<std::shared_ptr<FTaskStateData>>&& Dependents) -> void;
 
 		uint64 TaskId = 0;
@@ -306,7 +306,7 @@ namespace Durin
 		std::shared_ptr<FTaskCancellationState> SharedCancellationState;
 		mutable std::mutex Mutex;
 		std::condition_variable CV;
-		FCancelableTaskFunction PendingFunction;
+		std::unique_ptr<Private::FMoveOnlyTaskFunction> PendingFunction;
 		std::function<void(ETaskState)> CompletionFunction;
 		bool bHasResultStorage = false;
 		std::vector<std::weak_ptr<FTaskStateData>> Prerequisites;
@@ -341,7 +341,7 @@ namespace Durin
 
 	auto DispatchGameThreadDeferredTask(
 		const std::shared_ptr<FTaskStateData>& State,
-		FCancelableTaskFunction&& Function) -> bool;
+		Private::FMoveOnlyTaskFunction&& Function) -> bool;
 
 	// Owns the process scheduler's pool and every accepted nonterminal node.
 	class FTaskScheduler final : public std::enable_shared_from_this<FTaskScheduler>
@@ -363,7 +363,7 @@ namespace Durin
 
 		auto Submit(
 			const char* Name,
-			FCancelableTaskFunction&& Function,
+			std::unique_ptr<Private::FMoveOnlyTaskFunction>& FunctionOwner,
 			std::function<void(ETaskState)>&& CompletionFunction,
 			const FTaskLaunchOptions& Options,
 			ETaskDependencyKind DependencyKind = ETaskDependencyKind::Success,
@@ -397,7 +397,7 @@ namespace Durin
 				State = std::make_shared<FTaskStateData>(
 					Name,
 					weak_from_this(),
-					std::move(Function),
+					std::move(FunctionOwner),
 					std::move(CompletionFunction),
 					Options.CancellationToken,
 					PrerequisiteStates,
@@ -439,11 +439,12 @@ namespace Durin
 
 		auto QueueTask(const std::shared_ptr<FTaskStateData>& State) -> void
 		{
-			FCancelableTaskFunction Function = State->TakeFunctionForQueue();
-			if (!Function)
+			std::unique_ptr<Private::FMoveOnlyTaskFunction> FunctionOwner = State->TakeFunctionForQueue();
+			if (!FunctionOwner)
 			{
 				return;
 			}
+			Private::FMoveOnlyTaskFunction Function = std::move(*FunctionOwner);
 			if (State->GetTarget() == ETaskTarget::GameThreadDeferred)
 			{
 				if (!DispatchGameThreadDeferredTask(State, std::move(Function)))
@@ -472,7 +473,7 @@ namespace Durin
 
 		auto ExecuteTask(
 			const std::shared_ptr<FTaskStateData>& State,
-			FCancelableTaskFunction&& Function,
+			Private::FMoveOnlyTaskFunction&& Function,
 			bool bWorkerExecution) -> void
 		{
 			if (!State->TryMarkRunning())
@@ -716,13 +717,23 @@ namespace Durin
 			Diagnostics.bAccepting = true;
 		}
 
-		auto Enqueue(const std::shared_ptr<FTaskStateData>& State, FCancelableTaskFunction&& Function) -> bool
+		auto Enqueue(const std::shared_ptr<FTaskStateData>& State, Private::FMoveOnlyTaskFunction&& Function) -> bool
 		{
+			auto Entry = std::make_shared<FEntry>();
+			Entry->State = State;
+			Entry->Function = std::move(Function);
+			Entry->PayloadBytes = State->GetEstimatedPayloadBytes();
+			Entry->Priority = State->GetPriority();
+			Entry->GenerationToken = State->GetGenerationToken();
+			Entry->CoalescingKey = State->GetCoalescingKey();
+			Entry->EnqueueTimeNanoseconds = MonotonicNanoseconds();
 			std::shared_ptr<FTaskStateData> SupersededState;
+			std::shared_ptr<FEntry> SupersededEntry;
+			std::vector<std::shared_ptr<FEntry>> DetachedEntries;
 			{
 				std::lock_guard Lock(Mutex);
-				PurgeTerminalEntriesLocked();
-				const uint64 PayloadBytes = State->GetEstimatedPayloadBytes();
+				PurgeTerminalEntriesLocked(DetachedEntries);
+				const uint64 PayloadBytes = Entry->PayloadBytes;
 				if (!bAccepting || PayloadBytes == 0 || PayloadBytes > Config.MaxPayloadBytesPerEntry)
 				{
 					++Diagnostics.RejectedCount;
@@ -758,19 +769,12 @@ namespace Durin
 				if (Replacement)
 				{
 					SupersededState = Replacement->State;
+					SupersededEntry = Replacement;
 					ReleaseReservationLocked(*Replacement);
 					for (auto& Queue : Queues) std::erase(Queue, Replacement);
 					++Diagnostics.SupersededCount;
 				}
 
-				auto Entry = std::make_shared<FEntry>();
-				Entry->State = State;
-				Entry->Function = std::move(Function);
-				Entry->PayloadBytes = PayloadBytes;
-				Entry->Priority = State->GetPriority();
-				Entry->GenerationToken = State->GetGenerationToken();
-				Entry->CoalescingKey = State->GetCoalescingKey();
-				Entry->EnqueueTimeNanoseconds = MonotonicNanoseconds();
 				Queues[static_cast<size_t>(Entry->Priority)].emplace_back(std::move(Entry));
 				++ActiveEntryCount;
 				QueuedPayloadBytes += PayloadBytes;
@@ -806,10 +810,11 @@ namespace Durin
 			while (Budget.bUnlimited || Result.ExecutedCallbacks < Budget.MaxCallbacks)
 			{
 				std::shared_ptr<FEntry> Entry;
+				std::vector<std::shared_ptr<FEntry>> DetachedEntries;
 				bool bExpiredGeneration = false;
 				{
 					std::lock_guard Lock(Mutex);
-					PurgeTerminalEntriesLocked(&Result.TerminalEntriesSkipped);
+					PurgeTerminalEntriesLocked(DetachedEntries, &Result.TerminalEntriesSkipped);
 					for (auto& Queue : Queues)
 					{
 						while (!Queue.empty() && !Queue.front()->bReserved) Queue.pop_front();
@@ -894,6 +899,7 @@ namespace Durin
 		auto CancelAll() -> void
 		{
 			std::vector<std::shared_ptr<FTaskStateData>> States;
+			std::vector<std::shared_ptr<FEntry>> DetachedEntries;
 			{
 				std::lock_guard Lock(Mutex);
 				bAccepting = false;
@@ -905,6 +911,7 @@ namespace Durin
 						if (!Entry->bReserved) continue;
 						States.emplace_back(Entry->State);
 						ReleaseReservationLocked(*Entry);
+						DetachedEntries.emplace_back(Entry);
 					}
 					Queue.clear();
 				}
@@ -919,8 +926,9 @@ namespace Durin
 
 		auto GetDiagnostics() -> FGameThreadDeferredWorkQueueDiagnostics
 		{
+			std::vector<std::shared_ptr<FEntry>> DetachedEntries;
 			std::lock_guard Lock(Mutex);
-			PurgeTerminalEntriesLocked();
+			PurgeTerminalEntriesLocked(DetachedEntries);
 			RefreshDepthDiagnosticsLocked();
 			uint64 OldestEnqueue = 0;
 			for (const auto& Queue : Queues)
@@ -939,8 +947,9 @@ namespace Durin
 
 		auto MarkUninstalled() -> FGameThreadDeferredWorkQueueDiagnostics
 		{
+			std::vector<std::shared_ptr<FEntry>> DetachedEntries;
 			std::lock_guard Lock(Mutex);
-			PurgeTerminalEntriesLocked();
+			PurgeTerminalEntriesLocked(DetachedEntries);
 			RefreshDepthDiagnosticsLocked();
 			check(ActiveEntryCount == 0);
 			bAccepting = false;
@@ -953,7 +962,7 @@ namespace Durin
 		struct FEntry
 		{
 			std::shared_ptr<FTaskStateData> State;
-			FCancelableTaskFunction Function;
+			Private::FMoveOnlyTaskFunction Function;
 			FTaskGenerationToken GenerationToken;
 			std::optional<FTaskCoalescingKey> CoalescingKey;
 			uint64 PayloadBytes = 0;
@@ -972,7 +981,7 @@ namespace Durin
 			Entry.bReserved = false;
 		}
 
-		auto PurgeTerminalEntriesLocked(uint32* SkippedCount = nullptr) -> void
+		auto PurgeTerminalEntriesLocked(std::vector<std::shared_ptr<FEntry>>& OutDetachedEntries, uint32* SkippedCount = nullptr) -> void
 		{
 			for (auto& Queue : Queues)
 			{
@@ -990,6 +999,7 @@ namespace Durin
 						ReleaseReservationLocked(*Entry);
 						if (SkippedCount) ++*SkippedCount;
 					}
+					OutDetachedEntries.emplace_back(std::move(*Iterator));
 					Iterator = Queue.erase(Iterator);
 				}
 			}
@@ -1022,7 +1032,7 @@ namespace Durin
 
 	auto DispatchGameThreadDeferredTask(
 		const std::shared_ptr<FTaskStateData>& State,
-		FCancelableTaskFunction&& Function) -> bool
+		Private::FMoveOnlyTaskFunction&& Function) -> bool
 	{
 		std::shared_ptr<FGameThreadDeferredWorkQueue> Queue;
 		{
@@ -1037,6 +1047,7 @@ namespace Durin
 		std::string InDiagnostic,
 		std::vector<std::shared_ptr<FTaskStateData>>& OutDependents,
 		std::function<void(ETaskState)>& OutCompletionFunction,
+		std::unique_ptr<Private::FMoveOnlyTaskFunction>& OutPendingFunction,
 		ETaskTerminalReason InReason,
 		uint64 InDirectBlockingTaskId
 	) -> bool
@@ -1055,7 +1066,7 @@ namespace Durin
 		Diagnostic = std::move(InDiagnostic);
 		TerminalReason = InReason;
 		DirectBlockingTaskId = InDirectBlockingTaskId;
-		PendingFunction = {};
+		OutPendingFunction = std::move(PendingFunction);
 		OutCompletionFunction = std::move(CompletionFunction);
 		for (const std::weak_ptr<FTaskStateData>& Dependent : Dependents)
 		{
@@ -1076,9 +1087,10 @@ namespace Durin
 	{
 		std::vector<std::shared_ptr<FTaskStateData>> DependentsToNotify;
 		std::function<void(ETaskState)> Function;
+		std::unique_ptr<Private::FMoveOnlyTaskFunction> PendingFunction;
 		{
 			std::lock_guard Lock(Mutex);
-			if (!PublishTerminalLocked(TerminalState, std::move(InDiagnostic), DependentsToNotify, Function, InReason, InDirectBlockingTaskId))
+			if (!PublishTerminalLocked(TerminalState, std::move(InDiagnostic), DependentsToNotify, Function, PendingFunction, InReason, InDirectBlockingTaskId))
 			{
 				return false;
 			}
@@ -1212,6 +1224,7 @@ namespace Durin
 	{
 		std::vector<std::shared_ptr<FTaskStateData>> DependentsToNotify;
 		std::function<void(ETaskState)> Function;
+		std::unique_ptr<Private::FMoveOnlyTaskFunction> PendingFunction;
 		bool bPublishedTerminal = false;
 		{
 			std::lock_guard Lock(Mutex);
@@ -1229,7 +1242,7 @@ namespace Durin
 			}
 			if (State == ETaskState::Waiting || State == ETaskState::Queued)
 			{
-				bPublishedTerminal = PublishTerminalLocked(ETaskState::Canceled, CancellationDiagnostic, DependentsToNotify, Function, InReason, InDirectBlockingTaskId);
+				bPublishedTerminal = PublishTerminalLocked(ETaskState::Canceled, CancellationDiagnostic, DependentsToNotify, Function, PendingFunction, InReason, InDirectBlockingTaskId);
 			}
 		}
 
@@ -1245,6 +1258,7 @@ namespace Durin
 	{
 		std::vector<std::shared_ptr<FTaskStateData>> DependentsToNotify;
 		std::function<void(ETaskState)> Function;
+		std::unique_ptr<Private::FMoveOnlyTaskFunction> PendingFunction;
 		ETaskState TerminalState = ETaskState::Succeeded;
 		{
 			std::lock_guard Lock(Mutex);
@@ -1261,6 +1275,7 @@ namespace Durin
 				TerminalState == ETaskState::Canceled ? (CancellationDiagnostic.empty() ? "Task returned after cancellation was requested." : CancellationDiagnostic) : std::string{},
 				DependentsToNotify,
 				Function,
+				PendingFunction,
 				TerminalState == ETaskState::Canceled ? CancellationReason : ETaskTerminalReason::None,
 				TerminalState == ETaskState::Canceled ? CancellationDirectBlockingTaskId : 0
 			);
@@ -1718,6 +1733,10 @@ namespace Durin
 
 	auto LaunchCancelableTask(const char* Name, FCancelableTaskFunction&& Function, const FTaskLaunchOptions& Options) -> FTaskHandle
 	{
+		if (!Function)
+		{
+			return Private::LaunchCancelableTaskWithCompletion(Name, {}, {}, Options);
+		}
 		return Private::LaunchCancelableTaskWithCompletion(Name, std::move(Function), {}, Options);
 	}
 
@@ -1725,7 +1744,7 @@ namespace Durin
 	{
 		auto LaunchCancelableTaskWithCompletion(
 			const char* Name,
-			FCancelableTaskFunction&& Function,
+			FMoveOnlyTaskFunction&& Function,
 			std::function<void(ETaskState)>&& CompletionFunction,
 			const FTaskLaunchOptions& Options) -> FTaskHandle
 		{
@@ -1739,6 +1758,7 @@ namespace Durin
 				DURIN_WARN("Task launch failed because the task function is empty. (task: {})", Name ? Name : "");
 				return {};
 			}
+			auto FunctionOwner = std::make_unique<FMoveOnlyTaskFunction>(std::move(Function));
 
 			std::lock_guard Lock(GTaskSchedulerMutex);
 			if (GTaskSchedulerLifetime != ETaskSchedulerLifetime::Running)
@@ -1753,7 +1773,7 @@ namespace Durin
 
 			std::shared_ptr<FTaskStateData> State = GTaskScheduler->Submit(
 				Name,
-				std::move(Function),
+				FunctionOwner,
 				std::move(CompletionFunction),
 				Options
 			);
@@ -1768,7 +1788,7 @@ namespace Durin
 		auto LaunchContinuationTask(
 			const FTaskHandle& Predecessor,
 			const char* Name,
-			FCancelableTaskFunction&& Function,
+			FMoveOnlyTaskFunction&& Function,
 			std::function<void(ETaskState)>&& CompletionFunction,
 			const FTaskContinuationOptions& Options,
 			ETaskDependencyKind DependencyKind) -> FTaskHandle
@@ -1779,6 +1799,7 @@ namespace Durin
 				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask();
 				return {};
 			}
+			auto FunctionOwner = std::make_unique<FMoveOnlyTaskFunction>(std::move(Function));
 			std::vector<FTaskHandle> Prerequisites;
 			Prerequisites.reserve(Options.Prerequisites.size() + 1);
 			auto AppendUnique = [&Prerequisites](const FTaskHandle& Candidate) {
@@ -1804,7 +1825,7 @@ namespace Durin
 			}
 			std::shared_ptr<FTaskStateData> State = GTaskScheduler->Submit(
 				Name,
-				std::move(Function),
+				FunctionOwner,
 				std::move(CompletionFunction),
 				LaunchOptions,
 				DependencyKind,

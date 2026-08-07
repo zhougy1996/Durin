@@ -3,10 +3,11 @@
 #include "CoreAPI.h"
 
 #include "HAL/Platform.h"
+#include "Templates/MoveOnlyFunction.h"
 
 namespace Durin
 {
-	using FQueuedWorkFunction = std::function<void()>;
+	using FQueuedWorkFunction = Private::TMoveOnlyFunction<void()>;
 	using FQueuedWorkDiscardFunction = std::function<void()>;
 
 	// Owns a fixed worker set and drains named work items from a shared queue.

@@ -3,6 +3,7 @@
 #include "CoreAPI.h"
 
 #include "HAL/Platform.h"
+#include "Templates/MoveOnlyFunction.h"
 
 namespace Durin
 {
@@ -77,9 +78,26 @@ namespace Durin
 
 	namespace Private
 	{
+		using FMoveOnlyTaskFunction = TMoveOnlyFunction<void(const FTaskCancellationToken&)>;
+
+		template<typename F, typename... Args>
+		concept CTaskInvocable = std::is_move_constructible_v<std::decay_t<F>>
+			&& std::is_destructible_v<std::decay_t<F>>
+			&& std::is_invocable_v<std::decay_t<F>&, Args...>;
+
+		template<typename F, typename... Args>
+		concept CTaskResultInvocable = CTaskInvocable<F, Args...>
+			&& (std::is_void_v<std::invoke_result_t<std::decay_t<F>&, Args...>>
+				|| (std::is_object_v<std::invoke_result_t<std::decay_t<F>&, Args...>>
+					&& !std::is_reference_v<std::invoke_result_t<std::decay_t<F>&, Args...>>));
+
+		template<typename T, typename F, typename... Args>
+		concept CExactTaskResultInvocable = CTaskInvocable<F, Args...>
+			&& std::same_as<std::remove_cvref_t<std::invoke_result_t<std::decay_t<F>&, Args...>>, T>;
+
 		struct FTaskHandleFactory;
-		CORE_API auto LaunchCancelableTaskWithCompletion(const char* Name, FCancelableTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskLaunchOptions& Options) -> FTaskHandle;
-		CORE_API auto LaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, FCancelableTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind) -> FTaskHandle;
+		CORE_API auto LaunchCancelableTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskLaunchOptions& Options) -> FTaskHandle;
+		CORE_API auto LaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind) -> FTaskHandle;
 	}
 
 	// A copied, thread-safe view of one task's identity, relationships, timing, and outcome.
@@ -289,8 +307,8 @@ namespace Durin
 		friend class FTaskScheduler;
 		friend CORE_API auto LaunchTask(const char* Name, FTaskFunction&& Function, const FTaskLaunchOptions& Options) -> FTaskHandle;
 		friend CORE_API auto LaunchCancelableTask(const char* Name, FCancelableTaskFunction&& Function, const FTaskLaunchOptions& Options) -> FTaskHandle;
-		friend CORE_API auto Private::LaunchCancelableTaskWithCompletion(const char* Name, FCancelableTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskLaunchOptions& Options) -> FTaskHandle;
-		friend CORE_API auto Private::LaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, FCancelableTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind) -> FTaskHandle;
+		friend CORE_API auto Private::LaunchCancelableTaskWithCompletion(const char* Name, Private::FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskLaunchOptions& Options) -> FTaskHandle;
+		friend CORE_API auto Private::LaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, Private::FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind) -> FTaskHandle;
 		friend CORE_API auto CancelTask(const FTaskHandle& Task) -> bool;
 		friend CORE_API auto WaitTask(const FTaskHandle& Task) -> ETaskState;
 
@@ -406,6 +424,28 @@ namespace Durin
 
 	CORE_API auto LaunchTask(const char* Name, FTaskFunction&& Function, const FTaskLaunchOptions& Options = {}) -> FTaskHandle;
 	CORE_API auto LaunchCancelableTask(const char* Name, FCancelableTaskFunction&& Function, const FTaskLaunchOptions& Options = {}) -> FTaskHandle;
+
+	template<typename F>
+	requires (!std::same_as<std::decay_t<F>, FTaskFunction>
+		&& Private::CTaskInvocable<F>
+		&& std::is_void_v<std::invoke_result_t<std::decay_t<F>&>>)
+	auto LaunchTask(const char* Name, F&& Function, const FTaskLaunchOptions& Options = {}) -> FTaskHandle
+	{
+		return Private::LaunchCancelableTaskWithCompletion(
+			Name,
+			[Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable { std::invoke(Function); },
+			{},
+			Options);
+	}
+
+	template<typename F>
+	requires (!std::same_as<std::decay_t<F>, FCancelableTaskFunction>
+		&& Private::CTaskInvocable<F, const FTaskCancellationToken&>
+		&& std::is_void_v<std::invoke_result_t<std::decay_t<F>&, const FTaskCancellationToken&>>)
+	auto LaunchCancelableTask(const char* Name, F&& Function, const FTaskLaunchOptions& Options = {}) -> FTaskHandle
+	{
+		return Private::LaunchCancelableTaskWithCompletion(Name, std::forward<F>(Function), {}, Options);
+	}
 	// Returns false only for an invalid or already-terminal task.
 	CORE_API auto CancelTask(const FTaskHandle& Task) -> bool;
 	CORE_API auto WaitTask(const FTaskHandle& Task) -> ETaskState;
@@ -428,27 +468,34 @@ namespace Durin
 
 		auto Complete(ETaskState State) -> void
 		{
-			std::lock_guard Lock(Mutex);
-			if (State == ETaskState::Succeeded)
 			{
-				Published = std::move(Pending);
+				std::lock_guard Lock(Mutex);
+				if (State == ETaskState::Succeeded)
+				{
+					Published = std::move(Pending);
+				}
+				else
+				{
+					Pending.reset();
+				}
+				bCompleted = true;
 			}
-			else
-			{
-				Pending.reset();
-			}
+			CV.notify_all();
 		}
 
 		auto GetPublished() const -> std::shared_ptr<const T>
 		{
-			std::lock_guard Lock(Mutex);
+			std::unique_lock Lock(Mutex);
+			CV.wait(Lock, [this]() { return bCompleted; });
 			return Published;
 		}
 
 	private:
 		mutable std::mutex Mutex;
+		mutable std::condition_variable CV;
 		std::shared_ptr<T> Pending;
 		std::shared_ptr<const T> Published;
+		bool bCompleted = false;
 	};
 
 	namespace Private
@@ -462,17 +509,17 @@ namespace Durin
 			}
 		};
 
-		template<typename T>
+		template<typename T, typename F>
 		auto MakeTypedTaskHandle(
 			const char* Name,
-			std::function<T(const FTaskCancellationToken&)>&& Function,
+			F&& Function,
 			const FTaskLaunchOptions& Options) -> TTaskHandle<T>
 		{
 			auto ResultState = std::make_shared<TTaskResultState<T>>();
 			FTaskHandle Task = Private::LaunchCancelableTaskWithCompletion(
 				Name,
-				[Function = std::move(Function), ResultState](const FTaskCancellationToken& Token) mutable {
-					ResultState->SetPending(Function(Token));
+				[Function = std::forward<F>(Function), ResultState](const FTaskCancellationToken& Token) mutable {
+					ResultState->SetPending(std::invoke(Function, Token));
 				},
 				[ResultState](ETaskState State) { ResultState->Complete(State); },
 				Options
@@ -550,54 +597,71 @@ namespace Durin
 	}
 
 	template<typename T, typename F>
+	requires (!std::same_as<std::decay_t<F>, std::function<T()>>
+		&& !std::is_void_v<T>
+		&& Private::CExactTaskResultInvocable<T, F>)
+	auto LaunchTask(const char* Name, F&& Function, const FTaskLaunchOptions& Options = {}) -> TTaskHandle<T>
+	{
+		return Private::MakeTypedTaskHandle<T>(Name,
+			[Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable -> T {
+				return std::invoke(Function);
+			}, Options);
+	}
+
+	template<typename T, typename F>
+	requires (!std::same_as<std::decay_t<F>, std::function<T(const FTaskCancellationToken&)>>
+		&& !std::is_void_v<T>
+		&& Private::CExactTaskResultInvocable<T, F, const FTaskCancellationToken&>)
+	auto LaunchCancelableTask(const char* Name, F&& Function, const FTaskLaunchOptions& Options = {}) -> TTaskHandle<T>
+	{
+		return Private::MakeTypedTaskHandle<T>(Name, std::forward<F>(Function), Options);
+	}
+
+	template<typename T, typename F>
+	requires Private::CTaskResultInvocable<F, const T&>
 	auto Then(const TTaskHandle<T>& Predecessor, const char* Name, F&& Function, const FTaskContinuationOptions& Options = {})
 	{
-		using U = std::invoke_result_t<F, const T&>;
-		static_assert(std::is_copy_constructible_v<std::decay_t<F>>,
-			"Task continuation callables must be copy constructible in V1.");
+		using U = std::invoke_result_t<std::decay_t<F>&, const T&>;
 		return Private::LaunchContinuationResult<U>(Predecessor.GetTaskHandle(), Name,
 			[Predecessor, Function = std::forward<F>(Function)]() mutable -> U {
 				auto Result = Predecessor.GetResultShared();
 				check(Result);
-				return Function(*Result);
+				return std::invoke(Function, *Result);
 			}, Options, ETaskDependencyKind::Success);
 	}
 
 	template<typename F>
+	requires Private::CTaskResultInvocable<F>
 	auto Then(const FTaskHandle& Predecessor, const char* Name, F&& Function, const FTaskContinuationOptions& Options = {})
 	{
-		using U = std::invoke_result_t<F>;
-		static_assert(std::is_copy_constructible_v<std::decay_t<F>>,
-			"Task continuation callables must be copy constructible in V1.");
+		using U = std::invoke_result_t<std::decay_t<F>&>;
 		return Private::LaunchContinuationResult<U>(Predecessor, Name,
-			[Function = std::forward<F>(Function)]() mutable -> U { return Function(); },
+			[Function = std::forward<F>(Function)]() mutable -> U { return std::invoke(Function); },
 			Options, ETaskDependencyKind::Success);
 	}
 
 	template<typename T, typename F>
+	requires Private::CTaskResultInvocable<F, FTaskOutcome<T>>
 	auto ThenOutcome(const TTaskHandle<T>& Predecessor, const char* Name, F&& Function, const FTaskContinuationOptions& Options = {})
 	{
-		using U = std::invoke_result_t<F, FTaskOutcome<T>>;
-		static_assert(std::is_copy_constructible_v<std::decay_t<F>>,
-			"Task continuation callables must be copy constructible in V1.");
+		using U = std::invoke_result_t<std::decay_t<F>&, FTaskOutcome<T>>;
 		return Private::LaunchContinuationResult<U>(Predecessor.GetTaskHandle(), Name,
 			[Predecessor, Function = std::forward<F>(Function)]() mutable -> U {
 				const FTaskDiagnostics Diagnostics = Predecessor.GetDiagnostics();
-				return Function(FTaskOutcome<T>{Predecessor.GetTaskHandle(), Predecessor.GetResultShared(),
+				return std::invoke(Function, FTaskOutcome<T>{Predecessor.GetTaskHandle(), Predecessor.GetResultShared(),
 					Diagnostics.Diagnostic, Diagnostics.State, Diagnostics.TerminalReason});
 			}, Options, ETaskDependencyKind::Completion);
 	}
 
 	template<typename F>
+	requires Private::CTaskResultInvocable<F, FTaskOutcome<void>>
 	auto ThenOutcome(const FTaskHandle& Predecessor, const char* Name, F&& Function, const FTaskContinuationOptions& Options = {})
 	{
-		using U = std::invoke_result_t<F, FTaskOutcome<void>>;
-		static_assert(std::is_copy_constructible_v<std::decay_t<F>>,
-			"Task continuation callables must be copy constructible in V1.");
+		using U = std::invoke_result_t<std::decay_t<F>&, FTaskOutcome<void>>;
 		return Private::LaunchContinuationResult<U>(Predecessor, Name,
 			[Predecessor, Function = std::forward<F>(Function)]() mutable -> U {
 				const FTaskDiagnostics Diagnostics = Predecessor.GetDiagnostics();
-				return Function(FTaskOutcome<void>{Predecessor, Diagnostics.Diagnostic,
+				return std::invoke(Function, FTaskOutcome<void>{Predecessor, Diagnostics.Diagnostic,
 					Diagnostics.State, Diagnostics.TerminalReason});
 			}, Options, ETaskDependencyKind::Completion);
 	}

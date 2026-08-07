@@ -88,6 +88,104 @@ namespace Durin
 			}
 		};
 
+		struct FMoveOnlyVoidCallable
+		{
+			std::unique_ptr<int> Value = std::make_unique<int>(1);
+			FMoveOnlyVoidCallable() = default;
+			FMoveOnlyVoidCallable(FMoveOnlyVoidCallable&&) noexcept = default;
+			auto operator=(FMoveOnlyVoidCallable&&) noexcept -> FMoveOnlyVoidCallable& = default;
+			FMoveOnlyVoidCallable(const FMoveOnlyVoidCallable&) = delete;
+			auto operator=(const FMoveOnlyVoidCallable&) -> FMoveOnlyVoidCallable& = delete;
+			auto operator()() -> void {}
+		};
+
+		struct FMoveOnlyCancelableCallable : FMoveOnlyVoidCallable
+		{
+			auto operator()(const FTaskCancellationToken&) -> void {}
+		};
+
+		struct FMoveOnlyIntCallable : FMoveOnlyVoidCallable
+		{
+			auto operator()() -> int { return *Value; }
+		};
+
+		struct FWrongTaskCallable
+		{
+			auto operator()(int) -> void {}
+		};
+
+		struct FMoveOnlyTypedContinuation : FMoveOnlyVoidCallable
+		{
+			auto operator()(const int& Predecessor) -> int { return Predecessor + *Value; }
+		};
+
+		struct FMoveOnlyVoidOutcomeContinuation : FMoveOnlyVoidCallable
+		{
+			auto operator()(FTaskOutcome<void>) -> void {}
+		};
+
+		struct FMoveOnlyTypedOutcomeContinuation : FMoveOnlyVoidCallable
+		{
+			auto operator()(FTaskOutcome<int>) -> void {}
+		};
+
+		struct FReferenceResultCallable
+		{
+			int Value = 0;
+			auto operator()() -> int& { return Value; }
+		};
+
+		template<typename F>
+		concept CCanLaunchVoidTask = requires(F&& Function) {
+			{ LaunchTask("CompileFixture", std::forward<F>(Function)) } -> std::same_as<FTaskHandle>;
+		};
+
+		template<typename F>
+		concept CCanLaunchCancelableVoidTask = requires(F&& Function) {
+			{ LaunchCancelableTask("CompileFixture", std::forward<F>(Function)) } -> std::same_as<FTaskHandle>;
+		};
+
+		template<typename F>
+		concept CCanLaunchExactIntTask = requires(F&& Function) {
+			{ LaunchTask<int>("CompileFixture", std::forward<F>(Function)) } -> std::same_as<TTaskHandle<int>>;
+		};
+
+		template<typename F>
+		concept CCanThenVoidTask = requires(FTaskHandle Handle, F&& Function) {
+			Then(Handle, "CompileFixture", std::forward<F>(Function));
+		};
+
+		template<typename F>
+		concept CCanThenTypedTask = requires(TTaskHandle<int> Handle, F&& Function) {
+			Then(Handle, "CompileFixture", std::forward<F>(Function));
+		};
+
+		template<typename F>
+		concept CCanThenVoidOutcomeTask = requires(FTaskHandle Handle, F&& Function) {
+			ThenOutcome(Handle, "CompileFixture", std::forward<F>(Function));
+		};
+
+		template<typename F>
+		concept CCanThenTypedOutcomeTask = requires(TTaskHandle<int> Handle, F&& Function) {
+			ThenOutcome(Handle, "CompileFixture", std::forward<F>(Function));
+		};
+
+		static_assert(std::is_move_constructible_v<Private::FMoveOnlyTaskFunction>);
+		static_assert(std::is_nothrow_move_constructible_v<Private::FMoveOnlyTaskFunction>);
+		static_assert(!std::is_copy_constructible_v<Private::FMoveOnlyTaskFunction>);
+		static_assert(CCanLaunchVoidTask<FTaskFunction>);
+		static_assert(CCanLaunchVoidTask<FMoveOnlyVoidCallable>);
+		static_assert(CCanLaunchCancelableVoidTask<FCancelableTaskFunction>);
+		static_assert(CCanLaunchCancelableVoidTask<FMoveOnlyCancelableCallable>);
+		static_assert(CCanLaunchExactIntTask<FMoveOnlyIntCallable>);
+		static_assert(CCanThenVoidTask<FMoveOnlyVoidCallable>);
+		static_assert(CCanThenTypedTask<FMoveOnlyTypedContinuation>);
+		static_assert(CCanThenVoidOutcomeTask<FMoveOnlyVoidOutcomeContinuation>);
+		static_assert(CCanThenTypedOutcomeTask<FMoveOnlyTypedOutcomeContinuation>);
+		static_assert(!CCanLaunchVoidTask<FWrongTaskCallable>);
+		static_assert(!CCanLaunchExactIntTask<FMoveOnlyVoidCallable>);
+		static_assert(!CCanThenVoidTask<FReferenceResultCallable>);
+
 		auto EnsureGameThreadForTaskTest() -> void
 		{
 			if (!GIsGameThreadIdInitialized)
@@ -1551,6 +1649,151 @@ namespace Durin
 		EXPECT_EQ(0u, ShutdownDiagnostics.NonterminalTaskCount);
 		EXPECT_EQ(0u, ShutdownDiagnostics.ActiveWorkerCount);
 		EXPECT_GE(ShutdownDiagnostics.RetainedTerminalHandleCount, 7u);
+	}
+
+	TEST(FTaskMoveOnlyCallableTests, ErasureMovesInlineAndHeapTargetsAndDestroysExactlyOnce)
+	{
+		struct FTrackedCallable
+		{
+			std::shared_ptr<std::atomic<uint32>> DestructionCount;
+			std::array<std::byte, 128> LargeCapture{};
+
+			FTrackedCallable(std::shared_ptr<std::atomic<uint32>> InDestructionCount)
+				: DestructionCount(std::move(InDestructionCount))
+			{
+			}
+			FTrackedCallable(FTrackedCallable&&) noexcept = default;
+			FTrackedCallable(const FTrackedCallable&) = delete;
+			~FTrackedCallable()
+			{
+				if (DestructionCount) DestructionCount->fetch_add(1, std::memory_order::acq_rel);
+			}
+			auto operator()() -> void {}
+		};
+
+		using FMoveOnlyVoidFunction = Private::TMoveOnlyFunction<void()>;
+		FMoveOnlyVoidFunction Empty;
+		EXPECT_FALSE(static_cast<bool>(Empty));
+
+		auto InlineValue = std::make_unique<int>(7);
+		int* InlineAddress = InlineValue.get();
+		FMoveOnlyVoidFunction Inline([Value = std::move(InlineValue), &InlineAddress]() {
+			EXPECT_EQ(InlineAddress, Value.get());
+		});
+		FMoveOnlyVoidFunction MovedInline(std::move(Inline));
+		EXPECT_FALSE(static_cast<bool>(Inline));
+		ASSERT_TRUE(static_cast<bool>(MovedInline));
+		MovedInline();
+
+		auto DestructionCount = std::make_shared<std::atomic<uint32>>(0);
+		{
+			FMoveOnlyVoidFunction Heap{FTrackedCallable(DestructionCount)};
+			FMoveOnlyVoidFunction MovedHeap(std::move(Heap));
+			EXPECT_FALSE(static_cast<bool>(Heap));
+			MovedHeap();
+		}
+		EXPECT_EQ(1u, DestructionCount->load(std::memory_order::acquire));
+
+		FMoveOnlyVoidFunction Throwing([]() { throw std::runtime_error("move-only failure"); });
+		EXPECT_THROW(Throwing(), std::runtime_error);
+	}
+
+	TEST(FTaskMoveOnlyCallableTests, MoveOnlyCapturesRunAcrossLaunchAndContinuationForms)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+
+		std::atomic<uint32> Observation = 0;
+		FTaskHandle VoidTask = LaunchTask("MoveOnlyVoid", [Value = std::make_unique<uint32>(1), &Observation]() {
+			Observation.fetch_add(*Value, std::memory_order::acq_rel);
+		});
+		FTaskHandle CancelableTask = LaunchCancelableTask("MoveOnlyCancelable",
+			[Value = std::make_unique<uint32>(2), &Observation](const FTaskCancellationToken& Token) {
+				EXPECT_FALSE(Token.IsCancellationRequested());
+				Observation.fetch_add(*Value, std::memory_order::acq_rel);
+			});
+		auto TypedTask = LaunchTask<uint32>("MoveOnlyTyped",
+			[Value = std::make_unique<uint32>(4)]() { return *Value; });
+		auto TypedContinuation = Then(TypedTask, "MoveOnlyTypedContinuation",
+			[Value = std::make_unique<uint32>(8), &Observation](const uint32& Predecessor) {
+				Observation.fetch_add(*Value + Predecessor, std::memory_order::acq_rel);
+				return Predecessor * 2;
+			});
+		FTaskHandle OutcomeContinuation = ThenOutcome(VoidTask, "MoveOnlyOutcomeContinuation",
+			[Value = std::make_unique<uint32>(16), &Observation](FTaskOutcome<void> Outcome) {
+				EXPECT_EQ(ETaskState::Succeeded, Outcome.State);
+				Observation.fetch_add(*Value, std::memory_order::acq_rel);
+			});
+
+		FTaskContinuationOptions DeferredOptions;
+		DeferredOptions.Target = ETaskTarget::GameThreadDeferred;
+		DeferredOptions.EstimatedPayloadBytes = 64;
+		FTaskHandle Deferred = Then(TypedContinuation, "MoveOnlyDeferredContinuation",
+			[Value = std::make_unique<uint32>(32), &Observation](const uint32& Result) {
+				EXPECT_TRUE(IsInGameThread());
+				Observation.fetch_add(*Value + Result, std::memory_order::acq_rel);
+			}, DeferredOptions);
+
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(CancelableTask));
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(OutcomeContinuation));
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(TypedContinuation.GetTaskHandle()));
+		while (Deferred.GetState() == ETaskState::Waiting) std::this_thread::yield();
+		ASSERT_EQ(ETaskState::Queued, Deferred.GetState());
+		EXPECT_EQ(1u, PumpGameThreadDeferredWork().ExecutedCallbacks);
+		EXPECT_EQ(ETaskState::Succeeded, Deferred.GetState());
+		EXPECT_EQ(71u, Observation.load(std::memory_order::acquire));
+	}
+
+	TEST(FTaskMoveOnlyCallableTests, CancellationDestroysCaptureOutsideTaskStateLock)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		FThreadEvent BlockerStarted;
+		FThreadEvent ReleaseBlocker;
+		FTaskHandle Blocker = LaunchTask("MoveOnlyDestructionBlocker", [&]() {
+			BlockerStarted.Trigger();
+			ReleaseBlocker.Wait();
+		});
+		ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
+
+		auto CanceledHandle = std::make_shared<FTaskHandle>();
+		auto DestructionCount = std::make_shared<std::atomic<uint32>>(0);
+		struct FReentrantDestruction
+		{
+			std::shared_ptr<FTaskHandle> Handle;
+			std::shared_ptr<std::atomic<uint32>> Count;
+			std::unique_ptr<int> Ownership = std::make_unique<int>(1);
+
+			FReentrantDestruction(std::shared_ptr<FTaskHandle> InHandle, std::shared_ptr<std::atomic<uint32>> InCount)
+				: Handle(std::move(InHandle)), Count(std::move(InCount))
+			{
+			}
+			FReentrantDestruction(FReentrantDestruction&&) noexcept = default;
+			FReentrantDestruction(const FReentrantDestruction&) = delete;
+			~FReentrantDestruction()
+			{
+				if (!Ownership) return;
+				EXPECT_EQ(ETaskState::Canceled, Handle->GetState());
+				Count->fetch_add(1, std::memory_order::acq_rel);
+			}
+			auto operator()() -> void {}
+		};
+
+		FTaskLaunchOptions WaitingOptions;
+		WaitingOptions.Prerequisites = std::span<const FTaskHandle>(&Blocker, 1);
+		*CanceledHandle = LaunchTask("MoveOnlyReentrantDestruction",
+			FReentrantDestruction(CanceledHandle, DestructionCount), WaitingOptions);
+		ASSERT_TRUE(CanceledHandle->IsValid());
+		ASSERT_TRUE(CancelTask(*CanceledHandle));
+		EXPECT_EQ(1u, DestructionCount->load(std::memory_order::acquire));
+
+		ReleaseBlocker.Trigger();
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker));
 	}
 
 	TEST(FTaskContinuationTests, MoveOnlyTypedResultSupportsImmutableFanOutAndTypedChains)
