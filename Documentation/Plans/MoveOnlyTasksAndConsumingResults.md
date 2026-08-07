@@ -9,8 +9,13 @@ Completed:
 
 ## Current Status
 
-Stage 0 is active from baseline commit
-`68660f0a2b966649f8ca0043f27c19f7f08792e7`; no implementation has started.
+Stage 0 is complete from baseline commit
+`68660f0a2b966649f8ca0043f27c19f7f08792e7`. The callable ownership
+inventory, move-only erasure boundary, forwarding API constraints, unique
+result and transactional claim state machines, retained-byte rules, exact
+diagnostics, and compile-time fixture matrix are frozen below. Stage 1 may
+implement the callable boundary without reopening those decisions. No runtime
+behavior has changed yet.
 The completed continuation foundation publishes typed values through
 `shared_ptr<const T>` and ultimately stores task and completion callables in
 `std::function`. This supports immutable fan-out but requires copy-constructible
@@ -277,6 +282,287 @@ leaving aliases for an unshipped API.
   queues completion notice, scans terminal handles, and synthesizes missing
   results because the graph cannot currently transfer unique ownership.
 
+## Stage 0 Frozen Contract
+
+This section is implementation input for Stages 1 through 3. Stable runtime
+documentation continues to describe only implemented behavior until Stage 4.
+
+### Callback ownership inventory
+
+The existing callback path and the required Stage 1 owner after each boundary
+are frozen as follows:
+
+| Boundary | Current storage/operation | Frozen owner after acceptance |
+| --- | --- | --- |
+| Public void launch | `FTaskFunction` or `FCancelableTaskFunction`, both `std::function` | One task-private `Private::FMoveOnlyTaskFunction` created by the forwarding wrapper; legacy aliases convert into the same owner |
+| Public typed launch | `std::function<T(...)>` captured by another `std::function` | The task-private callable owns the user callable; the copyable completion hook owns only the shared result-state pointer |
+| Public continuation | Forwarded callable is captured into a lambda that must currently be copyable | The task-private callable owns the user callable and any predecessor/result-state references it needs |
+| Private launch helpers | Rvalue `FCancelableTaskFunction` passed to scheduler admission | Rvalue task-private callable transferred transactionally into the accepted node |
+| `FTaskStateData` | `PendingFunction`, cleared or moved under its mutex | Pending task-private callable; every removal moves it to a local owner before unlocking |
+| Worker scheduler handoff | Node callback captured by `FQueuedWorkFunction` (`std::function`) | One move-only queue work callback; discard notification remains a separate callback and captures only task state |
+| Worker queue | `FQueuedWork::Function` is moved through enqueue/dequeue but is copy-constrained by its type | `FQueuedWork` exclusively owns and moves the work callback; rejection leaves ownership with the caller |
+| Worker execution/helping | Local `FQueuedWork`, then scheduler `ExecuteTask` | The executing stack exclusively owns the callable until return or exception |
+| GameThread admission | `FEntry::Function` is assigned while the queue mutex is held | A fully constructed entry receives the callable only after capacity validation; rejected admission leaves it outside the lock |
+| GameThread pump | Entry is removed under lock and its function is passed to `ExecuteTask` | The removed entry/executing stack exclusively owns the callable |
+| Supersession/stale/cancel shutdown | Queue entries or node pending functions are erased/reset, sometimes while locked | Entries/functions are detached under lock and destroyed after unlocking; state cancellation and user destructors never run under queue or task locks |
+| Terminal completion | `std::function<void(ETaskState)>` moves out of the task-state lock | May remain copyable because it captures only internal shared state; it runs and releases result storage outside the lock |
+
+`FParallelForFunction`, `FCancelableParallelForFunction`, and repeated-invocation
+parallel-for chunk callbacks do not adopt the move-only wrapper in this plan.
+
+### Move-only erased callable
+
+- The task-private type is `Private::FMoveOnlyTaskFunction`, with the sole
+  signature `void(const FTaskCancellationToken&)`. It is declared in the Core
+  task API but is not a supported general-purpose delegate.
+- It is noncopyable, default/null constructible, `noexcept` move constructible
+  and assignable, explicitly convertible to `bool`, and invokes its target once
+  per `operator()` call. Scheduler ownership still guarantees at-most-once
+  invocation.
+- It uses a three-pointer-size, `alignof(std::max_align_t)` inline buffer.
+  Targets use inline storage only when they fit, satisfy the alignment, and are
+  nothrow move constructible. Large, over-aligned, or potentially-throwing-move
+  targets use one ordinary heap allocation. No custom allocator is introduced.
+- Construction accepts an invocable, move-constructible, destructible target.
+  Allocation and target construction may throw before admission; moving the
+  completed wrapper never throws. Target exceptions propagate through
+  `operator()` to the existing scheduler callback-failure boundary.
+- Calling an empty wrapper is a contract violation checked with `check`; public
+  and private admission validate emptiness and return an invalid handle instead
+  of invoking it.
+- Move construction empties the source. Move assignment first detaches the old
+  target, installs the new target, and destroys the detached target outside any
+  task, scheduler, Worker queue, or GameThread queue lock.
+- The thread releasing the last owner runs the target destructor. That may be
+  the submitting thread on rejection, a Worker after execution, the
+  GameThread after pumping, or the shutdown/coalescing thread after detachment.
+  Destructors may reenter task APIs and must never run while an internal mutex
+  is held.
+- `FQueuedWorkFunction` adopts the same move-only storage. Its discard callback
+  stays copyable because it captures only task state; queued work, discard, and
+  queue destruction are likewise moved out before user capture destruction.
+
+### Public forwarding and unique APIs
+
+The existing non-template overloads and aliases remain present. Constrained
+forwarding overloads are preferred for lambdas and other callable objects;
+the legacy overload remains viable for an explicitly constructed alias. No
+forwarding overload accepts `FParallelFor` work.
+
+```cpp
+template<typename T>
+class TUniqueTaskHandle;
+
+template<typename T>
+struct FUniqueTaskOutcome
+{
+    FTaskHandle Task;
+    std::optional<T> Result;
+    std::string Diagnostic;
+    ETaskState State = ETaskState::Invalid;
+    ETaskTerminalReason Reason = ETaskTerminalReason::None;
+};
+
+template<typename T, typename F>
+auto LaunchUniqueTask(
+    const char* Name,
+    F&& Function,
+    const FTaskLaunchOptions& Options = {},
+    uint64 EstimatedResultBytes = sizeof(T)) -> TUniqueTaskHandle<T>;
+
+template<typename T, typename F>
+auto LaunchUniqueCancelableTask(
+    const char* Name,
+    F&& Function,
+    const FTaskLaunchOptions& Options = {},
+    uint64 EstimatedResultBytes = sizeof(T)) -> TUniqueTaskHandle<T>;
+
+template<typename T, typename F>
+auto ConsumeThen(
+    TUniqueTaskHandle<T>&& Predecessor,
+    const char* Name,
+    F&& Function,
+    const FTaskContinuationOptions& Options = {}) -> FTaskHandle;
+
+template<typename T, typename F>
+auto ConsumeThenOutcome(
+    TUniqueTaskHandle<T>&& Predecessor,
+    const char* Name,
+    F&& Function,
+    const FTaskContinuationOptions& Options = {}) -> FTaskHandle;
+```
+
+The constraints and overload rules are:
+
+- Every forwarding callable is destructible, move constructible, and invocable
+  as a mutable lvalue after decay. Copy construction is not required.
+- Non-cancelable launch invokes `F&()`; cancelable launch invokes
+  `F&(const FTaskCancellationToken&)`. Void overloads require an exact `void`
+  result. An explicitly typed shared or unique launch requires non-void `T` and
+  an invocation result whose cvref-stripped type is exactly `T`.
+- Existing `LaunchTask<T>(std::function<T()>&&)` and cancelable typed overloads
+  remain so legacy result conversions remain valid. A callable with an exact
+  result uses the forwarding overload; a legacy callable relying on conversion
+  continues through the old overload without ambiguity.
+- Shared `Then` invokes typed callbacks as `F&(const T&)`; void `Then` invokes
+  `F&()`. Shared `ThenOutcome` retains its existing `FTaskOutcome<T>` and
+  `FTaskOutcome<void>` invocation vocabulary. Each may return exact `void` or
+  a non-reference object type for another shared typed handle.
+- `ConsumeThen` requires `F&(T&&)` to return exactly `void`.
+  `ConsumeThenOutcome` requires `F&(FUniqueTaskOutcome<T>&&)` to return exactly
+  `void`. Consuming sinks cannot return a task result in this milestone.
+- `T` for a unique result must be a non-void, non-reference, destructible,
+  move-constructible object. It need not be default or copy constructible.
+- Null legacy aliases and empty task-private wrappers deterministically reject
+  admission. A callable object's `operator bool` is not interpreted as
+  emptiness.
+
+`TUniqueTaskHandle<T>` deletes copy construction/assignment and provides
+`noexcept` move construction/assignment. It exposes the same query methods as
+`TTaskHandle<T>` and `const FTaskHandle& GetTaskHandle() const`, but no shared
+observer or direct take operation. A normal move leaves the source invalid and
+empty. Successful consuming registration invalidates the caller-visible task
+handle and retains only a weak claim tombstone so a repeated consume attempt
+can diagnose a duplicate without retaining `T`; rejected registration leaves
+the handle and its strong result-state owner unchanged.
+
+The erased `FTaskHandle` remains copyable and can be used as a prerequisite or
+for wait, cancel, state, and diagnostics. It never grants access to unique
+result storage.
+
+### Unique result and claim state machine
+
+The result state has two orthogonal dimensions guarded by its own mutex:
+
+```text
+Value: Pending(no value) -> Pending(value) -> Published(value)
+                                      |              |
+ failure/cancel/release/shutdown -----+--------------+-> Discarded(no value)
+ Published(value) -> Consumed(no value)
+
+Claim: Unclaimed -> Reserved(registration token) -> Claimed(consumer task id)
+                     | registration rejection
+                     +---------------------------> Unclaimed
+```
+
+- The producer completion hook changes `Pending(value)` to
+  `Published(value)` only when the task terminal state is `Succeeded`. Any
+  other terminal state extracts and destroys the pending value after unlocking.
+- A claim may be reserved before or after producer completion. Publication does
+  not wait for registration and registration does not move the value.
+- Consumer registration first validates the source task/result pairing,
+  scheduler lifetime, callable, options, target metadata, prerequisite set, and
+  checked byte arithmetic without changing the handle or result state.
+- It then installs a unique reservation token under the result mutex. A second
+  reservation/claim observes `Reserved` or `Claimed`, rejects without creating
+  a graph node, and increments
+  `FTaskSchedulerDiagnostics::DuplicateUniqueConsumerClaimCount`.
+- Node construction uses the reservation token. Admission rejection rolls the
+  same token back to `Unclaimed`, even if producer completion raced and
+  published a value. Rollback cannot overwrite a different token or a committed
+  claim. The source handle remains valid and reusable.
+- Successful graph admission commits `Reserved` to `Claimed(consumer task id)`
+  and only then invalidates the caller-visible source handle. Commit failure
+  cancels the just-created node and reports duplicate registration; it cannot
+  expose two consumers.
+- Immediately before callback invocation, a success sink changes
+  `Published(value)` to `Consumed` and moves `T` into a stack owner. An outcome
+  sink builds its outcome from one diagnostics snapshot and moves the value into
+  `Result` only for `Succeeded`; other terminal states carry an empty optional.
+- If the consumer becomes terminal before invocation because of dependency
+  propagation, cancellation, dispatch rejection, supersession, stale
+  generation, or shutdown, its completion cleanup changes any remaining value
+  to `Discarded` and destroys it after unlocking. Callback failure destroys the
+  stack/outcome owner during unwinding.
+- Releasing an unclaimed unique handle does not by itself discard a value while
+  the producer is nonterminal. Once the producer task, completion hook, graph
+  owners, and last unique handle release the result state, its destructor
+  detaches any value and destroys it outside the result-state mutex.
+- Public operations on the same handle object still require ordinary external
+  synchronization. The state machine protects scheduler completion against
+  registration and cancellation; it does not make concurrent mutation of one
+  C++ handle object data-race-free.
+
+The only legal terminal ownership outcomes are:
+
+| Producer/consumer path | Final owner/destruction |
+| --- | --- |
+| Producer succeeds, sink runs | Sink stack/outcome owns `T`, then user-selected owner or callback unwinding destroys it |
+| Producer fails/cancels | No published value; outcome sink receives empty `Result` or success sink is dependency-canceled |
+| Registration rejects | Source unique handle remains the sole public claim capability |
+| Accepted sink is rejected/stale/superseded/canceled | Result-state cleanup discards `T` outside locks |
+| No sink is registered | Last result-state release discards `T` outside locks |
+| Cancel shutdown | Pending/published values detach during terminal cleanup and are destroyed before quiescence returns |
+
+### Diagnostics and rejection text
+
+The following exact diagnostics are frozen for new validation paths:
+
+- empty callable: `Task launch failed because the task function is empty.`
+- invalid consuming source: `Unique task consumer registration failed because the predecessor handle is invalid.`
+- foreign lifetime: `Unique task consumer registration failed because the predecessor belongs to a different scheduler lifetime.`
+- duplicate claim: `Unique task consumer registration failed because the result already has a consuming continuation.`
+- invalid result bytes: `Unique task launch failed because retained result bytes must be non-zero for this result type.`
+- retained-byte overflow: `Unique task consumer dispatch rejected because payload and retained result bytes overflow uint64.`
+- deferred per-entry/capacity rejection continues to use
+  `GameThread deferred executor rejected task dispatch.` and terminal reason
+  `DispatchRejected` after the combined charge is calculated.
+
+`FTaskDiagnostics` adds `EstimatedResultBytes` and
+`RetainedResultBytes`; scheduler diagnostics add the bounded aggregate
+`DuplicateUniqueConsumerClaimCount` and `RetainedUniqueResultBytes`. No
+diagnostic retains a value, callable, per-terminal record, or claim token.
+
+### Retained-result byte rules
+
+- Omitted `EstimatedResultBytes` declares `sizeof(T)`. The declaration includes
+  object storage plus dynamic storage reachable exclusively from `T`; callers
+  of dynamically owning result types must pass a conservative non-zero value.
+- Explicit zero is normalized to `sizeof(T)` only when `T` is both trivially
+  copyable and trivially destructible. Zero for every other `T` rejects launch
+  with the frozen invalid-result-bytes diagnostic.
+- The declared value is immutable result-state metadata. Diagnostics report it
+  while a value is pending or published and report zero after consume/discard.
+- `AnyWorker` admission remains count bounded and does not add a byte gate.
+- `GameThreadDeferred` computes the checked sum
+  `Options.EstimatedPayloadBytes + EstimatedResultBytes`. Overflow rejects
+  before graph admission and preserves the source handle. The combined value is
+  the queue entry's payload charge and is checked against both per-entry and
+  total queued-byte limits; it is reserved/released exactly once under the
+  existing queue policy.
+- Existing non-consuming deferred continuations still require a non-zero
+  `EstimatedPayloadBytes` and are otherwise unchanged.
+
+### Frozen compile-time and runtime fixtures
+
+Stage 1 adds compile-time fixtures proving:
+
+- legacy `FTaskFunction`, `FCancelableTaskFunction`, void launch, typed shared
+  launch, and all four shared continuation forms remain well formed;
+- a lambda capturing `unique_ptr` is accepted for void, cancelable, exact typed
+  shared launch, typed/void `Then`, and both outcome forms;
+- non-invocable, immovable, reference-returning, and wrong-token callables are
+  rejected by constraints rather than by a deep `std::function` diagnostic;
+- legacy typed conversion calls select the existing overload and exact-result
+  calls select one forwarding overload without ambiguity.
+
+Stage 2 extends those fixtures to prove:
+
+- `TUniqueTaskHandle<T>` is movable, not copyable, has no
+  `GetResultShared`, and exposes erased handle access;
+- unique launch accepts move-only/non-default-constructible `T`, while void,
+  reference, mismatched-result, and non-movable types are rejected;
+- only an rvalue unique handle can call `ConsumeThen` or
+  `ConsumeThenOutcome`; shared handles, lvalue unique handles, non-void sinks,
+  and wrong argument categories are rejected;
+- shared and unique APIs have no ambiguous call and no implicit conversion
+  between their handle or result-state types.
+
+Runtime fixtures follow the race, destruction, queue-bound, and shutdown rows
+in the validation matrix. The compile-time fixtures use `requires` expressions
+and traits in Core tests once each corresponding API exists; Stage 0 does not
+publish declarations without implementations.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze the move and consumption contract
@@ -284,27 +570,27 @@ leaving aliases for an unshipped API.
 Dependencies: completed Task Continuations and Thread Dispatch plan; baseline
 commit `68660f0a2b966649f8ca0043f27c19f7f08792e7`.
 
-- [ ] Inventory every location that stores, moves, copies, discards, or invokes
+- [x] Inventory every location that stores, moves, copies, discards, or invokes
   task callbacks and completion functions from public launch through Worker and
   GameThread executors.
-- [ ] Freeze the internal move-only erased-callable interface, storage policy,
+- [x] Freeze the internal move-only erased-callable interface, storage policy,
   allocation behavior, exception/noexcept boundary, null behavior, and
   destruction thread expectations.
-- [ ] Freeze exact public unique launch/consume names, concepts/static
+- [x] Freeze exact public unique launch/consume names, concepts/static
   constraints, overload resolution, moved-from handle behavior, and outcome
   structure.
-- [ ] Define the unique result state machine for pending, published, claimed,
+- [x] Define the unique result state machine for pending, published, claimed,
   consumed, discarded, and terminal storage, including every concurrent
   registration/completion/cancellation ordering.
-- [ ] Define transactional registration and duplicate-consumer diagnostics,
+- [x] Define transactional registration and duplicate-consumer diagnostics,
   including whether rejected registration preserves the caller's handle and
   how counters are exposed.
-- [ ] Freeze retained-result byte declaration, default/zero rules, checked
+- [x] Freeze retained-result byte declaration, default/zero rules, checked
   addition to GameThread payload admission, and diagnostics.
-- [ ] Add compile-time API fixtures for legacy copyable calls, move-only void and
+- [x] Add compile-time API fixtures for legacy copyable calls, move-only void and
   typed calls, invalid callback signatures, handle copy/move traits, and
   ambiguous overload prevention.
-- [ ] Update this plan before implementation if the frozen API differs from the
+- [x] Update this plan before implementation if the frozen API differs from the
   conceptual vocabulary above.
 
 #### Acceptance Gate
@@ -439,6 +725,29 @@ Dependencies: Stage 3 production pilot.
 Each stage lands as an independent local commit and ends with a compact handoff
 recording baseline commit, working set, key symbols/decisions, open questions,
 and validation outcome.
+
+### Stage 0 Handoff
+
+- Baseline commit: `68660f0a2b966649f8ca0043f27c19f7f08792e7`.
+- Working set: this plan; validated against `Threading/Task.h`, `Task.cpp`,
+  `QueuedThreadPool.h/.cpp`, Core `ThreadingTests.cpp`, and the completed Task
+  Continuations and Thread Dispatch handoff.
+- Key symbols and decisions: `Private::FMoveOnlyTaskFunction` uses conditional
+  three-pointer inline storage with a heap fallback that preserves `noexcept`
+  moves; public forwarding uses exact result constraints while legacy typed
+  conversion overloads remain; `TUniqueTaskHandle<T>` is move-only and carries
+  one transactional claim capability; reservation-token rollback preserves a
+  rejected source handle; `FUniqueTaskOutcome<T>` uniquely owns an optional
+  value; and deferred sinks charge the checked sum of callback payload and
+  declared retained result bytes.
+- Open questions: none blocking Stage 1. Performance measurements may inform a
+  later storage-size change, but changing the three-pointer inline policy in
+  this milestone requires updating this frozen contract first.
+- Validation: targeted review found every task and Worker/GameThread callback
+  storage boundary; the frozen constraint and fixture matrix preserves legacy
+  conversions, prevents shared/unique mixing, and assigns one owner for every
+  admission, execution, rejection, cancellation, and shutdown state. No build
+  was required because Stage 0 changes documentation only.
 
 ## Validation Matrix
 
