@@ -151,10 +151,21 @@ namespace Durin
 		{
 			ImDrawList* DrawList = ImGui::GetWindowDrawList();
 			const ImGuiStyle& Style = ImGui::GetStyle();
-			ImVec4 ToolbarColor = Style.Colors[ImGuiCol_PopupBg];
-			ToolbarColor.w = 0.94f;
-			DrawList->AddRectFilled(Min, Max, ImGui::GetColorU32(ToolbarColor), MonaImGui::ScaleUI(6.0f));
-			DrawList->AddRect(Min, Max, ImGui::GetColorU32(ImGuiCol_Border), MonaImGui::ScaleUI(6.0f));
+			const float Rounding = MonaImGui::ScaleUI(4.0f);
+			ImVec4 ToolbarColor = Style.Colors[ImGuiCol_WindowBg];
+			ToolbarColor.w = 0.92f;
+			ImVec4 BorderColor = Style.Colors[ImGuiCol_Border];
+			BorderColor.w *= 0.40f;
+			DrawList->AddRectFilled(Min, Max, ImGui::GetColorU32(ToolbarColor), Rounding);
+			DrawList->AddRect(Min, Max, ImGui::GetColorU32(BorderColor), Rounding);
+		}
+
+		auto DrawToolbarSeparator(ImDrawList* DrawList, float X, float Y, float Height) -> void
+		{
+			ImVec4 Color = ImGui::GetStyleColorVec4(ImGuiCol_Border);
+			Color.w *= 0.45f;
+			const float Inset = MonaImGui::ScaleUI(7.0f);
+			DrawList->AddLine(ImVec2(X, Y + Inset), ImVec2(X, Y + Height - Inset), ImGui::GetColorU32(Color));
 		}
 
 		auto DrawPlayStateBorder(const ImVec2& ViewportMin, const ImVec2& ViewportMax, bool bPaused) -> void
@@ -166,18 +177,6 @@ namespace Durin
 			DrawList->PushClipRect(ViewportMin, ViewportMax, true);
 			DrawList->AddRect(Add(ViewportMin, Inset), Add(ViewportMax, Mul(Inset, -1.0f)), Color, 0.0f, 0, MonaImGui::ScaleUI(2.0f));
 			DrawList->PopClipRect();
-		}
-
-		auto DrawToolbarSelectionIndicator(ImDrawList* DrawList, const ImVec2& Position, float Width, float Height, float ContentWidth) -> void
-		{
-			// Tie the active marker to the visible content instead of a fixed pixel width so text,
-			// icon-only, and split buttons retain the same visual weight.
-			const float MaxIndicatorWidth = FMath::Max(0.0f, Width - MonaImGui::ScaleUI(12.0f));
-			const float MinIndicatorWidth = FMath::Min(MonaImGui::ScaleUI(22.0f), MaxIndicatorWidth);
-			const float IndicatorWidth = FMath::Clamp(ContentWidth + MonaImGui::ScaleUI(4.0f), MinIndicatorWidth, MaxIndicatorWidth);
-			const float CenterX = Position.x + Width * 0.5f;
-			const float Bottom = Position.y + Height;
-			DrawList->AddRectFilled(ImVec2(CenterX - IndicatorWidth * 0.5f, Bottom - MonaImGui::ScaleUI(2.0f)), ImVec2(CenterX + IndicatorWidth * 0.5f, Bottom), ImGui::GetColorU32(ImGuiCol_CheckMark), MonaImGui::ScaleUI(1.0f));
 		}
 
 		auto DrawToolbarButtonBackground(
@@ -228,7 +227,8 @@ namespace Durin
 			const ImU32 TextColor = ImGui::GetColorU32(bSelected || bButtonSurface || bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 			// Play is an action, not a persistent selection: keep the standard button surface
 			// and carry its meaning with the semantic success color on the icon alone.
-			const ImU32 IconColor = bSuccessIcon ? MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::Success) : TextColor;
+			const ImU32 IconColor = bSuccessIcon ? MonaImGui::GetThemeColorU32(MonaImGui::EUIThemeColor::Success)
+				: bSelected ? ImGui::GetColorU32(ImGuiCol_CheckMark) : TextColor;
 			const float IconScale = ImGui::GetFontSize() / 15.0f;
 			float ContentWidth = 0.0f;
 			const ImVec2 TextSize = Label != nullptr ? ImGui::CalcTextSize(Label) : ImVec2(0.0f, 0.0f);
@@ -249,10 +249,6 @@ namespace Durin
 			if (bTrailingIcon)
 			{
 				DrawToolbarIcon(DrawList, Icon, ImVec2(ContentX + TextSize.x + Gap + IconWidth * 0.5f, Position.y + Size.y * 0.5f), IconColor, IconScale);
-			}
-			if (bSelected)
-			{
-				DrawToolbarSelectionIndicator(DrawList, Position, Size.x, Size.y, ContentWidth);
 			}
 			if (bHovered && Tooltip != nullptr)
 			{
@@ -406,12 +402,9 @@ namespace Durin
 			DrawList->AddLine(ImVec2(SecondaryPosition.x, Position.y + MonaImGui::ScaleUI(5.0f)), ImVec2(SecondaryPosition.x, Max.y - MonaImGui::ScaleUI(5.0f)), ImGui::GetColorU32(ImGuiCol_Border));
 			const ImU32 TextColor = ImGui::GetColorU32(bEnabled || bPopupOpen || bPrimaryHovered || bSecondaryHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 			const float IconScale = ImGui::GetFontSize() / 15.0f;
-			DrawToolbarIcon(DrawList, EViewportToolbarIcon::SnapGrid, ImVec2(Position.x + PrimaryWidth * 0.5f, Position.y + Height * 0.5f), TextColor, IconScale);
+			const ImU32 SnapIconColor = bEnabled ? ImGui::GetColorU32(ImGuiCol_CheckMark) : TextColor;
+			DrawToolbarIcon(DrawList, EViewportToolbarIcon::SnapGrid, ImVec2(Position.x + PrimaryWidth * 0.5f, Position.y + Height * 0.5f), SnapIconColor, IconScale);
 			DrawToolbarIcon(DrawList, EViewportToolbarIcon::ChevronDown, ImVec2(SecondaryPosition.x + SecondaryWidth * 0.5f, Position.y + Height * 0.5f), TextColor, IconScale);
-			if (bEnabled)
-			{
-				DrawToolbarSelectionIndicator(DrawList, Position, PrimaryWidth, Height, 16.0f * IconScale);
-			}
 			if (bPrimaryHovered)
 			{
 				ImGui::BeginTooltip();
@@ -469,7 +462,9 @@ namespace Durin
 			Layout.RasterMode = Settings.RasterMode;
 		}
 
-		Layout.ViewModeLabel = std::format("{} / {}", GetModeLabel(Layout.RenderMode, RenderModeOptions), GetModeLabel(Layout.RasterMode, RasterModeOptions));
+		Layout.ViewModeLabel = Layout.RasterMode == ERasterMode::Wireframe
+			? GetModeLabel(Layout.RasterMode, RasterModeOptions)
+			: GetModeLabel(Layout.RenderMode, RenderModeOptions);
 		Layout.EditModeLabel = EditModeManager && !EditModeManager->GetActiveModeId().empty() ? std::string(EditModeManager->GetActiveModeId()) : "Select";
 		const float AvailableWidth = ViewportMax.x - ViewportMin.x;
 		const EEditorUILayoutMode LayoutMode = ResolveEditorUILayout(AvailableWidth, MonaImGui::ScaleUI(560.0f), MonaImGui::ScaleUI(980.0f));
@@ -481,7 +476,7 @@ namespace Durin
 		const float TransformIconWidth = 16.0f * FontSize / 15.0f;
 		const float ChevronWidth = 10.0f * FontSize / 15.0f;
 		Layout.Height = FMath::Max(MonaImGui::ScaleUI(30.0f), FontSize + MonaImGui::ScaleUI(12.0f));
-		Layout.Gap = MonaImGui::ScaleUI(6.0f);
+		Layout.Gap = MonaImGui::ScaleUI(10.0f);
 		Layout.ToolButtonGap = MonaImGui::ScaleUI(3.0f);
 		Layout.ModeButtonWidth = Layout.Height;
 		Layout.EditModeButtonWidth = FMath::Max(MonaImGui::ScaleUI(78.0f), ImGui::CalcTextSize(Layout.EditModeLabel.c_str()).x + ContentGap + ChevronWidth + ContentPadding * 2.0f);
@@ -491,9 +486,9 @@ namespace Durin
 		Layout.ViewModeButtonPosition = ImVec2(ViewportMin.x + MonaImGui::ScaleUI(10.0f), ViewportMin.y + MonaImGui::ScaleUI(8.0f));
 		Layout.ViewModeButtonSize = ImVec2(ImGui::CalcTextSize(Layout.ViewModeLabel.c_str()).x + ContentGap + ChevronWidth + ContentPadding * 2.0f, Layout.Height);
 		const float SecondaryWidth = Layout.bOverflow ? Layout.DropDownWidth : Layout.SpaceButtonWidth + Layout.SnapButtonWidth + Layout.DropDownWidth;
-		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.EditModeButtonWidth + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.ToolButtonGap * 2.0f + Layout.Gap + SecondaryWidth + MonaImGui::ScaleUI(10.0f);
-		Layout.BackgroundMin = ImVec2(Layout.ViewModeButtonPosition.x - MonaImGui::ScaleUI(4.0f), Layout.ViewModeButtonPosition.y - MonaImGui::ScaleUI(4.0f));
-		Layout.BackgroundMax = ImVec2(FMath::Min(ViewportMax.x - MonaImGui::ScaleUI(6.0f), Layout.ViewModeButtonPosition.x + ToolbarWidth), Layout.ViewModeButtonPosition.y + Layout.Height + MonaImGui::ScaleUI(4.0f));
+		const float ToolbarWidth = Layout.ViewModeButtonSize.x + Layout.Gap + Layout.EditModeButtonWidth + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.ToolButtonGap * 2.0f + Layout.Gap + SecondaryWidth + MonaImGui::ScaleUI(3.0f);
+		Layout.BackgroundMin = ImVec2(Layout.ViewModeButtonPosition.x - MonaImGui::ScaleUI(3.0f), Layout.ViewModeButtonPosition.y - MonaImGui::ScaleUI(3.0f));
+		Layout.BackgroundMax = ImVec2(FMath::Min(ViewportMax.x - MonaImGui::ScaleUI(6.0f), Layout.ViewModeButtonPosition.x + ToolbarWidth), Layout.ViewModeButtonPosition.y + Layout.Height + MonaImGui::ScaleUI(3.0f));
 		const float PlayLabelWidth = ImGui::CalcTextSize("Play").x;
 		Layout.PlayButtonWidth = FMath::Max(MonaImGui::ScaleUI(68.0f), TransformIconWidth + ContentGap + PlayLabelWidth + ContentPadding * 2.0f);
 		Layout.RuntimeButtonWidth = Layout.Height;
@@ -506,8 +501,8 @@ namespace Durin
 		const float MaximumPlayX = ViewportMax.x - MonaImGui::ScaleUI(10.0f) - PlayControlsWidth;
 		const float ResolvedPlayX = MinimumPlayX <= MaximumPlayX ? FMath::Clamp(CenteredPlayX, MinimumPlayX, MaximumPlayX) : MaximumPlayX;
 		Layout.PlayButtonPosition = ImVec2(ResolvedPlayX, Layout.ViewModeButtonPosition.y);
-		Layout.PlayBackgroundMin = ImVec2(Layout.PlayButtonPosition.x - MonaImGui::ScaleUI(4.0f), Layout.PlayButtonPosition.y - MonaImGui::ScaleUI(4.0f));
-		Layout.PlayBackgroundMax = ImVec2(Layout.PlayButtonPosition.x + PlayControlsWidth + MonaImGui::ScaleUI(4.0f), Layout.PlayButtonPosition.y + Layout.Height + MonaImGui::ScaleUI(4.0f));
+		Layout.PlayBackgroundMin = ImVec2(Layout.PlayButtonPosition.x - MonaImGui::ScaleUI(3.0f), Layout.PlayButtonPosition.y - MonaImGui::ScaleUI(3.0f));
+		Layout.PlayBackgroundMax = ImVec2(Layout.PlayButtonPosition.x + PlayControlsWidth + MonaImGui::ScaleUI(3.0f), Layout.PlayButtonPosition.y + Layout.Height + MonaImGui::ScaleUI(3.0f));
 		return Layout;
 	}
 
@@ -527,6 +522,11 @@ namespace Durin
 		DrawList->PushClipRect(ViewportMin, ViewportMax, true);
 		DrawToolbarSurface(Layout.BackgroundMin, Layout.BackgroundMax);
 		DrawToolbarSurface(Layout.PlayBackgroundMin, Layout.PlayBackgroundMax);
+		const float ViewSeparatorX = Layout.ViewModeButtonPosition.x + Layout.ViewModeButtonSize.x + Layout.Gap * 0.5f;
+		const float TransformSeparatorX = Layout.ViewModeButtonPosition.x + Layout.ViewModeButtonSize.x + Layout.Gap
+			+ Layout.EditModeButtonWidth + Layout.Gap + Layout.ModeButtonWidth * 3.0f + Layout.ToolButtonGap * 2.0f + Layout.Gap * 0.5f;
+		DrawToolbarSeparator(DrawList, ViewSeparatorX, Layout.ViewModeButtonPosition.y, Layout.Height);
+		DrawToolbarSeparator(DrawList, TransformSeparatorX, Layout.ViewModeButtonPosition.y, Layout.Height);
 		DrawList->PopClipRect();
 		if (Context.bReadOnly) ImGui::BeginDisabled();
 
