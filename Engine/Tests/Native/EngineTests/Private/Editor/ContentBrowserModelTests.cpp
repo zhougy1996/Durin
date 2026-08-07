@@ -556,7 +556,7 @@ TEST_F(FContentBrowserModelTests, AllowsOrdinaryMutationsInWritableAutoScanMount
 	EXPECT_TRUE(std::filesystem::is_directory(Root / "Content/RenamedFolder"));
 }
 
-TEST_F(FContentBrowserModelTests, OperationsPropagateMoveFailureAndDeleteBlockers)
+TEST_F(FContentBrowserModelTests, OperationsPropagateMoveFailureAndUseRecursiveDeletionPreflight)
 {
 	FContentBrowserModel Model;
 	FContentBrowserOperations Operations(
@@ -588,13 +588,20 @@ TEST_F(FContentBrowserModelTests, OperationsPropagateMoveFailureAndDeleteBlocker
 		.PhysicalPath = Folder.generic_string()};
 	const std::array Items{FolderItem};
 	const std::unordered_set<std::string> Selection{FolderItem.StableId()};
-	const Asset::FAssetResult DeleteResult =
-		Operations.Delete(Items, Selection);
-	EXPECT_FALSE(DeleteResult);
-	EXPECT_EQ(
-		DeleteResult.Message,
-		"Folders must be empty before they can be deleted. Delete or move their assets first.");
+	const FContentDeletionPlanPtr Plan =
+		Operations.BuildDeletionPlan(Items, Selection);
+	ASSERT_TRUE(Plan->CanExecute());
+	EXPECT_TRUE(std::ranges::any_of(
+		Plan->Entries,
+		[&](const FContentDeletionFingerprint& Entry) {
+			return Entry.Kind == EContentDeletionEntryKind::OrdinaryFile
+				&& Entry.PhysicalPath
+					== std::filesystem::absolute(Folder / "child.txt")
+						.lexically_normal()
+						.generic_string();
+		}));
 	EXPECT_TRUE(std::filesystem::exists(Folder));
+	EXPECT_TRUE(std::filesystem::exists(Folder / "child.txt"));
 
 	const FContentBrowserItem InvalidAsset{
 		.Kind = EContentBrowserItemKind::Asset,

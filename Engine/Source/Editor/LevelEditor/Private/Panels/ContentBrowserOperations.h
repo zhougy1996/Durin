@@ -262,10 +262,6 @@ namespace Durin
 			const std::unordered_set<std::string>& Selection
 		) const -> FContentDeletionPlanPtr;
 		auto IsDeletionPlanCurrent(const FContentDeletionPlan& Plan) const -> bool;
-		auto Delete(
-			std::span<const FContentBrowserItem> Items,
-			const std::unordered_set<std::string>& Selection
-		) -> Asset::FAssetResult;
 
 		auto IsManagedCompanion(const FContentBrowserItem& Item) const -> bool;
 		auto ShowInExplorer(std::string_view PhysicalPath) const -> void;
@@ -273,8 +269,6 @@ namespace Durin
 
 	private:
 		auto RenameFolder(const FContentBrowserItem& Item, std::string_view NewName)
-			-> Asset::FAssetResult;
-		auto DeleteEmptyFolder(const FContentBrowserItem& Item) const
 			-> Asset::FAssetResult;
 		auto CollectRedirectors(std::string_view VirtualDirectory) const
 			-> std::vector<FAssetPath>;
