@@ -289,8 +289,7 @@ namespace Durin::VulkanRHI
 		CheckVulkanRHIThread();
 		FRHIUniformBufferRange Result;
 		const uint32 FrameIndex = Device.GetCurrentFrameIndex();
-		checkf(Device.GetDynamicUniformBufferAllocator().TryAllocate(
-			FrameIndex, Data, Size, Result),
+		requiref(Device.GetDynamicUniformBufferAllocator().TryAllocate(FrameIndex, Data, Size, Result),
 			"Direct context allocation requires a prepared dynamic-uniform page.");
 		return Result;
 	}

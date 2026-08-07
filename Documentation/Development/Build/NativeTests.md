@@ -164,6 +164,24 @@ preset, a referenced runtime target is missing, two external files claim the
 same destination name from different sources, or a manual deployment repeats
 an ordinary derived dependency.
 
+Register a test target only in configurations that provide every capability it
+exercises. In particular, targets that link editor-only modules or consume
+editor-only offline build services must be guarded by `DURIN_WITH_EDITOR`.
+When a mixed-capability integration target remains useful in runtime-only
+builds, keep its runtime cases registered and explicitly skip only the case
+whose documented prerequisite is unavailable.
+
+An owning test helper may expose an `EDITOR_ONLY` option when the prerequisite
+is not represented by an editor-module link edge, such as source decoding or
+offline cooking. The option must still register the target's exact source list
+as a configuration exclusion in runtime-only builds.
+
+The source-ownership validator still covers configuration-excluded `.cpp`
+files. In the unavailable branch, register each exact source through
+`durin_exclude_native_test_sources(RATIONALE ... SOURCES ...)`; directory or
+pattern exclusions are unsupported, and the rationale must name the missing
+configuration capability.
+
 Use a runtime-only exception only for a plugin, delay-loaded module, or file
 which is selected without a CMake link edge. Declare the owner and rationale
 before discovery:

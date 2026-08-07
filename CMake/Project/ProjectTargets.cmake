@@ -320,6 +320,49 @@ function(durin_add_native_test_aggregate_target target_name)
 	endif()
 endfunction()
 
+function(durin_exclude_native_test_sources)
+	set(one_value_args RATIONALE)
+	set(multi_value_args SOURCES)
+	cmake_parse_arguments(
+		DURIN_NATIVE_TEST_EXCLUSION
+		""
+		"${one_value_args}"
+		"${multi_value_args}"
+		${ARGN}
+	)
+	if(NOT DURIN_NATIVE_TEST_EXCLUSION_RATIONALE)
+		message(FATAL_ERROR
+			"Native-test source exclusions require a reviewed RATIONALE.")
+	endif()
+	if(NOT DURIN_NATIVE_TEST_EXCLUSION_SOURCES)
+		message(FATAL_ERROR "Native-test source exclusions require SOURCES.")
+	endif()
+
+	foreach(_durin_test_source IN LISTS DURIN_NATIVE_TEST_EXCLUSION_SOURCES)
+		cmake_path(ABSOLUTE_PATH _durin_test_source
+			BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+			NORMALIZE
+			OUTPUT_VARIABLE _durin_test_source_absolute)
+		if(NOT EXISTS "${_durin_test_source_absolute}")
+			message(FATAL_ERROR
+				"Excluded native-test source does not exist: "
+				"${_durin_test_source_absolute}")
+		endif()
+		get_property(_durin_existing_owner GLOBAL
+			PROPERTY "DURIN_NATIVE_TEST_SOURCE_OWNER_${_durin_test_source_absolute}")
+		if(_durin_existing_owner)
+			message(FATAL_ERROR
+				"Native-test source ${_durin_test_source_absolute} is already owned by "
+				"${_durin_existing_owner}.")
+		endif()
+		set_property(GLOBAL APPEND PROPERTY DURIN_OWNED_NATIVE_TEST_SOURCES
+			"${_durin_test_source_absolute}")
+		set_property(GLOBAL
+			PROPERTY "DURIN_NATIVE_TEST_SOURCE_OWNER_${_durin_test_source_absolute}"
+			"configuration exclusion: ${DURIN_NATIVE_TEST_EXCLUSION_RATIONALE}")
+	endforeach()
+endfunction()
+
 function(durin_validate_native_test_source_ownership native_test_root)
 	file(GLOB_RECURSE _durin_native_test_sources
 		CONFIGURE_DEPENDS

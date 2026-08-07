@@ -1,0 +1,1525 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Asset/EditorAssetRetention.cpp:52:3:checkf:direct-call",
+      "rationale": "Reviewed DurinEd invariant: `IsInGameThread()` observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Asset/EditorAssetRetention.cpp:86:3:checkf:direct-call",
+      "rationale": "Reviewed DurinEd invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Editor/EditorEngine.cpp:307:3:check:direct-call",
+      "rationale": "Reviewed DurinEd invariant: `RetiredPlayWorlds.size() == RetiredPlayLevels.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Editor/EditorEngine.cpp:308:3:check:direct-call",
+      "rationale": "Reviewed DurinEd invariant: `RetiredPlayWorlds.size() == RetiredPlayFences.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Editor/ReflectedPropertyView.cpp:461:4:check:direct-call",
+      "rationale": "Reviewed DurinEd invariant: `Property->GetElementSize() <= Value.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Editor/ReflectedPropertyView.cpp:461:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed DurinEd invariant: `Property->GetElementSize() <= Value.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Preview/PreviewScene.cpp:16:3:checkf:direct-call",
+      "rationale": "Reviewed DurinEd invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Preview/PreviewScene.cpp:48:3:checkf:direct-call",
+      "rationale": "Reviewed DurinEd invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Thumbnail/RenderedAssetThumbnailPreviewScene.cpp:118:4:checkf:direct-call",
+      "rationale": "Reviewed DurinEd invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Thumbnail/RenderedAssetThumbnailPreviewScene.cpp:194:4:checkf:direct-call",
+      "rationale": "Reviewed DurinEd invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Thumbnail/RenderedAssetThumbnailPreviewScene.cpp:236:3:checkf:direct-call",
+      "rationale": "Reviewed DurinEd invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Thumbnail/RenderedAssetThumbnailPreviewScene.cpp:271:3:checkf:direct-call",
+      "rationale": "Reviewed DurinEd invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Thumbnail/RenderedAssetThumbnailPreviewScene.cpp:305:3:checkf:direct-call",
+      "rationale": "Reviewed DurinEd invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Thumbnail/RenderedAssetThumbnailPreviewScene.cpp:367:3:checkf:direct-call",
+      "rationale": "Reviewed DurinEd invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/DurinEd/Private/Thumbnail/RenderedAssetThumbnailPreviewScene.cpp:380:3:checkf:direct-call",
+      "rationale": "Reviewed DurinEd invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Editor/LevelEditor/Private/LevelEditorModule.cpp:50:3:checkf:callback",
+      "rationale": "The all_of callback only reads each completed registration handle to diagnose startup completeness; registration already occurred before this assertion."
+    },
+    {
+      "id": "Engine/Source/Editor/LevelEditor/Private/LevelEditorModule.cpp:50:3:checkf:direct-call",
+      "rationale": "The all_of callback only reads each completed registration handle to diagnose startup completeness; registration already occurred before this assertion."
+    },
+    {
+      "id": "Engine/Source/Editor/LevelEditor/Private/LevelEditorModule.cpp:50:3:checkf:potentially-overloaded-operation",
+      "rationale": "The all_of callback only reads each completed registration handle to diagnose startup completeness; registration already occurred before this assertion."
+    },
+    {
+      "id": "Engine/Source/Editor/LevelEditor/Private/LevelEditorModule.cpp:50:3:checkf:traversal",
+      "rationale": "The all_of callback only reads each completed registration handle to diagnose startup completeness; registration already occurred before this assertion."
+    },
+    {
+      "id": "Engine/Source/Editor/StandardAssetImport/Private/StandardAssetImportProviders.cpp:779:3:checkf:direct-call",
+      "rationale": "Reviewed StandardAssetImport invariant: `Providers.GetOutstandingLeaseCount(\"DurinImage\") == 0 && Providers.GetOutstandingLeaseCount(\"Assimp\") == 0 && Providers.GetOutstandingLeaseCount(SceneImportProviderId) == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp:6974:3:check:direct-call",
+      "rationale": "Reviewed AssetCore invariant: `LoadedPackages.empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp:6975:3:check:direct-call",
+      "rationale": "Reviewed AssetCore invariant: `LoadingPackages.empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/AssetCore/Private/AssetSystem.cpp:6976:3:check:direct-call",
+      "rationale": "Reviewed AssetCore invariant: `TransactionPackages.empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Misc/AppConfig.cpp:21:3:check:direct-call",
+      "rationale": "Reviewed Core invariant: `!AppConfigDocument.IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Misc/Name.cpp:29:3:check:direct-call",
+      "rationale": "Reviewed Core invariant: `NoneName.IsNone()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Misc/Name.cpp:376:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Core invariant: `Bytes % Stride == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Misc/Name.cpp:377:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Core invariant: `CurrentByteCursor % Stride == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Misc/Name.cpp:378:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Core invariant: `CurrentByteCursor + Bytes <= BlockSizeBytes` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Misc/Name.cpp:414:3:check:direct-call",
+      "rationale": "Reviewed Core invariant: `A.length() == B.length()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Misc/Name.cpp:531:4:check:direct-call",
+      "rationale": "Reviewed Core invariant: `!UnusedSlot.Used()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Misc/Name.cpp:560:4:check:direct-call",
+      "rationale": "Reviewed Core invariant: `NewCapacity > Capacity()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Misc/Name.cpp:639:4:check:direct-call",
+      "rationale": "Reviewed Core invariant: `OldSlot.Used()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Misc/Paths.cpp:65:4:checkf:direct-call",
+      "rationale": "Reviewed Core invariant: `RuntimeDir.filename() == \"Runtime\"` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Misc/Paths.cpp:646:4:checkf:direct-call",
+      "rationale": "Reviewed Core invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Misc/Paths.cpp:677:4:checkf:direct-call",
+      "rationale": "Reviewed Core invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Misc/StringConvert.cpp:133:3:check:direct-call",
+      "rationale": "Reviewed Core invariant: `Hex.size() == OutBytes.size() * 2` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Misc/StringConvert.cpp:133:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Core invariant: `Hex.size() == OutBytes.size() * 2` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Threading/RunnableThread.cpp:101:3:checkf:direct-call",
+      "rationale": "Reviewed Core invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Threading/RunnableThread.cpp:106:3:checkf:direct-call",
+      "rationale": "Reviewed Core invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Threading/RunnableThread.cpp:111:3:checkf:direct-call",
+      "rationale": "Reviewed Core invariant: `IsInRHIThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Threading/RunnableThread.cpp:116:3:checkf:direct-call",
+      "rationale": "Reviewed Core invariant: `GetCurrentThreadRole() == ThreadRole` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Private/Threading/StdRunnableThread.cpp:69:3:check:direct-call",
+      "rationale": "Reviewed Core invariant: `Thread.joinable()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Misc/AssertionMacros.h:54:10:require:macro-definition",
+      "rationale": "Assertion macro definition scaffolding is diagnostic-only and performs no runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Misc/AssertionMacros.h:58:10:requiref:macro-definition",
+      "rationale": "Assertion macro definition scaffolding is diagnostic-only and performs no runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Misc/AssertionMacros.h:63:10:check:macro-definition",
+      "rationale": "Assertion macro definition scaffolding is diagnostic-only and performs no runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Misc/AssertionMacros.h:67:10:checkf:macro-definition",
+      "rationale": "Assertion macro definition scaffolding is diagnostic-only and performs no runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Misc/AssertionMacros.h:72:10:verify:macro-definition",
+      "rationale": "Assertion macro definition scaffolding is diagnostic-only and performs no runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Misc/AssertionMacros.h:73:10:verifyf:macro-definition",
+      "rationale": "Assertion macro definition scaffolding is diagnostic-only and performs no runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Misc/AssertionMacros.h:76:10:verify:macro-definition",
+      "rationale": "Assertion macro definition scaffolding is diagnostic-only and performs no runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Misc/AssertionMacros.h:81:10:verifyf:macro-definition",
+      "rationale": "Assertion macro definition scaffolding is diagnostic-only and performs no runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Misc/AssertionMacros.h:81:37:verify:macro-definition",
+      "rationale": "Assertion macro definition scaffolding is diagnostic-only and performs no runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Misc/AssertionMacros.h:85:10:checkSlow:macro-definition",
+      "rationale": "Assertion macro definition scaffolding is diagnostic-only and performs no runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Misc/AssertionMacros.h:86:10:checkfSlow:macro-definition",
+      "rationale": "Assertion macro definition scaffolding is diagnostic-only and performs no runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Misc/AssertionMacros.h:89:10:checkSlow:macro-definition",
+      "rationale": "Assertion macro definition scaffolding is diagnostic-only and performs no runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Misc/AssertionMacros.h:90:10:checkfSlow:macro-definition",
+      "rationale": "Assertion macro definition scaffolding is diagnostic-only and performs no runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Threading/Task.h:1294:5:check:callback",
+      "rationale": "The apply callback only observes stored predecessor results before dereference; task result acquisition occurs before this assertion."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Threading/Task.h:1294:5:check:direct-call",
+      "rationale": "The apply callback only observes stored predecessor results before dereference; task result acquisition occurs before this assertion."
+    },
+    {
+      "id": "Engine/Source/Runtime/Core/Public/Threading/Task.h:1294:5:check:potentially-overloaded-operation",
+      "rationale": "The apply callback only observes stored predecessor results before dereference; task result acquisition occurs before this assertion."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Class.cpp:29:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `!QualifiedName.IsNone()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Class.cpp:31:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `(bInserted || It->second == Type) && \"Reflected qualified names must be unique.\"` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/DObjectArray.cpp:12:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `!Contains(ObjToAdd)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/DObjectArray.cpp:43:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `ChildrenIt == OuterToObjects.end() || ChildrenIt->second.empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/DObjectArray.cpp:43:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `ChildrenIt == OuterToObjects.end() || ChildrenIt->second.empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/DObjectArray.cpp:110:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `Contains(Object)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/DObjectArray.cpp:123:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `SlotIt != ObjectToSlot.end()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/DObjectArray.cpp:125:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `Slot.OuterIndex == std::numeric_limits<uint32>::max()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/DObjectArray.cpp:133:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `It != OuterToObjects.end()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/DObjectArray.cpp:135:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `SlotIt != ObjectToSlot.end()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/DObjectArray.cpp:138:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `Slot.OuterIndex < ObjectsWithOuter.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/DObjectArray.cpp:139:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `ObjectsWithOuter[Slot.OuterIndex] == Object` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/DObjectArray.cpp:150:4:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `MovedSlotIt != ObjectToSlot.end()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/DObjectGlobals.cpp:457:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `IsFNameInitialized() && \"FNameInit must run before reflected type initialization.\"` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Field.cpp:17:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `InCPPName[0] == 'F'` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/GCReferenceSchema.cpp:38:5:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `!GAssemblingSchemas.contains(Type) && \"Recursive reflected value layouts cannot assemble a GC reference schema.\"` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/GCReferenceSchema.cpp:126:5:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `ArrayProperty->HasArrayOps() && ArrayProperty->HasCapability(EArrayOpsFlags::ConstTraversal) && \"Reference-bearing reflected arrays require const traversal.\"` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/GCReferenceSchema.cpp:126:5:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `ArrayProperty->HasArrayOps() && ArrayProperty->HasCapability(EArrayOpsFlags::ConstTraversal) && \"Reference-bearing reflected arrays require const traversal.\"` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/GCReferenceSchema.cpp:139:5:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `MapProperty->HasMapOps() && MapProperty->HasCapability(EMapOpsFlags::ConstTraversal) && \"Reference-bearing reflected maps require const traversal.\"` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/GCReferenceSchema.cpp:139:5:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `MapProperty->HasMapOps() && MapProperty->HasCapability(EMapOpsFlags::ConstTraversal) && \"Reference-bearing reflected maps require const traversal.\"` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Object.cpp:76:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `Z_Registration_Info_DClass_DObject.OuterSingleton->GetClass()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Object.cpp:76:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `Z_Registration_Info_DClass_DObject.OuterSingleton->GetClass()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Object.cpp:160:4:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `PackageName.starts_with(CppPrefix)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Object.cpp:322:4:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `Registrant.Object->GetClass()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Object.cpp:322:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `Registrant.Object->GetClass()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/ObjectLifecycle.cpp:82:4:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `GDObjectArray.Contains(Object)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/ObjectLifecycle.cpp:83:4:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `Object->HasAnyInternalFlags(EObjectInternalFlags::BeginDestroyed)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/ObjectLifecycle.cpp:83:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `Object->HasAnyInternalFlags(EObjectInternalFlags::BeginDestroyed)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/ObjectLifecycle.cpp:84:4:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `Object->IsReadyForFinishDestroy()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/ObjectLifecycle.cpp:84:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `Object->IsReadyForFinishDestroy()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/ObjectLifecycle.cpp:85:4:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `Object->HasAnyInternalFlags(EObjectInternalFlags::FinishDestroyed)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/ObjectLifecycle.cpp:85:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `Object->HasAnyInternalFlags(EObjectInternalFlags::FinishDestroyed)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/ObjectLifecycle.cpp:162:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `GDObjectArray.Contains(Object)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/ObjectLifecycle.cpp:171:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `GDObjectArray.Contains(Object)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/ObjectLifecycle.cpp:172:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `Object->RootReferenceCount > 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Package.cpp:25:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `(bInserted || It->second == Package) && \"A different package is already registered for this path.\"` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Package.cpp:44:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `GetOuter() == nullptr` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Package.cpp:69:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `GetOuter() == nullptr` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Package.cpp:71:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `!ModuleName.IsNone()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Package.cpp:97:4:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `Existing->IsCppPackage() && \"Package path is already used by a non-C++ package.\"` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Package.cpp:97:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `Existing->IsCppPackage() && \"Package path is already used by a non-C++ package.\"` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Package.cpp:109:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `ModuleName && ModuleName[0] != '\\0'` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Property.cpp:891:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `IsValidArrayOps(Ops)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Private/DObject/Property.cpp:1008:3:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `IsValidMapOps(Ops)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Public/DObject/Class.h:146:4:check:direct-call",
+      "rationale": "Reviewed CoreDObject invariant: `IsValidDStructOps(*ResolvedOps)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Public/DObject/Class.h:146:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed CoreDObject invariant: `IsValidDStructOps(*ResolvedOps)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/CoreDObject/Public/DObject/ObjectMacros.h:188:3:check:macro-definition",
+      "rationale": "Assertion macro definition scaffolding is diagnostic-only and performs no runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Engine/ActorIterator.cpp:65:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `State && Index < State->Candidates.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Engine/ActorIterator.cpp:65:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `State && Index < State->Candidates.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Engine/ActorIterator.cpp:76:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `State && Index < State->Candidates.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Engine/ActorIterator.cpp:76:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `State && Index < State->Candidates.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Engine/Engine.cpp:138:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!DestroyFence || DestroyFence->IsFenceComplete()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Engine/Engine.cpp:138:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `!DestroyFence || DestroyFence->IsFenceComplete()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Materials/MaterialRenderProxy.cpp:79:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `Previous != std::numeric_limits<uint32>::max()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Materials/MaterialRenderProxy.cpp:187:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `std::ranges::is_sorted( Publication.LocalLayer.Parameters, {}, &FMaterialLocalRenderParameter::Id)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Materials/MaterialRenderProxy.cpp:187:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `std::ranges::is_sorted( Publication.LocalLayer.Parameters, {}, &FMaterialLocalRenderParameter::Id)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Rendering/PositionVertexBuffer.cpp:15:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Rendering/PositionVertexBuffer.cpp:24:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/LocalVertexFactory.cpp:12:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/LocalVertexFactory.cpp:165:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/LocalVertexFactory.cpp:205:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/LocalVertexFactory.cpp:206:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `Data.PositionComponent.IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/LocalVertexFactory.cpp:207:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `Data.PositionComponent.VertexBuffer->GetRHI() != nullptr` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/LocalVertexFactory.cpp:207:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `Data.PositionComponent.VertexBuffer->GetRHI() != nullptr` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:59:5:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `Candidate.GetNumInitializedResources() == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:74:5:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `RenderData->GetNumInitializedResources() == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:74:5:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `RenderData->GetNumInitializedResources() == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:86:4:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `RenderData->GetNumInitializedResources() == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:86:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `RenderData->GetNumInitializedResources() == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:616:4:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `RenderData == nullptr || RenderData->GetNumInitializedResources() == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:616:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `RenderData == nullptr || RenderData->GetNumInitializedResources() == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:631:5:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `RenderDataToRelease->GetNumInitializedResources() == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:631:5:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `RenderDataToRelease->GetNumInitializedResources() == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:777:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `ReleaseResourcesFence.IsFenceComplete()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:778:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `RenderResourceState.load(std::memory_order_acquire) == EStaticMeshRenderResourceState::Released` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:780:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `RenderData == nullptr || RenderData->GetNumInitializedResources() == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:780:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `RenderData == nullptr || RenderData->GetNumInitializedResources() == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:2106:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:2155:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:2218:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:2342:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:2427:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/StaticMesh/StaticMesh.cpp:2506:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Texture/Texture2D.cpp:336:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `PlatformData && PlatformData->IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Texture/Texture2D.cpp:336:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `PlatformData && PlatformData->IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Texture/Texture2DRenderResource.cpp:18:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `PlatformData && PlatformData->IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Texture/Texture2DRenderResource.cpp:18:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `PlatformData && PlatformData->IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Texture/Texture2DRenderResource.cpp:25:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Texture/TextureCube.cpp:642:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `PlatformData && PlatformData->IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Texture/TextureCube.cpp:642:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `PlatformData && PlatformData->IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Texture/TextureCubeRenderResource.cpp:19:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `PlatformData && PlatformData->IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Texture/TextureCubeRenderResource.cpp:19:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `PlatformData && PlatformData->IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Texture/TextureCubeRenderResource.cpp:26:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Private/Texture/TextureRenderResource.cpp:102:3:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Public/Rendering/PositionVertexBuffer.h:52:4:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `VertexIndex < Positions.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Public/Rendering/PositionVertexBuffer.h:61:4:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshResources.h:101:5:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshResources.h:106:5:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshResources.h:162:5:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `VertexIndex < TexCoords[Channel].size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshResources.h:162:5:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Engine invariant: `VertexIndex < TexCoords[Channel].size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshResources.h:177:5:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshResources.h:182:5:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshResources.h:246:4:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `VertexIndex < Colors.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshResources.h:255:4:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshResources.h:313:4:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `Index < Indices.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshResources.h:322:4:check:direct-call",
+      "rationale": "Reviewed Engine invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:169:5:checkf:direct-call",
+      "rationale": "Reviewed Launch invariant: `ShortTask.IsValid() && DependentTask.IsValid() && FailedTask.IsValid() && FailedDependentTask.IsValid() && CancelableTask.IsValid() && ParallelTask.IsValid() && WaiterTask.IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:191:5:checkf:direct-call",
+      "rationale": "Reviewed Launch invariant: `GameThreadSource.IsValid() && GameThreadDeferred.IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:203:5:checkf:direct-call",
+      "rationale": "Reviewed Launch invariant: `AdmissionProbe.IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:211:5:checkf:direct-call",
+      "rationale": "Reviewed Launch invariant: `SlowTask.IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:222:5:checkf:direct-call",
+      "rationale": "Reviewed Launch invariant: `!IsTaskSchedulerRunning()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:226:5:checkf:direct-call",
+      "rationale": "Reviewed Launch invariant: `AdmissionProbe.GetState() == ETaskState::Succeeded && SlowTask.GetState() == ETaskState::Succeeded && ShortTask.GetState() == ETaskState::Succeeded && DependentTask.GetState() == ETaskState::Succeeded && WaiterTask.GetState() == ETaskState::Succeeded && GameThreadSource.GetState() == ETaskState::Succeeded && GameThreadDeferred.GetState() == ETaskState::Succeeded && bGameThreadDeferredRan` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:235:5:checkf:direct-call",
+      "rationale": "Reviewed Launch invariant: `FailedTask.GetState() == ETaskState::Failed && FailedDependentTask.GetState() == ETaskState::Canceled && CancelableTask.GetState() == ETaskState::Canceled` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:241:5:checkf:direct-call",
+      "rationale": "Reviewed Launch invariant: `ParallelTask.GetState() == ETaskState::Succeeded && ParallelResult.State == ETaskState::Succeeded && ParallelResult.ChunkCount > 1 && ParallelChecksum != 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:391:3:check:direct-call",
+      "rationale": "Reviewed Launch invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Launch/Private/LaunchEngineLoop.cpp:402:3:check:direct-call",
+      "rationale": "Reviewed Launch invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Mona/Private/Widgets/MViewport.cpp:43:3:check:direct-call",
+      "rationale": "Reviewed Mona invariant: `!ViewportPtr->IsWindowBacked()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Mona/Private/Widgets/MViewport.cpp:43:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed Mona invariant: `!ViewportPtr->IsWindowBacked()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/MonaImGui/Private/ImGuiMonaImpl.cpp:255:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed MonaImGui invariant: `ViewportData->PrevWndProc != nullptr` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/MonaImGui/Private/ImGuiMonaImpl.cpp:1055:3:check:direct-call",
+      "rationale": "Reviewed MonaImGui invariant: `Mona::FMonaApplication::IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/MonaImGui/Private/ImGuiRHIImpl.cpp:453:3:check:direct-call",
+      "rationale": "Reviewed MonaImGui invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/MonaImGui/Private/ImGuiRHIImpl.cpp:495:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed MonaImGui invariant: `InTex->TexID == ImTextureID_Invalid && InTex->BackendUserData == nullptr` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/MonaImGui/Private/ImGuiRHIImpl.cpp:496:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed MonaImGui invariant: `InTex->Format == ImTextureFormat_RGBA32 || InTex->Format == ImTextureFormat_Alpha8` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/MonaImGui/Private/ImGuiRHIImpl.cpp:598:3:check:direct-call",
+      "rationale": "Reviewed MonaImGui invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/MonaImGui/Private/MonaImGuiWidgets.cpp:12:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed MonaImGui invariant: `Data->EventFlag == ImGuiInputTextFlags_CallbackResize` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/MonaImGui/Private/MonaImGuiWidgets.cpp:13:4:check:direct-call",
+      "rationale": "Reviewed MonaImGui invariant: `Data->Buf == Value->data()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/MonaImGui/Private/MonaImGuiWidgets.cpp:13:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed MonaImGui invariant: `Data->Buf == Value->data()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/MonaImGui/Private/MonaImGuiWidgets.cpp:48:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed MonaImGui invariant: `(Flags & ImGuiInputTextFlags_CallbackResize) == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:69:4:checkf:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `GCommandListExecutor.GetLastSubmittedSerial() == GCommandListExecutor.GetCompletedSerial()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:84:4:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:259:4:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:295:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:366:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:379:4:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `CommandQueue[0].empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:379:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed RenderCore invariant: `CommandQueue[0].empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:380:4:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `CommandQueue[1].empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:380:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed RenderCore invariant: `CommandQueue[1].empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:407:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `CommandQueue[0].empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:407:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed RenderCore invariant: `CommandQueue[0].empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:408:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `CommandQueue[1].empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderingThread.cpp:408:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed RenderCore invariant: `CommandQueue[1].empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:98:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `!IsInitialized()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:105:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:119:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:129:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `RemovedIndex < RenderResources.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:139:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:149:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:159:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:169:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:204:5:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:210:5:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `It != PendingCleanup.end()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:228:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:289:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:296:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:305:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:314:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:331:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:340:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:350:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:369:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:378:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:384:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:392:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:406:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/RenderResource.cpp:420:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/Shader/Shader.cpp:40:5:checkf:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `FoundIt == ShaderTypes.end()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/Shader/Shader.cpp:373:4:checkf:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `ExistingIt == TraversalStack.end()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/Shader/Shader.cpp:384:6:checkf:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `DuplicateIt == OutMembers.end()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/Shader/Shader.cpp:544:5:checkf:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `DuplicateIt == Storage.OwnedMembers.end()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/Shader/Shader.cpp:806:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `ShaderIndex < Code->GetNumShaders()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/Shader/Shader.cpp:806:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed RenderCore invariant: `ShaderIndex < Code->GetNumShaders()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/Shader/Shader.cpp:823:5:checkf:potentially-overloaded-operation",
+      "rationale": "Reviewed RenderCore invariant: `Shaders[ShaderIndex]` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/Shader/Shader.cpp:837:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `ShaderIndex < Shaders.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/Shader/ShaderPaths.cpp:172:3:checkf:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/Shader/ShaderPaths.cpp:173:3:checkf:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `!GShaderMountRegistry.IsFrozen()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/Shader/ShaderPaths.cpp:304:3:checkf:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/VertexFactory.cpp:14:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/VertexFactory.cpp:28:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/VertexFactory.cpp:36:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Private/VertexFactory.cpp:37:3:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsReady()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Public/RenderResourceCreation.h:87:4:checkf:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `*Counter != std::numeric_limits<uint64>::max()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Public/RenderResourceCreation.h:87:4:checkf:potentially-overloaded-operation",
+      "rationale": "Reviewed RenderCore invariant: `*Counter != std::numeric_limits<uint64>::max()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Public/Shader/Shader.h:425:4:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `ShaderIndex < CompiledShaders.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Public/Shader/Shader.h:550:3:checkf:potentially-overloaded-operation",
+      "rationale": "Reviewed RenderCore invariant: `ParametersMetadata->StructSize == sizeof(typename ShaderType::FParameters)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RenderCore/Public/VertexFactory.h:29:4:check:direct-call",
+      "rationale": "Reviewed RenderCore invariant: `IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/RendererModule.cpp:67:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/EditorAssistanceRenderer.cpp:189:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/EditorAssistanceRenderer.cpp:219:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/EditorAssistanceRenderer.cpp:270:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/EditorGridRenderer.cpp:100:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/EditorGridRenderer.cpp:263:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/EditorGridRenderer.cpp:290:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/GizmoRenderer.cpp:323:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/GizmoRenderer.cpp:569:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/GizmoRenderer.cpp:612:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/OverlayIconRenderer.cpp:316:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/OverlayIconRenderer.cpp:572:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/OverlayIconRenderer.cpp:603:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/OverlayLineRenderer.cpp:244:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/OverlayLineRenderer.cpp:473:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/EditorAssistance/OverlayLineRenderer.cpp:500:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp:77:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp:83:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp:139:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp:177:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp:294:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/StaticMeshRenderer.cpp:246:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/StaticMeshRenderer.cpp:266:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/StaticMeshRenderer.cpp:302:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/StaticMeshRenderer.cpp:779:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Renderers/TextureCubeThumbnailRenderer.cpp:20:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/DefaultTextureResources.cpp:109:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/DefaultTextureResources.cpp:142:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/DefaultTextureResources.cpp:156:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/DefaultTextureResources.cpp:163:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/DefaultTextureResources.cpp:181:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/DefaultTextureResources.cpp:189:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/DefaultTextureResources.cpp:203:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/EnvironmentLightingResources.cpp:57:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/EnvironmentLightingResources.cpp:64:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/EnvironmentLightingResources.cpp:116:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/EnvironmentLightingResources.cpp:123:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/EnvironmentLightingResources.cpp:130:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/EnvironmentLightingResources.cpp:137:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/EnvironmentLightingResources.cpp:144:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/FullscreenGeometryResources.cpp:12:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/FullscreenGeometryResources.cpp:85:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/FullscreenGeometryResources.cpp:94:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/FullscreenGeometryResources.cpp:103:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/FullscreenGeometryResources.cpp:110:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/RendererResourceCoordinator.cpp:147:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/RendererResourceCoordinator.cpp:201:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/RendererResourceCoordinator.cpp:212:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/RendererResourceCoordinator.cpp:219:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/RendererResourceCoordinator.cpp:225:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/Renderer/Private/Resources/RendererResourceCoordinator.cpp:256:3:check:direct-call",
+      "rationale": "Reviewed Renderer invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:129:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed RHI invariant: `(PayloadAlignment & (PayloadAlignment - 1)) == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:590:5:check:direct-call",
+      "rationale": "Reviewed RHI invariant: `Offset <= Buffer->GetSize() && InSize <= Buffer->GetSize() - Offset` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:590:5:check:potentially-overloaded-operation",
+      "rationale": "Reviewed RHI invariant: `Offset <= Buffer->GetSize() && InSize <= Buffer->GetSize() - Offset` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:673:5:checkf:direct-call",
+      "rationale": "This validator only produces check diagnostics in a local error string; resource mutation and publication occur outside the assertion."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:680:5:check:direct-call",
+      "rationale": "Reviewed RHI invariant: `Layout.RowPitch <= std::numeric_limits<uint32>::max()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:681:5:check:direct-call",
+      "rationale": "Reviewed RHI invariant: `Layout.DataSize <= std::numeric_limits<uint32>::max()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:947:4:check:direct-call",
+      "rationale": "Reviewed RHI invariant: `RecordingState == ERecordingState::MovedFrom || (RecordingState == ERecordingState::Recording && Storage && Storage->GetCommandCount() == 0)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:947:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed RHI invariant: `RecordingState == ERecordingState::MovedFrom || (RecordingState == ERecordingState::Recording && Storage && Storage->GetCommandCount() == 0)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1144:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed RHI invariant: `Size % 16 == 0 && Offset % 16 == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1234:3:check:direct-call",
+      "rationale": "Reviewed RHI invariant: `Size != 0 && Offset <= Buffer->GetSize() && Size <= Buffer->GetSize() - Offset` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1234:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed RHI invariant: `Size != 0 && Offset <= Buffer->GetSize() && Size <= Buffer->GetSize() - Offset` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1236:3:checkf:direct-call",
+      "rationale": "Reviewed RHI invariant: `!LockState->PendingLocks.contains(Buffer)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1236:3:checkf:potentially-overloaded-operation",
+      "rationale": "Reviewed RHI invariant: `!LockState->PendingLocks.contains(Buffer)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1251:3:checkf:direct-call",
+      "rationale": "Reviewed RHI invariant: `It != LockState->PendingLocks.end()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1251:3:checkf:potentially-overloaded-operation",
+      "rationale": "Reviewed RHI invariant: `It != LockState->PendingLocks.end()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1553:5:checkf:direct-call",
+      "rationale": "Reviewed RHI invariant: `FrameNumber != std::numeric_limits<uint64>::max()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1695:3:checkf:direct-call",
+      "rationale": "Reviewed RHI invariant: `!CommandListImmediate.HasOpenBufferLocks()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1758:3:checkf:direct-call",
+      "rationale": "Reviewed RHI invariant: `!CommandListImmediate.HasOpenBufferLocks()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1800:3:check:direct-call",
+      "rationale": "Reviewed RHI invariant: `TargetSerial <= GetLastSubmittedSerial()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1870:3:checkf:potentially-overloaded-operation",
+      "rationale": "Reviewed RHI invariant: `State->RHIThread == nullptr` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHICommandList.cpp:1872:3:checkf:direct-call",
+      "rationale": "Reviewed RHI invariant: `GetLastSubmittedSerial() == GetCompletedSerial()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHIGlobals.cpp:232:5:checkf:direct-call",
+      "rationale": "Reviewed RHI invariant: `FRHIResource::GetNumPendingDeletes() == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/RHI/Private/RHIResources.cpp:192:3:check:direct-call",
+      "rationale": "Reviewed RHI invariant: `IsEngineExitRequested() || CurrentDeleting == this || AtomicFlags.IsUnpublished(std::memory_order_relaxed)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanBuffer.cpp:56:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanBuffer.cpp:56:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `!Data.empty() && Offset <= Desc.Size && Data.size() <= Desc.Size - Offset` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanBuffer.cpp:123:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `!FrameState.Chunks.empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanBuffer.cpp:144:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `!FrameState.Chunks.empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanBuffer.cpp:168:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `AllocationOffset + Size <= Chunk->Buffer->GetSize()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanBuffer.cpp:168:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `AllocationOffset + Size <= Chunk->Buffer->GetSize()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanCommandBuffer.cpp:196:5:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `CmdBuffer->IsReadyForBegin()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanCommandBuffer.cpp:196:5:check:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `CmdBuffer->IsReadyForBegin()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanContext.cpp:40:4:checkf:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `Texture->GetFormat() == Layout.Format` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanContext.cpp:40:4:checkf:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `Texture->GetFormat() == Layout.Format` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanContext.cpp:41:4:checkf:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `Texture->GetNumSamples() == Layout.NumSamples` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanContext.cpp:41:4:checkf:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `Texture->GetNumSamples() == Layout.NumSamples` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanContext.cpp:42:4:checkf:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `Texture->GetSizeX() == Width && Texture->GetSizeY() == Height` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanContext.cpp:42:4:checkf:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `Texture->GetSizeX() == Width && Texture->GetSizeY() == Height` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanContext.cpp:50:4:checkf:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `Layout.IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanContext.cpp:73:6:checkf:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `Info.ColorResolveTargets[Index] == nullptr` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanContext.cpp:149:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `PendingAttachmentFinalLayouts.empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanContext.cpp:399:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `InPayload.CommandBuffers.empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanDescriptorSets.cpp:195:3:checkf:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `FramePools.size() < MaxPoolsPerFrame` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanDevice.cpp:406:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `FrameIndex < Frames.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanDynamicRHI.cpp:81:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `!GRHIThread || IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanMemory.cpp:286:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `UsedFences.empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanMemory.cpp:287:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `FreeFences.empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanMemory.cpp:293:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `UsedFences.empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanMemory.cpp:336:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `It != UsedFences.end()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanMemory.cpp:355:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `InFence->State == FVulkanFence::EState::NotReady` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanPendingState.cpp:274:4:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `Resource.SetIndex < NewEntry.DescriptorSets.size()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanPendingState.cpp:293:7:checkf:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ByteAddressBuffer | EBufferUsageFlags::ShaderResource)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanPendingState.cpp:293:7:checkf:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `EnumHasAnyFlags(Buffer->GetUsage(), EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::StructuredBuffer | EBufferUsageFlags::ByteAddressBuffer | EBufferUsageFlags::ShaderResource)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanPendingState.cpp:299:6:checkf:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `DescriptorOffset <= Buffer->GetSize()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanPendingState.cpp:299:6:checkf:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `DescriptorOffset <= Buffer->GetSize()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanPendingState.cpp:303:6:checkf:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `EffectiveOffset <= Buffer->GetSize() && Range > 0 && Range <= Buffer->GetSize() - EffectiveOffset` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanPendingState.cpp:303:6:checkf:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `EffectiveOffset <= Buffer->GetSize() && Range > 0 && Range <= Buffer->GetSize() - EffectiveOffset` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanPendingState.cpp:326:6:checkf:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `EnumHasAnyFlags(Texture->CreateFlags, ETextureCreateFlags::Storage)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanPendingState.cpp:326:6:checkf:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `EnumHasAnyFlags(Texture->CreateFlags, ETextureCreateFlags::Storage)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanPipeline.cpp:156:3:checkf:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `Initializer.RenderTargetLayout.IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanQueue.cpp:62:5:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `!Payload->Fence->IsSignaled()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanQueue.cpp:62:5:check:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `!Payload->Fence->IsSignaled()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanRenderPass.cpp:236:3:checkf:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `InLayout.IsValid()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanRHIPrivate.cpp:185:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `VulkanFormatMap[static_cast<uint32>(InFormat)].RhiFormat == InFormat` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanRHIPrivate.cpp:223:4:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `!EnumHasAllFlags(InUsage, EBufferUsageFlags::Static | EBufferUsageFlags::Dynamic)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanRHIPrivate.cpp:223:4:check:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `!EnumHasAllFlags(InUsage, EBufferUsageFlags::Static | EBufferUsageFlags::Dynamic)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanRHIPrivate.cpp:257:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `UsageFlags != vk::BufferUsageFlags{} || EnumHasAnyFlags(InUsage, EBufferUsageFlags::NullResource)` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanShader.cpp:18:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `InCreateDesc.Code.size() % sizeof(uint32) == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanShader.cpp:18:3:check:potentially-overloaded-operation",
+      "rationale": "Reviewed VulkanRHI invariant: `InCreateDesc.Code.size() % sizeof(uint32) == 0` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanSwapchain.cpp:173:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `ImageAcquiredSemaphores.empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp:215:3:checkf:direct-call",
+      "rationale": "This validator only produces check diagnostics in a local error string; resource mutation and publication occur outside the assertion."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp:320:3:checkf:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `!SourceData.empty()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp:329:3:checkf:direct-call",
+      "rationale": "This validator only produces check diagnostics in a local error string; resource mutation and publication occur outside the assertion."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp:344:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `PackedLayout.RowPitch <= std::numeric_limits<uint32>::max()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp:345:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `PackedLayout.DataSize <= std::numeric_limits<uint32>::max()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanViewport.cpp:108:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanViewport.cpp:224:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanViewport.cpp:527:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanViewport.cpp:546:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `IsInGameThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Source/Runtime/VulkanRHI/Private/VulkanViewport.cpp:566:3:check:direct-call",
+      "rationale": "Reviewed VulkanRHI invariant: `IsInRenderingThread()` only observes already-established state and performs no required runtime work."
+    },
+    {
+      "id": "Engine/Tests/Native/CoreTests/Private/AssertionTests.cpp:26:2:check:direct-call",
+      "rationale": "This counter call is diagnostic test instrumentation that measures configuration-specific assertion evaluation semantics."
+    },
+    {
+      "id": "Engine/Tests/Native/CoreTests/Private/AssertionTests.cpp:27:2:checkf:direct-call",
+      "rationale": "This counter call is diagnostic test instrumentation that measures configuration-specific assertion evaluation semantics."
+    },
+    {
+      "id": "Engine/Tests/Native/CoreTests/Private/AssertionTests.cpp:32:2:checkSlow:direct-call",
+      "rationale": "This counter call is diagnostic test instrumentation that measures configuration-specific assertion evaluation semantics."
+    },
+    {
+      "id": "Engine/Tests/Native/CoreTests/Private/AssertionTests.cpp:33:2:checkfSlow:direct-call",
+      "rationale": "This counter call is diagnostic test instrumentation that measures configuration-specific assertion evaluation semantics."
+    },
+    {
+      "id": "Engine/Tests/Native/CoreTests/Private/AssertionTests.cpp:58:2:check:direct-call",
+      "rationale": "This counter call is diagnostic test instrumentation that measures configuration-specific assertion evaluation semantics."
+    },
+    {
+      "id": "Engine/Tests/Native/CoreTests/Private/AssertionTests.cpp:68:2:checkSlow:direct-call",
+      "rationale": "This counter call is diagnostic test instrumentation that measures configuration-specific assertion evaluation semantics."
+    },
+    {
+      "id": "Engine/Tests/Native/CoreTests/Private/ThreadingTests.cpp:2476:4:check:direct-call",
+      "rationale": "Reviewed CoreTests invariant: `Iterator != Diagnostics.OwnerCategoryDiagnostics.end()` only observes already-established state and performs no required runtime work."
+    }
+  ]
+}

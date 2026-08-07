@@ -201,7 +201,7 @@ namespace Durin
 				}
 				else // if (Action == EKeyAction::Release)
 				{
-					check(Action == EKeyAction::Release)
+					check(Action == EKeyAction::Release);
 					Handler->OnKeyUp(PlatformWindow, Key, Mods);
 				}
 			}

@@ -13,6 +13,32 @@ The main build entrypoints are:
 - `CMake/Project/ProjectSetup.cmake`
 - `CMake/Project/ProjectTargets.cmake`
 
+## Build Configurations
+
+Durin keeps the standard public configuration names `Debug`, `Release`, and
+`Shipping`. They have distinct product contracts rather than merely selecting
+compiler optimization flags:
+
+- `Debug` favors diagnostics and enables ordinary and expensive Debug-only
+  assertions.
+- `Release` is an optimized development configuration. It keeps ordinary
+  assertions enabled and is not the packaged distribution configuration.
+- `Shipping` is the diagnostic-culling distribution configuration. Ordinary
+  and Debug-only assertions are compiled out.
+
+`CMakePresets.json` selects one of those existing values through
+`CMAKE_BUILD_TYPE`; runtime variants and profiling roles remain independent of
+the configuration name. Configuration definitions are applied through
+`durin_target_apply_runtime_variant_definitions(...)` to modules, programs,
+native tests, generated targets, and shared-PCH targets. Every supported target
+therefore receives exactly one active `DURIN_BUILD_DEBUG`,
+`DURIN_BUILD_RELEASE`, or `DURIN_BUILD_SHIPPING` value and derives `DO_CHECK`
+as `1` for Debug and Release or `0` for Shipping. Boolean build switches are
+always tested by value (`#if DO_CHECK`), never by macro presence.
+
+The assertion evaluation contract owned by these configurations is documented
+in [C++ Coding Standards](../Standards/CodingStandards.md#assertions).
+
 Important helper APIs:
 
 - `add_durin_project(...)`

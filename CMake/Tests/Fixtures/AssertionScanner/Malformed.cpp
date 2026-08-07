@@ -1,0 +1,4 @@
+void Malformed()
+{
+	check(CallMissingClose(
+}

@@ -207,7 +207,8 @@ namespace Durin
 						nullptr,
 						ReferencedEnum
 					);
-					check(InstallEnumValueOps(Property, ReferencedEnum->GetUnderlyingType()));
+					requiref(InstallEnumValueOps(Property, ReferencedEnum->GetUnderlyingType()),
+						"A reflected enum property has an unsupported underlying type.");
 					break;
 				}
 			case DurinCodeGen::EPropertyGenFlags::Object:

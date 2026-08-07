@@ -4,33 +4,56 @@ Summary: Define optimized-development assertion semantics, decouple assertion re
 
 Last reviewed: 2026-08-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-08
 
 ## Current Status
 
-The plan was revised before implementation to make the build-configuration and
-assertion contracts explicit. `Release` will keep its existing name and become
-the optimized development configuration: `check` and `checkf` remain active in
-Debug and Release, while Shipping compiles them out. `verify` and `verifyf`
-will preserve intentional expression evaluation in every configuration, but
-only report failures when checks are enabled. Expensive observational checks
-will have a Debug-only spelling selected in Stage 0.
+Stage 4 completed on 2026-08-08, and the completed implementation was squashed
+and rebased onto `dev` baseline `21019339`. The path-free
+`DevTool audit assertions` command is now the enforcing presubmit: it loads the
+versioned exact allowlist from `Tools/DurinDevTool/config`, rejects stale
+entries, and fails on any unreviewed finding. Checked-in fixtures prove that an
+unreviewed side-effecting `check` is rejected while an intentional `verify` is
+intrinsically classified. Lasting assertion semantics and audit operation now
+live in the C++ standards and build documentation rather than this plan.
 
-This broader contract also addresses an existing header-layering defect:
-`checkf` currently reaches `DURIN_FATAL`, whose logging macro requires
-`MODULE_NAME`, but shared PCH targets intentionally have no module identity.
-Both formatted and unformatted assertions will instead use one assertion-owned
-failure path that does not require module logging macros.
+The final inventory covers 670 assertion invocations in 110 files and 402
+conservative findings: 380 reviewed observational or diagnostic records have
+exact rationales, 19 records are enforced `require` runtime contracts, and 3
+are intentional `verify` operations. Nothing is unreviewed. The tracked report
+and two fresh complete scans are byte-identical with SHA-256
+`8A072DB678C1E07201216A6F31892A3A6195ACD88AAC80BB35C28B0E8C5DD0D5`.
 
-The motivating Release Profiling editor crash remains repaired. Two GC
-container traversals previously embedded inside `checkf` disappeared outside
-Debug, failed to mark six live objects, and later crashed in `FName::ToString`.
-Array and map traversal now execute before their assertions. The focused
-compiled-reference-schema test, complete
-`Win64-Release-DurinEditor-Profiling` `all` build, and an 80-second visible
-editor validation across automatic GC previously passed. No repository-wide
-inventory or prevention gate exists yet.
+The post-rebase audit also reviewed four task-lifetime assertions introduced on
+`dev`. Counter underflow and duplicate terminal-lifetime charging are
+unrecoverable in every configuration, so those checks now use `require`
+instead of disappearing in Shipping. The remaining moved task assertions are
+pure observations whose exact allowlist identities were updated to their new
+source locations.
+
+Evaluation-count and failure-policy evidence passed in all three native
+configurations. Debug and Release each passed the complete 1,131-test aggregate;
+Shipping passed its complete 544-test aggregate, including the unconditional
+`requiref(false)` death test. Shipping skips only configuration-inapplicable
+ordinary-`check` death tests and the editor-only offline-compression Vulkan
+case. Editor-only import and offline-build test sources now have exact,
+rationale-bearing runtime exclusions, while all remaining runtime cases stay
+registered. The DurinDevTool suite passed all 299 tests.
+
+Full `all` builds passed for Debug Editor, Release Editor, Release Profiling
+Editor, and Shipping Game. The public-header/shared-PCH fixture compiled in the
+native aggregates without `MODULE_NAME`; `EnvironmentLightingBake` also now
+receives the common configuration definitions. A Release Profiling Editor run
+remained alive for 85 seconds and crossed automatic GC: the recorded collection
+kept objects `120 -> 120`, marked all 120, swept none, and logged no assertion,
+fatal error, or `FName::ToString` failure.
+
+The plan is complete. A separately scoped build-system follow-up may isolate
+test-only module exports from non-test preset output directories; today those
+presets intentionally share final directories, so the final qualification
+restored each test preset before its aggregate run. No assertion-semantics or
+side-effect-audit question remains open.
 
 ## Goal
 
@@ -48,6 +71,8 @@ compiled out.
   Shipping.
 - Add `verify` and `verifyf`, which evaluate their condition exactly once in
   every configuration and report failure only when `DO_CHECK` is enabled.
+- Add `require` and `requiref` for unrecoverable contracts that evaluate once,
+  report failure, and terminate in every configuration, including Shipping.
 - Select and add a Debug-only spelling for expensive observational assertions.
 - Route formatted and unformatted assertion failures through one
   assertion-owned interface that captures expression text and source location
@@ -63,9 +88,8 @@ compiled out.
 - Replacing Durin assertion macros with the standard `<cassert>` `assert`,
   whose behavior is controlled separately by `NDEBUG`.
 - Making ordinary `check`, `checkf`, or Debug-only checks execute in Shipping.
-- Introducing an always-fatal Shipping contract macro in this plan; cases that
-  cannot safely continue require explicit error handling or a separately
-  designed runtime-contract facility.
+- Designing recoverable error-policy abstractions; `require` and `requiref`
+  cover only unrecoverable contracts where continuing is invalid.
 - Automatically converting every side-effecting assertion to `verify`; owners
   must determine whether failure can safely be ignored in Shipping.
 - Auditing third-party, generated build-output, dependency, or binary sources.
@@ -138,19 +162,19 @@ compiled out.
 
 Dependencies: the motivating GC repair and its Release Profiling evidence.
 
-- [ ] Record the `Debug`/`Release`/`Shipping` meanings in the owning build
+- [x] Record the `Debug`/`Release`/`Shipping` meanings in the owning build
   documentation without introducing or renaming a configuration.
-- [ ] Freeze `DO_CHECK=1` for Debug and Release and `DO_CHECK=0` for Shipping,
+- [x] Freeze `DO_CHECK=1` for Debug and Release and `DO_CHECK=0` for Shipping,
   including preset, generated-target, program, test, and shared-PCH behavior.
-- [ ] Select one repository spelling for Debug-only expensive checks, including
+- [x] Select one repository spelling for Debug-only expensive checks, including
   formatted and unformatted variants, without occupying the standard `assert`
   name.
-- [ ] Freeze exact evaluation, formatting, reporting, break, termination, and
-  pre-initialization behavior for `check`, `checkf`, `verify`, `verifyf`, and
-  the Debug-only checks.
-- [ ] Define when a false Shipping result is safe to ignore with `verify` and
+- [x] Freeze exact evaluation, formatting, reporting, break, termination, and
+  pre-initialization behavior for `require`, `requiref`, `check`, `checkf`,
+  `verify`, `verifyf`, and the Debug-only checks.
+- [x] Define when a false Shipping result is safe to ignore with `verify` and
   when explicit runtime error handling is mandatory.
-- [ ] Define source roots, extensions, macro spellings, generated-template
+- [x] Define source roots, extensions, macro spellings, generated-template
   policy, and third-party/build-output exclusions for the audit.
 
 #### Acceptance Gate
@@ -163,19 +187,21 @@ Dependencies: the motivating GC repair and its Release Profiling evidence.
 
 Dependencies: Stage 0 contract.
 
-- [ ] Add the assertion-owned failure interface with expression text, optional
+- [x] Add the assertion-owned failure interface with expression text, optional
   formatted context, and source location, independent of `MODULE_NAME` and
   public logging macros.
-- [ ] Route `check` and `checkf` through the same failure policy and make all
+- [x] Route `check` and `checkf` through the same failure policy and make all
   disabled expansions structure-safe.
-- [ ] Enable checks in Debug and Release, add `verify`/`verifyf`, and add the
+- [x] Enable checks in Debug and Release, add `verify`/`verifyf`, and add the
   selected Debug-only expensive-check macros.
-- [ ] Ensure conditions execute at most once and Shipping never evaluates
+- [x] Add `require`/`requiref` as always-evaluated, always-enforced runtime
+  contracts after owner approval during Stage 3.
+- [x] Ensure conditions execute at most once and Shipping never evaluates
   disabled check conditions or formatted diagnostic arguments.
-- [ ] Add compile fixtures that exercise formatted assertions from a public
+- [x] Add compile fixtures that exercise formatted assertions from a public
   header, the Core shared PCH, and a consumer module with no assertion-level
   dependence on module identity.
-- [ ] Add focused runtime tests for enabled failure reporting and configuration
+- [x] Add focused runtime tests for enabled failure reporting and configuration
   evaluation counts, including false `verify` results with checks disabled.
 
 #### Acceptance Gate
@@ -188,24 +214,24 @@ Dependencies: Stage 0 contract.
 
 Dependencies: Stage 1 macro set and Stage 0 source contract.
 
-- [ ] Select and record the repository-owned syntax frontend and its handling
+- [x] Select and record the repository-owned syntax frontend and its handling
   of incomplete translation units, conditional compilation, and macro
   expansions.
-- [ ] Add a DurinDevTool-owned scanner entrypoint that detects direct calls,
+- [x] Add a DurinDevTool-owned scanner entrypoint that detects direct calls,
   assignments, increments/decrements, allocation, deallocation, coroutine
   transitions, comma expressions, callbacks, traversals, and potentially
   overloaded operations within assertion conditions.
-- [ ] Analyze macro definitions and scaffolding templates separately from
+- [x] Analyze macro definitions and scaffolding templates separately from
   ordinary invocations.
-- [ ] Emit deterministic human-readable and machine-readable findings with
+- [x] Emit deterministic human-readable and machine-readable findings with
   macro, source location, construct kind, classification, and allowlist
   disposition.
-- [ ] Add fixtures for multiline and nested macros, templates, lambdas,
+- [x] Add fixtures for multiline and nested macros, templates, lambdas,
   preprocessor branches, false positives, parse failures, and path ordering.
-- [ ] Produce the initial inventory and classify every finding as required
+- [x] Produce the initial inventory and classify every finding as required
   behavior, observational query, diagnostic-only work, intentional `verify`
   operation, unsafe ignored failure, or scanner limitation.
-- [ ] Record owning modules and validation targets for all findings requiring
+- [x] Record owning modules and validation targets for all findings requiring
   code changes.
 
 #### Acceptance Gate
@@ -218,21 +244,21 @@ Dependencies: Stage 1 macro set and Stage 0 source contract.
 
 Dependencies: Stage 2 classified inventory.
 
-- [ ] Move required operations before observational assertions, store results
-  once, and preserve enabled-check diagnostics.
-- [ ] Use `verify` only where execution is intentionally required and ignoring
+- [x] Move required operations before observational assertions or into an
+  enforced `require` contract, evaluate once, and preserve diagnostics.
+- [x] Use `verify` only where execution is intentionally required and ignoring
   a false result in Shipping satisfies the Stage 0 contract.
-- [ ] Replace unsafe ignored failures with explicit runtime control flow or
+- [x] Replace unsafe ignored failures with explicit runtime control flow or
   record them as separately bounded failure-policy work; do not hide them in a
   mechanical macro migration.
-- [ ] Move expensive pure checks to the Debug-only spelling only when measured
+- [x] Move expensive pure checks to the Debug-only spelling only when measured
   or owner-reviewed cost justifies excluding them from optimized Release.
-- [ ] Add focused tests for GC traversal, task cancellation and waiting,
+- [x] Add focused tests for GC traversal, task cancellation and waiting,
   registration, callbacks, resource publication, and every additional repaired
   behavior category.
-- [ ] Run check-enabled Debug/Release coverage and check-disabled
+- [x] Run check-enabled Debug/Release coverage and check-disabled
   Shipping-equivalent coverage for each affected subsystem.
-- [ ] Reduce the allowlist to reviewed observational or diagnostic-only
+- [x] Reduce the allowlist to reviewed observational or diagnostic-only
   expressions with source-local rationale.
 
 #### Acceptance Gate
@@ -245,17 +271,17 @@ Dependencies: Stage 2 classified inventory.
 
 Dependencies: Stage 3 repairs.
 
-- [ ] Add the scanner to presubmit/CI validation with zero unreviewed findings.
-- [ ] Move lasting assertion and side-effect rules into the owning C++ and
+- [x] Add the scanner to presubmit/CI validation with zero unreviewed findings.
+- [x] Move lasting assertion and side-effect rules into the owning C++ and
   build documentation and update scaffolding/templates that demonstrate
   assertions.
-- [ ] Run the complete native aggregate, full editor builds in the required
+- [x] Run the complete native aggregate, full editor builds in the required
   configurations, Release Profiling lifecycle smoke across at least one
   automatic GC interval, and applicable Shipping validation according to the
   owning build instructions.
-- [ ] Record final findings, allowlist rationale, evaluation-count evidence,
+- [x] Record final findings, allowlist rationale, evaluation-count evidence,
   PCH/header evidence, and separately scoped follow-ups in this plan.
-- [ ] Mark the plan complete only after all acceptance gates pass and lasting
+- [x] Mark the plan complete only after all acceptance gates pass and lasting
   contracts live outside the plan.
 
 #### Acceptance Gate
@@ -302,11 +328,13 @@ Dependencies: Stage 3 repairs.
 ## Deferred Follow-ups
 
 - Renaming Release to Development or adding a custom Development configuration.
-- An always-enabled fatal runtime-contract facility for Shipping invariants.
 - Recoverable error-policy redesigns that are larger than assertion migration.
 - Third-party assertion auditing and upstream patch management.
 - Purity annotations or whole-program effect inference beyond the conservative
   scanner.
+- Isolating test-only module exports from ordinary build-preset output
+  directories so switching between them never requires restoring the test
+  preset's shared binaries.
 
 ## Related Documentation
 

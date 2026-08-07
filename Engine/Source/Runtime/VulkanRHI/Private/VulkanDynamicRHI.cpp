@@ -147,7 +147,7 @@ namespace Durin::VulkanRHI
 			[&Allocator, FrameIndex, Size]() {
 				Allocator.ReservePage(FrameIndex, Size);
 			});
-		checkf(Allocator.TryAllocate(FrameIndex, Data, Size, Result),
+		requiref(Allocator.TryAllocate(FrameIndex, Data, Size, Result),
 			"A prepared dynamic-uniform overflow page must satisfy the pending allocation.");
 		return Result;
 	}

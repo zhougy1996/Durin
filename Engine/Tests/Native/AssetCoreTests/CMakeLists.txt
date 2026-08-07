@@ -60,13 +60,23 @@ durin_add_asset_functional_test(AssetDecodeTests
 	SOURCES Private/ImageDecoderTests.cpp
 )
 
-durin_add_asset_functional_test(AssetImportTests
-	IMPORT_RUNTIME
-	TIMEOUT 600
-	SOURCES Private/AssetImportTests.cpp
-)
+if(DURIN_WITH_EDITOR)
+	durin_add_asset_functional_test(AssetImportTests
+		IMPORT_RUNTIME
+		TIMEOUT 600
+		SOURCES Private/AssetImportTests.cpp
+	)
 
-durin_add_asset_functional_test(AssetImportCoreTests
-	LIBRARIES AssetImportCore
-	SOURCES Private/AssetImportCoreTests.cpp Private/ImportRecordTests.cpp
-)
+	durin_add_asset_functional_test(AssetImportCoreTests
+		LIBRARIES AssetImportCore
+		SOURCES Private/AssetImportCoreTests.cpp Private/ImportRecordTests.cpp
+	)
+else()
+	durin_exclude_native_test_sources(
+		RATIONALE "Asset import services and their test fixtures are editor-only."
+		SOURCES
+			Private/AssetImportTests.cpp
+			Private/AssetImportCoreTests.cpp
+			Private/ImportRecordTests.cpp
+	)
+endif()

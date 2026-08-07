@@ -50,7 +50,7 @@ namespace Durin::Detail
 			if (Active != State.Documents.end())
 			{
 				const auto Workspace = State.Workspaces.find(std::string(Active->WorkspaceType.GetValue()));
-				checkf(Workspace == State.Workspaces.end() || Workspace->second.Workspace->RequestDeactivate(),
+				requiref(Workspace == State.Workspaces.end() || Workspace->second.Workspace->RequestDeactivate(),
 					"An editor workspace cannot be unloaded while an active property preview cannot be cancelled");
 			}
 		}

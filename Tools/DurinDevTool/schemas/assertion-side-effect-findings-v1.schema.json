@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "assertion-side-effect-findings-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "frontend", "summary", "findings"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "frontend": { "const": "libclang-token-stream" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filesWithAssertions", "assertionInvocations", "findings", "allowed", "unreviewed"],
+      "properties": {
+        "filesWithAssertions": { "type": "integer", "minimum": 0 },
+        "assertionInvocations": { "type": "integer", "minimum": 0 },
+        "findings": { "type": "integer", "minimum": 0 },
+        "allowed": { "type": "integer", "minimum": 0 },
+        "unreviewed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "macro", "path", "line", "column", "constructKind", "classification", "allowlistDisposition", "sourceKind", "owner", "validationTarget", "expression"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "macro": { "enum": ["require", "requiref", "check", "checkf", "verify", "verifyf", "checkSlow", "checkfSlow"] },
+          "path": { "type": "string", "minLength": 1 },
+          "line": { "type": "integer", "minimum": 1 },
+          "column": { "type": "integer", "minimum": 1 },
+          "constructKind": { "enum": ["direct-call", "assignment", "increment-decrement", "allocation", "deallocation", "coroutine-transition", "comma-expression", "callback", "traversal", "potentially-overloaded-operation", "unsafe-operation", "macro-definition"] },
+          "classification": { "enum": ["required-behavior", "observational-query", "diagnostic-only-work", "intentional-verify-operation", "enforced-runtime-contract", "unsafe-ignored-failure", "scanner-limitation"] },
+          "allowlistDisposition": { "enum": ["allowed", "classified", "unreviewed"] },
+          "sourceKind": { "enum": ["invocation", "macro-definition", "scaffolding-template"] },
+          "owner": { "type": "string", "minLength": 1 },
+          "validationTarget": { "type": "string", "minLength": 1 },
+          "expression": { "type": "string" }
+        }
+      }
+    }
+  }
+}

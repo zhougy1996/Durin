@@ -501,11 +501,11 @@ namespace Durin
 				return;
 			}
 			const uint64 PreviousTaskCount = LifetimeAccounting->RetainedTerminalTaskCount.fetch_sub(1, std::memory_order::acq_rel);
-			check(PreviousTaskCount > 0);
+			require(PreviousTaskCount > 0);
 			if (bTerminalResultLifetimeCharged)
 			{
 				const uint64 PreviousResultCount = LifetimeAccounting->RetainedTerminalResultCount.fetch_sub(1, std::memory_order::acq_rel);
-				check(PreviousResultCount > 0);
+				require(PreviousResultCount > 0);
 			}
 		}
 
@@ -1123,7 +1123,7 @@ namespace Durin
 			const size_t RemovedTaskCount = ActiveTasks.erase(State->GetTaskId());
 			check(RemovedTaskCount == 1);
 			const uint64 PreviousReservationCount = CurrentTaskReservationCount.fetch_sub(1, std::memory_order::acq_rel);
-			check(PreviousReservationCount > 0);
+			require(PreviousReservationCount > 0);
 			CompletedTaskCount.fetch_add(1, std::memory_order::acq_rel);
 			if (Task.State == ETaskState::Failed)
 			{
@@ -1731,7 +1731,7 @@ namespace Durin
 		}
 		{
 			std::lock_guard Lock(Mutex);
-			check(!bTerminalLifetimeCharged);
+			require(!bTerminalLifetimeCharged);
 			LifetimeAccounting->RetainedTerminalTaskCount.fetch_add(1, std::memory_order::acq_rel);
 			bTerminalLifetimeCharged = true;
 			if (bHasResultStorage)

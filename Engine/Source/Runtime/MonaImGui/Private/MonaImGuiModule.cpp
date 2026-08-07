@@ -16,7 +16,7 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
-			check(Mona::GActiveUIBackend)
+			check(Mona::GActiveUIBackend);
 			Mona::GActiveUIBackend->Shutdown();
 			delete Mona::GActiveUIBackend;
 			Mona::GActiveUIBackend = nullptr;

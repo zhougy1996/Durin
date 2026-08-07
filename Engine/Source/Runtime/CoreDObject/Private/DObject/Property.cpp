@@ -946,21 +946,24 @@ namespace Durin
 	auto FArrayProperty::Num(const void* Container, uint32 ArrayIndex) const -> uint64
 	{
 		uint64 Result = 0;
-		checkf(GetNum(Container, Result, ArrayIndex) == EContainerOpResult::Success, "Array Count capability is unavailable.");
+		requiref(GetNum(Container, Result, ArrayIndex) == EContainerOpResult::Success,
+			"Array Count capability is unavailable.");
 		return Result;
 	}
 
 	auto FArrayProperty::GetElementPtr(const void* Container, uint64 Index, uint32 ArrayIndex) const -> const void*
 	{
 		const void* Result = nullptr;
-		checkf(GetElement(Container, Index, &Result, ArrayIndex) == EContainerOpResult::Success, "Array random access failed.");
+		requiref(GetElement(Container, Index, &Result, ArrayIndex) == EContainerOpResult::Success,
+			"Array random access failed.");
 		return Result;
 	}
 
 	auto FArrayProperty::GetMutableElementPtr(void* Container, uint64 Index, uint32 ArrayIndex) const -> void*
 	{
 		void* Result = nullptr;
-		checkf(GetMutableElement(Container, Index, &Result, ArrayIndex) == EContainerOpResult::Success, "Array mutable random access failed.");
+		requiref(GetMutableElement(Container, Index, &Result, ArrayIndex) == EContainerOpResult::Success,
+			"Array mutable random access failed.");
 		return Result;
 	}
 
@@ -1067,12 +1070,14 @@ namespace Durin
 	auto FMapProperty::Num(const void* Container, uint32 ArrayIndex) const -> uint64
 	{
 		uint64 Result = 0;
-		checkf(GetNum(Container, Result, ArrayIndex) == EContainerOpResult::Success, "Map Count capability is unavailable.");
+		requiref(GetNum(Container, Result, ArrayIndex) == EContainerOpResult::Success,
+			"Map Count capability is unavailable.");
 		return Result;
 	}
 	auto FMapProperty::Clear(void* Container, uint32 ArrayIndex) const -> void
 	{
-		checkf(ClearChecked(Container, ArrayIndex) == EContainerOpResult::Success, "Map Clear capability is unavailable.");
+		requiref(ClearChecked(Container, ArrayIndex) == EContainerOpResult::Success,
+			"Map Clear capability is unavailable.");
 	}
 	auto FMapProperty::Insert(
 		void* Container,

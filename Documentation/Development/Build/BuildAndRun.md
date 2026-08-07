@@ -147,6 +147,18 @@ Run each Python test suite explicitly through pytest:
 .\.venv\Scripts\python.exe -m pytest Engine\Source\Programs\DurinHeaderTool\tests
 ```
 
+Run the repository assertion side-effect presubmit through DurinDevTool:
+
+```powershell
+.\DevTool.bat audit assertions
+```
+
+The full-repository form is enforcing: it loads the versioned allowlist at
+`Tools/DurinDevTool/config/assertion-side-effect-allowlist.json`, rejects stale
+entries, and returns failure for every unreviewed finding. Supplying source
+paths produces a focused report by default; add `--enforce` when that focused
+scan is itself a gate.
+
 Commands are case-insensitive for compatibility, but lowercase is canonical.
 `build` and `test` configure automatically when needed, so an explicit first
 `configure` is optional. Omit `--jobs` to use automatic parallelism; pass
@@ -221,6 +233,12 @@ open until the user exits it.
 On Windows, the first toolchain-backed command captures and validates the Visual Studio environment. DurinDevTool caches that environment delta under `Build/.agent-state/` so later invocations avoid rerunning `VsDevCmd.bat` and the compiler language probe. The cache refreshes automatically when the setup script, its arguments, or `cl.exe` changes, while caller-provided environment values and `PATH` changes remain live.
 
 The registered Windows build environment defaults to `Win64-Debug-DurinEditor-Tests`, allowing the same output set to run the editor and native tests. Before launching the editor for a smoke test or final validation, build the complete runtime:
+
+`Win64-Release-DurinEditor-Tests` and `Win64-Shipping-DurinGame-Tests`
+provide configuration-parity native-test entrypoints. Use them for contracts
+whose evaluation or diagnostics intentionally differ across Debug, Release,
+and Shipping; they do not replace the ordinary runtime presets for full editor
+or game validation.
 
 ```powershell
 .\DevTool.bat build --target all

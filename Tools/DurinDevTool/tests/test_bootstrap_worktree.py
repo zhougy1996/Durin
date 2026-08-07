@@ -567,11 +567,13 @@ class TestVSCodeConfigLifecycle:
             'Win64-Debug-DurinEditor-Tests',
             'Win64-Debug-DurinEditor',
             'Win64-Release-DurinEditor',
+            'Win64-Release-DurinEditor-Tests',
             'Win64-Release-DurinEditor-Profiling',
             'Win64-Debug-DurinGame',
             'Win64-Release-DurinGame',
             'Win64-Release-DurinGame-Profiling',
             'Win64-Shipping-DurinGame',
+            'Win64-Shipping-DurinGame-Tests',
         )
         assert 'Win64-Debug-DurinEditor-FastConfigure' not in configurations
         assert configurations['Win64-Release-DurinEditor-Profiling']['program'] == (

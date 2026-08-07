@@ -345,10 +345,14 @@ namespace Durin
 
 	TEST(FRHICommandListTests, RejectsRecordingAfterFinish)
 	{
+#if DO_CHECK
 		FRHICommandList CommandList;
 		CommandList.FinishRecording();
 
 		EXPECT_DEATH(CommandList.EnqueueLambda([]() {}), "");
+#else
+		GTEST_SKIP() << "Ordinary check contracts are disabled in Shipping.";
+#endif
 	}
 
 	TEST(FRHICommandListTests, DestroysOwnedCommandsOnceAfterReplay)
@@ -1069,6 +1073,7 @@ namespace Durin
 
 	TEST(FRHICommandListTests, ValidatesGraphicsPipelineAndRenderPassBalance)
 	{
+#if DO_CHECK
 		FRHIRenderPassInfo PassInfo;
 		EXPECT_DEATH(FRHICommandList().BeginRenderPass(PassInfo, "NoPipeline"), "");
 
@@ -1076,6 +1081,9 @@ namespace Durin
 		Unbalanced.SwitchPipeline(ERHIPipeline::Graphics);
 		Unbalanced.BeginRenderPass(PassInfo, "Unbalanced");
 		EXPECT_DEATH(Unbalanced.FinishRecording(), "");
+#else
+		GTEST_SKIP() << "Ordinary check contracts are disabled in Shipping.";
+#endif
 	}
 
 	TEST(FRHICommandListTests, BufferUploadsOwnSourceBytesUntilReplay)

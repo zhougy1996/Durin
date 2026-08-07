@@ -40,6 +40,8 @@ namespace Durin
 		InitializeDObjectSystem();
 		std::string ProviderError;
 		ASSERT_TRUE(RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
+		ASSERT_TRUE(RegisterStandardAssetImportProviders(ProviderError)) << ProviderError;
+		EXPECT_TRUE(ProviderError.empty());
 		InitRenderingThread();
 		const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "EditorTextureSmoke";
 		static std::unordered_set<std::filesystem::path> InitializedRoots;

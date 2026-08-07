@@ -6,9 +6,16 @@ set(_durin_material_editor_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Private")
 set(_durin_main_frame_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MainFrame/Private")
+set(_durin_editor_test_modules
+	AssetImportCore
+	DurinEd
+	Mona
+	MonaImGui
+	StandardAssetImport
+)
 
 function(durin_add_engine_functional_test target_name)
-	set(options GPU)
+	set(options EDITOR_ONLY GPU)
 	set(one_value_args
 		TIMEOUT
 		RUNTIME_STACK_RATIONALE
@@ -29,6 +36,31 @@ function(durin_add_engine_functional_test target_name)
 		"${multi_value_args}"
 		${ARGN}
 	)
+
+	if(NOT DURIN_WITH_EDITOR)
+		set(_durin_editor_only ${DURIN_ENGINE_TEST_EDITOR_ONLY})
+		foreach(_durin_library IN LISTS DURIN_ENGINE_TEST_LIBRARIES)
+			if(_durin_library IN_LIST _durin_editor_test_modules)
+				set(_durin_editor_only TRUE)
+				break()
+			endif()
+		endforeach()
+		foreach(_durin_private_source IN LISTS DURIN_ENGINE_TEST_PRIVATE_SOURCES)
+			cmake_path(CONVERT "${_durin_private_source}" TO_CMAKE_PATH_LIST
+				_durin_private_source_normalized)
+			if(_durin_private_source_normalized MATCHES "/Source/Editor/")
+				set(_durin_editor_only TRUE)
+				break()
+			endif()
+		endforeach()
+		if(_durin_editor_only)
+			durin_exclude_native_test_sources(
+				RATIONALE "${DURIN_ENGINE_TEST_RUNTIME_STACK_RATIONALE}"
+				SOURCES ${DURIN_ENGINE_TEST_SOURCES}
+			)
+			return()
+		endif()
+	endif()
 
 	add_durin_test(${target_name}
 		${DURIN_ENGINE_TEST_SOURCES}
@@ -215,8 +247,10 @@ durin_add_engine_functional_test(TextureTests
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 	)
-target_include_directories(TextureTests PRIVATE
-	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private)
+if(TARGET TextureTests)
+	target_include_directories(TextureTests PRIVATE
+		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private)
+endif()
 
 durin_add_engine_functional_test(EnvironmentLightingTests
 	RUNTIME_STACK_RATIONALE "Exercises built-in environment payload and direct cook behavior."
@@ -235,8 +269,10 @@ durin_add_engine_functional_test(SceneImportVulkanTests
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
 )
-target_include_directories(SceneImportVulkanTests PRIVATE
-	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private)
+if(TARGET SceneImportVulkanTests)
+	target_include_directories(SceneImportVulkanTests PRIVATE
+		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/StandardAssetImport/Private)
+endif()
 
 durin_add_engine_functional_test(ThumbnailTests
 	TIMEOUT 600
@@ -386,6 +422,7 @@ durin_add_engine_functional_test(ExternalToolTests
 
 # Cooked-runtime mode and Renderer/Vulkan teardown are process-global.
 durin_add_engine_functional_test(TextureCookIntegrationTests
+	EDITOR_ONLY
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Owns the renderer and Vulkan cooked-texture lifecycle."

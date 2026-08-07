@@ -2356,6 +2356,12 @@ namespace
 		EXPECT_TRUE(Property->Remove(Owner, &RenamedKey));
 		EXPECT_TRUE(Owner->DirectMap.empty());
 
+		const std::string ClearKey = "Clear";
+		Property->Insert(Owner, &ClearKey, &InitialValue);
+		ASSERT_EQ(Property->Num(Owner), 1u);
+		Property->Clear(Owner);
+		EXPECT_TRUE(Owner->DirectMap.empty());
+
 		Durin::MarkAsGarbage(Owner);
 		Durin::MarkAsGarbage(ReferencedObject);
 	}
@@ -2977,7 +2983,7 @@ namespace
 		Durin::CollectGarbage();
 	}
 
-#ifdef DO_CHECK
+#if DO_CHECK
 	TEST(FCoreDObjectReflectionTests, SoftObjectPtrLoadedInspectionRequiresGameThread)
 	{
 		EXPECT_DEATH(
@@ -3887,7 +3893,7 @@ namespace
 		EXPECT_NE(Error.find("CopyAssign"), std::string::npos);
 	}
 
-#ifdef DO_CHECK
+#if DO_CHECK
 	TEST(FCoreDObjectReflectionTests, TypedStructPropertyRegistrationRejectsInvalidMetadata)
 	{
 		EXPECT_DEATH(

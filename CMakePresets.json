@@ -89,6 +89,17 @@
       }
     },
     {
+      "name": "Win64-Release-DurinEditor-Tests",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/Build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
+        "DURIN_RUNTIME_VARIANT": "DurinEditor",
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
       "name": "Win64-Release-DurinEditor-Profiling",
       "inherits": "windows-base",
       "binaryDir": "${sourceDir}/Build/${presetName}",
@@ -123,6 +134,17 @@
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
         "DURIN_RUNTIME_VARIANT": "DurinGame",
         "BUILD_TESTING": "OFF"
+      }
+    },
+    {
+      "name": "Win64-Shipping-DurinGame-Tests",
+      "inherits": "windows-base",
+      "binaryDir": "${sourceDir}/Build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Shipping",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
+        "DURIN_RUNTIME_VARIANT": "DurinGame",
+        "BUILD_TESTING": "ON"
       }
     },
     {

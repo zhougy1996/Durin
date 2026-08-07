@@ -1,0 +1,4 @@
+void MalformedExpression()
+{
+	check(Value +);
+}

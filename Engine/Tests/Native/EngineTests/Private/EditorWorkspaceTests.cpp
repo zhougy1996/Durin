@@ -187,6 +187,7 @@ TEST(FEditorWorkspaceManagerTests, ScopedUnregistrationRemovesRoutesAndOwnedDocu
 
 	MaterialRegistration.Reset();
 
+	EXPECT_EQ(MaterialWorkspace->DeactivationRequestCount, 1);
 	ASSERT_EQ(Manager.GetDocuments().size(), 1);
 	EXPECT_EQ(Manager.GetDocuments().front().WorkspaceType, Durin::FEditorWorkspaceTypeId("LevelEditor"));
 	ASSERT_NE(Manager.GetActiveDocument(), nullptr);

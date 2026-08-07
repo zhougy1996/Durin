@@ -83,6 +83,106 @@ public:
 };
 ```
 
+## Assertions
+
+Durin assertions are statement macros and are independent of the standard
+`assert`/`NDEBUG` contract. Use only the following repository spellings:
+
+| Macro | Debug | Release | Shipping |
+| --- | --- | --- | --- |
+| `require(condition)` | Evaluate once; report and terminate on false | Evaluate once; report and terminate on false | Evaluate once; report and terminate on false |
+| `requiref(condition, format, ...)` | As `require`, with formatted context | As `require`, with formatted context | As `require`, with formatted context |
+| `check(condition)` | Evaluate once; report on false | Evaluate once; report on false | Do not evaluate |
+| `checkf(condition, format, ...)` | As `check`, with formatted context | As `check`, with formatted context | Evaluate neither condition nor format arguments |
+| `verify(condition)` | Evaluate once; report on false | Evaluate once; report on false | Evaluate once; discard the result |
+| `verifyf(condition, format, ...)` | As `verify`, with formatted context | As `verify`, with formatted context | Evaluate the condition once; do not evaluate format arguments |
+| `checkSlow(condition)` | Evaluate once; report on false | Do not evaluate | Do not evaluate |
+| `checkfSlow(condition, format, ...)` | As `checkSlow`, with formatted context | Evaluate neither condition nor format arguments | Evaluate neither condition nor format arguments |
+
+Enabled conditions execute at most once. `require` and `requiref` are never
+disabled: they express an unrecoverable runtime contract that must succeed
+before execution can continue in every configuration. Formatted arguments are diagnostic
+only: they execute only after an enabled condition is false. Disabled macros
+are structure-safe no-op statements and do not evaluate their arguments.
+`checkSlow` and `checkfSlow` are reserved for expensive observational
+validation whose cost has been measured or reviewed as unsuitable for
+optimized Release builds; they are not a way to hide required work.
+
+All enabled assertion failures capture the condition text and source location,
+then use the same assertion-owned failure path. That path synchronously emits a
+best-effort diagnostic with optional formatted context, remains usable before
+logger initialization and after logger shutdown, and does not require
+`MODULE_NAME` or a public logging macro. A formatting or logging failure falls
+back to the unformatted condition and source location. After reporting, the
+failure path triggers the platform debugger break and, if execution continues,
+unconditionally terminates the process. Formatted and unformatted macros have
+no failure-policy difference.
+
+Required behavior normally belongs in an ordinary statement before the
+assertion, with its result stored once for observation. Use `verify` or
+`verifyf` only when all of these are true:
+
+- evaluating the condition performs one intentional operation required in
+  every configuration;
+- a false result in Shipping can be ignored without invalidating state,
+  leaking resources, skipping cleanup or synchronization, or making later code
+  assume success; and
+- no rollback, retry, return, exception, cancellation, or other control flow is
+  required to continue safely.
+
+If a false result is unrecoverable and execution must not continue in any
+configuration, use `require` or `requiref`. Recoverable failures still require
+ordinary explicit runtime error handling. Assertion
+conditions and diagnostic arguments must not hide unrelated mutation,
+allocation, resource acquisition, callbacks, traversal, task execution,
+synchronization, or lifecycle transitions.
+
+### Assertion side-effect audit scope
+
+The repository audit scans `.h`, `.hpp`, `.inl`, and `.cpp` files beneath
+`Engine/Source`, `Engine/Tests/Native`, `Engine/Tests/NativeTestSupport`,
+`Engine/CMake/SharedPCH`, and `Sandbox/Source`. It separately scans C++-emitting
+assets beneath `Templates/Scaffolding` and generator-owned templates beneath
+`Engine/Source/Programs` when their output can contain `require`, `requiref`, `check`, `checkf`,
+`verify`, `verifyf`, `checkSlow`, or `checkfSlow`. Macro definitions and macro
+invocations are classified separately.
+
+Repository-managed exclusions are `Engine/External`, every third-party or
+vendored subtree, generated `Intermediate` content, and build/install/binary
+output roots such as `Build`, `Binaries`, and `Install`. A generated source is
+not scanned as an independent source of truth when its owning template is in
+scope. New C++ source or scaffolding roots must update the scanner contract in
+the same change that introduces them.
+
+`DevTool audit assertions` is the repository-owned scanner entrypoint. It
+locates balanced macro invocations in raw UTF-8 source, so assertions in every
+conditional-compilation branch remain visible, then tokenizes each extracted
+condition independently with the prepared environment's `clang.cindex`
+binding and native libclang. This fragment-oriented frontend deliberately does
+not require a complete translation unit or resolve overloads. Calls and
+operators therefore remain conservative findings until classified; malformed
+comments, literals, delimiters, empty conditions, missing files, and stale
+allowlist entries fail the scan visibly. Macro definitions and C++-emitting
+scaffolding assets carry distinct source kinds and are never conflated with
+ordinary invocations or compiler-generated macro expansions.
+
+Human and JSON reports are sorted by repository-relative path and source
+location. The tracked inventory uses
+`Tools/DurinDevTool/schemas/assertion-side-effect-findings-v1.schema.json`;
+allowlist entries use the companion allowlist schema and the versioned
+`Tools/DurinDevTool/config/assertion-side-effect-allowlist.json`. Each entry
+must identify one exact finding plus a non-empty source-owned rationale;
+directory and wildcard allowlisting is unsupported. Intentional `verify`
+operations and enforced `require` contracts are intrinsically classified by
+their macro semantics; observational and diagnostic findings require an exact
+reviewed allowlist entry.
+
+The path-free `DevTool audit assertions` command is the presubmit form. It
+loads the versioned allowlist, rejects stale entries, and returns failure when
+any finding remains unreviewed. A focused path scan is informational unless
+`--enforce` is supplied. Changes that add or move an assertion must run the
+enforcing form and update an exact allowlist entry only after owner review.
+
 ## Incremental Adoption
 
 New and materially modified code must follow these conventions immediately. Do not mix unrelated repository-wide formatting or annotation cleanup into a functional change.

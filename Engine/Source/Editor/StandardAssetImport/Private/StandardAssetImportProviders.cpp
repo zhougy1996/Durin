@@ -35,7 +35,7 @@ namespace Durin
 				.SchemaVersion = Version,
 				.Bytes = std::move(Bytes)};
 			std::string Error;
-			check(Payload.Finalize(Error));
+			requiref(Payload.Finalize(Error), "{}", Error);
 			return Payload;
 		}
 

@@ -249,6 +249,9 @@ namespace Durin
 	TEST(FVulkanTextureSamplingTests,
 		InlineNativeComputeUploadsAndSamplesEveryMipWithKnownColorSpaceValues)
 	{
+#if !DURIN_WITH_EDITOR
+		GTEST_SKIP() << "Offline texture compression is an editor-only capability.";
+#endif
 		struct FInlineRHIScope
 		{
 			FInlineRHIScope()
