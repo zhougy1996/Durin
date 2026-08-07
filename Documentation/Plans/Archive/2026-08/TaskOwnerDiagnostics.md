@@ -4,7 +4,7 @@ Summary: Attribute bounded task work, storage, terminal outcomes, and latency di
 
 Last reviewed: 2026-08-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-07
 
 ## Current Status
@@ -707,14 +707,14 @@ Dependencies: Stage 3 production evidence.
 
 ## Related Documentation
 
-- [Task System Evolution Roadmap](../Roadmaps/TaskSystemEvolution.md)
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Profiling](../Development/Build/Profiling.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Implementation Plan Rules](AGENTS.md)
+- [Task System Evolution Roadmap](../../../Roadmaps/TaskSystemEvolution.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
+- [Profiling](../../../Development/Build/Profiling.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Implementation Plan Rules](../../AGENTS.md)
 - [Move-Only Tasks and Consuming Results](MoveOnlyTasksAndConsumingResults.md)
 - [Typed Task Fan-In](TypedTaskFanIn.md)
-- [Structured Task Scopes](StructuredTaskScopes.md)
+- [Structured Task Scopes](../../StructuredTaskScopes.md)
 
 ## Related Code
 

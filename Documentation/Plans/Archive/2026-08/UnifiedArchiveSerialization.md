@@ -4,7 +4,7 @@ Summary: Unify live `DObject` and reflected-value state transfer behind one `Ser
 
 Last reviewed: 2026-08-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-07
 
 ## Current Status
@@ -33,7 +33,7 @@ Completed: 2026-08-07
   error translation are frozen below. No unresolved Archive contract decision
   remains for Stage 1.
 - The plan is a completed architecture prerequisite of the
-  [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md).
+  [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md).
   It does not start DAST v4, change the v3 wire format, or authorize content
   migration.
 
@@ -1004,8 +1004,8 @@ errors that arise outside the Archive retain their existing AssetCore codes.
 | Integration | DHT, CoreDObject, AssetCore, Engine, import, rendering-asset, level, and editor package workflows |
 | Qualification | Successful full `all` build, representative editor save/reload/restart smoke, deterministic resave, and unchanged tracked package compatibility |
 
-Build and test execution follows [Build and Run](../Development/Build/BuildAndRun.md)
-and [Native Tests](../Development/Build/NativeTests.md).
+Build and test execution follows [Build and Run](../../../Development/Build/BuildAndRun.md)
+and [Native Tests](../../../Development/Build/NativeTests.md).
 
 ## Definition of Done
 
@@ -1038,13 +1038,13 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 ## Related Documentation
 
-- [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md)
-- [Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Versioning](../Runtime/Assets/Versioning.md)
-- [Garbage Collection](../Runtime/Core/GarbageCollection.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md)
+- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Garbage Collection](../../../Runtime/Core/GarbageCollection.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

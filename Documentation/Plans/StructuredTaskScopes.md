@@ -496,7 +496,7 @@ Dependencies: Stage 3 production evidence.
 - [Task System Evolution Roadmap](../Roadmaps/TaskSystemEvolution.md)
 - [CPU Task System](../Runtime/Core/TaskSystem.md)
 - [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Task Owner Diagnostics](TaskOwnerDiagnostics.md)
+- [Task Owner Diagnostics](Archive/2026-08/TaskOwnerDiagnostics.md)
 - [Build and Run](../Development/Build/BuildAndRun.md)
 - [Implementation Plan Rules](AGENTS.md)
 

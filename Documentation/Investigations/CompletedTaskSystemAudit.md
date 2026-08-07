@@ -8,10 +8,10 @@
 This audit covers the completed task-system milestones through bounded owner
 diagnostics:
 
-- [Task Continuations and Thread Dispatch](../Plans/TaskContinuationsAndThreadDispatch.md);
-- [Move-Only Tasks and Consuming Results](../Plans/MoveOnlyTasksAndConsumingResults.md);
-- [Typed Task Fan-In](../Plans/TypedTaskFanIn.md);
-- [Task Owner Diagnostics](../Plans/TaskOwnerDiagnostics.md).
+- [Task Continuations and Thread Dispatch](../Plans/Archive/2026-08/TaskContinuationsAndThreadDispatch.md);
+- [Move-Only Tasks and Consuming Results](../Plans/Archive/2026-08/MoveOnlyTasksAndConsumingResults.md);
+- [Typed Task Fan-In](../Plans/Archive/2026-08/TypedTaskFanIn.md);
+- [Task Owner Diagnostics](../Plans/Archive/2026-08/TaskOwnerDiagnostics.md).
 
 The reviewed central task-system files last changed in completion commit
 `97e046e9` (`feat(tasks): add bounded owner diagnostics`).

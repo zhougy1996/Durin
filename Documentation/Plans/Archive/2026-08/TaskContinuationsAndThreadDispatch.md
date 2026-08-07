@@ -4,7 +4,7 @@ Summary: Extend Durin's bounded CPU task system with typed worker continuations 
 
 Last reviewed: 2026-08-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-07
 
 ## Current Status
@@ -899,9 +899,9 @@ repository handoff rules.
 
 ## Related Documentation
 
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 - [Unreal Engine Tasks System](https://dev.epicgames.com/documentation/unreal-engine/tasks-systems-in-unreal-engine)
 - [Unreal Engine `FPipe`](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core/FPipe)
 - [Unreal Engine `TFuture::Then`](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/Core/TFutureBase/Then)

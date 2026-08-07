@@ -30,7 +30,7 @@ Completed:
   collection, runtime Archive customization, post-deserialize repair, and
   authored fail-closed semantics are now declarative. This satisfies a
   foundation gate but does not start DAST v4 implementation.
-- The [Unified Archive Serialization Plan](../Plans/UnifiedArchiveSerialization.md)
+- The [Unified Archive Serialization Plan](../Plans/Archive/2026-08/UnifiedArchiveSerialization.md)
   prerequisite is complete. All live complete-object state transfer now uses
   `DObject::Serialize(FArchive&)`; purpose-specific Archives share one semantic
   reflected-value layer, and DAST v3 package Archives share their logical value
@@ -265,7 +265,7 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 ## Related Documentation
 
-- [Unified Archive Serialization Plan](../Plans/UnifiedArchiveSerialization.md)
+- [Unified Archive Serialization Plan](../Plans/Archive/2026-08/UnifiedArchiveSerialization.md)
 - [Reflected Struct Operations Plan](../Plans/Archive/2026-08/ReflectedStructOperations.md)
 - [Reflection System](../Runtime/Core/ReflectionSystem.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)

@@ -4,7 +4,7 @@ Summary: Add move-only task callables and a type-distinct unique result consumed
 
 Last reviewed: 2026-08-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-07
 
 ## Current Status
@@ -40,7 +40,7 @@ explicit drain, cancellation, and take-result behavior remain required and are
 not replaced by this plan.
 
 This is milestone M1 of the
-[Task System Evolution Roadmap](../Roadmaps/TaskSystemEvolution.md). Later typed
+[Task System Evolution Roadmap](../../../Roadmaps/TaskSystemEvolution.md). Later typed
 fan-in, owner diagnostics, structured scopes, IO execution, and serialized
 lanes are outside this plan.
 
@@ -917,12 +917,12 @@ and validation outcome.
 
 ## Related Documentation
 
-- [Task System Evolution Roadmap](../Roadmaps/TaskSystemEvolution.md)
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
+- [Task System Evolution Roadmap](../../../Roadmaps/TaskSystemEvolution.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
 - [Task Continuations and Thread Dispatch](TaskContinuationsAndThreadDispatch.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

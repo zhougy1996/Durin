@@ -4,7 +4,7 @@ Summary: Add deterministic heterogeneous shared-result fan-in to the existing bo
 
 Last reviewed: 2026-08-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-07
 
 ## Current Status
@@ -324,10 +324,10 @@ Dependencies: Stage 2.
 
 ## Related Documentation
 
-- [Task System Evolution Roadmap](../Roadmaps/TaskSystemEvolution.md)
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Implementation Plan Rules](AGENTS.md)
+- [Task System Evolution Roadmap](../../../Roadmaps/TaskSystemEvolution.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Implementation Plan Rules](../../AGENTS.md)
 - [Move-Only Tasks and Consuming Results](MoveOnlyTasksAndConsumingResults.md)
 
 ## Related Code
