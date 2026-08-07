@@ -4,10 +4,53 @@ Summary: Add deterministic rendered StaticMesh thumbnails to Content Browser thr
 
 Last reviewed: 2026-08-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-08
 
 ## Current Status
+
+Stage 4 and the plan are complete. StaticMesh thumbnails now have validated
+cold and warm persistence paths, corruption recovery, mixed rendered-kind
+budgets, stale-upload rejection, Content Browser mutation/close coverage, and
+deterministic Vulkan presentation assertions. A post-completion editor check
+also corrected the Content Browser model's rendered-thumbnail type routing so
+`DStaticMesh` cards submit the implemented requests instead of retaining their
+fallback icons.
+The visual follow-up replaces the fixed gray square with transparent output,
+uses a slightly elevated asymmetric three-quarter camera, and tightens bounds
+framing so primitives occupy the card more clearly. Generator and preview
+fixture versions advance so existing opaque cached PNGs regenerate once.
+
+Stage 4 handoff:
+
+- Baseline commit: `75cff775` (`feat(thumbnails): render static mesh previews`).
+- Working set: the shared rendered cache and pipeline public/implementation
+  files, StaticMesh and shared scheduler/cache tests, Vulkan material/render
+  integration tests, rendered test fixtures, owning thumbnail and StaticMesh
+  rendering documentation, and this plan.
+- Key symbols: `FRenderedAssetThumbnailCacheStats`,
+  `FRenderedAssetThumbnailPipeline::InvalidatePersistentObject()`, the
+  decode-failure cold retry in `FRenderedAssetThumbnailCache::FImpl::StartNext()`,
+  and upload-serial invalidation in `CancelPendingRequests()`.
+- Decisions: a size-valid but undecodable persistent PNG is removed and retried
+  once as cold work. Cancellation advances entry serials so queued GPU upload
+  completions cannot publish after refresh, mutation, close, or shutdown.
+  Stable cache statistics expose lifecycle and budget observations without
+  exposing preview-scene or backend objects. Reloadable test fixtures replace
+  cached raw StaticMesh pointers after package unload.
+- Open questions: none.
+- Validation: all 60 `ThumbnailTests` and all 77 `MaterialTests` pass. Coverage
+  includes an unloaded-asset warm hit with no scene creation/mutation, corrupt
+  PNG recovery, mixed Material/TextureCube/StaticMesh scheduling, Content
+  Browser identity mutation and close, tolerant rendered image metrics, and a
+  Vulkan cold-store-upload-ready then warm-decode-upload-ready cycle. Full
+  `all` build and an eight-tick hidden DurinEditor lifecycle smoke pass on
+  `Win64-Debug-DurinEditor-Tests`; plan and changed-document validation pass.
+  The follow-up Content Browser routing regression passes with all 71
+  `EditorAssetWorkflowTests` cases (70 enabled, one disabled).
+  The visual follow-up passes all 60 `ThumbnailTests` and all 77
+  `MaterialTests`, including Vulkan assertions for transparent borders,
+  non-empty mesh coverage, material response, cold rendering, and warm upload.
 
 The Content Browser already presents source-image, Material, MaterialInstance,
 and TextureCube thumbnails through one request/view lifecycle. DurinEd owns an
@@ -98,6 +141,27 @@ requests remain nonblocking and retain the existing StaticMesh icon.
 - Warm-cache hits decode and upload the PNG without loading the StaticMesh,
   initializing its resources, or creating/mutating the preview scene.
 
+### StaticMesh Readiness and Revision Transitions
+
+`FStaticMeshRenderResourceStatus::IsReady()` is publishable only when readiness
+is `Ready` and revision is nonzero. A revision belongs to one `DStaticMesh`
+object identity; imported-state exchange never swaps or reuses revisions.
+
+| Boundary | Public readiness after boundary | Revision rule |
+| --- | --- | --- |
+| Construction, before CPU render data | `Unavailable` | Seed one nonzero object-local revision |
+| Successful CPU render-data publication, cooked load, or first import | `Unavailable` until initialization is accepted | Advance even when readiness remains `Unavailable` |
+| Accepted `InitResources()` | `Queued` | Advance before work becomes externally observable |
+| Render-thread initialization succeeds | `Ready` | Advance with the coherent ready publication |
+| Render-thread initialization fails | `Failed` | Advance with the coherent terminal failure publication |
+| Candidate preparation fails before replacing current data | Existing readiness | Do not advance because current data and resources remain authoritative |
+| Successful render-data replacement or render-resource recreation | `Ready` when the replacement is already initialized, otherwise `Unavailable` | Advance at invalidation/publication; old completions cannot match |
+| Imported-state exchange, commit, or reverse | Readiness of the data now owned by each object | Advance each affected object's own revision; never swap revision values |
+| Accepted release request | `Unavailable` | Advance before release is queued; the prior `Ready` revision is immediately unpublishable |
+| Release completion | `Unavailable` | Advance to represent the completed resource invalidation |
+| Destruction begins or CPU render data is finally discarded | `Unavailable` | Advance at each boundary that can still be observed; no prior revision becomes publishable again |
+| Repeated no-op initialization/release or rejected state transition | Existing readiness | Do not advance |
+
 ## Current Foundations and Gaps
 
 | Area | Existing foundation | Required change |
@@ -114,16 +178,16 @@ requests remain nonblocking and retain the existing StaticMesh icon.
 
 ### Stage 0: Freeze StaticMesh Thumbnail Contracts
 
-- [ ] Add named constants for the StaticMesh provider, generator schema,
+- [x] Add named constants for the StaticMesh provider, generator schema,
   preview-fixture identity/version, shader contract, margin, LOD index, and
   output-opacity policy.
-- [ ] Define the public StaticMesh readiness/revision result and exact transitions
+- [x] Define the public StaticMesh readiness/revision result and exact transitions
   for initial load, resource initialization, failure, reimport/imported-state
   exchange, render-state recreation, release, and destruction.
-- [ ] Define a pure bounds-to-view calculation that consumes local bounds,
+- [x] Define a pure bounds-to-view calculation that consumes local bounds,
   output aspect ratio, field of view, camera direction, and margin, and returns
   centered transform, camera position/target, and clip planes.
-- [ ] Add contract tests proving projected bounds fit both image axes and invalid,
+- [x] Add contract tests proving projected bounds fit both image axes and invalid,
   non-finite, or zero-volume bounds are rejected.
 
 #### Acceptance Gate
@@ -138,13 +202,13 @@ requests remain nonblocking and retain the existing StaticMesh icon.
 
 Dependencies: Stage 0.
 
-- [ ] Add the minimal semantic query API to `DStaticMesh`; keep the private
+- [x] Add the minimal semantic query API to `DStaticMesh`; keep the private
   lifecycle enum and mutable render data encapsulated.
-- [ ] Advance the monotonic revision at every render-data/resource publication
+- [x] Advance the monotonic revision at every render-data/resource publication
   or invalidation boundary selected in Stage 0.
-- [ ] Return validated LOD 0 bounds only when CPU render data exists; report
+- [x] Return validated LOD 0 bounds only when CPU render data exists; report
   queued, ready, failed, or unavailable resource state without waiting.
-- [ ] Extend StaticMesh lifecycle tests across initial initialization, successful
+- [x] Extend StaticMesh lifecycle tests across initial initialization, successful
   recreation, failed initialization, imported-state exchange, and release.
 
 #### Acceptance Gate
@@ -159,18 +223,18 @@ Dependencies: Stage 0.
 
 Dependencies: Stage 1.
 
-- [ ] Add `FStaticMeshAssetThumbnailProvider` and an immutable input containing
+- [x] Add `FStaticMeshAssetThumbnailProvider` and an immutable input containing
   only the mounted asset path and frozen visual contract.
-- [ ] Validate the exact registry fingerprint and capture the sorted transitive
+- [x] Validate the exact registry fingerprint and capture the sorted transitive
   dependency closure so default-material and referenced-texture package edits
   invalidate persistent output.
-- [ ] Register the provider beside Material, MaterialInstance, and TextureCube;
+- [x] Register the provider beside Material, MaterialInstance, and TextureCube;
   generalize misleading Material-only cache/internal names where they now own
   all rendered asset thumbnail kinds.
-- [ ] Route StaticMesh active-job loading, exact-class validation, revision
+- [x] Route StaticMesh active-job loading, exact-class validation, revision
   capture, resource initialization, wait, cancellation, and teardown through the
   existing pipeline without introducing a parallel scheduler or object store.
-- [ ] Add provider tests for exact class, deterministic key input, dependency
+- [x] Add provider tests for exact class, deterministic key input, dependency
   ordering, missing/stale registry data, and generator/fixture version changes.
 
 #### Acceptance Gate
@@ -186,17 +250,17 @@ Dependencies: Stage 1.
 
 Dependencies: Stages 1-2.
 
-- [ ] Extend the shared preview-scene pool with a StaticMesh assignment that is
+- [x] Extend the shared preview-scene pool with a StaticMesh assignment that is
   mutually exclusive with Material-sphere and TextureCube assignments.
-- [ ] Apply the Stage 0 bounds-to-view result before capture and ensure the
+- [x] Apply the Stage 0 bounds-to-view result before capture and ensure the
   renderer draws LOD 0 with the asset's default slot materials and existing
   missing/error-material behavior.
-- [ ] Revalidate asset and resource revisions after readiness, before render,
+- [x] Revalidate asset and resource revisions after readiness, before render,
   after readback, and before encoded publication through the existing scheduler
   transitions.
-- [ ] Reset component references and per-job view state after success, failure,
+- [x] Reset component references and per-job view state after success, failure,
   cancellation, and shutdown; retain the one-scene/one-render-per-frame budget.
-- [ ] Preserve fallback presentation for pending and failed work and surface one
+- [x] Preserve fallback presentation for pending and failed work and surface one
   stable asset-qualified diagnostic without retrying every frame.
 
 #### Acceptance Gate
@@ -213,21 +277,21 @@ Dependencies: Stages 1-2.
 
 Dependencies: Stage 3.
 
-- [ ] Add cold-path coverage for load, resource wait, render, readback, encode,
+- [x] Add cold-path coverage for load, resource wait, render, readback, encode,
   atomic store, upload, and ready presentation.
-- [ ] Add warm-path coverage proving a disk hit performs decode/upload only and
+- [x] Add warm-path coverage proving a disk hit performs decode/upload only and
   does not load or initialize the StaticMesh or mutate the preview scene.
-- [ ] Add deterministic rendered fixtures and image assertions for framing,
+- [x] Add deterministic rendered fixtures and image assertions for framing,
   orientation, background opacity, default-material selection, and non-empty
   geometry coverage; use tolerant pixel/image metrics rather than exact driver
   byte equality where Vulkan output can vary.
-- [ ] Stress visible versus prefetch ordering, duplicate coalescing, queue bounds,
+- [x] Stress visible versus prefetch ordering, duplicate coalescing, queue bounds,
   one-render-per-frame behavior, cancellation, GPU LRU eviction, and corrupted
   cache recovery with mixed Material, TextureCube, and StaticMesh requests.
-- [ ] Exercise Content Browser refresh, rename, move, reimport, delete, close,
+- [x] Exercise Content Browser refresh, rename, move, reimport, delete, close,
   and editor shutdown while StaticMesh work is queued, waiting, rendering, or
   uploading.
-- [ ] Update `AssetThumbnails.md` and any changed StaticMesh rendering contract,
+- [x] Update `AssetThumbnails.md` and any changed StaticMesh rendering contract,
   then run focused native tests and the repository-required full `all` build for
   this user-visible editor change through the documented DurinDevTool workflow.
 

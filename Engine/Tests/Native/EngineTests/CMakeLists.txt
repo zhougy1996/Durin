@@ -281,6 +281,7 @@ durin_add_engine_functional_test(ThumbnailTests
 		Private/SourceImageThumbnailTests.cpp
 		Private/AssetThumbnailContractTests.cpp
 		Private/MaterialAssetThumbnailTests.cpp
+		Private/StaticMeshAssetThumbnailTests.cpp
 		Private/TextureCubeAssetThumbnailTests.cpp
 		Private/RenderedAssetThumbnailFixtureTests.cpp
 	PRIVATE_SOURCES

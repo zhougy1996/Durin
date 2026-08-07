@@ -7,6 +7,7 @@
 #include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
+#include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 
@@ -406,7 +407,9 @@ namespace Durin
 				|| Data.AssetClassName
 					== DMaterialInstance::StaticClass()->GetQualifiedName().ToString()
 				|| Data.AssetClassName
-					== DTextureCube::StaticClass()->GetQualifiedName().ToString())
+					== DTextureCube::StaticClass()->GetQualifiedName().ToString()
+				|| Data.AssetClassName
+					== DStaticMesh::StaticClass()->GetQualifiedName().ToString())
 			{
 				Item.ThumbnailIdentity = Item.VirtualPath;
 				Item.ThumbnailFileSize = Data.FileSize;

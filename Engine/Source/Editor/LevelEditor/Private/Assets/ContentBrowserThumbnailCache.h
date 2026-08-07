@@ -4,7 +4,7 @@
 
 namespace Durin
 {
-	class FMaterialAssetThumbnailCache;
+	class FRenderedAssetThumbnailCache;
 	class FSourceImageThumbnailCache;
 
 	// Supplies either source-image input or an authored asset fingerprint through one card request.
@@ -37,7 +37,7 @@ namespace Durin
 
 	private:
 		std::unique_ptr<FSourceImageThumbnailCache> SourceImages;
-		std::unique_ptr<FMaterialAssetThumbnailCache> Materials;
+		std::unique_ptr<FRenderedAssetThumbnailCache> RenderedAssets;
 		std::unordered_map<std::string, FAssetPath> RenderedIdentities;
 	};
 } // namespace Durin

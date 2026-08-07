@@ -12,6 +12,32 @@ namespace Durin
 {
 	class DMaterialInterface;
 
+	// Reports only the semantic render-resource states required by nonblocking consumers.
+	enum class EStaticMeshRenderResourceReadiness : uint8
+	{
+		Unavailable,
+		Queued,
+		Ready,
+		Failed
+	};
+
+	// Pairs readiness with the asset-local revision that must still match before publication.
+	// Revisions are never transferred between assets or reused: construction starts unavailable at
+	// a non-zero revision, and every accepted CPU-data publication, initialization result, imported-
+	// state exchange, resource invalidation, release, or destruction boundary advances it.
+	struct FStaticMeshRenderResourceStatus
+	{
+		EStaticMeshRenderResourceReadiness Readiness =
+			EStaticMeshRenderResourceReadiness::Unavailable;
+		uint64 Revision = 0;
+
+		auto IsReady() const -> bool
+		{
+			return Readiness == EStaticMeshRenderResourceReadiness::Ready
+				&& Revision != 0;
+		}
+	};
+
 	// Selects a signed source axis when converting imported geometry to Durin space.
 	DENUM()
 	enum class EStaticMeshImportAxis : int8
@@ -195,6 +221,11 @@ namespace Durin
 		ENGINE_API explicit DStaticMesh(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DStaticMesh() override;
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
+		// Returns one coherent, nonblocking snapshot for stale-work rejection.
+		ENGINE_API auto GetRenderResourceStatus() const
+			-> FStaticMeshRenderResourceStatus;
+		// Returns a read-only copy only when CPU LOD 0 data has finite, non-degenerate bounds.
+		ENGINE_API auto GetLOD0LocalBounds() const -> std::optional<FBox>;
 		ENGINE_API auto InitResources() -> void;
 		auto GetSourceFile() const -> const std::string& { return SourceImportData.SourcePath.Path; }
 		auto GetImportSettings() const -> const FStaticMeshImportSettings& { return SourceImportData.ImportSettings; }
@@ -279,6 +310,35 @@ namespace Durin
 			Released
 		};
 
+		static constexpr uint64 RenderResourceStateBits = 3;
+		static constexpr uint64 RenderResourceStateMask =
+			(1ull << RenderResourceStateBits) - 1;
+		static constexpr auto PackRenderResourceStatus(
+			EStaticMeshRenderResourceState State,
+			uint64 Revision) -> uint64
+		{
+			return (Revision << RenderResourceStateBits)
+				| static_cast<uint64>(State);
+		}
+		static constexpr auto UnpackRenderResourceState(uint64 Packed)
+			-> EStaticMeshRenderResourceState
+		{
+			return static_cast<EStaticMeshRenderResourceState>(
+				Packed & RenderResourceStateMask);
+		}
+		static constexpr auto UnpackRenderResourceRevision(uint64 Packed)
+			-> uint64
+		{
+			return Packed >> RenderResourceStateBits;
+		}
+		auto LoadRenderResourceState() const
+			-> EStaticMeshRenderResourceState;
+		auto PublishRenderResourceState(EStaticMeshRenderResourceState State)
+			-> void;
+		auto TryPublishRenderResourceState(
+			EStaticMeshRenderResourceState Expected,
+			EStaticMeshRenderResourceState State) -> bool;
+		auto AdvanceRenderResourceRevision() -> void;
 		auto ReleaseResources() -> void;
 		auto BuildRenderData(std::string_view PhysicalFilePath, std::string& OutError) -> bool;
 		auto BuildRenderDataCandidate(
@@ -321,8 +381,8 @@ namespace Durin
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
 		FStaticMeshDerivedDataDiagnostic DerivedDataDiagnostic;
 		FRenderCommandFence ReleaseResourcesFence;
-		std::atomic<EStaticMeshRenderResourceState> RenderResourceState{
-			EStaticMeshRenderResourceState::Uninitialized};
+		std::atomic<uint64> RenderResourceStatus{PackRenderResourceStatus(
+			EStaticMeshRenderResourceState::Uninitialized, 1)};
 
 		friend class FStaticMeshImportedStateExchange;
 	};

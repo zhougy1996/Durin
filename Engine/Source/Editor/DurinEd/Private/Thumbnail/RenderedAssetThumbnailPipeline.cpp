@@ -302,7 +302,8 @@ namespace Durin
 		std::span<const uint8> Pixels,
 		uint32 Width,
 		uint32 Height,
-		std::string_view Error) -> bool
+		std::string_view Error,
+		std::function<std::string()> ValidateBeforePublication) -> bool
 	{
 		if (!Error.empty())
 			return CompleteEncoding(Job, AssetRevision, ResourceRevision, {}, Error);
@@ -314,6 +315,13 @@ namespace Durin
 				ResourceRevision,
 				{},
 				"Rendered-thumbnail pixels do not match the requested RGBA8 output.");
+		if (ValidateBeforePublication)
+		{
+			const std::string ValidationError = ValidateBeforePublication();
+			if (!ValidationError.empty())
+				return CompleteEncoding(
+					Job, AssetRevision, ResourceRevision, {}, ValidationError);
+		}
 		return CompleteEncoding(
 			Job, AssetRevision, ResourceRevision, EncodedBytes);
 	}
@@ -330,6 +338,12 @@ namespace Durin
 	auto FRenderedAssetThumbnailPipeline::RecordRetry() -> void
 	{
 		++Impl->Stats.Retries;
+	}
+
+	auto FRenderedAssetThumbnailPipeline::InvalidatePersistentObject(
+		std::string_view CacheKey) -> void
+	{
+		Impl->Store.Invalidate(CacheKey);
 	}
 
 	auto FRenderedAssetThumbnailPipeline::GetStats() const -> FRenderedAssetThumbnailPipelineStats

@@ -4,9 +4,11 @@
 #include "ImageDecoder.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
+#include "StaticMesh/StaticMesh.h"
 #include "Thumbnail/AssetThumbnail.h"
 #include "Thumbnail/AssetThumbnailCache.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
+#include "Thumbnail/StaticMeshAssetThumbnail.h"
 
 namespace Durin
 {
@@ -124,7 +126,150 @@ namespace Durin
 			std::filesystem::create_directories(Root);
 			return Root;
 		}
+
+		auto ExpectStaticMeshBoundsFit(
+			const FBox& Bounds,
+			double AspectRatio = 1.0) -> void
+		{
+			const FStaticMeshAssetThumbnailViewInput Input{
+				.LocalBounds = Bounds,
+				.OutputAspectRatio = AspectRatio};
+			FStaticMeshAssetThumbnailView View;
+			std::string Error;
+			ASSERT_TRUE(CalculateStaticMeshAssetThumbnailView(Input, View, Error)) << Error;
+
+			const FVector3 TransformedCenter = Bounds.GetCenter() + View.MeshTransform.Translation;
+			EXPECT_NEAR(TransformedCenter.x, 0.0, 1.0e-12);
+			EXPECT_NEAR(TransformedCenter.y, 0.0, 1.0e-12);
+			EXPECT_NEAR(TransformedCenter.z, 0.0, 1.0e-12);
+			EXPECT_GT(View.NearClipDistance, 0.0);
+			EXPECT_GT(View.FarClipDistance, View.NearClipDistance);
+
+			const FVector3 Extent = Bounds.GetExtent();
+			const double VerticalTangent =
+				std::tan(Math::DegreesToRadians(Input.VerticalFieldOfViewDegrees) * 0.5);
+			const double MaximumProjectedCoordinate = 1.0 - Input.ImageMargin;
+			double MaximumAbsoluteProjection = 0.0;
+			for (uint32 CornerIndex = 0; CornerIndex < 8; ++CornerIndex)
+			{
+				const FVector3 Corner(
+					(CornerIndex & 1u) != 0 ? Extent.x : -Extent.x,
+					(CornerIndex & 2u) != 0 ? Extent.y : -Extent.y,
+					(CornerIndex & 4u) != 0 ? Extent.z : -Extent.z);
+				const FVector3 FromCamera = Corner - View.CameraPosition;
+				const double Depth = Math::Dot(View.CameraForward, FromCamera);
+				ASSERT_GT(Depth, View.NearClipDistance);
+				ASSERT_LT(Depth, View.FarClipDistance);
+				const double ProjectedX =
+					Math::Dot(View.CameraRight, FromCamera)
+					/ (Depth * VerticalTangent * AspectRatio);
+				const double ProjectedY =
+					Math::Dot(View.CameraUp, FromCamera) / (Depth * VerticalTangent);
+				EXPECT_LE(std::abs(ProjectedX), MaximumProjectedCoordinate + 1.0e-12);
+				EXPECT_LE(std::abs(ProjectedY), MaximumProjectedCoordinate + 1.0e-12);
+				MaximumAbsoluteProjection = std::max({
+					MaximumAbsoluteProjection,
+					std::abs(ProjectedX),
+					std::abs(ProjectedY)});
+			}
+			EXPECT_NEAR(MaximumAbsoluteProjection, MaximumProjectedCoordinate, 1.0e-12);
+		}
 	} // namespace
+
+	TEST(FAssetThumbnailContractTests, StaticMeshVisualContractIsFrozen)
+	{
+		EXPECT_EQ(FStaticMeshAssetThumbnailContract::AssetClassName, "DStaticMesh");
+		EXPECT_EQ(FStaticMeshAssetThumbnailContract::ProviderName, "Durin.StaticMeshThumbnail");
+		EXPECT_EQ(FStaticMeshAssetThumbnailContract::GeneratorSchemaVersion, 2u);
+		EXPECT_EQ(
+			FStaticMeshAssetThumbnailContract::PreviewFixtureIdentity,
+			"/Engine/Editor/StaticMeshPreview/LOD0DefaultMaterials");
+		EXPECT_EQ(FStaticMeshAssetThumbnailContract::PreviewFixtureVersion, 2u);
+		EXPECT_EQ(FStaticMeshAssetThumbnailContract::ShaderContractVersion, 1u);
+		EXPECT_EQ(FStaticMeshAssetThumbnailContract::ImageMargin, 0.04);
+		EXPECT_EQ(FStaticMeshAssetThumbnailContract::LODIndex, 0u);
+		EXPECT_FALSE(FStaticMeshAssetThumbnailContract::bOutputOpaque);
+		const FStaticMeshAssetThumbnailViewInput ViewInput;
+		EXPECT_EQ(ViewInput.CameraDirection, FVector3(2.4, -3.2, 2.4));
+	}
+
+	TEST(FAssetThumbnailContractTests, StaticMeshReadinessRequiresReadyNonZeroRevision)
+	{
+		EXPECT_FALSE(FStaticMeshRenderResourceStatus{}.IsReady());
+		EXPECT_FALSE((FStaticMeshRenderResourceStatus{
+			.Readiness = EStaticMeshRenderResourceReadiness::Ready}.IsReady()));
+		EXPECT_TRUE((FStaticMeshRenderResourceStatus{
+			.Readiness = EStaticMeshRenderResourceReadiness::Ready,
+			.Revision = 1}.IsReady()));
+		EXPECT_FALSE((FStaticMeshRenderResourceStatus{
+			.Readiness = EStaticMeshRenderResourceReadiness::Queued,
+			.Revision = 2}.IsReady()));
+	}
+
+	TEST(FAssetThumbnailContractTests, StaticMeshBoundsFramingContainsRepresentativeBounds)
+	{
+		ExpectStaticMeshBoundsFit(FBox(FVector3(-1.0), FVector3(1.0)));
+		ExpectStaticMeshBoundsFit(FBox(FVector3(-0.5, -0.5, -4.0), FVector3(0.5, 0.5, 4.0)));
+		ExpectStaticMeshBoundsFit(FBox(FVector3(-5.0, -0.25, -0.5), FVector3(5.0, 0.25, 0.5)));
+		ExpectStaticMeshBoundsFit(FBox(FVector3(-0.5, -6.0, -0.5), FVector3(0.5, 6.0, 0.5)));
+		ExpectStaticMeshBoundsFit(FBox(FVector3(9.0, -7.0, 2.0), FVector3(12.0, -1.0, 8.0)));
+		ExpectStaticMeshBoundsFit(FBox(FVector3(-1.0e-4), FVector3(1.0e-4)));
+		ExpectStaticMeshBoundsFit(FBox(FVector3(-2.0, -1.0, -0.5), FVector3(2.0, 1.0, 0.5)), 16.0 / 9.0);
+	}
+
+	TEST(FAssetThumbnailContractTests, StaticMeshBoundsFramingIsDeterministic)
+	{
+		const FStaticMeshAssetThumbnailViewInput Input{
+			.LocalBounds = FBox(FVector3(3.0, -8.0, 2.0), FVector3(11.0, 4.0, 6.0)),
+			.OutputAspectRatio = 1.25};
+		FStaticMeshAssetThumbnailView First;
+		FStaticMeshAssetThumbnailView Second;
+		std::string Error;
+		ASSERT_TRUE(CalculateStaticMeshAssetThumbnailView(Input, First, Error)) << Error;
+		ASSERT_TRUE(CalculateStaticMeshAssetThumbnailView(Input, Second, Error)) << Error;
+		EXPECT_EQ(First.MeshTransform.Translation, Second.MeshTransform.Translation);
+		EXPECT_EQ(First.CameraPosition, Second.CameraPosition);
+		EXPECT_EQ(First.CameraTarget, Second.CameraTarget);
+		EXPECT_EQ(First.CameraForward, Second.CameraForward);
+		EXPECT_EQ(First.CameraRight, Second.CameraRight);
+		EXPECT_EQ(First.CameraUp, Second.CameraUp);
+		EXPECT_EQ(First.CameraDistance, Second.CameraDistance);
+		EXPECT_EQ(First.NearClipDistance, Second.NearClipDistance);
+		EXPECT_EQ(First.FarClipDistance, Second.FarClipDistance);
+	}
+
+	TEST(FAssetThumbnailContractTests, StaticMeshBoundsFramingRejectsInvalidInputs)
+	{
+		auto ExpectRejected = [](FStaticMeshAssetThumbnailViewInput Input) {
+			FStaticMeshAssetThumbnailView View;
+			std::string Error;
+			EXPECT_FALSE(CalculateStaticMeshAssetThumbnailView(Input, View, Error));
+			EXPECT_FALSE(Error.empty());
+		};
+
+		ExpectRejected({});
+		ExpectRejected({.LocalBounds = FBox(FVector3(-1.0), FVector3(1.0, 1.0, -1.0))});
+		ExpectRejected({.LocalBounds = FBox(FVector3(0.0), FVector3(0.0, 1.0, 1.0))});
+		ExpectRejected({
+			.LocalBounds = FBox(
+				FVector3(-1.0),
+				FVector3(std::numeric_limits<double>::infinity(), 1.0, 1.0))});
+		ExpectRejected({
+			.LocalBounds = FBox(FVector3(-1.0), FVector3(1.0)),
+			.OutputAspectRatio = 0.0});
+		ExpectRejected({
+			.LocalBounds = FBox(FVector3(-1.0), FVector3(1.0)),
+			.VerticalFieldOfViewDegrees = 180.0});
+		ExpectRejected({
+			.LocalBounds = FBox(FVector3(-1.0), FVector3(1.0)),
+			.CameraDirection = FVector3(0.0)});
+		ExpectRejected({
+			.LocalBounds = FBox(FVector3(-1.0), FVector3(1.0)),
+			.CameraDirection = FVectorConstants::Up});
+		ExpectRejected({
+			.LocalBounds = FBox(FVector3(-1.0), FVector3(1.0)),
+			.ImageMargin = 1.0});
+	}
 
 	TEST(FAssetThumbnailContractTests, IdenticalInputsProduceIdenticalKeys)
 	{
@@ -516,6 +661,61 @@ namespace Durin
 		EXPECT_EQ(Scheduler.Find(Changed.Asset.VirtualPath).RequestSerial, 3u);
 	}
 
+	TEST(FAssetThumbnailContractTests, MixedRenderedKindsSharePriorityCoalescingAndQueueBudgets)
+	{
+		FAssetThumbnailProviderRegistry Registry;
+		std::string Error;
+		for (const FAssetThumbnailProviderRegistration Registration : {
+			FAssetThumbnailProviderRegistration{
+				.AssetClassName = "DMaterial",
+				.ProviderName = "Durin.MaterialThumbnail",
+				.GeneratorSchemaVersion = 1},
+			FAssetThumbnailProviderRegistration{
+				.AssetClassName = "DTextureCube",
+				.ProviderName = "Durin.TextureCubeThumbnail",
+				.GeneratorSchemaVersion = 1},
+			FAssetThumbnailProviderRegistration{
+				.AssetClassName = "DStaticMesh",
+				.ProviderName = "Durin.StaticMeshThumbnail",
+				.GeneratorSchemaVersion = 1}})
+		{
+			ASSERT_TRUE(Registry.Register(
+				std::make_shared<FTestThumbnailProvider>(Registration), Error)) << Error;
+		}
+		FAssetThumbnailBudgets Budgets;
+		Budgets.MaximumQueuedJobs = 3;
+		FAssetThumbnailScheduler Scheduler(Registry, Budgets);
+		const FAssetThumbnailRequest Material = MakeThumbnailRequest(
+			"/ThumbnailTests/Mixed/Material", "DMaterial", 1);
+		const FAssetThumbnailRequest Cube = MakeThumbnailRequest(
+			"/ThumbnailTests/Mixed/Cube", "DTextureCube", 1);
+		const FAssetThumbnailRequest MeshPrefetch = MakeThumbnailRequest(
+			"/ThumbnailTests/Mixed/Mesh", "DStaticMesh", 1);
+		const FAssetThumbnailRequest MeshVisible = MakeThumbnailRequest(
+			"/ThumbnailTests/Mixed/Mesh", "DStaticMesh", 2,
+			EAssetThumbnailPriority::Visible);
+		ASSERT_TRUE(Scheduler.Request(Material, Error)) << Error;
+		ASSERT_TRUE(Scheduler.Request(Cube, Error)) << Error;
+		ASSERT_TRUE(Scheduler.Request(MeshPrefetch, Error)) << Error;
+		ASSERT_TRUE(Scheduler.Request(MeshVisible, Error)) << Error;
+		EXPECT_EQ(Scheduler.NumQueued(), 3u);
+
+		const std::optional<FAssetThumbnailScheduledJob> First = Scheduler.TakeNext();
+		ASSERT_TRUE(First);
+		EXPECT_EQ(
+			First->GenerationRequest.KeyInput.Asset.VirtualPath,
+			MeshVisible.Asset.VirtualPath);
+		EXPECT_EQ(First->GenerationRequest.RequestSerial, 2u);
+		const std::optional<FAssetThumbnailScheduledJob> Second = Scheduler.TakeNext();
+		const std::optional<FAssetThumbnailScheduledJob> Third = Scheduler.TakeNext();
+		ASSERT_TRUE(Second);
+		ASSERT_TRUE(Third);
+		EXPECT_NE(
+			Second->GenerationRequest.KeyInput.Asset.AssetClassName,
+			Third->GenerationRequest.KeyInput.Asset.AssetClassName);
+		EXPECT_FALSE(Scheduler.TakeNext());
+	}
+
 	TEST(FAssetThumbnailContractTests, SchedulerShutdownCancelsWorkAndRejectsNewRequests)
 	{
 		FAssetThumbnailProviderRegistry Registry;
@@ -631,6 +831,48 @@ namespace Durin
 		EXPECT_EQ(Decoded.Width, 2u);
 		EXPECT_EQ(Decoded.Height, 1u);
 		EXPECT_EQ(Decoded.Pixels, std::vector<uint8>(Pixels.begin(), Pixels.end()));
+	}
+
+	TEST(FAssetThumbnailContractTests, RenderedPipelineRevalidatesAfterEncodingBeforePublication)
+	{
+		const std::filesystem::path Root = MakeObjectStoreRoot("RenderedPipelinePublicationValidation");
+		FAssetThumbnailProviderRegistry Registry;
+		std::string Error;
+		auto Provider = std::make_shared<FTestThumbnailProvider>(FAssetThumbnailProviderRegistration{
+			.AssetClassName = "DStaticMesh",
+			.ProviderName = "Durin.StaticMeshThumbnail",
+			.GeneratorSchemaVersion = 1});
+		ASSERT_TRUE(Registry.Register(Provider, Error)) << Error;
+		FAssetThumbnailScheduler Scheduler(Registry);
+		FRenderedAssetThumbnailPipeline Pipeline(
+			Scheduler,
+			{.CacheRoot = Root, .ObjectExtension = ".png"});
+		const FAssetThumbnailRequest Request =
+			MakeThumbnailRequest("/ThumbnailTests/StaleStaticMesh", "DStaticMesh", 1);
+		ASSERT_TRUE(Scheduler.Request(Request, Error)) << Error;
+		Pipeline.BeginFrame();
+		std::optional<FRenderedAssetThumbnailJob> Job = Pipeline.StartNext();
+		ASSERT_TRUE(Job);
+		const std::string CacheKey = Job->ScheduledJob.CacheKey;
+		ASSERT_TRUE(Pipeline.CompleteLoad(*Job, 10));
+		ASSERT_TRUE(Pipeline.BeginRender(*Job, true, 10, 20));
+		ASSERT_TRUE(Pipeline.CompleteRender(*Job, 10, 20));
+		ASSERT_TRUE(Pipeline.CompleteReadback(*Job, 10, 20));
+		const std::array<uint8, 4> Pixels = {255, 255, 255, 255};
+		EXPECT_FALSE(Pipeline.CompletePixels(
+			*Job,
+			10,
+			20,
+			Pixels,
+			1,
+			1,
+			{},
+			[] { return std::string("StaticMesh changed before publication."); }));
+		EXPECT_EQ(Scheduler.Find(Request.Asset.VirtualPath).State, EAssetThumbnailState::Failed);
+
+		FAssetThumbnailObjectStore Store({.CacheRoot = Root, .ObjectExtension = ".png"});
+		std::vector<uint8> Encoded;
+		EXPECT_EQ(Store.Load(CacheKey, Encoded), EAssetThumbnailObjectLoadResult::Miss);
 	}
 
 	TEST(FAssetThumbnailContractTests, RenderedPipelineBoundsRendersAndRejectsStaleCompletions)

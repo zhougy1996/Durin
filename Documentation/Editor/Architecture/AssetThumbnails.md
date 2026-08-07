@@ -17,6 +17,9 @@ project content.
   the cube provider and its reflection-vector preview pass. Texture2D and
   supported source files retain their source-image decode path behind the same
   Content Browser request/view lifecycle.
+- StaticMesh uses the rendered provider with immutable LOD 0 framing inputs.
+  The provider never stores a mesh pointer in queued work; loading, resource
+  readiness, and revision capture begin only after a persistent miss.
 - LevelEditor owns only Content Browser item presentation and the facade that
   routes a source-image request or an authored-asset fingerprint. Unsupported
   classes issue no thumbnail job and retain their normal asset icon.
@@ -30,6 +33,9 @@ include a sorted, cycle-guarded Asset Registry closure of parent-material and
 texture package fingerprints. TextureCube keys include the authored cube
 package fingerprint; its ready build/resource revision is revalidated across
 the in-flight capture rather than persisted as a separate key field.
+StaticMesh keys include the mesh package plus the sorted transitive fingerprints
+of default materials and their texture dependencies, as well as the fixed
+bounds-framing, transparent-output, preview-fixture, and shader contracts.
 
 Every asynchronous completion revalidates the key, provider generation,
 request serial, asset identity, and asset/resource revisions. Save, move,
@@ -64,6 +70,13 @@ not selected. Closing Content Browser or unloading a provider cancels pending
 work and rejects stale completion before releasing scenes and GPU resources on
 their owning threads.
 
+Refresh, navigation, rename, move, reimport, delete, panel close, and editor
+shutdown cancel the current request generation. Cancellation advances the UI
+upload serial too, so an already-enqueued render-thread upload cannot register a
+stale texture when it returns to the game thread. Existing ready textures remain
+bounded by the GPU LRU until their identity changes, they are evicted, or the
+cache is cleared.
+
 ## Persistence And Recovery
 
 Both source and rendered outputs use the project-local
@@ -78,7 +91,9 @@ Missing, incompatible, oversized, truncated, or corrupt indexes and objects
 are ordinary misses. Invalid entries are removed only after their resolved
 paths are proven to remain beneath the thumbnail cache root. The next request
 regenerates from mounted authored content; persistence failure does not turn
-valid in-memory pixels into a failed thumbnail.
+valid in-memory pixels into a failed thumbnail. A size-valid object whose PNG
+payload fails decoding is invalidated and requeued once through the cold path;
+the corrupt object cannot become a per-frame retry loop.
 
 ## Presentation And Failure
 
@@ -95,3 +110,10 @@ values. TextureCube previews use the same sphere with the editor-only
 world-reflection shader and the orientation contract in
 [Cube Textures](../../Runtime/Rendering/CubeTextures.md). Content Browser cards
 never own live viewports, worlds, or per-card preview meshes.
+
+StaticMesh previews use the asset's validated LOD 0 bounds, a deterministic
+elevated three-quarter camera, a compact image margin, the asset's default
+positional material slots, and transparent output that blends with the active
+Content Browser theme. Invalid bounds, unavailable or failed render
+resources, and revision changes during render, readback, encoding, or
+publication preserve the StaticMesh icon and publish no persistent success.

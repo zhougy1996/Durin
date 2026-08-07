@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Thumbnail/AssetThumbnail.h"
+#include "Thumbnail/AssetThumbnailCache.h"
+#include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 
 namespace Durin
 {
@@ -23,16 +25,32 @@ namespace Durin
 		std::string AssetClassName;
 	};
 
-	// Owns Material and MaterialInstance generation, persistence, capture, upload, and UI texture lifetime.
-	class FMaterialAssetThumbnailCache
+	// Provides stable lifecycle and budget observations without exposing preview or UI objects.
+	struct FRenderedAssetThumbnailCacheStats
+	{
+		FRenderedAssetThumbnailPipelineStats Pipeline;
+		uint64 PreviewSceneCreations = 0;
+		uint64 PreviewSceneAssignments = 0;
+		uint64 UploadsQueued = 0;
+		uint64 UploadsCompleted = 0;
+		uint64 UploadFailures = 0;
+		uint64 GpuEvictions = 0;
+		uint64 LiveGpuTextures = 0;
+		bool bHasActiveJob = false;
+		bool bHasPreviewScene = false;
+	};
+
+	// Owns all rendered-asset generation, persistence, capture, upload, and UI texture lifetime.
+	class FRenderedAssetThumbnailCache
 	{
 	public:
-		DURINED_API explicit FMaterialAssetThumbnailCache(
-			FAssetThumbnailBudgets Budgets = {});
-		DURINED_API ~FMaterialAssetThumbnailCache();
+		DURINED_API explicit FRenderedAssetThumbnailCache(
+			FAssetThumbnailBudgets Budgets = {},
+			FAssetThumbnailObjectStoreSettings StoreSettings = {});
+		DURINED_API ~FRenderedAssetThumbnailCache();
 
-		FMaterialAssetThumbnailCache(const FMaterialAssetThumbnailCache&) = delete;
-		FMaterialAssetThumbnailCache& operator=(const FMaterialAssetThumbnailCache&) = delete;
+		FRenderedAssetThumbnailCache(const FRenderedAssetThumbnailCache&) = delete;
+		FRenderedAssetThumbnailCache& operator=(const FRenderedAssetThumbnailCache&) = delete;
 
 		DURINED_API auto BeginFrame() -> void;
 		DURINED_API auto Request(
@@ -42,6 +60,7 @@ namespace Durin
 		DURINED_API auto EndFrame() -> void;
 		DURINED_API auto CancelPendingRequests() -> void;
 		DURINED_API auto Clear() -> void;
+		DURINED_API auto GetStats() const -> FRenderedAssetThumbnailCacheStats;
 
 	private:
 		struct FImpl;

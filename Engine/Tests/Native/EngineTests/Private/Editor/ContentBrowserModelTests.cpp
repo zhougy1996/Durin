@@ -8,6 +8,7 @@
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
+#include "StaticMesh/StaticMesh.h"
 
 #include <gtest/gtest.h>
 
@@ -86,6 +87,36 @@ TEST_F(FContentBrowserModelTests, MaintainsHistoryAndTruncatesForwardBranch)
 	EXPECT_EQ(Model.GetHistory().size(), 2);
 	EXPECT_EQ(Model.GetHistoryIndex(), 1);
 	EXPECT_FALSE(Model.NavigateHistory(1));
+}
+
+TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToRenderedThumbnails)
+{
+	InitializeDObjectSystem();
+	FAssetPath AssetPath;
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/ThumbnailMesh", AssetPath));
+	DStaticMesh* StaticMesh = nullptr;
+	ASSERT_TRUE(Asset::CreateAsset(AssetPath, StaticMesh));
+	ASSERT_TRUE(Asset::SavePackage(StaticMesh->GetPackage()));
+	const Asset::FAssetData* AssetData =
+		Asset::GetAssetRegistry().FindAssetExact(AssetPath);
+	ASSERT_NE(AssetData, nullptr);
+
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+	const auto It = std::ranges::find_if(
+		Model.GetItems(),
+		[&](const FContentBrowserItem& Item) {
+			return Item.VirtualPath == AssetPath.ToString();
+		});
+	ASSERT_NE(It, Model.GetItems().end());
+	EXPECT_EQ(It->ThumbnailIdentity, AssetPath.ToString());
+	EXPECT_TRUE(It->ThumbnailSourcePath.empty());
+	EXPECT_EQ(It->ThumbnailFileSize, AssetData->FileSize);
+	EXPECT_EQ(It->ThumbnailPackageFormatVersion, AssetData->FormatVersion);
+	EXPECT_EQ(It->ThumbnailLastWriteTimeTicks, AssetData->LastWriteTimeTicks);
+
+	ASSERT_TRUE(Asset::DeleteAsset(AssetPath));
 }
 
 TEST_F(FContentBrowserModelTests, RejectsExcludedMountsAndClearsStaleCurrentDirectory)

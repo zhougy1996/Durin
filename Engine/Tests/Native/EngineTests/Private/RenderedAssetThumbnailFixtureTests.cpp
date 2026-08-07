@@ -15,7 +15,7 @@ namespace
 	}
 }
 
-TEST(FRenderedAssetThumbnailFixtureTests, CreatesVersionedMaterialAndCubeFixtures)
+TEST(FRenderedAssetThumbnailFixtureTests, CreatesVersionedRenderedAssetFixtures)
 {
 	Durin::Tests::FRenderedAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
@@ -27,7 +27,8 @@ TEST(FRenderedAssetThumbnailFixtureTests, CreatesVersionedMaterialAndCubeFixture
 	ASSERT_NE(Fixtures.ParentTexture, nullptr);
 	ASSERT_NE(Fixtures.OverrideTexture, nullptr);
 	ASSERT_NE(Fixtures.DirectionalCube, nullptr);
-	EXPECT_EQ(Durin::Tests::FRenderedAssetThumbnailFixtureSet::Version, 1u);
+	ASSERT_NE(Fixtures.StaticMesh, nullptr);
+	EXPECT_EQ(Durin::Tests::FRenderedAssetThumbnailFixtureSet::Version, 2u);
 
 	Durin::FVector3 BaseColor;
 	ASSERT_TRUE(Fixtures.Material->GetVectorParameterValue(
@@ -43,6 +44,7 @@ TEST(FRenderedAssetThumbnailFixtureTests, CreatesVersionedMaterialAndCubeFixture
 	ASSERT_NE(Fixtures.DirectionalCube->GetPlatformData(), nullptr);
 	EXPECT_EQ(Fixtures.DirectionalCube->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
 	EXPECT_EQ(Fixtures.DirectionalCube->GetBuildRevision(), 1u);
+	EXPECT_TRUE(Fixtures.StaticMesh->GetLOD0LocalBounds().has_value());
 }
 
 TEST(FRenderedAssetThumbnailFixtureTests, RecordsDirectAndTransitiveDependencyInputs)
@@ -53,17 +55,23 @@ TEST(FRenderedAssetThumbnailFixtureTests, RecordsDirectAndTransitiveDependencyIn
 
 	Durin::FAssetPath MaterialPath;
 	Durin::FAssetPath InstancePath;
+	Durin::FAssetPath StaticMeshPath;
 	ASSERT_TRUE(Durin::Tests::MakeRenderedThumbnailFixturePath(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::MaterialPath, MaterialPath));
 	ASSERT_TRUE(Durin::Tests::MakeRenderedThumbnailFixturePath(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::MaterialInstancePath, InstancePath));
+	ASSERT_TRUE(Durin::Tests::MakeRenderedThumbnailFixturePath(
+		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath, StaticMeshPath));
 
 	const Durin::Asset::FAssetData* MaterialData =
 		Durin::Asset::GetAssetRegistry().FindAssetExact(MaterialPath);
 	const Durin::Asset::FAssetData* InstanceData =
 		Durin::Asset::GetAssetRegistry().FindAssetExact(InstancePath);
+	const Durin::Asset::FAssetData* StaticMeshData =
+		Durin::Asset::GetAssetRegistry().FindAssetExact(StaticMeshPath);
 	ASSERT_NE(MaterialData, nullptr);
 	ASSERT_NE(InstanceData, nullptr);
+	ASSERT_NE(StaticMeshData, nullptr);
 	EXPECT_TRUE(HasDependency(
 		*MaterialData,
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::ParentTexturePath));
@@ -76,4 +84,7 @@ TEST(FRenderedAssetThumbnailFixtureTests, RecordsDirectAndTransitiveDependencyIn
 	EXPECT_FALSE(HasDependency(
 		*InstanceData,
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::ParentTexturePath));
+	EXPECT_TRUE(HasDependency(
+		*StaticMeshData,
+		Durin::Tests::FRenderedAssetThumbnailFixtureSet::MaterialPath));
 }

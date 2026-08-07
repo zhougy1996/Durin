@@ -7,7 +7,7 @@ namespace Durin
 {
 	FContentBrowserThumbnailCache::FContentBrowserThumbnailCache()
 		: SourceImages(std::make_unique<FSourceImageThumbnailCache>())
-		, Materials(std::make_unique<FMaterialAssetThumbnailCache>())
+		, RenderedAssets(std::make_unique<FRenderedAssetThumbnailCache>())
 	{
 	}
 
@@ -19,7 +19,7 @@ namespace Durin
 	auto FContentBrowserThumbnailCache::BeginFrame() -> void
 	{
 		SourceImages->BeginFrame();
-		Materials->BeginFrame();
+		RenderedAssets->BeginFrame();
 	}
 
 	auto FContentBrowserThumbnailCache::Request(
@@ -40,7 +40,7 @@ namespace Durin
 		if (!Request.Asset) return;
 		RenderedIdentities.insert_or_assign(
 			std::string(Request.Identity), Request.Asset->VirtualPath);
-		Materials->Request(*Request.Asset, Request.Priority);
+		RenderedAssets->Request(*Request.Asset, Request.Priority);
 	}
 
 	auto FContentBrowserThumbnailCache::Find(std::string_view Identity) const
@@ -49,25 +49,25 @@ namespace Durin
 		const auto It = RenderedIdentities.find(std::string(Identity));
 		return It == RenderedIdentities.end()
 			? SourceImages->Find(Identity)
-			: Materials->Find(It->second);
+			: RenderedAssets->Find(It->second);
 	}
 
 	auto FContentBrowserThumbnailCache::EndFrame() -> void
 	{
 		SourceImages->EndFrame();
-		Materials->EndFrame();
+		RenderedAssets->EndFrame();
 	}
 
 	auto FContentBrowserThumbnailCache::CancelPendingRequests() -> void
 	{
 		SourceImages->CancelPendingRequests();
-		Materials->CancelPendingRequests();
+		RenderedAssets->CancelPendingRequests();
 	}
 
 	auto FContentBrowserThumbnailCache::Clear() -> void
 	{
 		SourceImages->Clear();
-		Materials->Clear();
+		RenderedAssets->Clear();
 		RenderedIdentities.clear();
 	}
 } // namespace Durin

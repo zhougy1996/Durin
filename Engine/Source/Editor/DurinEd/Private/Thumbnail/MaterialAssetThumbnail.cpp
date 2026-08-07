@@ -15,6 +15,7 @@
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
+#include "Thumbnail/StaticMeshAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 
 namespace Durin
@@ -151,7 +152,49 @@ namespace Durin
 			return TextureCube->GetBuildRevision();
 		}
 
-		struct FMaterialThumbnailUploadResult
+		auto GetStaticMeshResourceRevision(
+			DStaticMesh* StaticMesh,
+			bool& bOutReady,
+			std::string& OutError) -> uint64
+		{
+			bOutReady = false;
+			OutError.clear();
+			if (StaticMesh == nullptr)
+			{
+				OutError = "The StaticMesh asset is unavailable.";
+				return 0;
+			}
+			if (!StaticMesh->GetLOD0LocalBounds())
+			{
+				OutError = std::format(
+					"StaticMesh '{}' has no valid non-degenerate LOD 0 bounds.",
+					StaticMesh->GetObjectPath());
+				return 0;
+			}
+			const FStaticMeshRenderResourceStatus Status =
+				StaticMesh->GetRenderResourceStatus();
+			switch (Status.Readiness)
+			{
+			case EStaticMeshRenderResourceReadiness::Ready:
+				bOutReady = true;
+				break;
+			case EStaticMeshRenderResourceReadiness::Queued:
+				break;
+			case EStaticMeshRenderResourceReadiness::Failed:
+				OutError = std::format(
+					"StaticMesh '{}' render resource failed.",
+					StaticMesh->GetObjectPath());
+				break;
+			case EStaticMeshRenderResourceReadiness::Unavailable:
+				OutError = std::format(
+					"StaticMesh '{}' render resource is unavailable.",
+					StaticMesh->GetObjectPath());
+				break;
+			}
+			return Status.Revision;
+		}
+
+		struct FRenderedThumbnailUploadResult
 		{
 			FAssetPath AssetPath;
 			uint64 Serial = 0;
@@ -161,10 +204,10 @@ namespace Durin
 			std::string Error;
 		};
 
-		struct FMaterialThumbnailAsyncState
+		struct FRenderedThumbnailAsyncState
 		{
 			std::mutex Mutex;
-			std::vector<FMaterialThumbnailUploadResult> Uploads;
+			std::vector<FRenderedThumbnailUploadResult> Uploads;
 		};
 	} // namespace
 
@@ -241,7 +284,7 @@ namespace Durin
 		return true;
 	}
 
-	struct FMaterialAssetThumbnailCache::FImpl
+	struct FRenderedAssetThumbnailCache::FImpl
 	{
 		struct FEntry
 		{
@@ -263,18 +306,27 @@ namespace Durin
 		FRenderedAssetThumbnailPipeline Pipeline;
 		std::unique_ptr<FRenderedAssetThumbnailPreviewScenePool> ScenePool;
 		std::unordered_map<FAssetPath, FEntry> Entries;
-		std::shared_ptr<FMaterialThumbnailAsyncState> AsyncState =
-			std::make_shared<FMaterialThumbnailAsyncState>();
+		std::shared_ptr<FRenderedThumbnailAsyncState> AsyncState =
+			std::make_shared<FRenderedThumbnailAsyncState>();
 		std::optional<FRenderedAssetThumbnailJob> ActiveJob;
 		DMaterialInterface* ActiveMaterial = nullptr;
 		DTextureCube* ActiveTextureCube = nullptr;
+		DStaticMesh* ActiveStaticMesh = nullptr;
 		uint64 FrameNumber = 0;
+		uint64 PreviewSceneCreations = 0;
+		uint64 PreviewSceneAssignments = 0;
+		uint64 UploadsQueued = 0;
+		uint64 UploadsCompleted = 0;
+		uint64 UploadFailures = 0;
+		uint64 GpuEvictions = 0;
 		bool bProvidersRegistered = false;
 
-		explicit FImpl(FAssetThumbnailBudgets InBudgets)
+		explicit FImpl(
+			FAssetThumbnailBudgets InBudgets,
+			FAssetThumbnailObjectStoreSettings StoreSettings)
 			: Budgets(InBudgets)
 			, Scheduler(Registry, Budgets)
-			, Pipeline(Scheduler, {}, Budgets)
+			, Pipeline(Scheduler, std::move(StoreSettings), Budgets)
 		{
 			std::string Error;
 			auto Material = std::make_shared<FMaterialAssetThumbnailProvider>(
@@ -282,10 +334,53 @@ namespace Durin
 			auto Instance = std::make_shared<FMaterialAssetThumbnailProvider>(
 				DMaterialInstance::StaticClass()->GetQualifiedName().ToString());
 			auto TextureCube = std::make_shared<FTextureCubeAssetThumbnailProvider>();
+			auto StaticMesh = std::make_shared<FStaticMeshAssetThumbnailProvider>();
 			bProvidersRegistered =
 				Registry.Register(std::move(Material), Error)
 				&& Registry.Register(std::move(Instance), Error)
-				&& Registry.Register(std::move(TextureCube), Error);
+				&& Registry.Register(std::move(TextureCube), Error)
+				&& Registry.Register(std::move(StaticMesh), Error);
+		}
+
+		auto ClearActiveAssetReferences() -> void
+		{
+			ActiveMaterial = nullptr;
+			ActiveTextureCube = nullptr;
+			ActiveStaticMesh = nullptr;
+		}
+
+		auto ValidateActiveStaticMeshRevision(uint64 ExpectedRevision) const
+			-> std::string
+		{
+			if (ActiveStaticMesh == nullptr) return {};
+			bool bResourcesReady = false;
+			std::string Error;
+			const uint64 CurrentRevision = GetStaticMeshResourceRevision(
+				ActiveStaticMesh, bResourcesReady, Error);
+			if (!Error.empty()) return Error;
+			if (!bResourcesReady || CurrentRevision != ExpectedRevision)
+			{
+				return std::format(
+					"StaticMesh '{}' changed while its thumbnail was being generated.",
+					ActiveJob
+						? ActiveJob->ScheduledJob.GenerationRequest.KeyInput.Asset
+							.VirtualPath.ToString()
+						: ActiveStaticMesh->GetObjectPath());
+			}
+			return {};
+		}
+
+		auto QualifyStaticMeshDiagnostic(std::string_view Detail) const
+			-> std::string
+		{
+			if (ActiveStaticMesh == nullptr) return std::string(Detail);
+			return std::format(
+				"StaticMesh '{}' thumbnail generation failed: {}",
+				ActiveJob
+					? ActiveJob->ScheduledJob.GenerationRequest.KeyInput.Asset
+						.VirtualPath.ToString()
+					: ActiveStaticMesh->GetObjectPath(),
+				Detail.empty() ? "unknown preview error" : Detail);
 		}
 
 		auto EnsureScene() -> bool
@@ -293,6 +388,7 @@ namespace Durin
 			if (ScenePool != nullptr) return ScenePool->IsAvailable();
 			ScenePool = std::make_unique<FRenderedAssetThumbnailPreviewScenePool>(
 				FRenderedAssetThumbnailVisualContract{}, Budgets);
+			++PreviewSceneCreations;
 			return ScenePool->IsAvailable();
 		}
 
@@ -314,18 +410,19 @@ namespace Durin
 			if (It == Entries.end() || It->second.Serial != Serial) return;
 			It->second.bUploading = true;
 			It->second.bUploadFailed = false;
-			const std::weak_ptr<FMaterialThumbnailAsyncState> WeakState = AsyncState;
+			++UploadsQueued;
+			const std::weak_ptr<FRenderedThumbnailAsyncState> WeakState = AsyncState;
 			auto SharedPixels = std::make_shared<std::vector<uint8>>(std::move(Pixels));
-			ENQUEUE_RENDER_COMMAND(UploadMaterialAssetThumbnail)(
+			ENQUEUE_RENDER_COMMAND(UploadRenderedAssetThumbnail)(
 				[WeakState, AssetPath, Serial, SharedPixels, Width, Height](
 					FRHICommandListImmediate& CommandList) {
-					FMaterialThumbnailUploadResult Result{
+					FRenderedThumbnailUploadResult Result{
 						.AssetPath = AssetPath,
 						.Serial = Serial,
 						.Width = Width,
 						.Height = Height};
 					FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
-						"MaterialAssetThumbnail", Width, Height, EPixelFormat::SRGBA8_UNORM);
+						"RenderedAssetThumbnail", Width, Height, EPixelFormat::SRGBA8_UNORM);
 					Desc.AddFlags(ETextureCreateFlags::ShaderResource);
 					Result.Texture = GDynamicRHI != nullptr
 						? GDynamicRHI->RHICreateTexture(CommandList, Desc)
@@ -344,9 +441,9 @@ namespace Durin
 					}
 					else
 					{
-						Result.Error = "Unable to create the material thumbnail UI texture.";
+						Result.Error = "Unable to create the rendered-asset thumbnail UI texture.";
 					}
-					if (const std::shared_ptr<FMaterialThumbnailAsyncState> State =
+					if (const std::shared_ptr<FRenderedThumbnailAsyncState> State =
 						WeakState.lock())
 					{
 						std::lock_guard Lock(State->Mutex);
@@ -358,7 +455,7 @@ namespace Durin
 		auto DecodeAndQueueUpload(
 			const FAssetPath& AssetPath,
 			uint64 Serial,
-			std::span<const uint8> EncodedBytes) -> void
+			std::span<const uint8> EncodedBytes) -> bool
 		{
 			Asset::FDecodedImage Image;
 			std::string Error;
@@ -369,20 +466,21 @@ namespace Durin
 					It->second.Diagnostic = std::move(Error);
 					It->second.bUploadFailed = true;
 				}
-				return;
+				return false;
 			}
 			QueueUpload(
 				AssetPath, Serial, std::move(Image.Pixels), Image.Width, Image.Height);
+			return true;
 		}
 
 		auto DrainUploads() -> void
 		{
-			std::vector<FMaterialThumbnailUploadResult> Results;
+			std::vector<FRenderedThumbnailUploadResult> Results;
 			{
 				std::lock_guard Lock(AsyncState->Mutex);
 				Results.swap(AsyncState->Uploads);
 			}
-			for (FMaterialThumbnailUploadResult& Result : Results)
+			for (FRenderedThumbnailUploadResult& Result : Results)
 			{
 				auto It = Entries.find(Result.AssetPath);
 				if (It == Entries.end() || It->second.Serial != Result.Serial) continue;
@@ -391,9 +489,10 @@ namespace Durin
 				if (Result.Texture == nullptr || !Mona::GActiveUIBackend)
 				{
 					Entry.Diagnostic = Result.Error.empty()
-						? "The UI backend is unavailable for material thumbnails."
+						? "The UI backend is unavailable for rendered-asset thumbnails."
 						: std::move(Result.Error);
 					Entry.bUploadFailed = true;
+					++UploadFailures;
 					continue;
 				}
 				UnregisterTexture(Entry);
@@ -403,6 +502,7 @@ namespace Durin
 				Entry.Height = Result.Height;
 				Entry.Diagnostic.clear();
 				Entry.bUploadFailed = false;
+				++UploadsCompleted;
 			}
 		}
 
@@ -423,8 +523,20 @@ namespace Durin
 				ActiveJob->ScheduledJob.GenerationRequest.RequestSerial;
 			if (State == ERenderedAssetThumbnailCaptureState::Failed)
 			{
+				if (ActiveStaticMesh != nullptr)
+					Error = QualifyStaticMeshDiagnostic(Error);
 				Pipeline.CompleteRender(
 					*ActiveJob, ActiveJob->AssetRevision, ActiveJob->ResourceRevision, Error);
+			}
+			else if (const std::string RevisionError =
+					ValidateActiveStaticMeshRevision(ActiveJob->ResourceRevision);
+				!RevisionError.empty())
+			{
+				Pipeline.CompleteRender(
+					*ActiveJob,
+					ActiveJob->AssetRevision,
+					ActiveJob->ResourceRevision,
+					RevisionError);
 			}
 			else if (Pipeline.CompleteRender(
 						*ActiveJob,
@@ -440,7 +552,11 @@ namespace Durin
 					ActiveJob->ResourceRevision,
 					Pixels,
 					FRenderedAssetThumbnailVisualContract{}.Output.Width,
-					FRenderedAssetThumbnailVisualContract{}.Output.Height))
+					FRenderedAssetThumbnailVisualContract{}.Output.Height,
+					{},
+					[this, ExpectedRevision = ActiveJob->ResourceRevision]() {
+						return ValidateActiveStaticMeshRevision(ExpectedRevision);
+					}))
 			{
 				QueueUpload(
 					AssetPath,
@@ -451,32 +567,126 @@ namespace Durin
 			}
 			ScenePool->Reset();
 			ActiveJob.reset();
-			ActiveMaterial = nullptr;
-			ActiveTextureCube = nullptr;
+			ClearActiveAssetReferences();
 		}
 
 		auto TryBeginCapture() -> void
 		{
-			if (!ActiveJob || (ActiveMaterial == nullptr && ActiveTextureCube == nullptr))
+			if (!ActiveJob || (ActiveMaterial == nullptr
+				&& ActiveTextureCube == nullptr
+				&& ActiveStaticMesh == nullptr))
 				return;
 			bool bResourcesReady = false;
 			std::string Error;
-			const uint64 ResourceRevision = ActiveTextureCube != nullptr
-				? GetTextureCubeResourceRevision(
-					ActiveTextureCube, bResourcesReady, Error)
-				: GetMaterialResourceRevision(
-					ActiveMaterial, bResourcesReady, Error);
+			const uint64 ResourceRevision = ActiveStaticMesh != nullptr
+				? GetStaticMeshResourceRevision(
+					ActiveStaticMesh, bResourcesReady, Error)
+				: ActiveTextureCube != nullptr
+					? GetTextureCubeResourceRevision(
+						ActiveTextureCube, bResourcesReady, Error)
+					: GetMaterialResourceRevision(
+						ActiveMaterial, bResourcesReady, Error);
 			if (!Error.empty())
 			{
+				if (ActiveStaticMesh != nullptr)
+					Error = QualifyStaticMeshDiagnostic(Error);
 				Pipeline.BeginRender(
 					*ActiveJob,
 					false,
 					ActiveJob->AssetRevision,
 					ResourceRevision,
 					Error);
+				if (ActiveJob->ResourceRevision != 0)
+				{
+					Pipeline.CompleteRender(
+						*ActiveJob,
+						ActiveJob->AssetRevision,
+						ActiveJob->ResourceRevision,
+						Error);
+				}
+				if (ScenePool) ScenePool->Reset();
 				ActiveJob.reset();
-				ActiveMaterial = nullptr;
-				ActiveTextureCube = nullptr;
+				ClearActiveAssetReferences();
+				return;
+			}
+			if (ActiveStaticMesh != nullptr && bResourcesReady)
+			{
+				if (!Pipeline.BeginRender(
+						*ActiveJob,
+						true,
+						ActiveJob->AssetRevision,
+						ResourceRevision))
+					return;
+				if (!EnsureScene())
+				{
+					Error = QualifyStaticMeshDiagnostic(
+						ScenePool != nullptr
+							? ScenePool->GetDiagnostic()
+							: "The rendered-thumbnail scene is unavailable.");
+					Pipeline.CompleteRender(
+						*ActiveJob,
+						ActiveJob->AssetRevision,
+						ActiveJob->ResourceRevision,
+						Error);
+					ActiveJob.reset();
+					ClearActiveAssetReferences();
+					return;
+				}
+				const auto Input = std::dynamic_pointer_cast<
+					const FStaticMeshAssetThumbnailGenerationInput>(
+					ActiveJob->ScheduledJob.GenerationRequest.Input);
+				const std::optional<FBox> Bounds = ActiveStaticMesh->GetLOD0LocalBounds();
+				FStaticMeshAssetThumbnailView ThumbnailView;
+				if (Input == nullptr || !Bounds
+					|| !CalculateStaticMeshAssetThumbnailView({
+						.LocalBounds = Bounds.value_or(FBox()),
+						.OutputAspectRatio = Input != nullptr
+							? static_cast<double>(Input->VisualContract.Output.Width)
+								/ static_cast<double>(Input->VisualContract.Output.Height)
+							: 1.0,
+						.VerticalFieldOfViewDegrees = Input != nullptr
+							? Input->VisualContract.VerticalFieldOfViewDegrees
+							: 42.0,
+						.CameraDirection = Input != nullptr
+							? FVector3(
+								Input->VisualContract.CameraDirectionX,
+								Input->VisualContract.CameraDirectionY,
+								Input->VisualContract.CameraDirectionZ)
+							: FVector3(2.6, -2.6, 1.8)},
+						ThumbnailView,
+						Error)
+					|| !ScenePool->SetStaticMesh(ActiveStaticMesh, ThumbnailView, Error))
+				{
+					if (Error.empty()) Error = "StaticMesh thumbnail input is invalid.";
+					Error = QualifyStaticMeshDiagnostic(Error);
+					Pipeline.CompleteRender(
+						*ActiveJob,
+						ActiveJob->AssetRevision,
+						ActiveJob->ResourceRevision,
+						Error);
+					ScenePool->Reset();
+					ActiveJob.reset();
+					ClearActiveAssetReferences();
+					return;
+				}
+				++PreviewSceneAssignments;
+				Error = ValidateActiveStaticMeshRevision(ActiveJob->ResourceRevision);
+				if (!Error.empty()
+					|| !ScenePool->BeginCapture(
+						Error, FStaticMeshAssetThumbnailContract::bOutputOpaque))
+				{
+					if (Error.empty()) Error = "The preview capture could not start.";
+					if (Error.find("StaticMesh '") != 0)
+						Error = QualifyStaticMeshDiagnostic(Error);
+					Pipeline.CompleteRender(
+						*ActiveJob,
+						ActiveJob->AssetRevision,
+						ActiveJob->ResourceRevision,
+						Error);
+					ScenePool->Reset();
+					ActiveJob.reset();
+					ClearActiveAssetReferences();
+				}
 				return;
 			}
 			if (!Pipeline.BeginRender(
@@ -496,8 +706,7 @@ namespace Durin
 						? ScenePool->GetDiagnostic()
 						: "The rendered-thumbnail scene is unavailable.");
 				ActiveJob.reset();
-				ActiveMaterial = nullptr;
-				ActiveTextureCube = nullptr;
+				ClearActiveAssetReferences();
 				return;
 			}
 			const bool bTextureCube = ActiveTextureCube != nullptr;
@@ -508,6 +717,7 @@ namespace Durin
 				? ScenePool->SetTextureCube(ActiveTextureCube, PreviewTransform, Error)
 				: ScenePool->SetMaterial(
 					ScenePool->GetSphereMesh(), ActiveMaterial, PreviewTransform, Error);
+			if (bSceneReady) ++PreviewSceneAssignments;
 			if (!bSceneReady
 				|| !ScenePool->BeginCapture(Error, bTextureCube))
 			{
@@ -518,8 +728,7 @@ namespace Durin
 					Error);
 				ScenePool->Reset();
 				ActiveJob.reset();
-				ActiveMaterial = nullptr;
-				ActiveTextureCube = nullptr;
+				ClearActiveAssetReferences();
 			}
 		}
 
@@ -528,14 +737,88 @@ namespace Durin
 			FRenderedAssetThumbnailStartResult Start = Pipeline.StartNextDetailed();
 			if (Start.WarmJob)
 			{
+				const FAssetThumbnailScheduledJob& WarmJob = *Start.WarmJob;
 				const FAssetPath& Path =
-					Start.WarmJob->GenerationRequest.KeyInput.Asset.VirtualPath;
-				DecodeAndQueueUpload(
-					Path, Start.WarmJob->GenerationRequest.RequestSerial, Start.EncodedBytes);
+					WarmJob.GenerationRequest.KeyInput.Asset.VirtualPath;
+				if (!DecodeAndQueueUpload(
+						Path, WarmJob.GenerationRequest.RequestSerial, Start.EncodedBytes))
+				{
+					Pipeline.InvalidatePersistentObject(WarmJob.CacheKey);
+					Pipeline.RecordRetry();
+					Scheduler.Cancel(Path);
+					std::string Error;
+					if (Scheduler.Request({
+							.Asset = WarmJob.GenerationRequest.KeyInput.Asset,
+							.Priority = WarmJob.Priority,
+							.RequestSerial = WarmJob.GenerationRequest.RequestSerial}, Error))
+					{
+						if (auto It = Entries.find(Path); It != Entries.end())
+						{
+							It->second.Diagnostic.clear();
+							It->second.bUploadFailed = false;
+						}
+					}
+				}
 				return;
 			}
 			if (!Start.ColdJob) return;
 			ActiveJob = std::move(Start.ColdJob);
+			if (const auto StaticMeshInput = std::dynamic_pointer_cast<
+					const FStaticMeshAssetThumbnailGenerationInput>(
+					ActiveJob->ScheduledJob.GenerationRequest.Input))
+			{
+				DObject* Loaded = nullptr;
+				const Asset::FAssetResult Result =
+					Asset::LoadAsset(StaticMeshInput->AssetPath, Loaded);
+				ActiveStaticMesh = Result ? Cast<DStaticMesh>(Loaded) : nullptr;
+				if (ActiveStaticMesh != nullptr
+					&& ActiveStaticMesh->GetClass() != DStaticMesh::StaticClass())
+				{
+					ActiveStaticMesh = nullptr;
+				}
+				if (!Result || ActiveStaticMesh == nullptr)
+				{
+					Pipeline.CompleteLoad(
+						*ActiveJob,
+						0,
+						Result.Message.empty()
+							? std::format(
+								"The requested asset '{}' is not an exact DStaticMesh.",
+								StaticMeshInput->AssetPath.ToString())
+							: Result.Message);
+					ActiveJob.reset();
+					ClearActiveAssetReferences();
+					return;
+				}
+				FStaticMeshRenderResourceStatus Status =
+					ActiveStaticMesh->GetRenderResourceStatus();
+				if (!ActiveStaticMesh->GetLOD0LocalBounds())
+				{
+					Pipeline.CompleteLoad(
+						*ActiveJob,
+						Status.Revision,
+						std::format(
+							"StaticMesh '{}' has no valid non-degenerate LOD 0 bounds.",
+							StaticMeshInput->AssetPath.ToString()));
+					ActiveJob.reset();
+					ClearActiveAssetReferences();
+					return;
+				}
+				if (Status.Readiness
+					== EStaticMeshRenderResourceReadiness::Unavailable)
+				{
+					ActiveStaticMesh->InitResources();
+					Status = ActiveStaticMesh->GetRenderResourceStatus();
+				}
+				if (!Pipeline.CompleteLoad(*ActiveJob, Status.Revision))
+				{
+					ActiveJob.reset();
+					ClearActiveAssetReferences();
+					return;
+				}
+				TryBeginCapture();
+				return;
+			}
 			if (const auto CubeInput =
 					std::dynamic_pointer_cast<const FTextureCubeThumbnailGenerationInput>(
 						ActiveJob->ScheduledJob.GenerationRequest.Input))
@@ -553,14 +836,14 @@ namespace Durin
 							? "The requested asset is not a TextureCube."
 							: Result.Message);
 					ActiveJob.reset();
-					ActiveTextureCube = nullptr;
+					ClearActiveAssetReferences();
 					return;
 				}
 				if (!Pipeline.CompleteLoad(
 						*ActiveJob, ActiveTextureCube->GetBuildRevision()))
 				{
 					ActiveJob.reset();
-					ActiveTextureCube = nullptr;
+					ClearActiveAssetReferences();
 					return;
 				}
 				TryBeginCapture();
@@ -573,6 +856,7 @@ namespace Durin
 				Pipeline.CompleteLoad(
 					*ActiveJob, 0, "Rendered thumbnail input is invalid.");
 				ActiveJob.reset();
+				ClearActiveAssetReferences();
 				return;
 			}
 			DObject* Loaded = nullptr;
@@ -587,13 +871,14 @@ namespace Durin
 						? "The requested asset is not a material."
 						: Result.Message);
 				ActiveJob.reset();
+				ClearActiveAssetReferences();
 				return;
 			}
 			const uint64 AssetRevision = ActiveMaterial->GetRenderStateVersion();
 			if (!Pipeline.CompleteLoad(*ActiveJob, AssetRevision))
 			{
 				ActiveJob.reset();
-				ActiveMaterial = nullptr;
+				ClearActiveAssetReferences();
 				return;
 			}
 			TryBeginCapture();
@@ -623,18 +908,20 @@ namespace Durin
 					UnregisterTexture(It->second);
 					Entries.erase(It);
 					Scheduler.Cancel(Path);
+					++GpuEvictions;
 				}
 			}
 		}
 	};
 
-	FMaterialAssetThumbnailCache::FMaterialAssetThumbnailCache(
-		FAssetThumbnailBudgets Budgets)
-		: Impl(std::make_unique<FImpl>(Budgets))
+	FRenderedAssetThumbnailCache::FRenderedAssetThumbnailCache(
+		FAssetThumbnailBudgets Budgets,
+		FAssetThumbnailObjectStoreSettings StoreSettings)
+		: Impl(std::make_unique<FImpl>(Budgets, std::move(StoreSettings)))
 	{
 	}
 
-	FMaterialAssetThumbnailCache::~FMaterialAssetThumbnailCache()
+	FRenderedAssetThumbnailCache::~FRenderedAssetThumbnailCache()
 	{
 		Clear();
 		Impl->ScenePool.reset();
@@ -642,7 +929,7 @@ namespace Durin
 		Impl->Registry.Shutdown();
 	}
 
-	auto FMaterialAssetThumbnailCache::BeginFrame() -> void
+	auto FRenderedAssetThumbnailCache::BeginFrame() -> void
 	{
 		++Impl->FrameNumber;
 		for (auto& [Path, Entry] : Impl->Entries) Entry.bVisible = false;
@@ -651,7 +938,7 @@ namespace Durin
 		Impl->Pipeline.BeginFrame();
 	}
 
-	auto FMaterialAssetThumbnailCache::Request(
+	auto FRenderedAssetThumbnailCache::Request(
 		const FAssetThumbnailPackageFingerprint& Asset,
 		EAssetThumbnailPriority Priority) -> void
 	{
@@ -685,7 +972,7 @@ namespace Durin
 		}
 	}
 
-	auto FMaterialAssetThumbnailCache::Find(const FAssetPath& AssetPath) const
+	auto FRenderedAssetThumbnailCache::Find(const FAssetPath& AssetPath) const
 		-> FAssetThumbnailView
 	{
 		FAssetThumbnailView View = Impl->Scheduler.Find(AssetPath);
@@ -708,7 +995,7 @@ namespace Durin
 		return View;
 	}
 
-	auto FMaterialAssetThumbnailCache::EndFrame() -> void
+	auto FRenderedAssetThumbnailCache::EndFrame() -> void
 	{
 		if (Impl->ActiveJob)
 			Impl->TryBeginCapture();
@@ -717,20 +1004,45 @@ namespace Durin
 		Impl->EvictToBudget();
 	}
 
-	auto FMaterialAssetThumbnailCache::CancelPendingRequests() -> void
+	auto FRenderedAssetThumbnailCache::CancelPendingRequests() -> void
 	{
 		if (Impl->ActiveJob) Impl->Pipeline.Cancel(*Impl->ActiveJob);
 		Impl->ActiveJob.reset();
-		Impl->ActiveMaterial = nullptr;
-		Impl->ActiveTextureCube = nullptr;
+		Impl->ClearActiveAssetReferences();
 		if (Impl->ScenePool) Impl->ScenePool->Reset();
 		Impl->Scheduler.CancelAll();
+		for (auto& [Path, Entry] : Impl->Entries)
+		{
+			++Entry.Serial;
+			Entry.bUploading = false;
+			Entry.bUploadFailed = false;
+			Entry.Diagnostic.clear();
+		}
 	}
 
-	auto FMaterialAssetThumbnailCache::Clear() -> void
+	auto FRenderedAssetThumbnailCache::Clear() -> void
 	{
 		CancelPendingRequests();
 		for (auto& [Path, Entry] : Impl->Entries) Impl->UnregisterTexture(Entry);
 		Impl->Entries.clear();
+	}
+
+	auto FRenderedAssetThumbnailCache::GetStats() const
+		-> FRenderedAssetThumbnailCacheStats
+	{
+		uint64 LiveGpuTextures = 0;
+		for (const auto& [Path, Entry] : Impl->Entries)
+			LiveGpuTextures += Entry.Texture != nullptr ? 1u : 0u;
+		return {
+			.Pipeline = Impl->Pipeline.GetStats(),
+			.PreviewSceneCreations = Impl->PreviewSceneCreations,
+			.PreviewSceneAssignments = Impl->PreviewSceneAssignments,
+			.UploadsQueued = Impl->UploadsQueued,
+			.UploadsCompleted = Impl->UploadsCompleted,
+			.UploadFailures = Impl->UploadFailures,
+			.GpuEvictions = Impl->GpuEvictions,
+			.LiveGpuTextures = LiveGpuTextures,
+			.bHasActiveJob = Impl->ActiveJob.has_value(),
+			.bHasPreviewScene = Impl->ScenePool != nullptr};
 	}
 } // namespace Durin

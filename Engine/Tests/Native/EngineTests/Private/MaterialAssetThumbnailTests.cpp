@@ -212,7 +212,7 @@ TEST(FMaterialAssetThumbnailTests, InvalidInstancePublishesOneStableDiagnostic)
 		Durin::Asset::GetAssetRegistry().FindAssetExact(InvalidPath);
 	ASSERT_NE(Data, nullptr);
 
-	Durin::FMaterialAssetThumbnailCache Cache;
+	Durin::FRenderedAssetThumbnailCache Cache;
 	Cache.BeginFrame();
 	Cache.Request(MakeRequest(*Data).Asset, Durin::EAssetThumbnailPriority::Visible);
 	Cache.EndFrame();

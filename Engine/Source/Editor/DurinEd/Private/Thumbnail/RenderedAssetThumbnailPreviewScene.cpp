@@ -1,5 +1,7 @@
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 
+#include "Thumbnail/StaticMeshAssetThumbnail.h"
+
 #include "Asset/EditorAssetRetention.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -86,6 +88,39 @@ namespace Durin
 				Contract.bOutputOpaque ? 1.0f : Contract.BackgroundAlpha};
 			return View;
 		}
+
+		auto BuildStaticMeshThumbnailView(
+			const FRenderedAssetThumbnailVisualContract& Contract,
+			const FStaticMeshAssetThumbnailView& ThumbnailView) -> FSceneView
+		{
+			FSceneView View = BuildThumbnailView(Contract);
+			const FVector3& Eye = ThumbnailView.CameraPosition;
+			const FVector3& Forward = ThumbnailView.CameraForward;
+			const FVector3& Right = ThumbnailView.CameraRight;
+			const FVector3& Up = ThumbnailView.CameraUp;
+			View.ViewLocation = Eye;
+			View.ViewMatrix[0][0] = Forward.x;
+			View.ViewMatrix[1][0] = Forward.y;
+			View.ViewMatrix[2][0] = Forward.z;
+			View.ViewMatrix[3][0] = -Math::Dot(Forward, Eye);
+			View.ViewMatrix[0][1] = Right.x;
+			View.ViewMatrix[1][1] = Right.y;
+			View.ViewMatrix[2][1] = Right.z;
+			View.ViewMatrix[3][1] = -Math::Dot(Right, Eye);
+			View.ViewMatrix[0][2] = Up.x;
+			View.ViewMatrix[1][2] = Up.y;
+			View.ViewMatrix[2][2] = Up.z;
+			View.ViewMatrix[3][2] = -Math::Dot(Up, Eye);
+
+			const float NearClip = static_cast<float>(ThumbnailView.NearClipDistance);
+			const float FarClip = static_cast<float>(ThumbnailView.FarClipDistance);
+			const float DepthScale = FarClip / (FarClip - NearClip);
+			const float DepthBias = -NearClip * FarClip / (FarClip - NearClip);
+			View.ProjectionMatrix[0][2] = DepthScale;
+			View.ProjectionMatrix[3][2] = DepthBias;
+			View.ViewProjectionMatrix = View.ProjectionMatrix * View.ViewMatrix;
+			return View;
+		}
 	}
 
 	struct FRenderedAssetThumbnailPreviewScenePool::FImpl
@@ -104,6 +139,7 @@ namespace Durin
 		std::unique_ptr<FPreviewScene> PreviewScene;
 		FRetainedEditorAsset SphereAsset;
 		TObjectPtr<DStaticMeshComponent> MaterialComponent;
+		TObjectPtr<DStaticMeshComponent> StaticMeshComponent;
 		TObjectPtr<DTextureCubePreviewComponent> TextureCubeComponent;
 		TObjectPtr<DDirectionalLightComponent> Light;
 		FTextureRHIRef RenderTarget;
@@ -153,6 +189,10 @@ namespace Durin
 				? Cast<DStaticMeshComponent>(PreviewActor->AddInstanceComponent(
 					DStaticMeshComponent::StaticClass(), "MaterialPreview"))
 				: nullptr;
+			StaticMeshComponent = PreviewActor
+				? Cast<DStaticMeshComponent>(PreviewActor->AddInstanceComponent(
+					DStaticMeshComponent::StaticClass(), "StaticMeshPreview"))
+				: nullptr;
 			TextureCubeComponent = PreviewActor
 				? Cast<DTextureCubePreviewComponent>(PreviewActor->AddInstanceComponent(
 					DTextureCubePreviewComponent::StaticClass(), "TextureCubePreview"))
@@ -163,7 +203,8 @@ namespace Durin
 				? Cast<DDirectionalLightComponent>(LightActor->AddInstanceComponent(
 					DDirectionalLightComponent::StaticClass(), "PreviewLight"))
 				: nullptr;
-			if (MaterialComponent == nullptr || TextureCubeComponent == nullptr || Light == nullptr)
+			if (MaterialComponent == nullptr || StaticMeshComponent == nullptr
+				|| TextureCubeComponent == nullptr || Light == nullptr)
 			{
 				Error = "The rendered-thumbnail preview components could not be created.";
 				return;
@@ -255,6 +296,7 @@ namespace Durin
 		}
 		Impl->TextureCubeComponent->SetTextureCube(nullptr);
 		Impl->TextureCubeComponent->SetStaticMesh(nullptr);
+		Impl->StaticMeshComponent->SetStaticMesh(nullptr);
 		Impl->MaterialComponent->SetStaticMesh(Mesh);
 		for (uint32 SlotIndex = 0; SlotIndex < Impl->MaterialComponent->GetNumMaterials(); ++SlotIndex)
 			Impl->MaterialComponent->SetMaterial(SlotIndex, Material);
@@ -291,9 +333,46 @@ namespace Durin
 			return false;
 		}
 		Impl->MaterialComponent->SetStaticMesh(nullptr);
+		Impl->StaticMeshComponent->SetStaticMesh(nullptr);
 		Impl->TextureCubeComponent->SetStaticMesh(SphereMesh);
 		Impl->TextureCubeComponent->SetTextureCube(TextureCube);
 		Impl->TextureCubeComponent->SetWorldTransform(Transform);
+		Impl->bHasPrimitive = true;
+		return true;
+	}
+
+	auto FRenderedAssetThumbnailPreviewScenePool::SetStaticMesh(
+		DStaticMesh* StaticMesh,
+		const FStaticMeshAssetThumbnailView& ThumbnailView,
+		std::string& OutError) -> bool
+	{
+		checkf(IsInGameThread(), "Rendered thumbnail scene mutation must run on the game thread.");
+		OutError.clear();
+		if (!IsAvailable())
+		{
+			OutError = Impl->Error;
+			return false;
+		}
+		{
+			std::lock_guard Lock(Impl->Capture->Mutex);
+			if (Impl->Capture->State == ERenderedAssetThumbnailCaptureState::Rendering)
+			{
+				OutError = "A rendered-thumbnail capture is already in flight.";
+				return false;
+			}
+		}
+		if (StaticMesh == nullptr || !StaticMesh->GetLOD0LocalBounds())
+		{
+			OutError = "The rendered-thumbnail StaticMesh has no valid LOD 0 bounds.";
+			return false;
+		}
+		Impl->MaterialComponent->SetStaticMesh(nullptr);
+		Impl->TextureCubeComponent->SetTextureCube(nullptr);
+		Impl->TextureCubeComponent->SetStaticMesh(nullptr);
+		Impl->StaticMeshComponent->ClearMaterialOverrides();
+		Impl->StaticMeshComponent->SetStaticMesh(StaticMesh);
+		Impl->StaticMeshComponent->SetWorldTransform(ThumbnailView.MeshTransform);
+		Impl->View = BuildStaticMeshThumbnailView(Impl->Contract, ThumbnailView);
 		Impl->bHasPrimitive = true;
 		return true;
 	}
@@ -386,11 +465,17 @@ namespace Durin
 			Impl->Capture->Error.clear();
 		}
 		if (Impl->MaterialComponent) Impl->MaterialComponent->SetStaticMesh(nullptr);
+		if (Impl->StaticMeshComponent)
+		{
+			Impl->StaticMeshComponent->ClearMaterialOverrides();
+			Impl->StaticMeshComponent->SetStaticMesh(nullptr);
+		}
 		if (Impl->TextureCubeComponent)
 		{
 			Impl->TextureCubeComponent->SetTextureCube(nullptr);
 			Impl->TextureCubeComponent->SetStaticMesh(nullptr);
 		}
+		Impl->View = BuildThumbnailView(Impl->Contract);
 		Impl->bHasPrimitive = false;
 	}
 } // namespace Durin

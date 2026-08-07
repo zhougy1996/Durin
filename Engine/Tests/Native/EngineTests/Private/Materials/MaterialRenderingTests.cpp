@@ -2,6 +2,8 @@
 #include "Console/ConsoleCommand.h"
 #include "DynamicRHI.h"
 #include "Modules/ModuleManager.h"
+#include "MonaCoreGlobals.h"
+#include "MonaUIBackend.h"
 #include "NativeTestSupport.h"
 #include "PBRLighting.h"
 #include "RHICommandList.h"
@@ -10,6 +12,7 @@
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 #include "Thumbnail/MaterialAssetThumbnail.h"
+#include "Thumbnail/StaticMeshAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Texture/TextureCubeRenderResource.h"
 
@@ -35,6 +38,35 @@ namespace
 
 	private:
 		bool bRegistered = false;
+	};
+
+	class FThumbnailTestUIBackend final : public Durin::Mona::IMonaUIBackend
+	{
+	public:
+		auto Initialize() -> void override {}
+		auto Shutdown() -> void override { Registered.clear(); }
+		auto NewFrame() -> void override {}
+		auto Render() -> void override {}
+		auto RegisterTexture(const Durin::FTextureRHIRef& Texture) -> void override
+		{
+			if (Texture) Registered.insert(Texture.GetReference());
+		}
+		auto UnregisterTexture(const Durin::FTextureRHIRef& Texture) -> void override
+		{
+			if (Texture) Registered.erase(Texture.GetReference());
+		}
+		auto IsTextureRegistered(const Durin::FRHITexture* Texture) -> bool override
+		{
+			return Registered.contains(Texture);
+		}
+		auto DrawImage(const Durin::FRHITexture* Texture, const Durin::FVector2f&) -> bool override
+		{
+			return IsTextureRegistered(Texture);
+		}
+		auto NumRegistered() const -> size_t { return Registered.size(); }
+
+	private:
+		std::unordered_set<const Durin::FRHITexture*> Registered;
 	};
 }
 
@@ -672,6 +704,8 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	Durin::FAssetPath DataTexturePath;
 	Durin::FAssetPath NormalTexturePath;
 	Durin::FAssetPath CaptureCubePath;
+	Durin::FAssetPath StaticMeshFixturePath;
+	Durin::FAssetPath StaticMeshMaterialPath;
 	Durin::DStaticMesh* LowRoughnessMesh =
 		Durin::DStaticMesh::CreateDebugTriangle();
 	Durin::DMaterial* LowRoughnessMaterial =
@@ -832,6 +866,191 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 			Durin::FVector3(0.15, 0.7, 0.2)));
 		const std::vector<Durin::uint8> InheritedAfterPixels =
 			Capture(InheritedInstance);
+
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			"/MaterialThumbnailVulkan/SM_ThumbnailPreview", StaticMeshFixturePath));
+		Durin::DStaticMesh* StaticMeshFixture = nullptr;
+		ASSERT_TRUE(Durin::Asset::CreateAsset(
+			StaticMeshFixturePath, StaticMeshFixture)) << Error;
+		ASSERT_NE(StaticMeshFixture, nullptr);
+		Durin::FStaticMeshImportedData ImportedMesh;
+		ImportedMesh.MaterialSlots.push_back({
+			.Name = "Default",
+			.SourceMaterialIndex = 0,
+			.SourceName = "Default"});
+		Durin::FStaticMeshImportedMesh& ImportedSection =
+			ImportedMesh.Meshes.emplace_back();
+		ImportedSection.Name = "ThumbnailTetrahedron";
+		ImportedSection.Positions = {
+			Durin::FVector3f(-0.6f, -0.5f, -0.4f),
+			Durin::FVector3f(0.7f, -0.4f, -0.3f),
+			Durin::FVector3f(0.0f, 0.8f, -0.2f),
+			Durin::FVector3f(0.1f, 0.0f, 0.9f)};
+		ImportedSection.Indices = {
+			0, 2, 1,
+			0, 1, 3,
+			1, 2, 3,
+			2, 0, 3};
+		ImportedSection.SourceMaterialIndex = 0;
+		ASSERT_TRUE(StaticMeshFixture->InitializeFromImportedData(
+			ImportedMesh,
+			{
+				.SourcePath = {.Path = "/MaterialThumbnailVulkan/SM_ThumbnailPreview.fixture"},
+				.SourceContentHash = "0123456789abcdef0123456789abcdef",
+				.ImporterId = "MaterialThumbnailTest",
+				.ImporterVersion = 1,
+				.ImportSettings = Durin::FStaticMeshImportSettings::MakeDurin()},
+			"StaticMesh thumbnail preview test fixture",
+			Error)) << Error;
+		ASSERT_TRUE(StaticMeshFixture->SetImportedDefaultMaterial(
+			0, CaptureMaterial, Error)) << Error;
+		StaticMeshFixture->InitResources();
+		Durin::FlushRenderingCommands();
+		ASSERT_EQ(
+			StaticMeshFixture->GetRenderResourceStatus().Readiness,
+			Durin::EStaticMeshRenderResourceReadiness::Ready);
+		const std::optional<Durin::FBox> StaticMeshBounds =
+			StaticMeshFixture->GetLOD0LocalBounds();
+		ASSERT_TRUE(StaticMeshBounds.has_value());
+		Durin::FStaticMeshAssetThumbnailView StaticMeshView;
+		ASSERT_TRUE(Durin::CalculateStaticMeshAssetThumbnailView({
+			.LocalBounds = *StaticMeshBounds,
+			.OutputAspectRatio = 1.0,
+			.VerticalFieldOfViewDegrees = Contract.VerticalFieldOfViewDegrees,
+			.CameraDirection = Durin::FStaticMeshAssetThumbnailViewInput{}
+				.CameraDirection},
+			StaticMeshView,
+			Error)) << Error;
+		auto CaptureStaticMesh = [&] {
+			std::vector<Durin::uint8> Pixels;
+			EXPECT_TRUE(Pool.SetStaticMesh(
+				StaticMeshFixture, StaticMeshView, Error)) << Error;
+			EXPECT_TRUE(Pool.BeginCapture(
+				Error, Durin::FStaticMeshAssetThumbnailContract::bOutputOpaque))
+				<< Error;
+			Durin::FlushRenderingCommands();
+			EXPECT_EQ(
+				Pool.PollCapture(Pixels, Error),
+				Durin::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+			Pool.Reset();
+			return Pixels;
+		};
+		const std::vector<Durin::uint8> StaticMeshPixels = CaptureStaticMesh();
+		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
+			Durin::MaterialParameters::BaseColorName(),
+			Durin::FVector3(0.85, 0.12, 0.18)));
+		const std::vector<Durin::uint8> RecoloredStaticMeshPixels = CaptureStaticMesh();
+		ASSERT_EQ(StaticMeshPixels.size(), 64u * 64u * 4u);
+		ASSERT_EQ(RecoloredStaticMeshPixels.size(), StaticMeshPixels.size());
+		EXPECT_NE(StaticMeshPixels, RecoloredStaticMeshPixels);
+		Durin::uint32 GeometryPixels = 0;
+		for (Durin::uint32 Y = 0; Y < 64; ++Y)
+		{
+			for (Durin::uint32 X = 0; X < 64; ++X)
+			{
+				const size_t Pixel = (Y * 64u + X) * 4u;
+				GeometryPixels += StaticMeshPixels[Pixel + 3] != 0u ? 1u : 0u;
+				if (X == 0 || Y == 0 || X == 63 || Y == 63)
+					EXPECT_EQ(StaticMeshPixels[Pixel + 3], 0u);
+			}
+		}
+		EXPECT_GT(GeometryPixels, 64u);
+		EXPECT_LT(GeometryPixels, 64u * 64u);
+
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			"/MaterialThumbnailVulkan/M_StaticMeshThumbnail",
+			StaticMeshMaterialPath));
+		Durin::DMaterial* StaticMeshAssetMaterial = nullptr;
+		ASSERT_TRUE(Durin::Asset::CreateAsset(
+			StaticMeshMaterialPath,
+			StaticMeshAssetMaterial));
+		ASSERT_NE(StaticMeshAssetMaterial, nullptr);
+		ASSERT_TRUE(StaticMeshAssetMaterial->SetVectorParameterValue(
+			Durin::MaterialParameters::BaseColorName(),
+			Durin::FVector3(0.85, 0.12, 0.18)));
+		ASSERT_TRUE(Durin::Asset::SavePackage(StaticMeshAssetMaterial->GetPackage()));
+		ASSERT_TRUE(StaticMeshFixture->SetImportedDefaultMaterial(
+			0, StaticMeshAssetMaterial, Error)) << Error;
+		ASSERT_TRUE(Durin::Asset::SavePackage(StaticMeshFixture->GetPackage()));
+		ASSERT_TRUE(Durin::Asset::GetAssetRegistry().ScanMountedContent(
+			Durin::Asset::EAssetRegistryScanMode::FullValidation));
+		const Durin::Asset::FAssetData* StaticMeshAssetData =
+			Durin::Asset::GetAssetRegistry().FindAssetExact(StaticMeshFixturePath);
+		ASSERT_NE(StaticMeshAssetData, nullptr);
+		const Durin::FAssetThumbnailPackageFingerprint StaticMeshFingerprint = {
+			.VirtualPath = StaticMeshAssetData->PackagePath,
+			.AssetClassName = StaticMeshAssetData->AssetClassName,
+			.PackageFormatVersion = StaticMeshAssetData->FormatVersion,
+			.FileSize = static_cast<Durin::uint64>(StaticMeshAssetData->FileSize),
+			.LastWriteTimeTicks = StaticMeshAssetData->LastWriteTimeTicks};
+		const std::filesystem::path ThumbnailCacheRoot =
+			Durin::Testing::GetTestWorkDirectory() / "StaticMeshRenderedCacheVulkan";
+		Durin::Testing::RemoveTestWorkDirectory(ThumbnailCacheRoot);
+		ASSERT_EQ(Durin::Mona::GActiveUIBackend, nullptr);
+		FThumbnailTestUIBackend ThumbnailUIBackend;
+		Durin::Mona::GActiveUIBackend = &ThumbnailUIBackend;
+		struct FThumbnailBackendGuard
+		{
+			~FThumbnailBackendGuard() { Durin::Mona::GActiveUIBackend = nullptr; }
+		} ThumbnailBackendGuard;
+		auto PumpCacheToReady = [&](Durin::FRenderedAssetThumbnailCache& Cache) {
+			Durin::FAssetThumbnailView View;
+			for (Durin::uint32 Attempt = 0; Attempt < 16; ++Attempt)
+			{
+				Cache.BeginFrame();
+				Cache.Request(
+					StaticMeshFingerprint,
+					Durin::EAssetThumbnailPriority::Visible);
+				View = Cache.Find(StaticMeshFixturePath);
+				Cache.EndFrame();
+				Durin::FlushRenderingCommands();
+				if (View.State == Durin::EAssetThumbnailState::Ready
+					&& View.Texture != nullptr)
+					break;
+			}
+			return View;
+		};
+		{
+			Durin::FRenderedAssetThumbnailCache Cache({}, {
+				.CacheRoot = ThumbnailCacheRoot,
+				.ObjectExtension = ".png"});
+			const Durin::FAssetThumbnailView Ready = PumpCacheToReady(Cache);
+			ASSERT_EQ(Ready.State, Durin::EAssetThumbnailState::Ready)
+				<< Ready.Diagnostic;
+			ASSERT_NE(Ready.Texture, nullptr);
+			EXPECT_TRUE(Ready.bHasTransparency);
+			const Durin::FRenderedAssetThumbnailCacheStats Stats = Cache.GetStats();
+			EXPECT_EQ(Stats.Pipeline.Loads, 1u);
+			EXPECT_EQ(Stats.Pipeline.Renders, 1u);
+			EXPECT_EQ(Stats.Pipeline.Readbacks, 1u);
+			EXPECT_EQ(Stats.Pipeline.DiskHits, 0u);
+			EXPECT_EQ(Stats.PreviewSceneCreations, 1u);
+			EXPECT_EQ(Stats.PreviewSceneAssignments, 1u);
+			EXPECT_EQ(Stats.UploadsCompleted, 1u);
+			EXPECT_EQ(Stats.LiveGpuTextures, 1u);
+			EXPECT_EQ(ThumbnailUIBackend.NumRegistered(), 1u);
+			Cache.Clear();
+			EXPECT_EQ(Cache.GetStats().LiveGpuTextures, 0u);
+			EXPECT_EQ(ThumbnailUIBackend.NumRegistered(), 0u);
+		}
+		{
+			Durin::FRenderedAssetThumbnailCache WarmCache({}, {
+				.CacheRoot = ThumbnailCacheRoot,
+				.ObjectExtension = ".png"});
+			const Durin::FAssetThumbnailView Ready = PumpCacheToReady(WarmCache);
+			ASSERT_EQ(Ready.State, Durin::EAssetThumbnailState::Ready)
+				<< Ready.Diagnostic;
+			const Durin::FRenderedAssetThumbnailCacheStats Stats = WarmCache.GetStats();
+			EXPECT_EQ(Stats.Pipeline.DiskHits, 1u);
+			EXPECT_EQ(Stats.Pipeline.Loads, 0u);
+			EXPECT_EQ(Stats.Pipeline.Renders, 0u);
+			EXPECT_EQ(Stats.Pipeline.Readbacks, 0u);
+			EXPECT_EQ(Stats.PreviewSceneCreations, 0u);
+			EXPECT_EQ(Stats.PreviewSceneAssignments, 0u);
+			EXPECT_EQ(Stats.UploadsCompleted, 1u);
+			WarmCache.Clear();
+		}
+
 		ASSERT_TRUE(CaptureMaterial->SetTextureParameterValue(
 			Durin::MaterialParameters::BaseColorTextureName(), nullptr));
 		const std::vector<Durin::uint8> UntexturedPixels =
@@ -1135,6 +1354,8 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(DataTexturePath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(NormalTexturePath));
 	ASSERT_TRUE(Durin::Asset::DeleteAsset(CaptureCubePath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(StaticMeshFixturePath));
+	ASSERT_TRUE(Durin::Asset::DeleteAsset(StaticMeshMaterialPath));
 	Durin::FlushRenderingCommands();
 	Durin::MarkAsGarbage(CaptureCube);
 	Durin::MarkAsGarbage(InheritedInstance);

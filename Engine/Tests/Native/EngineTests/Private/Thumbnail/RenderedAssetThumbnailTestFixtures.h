@@ -7,6 +7,7 @@
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
+#include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 
@@ -15,7 +16,7 @@ namespace Durin::Tests
 	// Names and values in this fixture set are versioned inputs to rendered-thumbnail golden tests.
 	struct FRenderedAssetThumbnailFixtureSet
 	{
-		static constexpr uint32 Version = 1;
+		static constexpr uint32 Version = 2;
 		static constexpr std::string_view MountPoint = "/RenderedThumbnailFixtures/";
 		static constexpr std::string_view MaterialPath = "/RenderedThumbnailFixtures/Materials/M_Deterministic";
 		static constexpr std::string_view MaterialInstancePath =
@@ -28,6 +29,8 @@ namespace Durin::Tests
 			"/RenderedThumbnailFixtures/Textures/T_InstanceColor";
 		static constexpr std::string_view DirectionalCubePath =
 			"/RenderedThumbnailFixtures/Textures/TC_Directional";
+		static constexpr std::string_view StaticMeshPath =
+			"/RenderedThumbnailFixtures/Meshes/SM_Deterministic";
 
 		DMaterial* Material = nullptr;
 		DMaterialInstance* MaterialInstance = nullptr;
@@ -35,6 +38,7 @@ namespace Durin::Tests
 		DTexture2D* ParentTexture = nullptr;
 		DTexture2D* OverrideTexture = nullptr;
 		DTextureCube* DirectionalCube = nullptr;
+		DStaticMesh* StaticMesh = nullptr;
 	};
 
 	inline auto MakeRenderedThumbnailFixturePath(std::string_view Value, FAssetPath& OutPath) -> bool
@@ -80,8 +84,29 @@ namespace Durin::Tests
 		InitializeDObjectSystem();
 		const std::filesystem::path Root = GetRenderedAssetThumbnailFixtureRoot();
 		static std::unordered_map<std::filesystem::path, FRenderedAssetThumbnailFixtureSet> CachedFixtures;
-		if (const auto It = CachedFixtures.find(Root); It != CachedFixtures.end())
+		if (auto It = CachedFixtures.find(Root); It != CachedFixtures.end())
 		{
+			FAssetPath StaticMeshPath;
+			if (!MakeRenderedThumbnailFixturePath(
+					FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
+					StaticMeshPath))
+			{
+				OutError = "The cached StaticMesh fixture path is invalid.";
+				return false;
+			}
+			if (Asset::FindLoadedPackage(StaticMeshPath) == nullptr)
+			{
+				DObject* Loaded = nullptr;
+				const Asset::FAssetResult Result = Asset::LoadAsset(StaticMeshPath, Loaded);
+				It->second.StaticMesh = Result ? Cast<DStaticMesh>(Loaded) : nullptr;
+				if (!Result || It->second.StaticMesh == nullptr)
+				{
+					OutError = Result.Message.empty()
+						? "Could not reload the cached StaticMesh thumbnail fixture."
+						: Result.Message;
+					return false;
+				}
+			}
 			OutFixtures = It->second;
 			OutError.clear();
 			return true;
@@ -104,11 +129,13 @@ namespace Durin::Tests
 		FAssetPath InvalidMaterialInstancePath;
 		FAssetPath ParentTexturePath;
 		FAssetPath OverrideTexturePath;
+		FAssetPath StaticMeshPath;
 		if (!MakePath(FRenderedAssetThumbnailFixtureSet::MaterialPath, MaterialPath)
 			|| !MakePath(FRenderedAssetThumbnailFixtureSet::MaterialInstancePath, MaterialInstancePath)
 			|| !MakePath(FRenderedAssetThumbnailFixtureSet::InvalidMaterialInstancePath, InvalidMaterialInstancePath)
 			|| !MakePath(FRenderedAssetThumbnailFixtureSet::ParentTexturePath, ParentTexturePath)
-			|| !MakePath(FRenderedAssetThumbnailFixtureSet::OverrideTexturePath, OverrideTexturePath))
+			|| !MakePath(FRenderedAssetThumbnailFixtureSet::OverrideTexturePath, OverrideTexturePath)
+			|| !MakePath(FRenderedAssetThumbnailFixtureSet::StaticMeshPath, StaticMeshPath))
 		{
 			return false;
 		}
@@ -153,6 +180,46 @@ namespace Durin::Tests
 			return Fail("Could not assign the deterministic material-instance fixture values.");
 		}
 		Result = Asset::SavePackage(OutFixtures.MaterialInstance->GetPackage());
+		if (!Result) return Fail(Result.Message);
+
+		Result = Asset::CreateAsset(StaticMeshPath, OutFixtures.StaticMesh);
+		if (!Result) return Fail(Result.Message);
+		FStaticMeshImportedData ImportedMesh;
+		ImportedMesh.MaterialSlots.push_back({
+			.Name = "Default",
+			.SourceMaterialIndex = 0,
+			.SourceName = "Default"});
+		FStaticMeshImportedMesh& Mesh = ImportedMesh.Meshes.emplace_back();
+		Mesh.Name = "ThumbnailTetrahedron";
+		Mesh.Positions = {
+			FVector3f(-0.6f, -0.5f, -0.4f),
+			FVector3f(0.7f, -0.4f, -0.3f),
+			FVector3f(0.0f, 0.8f, -0.2f),
+			FVector3f(0.1f, 0.0f, 0.9f)};
+		Mesh.Indices = {
+			0, 2, 1,
+			0, 1, 3,
+			1, 2, 3,
+			2, 0, 3};
+		Mesh.SourceMaterialIndex = 0;
+		FStaticMeshSourceImportData SourceImportData = {
+			.SourcePath = {.Path =
+				"/RenderedThumbnailFixtures/Sources/SM_Deterministic.fixture"},
+			.SourceContentHash = "0123456789abcdef0123456789abcdef",
+			.ImporterId = "RenderedThumbnailFixture",
+			.ImporterVersion = 1,
+			.ImportSettings = FStaticMeshImportSettings::MakeDurin()};
+		if (!OutFixtures.StaticMesh->InitializeFromImportedData(
+				ImportedMesh,
+				SourceImportData,
+				"Rendered thumbnail StaticMesh fixture",
+				OutError)
+			|| !OutFixtures.StaticMesh->SetImportedDefaultMaterial(
+				0, OutFixtures.Material, OutError))
+		{
+			return false;
+		}
+		Result = Asset::SavePackage(OutFixtures.StaticMesh->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
 		Result = Asset::CreateAsset(InvalidMaterialInstancePath, OutFixtures.InvalidMaterialInstance);

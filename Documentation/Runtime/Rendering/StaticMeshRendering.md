@@ -89,6 +89,32 @@ then destroys the aggregate. Engine termination drains ordinary DObject and
 render-command ownership while the asset keeps this same release contract—no
 StaticMesh-specific shutdown registry or global render flush is required.
 
+## Editor Thumbnail Contract
+
+The editor's rendered-thumbnail cache queries `GetRenderResourceStatus()` and
+`GetLOD0LocalBounds()` without waiting. A cold StaticMesh request loads the exact
+asset class, initializes resources only from the unavailable state, and waits
+across editor frames until a ready nonzero revision is published. The shared
+preview scene then assigns one `DStaticMeshComponent`, mutually exclusive with
+its Material sphere and TextureCube assignments.
+
+Framing is derived deterministically from finite, non-degenerate LOD 0 bounds,
+the frozen camera direction and field of view, output aspect ratio, and image
+margin. The preview transform centers the local bounds; the returned camera and
+clip planes contain every projected corner. Rendering uses LOD 0 and the normal
+positional default-material resolution described below, including the shared
+default and ErrorMaterial fallbacks. The clear region remains transparent while
+rendered mesh pixels retain their coverage, allowing the card background to
+show through without a fixed-color square.
+
+The cache revalidates the captured render-resource revision immediately before
+capture, after readback, and after PNG encoding before atomic publication. A
+revision mismatch, cancellation, resource failure, invalid bounds, or shutdown
+resets the shared component and view, releases the loaded reference, and leaves
+the Content Browser fallback icon. Warm persistent hits decode and upload the
+PNG without loading or initializing the StaticMesh and without creating or
+mutating the preview scene.
+
 ## Vertex Streams and Declaration
 
 `FLocalVertexFactory::FDataType` describes the four physical streams. The

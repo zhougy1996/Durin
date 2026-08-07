@@ -9,6 +9,7 @@ namespace Durin
 	class DMaterialInterface;
 	class DStaticMesh;
 	class DTextureCube;
+	struct FStaticMeshAssetThumbnailView;
 
 	enum class ERenderedAssetThumbnailCaptureState : uint8
 	{
@@ -42,6 +43,10 @@ namespace Durin
 		DURINED_API auto SetTextureCube(
 			DTextureCube* TextureCube,
 			const FTransform& Transform,
+			std::string& OutError) -> bool;
+		DURINED_API auto SetStaticMesh(
+			DStaticMesh* StaticMesh,
+			const FStaticMeshAssetThumbnailView& ThumbnailView,
 			std::string& OutError) -> bool;
 		// Enqueues one render and one readback on the rendering thread. Transparent
 		// captures clear to transparent black so UI compositing has no color fringe.
@@ -143,9 +148,11 @@ namespace Durin
 			std::span<const uint8> Pixels,
 			uint32 Width,
 			uint32 Height,
-			std::string_view Error = {}) -> bool;
+			std::string_view Error = {},
+			std::function<std::string()> ValidateBeforePublication = {}) -> bool;
 		DURINED_API auto Cancel(const FRenderedAssetThumbnailJob& Job) -> void;
 		DURINED_API auto RecordRetry() -> void;
+		DURINED_API auto InvalidatePersistentObject(std::string_view CacheKey) -> void;
 		DURINED_API auto GetStats() const -> FRenderedAssetThumbnailPipelineStats;
 
 	private:
