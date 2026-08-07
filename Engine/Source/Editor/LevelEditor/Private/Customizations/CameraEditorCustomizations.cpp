@@ -210,7 +210,8 @@ namespace Durin
 					if (Option.Mode == CurrentMode) Preview = Option.Label;
 				}
 				ImGui::PushID("AspectRatioMode");
-				MonaImGui::PropertyEdit::BeginRow("Aspect Ratio", ViewContext.bReadOnly);
+				MonaImGui::PropertyEdit::BeginRow("Aspect Ratio", ViewContext.bReadOnly, 0.0f,
+					"Type: Enum (Camera Aspect Ratio Mode)");
 				if (ImGui::BeginCombo("##Value", Preview))
 				{
 					for (const FAspectRatioOption& Option : AspectRatioOptions)
@@ -236,7 +237,7 @@ namespace Durin
 				float Value = *Field->ContainerPtrToValuePtr<float>(Reflection.GetSettings(Camera));
 				const FReflectedPropertyEditTarget Target = Reflection.MakeTarget(Camera, Field);
 				ImGui::PushID(Field);
-				MonaImGui::PropertyEdit::BeginRow(Label, ViewContext.bReadOnly);
+				MonaImGui::PropertyEdit::BeginRow(Label, ViewContext.bReadOnly, 0.0f, "Type: Float");
 				const bool bChanged = ImGui::DragFloat("##Value", &Value, Speed, Min, Max, Format, ImGuiSliderFlags_AlwaysClamp);
 				const MonaImGui::PropertyEdit::FWidgetState State{
 					ImGui::IsItemActive(), ImGui::IsItemActivated(), ImGui::IsItemDeactivatedAfterEdit()};
