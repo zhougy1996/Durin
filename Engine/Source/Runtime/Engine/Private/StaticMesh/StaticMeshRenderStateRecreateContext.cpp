@@ -22,7 +22,7 @@ namespace Durin
 	{
 		if (!IsValid(StaticMesh) || IsObjectHandleNull(StaticMeshHandle)) return;
 
-		for (DObject* Object : GDObjectArray.Snapshot())
+		for (DObject* Object : GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly))
 		{
 			auto* Component = Cast<DStaticMeshComponent>(Object);
 			if (!IsValid(Component) || !Component->IsRegistered()

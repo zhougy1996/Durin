@@ -1,6 +1,23 @@
 #include "SkyBoxTestSupport.h"
 #include "Math/Operations.h"
 
+TEST(FSkyBoxTests, ClassDefaultSkipsRuntimeIdentityAllocation)
+{
+	InitializeDObjectSystem();
+	const auto* DefaultComponent = static_cast<const Durin::DSkyBoxComponent*>(
+		Durin::DSkyBoxComponent::StaticClass()->GetDefaultObject());
+	ASSERT_NE(DefaultComponent, nullptr);
+	EXPECT_FALSE(DefaultComponent->GetSkyBoxSceneId().IsValid());
+	EXPECT_EQ(DefaultComponent->GetSkyBoxInstanceId(), 0u);
+
+	auto* Component = Durin::NewObject<Durin::DSkyBoxComponent>(nullptr, "RuntimeIdentitySkyBox");
+	ASSERT_NE(Component, nullptr);
+	EXPECT_TRUE(Component->GetSkyBoxSceneId().IsValid());
+	EXPECT_NE(Component->GetSkyBoxInstanceId(), 0u);
+	Durin::MarkAsGarbage(Component);
+	Durin::CollectGarbage();
+}
+
 TEST(FSkyBoxTests, SceneSelectsSmallestStableIdAndRejectsStaleUpdates)
 {
 	InitializeDObjectSystem();

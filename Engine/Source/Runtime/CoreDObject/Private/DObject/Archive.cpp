@@ -102,7 +102,7 @@ namespace Durin
 				return DObject::StaticClass();
 			}
 
-			for (DObject* Object : GDObjectArray.GetAll())
+			for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
 			{
 				auto* Class = Cast<DClass>(Object);
 				if (Class && Class->GetName() == ClassName)
@@ -679,7 +679,7 @@ namespace Durin
 				);
 
 				Discover(Object->GetOuter());
-				for (DObject* InnerObject : GDObjectArray.GetObjectsWithOuter(Object)) Discover(InnerObject);
+				for (DObject* InnerObject : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::LiveOnly)) Discover(InnerObject);
 			}
 
 			auto FindId(DObject* Object) const -> uint64
@@ -1439,7 +1439,7 @@ namespace Durin
 
 	auto SaveObjectGraphToMemory(DObject* RootObject, std::vector<uint8>& OutBytes) -> bool
 	{
-		if (!RootObject)
+		if (!RootObject || RootObject->IsTemplateObject())
 		{
 			return false;
 		}
@@ -1570,6 +1570,7 @@ namespace Durin
 			Params.Class = Class;
 			Params.Name = FName(Record.ObjectName);
 			Params.Size = Class->PropertiesSize;
+			Params.Purpose = EObjectConstructionPurpose::AssetLoad;
 			DObject* Object = StaticConstructObject(Params);
 			DObjectForceRegistration(Object);
 			Context.IdToObject[static_cast<size_t>(Record.Id - 1)] = Object;
@@ -1630,13 +1631,18 @@ namespace Durin
 			if (OutError) *OutError = "Cannot duplicate a null object graph.";
 			return nullptr;
 		}
+		if (RootObject->IsTemplateObject())
+		{
+			if (OutError) *OutError = "Cannot duplicate a class-default template as an ordinary object graph.";
+			return nullptr;
+		}
 
 		std::vector<DObject*> Sources;
 		std::unordered_set<DObject*> Visited;
 		std::function<void(DObject*)> GatherInnerTree = [&](DObject* Object) {
 			if (!Object || !Visited.insert(Object).second) return;
 			Sources.push_back(Object);
-			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object)) GatherInnerTree(Inner);
+			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::LiveOnly)) GatherInnerTree(Inner);
 		};
 		GatherInnerTree(RootObject);
 
@@ -1659,7 +1665,7 @@ namespace Durin
 			{
 				// Actor constructors create their default components. Reuse those matching inners
 				// instead of constructing a second component with the same identity.
-				for (DObject* Existing : GDObjectArray.GetObjectsWithOuter(DuplicateOuter))
+				for (DObject* Existing : GDObjectArray.GetObjectsWithOuter(DuplicateOuter, EObjectQueryScope::LiveOnly))
 				{
 					if (!ClaimedConstructedInners.contains(Existing) && Existing->GetClass() == Source->GetClass() && Existing->GetFName() == Source->GetFName())
 					{
@@ -1684,6 +1690,7 @@ namespace Durin
 				Params.Outer = DuplicateOuter;
 				Params.Name = Source == RootObject && !NewName.IsNone() ? NewName : Source->GetFName();
 				Params.Size = Class->PropertiesSize;
+				Params.Purpose = EObjectConstructionPurpose::Duplication;
 				Duplicate = StaticConstructObject(Params);
 				DObjectForceRegistration(Duplicate);
 			}

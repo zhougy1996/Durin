@@ -5,6 +5,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/GarbageCollectionScheduler.h"
 #include "DObject/Object.h"
+#include "DObject/Package.h"
 #include "CoreGlobals.h"
 #include "Misc/Time.h"
 #include "Threading/RunnableThread.h"
@@ -29,9 +30,10 @@ namespace Durin
 			return ObjectClass && DType::StaticClass() && Object->IsA(DType::StaticClass());
 		}
 
-		auto MarkGarbageInternal(DObject* Object) -> void
+		auto MarkGarbageInternal(DObject* Object, bool bAllowTemplate = false) -> void
 		{
-			if (!Object || !GDObjectArray.Contains(Object) || IsPermanentObject(Object) || Object->IsGarbage()) return;
+			if (!Object || !GDObjectArray.Contains(Object) || IsPermanentObject(Object) || Object->IsGarbage()
+				|| (Object->IsTemplateObject() && !bAllowTemplate)) return;
 			Object->SetInternalFlags(EObjectInternalFlags::Garbage);
 			GDObjectArray.NotifyObjectMarkedGarbage();
 		}
@@ -66,7 +68,7 @@ namespace Durin
 				if (!Added.insert(Object).second) continue;
 
 				Stack.push_back({Object, true});
-				for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object, true))
+				for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::IncludeTemplates, true))
 				{
 					if (CandidateSet.contains(Inner)) Stack.push_back({Inner, false});
 				}
@@ -86,7 +88,7 @@ namespace Durin
 
 			// A forcibly garbage Outer may still have a reachable child. Removing the
 			// Outer detaches such children instead of treating hierarchy as ownership.
-			for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, true))
+			for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::IncludeTemplates, true))
 			{
 				Child->SetOuterPrivate(nullptr);
 			}
@@ -158,7 +160,7 @@ namespace Durin
 	auto AddToRoot(DObject* Object) -> void
 	{
 		CheckObjectThread();
-		if (!Object) return;
+		if (!Object || Object->IsTemplateObject()) return;
 		check(GDObjectArray.Contains(Object));
 		++Object->RootReferenceCount;
 		Object->SetInternalFlags(EObjectInternalFlags::RootSet);
@@ -187,16 +189,110 @@ namespace Durin
 	auto MarkObjectHierarchyAsGarbage(DObject* RootObject) -> void
 	{
 		CheckObjectThread();
-		if (!RootObject || !GDObjectArray.Contains(RootObject)) return;
+		if (!RootObject || !GDObjectArray.Contains(RootObject) || RootObject->IsTemplateObject()) return;
 
 		std::vector<DObject*> Pending = {RootObject};
 		while (!Pending.empty())
 		{
 			DObject* Object = Pending.back();
 			Pending.pop_back();
-			for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, true)) Pending.push_back(Child);
+			for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::IncludeTemplates, true)) Pending.push_back(Child);
 			MarkGarbageInternal(Object);
 		}
+	}
+
+	namespace Private
+	{
+		auto ReleaseClassDefaultObjectOwnership(DClass* Class) -> DObject*
+		{
+			return Class ? Class->ReleaseDefaultObjectOwnership() : nullptr;
+		}
+
+		auto MarkTemplateObjectHierarchyAsGarbage(DObject* RootObject) -> void
+		{
+			CheckObjectThread();
+			if (!RootObject || !GDObjectArray.Contains(RootObject) || !RootObject->IsTemplateObject()) return;
+
+			std::vector<DObject*> Pending = {RootObject};
+			while (!Pending.empty())
+			{
+				DObject* Object = Pending.back();
+				Pending.pop_back();
+				for (DObject* Child : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::IncludeTemplates, true)) Pending.push_back(Child);
+				MarkGarbageInternal(Object, true);
+			}
+		}
+	}
+
+	namespace
+	{
+		template<typename Predicate>
+		auto ReleaseMatchingClassDefaultObjects(Predicate&& Matches) -> std::vector<DObject*>
+		{
+			std::vector<DClass*> Classes;
+			for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
+			{
+				if (auto* Class = Cast<DClass>(Object); Class && Matches(Class)) Classes.push_back(Class);
+			}
+			auto Depth = [](const DClass* Class) {
+				uint32 Result = 0;
+				for (; Class; Class = Class->GetSuperClass()) ++Result;
+				return Result;
+			};
+			std::ranges::sort(Classes, [&](const DClass* Left, const DClass* Right) {
+				const uint32 LeftDepth = Depth(Left);
+				const uint32 RightDepth = Depth(Right);
+				if (LeftDepth != RightDepth) return LeftDepth > RightDepth;
+				return Left->GetQualifiedName().ToString() > Right->GetQualifiedName().ToString();
+			});
+
+			std::vector<DObject*> ReleasedObjects;
+			for (DClass* Class : Classes)
+			{
+				if (DObject* Object = Private::ReleaseClassDefaultObjectOwnership(Class))
+				{
+					ReleasedObjects.push_back(Object);
+					Private::MarkTemplateObjectHierarchyAsGarbage(Object);
+				}
+			}
+			return ReleasedObjects;
+		}
+	}
+
+	auto ReleaseClassDefaultObjects() -> void
+	{
+		CheckObjectThread();
+		(void)ReleaseMatchingClassDefaultObjects([](const DClass*) { return true; });
+	}
+
+	auto ReleaseClassDefaultObjectsForModule(FName ModuleName) -> bool
+	{
+		CheckObjectThread();
+		const std::string ModulePackagePath = std::format("/Cpp/{}", ModuleName.ToString());
+		auto IsOwnedByModule = [&](const DObject* Object) {
+			if (!Object || !Object->IsTemplateObject()) return false;
+			const DObject* Outer = Object;
+			while (Outer && !Cast<DClass>(Outer)) Outer = Outer->GetOuter();
+			const auto* Class = Cast<DClass>(Outer);
+			const DPackage* Package = Class ? Class->GetPackage() : nullptr;
+			return Package && Package->GetPackagePath() == ModulePackagePath;
+		};
+		const std::vector<DObject*> ReleasedObjects = ReleaseMatchingClassDefaultObjects(
+			[&](const DClass* Class) {
+				const DPackage* Package = Class->GetPackage();
+				return Package && Package->GetPackagePath() == ModulePackagePath;
+			});
+		bool bHasModuleTemplates = !ReleasedObjects.empty();
+		if (!bHasModuleTemplates)
+		{
+			bHasModuleTemplates = std::ranges::any_of(
+				GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates), IsOwnedByModule);
+		}
+		if (!bHasModuleTemplates) return true;
+
+		CollectGarbage();
+		return !std::ranges::any_of(
+			GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates), IsOwnedByModule);
 	}
 
 	COREDOBJECT_API auto ConditionallyMarkAsReachable(DObject* Object) -> void
@@ -218,10 +314,10 @@ namespace Durin
 		const uint64 PendingKillCountBeforeCollection = GetGarbageObjectCount();
 		const double CollectionStartTime = FTime::Seconds();
 		const double MarkStartTime = FTime::Seconds();
-		for (DObject* Object : GDObjectArray.GetAll()) Object->ClearInternalFlags(EObjectInternalFlags::Reachable);
+		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates)) Object->ClearInternalFlags(EObjectInternalFlags::Reachable);
 
 		FMarkReferenceCollector Marker;
-		for (DObject* Object : GDObjectArray.GetAll())
+		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
 		{
 			if (!Object->IsGarbage() && (Object->HasAnyInternalFlags(EObjectInternalFlags::RootSet) || IsPermanentObject(Object)))
 			{
@@ -232,7 +328,7 @@ namespace Durin
 		GLastGarbageCollectionStats.MarkMilliseconds = (FTime::Seconds() - MarkStartTime) * 1000.0;
 
 		std::vector<DObject*> SweepCandidates;
-		for (DObject* Object : GDObjectArray.GetAll())
+		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
 		{
 			if (!IsPermanentObject(Object) && (Object->IsGarbage() || !Object->HasAnyInternalFlags(EObjectInternalFlags::Reachable)))
 			{
@@ -305,7 +401,7 @@ namespace Durin
 			return;
 		}
 
-		for (const DObject* Object : GDObjectArray.GetAll())
+		for (const DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
 		{
 			if (!Object
 				|| !Object->HasAnyInternalFlags(

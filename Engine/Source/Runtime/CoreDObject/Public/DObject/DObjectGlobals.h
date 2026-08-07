@@ -16,6 +16,22 @@ namespace Durin
 	template<typename T>
 	class TObjectPtr;
 
+	// Identifies why an object is being constructed so constructors never infer lifecycle from identity.
+	enum class EObjectConstructionPurpose : uint8
+	{
+		RuntimeObject,
+		ClassDefaultObject,
+		ClassDefaultSubobject,
+		AssetLoad,
+		Duplication,
+	};
+
+	constexpr auto IsTemplateConstructionPurpose(EObjectConstructionPurpose Purpose) -> bool
+	{
+		return Purpose == EObjectConstructionPurpose::ClassDefaultObject
+			|| Purpose == EObjectConstructionPurpose::ClassDefaultSubobject;
+	}
+
 	// Collects the class, Outer, name, and flags needed to allocate one DObject.
 	struct FStaticConstructObjectParameters
 	{
@@ -26,6 +42,8 @@ namespace Durin
 		FName Name;
 
 		size_t Size = 0;
+
+		EObjectConstructionPurpose Purpose = EObjectConstructionPurpose::RuntimeObject;
 	};
 
 	// Carries the preallocated object storage and construction context into generated constructors.
@@ -43,6 +61,8 @@ namespace Durin
 		DObject* Outer = nullptr;
 
 		FName Name;
+
+		EObjectConstructionPurpose Purpose = EObjectConstructionPurpose::RuntimeObject;
 	};
 
 	COREDOBJECT_API auto DObjectInit() -> void;
@@ -56,7 +76,11 @@ namespace Durin
 	COREDOBJECT_API auto CanConstructObjectOfClass(const DClass* Class, const DClass* RequiredBaseClass) -> bool;
 
 	template<typename T>
-	auto NewObject(DObject* Outer, FName Name) -> T*
+	auto NewObject(
+		DObject* Outer,
+		FName Name,
+		EObjectConstructionPurpose Purpose = EObjectConstructionPurpose::RuntimeObject
+	) -> T*
 	{
 		static_assert(std::is_base_of_v<DObject, T>, "T must be derived from DObject");
 
@@ -65,6 +89,7 @@ namespace Durin
 		Params.Outer = Outer;
 		Params.Name = Name;
 		Params.Size = sizeof(T);
+		Params.Purpose = Purpose;
 
 		DObject* Obj = StaticConstructObject(Params);
 

@@ -2,6 +2,7 @@
 
 #include "DObject/Property.h"
 #include "DObject/DObjectArray.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Misc/StringHelper.h"
 #include "QualifiedTypeRegistry.h"
 
@@ -273,11 +274,93 @@ namespace Durin
 		DisplayName = InDisplayName.empty() ? MakeDefaultDisplayName(DefaultObjectName, "") : std::string(InDisplayName);
 	}
 
+	auto DClass::GetDefaultObject() const -> const DObject*
+	{
+		const EClassDefaultObjectState State = DefaultObjectState.load(std::memory_order_acquire);
+		if (State == EClassDefaultObjectState::Constructing)
+		{
+			bRecursiveDefaultObjectAccess.store(true, std::memory_order_relaxed);
+			return nullptr;
+		}
+		return State == EClassDefaultObjectState::Ready ? ClassDefaultObject : nullptr;
+	}
+
+	auto DClass::AddReferencedObjects(FReferenceCollector& Collector) -> void
+	{
+		Super::AddReferencedObjects(Collector);
+		if (DefaultObjectState.load(std::memory_order_acquire) == EClassDefaultObjectState::Ready)
+		{
+			Collector.AddReferencedObject(ClassDefaultObject);
+		}
+	}
+
+	auto DClass::ResolveDefaultObjectEligibility() -> bool
+	{
+		if (DefaultObjectState.load(std::memory_order_relaxed) != EClassDefaultObjectState::Uninitialized) return false;
+		if (HasAnyClassFlags(EClassFlags::Abstract)) DefaultObjectReason = EClassDefaultObjectReason::Abstract;
+		else if (HasAnyClassFlags(EClassFlags::Intrinsic)) DefaultObjectReason = EClassDefaultObjectReason::Intrinsic;
+		else if (HasAnyClassFlags(EClassFlags::NoClassDefaultObject)) DefaultObjectReason = EClassDefaultObjectReason::NoClassDefaultObject;
+		else if (!ClassConstructor) DefaultObjectReason = EClassDefaultObjectReason::MissingConstructor;
+		else if (PropertiesSize < sizeof(DObject) || MinAlignment == 0) DefaultObjectReason = EClassDefaultObjectReason::InvalidLayout;
+		else return true;
+
+		DefaultObjectState.store(EClassDefaultObjectState::Ineligible, std::memory_order_release);
+		return false;
+	}
+
+	auto DClass::BeginDefaultObjectConstruction() -> bool
+	{
+		EClassDefaultObjectState Expected = EClassDefaultObjectState::Uninitialized;
+		if (!DefaultObjectState.compare_exchange_strong(
+				Expected, EClassDefaultObjectState::Constructing,
+				std::memory_order_acq_rel, std::memory_order_acquire)) return false;
+		DefaultObjectReason = EClassDefaultObjectReason::None;
+		bRecursiveDefaultObjectAccess.store(false, std::memory_order_relaxed);
+		return true;
+	}
+
+	auto DClass::SetPendingDefaultObject(DObject* Object) -> void
+	{
+		check(DefaultObjectState.load(std::memory_order_relaxed) == EClassDefaultObjectState::Constructing);
+		check(Object && Object->IsClassDefaultObject() && Object->GetClass() == this);
+		PendingDefaultObject = Object;
+	}
+
+	auto DClass::PublishDefaultObject() -> void
+	{
+		check(DefaultObjectState.load(std::memory_order_relaxed) == EClassDefaultObjectState::Constructing);
+		check(PendingDefaultObject);
+		ClassDefaultObject = PendingDefaultObject;
+		PendingDefaultObject = nullptr;
+		DefaultObjectReason = EClassDefaultObjectReason::None;
+		DefaultObjectState.store(EClassDefaultObjectState::Ready, std::memory_order_release);
+	}
+
+	auto DClass::FailDefaultObjectConstruction(EClassDefaultObjectReason Reason) -> DObject*
+	{
+		DObject* FailedObject = PendingDefaultObject;
+		PendingDefaultObject = nullptr;
+		ClassDefaultObject = nullptr;
+		DefaultObjectReason = Reason;
+		DefaultObjectState.store(EClassDefaultObjectState::Failed, std::memory_order_release);
+		return FailedObject;
+	}
+
+	auto DClass::ReleaseDefaultObjectOwnership() -> DObject*
+	{
+		if (DefaultObjectState.load(std::memory_order_acquire) != EClassDefaultObjectState::Ready) return nullptr;
+		DObject* Object = ClassDefaultObject;
+		ClassDefaultObject = nullptr;
+		DefaultObjectReason = EClassDefaultObjectReason::None;
+		DefaultObjectState.store(EClassDefaultObjectState::Uninitialized, std::memory_order_release);
+		return Object;
+	}
+
 	auto GetDerivedClasses(const DClass* BaseClass, bool bIncludeBase) -> std::vector<DClass*>
 	{
 		std::vector<DClass*> Classes;
 		if (!BaseClass) return Classes;
-		for (DObject* Object : GDObjectArray.GetAll())
+		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
 		{
 			auto* Class = Cast<DClass>(Object);
 			if (Class && Class->IsChildOf(BaseClass) && (bIncludeBase || Class != BaseClass)) Classes.push_back(Class);
@@ -305,7 +388,7 @@ namespace Durin
 	template<typename T>
 	static auto FindTypeByPath(std::string_view ObjectPath) -> T*
 	{
-		for (DObject* Object : GDObjectArray.GetAll())
+		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
 		{
 			auto* Type = Cast<T>(Object);
 			if (Type && Type->GetObjectPath() == ObjectPath) return Type;

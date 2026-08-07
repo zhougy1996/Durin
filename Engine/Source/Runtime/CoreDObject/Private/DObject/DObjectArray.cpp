@@ -89,17 +89,37 @@ namespace Durin
 		return Slot.Object && Slot.Generation == Handle.Generation ? Slot.Object : nullptr;
 	}
 
-	auto FDObjectArray::GetObjectsWithOuter(const DObject* Outer, bool bIncludeGarbage) const -> std::vector<DObject*>
+	auto FDObjectArray::GetAll(EObjectQueryScope Scope) const -> std::vector<DObject*>
+	{
+		if (Scope == EObjectQueryScope::IncludeTemplates) return Objects;
+
+		std::vector<DObject*> Result;
+		Result.reserve(Objects.size());
+		for (DObject* Object : Objects)
+		{
+			if (!Object->IsTemplateObject()) Result.push_back(Object);
+		}
+		return Result;
+	}
+
+	auto FDObjectArray::GetObjectsWithOuter(
+		const DObject* Outer,
+		EObjectQueryScope Scope,
+		bool bIncludeGarbage
+	) const -> std::vector<DObject*>
 	{
 		const auto It = OuterToObjects.find(Outer);
 		if (It == OuterToObjects.end()) return {};
-		if (bIncludeGarbage) return It->second;
 
 		std::vector<DObject*> Result;
 		Result.reserve(It->second.size());
 		for (DObject* Object : It->second)
 		{
-			if (!Object->IsGarbage()) Result.push_back(Object);
+			if ((bIncludeGarbage || !Object->IsGarbage())
+				&& (Scope == EObjectQueryScope::IncludeTemplates || !Object->IsTemplateObject()))
+			{
+				Result.push_back(Object);
+			}
 		}
 		return Result;
 	}

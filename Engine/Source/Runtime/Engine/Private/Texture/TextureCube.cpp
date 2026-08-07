@@ -579,17 +579,7 @@ namespace Durin
 
 	DTextureCube::DTextureCube(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-	{
-		static const bool RegisteredDeleteContributor = [] {
-			Asset::RegisterAssetDeleteContributor(DTextureCube::StaticClass(), [](const Asset::FAssetData&,
-				const Asset::FAssetPackageInspection&, Asset::FAssetDeleteContribution&) -> Asset::FAssetResult {
-				// Mounted sources may be shared and require a separate, explicit source operation.
-				return {};
-			});
-			return true;
-		}();
-		(void)RegisteredDeleteContributor;
-	}
+	{}
 
 	DTextureCube::~DTextureCube() = default;
 

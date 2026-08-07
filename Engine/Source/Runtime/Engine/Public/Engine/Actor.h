@@ -141,7 +141,10 @@ namespace Durin
 		auto CreateDefaultComponent(const FName& InComponentName = FName()) -> T*
 		{
 			static_assert(std::is_base_of<DActorComponent, T>::value, "T must be derived from DActorComponent");
-			T* Component = NewObject<T>(this, InComponentName);
+			const EObjectConstructionPurpose ComponentPurpose = IsClassDefaultObject()
+				? EObjectConstructionPurpose::ClassDefaultSubobject
+				: GetConstructionPurpose();
+			T* Component = NewObject<T>(this, InComponentName, ComponentPurpose);
 			OwnedComponents.push_back(Component);
 			return Component;
 		}

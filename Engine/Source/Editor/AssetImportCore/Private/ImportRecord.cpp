@@ -178,8 +178,18 @@ namespace Durin::AssetImport
 	}
 
 	DImportRecord::DImportRecord(const FObjectInitializer& ObjectInitializer)
-		: DObject(ObjectInitializer), RecordId(FGuid::NewGuid())
+		: DObject(ObjectInitializer)
 	{}
+
+	auto CreateImportRecordAsset(const FAssetPath& Path, DImportRecord*& OutRecord) -> Asset::FAssetResult
+	{
+		Asset::FAssetResult Result = Asset::CreateAsset(Path, OutRecord);
+		if (Result && OutRecord)
+		{
+			OutRecord->RecordId = FGuid::NewGuid();
+		}
+		return Result;
+	}
 
 	auto DImportRecord::GetState() const -> FImportRecordState
 	{

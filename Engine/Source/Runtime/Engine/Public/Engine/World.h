@@ -29,7 +29,7 @@ namespace Durin
 	};
 
 	// Owns the active level and drives actor lifetime, play state, ticking, and physics policy.
-	DCLASS()
+	DCLASS(NoClassDefaultObject)
 	class DWorld : public DObject
 	{
 		GENERATED_BODY()

@@ -27,6 +27,8 @@ namespace Durin
 		NoFlags = 0,
 		Intrinsic = 1 << 0,
 		Transient = 1 << 1,
+		ClassDefaultObject = 1 << 2,
+		DefaultSubobject = 1 << 3,
 	};
 
 	enum class EClassFlags
@@ -38,6 +40,12 @@ namespace Durin
 
 		// Class was declared in C++ and has no generated code
 		Native = 1 << 1,
+
+		// Class is part of the reflection bootstrap and never owns an authored default.
+		Intrinsic = 1 << 2,
+
+		// Class is a runtime or editor service owner rather than an authored object type.
+		NoClassDefaultObject = 1 << 3,
 	};
 	ENUM_CLASS_FLAGS(EClassFlags);
 
@@ -137,7 +145,7 @@ public: \
 				nullptr, /* RegisterNativeFunc */ \
 				sizeof(TClass), \
 				alignof(TClass), \
-				EClassFlags::None, \
+				EClassFlags::Intrinsic, \
 				(DClass::ClassConstructorType)InternalConstructor<TClass>, \
 				&TClass::Super::StaticClass \
 			); \

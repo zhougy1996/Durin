@@ -3,6 +3,7 @@
 #include "AssetSystem.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
+#include "EngineAssetServices.h"
 #include "Misc/Name.h"
 
 inline auto InitializeDObjectSystem() -> void
@@ -12,6 +13,7 @@ inline auto InitializeDObjectSystem() -> void
 		Durin::GIsGameThreadIdInitialized = true;
 		if (!Durin::IsFNameInitialized()) Durin::FNameInit();
 		Durin::DObjectInit();
+		Durin::InitializeEngineAssetServices();
 		return true;
 	}();
 	(void)bInitialized;

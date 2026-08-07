@@ -10,7 +10,7 @@ namespace Durin
 	class DTextureCube;
 
 	// Owns the specialized cube-sampling proxy used by preview worlds.
-	DCLASS()
+	DCLASS(NoClassDefaultObject)
 	class DTextureCubePreviewComponent final : public DStaticMeshComponent
 	{
 		GENERATED_BODY()

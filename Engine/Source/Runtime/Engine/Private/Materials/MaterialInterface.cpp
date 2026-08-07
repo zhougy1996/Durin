@@ -31,7 +31,7 @@ namespace Durin
 		{
 			CheckMaterialQueryThread();
 			std::vector<FObjectHandle> Result;
-			const std::vector<DObject*> Objects = GDObjectArray.Snapshot();
+			const std::vector<DObject*> Objects = GDObjectArray.Snapshot(EObjectQueryScope::LiveOnly);
 			++GMaterialLoadedQueryDiagnostics.QueryCount;
 			++GMaterialLoadedQueryDiagnostics.SnapshotCount;
 			GMaterialLoadedQueryDiagnostics.LastOperation = Operation;
@@ -68,7 +68,9 @@ namespace Durin
 
 	DMaterialInterface::DMaterialInterface(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-		, MaterialRenderProxy(MakeRefCount<FMaterialRenderProxy>())
+		, MaterialRenderProxy(IsTemplateConstructionPurpose(ObjectInitializer.Purpose)
+			? FMaterialRenderProxyRef{}
+			: MakeRefCount<FMaterialRenderProxy>())
 	{
 	}
 
@@ -198,7 +200,7 @@ namespace Durin
 		-> FMaterialRenderProxyRef
 	{
 		CheckMaterialQueryThread();
-		if (!bAcceptingMaterialProxyPublications) return {};
+		if (IsTemplateObject() || !bAcceptingMaterialProxyPublications) return {};
 		if (MaterialProxyLocalVersion == 0)
 		{
 			MaterialProxyLocalVersion = 1;

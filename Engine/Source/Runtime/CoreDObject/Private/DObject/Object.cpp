@@ -9,6 +9,7 @@
 #include "CoreGlobals.h"
 #include "Threading/RunnableThread.h"
 #include "DeferredRegistry.h"
+#include "Logging/LogMacros.h"
 
 namespace Durin
 {
@@ -88,7 +89,7 @@ namespace Durin
 				nullptr,
 				sizeof(DObject),
 				alignof(DObject),
-				EClassFlags::None,
+				EClassFlags::Intrinsic,
 				(DClass::ClassConstructorType)InternalConstructor<DObject>,
 				nullptr
 			);
@@ -108,21 +109,33 @@ namespace Durin
 	}
 
 	DObject::DObject(const FObjectInitializer& ObjectInitializer)
-		: ClassPrivate(ObjectInitializer.Class)
+		: NamePrivate(ObjectInitializer.Name)
+		, ObjectFlags(ObjectInitializer.Purpose == EObjectConstructionPurpose::ClassDefaultObject
+			? EObjectFlags::ClassDefaultObject | EObjectFlags::Transient
+			: ObjectInitializer.Purpose == EObjectConstructionPurpose::ClassDefaultSubobject
+				? EObjectFlags::DefaultSubobject | EObjectFlags::Transient
+				: EObjectFlags::NoFlags)
+		, ConstructionPurpose(ObjectInitializer.Purpose)
 		, OuterPrivate(ObjectInitializer.Outer)
-		, NamePrivate(ObjectInitializer.Name)
+		, ClassPrivate(ObjectInitializer.Class)
 	{
 	}
 
 	DObject::DObject(DClass* InClass, DObject* InOuter, FName InName)
-		: ClassPrivate(InClass)
+		: NamePrivate(InName)
 		, OuterPrivate(InOuter)
-		, NamePrivate(InName)
+		, ClassPrivate(InClass)
 	{
 	}
 	DObject::DObject(EStaticConstructor, EObjectFlags InFlags)
 		: ObjectFlags(InFlags)
 	{
+	}
+
+	auto DObject::Rename(FName InName) -> void
+	{
+		if (IsTemplateObject()) return;
+		NamePrivate = InName;
 	}
 
 
@@ -173,6 +186,7 @@ namespace Durin
 	{
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		if (OuterPrivate == NewOuter) return;
+		if (IsTemplateObject() && GDObjectArray.Contains(this) && !IsGarbage()) return;
 
 		// Outer is structural hierarchy, so accepting a descendant would make every
 		// outer-chain query and ownership-tree traversal non-terminating.
@@ -249,6 +263,7 @@ namespace Durin
 
 	auto DObject::MarkPackageDirty() -> void
 	{
+		if (IsTemplateObject()) return;
 		if (DPackage* Package = GetPackage()) Package->MarkDirty();
 	}
 
@@ -425,6 +440,107 @@ namespace Durin
 		}
 	}
 
+	auto Private::CreateClassDefaultObjectsForBatch(std::span<DClass* const> Classes) -> bool
+	{
+		std::vector<DClass*> BatchClasses;
+		std::unordered_set<DClass*> AddedClasses;
+		for (DClass* Class : Classes)
+		{
+			for (DClass* CurrentClass = Class; CurrentClass != nullptr; CurrentClass = CurrentClass->GetSuperClass())
+			{
+				if (AddedClasses.insert(CurrentClass).second)
+				{
+					BatchClasses.push_back(CurrentClass);
+				}
+			}
+		}
+		auto ClassDepth = [](const DClass* Class) {
+			uint32 Depth = 0;
+			for (; Class; Class = Class->GetSuperClass()) ++Depth;
+			return Depth;
+		};
+		std::ranges::sort(BatchClasses, [&](const DClass* Left, const DClass* Right) {
+			const uint32 LeftDepth = ClassDepth(Left);
+			const uint32 RightDepth = ClassDepth(Right);
+			if (LeftDepth != RightDepth) return LeftDepth < RightDepth;
+			return Left->GetQualifiedName().ToString() < Right->GetQualifiedName().ToString();
+		});
+
+		std::vector<DClass*> EligibleClasses;
+		for (DClass* Class : BatchClasses)
+		{
+			if (Class->ResolveDefaultObjectEligibility()) EligibleClasses.push_back(Class);
+		}
+
+		std::vector<DClass*> ConstructedClasses;
+		auto FailBatch = [&](DClass* FailedClass, EClassDefaultObjectReason Reason) {
+			DURIN_ERROR(STR("Class-default batch failed at '{}' with reason {}."),
+				FailedClass ? FailedClass->GetQualifiedName().ToString() : std::string("<null>"),
+				static_cast<uint32>(Reason));
+			for (auto It = ConstructedClasses.rbegin(); It != ConstructedClasses.rend(); ++It)
+			{
+				DClass* Class = *It;
+				DObject* Object = Class->FailDefaultObjectConstruction(
+					Class == FailedClass ? Reason : EClassDefaultObjectReason::ConstructionFailed);
+				Private::MarkTemplateObjectHierarchyAsGarbage(Object);
+			}
+			for (DClass* Class : EligibleClasses)
+			{
+				if (Class->GetDefaultObjectState() == EClassDefaultObjectState::Uninitialized)
+				{
+					Class->FailDefaultObjectConstruction(
+						Class == FailedClass ? Reason : EClassDefaultObjectReason::ConstructionFailed);
+				}
+			}
+			CollectGarbage();
+		};
+
+		for (DClass* Class : EligibleClasses)
+		{
+			if (const DClass* SuperClass = Class->GetSuperClass())
+			{
+				const EClassDefaultObjectState SuperState = SuperClass->GetDefaultObjectState();
+				const bool bConstructedInThisBatch = std::ranges::find(ConstructedClasses, SuperClass)
+					!= ConstructedClasses.end();
+				if (SuperState == EClassDefaultObjectState::Uninitialized
+					|| (SuperState == EClassDefaultObjectState::Constructing && !bConstructedInThisBatch)
+					|| SuperState == EClassDefaultObjectState::Failed)
+				{
+					FailBatch(Class, EClassDefaultObjectReason::MissingSuperclassDisposition);
+					return false;
+				}
+			}
+			if (!Class->BeginDefaultObjectConstruction())
+			{
+				FailBatch(Class, EClassDefaultObjectReason::ConstructionFailed);
+				return false;
+			}
+
+			FStaticConstructObjectParameters Params;
+			Params.Class = Class;
+			Params.Outer = Class;
+			const std::string& ShortName = Class->GetShortName();
+			Params.Name = FName(std::format(
+				"Default__{}", ShortName.empty() ? Class->GetQualifiedName().ToString() : ShortName));
+			Params.Size = Class->PropertiesSize;
+			Params.Purpose = EObjectConstructionPurpose::ClassDefaultObject;
+			DObject* Object = StaticConstructObject(Params);
+			Class->SetPendingDefaultObject(Object);
+			ConstructedClasses.push_back(Class);
+			const auto RecursiveIt = std::ranges::find_if(ConstructedClasses, [](const DClass* ConstructedClass) {
+				return ConstructedClass->bRecursiveDefaultObjectAccess.load(std::memory_order_relaxed);
+			});
+			if (RecursiveIt != ConstructedClasses.end())
+			{
+				FailBatch(*RecursiveIt, EClassDefaultObjectReason::RecursiveConstruction);
+				return false;
+			}
+		}
+
+		for (DClass* Class : ConstructedClasses) Class->PublishDefaultObject();
+		return true;
+	}
+
 	auto ProcessNewlyLoadedDObjects() -> void
 	{
 		FClassDeferredRegistry& ClassRegistry = FClassDeferredRegistry::Get();
@@ -435,6 +551,21 @@ namespace Durin
 		LoadAllCompiledInDefaultProperties();
 		LoadAllCompiledInEnumValues();
 		ProcessRegisteredCppPackages();
+
+		std::vector<DClass*> BatchClasses;
+		const std::array IntrinsicClasses{
+			DObject::StaticClass(),
+			DType::StaticClass(),
+			DStructBase::StaticClass(),
+			DClass::StaticClass(),
+			DStruct::StaticClass(),
+			DEnum::StaticClass()};
+		BatchClasses.insert(BatchClasses.end(), IntrinsicClasses.begin(), IntrinsicClasses.end());
+		for (const FClassDeferredRegistry::FRegistrant& Registrant : ClassRegistry.GetRegistrations())
+		{
+			if (Registrant.Info->OuterSingleton) BatchClasses.push_back(Registrant.Info->OuterSingleton);
+		}
+		(void)Private::CreateClassDefaultObjectsForBatch(BatchClasses);
 
 		ClassRegistry.ClearRegistrations();
 		EnumRegistry.ClearRegistrations();

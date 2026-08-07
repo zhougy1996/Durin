@@ -19,7 +19,7 @@ namespace Durin
 	ENUM_CLASS_FLAGS(EPackageFlags);
 
 	// Owns an asset or a module's reflected metadata under one globally registered path.
-	DCLASS()
+	DCLASS(NoClassDefaultObject)
 	class DPackage : public DObject
 	{
 		GENERATED_BODY()

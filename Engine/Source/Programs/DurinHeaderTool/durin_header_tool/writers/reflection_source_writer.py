@@ -170,6 +170,12 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
         has_properties = bool(properties)
         generated_statics_name = class_info.generated_statics_name
         constructor_mode = _constructor_mode(class_info)
+        class_flags = []
+        if class_info.is_abstract:
+            class_flags.append("Durin::EClassFlags::Abstract")
+        if class_info.no_class_default_object:
+            class_flags.append("Durin::EClassFlags::NoClassDefaultObject")
+        class_flags_expression = " | ".join(class_flags) if class_flags else "Durin::EClassFlags::None"
         builder.append(f"Durin::FClassRegistrationInfo {class_info.registration_info_name};\n\n")
 
         _append_lines(
@@ -185,7 +191,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
             ("nullptr,", 3),
             (f"sizeof({class_info.qualified_name}),", 3),
             (f"alignof({class_info.qualified_name}),", 3),
-            (f"Durin::EClassFlags::{'Abstract' if class_info.is_abstract else 'None'},", 3),
+            (f"{class_flags_expression},", 3),
             (
                 "nullptr," if class_info.is_abstract
                 else f"(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<{class_info.qualified_name}>,",

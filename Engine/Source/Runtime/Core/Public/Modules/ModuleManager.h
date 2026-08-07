@@ -79,6 +79,9 @@ namespace Durin
 		CORE_API auto StartProcessingNewlyLoadedObjects() -> void;
 
 		CORE_API auto SetProcessLoadedObjectsCallback(std::function<void()> Callback) -> void;
+		CORE_API auto SetPreShutdownModuleCallback(
+			std::function<bool(FName)> Callback
+		) -> void;
 
 		// Does not actually unload the modules, but calls their shutdown functions in the reverse order of loading. The modules will be unloaded when the process exits.
 		CORE_API auto UnloadModulesAtShutdown() -> void;
@@ -89,6 +92,8 @@ namespace Durin
 		bool bCanProcessNewlyLoadedObjects = false;
 
 		std::function<void()> ProcessLoadedObjectsCallback;
+
+		std::function<bool(FName)> PreShutdownModuleCallback;
 	};
 
 	/**

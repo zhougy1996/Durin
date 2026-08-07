@@ -150,10 +150,17 @@ namespace Durin
 	auto FModuleManager::ShutdownModule(const FName& InModuleName) -> void
 	{
 		const FModuleInfoPtr ModuleInfo = FindModule(InModuleName);
-		if (!ModuleInfo || !ModuleInfo->Module || !ModuleInfo->bIsReady.exchange(false))
+		if (!ModuleInfo || !ModuleInfo->Module || !ModuleInfo->bIsReady)
 		{
 			return;
 		}
+		if (PreShutdownModuleCallback && !PreShutdownModuleCallback(InModuleName))
+		{
+			DURIN_ERROR(STR("Module {} shutdown was rejected because its reflected objects did not drain."),
+				InModuleName.ToString());
+			return;
+		}
+		ModuleInfo->bIsReady = false;
 
 		ModuleInfo->Module->ShutdownModule();
 		DURIN_DEBUG(STR("Module shutdown: {}"), InModuleName.ToString());
@@ -169,6 +176,7 @@ namespace Durin
 
 		FModuleInfoPtr ModuleInfo = ModuleIt->second;
 		ShutdownModule(InModuleName);
+		if (ModuleInfo->bIsReady) return;
 
 		ModuleInfo->Module.reset();
 		if (ModuleInfo->Handle)
@@ -193,6 +201,13 @@ namespace Durin
 		ProcessLoadedObjectsCallback = std::move(Callback);
 	}
 
+	auto FModuleManager::SetPreShutdownModuleCallback(
+		std::function<bool(FName)> Callback
+	) -> void
+	{
+		PreShutdownModuleCallback = std::move(Callback);
+	}
+
 	auto FModuleManager::UnloadModulesAtShutdown() -> void
 	{
 		std::vector<FModuleInfoPtr> ModulesToUnload;
@@ -213,6 +228,8 @@ namespace Durin
 		}
 
 		ModulesToUnload.clear();
-		Modules.clear();
+		std::erase_if(Modules, [](const auto& Entry) {
+			return !Entry.second->bIsReady;
+		});
 	}
 } // namespace Durin

@@ -9,6 +9,7 @@
 #include "DObject/DObjectArray.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/GarbageCollectionScheduler.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "GCReferenceSchema.h"
 
@@ -460,6 +461,7 @@ namespace Durin
 		AttachCoreIntrinsicTypesToCppPackage();
 
 		FModuleManager::Get().SetProcessLoadedObjectsCallback(ProcessNewlyLoadedDObjects);
+		FModuleManager::Get().SetPreShutdownModuleCallback(ReleaseClassDefaultObjectsForModule);
 		FModuleManager::Get().StartProcessingNewlyLoadedObjects();
 
 		auto& array = GDObjectArray;
@@ -489,6 +491,10 @@ namespace Durin
 
 	auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*
 	{
+		check(Params.Purpose != EObjectConstructionPurpose::ClassDefaultObject
+			|| (Params.Class && Params.Outer == Params.Class));
+		check(Params.Purpose != EObjectConstructionPurpose::ClassDefaultSubobject
+			|| (Params.Outer && Params.Outer->IsClassDefaultObject()));
 		DObject* Obj = StaticAllocateObject(Params.Class, Params.Outer, Params.Name, Params.Size);
 
 		DClass* InClass = Params.Class;
@@ -500,6 +506,7 @@ namespace Durin
 		ObjectInitializer.Class = InClass;
 		ObjectInitializer.Outer = Params.Outer;
 		ObjectInitializer.Name = Params.Name;
+		ObjectInitializer.Purpose = Params.Purpose;
 
 		InClass->ClassConstructor(ObjectInitializer);
 

@@ -7,11 +7,40 @@ namespace Durin
 	class FField;
 	class FProperty;
 	class FObjectInitializer;
+	class FReferenceCollector;
+	COREDOBJECT_API auto ReleaseClassDefaultObjects() -> void;
+	COREDOBJECT_API auto ReleaseClassDefaultObjectsForModule(FName ModuleName) -> bool;
 	namespace Private
 	{
 		class FGCReferenceSchema;
 		class FGCReferenceSchemaRegistry;
+		COREDOBJECT_API auto CreateClassDefaultObjectsForBatch(std::span<DClass* const> Classes) -> bool;
+		auto ReleaseClassDefaultObjectOwnership(DClass* Class) -> DObject*;
 	}
+
+	// Describes the publication state of a class-owned immutable default object.
+	enum class EClassDefaultObjectState : uint8
+	{
+		Uninitialized,
+		Constructing,
+		Ready,
+		Ineligible,
+		Failed,
+	};
+
+	// Provides a stable reason when a class has no ready default object.
+	enum class EClassDefaultObjectReason : uint8
+	{
+		None,
+		Abstract,
+		Intrinsic,
+		NoClassDefaultObject,
+		MissingConstructor,
+		InvalidLayout,
+		MissingSuperclassDisposition,
+		RecursiveConstruction,
+		ConstructionFailed,
+	};
 
 	// Provides the common object identity for all reflected runtime metadata.
 	class DType : public DObject
@@ -100,13 +129,41 @@ namespace Durin
 		auto GetDisplayName() const -> const std::string& { return DisplayName; }
 		auto GetDefaultObjectName() const -> const std::string& { return DefaultObjectName; }
 		COREDOBJECT_API auto SetTypeNames(std::string_view InShortName, std::string_view InDisplayName, std::string_view InDefaultObjectName) -> void;
+		auto GetDefaultObjectState() const -> EClassDefaultObjectState
+		{
+			return DefaultObjectState.load(std::memory_order_acquire);
+		}
+		auto GetDefaultObjectReason() const -> EClassDefaultObjectReason
+		{
+			return DefaultObjectReason.load(std::memory_order_acquire);
+		}
+		COREDOBJECT_API auto GetDefaultObject() const -> const DObject*;
+		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 
 	private:
+		auto ResolveDefaultObjectEligibility() -> bool;
+		auto BeginDefaultObjectConstruction() -> bool;
+		auto SetPendingDefaultObject(DObject* Object) -> void;
+		auto PublishDefaultObject() -> void;
+		auto FailDefaultObjectConstruction(EClassDefaultObjectReason Reason) -> DObject*;
+		auto ReleaseDefaultObjectOwnership() -> DObject*;
+
 		EClassFlags ClassFlags = EClassFlags::None;
 		FName QualifiedName;
 		std::string ShortName;
 		std::string DisplayName;
 		std::string DefaultObjectName;
+		DObject* ClassDefaultObject = nullptr;
+		DObject* PendingDefaultObject = nullptr;
+		std::atomic<EClassDefaultObjectReason> DefaultObjectReason{EClassDefaultObjectReason::None};
+		std::atomic<EClassDefaultObjectState> DefaultObjectState{EClassDefaultObjectState::Uninitialized};
+		mutable std::atomic<bool> bRecursiveDefaultObjectAccess = false;
+
+		friend auto ProcessNewlyLoadedDObjects() -> void;
+		friend auto ReleaseClassDefaultObjects() -> void;
+		friend auto ReleaseClassDefaultObjectsForModule(FName ModuleName) -> bool;
+		friend auto Private::CreateClassDefaultObjectsForBatch(std::span<DClass* const> Classes) -> bool;
+		friend auto Private::ReleaseClassDefaultObjectOwnership(DClass* Class) -> DObject*;
 	};
 
 	// Describes a reflected value struct and the operations required to manage its storage.

@@ -178,6 +178,9 @@ Behavior summary:
 - filenames derive from the active runtime variant
 - filenames follow `<RuntimeVariant>-<ModuleName>.dll`
 - shutdown order is reverse load order
+- before a ready module's shutdown callback, Core invokes the CoreDObject
+  pre-shutdown hook to release and drain class defaults owned by that module's
+  `/Cpp/<Module>` package; a failed drain rejects shutdown/unload
 - a module may run its shutdown callback early while its instance remains
   available through the object drain; the final module pass releases instances,
   while native libraries remain mapped until process exit
@@ -213,6 +216,7 @@ directly:
 | --- | --- |
 | Detach render consumers | Shut down Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
 | Release Engine defaults | After Engine consumer detachment, stop default-material bindings and release the retained asset/proxy before AssetCore shutdown. |
+| Release class defaults | Clear `DClass` ownership derived-first before the first GC; the later module pre-shutdown hooks normally validate an already-empty batch. |
 | Stop CPU work | Close root task admission, drain workers while explicitly pumping accepted GameThread deferred continuations to graph quiescence, then uninstall the deferred executor. |
 | Drain objects | Release roots, run `GC -> render flush -> GC`, and require zero deferred object destruction. |
 | Unload modules | Run reverse-order module shutdown only after no deferred object's virtual cleanup can target an unloading module. |
@@ -256,6 +260,15 @@ Their callbacks may still submit resource release commands because render
 admission remains open until every module callback returns. The final RenderCore
 command then validates the registry and deferred cleanup queue; it never sweeps
 unknown resources to make shutdown pass.
+
+CoreDObject installs both module-manager lifecycle callbacks during `DObjectInit`:
+newly loaded reflected objects finalize their registration and CDO batch before
+`StartupModule()`, while pre-shutdown releases that module's batch before
+`ShutdownModule()`. Normal process exit releases all CDOs before the first
+shutdown GC, so reverse module shutdown observes empty batches. A direct late
+module unload performs the same derived-first release and synchronous drain; if
+any template remains registered (including deferred destruction), the module
+stays ready and the unload is rejected.
 
 ## Render Resource and Shutdown Ordering
 

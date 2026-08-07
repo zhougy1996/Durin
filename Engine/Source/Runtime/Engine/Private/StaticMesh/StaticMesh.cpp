@@ -543,18 +543,7 @@ namespace Durin
 
 	DStaticMesh::DStaticMesh(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-	{
-		static const bool RegisteredDeleteContributor = [] {
-			Asset::RegisterAssetDeleteContributor(DStaticMesh::StaticClass(), [](
-				const Asset::FAssetData&, const Asset::FAssetPackageInspection&,
-				Asset::FAssetDeleteContribution&) -> Asset::FAssetResult {
-				// Mounted sources may be shared and require a separate, explicit source operation.
-				return {};
-			});
-			return true;
-		}();
-		(void)RegisteredDeleteContributor;
-	}
+	{}
 
 	DStaticMesh::~DStaticMesh() = default;
 

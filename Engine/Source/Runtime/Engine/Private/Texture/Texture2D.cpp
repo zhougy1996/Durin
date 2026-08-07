@@ -299,17 +299,7 @@ namespace Durin
 
 	DTexture2D::DTexture2D(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-	{
-		static const bool RegisteredDeleteContributor = [] {
-			Asset::RegisterAssetDeleteContributor(DTexture2D::StaticClass(), [](const Asset::FAssetData&,
-				const Asset::FAssetPackageInspection&, Asset::FAssetDeleteContribution&) -> Asset::FAssetResult {
-				// Mounted sources may be shared and require a separate, explicit source operation.
-				return {};
-			});
-			return true;
-		}();
-		(void)RegisteredDeleteContributor;
-	}
+	{}
 
 	DTexture2D::~DTexture2D() = default;
 

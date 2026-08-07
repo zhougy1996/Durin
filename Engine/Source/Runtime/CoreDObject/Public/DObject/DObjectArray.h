@@ -7,6 +7,12 @@ namespace Durin
 {
 	class DObject;
 
+	enum class EObjectQueryScope : uint8
+	{
+		LiveOnly,
+		IncludeTemplates,
+	};
+
 	// Owns object handles and dense iteration state while indexing non-owning Outer relationships.
 	class FDObjectArray
 	{
@@ -19,10 +25,14 @@ namespace Durin
 
 		auto GetNum() const -> uint64 { return static_cast<uint64>(Objects.size()); }
 		auto GetGarbageNum() const -> uint64 { return GarbageObjectCount; }
-		auto GetAll() const -> const std::vector<DObject*>& { return Objects; }
-		auto Snapshot() const -> std::vector<DObject*> { return Objects; }
+		COREDOBJECT_API auto GetAll(EObjectQueryScope Scope) const -> std::vector<DObject*>;
+		auto Snapshot(EObjectQueryScope Scope) const -> std::vector<DObject*> { return GetAll(Scope); }
 		// Outer membership is maintained with swap removal, so query order is not stable.
-		COREDOBJECT_API auto GetObjectsWithOuter(const DObject* Outer, bool bIncludeGarbage = false) const -> std::vector<DObject*>;
+		COREDOBJECT_API auto GetObjectsWithOuter(
+			const DObject* Outer,
+			EObjectQueryScope Scope,
+			bool bIncludeGarbage = false
+		) const -> std::vector<DObject*>;
 
 		COREDOBJECT_API auto NotifyObjectMarkedGarbage() -> void;
 

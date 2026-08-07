@@ -111,14 +111,15 @@ def _display_name_from_payload(payload: str, macro_name: str, line: int, column:
 
 def _class_specifiers_from_payload(
     payload: str, line: int, column: int
-) -> tuple[bool, str, str]:
+) -> tuple[bool, bool, str, str]:
     location = f"DCLASS at line {line}, column {column}"
     if not payload.strip():
-        return False, "", ""
+        return False, False, "", ""
 
     entries = _macro_arguments(payload, location)
 
     is_abstract = False
+    no_class_default_object = False
     metadata: dict[str, str] = {}
     for raw_entry in entries:
         entry = raw_entry.strip()
@@ -127,11 +128,16 @@ def _class_specifiers_from_payload(
         key, separator, raw_value = entry.partition("=")
         key = key.strip()
         if not separator:
-            if key != "Abstract":
+            if key not in ("Abstract", "NoClassDefaultObject"):
                 raise ValueError(f"{location}: unsupported class specifier '{key}'")
-            if is_abstract:
-                raise ValueError(f"{location}: duplicate Abstract class specifier")
-            is_abstract = True
+            if key == "Abstract":
+                if is_abstract:
+                    raise ValueError(f"{location}: duplicate Abstract class specifier")
+                is_abstract = True
+            else:
+                if no_class_default_object:
+                    raise ValueError(f"{location}: duplicate NoClassDefaultObject class specifier")
+                no_class_default_object = True
             continue
 
         if key not in ("DisplayName", "DefaultObjectName"):
@@ -144,7 +150,12 @@ def _class_specifiers_from_payload(
             raise ValueError(f"{location}: {key} requires a quoted string")
         metadata[key] = _unescape_string_literal(match.group(1))
 
-    return is_abstract, metadata.get("DisplayName", ""), metadata.get("DefaultObjectName", "")
+    return (
+        is_abstract,
+        no_class_default_object,
+        metadata.get("DisplayName", ""),
+        metadata.get("DefaultObjectName", ""),
+    )
 
 
 def _replace_macro_calls(source: str, macro_name: str, replacement) -> str:
@@ -1496,7 +1507,7 @@ def parse_reflection_header(
                 qualified_name = _qualified_name(child)
                 helper_name = make_generated_helper_name(qualified_name)
                 class_payload = pending_dclass_annotation.split(",", 1)[1] if "," in pending_dclass_annotation else ""
-                is_abstract, display_name, default_object_name = _class_specifiers_from_payload(
+                is_abstract, no_class_default_object, display_name, default_object_name = _class_specifiers_from_payload(
                     class_payload, child.location.line, child.location.column
                 )
                 reflected_class = ReflectedClassInfo(
@@ -1509,6 +1520,7 @@ def parse_reflection_header(
                     base_qualified_name=_source_base_name(source, child) or _base_qualified_name(child),
                     generated_body_line=_scan_generated_body_line(source, child),
                     is_abstract=is_abstract,
+                    no_class_default_object=no_class_default_object,
                     display_name=display_name,
                     default_object_name=default_object_name,
                 )

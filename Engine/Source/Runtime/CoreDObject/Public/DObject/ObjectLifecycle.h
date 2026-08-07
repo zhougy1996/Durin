@@ -2,6 +2,7 @@
 
 #include "CoreDObjectAPI.h"
 #include "DObjectFwd.h"
+#include "Misc/Name.h"
 
 namespace Durin
 {
@@ -45,6 +46,10 @@ namespace Durin
 	COREDOBJECT_API auto MarkAsGarbage(DObject* Object) -> void;
 	// Explicit structural teardown request; this does not make Outer a GC ownership edge.
 	COREDOBJECT_API auto MarkObjectHierarchyAsGarbage(DObject* RootObject) -> void;
+	// Clears every class owner derived-first and marks its template hierarchy for the host's object drain.
+	COREDOBJECT_API auto ReleaseClassDefaultObjects() -> void;
+	// Releases and drains only defaults owned by classes from one compiled-in module.
+	COREDOBJECT_API auto ReleaseClassDefaultObjectsForModule(FName ModuleName) -> bool;
 	COREDOBJECT_API auto CollectGarbage() -> void;
 	COREDOBJECT_API auto GetGarbageObjectCount() -> uint64;
 	COREDOBJECT_API auto GetLastGarbageCollectionStats() -> const FGarbageCollectionStats&;
@@ -52,4 +57,9 @@ namespace Durin
 	COREDOBJECT_API auto CheckNoDeferredDestroyObjects(
 		const char* Context) -> void;
 	COREDOBJECT_API auto ForEachObjectReference(DObject* Object, FReferenceCollector& Collector) -> void;
+
+	namespace Private
+	{
+		COREDOBJECT_API auto MarkTemplateObjectHierarchyAsGarbage(DObject* RootObject) -> void;
+	}
 }

@@ -204,6 +204,12 @@ namespace Fixture
         GENERATED_BODY()
     };
 
+    DCLASS(NoClassDefaultObject)
+    class AInfrastructure : public Durin::DObject
+    {
+        GENERATED_BODY()
+    };
+
     DSTRUCT()
     struct FCurvePoint
     {
@@ -442,6 +448,21 @@ struct Durin::TDStructOpsTraits<Fixture::FMalformedEquality>
         )[1]
         assert "DEFINE_DEFAULT_CONSTRUCTOR_CALL(AAbstractActor)" not in abstract_macros
         assert "DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(AAbstractActor)" not in abstract_macros
+
+    def test_no_class_default_object_emits_flag_with_constructor(self):
+        class_info = next(
+            class_info
+            for class_info in self.header_info.classes
+            if class_info.qualified_name == "Fixture::AInfrastructure"
+        )
+        assert class_info.no_class_default_object
+        definition = self.generated_cpp.split(
+            "Durin::DClass* Fixture::AInfrastructure::GetPrivateStaticClass()", 1
+        )[1].split(
+            "Durin::DClass* Z_Construct_DClass_Fixture_AInfrastructure_NoRegister()", 1
+        )[0]
+        assert "Durin::EClassFlags::NoClassDefaultObject," in definition
+        assert "InternalConstructor<Fixture::AInfrastructure>" in definition
 
     def test_qualified_helper_name_and_validation(self):
         assert (
@@ -686,6 +707,10 @@ struct Durin::TDStructOpsTraits<Fixture::FMalformedEquality>
         ("source", "diagnostic"),
         [
             ("DCLASS(Abstract, Abstract) class FItem {};", "duplicate Abstract class specifier"),
+            (
+                "DCLASS(NoClassDefaultObject, NoClassDefaultObject) class FItem {};",
+                "duplicate NoClassDefaultObject class specifier",
+            ),
             ("DCLASS(Transient) class FItem {};", "unsupported class specifier 'Transient'"),
             (
                 'DCLASS(Abstract = "true") class FItem {};',

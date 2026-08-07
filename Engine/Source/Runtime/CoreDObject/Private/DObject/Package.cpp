@@ -77,6 +77,7 @@ namespace Durin
 	auto DPackage::SetAsset(DObject* InAsset) -> bool
 	{
 		if (!IsAssetPackage()) return false;
+		if (InAsset && InAsset->IsTemplateObject()) return false;
 		if (InAsset && InAsset->GetOuter() != this) return false;
 		Asset = InAsset;
 		MarkDirty();
@@ -133,7 +134,7 @@ namespace Durin
 			DObjectForceRegistration(Class);
 			Class->SetQualifiedName(QualifiedName);
 		}
-		for (DObject* Object : GDObjectArray.GetAll())
+		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
 		{
 			if (Cast<DType>(Object) && Object->GetOuter() == nullptr && EnumHasAnyFlags(Object->GetObjectFlags(), EObjectFlags::Intrinsic))
 			{

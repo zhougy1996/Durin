@@ -387,7 +387,7 @@ namespace Durin::Asset
 		{
 			if (!Object) return;
 			OutObjects.push_back(Object);
-			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object)) GatherObjects(Inner, OutObjects);
+			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::LiveOnly)) GatherObjects(Inner, OutObjects);
 		}
 
 		auto DecodeByteToolValue(
@@ -2141,7 +2141,7 @@ namespace Durin::Asset
 
 		auto FindExistingInner(DObject* Outer, std::string_view Name, DClass* Class, bool& bTypeMismatch) -> DObject*
 		{
-			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Outer))
+			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Outer, EObjectQueryScope::LiveOnly))
 			{
 				if (Inner->GetName() != Name) continue;
 				if (Inner->GetClass() == Class) return Inner;
@@ -6723,6 +6723,7 @@ namespace Durin::Asset
 			if (!Object)
 			{
 				FStaticConstructObjectParameters Params{Class, Outer, FName(Record.ObjectName), Class->PropertiesSize};
+				Params.Purpose = EObjectConstructionPurpose::AssetLoad;
 				Object = StaticConstructObject(Params);
 				DObjectForceRegistration(Object);
 			}

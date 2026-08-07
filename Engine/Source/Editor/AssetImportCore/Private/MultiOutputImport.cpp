@@ -630,7 +630,7 @@ namespace Durin::AssetImport
 			Result.Message = "Could not allocate a temporary import-record candidate path.";
 			return Result;
 		}
-		const Asset::FAssetResult CreateRecord = Asset::CreateAsset(RecordCandidatePath, RecordCandidate);
+		const Asset::FAssetResult CreateRecord = CreateImportRecordAsset(RecordCandidatePath, RecordCandidate);
 		if (!CreateRecord || !RecordCandidate)
 		{
 			Result.Message = CreateRecord.Message;

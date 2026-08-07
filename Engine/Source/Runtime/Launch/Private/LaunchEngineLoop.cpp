@@ -25,6 +25,7 @@
 
 #include "Shader/ShaderPaths.h"
 #include "EngineGlobals.h"
+#include "EngineAssetServices.h"
 
 #if DURIN_WITH_EDITOR
 	#include "Editor/EditorEngine.h"
@@ -346,6 +347,7 @@ namespace Durin
 
 		FModuleManager::Get().LoadModule("RenderCore");
 		DObjectInit();
+		InitializeEngineAssetServices();
 		return true;
 	}
 
@@ -367,6 +369,7 @@ namespace Durin
 			RemoveFromRoot(GEngine);
 			MarkObjectHierarchyAsGarbage(GEngine);
 			GEngine = nullptr;
+			ReleaseClassDefaultObjects();
 			CollectGarbage();
 			FModuleManager::Get().UnloadModulesAtShutdown();
 			ShutdownApplicationCore();
@@ -505,6 +508,7 @@ namespace Durin
 		MarkObjectHierarchyAsGarbage(GEngine);
 		GEngine = nullptr;
 		Asset::ShutdownAssetManager();
+		ReleaseClassDefaultObjects();
 		CollectGarbage();
 
 		if (GRenderingThread) FlushRenderingCommands();

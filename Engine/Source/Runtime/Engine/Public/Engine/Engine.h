@@ -18,7 +18,7 @@ namespace Durin
 	struct FSceneView;
 
 	// Coordinates the active world, scene viewports, input state, and renderer module.
-	DCLASS()
+	DCLASS(NoClassDefaultObject)
 	class DEngine : public DObject
 	{
 		GENERATED_BODY()

@@ -497,6 +497,69 @@ namespace
 		}
 	};
 
+	std::vector<std::string> GOrderedDefaultConstruction;
+
+	void ConstructOrderedDefault(const Durin::FObjectInitializer& ObjectInitializer)
+	{
+		if (ObjectInitializer.Purpose == Durin::EObjectConstructionPurpose::ClassDefaultObject)
+		{
+			GOrderedDefaultConstruction.push_back(ObjectInitializer.Class->GetName());
+		}
+		new (ObjectInitializer.GetObj()) DLifecycleTestObject(ObjectInitializer);
+	}
+
+	class DRecursiveDefaultObjectForTest : public Durin::DObject
+	{
+	public:
+		inline static Durin::uint64 DestructorCount = 0;
+
+		explicit DRecursiveDefaultObjectForTest(
+			const Durin::FObjectInitializer& ObjectInitializer = Durin::FObjectInitializer::Get())
+			: DObject(ObjectInitializer)
+		{
+			if (IsClassDefaultObject())
+			{
+				(void)Durin::NewObject<DLifecycleTestObject>(
+					this,
+					Durin::FName("RecursiveDefaultInner"),
+					Durin::EObjectConstructionPurpose::ClassDefaultSubobject);
+				(void)StaticClass()->GetDefaultObject();
+			}
+		}
+
+		~DRecursiveDefaultObjectForTest() override
+		{
+			++DestructorCount;
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DRecursiveDefaultObjectForTest(X);
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor,
+					Durin::FName("DRecursiveDefaultObjectForTest"),
+					sizeof(DRecursiveDefaultObjectForTest),
+					alignof(DRecursiveDefaultObjectForTest),
+					Durin::EObjectFlags::NoFlags,
+					Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<DRecursiveDefaultObjectForTest>
+				);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(Durin::DClass::StaticClass, "", "DRecursiveDefaultObjectForTest");
+				Durin::DObjectForceRegistration(Class);
+			}
+			return Class;
+		}
+	};
+
 	class DLifecycleReferenceOwnerForTest : public Durin::DObject
 	{
 	public:
@@ -1590,7 +1653,7 @@ namespace
 
 	auto ObjectArrayContains(Durin::DObject* Object) -> bool
 	{
-		std::vector<Durin::DObject*> Objects = Durin::GDObjectArray.GetAll();
+		std::vector<Durin::DObject*> Objects = Durin::GDObjectArray.GetAll(Durin::EObjectQueryScope::IncludeTemplates);
 		return std::find(Objects.begin(), Objects.end(), Object) != Objects.end();
 	}
 
@@ -1609,6 +1672,172 @@ namespace
 		EXPECT_EQ(Durin::DType::StaticClass()->GetSuperClass(), Durin::DObject::StaticClass());
 		EXPECT_EQ(Durin::DStructBase::StaticClass()->GetSuperClass(), Durin::DType::StaticClass());
 		EXPECT_EQ(Durin::DClass::StaticClass()->GetSuperClass(), Durin::DStructBase::StaticClass());
+	}
+
+	TEST(FCoreDObjectReflectionTests, ClassDefaultObjectHasStableIdentityAndSurvivesGarbageCollection)
+	{
+		EnsureDObjectInitialized();
+		EXPECT_EQ(Durin::DObject::StaticClass()->GetDefaultObjectState(), Durin::EClassDefaultObjectState::Ineligible);
+		EXPECT_EQ(Durin::DObject::StaticClass()->GetDefaultObjectReason(), Durin::EClassDefaultObjectReason::Intrinsic);
+		EXPECT_EQ(Durin::DPackage::StaticClass()->GetDefaultObjectState(), Durin::EClassDefaultObjectState::Ineligible);
+		EXPECT_EQ(
+			Durin::DPackage::StaticClass()->GetDefaultObjectReason(),
+			Durin::EClassDefaultObjectReason::NoClassDefaultObject);
+
+		Durin::DClass* Class = DLifecycleTestObject::StaticClass();
+		const std::array Batch{Class};
+		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
+		ASSERT_EQ(Class->GetDefaultObjectState(), Durin::EClassDefaultObjectState::Ready);
+		auto* DefaultObject = static_cast<const DLifecycleTestObject*>(Class->GetDefaultObject());
+		ASSERT_NE(DefaultObject, nullptr);
+		EXPECT_EQ(DefaultObject->GetOuter(), Class);
+		EXPECT_EQ(DefaultObject->GetName(), "Default__DLifecycleTestObject");
+		EXPECT_TRUE(DefaultObject->IsClassDefaultObject());
+		EXPECT_TRUE(DefaultObject->IsTemplateObject());
+		EXPECT_TRUE(DefaultObject->HasAnyObjectFlags(Durin::EObjectFlags::Transient));
+		const auto LiveObjects = Durin::GDObjectArray.GetAll(Durin::EObjectQueryScope::LiveOnly);
+		const auto DiagnosticObjects = Durin::GDObjectArray.GetAll(Durin::EObjectQueryScope::IncludeTemplates);
+		EXPECT_EQ(std::ranges::find(LiveObjects, DefaultObject), LiveObjects.end());
+		EXPECT_NE(std::ranges::find(DiagnosticObjects, DefaultObject), DiagnosticObjects.end());
+
+		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
+		EXPECT_EQ(Class->GetDefaultObject(), DefaultObject);
+		const Durin::DObject* WorkerDefault = nullptr;
+		std::thread Worker([&] { WorkerDefault = Class->GetDefaultObject(); });
+		Worker.join();
+		EXPECT_EQ(WorkerDefault, DefaultObject);
+
+		auto* MutableDefault = const_cast<DLifecycleTestObject*>(DefaultObject);
+		MutableDefault->Rename("RejectedRename");
+		MutableDefault->SetOuterPrivate(nullptr);
+		Durin::AddToRoot(MutableDefault);
+		Durin::MarkAsGarbage(MutableDefault);
+		EXPECT_EQ(DefaultObject->GetName(), "Default__DLifecycleTestObject");
+		EXPECT_EQ(DefaultObject->GetOuter(), Class);
+		EXPECT_FALSE(DefaultObject->IsGarbage());
+		EXPECT_FALSE(DefaultObject->HasAnyInternalFlags(Durin::EObjectInternalFlags::RootSet));
+		std::vector<Durin::uint8> SerializedDefault;
+		EXPECT_FALSE(Durin::SaveObjectGraphToMemory(MutableDefault, SerializedDefault));
+		std::string DuplicateError;
+		EXPECT_EQ(Durin::DuplicateObjectGraph(
+			MutableDefault, nullptr, Durin::FName("RejectedDefaultDuplicate"), &DuplicateError), nullptr);
+		EXPECT_NE(DuplicateError.find("class-default template"), std::string::npos);
+		Durin::CollectGarbage();
+		EXPECT_TRUE(Durin::GDObjectArray.Contains(DefaultObject));
+		EXPECT_EQ(Class->GetDefaultObject(), DefaultObject);
+
+		DLifecycleTestObject::ResetLifecycleCounts();
+		Durin::ReleaseClassDefaultObjects();
+		EXPECT_EQ(Class->GetDefaultObject(), nullptr);
+		Durin::CollectGarbage();
+		EXPECT_FALSE(Durin::GDObjectArray.Contains(DefaultObject));
+		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
+		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 1u);
+		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 1u);
+	}
+
+	TEST(FCoreDObjectReflectionTests, RecursiveDefaultObjectConstructionRollsBackTheWholeObject)
+	{
+		EnsureDObjectInitialized();
+		Durin::DClass* Class = DRecursiveDefaultObjectForTest::StaticClass();
+		const Durin::uint64 ObjectCountBeforeCreation = Durin::GDObjectArray.GetNum();
+		DRecursiveDefaultObjectForTest::DestructorCount = 0;
+		DLifecycleTestObject::ResetLifecycleCounts();
+
+		const std::array Batch{Class};
+		EXPECT_FALSE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
+		EXPECT_EQ(Class->GetDefaultObjectState(), Durin::EClassDefaultObjectState::Failed);
+		EXPECT_EQ(Class->GetDefaultObjectReason(), Durin::EClassDefaultObjectReason::RecursiveConstruction);
+		EXPECT_EQ(Class->GetDefaultObject(), nullptr);
+		EXPECT_EQ(Durin::GDObjectArray.GetNum(), ObjectCountBeforeCreation);
+		EXPECT_EQ(DRecursiveDefaultObjectForTest::DestructorCount, 1u);
+		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
+		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 1u);
+		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 1u);
+	}
+
+	TEST(FCoreDObjectReflectionTests, ClassDefaultMatchesReflectedAndNativeArchiveDefaults)
+	{
+		EnsureDObjectInitialized();
+		Durin::DClass* Class = DLifecycleReferenceOwnerForTest::StaticClass();
+		const std::array Batch{Class};
+		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
+		const auto* DefaultObject = static_cast<const DLifecycleReferenceOwnerForTest*>(
+			Class->GetDefaultObject());
+		auto* Instance = Durin::NewObject<DLifecycleReferenceOwnerForTest>(
+			nullptr, Durin::FName("ArchiveParityInstance"));
+		ASSERT_NE(DefaultObject, nullptr);
+		ASSERT_NE(Instance, nullptr);
+
+		Class->ForEachProperty([&](Durin::FProperty* Property) {
+			if (Property->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient)) return;
+			for (Durin::uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
+			{
+				EXPECT_TRUE(Durin::ArePropertyValuesIdentical(
+					Property, DefaultObject, Index, Instance, Index))
+					<< Property->NamePrivate.ToString();
+			}
+		}, true);
+		EXPECT_EQ(DefaultObject->NativeScalar, Instance->NativeScalar);
+		EXPECT_EQ(DefaultObject->NativeStruct.Value, Instance->NativeStruct.Value);
+		EXPECT_EQ(DefaultObject->NativeStruct.Label, Instance->NativeStruct.Label);
+		EXPECT_EQ(DefaultObject->NativeValues, Instance->NativeValues);
+		EXPECT_EQ(DefaultObject->SerializedNativeReference, Instance->SerializedNativeReference);
+
+		Durin::MarkAsGarbage(Instance);
+		Durin::ReleaseClassDefaultObjects();
+		Durin::CollectGarbage();
+	}
+
+	TEST(FCoreDObjectReflectionTests, ClassDefaultBatchIgnoresInputRegistrationOrder)
+	{
+		EnsureDObjectInitialized();
+		auto MakeClass = [](const char* Name, Durin::DClass* SuperClass) {
+			auto* Class = new Durin::DClass(
+				Durin::EC_StaticConstructor,
+				Durin::FName(Name),
+				sizeof(DLifecycleTestObject),
+				alignof(DLifecycleTestObject),
+				Durin::EObjectFlags::NoFlags,
+				Durin::EClassFlags::None,
+				Durin::EClassCastFlags::DClass,
+				&ConstructOrderedDefault);
+			Class->SetSuperStructBase(SuperClass);
+			Class->Register(Durin::DClass::StaticClass, "/Cpp/LateDefaultModuleForTest", Name);
+			Durin::DObjectForceRegistration(Class);
+			return Class;
+		};
+
+		Durin::DClass* BaseClass = MakeClass("DOrderedDefaultBaseForTest", Durin::DObject::StaticClass());
+		Durin::DClass* DerivedClass = MakeClass("DOrderedDefaultDerivedForTest", BaseClass);
+		GOrderedDefaultConstruction.clear();
+		const std::array ReversedBatch{DerivedClass, BaseClass};
+		ASSERT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(ReversedBatch));
+		ASSERT_EQ(GOrderedDefaultConstruction.size(), 2u);
+		EXPECT_EQ(GOrderedDefaultConstruction[0], "DOrderedDefaultBaseForTest");
+		EXPECT_EQ(GOrderedDefaultConstruction[1], "DOrderedDefaultDerivedForTest");
+		const Durin::DObject* BaseDefault = BaseClass->GetDefaultObject();
+		const Durin::DObject* DerivedDefault = DerivedClass->GetDefaultObject();
+
+		const std::array ForwardBatch{BaseClass, DerivedClass};
+		EXPECT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(ForwardBatch));
+		EXPECT_EQ(BaseClass->GetDefaultObject(), BaseDefault);
+		EXPECT_EQ(DerivedClass->GetDefaultObject(), DerivedDefault);
+		EXPECT_EQ(GOrderedDefaultConstruction.size(), 2u);
+
+		auto* DeferredDefault = const_cast<DLifecycleTestObject*>(
+			static_cast<const DLifecycleTestObject*>(BaseDefault));
+		DeferredDefault->bReadyForFinishDestroy = false;
+		EXPECT_FALSE(Durin::ReleaseClassDefaultObjectsForModule(
+			Durin::FName("LateDefaultModuleForTest")));
+		EXPECT_EQ(BaseClass->GetDefaultObjectState(), Durin::EClassDefaultObjectState::Uninitialized);
+		EXPECT_EQ(DerivedClass->GetDefaultObjectState(), Durin::EClassDefaultObjectState::Uninitialized);
+		EXPECT_TRUE(Durin::GDObjectArray.Contains(BaseDefault));
+		EXPECT_FALSE(Durin::GDObjectArray.Contains(DerivedDefault));
+		DeferredDefault->bReadyForFinishDestroy = true;
+		EXPECT_TRUE(Durin::ReleaseClassDefaultObjectsForModule(
+			Durin::FName("LateDefaultModuleForTest")));
+		EXPECT_FALSE(Durin::GDObjectArray.Contains(BaseDefault));
 	}
 
 	TEST(FCoreDObjectReflectionTests, DeferredRegistrationOwnsTemporaryNames)
@@ -1669,6 +1898,10 @@ namespace
 
 		EXPECT_TRUE(AbstractClass.IsChildOf(Durin::DObject::StaticClass()));
 		EXPECT_TRUE(AbstractClass.HasAnyClassFlags(Durin::EClassFlags::Abstract));
+		const std::array Batch{&AbstractClass};
+		EXPECT_TRUE(Durin::Private::CreateClassDefaultObjectsForBatch(Batch));
+		EXPECT_EQ(AbstractClass.GetDefaultObjectState(), Durin::EClassDefaultObjectState::Ineligible);
+		EXPECT_EQ(AbstractClass.GetDefaultObjectReason(), Durin::EClassDefaultObjectReason::Abstract);
 		EXPECT_FALSE(Durin::CanConstructObjectOfClass(
 			&AbstractClass, Durin::DObject::StaticClass()
 		));
@@ -1688,32 +1921,32 @@ namespace
 			return std::find(Objects.begin(), Objects.end(), Object) != Objects.end();
 		};
 
-		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter), MiddleChild));
-		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter), MiddleChild));
+		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter, Durin::EObjectQueryScope::LiveOnly), MiddleChild));
+		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter, Durin::EObjectQueryScope::LiveOnly), MiddleChild));
 
 		MiddleChild->Rename(Durin::FName("OuterIndexRenamedChild"));
-		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter), MiddleChild));
+		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter, Durin::EObjectQueryScope::LiveOnly), MiddleChild));
 
 		// Removing the middle swaps LastChild into its slot and must update that back-pointer.
 		MiddleChild->SetOuterPrivate(SecondOuter);
-		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter), MiddleChild));
-		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter), MiddleChild));
+		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter, Durin::EObjectQueryScope::LiveOnly), MiddleChild));
+		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter, Durin::EObjectQueryScope::LiveOnly), MiddleChild));
 
 		FirstChild->SetOuterPrivate(SecondOuter);
 		LastChild->SetOuterPrivate(SecondOuter);
-		EXPECT_TRUE(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter).empty());
-		EXPECT_EQ(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter).size(), 3);
+		EXPECT_TRUE(Durin::GDObjectArray.GetObjectsWithOuter(FirstOuter, Durin::EObjectQueryScope::LiveOnly).empty());
+		EXPECT_EQ(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter, Durin::EObjectQueryScope::LiveOnly).size(), 3);
 
 		MiddleChild->SetOuterPrivate(nullptr);
-		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter), MiddleChild));
-		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr), MiddleChild));
+		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(SecondOuter, Durin::EObjectQueryScope::LiveOnly), MiddleChild));
+		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr, Durin::EObjectQueryScope::LiveOnly), MiddleChild));
 
 		Durin::MarkAsGarbage(MiddleChild);
-		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr), MiddleChild));
-		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr, true), MiddleChild));
+		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr, Durin::EObjectQueryScope::LiveOnly), MiddleChild));
+		EXPECT_TRUE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr, Durin::EObjectQueryScope::LiveOnly, true), MiddleChild));
 
 		Durin::CollectGarbage();
-		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr, true), MiddleChild));
+		EXPECT_FALSE(Contains(Durin::GDObjectArray.GetObjectsWithOuter(nullptr, Durin::EObjectQueryScope::LiveOnly, true), MiddleChild));
 	}
 
 	TEST(FCoreDObjectReflectionTests, DestroyingWideOuterDetachesAllReachableChildren)
@@ -2569,7 +2802,7 @@ namespace
 			Durin::FName("DuplicateArchiveFailedResult"), &Error), nullptr);
 		EXPECT_NE(Error.find("Injected test object serialization failure"), std::string::npos);
 		Durin::CollectGarbage();
-		auto RemainingInners = Durin::GDObjectArray.GetObjectsWithOuter(NewOuter);
+		auto RemainingInners = Durin::GDObjectArray.GetObjectsWithOuter(NewOuter, Durin::EObjectQueryScope::LiveOnly);
 		EXPECT_EQ(std::ranges::count_if(RemainingInners, [](Durin::DObject* Object) {
 			return Object && Object->GetName() == "DuplicateArchiveFailedResult";
 		}), 0);

@@ -405,7 +405,7 @@ namespace
 
 	auto FindObjectByName(std::string_view Name) -> Durin::DObject*
 	{
-		const auto& Objects = Durin::GDObjectArray.GetAll();
+		const auto Objects = Durin::GDObjectArray.GetAll(Durin::EObjectQueryScope::LiveOnly);
 		const auto It = std::ranges::find_if(Objects, [Name](const Durin::DObject* Object) {
 			return Object && Object->GetName() == Name;
 		});

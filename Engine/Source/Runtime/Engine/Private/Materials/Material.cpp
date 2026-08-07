@@ -7,7 +7,7 @@ namespace Durin
 		, ParameterSchemaVersion(CurrentMaterialParameterSchemaVersion)
 		, ParameterDefinitions(MakeCanonicalMaterialParameterDefinitions())
 	{
-		PublishMaterialRenderProxyState();
+		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose)) PublishMaterialRenderProxyState();
 	}
 
 	auto DMaterial::GetParameterDefinitions() const -> std::span<const FMaterialParameterDefinition>

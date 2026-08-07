@@ -34,7 +34,9 @@ The current system supports:
 - reflected scalar/string/object-reference serialization through `FArchive`
 - minimal in-memory object graph save/load helpers
 
-The system does not currently implement CDO behavior, hot reload, function reflection, general template reflection, schema migrations, weak references, incremental/concurrent GC, or complete metadata specifier parsing.
+The system does not currently implement editable class defaults, hot reload,
+function reflection, general archetype chains, schema migrations, weak
+references, incremental/concurrent GC, or complete metadata specifier parsing.
 
 `DSTRUCT()` value types generate `StaticStruct()` and `DStruct` metadata without changing normal C++ copy/move behavior. [Core math aliases](Math.md) cannot depend on `CoreDObject`, so `FVector3`, `FQuat`, and `FTransform` are registered externally as intrinsic structs and still appear as ordinary `FStructProperty` values.
 
@@ -357,6 +359,29 @@ metadata that points at the corresponding `DEnum`.
 `DClass` keeps runtime identity, C++ spelling, editor presentation, and instance naming separate. `QualifiedName` remains the stable serialized/type-lookup identity and `ShortName` remains the C++ class spelling. `DisplayName` is used by editor UI, while `DefaultObjectName` is used when an instance is created without an explicit name. When metadata is omitted, Durin removes the conventional `A`/`D` prefix when followed by an uppercase letter; display names additionally split CamelCase words. For example, `AStaticMeshActor` defaults to display name `Static Mesh Actor` and object name `StaticMeshActor`.
 
 `ConstructDClass(...)` forces class registration, then creates `FProperty` nodes from generated property parameters and attaches top-level fields to `DStructBase::ChildProperties`. Container inner/key/value properties are constructed recursively and owned by their containing `FArrayProperty` or `FMapProperty`; they are not inserted into the class property chain.
+
+### Class Default Objects
+
+Every eligible reflected class owns one immutable class default object after its
+registration batch completes. Eligibility requires a valid constructor and
+layout and excludes `DCLASS(Abstract)`, intrinsic reflection metadata, and the
+explicit `DCLASS(NoClassDefaultObject)` service/infrastructure opt-out.
+`DClass::GetDefaultObject()` is const-only and reports a stable state/reason when
+no default is available.
+
+Registration batches expand superclass chains and construct base-before-derived,
+then qualified-name order. Defaults are not published until the whole batch
+succeeds. A default has Outer equal to its `DClass`, a
+`Default__<ShortClassName>` name, and `ClassDefaultObject | Transient` flags.
+The four authored actor defaults may create their fixed-name component templates
+with `DefaultSubobject | Transient`; arbitrary archetype graphs are not supported.
+
+`EObjectConstructionPurpose` distinguishes runtime, asset-load, duplication,
+class-default, and default-subobject construction. Constructors use it to retain
+authored values while skipping runtime publication or activation. Broad object
+queries must explicitly choose `EObjectQueryScope::LiveOnly` or
+`IncludeTemplates`; asset, world, editor, and loaded-instance queries use the
+former, while reflection diagnostics and lifecycle code use the latter.
 
 ### Leaf Property Registration
 

@@ -63,7 +63,7 @@ namespace Durin
 
 		virtual ~DObject() = default;
 
-		auto Rename(FName InName) -> void { NamePrivate = InName; }
+		COREDOBJECT_API auto Rename(FName InName) -> void;
 
 		auto GetFName() const -> FName { return NamePrivate; }
 
@@ -78,6 +78,13 @@ namespace Durin
 		COREDOBJECT_API auto MarkPackageDirty() -> void;
 
 		auto GetObjectFlags() const -> EObjectFlags { return ObjectFlags; }
+		auto HasAnyObjectFlags(EObjectFlags InFlags) const -> bool { return EnumHasAnyFlags(ObjectFlags, InFlags); }
+		auto IsClassDefaultObject() const -> bool { return HasAnyObjectFlags(EObjectFlags::ClassDefaultObject); }
+		auto IsTemplateObject() const -> bool
+		{
+			return HasAnyObjectFlags(EObjectFlags::ClassDefaultObject | EObjectFlags::DefaultSubobject);
+		}
+		auto GetConstructionPurpose() const -> EObjectConstructionPurpose { return ConstructionPurpose; }
 
 		auto GetInternalFlags() const -> EObjectInternalFlags { return InternalFlags; }
 
@@ -140,6 +147,8 @@ namespace Durin
 		FName NamePrivate;
 
 		EObjectFlags ObjectFlags = EObjectFlags::NoFlags;
+
+		EObjectConstructionPurpose ConstructionPurpose = EObjectConstructionPurpose::RuntimeObject;
 
 		DObject* OuterPrivate = nullptr;
 

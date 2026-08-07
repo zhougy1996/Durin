@@ -9,13 +9,15 @@ Completed:
 
 ## Current Status
 
-- The program is now scheduled. The bounded
+- The bounded
   [Class Default Object Lifecycle Plan](../Plans/ClassDefaultObjectLifecycle.md)
-  is the active prerequisite; it owns deterministic class-default construction,
-  template identity, runtime-side-effect separation, GC ownership, and shutdown.
-  No DAST v4 plan is active yet. AssetCore still reads and writes only DAST v3,
-  and the repository baseline gate rejects every other package format or
-  incompatible schema.
+  prerequisite is complete: all 38 production reflected classes have explicit
+  disposition, all 25 eligible classes own deterministic immutable defaults,
+  template construction is publication-free, and GC/module teardown is explicit.
+  The v4 measurement and wire-contract milestone now satisfies its entry gate
+  and is ready for a bounded child plan; no DAST v4 implementation is active yet.
+  AssetCore still reads and writes only DAST v3, and the repository baseline gate
+  rejects every other package format or incompatible schema.
 - The completed [Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
   owns DAST v3's bounded registry-entry kind and redirect-destination header
   summary. Compact serialization therefore starts at v4 and uses a temporary
@@ -147,15 +149,12 @@ compression.
   storage, recursive logical equality, and transactional Archive/authored
   loading. `FPropertyValueSnapshot` uses the same equality and roots reflected
   plus declared hidden references.
+- `DClass` exposes immutable class defaults with stable eligibility diagnostics,
+  construction-purpose identity, logical parity across the production class
+  inventory, live-only query filtering, and derived-first GC/module release.
 
 ### Gaps
 
-- Reflected classes do not own deterministic class default objects.
-- `DMaterial` demonstrates why a default object cannot simply use the ordinary
-  runtime construction path: its authored defaults are explicit, including 56
-  canonical parameter definitions, but construction also allocates and may
-  publish a render proxy. Default-object creation needs a non-publishing
-  lifecycle contract rather than ad hoc constructor calls.
 - Struct schemas and textual type signatures repeat at each occurrence.
 - Package-version handling conflates the latest writer with the supported reader
   set. The v3 value is also duplicated across package saving, loading,
@@ -179,8 +178,8 @@ compression.
 | --- | --- | --- | --- | --- |
 | Reflected struct operations | External prerequisite | None | Declarative lifecycle, equality, reference, and serialization semantics are fail-closed; every current authored struct is audited and the full build passes | Completed 2026-08-05 |
 | Unified Archive serialization | Required prerequisite plan | Reflected struct operations complete | One live `Serialize` entry, purpose-specific Archives, exact DAST v3 adapters, and shared construct-free field codecs pass focused, full-build, and editor qualification | Completed 2026-08-07 |
-| Class default object lifecycle | Required prerequisite plan | Struct-operations and unified-Archive prerequisites complete; program explicitly scheduled | Every eligible concrete reflected class has one immutable deterministic default object; template construction is free of runtime publication, GC/shutdown ownership is explicit, and constructor/default parity passes full qualification | Active |
-| V4 measurement and wire contract | Required child plan | Class-default-object lifecycle exit gate passed | Recursive v3 accounting, a frozen bounded v4 byte contract, golden primitives, and a test-only feasibility fixture demonstrate the size target without a production reader or writer | Proposed, deferred |
+| Class default object lifecycle | Required prerequisite plan | Struct-operations and unified-Archive prerequisites complete; program explicitly scheduled | Every eligible concrete reflected class has one immutable deterministic default object; template construction is free of runtime publication, GC/shutdown ownership is explicit, and constructor/default parity passes full qualification | Completed 2026-08-08 |
+| V4 measurement and wire contract | Required child plan | Class-default-object lifecycle exit gate passed | Recursive v3 accounting, a frozen bounded v4 byte contract, golden primitives, and a test-only feasibility fixture demonstrate the size target without a production reader or writer | Ready to activate |
 | Default-relative reflection | Required child plan | V4 default/override semantics frozen and measurement/wire-contract exit gate passed | Class defaults and safe struct defaults drive recursive logical equivalence, forced-override provenance, and no-delta policy under focused lifecycle tests | Proposed, deferred |
 | Deterministic v4 writer | Required child plan | Default-relative reflection exit gate passed | Discovery freezes every referenced table entry and version; canonical emission is byte-deterministic and meets both Default Material size gates | Proposed, deferred |
 | V4 reader and compatibility | Required child plan | Writer fixtures and frozen schema model available | Bounded v4 loading and construct-free inspection preserve unknown descriptor closures and pass malformed-input, rollback, and compatibility parity suites | Proposed, deferred |
@@ -219,9 +218,9 @@ tokens, and 4 KiB display paths.
 
 ### Class Default Object Lifecycle
 
-The active
+The completed
 [Class Default Object Lifecycle Plan](../Plans/ClassDefaultObjectLifecycle.md)
-owns one immutable default object per constructible reflected class, explicit
+established one immutable default object per constructible reflected class, explicit
 template construction purpose and flags, base-before-derived creation after
 reflection finalization, constructor/default parity, runtime-side-effect
 separation, global object-query filtering, GC retention, and deterministic
@@ -270,10 +269,10 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 ## Risks and Control Gates
 
-- **Constructor side effects:** the active default-object plan cannot pass its
-  Stage 0 gate until constructible reflected classes are audited for deterministic
-  construction, owned inners, process state, I/O, registration, publication, and
-  external references. Core construction begins only after that contract closes.
+- **Constructor side effects:** the completed default-object audit and production
+  parity sweep cover deterministic construction, owned inners, process state,
+  I/O, registration, publication, and external references. A future reflected
+  class must receive an explicit disposition before it can enter v4 measurement.
 - **Opaque custom state:** a custom Archive serializer is not automatically an
   authored-package codec. The conditional codec plan is mandatory if reflected
   fields plus post-load repair cannot preserve durable state.

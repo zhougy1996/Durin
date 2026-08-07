@@ -14,8 +14,10 @@ namespace Durin
 
 	DSkyBoxComponent::DSkyBoxComponent(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-		, SkyBoxSceneId(FGuid::NewGuid())
-		, SkyBoxInstanceId(GNextSkyBoxInstanceId.fetch_add(1, std::memory_order_relaxed))
+		, SkyBoxSceneId(IsTemplateConstructionPurpose(ObjectInitializer.Purpose) ? FGuid{} : FGuid::NewGuid())
+		, SkyBoxInstanceId(IsTemplateConstructionPurpose(ObjectInitializer.Purpose)
+			? 0
+			: GNextSkyBoxInstanceId.fetch_add(1, std::memory_order_relaxed))
 	{
 	}
 

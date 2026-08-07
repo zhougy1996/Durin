@@ -77,7 +77,7 @@ namespace Durin
 		: Super(ObjectInitializer)
 		, ParameterSchemaVersion(CurrentMaterialParameterSchemaVersion)
 	{
-		PublishMaterialRenderProxyState();
+		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose)) PublishMaterialRenderProxyState();
 	}
 
 	auto DMaterialInstance::SetParent(DMaterialInterface* InParent) -> bool

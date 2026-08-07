@@ -4,6 +4,7 @@
 
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
+#include "EngineAssetServices.h"
 #include "Engine/Level.h"
 #include "GenericPlatform/GenericPlatformMisc.h"
 #include "Misc/Name.h"
@@ -88,6 +89,7 @@ int main(int ArgC, char** ArgV)
 		return 1;
 	}
 	Durin::DObjectInit();
+	Durin::InitializeEngineAssetServices();
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
 	(void)Durin::AssetImport::DImportRecord::StaticClass(); // AssetImport packages are part of the authored corpus.
 	if (Options.bApply && !Durin::Asset::RecoverInterruptedAssetMigrations(Error))

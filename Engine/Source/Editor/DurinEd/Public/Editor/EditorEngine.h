@@ -53,7 +53,7 @@ namespace Durin
 	};
 
 	// Owns editor services and coordinates editor and play-world lifetimes.
-	DCLASS()
+	DCLASS(NoClassDefaultObject)
 	class DEditorEngine : public DEngine
 	{
 		GENERATED_BODY()

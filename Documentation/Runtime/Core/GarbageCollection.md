@@ -25,6 +25,8 @@ The public lifecycle operations are:
 - `FScopedObjectRoot` provides a move-only scoped root reference.
 - `MarkAsGarbage(DObject*)` requests destruction of one object and immediately makes it logically invalid without physically removing it.
 - `MarkObjectHierarchyAsGarbage(DObject*)` iteratively applies the same request to the root and every current structural descendant found through the Outer index.
+- `ReleaseClassDefaultObjects()` clears all class-default ownership derived-first before the host's shutdown collection.
+- `ReleaseClassDefaultObjectsForModule(FName)` releases and synchronously drains one module's class-default batch before its native shutdown callback.
 - `IsValid(...)` rejects garbage and begin-destroyed objects.
 - `CollectGarbage()` performs a complete synchronous mark-sweep collection.
 - `DObject::BeginDestroy()`, `IsReadyForFinishDestroy()`, and `FinishDestroy()` define the GC-controlled destruction phases.
@@ -37,6 +39,14 @@ Hierarchy marking is an explicit system request, not a GC reachability rule or o
 
 Permanent reflected metadata objects are never swept. This includes intrinsic objects and registered reflected type metadata such as `DClass`, `DStruct`, and `DEnum` instances.
 
+Class defaults and default subobjects remain registered but are templates, not
+ordinary live instances. A ready `DClass` reports its default through
+`AddReferencedObjects(...)`, so normal GC retains the complete reflected and
+Outer-linked template graph. Templates cannot be manually rooted, renamed,
+reparented, package-dirtied, saved, duplicated as ordinary graphs, or selected
+by ordinary garbage requests. Only the class-default release transaction may
+clear ownership and mark the template hierarchy.
+
 ## Strong Reference Sources
 
 The mark phase starts from root-set and permanent objects, then follows only these strong edges:
@@ -45,6 +55,7 @@ The mark phase starts from root-set and permanent objects, then follows only the
 - `TObjectPtr` elements reached through supported arrays, maps, and nested reflected structs
 - explicit native strong references reported by `DObject::AddReferencedObjects(...)`
 - the current object's `Child -> Outer` reference
+- the ready `DClass -> class default` native ownership edge
 
 The base `DObject::AddReferencedObjects(...)` implementation executes the object's precompiled GC reference schema through `ForEachObjectReference(...)`. A derived type may override it, call the base implementation, and pass additional native object references to `FReferenceCollector`.
 

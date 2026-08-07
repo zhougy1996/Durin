@@ -53,7 +53,7 @@ namespace Durin::Asset::Private
 		auto FindReflectedProperty(const FArchiveFieldDescriptor& Descriptor) -> FProperty*
 		{
 			if (Descriptor.DeclaringType.IsNone() || Descriptor.Name.IsNone()) return nullptr;
-			for (DObject* Object : GDObjectArray.GetAll())
+			for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
 			{
 				auto* Struct = Cast<DStruct>(Object);
 				if (!Struct || Struct->GetQualifiedName() != Descriptor.DeclaringType) continue;
@@ -892,7 +892,7 @@ namespace Durin::Asset::Private
 		{
 			if (!Object) return;
 			OutObjects.push_back(Object);
-			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object)) GatherObjects(Inner, OutObjects);
+			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object, EObjectQueryScope::LiveOnly)) GatherObjects(Inner, OutObjects);
 		}
 
 		auto HasFrozenObjectGraph(DObject* Root, std::span<DObject* const> Frozen) -> bool

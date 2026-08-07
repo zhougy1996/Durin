@@ -96,6 +96,7 @@ class ReflectedClassInfo:
     has_object_initializer_constructor: bool = False
     has_destructor: bool = False
     is_abstract: bool = False
+    no_class_default_object: bool = False
     display_name: str = ""
     default_object_name: str = ""
     properties: list[ReflectedPropertyInfo] = field(default_factory=list)

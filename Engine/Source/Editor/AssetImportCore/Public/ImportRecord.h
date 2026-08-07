@@ -7,8 +7,19 @@
 
 #include "ImportRecord.gen.h"
 
+namespace Durin::Asset
+{
+	struct FAssetResult;
+}
+
 namespace Durin::AssetImport
 {
+	class DImportRecord;
+	ASSETIMPORTCORE_API auto CreateImportRecordAsset(
+		const FAssetPath& Path,
+		DImportRecord*& OutRecord
+	) -> Asset::FAssetResult;
+
 	inline constexpr uint32 ImportRecordVersion = 2;
 	inline constexpr uint32 MinimumSupportedImportRecordVersion = ImportRecordVersion;
 	inline constexpr uint64 MaximumImportRecordSettingsBytes = 4ull * 1024ull * 1024ull;
@@ -204,6 +215,11 @@ namespace Durin::AssetImport
 		ASSETIMPORTCORE_API auto PostLoad(std::string& OutError) -> bool override;
 
 	private:
+		friend auto CreateImportRecordAsset(
+			const FAssetPath& Path,
+			DImportRecord*& OutRecord
+		) -> Asset::FAssetResult;
+
 		DPROPERTY()
 		uint32 RecordVersion = ImportRecordVersion;
 
