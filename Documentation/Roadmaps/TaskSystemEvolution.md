@@ -24,8 +24,9 @@ M3 [Task Owner Diagnostics](../Plans/TaskOwnerDiagnostics.md) is complete.
 Tasks now carry bounded owner/category identity, per-task callable and execution
 costs, fixed-cardinality aggregate outcomes and distributions, and profiler
 correlation. `AssetImport` and `SourceImageThumbnail` are independent production
-owners with explicit admission/result shutdown boundaries, so M4
-[Structured Task Scopes](../Plans/StructuredTaskScopes.md) is active at Stage 0.
+owners with explicit admission/result shutdown boundaries. M4
+[Structured Task Scopes](../Plans/StructuredTaskScopes.md) has frozen its Stage
+0 contract and is active at Stage 1 with a bounded Core working set.
 
 M5 remains deferred. The M3 normal and saturated captures prove attribution and
 bounded CPU-task costs, but they do not show material Worker occupancy caused by
