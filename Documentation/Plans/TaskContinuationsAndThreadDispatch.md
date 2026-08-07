@@ -9,6 +9,13 @@ Completed:
 
 ## Current Status
 
+Stages 0 and 1 are complete. The frozen V1 contract is now backed by additive
+typed worker results, success/completion continuation nodes, deterministic
+fan-in propagation, immutable result sharing, terminal reasons, and focused
+Core coverage. Existing void callers retain their original behavior. Stage 2
+is next: add the bounded `GameThreadDeferred` executor and cross-executor
+shutdown coordinator.
+
 Durin currently provides a process-wide bounded worker scheduler with task
 prerequisites, cooperative cancellation, dependency propagation, worker-side
 helping while waiting, shutdown admission, and diagnostics. The public task
@@ -217,6 +224,340 @@ Provide an opt-in asynchronous composition model in which:
 | Lifecycle | Worker scheduler shutdown currently blocks after frame ticking stops | Cross-executor admission, shutdown pumping, quiescence, and adapter teardown ordering |
 | Documentation | Generic mailbox and typed results are deferred features in `TaskSystem.md` | Evidence-backed lasting contract after implementation |
 
+## Stage 0 Frozen Contract
+
+This section is implementation input for Stages 1 through 3. It is deliberately
+more specific than the lasting task-system documentation, which continues to
+describe only implemented behavior until the corresponding stage lands.
+
+### Public API and ownership
+
+The additive public vocabulary is:
+
+```cpp
+enum class ETaskTarget : uint8 { AnyWorker, GameThreadDeferred };
+enum class ETaskPriority : uint8 { High, Normal, Low };
+enum class ETaskDependencyKind : uint8 { Success, Completion };
+
+enum class ETaskTerminalReason : uint8
+{
+    None,
+    DependencyFailed,
+    DependencyCanceled,
+    CancellationRequested,
+    DispatchRejected,
+    Superseded,
+    StaleGeneration,
+    CallbackFailure,
+    ShutdownCanceled,
+};
+
+struct FTaskCoalescingKey
+{
+    uint64 OwnerDomain = 0;
+    uint64 WorkId = 0;
+    uint64 Generation = 0;
+};
+
+struct FTaskContinuationOptions
+{
+    std::span<const FTaskHandle> Prerequisites;
+    FTaskCancellationToken CancellationToken;
+    FTaskGenerationToken GenerationToken;
+    std::optional<FTaskCoalescingKey> CoalescingKey;
+    uint64 EstimatedPayloadBytes = 0;
+    ETaskTarget Target = ETaskTarget::AnyWorker;
+    ETaskPriority Priority = ETaskPriority::Normal;
+};
+```
+
+`FTaskGenerationSource` owns a shared monotonically increasing generation.
+`Capture()` returns an `FTaskGenerationToken` containing the shared state and
+observed generation; `Advance()` invalidates older tokens. A default token has
+no generation constraint. The deferred executor checks a constrained token
+immediately before claiming an entry and publishes `Canceled/StaleGeneration`
+without invoking the callback when it no longer matches.
+
+`TTaskHandle<T>` contains an ordinary `FTaskHandle` plus shared typed result
+state. It exposes the same task queries, `GetTaskHandle()`, and
+`GetResultShared() -> std::shared_ptr<const T>`. Result observation returns an
+empty owner for an invalid, nonterminal, failed, or canceled task; it never
+blocks and never returns a reference without an owner. `TTaskHandle<T>` is
+copyable even when `T` is move-only. There is no `TTaskHandle<void>` in V1;
+void work continues to use `FTaskHandle`.
+
+`FTaskOutcome<T>` is an owned snapshot containing the predecessor handle,
+terminal state and reason, copied diagnostic, and an immutable shared result
+owner only when the predecessor succeeded. `FTaskOutcome<void>` omits the
+result owner. Diagnostics add dependency kinds, target, terminal reason,
+dispatch and queue timestamps, queue residency, and the direct blocking task
+ID; they never copy or retain `T`.
+
+The public operation families are:
+
+- existing `LaunchTask` and `LaunchCancelableTask` overloads remain unchanged;
+- `LaunchTask<T>` and `LaunchCancelableTask<T>` accept copyable
+  `std::function`-compatible callables returning `T`;
+- `Then<T, U>` consumes `const T&`, uses success edges, and returns
+  `TTaskHandle<U>` or `FTaskHandle` when its callback returns `void`;
+- the void predecessor overload of `Then` invokes a no-argument callback;
+- `ThenOutcome<T, U>` consumes an owned `FTaskOutcome<T>` by value, uses
+  completion edges, and returns the corresponding typed or void handle; and
+- `FTaskContinuationOptions::Prerequisites` adds fan-in predecessors to the
+  primary handle. The callback receives the primary result/outcome and may
+  capture additional typed handles to inspect their immutable results.
+
+The primary predecessor is automatically included and duplicate task IDs are
+deduplicated. Every predecessor must be valid and belong to the current
+scheduler lifetime. Empty callables, invalid handles, foreign lifetimes, and a
+dependency on the node being constructed reject the operation before a node is
+accepted. Rejection returns an invalid handle and increments the scheduler's
+rejection diagnostics. The public API cannot construct a cycle because all
+edges target already-published older nodes.
+
+Typed launch wrappers allocate shared result state before submission and place
+only copyable shared owners inside the existing `std::function` boundary. The
+callable may move one `T` into pending result storage. The graph atomically
+publishes that storage only when the body returns normally and cancellation has
+not won; otherwise it destroys the pending value without making it observable.
+The scheduler owns a node and its pending callback until dispatch. An executor
+owns the callback from successful admission through invocation or discard.
+Scheduler/node owners, typed handles, and outcome wrappers jointly pin the
+immutable result, which is destroyed after the last such owner releases it.
+
+### Dependency and terminal state machines
+
+A success edge waits for every predecessor to become terminal so fan-in has a
+deterministic aggregate outcome:
+
+```text
+Accepted/Waiting
+  -> all predecessors terminal
+     -> all Succeeded -> dispatch requested
+     -> any Failed    -> Canceled/DependencyFailed
+     -> else any Canceled -> Canceled/DependencyCanceled
+```
+
+When more than one predecessor blocks a success continuation, failure takes
+precedence over cancellation and the lowest blocking task ID is recorded. The
+callback is never invoked. Existing void tasks launched with
+`FTaskLaunchOptions::Prerequisites` retain their current propagation timing;
+the aggregate rule applies to new continuation nodes only.
+
+A completion edge never converts a predecessor outcome into the continuation's
+own outcome:
+
+```text
+Accepted/Waiting -> all predecessors terminal -> dispatch requested
+dispatch accepted -> Queued -> Running -> Succeeded | Failed | Canceled
+```
+
+The primary predecessor's owned `FTaskOutcome<T>` is created only after all
+completion edges settle. Additional predecessor outcomes remain queryable
+through captured handles. A callback return publishes its result and
+`Succeeded`; a standard or unknown exception publishes
+`Failed/CallbackFailure`. Cancellation winning before executor claim publishes
+`Canceled/CancellationRequested`; cancellation observed while running remains
+cooperative, and normal return after a winning request publishes `Canceled`
+without a result. An exception from a running callback still wins over
+cancellation and publishes `Failed/CallbackFailure`.
+
+Ready-node dispatch has exactly one terminal report path:
+
+```text
+dispatch requested
+  -> executor accepts -> executor owns completion report
+  -> executor rejects -> Canceled/DispatchRejected
+  -> deferred replacement wins -> old node Canceled/Superseded
+  -> generation check fails -> Canceled/StaleGeneration
+```
+
+A node cannot be invoked inline while a predecessor is publishing terminal
+state. In particular, `GameThreadDeferred` always enters its queue even when
+released on GameThread. A worker wait may help only `AnyWorker` work; ordinary
+GameThread `WaitTask` on a nonterminal `GameThreadDeferred` node is rejected
+with a stable diagnostic and does not pump.
+
+### GameThread deferred executor policy
+
+`FGameThreadDeferredWorkQueue` is created by `FEngineLoop::PreInit()` after the
+worker scheduler starts and before any engine module may create continuations.
+Installing its graph adapter publishes a nonzero, monotonically increasing
+adapter generation. An accepted entry binds that generation. A missing,
+closing, or mismatched adapter rejects dispatch as
+`Canceled/DispatchRejected`; uninstall occurs only after graph quiescence.
+
+V1 configuration constants are:
+
+| Policy | Default |
+| --- | --- |
+| Maximum queued entries | 1,024 |
+| Maximum declared queued payload | 8 MiB |
+| Maximum declared payload per entry | 1 MiB |
+| Normal frame pump item budget | 64 callbacks |
+| Normal frame pump time budget | 1 millisecond |
+| Long callback threshold | 2 milliseconds |
+
+A `GameThreadDeferred` continuation must declare
+`EstimatedPayloadBytes` in `[1, 1 MiB]`; zero or an over-limit estimate is a
+dispatch rejection. Admission atomically reserves both an entry and its
+declared bytes. `AnyWorker` ignores payload, priority, generation, and
+coalescing fields except that its cancellation token remains effective.
+
+Queues are FIFO within `High`, `Normal`, and `Low`; each pump chooses the oldest
+entry from the highest nonempty priority. V1 intentionally provides no
+starvation guarantee because all three classes are deferred and bounded.
+The time budget is checked after each callback, so one long callback may exceed
+the frame budget but is recorded. Count and byte reservations are released
+exactly once when an entry is claimed, rejected, superseded, or canceled.
+
+Coalescing is opt-in and equality uses all three `FTaskCoalescingKey` fields.
+At admission, an equal not-started entry may be replaced atomically. Capacity
+is evaluated as though the old reservation were removed; if the replacement
+still does not fit, the new entry is rejected and the old entry remains.
+Otherwise the old node becomes `Canceled/Superseded` and the replacement keeps
+its own task ID and reservation. Running or terminal entries are never
+superseded. Owner domains are stable nonzero subsystem-defined constants;
+generation prevents a new owner lifetime from colliding with an old one.
+
+The normal pump safe point is in `FEngineLoop::Tick()` immediately after
+`GEngine->Tick()` returns and before application events, UI rendering, garbage
+collection, or frame publication. This lets engine/subsystem ticks finish
+their mutations before deferred publication begins and keeps rendering/RHI
+work on their existing paths. The pump runs every engine tick, including when
+all windows are minimized; minimized waiting happens afterward, so deferred
+work continues at the existing 20 Hz minimized cadence. Frame-critical waits,
+render fences, RHI backpressure, and object destruction never consume this
+queue or its budget.
+
+Metrics include current/peak entry and declared-byte depth, accepted, rejected,
+superseded, canceled, expired-generation and callback-failure counts, oldest
+age, per-priority depth, pump count/items/time, and long-callback identity and
+duration. Declared bytes remain attributable to owner domain and task ID but
+are not presented as measured allocator usage.
+
+### Cross-executor shutdown
+
+The existing `ShutdownTaskScheduler(bool)` remains the worker-only entry point
+for isolated programs and tests. `FEngineLoop::Exit()` instead calls
+`ShutdownTaskSystem(ETaskShutdownMode)` on GameThread. Root task and
+continuation submission are distinct from dispatch of already-accepted graph
+nodes.
+
+Drain shutdown follows:
+
+```text
+Running
+  -> ClosingRoots: reject all new Launch/Then calls
+  -> Draining: keep internal worker/deferred dispatch open
+       pump GameThreadDeferred without frame item/time budgets
+       wait on graph-progress notification when no deferred item is ready
+       repeat until every accepted graph node is terminal
+  -> ClosingExecutors: close and uninstall deferred adapter, then stop workers
+  -> Stopped: publish final diagnostics
+```
+
+Cancel shutdown follows:
+
+```text
+Running
+  -> ClosingRoots
+  -> Canceling: cancel waiting/queued worker and deferred nodes, request
+       cooperative cancellation of running bodies, and keep accepted-node
+       propagation open until every running body and graph node is terminal
+  -> ClosingExecutors
+  -> Stopped
+```
+
+Cancel shutdown does not invoke a not-started deferred callback. Drain shutdown
+may invoke every accepted deferred callback and therefore keeps its owning
+modules and `GEngine` alive until quiescence. Producer detachment remains ahead
+of `ShutdownTaskSystem`; object drain, module unload, render admission close,
+and RHI shutdown remain afterward. Both modes close root admission exactly
+once, never reopen it, and leave every accepted handle terminal.
+
+Nested `LaunchTask`, typed launch, `Then`, or `ThenOutcome` from a shutdown-pump
+callback is a rejected root submission. `CancelTask` and diagnostic/result
+queries remain allowed. Recursive normal pumping returns without executing an
+entry and increments a reentrancy diagnostic. A recursive
+`ShutdownTaskSystem` call is rejected and the outer shutdown remains the sole
+coordinator. These rules prevent callbacks from extending the bounded shutdown
+graph or recursively consuming queue ownership.
+
+### Asset Compatibility Audit pilot boundary
+
+The pilot retains these existing behaviors:
+
+- copied, path-sorted package inputs and a value-owned reflection catalog cross
+  to the worker;
+- each completed package record is streamed through the request-serial mailbox
+  and may update progress before terminal completion;
+- canceled/interrupted packages publish no partial record;
+- rerun and project change cancel and drain the old request, advance the serial,
+  and prevent stale records from entering the new path-keyed model;
+- fingerprint reconciliation and every editor-model mutation remain on
+  GameThread; and
+- shutdown closes audit admission and releases worker/model state before module
+  teardown.
+
+After Stage 3, the mailbox `FNotice` carries records only. The worker returns an
+owned `FAssetCompatibilityAuditSummary` containing request serial, processed
+count, terminal classification, and copied failure text. A
+`ThenOutcome(..., GameThreadDeferred)` callback owns a weak model-lifetime
+token plus the request serial, checks both immediately before mutation, and
+publishes terminal state exactly once. Scheduler failure, cancellation,
+dispatch rejection, supersession, stale generation, and callback failure map
+to distinct diagnostics; none are converted to `Completed`. Streaming record
+order, progress timing, latest-request policy, and reconciliation remain
+unchanged.
+
+### Frozen test inventory
+
+Stage 1 adds focused Core tests for:
+
+- void API source compatibility and unchanged prerequisite propagation;
+- typed success, move-only result construction, no extra result copy, result
+  destruction after the last graph/handle/outcome owner, and empty access for
+  invalid/nonterminal/failed/canceled handles;
+- worker `Then` chains, typed-to-void and void-to-typed links, fan-out sharing
+  one immutable result, fan-in release exactly once, duplicate prerequisite
+  deduplication, and callback registration racing predecessor completion;
+- deterministic lowest-ID fan-in blocker with failure-over-cancellation
+  precedence, completion-edge invocation for every terminal predecessor state,
+  and owned outcome lifetime after predecessor-handle release;
+- cancellation before release, before worker claim, while running, and racing
+  successful result publication; callback exception precedence and unknown
+  exception diagnostics;
+- invalid/foreign-lifetime predecessor rejection, stopped/closing scheduler
+  rejection, nested continuation submission, worker wait helping only eligible
+  worker work, and drain/cancel shutdown quiescence; and
+- parent, prerequisite, edge-kind, target, reason, timing, retained-result, and
+  nonterminal diagnostics without payload retention.
+
+Stage 2 adds manual-pump Core/Launch tests for:
+
+- no inline GameThread execution, game-thread affinity, FIFO per priority,
+  cross-priority selection, item/time budget exhaustion, and minimized-tick
+  pumping;
+- entry/byte/per-entry saturation, zero estimate rejection, atomic reservation
+  release, successful supersession, failed replacement preserving the old
+  entry, running-entry non-supersession, and owner/generation key isolation;
+- stale generation, explicit cancellation, missing/closing/mismatched adapter,
+  callback failure, recursive pump, forbidden GameThread wait, and exactly-once
+  terminal reporting for every rejection race;
+- drain shutdown worker-to-GameThread chains after the frame loop, cancel
+  shutdown with queued and running work, root rejection during shutdown,
+  callback reentrancy, adapter teardown order, and final graph/queue
+  quiescence; and
+- proof that render commands, render fences, RHI commands, and their admission
+  counters are unaffected by deferred-queue saturation.
+
+Stage 3 extends the existing Asset Compatibility Audit tests with streaming
+progress before terminal publication, typed summary ownership, serial and weak
+lifetime rechecks, rerun/project-change replacement, editor close, cancellation
+at every package boundary, scheduler drain/cancel, dispatch rejection, stale
+generation, and exactly-once terminal diagnostics.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze the V1 contract and shutdown state machine
@@ -224,22 +565,22 @@ Provide an opt-in asynchronous composition model in which:
 Dependencies: current `TaskSystem.md`, existing task tests, and current
 worker/render/RHI lifecycle contracts.
 
-- [ ] Define the public names and ownership of `TTaskHandle<T>`, immutable shared
+- [x] Define the public names and ownership of `TTaskHandle<T>`, immutable shared
   result access, `FTaskOutcome<T>`, `Then`, `ThenOutcome`, continuation options,
   `ETaskTarget`, priority, cancellation, and coalescing identity.
-- [ ] Record success and completion dependency-edge state diagrams, including
+- [x] Record success and completion dependency-edge state diagrams, including
   fan-in aggregation, result lifetime, invalid access, predecessor propagation,
   dispatch rejection, supersession, and callback failure.
-- [ ] Specify the GameThread pump location, safe-point ordering, default
+- [x] Specify the GameThread pump location, safe-point ordering, default
   budget, queue limits, explicit payload estimates, priority order,
   supersession behavior, and minimized-window behavior.
-- [ ] Specify the cross-executor drain and cancel shutdown state machines,
+- [x] Specify the cross-executor drain and cancel shutdown state machines,
   including root-admission closure, accepted-node dispatch, shutdown pumping,
   callback reentrancy, adapter generations, and teardown order.
-- [ ] Characterize the Asset Compatibility Audit pilot and record its streaming
+- [x] Characterize the Asset Compatibility Audit pilot and record its streaming
   progress, partial-result, request-serial, cancellation, and terminal-summary
   invariants.
-- [ ] Add API/state-machine test cases for every decision that would otherwise
+- [x] Add API/state-machine test cases for every decision that would otherwise
   remain ambiguous during implementation.
 
 #### Acceptance Gate
@@ -256,18 +597,18 @@ worker/render/RHI lifecycle contracts.
 
 Dependencies: Stage 0; existing worker scheduler and task-state tests.
 
-- [ ] Add additive typed-result task state and handle APIs while keeping the
+- [x] Add additive typed-result task state and handle APIs while keeping the
   current void API behavior unchanged.
-- [ ] Implement worker-target `Then` with success edges and `ThenOutcome` with
+- [x] Implement worker-target `Then` with success edges and `ThenOutcome` with
   completion edges, both returning new handles and pinning immutable shared
   result/outcome state without exposing task-local storage.
-- [ ] Implement success, failure, cancellation, invalid-handle,
+- [x] Implement success, failure, cancellation, invalid-handle,
   cross-scheduler/lifetime, and fan-in propagation for both edge types.
-- [ ] Keep public wrappers copyable under the existing C++20 `std::function`
+- [x] Keep public wrappers copyable under the existing C++20 `std::function`
   boundary; add compile-time and runtime coverage for move-only result types.
-- [ ] Extend diagnostics and shutdown quiescence to include continuation nodes
+- [x] Extend diagnostics and shutdown quiescence to include continuation nodes
   and result storage.
-- [ ] Add focused unit tests for result lifetime, move/copy policy, chain
+- [x] Add focused unit tests for result lifetime, move/copy policy, chain
   ordering, fan-in, cancellation races, failure propagation, reentrancy, and
   scheduler shutdown.
 
@@ -376,6 +717,40 @@ Each completed stage ends with a compact handoff recording the baseline commit,
 working set, key symbols and decisions, open questions, and validation outcome.
 Each implementation stage lands as an independent local commit under the
 repository handoff rules.
+
+### Stage 0 Handoff
+
+- Baseline commit: `054e2914a8b029c00905670cb0789f71291b964b`.
+- Working set: this plan; validated against `Threading/Task.h`, `Task.cpp`,
+  `LaunchEngineLoop.cpp`, `AssetCompatibilityAudit.h/.cpp`, Core task tests, and
+  Asset Compatibility Audit tests.
+- Key decisions: immutable shared typed results; continuation nodes with
+  aggregate success or completion edges; no inline named-target execution;
+  bounded priority GameThread queue at the post-engine-tick safe point; explicit
+  generation/coalescing metadata; and engine-owned drain/cancel coordination.
+- Open questions: none blocking Stage 1. Default limits remain configurable so
+  Stage 4 measurements may tune values without changing admission semantics.
+- Validation: plan structure validation passed; source and existing-test review
+  found no conflict with the frozen additive API or pilot preservation rules.
+
+### Stage 1 Handoff
+
+- Baseline commit: `e37e01fa3413b9bb78c23af4c574d6c12b054dfd`.
+- Working set: `Threading/Task.h`, `Threading/Task.cpp`, Core
+  `ThreadingTests.cpp`, and this plan.
+- Key symbols: `TTaskHandle<T>`, `FTaskOutcome<T>`, `Then`, `ThenOutcome`,
+  `FTaskContinuationOptions`, `ETaskDependencyKind`, `ETaskTerminalReason`,
+  `FTaskStateData::OnPrerequisiteTerminal`, and typed-result completion
+  publication.
+- Key decisions: existing launch prerequisites retain eager propagation while
+  new continuation fan-in waits for every predecessor; typed values are
+  published only with `Succeeded`; executor wrappers and handles share immutable
+  result storage; completion hooks run outside the task-state lock; and Stage 1
+  rejects the not-yet-installed `GameThreadDeferred` target.
+- Open questions: none blocking Stage 2. Priority, payload, generation, and
+  coalescing fields remain to be added with the deferred executor.
+- Validation: all 73 `CoreConcurrencyTests` passed, including nine new focused
+  continuation tests; a full `all` build passed under the Agent profile.
 
 ## Validation Matrix
 

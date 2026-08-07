@@ -1544,6 +1544,259 @@ namespace Durin
 		EXPECT_GE(ShutdownDiagnostics.RetainedTerminalHandleCount, 7u);
 	}
 
+	TEST(FTaskContinuationTests, MoveOnlyTypedResultSupportsImmutableFanOutAndTypedChains)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+
+		auto Root = LaunchTask<std::unique_ptr<int>>("TypedRoot", []() {
+			return std::make_unique<int>(21);
+		});
+		auto Left = Then(Root, "TypedLeft", [](const std::unique_ptr<int>& Value) {
+			return *Value * 2;
+		});
+		auto Right = Then(Root, "TypedRight", [](const std::unique_ptr<int>& Value) {
+			return std::to_string(*Value);
+		});
+		auto Tail = Then(Left, "TypedTail", [](const int& Value) {
+			EXPECT_EQ(42, Value);
+		});
+
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Tail));
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Right.GetTaskHandle()));
+		auto RootResult = Root.GetResultShared();
+		auto SecondRootOwner = Root.GetResultShared();
+		auto LeftResult = Left.GetResultShared();
+		auto RightResult = Right.GetResultShared();
+		ASSERT_NE(RootResult, nullptr);
+		EXPECT_EQ(RootResult.get(), SecondRootOwner.get());
+		ASSERT_NE(LeftResult, nullptr);
+		EXPECT_EQ(42, *LeftResult);
+		ASSERT_NE(RightResult, nullptr);
+		EXPECT_EQ("21", *RightResult);
+	}
+
+	TEST(FTaskContinuationTests, VoidAndTypedTasksComposeInBothDirections)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		FTaskHandle Root = LaunchTask("VoidRoot", []() {});
+		auto Typed = Then(Root, "VoidToTyped", []() { return 7; });
+		FTaskHandle VoidTail = Then(Typed, "TypedToVoid", [](const int& Value) {
+			EXPECT_EQ(7, Value);
+		});
+
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(VoidTail));
+		ASSERT_NE(Typed.GetResultShared(), nullptr);
+		EXPECT_EQ(7, *Typed.GetResultShared());
+	}
+
+	TEST(FTaskContinuationTests, TypedResultLivesUntilItsLastHandleOwnerIsReleased)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		std::weak_ptr<const int> WeakResult;
+		{
+			auto Task = LaunchTask<int>("TypedLifetime", []() { return 13; });
+			ASSERT_EQ(ETaskState::Succeeded, WaitTask(Task.GetTaskHandle()));
+			auto Result = Task.GetResultShared();
+			ASSERT_NE(Result, nullptr);
+			WeakResult = Result;
+			Result.reset();
+			EXPECT_FALSE(WeakResult.expired());
+			EXPECT_TRUE(Task.GetDiagnostics().bHasResultStorage);
+			EXPECT_GE(GetTaskSchedulerDiagnostics().RetainedTerminalResultCount, 1u);
+			// Terminal publication precedes the worker wrapper leaving its stack. A
+			// later single-worker task proves that transient executor ownership ended.
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(LaunchTask("TypedLifetimeFence", []() {})));
+		}
+		EXPECT_TRUE(WeakResult.expired());
+	}
+
+	TEST(FTaskContinuationTests, CompletionEdgeReceivesOwnedFailureOutcome)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		auto Failed = LaunchTask<int>("TypedFailure", []() -> int {
+			throw std::runtime_error("typed failure");
+		});
+		auto Cleanup = ThenOutcome(Failed, "FailureCleanup", [](FTaskOutcome<int> Outcome) {
+			EXPECT_EQ(ETaskState::Failed, Outcome.State);
+			EXPECT_EQ(ETaskTerminalReason::CallbackFailure, Outcome.Reason);
+			EXPECT_EQ("typed failure", Outcome.Diagnostic);
+			EXPECT_EQ(nullptr, Outcome.Result);
+			return Outcome.Diagnostic;
+		});
+
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Cleanup.GetTaskHandle()));
+		ASSERT_NE(Cleanup.GetResultShared(), nullptr);
+		EXPECT_EQ("typed failure", *Cleanup.GetResultShared());
+	}
+
+	TEST(FTaskContinuationTests, SuccessFanInWaitsForEveryTerminalAndSelectsStableBlocker)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+
+		FThreadEvent ReleaseSlowFailure;
+		FTaskHandle FirstFailure = LaunchTask("FirstFanInFailure", []() {
+			throw std::runtime_error("first");
+		});
+		FTaskHandle SlowFailure = LaunchTask("SlowFanInFailure", [&]() {
+			ReleaseSlowFailure.Wait();
+			throw std::runtime_error("slow");
+		});
+		auto Primary = LaunchTask<int>("FanInPrimary", []() { return 9; });
+		std::array<FTaskHandle, 2> Additional{SlowFailure, FirstFailure};
+		FTaskContinuationOptions Options;
+		Options.Prerequisites = Additional;
+		std::atomic<bool> bRan = false;
+		auto Join = Then(Primary, "TypedFanIn", [&](const int&) {
+			bRan.store(true, std::memory_order::release);
+		}, Options);
+
+		ASSERT_EQ(ETaskState::Failed, WaitTask(FirstFailure));
+		EXPECT_EQ(ETaskState::Waiting, Join.GetState());
+		ReleaseSlowFailure.Trigger();
+		EXPECT_EQ(ETaskState::Canceled, WaitTask(Join));
+		EXPECT_FALSE(bRan.load(std::memory_order::acquire));
+		const FTaskDiagnostics Diagnostics = Join.GetDiagnostics();
+		EXPECT_EQ(ETaskTerminalReason::DependencyFailed, Diagnostics.TerminalReason);
+		EXPECT_EQ(std::min(FirstFailure.GetTaskId(), SlowFailure.GetTaskId()), Diagnostics.DirectBlockingTaskId);
+		ASSERT_EQ(3u, Diagnostics.PrerequisiteTaskIds.size());
+		EXPECT_TRUE(std::ranges::all_of(Diagnostics.PrerequisiteDependencyKinds,
+			[](ETaskDependencyKind Kind) { return Kind == ETaskDependencyKind::Success; }));
+	}
+
+	TEST(FTaskContinuationTests, RunningCancellationNeverPublishesPendingTypedResult)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		FThreadEvent Started;
+		FThreadEvent ReturnValue;
+		auto Task = LaunchCancelableTask<std::unique_ptr<int>>(
+			"CanceledTypedResult",
+			[&](const FTaskCancellationToken&) {
+				Started.Trigger();
+				ReturnValue.Wait();
+				return std::make_unique<int>(5);
+			}
+		);
+		ASSERT_TRUE(Started.WaitFor(1.0));
+		EXPECT_TRUE(CancelTask(Task.GetTaskHandle()));
+		ReturnValue.Trigger();
+
+		EXPECT_EQ(ETaskState::Canceled, WaitTask(Task.GetTaskHandle()));
+		EXPECT_EQ(nullptr, Task.GetResultShared());
+		EXPECT_EQ(ETaskTerminalReason::CancellationRequested, Task.GetDiagnostics().TerminalReason);
+	}
+
+	TEST(FTaskContinuationTests, RegistrationRaceReleasesTypedContinuationExactlyOnce)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+
+		for (uint32 Iteration = 0; Iteration < 32; ++Iteration)
+		{
+			std::barrier Race(3);
+			auto Root = LaunchTask<int>("TypedRegistrationRaceRoot", [&]() {
+				Race.arrive_and_wait();
+				return 1;
+			});
+			std::atomic<uint32> Runs = 0;
+			TTaskHandle<int> Continuation;
+			std::thread Submitter([&]() {
+				Race.arrive_and_wait();
+				Continuation = Then(Root, "TypedRegistrationRaceContinuation", [&](const int& Value) {
+					Runs.fetch_add(static_cast<uint32>(Value), std::memory_order::acq_rel);
+					return Value + 1;
+				});
+			});
+			Race.arrive_and_wait();
+			Submitter.join();
+
+			ASSERT_TRUE(Continuation.IsValid());
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Continuation.GetTaskHandle()));
+			EXPECT_EQ(1u, Runs.load(std::memory_order::acquire));
+			ASSERT_NE(Continuation.GetResultShared(), nullptr);
+			EXPECT_EQ(2, *Continuation.GetResultShared());
+		}
+	}
+
+	TEST(FTaskContinuationTests, ForeignLifetimeAndUnavailableTargetsAreRejected)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		auto EarlierLifetime = LaunchTask<int>("EarlierTypedLifetime", []() { return 3; });
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(EarlierLifetime.GetTaskHandle()));
+		ShutdownTaskScheduler(true);
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		EXPECT_FALSE(Then(EarlierLifetime, "ForeignTypedContinuation", [](const int&) {}).IsValid());
+		auto Current = LaunchTask<int>("CurrentTypedLifetime", []() { return 4; });
+		FTaskContinuationOptions DeferredOptions;
+		DeferredOptions.Target = ETaskTarget::GameThreadDeferred;
+		EXPECT_FALSE(Then(Current, "UnavailableDeferredTarget", [](const int&) {}, DeferredOptions).IsValid());
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Current.GetTaskHandle()));
+	}
+
+	TEST(FTaskContinuationTests, DrainAndDiscardShutdownTerminalizeContinuationChains)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		FThreadEvent DrainStarted;
+		FThreadEvent ReleaseDrain;
+		auto DrainRoot = LaunchTask<int>("DrainTypedRoot", [&]() {
+			DrainStarted.Trigger();
+			ReleaseDrain.Wait();
+			return 8;
+		});
+		auto DrainTail = Then(DrainRoot, "DrainTypedTail", [](const int& Value) { return Value + 1; });
+		ASSERT_TRUE(DrainStarted.WaitFor(1.0));
+		std::thread DrainThread([]() { ShutdownTaskScheduler(true); });
+		while (IsTaskSchedulerRunning()) std::this_thread::yield();
+		ReleaseDrain.Trigger();
+		DrainThread.join();
+		EXPECT_EQ(ETaskState::Succeeded, DrainRoot.GetState());
+		EXPECT_EQ(ETaskState::Succeeded, DrainTail.GetState());
+		ASSERT_NE(DrainTail.GetResultShared(), nullptr);
+		EXPECT_EQ(9, *DrainTail.GetResultShared());
+
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FThreadEvent DiscardStarted;
+		FThreadEvent ReleaseDiscard;
+		auto DiscardRoot = LaunchTask<int>("DiscardTypedRoot", [&]() {
+			DiscardStarted.Trigger();
+			ReleaseDiscard.Wait();
+			return 10;
+		});
+		auto DiscardTail = Then(DiscardRoot, "DiscardTypedTail", [](const int& Value) { return Value + 1; });
+		ASSERT_TRUE(DiscardStarted.WaitFor(1.0));
+		std::thread DiscardThread([]() { ShutdownTaskScheduler(false); });
+		while (IsTaskSchedulerRunning()) std::this_thread::yield();
+		ReleaseDiscard.Trigger();
+		DiscardThread.join();
+		EXPECT_EQ(ETaskState::Canceled, DiscardRoot.GetState());
+		EXPECT_EQ(ETaskState::Canceled, DiscardTail.GetState());
+		EXPECT_EQ(nullptr, DiscardRoot.GetResultShared());
+		EXPECT_EQ(nullptr, DiscardTail.GetResultShared());
+	}
+
 	TEST(FTaskTests, InvalidHandlesAreNoOp)
 	{
 		FTaskHandle InvalidHandle;

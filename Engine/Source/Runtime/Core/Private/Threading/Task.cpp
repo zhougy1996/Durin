@@ -69,9 +69,12 @@ namespace Durin
 			const char* InDebugName,
 			std::weak_ptr<FTaskScheduler> InScheduler,
 			FCancelableTaskFunction&& InFunction,
+			std::function<void(ETaskState)>&& InCompletionFunction,
 			const FTaskCancellationToken& InCancellationToken,
 			const std::vector<std::shared_ptr<FTaskStateData>>& InPrerequisites,
-			uint64 InParentTaskId
+			uint64 InParentTaskId,
+			ETaskDependencyKind InDependencyKind,
+			bool bInAggregatePrerequisites
 		)
 			: TaskId(GNextTaskId.fetch_add(1, std::memory_order::acq_rel))
 			, ParentTaskId(InParentTaskId)
@@ -79,8 +82,12 @@ namespace Durin
 			, Scheduler(std::move(InScheduler))
 			, SharedCancellationState(InCancellationToken.SharedState)
 			, PendingFunction(std::move(InFunction))
+			, CompletionFunction(std::move(InCompletionFunction))
+			, bHasResultStorage(static_cast<bool>(CompletionFunction))
 			, RemainingPrerequisites(static_cast<uint32>(InPrerequisites.size()))
 			, State(InPrerequisites.empty() ? ETaskState::Queued : ETaskState::Waiting)
+			, DependencyKind(InDependencyKind)
+			, bAggregatePrerequisites(bInAggregatePrerequisites)
 			, EnqueueTimeNanoseconds(MonotonicNanoseconds())
 		{
 			Prerequisites.reserve(InPrerequisites.size());
@@ -89,6 +96,7 @@ namespace Durin
 			{
 				Prerequisites.emplace_back(Prerequisite);
 				PrerequisiteTaskIds.emplace_back(Prerequisite->GetTaskId());
+				PrerequisiteDependencyKinds.emplace_back(InDependencyKind);
 			}
 		}
 
@@ -182,7 +190,7 @@ namespace Durin
 			return false;
 		}
 
-		auto RequestCancellation(std::string InDiagnostic) -> bool;
+		auto RequestCancellation(std::string InDiagnostic, ETaskTerminalReason InReason = ETaskTerminalReason::CancellationRequested, uint64 InDirectBlockingTaskId = 0) -> bool;
 		auto MarkSucceeded() -> void;
 		auto MarkFailed(std::string InDiagnostic) -> void;
 		auto MarkCanceled(std::string InDiagnostic) -> void;
@@ -224,6 +232,8 @@ namespace Durin
 			Snapshot.TaskId = TaskId;
 			Snapshot.ParentTaskId = ParentTaskId;
 			Snapshot.PrerequisiteTaskIds = PrerequisiteTaskIds;
+			Snapshot.PrerequisiteDependencyKinds = PrerequisiteDependencyKinds;
+			Snapshot.DirectBlockingTaskId = DirectBlockingTaskId;
 			Snapshot.EnqueueTimeNanoseconds = EnqueueTimeNanoseconds;
 			Snapshot.StartTimeNanoseconds = StartTimeNanoseconds;
 			Snapshot.FinishTimeNanoseconds = FinishTimeNanoseconds;
@@ -232,6 +242,9 @@ namespace Durin
 			Snapshot.ExecutingThreadName = ExecutingThreadName;
 			Snapshot.Diagnostic = Diagnostic;
 			Snapshot.State = State;
+			Snapshot.Target = ETaskTarget::AnyWorker;
+			Snapshot.TerminalReason = TerminalReason;
+			Snapshot.bHasResultStorage = bHasResultStorage;
 			return Snapshot;
 		}
 
@@ -241,8 +254,8 @@ namespace Durin
 		auto GetSharedCancellationState() const -> const std::shared_ptr<FTaskCancellationState>& { return SharedCancellationState; }
 
 	private:
-		auto PublishTerminal(ETaskState TerminalState, std::string InDiagnostic) -> bool;
-		auto PublishTerminalLocked(ETaskState TerminalState, std::string InDiagnostic, std::vector<std::shared_ptr<FTaskStateData>>& OutDependents) -> bool;
+		auto PublishTerminal(ETaskState TerminalState, std::string InDiagnostic, ETaskTerminalReason InReason = ETaskTerminalReason::None, uint64 InDirectBlockingTaskId = 0) -> bool;
+		auto PublishTerminalLocked(ETaskState TerminalState, std::string InDiagnostic, std::vector<std::shared_ptr<FTaskStateData>>& OutDependents, std::function<void(ETaskState)>& OutCompletionFunction, ETaskTerminalReason InReason = ETaskTerminalReason::None, uint64 InDirectBlockingTaskId = 0) -> bool;
 		auto FinishTerminalPublication(ETaskState TerminalState, std::vector<std::shared_ptr<FTaskStateData>>&& Dependents) -> void;
 
 		uint64 TaskId = 0;
@@ -253,13 +266,24 @@ namespace Durin
 		mutable std::mutex Mutex;
 		std::condition_variable CV;
 		FCancelableTaskFunction PendingFunction;
+		std::function<void(ETaskState)> CompletionFunction;
+		bool bHasResultStorage = false;
 		std::vector<std::weak_ptr<FTaskStateData>> Prerequisites;
 		std::vector<uint64> PrerequisiteTaskIds;
+		std::vector<ETaskDependencyKind> PrerequisiteDependencyKinds;
 		std::vector<std::weak_ptr<FTaskStateData>> Dependents;
 		uint32 RemainingPrerequisites = 0;
 		ETaskState State = ETaskState::Queued;
+		ETaskDependencyKind DependencyKind = ETaskDependencyKind::Success;
+		ETaskTerminalReason TerminalReason = ETaskTerminalReason::None;
+		uint64 DirectBlockingTaskId = 0;
+		uint64 BlockingPrerequisiteTaskId = 0;
+		ETaskState BlockingPrerequisiteState = ETaskState::Succeeded;
+		bool bAggregatePrerequisites = false;
 		bool bCancellationRequested = false;
 		std::string CancellationDiagnostic;
+		ETaskTerminalReason CancellationReason = ETaskTerminalReason::CancellationRequested;
+		uint64 CancellationDirectBlockingTaskId = 0;
 		std::string Diagnostic;
 		uint64 EnqueueTimeNanoseconds = 0;
 		uint64 StartTimeNanoseconds = 0;
@@ -286,7 +310,13 @@ namespace Durin
 			return Scheduler;
 		}
 
-		auto Submit(const char* Name, FCancelableTaskFunction&& Function, const FTaskLaunchOptions& Options) -> std::shared_ptr<FTaskStateData>
+		auto Submit(
+			const char* Name,
+			FCancelableTaskFunction&& Function,
+			std::function<void(ETaskState)>&& CompletionFunction,
+			const FTaskLaunchOptions& Options,
+			ETaskDependencyKind DependencyKind = ETaskDependencyKind::Success,
+			bool bAggregatePrerequisites = false) -> std::shared_ptr<FTaskStateData>
 		{
 			std::shared_ptr<FTaskStateData> State;
 			std::vector<std::shared_ptr<FTaskStateData>> PrerequisiteStates;
@@ -312,9 +342,12 @@ namespace Durin
 					Name,
 					weak_from_this(),
 					std::move(Function),
+					std::move(CompletionFunction),
 					Options.CancellationToken,
 					PrerequisiteStates,
-					GCurrentTaskState ? GCurrentTaskState->GetTaskId() : 0
+					GCurrentTaskState ? GCurrentTaskState->GetTaskId() : 0,
+					DependencyKind,
+					bAggregatePrerequisites
 				);
 				ActiveTasks.emplace(State->GetTaskId(), State);
 				AllTasks.emplace(State->GetTaskId(), State);
@@ -384,13 +417,13 @@ namespace Durin
 					Scheduler->OnWorkerFinished();
 				},
 				[State]() {
-					State->MarkCanceled("Task was discarded during scheduler shutdown.");
+					State->RequestCancellation("Task was discarded during scheduler shutdown.", ETaskTerminalReason::ShutdownCanceled);
 				}
 			);
 
 			if (!bAccepted)
 			{
-				State->MarkCanceled("Task could not be queued because scheduler shutdown had begun.");
+				State->RequestCancellation("Task could not be queued because scheduler shutdown had begun.", ETaskTerminalReason::DispatchRejected);
 			}
 		}
 
@@ -416,7 +449,7 @@ namespace Durin
 				}
 				for (const std::shared_ptr<FTaskStateData>& Task : TasksToCancel)
 				{
-					Task->RequestCancellation("Task was canceled during scheduler shutdown.");
+					Task->RequestCancellation("Task was canceled during scheduler shutdown.", ETaskTerminalReason::ShutdownCanceled);
 				}
 
 				Pool.Destroy(false);
@@ -543,6 +576,10 @@ namespace Durin
 					if (IsTerminalState(Task->GetState()))
 					{
 						++Snapshot.RetainedTerminalHandleCount;
+						if (Task->GetDiagnostics().bHasResultStorage)
+						{
+							++Snapshot.RetainedTerminalResultCount;
+						}
 					}
 					++Iterator;
 				}
@@ -578,7 +615,10 @@ namespace Durin
 	auto FTaskStateData::PublishTerminalLocked(
 		ETaskState TerminalState,
 		std::string InDiagnostic,
-		std::vector<std::shared_ptr<FTaskStateData>>& OutDependents
+		std::vector<std::shared_ptr<FTaskStateData>>& OutDependents,
+		std::function<void(ETaskState)>& OutCompletionFunction,
+		ETaskTerminalReason InReason,
+		uint64 InDirectBlockingTaskId
 	) -> bool
 	{
 		if (IsTerminalState(State))
@@ -593,7 +633,10 @@ namespace Durin
 		State = TerminalState;
 		FinishTimeNanoseconds = MonotonicNanoseconds();
 		Diagnostic = std::move(InDiagnostic);
+		TerminalReason = InReason;
+		DirectBlockingTaskId = InDirectBlockingTaskId;
 		PendingFunction = {};
+		OutCompletionFunction = std::move(CompletionFunction);
 		for (const std::weak_ptr<FTaskStateData>& Dependent : Dependents)
 		{
 			if (std::shared_ptr<FTaskStateData> PinnedDependent = Dependent.lock())
@@ -605,16 +648,22 @@ namespace Durin
 		return true;
 	}
 
-	auto FTaskStateData::PublishTerminal(ETaskState TerminalState, std::string InDiagnostic) -> bool
+	auto FTaskStateData::PublishTerminal(
+		ETaskState TerminalState,
+		std::string InDiagnostic,
+		ETaskTerminalReason InReason,
+		uint64 InDirectBlockingTaskId) -> bool
 	{
 		std::vector<std::shared_ptr<FTaskStateData>> DependentsToNotify;
+		std::function<void(ETaskState)> Function;
 		{
 			std::lock_guard Lock(Mutex);
-			if (!PublishTerminalLocked(TerminalState, std::move(InDiagnostic), DependentsToNotify))
+			if (!PublishTerminalLocked(TerminalState, std::move(InDiagnostic), DependentsToNotify, Function, InReason, InDirectBlockingTaskId))
 			{
 				return false;
 			}
 		}
+		if (Function) Function(TerminalState);
 		FinishTerminalPublication(TerminalState, std::move(DependentsToNotify));
 		return true;
 	}
@@ -638,11 +687,74 @@ namespace Durin
 
 	auto FTaskStateData::OnPrerequisiteTerminal(ETaskState PrerequisiteState, uint64 PrerequisiteTaskId) -> void
 	{
+		if (bAggregatePrerequisites)
+		{
+			bool bShouldQueue = false;
+			bool bShouldCancel = false;
+			ETaskState BlockingState = ETaskState::Succeeded;
+			uint64 BlockingTaskId = 0;
+			{
+				std::lock_guard Lock(Mutex);
+				if (State != ETaskState::Waiting)
+				{
+					return;
+				}
+				check(RemainingPrerequisites > 0);
+				--RemainingPrerequisites;
+				if (DependencyKind == ETaskDependencyKind::Success && PrerequisiteState != ETaskState::Succeeded)
+				{
+					const bool bPreferPrerequisite = BlockingPrerequisiteTaskId == 0
+						|| (PrerequisiteState == ETaskState::Failed && BlockingPrerequisiteState != ETaskState::Failed)
+						|| (PrerequisiteState == BlockingPrerequisiteState && PrerequisiteTaskId < BlockingPrerequisiteTaskId);
+					if (bPreferPrerequisite)
+					{
+						BlockingPrerequisiteTaskId = PrerequisiteTaskId;
+						BlockingPrerequisiteState = PrerequisiteState;
+					}
+				}
+				if (RemainingPrerequisites == 0)
+				{
+					BlockingState = BlockingPrerequisiteState;
+					BlockingTaskId = BlockingPrerequisiteTaskId;
+					bShouldCancel = DependencyKind == ETaskDependencyKind::Success && BlockingTaskId != 0;
+					if (!bShouldCancel)
+					{
+						State = ETaskState::Queued;
+						bShouldQueue = true;
+					}
+				}
+			}
+
+			if (bShouldCancel)
+			{
+				RequestCancellation(
+					"Task was canceled because prerequisite " + std::to_string(BlockingTaskId)
+						+ (BlockingState == ETaskState::Failed ? " failed." : " was canceled."),
+					BlockingState == ETaskState::Failed ? ETaskTerminalReason::DependencyFailed : ETaskTerminalReason::DependencyCanceled,
+					BlockingTaskId
+				);
+			}
+			else if (bShouldQueue)
+			{
+				if (std::shared_ptr<FTaskScheduler> PinnedScheduler = Scheduler.lock())
+				{
+					PinnedScheduler->QueueTask(shared_from_this());
+				}
+				else
+				{
+					RequestCancellation("Task scheduler was unavailable when prerequisites completed.", ETaskTerminalReason::DispatchRejected);
+				}
+			}
+			return;
+		}
+
 		if (PrerequisiteState != ETaskState::Succeeded)
 		{
 			RequestCancellation(
 				"Task was canceled because prerequisite " + std::to_string(PrerequisiteTaskId)
-				+ (PrerequisiteState == ETaskState::Failed ? " failed." : " was canceled.")
+					+ (PrerequisiteState == ETaskState::Failed ? " failed." : " was canceled."),
+				PrerequisiteState == ETaskState::Failed ? ETaskTerminalReason::DependencyFailed : ETaskTerminalReason::DependencyCanceled,
+				PrerequisiteTaskId
 			);
 			return;
 		}
@@ -671,14 +783,15 @@ namespace Durin
 			}
 			else
 			{
-				MarkCanceled("Task scheduler was unavailable when prerequisites completed.");
+				RequestCancellation("Task scheduler was unavailable when prerequisites completed.", ETaskTerminalReason::DispatchRejected);
 			}
 		}
 	}
 
-	auto FTaskStateData::RequestCancellation(std::string InDiagnostic) -> bool
+	auto FTaskStateData::RequestCancellation(std::string InDiagnostic, ETaskTerminalReason InReason, uint64 InDirectBlockingTaskId) -> bool
 	{
 		std::vector<std::shared_ptr<FTaskStateData>> DependentsToNotify;
+		std::function<void(ETaskState)> Function;
 		bool bPublishedTerminal = false;
 		{
 			std::lock_guard Lock(Mutex);
@@ -691,15 +804,18 @@ namespace Durin
 			if (CancellationDiagnostic.empty())
 			{
 				CancellationDiagnostic = std::move(InDiagnostic);
+				CancellationReason = InReason;
+				CancellationDirectBlockingTaskId = InDirectBlockingTaskId;
 			}
 			if (State == ETaskState::Waiting || State == ETaskState::Queued)
 			{
-				bPublishedTerminal = PublishTerminalLocked(ETaskState::Canceled, CancellationDiagnostic, DependentsToNotify);
+				bPublishedTerminal = PublishTerminalLocked(ETaskState::Canceled, CancellationDiagnostic, DependentsToNotify, Function, InReason, InDirectBlockingTaskId);
 			}
 		}
 
 		if (bPublishedTerminal)
 		{
+			if (Function) Function(ETaskState::Canceled);
 			FinishTerminalPublication(ETaskState::Canceled, std::move(DependentsToNotify));
 		}
 		return true;
@@ -708,6 +824,7 @@ namespace Durin
 	auto FTaskStateData::MarkSucceeded() -> void
 	{
 		std::vector<std::shared_ptr<FTaskStateData>> DependentsToNotify;
+		std::function<void(ETaskState)> Function;
 		ETaskState TerminalState = ETaskState::Succeeded;
 		{
 			std::lock_guard Lock(Mutex);
@@ -722,15 +839,19 @@ namespace Durin
 			PublishTerminalLocked(
 				TerminalState,
 				TerminalState == ETaskState::Canceled ? (CancellationDiagnostic.empty() ? "Task returned after cancellation was requested." : CancellationDiagnostic) : std::string{},
-				DependentsToNotify
+				DependentsToNotify,
+				Function,
+				TerminalState == ETaskState::Canceled ? CancellationReason : ETaskTerminalReason::None,
+				TerminalState == ETaskState::Canceled ? CancellationDirectBlockingTaskId : 0
 			);
 		}
+		if (Function) Function(TerminalState);
 		FinishTerminalPublication(TerminalState, std::move(DependentsToNotify));
 	}
 
 	auto FTaskStateData::MarkFailed(std::string InDiagnostic) -> void
 	{
-		PublishTerminal(ETaskState::Failed, std::move(InDiagnostic));
+		PublishTerminal(ETaskState::Failed, std::move(InDiagnostic), ETaskTerminalReason::CallbackFailure);
 	}
 
 	auto FTaskStateData::MarkCanceled(std::string InDiagnostic) -> void
@@ -995,36 +1116,109 @@ namespace Durin
 
 	auto LaunchCancelableTask(const char* Name, FCancelableTaskFunction&& Function, const FTaskLaunchOptions& Options) -> FTaskHandle
 	{
-		if (!Function)
-		{
-			std::lock_guard Lock(GTaskSchedulerMutex);
-			if (GTaskScheduler)
-			{
-				GTaskScheduler->RecordRejectedTask();
-			}
-			DURIN_WARN("Task launch failed because the task function is empty. (task: {})", Name ? Name : "");
-			return {};
-		}
-
-		std::lock_guard Lock(GTaskSchedulerMutex);
-		if (GTaskSchedulerLifetime != ETaskSchedulerLifetime::Running)
-		{
-			if (GTaskScheduler)
-			{
-				GTaskScheduler->RecordRejectedTask();
-			}
-			DURIN_WARN("Task launch failed because the task scheduler is not running. (task: {})", Name ? Name : "");
-			return {};
-		}
-
-		std::shared_ptr<FTaskStateData> State = GTaskScheduler->Submit(Name, std::move(Function), Options);
-		if (!State)
-		{
-			DURIN_WARN("Task launch failed because its prerequisites were invalid or scheduler admission was closed. (task: {})", Name ? Name : "");
-			return {};
-		}
-		return FTaskHandle(std::move(State));
+		return Private::LaunchCancelableTaskWithCompletion(Name, std::move(Function), {}, Options);
 	}
+
+	namespace Private
+	{
+		auto LaunchCancelableTaskWithCompletion(
+			const char* Name,
+			FCancelableTaskFunction&& Function,
+			std::function<void(ETaskState)>&& CompletionFunction,
+			const FTaskLaunchOptions& Options) -> FTaskHandle
+		{
+			if (!Function)
+			{
+				std::lock_guard Lock(GTaskSchedulerMutex);
+				if (GTaskScheduler)
+				{
+					GTaskScheduler->RecordRejectedTask();
+				}
+				DURIN_WARN("Task launch failed because the task function is empty. (task: {})", Name ? Name : "");
+				return {};
+			}
+
+			std::lock_guard Lock(GTaskSchedulerMutex);
+			if (GTaskSchedulerLifetime != ETaskSchedulerLifetime::Running)
+			{
+				if (GTaskScheduler)
+				{
+					GTaskScheduler->RecordRejectedTask();
+				}
+				DURIN_WARN("Task launch failed because the task scheduler is not running. (task: {})", Name ? Name : "");
+				return {};
+			}
+
+			std::shared_ptr<FTaskStateData> State = GTaskScheduler->Submit(
+				Name,
+				std::move(Function),
+				std::move(CompletionFunction),
+				Options
+			);
+			if (!State)
+			{
+				DURIN_WARN("Task launch failed because its prerequisites were invalid or scheduler admission was closed. (task: {})", Name ? Name : "");
+				return {};
+			}
+			return FTaskHandle(std::move(State));
+		}
+
+		auto LaunchContinuationTask(
+			const FTaskHandle& Predecessor,
+			const char* Name,
+			FCancelableTaskFunction&& Function,
+			std::function<void(ETaskState)>&& CompletionFunction,
+			const FTaskContinuationOptions& Options,
+			ETaskDependencyKind DependencyKind) -> FTaskHandle
+		{
+			if (!Function)
+			{
+				std::lock_guard Lock(GTaskSchedulerMutex);
+				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask();
+				return {};
+			}
+			if (Options.Target != ETaskTarget::AnyWorker)
+			{
+				std::lock_guard Lock(GTaskSchedulerMutex);
+				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask();
+				DURIN_WARN("Task continuation target is unavailable in the worker-only implementation. (task: {})", Name ? Name : "");
+				return {};
+			}
+
+			std::vector<FTaskHandle> Prerequisites;
+			Prerequisites.reserve(Options.Prerequisites.size() + 1);
+			auto AppendUnique = [&Prerequisites](const FTaskHandle& Candidate) {
+				if (std::ranges::none_of(Prerequisites, [&Candidate](const FTaskHandle& Existing) {
+					return Existing.GetTaskId() == Candidate.GetTaskId();
+				}))
+				{
+					Prerequisites.emplace_back(Candidate);
+				}
+			};
+			AppendUnique(Predecessor);
+			for (const FTaskHandle& Prerequisite : Options.Prerequisites) AppendUnique(Prerequisite);
+
+			FTaskLaunchOptions LaunchOptions;
+			LaunchOptions.Prerequisites = Prerequisites;
+			LaunchOptions.CancellationToken = Options.CancellationToken;
+
+			std::lock_guard Lock(GTaskSchedulerMutex);
+			if (GTaskSchedulerLifetime != ETaskSchedulerLifetime::Running)
+			{
+				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask();
+				return {};
+			}
+			std::shared_ptr<FTaskStateData> State = GTaskScheduler->Submit(
+				Name,
+				std::move(Function),
+				std::move(CompletionFunction),
+				LaunchOptions,
+				DependencyKind,
+				true
+			);
+			return State ? FTaskHandle(std::move(State)) : FTaskHandle{};
+		}
+	} // namespace Private
 
 	auto CancelTask(const FTaskHandle& Task) -> bool
 	{
