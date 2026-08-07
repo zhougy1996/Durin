@@ -215,7 +215,7 @@ namespace Durin::AssetImport
 		ASSETIMPORTCORE_API auto PostLoad(std::string& OutError) -> bool override;
 
 	private:
-		friend auto CreateImportRecordAsset(
+		friend ASSETIMPORTCORE_API auto CreateImportRecordAsset(
 			const FAssetPath& Path,
 			DImportRecord*& OutRecord
 		) -> Asset::FAssetResult;

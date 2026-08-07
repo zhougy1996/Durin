@@ -159,10 +159,10 @@ namespace Durin
 		std::atomic<EClassDefaultObjectState> DefaultObjectState{EClassDefaultObjectState::Uninitialized};
 		mutable std::atomic<bool> bRecursiveDefaultObjectAccess = false;
 
-		friend auto ProcessNewlyLoadedDObjects() -> void;
-		friend auto ReleaseClassDefaultObjects() -> void;
-		friend auto ReleaseClassDefaultObjectsForModule(FName ModuleName) -> bool;
-		friend auto Private::CreateClassDefaultObjectsForBatch(std::span<DClass* const> Classes) -> bool;
+		friend COREDOBJECT_API auto ProcessNewlyLoadedDObjects() -> void;
+		friend COREDOBJECT_API auto ReleaseClassDefaultObjects() -> void;
+		friend COREDOBJECT_API auto ReleaseClassDefaultObjectsForModule(FName ModuleName) -> bool;
+		friend COREDOBJECT_API auto Private::CreateClassDefaultObjectsForBatch(std::span<DClass* const> Classes) -> bool;
 		friend auto Private::ReleaseClassDefaultObjectOwnership(DClass* Class) -> DObject*;
 	};
 
