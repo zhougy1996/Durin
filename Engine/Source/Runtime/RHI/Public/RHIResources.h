@@ -100,15 +100,14 @@ namespace Durin
 				{
 					if ((OldPacked & (MarkedForDeleteBit | DeletingBit)) != 0)
 					{
-						checkf(false,
-							"Cannot add a reference after an RHI resource has entered deferred deletion.");
+						check(false); // Cannot add a reference after deferred deletion begins.
 						std::terminate();
 					}
 
 					const uint32 OldRefCount = OldPacked & NumRefsMask;
 					if (OldRefCount == NumRefsMask)
 					{
-						checkf(false, "RHI resource reference count overflowed.");
+						check(false); // RHI resource reference count overflowed.
 						std::terminate();
 					}
 
@@ -132,8 +131,7 @@ namespace Durin
 					if ((OldPacked & (MarkedForDeleteBit | DeletingBit)) != 0
 						|| OldRefCount == 0)
 					{
-						checkf(false,
-							"Cannot release an unreferenced or deleting RHI resource.");
+						check(false); // Cannot release an unreferenced or deleting RHI resource.
 						std::terminate();
 					}
 
