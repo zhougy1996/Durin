@@ -171,8 +171,9 @@ namespace Durin::Private
 			{
 				auto* ArrayProperty = static_cast<FArrayProperty*>(Operation.Property);
 				FArrayReferenceVisitContext Context{*Operation.Inner, Collector};
-				checkf(ArrayProperty->VisitElements(
-					Container, &VisitArrayReference, &Context, ArrayIndex) == EContainerOpResult::Success,
+				const EContainerOpResult Result = ArrayProperty->VisitElements(
+					Container, &VisitArrayReference, &Context, ArrayIndex);
+				checkf(Result == EContainerOpResult::Success,
 					"Reference-bearing reflected array traversal failed.");
 				break;
 			}
@@ -180,8 +181,9 @@ namespace Durin::Private
 			{
 				auto* MapProperty = static_cast<FMapProperty*>(Operation.Property);
 				FMapReferenceVisitContext Context{Operation, Collector};
-				checkf(MapProperty->VisitEntries(
-					Container, &VisitMapReference, &Context, ArrayIndex) == EContainerOpResult::Success,
+				const EContainerOpResult Result = MapProperty->VisitEntries(
+					Container, &VisitMapReference, &Context, ArrayIndex);
+				checkf(Result == EContainerOpResult::Success,
 					"Reference-bearing reflected map traversal failed.");
 				break;
 			}
