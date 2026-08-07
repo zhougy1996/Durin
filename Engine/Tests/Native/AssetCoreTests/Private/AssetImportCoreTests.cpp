@@ -553,6 +553,12 @@ TEST(FAssetImportCoreTests, AsyncPreparationMatchesSynchronousPlan)
 	EXPECT_TRUE(std::ranges::equal(
 		Synchronous.Plan.GetOutputs(), Asynchronous.Plan.GetOutputs()));
 	EXPECT_EQ(Synchronous.Diagnostics, Asynchronous.Diagnostics);
+	EXPECT_EQ(Durin::AssetImport::DrainAsyncImportCompletionMailbox(), 0u);
+	Durin::AssetImport::FImportPlanResult SecondTake;
+	SecondTake.Message = "unchanged";
+	EXPECT_EQ(Durin::AssetImport::TryTakeAsyncImportPlanResult(Handle, SecondTake),
+		Durin::AssetImport::EAsyncImportPlanStatus::Succeeded);
+	EXPECT_EQ(SecondTake.Message, "unchanged");
 
 	Synchronous = {};
 	Asynchronous = {};

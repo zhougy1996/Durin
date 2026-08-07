@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-Stages 0 through 2 are complete. The callable contract was frozen from baseline
+Stages 0 through 3 are complete. The callable contract was frozen from baseline
 `68660f0a2b966649f8ca0043f27c19f7f08792e7`, and Stage 1 moved callable
 ownership through task nodes, the Worker queue, and the GameThread deferred
 queue from baseline `d59eb1fe236ade4dc8b1d16c55b23e7d457ba930`.
@@ -19,8 +19,11 @@ destruction occur outside internal locks, and successful typed waits now
 synchronize completion-hook result publication. Stage 2 adds explicit unique
 producers, move-only `TUniqueTaskHandle<T>`, transactional one-consumer claims,
 Worker and GameThread consuming sinks, checked retained-byte admission, and
-bounded unique-result diagnostics. Stage 3 is ready to migrate only the
-AsyncImportCore result handoff.
+bounded unique-result diagnostics. AsyncImportCore now uses a unique
+`FImportPlanResult` producer and one AnyWorker outcome publisher while retaining
+its request table, latest-owner/provider policy, serial mailbox, explicit
+drain, cancellation, and take-once API. Stage 4 is ready for qualification,
+lasting documentation, lifecycle smoke, and milestone closure.
 The completed continuation foundation publishes typed values through
 `shared_ptr<const T>` and ultimately stores task and completion callables in
 `std::function`. This supports immutable fan-out but requires copy-constructible
@@ -672,20 +675,20 @@ Dependencies: Stage 1 move-only callable boundary.
 
 Dependencies: Stage 2 unique sink API; existing AsyncImportCore tests.
 
-- [ ] Change the import-plan worker to return a unique
+- [x] Change the import-plan worker to return a unique
   `FImportPlanResult` rather than mutating request state from its callable.
-- [ ] Add one AnyWorker consuming outcome sink that moves success into request
+- [x] Add one AnyWorker consuming outcome sink that moves success into request
   state or publishes stable failure/cancellation state, then queues the existing
   serial notice.
-- [ ] Track the publisher sink as the request task so explicit wait/drain covers
+- [x] Track the publisher sink as the request task so explicit wait/drain covers
   the complete handoff.
-- [ ] Remove only worker-epilogue and missing-result synthesis made redundant by
+- [x] Remove only worker-epilogue and missing-result synthesis made redundant by
   terminal outcome publication; preserve latest-owner, provider, mailbox,
   cancellation, take, and removal policy.
-- [ ] Cover admission rejection at both producer and consumer construction,
+- [x] Cover admission rejection at both producer and consumer construction,
   superseded owner requests, provider close, cancellation before/during work,
   callback failure, explicit drain, result take-once, and process shutdown.
-- [ ] Verify that no `FImportPlanResult` copy is introduced and provider leases
+- [x] Verify that no `FImportPlanResult` copy is introduced and provider leases
   remain alive through the same or narrower interval.
 
 #### Acceptance Gate
@@ -805,6 +808,34 @@ and validation outcome.
   pre-invocation cancellation, callback failure, and drain/cancel shutdown.
   The Agent Debug profile's complete `all` build passed and scheduler retained
   unique bytes returned to zero on every tested terminal path.
+
+### Stage 3 Handoff
+
+- Baseline commit: `90e5e38fc449ffd9e028c92c0862a75e41cc42c3`.
+- Working set: `AssetImportCore/Private/AsyncImport.cpp`, native
+  `AssetImportCoreTests.cpp`, and this plan; public `AsyncImport.h` and
+  `FImportPlanResult` remain unchanged.
+- Key symbols and decisions: `AssetImport.PreparePlan` is a unique cancelable
+  producer with a conservative 64 KiB retained-result declaration;
+  `AssetImport.PublishPlan` is the single AnyWorker outcome sink and the
+  request's tracked wait/drain task; `ProducerTask` remains an erased private
+  cancellation target so cancellation terminalizes the producer while the
+  publisher still maps its outcome and queues exactly one logical serial
+  notice. Drain requeues a notice observed before publisher terminalization
+  rather than scanning all terminal handles or synthesizing a missing result.
+  Success moves the outcome optional directly into request state; take moves it
+  once more into the caller.
+- Open questions: none blocking Stage 4. The 64 KiB declaration is conservative
+  admission/diagnostic metadata to be reported with qualification evidence, not
+  an allocator measurement or hard result-size limit.
+- Validation: all 23 `AssetImportCoreTests` passed; the complete
+  `EditorAssetWorkflowTests` aggregate ran 58 tests with 57 passed and one
+  expected skip; and the Agent Debug profile's complete `all` build passed.
+  Focused coverage validates synchronous equivalence, latest-owner
+  supersession, provider-close cancellation and lease release, producer
+  scheduler rejection, a drained single notice, and take-once behavior. Core
+  Stage 2 tests supply transactional consumer-admission rejection, cancellation,
+  callback failure, and shutdown coverage for the unchanged sink primitive.
 
 ## Validation Matrix
 

@@ -58,6 +58,7 @@ namespace Durin::AssetImport
 		std::string OwnerId;
 		std::string ProviderId;
 		FTaskCancellationSource Cancellation;
+		FTaskHandle ProducerTask;
 		FTaskHandle Task;
 		EAsyncImportPlanStatus Status = EAsyncImportPlanStatus::Pending;
 		std::optional<FImportPlanResult> Result;
@@ -110,60 +111,80 @@ namespace Durin::AssetImport
 
 				FTaskLaunchOptions Options;
 				Options.CancellationToken = State->Cancellation.GetToken();
-				FTaskHandle Task = LaunchCancelableTask(
+				constexpr uint64 EstimatedImportPlanResultBytes = 64ull * 1'024ull;
+				auto Producer = LaunchUniqueCancelableTask<FImportPlanResult>(
 					"AssetImport.PreparePlan",
-					[this, State, Request = std::move(Request)](
+					[Request = std::move(Request)](
 						const FTaskCancellationToken& Token) mutable {
 						FScopedImportCancellationToken TokenScope(Token);
-						FImportPlanResult Result;
-						try
+						if (Token.IsCancellationRequested())
 						{
-							if (Token.IsCancellationRequested())
+							return MakeTerminalResult(
+								EImportDiagnosticCategory::Canceled,
+								"Asynchronous import preparation was canceled before it started.");
+						}
+						FImportPlanResult Result = CreateImportPlan(Request, GetProviderRegistry());
+						if (Token.IsCancellationRequested())
+						{
+							return MakeTerminalResult(
+								EImportDiagnosticCategory::Canceled,
+								"Asynchronous import preparation was canceled.");
+						}
+						return Result;
+					}, Options, EstimatedImportPlanResultBytes);
+
+				if (!Producer.IsValid())
+				{
+					std::lock_guard StateLock(State->Mutex);
+					State->Status = EAsyncImportPlanStatus::Rejected;
+					State->Result = MakeTerminalResult(
+						EImportDiagnosticCategory::AsyncFailure,
+						"The task scheduler rejected asynchronous import work; it was never accepted.");
+					State->bMailboxDrained = true;
+					return FAsyncImportPlanHandle(State);
+				}
+
+				const FTaskHandle ProducerTask = Producer.GetTaskHandle();
+				FTaskHandle Publisher = ConsumeThenOutcome(
+					std::move(Producer),
+					"AssetImport.PublishPlan",
+					[this, State](FUniqueTaskOutcome<FImportPlanResult>&& Outcome) {
+						{
+							std::lock_guard StateLock(State->Mutex);
+							if (Outcome.State == ETaskState::Succeeded && Outcome.Result)
 							{
-								Result = MakeTerminalResult(
+								State->Result = std::move(Outcome.Result);
+							}
+							else if (Outcome.State == ETaskState::Canceled)
+							{
+								State->Result = MakeTerminalResult(
 									EImportDiagnosticCategory::Canceled,
-									"Asynchronous import preparation was canceled before it started.");
+									"Asynchronous import preparation was canceled before producing a result.");
 							}
 							else
 							{
-								Result = CreateImportPlan(Request, GetProviderRegistry());
-								if (Token.IsCancellationRequested())
-									Result = MakeTerminalResult(
-										EImportDiagnosticCategory::Canceled,
-										"Asynchronous import preparation was canceled.");
+								State->Result = MakeTerminalResult(
+									EImportDiagnosticCategory::AsyncFailure,
+									Outcome.Diagnostic.empty()
+										? "Asynchronous import preparation terminated without producing a result."
+										: std::format("Asynchronous import preparation failed: {}", Outcome.Diagnostic));
 							}
-						}
-						catch (const std::exception& Exception)
-						{
-							Result = MakeTerminalResult(
-								EImportDiagnosticCategory::AsyncFailure,
-								std::format("Asynchronous import preparation failed: {}", Exception.what()));
-						}
-						catch (...)
-						{
-							Result = MakeTerminalResult(
-								EImportDiagnosticCategory::AsyncFailure,
-								"Asynchronous import preparation failed with an unknown exception.");
-						}
-
-						{
-							std::lock_guard StateLock(State->Mutex);
-							State->Result = std::move(Result);
 							State->bNoticeQueued = true;
 						}
-						// Only the serial crosses the mailbox. The result and its provider
-						// lease have already moved out of this callable into request state.
 						QueueNotice(State->Serial);
-					}, Options);
+					});
 				{
 					std::lock_guard StateLock(State->Mutex);
-					State->Task = Task;
-					if (!Task.IsValid())
+					State->ProducerTask = ProducerTask;
+					State->Task = Publisher.IsValid() ? Publisher : ProducerTask;
+					if (!Publisher.IsValid())
 					{
+						State->Cancellation.RequestCancellation();
+						(void)CancelTask(ProducerTask);
 						State->Status = EAsyncImportPlanStatus::Rejected;
 						State->Result = MakeTerminalResult(
 							EImportDiagnosticCategory::AsyncFailure,
-							"The task scheduler rejected asynchronous import work; it was never accepted.");
+							"The task scheduler rejected asynchronous import result publication; it was never accepted.");
 						State->bMailboxDrained = true;
 					}
 				}
@@ -173,25 +194,14 @@ namespace Durin::AssetImport
 			auto Drain() -> uint64
 			{
 				std::vector<uint64> Notices;
-				std::vector<std::shared_ptr<FAsyncImportRequestState>> Snapshot;
 				{
 					std::lock_guard Lock(Mutex);
 					Notices.assign(Mailbox.begin(), Mailbox.end());
 					Mailbox.clear();
-					Snapshot.reserve(Requests.size());
-					for (const auto& [Serial, State] : Requests) Snapshot.push_back(State);
 				}
 
 				std::unordered_set<uint64> Candidates(Notices.begin(), Notices.end());
-				// A failed task may never run the worker epilogue. Terminal handles
-				// without a notice are promoted to a stable synthetic result here.
-				for (const auto& State : Snapshot)
-				{
-					std::lock_guard StateLock(State->Mutex);
-					if (!State->bMailboxDrained && State->Task.IsValid()
-						&& IsTerminalTaskState(State->Task.GetState()))
-						Candidates.insert(State->Serial);
-				}
+				std::vector<uint64> DeferredNotices;
 
 				uint64 Drained = 0;
 				for (const uint64 Serial : Candidates)
@@ -207,24 +217,16 @@ namespace Durin::AssetImport
 						bCurrent = Latest != LatestByOwner.end() && Latest->second == Serial;
 					}
 					std::lock_guard StateLock(State->Mutex);
-					if (State->bMailboxDrained || !State->Task.IsValid()
-						|| !IsTerminalTaskState(State->Task.GetState())) continue;
+					if (State->bMailboxDrained || !State->Task.IsValid()) continue;
+					if (!IsTerminalTaskState(State->Task.GetState()))
+					{
+						DeferredNotices.push_back(Serial);
+						continue;
+					}
 					if (!bCurrent)
 					{
 						State->Result.reset();
 						State->Status = EAsyncImportPlanStatus::Superseded;
-					}
-					else if (!State->Result)
-					{
-						State->Result = MakeTerminalResult(
-							State->Task.GetState() == ETaskState::Canceled
-								? EImportDiagnosticCategory::Canceled
-								: EImportDiagnosticCategory::AsyncFailure,
-							State->Task.GetState() == ETaskState::Canceled
-								? "Asynchronous import preparation was canceled before producing a result."
-								: "Asynchronous import preparation terminated without producing a result.");
-						State->Status = State->Task.GetState() == ETaskState::Canceled
-							? EAsyncImportPlanStatus::Canceled : EAsyncImportPlanStatus::Failed;
 					}
 					else if (State->Task.GetState() == ETaskState::Canceled
 						|| (!State->Result->Diagnostics.empty()
@@ -235,6 +237,11 @@ namespace Durin::AssetImport
 						? EAsyncImportPlanStatus::Succeeded : EAsyncImportPlanStatus::Failed;
 					State->bMailboxDrained = true;
 					++Drained;
+				}
+				if (!DeferredNotices.empty())
+				{
+					std::lock_guard Lock(Mutex);
+					for (const uint64 Serial : DeferredNotices) Mailbox.push_back(Serial);
 				}
 				return Drained;
 			}
@@ -354,7 +361,7 @@ namespace Durin::AssetImport
 					std::lock_guard StateLock(State->Mutex);
 					if (State->bTaken) return false;
 					State->Cancellation.RequestCancellation();
-					Task = State->Task;
+					Task = State->ProducerTask.IsValid() ? State->ProducerTask : State->Task;
 				}
 				return Task.IsValid() ? CancelTask(Task) : true;
 			}
