@@ -1,5 +1,9 @@
 # Engineering Investigations
 
+- [Completed CPU task system audit](CompletedTaskSystemAudit.md) — the completed
+  graph and ownership design is sound, but Worker admission, terminal tracking,
+  diagnostic cost, and terminal snapshot coherence need remediation before
+  broad adoption.
 - [DurinDevTool Windows lock recovery boundary](DurinDevToolWindowsLockRecovery.md) —
   Windows ACL recovery currently leaks Windows-only guidance through the
   cross-platform lock-opening path and lacks an automated live-lock integration
