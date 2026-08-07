@@ -198,29 +198,30 @@ namespace Durin
 #endif
 	}
 
-	auto FRHIResource::MarkForDelete() const -> void
+	auto FRHIResource::EnqueueForDelete() const -> void
 	{
-		if (!AtomicFlags.MarkForDelete(std::memory_order_release))
-		{
-			std::lock_guard<std::mutex> lock(PendingDeletesMutex);
-			PendingDeletes.push_back(const_cast<FRHIResource*>(this));
-		}
+		std::lock_guard<std::mutex> lock(PendingDeletesMutex);
+		PendingDeletes.push_back(const_cast<FRHIResource*>(this));
 	}
 
 	auto FRHIResource::DeleteResources(const std::vector<FRHIResource*>& ResourcesToDelete) -> void
 	{
 		for (FRHIResource* Resource : ResourcesToDelete)
 		{
-			if (Resource->AtomicFlags.Deleting())
+			const bool bBeganDeleting = Resource->AtomicFlags.BeginDelete();
+			if (!bBeganDeleting)
 			{
-#if DO_CHECK
-				CurrentDeleting = Resource;
-#endif
-				delete Resource;
-#if DO_CHECK
-				check(CurrentDeleting == nullptr);
-#endif
+				checkf(false,
+					"Deferred RHI resource was not in the pending-delete state.");
+				std::terminate();
 			}
+#if DO_CHECK
+			CurrentDeleting = Resource;
+#endif
+			delete Resource;
+#if DO_CHECK
+			check(CurrentDeleting == nullptr);
+#endif
 		}
 	}
 

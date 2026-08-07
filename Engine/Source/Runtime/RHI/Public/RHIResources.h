@@ -40,6 +40,7 @@ namespace Durin
 	};
 
 	// Provides thread-safe intrusive lifetime tracking for backend-owned GPU resources.
+	// Once the published reference count reaches zero, deferred deletion is irreversible.
 	class FRHIResource
 	{
 	public:
@@ -51,21 +52,21 @@ namespace Durin
 		RHI_API virtual ~FRHIResource();
 
 	private:
-		RHI_API auto MarkForDelete() const -> void;
+		RHI_API auto EnqueueForDelete() const -> void;
 
 	public:
 		FORCEINLINE auto AddRef() const -> uint32
 		{
-			return AtomicFlags.AddRef(std::memory_order_acquire);
+			return AtomicFlags.AddRef();
 		}
 
 		FORCEINLINE auto Release() const -> uint32
 		{
-			const uint32 NewRefCount = AtomicFlags.Release(std::memory_order_release);
+			const uint32 NewRefCount = AtomicFlags.Release();
 
 			if (NewRefCount == 0)
 			{
-				MarkForDelete();
+				EnqueueForDelete();
 			}
 			return NewRefCount;
 		}
@@ -92,29 +93,62 @@ namespace Durin
 			std::atomic_uint Packed = {0};
 
 		public:
-			auto AddRef(std::memory_order MemoryOrder) -> uint32
+			auto AddRef() -> uint32
 			{
-				const uint32 OldPacked = Packed.fetch_add(1, MemoryOrder);
-				check((OldPacked & DeletingBit) == 0); // Resource is being deleted, cannot add reference
-				const uint32 OldRefCount = OldPacked & NumRefsMask;
-				check(OldRefCount != NumRefsMask); // Prevent overflow
-				return OldRefCount + 1;
+				uint32 OldPacked = Packed.load(std::memory_order_relaxed);
+				while (true)
+				{
+					if ((OldPacked & (MarkedForDeleteBit | DeletingBit)) != 0)
+					{
+						checkf(false,
+							"Cannot add a reference after an RHI resource has entered deferred deletion.");
+						std::terminate();
+					}
+
+					const uint32 OldRefCount = OldPacked & NumRefsMask;
+					if (OldRefCount == NumRefsMask)
+					{
+						checkf(false, "RHI resource reference count overflowed.");
+						std::terminate();
+					}
+
+					const uint32 NewPacked = OldPacked + 1;
+					if (Packed.compare_exchange_weak(
+							OldPacked, NewPacked,
+							std::memory_order_acquire,
+							std::memory_order_relaxed))
+					{
+						return OldRefCount + 1;
+					}
+				}
 			}
 
-			auto Release(std::memory_order MemoryOrder) -> uint32
+			auto Release() -> uint32
 			{
-				const uint32 OldPacked = Packed.fetch_sub(1, MemoryOrder);
-				check((OldPacked & DeletingBit) == 0); // Resource is being deleted
-				const uint32 OldRefCount = OldPacked & NumRefsMask;
-				check(OldRefCount != 0); // Prevent underflow
-				return OldRefCount - 1;
-			}
+				uint32 OldPacked = Packed.load(std::memory_order_relaxed);
+				while (true)
+				{
+					const uint32 OldRefCount = OldPacked & NumRefsMask;
+					if ((OldPacked & (MarkedForDeleteBit | DeletingBit)) != 0
+						|| OldRefCount == 0)
+					{
+						checkf(false,
+							"Cannot release an unreferenced or deleting RHI resource.");
+						std::terminate();
+					}
 
-			auto MarkForDelete(std::memory_order MemoryOrder) -> bool
-			{
-				uint32 OldPacked = Packed.fetch_or(MarkedForDeleteBit, MemoryOrder);
-				check((OldPacked & DeletingBit) == 0);
-				return (OldPacked & MarkedForDeleteBit) != 0; // Return whether the resource was already marked for delete before this call
+					const uint32 NewRefCount = OldRefCount - 1;
+					const uint32 NewPacked = NewRefCount == 0
+						? MarkedForDeleteBit
+						: NewRefCount;
+					if (Packed.compare_exchange_weak(
+							OldPacked, NewPacked,
+							std::memory_order_release,
+							std::memory_order_relaxed))
+					{
+						return NewRefCount;
+					}
+				}
 			}
 
 			auto GetRefCount(std::memory_order MemoryOrder) const -> uint32
@@ -127,32 +161,14 @@ namespace Durin
 				return Packed.load(MemoryOrder) == 0;
 			}
 
-			auto UnmarkForDelete(std::memory_order MemoryOrder) -> bool
+			auto BeginDelete() -> bool
 			{
-				const uint32 OldPacked = Packed.fetch_xor(MarkedForDeleteBit, MemoryOrder);
-				check((OldPacked & DeletingBit) == 0);
-				bool OldMarkedForDelete = (OldPacked & MarkedForDeleteBit) != 0;
-				check(OldMarkedForDelete == true);
-				return OldMarkedForDelete;
-			}
-
-			auto Deleting() -> bool
-			{
-				const uint32 LocalPacked = Packed.load(std::memory_order_acquire);
-				check((LocalPacked & MarkedForDeleteBit) != 0);
-				check((LocalPacked & DeletingBit) == 0);
-				const uint32 NumRefs = LocalPacked & NumRefsMask;
-
-				// Allow caches to bring dead objects back to life.
-				if (NumRefs == 0)
-				{
-#if DO_CHECK
-					Packed.fetch_or(DeletingBit, std::memory_order_acquire);
-#endif
-					return true;
-				}
-				UnmarkForDelete(std::memory_order_release);
-				return false;
+				uint32 Expected = MarkedForDeleteBit;
+				return Packed.compare_exchange_strong(
+					Expected,
+					MarkedForDeleteBit | DeletingBit,
+					std::memory_order_acq_rel,
+					std::memory_order_acquire);
 			}
 
 			auto IsValid(std::memory_order MemoryOrder) const -> bool

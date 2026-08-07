@@ -296,6 +296,21 @@ namespace Durin
 		EXPECT_TRUE(bDestroyed);
 	}
 
+	TEST(FRHICommandListTests, FinalReleasePermanentlyClosesResourceLifetime)
+	{
+		bool bDestroyed = false;
+		auto* Resource = new FTrackedRHIResource(bDestroyed);
+		EXPECT_EQ(Resource->AddRef(), 1u);
+		EXPECT_EQ(Resource->Release(), 0u);
+		EXPECT_EQ(Resource->GetRefCount(), 0u);
+
+		EXPECT_DEATH_IF_SUPPORTED(Resource->AddRef(), "");
+		RHIFlushDeferredResources();
+
+		EXPECT_TRUE(bDestroyed);
+		EXPECT_EQ(FRHIResource::GetNumPendingDeletes(), 0u);
+	}
+
 	TEST(FRHICommandListTests, RejectsQueueBeforeFinishAndDoubleAdmission)
 	{
 		FRHICommandListExecutor Executor;
