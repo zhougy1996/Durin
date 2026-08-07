@@ -327,9 +327,11 @@ namespace Durin
 		);
 		if (!FPaths::ProjectFile().empty()) DURIN_DEBUG(STR("Project file: {}"), FPaths::ProjectFile());
 		std::string MountError;
-		checkf(
-			PathUtilities::InitDefaultMountPoints(&MountError),
-			"Failed to initialize mount registry: {}", MountError);
+		if (!PathUtilities::InitDefaultMountPoints(&MountError))
+		{
+			DURIN_ERROR("Failed to initialize mount registry: {}", MountError);
+			return false;
+		}
 		if (!InitializeTaskScheduler())
 		{
 			DURIN_ERROR("Engine pre-initialization failed because the task scheduler could not start.");
