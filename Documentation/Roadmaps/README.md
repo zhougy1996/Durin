@@ -15,3 +15,6 @@ plan link when implementation work begins.
 - [Compute Shader Pipeline](ComputeShaderPipeline.md) — establish synchronous
   compute, explicit resource synchronization, production renderer integration,
   and evidence-gated advanced execution.
+- [RHI and Vulkan Backend Evolution](RHIAndVulkanEvolution.md) — establish
+  capability-driven startup, unified resource state and views, scalable
+  bindings and memory policy, and conformance-grade Vulkan diagnostics.
