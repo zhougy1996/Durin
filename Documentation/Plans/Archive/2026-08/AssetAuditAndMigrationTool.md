@@ -4,7 +4,7 @@ Summary: Unify read-only asset auditing and explicitly authorized repository-wid
 
 Last reviewed: 2026-08-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-07
 
 ## Current Status
@@ -558,12 +558,12 @@ rules.
 
 ## Related Documentation
 
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Versioning](../Runtime/Assets/Versioning.md)
-- [File I/O](../Runtime/Core/FileIO.md)
-- [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [File I/O](../../../Runtime/Core/FileIO.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md)
 
 ## Related Code
 

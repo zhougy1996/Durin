@@ -4,7 +4,7 @@ Summary: Replace positional leaf-property aggregates with concise typed descript
 
 Last reviewed: 2026-08-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-07
 
 ## Current Status
@@ -567,7 +567,7 @@ Object distinction.
 | Cross-module build | Full `all` target | All generated modules compile and link against the typed descriptor API |
 
 Configure, build, and native-test execution follows
-[`Documentation/Development/Build/BuildAndRun.md`](../Development/Build/BuildAndRun.md).
+[`Documentation/Development/Build/BuildAndRun.md`](../../../Development/Build/BuildAndRun.md).
 
 ## Definition of Done
 
@@ -600,10 +600,10 @@ Configure, build, and native-test execution follows
 
 ## Related Documentation
 
-- [`Documentation/Runtime/Core/ReflectionSystem.md`](../Runtime/Core/ReflectionSystem.md)
-- [`Documentation/Development/Build/BuildAndRun.md`](../Development/Build/BuildAndRun.md)
-- [`Documentation/Plans/Archive/2026-08/TypedStructPropertyRegistration.md`](Archive/2026-08/TypedStructPropertyRegistration.md)
-- [`Documentation/Plans/Archive/2026-08/ReflectedStructOperations.md`](Archive/2026-08/ReflectedStructOperations.md)
+- [`Documentation/Runtime/Core/ReflectionSystem.md`](../../../Runtime/Core/ReflectionSystem.md)
+- [`Documentation/Development/Build/BuildAndRun.md`](../../../Development/Build/BuildAndRun.md)
+- [`Documentation/Plans/Archive/2026-08/TypedStructPropertyRegistration.md`](TypedStructPropertyRegistration.md)
+- [`Documentation/Plans/Archive/2026-08/ReflectedStructOperations.md`](ReflectedStructOperations.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Eliminate unchanged-package payload reads from incremental registry and
 
 Last reviewed: 2026-08-07
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-07
 
 ## Current Status
