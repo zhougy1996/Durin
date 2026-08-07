@@ -2,7 +2,7 @@
 
 Summary: Long-term sequencing for material authoring, surface models, render passes, compilation, and runtime scalability.
 
-Last reviewed: 2026-08-06
+Last reviewed: 2026-08-08
 
 ## Current State
 
@@ -38,7 +38,9 @@ baseline.
 
 Milestones 2 and 3 are complete. No render-pass execution plan is active; the
 landed surface outputs and limitations below are the review baseline for any
-future milestone 4 plan.
+future milestone 4 plan. Cross-program sequencing and the execution boundary
+for that milestone are now recorded in the
+[Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md).
 
 ## Completed Foundations
 
@@ -168,6 +170,11 @@ owned by the texture roadmap and plans rather than this milestone.
   defined by [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md).
 - Public or runtime-polymorphic renderer/pass registration remains deferred
   until a second module has a concrete feature-registration requirement.
+- Opaque, masked, and translucent pass execution, visibility preparation, and
+  the second production primitive-family proof are coordinated by the
+  [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md).
+  This roadmap continues to own material asset schema, static identity, and
+  compilation sequencing.
 
 ## Related Documentation
 

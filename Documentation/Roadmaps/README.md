@@ -18,3 +18,7 @@ plan link when implementation work begins.
 - [RHI and Vulkan Backend Evolution](RHIAndVulkanEvolution.md) — establish
   capability-driven startup, unified resource state and views, scalable
   bindings and memory policy, and conformance-grade Vulkan diagnostics.
+- [Rendering Capability Expansion](RenderingCapabilityExpansion.md) — add
+  pass-classified surfaces, visibility and LOD, another production primitive
+  family, renderer-owned lights, and directional shadows before activating
+  evidence-gated frame-architecture work.

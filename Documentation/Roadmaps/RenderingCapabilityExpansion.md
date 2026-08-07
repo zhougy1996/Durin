@@ -1,0 +1,419 @@
+# Rendering Capability Expansion Roadmap
+
+Summary: Expand the current static-mesh forward renderer into a pass-classified, visibility-aware platform for additional primitive, lighting, and effect families.
+
+Last reviewed: 2026-08-08
+
+Status: Active
+Completed:
+
+## Current Status
+
+Durin has one production scene-geometry path: PBR StaticMesh rendering through
+`FStaticMeshSceneProxy`, `FLocalVertexFactory`, and `FStaticMeshRenderer`.
+SkyBox, TextureCube preview, post-process, and editor-assistance rendering are
+separate Renderer-private feature owners composed explicitly by
+`FSceneRenderer`. This is a sound ownership baseline: shader maps, pipelines,
+RHI payloads, resource invalidation, retry, and release are no longer
+concentrated in the module adapter.
+
+The frame is still a fixed forward sequence. Sky, StaticMesh, and TextureCube
+preview draws share one LDR Scene Color plus depth pass, followed by copy or
+FXAA and an optional editor-assistance pass. StaticMesh always scans the whole
+primitive array, selects LOD 0, and submits every valid section. There is no
+primitive bounds contract, per-view visibility result, pass draw list, or
+depth/distance sorting.
+
+Material render snapshots already identify Opaque, Masked, and Translucent
+blend modes, Lit and Unlit shading, two-sided state, depth-write policy, and a
+mask threshold. The current graphics PSO ignores those policies: alpha blend
+is disabled, depth test and write are enabled, and back-face culling is
+disabled for every StaticMesh pipeline. The shader carries Opacity and
+OpacityMask but performs neither blending nor coverage rejection.
+
+The scene mutation boundary is only partially snapshot-based. SkyBox state and
+primitive proxies cross to the rendering thread as retained renderer-facing
+data, but directional lights remain game-thread component pointers. The render
+thread selects the first pointer and calls `GetSceneData()` during view
+rendering. This contradicts the intended detached light-data boundary and must
+be corrected before adding light types, revisions, or shadows.
+
+No child implementation plan is active. The first plan should close the scene
+snapshot and primitive-classification boundary without introducing a public
+renderer registry. The second should implement the material render-pass
+policies already prepared by the Material System roadmap.
+
+## Outcome
+
+Durin can add a production primitive or lighting family without extending an
+RTTI scan in every feature renderer, retaining reflected objects on the render
+thread, or duplicating viewport and resource-lifecycle policy. Each view
+prepares deterministic visible work, classifies it into explicit passes, and
+executes those passes through Renderer-private feature owners.
+
+The required program delivers:
+
+- detached, revisioned primitive and light scene state;
+- explicit opaque, masked, and translucent StaticMesh behavior;
+- per-view visibility, LOD selection, pass classification, and ordering;
+- a second production geometry family that proves the extension boundary;
+- renderer-owned directional, point, and spot light snapshots; and
+- a first directional shadow-depth and shadow-sampling path.
+
+Additional effects, GPU-driven submission, deferred or clustered lighting, and
+a render graph remain conditional. They are activated by concrete product or
+profiling evidence rather than treated as prerequisites for adding the next
+rendering type.
+
+## Scope
+
+- Renderer-facing primitive kind, bounds, revision, visibility, and material-
+  binding mutation contracts.
+- Renderer-owned typed primitive collections or an equivalent internal
+  dispatch structure that removes repeated whole-scene RTTI discovery.
+- Immutable directional, point, and spot light snapshots and ordered scene
+  mutation.
+- Per-view draw preparation, frustum culling, deterministic LOD selection,
+  pass buckets, state grouping, and required depth ordering.
+- Opaque, masked, and translucent material execution, including two-sided and
+  depth-write behavior.
+- RHI raster, depth/stencil, blend, and color-write state expansion only where
+  a selected pass requires it.
+- One second production primitive family, with SkeletalMesh as the default
+  recommendation when character rendering is the next product requirement.
+- Directional shadow-depth rendering and lighting integration.
+- Diagnostics for submitted, culled, pass-classified, sorted, and shadow work.
+- Main, auxiliary, window-backed, offscreen, fixed-aspect, and editor-
+  assistance compatibility.
+
+## Non-Goals
+
+- Public or runtime-polymorphic renderer, pass, or plugin registration before
+  a second module has a concrete registration requirement.
+- A render graph, deferred renderer, clustered lighting, GPU-driven rendering,
+  or asynchronous compute as an entry requirement.
+- Implementing every potential primitive family in one program. Particles,
+  sprites, decals, terrain, foliage, and volumetrics use evidence-gated branch
+  plans after the shared gates are stable.
+- Material graph compilation or a general shader-authoring language; those
+  remain Material System work.
+- Defining animation graphs, gameplay animation state, or skeletal asset-
+  authoring UX inside the rendering plan for a SkeletalMesh vertical slice.
+- Texture streaming, sparse residency, or advanced texture asset types.
+- Preserving two complete opaque production shading paths indefinitely for
+  A/B migration.
+- Adding a second RHI backend as part of Renderer feature expansion.
+
+## Program Decisions and Invariants
+
+### Rendering types are separate axes
+
+Do not encode all expansion in one `ERendererType` or `ERenderType` enum. A
+rendered item has independent axes:
+
+- primitive family and vertex factory, such as static or skinned mesh;
+- material surface policy, such as opaque, masked, or translucent;
+- pass participation, such as base, depth-only, shadow-depth, or overlay;
+- shading model and view mode;
+- lighting family; and
+- output/view policy.
+
+The scene proxy supplies stable renderer-facing facts. View preparation derives
+pass participation and sorting from those facts. The pass executor selects
+shaders and immutable graphics state. Keeping these axes independent avoids a
+cross-product enum and lets a new primitive reuse existing pass semantics.
+
+### Scene state is detached from reflected objects
+
+- The render thread must not retain or read `DObject`, component, actor, or
+  asset state during draw preparation or execution.
+- Every mutable scene entry has a stable runtime identity and monotonically
+  ordered revision. Stale add, update, and remove commands are rejected.
+- Primitive transforms, bounds, visibility flags, material-proxy bindings, and
+  light data cross through immutable values or counted render resources.
+- Concrete render-data borrows remain legal only when an owning asset protocol
+  removes all scene proxies and fences release before destroying storage, as
+  the StaticMesh lifecycle already requires.
+
+### Composition remains explicit and private
+
+- `FSceneRenderer` remains the visible orchestration owner. Feature renderers
+  own their pipelines, caches, retry state, and release paths.
+- The first internal typed collections may be explicit StaticMesh,
+  TextureCubePreview, and later selected-family collections. They do not need a
+  public registration API.
+- A public registration boundary is considered only after a second runtime
+  module must contribute a feature and its lifetime, ordering, dependencies,
+  invalidation, and diagnostics are concrete.
+
+### Preparation precedes pass execution
+
+- Per-view preparation determines visibility, selected LOD, material snapshot,
+  pass membership, sort key, and draw payload before the first scene pass.
+- Opaque and masked work may be grouped by pipeline/material and ordered to
+  reduce state changes while retaining deterministic output.
+- Translucent work is ordered back-to-front within an explicitly documented
+  view-space metric; equal keys have a stable tie-break.
+- Shadow and depth-only participation is explicit. A base-pass draw does not
+  silently imply that every primitive can render into every auxiliary pass.
+
+### Material policy has one visible meaning
+
+- Opaque materials do not blend and follow their resolved culling and depth-
+  write policy.
+- Masked materials reject coverage using the resolved mask and threshold,
+  otherwise following opaque ordering and depth behavior.
+- Translucent materials use a defined blend mode, default to depth test with no
+  depth write under `Automatic`, and never enter an opaque GBuffer if a
+  deferred path is later selected.
+- View-level Lit/Unlit and Solid/Wireframe choices remain immutable snapshots.
+  They do not mutate global Renderer policy after command enqueue.
+- Material static identity, pass identity, vertex-factory identity, render-
+  target layout, and relevant RHI state all participate in the effective
+  shader/PSO key.
+
+### RHI growth is consumer-driven
+
+- Replace Boolean graphics-state fields with value descriptors only as M2 or
+  later passes require blend factors/operations, cull modes, compare
+  operations, color masks, depth bias, or stencil behavior.
+- Preserve complete-or-null RHI creation and creation-only PSO factories.
+  Renderer slots, not debug names or the backend, own logical reuse.
+- Do not add Render Graph abstractions to disguise missing access-state or
+  render-pass contracts. The Compute Shader roadmap owns general explicit
+  transitions.
+
+### Multi-view and editor behavior are non-negotiable
+
+- Main and auxiliary views may render sequentially at different dimensions and
+  settings without sharing view history or visibility results.
+- Size-keyed targets may be reused only for frame-local sequential work.
+  Temporal histories use stable view identity; shadows use scene/light
+  identity.
+- Fixed-aspect black bars remain outside all scene, sky, translucent, and
+  shadow-composition draws.
+- Post-process precedes editor assistance. Grid, gizmos, lines, and icons do
+  not enter scene anti-aliasing, temporal history, or shadow passes.
+
+## Current Foundations and Gaps
+
+| Area | Existing foundation | Expansion gap | Owning milestone |
+| --- | --- | --- | --- |
+| Feature ownership | `FSceneRenderer` explicitly composes private StaticMesh, SkyBox, TextureCube preview, post-process, and editor-assistance owners with coordinated invalidation. | Adding a feature requires hand-editing orchestration, which is acceptable for now; repeated primitive discovery and mutation are not. | M1 |
+| Primitive scene state | Stable `FPrimitiveSceneId`, render-command mutation, proxy transform, and asset-bounded render-data borrow exist. | One untyped vector is scanned with `dynamic_cast`; proxies have no kind, bounds, revision, visibility flags, or generic material-binding hook. | M1 |
+| Light scene state | `FDirectionalLightSceneData` defines the intended value snapshot. | `FScene` retains component pointers, mutates them on the game thread, and reads the first component from the rendering thread; no identity, revision, point, or spot light exists. | M1, M5 |
+| Materials | Versioned immutable v3 representation, stable proxy publication, PBR roles, sampler state, and static shader/pipeline identities exist. | Opaque, masked, translucent, two-sided, depth-write, and mask-threshold identities do not produce distinct visible pass behavior. | M2 |
+| Graphics state | RHI supports render-target layouts, fill/line topology, depth toggles, one alpha-blend toggle, and back-face-culling toggle. | Blend factors/ops, full cull selection, depth compare, color mask, depth bias, and stencil are not value contracts; Vulkan fixes several policies internally. | M2, M6 |
+| StaticMesh geometry | Validated per-LOD resources, a local vertex factory, section/material slots, and robust render-resource lifecycle exist. | Draw code always selects LOD 0, visits every proxy, allocates per-proxy uniforms, and has no bounds, instancing, or draw-list preparation. | M3 |
+| Scene passes | Scene Color/depth, post-process, and preserved-depth editor assistance work for present and offscreen outputs. | Sky and all scene geometry share one pass; there are no depth-only, shadow, translucent, GBuffer, or debug-view pass contracts. | M2, M6 |
+| Scene targets | Size-keyed cache is capped at eight entries and supports sequential multi-view rendering. | Scene Color is LDR `SRGBA8_UNORM`; D32 lacks shader-resource usage; allocation is entry-count rather than byte-budget based; no view history identity exists. | Conditional architecture branch |
+| View policy | Per-view Lit/Unlit, Solid/Wireframe, FXAA, fitted content rect, and editor assistance are immutable snapshots. | No exposure, debug buffer mode, temporal matrices/history, visibility mask, or per-view performance result exists. | M3 and conditional branches |
+| Validation | Material, viewport layout, resource failure/reload, StaticMesh lifecycle, SkyBox, thumbnail, and Vulkan rendering coverage exists. | No pass classification/order, masking, blending, culling, LOD choice, second vertex factory, light revision, or shadow image baseline is validated. | M1-M6 |
+
+## Milestone Map
+
+```mermaid
+flowchart LR
+    M1["M1: Scene snapshot and primitive classification"] --> M2["M2: Material render-pass policies"]
+    M1 --> M3["M3: Per-view visibility and LOD"]
+    M2 --> M3
+    M3 --> M4["M4: Second production primitive family"]
+    M1 --> M5["M5: Renderer-owned multi-light scene"]
+    M2 --> M6["M6: Directional shadow pipeline"]
+    M3 --> M6
+    M4 --> M6
+    M5 --> M6
+    M3 --> C["Conditional feature branches"]
+    M4 --> C
+    M5 --> A["Conditional scalable frame architecture"]
+    M6 --> A
+```
+
+| Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
+| --- | --- | --- | --- | --- | --- | --- |
+| M1: Scene snapshot and primitive classification | Required | `RendererSceneSnapshotContract` | Current primitive, SkyBox, and rendering-thread contracts | Detached revisioned light entries; stable primitive kind/bounds/revision facts; internal typed lookup or dispatch; mutation no longer hard-codes StaticMesh in `FScene`. | Current call sites, thread ownership, proxy lifetimes, and stale-command behavior are recorded with focused tests. | Rendering reads no component pointer; stale light/primitive changes are rejected; existing features use the new internal classification with unchanged images and lifecycle behavior. |
+| M2: Material render-pass policies | Required; also executes Material System milestone 4 | `MaterialRenderPassPolicies` | M1 classification contract; current material v3 identity | Opaque, masked, and translucent buckets; visible mask/blend/cull/depth policy; minimal required RHI state descriptors; deterministic translucent sorting. | M1 is stable and the exact RHI state gaps for three surface policies are enumerated. | All static properties have tested on-screen meaning across Lit/Unlit, Solid/Wireframe, main/auxiliary, present/offscreen, and fixed-aspect views; Vulkan validation is clean. |
+| M3: Per-view visibility and LOD | Required | `PerViewVisibilityAndLOD` | M1 proxy bounds; M2 pass buckets | Frustum culling, deterministic LOD selection, prepared draw lists, sort/state keys, and counters. | Bounds semantics and pass-classification inputs are stable; representative multi-LOD assets and cameras exist. | Invisible primitives issue no base-pass draw, LOD thresholds are deterministic, pass ordering remains correct, and counters explain submitted/culled/selected work in every viewport path. |
+| M4: Second production primitive family | Required capability proof | `SkeletalMeshRendering` by default; replace only through the entry-gate decision | M2-M3 shared pass and visibility contracts | A second vertex factory, proxy type, component/render-data lifecycle, material binding, base/depth/shadow participation where applicable, and editor/runtime validation. | Product need chooses SkeletalMesh, instanced mesh, or another production family; its asset/render-data prerequisites and non-rendering owner are explicit. | The selected family reuses scene mutation, visibility, pass, material, invalidation, and viewport contracts without adding a parallel frame renderer or whole-scene RTTI scan. |
+| M5: Renderer-owned multi-light scene | Required | `RendererLightSceneContract` | M1 detached light mutation | Stable directional, point, and spot identities/snapshots/revisions, typed collections, visibility inputs, and bounded GPU-facing light data. | M1 has removed component reads and the intended initial light-count budget is documented. | Add/update/remove and stale revisions are deterministic; no render-thread object read occurs; multiple view renders consume identical scene snapshots; point/spot falloff has focused and image coverage. |
+| M6: Directional shadow pipeline | Required | `DirectionalShadowPipeline` | M2 pass state, M3 visibility/draw lists, M4 second-family participation, M5 light snapshots | Shadow-depth target/layout, caster classification, masked caster behavior, directional shadow matrices, bias/filtering, lifetime, diagnostics, and lighting sampling. | M2-M5 contracts are stable; one directional shadow quality/budget target is selected. | StaticMesh and the selected M4 family cast and receive deterministic shadows; masked coverage, camera/light motion, multi-view reuse, invalidation, and Vulkan validation pass without whole-device idle waits. |
+
+M1 through M6 define the required roadmap. M4 intentionally requires one
+selected second family rather than SkeletalMesh by name: SkeletalMesh is the
+default recommendation because it proves a genuinely different vertex factory
+and dynamic geometry input, but the entry gate may select instanced geometry or
+another higher-value production need. A preview-only or editor-assistance type
+does not satisfy M4.
+
+## Child Plan Boundaries
+
+### `RendererSceneSnapshotContract`
+
+This plan owns scene identities, revisions, primitive classification, bounds,
+typed internal storage/dispatch, and detached light publication. It may make
+material-binding update polymorphic or route it through a typed scene entry,
+but it does not implement new surface appearance, culling algorithms, or a
+public registry. Existing `FStaticMeshSceneProxy` render-data and material-
+proxy lifetime contracts remain intact.
+
+The current directional-light pointer read is a correctness gate, not merely a
+future scalability improvement. The plan must demonstrate that game-thread
+mutation and render-thread consumption are ordered without reading component
+memory from `FScene::GetDirectionalLight()`.
+
+### `MaterialRenderPassPolicies`
+
+This plan is the execution boundary for Material System roadmap milestone 4.
+The Material System continues to own asset schema, inheritance, static
+identity, and future compilation. This plan owns how those identities classify
+and execute Renderer passes, including masked discard, translucent blending and
+sorting, culling, depth writing, and pass-specific PSO identity.
+
+Generalize only the RHI state required by the selected policies. Shadow depth,
+stencil-heavy decals, and arbitrary blend equations do not enter M2 unless the
+three surface modes cannot be expressed correctly without them.
+
+### `PerViewVisibilityAndLOD`
+
+This plan owns CPU view-frustum culling, first deterministic screen-size or
+distance LOD policy, prepared draw lists, stable sort keys, and diagnostics. It
+does not add occlusion queries, HZB, GPU culling, meshlets, indirect draw, or a
+render graph. Those require measurements after the CPU baseline exposes draw,
+triangle, state-change, and culling counts.
+
+### Selected M4 primitive plan
+
+The plan owns only the renderer-facing vertical slice and the minimum asset,
+component, and render-resource lifecycle needed to feed it. If SkeletalMesh is
+selected, bone palette ownership, skinning vertex factory, bounds updates, and
+material/pass integration are in scope; animation graphs and editor animation
+authoring are not. If instanced mesh is selected, instance-buffer mutation,
+bounds, visibility granularity, and draw submission replace skeletal-specific
+work.
+
+The plan must not copy `FSceneRenderer`, post-process, viewport output, default
+textures, environment lighting, material layout decoding, or invalidation
+coordination into a parallel system.
+
+### `RendererLightSceneContract`
+
+This plan owns renderer-facing light types, identities, revisions, collections,
+and the first bounded CPU-to-GPU payload. It does not select clustered or tiled
+lighting unless the selected light-count target proves a simple bounded loop or
+light-volume approach inadequate. Light editor UX and authored asset workflows
+stay with their component/editor owners.
+
+### `DirectionalShadowPipeline`
+
+This plan owns the first auxiliary geometry pass, its resources, view/light
+matrices, caster filtering, bias, filtering, cache/update policy, and sampling.
+Point and spot shadows remain later branches. The plan reuses pass
+classification and draw preparation; it does not rediscover scene components
+or maintain an unrelated caster registry.
+
+### Conditional feature branches
+
+| Branch | Proposed child plan | Activation evidence | Boundary |
+| --- | --- | --- | --- |
+| Static instancing and GPU-driven submission | `InstancedAndIndirectRendering` | Draw-call and CPU submission profiling identifies repeated geometry as a material bottleneck; indirect/compute prerequisites are available. | Reuse M1-M3 scene/pass contracts; Compute Shader Pipeline owns dispatch and synchronization primitives. |
+| Sprite and particle rendering | `ParticleAndSpriteRendering` | A VFX requirement defines emitter count, transparency, sorting, simulation, and fallback targets. | Reuse M2 translucency; decide CPU versus compute simulation in the child plan. |
+| Decals | `DecalRendering` | Surface-layering requirements and the forward-versus-deferred projection path are selected. | Do not force a GBuffer solely to advertise decal support; stencil/RHI growth is decal-plan work. |
+| Terrain and foliage | `TerrainAndFoliageRendering` | World scale, streaming units, LOD, density, and authoring data are concrete. | Asset streaming and world partition remain separate owners; reuse visibility and material passes. |
+| Volumetrics | `VolumetricRendering` | A fog/cloud/participating-media requirement supplies quality and performance targets. | Texture3D, compute, temporal history, and composition dependencies must be explicit before activation. |
+
+### Conditional scalable frame architecture
+
+Deferred or clustered lighting, Render Graph, temporal effects, and GPU-driven
+visibility should not be one child plan. Activate bounded plans independently:
+
+- `DeferredLightingPipeline` when measured light/material complexity or screen-
+  space features justify a GBuffer and the target attachment/memory budget is
+  accepted.
+- `ClusteredLighting` when M5 light counts exceed the accepted simple path and
+  the Compute Shader Pipeline integration gate is complete.
+- `RenderGraphFoundation` when pass/resource growth makes manual lifetime,
+  access transitions, and aliasing materially error-prone. A pass-count alone
+  is not sufficient; record the concrete dependency and transient-memory
+  problem.
+- `TemporalViewHistory` when TAA, temporal upscaling, SSR, or volumetrics has a
+  selected consumer. History is keyed by view identity, never target size.
+
+## Program Validation Matrix
+
+| Contract | Required milestones | Validation outcome |
+| --- | --- | --- |
+| Thread ownership | M1, M5 | Concurrently ordered add/update/remove, component retirement, visibility changes, and scene release never expose reflected objects or stale snapshots to rendering. |
+| Primitive lifecycle | M1, M4 | Proxy replacement/removal, render-data replacement, material rebinding, device invalidation, and engine shutdown release every counted and borrowed resource through the owning fences. |
+| Surface policy | M2 | Opaque, masked, and translucent pixels, culling, depth test/write, mask threshold, and sorting match deterministic focused scenes and readback/image baselines. |
+| View policy | M2-M6 | Lit/Unlit, Solid/Wireframe, fixed aspect, main/auxiliary, present/offscreen, post-process, and editor-assistance ordering remain correct. |
+| Visibility and LOD | M3-M4 | Perspective and orthographic frusta, mirrored transforms, bounds at planes, camera motion, multiple dimensions, and LOD thresholds produce deterministic draw lists and counters. |
+| Lighting | M5 | Zero, one, and multiple directional/point/spot lights; revision ordering; range/cone edges; and no-light fallback pass focused and image validation. |
+| Shadows | M6 | Caster/receiver inclusion, masked coverage, bias, filtering, camera/light motion, resize, multi-view sequencing, and resource reload pass without validation-layer errors. |
+| RHI/Vulkan | M2, M6 | Every added blend/raster/depth state, layout transition, attachment use, depth sampling use, and pipeline compatibility rule has public-RHI and Vulkan coverage. |
+| Failure recovery | M1-M6 | Nullable creation, failed shader/PSO/target creation, manual retry, shader invalidation, device invalidation, and last-known-good retention remain feature-isolated and diagnosable. |
+| Performance visibility | M3-M6 | Per-view submitted, culled, pass, LOD, light, shadow, draw, triangle, target-byte, and cache counts make later architecture gates evidence-based. |
+| Handoff qualification | Every user-visible milestone | Follow the repository build/test guidance; complete the required focused coverage and, for editor-visible changes, a successful full `all` build and editor smoke before handoff. |
+
+## Risks and Control Gates
+
+| Risk | Control gate |
+| --- | --- |
+| A generic pass/plugin framework is designed before a real external contributor exists. | M1 uses private explicit typed composition; public registration requires a named second module and reviewed lifetime/order/invalidation needs. |
+| New primitive types multiply whole-scene RTTI scans and type-specific mutation branches. | M1 exit requires one authoritative internal classification/lookup and a generic or typed mutation route before M4 starts. |
+| Directional-light component pointers race or outlive their game-thread owner. | M1 cannot exit while render-thread code reads component memory; M5 builds only on detached revisions. |
+| Material identity and visible PSO/pass behavior diverge. | M2 tests each static property from asset resolution through shader/pipeline selection and final pixels. |
+| Translucent sorting appears correct only in trivial scenes. | M2 defines the sort metric and stable tie-break and validates intersecting distances, multiple materials, camera motion, and auxiliary views. |
+| RHI state becomes another Boolean collection that cannot express later passes. | M2 introduces cohesive value descriptors for selected needs and includes full equality/key and Vulkan mapping tests. |
+| Visibility work changes output while hiding missing draws. | M3 starts from counters and a culling-disable comparison path, then validates boundary cases and LOD transitions before enabling the production default. |
+| SkeletalMesh expansion absorbs animation, import, editor, and rendering into one unbounded plan. | M4 entry names the rendering slice and external prerequisites; split asset/import/animation plans when they cannot retain bounded acceptance gates. |
+| Scene-target memory grows with HDR, GBuffer, shadows, and temporal history. | Conditional plans record byte budgets, cache ownership, dimensions, and eviction; entry count is not accepted as the only memory control. |
+| Forward and deferred opaque paths become permanent duplicates. | Any deferred migration defines A/B duration and retirement criteria; only genuinely forward surfaces such as translucency remain after convergence. |
+| Compute or Render Graph work blocks basic new geometry. | Those paths remain conditional unless a selected primitive or measured workload proves the dependency. |
+
+## Completion Criteria
+
+- M1 through M6 pass their exit gates in independently reviewable child plans.
+- At least Opaque, Masked, and Translucent surfaces have distinct, documented,
+  tested visible behavior.
+- StaticMesh and one second production primitive family share the same scene,
+  visibility, pass, material, resource-invalidation, and viewport contracts.
+- Directional, point, and spot lights are detached renderer-owned snapshots,
+  and the first directional shadow path is production-validated.
+- Render-thread frame work reads no reflected component or asset object.
+- Per-view diagnostics explain visibility, LOD, pass, light, shadow, submission,
+  target-memory, and failure behavior sufficiently to decide conditional work.
+- Every conditional branch is completed, linked to an active child plan, or
+  explicitly deferred with its activation evidence reviewed.
+- Lasting contracts are moved to Runtime Rendering documentation, Roadmap
+  status is updated, and no roadmap-only design rule remains the sole source of
+  truth for implemented behavior.
+
+## Related Documentation
+
+- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
+- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
+- [Material System](../Runtime/Rendering/MaterialSystem.md)
+- [Material System Roadmap](MaterialSystem.md)
+- [Compute Shader Pipeline Roadmap](ComputeShaderPipeline.md)
+- [Texture System](../Runtime/Rendering/TextureSystem.md)
+- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
+- [Build and Run](../Development/Build/BuildAndRun.md)
+- [PBR Pipeline Production Gaps](../Investigations/PBRPipelineProductionGaps.md)
+
+## Related Code
+
+- `Engine/Source/Runtime/RenderCore/Public/IRendererModule.h`
+- `Engine/Source/Runtime/RenderCore/Public/SceneView.h`
+- `Engine/Source/Runtime/Engine/Public/IScene.h`
+- `Engine/Source/Runtime/Engine/Public/Engine/PrimitiveSceneProxy.h`
+- `Engine/Source/Runtime/Engine/Public/Components/PrimitiveComponent.h`
+- `Engine/Source/Runtime/Engine/Public/Materials/MaterialTypes.h`
+- `Engine/Source/Runtime/Renderer/Public/Scene.h`
+- `Engine/Source/Runtime/Renderer/Private/Scene.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/StaticMeshRenderer.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/PostProcessRenderer.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Resources/RenderTargetLayouts.cpp`
+- `Engine/Source/Runtime/RHI/Public/RHIResources.h`
+- `Engine/Source/Runtime/VulkanRHI/Private/VulkanPipeline.cpp`
+- `Engine/Shaders/Slang/StaticMeshBasePass.slang`
