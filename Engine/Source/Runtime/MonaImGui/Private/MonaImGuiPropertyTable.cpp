@@ -291,10 +291,24 @@ namespace Durin::MonaImGui::PropertyEdit
 		BeginRow(Label, bReadOnly);
 		FLinearColor DisplayColor(LinearToSRGB(Color.R), LinearToSRGB(Color.G), LinearToSRGB(Color.B), std::clamp(Color.A, 0.0f, 1.0f));
 		const ImGuiColorEditFlags Flags = ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB;
-		const bool bChanged = bShowAlpha
-			? ImGui::ColorEdit4("##Value", DisplayColor.RGBA, Flags)
-			: ImGui::ColorEdit3("##Value", DisplayColor.RGBA, Flags);
-		AccumulateLastItemState(OutState);
+		bool bChanged = false;
+
+		// Match details panels that treat color as a swatch rather than an inline
+		// vector. Precise channel editing remains available in the picker.
+		const ImGuiColorEditFlags PreviewFlags = bShowAlpha
+			? ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha;
+		const ImVec2 PreviewSize(ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight());
+		if (ImGui::ColorButton("##Value", ImVec4(DisplayColor.R, DisplayColor.G, DisplayColor.B, DisplayColor.A),
+			PreviewFlags, PreviewSize))
+			ImGui::OpenPopup("##Picker");
+		if (ImGui::BeginPopup("##Picker"))
+		{
+			bChanged |= bShowAlpha
+				? ImGui::ColorPicker4("##PickerValue", DisplayColor.RGBA, Flags | ImGuiColorEditFlags_AlphaBar)
+				: ImGui::ColorPicker3("##PickerValue", DisplayColor.RGBA, Flags);
+			AccumulateLastItemState(OutState);
+			ImGui::EndPopup();
+		}
 		if (bChanged)
 		{
 			Color.R = SRGBToLinear(DisplayColor.R);
