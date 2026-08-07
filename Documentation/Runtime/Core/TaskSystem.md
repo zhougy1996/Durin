@@ -130,6 +130,25 @@ the task's completion hook has published or discarded result storage. A
 concurrent dependent registration therefore cannot run before a successful
 shared or unique result is ready.
 
+`WhenAll` composes a non-empty heterogeneous
+`std::tuple<TTaskHandle<Ts>...>` into one success-dependent continuation and
+invokes its callback as `const Ts&...` in tuple order. `WhenAllOutcome` creates
+the completion-dependent form and passes `TTaskAggregateOutcome<Ts...>` with
+one owned `FTaskOutcome<T>` snapshot per tuple position. The aggregate is
+successful only when every typed input succeeds; otherwise failure wins over
+cancellation and the smallest task id wins within that state. Its blocking id,
+reason, and diagnostic come from that selected input. Repeated tuple positions
+remain visible to the callback while graph edges and prerequisite diagnostics
+remain deduplicated. Captured shared handles retain results through callback
+completion even when callers release their copies.
+
+Typed fan-in accepts move-only callbacks and follows normal continuation return
+rules: `void` returns `FTaskHandle`, while an object value returns
+`TTaskHandle<U>`. Empty tuples, void or unique handles, reference-returning
+callbacks, `WhenAny`, and implicit cancellation of other inputs are not
+supported. Additional continuation prerequisites are scheduling gates; they do
+not become elements of the public aggregate outcome.
+
 `FTaskContinuationOptions::Target` selects a logical executor. `AnyWorker` uses
 the process worker scheduler. `GameThreadDeferred` is always queued, even when
 created on GameThread; it runs only from the engine-owned pump. Missing or
@@ -291,6 +310,7 @@ Choose the execution primitive by ownership requirement:
 | Need | Primitive | Owner |
 | --- | --- | --- |
 | Immutable result feeds one or more readers | Shared typed task plus `Then`/`ThenOutcome` | Core task graph and selected executor |
+| Multiple immutable typed results feed one aggregate callback | Shared typed tuple plus `WhenAll`/`WhenAllOutcome` | Core task graph and selected executor |
 | One result moves into exactly one terminal owner | Unique typed task plus `ConsumeThen`/`ConsumeThenOutcome` | Core task graph until sink invocation, then the sink owner |
 | Streaming, batching, latest-wins, provider closure, or explicit result-taking | Subsystem mailbox, optionally triggered by a continuation | Subsystem |
 | Ordered access to a resource without native-thread affinity | Subsystem serialized pipe/lane | Resource-owning subsystem |

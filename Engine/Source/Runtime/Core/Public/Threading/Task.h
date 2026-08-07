@@ -390,6 +390,16 @@ namespace Durin
 		ETaskTerminalReason Reason = ETaskTerminalReason::None;
 	};
 
+	template<typename... Ts>
+	struct TTaskAggregateOutcome
+	{
+		std::tuple<FTaskOutcome<Ts>...> Outcomes;
+		std::string Diagnostic;
+		uint64 BlockingTaskId = 0;
+		ETaskState State = ETaskState::Invalid;
+		ETaskTerminalReason Reason = ETaskTerminalReason::None;
+	};
+
 	// Immutable launch-time relationships and optional shared cancellation.
 	struct FTaskLaunchOptions
 	{
@@ -707,6 +717,64 @@ namespace Durin
 
 	namespace Private
 	{
+		template<typename T>
+		auto MakeTaskOutcome(const TTaskHandle<T>& Handle) -> FTaskOutcome<T>
+		{
+			const FTaskDiagnostics Diagnostics = Handle.GetDiagnostics();
+			return {Handle.GetTaskHandle(), Handle.GetResultShared(), Diagnostics.Diagnostic,
+				Diagnostics.State, Diagnostics.TerminalReason};
+		}
+
+		template<typename... Ts>
+		auto MakeFanInContinuationOptions(
+			const std::tuple<TTaskHandle<Ts>...>& Predecessors,
+			const FTaskContinuationOptions& Options,
+			std::vector<FTaskHandle>& PrerequisiteStorage) -> FTaskContinuationOptions
+		{
+			PrerequisiteStorage.reserve(sizeof...(Ts) + Options.Prerequisites.size());
+			std::apply([&PrerequisiteStorage](const auto&... Handle) {
+				(PrerequisiteStorage.emplace_back(Handle.GetTaskHandle()), ...);
+			}, Predecessors);
+			PrerequisiteStorage.insert(PrerequisiteStorage.end(), Options.Prerequisites.begin(), Options.Prerequisites.end());
+
+			FTaskContinuationOptions AdjustedOptions = Options;
+			AdjustedOptions.Prerequisites = PrerequisiteStorage;
+			return AdjustedOptions;
+		}
+
+		template<typename... Ts>
+		auto MakeTaskAggregateOutcome(const std::tuple<TTaskHandle<Ts>...>& Predecessors) -> TTaskAggregateOutcome<Ts...>
+		{
+			TTaskAggregateOutcome<Ts...> Aggregate;
+			Aggregate.Outcomes = std::apply([](const auto&... Handle) {
+				return std::make_tuple(MakeTaskOutcome(Handle)...);
+			}, Predecessors);
+
+			Aggregate.State = ETaskState::Succeeded;
+			auto ConsiderOutcome = [&Aggregate](const auto& Outcome) {
+				check(Outcome.State == ETaskState::Succeeded
+					|| Outcome.State == ETaskState::Failed
+					|| Outcome.State == ETaskState::Canceled);
+				if (Outcome.State == ETaskState::Succeeded)
+				{
+					return;
+				}
+				const uint64 TaskId = Outcome.Task.GetTaskId();
+				const bool bSelect = Aggregate.State == ETaskState::Succeeded
+					|| (Outcome.State == ETaskState::Failed && Aggregate.State != ETaskState::Failed)
+					|| (Outcome.State == Aggregate.State && TaskId < Aggregate.BlockingTaskId);
+				if (bSelect)
+				{
+					Aggregate.State = Outcome.State;
+					Aggregate.BlockingTaskId = TaskId;
+					Aggregate.Diagnostic = Outcome.Diagnostic;
+					Aggregate.Reason = Outcome.Reason;
+				}
+			};
+			std::apply([&ConsiderOutcome](const auto&... Outcome) { (ConsiderOutcome(Outcome), ...); }, Aggregate.Outcomes);
+			return Aggregate;
+		}
+
 		struct FUniqueTaskAccess
 		{
 			template<typename T>
@@ -1107,5 +1175,51 @@ namespace Durin
 				return std::invoke(Function, FTaskOutcome<void>{Predecessor, Diagnostics.Diagnostic,
 					Diagnostics.State, Diagnostics.TerminalReason});
 			}, Options, ETaskDependencyKind::Completion);
+	}
+
+	template<typename... Ts, typename F>
+	requires (sizeof...(Ts) > 0
+		&& (... && !std::is_void_v<Ts>)
+		&& Private::CTaskResultInvocable<F, const Ts&...>)
+	auto WhenAll(
+		const std::tuple<TTaskHandle<Ts>...>& Predecessors,
+		const char* Name,
+		F&& Function,
+		const FTaskContinuationOptions& Options = {})
+	{
+		using U = std::invoke_result_t<std::decay_t<F>&, const Ts&...>;
+		std::vector<FTaskHandle> PrerequisiteStorage;
+		const FTaskContinuationOptions AdjustedOptions =
+			Private::MakeFanInContinuationOptions(Predecessors, Options, PrerequisiteStorage);
+		return Private::LaunchContinuationResult<U>(std::get<0>(Predecessors).GetTaskHandle(), Name,
+			[Predecessors, Function = std::forward<F>(Function)]() mutable -> U {
+				auto Results = std::apply([](const auto&... Handle) {
+					return std::make_tuple(Handle.GetResultShared()...);
+				}, Predecessors);
+				check(std::apply([](const auto&... Result) { return (... && static_cast<bool>(Result)); }, Results));
+				return std::apply([&Function](const auto&... Result) -> U {
+					return std::invoke(Function, *Result...);
+				}, Results);
+			}, AdjustedOptions, ETaskDependencyKind::Success);
+	}
+
+	template<typename... Ts, typename F>
+	requires (sizeof...(Ts) > 0
+		&& (... && !std::is_void_v<Ts>)
+		&& Private::CTaskResultInvocable<F, TTaskAggregateOutcome<Ts...>>)
+	auto WhenAllOutcome(
+		const std::tuple<TTaskHandle<Ts>...>& Predecessors,
+		const char* Name,
+		F&& Function,
+		const FTaskContinuationOptions& Options = {})
+	{
+		using U = std::invoke_result_t<std::decay_t<F>&, TTaskAggregateOutcome<Ts...>>;
+		std::vector<FTaskHandle> PrerequisiteStorage;
+		const FTaskContinuationOptions AdjustedOptions =
+			Private::MakeFanInContinuationOptions(Predecessors, Options, PrerequisiteStorage);
+		return Private::LaunchContinuationResult<U>(std::get<0>(Predecessors).GetTaskHandle(), Name,
+			[Predecessors, Function = std::forward<F>(Function)]() mutable -> U {
+				return std::invoke(Function, Private::MakeTaskAggregateOutcome(Predecessors));
+			}, AdjustedOptions, ETaskDependencyKind::Completion);
 	}
 } // namespace Durin

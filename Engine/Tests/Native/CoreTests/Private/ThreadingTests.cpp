@@ -129,6 +129,27 @@ namespace Durin
 			auto operator()(FTaskOutcome<int>) -> void {}
 		};
 
+		struct FMoveOnlyFanInContinuation : FMoveOnlyVoidCallable
+		{
+			auto operator()(const int& Left, const std::string& Right) -> int { return Left + static_cast<int>(Right.size()); }
+		};
+
+		struct FMoveOnlyFanInOutcomeContinuation : FMoveOnlyVoidCallable
+		{
+			auto operator()(TTaskAggregateOutcome<int, std::string>) -> void {}
+		};
+
+		struct FWrongFanInContinuation : FMoveOnlyVoidCallable
+		{
+			auto operator()(const int&) -> void {}
+		};
+
+		struct FFanInReferenceResultContinuation : FMoveOnlyVoidCallable
+		{
+			int Result = 0;
+			auto operator()(const int&, const std::string&) -> int& { return Result; }
+		};
+
 		struct FReferenceResultCallable
 		{
 			int Value = 0;
@@ -196,6 +217,31 @@ namespace Durin
 		};
 
 		template<typename F>
+		concept CCanWhenAllTask = requires(std::tuple<TTaskHandle<int>, TTaskHandle<std::string>> Handles, F&& Function) {
+			WhenAll(Handles, "CompileFixture", std::forward<F>(Function));
+		};
+
+		template<typename F>
+		concept CCanWhenAllOutcomeTask = requires(std::tuple<TTaskHandle<int>, TTaskHandle<std::string>> Handles, F&& Function) {
+			WhenAllOutcome(Handles, "CompileFixture", std::forward<F>(Function));
+		};
+
+		template<typename F>
+		concept CCanWhenAllEmptyTask = requires(std::tuple<> Handles, F&& Function) {
+			WhenAll(Handles, "CompileFixture", std::forward<F>(Function));
+		};
+
+		template<typename F>
+		concept CCanWhenAllVoidTask = requires(std::tuple<TTaskHandle<void>> Handles, F&& Function) {
+			WhenAll(Handles, "CompileFixture", std::forward<F>(Function));
+		};
+
+		template<typename F>
+		concept CCanWhenAllUniqueTask = requires(std::tuple<TUniqueTaskHandle<FCompileMoveOnlyValue>> Handles, F&& Function) {
+			WhenAll(Handles, "CompileFixture", std::forward<F>(Function));
+		};
+
+		template<typename F>
 		concept CCanLaunchUniqueTask = requires(F&& Function) {
 			{ LaunchUniqueTask<FCompileMoveOnlyValue>("CompileFixture", std::forward<F>(Function)) }
 				-> std::same_as<TUniqueTaskHandle<FCompileMoveOnlyValue>>;
@@ -231,6 +277,13 @@ namespace Durin
 		static_assert(CCanThenTypedTask<FMoveOnlyTypedContinuation>);
 		static_assert(CCanThenVoidOutcomeTask<FMoveOnlyVoidOutcomeContinuation>);
 		static_assert(CCanThenTypedOutcomeTask<FMoveOnlyTypedOutcomeContinuation>);
+		static_assert(CCanWhenAllTask<FMoveOnlyFanInContinuation>);
+		static_assert(CCanWhenAllOutcomeTask<FMoveOnlyFanInOutcomeContinuation>);
+		static_assert(!CCanWhenAllTask<FWrongFanInContinuation>);
+		static_assert(!CCanWhenAllTask<FFanInReferenceResultContinuation>);
+		static_assert(!CCanWhenAllEmptyTask<FMoveOnlyVoidCallable>);
+		static_assert(!CCanWhenAllVoidTask<FMoveOnlyVoidCallable>);
+		static_assert(!CCanWhenAllUniqueTask<FCompileUniqueSink>);
 		static_assert(!CCanLaunchVoidTask<FWrongTaskCallable>);
 		static_assert(!CCanLaunchExactIntTask<FMoveOnlyVoidCallable>);
 		static_assert(!CCanThenVoidTask<FReferenceResultCallable>);
@@ -2360,6 +2413,124 @@ namespace Durin
 		EXPECT_EQ("typed failure", *Cleanup.GetResultShared());
 	}
 
+	TEST(FTaskFanInTests, HeterogeneousResultsPreserveOrderDuplicatesAndLifetime)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+
+		FThreadEvent ReleaseInputs;
+		auto Number = LaunchTask<int>("FanInNumber", [&]() {
+			ReleaseInputs.Wait();
+			return 17;
+		});
+		auto Text = LaunchTask<std::string>("FanInText", [&]() {
+			ReleaseInputs.Wait();
+			return std::string("typed");
+		});
+		auto Joined = WhenAll(std::make_tuple(Number, Text), "HeterogeneousFanIn",
+			[Capture = std::make_unique<int>(2)](const int& Left, const std::string& Right) {
+				return Right + ':' + std::to_string(Left * *Capture);
+			});
+		auto Repeated = WhenAll(std::make_tuple(Number, Number), "RepeatedFanIn",
+			[](const int& Left, const int& Right) { return Left + Right; });
+		auto AllSucceeded = WhenAllOutcome(std::make_tuple(Number, Text), "SuccessfulOutcomeFanIn",
+			[](TTaskAggregateOutcome<int, std::string> Outcome) {
+				EXPECT_EQ(ETaskState::Succeeded, Outcome.State);
+				EXPECT_EQ(0u, Outcome.BlockingTaskId);
+				EXPECT_EQ(ETaskTerminalReason::None, Outcome.Reason);
+				EXPECT_NE(nullptr, std::get<0>(Outcome.Outcomes).Result);
+				EXPECT_NE(nullptr, std::get<1>(Outcome.Outcomes).Result);
+			});
+
+		Number = {};
+		Text = {};
+		ReleaseInputs.Trigger();
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Joined.GetTaskHandle()));
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Repeated.GetTaskHandle()));
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(AllSucceeded));
+		ASSERT_NE(Joined.GetResultShared(), nullptr);
+		EXPECT_EQ("typed:34", *Joined.GetResultShared());
+		ASSERT_NE(Repeated.GetResultShared(), nullptr);
+		EXPECT_EQ(34, *Repeated.GetResultShared());
+		EXPECT_EQ(1u, Repeated.GetDiagnostics().PrerequisiteTaskIds.size());
+	}
+
+	TEST(FTaskFanInTests, SuccessAndOutcomeEdgesUseDeterministicTerminalRules)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+
+		auto FirstFailure = LaunchTask<int>("FanInFirstFailure", []() -> int {
+			throw std::runtime_error("first typed failure");
+		});
+		auto SecondFailure = LaunchTask<std::string>("FanInSecondFailure", []() -> std::string {
+			throw std::runtime_error("second typed failure");
+		});
+		FTaskCancellationSource CanceledSource;
+		CanceledSource.RequestCancellation();
+		FTaskLaunchOptions CanceledOptions;
+		CanceledOptions.CancellationToken = CanceledSource.GetToken();
+		auto Canceled = LaunchTask<double>("FanInCanceled", []() { return 2.0; }, CanceledOptions);
+
+		std::atomic<bool> bSuccessCallbackRan = false;
+		FTaskHandle SuccessEdge = WhenAll(std::make_tuple(SecondFailure, Canceled, FirstFailure),
+			"FailedSuccessFanIn", [&](const std::string&, const double&, const int&) {
+				bSuccessCallbackRan.store(true, std::memory_order::release);
+			});
+		auto OutcomeEdge = WhenAllOutcome(std::make_tuple(SecondFailure, Canceled, FirstFailure),
+			"TerminalOutcomeFanIn", [](TTaskAggregateOutcome<std::string, double, int> Outcome) {
+				EXPECT_EQ(ETaskState::Failed, Outcome.State);
+				EXPECT_EQ(ETaskTerminalReason::CallbackFailure, Outcome.Reason);
+				EXPECT_EQ(std::get<2>(Outcome.Outcomes).Task.GetTaskId(), Outcome.BlockingTaskId);
+				EXPECT_EQ("first typed failure", Outcome.Diagnostic);
+				EXPECT_EQ(ETaskState::Failed, std::get<0>(Outcome.Outcomes).State);
+				EXPECT_EQ(nullptr, std::get<0>(Outcome.Outcomes).Result);
+				EXPECT_EQ(ETaskState::Canceled, std::get<1>(Outcome.Outcomes).State);
+				EXPECT_EQ(nullptr, std::get<1>(Outcome.Outcomes).Result);
+				EXPECT_EQ(ETaskState::Failed, std::get<2>(Outcome.Outcomes).State);
+				return Outcome.BlockingTaskId;
+			});
+
+		EXPECT_EQ(ETaskState::Canceled, WaitTask(SuccessEdge));
+		EXPECT_FALSE(bSuccessCallbackRan.load(std::memory_order::acquire));
+		EXPECT_EQ(ETaskTerminalReason::DependencyFailed, SuccessEdge.GetDiagnostics().TerminalReason);
+		EXPECT_EQ(FirstFailure.GetTaskId(), SuccessEdge.GetDiagnostics().DirectBlockingTaskId);
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(OutcomeEdge.GetTaskHandle()));
+		ASSERT_NE(OutcomeEdge.GetResultShared(), nullptr);
+		EXPECT_EQ(FirstFailure.GetTaskId(), *OutcomeEdge.GetResultShared());
+	}
+
+	TEST(FTaskFanInTests, InvalidAdmissionDestroysMoveOnlyCallbackWithoutInvocation)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		auto Valid = LaunchTask<int>("ValidFanInInput", []() { return 4; });
+		TTaskHandle<std::string> Invalid;
+		auto Capture = std::make_shared<int>(1);
+		std::weak_ptr<int> WeakCapture = Capture;
+		std::atomic<bool> bRan = false;
+		FTaskHandle Rejected = WhenAll(std::make_tuple(Valid, Invalid), "InvalidFanIn",
+			[Capture = std::move(Capture), &bRan](const int&, const std::string&) {
+				bRan.store(true, std::memory_order::release);
+			});
+
+		EXPECT_FALSE(Rejected.IsValid());
+		EXPECT_FALSE(bRan.load(std::memory_order::acquire));
+		EXPECT_TRUE(WeakCapture.expired());
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Valid.GetTaskHandle()));
+
+		ShutdownTaskScheduler(true);
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		auto Current = LaunchTask<std::string>("CurrentFanInLifetime", []() { return std::string("current"); });
+		EXPECT_FALSE(WhenAll(std::make_tuple(Valid, Current), "MixedLifetimeFanIn",
+			[](const int&, const std::string&) {}).IsValid());
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Current.GetTaskHandle()));
+	}
+
 	TEST(FTaskContinuationTests, SuccessFanInWaitsForEveryTerminalAndSelectsStableBlocker)
 	{
 		ShutdownTaskScheduler(false);
@@ -2558,6 +2729,43 @@ namespace Durin
 
 		const FGameThreadDeferredPumpResult PumpResult = PumpGameThreadDeferredWork();
 		EXPECT_EQ(1u, PumpResult.ExecutedCallbacks);
+		EXPECT_EQ(ETaskState::Succeeded, Deferred.GetState());
+		EXPECT_TRUE(bRan.load(std::memory_order::acquire));
+	}
+
+	TEST(FGameThreadDeferredTaskTests, TypedFanInRunsOnlyFromGameThreadPump)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+
+		auto Number = LaunchTask<int>("DeferredFanInNumber", []() { return 5; });
+		auto Text = LaunchTask<std::string>("DeferredFanInText", []() { return std::string("five"); });
+		FTaskContinuationOptions Options;
+		Options.Target = ETaskTarget::GameThreadDeferred;
+		Options.EstimatedPayloadBytes = 32;
+		std::atomic<bool> bRan = false;
+		FTaskHandle Deferred = WhenAll(std::make_tuple(Number, Text), "DeferredTypedFanIn",
+			[&](const int& Value, const std::string& Label) {
+				EXPECT_TRUE(IsInGameThread());
+				EXPECT_EQ(5, Value);
+				EXPECT_EQ("five", Label);
+				bRan.store(true, std::memory_order::release);
+			}, Options);
+
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Number.GetTaskHandle()));
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Text.GetTaskHandle()));
+		const auto DispatchDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+		while (Deferred.GetState() == ETaskState::Waiting && std::chrono::steady_clock::now() < DispatchDeadline)
+		{
+			std::this_thread::yield();
+		}
+		EXPECT_EQ(ETaskState::Queued, Deferred.GetState());
+		EXPECT_EQ(ETaskState::Queued, WaitTask(Deferred));
+		EXPECT_FALSE(bRan.load(std::memory_order::acquire));
+		EXPECT_EQ(1u, PumpGameThreadDeferredWork().ExecutedCallbacks);
 		EXPECT_EQ(ETaskState::Succeeded, Deferred.GetState());
 		EXPECT_TRUE(bRan.load(std::memory_order::acquire));
 	}

@@ -9,20 +9,22 @@ Completed:
 
 ## Current Status
 
-The foundational [Task Continuations and Thread Dispatch](../Plans/TaskContinuationsAndThreadDispatch.md)
-plan and M1 [Move-Only Tasks and Consuming Results](../Plans/MoveOnlyTasksAndConsumingResults.md)
-are complete. Durin now has bounded worker execution, immutable shared typed
-results, move-only callable admission, explicit unique result handles,
-one-consumer Worker/GameThread sinks, checked retained-result bytes,
-deterministic terminal diagnostics, and cross-executor shutdown. The Asset
-Compatibility Audit remains the shared-result production pilot; AsyncImportCore
-is the unique-result pilot and retains its owner/provider mailbox policy.
+The foundational [Task Continuations and Thread Dispatch](../Plans/TaskContinuationsAndThreadDispatch.md),
+M1 [Move-Only Tasks and Consuming Results](../Plans/MoveOnlyTasksAndConsumingResults.md),
+and M2 [Typed Task Fan-In](../Plans/TypedTaskFanIn.md) milestones are complete.
+Durin now has bounded worker execution, immutable shared typed results,
+move-only callable admission, explicit unique result handles, one-consumer
+Worker/GameThread sinks, heterogeneous typed aggregate composition, checked
+retained-result bytes, deterministic terminal diagnostics, and cross-executor
+shutdown. The Asset Compatibility Audit remains the shared-result production
+pilot; AsyncImportCore is the unique-result pilot and retains its
+owner/provider mailbox policy.
 
-M2 typed fan-in and M3 owner diagnostics now satisfy their M1 entry gates.
-Neither child plan is activated by this milestone; each receives a detailed
-plan when selected as bounded repository work. Later milestones remain gated by
-their named composition, attribution, production-owner, and measurement
-evidence.
+M3 owner diagnostics satisfies its M1 entry gate but remains unactivated until
+selected as bounded repository work. M2 has opened the composition side of M4;
+M4 remains gated by M3 attribution and two production owners with explicit
+shutdown boundaries. Later milestones retain their named attribution,
+production-owner, and measurement evidence gates.
 
 ## Outcome
 
@@ -129,8 +131,8 @@ completion.
 | Area | Existing foundation | Roadmap gap |
 | --- | --- | --- |
 | Callable ownership | Legacy aliases remain while forwarding launches and continuations erase one move-only callable through both executors. | Attribute retained callable storage to owners in M3. |
-| Shared and unique results | `TTaskHandle<T>` supports immutable fan-out; `TUniqueTaskHandle<T>` admits exactly one consuming sink with declared retained bytes. | Add typed shared aggregate fan-in in M2; multi-stage unique production remains deferred. |
-| Composition | `Then`, `ThenOutcome`, and additional prerequisites compose graph nodes. | Add typed aggregate fan-in without manual handle capture and result lookup. |
+| Shared and unique results | `TTaskHandle<T>` supports immutable fan-out and heterogeneous typed fan-in; `TUniqueTaskHandle<T>` admits exactly one consuming sink with declared retained bytes. | Multi-stage unique production remains deferred. |
+| Composition | `Then`, `ThenOutcome`, `WhenAll`, `WhenAllOutcome`, and additional prerequisites compose graph nodes. | Structured ownership remains gated by M3 attribution and production shutdown boundaries. |
 | Owner lifetime | Cancellation sources, generations, handles, and subsystem shutdown code exist. | Add a structured owner scope with explicit admission and quiescence. |
 | Diagnostics | Per-task relationships/timing plus Worker and GameThread queue counters exist. | Attribute work to owners and expose bounded aggregate latency, execution, and budget distributions. |
 | IO work | File-backed editor tasks run on general Workers. | Measure blocking occupancy before deciding whether a dedicated bounded executor is warranted. |
@@ -153,7 +155,7 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | Foundation: Typed continuations | Complete prerequisite | [Task Continuations and Thread Dispatch](../Plans/TaskContinuationsAndThreadDispatch.md) | Existing bounded Worker scheduler and subsystem mailbox contracts. | Shared typed results, continuations, GameThread deferred routing, cross-executor shutdown, pilot, and lasting documentation are complete. |
 | M1: Move ownership | Required; completed | [Move-Only Tasks and Consuming Results](../Plans/MoveOnlyTasksAndConsumingResults.md) | Foundation complete; concrete AsyncImportCore and thumbnail ownership gaps identified. | Move-only callables and one-consumer result sinks passed Core/lifecycle validation; AsyncImportCore adopted the sink without removing domain policy. |
-| M2: Typed fan-in | Required | `TypedTaskFanIn` | M1 ownership modes and terminal rules are stable. | Shared typed `WhenAll`/aggregate outcome composition is deterministic across success, failure, cancellation, fan-in, and destruction. |
+| M2: Typed fan-in | Required; completed | [Typed Task Fan-In](../Plans/TypedTaskFanIn.md) | M1 ownership modes and terminal rules are stable. | Shared typed `WhenAll`/aggregate outcome composition is deterministic across success, failure, cancellation, fan-in, and destruction. |
 | M3: Owner diagnostics | Required | `TaskOwnerDiagnostics` | M1 can attribute retained callable/result storage and existing queue timing is stable. | Tasks carry bounded owner/category identity and aggregate latency, execution, rejection, stale, and budget metrics can be correlated in profiler flows. |
 | M4: Structured task scopes | Required | `StructuredTaskScopes` | M2 composition and M3 owner attribution are complete; two subsystem owners have explicit shutdown boundaries. | Scopes close admission, cancel or drain descendants, report nonterminal work, and quiesce explicitly without destructor blocking or scheduler-lifetime ownership. |
 | M5: IO executor | Evidence-gated | `BoundedIOTaskExecutor` | M3 shows material Worker occupancy from blocking file operations in a named caller and platform cancellation limits are documented. | A bounded IO target improves the selected workload without starving CPU tasks and passes drain/cancel/shutdown validation. |
