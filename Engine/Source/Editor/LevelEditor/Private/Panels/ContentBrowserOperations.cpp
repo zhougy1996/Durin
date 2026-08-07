@@ -189,6 +189,19 @@ namespace Durin
 			std::filesystem::path(Item.PhysicalPath).parent_path()
 			/ std::filesystem::path(NewName);
 		if (Destination.extension().empty()) Destination += Item.Extension;
+		const FContentBrowserModel::FMountPath SourceMount =
+			Model.ResolveMountPath(Item.PhysicalPath);
+		const FContentBrowserModel::FMountPath DestinationMount =
+			Model.ResolveMountPath(Destination.generic_string());
+		if (!SourceMount || !DestinationMount
+			|| SourceMount.Mount != DestinationMount.Mount)
+			return Failure(
+				Asset::EAssetError::InvalidPath,
+				"File renames must stay inside the same automatically scanned content mount.");
+		if (!SourceMount.Mount->bAuthoringWritable)
+			return Failure(
+				Asset::EAssetError::ReadOnlyMode,
+				"This content mount is read-only for authoring. Choose a writable mount before renaming the file.");
 		if (std::filesystem::exists(Destination))
 			return Failure(
 				Asset::EAssetError::InvalidPath,
@@ -212,6 +225,18 @@ namespace Durin
 		const std::filesystem::path OldFolder(Item.PhysicalPath);
 		const std::filesystem::path NewFolder =
 			OldFolder.parent_path() / std::filesystem::path(NewName);
+		const FContentBrowserModel::FMountPath OldMount =
+			Model.ResolveMountPath(OldFolder.generic_string());
+		const FContentBrowserModel::FMountPath NewMount =
+			Model.ResolveMountPath(NewFolder.generic_string());
+		if (!OldMount || !NewMount || OldMount.Mount != NewMount.Mount)
+			return {
+				Asset::EAssetError::InvalidPath,
+				"Folder moves must stay inside the same automatically scanned content mount."};
+		if (!OldMount.Mount->bAuthoringWritable)
+			return {
+				Asset::EAssetError::ReadOnlyMode,
+				"This content mount is read-only for authoring. Choose a writable mount before renaming the folder."};
 		if (std::filesystem::exists(NewFolder))
 			return {
 				Asset::EAssetError::InvalidPath,
@@ -222,9 +247,7 @@ namespace Durin
 		const std::string NewVirtual =
 			Model.PhysicalToVirtualDirectory(NewFolder.generic_string());
 		if (OldVirtual.empty() || NewVirtual.empty())
-			return {
-				Asset::EAssetError::InvalidPath,
-				"Folder moves must stay inside the same mounted content root."};
+			return {Asset::EAssetError::InvalidPath, "The folder path is invalid."};
 
 		std::vector<FEditorAssetMove> Moves;
 		std::unordered_set<std::string> ManagedFiles;
@@ -401,10 +424,16 @@ namespace Durin
 		std::string_view PhysicalDirectory) -> FContentBrowserOperationResult
 	{
 		const std::string NormalizedDirectory = NormalizePath(PhysicalDirectory);
-		if (Model.PhysicalToVirtualDirectory(NormalizedDirectory).empty())
+		const FContentBrowserModel::FMountPath DirectoryMount =
+			Model.ResolveMountPath(NormalizedDirectory);
+		if (!DirectoryMount)
 			return Failure(
 				Asset::EAssetError::InvalidPath,
-				"Folders can only be created inside a mounted content directory.");
+				"Folders can only be created inside an automatically scanned content mount.");
+		if (!DirectoryMount.Mount->bAuthoringWritable)
+			return Failure(
+				Asset::EAssetError::ReadOnlyMode,
+				"This content mount is read-only for authoring. Choose a writable mount before creating a folder.");
 
 		for (int32 Suffix = 0; Suffix < 1000; ++Suffix)
 		{
@@ -414,6 +443,12 @@ namespace Durin
 			const std::filesystem::path Path =
 				std::filesystem::path(NormalizedDirectory) / Name;
 			if (std::filesystem::exists(Path)) continue;
+			const FContentBrowserModel::FMountPath DestinationMount =
+				Model.ResolveMountPath(Path.generic_string());
+			if (!DestinationMount || DestinationMount.Mount != DirectoryMount.Mount)
+				return Failure(
+					Asset::EAssetError::InvalidPath,
+					"The new folder would be outside its automatically scanned content mount.");
 			std::error_code Ec;
 			if (!std::filesystem::create_directory(Path, Ec) || Ec)
 				return Failure(
@@ -664,14 +699,9 @@ namespace Durin
 		{
 			if (!Selection.contains(Item.StableId())) continue;
 			const std::string PhysicalPath = NormalizePath(Item.PhysicalPath);
-			const auto Mount = std::ranges::find_if(
-				Model.GetMounts(),
-				[&](const FContentBrowserModel::FMountSnapshot& Candidate) {
-					return AreSamePath(PhysicalPath, Candidate.PhysicalRoot)
-						|| PathUtilities::IsLexicalDescendantPath(
-							PhysicalPath, Candidate.PhysicalRoot, true);
-				});
-			if (Mount == Model.GetMounts().end())
+			const FContentBrowserModel::FMountPath Resolved =
+				Model.ResolveMountPath(PhysicalPath);
+			if (!Resolved)
 			{
 				AddBlocker(
 					EContentDeletionBlocker::OutsideMount,
@@ -681,6 +711,7 @@ namespace Durin
 					"Selected path is outside every mounted content root.");
 				continue;
 			}
+			const FContentBrowserModel::FMountSnapshot* Mount = Resolved.Mount;
 			if (AreSamePath(PhysicalPath, Mount->PhysicalRoot))
 				AddBlocker(
 					EContentDeletionBlocker::MountRoot,
@@ -702,7 +733,7 @@ namespace Durin
 					PhysicalPath,
 					{},
 					"The selected root cannot be renamed into the Undo staging volume.");
-			SelectedRoots.push_back({&Item, PhysicalPath, &*Mount});
+			SelectedRoots.push_back({&Item, PhysicalPath, Mount});
 		}
 
 		if (SelectedRoots.size() != Selection.size())

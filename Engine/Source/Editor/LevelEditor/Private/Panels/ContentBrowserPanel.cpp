@@ -68,7 +68,9 @@ namespace Durin
 			SetError(Resolved.Message);
 			return;
 		}
-		NavigateToPhysical(Resolved.PhysicalPath.generic_string());
+		if (!NavigateToPhysical(Resolved.PhysicalPath.generic_string()))
+			SetError(
+				"The requested directory is not part of an automatically scanned Content Browser mount.");
 	}
 
 	auto FContentBrowserPanel::RefreshMountSnapshot() -> void
@@ -113,8 +115,9 @@ namespace Durin
 			const Asset::FAssetResult Result = Model.RescanRegistry();
 			if (!Result) SetError(Result.Message);
 		}
-		if (!Model.GetCurrentPhysicalPath().empty()
-			&& !std::filesystem::is_directory(Model.GetCurrentPhysicalPath()))
+		if (Model.GetCurrentPhysicalPath().empty()
+			|| !std::filesystem::is_directory(Model.GetCurrentPhysicalPath())
+			|| !Model.ResolveMountPath(Model.GetCurrentPhysicalPath()))
 		{
 			for (const FContentBrowserModel::FMountSnapshot& Mount :
 				 Model.GetMounts())

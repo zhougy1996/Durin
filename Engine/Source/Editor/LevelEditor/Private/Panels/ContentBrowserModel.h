@@ -80,6 +80,15 @@ namespace Durin
 			bool bAuthoringWritable = false;
 		};
 
+		struct FMountPath
+		{
+			const FMountSnapshot* Mount = nullptr;
+			std::string NormalizedPhysicalPath;
+			std::string VirtualPath;
+
+			explicit operator bool() const { return Mount != nullptr; }
+		};
+
 		auto RefreshMountSnapshot() -> void;
 		auto RescanRegistry() -> Asset::FAssetResult;
 		auto RefreshItemsSnapshot() -> void;
@@ -94,6 +103,7 @@ namespace Durin
 		auto SetShowRedirectors(bool bShow) -> void;
 
 		auto PhysicalToVirtualDirectory(std::string_view PhysicalPath) const -> std::string;
+		auto ResolveMountPath(std::string_view PhysicalPath) const -> FMountPath;
 		auto VirtualToPhysical(std::string_view VirtualPath) const -> std::string;
 		auto IsInsideCurrentDirectory(std::string_view PhysicalPath, bool bRecursive) const -> bool;
 		auto RevealAsset(std::string_view AssetPath) -> std::string;

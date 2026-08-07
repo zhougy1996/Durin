@@ -88,6 +88,68 @@ TEST_F(FContentBrowserModelTests, MaintainsHistoryAndTruncatesForwardBranch)
 	EXPECT_FALSE(Model.NavigateHistory(1));
 }
 
+TEST_F(FContentBrowserModelTests, RejectsExcludedMountsAndClearsStaleCurrentDirectory)
+{
+	Registry.reset();
+	std::filesystem::create_directories(Root / "Excluded");
+	const std::array Definitions{
+		PathUtilities::FMountPoint{
+			.VirtualRoot = "/ContentBrowserTests/",
+			.Owner = PathUtilities::EMountOwner::Test,
+			.Root = Root / "Content",
+			.bAutoScan = true,
+			.bAuthoringWritable = true},
+		PathUtilities::FMountPoint{
+			.VirtualRoot = "/ContentBrowserExcluded/",
+			.Owner = PathUtilities::EMountOwner::Test,
+			.Root = Root / "Excluded",
+			.bAutoScan = false,
+			.bAuthoringWritable = true}};
+	Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
+		Definitions);
+	ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
+
+	FContentBrowserModel Model;
+	Model.RefreshMountSnapshot();
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+	EXPECT_FALSE(Model.NavigateToPhysical((Root / "Excluded").generic_string()));
+	EXPECT_TRUE(Model.PhysicalToVirtualDirectory(
+		(Root / "Excluded").generic_string()).empty());
+	EXPECT_EQ(
+		Model.GetCurrentPhysicalPath(),
+		std::filesystem::absolute(Root / "Content")
+			.lexically_normal()
+			.generic_string());
+
+	FContentBrowserOperations Operations(
+		Model,
+		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+			return {};
+		});
+	const FContentBrowserOperationResult CreateExcluded =
+		Operations.CreateFolder((Root / "Excluded").generic_string());
+	EXPECT_FALSE(CreateExcluded);
+	EXPECT_TRUE(CreateExcluded.Status.Message.find("automatically scanned")
+		!= std::string::npos);
+
+	Registry.reset();
+	std::filesystem::create_directories(Root / "Replacement");
+	const std::array ReplacementDefinitions{
+		PathUtilities::FMountPoint{
+			.VirtualRoot = "/ContentBrowserReplacement/",
+			.Owner = PathUtilities::EMountOwner::Test,
+			.Root = Root / "Replacement",
+			.bAutoScan = true,
+			.bAuthoringWritable = true}};
+	Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
+		ReplacementDefinitions);
+	ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
+	Model.RefreshMountSnapshot();
+	EXPECT_TRUE(Model.GetCurrentPhysicalPath().empty());
+	EXPECT_FALSE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+	EXPECT_TRUE(Model.NavigateToPhysical((Root / "Replacement").generic_string()));
+}
+
 TEST_F(FContentBrowserModelTests, RelocationUsesOneSharedUndoRedoTransaction)
 {
 	InitializeDObjectSystem();
@@ -327,6 +389,108 @@ TEST_F(FContentBrowserModelTests, OperationsRejectCollisionsAndUnmanagedFolders)
 	EXPECT_TRUE(FolderResult.Status.Message.starts_with(
 		"Folder contains an unmanaged file:"));
 	EXPECT_TRUE(std::filesystem::exists(Folder / "notes.txt"));
+}
+
+TEST_F(FContentBrowserModelTests, RejectsOrdinaryMutationsInReadOnlyMount)
+{
+	Registry.reset();
+	const std::array Definitions{
+		PathUtilities::FMountPoint{
+			.VirtualRoot = "/ContentBrowserReadOnly/",
+			.Owner = PathUtilities::EMountOwner::Test,
+			.Root = Root / "Content",
+			.bAutoScan = true,
+			.bAuthoringWritable = false}};
+	Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
+		Definitions);
+	ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
+
+	const std::filesystem::path File = Root / "Content/notes.txt";
+	const std::filesystem::path Folder = Root / "Content/WritableOrdinaryFolder";
+	{
+		std::ofstream Stream(File);
+		Stream << "notes";
+	}
+	std::filesystem::create_directories(Folder);
+	FContentBrowserModel Model;
+	Model.RefreshMountSnapshot();
+	FContentBrowserOperations Operations(
+		Model,
+		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+			return {};
+		});
+
+	const FContentBrowserOperationResult CreateResult =
+		Operations.CreateFolder((Root / "Content").generic_string());
+	EXPECT_FALSE(CreateResult);
+	EXPECT_EQ(CreateResult.Status.Error, Asset::EAssetError::ReadOnlyMode);
+	EXPECT_TRUE(CreateResult.Status.Message.find("read-only") != std::string::npos);
+	EXPECT_FALSE(std::filesystem::exists(Root / "Content/New Folder"));
+
+	const FContentBrowserItem FileItem{
+		.Kind = EContentBrowserItemKind::File,
+		.Name = "notes.txt",
+		.PhysicalPath = File.generic_string(),
+		.Extension = ".txt"};
+	const FContentBrowserOperationResult FileResult =
+		Operations.Rename(FileItem, "renamed.txt");
+	EXPECT_FALSE(FileResult);
+	EXPECT_EQ(FileResult.Status.Error, Asset::EAssetError::ReadOnlyMode);
+	EXPECT_TRUE(std::filesystem::exists(File));
+	EXPECT_FALSE(std::filesystem::exists(Root / "Content/renamed.txt"));
+
+	const FContentBrowserItem FolderItem{
+		.Kind = EContentBrowserItemKind::Folder,
+		.Name = "WritableOrdinaryFolder",
+		.PhysicalPath = Folder.generic_string()};
+	const FContentBrowserOperationResult FolderResult =
+		Operations.Rename(FolderItem, "RenamedFolder");
+	EXPECT_FALSE(FolderResult);
+	EXPECT_EQ(FolderResult.Status.Error, Asset::EAssetError::ReadOnlyMode);
+	EXPECT_TRUE(std::filesystem::is_directory(Folder));
+	EXPECT_FALSE(std::filesystem::exists(Root / "Content/RenamedFolder"));
+}
+
+TEST_F(FContentBrowserModelTests, AllowsOrdinaryMutationsInWritableAutoScanMount)
+{
+	const std::filesystem::path File = Root / "Content/notes.txt";
+	const std::filesystem::path Folder = Root / "Content/WritableOrdinaryFolder";
+	{
+		std::ofstream Stream(File);
+		Stream << "notes";
+	}
+	std::filesystem::create_directories(Folder);
+	FContentBrowserModel Model;
+	Model.RefreshMountSnapshot();
+	FContentBrowserOperations Operations(
+		Model,
+		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+			return {};
+		});
+
+	const FContentBrowserOperationResult CreateResult =
+		Operations.CreateFolder((Root / "Content").generic_string());
+	ASSERT_TRUE(CreateResult) << CreateResult.Status.Message;
+	EXPECT_TRUE(std::filesystem::is_directory(CreateResult.FocusPhysicalPath));
+
+	const FContentBrowserItem FileItem{
+		.Kind = EContentBrowserItemKind::File,
+		.Name = "notes.txt",
+		.PhysicalPath = File.generic_string(),
+		.Extension = ".txt"};
+	const FContentBrowserOperationResult FileResult =
+		Operations.Rename(FileItem, "renamed.txt");
+	ASSERT_TRUE(FileResult) << FileResult.Status.Message;
+	EXPECT_TRUE(std::filesystem::exists(Root / "Content/renamed.txt"));
+
+	const FContentBrowserItem FolderItem{
+		.Kind = EContentBrowserItemKind::Folder,
+		.Name = "WritableOrdinaryFolder",
+		.PhysicalPath = Folder.generic_string()};
+	const FContentBrowserOperationResult FolderResult =
+		Operations.Rename(FolderItem, "RenamedFolder");
+	ASSERT_TRUE(FolderResult) << FolderResult.Status.Message;
+	EXPECT_TRUE(std::filesystem::is_directory(Root / "Content/RenamedFolder"));
 }
 
 TEST_F(FContentBrowserModelTests, OperationsPropagateMoveFailureAndDeleteBlockers)

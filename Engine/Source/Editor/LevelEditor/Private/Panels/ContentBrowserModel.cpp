@@ -153,6 +153,13 @@ namespace Durin
 				Mount.bAuthoringWritable});
 		}
 		DirectoryChildrenCache.clear();
+		if (!CurrentPhysicalPath.empty() && !ResolveMountPath(CurrentPhysicalPath))
+		{
+			CurrentPhysicalPath.clear();
+			CurrentVirtualPath.clear();
+			ItemsSnapshot.clear();
+			Items.clear();
+		}
 	}
 
 	auto FContentBrowserModel::RescanRegistry() -> Asset::FAssetResult
@@ -164,12 +171,32 @@ namespace Durin
 	auto FContentBrowserModel::PhysicalToVirtualDirectory(
 		std::string_view PhysicalPath) const -> std::string
 	{
+		const FMountPath Resolved = ResolveMountPath(PhysicalPath);
+		if (!Resolved) return {};
+		std::string Result = Resolved.VirtualPath;
+		if (!Result.ends_with('/')) Result += '/';
+		return Result;
+	}
+
+	auto FContentBrowserModel::ResolveMountPath(
+		std::string_view PhysicalPath) const -> FMountPath
+	{
 		const PathUtilities::FAssetPathResult Classified =
 			PathUtilities::ClassifyAssetPath(PhysicalPath);
 		if (!Classified) return {};
-		std::string Result = Classified.NormalizedVirtualPath;
-		if (!Result.ends_with('/')) Result += '/';
-		return Result;
+		const std::string ClassifiedRoot =
+			NormalizePath(Classified.Mount->GetContentDir().generic_string());
+		const auto Mount = std::ranges::find_if(
+			MountSnapshot,
+			[&](const FMountSnapshot& Candidate) {
+				return Candidate.VirtualRoot == Classified.Mount->VirtualRoot
+					&& Candidate.PhysicalRoot == ClassifiedRoot;
+			});
+		if (Mount == MountSnapshot.end()) return {};
+		return {
+			.Mount = &*Mount,
+			.NormalizedPhysicalPath = NormalizePath(PhysicalPath),
+			.VirtualPath = Classified.NormalizedVirtualPath};
 	}
 
 	auto FContentBrowserModel::VirtualToPhysical(std::string_view VirtualPath) const
@@ -189,21 +216,25 @@ namespace Durin
 		std::string_view PhysicalPath,
 		bool bAddHistory) -> bool
 	{
-		const std::string Normalized = NormalizePath(PhysicalPath);
-		const std::string Virtual = PhysicalToVirtualDirectory(Normalized);
-		if (Virtual.empty() || !std::filesystem::is_directory(Normalized))
+		RefreshMountSnapshot();
+		const FMountPath Resolved = ResolveMountPath(PhysicalPath);
+		if (!Resolved
+			|| !std::filesystem::is_directory(Resolved.NormalizedPhysicalPath))
 			return false;
+		std::string Virtual = Resolved.VirtualPath;
+		if (!Virtual.ends_with('/')) Virtual += '/';
 
-		CurrentPhysicalPath = Normalized;
+		CurrentPhysicalPath = Resolved.NormalizedPhysicalPath;
 		CurrentVirtualPath = Virtual;
 		if (bAddHistory)
 		{
 			if (HistoryIndex >= 0
 				&& static_cast<size_t>(HistoryIndex + 1) < NavigationHistory.size())
 				NavigationHistory.resize(static_cast<size_t>(HistoryIndex + 1));
-			if (NavigationHistory.empty() || NavigationHistory.back() != Normalized)
+			if (NavigationHistory.empty()
+				|| NavigationHistory.back() != Resolved.NormalizedPhysicalPath)
 			{
-				NavigationHistory.push_back(Normalized);
+				NavigationHistory.push_back(Resolved.NormalizedPhysicalPath);
 				HistoryIndex = static_cast<int32>(NavigationHistory.size() - 1);
 			}
 		}

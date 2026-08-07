@@ -52,9 +52,10 @@ through the shared publication seam reject a redirector-occupied destination.
 The error names the final destination and directs the user to Fix Up or remove
 the alias closure rather than treating the path as vacant.
 
-The Content Browser enumerates only automatically scanned mounts. This affects
-navigation and presentation, not the validity of typed source paths or the
-authoring-write policy of a mount.
+The Content Browser enumerates and navigates only automatically scanned mounts.
+Filesystem-backed creation and rename operations additionally require the owning
+mount to be authoring-writable. These browsing constraints do not change the
+validity of typed source paths or AssetCore's authoring policy.
 
 ## Recursive Deletion
 
