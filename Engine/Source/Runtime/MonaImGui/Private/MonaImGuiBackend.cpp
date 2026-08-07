@@ -49,7 +49,6 @@ namespace Durin::MonaImGui
 		ImGui::SetCurrentContext(GMonaImGuiContext);
 
 		ImGuiMonaImpl_NewFrame();
-		ImGuiRHIImpl_NewFrame();
 		ImGui::NewFrame();
 
 		auto& App = Mona::FMonaApplication::Get();
@@ -76,6 +75,8 @@ namespace Durin::MonaImGui
 			ImGui::UpdatePlatformWindows();
 			ImGui::RenderPlatformWindowsDefault();
 		}
+
+		ImGuiRHIImpl_RetireUnregisteredTextures();
 	}
 
 	auto FMonaImGuiBackend::RegisterTexture(const FTextureRHIRef& Texture) -> void

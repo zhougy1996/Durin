@@ -26,7 +26,7 @@ namespace Durin::MonaImGui
 
 	auto ImGuiRHIImpl_Shutdown() -> void;
 
-	auto ImGuiRHIImpl_NewFrame() -> void;
+	auto ImGuiRHIImpl_RetireUnregisteredTextures() -> void;
 
 	auto ImGuiRHIImpl_RegisterTexture(const FTextureRHIRef& Texture) -> void;
 

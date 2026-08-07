@@ -93,12 +93,7 @@ namespace Durin::MonaImGui
 	}
 
 	static std::unordered_map<const FRHITexture*, FImGuiRHIImpl_Texture> GRegisteredTextures;
-	static std::vector<FImGuiRHIImpl_Texture> GDelayedTextureReleases;
-
-	static auto SweepDelayedTextureReleases() -> void
-	{
-		GDelayedTextureReleases.clear();
-	}
+	static std::vector<FImGuiRHIImpl_Texture> GTexturesPendingRetirement;
 
 	static auto UnregisterTextureImpl(FRHITexture* InTexture) -> void
 	{
@@ -108,7 +103,7 @@ namespace Durin::MonaImGui
 			return;
 		}
 
-		GDelayedTextureReleases.push_back(std::move(It->second));
+		GTexturesPendingRetirement.push_back(std::move(It->second));
 		GRegisteredTextures.erase(It);
 	}
 
@@ -393,13 +388,24 @@ namespace Durin::MonaImGui
 		ImGui::GetPlatformIO().ClearRendererHandlers();
 
 		GRegisteredTextures.clear();
-		GDelayedTextureReleases.clear();
+		GTexturesPendingRetirement.clear();
 		FlushRenderingCommands();
 	}
 
-	auto ImGuiRHIImpl_NewFrame() -> void
+	auto ImGuiRHIImpl_RetireUnregisteredTextures() -> void
 	{
-		SweepDelayedTextureReleases();
+		if (GTexturesPendingRetirement.empty()) return;
+
+		// Draw snapshots store texture IDs as raw pointers. Transfer their final
+		// registration references past every main and platform viewport draw
+		// queued for this frame instead of guessing from a fixed frame delay.
+		std::vector<FImGuiRHIImpl_Texture> RetiredTextures;
+		RetiredTextures.swap(GTexturesPendingRetirement);
+		ENQUEUE_RENDER_COMMAND(RetireImGuiTextures)(
+			[RetiredTextures = std::move(RetiredTextures)](
+				FRHICommandListImmediate&) mutable {
+				RetiredTextures.clear();
+			});
 	}
 
 	auto ImGuiRHIImpl_RegisterTexture(const FTextureRHIRef& Texture) -> void
