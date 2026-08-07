@@ -130,6 +130,19 @@ namespace Durin::EditorAssetPicker
 			}
 			return Search;
 		}
+
+		// Reserves the action group using half-spacing at both edges and full spacing
+		// between actions, keeping the group centered without an arbitrary trailing pad.
+		auto GetTrailingActionsWidth(size_t ActionCount) -> float
+		{
+			if (ActionCount == 0) return 0.0f;
+			const float ItemSpacing = ImGui::GetStyle().ItemSpacing.x;
+			const float EdgePadding = ItemSpacing * 0.5f;
+			const float InterActionSpacing = ItemSpacing;
+			return EdgePadding * 2.0f
+				+ static_cast<float>(ActionCount) * MonaImGui::GetCompactToolbarIconButtonWidth()
+				+ static_cast<float>(ActionCount - 1) * InterActionSpacing;
+		}
 	}
 
 	auto MatchesPathPrefix(std::string_view AssetPath, std::string_view PathPrefix) -> bool
@@ -186,9 +199,7 @@ namespace Durin::EditorAssetPicker
 		const size_t ActionCount = (Config.TrailingAction ? 1u : 0u) + Config.AdditionalTrailingActions.size();
 		if (ActionCount > 0)
 		{
-			const float ReservedWidth = static_cast<float>(ActionCount) *
-				(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x);
-			ImGui::SetNextItemWidth(std::max(1.0f, ImGui::GetContentRegionAvail().x - ReservedWidth));
+			ImGui::SetNextItemWidth(std::max(1.0f, ImGui::GetContentRegionAvail().x - GetTrailingActionsWidth(ActionCount)));
 		}
 		else ImGui::SetNextItemWidth(-FLT_MIN);
 
@@ -270,11 +281,14 @@ namespace Durin::EditorAssetPicker
 			ImGui::EndCombo();
 		}
 
+		bool bFirstAction = true;
 		const auto DrawAction = [&](const FEditorAssetPickerAction& Action)
 		{
-			ImGui::SameLine();
+			const float ItemSpacing = ImGui::GetStyle().ItemSpacing.x;
+			ImGui::SameLine(0.0f, bFirstAction ? ItemSpacing * 0.5f : ItemSpacing);
+			bFirstAction = false;
 			ImGui::BeginDisabled(!Action.bEnabled);
-			const bool bTriggered = MonaImGui::ToolbarIconButton(Action.Icon, Action.ButtonId);
+			const bool bTriggered = MonaImGui::CompactToolbarIconButton(Action.Icon, Action.ButtonId);
 			ImGui::EndDisabled();
 			if (Action.Tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal | ImGuiHoveredFlags_AllowWhenDisabled))
 				ImGui::SetTooltip("%s", Action.Tooltip);

@@ -1,8 +1,10 @@
 #include "StaticMeshMaterialSlotDetails.h"
 
+#include "AssetSystem.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/Package.h"
 #include "Editor/EditorAssetPicker.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "LevelEditorCustomizations.h"
@@ -116,6 +118,32 @@ namespace Durin
 			{
 				FStaticMeshMaterialSlotDetailsModel Model(Component);
 				bool bChanged = false;
+				FAssetPath MaterialPath;
+				const bool bHasMaterialAsset = Entry.Material && Entry.Material->GetPackage()
+					&& FAssetPath::TryCreate(Entry.Material->GetPackage()->GetPackagePath(), MaterialPath)
+					&& Asset::GetAssetRegistry().FindAssetExact(MaterialPath);
+				const std::array<FEditorAssetPickerAction, 2> AssetActions{{
+					{
+						.Icon = Icons::Crosshairs,
+						.ButtonId = "RevealMaterial",
+						.Tooltip = "Reveal the resolved material in the Content Browser.",
+						.bEnabled = bHasMaterialAsset && static_cast<bool>(Context.RevealAsset),
+						.Execute = [&Context, &MaterialPath](std::string& Error) {
+							return Context.RevealAsset && Context.RevealAsset(MaterialPath, Error);
+						},
+					},
+					{
+						.Icon = Icons::RotateLeft,
+						.ButtonId = "ResetOverride",
+						.Tooltip = GetResetTooltip(Entry.Source),
+						.bEnabled = Entry.bHasOverride,
+						.Execute = [&](std::string& Error) {
+							bChanged = Model.ResetOverride(PropertyView, Context, Entry);
+							if (!bChanged) Error = "The material override could not be reset.";
+							return bChanged;
+						},
+					},
+				}};
 				ImGui::PushID(static_cast<int>(Entry.SlotIndex));
 				MonaImGui::PropertyEdit::BeginRow(Entry.Label.c_str(), Context.bReadOnly);
 				const FEditorAssetPickerResult Result = EditorAssetPicker::Draw({
@@ -130,17 +158,7 @@ namespace Durin
 						if (!bChanged) Error = "The material override could not be applied.";
 						return bChanged;
 					},
-					.TrailingAction = FEditorAssetPickerAction{
-						.Icon = Icons::Refresh,
-						.ButtonId = "ResetOverride",
-						.Tooltip = GetResetTooltip(Entry.Source),
-						.bEnabled = Entry.bHasOverride,
-						.Execute = [&](std::string& Error) {
-							bChanged = Model.ResetOverride(PropertyView, Context, Entry);
-							if (!bChanged) Error = "The material override could not be reset.";
-							return bChanged;
-						},
-					},
+					.AdditionalTrailingActions = AssetActions,
 				});
 				MonaImGui::PropertyEdit::EndRow(Context.bReadOnly);
 				if (!Result.Error.empty() && Context.ReportError) Context.ReportError(Result.Error);

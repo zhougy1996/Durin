@@ -545,6 +545,19 @@ namespace Durin
 			DClass* RequiredClass = ObjectProperty->GetReferencedClass();
 			DObject* Current = ObjectProperty->GetObjectPropertyValue(Container, ArrayIndex);
 			DObject* SelectedObject = Current;
+			FAssetPath CurrentAssetPath;
+			const bool bHasCurrentAsset = Current && Current->GetPackage()
+				&& FAssetPath::TryCreate(Current->GetPackage()->GetPackagePath(), CurrentAssetPath)
+				&& Asset::GetAssetRegistry().FindAssetExact(CurrentAssetPath);
+			const FEditorAssetPickerAction RevealAction{
+				.Icon = Icons::Crosshairs,
+				.ButtonId = "RevealObject",
+				.Tooltip = "Reveal the selected asset in the Content Browser.",
+				.bEnabled = bHasCurrentAsset && static_cast<bool>(Context.RevealAsset),
+				.Execute = [&Context, &CurrentAssetPath](std::string& Error) {
+					return Context.RevealAsset && Context.RevealAsset(CurrentAssetPath, Error);
+				},
+			};
 			const FEditorAssetPickerResult PickerResult = EditorAssetPicker::Draw({
 				.ComboId = "##Value",
 				.SearchId = "##ObjectSearch",
@@ -564,6 +577,7 @@ namespace Durin
 					SelectedObject = Selection;
 					return true;
 				},
+				.TrailingAction = RevealAction,
 			});
 			if (!PickerResult.Error.empty()) ReportError(Context, PickerResult.Error);
 			const bool bChanged = PickerResult.bSelectionChanged;
@@ -584,7 +598,6 @@ namespace Durin
 					&& !ViewState.LoadedObject);
 			const bool bCanReveal = ViewState.Path.IsValid()
 				&& Asset::GetAssetRegistry().FindAssetExact(ViewState.Path) && Context.RevealAsset;
-			const bool bCanOpen = ViewState.LoadedObject && Context.OpenAsset;
 
 			const FEditorAssetPickerAction LoadAction{
 				.Icon = Icons::Play,
@@ -597,25 +610,14 @@ namespace Durin
 					return LoadedObject != nullptr;
 				},
 			};
-			const std::array<FEditorAssetPickerAction, 2> AdditionalActions{{
+			const std::array<FEditorAssetPickerAction, 1> AdditionalActions{{
 				{
-					.Icon = Icons::Eye,
+					.Icon = Icons::Crosshairs,
 					.ButtonId = "RevealSoftObject",
 					.Tooltip = "Reveal the referenced asset in the Content Browser.",
 					.bEnabled = bCanReveal,
 					.Execute = [&Context, &ViewState](std::string& Error) {
 						return Context.RevealAsset && Context.RevealAsset(ViewState.Path, Error);
-					},
-				},
-				{
-					.Icon = Icons::FolderOpen,
-					.ButtonId = "OpenSoftObject",
-					.Tooltip = "Open the loaded referenced asset.",
-					.bEnabled = bCanOpen,
-					.Execute = [&Context, &ViewState](std::string& Error) {
-						const FAssetPath& OpenPath = ViewState.ResolvedPath.IsValid()
-							? ViewState.ResolvedPath : ViewState.Path;
-						return Context.OpenAsset && Context.OpenAsset(OpenPath, Error);
 					},
 				},
 			}};

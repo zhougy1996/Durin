@@ -14,9 +14,11 @@ namespace Durin::Icons
 	inline constexpr auto File = "\xef\x85\x9b";
 	inline constexpr auto FileLines = "\xef\x85\x9c";
 	inline constexpr auto Search = "\xef\x80\x82";
+	inline constexpr auto Crosshairs = "\xef\x81\x9b";
 	inline constexpr auto Trash = "\xef\x87\xb8";
 	inline constexpr auto Copy = "\xef\x83\x85";
 	inline constexpr auto Refresh = "\xef\x8b\xb9";
+	inline constexpr auto RotateLeft = "\xef\x8b\xaa";
 	inline constexpr auto EllipsisVertical = "\xef\x85\x82";
 	inline constexpr auto Minus = "\xef\x81\xa8";
 	inline constexpr auto Close = "\xef\x80\x8d";

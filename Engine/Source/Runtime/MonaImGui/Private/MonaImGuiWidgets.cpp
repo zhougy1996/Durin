@@ -23,18 +23,36 @@ namespace Durin::MonaImGui
 		}
 	} // namespace
 
+	namespace
+	{
+		auto DrawToolbarIconButton(const char* Icon, const char* Id, const char* Tooltip, float Width) -> bool
+		{
+			ImGui::PushID(Id);
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
+			ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+			const float Extent = ImGui::GetFrameHeight();
+			const bool bPressed = ImGui::Button(Icon, ImVec2(Width, Extent));
+			ImGui::PopStyleColor(3);
+			ImGui::PopID();
+			if (Tooltip != nullptr && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Tooltip);
+			return bPressed;
+		}
+	} // namespace
+
 	auto ToolbarIconButton(const char* Icon, const char* Id, const char* Tooltip) -> bool
 	{
-		ImGui::PushID(Id);
-		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
-		ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
-		const float Extent = ImGui::GetFrameHeight();
-		const bool bPressed = ImGui::Button(Icon, ImVec2(Extent, Extent));
-		ImGui::PopStyleColor(3);
-		ImGui::PopID();
-		if (Tooltip != nullptr && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Tooltip);
-		return bPressed;
+		return DrawToolbarIconButton(Icon, Id, Tooltip, ImGui::GetFrameHeight());
+	}
+
+	auto CompactToolbarIconButton(const char* Icon, const char* Id, const char* Tooltip) -> bool
+	{
+		return DrawToolbarIconButton(Icon, Id, Tooltip, GetCompactToolbarIconButtonWidth());
+	}
+
+	auto GetCompactToolbarIconButtonWidth() -> float
+	{
+		return ScaleUI(28.0f);
 	}
 
 	auto DialogButton(const char* Label, bool bCompact) -> bool
