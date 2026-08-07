@@ -124,7 +124,7 @@ Use the root wrapper for configuration, builds, and tests:
 .\DevTool.bat build
 .\DevTool.bat build --target LevelEditor
 .\DevTool.bat run
-.\DevTool.bat test --target CoreTests --filter FJsonDocumentTests.*
+.\DevTool.bat test --target CoreConcurrencyTests --filter FTaskSchedulerTests.*
 .\DevTool.bat test --target all
 .\DevTool.bat clean
 .\DevTool.bat recover
@@ -192,7 +192,7 @@ retained. Use `--output full` to stream every child-output line, or
 ```powershell
 .\DevTool.bat build --target all --output progress
 .\DevTool.bat build --target all --output compact
-.\DevTool.bat test --target CoreTests --output full
+.\DevTool.bat test --target CoreConcurrencyTests --output full
 ```
 
 Compact native-test runs also enable GoogleTest's brief output mode. Test
@@ -403,7 +403,7 @@ DurinDevTool> configure --fresh
 DurinDevTool> build
 DurinDevTool> recover
 DurinDevTool> rebuild --target DurinLauncher
-DurinDevTool> test --target CoreTests --filter FJsonDocumentTests.* --timeout 300
+DurinDevTool> test --target CoreConcurrencyTests --filter FTaskSchedulerTests.* --timeout 300
 DurinDevTool> run --project Sandbox\Sandbox.dproject --args --hidden-window
 DurinDevTool> path runtime
 DurinDevTool> open runtime

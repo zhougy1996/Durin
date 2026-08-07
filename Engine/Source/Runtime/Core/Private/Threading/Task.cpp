@@ -205,6 +205,7 @@ namespace Durin
 			DependencyCanceled,
 			CancellationRequested,
 			DispatchRejected,
+			CapacityExhausted,
 			Superseded,
 			StaleGeneration,
 			CallbackFailure,
@@ -289,6 +290,7 @@ namespace Durin
 				Out.DependencyCanceledCount = Counter(ETaskAggregateCounter::DependencyCanceled);
 				Out.CancellationRequestedCount = Counter(ETaskAggregateCounter::CancellationRequested);
 				Out.DispatchRejectedCount = Counter(ETaskAggregateCounter::DispatchRejected);
+				Out.CapacityExhaustedCount = Counter(ETaskAggregateCounter::CapacityExhausted);
 				Out.SupersededCount = Counter(ETaskAggregateCounter::Superseded);
 				Out.StaleGenerationCount = Counter(ETaskAggregateCounter::StaleGeneration);
 				Out.CallbackFailureCount = Counter(ETaskAggregateCounter::CallbackFailure);
@@ -336,6 +338,12 @@ namespace Durin
 			uint64 ExecutionNanoseconds = 0;
 		};
 
+		struct FTaskSchedulerLifetimeAccounting
+		{
+			std::atomic<uint64> RetainedTerminalTaskCount = 0;
+			std::atomic<uint64> RetainedTerminalResultCount = 0;
+		};
+
 		enum class ETaskSchedulerLifetime : uint8
 		{
 			Stopped,
@@ -349,7 +357,14 @@ namespace Durin
 		std::shared_ptr<FTaskScheduler> GTaskScheduler;
 		ETaskSchedulerLifetime GTaskSchedulerLifetime = ETaskSchedulerLifetime::Stopped;
 		uint64 GCompletedTaskSchedulerShutdowns = 0;
-		FTaskSchedulerDiagnostics GLastTaskSchedulerDiagnostics;
+		std::shared_ptr<const FTaskSchedulerDiagnostics> GLastTaskSchedulerDiagnostics;
+		std::shared_ptr<FTaskSchedulerLifetimeAccounting> GLastTaskSchedulerLifetimeAccounting;
+		std::mutex GTaskTerminalPublicationTestHookMutex;
+		std::function<void(uint64)> GTaskTerminalPublicationTestHook;
+		std::atomic<bool> GTaskTerminalPublicationTestHookEnabled = false;
+		std::mutex GTaskSchedulerSnapshotTestHookMutex;
+		std::function<void()> GTaskSchedulerSnapshotTestHook;
+		std::atomic<bool> GTaskSchedulerSnapshotTestHookEnabled = false;
 		std::mutex GGameThreadDeferredQueueMutex;
 		std::shared_ptr<FGameThreadDeferredWorkQueue> GGameThreadDeferredQueue;
 		FGameThreadDeferredWorkQueueDiagnostics GLastGameThreadDeferredQueueDiagnostics;
@@ -373,6 +388,23 @@ namespace Durin
 		auto IsTerminalState(ETaskState State) -> bool
 		{
 			return State == ETaskState::Succeeded || State == ETaskState::Failed || State == ETaskState::Canceled;
+		}
+
+		auto InvokeTaskTerminalPublicationTestHook(uint64 TaskId) -> void
+		{
+			if (!GTaskTerminalPublicationTestHookEnabled.load(std::memory_order::acquire))
+			{
+				return;
+			}
+			std::function<void(uint64)> Hook;
+			{
+				std::lock_guard Lock(GTaskTerminalPublicationTestHookMutex);
+				Hook = GTaskTerminalPublicationTestHook;
+			}
+			if (Hook)
+			{
+				Hook(TaskId);
+			}
 		}
 	} // namespace
 
@@ -413,6 +445,7 @@ namespace Durin
 		FTaskStateData(
 			const char* InDebugName,
 			std::weak_ptr<FTaskScheduler> InScheduler,
+			std::shared_ptr<FTaskSchedulerLifetimeAccounting> InLifetimeAccounting,
 			std::unique_ptr<Private::FMoveOnlyTaskFunction> InFunction,
 			std::function<void(ETaskState)>&& InCompletionFunction,
 			const FTaskCancellationToken& InCancellationToken,
@@ -432,6 +465,7 @@ namespace Durin
 			, ParentTaskId(InParentTaskId)
 			, DebugName(InDebugName ? InDebugName : "Task")
 			, Scheduler(std::move(InScheduler))
+			, LifetimeAccounting(std::move(InLifetimeAccounting))
 			, SharedCancellationState(InCancellationToken.SharedState)
 			, PendingFunction(std::move(InFunction))
 			, CompletionFunction(std::move(InCompletionFunction))
@@ -457,6 +491,21 @@ namespace Durin
 				Prerequisites.emplace_back(Prerequisite);
 				PrerequisiteTaskIds.emplace_back(Prerequisite->GetTaskId());
 				PrerequisiteDependencyKinds.emplace_back(InDependencyKind);
+			}
+		}
+
+		~FTaskStateData()
+		{
+			if (!bTerminalLifetimeCharged)
+			{
+				return;
+			}
+			const uint64 PreviousTaskCount = LifetimeAccounting->RetainedTerminalTaskCount.fetch_sub(1, std::memory_order::acq_rel);
+			check(PreviousTaskCount > 0);
+			if (bTerminalResultLifetimeCharged)
+			{
+				const uint64 PreviousResultCount = LifetimeAccounting->RetainedTerminalResultCount.fetch_sub(1, std::memory_order::acq_rel);
+				check(PreviousResultCount > 0);
 			}
 		}
 
@@ -584,7 +633,7 @@ namespace Durin
 		auto GetDiagnostic() const -> std::string
 		{
 			std::lock_guard Lock(Mutex);
-			return Diagnostic;
+			return IsTerminalState(State) && !bTerminalPublicationFinished ? std::string{} : Diagnostic;
 		}
 
 		auto GetDiagnostics() const -> FTaskDiagnostics
@@ -596,28 +645,29 @@ namespace Durin
 				Snapshot.ParentTaskId = ParentTaskId;
 				Snapshot.PrerequisiteTaskIds = PrerequisiteTaskIds;
 				Snapshot.PrerequisiteDependencyKinds = PrerequisiteDependencyKinds;
-				Snapshot.DirectBlockingTaskId = DirectBlockingTaskId;
+				const bool bTerminalVisible = !IsTerminalState(State) || bTerminalPublicationFinished;
+				Snapshot.DirectBlockingTaskId = bTerminalVisible ? DirectBlockingTaskId : 0;
 				Snapshot.EnqueueTimeNanoseconds = EnqueueTimeNanoseconds;
 				Snapshot.DispatchTimeNanoseconds = DispatchTimeNanoseconds;
 				Snapshot.QueueResidencyNanoseconds = DispatchTimeNanoseconds == 0
 					? 0
 					: (StartTimeNanoseconds == 0 ? MonotonicNanoseconds() : StartTimeNanoseconds) - DispatchTimeNanoseconds;
 				Snapshot.StartTimeNanoseconds = StartTimeNanoseconds;
-				Snapshot.FinishTimeNanoseconds = FinishTimeNanoseconds;
+				Snapshot.FinishTimeNanoseconds = bTerminalVisible ? FinishTimeNanoseconds : 0;
 				Snapshot.ExecutionNanoseconds = StartTimeNanoseconds == 0
 					? 0
-					: (FinishTimeNanoseconds == 0 ? MonotonicNanoseconds() : FinishTimeNanoseconds) - StartTimeNanoseconds;
+					: (!bTerminalVisible || FinishTimeNanoseconds == 0 ? MonotonicNanoseconds() : FinishTimeNanoseconds) - StartTimeNanoseconds;
 				Snapshot.ExecutingThreadId = ExecutingThreadId;
 				Snapshot.DebugName = DebugName;
 				Snapshot.ExecutingThreadName = ExecutingThreadName;
-				Snapshot.Diagnostic = Diagnostic;
-				Snapshot.State = State;
+				Snapshot.Diagnostic = bTerminalVisible ? Diagnostic : std::string{};
+				Snapshot.State = bTerminalVisible ? State : StateBeforeTerminal;
 				Snapshot.Target = Target;
 				Snapshot.Priority = Priority;
-				Snapshot.TerminalReason = TerminalReason;
+				Snapshot.TerminalReason = bTerminalVisible ? TerminalReason : ETaskTerminalReason::None;
 				Snapshot.EstimatedPayloadBytes = EstimatedPayloadBytes;
 				Snapshot.EstimatedResultBytes = EstimatedResultBytes;
-				Snapshot.RetainedResultBytes = RetainedResultBytes;
+				Snapshot.RetainedResultBytes = bTerminalVisible ? RetainedResultBytes : 0;
 				Snapshot.CallableStorageBytes = CallableStorageBytes;
 				Snapshot.AttributionOwnerId = Private::FTaskAttributionAccess::GetOwnerId(Attribution);
 				Snapshot.AttributionCategoryId = Private::FTaskAttributionAccess::GetCategoryId(Attribution);
@@ -627,7 +677,7 @@ namespace Durin
 					Snapshot.CoalescingWorkId = CoalescingKey->WorkId;
 					Snapshot.CoalescingGeneration = CoalescingKey->Generation;
 				}
-				Snapshot.bHasResultStorage = bHasResultStorage;
+				Snapshot.bHasResultStorage = bTerminalVisible && bHasResultStorage;
 			}
 			std::tie(Snapshot.AttributionOwner, Snapshot.AttributionCategory) = GTaskAttributionRegistry.Resolve(Attribution);
 			return Snapshot;
@@ -672,6 +722,7 @@ namespace Durin
 		uint64 ParentTaskId = 0;
 		std::string DebugName;
 		std::weak_ptr<FTaskScheduler> Scheduler;
+		std::shared_ptr<FTaskSchedulerLifetimeAccounting> LifetimeAccounting;
 		std::shared_ptr<FTaskCancellationState> SharedCancellationState;
 		mutable std::mutex Mutex;
 		std::condition_variable CV;
@@ -702,6 +753,8 @@ namespace Durin
 		std::optional<FTaskCoalescingKey> CoalescingKey;
 		bool bCancellationRequested = false;
 		bool bTerminalPublicationFinished = false;
+		bool bTerminalLifetimeCharged = false;
+		bool bTerminalResultLifetimeCharged = false;
 		std::string CancellationDiagnostic;
 		ETaskTerminalReason CancellationReason = ETaskTerminalReason::CancellationRequested;
 		uint64 CancellationDirectBlockingTaskId = 0;
@@ -722,16 +775,17 @@ namespace Durin
 	class FTaskScheduler final : public std::enable_shared_from_this<FTaskScheduler>
 	{
 	public:
-		static auto Create(uint32 InNumThreads) -> std::shared_ptr<FTaskScheduler>
+		static auto Create(const FTaskSchedulerConfig& Config) -> std::shared_ptr<FTaskScheduler>
 		{
 			auto Scheduler = std::shared_ptr<FTaskScheduler>(new FTaskScheduler());
-			const uint32 NumThreads = InNumThreads > 0 ? InNumThreads : GetDefaultThreadPoolThreadCount();
+			const uint32 NumThreads = Config.NumWorkerThreads > 0 ? Config.NumWorkerThreads : GetDefaultThreadPoolThreadCount();
 			if (!Scheduler->Pool.Create(NumThreads, "EngineWorker"))
 			{
 				return nullptr;
 			}
 
 			Scheduler->WorkerCount = NumThreads;
+			Scheduler->TaskReservationCapacity = Config.MaxNonterminalTasks;
 			Scheduler->bAcceptingTasks = true;
 			return Scheduler;
 		}
@@ -789,6 +843,8 @@ namespace Durin
 			GetAggregate(Attribution).Increment(ETaskAggregateCounter::ParallelForOperation);
 		}
 
+		auto GetWorkerCount() const -> uint32 { return WorkerCount; }
+
 		auto Submit(
 			const char* Name,
 			std::unique_ptr<Private::FMoveOnlyTaskFunction>& FunctionOwner,
@@ -822,10 +878,20 @@ namespace Durin
 					}
 					PrerequisiteStates.emplace_back(Prerequisite.State);
 				}
+				if (CurrentTaskReservationCount.load(std::memory_order::acquire) >= TaskReservationCapacity)
+				{
+					RecordCapacityRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
+					return {};
+				}
+				const uint64 CurrentReservations = CurrentTaskReservationCount.fetch_add(1, std::memory_order::acq_rel) + 1;
+				uint64 PeakReservations = PeakTaskReservationCount.load(std::memory_order::acquire);
+				while (PeakReservations < CurrentReservations
+					&& !PeakTaskReservationCount.compare_exchange_weak(PeakReservations, CurrentReservations, std::memory_order::acq_rel)) {}
 
 				State = std::make_shared<FTaskStateData>(
 					Name,
 					weak_from_this(),
+					LifetimeAccounting,
 					std::move(FunctionOwner),
 					std::move(CompletionFunction),
 					Options.CancellationToken,
@@ -842,7 +908,6 @@ namespace Durin
 					std::move(CoalescingKey)
 				);
 				ActiveTasks.emplace(State->GetTaskId(), State);
-				AllTasks.emplace(State->GetTaskId(), State);
 			}
 			RecordAcceptedTask(State->GetAccountingSnapshot());
 			Profiling::TaskEnqueued(
@@ -1036,6 +1101,7 @@ namespace Durin
 			case ETaskTerminalReason::DependencyCanceled: Aggregate.Increment(ETaskAggregateCounter::DependencyCanceled); break;
 			case ETaskTerminalReason::CancellationRequested: Aggregate.Increment(ETaskAggregateCounter::CancellationRequested); break;
 			case ETaskTerminalReason::DispatchRejected: Aggregate.Increment(ETaskAggregateCounter::DispatchRejected); break;
+			case ETaskTerminalReason::CapacityExhausted: Aggregate.Increment(ETaskAggregateCounter::CapacityExhausted); break;
 			case ETaskTerminalReason::Superseded: Aggregate.Increment(ETaskAggregateCounter::Superseded); break;
 			case ETaskTerminalReason::StaleGeneration: Aggregate.Increment(ETaskAggregateCounter::StaleGeneration); break;
 			case ETaskTerminalReason::CallbackFailure: Aggregate.Increment(ETaskAggregateCounter::CallbackFailure); break;
@@ -1056,6 +1122,8 @@ namespace Durin
 			std::lock_guard Lock(Mutex);
 			const size_t RemovedTaskCount = ActiveTasks.erase(State->GetTaskId());
 			check(RemovedTaskCount == 1);
+			const uint64 PreviousReservationCount = CurrentTaskReservationCount.fetch_sub(1, std::memory_order::acq_rel);
+			check(PreviousReservationCount > 0);
 			CompletedTaskCount.fetch_add(1, std::memory_order::acq_rel);
 			if (Task.State == ETaskState::Failed)
 			{
@@ -1098,6 +1166,13 @@ namespace Durin
 			if (CallableBytes) Aggregate.Record(ETaskAggregateHistogram::CallableBytes, *CallableBytes);
 		}
 
+		auto RecordCapacityRejectedTask(FTaskAttribution Attribution, std::optional<uint64> CallableBytes = {}) -> void
+		{
+			RecordRejectedTask(Attribution, CallableBytes);
+			CapacityRejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
+			GetAggregate(Attribution).Increment(ETaskAggregateCounter::CapacityExhausted);
+		}
+
 		auto RecordDuplicateUniqueConsumerClaim() -> void
 		{
 			DuplicateUniqueConsumerClaimCount.fetch_add(1, std::memory_order::acq_rel);
@@ -1125,24 +1200,12 @@ namespace Durin
 			check(PreviousCount > 0);
 		}
 
-		auto GetDiagnostics(bool bInRunning) -> FTaskSchedulerDiagnostics
+		auto PublishProfilerPlots() -> void
 		{
-			FTaskSchedulerDiagnostics Snapshot;
-			Snapshot.WorkerCount = WorkerCount;
-			Snapshot.QueueDepth = Pool.GetNumQueuedTasks();
-			Snapshot.ActiveWorkerCount = ActiveWorkerCount.load(std::memory_order::acquire);
-			Snapshot.CompletedTaskCount = CompletedTaskCount.load(std::memory_order::acquire);
-			Snapshot.FailedTaskCount = FailedTaskCount.load(std::memory_order::acquire);
-			Snapshot.CanceledTaskCount = CanceledTaskCount.load(std::memory_order::acquire);
-			Snapshot.RejectedTaskCount = RejectedTaskCount.load(std::memory_order::acquire);
-			Snapshot.LongWaitCount = LongWaitCount.load(std::memory_order::acquire);
-			Snapshot.DuplicateUniqueConsumerClaimCount = DuplicateUniqueConsumerClaimCount.load(std::memory_order::acquire);
-			Snapshot.AttributionRegistrationOverflowCount = GTaskAttributionRegistry.GetOverflowCount();
-			Snapshot.OwnerCategoryDiagnostics = GTaskAttributionRegistry.Snapshot();
-			for (FTaskOwnerCategoryDiagnostics& Entry : Snapshot.OwnerCategoryDiagnostics)
+			std::vector<FTaskOwnerCategoryDiagnostics> Entries = GTaskAttributionRegistry.Snapshot();
+			for (FTaskOwnerCategoryDiagnostics& Entry : Entries)
 			{
 				OwnerCategoryAggregates[Entry.CategoryId].Snapshot(Entry);
-				Snapshot.RetainedUniqueResultBytes += Entry.CurrentRetainedUniqueResultBytes;
 				Profiling::TaskAggregatePlots(
 					Entry.OwnerId,
 					Entry.CategoryId,
@@ -1154,54 +1217,88 @@ namespace Durin
 					Entry.CurrentResultBytes,
 					Entry.CurrentRetainedUniqueResultBytes);
 			}
+		}
+
+		auto GetDiagnostics(bool bInRunning) -> FTaskSchedulerDiagnostics
+		{
+			FTaskSchedulerDiagnostics Snapshot;
+			Snapshot.WorkerCount = WorkerCount;
+			Snapshot.TaskReservationCapacity = TaskReservationCapacity;
+			Snapshot.CurrentTaskReservationCount = CurrentTaskReservationCount.load(std::memory_order::acquire);
+			Snapshot.PeakTaskReservationCount = PeakTaskReservationCount.load(std::memory_order::acquire);
+			Snapshot.QueueDepth = Pool.GetNumQueuedTasks();
+			Snapshot.ActiveWorkerCount = ActiveWorkerCount.load(std::memory_order::acquire);
+			Snapshot.CompletedTaskCount = CompletedTaskCount.load(std::memory_order::acquire);
+			Snapshot.FailedTaskCount = FailedTaskCount.load(std::memory_order::acquire);
+			Snapshot.CanceledTaskCount = CanceledTaskCount.load(std::memory_order::acquire);
+			Snapshot.RejectedTaskCount = RejectedTaskCount.load(std::memory_order::acquire);
+			Snapshot.CapacityRejectedTaskCount = CapacityRejectedTaskCount.load(std::memory_order::acquire);
+			Snapshot.LongWaitCount = LongWaitCount.load(std::memory_order::acquire);
+			Snapshot.DuplicateUniqueConsumerClaimCount = DuplicateUniqueConsumerClaimCount.load(std::memory_order::acquire);
+			Snapshot.AttributionRegistrationOverflowCount = GTaskAttributionRegistry.GetOverflowCount();
+			Snapshot.OwnerCategoryDiagnostics = GTaskAttributionRegistry.Snapshot();
+			for (FTaskOwnerCategoryDiagnostics& Entry : Snapshot.OwnerCategoryDiagnostics)
+			{
+				OwnerCategoryAggregates[Entry.CategoryId].Snapshot(Entry);
+				Snapshot.RetainedUniqueResultBytes += Entry.CurrentRetainedUniqueResultBytes;
+			}
 			Snapshot.bRunning = bInRunning;
 
-			std::lock_guard Lock(Mutex);
-			Snapshot.LastLongWaiterName = LastLongWaiterName;
-			Snapshot.LastLongWaitTargetName = LastLongWaitTargetName;
-			Snapshot.LastLongWaitTargetTaskId = LastLongWaitTargetTaskId;
-			Snapshot.LastLongWaitTargetState = LastLongWaitTargetState;
-			Snapshot.LastLongWaitElapsedNanoseconds = LastLongWaitElapsedNanoseconds;
-			Snapshot.NonterminalTaskCount = ActiveTasks.size();
-			Snapshot.NonterminalTasks.reserve(ActiveTasks.size());
-			for (const auto& [TaskId, Task] : ActiveTasks)
+			std::vector<std::shared_ptr<FTaskStateData>> ActiveTaskSnapshot;
 			{
-				Snapshot.NonterminalTasks.emplace_back(Task->GetDiagnostics());
-			}
-			for (auto Iterator = AllTasks.begin(); Iterator != AllTasks.end();)
-			{
-				if (std::shared_ptr<FTaskStateData> Task = Iterator->second.lock())
+				std::lock_guard Lock(Mutex);
+				Snapshot.LastLongWaiterName = LastLongWaiterName;
+				Snapshot.LastLongWaitTargetName = LastLongWaitTargetName;
+				Snapshot.LastLongWaitTargetTaskId = LastLongWaitTargetTaskId;
+				Snapshot.LastLongWaitTargetState = LastLongWaitTargetState;
+				Snapshot.LastLongWaitElapsedNanoseconds = LastLongWaitElapsedNanoseconds;
+				ActiveTaskSnapshot.reserve(ActiveTasks.size());
+				for (const auto& [TaskId, Task] : ActiveTasks)
 				{
-					if (IsTerminalState(Task->GetState()))
-					{
-						++Snapshot.RetainedTerminalHandleCount;
-						if (Task->GetDiagnostics().bHasResultStorage)
-						{
-							++Snapshot.RetainedTerminalResultCount;
-						}
-					}
-					++Iterator;
-				}
-				else
-				{
-					Iterator = AllTasks.erase(Iterator);
+					ActiveTaskSnapshot.emplace_back(Task);
 				}
 			}
+			if (GTaskSchedulerSnapshotTestHookEnabled.load(std::memory_order::acquire))
+			{
+				std::function<void()> Hook;
+				{
+					std::lock_guard Lock(GTaskSchedulerSnapshotTestHookMutex);
+					Hook = GTaskSchedulerSnapshotTestHook;
+				}
+				if (Hook) Hook();
+			}
+			Snapshot.NonterminalTasks.reserve(ActiveTaskSnapshot.size());
+			for (const std::shared_ptr<FTaskStateData>& Task : ActiveTaskSnapshot)
+			{
+				FTaskDiagnostics TaskSnapshot = Task->GetDiagnostics();
+				if (!IsTerminalState(TaskSnapshot.State))
+				{
+					Snapshot.NonterminalTasks.emplace_back(std::move(TaskSnapshot));
+				}
+			}
+			Snapshot.NonterminalTaskCount = Snapshot.NonterminalTasks.size();
+			Snapshot.RetainedTerminalHandleCount = LifetimeAccounting->RetainedTerminalTaskCount.load(std::memory_order::acquire);
+			Snapshot.RetainedTerminalResultCount = LifetimeAccounting->RetainedTerminalResultCount.load(std::memory_order::acquire);
 			return Snapshot;
 		}
+
+		auto GetLifetimeAccounting() const -> const std::shared_ptr<FTaskSchedulerLifetimeAccounting>& { return LifetimeAccounting; }
 
 	private:
 		FQueuedThreadPool Pool;
 		mutable std::mutex Mutex;
 		std::condition_variable QuiescenceCV;
 		std::unordered_map<uint64, std::shared_ptr<FTaskStateData>> ActiveTasks;
-		std::unordered_map<uint64, std::weak_ptr<FTaskStateData>> AllTasks;
+		std::shared_ptr<FTaskSchedulerLifetimeAccounting> LifetimeAccounting = std::make_shared<FTaskSchedulerLifetimeAccounting>();
 		std::array<FTaskOwnerCategoryAggregate, MaxTaskAttributionPairs> OwnerCategoryAggregates{};
 		std::atomic<uint32> ActiveWorkerCount = 0;
 		std::atomic<uint64> CompletedTaskCount = 0;
 		std::atomic<uint64> FailedTaskCount = 0;
 		std::atomic<uint64> CanceledTaskCount = 0;
 		std::atomic<uint64> RejectedTaskCount = 0;
+		std::atomic<uint64> CapacityRejectedTaskCount = 0;
+		std::atomic<uint64> CurrentTaskReservationCount = 0;
+		std::atomic<uint64> PeakTaskReservationCount = 0;
 		std::atomic<uint64> LongWaitCount = 0;
 		std::atomic<uint64> DuplicateUniqueConsumerClaimCount = 0;
 		std::string LastLongWaiterName;
@@ -1210,6 +1307,7 @@ namespace Durin
 		uint64 LastLongWaitElapsedNanoseconds = 0;
 		ETaskState LastLongWaitTargetState = ETaskState::Invalid;
 		uint32 WorkerCount = 0;
+		uint64 TaskReservationCapacity = 0;
 		bool bAcceptingTasks = false;
 	};
 
@@ -1619,6 +1717,7 @@ namespace Durin
 				return false;
 			}
 		}
+		InvokeTaskTerminalPublicationTestHook(TaskId);
 		if (Function) Function(TerminalState);
 		FinishTerminalPublication(TerminalState, std::move(DependentsToNotify));
 		return true;
@@ -1630,18 +1729,26 @@ namespace Durin
 		{
 			SharedCancellationState->UnregisterTask(TaskId);
 		}
-		if (std::shared_ptr<FTaskScheduler> PinnedScheduler = Scheduler.lock())
-		{
-			PinnedScheduler->OnTaskTerminal(shared_from_this());
-		}
 		{
 			std::lock_guard Lock(Mutex);
+			check(!bTerminalLifetimeCharged);
+			LifetimeAccounting->RetainedTerminalTaskCount.fetch_add(1, std::memory_order::acq_rel);
+			bTerminalLifetimeCharged = true;
+			if (bHasResultStorage)
+			{
+				LifetimeAccounting->RetainedTerminalResultCount.fetch_add(1, std::memory_order::acq_rel);
+				bTerminalResultLifetimeCharged = true;
+			}
 			bTerminalPublicationFinished = true;
 		}
 		CV.notify_all();
 		for (const std::shared_ptr<FTaskStateData>& Dependent : Dependents)
 		{
 			Dependent->OnPrerequisiteTerminal(TerminalState, TaskId);
+		}
+		if (std::shared_ptr<FTaskScheduler> PinnedScheduler = Scheduler.lock())
+		{
+			PinnedScheduler->OnTaskTerminal(shared_from_this());
 		}
 	}
 
@@ -1778,6 +1885,7 @@ namespace Durin
 
 		if (bPublishedTerminal)
 		{
+			InvokeTaskTerminalPublicationTestHook(TaskId);
 			if (Function) Function(ETaskState::Canceled);
 			FinishTerminalPublication(ETaskState::Canceled, std::move(DependentsToNotify));
 		}
@@ -1810,6 +1918,7 @@ namespace Durin
 				TerminalState == ETaskState::Canceled ? CancellationDirectBlockingTaskId : 0
 			);
 		}
+		InvokeTaskTerminalPublicationTestHook(TaskId);
 		if (Function) Function(TerminalState);
 		FinishTerminalPublication(TerminalState, std::move(DependentsToNotify));
 	}
@@ -2009,6 +2118,11 @@ namespace Durin
 
 	auto InitializeTaskScheduler(uint32 InNumThreads) -> bool
 	{
+		return InitializeTaskScheduler(FTaskSchedulerConfig{.NumWorkerThreads = InNumThreads});
+	}
+
+	auto InitializeTaskScheduler(const FTaskSchedulerConfig& Config) -> bool
+	{
 		std::lock_guard Lock(GTaskSchedulerMutex);
 		if (GTaskSchedulerLifetime == ETaskSchedulerLifetime::Running)
 		{
@@ -2020,8 +2134,13 @@ namespace Durin
 			DURIN_ERROR("Task scheduler initialization rejected while shutdown is in progress.");
 			return false;
 		}
+		if (Config.MaxNonterminalTasks == 0 || Config.MaxNonterminalTasks > std::numeric_limits<uint32>::max())
+		{
+			DURIN_ERROR("Task scheduler initialization rejected because capacity must be between 1 and uint32 max.");
+			return false;
+		}
 
-		GTaskScheduler = FTaskScheduler::Create(InNumThreads);
+		GTaskScheduler = FTaskScheduler::Create(Config);
 		if (!GTaskScheduler)
 		{
 			DURIN_ERROR("Task scheduler initialization failed.");
@@ -2029,8 +2148,12 @@ namespace Durin
 		}
 
 		GLastTaskSchedulerDiagnostics = {};
+		GLastTaskSchedulerLifetimeAccounting.reset();
 		GTaskSchedulerLifetime = ETaskSchedulerLifetime::Running;
-		DURIN_DEBUG("Task scheduler initialized. (workers: {})", InNumThreads > 0 ? InNumThreads : GetDefaultThreadPoolThreadCount());
+		DURIN_DEBUG(
+			"Task scheduler initialized. (workers: {}, capacity: {})",
+			Config.NumWorkerThreads > 0 ? Config.NumWorkerThreads : GetDefaultThreadPoolThreadCount(),
+			Config.MaxNonterminalTasks);
 		return true;
 	}
 
@@ -2154,12 +2277,12 @@ namespace Durin
 			}
 		}
 
-		FTaskSchedulerDiagnostics ShutdownDiagnostics;
+		FTaskSchedulerDiagnostics ShutdownDiagnostics = SchedulerToDestroy->GetDiagnostics(false);
 		{
 			std::lock_guard Lock(GTaskSchedulerMutex);
 			check(GTaskScheduler == SchedulerToDestroy);
-			ShutdownDiagnostics = SchedulerToDestroy->GetDiagnostics(false);
-			GLastTaskSchedulerDiagnostics = ShutdownDiagnostics;
+			GLastTaskSchedulerDiagnostics = std::make_shared<FTaskSchedulerDiagnostics>(ShutdownDiagnostics);
+			GLastTaskSchedulerLifetimeAccounting = SchedulerToDestroy->GetLifetimeAccounting();
 			GTaskScheduler.reset();
 			GTaskSchedulerLifetime = ETaskSchedulerLifetime::Stopped;
 			++GCompletedTaskSchedulerShutdowns;
@@ -2202,12 +2325,12 @@ namespace Durin
 		}
 
 		SchedulerToDestroy->Shutdown(bWaitForQueuedWork);
-		FTaskSchedulerDiagnostics ShutdownDiagnostics;
+		FTaskSchedulerDiagnostics ShutdownDiagnostics = SchedulerToDestroy->GetDiagnostics(false);
 		{
 			std::lock_guard Lock(GTaskSchedulerMutex);
 			check(GTaskScheduler == SchedulerToDestroy);
-			ShutdownDiagnostics = SchedulerToDestroy->GetDiagnostics(false);
-			GLastTaskSchedulerDiagnostics = ShutdownDiagnostics;
+			GLastTaskSchedulerDiagnostics = std::make_shared<FTaskSchedulerDiagnostics>(ShutdownDiagnostics);
+			GLastTaskSchedulerLifetimeAccounting = SchedulerToDestroy->GetLifetimeAccounting();
 			GTaskScheduler.reset();
 			GTaskSchedulerLifetime = ETaskSchedulerLifetime::Stopped;
 			++GCompletedTaskSchedulerShutdowns;
@@ -2232,12 +2355,27 @@ namespace Durin
 
 	auto GetTaskSchedulerDiagnostics() -> FTaskSchedulerDiagnostics
 	{
-		std::lock_guard Lock(GTaskSchedulerMutex);
-		if (GTaskScheduler)
+		std::shared_ptr<FTaskScheduler> Scheduler;
+		std::shared_ptr<const FTaskSchedulerDiagnostics> LastDiagnostics;
+		std::shared_ptr<FTaskSchedulerLifetimeAccounting> LifetimeAccounting;
+		bool bRunning = false;
 		{
-			return GTaskScheduler->GetDiagnostics(GTaskSchedulerLifetime == ETaskSchedulerLifetime::Running);
+			std::lock_guard Lock(GTaskSchedulerMutex);
+			Scheduler = GTaskScheduler;
+			bRunning = GTaskSchedulerLifetime == ETaskSchedulerLifetime::Running;
+			LastDiagnostics = GLastTaskSchedulerDiagnostics;
+			LifetimeAccounting = GLastTaskSchedulerLifetimeAccounting;
 		}
-		FTaskSchedulerDiagnostics Snapshot = GLastTaskSchedulerDiagnostics;
+		if (Scheduler)
+		{
+			return Scheduler->GetDiagnostics(bRunning);
+		}
+		FTaskSchedulerDiagnostics Snapshot = LastDiagnostics ? *LastDiagnostics : FTaskSchedulerDiagnostics{};
+		if (LifetimeAccounting)
+		{
+			Snapshot.RetainedTerminalHandleCount = LifetimeAccounting->RetainedTerminalTaskCount.load(std::memory_order::acquire);
+			Snapshot.RetainedTerminalResultCount = LifetimeAccounting->RetainedTerminalResultCount.load(std::memory_order::acquire);
+		}
 		Snapshot.AttributionRegistrationOverflowCount = GTaskAttributionRegistry.GetOverflowCount();
 		std::vector<FTaskOwnerCategoryDiagnostics> RegisteredPairs = GTaskAttributionRegistry.Snapshot();
 		for (const FTaskOwnerCategoryDiagnostics& Existing : Snapshot.OwnerCategoryDiagnostics)
@@ -2250,6 +2388,16 @@ namespace Durin
 		}
 		Snapshot.OwnerCategoryDiagnostics = std::move(RegisteredPairs);
 		return Snapshot;
+	}
+
+	auto PublishTaskSchedulerProfilerPlots() -> void
+	{
+		std::shared_ptr<FTaskScheduler> Scheduler;
+		{
+			std::lock_guard Lock(GTaskSchedulerMutex);
+			Scheduler = GTaskScheduler;
+		}
+		if (Scheduler) Scheduler->PublishProfilerPlots();
 	}
 
 	auto LaunchTask(const char* Name, FTaskFunction&& Function, const FTaskLaunchOptions& Options) -> FTaskHandle
@@ -2289,6 +2437,20 @@ namespace Durin
 
 	namespace Private
 	{
+		auto SetTaskTerminalPublicationTestHook(std::function<void(uint64)>&& Hook) -> void
+		{
+			std::lock_guard Lock(GTaskTerminalPublicationTestHookMutex);
+			GTaskTerminalPublicationTestHook = std::move(Hook);
+			GTaskTerminalPublicationTestHookEnabled.store(static_cast<bool>(GTaskTerminalPublicationTestHook), std::memory_order::release);
+		}
+
+		auto SetTaskSchedulerSnapshotTestHook(std::function<void()>&& Hook) -> void
+		{
+			std::lock_guard Lock(GTaskSchedulerSnapshotTestHookMutex);
+			GTaskSchedulerSnapshotTestHook = std::move(Hook);
+			GTaskSchedulerSnapshotTestHookEnabled.store(static_cast<bool>(GTaskSchedulerSnapshotTestHook), std::memory_order::release);
+		}
+
 		auto LaunchCancelableTaskWithCompletion(
 			const char* Name,
 			FMoveOnlyTaskFunction&& Function,
@@ -2575,10 +2737,14 @@ namespace Durin
 		{
 			SelectedAttribution = GCurrentTaskState->GetAttribution();
 		}
+		uint32 SchedulerWorkerCount = 0;
+		bool bSchedulerRunning = false;
 		{
 			std::lock_guard Lock(GTaskSchedulerMutex);
 			if (GTaskSchedulerLifetime == ETaskSchedulerLifetime::Running && GTaskScheduler)
 			{
+				bSchedulerRunning = true;
+				SchedulerWorkerCount = GTaskScheduler->GetWorkerCount();
 				GTaskScheduler->RecordParallelForOperation(SelectedAttribution);
 			}
 		}
@@ -2651,10 +2817,9 @@ namespace Durin
 			}
 		};
 
-		const FTaskSchedulerDiagnostics SchedulerDiagnostics = GetTaskSchedulerDiagnostics();
 		const uint64 MinBatchSize = std::max<uint64>(1, Options.MinBatchSize);
 		const uint64 BatchLimitedChunks = 1 + (Num - 1) / MinBatchSize;
-		const uint64 WorkerLimitedChunks = SchedulerDiagnostics.bRunning ? static_cast<uint64>(SchedulerDiagnostics.WorkerCount) + 1 : 1;
+		const uint64 WorkerLimitedChunks = bSchedulerRunning ? static_cast<uint64>(SchedulerWorkerCount) + 1 : 1;
 		const uint32 ChunkCount = static_cast<uint32>(std::min<uint64>(Num, std::min(BatchLimitedChunks, WorkerLimitedChunks)));
 		const uint32 EffectiveChunkCount = bNested ? 1 : std::max<uint32>(1, ChunkCount);
 

@@ -98,6 +98,34 @@ namespace Durin
 			}
 		};
 
+		class FTaskTerminalPublicationTestHookGuard
+		{
+		public:
+			explicit FTaskTerminalPublicationTestHookGuard(std::function<void(uint64)>&& Hook)
+			{
+				Private::SetTaskTerminalPublicationTestHook(std::move(Hook));
+			}
+
+			~FTaskTerminalPublicationTestHookGuard()
+			{
+				Private::SetTaskTerminalPublicationTestHook({});
+			}
+		};
+
+		class FTaskSchedulerSnapshotTestHookGuard
+		{
+		public:
+			explicit FTaskSchedulerSnapshotTestHookGuard(std::function<void()>&& Hook)
+			{
+				Private::SetTaskSchedulerSnapshotTestHook(std::move(Hook));
+			}
+
+			~FTaskSchedulerSnapshotTestHookGuard()
+			{
+				Private::SetTaskSchedulerSnapshotTestHook({});
+			}
+		};
+
 		struct FMoveOnlyVoidCallable
 		{
 			std::unique_ptr<int> Value = std::make_unique<int>(1);
@@ -1667,6 +1695,170 @@ namespace Durin
 		EXPECT_NE(0u, Checksum);
 	}
 
+	TEST(DISABLED_FTaskSystemAuditBenchmarks, RecordsStageZeroCapacityAndLatencyBaseline)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 4, .MaxNonterminalTasks = 100'000}));
+
+		auto RetainedHeapBytes = []() -> uint64 {
+			const DWORD HeapCount = GetProcessHeaps(0, nullptr);
+			std::vector<HANDLE> Heaps(HeapCount);
+			EXPECT_EQ(HeapCount, GetProcessHeaps(HeapCount, Heaps.data()));
+			uint64 Bytes = 0;
+			for (HANDLE Heap : Heaps)
+			{
+				const bool bLocked = HeapLock(Heap);
+				EXPECT_TRUE(bLocked);
+				if (!bLocked) continue;
+				PROCESS_HEAP_ENTRY Entry{};
+				while (HeapWalk(Heap, &Entry))
+				{
+					if ((Entry.wFlags & PROCESS_HEAP_ENTRY_BUSY) != 0) Bytes += Entry.cbData;
+				}
+				EXPECT_EQ(ERROR_NO_MORE_ITEMS, GetLastError());
+				EXPECT_TRUE(HeapUnlock(Heap));
+			}
+			return Bytes;
+		};
+		auto ElapsedNanoseconds = [](const auto& Function) -> uint64 {
+			const auto Start = std::chrono::steady_clock::now();
+			Function();
+			return static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - Start).count());
+		};
+		auto Median = [](std::vector<uint64> Samples) -> uint64 {
+			std::sort(Samples.begin(), Samples.end());
+			return Samples[Samples.size() / 2];
+		};
+		auto MeasureLatency = [&](const char* Cohort) {
+			constexpr uint32 SampleCount = 11;
+			std::vector<uint64> ParallelSamples;
+			std::vector<uint64> SnapshotSamples;
+			std::vector<uint64> AdmissionSamples;
+			ParallelSamples.reserve(SampleCount);
+			SnapshotSamples.reserve(SampleCount);
+			AdmissionSamples.reserve(SampleCount);
+			for (uint32 Index = 0; Index < SampleCount; ++Index)
+			{
+				ParallelSamples.emplace_back(ElapsedNanoseconds([&]() {
+					const FParallelForResult Result = ParallelForCancelable(
+						"AuditBaselineParallelFor", 1, [](uint64, const FParallelForCancellationToken&) {});
+					EXPECT_EQ(ETaskState::Succeeded, Result.State);
+				}));
+				SnapshotSamples.emplace_back(ElapsedNanoseconds([&]() {
+					EXPECT_TRUE(GetTaskSchedulerDiagnostics().bRunning);
+				}));
+
+				FThreadEvent SnapshotStarted;
+				std::thread SnapshotThread([&]() {
+					SnapshotStarted.Trigger();
+					GetTaskSchedulerDiagnostics();
+				});
+				EXPECT_TRUE(SnapshotStarted.WaitFor(1.0));
+				AdmissionSamples.emplace_back(ElapsedNanoseconds([&]() {
+					FTaskHandle Root = LaunchTask("AuditBaselineAdmission", []() {});
+					EXPECT_EQ(ETaskState::Succeeded, WaitTask(Root));
+				}));
+				SnapshotThread.join();
+			}
+			std::cout << "TaskSystemAuditLatency," << Cohort
+				<< ",parallel_for_median_ns=" << Median(ParallelSamples)
+				<< ",parallel_for_max_ns=" << *std::max_element(ParallelSamples.begin(), ParallelSamples.end())
+				<< ",snapshot_median_ns=" << Median(SnapshotSamples)
+				<< ",snapshot_max_ns=" << *std::max_element(SnapshotSamples.begin(), SnapshotSamples.end())
+				<< ",concurrent_admission_median_ns=" << Median(AdmissionSamples)
+				<< ",concurrent_admission_max_ns=" << *std::max_element(AdmissionSamples.begin(), AdmissionSamples.end())
+				<< '\n';
+		};
+
+		MeasureLatency("empty");
+		for (uint32 Index = 0; Index < 1'100; ++Index)
+		{
+			RegisterTaskAttribution("AuditBaselineOwner", "Category" + std::to_string(Index));
+		}
+		MeasureLatency("full_registry");
+
+		constexpr uint32 NodesPerCohort = 4'096;
+		FThreadEvent BlockerStarted;
+		FThreadEvent ReleaseBlocker;
+		FTaskHandle Blocker = LaunchTask("AuditMemoryBlocker", [&]() {
+			BlockerStarted.Trigger();
+			ReleaseBlocker.Wait();
+		});
+		ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
+
+		std::array<FTaskHandle, 1> BlockerPrerequisites{Blocker};
+		FTaskLaunchOptions WaitingOptions;
+		WaitingOptions.Prerequisites = BlockerPrerequisites;
+		std::vector<FTaskHandle> WaitingRoots;
+		std::vector<FTaskHandle> Continuations;
+		std::vector<FTaskHandle> FanInNodes;
+		std::vector<FTaskHandle> UniqueSinks;
+		WaitingRoots.reserve(NodesPerCohort);
+		Continuations.reserve(NodesPerCohort);
+		FanInNodes.reserve(NodesPerCohort);
+		UniqueSinks.reserve(NodesPerCohort);
+
+		const uint64 BeforeWaitingRoots = RetainedHeapBytes();
+		for (uint32 Index = 0; Index < NodesPerCohort; ++Index)
+		{
+			WaitingRoots.emplace_back(LaunchTask("AuditWaitingRoot", []() {}, WaitingOptions));
+		}
+		const uint64 AfterWaitingRoots = RetainedHeapBytes();
+		for (uint32 Index = 0; Index < NodesPerCohort; ++Index)
+		{
+			Continuations.emplace_back(Then(Blocker, "AuditContinuation", []() {}));
+		}
+		const uint64 AfterContinuations = RetainedHeapBytes();
+
+		auto FanInLeft = LaunchTask<int>("AuditFanInLeft", []() { return 1; }, WaitingOptions);
+		auto FanInRight = LaunchTask<int>("AuditFanInRight", []() { return 2; }, WaitingOptions);
+		for (uint32 Index = 0; Index < NodesPerCohort; ++Index)
+		{
+			auto Node = WhenAll(std::make_tuple(FanInLeft, FanInRight), "AuditFanIn", [](const int& Left, const int& Right) {
+				return Left + Right;
+			});
+			FanInNodes.emplace_back(Node.GetTaskHandle());
+		}
+		const uint64 AfterFanIn = RetainedHeapBytes();
+
+		for (uint32 Index = 0; Index < NodesPerCohort; ++Index)
+		{
+			auto Producer = LaunchUniqueTask<int>("AuditUniqueProducer", []() { return 1; }, WaitingOptions);
+			UniqueSinks.emplace_back(ConsumeThen(std::move(Producer), "AuditUniqueSink", [](int&&) {}));
+		}
+		const uint64 AfterUniqueSinks = RetainedHeapBytes();
+
+		std::cout << "TaskSystemAuditMemory,nodes_per_cohort=" << NodesPerCohort
+			<< ",waiting_root_bytes_per_node=" << (AfterWaitingRoots - BeforeWaitingRoots) / NodesPerCohort
+			<< ",continuation_bytes_per_node=" << (AfterContinuations - AfterWaitingRoots) / NodesPerCohort
+			<< ",typed_fan_in_bytes_per_node=" << (AfterFanIn - AfterContinuations) / NodesPerCohort
+			<< ",unique_producer_sink_bytes_per_node=" << (AfterUniqueSinks - AfterFanIn) / (NodesPerCohort * 2)
+			<< '\n';
+
+		ReleaseBlocker.Trigger();
+		for (const FTaskHandle& Task : WaitingRoots) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task));
+		for (const FTaskHandle& Task : Continuations) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task));
+		for (const FTaskHandle& Task : FanInNodes) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task));
+		for (const FTaskHandle& Task : UniqueSinks) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task));
+		WaitingRoots.clear();
+		Continuations.clear();
+		FanInNodes.clear();
+		UniqueSinks.clear();
+		Blocker = {};
+		FanInLeft = {};
+		FanInRight = {};
+
+		constexpr uint32 CompletedLifetimeCount = 50'000;
+		for (uint32 Index = 0; Index < CompletedLifetimeCount; ++Index)
+		{
+			FTaskHandle Task = LaunchTask("AuditCompletedLifetime", []() {});
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task));
+		}
+		MeasureLatency("large_completed_lifetime");
+	}
+
 	TEST(FTaskDiagnosticsTests, ReportsRelationshipsTimingCountersLongWaitsAndRetainedHandles)
 	{
 		ShutdownTaskScheduler(false);
@@ -1769,6 +1961,503 @@ namespace Durin
 		EXPECT_EQ(0u, ShutdownDiagnostics.NonterminalTaskCount);
 		EXPECT_EQ(0u, ShutdownDiagnostics.ActiveWorkerCount);
 		EXPECT_GE(ShutdownDiagnostics.RetainedTerminalHandleCount, 7u);
+	}
+
+	TEST(FTaskDiagnosticsTests, TerminalPublicationBarrierPublishesResultDiagnosticsAndDependentsTogether)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+
+		FThreadEvent TaskStarted;
+		FThreadEvent AllowTaskReturn;
+		FThreadEvent RawTerminalReached;
+		FThreadEvent ReleasePublication;
+		std::atomic<uint64> HookTaskId = 0;
+		std::atomic<bool> bDependentRan = false;
+		FTaskTerminalPublicationTestHookGuard HookGuard([&](uint64 TaskId) {
+			Private::SetTaskTerminalPublicationTestHook({});
+			HookTaskId.store(TaskId, std::memory_order::release);
+			RawTerminalReached.Trigger();
+			ReleasePublication.Wait();
+		});
+
+		auto Producer = LaunchTask<int>("PublicationBarrierProducer", [&]() {
+			TaskStarted.Trigger();
+			AllowTaskReturn.Wait();
+			return 42;
+		});
+		ASSERT_TRUE(TaskStarted.WaitFor(1.0));
+		FTaskHandle Dependent = Then(Producer, "PublicationBarrierDependent", [&](const int& Value) {
+			EXPECT_EQ(42, Value);
+			bDependentRan.store(true, std::memory_order::release);
+		});
+		AllowTaskReturn.Trigger();
+		ASSERT_TRUE(RawTerminalReached.WaitFor(1.0));
+		ASSERT_EQ(Producer.GetTaskId(), HookTaskId.load(std::memory_order::acquire));
+
+		const FTaskDiagnostics DuringPublication = Producer.GetDiagnostics();
+		EXPECT_EQ(ETaskState::Running, Producer.GetState());
+		EXPECT_EQ(ETaskState::Running, DuringPublication.State);
+		EXPECT_EQ(0u, DuringPublication.FinishTimeNanoseconds);
+		EXPECT_EQ(ETaskTerminalReason::None, DuringPublication.TerminalReason);
+		EXPECT_TRUE(DuringPublication.Diagnostic.empty());
+		EXPECT_FALSE(DuringPublication.bHasResultStorage);
+		EXPECT_EQ(0u, DuringPublication.RetainedResultBytes);
+		EXPECT_EQ(nullptr, Producer.GetResultShared());
+		EXPECT_EQ(ETaskState::Waiting, Dependent.GetState());
+		EXPECT_FALSE(bDependentRan.load(std::memory_order::acquire));
+
+		const FTaskSchedulerDiagnostics SchedulerDuringPublication = GetTaskSchedulerDiagnostics();
+		EXPECT_EQ(2u, SchedulerDuringPublication.NonterminalTaskCount);
+		EXPECT_EQ(0u, SchedulerDuringPublication.RetainedTerminalHandleCount);
+		EXPECT_EQ(0u, SchedulerDuringPublication.RetainedTerminalResultCount);
+
+		ReleasePublication.Trigger();
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Dependent));
+		ASSERT_NE(nullptr, Producer.GetResultShared());
+		EXPECT_EQ(42, *Producer.GetResultShared());
+		EXPECT_TRUE(bDependentRan.load(std::memory_order::acquire));
+		const FTaskDiagnostics Published = Producer.GetDiagnostics();
+		EXPECT_EQ(ETaskState::Succeeded, Published.State);
+		EXPECT_GT(Published.FinishTimeNanoseconds, 0u);
+		EXPECT_TRUE(Published.bHasResultStorage);
+
+		const uint64 ExpectedCompletedCount = SchedulerDuringPublication.CompletedTaskCount + 2;
+		while (GetTaskSchedulerDiagnostics().CompletedTaskCount < ExpectedCompletedCount)
+		{
+			std::this_thread::yield();
+		}
+		FTaskSchedulerDiagnostics Retained = GetTaskSchedulerDiagnostics();
+		EXPECT_EQ(0u, Retained.NonterminalTaskCount);
+		EXPECT_EQ(2u, Retained.RetainedTerminalHandleCount);
+		EXPECT_EQ(1u, Retained.RetainedTerminalResultCount);
+
+		Producer = {};
+		Dependent = {};
+		Retained = GetTaskSchedulerDiagnostics();
+		EXPECT_EQ(0u, Retained.RetainedTerminalHandleCount);
+		EXPECT_EQ(0u, Retained.RetainedTerminalResultCount);
+	}
+
+	TEST(FTaskDiagnosticsTests, DeepSnapshotDoesNotBlockAdmissionTerminalPublicationOrShutdown)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+
+		FThreadEvent TaskStarted;
+		FThreadEvent AllowTaskReturn;
+		FThreadEvent SnapshotPinned;
+		FThreadEvent ReleaseSnapshot;
+		FThreadEvent RawTerminalReached;
+		FThreadEvent ReleasePublication;
+		FThreadEvent ShutdownFinished;
+		FTaskSchedulerDiagnostics Snapshot;
+
+		FTaskHandle Running = LaunchTask("SnapshotContentionRunning", [&]() {
+			TaskStarted.Trigger();
+			AllowTaskReturn.Wait();
+		});
+		ASSERT_TRUE(TaskStarted.WaitFor(1.0));
+		FTaskHandle Waiting = Then(Running, "SnapshotContentionWaiting", []() {});
+		ASSERT_TRUE(Waiting.IsValid());
+
+		FTaskSchedulerSnapshotTestHookGuard SnapshotHook([&]() {
+			Private::SetTaskSchedulerSnapshotTestHook({});
+			SnapshotPinned.Trigger();
+			ReleaseSnapshot.Wait();
+		});
+		FTaskTerminalPublicationTestHookGuard TerminalHook([&](uint64 TaskId) {
+			if (TaskId != Running.GetTaskId()) return;
+			Private::SetTaskTerminalPublicationTestHook({});
+			RawTerminalReached.Trigger();
+			ReleasePublication.Wait();
+		});
+
+		std::thread SnapshotThread([&]() { Snapshot = GetTaskSchedulerDiagnostics(); });
+		EXPECT_TRUE(SnapshotPinned.WaitFor(1.0));
+		FTaskHandle Root = LaunchTask("SnapshotContentionRoot", []() {});
+		FTaskHandle LateContinuation = Then(Running, "SnapshotContentionLateContinuation", []() {});
+		EXPECT_TRUE(Root.IsValid());
+		EXPECT_TRUE(LateContinuation.IsValid());
+
+		AllowTaskReturn.Trigger();
+		EXPECT_TRUE(RawTerminalReached.WaitFor(1.0));
+		std::thread ShutdownThread([&]() {
+			ShutdownTaskScheduler(true);
+			ShutdownFinished.Trigger();
+		});
+		ReleasePublication.Trigger();
+		const bool bShutdownFinishedWithoutSnapshot = ShutdownFinished.WaitFor(2.0);
+		ReleaseSnapshot.Trigger();
+		ShutdownThread.join();
+		SnapshotThread.join();
+
+		EXPECT_TRUE(bShutdownFinishedWithoutSnapshot);
+		EXPECT_TRUE(Snapshot.bRunning);
+		EXPECT_EQ(0u, Snapshot.NonterminalTaskCount);
+		EXPECT_TRUE(Snapshot.NonterminalTasks.empty());
+		EXPECT_FALSE(IsTaskSchedulerRunning());
+	}
+
+	TEST(FTaskDiagnosticsTests, LifetimeCountersRemainIsolatedAcrossStoppedAndRestartedSchedulers)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		auto PreviousLifetime = LaunchTask<int>("PreviousLifetime", []() { return 7; });
+		auto ReleasedWhileStopped = LaunchTask<int>("ReleasedWhileStopped", []() { return 8; });
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(PreviousLifetime.GetTaskHandle()));
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(ReleasedWhileStopped.GetTaskHandle()));
+		while (GetTaskSchedulerDiagnostics().CompletedTaskCount < 2)
+		{
+			std::this_thread::yield();
+		}
+		ShutdownTaskScheduler(true);
+		EXPECT_EQ(2u, GetTaskSchedulerDiagnostics().RetainedTerminalHandleCount);
+		EXPECT_EQ(2u, GetTaskSchedulerDiagnostics().RetainedTerminalResultCount);
+		ReleasedWhileStopped = {};
+		EXPECT_EQ(1u, GetTaskSchedulerDiagnostics().RetainedTerminalHandleCount);
+		EXPECT_EQ(1u, GetTaskSchedulerDiagnostics().RetainedTerminalResultCount);
+
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedTerminalHandleCount);
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedTerminalResultCount);
+		PreviousLifetime = {};
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedTerminalHandleCount);
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedTerminalResultCount);
+	}
+
+	TEST(FTaskDiagnosticsTests, FirstSnapshotAfterObservationFreeLifetimeIsNotHistoryLinear)
+	{
+		FEngineThreadPoolTestGuard Guard;
+		auto RunCohort = [](uint32 TaskCount) -> uint64 {
+			ShutdownTaskScheduler(false);
+			EXPECT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 4, .MaxNonterminalTasks = 100'000}));
+			std::vector<FTaskHandle> Handles;
+			Handles.reserve(TaskCount);
+			for (uint32 Index = 0; Index < TaskCount; ++Index)
+			{
+				Handles.emplace_back(LaunchTask("LifetimeCounterSoak", []() {}));
+			}
+			WaitAll(Handles);
+
+			const auto SnapshotStart = std::chrono::steady_clock::now();
+			const FTaskSchedulerDiagnostics FirstSnapshot = GetTaskSchedulerDiagnostics();
+			const uint64 SnapshotNanoseconds = static_cast<uint64>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+				std::chrono::steady_clock::now() - SnapshotStart).count());
+			EXPECT_EQ(TaskCount, FirstSnapshot.RetainedTerminalHandleCount);
+			EXPECT_EQ(0u, FirstSnapshot.RetainedTerminalResultCount);
+			while (GetTaskSchedulerDiagnostics().CompletedTaskCount < TaskCount)
+			{
+				std::this_thread::yield();
+			}
+			Handles.clear();
+			EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedTerminalHandleCount);
+			ShutdownTaskScheduler(true);
+			return SnapshotNanoseconds;
+		};
+
+		const uint64 SmallLifetimeSnapshotNanoseconds = RunCohort(1'000);
+		const uint64 LargeLifetimeSnapshotNanoseconds = RunCohort(50'000);
+		EXPECT_LE(LargeLifetimeSnapshotNanoseconds, SmallLifetimeSnapshotNanoseconds * 10 + 1'000'000);
+	}
+
+	TEST(FTaskCapacityTests, ConfigurationValidationPreservesLegacyAndRunningBehavior)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		EXPECT_FALSE(InitializeTaskScheduler({.NumWorkerThreads = 1, .MaxNonterminalTasks = 0}));
+		EXPECT_FALSE(InitializeTaskScheduler({
+			.NumWorkerThreads = 1,
+			.MaxNonterminalTasks = static_cast<uint64>(std::numeric_limits<uint32>::max()) + 1,
+		}));
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		EXPECT_EQ(16'384u, GetTaskSchedulerDiagnostics().TaskReservationCapacity);
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 7, .MaxNonterminalTasks = 8}));
+		const FTaskSchedulerDiagnostics Unchanged = GetTaskSchedulerDiagnostics();
+		EXPECT_EQ(1u, Unchanged.WorkerCount);
+		EXPECT_EQ(16'384u, Unchanged.TaskReservationCapacity);
+	}
+
+	TEST(FTaskCapacityTests, SaturationCoversGraphFormsRollbackDeferredWorkAndCapacityReuse)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .MaxNonterminalTasks = 8}));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+
+		const FTaskAttribution Attribution = RegisterTaskAttribution("CapacityTests", "Saturation");
+		FTaskLaunchOptions RootOptions;
+		RootOptions.Attribution = Attribution;
+		auto UniqueProducer = LaunchUniqueTask<int>("CapacityUniqueProducer", []() { return 17; }, RootOptions);
+		auto FanInProducer = LaunchTask<int>("CapacityFanInProducer", []() { return 4; }, RootOptions);
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(UniqueProducer.GetTaskHandle()));
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(FanInProducer.GetTaskHandle()));
+
+		FThreadEvent BlockerStarted;
+		FThreadEvent ReleaseBlocker;
+		auto Blocker = LaunchTask<int>("CapacityBlocker", [&]() {
+			BlockerStarted.Trigger();
+			ReleaseBlocker.Wait();
+			return 3;
+		}, RootOptions);
+		ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
+		const FTaskHandle BlockerTask = Blocker.GetTaskHandle();
+		FTaskLaunchOptions WaitingOptions = RootOptions;
+		WaitingOptions.Prerequisites = std::span<const FTaskHandle>(&BlockerTask, 1);
+		std::vector<FTaskHandle> WaitingTasks;
+		for (uint32 Index = 0; Index < 7; ++Index)
+		{
+			WaitingTasks.emplace_back(LaunchTask("CapacityWaiting", []() {}, WaitingOptions));
+			ASSERT_TRUE(WaitingTasks.back().IsValid());
+		}
+
+		const FTaskSchedulerDiagnostics Saturated = GetTaskSchedulerDiagnostics();
+		EXPECT_EQ(8u, Saturated.TaskReservationCapacity);
+		EXPECT_EQ(8u, Saturated.CurrentTaskReservationCount);
+		EXPECT_EQ(8u, Saturated.PeakTaskReservationCount);
+
+		auto bRejectedCallableDestroyed = std::make_shared<std::atomic<bool>>(false);
+		struct FReentrantRejectedCallable
+		{
+			std::shared_ptr<std::atomic<bool>> bDestroyed;
+			std::unique_ptr<int> Ownership = std::make_unique<int>(1);
+			FReentrantRejectedCallable(std::shared_ptr<std::atomic<bool>> InDestroyed)
+				: bDestroyed(std::move(InDestroyed)) {}
+			FReentrantRejectedCallable(FReentrantRejectedCallable&&) noexcept = default;
+			FReentrantRejectedCallable(const FReentrantRejectedCallable&) = delete;
+			~FReentrantRejectedCallable()
+			{
+				if (!Ownership) return;
+				EXPECT_EQ(8u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
+				bDestroyed->store(true, std::memory_order::release);
+			}
+			auto operator()() -> void {}
+		};
+		EXPECT_FALSE(LaunchTask("CapacityRejectedRoot", FReentrantRejectedCallable(bRejectedCallableDestroyed), RootOptions).IsValid());
+		EXPECT_TRUE(bRejectedCallableDestroyed->load(std::memory_order::acquire));
+
+		FTaskContinuationOptions ContinuationOptions;
+		ContinuationOptions.Attribution = Attribution;
+		EXPECT_FALSE(Then(Blocker, "CapacityRejectedContinuation", [](const int&) {}, ContinuationOptions).IsValid());
+		EXPECT_FALSE(WhenAll(std::make_tuple(Blocker, FanInProducer), "CapacityRejectedFanIn",
+			[](const int&, const int&) {}, ContinuationOptions).IsValid());
+		EXPECT_FALSE(ConsumeThen(std::move(UniqueProducer), "CapacityRejectedUnique",
+			[](int&&) {}, ContinuationOptions).IsValid());
+
+		FParallelForOptions ParallelOptions;
+		ParallelOptions.MinBatchSize = 1;
+		ParallelOptions.Attribution = Attribution;
+		EXPECT_EQ(ETaskState::Canceled, ParallelFor("CapacityRejectedParallelFor", 4, [](uint64) {}, ParallelOptions).State);
+
+		FTaskContinuationOptions DeferredOptions = ContinuationOptions;
+		DeferredOptions.Target = ETaskTarget::GameThreadDeferred;
+		DeferredOptions.EstimatedPayloadBytes = 1;
+		EXPECT_FALSE(Then(Blocker, "CapacityRejectedDeferred", [](const int&) {}, DeferredOptions).IsValid());
+
+		ASSERT_TRUE(CancelTask(WaitingTasks.back()));
+		WaitingTasks.pop_back();
+		EXPECT_EQ(7u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
+		FTaskHandle UniqueConsumer = ConsumeThen(std::move(UniqueProducer), "CapacityAcceptedUnique",
+			[](int&& Value) { EXPECT_EQ(17, Value); }, ContinuationOptions);
+		ASSERT_TRUE(UniqueConsumer.IsValid());
+		EXPECT_EQ(8u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
+
+		ReleaseBlocker.Trigger();
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(BlockerTask));
+		for (const FTaskHandle& Task : WaitingTasks) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task));
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(UniqueConsumer));
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
+
+		FTaskHandle Deferred = Then(FanInProducer, "CapacityAcceptedDeferred", [](const int&) {}, DeferredOptions);
+		ASSERT_TRUE(Deferred.IsValid());
+		while (Deferred.GetState() == ETaskState::Waiting) std::this_thread::yield();
+		EXPECT_EQ(1u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
+		EXPECT_EQ(1u, PumpGameThreadDeferredWork({.bUnlimited = true}).ExecutedCallbacks);
+		EXPECT_EQ(ETaskState::Succeeded, Deferred.GetState());
+
+		const FTaskSchedulerDiagnostics Final = GetTaskSchedulerDiagnostics();
+		EXPECT_EQ(0u, Final.CurrentTaskReservationCount);
+		EXPECT_EQ(8u, Final.PeakTaskReservationCount);
+		EXPECT_GE(Final.CapacityRejectedTaskCount, 6u);
+		auto CapacityCategory = std::ranges::find_if(Final.OwnerCategoryDiagnostics, [](const FTaskOwnerCategoryDiagnostics& Entry) {
+			return Entry.Owner == "CapacityTests" && Entry.Category == "Saturation";
+		});
+		ASSERT_NE(Final.OwnerCategoryDiagnostics.end(), CapacityCategory);
+		EXPECT_EQ(Final.CapacityRejectedTaskCount, CapacityCategory->CapacityExhaustedCount);
+	}
+
+	TEST(FTaskCapacityTests, ConcurrentProducersNeverOversubscribe)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .MaxNonterminalTasks = 8}));
+		FThreadEvent BlockerStarted;
+		FThreadEvent ReleaseBlocker;
+		FTaskHandle Blocker = LaunchTask("CapacityConcurrentBlocker", [&]() {
+			BlockerStarted.Trigger();
+			ReleaseBlocker.Wait();
+		});
+		ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
+
+		std::mutex AcceptedMutex;
+		std::vector<FTaskHandle> Accepted;
+		std::vector<std::thread> Producers;
+		for (uint32 Index = 0; Index < 32; ++Index)
+		{
+			Producers.emplace_back([&]() {
+				FTaskHandle Task = LaunchTask("CapacityConcurrentProducer", []() {});
+				if (Task.IsValid())
+				{
+					std::lock_guard Lock(AcceptedMutex);
+					Accepted.emplace_back(std::move(Task));
+				}
+			});
+		}
+		for (std::thread& Producer : Producers) Producer.join();
+		const FTaskSchedulerDiagnostics Saturated = GetTaskSchedulerDiagnostics();
+		EXPECT_EQ(8u, Saturated.CurrentTaskReservationCount);
+		EXPECT_EQ(8u, Saturated.PeakTaskReservationCount);
+		EXPECT_EQ(7u, Accepted.size());
+		EXPECT_EQ(25u, Saturated.CapacityRejectedTaskCount);
+
+		ReleaseBlocker.Trigger();
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker));
+		for (const FTaskHandle& Task : Accepted) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task));
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
+	}
+
+	TEST(FTaskCapacityTests, DrainAndCancelShutdownReleaseEveryReservation)
+	{
+		ShutdownTaskScheduler(false);
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .MaxNonterminalTasks = 8}));
+		FThreadEvent DrainStarted;
+		FThreadEvent ReleaseDrain;
+		FTaskHandle DrainRoot = LaunchTask("CapacityDrainRoot", [&]() {
+			DrainStarted.Trigger();
+			ReleaseDrain.Wait();
+		});
+		ASSERT_TRUE(DrainStarted.WaitFor(1.0));
+		FTaskLaunchOptions DrainWaitingOptions;
+		DrainWaitingOptions.Prerequisites = std::span<const FTaskHandle>(&DrainRoot, 1);
+		std::vector<FTaskHandle> DrainTasks;
+		for (uint32 Index = 0; Index < 7; ++Index)
+		{
+			DrainTasks.emplace_back(LaunchTask("CapacityDrainWaiting", []() {}, DrainWaitingOptions));
+		}
+		EXPECT_EQ(8u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
+		ReleaseDrain.Trigger();
+		ShutdownTaskScheduler(true);
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
+		EXPECT_EQ(8u, GetTaskSchedulerDiagnostics().PeakTaskReservationCount);
+
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .MaxNonterminalTasks = 8}));
+		FThreadEvent Started;
+		FTaskHandle Running = LaunchCancelableTask("CapacityCancelRunning", [&](const FTaskCancellationToken& Token) {
+			Started.Trigger();
+			while (!Token.IsCancellationRequested()) std::this_thread::yield();
+		});
+		ASSERT_TRUE(Started.WaitFor(1.0));
+		FTaskLaunchOptions WaitingOptions;
+		WaitingOptions.Prerequisites = std::span<const FTaskHandle>(&Running, 1);
+		std::vector<FTaskHandle> Waiting;
+		for (uint32 Index = 0; Index < 7; ++Index) Waiting.emplace_back(LaunchTask("CapacityCancelWaiting", []() {}, WaitingOptions));
+		EXPECT_EQ(8u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
+		ShutdownTaskScheduler(false);
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().CurrentTaskReservationCount);
+		EXPECT_EQ(8u, GetTaskSchedulerDiagnostics().PeakTaskReservationCount);
+		EXPECT_EQ(ETaskState::Canceled, Running.GetState());
+		for (const FTaskHandle& Task : Waiting) EXPECT_EQ(ETaskState::Canceled, Task.GetState());
+	}
+
+	TEST(FTaskCapacityTests, ObservationFreeSaturationSoakReconcilesFinalAccounting)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler({.NumWorkerThreads = 1, .MaxNonterminalTasks = 64}));
+
+		constexpr uint32 RoundCount = 32;
+		constexpr uint32 SucceededPerRound = 32;
+		constexpr uint32 FailedPerRound = 8;
+		constexpr uint32 CanceledPerRound = 24;
+		constexpr uint32 RejectedPerRound = 16;
+		const FTaskAttribution Attribution = RegisterTaskAttribution("CapacityTests", "ObservationFreeSoak");
+		FTaskLaunchOptions RootOptions;
+		RootOptions.Attribution = Attribution;
+
+		for (uint32 Round = 0; Round < RoundCount; ++Round)
+		{
+			FThreadEvent BlockerStarted;
+			FThreadEvent ReleaseBlocker;
+			FTaskHandle Blocker = LaunchTask("CapacitySoakBlocker", [&]() {
+				BlockerStarted.Trigger();
+				ReleaseBlocker.Wait();
+			}, RootOptions);
+			ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
+
+			FTaskLaunchOptions WaitingOptions = RootOptions;
+			WaitingOptions.Prerequisites = std::span<const FTaskHandle>(&Blocker, 1);
+			std::vector<FTaskHandle> Succeeded;
+			std::vector<FTaskHandle> Failed;
+			std::vector<FTaskHandle> Canceled;
+			Succeeded.reserve(SucceededPerRound - 1);
+			Failed.reserve(FailedPerRound);
+			Canceled.reserve(CanceledPerRound);
+			for (uint32 Index = 1; Index < SucceededPerRound; ++Index)
+			{
+				Succeeded.emplace_back(LaunchTask("CapacitySoakSucceeded", []() {}, WaitingOptions));
+				ASSERT_TRUE(Succeeded.back().IsValid());
+			}
+			for (uint32 Index = 0; Index < FailedPerRound; ++Index)
+			{
+				Failed.emplace_back(LaunchTask("CapacitySoakFailed", []() {
+					throw std::runtime_error("capacity soak failure");
+				}, WaitingOptions));
+				ASSERT_TRUE(Failed.back().IsValid());
+			}
+			for (uint32 Index = 0; Index < CanceledPerRound; ++Index)
+			{
+				Canceled.emplace_back(LaunchTask("CapacitySoakCanceled", []() {}, WaitingOptions));
+				ASSERT_TRUE(Canceled.back().IsValid());
+			}
+			for (uint32 Index = 0; Index < RejectedPerRound; ++Index)
+			{
+				EXPECT_FALSE(LaunchTask("CapacitySoakRejected", []() {}, RootOptions).IsValid());
+			}
+
+			for (const FTaskHandle& Task : Canceled) EXPECT_TRUE(CancelTask(Task));
+			ReleaseBlocker.Trigger();
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker));
+			for (const FTaskHandle& Task : Succeeded) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task));
+			for (const FTaskHandle& Task : Failed) EXPECT_EQ(ETaskState::Failed, WaitTask(Task));
+			for (const FTaskHandle& Task : Canceled) EXPECT_EQ(ETaskState::Canceled, WaitTask(Task));
+		}
+
+		const FTaskSchedulerDiagnostics Final = GetTaskSchedulerDiagnostics();
+		const auto Category = std::ranges::find_if(Final.OwnerCategoryDiagnostics, [](const FTaskOwnerCategoryDiagnostics& Entry) {
+			return Entry.Owner == "CapacityTests" && Entry.Category == "ObservationFreeSoak";
+		});
+		ASSERT_NE(Final.OwnerCategoryDiagnostics.end(), Category);
+		const uint64 ExpectedAccepted = static_cast<uint64>(RoundCount)
+			* (SucceededPerRound + FailedPerRound + CanceledPerRound);
+		const uint64 ExpectedRejected = static_cast<uint64>(RoundCount) * RejectedPerRound;
+		EXPECT_EQ(ExpectedAccepted, Category->AcceptedCount);
+		EXPECT_EQ(static_cast<uint64>(RoundCount) * SucceededPerRound, Category->SucceededCount);
+		EXPECT_EQ(static_cast<uint64>(RoundCount) * FailedPerRound, Category->FailedCount);
+		EXPECT_EQ(static_cast<uint64>(RoundCount) * CanceledPerRound, Category->CanceledCount);
+		EXPECT_EQ(ExpectedRejected, Category->RejectedCount);
+		EXPECT_EQ(0u, Category->CurrentNonterminalCount);
+		EXPECT_EQ(ExpectedAccepted, Final.CompletedTaskCount);
+		EXPECT_EQ(ExpectedRejected, Final.RejectedTaskCount);
+		EXPECT_EQ(ExpectedRejected, Final.CapacityRejectedTaskCount);
+		EXPECT_EQ(Category->AcceptedCount,
+			Category->SucceededCount + Category->FailedCount + Category->CanceledCount + Category->CurrentNonterminalCount);
+		EXPECT_EQ(0u, Final.CurrentTaskReservationCount);
+		EXPECT_EQ(0u, Final.NonterminalTaskCount);
 	}
 
 	TEST(FTaskAttributionTests, AggregatesLifecycleRejectionsResultsAndConcurrentSnapshots)

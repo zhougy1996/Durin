@@ -170,12 +170,17 @@ accounting. The pinned Tracy API has no native cross-thread flow primitive, so
 the task id is the correlation key; Durin does not retain task history to draw
 synthetic arrows.
 
-Diagnostic snapshots may publish seven fixed plots per registered pair:
+The engine frame boundary publishes seven fixed plots per registered pair:
 `QueueDepth`, `Running`, `Rejected`, `CallableBytes`, `PayloadBytes`,
 `ResultBytes`, and `RetainedResultBytes`, under
 `Tasks.<Owner>.<Category>.<Measurement>`. Plot names are built once from the
 bounded attribution registry. Dynamic task names, asset paths, ids, and request
 values never create plots or source locations.
+
+`FEngineLoop::Tick()` explicitly publishes those fixed aggregates immediately
+before its CPU frame mark. Task and scheduler diagnostic getters never publish
+plots, so observation frequency cannot change profiler output or scheduling
+contention.
 
 The adapter has 1,024 fixed slots matching the task attribution bound. With
 Tracy disabled its entry points are inline no-ops accepting only fixed-width

@@ -479,6 +479,7 @@ namespace Durin
 			// no present, so wait for events while retaining a low-frequency engine tick.
 			Application.WaitForEvents(MinimizedTickIntervalSeconds);
 		}
+		PublishTaskSchedulerProfilerPlots();
 		DURIN_PROFILE_FRAME_MARK();
 	}
 

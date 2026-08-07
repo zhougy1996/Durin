@@ -4,22 +4,24 @@ Summary: Bound process task-graph admission, remove lifetime task-history metada
 
 Last reviewed: 2026-08-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-08
 
 ## Current Status
 
-Planning is complete from the completed-task audit and the central task-system
-baseline `97e046e9` (`feat(tasks): add bounded owner diagnostics`). The current
-checkout baseline is `1ec8aa0a`; later commits do not change the reviewed task
-implementation. Stage 0 is ready to begin.
+All stages are complete. The two P1, two P2, and one P3 audit findings are
+resolved: scheduler-wide admission is finite, terminal accounting retains no
+completed-task history, diagnostics obey the publication barrier without deep
+global-lock work, `ParallelForCancelable` uses a shallow Worker-count query,
+and the maintained focused test target is documented. The resolved
+investigation was removed according to its lifecycle after lasting behavior
+moved to the CPU Task System and CPU Profiling contracts.
 
-This plan resolves the two P1, two P2, and one P3 findings in
-[Completed CPU Task System Audit](../Investigations/CompletedTaskSystemAudit.md).
-It is a prerequisite for resuming Stage 1 of
-[Structured Task Scopes](StructuredTaskScopes.md), whose frozen Stage 0 remains
-valid but whose implementation touches the same scheduler admission, terminal
-publication, diagnostics, and test files.
+Stage 4 passed the focused and aggregate native suites, observation-free
+saturation/soak accounting, Tracy-disabled and Tracy-enabled complete builds,
+and the hidden-window scheduler lifecycle smoke. [Structured Task Scopes](StructuredTaskScopes.md)
+Stage 1 is ready to resume from its frozen contract using the resulting
+configuration, final terminal hook, and lock boundaries.
 
 The initial implementation working set is limited to `Task.h`, `Task.cpp`,
 `ThreadingTests.cpp`, and `BuildAndRun.md`. `QueuedThreadPool.cpp` is a validated
@@ -174,26 +176,120 @@ result publication is coherent.
 - `BuildAndRun.md` names `CoreTests`, while the maintained focused target for
   this work is `CoreConcurrencyTests`.
 
+## Stage 0 Frozen Contract
+
+### Capacity configuration and rejection
+
+- The engine default is 16,384 process task reservations. The measured Debug
+  retained-heap cost ranged from 2,130 to 3,813 bytes per graph node, so the
+  worst measured cohort consumes about 59.6 MiB at the default. Current
+  production pilots create only roots plus one sink/continuation at a time;
+  16,384 leaves substantial burst headroom without accepting a quarter-gigabyte
+  Debug graph as the 65,536 alternative would. This is a count bound, not a
+  payload-byte quota.
+- `FTaskSchedulerConfig` contains `uint32 NumWorkerThreads = 0` and
+  `uint64 MaxNonterminalTasks = 16'384`. A new
+  `InitializeTaskScheduler(const FTaskSchedulerConfig&)` overload owns explicit
+  configuration. `InitializeTaskScheduler(uint32 InNumThreads = 0)` remains
+  source-compatible and delegates with the finite default. Worker zero retains
+  its existing automatic-selection meaning; capacity zero and capacity above
+  `uint32` maximum reject initialization. Reinitialization while running keeps
+  its existing idempotent behavior and never changes the active configuration.
+- Focused saturation tests use capacity 8. `FTaskScheduler::Submit` validates
+  scheduler state and prerequisites, then reserves under the scheduler mutex
+  before constructing `FTaskStateData`. Exhaustion returns the existing invalid
+  handle, leaves unique-consumer claims available for rollback, and destroys
+  callables/results after the global and scheduler locks have been released.
+- `ETaskTerminalReason::CapacityExhausted` is the distinct rejection vocabulary
+  even though no rejected task state is constructed. Scheduler diagnostics add
+  `TaskReservationCapacity`, `CurrentTaskReservationCount`,
+  `PeakTaskReservationCount`, and `CapacityRejectedTaskCount`; owner/category
+  diagnostics add `CapacityExhaustedCount`. Existing `RejectedTaskCount` and
+  owner `RejectedCount` continue to include capacity rejection.
+
+### Measurement baseline and thresholds
+
+The repeatable manual fixture is
+`DISABLED_FTaskSystemAuditBenchmarks.RecordsStageZeroCapacityAndLatencyBaseline`.
+The recorded run used MSVC 14.44 Debug, four Workers, 11 latency samples, 4,096
+nodes per memory cohort, a full 1,024-pair attribution registry, and 50,000
+completed tasks without intervening diagnostics. Times are one-run medians and
+maxima in milliseconds; Stage 3 repeats the identical fixture before broad
+qualification.
+
+| State | ParallelFor median / max | Snapshot median / max | Concurrent root admission median / max |
+| --- | ---: | ---: | ---: |
+| Empty scheduler | 0.0280 / 0.1152 | 0.0085 / 0.0326 | 0.0786 / 0.1535 |
+| Full attribution registry | 3.1451 / 3.4668 | 3.1000 / 3.3962 | 2.8662 / 3.0787 |
+| Full registry plus completed lifetime | 3.1256 / 55.7599 | 3.1010 / 3.5989 | 2.8680 / 3.2891 |
+
+The 55.7599 ms maximum is the first `ParallelForCancelable` call pruning the
+unobserved lifetime history. Stage 3 investigates an empty-cohort
+`ParallelForCancelable` median regression above 10 percent and any root
+admission stall above 1 ms while a deep snapshot runs. Snapshot construction
+may retain its registry-dependent cost, but it must no longer transfer that
+cost to admission or Worker-count lookup.
+
+| Retained waiting graph cohort | Debug heap bytes per accepted node |
+| --- | ---: |
+| Root waiting on a stalled prerequisite | 3,813 |
+| Continuation waiting on a stalled predecessor | 2,652 |
+| Typed two-input fan-in | 2,321 |
+| Unique producer plus consuming sink | 2,130 |
+
+The unique figure divides the pair delta by its two accepted nodes. These
+measurements include the current active and lifetime-map bookkeeping and are
+capacity-selection evidence, not a stable ABI-size promise.
+
+### Terminal ordering and locks
+
+The terminal winner and future scope hook use this exact order:
+
+1. Under the task-state mutex, store the raw terminal state and terminal-only
+   fields, detach the completion hook and direct dependents, then release the
+   task-state mutex.
+2. Publish or discard typed result storage and release pending callable storage
+   with no scheduler, task-state, Worker-queue, or GameThread-queue lock held.
+3. Remove the task from shared cancellation tracking without holding the
+   task-state mutex.
+4. Under the task-state mutex, charge the fixed lifetime task/result counters
+   once and set `bTerminalPublicationFinished` as the final visibility write;
+   release the mutex and notify waiters.
+5. Notify every copied direct dependent with no predecessor lock held. A
+   dependent may become terminal or dispatch using its already-owned process
+   reservation; no second capacity decision occurs.
+6. Enter the scheduler mutex, then the optional scope mutex, balance the scope
+   terminal count, remove the active-node entry, and release the process task
+   reservation exactly once. Quiescence notification follows the balanced
+   counters.
+
+The global order remains global scheduler lifetime mutex, scheduler mutex,
+scope mutex, then task-state mutex. Terminal publication never holds the
+task-state mutex while entering cancellation, scheduler, scope, or executor
+state. Deep diagnostics may pin/copy at each level in that order but must
+release the scheduler/scope lock before calling task diagnostics. The final
+terminal hook is the sole scope and process-reservation release site.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze capacity configuration and regression baselines
 
 Dependencies: audit baseline `97e046e9`; no task-system implementation change.
 
-- [ ] Measure retained bytes for representative waiting roots, continuations,
+- [x] Measure retained bytes for representative waiting roots, continuations,
   fan-in nodes, and unique sinks, then select the finite default maximum
   nonterminal count and a small deterministic test override.
-- [ ] Freeze the scheduler configuration/API shape, initialization validation,
+- [x] Freeze the scheduler configuration/API shape, initialization validation,
   capacity-exhaustion terminal reason, public diagnostic fields, and source
   compatibility behavior for `InitializeTaskScheduler(uint32)`.
-- [ ] Record baseline latency for `ParallelForCancelable`, a full diagnostic
+- [x] Record baseline latency for `ParallelForCancelable`, a full diagnostic
   snapshot, and concurrent root admission under an empty scheduler, a full
   attribution registry, and a large completed lifetime without intervening
   diagnostics.
-- [ ] Record the exact terminal-publication ordering and lock order shared by
+- [x] Record the exact terminal-publication ordering and lock order shared by
   capacity release, live terminal accounting, dependent notification, and the
   future scope release hook.
-- [ ] Replace the stale `CoreTests` native-test examples in `BuildAndRun.md`
+- [x] Replace the stale `CoreTests` native-test examples in `BuildAndRun.md`
   with `CoreConcurrencyTests`, preserving general `all` examples.
 
 #### Acceptance Gate
@@ -202,22 +298,44 @@ Dependencies: audit baseline `97e046e9`; no task-system implementation change.
   order, and performance comparison cohort are explicit and testable.
 - The documented focused Core command resolves to a maintained target.
 
+#### Stage 0 Handoff
+
+- Baseline commit: `1aadfcc0` (`docs(tasks): plan task system audit
+  remediation`). No reviewed task implementation changed after the central
+  task-system baseline `97e046e9`.
+- Working set: Stage 1 writes `Task.h`, `Task.cpp`, and
+  `ThreadingTests.cpp`. `BuildAndRun.md` is complete for this plan unless later
+  validation discovers another stale example.
+- Key symbols: `FTaskStateData::PublishTerminalLocked` owns the raw winner;
+  `FinishTerminalPublication` owns barrier publication, direct dependent
+  propagation, and the final balanced release; `FTaskScheduler::OnTaskTerminal`
+  moves to that final hook; `AllTasks` is replaced by fixed lifetime counters.
+- Decisions: 16,384 default reservations, capacity-8 focused override,
+  `FTaskSchedulerConfig`, distinct `CapacityExhausted` evidence, public
+  reservation diagnostics, the six-step terminal order, and the 1 ms admission
+  stall threshold are frozen in `Stage 0 Frozen Contract`.
+- Open questions: none for Stage 1. Stage 1 must preserve the structured-scope
+  lock order and leave capacity enforcement itself to Stage 2.
+- Validation: the manual Stage 0 benchmark passed on
+  `CoreConcurrencyTests`; the target resolved and produced the recorded memory
+  and latency cohort. The benchmark remains disabled for explicit reruns.
+
 ### Stage 1: Make terminal publication and lifetime accounting coherent
 
 Dependencies: Stage 0 configuration and ordering decisions.
 
-- [ ] Make `FTaskStateData::GetDiagnostics` derive its visible state and every
+- [x] Make `FTaskStateData::GetDiagnostics` derive its visible state and every
   terminal-only field from `bTerminalPublicationFinished` as one locked copy.
-- [ ] Move active-node release to the frozen end-of-publication hook without
+- [x] Move active-node release to the frozen end-of-publication hook without
   changing failure/cancellation precedence or shutdown quiescence.
-- [ ] Replace `AllTasks` with fixed scheduler-lifetime terminal task/result
+- [x] Replace `AllTasks` with fixed scheduler-lifetime terminal task/result
   counters balanced by publication and task-state destruction.
-- [ ] Preserve stopped-lifetime diagnostics across scheduler restart without
+- [x] Preserve stopped-lifetime diagnostics across scheduler restart without
   retaining individual task state or mixing lifetime counters.
-- [ ] Add a test-only completion barrier and deterministic tests for raw
+- [x] Add a test-only completion barrier and deterministic tests for raw
   terminal transition versus result publication, task diagnostics, scheduler
   nonterminal snapshots, dependents, and state destruction.
-- [ ] Add an observation-free soak that completes a large task population,
+- [x] Add an observation-free soak that completes a large task population,
   never calls scheduler diagnostics during the run, then proves tracker
   cardinality remains fixed and the first later snapshot is not lifetime-linear.
 
@@ -229,21 +347,49 @@ Dependencies: Stage 0 configuration and ordering decisions.
 - Current and final retained terminal task/result counts balance to surviving
   state lifetimes without scanning task ids.
 
+#### Stage 1 Handoff
+
+- Baseline commit: `1aadfcc0` (`docs(tasks): plan task system audit
+  remediation`). Stages 0-4 land together in the squashed completion commit.
+- Working set: Stage 2 continues in `Task.h`, `Task.cpp`, and
+  `ThreadingTests.cpp`, plus this plan for status and handoff. No additional
+  dependency was required in Stage 1.
+- Key symbols: `FTaskStateData::GetDiagnostics` and `GetDiagnostic` gate raw
+  terminal fields on `bTerminalPublicationFinished`;
+  `FTaskStateData::FinishTerminalPublication` charges
+  `FTaskSchedulerLifetimeAccounting`, publishes the barrier, propagates direct
+  dependents, then calls `FTaskScheduler::OnTaskTerminal` as the final release;
+  `FTaskStateData::~FTaskStateData` balances the lifetime counters.
+- Decisions: scheduler diagnostics copy active task owners under the scheduler
+  mutex and resolve their task snapshots after releasing it; stopped
+  diagnostics pin only the prior lifetime's two-counter accounting object;
+  restart diagnostics use only the new scheduler lifetime. The native-test
+  hook has an atomic disabled fast path and is invoked before completion/result
+  publication on success, failure, and pre-execution cancellation paths.
+- Open questions: none for Stage 2. Reservation release must attach to the
+  existing final `OnTaskTerminal` call and must not move it earlier than direct
+  dependent propagation.
+- Validation: `FTaskDiagnosticsTests.*` passed 4/4, all task-system tests passed
+  48/48, and the complete `CoreConcurrencyTests` binary passed 103/103 on
+  `Win64-Debug-DurinEditor-Tests`. The observation-free 1,000 versus 50,000
+  task first-snapshot comparison passed, and retained task/result counters
+  balanced through publication, destruction, stopped state, and restart.
+
 ### Stage 2: Enforce scheduler-wide nonterminal admission
 
 Dependencies: Stage 1 provides the one final reservation-release hook.
 
-- [ ] Add validated scheduler capacity configuration and current/peak/capacity-
+- [x] Add validated scheduler capacity configuration and current/peak/capacity-
   rejection diagnostics while preserving the existing initialization entry
   point.
-- [ ] Reserve before node construction in `FTaskScheduler::Submit`; release
+- [x] Reserve before node construction in `FTaskScheduler::Submit`; release
   exactly once at the Stage 1 terminal completion hook.
-- [ ] Ensure every task form uses the same reservation and that accepted
+- [x] Ensure every task form uses the same reservation and that accepted
   waiting nodes dispatch without a second capacity decision.
-- [ ] Add small-capacity tests for roots, stalled prerequisites, continuations,
+- [x] Add small-capacity tests for roots, stalled prerequisites, continuations,
   typed fan-in, unique claim rollback, parallel-for chunks, GameThread deferred
   work, multiple producers, capacity reuse, and both shutdown modes.
-- [ ] Prove callable/result destruction occurs outside scheduler, task-state,
+- [x] Prove callable/result destruction occurs outside scheduler, task-state,
   Worker-queue, and GameThread-queue locks on every capacity rejection path.
 
 #### Acceptance Gate
@@ -254,22 +400,52 @@ Dependencies: Stage 1 provides the one final reservation-release hook.
   claim loss, deadlock, or failure of already-accepted internal dispatch.
 - Reservation counts return to zero after drain and cancel shutdown.
 
+#### Stage 2 Handoff
+
+- Baseline commit: `1aadfcc0` (`docs(tasks): plan task system audit
+  remediation`). Stages 0-4 land together in the squashed completion commit.
+- Working set: Stage 3 continues in `Task.h`, `Task.cpp`, and
+  `ThreadingTests.cpp`, plus this plan for status and handoff. No additional
+  dependency was required in Stage 2.
+- Key symbols: `FTaskSchedulerConfig` preserves the legacy initialization API
+  with a default capacity of 16,384; `FTaskScheduler::Submit` validates state
+  and prerequisites before reserving and constructing a node;
+  `FTaskScheduler::OnTaskTerminal` performs the single balanced release;
+  `FTaskSchedulerDiagnostics` and `FTaskOwnerCategoryDiagnostics` expose the
+  frozen capacity and rejection fields.
+- Decisions: capacity is validated to the nonzero `uint32` range and enforced
+  under the scheduler mutex. Rejection records `CapacityExhausted` aggregate
+  evidence without constructing a hidden task state. Callable and result-owner
+  closures remain caller-owned until both global and scheduler admission locks
+  have unwound; capacity rejection never enters Worker or GameThread queue
+  locks. Accepted waiting nodes proceed directly to their target queue without
+  another capacity check.
+- Open questions: none for Stage 3. Its shallow runtime query can consume the
+  immutable Worker count and running state without changing reservation
+  ownership or release ordering.
+- Validation: focused capacity tests passed 4/4, all task-system tests passed
+  52/52, and the complete `CoreConcurrencyTests` binary passed 107/107 on
+  `Win64-Debug-DurinEditor-Tests`. Capacity-8 tests covered concurrent roots,
+  stalled graphs, continuations, typed fan-in, unique claim rollback,
+  `ParallelFor`, GameThread deferred work, reuse, drain, and cancel; current
+  reservations returned to zero and peak reservations never exceeded eight.
+
 ### Stage 3: Decouple runtime queries from diagnostic reporting
 
 Dependencies: Stage 1 removes history traversal; Stage 2 exposes capacity
 state used by the snapshot.
 
-- [ ] Add a lightweight internal running/Worker-count query and switch
+- [x] Add a lightweight internal running/Worker-count query and switch
   `ParallelForCancelable` to it.
-- [ ] Pin scheduler lifetime under `GTaskSchedulerMutex`, release it, and build
+- [x] Pin scheduler lifetime under `GTaskSchedulerMutex`, release it, and build
   the scheduler snapshot from a bounded active-node cohort without holding the
   global lock or nesting scheduler and task-state locks.
-- [ ] Separate fixed profiler aggregate plot publication from diagnostic
+- [x] Separate fixed profiler aggregate plot publication from diagnostic
   getters and attach it to the profiling/frame update boundary selected in
   Stage 0.
-- [ ] Add deterministic contention tests in which diagnostics overlap root and
+- [x] Add deterministic contention tests in which diagnostics overlap root and
   continuation admission, terminal publication, and shutdown.
-- [ ] Repeat the Stage 0 latency cohort and investigate any `ParallelFor`
+- [x] Repeat the Stage 0 latency cohort and investigate any `ParallelFor`
   regression above 10 percent or admission stall above the frozen threshold.
 
 #### Acceptance Gate
@@ -281,22 +457,53 @@ state used by the snapshot.
 - Concurrent snapshots contain no barrier-visible terminal entry in
   `NonterminalTasks` and remain lifetime-safe through shutdown.
 
+#### Stage 3 Handoff
+
+- Baseline commit: `1aadfcc0` (`docs(tasks): plan task system audit
+  remediation`). Stages 0-4 land together in the squashed completion commit.
+- Working set: Stage 4 continues from `Task.h`, `Task.cpp`,
+  `ThreadingTests.cpp`, and this plan. Stage 3 also added the direct frame
+  boundary dependency `LaunchEngineLoop.cpp`; Stage 4 expands to the contract,
+  audit, build documentation, and structured-scope plan named in its checklist.
+- Key symbols: `FTaskScheduler::GetWorkerCount` supplies the immutable shallow
+  query; `GetTaskSchedulerDiagnostics` pins the live scheduler or stopped
+  snapshot under `GTaskSchedulerMutex` and performs all deep copying after
+  release; `FTaskScheduler::GetDiagnostics` resolves a strong active-node
+  cohort outside its mutex; `PublishTaskSchedulerProfilerPlots` publishes
+  fixed aggregates explicitly from `FEngineLoop::Tick`.
+- Decisions: stopped snapshots are immutable shared snapshots so their vector
+  and string copies also occur outside the global lifetime lock. Diagnostic
+  getters never emit profiler plots. A deterministic native-test hook pauses
+  only after the active cohort is pinned and both lifetime/scheduler locks are
+  released, allowing admission, terminal publication, and shutdown to prove
+  forward progress while the deep snapshot remains outstanding.
+- Open questions: none for Stage 4. Profiling-enabled/disabled qualification
+  should verify the explicit frame publication path without changing its
+  ownership boundary.
+- Validation: the new contention test passed, all task-system tests passed
+  53/53, the complete `CoreConcurrencyTests` binary passed 108/108, and the
+  `Launch` target built on `Win64-Debug-DurinEditor-Tests`. The corrected
+  capacity-100,000 manual fixture passed: empty `ParallelFor` median was
+  0.0139 ms versus the Stage 0 0.0280 ms baseline, and the maximum concurrent
+  root-admission latency across empty, full-registry, and large-completed-
+  lifetime cohorts was 0.634 ms, below the frozen 1 ms threshold.
+
 ### Stage 4: Integrate, qualify, and close the audit
 
 Dependencies: Stages 1-3 complete and stable.
 
-- [ ] Run the focused Core concurrency tests, task-focused filters, full native
+- [x] Run the focused Core concurrency tests, task-focused filters, full native
   aggregate, profiling-disabled/enabled configurations, complete `all` build,
   and hidden-window lifecycle smoke through the repository build contract.
-- [ ] Run saturation and soak qualification without diagnostics in the hot
+- [x] Run saturation and soak qualification without diagnostics in the hot
   loop, then query final counters and reconcile accepted, rejected, active,
   completed, failed, and canceled totals.
-- [ ] Update the CPU Task System contract with the finite admission bound,
+- [x] Update the CPU Task System contract with the finite admission bound,
   terminal accounting lifetime, snapshot locking boundary, and explicit
   profiler-publication behavior.
-- [ ] Update Structured Task Scopes to the resulting configuration, terminal
+- [x] Update Structured Task Scopes to the resulting configuration, terminal
   release hook, and lock order; resume its Stage 1 only after this plan passes.
-- [ ] Record resolution in the completed-task audit, remove the investigation
+- [x] Record resolution in the completed-task audit, remove the investigation
   and its open-index entry according to the investigation lifecycle, and
   complete/archive this plan through the plan lifecycle.
 
@@ -307,6 +514,30 @@ Dependencies: Stages 1-3 complete and stable.
 - Broad production adoption can rely on a finite process task-graph bound,
   observation-independent metadata bounds, coherent diagnostics, and a valid
   focused test command.
+
+#### Stage 4 Handoff
+
+- Baseline commit: `1aadfcc0` (`docs(tasks): plan task system audit
+  remediation`). Stages 0-4 land together in the squashed completion commit.
+- Working set: `ThreadingTests.cpp`, the CPU Task System and CPU Profiling
+  contracts, this plan, `StructuredTaskScopes.md`, and the investigation index;
+  the resolved `CompletedTaskSystemAudit.md` investigation was removed.
+- Key symbols and decisions: `FTaskSchedulerConfig::MaxNonterminalTasks` remains
+  the authoritative process bound; `FTaskStateData::FinishTerminalPublication`
+  opens the barrier and propagates direct dependents before the final
+  `FTaskScheduler::OnTaskTerminal` release; deep diagnostics use pin-copy-release
+  locking; `FEngineLoop::Tick` explicitly publishes fixed profiler plots.
+  Structured scopes reuse these boundaries and do not add a parallel process
+  capacity tracker.
+- Open questions: none. Structured Task Scopes Stage 1 is ready.
+- Validation: the observation-free 32-round saturation soak passed and
+  reconciled 2,048 accepted, 512 rejected, zero active, 2,048 completed, 256
+  failed, and 768 canceled tasks. Task-focused tests passed 54/54, complete
+  `CoreConcurrencyTests` passed 109/109, and the full native aggregate passed.
+  Complete `all` builds passed for `Win64-Debug-DurinEditor-Tests` (Tracy off)
+  and `Win64-Release-DurinEditor-Profiling` (Tracy on). The hidden-window
+  lifecycle smoke exited normally and reported 29 completed, one failed, two
+  canceled, and one rejected task.
 
 ## Validation Matrix
 
@@ -351,7 +582,6 @@ Dependencies: Stages 1-3 complete and stable.
 
 ## Related Documentation
 
-- [Completed CPU Task System Audit](../Investigations/CompletedTaskSystemAudit.md)
 - [Structured Task Scopes](StructuredTaskScopes.md)
 - [CPU Task System](../Runtime/Core/TaskSystem.md)
 - [Build and Run](../Development/Build/BuildAndRun.md)

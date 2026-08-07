@@ -9,12 +9,12 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete from the M3 completion baseline `97e046e9`; Stage 1 is
-paused behind [Task System Audit Remediation](TaskSystemAuditRemediation.md).
-That prerequisite repairs scheduler-wide admission bounds, terminal lifetime
-accounting, the publication barrier, and diagnostic locking in the same Core
-working set. The frozen contract remains valid and implementation resumes from
-its recorded handoff after the remediation plan passes.
+Stage 0 is complete from the M3 completion baseline `97e046e9`; Stage 1 is ready
+to resume after completed [Task System Audit Remediation](TaskSystemAuditRemediation.md).
+That prerequisite established `FTaskSchedulerConfig`, the default 16,384-node
+process capacity, the final post-propagation terminal hook, and non-nested deep
+snapshot locking in the same Core working set. The frozen scope contract remains
+valid with the integration clarifications below.
 
 The frozen contract uses a move-only `FTaskScope` controller and a
 copyable `FTaskScopeToken`, appends explicit scope selection to existing option
@@ -210,20 +210,26 @@ as scope task admission.
 
 ### Admission, close, and terminal balancing
 
-- `FTaskScheduler::Submit` validates scheduler lifetime, prerequisites, and
-  scope lifetime, then calls the selected scope's `TryAdmit` while holding the
-  scheduler mutex. `TryAdmit` and `Close` serialize on the scope mutex: either
-  admission increments accepted/active exactly once before node creation, or
-  close wins and the callable remains outside the node and scope.
+- `FTaskScheduler::Submit` validates scheduler lifetime, prerequisites, the
+  authoritative process-capacity slot, and scope lifetime, then calls the
+  selected scope's `TryAdmit` while holding the scheduler mutex. Scope
+  acceptance does not create a second process-capacity tracker. `TryAdmit` and
+  `Close` serialize on the scope mutex: either admission increments
+  accepted/active exactly once before node creation, or close wins and the
+  callable remains outside the node and scope. Construction rollback releases
+  both provisional charges.
 - Scope association is stored in `FTaskStateData`. Construction rollback before
   insertion releases the provisional scope charge; after insertion there is no
   admission rollback. A rejected request carrying a valid scope increments its
   scope rejection counter without incrementing accepted or active counts.
 - `FTaskStateData::FinishTerminalPublication` is the sole scope release site.
-  It releases after the completion hook and all direct dependent
-  `OnPrerequisiteTerminal` calls, so a zero active count cannot become visible
-  before terminal propagation has left the scope. The winning terminal state
-  supplies exactly one succeeded, failed, or canceled count.
+  It opens the terminal-publication barrier after the completion hook, notifies
+  all direct dependents, then releases the scope immediately before the
+  existing final `FTaskScheduler::OnTaskTerminal` capacity/accounting hook.
+  Scope and scheduler locks are acquired separately, so a zero scope count
+  cannot become visible before terminal propagation has left the scope. The
+  winning terminal state supplies exactly one succeeded, failed, or canceled
+  count.
 - `Close(Drain)` changes `Open` to `ClosingDrain` and rejects all later
   admission. `Close(Cancel)` changes `Open` to `ClosingCancel`, snapshots active
   task states, releases the scope lock, and requests ordinary cooperative
@@ -242,13 +248,15 @@ as scope task admission.
 
 ### Locks, waiting, and scheduler shutdown
 
-- The lock order is global scheduler lifetime mutex, scheduler mutex, scope
-  mutex, then task-state mutex. Scope close and diagnostic collection copy
-  weak task references under the scope mutex, release it, and only then cancel
-  tasks, resolve attribution labels, query task diagnostics, or destroy
-  callables. Terminal release enters the scope only after leaving the task
-  mutex. No scope operation enters an executor queue while holding the scope
-  mutex.
+- Admission may nest the global scheduler lifetime mutex, scheduler mutex, and
+  scope mutex in that order; it never enters a task-state mutex while the scope
+  mutex is held. Terminal publication leaves the task-state mutex before the
+  scope release and final scheduler hook, and those two locks are not nested.
+  Deep diagnostics pin scheduler lifetime under the global mutex, pin task
+  cohorts under the scheduler or scope mutex, then release those locks before
+  resolving labels or querying task diagnostics. Scope close follows the same
+  copy-then-release rule before cancellation or callable destruction. No scope
+  operation enters an executor queue while holding the scope mutex.
 - Scope waits are supported only after close. A non-GameThread external caller
   blocks on the scope condition variable. A Worker in the same scheduler uses
   the existing eligible-task helping path. GameThread rejects a wait while any
@@ -386,7 +394,7 @@ the Task Owner Diagnostics handoff.
 ### Stage 1: Add bounded scope admission and inheritance
 
 Dependencies: Stage 0 frozen contract; completed
-[Task System Audit Remediation](TaskSystemAuditRemediation.md).
+[Task System Audit Remediation](TaskSystemAuditRemediation.md). Ready.
 
 - [ ] Implement scope state and public handles/options without changing default
   behavior for unscoped callers.

@@ -100,6 +100,7 @@ namespace Durin
 		DependencyCanceled,
 		CancellationRequested,
 		DispatchRejected,
+		CapacityExhausted,
 		Superseded,
 		StaleGeneration,
 		CallbackFailure,
@@ -130,6 +131,10 @@ namespace Durin
 		CORE_API auto LaunchCancelableTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes = 0) -> FTaskHandle;
 		CORE_API auto LaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes = 0) -> FTaskHandle;
 		CORE_API auto MakeTaskRetainedResultBytesSetter(const FTaskHandle& Task) -> std::function<void(uint64)>;
+		// Native-test seam for pausing after the raw terminal transition and before completion publication.
+		CORE_API auto SetTaskTerminalPublicationTestHook(std::function<void(uint64)>&& Hook) -> void;
+		// Native-test seam for pausing after the active cohort is pinned and scheduler locks are released.
+		CORE_API auto SetTaskSchedulerSnapshotTestHook(std::function<void()>&& Hook) -> void;
 		CORE_API auto RecordDuplicateUniqueConsumerClaim() -> void;
 		CORE_API auto RecordRejectedUniqueTask(const char* Name, const char* Diagnostic, FTaskAttribution Attribution = {}) -> void;
 	}
@@ -185,6 +190,7 @@ namespace Durin
 		uint64 DependencyCanceledCount = 0;
 		uint64 CancellationRequestedCount = 0;
 		uint64 DispatchRejectedCount = 0;
+		uint64 CapacityExhaustedCount = 0;
 		uint64 SupersededCount = 0;
 		uint64 StaleGenerationCount = 0;
 		uint64 CallbackFailureCount = 0;
@@ -213,12 +219,16 @@ namespace Durin
 	struct FTaskSchedulerDiagnostics
 	{
 		uint32 WorkerCount = 0;
+		uint64 TaskReservationCapacity = 0;
+		uint64 CurrentTaskReservationCount = 0;
+		uint64 PeakTaskReservationCount = 0;
 		uint32 QueueDepth = 0;
 		uint32 ActiveWorkerCount = 0;
 		uint64 CompletedTaskCount = 0;
 		uint64 FailedTaskCount = 0;
 		uint64 CanceledTaskCount = 0;
 		uint64 RejectedTaskCount = 0;
+		uint64 CapacityRejectedTaskCount = 0;
 		uint64 LongWaitCount = 0;
 		uint64 NonterminalTaskCount = 0;
 		uint64 RetainedTerminalHandleCount = 0;
@@ -508,8 +518,15 @@ namespace Durin
 		uint32 ChunkCount = 0;
 	};
 
+	struct FTaskSchedulerConfig
+	{
+		uint32 NumWorkerThreads = 0;
+		uint64 MaxNonterminalTasks = 16'384;
+	};
+
 	// Starts the process-owned CPU scheduler. Engine lifecycle starts it once during PreInit.
 	CORE_API auto InitializeTaskScheduler(uint32 InNumThreads = 0) -> bool;
+	CORE_API auto InitializeTaskScheduler(const FTaskSchedulerConfig& Config) -> bool;
 	// Closes admission and either drains or discards all accepted work before returning.
 	CORE_API auto ShutdownTaskScheduler(bool bWaitForQueuedWork = true) -> void;
 	CORE_API auto InitializeGameThreadDeferredExecutor(const FGameThreadDeferredWorkQueueConfig& Config = {}) -> bool;
@@ -520,6 +537,8 @@ namespace Durin
 	CORE_API auto IsTaskSchedulerRunning() -> bool;
 	// Returns the live lifetime snapshot, or the final snapshot after shutdown.
 	CORE_API auto GetTaskSchedulerDiagnostics() -> FTaskSchedulerDiagnostics;
+	// Publishes fixed task aggregates at the engine profiling/frame boundary.
+	CORE_API auto PublishTaskSchedulerProfilerPlots() -> void;
 
 	CORE_API auto LaunchTask(const char* Name, FTaskFunction&& Function, const FTaskLaunchOptions& Options = {}) -> FTaskHandle;
 	CORE_API auto LaunchCancelableTask(const char* Name, FCancelableTaskFunction&& Function, const FTaskLaunchOptions& Options = {}) -> FTaskHandle;

@@ -1,6 +1,6 @@
 # CPU Task System
 
-Last reviewed: 2026-08-07
+Last reviewed: 2026-08-08
 
 Durin's CPU task system provides process-wide bounded background execution for
 runtime and editor subsystems. It owns task admission, dependencies, typed
@@ -34,6 +34,17 @@ or reports rejection before releasing participation. Every later submission,
 including child work launched by an already-running task, is rejected. Callers
 must treat an invalid returned handle as work that was never accepted and must
 not wait for it as though it were pending.
+
+`FTaskSchedulerConfig::MaxNonterminalTasks` bounds the whole accepted graph for
+one scheduler lifetime and defaults to 16,384. Each root, waiting node,
+continuation, typed fan-in node, unique-result sink, and scheduled parallel-for
+chunk consumes one reservation before task-state publication; a queue
+transition consumes no second reservation. A full scheduler rejects before it
+retains a task node, reports `CapacityExhausted` in bounded diagnostics, and
+destroys or returns caller-owned state outside internal locks. The reservation
+is released exactly once only after result publication and direct dependent
+propagation finish. `FQueuedThreadPool` remains independently usable and has no
+second scheduler-capacity policy.
 
 ## Task States And Results
 
@@ -382,6 +393,14 @@ owner/category entries. Snapshot queries may allocate their bounded result but
 do not mutate counters, retain completed task history, or add hot-path label
 lookup and formatting.
 
+Terminal accounting has two bounded lifetimes. Scheduler outcome and
+owner/category totals are fixed counters charged at the final terminal hook;
+they retain no task id or state pointer. Retained-terminal task and result
+gauges are charged when the terminal-publication barrier opens and released
+when the last external task state or result owner is destroyed, including
+after scheduler shutdown. Diagnostic observation never performs cleanup or
+changes either lifetime.
+
 Attribution registration survives scheduler restart, while a new scheduler
 lifetime starts with zeroed aggregate slots. The current production pairs are
 `AssetImport/PreparePlan`, `AssetImport/PublishPlan`, and
@@ -415,9 +434,25 @@ retained terminal-handle count. At successful shutdown, queue depth, active
 workers, and nonterminal count are zero. Retained terminal handles are external
 owners of completed state, not leaked scheduler storage.
 
+The global scheduler-lifetime mutex is held only long enough to pin the live
+scheduler or immutable stopped snapshot. A live scheduler copies fixed
+aggregates and pins its current task cohort without holding that global mutex;
+it then releases the scheduler mutex before resolving labels or querying each
+task's coherent diagnostic snapshot. Concurrent admission, terminal
+publication, and shutdown therefore do not wait for deep snapshot traversal,
+and a pinned snapshot remains lifetime-safe if shutdown wins concurrently.
+`ParallelForCancelable` reads only the scheduler's immutable Worker count and
+does not enter this diagnostic path.
+
 Unique-result diagnostics add per-task estimated and currently retained result
 bytes plus scheduler-wide retained unique bytes and duplicate-claim count.
 They retain no result payload, callable, claim token, or terminal history.
+
+Diagnostic reads have no profiler side effects. `FEngineLoop::Tick()` calls
+`PublishTaskSchedulerProfilerPlots()` once at the frame boundary immediately
+before `DURIN_PROFILE_FRAME_MARK()`. The publication surface copies only the
+fixed owner/category aggregates; with Tracy disabled it remains a no-op after
+the same bounded runtime traversal.
 
 Normal engine exit detaches CPU-work producers, drains the scheduler, performs
 the object and module drains, and only then closes render-command admission and
