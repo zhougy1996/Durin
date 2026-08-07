@@ -13,13 +13,87 @@ namespace Durin
 	namespace
 	{
 		constexpr uint32 ObjectGraphMagic = 0x4E524F44; // DORN
-		constexpr uint32 ObjectGraphVersion = 1;
+		constexpr uint32 ObjectGraphVersion = 2;
 		constexpr uint64 MaximumSoftObjectPathBytes = 1024 * 1024;
 
-		auto WriteString(FArchive& Ar, std::string& Value) -> void
+		auto MakeLogicalTypeDescriptor(FProperty* Property) -> FArchiveLogicalTypeDescriptor
 		{
-			Ar.SerializeString(Value);
+			if (!Property) return FArchiveLogicalTypeDescriptor::Bytes();
+			switch (Property->GetKind())
+			{
+			case DurinCodeGen::EPropertyGenFlags::Bool: return FArchiveLogicalTypeDescriptor::Scalar(false, 8);
+			case DurinCodeGen::EPropertyGenFlags::Int8: return FArchiveLogicalTypeDescriptor::Scalar(true, 8);
+			case DurinCodeGen::EPropertyGenFlags::Int16: return FArchiveLogicalTypeDescriptor::Scalar(true, 16);
+			case DurinCodeGen::EPropertyGenFlags::Int32: return FArchiveLogicalTypeDescriptor::Scalar(true, 32);
+			case DurinCodeGen::EPropertyGenFlags::Int64: return FArchiveLogicalTypeDescriptor::Scalar(true, 64);
+			case DurinCodeGen::EPropertyGenFlags::UInt8: return FArchiveLogicalTypeDescriptor::Scalar(false, 8);
+			case DurinCodeGen::EPropertyGenFlags::UInt16: return FArchiveLogicalTypeDescriptor::Scalar(false, 16);
+			case DurinCodeGen::EPropertyGenFlags::UInt32: return FArchiveLogicalTypeDescriptor::Scalar(false, 32);
+			case DurinCodeGen::EPropertyGenFlags::UInt64: return FArchiveLogicalTypeDescriptor::Scalar(false, 64);
+			case DurinCodeGen::EPropertyGenFlags::Float: return FArchiveLogicalTypeDescriptor::Scalar(true, 32, true);
+			case DurinCodeGen::EPropertyGenFlags::Double: return FArchiveLogicalTypeDescriptor::Scalar(true, 64, true);
+			case DurinCodeGen::EPropertyGenFlags::String: return FArchiveLogicalTypeDescriptor::String();
+			case DurinCodeGen::EPropertyGenFlags::Name: return FArchiveLogicalTypeDescriptor::Name();
+			case DurinCodeGen::EPropertyGenFlags::Guid: return FArchiveLogicalTypeDescriptor::Guid();
+			case DurinCodeGen::EPropertyGenFlags::Object:
+				return FArchiveLogicalTypeDescriptor::Object(Property->GetReferencedClass()
+					? Property->GetReferencedClass()->GetQualifiedName() : FName());
+			case DurinCodeGen::EPropertyGenFlags::SoftObject:
+				return FArchiveLogicalTypeDescriptor::SoftObject(Property->GetReferencedClass()
+					? Property->GetReferencedClass()->GetQualifiedName() : FName());
+			case DurinCodeGen::EPropertyGenFlags::Struct:
+			{
+				auto* Struct = static_cast<FStructProperty*>(Property)->GetStruct();
+				return FArchiveLogicalTypeDescriptor::Struct(Struct ? Struct->GetQualifiedName() : FName());
+			}
+			case DurinCodeGen::EPropertyGenFlags::Array:
+				return FArchiveLogicalTypeDescriptor::Array(MakeLogicalTypeDescriptor(static_cast<FArrayProperty*>(Property)->GetInner()));
+			case DurinCodeGen::EPropertyGenFlags::Map:
+			{
+				auto* Map = static_cast<FMapProperty*>(Property);
+				return FArchiveLogicalTypeDescriptor::Map(
+					MakeLogicalTypeDescriptor(Map->GetKeyProp()), MakeLogicalTypeDescriptor(Map->GetValueProp()));
+			}
+			case DurinCodeGen::EPropertyGenFlags::Enum:
+			{
+				auto* EnumProperty = static_cast<FEnumProperty*>(Property);
+				DEnum* Enum = EnumProperty->GetEnum();
+				const auto Underlying = EnumProperty->GetUnderlyingType();
+				const bool bSigned = Underlying == DurinCodeGen::EEnumUnderlyingType::Int8
+					|| Underlying == DurinCodeGen::EEnumUnderlyingType::Int16
+					|| Underlying == DurinCodeGen::EEnumUnderlyingType::Int32
+					|| Underlying == DurinCodeGen::EEnumUnderlyingType::Int64;
+				return FArchiveLogicalTypeDescriptor::Enum(
+					Enum ? Enum->GetQualifiedName() : FName(), bSigned,
+					static_cast<uint8>(Property->GetElementSize() * 8));
+			}
+			default: return FArchiveLogicalTypeDescriptor::Bytes();
+			}
 		}
+
+		auto MakeFieldDescriptor(FProperty* Property, FName FallbackOwner = {})
+			-> FArchiveFieldDescriptor
+		{
+			FArchiveLogicalTypeDescriptor LogicalType = MakeLogicalTypeDescriptor(Property);
+			DStruct* DeclaringStruct = Property
+				? Cast<DStruct>(Property->Owner.ToDObject()) : nullptr;
+			DClass* DeclaringClass = Property
+				? Cast<DClass>(Property->Owner.ToDObject()) : nullptr;
+			if (Property && Property->GetArrayDim() > 1)
+				LogicalType = FArchiveLogicalTypeDescriptor::FixedArray(
+					std::move(LogicalType), Property->GetArrayDim());
+			return {
+				.DeclaringType = DeclaringClass ? DeclaringClass->GetQualifiedName()
+					: (DeclaringStruct ? DeclaringStruct->GetQualifiedName()
+						: FallbackOwner),
+				.Name = Property ? Property->NamePrivate : FName(),
+				.LogicalType = std::move(LogicalType),
+				.ArrayDimension = Property ? static_cast<uint32>(Property->GetArrayDim()) : 1u,
+				.PropertyFlags = Property ? Property->GetPropertyFlags() : EPropertyFlags::None
+			};
+		}
+
+		auto WriteString(FArchive& Ar, std::string& Value) -> void { Ar << Value; }
 
 		auto FindClassByName(const std::string& ClassName) -> DClass*
 		{
@@ -63,9 +137,10 @@ namespace Durin
 			bool bIncludeRawObjectReferences;
 		};
 
-		auto SerializeArrayElement(void* RawContext, uint64, const void* Element) -> bool
+		auto SerializeArrayElement(void* RawContext, uint64 Index, const void* Element) -> bool
 		{
 			auto& Context = *static_cast<FArchiveArrayVisitContext*>(RawContext);
+			auto ElementScope = Context.Archive.EnterArrayElement(Index);
 			SerializePropertyValue(Context.Archive, Context.Inner, const_cast<void*>(Element), 0,
 				Context.bIncludeRawObjectReferences);
 			return !Context.Archive.HasError();
@@ -84,6 +159,7 @@ namespace Durin
 			FMapProperty* Property;
 			bool bIncludeRawObjectReferences;
 			bool bCanonical;
+			uint64 NextIndex = 0;
 			std::vector<FArchiveMapEntry> Entries;
 		};
 
@@ -104,16 +180,24 @@ namespace Durin
 				Context.Entries.push_back(std::move(Entry));
 				return true;
 			}
-			SerializePropertyValue(Context.Archive, Context.Property->GetKeyProp(), const_cast<void*>(Key), 0,
-				Context.bIncludeRawObjectReferences);
-			SerializePropertyValue(Context.Archive, Context.Property->GetValueProp(), const_cast<void*>(Value), 0,
-				Context.bIncludeRawObjectReferences);
+			const uint64 Index = Context.NextIndex++;
+			{
+				auto KeyScope = Context.Archive.EnterMapKey(Index);
+				SerializePropertyValue(Context.Archive, Context.Property->GetKeyProp(), const_cast<void*>(Key), 0,
+					Context.bIncludeRawObjectReferences);
+			}
+			{
+				auto ValueScope = Context.Archive.EnterMapValue(Index);
+				SerializePropertyValue(Context.Archive, Context.Property->GetValueProp(), const_cast<void*>(Value), 0,
+					Context.bIncludeRawObjectReferences);
+			}
 			return !Context.Archive.HasError();
 		}
 
 		auto SerializePropertyValue(FArchive& Ar, FProperty* Property, void* Container, uint32 ArrayIndex, bool bIncludeRawObjectReferences) -> void
 		{
 			if (Ar.HasError()) return;
+			if (!Ar.IsCurrentFieldAvailable()) return;
 			if (!Property || !Container)
 			{
 				Ar.SetError("Invalid reflected property serialization request.");
@@ -121,34 +205,39 @@ namespace Durin
 			}
 			switch (Property->GetKind())
 			{
-			case DurinCodeGen::EPropertyGenFlags::Bool:
-			case DurinCodeGen::EPropertyGenFlags::Int8:
-			case DurinCodeGen::EPropertyGenFlags::Int16:
-			case DurinCodeGen::EPropertyGenFlags::Int32:
-			case DurinCodeGen::EPropertyGenFlags::Int64:
-			case DurinCodeGen::EPropertyGenFlags::UInt8:
-			case DurinCodeGen::EPropertyGenFlags::UInt16:
-			case DurinCodeGen::EPropertyGenFlags::UInt32:
-			case DurinCodeGen::EPropertyGenFlags::UInt64:
-			case DurinCodeGen::EPropertyGenFlags::Float:
-			case DurinCodeGen::EPropertyGenFlags::Double:
+			case DurinCodeGen::EPropertyGenFlags::Bool: Ar << *static_cast<bool*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+			case DurinCodeGen::EPropertyGenFlags::Int8: Ar << *static_cast<int8*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+			case DurinCodeGen::EPropertyGenFlags::Int16: Ar << *static_cast<int16*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+			case DurinCodeGen::EPropertyGenFlags::Int32: Ar << *static_cast<int32*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+			case DurinCodeGen::EPropertyGenFlags::Int64: Ar << *static_cast<int64*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+			case DurinCodeGen::EPropertyGenFlags::UInt8: Ar << *static_cast<uint8*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+			case DurinCodeGen::EPropertyGenFlags::UInt16: Ar << *static_cast<uint16*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+			case DurinCodeGen::EPropertyGenFlags::UInt32: Ar << *static_cast<uint32*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+			case DurinCodeGen::EPropertyGenFlags::UInt64: Ar << *static_cast<uint64*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+			case DurinCodeGen::EPropertyGenFlags::Float: Ar << *static_cast<float*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+			case DurinCodeGen::EPropertyGenFlags::Double: Ar << *static_cast<double*>(Property->GetValuePtr(Container, ArrayIndex)); break;
 			case DurinCodeGen::EPropertyGenFlags::Enum:
-				Ar.SerializeBytes(Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize());
+				switch (Property->GetElementSize())
+				{
+				case 1: Ar << *static_cast<uint8*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+				case 2: Ar << *static_cast<uint16*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+				case 4: Ar << *static_cast<uint32*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+				case 8: Ar << *static_cast<uint64*>(Property->GetValuePtr(Container, ArrayIndex)); break;
+				default: Ar.Fail(EArchiveFailureCode::UnsupportedType, "Enum underlying width is unsupported."); break;
+				}
 				break;
 			case DurinCodeGen::EPropertyGenFlags::String:
 			{
 				auto* StringProperty = static_cast<FStringProperty*>(Property);
 				std::string* Value = StringProperty->GetStringValuePtr(Container, ArrayIndex);
-				Ar.SerializeString(*Value);
+				Ar << *Value;
 				break;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Name:
 			{
 				auto* NameProperty = static_cast<FNameProperty*>(Property);
 				FName* Value = NameProperty->GetNameValuePtr(Container, ArrayIndex);
-				std::string SerializedValue = Ar.IsSaving() ? Value->ToString() : std::string();
-				Ar.SerializeString(SerializedValue);
-				if (Ar.IsLoading() && !Ar.HasError()) *Value = FName(SerializedValue);
+				Ar << *Value;
 				break;
 			}
 			case DurinCodeGen::EPropertyGenFlags::Guid:
@@ -156,7 +245,7 @@ namespace Durin
 				auto* GuidProperty = static_cast<FGuidProperty*>(Property);
 				FGuid* Value = GuidProperty->GetGuidValuePtr(Container, ArrayIndex);
 				FGuid SerializedValue = Ar.IsSaving() ? *Value : FGuid();
-				Ar << SerializedValue.A << SerializedValue.B << SerializedValue.C << SerializedValue.D;
+				Ar << SerializedValue;
 				if (Ar.IsLoading() && !Ar.HasError()) *Value = SerializedValue;
 				break;
 			}
@@ -165,6 +254,11 @@ namespace Durin
 				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
 				if (!bIncludeRawObjectReferences && !ObjectProperty->IsObjectPtrWrapper())
 				{
+					if (Ar.GetPurpose() == EArchivePurpose::AuthoredPackage
+						|| (Ar.GetPurpose() == EArchivePurpose::Discovery
+							&& Ar.HasCapability(EArchiveCapability::CanonicalMapOrder)))
+						Ar.Fail(EArchiveFailureCode::UnsupportedType,
+							"Raw object pointer properties are not serializable in authored packages.");
 					break;
 				}
 				DObject* ReferencedObject = ObjectProperty->GetObjectPropertyValue(Container, ArrayIndex);
@@ -184,40 +278,11 @@ namespace Durin
 					Ar.SetError("Soft object property has no typed value accessor.");
 					break;
 				}
-				uint8 ReferenceKind = Ar.IsSaving() && !Value->IsNull() ? 1 : 0;
-				Ar << ReferenceKind;
-				if (Ar.HasError()) break;
-				if (ReferenceKind == 0)
-				{
-					if (Ar.IsLoading()) Value->Reset();
-					break;
-				}
-				if (ReferenceKind != 1)
-				{
-					Ar.SetError("Unknown soft object reference tag.");
-					break;
-				}
-
-				std::string SerializedPath = Ar.IsSaving()
-					? Value->GetSoftObjectPath().ToString()
-					: std::string();
-				uint64 PathBytes = static_cast<uint64>(SerializedPath.size());
-				Ar << PathBytes;
-				if (Ar.HasError()) break;
-				if (PathBytes == 0 || PathBytes > MaximumSoftObjectPathBytes
-					|| (Ar.IsLoading() && PathBytes > Ar.GetRemainingBytes()))
-				{
-					Ar.SetError("Soft object path payload is empty, truncated, or exceeds 1 MiB.");
-					break;
-				}
-				if (Ar.IsLoading()) SerializedPath.resize(static_cast<size_t>(PathBytes));
-				Ar.SerializeBytes(SerializedPath.data(), PathBytes);
+				FSoftObjectPath Path = Ar.IsSaving() ? Value->GetSoftObjectPath() : FSoftObjectPath();
+				Ar.SerializeSoftObjectPath(Path);
 				if (Ar.IsLoading() && !Ar.HasError())
 				{
-					FSoftObjectPath Path;
-					std::string Error;
-					if (!FSoftObjectPath::TryCreate(SerializedPath, Path, &Error))
-						Ar.SetError(Error.empty() ? "Archive contains an invalid soft object path." : std::move(Error));
+					if (Path.IsNull()) Value->Reset();
 					else Value->SetPath(std::move(Path));
 				}
 				break;
@@ -237,12 +302,25 @@ namespace Durin
 						Struct->GetOps().Serialize(Ar, StructValue);
 						return;
 					}
+					if (Ar.GetPurpose() == EArchivePurpose::AuthoredPackage
+						&& !Struct->HasCompleteAuthoredFields())
+					{
+						Ar.Fail(EArchiveFailureCode::MalformedSerializer,
+							"CustomStructCodecRequired: authored struct fallback does not declare AuthoredFieldsComplete.");
+						return;
+					}
 					Struct->ForEachProperty([&](FProperty* Field) {
 						if (Ar.HasError() || !Field
 							|| Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+						auto FieldScope = Ar.EnterField(MakeFieldDescriptor(
+							Field, Struct->GetQualifiedName()));
 						for (uint32 Index = 0; Index < Field->GetArrayDim() && !Ar.HasError(); ++Index)
+						{
+							auto FixedScope = Field->GetArrayDim() > 1
+								? Ar.EnterFixedArrayElement(Index) : FArchivePathScope();
 							SerializePropertyValue(
 								Ar, Field, StructValue, Index, bIncludeRawObjectReferences);
+						}
 					}, false);
 				};
 				if (Ar.IsSaving())
@@ -272,9 +350,13 @@ namespace Durin
 				if (Struct->HasPostDeserialize())
 				{
 					std::string PostDeserializeError;
+					const FArchiveFormatVersion* DastVersion =
+						Ar.GetVersionContext().FindFormat(FName("DAST"));
 					FDStructPostDeserializeContext Context{
-						.Source = EDStructDeserializeSource::RuntimeArchive,
-						.SourceVersion = 0,
+						.Source = Ar.GetPurpose() == EArchivePurpose::AuthoredPackage
+							? EDStructDeserializeSource::AuthoredAsset
+							: EDStructDeserializeSource::RuntimeArchive,
+						.SourceVersion = DastVersion ? DastVersion->Version : 0,
 						.Error = &PostDeserializeError};
 					if (!Struct->GetOps().PostDeserialize(Storage.GetValue(), Context))
 					{
@@ -352,6 +434,7 @@ namespace Durin
 						Ar.SetError(std::format("ArrayOperationFailed: element {} access returned {}.", Index, static_cast<uint32>(Result)));
 						break;
 					}
+					auto ElementScope = Ar.EnterArrayElement(Index);
 					SerializePropertyValue(Ar, Inner, Element, 0, bIncludeRawObjectReferences);
 				}
 				if (!Ar.HasError())
@@ -391,7 +474,8 @@ namespace Durin
 						Ar.SetError("MapOperationUnavailable: ConstTraversal is required for save.");
 						break;
 					}
-					FArchiveMapVisitContext Context{Ar, MapProperty, bIncludeRawObjectReferences, Ar.RequiresCanonicalMapOrder()};
+					FArchiveMapVisitContext Context{Ar, MapProperty, bIncludeRawObjectReferences,
+						Ar.HasCapability(EArchiveCapability::CanonicalMapOrder)};
 					if (MapProperty->VisitEntries(Container, &CollectOrSerializeMapEntry, &Context, ArrayIndex)
 						!= EContainerOpResult::Success && !Ar.HasError())
 						Ar.SetError("MapOperationFailed: ConstTraversal failed.");
@@ -404,8 +488,14 @@ namespace Durin
 							Ar.SetError("CanonicalMapKeyCollision: distinct entries produced the same canonical token.");
 							break;
 						}
-						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), const_cast<void*>(Context.Entries[Index].Key), 0, bIncludeRawObjectReferences);
-						SerializePropertyValue(Ar, MapProperty->GetValueProp(), const_cast<void*>(Context.Entries[Index].Value), 0, bIncludeRawObjectReferences);
+						{
+							auto KeyScope = Ar.EnterMapKey(Index);
+							SerializePropertyValue(Ar, MapProperty->GetKeyProp(), const_cast<void*>(Context.Entries[Index].Key), 0, bIncludeRawObjectReferences);
+						}
+						{
+							auto ValueScope = Ar.EnterMapValue(Index);
+							SerializePropertyValue(Ar, MapProperty->GetValueProp(), const_cast<void*>(Context.Entries[Index].Value), 0, bIncludeRawObjectReferences);
+						}
 					}
 				}
 				else
@@ -451,14 +541,20 @@ namespace Durin
 								return;
 							}
 						}
-						SerializePropertyValue(Ar, MapProperty->GetKeyProp(), KeyStorage.GetContainer(), 0, bIncludeRawObjectReferences);
-						SerializePropertyValue(Ar, MapProperty->GetValueProp(), ValueStorage.GetContainer(), 0, bIncludeRawObjectReferences);
+						{
+							auto KeyScope = Ar.EnterMapKey(Index);
+							SerializePropertyValue(Ar, MapProperty->GetKeyProp(), KeyStorage.GetContainer(), 0, bIncludeRawObjectReferences);
+						}
+						{
+							auto ValueScope = Ar.EnterMapValue(Index);
+							SerializePropertyValue(Ar, MapProperty->GetValueProp(), ValueStorage.GetContainer(), 0, bIncludeRawObjectReferences);
+						}
 						if (Ar.HasError()) return;
 						OpResult = Ops.InsertCopy(Detached.Get(), KeyStorage.GetValue(), ValueStorage.GetValue());
 						if (OpResult != EContainerOpResult::Success)
 						{
 							Ar.SetError(OpResult == EContainerOpResult::DuplicateKey
-								? std::format("MapDuplicateKey: decoded entry {} duplicates an earlier key.", Index)
+								? std::format("MapDuplicateKey: MapEntry[{}].Key has a duplicate decoded key.", Index)
 								: std::format("MapOperationFailed: Insert entry {} returned {}.", Index, static_cast<uint32>(OpResult)));
 							return;
 						}
@@ -566,18 +662,9 @@ namespace Durin
 				DObject* Outer = nullptr;
 			};
 
-			auto GetOrAssignId(DObject* Object) -> uint64
+			auto Discover(DObject* Object) -> void
 			{
-				if (!Object)
-				{
-					return 0;
-				}
-
-				auto It = ObjectToId.find(Object);
-				if (It != ObjectToId.end())
-				{
-					return It->second;
-				}
+				if (!Object || bFrozen || ObjectToId.contains(Object)) return;
 
 				const uint64 Id = static_cast<uint64>(Objects.size()) + 1;
 				ObjectToId.emplace(Object, Id);
@@ -590,8 +677,19 @@ namespace Durin
 						Object->GetOuter()
 					}
 				);
-				return Id;
+
+				Discover(Object->GetOuter());
+				for (DObject* InnerObject : GDObjectArray.GetObjectsWithOuter(Object)) Discover(InnerObject);
 			}
+
+			auto FindId(DObject* Object) const -> uint64
+			{
+				if (!Object) return 0;
+				const auto It = ObjectToId.find(Object);
+				return It == ObjectToId.end() ? 0 : It->second;
+			}
+
+			auto Freeze() -> void { bFrozen = true; }
 
 			auto ResolveId(uint64 Id) const -> DObject*
 			{
@@ -606,44 +704,31 @@ namespace Durin
 			std::unordered_map<DObject*, FObjectMetadata> Metadata;
 			std::vector<DObject*> Objects;
 			std::vector<DObject*> IdToObject;
+			bool bFrozen = false;
 		};
 
-		class FObjectGraphReferenceCollector : public FReferenceCollector
+		class FObjectGraphDiscoveryArchive final : public FArchive
 		{
 		public:
-			explicit FObjectGraphReferenceCollector(FObjectGraphContext& InContext)
-				: Context(InContext)
+			explicit FObjectGraphDiscoveryArchive(FObjectGraphContext& InContext)
+				: FArchive({EArchiveDirection::Save, EArchivePurpose::Discovery,
+					EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
+					| EArchiveCapability::ObjectReferences | EArchiveCapability::SoftObjectReferences
+					| EArchiveCapability::MultiPassDiscovery})
+				, Context(InContext)
 			{
 			}
 
-			auto AddReferencedObject(DObject*& Object) -> void override
+			auto SerializeRawBytes(std::span<std::byte>) -> void override
 			{
-				Gather(Object);
 			}
 
-			auto Gather(DObject* Object) -> void
+			auto SerializeObjectReference(DObject*& Object) -> void override
 			{
-				if (!Object)
-				{
-					return;
-				}
-
-				const size_t PreviousCount = Context.Objects.size();
-				Context.GetOrAssignId(Object);
-				if (Context.Objects.size() == PreviousCount)
-				{
-					return;
-				}
-
-				Gather(Object->GetOuter());
-
-				for (DObject* InnerObject : GDObjectArray.GetObjectsWithOuter(Object))
-				{
-					Gather(InnerObject);
-				}
-
-				Object->AddReferencedObjects(*this);
+				Context.Discover(Object);
 			}
+
+			auto SerializeSoftObjectPath(FSoftObjectPath&) -> void override {}
 
 		private:
 			FObjectGraphContext& Context;
@@ -653,14 +738,25 @@ namespace Durin
 		{
 		public:
 			FObjectGraphWriter(std::vector<uint8>& InBytes, FObjectGraphContext& InContext)
-				: FMemoryWriter(InBytes)
+				: FMemoryWriter(InBytes, EArchivePurpose::ObjectGraph)
 				, Context(InContext)
 			{
+				EnableCapabilities(EArchiveCapability::ObjectReferences);
 			}
 
 			auto SerializeObjectReference(DObject*& Object) -> void override
 			{
-				uint64 Id = Context.GetOrAssignId(Object);
+				uint8 Kind = static_cast<uint8>(Object
+					? EArchiveObjectReferenceKind::Internal : EArchiveObjectReferenceKind::Null);
+				*this << Kind;
+				if (!Object || HasError()) return;
+				uint64 Id = Context.FindId(Object);
+				if (Id == 0)
+				{
+					Fail(EArchiveFailureCode::InvalidObjectReference,
+						"Object graph grew after discovery was frozen.");
+					return;
+				}
 				*this << Id;
 			}
 
@@ -672,19 +768,35 @@ namespace Durin
 		{
 		public:
 			FObjectGraphReader(const std::vector<uint8>& InBytes, FObjectGraphContext& InContext)
-				: FMemoryReader(InBytes)
+				: FMemoryReader(InBytes, EArchivePurpose::ObjectGraph)
 				, Context(InContext)
 			{
+				EnableCapabilities(EArchiveCapability::ObjectReferences);
 			}
 
 			auto SerializeObjectReference(DObject*& Object) -> void override
 			{
+				uint8 Kind = 0;
+				*this << Kind;
+				if (HasError()) return;
+				if (Kind == static_cast<uint8>(EArchiveObjectReferenceKind::Null))
+				{
+					Object = nullptr;
+					return;
+				}
+				if (Kind != static_cast<uint8>(EArchiveObjectReferenceKind::Internal))
+				{
+					Fail(EArchiveFailureCode::InvalidObjectReference,
+						"Object graph reference kind must be Null or Internal.");
+					return;
+				}
 				uint64 Id = 0;
 				*this << Id;
 				if (HasError()) return;
-				if (Id > Context.IdToObject.size())
+				if (Id == 0 || Id > Context.IdToObject.size())
 				{
-					SetError("Invalid object graph reference identifier.");
+					Fail(EArchiveFailureCode::InvalidObjectReference,
+						"Invalid object graph reference identifier.");
 					return;
 				}
 				Object = Context.ResolveId(Id);
@@ -695,88 +807,373 @@ namespace Durin
 		};
 	}
 
-	auto FArchive::SerializeString(std::string& Value) -> void
+	auto FArchiveLogicalTypeDescriptor::Scalar(bool bInSigned, uint8 InBitWidth, bool bInFloating) -> FArchiveLogicalTypeDescriptor
 	{
+		return {.Kind = EKind::Scalar, .bSigned = bInSigned, .bFloating = bInFloating, .BitWidth = InBitWidth};
+	}
+	auto FArchiveLogicalTypeDescriptor::Enum(FName InQualifiedType, bool bInSigned, uint8 InBitWidth) -> FArchiveLogicalTypeDescriptor
+	{
+		return {.Kind = EKind::Enum, .bSigned = bInSigned, .BitWidth = InBitWidth, .QualifiedType = InQualifiedType};
+	}
+	auto FArchiveLogicalTypeDescriptor::String() -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::String}; }
+	auto FArchiveLogicalTypeDescriptor::Name() -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::Name}; }
+	auto FArchiveLogicalTypeDescriptor::Guid() -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::Guid}; }
+	auto FArchiveLogicalTypeDescriptor::Bytes() -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::Bytes}; }
+	auto FArchiveLogicalTypeDescriptor::Object(FName Type) -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::Object, .QualifiedType = Type}; }
+	auto FArchiveLogicalTypeDescriptor::SoftObject(FName Type) -> FArchiveLogicalTypeDescriptor { return {.Kind = EKind::SoftObject, .QualifiedType = Type}; }
+	auto FArchiveLogicalTypeDescriptor::Struct(FName Type, uint32 Version) -> FArchiveLogicalTypeDescriptor
+	{
+		return {.Kind = EKind::Struct, .QualifiedType = Type, .NativeFieldVersion = Version};
+	}
+	auto FArchiveLogicalTypeDescriptor::Array(FArchiveLogicalTypeDescriptor Element) -> FArchiveLogicalTypeDescriptor
+	{
+		FArchiveLogicalTypeDescriptor Result{.Kind = EKind::Array};
+		Result.ElementType = std::make_shared<FArchiveLogicalTypeDescriptor>(std::move(Element));
+		return Result;
+	}
+	auto FArchiveLogicalTypeDescriptor::Map(FArchiveLogicalTypeDescriptor Key, FArchiveLogicalTypeDescriptor Value) -> FArchiveLogicalTypeDescriptor
+	{
+		FArchiveLogicalTypeDescriptor Result{.Kind = EKind::Map};
+		Result.KeyType = std::make_shared<FArchiveLogicalTypeDescriptor>(std::move(Key));
+		Result.ValueType = std::make_shared<FArchiveLogicalTypeDescriptor>(std::move(Value));
+		return Result;
+	}
+	auto FArchiveLogicalTypeDescriptor::FixedArray(FArchiveLogicalTypeDescriptor Element, uint32 Dimension) -> FArchiveLogicalTypeDescriptor
+	{
+		FArchiveLogicalTypeDescriptor Result{.Kind = EKind::FixedArray, .FixedArrayDimension = Dimension};
+		Result.ElementType = std::make_shared<FArchiveLogicalTypeDescriptor>(std::move(Element));
+		return Result;
+	}
+
+	auto FArchiveVersionContext::FindFormat(FName Format) const -> const FArchiveFormatVersion*
+	{
+		auto It = std::ranges::find(Formats, Format, &FArchiveFormatVersion::Format);
+		return It == Formats.end() ? nullptr : &*It;
+	}
+	auto FArchiveVersionContext::FindCustom(const FGuid& Key) const -> const FArchiveCustomVersion*
+	{
+		auto It = std::ranges::find(CustomVersions, Key, &FArchiveCustomVersion::Key);
+		return It == CustomVersions.end() ? nullptr : &*It;
+	}
+
+	FArchive::FArchive(FArchiveState InState, FArchiveVersionContext InVersions)
+		: State(InState), Versions(std::move(InVersions))
+	{
+	}
+
+	auto FArchive::PushPath(std::string Segment) -> void { PathSegments.push_back(std::move(Segment)); }
+	auto FArchive::PopPath() -> void { if (!PathSegments.empty()) PathSegments.pop_back(); }
+
+	auto FArchive::Fail(EArchiveFailureCode Code, std::string_view Message) -> void
+	{
+		if (Failure) return;
+		std::string Path;
+		for (const std::string& Segment : PathSegments) Path += Segment;
+		Failure = std::make_unique<FArchiveFailure>(FArchiveFailure{Code, std::move(Path), std::string(Message)});
+	}
+
+	auto FArchive::FormatFailure() const -> std::string
+	{
+		if (!Failure) return {};
+		static constexpr std::string_view Names[] = {
+			"UnsupportedCapability", "UnsupportedType", "InvalidData", "TruncatedPayload",
+			"UnbalancedScope", "MissingBaseReflectedFields", "DuplicateBaseReflectedFields",
+			"DuplicateField", "MalformedSerializer", "InvalidObjectReference", "InvalidPath",
+			"UnsupportedVersion"};
+		return std::format("ArchiveFailure:{}:{}: {}", Names[static_cast<size_t>(Failure->Code)],
+			Failure->Path, Failure->Message);
+	}
+	auto FArchive::GetError() const -> std::string_view
+	{
+		FormattedFailure = FormatFailure();
+		return FormattedFailure;
+	}
+
+	auto FArchive::EnterObject(DObject& Object) -> FArchiveObjectScope
+	{
+		if (!HasCapability(EArchiveCapability::StructuredFields))
+		{
+			Fail(EArchiveFailureCode::UnsupportedCapability, "Object scopes require StructuredFields.");
+			return {};
+		}
+		const std::string ClassName = Object.GetClass() ? Object.GetClass()->GetQualifiedName().ToString() : "?";
+		PushPath(std::format("Object[?:{}:{}]", ClassName, Object.GetObjectPath()));
+		ObjectScopes.emplace_back();
+		OnEnterObject(Object);
+		return FArchiveObjectScope(this);
+	}
+
+	auto FArchive::EnterField(const FArchiveFieldDescriptor& Field) -> FArchiveFieldScope
+	{
+		if (!HasCapability(EArchiveCapability::StructuredFields))
+		{
+			Fail(EArchiveFailureCode::UnsupportedCapability, "Field scopes require StructuredFields.");
+			return {};
+		}
+		const std::string Identity = std::format("{}::{}", Field.DeclaringType.ToString(), Field.Name.ToString());
+		if (!ObjectScopes.empty())
+		{
+			auto& Scope = ObjectScopes.back();
+			std::string NestedIdentity;
+			for (const std::string& Segment : PathSegments) NestedIdentity += Segment;
+			NestedIdentity += Identity;
+			if (!Scope.Fields.insert(NestedIdentity).second)
+				Fail(EArchiveFailureCode::DuplicateField, std::format("Field '{}' was serialized more than once.", Identity));
+			++Scope.ActiveFieldDepth;
+		}
+		PushPath(std::format(".Field[{}]", Identity));
+		FieldScopes.push_back(true);
+		OnEnterField(Field);
+		return FArchiveFieldScope(this);
+	}
+	auto FArchive::EnterFixedArrayElement(uint64 Index) -> FArchivePathScope
+	{
+		PushPath(std::format(".Fixed[{}]", Index));
+		OnEnterFixedArrayElement(Index);
+		return FArchivePathScope(this);
+	}
+	auto FArchive::EnterArrayElement(uint64 Index) -> FArchivePathScope
+	{
+		PushPath(std::format(".Array[{}]", Index));
+		OnEnterArrayElement(Index);
+		return FArchivePathScope(this);
+	}
+	auto FArchive::EnterMapKey(uint64 Index) -> FArchivePathScope
+	{
+		PushPath(std::format(".MapKey[{}]", Index));
+		OnEnterMapKey(Index);
+		return FArchivePathScope(this);
+	}
+	auto FArchive::EnterMapValue(uint64 Index) -> FArchivePathScope
+	{
+		PushPath(std::format(".MapValue[{}]", Index));
+		OnEnterMapValue(Index);
+		return FArchivePathScope(this);
+	}
+
+	auto FArchive::MarkBaseReflectedFieldsSerialized() -> void
+	{
+		if (ObjectScopes.empty()) return;
+		auto& Scope = ObjectScopes.back();
+		if (Scope.bBaseMarked)
+		{
+			Fail(EArchiveFailureCode::DuplicateBaseReflectedFields, "Base reflected fields were serialized more than once.");
+			return;
+		}
+		Scope.bBaseMarked = true;
+	}
+
+	auto FArchive::CloseFieldScope() -> void
+	{
+		if (FieldScopes.empty())
+		{
+			Fail(EArchiveFailureCode::UnbalancedScope, "A field scope closed without a matching open scope.");
+			return;
+		}
+		OnLeaveField();
+		FieldScopes.pop_back();
+		if (!ObjectScopes.empty() && ObjectScopes.back().ActiveFieldDepth > 0) --ObjectScopes.back().ActiveFieldDepth;
+		PopPath();
+	}
+	auto FArchive::ClosePathScope() -> void { OnLeavePath(); PopPath(); }
+
+	auto FArchive::CloseObjectScope() -> void
+	{
+		if (ObjectScopes.empty())
+		{
+			Fail(EArchiveFailureCode::UnbalancedScope, "An object scope closed without a matching open scope.");
+			return;
+		}
+		const FObjectScopeState& Scope = ObjectScopes.back();
+		if (Scope.ActiveFieldDepth != 0)
+			Fail(EArchiveFailureCode::UnbalancedScope, "An object scope closed while a field scope remained active.");
+		else if (!Scope.bBaseMarked)
+			Fail(EArchiveFailureCode::MissingBaseReflectedFields, "The base reflected field walk was not serialized.");
+		OnLeaveObject();
+		ObjectScopes.pop_back();
+		PopPath();
+	}
+
+	FArchiveObjectScope::FArchiveObjectScope(FArchiveObjectScope&& Other) noexcept : Archive(std::exchange(Other.Archive, nullptr)) {}
+	auto FArchiveObjectScope::operator=(FArchiveObjectScope&& Other) noexcept -> FArchiveObjectScope&
+	{
+		if (this != &Other) { if (Archive) Archive->CloseObjectScope(); Archive = std::exchange(Other.Archive, nullptr); }
+		return *this;
+	}
+	FArchiveObjectScope::~FArchiveObjectScope() { if (Archive) Archive->CloseObjectScope(); }
+	FArchiveFieldScope::FArchiveFieldScope(FArchiveFieldScope&& Other) noexcept : Archive(std::exchange(Other.Archive, nullptr)) {}
+	auto FArchiveFieldScope::operator=(FArchiveFieldScope&& Other) noexcept -> FArchiveFieldScope&
+	{
+		if (this != &Other) { if (Archive) Archive->CloseFieldScope(); Archive = std::exchange(Other.Archive, nullptr); }
+		return *this;
+	}
+	FArchiveFieldScope::~FArchiveFieldScope() { if (Archive) Archive->CloseFieldScope(); }
+	FArchivePathScope::FArchivePathScope(FArchivePathScope&& Other) noexcept : Archive(std::exchange(Other.Archive, nullptr)) {}
+	auto FArchivePathScope::operator=(FArchivePathScope&& Other) noexcept -> FArchivePathScope&
+	{
+		if (this != &Other) { if (Archive) Archive->ClosePathScope(); Archive = std::exchange(Other.Archive, nullptr); }
+		return *this;
+	}
+	FArchivePathScope::~FArchivePathScope() { if (Archive) Archive->ClosePathScope(); }
+
+	auto FArchive::OnEnterObject(DObject&) -> void {}
+	auto FArchive::OnLeaveObject() -> void {}
+	auto FArchive::OnEnterField(const FArchiveFieldDescriptor&) -> void {}
+	auto FArchive::OnLeaveField() -> void {}
+	auto FArchive::OnEnterFixedArrayElement(uint64) -> void {}
+	auto FArchive::OnEnterArrayElement(uint64) -> void {}
+	auto FArchive::OnEnterMapKey(uint64) -> void {}
+	auto FArchive::OnEnterMapValue(uint64) -> void {}
+	auto FArchive::OnLeavePath() -> void {}
+
+	auto FArchive::SerializeRawBytes(std::span<std::byte>) -> void
+	{
+		Fail(EArchiveFailureCode::UnsupportedCapability, "This Archive does not support RawBytes.");
+	}
+	auto FArchive::SerializeObjectReference(DObject*&) -> void
+	{
+		Fail(EArchiveFailureCode::UnsupportedCapability, "This Archive does not support ObjectReferences.");
+	}
+	auto FArchive::SerializeSoftObjectPath(FSoftObjectPath& Value) -> void
+	{
+		if (!IsCurrentFieldAvailable()) return;
+		if (!HasCapability(EArchiveCapability::SoftObjectReferences))
+		{
+			Fail(EArchiveFailureCode::UnsupportedCapability, "This Archive does not support SoftObjectReferences.");
+			return;
+		}
+		uint8 Kind = IsSaving() && !Value.IsNull() ? 1 : 0;
+		*this << Kind;
 		if (HasError()) return;
-		uint64 Size = static_cast<uint64>(Value.size());
-		*this << Size;
+		if (Kind == 0) { if (IsLoading()) Value.Reset(); return; }
+		if (Kind != 1) { Fail(EArchiveFailureCode::InvalidData, "Unknown soft object reference tag."); return; }
+		std::string Path = IsSaving() ? Value.ToString() : std::string();
+		uint64 PathBytes = static_cast<uint64>(Path.size());
+		*this << PathBytes;
+		if (HasError()) return;
+		if (PathBytes == 0 || PathBytes > MaximumSoftObjectPathBytes
+			|| (IsLoading() && PathBytes > GetRemainingPayloadBytes()))
+		{
+			Fail(EArchiveFailureCode::InvalidPath,
+				"Soft object path payload is empty, truncated, or exceeds 1 MiB.");
+			return;
+		}
+		if (IsLoading()) Path.resize(static_cast<size_t>(PathBytes));
+		SerializeRawBytes(std::as_writable_bytes(std::span<char>(Path.data(), Path.size())));
 		if (HasError()) return;
 		if (IsLoading())
 		{
-			if (Size > GetRemainingBytes() || Size > std::string().max_size())
+			FSoftObjectPath Loaded;
+			std::string Error;
+			if (!FSoftObjectPath::TryCreate(Path, Loaded, &Error))
+				Fail(EArchiveFailureCode::InvalidPath, Error.empty() ? "Archive contains an invalid soft object path." : Error);
+			else Value = std::move(Loaded);
+		}
+	}
+
+	namespace
+	{
+		template<typename T>
+		auto SerializePrimitive(FArchive& Archive, T& Value) -> FArchive&
+		{
+			Archive.SerializeRawBytes(std::as_writable_bytes(std::span<T>(&Value, 1)));
+			return Archive;
+		}
+	}
+	auto FArchive::operator<<(bool& Value) -> FArchive&
+	{
+		if (!IsCurrentFieldAvailable()) return *this;
+		uint8 Encoded = IsSaving() && Value ? 1 : 0;
+		SerializePrimitive(*this, Encoded);
+		if (IsLoading() && !HasError())
+		{
+			if (Encoded > 1) Fail(EArchiveFailureCode::InvalidData, "Boolean encoding must be zero or one.");
+			else Value = Encoded != 0;
+		}
+		return *this;
+	}
+#define DURIN_ARCHIVE_PRIMITIVE(Type) auto FArchive::operator<<(Type& Value) -> FArchive& { return SerializePrimitive(*this, Value); }
+	DURIN_ARCHIVE_PRIMITIVE(int8)
+	DURIN_ARCHIVE_PRIMITIVE(int16)
+	DURIN_ARCHIVE_PRIMITIVE(int32)
+	DURIN_ARCHIVE_PRIMITIVE(int64)
+	DURIN_ARCHIVE_PRIMITIVE(uint8)
+	DURIN_ARCHIVE_PRIMITIVE(uint16)
+	DURIN_ARCHIVE_PRIMITIVE(uint32)
+	DURIN_ARCHIVE_PRIMITIVE(uint64)
+	DURIN_ARCHIVE_PRIMITIVE(float)
+	DURIN_ARCHIVE_PRIMITIVE(double)
+#undef DURIN_ARCHIVE_PRIMITIVE
+	auto FArchive::operator<<(FName& Value) -> FArchive&
+	{
+		if (!IsCurrentFieldAvailable()) return *this;
+		std::string Text = IsSaving() ? Value.ToString() : std::string();
+		*this << Text;
+		if (IsLoading() && !HasError()) Value = FName(Text);
+		return *this;
+	}
+	auto FArchive::operator<<(FGuid& Value) -> FArchive& { return *this << Value.A << Value.B << Value.C << Value.D; }
+	auto FArchive::operator<<(std::string& Value) -> FArchive&
+	{
+		if (HasError()) return *this;
+		if (!IsCurrentFieldAvailable()) return *this;
+		uint64 Size = static_cast<uint64>(Value.size());
+		*this << Size;
+		if (HasError()) return *this;
+		if (IsLoading())
+		{
+			if (Size > GetRemainingPayloadBytes() || Size > std::string().max_size())
 			{
-				SetError("Truncated or oversized string payload.");
-				return;
+				Fail(EArchiveFailureCode::TruncatedPayload, "Truncated or oversized string payload.");
+				return *this;
 			}
-			std::string LoadedValue;
-			LoadedValue.resize(static_cast<size_t>(Size));
-			if (Size > 0) SerializeBytes(LoadedValue.data(), Size);
-			if (!HasError()) Value = std::move(LoadedValue);
-			return;
+			std::string Loaded(static_cast<size_t>(Size), '\0');
+			if (Size > 0) SerializeRawBytes(std::as_writable_bytes(std::span<char>(Loaded.data(), Loaded.size())));
+			if (!HasError()) Value = std::move(Loaded);
 		}
-		if (Size > 0)
+		else if (Size > 0)
 		{
-			SerializeBytes(Value.data(), Size);
+			SerializeRawBytes(std::as_writable_bytes(std::span<char>(Value.data(), Value.size())));
 		}
+		return *this;
 	}
 
-	auto FArchive::SetError(std::string_view Message) -> void
-	{
-		if (!Error.empty()) return;
-		Error = Message.starts_with("ArchiveFailure")
-			? std::string(Message)
-			: std::format("ArchiveFailure: {}", Message);
-	}
-
-	FMemoryWriter::FMemoryWriter(std::vector<uint8>& InBytes)
-		: FArchive(EMode::Save)
+	FMemoryWriter::FMemoryWriter(std::vector<uint8>& InBytes, EArchivePurpose Purpose)
+		: FArchive({EArchiveDirection::Save, Purpose,
+			EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
+			| EArchiveCapability::SoftObjectReferences
+			| (Purpose == EArchivePurpose::PropertySnapshot ? EArchiveCapability::CanonicalMapOrder : EArchiveCapability::None)})
 		, Bytes(InBytes)
 	{
 	}
 
-	auto FMemoryWriter::SerializeBytes(void* Data, uint64 Size) -> void
+	auto FMemoryWriter::SerializeRawBytes(std::span<std::byte> Data) -> void
 	{
 		if (HasError()) return;
-		if (!Data && Size > 0)
-		{
-			SetError("Cannot serialize bytes from a null source.");
-			return;
-		}
-		if (Size == 0) return;
-		const uint8* Source = static_cast<const uint8*>(Data);
-		Bytes.insert(Bytes.end(), Source, Source + Size);
+		const auto* Source = reinterpret_cast<const uint8*>(Data.data());
+		Bytes.insert(Bytes.end(), Source, Source + Data.size());
 	}
 
-	auto FMemoryWriter::SerializeObjectReference(DObject*& Object) -> void
-	{
-		uint64 AddressValue = reinterpret_cast<uint64>(Object);
-		*this << AddressValue;
-	}
-
-	FMemoryReader::FMemoryReader(const std::vector<uint8>& InBytes)
-		: FArchive(EMode::Load)
+	FMemoryReader::FMemoryReader(const std::vector<uint8>& InBytes, EArchivePurpose Purpose)
+		: FArchive({EArchiveDirection::Load, Purpose,
+			EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
+			| EArchiveCapability::SoftObjectReferences
+			| EArchiveCapability::RemainingPayload
+			| (Purpose == EArchivePurpose::PropertySnapshot ? EArchiveCapability::CanonicalMapOrder : EArchiveCapability::None)})
 		, Bytes(InBytes)
 	{
 	}
 
-	auto FMemoryReader::SerializeBytes(void* Data, uint64 Size) -> void
+	auto FMemoryReader::SerializeRawBytes(std::span<std::byte> Data) -> void
 	{
 		if (HasError()) return;
-		if ((!Data && Size > 0) || Size > GetRemainingBytes())
+		if (Data.size() > GetRemainingPayloadBytes())
 		{
-			SetError("Truncated byte payload.");
+			Fail(EArchiveFailureCode::TruncatedPayload, "Truncated byte payload.");
 			return;
 		}
-		if (Size > 0)
-			std::memcpy(Data, Bytes.data() + Offset, static_cast<size_t>(Size));
-		Offset += Size;
-	}
-
-	auto FMemoryReader::SerializeObjectReference(DObject*& Object) -> void
-	{
-		uint64 AddressValue = 0;
-		*this << AddressValue;
-		if (!HasError()) Object = reinterpret_cast<DObject*>(AddressValue);
+		if (!Data.empty()) std::memcpy(Data.data(), Bytes.data() + Offset, Data.size());
+		Offset += Data.size();
 	}
 
 	FPropertyValueSnapshot::~FPropertyValueSnapshot()
@@ -882,7 +1279,10 @@ namespace Durin
 		{
 		public:
 			FSnapshotWriter(std::vector<uint8>& InBytes, std::vector<DObject*>& InReferences)
-				: FMemoryWriter(InBytes), References(InReferences) {}
+				: FMemoryWriter(InBytes, EArchivePurpose::PropertySnapshot), References(InReferences)
+			{
+				EnableCapabilities(EArchiveCapability::ObjectReferences);
+			}
 			auto SerializeObjectReference(DObject*& Object) -> void override
 			{
 				uint64 Id = 0;
@@ -901,7 +1301,6 @@ namespace Durin
 				}
 				*this << Id;
 			}
-			auto RequiresCanonicalMapOrder() const -> bool override { return true; }
 		private:
 			std::vector<DObject*>& References;
 		};
@@ -965,7 +1364,10 @@ namespace Durin
 		{
 		public:
 			FSnapshotReader(const std::vector<uint8>& InBytes, const std::vector<DObject*>& InReferences)
-				: FMemoryReader(InBytes), References(InReferences) {}
+				: FMemoryReader(InBytes, EArchivePurpose::PropertySnapshot), References(InReferences)
+			{
+				EnableCapabilities(EArchiveCapability::ObjectReferences);
+			}
 			auto SerializeObjectReference(DObject*& Object) -> void override
 			{
 				uint64 Id = 0;
@@ -984,9 +1386,9 @@ namespace Durin
 
 		FSnapshotReader Reader(Snapshot.Bytes, Snapshot.ReferencedObjects);
 		SerializeReflectedPropertyValue(
-			Reader, const_cast<FProperty*>(Property), Container, ArrayIndex, true);
-		if (!Reader.HasError() && Reader.GetRemainingBytes() != 0)
-			Reader.SetError("Property snapshot has trailing bytes.");
+			Reader, *const_cast<FProperty*>(Property), Container, ArrayIndex, true);
+		if (!Reader.HasError() && Reader.GetRemainingPayloadBytes() != 0)
+			Reader.Fail(EArchiveFailureCode::InvalidData, "Property snapshot has trailing bytes.");
 		if (!Reader.HasError()) return true;
 		if (OutError) *OutError = Reader.GetError();
 		return false;
@@ -994,23 +1396,27 @@ namespace Durin
 
 	auto SerializeReflectedPropertyValue(
 		FArchive& Ar,
-		FProperty* Property,
+		FProperty& Property,
 		void* Container,
 		uint32 ArrayIndex,
 		bool bIncludeRawObjectReferences) -> void
 	{
+		auto FieldScope = Ar.EnterField(MakeFieldDescriptor(&Property));
+		auto FixedScope = Property.GetArrayDim() > 1
+			? Ar.EnterFixedArrayElement(ArrayIndex) : FArchivePathScope();
 		SerializePropertyValue(
-			Ar, Property, Container, ArrayIndex, bIncludeRawObjectReferences);
+			Ar, &Property, Container, ArrayIndex, bIncludeRawObjectReferences);
 	}
 
-	auto SerializeDObjectProperties(FArchive& Ar, DObject* Object) -> void
+	auto SerializeDObjectProperties(FArchive& Ar, DObject& Object) -> void
 	{
-		if (!Object || !Object->GetClass())
+		Ar.MarkBaseReflectedFieldsSerialized();
+		if (!Object.GetClass())
 		{
 			return;
 		}
 
-		Object->GetClass()->ForEachProperty(
+		Object.GetClass()->ForEachProperty(
 			[&](FProperty* Property)
 			{
 				if (!Property || Property->HasAnyPropertyFlags(EPropertyFlags::Transient))
@@ -1018,9 +1424,13 @@ namespace Durin
 					return;
 				}
 
+				auto FieldScope = Ar.EnterField(MakeFieldDescriptor(
+					Property, Object.GetClass()->GetQualifiedName()));
 				for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 				{
-					SerializeReflectedPropertyValue(Ar, Property, Object, Index);
+					auto FixedScope = Property->GetArrayDim() > 1
+						? Ar.EnterFixedArrayElement(Index) : FArchivePathScope();
+					SerializePropertyValue(Ar, Property, &Object, Index, false);
 				}
 			},
 			true
@@ -1035,20 +1445,28 @@ namespace Durin
 		}
 
 		FObjectGraphContext Context;
-		FObjectGraphReferenceCollector Collector(Context);
-		Collector.Gather(RootObject);
+		Context.Discover(RootObject);
+		FObjectGraphDiscoveryArchive DiscoveryArchive(Context);
+		for (size_t Index = 0; Index < Context.Objects.size() && !DiscoveryArchive.HasError(); ++Index)
+		{
+			DObject* Object = Context.Objects[Index];
+			auto ObjectScope = DiscoveryArchive.EnterObject(*Object);
+			Object->Serialize(DiscoveryArchive);
+		}
+		if (DiscoveryArchive.HasError()) return false;
+		Context.Freeze();
 
-		OutBytes.clear();
-		FMemoryWriter HeaderWriter(OutBytes);
+		std::vector<uint8> Bytes;
+		FMemoryWriter HeaderWriter(Bytes, EArchivePurpose::ObjectGraph);
 		uint32 Magic = ObjectGraphMagic;
 		uint32 Version = ObjectGraphVersion;
-		uint64 RootId = Context.ObjectToId[RootObject];
+		uint64 RootId = Context.FindId(RootObject);
 		uint64 ObjectCount = static_cast<uint64>(Context.Objects.size());
 		HeaderWriter << Magic << Version << RootId << ObjectCount;
 
 		for (DObject* Object : Context.Objects)
 		{
-			uint64 Id = Context.ObjectToId[Object];
+			uint64 Id = Context.FindId(Object);
 			const FObjectGraphContext::FObjectMetadata& Metadata = Context.Metadata[Object];
 			uint64 OuterId = 0;
 			if (Metadata.Outer)
@@ -1060,7 +1478,10 @@ namespace Durin
 			std::string ObjectName = Metadata.ObjectName;
 			std::vector<uint8> PropertyBytes;
 			FObjectGraphWriter PropertyWriter(PropertyBytes, Context);
-			Object->Serialize(PropertyWriter);
+			{
+				auto ObjectScope = PropertyWriter.EnterObject(*Object);
+				Object->Serialize(PropertyWriter);
+			}
 			if (PropertyWriter.HasError()) return false;
 			uint64 PropertySize = static_cast<uint64>(PropertyBytes.size());
 
@@ -1070,11 +1491,14 @@ namespace Durin
 			HeaderWriter << PropertySize;
 			if (PropertySize > 0)
 			{
-				HeaderWriter.SerializeBytes(PropertyBytes.data(), PropertySize);
+				HeaderWriter.SerializeRawBytes(std::as_writable_bytes(
+					std::span<uint8>(PropertyBytes.data(), PropertyBytes.size())));
 			}
 		}
 
-		return !HeaderWriter.HasError();
+		if (HeaderWriter.HasError()) return false;
+		OutBytes = std::move(Bytes);
+		return true;
 	}
 
 	auto LoadObjectGraphFromMemory(const std::vector<uint8>& Bytes) -> DObject*
@@ -1113,10 +1537,10 @@ namespace Durin
 		{
 			uint64 PropertySize = 0;
 			Reader << Record.Id << Record.OuterId;
-			Reader.SerializeString(Record.ClassName);
-			Reader.SerializeString(Record.ObjectName);
+			Reader << Record.ClassName;
+			Reader << Record.ObjectName;
 			Reader << PropertySize;
-			if (Reader.HasError() || PropertySize > Reader.GetRemainingBytes()
+			if (Reader.HasError() || PropertySize > Reader.GetRemainingPayloadBytes()
 				|| PropertySize > std::vector<uint8>().max_size())
 			{
 				DiscardLoadedObjects();
@@ -1125,7 +1549,8 @@ namespace Durin
 			Record.PropertyBytes.resize(static_cast<size_t>(PropertySize));
 			if (PropertySize > 0)
 			{
-				Reader.SerializeBytes(Record.PropertyBytes.data(), PropertySize);
+				Reader.SerializeRawBytes(std::as_writable_bytes(
+					std::span<uint8>(Record.PropertyBytes.data(), Record.PropertyBytes.size())));
 			}
 			if (Reader.HasError() || Record.Id == 0 || Record.Id > ObjectCount || Context.ResolveId(Record.Id)
 				|| Record.OuterId > ObjectCount)
@@ -1148,6 +1573,11 @@ namespace Durin
 			DObject* Object = StaticConstructObject(Params);
 			DObjectForceRegistration(Object);
 			Context.IdToObject[static_cast<size_t>(Record.Id - 1)] = Object;
+		}
+		if (Reader.HasError() || Reader.GetRemainingPayloadBytes() != 0)
+		{
+			DiscardLoadedObjects();
+			return nullptr;
 		}
 
 		for (uint64 Id = 1; Id <= ObjectCount; ++Id)
@@ -1175,8 +1605,11 @@ namespace Durin
 			}
 			Object->SetOuterPrivate(Outer);
 			FObjectGraphReader PropertyReader(Record.PropertyBytes, Context);
-			Object->Serialize(PropertyReader);
-			if (PropertyReader.HasError())
+			{
+				auto ObjectScope = PropertyReader.EnterObject(*Object);
+				Object->Serialize(PropertyReader);
+			}
+			if (PropertyReader.HasError() || PropertyReader.GetRemainingPayloadBytes() != 0)
 			{
 				DiscardLoadedObjects();
 				return nullptr;
@@ -1258,51 +1691,142 @@ namespace Durin
 			if (Source == RootObject) DuplicateRoot = Duplicate;
 		}
 
+		std::unordered_map<DObject*, uint64> SourceIds;
+		std::vector<DObject*> DuplicateById;
+		DuplicateById.reserve(Sources.size());
+		for (size_t Index = 0; Index < Sources.size(); ++Index)
+		{
+			SourceIds.emplace(Sources[Index], static_cast<uint64>(Index) + 1);
+			DuplicateById.push_back(Duplicates[Sources[Index]]);
+		}
+		std::vector<DObject*> ExternalReferences;
+
+		class FDuplicateWriter final : public FMemoryWriter
+		{
+		public:
+			FDuplicateWriter(std::vector<uint8>& Bytes,
+				const std::unordered_map<DObject*, uint64>& InSourceIds,
+				std::vector<DObject*>& InExternalReferences)
+				: FMemoryWriter(Bytes, EArchivePurpose::Duplicate)
+				, Ids(InSourceIds)
+				, Externals(InExternalReferences)
+			{
+				EnableCapabilities(EArchiveCapability::ObjectReferences);
+			}
+
+			auto SerializeObjectReference(DObject*& Object) -> void override
+			{
+				if (!Object)
+				{
+					uint8 Kind = static_cast<uint8>(EArchiveObjectReferenceKind::Null);
+					*this << Kind;
+					return;
+				}
+				if (const auto It = Ids.find(Object); It != Ids.end())
+				{
+					uint8 Kind = static_cast<uint8>(EArchiveObjectReferenceKind::Internal);
+					uint64 Id = It->second;
+					*this << Kind << Id;
+					return;
+				}
+				uint8 Kind = static_cast<uint8>(EArchiveObjectReferenceKind::External);
+				auto It = std::ranges::find(Externals, Object);
+				if (It == Externals.end())
+				{
+					Externals.push_back(Object);
+					It = std::prev(Externals.end());
+				}
+				uint64 Id = static_cast<uint64>(std::distance(Externals.begin(), It)) + 1;
+				*this << Kind << Id;
+			}
+		private:
+			const std::unordered_map<DObject*, uint64>& Ids;
+			std::vector<DObject*>& Externals;
+		};
+
 		class FDuplicateReader final : public FMemoryReader
 		{
 		public:
-			FDuplicateReader(const std::vector<uint8>& Bytes, const std::unordered_map<DObject*, DObject*>& InDuplicates)
-				: FMemoryReader(Bytes), DuplicateMap(InDuplicates) {}
+			FDuplicateReader(const std::vector<uint8>& Bytes,
+				const std::vector<DObject*>& InDuplicates,
+				const std::vector<DObject*>& InExternalReferences)
+				: FMemoryReader(Bytes, EArchivePurpose::Duplicate)
+				, DuplicateObjects(InDuplicates)
+				, Externals(InExternalReferences)
+			{
+				EnableCapabilities(EArchiveCapability::ObjectReferences);
+			}
 			auto SerializeObjectReference(DObject*& Object) -> void override
 			{
-				uint64 Address = 0;
-				*this << Address;
+				uint8 Kind = 0;
+				*this << Kind;
 				if (HasError()) return;
-				DObject* SourceReference = reinterpret_cast<DObject*>(Address);
-				const auto It = DuplicateMap.find(SourceReference);
-				Object = It == DuplicateMap.end() ? SourceReference : It->second;
+				if (Kind == static_cast<uint8>(EArchiveObjectReferenceKind::Null))
+				{
+					Object = nullptr;
+					return;
+				}
+				uint64 Id = 0;
+				*this << Id;
+				if (HasError()) return;
+				if (Kind == static_cast<uint8>(EArchiveObjectReferenceKind::Internal)
+					&& Id > 0 && Id <= DuplicateObjects.size())
+				{
+					Object = DuplicateObjects[static_cast<size_t>(Id - 1)];
+					return;
+				}
+				if (Kind == static_cast<uint8>(EArchiveObjectReferenceKind::External)
+					&& Id > 0 && Id <= Externals.size())
+				{
+					Object = Externals[static_cast<size_t>(Id - 1)];
+					return;
+				}
+				Fail(EArchiveFailureCode::InvalidObjectReference,
+					"Duplicate stream contains an invalid reference token.");
 			}
 		private:
-			const std::unordered_map<DObject*, DObject*>& DuplicateMap;
+			const std::vector<DObject*>& DuplicateObjects;
+			const std::vector<DObject*>& Externals;
 		};
 
 		for (DObject* Source : Sources)
 		{
 			std::vector<uint8> Bytes;
-			FMemoryWriter Writer(Bytes);
-			Source->Serialize(Writer);
+			FDuplicateWriter Writer(Bytes, SourceIds, ExternalReferences);
+			{
+				auto ObjectScope = Writer.EnterObject(*Source);
+				Source->Serialize(Writer);
+			}
 			if (Writer.HasError())
 			{
 				if (OutError) *OutError = Writer.GetError();
 				DiscardDuplicates();
 				return nullptr;
 			}
-			FDuplicateReader Reader(Bytes, Duplicates);
-			Duplicates[Source]->Serialize(Reader);
-			if (Reader.HasError())
+			FDuplicateReader Reader(Bytes, DuplicateById, ExternalReferences);
 			{
-				if (OutError) *OutError = Reader.GetError();
+				auto ObjectScope = Reader.EnterObject(*Duplicates[Source]);
+				Duplicates[Source]->Serialize(Reader);
+			}
+			if (Reader.HasError() || Reader.GetRemainingPayloadBytes() != 0)
+			{
+				if (OutError) *OutError = Reader.HasError()
+					? std::string(Reader.GetError()) : "Duplicate stream contains trailing bytes.";
 				DiscardDuplicates();
 				return nullptr;
 			}
 		}
 
-		std::string PostLoadError;
-		if (!DuplicateRoot->PostLoad(PostLoadError))
+		for (auto It = Sources.rbegin(); It != Sources.rend(); ++It)
 		{
-			if (OutError) *OutError = PostLoadError.empty() ? "Duplicated object graph failed PostLoad." : std::move(PostLoadError);
-			DiscardDuplicates();
-			return nullptr;
+			std::string PostLoadError;
+			if (!Duplicates[*It]->PostLoad(PostLoadError))
+			{
+				if (OutError) *OutError = PostLoadError.empty()
+					? "Duplicated object graph failed PostLoad." : std::move(PostLoadError);
+				DiscardDuplicates();
+				return nullptr;
+			}
 		}
 		if (OutDuplicates) *OutDuplicates = Duplicates;
 		return DuplicateRoot;
@@ -1317,22 +1841,78 @@ namespace Durin
 			return false;
 		}
 
+		class FEditableCopyWriter final : public FMemoryWriter
+		{
+		public:
+			FEditableCopyWriter(std::vector<uint8>& Bytes, std::vector<DObject*>& InReferences)
+				: FMemoryWriter(Bytes, EArchivePurpose::EditableCopy), References(InReferences)
+			{
+				EnableCapabilities(EArchiveCapability::ObjectReferences);
+			}
+			auto SerializeObjectReference(DObject*& Object) -> void override
+			{
+				uint64 Id = 0;
+				if (Object)
+				{
+					auto It = std::ranges::find(References, Object);
+					if (It == References.end())
+					{
+						References.push_back(Object);
+						It = std::prev(References.end());
+					}
+					Id = static_cast<uint64>(std::distance(References.begin(), It)) + 1;
+				}
+				*this << Id;
+			}
+		private:
+			std::vector<DObject*>& References;
+		};
+
 		class FRemappingReader final : public FMemoryReader
 		{
 		public:
-			FRemappingReader(const std::vector<uint8>& Bytes, const std::unordered_map<DObject*, DObject*>& InReferenceMap)
-				: FMemoryReader(Bytes), Map(InReferenceMap) {}
+			FRemappingReader(const std::vector<uint8>& Bytes,
+				const std::vector<DObject*>& InReferences,
+				const std::unordered_map<DObject*, DObject*>& InReferenceMap)
+				: FMemoryReader(Bytes, EArchivePurpose::EditableCopy)
+				, References(InReferences)
+				, Map(InReferenceMap)
+			{
+				EnableCapabilities(EArchiveCapability::ObjectReferences);
+			}
 			auto SerializeObjectReference(DObject*& Object) -> void override
 			{
-				uint64 Address = 0;
-				*this << Address;
+				uint64 Id = 0;
+				*this << Id;
 				if (HasError()) return;
-				DObject* SourceReference = reinterpret_cast<DObject*>(Address);
+				if (Id > References.size())
+				{
+					Fail(EArchiveFailureCode::InvalidObjectReference,
+						"Editable-copy stream contains an invalid reference identifier.");
+					return;
+				}
+				DObject* SourceReference = Id == 0 ? nullptr : References[static_cast<size_t>(Id - 1)];
 				const auto It = Map.find(SourceReference);
 				Object = It == Map.end() ? SourceReference : It->second;
 			}
 		private:
+			const std::vector<DObject*>& References;
 			const std::unordered_map<DObject*, DObject*>& Map;
+		};
+
+		struct FOriginalValue
+		{
+			FProperty* Property = nullptr;
+			uint32 Index = 0;
+			FPropertyValueSnapshot Snapshot;
+		};
+		std::vector<FOriginalValue> OriginalValues;
+		auto RollBack = [&]() {
+			for (auto It = OriginalValues.rbegin(); It != OriginalValues.rend(); ++It)
+			{
+				std::string IgnoredError;
+				RestorePropertyValue(It->Property, Destination, It->Index, It->Snapshot, &IgnoredError);
+			}
 		};
 
 		bool bSucceeded = true;
@@ -1340,26 +1920,40 @@ namespace Durin
 			if (!bSucceeded || !Property || !Property->HasAnyPropertyFlags(EPropertyFlags::Edit) || Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
 			for (uint32 Index = 0; Index < Property->GetArrayDim(); ++Index)
 			{
+				FOriginalValue Original{Property, Index, {}};
+				if (!CapturePropertyValue(Property, Destination, Index, Original.Snapshot, OutError))
+				{
+					bSucceeded = false;
+					return;
+				}
+				OriginalValues.push_back(std::move(Original));
+
 				std::vector<uint8> Bytes;
-				FMemoryWriter Writer(Bytes);
-				SerializePropertyValue(Writer, Property, Source, Index);
+				std::vector<DObject*> References;
+				FEditableCopyWriter Writer(Bytes, References);
+				SerializeReflectedPropertyValue(Writer, *Property, Source, Index);
 				if (Writer.HasError())
 				{
 					if (OutError) *OutError = Writer.GetError();
 					bSucceeded = false;
 					return;
 				}
-				FRemappingReader Reader(Bytes, ReferenceMap);
-				SerializeReflectedPropertyValue(Reader, Property, Destination, Index);
-				if (Reader.HasError())
+				FRemappingReader Reader(Bytes, References, ReferenceMap);
+				SerializeReflectedPropertyValue(Reader, *Property, Destination, Index);
+				if (Reader.HasError() || Reader.GetRemainingPayloadBytes() != 0)
 				{
-					if (OutError && OutError->empty()) *OutError = Reader.GetError();
+					if (OutError && OutError->empty()) *OutError = Reader.HasError()
+						? std::string(Reader.GetError()) : "Editable-copy stream contains trailing bytes.";
 					bSucceeded = false;
 					return;
 				}
 			}
 		}, true);
-		if (!bSucceeded) return false;
+		if (!bSucceeded)
+		{
+			RollBack();
+			return false;
+		}
 		Destination->MarkPackageDirty();
 		return true;
 	}

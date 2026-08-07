@@ -487,31 +487,83 @@ Outer hierarchy queries, one-way `Child -> Outer` reachability, root management,
 
 ## Serialization
 
-`DObject` has a virtual `Serialize(FArchive& Ar)` hook. The default implementation calls `SerializeDObjectProperties(...)`, which walks reflected properties and serializes supported non-`Transient` fields.
+`DObject::Serialize(FArchive&)` is the one complete-object state-transfer entry.
+Its base implementation calls `SerializeDObjectProperties(...)`, which enters
+stable reflected-field scopes and walks supported non-`Transient` properties.
+A derived override calls its superclass implementation exactly once and may add
+native state only through explicitly named `FArchiveFieldDescriptor` scopes and
+semantic value operations. Missing or duplicate base calls, duplicate field
+identities, nested object entry, and unbalanced scopes are deterministic
+Archive failures.
 
-The current archive layer includes:
+Direction and purpose are independent. `FArchiveState` selects Load or Save and
+one of Discovery, ObjectGraph, Duplicate, PropertySnapshot, EditableCopy, or
+AuthoredPackage. Capabilities describe structured fields, bounded raw payloads,
+canonical Map order, hard and soft references, unknown-field retention,
+remaining-byte queries, custom versions, and multi-pass discovery. Consumers
+branch on capabilities rather than Archive implementation type. Discovery is
+save-like and may call a serializer once before emission; a serializer must
+therefore expose the same fields, logical types, versions, and references in
+both passes and must not mutate persistent state.
 
-- `FArchive` with load/save mode, sticky `ArchiveFailure` state, bounded byte
-  and string serialization, and object-reference serialization
-- `FMemoryWriter` and `FMemoryReader`
-- `SaveObjectGraphToMemory(DObject* RootObject, std::vector<uint8>& OutBytes)`
-- `LoadObjectGraphFromMemory(const std::vector<uint8>& Bytes)`
+`FArchiveLogicalTypeDescriptor` describes fixed-width scalars, enums, String,
+Name, Guid, bytes, hard and soft objects, structs, Array, Map, and fixed arrays
+without using C++ layout. There is no generic `sizeof(T)` serialization
+fallback. `FArchiveFieldDescriptor` combines that recursive logical type with
+the stable declaring type, field name, array dimension, and property flags;
+offsets, padding, addresses, registration order, and RTTI are not persistent
+identities. Raw bytes require explicit Archive support and, for a structured
+authored Archive, an active field with a byte logical type.
 
-The supported reflected property payloads are numeric primitives, `bool`, `std::string`, reflected enum storage, direct object references, vectors, maps, and recursively nested supported containers. Object references are serialized as object ids inside the saved object graph, not as process pointer addresses.
+Object, field, array, and Map scopes maintain a structured diagnostic path.
+`FArchive::Fail(...)` stores the first failure and later operations cannot clear
+or replace it. Unsupported capabilities and types, malformed or truncated
+payloads, invalid references and paths, unsupported versions, serializer
+contract violations, and scope errors therefore abort the owning operation at
+a stable path. A consumer owns construction, publication, rollback, and
+destruction; those lifecycle steps are never hidden inside `Serialize`.
 
-Object graph saving first gathers the root's structural descendants through the Outer index plus its serialized object references, assigns ids, writes object records, and serializes each object's reflected properties. This graph-gathering rule defines archive scope and is independent of GC reachability. Loading creates all object records first, then deserializes properties so object-reference ids can resolve to loaded objects.
+The semantic reflected-value layer is shared by object graphs, duplication,
+property snapshots, editable copying, and authored-package Archives. Hard
+references are delegated to the selected Archive and are never persisted as
+process addresses. Soft references transfer only their bounded logical path.
+Map writers that advertise canonical ordering use stable logical key tokens, so
+supported Maps do not depend on bucket or insertion history.
 
 Structs use the reflected non-`Transient` field walk by default. A declared
-runtime `Serialize` callback replaces that complete walk and is invoked exactly
-once per value; it cannot clear an earlier sticky Archive failure. Loading a
-struct always decodes into default-constructed managed storage. After the
-complete field walk or custom serializer succeeds, an optional
-`PostDeserialize` callback receives `RuntimeArchive` with source version zero.
-Only successful repair is copy-assigned into the live destination, so
-truncation, missing capabilities, or `PostDeserializeRejected` leaves the prior
-value unchanged.
+`FDStructOps::Serialize(FArchive&, void*)` callback replaces that complete walk
+for every Archive purpose and is invoked exactly once per value. Loading always
+decodes into default-constructed managed storage. After the complete field walk
+or custom serializer succeeds, an optional `PostDeserialize` callback receives
+the Archive purpose and source format version. Only successful repair is
+copy-assigned into the live destination, so truncation, missing capabilities,
+or `PostDeserializeRejected` leaves the prior value unchanged. Hidden GC
+references remain the separate responsibility of `CollectReferences`.
 
-The object graph format is an internal v1 binary memory format for tests and engine plumbing. Long-lived content uses the separate field-tagged `.dasset` package format documented in `Documentation/Runtime/Assets/AssetPackages.md`; the memory format remains useful for transient cloning and focused tests.
+### Transient Object Graphs and Duplication
+
+Object-graph v2 saving first runs a Discovery Archive over the same virtual
+`DObject::Serialize` entries used for emission. Scope includes the root,
+structural Outer descendants and required Outer chains, plus serialized hard
+references; raw references, soft references, and GC-only hidden references do
+not enlarge it. The discovered objects and ids are frozen before writing, and
+late objects, fields, types, references, or versions fail without publishing
+bytes. Emission retains deterministic root/Outer ordering.
+
+Loading validates the v2 header and all record bounds, creates every object
+skeleton before resolving reference ids, then invokes each object's virtual
+serializer exactly once. A failure retires the entire constructed graph. The
+format is process-local engine plumbing and has no v1 reader or migration path;
+long-lived content uses the independently versioned, field-tagged `.dasset`
+contract documented in [Asset Packages](../Assets/AssetPackages.md).
+
+`DuplicateObjectGraph(...)` uses purpose-specific save and load Archives over
+the same virtual entry. References inside the duplicated Outer tree remap to
+their duplicate, external references remain shared, and constructor-created
+inners may be reused. Any failure retires the incomplete duplicate graph.
+Property snapshots and editable copies operate on selected values rather than
+pretending to serialize a complete object; snapshots root their captured hard
+references and remain process-local and unversioned.
 
 ## Enum Metadata
 

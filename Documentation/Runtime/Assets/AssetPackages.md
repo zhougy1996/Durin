@@ -110,6 +110,24 @@ process-local ABI property. Missing fields retain constructor defaults. Unknown
 classes, invalid Outer hierarchies, malformed references, truncation, and
 unsupported versions fail the complete load.
 
+DAST v3 save and load are purpose-specific `FArchive` adapters. Saving runs a
+discovery pass through each live object's virtual `DObject::Serialize(...)`,
+freezes object ids, fields, dependencies, logical types, and version use, then
+calls the same entry for emission. A derived serializer must call its base once
+and can persist additional durable state only as stable named fields. A field,
+dependency, type, object, or version first seen during emission fails before
+file or registry publication. Repeated saves preserve the existing canonical
+field, dependency, object, and Map ordering.
+
+Loading validates records and creates all object skeletons and Outer links
+before applying fields. Each live object receives exactly one DAST load Archive
+call; unavailable fields leave constructor defaults, while known incompatible
+fields fail and unknown fields enter the compatibility pipeline. Dependencies
+are resolved before their references are applied. Successful objects receive
+`PostLoad` in reverse object order. A bounds, schema, Archive, dependency,
+callback, or `PostLoad` failure rolls back the complete new package and leaves
+the active cache, registry, files, and prior dirty state unchanged.
+
 ## Structure Compatibility
 
 AssetCore retains every unknown or removed serialized object field
@@ -210,13 +228,13 @@ constructor defaults and unknown names are skipped, but a serialized field
 whose name matches the current struct with a different kind or recursive type
 signature fails loading with `TypeMismatch`; it is never reinterpreted.
 Authored struct persistence is allowed only when its immutable `FDStructOps`
-table advertises `AuthoredFieldsComplete`. Otherwise save, package load, and
-typed inspection fail closed: save/load report `CustomStructCodecRequired`, and
-the boolean inspection API returns false. AssetCore never silently omits
-durable unreflected state. Runtime Archive `Serialize` callbacks
-do not affect DAST: authored packages always retain the tagged reflected-field
-representation so compatibility inspection remains possible. No current
-production struct requires an authored custom codec.
+table advertises `AuthoredFieldsComplete`, unless the struct declares one
+universal Archive serializer for its complete durable representation. Otherwise
+save, package load, and typed inspection fail closed with
+`CustomStructCodecRequired`. AssetCore never silently omits durable unreflected
+state. A custom serializer still enters stable named nested fields and uses the
+same logical types, so tagged DAST compatibility inspection remains possible.
+No current production struct requires a separate AssetCore-only custom codec.
 
 DAST retains the logical `Array<...>` and `Map<...,...>` signatures, count
 fields, and entry payload grammar. New Map saves order entries by the canonical
@@ -243,6 +261,31 @@ operations, or rejected invariants leave the previous struct valid and
 unchanged. This same transaction applies to `FAssetPackageField::TryReadStruct`.
 Import-record output and detached-tombstone structs use this hook to rebuild
 their parsed `FAssetPath` caches from authored path text.
+
+### Construct-Free Package Tooling
+
+Complete live save/load and byte-only tooling deliberately meet at the DAST
+logical value grammar rather than at object construction. AssetCore's package
+Archives and tooling share the bounded scalar, container, struct, hard/soft
+reference, type-signature, native-field, and canonical Map-key rules. There is
+no second live-object serializer outside the Archive adapters.
+
+Inspection, compatibility probes, registry and reference-index extraction,
+redirector fixup, relocation analysis, deletion analysis, and cook
+canonicalization operate on immutable package records plus a frozen reflection
+catalog. They construct no inspected class, invoke no virtual serializer or
+`PostLoad`, resolve no dependency merely to inspect it, publish no package, and
+change no dirty state. Route-specific walkers remain where a tool must report a
+stable occurrence path or preserve unknown struct payload bytes exactly; they
+validate through the common grammar and never reinterpret values as C++ object
+memory.
+
+Tool readers enforce field payload bounds, overflow-safe remaining-byte checks,
+canonical paths and type signatures, maximum allocation/count limits, Map-key
+uniqueness, and complete consumption where required. Rewriters copy untouched
+or unknown payload bytes exactly and publish atomically only after complete
+validation. A corrupt input or failed rewrite produces no partial registry,
+reference-index, cook, relocation, deletion, or authored-package result.
 
 String, Name, and Guid payloads use explicit logical encodings, so their current
 signatures carry an encoding version rather than `ElementSize`. Readers require

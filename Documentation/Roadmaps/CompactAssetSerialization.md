@@ -31,11 +31,12 @@ Completed:
   authored fail-closed semantics are now declarative. This satisfies a
   foundation gate but does not start DAST v4 implementation.
 - The [Unified Archive Serialization Plan](../Plans/UnifiedArchiveSerialization.md)
-  is active as an architecture prerequisite. It will route all live-object
-  state transfer through `DObject::Serialize(FArchive&)`, introduce
-  purpose-specific Archives, and preserve DAST v3 bytes while leaving
-  construct-free inspection and fixup at the serialized-record boundary. It
-  does not activate a v4 reader, writer, or migration.
+  prerequisite is complete. All live complete-object state transfer now uses
+  `DObject::Serialize(FArchive&)`; purpose-specific Archives share one semantic
+  reflected-value layer, and DAST v3 package Archives share their logical value
+  grammar with construct-free inspection and rewrite tooling. The migration
+  preserved the v3 wire contract and did not activate a v4 reader, writer, or
+  migration.
 
 ## Outcome
 
@@ -145,6 +146,9 @@ compression.
 - Struct schemas and textual type signatures repeat at each occurrence.
 - Package-version handling conflates the latest writer with the supported reader
   set.
+- DAST v3 has no package-local GUID-keyed custom-version table. The v4 wire
+  contract must still choose its version-table representation, canonical order,
+  bounds, unknown-version behavior, and exact-retention policy.
 - Existing tests do not enforce package metadata cardinality, section byte
   accounting, or an authored-package size budget.
 
@@ -153,7 +157,7 @@ compression.
 | Milestone | Kind | Dependencies | Deliverable | State |
 | --- | --- | --- | --- | --- |
 | Reflected struct operations | External prerequisite | None | Declarative and fail-closed lifecycle, equality, reference, and serialization semantics | Completed 2026-08-05 |
-| Unified Archive serialization | Required prerequisite plan | Reflected struct operations complete | One live-object `Serialize` entry, purpose-specific Archives, DAST v3 adapters, and shared construct-free field codecs | Active 2026-08-07 |
+| Unified Archive serialization | Required prerequisite plan | Reflected struct operations complete | One live-object `Serialize` entry, purpose-specific Archives, DAST v3 adapters, and shared construct-free field codecs | Completed 2026-08-07 |
 | V4 measurement and wire contract | Required child plan | Struct-operations audit complete; program explicitly scheduled | Reproducible v3 accounting and a frozen bounded v4 byte contract | Proposed, deferred |
 | Default-relative reflection | Required child plan | Frozen default contract and successful struct-operations plan | Class default objects, struct defaults, logical equivalence, and no-delta policy | Proposed, deferred |
 | Deterministic v4 writer | Required child plan | Default-relative reflection complete | Canonical tables and compact value emission meeting size gates | Proposed, deferred |
@@ -180,6 +184,16 @@ adapters, and the shared field codec used by construct-free tooling. It must
 preserve exact DAST v3 bytes and does not define v4 tables, default-relative
 encoding, custom-version wire storage, mixed-version migration, or content
 rollout.
+
+The completed migration also fixes constraints for later child plans: authored
+writers use discovery followed by frozen emission; native durable state requires
+stable named logical fields; package tools cannot depend on object construction
+or callbacks; unknown payloads must remain exact; and package Archives cannot
+persist GUID-keyed custom versions until v4 defines their table. Existing DAST
+v3 inspection bounds remain measured operational inputs rather than a proposed
+v4 encoding: reference extraction accepts at most four container levels,
+100,000 occurrences per package, 1,000,000 per snapshot, 1 MiB paths and Map-key
+tokens, and 4 KiB display paths.
 
 ### V4 Measurement and Wire Contract
 

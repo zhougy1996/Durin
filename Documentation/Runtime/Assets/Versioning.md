@@ -17,6 +17,28 @@ The engine release version identifies a Durin release for users, logs, diagnosti
 
 Changing the engine release version alone must not rewrite assets or invalidate caches. A format version changes only when that format's reader or writer contract changes. A saved-by engine version may be added later for diagnostics, but readers must make compatibility decisions from the relevant format and custom schema versions.
 
+## Archive Version Context
+
+`FArchiveVersionContext` carries named format versions separately from optional
+GUID-keyed custom versions. Object-graph Archives report object-graph v2;
+authored-package Archives report DAST v3. Property snapshots are process-local
+and unversioned. Struct `PostDeserialize` receives the Archive purpose and the
+source format version instead of deriving compatibility from the engine release
+number.
+
+DAST v3 has no canonical package location for a general custom-version table.
+An authored serializer may use a versioned logical field or struct descriptor,
+but registration of a nonempty GUID-keyed authored custom-version set fails
+rather than writing an implicit extension. The DAST v4 wire-contract effort
+must decide the package-local version-table layout, identity and ordering rules,
+discovery freeze behavior, reader bounds, unknown-version policy, and exact
+retention semantics before custom versions can become authored data.
+
+Version registration is part of serializer discovery/emission parity. A format
+or custom version first observed during emission is a late-discovery failure;
+unsupported versions are rejected before destination mutation or output
+publication.
+
 ## Early-Development Asset Compatibility
 
 Until Durin makes an explicit external compatibility commitment, the repository

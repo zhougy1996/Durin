@@ -226,7 +226,7 @@ namespace Durin
 
 	auto DObject::Serialize(FArchive& Ar) -> void
 	{
-		SerializeDObjectProperties(Ar, this);
+		SerializeDObjectProperties(Ar, *this);
 	}
 
 	auto DObject::PostLoad(std::string& OutError) -> bool

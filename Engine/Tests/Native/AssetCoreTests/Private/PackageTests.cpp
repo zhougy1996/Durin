@@ -24,6 +24,13 @@
 
 namespace AssetStructTest
 {
+	inline Durin::uint64 CodecSerializeLoadCount = 0;
+	inline Durin::uint64 CodecPostDeserializeCount = 0;
+	inline Durin::EDStructDeserializeSource CodecPostDeserializeSource =
+		Durin::EDStructDeserializeSource::RuntimeArchive;
+	inline Durin::uint32 CodecPostDeserializeVersion = 0;
+	inline bool RejectCodecPostDeserialize = false;
+
 	struct FCodecSource
 	{
 		Durin::int32 Value = 0;
@@ -37,6 +44,33 @@ namespace AssetStructTest
 
 namespace Durin
 {
+	template<>
+	struct TDStructOpsTraits<AssetStructTest::FCodecSource>
+		: TDStructOpsTraitsBase<AssetStructTest::FCodecSource>
+	{
+		static constexpr bool bWithSerializer = true;
+		static constexpr bool bWithPostDeserialize = true;
+
+		static auto Serialize(FArchive& Ar, AssetStructTest::FCodecSource& Value) -> void
+		{
+			if (Ar.IsLoading()) ++AssetStructTest::CodecSerializeLoadCount;
+			auto Type = FArchiveLogicalTypeDescriptor::Scalar(true, 32);
+			auto Field = Ar.EnterField({FName("Tests::FCodecSource"), FName("Value"), Type});
+			Ar << Value.Value;
+		}
+
+		static auto PostDeserialize(AssetStructTest::FCodecSource&,
+			FDStructPostDeserializeContext& Context) -> bool
+		{
+			++AssetStructTest::CodecPostDeserializeCount;
+			AssetStructTest::CodecPostDeserializeSource = Context.Source;
+			AssetStructTest::CodecPostDeserializeVersion = Context.SourceVersion;
+			if (!AssetStructTest::RejectCodecPostDeserialize) return true;
+			if (Context.Error) *Context.Error = "Injected custom struct repair rejection.";
+			return false;
+		}
+	};
+
 	template<>
 	struct TDStructOpsTraits<AssetStructTest::FCodecTarget>
 		: TDStructOpsTraitsBase<AssetStructTest::FCodecTarget>
@@ -317,6 +351,123 @@ namespace
 		Durin::FSourcePath SourcePath;
 		Durin::TObjectPtr<Durin::DObject> DefaultChild;
 		Durin::TObjectPtr<Durin::DObject> ExternalReference;
+	};
+
+	std::vector<Durin::EArchivePurpose> GAuthoredArchivePurposes;
+	Durin::uint64 GAuthoredConstructCount = 0;
+	Durin::uint64 GAuthoredLoadSerializeCount = 0;
+	bool GRejectAuthoredLoad = false;
+	bool GRejectAuthoredPostLoad = false;
+
+	class DAuthoredArchiveAssetForTest : public Durin::DObject
+	{
+	public:
+		explicit DAuthoredArchiveAssetForTest(
+			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DObject(Initializer)
+		{
+			++GAuthoredConstructCount;
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DAuthoredArchiveAssetForTest(X);
+		}
+
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor, "DAuthoredArchiveAssetForTest",
+					sizeof(DAuthoredArchiveAssetForTest), alignof(DAuthoredArchiveAssetForTest),
+					Durin::EObjectFlags::NoFlags, Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)
+						Durin::InternalConstructor<DAuthoredArchiveAssetForTest>);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(Durin::DClass::StaticClass, "", "DAuthoredArchiveAssetForTest");
+			}
+			return Class;
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			static const Durin::DurinCodeGen::FClassParams Params = {
+				&StaticClassNoRegister, "Tests::DAuthoredArchiveAssetForTest",
+				"DAuthoredArchiveAssetForTest", nullptr, 0};
+			static Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(Params);
+			return Class;
+		}
+
+		auto Serialize(Durin::FArchive& Ar) -> void override
+		{
+			GAuthoredArchivePurposes.push_back(Ar.GetPurpose());
+			if (Ar.IsLoading() && Ar.GetPurpose() == Durin::EArchivePurpose::AuthoredPackage)
+			{
+				++GAuthoredLoadSerializeCount;
+				if (GRejectAuthoredLoad)
+				{
+					Ar.Fail(Durin::EArchiveFailureCode::InvalidData,
+						"Injected authored load rejection.");
+					return;
+				}
+			}
+			if (!bSkipSuper) DObject::Serialize(Ar);
+			const Durin::FName DeclaringType("Tests::DAuthoredArchiveAssetForTest");
+			auto NativeType = Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32);
+			NativeType.NativeFieldVersion = 7;
+			{
+				auto Field = Ar.EnterField({DeclaringType, Durin::FName("NativeValue"), NativeType});
+				Ar << NativeValue;
+			}
+			if (bDuplicateField)
+			{
+				auto Field = Ar.EnterField({DeclaringType, Durin::FName("NativeValue"), NativeType});
+				Ar << NativeValue;
+			}
+			{
+				auto Field = Ar.EnterField({DeclaringType, Durin::FName("HardReference"),
+					Durin::FArchiveLogicalTypeDescriptor::Object(Durin::DObject::StaticClass()->GetQualifiedName())});
+				Durin::DObject* Value = HardReference.Get();
+				Ar.SerializeObjectReference(Value);
+				if (Ar.IsLoading() && !Ar.HasError()) HardReference = Value;
+			}
+			{
+				auto Field = Ar.EnterField({DeclaringType, Durin::FName("SoftReference"),
+					Durin::FArchiveLogicalTypeDescriptor::SoftObject(Durin::DObject::StaticClass()->GetQualifiedName())});
+				Ar.SerializeSoftObjectPath(SoftReference);
+			}
+			if (bLateField && !Ar.IsDiscovering())
+			{
+				auto Field = Ar.EnterField({DeclaringType, Durin::FName("EmissionOnly"),
+					Durin::FArchiveLogicalTypeDescriptor::Scalar(false, 8)});
+				Durin::uint8 Value = 1;
+				Ar << Value;
+			}
+			if (bUnsupportedCustomVersion)
+				Ar.Fail(Durin::EArchiveFailureCode::UnsupportedVersion,
+					"DAST v3 cannot persist the requested authored custom version.");
+		}
+
+		auto PostLoad(std::string& OutError) -> bool override
+		{
+			if (GRejectAuthoredPostLoad)
+			{
+				OutError = "Injected authored PostLoad rejection.";
+				return false;
+			}
+			return DObject::PostLoad(OutError);
+		}
+
+		Durin::int32 NativeValue = 73;
+		Durin::TObjectPtr<Durin::DObject> HardReference;
+		Durin::FSoftObjectPath SoftReference;
+		bool bSkipSuper = false;
+		bool bDuplicateField = false;
+		bool bLateField = false;
+		bool bUnsupportedCustomVersion = false;
 	};
 
 	class DSoftPackageAssetForTest : public DPackageAssetForTest
@@ -652,6 +803,7 @@ namespace
 			Durin::FNameInit();
 			Durin::DObjectInit();
 			(void)DPackageAssetForTest::StaticClass();
+			(void)DAuthoredArchiveAssetForTest::StaticClass();
 			(void)DSoftPackageAssetForTest::StaticClass();
 			(void)DCodecSourceAsset::StaticClass();
 			(void)DCodecTargetAsset::StaticClass();
@@ -1392,6 +1544,207 @@ TEST(FPackageAssetTests, RedirectResolutionRejectsUnknownFinalClass)
 	));
 }
 
+TEST(FPackageAssetTests, AuthoredArchiveFreezesNativeFieldsReferencesAndFailures)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath SourcePath;
+	Durin::FAssetPath TargetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/AuthoredArchive", SourcePath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/AuthoredArchiveTarget", TargetPath));
+	DPackageAssetForTest* Target = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(TargetPath, Target));
+	DAuthoredArchiveAssetForTest* Source = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Source));
+	Source->NativeValue = 0x12345678;
+	Source->HardReference = Target;
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(
+		"/TestAssets/AuthoredArchiveSoftOnly", Source->SoftReference));
+
+	GAuthoredArchivePurposes.clear();
+	std::vector<Durin::uint8> FirstBytes;
+	std::vector<Durin::uint8> SecondBytes;
+	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(Source->GetPackage(), FirstBytes));
+	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(Source->GetPackage(), SecondBytes));
+	EXPECT_EQ(FirstBytes, SecondBytes);
+	EXPECT_EQ(std::ranges::count(GAuthoredArchivePurposes, Durin::EArchivePurpose::Discovery), 2);
+	EXPECT_EQ(std::ranges::count(GAuthoredArchivePurposes, Durin::EArchivePurpose::AuthoredPackage), 2);
+
+	const auto File = Durin::Testing::GetTestWorkDirectory()
+		/ "Assets" / "AuthoredArchiveInspection.dasset";
+	WriteTestBytes(File, FirstBytes);
+	const Durin::uint64 ConstructCountBeforeTools = GAuthoredConstructCount;
+	const size_t SerializeCountBeforeTools = GAuthoredArchivePurposes.size();
+	Durin::Asset::FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(File.generic_string(), Inspection));
+	ASSERT_EQ(Inspection.Header.Dependencies.size(), 1u);
+	EXPECT_EQ(Inspection.Header.Dependencies.front(), TargetPath);
+	const auto* NativeField = Inspection.FindField("NativeValue");
+	ASSERT_NE(NativeField, nullptr);
+	EXPECT_EQ(NativeField->DeclaringClass, "Tests::DAuthoredArchiveAssetForTest");
+	EXPECT_EQ(NativeField->TypeSignature, "Native<4:4>:v7");
+	Durin::int32 NativeValue = 0;
+	ASSERT_TRUE(NativeField->TryReadScalar(NativeValue));
+	EXPECT_EQ(NativeValue, Source->NativeValue);
+	const auto* HardField = Inspection.FindField("HardReference");
+	ASSERT_NE(HardField, nullptr);
+	Durin::Asset::FAssetPackageObjectReference HardReference;
+	ASSERT_TRUE(HardField->TryReadObjectReference(HardReference));
+	EXPECT_EQ(HardReference.Kind, Durin::Asset::EAssetPackageObjectReferenceKind::External);
+	EXPECT_EQ(HardReference.ExternalPath, TargetPath);
+	ASSERT_NE(Inspection.FindField("SoftReference"), nullptr);
+	EXPECT_EQ(GAuthoredConstructCount, ConstructCountBeforeTools);
+	EXPECT_EQ(GAuthoredArchivePurposes.size(), SerializeCountBeforeTools);
+
+	auto ExpectAtomicFailure = [&](auto Configure, Durin::Asset::EAssetError ExpectedError) {
+		Source->bSkipSuper = false;
+		Source->bDuplicateField = false;
+		Source->bLateField = false;
+		Source->bUnsupportedCustomVersion = false;
+		Configure();
+		std::vector<Durin::uint8> Sentinel{9, 8, 7};
+		const Durin::Asset::FAssetResult Result =
+			Durin::Asset::SerializeAssetPackageBytes(Source->GetPackage(), Sentinel);
+		EXPECT_EQ(Result.Error, ExpectedError);
+		EXPECT_EQ(Sentinel, (std::vector<Durin::uint8>{9, 8, 7}));
+	};
+	ExpectAtomicFailure([&] { Source->bSkipSuper = true; },
+		Durin::Asset::EAssetError::UnsupportedProperty);
+	ExpectAtomicFailure([&] { Source->bDuplicateField = true; },
+		Durin::Asset::EAssetError::UnsupportedProperty);
+	ExpectAtomicFailure([&] { Source->bLateField = true; },
+		Durin::Asset::EAssetError::UnsupportedProperty);
+	ExpectAtomicFailure([&] { Source->bUnsupportedCustomVersion = true; },
+		Durin::Asset::EAssetError::UnsupportedVersion);
+}
+
+TEST(FPackageAssetTests, AuthoredArchiveLoadsOnceAndRollsBackFailures)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath SourcePath;
+	Durin::FAssetPath TargetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/AuthoredLoad", SourcePath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/AuthoredLoadTarget", TargetPath));
+	DPackageAssetForTest* Target = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(TargetPath, Target));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
+	DAuthoredArchiveAssetForTest* Source = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Source));
+	Source->NativeValue = 0x12345678;
+	Source->HardReference = Target;
+	ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(
+		"/TestAssets/AuthoredLoadSoftOnly", Source->SoftReference));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Source->GetPackage()));
+	const auto SourceFile = Durin::Testing::GetTestWorkDirectory()
+		/ "Assets" / "AuthoredLoad.dasset";
+	std::vector<Durin::uint8> ValidBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(ValidBytes, SourceFile.generic_string()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SourcePath));
+
+	GAuthoredArchivePurposes.clear();
+	GAuthoredLoadSerializeCount = 0;
+	DAuthoredArchiveAssetForTest* Loaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(SourcePath, Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(GAuthoredLoadSerializeCount, 1u);
+	EXPECT_EQ(std::ranges::count(GAuthoredArchivePurposes,
+		Durin::EArchivePurpose::AuthoredPackage), 1);
+	EXPECT_EQ(Loaded->NativeValue, 0x12345678);
+	EXPECT_EQ(Loaded->HardReference.Get(), Target);
+	EXPECT_EQ(Loaded->SoftReference.ToString(), "/TestAssets/AuthoredLoadSoftOnly");
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SourcePath));
+
+	auto WriteVariant = [&](std::string_view Name, const std::vector<Durin::uint8>& Bytes) {
+		WriteTestBytes(Durin::Testing::GetTestWorkDirectory()
+			/ "Assets" / std::format("{}.dasset", Name), Bytes);
+	};
+	auto LoadVariant = [&](std::string_view Name, DAuthoredArchiveAssetForTest*& Out,
+		Durin::Asset::FAssetLoadReport* Report = nullptr,
+		Durin::FAssetPath* OutPath = nullptr) {
+		Durin::FAssetPath Path;
+		EXPECT_TRUE(Durin::FAssetPath::TryCreate(std::format("/TestAssets/{}", Name), Path));
+		if (OutPath) *OutPath = Path;
+		return Durin::Asset::LoadAsset(Path, Out, Report);
+	};
+
+	std::vector<Durin::uint8> Missing = ValidBytes;
+	ASSERT_TRUE(RenameSerializedString(Missing, "NativeValue", "LegacyValue"));
+	WriteVariant("AuthoredLoadMissing", Missing);
+	Durin::Asset::FAssetLoadReport MissingReport;
+	Durin::FAssetPath MissingPath;
+	Loaded = nullptr;
+	ASSERT_TRUE(LoadVariant("AuthoredLoadMissing", Loaded, &MissingReport, &MissingPath));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->NativeValue, 73);
+	ASSERT_TRUE(MissingReport.HasRiskItems());
+	ASSERT_FALSE(MissingReport.CompatibilityIssues.empty());
+	ASSERT_FALSE(MissingReport.CompatibilityIssues.front().LegacyFields.empty());
+	EXPECT_EQ(MissingReport.CompatibilityIssues.front().LegacyFields.front().Payload.size(),
+		sizeof(Durin::int32));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MissingPath));
+
+	std::vector<Durin::uint8> OldVersion = ValidBytes;
+	ASSERT_TRUE(RenameSerializedString(OldVersion, "Native<4:4>:v7", "Native<4:4>:v6"));
+	WriteVariant("AuthoredLoadOldVersion", OldVersion);
+	Durin::Asset::FAssetLoadReport OldVersionReport;
+	Durin::FAssetPath OldVersionPath;
+	Loaded = nullptr;
+	ASSERT_TRUE(LoadVariant("AuthoredLoadOldVersion", Loaded, &OldVersionReport, &OldVersionPath));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->NativeValue, 73);
+	EXPECT_TRUE(OldVersionReport.HasRiskItems());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(OldVersionPath));
+
+	auto AppendFieldPayloadByte = [](std::vector<Durin::uint8>& Bytes,
+		std::string_view FieldName) -> bool {
+		std::vector<Durin::uint8> Pattern(sizeof(Durin::uint64) + FieldName.size());
+		const Durin::uint64 NameSize = FieldName.size();
+		std::memcpy(Pattern.data(), &NameSize, sizeof(NameSize));
+		std::memcpy(Pattern.data() + sizeof(NameSize), FieldName.data(), FieldName.size());
+		auto It = std::search(Bytes.begin(), Bytes.end(), Pattern.begin(), Pattern.end());
+		if (It == Bytes.end()) return false;
+		size_t Offset = static_cast<size_t>(It - Bytes.begin()) + Pattern.size() + sizeof(Durin::uint8);
+		if (Offset + sizeof(Durin::uint64) > Bytes.size()) return false;
+		Durin::uint64 SignatureSize = 0;
+		std::memcpy(&SignatureSize, Bytes.data() + Offset, sizeof(SignatureSize));
+		Offset += sizeof(SignatureSize) + static_cast<size_t>(SignatureSize);
+		if (Offset + sizeof(Durin::uint64) > Bytes.size()) return false;
+		Durin::uint64 PayloadSize = 0;
+		std::memcpy(&PayloadSize, Bytes.data() + Offset, sizeof(PayloadSize));
+		const size_t PayloadEnd = Offset + sizeof(PayloadSize) + static_cast<size_t>(PayloadSize);
+		if (PayloadEnd > Bytes.size()) return false;
+		++PayloadSize;
+		std::memcpy(Bytes.data() + Offset, &PayloadSize, sizeof(PayloadSize));
+		Bytes.insert(Bytes.begin() + static_cast<std::ptrdiff_t>(PayloadEnd), Durin::uint8{0});
+		return true;
+	};
+	std::vector<Durin::uint8> Trailing = ValidBytes;
+	ASSERT_TRUE(AppendFieldPayloadByte(Trailing, "NativeValue"));
+	WriteVariant("AuthoredLoadTrailing", Trailing);
+	Loaded = nullptr;
+	const Durin::Asset::FAssetResult TrailingResult =
+		LoadVariant("AuthoredLoadTrailing", Loaded);
+	EXPECT_EQ(TrailingResult.Error, Durin::Asset::EAssetError::CorruptFile);
+	EXPECT_EQ(Loaded, nullptr);
+
+	WriteVariant("AuthoredLoadRejected", ValidBytes);
+	GRejectAuthoredLoad = true;
+	Loaded = nullptr;
+	const Durin::Asset::FAssetResult RejectedResult =
+		LoadVariant("AuthoredLoadRejected", Loaded);
+	GRejectAuthoredLoad = false;
+	EXPECT_EQ(RejectedResult.Error, Durin::Asset::EAssetError::CorruptFile);
+	EXPECT_EQ(Loaded, nullptr);
+
+	WriteVariant("AuthoredPostLoadRejected", ValidBytes);
+	GRejectAuthoredPostLoad = true;
+	Loaded = nullptr;
+	const Durin::Asset::FAssetResult PostLoadResult =
+		LoadVariant("AuthoredPostLoadRejected", Loaded);
+	GRejectAuthoredPostLoad = false;
+	EXPECT_EQ(PostLoadResult.Error, Durin::Asset::EAssetError::InvalidObjectGraph);
+	EXPECT_EQ(Loaded, nullptr);
+}
+
 TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 {
 	InitializeAssetTests();
@@ -1659,12 +2012,12 @@ TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
 
 	std::vector<Durin::uint8> Bytes;
 	Durin::FMemoryWriter Writer(Bytes);
-	Durin::SerializeReflectedPropertyValue(Writer, Property, Owner);
+	Durin::SerializeReflectedPropertyValue(Writer, *Property, Owner);
 	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
 	ASSERT_EQ(Bytes.front(), 1u);
 	Owner->Direct.SetPath(SentinelPath);
 	Durin::FMemoryReader Reader(Bytes);
-	Durin::SerializeReflectedPropertyValue(Reader, Property, Owner);
+	Durin::SerializeReflectedPropertyValue(Reader, *Property, Owner);
 	ASSERT_FALSE(Reader.HasError()) << Reader.GetError();
 	EXPECT_EQ(Owner->Direct.GetSoftObjectPath().GetAssetPath(), TargetPath);
 	EXPECT_FALSE(Owner->Direct.IsLoaded());
@@ -1676,7 +2029,7 @@ TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
 	OversizedWriter << ReferenceKind << OversizedPathSize;
 	Owner->Direct.SetPath(SentinelPath);
 	Durin::FMemoryReader OversizedReader(OversizedBytes);
-	Durin::SerializeReflectedPropertyValue(OversizedReader, Property, Owner);
+	Durin::SerializeReflectedPropertyValue(OversizedReader, *Property, Owner);
 	ASSERT_TRUE(OversizedReader.HasError());
 	EXPECT_NE(OversizedReader.GetError().find("1 MiB"), std::string_view::npos);
 	EXPECT_EQ(Owner->Direct.GetSoftObjectPath().GetAssetPath(), SentinelPath);
@@ -1685,7 +2038,7 @@ TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
 
 	std::vector<Durin::uint8> NullBytes{0};
 	Durin::FMemoryReader NullReader(NullBytes);
-	Durin::SerializeReflectedPropertyValue(NullReader, Property, Owner);
+	Durin::SerializeReflectedPropertyValue(NullReader, *Property, Owner);
 	ASSERT_FALSE(NullReader.HasError());
 	EXPECT_TRUE(Owner->Direct.IsNull());
 }
@@ -3269,6 +3622,40 @@ TEST(FPackageAssetTests, RequiresExplicitCodecForIncompleteAuthoredStructs)
 	EXPECT_EQ(LoadResult.Error, Durin::Asset::EAssetError::UnsupportedProperty);
 	EXPECT_NE(LoadResult.Message.find("CustomStructCodecRequired"), std::string::npos);
 	EXPECT_EQ(LoadTarget, nullptr);
+}
+
+TEST(FPackageAssetTests, AuthoredArchiveRunsCustomStructSerializerAndRepairTransactionally)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/CustomStructArchive", Path));
+	DCodecSourceAsset* Source = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Source));
+	Source->Value.Value = 91;
+	ASSERT_TRUE(Durin::Asset::SavePackage(Source->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+
+	AssetStructTest::CodecSerializeLoadCount = 0;
+	AssetStructTest::CodecPostDeserializeCount = 0;
+	AssetStructTest::RejectCodecPostDeserialize = true;
+	DCodecSourceAsset* Loaded = nullptr;
+	const Durin::Asset::FAssetResult Rejected = Durin::Asset::LoadAsset(Path, Loaded);
+	AssetStructTest::RejectCodecPostDeserialize = false;
+	EXPECT_EQ(Rejected.Error, Durin::Asset::EAssetError::CorruptFile);
+	EXPECT_EQ(Loaded, nullptr);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(Path), nullptr);
+
+	AssetStructTest::CodecSerializeLoadCount = 0;
+	AssetStructTest::CodecPostDeserializeCount = 0;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->Value.Value, 91);
+	EXPECT_EQ(AssetStructTest::CodecSerializeLoadCount, 1u);
+	EXPECT_EQ(AssetStructTest::CodecPostDeserializeCount, 1u);
+	EXPECT_EQ(AssetStructTest::CodecPostDeserializeSource,
+		Durin::EDStructDeserializeSource::AuthoredAsset);
+	EXPECT_EQ(AssetStructTest::CodecPostDeserializeVersion, 3u);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
 TEST(FPackageAssetTests, WriterUsesVersionedWireSignaturesForLogicalEncodings)

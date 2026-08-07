@@ -1,5 +1,7 @@
 #include "AssetSystem.h"
 #include "AssetRedirector.h"
+#include "AssetPackageArchive.h"
+#include "AssetPackageValueCodec.h"
 #include "Profiling/Profiling.h"
 
 #include "CoreGlobals.h"
@@ -69,72 +71,13 @@ namespace Durin::Asset
 
 		constexpr uint32 AssetMagic = 0x54534144; // DAST
 		constexpr uint32 AssetVersion = 3;
-		constexpr uint64 MaximumPackageStringBytes = 1024 * 1024;
+		using Private::MaximumPackageStringBytes;
+		using Private::FByteReader;
+		using Private::FByteWriter;
+		using Private::GetSerializedTypeSignature;
+		using Private::IsSerializedTypeSignatureCompatible;
 		constexpr uint32 MaximumRedirectDepth = 32;
 		constexpr std::string_view RedirectorClassName = "Durin::Asset::DAssetRedirector";
-
-		struct FByteWriter
-		{
-			std::vector<uint8> Bytes;
-
-			template<typename T> auto Write(const T& Value) -> void
-			{
-				const auto* Data = reinterpret_cast<const uint8*>(&Value);
-				Bytes.insert(Bytes.end(), Data, Data + sizeof(T));
-			}
-
-			auto WriteBytes(const void* Data, size_t Size) -> void
-			{
-				const auto* Source = static_cast<const uint8*>(Data);
-				Bytes.insert(Bytes.end(), Source, Source + Size);
-			}
-
-			auto WriteString(std::string_view Value) -> void
-			{
-				const uint64 Size = Value.size();
-				Write(Size);
-				WriteBytes(Value.data(), Value.size());
-			}
-		};
-
-		struct FByteReader
-		{
-			std::span<const uint8> Bytes;
-			size_t Offset = 0;
-
-			template<typename T> auto Read(T& Value) -> bool
-			{
-				if (Offset + sizeof(T) > Bytes.size()) return false;
-				std::memcpy(&Value, Bytes.data() + Offset, sizeof(T));
-				Offset += sizeof(T);
-				return true;
-			}
-
-			auto ReadBytes(void* Data, size_t Size) -> bool
-			{
-				if (Offset + Size > Bytes.size()) return false;
-				std::memcpy(Data, Bytes.data() + Offset, Size);
-				Offset += Size;
-				return true;
-			}
-
-			auto ReadString(std::string& Value, uint64 MaximumSize = std::numeric_limits<uint64>::max()) -> bool
-			{
-				uint64 Size = 0;
-				if (!Read(Size) || Size > MaximumSize || Size > Bytes.size() - Offset) return false;
-				Value.assign(reinterpret_cast<const char*>(Bytes.data() + Offset), static_cast<size_t>(Size));
-				Offset += static_cast<size_t>(Size);
-				return true;
-			}
-
-			auto ReadSpan(size_t Size, std::span<const uint8>& Out) -> bool
-			{
-				if (Offset + Size > Bytes.size()) return false;
-				Out = Bytes.subspan(Offset, Size);
-				Offset += Size;
-				return true;
-			}
-		};
 
 		struct FFileByteReader
 		{
@@ -179,14 +122,7 @@ namespace Durin::Asset
 			}
 		};
 
-		struct FFieldRecord
-		{
-			std::string DeclaringClass;
-			std::string Name;
-			DurinCodeGen::EPropertyGenFlags Kind = DurinCodeGen::EPropertyGenFlags::None;
-			std::string TypeSignature;
-			std::vector<uint8> Payload;
-		};
+		using FFieldRecord = Private::FAuthoredPackageFieldRecord;
 
 		struct FObjectRecord
 		{
@@ -415,54 +351,6 @@ namespace Durin::Asset
 			return Resolved ? Resolved.PhysicalPath.generic_string() + ".dasset" : std::string{};
 		}
 
-		auto GetSerializedTypeSignature(FProperty* Property) -> std::string
-		{
-			if (!Property) return "Invalid";
-			const auto Kind = Property->GetKind();
-			if (Kind == DurinCodeGen::EPropertyGenFlags::Array)
-				return std::format(
-					"Array<{}>",
-					GetSerializedTypeSignature(static_cast<FArrayProperty*>(Property)->GetInner()));
-			if (Kind == DurinCodeGen::EPropertyGenFlags::Map)
-			{
-				auto* Map = static_cast<FMapProperty*>(Property);
-				return std::format(
-					"Map<{},{}>",
-					GetSerializedTypeSignature(Map->GetKeyProp()),
-					GetSerializedTypeSignature(Map->GetValueProp()));
-			}
-			if (Kind == DurinCodeGen::EPropertyGenFlags::Object)
-				return std::format("Object:{}:{}", Property->GetReferencedClass() ? Property->GetReferencedClass()->GetQualifiedName().ToString() : "DObject", Property->IsObjectPtrWrapper());
-			if (Kind == DurinCodeGen::EPropertyGenFlags::SoftObject)
-			{
-				auto* SoftObject = static_cast<FSoftObjectProperty*>(Property);
-				return std::format("SoftObject:{}:v1", SoftObject->GetExpectedClass()
-					? SoftObject->GetExpectedClass()->GetQualifiedName().ToString() : "DObject");
-			}
-			if (Kind == DurinCodeGen::EPropertyGenFlags::Enum)
-			{
-				auto* EnumProperty = static_cast<FEnumProperty*>(Property);
-				return std::format("Enum:{}:{}", EnumProperty->GetEnum() ? EnumProperty->GetEnum()->GetQualifiedName().ToString() : "", Property->GetElementSize());
-			}
-			if (Kind == DurinCodeGen::EPropertyGenFlags::Struct)
-			{
-				auto* StructProperty = static_cast<FStructProperty*>(Property);
-				return std::format("Struct<{}>", StructProperty->GetStruct() ? StructProperty->GetStruct()->GetQualifiedName().ToString() : "");
-			}
-			if (Kind == DurinCodeGen::EPropertyGenFlags::String
-				|| Kind == DurinCodeGen::EPropertyGenFlags::Name
-				|| Kind == DurinCodeGen::EPropertyGenFlags::Guid)
-				return std::format("{}:v1", static_cast<uint32>(Kind));
-			return std::format("{}:{}", static_cast<uint32>(Kind), Property->GetElementSize());
-		}
-
-		auto IsSerializedTypeSignatureCompatible(
-			FProperty* Property,
-			std::string_view Signature) -> bool
-		{
-			return Property && GetSerializedTypeSignature(Property) == Signature;
-		}
-
 		auto GatherObjects(DObject* Object, std::vector<DObject*>& OutObjects) -> void
 		{
 			if (!Object) return;
@@ -470,232 +358,12 @@ namespace Durin::Asset
 			for (DObject* Inner : GDObjectArray.GetObjectsWithOuter(Object)) GatherObjects(Inner, OutObjects);
 		}
 
-		auto SerializeValue(
-			FProperty* Property, const void* Container, uint32 ArrayIndex, FByteWriter& Writer,
-			const std::unordered_map<DObject*, uint64>& ObjectIds,
-			std::unordered_set<FAssetPath>& Dependencies) -> FAssetResult;
-
-		struct FAssetArrayVisitContext
-		{
-			FProperty* Inner;
-			FByteWriter& Writer;
-			const std::unordered_map<DObject*, uint64>& ObjectIds;
-			std::unordered_set<FAssetPath>& Dependencies;
-			FAssetResult Result;
-		};
-
-		auto SerializeAssetArrayElement(void* RawContext, uint64, const void* Element) -> bool
-		{
-			auto& Context = *static_cast<FAssetArrayVisitContext*>(RawContext);
-			Context.Result = SerializeValue(
-				Context.Inner, Element, 0, Context.Writer, Context.ObjectIds, Context.Dependencies);
-			return Context.Result.Succeeded();
-		}
-
-		struct FCanonicalAssetMapEntry
-		{
-			std::vector<uint8> Token;
-			const void* Key = nullptr;
-			const void* Value = nullptr;
-		};
-
-		struct FCanonicalAssetMapContext
-		{
-			FProperty* KeyProperty;
-			std::vector<FCanonicalAssetMapEntry> Entries;
-			std::string Error;
-		};
-
-		auto CollectCanonicalAssetMapEntry(void* RawContext, const void* Key, const void* Value) -> bool
-		{
-			auto& Context = *static_cast<FCanonicalAssetMapContext*>(RawContext);
-			FCanonicalAssetMapEntry Entry;
-			if (!BuildCanonicalMapKeyToken(Context.KeyProperty, Key, 0, Entry.Token, &Context.Error)) return false;
-			Entry.Key = Key;
-			Entry.Value = Value;
-			Context.Entries.push_back(std::move(Entry));
-			return true;
-		}
-
-		auto SerializeValue(
-			FProperty* Property,
-			const void* Container,
-			uint32 ArrayIndex,
-			FByteWriter& Writer,
-			const std::unordered_map<DObject*, uint64>& ObjectIds,
-			std::unordered_set<FAssetPath>& Dependencies
-		) -> FAssetResult
-		{
-			if (!Property) return Error(EAssetError::UnsupportedProperty, "Missing property metadata.");
-			switch (Property->GetKind())
-			{
-			case DurinCodeGen::EPropertyGenFlags::Bool:
-			case DurinCodeGen::EPropertyGenFlags::Int8:
-			case DurinCodeGen::EPropertyGenFlags::Int16:
-			case DurinCodeGen::EPropertyGenFlags::Int32:
-			case DurinCodeGen::EPropertyGenFlags::Int64:
-			case DurinCodeGen::EPropertyGenFlags::UInt8:
-			case DurinCodeGen::EPropertyGenFlags::UInt16:
-			case DurinCodeGen::EPropertyGenFlags::UInt32:
-			case DurinCodeGen::EPropertyGenFlags::UInt64:
-			case DurinCodeGen::EPropertyGenFlags::Float:
-			case DurinCodeGen::EPropertyGenFlags::Double:
-			case DurinCodeGen::EPropertyGenFlags::Enum:
-				Writer.WriteBytes(Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize());
-				return {};
-			case DurinCodeGen::EPropertyGenFlags::String:
-				Writer.WriteString(*static_cast<FStringProperty*>(Property)->GetStringValuePtr(Container, ArrayIndex));
-				return {};
-			case DurinCodeGen::EPropertyGenFlags::Name:
-				Writer.WriteString(static_cast<FNameProperty*>(Property)->GetNameValuePtr(Container, ArrayIndex)->ToString());
-				return {};
-			case DurinCodeGen::EPropertyGenFlags::Guid:
-			{
-				const FGuid& Value = *static_cast<FGuidProperty*>(Property)->GetGuidValuePtr(Container, ArrayIndex);
-				Writer.Write(Value.A);
-				Writer.Write(Value.B);
-				Writer.Write(Value.C);
-				Writer.Write(Value.D);
-				return {};
-			}
-			case DurinCodeGen::EPropertyGenFlags::Object:
-			{
-				auto* ObjectProperty = static_cast<FObjectProperty*>(Property);
-				if (!ObjectProperty->IsObjectPtrWrapper()) return Error(EAssetError::UnsupportedProperty, "Raw object pointer properties are not serializable.");
-				DObject* Referenced = ObjectProperty->GetObjectPropertyValue(Container, ArrayIndex);
-				if (!Referenced) { Writer.Write(uint8(0)); return {}; }
-				if (auto It = ObjectIds.find(Referenced); It != ObjectIds.end())
-				{
-					Writer.Write(uint8(1));
-					Writer.Write(It->second);
-					return {};
-				}
-				DPackage* ExternalPackage = Referenced->GetPackage();
-				if (!ExternalPackage || ExternalPackage->GetAsset() != Referenced) return Error(EAssetError::InvalidObjectGraph, "Cross-package references may only target a package main asset.");
-				FAssetPath ExternalPath;
-				if (!FAssetPath::TryCreate(ExternalPackage->GetPackagePath(), ExternalPath)) return Error(EAssetError::InvalidPath, "Referenced package has an invalid path.");
-				Dependencies.insert(ExternalPath);
-				Writer.Write(uint8(2));
-				Writer.WriteString(ExternalPath.GetView());
-				return {};
-			}
-			case DurinCodeGen::EPropertyGenFlags::SoftObject:
-			{
-				auto* SoftProperty = static_cast<FSoftObjectProperty*>(Property);
-				const FSoftObjectPtr* Reference = SoftProperty->GetSoftObjectPtr(Container, ArrayIndex);
-				if (!Reference)
-					return Error(EAssetError::UnsupportedProperty,
-						"Soft object property has no typed value accessor.");
-				if (Reference->IsNull())
-				{
-					Writer.Write(uint8(0));
-					return {};
-				}
-				const std::string_view Path = Reference->GetSoftObjectPath().GetAssetPath().GetView();
-				if (Path.empty() || Path.size() > MaximumPackageStringBytes)
-					return Error(EAssetError::InvalidPath, "Soft object path exceeds the authored package bound.");
-				Writer.Write(uint8(1));
-				Writer.WriteString(Path);
-				return {};
-			}
-			case DurinCodeGen::EPropertyGenFlags::Struct:
-			{
-				auto* StructProperty = static_cast<FStructProperty*>(Property);
-				DStruct* Struct = StructProperty->GetStruct();
-				if (!Struct) return Error(EAssetError::UnsupportedProperty, "Struct property has no reflected type.");
-				if (!Struct->HasCompleteAuthoredFields())
-					return Error(
-						EAssetError::UnsupportedProperty,
-						std::format(
-							"CustomStructCodecRequired: '{}' does not declare a complete authored "
-							"field representation.",
-							Struct->GetQualifiedName().ToString()));
-				Writer.WriteString(Struct->GetQualifiedName().ToString());
-				std::vector<FProperty*> Fields;
-				Struct->ForEachProperty([&](FProperty* Field) {
-					if (Field && !Field->HasAnyPropertyFlags(EPropertyFlags::Transient)) Fields.push_back(Field);
-				}, false);
-				Writer.Write(uint64(Fields.size()));
-				const void* StructValue = Property->GetValuePtr(Container, ArrayIndex);
-				for (FProperty* Field : Fields)
-				{
-					FByteWriter Payload;
-					for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim(); ++FieldIndex)
-					{
-						FAssetResult Result = SerializeValue(Field, StructValue, FieldIndex, Payload, ObjectIds, Dependencies);
-						if (!Result) return Result;
-					}
-					Writer.WriteString(Struct->GetQualifiedName().ToString());
-					Writer.WriteString(Field->NamePrivate.ToString());
-					Writer.Write(uint8(Field->GetKind()));
-					Writer.WriteString(GetSerializedTypeSignature(Field));
-					Writer.Write(uint64(Payload.Bytes.size()));
-					Writer.WriteBytes(Payload.Bytes.data(), Payload.Bytes.size());
-				}
-				return {};
-			}
-			case DurinCodeGen::EPropertyGenFlags::Array:
-			{
-				auto* Array = static_cast<FArrayProperty*>(Property);
-				if (!Array->HasArrayOps() || !Array->GetInner()
-					|| !Array->HasCapability(EArrayOpsFlags::Count | EArrayOpsFlags::ConstTraversal))
-					return Error(EAssetError::UnsupportedProperty, "ArrayOperationUnavailable: DAST save requires Count and ConstTraversal.");
-				uint64 Num = 0;
-				if (Array->GetNum(Container, Num, ArrayIndex) != EContainerOpResult::Success)
-					return Error(EAssetError::UnsupportedProperty, "ArrayOperationFailed: Count failed during DAST save.");
-				Writer.Write(Num);
-				FAssetArrayVisitContext Context{Array->GetInner(), Writer, ObjectIds, Dependencies};
-				if (Array->VisitElements(Container, &SerializeAssetArrayElement, &Context, ArrayIndex)
-					!= EContainerOpResult::Success && Context.Result)
-					return Error(EAssetError::UnsupportedProperty, "ArrayOperationFailed: ConstTraversal failed during DAST save.");
-				if (!Context.Result) return Context.Result;
-				return {};
-			}
-			case DurinCodeGen::EPropertyGenFlags::Map:
-			{
-				auto* Map = static_cast<FMapProperty*>(Property);
-				if (!Map->HasMapOps() || !Map->GetKeyProp() || !Map->GetValueProp()
-					|| !Map->HasCapability(EMapOpsFlags::Count | EMapOpsFlags::ConstTraversal))
-					return Error(EAssetError::UnsupportedProperty, "MapOperationUnavailable: DAST save requires Count and ConstTraversal.");
-				std::string CanonicalError;
-				if (!ValidateCanonicalMapKeyProperty(Map->GetKeyProp(), &CanonicalError))
-					return Error(EAssetError::UnsupportedProperty, std::move(CanonicalError));
-				uint64 Num = 0;
-				if (Map->GetNum(Container, Num, ArrayIndex) != EContainerOpResult::Success)
-					return Error(EAssetError::UnsupportedProperty, "MapOperationFailed: Count failed during DAST save.");
-				Writer.Write(Num);
-				FCanonicalAssetMapContext Context{Map->GetKeyProp()};
-				const EContainerOpResult VisitResult = Map->VisitEntries(
-					Container, &CollectCanonicalAssetMapEntry, &Context, ArrayIndex);
-				if (VisitResult != EContainerOpResult::Success || !Context.Error.empty())
-					return Error(EAssetError::UnsupportedProperty, Context.Error.empty()
-						? "MapOperationFailed: ConstTraversal failed during DAST save." : std::move(Context.Error));
-				std::ranges::sort(Context.Entries, {}, &FCanonicalAssetMapEntry::Token);
-				for (size_t Index = 0; Index < Context.Entries.size(); ++Index)
-				{
-					if (Index > 0 && Context.Entries[Index - 1].Token == Context.Entries[Index].Token)
-						return Error(EAssetError::UnsupportedProperty,
-							"CanonicalMapKeyCollision: distinct entries produced the same canonical token.");
-					FAssetResult Result = SerializeValue(Map->GetKeyProp(), Context.Entries[Index].Key, 0, Writer, ObjectIds, Dependencies);
-					if (!Result) return Result;
-					Result = SerializeValue(Map->GetValueProp(), Context.Entries[Index].Value, 0, Writer, ObjectIds, Dependencies);
-					if (!Result) return Result;
-				}
-				return {};
-			}
-			default:
-				return Error(EAssetError::UnsupportedProperty, std::format("Unsupported property kind {}.", static_cast<uint32>(Property->GetKind())));
-			}
-		}
-
-		auto DeserializeValue(
+		auto DecodeByteToolValue(
 			FProperty* Property,
 			void* Container,
 			uint32 ArrayIndex,
 			FByteReader& Reader,
 			const std::vector<DObject*>& Objects,
-			std::vector<FAssetLegacyField>* OutLegacyFields = nullptr,
-			std::string_view PackagePath = {},
 			uint32 SourceVersion = AssetVersion) -> FAssetResult
 		{
 			switch (Property->GetKind())
@@ -844,9 +512,8 @@ namespace Durin::Asset
 					FByteReader PayloadReader{Payload};
 					for (uint32 FieldIndex = 0; FieldIndex < Field->GetArrayDim(); ++FieldIndex)
 					{
-						FAssetResult Result = DeserializeValue(
-							Field, StructValue, FieldIndex, PayloadReader, Objects,
-							OutLegacyFields, PackagePath, SourceVersion);
+						FAssetResult Result = DecodeByteToolValue(
+							Field, StructValue, FieldIndex, PayloadReader, Objects, SourceVersion);
 						if (!Result) return Result;
 					}
 					if (PayloadReader.Offset != Payload.size()) return Error(EAssetError::CorruptFile, "Struct field payload has trailing bytes.");
@@ -897,9 +564,9 @@ namespace Durin::Asset
 					if (OpResult != EContainerOpResult::Success)
 						return Error(EAssetError::UnsupportedProperty,
 							std::format("ArrayElement[{}]: mutable access returned {}.", Index, static_cast<uint32>(OpResult)));
-					FAssetResult Result = DeserializeValue(
+					FAssetResult Result = DecodeByteToolValue(
 						Array->GetInner(), Element,
-						0, Reader, Objects, OutLegacyFields, PackagePath, SourceVersion);
+						0, Reader, Objects, SourceVersion);
 					if (!Result)
 					{
 						Result.Message = std::format("ArrayElement[{}]: {}", Index, Result.Message);
@@ -948,15 +615,15 @@ namespace Durin::Asset
 							|| !ValueStorage.DefaultConstruct(Map->GetValueProp(), 0, &StorageError))
 							return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
 					}
-					FAssetResult Result = DeserializeValue(
-						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Reader, Objects, OutLegacyFields, PackagePath, SourceVersion);
+					FAssetResult Result = DecodeByteToolValue(
+						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Reader, Objects, SourceVersion);
 					if (!Result)
 					{
 						Result.Message = std::format("MapEntry[{}].Key: {}", Index, Result.Message);
 						return Result;
 					}
-					Result = DeserializeValue(
-						Map->GetValueProp(), ValueStorage.GetContainer(), 0, Reader, Objects, OutLegacyFields, PackagePath, SourceVersion);
+					Result = DecodeByteToolValue(
+						Map->GetValueProp(), ValueStorage.GetContainer(), 0, Reader, Objects, SourceVersion);
 					if (!Result)
 					{
 						Result.Message = std::format("MapEntry[{}].Value: {}", Index, Result.Message);
@@ -1442,7 +1109,7 @@ namespace Durin::Asset
 					std::string StorageError;
 					if (!KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0, &StorageError))
 						return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
-					FAssetResult KeyResult = DeserializeValue(
+					FAssetResult KeyResult = DecodeByteToolValue(
 						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Reader, {});
 					if (!KeyResult)
 					{
@@ -1837,17 +1504,15 @@ namespace Durin::Asset
 				Writer.Write(Count);
 				for (uint64 Index = 0; Index < Count; ++Index)
 				{
+					const size_t KeyOffset = Reader.Offset;
 					FReflectedValueStorage KeyStorage;
 					std::string StorageError;
 					if (!KeyStorage.DefaultConstruct(Map->GetKeyProp(), 0, &StorageError))
 						return Error(EAssetError::UnsupportedProperty, std::move(StorageError));
-					FAssetResult Result = DeserializeValue(
+					FAssetResult Result = DecodeByteToolValue(
 						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Reader, {});
 					if (!Result) return Result;
-					std::unordered_set<FAssetPath> Dependencies;
-					Result = SerializeValue(
-						Map->GetKeyProp(), KeyStorage.GetContainer(), 0, Writer, {}, Dependencies);
-					if (!Result) return Result;
+					Writer.WriteBytes(Reader.Bytes.subspan(KeyOffset, Reader.Offset - KeyOffset));
 					Result = RewriteSerializedReferenceValue(
 						Map->GetValueProp(), Reader, Writer, Mappings,
 						RewriteCount, ContainerDepth + 1);
@@ -2460,91 +2125,20 @@ namespace Durin::Asset
 			FPackageFile* OutFile = nullptr,
 			const FAssetPackageSerializationOptions& Options = {}) -> FAssetResult
 		{
-			OutBytes.clear();
-			if (Package && !Package->IsAssetPackage())
-				return Error(EAssetError::InvalidPackageType, "Only asset packages can be serialized.");
-			if (!Package || !Package->GetAsset())
-				return Error(EAssetError::InvalidObjectGraph, "Package has no main asset.");
-
-			std::vector<DObject*> Objects;
-			GatherObjects(Package->GetAsset(), Objects);
-			std::unordered_map<DObject*, uint64> ObjectIds;
-			for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
-
-			FPackageFile File;
-			File.FormatVersion = AssetVersion;
-			File.AssetClassName = Package->GetAsset()->GetClass()->GetQualifiedName().ToString();
-			if (auto* Redirector = Cast<DAssetRedirector>(Package->GetAsset()))
+			Private::FAuthoredPackageSummary Summary;
+			FAssetResult Result = Private::BuildAuthoredPackageBytes(
+				Package, OutBytes, Summary, Options);
+			if (!Result) return Result;
+			if (OutFile)
 			{
-				File.EntryKind = EAssetRegistryEntryKind::Redirector;
-				DObject* DestinationObject = Redirector->GetDestinationObject();
-				DPackage* DestinationPackage = DestinationObject
-					? DestinationObject->GetPackage() : nullptr;
-				if (!DestinationPackage || DestinationPackage->GetAsset() != DestinationObject
-					|| !FAssetPath::TryCreate(
-						DestinationPackage->GetPackagePath(), File.RedirectDestination))
-					return CorruptRedirector(
-						"DestinationObject must be a non-null package main asset.");
+				OutFile->FormatVersion = AssetVersion;
+				OutFile->AssetClassName = std::move(Summary.AssetClassName);
+				OutFile->EntryKind = Summary.EntryKind;
+				OutFile->RedirectDestination = std::move(Summary.RedirectDestination);
+				OutFile->Dependencies = std::move(Summary.Dependencies);
+				OutFile->Objects.clear();
 			}
-			std::unordered_set<FAssetPath> Dependencies;
-			for (size_t Index = 0; Index < Objects.size(); ++Index)
-			{
-				DObject* Object = Objects[Index];
-				FObjectRecord Record;
-				Record.Id = Index + 1;
-				if (Object == Package->GetAsset()) Record.OuterId = 0;
-				else
-				{
-					auto OuterIt = ObjectIds.find(Object->GetOuter());
-					if (OuterIt == ObjectIds.end())
-						return Error(EAssetError::InvalidObjectGraph, "Package inner object has an outer outside the package graph.");
-					Record.OuterId = OuterIt->second;
-				}
-				Record.ClassName = Object->GetClass()->GetQualifiedName().ToString();
-				Record.ObjectName = Object->GetName();
-				FAssetResult SerializationResult;
-				Object->GetClass()->ForEachProperty([&](FProperty* Property) {
-					if (!SerializationResult || !Property || Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
-					if (Options.PropertyFilter && !Options.PropertyFilter(Object, Property)) return;
-					FFieldRecord Field;
-					DClass* DeclaringClass = Cast<DClass>(Property->Owner.ToDObject());
-					Field.DeclaringClass = DeclaringClass
-						? DeclaringClass->GetQualifiedName().ToString()
-						: Object->GetClass()->GetQualifiedName().ToString();
-					Field.Name = Property->NamePrivate.ToString();
-					Field.Kind = Property->GetKind();
-					Field.TypeSignature = GetSerializedTypeSignature(Property);
-					FByteWriter PayloadWriter;
-					for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
-					{
-						FAssetResult Result = SerializeValue(
-							Property, Object, ArrayIndex, PayloadWriter, ObjectIds, Dependencies);
-						if (!Result) { SerializationResult = std::move(Result); return; }
-					}
-					Field.Payload = std::move(PayloadWriter.Bytes);
-					Record.Fields.push_back(std::move(Field));
-				}, true);
-				if (!SerializationResult) return SerializationResult;
-				File.Objects.push_back(std::move(Record));
-			}
-			File.Dependencies.assign(Dependencies.begin(), Dependencies.end());
-			std::ranges::sort(File.Dependencies, [](const FAssetPath& A, const FAssetPath& B) {
-				return A.GetView() < B.GetView();
-			});
-			FAssetPath PackagePath;
-			if (!FAssetPath::TryCreate(Package->GetPackagePath(), PackagePath))
-				return Error(EAssetError::InvalidPath, "Package has an invalid asset path.");
-			FAssetResult ValidationResult = ValidateRedirectorHeader(
-				File, File.Objects.size(), &PackagePath);
-			if (!ValidationResult) return ValidationResult;
-			ValidationResult = ValidateRedirectorBody(File);
-			if (!ValidationResult) return ValidationResult;
-
-			FByteWriter Writer;
-			WritePackageFile(File, Writer);
-			OutBytes = std::move(Writer.Bytes);
-			if (OutFile) *OutFile = std::move(File);
-			return {};
+			return Result;
 		}
 	}
 
@@ -2900,8 +2494,8 @@ namespace Durin::Asset
 			FFieldVariant(), FName("InspectedStructValue"), EObjectFlags::NoFlags,
 			EPropertyFlags::None, 1, 0, Struct);
 		FByteReader Reader{Payload};
-		return DeserializeValue(
-			&RootProperty, OutValue, 0, Reader, {}, nullptr, {},
+		return DecodeByteToolValue(
+			&RootProperty, OutValue, 0, Reader, {},
 			SourceFormatVersion == 0 ? AssetVersion : SourceFormatVersion)
 			&& Reader.Offset == Payload.size();
 	}
@@ -7106,33 +6700,10 @@ namespace Durin::Asset
 		{
 			DObject* Object = Objects[Record.Id - 1];
 			std::vector<FAssetLegacyField> LegacyFields;
-			for (const FFieldRecord& Field : Record.Fields)
-			{
-				DClass* DeclaringClass = FindClassByQualifiedName(Field.DeclaringClass);
-				FProperty* Property = DeclaringClass && Object->IsA(DeclaringClass)
-					? DeclaringClass->FindPropertyByName(FName(Field.Name), false)
-					: nullptr;
-				if (!Property || Property->GetKind() != Field.Kind
-					|| !IsSerializedTypeSignatureCompatible(Property, Field.TypeSignature))
-				{
-					LegacyFields.push_back({
-						.DeclaringClass = Field.DeclaringClass,
-						.Name = Field.Name,
-						.Kind = Field.Kind,
-						.TypeSignature = Field.TypeSignature,
-						.Payload = Field.Payload});
-					continue;
-				}
-				FByteReader FieldReader{Field.Payload};
-				for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
-				{
-					Result = DeserializeValue(
-						Property, Object, ArrayIndex, FieldReader, Objects,
-						&LegacyFields, Path.GetView(), File.FormatVersion);
-					if (!Result) { Rollback(); return Result; }
-				}
-				if (FieldReader.Offset != Field.Payload.size()) { Rollback(); return Error(EAssetError::CorruptFile, "Property payload has trailing bytes."); }
-			}
+			Result = Private::LoadAuthoredObject(
+				*Object, Record.Fields, Objects, File.FormatVersion,
+				LegacyFields);
+			if (!Result) { Rollback(); return Result; }
 
 			if (LegacyFields.empty()) continue;
 			std::vector<FAssetCompatibilityIssue> ObjectIssues;

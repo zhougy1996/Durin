@@ -604,14 +604,14 @@ namespace
 		std::vector<Durin::int32> SourceArray{11, 22};
 		std::vector<Durin::uint8> ArrayBytes;
 		Durin::FMemoryWriter ArrayWriter(ArrayBytes);
-		Durin::SerializeReflectedPropertyValue(ArrayWriter, &ArrayProperty, &SourceArray);
+		Durin::SerializeReflectedPropertyValue(ArrayWriter, ArrayProperty, &SourceArray);
 		ASSERT_FALSE(ArrayWriter.HasError()) << ArrayWriter.GetError();
 		ASSERT_GT(ArrayBytes.size(), 1u);
 		ArrayBytes.pop_back();
 
 		std::vector<Durin::int32> DestinationArray{7, 8, 9};
 		Durin::FMemoryReader ArrayReader(ArrayBytes);
-		Durin::SerializeReflectedPropertyValue(ArrayReader, &ArrayProperty, &DestinationArray);
+		Durin::SerializeReflectedPropertyValue(ArrayReader, ArrayProperty, &DestinationArray);
 		ASSERT_TRUE(ArrayReader.HasError());
 		EXPECT_EQ(DestinationArray, (std::vector<Durin::int32>{7, 8, 9}));
 
@@ -622,14 +622,14 @@ namespace
 		std::vector<Durin::int32> OversizedDestination{31, 32};
 		Durin::FMemoryReader OversizedReader(OversizedBytes);
 		Durin::SerializeReflectedPropertyValue(
-			OversizedReader, &ArrayProperty, &OversizedDestination
+			OversizedReader, ArrayProperty, &OversizedDestination
 		);
 		EXPECT_TRUE(OversizedReader.HasError());
 		EXPECT_EQ(OversizedDestination, (std::vector<Durin::int32>{31, 32}));
 
 		std::vector<Durin::uint8> ValidArrayBytes;
 		Durin::FMemoryWriter ValidArrayWriter(ValidArrayBytes);
-		Durin::SerializeReflectedPropertyValue(ValidArrayWriter, &ArrayProperty, &SourceArray);
+		Durin::SerializeReflectedPropertyValue(ValidArrayWriter, ArrayProperty, &SourceArray);
 		ASSERT_FALSE(ValidArrayWriter.HasError());
 		Durin::FArrayOps CommitFailureOps = *Durin::ResolveArrayOps<std::vector<Durin::int32>>();
 		CommitFailureOps.Commit = [](void*, void*) { return Durin::EContainerOpResult::BackendRejected; };
@@ -642,7 +642,7 @@ namespace
 		std::vector<Durin::int32> CommitFailureDestination{41, 42};
 		Durin::FMemoryReader CommitFailureReader(ValidArrayBytes);
 		Durin::SerializeReflectedPropertyValue(
-			CommitFailureReader, &CommitFailureProperty, &CommitFailureDestination
+			CommitFailureReader, CommitFailureProperty, &CommitFailureDestination
 		);
 		EXPECT_TRUE(CommitFailureReader.HasError());
 		EXPECT_NE(CommitFailureReader.GetError().find("Commit"), std::string_view::npos);
@@ -659,7 +659,7 @@ namespace
 		std::vector<Durin::int32> ConstructionFailureDestination{51, 52};
 		Durin::FMemoryReader ConstructionFailureReader(ValidArrayBytes);
 		Durin::SerializeReflectedPropertyValue(
-			ConstructionFailureReader, &ConstructionFailureProperty, &ConstructionFailureDestination
+			ConstructionFailureReader, ConstructionFailureProperty, &ConstructionFailureDestination
 		);
 		EXPECT_TRUE(ConstructionFailureReader.HasError());
 		EXPECT_EQ(ConstructionFailureDestination, (std::vector<Durin::int32>{51, 52}));
@@ -689,14 +689,14 @@ namespace
 		std::string FirstValue = "first";
 		std::string SecondValue = "second";
 		MapWriter << MapCount << DuplicateKey;
-		MapWriter.SerializeString(FirstValue);
+		MapWriter << FirstValue;
 		MapWriter << DuplicateKey;
-		MapWriter.SerializeString(SecondValue);
+		MapWriter << SecondValue;
 		ASSERT_FALSE(MapWriter.HasError()) << MapWriter.GetError();
 
 		FEqualityMap DestinationMap{{9, "sentinel"}};
 		Durin::FMemoryReader MapReader(MapBytes);
-		Durin::SerializeReflectedPropertyValue(MapReader, &MapProperty, &DestinationMap);
+		Durin::SerializeReflectedPropertyValue(MapReader, MapProperty, &DestinationMap);
 		ASSERT_TRUE(MapReader.HasError());
 		EXPECT_NE(MapReader.GetError().find("MapDuplicateKey"), std::string_view::npos);
 		ASSERT_EQ(DestinationMap.size(), 1u);
@@ -961,14 +961,14 @@ namespace
 		FValue Source{21, 999};
 		std::vector<Durin::uint8> Bytes;
 		Durin::FMemoryWriter Writer(Bytes);
-		Durin::SerializeReflectedPropertyValue(Writer, &Property, &Source);
+		Durin::SerializeReflectedPropertyValue(Writer, Property, &Source);
 		ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
 		EXPECT_EQ(FTraits::SerializeCount, 1);
 		ASSERT_EQ(Bytes.size(), sizeof(Durin::int32));
 
 		FValue Destination{7, 14};
 		Durin::FMemoryReader Reader(Bytes);
-		Durin::SerializeReflectedPropertyValue(Reader, &Property, &Destination);
+		Durin::SerializeReflectedPropertyValue(Reader, Property, &Destination);
 		ASSERT_FALSE(Reader.HasError()) << Reader.GetError();
 		EXPECT_EQ(FTraits::SerializeCount, 2);
 		EXPECT_EQ(FTraits::PostDeserializeCount, 1);
@@ -979,7 +979,7 @@ namespace
 		std::vector<Durin::uint8> Truncated(Bytes.begin(), Bytes.end() - 1);
 		Destination = {7, 14};
 		Durin::FMemoryReader TruncatedReader(Truncated);
-		Durin::SerializeReflectedPropertyValue(TruncatedReader, &Property, &Destination);
+		Durin::SerializeReflectedPropertyValue(TruncatedReader, Property, &Destination);
 		EXPECT_TRUE(TruncatedReader.HasError());
 		EXPECT_NE(TruncatedReader.GetError().find("ArchiveFailure"), std::string_view::npos);
 		EXPECT_EQ(Destination.Value, 7);
@@ -988,11 +988,11 @@ namespace
 		Source = {-1, 0};
 		Bytes.clear();
 		Durin::FMemoryWriter RejectionWriter(Bytes);
-		Durin::SerializeReflectedPropertyValue(RejectionWriter, &Property, &Source);
+		Durin::SerializeReflectedPropertyValue(RejectionWriter, Property, &Source);
 		ASSERT_FALSE(RejectionWriter.HasError());
 		Destination = {7, 14};
 		Durin::FMemoryReader RejectionReader(Bytes);
-		Durin::SerializeReflectedPropertyValue(RejectionReader, &Property, &Destination);
+		Durin::SerializeReflectedPropertyValue(RejectionReader, Property, &Destination);
 		EXPECT_TRUE(RejectionReader.HasError());
 		EXPECT_NE(
 			RejectionReader.GetError().find("PostDeserializeRejected"),

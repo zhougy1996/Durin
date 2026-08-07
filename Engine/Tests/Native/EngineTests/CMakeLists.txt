@@ -268,7 +268,7 @@ durin_add_engine_functional_test(WorldTests
 		Private/World/WorldActorTests.cpp
 		Private/World/WorldComponentTests.cpp
 		Private/World/WorldLifetimeTests.cpp
-	LIBRARIES DurinEd
+	LIBRARIES DurinEd StandardAssetImport
 )
 
 durin_add_engine_functional_test(ViewportTests
