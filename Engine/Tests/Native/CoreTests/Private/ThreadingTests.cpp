@@ -135,6 +135,31 @@ namespace Durin
 			auto operator()() -> int& { return Value; }
 		};
 
+		struct FCompileMoveOnlyValue
+		{
+			explicit FCompileMoveOnlyValue(int InValue) : Value(std::make_unique<int>(InValue)) {}
+			FCompileMoveOnlyValue(FCompileMoveOnlyValue&&) noexcept = default;
+			auto operator=(FCompileMoveOnlyValue&&) noexcept -> FCompileMoveOnlyValue& = default;
+			FCompileMoveOnlyValue(const FCompileMoveOnlyValue&) = delete;
+			auto operator=(const FCompileMoveOnlyValue&) -> FCompileMoveOnlyValue& = delete;
+			std::unique_ptr<int> Value;
+		};
+
+		struct FCompileUniqueProducer : FMoveOnlyVoidCallable
+		{
+			auto operator()() -> FCompileMoveOnlyValue { return FCompileMoveOnlyValue(*Value); }
+		};
+
+		struct FCompileUniqueSink : FMoveOnlyVoidCallable
+		{
+			auto operator()(FCompileMoveOnlyValue&&) -> void {}
+		};
+
+		struct FCompileUniqueOutcomeSink : FMoveOnlyVoidCallable
+		{
+			auto operator()(FUniqueTaskOutcome<FCompileMoveOnlyValue>&&) -> void {}
+		};
+
 		template<typename F>
 		concept CCanLaunchVoidTask = requires(F&& Function) {
 			{ LaunchTask("CompileFixture", std::forward<F>(Function)) } -> std::same_as<FTaskHandle>;
@@ -170,6 +195,30 @@ namespace Durin
 			ThenOutcome(Handle, "CompileFixture", std::forward<F>(Function));
 		};
 
+		template<typename F>
+		concept CCanLaunchUniqueTask = requires(F&& Function) {
+			{ LaunchUniqueTask<FCompileMoveOnlyValue>("CompileFixture", std::forward<F>(Function)) }
+				-> std::same_as<TUniqueTaskHandle<FCompileMoveOnlyValue>>;
+		};
+
+		template<typename F>
+		concept CCanConsumeUniqueTask = requires(TUniqueTaskHandle<FCompileMoveOnlyValue> Handle, F&& Function) {
+			{ ConsumeThen(std::move(Handle), "CompileFixture", std::forward<F>(Function)) } -> std::same_as<FTaskHandle>;
+		};
+
+		template<typename F>
+		concept CCanConsumeUniqueOutcomeTask = requires(TUniqueTaskHandle<FCompileMoveOnlyValue> Handle, F&& Function) {
+			{ ConsumeThenOutcome(std::move(Handle), "CompileFixture", std::forward<F>(Function)) } -> std::same_as<FTaskHandle>;
+		};
+
+		template<typename F>
+		concept CCanConsumeUniqueTaskLvalue = requires(TUniqueTaskHandle<FCompileMoveOnlyValue> Handle, F&& Function) {
+			ConsumeThen(Handle, "CompileFixture", std::forward<F>(Function));
+		};
+
+		template<typename Handle>
+		concept CHasSharedResultObserver = requires(const Handle& Value) { Value.GetResultShared(); };
+
 		static_assert(std::is_move_constructible_v<Private::FMoveOnlyTaskFunction>);
 		static_assert(std::is_nothrow_move_constructible_v<Private::FMoveOnlyTaskFunction>);
 		static_assert(!std::is_copy_constructible_v<Private::FMoveOnlyTaskFunction>);
@@ -185,6 +234,14 @@ namespace Durin
 		static_assert(!CCanLaunchVoidTask<FWrongTaskCallable>);
 		static_assert(!CCanLaunchExactIntTask<FMoveOnlyVoidCallable>);
 		static_assert(!CCanThenVoidTask<FReferenceResultCallable>);
+		static_assert(std::is_move_constructible_v<TUniqueTaskHandle<FCompileMoveOnlyValue>>);
+		static_assert(!std::is_copy_constructible_v<TUniqueTaskHandle<FCompileMoveOnlyValue>>);
+		static_assert(!CHasSharedResultObserver<TUniqueTaskHandle<FCompileMoveOnlyValue>>);
+		static_assert(CCanLaunchUniqueTask<FCompileUniqueProducer>);
+		static_assert(CCanConsumeUniqueTask<FCompileUniqueSink>);
+		static_assert(CCanConsumeUniqueOutcomeTask<FCompileUniqueOutcomeSink>);
+		static_assert(!CCanConsumeUniqueTask<FCompileUniqueOutcomeSink>);
+		static_assert(!CCanConsumeUniqueTaskLvalue<FCompileUniqueSink>);
 
 		auto EnsureGameThreadForTaskTest() -> void
 		{
@@ -1794,6 +1851,298 @@ namespace Durin
 
 		ReleaseBlocker.Trigger();
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker));
+	}
+
+	TEST(FUniqueTaskTests, WorkerSinkConsumesOneMoveOnlyValueAndClearsRetainedBytes)
+	{
+		struct FObservedValue
+		{
+			std::shared_ptr<std::atomic<uint32>> MoveCount;
+			std::shared_ptr<std::atomic<uint32>> DestructionCount;
+			std::unique_ptr<int> Value;
+
+			FObservedValue(std::shared_ptr<std::atomic<uint32>> InMoveCount,
+				std::shared_ptr<std::atomic<uint32>> InDestructionCount, int InValue)
+				: MoveCount(std::move(InMoveCount)), DestructionCount(std::move(InDestructionCount)), Value(std::make_unique<int>(InValue))
+			{
+			}
+			FObservedValue(FObservedValue&& Other) noexcept
+				: MoveCount(std::move(Other.MoveCount)), DestructionCount(std::move(Other.DestructionCount)), Value(std::move(Other.Value))
+			{
+				MoveCount->fetch_add(1, std::memory_order::acq_rel);
+			}
+			FObservedValue(const FObservedValue&) = delete;
+			~FObservedValue()
+			{
+				if (Value) DestructionCount->fetch_add(1, std::memory_order::acq_rel);
+			}
+		};
+
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		auto MoveCount = std::make_shared<std::atomic<uint32>>(0);
+		auto DestructionCount = std::make_shared<std::atomic<uint32>>(0);
+		auto Producer = LaunchUniqueTask<FObservedValue>("UniqueWorkerProducer",
+			[MoveCount, DestructionCount]() { return FObservedValue(MoveCount, DestructionCount, 42); }, {}, 128);
+		ASSERT_TRUE(Producer.IsValid());
+		const FTaskHandle ProducerTask = Producer.GetTaskHandle();
+		std::atomic<uint32> Observed = 0;
+		FTaskHandle Consumer = ConsumeThen(std::move(Producer), "UniqueWorkerConsumer",
+			[&Observed](FObservedValue&& Result) { Observed.store(static_cast<uint32>(*Result.Value), std::memory_order::release); });
+		EXPECT_FALSE(Producer.IsValid());
+		ASSERT_TRUE(Consumer.IsValid());
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Consumer));
+		EXPECT_EQ(42u, Observed.load(std::memory_order::acquire));
+		EXPECT_EQ(1u, MoveCount->load(std::memory_order::acquire));
+		EXPECT_EQ(1u, DestructionCount->load(std::memory_order::acquire));
+		EXPECT_EQ(128u, ProducerTask.GetDiagnostics().EstimatedResultBytes);
+		EXPECT_EQ(0u, Consumer.GetDiagnostics().RetainedResultBytes);
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes);
+	}
+
+	TEST(FUniqueTaskTests, OutcomeSinkReceivesFailureWithoutAValue)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		auto Producer = LaunchUniqueTask<FCompileMoveOnlyValue>("UniqueFailedProducer", []() -> FCompileMoveOnlyValue {
+			throw std::runtime_error("unique producer failed");
+		});
+		std::atomic<bool> bObserved = false;
+		FTaskHandle Consumer = ConsumeThenOutcome(std::move(Producer), "UniqueFailureOutcome",
+			[&bObserved](FUniqueTaskOutcome<FCompileMoveOnlyValue>&& Outcome) {
+				EXPECT_EQ(ETaskState::Failed, Outcome.State);
+				EXPECT_EQ(ETaskTerminalReason::CallbackFailure, Outcome.Reason);
+				EXPECT_EQ("unique producer failed", Outcome.Diagnostic);
+				EXPECT_FALSE(Outcome.Result.has_value());
+				bObserved.store(true, std::memory_order::release);
+			});
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Consumer));
+		EXPECT_TRUE(bObserved.load(std::memory_order::acquire));
+	}
+
+	TEST(FUniqueTaskTests, RejectedRegistrationPreservesHandleAndDuplicateClaimIsCounted)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FTaskHandle ForeignPrerequisite = LaunchTask("UniqueForeignPrerequisite", []() {});
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(ForeignPrerequisite));
+		ShutdownTaskScheduler(true);
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		FThreadEvent ReleaseProducer;
+		auto Producer = LaunchUniqueTask<FCompileMoveOnlyValue>("UniqueTransactionalProducer", [&]() {
+			ReleaseProducer.Wait();
+			return FCompileMoveOnlyValue(9);
+		});
+		FTaskContinuationOptions InvalidOptions;
+		InvalidOptions.Prerequisites = std::span<const FTaskHandle>(&ForeignPrerequisite, 1);
+		FTaskHandle Rejected = ConsumeThen(std::move(Producer), "UniqueRejectedConsumer",
+			[](FCompileMoveOnlyValue&&) {}, InvalidOptions);
+		EXPECT_FALSE(Rejected.IsValid());
+		EXPECT_TRUE(Producer.IsValid());
+
+		FTaskHandle Consumer = ConsumeThen(std::move(Producer), "UniqueAcceptedConsumer",
+			[](FCompileMoveOnlyValue&& Value) { EXPECT_EQ(9, *Value.Value); });
+		ASSERT_TRUE(Consumer.IsValid());
+		EXPECT_FALSE(Producer.IsValid());
+		FTaskHandle Duplicate = ConsumeThen(std::move(Producer), "UniqueDuplicateConsumer",
+			[](FCompileMoveOnlyValue&&) {});
+		EXPECT_FALSE(Duplicate.IsValid());
+		EXPECT_EQ(1u, GetTaskSchedulerDiagnostics().DuplicateUniqueConsumerClaimCount);
+
+		ReleaseProducer.Trigger();
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Consumer));
+	}
+
+	TEST(FUniqueTaskTests, GameThreadSinkChargesRetainedBytesAndOverflowPreservesHandle)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FGameThreadDeferredWorkQueueConfig Config;
+		Config.MaxQueuedPayloadBytes = 256;
+		Config.MaxPayloadBytesPerEntry = 256;
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor(Config));
+
+		auto Producer = LaunchUniqueTask<FCompileMoveOnlyValue>("UniqueDeferredProducer",
+			[]() { return FCompileMoveOnlyValue(17); }, {}, 96);
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Producer.GetTaskHandle()));
+		EXPECT_EQ(96u, Producer.GetDiagnostics().RetainedResultBytes);
+
+		FTaskContinuationOptions OverflowOptions;
+		OverflowOptions.Target = ETaskTarget::GameThreadDeferred;
+		OverflowOptions.EstimatedPayloadBytes = std::numeric_limits<uint64>::max();
+		EXPECT_FALSE(ConsumeThen(std::move(Producer), "UniqueDeferredOverflow",
+			[](FCompileMoveOnlyValue&&) {}, OverflowOptions).IsValid());
+		EXPECT_TRUE(Producer.IsValid());
+
+		FTaskContinuationOptions Options;
+		Options.Target = ETaskTarget::GameThreadDeferred;
+		Options.EstimatedPayloadBytes = 32;
+		std::atomic<bool> bRan = false;
+		FTaskHandle Consumer = ConsumeThen(std::move(Producer), "UniqueDeferredConsumer",
+			[&bRan](FCompileMoveOnlyValue&& Value) {
+				EXPECT_TRUE(IsInGameThread());
+				EXPECT_EQ(17, *Value.Value);
+				bRan.store(true, std::memory_order::release);
+			}, Options);
+		while (Consumer.GetState() == ETaskState::Waiting) std::this_thread::yield();
+		ASSERT_EQ(ETaskState::Queued, Consumer.GetState());
+		EXPECT_EQ(128u, Consumer.GetDiagnostics().EstimatedPayloadBytes);
+		EXPECT_EQ(128u, GetGameThreadDeferredWorkQueueDiagnostics().QueuedPayloadBytes);
+		EXPECT_FALSE(bRan.load(std::memory_order::acquire));
+		EXPECT_EQ(1u, PumpGameThreadDeferredWork().ExecutedCallbacks);
+		EXPECT_TRUE(bRan.load(std::memory_order::acquire));
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes);
+	}
+
+	TEST(FUniqueTaskTests, DroppedUnconsumedHandleDestroysPublishedValue)
+	{
+		struct FDestructionValue
+		{
+			std::shared_ptr<std::atomic<uint32>> Count;
+			std::unique_ptr<int> Value = std::make_unique<int>(1);
+			explicit FDestructionValue(std::shared_ptr<std::atomic<uint32>> InCount) : Count(std::move(InCount)) {}
+			FDestructionValue(FDestructionValue&&) noexcept = default;
+			FDestructionValue(const FDestructionValue&) = delete;
+			~FDestructionValue() { if (Value) Count->fetch_add(1, std::memory_order::acq_rel); }
+		};
+
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		auto Count = std::make_shared<std::atomic<uint32>>(0);
+		auto Producer = LaunchUniqueTask<FDestructionValue>("UniqueDroppedProducer",
+			[Count]() { return FDestructionValue(Count); }, {}, 64);
+		FTaskHandle Erased = Producer.GetTaskHandle();
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Erased));
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(LaunchTask("UniqueDroppedFence", []() {})));
+		EXPECT_EQ(64u, Erased.GetDiagnostics().RetainedResultBytes);
+		Producer = {};
+		EXPECT_EQ(1u, Count->load(std::memory_order::acquire));
+		EXPECT_TRUE(Erased.IsValid());
+		EXPECT_EQ(0u, Erased.GetDiagnostics().RetainedResultBytes);
+	}
+
+	TEST(FUniqueTaskTests, CancellationBeforeInvocationDiscardsPublishedValue)
+	{
+		struct FDestructionValue
+		{
+			std::shared_ptr<std::atomic<uint32>> Count;
+			std::unique_ptr<int> Value = std::make_unique<int>(1);
+			explicit FDestructionValue(std::shared_ptr<std::atomic<uint32>> InCount) : Count(std::move(InCount)) {}
+			FDestructionValue(FDestructionValue&&) noexcept = default;
+			FDestructionValue(const FDestructionValue&) = delete;
+			~FDestructionValue() { if (Value) Count->fetch_add(1, std::memory_order::acq_rel); }
+		};
+
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		auto Count = std::make_shared<std::atomic<uint32>>(0);
+		auto Producer = LaunchUniqueTask<FDestructionValue>("UniqueCanceledProducer",
+			[Count]() { return FDestructionValue(Count); }, {}, 64);
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Producer.GetTaskHandle()));
+
+		FThreadEvent BlockerStarted;
+		FThreadEvent ReleaseBlocker;
+		FTaskHandle Blocker = LaunchTask("UniqueCanceledBlocker", [&]() {
+			BlockerStarted.Trigger();
+			ReleaseBlocker.Wait();
+		});
+		ASSERT_TRUE(BlockerStarted.WaitFor(1.0));
+		std::atomic<bool> bRan = false;
+		FTaskHandle Consumer = ConsumeThen(std::move(Producer), "UniqueCanceledConsumer",
+			[&bRan](FDestructionValue&&) { bRan.store(true, std::memory_order::release); });
+		ASSERT_TRUE(CancelTask(Consumer));
+		EXPECT_EQ(ETaskState::Canceled, WaitTask(Consumer));
+		EXPECT_FALSE(bRan.load(std::memory_order::acquire));
+		EXPECT_EQ(1u, Count->load(std::memory_order::acquire));
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes);
+		ReleaseBlocker.Trigger();
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker));
+	}
+
+	TEST(FUniqueTaskTests, CallbackFailureDestroysConsumedValueAndFailsSink)
+	{
+		struct FDestructionValue
+		{
+			std::shared_ptr<std::atomic<uint32>> Count;
+			std::unique_ptr<int> Value = std::make_unique<int>(1);
+			explicit FDestructionValue(std::shared_ptr<std::atomic<uint32>> InCount) : Count(std::move(InCount)) {}
+			FDestructionValue(FDestructionValue&&) noexcept = default;
+			FDestructionValue(const FDestructionValue&) = delete;
+			~FDestructionValue() { if (Value) Count->fetch_add(1, std::memory_order::acq_rel); }
+		};
+
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		auto Count = std::make_shared<std::atomic<uint32>>(0);
+		auto Producer = LaunchUniqueTask<FDestructionValue>("UniqueFailingSinkProducer",
+			[Count]() { return FDestructionValue(Count); });
+		FTaskHandle Consumer = ConsumeThen(std::move(Producer), "UniqueFailingSink",
+			[](FDestructionValue&&) { throw std::runtime_error("unique sink failed"); });
+		EXPECT_EQ(ETaskState::Failed, WaitTask(Consumer));
+		EXPECT_EQ(ETaskTerminalReason::CallbackFailure, Consumer.GetDiagnostics().TerminalReason);
+		EXPECT_EQ("unique sink failed", Consumer.GetDiagnostic());
+		EXPECT_EQ(1u, Count->load(std::memory_order::acquire));
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes);
+	}
+
+	TEST(FUniqueTaskTests, DrainAndCancelShutdownLeaveUniqueGraphTerminalAndEmpty)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor());
+
+		std::atomic<bool> bDrainedSinkRan = false;
+		auto DrainProducer = LaunchUniqueTask<FCompileMoveOnlyValue>("UniqueDrainProducer",
+			[]() { return FCompileMoveOnlyValue(3); });
+		FTaskContinuationOptions DeferredOptions;
+		DeferredOptions.Target = ETaskTarget::GameThreadDeferred;
+		DeferredOptions.EstimatedPayloadBytes = 16;
+		FTaskHandle DrainConsumer = ConsumeThen(std::move(DrainProducer), "UniqueDrainConsumer",
+			[&bDrainedSinkRan](FCompileMoveOnlyValue&& Value) {
+				EXPECT_EQ(3, *Value.Value);
+				bDrainedSinkRan.store(true, std::memory_order::release);
+			}, DeferredOptions);
+		ShutdownTaskSystem(ETaskShutdownMode::Drain);
+		EXPECT_TRUE(bDrainedSinkRan.load(std::memory_order::acquire));
+		EXPECT_EQ(ETaskState::Succeeded, DrainConsumer.GetState());
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes);
+
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		FThreadEvent ProducerStarted;
+		auto Count = std::make_shared<std::atomic<uint32>>(0);
+		struct FCancelValue
+		{
+			std::shared_ptr<std::atomic<uint32>> Count;
+			std::unique_ptr<int> Value = std::make_unique<int>(1);
+			explicit FCancelValue(std::shared_ptr<std::atomic<uint32>> InCount) : Count(std::move(InCount)) {}
+			FCancelValue(FCancelValue&&) noexcept = default;
+			FCancelValue(const FCancelValue&) = delete;
+			~FCancelValue() { if (Value) Count->fetch_add(1, std::memory_order::acq_rel); }
+		};
+		auto CancelProducer = LaunchUniqueCancelableTask<FCancelValue>("UniqueCancelShutdownProducer",
+			[&ProducerStarted, Count](const FTaskCancellationToken& Token) {
+				ProducerStarted.Trigger();
+				while (!Token.IsCancellationRequested()) std::this_thread::yield();
+				return FCancelValue(Count);
+			});
+		ASSERT_TRUE(ProducerStarted.WaitFor(1.0));
+		ShutdownTaskScheduler(false);
+		EXPECT_EQ(ETaskState::Canceled, CancelProducer.GetState());
+		EXPECT_EQ(1u, Count->load(std::memory_order::acquire));
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes);
 	}
 
 	TEST(FTaskContinuationTests, MoveOnlyTypedResultSupportsImmutableFanOutAndTypedChains)

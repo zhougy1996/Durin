@@ -9,15 +9,18 @@ Completed:
 
 ## Current Status
 
-Stages 0 and 1 are complete. The callable contract was frozen from baseline
+Stages 0 through 2 are complete. The callable contract was frozen from baseline
 `68660f0a2b966649f8ca0043f27c19f7f08792e7`, and Stage 1 moved callable
 ownership through task nodes, the Worker queue, and the GameThread deferred
 queue from baseline `d59eb1fe236ade4dc8b1d16c55b23e7d457ba930`.
 Move-only captures now work for void, cancelable, shared typed, Worker
 continuation, outcome, and GameThread continuation paths. Capture moves and
 destruction occur outside internal locks, and successful typed waits now
-synchronize completion-hook result publication. Stage 2 is ready to add the
-type-distinct unique result state and consuming sinks.
+synchronize completion-hook result publication. Stage 2 adds explicit unique
+producers, move-only `TUniqueTaskHandle<T>`, transactional one-consumer claims,
+Worker and GameThread consuming sinks, checked retained-byte admission, and
+bounded unique-result diagnostics. Stage 3 is ready to migrate only the
+AsyncImportCore result handoff.
 The completed continuation foundation publishes typed values through
 `shared_ptr<const T>` and ultimately stores task and completion callables in
 `std::function`. This supports immutable fan-out but requires copy-constructible
@@ -638,22 +641,22 @@ Dependencies: Stage 0 frozen contract.
 
 Dependencies: Stage 1 move-only callable boundary.
 
-- [ ] Implement unique pending/published/claimed/consumed/discarded result state
+- [x] Implement unique pending/published/claimed/consumed/discarded result state
   and move-only `TUniqueTaskHandle<T>` queries.
-- [ ] Implement unique launch APIs and require explicit ownership selection
+- [x] Implement unique launch APIs and require explicit ownership selection
   without changing shared typed launch behavior.
-- [ ] Implement transactional `ConsumeThen` and `ConsumeThenOutcome` sink
+- [x] Implement transactional `ConsumeThen` and `ConsumeThenOutcome` sink
   registration, success/completion edges, and one-consumer claim.
-- [ ] Integrate retained-result byte diagnostics and checked GameThread deferred
+- [x] Integrate retained-result byte diagnostics and checked GameThread deferred
   admission accounting.
-- [ ] Ensure failure, cancellation, dispatch rejection, stale generation,
+- [x] Ensure failure, cancellation, dispatch rejection, stale generation,
   supersession, callback exception, handle release, and both shutdown modes
   destroy stored `T` exactly once outside internal locks.
-- [ ] Add focused tests for move-only/non-default-constructible/destructor-
+- [x] Add focused tests for move-only/non-default-constructible/destructor-
   observing `T`, duplicate claims, rejected registration preservation,
   completion races, moved-from handles, erased prerequisites, and result
   lifetime after producer handle release.
-- [ ] Extend scheduler and queue diagnostics only with bounded counters/metadata;
+- [x] Extend scheduler and queue diagnostics only with bounded counters/metadata;
   do not retain result payloads or per-terminal histories.
 
 #### Acceptance Gate
@@ -774,6 +777,34 @@ and validation outcome.
   void/cancelable/shared typed launches, Worker and GameThread continuations,
   registration races, dispatch rejection, stale/superseded/canceled work, and
   drain/cancel shutdown through the existing lifecycle suite.
+
+### Stage 2 Handoff
+
+- Baseline commit: `a53e7626e47a7db7686d7f660b1a60a42de253e4`.
+- Working set: `Threading/Task.h`, `Task.cpp`, Core `ThreadingTests.cpp`, and
+  this plan.
+- Key symbols and decisions: `TUniqueTaskResultState<T>` keeps payloads behind
+  `unique_ptr<T>` so state transitions move only pointers under lock;
+  `TUniqueTaskHandle<T>` exposes status and erased access but is move-only and
+  has no result observer; `LaunchUniqueTask` and
+  `LaunchUniqueCancelableTask` select unique storage explicitly;
+  `ConsumeThen`/`ConsumeThenOutcome` reserve a token before graph admission,
+  roll it back on rejection, and commit it to the accepted sink; result-state
+  byte setters retain only weak task state; and a terminal-publication barrier
+  prevents registration or waiting from observing terminal success before its
+  completion hook publishes the result. GameThread sinks charge the checked
+  combined payload/result bytes.
+- Open questions: none blocking Stage 3. The source handle is preserved after
+  graph admission or byte-overflow rejection; a successful claim leaves only a
+  weak tombstone for immediate duplicate diagnostics and does not retain `T`.
+- Validation: all 92 `CoreConcurrencyTests` passed, including eight unique-task
+  runtime tests and compile-time handle/signature fixtures. Coverage includes
+  move-only/non-default values, zero copies, outcome failure, duplicate claims,
+  rollback after a foreign prerequisite, moved-from handles, erased handles,
+  retained-byte overflow and deferred queue charging, dropped handles,
+  pre-invocation cancellation, callback failure, and drain/cancel shutdown.
+  The Agent Debug profile's complete `all` build passed and scheduler retained
+  unique bytes returned to zero on every tested terminal path.
 
 ## Validation Matrix
 

@@ -91,6 +91,7 @@ namespace Durin
 			ETaskTarget InTarget,
 			ETaskPriority InPriority,
 			uint64 InEstimatedPayloadBytes,
+			uint64 InEstimatedResultBytes,
 			FTaskGenerationToken InGenerationToken,
 			std::optional<FTaskCoalescingKey> InCoalescingKey
 		)
@@ -109,6 +110,7 @@ namespace Durin
 			, Target(InTarget)
 			, Priority(InPriority)
 			, EstimatedPayloadBytes(InEstimatedPayloadBytes)
+			, EstimatedResultBytes(InEstimatedResultBytes)
 			, GenerationToken(std::move(InGenerationToken))
 			, CoalescingKey(std::move(InCoalescingKey))
 			, EnqueueTimeNanoseconds(MonotonicNanoseconds())
@@ -125,7 +127,8 @@ namespace Durin
 
 		auto RegisterDependent(const std::shared_ptr<FTaskStateData>& Dependent) -> ETaskState
 		{
-			std::lock_guard Lock(Mutex);
+			std::unique_lock Lock(Mutex);
+			CV.wait(Lock, [this]() { return !IsTerminalState(State) || bTerminalPublicationFinished; });
 			if (!IsTerminalState(State))
 			{
 				Dependents.emplace_back(Dependent);
@@ -223,7 +226,7 @@ namespace Durin
 		{
 			std::unique_lock Lock(Mutex);
 			CV.wait(Lock, [this]() {
-				return IsTerminalState(State);
+				return IsTerminalState(State) && bTerminalPublicationFinished;
 			});
 			return State;
 		}
@@ -232,15 +235,15 @@ namespace Durin
 		{
 			std::unique_lock Lock(Mutex);
 			CV.wait_for(Lock, std::chrono::duration<double>(TimeoutSeconds), [this]() {
-				return IsTerminalState(State);
+				return IsTerminalState(State) && bTerminalPublicationFinished;
 			});
-			return State;
+			return IsTerminalState(State) && !bTerminalPublicationFinished ? StateBeforeTerminal : State;
 		}
 
 		auto GetState() const -> ETaskState
 		{
 			std::lock_guard Lock(Mutex);
-			return State;
+			return IsTerminalState(State) && !bTerminalPublicationFinished ? StateBeforeTerminal : State;
 		}
 
 		auto GetDiagnostic() const -> std::string
@@ -274,6 +277,8 @@ namespace Durin
 			Snapshot.Priority = Priority;
 			Snapshot.TerminalReason = TerminalReason;
 			Snapshot.EstimatedPayloadBytes = EstimatedPayloadBytes;
+			Snapshot.EstimatedResultBytes = EstimatedResultBytes;
+			Snapshot.RetainedResultBytes = RetainedResultBytes;
 			if (CoalescingKey)
 			{
 				Snapshot.CoalescingOwnerDomain = CoalescingKey->OwnerDomain;
@@ -282,6 +287,12 @@ namespace Durin
 			}
 			Snapshot.bHasResultStorage = bHasResultStorage;
 			return Snapshot;
+		}
+
+		auto SetRetainedResultBytes(uint64 InRetainedResultBytes) -> void
+		{
+			std::lock_guard Lock(Mutex);
+			RetainedResultBytes = InRetainedResultBytes;
 		}
 
 		auto GetDebugName() const -> const char* { return DebugName.c_str(); }
@@ -315,6 +326,7 @@ namespace Durin
 		std::vector<std::weak_ptr<FTaskStateData>> Dependents;
 		uint32 RemainingPrerequisites = 0;
 		ETaskState State = ETaskState::Queued;
+		ETaskState StateBeforeTerminal = ETaskState::Queued;
 		ETaskDependencyKind DependencyKind = ETaskDependencyKind::Success;
 		ETaskTerminalReason TerminalReason = ETaskTerminalReason::None;
 		uint64 DirectBlockingTaskId = 0;
@@ -324,9 +336,12 @@ namespace Durin
 		ETaskTarget Target = ETaskTarget::AnyWorker;
 		ETaskPriority Priority = ETaskPriority::Normal;
 		uint64 EstimatedPayloadBytes = 0;
+		uint64 EstimatedResultBytes = 0;
+		uint64 RetainedResultBytes = 0;
 		FTaskGenerationToken GenerationToken;
 		std::optional<FTaskCoalescingKey> CoalescingKey;
 		bool bCancellationRequested = false;
+		bool bTerminalPublicationFinished = false;
 		std::string CancellationDiagnostic;
 		ETaskTerminalReason CancellationReason = ETaskTerminalReason::CancellationRequested;
 		uint64 CancellationDirectBlockingTaskId = 0;
@@ -371,6 +386,7 @@ namespace Durin
 			ETaskTarget Target = ETaskTarget::AnyWorker,
 			ETaskPriority Priority = ETaskPriority::Normal,
 			uint64 EstimatedPayloadBytes = 0,
+			uint64 EstimatedResultBytes = 0,
 			FTaskGenerationToken GenerationToken = {},
 			std::optional<FTaskCoalescingKey> CoalescingKey = {}) -> std::shared_ptr<FTaskStateData>
 		{
@@ -407,6 +423,7 @@ namespace Durin
 					Target,
 					Priority,
 					EstimatedPayloadBytes,
+					EstimatedResultBytes,
 					std::move(GenerationToken),
 					std::move(CoalescingKey)
 				);
@@ -615,6 +632,11 @@ namespace Durin
 			RejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
 		}
 
+		auto RecordDuplicateUniqueConsumerClaim() -> void
+		{
+			DuplicateUniqueConsumerClaimCount.fetch_add(1, std::memory_order::acq_rel);
+		}
+
 		auto RecordLongWait(const char* WaiterName, const FTaskDiagnostics& Target, uint64 ElapsedNanoseconds) -> void
 		{
 			std::lock_guard Lock(Mutex);
@@ -648,6 +670,7 @@ namespace Durin
 			Snapshot.CanceledTaskCount = CanceledTaskCount.load(std::memory_order::acquire);
 			Snapshot.RejectedTaskCount = RejectedTaskCount.load(std::memory_order::acquire);
 			Snapshot.LongWaitCount = LongWaitCount.load(std::memory_order::acquire);
+			Snapshot.DuplicateUniqueConsumerClaimCount = DuplicateUniqueConsumerClaimCount.load(std::memory_order::acquire);
 			Snapshot.bRunning = bInRunning;
 
 			std::lock_guard Lock(Mutex);
@@ -674,6 +697,7 @@ namespace Durin
 							++Snapshot.RetainedTerminalResultCount;
 						}
 					}
+					Snapshot.RetainedUniqueResultBytes += Task->GetDiagnostics().RetainedResultBytes;
 					++Iterator;
 				}
 				else
@@ -696,6 +720,7 @@ namespace Durin
 		std::atomic<uint64> CanceledTaskCount = 0;
 		std::atomic<uint64> RejectedTaskCount = 0;
 		std::atomic<uint64> LongWaitCount = 0;
+		std::atomic<uint64> DuplicateUniqueConsumerClaimCount = 0;
 		std::string LastLongWaiterName;
 		std::string LastLongWaitTargetName;
 		uint64 LastLongWaitTargetTaskId = 0;
@@ -1061,6 +1086,8 @@ namespace Durin
 			(State == ETaskState::Running && (TerminalState == ETaskState::Succeeded || TerminalState == ETaskState::Failed || TerminalState == ETaskState::Canceled))
 			|| ((State == ETaskState::Waiting || State == ETaskState::Queued) && TerminalState == ETaskState::Canceled);
 		check(bValidTransition);
+		StateBeforeTerminal = State;
+		bTerminalPublicationFinished = false;
 		State = TerminalState;
 		FinishTimeNanoseconds = MonotonicNanoseconds();
 		Diagnostic = std::move(InDiagnostic);
@@ -1102,6 +1129,10 @@ namespace Durin
 
 	auto FTaskStateData::FinishTerminalPublication(ETaskState TerminalState, std::vector<std::shared_ptr<FTaskStateData>>&& Dependents) -> void
 	{
+		{
+			std::lock_guard Lock(Mutex);
+			bTerminalPublicationFinished = true;
+		}
 		CV.notify_all();
 		if (SharedCancellationState)
 		{
@@ -1746,7 +1777,8 @@ namespace Durin
 			const char* Name,
 			FMoveOnlyTaskFunction&& Function,
 			std::function<void(ETaskState)>&& CompletionFunction,
-			const FTaskLaunchOptions& Options) -> FTaskHandle
+			const FTaskLaunchOptions& Options,
+			uint64 EstimatedResultBytes) -> FTaskHandle
 		{
 			if (!Function)
 			{
@@ -1775,7 +1807,13 @@ namespace Durin
 				Name,
 				FunctionOwner,
 				std::move(CompletionFunction),
-				Options
+				Options,
+				ETaskDependencyKind::Success,
+				false,
+				ETaskTarget::AnyWorker,
+				ETaskPriority::Normal,
+				0,
+				EstimatedResultBytes
 			);
 			if (!State)
 			{
@@ -1791,7 +1829,8 @@ namespace Durin
 			FMoveOnlyTaskFunction&& Function,
 			std::function<void(ETaskState)>&& CompletionFunction,
 			const FTaskContinuationOptions& Options,
-			ETaskDependencyKind DependencyKind) -> FTaskHandle
+			ETaskDependencyKind DependencyKind,
+			uint64 EstimatedResultBytes) -> FTaskHandle
 		{
 			if (!Function)
 			{
@@ -1833,10 +1872,36 @@ namespace Durin
 				Options.Target,
 				Options.Priority,
 				Options.EstimatedPayloadBytes,
+				EstimatedResultBytes,
 				Options.GenerationToken,
 				Options.CoalescingKey
 			);
 			return State ? FTaskHandle(std::move(State)) : FTaskHandle{};
+		}
+
+		auto MakeTaskRetainedResultBytesSetter(const FTaskHandle& Task) -> std::function<void(uint64)>
+		{
+			std::weak_ptr<FTaskStateData> WeakState = Task.State;
+			return [WeakState = std::move(WeakState)](uint64 RetainedResultBytes) {
+				if (std::shared_ptr<FTaskStateData> State = WeakState.lock())
+				{
+					State->SetRetainedResultBytes(RetainedResultBytes);
+				}
+			};
+		}
+
+		auto RecordDuplicateUniqueConsumerClaim() -> void
+		{
+			std::lock_guard Lock(GTaskSchedulerMutex);
+			if (GTaskScheduler) GTaskScheduler->RecordDuplicateUniqueConsumerClaim();
+			DURIN_WARN("Unique task consumer registration failed because the result already has a consuming continuation.");
+		}
+
+		auto RecordRejectedUniqueTask(const char* Name, const char* Diagnostic) -> void
+		{
+			std::lock_guard Lock(GTaskSchedulerMutex);
+			if (GTaskScheduler) GTaskScheduler->RecordRejectedTask();
+			DURIN_WARN("{} (task: {})", Diagnostic ? Diagnostic : "Unique task registration failed.", Name ? Name : "");
 		}
 	} // namespace Private
 

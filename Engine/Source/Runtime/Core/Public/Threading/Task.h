@@ -21,6 +21,10 @@ namespace Durin
 	class FTaskStateData;
 	template<typename T>
 	class TTaskResultState;
+	template<typename T>
+	class TUniqueTaskHandle;
+	template<typename T>
+	class TUniqueTaskResultState;
 	struct FTaskLaunchOptions;
 	struct FTaskContinuationOptions;
 	struct FParallelForOptions;
@@ -96,8 +100,12 @@ namespace Durin
 			&& std::same_as<std::remove_cvref_t<std::invoke_result_t<std::decay_t<F>&, Args...>>, T>;
 
 		struct FTaskHandleFactory;
-		CORE_API auto LaunchCancelableTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskLaunchOptions& Options) -> FTaskHandle;
-		CORE_API auto LaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind) -> FTaskHandle;
+		struct FUniqueTaskAccess;
+		CORE_API auto LaunchCancelableTaskWithCompletion(const char* Name, FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes = 0) -> FTaskHandle;
+		CORE_API auto LaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes = 0) -> FTaskHandle;
+		CORE_API auto MakeTaskRetainedResultBytesSetter(const FTaskHandle& Task) -> std::function<void(uint64)>;
+		CORE_API auto RecordDuplicateUniqueConsumerClaim() -> void;
+		CORE_API auto RecordRejectedUniqueTask(const char* Name, const char* Diagnostic) -> void;
 	}
 
 	// A copied, thread-safe view of one task's identity, relationships, timing, and outcome.
@@ -122,6 +130,8 @@ namespace Durin
 		ETaskPriority Priority = ETaskPriority::Normal;
 		ETaskTerminalReason TerminalReason = ETaskTerminalReason::None;
 		uint64 EstimatedPayloadBytes = 0;
+		uint64 EstimatedResultBytes = 0;
+		uint64 RetainedResultBytes = 0;
 		uint64 CoalescingOwnerDomain = 0;
 		uint64 CoalescingWorkId = 0;
 		uint64 CoalescingGeneration = 0;
@@ -142,6 +152,8 @@ namespace Durin
 		uint64 NonterminalTaskCount = 0;
 		uint64 RetainedTerminalHandleCount = 0;
 		uint64 RetainedTerminalResultCount = 0;
+		uint64 DuplicateUniqueConsumerClaimCount = 0;
+		uint64 RetainedUniqueResultBytes = 0;
 		uint64 LastLongWaitTargetTaskId = 0;
 		uint64 LastLongWaitElapsedNanoseconds = 0;
 		std::string LastLongWaiterName;
@@ -307,8 +319,9 @@ namespace Durin
 		friend class FTaskScheduler;
 		friend CORE_API auto LaunchTask(const char* Name, FTaskFunction&& Function, const FTaskLaunchOptions& Options) -> FTaskHandle;
 		friend CORE_API auto LaunchCancelableTask(const char* Name, FCancelableTaskFunction&& Function, const FTaskLaunchOptions& Options) -> FTaskHandle;
-		friend CORE_API auto Private::LaunchCancelableTaskWithCompletion(const char* Name, Private::FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskLaunchOptions& Options) -> FTaskHandle;
-		friend CORE_API auto Private::LaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, Private::FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind) -> FTaskHandle;
+		friend CORE_API auto Private::LaunchCancelableTaskWithCompletion(const char* Name, Private::FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskLaunchOptions& Options, uint64 EstimatedResultBytes) -> FTaskHandle;
+		friend CORE_API auto Private::LaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, Private::FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes) -> FTaskHandle;
+		friend CORE_API auto Private::MakeTaskRetainedResultBytesSetter(const FTaskHandle& Task) -> std::function<void(uint64)>;
 		friend CORE_API auto CancelTask(const FTaskHandle& Task) -> bool;
 		friend CORE_API auto WaitTask(const FTaskHandle& Task) -> ETaskState;
 
@@ -498,14 +511,226 @@ namespace Durin
 		bool bCompleted = false;
 	};
 
+	template<typename T>
+	class TUniqueTaskResultState
+	{
+	public:
+		explicit TUniqueTaskResultState(uint64 InEstimatedResultBytes)
+			: EstimatedResultBytes(InEstimatedResultBytes)
+		{
+		}
+
+		~TUniqueTaskResultState()
+		{
+			Discard();
+		}
+
+		auto BindProducer(const FTaskHandle& InProducer) -> void
+		{
+			bool bRetained = false;
+			auto Setter = Private::MakeTaskRetainedResultBytesSetter(InProducer);
+			{
+				std::lock_guard Lock(Mutex);
+				if (!RetainedBytesSetter) RetainedBytesSetter = Setter;
+				bRetained = bPublished && static_cast<bool>(Value);
+			}
+			if (bRetained) Setter(EstimatedResultBytes);
+		}
+
+		auto SetPending(T&& InValue) -> void
+		{
+			auto PendingValue = std::make_unique<T>(std::move(InValue));
+			std::lock_guard Lock(Mutex);
+			check(!Value && !bCompleted);
+			Value = std::move(PendingValue);
+		}
+
+		auto Complete(ETaskState State) -> void
+		{
+			std::unique_ptr<T> DetachedValue;
+			std::function<void(uint64)> Setter;
+			{
+				std::lock_guard Lock(Mutex);
+				bCompleted = true;
+				if (State == ETaskState::Succeeded && Value)
+				{
+					bPublished = true;
+					Setter = RetainedBytesSetter;
+				}
+				else
+				{
+					bDiscarded = true;
+					DetachedValue = std::move(Value);
+				}
+			}
+			if (Setter) Setter(EstimatedResultBytes);
+		}
+
+		auto ReserveClaim() -> uint64
+		{
+			std::lock_guard Lock(Mutex);
+			if (ClaimState != EClaimState::Unclaimed) return 0;
+			ClaimState = EClaimState::Reserved;
+			ReservationToken = NextReservationToken++;
+			return ReservationToken;
+		}
+
+		auto RollbackClaim(uint64 Token) -> bool
+		{
+			std::lock_guard Lock(Mutex);
+			if (ClaimState != EClaimState::Reserved || ReservationToken != Token) return false;
+			ClaimState = EClaimState::Unclaimed;
+			ReservationToken = 0;
+			return true;
+		}
+
+		auto CommitClaim(uint64 Token, const FTaskHandle& Consumer) -> bool
+		{
+			std::function<void(uint64)> PreviousSetter;
+			auto ConsumerSetter = Private::MakeTaskRetainedResultBytesSetter(Consumer);
+			bool bRetained = false;
+			{
+				std::lock_guard Lock(Mutex);
+				if (ClaimState != EClaimState::Reserved || ReservationToken != Token) return false;
+				ClaimState = EClaimState::Claimed;
+				ReservationToken = 0;
+				PreviousSetter = RetainedBytesSetter;
+				RetainedBytesSetter = ConsumerSetter;
+				bRetained = bPublished && static_cast<bool>(Value);
+			}
+			if (PreviousSetter) PreviousSetter(0);
+			if (bRetained) ConsumerSetter(EstimatedResultBytes);
+			return true;
+		}
+
+		auto TakePublished() -> std::unique_ptr<T>
+		{
+			std::unique_ptr<T> Result;
+			std::function<void(uint64)> PreviousSetter;
+			{
+				std::lock_guard Lock(Mutex);
+				if (!bPublished || !Value || bConsumed || bDiscarded) return {};
+				bConsumed = true;
+				PreviousSetter = RetainedBytesSetter;
+				Result = std::move(Value);
+			}
+			if (PreviousSetter) PreviousSetter(0);
+			return Result;
+		}
+
+		auto Discard() -> void
+		{
+			std::unique_ptr<T> DetachedValue;
+			std::function<void(uint64)> PreviousSetter;
+			{
+				std::lock_guard Lock(Mutex);
+				if (!Value) return;
+				bDiscarded = true;
+				PreviousSetter = RetainedBytesSetter;
+				DetachedValue = std::move(Value);
+			}
+			if (PreviousSetter) PreviousSetter(0);
+		}
+
+		auto GetEstimatedResultBytes() const -> uint64 { return EstimatedResultBytes; }
+
+	private:
+		enum class EClaimState : uint8
+		{
+			Unclaimed,
+			Reserved,
+			Claimed,
+		};
+
+		mutable std::mutex Mutex;
+		std::unique_ptr<T> Value;
+		std::function<void(uint64)> RetainedBytesSetter;
+		uint64 EstimatedResultBytes = 0;
+		uint64 ReservationToken = 0;
+		uint64 NextReservationToken = 1;
+		EClaimState ClaimState = EClaimState::Unclaimed;
+		bool bCompleted = false;
+		bool bPublished = false;
+		bool bConsumed = false;
+		bool bDiscarded = false;
+	};
+
+	template<typename T>
+	class TUniqueTaskHandle
+	{
+	public:
+		TUniqueTaskHandle() = default;
+		TUniqueTaskHandle(const TUniqueTaskHandle&) = delete;
+		auto operator=(const TUniqueTaskHandle&) -> TUniqueTaskHandle& = delete;
+		TUniqueTaskHandle(TUniqueTaskHandle&&) noexcept = default;
+		auto operator=(TUniqueTaskHandle&&) noexcept -> TUniqueTaskHandle& = default;
+
+		auto IsValid() const -> bool { return Task.IsValid(); }
+		auto IsComplete() const -> bool { return Task.IsComplete(); }
+		auto GetState() const -> ETaskState { return Task.GetState(); }
+		auto GetDebugName() const -> const char* { return Task.GetDebugName(); }
+		auto GetTaskId() const -> uint64 { return Task.GetTaskId(); }
+		auto GetDiagnostic() const -> std::string { return Task.GetDiagnostic(); }
+		auto GetDiagnostics() const -> FTaskDiagnostics { return Task.GetDiagnostics(); }
+		auto GetTaskHandle() const -> const FTaskHandle& { return Task; }
+
+	private:
+		TUniqueTaskHandle(FTaskHandle InTask, std::shared_ptr<TUniqueTaskResultState<T>> InResultState)
+			: Task(std::move(InTask)), ResultState(std::move(InResultState))
+		{
+		}
+
+		auto InvalidateAfterClaim() -> void
+		{
+			ClaimTombstone = ResultState;
+			Task = {};
+			ResultState.reset();
+		}
+
+		friend struct Private::FTaskHandleFactory;
+		friend struct Private::FUniqueTaskAccess;
+
+		FTaskHandle Task;
+		std::shared_ptr<TUniqueTaskResultState<T>> ResultState;
+		std::weak_ptr<TUniqueTaskResultState<T>> ClaimTombstone;
+	};
+
+	template<typename T>
+	struct FUniqueTaskOutcome
+	{
+		FTaskHandle Task;
+		std::optional<T> Result;
+		std::string Diagnostic;
+		ETaskState State = ETaskState::Invalid;
+		ETaskTerminalReason Reason = ETaskTerminalReason::None;
+	};
+
 	namespace Private
 	{
+		struct FUniqueTaskAccess
+		{
+			template<typename T>
+			static auto GetTask(TUniqueTaskHandle<T>& Handle) -> FTaskHandle& { return Handle.Task; }
+			template<typename T>
+			static auto GetResultState(TUniqueTaskHandle<T>& Handle) -> std::shared_ptr<TUniqueTaskResultState<T>>& { return Handle.ResultState; }
+			template<typename T>
+			static auto HasClaimTombstone(TUniqueTaskHandle<T>& Handle) -> bool { return !Handle.ClaimTombstone.expired(); }
+			template<typename T>
+			static auto InvalidateAfterClaim(TUniqueTaskHandle<T>& Handle) -> void { Handle.InvalidateAfterClaim(); }
+		};
+
 		struct FTaskHandleFactory
 		{
 			template<typename T>
 			static auto Make(FTaskHandle Task, std::shared_ptr<TTaskResultState<T>> ResultState) -> TTaskHandle<T>
 			{
 				return TTaskHandle<T>(std::move(Task), std::move(ResultState));
+			}
+
+			template<typename T>
+			static auto MakeUnique(FTaskHandle Task, std::shared_ptr<TUniqueTaskResultState<T>> ResultState) -> TUniqueTaskHandle<T>
+			{
+				return TUniqueTaskHandle<T>(std::move(Task), std::move(ResultState));
 			}
 		};
 
@@ -615,6 +840,224 @@ namespace Durin
 	auto LaunchCancelableTask(const char* Name, F&& Function, const FTaskLaunchOptions& Options = {}) -> TTaskHandle<T>
 	{
 		return Private::MakeTypedTaskHandle<T>(Name, std::forward<F>(Function), Options);
+	}
+
+	template<typename T, typename F>
+	requires (!std::is_void_v<T>
+		&& !std::is_reference_v<T>
+		&& std::is_object_v<T>
+		&& std::is_move_constructible_v<T>
+		&& std::is_destructible_v<T>
+		&& Private::CExactTaskResultInvocable<T, F>)
+	auto LaunchUniqueTask(
+		const char* Name,
+		F&& Function,
+		const FTaskLaunchOptions& Options = {},
+		uint64 EstimatedResultBytes = sizeof(T)) -> TUniqueTaskHandle<T>
+	{
+		if (EstimatedResultBytes == 0)
+		{
+			if constexpr (std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>)
+			{
+				EstimatedResultBytes = sizeof(T);
+			}
+			else
+			{
+				Private::RecordRejectedUniqueTask(Name,
+					"Unique task launch failed because retained result bytes must be non-zero for this result type.");
+				return {};
+			}
+		}
+
+		auto ResultState = std::make_shared<TUniqueTaskResultState<T>>(EstimatedResultBytes);
+		FTaskHandle Task = Private::LaunchCancelableTaskWithCompletion(
+			Name,
+			[Function = std::forward<F>(Function), ResultState](const FTaskCancellationToken&) mutable {
+				ResultState->SetPending(std::invoke(Function));
+			},
+			[ResultState](ETaskState State) { ResultState->Complete(State); },
+			Options,
+			EstimatedResultBytes);
+		if (!Task.IsValid()) return {};
+		ResultState->BindProducer(Task);
+		return Private::FTaskHandleFactory::MakeUnique(std::move(Task), std::move(ResultState));
+	}
+
+	template<typename T, typename F>
+	requires (!std::is_void_v<T>
+		&& !std::is_reference_v<T>
+		&& std::is_object_v<T>
+		&& std::is_move_constructible_v<T>
+		&& std::is_destructible_v<T>
+		&& Private::CExactTaskResultInvocable<T, F, const FTaskCancellationToken&>)
+	auto LaunchUniqueCancelableTask(
+		const char* Name,
+		F&& Function,
+		const FTaskLaunchOptions& Options = {},
+		uint64 EstimatedResultBytes = sizeof(T)) -> TUniqueTaskHandle<T>
+	{
+		if (EstimatedResultBytes == 0)
+		{
+			if constexpr (std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>) EstimatedResultBytes = sizeof(T);
+			else
+			{
+				Private::RecordRejectedUniqueTask(Name,
+					"Unique task launch failed because retained result bytes must be non-zero for this result type.");
+				return {};
+			}
+		}
+
+		auto ResultState = std::make_shared<TUniqueTaskResultState<T>>(EstimatedResultBytes);
+		FTaskHandle Task = Private::LaunchCancelableTaskWithCompletion(
+			Name,
+			[Function = std::forward<F>(Function), ResultState](const FTaskCancellationToken& Token) mutable {
+				ResultState->SetPending(std::invoke(Function, Token));
+			},
+			[ResultState](ETaskState State) { ResultState->Complete(State); },
+			Options,
+			EstimatedResultBytes);
+		if (!Task.IsValid()) return {};
+		ResultState->BindProducer(Task);
+		return Private::FTaskHandleFactory::MakeUnique(std::move(Task), std::move(ResultState));
+	}
+
+	template<typename T, typename F>
+	requires Private::CTaskInvocable<F, T&&>
+		&& std::is_void_v<std::invoke_result_t<std::decay_t<F>&, T&&>>
+	auto ConsumeThen(
+		TUniqueTaskHandle<T>&& Predecessor,
+		const char* Name,
+		F&& Function,
+		const FTaskContinuationOptions& Options = {}) -> FTaskHandle
+	{
+		auto& PredecessorTask = Private::FUniqueTaskAccess::GetTask(Predecessor);
+		std::shared_ptr<TUniqueTaskResultState<T>> ResultState = Private::FUniqueTaskAccess::GetResultState(Predecessor);
+		if (!PredecessorTask.IsValid() || !ResultState)
+		{
+			if (Private::FUniqueTaskAccess::HasClaimTombstone(Predecessor)) Private::RecordDuplicateUniqueConsumerClaim();
+			return {};
+		}
+
+		FTaskContinuationOptions AdjustedOptions = Options;
+		const uint64 ResultBytes = ResultState->GetEstimatedResultBytes();
+		if (Options.Target == ETaskTarget::GameThreadDeferred)
+		{
+			if (Options.EstimatedPayloadBytes > std::numeric_limits<uint64>::max() - ResultBytes)
+			{
+				Private::RecordRejectedUniqueTask(Name,
+					"Unique task consumer dispatch rejected because payload and retained result bytes overflow uint64.");
+				return {};
+			}
+			AdjustedOptions.EstimatedPayloadBytes += ResultBytes;
+		}
+
+		const uint64 ClaimToken = ResultState->ReserveClaim();
+		if (ClaimToken == 0)
+		{
+			Private::RecordDuplicateUniqueConsumerClaim();
+			return {};
+		}
+
+		FTaskHandle Consumer = Private::LaunchContinuationTask(
+			PredecessorTask,
+			Name,
+			[ResultState, Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable {
+				std::unique_ptr<T> Value = ResultState->TakePublished();
+				check(Value);
+				std::invoke(Function, std::move(*Value));
+			},
+			[ResultState](ETaskState) { ResultState->Discard(); },
+			AdjustedOptions,
+			ETaskDependencyKind::Success,
+			ResultBytes);
+		if (!Consumer.IsValid())
+		{
+			ResultState->RollbackClaim(ClaimToken);
+			return {};
+		}
+		if (!ResultState->CommitClaim(ClaimToken, Consumer))
+		{
+			Private::RecordDuplicateUniqueConsumerClaim();
+			CancelTask(Consumer);
+			return {};
+		}
+		Private::FUniqueTaskAccess::InvalidateAfterClaim(Predecessor);
+		return Consumer;
+	}
+
+	template<typename T, typename F>
+	requires Private::CTaskInvocable<F, FUniqueTaskOutcome<T>&&>
+		&& std::is_void_v<std::invoke_result_t<std::decay_t<F>&, FUniqueTaskOutcome<T>&&>>
+	auto ConsumeThenOutcome(
+		TUniqueTaskHandle<T>&& Predecessor,
+		const char* Name,
+		F&& Function,
+		const FTaskContinuationOptions& Options = {}) -> FTaskHandle
+	{
+		auto& PredecessorTask = Private::FUniqueTaskAccess::GetTask(Predecessor);
+		std::shared_ptr<TUniqueTaskResultState<T>> ResultState = Private::FUniqueTaskAccess::GetResultState(Predecessor);
+		if (!PredecessorTask.IsValid() || !ResultState)
+		{
+			if (Private::FUniqueTaskAccess::HasClaimTombstone(Predecessor)) Private::RecordDuplicateUniqueConsumerClaim();
+			return {};
+		}
+
+		FTaskContinuationOptions AdjustedOptions = Options;
+		const uint64 ResultBytes = ResultState->GetEstimatedResultBytes();
+		if (Options.Target == ETaskTarget::GameThreadDeferred)
+		{
+			if (Options.EstimatedPayloadBytes > std::numeric_limits<uint64>::max() - ResultBytes)
+			{
+				Private::RecordRejectedUniqueTask(Name,
+					"Unique task consumer dispatch rejected because payload and retained result bytes overflow uint64.");
+				return {};
+			}
+			AdjustedOptions.EstimatedPayloadBytes += ResultBytes;
+		}
+
+		const uint64 ClaimToken = ResultState->ReserveClaim();
+		if (ClaimToken == 0)
+		{
+			Private::RecordDuplicateUniqueConsumerClaim();
+			return {};
+		}
+		const FTaskHandle ProducerTask = PredecessorTask;
+		FTaskHandle Consumer = Private::LaunchContinuationTask(
+			ProducerTask,
+			Name,
+			[ProducerTask, ResultState, Function = std::forward<F>(Function)](const FTaskCancellationToken&) mutable {
+				const FTaskDiagnostics Diagnostics = ProducerTask.GetDiagnostics();
+				FUniqueTaskOutcome<T> Outcome{
+					.Task = ProducerTask,
+					.Diagnostic = Diagnostics.Diagnostic,
+					.State = Diagnostics.State,
+					.Reason = Diagnostics.TerminalReason,
+				};
+				if (Diagnostics.State == ETaskState::Succeeded)
+				{
+					std::unique_ptr<T> Value = ResultState->TakePublished();
+					check(Value);
+					Outcome.Result.emplace(std::move(*Value));
+				}
+				std::invoke(Function, std::move(Outcome));
+			},
+			[ResultState](ETaskState) { ResultState->Discard(); },
+			AdjustedOptions,
+			ETaskDependencyKind::Completion,
+			ResultBytes);
+		if (!Consumer.IsValid())
+		{
+			ResultState->RollbackClaim(ClaimToken);
+			return {};
+		}
+		if (!ResultState->CommitClaim(ClaimToken, Consumer))
+		{
+			Private::RecordDuplicateUniqueConsumerClaim();
+			CancelTask(Consumer);
+			return {};
+		}
+		Private::FUniqueTaskAccess::InvalidateAfterClaim(Predecessor);
+		return Consumer;
 	}
 
 	template<typename T, typename F>
