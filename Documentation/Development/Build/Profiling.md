@@ -95,20 +95,31 @@ give each process a distinct value.
 ## Command-Line Capture
 
 Use Tracy discovery to identify the target label and its advertised port, then
-run the managed capture tool from the workspace root:
+run the managed capture tool from the workspace root. Capture names use
+`<runtime>-<workload>-<scenario>-<yyyyMMdd-HHmmss>.tracy` so repeated evidence
+sorts chronologically and does not silently replace an earlier run:
 
 ```powershell
+$CaptureDirectory = "Build\Profiling\Tracy"
+New-Item -ItemType Directory -Path $CaptureDirectory -Force | Out-Null
+$Timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$CapturePath = Join-Path $CaptureDirectory "DurinEditor-task-owner-normal-$Timestamp.tracy"
+
 Engine\External\Packages\tracy-tools\0.13.1\Win64\tracy-capture.exe `
   -a 127.0.0.1 `
   -p <discovered-port> `
-  -o Build\Profiling\Tracy\capture.tracy `
-  -f `
+  -o $CapturePath `
   -s 10
 ```
 
 `-s` stops the capture after the specified number of seconds. Omit it for an
-interactive capture and stop the tool with Ctrl+C. `-f` permits replacement of
-the selected output file. The capture directory is ignored by Git.
+interactive capture and stop the tool with Ctrl+C. Keep runtime, workload, and
+scenario labels short, stable, lowercase, and free of per-request identity; for
+example, `DurinEditor-task-owner-saturated-20260807-172812.tracy`. The timestamp
+uses local time and Windows-safe characters. The command intentionally omits
+`-f`, so an existing path is an error instead of being overwritten. Add `-f`
+only when replacement of one explicitly selected capture is intended. The
+capture directory is ignored by Git.
 
 On-demand clients remain available after a capture disconnects. Durin applies a
 build-local compatibility fix for Tracy v0.13.1 when call-stack support is
