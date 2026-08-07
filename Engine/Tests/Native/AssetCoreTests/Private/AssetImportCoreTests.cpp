@@ -560,6 +560,25 @@ TEST(FAssetImportCoreTests, AsyncPreparationMatchesSynchronousPlan)
 		Durin::AssetImport::EAsyncImportPlanStatus::Succeeded);
 	EXPECT_EQ(SecondTake.Message, "unchanged");
 
+	const Durin::FTaskSchedulerDiagnostics TaskDiagnostics = Durin::GetTaskSchedulerDiagnostics();
+	auto FindTaskOwnerCategory = [&TaskDiagnostics](std::string_view Category) -> const Durin::FTaskOwnerCategoryDiagnostics* {
+		const auto Iterator = std::ranges::find_if(TaskDiagnostics.OwnerCategoryDiagnostics, [Category](const Durin::FTaskOwnerCategoryDiagnostics& Entry) {
+			return Entry.Owner == "AssetImport" && Entry.Category == Category;
+		});
+		return Iterator == TaskDiagnostics.OwnerCategoryDiagnostics.end() ? nullptr : &*Iterator;
+	};
+	const Durin::FTaskOwnerCategoryDiagnostics* PrepareDiagnostics = FindTaskOwnerCategory("PreparePlan");
+	const Durin::FTaskOwnerCategoryDiagnostics* PublishDiagnostics = FindTaskOwnerCategory("PublishPlan");
+	ASSERT_NE(PrepareDiagnostics, nullptr);
+	ASSERT_NE(PublishDiagnostics, nullptr);
+	EXPECT_EQ(PrepareDiagnostics->AcceptedCount, 1u);
+	EXPECT_EQ(PrepareDiagnostics->SucceededCount, 1u);
+	EXPECT_EQ(PrepareDiagnostics->CurrentNonterminalCount, 0u);
+	EXPECT_EQ(PrepareDiagnostics->CurrentRetainedUniqueResultBytes, 0u);
+	EXPECT_EQ(PublishDiagnostics->AcceptedCount, 1u);
+	EXPECT_EQ(PublishDiagnostics->SucceededCount, 1u);
+	EXPECT_EQ(PublishDiagnostics->CurrentNonterminalCount, 0u);
+
 	Synchronous = {};
 	Asynchronous = {};
 	EXPECT_EQ(Registry.GetOutstandingLeaseCount(ProviderId), 0u);

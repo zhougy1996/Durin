@@ -147,6 +147,32 @@ Repository call sites do not invoke `TracySetProgramName` directly. Core's
 profiling adapter formats and retains program-name storage because Tracy may
 consume the supplied character pointer asynchronously.
 
+### Task Correlation And Owner Plots
+
+Profiling builds correlate task phases with the same process-unique nonzero task
+id and bounded attribution exposed by task diagnostics. Admission emits an
+`enqueue` message after aggregate charging. A winning start opens the stable
+`Task.Execute` CPU zone and attaches one zone-text record containing phase, task
+id, owner, category, target, terminal reason, and the bounded task debug name.
+The winning terminal transition emits one `terminal` message after aggregate
+accounting. The pinned Tracy API has no native cross-thread flow primitive, so
+the task id is the correlation key; Durin does not retain task history to draw
+synthetic arrows.
+
+Diagnostic snapshots may publish seven fixed plots per registered pair:
+`QueueDepth`, `Running`, `Rejected`, `CallableBytes`, `PayloadBytes`,
+`ResultBytes`, and `RetainedResultBytes`, under
+`Tasks.<Owner>.<Category>.<Measurement>`. Plot names are built once from the
+bounded attribution registry. Dynamic task names, asset paths, ids, and request
+values never create plots or source locations.
+
+The adapter has 1,024 fixed slots matching the task attribution bound. With
+Tracy disabled its entry points are inline no-ops accepting only fixed-width
+values; they perform no label resolution, formatting, allocation, or Tracy
+call. Profiler instrumentation runs only after winning state transitions and
+outside task-state, scheduler, and executor queue locks, so capture connection
+or failure cannot control scheduling.
+
 ## Runtime Ownership
 
 Profiling builds produce one shared `TracyClient.dll` in the selected runtime

@@ -137,7 +137,8 @@ namespace Durin
 							std::this_thread::yield();
 						}
 					});
-				checkf(CancelTask(CancelableTask),
+				const bool bCancellationRequested = CancelTask(CancelableTask);
+				checkf(bCancellationRequested,
 					"Engine scheduler lifecycle smoke could not cancel its task.");
 
 				ParallelTask = LaunchTask("EngineSmoke.ParallelFor", [this]() {
@@ -201,7 +202,8 @@ namespace Durin
 				});
 				checkf(AdmissionProbe.IsValid(),
 					"Engine scheduler lifecycle smoke could not launch its admission probe.");
-				checkf(AdmissionProbeStarted.WaitFor(1.0),
+				const bool bAdmissionProbeStarted = AdmissionProbeStarted.WaitFor(1.0);
+				checkf(bAdmissionProbeStarted,
 					"Engine scheduler lifecycle smoke admission probe did not start.");
 				SlowTask = LaunchTask("EngineSmoke.Long", []() {
 					std::this_thread::sleep_for(std::chrono::milliseconds(200));

@@ -20,6 +20,12 @@ namespace Durin
 		constexpr uint32 MaximumUploadsPerFrame = 2;
 		constexpr uint64 ThumbnailMemoryBudget = 64ull * 1024ull * 1024ull;
 
+		auto GetSourceImageThumbnailDecodeAttribution() -> FTaskAttribution
+		{
+			static const FTaskAttribution Attribution = RegisterTaskAttribution("SourceImageThumbnail", "Decode");
+			return Attribution;
+		}
+
 		// Transfers decoded pixels from a worker to the game-thread cache.
 		struct FDecodeResult
 		{
@@ -213,6 +219,8 @@ namespace Durin
 				const std::string PhysicalPath = Request.PhysicalPath;
 				const std::weak_ptr<FAsyncThumbnailState> WeakState = AsyncState;
 				const std::shared_ptr<FSourceImageThumbnailDiskCache> DiskCache = AsyncState->DiskCache;
+				FTaskLaunchOptions DecodeOptions;
+				DecodeOptions.Attribution = GetSourceImageThumbnailDecodeAttribution();
 				const FTaskHandle Task = LaunchTask("DecodeSourceImageThumbnail", [WeakState, DiskCache, PhysicalPath, FileSize, LastWriteTime, Serial] {
 					FDecodeResult Result;
 					Result.PhysicalPath = PhysicalPath;
@@ -224,7 +232,7 @@ namespace Durin
 						if (!State->bAcceptingResults) return;
 						State->DecodedResults.push_back(std::move(Result));
 					}
-				});
+				}, DecodeOptions);
 				if (Task.IsValid())
 					++ActiveDecodeCount;
 				else

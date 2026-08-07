@@ -7,6 +7,32 @@
 
 namespace Durin
 {
+	namespace Private
+	{
+		struct FTaskAttributionAccess;
+	}
+
+	class FTaskAttribution
+	{
+	public:
+		constexpr FTaskAttribution() = default;
+		auto operator==(const FTaskAttribution&) const -> bool = default;
+
+	private:
+		constexpr FTaskAttribution(uint16 InOwnerId, uint16 InCategoryId)
+			: OwnerId(InOwnerId), CategoryId(InCategoryId)
+		{
+		}
+
+		friend struct Private::FTaskAttributionAccess;
+		friend CORE_API auto RegisterTaskAttribution(std::string_view Owner, std::string_view Category) -> FTaskAttribution;
+
+		uint16 OwnerId = 0;
+		uint16 CategoryId = 0;
+	};
+
+	CORE_API auto RegisterTaskAttribution(std::string_view Owner, std::string_view Category) -> FTaskAttribution;
+
 	using FTaskFunction = std::function<void()>;
 	class FTaskCancellationToken;
 	using FCancelableTaskFunction = std::function<void(const FTaskCancellationToken&)>;
@@ -105,7 +131,7 @@ namespace Durin
 		CORE_API auto LaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes = 0) -> FTaskHandle;
 		CORE_API auto MakeTaskRetainedResultBytesSetter(const FTaskHandle& Task) -> std::function<void(uint64)>;
 		CORE_API auto RecordDuplicateUniqueConsumerClaim() -> void;
-		CORE_API auto RecordRejectedUniqueTask(const char* Name, const char* Diagnostic) -> void;
+		CORE_API auto RecordRejectedUniqueTask(const char* Name, const char* Diagnostic, FTaskAttribution Attribution = {}) -> void;
 	}
 
 	// A copied, thread-safe view of one task's identity, relationships, timing, and outcome.
@@ -136,6 +162,51 @@ namespace Durin
 		uint64 CoalescingWorkId = 0;
 		uint64 CoalescingGeneration = 0;
 		bool bHasResultStorage = false;
+		uint16 AttributionOwnerId = 0;
+		uint16 AttributionCategoryId = 0;
+		std::string AttributionOwner;
+		std::string AttributionCategory;
+		uint64 CallableStorageBytes = 0;
+		uint64 ExecutionNanoseconds = 0;
+	};
+
+	struct FTaskOwnerCategoryDiagnostics
+	{
+		uint16 OwnerId = 0;
+		uint16 CategoryId = 0;
+		std::string Owner;
+		std::string Category;
+		uint64 AcceptedCount = 0;
+		uint64 SucceededCount = 0;
+		uint64 FailedCount = 0;
+		uint64 CanceledCount = 0;
+		uint64 RejectedCount = 0;
+		uint64 DependencyFailedCount = 0;
+		uint64 DependencyCanceledCount = 0;
+		uint64 CancellationRequestedCount = 0;
+		uint64 DispatchRejectedCount = 0;
+		uint64 SupersededCount = 0;
+		uint64 StaleGenerationCount = 0;
+		uint64 CallbackFailureCount = 0;
+		uint64 ShutdownCanceledCount = 0;
+		uint64 CurrentWaitingCount = 0;
+		uint64 CurrentQueuedCount = 0;
+		uint64 CurrentRunningCount = 0;
+		uint64 CurrentNonterminalCount = 0;
+		uint64 ParallelForOperationCount = 0;
+		uint64 CurrentCallableBytes = 0;
+		uint64 PeakCallableBytes = 0;
+		uint64 CurrentPayloadBytes = 0;
+		uint64 PeakPayloadBytes = 0;
+		uint64 CurrentResultBytes = 0;
+		uint64 PeakResultBytes = 0;
+		uint64 CurrentRetainedUniqueResultBytes = 0;
+		uint64 PeakRetainedUniqueResultBytes = 0;
+		std::array<uint64, 32> QueueResidencyHistogram{};
+		std::array<uint64, 32> ExecutionHistogram{};
+		std::array<uint64, 32> CallableBytesHistogram{};
+		std::array<uint64, 32> PayloadBytesHistogram{};
+		std::array<uint64, 32> ResultBytesHistogram{};
 	};
 
 	// Aggregate counters and currently nonterminal nodes for one scheduler lifetime.
@@ -161,6 +232,8 @@ namespace Durin
 		ETaskState LastLongWaitTargetState = ETaskState::Invalid;
 		bool bRunning = false;
 		std::vector<FTaskDiagnostics> NonterminalTasks;
+		uint64 AttributionRegistrationOverflowCount = 0;
+		std::vector<FTaskOwnerCategoryDiagnostics> OwnerCategoryDiagnostics;
 	};
 
 	struct FTaskCoalescingKey
@@ -405,6 +478,7 @@ namespace Durin
 	{
 		std::span<const FTaskHandle> Prerequisites;
 		FTaskCancellationToken CancellationToken;
+		FTaskAttribution Attribution;
 	};
 
 	struct FTaskContinuationOptions
@@ -416,6 +490,7 @@ namespace Durin
 		uint64 EstimatedPayloadBytes = 0;
 		ETaskTarget Target = ETaskTarget::AnyWorker;
 		ETaskPriority Priority = ETaskPriority::Normal;
+		FTaskAttribution Attribution;
 	};
 
 	struct FParallelForOptions
@@ -423,6 +498,7 @@ namespace Durin
 		// Conservative default remains serial until framework qualification selects a crossover.
 		uint64 MinBatchSize = std::numeric_limits<uint64>::max();
 		FTaskCancellationToken CancellationToken;
+		FTaskAttribution Attribution;
 	};
 
 	struct FParallelForResult
@@ -932,7 +1008,7 @@ namespace Durin
 			else
 			{
 				Private::RecordRejectedUniqueTask(Name,
-					"Unique task launch failed because retained result bytes must be non-zero for this result type.");
+					"Unique task launch failed because retained result bytes must be non-zero for this result type.", Options.Attribution);
 				return {};
 			}
 		}
@@ -970,7 +1046,7 @@ namespace Durin
 			else
 			{
 				Private::RecordRejectedUniqueTask(Name,
-					"Unique task launch failed because retained result bytes must be non-zero for this result type.");
+					"Unique task launch failed because retained result bytes must be non-zero for this result type.", Options.Attribution);
 				return {};
 			}
 		}
@@ -1013,7 +1089,7 @@ namespace Durin
 			if (Options.EstimatedPayloadBytes > std::numeric_limits<uint64>::max() - ResultBytes)
 			{
 				Private::RecordRejectedUniqueTask(Name,
-					"Unique task consumer dispatch rejected because payload and retained result bytes overflow uint64.");
+					"Unique task consumer dispatch rejected because payload and retained result bytes overflow uint64.", Options.Attribution);
 				return {};
 			}
 			AdjustedOptions.EstimatedPayloadBytes += ResultBytes;
@@ -1077,7 +1153,7 @@ namespace Durin
 			if (Options.EstimatedPayloadBytes > std::numeric_limits<uint64>::max() - ResultBytes)
 			{
 				Private::RecordRejectedUniqueTask(Name,
-					"Unique task consumer dispatch rejected because payload and retained result bytes overflow uint64.");
+					"Unique task consumer dispatch rejected because payload and retained result bytes overflow uint64.", Options.Attribution);
 				return {};
 			}
 			AdjustedOptions.EstimatedPayloadBytes += ResultBytes;

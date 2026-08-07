@@ -73,6 +73,12 @@ namespace Durin::Private
 			return Operations != nullptr;
 		}
 
+		auto GetStorageBytes() const noexcept -> size_t
+		{
+			if (!Operations) return 0;
+			return bInline ? InlineSize : Operations->TargetSize;
+		}
+
 		auto operator()(Args... Arguments) -> R
 		{
 			check(Operations);
@@ -103,6 +109,7 @@ namespace Durin::Private
 			auto (*Invoke)(void*, Args&&...) -> R;
 			void (*Destroy)(void*, bool) noexcept;
 			void (*MoveInline)(void*, void*) noexcept;
+			size_t TargetSize;
 		};
 
 		template<typename F>
@@ -132,6 +139,7 @@ namespace Durin::Private
 					new (Destination) F(std::move(*static_cast<F*>(Source)));
 					static_cast<F*>(Source)->~F();
 				},
+				.TargetSize = sizeof(F),
 			};
 			return OperationsForType;
 		}

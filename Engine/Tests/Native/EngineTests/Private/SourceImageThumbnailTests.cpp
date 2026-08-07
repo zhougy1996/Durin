@@ -4,6 +4,7 @@
 #include "Assets/SourceImageThumbnailDecoder.h"
 #include "Assets/SourceImageThumbnailDiskCache.h"
 #include "NativeTestSupport.h"
+#include "Threading/Task.h"
 
 namespace Durin
 {
@@ -133,6 +134,50 @@ namespace Durin
 		EXPECT_EQ(
 			Cache.Find("/Game/Textures/Late").State,
 			EAssetThumbnailState::NotRequested);
+	}
+
+	TEST(FSourceImageThumbnailTests, DecodeTasksPublishOwnerDiagnostics)
+	{
+		ShutdownTaskScheduler(false);
+		struct FTaskSchedulerShutdownGuard
+		{
+			~FTaskSchedulerShutdownGuard() { ShutdownTaskScheduler(false); }
+		} SchedulerGuard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		const std::array<uint8, 4> CorruptPng{0, 1, 2, 3};
+		const std::filesystem::path Path = WriteBinaryFixture("AttributedThumbnail.png", CorruptPng);
+		{
+			FSourceImageThumbnailCache Cache;
+			Cache.BeginFrame();
+			Cache.Request({
+				.Identity = "/Game/Textures/AttributedThumbnail",
+				.PhysicalPath = Path.generic_string(),
+				.FileSize = CorruptPng.size(),
+				.LastWriteTime = std::filesystem::last_write_time(Path),
+				.Priority = EAssetThumbnailPriority::Visible});
+			Cache.EndFrame();
+
+			EAssetThumbnailState State = EAssetThumbnailState::Loading;
+			for (uint32 Attempt = 0; Attempt < 1'000 && State == EAssetThumbnailState::Loading; ++Attempt)
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(1));
+				Cache.BeginFrame();
+				State = Cache.Find("/Game/Textures/AttributedThumbnail").State;
+				Cache.EndFrame();
+			}
+			EXPECT_EQ(State, EAssetThumbnailState::Failed);
+			Cache.Shutdown();
+		}
+
+		const FTaskSchedulerDiagnostics Diagnostics = GetTaskSchedulerDiagnostics();
+		const auto Iterator = std::ranges::find_if(Diagnostics.OwnerCategoryDiagnostics, [](const FTaskOwnerCategoryDiagnostics& Entry) {
+			return Entry.Owner == "SourceImageThumbnail" && Entry.Category == "Decode";
+		});
+		ASSERT_NE(Iterator, Diagnostics.OwnerCategoryDiagnostics.end());
+		EXPECT_EQ(Iterator->AcceptedCount, 1u);
+		EXPECT_EQ(Iterator->SucceededCount, 1u);
+		EXPECT_EQ(Iterator->CurrentNonterminalCount, 0u);
+		ShutdownTaskScheduler(true);
 	}
 
 	TEST(FSourceImageThumbnailTests, DecodesTransparentPngAndPreservesAspectRatio)

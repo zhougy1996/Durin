@@ -4,6 +4,7 @@
 #include <barrier>
 #include <iostream>
 
+#include "Profiling/Profiling.h"
 #include "Threading/QueuedThreadPool.h"
 #include "Threading/Runnable.h"
 #include "Threading/RunnableThread.h"
@@ -12,6 +13,15 @@
 
 namespace Durin
 {
+	static_assert(sizeof(FTaskAttribution) == sizeof(uint16) * 2);
+	static_assert(std::is_trivially_copyable_v<FTaskAttribution>);
+	static_assert(std::is_standard_layout_v<FTaskAttribution>);
+	static_assert(std::equality_comparable<FTaskAttribution>);
+	static_assert(noexcept(Profiling::TaskEnqueued(1, 2, 2, 0)));
+	static_assert(noexcept(Profiling::TaskExecution(1, 2, 2, 0)));
+	static_assert(noexcept(Profiling::TaskTerminal(1, 2, 2, 0, 0)));
+	static_assert(noexcept(Profiling::TaskAggregatePlots(2, 2, 0, 0, 0, 0, 0, 0, 0)));
+
 	namespace
 	{
 		class FSignalRunnable final : public FRunnable
@@ -1761,6 +1771,330 @@ namespace Durin
 		EXPECT_GE(ShutdownDiagnostics.RetainedTerminalHandleCount, 7u);
 	}
 
+	TEST(FTaskAttributionTests, AggregatesLifecycleRejectionsResultsAndConcurrentSnapshots)
+	{
+		EnsureGameThreadForTaskTest();
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+
+		const FTaskAttribution MainAttribution = RegisterTaskAttribution("AggregateOwner", "Main");
+		const FTaskAttribution OtherAttribution = RegisterTaskAttribution("AggregateOwner", "Other");
+		auto Find = [](const FTaskSchedulerDiagnostics& Diagnostics, std::string_view Category) -> const FTaskOwnerCategoryDiagnostics& {
+			const auto Iterator = std::ranges::find_if(Diagnostics.OwnerCategoryDiagnostics, [Category](const FTaskOwnerCategoryDiagnostics& Entry) {
+				return Entry.Owner == "AggregateOwner" && Entry.Category == Category;
+			});
+			check(Iterator != Diagnostics.OwnerCategoryDiagnostics.end());
+			return *Iterator;
+		};
+		auto Sum = [](const FTaskSchedulerDiagnostics& Diagnostics, auto Member) {
+			uint64 Result = 0;
+			for (const FTaskOwnerCategoryDiagnostics& Entry : Diagnostics.OwnerCategoryDiagnostics) Result += Entry.*Member;
+			return Result;
+		};
+		auto HistogramSamples = [](const std::array<uint64, 32>& Histogram) {
+			uint64 Result = 0;
+			for (uint64 Bucket : Histogram) Result += Bucket;
+			return Result;
+		};
+
+		FTaskLaunchOptions MainOptions;
+		MainOptions.Attribution = MainAttribution;
+		FTaskLaunchOptions OtherOptions;
+		OtherOptions.Attribution = OtherAttribution;
+		FThreadEvent RunningStarted;
+		FThreadEvent ReleaseRunning;
+		FTaskHandle Running = LaunchTask("AggregateRunning", [&]() {
+			RunningStarted.Trigger();
+			ReleaseRunning.Wait();
+		}, MainOptions);
+		ASSERT_TRUE(RunningStarted.WaitFor(1.0));
+		std::array<FTaskHandle, 1> RunningPrerequisite{Running};
+		FTaskLaunchOptions WaitingOptions = MainOptions;
+		WaitingOptions.Prerequisites = RunningPrerequisite;
+		FTaskHandle Waiting = LaunchTask("AggregateWaiting", []() {}, WaitingOptions);
+
+		const FTaskSchedulerDiagnostics Live = GetTaskSchedulerDiagnostics();
+		const FTaskOwnerCategoryDiagnostics& LiveMain = Find(Live, "Main");
+		EXPECT_EQ(2u, LiveMain.AcceptedCount);
+		EXPECT_EQ(1u, LiveMain.CurrentWaitingCount);
+		EXPECT_EQ(1u, LiveMain.CurrentRunningCount);
+		EXPECT_EQ(2u, LiveMain.CurrentNonterminalCount);
+		EXPECT_GT(LiveMain.CurrentCallableBytes, 0u);
+		EXPECT_EQ(2u, HistogramSamples(LiveMain.CallableBytesHistogram));
+		EXPECT_EQ(2u, HistogramSamples(LiveMain.PayloadBytesHistogram));
+		EXPECT_EQ(2u, HistogramSamples(LiveMain.ResultBytesHistogram));
+
+		std::atomic<bool> bKeepSnapshotting = true;
+		std::thread SnapshotThread([&]() {
+			while (bKeepSnapshotting.load(std::memory_order::acquire))
+			{
+				const FTaskSchedulerDiagnostics Snapshot = GetTaskSchedulerDiagnostics();
+				EXPECT_LE(Snapshot.OwnerCategoryDiagnostics.size(), 1'024u);
+				EXPECT_EQ(Snapshot.OwnerCategoryDiagnostics.size(), std::ranges::count_if(
+					Snapshot.OwnerCategoryDiagnostics,
+					[](const FTaskOwnerCategoryDiagnostics& Entry) { return !Entry.Owner.empty() && !Entry.Category.empty(); }));
+			}
+		});
+
+		std::vector<std::thread> Cancelers;
+		for (uint32 Index = 0; Index < 8; ++Index)
+		{
+			Cancelers.emplace_back([&]() { CancelTask(Running); });
+		}
+		for (std::thread& Canceler : Cancelers) Canceler.join();
+		ReleaseRunning.Trigger();
+		EXPECT_EQ(ETaskState::Canceled, WaitTask(Running));
+		EXPECT_EQ(ETaskState::Canceled, WaitTask(Waiting));
+
+		FTaskHandle Failed = LaunchTask("AggregateFailed", []() { throw std::runtime_error("aggregate failure"); }, OtherOptions);
+		EXPECT_EQ(ETaskState::Failed, WaitTask(Failed));
+		FTaskHandle Succeeded = LaunchTask("AggregateSucceeded", []() {}, MainOptions);
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Succeeded));
+		FTaskLaunchOptions InvalidOptions = MainOptions;
+		std::array<FTaskHandle, 1> InvalidPrerequisite{};
+		InvalidOptions.Prerequisites = InvalidPrerequisite;
+		EXPECT_FALSE(LaunchTask("AggregateRejected", []() {}, InvalidOptions).IsValid());
+
+		auto Producer = LaunchUniqueTask<std::vector<uint8>>(
+			"AggregateUniqueProducer",
+			[]() { return std::vector<uint8>(128, 7); },
+			MainOptions,
+			128);
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Producer.GetTaskHandle()));
+		const FTaskSchedulerDiagnostics Retained = GetTaskSchedulerDiagnostics();
+		EXPECT_EQ(128u, Retained.RetainedUniqueResultBytes);
+		EXPECT_EQ(128u, Find(Retained, "Main").CurrentRetainedUniqueResultBytes);
+		FTaskHandle Consumer = ConsumeThen(std::move(Producer), "AggregateUniqueConsumer", [](std::vector<uint8>&& Value) {
+			EXPECT_EQ(128u, Value.size());
+		});
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Consumer));
+		EXPECT_EQ(0u, GetTaskSchedulerDiagnostics().RetainedUniqueResultBytes);
+
+		ASSERT_TRUE(InitializeGameThreadDeferredExecutor({
+			.MaxQueuedEntries = 1,
+			.MaxQueuedPayloadBytes = 8,
+			.MaxPayloadBytesPerEntry = 8,
+		}));
+		FTaskHandle Root = LaunchTask("AggregateDeferredRoot", []() {}, MainOptions);
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Root));
+		FTaskContinuationOptions DeferredOptions;
+		DeferredOptions.Target = ETaskTarget::GameThreadDeferred;
+		DeferredOptions.EstimatedPayloadBytes = 4;
+		DeferredOptions.Attribution = MainAttribution;
+		DeferredOptions.CoalescingKey = FTaskCoalescingKey{7, 8, 9};
+		FTaskHandle Superseded = Then(Root, "AggregateSuperseded", []() {}, DeferredOptions);
+		FTaskHandle Replacement = Then(Root, "AggregateReplacement", []() {}, DeferredOptions);
+		EXPECT_EQ(ETaskState::Canceled, WaitTask(Superseded));
+		FTaskContinuationOptions SaturatedOptions = DeferredOptions;
+		SaturatedOptions.CoalescingKey.reset();
+		FTaskHandle Saturated = Then(Root, "AggregateSaturated", []() {}, SaturatedOptions);
+		EXPECT_EQ(ETaskState::Canceled, WaitTask(Saturated));
+		EXPECT_EQ(ETaskTerminalReason::DispatchRejected, Saturated.GetDiagnostics().TerminalReason);
+		PumpGameThreadDeferredWork({.bUnlimited = true});
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Replacement));
+
+		FTaskGenerationSource Generation;
+		FTaskContinuationOptions StaleOptions = DeferredOptions;
+		StaleOptions.CoalescingKey.reset();
+		StaleOptions.GenerationToken = Generation.Capture();
+		FTaskHandle Stale = Then(Root, "AggregateStale", []() {}, StaleOptions);
+		Generation.Advance();
+		PumpGameThreadDeferredWork({.bUnlimited = true});
+		EXPECT_EQ(ETaskState::Canceled, WaitTask(Stale));
+
+		FParallelForOptions ParallelOptions;
+		ParallelOptions.Attribution = OtherAttribution;
+		ParallelOptions.MinBatchSize = 1;
+		EXPECT_EQ(ETaskState::Succeeded, ParallelFor("AggregateParallel", 4, [](uint64) {}, ParallelOptions).State);
+		bKeepSnapshotting.store(false, std::memory_order::release);
+		SnapshotThread.join();
+
+		const FTaskSchedulerDiagnostics Final = GetTaskSchedulerDiagnostics();
+		const FTaskOwnerCategoryDiagnostics& FinalMain = Find(Final, "Main");
+		const FTaskOwnerCategoryDiagnostics& FinalOther = Find(Final, "Other");
+		EXPECT_EQ(0u, Sum(Final, &FTaskOwnerCategoryDiagnostics::CurrentNonterminalCount));
+		EXPECT_EQ(0u, Sum(Final, &FTaskOwnerCategoryDiagnostics::CurrentCallableBytes));
+		EXPECT_EQ(0u, Sum(Final, &FTaskOwnerCategoryDiagnostics::CurrentPayloadBytes));
+		EXPECT_EQ(0u, Sum(Final, &FTaskOwnerCategoryDiagnostics::CurrentResultBytes));
+		EXPECT_EQ(Final.CompletedTaskCount, Sum(Final, &FTaskOwnerCategoryDiagnostics::SucceededCount)
+			+ Sum(Final, &FTaskOwnerCategoryDiagnostics::FailedCount)
+			+ Sum(Final, &FTaskOwnerCategoryDiagnostics::CanceledCount));
+		EXPECT_EQ(Final.RejectedTaskCount, Sum(Final, &FTaskOwnerCategoryDiagnostics::RejectedCount));
+		EXPECT_EQ(1u, FinalMain.SupersededCount);
+		EXPECT_EQ(1u, FinalMain.StaleGenerationCount);
+		EXPECT_GE(FinalMain.DispatchRejectedCount, 1u);
+		EXPECT_EQ(1u, FinalOther.CallbackFailureCount);
+		EXPECT_EQ(1u, FinalOther.ParallelForOperationCount);
+
+		ShutdownTaskSystem(ETaskShutdownMode::Drain);
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		const FTaskSchedulerDiagnostics Restarted = GetTaskSchedulerDiagnostics();
+		EXPECT_EQ(0u, Find(Restarted, "Main").AcceptedCount);
+		EXPECT_EQ(0u, Find(Restarted, "Other").ParallelForOperationCount);
+		ShutdownTaskScheduler(true);
+	}
+
+	TEST(FTaskAttributionTests, RegistersBoundedIdentityAndPropagatesAcrossTaskForms)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(2));
+
+		const FTaskAttribution Unattributed;
+		const FTaskAttribution OwnerA = RegisterTaskAttribution("AttributionOwnerA", "Prepare");
+		const FTaskAttribution OwnerAAgain = RegisterTaskAttribution("AttributionOwnerA", "Prepare");
+		const FTaskAttribution OwnerB = RegisterTaskAttribution("AttributionOwnerB", "Publish");
+		EXPECT_EQ(OwnerA, OwnerAAgain);
+		EXPECT_NE(Unattributed, OwnerA);
+		EXPECT_NE(OwnerA, OwnerB);
+
+		std::array<FTaskAttribution, 16> ConcurrentTokens{};
+		std::vector<std::thread> RegistrationThreads;
+		for (size_t Index = 0; Index < ConcurrentTokens.size(); ++Index)
+		{
+			RegistrationThreads.emplace_back([&, Index]() {
+				ConcurrentTokens[Index] = RegisterTaskAttribution("ConcurrentOwner", "Duplicate");
+			});
+		}
+		for (std::thread& Thread : RegistrationThreads) Thread.join();
+		for (const FTaskAttribution Token : ConcurrentTokens) EXPECT_EQ(ConcurrentTokens.front(), Token);
+
+		FTaskLaunchOptions OwnerAOptions;
+		OwnerAOptions.Attribution = OwnerA;
+		FTaskLaunchOptions OwnerBOptions;
+		OwnerBOptions.Attribution = OwnerB;
+		FTaskHandle Child;
+		FTaskHandle RootA = LaunchTask("AttributedRootA", [&]() {
+			Child = LaunchTask("AttributedChild", []() {});
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Child));
+		}, OwnerAOptions);
+		FTaskHandle RootB = LaunchTask("AttributedRootB", []() {}, OwnerBOptions);
+		FTaskHandle DefaultRoot = LaunchTask("UnattributedRoot", []() {});
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(RootA));
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(RootB));
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(DefaultRoot));
+		ASSERT_TRUE(Child.IsValid());
+
+		std::array<FTaskHandle, 1> CrossOwnerPrerequisites{RootB};
+		FTaskContinuationOptions CrossOwnerOptions;
+		CrossOwnerOptions.Prerequisites = CrossOwnerPrerequisites;
+		FTaskHandle InheritedContinuation = Then(RootA, "InheritedContinuation", []() {}, CrossOwnerOptions);
+		FTaskContinuationOptions OverrideOptions;
+		OverrideOptions.Attribution = OwnerB;
+		FTaskHandle OverriddenContinuation = Then(RootA, "OverriddenContinuation", []() {}, OverrideOptions);
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(InheritedContinuation));
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(OverriddenContinuation));
+
+		auto UniqueProducer = LaunchUniqueTask<int>("AttributedUniqueProducer", []() { return 7; }, OwnerAOptions);
+		FTaskHandle UniqueConsumer = ConsumeThen(std::move(UniqueProducer), "AttributedUniqueConsumer", [](int&& Value) {
+			EXPECT_EQ(7, Value);
+		});
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(UniqueConsumer));
+
+		auto ExpectAttribution = [](const FTaskDiagnostics& Diagnostics, std::string_view Owner, std::string_view Category) {
+			EXPECT_EQ(Owner, Diagnostics.AttributionOwner);
+			EXPECT_EQ(Category, Diagnostics.AttributionCategory);
+			EXPECT_GT(Diagnostics.AttributionCategoryId, 1u);
+		};
+		ExpectAttribution(RootA.GetDiagnostics(), "AttributionOwnerA", "Prepare");
+		ExpectAttribution(Child.GetDiagnostics(), "AttributionOwnerA", "Prepare");
+		ExpectAttribution(InheritedContinuation.GetDiagnostics(), "AttributionOwnerA", "Prepare");
+		ExpectAttribution(OverriddenContinuation.GetDiagnostics(), "AttributionOwnerB", "Publish");
+		ExpectAttribution(UniqueConsumer.GetDiagnostics(), "AttributionOwnerA", "Prepare");
+		EXPECT_EQ(0u, DefaultRoot.GetDiagnostics().AttributionOwnerId);
+		EXPECT_EQ(0u, DefaultRoot.GetDiagnostics().AttributionCategoryId);
+		EXPECT_EQ("Unattributed", DefaultRoot.GetDiagnostics().AttributionOwner);
+		EXPECT_EQ("Unattributed", DefaultRoot.GetDiagnostics().AttributionCategory);
+
+		FThreadEvent RunningStarted;
+		FThreadEvent ReleaseRunning;
+		struct FLargeAttributedCallable
+		{
+			FThreadEvent* Started = nullptr;
+			FThreadEvent* Release = nullptr;
+			std::array<std::byte, 128> Storage{};
+			auto operator()() const -> void { Started->Trigger(); Release->Wait(); }
+		};
+		FTaskHandle Running = LaunchTask("AttributedRunning", FLargeAttributedCallable{&RunningStarted, &ReleaseRunning}, OwnerAOptions);
+		ASSERT_TRUE(RunningStarted.WaitFor(1.0));
+		const FTaskDiagnostics RunningDiagnostics = Running.GetDiagnostics();
+		EXPECT_EQ(sizeof(FLargeAttributedCallable), RunningDiagnostics.CallableStorageBytes);
+		EXPECT_GT(RunningDiagnostics.ExecutionNanoseconds, 0u);
+		ReleaseRunning.Trigger();
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Running));
+		const FTaskDiagnostics FinishedDiagnostics = Running.GetDiagnostics();
+		EXPECT_GE(FinishedDiagnostics.ExecutionNanoseconds, RunningDiagnostics.ExecutionNanoseconds);
+		EXPECT_EQ(FinishedDiagnostics.FinishTimeNanoseconds - FinishedDiagnostics.StartTimeNanoseconds, FinishedDiagnostics.ExecutionNanoseconds);
+		FTaskHandle Failed = LaunchTask("AttributedFailure", []() { throw std::runtime_error("attributed failure"); }, OwnerBOptions);
+		ASSERT_EQ(ETaskState::Failed, WaitTask(Failed));
+		EXPECT_GT(Failed.GetDiagnostics().CallableStorageBytes, 0u);
+		EXPECT_GT(Failed.GetDiagnostics().ExecutionNanoseconds, 0u);
+		ExpectAttribution(Failed.GetDiagnostics(), "AttributionOwnerB", "Publish");
+		FTaskCancellationSource PreCanceledSource;
+		PreCanceledSource.RequestCancellation();
+		FTaskLaunchOptions PreCanceledOptions = OwnerAOptions;
+		PreCanceledOptions.CancellationToken = PreCanceledSource.GetToken();
+		FTaskHandle PreCanceled = LaunchTask("AttributedPreCanceled", [Storage = std::array<std::byte, 128>{}]() {
+			(void)Storage;
+		}, PreCanceledOptions);
+		ASSERT_EQ(ETaskState::Canceled, WaitTask(PreCanceled));
+		EXPECT_GT(PreCanceled.GetDiagnostics().CallableStorageBytes, 0u);
+		EXPECT_EQ(0u, PreCanceled.GetDiagnostics().ExecutionNanoseconds);
+		ExpectAttribution(PreCanceled.GetDiagnostics(), "AttributionOwnerA", "Prepare");
+
+		FParallelForOptions ParallelOptions;
+		ParallelOptions.MinBatchSize = 1;
+		ParallelOptions.Attribution = OwnerB;
+		FThreadEvent ParallelEntered;
+		FThreadEvent ReleaseParallel;
+		std::thread ParallelCaller([&]() {
+			const FParallelForResult Result = ParallelFor("AttributedParallelFor", 2, [&](uint64) {
+				ParallelEntered.Trigger();
+				ReleaseParallel.Wait();
+			}, ParallelOptions);
+			EXPECT_EQ(ETaskState::Succeeded, Result.State);
+		});
+		ASSERT_TRUE(ParallelEntered.WaitFor(1.0));
+		bool bObservedAttributedChunk = false;
+		for (const FTaskDiagnostics& Diagnostics : GetTaskSchedulerDiagnostics().NonterminalTasks)
+		{
+			if (Diagnostics.DebugName == "AttributedParallelFor")
+			{
+				bObservedAttributedChunk = Diagnostics.AttributionOwner == "AttributionOwnerB"
+					&& Diagnostics.AttributionCategory == "Publish";
+			}
+		}
+		EXPECT_TRUE(bObservedAttributedChunk);
+		ReleaseParallel.Trigger();
+		ParallelCaller.join();
+
+		const FTaskAttribution Overflow = RegisterTaskAttribution("", "Invalid");
+		EXPECT_EQ(Overflow, RegisterTaskAttribution(std::string(64, 'x'), "Invalid"));
+		EXPECT_EQ(Overflow, RegisterTaskAttribution(std::string("Bad\0Owner", 9), "Invalid"));
+		EXPECT_EQ(Overflow, RegisterTaskAttribution(std::string("\xc0\x80", 2), "Invalid"));
+		const size_t SlotsBeforeCapacityFill = GetTaskSchedulerDiagnostics().OwnerCategoryDiagnostics.size();
+		for (size_t Index = SlotsBeforeCapacityFill; Index < 1'024; ++Index)
+		{
+			const FTaskAttribution Token = RegisterTaskAttribution("CapacityOwner", "Category" + std::to_string(Index));
+			EXPECT_NE(Overflow, Token);
+		}
+		EXPECT_EQ(Overflow, RegisterTaskAttribution("CapacityOwner", "CapacityOverflow"));
+		EXPECT_EQ(1'024u, GetTaskSchedulerDiagnostics().OwnerCategoryDiagnostics.size());
+
+		ShutdownTaskScheduler(true);
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		EXPECT_EQ(1'024u, GetTaskSchedulerDiagnostics().OwnerCategoryDiagnostics.size());
+		FTaskHandle Restarted = LaunchTask("AttributedAfterRestart", []() {}, OwnerAOptions);
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Restarted));
+		ExpectAttribution(Restarted.GetDiagnostics(), "AttributionOwnerA", "Prepare");
+		ShutdownTaskScheduler(true);
+		const FTaskSchedulerDiagnostics StoppedDiagnostics = GetTaskSchedulerDiagnostics();
+		EXPECT_FALSE(StoppedDiagnostics.bRunning);
+		EXPECT_EQ(1'024u, StoppedDiagnostics.OwnerCategoryDiagnostics.size());
+		EXPECT_GE(StoppedDiagnostics.AttributionRegistrationOverflowCount, 5u);
+	}
+
 	TEST(FTaskMoveOnlyCallableTests, ErasureMovesInlineAndHeapTargetsAndDestroysExactlyOnce)
 	{
 		struct FTrackedCallable
@@ -1784,6 +2118,7 @@ namespace Durin
 		using FMoveOnlyVoidFunction = Private::TMoveOnlyFunction<void()>;
 		FMoveOnlyVoidFunction Empty;
 		EXPECT_FALSE(static_cast<bool>(Empty));
+		EXPECT_EQ(0u, Empty.GetStorageBytes());
 
 		auto InlineValue = std::make_unique<int>(7);
 		int* InlineAddress = InlineValue.get();
@@ -1792,6 +2127,8 @@ namespace Durin
 		});
 		FMoveOnlyVoidFunction MovedInline(std::move(Inline));
 		EXPECT_FALSE(static_cast<bool>(Inline));
+		EXPECT_EQ(0u, Inline.GetStorageBytes());
+		EXPECT_EQ(sizeof(void*) * 3, MovedInline.GetStorageBytes());
 		ASSERT_TRUE(static_cast<bool>(MovedInline));
 		MovedInline();
 
@@ -1800,6 +2137,8 @@ namespace Durin
 			FMoveOnlyVoidFunction Heap{FTrackedCallable(DestructionCount)};
 			FMoveOnlyVoidFunction MovedHeap(std::move(Heap));
 			EXPECT_FALSE(static_cast<bool>(Heap));
+			EXPECT_EQ(0u, Heap.GetStorageBytes());
+			EXPECT_EQ(sizeof(FTrackedCallable), MovedHeap.GetStorageBytes());
 			MovedHeap();
 		}
 		EXPECT_EQ(1u, DestructionCount->load(std::memory_order::acquire));

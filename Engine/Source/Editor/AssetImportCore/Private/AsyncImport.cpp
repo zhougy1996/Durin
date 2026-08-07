@@ -8,6 +8,18 @@ namespace Durin::AssetImport
 	{
 		thread_local const FTaskCancellationToken* GImportCancellationToken = nullptr;
 
+		auto GetPreparePlanAttribution() -> FTaskAttribution
+		{
+			static const FTaskAttribution Attribution = RegisterTaskAttribution("AssetImport", "PreparePlan");
+			return Attribution;
+		}
+
+		auto GetPublishPlanAttribution() -> FTaskAttribution
+		{
+			static const FTaskAttribution Attribution = RegisterTaskAttribution("AssetImport", "PublishPlan");
+			return Attribution;
+		}
+
 		class FScopedImportCancellationToken
 		{
 		public:
@@ -111,6 +123,7 @@ namespace Durin::AssetImport
 
 				FTaskLaunchOptions Options;
 				Options.CancellationToken = State->Cancellation.GetToken();
+				Options.Attribution = GetPreparePlanAttribution();
 				constexpr uint64 EstimatedImportPlanResultBytes = 64ull * 1'024ull;
 				auto Producer = LaunchUniqueCancelableTask<FImportPlanResult>(
 					"AssetImport.PreparePlan",
@@ -145,6 +158,8 @@ namespace Durin::AssetImport
 				}
 
 				const FTaskHandle ProducerTask = Producer.GetTaskHandle();
+				FTaskContinuationOptions PublisherOptions;
+				PublisherOptions.Attribution = GetPublishPlanAttribution();
 				FTaskHandle Publisher = ConsumeThenOutcome(
 					std::move(Producer),
 					"AssetImport.PublishPlan",
@@ -172,7 +187,7 @@ namespace Durin::AssetImport
 							State->bNoticeQueued = true;
 						}
 						QueueNotice(State->Serial);
-					});
+					}, PublisherOptions);
 				{
 					std::lock_guard StateLock(State->Mutex);
 					State->ProducerTask = ProducerTask;

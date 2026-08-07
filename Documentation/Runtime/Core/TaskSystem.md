@@ -336,6 +336,60 @@ through a generation-checked mailbox, and reject publication after any newer
 scan, save, move, delete, mount change, or cancellation. Worker execution does
 not authorize direct mutation of the live registry or reference index.
 
+## Task Attribution And Aggregate Diagnostics
+
+Every accepted task has one process-local `FTaskAttribution` owner/category
+token. `RegisterTaskAttribution(Owner, Category)` copies stable UTF-8 labels of
+1-63 bytes into a process-lifetime registry. Exact duplicate registration
+converges under concurrency. The registry is bounded to 256 owners and 1,024
+owner/category pairs, including `Unattributed` and `Overflow`; invalid labels or
+exhausted capacity select `Overflow` and increment the registration-overflow
+counter without rejecting task work. Tokens are diagnostic identity only and
+must not be serialized or used as resource identity. Production callers use
+low-cardinality literals, never paths, object ids, request serials, or other
+per-item values.
+
+Launch, continuation, and parallel-for options accept an explicit
+`Attribution`. An explicit non-default token wins. Otherwise, a continuation,
+unique-result sink, or typed fan-in inherits its primary predecessor; a root
+launched from a task in the same scheduler inherits that executing task; and an
+external root is `Unattributed`. Additional prerequisites never merge or select
+identity. Parallel-for selects one token for the logical operation and forwards
+it to every scheduled chunk while reporting its logical operation count
+separately from task-node counts.
+
+`FTaskDiagnostics` resolves the task's owner/category ids and labels and reports
+the erased callable's retained storage plus execution nanoseconds. Callable
+storage is the inline wrapper size or concrete heap target size; it excludes
+separately declared payload and result bytes. Execution duration is zero before
+start, elapsed while running, and frozen at terminal publication.
+
+`FTaskSchedulerDiagnostics::OwnerCategoryDiagnostics` contains at most 1,024
+entries. Each `FTaskOwnerCategoryDiagnostics` reports accepted, succeeded,
+failed, canceled, and rejected counts; bounded terminal-reason counts; current
+waiting, queued, running, and nonterminal gauges; current and peak callable,
+payload, result, and retained-unique-result bytes; and five fixed 32-bucket
+histograms for queue residency, execution, callable bytes, payload bytes, and
+result bytes. Bucket zero represents value zero; a positive value uses
+`min(31, 1 + floor(log2(value)))` in nanoseconds or bytes.
+
+Accepted work charges its attribution once after node admission and releases
+all current gauges at the one winning terminal transition. Pre-node rejection
+charges only rejection and byte-distribution evidence. Retained unique-result
+bytes transfer from producer to consuming sink without changing the global
+total. Shared global counters and retained bytes reconcile with the sum of all
+owner/category entries. Snapshot queries may allocate their bounded result but
+do not mutate counters, retain completed task history, or add hot-path label
+lookup and formatting.
+
+Attribution registration survives scheduler restart, while a new scheduler
+lifetime starts with zeroed aggregate slots. The current production pairs are
+`AssetImport/PreparePlan`, `AssetImport/PublishPlan`, and
+`SourceImageThumbnail/Decode`. Their subsystem mailboxes, cancellation,
+request-serial checks, cache policy, and render/RHI ownership remain separate
+from task attribution. Tracy correlation and fixed owner/category plots are
+owned by the [CPU profiling](../../Development/Build/Profiling.md) contract.
+
 ## Shutdown And Diagnostics
 
 `ShutdownTaskScheduler(true)` remains available to isolated worker-only callers
@@ -373,7 +427,7 @@ stops the rendering thread. The complete process order is owned by
 ## Deferred Features
 
 Dedicated IO scheduling, work stealing, fibers or coroutine-backed waits,
-typed aggregate fan-in, multi-stage unique-result production, a general
+multi-stage unique-result production, a general
 serialized-lane abstraction, and RenderGraph task integration require
 workload-specific evidence and a clear owner. RenderThread and RHIThread are not
 generic task targets; any adapter requires a named production caller, an

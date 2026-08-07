@@ -1,14 +1,341 @@
 #include "Threading/Task.h"
 
+#include "Profiling/Profiling.h"
 #include "Threading/QueuedThreadPool.h"
 #include "Threading/RunnableThread.h"
+
+#include <bit>
 
 namespace Durin
 {
 	class FGameThreadDeferredWorkQueue;
 
+	namespace Private
+	{
+		struct FTaskAttributionAccess
+		{
+			static constexpr auto Make(uint16 OwnerId, uint16 CategoryId) -> FTaskAttribution
+			{
+				return FTaskAttribution(OwnerId, CategoryId);
+			}
+
+			static constexpr auto GetOwnerId(FTaskAttribution Attribution) -> uint16 { return Attribution.OwnerId; }
+			static constexpr auto GetCategoryId(FTaskAttribution Attribution) -> uint16 { return Attribution.CategoryId; }
+			static constexpr auto IsDefault(FTaskAttribution Attribution) -> bool
+			{
+				return Attribution.OwnerId == 0 && Attribution.CategoryId == 0;
+			}
+		};
+	}
+
 	namespace
 	{
+		constexpr uint16 UnattributedAttributionId = 0;
+		constexpr uint16 OverflowAttributionId = 1;
+		constexpr uint16 MaxTaskAttributionOwners = 256;
+		constexpr uint16 MaxTaskAttributionPairs = 1'024;
+		constexpr size_t MaxTaskAttributionLabelBytes = 63;
+
+		struct FTaskAttributionLabel
+		{
+			std::array<char, MaxTaskAttributionLabelBytes + 1> Bytes{};
+			uint8 Length = 0;
+
+			auto View() const -> std::string_view { return {Bytes.data(), Length}; }
+		};
+
+		struct FTaskAttributionPair
+		{
+			uint16 OwnerId = 0;
+			FTaskAttributionLabel Category;
+		};
+
+		auto IsValidTaskAttributionLabel(std::string_view Label) -> bool
+		{
+			if (Label.empty() || Label.size() > MaxTaskAttributionLabelBytes || Label.find('\0') != std::string_view::npos)
+			{
+				return false;
+			}
+			for (size_t Index = 0; Index < Label.size();)
+			{
+				const uint8 Lead = static_cast<uint8>(Label[Index]);
+				size_t ContinuationCount = 0;
+				uint32 CodePoint = 0;
+				uint32 MinimumCodePoint = 0;
+				if (Lead <= 0x7f)
+				{
+					++Index;
+					continue;
+				}
+				if ((Lead & 0xe0) == 0xc0) { ContinuationCount = 1; CodePoint = Lead & 0x1f; MinimumCodePoint = 0x80; }
+				else if ((Lead & 0xf0) == 0xe0) { ContinuationCount = 2; CodePoint = Lead & 0x0f; MinimumCodePoint = 0x800; }
+				else if ((Lead & 0xf8) == 0xf0) { ContinuationCount = 3; CodePoint = Lead & 0x07; MinimumCodePoint = 0x10000; }
+				else return false;
+				if (Index + ContinuationCount >= Label.size()) return false;
+				for (size_t Offset = 1; Offset <= ContinuationCount; ++Offset)
+				{
+					const uint8 Continuation = static_cast<uint8>(Label[Index + Offset]);
+					if ((Continuation & 0xc0) != 0x80) return false;
+					CodePoint = (CodePoint << 6) | (Continuation & 0x3f);
+				}
+				if (CodePoint < MinimumCodePoint || CodePoint > 0x10ffff || (CodePoint >= 0xd800 && CodePoint <= 0xdfff)) return false;
+				Index += ContinuationCount + 1;
+			}
+			return true;
+		}
+
+		auto CopyTaskAttributionLabel(std::string_view Label) -> FTaskAttributionLabel
+		{
+			FTaskAttributionLabel Result;
+			Result.Length = static_cast<uint8>(Label.size());
+			std::ranges::copy(Label, Result.Bytes.begin());
+			return Result;
+		}
+
+		class FTaskAttributionRegistry
+		{
+		public:
+			FTaskAttributionRegistry()
+			{
+				Owners[UnattributedAttributionId] = CopyTaskAttributionLabel("Unattributed");
+				Owners[OverflowAttributionId] = CopyTaskAttributionLabel("Overflow");
+				Pairs[UnattributedAttributionId] = {UnattributedAttributionId, CopyTaskAttributionLabel("Unattributed")};
+				Pairs[OverflowAttributionId] = {OverflowAttributionId, CopyTaskAttributionLabel("Overflow")};
+#if DURIN_WITH_TRACY
+				Profiling::RegisterTaskProfilerAttribution(UnattributedAttributionId, UnattributedAttributionId, "Unattributed", "Unattributed");
+				Profiling::RegisterTaskProfilerAttribution(OverflowAttributionId, OverflowAttributionId, "Overflow", "Overflow");
+#endif
+			}
+
+			auto Register(std::string_view Owner, std::string_view Category) -> FTaskAttribution
+			{
+				if (!IsValidTaskAttributionLabel(Owner) || !IsValidTaskAttributionLabel(Category))
+				{
+					OverflowCount.fetch_add(1, std::memory_order::acq_rel);
+					return Private::FTaskAttributionAccess::Make(OverflowAttributionId, OverflowAttributionId);
+				}
+
+				std::lock_guard Lock(Mutex);
+				for (uint16 CategoryId = 2; CategoryId < PairCount; ++CategoryId)
+				{
+					const FTaskAttributionPair& Pair = Pairs[CategoryId];
+					if (Owners[Pair.OwnerId].View() == Owner && Pair.Category.View() == Category)
+					{
+						return Private::FTaskAttributionAccess::Make(Pair.OwnerId, CategoryId);
+					}
+				}
+
+				uint16 OwnerId = MaxTaskAttributionOwners;
+				for (uint16 CandidateId = 2; CandidateId < OwnerCount; ++CandidateId)
+				{
+					if (Owners[CandidateId].View() == Owner)
+					{
+						OwnerId = CandidateId;
+						break;
+					}
+				}
+				if (PairCount == MaxTaskAttributionPairs || (OwnerId == MaxTaskAttributionOwners && OwnerCount == MaxTaskAttributionOwners))
+				{
+					OverflowCount.fetch_add(1, std::memory_order::acq_rel);
+					return Private::FTaskAttributionAccess::Make(OverflowAttributionId, OverflowAttributionId);
+				}
+				if (OwnerId == MaxTaskAttributionOwners)
+				{
+					OwnerId = OwnerCount++;
+					Owners[OwnerId] = CopyTaskAttributionLabel(Owner);
+				}
+				const uint16 CategoryId = PairCount++;
+				Pairs[CategoryId] = {OwnerId, CopyTaskAttributionLabel(Category)};
+#if DURIN_WITH_TRACY
+				Profiling::RegisterTaskProfilerAttribution(OwnerId, CategoryId, Owner, Category);
+#endif
+				return Private::FTaskAttributionAccess::Make(OwnerId, CategoryId);
+			}
+
+			auto Resolve(FTaskAttribution Attribution) const -> std::pair<std::string, std::string>
+			{
+				const uint16 OwnerId = Private::FTaskAttributionAccess::GetOwnerId(Attribution);
+				const uint16 CategoryId = Private::FTaskAttributionAccess::GetCategoryId(Attribution);
+				std::lock_guard Lock(Mutex);
+				if (OwnerId >= OwnerCount || CategoryId >= PairCount || Pairs[CategoryId].OwnerId != OwnerId)
+				{
+					return {"Overflow", "Overflow"};
+				}
+				return {std::string(Owners[OwnerId].View()), std::string(Pairs[CategoryId].Category.View())};
+			}
+
+			auto Snapshot() const -> std::vector<FTaskOwnerCategoryDiagnostics>
+			{
+				std::lock_guard Lock(Mutex);
+				std::vector<FTaskOwnerCategoryDiagnostics> Result;
+				Result.reserve(PairCount);
+				for (uint16 CategoryId = 0; CategoryId < PairCount; ++CategoryId)
+				{
+					const FTaskAttributionPair& Pair = Pairs[CategoryId];
+					FTaskOwnerCategoryDiagnostics& Entry = Result.emplace_back();
+					Entry.OwnerId = Pair.OwnerId;
+					Entry.CategoryId = CategoryId;
+					Entry.Owner = Owners[Pair.OwnerId].View();
+					Entry.Category = Pair.Category.View();
+				}
+				return Result;
+			}
+
+			auto GetOverflowCount() const -> uint64 { return OverflowCount.load(std::memory_order::acquire); }
+
+		private:
+			mutable std::mutex Mutex;
+			std::array<FTaskAttributionLabel, MaxTaskAttributionOwners> Owners{};
+			std::array<FTaskAttributionPair, MaxTaskAttributionPairs> Pairs{};
+			uint16 OwnerCount = 2;
+			uint16 PairCount = 2;
+			std::atomic<uint64> OverflowCount = 0;
+		};
+
+		FTaskAttributionRegistry GTaskAttributionRegistry;
+
+		enum class ETaskAggregateCounter : uint8
+		{
+			Accepted,
+			Succeeded,
+			Failed,
+			Canceled,
+			Rejected,
+			DependencyFailed,
+			DependencyCanceled,
+			CancellationRequested,
+			DispatchRejected,
+			Superseded,
+			StaleGeneration,
+			CallbackFailure,
+			ShutdownCanceled,
+			ParallelForOperation,
+			Count,
+		};
+
+		enum class ETaskAggregateGauge : uint8
+		{
+			Waiting,
+			Queued,
+			Running,
+			Nonterminal,
+			CallableBytes,
+			PayloadBytes,
+			ResultBytes,
+			RetainedUniqueResultBytes,
+			Count,
+		};
+
+		enum class ETaskAggregateHistogram : uint8
+		{
+			QueueResidency,
+			Execution,
+			CallableBytes,
+			PayloadBytes,
+			ResultBytes,
+			Count,
+		};
+
+		constexpr auto AggregateIndex(auto Value) -> size_t
+		{
+			return static_cast<size_t>(Value);
+		}
+
+		auto TaskHistogramBucket(uint64 Value) -> size_t
+		{
+			if (Value == 0) return 0;
+			return std::min<size_t>(31, 64 - static_cast<size_t>(std::countl_zero(Value)));
+		}
+
+		struct FTaskOwnerCategoryAggregate
+		{
+			auto Increment(ETaskAggregateCounter Counter) -> void
+			{
+				Counters[AggregateIndex(Counter)].fetch_add(1, std::memory_order::acq_rel);
+			}
+
+			auto Add(ETaskAggregateGauge Gauge, uint64 Value) -> void
+			{
+				if (Value == 0) return;
+				const size_t Index = AggregateIndex(Gauge);
+				const uint64 CurrentValue = Current[Index].fetch_add(Value, std::memory_order::acq_rel) + Value;
+				uint64 PeakValue = Peak[Index].load(std::memory_order::acquire);
+				while (PeakValue < CurrentValue && !Peak[Index].compare_exchange_weak(PeakValue, CurrentValue, std::memory_order::acq_rel)) {}
+			}
+
+			auto Subtract(ETaskAggregateGauge Gauge, uint64 Value) -> void
+			{
+				if (Value == 0) return;
+				const uint64 PreviousValue = Current[AggregateIndex(Gauge)].fetch_sub(Value, std::memory_order::acq_rel);
+				check(PreviousValue >= Value);
+			}
+
+			auto Record(ETaskAggregateHistogram Histogram, uint64 Value) -> void
+			{
+				Histograms[AggregateIndex(Histogram)][TaskHistogramBucket(Value)].fetch_add(1, std::memory_order::acq_rel);
+			}
+
+			auto Snapshot(FTaskOwnerCategoryDiagnostics& Out) const -> void
+			{
+				auto Counter = [this](ETaskAggregateCounter Value) { return Counters[AggregateIndex(Value)].load(std::memory_order::acquire); };
+				auto Gauge = [this](ETaskAggregateGauge Value) { return Current[AggregateIndex(Value)].load(std::memory_order::acquire); };
+				auto GaugePeak = [this](ETaskAggregateGauge Value) { return Peak[AggregateIndex(Value)].load(std::memory_order::acquire); };
+				Out.AcceptedCount = Counter(ETaskAggregateCounter::Accepted);
+				Out.SucceededCount = Counter(ETaskAggregateCounter::Succeeded);
+				Out.FailedCount = Counter(ETaskAggregateCounter::Failed);
+				Out.CanceledCount = Counter(ETaskAggregateCounter::Canceled);
+				Out.RejectedCount = Counter(ETaskAggregateCounter::Rejected);
+				Out.DependencyFailedCount = Counter(ETaskAggregateCounter::DependencyFailed);
+				Out.DependencyCanceledCount = Counter(ETaskAggregateCounter::DependencyCanceled);
+				Out.CancellationRequestedCount = Counter(ETaskAggregateCounter::CancellationRequested);
+				Out.DispatchRejectedCount = Counter(ETaskAggregateCounter::DispatchRejected);
+				Out.SupersededCount = Counter(ETaskAggregateCounter::Superseded);
+				Out.StaleGenerationCount = Counter(ETaskAggregateCounter::StaleGeneration);
+				Out.CallbackFailureCount = Counter(ETaskAggregateCounter::CallbackFailure);
+				Out.ShutdownCanceledCount = Counter(ETaskAggregateCounter::ShutdownCanceled);
+				Out.ParallelForOperationCount = Counter(ETaskAggregateCounter::ParallelForOperation);
+				Out.CurrentWaitingCount = Gauge(ETaskAggregateGauge::Waiting);
+				Out.CurrentQueuedCount = Gauge(ETaskAggregateGauge::Queued);
+				Out.CurrentRunningCount = Gauge(ETaskAggregateGauge::Running);
+				Out.CurrentNonterminalCount = Gauge(ETaskAggregateGauge::Nonterminal);
+				Out.CurrentCallableBytes = Gauge(ETaskAggregateGauge::CallableBytes);
+				Out.PeakCallableBytes = GaugePeak(ETaskAggregateGauge::CallableBytes);
+				Out.CurrentPayloadBytes = Gauge(ETaskAggregateGauge::PayloadBytes);
+				Out.PeakPayloadBytes = GaugePeak(ETaskAggregateGauge::PayloadBytes);
+				Out.CurrentResultBytes = Gauge(ETaskAggregateGauge::ResultBytes);
+				Out.PeakResultBytes = GaugePeak(ETaskAggregateGauge::ResultBytes);
+				Out.CurrentRetainedUniqueResultBytes = Gauge(ETaskAggregateGauge::RetainedUniqueResultBytes);
+				Out.PeakRetainedUniqueResultBytes = GaugePeak(ETaskAggregateGauge::RetainedUniqueResultBytes);
+				for (size_t Bucket = 0; Bucket < 32; ++Bucket)
+				{
+					Out.QueueResidencyHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::QueueResidency)][Bucket].load(std::memory_order::acquire);
+					Out.ExecutionHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::Execution)][Bucket].load(std::memory_order::acquire);
+					Out.CallableBytesHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::CallableBytes)][Bucket].load(std::memory_order::acquire);
+					Out.PayloadBytesHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::PayloadBytes)][Bucket].load(std::memory_order::acquire);
+					Out.ResultBytesHistogram[Bucket] = Histograms[AggregateIndex(ETaskAggregateHistogram::ResultBytes)][Bucket].load(std::memory_order::acquire);
+				}
+			}
+
+			std::array<std::atomic<uint64>, AggregateIndex(ETaskAggregateCounter::Count)> Counters{};
+			std::array<std::atomic<uint64>, AggregateIndex(ETaskAggregateGauge::Count)> Current{};
+			std::array<std::atomic<uint64>, AggregateIndex(ETaskAggregateGauge::Count)> Peak{};
+			std::array<std::array<std::atomic<uint64>, 32>, AggregateIndex(ETaskAggregateHistogram::Count)> Histograms{};
+		};
+
+		struct FTaskAccountingSnapshot
+		{
+			FTaskAttribution Attribution;
+			ETaskState State = ETaskState::Invalid;
+			ETaskState StateBeforeTerminal = ETaskState::Invalid;
+			ETaskTerminalReason TerminalReason = ETaskTerminalReason::None;
+			uint64 CallableBytes = 0;
+			uint64 PayloadBytes = 0;
+			uint64 ResultBytes = 0;
+			uint64 RetainedResultBytes = 0;
+			uint64 QueueResidencyNanoseconds = 0;
+			uint64 ExecutionNanoseconds = 0;
+		};
+
 		enum class ETaskSchedulerLifetime : uint8
 		{
 			Stopped,
@@ -48,6 +375,11 @@ namespace Durin
 			return State == ETaskState::Succeeded || State == ETaskState::Failed || State == ETaskState::Canceled;
 		}
 	} // namespace
+
+	auto RegisterTaskAttribution(std::string_view Owner, std::string_view Category) -> FTaskAttribution
+	{
+		return GTaskAttributionRegistry.Register(Owner, Category);
+	}
 
 	class FTaskCancellationState
 	{
@@ -92,6 +424,7 @@ namespace Durin
 			ETaskPriority InPriority,
 			uint64 InEstimatedPayloadBytes,
 			uint64 InEstimatedResultBytes,
+			FTaskAttribution InAttribution,
 			FTaskGenerationToken InGenerationToken,
 			std::optional<FTaskCoalescingKey> InCoalescingKey
 		)
@@ -111,6 +444,8 @@ namespace Durin
 			, Priority(InPriority)
 			, EstimatedPayloadBytes(InEstimatedPayloadBytes)
 			, EstimatedResultBytes(InEstimatedResultBytes)
+			, Attribution(InAttribution)
+			, CallableStorageBytes(PendingFunction ? PendingFunction->GetStorageBytes() : 0)
 			, GenerationToken(std::move(InGenerationToken))
 			, CoalescingKey(std::move(InCoalescingKey))
 			, EnqueueTimeNanoseconds(MonotonicNanoseconds())
@@ -254,45 +589,67 @@ namespace Durin
 
 		auto GetDiagnostics() const -> FTaskDiagnostics
 		{
-			std::lock_guard Lock(Mutex);
 			FTaskDiagnostics Snapshot;
-			Snapshot.TaskId = TaskId;
-			Snapshot.ParentTaskId = ParentTaskId;
-			Snapshot.PrerequisiteTaskIds = PrerequisiteTaskIds;
-			Snapshot.PrerequisiteDependencyKinds = PrerequisiteDependencyKinds;
-			Snapshot.DirectBlockingTaskId = DirectBlockingTaskId;
-			Snapshot.EnqueueTimeNanoseconds = EnqueueTimeNanoseconds;
-			Snapshot.DispatchTimeNanoseconds = DispatchTimeNanoseconds;
-			Snapshot.QueueResidencyNanoseconds = DispatchTimeNanoseconds == 0
-				? 0
-				: (StartTimeNanoseconds == 0 ? MonotonicNanoseconds() : StartTimeNanoseconds) - DispatchTimeNanoseconds;
-			Snapshot.StartTimeNanoseconds = StartTimeNanoseconds;
-			Snapshot.FinishTimeNanoseconds = FinishTimeNanoseconds;
-			Snapshot.ExecutingThreadId = ExecutingThreadId;
-			Snapshot.DebugName = DebugName;
-			Snapshot.ExecutingThreadName = ExecutingThreadName;
-			Snapshot.Diagnostic = Diagnostic;
-			Snapshot.State = State;
-			Snapshot.Target = Target;
-			Snapshot.Priority = Priority;
-			Snapshot.TerminalReason = TerminalReason;
-			Snapshot.EstimatedPayloadBytes = EstimatedPayloadBytes;
-			Snapshot.EstimatedResultBytes = EstimatedResultBytes;
-			Snapshot.RetainedResultBytes = RetainedResultBytes;
-			if (CoalescingKey)
 			{
-				Snapshot.CoalescingOwnerDomain = CoalescingKey->OwnerDomain;
-				Snapshot.CoalescingWorkId = CoalescingKey->WorkId;
-				Snapshot.CoalescingGeneration = CoalescingKey->Generation;
+				std::lock_guard Lock(Mutex);
+				Snapshot.TaskId = TaskId;
+				Snapshot.ParentTaskId = ParentTaskId;
+				Snapshot.PrerequisiteTaskIds = PrerequisiteTaskIds;
+				Snapshot.PrerequisiteDependencyKinds = PrerequisiteDependencyKinds;
+				Snapshot.DirectBlockingTaskId = DirectBlockingTaskId;
+				Snapshot.EnqueueTimeNanoseconds = EnqueueTimeNanoseconds;
+				Snapshot.DispatchTimeNanoseconds = DispatchTimeNanoseconds;
+				Snapshot.QueueResidencyNanoseconds = DispatchTimeNanoseconds == 0
+					? 0
+					: (StartTimeNanoseconds == 0 ? MonotonicNanoseconds() : StartTimeNanoseconds) - DispatchTimeNanoseconds;
+				Snapshot.StartTimeNanoseconds = StartTimeNanoseconds;
+				Snapshot.FinishTimeNanoseconds = FinishTimeNanoseconds;
+				Snapshot.ExecutionNanoseconds = StartTimeNanoseconds == 0
+					? 0
+					: (FinishTimeNanoseconds == 0 ? MonotonicNanoseconds() : FinishTimeNanoseconds) - StartTimeNanoseconds;
+				Snapshot.ExecutingThreadId = ExecutingThreadId;
+				Snapshot.DebugName = DebugName;
+				Snapshot.ExecutingThreadName = ExecutingThreadName;
+				Snapshot.Diagnostic = Diagnostic;
+				Snapshot.State = State;
+				Snapshot.Target = Target;
+				Snapshot.Priority = Priority;
+				Snapshot.TerminalReason = TerminalReason;
+				Snapshot.EstimatedPayloadBytes = EstimatedPayloadBytes;
+				Snapshot.EstimatedResultBytes = EstimatedResultBytes;
+				Snapshot.RetainedResultBytes = RetainedResultBytes;
+				Snapshot.CallableStorageBytes = CallableStorageBytes;
+				Snapshot.AttributionOwnerId = Private::FTaskAttributionAccess::GetOwnerId(Attribution);
+				Snapshot.AttributionCategoryId = Private::FTaskAttributionAccess::GetCategoryId(Attribution);
+				if (CoalescingKey)
+				{
+					Snapshot.CoalescingOwnerDomain = CoalescingKey->OwnerDomain;
+					Snapshot.CoalescingWorkId = CoalescingKey->WorkId;
+					Snapshot.CoalescingGeneration = CoalescingKey->Generation;
+				}
+				Snapshot.bHasResultStorage = bHasResultStorage;
 			}
-			Snapshot.bHasResultStorage = bHasResultStorage;
+			std::tie(Snapshot.AttributionOwner, Snapshot.AttributionCategory) = GTaskAttributionRegistry.Resolve(Attribution);
 			return Snapshot;
 		}
 
-		auto SetRetainedResultBytes(uint64 InRetainedResultBytes) -> void
+		auto SetRetainedResultBytes(uint64 InRetainedResultBytes) -> void;
+
+		auto GetAccountingSnapshot() const -> FTaskAccountingSnapshot
 		{
 			std::lock_guard Lock(Mutex);
-			RetainedResultBytes = InRetainedResultBytes;
+			return {
+				.Attribution = Attribution,
+				.State = State,
+				.StateBeforeTerminal = StateBeforeTerminal,
+				.TerminalReason = TerminalReason,
+				.CallableBytes = CallableStorageBytes,
+				.PayloadBytes = EstimatedPayloadBytes,
+				.ResultBytes = EstimatedResultBytes,
+				.RetainedResultBytes = RetainedResultBytes,
+				.QueueResidencyNanoseconds = DispatchTimeNanoseconds == 0 || StartTimeNanoseconds == 0 ? 0 : StartTimeNanoseconds - DispatchTimeNanoseconds,
+				.ExecutionNanoseconds = StartTimeNanoseconds == 0 || FinishTimeNanoseconds == 0 ? 0 : FinishTimeNanoseconds - StartTimeNanoseconds,
+			};
 		}
 
 		auto GetDebugName() const -> const char* { return DebugName.c_str(); }
@@ -301,6 +658,7 @@ namespace Durin
 		auto GetSharedCancellationState() const -> const std::shared_ptr<FTaskCancellationState>& { return SharedCancellationState; }
 		auto GetTarget() const -> ETaskTarget { return Target; }
 		auto GetPriority() const -> ETaskPriority { return Priority; }
+		auto GetAttribution() const -> FTaskAttribution { return Attribution; }
 		auto GetEstimatedPayloadBytes() const -> uint64 { return EstimatedPayloadBytes; }
 		auto GetGenerationToken() const -> const FTaskGenerationToken& { return GenerationToken; }
 		auto GetCoalescingKey() const -> const std::optional<FTaskCoalescingKey>& { return CoalescingKey; }
@@ -338,6 +696,8 @@ namespace Durin
 		uint64 EstimatedPayloadBytes = 0;
 		uint64 EstimatedResultBytes = 0;
 		uint64 RetainedResultBytes = 0;
+		FTaskAttribution Attribution;
+		uint64 CallableStorageBytes = 0;
 		FTaskGenerationToken GenerationToken;
 		std::optional<FTaskCoalescingKey> CoalescingKey;
 		bool bCancellationRequested = false;
@@ -376,6 +736,59 @@ namespace Durin
 			return Scheduler;
 		}
 
+		auto GetAggregate(FTaskAttribution Attribution) -> FTaskOwnerCategoryAggregate&
+		{
+			const uint16 CategoryId = Private::FTaskAttributionAccess::GetCategoryId(Attribution);
+			return OwnerCategoryAggregates[CategoryId < MaxTaskAttributionPairs ? CategoryId : OverflowAttributionId];
+		}
+
+		auto RecordAcceptedTask(const FTaskAccountingSnapshot& Task) -> void
+		{
+			FTaskOwnerCategoryAggregate& Aggregate = GetAggregate(Task.Attribution);
+			Aggregate.Increment(ETaskAggregateCounter::Accepted);
+			Aggregate.Add(ETaskAggregateGauge::Nonterminal, 1);
+			Aggregate.Add(Task.State == ETaskState::Waiting ? ETaskAggregateGauge::Waiting : ETaskAggregateGauge::Queued, 1);
+			Aggregate.Add(ETaskAggregateGauge::CallableBytes, Task.CallableBytes);
+			Aggregate.Add(ETaskAggregateGauge::PayloadBytes, Task.PayloadBytes);
+			Aggregate.Add(ETaskAggregateGauge::ResultBytes, Task.ResultBytes);
+			Aggregate.Record(ETaskAggregateHistogram::CallableBytes, Task.CallableBytes);
+			Aggregate.Record(ETaskAggregateHistogram::PayloadBytes, Task.PayloadBytes);
+			Aggregate.Record(ETaskAggregateHistogram::ResultBytes, Task.ResultBytes);
+		}
+
+		auto OnTaskQueued(FTaskAttribution Attribution) -> void
+		{
+			FTaskOwnerCategoryAggregate& Aggregate = GetAggregate(Attribution);
+			Aggregate.Subtract(ETaskAggregateGauge::Waiting, 1);
+			Aggregate.Add(ETaskAggregateGauge::Queued, 1);
+		}
+
+		auto OnTaskStarted(const FTaskAccountingSnapshot& Task) -> void
+		{
+			FTaskOwnerCategoryAggregate& Aggregate = GetAggregate(Task.Attribution);
+			Aggregate.Subtract(ETaskAggregateGauge::Queued, 1);
+			Aggregate.Add(ETaskAggregateGauge::Running, 1);
+			Aggregate.Record(ETaskAggregateHistogram::QueueResidency, Task.QueueResidencyNanoseconds);
+		}
+
+		auto OnRetainedResultBytesChanged(FTaskAttribution Attribution, uint64 PreviousBytes, uint64 CurrentBytes) -> void
+		{
+			FTaskOwnerCategoryAggregate& Aggregate = GetAggregate(Attribution);
+			if (CurrentBytes > PreviousBytes)
+			{
+				Aggregate.Add(ETaskAggregateGauge::RetainedUniqueResultBytes, CurrentBytes - PreviousBytes);
+			}
+			else
+			{
+				Aggregate.Subtract(ETaskAggregateGauge::RetainedUniqueResultBytes, PreviousBytes - CurrentBytes);
+			}
+		}
+
+		auto RecordParallelForOperation(FTaskAttribution Attribution) -> void
+		{
+			GetAggregate(Attribution).Increment(ETaskAggregateCounter::ParallelForOperation);
+		}
+
 		auto Submit(
 			const char* Name,
 			std::unique_ptr<Private::FMoveOnlyTaskFunction>& FunctionOwner,
@@ -396,7 +809,7 @@ namespace Durin
 				std::lock_guard Lock(Mutex);
 				if (!bAcceptingTasks)
 				{
-					RejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
+					RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
 					return {};
 				}
 
@@ -404,7 +817,7 @@ namespace Durin
 				{
 					if (!Prerequisite.State || Prerequisite.State->PinScheduler().get() != this)
 					{
-						RejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
+						RecordRejectedTask(Options.Attribution, FunctionOwner ? FunctionOwner->GetStorageBytes() : 0);
 						return {};
 					}
 					PrerequisiteStates.emplace_back(Prerequisite.State);
@@ -424,12 +837,19 @@ namespace Durin
 					Priority,
 					EstimatedPayloadBytes,
 					EstimatedResultBytes,
+					Options.Attribution,
 					std::move(GenerationToken),
 					std::move(CoalescingKey)
 				);
 				ActiveTasks.emplace(State->GetTaskId(), State);
 				AllTasks.emplace(State->GetTaskId(), State);
 			}
+			RecordAcceptedTask(State->GetAccountingSnapshot());
+			Profiling::TaskEnqueued(
+				State->GetTaskId(),
+				Private::FTaskAttributionAccess::GetOwnerId(State->GetAttribution()),
+				Private::FTaskAttributionAccess::GetCategoryId(State->GetAttribution()),
+				static_cast<uint8>(State->GetTarget()));
 
 			if (const std::shared_ptr<FTaskCancellationState>& CancellationState = State->GetSharedCancellationState())
 			{
@@ -466,7 +886,7 @@ namespace Durin
 			{
 				if (!DispatchGameThreadDeferredTask(State, std::move(Function)))
 				{
-					RecordRejectedTask();
+					RecordRejectedTask(State->GetAttribution());
 					State->RequestCancellation("GameThread deferred executor rejected task dispatch.", ETaskTerminalReason::DispatchRejected);
 				}
 				return;
@@ -484,6 +904,7 @@ namespace Durin
 
 			if (!bAccepted)
 			{
+				RecordRejectedTask(State->GetAttribution());
 				State->RequestCancellation("Task could not be queued because scheduler shutdown had begun.", ETaskTerminalReason::DispatchRejected);
 			}
 		}
@@ -497,7 +918,14 @@ namespace Durin
 			{
 				return;
 			}
+			OnTaskStarted(State->GetAccountingSnapshot());
 			if (bWorkerExecution) OnWorkerStarted();
+			DURIN_PROFILE_TASK_EXECUTION_ZONE(
+				State->GetDebugName(),
+				State->GetTaskId(),
+				Private::FTaskAttributionAccess::GetOwnerId(State->GetAttribution()),
+				Private::FTaskAttributionAccess::GetCategoryId(State->GetAttribution()),
+				static_cast<uint8>(State->GetTarget()));
 
 			FTaskStateData* PreviousTaskState = GCurrentTaskState;
 			FTaskScheduler* PreviousTaskScheduler = GCurrentTaskScheduler;
@@ -588,17 +1016,52 @@ namespace Durin
 			}
 		}
 
-		auto OnTaskTerminal(uint64 TaskId, ETaskState TerminalState) -> void
+		auto OnTaskTerminal(const std::shared_ptr<FTaskStateData>& State) -> void
 		{
+			const FTaskAccountingSnapshot Task = State->GetAccountingSnapshot();
+			FTaskOwnerCategoryAggregate& Aggregate = GetAggregate(Task.Attribution);
+			Aggregate.Subtract(ETaskAggregateGauge::Nonterminal, 1);
+			if (Task.StateBeforeTerminal == ETaskState::Waiting) Aggregate.Subtract(ETaskAggregateGauge::Waiting, 1);
+			else if (Task.StateBeforeTerminal == ETaskState::Queued) Aggregate.Subtract(ETaskAggregateGauge::Queued, 1);
+			else if (Task.StateBeforeTerminal == ETaskState::Running) Aggregate.Subtract(ETaskAggregateGauge::Running, 1);
+			Aggregate.Subtract(ETaskAggregateGauge::CallableBytes, Task.CallableBytes);
+			Aggregate.Subtract(ETaskAggregateGauge::PayloadBytes, Task.PayloadBytes);
+			Aggregate.Subtract(ETaskAggregateGauge::ResultBytes, Task.ResultBytes);
+			if (Task.State == ETaskState::Succeeded) Aggregate.Increment(ETaskAggregateCounter::Succeeded);
+			else if (Task.State == ETaskState::Failed) Aggregate.Increment(ETaskAggregateCounter::Failed);
+			else Aggregate.Increment(ETaskAggregateCounter::Canceled);
+			switch (Task.TerminalReason)
+			{
+			case ETaskTerminalReason::DependencyFailed: Aggregate.Increment(ETaskAggregateCounter::DependencyFailed); break;
+			case ETaskTerminalReason::DependencyCanceled: Aggregate.Increment(ETaskAggregateCounter::DependencyCanceled); break;
+			case ETaskTerminalReason::CancellationRequested: Aggregate.Increment(ETaskAggregateCounter::CancellationRequested); break;
+			case ETaskTerminalReason::DispatchRejected: Aggregate.Increment(ETaskAggregateCounter::DispatchRejected); break;
+			case ETaskTerminalReason::Superseded: Aggregate.Increment(ETaskAggregateCounter::Superseded); break;
+			case ETaskTerminalReason::StaleGeneration: Aggregate.Increment(ETaskAggregateCounter::StaleGeneration); break;
+			case ETaskTerminalReason::CallbackFailure: Aggregate.Increment(ETaskAggregateCounter::CallbackFailure); break;
+			case ETaskTerminalReason::ShutdownCanceled: Aggregate.Increment(ETaskAggregateCounter::ShutdownCanceled); break;
+			default: break;
+			}
+			if (Task.StateBeforeTerminal == ETaskState::Running)
+			{
+				Aggregate.Record(ETaskAggregateHistogram::Execution, Task.ExecutionNanoseconds);
+			}
+			Profiling::TaskTerminal(
+				State->GetTaskId(),
+				Private::FTaskAttributionAccess::GetOwnerId(Task.Attribution),
+				Private::FTaskAttributionAccess::GetCategoryId(Task.Attribution),
+				static_cast<uint8>(State->GetTarget()),
+				static_cast<uint8>(Task.TerminalReason));
+
 			std::lock_guard Lock(Mutex);
-			const size_t RemovedTaskCount = ActiveTasks.erase(TaskId);
+			const size_t RemovedTaskCount = ActiveTasks.erase(State->GetTaskId());
 			check(RemovedTaskCount == 1);
 			CompletedTaskCount.fetch_add(1, std::memory_order::acq_rel);
-			if (TerminalState == ETaskState::Failed)
+			if (Task.State == ETaskState::Failed)
 			{
 				FailedTaskCount.fetch_add(1, std::memory_order::acq_rel);
 			}
-			else if (TerminalState == ETaskState::Canceled)
+			else if (Task.State == ETaskState::Canceled)
 			{
 				CanceledTaskCount.fetch_add(1, std::memory_order::acq_rel);
 			}
@@ -627,9 +1090,12 @@ namespace Durin
 			LongWaitCount.fetch_add(1, std::memory_order::acq_rel);
 		}
 
-		auto RecordRejectedTask() -> void
+		auto RecordRejectedTask(FTaskAttribution Attribution = {}, std::optional<uint64> CallableBytes = {}) -> void
 		{
 			RejectedTaskCount.fetch_add(1, std::memory_order::acq_rel);
+			FTaskOwnerCategoryAggregate& Aggregate = GetAggregate(Attribution);
+			Aggregate.Increment(ETaskAggregateCounter::Rejected);
+			if (CallableBytes) Aggregate.Record(ETaskAggregateHistogram::CallableBytes, *CallableBytes);
 		}
 
 		auto RecordDuplicateUniqueConsumerClaim() -> void
@@ -671,6 +1137,23 @@ namespace Durin
 			Snapshot.RejectedTaskCount = RejectedTaskCount.load(std::memory_order::acquire);
 			Snapshot.LongWaitCount = LongWaitCount.load(std::memory_order::acquire);
 			Snapshot.DuplicateUniqueConsumerClaimCount = DuplicateUniqueConsumerClaimCount.load(std::memory_order::acquire);
+			Snapshot.AttributionRegistrationOverflowCount = GTaskAttributionRegistry.GetOverflowCount();
+			Snapshot.OwnerCategoryDiagnostics = GTaskAttributionRegistry.Snapshot();
+			for (FTaskOwnerCategoryDiagnostics& Entry : Snapshot.OwnerCategoryDiagnostics)
+			{
+				OwnerCategoryAggregates[Entry.CategoryId].Snapshot(Entry);
+				Snapshot.RetainedUniqueResultBytes += Entry.CurrentRetainedUniqueResultBytes;
+				Profiling::TaskAggregatePlots(
+					Entry.OwnerId,
+					Entry.CategoryId,
+					Entry.CurrentWaitingCount + Entry.CurrentQueuedCount,
+					Entry.CurrentRunningCount,
+					Entry.RejectedCount,
+					Entry.CurrentCallableBytes,
+					Entry.CurrentPayloadBytes,
+					Entry.CurrentResultBytes,
+					Entry.CurrentRetainedUniqueResultBytes);
+			}
 			Snapshot.bRunning = bInRunning;
 
 			std::lock_guard Lock(Mutex);
@@ -697,7 +1180,6 @@ namespace Durin
 							++Snapshot.RetainedTerminalResultCount;
 						}
 					}
-					Snapshot.RetainedUniqueResultBytes += Task->GetDiagnostics().RetainedResultBytes;
 					++Iterator;
 				}
 				else
@@ -714,6 +1196,7 @@ namespace Durin
 		std::condition_variable QuiescenceCV;
 		std::unordered_map<uint64, std::shared_ptr<FTaskStateData>> ActiveTasks;
 		std::unordered_map<uint64, std::weak_ptr<FTaskStateData>> AllTasks;
+		std::array<FTaskOwnerCategoryAggregate, MaxTaskAttributionPairs> OwnerCategoryAggregates{};
 		std::atomic<uint32> ActiveWorkerCount = 0;
 		std::atomic<uint64> CompletedTaskCount = 0;
 		std::atomic<uint64> FailedTaskCount = 0;
@@ -729,6 +1212,20 @@ namespace Durin
 		uint32 WorkerCount = 0;
 		bool bAcceptingTasks = false;
 	};
+
+	auto FTaskStateData::SetRetainedResultBytes(uint64 InRetainedResultBytes) -> void
+	{
+		uint64 PreviousRetainedResultBytes = 0;
+		{
+			std::lock_guard Lock(Mutex);
+			PreviousRetainedResultBytes = RetainedResultBytes;
+			RetainedResultBytes = InRetainedResultBytes;
+		}
+		if (std::shared_ptr<FTaskScheduler> PinnedScheduler = Scheduler.lock())
+		{
+			PinnedScheduler->OnRetainedResultBytesChanged(Attribution, PreviousRetainedResultBytes, InRetainedResultBytes);
+		}
+	}
 
 	class FGameThreadDeferredWorkQueue final : public std::enable_shared_from_this<FGameThreadDeferredWorkQueue>
 	{
@@ -1129,19 +1626,19 @@ namespace Durin
 
 	auto FTaskStateData::FinishTerminalPublication(ETaskState TerminalState, std::vector<std::shared_ptr<FTaskStateData>>&& Dependents) -> void
 	{
-		{
-			std::lock_guard Lock(Mutex);
-			bTerminalPublicationFinished = true;
-		}
-		CV.notify_all();
 		if (SharedCancellationState)
 		{
 			SharedCancellationState->UnregisterTask(TaskId);
 		}
 		if (std::shared_ptr<FTaskScheduler> PinnedScheduler = Scheduler.lock())
 		{
-			PinnedScheduler->OnTaskTerminal(TaskId, TerminalState);
+			PinnedScheduler->OnTaskTerminal(shared_from_this());
 		}
+		{
+			std::lock_guard Lock(Mutex);
+			bTerminalPublicationFinished = true;
+		}
+		CV.notify_all();
 		for (const std::shared_ptr<FTaskStateData>& Dependent : Dependents)
 		{
 			Dependent->OnPrerequisiteTerminal(TerminalState, TaskId);
@@ -1201,6 +1698,7 @@ namespace Durin
 			{
 				if (std::shared_ptr<FTaskScheduler> PinnedScheduler = Scheduler.lock())
 				{
+					PinnedScheduler->OnTaskQueued(Attribution);
 					PinnedScheduler->QueueTask(shared_from_this());
 				}
 				else
@@ -1242,6 +1740,7 @@ namespace Durin
 		{
 			if (std::shared_ptr<FTaskScheduler> PinnedScheduler = Scheduler.lock())
 			{
+				PinnedScheduler->OnTaskQueued(Attribution);
 				PinnedScheduler->QueueTask(shared_from_this());
 			}
 			else
@@ -1738,17 +2237,34 @@ namespace Durin
 		{
 			return GTaskScheduler->GetDiagnostics(GTaskSchedulerLifetime == ETaskSchedulerLifetime::Running);
 		}
-		return GLastTaskSchedulerDiagnostics;
+		FTaskSchedulerDiagnostics Snapshot = GLastTaskSchedulerDiagnostics;
+		Snapshot.AttributionRegistrationOverflowCount = GTaskAttributionRegistry.GetOverflowCount();
+		std::vector<FTaskOwnerCategoryDiagnostics> RegisteredPairs = GTaskAttributionRegistry.Snapshot();
+		for (const FTaskOwnerCategoryDiagnostics& Existing : Snapshot.OwnerCategoryDiagnostics)
+		{
+			if (Existing.CategoryId < RegisteredPairs.size()
+				&& RegisteredPairs[Existing.CategoryId].OwnerId == Existing.OwnerId)
+			{
+				RegisteredPairs[Existing.CategoryId] = Existing;
+			}
+		}
+		Snapshot.OwnerCategoryDiagnostics = std::move(RegisteredPairs);
+		return Snapshot;
 	}
 
 	auto LaunchTask(const char* Name, FTaskFunction&& Function, const FTaskLaunchOptions& Options) -> FTaskHandle
 	{
 		if (!Function)
 		{
+			FTaskAttribution Attribution = Options.Attribution;
+			if (Private::FTaskAttributionAccess::IsDefault(Attribution) && GCurrentTaskState && GCurrentTaskScheduler)
+			{
+				Attribution = GCurrentTaskState->GetAttribution();
+			}
 			std::lock_guard Lock(GTaskSchedulerMutex);
 			if (GTaskScheduler)
 			{
-				GTaskScheduler->RecordRejectedTask();
+				GTaskScheduler->RecordRejectedTask(Attribution, 0);
 			}
 			DURIN_WARN("Task launch failed because the task function is empty. (task: {})", Name ? Name : "");
 			return {};
@@ -1780,12 +2296,17 @@ namespace Durin
 			const FTaskLaunchOptions& Options,
 			uint64 EstimatedResultBytes) -> FTaskHandle
 		{
+			FTaskLaunchOptions ResolvedOptions = Options;
+			if (FTaskAttributionAccess::IsDefault(ResolvedOptions.Attribution) && GCurrentTaskState && GCurrentTaskScheduler)
+			{
+				ResolvedOptions.Attribution = GCurrentTaskState->GetAttribution();
+			}
 			if (!Function)
 			{
 				std::lock_guard Lock(GTaskSchedulerMutex);
 				if (GTaskScheduler)
 				{
-					GTaskScheduler->RecordRejectedTask();
+					GTaskScheduler->RecordRejectedTask(ResolvedOptions.Attribution, 0);
 				}
 				DURIN_WARN("Task launch failed because the task function is empty. (task: {})", Name ? Name : "");
 				return {};
@@ -1797,7 +2318,7 @@ namespace Durin
 			{
 				if (GTaskScheduler)
 				{
-					GTaskScheduler->RecordRejectedTask();
+					GTaskScheduler->RecordRejectedTask(ResolvedOptions.Attribution, FunctionOwner->GetStorageBytes());
 				}
 				DURIN_WARN("Task launch failed because the task scheduler is not running. (task: {})", Name ? Name : "");
 				return {};
@@ -1807,7 +2328,7 @@ namespace Durin
 				Name,
 				FunctionOwner,
 				std::move(CompletionFunction),
-				Options,
+				ResolvedOptions,
 				ETaskDependencyKind::Success,
 				false,
 				ETaskTarget::AnyWorker,
@@ -1832,10 +2353,13 @@ namespace Durin
 			ETaskDependencyKind DependencyKind,
 			uint64 EstimatedResultBytes) -> FTaskHandle
 		{
+			FTaskAttribution ResolvedAttribution = FTaskAttributionAccess::IsDefault(Options.Attribution) && Predecessor.State
+				? Predecessor.State->GetAttribution()
+				: Options.Attribution;
 			if (!Function)
 			{
 				std::lock_guard Lock(GTaskSchedulerMutex);
-				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask();
+				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(ResolvedAttribution, 0);
 				return {};
 			}
 			auto FunctionOwner = std::make_unique<FMoveOnlyTaskFunction>(std::move(Function));
@@ -1855,11 +2379,12 @@ namespace Durin
 			FTaskLaunchOptions LaunchOptions;
 			LaunchOptions.Prerequisites = Prerequisites;
 			LaunchOptions.CancellationToken = Options.CancellationToken;
+			LaunchOptions.Attribution = ResolvedAttribution;
 
 			std::lock_guard Lock(GTaskSchedulerMutex);
 			if (GTaskSchedulerLifetime != ETaskSchedulerLifetime::Running)
 			{
-				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask();
+				if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(ResolvedAttribution, FunctionOwner->GetStorageBytes());
 				return {};
 			}
 			std::shared_ptr<FTaskStateData> State = GTaskScheduler->Submit(
@@ -1897,10 +2422,10 @@ namespace Durin
 			DURIN_WARN("Unique task consumer registration failed because the result already has a consuming continuation.");
 		}
 
-		auto RecordRejectedUniqueTask(const char* Name, const char* Diagnostic) -> void
+		auto RecordRejectedUniqueTask(const char* Name, const char* Diagnostic, FTaskAttribution Attribution) -> void
 		{
 			std::lock_guard Lock(GTaskSchedulerMutex);
-			if (GTaskScheduler) GTaskScheduler->RecordRejectedTask();
+			if (GTaskScheduler) GTaskScheduler->RecordRejectedTask(Attribution, 0);
 			DURIN_WARN("{} (task: {})", Diagnostic ? Diagnostic : "Unique task registration failed.", Name ? Name : "");
 		}
 	} // namespace Private
@@ -2045,6 +2570,18 @@ namespace Durin
 		{
 			return {ETaskState::Canceled, "ParallelFor cancellation was requested before execution.", 0};
 		}
+		FTaskAttribution SelectedAttribution = Options.Attribution;
+		if (Private::FTaskAttributionAccess::IsDefault(SelectedAttribution) && GCurrentTaskState && GCurrentTaskScheduler)
+		{
+			SelectedAttribution = GCurrentTaskState->GetAttribution();
+		}
+		{
+			std::lock_guard Lock(GTaskSchedulerMutex);
+			if (GTaskSchedulerLifetime == ETaskSchedulerLifetime::Running && GTaskScheduler)
+			{
+				GTaskScheduler->RecordParallelForOperation(SelectedAttribution);
+			}
+		}
 
 		struct FParallelForDepthScope
 		{
@@ -2133,6 +2670,7 @@ namespace Durin
 		WorkerTasks.reserve(EffectiveChunkCount - 1);
 		FTaskLaunchOptions LaunchOptions;
 		LaunchOptions.CancellationToken = SharedState->CancellationSource.GetToken();
+		LaunchOptions.Attribution = SelectedAttribution;
 		bool bLaunchFailed = false;
 		for (uint32 ChunkIndex = 1; ChunkIndex < EffectiveChunkCount; ++ChunkIndex)
 		{

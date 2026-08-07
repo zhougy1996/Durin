@@ -20,11 +20,19 @@ shutdown. The Asset Compatibility Audit remains the shared-result production
 pilot; AsyncImportCore is the unique-result pilot and retains its
 owner/provider mailbox policy.
 
-M3 owner diagnostics satisfies its M1 entry gate but remains unactivated until
-selected as bounded repository work. M2 has opened the composition side of M4;
-M4 remains gated by M3 attribution and two production owners with explicit
-shutdown boundaries. Later milestones retain their named attribution,
-production-owner, and measurement evidence gates.
+M3 [Task Owner Diagnostics](../Plans/TaskOwnerDiagnostics.md) is complete.
+Tasks now carry bounded owner/category identity, per-task callable and execution
+costs, fixed-cardinality aggregate outcomes and distributions, and profiler
+correlation. `AssetImport` and `SourceImageThumbnail` are independent production
+owners with explicit admission/result shutdown boundaries, so M4
+[Structured Task Scopes](../Plans/StructuredTaskScopes.md) is active at Stage 0.
+
+M5 remains deferred. The M3 normal and saturated captures prove attribution and
+bounded CPU-task costs, but they do not show material Worker occupancy caused by
+blocking file operations in a named owner/category, nor document platform
+cancellation limits for such an operation. Source-image decode includes file
+access but the current evidence does not separate blocking occupancy from CPU
+decode time. No `BoundedIOTaskExecutor` plan is opened.
 
 ## Outcome
 
@@ -130,12 +138,12 @@ completion.
 
 | Area | Existing foundation | Roadmap gap |
 | --- | --- | --- |
-| Callable ownership | Legacy aliases remain while forwarding launches and continuations erase one move-only callable through both executors. | Attribute retained callable storage to owners in M3. |
+| Callable ownership | Legacy aliases remain while forwarding launches and continuations erase one move-only callable through both executors; M3 attributes retained callable storage. | Structured owner close and quiescence remain M4. |
 | Shared and unique results | `TTaskHandle<T>` supports immutable fan-out and heterogeneous typed fan-in; `TUniqueTaskHandle<T>` admits exactly one consuming sink with declared retained bytes. | Multi-stage unique production remains deferred. |
-| Composition | `Then`, `ThenOutcome`, `WhenAll`, `WhenAllOutcome`, and additional prerequisites compose graph nodes. | Structured ownership remains gated by M3 attribution and production shutdown boundaries. |
+| Composition | `Then`, `ThenOutcome`, `WhenAll`, `WhenAllOutcome`, and additional prerequisites compose graph nodes; the M4 entry gate is satisfied. | Add explicit scope association and descendant quiescence without changing graph semantics. |
 | Owner lifetime | Cancellation sources, generations, handles, and subsystem shutdown code exist. | Add a structured owner scope with explicit admission and quiescence. |
-| Diagnostics | Per-task relationships/timing plus Worker and GameThread queue counters exist. | Attribute work to owners and expose bounded aggregate latency, execution, and budget distributions. |
-| IO work | File-backed editor tasks run on general Workers. | Measure blocking occupancy before deciding whether a dedicated bounded executor is warranted. |
+| Diagnostics | Per-task relationships/timing, bounded owner/category aggregates, and Tracy task-id correlation are complete. | Structured scope admission and quiescence diagnostics remain M4. |
+| IO work | File-backed editor tasks run on general Workers; M3 evidence does not isolate material blocking occupancy. | M5 stays deferred until a named caller supplies blocking-occupancy and cancellation-limit evidence. |
 | Serialization | Owners can enforce order with prerequisites or custom queues. | Consider a reusable Worker-backed lane only after multiple production callers need the same contract. |
 
 ## Milestone Map
@@ -156,9 +164,9 @@ flowchart LR
 | Foundation: Typed continuations | Complete prerequisite | [Task Continuations and Thread Dispatch](../Plans/TaskContinuationsAndThreadDispatch.md) | Existing bounded Worker scheduler and subsystem mailbox contracts. | Shared typed results, continuations, GameThread deferred routing, cross-executor shutdown, pilot, and lasting documentation are complete. |
 | M1: Move ownership | Required; completed | [Move-Only Tasks and Consuming Results](../Plans/MoveOnlyTasksAndConsumingResults.md) | Foundation complete; concrete AsyncImportCore and thumbnail ownership gaps identified. | Move-only callables and one-consumer result sinks passed Core/lifecycle validation; AsyncImportCore adopted the sink without removing domain policy. |
 | M2: Typed fan-in | Required; completed | [Typed Task Fan-In](../Plans/TypedTaskFanIn.md) | M1 ownership modes and terminal rules are stable. | Shared typed `WhenAll`/aggregate outcome composition is deterministic across success, failure, cancellation, fan-in, and destruction. |
-| M3: Owner diagnostics | Required | `TaskOwnerDiagnostics` | M1 can attribute retained callable/result storage and existing queue timing is stable. | Tasks carry bounded owner/category identity and aggregate latency, execution, rejection, stale, and budget metrics can be correlated in profiler flows. |
-| M4: Structured task scopes | Required | `StructuredTaskScopes` | M2 composition and M3 owner attribution are complete; two subsystem owners have explicit shutdown boundaries. | Scopes close admission, cancel or drain descendants, report nonterminal work, and quiesce explicitly without destructor blocking or scheduler-lifetime ownership. |
-| M5: IO executor | Evidence-gated | `BoundedIOTaskExecutor` | M3 shows material Worker occupancy from blocking file operations in a named caller and platform cancellation limits are documented. | A bounded IO target improves the selected workload without starving CPU tasks and passes drain/cancel/shutdown validation. |
+| M3: Owner diagnostics | Required; completed | [Task Owner Diagnostics](../Plans/TaskOwnerDiagnostics.md) | M1 can attribute retained callable/result storage and existing queue timing is stable. | Bounded attribution, aggregate distributions, production pilots, Tracy correlation, qualification, and lifecycle validation passed. |
+| M4: Structured task scopes | Required; active | [Structured Task Scopes](../Plans/StructuredTaskScopes.md) | M2 and M3 are complete; `AssetImport` and `SourceImageThumbnail` have explicit, independently verified shutdown boundaries. | Scopes close admission, cancel or drain descendants, report nonterminal work, and quiesce explicitly without destructor blocking or scheduler-lifetime ownership. |
+| M5: IO executor | Evidence-gated; deferred | `BoundedIOTaskExecutor` | Not met: M3 does not show material named blocking occupancy or document platform cancellation limits. | A bounded IO target improves the selected workload without starving CPU tasks and passes drain/cancel/shutdown validation. |
 | M6: Serialized lanes | Conditional | `SerializedTaskLanes` | At least two production owners need ordered non-affine work after M4 and cannot express it cleanly with a scope plus prerequisites. | Worker-backed lanes provide bounded FIFO execution, owner shutdown, reentrancy protection, and no thread-per-lane growth. |
 
 M1 through M4 define the required roadmap. M5 and M6 do not block completion
