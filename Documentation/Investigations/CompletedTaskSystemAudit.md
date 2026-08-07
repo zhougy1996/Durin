@@ -1,7 +1,9 @@
 # Completed CPU Task System Audit
 
-**Status:** Open; resolve before broad task-system adoption
+**Status:** Planned; resolve before broad task-system adoption
 **Last reviewed:** 2026-08-08
+
+**Resolution plan:** [Task System Audit Remediation](../Plans/TaskSystemAuditRemediation.md)
 
 ## Scope And Verdict
 

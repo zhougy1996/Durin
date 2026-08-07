@@ -10,7 +10,13 @@ Completed:
 ## Current Status
 
 Stage 0 is complete from the M3 completion baseline `97e046e9`; Stage 1 is
-active. The frozen contract uses a move-only `FTaskScope` controller and a
+paused behind [Task System Audit Remediation](TaskSystemAuditRemediation.md).
+That prerequisite repairs scheduler-wide admission bounds, terminal lifetime
+accounting, the publication barrier, and diagnostic locking in the same Core
+working set. The frozen contract remains valid and implementation resumes from
+its recorded handoff after the remediation plan passes.
+
+The frozen contract uses a move-only `FTaskScope` controller and a
 copyable `FTaskScopeToken`, appends explicit scope selection to existing option
 types, forbids scoped descendants from silently changing owner scopes, and
 balances each accepted node at `FTaskScheduler::Submit` and the end of
@@ -379,7 +385,8 @@ the Task Owner Diagnostics handoff.
 
 ### Stage 1: Add bounded scope admission and inheritance
 
-Dependencies: Stage 0 frozen contract.
+Dependencies: Stage 0 frozen contract; completed
+[Task System Audit Remediation](TaskSystemAuditRemediation.md).
 
 - [ ] Implement scope state and public handles/options without changing default
   behavior for unscoped callers.
