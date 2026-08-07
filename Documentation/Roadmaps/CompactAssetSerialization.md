@@ -14,10 +14,13 @@ Completed:
   prerequisite is complete: all 38 production reflected classes have explicit
   disposition, all 25 eligible classes own deterministic immutable defaults,
   template construction is publication-free, and GC/module teardown is explicit.
-  The v4 measurement and wire-contract milestone now satisfies its entry gate
-  and is ready for a bounded child plan; no DAST v4 implementation is active yet.
-  AssetCore still reads and writes only DAST v3, and the repository baseline gate
-  rejects every other package format or incompatible schema.
+  Its exit gate activated the bounded
+  [DAST V4 Measurement and Wire Contract Plan](../Plans/DASTV4MeasurementAndWireContract.md)
+  on 2026-08-08. That child owns recursive v3 accounting, the exact v4 byte
+  contract, golden primitives, and a test-only feasibility codec; it does not
+  add a production v4 reader or writer. AssetCore still reads and writes only
+  DAST v3, and the repository baseline gate rejects every other package format
+  or incompatible schema.
 - The completed [Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
   owns DAST v3's bounded registry-entry kind and redirect-destination header
   summary. Compact serialization therefore starts at v4 and uses a temporary
@@ -179,7 +182,7 @@ compression.
 | Reflected struct operations | External prerequisite | None | Declarative lifecycle, equality, reference, and serialization semantics are fail-closed; every current authored struct is audited and the full build passes | Completed 2026-08-05 |
 | Unified Archive serialization | Required prerequisite plan | Reflected struct operations complete | One live `Serialize` entry, purpose-specific Archives, exact DAST v3 adapters, and shared construct-free field codecs pass focused, full-build, and editor qualification | Completed 2026-08-07 |
 | Class default object lifecycle | Required prerequisite plan | Struct-operations and unified-Archive prerequisites complete; program explicitly scheduled | Every eligible concrete reflected class has one immutable deterministic default object; template construction is free of runtime publication, GC/shutdown ownership is explicit, and constructor/default parity passes full qualification | Completed 2026-08-08 |
-| V4 measurement and wire contract | Required child plan | Class-default-object lifecycle exit gate passed | Recursive v3 accounting, a frozen bounded v4 byte contract, golden primitives, and a test-only feasibility fixture demonstrate the size target without a production reader or writer | Ready to activate |
+| [V4 measurement and wire contract](../Plans/DASTV4MeasurementAndWireContract.md) | Required child plan | Class-default-object lifecycle exit gate passed | Recursive v3 accounting, a frozen bounded v4 byte contract, golden primitives, and a test-only feasibility fixture demonstrate the size target without a production reader or writer | Active 2026-08-08 |
 | Default-relative reflection | Required child plan | V4 default/override semantics frozen and measurement/wire-contract exit gate passed | Class defaults and safe struct defaults drive recursive logical equivalence, forced-override provenance, and no-delta policy under focused lifecycle tests | Proposed, deferred |
 | Deterministic v4 writer | Required child plan | Default-relative reflection exit gate passed | Discovery freezes every referenced table entry and version; canonical emission is byte-deterministic and meets both Default Material size gates | Proposed, deferred |
 | V4 reader and compatibility | Required child plan | Writer fixtures and frozen schema model available | Bounded v4 loading and construct-free inspection preserve unknown descriptor closures and pass malformed-input, rollback, and compatibility parity suites | Proposed, deferred |
@@ -227,7 +230,7 @@ separation, global object-query filtering, GC retention, and deterministic
 shutdown before owning modules unload. It does not define DAST v4 bytes, struct
 default-relative encoding, override provenance, or package migration.
 
-### V4 Measurement and Wire Contract
+### [V4 Measurement and Wire Contract](../Plans/DASTV4MeasurementAndWireContract.md)
 
 Will own byte-accounting fixtures, section kinds, opcodes, bounds, canonical
 ordering, intrinsic logical layouts, default/forced-override wire semantics,
@@ -307,6 +310,7 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 ## Related Documentation
 
+- [DAST V4 Measurement and Wire Contract Plan](../Plans/DASTV4MeasurementAndWireContract.md)
 - [Class Default Object Lifecycle Plan](../Plans/ClassDefaultObjectLifecycle.md)
 - [Unified Archive Serialization Plan](../Plans/Archive/2026-08/UnifiedArchiveSerialization.md)
 - [Reflected Struct Operations Plan](../Plans/Archive/2026-08/ReflectedStructOperations.md)
