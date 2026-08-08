@@ -46,6 +46,13 @@ with lasting contracts recorded in
 [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md) and
 [Material System](../Runtime/Rendering/MaterialSystem.md).
 
+M3 is active through the
+[Per-View Visibility and LOD Plan](../Plans/PerViewVisibilityAndLOD.md). It
+intentionally begins by moving scene and StaticMesh preparation ahead of the
+first render pass, then adds centralized conservative primitive visibility,
+explicit StaticMesh LOD policy data, selected-LOD prepared work, deterministic
+state grouping, and per-view conservation counters.
+
 The [Skeletal Mesh and Animation Roadmap](SkeletalMeshAndAnimation.md) owns the
 asset, source-ingestion, pose, playback, and product prerequisites for the
 default M4 SkeletalMesh choice. If that choice remains active at the M4 entry
@@ -251,7 +258,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | M1: Scene Proxy/Info ownership and primitive classification | Required | [RendererSceneProxyAndInfoContract](../Plans/RendererSceneProxyAndInfoContract.md) | Current primitive, SkyBox, and rendering-thread contracts | Paired SceneProxy/SceneInfo ownership for StaticMesh, TextureCube preview, SkyBox, and directional light; stable primitive kind/bounds/visibility facts; strong typed identities; internal typed lookup; mutation no longer hard-codes StaticMesh in `FScene`. | Current call sites, thread ownership, proxy lifetimes, mutation ordering, and any genuine asynchronous revision boundary are recorded with focused tests. | Rendering reads no component pointer; each live scene entry has exactly one Proxy/SceneInfo pair; ordered lifecycle mutations cannot affect a retired entry; existing features use typed classification with unchanged images and lifecycle behavior. |
 | M2: Material render-pass policies | Required; also executes Material System milestone 4 | [MaterialRenderPassPolicies](../Plans/MaterialRenderPassPolicies.md) | M1 classification contract; current material v3 identity | Opaque, masked, and translucent buckets; visible mask/blend/cull/depth policy; minimal required RHI state descriptors; deterministic translucent sorting. | M1 is stable and the exact RHI state gaps for three surface policies are enumerated. | All static properties have tested on-screen meaning across Lit/Unlit, Solid/Wireframe, main/auxiliary, present/offscreen, and fixed-aspect views; Vulkan validation is clean. |
-| M3: Per-view visibility and LOD | Required | `PerViewVisibilityAndLOD` | M1 proxy bounds; M2 pass buckets | Frustum culling, deterministic LOD selection, prepared draw lists, sort/state keys, and counters. | Bounds semantics and pass-classification inputs are stable; representative multi-LOD assets and cameras exist. | Invisible primitives issue no base-pass draw, LOD thresholds are deterministic, pass ordering remains correct, and counters explain submitted/culled/selected work in every viewport path. |
+| M3: Per-view visibility and LOD | Required; active | [PerViewVisibilityAndLOD](../Plans/PerViewVisibilityAndLOD.md) | M1 proxy bounds; M2 pass buckets | Frustum culling, deterministic LOD selection, prepared draw lists, sort/state keys, and counters. | Met for architecture: bounds semantics and pass-classification inputs are stable. Stage 0 freezes projection/LOD policy and supplies representative multi-LOD assets and cameras before behavior changes. | Invisible primitives issue no base-pass draw, LOD thresholds are deterministic, pass ordering remains correct, and counters explain submitted/culled/selected work in every viewport path. |
 | M4: Second production primitive family | Required capability proof | `SkeletalMeshRendering` by default; replace only through the entry-gate decision | M2-M3 shared pass and visibility contracts | A second vertex factory, proxy type, component/render-data lifecycle, material binding, base/depth/shadow participation where applicable, and editor/runtime validation. | Product need chooses SkeletalMesh, instanced mesh, or another production family; its asset/render-data prerequisites and non-rendering owner are explicit. If SkeletalMesh is selected, the Skeletal Mesh and Animation Roadmap S1-S2 gates are complete. | The selected family reuses scene mutation, visibility, pass, material, invalidation, and viewport contracts without adding a parallel frame renderer or whole-scene RTTI scan. |
 | M5: Renderer-owned multi-light scene | Required | `RendererLightSceneContract` | M1 detached light mutation | Directional, point, and spot Proxy/SceneInfo types, typed collections, visibility inputs, bounded GPU-facing light data, and explicit versions only for independently reordered work. | M1 has removed component reads and the intended initial light-count budget is documented. | Add/update/remove order is deterministic; any retained asynchronous version rejects stale work; no render-thread object read occurs; multiple view renders consume identical scene state; point/spot falloff has focused and image coverage. |
 | M6: Directional shadow pipeline | Required | `DirectionalShadowPipeline` | M2 pass state, M3 visibility/draw lists, M4 second-family participation, M5 light snapshots | Shadow-depth target/layout, caster classification, masked caster behavior, directional shadow matrices, bias/filtering, lifetime, diagnostics, and lighting sampling. | M2-M5 contracts are stable; one directional shadow quality/budget target is selected. | StaticMesh and the selected M4 family cast and receive deterministic shadows; masked coverage, camera/light motion, multi-view reuse, invalidation, and Vulkan validation pass without whole-device idle waits. |
@@ -297,13 +304,16 @@ Generalize only the RHI state required by the selected policies. Shadow depth,
 stencil-heavy decals, and arbitrary blend equations do not enter M2 unless the
 three surface modes cannot be expressed correctly without them.
 
-### `PerViewVisibilityAndLOD`
+### [PerViewVisibilityAndLOD](../Plans/PerViewVisibilityAndLOD.md)
 
-This plan owns CPU view-frustum culling, first deterministic screen-size or
-distance LOD policy, prepared draw lists, stable sort keys, and diagnostics. It
-does not add occlusion queries, HZB, GPU culling, meshlets, indirect draw, or a
-render graph. Those require measurements after the CPU baseline exposes draw,
-triangle, state-change, and culling counts.
+This plan owns the command-local prepared-view boundary before the first scene
+pass, centralized CPU primitive visibility, the first deterministic projected-
+screen-size LOD policy and required StaticMesh policy data, two-level prepared
+StaticMesh work, stable sort/state keys, and conservation diagnostics. It may
+replace the current monolithic StaticMesh draw entrypoint and repeated private
+`IScene` casts, but does not add occlusion queries, HZB, GPU culling, meshlets,
+indirect draw, a public pass registry, or a render graph. Those require evidence
+after the CPU baseline exposes draw, triangle, state-change, and culling counts.
 
 ### Selected M4 primitive plan
 
