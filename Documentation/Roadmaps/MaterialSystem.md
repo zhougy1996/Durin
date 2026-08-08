@@ -39,7 +39,7 @@ baseline.
 | --- | --- | --- |
 | 2. Versioned renderer-facing material representation | [Material Render Representation](../Plans/Archive/2026-08/MaterialRenderRepresentation.md) | Complete; final handoff recorded |
 | 3. Metallic/roughness PBR surface contract | [PBR Material Surface](../Plans/Archive/2026-08/PBRMaterialSurface.md) | Complete; final handoff recorded |
-| 4. Static permutations and render passes | [Material Render Pass Policies](../Plans/MaterialRenderPassPolicies.md) | Complete; M2 qualification recorded |
+| 4. Static permutations and render passes | [Material Render Pass Policies](../Plans/Archive/2026-08/MaterialRenderPassPolicies.md) | Complete; M2 qualification recorded |
 
 Milestones 2 through 4 are complete. The pass execution contract is recorded in
 [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md); M3
@@ -124,7 +124,7 @@ surface contract owned by milestones 2 and 3.
 ### 4. Static Permutations and Render Passes (Complete)
 
 Milestone 4 is complete through the
-[Material Render Pass Policies Plan](../Plans/MaterialRenderPassPolicies.md).
+[Material Render Pass Policies Plan](../Plans/Archive/2026-08/MaterialRenderPassPolicies.md).
 The selected M2 boundary owns actual opaque, masked, and translucent base-pass
 behavior; culling and depth-write policy; deterministic translucent sorting;
 and the minimum pass, shader, pipeline, and RHI state identity needed to make

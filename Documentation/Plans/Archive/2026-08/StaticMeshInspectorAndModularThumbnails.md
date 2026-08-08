@@ -4,7 +4,7 @@ Summary: Add a dedicated StaticMesh editor workspace and move asset-specific thu
 
 Last reviewed: 2026-08-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-08
 
 ## Current Status

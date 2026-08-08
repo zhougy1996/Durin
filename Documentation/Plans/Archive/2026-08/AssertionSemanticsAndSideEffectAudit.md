@@ -4,7 +4,7 @@ Summary: Define optimized-development assertion semantics, decouple assertion re
 
 Last reviewed: 2026-08-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-08
 
 ## Current Status
@@ -338,11 +338,11 @@ Dependencies: Stage 3 repairs.
 
 ## Related Documentation
 
-- [C++ Coding Standards](../Development/Standards/CodingStandards.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Runtime Variants](../Development/Build/RuntimeVariants.md)
-- [Native Tests](../Development/Build/NativeTests.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
+- [C++ Coding Standards](../../../Development/Standards/CodingStandards.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Runtime Variants](../../../Development/Build/RuntimeVariants.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
 
 ## Related Code
 

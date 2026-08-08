@@ -714,7 +714,7 @@ Dependencies: Stage 3 production evidence.
 - [Implementation Plan Rules](../../AGENTS.md)
 - [Move-Only Tasks and Consuming Results](MoveOnlyTasksAndConsumingResults.md)
 - [Typed Task Fan-In](TypedTaskFanIn.md)
-- [Structured Task Scopes](../../StructuredTaskScopes.md)
+- [Structured Task Scopes](StructuredTaskScopes.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Give eligible reflected classes one immutable deterministic default obj
 
 Last reviewed: 2026-08-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-08
 
 ## Current Status
@@ -688,8 +688,8 @@ deferred until that plan freezes recursive byte accounting and the wire model.
 | Shutdown | Derived-first release, initialization failure, deferred destruction, render flush, module order, and zero leaked roots/objects/resources |
 | Integration | DHT, CoreDObject, AssetCore packages, Engine materials/world/components, editor create/load/save/restart, and unchanged DAST v3 bytes |
 
-Build and test execution follows [Build and Run](../Development/Build/BuildAndRun.md)
-and [Native Tests](../Development/Build/NativeTests.md).
+Build and test execution follows [Build and Run](../../../Development/Build/BuildAndRun.md)
+and [Native Tests](../../../Development/Build/NativeTests.md).
 
 ## Definition of Done
 
@@ -720,14 +720,14 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 ## Related Documentation
 
-- [Compact Asset Serialization Roadmap](../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
-- [Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Garbage Collection](../Runtime/Core/GarbageCollection.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
-- [Unified Archive Serialization Plan](Archive/2026-08/UnifiedArchiveSerialization.md)
-- [Reflected Struct Operations Plan](Archive/2026-08/ReflectedStructOperations.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
+- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Garbage Collection](../../../Runtime/Core/GarbageCollection.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
+- [Unified Archive Serialization Plan](UnifiedArchiveSerialization.md)
+- [Reflected Struct Operations Plan](ReflectedStructOperations.md)
 
 ## Related Code
 

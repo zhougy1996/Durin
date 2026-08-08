@@ -4,7 +4,7 @@ Summary: Add explicit bounded owner scopes that close task admission, propagate 
 
 Last reviewed: 2026-08-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-08
 
 ## Current Status
@@ -646,12 +646,12 @@ Dependencies: Stage 3 production evidence.
 
 ## Related Documentation
 
-- [Task System Evolution Roadmap](../Roadmaps/Archive/2026-08/TaskSystemEvolution.md)
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Task Owner Diagnostics](Archive/2026-08/TaskOwnerDiagnostics.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Implementation Plan Rules](AGENTS.md)
+- [Task System Evolution Roadmap](../../../Roadmaps/Archive/2026-08/TaskSystemEvolution.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Task Owner Diagnostics](TaskOwnerDiagnostics.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Implementation Plan Rules](../../AGENTS.md)
 
 ## Related Code
 

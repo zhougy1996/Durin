@@ -4,7 +4,7 @@ Summary: Measure DAST v3 recursively and freeze a bounded deterministic DAST v4 
 
 Last reviewed: 2026-08-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-08
 
 ## Current Status
@@ -21,8 +21,8 @@ Completed: 2026-08-08
   `5955D6A8C777870C` are exact goldens. Modeled parse/allocation inputs fall from
   v3's 5,020/3,948 to 136/133 without compression or unowned bytes.
 - The lasting qualified layout now resides in
-  [Asset Packages](../Runtime/Assets/AssetPackages.md#frozen-dast-v4-wire-contract),
-  and the [Compact Asset Serialization Roadmap](../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
+  [Asset Packages](../../../Runtime/Assets/AssetPackages.md#frozen-dast-v4-wire-contract),
+  and the [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
   records this milestone complete and Default-relative reflection ready to
   activate. AssetCore still reads and writes DAST v3 exclusively; no production
   v4 reader, writer, migration edge, registry policy, or authored-content
@@ -783,8 +783,8 @@ no open wire or feasibility question remains.
 #### Stage 4 Evidence and Final Handoff
 
 Stage 4 began from `0d4f6b56`. Its modified working set is this plan,
-[Asset Packages](../Runtime/Assets/AssetPackages.md), and the
-[Compact Asset Serialization Roadmap](../Roadmaps/Archive/2026-08/CompactAssetSerialization.md);
+[Asset Packages](../../../Runtime/Assets/AssetPackages.md), and the
+[Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md);
 the Stage 0 through 3 package fixtures remain the executable evidence. Key
 symbols are `MeasureDastV3`, `BuildFeasibilityPackageFromV3`,
 `AdaptArchiveLogicalType`, `AddArchiveDiscoveredField`, `DecodeTableSections`,
@@ -838,8 +838,8 @@ Name, Type, Schema/custom versions, Object, and Value respectively; XXH64 remain
 | Boundary | Production writer remains exact v3, production readers reject v4, tracked corpus baseline/hashes unchanged, no migration or compressed block |
 | Qualification | Focused AssetPackage and Material suites, plan/document validation, full `all` build, and compact final handoff |
 
-Build and test execution follows [Build and Run](../Development/Build/BuildAndRun.md)
-and [Native Tests](../Development/Build/NativeTests.md).
+Build and test execution follows [Build and Run](../../../Development/Build/BuildAndRun.md)
+and [Native Tests](../../../Development/Build/NativeTests.md).
 
 ## Definition of Done
 
@@ -871,15 +871,15 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 ## Related Documentation
 
-- [Compact Asset Serialization Roadmap](../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 - [Class Default Object Lifecycle Plan](ClassDefaultObjectLifecycle.md)
-- [Unified Archive Serialization Plan](Archive/2026-08/UnifiedArchiveSerialization.md)
-- [Reflected Struct Operations Plan](Archive/2026-08/ReflectedStructOperations.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Versioning](../Runtime/Assets/Versioning.md)
-- [Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Native Tests](../Development/Build/NativeTests.md)
+- [Unified Archive Serialization Plan](UnifiedArchiveSerialization.md)
+- [Reflected Struct Operations Plan](ReflectedStructOperations.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Native Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 

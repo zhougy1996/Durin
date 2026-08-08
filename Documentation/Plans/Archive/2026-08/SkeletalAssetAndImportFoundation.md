@@ -4,13 +4,13 @@ Summary: Add bounded Skeleton, SkeletalMesh, and AnimationClip assets plus deter
 
 Last reviewed: 2026-08-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-08
 
 ## Current Status
 
 All six stages are complete. The S1 child of the
-[Skeletal Mesh and Animation Roadmap](../Roadmaps/SkeletalMeshAndAnimation.md)
+[Skeletal Mesh and Animation Roadmap](../../../Roadmaps/SkeletalMeshAndAnimation.md)
 now supplies validated Skeleton, SkeletalMesh, and AnimationClip assets;
 bounded direct glTF normalization; stable Scene peer publication; deterministic
 DDC and cooked payloads; and runtime-only loading without import dependencies.
@@ -865,14 +865,14 @@ Dependencies: Stages 0-4.
 
 ## Related Documentation
 
-- [Skeletal Mesh and Animation Roadmap](../Roadmaps/SkeletalMeshAndAnimation.md)
-- [Rendering Capability Expansion Roadmap](../Roadmaps/RenderingCapabilityExpansion.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Mounted Source Workflows](../Editor/Guides/MountedSourceWorkflows.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Core Math](../Runtime/Core/Math.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Skeletal Mesh and Animation Roadmap](../../../Roadmaps/SkeletalMeshAndAnimation.md)
+- [Rendering Capability Expansion Roadmap](../../../Roadmaps/RenderingCapabilityExpansion.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Core Math](../../../Runtime/Core/Math.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

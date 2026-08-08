@@ -688,8 +688,8 @@ known deferred limits, validation outcome, and verified editor executable.
 - [Material System](../Runtime/Rendering/MaterialSystem.md)
 - [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
 - [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Renderer Scene Proxy and Info Contract Plan](RendererSceneProxyAndInfoContract.md)
-- [Material Render Pass Policies Plan](MaterialRenderPassPolicies.md)
+- [Renderer Scene Proxy and Info Contract Plan](Archive/2026-08/RendererSceneProxyAndInfoContract.md)
+- [Material Render Pass Policies Plan](Archive/2026-08/MaterialRenderPassPolicies.md)
 - [Build and Run](../Development/Build/BuildAndRun.md)
 
 ## Related Code

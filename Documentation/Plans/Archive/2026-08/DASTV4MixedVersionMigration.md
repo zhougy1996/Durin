@@ -4,7 +4,7 @@ Summary: Separate supported readers from the latest writer and add explicit atom
 
 Last reviewed: 2026-08-09
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-09
 
 ## Current Status
@@ -296,10 +296,10 @@ version across discovery, loading, compatibility, registry, and saving.
 
 ## Related Documentation
 
-- [Compact Asset Serialization Roadmap](../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Versioning](../Runtime/Assets/Versioning.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 

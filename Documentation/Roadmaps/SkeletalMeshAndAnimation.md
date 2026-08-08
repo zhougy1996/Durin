@@ -29,7 +29,7 @@ lifecycle patterns that a skeletal path can reuse without inheriting its
 static-geometry assumptions.
 
 The active first child is the
-[Skeletal Asset and Import Foundation Plan](../Plans/SkeletalAssetAndImportFoundation.md).
+[Skeletal Asset and Import Foundation Plan](../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md).
 It owns the initial asset graph, glTF skeletal normalization, provider outputs,
 derived/cooked payloads, and non-rendering validation. Later child plans will
 be authored only when their entry gates are reached and the then-current
@@ -204,7 +204,7 @@ flowchart LR
 
 | Milestone | Requirement | Child-plan policy | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
-| S1: Asset and import foundation | Completed 2026-08-08 | [Skeletal Asset and Import Foundation](../Plans/SkeletalAssetAndImportFoundation.md) | Existing import, package, DDC, cook, math, and static-model behavior was recorded; the selected glTF fixture corpus did not change StaticMesh outputs. | Met: stable peer assets, deterministic bounded authored/DDC/cooked paths, runtime-only loading, and transactional structured failures are implemented and qualified below. |
+| S1: Asset and import foundation | Completed 2026-08-08 | [Skeletal Asset and Import Foundation](../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md) | Existing import, package, DDC, cook, math, and static-model behavior was recorded; the selected glTF fixture corpus did not change StaticMesh outputs. | Met: stable peer assets, deterministic bounded authored/DDC/cooked paths, runtime-only loading, and transactional structured failures are implemented and qualified below. |
 | S2: Runtime pose and clip playback | Required; entry gate satisfied, plan authored when implementation starts | No plan yet | Met for planning: S1 schemas, compatibility, immutable payload access, transform convention, and fixture corpus are stable. Component/animation-instance ownership remains a required just-in-time decision. | One component/runtime owner samples supported clips deterministically, evaluates local-to-component poses, handles time/looping, rejects incompatible clips, and publishes a bounded immutable palette candidate without rendering-thread object reads. |
 | S3: Skeletal rendering vertical slice | Required; shared with Rendering M4; plan authored at entry | No plan yet | S1-S2 are stable; Rendering Capability Expansion M1-M3 have completed; the current RHI binding limits and shared pass/visibility APIs are measured; SkeletalMesh remains the selected second primitive family. | GPU-skinned SkeletalMesh shares scene mutation, materials, passes, visibility, viewport, invalidation, and applicable shadow behavior with StaticMesh; palette and bounds updates are deterministic and lifecycle-safe; Vulkan validation and animated image coverage pass. |
 | S4: Editor workflow and production qualification | Required; plan authored at entry | No plan yet | S3 renders a representative animated asset and exposes stable inspection/playback seams; current Content Browser and inspector extension contracts are re-inspected. | Users can import/reimport, identify, inspect, preview, diagnose, cook, and run supported skeletal assets through documented workflows; representative engine/project fixtures pass full editor and runtime qualification. |
@@ -216,7 +216,7 @@ Expansion M4, with one plan status and one set of acceptance gates.
 ## S1 Completion Evidence and S2 Entry Re-inspection
 
 S1 completed through the six staged commits recorded by the
-[foundation plan](../Plans/SkeletalAssetAndImportFoundation.md). The shipped
+[foundation plan](../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md). The shipped
 boundary consists of `DSkeleton`, `DSkeletalMesh`, `DAnimationClip`, structural
 compatibility encoding version 1, direct bounded glTF normalization, stable
 Scene-provider peer outputs, DSKM/DANM version-1 codecs and DDC keys, asset-level
@@ -296,7 +296,7 @@ ownership.
 
 ## Related Documentation
 
-- [Skeletal Asset and Import Foundation Plan](../Plans/SkeletalAssetAndImportFoundation.md)
+- [Skeletal Asset and Import Foundation Plan](../Plans/Archive/2026-08/SkeletalAssetAndImportFoundation.md)
 - [Rendering Capability Expansion Roadmap](RenderingCapabilityExpansion.md)
 - [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)

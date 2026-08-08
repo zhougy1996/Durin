@@ -4,7 +4,7 @@ Summary: Add deterministic rendered StaticMesh thumbnails to Content Browser thr
 
 Last reviewed: 2026-08-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-08
 
 ## Current Status
@@ -344,11 +344,11 @@ Dependencies: Stage 3.
 
 ## Related Documentation
 
-- [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
+- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code
 
