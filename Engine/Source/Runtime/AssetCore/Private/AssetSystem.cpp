@@ -6711,6 +6711,8 @@ namespace Durin::Asset
 				.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
 			return {};
 		}
+		return Error(EAssetError::UnsupportedVersion,
+			std::format("Unsupported asset version {}.", Version));
 	}
 
 	auto FAssetManager::FindLoadedPackage(const FAssetPath& Path) const -> DPackage*
