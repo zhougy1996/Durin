@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "AssetPackageV4Writer.h"
+#include "AssetPackageV4Reader.h"
 #include "PackageV4ReferenceModel.h"
 
 #include <algorithm>
@@ -241,8 +242,18 @@ TEST(FPackageV4WriterTests, EverySupportedValueOpcodeMatchesIndependentReference
 		std::vector<Reference::FSchemaDescriptor> ReferenceSchemas = {},
 		std::vector<Production::FSchemaDescriptor> ProductionSchemas = {})
 	{
-		EXPECT_EQ(EncodeProductionValuePackage(ProductionType, ProductionValue, std::move(ProductionSchemas)),
+		const std::vector<uint8> ProductionBytes = EncodeProductionValuePackage(
+			ProductionType, ProductionValue, std::move(ProductionSchemas));
+		EXPECT_EQ(ProductionBytes,
 			EncodeReferenceValuePackage(ReferenceType, ReferenceValue, std::move(ReferenceSchemas)));
+		Production::FDecodedPackage Decoded;
+		Production::FReaderDiagnostic ReaderDiagnostic;
+		ASSERT_TRUE(Production::DecodePackage(ProductionBytes, Decoded, {}, &ReaderDiagnostic))
+			<< ReaderDiagnostic.Message;
+		std::vector<uint8> RoundTrip;
+		ASSERT_TRUE(Production::ReencodePackage(Decoded, RoundTrip, &ReaderDiagnostic))
+			<< ReaderDiagnostic.Message;
+		EXPECT_EQ(RoundTrip, ProductionBytes);
 	};
 	using RO = Reference::ETypeOpcode;
 	using PO = Production::ETypeOpcode;

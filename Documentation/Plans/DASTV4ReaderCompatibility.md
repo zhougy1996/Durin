@@ -4,17 +4,36 @@ Summary: Implement bounded DAST v4 header, table, value, live-load, and construc
 
 Last reviewed: 2026-08-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-08
 
 ## Current Status
 
-The frozen v4 wire contract, default-relative logical semantics, and explicit
-production writer are complete. Production writer bytes match the independent
-reference codec for every opcode, retained closure, enabled/no-delta plan, and
-the 6,275-byte Default Material fixture. AssetCore still recognizes, loads,
-inspects, registers, and ordinarily saves only DAST v3; no v4 byte path is
-reachable through current package policy.
+The bounded reader is complete. `ReadHeader` validates only the public summary
+and fixed directory; `DecodePackage` reconstructs pointer-free Name, Type,
+Schema/custom-version, Object, and Value models and requires byte-identical
+production-writer re-emission. `FLoadedAssetPackage` owns an explicit
+transactional live graph through skeleton creation, dependency resolution,
+default-relative Archive application, authored-intent restoration, reverse
+PostLoad, and rollback. `InspectPackage`, `ExtractReferences`, and
+`ProbeCompatibility` consume the same decoded descriptors without construction
+or callbacks. Exact provenance `02` closure and payload spans are retained in
+the decoded model and `FAssetLoadReport`.
+
+Final handoff: baseline commit `591f134d`; working set
+`AssetPackageV4Reader.h/.cpp`, the existing Archive loader/custom-version
+context, `FAssetLegacyField`, AssetCore aggregation, reader and Default Material
+tests, this plan, Asset Packages, the compact-serialization roadmap, and the
+activated mixed-version migration plan. Key symbols are `FValidatedHeader`,
+`FDecodedPackage`, `ReadHeader`, `DecodePackage`, `ReencodePackage`,
+`FLoadedAssetPackage`, `LoadAssetPackage`, `InspectPackage`,
+`ExtractReferences`, and `ProbeCompatibility`. The explicit reader does not
+enter `ReadAssetPackageHeader`, `ValidateAssetPackageBytes`, ordinary loading,
+registry/cache policy, migration, or saving. Open questions: none. Validation
+passed AssetPackage 121/121, complete 6,275-byte Default Material
+enabled/no-delta/loaded-explicit/forced round trips, focused reader 11/11,
+documentation and all-plan validation, the tracked-asset baseline, focused
+CoreDObject validation, and the full `all` build.
 
 ## Goal
 
@@ -78,11 +97,11 @@ immutable model, live adapter, or compatibility adapter.
 
 ### Stage 0: Freeze reader boundaries and rollback ownership
 
-- [ ] Select header-only, complete logical decode, live load, and construct-free
+- [x] Select header-only, complete logical decode, live load, and construct-free
   inspection APIs with typed diagnostics and explicit limits.
-- [ ] Map every decoded allocation, retained byte span, object skeleton,
+- [x] Map every decoded allocation, retained byte span, object skeleton,
   dependency, ledger mutation, callback, and publication to one rollback owner.
-- [ ] Record the reference, writer, malformed, compatibility, and cost fixture
+- [x] Record the reference, writer, malformed, compatibility, and cost fixture
   matrix and initial working set.
 
 #### Acceptance Gate
@@ -92,11 +111,11 @@ immutable model, live adapter, or compatibility adapter.
 
 ### Stage 1: Decode and validate the public header and frozen tables
 
-- [ ] Implement header-only summary/directory validation with checked extents
+- [x] Implement header-only summary/directory validation with checked extents
   and no body-table allocation.
-- [ ] Decode canonical Name, Type, Schema/custom-version, and Object tables into
+- [x] Decode canonical Name, Type, Schema/custom-version, and Object tables into
   immutable pointer-free models with complete consumption and cycle checks.
-- [ ] Match reference positives and every malformed primitive, extent, table,
+- [x] Match reference positives and every malformed primitive, extent, table,
   ordering, id, topology, version, depth, and limit fixture.
 
 #### Acceptance Gate
@@ -106,11 +125,11 @@ immutable model, live adapter, or compatibility adapter.
 
 ### Stage 2: Decode values and retain unknown descriptor closures
 
-- [ ] Decode every frozen value opcode with exact framing, canonical Map order,
+- [x] Decode every frozen value opcode with exact framing, canonical Map order,
   reference bounds, Struct provenance, and depth/container limits.
-- [ ] Resolve known overrides against decoded schemas and retain provenance
+- [x] Resolve known overrides against decoded schemas and retain provenance
   `02` closure/payload bytes exactly after complete closure validation.
-- [ ] Prove round-trip writer equality for primitive, comprehensive,
+- [x] Prove round-trip writer equality for primitive, comprehensive,
   enabled/no-delta, Default Material, and retained-unknown fixtures.
 
 #### Acceptance Gate
@@ -120,12 +139,12 @@ immutable model, live adapter, or compatibility adapter.
 
 ### Stage 3: Integrate transactional live v4 loading
 
-- [ ] Create all object skeletons and Outers, resolve dependencies, apply known
+- [x] Create all object skeletons and Outers, resolve dependencies, apply known
   values relative to class/Struct defaults, restore explicit/forced authored
   intent, then run PostLoad in the established order.
-- [ ] Preserve unknown/removed fields in `FAssetLoadReport` with exact retained
+- [x] Preserve unknown/removed fields in `FAssetLoadReport` with exact retained
   closures and enforce existing compatibility-risk/data-loss boundaries.
-- [ ] Cover default subobjects, internal/external/soft references, custom
+- [x] Cover default subobjects, internal/external/soft references, custom
   versions, missing classes, unsupported Structs, callback failures, and full
   graph rollback.
 
@@ -137,13 +156,13 @@ immutable model, live adapter, or compatibility adapter.
 
 ### Stage 4: Integrate construct-free inspection and qualify handoff
 
-- [ ] Extend header, compatibility, and reference inspection over immutable v4
+- [x] Extend header, compatibility, and reference inspection over immutable v4
   decoded descriptors without object construction or callbacks.
-- [ ] Match v3/v4 compatibility categories, risks, retained-data behavior,
+- [x] Match v3/v4 compatibility categories, risks, retained-data behavior,
   reference occurrences, freshness, and bounded cost for equivalent content.
-- [ ] Run focused CoreDObject, Archive, AssetPackage, compatibility, registry-
+- [x] Run focused CoreDObject, Archive, AssetPackage, compatibility, registry-
   isolation, documentation, asset-baseline, hash, and full-build validation.
-- [ ] Move lasting reader contracts into Runtime documentation, complete this
+- [x] Move lasting reader contracts into Runtime documentation, complete this
   plan, and activate only the mixed-version migration child.
 
 #### Acceptance Gate

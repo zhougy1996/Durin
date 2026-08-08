@@ -104,13 +104,12 @@ references it still begins with DAST.
 
 ### Frozen DAST v4 Wire Contract
 
-DAST v4 is qualified as the next authored-package format. AssetCore exposes a
-production-owned, explicit low-level v4 writer, but every production reader,
-ordinary package save, registry path, and migration path remains v3-only. The
-v4 writer is therefore an integration boundary for the bounded reader and
-migration work, not the current authored-package policy. The layout below is
-frozen: later plans must consume these bytes and semantics rather than selecting
-another layout.
+DAST v4 is qualified as the next authored-package format. AssetCore exposes
+production-owned, explicit low-level v4 writer and reader boundaries, but every
+ordinary package save/load, registry path, and migration path remains v3-only.
+Those boundaries are integration capabilities for mixed-version migration, not
+the current authored-package policy. The layout below is frozen: later plans
+must consume these bytes and semantics rather than selecting another layout.
 
 A v4 package starts with bytes `44 41 53 54`, then `04 00 00 00` (`uint32`
 little-endian version 4), a little-endian `uint32` public-summary byte length,
@@ -283,6 +282,39 @@ separate exact byte spans. Before publication, the writer parses all closure
 framing, canonical Name/Type/Schema tables, descriptor references and cycles,
 root schema/field resolution, bounds, and trailing-byte state. Package table
 reordering never remaps or rebuilds those bytes.
+
+### Explicit DAST v4 Reader Boundary
+
+`Durin::Asset::DastV4::ReadHeader` validates the bounded public summary and
+five-entry directory without parsing or allocating body tables.
+`DecodePackage` owns a temporary pointer-free logical model containing immutable
+one-based ids, decoded values, raw payload locations, and separate exact
+retained closure/payload spans. It validates every primitive, extent, table,
+record, descriptor, topology, value, and closure, then re-emits through the
+production writer and requires byte equality before replacing the caller's
+destination. `ReencodePackage` exposes that same canonical round trip.
+
+`LoadAssetPackage` is the sole explicit live-reader entry. It creates every
+object skeleton and Outer before resolving dependencies, applies only known
+overrides through the shared authored Archive relative to constructor/class and
+Struct defaults, restores loaded-explicit and forced authored intent, and calls
+PostLoad in reverse object order. The move-only `FLoadedAssetPackage` handle is
+the publication and lifetime owner. Decode, class, dependency, Archive, ledger,
+PostLoad, or publication failure destroys the complete new graph, releases
+dependencies loaded by the failed attempt, and preserves the caller's previous
+handle and report.
+
+`InspectPackage`, `ExtractReferences`, and `ProbeCompatibility` consume the
+same decoded logical model without constructing objects or invoking callbacks.
+Known values project to existing field/reference semantics, including intrinsic
+math Struct payloads and canonical Map routes. Provenance `02` never remaps
+through package tables: compatibility and live reports carry its exact
+`DescriptorClosure` and `RetainedPayload` spans and retain data-loss risk.
+
+None of these entries is called by `ReadAssetPackageHeader`,
+`ValidateAssetPackageBytes`, `InspectAssetPackage`, ordinary `LoadAsset` or
+`SavePackage`, registry/cache publication, or migration. Those policy paths
+remain DAST v3 until the mixed-version migration contract activates them.
 
 ### DAST v3 Production Save and Load
 

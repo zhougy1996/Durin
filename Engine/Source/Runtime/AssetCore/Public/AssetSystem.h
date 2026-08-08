@@ -106,6 +106,10 @@ namespace Durin::Asset
 		DurinCodeGen::EPropertyGenFlags Kind = DurinCodeGen::EPropertyGenFlags::None;
 		std::string TypeSignature;
 		std::vector<uint8> Payload;
+		// DAST v4 provenance 02 retains these two spans exactly. V2/v3 legacy
+		// records leave them empty and continue to use Payload alone.
+		std::vector<uint8> DescriptorClosure;
+		std::vector<uint8> RetainedPayload;
 	};
 
 	// Groups related legacy fields on one object into a single user-facing compatibility item.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetSystem.h"
+#include "DObject/Archive.h"
 
 namespace Durin::Asset::Private
 {
@@ -32,5 +33,6 @@ namespace Durin::Asset::Private
 		std::span<const FAuthoredPackageFieldRecord> Fields,
 		std::span<DObject* const> Objects,
 		uint32 SourceVersion,
-		std::vector<FAssetLegacyField>& OutLegacyFields) -> FAssetResult;
+		std::vector<FAssetLegacyField>& OutLegacyFields,
+		std::span<const FArchiveCustomVersion> CustomVersions = {}) -> FAssetResult;
 }

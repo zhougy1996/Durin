@@ -3,6 +3,7 @@
 #include "PackageV4Feasibility.h"
 
 #include "AssetPackageV4Writer.h"
+#include "AssetPackageV4Reader.h"
 #include "Hash/XxHash.h"
 #include "AssetSystem.h"
 #include "CoreGlobals.h"
@@ -136,6 +137,18 @@ TEST(FPackageV4FeasibilityTests, DefaultMaterialIsCompleteDeterministicAndWithin
 		<< WriterDiagnostic.Message;
 	EXPECT_EQ(ProductionBytes, First.Bytes);
 	EXPECT_EQ(ProductionRepeated, First.Bytes);
+	Durin::Asset::DastV4::FDecodedPackage DecodedProduction;
+	Durin::Asset::DastV4::FReaderDiagnostic ReaderDiagnostic;
+	ASSERT_TRUE(Durin::Asset::DastV4::DecodePackage(
+		ProductionBytes, DecodedProduction, {}, &ReaderDiagnostic)) << ReaderDiagnostic.Message;
+	EXPECT_EQ(DecodedProduction.Names.size(), First.Report.NameCount);
+	EXPECT_EQ(DecodedProduction.Types.size(), First.Report.TypeCount);
+	EXPECT_EQ(DecodedProduction.Schemas.size(), First.Report.SchemaCount);
+	EXPECT_EQ(DecodedProduction.Objects.size(), First.Report.ObjectCount);
+	std::vector<uint8> ReaderRoundTrip;
+	ASSERT_TRUE(Durin::Asset::DastV4::ReencodePackage(
+		DecodedProduction, ReaderRoundTrip, &ReaderDiagnostic)) << ReaderDiagnostic.Message;
+	EXPECT_EQ(ReaderRoundTrip, ProductionBytes);
 	FDefaultDeltaPlan NoDeltaPlan;
 	ASSERT_TRUE(BuildDefaultDeltaPlan(
 		Material, EDefaultDeltaMode::NoDelta, NoDeltaPlan, &DeltaDiagnostic));
@@ -149,6 +162,11 @@ TEST(FPackageV4FeasibilityTests, DefaultMaterialIsCompleteDeterministicAndWithin
 		Material->GetPackage(), NoDeltaProduction, NoDeltaOptions, &WriterDiagnostic))
 		<< WriterDiagnostic.Message;
 	EXPECT_EQ(NoDeltaProduction, NoDeltaReference.Bytes);
+	ASSERT_TRUE(Durin::Asset::DastV4::DecodePackage(
+		NoDeltaProduction, DecodedProduction, {}, &ReaderDiagnostic)) << ReaderDiagnostic.Message;
+	ASSERT_TRUE(Durin::Asset::DastV4::ReencodePackage(
+		DecodedProduction, ReaderRoundTrip, &ReaderDiagnostic)) << ReaderDiagnostic.Message;
+	EXPECT_EQ(ReaderRoundTrip, NoDeltaProduction);
 	std::vector<uint8> OrdinaryV3;
 	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(Material->GetPackage(), OrdinaryV3));
 	ASSERT_GE(OrdinaryV3.size(), 8u);
@@ -248,6 +266,11 @@ TEST(FPackageV4FeasibilityTests, DefaultMaterialIsCompleteDeterministicAndWithin
 		Material->GetPackage(), LoadedExplicitProduction, {}, &WriterDiagnostic))
 		<< WriterDiagnostic.Message;
 	EXPECT_EQ(LoadedExplicitProduction, LoadedExplicitPackage.Bytes);
+	ASSERT_TRUE(Durin::Asset::DastV4::DecodePackage(
+		LoadedExplicitProduction, DecodedProduction, {}, &ReaderDiagnostic)) << ReaderDiagnostic.Message;
+	ASSERT_TRUE(Durin::Asset::DastV4::ReencodePackage(
+		DecodedProduction, ReaderRoundTrip, &ReaderDiagnostic));
+	EXPECT_EQ(ReaderRoundTrip, LoadedExplicitProduction);
 
 	ASSERT_TRUE(Material->SetAuthoredOverride(
 		OverridePath, EAuthoredOverrideProvenance::Forced, &OverrideDiagnostic));
@@ -263,6 +286,11 @@ TEST(FPackageV4FeasibilityTests, DefaultMaterialIsCompleteDeterministicAndWithin
 		Material->GetPackage(), ForcedProduction, {}, &WriterDiagnostic))
 		<< WriterDiagnostic.Message;
 	EXPECT_EQ(ForcedProduction, ForcedPackage.Bytes);
+	ASSERT_TRUE(Durin::Asset::DastV4::DecodePackage(
+		ForcedProduction, DecodedProduction, {}, &ReaderDiagnostic)) << ReaderDiagnostic.Message;
+	ASSERT_TRUE(Durin::Asset::DastV4::ReencodePackage(
+		DecodedProduction, ReaderRoundTrip, &ReaderDiagnostic));
+	EXPECT_EQ(ReaderRoundTrip, ForcedProduction);
 	ASSERT_TRUE(Material->ClearAuthoredOverride(OverridePath));
 	EXPECT_FALSE(Material->HasAllocatedAuthoredOverrideLedger());
 	FDefaultDeltaPlan ClearedPlan;

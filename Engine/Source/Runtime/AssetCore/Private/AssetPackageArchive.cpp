@@ -127,14 +127,16 @@ namespace Durin::Asset::Private
 				DObject& InObject,
 				std::span<const FAuthoredPackageFieldRecord> InFields,
 				std::span<DObject* const> InObjects,
-				uint32 SourceVersion)
+				uint32 SourceVersion,
+				std::span<const FArchiveCustomVersion> CustomVersions)
 				: FArchive({EArchiveDirection::Load, EArchivePurpose::AuthoredPackage,
 					EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
 					| EArchiveCapability::ObjectReferences
 					| EArchiveCapability::SoftObjectReferences
-					| EArchiveCapability::RemainingPayload},
+					| EArchiveCapability::RemainingPayload | EArchiveCapability::CustomVersions},
 					FArchiveVersionContext{
-						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), SourceVersion}}, {}})
+						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), SourceVersion}},
+						std::vector<FArchiveCustomVersion>(CustomVersions.begin(), CustomVersions.end())})
 				, Object(InObject), Fields(InFields), Objects(InObjects), Consumed(InFields.size(), 0)
 			{
 			}
@@ -1313,9 +1315,10 @@ namespace Durin::Asset::Private
 		std::span<const FAuthoredPackageFieldRecord> Fields,
 		std::span<DObject* const> Objects,
 		uint32 SourceVersion,
-		std::vector<FAssetLegacyField>& OutLegacyFields) -> FAssetResult
+		std::vector<FAssetLegacyField>& OutLegacyFields,
+		std::span<const FArchiveCustomVersion> CustomVersions) -> FAssetResult
 	{
-		FAuthoredLoadArchive Archive(Object, Fields, Objects, SourceVersion);
+		FAuthoredLoadArchive Archive(Object, Fields, Objects, SourceVersion, CustomVersions);
 		{
 			auto Scope = Archive.EnterObject(Object);
 			Object.Serialize(Archive);
