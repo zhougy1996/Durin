@@ -187,13 +187,7 @@ namespace Durin::Asset
 
 	auto RegisterBuiltInAssetMigrations(FAssetMigrationRegistry& Registry, std::string& OutError) -> bool
 	{
-		return Registry.Register({
-			.HandlerId = "durin.package.3-to-4",
-			.Kind = EAssetMigrationKind::PackageFormat,
-			.SourceVersion = AssetPackageV3FormatVersion,
-			.TargetVersion = AssetPackageV4FormatVersion,
-			.Risk = EAssetMigrationRisk::Lossless}, OutError)
-			&& Registry.Validate(OutError);
+		return Registry.Validate(OutError);
 	}
 
 	auto PlanAssetPackageMigrations(

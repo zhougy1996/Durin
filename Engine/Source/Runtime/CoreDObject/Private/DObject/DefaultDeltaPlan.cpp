@@ -1012,6 +1012,14 @@ namespace Durin
 	auto ValidateAuthoredOverridePath(DObject* Object, const FAuthoredOverridePath& Path,
 		FAuthoredOverrideDiagnostic* OutDiagnostic) -> bool
 	{
+		const FAuthoredOverrideEntry Entry{Path, EAuthoredOverrideProvenance::LoadedExplicit};
+		return ValidateAuthoredOverrideEntries(Object, std::span(&Entry, 1), OutDiagnostic);
+	}
+
+	auto ValidateAuthoredOverrideEntries(DObject* Object,
+		std::span<const FAuthoredOverrideEntry> Entries,
+		FAuthoredOverrideDiagnostic* OutDiagnostic) -> bool
+	{
 		FAuthoredOverrideDiagnostic Diagnostic;
 		auto Fail = [&]() {
 			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
@@ -1027,7 +1035,8 @@ namespace Durin
 			Diagnostic.Reason = EAuthoredOverrideFailureReason::TemplateObject;
 			return Fail();
 		}
-		if (!ValidatePathTokens(Path, Diagnostic)) return Fail();
+		for (const FAuthoredOverrideEntry& Entry : Entries)
+			if (!ValidatePathTokens(Entry.Path, Diagnostic)) return Fail();
 		FDefaultDeltaDiagnostic CaptureDiagnostic;
 		std::vector<FDefaultDeltaFieldPlan> Discovery, Values;
 		if (!CaptureObject(Object, EArchivePurpose::Discovery, Discovery, CaptureDiagnostic)
@@ -1042,7 +1051,8 @@ namespace Durin
 			Diagnostic.Reason = EAuthoredOverrideFailureReason::SchemaMismatch;
 			return Fail();
 		}
-		if (!ValidatePathAgainstFields(Values, Path, Diagnostic)) return Fail();
+		for (const FAuthoredOverrideEntry& Entry : Entries)
+			if (!ValidatePathAgainstFields(Values, Entry.Path, Diagnostic)) return Fail();
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		return true;
 	}

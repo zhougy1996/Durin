@@ -330,7 +330,7 @@ incompatible and unsupported packages are reported but do not fail the command.
 
 `asset baseline` is the repository and CI gate. It performs the same read-only
 discovery and compatibility probing, then succeeds only when every discovered
-authored package is the current DAST v3 format with no schema finding. It
+authored package is the current DAST v4 format with no schema finding. It
 returns `0` for a current baseline, `3` for any older, newer, incompatible,
 unsupported, failed, or stale package, `1` for operational failure, and `130`
 for cancellation. Run it after changing authored packages and in repository

@@ -76,9 +76,9 @@ or saves an arbitrary external store.
 ## File Format
 
 Every authored or cooked `.dasset`, regardless of its main asset class, uses the
-same DAST object-package envelope. AssetCore supports bounded v3 and v4 readers
-during the reviewed migration window. Ordinary package saves remain v3; only
-the explicit migration workflow selects v4 output.
+same DAST object-package envelope. DAST v4 is the sole authored package reader,
+ordinary writer, and repository baseline. Unsupported versions fail before
+header-specific interpretation, object construction, mutation, or publication.
 Relocation preserves the package format while changing only the main-object
 name when a rename requires it. The header records the `DAST` magic, format
 version, main asset class, bounded registry-entry kind, redirect destination,
@@ -97,8 +97,8 @@ external `DestinationObject` field matching the header and dependency table.
 Every format outside the supported-reader set is rejected before
 header-specific metadata or the object graph is interpreted. Registry and
 reference caches include the package format in their fingerprints, discard
-unsupported entries, and cannot reuse a v3 projection for changed v4 bytes or
-vice versa.
+unsupported entries, and cannot reuse a projection after package bytes or the
+declared format changes.
 
 Asset-specific magic values belong to external derived or cooked payloads, not
 to alternative `.dasset` envelopes. StaticMesh payloads use DMSH and texture
@@ -108,12 +108,12 @@ references it still begins with DAST.
 
 ### Frozen DAST v4 Wire Contract
 
-DAST v4 is the qualified migration format. AssetCore exposes production-owned
-low-level writer and reader boundaries, and mixed-version policy dispatches
-header, inspection, compatibility, reference, registry/cache, and live-load
-reads to v3 or v4. Ordinary package saves remain v3; explicit migration alone
-uses the v4 live writer. The layout below is frozen: later plans must consume
-these bytes and semantics rather than selecting another layout.
+DAST v4 is the qualified authored format. AssetCore exposes production-owned
+low-level writer and reader boundaries, and package policy routes header,
+inspection, compatibility, reference, registry/cache, and live-load operations
+only to v4. Ordinary and bundle saves use the v4 live writer in no-delta mode.
+The layout below is frozen: later format changes must use a new version and an
+explicit migration rather than altering these bytes or semantics.
 
 A v4 package starts with bytes `44 41 53 54`, then `04 00 00 00` (`uint32`
 little-endian version 4), a little-endian `uint32` public-summary byte length,
@@ -248,8 +248,8 @@ qualify a complete current Default Material at 6,275 bytes: envelope/directory
 79, Name 1,803, Type 62, Schema/custom versions 107, Object 5, and Value 4,219.
 It contains 105 names, 21 structural types, 6 schemas, 1 object, 1 top-level
 override, and maximum depth 5; the plan contains 785 fields, emits 554, omits
-231, performs 1,275 logical comparisons, and allocates no authored-intent
-ledger for the v3-loaded object. XXH64 is `C4111B7609C78D4F`. This is 10,109
+231, performs 1,275 logical comparisons, and requires no authored-intent
+ledger in no-delta mode. XXH64 is `C4111B7609C78D4F`. This is 10,109
 bytes below the 16,384-byte controlling gate and 14,384 bytes below the
 20,659-byte same-content-v2-relative gate. Modeled parse operations/allocation
 inputs fall from v3's 5,020/3,948 to 134/133 without compression. Repeated and
@@ -257,8 +257,8 @@ reverse-discovery packages are byte-identical. Loaded-explicit and forced ledger
 fixtures exercise provenance `00` and `01`, while unknown-retention fixtures
 keep `02`; clearing the ledger restores the same baseline bytes. These values
 also qualify the production writer byte-for-byte against the independent
-reference codec; they do not make v4 production-readable or change ordinary
-package saves.
+reference codec. The same production codec now owns ordinary v4 package saves
+and bounded v4 reads.
 
 ### Explicit DAST v4 Writer Boundary
 
@@ -272,15 +272,13 @@ replaces the caller's destination only after the complete bounded package has
 been assembled.
 
 `Durin::Asset::DastV4::WriteAssetPackage` is the sole live-object integration
-entry. It is explicit opt-in, performs the existing Archive discovery/emission
-manifest check, consumes `BuildDefaultDeltaPlan` in enabled or no-delta mode,
-and then delegates to the low-level writer. AssetCore calls this entry only
-from explicit package migration; `SerializeAssetPackageBytes`, `SavePackage`,
-registry publication, inspection, and loading never write through it. Known
-enum values originating in DAST v3
-use the unsigned storage opcode frozen by the v3 type signature, which records
-qualified enum identity and width but not signedness; the low-level v4 model
-still supports every signed and unsigned enum storage opcode.
+entry. It performs Archive discovery/emission manifest checks, consumes
+`BuildDefaultDeltaPlan` in enabled or no-delta mode, and then delegates to the
+low-level writer. Ordinary and atomic-bundle saves select no-delta mode so a
+loaded canonical v4 package resaves byte-identically. Relocation, redirector
+Fix Up, and cook canonicalization decode the existing v4 model, apply their
+bounded rewrite, and canonically re-encode it. Inspection and loading remain
+read-only.
 
 Retained provenance `02` inputs keep their descriptor closure and payload as
 separate exact byte spans. Before publication, the writer parses all closure
@@ -316,13 +314,13 @@ math Struct payloads and canonical Map routes. Provenance `02` never remaps
 through package tables: compatibility and live reports carry its exact
 `DescriptorClosure` and `RetainedPayload` spans and retain data-loss risk.
 
-The mixed-version policy routes bounded header, validation, inspection,
-reference, compatibility, and ordinary live-load reads through these entries
-when the preamble declares v4. Reads never write or dirty a package. Ordinary
-`SavePackage` remains v3, and explicit migration invokes the writer only after
-selection, compatibility, and stale-input checks succeed.
+The package policy routes bounded header, validation, inspection, reference,
+compatibility, and ordinary live-load reads through these entries when the
+preamble declares v4. Reads never write or dirty a package. Unsupported versions
+fail before version-specific parsing. Saves invoke the v4 writer only after
+compatibility and stale-input checks succeed.
 
-### Production Save and Mixed-Version Load
+### Production Save and Load
 
 Object records store object id, outer id, qualified class name, object name, and
 a field table. Fields are identified by declaring qualified class plus property
@@ -332,14 +330,14 @@ process-local ABI property. Missing fields retain constructor defaults. Unknown
 classes, invalid Outer hierarchies, malformed references, truncation, and
 unsupported versions fail the complete load.
 
-DAST v3 save and load are purpose-specific `FArchive` adapters. Saving runs a
+DAST v4 save and load are purpose-specific `FArchive` adapters. Saving runs a
 discovery pass through each live object's virtual `DObject::Serialize(...)`,
 freezes object ids, fields, dependencies, logical types, and version use, then
 calls the same entry for emission. A derived serializer must call its base once
 and can persist additional durable state only as stable named fields. A field,
 dependency, type, object, or version first seen during emission fails before
 file or registry publication. Repeated saves preserve the existing canonical
-field, dependency, object, and Map ordering.
+tables, overrides, dependencies, objects, and Map ordering.
 
 Loading validates records and creates all object skeletons and Outer links
 before applying fields. Each live object receives exactly one DAST load Archive
@@ -350,28 +348,37 @@ are resolved before their references are applied. Successful objects receive
 callback, or `PostLoad` failure rolls back the complete new package and leaves
 the active cache, registry, files, and prior dirty state unchanged.
 
-V4 live loading uses the same root transaction boundary. The root package owns
-dependency residency, registry publication, load reports, and cache transfer;
-nested mixed-version dependencies queue their entries until the root commits.
-Any v3 or v4 decode, dependency, field, ledger, callback, or `PostLoad` failure
-destroys the complete new mixed graph and restores prior residency, registry,
-cache, report, and dirty state.
+Live loading uses one root transaction boundary. The root package owns dependency
+residency, registry publication, load reports, and cache transfer; nested
+dependencies queue their entries until the root commits. Any decode, dependency,
+field, ledger, callback, or `PostLoad` failure destroys the complete new graph
+and restores prior residency, registry, cache, report, and dirty state.
+
+An ordinary single-package or atomic-bundle save may update an existing package
+only when its registered format equals the ordinary v4 writer. A stale or
+unsupported registry version is rejected before serialization, staging, file
+publication, registry publication, or dirty-state clearing. New packages use
+the same ordinary writer. Format transitions belong only to an explicit
+migration transaction.
 
 ### Explicit Package Migration
 
-`DevTool asset migrate` is the only package-format migration boundary.
+`DevTool asset migrate` is the only package-format migration boundary. The
+current v4-only baseline registers no built-in migration edge, so it reports no
+path for older packages. A future format transition must explicitly register
+its exact source-to-target edge before this workflow can select it.
 Planning is read-only, requires explicit package or mount selection (or an
 explicit whole-corpus invocation), closes dependencies that also require
 migration, and records content hashes, sizes, and stable timestamps. Apply
 revalidates every fingerprint before load and again before publication, rejects
-compatibility or retained-data risk without consent, and writes deterministic
-DAST v4 through `WriteAssetPackage` with no default delta. Ordinary saves and
-the repository v3 baseline are independent of this migration-writer policy.
+compatibility or retained-data risk without consent, and writes through the
+selected deterministic migration writer. Ordinary saves and the repository
+baseline remain independent of migration-writer policy.
 
 The existing package-bundle sidecar journal stages every selected destination
-before publication. The tool validates bounded v4 decode, byte-identical
-re-emission, fresh compatibility probes, and registry projections before
-removing sidecars. Any decode, dependency, upgrade, serialization, staging,
+before publication. The tool validates bounded target-format decode,
+byte-identical re-emission, fresh compatibility probes, and registry projections
+before removing sidecars. Any decode, dependency, upgrade, serialization, staging,
 publication, post-audit, cache, or registry failure compensates the complete
 bundle and restores authored bytes plus runtime state. Registry entries are
 published only after every package has passed post-audit; discovery, audit,

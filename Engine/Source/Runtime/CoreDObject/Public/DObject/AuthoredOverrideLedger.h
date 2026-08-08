@@ -90,4 +90,8 @@ namespace Durin
 		DObject* Object,
 		const FAuthoredOverridePath& Path,
 		FAuthoredOverrideDiagnostic* OutDiagnostic = nullptr) -> bool;
+	COREDOBJECT_API auto ValidateAuthoredOverrideEntries(
+		DObject* Object,
+		std::span<const FAuthoredOverrideEntry> Entries,
+		FAuthoredOverrideDiagnostic* OutDiagnostic = nullptr) -> bool;
 }

@@ -29,7 +29,7 @@ def package(
     inspection: str = "Ready",
     compatibility: str = "Compatible",
     freshness: str = "Current",
-    format_version: int = 3,
+    format_version: int = 4,
     code: str | None = None,
 ) -> dict[str, object]:
     findings = [] if code is None else [{"code": code, "diagnostic": f"{code} diagnostic"}]
@@ -125,7 +125,7 @@ def test_selected_asset_command_grammar_is_frozen() -> None:
     [
         (report(package("/Game/Baseline")), 0),
         (report(package("/Game/Baseline", format_version=2, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
-        (report(package("/Game/Baseline", format_version=4)), 3),
+        (report(package("/Game/Baseline", format_version=3)), 3),
         (report(package("/Game/Baseline", compatibility="Incompatible", code="UnknownField")), 3),
         (report(), 3),
     ],

@@ -346,12 +346,11 @@ TEST(FPackageV4ReaderTests, CompatibilityMatchesKnownAndRetainedLiveSchemas)
 		Durin::Asset::EAssetCompatibilityFindingCode::IncompatibleFieldSignature);
 }
 
-TEST(FPackageV4ReaderTests, OrdinaryV3ValidationDoesNotActivateTheExplicitV4Reader)
+TEST(FPackageV4ReaderTests, OrdinaryValidationUsesTheProductionV4Reader)
 {
 	const std::vector<uint8> Bytes = BuildPackage();
 	Production::FDecodedPackage Package;
 	ASSERT_TRUE(Production::DecodePackage(Bytes, Package));
 	const Durin::Asset::FAssetResult Ordinary = Durin::Asset::ValidateAssetPackageBytes(Bytes);
-	EXPECT_FALSE(Ordinary);
-	EXPECT_EQ(Ordinary.Error, Durin::Asset::EAssetError::UnsupportedVersion);
+	EXPECT_TRUE(Ordinary) << Ordinary.Message;
 }

@@ -22,12 +22,6 @@ namespace Durin::Asset::Private
 		std::vector<FAssetPath> Dependencies;
 	};
 
-	auto BuildAuthoredPackageBytes(
-		DPackage* Package,
-		std::vector<uint8>& OutBytes,
-		FAuthoredPackageSummary& OutSummary,
-		const FAssetPackageSerializationOptions& Options = {}) -> FAssetResult;
-
 	auto LoadAuthoredObject(
 		DObject& Object,
 		std::span<const FAuthoredPackageFieldRecord> Fields,

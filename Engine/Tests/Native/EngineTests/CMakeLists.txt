@@ -465,7 +465,7 @@ durin_add_engine_functional_test(EditorRenderingTests
 		Private/RendererRenderTargetLayoutTests.cpp
 		Private/RendererSceneViewTests.cpp
 		Private/EditorTextureSmokeTests.cpp
-	LIBRARIES ApplicationCore AssetImportCore StandardAssetImport RenderCore Renderer DurinEd
+	LIBRARIES ApplicationCore AssetImportCore StandardAssetImport RenderCore Renderer DurinEd MaterialEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data

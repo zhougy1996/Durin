@@ -124,8 +124,15 @@ namespace Durin
 					.Reason = EAuthoredOverrideFailureReason::InvalidProvenance};
 				return false;
 			}
-			if (!ValidateAuthoredOverridePath(this, Entry.Path, OutDiagnostic)) return false;
 		}
+		if (Sorted.empty())
+		{
+			std::atomic_store_explicit(&AuthoredOverrideLedger,
+				std::shared_ptr<const FAuthoredOverrideLedger>{}, std::memory_order_release);
+			if (OutDiagnostic) OutDiagnostic->Reset();
+			return true;
+		}
+		if (!ValidateAuthoredOverrideEntries(this, Sorted, OutDiagnostic)) return false;
 		std::ranges::sort(Sorted, [](const FAuthoredOverrideEntry& Left, const FAuthoredOverrideEntry& Right) {
 			return CompareAuthoredOverridePaths(Left.Path, Right.Path) < 0;
 		});
@@ -141,18 +148,10 @@ namespace Durin
 				return false;
 			}
 		}
-		if (Sorted.empty())
-		{
-			std::atomic_store_explicit(&AuthoredOverrideLedger,
-				std::shared_ptr<const FAuthoredOverrideLedger>{}, std::memory_order_release);
-		}
-		else
-		{
-			auto Ledger = std::make_shared<FAuthoredOverrideLedger>();
-			Ledger->Entries = std::move(Sorted);
-			std::atomic_store_explicit(&AuthoredOverrideLedger,
-				std::shared_ptr<const FAuthoredOverrideLedger>(std::move(Ledger)), std::memory_order_release);
-		}
+		auto Ledger = std::make_shared<FAuthoredOverrideLedger>();
+		Ledger->Entries = std::move(Sorted);
+		std::atomic_store_explicit(&AuthoredOverrideLedger,
+			std::shared_ptr<const FAuthoredOverrideLedger>(std::move(Ledger)), std::memory_order_release);
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		return true;
 	}

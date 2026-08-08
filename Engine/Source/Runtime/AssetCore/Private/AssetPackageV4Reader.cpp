@@ -1156,8 +1156,9 @@ namespace Durin::Asset::DastV4
 			}
 		}
 
-		auto RestoreNestedLedger(DObject& Object, const FDecodedType& Type, const FValue& Value,
+		auto RestoreNestedLedger(const FDecodedType& Type, const FValue& Value,
 			const FDecodedPackage& Package, FAuthoredOverridePath& Path,
+			std::vector<FAuthoredOverrideEntry>& Entries,
 			FReaderDiagnostic& Diagnostic) -> bool
 		{
 			if (Type.Opcode == ETypeOpcode::Struct)
@@ -1172,13 +1173,10 @@ namespace Durin::Asset::DastV4
 					if (It == Schema->Fields.end()) return Fail(Diagnostic, EReaderFailure::InvalidValue, "Struct ledger field is missing.");
 					const FDecodedType* ChildType = TypeAt(Package, It->TypeId); if (!ChildType) return false;
 					Path.push_back(FAuthoredOverridePathToken::Field(FName(Schema->QualifiedName), FName(It->Name)));
-					FAuthoredOverrideDiagnostic LedgerDiagnostic;
 					const auto Provenance = Value.Provenances[Index] == EDefaultDeltaProvenance::Forced
 						? EAuthoredOverrideProvenance::Forced : EAuthoredOverrideProvenance::LoadedExplicit;
-					if (!Object.SetAuthoredOverride(Path, Provenance, &LedgerDiagnostic))
-						return Fail(Diagnostic, EReaderFailure::ArchiveFailure,
-							"Could not restore nested authored intent.", 0, LedgerDiagnostic.LogicalPath);
-					if (!RestoreNestedLedger(Object, *ChildType, Value.Elements[Index], Package, Path, Diagnostic)) return false;
+					Entries.push_back({Path, Provenance});
+					if (!RestoreNestedLedger(*ChildType, Value.Elements[Index], Package, Path, Entries, Diagnostic)) return false;
 					Path.pop_back();
 				}
 			}
@@ -1191,7 +1189,7 @@ namespace Durin::Asset::DastV4
 					Path.push_back(Type.Opcode == ETypeOpcode::FixedArray
 						? FAuthoredOverridePathToken::FixedArrayElement(Index)
 						: FAuthoredOverridePathToken::ArrayElement(Index));
-					if (!RestoreNestedLedger(Object, *ChildType, Value.Elements[Index], Package, Path, Diagnostic)) return false;
+					if (!RestoreNestedLedger(*ChildType, Value.Elements[Index], Package, Path, Entries, Diagnostic)) return false;
 					Path.pop_back();
 				}
 			}
@@ -1205,7 +1203,7 @@ namespace Durin::Asset::DastV4
 					std::vector<uint8> Token;
 					if (!BuildLedgerMapKeyToken(*KeyType, Value.Elements[Index], Token, Diagnostic)) return false;
 					Path.push_back(FAuthoredOverridePathToken::MapValue(std::move(Token)));
-					if (!RestoreNestedLedger(Object, *ValueType, Value.Elements[Index + 1], Package, Path, Diagnostic)) return false;
+					if (!RestoreNestedLedger(*ValueType, Value.Elements[Index + 1], Package, Path, Entries, Diagnostic)) return false;
 					Path.pop_back();
 				}
 			}
@@ -1554,6 +1552,7 @@ namespace Durin::Asset::DastV4
 					.MigrationSummary = "The DAST v4 field is incompatible with the live schema.",
 					.Risk = EAssetCompatibilityRisk::UnknownNewerSchema});
 
+			std::vector<FAuthoredOverrideEntry> LedgerEntries;
 			for (const FDecodedOverride* Override : KnownOverrides)
 			{
 				const FDecodedSchema* Schema = SchemaAt(Decoded, Override->SchemaId);
@@ -1567,19 +1566,21 @@ namespace Durin::Asset::DastV4
 					return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 				}
 				FAuthoredOverridePath Path{FAuthoredOverridePathToken::Field(FName(Schema->QualifiedName), FName(Field.Name))};
-				FAuthoredOverrideDiagnostic LedgerDiagnostic;
 				const auto Provenance = Override->Provenance == 1 ? EAuthoredOverrideProvenance::Forced
 					: EAuthoredOverrideProvenance::LoadedExplicit;
-				if (!Objects[ObjectIndex]->SetAuthoredOverride(Path, Provenance, &LedgerDiagnostic))
-				{
-					Fail(Diagnostic, EReaderFailure::ArchiveFailure, "Could not restore authored intent.", 0, LedgerDiagnostic.LogicalPath); Rollback();
-					return Finish({EAssetError::CorruptFile, Diagnostic.Message});
-				}
+				LedgerEntries.push_back({Path, Provenance});
 				const FDecodedType* Type = TypeAt(Decoded, Field.TypeId);
-				if (!RestoreNestedLedger(*Objects[ObjectIndex], *Type, Override->Value, Decoded, Path, Diagnostic))
+				if (!RestoreNestedLedger(*Type, Override->Value, Decoded, Path, LedgerEntries, Diagnostic))
 				{
 					Rollback(); return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 				}
+			}
+			FAuthoredOverrideDiagnostic LedgerDiagnostic;
+			if (!Objects[ObjectIndex]->ReplaceAuthoredOverrides(LedgerEntries, &LedgerDiagnostic))
+			{
+				Fail(Diagnostic, EReaderFailure::ArchiveFailure,
+					"Could not restore authored intent.", 0, LedgerDiagnostic.LogicalPath); Rollback();
+				return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 			}
 		}
 

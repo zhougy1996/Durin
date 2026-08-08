@@ -3,12 +3,18 @@
 #include "EngineTestSupport.h"
 
 #include "Actors/StaticMeshActor.h"
+#include "AssetCompatibility.h"
+#include "AssetMigration.h"
+#include "AssetPackageVersionPolicy.h"
 #include "AssetSystem.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/FPrimitiveSceneProxy.h"
+#include "Editor/EditorWorkspace.h"
+#include "MaterialEditorModule.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialTypes.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "RenderResource.h"
@@ -17,6 +23,7 @@
 #include "StaticMesh/StaticMeshResources.h"
 #include "StandardAssetImportProviders.h"
 #include "Texture/Texture2D.h"
+#include "Thumbnail/RenderedAssetThumbnailCache.h"
 
 namespace Durin
 {
@@ -32,6 +39,209 @@ namespace Durin
 			std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
 			Stream.write(reinterpret_cast<const char*>(PngBytes), static_cast<std::streamsize>(std::size(PngBytes)));
 		}
+
+		auto PlanMountMigration(std::string_view VirtualRoot)
+			-> Asset::FAssetMigrationPlan
+		{
+			const Asset::FAssetPackageDiscoverySnapshot Snapshot =
+				Asset::CaptureMountedAssetPackageSnapshot();
+			EXPECT_EQ(Snapshot.Status,
+				Asset::EAssetPackageSnapshotStatus::Completed) << Snapshot.Error;
+			const Asset::FReflectionCompatibilityCatalog Catalog =
+				Asset::FReflectionCompatibilityCatalog::Capture();
+			std::vector<Asset::FAssetPackageCompatibilityRecord> Records;
+			for (const Asset::FAssetPackageCompatibilityProbeInput& Input :
+				Snapshot.Packages)
+			{
+				if (!Input.PackagePath.ToString().starts_with(VirtualRoot)) continue;
+				Asset::FAssetPackageCompatibilityProbeResult Probe =
+					Asset::ProbeAssetPackageCompatibility(Input, Catalog);
+				EXPECT_TRUE(Probe.Record.has_value());
+				if (Probe.Record) Records.push_back(std::move(*Probe.Record));
+			}
+			Asset::FAssetMigrationRegistry Registry;
+			std::string Error;
+			EXPECT_TRUE(Asset::RegisterBuiltInAssetMigrations(Registry, Error))
+				<< Error;
+			return Asset::PlanAssetPackageMigrations(Records, Registry);
+		}
+	}
+
+	TEST(FEditorTextureSmokeTests,
+		OrdinaryV4GraphRendersReloadsAndResavesDeterministically)
+	{
+		InitializeDObjectSystem();
+		std::string ProviderError;
+		ASSERT_TRUE(RegisterStandardAssetImportProviders(ProviderError))
+			<< ProviderError;
+		InitRenderingThread();
+		const std::filesystem::path Root =
+			Testing::GetTestWorkDirectory() / "EditorMixedV4Rendering";
+		Durin::Testing::RemoveTestWorkDirectory(Root);
+		std::filesystem::create_directories(Root / "Content");
+		const std::array Definitions{
+			PathUtilities::FMountPoint{
+				.VirtualRoot = "/EditorMixedV4/",
+				.Owner = PathUtilities::EMountOwner::Test,
+				.Root = Root / "Content",
+				.ContentPath = ".",
+				.bAutoScan = true,
+				.bAuthoringWritable = true}};
+		PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
+		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+		FPaths::SetDerivedDataCacheDirForTests(
+			(Root / "DerivedDataCache").generic_string());
+
+		const std::filesystem::path TextureSource =
+			Root / "VisibleTexture.png";
+		WriteTextureSmokeFixture(TextureSource);
+		const FTexture2DImportResult TextureImport = DTexture2D::ImportAsset(
+			TextureSource.generic_string(), "/EditorMixedV4/Textures/BaseColor");
+		ASSERT_TRUE(TextureImport) << TextureImport.Message;
+		const std::filesystem::path MeshSource =
+			std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
+		const FStaticMeshImportResult MeshImport = DStaticMesh::ImportAsset(
+			MeshSource.generic_string(), "/EditorMixedV4/Meshes/VisibleMesh");
+		ASSERT_TRUE(MeshImport) << MeshImport.Message;
+		FAssetPath MaterialPath;
+		FAssetPath MeshPath;
+		FAssetPath TexturePath;
+		ASSERT_TRUE(FAssetPath::TryCreate(
+			"/EditorMixedV4/Materials/Textured", MaterialPath));
+		ASSERT_TRUE(FAssetPath::TryCreate(
+			"/EditorMixedV4/Meshes/VisibleMesh", MeshPath));
+		ASSERT_TRUE(FAssetPath::TryCreate(
+			"/EditorMixedV4/Textures/BaseColor", TexturePath));
+		DMaterial* Material = nullptr;
+		ASSERT_TRUE(Asset::CreateAsset(MaterialPath, Material));
+		Material->SetTextureParameterValue(
+			MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
+		ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+
+		ASSERT_TRUE(Asset::UnloadPackage(MaterialPath));
+		ASSERT_TRUE(Asset::UnloadPackage(MeshPath));
+		ASSERT_TRUE(Asset::UnloadPackage(TexturePath));
+		const Asset::FReflectionCompatibilityCatalog Catalog =
+			Asset::FReflectionCompatibilityCatalog::Capture();
+		Asset::FAssetMigrationPlan Plan = PlanMountMigration("/EditorMixedV4/");
+		ASSERT_EQ(Plan.Packages.size(), 3u)
+			<< Asset::SerializeAssetMigrationPlanReportV1(Plan);
+		ASSERT_TRUE(std::ranges::all_of(Plan.Packages, [](const auto& Package) {
+			return Package.Status == Asset::EAssetMigrationPackageStatus::Skipped;
+		})) << Asset::SerializeAssetMigrationPlanReportV1(Plan);
+		const Asset::FAssetMigrationApplyResult Applied =
+			Asset::ApplyAssetPackageMigrations(std::move(Plan), Catalog);
+		ASSERT_EQ(Applied.Status, Asset::EAssetMigrationApplyStatus::Succeeded)
+			<< Applied.Diagnostic;
+		ASSERT_TRUE(Applied.ChangedPaths.empty());
+		for (const FAssetPath& Path : {MaterialPath, MeshPath, TexturePath})
+		{
+			const Asset::FAssetData* Data =
+				Asset::GetAssetRegistry().FindAssetExact(Path);
+			ASSERT_NE(Data, nullptr);
+			EXPECT_EQ(Data->FormatVersion,
+				Asset::AssetPackageV4FormatVersion);
+		}
+
+		auto LoadRenderableGraph = [&]() {
+			DStaticMesh* Mesh = nullptr;
+			DMaterial* LoadedMaterial = nullptr;
+			DTexture2D* Texture = nullptr;
+			Asset::FAssetLoadReport MeshReport;
+			Asset::FAssetLoadReport MaterialReport;
+			Asset::FAssetLoadReport TextureReport;
+			EXPECT_TRUE(Asset::LoadAsset(MeshPath, Mesh, &MeshReport));
+			EXPECT_TRUE(Asset::LoadAsset(MaterialPath, LoadedMaterial,
+				&MaterialReport));
+			EXPECT_TRUE(Asset::LoadAsset(TexturePath, Texture, &TextureReport));
+			EXPECT_TRUE(MeshReport.CompatibilityIssues.empty());
+			EXPECT_TRUE(MaterialReport.CompatibilityIssues.empty());
+			EXPECT_TRUE(TextureReport.CompatibilityIssues.empty());
+			return std::tuple{Mesh, LoadedMaterial, Texture};
+		};
+		auto ValidateRenderableGraph = [](DStaticMesh* Mesh,
+			DMaterial* LoadedMaterial, DTexture2D* Texture) {
+			AStaticMeshActor* Actor = NewObject<AStaticMeshActor>(
+				nullptr, "MixedV4RenderActor");
+			DStaticMeshComponent* Component = Actor->GetStaticMeshComponent();
+			Component->SetStaticMesh(Mesh);
+			Component->SetMaterial(LoadedMaterial);
+			std::unique_ptr<FPrimitiveSceneProxy> Proxy =
+				Component->CreateSceneProxy();
+			auto* StaticMeshProxy =
+				dynamic_cast<FStaticMeshSceneProxy*>(Proxy.get());
+			EXPECT_NE(StaticMeshProxy, nullptr);
+			EXPECT_NE(StaticMeshProxy->GetRenderData(), nullptr);
+			FRHITextureReferenceRef BoundTexture;
+			struct FCaptureMixedV4Texture
+			{
+				static constexpr auto GetName() -> const char*
+				{
+					return "CaptureMixedV4Texture";
+				}
+			};
+			EnqueueRenderCommand<FCaptureMixedV4Texture>(
+				[StaticMeshProxy, &BoundTexture](FRHICommandListImmediate&) {
+					FMaterialRenderV3Binding Binding;
+					FMaterialRenderValidationDiagnostic Diagnostic;
+					EXPECT_TRUE(TryGetMaterialRenderV3Binding(
+						StaticMeshProxy->ResolveMaterialRenderData_RenderThread()
+							.Representation,
+						Binding, Diagnostic)) << Diagnostic.Message;
+					BoundTexture = Binding.Textures[0];
+				});
+			FlushRenderingCommands();
+			EXPECT_EQ(BoundTexture, Texture->GetTextureReferenceRHI());
+			Proxy.reset();
+			MarkObjectHierarchyAsGarbage(Actor);
+			CollectGarbage();
+		};
+
+		auto [LoadedMesh, LoadedMaterial, LoadedTexture] =
+			LoadRenderableGraph();
+		ASSERT_NE(LoadedMesh, nullptr);
+		ASSERT_NE(LoadedMaterial, nullptr);
+		ASSERT_NE(LoadedTexture, nullptr);
+		ValidateRenderableGraph(LoadedMesh, LoadedMaterial, LoadedTexture);
+		ASSERT_TRUE(Asset::UnloadPackage(MaterialPath));
+		ASSERT_TRUE(Asset::UnloadPackage(MeshPath));
+		ASSERT_TRUE(Asset::UnloadPackage(TexturePath));
+
+		std::tie(LoadedMesh, LoadedMaterial, LoadedTexture) =
+			LoadRenderableGraph();
+		ASSERT_NE(LoadedMesh, nullptr);
+		ASSERT_NE(LoadedMaterial, nullptr);
+		ASSERT_NE(LoadedTexture, nullptr);
+		ValidateRenderableGraph(LoadedMesh, LoadedMaterial, LoadedTexture);
+		const std::string MaterialFile =
+			Asset::GetAssetRegistry().FindAssetExact(MaterialPath)->PhysicalPath;
+		std::vector<uint8> BeforeSave;
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(
+			BeforeSave, MaterialFile));
+		FEditorWorkspaceManager WorkspaceManager;
+		FRenderedAssetThumbnailService ThumbnailService;
+		FMaterialEditorModule MaterialEditorModule;
+		ASSERT_TRUE(MaterialEditorModule.RegisterMaterialEditor(
+			WorkspaceManager, ThumbnailService));
+		ASSERT_TRUE(WorkspaceManager.OpenAsset(
+			MaterialPath.ToString(),
+			DMaterial::StaticClass()->GetQualifiedName().ToString()));
+		auto MaterialWorkspace = WorkspaceManager.FindWorkspace(
+			FEditorWorkspaceTypeId("MaterialEditor"));
+		ASSERT_NE(MaterialWorkspace, nullptr);
+		LoadedMaterial->MarkPackageDirty();
+		EXPECT_TRUE(MaterialWorkspace->CanSaveActiveDocument());
+		EXPECT_TRUE(MaterialWorkspace->SaveActiveDocument());
+		EXPECT_FALSE(LoadedMaterial->GetPackage()->IsDirty());
+		std::vector<uint8> AfterSave;
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(
+			AfterSave, MaterialFile));
+		EXPECT_EQ(AfterSave, BeforeSave);
+		EXPECT_EQ(Asset::GetAssetRegistry().FindAssetExact(MaterialPath)
+			->FormatVersion, Asset::AssetPackageV4FormatVersion);
+
+		ShutdownRenderingThread();
+		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
 	}
 
 	TEST(FEditorTextureSmokeTests,

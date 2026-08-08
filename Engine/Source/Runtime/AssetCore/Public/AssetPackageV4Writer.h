@@ -176,8 +176,8 @@ namespace Durin::Asset::DastV4
 		FAssetPackageSerializationOptions Serialization;
 	};
 
-	// Explicit opt-in integration boundary. This is intentionally separate from
-	// SerializeAssetPackageBytes and SavePackage, which remain DAST v3-only.
+	// Production integration boundary shared by ordinary serialization, saves,
+	// and explicit callers that need writer diagnostics or delta-mode control.
 	ASSETCORE_API auto WriteAssetPackage(
 		DPackage* Package,
 		std::vector<uint8>& OutBytes,

@@ -22,7 +22,7 @@ from .errors import DevToolError
 POLICY_EXIT_CODE = 3
 SCHEMA_VERSION = 2
 MIGRATION_SCHEMA_VERSION = 1
-CURRENT_ASSET_FORMAT_VERSION = 3
+CURRENT_ASSET_FORMAT_VERSION = 4
 INSPECTION_NAMES = {"NotChecked", "Ready", "Failed"}
 COMPATIBILITY_NAMES = {"Compatible", "Incompatible", "Unsupported"}
 FRESHNESS_NAMES = {"Current", "Stale"}
@@ -364,9 +364,9 @@ def run(
     elif is_baseline:
         if _baseline_failed(report):
             _render_human(report, stdout)
-            print("\nAsset baseline rejected: every package must be current DAST v3 with no schema findings.", file=stdout)
+            print("\nAsset baseline rejected: every package must be current DAST v4 with no schema findings.", file=stdout)
         else:
-            print(f"Asset baseline: {len(report['packages'])} current DAST v3 package(s).", file=stdout)
+            print(f"Asset baseline: {len(report['packages'])} current DAST v4 package(s).", file=stdout)
     elif is_migrate:
         _render_migration_human(report, stdout)
     else:

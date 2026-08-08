@@ -44,19 +44,12 @@ durin_add_asset_functional_test(AssetPackageTests
 	SOURCES
 		Private/AssetPackageVersionPolicyTests.cpp
 		Private/PackageTests.cpp
-		Private/PackageV3Measurement.cpp
-		Private/PackageV3MeasurementTests.cpp
 		Private/PackageV4WireContract.cpp
 		Private/PackageV4WireContractTests.cpp
 		Private/PackageV4ReferenceModel.cpp
 		Private/PackageV4ReferenceModelTests.cpp
-		Private/PackageV4Feasibility.cpp
-		Private/PackageV4FeasibilityTests.cpp
 		Private/PackageV4WriterTests.cpp
 		Private/PackageV4ReaderTests.cpp
-)
-target_compile_definitions(AssetPackageTests PRIVATE
-	DAST_V3_CORPUS_ROOT="${DURIN_PROJECT_ROOT_DIR}/.."
 )
 durin_test_deploy_directory_to_data(
 	AssetPackageTests

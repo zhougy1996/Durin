@@ -4,10 +4,20 @@ Summary: Coordinate the reflection foundations, deterministic DAST v4 format, mu
 
 Last reviewed: 2026-08-09
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-09
 
 ## Current Status
+
+The roadmap completed on 2026-08-09. All required child milestones passed their
+exit gates. The 17-package tracked corpus is deterministic DAST v4, ordinary and
+bundle saves emit v4, bounded reads accept only v4, and the temporary v3 reader
+and exact migration edge are retired. Editor load/render/save/restart, focused
+native and tool suites, baseline/hash checks, documentation validation, and the
+full `all` build passed. Runtime documentation now owns the lasting v4-only
+package and version-policy contracts. The conditional custom-Struct-codec
+milestone remains evidence-gated and is not required by the current production
+audit.
 
 - The bounded
   [DAST V4 Measurement and Wire Contract Plan](../Plans/DASTV4MeasurementAndWireContract.md)
@@ -51,8 +61,8 @@ Completed:
   writer separation, mixed registry/cache and live dispatch, and explicit
   atomic v3-to-v4 migration without tracked-content changes. The
   [DAST V4 Qualification and Rollout Plan](../Plans/DASTV4QualificationAndRollout.md)
-  is now the only active serialization child and owns editor qualification,
-  explicit tracked-corpus migration, ordinary-v4 activation, and v3 retirement.
+  subsequently completed editor qualification, explicit tracked-corpus
+  migration, ordinary-v4 activation, and v3 retirement.
 - The completed [Asset Redirectors Refactor Plan](../Plans/Archive/2026-08/AssetRedirectors.md)
   owns DAST v3's bounded registry-entry kind and redirect-destination header
   summary. Compact serialization therefore starts at v4 and uses a temporary
@@ -169,16 +179,14 @@ compression.
   entries, invalid IDs, recursive type cycles, overflow, overlap, trailing
   bytes, and unconsumed payload data.
 
-## Current Foundations and Gaps
+## Completed Foundations
 
-### Foundations
-
-- DAST v3 separates bounded public-header reads from complete package loading
-  and atomic publication without introducing compact body sections.
+- DAST v4 separates bounded public-header reads from complete package loading
+  and atomic publication through compact canonical body sections.
 - Existing reflection metadata exposes qualified class, struct, enum, and field
   identities plus recursive property kinds.
 - Compatibility inspection, data-loss consent, registry fingerprints, frozen
-  fixtures, and package tests provide a baseline that v4 must preserve.
+  fixtures, and package tests enforce the v4 baseline.
 - `DStruct` exposes immutable operation capabilities, managed aligned value
   storage, recursive logical equality, and transactional Archive/authored
   loading. `FPropertyValueSnapshot` uses the same equality and roots reflected
@@ -186,14 +194,6 @@ compression.
 - `DClass` exposes immutable class defaults with stable eligibility diagnostics,
   construction-purpose identity, logical parity across the production class
   inventory, live-only query filtering, and derived-first GC/module release.
-
-### Gaps
-
-- Package-version handling still conflates the latest writer with the supported
-  reader set. The v3 value is also duplicated across package saving, loading,
-  compatibility, and migration code.
-- Registry/cache policy, explicit mixed-version migration, tracked-content
-  rollout, and retirement of the temporary v3 path remain gated later work.
 
 ## Milestone Map
 
@@ -207,7 +207,7 @@ compression.
 | [Deterministic v4 writer](../Plans/DASTV4DeterministicWriter.md) | Required child plan | Default-relative reflection exit gate passed | Discovery freezes every referenced table entry and version; canonical emission is byte-deterministic and meets both Default Material size gates | Completed 2026-08-08 |
 | [V4 reader and compatibility](../Plans/DASTV4ReaderCompatibility.md) | Required child plan | Writer fixtures and frozen schema model available | Bounded v4 loading and construct-free inspection preserve unknown descriptor closures and pass malformed-input, rollback, and compatibility parity suites | Completed 2026-08-08 |
 | [Mixed-version migration](../Plans/DASTV4MixedVersionMigration.md) | Required child plan | V3/v4 readers and v4 writer stable | Latest-writer and supported-reader policy is separated; registry, cache, and explicit atomic v3-to-v4 migration pass mixed-corpus and rollback validation | Completed 2026-08-09 |
-| [Qualification and rollout](../Plans/DASTV4QualificationAndRollout.md) | Required child plan | Mixed-version migration exit gate passed | Full validation and editor load/render/save/restart pass before tracked authored content is explicitly resaved and the temporary v3 edge is retired | Active 2026-08-09 |
+| [Qualification and rollout](../Plans/DASTV4QualificationAndRollout.md) | Required child plan | Mixed-version migration exit gate passed | Full validation and editor load/render/save/restart pass before tracked authored content is explicitly resaved and the temporary v3 edge is retired | Completed 2026-08-09 |
 | Custom struct asset codecs | Conditional child plan | A current or future struct audit proves reflected fields plus repair cannot represent durable authored state | Versioned codecs provide dependency discovery, inspection, exact retention, and migration semantics, or the milestone is explicitly dispositioned by audit evidence | Evidence-gated; not currently required |
 
 ## Child Plan Boundaries
