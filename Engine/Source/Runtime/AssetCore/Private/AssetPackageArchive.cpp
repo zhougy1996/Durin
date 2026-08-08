@@ -1,4 +1,5 @@
 #include "AssetPackageArchive.h"
+#include "AssetPackageVersionPolicy.h"
 #include "AssetPackageV4Writer.h"
 #include "AssetPackageValueCodec.h"
 
@@ -20,8 +21,6 @@ namespace Durin::Asset::Private
 {
 	namespace
 	{
-		constexpr uint32 AssetMagic = 0x54534144; // DAST
-		constexpr uint32 AssetVersion = 3;
 		constexpr std::string_view RedirectorClassName = "Durin::Asset::DAssetRedirector";
 
 		enum class ENodeKind : uint8 { Field, Fixed, Array, MapKey, MapValue };
@@ -581,7 +580,7 @@ namespace Durin::Asset::Private
 				: FArchive({EArchiveDirection::Save,
 					bInCapturePayload ? EArchivePurpose::AuthoredPackage : EArchivePurpose::Discovery,
 					EArchiveCapability::None}, FArchiveVersionContext{
-						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), AssetVersion}}, {}})
+						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), OrdinaryAssetPackageWriterVersion}}, {}})
 				, ObjectIds(InObjectIds), Options(InOptions), bCapturePayload(bInCapturePayload)
 			{
 				EnableCapabilities(EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
@@ -930,8 +929,8 @@ namespace Durin::Asset::Private
 			const FAuthoredPackageSummary& Summary, std::vector<uint8>& OutBytes) -> FAssetResult
 		{
 			FByteWriter Writer;
-			Writer.Write(AssetMagic);
-			Writer.Write(AssetVersion);
+			Writer.Write(DastPackageMagic);
+			Writer.Write(OrdinaryAssetPackageWriterVersion);
 			Writer.WriteString(Summary.AssetClassName);
 			Writer.Write(uint8(Summary.EntryKind));
 			Writer.WriteString(Summary.RedirectDestination.GetView());

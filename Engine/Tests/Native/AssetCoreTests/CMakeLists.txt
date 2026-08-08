@@ -42,6 +42,7 @@ endfunction()
 durin_add_asset_functional_test(AssetPackageTests
 	LIBRARIES Engine
 	SOURCES
+		Private/AssetPackageVersionPolicyTests.cpp
 		Private/PackageTests.cpp
 		Private/PackageV3Measurement.cpp
 		Private/PackageV3MeasurementTests.cpp

@@ -1,4 +1,5 @@
 #include "AssetSystem.h"
+#include "AssetPackageVersionPolicy.h"
 #include "AssetRedirector.h"
 #include "AssetPackageArchive.h"
 #include "AssetPackageValueCodec.h"
@@ -69,8 +70,6 @@ namespace Durin::Asset
 			return Error(EAssetError::CorruptFile, "Asset resolution returned an unknown state.");
 		}
 
-		constexpr uint32 AssetMagic = 0x54534144; // DAST
-		constexpr uint32 AssetVersion = 3;
 		using Private::MaximumPackageStringBytes;
 		using Private::FByteReader;
 		using Private::FByteWriter;
@@ -396,7 +395,7 @@ namespace Durin::Asset
 			uint32 ArrayIndex,
 			FByteReader& Reader,
 			const std::vector<DObject*>& Objects,
-			uint32 SourceVersion = AssetVersion) -> FAssetResult
+			uint32 SourceVersion = AssetPackageV3FormatVersion) -> FAssetResult
 		{
 			switch (Property->GetKind())
 			{
@@ -710,7 +709,7 @@ namespace Durin::Asset
 
 		auto WritePackageFile(const FPackageFile& File, FByteWriter& Writer) -> void
 		{
-			Writer.Write(AssetMagic);
+			Writer.Write(DastPackageMagic);
 			Writer.Write(File.FormatVersion);
 			Writer.WriteString(File.AssetClassName);
 			Writer.Write(uint8(File.EntryKind));
@@ -742,8 +741,8 @@ namespace Durin::Asset
 		{
 			uint32 Magic = 0, Version = 0;
 			if (!Reader.Read(Magic) || !Reader.Read(Version)) return Error(EAssetError::CorruptFile, "Truncated asset header.");
-			if (Magic != AssetMagic) return Error(EAssetError::CorruptFile, "Invalid asset magic.");
-			if (Version != AssetVersion)
+			if (Magic != DastPackageMagic) return Error(EAssetError::CorruptFile, "Invalid asset magic.");
+			if (Version != AssetPackageV3FormatVersion)
 				return Error(EAssetError::UnsupportedVersion, std::format("Unsupported asset version {}.", Version));
 			OutFile.FormatVersion = Version;
 			if (!Reader.ReadString(OutFile.AssetClassName, MaximumPackageStringBytes)) return Error(EAssetError::CorruptFile, "Invalid asset header strings.");
@@ -1623,7 +1622,7 @@ namespace Durin::Asset
 			FPackageFile File;
 			FAssetResult Result = ReadPackageFile(Bytes, File, false);
 			if (!Result) return Result;
-			File.FormatVersion = AssetVersion;
+			File.FormatVersion = OrdinaryAssetPackageWriterVersion;
 			uint64 RewriteCount = 0;
 			for (FObjectRecord& Object : File.Objects)
 			{
@@ -1729,7 +1728,7 @@ namespace Durin::Asset
 			}
 			DerivedDataCache::FReader Reader(Bytes);
 			uint32 MountCount = 0;
-			if (!Reader.ReadAndValidateHeader(DerivedDataCache::AssetRegistryMagic, DerivedDataCache::AssetRegistrySchemaVersion, AssetVersion)
+			if (!Reader.ReadAndValidateHeader(DerivedDataCache::AssetRegistryMagic, DerivedDataCache::AssetRegistrySchemaVersion, AssetPackageV3FormatVersion)
 				|| !Reader.ReadU32(MountCount) || MountCount > MaximumRegistryEntries)
 			{
 				OutWarning = "Ignoring incompatible or corrupt asset registry cache header.";
@@ -1795,7 +1794,7 @@ namespace Durin::Asset
 					Entry.Dependencies.push_back(std::move(Dependency));
 				}
 				if (!Reader.ReadU64(Entry.FileSize) || !Reader.ReadI64(Entry.LastWriteTimeTicks)
-					|| Entry.FormatVersion != AssetVersion
+					|| Entry.FormatVersion != AssetPackageV3FormatVersion
 					|| !std::ranges::binary_search(ExpectedMounts, Entry.MountRoot)
 					|| std::filesystem::path(Entry.RelativePath).is_absolute()
 					|| std::filesystem::path(Entry.RelativePath).extension() != ".dasset"
@@ -1843,7 +1842,7 @@ namespace Durin::Asset
 				return std::tie(A.MountRoot, A.RelativePath) < std::tie(B.MountRoot, B.RelativePath);
 			});
 			DerivedDataCache::FWriter Writer;
-			Writer.WriteHeader({DerivedDataCache::AssetRegistryMagic, DerivedDataCache::AssetRegistrySchemaVersion, AssetVersion});
+			Writer.WriteHeader({DerivedDataCache::AssetRegistryMagic, DerivedDataCache::AssetRegistrySchemaVersion, AssetPackageV3FormatVersion});
 			Writer.WriteU32(static_cast<uint32>(Mounts.size()));
 			for (const std::string& Mount : Mounts) Writer.WriteString(Mount);
 			Writer.WriteU64(Entries.size());
@@ -1948,7 +1947,7 @@ namespace Durin::Asset
 			uint32 ExtractorSchema = 0;
 			uint64 SourceCount = 0;
 			if (!Reader.ReadAndValidateHeader(
-					AssetReferenceIndexMagic, AssetReferenceIndexSchemaVersion, AssetVersion)
+					AssetReferenceIndexMagic, AssetReferenceIndexSchemaVersion, AssetPackageV3FormatVersion)
 				|| !Reader.ReadU32(ExtractorSchema)
 				|| ExtractorSchema != AssetReferenceExtractorSchemaVersion
 				|| !Reader.ReadU64(SourceCount) || SourceCount > MaximumRegistryEntries)
@@ -2085,7 +2084,7 @@ namespace Durin::Asset
 			});
 
 			DerivedDataCache::FWriter Writer;
-			Writer.WriteHeader({AssetReferenceIndexMagic, AssetReferenceIndexSchemaVersion, AssetVersion});
+			Writer.WriteHeader({AssetReferenceIndexMagic, AssetReferenceIndexSchemaVersion, AssetPackageV3FormatVersion});
 			Writer.WriteU32(AssetReferenceExtractorSchemaVersion);
 			Writer.WriteU64(Sources.size());
 			for (const FAssetPath& Source : Sources)
@@ -2163,7 +2162,7 @@ namespace Durin::Asset
 			if (!Result) return Result;
 			if (OutFile)
 			{
-				OutFile->FormatVersion = AssetVersion;
+				OutFile->FormatVersion = AssetPackageV3FormatVersion;
 				OutFile->AssetClassName = std::move(Summary.AssetClassName);
 				OutFile->EntryKind = Summary.EntryKind;
 				OutFile->RedirectDestination = std::move(Summary.RedirectDestination);
@@ -2412,7 +2411,7 @@ namespace Durin::Asset
 				.AssetClassName = Staged.File.AssetClassName,
 				.EntryKind = Staged.File.EntryKind,
 				.RedirectDestination = Staged.File.RedirectDestination,
-				.FormatVersion = AssetVersion,
+				.FormatVersion = OrdinaryAssetPackageWriterVersion,
 				.Dependencies = Staged.File.Dependencies,
 				.FileSize = Staged.PublishedFileSize,
 				.LastWriteTime = Staged.PublishedLastWriteTime,
@@ -2528,7 +2527,7 @@ namespace Durin::Asset
 		FByteReader Reader{Payload};
 		return DecodeByteToolValue(
 			&RootProperty, OutValue, 0, Reader, {},
-			SourceFormatVersion == 0 ? AssetVersion : SourceFormatVersion)
+			SourceFormatVersion == 0 ? AssetPackageV3FormatVersion : SourceFormatVersion)
 			&& Reader.Offset == Payload.size();
 	}
 
@@ -3878,7 +3877,7 @@ namespace Durin::Asset
 			.AssetClassName = File.AssetClassName,
 			.EntryKind = File.EntryKind,
 			.RedirectDestination = File.RedirectDestination,
-			.FormatVersion = AssetVersion,
+			.FormatVersion = OrdinaryAssetPackageWriterVersion,
 			.Dependencies = File.Dependencies,
 			.FileSize = std::filesystem::file_size(Destination),
 			.LastWriteTime = LastWriteTime,
@@ -4113,7 +4112,7 @@ namespace Durin::Asset
 				.ObjectName = std::string(SourcePath.GetAssetName()),
 				.Fields = {std::move(DestinationField)}};
 			FPackageFile File{
-				.FormatVersion = AssetVersion,
+				.FormatVersion = OrdinaryAssetPackageWriterVersion,
 				.AssetClassName = std::string(RedirectorClassName),
 				.EntryKind = EAssetRegistryEntryKind::Redirector,
 				.RedirectDestination = DestinationPath,
@@ -4530,7 +4529,7 @@ namespace Durin::Asset
 				.AssetClassName = std::string(RedirectorClassName),
 				.EntryKind = EAssetRegistryEntryKind::Redirector,
 				.RedirectDestination = Mapping.DestinationPath,
-				.FormatVersion = AssetVersion,
+				.FormatVersion = OrdinaryAssetPackageWriterVersion,
 				.Dependencies = {Mapping.DestinationPath}});
 
 			for (const auto& [AliasPath, AliasData] : State->PreAssets)

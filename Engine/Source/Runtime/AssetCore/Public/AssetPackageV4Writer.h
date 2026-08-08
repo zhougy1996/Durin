@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetCoreAPI.h"
+#include "AssetPackageVersionPolicy.h"
 #include "AssetSystem.h"
 #include "DObject/DefaultDeltaPlan.h"
 
@@ -9,8 +10,8 @@
 
 namespace Durin::Asset::DastV4
 {
-	inline constexpr uint32 Magic = 0x54534144;
-	inline constexpr uint32 Version = 4;
+	inline constexpr uint32 Magic = DastPackageMagic;
+	inline constexpr uint32 Version = AssetPackageV4FormatVersion;
 	inline constexpr uint64 MaximumPackageBytes = 256ull * 1024ull * 1024ull;
 	inline constexpr uint64 MaximumStringBytes = 1024ull * 1024ull;
 	inline constexpr uint64 MaximumTableEntries = 1'048'575;

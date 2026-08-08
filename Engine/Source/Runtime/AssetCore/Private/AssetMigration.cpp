@@ -234,14 +234,14 @@ namespace Durin::Asset
 					Package.Diagnostics.push_back(std::format("CompatibilityFinding:{}: {}", AssetCompatibilityFindingCodeName(Finding.Code), Finding.Diagnostic));
 				if (Package.Diagnostics.empty()) Package.Diagnostics.push_back("CompatibilityBlocked: package is not losslessly compatible.");
 			}
-			else if (Record->FormatVersion == CurrentAssetPackageFormatVersion)
+			else if (Record->FormatVersion == OrdinaryAssetPackageWriterVersion)
 			{
 				Package.Status = EAssetMigrationPackageStatus::Skipped;
 			}
 			else
 			{
 				auto Chain = Registry.ResolveChain(EAssetMigrationKind::PackageFormat, Record->FormatVersion,
-					CurrentAssetPackageFormatVersion, IsCancellationRequested);
+					OrdinaryAssetPackageWriterVersion, IsCancellationRequested);
 				if (Chain.Status == EAssetMigrationResolutionStatus::Cancelled)
 				{
 					Result.Status = EAssetMigrationPlanStatus::Cancelled;
@@ -279,7 +279,7 @@ namespace Durin::Asset
 				for (const FAssetPath& Dependency : RecordIt->Dependencies)
 				{
 					const auto DependencyRecord = std::ranges::find(Records, Dependency, &FAssetPackageCompatibilityRecord::PackagePath);
-					if (DependencyRecord == Records.end() || DependencyRecord->FormatVersion == CurrentAssetPackageFormatVersion) continue;
+					if (DependencyRecord == Records.end() || DependencyRecord->FormatVersion == OrdinaryAssetPackageWriterVersion) continue;
 					const auto DependencyPlan = std::ranges::find(Result.Packages, Dependency, &FAssetMigrationPackagePlan::PackagePath);
 					if (DependencyPlan == Result.Packages.end())
 						Package.Diagnostics.push_back(std::format("DependencyNotSelected: dependency {} also requires migration.", Dependency.ToString()));
@@ -443,7 +443,7 @@ namespace Durin::Asset
 			if (Bytes.size() < sizeof(uint32) * 2) return false;
 			uint32 Version = 0;
 			std::memcpy(&Version, Bytes.data() + sizeof(uint32), sizeof(Version));
-			return Version == CurrentAssetPackageFormatVersion;
+			return Version == OrdinaryAssetPackageWriterVersion;
 		}
 
 		auto SidecarPath(const std::filesystem::path& Destination, std::string_view Suffix)
@@ -767,7 +767,7 @@ namespace Durin::Asset
 			const auto Input = std::ranges::find(Snapshot.Packages, Path, &FAssetPackageCompatibilityProbeInput::PackagePath);
 			if (Input == Snapshot.Packages.end()) return Rollback("MigrationPostAuditFailed: migrated package disappeared.");
 			auto Probe = ProbeAssetPackageCompatibility(*Input, Catalog);
-			if (!Probe.Record || Probe.Record->FormatVersion != CurrentAssetPackageFormatVersion
+			if (!Probe.Record || Probe.Record->FormatVersion != OrdinaryAssetPackageWriterVersion
 				|| Probe.Record->Inspection != EAssetCompatibilityInspection::Ready
 				|| Probe.Record->Compatibility != EAssetPackageCompatibility::Compatible
 				|| !Probe.Record->Findings.empty())

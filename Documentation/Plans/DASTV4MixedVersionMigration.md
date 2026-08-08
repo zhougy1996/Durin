@@ -9,11 +9,13 @@ Completed:
 
 ## Current Status
 
-The frozen v4 writer and bounded header, logical, live, compatibility, and
-reference readers are complete behind explicit low-level entries. Ordinary
-package policy, registry/cache discovery, `AssetVersion`, and saves still use
-DAST v3 exclusively. The remaining migration gap is policy ownership rather
-than a missing codec.
+Stage 0 is complete on baseline `c3c09c13`. `AssetPackageVersionPolicy.h` now
+owns the DAST magic, v3/v4 format identities, supported-reader set, reader
+selection, latest writer, ordinary-save writer, and explicit-migration writer.
+All former production `AssetVersion` decisions use the named policy while
+retaining v3-only ordinary behavior. The frozen v4 writer and bounded header,
+logical, live, compatibility, and reference readers remain behind explicit
+low-level entries; Stage 1 must connect those entries to read-only dispatch.
 
 ## Goal
 
@@ -60,15 +62,54 @@ version across discovery, loading, compatibility, registry, and saving.
 
 ### Stage 0: Freeze mixed-version policy ownership
 
-- [ ] Select supported-reader and latest-writer APIs and enumerate every current
+- [x] Select supported-reader and latest-writer APIs and enumerate every current
   `AssetVersion` policy use.
-- [ ] Map file, cache, registry, residency, report, and dirty-state rollback.
-- [ ] Record mixed-corpus, migration, malformed, and failure-injection fixtures.
+- [x] Map file, cache, registry, residency, report, and dirty-state rollback.
+- [x] Record mixed-corpus, migration, malformed, and failure-injection fixtures.
 
 #### Acceptance Gate
 
 - Version dispatch has one owner per policy decision and cannot trigger a write
   from discovery, inspection, registry scanning, or loading.
+
+#### Stage 0 Handoff
+
+- Baseline: `c3c09c13` (`feat(asset): add bounded DAST v4 reader`).
+- Working set: `AssetPackageVersionPolicy.h`; the v3 archive, compatibility,
+  migration, and asset-system policy sites; `AssetPackageV4Writer.h`; and
+  `AssetPackageVersionPolicyTests.cpp`.
+- Key symbols: `SupportedAssetPackageReaderVersions`,
+  `SelectAssetPackageReader`, `LatestAssetPackageWriterVersion`,
+  `OrdinaryAssetPackageWriterVersion`, and
+  `AssetPackageMigrationWriterVersion`. Selection is pure `constexpr` policy;
+  it performs no I/O, construction, callbacks, registry work, or publication.
+- Policy-use map: `AssetPackageArchive.cpp` owns ordinary v3 serialization;
+  `AssetCompatibility.cpp` owns the current v3 probe until Stage 1 dispatch;
+  `AssetSystem.cpp` owns v3 parsing, registry/reference cache policy, ordinary
+  publication metadata, and v3 byte-tool defaults; `AssetMigration.cpp` still
+  targets the ordinary v3 writer until Stage 3; DAST v4 codec identity aliases
+  the central policy rather than defining another version decision.
+- Rollback map: authored bytes use staged/pre/post/manifest files and reverse
+  restoration; package residency uses `FAssetPackageLoadSnapshot` plus
+  `ReleasePackagesLoadedSince`; registry/reference caches publish only after a
+  successful scan/save and must retain their prior snapshot on later mixed
+  failures; reports and `ChangedPaths` publish only from the final result;
+  dirty flags clear only after atomic bundle file and registry publication.
+  Stage 2 must extend the root live-load transaction across mixed dependency
+  graphs, and Stage 3 must reuse these boundaries for v4 migration output.
+- Fixture map: v3 compatibility hex fixtures cover current, unknown-field,
+  unknown-class, invalid-graph, incompatible-signature, corrupt, and truncated
+  inputs; v4 reader/writer fixtures cover header/directory malformation, bounds,
+  exact retained unknowns, live publication, PostLoad, and injected failures;
+  package tests cover deterministic dependency-aware migration planning,
+  atomic bundle file/registry/dirty rollback, truncated-load cache isolation,
+  and registry/reference cache corruption and reconciliation. Stage 1 adds
+  paired equivalent v3/v4 mixed-corpus inputs; Stages 2-3 extend the existing
+  phase injectors rather than creating an independent failure model.
+- Open questions: none for Stage 1. Registry and reference cache fingerprints
+  must encode the selected reader policy before v4 entries may be reused.
+- Validation: `AssetPackageTests` passed all 122 tests, including the new
+  compile-time/pure policy checks; no tracked `.dasset` content changed.
 
 ### Stage 1: Activate read-only v3/v4 dispatch
 

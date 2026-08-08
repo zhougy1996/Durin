@@ -1,11 +1,11 @@
 #pragma once
 
 #include "AssetCompatibility.h"
+#include "AssetPackageVersionPolicy.h"
 
 namespace Durin::Asset
 {
 	inline constexpr uint32 AssetMigrationReportSchemaVersion = 1;
-	inline constexpr uint32 CurrentAssetPackageFormatVersion = 3;
 
 	enum class EAssetMigrationKind : uint8 { PackageFormat, AssetSchema };
 	enum class EAssetMigrationRisk : uint8 { Lossless, DataLoss, Unknown };
@@ -71,7 +71,7 @@ namespace Durin::Asset
 		std::string ReportContentHash;
 		EAssetMigrationPackageStatus Status = EAssetMigrationPackageStatus::Blocked;
 		uint32 SourceFormatVersion = 0;
-		uint32 TargetFormatVersion = CurrentAssetPackageFormatVersion;
+		uint32 TargetFormatVersion = OrdinaryAssetPackageWriterVersion;
 		std::vector<FAssetMigrationHandlerDescriptor> Steps;
 		std::vector<std::string> Diagnostics;
 	};

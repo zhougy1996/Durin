@@ -1,4 +1,5 @@
 #include "AssetCompatibility.h"
+#include "AssetPackageVersionPolicy.h"
 
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -10,8 +11,6 @@ namespace Durin::Asset
 {
 	namespace
 	{
-		constexpr uint32 AssetMagic = 0x54534144; // DAST
-		constexpr uint32 AssetVersion = 3;
 		constexpr uint64 MaximumPackageStringBytes = 1024 * 1024;
 		constexpr uint64 MaximumPackageDependencies = 100000;
 		constexpr uint64 MaximumPackageObjects = 1000000;
@@ -557,9 +556,9 @@ namespace Durin::Asset
 		Record.ReportContentHash = Input.ExpectedReportContentHash;
 
 		uint32 Magic = 0, Version = 0;
-		if (!Reader.Read(Magic) || !Reader.Read(Version) || Magic != AssetMagic)
+		if (!Reader.Read(Magic) || !Reader.Read(Version) || Magic != DastPackageMagic)
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::CorruptPackage, "Invalid or truncated asset package header.");
-		else if (Version != AssetVersion)
+		else if (Version != AssetPackageV3FormatVersion)
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::UnsupportedPackageFormat,
 				std::format("Unsupported asset package format version {}.", Version));
 		else
