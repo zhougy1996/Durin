@@ -4,6 +4,7 @@
 #include "AssetPackageV4Writer.h"
 
 #include <array>
+#include <utility>
 
 namespace Durin::Asset::DastV4
 {
@@ -180,6 +181,11 @@ namespace Durin::Asset::DastV4
 		// Test and higher-level transaction hook. Returning true fails before
 		// the indexed operation without publishing the graph.
 		std::function<bool(ELiveLoadPhase, uint64)> ShouldFail;
+		// Optional high-level residency transaction hooks. The skeleton callback
+		// runs after the complete object graph exists and before dependencies are
+		// resolved, allowing dependency cycles to observe the in-flight package.
+		std::function<FAssetResult(DPackage*)> OnSkeletonReady;
+		std::function<void(DPackage*)> OnSkeletonRollback;
 	};
 
 	class ASSETCORE_API FLoadedAssetPackage final
@@ -198,7 +204,9 @@ namespace Durin::Asset::DastV4
 
 	private:
 		DPackage* Package = nullptr;
+		auto Release() -> DPackage* { return std::exchange(Package, nullptr); }
 		explicit FLoadedAssetPackage(DPackage* InPackage) : Package(InPackage) {}
+		friend class ::Durin::Asset::FAssetManager;
 		friend ASSETCORE_API auto LoadAssetPackage(
 			std::span<const uint8>, const FAssetPath&, FLoadedAssetPackage&,
 			FAssetLoadReport*, const FLiveLoadOptions&, const FReaderLimits&,

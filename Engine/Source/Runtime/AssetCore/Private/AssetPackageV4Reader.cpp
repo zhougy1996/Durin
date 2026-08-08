@@ -1411,7 +1411,10 @@ namespace Durin::Asset::DastV4
 		Package->InitializeAssetPackage(PackagePath);
 		std::vector<DObject*> Objects(Decoded.Objects.size(), nullptr);
 		const FAssetPackageLoadSnapshot DependencySnapshot = CapturePackageLoadSnapshot();
+		bool bSkeletonPublished = false;
 		auto Rollback = [&]() {
+			if (bSkeletonPublished && Options.OnSkeletonRollback)
+				Options.OnSkeletonRollback(Package);
 			MarkObjectHierarchyAsGarbage(Package); CollectGarbage();
 			ReleasePackagesLoadedSince(DependencySnapshot);
 		};
@@ -1457,6 +1460,19 @@ namespace Durin::Asset::DastV4
 				Fail(Diagnostic, EReaderFailure::InvalidTopology, "Could not assign the package main asset."); Rollback();
 				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 			}
+		}
+		if (Options.OnSkeletonReady)
+		{
+			FAssetResult PublishResult = Options.OnSkeletonReady(Package);
+			if (!PublishResult)
+			{
+				Fail(Diagnostic, EReaderFailure::PublicationFailure,
+					PublishResult.Message.empty() ? "Could not publish the package skeleton."
+						: PublishResult.Message);
+				Rollback();
+				return Finish(PublishResult);
+			}
+			bSkeletonPublished = true;
 		}
 
 		for (size_t Index = 0; Index < Decoded.Header.Dependencies.size(); ++Index)

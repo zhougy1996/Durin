@@ -1018,9 +1018,10 @@ namespace Durin::Asset
 		// Packages with unhandled compatibility data cannot be persisted without explicit consent.
 		std::unordered_set<DPackage*> CompatibilityRiskPackages;
 
-		// Outermost loads commit TransactionPackages as one rollback boundary.
+		// Outermost loads commit residency and registry projection as one boundary.
 		uint32 LoadDepth = 0;
 		std::vector<FAssetPath> TransactionPackages;
+		std::vector<FAssetData> TransactionRegistryEntries;
 		FPackageLoadContext PackageLoadContext;
 		bool bPackageLoadStarted = false;
 		bool bAcceptingRequests = true;

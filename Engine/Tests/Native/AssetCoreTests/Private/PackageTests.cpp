@@ -5505,4 +5505,177 @@ TEST(FPackageAssetTests, MixedVersionReadOnlyDispatchKeepsRegistryAndReferenceCa
 	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().ReusedSources, 2u);
 	EXPECT_EQ(Registry.GetReferenceIndex().GetStats().PayloadReadAttempts, 0u);
 	EXPECT_EQ(GSoftPackageConstructionCount, ConstructionCount);
+
+	DSoftPackageAssetForTest* LoadedV4 = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(V4Path, LoadedV4));
+	ASSERT_NE(LoadedV4, nullptr);
+	EXPECT_EQ(LoadedV4->Direct.GetSoftObjectPath().GetAssetPath(), TargetPath);
+	EXPECT_EQ(LoadedV4->GetPackage()->GetPackagePath(), V4Path.GetView());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(V4Path));
+}
+
+TEST(FPackageAssetTests, MixedVersionLiveLoadCommitsCyclesAndRollsBackFailuresAndRisk)
+{
+	InitializeAssetTests();
+	const auto WorkRoot =
+		Durin::Testing::GetTestWorkDirectory() / "MixedVersionLiveLoad";
+	const auto ContentRoot = WorkRoot / "Content";
+	const auto CacheRoot = WorkRoot / "DerivedDataCache";
+	Durin::Testing::RemoveTestWorkDirectory(WorkRoot);
+	std::filesystem::create_directories(ContentRoot);
+	const std::array Definitions{
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/TestAssets/",
+			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Root = Durin::Testing::GetTestWorkDirectory() / "Assets",
+			.ContentPath = ".",
+			.bAutoScan = false,
+			.bAuthoringWritable = true},
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/MixedLive/",
+			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Root = ContentRoot,
+			.ContentPath = ".",
+			.bAutoScan = true,
+			.bAuthoringWritable = true}};
+	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
+	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
+
+	Durin::FAssetPath APath;
+	Durin::FAssetPath BPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MixedLive/A", APath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MixedLive/B", BPath));
+	DPackageAssetForTest* B = nullptr;
+	DPackageAssetForTest* A = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(BPath, B));
+	ASSERT_TRUE(Durin::Asset::CreateAsset(APath, A));
+	A->ExternalReference = B;
+	ASSERT_TRUE(Durin::Asset::SavePackage(A->GetPackage()));
+	const auto AFile = ContentRoot / "A.dasset";
+	std::vector<Durin::uint8> ABytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(ABytes, AFile.generic_string()));
+	std::vector<Durin::uint8> HardReferencePattern{2};
+	const Durin::uint64 BPathSize = BPath.GetView().size();
+	const auto* BPathSizeBytes = reinterpret_cast<const Durin::uint8*>(&BPathSize);
+	HardReferencePattern.insert(HardReferencePattern.end(), BPathSizeBytes,
+		BPathSizeBytes + sizeof(BPathSize));
+	HardReferencePattern.insert(HardReferencePattern.end(),
+		BPath.GetView().begin(), BPath.GetView().end());
+	const auto HardReferenceIt = std::search(ABytes.begin(), ABytes.end(),
+		HardReferencePattern.begin(), HardReferencePattern.end());
+	ASSERT_NE(HardReferenceIt, ABytes.end());
+
+	const std::string AssetClass = DPackageAssetForTest::StaticClass()
+		->GetQualifiedName().ToString();
+	const std::string ObjectClass = Durin::DObject::StaticClass()
+		->GetQualifiedName().ToString();
+	auto HardReference = Durin::Asset::DastV4::MakeType(
+		Durin::Asset::DastV4::ETypeOpcode::HardRef, ObjectClass);
+	Durin::Asset::DastV4::FPackageInput BInput{
+		.AssetClass = AssetClass,
+		.Dependencies = {APath.ToString()},
+		.Types = {HardReference},
+		.Schemas = {{AssetClass, {{"ExternalReference", HardReference, 0}}}},
+		.Objects = {{"Root", {}, AssetClass, "Root"}},
+		.ObjectValues = {{"Root", {{
+			.SchemaName = AssetClass,
+			.FieldName = "ExternalReference",
+			.Value = {.ReferenceTag = 2, .ReferenceId = 1}}}}}};
+	std::vector<Durin::uint8> BBytes;
+	Durin::Asset::DastV4::FWriterDiagnostic WriterDiagnostic;
+	ASSERT_TRUE(Durin::Asset::DastV4::WritePackage(
+		BInput, BBytes, &WriterDiagnostic)) << WriterDiagnostic.Message;
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(APath));
+	ASSERT_TRUE(Durin::Asset::DiscardUnpublishedPackage(B->GetPackage()));
+	const auto BFile = ContentRoot / "B.dasset";
+	WriteTestBytes(BFile, BBytes);
+
+	auto& Registry = Durin::Asset::GetAssetRegistry();
+	const auto RegistryBeforeDecodeFailure = Registry.GetAssets();
+	const Durin::uint64 RevisionBeforeDecodeFailure = Registry.GetRevision();
+	auto InvalidABytes = ABytes;
+	InvalidABytes[static_cast<size_t>(HardReferenceIt - ABytes.begin())] = 3;
+	WriteTestBytes(AFile, InvalidABytes);
+	Durin::Asset::FAssetLoadReport DecodeFailureReport;
+	DPackageAssetForTest* LoadedA = nullptr;
+	EXPECT_FALSE(Durin::Asset::LoadAsset(APath, LoadedA, &DecodeFailureReport));
+	EXPECT_EQ(LoadedA, nullptr);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(APath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(BPath), nullptr);
+	EXPECT_EQ(Registry.GetRevision(), RevisionBeforeDecodeFailure);
+	EXPECT_EQ(Registry.GetAssets(), RegistryBeforeDecodeFailure);
+	EXPECT_EQ(Registry.FindAssetExact(BPath), nullptr);
+	EXPECT_TRUE(DecodeFailureReport.CompatibilityIssues.empty());
+	WriteTestBytes(AFile, ABytes);
+
+	ASSERT_TRUE(Registry.ScanMountedContent(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	ASSERT_EQ(Registry.FindAssetExact(APath)->FormatVersion,
+		Durin::Asset::AssetPackageV3FormatVersion);
+	ASSERT_EQ(Registry.FindAssetExact(BPath)->FormatVersion,
+		Durin::Asset::AssetPackageV4FormatVersion);
+	const auto BeforeLoad = Durin::Asset::CapturePackageLoadSnapshot();
+	LoadedA = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(APath, LoadedA));
+	auto* LoadedB = Durin::Cast<DPackageAssetForTest>(
+		Durin::Asset::FindLoadedPackage(BPath)->GetAsset());
+	ASSERT_NE(LoadedA, nullptr);
+	ASSERT_NE(LoadedB, nullptr);
+	EXPECT_EQ(LoadedA->ExternalReference, LoadedB);
+	EXPECT_EQ(LoadedB->ExternalReference, LoadedA);
+	ASSERT_TRUE(Durin::Asset::ReleasePackagesLoadedSince(BeforeLoad));
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(APath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(BPath), nullptr);
+
+	const auto RegistryBeforeFailure = Registry.GetAssets();
+	const Durin::uint64 RevisionBeforeFailure = Registry.GetRevision();
+	WriteTestBytes(BFile, std::span<const Durin::uint8>(BBytes).first(4));
+	Durin::Asset::FAssetLoadReport FailureReport;
+	LoadedA = nullptr;
+	EXPECT_FALSE(Durin::Asset::LoadAsset(APath, LoadedA, &FailureReport));
+	EXPECT_EQ(LoadedA, nullptr);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(APath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindLoadedPackage(BPath), nullptr);
+	EXPECT_EQ(Registry.GetRevision(), RevisionBeforeFailure);
+	EXPECT_EQ(Registry.GetAssets(), RegistryBeforeFailure);
+	EXPECT_TRUE(FailureReport.CompatibilityIssues.empty());
+	WriteTestBytes(BFile, BBytes);
+
+	Durin::FAssetPath RiskPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MixedLive/Risk", RiskPath));
+	auto StringType = Durin::Asset::DastV4::MakeType(
+		Durin::Asset::DastV4::ETypeOpcode::String);
+	Durin::Asset::DastV4::FPackageInput RiskInput{
+		.AssetClass = AssetClass,
+		.Types = {StringType},
+		.Schemas = {{AssetClass, {{"Value", StringType, 0}}}},
+		.Objects = {{"Root", {}, AssetClass, "Root"}},
+		.ObjectValues = {{"Root", {{
+			.SchemaName = AssetClass,
+			.FieldName = "Value",
+			.Value = {.Text = "retained incompatible value"}}}}}};
+	std::vector<Durin::uint8> RiskBytes;
+	ASSERT_TRUE(Durin::Asset::DastV4::WritePackage(
+		RiskInput, RiskBytes, &WriterDiagnostic)) << WriterDiagnostic.Message;
+	WriteTestBytes(ContentRoot / "Risk.dasset", RiskBytes);
+	ASSERT_TRUE(Registry.ScanMountedContent(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	Durin::Asset::FAssetLoadReport RiskReport;
+	DPackageAssetForTest* RiskAsset = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(RiskPath, RiskAsset, &RiskReport));
+	ASSERT_NE(RiskAsset, nullptr);
+	ASSERT_FALSE(RiskReport.CompatibilityIssues.empty());
+	EXPECT_EQ(RiskReport.CompatibilityIssues.front().Risk,
+		Durin::Asset::EAssetCompatibilityRisk::UnknownNewerSchema);
+	EXPECT_FALSE(RiskAsset->GetPackage()->IsDirty());
+	EXPECT_EQ(Durin::Asset::SavePackage(RiskAsset->GetPackage()).Error,
+		Durin::Asset::EAssetError::UnsupportedProperty);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(RiskPath));
+	RiskAsset = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(RiskPath, RiskAsset));
+	ASSERT_NE(RiskAsset, nullptr);
+	EXPECT_EQ(Durin::Asset::SavePackage(RiskAsset->GetPackage()).Error,
+		Durin::Asset::EAssetError::UnsupportedProperty);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(RiskPath));
 }

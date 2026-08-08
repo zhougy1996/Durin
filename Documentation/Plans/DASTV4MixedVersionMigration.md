@@ -9,13 +9,13 @@ Completed:
 
 ## Current Status
 
-Stage 1 is complete on baseline `8f5524c0`. Header, inspection, compatibility,
-registry, and reference scans now select the bounded v3 or v4 reader from the
-central supported-reader policy. Registry and reference cache headers encode
-the reader-policy fingerprint, while each package/reference fingerprint records
-the selected reader version before incremental reuse. Mixed v3/v4 full and
-incremental scans remain construct-free and deterministic. Ordinary saves and
-live loading remain v3-only; Stage 2 activates transactional mixed live loading.
+Stage 2 is complete on baseline `e4ff1830`. Ordinary loading now selects the
+bounded v3 or v4 live reader. V4 exposes a transaction-only skeleton seam so
+mixed dependency cycles share the existing root residency boundary, and its
+owned graph transfers to `FAssetManager` only after values, ledgers, custom
+versions, compatibility data, and PostLoad succeed. Registry entries are queued
+for root commit rather than published by nested loads. Ordinary saves remain
+v3-only; Stage 3 adds explicit atomic v3-to-v4 migration output.
 
 ## Goal
 
@@ -152,15 +152,46 @@ version across discovery, loading, compatibility, registry, and saving.
 
 ### Stage 2: Activate transactional mixed-version live loading
 
-- [ ] Route ordinary loading to the bounded v3 or v4 live reader by header.
-- [ ] Integrate dependency cycles, compatibility-risk ownership, reports,
+- [x] Route ordinary loading to the bounded v3 or v4 live reader by header.
+- [x] Integrate dependency cycles, compatibility-risk ownership, reports,
   custom versions, PostLoad, and root transaction rollback.
-- [ ] Qualify v3/v4 dependency graphs and every injected failure boundary.
+- [x] Qualify v3/v4 dependency graphs and every injected failure boundary.
 
 #### Acceptance Gate
 
 - Equivalent v3/v4 packages publish equivalent live graphs, and every failure
   preserves the prior cache, registry, dirty state, report, and residency.
+
+#### Stage 2 Handoff
+
+- Baseline: `e4ff1830` (`feat(asset): activate mixed-version read dispatch`).
+- Working set: `AssetPackageV4Reader.h/.cpp`, `AssetSystem.h/.cpp`, and package
+  live-load tests. No authored `.dasset` files changed.
+- Key symbols and decisions: `FAssetManager::LoadPackageInternal` selects v3 or
+  v4 from the package preamble. `DastV4::FLiveLoadOptions::OnSkeletonReady` and
+  `OnSkeletonRollback` expose an optional high-level residency seam after the
+  full skeleton exists but before dependencies resolve. The default low-level
+  v4 API remains privately owned and unpublished. `FLoadedAssetPackage::Release`
+  transfers a fully qualified graph only to its friend `FAssetManager`.
+- Transaction boundary: in-flight mixed skeletons enter `LoadedPackages` and
+  `LoadingPackages` so cycles resolve to the same objects. Nested successful
+  loads queue `TransactionRegistryEntries`; only the outermost success publishes
+  registry/reference projections. Any root failure removes every introduced
+  package, discards queued registry entries, restores the initial report, and
+  leaves pre-existing residency, registry, dirty state, and compatibility-risk
+  ownership unchanged.
+- Qualification: paired v3/v4 ordinary loading preserves the reflected soft
+  value; a v3-to-v4-to-v3 hard-reference cycle resolves with object identity in
+  both directions; a failure after the v4 dependency commits restores residency
+  and registry exactly; malformed v4 failure also leaves the same state. V4
+  incompatible data is reported, remains clean, and blocks ordinary save both
+  with and without a caller-supplied report. Existing v4 phase injection tests
+  continue to cover skeleton, dependency, value, ledger, PostLoad, publication,
+  retained-closure, and custom-version boundaries.
+- Open questions: none for Stage 3. Explicit migration must use the existing
+  bundle journal and v4 writer without changing `OrdinaryAssetPackageWriterVersion`.
+- Validation: focused mixed live-load and all low-level v4 reader tests passed;
+  `AssetPackageTests` passed all 124 tests.
 
 ### Stage 3: Add explicit atomic v3-to-v4 migration
 

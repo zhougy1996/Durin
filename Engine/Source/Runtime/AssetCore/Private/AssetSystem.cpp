@@ -6714,7 +6714,13 @@ namespace Durin::Asset
 		}
 		if (OutReport) *OutReport = {.PackagePath = Path};
 		const bool bRootLoad = LoadDepth++ == 0;
-		if (bRootLoad) TransactionPackages.clear();
+		FAssetLoadReport FailureReport;
+		if (bRootLoad)
+		{
+			if (OutReport) FailureReport = *OutReport;
+			TransactionPackages.clear();
+			TransactionRegistryEntries.clear();
+		}
 		FAssetLoadReport* PreviousLoadReport = GActiveAssetLoadReport;
 		if (bRootLoad) GActiveAssetLoadReport = OutReport;
 		DPackage* Package = nullptr;
@@ -6746,8 +6752,15 @@ namespace Durin::Asset
 					bDiscardedPackage = true;
 				}
 				if (bDiscardedPackage) CollectGarbage();
+				if (OutReport) *OutReport = std::move(FailureReport);
+			}
+			else
+			{
+				for (FAssetData& Data : TransactionRegistryEntries)
+					Registry.AddOrUpdate(std::move(Data));
 			}
 			TransactionPackages.clear();
+			TransactionRegistryEntries.clear();
 			if (Result) bPackageLoadStarted = true;
 		}
 		OutAsset = Result && Package ? Package->GetAsset() : nullptr;
@@ -6769,6 +6782,77 @@ namespace Durin::Asset
 		const std::string PhysicalPath = GetPhysicalPath(Path);
 		if (PhysicalPath.empty()) return Error(EAssetError::InvalidPath, "Asset path cannot be resolved in the selected package mode.");
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath)) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
+		uint32 Magic = 0;
+		uint32 Version = 0;
+		if (Bytes.size() < sizeof(Magic) + sizeof(Version))
+			return Error(EAssetError::CorruptFile, "Truncated asset header.");
+		std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
+		std::memcpy(&Version, Bytes.data() + sizeof(Magic), sizeof(Version));
+		if (Magic != DastPackageMagic)
+			return Error(EAssetError::CorruptFile, "Invalid asset magic.");
+		const EAssetPackageReaderKind ReaderKind = SelectAssetPackageReader(Version);
+		if (ReaderKind == EAssetPackageReaderKind::Unsupported)
+			return Error(EAssetError::UnsupportedVersion,
+				std::format("Unsupported asset version {}.", Version));
+		if (ReaderKind == EAssetPackageReaderKind::DastV4)
+		{
+			FAssetPackageHeader Header;
+			FAssetResult Result = ReadAssetPackageHeader(PhysicalPath, Header);
+			if (!Result) return Result;
+			FPackageFile HeaderFile{
+				.FormatVersion = Header.FormatVersion,
+				.AssetClassName = Header.AssetClassName,
+				.EntryKind = Header.EntryKind,
+				.RedirectDestination = Header.RedirectDestination,
+				.Dependencies = Header.Dependencies};
+			Result = ValidateRedirectorHeader(HeaderFile, Header.ObjectCount, &Path);
+			if (!Result) return Result;
+
+			DastV4::FLoadedAssetPackage Loaded;
+			DastV4::FReaderDiagnostic Diagnostic;
+			FAssetLoadReport LocalReport{.PackagePath = Path};
+			FAssetLoadReport* V4Report = OutReport ? OutReport : &LocalReport;
+			DastV4::FLiveLoadOptions Options{
+				.OnSkeletonReady = [&](DPackage* Package) -> FAssetResult {
+					if (!Package || LoadedPackages.contains(Path))
+						return Error(EAssetError::AlreadyExists,
+							"The package skeleton is already resident.");
+					LoadedPackages.emplace(Path, Package);
+					LoadingPackages.insert(Path);
+					if (LoadDepth > 0) TransactionPackages.push_back(Path);
+					return {};
+				},
+				.OnSkeletonRollback = [&](DPackage* Package) {
+					LoadingPackages.erase(Path);
+					LoadedPackages.erase(Path);
+					CompatibilityRiskPackages.erase(Package);
+				}};
+			Result = DastV4::LoadAssetPackage(
+				Bytes, Path, Loaded, V4Report, Options, {}, &Diagnostic);
+			if (!Result) return Result;
+			DPackage* Package = Loaded.Release();
+			LoadingPackages.erase(Path);
+			if (std::ranges::any_of(
+				V4Report->CompatibilityIssues,
+				[](const FAssetCompatibilityIssue& Issue) {
+					return Issue.Risk != EAssetCompatibilityRisk::None;
+				}))
+				CompatibilityRiskPackages.insert(Package);
+			OutPackage = Package;
+			const auto LastWriteTime = std::filesystem::last_write_time(PhysicalPath);
+			TransactionRegistryEntries.push_back(FAssetData{
+				.PackagePath = Path,
+				.PhysicalPath = PhysicalPath,
+				.AssetClassName = Header.AssetClassName,
+				.EntryKind = Header.EntryKind,
+				.RedirectDestination = Header.RedirectDestination,
+				.FormatVersion = Header.FormatVersion,
+				.Dependencies = Header.Dependencies,
+				.FileSize = std::filesystem::file_size(PhysicalPath),
+				.LastWriteTime = LastWriteTime,
+				.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
+			return {};
+		}
 		FPackageFile File;
 		FAssetResult Result = ReadPackageFile(Bytes, File, false);
 		if (!Result) return Result;
@@ -6917,7 +7001,7 @@ namespace Durin::Asset
 		LoadingPackages.erase(Path);
 		OutPackage = Package;
 		const auto LastWriteTime = std::filesystem::last_write_time(PhysicalPath);
-		Registry.AddOrUpdate(FAssetData{
+		TransactionRegistryEntries.push_back(FAssetData{
 			.PackagePath = Path,
 			.PhysicalPath = PhysicalPath,
 			.AssetClassName = File.AssetClassName,
@@ -7042,6 +7126,7 @@ namespace Durin::Asset
 		LoadingPackages.clear();
 		CompatibilityRiskPackages.clear();
 		TransactionPackages.clear();
+		TransactionRegistryEntries.clear();
 		LoadDepth = 0;
 		PackageLoadContext = {};
 		bPackageLoadStarted = false;
