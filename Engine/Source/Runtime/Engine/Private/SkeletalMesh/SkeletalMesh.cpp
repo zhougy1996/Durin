@@ -22,6 +22,13 @@ namespace Durin
 				&& Bounds.Min.z <= Bounds.Max.z;
 		}
 
+		auto Contains(const FBox& Bounds, const FVector3f& Position) -> bool
+		{
+			return Position.x >= Bounds.Min.x && Position.x <= Bounds.Max.x
+				&& Position.y >= Bounds.Min.y && Position.y <= Bounds.Max.y
+				&& Position.z >= Bounds.Min.z && Position.z <= Bounds.Max.z;
+		}
+
 		template<typename TValue>
 		auto AllFinite(std::span<const TValue> Values) -> bool
 		{
@@ -100,6 +107,10 @@ namespace Durin
 				return Fail(&OutError, "Skeletal-mesh payload contains a non-finite UV value.");
 		if (!IsFinite(Payload.LocalBounds))
 			return Fail(&OutError, "Skeletal-mesh payload local bounds are invalid.");
+		if (std::ranges::any_of(Payload.Positions, [&Payload](const FVector3f& Position) {
+			return !Contains(Payload.LocalBounds, Position);
+		}))
+			return Fail(&OutError, "Skeletal-mesh payload local bounds do not contain its geometry.");
 		if (std::ranges::any_of(Payload.Indices, [VertexCount](uint32 Index) { return Index >= VertexCount; }))
 			return Fail(&OutError, "Skeletal-mesh payload contains an out-of-range vertex index.");
 		uint64 PayloadBytes = 0;
@@ -173,8 +184,11 @@ namespace Durin
 			uint32 ActualMaximum = 0;
 			for (uint64 IndexOffset = Section.FirstIndex; IndexOffset < End; ++IndexOffset)
 			{
-				ActualMinimum = std::min(ActualMinimum, Payload.Indices[static_cast<size_t>(IndexOffset)]);
-				ActualMaximum = std::max(ActualMaximum, Payload.Indices[static_cast<size_t>(IndexOffset)]);
+				const uint32 VertexIndex = Payload.Indices[static_cast<size_t>(IndexOffset)];
+				ActualMinimum = std::min(ActualMinimum, VertexIndex);
+				ActualMaximum = std::max(ActualMaximum, VertexIndex);
+				if (!Contains(Section.LocalBounds, Payload.Positions[VertexIndex]))
+					return Fail(&OutError, "Skeletal-mesh section bounds do not contain its indexed geometry.");
 			}
 			if (ActualMinimum != Section.MinVertexIndex || ActualMaximum != Section.MaxVertexIndex)
 				return Fail(&OutError, "Skeletal-mesh section vertex range does not match its indices.");

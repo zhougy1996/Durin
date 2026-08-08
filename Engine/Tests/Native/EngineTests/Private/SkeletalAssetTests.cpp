@@ -287,6 +287,40 @@ TEST(FSkeletalAssetTests, PayloadValidationRejectsMalformedGraphWithoutMutation)
 	EXPECT_EQ(Clip->GetSummary(), ClipSummary);
 }
 
+TEST(FSkeletalAssetTests, PayloadValidationRequiresBoundsToContainGeometry)
+{
+	InitializeDObjectSystem();
+	auto* Skeleton = Durin::NewObject<Durin::DSkeleton>(nullptr, "BoundsSkeleton");
+	InitializeSkeleton(*Skeleton);
+	std::string Error;
+
+	auto ExpectRejected = [&](const Durin::FSkeletalMeshPayloadData& Payload) {
+		EXPECT_FALSE(Durin::ValidateSkeletalMeshPayload(Payload, *Skeleton, 1, Error));
+		EXPECT_NE(Error.find("bounds"), std::string::npos) << Error;
+	};
+
+	auto TooSmallPayloadBounds = *MakeMeshPayload();
+	TooSmallPayloadBounds.LocalBounds.Max.x = 0.5;
+	ExpectRejected(TooSmallPayloadBounds);
+
+	auto OffsetPayloadBounds = *MakeMeshPayload();
+	OffsetPayloadBounds.LocalBounds.Min.y = 0.5;
+	ExpectRejected(OffsetPayloadBounds);
+
+	auto TooSmallSectionBounds = *MakeMeshPayload();
+	TooSmallSectionBounds.Sections[0].LocalBounds.Max.y = 0.5;
+	ExpectRejected(TooSmallSectionBounds);
+
+	auto OffsetSectionBounds = *MakeMeshPayload();
+	OffsetSectionBounds.Sections[0].LocalBounds.Min.x = 0.5;
+	ExpectRejected(OffsetSectionBounds);
+
+	auto ConservativeBounds = *MakeMeshPayload();
+	ConservativeBounds.LocalBounds = Durin::FBox(Durin::FVector3(-1.0), Durin::FVector3(2.0));
+	ConservativeBounds.Sections[0].LocalBounds = ConservativeBounds.LocalBounds;
+	EXPECT_TRUE(Durin::ValidateSkeletalMeshPayload(ConservativeBounds, *Skeleton, 1, Error)) << Error;
+}
+
 TEST(FSkeletalAssetTests, ImportedStateExchangeCommitsReversesAndRejectsInvalidCandidates)
 {
 	InitializeDObjectSystem();
