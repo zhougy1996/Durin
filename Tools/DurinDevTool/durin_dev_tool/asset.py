@@ -20,7 +20,7 @@ from .build.locations import resolve_location
 from .errors import DevToolError
 
 POLICY_EXIT_CODE = 3
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MIGRATION_SCHEMA_VERSION = 1
 CURRENT_ASSET_FORMAT_VERSION = 3
 INSPECTION_NAMES = {"NotChecked", "Ready", "Failed"}
@@ -75,6 +75,9 @@ def _validate_report(value: Any) -> dict[str, Any]:
         if not isinstance(path, str) or not path or path < previous_path:
             raise DevToolError("Asset audit package order is not deterministic.")
         previous_path = path
+        format_version = package.get("formatVersion")
+        if not isinstance(format_version, int) or isinstance(format_version, bool) or format_version < 0:
+            raise DevToolError("Asset audit returned an invalid package format version.")
         if package.get("inspection") not in INSPECTION_NAMES:
             raise DevToolError("Asset audit returned an unknown inspection name.")
         if package.get("compatibility") not in COMPATIBILITY_NAMES:
@@ -287,14 +290,13 @@ def _policy_failed(report: Mapping[str, Any], policies: set[str]) -> bool:
 def _baseline_failed(report: Mapping[str, Any]) -> bool:
     packages: Sequence[Mapping[str, Any]] = report["packages"]
     return (
-        report["result"] != "Ready"
-        or not packages
+        not packages
         or any(
-            package["status"] != "Skipped"
-            or package["sourceFormatVersion"] != CURRENT_ASSET_FORMAT_VERSION
-            or package["targetFormatVersion"] != CURRENT_ASSET_FORMAT_VERSION
-            or package["steps"]
-            or package["diagnostics"]
+            package["formatVersion"] != CURRENT_ASSET_FORMAT_VERSION
+            or package["inspection"] != "Ready"
+            or package["compatibility"] != "Compatible"
+            or package["freshness"] != "Current"
+            or package["findings"]
             for package in packages
         )
     )
@@ -312,7 +314,7 @@ def run(
 ) -> int:
     asset_command = getattr(namespace, "asset_command", "audit")
     is_baseline = asset_command == "baseline"
-    is_migrate = asset_command in {"migrate", "baseline"}
+    is_migrate = asset_command == "migrate"
     is_apply = is_migrate and getattr(namespace, "apply", False)
     executable = executable_resolver(namespace, repository_root)
     if not executable.is_file():
@@ -361,7 +363,7 @@ def run(
         print(json.dumps(report, separators=(",", ":"), ensure_ascii=False), file=stdout)
     elif is_baseline:
         if _baseline_failed(report):
-            _render_migration_human(report, stdout)
+            _render_human(report, stdout)
             print("\nAsset baseline rejected: every package must be current DAST v3 with no schema findings.", file=stdout)
         else:
             print(f"Asset baseline: {len(report['packages'])} current DAST v3 package(s).", file=stdout)

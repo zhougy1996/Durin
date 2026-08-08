@@ -4098,8 +4098,9 @@ TEST(FPackageAssetTests, CompatibilityProbeMarksSnapshotMismatchStaleAndSerializ
 
 	const std::array Records = {*Second.Record, *First.Record};
 	const std::string Json = Durin::Asset::SerializeAssetCompatibilityReportV1(Records);
-	EXPECT_NE(Json.find("\"schemaVersion\":1"), std::string::npos);
+	EXPECT_NE(Json.find("\"schemaVersion\":2"), std::string::npos);
 	EXPECT_LT(Json.find("/TestAssets/ProbeSerializeA"), Json.find("/TestAssets/ProbeSerializeB"));
+	EXPECT_NE(Json.find("\"formatVersion\":3"), std::string::npos);
 	EXPECT_NE(Json.find("\"inspection\":\"Ready\""), std::string::npos);
 	EXPECT_NE(Json.find("\"freshness\":\"Stale\""), std::string::npos);
 }

@@ -322,8 +322,9 @@ starting an editor workspace:
 
 The default human output groups incompatible, unsupported, failed, and stale
 records. `--format json` emits the versioned schema in
-`Tools/DurinDevTool/schemas/asset-audit-v1.schema.json`; packages are ordered by
-virtual path and enum values use stable names. The three `--fail-on` options are
+`Tools/DurinDevTool/schemas/asset-audit-v2.schema.json`; packages are ordered by
+virtual path, each record exposes its DAST `formatVersion`, and enum values use
+stable names. The three `--fail-on` options are
 independent and repeated options combine by logical OR. With no policy option,
 incompatible and unsupported packages are reported but do not fail the command.
 

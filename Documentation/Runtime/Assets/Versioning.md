@@ -21,23 +21,41 @@ Changing the engine release version alone must not rewrite assets or invalidate 
 
 `FArchiveVersionContext` carries named format versions separately from optional
 GUID-keyed custom versions. Object-graph Archives report object-graph v2;
-authored-package Archives report DAST v3. Property snapshots are process-local
-and unversioned. Struct `PostDeserialize` receives the Archive purpose and the
-source format version instead of deriving compatibility from the engine release
-number.
+authored-package Archives report the actual source format, DAST v3 or v4.
+Ordinary authored saves currently report and emit v3; explicit package migration
+emits v4. Property snapshots are process-local and unversioned. Struct
+`PostDeserialize` receives the Archive purpose and source format version instead
+of deriving compatibility from the engine release number.
 
 DAST v3 has no canonical package location for a general custom-version table.
 An authored serializer may use a versioned logical field or struct descriptor,
-but registration of a nonempty GUID-keyed authored custom-version set fails
-rather than writing an implicit extension. The DAST v4 wire-contract effort
-must decide the package-local version-table layout, identity and ordering rules,
-discovery freeze behavior, reader bounds, unknown-version policy, and exact
-retention semantics before custom versions can become authored data.
+but a v3 save with a nonempty GUID-keyed authored custom-version set fails
+rather than writing an implicit extension. DAST v4 owns the package-local
+custom-version table, canonical GUID ordering, discovery freeze, reader bounds,
+unknown-version rejection, and exact retained closure/payload semantics.
 
 Version registration is part of serializer discovery/emission parity. A format
 or custom version first observed during emission is a late-discovery failure;
 unsupported versions are rejected before destination mutation or output
 publication.
+
+## Authored Package Version Policy
+
+Supported readers, the ordinary writer, and the explicit migration writer are
+separate policies. During the current migration window, v3 and v4 are bounded
+supported readers, ordinary saves emit v3, and explicit package migration emits
+v4. Header reads, discovery, inspection, compatibility probes, reference
+extraction, registry reconciliation, and live loading dispatch only after the
+bounded preamble identifies a supported version; none of these read paths may
+write or dirty authored content.
+
+Registry and reference-cache fingerprints include the source DAST version.
+Changing package bytes or versions invalidates the corresponding projection;
+full validation bypasses cheap timestamp/size reuse. A migration plan records
+the source version and fingerprint, resolves an exact registered chain to the
+migration writer, and fails closed on stale input, missing dependency closure,
+compatibility findings, or retained-data risk. Publication is bundle-atomic and
+journal-compensated.
 
 ## Early-Development Asset Compatibility
 

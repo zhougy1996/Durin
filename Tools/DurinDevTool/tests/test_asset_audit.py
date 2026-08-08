@@ -29,12 +29,14 @@ def package(
     inspection: str = "Ready",
     compatibility: str = "Compatible",
     freshness: str = "Current",
+    format_version: int = 3,
     code: str | None = None,
 ) -> dict[str, object]:
     findings = [] if code is None else [{"code": code, "diagnostic": f"{code} diagnostic"}]
     return {
         "packagePath": path,
         "physicalPath": f"C:/{path[1:]}.dasset",
+        "formatVersion": format_version,
         "inspection": inspection,
         "compatibility": compatibility,
         "freshness": freshness,
@@ -45,47 +47,7 @@ def package(
 
 
 def report(*packages: dict[str, object]) -> str:
-    return json.dumps({"schemaVersion": 1, "packages": list(packages)})
-
-
-def baseline_report(*, version: int = 3, status: str = "Skipped", diagnostics: list[str] | None = None) -> str:
-    counts = {name: 0 for name in ("planned", "migrated", "skipped", "blocked", "failed", "rolledBack")}
-    counts[status.lower()] = 1
-    return json.dumps({
-        "schemaVersion": 1,
-        "operation": "Plan",
-        "result": "Blocked" if status == "Blocked" else "Ready",
-        "packages": [{
-            "packagePath": "/Game/Baseline",
-            "physicalPath": "C:/Game/Baseline.dasset",
-            "status": status,
-            "fingerprint": {
-                "fileSize": 128,
-                "lastWriteTimeTicks": 20,
-                "contentHash": "sha256:" + "0" * 64,
-            },
-            "sourceFormatVersion": version,
-            "targetFormatVersion": 3,
-            "steps": [],
-            "diagnostics": diagnostics or [],
-        }],
-        "summary": counts,
-        "changedPaths": [],
-    })
-
-
-def empty_baseline_report() -> str:
-    return json.dumps({
-        "schemaVersion": 1,
-        "operation": "Plan",
-        "result": "Ready",
-        "packages": [],
-        "summary": {
-            name: 0
-            for name in ("planned", "migrated", "skipped", "blocked", "failed", "rolledBack")
-        },
-        "changedPaths": [],
-    })
+    return json.dumps({"schemaVersion": 2, "packages": list(packages)})
 
 
 def run_handler(tmp_path: Path, report_text: str, *fail_on: str, format_name: str = "json") -> tuple[int, str, str]:
@@ -161,11 +123,11 @@ def test_selected_asset_command_grammar_is_frozen() -> None:
 @pytest.mark.parametrize(
     ("native_report", "expected"),
     [
-        (baseline_report(), 0),
-        (baseline_report(version=2, status="Blocked", diagnostics=["unsupported format"]), 3),
-        (baseline_report(version=4, status="Blocked", diagnostics=["unsupported format"]), 3),
-        (baseline_report(status="Blocked", diagnostics=["schema finding"]), 3),
-        (empty_baseline_report(), 3),
+        (report(package("/Game/Baseline")), 0),
+        (report(package("/Game/Baseline", format_version=2, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
+        (report(package("/Game/Baseline", format_version=4)), 3),
+        (report(package("/Game/Baseline", compatibility="Incompatible", code="UnknownField")), 3),
+        (report(), 3),
     ],
 )
 def test_asset_baseline_requires_current_format_and_schema(
@@ -195,7 +157,7 @@ def test_asset_baseline_requires_current_format_and_schema(
         executable_resolver=lambda *_args: executable,
         process_runner=process_runner,
     ) == expected
-    assert calls == [[str(executable), f"--project={project}", "--format=json", "--operation=migrate"]]
+    assert calls == [[str(executable), f"--project={project}", "--format=json"]]
     assert ("Asset baseline:" in output.getvalue()) == (expected == 0)
 
 
@@ -304,14 +266,14 @@ def test_json_schema_names_and_order_are_preserved(tmp_path: Path) -> None:
     )
     assert result == 0
     parsed = json.loads(output)
-    assert parsed["schemaVersion"] == 1
+    assert parsed["schemaVersion"] == 2
     assert [item["packagePath"] for item in parsed["packages"]] == ["/Engine/A", "/Game/B"]
     assert parsed["packages"][1]["findings"][0]["code"] == "UnknownField"
 
 
 def test_checked_in_schema_freezes_public_enum_names() -> None:
     schema = json.loads(
-        (REPOSITORY_ROOT / "Tools/DurinDevTool/schemas/asset-audit-v1.schema.json").read_text(
+        (REPOSITORY_ROOT / "Tools/DurinDevTool/schemas/asset-audit-v2.schema.json").read_text(
             encoding="utf-8"
         )
     )
@@ -326,7 +288,7 @@ def test_checked_in_schema_freezes_public_enum_names() -> None:
 
 def test_checked_in_report_fixtures_match_their_schemas() -> None:
     audit_schema = json.loads(
-        (REPOSITORY_ROOT / "Tools/DurinDevTool/schemas/asset-audit-v1.schema.json").read_text(
+        (REPOSITORY_ROOT / "Tools/DurinDevTool/schemas/asset-audit-v2.schema.json").read_text(
             encoding="utf-8"
         )
     )
@@ -335,7 +297,7 @@ def test_checked_in_report_fixtures_match_their_schemas() -> None:
             encoding="utf-8"
         )
     )
-    validate(json.loads((FIXTURE_ROOT / "asset-audit-v1.json").read_text(encoding="utf-8")), audit_schema)
+    validate(json.loads((FIXTURE_ROOT / "asset-audit-v2.json").read_text(encoding="utf-8")), audit_schema)
     for name in ("asset-migration-plan-v1.json", "asset-migration-apply-v1.json"):
         fixture = json.loads((FIXTURE_ROOT / name).read_text(encoding="utf-8"))
         validate(fixture, migration_schema)

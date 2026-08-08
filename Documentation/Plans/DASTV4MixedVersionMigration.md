@@ -2,20 +2,21 @@
 
 Summary: Separate supported readers from the latest writer and add explicit atomic v3-to-v4 migration without bulk-resaving tracked content.
 
-Last reviewed: 2026-08-08
+Last reviewed: 2026-08-09
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-09
 
 ## Current Status
 
-Stage 2 is complete on baseline `e4ff1830`. Ordinary loading now selects the
-bounded v3 or v4 live reader. V4 exposes a transaction-only skeleton seam so
-mixed dependency cycles share the existing root residency boundary, and its
-owned graph transfers to `FAssetManager` only after values, ledgers, custom
-versions, compatibility data, and PostLoad succeed. Registry entries are queued
-for root commit rather than published by nested loads. Ordinary saves remain
-v3-only; Stage 3 adds explicit atomic v3-to-v4 migration output.
+Complete on 2026-08-09. AssetCore now separates bounded v3/v4 readers from the
+ordinary v3 writer and explicit v4 migration writer; mixed discovery,
+inspection, compatibility, references, registry/cache, and live loading are
+read-only and transactional. Explicit selected bundles migrate through the
+existing journal to deterministic no-delta v4 with complete compensation.
+Qualification passed without changing any tracked `.dasset`, lasting contracts
+now reside in Runtime docs, and only the DAST V4 Qualification and Rollout child
+has been activated for tracked-content migration and v3 retirement.
 
 ## Goal
 
@@ -235,15 +236,34 @@ version across discovery, loading, compatibility, registry, and saving.
 
 ### Stage 4: Qualify and hand off to rollout
 
-- [ ] Run focused codec, package, compatibility, registry, migration, asset
+- [x] Run focused codec, package, compatibility, registry, migration, asset
   baseline, documentation, hash, and full-build validation.
-- [ ] Move lasting version-policy and migration contracts into Runtime docs.
-- [ ] Complete this plan and activate only the qualification/rollout child.
+- [x] Move lasting version-policy and migration contracts into Runtime docs.
+- [x] Complete this plan and activate only the qualification/rollout child.
 
 #### Acceptance Gate
 
 - Mixed readers, v4 migration output, cache/registry policy, rollback, hashes,
   asset baseline, and full build pass without modifying tracked content.
+
+#### Stage 4 Handoff
+
+- Baseline: `94e3e47e` (`feat(asset): add atomic v4 package migration`).
+- Working set: compatibility-report serialization and DevTool baseline tests;
+  Asset package/version Runtime docs; this plan, the serialization roadmap, and
+  the activated rollout child. No tracked `.dasset` changed.
+- Key symbols and decisions: audit report v2 exposes `formatVersion` while v1
+  remains unchanged;
+  `DevTool asset baseline` consumes the read-only audit report and remains an
+  independent clean-v3 repository gate instead of invoking the v4 migration
+  planner. Supported readers, ordinary writer, and migration writer remain
+  separate policies.
+- Open questions: none. Tracked-content changes, editor render/save/restart,
+  ordinary-v4 activation, and v3 retirement belong only to the rollout child.
+- Validation: `AssetPackageTests` passed 125/125; DurinDevTool tests passed
+  299/299; read-only audit and baseline passed all 17 tracked v3 packages; all
+  17 Git object hashes matched `HEAD`; all-plan documentation validation and the
+  full `all` build passed.
 
 ## Validation Matrix
 

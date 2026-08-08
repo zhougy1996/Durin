@@ -764,8 +764,8 @@ namespace Durin::Asset
 		{
 			if (RecordIndex != 0) Json += ',';
 			const auto& Record = *Sorted[RecordIndex];
-			Json += std::format("{{\"packagePath\":\"{}\",\"physicalPath\":\"{}\",\"inspection\":\"{}\",\"compatibility\":\"{}\",\"freshness\":\"{}\",\"fileSize\":{},\"lastWriteTimeTicks\":{},\"findings\":[",
-				JsonEscape(Record.PackagePath.GetView()), JsonEscape(Record.PhysicalPath), InspectionName(Record.Inspection),
+			Json += std::format("{{\"packagePath\":\"{}\",\"physicalPath\":\"{}\",\"formatVersion\":{},\"inspection\":\"{}\",\"compatibility\":\"{}\",\"freshness\":\"{}\",\"fileSize\":{},\"lastWriteTimeTicks\":{},\"findings\":[",
+				JsonEscape(Record.PackagePath.GetView()), JsonEscape(Record.PhysicalPath), Record.FormatVersion, InspectionName(Record.Inspection),
 				CompatibilityName(Record.Compatibility), FreshnessName(Record.Freshness), Record.Fingerprint.FileSize, Record.Fingerprint.LastWriteTimeTicks);
 			for (size_t FindingIndex = 0; FindingIndex < Record.Findings.size(); ++FindingIndex)
 			{

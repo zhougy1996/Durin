@@ -5,9 +5,9 @@
 
 namespace Durin::Asset
 {
-	inline constexpr uint32 AssetCompatibilityReportSchemaVersion = 1;
+	inline constexpr uint32 AssetCompatibilityReportSchemaVersion = 2;
 
-	// Stable names are serialized by report schema v1; enum ordinals are never persisted.
+	// Stable names are serialized by report schemas; enum ordinals are never persisted.
 	enum class EAssetCompatibilityFindingCode : uint8
 	{
 		UnknownField,

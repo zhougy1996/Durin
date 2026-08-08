@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 2,
+  "packages": [
+    {
+      "packagePath": "/Engine/Materials/DefaultMaterial",
+      "physicalPath": "C:/Durin/Engine/Content/Materials/DefaultMaterial.dasset",
+      "formatVersion": 3,
+      "inspection": "Ready",
+      "compatibility": "Compatible",
+      "freshness": "Current",
+      "fileSize": 82636,
+      "lastWriteTimeTicks": 20,
+      "findings": []
+    }
+  ]
+}
