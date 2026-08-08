@@ -120,14 +120,15 @@ surface contract owned by milestones 2 and 3.
 
 ### 4. Static Permutations and Render Passes
 
-The PBR closure review above supplies the required concrete input, but no
-render-pass plan is created or activated by that completion. When milestone 4
-is explicitly selected, its plan will own actual opaque, masked, and
-translucent behavior; culling and
-depth-write policy; depth-only and shadow-depth passes; translucent sorting;
-pass, platform, quality, and vertex-factory permutation identity; and the
-forward-versus-deferred decision. Until then, existing static properties remain
-identity inputs without a promise that each policy differs on screen.
+Milestone 4 is active through the
+[Material Render Pass Policies Plan](../Plans/MaterialRenderPassPolicies.md).
+The selected M2 boundary owns actual opaque, masked, and translucent base-pass
+behavior; culling and depth-write policy; deterministic translucent sorting;
+and the minimum pass, shader, pipeline, and RHI state identity needed to make
+those policies visible. M3 later extends the prepared work with visibility and
+LOD, while M6 owns depth-only/shadow-depth resources and execution. Existing
+static properties remain identity inputs until their M2 stage is implemented
+and validated.
 
 ### 5. Material Compilation
 
