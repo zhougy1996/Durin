@@ -56,7 +56,7 @@ namespace Durin
 
 	auto FStaticMeshPreviewController::Orbit(float DeltaX, float DeltaY) -> void
 	{
-		YawDegrees = std::remainder(YawDegrees - static_cast<double>(DeltaX) * RotationSensitivity, 360.0);
+		YawDegrees = std::remainder(YawDegrees + static_cast<double>(DeltaX) * RotationSensitivity, 360.0);
 		PitchDegrees = std::clamp(PitchDegrees + static_cast<double>(DeltaY) * RotationSensitivity, -85.0, 85.0);
 	}
 

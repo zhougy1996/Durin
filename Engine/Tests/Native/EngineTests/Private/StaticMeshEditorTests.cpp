@@ -23,9 +23,14 @@ TEST(FStaticMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministicall
 	EXPECT_DOUBLE_EQ(InitialTarget.z, 7.0);
 	EXPECT_GT(InitialDistance, 4.0);
 
-	Controller.Orbit(20.0f, -1000.0f);
-	EXPECT_GE(Controller.GetPitchDegrees(), -85.0);
-	EXPECT_NE(Controller.GetYawDegrees(), -45.0);
+	Controller.Orbit(20.0f, 0.0f);
+	EXPECT_DOUBLE_EQ(Controller.GetYawDegrees(), -40.0);
+	EXPECT_DOUBLE_EQ(Controller.GetPitchDegrees(), 25.0);
+	Controller.Orbit(0.0f, 10.0f);
+	EXPECT_DOUBLE_EQ(Controller.GetYawDegrees(), -40.0);
+	EXPECT_DOUBLE_EQ(Controller.GetPitchDegrees(), 27.5);
+	Controller.Orbit(0.0f, 1000.0f);
+	EXPECT_DOUBLE_EQ(Controller.GetPitchDegrees(), 85.0);
 	Controller.Zoom(1.0f);
 	EXPECT_LT(Controller.GetDistance(), InitialDistance);
 	Controller.Pan(12.0f, -8.0f);
