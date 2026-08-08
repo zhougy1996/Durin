@@ -4,6 +4,7 @@
 #include "AssetCompatibility.h"
 #include "AssetMigration.h"
 #include "AssetPackageV4Reader.h"
+#include "AssetPackageV4Writer.h"
 #include "AssetRedirector.h"
 #include "AssetSystem.h"
 #include "CookedAsset.h"
@@ -4172,7 +4173,7 @@ TEST(FPackageAssetTests, MigrationPlannerIsDeterministicLosslessDependencyAwareA
 	};
 	auto A = MakeRecord("/TestAssets/A", 2);
 	auto B = MakeRecord("/TestAssets/B", 2);
-	auto Current = MakeRecord("/TestAssets/Current", 3);
+	auto Current = MakeRecord("/TestAssets/Current", 4);
 	A.Dependencies.push_back(B.PackagePath);
 	std::array Records = {Current, B, A};
 	FAssetMigrationRegistry Registry;
@@ -4182,6 +4183,11 @@ TEST(FPackageAssetTests, MigrationPlannerIsDeterministicLosslessDependencyAwareA
 		.SourceVersion = 2,
 		.TargetVersion = 3,
 		.Risk = EAssetMigrationRisk::Lossless}, Error));
+	ASSERT_TRUE(Registry.Register({
+		.HandlerId = "test.package.3-to-4",
+		.SourceVersion = 3,
+		.TargetVersion = 4,
+		.Risk = EAssetMigrationRisk::Lossless}, Error));
 	const auto First = PlanAssetPackageMigrations(Records, Registry);
 	const auto Second = PlanAssetPackageMigrations(Records, Registry);
 	ASSERT_EQ(First.Packages.size(), 3u);
@@ -4190,7 +4196,7 @@ TEST(FPackageAssetTests, MigrationPlannerIsDeterministicLosslessDependencyAwareA
 	EXPECT_EQ(First.Packages[1].Status, EAssetMigrationPackageStatus::Planned);
 	EXPECT_EQ(First.Packages[2].Status, EAssetMigrationPackageStatus::Skipped);
 	EXPECT_EQ(SerializeAssetMigrationPlanReportV1(First), SerializeAssetMigrationPlanReportV1(Second));
-	EXPECT_NE(SerializeAssetMigrationPlanReportV1(First).find("test.package.2-to-3"), std::string::npos);
+	EXPECT_NE(SerializeAssetMigrationPlanReportV1(First).find("test.package.3-to-4"), std::string::npos);
 
 	FAssetMigrationSelection OnlyA{.Packages = {A.PackagePath}};
 	const auto DependencyBlocked = PlanAssetPackageMigrations(Records, Registry, OnlyA);
@@ -4230,7 +4236,8 @@ TEST(FPackageAssetTests, MigrationPlannerFailsClosedForCompatibilityStalenessAnd
 	FAssetMigrationRegistry Registry;
 	std::string Error;
 	ASSERT_TRUE(RegisterBuiltInAssetMigrations(Registry, Error));
-	EXPECT_TRUE(Registry.GetHandlers().empty());
+	ASSERT_EQ(Registry.GetHandlers().size(), 1u);
+	EXPECT_EQ(Registry.GetHandlers().front().TargetVersion, AssetPackageMigrationWriterVersion);
 	auto Plan = PlanAssetPackageMigrations({&Record, 1}, Registry);
 	EXPECT_EQ(Plan.Packages[0].Status, EAssetMigrationPackageStatus::Blocked);
 	EXPECT_TRUE(Plan.Packages[0].Diagnostics[0].starts_with("CompatibilityFinding:UnknownField:"));
@@ -4246,8 +4253,136 @@ TEST(FPackageAssetTests, MigrationPlannerFailsClosedForCompatibilityStalenessAnd
 	ASSERT_TRUE(Risky.Register({
 		.HandlerId = "test.risky.2-to-3", .SourceVersion = 2, .TargetVersion = 3,
 		.Risk = EAssetMigrationRisk::Unknown}, Error));
+	ASSERT_TRUE(Risky.Register({
+		.HandlerId = "test.package.3-to-4", .SourceVersion = 3, .TargetVersion = 4,
+		.Risk = EAssetMigrationRisk::Lossless}, Error));
 	Plan = PlanAssetPackageMigrations({&Record, 1}, Risky);
 	EXPECT_TRUE(Plan.Packages[0].Diagnostics[0].starts_with("MigrationNotLossless:"));
+}
+
+TEST(FPackageAssetTests, ExplicitMigrationPublishesDeterministicV4BundleAndRollsBackFailures)
+{
+	InitializeAssetTests();
+	using namespace Durin::Asset;
+	Durin::FAssetPath DependencyPath, RootPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/MigrationBundleDependency", DependencyPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/MigrationBundleRoot", RootPath));
+	DMathStructAssetForTest* Dependency = nullptr;
+	DMathStructAssetForTest* Root = nullptr;
+	ASSERT_TRUE(CreateAsset(DependencyPath, Dependency));
+	Dependency->Vector = Durin::FVector3(17.0);
+	ASSERT_TRUE(SavePackage(Dependency->GetPackage()));
+	ASSERT_TRUE(CreateAsset(RootPath, Root));
+	Root->Vector = Durin::FVector3(29.0);
+	ASSERT_TRUE(SavePackage(Root->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(RootPath));
+	ASSERT_TRUE(UnloadPackage(DependencyPath));
+
+	const auto AssetRoot = Durin::Testing::GetTestWorkDirectory() / "Assets";
+	const auto DependencyFile = AssetRoot / "MigrationBundleDependency.dasset";
+	const auto RootFile = AssetRoot / "MigrationBundleRoot.dasset";
+	auto LoadBytes = [](const std::filesystem::path& Path) {
+		std::vector<Durin::uint8> Bytes;
+		EXPECT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, Path.generic_string()));
+		return Bytes;
+	};
+	const std::vector<Durin::uint8> OriginalDependency = LoadBytes(DependencyFile);
+	const std::vector<Durin::uint8> OriginalRoot = LoadBytes(RootFile);
+	const auto Catalog = FReflectionCompatibilityCatalog::Capture();
+	auto MakePlan = [&](const FAssetMigrationSelection& Selection) {
+		const FAssetPackageDiscoverySnapshot Snapshot = CaptureMountedAssetPackageSnapshot();
+		EXPECT_EQ(Snapshot.Status, EAssetPackageSnapshotStatus::Completed) << Snapshot.Error;
+		const auto DependencyInput = std::ranges::find(
+			Snapshot.Packages, DependencyPath, &FAssetPackageCompatibilityProbeInput::PackagePath);
+		const auto RootInput = std::ranges::find(
+			Snapshot.Packages, RootPath, &FAssetPackageCompatibilityProbeInput::PackagePath);
+		EXPECT_NE(DependencyInput, Snapshot.Packages.end());
+		EXPECT_NE(RootInput, Snapshot.Packages.end());
+		if (DependencyInput == Snapshot.Packages.end() || RootInput == Snapshot.Packages.end())
+			return FAssetMigrationPlan{};
+		auto DependencyProbe = ProbeAssetPackageCompatibility(*DependencyInput, Catalog);
+		auto RootProbe = ProbeAssetPackageCompatibility(*RootInput, Catalog);
+		EXPECT_TRUE(DependencyProbe.Record.has_value());
+		EXPECT_TRUE(RootProbe.Record.has_value());
+		if (!DependencyProbe.Record || !RootProbe.Record) return FAssetMigrationPlan{};
+		RootProbe.Record->Dependencies.push_back(DependencyPath);
+		std::array Records = {*RootProbe.Record, *DependencyProbe.Record};
+		FAssetMigrationRegistry Registry;
+		std::string Error;
+		EXPECT_TRUE(RegisterBuiltInAssetMigrations(Registry, Error)) << Error;
+		return PlanAssetPackageMigrations(Records, Registry, Selection);
+	};
+
+	FAssetMigrationPlan StalePlan = MakePlan({});
+	const auto OriginalRootTime = std::filesystem::last_write_time(RootFile);
+	std::filesystem::last_write_time(RootFile, OriginalRootTime + std::chrono::seconds(2));
+	const auto StaleResult = ApplyAssetPackageMigrations(std::move(StalePlan), Catalog);
+	EXPECT_EQ(StaleResult.Status, EAssetMigrationApplyStatus::Failed);
+	EXPECT_TRUE(StaleResult.Diagnostic.starts_with("StaleFingerprint:"));
+	EXPECT_EQ(LoadBytes(DependencyFile), OriginalDependency);
+	EXPECT_EQ(LoadBytes(RootFile), OriginalRoot);
+	EXPECT_EQ(FindLoadedPackage(DependencyPath), nullptr);
+	EXPECT_EQ(FindLoadedPackage(RootPath), nullptr);
+	std::filesystem::last_write_time(RootFile, OriginalRootTime);
+
+	FAssetMigrationPlan DryRun = MakePlan({});
+	ASSERT_EQ(DryRun.Packages.size(), 2u);
+	EXPECT_TRUE(std::ranges::all_of(DryRun.Packages, [](const auto& Package) {
+		return Package.Status == EAssetMigrationPackageStatus::Planned
+			&& Package.TargetFormatVersion == AssetPackageMigrationWriterVersion;
+	})) << SerializeAssetMigrationPlanReportV1(DryRun);
+	EXPECT_EQ(LoadBytes(DependencyFile), OriginalDependency);
+	EXPECT_EQ(LoadBytes(RootFile), OriginalRoot);
+	FAssetMigrationSelection RootOnly{.Packages = {RootPath}};
+	{
+		const auto Incomplete = MakePlan(RootOnly);
+		ASSERT_EQ(Incomplete.Packages.size(), 1u);
+		EXPECT_EQ(Incomplete.Packages.front().Status, EAssetMigrationPackageStatus::Blocked);
+		EXPECT_TRUE(Incomplete.Packages.front().Diagnostics.front().starts_with("DependencyNotSelected:"))
+			<< SerializeAssetMigrationPlanReportV1(Incomplete);
+	}
+
+	const auto RolledBack = ApplyAssetPackageMigrations(
+		std::move(DryRun), Catalog,
+		{.ShouldFail = [](EAssetMigrationApplyPhase Phase, size_t Index) {
+			return Phase == EAssetMigrationApplyPhase::PublishPackage && Index == 1;
+		}});
+	EXPECT_EQ(RolledBack.Status, EAssetMigrationApplyStatus::RolledBack);
+	EXPECT_EQ(LoadBytes(DependencyFile), OriginalDependency);
+	EXPECT_EQ(LoadBytes(RootFile), OriginalRoot);
+	EXPECT_EQ(FindLoadedPackage(DependencyPath), nullptr);
+	EXPECT_EQ(FindLoadedPackage(RootPath), nullptr);
+	ASSERT_NE(GetAssetRegistry().FindAssetExact(DependencyPath), nullptr);
+	ASSERT_NE(GetAssetRegistry().FindAssetExact(RootPath), nullptr);
+	EXPECT_EQ(GetAssetRegistry().FindAssetExact(DependencyPath)->FormatVersion, OrdinaryAssetPackageWriterVersion);
+	EXPECT_EQ(GetAssetRegistry().FindAssetExact(RootPath)->FormatVersion, OrdinaryAssetPackageWriterVersion);
+
+	const auto Applied = ApplyAssetPackageMigrations(MakePlan({}), Catalog);
+	ASSERT_EQ(Applied.Status, EAssetMigrationApplyStatus::Succeeded) << Applied.Diagnostic;
+	ASSERT_EQ(Applied.ChangedPaths.size(), 2u);
+	FAssetPackageHeader DependencyHeader, RootHeader;
+	ASSERT_TRUE(ReadAssetPackageHeader(DependencyFile.generic_string(), DependencyHeader));
+	ASSERT_TRUE(ReadAssetPackageHeader(RootFile.generic_string(), RootHeader));
+	EXPECT_EQ(DependencyHeader.FormatVersion, AssetPackageMigrationWriterVersion);
+	EXPECT_EQ(RootHeader.FormatVersion, AssetPackageMigrationWriterVersion);
+	EXPECT_EQ(GetAssetRegistry().FindAssetExact(DependencyPath)->FormatVersion, AssetPackageMigrationWriterVersion);
+	EXPECT_EQ(GetAssetRegistry().FindAssetExact(RootPath)->FormatVersion, AssetPackageMigrationWriterVersion);
+
+	DMathStructAssetForTest* MigratedRoot = nullptr;
+	ASSERT_TRUE(LoadAsset(RootPath, MigratedRoot));
+	std::vector<Durin::uint8> DeterministicV4;
+	DastV4::FAssetPackageWriteOptions MigrationWriteOptions;
+	MigrationWriteOptions.DeltaMode = Durin::EDefaultDeltaMode::NoDelta;
+	ASSERT_TRUE(DastV4::WriteAssetPackage(
+		MigratedRoot->GetPackage(), DeterministicV4, MigrationWriteOptions));
+	EXPECT_EQ(DeterministicV4, LoadBytes(RootFile));
+	std::vector<Durin::uint8> OrdinarySave;
+	ASSERT_TRUE(SerializeAssetPackageBytes(MigratedRoot->GetPackage(), OrdinarySave));
+	Durin::uint32 OrdinaryVersion = 0;
+	std::memcpy(&OrdinaryVersion, OrdinarySave.data() + sizeof(Durin::uint32), sizeof(OrdinaryVersion));
+	EXPECT_EQ(OrdinaryVersion, OrdinaryAssetPackageWriterVersion);
+	ASSERT_TRUE(UnloadPackage(RootPath));
+	if (FindLoadedPackage(DependencyPath)) ASSERT_TRUE(UnloadPackage(DependencyPath));
 }
 
 TEST(FPackageAssetTests, PackageLoadSnapshotReleasesOnlyPackagesIntroducedAfterCapture)

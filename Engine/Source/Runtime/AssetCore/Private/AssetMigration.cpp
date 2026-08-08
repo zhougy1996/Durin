@@ -1,4 +1,6 @@
 #include "AssetMigration.h"
+#include "AssetPackageV4Reader.h"
+#include "AssetPackageV4Writer.h"
 #include "AssetSystem.h"
 
 #include "Misc/DerivedDataCache.h"
@@ -185,7 +187,13 @@ namespace Durin::Asset
 
 	auto RegisterBuiltInAssetMigrations(FAssetMigrationRegistry& Registry, std::string& OutError) -> bool
 	{
-		return Registry.Validate(OutError);
+		return Registry.Register({
+			.HandlerId = "durin.package.3-to-4",
+			.Kind = EAssetMigrationKind::PackageFormat,
+			.SourceVersion = AssetPackageV3FormatVersion,
+			.TargetVersion = AssetPackageV4FormatVersion,
+			.Risk = EAssetMigrationRisk::Lossless}, OutError)
+			&& Registry.Validate(OutError);
 	}
 
 	auto PlanAssetPackageMigrations(
@@ -234,14 +242,14 @@ namespace Durin::Asset
 					Package.Diagnostics.push_back(std::format("CompatibilityFinding:{}: {}", AssetCompatibilityFindingCodeName(Finding.Code), Finding.Diagnostic));
 				if (Package.Diagnostics.empty()) Package.Diagnostics.push_back("CompatibilityBlocked: package is not losslessly compatible.");
 			}
-			else if (Record->FormatVersion == OrdinaryAssetPackageWriterVersion)
+			else if (Record->FormatVersion == AssetPackageMigrationWriterVersion)
 			{
 				Package.Status = EAssetMigrationPackageStatus::Skipped;
 			}
 			else
 			{
 				auto Chain = Registry.ResolveChain(EAssetMigrationKind::PackageFormat, Record->FormatVersion,
-					OrdinaryAssetPackageWriterVersion, IsCancellationRequested);
+					AssetPackageMigrationWriterVersion, IsCancellationRequested);
 				if (Chain.Status == EAssetMigrationResolutionStatus::Cancelled)
 				{
 					Result.Status = EAssetMigrationPlanStatus::Cancelled;
@@ -279,7 +287,7 @@ namespace Durin::Asset
 				for (const FAssetPath& Dependency : RecordIt->Dependencies)
 				{
 					const auto DependencyRecord = std::ranges::find(Records, Dependency, &FAssetPackageCompatibilityRecord::PackagePath);
-					if (DependencyRecord == Records.end() || DependencyRecord->FormatVersion == OrdinaryAssetPackageWriterVersion) continue;
+					if (DependencyRecord == Records.end() || DependencyRecord->FormatVersion == AssetPackageMigrationWriterVersion) continue;
 					const auto DependencyPlan = std::ranges::find(Result.Packages, Dependency, &FAssetMigrationPackagePlan::PackagePath);
 					if (DependencyPlan == Result.Packages.end())
 						Package.Diagnostics.push_back(std::format("DependencyNotSelected: dependency {} also requires migration.", Dependency.ToString()));
@@ -443,7 +451,7 @@ namespace Durin::Asset
 			if (Bytes.size() < sizeof(uint32) * 2) return false;
 			uint32 Version = 0;
 			std::memcpy(&Version, Bytes.data() + sizeof(uint32), sizeof(Version));
-			return Version == OrdinaryAssetPackageWriterVersion;
+			return Version == AssetPackageMigrationWriterVersion;
 		}
 
 		auto SidecarPath(const std::filesystem::path& Destination, std::string_view Suffix)
@@ -614,7 +622,9 @@ namespace Durin::Asset
 		if (Result.Plan.Status != EAssetMigrationPlanStatus::Completed
 			|| std::ranges::any_of(Result.Plan.Packages, [](const auto& Package) {
 				return Package.Status == EAssetMigrationPackageStatus::Blocked
-					|| Package.Status == EAssetMigrationPackageStatus::Failed;
+					|| Package.Status == EAssetMigrationPackageStatus::Failed
+					|| (Package.Status == EAssetMigrationPackageStatus::Planned
+						&& Package.TargetFormatVersion != AssetPackageMigrationWriterVersion);
 			}))
 		{
 			Result.Status = EAssetMigrationApplyStatus::Blocked;
@@ -660,10 +670,18 @@ namespace Durin::Asset
 					std::format("MigrationLoadRejected: {}", LoadResult ? "unplanned compatibility or mutation risk" : LoadResult.Message));
 			if (Options.ShouldFail && Options.ShouldFail(EAssetMigrationApplyPhase::SerializePackage, Entries.size()))
 				return FailBeforePublish(EAssetMigrationApplyStatus::Failed, "Injected migration serialization failure.");
-			FAssetResult SerializeResult = SerializeAssetPackageBytes(Entry.Package, Entry.PostBytes);
+			DastV4::FWriterDiagnostic WriterDiagnostic;
+			const DastV4::FAssetPackageWriteOptions WriteOptions{
+				.DeltaMode = EDefaultDeltaMode::NoDelta};
+			FAssetResult SerializeResult = DastV4::WriteAssetPackage(
+				Entry.Package, Entry.PostBytes, WriteOptions, &WriterDiagnostic);
 			std::vector<uint8> DeterminismBytes;
-			if (!SerializeResult || !(SerializeResult = ValidateAssetPackageBytes(Entry.PostBytes))
-				|| !(SerializeResult = SerializeAssetPackageBytes(Entry.Package, DeterminismBytes))
+			DastV4::FDecodedPackage Decoded;
+			DastV4::FReaderDiagnostic ReaderDiagnostic;
+			if (!SerializeResult || !DastV4::DecodePackage(
+					Entry.PostBytes, Decoded, {}, &ReaderDiagnostic)
+				|| !(SerializeResult = DastV4::WriteAssetPackage(
+					Entry.Package, DeterminismBytes, WriteOptions, &WriterDiagnostic))
 				|| Entry.PostBytes != DeterminismBytes || !IsCurrentPackageBytes(Entry.PostBytes))
 				return FailBeforePublish(EAssetMigrationApplyStatus::Failed,
 					std::format("MigrationSerializationRejected: {}", SerializeResult ? "current writer output was not deterministic" : SerializeResult.Message));
@@ -761,18 +779,42 @@ namespace Durin::Asset
 		const FAssetPackageDiscoverySnapshot Snapshot = CaptureMountedAssetPackageSnapshot();
 		if (Snapshot.Status != EAssetPackageSnapshotStatus::Completed)
 			return Rollback("MigrationPostAuditFailed: fresh discovery did not complete.");
+		std::vector<FAssetData> RegistryEntries;
+		RegistryEntries.reserve(Entries.size());
 		for (const FStagedMigrationPackage& Entry : Entries)
 		{
 			const FAssetPath& Path = Result.Plan.Packages[Entry.PlanIndex].PackagePath;
 			const auto Input = std::ranges::find(Snapshot.Packages, Path, &FAssetPackageCompatibilityProbeInput::PackagePath);
 			if (Input == Snapshot.Packages.end()) return Rollback("MigrationPostAuditFailed: migrated package disappeared.");
 			auto Probe = ProbeAssetPackageCompatibility(*Input, Catalog);
-			if (!Probe.Record || Probe.Record->FormatVersion != OrdinaryAssetPackageWriterVersion
+			if (!Probe.Record || Probe.Record->FormatVersion != AssetPackageMigrationWriterVersion
 				|| Probe.Record->Inspection != EAssetCompatibilityInspection::Ready
 				|| Probe.Record->Compatibility != EAssetPackageCompatibility::Compatible
 				|| !Probe.Record->Findings.empty())
 				return Rollback("MigrationPostAuditFailed: migrated package is not clean and current.");
 		}
+		for (const FStagedMigrationPackage& Entry : Entries)
+		{
+			FAssetPackageHeader Header;
+			FAssetResult HeaderResult = ReadAssetPackageHeader(Entry.Destination.generic_string(), Header);
+			std::error_code Error;
+			const auto LastWriteTime = std::filesystem::last_write_time(Entry.Destination, Error);
+			const uintmax_t FileSize = Error ? 0 : std::filesystem::file_size(Entry.Destination, Error);
+			if (!HeaderResult || Error || Header.FormatVersion != AssetPackageMigrationWriterVersion)
+				return Rollback("MigrationRegistryPublicationFailed: migrated package metadata could not be published.");
+			RegistryEntries.push_back({
+				.PackagePath = Result.Plan.Packages[Entry.PlanIndex].PackagePath,
+				.PhysicalPath = Entry.Destination.generic_string(),
+				.AssetClassName = std::move(Header.AssetClassName),
+				.EntryKind = Header.EntryKind,
+				.RedirectDestination = std::move(Header.RedirectDestination),
+				.FormatVersion = Header.FormatVersion,
+				.Dependencies = std::move(Header.Dependencies),
+				.FileSize = FileSize,
+				.LastWriteTime = LastWriteTime,
+				.LastWriteTimeTicks = DerivedDataCache::FileTimeToStableTicks(LastWriteTime)});
+		}
+		FAssetManager::Get().PublishMigratedPackageRegistryEntries(RegistryEntries);
 
 		for (const auto& Entry : Entries)
 		{

@@ -195,16 +195,43 @@ version across discovery, loading, compatibility, registry, and saving.
 
 ### Stage 3: Add explicit atomic v3-to-v4 migration
 
-- [ ] Select v4 as migration output without changing ordinary save output.
-- [ ] Plan, revalidate, stage, publish, verify, and compensate selected bundles
+- [x] Select v4 as migration output without changing ordinary save output.
+- [x] Plan, revalidate, stage, publish, verify, and compensate selected bundles
   through the shared journal and data-loss gates.
-- [ ] Prove deterministic resave, dependency closure, stale-input rejection,
+- [x] Prove deterministic resave, dependency closure, stale-input rejection,
   retained-unknown preservation, and complete rollback.
 
 #### Acceptance Gate
 
 - An explicitly selected bundle migrates atomically to byte-deterministic v4;
   dry-run and failure paths leave authored files and runtime state unchanged.
+
+#### Stage 3 Handoff
+
+- Baseline: `009a4706` (`feat(asset): activate mixed-version live loading`).
+- Working set: `AssetMigration.h/.cpp`, `AssetSystem.h/.cpp`, package migration
+  tests, and this plan. No authored `.dasset` files changed.
+- Key symbols and decisions: `RegisterBuiltInAssetMigrations` owns the lossless
+  `durin.package.3-to-4` edge; `FAssetMigrationPackagePlan::TargetFormatVersion`
+  and dependency closure use `AssetPackageMigrationWriterVersion`. Apply writes
+  deterministic v4 with `DastV4::WriteAssetPackage` in `NoDelta` mode while
+  ordinary save and `SerializeAssetPackageBytes` remain v3.
+- Transaction boundary: the existing migration sidecar journal stages and
+  compensates the complete selected bundle. Every input is fingerprint-checked
+  before load and again before publication; bounded v4 decode, post-audit, and
+  batch registry projection complete before sidecar cleanup. Registry projection
+  is a validated no-fail commit step owned by
+  `FAssetManager::PublishMigratedPackageRegistryEntries`.
+- Data-loss and retained-data decision: compatibility findings and live-load risk
+  items remain fail-closed, so migration never drops retained unknown data. Exact
+  v4 retained closure/payload behavior remains covered by the v4 writer/reader
+  tests in the same target.
+- Open questions: none for Stage 3. Stage 4 must run the full qualification matrix
+  and move lasting migration/version-policy contracts into Runtime docs.
+- Validation: `AssetPackageTests` passed 125/125, including dry-run, dependency
+  closure, stale-input rejection, injected mid-publication rollback, deterministic
+  v4 resave, ordinary-v3 output isolation, registry/residency rollback, and
+  retained-unknown codec coverage.
 
 ### Stage 4: Qualify and hand off to rollout
 

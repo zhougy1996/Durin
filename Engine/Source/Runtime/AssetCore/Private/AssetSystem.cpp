@@ -7112,6 +7112,12 @@ namespace Durin::Asset
 		return {};
 	}
 
+	auto FAssetManager::PublishMigratedPackageRegistryEntries(
+		std::span<FAssetData> Entries) -> void
+	{
+		for (FAssetData& Entry : Entries) Registry.AddOrUpdate(std::move(Entry));
+	}
+
 	auto FAssetManager::Shutdown() -> void
 	{
 		StopAcceptingRequests();

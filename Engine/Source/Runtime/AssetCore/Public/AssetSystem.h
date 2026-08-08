@@ -972,6 +972,10 @@ namespace Durin::Asset
 		ASSETCORE_API auto CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot;
 		ASSETCORE_API auto ReleasePackagesLoadedSince(
 			const FAssetPackageLoadSnapshot& Snapshot) -> FAssetResult;
+		// Commit-only migration seam. Callers must fully validate every entry before
+		// publishing the complete selected bundle through this no-fail projection step.
+		ASSETCORE_API auto PublishMigratedPackageRegistryEntries(
+			std::span<FAssetData> Entries) -> void;
 		// Reopens an empty manager after Shutdown().
 		ASSETCORE_API auto Initialize() -> void;
 		ASSETCORE_API auto StopAcceptingRequests() -> void;

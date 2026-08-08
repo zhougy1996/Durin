@@ -71,7 +71,7 @@ namespace Durin::Asset
 		std::string ReportContentHash;
 		EAssetMigrationPackageStatus Status = EAssetMigrationPackageStatus::Blocked;
 		uint32 SourceFormatVersion = 0;
-		uint32 TargetFormatVersion = OrdinaryAssetPackageWriterVersion;
+		uint32 TargetFormatVersion = AssetPackageMigrationWriterVersion;
 		std::vector<FAssetMigrationHandlerDescriptor> Steps;
 		std::vector<std::string> Diagnostics;
 	};
