@@ -22,6 +22,7 @@ namespace Durin::Asset::Private
 		const std::filesystem::path& RootPath;
 		std::string_view RootSourcePath;
 		std::span<const uint8> RootBytes;
+		const FMeshImportOptions& Options;
 		FSceneDecodeResult& Result;
 	};
 
@@ -82,7 +83,8 @@ namespace Durin::Asset::Private
 	auto ImportGltfFormat(
 		const FImportedSceneContext& Context,
 		bool bGlb,
-		std::vector<uint32>& OutSourcePrimitiveMaterialIndices) -> bool;
+		std::vector<uint32>& OutSourcePrimitiveMaterialIndices,
+		std::vector<uint8>& OutAssimpProjection) -> bool;
 	auto ImportAssimpFormat(
 		const aiScene& Scene,
 		const FImportedSceneContext& Context) -> bool;

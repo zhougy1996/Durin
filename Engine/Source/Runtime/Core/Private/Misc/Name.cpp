@@ -697,6 +697,10 @@ namespace Durin
 		{
 			Shard.Initialize(Entries);
 		}
+
+		// Entry zero is the sentinel used by default-constructed FName values.
+		// Reserve it before any caller-provided name can enter the pool.
+		check(Store("None").IsNone());
 	}
 
 	auto FNamePool::Store(std::string_view Name) -> FNameEntryId

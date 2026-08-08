@@ -5,6 +5,8 @@
 #include "CoreFwd.h"
 #include "Hash/XxHash.h"
 #include "Math/Vector.h"
+#include "Animation/AnimationClip.h"
+#include "SkeletalMesh/SkeletalMesh.h"
 
 namespace Durin::Asset
 {
@@ -20,6 +22,14 @@ namespace Durin::Asset
 	inline constexpr uint32 MaxImportedTextureDimension = 16384;
 	inline constexpr uint64 MaxImportedDecodedPixels = 268435456;
 	inline constexpr uint64 MaxImportedSceneSourceBytes = 2ull * 1024ull * 1024ull * 1024ull;
+	inline constexpr uint32 MaxImportedSceneNodes = 1000000;
+	inline constexpr uint32 MaxImportedSourceMeshes = 65536;
+	inline constexpr uint32 MaxImportedPrimitivesPerMesh = 65536;
+	inline constexpr uint32 MaxImportedSkins = 4096;
+	inline constexpr uint32 MaxImportedSkeletalMeshes = 16384;
+	inline constexpr uint32 MaxImportedAnimations = 4096;
+	inline constexpr uint32 MaxImportedAnimationClips = 65536;
+	inline constexpr uint64 MaxImportedSkeletalDecodedBytes = 16ull * 1024ull * 1024ull * 1024ull;
 
 	enum class EImportedImageEncoding : uint8 { Png, Jpeg, Bmp, Tga };
 	enum class EImportedTextureSemantic : uint8
@@ -48,7 +58,10 @@ namespace Durin::Asset
 		InvalidReference,
 		InvalidValue,
 		UnsupportedEncoding,
-		ResourceLimitExceeded
+		ResourceLimitExceeded,
+		UnsupportedFeature,
+		MalformedSource,
+		LossyNormalization
 	};
 
 	struct FImportedSampler
@@ -138,12 +151,57 @@ namespace Durin::Asset
 		uint32 SourceMaterialIndex = 0;
 	};
 
+	struct FImportedSceneNode
+	{
+		uint32 SourceNodeIndex = 0;
+		int32 ParentNodeIndex = -1;
+		std::string SourceName;
+		FMatrix4f LocalTransform{1.0f};
+		FMatrix4f GlobalTransform{1.0f};
+		std::optional<uint32> MeshIndex;
+		std::optional<uint32> SkinIndex;
+	};
+
+	struct FImportedSkeletonData
+	{
+		std::string StableIdentity;
+		std::string SuggestedName;
+		uint32 SourceSkinIndex = 0;
+		std::vector<FSkeletonBone> Bones;
+		std::string CompatibilityIdentity;
+	};
+
+	struct FImportedSkeletalMeshData
+	{
+		std::string StableIdentity;
+		std::string SuggestedName;
+		uint32 SourceNodeIndex = 0;
+		uint32 SourceMeshIndex = 0;
+		uint32 SkeletonIndex = 0;
+		FSkeletonTransform MeshNodeBindTransform;
+		std::vector<FSkeletalMeshMaterialSlotDefinition> MaterialSlots;
+		std::shared_ptr<const FSkeletalMeshPayloadData> Payload;
+	};
+
+	struct FImportedAnimationClipData
+	{
+		std::string StableIdentity;
+		std::string SuggestedName;
+		uint32 SourceAnimationIndex = 0;
+		uint32 SkeletonIndex = 0;
+		std::shared_ptr<const FAnimationClipPayloadData> Payload;
+	};
+
 	struct FImportedSceneData
 	{
 		std::vector<FImportedImage> Images;
 		std::vector<FImportedMaterial> Materials;
 		std::vector<FImportedMaterialSlot> MaterialSlots;
 		std::vector<FImportedMeshData> Meshes;
+		std::vector<FImportedSceneNode> Nodes;
+		std::vector<FImportedSkeletonData> Skeletons;
+		std::vector<FImportedSkeletalMeshData> SkeletalMeshes;
+		std::vector<FImportedAnimationClipData> AnimationClips;
 		std::vector<FImportedDependency> Dependencies;
 		std::vector<FImportDiagnostic> Diagnostics;
 	};

@@ -15,8 +15,9 @@ Stage 0 is complete in `201ddf0d7a3888e729167e6eca427b974e0605d6`.
 The repository-owned skeletal fixture corpus now freezes the source subset,
 output graph, coordinate conversion, compatibility encoding, limits, payload
 split, malformed diagnostic categories, and current static projection baseline.
-Stage 1 is complete. Stage 2 is current and adds the bounded, format-owned glTF
-normalization path against the frozen runtime and fixture contracts.
+Stages 1 and 2 are complete. Stage 3 is current and publishes the normalized
+skeletal values through the existing Scene provider transaction and record
+model.
 
 The current normalized Scene result contains images, materials, material
 slots, and static mesh arrays only. `AssimpSceneGeometry.cpp` traverses nodes,
@@ -462,26 +463,26 @@ runtime or StaticMesh behavior change.
 
 Dependencies: Stage 1 value/invariant contracts and Stage 0 source goldens.
 
-- [ ] Extend normalized Scene data with nodes, skins, skeletal primitive data,
+- [x] Extend normalized Scene data with nodes, skins, skeletal primitive data,
   inverse binds, and clips using value-only types and explicit resource limits.
-- [ ] Decode required glTF buffers, buffer views, accessors, nodes, meshes,
+- [x] Decode required glTF buffers, buffer views, accessors, nodes, meshes,
   skins, joints, inverse binds, and animation samplers/channels directly from
   the immutable captured snapshot according to the Stage 0 subset.
-- [ ] Apply the selected source-to-Durin conversion coherently and canonicalize
+- [x] Apply the selected source-to-Durin conversion coherently and canonicalize
   hierarchy, output associations, influences, rotations, and track ordering.
-- [ ] Validate every index/count/range/stride/component type, checked byte
+- [x] Validate every index/count/range/stride/component type, checked byte
   calculation, finite value, hierarchy edge, palette relationship, track
   target, key time, and interpolation mode before publishing normalized data.
-- [ ] Poll the existing import cancellation scope during bounded parse,
+- [x] Poll the existing import cancellation scope during bounded parse,
   accessor decode, normalization, canonicalization, and validation loops.
   Cancellation publishes no partial result.
-- [ ] Emit stable structured diagnostics for unsupported, lossy, malformed,
+- [x] Emit stable structured diagnostics for unsupported, lossy, malformed,
   missing-dependency, unsafe-path, and resource-limit outcomes without exposing
   third-party diagnostic strings as the contract.
-- [ ] Preserve existing static geometry/material/image results and diagnostics
+- [x] Preserve existing static geometry/material/image results and diagnostics
   byte-for-byte where the new skeletal output has no specified reason to change
   them.
-- [ ] Add normalized success, malformed, cancellation, determinism, source
+- [x] Add normalized success, malformed, cancellation, determinism, source
   containment, and limit tests for `.gltf` and `.glb`.
 
 #### Acceptance Gate
@@ -498,6 +499,57 @@ Dependencies: Stage 1 value/invariant contracts and Stage 0 source goldens.
   unchanged except for explicitly asserted new skeletal records.
 - The stage handoff records baseline commit, working set, symbols, decisions,
   open questions, and validation outcome.
+
+#### Stage 2 Handoff
+
+- Baseline commit: `c22e76c6b894c42999b2c9b0de09b99850bebc10`
+  (`feat(skeletal): add runtime asset schemas`).
+- Completed working set:
+  `Engine/Source/Editor/StandardAssetImport/Public/ImportedScene.h`,
+  `Engine/Source/Editor/StandardAssetImport/Private/ImportedSceneInternal.h`,
+  `Engine/Source/Editor/StandardAssetImport/Private/ImportedScene.cpp`,
+  `Engine/Source/Editor/StandardAssetImport/Private/GltfSceneAdapter.cpp`,
+  `Engine/Source/Editor/StandardAssetImport/Private/GltfSkeletalDecoder.h`,
+  `Engine/Source/Editor/StandardAssetImport/Private/GltfSkeletalDecoder.cpp`,
+  `Engine/Source/Runtime/Engine/Public/SkeletalMesh/SkeletalMesh.h`,
+  `Engine/Source/Runtime/Core/Private/Misc/Name.cpp`,
+  `Engine/Tests/Native/AssetCoreTests/Private/AssetImportTests.cpp`,
+  `Engine/Tests/Native/CoreTests/Private/NameTests.cpp`, and this plan.
+- Key symbols and ownership: StandardAssetImport owns value-only
+  `FImportedSceneNode`, `FImportedSkeletonData`,
+  `FImportedSkeletalMeshData`, and `FImportedAnimationClipData`, plus the
+  bounded `ImportGltfSkeletalData` decoder. The adapter captures every buffer
+  before direct decoding and gives Assimp a sanitized, self-contained static
+  projection. Runtime Engine types remain source-format independent.
+- Decisions: version 1 uses the Stage 0 fixed glTF-to-Durin basis, exact
+  float32 matrix canonicalization, source-index stable identities, canonical
+  parent-first bone order, deterministic four-weight normalization, and one
+  clip per compatible animation/skin pair. Tree traversal is iterative and
+  records Euler intervals so maximum-sized valid hierarchies do not consume
+  the C++ call stack or require repeated ancestor walks. The Assimp projection
+  strips skeletal relationships and deterministically reuses the first
+  float32 UV accessor when its current normalized-integer path would produce
+  non-finite values, preserving the frozen static baseline while the direct
+  skeletal payload retains the normative UVs. A direct dependency audit also
+  found and repaired the Core invariant that FName entry zero must be reserved
+  for `None`; without it, a synthetic root created as the process's first name
+  displayed correctly but compared as None. Explicit payload equality replaces
+  the deleted default comparison caused by `FBox`.
+- Open questions for Stage 3: none block implementation. Provider planning
+  must carry these immutable values in typed state and create Skeletons before
+  dependent SkeletalMeshes and AnimationClips. Stage 3 should extend the
+  existing asynchronous Scene equivalence/cancellation test with the skeletal
+  graph so cancellation is observed through the same coordinator scope polled
+  by this decoder.
+- Validation: `AssetImportTests` passed 16/16, including exact canonical values
+  and equal normalized outputs for data-URI `.gltf`, external-buffer `.gltf`,
+  and `.glb`; all 18 frozen malformed/unsupported categories; source
+  containment and resource limits; deterministic associations; and exact
+  static-projection parity. `AssetImportCoreTests` passed 24/24, including the
+  coordinator cancellation scope used by the decoder. Regressions passed:
+  `CoreUtilityTests` 78/78, `SkeletalAssetTests` 6/6,
+  `StaticMeshTests` 49/49, and `TextureTests` 62/62. `git diff --check`
+  passed.
 
 ### Stage 3: Publish stable Scene-provider asset graphs
 

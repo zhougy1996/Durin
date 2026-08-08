@@ -1,4 +1,5 @@
 #include "ImportedSceneInternal.h"
+#include "GltfSkeletalDecoder.h"
 
 #include "Json/Json.h"
 
@@ -56,6 +57,252 @@ namespace Durin::Asset::Private
 			}
 		}
 		return OutBytes.size() == OutputSize;
+	}
+
+	auto EncodeBase64(std::span<const uint8> Bytes) -> std::string
+	{
+		static constexpr char Alphabet[] =
+			"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+		std::string Result;
+		Result.reserve(((Bytes.size() + 2) / 3) * 4);
+		for (size_t Offset = 0; Offset < Bytes.size(); Offset += 3)
+		{
+			const uint32 A = Bytes[Offset];
+			const uint32 B = Offset + 1 < Bytes.size() ? Bytes[Offset + 1] : 0;
+			const uint32 C = Offset + 2 < Bytes.size() ? Bytes[Offset + 2] : 0;
+			const uint32 Value = (A << 16) | (B << 8) | C;
+			Result.push_back(Alphabet[(Value >> 18) & 63]);
+			Result.push_back(Alphabet[(Value >> 12) & 63]);
+			Result.push_back(Offset + 1 < Bytes.size() ? Alphabet[(Value >> 6) & 63] : '=');
+			Result.push_back(Offset + 2 < Bytes.size() ? Alphabet[Value & 63] : '=');
+		}
+		return Result;
+	}
+
+	auto ShouldCopyProjectionMember(
+		std::string_view Path,
+		std::string_view Key) -> bool
+	{
+		if (Path.empty() && (Key == "skins" || Key == "animations")) return false;
+		if (Path.starts_with("nodes/") && Path.find('/', 6) == std::string_view::npos
+			&& Key == "skin") return false;
+		if (Path.find("/primitives/") != std::string_view::npos && Key == "targets") return false;
+		if (Path.ends_with("/attributes")
+			&& (Key == "JOINTS_0" || Key == "WEIGHTS_0"
+				|| Key == "JOINTS_1" || Key == "WEIGHTS_1")) return false;
+		return true;
+	}
+
+	auto CopyProjectionJson(
+		FJsonNodeView Source,
+		FJsonNodeRef Destination,
+		const std::string& Path) -> bool
+	{
+		if (Source.IsNull())
+		{
+			Destination.SetValue(nullptr);
+			return true;
+		}
+		if (Source.IsString())
+		{
+			Destination.SetValue(Source.GetString());
+			return true;
+		}
+		if (Source.IsBool())
+		{
+			Destination.SetValue(Source.GetBool());
+			return true;
+		}
+		if (Source.IsUInt())
+		{
+			Destination.SetValue(Source.GetUInt());
+			return true;
+		}
+		if (Source.IsInt())
+		{
+			Destination.SetValue(Source.GetInt());
+			return true;
+		}
+		if (Source.IsNumber())
+		{
+			Destination.SetValue(Source.GetDouble());
+			return true;
+		}
+		if (Source.IsArray())
+		{
+			Destination.EnsureArray();
+			for (size_t Index = 0; Index < Source.Num(); ++Index)
+			{
+				FJsonNodeRef Child;
+				if (Source.GetView(Index).IsObject()) Child = Destination.AppendObject();
+				else if (Source.GetView(Index).IsArray()) Child = Destination.AppendArray();
+				else
+				{
+					Destination.AppendValue(nullptr);
+					Child = Destination.GetRef(Destination.Num() - 1);
+				}
+				if (!CopyProjectionJson(
+					Source.GetView(Index), Child,
+					Path.empty() ? std::to_string(Index) : std::format("{}/{}", Path, Index))) return false;
+			}
+			return true;
+		}
+		if (!Source.IsObject()) return false;
+		Destination.EnsureObject();
+		bool bSucceeded = true;
+		Source.ForEachObjectMember([&](std::string_view Key, FJsonNodeView Value) {
+			if (!bSucceeded || !ShouldCopyProjectionMember(Path, Key)) return;
+			FJsonNodeRef Child;
+			if (Value.IsObject()) Child = Destination.AddObject(Key);
+			else if (Value.IsArray()) Child = Destination.AddArray(Key);
+			else
+			{
+				Destination.SetChildValue(Key, nullptr);
+				Child = Destination.GetRef(Key);
+			}
+			bSucceeded = CopyProjectionJson(
+				Value, Child, Path.empty() ? std::string(Key) : std::format("{}/{}", Path, Key));
+		});
+		return bSucceeded;
+	}
+
+	auto NormalizeProjectionTexCoords(
+		FJsonDocument& Projection,
+		FJsonNodeView SourceRoot,
+		const std::vector<std::vector<uint8>>& Buffers) -> bool
+	{
+		FJsonNodeRef ProjectionRoot = Projection.GetMutableRoot();
+		FJsonNodeRef Meshes = ProjectionRoot.GetRef("meshes");
+		FJsonNodeRef ProjectionBuffers = ProjectionRoot.GetRef("buffers");
+		FJsonNodeRef ProjectionViews = ProjectionRoot.GetRef("bufferViews");
+		FJsonNodeRef ProjectionAccessors = ProjectionRoot.GetRef("accessors");
+		const FJsonNodeView SourceViews = SourceRoot.GetView("bufferViews");
+		const FJsonNodeView SourceAccessors = SourceRoot.GetView("accessors");
+		if (!Meshes.IsArray() || !ProjectionBuffers.IsArray() || !ProjectionViews.IsArray()
+			|| !ProjectionAccessors.IsArray() || !SourceViews.IsArray() || !SourceAccessors.IsArray()) return false;
+
+		std::unordered_map<uint64, uint64> ConvertedAccessors;
+		for (size_t MeshIndex = 0; MeshIndex < Meshes.Num(); ++MeshIndex)
+		{
+			FJsonNodeRef Primitives = Meshes.GetRef(MeshIndex).GetRef("primitives");
+			if (!Primitives.IsArray()) return false;
+			std::array<std::optional<uint64>, MaxImportedUVChannels> FloatAccessors;
+			for (size_t PrimitiveIndex = 0; PrimitiveIndex < Primitives.Num(); ++PrimitiveIndex)
+			{
+				FJsonNodeRef Attributes = Primitives.GetRef(PrimitiveIndex).GetRef("attributes");
+				if (!Attributes.IsObject()) return false;
+				for (uint32 Channel = 0; Channel < MaxImportedUVChannels; ++Channel)
+				{
+					const std::string Semantic = std::format("TEXCOORD_{}", Channel);
+					const FJsonNodeView Attribute = Attributes.GetView(Semantic);
+					if (!Attribute.IsValid()) continue;
+					const uint64 AccessorIndex = Attribute.GetUInt(std::numeric_limits<uint64>::max());
+					if (AccessorIndex >= SourceAccessors.Num()) return false;
+					const FJsonNodeView Accessor = SourceAccessors.GetView(static_cast<size_t>(AccessorIndex));
+					const uint64 ComponentType = Accessor.GetView("componentType").GetUInt();
+					if (Accessor.GetView("type").GetString() == "VEC2" && ComponentType == 5126
+						&& !Accessor.GetView("normalized").GetBool(false))
+					{
+						if (!FloatAccessors[Channel]) FloatAccessors[Channel] = AccessorIndex;
+						continue;
+					}
+					if (!Accessor.GetView("normalized").GetBool(false)
+						|| (ComponentType != 5121 && ComponentType != 5123)) continue;
+					if (Accessor.GetView("type").GetString() != "VEC2") return false;
+					if (FloatAccessors[Channel])
+					{
+						Attributes.SetChildValue(Semantic, *FloatAccessors[Channel]);
+						continue;
+					}
+
+					if (const auto Existing = ConvertedAccessors.find(AccessorIndex);
+						Existing != ConvertedAccessors.end())
+					{
+						Attributes.SetChildValue(Semantic, Existing->second);
+						continue;
+					}
+
+					const uint64 ViewIndex = Accessor.GetView("bufferView").GetUInt(std::numeric_limits<uint64>::max());
+					const uint64 Count = Accessor.GetView("count").GetUInt(std::numeric_limits<uint64>::max());
+					if (ViewIndex >= SourceViews.Num() || Count == std::numeric_limits<uint64>::max()
+						|| Count > MaximumSkeletalMeshVertices) return false;
+					const FJsonNodeView View = SourceViews.GetView(static_cast<size_t>(ViewIndex));
+					const uint64 BufferIndex = View.GetView("buffer").GetUInt(std::numeric_limits<uint64>::max());
+					const uint64 ViewOffset = View.GetView("byteOffset").GetUInt(0);
+					const uint64 ViewLength = View.GetView("byteLength").GetUInt(std::numeric_limits<uint64>::max());
+					const uint64 AccessorOffset = Accessor.GetView("byteOffset").GetUInt(0);
+					const uint64 ComponentSize = ComponentType == 5121 ? 1 : 2;
+					const uint64 ElementSize = ComponentSize * 2;
+					const uint64 Stride = View.GetView("byteStride").GetUInt(ElementSize);
+					if (BufferIndex >= Buffers.size() || ViewLength == std::numeric_limits<uint64>::max()
+						|| Stride < ElementSize || AccessorOffset > ViewLength
+						|| Count > 0 && (Count - 1 > (std::numeric_limits<uint64>::max() - AccessorOffset - ElementSize) / Stride
+							|| AccessorOffset + (Count - 1) * Stride + ElementSize > ViewLength)
+						|| ViewOffset > Buffers[BufferIndex].size()
+						|| ViewLength > Buffers[BufferIndex].size() - ViewOffset) return false;
+
+					std::vector<uint8> Converted(static_cast<size_t>(Count) * sizeof(float) * 2);
+					for (uint64 ElementIndex = 0; ElementIndex < Count; ++ElementIndex)
+					{
+						const size_t SourceOffset = static_cast<size_t>(ViewOffset + AccessorOffset + ElementIndex * Stride);
+						for (uint64 Component = 0; Component < 2; ++Component)
+						{
+							uint32 Value = Buffers[BufferIndex][SourceOffset + Component * ComponentSize];
+							if (ComponentSize == 2)
+								Value |= static_cast<uint32>(Buffers[BufferIndex][SourceOffset + Component * ComponentSize + 1]) << 8;
+							const float Normalized = static_cast<float>(Value)
+								/ static_cast<float>(ComponentSize == 1 ? 255u : 65535u);
+							std::memcpy(Converted.data() + (ElementIndex * 2 + Component) * sizeof(float),
+								&Normalized, sizeof(float));
+						}
+					}
+
+					const uint64 NewBufferIndex = ProjectionBuffers.Num();
+					FJsonNodeRef NewBuffer = ProjectionBuffers.AppendObject();
+					NewBuffer.SetChildValue("byteLength", static_cast<uint64>(Converted.size()));
+					NewBuffer.SetChildValue("uri", std::format(
+						"data:application/octet-stream;base64,{}", EncodeBase64(Converted)));
+					const uint64 NewViewIndex = ProjectionViews.Num();
+					FJsonNodeRef NewView = ProjectionViews.AppendObject();
+					NewView.SetChildValue("buffer", NewBufferIndex);
+					NewView.SetChildValue("byteLength", static_cast<uint64>(Converted.size()));
+					const uint64 NewAccessorIndex = ProjectionAccessors.Num();
+					FJsonNodeRef NewAccessor = ProjectionAccessors.AppendObject();
+					NewAccessor.SetChildValue("bufferView", NewViewIndex);
+					NewAccessor.SetChildValue("componentType", static_cast<uint64>(5126));
+					NewAccessor.SetChildValue("count", Count);
+					NewAccessor.SetChildValue("type", "VEC2");
+					ConvertedAccessors.emplace(AccessorIndex, NewAccessorIndex);
+					Attributes.SetChildValue(Semantic, NewAccessorIndex);
+				}
+			}
+		}
+		return true;
+	}
+
+	auto BuildAssimpProjection(
+		FJsonNodeView Root,
+		const std::vector<std::vector<uint8>>& Buffers,
+		std::vector<uint8>& OutBytes) -> bool
+	{
+		FJsonDocument Projection;
+		if (!CopyProjectionJson(Root, Projection.GetMutableRoot(), {})) return false;
+		FJsonNodeRef ProjectionBuffers = Projection.GetMutableRoot().GetRef("buffers");
+		if (!ProjectionBuffers.IsValid() || !ProjectionBuffers.IsArray()
+			|| ProjectionBuffers.Num() != Buffers.size()) return false;
+		for (size_t Index = 0; Index < Buffers.size(); ++Index)
+		{
+			FJsonNodeRef Buffer = ProjectionBuffers.GetRef(Index);
+			Buffer.SetChildValue("byteLength", static_cast<uint64>(Buffers[Index].size()));
+			Buffer.SetChildValue(
+				"uri",
+				std::format("data:application/octet-stream;base64,{}", EncodeBase64(Buffers[Index])));
+		}
+		if ((Root.GetView("skins").IsValid() || Root.GetView("animations").IsValid())
+			&& !NormalizeProjectionTexCoords(Projection, Root, Buffers)) return false;
+		const std::string Json = Projection.ToString();
+		OutBytes.assign(Json.begin(), Json.end());
+		return !OutBytes.empty();
 	}
 
 	auto DecodeDataUri(
@@ -186,6 +433,8 @@ namespace Durin::Asset::Private
 
 	auto ValidateGltfExtensions(FJsonNodeView Root, FSceneDecodeResult& Result) -> bool
 	{
+		const bool bSkeletalDocument = Root.GetView("skins").IsValid()
+			|| Root.GetView("animations").IsValid();
 		std::unordered_set<std::string> Required;
 		const FJsonNodeView RequiredNode = Root.GetView("extensionsRequired");
 		if (RequiredNode.IsValid() && !RequiredNode.IsArray())
@@ -206,7 +455,10 @@ namespace Durin::Asset::Private
 			Required.insert(Extension);
 			if (!IsSupportedGltfExtension(Extension))
 			{
-				return FailImport(Result, EImportDiagnosticCategory::UnsupportedRequiredExtension,
+				return FailImport(Result,
+					bSkeletalDocument
+						? EImportDiagnosticCategory::UnsupportedFeature
+						: EImportDiagnosticCategory::UnsupportedRequiredExtension,
 					Extension, std::format("Required glTF extension '{}' is unsupported.", Extension));
 			}
 		}
@@ -901,7 +1153,8 @@ namespace Durin::Asset::Private
 		std::span<const uint8> RootBytes,
 		bool bGlb,
 		FSceneDecodeResult& Result,
-		std::vector<uint32>& OutMeshMaterialIndices) -> bool
+		std::vector<uint32>& OutMeshMaterialIndices,
+		std::vector<uint8>& OutAssimpProjection) -> bool
 	{
 		FGltfSource Source;
 		std::string Error;
@@ -912,7 +1165,9 @@ namespace Durin::Asset::Private
 			LoadGltfBuffers(Root, RootPath, RootSourcePath, Source, Result) &&
 			ImportGltfImages(Root, RootPath, RootSourcePath, Source, Result) &&
 			ImportGltfMaterials(Root, Source.ImageIndices, Result) &&
-			BuildGltfAssimpMeshProjection(Root, Result, OutMeshMaterialIndices)))
+			ImportGltfSkeletalData(Root, Source.Buffers, Result) &&
+			BuildGltfAssimpMeshProjection(Root, Result, OutMeshMaterialIndices) &&
+			BuildAssimpProjection(Root, Source.Buffers, OutAssimpProjection)))
 		{
 			return false;
 		}
@@ -922,7 +1177,8 @@ namespace Durin::Asset::Private
 	auto ImportGltfFormat(
 		const FImportedSceneContext& Context,
 		bool bGlb,
-		std::vector<uint32>& OutSourcePrimitiveMaterialIndices) -> bool
+		std::vector<uint32>& OutSourcePrimitiveMaterialIndices,
+		std::vector<uint8>& OutAssimpProjection) -> bool
 	{
 		return ImportGltfMetadata(
 			Context.RootPath,
@@ -930,6 +1186,7 @@ namespace Durin::Asset::Private
 			Context.RootBytes,
 			bGlb,
 			Context.Result,
-			OutSourcePrimitiveMaterialIndices);
+			OutSourcePrimitiveMaterialIndices,
+			OutAssimpProjection);
 	}
 }

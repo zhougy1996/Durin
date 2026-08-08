@@ -99,7 +99,16 @@ namespace Durin
 		uint32 MaterialSlotIndex = 0;
 		FBox LocalBounds;
 
-		auto operator==(const FSkeletalMeshSection&) const -> bool = default;
+		auto operator==(const FSkeletalMeshSection& Other) const -> bool
+		{
+			return Name == Other.Name && FirstIndex == Other.FirstIndex
+				&& IndexCount == Other.IndexCount && MinVertexIndex == Other.MinVertexIndex
+				&& MaxVertexIndex == Other.MaxVertexIndex
+				&& MaterialSlotIndex == Other.MaterialSlotIndex
+				&& LocalBounds.bIsValid == Other.LocalBounds.bIsValid
+				&& LocalBounds.Min == Other.LocalBounds.Min
+				&& LocalBounds.Max == Other.LocalBounds.Max;
+		}
 	};
 
 	// Detached immutable CPU data. It contains no source tokens, DObjects, or RHI state.
@@ -117,7 +126,18 @@ namespace Durin
 		std::vector<FMatrix4f> InverseBindMatrices;
 		FBox LocalBounds;
 
-		auto operator==(const FSkeletalMeshPayloadData&) const -> bool = default;
+		auto operator==(const FSkeletalMeshPayloadData& Other) const -> bool
+		{
+			return Positions == Other.Positions && Normals == Other.Normals
+				&& Tangents == Other.Tangents && UVChannels == Other.UVChannels
+				&& Colors == Other.Colors && Indices == Other.Indices
+				&& Influences == Other.Influences && Sections == Other.Sections
+				&& PaletteBoneIndices == Other.PaletteBoneIndices
+				&& InverseBindMatrices == Other.InverseBindMatrices
+				&& LocalBounds.bIsValid == Other.LocalBounds.bIsValid
+				&& LocalBounds.Min == Other.LocalBounds.Min
+				&& LocalBounds.Max == Other.LocalBounds.Max;
+		}
 	};
 
 	struct FSkeletalMeshImportedData

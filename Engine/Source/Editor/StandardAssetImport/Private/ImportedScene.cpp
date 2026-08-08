@@ -105,10 +105,12 @@ namespace Durin::Asset
 			const bool bGltf = Extension == ".gltf";
 			const bool bGlb = Extension == ".glb";
 			const Private::FImportedSceneContext Context{
-				RootPath, Options.RootSource.Path, RootBytes, Result};
+				RootPath, Options.RootSource.Path, RootBytes, Options, Result};
 			std::vector<uint32> SourcePrimitiveMaterialIndices;
+			std::vector<uint8> AssimpProjection;
 			if ((bGltf || bGlb)
-				&& !Private::ImportGltfFormat(Context, bGlb, SourcePrimitiveMaterialIndices))
+				&& !Private::ImportGltfFormat(
+					Context, bGlb, SourcePrimitiveMaterialIndices, AssimpProjection))
 			{
 				DURIN_ERROR(
 					"Asset import failed. (file: {}, error: {})",
@@ -119,13 +121,16 @@ namespace Durin::Asset
 
 			Assimp::Importer Importer;
 			const std::string OwnedFilePath(FilePath);
-			const aiScene* Scene = Importer.ReadFile(
-				OwnedFilePath.c_str(),
+			const unsigned int AssimpFlags =
 				aiProcess_Triangulate
 					| aiProcess_FlipUVs
 					| aiProcess_GenSmoothNormals
 					| aiProcess_CalcTangentSpace
-					| aiProcess_JoinIdenticalVertices);
+					| aiProcess_JoinIdenticalVertices;
+			const aiScene* Scene = (bGltf || bGlb)
+				? Importer.ReadFileFromMemory(
+					AssimpProjection.data(), AssimpProjection.size(), AssimpFlags, "gltf")
+				: Importer.ReadFile(OwnedFilePath.c_str(), AssimpFlags);
 			if (Scene == nullptr
 				|| (Scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) != 0
 				|| Scene->mRootNode == nullptr)

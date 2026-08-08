@@ -65,6 +65,18 @@ namespace
 		}
 	}
 
+	TEST(FNameTests, ReservesEntryZeroForNone)
+	{
+		const Durin::FName DefaultName;
+		const Durin::FName LiteralNone("None");
+		const Durin::FName FirstOrdinaryName("FirstOrdinaryName");
+
+		EXPECT_TRUE(DefaultName.IsNone());
+		EXPECT_EQ(DefaultName.ToString(), "None");
+		EXPECT_TRUE(LiteralNone.IsNone());
+		EXPECT_FALSE(FirstOrdinaryName.IsNone());
+	}
+
 	TEST(FNameTests, ConstructsExplicitNumberFromCString)
 	{
 		const Durin::FName Name("Foo", 3);

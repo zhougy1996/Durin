@@ -30,6 +30,13 @@ namespace Durin::Asset
 			EXPECT_FLOAT_EQ(Expected.w, Actual.w);
 		}
 
+		auto ExpectMatrixEq(const FMatrix4f& Expected, const FMatrix4f& Actual) -> void
+		{
+			for (uint32 Column = 0; Column < 4; ++Column)
+				for (uint32 Row = 0; Row < 4; ++Row)
+					EXPECT_FLOAT_EQ(Expected[Column][Row], Actual[Column][Row]);
+		}
+
 		auto ExpectTriangleMesh(const FImportedMeshData& Mesh) -> void
 		{
 			ASSERT_EQ(3u, Mesh.Positions.size());
@@ -353,6 +360,171 @@ namespace Durin::Asset
 			ASSERT_EQ(Scenes[0].Meshes.size(), Scenes[SceneIndex].Meshes.size());
 			for (size_t MeshIndex = 0; MeshIndex < Scenes[0].Meshes.size(); ++MeshIndex)
 				ExpectMeshEq(Scenes[0].Meshes[MeshIndex], Scenes[SceneIndex].Meshes[MeshIndex]);
+		}
+	}
+
+	TEST(FAssetImportTests, SkeletalContractContainersNormalizeExactRuntimeValues)
+	{
+		const std::array<std::string_view, 3> Files = {
+			"Skeletal/Contract.gltf",
+			"Skeletal/ContractExternal.gltf",
+			"Skeletal/Contract.glb"};
+		const std::array<std::string_view, 3> ProjectionFiles = {
+			"Skeletal/StaticProjection.gltf",
+			"Skeletal/StaticProjectionExternal.gltf",
+			"Skeletal/StaticProjection.glb"};
+		std::array<FImportedSceneData, 3> Scenes;
+		for (size_t ContainerIndex = 0; ContainerIndex < Files.size(); ++ContainerIndex)
+		{
+			SCOPED_TRACE(Files[ContainerIndex]);
+			ASSERT_TRUE(ImportFromFile(TestDataPath(Files[ContainerIndex]), Scenes[ContainerIndex]));
+			const FImportedSceneData& Scene = Scenes[ContainerIndex];
+			ASSERT_EQ(Scene.Nodes.size(), 7u);
+			ASSERT_EQ(Scene.Skeletons.size(), 2u);
+			ASSERT_EQ(Scene.SkeletalMeshes.size(), 2u);
+			ASSERT_EQ(Scene.AnimationClips.size(), 4u);
+			for (size_t SkeletonIndex = 0; SkeletonIndex < Scene.Skeletons.size(); ++SkeletonIndex)
+			{
+				const FImportedSkeletonData& Skeleton = Scene.Skeletons[SkeletonIndex];
+				EXPECT_EQ(Skeleton.StableIdentity, std::format("skeleton:skin/{}", SkeletonIndex));
+				EXPECT_EQ(Skeleton.CompatibilityIdentity, "be0f679ef83133e5acfab7f12b688f54");
+				ASSERT_EQ(Skeleton.Bones.size(), 5u);
+				EXPECT_EQ(Skeleton.Bones[0].Name, FName("$DurinRoot"));
+				EXPECT_EQ(Skeleton.Bones[0].ParentIndex, -1);
+				EXPECT_EQ(Skeleton.Bones[1].Name, FName("Hip"));
+				EXPECT_EQ(Skeleton.Bones[1].ParentIndex, 0);
+				EXPECT_EQ(Skeleton.Bones[2].Name, FName("Knee"));
+				EXPECT_EQ(Skeleton.Bones[2].ParentIndex, 1);
+				EXPECT_EQ(Skeleton.Bones[3].Name, FName("Shoulder"));
+				EXPECT_EQ(Skeleton.Bones[3].ParentIndex, 0);
+				EXPECT_EQ(Skeleton.Bones[4].Name, FName("Hand"));
+				EXPECT_EQ(Skeleton.Bones[4].ParentIndex, 3);
+				FMatrix4f ExpectedHip(1.0f);
+				ExpectedHip[0][0] = 0.7071068f;
+				ExpectedHip[0][1] = -0.7071068f;
+				ExpectedHip[1][0] = 0.7071068f;
+				ExpectedHip[1][1] = 0.7071068f;
+				ExpectedHip[3][2] = 1.0f;
+				ExpectMatrixEq(ExpectedHip, Skeleton.Bones[1].ReferenceTransform.ToMatrix4f());
+			}
+
+			ASSERT_EQ(Scene.SkeletalMeshes[0].StableIdentity, "skeletal-mesh:node/1/mesh/0");
+			ASSERT_EQ(Scene.SkeletalMeshes[1].StableIdentity, "skeletal-mesh:node/6/mesh/1");
+			for (const FImportedSkeletalMeshData& Mesh : Scene.SkeletalMeshes)
+			{
+				ASSERT_NE(Mesh.Payload, nullptr);
+				EXPECT_EQ(Mesh.Payload->Positions.size(), 6u);
+				EXPECT_EQ(Mesh.Payload->Indices.size(), 6u);
+				EXPECT_EQ(Mesh.Payload->Sections.size(), 2u);
+				EXPECT_EQ(Mesh.Payload->PaletteBoneIndices, (std::vector<uint16>{1, 2, 3, 4}));
+				EXPECT_EQ(Mesh.Payload->InverseBindMatrices.size(), 4u);
+				EXPECT_EQ(Mesh.MaterialSlots.size(), 2u);
+			}
+			const FSkeletalMeshVertexInfluences& FirstInfluence =
+				Scene.SkeletalMeshes[0].Payload->Influences[0];
+			EXPECT_EQ(FirstInfluence.Count, 4u);
+			EXPECT_EQ(FirstInfluence.BoneIndices,
+				(std::array<uint16, MaximumSkeletalMeshInfluences>{1, 2, 3, 4}));
+			EXPECT_FLOAT_EQ(FirstInfluence.Weights[0], 0.4f);
+			EXPECT_FLOAT_EQ(FirstInfluence.Weights[1], 0.3f);
+			EXPECT_FLOAT_EQ(FirstInfluence.Weights[2], 0.2f);
+			EXPECT_FLOAT_EQ(FirstInfluence.Weights[3], 0.1f);
+
+			EXPECT_EQ(Scene.AnimationClips[0].StableIdentity, "animation-clip:animation/0/skin/0");
+			EXPECT_EQ(Scene.AnimationClips[1].StableIdentity, "animation-clip:animation/0/skin/1");
+			EXPECT_EQ(Scene.AnimationClips[2].StableIdentity, "animation-clip:animation/1/skin/0");
+			EXPECT_EQ(Scene.AnimationClips[3].StableIdentity, "animation-clip:animation/1/skin/1");
+			ASSERT_NE(Scene.AnimationClips[0].Payload, nullptr);
+			EXPECT_FLOAT_EQ(Scene.AnimationClips[0].Payload->DurationSeconds, 2.0f);
+			ASSERT_EQ(Scene.AnimationClips[0].Payload->Tracks.size(), 3u);
+			EXPECT_EQ(Scene.AnimationClips[0].Payload->Tracks[0].BoneIndex, 1u);
+			EXPECT_EQ(Scene.AnimationClips[0].Payload->Tracks[0].Path, EAnimationTrackPath::Translation);
+			EXPECT_EQ(Scene.AnimationClips[0].Payload->Tracks[1].Interpolation, EAnimationInterpolation::Step);
+			ASSERT_EQ(Scene.AnimationClips[0].Payload->Tracks[1].RotationValues.size(), 3u);
+			ExpectVec4Eq(FVector4f(0.7071068f, 0.0f, 0.0f, 0.7071068f),
+				Scene.AnimationClips[0].Payload->Tracks[1].RotationValues[1]);
+
+			FImportedSceneData Projection;
+			ASSERT_TRUE(ImportFromFile(TestDataPath(ProjectionFiles[ContainerIndex]), Projection));
+			ASSERT_EQ(Scene.Meshes.size(), Projection.Meshes.size());
+			for (size_t MeshIndex = 0; MeshIndex < Scene.Meshes.size(); ++MeshIndex)
+				ExpectMeshEq(Projection.Meshes[MeshIndex], Scene.Meshes[MeshIndex]);
+		}
+
+		for (size_t ContainerIndex = 1; ContainerIndex < Scenes.size(); ++ContainerIndex)
+		{
+			ASSERT_EQ(Scenes[0].Skeletons.size(), Scenes[ContainerIndex].Skeletons.size());
+			for (size_t SkeletonIndex = 0; SkeletonIndex < Scenes[0].Skeletons.size(); ++SkeletonIndex)
+			{
+				EXPECT_EQ(Scenes[0].Skeletons[SkeletonIndex].StableIdentity,
+					Scenes[ContainerIndex].Skeletons[SkeletonIndex].StableIdentity);
+				EXPECT_EQ(Scenes[0].Skeletons[SkeletonIndex].CompatibilityIdentity,
+					Scenes[ContainerIndex].Skeletons[SkeletonIndex].CompatibilityIdentity);
+				EXPECT_EQ(Scenes[0].Skeletons[SkeletonIndex].Bones,
+					Scenes[ContainerIndex].Skeletons[SkeletonIndex].Bones);
+			}
+			ASSERT_EQ(Scenes[0].SkeletalMeshes.size(), Scenes[ContainerIndex].SkeletalMeshes.size());
+			for (size_t MeshIndex = 0; MeshIndex < Scenes[0].SkeletalMeshes.size(); ++MeshIndex)
+			{
+				EXPECT_EQ(Scenes[0].SkeletalMeshes[MeshIndex].StableIdentity,
+					Scenes[ContainerIndex].SkeletalMeshes[MeshIndex].StableIdentity);
+				ASSERT_NE(Scenes[0].SkeletalMeshes[MeshIndex].Payload, nullptr);
+				ASSERT_NE(Scenes[ContainerIndex].SkeletalMeshes[MeshIndex].Payload, nullptr);
+				EXPECT_EQ(*Scenes[0].SkeletalMeshes[MeshIndex].Payload,
+					*Scenes[ContainerIndex].SkeletalMeshes[MeshIndex].Payload);
+			}
+			ASSERT_EQ(Scenes[0].AnimationClips.size(), Scenes[ContainerIndex].AnimationClips.size());
+			for (size_t ClipIndex = 0; ClipIndex < Scenes[0].AnimationClips.size(); ++ClipIndex)
+			{
+				EXPECT_EQ(Scenes[0].AnimationClips[ClipIndex].StableIdentity,
+					Scenes[ContainerIndex].AnimationClips[ClipIndex].StableIdentity);
+				ASSERT_NE(Scenes[0].AnimationClips[ClipIndex].Payload, nullptr);
+				ASSERT_NE(Scenes[ContainerIndex].AnimationClips[ClipIndex].Payload, nullptr);
+				EXPECT_EQ(*Scenes[0].AnimationClips[ClipIndex].Payload,
+					*Scenes[ContainerIndex].AnimationClips[ClipIndex].Payload);
+			}
+		}
+	}
+
+	TEST(FAssetImportTests, SkeletalMalformedFixturesUseFrozenDiagnosticCategories)
+	{
+		struct FCase
+		{
+			std::string_view File;
+			EImportDiagnosticCategory Category;
+		};
+		const std::array Cases = {
+			FCase{"CyclicHierarchy.gltf", EImportDiagnosticCategory::MalformedSource},
+			FCase{"DisconnectedHierarchy.gltf", EImportDiagnosticCategory::MalformedSource},
+			FCase{"CountMismatch.gltf", EImportDiagnosticCategory::MalformedSource},
+			FCase{"InvalidAnimationTarget.gltf", EImportDiagnosticCategory::MalformedSource},
+			FCase{"UnsupportedCubicSpline.gltf", EImportDiagnosticCategory::UnsupportedFeature},
+			FCase{"UnsupportedSecondaryInfluences.gltf", EImportDiagnosticCategory::UnsupportedFeature},
+			FCase{"UnsupportedRequiredExtension.gltf", EImportDiagnosticCategory::UnsupportedFeature},
+			FCase{"ResourceLimit.gltf", EImportDiagnosticCategory::ResourceLimitExceeded},
+			FCase{"SparseAccessor.gltf", EImportDiagnosticCategory::UnsupportedFeature},
+			FCase{"TruncatedAccessor.gltf", EImportDiagnosticCategory::MalformedSource},
+			FCase{"AnimatedNonJoint.gltf", EImportDiagnosticCategory::UnsupportedFeature},
+			FCase{"MorphTargets.gltf", EImportDiagnosticCategory::UnsupportedFeature},
+			FCase{"InvalidJointIndex.gltf", EImportDiagnosticCategory::MalformedSource},
+			FCase{"ZeroWeights.gltf", EImportDiagnosticCategory::MalformedSource},
+			FCase{"NaNWeights.gltf", EImportDiagnosticCategory::MalformedSource},
+			FCase{"NonFiniteInverseBind.gltf", EImportDiagnosticCategory::MalformedSource},
+			FCase{"UnorderedKeyTimes.gltf", EImportDiagnosticCategory::MalformedSource},
+			FCase{"DuplicateKeyTimes.gltf", EImportDiagnosticCategory::MalformedSource}};
+		for (const FCase& Case : Cases)
+		{
+			SCOPED_TRACE(Case.File);
+			FImportedSceneData Scene;
+			EXPECT_FALSE(ImportFromFile(
+				TestDataPath(std::format("Skeletal/Malformed/{}", Case.File)), Scene));
+			EXPECT_TRUE(Scene.Skeletons.empty());
+			EXPECT_TRUE(Scene.SkeletalMeshes.empty());
+			EXPECT_TRUE(Scene.AnimationClips.empty());
+			EXPECT_TRUE(std::ranges::any_of(Scene.Diagnostics, [&](const FImportDiagnostic& Diagnostic) {
+				return Diagnostic.Severity == EImportDiagnosticSeverity::Error
+					&& Diagnostic.Category == Case.Category;
+			}));
 		}
 	}
 
