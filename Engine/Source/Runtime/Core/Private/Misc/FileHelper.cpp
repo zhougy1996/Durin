@@ -223,7 +223,7 @@ namespace Durin
 		template<typename ElementType>
 		static auto LoadFileToArrayInternal(std::vector<ElementType>& Result, std::string_view FileName) -> bool
 		{
-			std::filesystem::path FilePath(FileName);
+			const std::filesystem::path FilePath(FileName);
 			if (!std::filesystem::exists(FilePath))
 			{
 				DURIN_WARN("Failed to load file. File {} does not exist.", FileName);
@@ -236,17 +236,32 @@ namespace Durin
 				return false;
 			}
 
-			const auto FileSize = std::filesystem::file_size(FileName);
+			std::error_code ErrorCode;
+			const uintmax_t FileSize = std::filesystem::file_size(FilePath, ErrorCode);
+			if (ErrorCode || FileSize > static_cast<uintmax_t>(std::numeric_limits<std::streamsize>::max()))
+			{
+				return false;
+			}
+
+			const uintmax_t ElementCount = FileSize / sizeof(ElementType) + (FileSize % sizeof(ElementType) != 0);
+			std::vector<ElementType> Loaded;
+			if (ElementCount > Loaded.max_size())
+			{
+				return false;
+			}
+			Loaded.resize(static_cast<size_t>(ElementCount));
 
 			if (FileSize > 0)
 			{
-				Result.resize((FileSize + sizeof(ElementType) - 1) / sizeof(ElementType));
-				if (!File.read(reinterpret_cast<char*>(Result.data()), FileSize))
+				const std::streamsize ReadSize = static_cast<std::streamsize>(FileSize);
+				File.read(reinterpret_cast<char*>(Loaded.data()), ReadSize);
+				if (!File || File.gcount() != ReadSize)
 				{
 					return false;
 				}
 			}
 
+			Result = std::move(Loaded);
 			return true;
 		};
 
@@ -262,24 +277,40 @@ namespace Durin
 
 		bool LoadFileToString(std::string& Result, std::string_view FileName)
 		{
-			std::filesystem::path FilePath(FileName);
+			const std::filesystem::path FilePath(FileName);
 			if (!std::filesystem::exists(FilePath))
 			{
 				DURIN_WARN("Failed to load file. File {} does not exist.", FileName);
 				return false;
 			}
 
-			std::ifstream File(FilePath);
+			std::ifstream File(FilePath, std::ios::binary);
 			if (!File.is_open())
 			{
 				return false;
 			}
 
-			std::stringstream StringStream;
-			StringStream << File.rdbuf();
-			Result = StringStream.str();
+			std::error_code ErrorCode;
+			const uintmax_t FileSize = std::filesystem::file_size(FilePath, ErrorCode);
+			if (ErrorCode
+				|| FileSize > static_cast<uintmax_t>(std::numeric_limits<std::streamsize>::max())
+				|| FileSize > std::string{}.max_size())
+			{
+				return false;
+			}
 
-			File.close();
+			std::string Loaded(static_cast<size_t>(FileSize), '\0');
+			if (FileSize > 0)
+			{
+				const std::streamsize ReadSize = static_cast<std::streamsize>(FileSize);
+				File.read(Loaded.data(), ReadSize);
+				if (!File || File.gcount() != ReadSize)
+				{
+					return false;
+				}
+			}
+
+			Result = std::move(Loaded);
 			return true;
 		}
 

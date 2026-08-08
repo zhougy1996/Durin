@@ -90,6 +90,45 @@ TEST(FFileHelperTests, HashesFilesIncrementallyAcrossBufferBoundaries)
 	EXPECT_TRUE(Error);
 }
 
+TEST(FFileHelperTests, EmptyFilesClearSuccessfulLoadResults)
+{
+	const std::filesystem::path FilePath = TestRoot("EmptyRead") / "Empty.bin";
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::span<const std::byte>{}, FilePath));
+
+	std::vector<Durin::uint8> Bytes{0x11, 0x22};
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, FilePath.generic_string()));
+	EXPECT_TRUE(Bytes.empty());
+
+	std::vector<Durin::uint32> Words{0x11223344};
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Words, FilePath.generic_string()));
+	EXPECT_TRUE(Words.empty());
+
+	std::string Text = "stale text";
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToString(Text, FilePath.generic_string()));
+	EXPECT_TRUE(Text.empty());
+}
+
+TEST(FFileHelperTests, LoadsExactTextBytesAndPreservesResultsOnFailure)
+{
+	const std::filesystem::path Root = TestRoot("TransactionalRead");
+	const std::filesystem::path FilePath = Root / "Value.txt";
+	const std::string Expected = "first\r\nsecond\n";
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Expected)), FilePath));
+
+	std::string Text = "stale text";
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToString(Text, FilePath.generic_string()));
+	EXPECT_EQ(Text, Expected);
+
+	const std::filesystem::path MissingPath = Root / "Missing.txt";
+	Text = "preserved text";
+	EXPECT_FALSE(Durin::FFileHelper::LoadFileToString(Text, MissingPath.generic_string()));
+	EXPECT_EQ(Text, "preserved text");
+
+	std::vector<Durin::uint8> Bytes{0x11, 0x22};
+	EXPECT_FALSE(Durin::FFileHelper::LoadFileToArray(Bytes, MissingPath.generic_string()));
+	EXPECT_EQ(Bytes, (std::vector<Durin::uint8>{0x11, 0x22}));
+}
+
 TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 {
 	const std::filesystem::path Destination = TestRoot("Concurrent") / "Value.bin";
