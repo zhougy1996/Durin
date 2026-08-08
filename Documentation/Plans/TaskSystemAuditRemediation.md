@@ -585,7 +585,7 @@ Dependencies: Stages 1-3 complete and stable.
 - [Structured Task Scopes](StructuredTaskScopes.md)
 - [CPU Task System](../Runtime/Core/TaskSystem.md)
 - [Build and Run](../Development/Build/BuildAndRun.md)
-- [Task System Evolution Roadmap](../Roadmaps/TaskSystemEvolution.md)
+- [Task System Evolution Roadmap](../Roadmaps/Archive/2026-08/TaskSystemEvolution.md)
 - [Implementation Plan Rules](AGENTS.md)
 
 ## Related Code

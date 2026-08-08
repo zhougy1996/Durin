@@ -484,9 +484,10 @@ external process. Arbitrary filesystem paths are intentionally not accepted.
 ## Documentation Operations
 
 DurinDevTool exposes repository documentation through the `doc` command group.
-Ordinary discovery excludes `Documentation/Plans/Archive`; add
-`--include-archive` only when historical plans are intentionally part of the
-request:
+Ordinary discovery excludes `Documentation/Plans/Archive` and
+`Documentation/Roadmaps/Archive`; add
+`--include-archive` only when historical plans or roadmaps are intentionally
+part of the request:
 
 ```powershell
 .\DevTool.bat doc list --under Documentation\Runtime
@@ -547,6 +548,16 @@ Implementation-plan lifecycle commands are nested under `doc plan`:
 .\DevTool.bat doc plan validate --scope all
 .\DevTool.bat doc plan archive 2026-07
 .\DevTool.bat doc plan archive 2026-07 --apply
+```
+
+Engineering-roadmap lifecycle commands use the same metadata validation,
+monthly archive layout, transactional link repair, and dry-run/apply boundary:
+
+```powershell
+.\DevTool.bat doc roadmap list
+.\DevTool.bat doc roadmap validate --scope all
+.\DevTool.bat doc roadmap archive 2026-07
+.\DevTool.bat doc roadmap archive 2026-07 --apply
 ```
 
 ## Creating Modules

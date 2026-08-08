@@ -64,5 +64,29 @@ Completed:
   gates, lasting contracts move to their owning documentation domains, and all
   conditional milestones are either completed or explicitly dispositioned.
 - Set `Status: Completed` and `Completed: YYYY-MM-DD` when those conditions are
-  met. Completed roadmaps remain discoverable here; Git preserves prior
-  revisions.
+  met. Completed roadmaps remain in place temporarily but disappear from the
+  default active-roadmap listing.
+- Run `.\DevTool.bat doc roadmap validate --scope all` when a roadmap is
+  added, renamed, completed, archived, or removed.
+
+## Archive Workflow
+
+Completion and physical archival are separate operations. Periodically batch
+completed roadmaps by completion month:
+
+1. Inspect the pending queue with
+   `.\DevTool.bat doc roadmap list --scope completed`.
+2. Preview the batch with
+   `.\DevTool.bat doc roadmap archive YYYY-MM`.
+3. Apply it with
+   `.\DevTool.bat doc roadmap archive YYYY-MM --apply`.
+
+The tool moves matching roadmaps to `Archive/YYYY-MM/`, changes their status to
+`Archived`, repairs direct Markdown links and repository-relative paths, and
+runs roadmap plus repository-documentation validation transactionally. Review
+the generated diff, especially the reported referencing files.
+
+The completion date owns the archive month and is never changed by later
+maintenance. Do not maintain a shared active or archive index; listings are
+generated from roadmap metadata. Archived roadmaps are historical evidence and
+are not default engineering directions.

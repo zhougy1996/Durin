@@ -4,14 +4,14 @@ Summary: Evolve Durin's bounded task graph from shared typed continuations into 
 
 Last reviewed: 2026-08-08
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-08
 
 ## Current Status
 
-The foundational [Task Continuations and Thread Dispatch](../Plans/Archive/2026-08/TaskContinuationsAndThreadDispatch.md),
-M1 [Move-Only Tasks and Consuming Results](../Plans/Archive/2026-08/MoveOnlyTasksAndConsumingResults.md),
-and M2 [Typed Task Fan-In](../Plans/Archive/2026-08/TypedTaskFanIn.md) milestones are complete.
+The foundational [Task Continuations and Thread Dispatch](../../../Plans/Archive/2026-08/TaskContinuationsAndThreadDispatch.md),
+M1 [Move-Only Tasks and Consuming Results](../../../Plans/Archive/2026-08/MoveOnlyTasksAndConsumingResults.md),
+and M2 [Typed Task Fan-In](../../../Plans/Archive/2026-08/TypedTaskFanIn.md) milestones are complete.
 Durin now has bounded worker execution, immutable shared typed results,
 move-only callable admission, explicit unique result handles, one-consumer
 Worker/GameThread sinks, heterogeneous typed aggregate composition, checked
@@ -20,12 +20,12 @@ shutdown. The Asset Compatibility Audit remains the shared-result production
 pilot; AsyncImportCore is the unique-result pilot and retains its
 owner/provider mailbox policy.
 
-M3 [Task Owner Diagnostics](../Plans/Archive/2026-08/TaskOwnerDiagnostics.md) is complete.
+M3 [Task Owner Diagnostics](../../../Plans/Archive/2026-08/TaskOwnerDiagnostics.md) is complete.
 Tasks now carry bounded owner/category identity, per-task callable and execution
 costs, fixed-cardinality aggregate outcomes and distributions, and profiler
 correlation. `AssetImport` and `SourceImageThumbnail` are independent production
 owners with explicit admission/result shutdown boundaries. M4
-[Structured Task Scopes](../Plans/StructuredTaskScopes.md) is complete: both
+[Structured Task Scopes](../../../Plans/StructuredTaskScopes.md) is complete: both
 owners now close scoped admission, preserve their domain publication policy,
 and reach observable quiescence under normal, cancellation, saturation, and
 shutdown coverage.
@@ -171,11 +171,11 @@ flowchart LR
 
 | Milestone | Requirement | Child plan | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- |
-| Foundation: Typed continuations | Complete prerequisite | [Task Continuations and Thread Dispatch](../Plans/Archive/2026-08/TaskContinuationsAndThreadDispatch.md) | Existing bounded Worker scheduler and subsystem mailbox contracts. | Shared typed results, continuations, GameThread deferred routing, cross-executor shutdown, pilot, and lasting documentation are complete. |
-| M1: Move ownership | Required; completed | [Move-Only Tasks and Consuming Results](../Plans/Archive/2026-08/MoveOnlyTasksAndConsumingResults.md) | Foundation complete; concrete AsyncImportCore and thumbnail ownership gaps identified. | Move-only callables and one-consumer result sinks passed Core/lifecycle validation; AsyncImportCore adopted the sink without removing domain policy. |
-| M2: Typed fan-in | Required; completed | [Typed Task Fan-In](../Plans/Archive/2026-08/TypedTaskFanIn.md) | M1 ownership modes and terminal rules are stable. | Shared typed `WhenAll`/aggregate outcome composition is deterministic across success, failure, cancellation, fan-in, and destruction. |
-| M3: Owner diagnostics | Required; completed | [Task Owner Diagnostics](../Plans/Archive/2026-08/TaskOwnerDiagnostics.md) | M1 can attribute retained callable/result storage and existing queue timing is stable. | Bounded attribution, aggregate distributions, production pilots, Tracy correlation, qualification, and lifecycle validation passed. |
-| M4: Structured task scopes | Required; completed | [Structured Task Scopes](../Plans/StructuredTaskScopes.md) | M2 and M3 are complete; `AssetImport` and `SourceImageThumbnail` have explicit, independently verified shutdown boundaries. | Scopes close admission, cancel or drain descendants, report nonterminal work, and quiesce explicitly without destructor blocking or scheduler-lifetime ownership. |
+| Foundation: Typed continuations | Complete prerequisite | [Task Continuations and Thread Dispatch](../../../Plans/Archive/2026-08/TaskContinuationsAndThreadDispatch.md) | Existing bounded Worker scheduler and subsystem mailbox contracts. | Shared typed results, continuations, GameThread deferred routing, cross-executor shutdown, pilot, and lasting documentation are complete. |
+| M1: Move ownership | Required; completed | [Move-Only Tasks and Consuming Results](../../../Plans/Archive/2026-08/MoveOnlyTasksAndConsumingResults.md) | Foundation complete; concrete AsyncImportCore and thumbnail ownership gaps identified. | Move-only callables and one-consumer result sinks passed Core/lifecycle validation; AsyncImportCore adopted the sink without removing domain policy. |
+| M2: Typed fan-in | Required; completed | [Typed Task Fan-In](../../../Plans/Archive/2026-08/TypedTaskFanIn.md) | M1 ownership modes and terminal rules are stable. | Shared typed `WhenAll`/aggregate outcome composition is deterministic across success, failure, cancellation, fan-in, and destruction. |
+| M3: Owner diagnostics | Required; completed | [Task Owner Diagnostics](../../../Plans/Archive/2026-08/TaskOwnerDiagnostics.md) | M1 can attribute retained callable/result storage and existing queue timing is stable. | Bounded attribution, aggregate distributions, production pilots, Tracy correlation, qualification, and lifecycle validation passed. |
+| M4: Structured task scopes | Required; completed | [Structured Task Scopes](../../../Plans/StructuredTaskScopes.md) | M2 and M3 are complete; `AssetImport` and `SourceImageThumbnail` have explicit, independently verified shutdown boundaries. | Scopes close admission, cancel or drain descendants, report nonterminal work, and quiesce explicitly without destructor blocking or scheduler-lifetime ownership. |
 | M5: IO executor | Evidence-gated; deferred | `BoundedIOTaskExecutor` | Not met: M3 does not show material named blocking occupancy or document platform cancellation limits. | A bounded IO target improves the selected workload without starving CPU tasks and passes drain/cancel/shutdown validation. |
 | M6: Serialized lanes | Conditional; deferred | `SerializedTaskLanes` | Not met: the M4 pilots do not provide two owners needing ordered non-affine Worker work beyond scopes, prerequisites, and existing domain queues. | Worker-backed lanes provide bounded FIFO execution, owner shutdown, reentrancy protection, and no thread-per-lane growth. |
 
@@ -239,7 +239,7 @@ does not expose native thread identity or replace Render/RHI command queues.
 | File workload -> optional IO target | M5 | Measured Worker blocking is reduced with bounded IO admission and clean process shutdown. |
 | Ordered resource work -> optional lane | M6 | Multiple lanes progress without same-lane deadlock, starvation, or native-thread growth. |
 
-Every child plan references the root [build and run](../Development/Build/BuildAndRun.md)
+Every child plan references the root [build and run](../../../Development/Build/BuildAndRun.md)
 contract and owns its focused tests, integration coverage, stage handoffs, and
 commit provenance.
 
@@ -284,11 +284,11 @@ The required roadmap is complete when:
 
 ## Related Documentation
 
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Build and Run](../Development/Build/BuildAndRun.md)
-- [Implementation Plan Rules](../Plans/AGENTS.md)
-- [Task Continuations and Thread Dispatch](../Plans/Archive/2026-08/TaskContinuationsAndThreadDispatch.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Build and Run](../../../Development/Build/BuildAndRun.md)
+- [Implementation Plan Rules](../../../Plans/AGENTS.md)
+- [Task Continuations and Thread Dispatch](../../../Plans/Archive/2026-08/TaskContinuationsAndThreadDispatch.md)
 
 ## Related Code
 

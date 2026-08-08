@@ -382,7 +382,7 @@ migration manifests, staged/rollback files, and recovery locators.
 
 ## Related Documentation
 
-- [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md)
+- [Compact Asset Serialization Roadmap](../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Versioning](../Runtime/Assets/Versioning.md)
 - [Build and Run](../Development/Build/BuildAndRun.md)

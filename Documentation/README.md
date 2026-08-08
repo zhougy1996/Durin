@@ -24,7 +24,9 @@ not open the other rows or scan an entire directory.
 | Material-system long-term status, sequencing, or future milestones | [Material system roadmap](Roadmaps/MaterialSystem.md) |
 | Bounded implementation task or task selection | Run `.\DevTool.bat doc task list`, then open only the selected task |
 | Active implementation plan | Humans run `.\DevTool.bat` for the interactive shell; agents run `.\DevTool.bat doc plan list` for the compact Markdown index, then open only the matching plan |
-| Cross-plan engineering roadmap | [Engineering roadmaps](Roadmaps/README.md) |
+| Cross-plan engineering roadmap | Run `.\DevTool.bat doc roadmap list`, then open only the matching roadmap |
+| Completed roadmaps awaiting monthly archive | Run `.\DevTool.bat doc roadmap list --scope completed` |
+| Named historical roadmap or required provenance | Run `.\DevTool.bat doc roadmap list --scope archive --query "<title-or-filename>"`, then open only the selected archived roadmap |
 | Completed plans awaiting monthly archive | Run `.\DevTool.bat doc plan list --scope completed` |
 | Named historical plan or required provenance | Run `.\DevTool.bat doc plan list --scope archive --query "<title-or-filename>"`, then open only the selected archived plan |
 | Verified unresolved engineering problem | [Open investigations](Investigations/README.md) |

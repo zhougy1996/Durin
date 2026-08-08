@@ -262,6 +262,7 @@ def prepare_create(
     if kind in {
         DocumentKind.TASK,
         DocumentKind.PLAN,
+        DocumentKind.ROADMAP,
         DocumentKind.INVESTIGATION,
         DocumentKind.POLICY,
     }:
@@ -273,6 +274,7 @@ def prepare_create(
     if inferred_kind in {
         DocumentKind.TASK,
         DocumentKind.PLAN,
+        DocumentKind.ROADMAP,
         DocumentKind.INVESTIGATION,
         DocumentKind.POLICY,
     }:
@@ -342,6 +344,7 @@ def prepare_move(
         if kind in {
             DocumentKind.TASK,
             DocumentKind.PLAN,
+            DocumentKind.ROADMAP,
             DocumentKind.INVESTIGATION,
             DocumentKind.POLICY,
         }:

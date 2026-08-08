@@ -28,7 +28,8 @@ These instructions apply under `Documentation/`.
   belongs in Git rather than a documentation archive.
 - `Roadmaps`: cross-plan outcomes, long-term milestone ordering, dependency
   gates, just-in-time plan boundaries, and links to bounded plans that execute
-  current work; roadmaps do not carry implementation-stage checklists or
+  current work; `Roadmaps/Archive` preserves completed program-level sequencing
+  and provenance. Roadmaps do not carry implementation-stage checklists or
   handoffs, or compete with active-plan acceptance gates.
 - `Plans`: selected paths, stages, and acceptance gates; `Plans/Archive`
   preserves completed decisions and evidence.

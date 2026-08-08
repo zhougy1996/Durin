@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 
-TITLE_PATTERN = re.compile(r"^# (?P<title>.+ Plan)$")
 SUMMARY_PATTERN = re.compile(r"^Summary: (?P<summary>.+)$")
 REVIEWED_PATTERN = re.compile(r"^Last reviewed: (?P<date>\d{4}-\d{2}-\d{2})$")
 STATUS_PATTERN = re.compile(r"^Status: (?P<status>Active|Completed|Archived)$")
@@ -74,17 +73,24 @@ def parse_plan(
     path: Path,
     *,
     default_status: PlanStatus = PlanStatus.ACTIVE,
+    title_suffix: str = " Plan",
+    document_label: str = "plan",
 ) -> tuple[Plan | None, list[str]]:
-    """Parse one plan while collecting all useful format diagnostics."""
+    """Parse one lifecycle document while collecting useful diagnostics."""
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeError) as error:
-        return None, [f"could not read UTF-8 plan: {error}"]
+        return None, [f"could not read UTF-8 {document_label}: {error}"]
 
     errors: list[str] = []
-    title_match = TITLE_PATTERN.fullmatch(lines[0]) if lines else None
+    title_pattern = re.compile(
+        rf"^# (?P<title>.+{re.escape(title_suffix)})$"
+    )
+    title_match = title_pattern.fullmatch(lines[0]) if lines else None
     if title_match is None:
-        errors.append("first line must be '# <Feature> Plan'")
+        errors.append(
+            f"first line must be '# <Feature>{title_suffix}'"
+        )
 
     summary_match = SUMMARY_PATTERN.fullmatch(lines[2]) if len(lines) > 2 else None
     if len(lines) < 3 or lines[1] != "" or summary_match is None:
@@ -140,16 +146,20 @@ def parse_plan(
         and status in {PlanStatus.COMPLETED, PlanStatus.ARCHIVED}
         and completed is None
     ):
-        errors.append(f"{status.value} plans must include a Completed date")
+        errors.append(
+            f"{status.value} {document_label}s must include a Completed date"
+        )
     if status is PlanStatus.ACTIVE and completed is not None:
-        errors.append("Active plans must not include a Completed date")
+        errors.append(
+            f"Active {document_label}s must not include a Completed date"
+        )
 
     if errors or title_match is None or summary_match is None:
         return None, errors
     return (
         Plan(
             path=path,
-            title=title_match.group("title").removesuffix(" Plan"),
+            title=title_match.group("title").removesuffix(title_suffix),
             summary=summary_match.group("summary"),
             status=status,
             completed=completed,
@@ -158,20 +168,28 @@ def parse_plan(
     )
 
 
-def _sorted_markdown(directory: Path) -> list[Path]:
+def _sorted_markdown(
+    directory: Path,
+    *,
+    excluded_files: frozenset[str],
+) -> list[Path]:
     if not directory.is_dir():
         return []
     return sorted(
         (
             path
             for path in directory.glob("*.md")
-            if path.name not in EXCLUDED_PLAN_FILES
+            if path.name not in excluded_files
         ),
         key=lambda path: path.as_posix().casefold(),
     )
 
 
-def _archive_candidates(archive_directory: Path) -> tuple[list[Path], list[str]]:
+def _archive_candidates(
+    archive_directory: Path,
+    *,
+    document_label: str,
+) -> tuple[list[Path], list[str]]:
     if not archive_directory.is_dir():
         return [], []
     candidates: list[Path] = []
@@ -185,7 +203,8 @@ def _archive_candidates(archive_directory: Path) -> tuple[list[Path], list[str]]
         relative = path.relative_to(archive_directory)
         if len(relative.parts) != 2 or not _is_valid_month(relative.parts[0]):
             errors.append(
-                f"Archive/{relative.as_posix()}: archived plan must be directly "
+                f"Archive/{relative.as_posix()}: archived {document_label} "
+                "must be directly "
                 "inside an Archive/YYYY-MM directory"
             )
             continue
@@ -205,6 +224,8 @@ def _parse_candidates(
     *,
     plans_directory: Path,
     archived: bool,
+    title_suffix: str,
+    document_label: str,
 ) -> tuple[list[Plan], list[str]]:
     plans: list[Plan] = []
     errors: list[str] = []
@@ -212,6 +233,8 @@ def _parse_candidates(
         plan, plan_errors = parse_plan(
             path,
             default_status=PlanStatus.ARCHIVED if archived else PlanStatus.ACTIVE,
+            title_suffix=title_suffix,
+            document_label=document_label,
         )
         relative = path.relative_to(plans_directory).as_posix()
         errors.extend(f"{relative}: {error}" for error in plan_errors)
@@ -219,32 +242,50 @@ def _parse_candidates(
             continue
         if archived:
             if plan.status is not PlanStatus.ARCHIVED:
-                errors.append(f"{relative}: plans inside Archive must be Archived")
+                errors.append(
+                    f"{relative}: {document_label}s inside Archive must be Archived"
+                )
             if (
                 plan.completed is not None
                 and plan.completed.strftime("%Y-%m") != path.parent.name
             ):
                 errors.append(f"{relative}: Completed date must match archive month")
         elif plan.status is PlanStatus.ARCHIVED:
-            errors.append(f"{relative}: Archived plans must be moved into Archive")
+            errors.append(
+                f"{relative}: Archived {document_label}s must be moved into Archive"
+            )
         plans.append(plan)
     return plans, errors
 
 
-def load_catalog(plans_directory: Path) -> PlanCatalog:
+def load_catalog(
+    plans_directory: Path,
+    *,
+    title_suffix: str = " Plan",
+    document_label: str = "plan",
+    excluded_files: frozenset[str] = frozenset(EXCLUDED_PLAN_FILES),
+) -> PlanCatalog:
     plans_directory = plans_directory.resolve()
     current, current_errors = _parse_candidates(
-        _sorted_markdown(plans_directory),
+        _sorted_markdown(
+            plans_directory,
+            excluded_files=excluded_files,
+        ),
         plans_directory=plans_directory,
         archived=False,
+        title_suffix=title_suffix,
+        document_label=document_label,
     )
     archive_candidates, archive_layout_errors = _archive_candidates(
-        plans_directory / "Archive"
+        plans_directory / "Archive",
+        document_label=document_label,
     )
     archived, archive_errors = _parse_candidates(
         archive_candidates,
         plans_directory=plans_directory,
         archived=True,
+        title_suffix=title_suffix,
+        document_label=document_label,
     )
 
     errors = current_errors + archive_layout_errors + archive_errors
@@ -295,8 +336,16 @@ def _markdown_cell(value: str) -> str:
     return value.replace("\\", "\\\\").replace("|", "\\|")
 
 
-def render_markdown(plans: Sequence[Plan], plans_directory: Path) -> str:
-    lines = ["| Plan | Primary Scope |", "| --- | --- |"]
+def render_markdown(
+    plans: Sequence[Plan],
+    plans_directory: Path,
+    *,
+    document_label: str = "plan",
+) -> str:
+    lines = [
+        f"| {document_label.title()} | Primary Scope |",
+        "| --- | --- |",
+    ]
     for plan in plans:
         link = plan.path.relative_to(plans_directory).as_posix()
         lines.append(
@@ -356,7 +405,10 @@ def render_listing(
     scope: str,
     output_format: str,
     color: str,
+    document_label: str = "plan",
 ) -> str:
+    title_label = document_label.title()
+
     def archive_markdown(archive_plans: Sequence[Plan]) -> str:
         months = sorted(
             {plan.path.parent.name for plan in archive_plans},
@@ -364,7 +416,15 @@ def render_listing(
         )
         return "\n\n".join(
             f"## {month}\n\n"
-            f"{render_markdown([plan for plan in archive_plans if plan.path.parent.name == month], plans_directory)}"
+            + render_markdown(
+                [
+                    plan
+                    for plan in archive_plans
+                    if plan.path.parent.name == month
+                ],
+                plans_directory,
+                document_label=document_label,
+            )
             for month in months
         )
 
@@ -384,24 +444,30 @@ def render_listing(
         if scope == "archive":
             return archive_markdown(plans)
         if scope != "all":
-            return render_markdown(plans, plans_directory)
+            return render_markdown(
+                plans,
+                plans_directory,
+                document_label=document_label,
+            )
         groups = (
             (
-                "Active Implementation Plans",
+                f"Active {title_label}s",
                 render_markdown(
                     [plan for plan in plans if plan.status is PlanStatus.ACTIVE],
                     plans_directory,
+                    document_label=document_label,
                 ),
             ),
             (
-                "Completed Plans Awaiting Archive",
+                f"Completed {title_label}s Awaiting Archive",
                 render_markdown(
                     [plan for plan in plans if plan.status is PlanStatus.COMPLETED],
                     plans_directory,
+                    document_label=document_label,
                 ),
             ),
             (
-                "Archived Implementation Plans",
+                f"Archived {title_label}s",
                 archive_markdown(
                     [plan for plan in plans if plan.status is PlanStatus.ARCHIVED]
                 ),
@@ -418,7 +484,7 @@ def render_listing(
         return render_terminal(plans, plans_directory, color=color)
     groups = (
         (
-            "Active Plans",
+            f"Active {title_label}s",
             render_terminal(
                 [plan for plan in plans if plan.status is PlanStatus.ACTIVE],
                 plans_directory,
@@ -426,7 +492,7 @@ def render_listing(
             ),
         ),
         (
-            "Completed Plans Awaiting Archive",
+            f"Completed {title_label}s Awaiting Archive",
             render_terminal(
                 [plan for plan in plans if plan.status is PlanStatus.COMPLETED],
                 plans_directory,
@@ -434,7 +500,7 @@ def render_listing(
             ),
         ),
         (
-            "Archived Plans",
+            f"Archived {title_label}s",
             archive_terminal(
                 [plan for plan in plans if plan.status is PlanStatus.ARCHIVED]
             ),

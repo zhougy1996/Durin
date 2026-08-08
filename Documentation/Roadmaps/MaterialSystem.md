@@ -4,7 +4,10 @@ Summary: Long-term sequencing for material authoring, surface models, render pas
 
 Last reviewed: 2026-08-08
 
-## Current State
+Status: Active
+Completed:
+
+## Current Status
 
 The material foundation and first textured, forward-lit StaticMesh vertical
 slice are complete. Material and material-instance assets provide declared

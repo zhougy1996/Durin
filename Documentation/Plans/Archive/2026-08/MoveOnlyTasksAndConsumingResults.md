@@ -40,7 +40,7 @@ explicit drain, cancellation, and take-result behavior remain required and are
 not replaced by this plan.
 
 This is milestone M1 of the
-[Task System Evolution Roadmap](../../../Roadmaps/TaskSystemEvolution.md). Later typed
+[Task System Evolution Roadmap](../../../Roadmaps/Archive/2026-08/TaskSystemEvolution.md). Later typed
 fan-in, owner diagnostics, structured scopes, IO execution, and serialized
 lanes are outside this plan.
 
@@ -917,7 +917,7 @@ and validation outcome.
 
 ## Related Documentation
 
-- [Task System Evolution Roadmap](../../../Roadmaps/TaskSystemEvolution.md)
+- [Task System Evolution Roadmap](../../../Roadmaps/Archive/2026-08/TaskSystemEvolution.md)
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)
 - [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
 - [Task Continuations and Thread Dispatch](TaskContinuationsAndThreadDispatch.md)

@@ -22,7 +22,7 @@ Completed: 2026-08-08
   v3's 5,020/3,948 to 136/133 without compression or unowned bytes.
 - The lasting qualified layout now resides in
   [Asset Packages](../Runtime/Assets/AssetPackages.md#frozen-dast-v4-wire-contract),
-  and the [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md)
+  and the [Compact Asset Serialization Roadmap](../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
   records this milestone complete and Default-relative reflection ready to
   activate. AssetCore still reads and writes DAST v3 exclusively; no production
   v4 reader, writer, migration edge, registry policy, or authored-content
@@ -784,7 +784,7 @@ no open wire or feasibility question remains.
 
 Stage 4 began from `0d4f6b56`. Its modified working set is this plan,
 [Asset Packages](../Runtime/Assets/AssetPackages.md), and the
-[Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md);
+[Compact Asset Serialization Roadmap](../Roadmaps/Archive/2026-08/CompactAssetSerialization.md);
 the Stage 0 through 3 package fixtures remain the executable evidence. Key
 symbols are `MeasureDastV3`, `BuildFeasibilityPackageFromV3`,
 `AdaptArchiveLogicalType`, `AddArchiveDiscoveredField`, `DecodeTableSections`,
@@ -871,7 +871,7 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 ## Related Documentation
 
-- [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md)
+- [Compact Asset Serialization Roadmap](../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 - [Class Default Object Lifecycle Plan](ClassDefaultObjectLifecycle.md)
 - [Unified Archive Serialization Plan](Archive/2026-08/UnifiedArchiveSerialization.md)
 - [Reflected Struct Operations Plan](Archive/2026-08/ReflectedStructOperations.md)

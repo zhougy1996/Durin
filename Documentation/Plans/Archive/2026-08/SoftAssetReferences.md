@@ -1209,7 +1209,7 @@ Dependencies: Stage 4 integration and migration evidence.
 - [Reflected Struct Operations Plan](ReflectedStructOperations.md)
 - [Typed Struct Property Registration Plan](TypedStructPropertyRegistration.md)
 - [Reflected Container Operations Plan](ReflectedContainerOperations.md)
-- [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

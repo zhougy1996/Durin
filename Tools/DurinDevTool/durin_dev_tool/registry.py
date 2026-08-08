@@ -117,6 +117,7 @@ DOCUMENT_KINDS = (
     "guide",
     "task",
     "plan",
+    "roadmap",
     "investigation",
     "policy",
     "generic",
@@ -239,6 +240,27 @@ PLAN_ARCHIVE = CommandSpec(
     ),
     defaults=(("plan_action", "archive"),),
 )
+ROADMAP_LIST = CommandSpec(
+    "list",
+    "list engineering roadmaps",
+    DOCUMENTATION_HANDLER,
+    arguments=PLAN_LIST.arguments,
+    defaults=(("roadmap_action", "list"),),
+)
+ROADMAP_VALIDATE = CommandSpec(
+    "validate",
+    "validate roadmap metadata and layout",
+    DOCUMENTATION_HANDLER,
+    arguments=PLAN_VALIDATE.arguments,
+    defaults=(("roadmap_action", "validate"),),
+)
+ROADMAP_ARCHIVE = CommandSpec(
+    "archive",
+    "archive one roadmap completion month",
+    DOCUMENTATION_HANDLER,
+    arguments=PLAN_ARCHIVE.arguments,
+    defaults=(("roadmap_action", "archive"),),
+)
 
 DOCUMENT_OUTPUT = _argument(
     "--format",
@@ -249,7 +271,7 @@ DOCUMENT_OUTPUT = _argument(
 DOCUMENT_ARCHIVE = _argument(
     "--include-archive",
     action="store_true",
-    help="include archived implementation plans",
+    help="include archived plans and roadmaps",
 )
 DOCUMENT_FILTERS = (
     _argument("--under", help="repository-relative Documentation path"),
@@ -378,6 +400,11 @@ DOCUMENT_PLAN = CommandSpec(
     "plan",
     "manage implementation-plan lifecycle",
     subcommands=(PLAN_LIST, PLAN_VALIDATE, PLAN_ARCHIVE),
+)
+DOCUMENT_ROADMAP = CommandSpec(
+    "roadmap",
+    "manage engineering-roadmap lifecycle",
+    subcommands=(ROADMAP_LIST, ROADMAP_VALIDATE, ROADMAP_ARCHIVE),
 )
 
 DEPENDENCY_PREPARE = CommandSpec(
@@ -705,6 +732,7 @@ COMMAND_SPECS = (
             DOCUMENT_MOVE,
             DOCUMENT_TASK,
             DOCUMENT_PLAN,
+            DOCUMENT_ROADMAP,
         ),
         feature="documentation",
     ),

@@ -18,6 +18,7 @@ from .model import (
     infer_document_kind,
 )
 from .plans import parse_plan
+from .roadmaps import parse_roadmap
 from .tasks import load_task_catalog
 
 
@@ -161,7 +162,8 @@ def load_document_catalog(
         if (
             not include_archive
             and len(relative_parts) > 2
-            and relative_parts[1:3] == ("Plans", "Archive")
+            and relative_parts[1:3]
+            in {("Plans", "Archive"), ("Roadmaps", "Archive")}
         ):
             continue
         document, document_diagnostics = _parse_document(
@@ -300,5 +302,18 @@ def validate_documents(
                     path=document.ref.path,
                 )
                 for message in plan_errors
+            )
+        if document.kind is DocumentKind.ROADMAP:
+            _, roadmap_errors = parse_roadmap(
+                catalog.repository_root / document.ref.path
+            )
+            diagnostics.extend(
+                Diagnostic(
+                    code="doc.roadmap.invalid",
+                    severity=DiagnosticSeverity.ERROR,
+                    message=message,
+                    path=document.ref.path,
+                )
+                for message in roadmap_errors
             )
     return diagnostics

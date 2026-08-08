@@ -5,7 +5,7 @@ Summary: Expand the current static-mesh forward renderer into a pass-classified,
 Last reviewed: 2026-08-08
 
 Status: Active
-Completed: M1, M2
+Completed:
 
 ## Current Status
 

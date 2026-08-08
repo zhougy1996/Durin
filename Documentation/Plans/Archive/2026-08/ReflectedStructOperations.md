@@ -84,7 +84,7 @@ partially valid values.
 
 - DAST v3 table layout, default-relative value encoding, class default objects,
   or package compression; those belong to the
-  [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md).
+  [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md).
 - A general opaque authored-asset codec framework. It becomes a separate plan
   only if the struct audit identifies durable state that reflected fields plus
   post-deserialize repair cannot represent.
@@ -747,7 +747,7 @@ and [Native Tests](../../../Development/Build/NativeTests.md).
 
 ## Related Documentation
 
-- [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 - [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
 - [Garbage Collection](../../../Runtime/Core/GarbageCollection.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)

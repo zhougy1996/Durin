@@ -1210,7 +1210,7 @@ Dependencies: Stage 5 complete authoring workflow.
 - [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
 - [Soft Asset References Plan](SoftAssetReferences.md) — completed historical
   implementation evidence only; its move contract is replaced by this plan.
-- [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

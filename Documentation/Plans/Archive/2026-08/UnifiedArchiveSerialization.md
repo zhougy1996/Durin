@@ -33,7 +33,7 @@ Completed: 2026-08-07
   error translation are frozen below. No unresolved Archive contract decision
   remains for Stage 1.
 - The plan is a completed architecture prerequisite of the
-  [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md).
+  [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md).
   It does not start DAST v4, change the v3 wire format, or authorize content
   migration.
 
@@ -1038,7 +1038,7 @@ and [Native Tests](../../../Development/Build/NativeTests.md).
 
 ## Related Documentation
 
-- [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 - [Reflection System](../../../Runtime/Core/ReflectionSystem.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Versioning](../../../Runtime/Assets/Versioning.md)

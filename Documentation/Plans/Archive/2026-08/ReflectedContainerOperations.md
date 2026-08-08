@@ -109,7 +109,7 @@ boundary.
   struct operation contracts do not already support it.
 - Designing DAST v3 tables, opcodes, compression, default-relative encoding, or
   compact container payloads. Those remain owned by the
-  [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md).
+  [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md).
 - Serializing container object layout, capacity, bucket state, hash seed,
   allocator state, or native iterator order.
 - Changing reflected property names, property kinds, field order, type
@@ -1115,7 +1115,7 @@ Dependencies: Stage 4 consumer migration.
 - [Documentation entry point](../../../README.md)
 - [Reflected Struct Operations Plan](ReflectedStructOperations.md)
 - [Typed Struct Property Registration Plan](TypedStructPropertyRegistration.md)
-- [Compact Asset Serialization Roadmap](../../../Roadmaps/CompactAssetSerialization.md)
+- [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 
 ## Related Code

@@ -20,7 +20,7 @@ Completed: 2026-08-08
   v3-loaded object allocates no ledger.
 - Production remains DAST v3-only. All 17 tracked packages match the activation
   SHA-256 manifest and no `.dasset` changed. The
-  [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md)
+  [Compact Asset Serialization Roadmap](../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
   now activates only the
   [DAST V4 Deterministic Writer Plan](DASTV4DeterministicWriter.md); reader,
   registry, migration, and content rollout remain separately gated.
@@ -784,7 +784,7 @@ begins or a focused test points to that direct dependency.
 
 ## Related Documentation
 
-- [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md)
+- [Compact Asset Serialization Roadmap](../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 - [DAST V4 Measurement and Wire Contract Plan](DASTV4MeasurementAndWireContract.md)
 - [Class Default Object Lifecycle Plan](ClassDefaultObjectLifecycle.md)
 - [Reflection System](../Runtime/Core/ReflectionSystem.md)

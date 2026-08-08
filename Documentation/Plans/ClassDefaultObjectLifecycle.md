@@ -720,7 +720,7 @@ and [Native Tests](../Development/Build/NativeTests.md).
 
 ## Related Documentation
 
-- [Compact Asset Serialization Roadmap](../Roadmaps/CompactAssetSerialization.md)
+- [Compact Asset Serialization Roadmap](../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)
 - [Reflection System](../Runtime/Core/ReflectionSystem.md)
 - [Garbage Collection](../Runtime/Core/GarbageCollection.md)
 - [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)

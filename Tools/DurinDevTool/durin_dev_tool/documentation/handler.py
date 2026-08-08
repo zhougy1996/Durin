@@ -7,9 +7,21 @@ from pathlib import Path
 from typing import TextIO
 
 from ..errors import DevToolError
-from .archive import ArchiveError, ArchivePreview, apply_archive, preview_archive
+from .archive import (
+    ArchiveError,
+    ArchivePreview,
+    apply_archive,
+    apply_roadmap_archive,
+    preview_archive,
+    preview_roadmap_archive,
+)
 from .model import DiagnosticSeverity, DocumentKind, DocumentRef
 from .plans import filter_plans, load_catalog, render_listing
+from .roadmaps import (
+    filter_roadmaps,
+    load_catalog as load_roadmap_catalog,
+    render_listing as render_roadmap_listing,
+)
 from .rendering import (
     render_change_set,
     render_diagnostics,
@@ -27,6 +39,10 @@ def _plans_directory(repository_root: Path) -> Path:
 
 def _tasks_directory(repository_root: Path) -> Path:
     return repository_root / "Documentation" / "Tasks"
+
+
+def _roadmaps_directory(repository_root: Path) -> Path:
+    return repository_root / "Documentation" / "Roadmaps"
 
 
 def _default_output_format(
@@ -289,6 +305,7 @@ def _run_list(
     interactive: bool,
     stdout: TextIO,
     stderr: TextIO,
+    document_kind: str = "plan",
 ) -> int:
     if (
         namespace.scope in {"archive", "all"}
@@ -299,30 +316,38 @@ def _run_list(
             "archive listings require --query <title-or-filename>; "
             "use --all-results only for an explicitly requested full listing"
         )
-    catalog = load_catalog(plans_directory)
+    catalog_loader = (
+        load_catalog if document_kind == "plan" else load_roadmap_catalog
+    )
+    item_filter = filter_plans if document_kind == "plan" else filter_roadmaps
+    listing_renderer = (
+        render_listing if document_kind == "plan" else render_roadmap_listing
+    )
+    catalog = catalog_loader(plans_directory)
     errors = catalog.errors_for(namespace.scope)
     if errors:
         _write_errors(errors, stderr)
         return 1
-    plans = filter_plans(catalog.select(namespace.scope), namespace.query)
+    plans = item_filter(catalog.select(namespace.scope), namespace.query)
     if not plans:
         if namespace.query:
             raise DevToolError(
-                f"no {namespace.scope} plans match query {namespace.query!r}"
+                f"no {namespace.scope} {document_kind}s match query "
+                f"{namespace.query!r}"
             )
         if namespace.scope == "completed":
             print(
-                "No completed implementation plans are awaiting archival.",
+                f"No completed {document_kind}s are awaiting archival.",
                 file=stdout,
             )
             return 0
-        raise DevToolError(f"no {namespace.scope} implementation plans found")
+        raise DevToolError(f"no {namespace.scope} {document_kind}s found")
     output_format = _default_output_format(
         namespace,
         interactive=interactive,
     )
     print(
-        render_listing(
+        listing_renderer(
             plans,
             catalog.plans_directory,
             scope=namespace.scope,
@@ -340,8 +365,12 @@ def _run_validate(
     plans_directory: Path,
     stdout: TextIO,
     stderr: TextIO,
+    document_kind: str = "plan",
 ) -> int:
-    catalog = load_catalog(plans_directory)
+    catalog_loader = (
+        load_catalog if document_kind == "plan" else load_roadmap_catalog
+    )
+    catalog = catalog_loader(plans_directory)
     errors = catalog.errors_for(namespace.scope)
     if errors:
         _write_errors(errors, stderr)
@@ -351,12 +380,12 @@ def _run_validate(
         print(
             f"Validated {len(catalog.active)} active, "
             f"{len(catalog.completed)} completed, and "
-            f"{len(catalog.archived)} archived implementation plans.",
+            f"{len(catalog.archived)} archived {document_kind}s.",
             file=stdout,
         )
     else:
         print(
-            f"Validated {len(plans)} {namespace.scope} implementation plans.",
+            f"Validated {len(plans)} {namespace.scope} {document_kind}s.",
             file=stdout,
         )
     return 0
@@ -368,10 +397,12 @@ def _print_archive(
     repository_root: Path,
     applied: bool,
     stdout: TextIO,
+    document_kind: str,
 ) -> None:
     if not preview.moves:
         print(
-            f"No completed plans are awaiting archival for {preview.month}.",
+            f"No completed {document_kind}s are awaiting archival for "
+            f"{preview.month}.",
             file=stdout,
         )
         return
@@ -390,7 +421,10 @@ def _print_archive(
     for path in preview.reference_files:
         print(f"  {path.relative_to(repository_root).as_posix()}", file=stdout)
     if applied:
-        print("Archive applied and all plans validated.", file=stdout)
+        print(
+            f"Archive applied and all {document_kind}s validated.",
+            file=stdout,
+        )
     else:
         print("Dry-run only; add --apply to perform the archive.", file=stdout)
 
@@ -401,17 +435,23 @@ def _run_archive(
     repository_root: Path,
     plans_directory: Path,
     stdout: TextIO,
+    document_kind: str = "plan",
 ) -> int:
-    preview = (
-        apply_archive(plans_directory, namespace.month)
-        if namespace.apply
-        else preview_archive(plans_directory, namespace.month)
-    )
+    if document_kind == "plan":
+        preview_function = apply_archive if namespace.apply else preview_archive
+    else:
+        preview_function = (
+            apply_roadmap_archive
+            if namespace.apply
+            else preview_roadmap_archive
+        )
+    preview = preview_function(plans_directory, namespace.month)
     _print_archive(
         preview,
         repository_root=repository_root,
         applied=namespace.apply,
         stdout=stdout,
+        document_kind=document_kind,
     )
     return 0
 
@@ -427,6 +467,7 @@ def run(
 ) -> int:
     """Adapt one CLI documentation request to the documentation services."""
     plans_directory = _plans_directory(repository_root)
+    roadmaps_directory = _roadmaps_directory(repository_root)
     try:
         document_action = getattr(namespace, "document_action", "")
         task_action = getattr(namespace, "task_action", "")
@@ -481,7 +522,9 @@ def run(
                 interactive=interactive,
                 stdout=stdout,
             )
-        if getattr(namespace, "plan_action", "") == "list":
+        plan_action = getattr(namespace, "plan_action", "")
+        roadmap_action = getattr(namespace, "roadmap_action", "")
+        if plan_action == "list":
             return _run_list(
                 namespace,
                 plans_directory=plans_directory,
@@ -489,19 +532,44 @@ def run(
                 stdout=stdout,
                 stderr=stderr,
             )
-        if namespace.plan_action == "validate":
+        if plan_action == "validate":
             return _run_validate(
                 namespace,
                 plans_directory=plans_directory,
                 stdout=stdout,
                 stderr=stderr,
             )
-        if namespace.plan_action == "archive":
+        if plan_action == "archive":
             return _run_archive(
                 namespace,
                 repository_root=repository_root,
                 plans_directory=plans_directory,
                 stdout=stdout,
+            )
+        if roadmap_action == "list":
+            return _run_list(
+                namespace,
+                plans_directory=roadmaps_directory,
+                interactive=interactive,
+                stdout=stdout,
+                stderr=stderr,
+                document_kind="roadmap",
+            )
+        if roadmap_action == "validate":
+            return _run_validate(
+                namespace,
+                plans_directory=roadmaps_directory,
+                stdout=stdout,
+                stderr=stderr,
+                document_kind="roadmap",
+            )
+        if roadmap_action == "archive":
+            return _run_archive(
+                namespace,
+                repository_root=repository_root,
+                plans_directory=roadmaps_directory,
+                stdout=stdout,
+                document_kind="roadmap",
             )
     except (ArchiveError, OSError, ValueError) as exc:
         raise DevToolError(str(exc)) from exc

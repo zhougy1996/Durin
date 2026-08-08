@@ -13,14 +13,25 @@ from durin_dev_tool import cli
 from durin_dev_tool.documentation import archive as archive_module
 from durin_dev_tool.documentation import changes as changes_module
 from durin_dev_tool.documentation import handler as handler_module
-from durin_dev_tool.documentation.archive import apply_archive, preview_archive
+from durin_dev_tool.documentation.archive import (
+    apply_archive,
+    apply_roadmap_archive,
+    preview_archive,
+    preview_roadmap_archive,
+)
 from durin_dev_tool.documentation.model import DocumentKind, DocumentRef
 from durin_dev_tool.documentation.plans import PlanStatus, load_catalog, parse_plan, render_listing
+from durin_dev_tool.documentation.roadmaps import (
+    RoadmapStatus,
+    load_catalog as load_roadmap_catalog,
+    parse_roadmap,
+)
 from durin_dev_tool.documentation.service import DocumentWorkspace, ListDocumentsRequest
 from durin_dev_tool.documentation.tasks import load_task_catalog, parse_task
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
 PLAN_TEMPLATE = '# {title} Plan\n\nSummary: {summary}\n\nLast reviewed: 2026-07-27\n\nStatus: {status}\nCompleted:{completed}\n\n## Current Status\n'
+ROADMAP_TEMPLATE = '# {title} Roadmap\n\nSummary: {summary}\n\nLast reviewed: 2026-07-27\n\nStatus: {status}\nCompleted:{completed}\n\n## Current Status\n'
 TASK_TEMPLATE = '''# {title}
 
 ## Outcome
@@ -145,6 +156,31 @@ class TestPlanCatalog:
         catalog = load_catalog(plans)
         assert any(('duplicate title' in error for error in catalog.errors))
 
+
+class TestRoadmapCatalog:
+
+    def test_catalog_excludes_router_and_tracks_lifecycle(self, tmp_path: Path) -> None:
+        roadmaps = tmp_path / 'Documentation' / 'Roadmaps'
+        roadmaps.mkdir(parents=True)
+        (roadmaps / 'README.md').write_text('# Engineering Roadmaps\n', encoding='utf-8')
+        path = roadmaps / 'Feature.md'
+        path.write_text(
+            ROADMAP_TEMPLATE.format(
+                title='Feature',
+                summary='Coordinate feature plans.',
+                status='Completed',
+                completed=' 2026-07-20',
+            ),
+            encoding='utf-8',
+        )
+        roadmap, errors = parse_roadmap(path)
+        assert errors == []
+        assert roadmap is not None
+        assert roadmap.status == RoadmapStatus.COMPLETED
+        catalog = load_roadmap_catalog(roadmaps)
+        assert catalog.errors == ()
+        assert [item.title for item in catalog.completed] == ['Feature']
+
 class TestArchive:
 
     @pytest.fixture(autouse=True)
@@ -188,6 +224,34 @@ class TestArchive:
         assert self.plan.exists()
         assert self.reference.read_text(encoding='utf-8') == '[Feature](Documentation/Plans/Feature.md)\n'
         assert not (self.plans / 'Archive' / '2026-07' / 'Feature.md').exists()
+
+    def test_roadmap_archive_updates_links_and_status(self) -> None:
+        roadmaps = self.repository / 'Documentation' / 'Roadmaps'
+        roadmaps.mkdir()
+        roadmap = roadmaps / 'Program.md'
+        roadmap.write_text(
+            ROADMAP_TEMPLATE.format(
+                title='Program',
+                summary='Coordinate the program.',
+                status='Completed',
+                completed=' 2026-07-21',
+            ),
+            encoding='utf-8',
+        )
+        reference = self.repository / 'RoadmapReference.md'
+        reference.write_text(
+            '[Program](Documentation/Roadmaps/Program.md)\n',
+            encoding='utf-8',
+        )
+        preview = preview_roadmap_archive(roadmaps, '2026-07')
+        assert [move.source for move in preview.moves] == [roadmap.resolve()]
+        apply_roadmap_archive(roadmaps, '2026-07')
+        archived = roadmaps / 'Archive' / '2026-07' / 'Program.md'
+        assert 'Status: Archived' in archived.read_text(encoding='utf-8')
+        assert reference.read_text(encoding='utf-8') == (
+            '[Program](Documentation/Roadmaps/Archive/2026-07/Program.md)\n'
+        )
+        assert load_roadmap_catalog(roadmaps).errors == ()
 
     def test_apply_rejects_stale_inputs_before_writing(self) -> None:
         original_apply = archive_module.apply_change_set
@@ -247,6 +311,17 @@ class TestUnifiedCommand:
             direct = self._parse_values(command)
             shell = self._parse_values(command)
             assert direct == shell
+
+    def test_roadmap_commands_register_separate_lifecycle_requests(self) -> None:
+        for action in ('list', 'validate'):
+            values = self._parse_values(['doc', 'roadmap', action])
+            assert values['roadmap_action'] == action
+            assert 'plan_action' not in values
+        archive = self._parse_values(
+            ['doc', 'roadmap', 'archive', '2026-07', '--apply']
+        )
+        assert archive['roadmap_action'] == 'archive'
+        assert archive['apply'] is True
 
     def test_plan_names_are_case_insensitive_and_accept_slash_aliases(self) -> None:
         expected = self._parse_values(['doc', 'plan', 'list'])
@@ -651,5 +726,14 @@ class TestOrdinaryDocumentation:
                 ),
                 kind=DocumentKind.CONTRACT,
                 title='Not A Task',
+                summary='Invalid placement.',
+            )
+        with pytest.raises(DevToolError, match='roadmap workflow'):
+            self.workspace.prepare_create(
+                destination=DocumentRef.parse(
+                    'Documentation/Roadmaps/NotARoadmap.md'
+                ),
+                kind=DocumentKind.CONTRACT,
+                title='Not A Roadmap',
                 summary='Invalid placement.',
             )

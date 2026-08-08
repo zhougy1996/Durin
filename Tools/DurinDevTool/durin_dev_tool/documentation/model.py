@@ -13,6 +13,7 @@ class DocumentKind(str, Enum):
     GUIDE = "guide"
     TASK = "task"
     PLAN = "plan"
+    ROADMAP = "roadmap"
     INVESTIGATION = "investigation"
     POLICY = "policy"
     GENERIC = "generic"
@@ -99,6 +100,8 @@ def infer_document_kind(path: Path) -> DocumentKind:
         return DocumentKind.TASK
     if len(parts) > 1 and parts[1] == "Plans":
         return DocumentKind.PLAN
+    if len(parts) > 1 and parts[1] == "Roadmaps":
+        return DocumentKind.ROADMAP
     if len(parts) > 1 and parts[1] == "Investigations":
         return DocumentKind.INVESTIGATION
     if len(parts) > 2 and parts[1:3] == ("Editor", "Guides"):
