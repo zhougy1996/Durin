@@ -711,7 +711,7 @@ TEST(FMaterialTests, ProductionClassDefaultsMatchFreshOrdinaryObjectGraphs)
 			<< " reason=" << static_cast<int>(Struct->GetDefaultReason());
 		EXPECT_NE(Struct->GetDefaultValue(), nullptr) << Struct->GetQualifiedName().ToString();
 	}
-	EXPECT_EQ(ProductionStructCount, 26u);
+	EXPECT_EQ(ProductionStructCount, 32u);
 
 	std::vector<Durin::DClass*> Classes;
 	Durin::uint32 ProductionClassCount = 0;

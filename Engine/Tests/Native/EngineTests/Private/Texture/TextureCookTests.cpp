@@ -397,7 +397,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 			}
 
 			Scene.AddOrReplacePrimitive(
-				1, std::move(*SampleProxy), Durin::FMatrix(1.0));
+				Durin::FPrimitiveSceneId(1), std::move(*SampleProxy), Durin::FMatrix(1.0));
 			Durin::FRHITextureCreateDesc ColorDesc =
 				Durin::FRHITextureCreateDesc::Create2D(
 					"CookedTextureSampleColor", 17, 17, Durin::EPixelFormat::SRGBA8_UNORM)
