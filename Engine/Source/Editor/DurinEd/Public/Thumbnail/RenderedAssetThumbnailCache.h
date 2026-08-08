@@ -6,24 +6,36 @@
 
 namespace Durin
 {
-	class DMaterialInterface;
-
-	// Captures deterministic material dependency keys for one exact material asset class.
-	class FMaterialAssetThumbnailProvider final : public IAssetThumbnailProvider
+	// Owns the one live rendered-thumbnail extension registry shared by every cache.
+	class FRenderedAssetThumbnailService
 	{
 	public:
-		DURINED_API explicit FMaterialAssetThumbnailProvider(std::string AssetClassName);
+		DURINED_API FRenderedAssetThumbnailService();
+		DURINED_API ~FRenderedAssetThumbnailService();
 
-		DURINED_API auto GetRegistration() const -> FAssetThumbnailProviderRegistration override;
-		DURINED_API auto CaptureGenerationRequest(
-			const FAssetThumbnailRequest& Request,
-			uint64 ProviderGeneration,
-			FAssetThumbnailGenerationRequest& OutRequest,
-			std::string& OutError) -> bool override;
+		FRenderedAssetThumbnailService(const FRenderedAssetThumbnailService&) = delete;
+		FRenderedAssetThumbnailService& operator=(const FRenderedAssetThumbnailService&) = delete;
+
+		DURINED_API auto RegisterScoped(
+			std::unique_ptr<IAssetThumbnailProvider> Provider,
+			std::string& OutError) -> FAssetThumbnailProviderRegistrationHandle;
+		DURINED_API auto Find(std::string_view AssetClassName) const
+			-> FAssetThumbnailProviderHandle;
+		DURINED_API auto UsesSourceImage(std::string_view AssetClassName) const -> bool;
+		DURINED_API auto CaptureSourceImage(
+			const Asset::FAssetData& Asset,
+			FAssetThumbnailSourceImage& OutSource,
+			std::string& OutError) const -> bool;
+		DURINED_API auto Shutdown() -> void;
 
 	private:
-		std::string AssetClassName;
+		friend class FRenderedAssetThumbnailCache;
+		FAssetThumbnailProviderRegistry Registry;
 	};
+
+	// Returns the process-wide service used by compatibility cache construction and MainFrame composition.
+	DURINED_API auto GetDefaultRenderedAssetThumbnailService()
+		-> FRenderedAssetThumbnailService&;
 
 	// Provides stable lifecycle and budget observations without exposing preview or UI objects.
 	struct FRenderedAssetThumbnailCacheStats
@@ -40,11 +52,15 @@ namespace Durin
 		bool bHasPreviewScene = false;
 	};
 
-	// Owns all rendered-asset generation, persistence, capture, upload, and UI texture lifetime.
+	// Owns provider-neutral rendered generation, persistence, capture, upload, and UI texture lifetime.
 	class FRenderedAssetThumbnailCache
 	{
 	public:
 		DURINED_API explicit FRenderedAssetThumbnailCache(
+			FAssetThumbnailBudgets Budgets = {},
+			FAssetThumbnailObjectStoreSettings StoreSettings = {});
+		DURINED_API explicit FRenderedAssetThumbnailCache(
+			FRenderedAssetThumbnailService& Service,
 			FAssetThumbnailBudgets Budgets = {},
 			FAssetThumbnailObjectStoreSettings StoreSettings = {});
 		DURINED_API ~FRenderedAssetThumbnailCache();

@@ -4,6 +4,8 @@
 #include "Workspace/MaterialEditorWorkspace.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "Thumbnail/MaterialAssetThumbnail.h"
+#include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "Widgets/MMaterialEditor.h"
 
 namespace Durin
@@ -18,13 +20,20 @@ namespace Durin
 
 	auto FMaterialEditorModule::ShutdownModule() -> void
 	{
-		UnregisterMaterialEditorWorkspace();
+		UnregisterMaterialEditor();
 	}
 
-	auto FMaterialEditorModule::RegisterMaterialEditorWorkspace(FEditorWorkspaceManager& WorkspaceManager) -> bool
+	auto FMaterialEditorModule::RegisterMaterialEditor(
+		FEditorWorkspaceManager& WorkspaceManager,
+		FRenderedAssetThumbnailService& ThumbnailService) -> bool
 	{
-		if (WorkspaceRegistration && WorkspaceRegistration->IsValid()) return false;
+		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
+			|| (MaterialThumbnailRegistration && MaterialThumbnailRegistration->IsValid())
+			|| (MaterialInstanceThumbnailRegistration && MaterialInstanceThumbnailRegistration->IsValid()))
+			return false;
 		WorkspaceRegistration.reset();
+		MaterialThumbnailRegistration.reset();
+		MaterialInstanceThumbnailRegistration.reset();
 		std::shared_ptr<MMaterialEditor> Workspace = std::make_shared<MMaterialEditor>(WorkspaceManager);
 		FEditorWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
@@ -57,11 +66,37 @@ namespace Durin
 		});
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<FEditorWorkspaceRegistrationHandle>(std::move(Registration));
+		std::string Error;
+		auto MaterialHandle = ThumbnailService.RegisterScoped(
+			std::make_unique<FMaterialAssetThumbnailProvider>(
+				DMaterial::StaticClass()->GetQualifiedName().ToString()), Error);
+		if (!MaterialHandle)
+		{
+			WorkspaceRegistration.reset();
+			return false;
+		}
+		MaterialThumbnailRegistration =
+			std::make_unique<FAssetThumbnailProviderRegistrationHandle>(
+				std::move(MaterialHandle));
+		auto InstanceHandle = ThumbnailService.RegisterScoped(
+			std::make_unique<FMaterialAssetThumbnailProvider>(
+				DMaterialInstance::StaticClass()->GetQualifiedName().ToString()), Error);
+		if (!InstanceHandle)
+		{
+			MaterialThumbnailRegistration.reset();
+			WorkspaceRegistration.reset();
+			return false;
+		}
+		MaterialInstanceThumbnailRegistration =
+			std::make_unique<FAssetThumbnailProviderRegistrationHandle>(
+				std::move(InstanceHandle));
 		return true;
 	}
 
-	auto FMaterialEditorModule::UnregisterMaterialEditorWorkspace() -> void
+	auto FMaterialEditorModule::UnregisterMaterialEditor() -> void
 	{
+		MaterialInstanceThumbnailRegistration.reset();
+		MaterialThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();
 	}
 }

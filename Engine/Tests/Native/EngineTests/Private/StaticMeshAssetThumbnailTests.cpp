@@ -1,19 +1,37 @@
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
 
 #include "Assets/ContentBrowserThumbnailCache.h"
-#include "Thumbnail/MaterialAssetThumbnail.h"
+#include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 #include "Thumbnail/AssetThumbnailCache.h"
 
 #include "AssetSystem.h"
+#include "Editor/EditorWorkspace.h"
+#include "MaterialEditorModule.h"
+#include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
 #include "NativeTestSupport.h"
 #include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
+#include "StaticMeshEditorModule.h"
+#include "Texture/Texture2D.h"
+#include "Texture/TextureCube.h"
+#include "TextureEditorModule.h"
 
 #include <gtest/gtest.h>
 
 namespace
 {
+	auto RegisterStaticMeshThumbnailProvider()
+		-> Durin::FAssetThumbnailProviderRegistrationHandle
+	{
+		std::string Error;
+		auto Handle = Durin::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+			std::make_unique<Durin::FStaticMeshAssetThumbnailProvider>(), Error);
+		EXPECT_TRUE(Handle) << Error;
+		return Handle;
+	}
+
 	auto MakeFingerprint(const Durin::Asset::FAssetData& Data)
 		-> Durin::FAssetThumbnailPackageFingerprint
 	{
@@ -93,6 +111,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
+	auto ProviderRegistration = RegisterStaticMeshThumbnailProvider();
 	Durin::FAssetPath StaticMeshPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
@@ -188,6 +207,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	Durin::Tests::FRenderedAssetThumbnailFixtureSet Fixtures;
 	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
+	auto ProviderRegistration = RegisterStaticMeshThumbnailProvider();
 	Durin::FAssetPath StaticMeshPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
@@ -209,6 +229,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
+	auto ProviderRegistration = RegisterStaticMeshThumbnailProvider();
 	Durin::FAssetPath StaticMeshPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
@@ -246,6 +267,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
+	auto ProviderRegistration = RegisterStaticMeshThumbnailProvider();
 	Durin::FAssetPath StaticMeshPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
@@ -292,6 +314,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
+	auto ProviderRegistration = RegisterStaticMeshThumbnailProvider();
 	Durin::FAssetPath StaticMeshPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
@@ -355,6 +378,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
+	auto ProviderRegistration = RegisterStaticMeshThumbnailProvider();
 	Durin::FAssetPath StaticMeshPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
@@ -414,6 +438,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
+	auto ProviderRegistration = RegisterStaticMeshThumbnailProvider();
 	Durin::FAssetPath StaticMeshPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath,
@@ -474,4 +499,89 @@ TEST(FStaticMeshAssetThumbnailTests,
 			ClosingCache.Find(StaticMeshPath.GetView()).State,
 			Durin::EAssetThumbnailState::Queued);
 	}
+}
+
+TEST(FStaticMeshAssetThumbnailTests,
+	MixedEditorModulesUnloadQueuedThumbnailsWithoutCrossModuleLoss)
+{
+	InitializeDObjectSystem();
+	Durin::Tests::FRenderedAssetThumbnailFixtureSet Fixtures;
+	std::string Error;
+	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error))
+		<< Error;
+
+	Durin::FEditorWorkspaceManager Manager;
+	Durin::FRenderedAssetThumbnailService Service;
+	Durin::FMaterialEditorModule MaterialModule;
+	Durin::FTextureEditorModule TextureModule;
+	Durin::FStaticMeshEditorModule StaticMeshModule;
+	ASSERT_TRUE(MaterialModule.RegisterMaterialEditor(Manager, Service));
+	ASSERT_TRUE(TextureModule.RegisterTextureEditor(Manager, Service));
+	ASSERT_TRUE(StaticMeshModule.RegisterStaticMeshEditor(Manager, Service));
+	EXPECT_EQ(Manager.GetWorkspaceDescriptors().size(), 3u);
+
+	const std::string MaterialClass =
+		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString();
+	const std::string MaterialInstanceClass =
+		Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString();
+	const std::string Texture2DClass =
+		Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString();
+	const std::string TextureCubeClass =
+		Durin::DTextureCube::StaticClass()->GetQualifiedName().ToString();
+	const std::string StaticMeshClass =
+		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString();
+	EXPECT_TRUE(Service.Find(MaterialClass));
+	EXPECT_TRUE(Service.Find(MaterialInstanceClass));
+	EXPECT_TRUE(Service.Find(Texture2DClass));
+	EXPECT_TRUE(Service.UsesSourceImage(Texture2DClass));
+	EXPECT_TRUE(Service.Find(TextureCubeClass));
+	EXPECT_TRUE(Service.Find(StaticMeshClass));
+
+	Durin::FRenderedAssetThumbnailCache Cache(Service);
+	Cache.BeginFrame();
+	for (const std::string_view Path : {
+		Durin::Tests::FRenderedAssetThumbnailFixtureSet::MaterialPath,
+		Durin::Tests::FRenderedAssetThumbnailFixtureSet::DirectionalCubePath,
+		Durin::Tests::FRenderedAssetThumbnailFixtureSet::StaticMeshPath})
+	{
+		Durin::FAssetPath AssetPath;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate(Path, AssetPath));
+		const Durin::Asset::FAssetData* Data =
+			Durin::Asset::GetAssetRegistry().FindAssetExact(AssetPath);
+		ASSERT_NE(Data, nullptr);
+		Cache.Request(MakeFingerprint(*Data), Durin::EAssetThumbnailPriority::Visible);
+		EXPECT_EQ(Cache.Find(AssetPath).State, Durin::EAssetThumbnailState::Queued);
+	}
+
+	// MainFrame shutdown removes concrete modules in reverse composition order.
+	// Removing one provider drains its queued lease without disturbing the others.
+	StaticMeshModule.UnregisterStaticMeshEditor();
+	EXPECT_FALSE(Service.Find(StaticMeshClass));
+	EXPECT_TRUE(Service.Find(MaterialClass));
+	EXPECT_TRUE(Service.Find(TextureCubeClass));
+	EXPECT_EQ(
+		Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("StaticMeshEditor")),
+		nullptr);
+	Cache.EndFrame();
+
+	TextureModule.UnregisterTextureEditor();
+	EXPECT_FALSE(Service.Find(Texture2DClass));
+	EXPECT_FALSE(Service.Find(TextureCubeClass));
+	EXPECT_TRUE(Service.Find(MaterialClass));
+	EXPECT_EQ(
+		Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("TextureEditor")),
+		nullptr);
+
+	MaterialModule.UnregisterMaterialEditor();
+	EXPECT_FALSE(Service.Find(MaterialClass));
+	EXPECT_FALSE(Service.Find(MaterialInstanceClass));
+	EXPECT_EQ(
+		Manager.FindWorkspace(Durin::FEditorWorkspaceTypeId("MaterialEditor")),
+		nullptr);
+	EXPECT_TRUE(Manager.GetWorkspaceDescriptors().empty());
+
+	Cache.CancelPendingRequests();
+	Cache.Clear();
+	Service.Shutdown();
+	EXPECT_FALSE(Service.Find(StaticMeshClass));
 }

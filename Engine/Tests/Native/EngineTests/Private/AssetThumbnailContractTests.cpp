@@ -7,6 +7,8 @@
 #include "StaticMesh/StaticMesh.h"
 #include "Thumbnail/AssetThumbnail.h"
 #include "Thumbnail/AssetThumbnailCache.h"
+#include "Thumbnail/RenderedAssetThumbnailExtension.h"
+#include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
 
@@ -102,6 +104,188 @@ namespace Durin
 		private:
 			FAssetThumbnailProviderRegistration Registration;
 			bool bCaptureSucceeds = true;
+		};
+
+		struct FFakeRenderedExtensionState
+		{
+			uint32 Captures = 0;
+			uint32 Sessions = 0;
+			uint32 PreviewPreparations = 0;
+			uint32 PreviewResets = 0;
+			uint32 InputDestructions = 0;
+			uint32 SessionDestructions = 0;
+			uint32 ExtensionDestructions = 0;
+		};
+
+		class FFakeRenderedThumbnailInput final : public IAssetThumbnailGenerationInput
+		{
+		public:
+			explicit FFakeRenderedThumbnailInput(
+				std::shared_ptr<FFakeRenderedExtensionState> InState)
+				: State(std::move(InState))
+			{
+			}
+
+			~FFakeRenderedThumbnailInput() override
+			{
+				++State->InputDestructions;
+			}
+
+		private:
+			std::shared_ptr<FFakeRenderedExtensionState> State;
+		};
+
+		class FFakeRenderedThumbnailPreviewScene final
+			: public IRenderedAssetThumbnailPreviewScene
+		{
+		public:
+			auto GetWorld() -> DWorld* override { return nullptr; }
+
+			auto SetView(
+				const FRenderedAssetThumbnailPreviewView& View,
+				std::string& OutError) -> bool override
+			{
+				LastView = View;
+				OutError.clear();
+				return true;
+			}
+
+			FRenderedAssetThumbnailPreviewView LastView;
+		};
+
+		class FFakeRenderedThumbnailSession final
+			: public IRenderedAssetThumbnailGenerationSession
+		{
+		public:
+			explicit FFakeRenderedThumbnailSession(
+				std::shared_ptr<FFakeRenderedExtensionState> InState)
+				: State(std::move(InState))
+			{
+			}
+
+			~FFakeRenderedThumbnailSession() override
+			{
+				++State->SessionDestructions;
+			}
+
+			auto Load() -> FRenderedAssetThumbnailSessionUpdate override
+			{
+				return {
+					.State = ERenderedAssetThumbnailSessionState::ReadyToRender,
+					.AssetRevision = 17,
+					.ResourceRevision = 29};
+			}
+
+			auto PollResources() -> FRenderedAssetThumbnailSessionUpdate override
+			{
+				return Load();
+			}
+
+			auto PreparePreview(
+				IRenderedAssetThumbnailPreviewScene& PreviewScene,
+				std::string& OutError) -> bool override
+			{
+				FRenderedAssetThumbnailPreviewView View;
+				View.CameraPosition = {2.0, -2.0, 1.0};
+				if (!PreviewScene.SetView(View, OutError)) return false;
+				++State->PreviewPreparations;
+				return true;
+			}
+
+			auto ValidateRevisions(
+				uint64 ExpectedAssetRevision,
+				uint64 ExpectedResourceRevision,
+				std::string& OutError) const -> bool override
+			{
+				if (ExpectedAssetRevision == 17 && ExpectedResourceRevision == 29)
+				{
+					OutError.clear();
+					return true;
+				}
+				OutError = "The fake rendered-thumbnail revisions changed.";
+				return false;
+			}
+
+			auto ResetPreview() -> void override
+			{
+				if (bReset) return;
+				bReset = true;
+				++State->PreviewResets;
+			}
+
+		private:
+			std::shared_ptr<FFakeRenderedExtensionState> State;
+			bool bReset = false;
+		};
+
+		class FFakeRenderedThumbnailExtension final
+			: public IRenderedAssetThumbnailExtension
+		{
+		public:
+			explicit FFakeRenderedThumbnailExtension(
+				std::shared_ptr<FFakeRenderedExtensionState> InState,
+				std::string InAssetClassName = "DFakeRenderedAsset")
+				: State(std::move(InState))
+				, AssetClassName(std::move(InAssetClassName))
+			{
+			}
+
+			~FFakeRenderedThumbnailExtension() override
+			{
+				++State->ExtensionDestructions;
+			}
+
+			auto GetRegistration() const -> FAssetThumbnailProviderRegistration override
+			{
+				return {
+					.AssetClassName = AssetClassName,
+					.ProviderName = "Durin.Tests.FakeRenderedThumbnail",
+					.GeneratorSchemaVersion = 1};
+			}
+
+			auto CaptureGenerationRequest(
+				const FAssetThumbnailRequest& Request,
+				uint64 ProviderGeneration,
+				FAssetThumbnailGenerationRequest& OutRequest,
+				std::string& OutError) -> bool override
+			{
+				++State->Captures;
+				OutRequest.KeyInput = {
+					.Asset = Request.Asset,
+					.ProviderName = "Durin.Tests.FakeRenderedThumbnail",
+					.GeneratorSchemaVersion = 1,
+					.Output = {.Width = 1, .Height = 1},
+					.PreviewFixtureIdentity = "/Tests/FakeRenderedThumbnail",
+					.PreviewFixtureVersion = 1,
+					.ShaderContractVersion = 1};
+				OutRequest.Input =
+					std::make_shared<FFakeRenderedThumbnailInput>(State);
+				OutRequest.ProviderGeneration = ProviderGeneration;
+				OutRequest.RequestSerial = Request.RequestSerial;
+				OutError.clear();
+				return true;
+			}
+
+			auto CreateGenerationSession(
+				const FAssetThumbnailGenerationRequest& Request,
+				const IAssetThumbnailGenerationInput& Input,
+				std::string& OutError)
+				-> std::unique_ptr<IRenderedAssetThumbnailGenerationSession> override
+			{
+				(void)Request;
+				if (dynamic_cast<const FFakeRenderedThumbnailInput*>(&Input) == nullptr)
+				{
+					OutError = "The fake rendered-thumbnail input type is invalid.";
+					return nullptr;
+				}
+				++State->Sessions;
+				OutError.clear();
+				return std::make_unique<FFakeRenderedThumbnailSession>(State);
+			}
+
+		private:
+			std::shared_ptr<FFakeRenderedExtensionState> State;
+			std::string AssetClassName;
 		};
 
 		auto MakeThumbnailRequest(
@@ -505,8 +689,8 @@ namespace Durin
 
 		const FAssetThumbnailProviderHandle MaterialHandle = Registry.Find("DMaterial");
 		const FAssetThumbnailProviderHandle InstanceHandle = Registry.Find("DMaterialInstance");
-		EXPECT_EQ(MaterialHandle.Provider, Material);
-		EXPECT_EQ(InstanceHandle.Provider, MaterialInstance);
+		EXPECT_TRUE(MaterialHandle);
+		EXPECT_TRUE(InstanceHandle);
 		EXPECT_NE(MaterialHandle.Generation, InstanceHandle.Generation);
 		EXPECT_FALSE(Registry.Find("DMaterialInterface"));
 
@@ -538,6 +722,266 @@ namespace Durin
 		EXPECT_FALSE(Registry.Find("DTextureCube"));
 		EXPECT_FALSE(Registry.Register(Provider, Error));
 		EXPECT_NE(Error.find("shutdown"), std::string::npos);
+	}
+
+	TEST(FAssetThumbnailContractTests, ScopedProviderRegistrationRejectsDuplicatesAndAllowsLaterReplacement)
+	{
+		FAssetThumbnailProviderRegistry Registry;
+		std::string Error;
+		auto FirstState = std::make_shared<FFakeRenderedExtensionState>();
+		FAssetThumbnailProviderRegistrationHandle First = Registry.RegisterScoped(
+			std::make_unique<FFakeRenderedThumbnailExtension>(FirstState), Error);
+		ASSERT_TRUE(First) << Error;
+		const uint64 FirstGeneration = Registry.Find("DFakeRenderedAsset").Generation;
+
+		auto DuplicateState = std::make_shared<FFakeRenderedExtensionState>();
+		FAssetThumbnailProviderRegistrationHandle Duplicate = Registry.RegisterScoped(
+			std::make_unique<FFakeRenderedThumbnailExtension>(DuplicateState), Error);
+		EXPECT_FALSE(Duplicate);
+		EXPECT_NE(Error.find("DFakeRenderedAsset"), std::string::npos);
+		EXPECT_EQ(DuplicateState->ExtensionDestructions, 1u);
+		EXPECT_EQ(Registry.Find("DFakeRenderedAsset").Generation, FirstGeneration);
+
+		First.Reset();
+		EXPECT_FALSE(Registry.Find("DFakeRenderedAsset"));
+		EXPECT_EQ(FirstState->ExtensionDestructions, 1u);
+		auto ReplacementState = std::make_shared<FFakeRenderedExtensionState>();
+		FAssetThumbnailProviderRegistrationHandle Replacement = Registry.RegisterScoped(
+			std::make_unique<FFakeRenderedThumbnailExtension>(ReplacementState), Error);
+		ASSERT_TRUE(Replacement) << Error;
+		EXPECT_GT(Registry.Find("DFakeRenderedAsset").Generation, FirstGeneration);
+	}
+
+	TEST(FAssetThumbnailContractTests, SchedulersCreatedBeforeAndAfterScopedRegistrationObserveItsGeneration)
+	{
+		FAssetThumbnailProviderRegistry Registry;
+		FAssetThumbnailScheduler BeforeRegistration(Registry);
+		std::string Error;
+		auto State = std::make_shared<FFakeRenderedExtensionState>();
+		FAssetThumbnailProviderRegistrationHandle Registration = Registry.RegisterScoped(
+			std::make_unique<FFakeRenderedThumbnailExtension>(State), Error);
+		ASSERT_TRUE(Registration) << Error;
+		const uint64 Generation = Registry.Find("DFakeRenderedAsset").Generation;
+		ASSERT_NE(Generation, 0u);
+		FAssetThumbnailScheduler AfterRegistration(Registry);
+		ASSERT_TRUE(BeforeRegistration.Request(MakeThumbnailRequest(
+			"/ThumbnailTests/FakeRendered/BeforeRegistry",
+			"DFakeRenderedAsset",
+			1), Error)) << Error;
+		ASSERT_TRUE(AfterRegistration.Request(MakeThumbnailRequest(
+			"/ThumbnailTests/FakeRendered/AfterRegistry",
+			"DFakeRenderedAsset",
+			1), Error)) << Error;
+		const std::optional<FAssetThumbnailScheduledJob> BeforeJob =
+			BeforeRegistration.TakeNext();
+		const std::optional<FAssetThumbnailScheduledJob> AfterJob =
+			AfterRegistration.TakeNext();
+		ASSERT_TRUE(BeforeJob);
+		ASSERT_TRUE(AfterJob);
+		EXPECT_EQ(BeforeJob->GenerationRequest.ProviderGeneration, Generation);
+		EXPECT_EQ(AfterJob->GenerationRequest.ProviderGeneration, Generation);
+
+		Registration.Reset();
+		EXPECT_FALSE(BeforeRegistration.Transition(
+			*BeforeJob,
+			EAssetThumbnailState::Loading,
+			EAssetThumbnailState::WaitingForResources));
+		EXPECT_FALSE(AfterRegistration.Transition(
+			*AfterJob,
+			EAssetThumbnailState::Loading,
+			EAssetThumbnailState::WaitingForResources));
+	}
+
+	TEST(FAssetThumbnailContractTests, RenderedCachesResolveOneServiceBeforeAndAfterRegistration)
+	{
+		FRenderedAssetThumbnailService Service;
+		FRenderedAssetThumbnailCache BeforeRegistration(
+			Service,
+			{},
+			{.CacheRoot = MakeObjectStoreRoot("CacheBeforeRegistration"),
+				.ObjectExtension = ".bin"});
+		std::string Error;
+		auto State = std::make_shared<FFakeRenderedExtensionState>();
+		FAssetThumbnailProviderRegistrationHandle Registration = Service.RegisterScoped(
+			std::make_unique<FFakeRenderedThumbnailExtension>(State), Error);
+		ASSERT_TRUE(Registration) << Error;
+		FRenderedAssetThumbnailCache AfterRegistration(
+			Service,
+			{},
+			{.CacheRoot = MakeObjectStoreRoot("CacheAfterRegistration"),
+				.ObjectExtension = ".bin"});
+		const FAssetThumbnailRequest BeforeRequest = MakeThumbnailRequest(
+			"/ThumbnailTests/FakeRendered/CacheBeforeRegistration",
+			"DFakeRenderedAsset",
+			1);
+		const FAssetThumbnailRequest AfterRequest = MakeThumbnailRequest(
+			"/ThumbnailTests/FakeRendered/CacheAfterRegistration",
+			"DFakeRenderedAsset",
+			1);
+		BeforeRegistration.Request(
+			BeforeRequest.Asset, EAssetThumbnailPriority::Visible);
+		AfterRegistration.Request(
+			AfterRequest.Asset, EAssetThumbnailPriority::Visible);
+		EXPECT_EQ(
+			BeforeRegistration.Find(BeforeRequest.Asset.VirtualPath).State,
+			EAssetThumbnailState::Queued);
+		EXPECT_EQ(
+			AfterRegistration.Find(AfterRequest.Asset.VirtualPath).State,
+			EAssetThumbnailState::Queued);
+
+		Registration.Reset();
+		BeforeRegistration.EndFrame();
+		AfterRegistration.EndFrame();
+		EXPECT_NE(
+			BeforeRegistration.Find(BeforeRequest.Asset.VirtualPath).State,
+			EAssetThumbnailState::Loading);
+		EXPECT_NE(
+			AfterRegistration.Find(AfterRequest.Asset.VirtualPath).State,
+			EAssetThumbnailState::Loading);
+		EXPECT_EQ(State->ExtensionDestructions, 1u);
+	}
+
+	TEST(FAssetThumbnailContractTests, FakeRenderedExtensionRunsColdAndWarmBeforeScopedRemoval)
+	{
+		const std::filesystem::path Root = MakeObjectStoreRoot("FakeRenderedExtensionWarmHit");
+		FAssetThumbnailProviderRegistry Registry;
+		std::string Error;
+		auto State = std::make_shared<FFakeRenderedExtensionState>();
+		FAssetThumbnailProviderRegistrationHandle Registration = Registry.RegisterScoped(
+			std::make_unique<FFakeRenderedThumbnailExtension>(State), Error);
+		ASSERT_TRUE(Registration) << Error;
+		FAssetThumbnailScheduler Scheduler(Registry);
+		FRenderedAssetThumbnailPipeline Pipeline(
+			Scheduler, {.CacheRoot = Root, .ObjectExtension = ".bin"});
+		const FAssetThumbnailRequest ColdRequest = MakeThumbnailRequest(
+			"/ThumbnailTests/FakeRendered/ColdWarm", "DFakeRenderedAsset", 1);
+		ASSERT_TRUE(Scheduler.Request(ColdRequest, Error)) << Error;
+		Pipeline.BeginFrame();
+		std::optional<FRenderedAssetThumbnailJob> ColdJob = Pipeline.StartNext();
+		ASSERT_TRUE(ColdJob);
+		IRenderedAssetThumbnailGenerationSession* Session =
+			ColdJob->ScheduledJob.GenerationRequest.BeginRenderedSession(Error);
+		ASSERT_NE(Session, nullptr) << Error;
+		const FRenderedAssetThumbnailSessionUpdate Update = Session->Load();
+		ASSERT_EQ(Update.State, ERenderedAssetThumbnailSessionState::ReadyToRender);
+		FFakeRenderedThumbnailPreviewScene PreviewScene;
+		ASSERT_TRUE(Session->PreparePreview(PreviewScene, Error)) << Error;
+		ASSERT_TRUE(Session->ValidateRevisions(
+			Update.AssetRevision, Update.ResourceRevision, Error)) << Error;
+		ASSERT_TRUE(Pipeline.CompleteLoad(*ColdJob, Update.AssetRevision));
+		ASSERT_TRUE(Pipeline.BeginRender(
+			*ColdJob, true, Update.AssetRevision, Update.ResourceRevision));
+		ASSERT_TRUE(Pipeline.CompleteRender(
+			*ColdJob, Update.AssetRevision, Update.ResourceRevision));
+		ASSERT_TRUE(Pipeline.CompleteReadback(
+			*ColdJob, Update.AssetRevision, Update.ResourceRevision));
+		const std::array<uint8, 4> Encoded = {1, 2, 3, 4};
+		ASSERT_TRUE(Pipeline.CompleteEncoding(
+			*ColdJob,
+			Update.AssetRevision,
+			Update.ResourceRevision,
+			Encoded));
+		ColdJob->ScheduledJob.GenerationRequest.ReleaseRenderedSession();
+		EXPECT_EQ(State->PreviewResets, 1u);
+
+		const FAssetThumbnailRequest WarmRequest = MakeThumbnailRequest(
+			"/ThumbnailTests/FakeRendered/ColdWarm", "DFakeRenderedAsset", 2);
+		ASSERT_TRUE(Scheduler.Request(WarmRequest, Error)) << Error;
+		FRenderedAssetThumbnailStartResult Warm = Pipeline.StartNextDetailed();
+		EXPECT_FALSE(Warm.ColdJob);
+		ASSERT_TRUE(Warm.WarmJob);
+		EXPECT_EQ(Warm.EncodedBytes, std::vector<uint8>(Encoded.begin(), Encoded.end()));
+		EXPECT_EQ(State->Captures, 2u);
+		EXPECT_EQ(State->Sessions, 1u);
+		EXPECT_EQ(Pipeline.GetStats().DiskHits, 1u);
+
+		Registration.Reset();
+		EXPECT_EQ(State->InputDestructions, 2u);
+		EXPECT_EQ(State->SessionDestructions, 1u);
+		EXPECT_EQ(State->ExtensionDestructions, 1u);
+		EXPECT_FALSE(Scheduler.Request(MakeThumbnailRequest(
+			"/ThumbnailTests/FakeRendered/AfterRemoval",
+			"DFakeRenderedAsset",
+			3), Error));
+	}
+
+	TEST(FAssetThumbnailContractTests, ScopedRemovalReleasesQueuedInputBeforeReturning)
+	{
+		FAssetThumbnailProviderRegistry Registry;
+		std::string Error;
+		auto State = std::make_shared<FFakeRenderedExtensionState>();
+		FAssetThumbnailProviderRegistrationHandle Registration = Registry.RegisterScoped(
+			std::make_unique<FFakeRenderedThumbnailExtension>(State), Error);
+		ASSERT_TRUE(Registration) << Error;
+		FAssetThumbnailScheduler Scheduler(Registry);
+		ASSERT_TRUE(Scheduler.Request(MakeThumbnailRequest(
+			"/ThumbnailTests/FakeRendered/QueuedRemoval",
+			"DFakeRenderedAsset",
+			1), Error)) << Error;
+
+		Registration.Reset();
+		EXPECT_EQ(State->InputDestructions, 1u);
+		EXPECT_EQ(State->ExtensionDestructions, 1u);
+		EXPECT_FALSE(Scheduler.TakeNext());
+	}
+
+	TEST(FAssetThumbnailContractTests, ScopedRemovalRejectsEveryInFlightStateAndDrainsSession)
+	{
+		const std::array States = {
+			EAssetThumbnailState::Loading,
+			EAssetThumbnailState::WaitingForResources,
+			EAssetThumbnailState::Rendering,
+			EAssetThumbnailState::Readback,
+			EAssetThumbnailState::Encoding,
+			EAssetThumbnailState::Uploading};
+		for (size_t StateIndex = 0; StateIndex < States.size(); ++StateIndex)
+		{
+			SCOPED_TRACE(static_cast<uint32>(States[StateIndex]));
+			FAssetThumbnailProviderRegistry Registry;
+			std::string Error;
+			auto State = std::make_shared<FFakeRenderedExtensionState>();
+			const std::string AssetClassName = std::format("DFakeRenderedAsset{}", StateIndex);
+			FAssetThumbnailProviderRegistrationHandle Registration = Registry.RegisterScoped(
+				std::make_unique<FFakeRenderedThumbnailExtension>(State, AssetClassName),
+				Error);
+			ASSERT_TRUE(Registration) << Error;
+			FAssetThumbnailScheduler Scheduler(Registry);
+			const FAssetThumbnailRequest Request = MakeThumbnailRequest(
+				std::format("/ThumbnailTests/FakeRendered/InFlight{}", StateIndex),
+				AssetClassName,
+				1);
+			ASSERT_TRUE(Scheduler.Request(Request, Error)) << Error;
+			std::optional<FAssetThumbnailScheduledJob> Job = Scheduler.TakeNext();
+			ASSERT_TRUE(Job);
+			ASSERT_NE(Job->GenerationRequest.BeginRenderedSession(Error), nullptr) << Error;
+
+			EAssetThumbnailState Current = EAssetThumbnailState::Loading;
+			for (const EAssetThumbnailState Next : {
+				EAssetThumbnailState::WaitingForResources,
+				EAssetThumbnailState::Rendering,
+				EAssetThumbnailState::Readback,
+				EAssetThumbnailState::Encoding,
+				EAssetThumbnailState::Uploading})
+			{
+				if (Current == States[StateIndex]) break;
+				ASSERT_TRUE(Scheduler.Transition(*Job, Current, Next, 17, 29));
+				Current = Next;
+			}
+			ASSERT_EQ(Current, States[StateIndex]);
+			ASSERT_NE(Job->GenerationRequest.GetInput(), nullptr);
+			ASSERT_NE(Job->GenerationRequest.GetRenderedSession(), nullptr);
+
+			Registration.Reset();
+			EXPECT_TRUE(Job->GenerationRequest.Cancellation.IsCancelled());
+			EXPECT_EQ(Job->GenerationRequest.GetInput(), nullptr);
+			EXPECT_EQ(Job->GenerationRequest.GetRenderedSession(), nullptr);
+			EXPECT_EQ(State->PreviewResets, 1u);
+			EXPECT_EQ(State->SessionDestructions, 1u);
+			EXPECT_EQ(State->InputDestructions, 1u);
+			EXPECT_EQ(State->ExtensionDestructions, 1u);
+			EXPECT_FALSE(Scheduler.Transition(
+				*Job, Current, EAssetThumbnailState::Ready, 17, 29));
+		}
 	}
 
 	TEST(FAssetThumbnailContractTests, SchedulerSkipsMissingProvidersAndRecordsProviderRejection)

@@ -19,6 +19,7 @@
         "LevelEditor": "Source/Editor/LevelEditor",
         "MaterialEditor": "Source/Editor/MaterialEditor",
         "TextureEditor": "Source/Editor/TextureEditor",
+        "StaticMeshEditor": "Source/Editor/StaticMeshEditor",
         "DurinLauncher": "Source/Editor/DurinLauncher",
         "StandardAssetImport": "Source/Editor/StandardAssetImport",
         "AssetImportCore": "Source/Editor/AssetImportCore"
@@ -36,6 +37,7 @@
                 "LevelEditor",
                 "MaterialEditor",
                 "TextureEditor",
+                "StaticMeshEditor",
                 "StandardAssetImport",
                 "AssetImportCore"
             ]

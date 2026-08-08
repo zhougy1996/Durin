@@ -46,6 +46,33 @@ Files reported as owned by AssetCore's registered companion contributors cannot
 be renamed or deleted independently; the owning asset operation must be used.
 A shared filename stem alone does not establish companion ownership.
 
+Double-click routing is resolved by the live `FEditorWorkspaceManager` exact-class
+route table. `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` own their
+respective asset routes; StaticMesh opens a closable per-resource document in
+the user-visible **StaticMesh Inspector** workspace. The Content Browser does
+not name or construct a concrete asset editor.
+
+## Thumbnail Requests And Refresh
+
+LevelEditor owns Content Browser item presentation and request admission.
+`DurinEd` owns the provider-neutral thumbnail service, source decode/cache,
+scheduler, persistence, render/readback/upload pipeline, preview-scene pool,
+and budgets. MaterialEditor owns Material and MaterialInstance providers;
+TextureEditor owns authored Texture2D source selection and TextureCube rendering;
+StaticMeshEditor owns StaticMesh rendering. Unsupported classes keep their
+ordinary asset icon and create no thumbnail job. Raw source-file images use the
+generic Content Browser path and are not owned by TextureEditor.
+
+Refresh, navigation, move, delete, reimport, panel close, and editor shutdown
+cancel obsolete request generations before rebinding the visible snapshot.
+Visible work outranks prefetch, duplicate keys coalesce, and all concrete asset
+types share the same bounded scheduler and one-rendered-capture-per-frame limit.
+Provider removal stops admission and drains that provider's queued or in-flight
+leases without affecting providers registered by other modules. During editor
+shutdown MainFrame stops Content Browser admission, unregisters StaticMesh,
+Texture, Material, and Level integrations in that order, drains and destroys the
+shared service caches, and only then permits concrete module unload.
+
 Selection details are presentation snapshots. TextureCube details inspect
 serialized package metadata through a bounded cache keyed by asset identity,
 registry revision, and file metadata; drawing details never loads the package.
@@ -162,3 +189,4 @@ unrelated global history commands do not steal Content Browser focus.
 - [Asset Import Framework](AssetImportFramework.md)
 - [Asset Thumbnails](AssetThumbnails.md)
 - [Mounted Source Workflows](../Guides/MountedSourceWorkflows.md)
+- [StaticMesh Inspector](../Guides/StaticMeshInspector.md)

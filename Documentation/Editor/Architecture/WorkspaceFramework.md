@@ -40,10 +40,26 @@ registered descriptors. The Window menu lists every open document, marks the
 active document, and exposes layout reset and workspace-specific panel commands
 for the active editor; it does not name concrete editor root windows.
 
-`LevelEditor`, `MaterialEditor`, and `TextureEditor` own their editor-specific
-panels and resource behavior. `DurinEd` must not depend on those concrete
-modules. Rendering dependencies belong in an editor module only when its preview
-implementation actually uses them.
+`LevelEditor`, `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` own
+their editor-specific panels and resource behavior. `DurinEd` must not depend on
+those concrete modules. Rendering dependencies belong in an editor module only
+when its preview implementation actually uses them. MainFrame registers these
+modules in that order and rolls them back in reverse order.
+
+`MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` each expose one
+integration lifecycle for their workspace routes and thumbnail extensions.
+MainFrame supplies the long-lived thumbnail service; a failed exact-class
+provider registration removes every earlier contribution from that module, and
+unregistration removes thumbnail admission in reverse order before closing its
+documents.
+
+MainFrame shutdown first stops Content Browser request admission. It then
+unregisters StaticMesh, Texture, Material, and Level integrations in reverse
+composition order, so each concrete thumbnail handle drains its queued and
+in-flight leases before its workspace documents close. MainFrame next drains
+and destroys the provider-neutral thumbnail caches and service. Concrete editor
+modules may unload only after those steps, so no route, document, provider,
+session, preview object, or queued upload can retain module code.
 
 ## Document Ownership
 
@@ -53,8 +69,8 @@ discarding, releasing, and drawing its resource.
 
 `FEditorWorkspaceRootWindow` provides the shared root-window state transition,
 while `FEditorWorkspaceDocumentHost` composes that transition across the
-per-resource documents used by Material and Texture editors. The singleton
-Level workspace keeps its specialized internal dock-space lifecycle.
+per-resource documents used by Material, Texture, and StaticMesh editors. The
+singleton Level workspace keeps its specialized internal dock-space lifecycle.
 
 Document open and close operations return explicit results. A deferred singleton
 open preserves the current document until its replacement succeeds. For dirty
@@ -63,8 +79,8 @@ Save, Discard, or Cancel back to resource-specific workspace callbacks.
 `MainFrame` renders the one shared confirmation modal. Repeated close requests
 cannot create duplicate confirmations.
 
-Level, Material, and Texture workspaces apply the same compatibility policy
-after loading and before document activation. A load report containing any
+Level, Material, Texture, and StaticMesh workspaces apply the same compatibility
+policy after loading and before document activation. A load report containing any
 compatibility issue rejects the requested document, leaves the previous active
 document or world unchanged, and reports one error directing the user to Asset
 Compatibility Audit for full details. Each request captures package ownership
@@ -75,6 +91,13 @@ their existing users.
 Workspaces expose no save, discard, repair, open-without-saving, or data-loss
 action for an incompatible package. AssetCore's ordinary-save guard remains the
 final persistence boundary if another caller bypasses the workspace policy.
+
+The `StaticMeshEditor` workspace is presented as **StaticMesh Inspector** and is
+strictly read-only. Exact `DStaticMesh` routes open closable per-resource
+documents. Each document owns an isolated preview world and viewport, supports
+orbit, pan, zoom, framing, and solid/wireframe presentation, and releases its
+mesh component before destroying the scene. Its active document never becomes
+dirty and never enables global Save.
 
 Project-wide compatibility review is an explicit application tool rather than
 a workspace document. `MainFrame` owns the non-modal `Tools > Asset
@@ -99,4 +122,5 @@ selection.
 - `Documentation/Editor/Architecture/PlayInEditorArchitecture.md`
 - `Documentation/Editor/Architecture/ReflectedPropertyEditing.md`
 - `Documentation/Editor/Design/UIStyle.md`
+- `Documentation/Editor/Guides/StaticMeshInspector.md`
 - `Documentation/Runtime/Core/RuntimeLifecycle.md`

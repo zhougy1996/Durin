@@ -9,20 +9,76 @@ project content.
 - `DurinEd` owns the provider-neutral request, view, provider registry,
   scheduler, rendered-generation pipeline, persistent object store, preview
   scene pool, and resource budgets.
+- `FRenderedAssetThumbnailService` owns the one long-lived registry. A rendered
+  cache receives that service and resolves registrations when capturing each
+  request, so cache construction order does not snapshot or fork provider state.
+- Rendered providers may register a module-owned generation extension through a
+  move-only scoped handle. A persistent hit remains entirely in the shared core;
+  a cold miss receives one provider-owned session for load, readiness, preview
+  setup, revision validation, and diagnostics.
 - Providers register by exact asset class on the game thread. A request
   captures an immutable provider input, provider generation, and request serial
   before asynchronous work begins. Asset and resource revisions are captured
   as the job loads and reaches resource-dependent transitions.
-- Material and MaterialInstance share the material provider. TextureCube uses
-  the cube provider and its reflection-vector preview pass. Texture2D and
+- `MaterialEditor` registers two exact classes that share the material provider.
+  `TextureEditor` registers authored Texture2D source selection and the TextureCube
+  provider with its reflection-vector preview pass. Texture2D and
   supported source files retain their source-image decode path behind the same
   Content Browser request/view lifecycle.
-- StaticMesh uses the rendered provider with immutable LOD 0 framing inputs.
-  The provider never stores a mesh pointer in queued work; loading, resource
-  readiness, and revision capture begin only after a persistent miss.
+- `StaticMeshEditor` owns the StaticMesh rendered extension and immutable LOD 0
+  framing inputs. Its unified module integration installs the exact-class asset
+  route and thumbnail provider together. The provider never stores a mesh
+  pointer in queued work; loading, resource readiness, and revision capture
+  begin only after a persistent miss.
 - LevelEditor owns only Content Browser item presentation and the facade that
-  routes a source-image request or an authored-asset fingerprint. Unsupported
+  asks the live service for a source-image request or rendered authored-asset
+  fingerprint. Unsupported
   classes issue no thumbnail job and retain their normal asset icon.
+
+Material and MaterialInstance provider code, sessions, dependency closure, and
+diagnostics live in `MaterialEditor`. Texture2D authored-source selection plus
+TextureCube provider code, sessions, orientation, preview component, and
+diagnostics live in `TextureEditor`. StaticMesh provider code, generation
+sessions, visual contracts, and diagnostics live in `StaticMeshEditor`. The
+default service constructs no concrete provider. Moving ownership did not change
+any rendered provider name, key field, schema, fixture, shader, or output policy.
+
+The shared preview pool owns only its world, provider-neutral camera/view,
+lighting, output target, render command, and readback. A cold-generation session
+spawns its own preview actor/components into the leased world and destroys them
+in `ResetPreview`. The core cache therefore has no concrete asset includes,
+casts, active pointers, readiness branches, framing branches, or diagnostics.
+Material and StaticMesh sessions retain transparent-black capture while
+TextureCube retains its opaque environment background.
+
+## Extension Registration And Unload
+
+The service owns one live exact-class registry. Request clients created before
+or after a provider registration resolve that registry when they capture work;
+they do not snapshot provider objects. Duplicate exact-class registration fails
+without replacing the current provider. Replacement requires resetting the old
+handle and registering again, which assigns a later provider generation.
+
+Scoped registration accepts unique ownership. Reset first removes the exact
+class from admission and invalidates its generation. It then cancels every
+captured core lease, calls the provider session's idempotent preview reset on the
+game thread, and destroys the session, immutable generation input, and extension
+before returning. A queued or in-flight job retains only a cancelled DurinEd
+lease. Loading, resource wait, render, readback, encode, upload, and publication
+all reject that lease or its stale generation.
+
+GPU upload tickets copy only core-owned cancellation, provider generation,
+request serial, and asset identity. The game-thread drain re-resolves the live
+service registration before exposing the texture to the UI backend, preventing
+an upload queued by an unloaded or replaced extension from publishing.
+
+The extension owns exact-class capture, deterministic key fields, immutable
+input, asset load and type checks, readiness and revision polling, preview-world
+content and view selection, validation, and asset-qualified diagnostics. Its
+session may mutate only the preview scene leased to that cold job and must detach
+all content during reset. `DurinEd` retains scheduling, coalescing, cache lookup,
+scene leasing, capture, readback, encode/decode, persistence, UI upload, budgets,
+and publication. Provider objects never cross module unload.
 
 ## Identity And Invalidation
 
@@ -76,6 +132,15 @@ upload serial too, so an already-enqueued render-thread upload cannot register a
 stale texture when it returns to the game thread. Existing ready textures remain
 bounded by the GPU LRU until their identity changes, they are evicted, or the
 cache is cleared.
+
+MainFrame owns shutdown sequencing rather than any provider. It stops Content
+Browser admission, unregisters StaticMeshEditor, TextureEditor, MaterialEditor,
+and LevelEditor integrations in reverse composition order, then drains and
+destroys the shared caches and service before concrete module unload. Each
+module removes its thumbnail handles before its workspace handle, making queued,
+loading, waiting, rendering, readback, encoding, and uploading work incapable of
+calling provider code after removal. Removing one module does not shut down the
+service or registrations owned by the others.
 
 ## Persistence And Recovery
 

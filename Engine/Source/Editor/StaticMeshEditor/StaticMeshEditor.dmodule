@@ -1,20 +1,18 @@
 {
-    "ModuleName": "MainFrame",
+    "ModuleName": "StaticMeshEditor",
     "LinkType": "Shared",
     "PCH": "SharedPCH_MonaEditor",
     "PrivateDependencies": [
         "Core",
-        "RHI",
-        "Engine",
+        "CoreDObject",
         "ApplicationCore",
-        "MonaCore",
+        "RHI",
+        "RenderCore",
+        "Renderer",
+        "Engine",
+        "AssetCore",
         "Mona",
         "MonaImGui",
-		"AssetImportCore",
-        "LevelEditor",
-        "MaterialEditor",
-        "TextureEditor",
-        "StaticMeshEditor",
         "DurinEd"
     ]
 }

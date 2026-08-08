@@ -11,6 +11,8 @@
 #include "LevelEditorModule.h"
 #include "MaterialEditorModule.h"
 #include "TextureEditorModule.h"
+#include "StaticMeshEditorModule.h"
+#include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -28,18 +30,30 @@ namespace Durin
 			FEditorWorkspaceManager& WorkspaceManager,
 			FLevelEditorModule& LevelEditorModule,
 			FMaterialEditorModule& MaterialEditorModule,
-			FTextureEditorModule& TextureEditorModule
+			FTextureEditorModule& TextureEditorModule,
+			FStaticMeshEditorModule& StaticMeshEditorModule,
+			FRenderedAssetThumbnailService& ThumbnailService
 		) -> bool
 		{
 			if (!LevelEditorModule.RegisterLevelEditorWorkspace(WorkspaceManager)) return false;
-			if (!MaterialEditorModule.RegisterMaterialEditorWorkspace(WorkspaceManager))
+			if (!MaterialEditorModule.RegisterMaterialEditor(
+				WorkspaceManager, ThumbnailService))
 			{
 				LevelEditorModule.UnregisterLevelEditorWorkspace();
 				return false;
 			}
-			if (!TextureEditorModule.RegisterTextureEditorWorkspace(WorkspaceManager))
+			if (!TextureEditorModule.RegisterTextureEditor(
+				WorkspaceManager, ThumbnailService))
 			{
-				MaterialEditorModule.UnregisterMaterialEditorWorkspace();
+				MaterialEditorModule.UnregisterMaterialEditor();
+				LevelEditorModule.UnregisterLevelEditorWorkspace();
+				return false;
+			}
+			if (!StaticMeshEditorModule.RegisterStaticMeshEditor(
+				WorkspaceManager, ThumbnailService))
+			{
+				TextureEditorModule.UnregisterTextureEditor();
+				MaterialEditorModule.UnregisterMaterialEditor();
 				LevelEditorModule.UnregisterLevelEditorWorkspace();
 				return false;
 			}
@@ -47,8 +61,9 @@ namespace Durin
 
 			// Feature modules own their handles, but the host coordinates this multi-module
 			// startup so a failed default document cannot leave a partial editor behind.
-			TextureEditorModule.UnregisterTextureEditorWorkspace();
-			MaterialEditorModule.UnregisterMaterialEditorWorkspace();
+			StaticMeshEditorModule.UnregisterStaticMeshEditor();
+			TextureEditorModule.UnregisterTextureEditor();
+			MaterialEditorModule.UnregisterMaterialEditor();
 			LevelEditorModule.UnregisterLevelEditorWorkspace();
 			return false;
 		}
@@ -416,9 +431,12 @@ namespace Durin
 		HostSettings->Load();
 		MonaImGui::SetColorTheme(HostSettings->GetColorTheme());
 		MonaImGui::SetGlobalUIScale(HostSettings->GetUIScale());
+		FRenderedAssetThumbnailService& ThumbnailService =
+			GetDefaultRenderedAssetThumbnailService();
 		FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
 		FMaterialEditorModule& MaterialEditorModule = FModuleManager::LoadModuleChecked<FMaterialEditorModule>("MaterialEditor");
 		FTextureEditorModule& TextureEditorModule = FModuleManager::LoadModuleChecked<FTextureEditorModule>("TextureEditor");
+		FStaticMeshEditorModule& StaticMeshEditorModule = FModuleManager::LoadModuleChecked<FStaticMeshEditorModule>("StaticMeshEditor");
 		const FIntPoint WindowSize{HostSettings->GetWindowWidth(), HostSettings->GetWindowHeight()};
 		FLevelEditorModule* LevelEditorModulePtr = &LevelEditorModule;
 		auto RootWindow = std::make_shared<MWindow>();
@@ -433,7 +451,9 @@ namespace Durin
 		const std::weak_ptr<MWindow> WeakRootWindow = RootWindow;
 		if (HasCurrentProject())
 		{
-			*bWorkspaceReady = RegisterEditorWorkspaces(*WorkspaceManager, LevelEditorModule, MaterialEditorModule, TextureEditorModule);
+			*bWorkspaceReady = RegisterEditorWorkspaces(
+				*WorkspaceManager, LevelEditorModule, MaterialEditorModule,
+				TextureEditorModule, StaticMeshEditorModule, ThumbnailService);
 			if (!*bWorkspaceReady) ProjectBrowser->SetError("Could not initialize the editor workspaces.");
 			else
 			{

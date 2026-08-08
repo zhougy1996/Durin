@@ -2,7 +2,8 @@
 
 #include "Math/Box.h"
 #include "Math/Transform.h"
-#include "Thumbnail/AssetThumbnail.h"
+#include "StaticMeshEditorAPI.h"
+#include "Thumbnail/RenderedAssetThumbnailExtension.h"
 
 namespace Durin
 {
@@ -63,20 +64,25 @@ namespace Durin
 	};
 
 	// Captures the exact StaticMesh fingerprint and sorted transitive dependency closure.
-	class FStaticMeshAssetThumbnailProvider final : public IAssetThumbnailProvider
+	class FStaticMeshAssetThumbnailProvider final : public IRenderedAssetThumbnailExtension
 	{
 	public:
-		DURINED_API auto GetRegistration() const
+		STATICMESHEDITOR_API auto GetRegistration() const
 			-> FAssetThumbnailProviderRegistration override;
-		DURINED_API auto CaptureGenerationRequest(
+		STATICMESHEDITOR_API auto CaptureGenerationRequest(
 			const FAssetThumbnailRequest& Request,
 			uint64 ProviderGeneration,
 			FAssetThumbnailGenerationRequest& OutRequest,
 			std::string& OutError) -> bool override;
+		STATICMESHEDITOR_API auto CreateGenerationSession(
+			const FAssetThumbnailGenerationRequest& Request,
+			const IAssetThumbnailGenerationInput& Input,
+			std::string& OutError)
+			-> std::unique_ptr<IRenderedAssetThumbnailGenerationSession> override;
 	};
 
 	// Fits all eight finite, non-degenerate bounds corners inside the requested image margin.
-	DURINED_API auto CalculateStaticMeshAssetThumbnailView(
+	STATICMESHEDITOR_API auto CalculateStaticMeshAssetThumbnailView(
 		const FStaticMeshAssetThumbnailViewInput& Input,
 		FStaticMeshAssetThumbnailView& OutView,
 		std::string& OutError) -> bool;

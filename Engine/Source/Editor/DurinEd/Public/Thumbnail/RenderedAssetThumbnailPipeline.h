@@ -3,14 +3,10 @@
 #include "Math/DurinMath.h"
 #include "Thumbnail/AssetThumbnail.h"
 #include "Thumbnail/AssetThumbnailCache.h"
+#include "Thumbnail/RenderedAssetThumbnailExtension.h"
 
 namespace Durin
 {
-	class DMaterialInterface;
-	class DStaticMesh;
-	class DTextureCube;
-	struct FStaticMeshAssetThumbnailView;
-
 	enum class ERenderedAssetThumbnailCaptureState : uint8
 	{
 		Idle,
@@ -20,11 +16,15 @@ namespace Durin
 	};
 
 	// Owns the single resettable preview scene allowed by the initial rendered-thumbnail budget.
-	class FRenderedAssetThumbnailPreviewScenePool
+	class FRenderedAssetThumbnailPreviewScenePool final
+		: public IRenderedAssetThumbnailPreviewScene
 	{
 	public:
 		DURINED_API explicit FRenderedAssetThumbnailPreviewScenePool(
-			FRenderedAssetThumbnailVisualContract VisualContract = {},
+			FAssetThumbnailOutputSettings Output = {},
+			FAssetThumbnailBudgets Budgets = {});
+		DURINED_API explicit FRenderedAssetThumbnailPreviewScenePool(
+			FRenderedAssetThumbnailVisualContract VisualContract,
 			FAssetThumbnailBudgets Budgets = {});
 		DURINED_API ~FRenderedAssetThumbnailPreviewScenePool();
 
@@ -33,26 +33,13 @@ namespace Durin
 
 		DURINED_API auto IsAvailable() const -> bool;
 		DURINED_API auto GetDiagnostic() const -> std::string;
-		DURINED_API auto GetSphereMesh() const -> DStaticMesh*;
-		// Replaces all provider-owned component state while no capture is outstanding.
-		DURINED_API auto SetMaterial(
-			DStaticMesh* Mesh,
-			DMaterialInterface* Material,
-			const FTransform& Transform,
-			std::string& OutError) -> bool;
-		DURINED_API auto SetTextureCube(
-			DTextureCube* TextureCube,
-			const FTransform& Transform,
-			std::string& OutError) -> bool;
-		DURINED_API auto SetStaticMesh(
-			DStaticMesh* StaticMesh,
-			const FStaticMeshAssetThumbnailView& ThumbnailView,
-			std::string& OutError) -> bool;
+		DURINED_API auto GetWorld() -> DWorld* override;
+		DURINED_API auto SetView(
+			const FRenderedAssetThumbnailPreviewView& View,
+			std::string& OutError) -> bool override;
 		// Enqueues one render and one readback on the rendering thread. Transparent
 		// captures clear to transparent black so UI compositing has no color fringe.
-		DURINED_API auto BeginCapture(
-			std::string& OutError,
-			bool bOutputOpaque = true) -> bool;
+		DURINED_API auto BeginCapture(std::string& OutError) -> bool;
 		// Moves completed tightly-packed SRGBA8 pixels to the game thread.
 		DURINED_API auto PollCapture(
 			std::vector<uint8>& OutPixels,

@@ -4,6 +4,8 @@ set(_durin_level_editor_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Private")
 set(_durin_material_editor_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Private")
+set(_durin_static_mesh_editor_private
+	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Private")
 set(_durin_main_frame_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MainFrame/Private")
 set(_durin_editor_test_modules
@@ -81,6 +83,8 @@ function(durin_add_engine_functional_test target_name)
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/LevelEditor/Public
 		${_durin_material_editor_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/MaterialEditor/Public
+		${_durin_static_mesh_editor_private}
+		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/StaticMeshEditor/Public
 		${_durin_main_frame_private}
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Renderer/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source
@@ -207,6 +211,9 @@ durin_add_engine_functional_test(MaterialTests
 		Mona
 		MonaImGui
 		DurinEd
+		MaterialEditor
+		StaticMeshEditor
+		TextureEditor
 		bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
@@ -225,10 +232,11 @@ durin_add_engine_functional_test(StaticMeshTests
 		Private/StaticMeshDerivedDataCacheTests.cpp
 		Private/StaticMeshPayloadCodecTests.cpp
 		Private/StaticMeshMaterialSlotDetailsTests.cpp
+		Private/StaticMeshEditorTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES AssetImportCore StandardAssetImport RenderCore Renderer DurinEd bc7enc_rdo::bc7enc_rdo
+	LIBRARIES AssetImportCore StandardAssetImport RenderCore Renderer DurinEd StaticMeshEditor bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
@@ -282,16 +290,48 @@ durin_add_engine_functional_test(ThumbnailTests
 	SOURCES
 		Private/SourceImageThumbnailTests.cpp
 		Private/AssetThumbnailContractTests.cpp
-		Private/MaterialAssetThumbnailTests.cpp
-		Private/StaticMeshAssetThumbnailTests.cpp
-		Private/TextureCubeAssetThumbnailTests.cpp
 		Private/RenderedAssetThumbnailFixtureTests.cpp
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailCache.cpp
 		${_durin_level_editor_private}/Assets/ContentBrowserThumbnailCache.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp
 		${_durin_level_editor_private}/Assets/SourceImageThumbnailDiskCache.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd StaticMeshEditor TextureEditor
+	DATA_DIRECTORIES
+		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+		${CMAKE_CURRENT_SOURCE_DIR}/Data
+)
+
+durin_add_engine_functional_test(MaterialThumbnailTests
+	TIMEOUT 600
+	RUNTIME_STACK_RATIONALE "Exercises the MaterialEditor-owned Material and MaterialInstance thumbnail extensions."
+	SOURCES Private/MaterialAssetThumbnailTests.cpp
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd MaterialEditor TextureEditor
+	DATA_DIRECTORIES
+		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+		${CMAKE_CURRENT_SOURCE_DIR}/Data
+)
+
+durin_add_engine_functional_test(TextureThumbnailTests
+	TIMEOUT 600
+	RUNTIME_STACK_RATIONALE "Exercises the TextureEditor-owned Texture2D and TextureCube thumbnail extensions."
+	SOURCES Private/TextureAssetThumbnailTests.cpp
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd TextureEditor
+	DATA_DIRECTORIES
+		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
+		${CMAKE_CURRENT_SOURCE_DIR}/Data
+)
+
+durin_add_engine_functional_test(StaticMeshThumbnailTests
+	TIMEOUT 600
+	RUNTIME_STACK_RATIONALE "Exercises the StaticMeshEditor-owned thumbnail extension and cache lifecycle."
+	SOURCES Private/StaticMeshAssetThumbnailTests.cpp
+	PRIVATE_SOURCES
+		${_durin_level_editor_private}/Assets/SourceImageThumbnailCache.cpp
+		${_durin_level_editor_private}/Assets/ContentBrowserThumbnailCache.cpp
+		${_durin_level_editor_private}/Assets/SourceImageThumbnailDecoder.cpp
+		${_durin_level_editor_private}/Assets/SourceImageThumbnailDiskCache.cpp
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd MaterialEditor StaticMeshEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data

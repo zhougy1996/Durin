@@ -9,6 +9,7 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
+#include "Thumbnail/RenderedAssetThumbnailCache.h"
 
 #include <gtest/gtest.h>
 
@@ -67,6 +68,42 @@ namespace
 		auto Undo() -> bool override { return true; }
 		auto Redo() -> bool override { return true; }
 	};
+
+	class FRouteOnlyThumbnailProvider final : public IAssetThumbnailProvider
+	{
+	public:
+		explicit FRouteOnlyThumbnailProvider(
+			std::string InAssetClassName,
+			bool bInUsesSourceImage = false)
+			: AssetClassName(std::move(InAssetClassName))
+			, bUsesSourceImage(bInUsesSourceImage)
+		{
+		}
+		auto UsesSourceImage() const -> bool override { return bUsesSourceImage; }
+
+		auto GetRegistration() const -> FAssetThumbnailProviderRegistration override
+		{
+			return {
+				.AssetClassName = AssetClassName,
+				.ProviderName = "ContentBrowserRouteTest",
+				.GeneratorSchemaVersion = 1};
+		}
+
+		auto CaptureGenerationRequest(
+			const FAssetThumbnailRequest&,
+			uint64,
+			FAssetThumbnailGenerationRequest& OutRequest,
+			std::string& OutError) -> bool override
+		{
+			OutRequest = {};
+			OutError = "Route-only test provider.";
+			return false;
+		}
+
+	private:
+		std::string AssetClassName;
+		bool bUsesSourceImage = false;
+	};
 } // namespace
 
 TEST_F(FContentBrowserModelTests, MaintainsHistoryAndTruncatesForwardBranch)
@@ -101,6 +138,12 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToRenderedThumbnails)
 	const Asset::FAssetData* AssetData =
 		Asset::GetAssetRegistry().FindAssetExact(AssetPath);
 	ASSERT_NE(AssetData, nullptr);
+	std::string RegistrationError;
+	auto ThumbnailRegistration =
+		GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+			std::make_unique<FRouteOnlyThumbnailProvider>(AssetData->AssetClassName),
+			RegistrationError);
+	ASSERT_TRUE(ThumbnailRegistration) << RegistrationError;
 
 	FContentBrowserModel Model;
 	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
@@ -116,6 +159,39 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToRenderedThumbnails)
 	EXPECT_EQ(It->ThumbnailPackageFormatVersion, AssetData->FormatVersion);
 	EXPECT_EQ(It->ThumbnailLastWriteTimeTicks, AssetData->LastWriteTimeTicks);
 
+	ASSERT_TRUE(Asset::DeleteAsset(AssetPath));
+}
+
+TEST_F(FContentBrowserModelTests, SourceProviderWithoutUsableSourceKeepsAssetIcon)
+{
+	InitializeDObjectSystem();
+	FAssetPath AssetPath;
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/SourceLessMesh", AssetPath));
+	DStaticMesh* StaticMesh = nullptr;
+	ASSERT_TRUE(Asset::CreateAsset(AssetPath, StaticMesh));
+	ASSERT_TRUE(Asset::SavePackage(StaticMesh->GetPackage()));
+	const Asset::FAssetData* AssetData =
+		Asset::GetAssetRegistry().FindAssetExact(AssetPath);
+	ASSERT_NE(AssetData, nullptr);
+	std::string Error;
+	auto Registration =
+		GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+			std::make_unique<FRouteOnlyThumbnailProvider>(
+				AssetData->AssetClassName, true),
+			Error);
+	ASSERT_TRUE(Registration) << Error;
+
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+	const auto It = std::ranges::find_if(
+		Model.GetItems(),
+		[&](const FContentBrowserItem& Item) {
+			return Item.VirtualPath == AssetPath.ToString();
+		});
+	ASSERT_NE(It, Model.GetItems().end());
+	EXPECT_TRUE(It->ThumbnailIdentity.empty());
+	EXPECT_TRUE(It->ThumbnailSourcePath.empty());
 	ASSERT_TRUE(Asset::DeleteAsset(AssetPath));
 }
 

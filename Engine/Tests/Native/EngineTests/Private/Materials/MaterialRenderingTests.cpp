@@ -12,6 +12,7 @@
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 #include "Thumbnail/MaterialAssetThumbnail.h"
+#include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Texture/TextureCubeRenderResource.h"
@@ -634,6 +635,24 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	InitializeDObjectSystem();
+	std::string StaticMeshProviderError;
+	Durin::FAssetThumbnailProviderRegistrationHandle StaticMeshProvider =
+		Durin::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+			std::make_unique<Durin::FStaticMeshAssetThumbnailProvider>(),
+			StaticMeshProviderError);
+	ASSERT_TRUE(StaticMeshProvider) << StaticMeshProviderError;
+	Durin::FAssetThumbnailProviderRegistrationHandle MaterialProvider =
+		Durin::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+			std::make_unique<Durin::FMaterialAssetThumbnailProvider>(
+				Durin::DMaterial::StaticClass()->GetQualifiedName().ToString()),
+			StaticMeshProviderError);
+	ASSERT_TRUE(MaterialProvider) << StaticMeshProviderError;
+	Durin::FAssetThumbnailProviderRegistrationHandle MaterialInstanceProvider =
+		Durin::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+			std::make_unique<Durin::FMaterialAssetThumbnailProvider>(
+				Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()),
+			StaticMeshProviderError);
+	ASSERT_TRUE(MaterialInstanceProvider) << StaticMeshProviderError;
 	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
 	const std::filesystem::path TextureMount =
@@ -725,7 +744,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 	AlignedContract.KeyLightDirectionY = 0.0f;
 	AlignedContract.KeyLightDirectionZ = -1.0f;
 	{
-		Durin::FRenderedAssetThumbnailPreviewScenePool AlignedPool(
+		Durin::Tests::FRenderedAssetThumbnailTestPool AlignedPool(
 			AlignedContract);
 		ASSERT_TRUE(AlignedPool.IsAvailable()) << AlignedPool.GetDiagnostic();
 		auto CaptureAligned = [&](float Roughness) {
@@ -773,7 +792,7 @@ TEST(FMaterialTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDiffer
 		EXPECT_EQ(SaturatedPixelCounts[4], 0u);
 	}
 	{
-		Durin::FRenderedAssetThumbnailPreviewScenePool Pool(Contract);
+		Durin::Tests::FRenderedAssetThumbnailTestPool Pool(Contract);
 		ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
 		Durin::DStaticMesh* Sphere = Pool.GetSphereMesh();
 		ASSERT_NE(Sphere, nullptr);

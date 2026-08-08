@@ -1,15 +1,10 @@
 #include "Panels/ContentBrowserModel.h"
 
 #include "AssetSystem.h"
-#include "Assets/SourceImageThumbnailDecoder.h"
-#include "Materials/Material.h"
-#include "Materials/MaterialInstance.h"
 #include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
-#include "StaticMesh/StaticMesh.h"
-#include "Texture/Texture2D.h"
-#include "Texture/TextureCube.h"
+#include "Thumbnail/RenderedAssetThumbnailCache.h"
 
 namespace Durin
 {
@@ -35,70 +30,6 @@ namespace Durin
 			return Name;
 		}
 
-		auto FindImageWithStem(const std::filesystem::path& PathWithoutExtension)
-			-> std::filesystem::path
-		{
-			std::error_code Error;
-			for (std::filesystem::directory_iterator It(
-					 PathWithoutExtension.parent_path(),
-					 std::filesystem::directory_options::skip_permission_denied, Error),
-				 End;
-				 !Error && It != End;
-				 It.increment(Error))
-			{
-				if (!It->is_regular_file(Error)
-					|| It->path().stem() != PathWithoutExtension.filename())
-					continue;
-				if (IsSupportedSourceImageExtension(
-						It->path().extension().generic_string()))
-					return It->path();
-			}
-			return {};
-		}
-
-		auto FindTextureSourceFile(const Asset::FAssetData& Data)
-			-> std::filesystem::path
-		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(Data.PackagePath.GetView());
-			if (!Lookup || !Lookup.Mount->bAutoScan)
-				return {};
-			const PathUtilities::FMountPoint& Mount = *Lookup.Mount;
-
-			Asset::FAssetPackageInspection Inspection;
-			if (Asset::InspectAssetPackage(Data.PhysicalPath, Inspection))
-			{
-				const Asset::FAssetPackageField* SourceField =
-					Inspection.FindField("SourceImportData");
-				FTexture2DSourceImportData SourceImportData;
-				if (SourceField
-					&& SourceField->TryReadStruct(
-						FTexture2DSourceImportData::StaticStruct(), &SourceImportData)
-					&& SourceImportData.HasSource())
-				{
-					const PathUtilities::FSourcePathResult Resolved =
-						PathUtilities::ResolveSourcePath(
-							SourceImportData.Source.SourcePath.Path);
-					if (Resolved
-						&& IsSupportedSourceImageExtension(
-							Resolved.PhysicalPath.extension().generic_string()))
-						return Resolved.PhysicalPath;
-				}
-			}
-
-			const std::filesystem::path ContentDir = Mount.GetContentDir();
-			const std::filesystem::path SourceRoot = ContentDir / "Textures";
-			if (const std::filesystem::path Direct =
-					FindImageWithStem(
-						SourceRoot / std::string(Data.PackagePath.GetAssetName()));
-				!Direct.empty())
-				return Direct;
-
-			std::filesystem::path RelativePackage =
-				std::filesystem::path(Data.PhysicalPath).lexically_relative(ContentDir);
-			RelativePackage.replace_extension();
-			return FindImageWithStem(SourceRoot / RelativePackage);
-		}
 	} // namespace
 
 	auto ContentBrowserModel::TypeLabel(const FContentBrowserItem& Item)
@@ -383,33 +314,22 @@ namespace Durin
 			std::error_code FileEc;
 			Item.FileSize = std::filesystem::file_size(Data.PhysicalPath, FileEc);
 			Item.LastWriteTime = Data.LastWriteTime;
-			if (Data.AssetClassName
-				== DTexture2D::StaticClass()->GetQualifiedName().ToString())
+			FAssetThumbnailSourceImage SourceImage;
+			std::string ThumbnailError;
+			FRenderedAssetThumbnailService& ThumbnailService =
+				GetDefaultRenderedAssetThumbnailService();
+			if (ThumbnailService.UsesSourceImage(Data.AssetClassName))
 			{
-				const std::filesystem::path ThumbnailPath =
-					FindTextureSourceFile(Data);
-				if (!ThumbnailPath.empty())
+				if (ThumbnailService.CaptureSourceImage(
+						Data, SourceImage, ThumbnailError))
 				{
 					Item.ThumbnailIdentity = Item.VirtualPath;
-					Item.ThumbnailSourcePath =
-						NormalizePath(ThumbnailPath.generic_string());
-					FileEc.clear();
-					Item.ThumbnailFileSize =
-						std::filesystem::file_size(ThumbnailPath, FileEc);
-					FileEc.clear();
-					Item.ThumbnailLastWriteTime =
-						std::filesystem::last_write_time(ThumbnailPath, FileEc);
+					Item.ThumbnailSourcePath = SourceImage.PhysicalPath;
+					Item.ThumbnailFileSize = SourceImage.FileSize;
+					Item.ThumbnailLastWriteTime = SourceImage.LastWriteTime;
 				}
 			}
-			else if (
-				Data.AssetClassName
-					== DMaterial::StaticClass()->GetQualifiedName().ToString()
-				|| Data.AssetClassName
-					== DMaterialInstance::StaticClass()->GetQualifiedName().ToString()
-				|| Data.AssetClassName
-					== DTextureCube::StaticClass()->GetQualifiedName().ToString()
-				|| Data.AssetClassName
-					== DStaticMesh::StaticClass()->GetQualifiedName().ToString())
+			else if (ThumbnailService.Find(Data.AssetClassName))
 			{
 				Item.ThumbnailIdentity = Item.VirtualPath;
 				Item.ThumbnailFileSize = Data.FileSize;

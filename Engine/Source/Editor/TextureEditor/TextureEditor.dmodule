@@ -15,5 +15,8 @@
         "MonaImGui",
         "MonaCore",
         "DurinEd"
+    ],
+    "ReflectHeaders": [
+        "Public/Preview/TextureCubePreviewComponent.h"
     ]
 }

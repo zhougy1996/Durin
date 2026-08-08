@@ -4,18 +4,116 @@ Summary: Add a dedicated StaticMesh editor workspace and move asset-specific thu
 
 Last reviewed: 2026-08-08
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-08
 
 ## Current Status
 
-Planning is complete and implementation has not started. The editor already has
-per-resource Material and Texture workspaces, exact-class asset-open routes, a
-shared document host, and a provider registry for Content Browser thumbnails.
-StaticMesh rendered thumbnails are implemented and validated, but their provider,
-asset lifecycle handling, framing, and preview-scene setup currently live in
-`DurinEd` beside the shared scheduler and cache. Material and TextureCube
-thumbnail implementations are centralized there in the same way.
+All five stages are complete. Stage 4 started from baseline
+`878cc1e40c8061e3b8cb3f5237b61fcf558303cc`. `DurinEd` now exposes a long-lived
+`FRenderedAssetThumbnailService`; caches created before or after extension
+registration resolve its one live registry at request time. The rendered cache,
+preview pool, scheduler, persistent store, PNG path, readback, GPU upload, and
+budgets are provider-neutral. One active generation session owns all concrete
+asset loading, readiness, revision validation, preview content, framing, and
+diagnostics. `StaticMeshEditor` now owns the read-only **StaticMesh Inspector**
+workspace, its exact-class document route, and isolated per-document preview
+scenes with bounds framing, orbit, pan, zoom, and solid/wireframe presentation.
+The module also owns the exact StaticMesh thumbnail provider, immutable input,
+generation session, framing, preview assignment, revisions, and diagnostics.
+
+`MaterialEditor` owns the exact Material and MaterialInstance rendered providers;
+`TextureEditor` owns authored Texture2D source selection, TextureCube rendering,
+and the cube preview component. Existing rendered provider names, schema versions,
+fixture identities, shader versions, output settings, transparent/opaque policy,
+and cache keys are unchanged. Content Browser routing now resolves the live
+service instead of naming concrete asset classes. Stage 5 added mixed-module
+queue/unload qualification, completed the user and ownership documentation, and
+passed the focused, full-build, and editor-lifecycle gates.
+
+### Stage 0 Frozen Contracts
+
+#### Module composition
+
+- `StaticMeshEditor` is a shared editor module with private dependencies on
+  `Core`, `Engine`, `AssetCore`, `RHI`, `RenderCore`, `Renderer`, `Mona`,
+  `MonaImGui`, and `DurinEd`. It exposes only its integration entry point;
+  `DurinEd` has no reverse dependency.
+- The `DurinEditor` variant lists `StaticMeshEditor` after `TextureEditor`.
+  MainFrame creates the long-lived thumbnail service before loading concrete
+  editors, then registers Level, Material, Texture, and StaticMesh integrations
+  in that order and opens default workspaces only after all registrations pass.
+- One module integration call installs that module's complete current
+  contribution transactionally. A failed workspace or thumbnail registration
+  removes the partial contribution inside the module; MainFrame then rolls back
+  previously completed modules in reverse order.
+- Shutdown stops Content Browser admission, resets integration handles in
+  StaticMesh, Texture, Material, and Level order, drains the shared thumbnail
+  service, destroys its caches, and only then permits concrete module unload.
+
+#### StaticMesh Inspector documents
+
+- The workspace type and root key are `StaticMeshEditor`; its display name is
+  **StaticMesh Inspector**. The exact qualified `DStaticMesh` class maps to a
+  closable `PerResource` route whose normalized virtual asset path is the
+  document key. Opening the same path activates the existing document; distinct
+  paths may coexist.
+- A document captures package ownership before load and applies the shared
+  compatibility policy before activation. Load, class, compatibility, or
+  activation failure releases only ownership introduced by that request, keeps
+  the prior active document unchanged, and reports the standard Asset
+  Compatibility Audit guidance.
+- The first inspector is permanently read-only: dirty state is always false,
+  `CanSaveActiveDocument` and `SaveActiveDocument` are false, close never asks
+  for save confirmation, and no asset serialization path is exposed.
+- Closing first cancels document requests, detaches preview content, releases
+  render resources on their owning threads, and releases the document's package
+  ownership. It does not wait for a whole-device idle. Moved, deleted, empty,
+  failed, or reimporting assets retain the document identity and show a stable
+  unavailable state until a valid revision can be reacquired.
+
+#### Rendered-thumbnail extensions
+
+- The service owns one live exact-class registry. Caches constructed before or
+  after a registration resolve that registry at request time; they never copy a
+  provider table. Duplicate exact classes fail without mutation. Replacement is
+  explicit reset followed by register and receives a later generation.
+- Scoped registration accepts unique provider ownership. Reset removes admission
+  first, invalidates the generation, cancels all leases, calls idempotent session
+  preview reset on the game thread, and destroys the session, immutable input,
+  and extension before returning. Remaining core jobs contain only cancelled
+  leases and every completion rechecks cancellation and generation.
+- Capture owns exact-class matching, deterministic key input, and immutable
+  provider input. A persistent hit bypasses session creation. A cold miss creates
+  exactly one session, which owns load/type checks, readiness and revision
+  polling, preview-world content, view selection, validation diagnostics, and
+  detachment. The core alone owns scheduling, scene leasing, capture, readback,
+  encoding, upload, persistence, budgets, and final publication.
+- Raw source-file image decode remains a provider-neutral Content Browser path:
+  LevelEditor owns item presentation and request routing, while `DurinEd` owns
+  decode/cache orchestration. `TextureEditor` registers only authored
+  Texture2D/TextureCube extensions.
+
+#### Stage 0 Handoff
+
+- Baseline commit: `97a0d1809b28341ec828ae27bfd1044e5836e67e`.
+- Working set: `Thumbnail/AssetThumbnail.h`,
+  `Thumbnail/RenderedAssetThumbnailExtension.h`,
+  `Thumbnail/AssetThumbnail.cpp`, the temporary rendered-cache input access in
+  `MaterialAssetThumbnail.cpp`, `AssetThumbnailContractTests.cpp`, and
+  `Documentation/Editor/Architecture/AssetThumbnails.md`.
+- Key symbols: `FAssetThumbnailProviderRegistrationHandle`,
+  `FAssetThumbnailGenerationLease`, `IRenderedAssetThumbnailExtension`, and
+  `IRenderedAssetThumbnailGenerationSession`.
+- Decisions: scoped registration owns a unique provider; core leases are the
+  only provider-owned state carrier after capture; persistent hits never create
+  sessions; reset synchronously drains all provider-defined objects.
+- Open questions: none at the contract level. Stage 1 may choose private adapter
+  structure, but cannot weaken the frozen ownership, generation, or thread
+  rules.
+- Validation: all 65 `ThumbnailTests` passed on
+  `Win64-Debug-DurinEditor-Tests`; changed-document validation and all-plan
+  validation passed.
 
 The selected direction is a new `StaticMeshEditor` module. Its first user-visible
 surface is an inspector rather than a modeling tool: double-click opens a
@@ -129,18 +227,18 @@ only provider-neutral thumbnail orchestration and rendering infrastructure.
 
 ### Stage 0: Freeze Module and Extension Contracts
 
-- [ ] Define `StaticMeshEditor` module dependencies, MainFrame registration
+- [x] Define `StaticMeshEditor` module dependencies, MainFrame registration
   order, startup rollback, shutdown order, and DurinEditor variant membership.
-- [ ] Define the read-only StaticMesh document lifecycle, compatibility failure
+- [x] Define the read-only StaticMesh document lifecycle, compatibility failure
   behavior, package ownership, tab identity, and no-dirty/no-save policy.
-- [ ] Split the thumbnail contract into provider-neutral orchestration and a
+- [x] Split the thumbnail contract into provider-neutral orchestration and a
   module-owned rendered-generation extension/session boundary.
-- [ ] Specify registration-handle behavior for duplicate exact classes,
+- [x] Specify registration-handle behavior for duplicate exact classes,
   provider replacement, unload during every asynchronous state, and cache
   instances created before or after registration.
-- [ ] Record the ownership of raw source-file previews separately from authored
+- [x] Record the ownership of raw source-file previews separately from authored
   Texture2D/TextureCube providers.
-- [ ] Add contract tests using fake extensions before migrating a real provider.
+- [x] Add contract tests using fake extensions before migrating a real provider.
 
 #### Acceptance Gate
 
@@ -155,17 +253,17 @@ only provider-neutral thumbnail orchestration and rendering infrastructure.
 
 Dependencies: Stage 0.
 
-- [ ] Move `FRenderedAssetThumbnailCache` and its statistics to provider-neutral
+- [x] Move `FRenderedAssetThumbnailCache` and its statistics to provider-neutral
   headers whose names do not imply Material ownership.
-- [ ] Let the shared cache consume registrations from the long-lived thumbnail
+- [x] Let the shared cache consume registrations from the long-lived thumbnail
   service instead of constructing concrete providers internally.
-- [ ] Replace concrete active-asset pointers, generation-input casts, readiness
+- [x] Replace concrete active-asset pointers, generation-input casts, readiness
   branches, framing branches, and diagnostics with one active extension session.
-- [ ] Keep the shared preview target, render/readback machinery, PNG pipeline,
+- [x] Keep the shared preview target, render/readback machinery, PNG pipeline,
   scheduler, object store, GPU upload cache, and budgets in `DurinEd`.
-- [ ] Ensure registration generation participates in request capture and every
+- [x] Ensure registration generation participates in request capture and every
   asynchronous completion check.
-- [ ] Preserve deterministic keys and warm-cache behavior while running existing
+- [x] Preserve deterministic keys and warm-cache behavior while running existing
   Material, TextureCube, and StaticMesh providers through temporary adapters.
 
 #### Acceptance Gate
@@ -178,24 +276,47 @@ Dependencies: Stage 0.
 - Unregistering an extension while work is queued, loading, waiting, rendering,
   reading back, encoding, or uploading cannot publish a stale result.
 
+#### Stage 1 Handoff
+
+- Baseline commit: `889ecb7dade9c95014b7b813e2702f03017b7e10`.
+- Working set: `Thumbnail/RenderedAssetThumbnailCache.h`,
+  `Thumbnail/RenderedAssetThumbnailCache.cpp`,
+  `Thumbnail/RenderedAssetThumbnailPipeline.h`,
+  `Thumbnail/RenderedAssetThumbnailPreviewScene.cpp`, and the temporary
+  Material, TextureCube, and StaticMesh adapter headers/implementations.
+- Key symbols: `FRenderedAssetThumbnailService`,
+  `FRenderedAssetThumbnailCache`, `FRenderedAssetThumbnailPreviewScenePool`,
+  and `IRenderedAssetThumbnailGenerationSession`.
+- Decisions: cache construction accepts the long-lived service; the compatibility
+  constructor resolves a temporary DurinEd-owned service; the preview pool leases
+  only a world and provider-neutral view; upload tickets carry cancellation and
+  provider generation; transparency is provider-selected presentation metadata
+  and does not change persistent identity.
+- Open questions: none for the provider-neutral core. Stage 2 can use the frozen
+  module/document contract without changing thumbnail ownership.
+- Validation: all 66 `ThumbnailTests`, 78 `MaterialTests`, and the Vulkan scene
+  import test passed; the full `all` target built; generic rendered orchestration
+  contains no concrete Material, TextureCube, or StaticMesh symbols; and
+  changed-document/all-plan validation passed.
+
 ### Stage 2: Add the StaticMesh Inspector Module
 
 Dependencies: Stage 1.
 
-- [ ] Add `StaticMeshEditor.dmodule`, CMake target, module entry point, public
+- [x] Add `StaticMeshEditor.dmodule`, CMake target, module entry point, public
   registration API, workspace descriptor, and DurinEditor/MainFrame wiring.
-- [ ] Register exact `DStaticMesh` assets as closable per-resource documents and
+- [x] Register exact `DStaticMesh` assets as closable per-resource documents and
   reuse the shared compatibility rejection and package release policy.
-- [ ] Implement a module-private preview controller and scene with orbit, pan,
+- [x] Implement a module-private preview controller and scene with orbit, pan,
   zoom, reset/frame selection, deterministic initial framing, resize handling,
   and correct render-resource teardown.
-- [ ] Present asset path, LOD count, selected LOD, vertex/index/triangle counts,
+- [x] Present asset path, LOD count, selected LOD, vertex/index/triangle counts,
   section/material-slot counts, and local bounds only where existing public
   runtime contracts can report them reliably.
-- [ ] Add shaded/wireframe visualization controls and a stable fallback for
+- [x] Add shaded/wireframe visualization controls and a stable fallback for
   unavailable, empty, failed, incompatible, moved, deleted, or reimported
   assets.
-- [ ] Add workspace/document, input, lifecycle, and preview rendering tests.
+- [x] Add workspace/document, input, lifecycle, and preview rendering tests.
 
 #### Acceptance Gate
 
@@ -209,20 +330,40 @@ Dependencies: Stage 1.
 - The workspace never becomes dirty and global Save is disabled for its active
   document.
 
+#### Stage 2 Handoff
+
+- Baseline commit: `f6508157be9b3445674f627d21aaa1e0c7dd483d`.
+- Working set: `Engine/Source/Editor/StaticMeshEditor/`,
+  `Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp`,
+  `Engine/Engine.dproject`, and `StaticMeshEditorTests.cpp`.
+- Key symbols: `FStaticMeshEditorModule`, `MStaticMeshInspector`,
+  `FStaticMeshPreview`, and `FStaticMeshPreviewController`.
+- Decisions: the module/workspace type remains `StaticMeshEditor` while the UI
+  says **StaticMesh Inspector**; documents are exact-class, closable,
+  per-resource, and read-only; preview scenes are created lazily per document;
+  revision transitions reassign and deterministically reframe the mesh; scene
+  teardown detaches the mesh before viewport/world destruction.
+- Open questions: none for the inspector. Stage 3 can move the temporary
+  StaticMesh thumbnail adapter without changing this workspace contract.
+- Validation: all 48 `StaticMeshTests` passed, including inspector registration,
+  duplicate activation, multi-document close/reopen, exact-route rejection,
+  no-save behavior, and camera input; the full `all` target built; and the
+  editor completed an 8-tick hidden-window startup/shutdown smoke test.
+
 ### Stage 3: Move StaticMesh Thumbnail Ownership
 
 Dependencies: Stage 2.
 
-- [ ] Move the StaticMesh provider, immutable input, dependency capture,
+- [x] Move the StaticMesh provider, immutable input, dependency capture,
   readiness/revision handling, bounds framing, preview assignment, visual
   contract, and diagnostics into `StaticMeshEditor`.
-- [ ] Register the StaticMesh thumbnail extension alongside the workspace and
+- [x] Register the StaticMesh thumbnail extension alongside the workspace and
   roll both back if either contribution cannot be installed.
-- [ ] Share only pure framing or presentation helpers with the inspector where
+- [x] Share only pure framing or presentation helpers with the inspector where
   this removes duplication without coupling their live resource lifetimes.
-- [ ] Move StaticMesh-specific tests to the owning module while retaining
+- [x] Move StaticMesh-specific tests to the owning module while retaining
   provider-neutral scheduler/cache tests in `DurinEd`.
-- [ ] Verify old persistent StaticMesh thumbnails remain warm hits when no
+- [x] Verify old persistent StaticMesh thumbnails remain warm hits when no
   visual-contract field changed.
 
 #### Acceptance Gate
@@ -234,21 +375,46 @@ Dependencies: Stage 2.
 - Cold, warm, dependency invalidation, revision race, corruption recovery,
   framing, transparent output, close, and shutdown coverage remains passing.
 
+#### Stage 3 Handoff
+
+- Baseline commit: `2cfe8131de502431e7e36d36d22b55585b0cb557`.
+- Working set: `StaticMeshEditor/Thumbnail/StaticMeshAssetThumbnail.*`,
+  `StaticMeshEditorModule.*`, `RenderedAssetThumbnailCache.h`,
+  `MainFrameModule.cpp`, and `StaticMeshAssetThumbnailTests.cpp`.
+- Key symbols: `FStaticMeshAssetThumbnailProvider`,
+  `FStaticMeshThumbnailGenerationSession`,
+  `FStaticMeshEditorModule::RegisterStaticMeshEditor`, and
+  `GetDefaultRenderedAssetThumbnailService`.
+- Decisions: MainFrame resolves the long-lived service before loading concrete
+  editor modules; StaticMeshEditor installs workspace and thumbnail handles as
+  one rollback-safe integration; unload removes thumbnail admission first; the
+  provider identity and every visual/key contract field remain unchanged; the
+  interactive inspector camera stays separate because its orbit/pan state is a
+  different contract from card-size-independent thumbnail framing.
+- Open questions: none for StaticMesh ownership. Stage 4 can reuse the same
+  integration pattern for Material and Texture without changing the shared core.
+- Validation: all 7 `StaticMeshThumbnailTests`, 49 `StaticMeshTests`, 59
+  provider-neutral/remaining `ThumbnailTests`, and 78 Vulkan-backed
+  `MaterialTests` passed; a preseeded compatible cache object remained a
+  no-load/no-render warm hit; `DurinEd` contains no StaticMesh thumbnail
+  symbols; the full `all` target built; and the editor completed an 8-tick
+  hidden-window lifecycle smoke test.
+
 ### Stage 4: Move Material and Texture Thumbnail Ownership
 
 Dependencies: Stage 3.
 
-- [ ] Move Material and MaterialInstance key capture, dependency closure,
+- [x] Move Material and MaterialInstance key capture, dependency closure,
   resource readiness, preview fixture setup, and diagnostics into
   `MaterialEditor` under two exact-class registrations sharing one implementation.
-- [ ] Move authored Texture2D and TextureCube asset-specific thumbnail capture,
+- [x] Move authored Texture2D and TextureCube asset-specific thumbnail capture,
   readiness, preview setup, orientation, and diagnostics into `TextureEditor`.
-- [ ] Keep source-file image decode and generic Content Browser presentation out
+- [x] Keep source-file image decode and generic Content Browser presentation out
   of concrete asset editor modules; rename or relocate remaining code if current
   names imply the wrong ownership.
-- [ ] Bundle each module's workspace and thumbnail registrations behind one
+- [x] Bundle each module's workspace and thumbnail registrations behind one
   symmetric editor-integration lifecycle.
-- [ ] Move concrete tests to their owning modules and keep cross-provider
+- [x] Move concrete tests to their owning modules and keep cross-provider
   scheduling, cache, budget, and persistence tests with `DurinEd`.
 
 #### Acceptance Gate
@@ -261,18 +427,42 @@ Dependencies: Stage 3.
   cold/warm/failure behavior remains unchanged except for documented intentional
   visual-contract changes.
 
+#### Stage 4 Handoff
+
+- Baseline commit: `878cc1e40c8061e3b8cb3f5237b61fcf558303cc`.
+- Working set: `MaterialEditor/Thumbnail/MaterialAssetThumbnail.*`,
+  `TextureEditor/Thumbnail/Texture2DAssetThumbnail.*`,
+  `TextureEditor/Thumbnail/TextureCubeAssetThumbnail.*`, the Material/Texture
+  module entry points, `RenderedAssetThumbnailCache.*`, Content Browser model
+  routing, and the three thumbnail test targets.
+- Key symbols: `FMaterialEditorModule::RegisterMaterialEditor`,
+  `FTextureEditorModule::RegisterTextureEditor`,
+  `FTexture2DAssetThumbnailProvider`, and
+  `FRenderedAssetThumbnailService::CaptureSourceImage`.
+- Decisions: the one service registry admits both rendered extensions and the
+  Texture2D source-selection provider; source decode/cache/upload remains generic;
+  Content Browser checks live registrations instead of concrete class names;
+  module unload removes thumbnail admission before workspace routes; the default
+  service owns no concrete providers.
+- Open questions: none for ownership migration. Stage 5 should stress mixed
+  module unload and in-flight work through the completed composition boundary.
+- Validation: all 6 `MaterialThumbnailTests`, 6 `TextureThumbnailTests`, 52
+  provider-neutral `ThumbnailTests`, 7 `StaticMeshThumbnailTests`, 78 Vulkan
+  `MaterialTests`, and the Content Browser workflow suite passed; full build and
+  editor smoke qualification are recorded by Stage 5 rather than duplicated here.
+
 ### Stage 5: Integration, Documentation, and Editor Qualification
 
 Dependencies: Stages 2-4.
 
-- [ ] Exercise double-click routing, document activation/close, Content Browser
+- [x] Exercise double-click routing, document activation/close, Content Browser
   refresh/move/delete/reimport, module registration rollback, and editor shutdown
   with mixed asset types and in-flight thumbnails.
-- [ ] Stress visible/prefetch priority, duplicate coalescing, provider unload,
+- [x] Stress visible/prefetch priority, duplicate coalescing, provider unload,
   cache budgets, one-render-per-frame behavior, and warm-cache restart behavior.
-- [ ] Update `WorkspaceFramework.md`, `AssetThumbnails.md`, Content Browser
+- [x] Update `WorkspaceFramework.md`, `AssetThumbnails.md`, Content Browser
   documentation, and a user-facing StaticMesh Inspector guide.
-- [ ] Run focused native tests, documentation validation, and the
+- [x] Run focused native tests, documentation validation, and the
   repository-required full `all` build and editor lifecycle smoke validation
   through the documented DurinDevTool workflow.
 
@@ -284,6 +474,29 @@ Dependencies: Stages 2-4.
   extension, provider-neutral service, source-file preview, and shutdown action.
 - No concrete asset editor module is required by `DurinEd`, and no concrete
   thumbnail implementation remains centralized there.
+
+#### Stage 5 Handoff
+
+- Baseline commit: `316e045d467beca86496ac3efbe7d7610fa8fc4c`.
+- Working set: `StaticMeshAssetThumbnailTests.cpp`, `WorkspaceFramework.md`,
+  `AssetThumbnails.md`, `ContentBrowser.md`, and the new user-facing
+  `Guides/StaticMeshInspector.md`.
+- Key symbols: `FRenderedAssetThumbnailService`,
+  `FRenderedAssetThumbnailCache`, `FMaterialEditorModule`,
+  `FTextureEditorModule`, and `FStaticMeshEditorModule`.
+- Decisions: mixed providers share one service and bounded scheduler; MainFrame
+  owns reverse-order integration removal and service draining; each module
+  removes thumbnail admission before its workspace; raw source files remain in
+  the generic Content Browser path; the public workspace remains named
+  **StaticMesh Inspector** while its C++ module/root stays `StaticMeshEditor`.
+- Open questions: none. Deferred authoring and plugin-discovery work remains in
+  Deferred Follow-ups and is outside this completed plan.
+- Validation: 52 `ThumbnailTests`, 6 `MaterialThumbnailTests`, 6
+  `TextureThumbnailTests`, 8 `StaticMeshThumbnailTests`, and 49
+  `StaticMeshTests` passed. `EditorAssetWorkflowTests` executed 72 tests with 71
+  passed and one skipped. Changed-document and all-plan validation passed; the
+  full `all` target built on `Win64-Debug-DurinEditor-Tests`; and DurinEditor
+  completed the Sandbox hidden-window eight-tick lifecycle smoke run.
 
 ## Validation Matrix
 
@@ -341,7 +554,9 @@ Dependencies: Stages 2-4.
 - `Engine/Source/Editor/DurinEd/Public/Editor/EditorWorkspace.h`
 - `Engine/Source/Editor/DurinEd/Public/Thumbnail/AssetThumbnail.h`
 - `Engine/Source/Editor/DurinEd/Public/Thumbnail/RenderedAssetThumbnailPipeline.h`
-- `Engine/Source/Editor/DurinEd/Private/Thumbnail/MaterialAssetThumbnail.cpp`
+- `Engine/Source/Editor/MaterialEditor/Private/Thumbnail/MaterialAssetThumbnail.cpp`
+- `Engine/Source/Editor/TextureEditor/Private/Thumbnail/Texture2DAssetThumbnail.cpp`
+- `Engine/Source/Editor/TextureEditor/Private/Thumbnail/TextureCubeAssetThumbnail.cpp`
 - `Engine/Source/Editor/DurinEd/Private/Thumbnail/RenderedAssetThumbnailPreviewScene.cpp`
 - `Engine/Source/Editor/MaterialEditor/`
 - `Engine/Source/Editor/TextureEditor/`

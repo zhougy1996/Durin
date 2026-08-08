@@ -6,7 +6,18 @@
 
 namespace Durin
 {
+	namespace Asset
+	{
+		struct FAssetData;
+	}
 	class FRHITexture;
+	class IRenderedAssetThumbnailGenerationSession;
+
+	namespace Detail
+	{
+		struct FAssetThumbnailGenerationLeaseState;
+		struct FAssetThumbnailProviderRegistryState;
+	}
 
 	// Identifies the public lifecycle state of one provider-neutral thumbnail request.
 	enum class EAssetThumbnailState : uint8
@@ -164,17 +175,55 @@ namespace Durin
 		virtual ~IAssetThumbnailGenerationInput() = default;
 	};
 
+	// Keeps provider-owned request data behind a core-owned invalidation boundary.
+	// Copies share only DurinEd state; provider removal clears the input and session
+	// from every copy before the scoped registration handle returns.
+	class FAssetThumbnailGenerationLease
+	{
+	public:
+		FAssetThumbnailGenerationLease() = default;
+
+		DURINED_API auto IsActive() const -> bool;
+		DURINED_API auto GetInput() const -> const IAssetThumbnailGenerationInput*;
+		DURINED_API auto GetRenderedSession() const
+			-> IRenderedAssetThumbnailGenerationSession*;
+		DURINED_API auto ReleaseRenderedSession() const -> void;
+
+	private:
+		friend class FAssetThumbnailProviderRegistry;
+		friend struct FAssetThumbnailGenerationRequest;
+		explicit FAssetThumbnailGenerationLease(
+			std::shared_ptr<Detail::FAssetThumbnailGenerationLeaseState> InState)
+			: State(std::move(InState))
+		{
+		}
+
+		std::shared_ptr<Detail::FAssetThumbnailGenerationLeaseState> State;
+	};
+
 	// Transfers an immutable provider request across worker and render-thread boundaries.
 	struct FAssetThumbnailGenerationRequest
 	{
 		FAssetThumbnailKeyInput KeyInput;
+		// Capture-only transfer slot. The registry moves this into ProviderLease
+		// before a request enters provider-neutral scheduling.
 		std::shared_ptr<const IAssetThumbnailGenerationInput> Input;
+		FAssetThumbnailGenerationLease ProviderLease;
 		FAssetThumbnailCancellation Cancellation;
 		uint64 ProviderGeneration = 0;
 		uint64 RequestSerial = 0;
+		// Provider-selected UI compositing policy; it does not affect persistent identity.
+		bool bHasTransparency = true;
 		// Provider snapshots revalidated after asset loading and before every resource-dependent publication.
 		uint64 AssetRevision = 0;
 		uint64 ResourceRevision = 0;
+
+		DURINED_API auto GetInput() const -> const IAssetThumbnailGenerationInput*;
+		DURINED_API auto BeginRenderedSession(std::string& OutError) const
+			-> IRenderedAssetThumbnailGenerationSession*;
+		DURINED_API auto GetRenderedSession() const
+			-> IRenderedAssetThumbnailGenerationSession*;
+		DURINED_API auto ReleaseRenderedSession() const -> void;
 	};
 
 	// Describes one exact-class provider registration and its generator schema.
@@ -183,6 +232,15 @@ namespace Durin
 		std::string AssetClassName;
 		std::string ProviderName;
 		uint32 GeneratorSchemaVersion = 0;
+	};
+
+	// Describes a provider-selected source image for one authored asset. The
+	// Content Browser keeps decoding, persistence, upload, and presentation generic.
+	struct FAssetThumbnailSourceImage
+	{
+		std::string PhysicalPath;
+		uintmax_t FileSize = 0;
+		std::filesystem::file_time_type LastWriteTime{};
 	};
 
 	// Captures provider-owned immutable generation data on the game thread. Registration and
@@ -198,15 +256,59 @@ namespace Durin
 			uint64 ProviderGeneration,
 			FAssetThumbnailGenerationRequest& OutRequest,
 			std::string& OutError) -> bool = 0;
+		virtual auto UsesSourceImage() const -> bool { return false; }
+		virtual auto CaptureSourceImage(
+			const Asset::FAssetData&,
+			FAssetThumbnailSourceImage& OutSource,
+			std::string& OutError) -> bool
+		{
+			OutSource = {};
+			OutError.clear();
+			return false;
+		}
 	};
 
 	// Retains one exact-class provider together with the generation captured at registration.
 	struct FAssetThumbnailProviderHandle
 	{
-		std::shared_ptr<IAssetThumbnailProvider> Provider;
 		uint64 Generation = 0;
 
-		explicit operator bool() const { return Provider != nullptr; }
+		explicit operator bool() const { return Generation != 0; }
+	};
+
+	// Owns one exact-class provider registration. Reset first closes admission,
+	// invalidates captured generations, and releases provider-owned inputs/sessions.
+	class FAssetThumbnailProviderRegistrationHandle
+	{
+	public:
+		FAssetThumbnailProviderRegistrationHandle() = default;
+		DURINED_API ~FAssetThumbnailProviderRegistrationHandle();
+		FAssetThumbnailProviderRegistrationHandle(
+			const FAssetThumbnailProviderRegistrationHandle&) = delete;
+		auto operator=(const FAssetThumbnailProviderRegistrationHandle&)
+			-> FAssetThumbnailProviderRegistrationHandle& = delete;
+		DURINED_API FAssetThumbnailProviderRegistrationHandle(
+			FAssetThumbnailProviderRegistrationHandle&& Other) noexcept;
+		DURINED_API auto operator=(
+			FAssetThumbnailProviderRegistrationHandle&& Other) noexcept
+			-> FAssetThumbnailProviderRegistrationHandle&;
+
+		auto IsValid() const -> bool { return RegistrationId != 0 && !State.expired(); }
+		explicit operator bool() const { return IsValid(); }
+		DURINED_API auto Reset() -> void;
+
+	private:
+		friend class FAssetThumbnailProviderRegistry;
+		FAssetThumbnailProviderRegistrationHandle(
+			std::weak_ptr<Detail::FAssetThumbnailProviderRegistryState> InState,
+			uint64 InRegistrationId)
+			: State(std::move(InState))
+			, RegistrationId(InRegistrationId)
+		{
+		}
+
+		std::weak_ptr<Detail::FAssetThumbnailProviderRegistryState> State;
+		uint64 RegistrationId = 0;
 	};
 
 	// Owns exact-class provider registration and monotonically increasing provider generations.
@@ -222,15 +324,30 @@ namespace Durin
 		DURINED_API auto Register(
 			std::shared_ptr<IAssetThumbnailProvider> Provider,
 			std::string& OutError) -> bool;
+		DURINED_API auto RegisterScoped(
+			std::unique_ptr<IAssetThumbnailProvider> Provider,
+			std::string& OutError) -> FAssetThumbnailProviderRegistrationHandle;
 		DURINED_API auto Unregister(std::string_view AssetClassName, std::string& OutError) -> bool;
 		DURINED_API auto Find(std::string_view AssetClassName) const -> FAssetThumbnailProviderHandle;
+		DURINED_API auto UsesSourceImage(std::string_view AssetClassName) const -> bool;
+		DURINED_API auto CaptureSourceImage(
+			const Asset::FAssetData& Asset,
+			FAssetThumbnailSourceImage& OutSource,
+			std::string& OutError) const -> bool;
 		DURINED_API auto Shutdown() -> void;
 		DURINED_API auto IsShuttingDown() const -> bool;
 		DURINED_API auto Num() const -> size_t;
 
 	private:
-		struct FImpl;
-		std::unique_ptr<FImpl> Impl;
+		friend class FAssetThumbnailScheduler;
+		auto Capture(
+			const FAssetThumbnailRequest& Request,
+			uint64 ProviderGeneration,
+			FAssetThumbnailGenerationRequest& OutRequest,
+			FAssetThumbnailProviderRegistration& OutRegistration,
+			std::string& OutError) -> bool;
+
+		std::shared_ptr<Detail::FAssetThumbnailProviderRegistryState> State;
 	};
 
 	// Transfers one captured, coalesced request from the provider-neutral queue to a generation backend.

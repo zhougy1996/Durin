@@ -20,8 +20,9 @@
 #include "StaticMeshTestAccess.h"
 #include "SceneImport.h"
 #include "Thumbnail/AssetThumbnail.h"
-#include "Thumbnail/MaterialAssetThumbnail.h"
+#include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "Thumbnail/RenderedAssetThumbnailPipeline.h"
+#include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 #include "Texture/Texture2D.h"
 #include "TextureTestSupport.h"
 
@@ -552,7 +553,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Contract.Output.Width = 64;
 	Contract.Output.Height = 64;
 	{
-		Durin::FRenderedAssetThumbnailPreviewScenePool Pool(Contract);
+		Durin::Tests::FRenderedAssetThumbnailTestPool Pool(Contract);
 		ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
 		auto Capture = [&](
 			Durin::DStaticMesh* Mesh,

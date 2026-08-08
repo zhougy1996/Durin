@@ -2,6 +2,9 @@
 
 #include "Editor/EditorWorkspace.h"
 #include "Texture/Texture2D.h"
+#include "Thumbnail/RenderedAssetThumbnailCache.h"
+#include "Thumbnail/Texture2DAssetThumbnail.h"
+#include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Widgets/MTextureEditor.h"
 #include "Widgets/TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
@@ -18,14 +21,21 @@ namespace Durin
 
 	auto FTextureEditorModule::ShutdownModule() -> void
 	{
-		UnregisterTextureEditorWorkspace();
+		UnregisterTextureEditor();
 		FTexturePreview::ReleaseSharedResources();
 	}
 
-	auto FTextureEditorModule::RegisterTextureEditorWorkspace(FEditorWorkspaceManager& WorkspaceManager) -> bool
+	auto FTextureEditorModule::RegisterTextureEditor(
+		FEditorWorkspaceManager& WorkspaceManager,
+		FRenderedAssetThumbnailService& ThumbnailService) -> bool
 	{
-		if (WorkspaceRegistration && WorkspaceRegistration->IsValid()) return false;
+		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
+			|| (Texture2DThumbnailRegistration && Texture2DThumbnailRegistration->IsValid())
+			|| (TextureCubeThumbnailRegistration && TextureCubeThumbnailRegistration->IsValid()))
+			return false;
 		WorkspaceRegistration.reset();
+		Texture2DThumbnailRegistration.reset();
+		TextureCubeThumbnailRegistration.reset();
 		std::shared_ptr<MTextureEditor> Workspace = std::make_shared<MTextureEditor>(WorkspaceManager);
 		FEditorWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
 			.Workspaces = {
@@ -52,11 +62,35 @@ namespace Durin
 		});
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<FEditorWorkspaceRegistrationHandle>(std::move(Registration));
+		std::string Error;
+		auto Texture2DHandle = ThumbnailService.RegisterScoped(
+			std::make_unique<FTexture2DAssetThumbnailProvider>(), Error);
+		if (!Texture2DHandle)
+		{
+			WorkspaceRegistration.reset();
+			return false;
+		}
+		Texture2DThumbnailRegistration =
+			std::make_unique<FAssetThumbnailProviderRegistrationHandle>(
+				std::move(Texture2DHandle));
+		auto TextureCubeHandle = ThumbnailService.RegisterScoped(
+			std::make_unique<FTextureCubeAssetThumbnailProvider>(), Error);
+		if (!TextureCubeHandle)
+		{
+			Texture2DThumbnailRegistration.reset();
+			WorkspaceRegistration.reset();
+			return false;
+		}
+		TextureCubeThumbnailRegistration =
+			std::make_unique<FAssetThumbnailProviderRegistrationHandle>(
+				std::move(TextureCubeHandle));
 		return true;
 	}
 
-	auto FTextureEditorModule::UnregisterTextureEditorWorkspace() -> void
+	auto FTextureEditorModule::UnregisterTextureEditor() -> void
 	{
+		TextureCubeThumbnailRegistration.reset();
+		Texture2DThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();
 	}
 }

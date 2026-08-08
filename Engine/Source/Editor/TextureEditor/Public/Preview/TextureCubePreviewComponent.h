@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Components/StaticMeshComponent.h"
-#include "DurinEdAPI.h"
+#include "TextureEditorAPI.h"
 
 #include "TextureCubePreviewComponent.gen.h"
 
@@ -15,11 +15,11 @@ namespace Durin
 	{
 		GENERATED_BODY()
 	public:
-		DURINED_API explicit DTextureCubePreviewComponent(const FObjectInitializer& ObjectInitializer);
+		TEXTUREEDITOR_API explicit DTextureCubePreviewComponent(const FObjectInitializer& ObjectInitializer);
 
-		DURINED_API auto SetTextureCube(DTextureCube* InTextureCube) -> void;
+		TEXTUREEDITOR_API auto SetTextureCube(DTextureCube* InTextureCube) -> void;
 		auto GetTextureCube() const -> DTextureCube* { return TextureCube.Get(); }
-		DURINED_API auto CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy> override;
+		TEXTUREEDITOR_API auto CreateSceneProxy() -> std::unique_ptr<PrimitiveSceneProxy> override;
 
 	private:
 		DPROPERTY(Transient)

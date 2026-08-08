@@ -1,7 +1,7 @@
 #include "Assets/ContentBrowserThumbnailCache.h"
 
 #include "Assets/SourceImageThumbnailCache.h"
-#include "Thumbnail/MaterialAssetThumbnail.h"
+#include "Thumbnail/RenderedAssetThumbnailCache.h"
 
 namespace Durin
 {

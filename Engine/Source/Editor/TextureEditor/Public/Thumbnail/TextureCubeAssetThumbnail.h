@@ -1,6 +1,7 @@
 #pragma once
 
-#include "Thumbnail/AssetThumbnail.h"
+#include "Thumbnail/RenderedAssetThumbnailExtension.h"
+#include "TextureEditorAPI.h"
 
 namespace Durin
 {
@@ -18,15 +19,20 @@ namespace Durin
 	};
 
 	// Captures the exact TextureCube package identity and preview visual contract.
-	class FTextureCubeAssetThumbnailProvider final : public IAssetThumbnailProvider
+	class FTextureCubeAssetThumbnailProvider final : public IRenderedAssetThumbnailExtension
 	{
 	public:
-		DURINED_API auto GetRegistration() const
+		TEXTUREEDITOR_API auto GetRegistration() const
 			-> FAssetThumbnailProviderRegistration override;
-		DURINED_API auto CaptureGenerationRequest(
+		TEXTUREEDITOR_API auto CaptureGenerationRequest(
 			const FAssetThumbnailRequest& Request,
 			uint64 ProviderGeneration,
 			FAssetThumbnailGenerationRequest& OutRequest,
 			std::string& OutError) -> bool override;
+		TEXTUREEDITOR_API auto CreateGenerationSession(
+			const FAssetThumbnailGenerationRequest& Request,
+			const IAssetThumbnailGenerationInput& Input,
+			std::string& OutError)
+			-> std::unique_ptr<IRenderedAssetThumbnailGenerationSession> override;
 	};
 } // namespace Durin
